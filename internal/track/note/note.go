@@ -23,16 +23,21 @@ type Footmatter struct {
 }
 
 type Note struct {
-	ID   int64
-	Path string
-	Body string
-	Foot Footmatter
+	ID    int64
+	Path  string
+	Body  string
+	Mtime int64
+	Foot  Footmatter
 }
 
 // ParseFile reads a note from disk, splitting body and footmatter and deriving
 // the id from the filename.
 func ParseFile(path string, c *config.Config) (*Note, error) {
 	raw, err := os.ReadFile(path)
+	if err != nil {
+		return nil, err
+	}
+	info, err := os.Stat(path)
 	if err != nil {
 		return nil, err
 	}
@@ -44,7 +49,7 @@ func ParseFile(path string, c *config.Config) (*Note, error) {
 	if err != nil {
 		return nil, err
 	}
-	return &Note{ID: id, Path: path, Body: body, Foot: f}, nil
+	return &Note{ID: id, Path: path, Body: body, Mtime: info.ModTime().Unix(), Foot: f}, nil
 }
 
 // IDFromPath extracts the unix-timestamp id encoded in a note's filename.
