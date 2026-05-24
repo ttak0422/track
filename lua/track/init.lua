@@ -11,6 +11,7 @@ end
 
 function M.setup(opts)
    config.setup(opts)
+   require("track.autolink").setup()
    require("track.commands").setup()
 end
 

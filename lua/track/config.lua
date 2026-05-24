@@ -22,6 +22,9 @@ M.defaults = {
    vault_dir = default_vault(),
    -- Note file extensions (without dot).
    extensions = { "md" },
+   -- Footmatter delimiters; matched against the Go engine's defaults. Lines
+   -- inside this block are excluded from auto-linking.
+   footmatter = { open = "<!--track", close = "-->" },
    -- Autocommand group name.
    augroup = "track",
    -- Highlight group applied to auto-links.
