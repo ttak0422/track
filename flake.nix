@@ -55,7 +55,7 @@
               fileset = ./lua;
             };
             postPatch = ''
-              substituteInPlace lua/track/init.lua \
+              substituteInPlace lua/track/client.lua \
                 --replace-fail \
                   'local bundled_binary_path = nil' \
                   'local bundled_binary_path = "${track-cli}/bin/track"'
