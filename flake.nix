@@ -47,40 +47,13 @@
             subPackages = [ "cmd/track" ];
           };
 
-          # Compile the Teal sources (teal/**.tl) into lua/**.lua.
-          track-lua = pkgs.stdenvNoCC.mkDerivation {
-            pname = "track-lua";
-            version = "0.1.0";
-            src = fileset.toSource {
-              root = ./.;
-              fileset = fileset.unions [
-                ./teal
-                ./tlconfig.lua
-              ];
-            };
-            nativeBuildInputs = [ pkgs.lua51Packages.tl ];
-            buildPhase = ''
-              runHook preBuild
-              for tlfile in $(find teal -name '*.tl'); do
-                dst="lua/''${tlfile#teal/}"
-                dst="''${dst%.tl}.lua"
-                mkdir -p "$(dirname "$dst")"
-                tl gen --check "$tlfile" -o "$dst"
-              done
-              runHook postBuild
-            '';
-            installPhase = ''
-              runHook preInstall
-              mkdir -p $out
-              cp -r lua $out/lua
-              runHook postInstall
-            '';
-          };
-
           track = pkgs.vimUtils.buildVimPlugin {
             pname = "track";
             version = "0.1.0";
-            src = track-lua;
+            src = fileset.toSource {
+              root = ./.;
+              fileset = ./lua;
+            };
             postPatch = ''
               substituteInPlace lua/track/init.lua \
                 --replace-fail \
@@ -108,14 +81,13 @@
 
           packages = {
             default = track;
-            inherit track track-cli track-lua;
+            inherit track track-cli;
           };
 
           devShells.default = pkgs.mkShell {
             inherit (self'.checks.pre-commit-check) shellHook;
             packages = [
               pkgs.go
-              pkgs.lua51Packages.tl
             ];
           };
         };

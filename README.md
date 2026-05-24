@@ -1,7 +1,7 @@
 # track
 
 Dummy scaffold for a Nix-built toolset: a Go CLI plus a Neovim plugin written
-in [Teal](https://github.com/teal-language/tl).
+in Lua.
 
 The CLI is the source of truth; the Neovim plugin is a thin frontend that shells
 out to it. Everything here is a placeholder implementation.
@@ -10,11 +10,9 @@ out to it. Everything here is a placeholder implementation.
 
 ```
 cmd/track/main.go     # Go CLI (dummy subcommands)
-teal/track/init.tl    # Neovim plugin source (Teal)
-lua/                  # generated Lua (tl build output; git-ignored)
-tlconfig.lua          # Teal compiler config (teal/ -> lua/)
+lua/track/init.lua    # Neovim plugin source (Lua)
 nix/apps/             # `nix run .#test-nvim` launcher
-flake.nix             # Go CLI + Teal->Lua + Vim plugin packaging
+flake.nix             # Go CLI + Vim plugin packaging
 ```
 
 ## CLI
@@ -33,9 +31,8 @@ track version   # print the version
 ## Development
 
 ```sh
-nix develop              # Go + tl on PATH
+nix develop              # Go on PATH
 go build ./cmd/track     # build the CLI
-tl build                 # compile teal/ -> lua/
 
 nix build .#track-cli    # build just the CLI
 nix build .#track        # build the Neovim plugin (references the CLI)
