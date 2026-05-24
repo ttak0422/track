@@ -1,0 +1,17 @@
+# Go build output
+/bin/
+
+# Teal -> Lua build output
+/lua/
+
+# Nix
+/result
+.direnv/
+.pre-commit-config.yaml
+
+# Editor
+*.swp
+*.swo
+
+# Claude Code
+.claude/
