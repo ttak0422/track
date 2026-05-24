@@ -15,6 +15,17 @@ function M.setup()
       util.open_scratch("track://dump", "json", client.run({ "dump" }))
    end, { desc = "Open a diagnostic dump of track state" })
 
+   cmd("TrackNew", function(opts)
+      local create = require("track.create")
+      if opts.range > 0 then
+         create.from_visual()
+      elseif #opts.fargs > 0 then
+         create.create(table.concat(opts.fargs, " "))
+      else
+         create.prompt(vim.fn.expand("<cword>"))
+      end
+   end, { nargs = "*", range = true, desc = "Create a track note (selection, args, or prompt)" })
+
    cmd("TrackFollow", function()
       require("track.follow").follow()
    end, { desc = "Follow the track link under the cursor" })
