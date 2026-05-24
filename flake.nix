@@ -43,7 +43,7 @@
               root = ./.;
               fileset = goFiles;
             };
-            vendorHash = null;
+            vendorHash = "sha256-g+yaVIx4jxpAQ/+WrGKxhVeliYx7nLQe/zsGpxV4Fn4=";
             subPackages = [ "cmd/track" ];
           };
 
