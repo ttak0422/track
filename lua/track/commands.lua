@@ -30,6 +30,22 @@ function M.setup()
       require("track.follow").follow()
    end, { desc = "Follow the track link under the cursor" })
 
+   cmd("TrackToday", function()
+      require("track.journal").open(0)
+   end, { desc = "Open today's journal note" })
+
+   cmd("TrackYesterday", function()
+      require("track.journal").open(-1)
+   end, { desc = "Open yesterday's journal note" })
+
+   cmd("TrackTomorrow", function()
+      require("track.journal").open(1)
+   end, { desc = "Open tomorrow's journal note" })
+
+   cmd("TrackJournal", function(opts)
+      require("track.journal").open(tonumber(opts.args) or 0)
+   end, { nargs = "?", desc = "Open the journal note at a day offset (default 0)" })
+
    cmd("TrackKeywords", function()
       local entries = keywords.all()
       local lines = {}
