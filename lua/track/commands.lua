@@ -15,6 +15,10 @@ function M.setup()
       util.open_scratch("track://dump", "json", client.run({ "dump" }))
    end, { desc = "Open a diagnostic dump of track state" })
 
+   cmd("TrackFollow", function()
+      require("track.follow").follow()
+   end, { desc = "Follow the track link under the cursor" })
+
    cmd("TrackKeywords", function()
       local entries = keywords.all()
       local lines = {}

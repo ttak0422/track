@@ -161,6 +161,10 @@ function M.attach(buf)
    end
    attached[buf] = true
 
+   vim.keymap.set("n", "<CR>", function()
+      require("track.follow").follow()
+   end, { buffer = buf, desc = "track: follow link under cursor" })
+
    local group = vim.api.nvim_create_augroup(config.options.augroup .. "_buf_" .. buf, { clear = true })
    vim.api.nvim_create_autocmd({ "BufEnter", "TextChanged", "TextChangedI", "WinScrolled" }, {
       group = group,
