@@ -7,6 +7,9 @@ import (
 	"os"
 	"path/filepath"
 	"strconv"
+	"strings"
+
+	"github.com/ttak0422/track/internal/track/babel"
 )
 
 type Config struct {
@@ -15,6 +18,9 @@ type Config struct {
 	Extensions        []string
 	DateFormat        string
 	JournalDateFormat string
+	// BabelLanguages maps a source-block language to the command that runs it. lua and viml ship as
+	// samples; TRACK_BABEL_<LANG> overrides or adds languages (value is "command arg arg...").
+	BabelLanguages map[string]babel.Executor
 }
 
 // Load resolves configuration from the environment.
@@ -42,7 +48,35 @@ func Load() (*Config, error) {
 		Extensions:        []string{".md"},
 		DateFormat:        "2006-01-02",
 		JournalDateFormat: "20060102",
+		BabelLanguages:    loadBabelLanguages(),
 	}, nil
+}
+
+// loadBabelLanguages returns the sample executors (lua, viml), overlaid with TRACK_BABEL_<LANG> env
+// overrides. Each override value is split on whitespace into command and arguments; "{{file}}" in an
+// argument is replaced with the block's temp script path at run time.
+func loadBabelLanguages() map[string]babel.Executor {
+	langs := map[string]babel.Executor{
+		"lua":  {Command: "lua", Args: []string{"{{file}}"}},
+		"viml": {Command: "nvim", Args: []string{"--headless", "-S", "{{file}}", "-c", "qa!"}},
+	}
+	const prefix = "TRACK_BABEL_"
+	for _, kv := range os.Environ() {
+		if !strings.HasPrefix(kv, prefix) {
+			continue
+		}
+		eq := strings.IndexByte(kv, '=')
+		if eq < 0 {
+			continue
+		}
+		name := strings.ToLower(kv[len(prefix):eq])
+		fields := strings.Fields(kv[eq+1:])
+		if name == "" || len(fields) == 0 {
+			continue
+		}
+		langs[name] = babel.Executor{Command: fields[0], Args: fields[1:]}
+	}
+	return langs
 }
 
 // PrimaryExt is the extension used for newly created notes.
