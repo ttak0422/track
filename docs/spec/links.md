@@ -44,6 +44,6 @@ The Neovim frontend starts `track-lsp` and is the only link frontend.
 
 - `textDocument/documentLink` returns ranges over the inner text of **resolved** `[[...]]`, rendered with the `TrackLink` group (linked to `Underlined` by default).
 - Unresolved `[[...]]` are scanned client-side and rendered with the `TrackLinkUnresolved` group (linked to `Comment` by default), marking notes that don't exist yet.
-- By default the `[[ ]]` brackets are concealed (and the `target|` of a display alias hidden), so `[[Go]]` shows `Go` and `[[Go|ゴー]]` shows `ゴー`, both underlined. The cursor's line stays raw for editing. Set `conceal = false` to keep brackets visible.
+- By default the `[[ ]]` brackets are concealed (and the `target|` of a display alias hidden), so `[[Go]]` shows `Go` and `[[Go|ゴー]]` shows `ゴー`, both underlined. The link **under the cursor** is shown raw for editing (anti-conceal) while other links — including others on the same line — stay concealed; this holds in insert mode too. Set `conceal = false` to keep brackets visible.
 - `textDocument/definition` (also bound to `<CR>`) jumps from a link to its target note.
 - `textDocument/completion` offers titles and aliases (triggered on `[`) while the cursor is inside an open `[[`, excluding the current note's own terms. This is a standard LSP capability and is UI-independent: the plugin merges `cmp-nvim-lsp` capabilities when nvim-cmp is installed, so completion surfaces through the user's nvim-cmp setup. Without nvim-cmp, the server still advertises completion for any other client.

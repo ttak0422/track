@@ -14,6 +14,9 @@ local uv = vim.uv or vim.loop
 local ns = vim.api.nvim_create_namespace("track_lsp_links")
 local timers = {}
 local attached = {}
+-- resolved_cache[buf] = set of "row:start:end" keys the server returned as resolved document links,
+-- kept so cursor moves can repaint (toggle anti-conceal) without another LSP round trip.
+local resolved_cache = {}
 
 local function find_binary()
    if cached_binary then
@@ -83,7 +86,7 @@ end
 -- "target|" of a display alias) so only the link text shows. The server reports document-link ranges
 -- over the inner text (between the brackets); we mirror that span as the key so resolved vs. unresolved
 -- can be told apart, and color each link accordingly.
-local function highlight_links(buf, resolved)
+local function highlight_links(buf, resolved, cursor)
    local conceal = config.options.conceal
    local fences, lines = fenced_rows(buf)
    for i, text in ipairs(lines) do
@@ -102,8 +105,14 @@ local function highlight_links(buf, resolved)
                   and config.options.hl_group
                or config.options.hl_group_unresolved
 
+            -- Reveal (skip conceal for) the link the cursor sits on, so its raw text can be edited.
+            local revealed = cursor ~= nil
+               and cursor.row == row
+               and cursor.col >= open_start
+               and cursor.col < e
+
             local hl_start = inner_start
-            if conceal then
+            if conceal and not revealed then
                -- A non-empty display alias ([[target|display]]) shows only "display".
                local inner = text:sub(s + 2, e - 2)
                local pipe = inner:find("|", 1, true)
@@ -143,9 +152,38 @@ local function apply_conceal_options(buf)
    end
    for _, win in ipairs(vim.fn.win_findbuf(buf)) do
       vim.api.nvim_set_option_value("conceallevel", 2, { scope = "local", win = win })
+      -- Suppress Vim's line-wise reveal of the cursor line so anti-conceal can reveal just the link
+      -- under the cursor (an extmark with no conceal), keeping other links on the same line hidden.
+      vim.api.nvim_set_option_value("concealcursor", "nvic", { scope = "local", win = win })
    end
 end
 
+-- current_cursor returns the cursor position (0-based row/col) when buf is shown in the current window.
+-- It drives anti-conceal: the link under the cursor is revealed. Returns nil when conceal is off.
+local function current_cursor(buf)
+   if not config.options.conceal then
+      return nil
+   end
+   local win = vim.api.nvim_get_current_win()
+   if vim.api.nvim_win_get_buf(win) ~= buf then
+      return nil
+   end
+   local pos = vim.api.nvim_win_get_cursor(win)
+   return { row = pos[1] - 1, col = pos[2] }
+end
+
+-- render repaints extmarks from the cached resolved set and the current cursor, with no LSP round trip.
+-- Cursor moves call this directly so anti-conceal stays cheap.
+local function render(buf)
+   if not vim.api.nvim_buf_is_valid(buf) then
+      return
+   end
+   vim.api.nvim_buf_clear_namespace(buf, ns, 0, -1)
+   highlight_links(buf, resolved_cache[buf] or {}, current_cursor(buf))
+end
+
+-- refresh re-fetches document links, caches which [[...]] resolve, then renders.
+-- Call it after text changes; cursor-only moves should call render instead.
 local function refresh(buf)
    if not vim.api.nvim_buf_is_valid(buf) then
       return
@@ -155,7 +193,6 @@ local function refresh(buf)
       if err or not vim.api.nvim_buf_is_valid(buf) then
          return
       end
-      vim.api.nvim_buf_clear_namespace(buf, ns, 0, -1)
       local resolved = {}
       for _, link in ipairs(result or {}) do
          local range = link.range
@@ -163,7 +200,8 @@ local function refresh(buf)
             resolved[range.start.line .. ":" .. range.start.character .. ":" .. range["end"].character] = true
          end
       end
-      highlight_links(buf, resolved)
+      resolved_cache[buf] = resolved
+      render(buf)
    end)
 end
 
@@ -236,6 +274,14 @@ local function attach(buf)
          schedule(buf)
       end,
    })
+   -- Cursor moves only toggle anti-conceal, so repaint from cache without re-querying the server.
+   vim.api.nvim_create_autocmd({ "CursorMoved", "CursorMovedI" }, {
+      group = group,
+      buffer = buf,
+      callback = function()
+         render(buf)
+      end,
+   })
    apply_conceal_options(buf)
    vim.api.nvim_create_autocmd("BufWinEnter", {
       group = group,
@@ -249,6 +295,7 @@ local function attach(buf)
       buffer = buf,
       callback = function()
          attached[buf] = nil
+         resolved_cache[buf] = nil
          if timers[buf] then
             timers[buf]:stop()
             timers[buf]:close()
