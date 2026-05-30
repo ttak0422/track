@@ -1,7 +1,12 @@
 package lsp
 
 import (
+	"errors"
+	"io"
+	"os"
 	"path/filepath"
+	"strings"
+	"syscall"
 	"testing"
 
 	"github.com/ttak0422/track/internal/track/config"
@@ -163,5 +168,32 @@ func TestCompletionExcludesSelfAndOutsideBrackets(t *testing.T) {
 	}
 	if len(outside) != 0 {
 		t.Fatalf("expected no completion outside [[, got %+v", outside)
+	}
+}
+
+func TestServeEndsCleanlyOnPartialMessage(t *testing.T) {
+	srv, _ := setupServer(t)
+	// The header promises more bytes than the stream delivers, like Neovim closing stdin mid shutdown.
+	err := srv.Serve(strings.NewReader("Content-Length: 100\r\n\r\n{}"), io.Discard)
+	if err != nil {
+		t.Fatalf("a partial message should end the session cleanly, got %v", err)
+	}
+}
+
+func TestServeEndsCleanlyOnEOF(t *testing.T) {
+	srv, _ := setupServer(t)
+	if err := srv.Serve(strings.NewReader(""), io.Discard); err != nil {
+		t.Fatalf("EOF should end cleanly, got %v", err)
+	}
+}
+
+func TestIsDisconnect(t *testing.T) {
+	for _, err := range []error{io.EOF, io.ErrUnexpectedEOF, os.ErrClosed, syscall.EPIPE} {
+		if !isDisconnect(err) {
+			t.Fatalf("%v should count as a disconnect", err)
+		}
+	}
+	if isDisconnect(errors.New("boom")) {
+		t.Fatalf("a generic error should not count as a disconnect")
 	}
 }

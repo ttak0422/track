@@ -11,6 +11,7 @@ import (
 	"path/filepath"
 	"strconv"
 	"strings"
+	"syscall"
 
 	"github.com/ttak0422/track/internal/track/config"
 	"github.com/ttak0422/track/internal/track/index"
@@ -48,7 +49,7 @@ func (s *Server) Serve(in io.Reader, out io.Writer) error {
 	for {
 		msg, err := readMessage(r)
 		if err != nil {
-			if errors.Is(err, io.EOF) {
+			if isDisconnect(err) {
 				return nil
 			}
 			return err
@@ -62,9 +63,22 @@ func (s *Server) Serve(in io.Reader, out io.Writer) error {
 		}
 		resp := s.handleRequest(msg)
 		if err := writeMessage(out, resp); err != nil {
+			if isDisconnect(err) {
+				return nil
+			}
 			return err
 		}
 	}
+}
+
+// isDisconnect reports whether err is just the editor closing the connection (e.g. during shutdown),
+// which ends the session normally rather than failing the server. Neovim can close stdin/stdout mid
+// message, so a partial read (ErrUnexpectedEOF) or a broken pipe (EPIPE) is expected, not an error.
+func isDisconnect(err error) bool {
+	return errors.Is(err, io.EOF) ||
+		errors.Is(err, io.ErrUnexpectedEOF) ||
+		errors.Is(err, os.ErrClosed) ||
+		errors.Is(err, syscall.EPIPE)
 }
 
 func (s *Server) handleNotification(msg rpcMessage) {
