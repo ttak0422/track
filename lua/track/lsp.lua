@@ -152,9 +152,10 @@ local function apply_conceal_options(buf)
    end
    for _, win in ipairs(vim.fn.win_findbuf(buf)) do
       vim.api.nvim_set_option_value("conceallevel", 2, { scope = "local", win = win })
-      -- Suppress Vim's line-wise reveal of the cursor line so anti-conceal can reveal just the link
-      -- under the cursor (an extmark with no conceal), keeping other links on the same line hidden.
-      vim.api.nvim_set_option_value("concealcursor", "nvic", { scope = "local", win = win })
+      -- "nvc" (no "i"): in normal/visual/command mode Vim does not reveal the cursor line, so our
+      -- per-link anti-conceal extmarks decide what shows. In insert mode Vim reveals the whole cursor
+      -- line, keeping byte and screen columns aligned so the completion popup doesn't drift while typing.
+      vim.api.nvim_set_option_value("concealcursor", "nvc", { scope = "local", win = win })
    end
 end
 
