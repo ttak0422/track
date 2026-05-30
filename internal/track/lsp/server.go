@@ -147,8 +147,12 @@ func (s *Server) documentLinks(uri string) ([]documentLink, error) {
 	if err != nil {
 		return nil, err
 	}
+	titleLines := markdownH1Lines(text)
 	var links []documentLink
 	for _, occ := range m.Occurrences(text) {
+		if titleLines[occ.Line] {
+			continue
+		}
 		ref, ok := refs[occ.Term.NoteID]
 		if !ok {
 			continue
@@ -177,7 +181,11 @@ func (s *Server) definition(uri string, pos position) (*location, error) {
 	if err != nil {
 		return nil, err
 	}
+	titleLines := markdownH1Lines(text)
 	for _, occ := range m.Occurrences(text) {
+		if titleLines[occ.Line] {
+			continue
+		}
 		if occ.Line != pos.Line || pos.Character < occ.StartByte || pos.Character >= occ.EndByte {
 			continue
 		}
@@ -194,6 +202,16 @@ func (s *Server) definition(uri string, pos position) (*location, error) {
 		}, nil
 	}
 	return nil, nil
+}
+
+func markdownH1Lines(text string) map[int]bool {
+	out := map[int]bool{}
+	for i, line := range strings.Split(text, "\n") {
+		if strings.HasPrefix(strings.TrimSpace(line), "# ") {
+			out[i] = true
+		}
+	}
+	return out
 }
 
 func (s *Server) documentText(uri string) (string, error) {

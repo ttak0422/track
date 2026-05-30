@@ -73,3 +73,28 @@ func TestDefinition(t *testing.T) {
 		t.Fatalf("unexpected definition uri: %q", loc.URI)
 	}
 }
+
+func TestTitleLineIsNotLinked(t *testing.T) {
+	srv, vault := setupServer(t)
+	uri := uriFromPath(filepath.Join(vault, "200.md"))
+	srv.docs[uri] = "# Go\n\nGo"
+
+	links, err := srv.documentLinks(uri)
+	if err != nil {
+		t.Fatalf("document links: %v", err)
+	}
+	if len(links) != 1 {
+		t.Fatalf("expected only body link, got %+v", links)
+	}
+	if links[0].Range.Start.Line != 2 {
+		t.Fatalf("expected body link on line 2, got %+v", links[0].Range)
+	}
+
+	loc, err := srv.definition(uri, position{Line: 0, Character: 2})
+	if err != nil {
+		t.Fatalf("definition: %v", err)
+	}
+	if loc != nil {
+		t.Fatalf("title line should not resolve as a link, got %+v", loc)
+	}
+}
