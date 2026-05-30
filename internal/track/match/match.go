@@ -1,8 +1,5 @@
-// Package match implements track's auto-link detection: finding occurrences of
-// known keywords (note titles and aliases) inside note text. The Go indexer
-// uses it to build the link graph; the Lua frontend reimplements the same
-// longest-match-substring rule for highlighting, so "what is a link" agrees on
-// both sides.
+// Package match implements track's auto-link detection: finding occurrences of known keywords (note titles and aliases) inside note text.
+// The Go indexer uses it to build the link graph; the Lua frontend reimplements the same longest-match-substring rule for highlighting, so "what is a link" agrees on both sides.
 package match
 
 import (
@@ -17,14 +14,14 @@ type Term struct {
 	NoteID int64
 }
 
-// Matcher resolves keyword occurrences using longest-match, non-overlapping
-// scanning. CJK has no word boundaries, so matching is pure substring matching
-// by design.
+// Matcher resolves keyword occurrences using longest-match, non-overlapping scanning.
+// CJK has no word boundaries, so matching is pure substring matching by design.
 type Matcher struct {
 	terms []Term // unique text, sorted by byte length descending
 }
 
-// New builds a Matcher from terms. Duplicate texts keep the first NoteID.
+// New builds a Matcher from terms.
+// Duplicate texts keep the first NoteID.
 func New(terms []Term) *Matcher {
 	seen := make(map[string]bool, len(terms))
 	uniq := make([]Term, 0, len(terms))
@@ -41,8 +38,8 @@ func New(terms []Term) *Matcher {
 	return &Matcher{terms: uniq}
 }
 
-// TargetIDs returns the deduplicated set of note ids whose keywords appear in
-// text, skipping fenced code blocks. Order is the first-seen order.
+// TargetIDs returns the deduplicated set of note ids whose keywords appear in text, skipping fenced code blocks.
+// Order is the first-seen order.
 func (m *Matcher) TargetIDs(text string) []int64 {
 	var ids []int64
 	seen := make(map[int64]bool)
@@ -77,8 +74,7 @@ func (m *Matcher) matchAt(line string, i int) (Term, bool) {
 	return Term{}, false
 }
 
-// scannableLines returns the lines of text that are eligible for keyword
-// matching, dropping lines inside fenced code blocks (``` ... ```).
+// scannableLines returns the lines of text that are eligible for keyword matching, dropping lines inside fenced code blocks.
 func scannableLines(text string) []string {
 	lines := strings.Split(text, "\n")
 	out := make([]string, 0, len(lines))

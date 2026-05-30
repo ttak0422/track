@@ -1,6 +1,5 @@
-// Package note models a track note: a markdown body plus versioned sidecar
-// metadata stored under the vault's .track directory. It owns parsing notes off
-// disk and the metadata read/write logic shared by the indexer and CLI.
+// Package note models a track note: a markdown body plus versioned sidecar metadata stored under the vault's .track directory.
+// It owns parsing notes off disk and the metadata read/write logic shared by the indexer and CLI.
 package note
 
 import (
@@ -13,8 +12,7 @@ import (
 )
 
 // Metadata is the structured data stored beside a note under .track/notes.
-// Created is kept as a string so YAML round-trips it verbatim instead of
-// reformatting a time.Time.
+// Created is kept as a string so YAML round-trips it verbatim instead of reformatting a time.Time.
 type Metadata struct {
 	Version int      `yaml:"version"`
 	Title   string   `yaml:"title,omitempty"`
@@ -31,14 +29,11 @@ type Note struct {
 	Meta  Metadata
 }
 
-// ParseFile reads a note from disk, deriving the id from the filename and
-// loading its sidecar metadata. For compatibility with early track notes, a
-// legacy trailing footmatter block is used only when no sidecar exists.
+// ParseFile reads a note from disk, deriving the id from the filename and loading its sidecar metadata.
+// For compatibility with early track notes, a legacy trailing footmatter block is used only when no sidecar exists.
 //
-// The note body is authoritative for fields it can express. Today that means
-// the first H1 heading owns the note title; if sidecar metadata disagrees, the
-// sidecar is rewritten to match the body while preserving aliases, tags, and
-// created.
+// The note body is authoritative for fields it can express.
+// Today that means the first H1 heading owns the note title; if sidecar metadata disagrees, the sidecar is rewritten to match the body while preserving aliases, tags, and created.
 func ParseFile(path string, c *config.Config) (*Note, error) {
 	raw, err := os.ReadFile(path)
 	if err != nil {

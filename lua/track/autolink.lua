@@ -1,6 +1,6 @@
--- Hatena-style auto-link highlighting. Registered note titles/aliases that
--- appear in a vault buffer are underlined and made followable. Only the
--- visible window range is scanned, on a debounce, to stay cheap on large notes.
+-- Hatena-style auto-link highlighting.
+-- Registered note titles/aliases that appear in a vault buffer are underlined and made followable.
+-- Only the visible window range is scanned, on a debounce, to stay cheap on large notes.
 
 local config = require("track.config")
 local keywords = require("track.keywords")
@@ -11,8 +11,7 @@ local M = {}
 local uv = vim.uv or vim.loop
 local ns = vim.api.nvim_create_namespace("track_autolink")
 
--- matches[buf][row] = { {s_col, e_col, term, note_id, path}, ... } for the
--- currently rendered (visible) lines, used by follow.
+-- matches[buf][row] = { {s_col, e_col, term, note_id, path}, ... } for the currently rendered (visible) lines, used by follow.
 local matches = {}
 local timers = {}
 local attached = {}
@@ -36,8 +35,7 @@ function M.reload()
    end
 end
 
--- fenced_rows returns a set (0-based row -> true) of lines that are fence
--- delimiters or inside a fenced code block, for rows up to `bot`.
+-- fenced_rows returns a set (0-based row -> true) of lines that are fence delimiters or inside a fenced code block, for rows up to `bot`.
 local function fenced_rows(buf, bot)
    local lines = vim.api.nvim_buf_get_lines(buf, 0, bot + 1, false)
    local rows = {}
@@ -174,8 +172,7 @@ local function under_vault(buf)
    return path:sub(1, #vault) == vault
 end
 
--- setup registers the highlight group and the FileType autocmd that attaches
--- auto-linking to vault buffers.
+-- setup registers the highlight group and the FileType autocmd that attaches auto-linking to vault buffers.
 function M.setup()
    vim.api.nvim_set_hl(0, config.options.hl_group, { default = true, link = "Underlined" })
    local group = vim.api.nvim_create_augroup(config.options.augroup .. "_autolink", { clear = true })

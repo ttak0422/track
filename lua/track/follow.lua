@@ -9,9 +9,8 @@ local function open(path)
    vim.cmd.edit(vim.fn.fnameescape(path))
 end
 
--- follow opens the note linked under the cursor. It uses the highlighter's
--- match cache first (so it follows exactly what is underlined), then falls back
--- to resolving the word under the cursor through the CLI.
+-- follow opens the note linked under the cursor.
+-- It uses the highlighter's match cache first (so it follows exactly what is underlined), then falls back to resolving the word under the cursor through the CLI.
 function M.follow()
    local buf = vim.api.nvim_get_current_buf()
    local pos = vim.api.nvim_win_get_cursor(0) -- {row (1-based), col (0-based byte)}

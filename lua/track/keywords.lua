@@ -6,8 +6,7 @@ local M = {}
 
 local cache = nil
 
--- all returns the list of keyword entries ({term, note_id, path, kind}),
--- fetching and caching them on first use.
+-- all returns the list of keyword entries ({term, note_id, path, kind}), fetching and caching them on first use.
 function M.all()
    if cache then
       return cache
@@ -22,8 +21,8 @@ function M.all()
    return cache
 end
 
--- invalidate drops the cache so the next all() refetches. Call after creating
--- or reindexing notes.
+-- invalidate drops the cache so the next all() refetches.
+-- Call after creating or reindexing notes.
 function M.invalidate()
    cache = nil
 end

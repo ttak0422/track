@@ -1,7 +1,7 @@
 package store
 
-// schemaVersion is bumped whenever the DDL below changes in a way that requires
-// a rebuild. The schema is applied once when the database is fresh.
+// schemaVersion is bumped whenever the DDL below changes in a way that requires a rebuild.
+// The schema is applied once when the database is fresh.
 const schemaVersion = 1
 
 const schemaSQL = `

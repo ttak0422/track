@@ -1,7 +1,5 @@
-// Package config centralizes track's runtime configuration: where notes live,
-// where the index database and sidecar metadata live, and which file extensions
-// count as notes. Keeping these in one place lets future file types and the
-// (future) LSP server share the same resolution logic.
+// Package config centralizes track's runtime configuration: where notes live, where the index database and sidecar metadata live, and which file extensions count as notes.
+// Keeping these in one place lets future file types and the (future) LSP server share the same resolution logic.
 package config
 
 import (
@@ -19,9 +17,9 @@ type Config struct {
 	JournalDateFormat string
 }
 
-// Load resolves configuration from the environment. TRACK_VAULT is required so
-// track never creates or reads an implicit vault by accident. TRACK_DB overrides
-// the index database path (default: <vault>/.track/index.db).
+// Load resolves configuration from the environment.
+// TRACK_VAULT is required so track never creates or reads an implicit vault by accident.
+// TRACK_DB overrides the index database path (default: <vault>/.track/index.db).
 func Load() (*Config, error) {
 	vault := os.Getenv("TRACK_VAULT")
 	if vault == "" {
@@ -70,8 +68,8 @@ func (c *Config) JournalPath(name string) string {
 	return filepath.Join(c.JournalDir(), name+c.PrimaryExt())
 }
 
-// TrackDir returns the hidden directory used for track-owned data inside the
-// vault. It contains both the SQLite index and per-note metadata files.
+// TrackDir returns the hidden directory used for track-owned data inside the vault.
+// It contains both the SQLite index and per-note metadata files.
 func (c *Config) TrackDir() string {
 	return filepath.Join(c.VaultDir, ".track")
 }

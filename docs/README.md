@@ -1,14 +1,12 @@
 # Documentation
 
-This directory contains durable project knowledge that should be committed and
-shared across agents and contributors.
+This directory contains durable project knowledge that should be committed and shared across agents and contributors.
 
 ## Specifications
 
 - `spec/architecture.md`: implementation architecture and package boundaries.
 - `spec/storage.md`: vault layout, sidecar metadata, and SQLite index shape.
-- `spec/autolink.md`: keyword derivation, matching rules, and link graph
-  behavior.
+- `spec/autolink.md`: keyword derivation, matching rules, and link graph behavior.
 
 ## ADRs
 
@@ -21,5 +19,4 @@ shared across agents and contributors.
 
 ## Not Here
 
-Daily scratch notes, rough ideas, and private agent transcripts should stay in
-ignored local paths such as `.local/` or `devlog/`.
+Daily scratch notes, rough ideas, and private agent transcripts should stay in ignored local paths such as `.local/` or `devlog/`.

@@ -12,8 +12,7 @@ import (
 
 const CurrentMetadataVersion = 1
 
-// ReadMetadata reads a versioned metadata sidecar. found=false means the note
-// has no sidecar yet.
+// ReadMetadata reads a versioned metadata sidecar. found=false means the note has no sidecar yet.
 func ReadMetadata(path string) (meta Metadata, found bool, err error) {
 	raw, err := os.ReadFile(path)
 	if err != nil {
@@ -31,8 +30,7 @@ func ReadMetadata(path string) (meta Metadata, found bool, err error) {
 	return meta, true, nil
 }
 
-// WriteMetadata writes a note's versioned sidecar metadata, creating the
-// containing .track/notes directory when needed.
+// WriteMetadata writes a note's versioned sidecar metadata, creating the containing .track/notes directory when needed.
 func WriteMetadata(path string, meta Metadata) error {
 	if meta.Version == 0 {
 		meta.Version = CurrentMetadataVersion
@@ -50,9 +48,8 @@ func WriteMetadata(path string, meta Metadata) error {
 	return os.WriteFile(path, out, 0o644)
 }
 
-// SplitLegacyFootmatter strips the old trailing HTML-comment metadata block
-// from a note body. The returned yamlText is for migration/compatibility only;
-// new writes use sidecar metadata files instead.
+// SplitLegacyFootmatter strips the old trailing HTML-comment metadata block from a note body.
+// The returned yamlText is for migration/compatibility only; new writes use sidecar metadata files instead.
 func SplitLegacyFootmatter(raw string) (body string, yamlText string, found bool) {
 	const open = "<!--track"
 	const close = "-->"
@@ -81,8 +78,7 @@ func SplitLegacyFootmatter(raw string) (body string, yamlText string, found bool
 	return body, yamlText, true
 }
 
-// ParseLegacyMetadata parses the old footmatter payload into the current
-// metadata shape.
+// ParseLegacyMetadata parses the old footmatter payload into the current metadata shape.
 func ParseLegacyMetadata(yamlText string) (Metadata, error) {
 	var meta Metadata
 	if err := yaml.Unmarshal([]byte(yamlText), &meta); err != nil {
@@ -94,8 +90,8 @@ func ParseLegacyMetadata(yamlText string) (Metadata, error) {
 	return meta, nil
 }
 
-// FirstH1Title returns the first markdown H1 title from body. Fenced code
-// blocks are ignored so examples do not become metadata.
+// FirstH1Title returns the first markdown H1 title from body.
+// Fenced code blocks are ignored so examples do not become metadata.
 func FirstH1Title(body string) string {
 	inFence := false
 	for _, line := range strings.Split(body, "\n") {

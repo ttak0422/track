@@ -1,5 +1,5 @@
--- track.nvim configuration. The vault must be explicit: either set
--- TRACK_VAULT or pass setup({ vault_dir = ... }).
+-- track.nvim configuration.
+-- The vault must be explicit: either set TRACK_VAULT or pass setup({ vault_dir = ... }).
 
 local M = {}
 

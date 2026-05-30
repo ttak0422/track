@@ -1,7 +1,6 @@
-// Package cli is the command router for the track binary. It is a thin layer
-// over the engine packages (config, note, store, index): it parses arguments,
-// calls engine functions, and prints JSON. A future LSP server reuses the same
-// engine packages directly rather than shelling out to these commands.
+// Package cli is the command router for the track binary.
+// It is a thin layer over the engine packages (config, note, store, index): it parses arguments, calls engine functions, and prints JSON.
+// A future LSP server reuses the same engine packages directly rather than shelling out to these commands.
 package cli
 
 import (
@@ -77,8 +76,7 @@ func emit(v any) int {
 	return 0
 }
 
-// fail prints {"error":...} to stdout and returns exit code 1, so the Lua side
-// can branch on decoded.error uniformly.
+// fail prints {"error":...} to stdout and returns exit code 1, so the Lua side can branch on decoded.error uniformly.
 func fail(format string, args ...any) int {
 	msg := fmt.Sprintf(format, args...)
 	b, _ := json.Marshal(map[string]string{"error": msg})

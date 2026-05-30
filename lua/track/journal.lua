@@ -1,13 +1,12 @@
--- Daily journal notes. Each day maps to a stable yyyyMMdd note id, so opening
--- the same day is idempotent.
+-- Daily journal notes.
+-- Each day maps to a stable yyyyMMdd note id, so opening the same day is idempotent.
 
 local client = require("track.client")
 local autolink = require("track.autolink")
 
 local M = {}
 
--- open opens (creating if needed) the journal note `offset` days from today
--- (0 = today, -1 = yesterday, 1 = tomorrow).
+-- open opens (creating if needed) the journal note `offset` days from today (0 = today, -1 = yesterday, 1 = tomorrow).
 function M.open(offset)
    local data, err = client.run_json({ "journal", "--offset", tostring(offset or 0) })
    if not data then

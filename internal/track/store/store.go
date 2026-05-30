@@ -1,6 +1,5 @@
-// Package store wraps the SQLite index that backs track's search, keyword
-// dictionary, and link graph. It uses modernc.org/sqlite (pure Go, no cgo) so
-// the binary stays statically buildable under Nix.
+// Package store wraps the SQLite index that backs track's search, keyword dictionary, and link graph.
+// It uses modernc.org/sqlite (pure Go, no cgo) so the binary stays statically buildable under Nix.
 package store
 
 import (
@@ -16,8 +15,8 @@ type Store struct {
 	db *sql.DB
 }
 
-// Open opens (creating if necessary) the index database at dbPath, applying the
-// schema on first use. The parent directory is created if missing.
+// Open opens (creating if necessary) the index database at dbPath, applying the schema on first use.
+// The parent directory is created if missing.
 func Open(dbPath string) (*Store, error) {
 	if dir := filepath.Dir(dbPath); dir != "" {
 		if err := os.MkdirAll(dir, 0o755); err != nil {

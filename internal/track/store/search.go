@@ -13,9 +13,9 @@ type SearchResult struct {
 	Snippet string `json:"snippet"`
 }
 
-// Search returns notes whose title, body, or any alias contains query
-// (case-insensitive substring). A short snippet is built around the first body
-// match. FTS5 can replace this later behind the same signature.
+// Search returns notes whose title, body, or any alias contains query (case-insensitive substring).
+// A short snippet is built around the first body match.
+// FTS5 can replace this later behind the same signature.
 func (s *Store) Search(query string, limit int) ([]SearchResult, error) {
 	if limit <= 0 {
 		limit = 50
@@ -47,8 +47,7 @@ func (s *Store) Search(query string, limit int) ([]SearchResult, error) {
 	return out, rows.Err()
 }
 
-// snippet returns a short, single-line excerpt of body centered on the first
-// case-insensitive occurrence of query.
+// snippet returns a short, single-line excerpt of body centered on the first case-insensitive occurrence of query.
 func snippet(body, query string) string {
 	const width = 80
 	flat := strings.Join(strings.Fields(body), " ")

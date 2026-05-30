@@ -1,9 +1,8 @@
--- Longest-match, non-overlapping keyword scanner. Mirrors the Go engine's
--- match package so highlighting agrees with the indexed link graph. CJK has no
--- word boundaries, so this is pure substring matching by design.
+-- Longest-match, non-overlapping keyword scanner.
+-- Mirrors the Go engine's match package so highlighting agrees with the indexed link graph.
+-- CJK has no word boundaries, so this is pure substring matching by design.
 --
--- This module is intentionally free of any `vim` dependency so it can be unit
--- tested with a bare Lua interpreter.
+-- This module is intentionally free of any `vim` dependency so it can be unit tested with a bare Lua interpreter.
 
 local M = {}
 
@@ -21,9 +20,8 @@ local function utf8_seqlen(byte)
    end
 end
 
--- build constructs a matcher from a keyword list (entries with .term,
--- .note_id, .path). Terms are bucketed by first byte and sorted longest-first
--- within each bucket; duplicate terms keep the first entry.
+-- build constructs a matcher from a keyword list (entries with .term, .note_id, .path).
+-- Terms are bucketed by first byte and sorted longest-first within each bucket; duplicate terms keep the first entry.
 function M.build(keywords)
    local by_first = {}
    local seen = {}
@@ -53,9 +51,7 @@ function M.build(keywords)
    return setmetatable({ by_first = by_first }, { __index = M })
 end
 
--- line scans a single line and returns matches as a list of
--- { s_col, e_col, term, note_id, path } using 0-based byte columns with an
--- exclusive end (ready for nvim_buf_set_extmark).
+-- line scans a single line and returns matches as a list of { s_col, e_col, term, note_id, path } using 0-based byte columns with an exclusive end (ready for nvim_buf_set_extmark).
 function M:line(text)
    local matches = {}
    local n = #text

@@ -1,18 +1,15 @@
 # track
 
-A journal + Zettelkasten note tool: a Go CLI engine with a SQLite index, plus a
-thin Neovim frontend.
+A journal + Zettelkasten note tool: a Go CLI engine with a SQLite index, plus a thin Neovim frontend.
 
-The Go CLI is the source of truth — it parses notes, maintains the index, and
-resolves links. The Neovim plugin shells out to it. The engine lives in reusable
-`internal/track/*` packages so a future LSP server can reuse it directly.
+The Go CLI is the source of truth — it parses notes, maintains the index, and resolves links.
+The Neovim plugin shells out to it.
+The engine lives in reusable `internal/track/*` packages so a future LSP server can reuse it directly.
 
 ## Concepts
 
 - **Notes** are markdown files named `{unix-timestamp}.md` in a vault directory.
-- **Metadata**: note metadata is stored outside the markdown file, under
-  `.track/notes/{id}.yaml`. The file is versioned so future metadata shape
-  changes can be handled explicitly:
+- **Metadata**: note metadata is stored outside the markdown file, under `.track/notes/{id}.yaml`. The file is versioned so future metadata shape changes can be handled explicitly:
 
   ```markdown
   # リンク
@@ -28,13 +25,8 @@ resolves links. The Neovim plugin shells out to it. The engine lives in reusable
   created: 2026-05-24
   ```
 
-- **Auto-links** work like the old Hatena keyword auto-link: any registered note
-  title or alias is automatically highlighted and followable wherever it appears
-  in vault buffers — no special markup, and it works mid-word for Japanese
-  (longest-match substring). Unregistered words do nothing.
-- **Journal**: each day maps to a stable `yyyyMMdd` note, so opening "today" is
-  idempotent. Journal notes are stored separately under
-  `journal/` and named `yyyyMMdd.md`, so lexical file order follows day order.
+- **Auto-links** work like the old Hatena keyword auto-link: any registered note title or alias is automatically highlighted and followable wherever it appears in vault buffers — no special markup, and it works mid-word for Japanese (longest-match substring). Unregistered words do nothing.
+- **Journal**: each day maps to a stable `yyyyMMdd` note, so opening "today" is idempotent. Journal notes are stored separately under `journal/` and named `yyyyMMdd.md`, so lexical file order follows day order.
 
 ## Layout
 
@@ -49,9 +41,8 @@ flake.nix                # Go CLI + Vim plugin packaging
 
 ## CLI
 
-All commands except `version` print a single line of JSON; errors are
-`{"error":...}` with exit code 1. The vault must be set explicitly with
-`$TRACK_VAULT`; the index db defaults to `<vault>/.track/index.db`.
+All commands except `version` print a single line of JSON; errors are `{"error":...}` with exit code 1.
+The vault must be set explicitly with `$TRACK_VAULT`; the index db defaults to `<vault>/.track/index.db`.
 
 ```sh
 track new --title <t> [--id <unix>]   # create a note
@@ -87,8 +78,7 @@ Commands:
 :TrackDump          " diagnostic state dump
 ```
 
-In a vault buffer, registered keywords are underlined (`TrackLink` highlight
-group); press `<CR>` on one to jump to its note.
+In a vault buffer, registered keywords are underlined (`TrackLink` highlight group); press `<CR>` on one to jump to its note.
 
 ## Development
 
@@ -102,8 +92,7 @@ nix build .#track        # build the Neovim plugin (references the CLI)
 nix run .#test-nvim      # launch Neovim with a test vault under /tmp
 ```
 
-The Nix-built Neovim plugin embeds the store path of the matching `track`
-binary, so Nix users do not need to add `track` to `$PATH` manually.
+The Nix-built Neovim plugin embeds the store path of the matching `track` binary, so Nix users do not need to add `track` to `$PATH` manually.
 
 ## License
 

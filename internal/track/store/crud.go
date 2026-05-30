@@ -4,8 +4,7 @@ import (
 	"github.com/ttak0422/track/internal/track/note"
 )
 
-// Keyword is one entry in the auto-link dictionary: a title or alias that, when
-// it appears in note text, links to NoteID.
+// Keyword is one entry in the auto-link dictionary: a title or alias that, when it appears in note text, links to NoteID.
 type Keyword struct {
 	Term   string `json:"term"`
 	NoteID int64  `json:"note_id"`
@@ -20,8 +19,7 @@ type NoteRef struct {
 	Title  string `json:"title"`
 }
 
-// UpsertNote inserts or updates a note row and replaces its aliases and tags in
-// a single transaction.
+// UpsertNote inserts or updates a note row and replaces its aliases and tags in a single transaction.
 func (s *Store) UpsertNote(n *note.Note) error {
 	tx, err := s.db.Begin()
 	if err != nil {
@@ -160,8 +158,7 @@ func (s *Store) AllNotes() ([]NoteRef, error) {
 	return scanNoteRefs(rows)
 }
 
-// NoteMtimes maps note id to stored mtime, used by the indexer to detect
-// changed and deleted files.
+// NoteMtimes maps note id to stored mtime, used by the indexer to detect changed and deleted files.
 func (s *Store) NoteMtimes() (map[int64]int64, error) {
 	rows, err := s.db.Query(`SELECT id, mtime FROM notes`)
 	if err != nil {

@@ -40,7 +40,8 @@ func writeNote(t *testing.T, cfg *config.Config, id int64, body string, meta not
 
 func TestFullIndexesAndLinks(t *testing.T) {
 	cfg, s := setup(t)
-	// Note 1 is titled "リンク". Note 2's body references リンク → link 2->1.
+	// Note 1 is titled "リンク".
+	// Note 2's body references リンク → link 2->1.
 	writeNote(t, cfg, 1, "# リンク\n\nthe target note", note.Metadata{Title: "リンク", Aliases: []string{"link"}})
 	writeNote(t, cfg, 2, "本文で リンク を参照する", note.Metadata{Title: "ノート2"})
 

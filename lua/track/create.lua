@@ -1,14 +1,11 @@
--- Create new notes (keywords) from three entry points: the word under the
--- cursor, a visual selection, or a prompt/command argument.
+-- Create new notes (keywords) from three entry points: the word under the cursor, a visual selection, or a prompt/command argument.
 
 local client = require("track.client")
 local autolink = require("track.autolink")
 
 local M = {}
 
--- create makes a new note titled `title`, then runs a full reindex so other
--- notes' inbound links to the new title are picked up, reloads the keyword
--- cache, and opens the note.
+-- create makes a new note titled `title`, then runs a full reindex so other notes' inbound links to the new title are picked up, reloads the keyword cache, and opens the note.
 function M.create(title)
    title = vim.trim(title or "")
    if title == "" then
@@ -31,8 +28,7 @@ function M.create(title)
    vim.cmd.edit(vim.fn.fnameescape(data.path))
 end
 
--- prompt asks for a title (prefilled with `default`, e.g. the word under the
--- cursor) and creates a note from it.
+-- prompt asks for a title (prefilled with `default`, e.g. the word under the cursor) and creates a note from it.
 function M.prompt(default)
    vim.ui.input({ prompt = "Note title: ", default = default or "" }, function(input)
       if input and vim.trim(input) ~= "" then

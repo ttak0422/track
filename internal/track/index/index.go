@@ -1,5 +1,4 @@
-// Package index keeps the SQLite store in sync with the notes on disk: parsing
-// sidecar metadata into rows and computing the auto-link graph.
+// Package index keeps the SQLite store in sync with the notes on disk: parsing sidecar metadata into rows and computing the auto-link graph.
 package index
 
 import (
@@ -31,9 +30,8 @@ type Report struct {
 	Links   int `json:"links"`
 }
 
-// Full re-parses every note in the vault, reconciles deletions, and recomputes
-// the entire link graph. It is the authoritative rebuild; single-file updates
-// can't see new inbound links, so callers run Full after creating notes.
+// Full re-parses every note in the vault, reconciles deletions, and recomputes the entire link graph.
+// It is the authoritative rebuild; single-file updates can't see new inbound links, so callers run Full after creating notes.
 func (ix *Indexer) Full() (Report, error) {
 	var rep Report
 
@@ -89,8 +87,8 @@ func (ix *Indexer) Full() (Report, error) {
 	return rep, nil
 }
 
-// One updates a single note and recomputes its outgoing links. Inbound links
-// from other notes to this one are not refreshed here; run Full for that.
+// One updates a single note and recomputes its outgoing links.
+// Inbound links from other notes to this one are not refreshed here; run Full for that.
 func (ix *Indexer) One(path string) error {
 	n, err := note.ParseFile(path, ix.cfg)
 	if err != nil {

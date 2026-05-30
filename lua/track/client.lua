@@ -1,5 +1,5 @@
--- track.nvim CLI client. Resolves the `track` binary and shells out to it,
--- decoding the JSON subcommands return.
+-- track.nvim CLI client.
+-- Resolves the `track` binary and shells out to it, decoding the JSON subcommands return.
 
 local config = require("track.config")
 
@@ -9,9 +9,8 @@ local M = {}
 local bundled_binary_path = nil
 local cached_binary
 
--- Resolve the track binary. Prefers a binary bundled next to the plugin by
--- Nix, then a binary next to the plugin (lua/track/client.lua ->
--- <plugin>/bin/track), then a local `result` symlink, then $PATH.
+-- Resolve the track binary.
+-- Prefers a binary bundled next to the plugin by Nix, then a binary next to the plugin (lua/track/client.lua -> <plugin>/bin/track), then a local `result` symlink, then $PATH.
 local function find_binary()
    if cached_binary then
       return cached_binary
@@ -54,8 +53,8 @@ function M.run(args)
    return vim.fn.system(cmd)
 end
 
--- run_json executes the CLI and decodes its JSON. Returns (table) on success,
--- or (nil, errmsg) when stdout is not JSON or carries an {"error":...} payload.
+-- run_json executes the CLI and decodes its JSON.
+-- Returns (table) on success, or (nil, errmsg) when stdout is not JSON or carries an {"error":...} payload.
 function M.run_json(args)
    local out = M.run(args)
    local ok, decoded = pcall(vim.json.decode, out)
