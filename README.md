@@ -54,6 +54,8 @@ track search --query <s> [--limit N]  # search notes
 track backlinks (--id N | --path P)   # list backlinks
 track babel exec (--id N | --path P) [--name S|--ordinal N] [--yes]
                                       # run a fenced source block (see docs/spec/babel.md)
+track babel restore (--id N | --path P)
+                                      # list stored source block results
 track dump                            # placeholder state
 track version                         # print the version
 ```
@@ -66,6 +68,7 @@ It currently provides:
 - `textDocument/documentLink`: returns ranges for resolved `[[...]]` links.
 - `textDocument/definition`: jumps from the `[[...]]` under the cursor to the target note.
 - `textDocument/completion`: offers titles and aliases inside an open `[[`, triggered on `[`.
+- `textDocument/codeAction`: creates a note from an unresolved `[[...]]` link.
 
 The server uses UTF-8 positions and reads the same `$TRACK_VAULT` configuration as the CLI.
 
@@ -84,6 +87,7 @@ Commands:
 :TrackNew [title]   " create a note (visual selection / args / prompt-with-cword)
 :TrackFollow        " follow the [[...]] link under the cursor (also mapped to <CR>)
 :TrackBabelExec     " run the source block under the cursor; result shows below it
+:TrackBabelRestore  " restore stored babel results without running code
 :TrackBabelClear    " clear rendered babel results in the buffer
 :TrackToday         " open today's journal note
 :TrackYesterday

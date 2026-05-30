@@ -1,6 +1,7 @@
 package lsp
 
 import (
+	"encoding/json"
 	"errors"
 	"io"
 	"os"
@@ -171,6 +172,95 @@ func TestCompletionExcludesSelfAndOutsideBrackets(t *testing.T) {
 	}
 }
 
+func TestCompletionOffersCreateNoteWhenNoKeywordMatches(t *testing.T) {
+	srv, vault := setupServer(t)
+	uri := uriFromPath(filepath.Join(vault, "200.md"))
+	srv.docs[uri] = "see [[Rust"
+
+	items, err := srv.completion(uri, position{Line: 0, Character: 10})
+	if err != nil {
+		t.Fatalf("completion: %v", err)
+	}
+	var create *completionItem
+	for i := range items {
+		if items[i].Command != nil && items[i].Command.Command == createNoteCommand {
+			create = &items[i]
+			break
+		}
+	}
+	if create == nil {
+		t.Fatalf("expected create-note completion item, got %+v", items)
+	}
+	if create.Label != "Rust" || create.FilterText != "Rust" || create.InsertText != "Rust" || create.TextEdit == nil || create.TextEdit.NewText != "Rust" {
+		t.Fatalf("unexpected create item: %+v", create)
+	}
+
+	srv.docs[uri] = "see [[Go"
+	matched, err := srv.completion(uri, position{Line: 0, Character: 8})
+	if err != nil {
+		t.Fatalf("completion: %v", err)
+	}
+	for _, item := range matched {
+		if item.Command != nil && item.Command.Command == createNoteCommand {
+			t.Fatalf("did not expect create-note item when a keyword matches, got %+v", matched)
+		}
+	}
+}
+
+func TestCodeActionCreatesUnresolvedNote(t *testing.T) {
+	srv, vault := setupServer(t)
+	uri := uriFromPath(filepath.Join(vault, "200.md"))
+	srv.docs[uri] = "see [[Rust]]"
+
+	actions, err := srv.codeActions(uri, rangeValue{
+		Start: position{Line: 0, Character: 6},
+		End:   position{Line: 0, Character: 6},
+	})
+	if err != nil {
+		t.Fatalf("code actions: %v", err)
+	}
+	if len(actions) != 1 {
+		t.Fatalf("expected one create-note action, got %+v", actions)
+	}
+	if actions[0].Command == nil || actions[0].Command.Command != createNoteCommand {
+		t.Fatalf("unexpected action: %+v", actions[0])
+	}
+
+	arg, err := jsonMarshalRaw(actions[0].Command.Arguments[0])
+	if err != nil {
+		t.Fatalf("marshal action arg: %v", err)
+	}
+	result, err := srv.executeCommand(executeCommandParams{
+		Command:   createNoteCommand,
+		Arguments: []json.RawMessage{arg},
+	})
+	if err != nil {
+		t.Fatalf("execute create note: %v", err)
+	}
+	if result["title"] != "Rust" {
+		t.Fatalf("unexpected create result: %+v", result)
+	}
+
+	links, err := srv.documentLinks(uri)
+	if err != nil {
+		t.Fatalf("document links: %v", err)
+	}
+	if len(links) != 1 || links[0].Target != result["uri"] {
+		t.Fatalf("expected newly created note to resolve, links=%+v result=%+v", links, result)
+	}
+
+	again, err := srv.codeActions(uri, rangeValue{
+		Start: position{Line: 0, Character: 6},
+		End:   position{Line: 0, Character: 6},
+	})
+	if err != nil {
+		t.Fatalf("code actions after create: %v", err)
+	}
+	if len(again) != 0 {
+		t.Fatalf("resolved link should not offer create action, got %+v", again)
+	}
+}
+
 func TestServeEndsCleanlyOnPartialMessage(t *testing.T) {
 	srv, _ := setupServer(t)
 	// The header promises more bytes than the stream delivers, like Neovim closing stdin mid shutdown.
@@ -196,4 +286,9 @@ func TestIsDisconnect(t *testing.T) {
 	if isDisconnect(errors.New("boom")) {
 		t.Fatalf("a generic error should not count as a disconnect")
 	}
+}
+
+func jsonMarshalRaw(v any) (json.RawMessage, error) {
+	b, err := json.Marshal(v)
+	return json.RawMessage(b), err
 }

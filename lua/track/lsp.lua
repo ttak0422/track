@@ -17,6 +17,7 @@ local attached = {}
 -- resolved_cache[buf] = set of "row:start:end" keys the server returned as resolved document links,
 -- kept so cursor moves can repaint (toggle anti-conceal) without another LSP round trip.
 local resolved_cache = {}
+local create_command_registered = false
 
 local function find_binary()
    if cached_binary then
@@ -226,6 +227,45 @@ local function refresh(buf)
    end)
 end
 
+local function register_create_note_command()
+   if create_command_registered then
+      return
+   end
+   create_command_registered = true
+
+   vim.lsp.commands = vim.lsp.commands or {}
+   vim.lsp.commands["track.createNote"] = function(command, ctx)
+      local arg = (command.arguments or {})[1] or {}
+      local title = type(arg) == "table" and arg.title or tostring(arg)
+      title = title and vim.trim(title) or ""
+      if title == "" or title == "nil" then
+         vim.notify("track: note title is empty", vim.log.levels.WARN)
+         return
+      end
+      local lsp_client = ctx and ctx.client_id and vim.lsp.get_client_by_id(ctx.client_id)
+      if not lsp_client then
+         vim.notify("track: LSP client is not available", vim.log.levels.ERROR)
+         return
+      end
+      local buf = (ctx and ctx.bufnr) or vim.api.nvim_get_current_buf()
+      lsp_client:request("workspace/executeCommand", {
+         command = "track.createNote",
+         arguments = { { title = title } },
+      }, function(err, result)
+         if err then
+            vim.notify("track: " .. tostring(err.message or err), vim.log.levels.ERROR)
+            return
+         end
+         if result and result.path then
+            vim.notify("track: created " .. result.path, vim.log.levels.INFO)
+         end
+         vim.schedule(function()
+            refresh(buf)
+         end)
+      end, buf)
+   end
+end
+
 local function schedule(buf)
    local timer = timers[buf]
    if not timer then
@@ -333,6 +373,7 @@ end
 function M.setup()
    vim.api.nvim_set_hl(0, config.options.hl_group, { default = true, link = "Underlined" })
    vim.api.nvim_set_hl(0, config.options.hl_group_unresolved, { default = true, link = "Comment" })
+   register_create_note_command()
    if config.options.conceal and config.options.reveal_code_fences then
       reveal_code_fences()
    end
