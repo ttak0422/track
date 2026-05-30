@@ -31,6 +31,7 @@ func cmdBabelExec(args []string) int {
 	id := fs.Int64("id", 0, "note id (alternative to --path)")
 	name := fs.String("name", "", "block :name to run")
 	ordinal := fs.Int("ordinal", -1, "0-based block index to run (alternative to --name)")
+	line := fs.Int("line", -1, "0-based line inside the block to run (e.g. the editor cursor row)")
 	yes := fs.Bool("yes", false, "confirm execution for blocks with :eval query")
 	timeout := fs.Duration("timeout", 30*time.Second, "max run time per block (0 = no limit)")
 	if err := fs.Parse(args); err != nil {
@@ -61,7 +62,7 @@ func cmdBabelExec(args []string) int {
 		return fail("%v", err)
 	}
 
-	block, err := selectBlock(blocks, *name, *ordinal)
+	block, err := selectBlock(blocks, *name, *ordinal, *line)
 	if err != nil {
 		return fail("%v", err)
 	}
@@ -104,18 +105,20 @@ func cmdBabelExec(args []string) int {
 	}
 
 	return emit(map[string]any{
-		"id":        blockID,
-		"language":  block.Language,
-		"status":    res.Status,
-		"exit_code": res.ExitCode,
-		"stdout":    res.Stdout,
-		"stderr":    res.Stderr,
-		"stored":    stored,
+		"id":         blockID,
+		"language":   block.Language,
+		"status":     res.Status,
+		"exit_code":  res.ExitCode,
+		"stdout":     res.Stdout,
+		"stderr":     res.Stderr,
+		"stored":     stored,
+		"start_line": block.StartLine,
+		"end_line":   block.EndLine,
 	})
 }
 
-// selectBlock picks the block to run: by :name, by ordinal, or the sole block when neither is given.
-func selectBlock(blocks []babel.Block, name string, ordinal int) (babel.Block, error) {
+// selectBlock picks the block to run: by :name, by ordinal, by a line inside it, or the sole block.
+func selectBlock(blocks []babel.Block, name string, ordinal, line int) (babel.Block, error) {
 	if len(blocks) == 0 {
 		return babel.Block{}, fmt.Errorf("note has no source blocks")
 	}
@@ -135,10 +138,18 @@ func selectBlock(blocks []babel.Block, name string, ordinal int) (babel.Block, e
 		}
 		return babel.Block{}, fmt.Errorf("no block at ordinal %d", ordinal)
 	}
+	if line >= 0 {
+		for _, b := range blocks {
+			if line >= b.StartLine && line <= b.EndLine {
+				return b, nil
+			}
+		}
+		return babel.Block{}, fmt.Errorf("no source block at line %d", line)
+	}
 	if len(blocks) == 1 {
 		return blocks[0], nil
 	}
-	return babel.Block{}, fmt.Errorf("note has %d blocks; pass --name or --ordinal", len(blocks))
+	return babel.Block{}, fmt.Errorf("note has %d blocks; pass --name, --ordinal, or --line", len(blocks))
 }
 
 // resolveDir resolves a block's :dir relative to the note directory and refuses paths outside the vault.

@@ -245,6 +245,32 @@ func TestBabelExecRunsAndStores(t *testing.T) {
 	}
 }
 
+func TestBabelExecByLine(t *testing.T) {
+	if _, err := exec.LookPath("sh"); err != nil {
+		t.Skip("sh not available")
+	}
+	vault := t.TempDir()
+	t.Setenv("TRACK_BABEL_SH", "sh {{file}}")
+
+	runIn(t, vault, "new", "--title", "Demo", "--id", "502")
+	// Two blocks; the cursor row (0-based) lands inside the second one.
+	body := "# Demo\n\n```sh\necho first\n```\n\n```sh\necho second\n```\n"
+	if err := os.WriteFile(vault+"/502.md", []byte(body), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	out, code := runIn(t, vault, "babel", "exec", "--id", "502", "--line", "7")
+	if code != 0 {
+		t.Fatalf("babel exec by line failed: %v", out)
+	}
+	if out["stdout"] != "second\n" {
+		t.Fatalf("expected the second block to run, got %v", out)
+	}
+	if int(out["end_line"].(float64)) != 8 {
+		t.Fatalf("expected end_line 8, got %v", out["end_line"])
+	}
+}
+
 func TestBabelExecRefusesEvalNo(t *testing.T) {
 	if _, err := exec.LookPath("sh"); err != nil {
 		t.Skip("sh not available")
