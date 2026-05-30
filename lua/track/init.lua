@@ -12,6 +12,7 @@ end
 function M.setup(opts)
    config.setup(opts)
    require("track.lsp").setup()
+   require("track.babel").setup()
    require("track.commands").setup()
 end
 

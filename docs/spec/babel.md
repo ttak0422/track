@@ -33,6 +33,8 @@ print(1)
 
 Execution results should not be inserted into the Markdown body. They belong in the note sidecar metadata under `.track/notes/<id>.yaml`, keyed by a stable block identity.
 
+In Neovim, results render as virtual lines just below the block's closing fence, so the buffer text is unchanged and multi-line output is shown without editing the note. The stored result persists in the sidecar across sessions.
+
 ## Proposed Metadata Shape
 
 The current metadata schema is version 1. Babel support should require a future metadata version because result storage adds new durable fields.

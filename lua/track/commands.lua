@@ -29,6 +29,14 @@ function M.setup()
       require("track.follow").follow()
    end, { desc = "Follow the track link under the cursor" })
 
+   cmd("TrackBabelExec", function()
+      require("track.babel").exec()
+   end, { desc = "Run the source block under the cursor and show its result" })
+
+   cmd("TrackBabelClear", function()
+      require("track.babel").clear()
+   end, { desc = "Clear rendered babel results in the buffer" })
+
    cmd("TrackToday", function()
       require("track.journal").open(0)
    end, { desc = "Open today's journal note" })

@@ -31,6 +31,10 @@ M.defaults = {
    conceal = true,
    -- Debounce for re-highlighting, in milliseconds.
    debounce_ms = 150,
+   -- Highlight groups for rendered babel results (status header, stdout, stderr).
+   babel_hl_header = "TrackBabelHeader",
+   babel_hl_result = "TrackBabelResult",
+   babel_hl_error = "TrackBabelError",
 }
 
 M.options = vim.deepcopy(M.defaults)

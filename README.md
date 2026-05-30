@@ -83,6 +83,8 @@ Commands:
 ```vim
 :TrackNew [title]   " create a note (visual selection / args / prompt-with-cword)
 :TrackFollow        " follow the [[...]] link under the cursor (also mapped to <CR>)
+:TrackBabelExec     " run the source block under the cursor; result shows below it
+:TrackBabelClear    " clear rendered babel results in the buffer
 :TrackToday         " open today's journal note
 :TrackYesterday
 :TrackTomorrow
