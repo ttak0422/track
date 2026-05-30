@@ -16,15 +16,16 @@ Duplicating that behavior in Lua would make editor behavior drift from the index
 
 Implement `track-lsp` in Go and keep Lua as a thin startup and rendering layer.
 
-The first LSP surface is intentionally small:
+The LSP surface is:
 
-- `textDocument/documentLink` returns ranges for auto-linkable terms.
-- `textDocument/definition` jumps from a term to the target note.
+- `textDocument/documentLink` returns ranges for resolved `[[...]]` links (see ADR 0008).
+- `textDocument/definition` jumps from a link to the target note.
+- `textDocument/completion` offers titles and aliases inside an open `[[`, triggered on `[`.
 - `textDocument/didOpen` and `textDocument/didChange` keep unsaved buffer text available for link detection.
 - `textDocument/didSave` reindexes the saved note's outgoing links.
 
-The server uses the same `$TRACK_VAULT`, SQLite index, and matcher as the CLI.
-The Neovim plugin starts `track-lsp` by default for markdown buffers under the vault and renders returned document links as underlined ranges.
+The server uses the same `$TRACK_VAULT` and SQLite index as the CLI, resolving links through the shared keyword dictionary.
+The Neovim plugin starts `track-lsp` by default for markdown buffers under the vault, renders resolved document links as underlined ranges, and highlights unresolved `[[...]]` distinctly.
 
 ## Consequences
 
@@ -32,4 +33,4 @@ Editor navigation becomes interactive without requiring explicit track commands 
 
 The CLI remains useful for scripts and commands, while LSP owns low-latency editor features.
 
-Future features such as hover, completion, diagnostics, and rename can be added to the Go LSP without reimplementing core note logic in Lua.
+Future features such as hover, diagnostics, and rename can be added to the Go LSP without reimplementing core note logic in Lua.

@@ -72,8 +72,8 @@ created: 2026-05-24
 Fields:
 
 - `version`: metadata schema version. Required for new writes.
-- `title`: note title and primary auto-link keyword. This mirrors the first H1 heading in the markdown body when one exists.
-- `aliases`: additional auto-link keywords.
+- `title`: note title and primary link keyword. This mirrors the first H1 heading in the markdown body when one exists.
+- `aliases`: additional link keywords.
 - `tags`: note tags.
 - `created`: creation date string. The current format is `YYYY-MM-DD`.
 
@@ -149,7 +149,7 @@ Column notes:
 - `notes.mtime`: note file modification time as a Unix timestamp. It is kept for future change detection and incremental reindexing.
 - `aliases.note_id` and `tags.note_id`: metadata rows attached to a note. They are replaced on note upsert.
 - `links.src_id` and `links.dst_id`: computed directed note links. Self-links are ignored by the writer.
-- `keywords`: convenience view used by keyword dumping, resolution, matching, and auto-link highlighting.
+- `keywords`: convenience view used by keyword dumping, resolution, and `[[...]]` link highlighting.
 
 ## Deletion
 

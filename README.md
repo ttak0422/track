@@ -25,7 +25,7 @@ The engine lives in reusable `internal/track/*` packages so a future LSP server 
   created: 2026-05-24
   ```
 
-- **Auto-links** work like the old Hatena keyword auto-link: any registered note title or alias is automatically highlighted and followable wherever it appears in vault buffers — no special markup, and it works mid-word for Japanese (longest-match substring). Unregistered words do nothing.
+- **Links** are explicit, written `[[title or alias]]`. Resolved links are highlighted and followable; links to notes that don't exist yet are highlighted distinctly. Completion offers titles and aliases as you type inside `[[`. Exact-match resolution works for Japanese without word boundaries. See [docs/spec/links.md](docs/spec/links.md).
 - **Journal**: each day maps to a stable `yyyyMMdd` note, so opening "today" is idempotent. Journal notes are stored separately under `journal/` and named `yyyyMMdd.md`, so lexical file order follows day order.
 
 ## Layout
@@ -33,8 +33,8 @@ The engine lives in reusable `internal/track/*` packages so a future LSP server 
 ```
 cmd/track/main.go        # thin CLI entry point
 internal/cli/            # argument routing -> engine -> JSON
-internal/track/          # engine (config, note metadata, store, index, match)
-lua/track/               # Neovim frontend (config, client, autolink, follow, ...)
+internal/track/          # engine (config, note metadata, store, index, link, lsp)
+lua/track/               # Neovim frontend (config, client, lsp, follow, ...)
 nix/apps/                # `nix run .#test-nvim` launcher
 flake.nix                # Go CLI + Vim plugin packaging
 ```
@@ -48,7 +48,7 @@ The vault must be set explicitly with `$TRACK_VAULT`; the index db defaults to `
 track new --title <t> [--id <unix>]   # create a note
 track journal [--offset <n>]          # open/create a daily note (0=today)
 track reindex [--full]                # rebuild the index
-track keywords                        # dump the auto-link dictionary
+track keywords                        # dump the link keyword dictionary
 track resolve --term <s>              # resolve a keyword to a note
 track search --query <s> [--limit N]  # search notes
 track backlinks (--id N | --path P)   # list backlinks
@@ -61,8 +61,9 @@ track version                         # print the version
 `track-lsp` is a Go Language Server Protocol frontend over the same engine packages.
 It currently provides:
 
-- `textDocument/documentLink`: returns link ranges for registered note titles and aliases.
-- `textDocument/definition`: jumps from the keyword under the cursor to the target note.
+- `textDocument/documentLink`: returns ranges for resolved `[[...]]` links.
+- `textDocument/definition`: jumps from the `[[...]]` under the cursor to the target note.
+- `textDocument/completion`: offers titles and aliases inside an open `[[`, triggered on `[`.
 
 The server uses UTF-8 positions and reads the same `$TRACK_VAULT` configuration as the CLI.
 
@@ -79,17 +80,16 @@ Commands:
 
 ```vim
 :TrackNew [title]   " create a note (visual selection / args / prompt-with-cword)
-:TrackFollow        " follow the auto-link under the cursor (also mapped to <CR>)
+:TrackFollow        " follow the [[...]] link under the cursor (also mapped to <CR>)
 :TrackToday         " open today's journal note
 :TrackYesterday
 :TrackTomorrow
 :TrackJournal [n]   " journal note at day offset n
-:TrackKeywords      " list the auto-link dictionary
+:TrackKeywords      " list the link keyword dictionary
 :TrackDump          " diagnostic state dump
 ```
 
-In a vault buffer, registered keywords are underlined (`TrackLink` highlight group); press `<CR>` on one to jump to its note.
-By default this underline and jump behavior is backed by `track-lsp`.
+In a vault buffer, resolved `[[...]]` links are underlined (`TrackLink` highlight group) and unresolved ones use `TrackLinkUnresolved`; press `<CR>` on a link to jump to its note. Typing inside `[[` completes titles and aliases. This is backed by `track-lsp`.
 
 ## Development
 

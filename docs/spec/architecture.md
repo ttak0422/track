@@ -14,11 +14,11 @@ Reusable engine code lives under `internal/track/*`:
 - `note`: note file parsing and versioned sidecar metadata.
 - `store`: SQLite schema and queries.
 - `index`: filesystem scan, metadata ingestion, and link graph rebuilds.
-- `match`: auto-link keyword matching.
+- `link`: extraction of `[[...]]` references from note text.
 
 The CLI layer under `internal/cli` handles argument parsing, command routing, and JSON output.
 `cmd/track/main.go` is only the process entry point.
-The LSP layer under `internal/track/lsp` handles JSON-RPC, document link requests, definition requests, and open document text.
+The LSP layer under `internal/track/lsp` handles JSON-RPC, document link requests, definition requests, completion, and open document text.
 `cmd/track-lsp/main.go` is only the LSP process entry point.
 
 ## Data Flow
@@ -36,10 +36,9 @@ The Lua plugin is intentionally thin:
 - It resolves the `track` and `track-lsp` binaries.
 - It requires an explicit vault through `TRACK_VAULT` or `setup({ vault_dir = ... })`.
 - It registers user commands such as `:TrackNew`, `:TrackFollow`, and `:TrackJournal`.
-- It fetches the keyword dictionary from `track keywords`.
 - It starts `track-lsp` for markdown buffers under the vault.
-- It renders `textDocument/documentLink` results as underlined ranges.
-- It follows links through `textDocument/definition`.
+- It renders resolved `textDocument/documentLink` results as underlined ranges and highlights unresolved `[[...]]` distinctly.
+- It follows links through `textDocument/definition` and completes titles/aliases inside `[[` through `textDocument/completion`.
 
 Persistent behavior should stay in the Go engine unless there is a clear reason to duplicate it in Lua.
 

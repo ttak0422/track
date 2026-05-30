@@ -2,7 +2,7 @@
 
 ## Status
 
-Accepted
+Superseded by [ADR 0008](0008-explicit-wiki-links.md)
 
 ## Context
 

@@ -6,7 +6,7 @@ This directory contains durable project knowledge that should be committed and s
 
 - `spec/architecture.md`: implementation architecture and package boundaries.
 - `spec/storage.md`: vault layout, sidecar metadata, and SQLite index shape.
-- `spec/autolink.md`: keyword derivation, matching rules, and link graph behavior.
+- `spec/links.md`: `[[...]]` link syntax, keyword resolution, and link graph behavior.
 
 ## ADRs
 
@@ -17,6 +17,7 @@ This directory contains durable project knowledge that should be committed and s
 - `adr/0005-journal-date-paths.md`
 - `adr/0006-body-title-is-authoritative.md`
 - `adr/0007-go-lsp-for-editor-navigation.md`
+- `adr/0008-explicit-wiki-links.md`
 
 ## Not Here
 
