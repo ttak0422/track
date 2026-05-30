@@ -12,3 +12,7 @@
 
 # Claude Code
 .claude/
+
+# Local scratch notes
+.local/
+devlog/
