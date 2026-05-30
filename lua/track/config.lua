@@ -29,6 +29,9 @@ M.defaults = {
    -- Conceal the [[ ]] brackets (and the "target|" of display aliases), showing just the link text.
    -- Sets conceallevel locally in windows showing vault buffers; the cursor line stays raw for editing.
    conceal = true,
+   -- Raising conceallevel for links also lets Neovim's bundled treesitter markdown query conceal
+   -- code-fence delimiters (```lua disappears). When true, track reveals those fences again.
+   reveal_code_fences = true,
    -- Debounce for re-highlighting, in milliseconds.
    debounce_ms = 150,
    -- Highlight groups for rendered babel results (status header, stdout, stderr).

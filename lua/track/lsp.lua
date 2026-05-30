@@ -145,6 +145,26 @@ local function highlight_links(buf, resolved, cursor)
    end
 end
 
+-- reveal_code_fences rewrites the markdown treesitter highlights query to drop its conceal/conceal_lines
+-- directives, so raising conceallevel for links does not also hide ```lang fence delimiters. This edits a
+-- global query, which is appropriate for a markdown note environment; it is a no-op without the parser.
+local function reveal_code_fences()
+   local ok, files = pcall(vim.treesitter.query.get_files, "markdown", "highlights")
+   if not ok or not files then
+      return
+   end
+   local parts = {}
+   for _, file in ipairs(files) do
+      local fd = io.open(file, "r")
+      if fd then
+         parts[#parts + 1] = fd:read("*a")
+         fd:close()
+      end
+   end
+   local src = table.concat(parts, "\n"):gsub("%(#set!%s+conceal[^%)]*%)", "")
+   pcall(vim.treesitter.query.set, "markdown", "highlights", src)
+end
+
 -- apply_conceal_options enables concealment in every window currently showing buf.
 local function apply_conceal_options(buf)
    if not config.options.conceal then
@@ -313,6 +333,9 @@ end
 function M.setup()
    vim.api.nvim_set_hl(0, config.options.hl_group, { default = true, link = "Underlined" })
    vim.api.nvim_set_hl(0, config.options.hl_group_unresolved, { default = true, link = "Comment" })
+   if config.options.conceal and config.options.reveal_code_fences then
+      reveal_code_fences()
+   end
    local group = vim.api.nvim_create_augroup(config.options.augroup .. "_lsp", { clear = true })
    vim.api.nvim_create_autocmd("FileType", {
       group = group,
