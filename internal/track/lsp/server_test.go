@@ -207,6 +207,36 @@ func TestCompletionOffersCreateNoteWhenNoKeywordMatches(t *testing.T) {
 	}
 }
 
+func TestCompletionResponseIsIncomplete(t *testing.T) {
+	srv, vault := setupServer(t)
+	uri := uriFromPath(filepath.Join(vault, "200.md"))
+	srv.docs[uri] = "see [["
+	params, err := json.Marshal(textDocumentPositionParams{
+		TextDocument: textDocumentIdentifier{URI: uri},
+		Position:     position{Line: 0, Character: 6},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	resp := srv.handleRequest(rpcMessage{
+		JSONRPC: "2.0",
+		ID:      json.RawMessage(`1`),
+		Method:  "textDocument/completion",
+		Params:  params,
+	})
+	if resp.Error != nil {
+		t.Fatalf("completion response error: %+v", resp.Error)
+	}
+	list, ok := resp.Result.(completionList)
+	if !ok {
+		t.Fatalf("expected completionList, got %T", resp.Result)
+	}
+	if !list.IsIncomplete {
+		t.Fatalf("completion list should be incomplete so cmp re-queries after additional typing")
+	}
+}
+
 func TestCodeActionCreatesUnresolvedNote(t *testing.T) {
 	srv, vault := setupServer(t)
 	uri := uriFromPath(filepath.Join(vault, "200.md"))

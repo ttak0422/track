@@ -56,6 +56,11 @@ type completionItem struct {
 	Command    *command  `json:"command,omitempty"`
 }
 
+type completionList struct {
+	IsIncomplete bool             `json:"isIncomplete"`
+	Items        []completionItem `json:"items"`
+}
+
 type command struct {
 	Title     string `json:"title"`
 	Command   string `json:"command"`

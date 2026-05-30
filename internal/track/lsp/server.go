@@ -164,7 +164,7 @@ func (s *Server) handleRequest(msg rpcMessage) rpcMessage {
 			resp.Error = &rpcError{Code: -32000, Message: err.Error()}
 			return resp
 		}
-		resp.Result = items
+		resp.Result = completionList{IsIncomplete: true, Items: items}
 	case "textDocument/codeAction":
 		var p codeActionParams
 		if err := json.Unmarshal(msg.Params, &p); err != nil {
