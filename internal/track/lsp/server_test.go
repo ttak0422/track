@@ -146,6 +146,16 @@ func TestCompletionInsideBrackets(t *testing.T) {
 	if len(items) != 2 {
 		t.Fatalf("expected 2 candidates, got %+v", items)
 	}
+	var goItem *completionItem
+	for i := range items {
+		if items[i].Label == "Go" {
+			goItem = &items[i]
+			break
+		}
+	}
+	if goItem == nil || goItem.TextEdit == nil || goItem.TextEdit.NewText != "Go]]" {
+		t.Fatalf("existing note completion should close the link, got %+v", goItem)
+	}
 }
 
 func TestCompletionExcludesSelfAndOutsideBrackets(t *testing.T) {
@@ -191,7 +201,7 @@ func TestCompletionOffersCreateNoteWhenNoKeywordMatches(t *testing.T) {
 	if create == nil {
 		t.Fatalf("expected create-note completion item, got %+v", items)
 	}
-	if create.Label != "Rust" || create.FilterText != "Rust" || create.InsertText != "Rust" || create.TextEdit == nil || create.TextEdit.NewText != "Rust" {
+	if create.Label != "Rust" || create.FilterText != "Rust" || create.InsertText != "Rust" || create.TextEdit == nil || create.TextEdit.NewText != "Rust]]" {
 		t.Fatalf("unexpected create item: %+v", create)
 	}
 
@@ -204,6 +214,30 @@ func TestCompletionOffersCreateNoteWhenNoKeywordMatches(t *testing.T) {
 		if item.Command != nil && item.Command.Command == createNoteCommand {
 			t.Fatalf("did not expect create-note item when a keyword matches, got %+v", matched)
 		}
+	}
+}
+
+func TestCompletionDoesNotDuplicateExistingClose(t *testing.T) {
+	srv, vault := setupServer(t)
+	uri := uriFromPath(filepath.Join(vault, "200.md"))
+	srv.docs[uri] = "see [[Go]]"
+
+	items, err := srv.completion(uri, position{Line: 0, Character: 8})
+	if err != nil {
+		t.Fatalf("completion: %v", err)
+	}
+	var goItem *completionItem
+	for i := range items {
+		if items[i].Label == "Go" {
+			goItem = &items[i]
+			break
+		}
+	}
+	if goItem == nil || goItem.TextEdit == nil {
+		t.Fatalf("expected Go completion item, got %+v", items)
+	}
+	if goItem.TextEdit.NewText != "Go" {
+		t.Fatalf("completion should not duplicate existing close, got %+v", goItem.TextEdit)
 	}
 }
 

@@ -324,6 +324,7 @@ type openLinkContext struct {
 	Line         int
 	ReplaceStart int
 	ReplaceEnd   int
+	NeedsClose   bool
 	Target       string
 }
 
@@ -346,21 +347,28 @@ func openLinkCompletionContext(text string, pos position) (openLinkContext, bool
 	if strings.Contains(typed, "|") {
 		return openLinkContext{}, false
 	}
+	closeAfterOpen := strings.Index(line[open+2:], "]]")
+	needsClose := closeAfterOpen < 0 || open+2+closeAfterOpen < col
 	return openLinkContext{
 		Line:         pos.Line,
 		ReplaceStart: open + 2,
 		ReplaceEnd:   col,
+		NeedsClose:   needsClose,
 		Target:       strings.TrimSpace(typed),
 	}, true
 }
 
 func completionTextEdit(ctx openLinkContext, text string) *textEdit {
+	newText := text
+	if ctx.NeedsClose {
+		newText += "]]"
+	}
 	return &textEdit{
 		Range: rangeValue{
 			Start: position{Line: ctx.Line, Character: ctx.ReplaceStart},
 			End:   position{Line: ctx.Line, Character: ctx.ReplaceEnd},
 		},
-		NewText: text,
+		NewText: newText,
 	}
 }
 
