@@ -8,7 +8,7 @@ import (
 func TestRefsSingle(t *testing.T) {
 	got := Refs("see [[リンク]] here")
 	want := []Ref{
-		{Line: 0, StartByte: 6, EndByte: 15, OpenByte: 4, CloseByte: 17, Text: "リンク"},
+		{Line: 0, StartByte: 6, EndByte: 15, OpenByte: 4, CloseByte: 17, Text: "リンク", Display: "リンク"},
 	}
 	if !reflect.DeepEqual(got, want) {
 		t.Fatalf("got %+v, want %+v", got, want)
@@ -18,9 +18,9 @@ func TestRefsSingle(t *testing.T) {
 func TestRefsMultiplePerLineAndLines(t *testing.T) {
 	got := Refs("[[a]] and [[b]]\nthen [[c]]")
 	want := []Ref{
-		{Line: 0, StartByte: 2, EndByte: 3, OpenByte: 0, CloseByte: 5, Text: "a"},
-		{Line: 0, StartByte: 12, EndByte: 13, OpenByte: 10, CloseByte: 15, Text: "b"},
-		{Line: 1, StartByte: 7, EndByte: 8, OpenByte: 5, CloseByte: 10, Text: "c"},
+		{Line: 0, StartByte: 2, EndByte: 3, OpenByte: 0, CloseByte: 5, Text: "a", Display: "a"},
+		{Line: 0, StartByte: 12, EndByte: 13, OpenByte: 10, CloseByte: 15, Text: "b", Display: "b"},
+		{Line: 1, StartByte: 7, EndByte: 8, OpenByte: 5, CloseByte: 10, Text: "c", Display: "c"},
 	}
 	if !reflect.DeepEqual(got, want) {
 		t.Fatalf("got %+v, want %+v", got, want)
@@ -30,8 +30,8 @@ func TestRefsMultiplePerLineAndLines(t *testing.T) {
 func TestRefsSkipsFencedCode(t *testing.T) {
 	got := Refs("[[a]]\n```\n[[b]]\n```\n[[c]]")
 	want := []Ref{
-		{Line: 0, StartByte: 2, EndByte: 3, OpenByte: 0, CloseByte: 5, Text: "a"},
-		{Line: 4, StartByte: 2, EndByte: 3, OpenByte: 0, CloseByte: 5, Text: "c"},
+		{Line: 0, StartByte: 2, EndByte: 3, OpenByte: 0, CloseByte: 5, Text: "a", Display: "a"},
+		{Line: 4, StartByte: 2, EndByte: 3, OpenByte: 0, CloseByte: 5, Text: "c", Display: "c"},
 	}
 	if !reflect.DeepEqual(got, want) {
 		t.Fatalf("got %+v, want %+v", got, want)
@@ -46,6 +46,40 @@ func TestRefsTrimsInnerWhitespace(t *testing.T) {
 	// The highlight range covers the inner text including padding.
 	if got[0].StartByte != 2 || got[0].EndByte != 15 {
 		t.Fatalf("unexpected inner range: %+v", got[0])
+	}
+}
+
+func TestRefsDisplayAlias(t *testing.T) {
+	got := Refs("see [[Go|ゴー言語]] here")
+	if len(got) != 1 {
+		t.Fatalf("expected 1 ref, got %+v", got)
+	}
+	r := got[0]
+	if r.Text != "Go" || r.Display != "ゴー言語" {
+		t.Fatalf("target/display: %+v", r)
+	}
+	// The range still spans the whole inner text, pipe included: "see " is 4 bytes, "[[" at 4-5.
+	if r.StartByte != 6 {
+		t.Fatalf("unexpected start byte: %+v", r)
+	}
+}
+
+func TestRefsDisplayEdgeCases(t *testing.T) {
+	// Empty display falls back to the target.
+	if g := Refs("[[Go|]]"); len(g) != 1 || g[0].Text != "Go" || g[0].Display != "Go" {
+		t.Fatalf("empty display: %+v", g)
+	}
+	// Empty target is not a link.
+	if g := Refs("[[|disp]]"); len(g) != 0 {
+		t.Fatalf("empty target should be invalid: %+v", g)
+	}
+	// Only the first pipe splits; the rest stays in the display.
+	if g := Refs("[[a|b|c]]"); len(g) != 1 || g[0].Text != "a" || g[0].Display != "b|c" {
+		t.Fatalf("multi pipe: %+v", g)
+	}
+	// Whitespace around both sides is trimmed.
+	if g := Refs("[[ Go | ゴー ]]"); len(g) != 1 || g[0].Text != "Go" || g[0].Display != "ゴー" {
+		t.Fatalf("trim: %+v", g)
 	}
 }
 

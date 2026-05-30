@@ -11,13 +11,13 @@ The inner `text` is the resolution key; surrounding ASCII whitespace is trimmed,
 - The inner text may not contain `[` or `]`, so `[[a]b]]` is not a link.
 - Empty or whitespace-only inner text (`[[]]`, `[[ ]]`) is not a link.
 - Links do not span lines.
-- `[[title|display]]` display aliases are not supported yet.
+- `[[target|display]]` links to `target` while showing `display` (Obsidian-style). The first `|` separates them; later `|` stay in the display. An empty `display` falls back to `target`, and an empty `target` (`[[|x]]`) is not a link.
 
 Fenced code blocks delimited by lines starting with ` ``` ` are excluded.
 
 ## Resolution
 
-The inner text resolves against the keyword dictionary by **exact match**:
+The target (the inner text before any `|`) resolves against the keyword dictionary by **exact match**:
 
 - each non-empty note `title`
 - each non-empty note `alias`

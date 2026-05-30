@@ -25,7 +25,7 @@ The engine lives in reusable `internal/track/*` packages so a future LSP server 
   created: 2026-05-24
   ```
 
-- **Links** are explicit, written `[[title or alias]]`. Resolved links are highlighted and followable; links to notes that don't exist yet are highlighted distinctly. Completion offers titles and aliases as you type inside `[[`. Exact-match resolution works for Japanese without word boundaries. See [docs/spec/links.md](docs/spec/links.md).
+- **Links** are explicit, written `[[title or alias]]`, with optional Obsidian-style `[[target|display]]` aliases. Resolved links are highlighted and followable; links to notes that don't exist yet are highlighted distinctly. Completion offers titles and aliases as you type inside `[[`. Exact-match resolution works for Japanese without word boundaries. See [docs/spec/links.md](docs/spec/links.md).
 - **Journal**: each day maps to a stable `yyyyMMdd` note, so opening "today" is idempotent. Journal notes are stored separately under `journal/` and named `yyyyMMdd.md`, so lexical file order follows day order.
 
 ## Layout

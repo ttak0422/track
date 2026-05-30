@@ -16,7 +16,7 @@ ADR 0003 made links implicit: any registered title or alias became a link wherev
 Links are explicit, written `[[text]]`, and resolved against note titles and aliases by exact match.
 
 - Extraction of `[[...]]` is O(line length); resolution is an O(1) dictionary lookup. Detection no longer depends on the number of notes.
-- Inner text is single-line, may not contain brackets, and is trimmed of surrounding whitespace before resolution. `[[title|display]]` is not supported yet.
+- Inner text is single-line, may not contain brackets, and is trimmed of surrounding whitespace before resolution. `[[target|display]]` links to `target` while showing `display`, Obsidian-style.
 - Fenced code blocks and self-links are still excluded.
 - Unresolved `[[...]]` (no matching note) are not written to the graph and not returned as document links; the editor highlights them in a distinct group so they read as "note not created yet".
 - The Go LSP gains `textDocument/completion`, triggered on `[`, offering titles and aliases inside an open `[[`. The Neovim Lua plugin consolidates onto the LSP as the sole link frontend; the pure-Lua substring matcher is removed.

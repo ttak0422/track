@@ -110,6 +110,23 @@ func TestTitleLineCanLinkToAnotherNote(t *testing.T) {
 	}
 }
 
+func TestDisplayAliasResolves(t *testing.T) {
+	srv, vault := setupServer(t)
+	uri := uriFromPath(filepath.Join(vault, "200.md"))
+	srv.docs[uri] = "see [[Go|ゴー]]"
+
+	links, err := srv.documentLinks(uri)
+	if err != nil {
+		t.Fatalf("document links: %v", err)
+	}
+	if len(links) != 1 {
+		t.Fatalf("expected display-alias link to resolve, got %+v", links)
+	}
+	if links[0].Target != uriFromPath(filepath.Join(vault, "100.md")) {
+		t.Fatalf("unexpected target: %q", links[0].Target)
+	}
+}
+
 func TestCompletionInsideBrackets(t *testing.T) {
 	srv, vault := setupServer(t)
 	uri := uriFromPath(filepath.Join(vault, "200.md"))

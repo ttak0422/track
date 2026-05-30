@@ -17,7 +17,8 @@ type Ref struct {
 	EndByte   int    // end of the inner text (just before "]]")
 	OpenByte  int    // start of "[[", for replace ranges and unresolved highlighting
 	CloseByte int    // end of "]]"
-	Text      string // resolution key (inner text, surrounding whitespace trimmed)
+	Text      string // resolution key: the target before "|", whitespace trimmed
+	Display   string // display text: the part after "|", or Text when no "|" is present
 }
 
 // wikiLink matches a single-line [[...]] with no brackets inside, so [[a]b]] and [[]] do not match.
@@ -30,8 +31,8 @@ func Refs(text string) []Ref {
 	for _, line := range scannableLines(text) {
 		for _, m := range wikiLink.FindAllStringSubmatchIndex(line.Text, -1) {
 			inner := line.Text[m[2]:m[3]]
-			key := strings.TrimSpace(inner)
-			if key == "" {
+			target, display := splitDisplay(inner)
+			if target == "" {
 				continue
 			}
 			out = append(out, Ref{
@@ -40,11 +41,29 @@ func Refs(text string) []Ref {
 				EndByte:   m[3],
 				OpenByte:  m[0],
 				CloseByte: m[1],
-				Text:      key,
+				Text:      target,
+				Display:   display,
 			})
 		}
 	}
 	return out
+}
+
+// splitDisplay parses [[target|display]] inner text into its resolution key and display text.
+// The first "|" separates them; later "|" stay in the display. Without a "|", display equals the
+// trimmed key, and an empty display falls back to the key. A blank target yields an empty target,
+// which the caller treats as not a link.
+func splitDisplay(inner string) (target, display string) {
+	if i := strings.IndexByte(inner, '|'); i >= 0 {
+		target = strings.TrimSpace(inner[:i])
+		display = strings.TrimSpace(inner[i+1:])
+		if display == "" {
+			display = target
+		}
+		return target, display
+	}
+	target = strings.TrimSpace(inner)
+	return target, target
 }
 
 type scannableLine struct {
