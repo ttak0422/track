@@ -15,6 +15,7 @@ import (
 	"github.com/ttak0422/track/internal/track/config"
 	"github.com/ttak0422/track/internal/track/index"
 	"github.com/ttak0422/track/internal/track/match"
+	"github.com/ttak0422/track/internal/track/note"
 	"github.com/ttak0422/track/internal/track/store"
 )
 
@@ -143,14 +144,14 @@ func (s *Server) documentLinks(uri string) ([]documentLink, error) {
 	if err != nil {
 		return nil, err
 	}
+	currentID, hasCurrentID := noteIDFromURI(uri)
 	m, refs, err := s.matcher()
 	if err != nil {
 		return nil, err
 	}
-	titleLines := markdownH1Lines(text)
 	var links []documentLink
 	for _, occ := range m.Occurrences(text) {
-		if titleLines[occ.Line] {
+		if hasCurrentID && occ.Term.NoteID == currentID {
 			continue
 		}
 		ref, ok := refs[occ.Term.NoteID]
@@ -177,13 +178,13 @@ func (s *Server) definition(uri string, pos position) (*location, error) {
 	if err != nil {
 		return nil, err
 	}
+	currentID, hasCurrentID := noteIDFromURI(uri)
 	m, refs, err := s.matcher()
 	if err != nil {
 		return nil, err
 	}
-	titleLines := markdownH1Lines(text)
 	for _, occ := range m.Occurrences(text) {
-		if titleLines[occ.Line] {
+		if hasCurrentID && occ.Term.NoteID == currentID {
 			continue
 		}
 		if occ.Line != pos.Line || pos.Character < occ.StartByte || pos.Character >= occ.EndByte {
@@ -204,14 +205,13 @@ func (s *Server) definition(uri string, pos position) (*location, error) {
 	return nil, nil
 }
 
-func markdownH1Lines(text string) map[int]bool {
-	out := map[int]bool{}
-	for i, line := range strings.Split(text, "\n") {
-		if strings.HasPrefix(strings.TrimSpace(line), "# ") {
-			out[i] = true
-		}
+func noteIDFromURI(uri string) (int64, bool) {
+	path, err := pathFromURI(uri)
+	if err != nil {
+		return 0, false
 	}
-	return out
+	id, err := note.IDFromPath(path)
+	return id, err == nil
 }
 
 func (s *Server) documentText(uri string) (string, error) {

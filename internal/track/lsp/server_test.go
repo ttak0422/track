@@ -74,27 +74,38 @@ func TestDefinition(t *testing.T) {
 	}
 }
 
-func TestTitleLineIsNotLinked(t *testing.T) {
+func TestSelfLinksAreNotLinked(t *testing.T) {
 	srv, vault := setupServer(t)
-	uri := uriFromPath(filepath.Join(vault, "200.md"))
+	uri := uriFromPath(filepath.Join(vault, "100.md"))
 	srv.docs[uri] = "# Go\n\nGo"
 
 	links, err := srv.documentLinks(uri)
 	if err != nil {
 		t.Fatalf("document links: %v", err)
 	}
-	if len(links) != 1 {
-		t.Fatalf("expected only body link, got %+v", links)
-	}
-	if links[0].Range.Start.Line != 2 {
-		t.Fatalf("expected body link on line 2, got %+v", links[0].Range)
+	if len(links) != 0 {
+		t.Fatalf("expected no self-links, got %+v", links)
 	}
 
-	loc, err := srv.definition(uri, position{Line: 0, Character: 2})
+	loc, err := srv.definition(uri, position{Line: 2, Character: 1})
 	if err != nil {
 		t.Fatalf("definition: %v", err)
 	}
 	if loc != nil {
-		t.Fatalf("title line should not resolve as a link, got %+v", loc)
+		t.Fatalf("self-link should not resolve, got %+v", loc)
+	}
+}
+
+func TestTitleLineCanLinkToAnotherNote(t *testing.T) {
+	srv, vault := setupServer(t)
+	uri := uriFromPath(filepath.Join(vault, "200.md"))
+	srv.docs[uri] = "# Go"
+
+	links, err := srv.documentLinks(uri)
+	if err != nil {
+		t.Fatalf("document links: %v", err)
+	}
+	if len(links) != 1 {
+		t.Fatalf("expected title link to another note, got %+v", links)
 	}
 }

@@ -22,7 +22,7 @@ Matches are non-overlapping.
 Duplicate keyword text keeps the first note id seen by the matcher.
 
 Fenced code blocks delimited by lines starting with ``` are excluded from matching.
-Markdown H1 title lines are excluded from LSP document links and definitions so title styling takes precedence over link styling.
+Self-links are excluded from LSP document links and definitions, so a note's own title or alias does not render as a link to itself.
 
 ## Link Graph
 
