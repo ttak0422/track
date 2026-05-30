@@ -45,4 +45,4 @@ The Neovim frontend starts `track-lsp` and is the only link frontend.
 - `textDocument/documentLink` returns ranges over the inner text of **resolved** `[[...]]`, rendered with the `TrackLink` group (linked to `Underlined` by default).
 - Unresolved `[[...]]` are scanned client-side and rendered with the `TrackLinkUnresolved` group (linked to `Comment` by default), marking notes that don't exist yet.
 - `textDocument/definition` (also bound to `<CR>`) jumps from a link to its target note.
-- `textDocument/completion` triggers on `[` and offers titles and aliases while the cursor is inside an open `[[`, excluding the current note's own terms. Autotrigger is enabled where `vim.lsp.completion` is available.
+- `textDocument/completion` offers titles and aliases (triggered on `[`) while the cursor is inside an open `[[`, excluding the current note's own terms. This is a standard LSP capability and is UI-independent: the plugin merges `cmp-nvim-lsp` capabilities when nvim-cmp is installed, so completion surfaces through the user's nvim-cmp setup. Without nvim-cmp, the server still advertises completion for any other client.

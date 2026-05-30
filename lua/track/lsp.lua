@@ -145,6 +145,19 @@ local function schedule(buf)
    end))
 end
 
+-- make_capabilities advertises completion to the server, merging cmp-nvim-lsp's capabilities when nvim-cmp is installed
+-- so `[[` completion flows through the user's nvim-cmp setup. The server stays on utf-8 byte positions either way.
+local function make_capabilities()
+   local caps = vim.lsp.protocol.make_client_capabilities()
+   local ok, cmp_lsp = pcall(require, "cmp_nvim_lsp")
+   if ok then
+      caps = vim.tbl_deep_extend("force", caps, cmp_lsp.default_capabilities())
+   end
+   caps.general = caps.general or {}
+   caps.general.positionEncodings = { "utf-8" }
+   return caps
+end
+
 local function start_client(buf)
    if client_id and vim.lsp.get_client_by_id(client_id) then
       vim.lsp.buf_attach_client(buf, client_id)
@@ -158,11 +171,7 @@ local function start_client(buf)
       cmd_env = {
          TRACK_VAULT = config.options.vault_dir,
       },
-      capabilities = {
-         general = {
-            positionEncodings = { "utf-8" },
-         },
-      },
+      capabilities = make_capabilities(),
    }, { bufnr = buf })
 end
 
@@ -182,10 +191,6 @@ local function attach(buf)
       callback = function(ev)
          local client = vim.lsp.get_client_by_id(ev.data.client_id)
          if client and client.name == "track-lsp" then
-            -- Enable autotriggered completion (on "[") where the Neovim build supports it.
-            if vim.lsp.completion and vim.lsp.completion.enable then
-               pcall(vim.lsp.completion.enable, true, ev.data.client_id, buf, { autotrigger = true })
-            end
             refresh(buf)
          end
       end,

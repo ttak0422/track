@@ -89,7 +89,9 @@ Commands:
 :TrackDump          " diagnostic state dump
 ```
 
-In a vault buffer, resolved `[[...]]` links are underlined (`TrackLink` highlight group) and unresolved ones use `TrackLinkUnresolved`; press `<CR>` on a link to jump to its note. Typing inside `[[` completes titles and aliases. This is backed by `track-lsp`.
+In a vault buffer, resolved `[[...]]` links are underlined (`TrackLink` highlight group) and unresolved ones use `TrackLinkUnresolved`; press `<CR>` on a link to jump to its note. This is backed by `track-lsp`.
+
+Completion of titles and aliases inside `[[` is served over LSP. The plugin merges [`cmp-nvim-lsp`](https://github.com/hrsh7th/cmp-nvim-lsp) capabilities when nvim-cmp is installed, so candidates surface through your existing nvim-cmp setup (add `{ name = "nvim_lsp" }` to its sources). The completion source is UI-independent, so other clients work too.
 
 ## Development
 

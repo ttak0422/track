@@ -37,6 +37,9 @@ in
 {
   test-nvim = mkNeovimApp {
     plugins = [
+      # cmp-nvim-lsp must load before track so track's setup can detect it and advertise completion.
+      pkgs.vimPlugins.cmp-nvim-lsp
+      pkgs.vimPlugins.nvim-cmp
       {
         plugin = self'.packages.track;
         config = readLua ./nvim/track.lua;
