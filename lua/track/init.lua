@@ -11,11 +11,7 @@ end
 
 function M.setup(opts)
    config.setup(opts)
-   if config.options.lsp then
-      require("track.lsp").setup()
-   else
-      require("track.autolink").setup()
-   end
+   require("track.lsp").setup()
    require("track.commands").setup()
 end
 

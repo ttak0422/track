@@ -1,11 +1,11 @@
 -- Create new notes (keywords) from three entry points: the word under the cursor, a visual selection, or a prompt/command argument.
 
 local client = require("track.client")
-local autolink = require("track.autolink")
 
 local M = {}
 
--- create makes a new note titled `title`, then runs a full reindex so other notes' inbound links to the new title are picked up, reloads the keyword cache, and opens the note.
+-- create makes a new note titled `title`, then runs a full reindex so other notes' inbound links to the new title are picked up, and opens the note.
+-- The LSP server reloads the keyword dictionary on each request, so no client-side cache refresh is needed.
 function M.create(title)
    title = vim.trim(title or "")
    if title == "" then
@@ -23,7 +23,6 @@ function M.create(title)
    if rerr then
       vim.notify("track: reindex failed: " .. tostring(rerr), vim.log.levels.WARN)
    end
-   autolink.reload()
 
    vim.cmd.edit(vim.fn.fnameescape(data.path))
 end

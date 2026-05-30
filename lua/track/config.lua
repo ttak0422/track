@@ -16,18 +16,18 @@ M.defaults = {
    bin = "track",
    -- LSP binary name used when falling back to $PATH lookup.
    lsp_bin = "track-lsp",
-   -- Vault directory; auto-link highlighting only attaches to files here.
+   -- Vault directory; link highlighting only attaches to files here.
    vault_dir = default_vault(),
    -- Note file extensions (without dot).
    extensions = { "md" },
    -- Autocommand group name.
    augroup = "track",
-   -- Highlight group applied to auto-links.
+   -- Highlight group applied to resolved [[...]] links.
    hl_group = "TrackLink",
+   -- Highlight group applied to unresolved [[...]] links (no matching note yet).
+   hl_group_unresolved = "TrackLinkUnresolved",
    -- Debounce for re-highlighting, in milliseconds.
    debounce_ms = 150,
-   -- Enable the Go LSP frontend for document links and definitions.
-   lsp = true,
 }
 
 M.options = vim.deepcopy(M.defaults)

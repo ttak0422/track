@@ -2,7 +2,6 @@
 -- Each day maps to a stable yyyyMMdd note id, so opening the same day is idempotent.
 
 local client = require("track.client")
-local autolink = require("track.autolink")
 
 local M = {}
 
@@ -13,10 +12,7 @@ function M.open(offset)
       vim.notify("track: " .. tostring(err), vim.log.levels.ERROR)
       return
    end
-   if data.created then
-      -- a new journal note adds its date as a keyword
-      autolink.reload()
-   end
+   -- A new journal note adds its date as a keyword; the LSP server picks it up on the next request.
    vim.cmd.edit(vim.fn.fnameescape(data.path))
 end
 

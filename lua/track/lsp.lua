@@ -63,6 +63,50 @@ local function text_document_params(buf)
    return { uri = vim.uri_from_bufnr(buf) }
 end
 
+-- fenced_rows returns a set (0-based row -> true) of lines that are fence delimiters or inside a fenced code block, plus the buffer lines.
+local function fenced_rows(buf)
+   local lines = vim.api.nvim_buf_get_lines(buf, 0, -1, false)
+   local rows = {}
+   local in_fence = false
+   for i, line in ipairs(lines) do
+      if vim.trim(line):sub(1, 3) == "```" then
+         in_fence = not in_fence
+         rows[i - 1] = true
+      elseif in_fence then
+         rows[i - 1] = true
+      end
+   end
+   return rows, lines
+end
+
+-- highlight_unresolved underlines every [[...]] the server did not return as a resolved documentLink.
+-- The server reports ranges over the inner text (between the brackets); we mirror that span so the keys line up.
+local function highlight_unresolved(buf, resolved)
+   local fences, lines = fenced_rows(buf)
+   for i, text in ipairs(lines) do
+      local row = i - 1
+      if not fences[row] then
+         local init = 1
+         while true do
+            local s, e = text:find("%[%[[^%[%]]+%]%]", init)
+            if not s then
+               break
+            end
+            local inner_start = s + 1 -- 0-based byte col just after "[["
+            local inner_end = e - 2 -- 0-based exclusive end just before "]]"
+            if not resolved[row .. ":" .. inner_start .. ":" .. inner_end] then
+               vim.api.nvim_buf_set_extmark(buf, ns, row, inner_start, {
+                  end_col = inner_end,
+                  hl_group = config.options.hl_group_unresolved,
+                  priority = 120,
+               })
+            end
+            init = e + 1
+         end
+      end
+   end
+end
+
 local function refresh(buf)
    if not vim.api.nvim_buf_is_valid(buf) then
       return
@@ -73,9 +117,11 @@ local function refresh(buf)
          return
       end
       vim.api.nvim_buf_clear_namespace(buf, ns, 0, -1)
+      local resolved = {}
       for _, link in ipairs(result or {}) do
          local range = link.range
          if range then
+            resolved[range.start.line .. ":" .. range.start.character .. ":" .. range["end"].character] = true
             vim.api.nvim_buf_set_extmark(buf, ns, range.start.line, range.start.character, {
                end_col = range["end"].character,
                hl_group = config.options.hl_group,
@@ -83,6 +129,7 @@ local function refresh(buf)
             })
          end
       end
+      highlight_unresolved(buf, resolved)
    end)
 end
 
@@ -135,6 +182,10 @@ local function attach(buf)
       callback = function(ev)
          local client = vim.lsp.get_client_by_id(ev.data.client_id)
          if client and client.name == "track-lsp" then
+            -- Enable autotriggered completion (on "[") where the Neovim build supports it.
+            if vim.lsp.completion and vim.lsp.completion.enable then
+               pcall(vim.lsp.completion.enable, true, ev.data.client_id, buf, { autotrigger = true })
+            end
             refresh(buf)
          end
       end,
@@ -166,6 +217,7 @@ end
 
 function M.setup()
    vim.api.nvim_set_hl(0, config.options.hl_group, { default = true, link = "Underlined" })
+   vim.api.nvim_set_hl(0, config.options.hl_group_unresolved, { default = true, link = "Comment" })
    local group = vim.api.nvim_create_augroup(config.options.augroup .. "_lsp", { clear = true })
    vim.api.nvim_create_autocmd("FileType", {
       group = group,

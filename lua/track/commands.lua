@@ -1,7 +1,6 @@
 -- User command registration for track.nvim.
 
 local client = require("track.client")
-local keywords = require("track.keywords")
 local util = require("track.util")
 
 local M = {}
@@ -47,16 +46,20 @@ function M.setup()
    end, { nargs = "?", desc = "Open the journal note at a day offset (default 0)" })
 
    cmd("TrackKeywords", function()
-      local entries = keywords.all()
+      local data, err = client.run_json({ "keywords" })
+      if not data then
+         vim.notify("track: " .. tostring(err), vim.log.levels.ERROR)
+         return
+      end
       local lines = {}
-      for _, k in ipairs(entries) do
+      for _, k in ipairs(data.keywords or {}) do
          lines[#lines + 1] = string.format("%s\t->\t%s\t(%s)", k.term, k.path, k.kind)
       end
       if #lines == 0 then
          lines = { "(no keywords)" }
       end
       util.open_scratch("track://keywords", "text", table.concat(lines, "\n"))
-   end, { desc = "List the track auto-link keyword dictionary" })
+   end, { desc = "List the track link keyword dictionary" })
 end
 
 return M
