@@ -26,6 +26,9 @@ M.defaults = {
    hl_group = "TrackLink",
    -- Highlight group applied to unresolved [[...]] links (no matching note yet).
    hl_group_unresolved = "TrackLinkUnresolved",
+   -- Conceal the [[ ]] brackets (and the "target|" of display aliases), showing just the link text.
+   -- Sets conceallevel locally in windows showing vault buffers; the cursor line stays raw for editing.
+   conceal = true,
    -- Debounce for re-highlighting, in milliseconds.
    debounce_ms = 150,
 }

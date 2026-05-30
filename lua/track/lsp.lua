@@ -79,9 +79,12 @@ local function fenced_rows(buf)
    return rows, lines
 end
 
--- highlight_unresolved underlines every [[...]] the server did not return as a resolved documentLink.
--- The server reports ranges over the inner text (between the brackets); we mirror that span so the keys line up.
-local function highlight_unresolved(buf, resolved)
+-- highlight_links underlines every [[...]] and, when conceal is on, hides the brackets (and the
+-- "target|" of a display alias) so only the link text shows. The server reports document-link ranges
+-- over the inner text (between the brackets); we mirror that span as the key so resolved vs. unresolved
+-- can be told apart, and color each link accordingly.
+local function highlight_links(buf, resolved)
+   local conceal = config.options.conceal
    local fences, lines = fenced_rows(buf)
    for i, text in ipairs(lines) do
       local row = i - 1
@@ -92,18 +95,54 @@ local function highlight_unresolved(buf, resolved)
             if not s then
                break
             end
+            local open_start = s - 1 -- 0-based "[" of "[["
             local inner_start = s + 1 -- 0-based byte col just after "[["
             local inner_end = e - 2 -- 0-based exclusive end just before "]]"
-            if not resolved[row .. ":" .. inner_start .. ":" .. inner_end] then
-               vim.api.nvim_buf_set_extmark(buf, ns, row, inner_start, {
+            local hl = resolved[row .. ":" .. inner_start .. ":" .. inner_end]
+                  and config.options.hl_group
+               or config.options.hl_group_unresolved
+
+            local hl_start = inner_start
+            if conceal then
+               -- A non-empty display alias ([[target|display]]) shows only "display".
+               local inner = text:sub(s + 2, e - 2)
+               local pipe = inner:find("|", 1, true)
+               if pipe and pipe < #inner then
+                  hl_start = inner_start + pipe -- first byte after the "|"
+               end
+               -- Conceal the leading "[[" (plus "target|" when present) and the trailing "]]".
+               vim.api.nvim_buf_set_extmark(buf, ns, row, open_start, {
+                  end_col = hl_start,
+                  conceal = "",
+                  priority = 120,
+               })
+               vim.api.nvim_buf_set_extmark(buf, ns, row, inner_end, {
+                  end_col = e,
+                  conceal = "",
+                  priority = 120,
+               })
+            end
+
+            if inner_end > hl_start then
+               vim.api.nvim_buf_set_extmark(buf, ns, row, hl_start, {
                   end_col = inner_end,
-                  hl_group = config.options.hl_group_unresolved,
+                  hl_group = hl,
                   priority = 120,
                })
             end
             init = e + 1
          end
       end
+   end
+end
+
+-- apply_conceal_options enables concealment in every window currently showing buf.
+local function apply_conceal_options(buf)
+   if not config.options.conceal then
+      return
+   end
+   for _, win in ipairs(vim.fn.win_findbuf(buf)) do
+      vim.api.nvim_set_option_value("conceallevel", 2, { scope = "local", win = win })
    end
 end
 
@@ -122,14 +161,9 @@ local function refresh(buf)
          local range = link.range
          if range then
             resolved[range.start.line .. ":" .. range.start.character .. ":" .. range["end"].character] = true
-            vim.api.nvim_buf_set_extmark(buf, ns, range.start.line, range.start.character, {
-               end_col = range["end"].character,
-               hl_group = config.options.hl_group,
-               priority = 120,
-            })
          end
       end
-      highlight_unresolved(buf, resolved)
+      highlight_links(buf, resolved)
    end)
 end
 
@@ -200,6 +234,14 @@ local function attach(buf)
       buffer = buf,
       callback = function()
          schedule(buf)
+      end,
+   })
+   apply_conceal_options(buf)
+   vim.api.nvim_create_autocmd("BufWinEnter", {
+      group = group,
+      buffer = buf,
+      callback = function()
+         apply_conceal_options(buf)
       end,
    })
    vim.api.nvim_create_autocmd("BufWipeout", {
