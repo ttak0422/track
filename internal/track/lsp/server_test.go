@@ -68,15 +68,24 @@ func TestDefinition(t *testing.T) {
 	uri := uriFromPath(filepath.Join(vault, "200.md"))
 	srv.docs[uri] = "mentions [[Golang]]"
 
-	loc, err := srv.definition(uri, position{Line: 0, Character: 13})
+	for _, col := range []int{9, 10, 13, 17, 18} {
+		loc, err := srv.definition(uri, position{Line: 0, Character: col})
+		if err != nil {
+			t.Fatalf("definition at col %d: %v", col, err)
+		}
+		if loc == nil {
+			t.Fatalf("expected definition at col %d", col)
+		}
+		if loc.URI != uriFromPath(filepath.Join(vault, "100.md")) {
+			t.Fatalf("unexpected definition uri at col %d: %q", col, loc.URI)
+		}
+	}
+	loc, err := srv.definition(uri, position{Line: 0, Character: 19})
 	if err != nil {
-		t.Fatalf("definition: %v", err)
+		t.Fatalf("definition after link: %v", err)
 	}
-	if loc == nil {
-		t.Fatal("expected definition")
-	}
-	if loc.URI != uriFromPath(filepath.Join(vault, "100.md")) {
-		t.Fatalf("unexpected definition uri: %q", loc.URI)
+	if loc != nil {
+		t.Fatalf("did not expect definition after the link, got %+v", loc)
 	}
 }
 

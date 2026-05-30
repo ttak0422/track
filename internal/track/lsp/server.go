@@ -240,7 +240,7 @@ func (s *Server) definition(uri string, pos position) (*location, error) {
 		return nil, err
 	}
 	for _, ref := range link.Refs(text) {
-		if ref.Line != pos.Line || pos.Character < ref.StartByte || pos.Character >= ref.EndByte {
+		if !refContainsPosition(ref, pos) {
 			continue
 		}
 		kw, ok := dict[ref.Text]
@@ -259,6 +259,10 @@ func (s *Server) definition(uri string, pos position) (*location, error) {
 		}, nil
 	}
 	return nil, nil
+}
+
+func refContainsPosition(ref link.Ref, pos position) bool {
+	return ref.Line == pos.Line && pos.Character >= ref.OpenByte && pos.Character < ref.CloseByte
 }
 
 // completion offers note titles and aliases when the cursor sits inside an unclosed [[ on the current line.
