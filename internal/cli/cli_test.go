@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"io"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -209,5 +210,58 @@ func TestSearch(t *testing.T) {
 	}
 	if len(res["results"].([]any)) != 1 {
 		t.Fatalf("expected 1 result, got %v", res["results"])
+	}
+}
+
+func TestBabelExecRunsAndStores(t *testing.T) {
+	if _, err := exec.LookPath("sh"); err != nil {
+		t.Skip("sh not available")
+	}
+	vault := t.TempDir()
+	t.Setenv("TRACK_BABEL_SH", "sh {{file}}")
+
+	if _, code := runIn(t, vault, "new", "--title", "Demo", "--id", "500"); code != 0 {
+		t.Fatal("new failed")
+	}
+	body := "# Demo\n\n```sh :name hi :results output\necho hello\n```\n"
+	if err := os.WriteFile(vault+"/500.md", []byte(body), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	out, code := runIn(t, vault, "babel", "exec", "--id", "500", "--name", "hi")
+	if code != 0 {
+		t.Fatalf("babel exec failed: %v", out)
+	}
+	if out["status"] != "success" || out["stdout"] != "hello\n" || out["stored"] != true {
+		t.Fatalf("unexpected result: %v", out)
+	}
+
+	metaContent, err := os.ReadFile(vault + "/.track/notes/500.yaml")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(metaContent), "version: 2") || !strings.Contains(string(metaContent), "hi:") {
+		t.Fatalf("sidecar should store the block result at v2: %q", metaContent)
+	}
+}
+
+func TestBabelExecRefusesEvalNo(t *testing.T) {
+	if _, err := exec.LookPath("sh"); err != nil {
+		t.Skip("sh not available")
+	}
+	vault := t.TempDir()
+	t.Setenv("TRACK_BABEL_SH", "sh {{file}}")
+
+	runIn(t, vault, "new", "--title", "D", "--id", "501")
+	if err := os.WriteFile(vault+"/501.md", []byte("# D\n\n```sh :name x :eval no\necho hi\n```\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	out, code := runIn(t, vault, "babel", "exec", "--id", "501", "--name", "x")
+	if code != 1 {
+		t.Fatalf("expected refusal exit 1, got %d (%v)", code, out)
+	}
+	if msg, _ := out["error"].(string); !strings.Contains(msg, "eval no") {
+		t.Fatalf("expected :eval no error, got %v", out)
 	}
 }

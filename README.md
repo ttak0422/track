@@ -52,6 +52,8 @@ track keywords                        # dump the link keyword dictionary
 track resolve --term <s>              # resolve a keyword to a note
 track search --query <s> [--limit N]  # search notes
 track backlinks (--id N | --path P)   # list backlinks
+track babel exec (--id N | --path P) [--name S|--ordinal N] [--yes]
+                                      # run a fenced source block (see docs/spec/babel.md)
 track dump                            # placeholder state
 track version                         # print the version
 ```

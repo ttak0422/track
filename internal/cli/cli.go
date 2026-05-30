@@ -43,6 +43,8 @@ func Run(args []string) int {
 		return cmdSearch(rest)
 	case "backlinks":
 		return cmdBacklinks(rest)
+	case "babel":
+		return cmdBabel(rest)
 	default:
 		fmt.Fprintf(os.Stderr, "track: unknown command %q\n", cmd)
 		usage()
@@ -61,6 +63,8 @@ Usage:
   track resolve --term <s>              resolve a keyword to a note (JSON)
   track search --query <s> [--limit N]  search notes (JSON)
   track backlinks (--id N | --path P)   list backlinks (JSON)
+  track babel exec (--id N | --path P) [--name S | --ordinal N] [--yes]
+                                        run a source block (JSON)
   track dump                            print placeholder state (JSON)
   track version                         print the version
 `)
