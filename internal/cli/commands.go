@@ -65,16 +65,14 @@ func cmdNew(args []string) int {
 	if err := os.MkdirAll(cfg.VaultDir, 0o755); err != nil {
 		return fail("create vault dir: %v", err)
 	}
-	content, err := note.UpsertFootmatter(
-		"# "+*title,
-		note.Footmatter{Title: *title, Created: time.Now().Format(cfg.DateFormat)},
-		cfg.Footmatter,
-	)
-	if err != nil {
-		return fail("render note: %v", err)
-	}
-	if err := os.WriteFile(path, []byte(content), 0o644); err != nil {
+	if err := os.WriteFile(path, []byte("# "+*title+"\n"), 0o644); err != nil {
 		return fail("write note: %v", err)
+	}
+	if err := note.WriteMetadata(
+		cfg.MetadataPath(noteID),
+		note.Metadata{Title: *title, Created: time.Now().Format(cfg.DateFormat)},
+	); err != nil {
+		return fail("write metadata: %v", err)
 	}
 
 	if err := index.New(cfg, s).One(path); err != nil {
@@ -97,25 +95,27 @@ func cmdJournal(args []string) int {
 	defer s.Close()
 
 	day := startOfDay(time.Now()).AddDate(0, 0, *offset)
-	noteID := day.Unix()
+	name := day.Format(cfg.JournalDateFormat)
+	noteID, err := note.IDFromName(name)
+	if err != nil {
+		return fail("journal id: %v", err)
+	}
 	date := day.Format(cfg.DateFormat)
-	path := cfg.NotePath(noteID)
+	path := cfg.JournalPath(name)
 
 	created := false
 	if _, err := os.Stat(path); os.IsNotExist(err) {
-		if err := os.MkdirAll(cfg.VaultDir, 0o755); err != nil {
-			return fail("create vault dir: %v", err)
+		if err := os.MkdirAll(cfg.JournalDir(), 0o755); err != nil {
+			return fail("create journal dir: %v", err)
 		}
-		content, err := note.UpsertFootmatter(
-			"# "+date,
-			note.Footmatter{Title: date, Tags: []string{"journal"}, Created: date},
-			cfg.Footmatter,
-		)
-		if err != nil {
-			return fail("render journal: %v", err)
-		}
-		if err := os.WriteFile(path, []byte(content), 0o644); err != nil {
+		if err := os.WriteFile(path, []byte("# "+name+"\n"), 0o644); err != nil {
 			return fail("write journal: %v", err)
+		}
+		if err := note.WriteMetadata(
+			cfg.MetadataPath(noteID),
+			note.Metadata{Title: name, Tags: []string{"journal"}, Created: date},
+		); err != nil {
+			return fail("write metadata: %v", err)
 		}
 		if err := index.New(cfg, s).One(path); err != nil {
 			return fail("index journal: %v", err)

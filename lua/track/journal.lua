@@ -1,5 +1,5 @@
--- Daily journal notes. Each day maps to a stable note id (midnight unix time),
--- so opening the same day is idempotent.
+-- Daily journal notes. Each day maps to a stable yyyyMMdd note id, so opening
+-- the same day is idempotent.
 
 local client = require("track.client")
 local autolink = require("track.autolink")

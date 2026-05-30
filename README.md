@@ -10,35 +10,38 @@ resolves links. The Neovim plugin shells out to it. The engine lives in reusable
 ## Concepts
 
 - **Notes** are markdown files named `{unix-timestamp}.md` in a vault directory.
-- **Footmatter**: metadata lives at the *end* of each note inside an HTML comment
-  (invisible in rendered markdown, easy for humans and AI to edit):
+- **Metadata**: note metadata is stored outside the markdown file, under
+  `.track/notes/{id}.yaml`. The file is versioned so future metadata shape
+  changes can be handled explicitly:
 
   ```markdown
   # リンク
 
   本文 ...
+  ```
 
-  <!--track
+  ```yaml
+  version: 1
   title: リンク
   aliases: [link, TEST]
   tags: [zettel]
   created: 2026-05-24
-  -->
   ```
 
 - **Auto-links** work like the old Hatena keyword auto-link: any registered note
   title or alias is automatically highlighted and followable wherever it appears
   in vault buffers — no special markup, and it works mid-word for Japanese
   (longest-match substring). Unregistered words do nothing.
-- **Journal**: each day maps to a stable note (midnight unix timestamp), so
-  opening "today" is idempotent.
+- **Journal**: each day maps to a stable `yyyyMMdd` note, so opening "today" is
+  idempotent. Journal notes are stored separately under
+  `journal/` and named `yyyyMMdd.md`, so lexical file order follows day order.
 
 ## Layout
 
 ```
 cmd/track/main.go        # thin CLI entry point
 internal/cli/            # argument routing -> engine -> JSON
-internal/track/          # engine (config, note/footmatter, store, index, match)
+internal/track/          # engine (config, note metadata, store, index, match)
 lua/track/               # Neovim frontend (config, client, autolink, follow, ...)
 nix/apps/                # `nix run .#test-nvim` launcher
 flake.nix                # Go CLI + Vim plugin packaging
@@ -47,8 +50,8 @@ flake.nix                # Go CLI + Vim plugin packaging
 ## CLI
 
 All commands except `version` print a single line of JSON; errors are
-`{"error":...}` with exit code 1. The vault is `$TRACK_VAULT` (default:
-`$XDG_DATA_HOME/track`); the index db defaults to `<vault>/.track/index.db`.
+`{"error":...}` with exit code 1. The vault must be set explicitly with
+`$TRACK_VAULT`; the index db defaults to `<vault>/.track/index.db`.
 
 ```sh
 track new --title <t> [--id <unix>]   # create a note
@@ -66,7 +69,8 @@ track version                         # print the version
 
 ```lua
 require("track").setup({
-  -- vault_dir defaults to $TRACK_VAULT, then $XDG_DATA_HOME/track
+  -- vault_dir is required unless TRACK_VAULT is already set
+  vault_dir = "/path/to/vault",
 })
 ```
 
@@ -95,7 +99,7 @@ go build ./cmd/track     # build the CLI
 
 nix build .#track-cli    # build just the CLI
 nix build .#track        # build the Neovim plugin (references the CLI)
-TRACK_VAULT=/tmp/vault nix run .#test-nvim   # launch Neovim with the plugin
+nix run .#test-nvim      # launch Neovim with a test vault under /tmp
 ```
 
 The Nix-built Neovim plugin embeds the store path of the matching `track`

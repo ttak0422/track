@@ -1,9 +1,10 @@
 // Package index keeps the SQLite store in sync with the notes on disk: parsing
-// footmatter into rows and computing the auto-link graph.
+// sidecar metadata into rows and computing the auto-link graph.
 package index
 
 import (
 	"io/fs"
+	"os"
 	"path/filepath"
 	"slices"
 	"strings"
@@ -64,6 +65,9 @@ func (ix *Indexer) Full() (Report, error) {
 	for id := range existing {
 		if !seen[id] {
 			if err := ix.store.DeleteNote(id); err != nil {
+				return rep, err
+			}
+			if err := os.Remove(ix.cfg.MetadataPath(id)); err != nil && !os.IsNotExist(err) {
 				return rep, err
 			}
 			rep.Deleted++

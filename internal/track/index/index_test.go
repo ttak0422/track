@@ -6,6 +6,7 @@ import (
 	"testing"
 
 	"github.com/ttak0422/track/internal/track/config"
+	"github.com/ttak0422/track/internal/track/note"
 	"github.com/ttak0422/track/internal/track/store"
 )
 
@@ -17,7 +18,6 @@ func setup(t *testing.T) (*config.Config, *store.Store) {
 		DBPath:     filepath.Join(vault, ".track", "index.db"),
 		Extensions: []string{".md"},
 		DateFormat: "2006-01-02",
-		Footmatter: config.FootmatterMarkers{Open: "<!--track", Close: "-->"},
 	}
 	s, err := store.Open(cfg.DBPath)
 	if err != nil {
@@ -27,20 +27,22 @@ func setup(t *testing.T) (*config.Config, *store.Store) {
 	return cfg, s
 }
 
-func writeNote(t *testing.T, cfg *config.Config, id int64, body, footmatter string) {
+func writeNote(t *testing.T, cfg *config.Config, id int64, body string, meta note.Metadata) {
 	t.Helper()
 	path := cfg.NotePath(id)
-	content := body + "\n\n<!--track\n" + footmatter + "\n-->\n"
-	if err := os.WriteFile(path, []byte(content), 0o644); err != nil {
+	if err := os.WriteFile(path, []byte(body+"\n"), 0o644); err != nil {
 		t.Fatalf("write note %d: %v", id, err)
+	}
+	if err := note.WriteMetadata(cfg.MetadataPath(id), meta); err != nil {
+		t.Fatalf("write metadata %d: %v", id, err)
 	}
 }
 
 func TestFullIndexesAndLinks(t *testing.T) {
 	cfg, s := setup(t)
 	// Note 1 is titled "リンク". Note 2's body references リンク → link 2->1.
-	writeNote(t, cfg, 1, "# リンク\n\nthe target note", "title: リンク\naliases:\n    - link")
-	writeNote(t, cfg, 2, "本文で リンク を参照する", "title: ノート2")
+	writeNote(t, cfg, 1, "# リンク\n\nthe target note", note.Metadata{Title: "リンク", Aliases: []string{"link"}})
+	writeNote(t, cfg, 2, "本文で リンク を参照する", note.Metadata{Title: "ノート2"})
 
 	ix := New(cfg, s)
 	rep, err := ix.Full()
@@ -65,8 +67,8 @@ func TestFullIndexesAndLinks(t *testing.T) {
 
 func TestFullReconcilesDeletions(t *testing.T) {
 	cfg, s := setup(t)
-	writeNote(t, cfg, 1, "a", "title: A")
-	writeNote(t, cfg, 2, "b", "title: B")
+	writeNote(t, cfg, 1, "a", note.Metadata{Title: "A"})
+	writeNote(t, cfg, 2, "b", note.Metadata{Title: "B"})
 	ix := New(cfg, s)
 	if _, err := ix.Full(); err != nil {
 		t.Fatal(err)
@@ -82,6 +84,9 @@ func TestFullReconcilesDeletions(t *testing.T) {
 	if rep.Deleted != 1 {
 		t.Fatalf("deleted = %d, want 1", rep.Deleted)
 	}
+	if _, err := os.Stat(cfg.MetadataPath(2)); !os.IsNotExist(err) {
+		t.Fatalf("metadata for deleted note should be removed, stat err=%v", err)
+	}
 	notes, _ := s.AllNotes()
 	if len(notes) != 1 || notes[0].NoteID != 1 {
 		t.Fatalf("expected only note 1 to remain, got %+v", notes)
@@ -90,15 +95,15 @@ func TestFullReconcilesDeletions(t *testing.T) {
 
 func TestOneUpdatesOutgoingLinks(t *testing.T) {
 	cfg, s := setup(t)
-	writeNote(t, cfg, 1, "# Go", "title: Go")
-	writeNote(t, cfg, 2, "placeholder", "title: Two")
+	writeNote(t, cfg, 1, "# Go", note.Metadata{Title: "Go"})
+	writeNote(t, cfg, 2, "placeholder", note.Metadata{Title: "Two"})
 	ix := New(cfg, s)
 	if _, err := ix.Full(); err != nil {
 		t.Fatal(err)
 	}
 
 	// Rewrite note 2 to reference Go, then index just that file.
-	writeNote(t, cfg, 2, "now mentions Go here", "title: Two")
+	writeNote(t, cfg, 2, "now mentions Go here", note.Metadata{Title: "Two"})
 	if err := ix.One(cfg.NotePath(2)); err != nil {
 		t.Fatalf("one: %v", err)
 	}

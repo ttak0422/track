@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"io"
 	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 )
@@ -60,6 +61,20 @@ func TestNewResolveKeywordsFlow(t *testing.T) {
 	if created["id"].(float64) != 1000 {
 		t.Fatalf("unexpected id: %v", created["id"])
 	}
+	noteContent, err := os.ReadFile(vault + "/1000.md")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(string(noteContent), "<!--track") {
+		t.Fatalf("note file should not contain metadata: %q", noteContent)
+	}
+	metaContent, err := os.ReadFile(vault + "/.track/notes/1000.yaml")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(metaContent), "version: 1") || !strings.Contains(string(metaContent), "title: リンク") {
+		t.Fatalf("unexpected metadata content: %q", metaContent)
+	}
 
 	kws, code := runIn(t, vault, "keywords")
 	if code != 0 {
@@ -91,6 +106,17 @@ func TestNewRequiresTitle(t *testing.T) {
 	}
 }
 
+func TestRequiresTrackVault(t *testing.T) {
+	t.Setenv("TRACK_VAULT", "")
+	out, code := capture(t, func() int { return Run([]string{"keywords"}) })
+	if code != 1 {
+		t.Fatalf("expected exit 1 without TRACK_VAULT, got %d", code)
+	}
+	if !strings.Contains(out, "TRACK_VAULT is required") {
+		t.Fatalf("expected TRACK_VAULT error, got %q", out)
+	}
+}
+
 func TestBacklinksAndReindex(t *testing.T) {
 	vault := t.TempDir()
 	runIn(t, vault, "new", "--title", "Go", "--id", "100")
@@ -98,7 +124,7 @@ func TestBacklinksAndReindex(t *testing.T) {
 
 	// Make note 200 reference Go, then full reindex to build the link graph.
 	if err := os.WriteFile(vault+"/200.md",
-		[]byte("Go を参照\n\n<!--track\ntitle: Other\n-->\n"), 0o644); err != nil {
+		[]byte("Go を参照\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
 	rep, code := runIn(t, vault, "reindex", "--full")
@@ -119,11 +145,48 @@ func TestBacklinksAndReindex(t *testing.T) {
 	}
 }
 
+func TestReindexReconcilesMetadataTitleFromBody(t *testing.T) {
+	vault := t.TempDir()
+	runIn(t, vault, "new", "--title", "Old", "--id", "100")
+
+	if err := os.WriteFile(vault+"/100.md", []byte("# New\n\nbody\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	rep, code := runIn(t, vault, "reindex", "--full")
+	if code != 0 {
+		t.Fatalf("reindex failed: %v", rep)
+	}
+
+	kws, code := runIn(t, vault, "keywords")
+	if code != 0 {
+		t.Fatalf("keywords failed: %v", kws)
+	}
+	list := kws["keywords"].([]any)
+	if len(list) != 1 || list[0].(map[string]any)["term"] != "New" {
+		t.Fatalf("expected reconciled keyword New, got %v", list)
+	}
+	metaContent, err := os.ReadFile(vault + "/.track/notes/100.yaml")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(metaContent), "title: New") {
+		t.Fatalf("expected metadata title to be rewritten, got %q", metaContent)
+	}
+}
+
 func TestJournalIdempotent(t *testing.T) {
 	vault := t.TempDir()
 	first, code := runIn(t, vault, "journal", "--offset", "0")
 	if code != 0 || first["created"] != true {
 		t.Fatalf("first journal: %v", first)
+	}
+	path := first["path"].(string)
+	if filepath.Dir(path) != filepath.Join(vault, "journal") {
+		t.Fatalf("journal path should be under journal dir, got %q", path)
+	}
+	name := strings.TrimSuffix(filepath.Base(path), filepath.Ext(path))
+	if len(name) != 8 || first["id"].(float64) == 0 {
+		t.Fatalf("journal name/id should be yyyyMMdd, got name=%q id=%v", name, first["id"])
 	}
 	second, _ := runIn(t, vault, "journal", "--offset", "0")
 	if second["created"] != false {
@@ -131,6 +194,9 @@ func TestJournalIdempotent(t *testing.T) {
 	}
 	if first["id"] != second["id"] {
 		t.Fatalf("journal id changed between calls: %v vs %v", first["id"], second["id"])
+	}
+	if first["path"] != second["path"] {
+		t.Fatalf("journal path changed between calls: %v vs %v", first["path"], second["path"])
 	}
 }
 

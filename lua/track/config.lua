@@ -1,5 +1,5 @@
--- track.nvim configuration. Defaults mirror the Go CLI's resolution so the
--- editor and engine agree on where the vault lives.
+-- track.nvim configuration. The vault must be explicit: either set
+-- TRACK_VAULT or pass setup({ vault_dir = ... }).
 
 local M = {}
 
@@ -8,11 +8,7 @@ local function default_vault()
    if env and env ~= "" then
       return env
    end
-   local xdg = vim.env.XDG_DATA_HOME
-   if xdg and xdg ~= "" then
-      return xdg .. "/track"
-   end
-   return vim.fn.expand("~/.local/share/track")
+   return nil
 end
 
 M.defaults = {
@@ -22,9 +18,6 @@ M.defaults = {
    vault_dir = default_vault(),
    -- Note file extensions (without dot).
    extensions = { "md" },
-   -- Footmatter delimiters; matched against the Go engine's defaults. Lines
-   -- inside this block are excluded from auto-linking.
-   footmatter = { open = "<!--track", close = "-->" },
    -- Autocommand group name.
    augroup = "track",
    -- Highlight group applied to auto-links.
@@ -37,6 +30,10 @@ M.options = vim.deepcopy(M.defaults)
 
 function M.setup(opts)
    M.options = vim.tbl_deep_extend("force", M.options, opts or {})
+   if not M.options.vault_dir or M.options.vault_dir == "" then
+      error("track: vault_dir is required. Set TRACK_VAULT or call require('track').setup({ vault_dir = ... }).")
+   end
+   vim.env.TRACK_VAULT = M.options.vault_dir
    return M.options
 end
 

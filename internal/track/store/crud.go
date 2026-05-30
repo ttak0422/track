@@ -35,7 +35,7 @@ func (s *Store) UpsertNote(n *note.Note) error {
 		 ON CONFLICT(id) DO UPDATE SET
 		   path=excluded.path, title=excluded.title, body=excluded.body,
 		   created=excluded.created, mtime=excluded.mtime`,
-		n.ID, n.Path, n.Foot.Title, n.Body, n.Foot.Created, n.Mtime,
+		n.ID, n.Path, n.Meta.Title, n.Body, n.Meta.Created, n.Mtime,
 	); err != nil {
 		return err
 	}
@@ -43,7 +43,7 @@ func (s *Store) UpsertNote(n *note.Note) error {
 	if _, err := tx.Exec(`DELETE FROM aliases WHERE note_id = ?`, n.ID); err != nil {
 		return err
 	}
-	for _, a := range n.Foot.Aliases {
+	for _, a := range n.Meta.Aliases {
 		if a == "" {
 			continue
 		}
@@ -55,7 +55,7 @@ func (s *Store) UpsertNote(n *note.Note) error {
 	if _, err := tx.Exec(`DELETE FROM tags WHERE note_id = ?`, n.ID); err != nil {
 		return err
 	}
-	for _, tg := range n.Foot.Tags {
+	for _, tg := range n.Meta.Tags {
 		if tg == "" {
 			continue
 		}

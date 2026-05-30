@@ -36,29 +36,6 @@ function M.reload()
    end
 end
 
-local function footmatter_range(buf)
-   local fm = config.options.footmatter
-   local total = vim.api.nvim_buf_line_count(buf)
-   local start = math.max(0, total - 200)
-   local lines = vim.api.nvim_buf_get_lines(buf, start, total, false)
-   local close_i, open_i
-   for i = #lines, 1, -1 do
-      local t = vim.trim(lines[i])
-      if not close_i then
-         if t == fm.close then
-            close_i = start + i - 1
-         end
-      elseif t == fm.open then
-         open_i = start + i - 1
-         break
-      end
-   end
-   if open_i and close_i and close_i > open_i then
-      return open_i, close_i
-   end
-   return nil, nil
-end
-
 -- fenced_rows returns a set (0-based row -> true) of lines that are fence
 -- delimiters or inside a fenced code block, for rows up to `bot`.
 local function fenced_rows(buf, bot)
@@ -94,14 +71,12 @@ function M.refresh(buf)
    matches[buf] = {}
 
    local m = get_matcher()
-   local fm_open, fm_close = footmatter_range(buf)
    local fences = fenced_rows(buf, bot)
    local lines = vim.api.nvim_buf_get_lines(buf, top, bot + 1, false)
 
    for offset, text in ipairs(lines) do
       local row = top + offset - 1
-      local in_footmatter = fm_open ~= nil and row >= fm_open and row <= fm_close
-      if not in_footmatter and not fences[row] then
+      if not fences[row] then
          local hits = m:line(text)
          if #hits > 0 then
             matches[buf][row] = hits

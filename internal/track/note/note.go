@@ -1,6 +1,6 @@
-// Package note models a track note: a markdown body plus a footmatter metadata
-// block. It owns parsing notes off disk and the footmatter split/serialize
-// logic shared by the indexer and CLI.
+// Package note models a track note: a markdown body plus versioned sidecar
+// metadata stored under the vault's .track directory. It owns parsing notes off
+// disk and the metadata read/write logic shared by the indexer and CLI.
 package note
 
 import (
@@ -12,10 +12,11 @@ import (
 	"github.com/ttak0422/track/internal/track/config"
 )
 
-// Footmatter is the structured metadata stored at the end of a note. Created is
-// kept as a string so YAML round-trips it verbatim instead of reformatting a
-// time.Time.
-type Footmatter struct {
+// Metadata is the structured data stored beside a note under .track/notes.
+// Created is kept as a string so YAML round-trips it verbatim instead of
+// reformatting a time.Time.
+type Metadata struct {
+	Version int      `yaml:"version"`
 	Title   string   `yaml:"title,omitempty"`
 	Aliases []string `yaml:"aliases,omitempty"`
 	Tags    []string `yaml:"tags,omitempty"`
@@ -27,11 +28,17 @@ type Note struct {
 	Path  string
 	Body  string
 	Mtime int64
-	Foot  Footmatter
+	Meta  Metadata
 }
 
-// ParseFile reads a note from disk, splitting body and footmatter and deriving
-// the id from the filename.
+// ParseFile reads a note from disk, deriving the id from the filename and
+// loading its sidecar metadata. For compatibility with early track notes, a
+// legacy trailing footmatter block is used only when no sidecar exists.
+//
+// The note body is authoritative for fields it can express. Today that means
+// the first H1 heading owns the note title; if sidecar metadata disagrees, the
+// sidecar is rewritten to match the body while preserving aliases, tags, and
+// created.
 func ParseFile(path string, c *config.Config) (*Note, error) {
 	raw, err := os.ReadFile(path)
 	if err != nil {
@@ -41,20 +48,50 @@ func ParseFile(path string, c *config.Config) (*Note, error) {
 	if err != nil {
 		return nil, err
 	}
-	body, f, _, err := SplitFootmatter(string(raw), c.Footmatter)
-	if err != nil {
-		return nil, err
-	}
 	id, err := IDFromPath(path)
 	if err != nil {
 		return nil, err
 	}
-	return &Note{ID: id, Path: path, Body: body, Mtime: info.ModTime().Unix(), Foot: f}, nil
+	body, legacy, hasLegacy := SplitLegacyFootmatter(string(raw))
+
+	metaPath := c.MetadataPath(id)
+	meta, found, err := ReadMetadata(metaPath)
+	if err != nil {
+		return nil, err
+	}
+	metadataSource := found
+	if !found && hasLegacy {
+		meta, err = ParseLegacyMetadata(legacy)
+		if err != nil {
+			return nil, err
+		}
+		metadataSource = true
+	}
+	if meta.Version == 0 {
+		meta.Version = CurrentMetadataVersion
+	}
+
+	dirty := !found && metadataSource
+	if title := FirstH1Title(body); title != "" && meta.Title != title {
+		meta.Title = title
+		dirty = true
+	}
+	if dirty {
+		if err := WriteMetadata(metaPath, meta); err != nil {
+			return nil, err
+		}
+	}
+	return &Note{ID: id, Path: path, Body: body, Mtime: info.ModTime().Unix(), Meta: meta}, nil
 }
 
-// IDFromPath extracts the unix-timestamp id encoded in a note's filename.
+// IDFromPath extracts the numeric id encoded in a note's filename.
 func IDFromPath(path string) (int64, error) {
 	base := filepath.Base(path)
 	name := strings.TrimSuffix(base, filepath.Ext(base))
+	return IDFromName(name)
+}
+
+// IDFromName extracts a numeric note id from a basename without extension.
+func IDFromName(name string) (int64, error) {
 	return strconv.ParseInt(name, 10, 64)
 }

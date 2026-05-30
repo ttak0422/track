@@ -26,7 +26,7 @@ func TestUpsertAndKeywords(t *testing.T) {
 		Path:  "/vault/100.md",
 		Body:  "body",
 		Mtime: 42,
-		Foot: note.Footmatter{
+		Meta: note.Metadata{
 			Title:   "リンク",
 			Aliases: []string{"link", "TEST"},
 			Tags:    []string{"zettel"},
@@ -57,11 +57,11 @@ func TestUpsertAndKeywords(t *testing.T) {
 
 func TestUpsertReplacesAliases(t *testing.T) {
 	s := newTestStore(t)
-	base := &note.Note{ID: 1, Path: "/v/1.md", Foot: note.Footmatter{Title: "t", Aliases: []string{"a", "b"}}}
+	base := &note.Note{ID: 1, Path: "/v/1.md", Meta: note.Metadata{Title: "t", Aliases: []string{"a", "b"}}}
 	if err := s.UpsertNote(base); err != nil {
 		t.Fatal(err)
 	}
-	base.Foot.Aliases = []string{"c"}
+	base.Meta.Aliases = []string{"c"}
 	if err := s.UpsertNote(base); err != nil {
 		t.Fatal(err)
 	}
@@ -75,7 +75,7 @@ func TestUpsertReplacesAliases(t *testing.T) {
 
 func TestResolveTerm(t *testing.T) {
 	s := newTestStore(t)
-	if err := s.UpsertNote(&note.Note{ID: 7, Path: "/v/7.md", Foot: note.Footmatter{Title: "Go", Aliases: []string{"golang"}}}); err != nil {
+	if err := s.UpsertNote(&note.Note{ID: 7, Path: "/v/7.md", Meta: note.Metadata{Title: "Go", Aliases: []string{"golang"}}}); err != nil {
 		t.Fatal(err)
 	}
 
@@ -99,7 +99,7 @@ func TestResolveTerm(t *testing.T) {
 func TestLinksAndBacklinks(t *testing.T) {
 	s := newTestStore(t)
 	for _, id := range []int64{1, 2, 3} {
-		if err := s.UpsertNote(&note.Note{ID: id, Path: fmt.Sprintf("/v/%d.md", id), Foot: note.Footmatter{Title: "n"}}); err != nil {
+		if err := s.UpsertNote(&note.Note{ID: id, Path: fmt.Sprintf("/v/%d.md", id), Meta: note.Metadata{Title: "n"}}); err != nil {
 			t.Fatal(err)
 		}
 	}
@@ -125,7 +125,7 @@ func TestLinksAndBacklinks(t *testing.T) {
 
 func TestDeleteNoteCascades(t *testing.T) {
 	s := newTestStore(t)
-	if err := s.UpsertNote(&note.Note{ID: 5, Path: "/v/5.md", Foot: note.Footmatter{Title: "t", Aliases: []string{"a"}}}); err != nil {
+	if err := s.UpsertNote(&note.Note{ID: 5, Path: "/v/5.md", Meta: note.Metadata{Title: "t", Aliases: []string{"a"}}}); err != nil {
 		t.Fatal(err)
 	}
 	if err := s.DeleteNote(5); err != nil {
@@ -139,7 +139,7 @@ func TestDeleteNoteCascades(t *testing.T) {
 
 func TestNoteMtimes(t *testing.T) {
 	s := newTestStore(t)
-	if err := s.UpsertNote(&note.Note{ID: 9, Path: "/v/9.md", Mtime: 1234, Foot: note.Footmatter{Title: "t"}}); err != nil {
+	if err := s.UpsertNote(&note.Note{ID: 9, Path: "/v/9.md", Mtime: 1234, Meta: note.Metadata{Title: "t"}}); err != nil {
 		t.Fatal(err)
 	}
 	m, err := s.NoteMtimes()
