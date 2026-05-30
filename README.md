@@ -1,9 +1,9 @@
 # track
 
-A journal + Zettelkasten note tool: a Go CLI engine with a SQLite index, plus a thin Neovim frontend.
+A journal + Zettelkasten note tool: a Go CLI/LSP engine with a SQLite index, plus a thin Neovim frontend.
 
-The Go CLI is the source of truth — it parses notes, maintains the index, and resolves links.
-The Neovim plugin shells out to it.
+The Go engine is the source of truth — it parses notes, maintains the index, and resolves links.
+The CLI exposes scriptable commands, and `track-lsp` exposes interactive editor navigation.
 The engine lives in reusable `internal/track/*` packages so a future LSP server can reuse it directly.
 
 ## Concepts
@@ -56,6 +56,16 @@ track dump                            # placeholder state
 track version                         # print the version
 ```
 
+## LSP
+
+`track-lsp` is a Go Language Server Protocol frontend over the same engine packages.
+It currently provides:
+
+- `textDocument/documentLink`: returns link ranges for registered note titles and aliases.
+- `textDocument/definition`: jumps from the keyword under the cursor to the target note.
+
+The server uses UTF-8 positions and reads the same `$TRACK_VAULT` configuration as the CLI.
+
 ## Neovim
 
 ```lua
@@ -79,20 +89,21 @@ Commands:
 ```
 
 In a vault buffer, registered keywords are underlined (`TrackLink` highlight group); press `<CR>` on one to jump to its note.
+By default this underline and jump behavior is backed by `track-lsp`.
 
 ## Development
 
 ```sh
 nix develop              # Go on PATH
 go test ./...            # run the engine + CLI tests
-go build ./cmd/track     # build the CLI
+go build ./cmd/track ./cmd/track-lsp  # build the Go binaries
 
-nix build .#track-cli    # build just the CLI
+nix build .#track-cli    # build the Go CLI and LSP binaries
 nix build .#track        # build the Neovim plugin (references the CLI)
 nix run .#test-nvim      # launch Neovim with a test vault under /tmp
 ```
 
-The Nix-built Neovim plugin embeds the store path of the matching `track` binary, so Nix users do not need to add `track` to `$PATH` manually.
+The Nix-built Neovim plugin embeds the store paths of the matching `track` and `track-lsp` binaries, so Nix users do not need to add them to `$PATH` manually.
 
 ## License
 

@@ -17,6 +17,8 @@ let
           else
             export TRACK_VAULT
           fi
+          unset VIMINIT
+          unset GVIMINIT
           mkdir -p "$TRACK_VAULT"
           exec ${nvim}/bin/nvim "$@"
         '';

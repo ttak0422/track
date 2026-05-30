@@ -33,7 +33,9 @@ Single-note indexing updates only that note's outgoing links, so callers that ne
 
 ## Neovim Highlighting
 
-The Lua frontend mirrors the Go matching rule for interactive highlighting.
+The default Neovim frontend starts `track-lsp` and asks it for `textDocument/documentLink`.
+Returned ranges are rendered with the `TrackLink` highlight group, which links to `Underlined` by default.
+Pressing `<CR>` in a vault markdown buffer calls LSP definition and jumps to the target note.
 
-Only visible lines are scanned, with a debounce, to keep highlighting cheap on large files.
-Highlighted ranges are cached so `:TrackFollow` and `<CR>` follow exactly the link under the cursor.
+The Lua matcher remains available as a non-LSP fallback.
+In fallback mode, only visible lines are scanned with a debounce, and highlighted ranges are cached so `:TrackFollow` follows exactly the link under the cursor.

@@ -44,7 +44,10 @@
               fileset = goFiles;
             };
             vendorHash = "sha256-REKtx4+UjxLUD+8yxSotjx8CCKuchP/l/BKqstZcogA=";
-            subPackages = [ "cmd/track" ];
+            subPackages = [
+              "cmd/track"
+              "cmd/track-lsp"
+            ];
           };
 
           track = pkgs.vimUtils.buildVimPlugin {
@@ -59,6 +62,10 @@
                 --replace-fail \
                   'local bundled_binary_path = nil' \
                   'local bundled_binary_path = "${track-cli}/bin/track"'
+              substituteInPlace lua/track/lsp.lua \
+                --replace-fail \
+                  'local bundled_lsp_binary_path = nil' \
+                  'local bundled_lsp_binary_path = "${track-cli}/bin/track-lsp"'
             '';
           };
         in

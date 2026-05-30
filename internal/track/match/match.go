@@ -14,6 +14,13 @@ type Term struct {
 	NoteID int64
 }
 
+type Occurrence struct {
+	Term      Term
+	Line      int
+	StartByte int
+	EndByte   int
+}
+
 // Matcher resolves keyword occurrences using longest-match, non-overlapping scanning.
 // CJK has no word boundaries, so matching is pure substring matching by design.
 type Matcher struct {
@@ -43,25 +50,38 @@ func New(terms []Term) *Matcher {
 func (m *Matcher) TargetIDs(text string) []int64 {
 	var ids []int64
 	seen := make(map[int64]bool)
+	for _, occ := range m.Occurrences(text) {
+		if !seen[occ.Term.NoteID] {
+			seen[occ.Term.NoteID] = true
+			ids = append(ids, occ.Term.NoteID)
+		}
+	}
+	return ids
+}
+
+func (m *Matcher) Occurrences(text string) []Occurrence {
+	var out []Occurrence
 	for _, line := range scannableLines(text) {
 		i := 0
-		for i < len(line) {
-			if t, ok := m.matchAt(line, i); ok {
-				if !seen[t.NoteID] {
-					seen[t.NoteID] = true
-					ids = append(ids, t.NoteID)
-				}
+		for i < len(line.Text) {
+			if t, ok := m.matchAt(line.Text, i); ok {
+				out = append(out, Occurrence{
+					Term:      t,
+					Line:      line.Number,
+					StartByte: i,
+					EndByte:   i + len(t.Text),
+				})
 				i += len(t.Text)
 				continue
 			}
-			_, size := utf8.DecodeRuneInString(line[i:])
+			_, size := utf8.DecodeRuneInString(line.Text[i:])
 			if size == 0 {
 				size = 1
 			}
 			i += size
 		}
 	}
-	return ids
+	return out
 }
 
 func (m *Matcher) matchAt(line string, i int) (Term, bool) {
@@ -74,12 +94,17 @@ func (m *Matcher) matchAt(line string, i int) (Term, bool) {
 	return Term{}, false
 }
 
+type scannableLine struct {
+	Number int
+	Text   string
+}
+
 // scannableLines returns the lines of text that are eligible for keyword matching, dropping lines inside fenced code blocks.
-func scannableLines(text string) []string {
+func scannableLines(text string) []scannableLine {
 	lines := strings.Split(text, "\n")
-	out := make([]string, 0, len(lines))
+	out := make([]scannableLine, 0, len(lines))
 	inFence := false
-	for _, line := range lines {
+	for i, line := range lines {
 		if isFence(line) {
 			inFence = !inFence
 			continue
@@ -87,7 +112,7 @@ func scannableLines(text string) []string {
 		if inFence {
 			continue
 		}
-		out = append(out, line)
+		out = append(out, scannableLine{Number: i, Text: line})
 	}
 	return out
 }

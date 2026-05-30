@@ -52,3 +52,18 @@ func TestNewDeduplicatesTerms(t *testing.T) {
 		t.Fatalf("expected single term keeping first id, got %+v", m.terms)
 	}
 }
+
+func TestOccurrences(t *testing.T) {
+	m := New([]Term{
+		{Text: "Go", NoteID: 1},
+		{Text: "Golang", NoteID: 2},
+	})
+	got := m.Occurrences("Golang\n```\nGo\n```\nGo")
+	want := []Occurrence{
+		{Term: Term{Text: "Golang", NoteID: 2}, Line: 0, StartByte: 0, EndByte: 6},
+		{Term: Term{Text: "Go", NoteID: 1}, Line: 4, StartByte: 0, EndByte: 2},
+	}
+	if !reflect.DeepEqual(got, want) {
+		t.Fatalf("got %+v, want %+v", got, want)
+	}
+}

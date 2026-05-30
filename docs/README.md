@@ -16,6 +16,7 @@ This directory contains durable project knowledge that should be committed and s
 - `adr/0004-explicit-vault-configuration.md`
 - `adr/0005-journal-date-paths.md`
 - `adr/0006-body-title-is-authoritative.md`
+- `adr/0007-go-lsp-for-editor-navigation.md`
 
 ## Not Here
 
