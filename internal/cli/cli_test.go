@@ -243,6 +243,33 @@ func TestBabelExecRunsAndStores(t *testing.T) {
 	if !strings.Contains(string(metaContent), "version: 2") || !strings.Contains(string(metaContent), "hi:") {
 		t.Fatalf("sidecar should store the block result at v2: %q", metaContent)
 	}
+
+	restored, code := runIn(t, vault, "babel", "restore", "--id", "500")
+	if code != 0 {
+		t.Fatalf("babel restore failed: %v", restored)
+	}
+	restoredBlocks := restored["blocks"].([]any)
+	if len(restoredBlocks) != 1 {
+		t.Fatalf("expected one restored block, got %v", restoredBlocks)
+	}
+	restoredBlock := restoredBlocks[0].(map[string]any)
+	if restoredBlock["id"] != "hi" || restoredBlock["stdout"] != "hello\n" || restoredBlock["restored"] != true {
+		t.Fatalf("unexpected restored block: %v", restoredBlock)
+	}
+	if int(restoredBlock["end_line"].(float64)) != 4 {
+		t.Fatalf("expected restored end_line 4, got %v", restoredBlock["end_line"])
+	}
+
+	if err := os.WriteFile(vault+"/500.md", []byte("# Demo\n\n```sh :name hi :results output\necho changed\n```\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	stale, code := runIn(t, vault, "babel", "restore", "--id", "500")
+	if code != 0 {
+		t.Fatalf("babel restore after edit failed: %v", stale)
+	}
+	if got := len(stale["blocks"].([]any)); got != 0 {
+		t.Fatalf("stale result should not be restored, got %v", stale["blocks"])
+	}
 }
 
 func TestBabelExecByLine(t *testing.T) {

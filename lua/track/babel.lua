@@ -8,6 +8,7 @@ local client = require("track.client")
 local M = {}
 
 local ns = vim.api.nvim_create_namespace("track_babel_results")
+local augroup = vim.api.nvim_create_augroup("track_babel_restore", { clear = true })
 
 -- lines_of splits captured output into display lines, dropping the trailing newline.
 local function lines_of(s)
@@ -48,6 +49,13 @@ local function render(buf, end_line, data)
    })
 end
 
+local function render_all(buf, blocks)
+   vim.api.nvim_buf_clear_namespace(buf, ns, 0, -1)
+   for _, block in ipairs(blocks or {}) do
+      render(buf, block.end_line, block)
+   end
+end
+
 local function run(buf, path, row, confirmed)
    local args = { "babel", "exec", "--path", path, "--line", tostring(row) }
    if confirmed then
@@ -82,6 +90,30 @@ function M.exec()
    run(buf, path, row, false)
 end
 
+-- restore renders stored run results from the note sidecar without evaluating any block.
+function M.restore(opts)
+   opts = opts or {}
+   local buf = opts.buf or vim.api.nvim_get_current_buf()
+   if not vim.api.nvim_buf_is_valid(buf) then
+      return
+   end
+   local path = vim.api.nvim_buf_get_name(buf)
+   if path == "" then
+      if not opts.silent then
+         vim.notify("track: buffer has no file", vim.log.levels.WARN)
+      end
+      return
+   end
+   local data, err = client.run_json({ "babel", "restore", "--path", path })
+   if not data then
+      if not opts.silent then
+         vim.notify("track: " .. tostring(err), vim.log.levels.ERROR)
+      end
+      return
+   end
+   render_all(buf, data.blocks)
+end
+
 -- clear removes all rendered babel results from the current buffer.
 function M.clear()
    vim.api.nvim_buf_clear_namespace(vim.api.nvim_get_current_buf(), ns, 0, -1)
@@ -91,6 +123,17 @@ function M.setup()
    vim.api.nvim_set_hl(0, config.options.babel_hl_header, { default = true, link = "Comment" })
    vim.api.nvim_set_hl(0, config.options.babel_hl_result, { default = true, link = "String" })
    vim.api.nvim_set_hl(0, config.options.babel_hl_error, { default = true, link = "ErrorMsg" })
+
+   vim.api.nvim_create_autocmd({ "BufReadPost", "BufWritePost" }, {
+      group = augroup,
+      pattern = "*.md",
+      callback = function(args)
+         vim.schedule(function()
+            M.restore({ buf = args.buf, silent = true })
+         end)
+      end,
+      desc = "Restore stored track Babel results",
+   })
 end
 
 return M

@@ -15,11 +15,13 @@ import (
 
 func cmdBabel(args []string) int {
 	if len(args) == 0 {
-		return fail("babel: expected a subcommand (exec)")
+		return fail("babel: expected a subcommand (exec, restore)")
 	}
 	switch args[0] {
 	case "exec":
 		return cmdBabelExec(args[1:])
+	case "restore":
+		return cmdBabelRestore(args[1:])
 	default:
 		return fail("babel: unknown subcommand %q", args[0])
 	}
@@ -104,17 +106,60 @@ func cmdBabelExec(args []string) int {
 		}
 	}
 
-	return emit(map[string]any{
-		"id":         blockID,
-		"language":   block.Language,
-		"status":     res.Status,
-		"exit_code":  res.ExitCode,
-		"stdout":     res.Stdout,
-		"stderr":     res.Stderr,
-		"stored":     stored,
-		"start_line": block.StartLine,
-		"end_line":   block.EndLine,
-	})
+	return emit(blockRunPayload(blockID, block, res, map[string]any{
+		"stored": stored,
+	}))
+}
+
+func cmdBabelRestore(args []string) int {
+	fs := flag.NewFlagSet("babel restore", flag.ContinueOnError)
+	path := fs.String("path", "", "note path")
+	id := fs.Int64("id", 0, "note id (alternative to --path)")
+	if err := fs.Parse(args); err != nil {
+		return fail("parse args: %v", err)
+	}
+
+	cfg, s, err := open()
+	if err != nil {
+		return fail("%v", err)
+	}
+	defer s.Close()
+
+	notePath := *path
+	if notePath == "" {
+		if *id == 0 {
+			return fail("--path or --id is required")
+		}
+		notePath = cfg.NotePath(*id)
+	}
+
+	n, err := note.ParseFile(notePath, cfg)
+	if err != nil {
+		return fail("read note: %v", err)
+	}
+
+	blocks := babel.ParseBlocks(n.Body)
+	if err := babel.Validate(blocks); err != nil {
+		return fail("%v", err)
+	}
+
+	restored := []map[string]any{}
+	for _, block := range blocks {
+		blockID := block.ID(n.ID)
+		meta, ok := n.Meta.Blocks[blockID]
+		if !ok || meta.LastRun == nil {
+			continue
+		}
+		if meta.Language != block.Language || meta.BodyHash != block.BodyHash {
+			continue
+		}
+		restored = append(restored, blockRunPayload(blockID, block, *meta.LastRun, map[string]any{
+			"stored":   true,
+			"restored": true,
+		}))
+	}
+
+	return emit(map[string]any{"blocks": restored})
 }
 
 // selectBlock picks the block to run: by :name, by ordinal, by a line inside it, or the sole block.
@@ -192,4 +237,25 @@ func firstHeader(b babel.Block, key string) string {
 		return vs[0]
 	}
 	return ""
+}
+
+func blockRunPayload(blockID string, block babel.Block, res babel.RunResult, extra map[string]any) map[string]any {
+	payload := map[string]any{
+		"id":          blockID,
+		"language":    block.Language,
+		"status":      res.Status,
+		"exit_code":   res.ExitCode,
+		"stdout":      res.Stdout,
+		"stderr":      res.Stderr,
+		"value":       res.Value,
+		"files":       res.Files,
+		"started_at":  res.StartedAt,
+		"finished_at": res.FinishedAt,
+		"start_line":  block.StartLine,
+		"end_line":    block.EndLine,
+	}
+	for k, v := range extra {
+		payload[k] = v
+	}
+	return payload
 }

@@ -33,6 +33,10 @@ function M.setup()
       require("track.babel").exec()
    end, { desc = "Run the source block under the cursor and show its result" })
 
+   cmd("TrackBabelRestore", function()
+      require("track.babel").restore()
+   end, { desc = "Restore stored source block results in the buffer" })
+
    cmd("TrackBabelClear", function()
       require("track.babel").clear()
    end, { desc = "Clear rendered babel results in the buffer" })

@@ -65,6 +65,8 @@ Usage:
   track backlinks (--id N | --path P)   list backlinks (JSON)
   track babel exec (--id N | --path P) [--name S | --ordinal N] [--yes]
                                         run a source block (JSON)
+  track babel restore (--id N | --path P)
+                                        list stored source block results (JSON)
   track dump                            print placeholder state (JSON)
   track version                         print the version
 `)
