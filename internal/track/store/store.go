@@ -56,6 +56,7 @@ func (s *Store) ensureSchema() error {
 	if _, err := s.db.Exec(schemaSQL); err != nil {
 		return fmt.Errorf("apply schema: %w", err)
 	}
+	// user_version tracks the SQLite schema version independently from metadata file versions.
 	if _, err := s.db.Exec(fmt.Sprintf("PRAGMA user_version = %d", schemaVersion)); err != nil {
 		return err
 	}

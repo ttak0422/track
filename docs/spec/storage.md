@@ -88,6 +88,7 @@ If the first H1 heading and `metadata.title` disagree, parsing or reindexing upd
 The SQLite index is derived state.
 It can be rebuilt from markdown note files and sidecar metadata.
 The indexer scans supported note files recursively under the vault, excluding hidden directories such as `.track`.
+SQLite `PRAGMA user_version` stores the database schema version and is independent from sidecar metadata versions.
 
 Schema version 1 contains:
 
@@ -98,6 +99,57 @@ Schema version 1 contains:
 - `keywords`: a view over note titles and aliases.
 
 The index uses WAL mode and foreign keys.
+
+### Schema Version 1
+
+```sql
+CREATE TABLE notes (
+  id      INTEGER PRIMARY KEY,
+  path    TEXT NOT NULL UNIQUE,
+  title   TEXT NOT NULL DEFAULT '',
+  body    TEXT NOT NULL DEFAULT '',
+  created TEXT,
+  mtime   INTEGER NOT NULL DEFAULT 0
+);
+
+CREATE TABLE aliases (
+  note_id INTEGER NOT NULL REFERENCES notes(id) ON DELETE CASCADE,
+  alias   TEXT NOT NULL,
+  PRIMARY KEY (note_id, alias)
+);
+CREATE INDEX idx_aliases_alias ON aliases(alias);
+
+CREATE TABLE tags (
+  note_id INTEGER NOT NULL REFERENCES notes(id) ON DELETE CASCADE,
+  tag     TEXT NOT NULL,
+  PRIMARY KEY (note_id, tag)
+);
+CREATE INDEX idx_tags_tag ON tags(tag);
+
+CREATE TABLE links (
+  src_id INTEGER NOT NULL REFERENCES notes(id) ON DELETE CASCADE,
+  dst_id INTEGER NOT NULL REFERENCES notes(id) ON DELETE CASCADE,
+  PRIMARY KEY (src_id, dst_id)
+);
+CREATE INDEX idx_links_dst ON links(dst_id);
+
+CREATE VIEW keywords AS
+  SELECT title AS term, id AS note_id, 'title' AS kind FROM notes WHERE title <> ''
+  UNION ALL
+  SELECT alias AS term, note_id, 'alias' AS kind FROM aliases;
+```
+
+Column notes:
+
+- `notes.id`: numeric note id. Regular notes use Unix timestamps; journal notes use `yyyyMMdd`.
+- `notes.path`: absolute note path at the time it was indexed.
+- `notes.title`: cached title used as the primary keyword. It mirrors the first H1 heading when available.
+- `notes.body`: cached markdown body with legacy footmatter stripped.
+- `notes.created`: cached metadata creation date string.
+- `notes.mtime`: note file modification time as a Unix timestamp. It is kept for future change detection and incremental reindexing.
+- `aliases.note_id` and `tags.note_id`: metadata rows attached to a note. They are replaced on note upsert.
+- `links.src_id` and `links.dst_id`: computed directed note links. Self-links are ignored by the writer.
+- `keywords`: convenience view used by keyword dumping, resolution, matching, and auto-link highlighting.
 
 ## Deletion
 
