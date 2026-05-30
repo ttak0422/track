@@ -7,6 +7,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/ttak0422/track/internal/track/babel"
 	"github.com/ttak0422/track/internal/track/config"
 )
 
@@ -32,6 +33,40 @@ func TestWriteReadMetadataRoundTrip(t *testing.T) {
 	in.Version = CurrentMetadataVersion
 	if !reflect.DeepEqual(got, in) {
 		t.Fatalf("metadata mismatch:\n got %+v\nwant %+v", got, in)
+	}
+}
+
+func TestWriteReadMetadataV2RoundTrip(t *testing.T) {
+	path := filepath.Join(t.TempDir(), ".track", "notes", "1000.yaml")
+	in := Metadata{
+		Title: "Example",
+		Blocks: map[string]babel.BlockMeta{
+			"hello": {
+				Language:   "lua",
+				HeaderArgs: map[string][]string{"results": {"output", "verbatim"}},
+				BodyHash:   "sha256:abc",
+				LastRun: &babel.RunResult{
+					Status:   "success",
+					ExitCode: 0,
+					Stdout:   "1\n",
+				},
+			},
+		},
+	}
+	if err := WriteMetadata(path, in); err != nil {
+		t.Fatalf("write metadata: %v", err)
+	}
+
+	got, found, err := ReadMetadata(path)
+	if err != nil || !found {
+		t.Fatalf("read metadata: found=%v err=%v", found, err)
+	}
+	if got.Version != MetadataVersionV2 {
+		t.Fatalf("blocks should bump to version 2, got %d", got.Version)
+	}
+	in.Version = MetadataVersionV2
+	if !reflect.DeepEqual(got, in) {
+		t.Fatalf("v2 metadata mismatch:\n got %+v\nwant %+v", got, in)
 	}
 }
 

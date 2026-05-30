@@ -10,7 +10,18 @@ import (
 	"gopkg.in/yaml.v3"
 )
 
-const CurrentMetadataVersion = 1
+const (
+	// CurrentMetadataVersion is stamped on new sidecars that carry no Babel results.
+	CurrentMetadataVersion = 1
+	// MetadataVersionV2 adds Babel source-block results under blocks.
+	MetadataVersionV2 = 2
+	// MaxMetadataVersion is the newest schema this build can read and write.
+	MaxMetadataVersion = MetadataVersionV2
+)
+
+func supportedVersion(v int) bool {
+	return v >= CurrentMetadataVersion && v <= MaxMetadataVersion
+}
 
 // ReadMetadata reads a versioned metadata sidecar. found=false means the note has no sidecar yet.
 func ReadMetadata(path string) (meta Metadata, found bool, err error) {
@@ -24,18 +35,22 @@ func ReadMetadata(path string) (meta Metadata, found bool, err error) {
 	if err := yaml.Unmarshal(raw, &meta); err != nil {
 		return Metadata{}, true, err
 	}
-	if meta.Version != CurrentMetadataVersion {
+	if !supportedVersion(meta.Version) {
 		return Metadata{}, true, fmt.Errorf("unsupported metadata version %d in %s", meta.Version, path)
 	}
 	return meta, true, nil
 }
 
 // WriteMetadata writes a note's versioned sidecar metadata, creating the containing .track/notes directory when needed.
+// Sidecars stay at version 1 until they carry Babel block results, which require version 2.
 func WriteMetadata(path string, meta Metadata) error {
 	if meta.Version == 0 {
 		meta.Version = CurrentMetadataVersion
 	}
-	if meta.Version != CurrentMetadataVersion {
+	if len(meta.Blocks) > 0 && meta.Version < MetadataVersionV2 {
+		meta.Version = MetadataVersionV2
+	}
+	if !supportedVersion(meta.Version) {
 		return fmt.Errorf("unsupported metadata version %d", meta.Version)
 	}
 	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {

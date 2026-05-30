@@ -8,17 +8,20 @@ import (
 	"strconv"
 	"strings"
 
+	"github.com/ttak0422/track/internal/track/babel"
 	"github.com/ttak0422/track/internal/track/config"
 )
 
 // Metadata is the structured data stored beside a note under .track/notes.
 // Created is kept as a string so YAML round-trips it verbatim instead of reformatting a time.Time.
+// Blocks holds Babel source-block results, keyed by block id; it is only present in version 2 sidecars.
 type Metadata struct {
-	Version int      `yaml:"version"`
-	Title   string   `yaml:"title,omitempty"`
-	Aliases []string `yaml:"aliases,omitempty"`
-	Tags    []string `yaml:"tags,omitempty"`
-	Created string   `yaml:"created,omitempty"`
+	Version int                        `yaml:"version"`
+	Title   string                     `yaml:"title,omitempty"`
+	Aliases []string                   `yaml:"aliases,omitempty"`
+	Tags    []string                   `yaml:"tags,omitempty"`
+	Created string                     `yaml:"created,omitempty"`
+	Blocks  map[string]babel.BlockMeta `yaml:"blocks,omitempty"`
 }
 
 type Note struct {
