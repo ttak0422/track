@@ -29,6 +29,10 @@ function M.setup()
       require("track.follow").follow()
    end, { desc = "Follow the track link under the cursor" })
 
+   cmd("TrackBacklinks", function()
+      require("track.backlinks").show()
+   end, { desc = "Show notes that link to the current note" })
+
    cmd("TrackBabelExec", function()
       require("track.babel").exec()
    end, { desc = "Run the source block under the cursor and show its result" })

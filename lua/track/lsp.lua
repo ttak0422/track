@@ -242,6 +242,7 @@ local function register_create_note_command()
          vim.notify("track: note title is empty", vim.log.levels.WARN)
          return
       end
+      local uri = type(arg) == "table" and arg.uri or nil
       local lsp_client = ctx and ctx.client_id and vim.lsp.get_client_by_id(ctx.client_id)
       if not lsp_client then
          vim.notify("track: LSP client is not available", vim.log.levels.ERROR)
@@ -250,7 +251,7 @@ local function register_create_note_command()
       local buf = (ctx and ctx.bufnr) or vim.api.nvim_get_current_buf()
       lsp_client:request("workspace/executeCommand", {
          command = "track.createNote",
-         arguments = { { title = title } },
+         arguments = { { title = title, uri = uri } },
       }, function(err, result)
          if err then
             vim.notify("track: " .. tostring(err.message or err), vim.log.levels.ERROR)

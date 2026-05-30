@@ -115,6 +115,7 @@ func (s *Server) handleRequest(msg rpcMessage) rpcMessage {
 				"positionEncoding":        "utf-8",
 				"textDocumentSync":        1,
 				"definitionProvider":      true,
+				"referencesProvider":      true,
 				"documentLinkProvider":    map[string]any{"resolveProvider": false},
 				"completionProvider":      map[string]any{"triggerCharacters": []string{"["}},
 				"codeActionProvider":      true,
@@ -136,6 +137,18 @@ func (s *Server) handleRequest(msg rpcMessage) rpcMessage {
 			return resp
 		}
 		resp.Result = links
+	case "track/backlinks":
+		var p documentLinkParams
+		if err := json.Unmarshal(msg.Params, &p); err != nil {
+			resp.Error = &rpcError{Code: -32602, Message: err.Error()}
+			return resp
+		}
+		backlinks, err := s.backlinks(p.TextDocument.URI)
+		if err != nil {
+			resp.Error = &rpcError{Code: -32000, Message: err.Error()}
+			return resp
+		}
+		resp.Result = backlinks
 	case "textDocument/definition":
 		var p textDocumentPositionParams
 		if err := json.Unmarshal(msg.Params, &p); err != nil {
@@ -148,6 +161,18 @@ func (s *Server) handleRequest(msg rpcMessage) rpcMessage {
 			return resp
 		}
 		resp.Result = loc
+	case "textDocument/references":
+		var p textDocumentPositionParams
+		if err := json.Unmarshal(msg.Params, &p); err != nil {
+			resp.Error = &rpcError{Code: -32602, Message: err.Error()}
+			return resp
+		}
+		refs, err := s.references(p.TextDocument.URI, p.Position)
+		if err != nil {
+			resp.Error = &rpcError{Code: -32000, Message: err.Error()}
+			return resp
+		}
+		resp.Result = refs
 	case "textDocument/completion":
 		var p textDocumentPositionParams
 		if err := json.Unmarshal(msg.Params, &p); err != nil {

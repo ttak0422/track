@@ -43,6 +43,132 @@ func (s *Server) documentLinks(uri string) ([]documentLink, error) {
 	return links, nil
 }
 
+func (s *Server) backlinks(uri string) ([]backlink, error) {
+	currentID, ok := noteIDFromURI(uri)
+	if !ok {
+		return []backlink{}, nil
+	}
+	return s.backlinksTo(currentID)
+}
+
+func (s *Server) backlinksTo(noteID int64) ([]backlink, error) {
+	sources, err := s.store.Backlinks(noteID)
+	if err != nil {
+		return nil, err
+	}
+	dict, err := s.keywordDict()
+	if err != nil {
+		return nil, err
+	}
+
+	var out []backlink
+	for _, source := range sources {
+		sourceURI := uriFromPath(source.Path)
+		text, err := s.documentText(sourceURI)
+		if err != nil {
+			return nil, err
+		}
+		lines := strings.Split(text, "\n")
+		for _, ref := range link.Refs(text) {
+			kw, ok := dict[ref.Text]
+			if !ok || kw.NoteID != noteID {
+				continue
+			}
+			preview := ""
+			if ref.Line >= 0 && ref.Line < len(lines) {
+				preview = strings.TrimSpace(lines[ref.Line])
+			}
+			out = append(out, backlink{
+				NoteID: source.NoteID,
+				URI:    sourceURI,
+				Path:   source.Path,
+				Title:  source.Title,
+				Range: rangeValue{
+					Start: position{Line: ref.Line, Character: ref.OpenByte},
+					End:   position{Line: ref.Line, Character: ref.CloseByte},
+				},
+				Preview: preview,
+			})
+		}
+	}
+	if out == nil {
+		out = []backlink{}
+	}
+	return out, nil
+}
+
+func (s *Server) references(uri string, pos position) ([]location, error) {
+	targetID, ok, err := s.referenceTarget(uri, pos)
+	if err != nil {
+		return nil, err
+	}
+	if !ok {
+		return []location{}, nil
+	}
+	backlinks, err := s.backlinksTo(targetID)
+	if err != nil {
+		return nil, err
+	}
+	out := make([]location, 0, len(backlinks))
+	for _, backlink := range backlinks {
+		out = append(out, location{
+			URI:   backlink.URI,
+			Range: backlink.Range,
+		})
+	}
+	return out, nil
+}
+
+func (s *Server) referenceTarget(uri string, pos position) (int64, bool, error) {
+	text, err := s.documentText(uri)
+	if err != nil {
+		currentID, ok := noteIDFromURI(uri)
+		if ok {
+			return currentID, true, nil
+		}
+		return 0, false, err
+	}
+	dict, err := s.keywordDict()
+	if err != nil {
+		return 0, false, err
+	}
+	for _, ref := range link.Refs(text) {
+		if !refContainsPosition(ref, pos) {
+			continue
+		}
+		kw, ok := dict[ref.Text]
+		return kw.NoteID, ok, nil
+	}
+	currentID, ok := noteIDFromURI(uri)
+	return currentID, ok, nil
+}
+
+func (s *Server) refreshDocumentLinks(uri string) error {
+	srcID, ok := noteIDFromURI(uri)
+	if !ok {
+		return nil
+	}
+	text, err := s.documentText(uri)
+	if err != nil {
+		return err
+	}
+	dict, err := s.keywordDict()
+	if err != nil {
+		return err
+	}
+	var dstIDs []int64
+	seen := map[int64]bool{}
+	for _, ref := range link.Refs(text) {
+		kw, ok := dict[ref.Text]
+		if !ok || seen[kw.NoteID] {
+			continue
+		}
+		seen[kw.NoteID] = true
+		dstIDs = append(dstIDs, kw.NoteID)
+	}
+	return s.store.ReplaceLinks(srcID, dstIDs)
+}
+
 func (s *Server) definition(uri string, pos position) (*location, error) {
 	text, err := s.documentText(uri)
 	if err != nil {

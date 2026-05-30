@@ -30,28 +30,38 @@ func (s *Server) executeCommand(p executeCommandParams) (map[string]any, error) 
 	if p.Command != createNoteCommand {
 		return nil, fmt.Errorf("unsupported command %q", p.Command)
 	}
-	title, err := createNoteTitleFromArgs(p.Arguments)
+	params, err := createNoteParamsFromArgs(p.Arguments)
 	if err != nil {
 		return nil, err
 	}
-	return s.createNote(title)
+	result, err := s.createNote(params.Title)
+	if err != nil {
+		return nil, err
+	}
+	if params.URI != "" {
+		_ = s.refreshDocumentLinks(params.URI)
+	}
+	return result, nil
 }
 
-func createNoteTitleFromArgs(args []json.RawMessage) (string, error) {
+type createNoteParams struct {
+	Title string `json:"title"`
+	URI   string `json:"uri,omitempty"`
+}
+
+func createNoteParamsFromArgs(args []json.RawMessage) (createNoteParams, error) {
 	if len(args) == 0 {
-		return "", fmt.Errorf("missing note title")
+		return createNoteParams{}, fmt.Errorf("missing note title")
 	}
-	var obj struct {
-		Title string `json:"title"`
-	}
+	var obj createNoteParams
 	if err := json.Unmarshal(args[0], &obj); err == nil && obj.Title != "" {
-		return obj.Title, nil
+		return obj, nil
 	}
 	var title string
 	if err := json.Unmarshal(args[0], &title); err == nil && title != "" {
-		return title, nil
+		return createNoteParams{Title: title}, nil
 	}
-	return "", fmt.Errorf("missing note title")
+	return createNoteParams{}, fmt.Errorf("missing note title")
 }
 
 func (s *Server) createNote(title string) (map[string]any, error) {

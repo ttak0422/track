@@ -63,6 +63,70 @@ func TestDocumentLinks(t *testing.T) {
 	}
 }
 
+func TestBacklinks(t *testing.T) {
+	srv, vault := setupServer(t)
+	sourcePath := filepath.Join(vault, "200.md")
+	sourceURI := uriFromPath(sourcePath)
+	if err := srv.store.UpsertNote(&note.Note{
+		ID:   200,
+		Path: sourcePath,
+		Meta: note.Metadata{Title: "Source"},
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if err := srv.store.ReplaceLinks(200, []int64{100}); err != nil {
+		t.Fatal(err)
+	}
+	srv.docs[sourceURI] = "first [[Go]]\nsecond [[Golang]]"
+
+	backlinks, err := srv.backlinks(uriFromPath(filepath.Join(vault, "100.md")))
+	if err != nil {
+		t.Fatalf("backlinks: %v", err)
+	}
+	if len(backlinks) != 2 {
+		t.Fatalf("expected two backlink occurrences, got %+v", backlinks)
+	}
+	if backlinks[0].NoteID != 200 || backlinks[0].Title != "Source" || backlinks[0].Range.Start.Line != 0 {
+		t.Fatalf("unexpected first backlink: %+v", backlinks[0])
+	}
+	if backlinks[1].Range.Start.Line != 1 || backlinks[1].Preview != "second [[Golang]]" {
+		t.Fatalf("unexpected second backlink: %+v", backlinks[1])
+	}
+}
+
+func TestReferences(t *testing.T) {
+	srv, vault := setupServer(t)
+	sourcePath := filepath.Join(vault, "200.md")
+	sourceURI := uriFromPath(sourcePath)
+	if err := srv.store.UpsertNote(&note.Note{
+		ID:   200,
+		Path: sourcePath,
+		Meta: note.Metadata{Title: "Source"},
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if err := srv.store.ReplaceLinks(200, []int64{100}); err != nil {
+		t.Fatal(err)
+	}
+	srv.docs[sourceURI] = "see [[Go]]"
+
+	refs, err := srv.references(uriFromPath(filepath.Join(vault, "100.md")), position{Line: 0, Character: 0})
+	if err != nil {
+		t.Fatalf("references: %v", err)
+	}
+	if len(refs) != 1 || refs[0].URI != sourceURI || refs[0].Range.Start.Character != 4 {
+		t.Fatalf("unexpected references to current note: %+v", refs)
+	}
+
+	refsFromLink, err := srv.references(sourceURI, position{Line: 0, Character: 6})
+	if err != nil {
+		t.Fatalf("references from link: %v", err)
+	}
+	if len(refsFromLink) != 1 || refsFromLink[0].URI != sourceURI {
+		t.Fatalf("link references should resolve to the target note's backlinks, got %+v", refsFromLink)
+	}
+}
+
 func TestDefinition(t *testing.T) {
 	srv, vault := setupServer(t)
 	uri := uriFromPath(filepath.Join(vault, "200.md"))
@@ -283,6 +347,13 @@ func TestCompletionResponseIsIncomplete(t *testing.T) {
 func TestCodeActionCreatesUnresolvedNote(t *testing.T) {
 	srv, vault := setupServer(t)
 	uri := uriFromPath(filepath.Join(vault, "200.md"))
+	if err := srv.store.UpsertNote(&note.Note{
+		ID:   200,
+		Path: filepath.Join(vault, "200.md"),
+		Meta: note.Metadata{Title: "Source"},
+	}); err != nil {
+		t.Fatal(err)
+	}
 	srv.docs[uri] = "see [[Rust]]"
 
 	actions, err := srv.codeActions(uri, rangeValue{
@@ -320,6 +391,13 @@ func TestCodeActionCreatesUnresolvedNote(t *testing.T) {
 	}
 	if len(links) != 1 || links[0].Target != result["uri"] {
 		t.Fatalf("expected newly created note to resolve, links=%+v result=%+v", links, result)
+	}
+	backlinks, err := srv.backlinks(result["uri"].(string))
+	if err != nil {
+		t.Fatalf("backlinks after create: %v", err)
+	}
+	if len(backlinks) != 1 || backlinks[0].NoteID != 200 {
+		t.Fatalf("created note should be backlinked from note 200, got %+v", backlinks)
 	}
 
 	again, err := srv.codeActions(uri, rangeValue{

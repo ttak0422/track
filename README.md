@@ -67,8 +67,10 @@ It currently provides:
 
 - `textDocument/documentLink`: returns ranges for resolved `[[...]]` links.
 - `textDocument/definition`: jumps from the `[[...]]` under the cursor to the target note.
+- `textDocument/references`: lists backlinks to the current note or the link target under the cursor.
 - `textDocument/completion`: offers titles and aliases inside an open `[[`, triggered on `[`.
 - `textDocument/codeAction`: creates a note from an unresolved `[[...]]` link.
+- `track/backlinks`: returns notes and link locations that reference the current note.
 
 The server uses UTF-8 positions and reads the same `$TRACK_VAULT` configuration as the CLI.
 
@@ -86,6 +88,7 @@ Commands:
 ```vim
 :TrackNew [title]   " create a note (visual selection / args / prompt-with-cword)
 :TrackFollow        " follow the [[...]] link under the cursor (also mapped to <CR>)
+:TrackBacklinks     " show notes that link to the current note in quickfix
 :TrackBabelExec     " run the source block under the cursor; result shows below it
 :TrackBabelRestore  " restore stored babel results without running code
 :TrackBabelClear    " clear rendered babel results in the buffer

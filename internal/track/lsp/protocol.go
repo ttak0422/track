@@ -86,6 +86,15 @@ type documentLinkParams struct {
 	TextDocument textDocumentIdentifier `json:"textDocument"`
 }
 
+type backlink struct {
+	NoteID  int64      `json:"note_id"`
+	URI     string     `json:"uri"`
+	Path    string     `json:"path"`
+	Title   string     `json:"title"`
+	Range   rangeValue `json:"range"`
+	Preview string     `json:"preview"`
+}
+
 type codeActionParams struct {
 	TextDocument textDocumentIdentifier `json:"textDocument"`
 	Range        rangeValue             `json:"range"`
