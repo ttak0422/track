@@ -124,7 +124,7 @@ func TestBacklinksAndReindex(t *testing.T) {
 
 	// Make note 200 reference Go, then full reindex to build the link graph.
 	if err := os.WriteFile(vault+"/200.md",
-		[]byte("Go を参照\n"), 0o644); err != nil {
+		[]byte("[[Go]] を参照\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
 	rep, code := runIn(t, vault, "reindex", "--full")

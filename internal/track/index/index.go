@@ -9,7 +9,7 @@ import (
 	"strings"
 
 	"github.com/ttak0422/track/internal/track/config"
-	"github.com/ttak0422/track/internal/track/match"
+	"github.com/ttak0422/track/internal/track/link"
 	"github.com/ttak0422/track/internal/track/note"
 	"github.com/ttak0422/track/internal/track/store"
 )
@@ -72,12 +72,12 @@ func (ix *Indexer) Full() (Report, error) {
 		}
 	}
 
-	matcher, err := ix.buildMatcher()
+	dict, err := ix.keywordDict()
 	if err != nil {
 		return rep, err
 	}
 	for _, n := range notes {
-		targets := matcher.TargetIDs(n.Body)
+		targets := resolveLinks(n.Body, dict)
 		if err := ix.store.ReplaceLinks(n.ID, targets); err != nil {
 			return rep, err
 		}
@@ -97,23 +97,42 @@ func (ix *Indexer) One(path string) error {
 	if err := ix.store.UpsertNote(n); err != nil {
 		return err
 	}
-	matcher, err := ix.buildMatcher()
+	dict, err := ix.keywordDict()
 	if err != nil {
 		return err
 	}
-	return ix.store.ReplaceLinks(n.ID, matcher.TargetIDs(n.Body))
+	return ix.store.ReplaceLinks(n.ID, resolveLinks(n.Body, dict))
 }
 
-func (ix *Indexer) buildMatcher() (*match.Matcher, error) {
+// keywordDict loads the auto-link dictionary once as term -> note id, so resolving each [[...]] is an O(1) map lookup.
+func (ix *Indexer) keywordDict() (map[string]int64, error) {
 	kws, err := ix.store.Keywords()
 	if err != nil {
 		return nil, err
 	}
-	terms := make([]match.Term, 0, len(kws))
+	dict := make(map[string]int64, len(kws))
 	for _, k := range kws {
-		terms = append(terms, match.Term{Text: k.Term, NoteID: k.NoteID})
+		if _, ok := dict[k.Term]; !ok {
+			dict[k.Term] = k.NoteID
+		}
 	}
-	return match.New(terms), nil
+	return dict, nil
+}
+
+// resolveLinks returns the deduplicated note ids referenced by body's [[...]] links, in first-seen order.
+// Unresolved references (no matching title or alias) are skipped.
+func resolveLinks(body string, dict map[string]int64) []int64 {
+	var ids []int64
+	seen := make(map[int64]bool)
+	for _, ref := range link.Refs(body) {
+		id, ok := dict[ref.Text]
+		if !ok || seen[id] {
+			continue
+		}
+		seen[id] = true
+		ids = append(ids, id)
+	}
+	return ids
 }
 
 func (ix *Indexer) scanFiles() ([]string, error) {

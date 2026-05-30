@@ -43,7 +43,7 @@ func TestFullIndexesAndLinks(t *testing.T) {
 	// Note 1 is titled "リンク".
 	// Note 2's body references リンク → link 2->1.
 	writeNote(t, cfg, 1, "# リンク\n\nthe target note", note.Metadata{Title: "リンク", Aliases: []string{"link"}})
-	writeNote(t, cfg, 2, "本文で リンク を参照する", note.Metadata{Title: "ノート2"})
+	writeNote(t, cfg, 2, "本文で [[リンク]] を参照する", note.Metadata{Title: "ノート2"})
 
 	ix := New(cfg, s)
 	rep, err := ix.Full()
@@ -104,7 +104,7 @@ func TestOneUpdatesOutgoingLinks(t *testing.T) {
 	}
 
 	// Rewrite note 2 to reference Go, then index just that file.
-	writeNote(t, cfg, 2, "now mentions Go here", note.Metadata{Title: "Two"})
+	writeNote(t, cfg, 2, "now mentions [[Go]] here", note.Metadata{Title: "Two"})
 	if err := ix.One(cfg.NotePath(2)); err != nil {
 		t.Fatalf("one: %v", err)
 	}

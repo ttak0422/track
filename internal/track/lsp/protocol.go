@@ -37,6 +37,16 @@ type documentLink struct {
 	Tooltip string     `json:"tooltip,omitempty"`
 }
 
+// completionKindReference is LSP CompletionItemKind.Reference, used for note-link candidates.
+const completionKindReference = 18
+
+type completionItem struct {
+	Label      string `json:"label"`
+	Kind       int    `json:"kind,omitempty"`
+	Detail     string `json:"detail,omitempty"`
+	InsertText string `json:"insertText,omitempty"`
+}
+
 type textDocumentIdentifier struct {
 	URI string `json:"uri"`
 }

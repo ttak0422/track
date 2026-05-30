@@ -14,7 +14,7 @@ import (
 
 	"github.com/ttak0422/track/internal/track/config"
 	"github.com/ttak0422/track/internal/track/index"
-	"github.com/ttak0422/track/internal/track/match"
+	"github.com/ttak0422/track/internal/track/link"
 	"github.com/ttak0422/track/internal/track/note"
 	"github.com/ttak0422/track/internal/track/store"
 )
@@ -104,6 +104,7 @@ func (s *Server) handleRequest(msg rpcMessage) rpcMessage {
 				"textDocumentSync":        1,
 				"definitionProvider":      true,
 				"documentLinkProvider":    map[string]any{"resolveProvider": false},
+				"completionProvider":      map[string]any{"triggerCharacters": []string{"["}},
 				"workspaceSymbolProvider": false,
 			},
 		}
@@ -133,6 +134,18 @@ func (s *Server) handleRequest(msg rpcMessage) rpcMessage {
 			return resp
 		}
 		resp.Result = loc
+	case "textDocument/completion":
+		var p textDocumentPositionParams
+		if err := json.Unmarshal(msg.Params, &p); err != nil {
+			resp.Error = &rpcError{Code: -32602, Message: err.Error()}
+			return resp
+		}
+		items, err := s.completion(p.TextDocument.URI, p.Position)
+		if err != nil {
+			resp.Error = &rpcError{Code: -32000, Message: err.Error()}
+			return resp
+		}
+		resp.Result = items
 	default:
 		resp.Error = &rpcError{Code: -32601, Message: "method not found"}
 	}
@@ -145,26 +158,26 @@ func (s *Server) documentLinks(uri string) ([]documentLink, error) {
 		return nil, err
 	}
 	currentID, hasCurrentID := noteIDFromURI(uri)
-	m, refs, err := s.matcher()
+	dict, err := s.keywordDict()
 	if err != nil {
 		return nil, err
 	}
 	var links []documentLink
-	for _, occ := range m.Occurrences(text) {
-		if hasCurrentID && occ.Term.NoteID == currentID {
-			continue
-		}
-		ref, ok := refs[occ.Term.NoteID]
+	for _, ref := range link.Refs(text) {
+		kw, ok := dict[ref.Text]
 		if !ok {
+			continue // unresolved [[...]]: the Lua side highlights these separately
+		}
+		if hasCurrentID && kw.NoteID == currentID {
 			continue
 		}
 		links = append(links, documentLink{
 			Range: rangeValue{
-				Start: position{Line: occ.Line, Character: occ.StartByte},
-				End:   position{Line: occ.Line, Character: occ.EndByte},
+				Start: position{Line: ref.Line, Character: ref.StartByte},
+				End:   position{Line: ref.Line, Character: ref.EndByte},
 			},
-			Target:  uriFromPath(ref.Path),
-			Tooltip: occ.Term.Text,
+			Target:  uriFromPath(kw.Path),
+			Tooltip: ref.Text,
 		})
 	}
 	if links == nil {
@@ -179,23 +192,23 @@ func (s *Server) definition(uri string, pos position) (*location, error) {
 		return nil, err
 	}
 	currentID, hasCurrentID := noteIDFromURI(uri)
-	m, refs, err := s.matcher()
+	dict, err := s.keywordDict()
 	if err != nil {
 		return nil, err
 	}
-	for _, occ := range m.Occurrences(text) {
-		if hasCurrentID && occ.Term.NoteID == currentID {
+	for _, ref := range link.Refs(text) {
+		if ref.Line != pos.Line || pos.Character < ref.StartByte || pos.Character >= ref.EndByte {
 			continue
 		}
-		if occ.Line != pos.Line || pos.Character < occ.StartByte || pos.Character >= occ.EndByte {
-			continue
-		}
-		ref, ok := refs[occ.Term.NoteID]
+		kw, ok := dict[ref.Text]
 		if !ok {
 			return nil, nil
 		}
+		if hasCurrentID && kw.NoteID == currentID {
+			return nil, nil
+		}
 		return &location{
-			URI: uriFromPath(ref.Path),
+			URI: uriFromPath(kw.Path),
 			Range: rangeValue{
 				Start: position{Line: 0, Character: 0},
 				End:   position{Line: 0, Character: 0},
@@ -203,6 +216,70 @@ func (s *Server) definition(uri string, pos position) (*location, error) {
 		}, nil
 	}
 	return nil, nil
+}
+
+// completion offers note titles and aliases when the cursor sits inside an unclosed [[ on the current line.
+// Candidates come from the same dictionary that resolves links, so anything offered will resolve.
+func (s *Server) completion(uri string, pos position) ([]completionItem, error) {
+	text, err := s.documentText(uri)
+	if err != nil {
+		return nil, err
+	}
+	if !insideOpenLink(text, pos) {
+		return []completionItem{}, nil
+	}
+	currentID, hasCurrentID := noteIDFromURI(uri)
+	kws, err := s.store.Keywords()
+	if err != nil {
+		return nil, err
+	}
+	items := make([]completionItem, 0, len(kws))
+	for _, kw := range kws {
+		if hasCurrentID && kw.NoteID == currentID {
+			continue
+		}
+		items = append(items, completionItem{
+			Label:      kw.Term,
+			Kind:       completionKindReference,
+			Detail:     kw.Kind,
+			InsertText: kw.Term,
+		})
+	}
+	return items, nil
+}
+
+// insideOpenLink reports whether pos sits after a "[[" with no closing "]]" before it on the same line.
+func insideOpenLink(text string, pos position) bool {
+	lines := strings.Split(text, "\n")
+	if pos.Line < 0 || pos.Line >= len(lines) {
+		return false
+	}
+	line := lines[pos.Line]
+	col := pos.Character
+	if col > len(line) {
+		col = len(line)
+	}
+	prefix := line[:col]
+	open := strings.LastIndex(prefix, "[[")
+	if open < 0 {
+		return false
+	}
+	return !strings.Contains(prefix[open+2:], "]]")
+}
+
+// keywordDict loads the auto-link dictionary keyed by term, so resolving each [[...]] is an O(1) lookup.
+func (s *Server) keywordDict() (map[string]store.Keyword, error) {
+	kws, err := s.store.Keywords()
+	if err != nil {
+		return nil, err
+	}
+	dict := make(map[string]store.Keyword, len(kws))
+	for _, kw := range kws {
+		if _, ok := dict[kw.Term]; !ok {
+			dict[kw.Term] = kw
+		}
+	}
+	return dict, nil
 }
 
 func noteIDFromURI(uri string) (int64, bool) {
@@ -227,22 +304,6 @@ func (s *Server) documentText(uri string) (string, error) {
 		return "", err
 	}
 	return string(raw), nil
-}
-
-func (s *Server) matcher() (*match.Matcher, map[int64]store.Keyword, error) {
-	kws, err := s.store.Keywords()
-	if err != nil {
-		return nil, nil, err
-	}
-	terms := make([]match.Term, 0, len(kws))
-	refs := make(map[int64]store.Keyword, len(kws))
-	for _, kw := range kws {
-		terms = append(terms, match.Term{Text: kw.Term, NoteID: kw.NoteID})
-		if _, ok := refs[kw.NoteID]; !ok {
-			refs[kw.NoteID] = kw
-		}
-	}
-	return match.New(terms), refs, nil
 }
 
 func readMessage(r *bufio.Reader) (rpcMessage, error) {

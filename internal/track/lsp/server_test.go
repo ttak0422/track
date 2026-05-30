@@ -40,7 +40,7 @@ func setupServer(t *testing.T) (*Server, string) {
 func TestDocumentLinks(t *testing.T) {
 	srv, vault := setupServer(t)
 	uri := uriFromPath(filepath.Join(vault, "200.md"))
-	srv.docs[uri] = "Golang and Go"
+	srv.docs[uri] = "[[Golang]] and [[Go]]"
 
 	links, err := srv.documentLinks(uri)
 	if err != nil {
@@ -49,7 +49,7 @@ func TestDocumentLinks(t *testing.T) {
 	if len(links) != 2 {
 		t.Fatalf("expected 2 links, got %+v", links)
 	}
-	if links[0].Range.Start.Line != 0 || links[0].Range.Start.Character != 0 || links[0].Range.End.Character != 6 {
+	if links[0].Range.Start.Line != 0 || links[0].Range.Start.Character != 2 || links[0].Range.End.Character != 8 {
 		t.Fatalf("unexpected first range: %+v", links[0].Range)
 	}
 	if links[0].Target != uriFromPath(filepath.Join(vault, "100.md")) {
@@ -60,9 +60,9 @@ func TestDocumentLinks(t *testing.T) {
 func TestDefinition(t *testing.T) {
 	srv, vault := setupServer(t)
 	uri := uriFromPath(filepath.Join(vault, "200.md"))
-	srv.docs[uri] = "mentions Golang"
+	srv.docs[uri] = "mentions [[Golang]]"
 
-	loc, err := srv.definition(uri, position{Line: 0, Character: 10})
+	loc, err := srv.definition(uri, position{Line: 0, Character: 13})
 	if err != nil {
 		t.Fatalf("definition: %v", err)
 	}
@@ -77,7 +77,7 @@ func TestDefinition(t *testing.T) {
 func TestSelfLinksAreNotLinked(t *testing.T) {
 	srv, vault := setupServer(t)
 	uri := uriFromPath(filepath.Join(vault, "100.md"))
-	srv.docs[uri] = "# Go\n\nGo"
+	srv.docs[uri] = "# Go\n\n[[Go]]"
 
 	links, err := srv.documentLinks(uri)
 	if err != nil {
@@ -87,7 +87,7 @@ func TestSelfLinksAreNotLinked(t *testing.T) {
 		t.Fatalf("expected no self-links, got %+v", links)
 	}
 
-	loc, err := srv.definition(uri, position{Line: 2, Character: 1})
+	loc, err := srv.definition(uri, position{Line: 2, Character: 3})
 	if err != nil {
 		t.Fatalf("definition: %v", err)
 	}
@@ -99,7 +99,7 @@ func TestSelfLinksAreNotLinked(t *testing.T) {
 func TestTitleLineCanLinkToAnotherNote(t *testing.T) {
 	srv, vault := setupServer(t)
 	uri := uriFromPath(filepath.Join(vault, "200.md"))
-	srv.docs[uri] = "# Go"
+	srv.docs[uri] = "# [[Go]]"
 
 	links, err := srv.documentLinks(uri)
 	if err != nil {
@@ -107,5 +107,44 @@ func TestTitleLineCanLinkToAnotherNote(t *testing.T) {
 	}
 	if len(links) != 1 {
 		t.Fatalf("expected title link to another note, got %+v", links)
+	}
+}
+
+func TestCompletionInsideBrackets(t *testing.T) {
+	srv, vault := setupServer(t)
+	uri := uriFromPath(filepath.Join(vault, "200.md"))
+	srv.docs[uri] = "see [[Go"
+
+	items, err := srv.completion(uri, position{Line: 0, Character: 8})
+	if err != nil {
+		t.Fatalf("completion: %v", err)
+	}
+	// note 100 contributes both its title (Go) and alias (Golang).
+	if len(items) != 2 {
+		t.Fatalf("expected 2 candidates, got %+v", items)
+	}
+}
+
+func TestCompletionExcludesSelfAndOutsideBrackets(t *testing.T) {
+	srv, vault := setupServer(t)
+
+	selfURI := uriFromPath(filepath.Join(vault, "100.md"))
+	srv.docs[selfURI] = "[[Go"
+	items, err := srv.completion(selfURI, position{Line: 0, Character: 4})
+	if err != nil {
+		t.Fatalf("completion: %v", err)
+	}
+	if len(items) != 0 {
+		t.Fatalf("a note should not complete its own terms, got %+v", items)
+	}
+
+	uri := uriFromPath(filepath.Join(vault, "200.md"))
+	srv.docs[uri] = "plain text"
+	outside, err := srv.completion(uri, position{Line: 0, Character: 5})
+	if err != nil {
+		t.Fatalf("completion: %v", err)
+	}
+	if len(outside) != 0 {
+		t.Fatalf("expected no completion outside [[, got %+v", outside)
 	}
 }
