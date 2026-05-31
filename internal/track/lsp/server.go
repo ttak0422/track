@@ -132,7 +132,7 @@ func (s *Server) handleRequest(msg rpcMessage) rpcMessage {
 			},
 		}
 	case "shutdown":
-		resp.Result = nil
+		resp.Result = json.RawMessage("null")
 	case "textDocument/documentLink":
 		var p documentLinkParams
 		if err := json.Unmarshal(msg.Params, &p); err != nil {
@@ -319,7 +319,9 @@ func (s *Server) inVault(uri string) bool {
 	if !slices.Contains(s.cfg.Extensions, filepath.Ext(path)) {
 		return false
 	}
-	rel, err := filepath.Rel(s.cfg.VaultDir, path)
+	vaultDir := canonicalPath(s.cfg.VaultDir)
+	path = canonicalPath(path)
+	rel, err := filepath.Rel(vaultDir, path)
 	if err != nil {
 		return false
 	}
@@ -335,4 +337,30 @@ func (s *Server) inVault(uri string) bool {
 		}
 	}
 	return true
+}
+
+func canonicalPath(path string) string {
+	if abs, err := filepath.Abs(path); err == nil {
+		path = filepath.Clean(abs)
+	} else {
+		path = filepath.Clean(path)
+	}
+	if real, err := filepath.EvalSymlinks(path); err == nil {
+		return real
+	}
+	var suffix []string
+	for dir := path; ; dir = filepath.Dir(dir) {
+		parent := filepath.Dir(dir)
+		if parent == dir {
+			break
+		}
+		suffix = append(suffix, filepath.Base(dir))
+		if realDir, err := filepath.EvalSymlinks(parent); err == nil {
+			for i := len(suffix) - 1; i >= 0; i-- {
+				realDir = filepath.Join(realDir, suffix[i])
+			}
+			return realDir
+		}
+	}
+	return path
 }

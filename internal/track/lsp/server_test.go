@@ -347,6 +347,33 @@ func TestCompletionResponseIsIncomplete(t *testing.T) {
 	}
 }
 
+func TestCompletionResponseMarshalsForLSP(t *testing.T) {
+	srv, vault := setupServer(t)
+	uri := uriFromPath(filepath.Join(vault, "200.md"))
+	srv.docs[uri] = "see [[Go"
+	params, err := json.Marshal(textDocumentPositionParams{
+		TextDocument: textDocumentIdentifier{URI: documentURI(uri)},
+		Position:     newPosition(0, 8),
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	resp := srv.handleRequest(rpcMessage{
+		JSONRPC: "2.0",
+		ID:      json.RawMessage(`1`),
+		Method:  "textDocument/completion",
+		Params:  params,
+	})
+	body, err := json.Marshal(resp)
+	if err != nil {
+		t.Fatalf("marshal completion response: %v", err)
+	}
+	if !strings.Contains(string(body), `"textEdit":{"range"`) || !strings.Contains(string(body), `"newText":"Go]]"`) {
+		t.Fatalf("completion response should contain a plain LSP TextEdit, got %s", body)
+	}
+}
+
 func TestCodeActionCreatesUnresolvedNote(t *testing.T) {
 	srv, vault := setupServer(t)
 	uri := uriFromPath(filepath.Join(vault, "200.md"))
@@ -428,6 +455,22 @@ func TestServeEndsCleanlyOnEOF(t *testing.T) {
 	srv, _ := setupServer(t)
 	if err := srv.Serve(strings.NewReader(""), io.Discard); err != nil {
 		t.Fatalf("EOF should end cleanly, got %v", err)
+	}
+}
+
+func TestShutdownResponseIncludesNullResult(t *testing.T) {
+	srv, _ := setupServer(t)
+	resp := srv.handleRequest(rpcMessage{
+		JSONRPC: "2.0",
+		ID:      json.RawMessage(`1`),
+		Method:  "shutdown",
+	})
+	body, err := json.Marshal(resp)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(body), `"result":null`) {
+		t.Fatalf("shutdown response should include a null result, got %s", body)
 	}
 }
 
@@ -523,5 +566,19 @@ func TestInVaultClassification(t *testing.T) {
 		if got := srv.inVault(uriFromPath(c.path)); got != c.want {
 			t.Fatalf("inVault(%q) = %v, want %v", c.path, got, c.want)
 		}
+	}
+}
+
+func TestInVaultAllowsRealpathUnderSymlinkedVault(t *testing.T) {
+	srv, vault := setupServer(t)
+	parent := filepath.Dir(vault)
+	link := filepath.Join(parent, "vault-link")
+	if err := os.Symlink(vault, link); err != nil {
+		t.Skipf("symlink unavailable: %v", err)
+	}
+	srv.cfg.VaultDir = link
+
+	if !srv.inVault(uriFromPath(filepath.Join(vault, "100.md"))) {
+		t.Fatalf("realpath under symlinked vault should be in vault")
 	}
 }
