@@ -10,9 +10,11 @@ import (
 	"syscall"
 	"testing"
 
+	"github.com/ttak0422/track/internal/track/babel"
 	"github.com/ttak0422/track/internal/track/config"
 	"github.com/ttak0422/track/internal/track/note"
 	"github.com/ttak0422/track/internal/track/store"
+	protocol "typefox.dev/lsp"
 )
 
 func setupServer(t *testing.T) (*Server, string) {
@@ -24,6 +26,10 @@ func setupServer(t *testing.T) (*Server, string) {
 		Extensions:        []string{".md"},
 		DateFormat:        "2006-01-02",
 		JournalDateFormat: "20060102",
+		BabelLanguages: map[string]babel.Executor{
+			"lua":  {},
+			"viml": {},
+		},
 	}
 	s, err := store.Open(cfg.DBPath)
 	if err != nil {
@@ -41,6 +47,29 @@ func setupServer(t *testing.T) (*Server, string) {
 		t.Fatalf("upsert note: %v", err)
 	}
 	return NewServer(cfg, s), vault
+}
+
+func TestInitializeCompletionTriggerCharacters(t *testing.T) {
+	srv, _ := setupServer(t)
+
+	resp := srv.handleRequest(rpcMessage{
+		JSONRPC: "2.0",
+		ID:      json.RawMessage(`1`),
+		Method:  "initialize",
+	})
+	if resp.Error != nil {
+		t.Fatalf("initialize response error: %+v", resp.Error)
+	}
+	result, ok := resp.Result.(protocol.InitializeResult)
+	if !ok {
+		t.Fatalf("expected initialize result, got %T", resp.Result)
+	}
+	triggers := result.Capabilities.CompletionProvider.TriggerCharacters
+	for _, want := range []string{"[", ":", " "} {
+		if !stringSliceContains(triggers, want) {
+			t.Fatalf("expected completion trigger %q in %+v", want, triggers)
+		}
+	}
 }
 
 func TestDocumentLinks(t *testing.T) {
@@ -347,6 +376,113 @@ func TestCompletionResponseIsIncomplete(t *testing.T) {
 	}
 }
 
+func TestBabelCompletionLanguage(t *testing.T) {
+	srv, vault := setupServer(t)
+	uri := uriFromPath(filepath.Join(vault, "200.md"))
+	srv.docs[uri] = "```l"
+
+	items, err := srv.completion(uri, newPosition(0, 4))
+	if err != nil {
+		t.Fatalf("completion: %v", err)
+	}
+	if !completionLabelsContain(items, "lua") {
+		t.Fatalf("expected lua language completion, got %+v", items)
+	}
+	edit := completionEdit(&items[0])
+	if edit == nil || edit.Range.Start.Character != 3 || edit.Range.End.Character != 4 {
+		t.Fatalf("unexpected language text edit: %+v", edit)
+	}
+}
+
+func TestBabelCompletionHeaderKeys(t *testing.T) {
+	srv, vault := setupServer(t)
+	uri := uriFromPath(filepath.Join(vault, "200.md"))
+	srv.docs[uri] = "```lua :res"
+
+	items, err := srv.completion(uri, newPosition(0, 11))
+	if err != nil {
+		t.Fatalf("completion: %v", err)
+	}
+	if !completionLabelsContain(items, ":results") {
+		t.Fatalf("expected :results header completion, got %+v", items)
+	}
+	item := completionItemByLabel(items, ":results")
+	edit := completionEdit(item)
+	if edit == nil || edit.NewText != ":results " || edit.Range.Start.Character != 7 || edit.Range.End.Character != 11 {
+		t.Fatalf("unexpected :results text edit: %+v", edit)
+	}
+}
+
+func TestBabelCompletionHeaderKeysAtColon(t *testing.T) {
+	srv, vault := setupServer(t)
+	uri := uriFromPath(filepath.Join(vault, "200.md"))
+	srv.docs[uri] = "```lua :"
+
+	items, err := srv.completion(uri, newPosition(0, 8))
+	if err != nil {
+		t.Fatalf("completion: %v", err)
+	}
+	item := completionItemByLabel(items, ":eval")
+	if item == nil {
+		t.Fatalf("expected :eval header completion at colon, got %+v", items)
+	}
+	edit := completionEdit(item)
+	if edit == nil || edit.NewText != ":eval " || edit.Range.Start.Character != 7 || edit.Range.End.Character != 8 {
+		t.Fatalf("unexpected :eval text edit: %+v", edit)
+	}
+}
+
+func TestBabelCompletionHeaderValueAfterKeySpace(t *testing.T) {
+	srv, vault := setupServer(t)
+	uri := uriFromPath(filepath.Join(vault, "200.md"))
+	srv.docs[uri] = "```lua :eval "
+
+	items, err := srv.completion(uri, newPosition(0, 13))
+	if err != nil {
+		t.Fatalf("completion: %v", err)
+	}
+	if !completionLabelsContain(items, "yes") || !completionLabelsContain(items, "no") {
+		t.Fatalf("expected eval value completions, got %+v", items)
+	}
+	if completionLabelsContain(items, ":eval") || completionLabelsContain(items, ":results") {
+		t.Fatalf("property completions should not appear before an eval value is chosen, got %+v", items)
+	}
+}
+
+func TestBabelCompletionHeaderValues(t *testing.T) {
+	srv, vault := setupServer(t)
+	uri := uriFromPath(filepath.Join(vault, "200.md"))
+	srv.docs[uri] = "```lua :results o"
+
+	items, err := srv.completion(uri, newPosition(0, 17))
+	if err != nil {
+		t.Fatalf("completion: %v", err)
+	}
+	if !completionLabelsContain(items, "output") {
+		t.Fatalf("expected output result completion, got %+v", items)
+	}
+	if completionLabelsContain(items, "verbatim") {
+		t.Fatalf("prefix should filter result completions, got %+v", items)
+	}
+}
+
+func TestBabelCompletionOffersOnlyHeaderKeysAfterValue(t *testing.T) {
+	srv, vault := setupServer(t)
+	uri := uriFromPath(filepath.Join(vault, "200.md"))
+	srv.docs[uri] = "```lua :eval no "
+
+	items, err := srv.completion(uri, newPosition(0, 16))
+	if err != nil {
+		t.Fatalf("completion: %v", err)
+	}
+	if !completionLabelsContain(items, ":results") || !completionLabelsContain(items, ":eval") {
+		t.Fatalf("expected header keys after eval value, got %+v", items)
+	}
+	if completionLabelsContain(items, "yes") || completionLabelsContain(items, "no") {
+		t.Fatalf("value completions should not appear after an eval value is chosen, got %+v", items)
+	}
+}
+
 func TestCompletionResponseMarshalsForLSP(t *testing.T) {
 	srv, vault := setupServer(t)
 	uri := uriFromPath(filepath.Join(vault, "200.md"))
@@ -506,6 +642,33 @@ func completionEdit(item *completionItem) *textEdit {
 		return nil
 	}
 	return &edit
+}
+
+func completionLabelsContain(items []completionItem, label string) bool {
+	for _, item := range items {
+		if item.Label == label {
+			return true
+		}
+	}
+	return false
+}
+
+func completionItemByLabel(items []completionItem, label string) *completionItem {
+	for i := range items {
+		if items[i].Label == label {
+			return &items[i]
+		}
+	}
+	return nil
+}
+
+func stringSliceContains(values []string, target string) bool {
+	for _, value := range values {
+		if value == target {
+			return true
+		}
+	}
+	return false
 }
 
 // TestFeaturesIgnoreFilesOutsideVault verifies the server treats markdown that is not a track note

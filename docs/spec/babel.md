@@ -138,6 +138,7 @@ Start with execution of ordinary fenced code blocks:
 - Read language from the first info-string token.
 - Read block args from Org-style `:<key> <value>` tokens in the rest of the info string.
 - Support `:name`, `:results output`, `:results verbatim`, `:results replace`, `:results silent`, `:results none`, `:results discard`, `:eval yes/no/query`, `:cache yes/no`, `:var` literal values, `:session none`, `:dir`, `:exports` as parsed metadata, `:noweb no`, and `:tangle no`.
+- Complete configured languages, supported header keys, and fixed header values in fence info strings through LSP completion; `:` starts header-key completion, and accepted header keys insert one trailing space before value completion.
 - Store execution result metadata outside the Markdown body.
 - Keep stdout, stderr, exit code, wall-clock timestamps, status, body hash, and normalized header args.
 - Do not mutate the note body with `#+RESULTS:`-style blocks.

@@ -71,7 +71,7 @@ It currently provides:
 - `textDocument/documentLink`: returns ranges for resolved `[[...]]` links.
 - `textDocument/definition`: jumps from the `[[...]]` under the cursor to the target note.
 - `textDocument/references`: lists backlinks to the current note or the link target under the cursor.
-- `textDocument/completion`: offers titles and aliases inside an open `[[`, triggered on `[`.
+- `textDocument/completion`: offers titles and aliases inside an open `[[`, plus Babel fence info-string candidates, triggered on `[`, `:`, and space.
 - `textDocument/codeAction`: creates a note from an unresolved `[[...]]` link.
 - `track/backlinks`: returns notes and link locations that reference the current note.
 
@@ -107,6 +107,8 @@ Commands:
 In a vault buffer, resolved `[[...]]` links are underlined (`TrackLink` highlight group) and unresolved ones use `TrackLinkUnresolved`; press `<CR>` on a link to jump to its note. By default the `[[ ]]` brackets are concealed so links read as plain text (`[[Go|ゴー]]` shows `ゴー`); in normal mode the link under the cursor is shown raw (anti-conceal) while other links stay concealed, and while typing the whole cursor line is shown raw so the completion popup stays aligned. `conceal = false` keeps brackets visible. Raising conceallevel would otherwise let Neovim's treesitter markdown query hide code-fence delimiters, so track reveals them by default (toggle with `reveal_code_fences`). This is backed by `track-lsp`.
 
 Completion of titles and aliases inside `[[` is served over LSP. The plugin merges [`cmp-nvim-lsp`](https://github.com/hrsh7th/cmp-nvim-lsp) capabilities when nvim-cmp is installed, so candidates surface through your existing nvim-cmp setup (add `{ name = "nvim_lsp" }` to its sources). The completion source is UI-independent, so other clients work too.
+
+Babel fence info strings are completed over the same LSP source. On an opening fence such as ```` ```lua :results output ````, track completes configured Babel languages, supported header keys, and fixed values for headers such as `:results`, `:eval`, `:cache`, `:session`, `:exports`, `:noweb`, and `:tangle`. Header-key candidates insert one trailing space, so accepting `:eval` leaves the cursor at `:eval ` where value candidates such as `yes`, `no`, and `query` are available.
 
 ## Data safety
 

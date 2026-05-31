@@ -223,7 +223,7 @@ func (s *Server) completion(uri string, pos position) ([]completionItem, error) 
 	}
 	ctx, ok := openLinkCompletionContext(text, pos)
 	if !ok {
-		return []completionItem{}, nil
+		return s.babelCompletion(text, pos), nil
 	}
 	currentID, hasCurrentID := noteIDFromURI(uri)
 	kws, err := s.store.Keywords()
