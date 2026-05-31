@@ -4,6 +4,7 @@ import (
 	"errors"
 	"flag"
 	"fmt"
+	"io"
 	"os"
 	"path/filepath"
 	"strings"
@@ -34,6 +35,7 @@ func cmdBabelExec(args []string) int {
 	name := fs.String("name", "", "block :name to run")
 	ordinal := fs.Int("ordinal", -1, "0-based block index to run (alternative to --name)")
 	line := fs.Int("line", -1, "0-based line inside the block to run (e.g. the editor cursor row)")
+	bodyStdin := fs.Bool("body-stdin", false, "read note body from stdin instead of disk")
 	yes := fs.Bool("yes", false, "confirm execution for blocks with :eval query")
 	timeout := fs.Duration("timeout", 30*time.Second, "max run time per block (0 = no limit)")
 	if err := fs.Parse(args); err != nil {
@@ -57,6 +59,13 @@ func cmdBabelExec(args []string) int {
 	n, err := note.ParseFile(notePath, cfg)
 	if err != nil {
 		return fail("read note: %v", err)
+	}
+	if *bodyStdin {
+		body, err := io.ReadAll(os.Stdin)
+		if err != nil {
+			return fail("read stdin body: %v", err)
+		}
+		n.Body = string(body)
 	}
 
 	blocks := babel.ParseBlocks(n.Body)

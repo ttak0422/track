@@ -56,12 +56,20 @@ local function render_all(buf, blocks)
    end
 end
 
+local function current_body(buf)
+   local body = table.concat(vim.api.nvim_buf_get_lines(buf, 0, -1, false), "\n")
+   if vim.bo[buf].endofline then
+      body = body .. "\n"
+   end
+   return body
+end
+
 local function run(buf, path, row, confirmed)
-   local args = { "babel", "exec", "--path", path, "--line", tostring(row) }
+   local args = { "babel", "exec", "--path", path, "--line", tostring(row), "--body-stdin" }
    if confirmed then
       args[#args + 1] = "--yes"
    end
-   local data, err = client.run_json(args)
+   local data, err = client.run_json(args, current_body(buf))
    if not data then
       -- A block with :eval query is refused until confirmed; ask, then re-run with --yes.
       if not confirmed and tostring(err):find("eval query") then

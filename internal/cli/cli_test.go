@@ -38,6 +38,27 @@ func runIn(t *testing.T, vault string, args ...string) (map[string]any, int) {
 	return decoded, code
 }
 
+func runInWithStdin(t *testing.T, vault, stdin string, args ...string) (map[string]any, int) {
+	t.Helper()
+	old := os.Stdin
+	r, w, err := os.Pipe()
+	if err != nil {
+		t.Fatalf("pipe: %v", err)
+	}
+	if _, err := w.WriteString(stdin); err != nil {
+		t.Fatalf("write stdin: %v", err)
+	}
+	if err := w.Close(); err != nil {
+		t.Fatalf("close stdin writer: %v", err)
+	}
+	os.Stdin = r
+	t.Cleanup(func() {
+		os.Stdin = old
+		r.Close()
+	})
+	return runIn(t, vault, args...)
+}
+
 func TestVersion(t *testing.T) {
 	out, code := capture(t, func() int { return Run([]string{"version"}) })
 	if code != 0 || out != "track "+Version+"\n" {
@@ -295,6 +316,28 @@ func TestBabelExecByLine(t *testing.T) {
 	}
 	if int(out["end_line"].(float64)) != 8 {
 		t.Fatalf("expected end_line 8, got %v", out["end_line"])
+	}
+}
+
+func TestBabelExecCanUseStdinBody(t *testing.T) {
+	if _, err := exec.LookPath("sh"); err != nil {
+		t.Skip("sh not available")
+	}
+	vault := t.TempDir()
+	t.Setenv("TRACK_BABEL_SH", "sh {{file}}")
+
+	runIn(t, vault, "new", "--title", "Demo", "--id", "503")
+	if err := os.WriteFile(vault+"/503.md", []byte("# Demo\n\n```sh\necho saved\n```\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	unsaved := "# Demo\n\n```sh\necho unsaved\n```\n"
+
+	out, code := runInWithStdin(t, vault, unsaved, "babel", "exec", "--id", "503", "--line", "3", "--body-stdin")
+	if code != 0 {
+		t.Fatalf("babel exec with stdin body failed: %v", out)
+	}
+	if out["stdout"] != "unsaved\n" {
+		t.Fatalf("expected stdin body to run, got %v", out)
 	}
 }
 

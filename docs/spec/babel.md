@@ -142,6 +142,7 @@ Start with execution of ordinary fenced code blocks:
 - Store execution result metadata outside the Markdown body.
 - Keep stdout, stderr, exit code, wall-clock timestamps, status, body hash, and normalized header args.
 - Do not mutate the note body with `#+RESULTS:`-style blocks.
+- Editor integrations should execute current buffer contents, including unsaved edits, matching Emacs Org Babel. Plain CLI execution reads the saved file unless the caller explicitly supplies the body.
 
 ## Deferred Work
 

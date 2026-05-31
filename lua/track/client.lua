@@ -45,18 +45,21 @@ local function find_binary()
 end
 
 -- run executes the CLI with args and returns raw stdout.
-function M.run(args)
+function M.run(args, input)
    local cmd = { find_binary() }
    for _, item in ipairs(args) do
       table.insert(cmd, item)
+   end
+   if input ~= nil then
+      return vim.fn.system(cmd, input)
    end
    return vim.fn.system(cmd)
 end
 
 -- run_json executes the CLI and decodes its JSON.
 -- Returns (table) on success, or (nil, errmsg) when stdout is not JSON or carries an {"error":...} payload.
-function M.run_json(args)
-   local out = M.run(args)
+function M.run_json(args, input)
+   local out = M.run(args, input)
    local ok, decoded = pcall(vim.json.decode, out)
    if not ok then
       return nil, "track: invalid JSON output: " .. tostring(out)
