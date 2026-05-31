@@ -9,6 +9,20 @@ Each item starts as undecided. Before implementation, decide whether track shoul
 - `Adopt`: should be implemented.
 - `Defer`: useful, but not soon.
 - `Reject`: outside track's intended scope.
+- `Done`: shipped; remaining follow-ups are noted inline.
+
+## Recently Shipped
+
+Items below have landed since this roadmap was drafted. The matching table rows are
+marked `Done` with any remaining follow-up called out.
+
+- Scoped search picker with preview (Telescope): `search_title` and `search_body`
+  extensions backed by `track search --scope title|body`. Title search lists just the
+  title; body search lists the matched line and positions the previewer and cursor on
+  it. Remaining: create-on-empty, optional ripgrep-backed body search.
+- Babel LSP completions: block-header argument and multi-token `:results` completion
+  served over LSP (trigger characters `[`, `:`, space), plus running a block directly
+  from the editor buffer using the unsaved buffer body.
 
 ## Discussion Template
 
@@ -29,7 +43,7 @@ For each item, answer:
 | Workspace | Dynamic workspace for markdown outside a vault | TBD | Conflicts with explicit-vault ADR unless constrained. Could be a Neovim-only mode with no durable writes. |
 | Picker UX | Quick switch note picker | TBD | Engine already has notes/search primitives. Neovim can use quickfix first, picker adapters later. |
 | Picker UX | Dailies picker | TBD | CLI has journal open by offset, but no list/range command. Add store/query or filesystem scan. |
-| Picker UX | Search picker with preview and create-on-empty | TBD | CLI search exists. Need richer UI and possibly ripgrep-backed body search. |
+| Picker UX | Search picker with preview and create-on-empty | Done | Shipped: Telescope `search_title`/`search_body` pickers with file preview; body search jumps to the matched line via `search --scope`. Remaining: create-on-empty, optional ripgrep-backed body search. |
 | Obsidian app | Open note in Obsidian app / advanced URI | TBD | Optional integration. Likely Neovim command only; no engine impact. |
 | Sync | Obsidian Sync / obsidian-headless integration | TBD | Large external dependency and product-specific scope. Likely defer/reject unless explicit goal. |
 | Bookmarks | Read `.obsidian/bookmarks.json` | TBD | Optional Obsidian compatibility feature. Could expose picker/quickfix. |
