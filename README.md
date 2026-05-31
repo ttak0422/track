@@ -104,6 +104,13 @@ In a vault buffer, resolved `[[...]]` links are underlined (`TrackLink` highligh
 
 Completion of titles and aliases inside `[[` is served over LSP. The plugin merges [`cmp-nvim-lsp`](https://github.com/hrsh7th/cmp-nvim-lsp) capabilities when nvim-cmp is installed, so candidates surface through your existing nvim-cmp setup (add `{ name = "nvim_lsp" }` to its sources). The completion source is UI-independent, so other clients work too.
 
+## Data safety
+
+Note bodies are plain `.md` files, but their metadata (aliases, tags, created date, Babel results) lives in sidecar files under `.track/notes/`.
+That directory is **authoritative** and cannot be rebuilt from the note bodies, so back it up and keep it in version control, just as you would `.git`.
+The SQLite index at `.track/index.db` is disposable and can be rebuilt at any time with `track reindex --full`.
+See [docs/spec/storage.md](docs/spec/storage.md) for details.
+
 ## Development
 
 ```sh

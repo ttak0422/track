@@ -87,39 +87,6 @@ func cmdNew(args []string) int {
 	return emit(map[string]any{"id": noteID, "path": path, "title": *title})
 }
 
-func cmdRepair(args []string) int {
-	fs := flag.NewFlagSet("repair", flag.ContinueOnError)
-	if err := fs.Parse(args); err != nil {
-		return fail("parse args: %v", err)
-	}
-
-	cfg, s, err := open()
-	if err != nil {
-		return fail("%v", err)
-	}
-	defer s.Close()
-
-	ix := index.New(cfg, s)
-	rep, err := ix.Repair()
-	if err != nil {
-		return fail("repair: %v", err)
-	}
-	// Rebuilt sidecars changed on disk; rebuild the index so search and links reflect them.
-	if _, err := ix.Full(); err != nil {
-		return fail("reindex: %v", err)
-	}
-
-	return emit(map[string]any{
-		"scanned":       rep.Scanned,
-		"ok":            rep.OK,
-		"backfilled":    rep.Backfilled,
-		"recovered":     rep.Recovered,
-		"rebuilt":       rep.Rebuilt,
-		"corrupt":       rep.Corrupt,
-		"missing_title": rep.MissingTitle,
-	})
-}
-
 func cmdJournal(args []string) int {
 	fs := flag.NewFlagSet("journal", flag.ContinueOnError)
 	offset := fs.Int("offset", 0, "day offset: 0=today, -1=yesterday, 1=tomorrow")

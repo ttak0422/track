@@ -155,3 +155,14 @@ Column notes:
 
 During a full reindex, notes missing from the filesystem are removed from the SQLite index.
 Their sidecar metadata files are also removed.
+
+## Durability: do not delete `.track/notes/`
+
+`.track/` holds two very different kinds of data:
+
+- `.track/index.db` is a **rebuildable cache**. The notes on disk are the source of truth; `track reindex --full` regenerates the database from them. Deleting it is safe.
+- `.track/notes/<id>.yaml` are the **authoritative** per-note metadata sidecars. The markdown body only owns the fields it can express (the first H1 owns the title); `aliases`, `tags`, `created`, and Babel block results live *only* in the sidecar and cannot be reconstructed from the `.md` file.
+
+Deleting `.track/notes/` is therefore irrecoverable data loss for everything except note titles. Treat it like `.git`: keep it under version control and back it up alongside the note bodies.
+
+track intentionally does **not** provide a metadata "repair" command. Rebuilding a sidecar from the note body alone would silently drop aliases, tags, and block results while appearing to succeed, which is more dangerous than a clear "restore from backup" rule.
