@@ -93,3 +93,19 @@ func IDFromPath(path string) (int64, error) {
 func IDFromName(name string) (int64, error) {
 	return strconv.ParseInt(name, 10, 64)
 }
+
+// FreeID returns the first note id at or after start whose note file does not yet exist.
+// Callers derive start from a timestamp (e.g. time.Now().UnixMilli()); scanning upward guarantees
+// that notes created in the same instant—such as a batch of machine-generated notes—never collide
+// or overwrite each other, the later ones simply taking the next free id.
+func FreeID(c *config.Config, start int64) (int64, error) {
+	for id := start; ; id++ {
+		_, err := os.Stat(c.NotePath(id))
+		if os.IsNotExist(err) {
+			return id, nil
+		}
+		if err != nil {
+			return 0, err
+		}
+	}
+}

@@ -4,6 +4,7 @@ This directory contains durable project knowledge that should be committed and s
 
 ## Specifications
 
+- `roadmap.md`: candidate feature TODOs and discussion state.
 - `spec/architecture.md`: implementation architecture and package boundaries.
 - `spec/babel.md`: Markdown-first Org Babel compatibility and support matrix.
 - `spec/storage.md`: vault layout, sidecar metadata, and SQLite index shape.

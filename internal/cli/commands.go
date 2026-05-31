@@ -39,7 +39,7 @@ func cmdReindex(args []string) int {
 func cmdNew(args []string) int {
 	fs := flag.NewFlagSet("new", flag.ContinueOnError)
 	title := fs.String("title", "", "note title (also a link keyword)")
-	id := fs.Int64("id", 0, "note id (unix timestamp); defaults to now")
+	id := fs.Int64("id", 0, "note id (unix timestamp in milliseconds); defaults to now")
 	if err := fs.Parse(args); err != nil {
 		return fail("parse args: %v", err)
 	}
@@ -55,10 +55,16 @@ func cmdNew(args []string) int {
 
 	noteID := *id
 	if noteID == 0 {
-		noteID = time.Now().Unix()
+		// Auto id: start from the current millisecond and take the next free slot so a burst of
+		// machine-generated notes in the same instant never overwrite one another.
+		noteID, err = note.FreeID(cfg, time.Now().UnixMilli())
+		if err != nil {
+			return fail("allocate note id: %v", err)
+		}
 	}
 	path := cfg.NotePath(noteID)
 	if _, err := os.Stat(path); err == nil {
+		// An explicit --id that already exists is a caller mistake, not a race to resolve silently.
 		return fail("note already exists: %s", path)
 	}
 

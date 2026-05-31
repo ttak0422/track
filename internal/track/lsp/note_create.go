@@ -77,14 +77,9 @@ func (s *Server) createNote(title string) (map[string]any, error) {
 		return nil, fmt.Errorf("note already exists for %q", title)
 	}
 
-	noteID := time.Now().Unix()
-	for {
-		if _, err := os.Stat(s.cfg.NotePath(noteID)); os.IsNotExist(err) {
-			break
-		} else if err != nil {
-			return nil, err
-		}
-		noteID++
+	noteID, err := note.FreeID(s.cfg, time.Now().UnixMilli())
+	if err != nil {
+		return nil, err
 	}
 	path := s.cfg.NotePath(noteID)
 	if err := os.MkdirAll(s.cfg.VaultDir, 0o755); err != nil {
