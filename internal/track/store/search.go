@@ -1,34 +1,47 @@
 package store
 
 import (
+	"fmt"
 	"strings"
 	"unicode/utf8"
 )
 
+type SearchScope string
+
+const (
+	SearchAll   SearchScope = "all"
+	SearchTitle SearchScope = "title"
+	SearchBody  SearchScope = "body"
+)
+
 // SearchResult is one hit from a content/title/alias search.
+// Line and Snippet locate the first matching body line (1-based); they are zero/empty
+// when the hit is title-only or the scope is title.
 type SearchResult struct {
 	NoteID  int64  `json:"note_id"`
 	Path    string `json:"path"`
 	Title   string `json:"title"`
-	Snippet string `json:"snippet"`
+	Line    int    `json:"line,omitempty"`
+	Snippet string `json:"snippet,omitempty"`
 }
 
 // Search returns notes whose title, body, or any alias contains query (case-insensitive substring).
 // A short snippet is built around the first body match.
 // FTS5 can replace this later behind the same signature.
 func (s *Store) Search(query string, limit int) ([]SearchResult, error) {
+	return s.SearchScoped(query, limit, SearchAll)
+}
+
+func (s *Store) SearchScoped(query string, limit int, scope SearchScope) ([]SearchResult, error) {
 	if limit <= 0 {
 		limit = 50
 	}
 	like := "%" + query + "%"
-	rows, err := s.db.Query(
-		`SELECT DISTINCT n.id, n.path, n.title, n.body
-		 FROM notes n
-		 LEFT JOIN aliases a ON a.note_id = n.id
-		 WHERE n.title LIKE ? OR n.body LIKE ? OR a.alias LIKE ?
-		 ORDER BY n.id LIMIT ?`,
-		like, like, like, limit,
-	)
+	sql, args, err := searchQuery(scope, like, limit)
+	if err != nil {
+		return nil, err
+	}
+	rows, err := s.db.Query(sql, args...)
 	if err != nil {
 		return nil, err
 	}
@@ -41,29 +54,49 @@ func (s *Store) Search(query string, limit int) ([]SearchResult, error) {
 		if err := rows.Scan(&r.NoteID, &r.Path, &r.Title, &body); err != nil {
 			return nil, err
 		}
-		r.Snippet = snippet(body, query)
+		// Title-scoped searches never touch the body, so leave Line/Snippet empty.
+		if scope != SearchTitle {
+			r.Line, r.Snippet = lineMatch(body, query)
+		}
 		out = append(out, r)
 	}
 	return out, rows.Err()
 }
 
-// snippet returns a short, single-line excerpt of body centered on the first case-insensitive occurrence of query.
-func snippet(body, query string) string {
-	const width = 80
-	flat := strings.Join(strings.Fields(body), " ")
-	if flat == "" {
-		return ""
+func searchQuery(scope SearchScope, like string, limit int) (string, []any, error) {
+	switch scope {
+	case SearchAll:
+		return `SELECT DISTINCT n.id, n.path, n.title, n.body
+		 FROM notes n
+		 LEFT JOIN aliases a ON a.note_id = n.id
+		 WHERE n.title LIKE ? OR n.body LIKE ? OR a.alias LIKE ?
+		 ORDER BY n.id LIMIT ?`, []any{like, like, like, limit}, nil
+	case SearchTitle:
+		return `SELECT n.id, n.path, n.title, n.body
+		 FROM notes n
+		 WHERE n.title LIKE ?
+		 ORDER BY n.id LIMIT ?`, []any{like, limit}, nil
+	case SearchBody:
+		return `SELECT n.id, n.path, n.title, n.body
+		 FROM notes n
+		 WHERE n.body LIKE ?
+		 ORDER BY n.id LIMIT ?`, []any{like, limit}, nil
+	default:
+		return "", nil, fmt.Errorf("unknown search scope %q", scope)
 	}
-	idx := strings.Index(strings.ToLower(flat), strings.ToLower(query))
-	if idx < 0 {
-		return truncate(flat, width)
+}
+
+// lineMatch returns the 1-based number and trimmed text of the first body line that
+// contains query (case-insensitive). It returns (0, "") when no line matches, so a
+// title-only hit in an "all" search carries no body location.
+func lineMatch(body, query string) (int, string) {
+	lq := strings.ToLower(query)
+	for i, line := range strings.Split(body, "\n") {
+		if strings.Contains(strings.ToLower(line), lq) {
+			return i + 1, truncate(strings.TrimSpace(line), 120)
+		}
 	}
-	start := backToRune(flat, max(idx-width/2, 0))
-	excerpt := truncate(flat[start:], width)
-	if start > 0 {
-		excerpt = "…" + excerpt
-	}
-	return excerpt
+	return 0, ""
 }
 
 func truncate(s string, max int) string {
@@ -75,11 +108,4 @@ func truncate(s string, max int) string {
 		end--
 	}
 	return s[:end] + "…"
-}
-
-func backToRune(s string, i int) int {
-	for i > 0 && !utf8.RuneStart(s[i]) {
-		i--
-	}
-	return i
 }

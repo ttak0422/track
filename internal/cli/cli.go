@@ -61,7 +61,8 @@ Usage:
   track reindex [--full]                rebuild the index
   track keywords                        dump the auto-link dictionary (JSON)
   track resolve --term <s>              resolve a keyword to a note (JSON)
-  track search --query <s> [--limit N]  search notes (JSON)
+  track search --query <s> [--scope all|title|body] [--limit N]
+                                        search notes (JSON)
   track backlinks (--id N | --path P)   list backlinks (JSON)
   track babel exec (--id N | --path P) [--name S | --ordinal N] [--yes]
                                         run a source block (JSON)

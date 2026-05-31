@@ -225,12 +225,58 @@ func TestJournalIdempotent(t *testing.T) {
 func TestSearch(t *testing.T) {
 	vault := t.TempDir()
 	runIn(t, vault, "new", "--title", "Golang notes", "--id", "300")
+	runIn(t, vault, "new", "--title", "Body note", "--id", "301")
+	if err := os.WriteFile(vault+"/301.md", []byte("# Body note\n\nneedle body text\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if rep, code := runIn(t, vault, "reindex", "--full"); code != 0 {
+		t.Fatalf("reindex failed: %v", rep)
+	}
+
 	res, code := runIn(t, vault, "search", "--query", "Golang")
 	if code != 0 {
 		t.Fatalf("search failed: %v", res)
 	}
 	if len(res["results"].([]any)) != 1 {
 		t.Fatalf("expected 1 result, got %v", res["results"])
+	}
+
+	title, code := runIn(t, vault, "search", "--scope", "title", "--query", "Golang")
+	if code != 0 {
+		t.Fatalf("title search failed: %v", title)
+	}
+	if len(title["results"].([]any)) != 1 {
+		t.Fatalf("expected 1 title result, got %v", title["results"])
+	}
+
+	titleMiss, code := runIn(t, vault, "search", "--scope", "title", "--query", "needle")
+	if code != 0 {
+		t.Fatalf("title search miss failed: %v", titleMiss)
+	}
+	if len(titleMiss["results"].([]any)) != 0 {
+		t.Fatalf("expected no title results, got %v", titleMiss["results"])
+	}
+
+	body, code := runIn(t, vault, "search", "--scope", "body", "--query", "needle")
+	if code != 0 {
+		t.Fatalf("body search failed: %v", body)
+	}
+	bodyResults := body["results"].([]any)
+	if len(bodyResults) != 1 || bodyResults[0].(map[string]any)["title"] != "Body note" {
+		t.Fatalf("expected body result, got %v", bodyResults)
+	}
+	// Body hits carry the matched line number (1-based) and its text for the picker/preview.
+	bodyHit := bodyResults[0].(map[string]any)
+	if bodyHit["line"].(float64) != 3 {
+		t.Fatalf("expected body match on line 3, got %v", bodyHit["line"])
+	}
+	if bodyHit["snippet"] != "needle body text" {
+		t.Fatalf("expected matched line snippet, got %v", bodyHit["snippet"])
+	}
+
+	bad, code := runIn(t, vault, "search", "--scope", "bogus", "--query", "needle")
+	if code != 1 || !strings.Contains(bad["error"].(string), "unknown search scope") {
+		t.Fatalf("expected invalid scope error, code=%d out=%v", code, bad)
 	}
 }
 

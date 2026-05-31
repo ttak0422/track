@@ -178,6 +178,7 @@ func cmdSearch(args []string) int {
 	fs := flag.NewFlagSet("search", flag.ContinueOnError)
 	query := fs.String("query", "", "search query")
 	limit := fs.Int("limit", 50, "max results")
+	scope := fs.String("scope", string(store.SearchAll), "search scope: all, title, body")
 	if err := fs.Parse(args); err != nil {
 		return fail("parse args: %v", err)
 	}
@@ -191,7 +192,7 @@ func cmdSearch(args []string) int {
 	}
 	defer s.Close()
 
-	results, err := s.Search(*query, *limit)
+	results, err := s.SearchScoped(*query, *limit, store.SearchScope(*scope))
 	if err != nil {
 		return fail("search: %v", err)
 	}

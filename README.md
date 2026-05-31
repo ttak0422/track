@@ -53,7 +53,8 @@ track journal [--offset <n>]          # open/create a daily note (0=today)
 track reindex [--full]                # rebuild the index
 track keywords                        # dump the link keyword dictionary
 track resolve --term <s>              # resolve a keyword to a note
-track search --query <s> [--limit N]  # search notes
+track search --query <s> [--scope all|title|body] [--limit N]
+                                      # search notes
 track backlinks (--id N | --path P)   # list backlinks
 track babel exec (--id N | --path P) [--name S|--ordinal N] [--yes]
                                       # run a fenced source block (see docs/spec/babel.md)
@@ -103,6 +104,16 @@ Commands:
 :Track keywords        " list the link keyword dictionary
 :Track dump            " diagnostic state dump
 ```
+
+The optional [telescope.nvim](https://github.com/nvim-telescope/telescope.nvim) extension provides title and body search pickers:
+
+```lua
+require("telescope").load_extension("track")
+require("telescope").extensions.track.search_title({ query = "Go" })
+require("telescope").extensions.track.search_body(require("telescope.themes").get_dropdown({ query = "TODO" }))
+```
+
+The picker uses Telescope's prompt for live searching. `query` seeds the initial prompt text when supplied, and Telescope picker options, including themes, can be passed through the opts table.
 
 In a vault buffer, resolved `[[...]]` links are underlined (`TrackLink` highlight group) and unresolved ones use `TrackLinkUnresolved`; press `<CR>` on a link to jump to its note. By default the `[[ ]]` brackets are concealed so links read as plain text (`[[Go|ゴー]]` shows `ゴー`); in normal mode the link under the cursor is shown raw (anti-conceal) while other links stay concealed, and while typing the whole cursor line is shown raw so the completion popup stays aligned. `conceal = false` keeps brackets visible. Raising conceallevel would otherwise let Neovim's treesitter markdown query hide code-fence delimiters, so track reveals them by default (toggle with `reveal_code_fences`). This is backed by `track-lsp`.
 

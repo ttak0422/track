@@ -40,6 +40,8 @@ in
       # cmp-nvim-lsp must load before track so track's setup can detect it and advertise completion.
       pkgs.vimPlugins.cmp-nvim-lsp
       pkgs.vimPlugins.nvim-cmp
+      pkgs.vimPlugins.plenary-nvim
+      pkgs.vimPlugins.telescope-nvim
       {
         plugin = self'.packages.track;
         config = readLua ./nvim/track.lua;
