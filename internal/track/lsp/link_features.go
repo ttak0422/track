@@ -10,6 +10,9 @@ import (
 )
 
 func (s *Server) documentLinks(uri string) ([]documentLink, error) {
+	if !s.inVault(uri) {
+		return []documentLink{}, nil
+	}
 	text, err := s.documentText(uri)
 	if err != nil {
 		return nil, err
@@ -44,6 +47,9 @@ func (s *Server) documentLinks(uri string) ([]documentLink, error) {
 }
 
 func (s *Server) backlinks(uri string) ([]backlink, error) {
+	if !s.inVault(uri) {
+		return []backlink{}, nil
+	}
 	currentID, ok := noteIDFromURI(uri)
 	if !ok {
 		return []backlink{}, nil
@@ -98,6 +104,9 @@ func (s *Server) backlinksTo(noteID int64) ([]backlink, error) {
 }
 
 func (s *Server) references(uri string, pos position) ([]location, error) {
+	if !s.inVault(uri) {
+		return []location{}, nil
+	}
 	targetID, ok, err := s.referenceTarget(uri, pos)
 	if err != nil {
 		return nil, err
@@ -170,6 +179,9 @@ func (s *Server) refreshDocumentLinks(uri string) error {
 }
 
 func (s *Server) definition(uri string, pos position) (*location, error) {
+	if !s.inVault(uri) {
+		return nil, nil
+	}
 	text, err := s.documentText(uri)
 	if err != nil {
 		return nil, err
@@ -209,6 +221,9 @@ func refContainsPosition(ref link.Ref, pos position) bool {
 // Existing candidates come from the same dictionary that resolves links. If the typed target has no
 // matching keyword, an extra item lets the client create a note from that input.
 func (s *Server) completion(uri string, pos position) ([]completionItem, error) {
+	if !s.inVault(uri) {
+		return []completionItem{}, nil
+	}
 	text, err := s.documentText(uri)
 	if err != nil {
 		return nil, err
@@ -330,6 +345,9 @@ func createNoteCompletionItem(uri string, ctx openLinkContext) completionItem {
 }
 
 func (s *Server) codeActions(uri string, rng rangeValue) ([]codeAction, error) {
+	if !s.inVault(uri) {
+		return []codeAction{}, nil
+	}
 	text, err := s.documentText(uri)
 	if err != nil {
 		return nil, err

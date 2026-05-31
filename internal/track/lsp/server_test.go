@@ -443,3 +443,64 @@ func jsonMarshalRaw(v any) (json.RawMessage, error) {
 	b, err := json.Marshal(v)
 	return json.RawMessage(b), err
 }
+
+// TestFeaturesIgnoreFilesOutsideVault verifies the server treats markdown that is not a track note
+// (outside the vault, or under .track) as inert: no links, definition, references, completion, or
+// code actions. Editors commonly attach this server to all markdown, so this gate matters.
+func TestFeaturesIgnoreVaultOutsiders(t *testing.T) {
+	srv, vault := setupServer(t)
+
+	outside := uriFromPath(filepath.Join(filepath.Dir(vault), "outside-readme.md"))
+	dotTrack := uriFromPath(filepath.Join(vault, ".track", "notes-scratch.md"))
+	nonMarkdown := uriFromPath(filepath.Join(vault, "200.txt"))
+	body := "[[Go]] and [[Golang]]"
+
+	for _, uri := range []string{outside, dotTrack, nonMarkdown} {
+		srv.docs[uri] = body
+
+		links, err := srv.documentLinks(uri)
+		if err != nil || len(links) != 0 {
+			t.Fatalf("documentLinks(%q) = %+v, %v; want empty", uri, links, err)
+		}
+		loc, err := srv.definition(uri, position{Line: 0, Character: 3})
+		if err != nil || loc != nil {
+			t.Fatalf("definition(%q) = %+v, %v; want nil", uri, loc, err)
+		}
+		refs, err := srv.references(uri, position{Line: 0, Character: 3})
+		if err != nil || len(refs) != 0 {
+			t.Fatalf("references(%q) = %+v, %v; want empty", uri, refs, err)
+		}
+		items, err := srv.completion(uri, position{Line: 0, Character: 3})
+		if err != nil || len(items) != 0 {
+			t.Fatalf("completion(%q) = %+v, %v; want empty", uri, items, err)
+		}
+		actions, err := srv.codeActions(uri, rangeValue{Start: position{Line: 0, Character: 0}, End: position{Line: 0, Character: 3}})
+		if err != nil || len(actions) != 0 {
+			t.Fatalf("codeActions(%q) = %+v, %v; want empty", uri, actions, err)
+		}
+		backs, err := srv.backlinks(uri)
+		if err != nil || len(backs) != 0 {
+			t.Fatalf("backlinks(%q) = %+v, %v; want empty", uri, backs, err)
+		}
+	}
+}
+
+// TestInVaultClassification pins the boundary cases of the vault membership check.
+func TestInVaultClassification(t *testing.T) {
+	srv, vault := setupServer(t)
+	cases := []struct {
+		path string
+		want bool
+	}{
+		{filepath.Join(vault, "100.md"), true},
+		{filepath.Join(vault, "journal", "20260531.md"), true},
+		{filepath.Join(vault, ".track", "x.md"), false},
+		{filepath.Join(vault, "note.txt"), false},
+		{filepath.Join(filepath.Dir(vault), "elsewhere.md"), false},
+	}
+	for _, c := range cases {
+		if got := srv.inVault(uriFromPath(c.path)); got != c.want {
+			t.Fatalf("inVault(%q) = %v, want %v", c.path, got, c.want)
+		}
+	}
+}

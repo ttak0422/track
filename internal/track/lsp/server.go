@@ -9,6 +9,7 @@ import (
 	"net/url"
 	"os"
 	"path/filepath"
+	"slices"
 	"strconv"
 	"strings"
 	"syscall"
@@ -98,8 +99,10 @@ func (s *Server) handleNotification(msg rpcMessage) {
 			if p.Text != nil {
 				s.docs[p.TextDocument.URI] = *p.Text
 			}
-			if path, err := pathFromURI(p.TextDocument.URI); err == nil {
-				_ = index.New(s.cfg, s.store).One(path)
+			if s.inVault(p.TextDocument.URI) {
+				if path, err := pathFromURI(p.TextDocument.URI); err == nil {
+					_ = index.New(s.cfg, s.store).One(path)
+				}
 			}
 		}
 	}
@@ -297,4 +300,34 @@ func pathFromURI(raw string) (string, error) {
 func uriFromPath(path string) string {
 	u := url.URL{Scheme: "file", Path: filepath.ToSlash(path)}
 	return u.String()
+}
+
+// inVault reports whether uri names a track note: a file with a supported extension that lives
+// inside the configured vault. Markdown is a common format, so editors routinely attach this server
+// to files that are not track notes (this repo's own README, docs under .track, scratch files
+// elsewhere). Feature handlers gate on this so those buffers get no links, completion, or actions.
+func (s *Server) inVault(uri string) bool {
+	path, err := pathFromURI(uri)
+	if err != nil {
+		return false
+	}
+	if !slices.Contains(s.cfg.Extensions, filepath.Ext(path)) {
+		return false
+	}
+	rel, err := filepath.Rel(s.cfg.VaultDir, path)
+	if err != nil {
+		return false
+	}
+	// rel escaping the vault starts with ".." (or is exactly ".."); anything else is inside it.
+	if rel == ".." || strings.HasPrefix(rel, ".."+string(filepath.Separator)) {
+		return false
+	}
+	// Exclude track-owned hidden directories such as .track, matching the indexer's scan rules.
+	// This keeps vault/journal/*.md in scope while dropping vault/.track/*.md.
+	for _, part := range strings.Split(filepath.Dir(rel), string(filepath.Separator)) {
+		if part != "." && strings.HasPrefix(part, ".") {
+			return false
+		}
+	}
+	return true
 }

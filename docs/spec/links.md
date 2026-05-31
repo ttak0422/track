@@ -38,10 +38,20 @@ Self-links are ignored when writing the graph.
 `reindex --full` recomputes the complete graph.
 Single-note indexing updates only that note's outgoing links, so callers that need newly created inbound links should run a full reindex.
 
+## Scope
+
+Markdown is a common format, so an editor may attach `track-lsp` to files that are not track notes (this repo's own README, docs, scratch files elsewhere). The server therefore gates every link feature on note membership: a request is served only when the document is a file with a supported extension (`.md`) located inside `$TRACK_VAULT`, excluding the track-owned `.track/` directory.
+
+- Notes directly under the vault and under `journal/` are in scope.
+- Anything outside the vault, or under a hidden directory such as `.track/`, gets an empty result: no document links, definition, references, completion, or code actions. `didSave` does not reindex it either.
+
+This is a server-side guarantee that does not depend on the editor. Editors should still avoid attaching the server to non-note buffers where they can (see Neovim Behavior); the server gate is the backstop, not the only line of defense.
+
 ## Neovim Behavior
 
 The Neovim frontend starts `track-lsp` and is the only link frontend.
 
+- It attaches `track-lsp` only to markdown buffers whose file lives under the vault, so unrelated markdown never starts a client. Other editor integrations should gate attachment the same way.
 - `textDocument/documentLink` returns ranges over the inner text of **resolved** `[[...]]`, rendered with the `TrackLink` group (linked to `Underlined` by default).
 - Unresolved `[[...]]` are scanned client-side and rendered with the `TrackLinkUnresolved` group (linked to `Comment` by default), marking notes that don't exist yet.
 - By default the `[[ ]]` brackets are concealed (and the `target|` of a display alias hidden), so `[[Go]]` shows `Go` and `[[Go|ゴー]]` shows `ゴー`, both underlined. In normal mode the link **under the cursor** is shown raw (anti-conceal) while other links — including others on the same line — stay concealed. While inserting, the whole cursor line is shown raw so byte and screen columns line up and the completion popup stays aligned. Set `conceal = false` to keep brackets visible. Raising conceallevel also lets Neovim's bundled treesitter markdown query hide code-fence delimiters (```lang), so track reveals those fences again by default; toggle with `reveal_code_fences`.

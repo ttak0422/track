@@ -73,6 +73,7 @@ It currently provides:
 - `track/backlinks`: returns notes and link locations that reference the current note.
 
 The server uses UTF-8 positions and reads the same `$TRACK_VAULT` configuration as the CLI.
+It only acts on track notes: a request is served only for a supported note file (`.md`) inside the vault, excluding `.track/`. Markdown opened elsewhere gets no links, completion, or actions, even if the editor attaches the server to it. The Neovim layer also attaches `track-lsp` only to markdown under the vault; other editor integrations should gate attachment the same way. See [docs/spec/links.md](docs/spec/links.md).
 
 ## Neovim
 
