@@ -63,6 +63,27 @@ blocks:
 Unnamed blocks need generated stable ids derived from note id, block ordinal, language, and body hash.
 Named blocks should use `:name` as the result key and should fail validation if names are duplicated in one note, matching Org's requirement that source block names be unique.
 
+## Header Argument Defaults
+
+When a source block omits a Babel header argument, track uses these defaults:
+
+| Header | Default when omitted | Current behavior |
+| --- | --- | --- |
+| `:name` | none | Unnamed blocks get a generated result id from note id, ordinal, language, and body hash. |
+| `:eval` | `yes` | A user-invoked execution command may run the block. `:eval query` requires confirmation and `:eval no` refuses execution. |
+| `:results` | `output replace` | `:results` accepts multiple tokens. The current default captures stdout, stderr, and exit status, then stores only the latest result for the block in the sidecar metadata. |
+| `:cache` | `no` | Execution runs when requested; stored results are restored only when the body hash and metadata still match. |
+| `:var` | none | No input variables are supplied. |
+| `:session` | `none` | Run without a long-lived interpreter session; effectively one process per block. |
+| `:dir` | note directory | Execute relative to the note file's directory unless `:dir` is set. |
+| `:exports` | `code` for future export semantics | Parsed as metadata only; track has no exporter yet. |
+| `:noweb` | `no` | Do not expand `<<name>>` references. |
+| `:tangle` | `no` | Do not write source blocks to output files. |
+
+These defaults are intentionally close to Org Babel where practical, but track stores results outside the Markdown body and only executes blocks in response to an explicit user command.
+
+`:results` is one header argument whose value is a sequence of tokens, not separate `type` and `handling` arguments. Org Babel commonly combines tokens such as `output replace` or `value silent`; track currently supports the listed `:results` tokens and treats omitted tokens as `output replace`.
+
 ## Support Matrix
 
 | Org Babel syntax or feature | Markdown-compatible syntax | Initial support | Notes |

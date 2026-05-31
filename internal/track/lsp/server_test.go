@@ -475,6 +475,43 @@ func TestBabelCompletionHeaderValues(t *testing.T) {
 	}
 }
 
+func TestBabelCompletionResultsOffersMoreValuesAfterValue(t *testing.T) {
+	srv, vault := setupServer(t)
+	uri := uriFromPath(filepath.Join(vault, "200.md"))
+	srv.docs[uri] = "```lua :results output "
+
+	items, err := srv.completion(uri, newPosition(0, 23))
+	if err != nil {
+		t.Fatalf("completion: %v", err)
+	}
+	if !completionLabelsContain(items, "replace") || !completionLabelsContain(items, "verbatim") {
+		t.Fatalf("expected more result value completions, got %+v", items)
+	}
+	if completionLabelsContain(items, "output") {
+		t.Fatalf("used result value should not appear again, got %+v", items)
+	}
+	if !completionLabelsContain(items, ":eval") {
+		t.Fatalf("expected header key completions alongside more result values, got %+v", items)
+	}
+}
+
+func TestBabelCompletionResultsFiltersUsedValues(t *testing.T) {
+	srv, vault := setupServer(t)
+	uri := uriFromPath(filepath.Join(vault, "200.md"))
+	srv.docs[uri] = "```lua :results output replace "
+
+	items, err := srv.completion(uri, newPosition(0, 31))
+	if err != nil {
+		t.Fatalf("completion: %v", err)
+	}
+	if completionLabelsContain(items, "output") || completionLabelsContain(items, "replace") {
+		t.Fatalf("used result values should not appear again, got %+v", items)
+	}
+	if !completionLabelsContain(items, "verbatim") || !completionLabelsContain(items, ":eval") {
+		t.Fatalf("expected unused result values and header keys, got %+v", items)
+	}
+}
+
 func TestBabelCompletionOffersOnlyHeaderKeysAfterValue(t *testing.T) {
 	srv, vault := setupServer(t)
 	uri := uriFromPath(filepath.Join(vault, "200.md"))

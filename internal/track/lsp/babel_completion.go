@@ -89,6 +89,7 @@ type babelCompletionContext struct {
 	Key          string
 	HasKeyValue  bool
 	UsedKeys     map[string]bool
+	UsedValues   map[string]bool
 	Prefix       string
 }
 
@@ -116,10 +117,18 @@ func (s *Server) babelCompletion(text string, pos position) []completionItem {
 		}
 		return babelCompletionItems(ctx, keys, protocol.PropertyCompletion, "babel header", " ", babelHeaderDoc)
 	case "value":
+		values := slices.Clone(babelHeaderValues[ctx.Key])
+		if ctx.Key == "results" {
+			values = unusedBabelValues(values, ctx.UsedValues)
+			items := babelCompletionItems(ctx, values, protocol.ValueCompletion, ":"+ctx.Key, "", babelHeaderValueDoc(ctx.Key))
+			if ctx.Prefix == "" && ctx.HasKeyValue {
+				items = append(items, s.babelHeaderKeyItems(ctx)...)
+			}
+			return items
+		}
 		if ctx.Prefix == "" && ctx.HasKeyValue {
 			return s.babelHeaderKeyItems(ctx)
 		}
-		values := slices.Clone(babelHeaderValues[ctx.Key])
 		return babelCompletionItems(ctx, values, protocol.ValueCompletion, ":"+ctx.Key, "", babelHeaderValueDoc(ctx.Key))
 	}
 	return []completionItem{}
@@ -206,20 +215,24 @@ func babelCompletionContextAt(text string, pos position) (babelCompletionContext
 
 	activeKey := ""
 	hasKeyValue := false
+	usedValues := map[string]bool{}
 	for _, token := range tokens[1:] {
 		if strings.HasPrefix(token, ":") {
 			activeKey = strings.TrimPrefix(token, ":")
 			hasKeyValue = false
+			usedValues = map[string]bool{}
 			continue
 		}
 		if activeKey != "" {
 			hasKeyValue = true
+			usedValues[token] = true
 		}
 	}
 	if values := babelHeaderValues[activeKey]; len(values) > 0 {
 		ctx.Mode = "value"
 		ctx.Key = activeKey
 		ctx.HasKeyValue = hasKeyValue
+		ctx.UsedValues = usedValues
 		return ctx, true
 	}
 	ctx.Mode = "key"
@@ -268,6 +281,20 @@ func usedBabelHeaderKeys(tokens []string) map[string]bool {
 		}
 	}
 	return used
+}
+
+func unusedBabelValues(values []string, used map[string]bool) []string {
+	if len(used) == 0 {
+		return values
+	}
+	unused := values[:0]
+	for _, value := range values {
+		if used[value] {
+			continue
+		}
+		unused = append(unused, value)
+	}
+	return unused
 }
 
 func isSpace(b byte) bool {
