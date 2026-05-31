@@ -1,5 +1,8 @@
 # track
 
+> [!CAUTION]
+>  Please note that this is currently in an experimental phase. Destructive changes may be apply.
+
 A journal + Zettelkasten note tool: a Go CLI/LSP engine with a SQLite index, plus a thin Neovim frontend.
 
 The Go engine is the source of truth — it parses notes, maintains the index, and resolves links.
