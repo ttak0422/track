@@ -17,6 +17,7 @@ import (
 	"github.com/ttak0422/track/internal/track/config"
 	"github.com/ttak0422/track/internal/track/index"
 	"github.com/ttak0422/track/internal/track/store"
+	protocol "typefox.dev/lsp"
 )
 
 type Server struct {
@@ -86,21 +87,22 @@ func (s *Server) handleNotification(msg rpcMessage) {
 	case "textDocument/didOpen":
 		var p didOpenParams
 		if json.Unmarshal(msg.Params, &p) == nil {
-			s.docs[p.TextDocument.URI] = p.TextDocument.Text
+			s.docs[string(p.TextDocument.URI)] = p.TextDocument.Text
 		}
 	case "textDocument/didChange":
 		var p didChangeParams
 		if json.Unmarshal(msg.Params, &p) == nil && len(p.ContentChanges) > 0 {
-			s.docs[p.TextDocument.URI] = p.ContentChanges[len(p.ContentChanges)-1].Text
+			s.docs[string(p.TextDocument.URI)] = p.ContentChanges[len(p.ContentChanges)-1].Text
 		}
 	case "textDocument/didSave":
 		var p didSaveParams
 		if json.Unmarshal(msg.Params, &p) == nil {
+			uri := string(p.TextDocument.URI)
 			if p.Text != nil {
-				s.docs[p.TextDocument.URI] = *p.Text
+				s.docs[uri] = *p.Text
 			}
-			if s.inVault(p.TextDocument.URI) {
-				if path, err := pathFromURI(p.TextDocument.URI); err == nil {
+			if s.inVault(uri) {
+				if path, err := pathFromURI(uri); err == nil {
 					_ = index.New(s.cfg, s.store).One(path)
 				}
 			}
@@ -112,18 +114,21 @@ func (s *Server) handleRequest(msg rpcMessage) rpcMessage {
 	resp := rpcMessage{JSONRPC: "2.0", ID: msg.ID}
 	switch msg.Method {
 	case "initialize":
-		resp.Result = map[string]any{
-			"serverInfo": map[string]any{"name": "track-lsp", "version": "0.1.0"},
-			"capabilities": map[string]any{
-				"positionEncoding":        "utf-8",
-				"textDocumentSync":        1,
-				"definitionProvider":      true,
-				"referencesProvider":      true,
-				"documentLinkProvider":    map[string]any{"resolveProvider": false},
-				"completionProvider":      map[string]any{"triggerCharacters": []string{"["}},
-				"codeActionProvider":      true,
-				"executeCommandProvider":  map[string]any{"commands": []string{createNoteCommand}},
-				"workspaceSymbolProvider": false,
+		encoding := protocol.UTF8
+		resp.Result = protocol.InitializeResult{
+			ServerInfo: &protocol.ServerInfo{Name: "track-lsp", Version: "0.1.0"},
+			Capabilities: protocol.ServerCapabilities{
+				PositionEncoding:       &encoding,
+				TextDocumentSync:       protocol.Full,
+				DefinitionProvider:     &protocol.Or_ServerCapabilities_definitionProvider{Value: true},
+				ReferencesProvider:     &protocol.Or_ServerCapabilities_referencesProvider{Value: true},
+				DocumentLinkProvider:   &protocol.DocumentLinkOptions{ResolveProvider: false},
+				CompletionProvider:     &protocol.CompletionOptions{TriggerCharacters: []string{"["}},
+				CodeActionProvider:     true,
+				ExecuteCommandProvider: &protocol.ExecuteCommandOptions{Commands: []string{createNoteCommand}},
+				WorkspaceSymbolProvider: &protocol.Or_ServerCapabilities_workspaceSymbolProvider{
+					Value: false,
+				},
 			},
 		}
 	case "shutdown":
@@ -134,7 +139,7 @@ func (s *Server) handleRequest(msg rpcMessage) rpcMessage {
 			resp.Error = &rpcError{Code: -32602, Message: err.Error()}
 			return resp
 		}
-		links, err := s.documentLinks(p.TextDocument.URI)
+		links, err := s.documentLinks(string(p.TextDocument.URI))
 		if err != nil {
 			resp.Error = &rpcError{Code: -32000, Message: err.Error()}
 			return resp
@@ -146,7 +151,7 @@ func (s *Server) handleRequest(msg rpcMessage) rpcMessage {
 			resp.Error = &rpcError{Code: -32602, Message: err.Error()}
 			return resp
 		}
-		backlinks, err := s.backlinks(p.TextDocument.URI)
+		backlinks, err := s.backlinks(string(p.TextDocument.URI))
 		if err != nil {
 			resp.Error = &rpcError{Code: -32000, Message: err.Error()}
 			return resp
@@ -158,7 +163,7 @@ func (s *Server) handleRequest(msg rpcMessage) rpcMessage {
 			resp.Error = &rpcError{Code: -32602, Message: err.Error()}
 			return resp
 		}
-		loc, err := s.definition(p.TextDocument.URI, p.Position)
+		loc, err := s.definition(string(p.TextDocument.URI), p.Position)
 		if err != nil {
 			resp.Error = &rpcError{Code: -32000, Message: err.Error()}
 			return resp
@@ -170,7 +175,7 @@ func (s *Server) handleRequest(msg rpcMessage) rpcMessage {
 			resp.Error = &rpcError{Code: -32602, Message: err.Error()}
 			return resp
 		}
-		refs, err := s.references(p.TextDocument.URI, p.Position)
+		refs, err := s.references(string(p.TextDocument.URI), p.Position)
 		if err != nil {
 			resp.Error = &rpcError{Code: -32000, Message: err.Error()}
 			return resp
@@ -182,7 +187,7 @@ func (s *Server) handleRequest(msg rpcMessage) rpcMessage {
 			resp.Error = &rpcError{Code: -32602, Message: err.Error()}
 			return resp
 		}
-		items, err := s.completion(p.TextDocument.URI, p.Position)
+		items, err := s.completion(string(p.TextDocument.URI), p.Position)
 		if err != nil {
 			resp.Error = &rpcError{Code: -32000, Message: err.Error()}
 			return resp
@@ -194,7 +199,7 @@ func (s *Server) handleRequest(msg rpcMessage) rpcMessage {
 			resp.Error = &rpcError{Code: -32602, Message: err.Error()}
 			return resp
 		}
-		actions, err := s.codeActions(p.TextDocument.URI, p.Range)
+		actions, err := s.codeActions(string(p.TextDocument.URI), p.Range)
 		if err != nil {
 			resp.Error = &rpcError{Code: -32000, Message: err.Error()}
 			return resp

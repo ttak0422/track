@@ -14,15 +14,14 @@ import (
 const createNoteCommand = "track.createNote"
 
 func createNoteLSPCommand(title, uri string) *command {
+	arg, _ := json.Marshal(map[string]any{
+		"title": title,
+		"uri":   uri,
+	})
 	return &command{
-		Title:   fmt.Sprintf("Create note %q", title),
-		Command: createNoteCommand,
-		Arguments: []any{
-			map[string]any{
-				"title": title,
-				"uri":   uri,
-			},
-		},
+		Title:     fmt.Sprintf("Create note %q", title),
+		Command:   createNoteCommand,
+		Arguments: []json.RawMessage{arg},
 	}
 }
 

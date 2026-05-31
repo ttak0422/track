@@ -58,8 +58,8 @@ func TestDocumentLinks(t *testing.T) {
 	if links[0].Range.Start.Line != 0 || links[0].Range.Start.Character != 2 || links[0].Range.End.Character != 8 {
 		t.Fatalf("unexpected first range: %+v", links[0].Range)
 	}
-	if links[0].Target != uriFromPath(filepath.Join(vault, "100.md")) {
-		t.Fatalf("unexpected target: %q", links[0].Target)
+	if targetString(links[0]) != uriFromPath(filepath.Join(vault, "100.md")) {
+		t.Fatalf("unexpected target: %q", targetString(links[0]))
 	}
 }
 
@@ -114,7 +114,7 @@ func TestReferences(t *testing.T) {
 	if err != nil {
 		t.Fatalf("references: %v", err)
 	}
-	if len(refs) != 1 || refs[0].URI != sourceURI || refs[0].Range.Start.Character != 4 {
+	if len(refs) != 1 || string(refs[0].URI) != sourceURI || refs[0].Range.Start.Character != 4 {
 		t.Fatalf("unexpected references to current note: %+v", refs)
 	}
 
@@ -122,7 +122,7 @@ func TestReferences(t *testing.T) {
 	if err != nil {
 		t.Fatalf("references from link: %v", err)
 	}
-	if len(refsFromLink) != 1 || refsFromLink[0].URI != sourceURI {
+	if len(refsFromLink) != 1 || string(refsFromLink[0].URI) != sourceURI {
 		t.Fatalf("link references should resolve to the target note's backlinks, got %+v", refsFromLink)
 	}
 }
@@ -133,14 +133,14 @@ func TestDefinition(t *testing.T) {
 	srv.docs[uri] = "mentions [[Golang]]"
 
 	for _, col := range []int{9, 10, 13, 17, 18} {
-		loc, err := srv.definition(uri, position{Line: 0, Character: col})
+		loc, err := srv.definition(uri, newPosition(0, col))
 		if err != nil {
 			t.Fatalf("definition at col %d: %v", col, err)
 		}
 		if loc == nil {
 			t.Fatalf("expected definition at col %d", col)
 		}
-		if loc.URI != uriFromPath(filepath.Join(vault, "100.md")) {
+		if string(loc.URI) != uriFromPath(filepath.Join(vault, "100.md")) {
 			t.Fatalf("unexpected definition uri at col %d: %q", col, loc.URI)
 		}
 	}
@@ -201,8 +201,8 @@ func TestDisplayAliasResolves(t *testing.T) {
 	if len(links) != 1 {
 		t.Fatalf("expected display-alias link to resolve, got %+v", links)
 	}
-	if links[0].Target != uriFromPath(filepath.Join(vault, "100.md")) {
-		t.Fatalf("unexpected target: %q", links[0].Target)
+	if targetString(links[0]) != uriFromPath(filepath.Join(vault, "100.md")) {
+		t.Fatalf("unexpected target: %q", targetString(links[0]))
 	}
 }
 
@@ -226,7 +226,8 @@ func TestCompletionInsideBrackets(t *testing.T) {
 			break
 		}
 	}
-	if goItem == nil || goItem.TextEdit == nil || goItem.TextEdit.NewText != "Go]]" {
+	edit := completionEdit(goItem)
+	if goItem == nil || edit == nil || edit.NewText != "Go]]" {
 		t.Fatalf("existing note completion should close the link, got %+v", goItem)
 	}
 }
@@ -274,7 +275,8 @@ func TestCompletionOffersCreateNoteWhenNoKeywordMatches(t *testing.T) {
 	if create == nil {
 		t.Fatalf("expected create-note completion item, got %+v", items)
 	}
-	if create.Label != "Rust" || create.FilterText != "Rust" || create.InsertText != "Rust" || create.TextEdit == nil || create.TextEdit.NewText != "Rust]]" {
+	edit := completionEdit(create)
+	if create.Label != "Rust" || create.FilterText != "Rust" || create.InsertText != "Rust" || edit == nil || edit.NewText != "Rust]]" {
 		t.Fatalf("unexpected create item: %+v", create)
 	}
 
@@ -306,11 +308,12 @@ func TestCompletionDoesNotDuplicateExistingClose(t *testing.T) {
 			break
 		}
 	}
-	if goItem == nil || goItem.TextEdit == nil {
+	edit := completionEdit(goItem)
+	if goItem == nil || edit == nil {
 		t.Fatalf("expected Go completion item, got %+v", items)
 	}
-	if goItem.TextEdit.NewText != "Go" {
-		t.Fatalf("completion should not duplicate existing close, got %+v", goItem.TextEdit)
+	if edit.NewText != "Go" {
+		t.Fatalf("completion should not duplicate existing close, got %+v", edit)
 	}
 }
 
@@ -319,7 +322,7 @@ func TestCompletionResponseIsIncomplete(t *testing.T) {
 	uri := uriFromPath(filepath.Join(vault, "200.md"))
 	srv.docs[uri] = "see [["
 	params, err := json.Marshal(textDocumentPositionParams{
-		TextDocument: textDocumentIdentifier{URI: uri},
+		TextDocument: textDocumentIdentifier{URI: documentURI(uri)},
 		Position:     position{Line: 0, Character: 6},
 	})
 	if err != nil {
@@ -389,7 +392,7 @@ func TestCodeActionCreatesUnresolvedNote(t *testing.T) {
 	if err != nil {
 		t.Fatalf("document links: %v", err)
 	}
-	if len(links) != 1 || links[0].Target != result["uri"] {
+	if len(links) != 1 || targetString(links[0]) != result["uri"] {
 		t.Fatalf("expected newly created note to resolve, links=%+v result=%+v", links, result)
 	}
 	backlinks, err := srv.backlinks(result["uri"].(string))
@@ -442,6 +445,24 @@ func TestIsDisconnect(t *testing.T) {
 func jsonMarshalRaw(v any) (json.RawMessage, error) {
 	b, err := json.Marshal(v)
 	return json.RawMessage(b), err
+}
+
+func targetString(link documentLink) string {
+	if link.Target == nil {
+		return ""
+	}
+	return string(*link.Target)
+}
+
+func completionEdit(item *completionItem) *textEdit {
+	if item == nil || item.TextEdit == nil {
+		return nil
+	}
+	edit, ok := item.TextEdit.Value.(textEdit)
+	if !ok {
+		return nil
+	}
+	return &edit
 }
 
 // TestFeaturesIgnoreFilesOutsideVault verifies the server treats markdown that is not a track note

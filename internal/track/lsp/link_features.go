@@ -7,6 +7,7 @@ import (
 	"github.com/ttak0422/track/internal/track/link"
 	"github.com/ttak0422/track/internal/track/note"
 	"github.com/ttak0422/track/internal/track/store"
+	protocol "typefox.dev/lsp"
 )
 
 func (s *Server) documentLinks(uri string) ([]documentLink, error) {
@@ -31,12 +32,10 @@ func (s *Server) documentLinks(uri string) ([]documentLink, error) {
 		if hasCurrentID && kw.NoteID == currentID {
 			continue
 		}
+		target := protocol.URI(uriFromPath(kw.Path))
 		links = append(links, documentLink{
-			Range: rangeValue{
-				Start: position{Line: ref.Line, Character: ref.StartByte},
-				End:   position{Line: ref.Line, Character: ref.EndByte},
-			},
-			Target:  uriFromPath(kw.Path),
+			Range:   newRange(ref.Line, ref.StartByte, ref.Line, ref.EndByte),
+			Target:  &target,
 			Tooltip: ref.Text,
 		})
 	}
@@ -85,14 +84,11 @@ func (s *Server) backlinksTo(noteID int64) ([]backlink, error) {
 				preview = strings.TrimSpace(lines[ref.Line])
 			}
 			out = append(out, backlink{
-				NoteID: source.NoteID,
-				URI:    sourceURI,
-				Path:   source.Path,
-				Title:  source.Title,
-				Range: rangeValue{
-					Start: position{Line: ref.Line, Character: ref.OpenByte},
-					End:   position{Line: ref.Line, Character: ref.CloseByte},
-				},
+				NoteID:  source.NoteID,
+				URI:     sourceURI,
+				Path:    source.Path,
+				Title:   source.Title,
+				Range:   newRange(ref.Line, ref.OpenByte, ref.Line, ref.CloseByte),
 				Preview: preview,
 			})
 		}
@@ -121,7 +117,7 @@ func (s *Server) references(uri string, pos position) ([]location, error) {
 	out := make([]location, 0, len(backlinks))
 	for _, backlink := range backlinks {
 		out = append(out, location{
-			URI:   backlink.URI,
+			URI:   protocol.DocumentURI(backlink.URI),
 			Range: backlink.Range,
 		})
 	}
@@ -203,18 +199,15 @@ func (s *Server) definition(uri string, pos position) (*location, error) {
 			return nil, nil
 		}
 		return &location{
-			URI: uriFromPath(kw.Path),
-			Range: rangeValue{
-				Start: position{Line: 0, Character: 0},
-				End:   position{Line: 0, Character: 0},
-			},
+			URI:   protocol.DocumentURI(uriFromPath(kw.Path)),
+			Range: newRange(0, 0, 0, 0),
 		}, nil
 	}
 	return nil, nil
 }
 
 func refContainsPosition(ref link.Ref, pos position) bool {
-	return ref.Line == pos.Line && pos.Character >= ref.OpenByte && pos.Character < ref.CloseByte
+	return ref.Line == int(pos.Line) && int(pos.Character) >= ref.OpenByte && int(pos.Character) < ref.CloseByte
 }
 
 // completion offers note titles and aliases when the cursor sits inside an unclosed [[ on the current line.
@@ -248,7 +241,7 @@ func (s *Server) completion(uri string, pos position) ([]completionItem, error) 
 		}
 		items = append(items, completionItem{
 			Label:      kw.Term,
-			Kind:       completionKindReference,
+			Kind:       protocol.ReferenceCompletion,
 			Detail:     kw.Kind,
 			InsertText: kw.Term,
 			TextEdit:   completionTextEdit(ctx, kw.Term),
@@ -263,11 +256,12 @@ func (s *Server) completion(uri string, pos position) ([]completionItem, error) 
 // insideOpenLink reports whether pos sits after a "[[" with no closing "]]" before it on the same line.
 func insideOpenLink(text string, pos position) bool {
 	lines := strings.Split(text, "\n")
-	if pos.Line < 0 || pos.Line >= len(lines) {
+	lineNo := int(pos.Line)
+	if lineNo >= len(lines) {
 		return false
 	}
-	line := lines[pos.Line]
-	col := pos.Character
+	line := lines[lineNo]
+	col := int(pos.Character)
 	if col > len(line) {
 		col = len(line)
 	}
@@ -289,11 +283,12 @@ type openLinkContext struct {
 
 func openLinkCompletionContext(text string, pos position) (openLinkContext, bool) {
 	lines := strings.Split(text, "\n")
-	if pos.Line < 0 || pos.Line >= len(lines) {
+	lineNo := int(pos.Line)
+	if lineNo >= len(lines) {
 		return openLinkContext{}, false
 	}
-	line := lines[pos.Line]
-	col := pos.Character
+	line := lines[lineNo]
+	col := int(pos.Character)
 	if col > len(line) {
 		col = len(line)
 	}
@@ -309,7 +304,7 @@ func openLinkCompletionContext(text string, pos position) (openLinkContext, bool
 	closeAfterOpen := strings.Index(line[open+2:], "]]")
 	needsClose := closeAfterOpen < 0 || open+2+closeAfterOpen < col
 	return openLinkContext{
-		Line:         pos.Line,
+		Line:         lineNo,
 		ReplaceStart: open + 2,
 		ReplaceEnd:   col,
 		NeedsClose:   needsClose,
@@ -317,24 +312,23 @@ func openLinkCompletionContext(text string, pos position) (openLinkContext, bool
 	}, true
 }
 
-func completionTextEdit(ctx openLinkContext, text string) *textEdit {
+func completionTextEdit(ctx openLinkContext, text string) *protocol.Or_CompletionItem_textEdit {
 	newText := text
 	if ctx.NeedsClose {
 		newText += "]]"
 	}
-	return &textEdit{
-		Range: rangeValue{
-			Start: position{Line: ctx.Line, Character: ctx.ReplaceStart},
-			End:   position{Line: ctx.Line, Character: ctx.ReplaceEnd},
+	return &protocol.Or_CompletionItem_textEdit{
+		Value: textEdit{
+			Range:   newRange(ctx.Line, ctx.ReplaceStart, ctx.Line, ctx.ReplaceEnd),
+			NewText: newText,
 		},
-		NewText: newText,
 	}
 }
 
 func createNoteCompletionItem(uri string, ctx openLinkContext) completionItem {
 	return completionItem{
 		Label:      ctx.Target,
-		Kind:       completionKindReference,
+		Kind:       protocol.ReferenceCompletion,
 		Detail:     "create note",
 		InsertText: ctx.Target,
 		FilterText: ctx.Target,
@@ -367,7 +361,7 @@ func (s *Server) codeActions(uri string, rng rangeValue) ([]codeAction, error) {
 		title := ref.Text
 		actions = append(actions, codeAction{
 			Title:   fmt.Sprintf("Create note %q", title),
-			Kind:    "quickfix",
+			Kind:    protocol.QuickFix,
 			Command: createNoteLSPCommand(title, uri),
 		})
 	}
@@ -378,21 +372,25 @@ func (s *Server) codeActions(uri string, rng rangeValue) ([]codeAction, error) {
 }
 
 func rangeTouchesRef(rng rangeValue, ref link.Ref) bool {
-	if rng.Start.Line > ref.Line || rng.End.Line < ref.Line {
+	startLine := int(rng.Start.Line)
+	endLine := int(rng.End.Line)
+	startCharacter := int(rng.Start.Character)
+	endCharacter := int(rng.End.Character)
+	if startLine > ref.Line || endLine < ref.Line {
 		return false
 	}
 	start := ref.OpenByte
 	end := ref.CloseByte
-	if rng.Start.Line == rng.End.Line && rng.Start.Character == rng.End.Character {
-		return rng.Start.Line == ref.Line && rng.Start.Character >= start && rng.Start.Character <= end
+	if startLine == endLine && startCharacter == endCharacter {
+		return startLine == ref.Line && startCharacter >= start && startCharacter <= end
 	}
 	rangeStart := 0
-	if rng.Start.Line == ref.Line {
-		rangeStart = rng.Start.Character
+	if startLine == ref.Line {
+		rangeStart = startCharacter
 	}
 	rangeEnd := end
-	if rng.End.Line == ref.Line {
-		rangeEnd = rng.End.Character
+	if endLine == ref.Line {
+		rangeEnd = endCharacter
 	}
 	return rangeStart <= end && rangeEnd >= start
 }
