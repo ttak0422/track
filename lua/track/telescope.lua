@@ -25,21 +25,33 @@ local function load_telescope()
    }
 end
 
+-- Display title for one result, falling back to the note id when untitled.
+local function result_title(result)
+   return result.title or ("#" .. tostring(result.note_id or "?"))
+end
+
+-- Fields shared by every entry regardless of scope. lnum seeds the previewer's
+-- initial line and is reused by open_selection when jumping into the note.
+local function base_entry(result, lnum)
+   local path = result.path or ""
+   return {
+      value = result,
+      path = path,
+      filename = path,
+      lnum = lnum,
+   }
+end
+
 -- Build a scope-aware entry maker.
 -- Title search shows just the title; body search shows the title alongside the
 -- matched line, and positions the previewer/cursor on that line.
 local function make_entry_maker(telescope, scope)
    if scope ~= "body" then
       return function(result)
-         local title = result.title or ("#" .. tostring(result.note_id or "?"))
-         return {
-            value = result,
-            display = title,
-            ordinal = title,
-            path = result.path or "",
-            filename = result.path or "",
-            lnum = 1,
-         }
+         local entry = base_entry(result, 1)
+         entry.display = result_title(result)
+         entry.ordinal = entry.display
+         return entry
       end
    end
 
@@ -48,19 +60,15 @@ local function make_entry_maker(telescope, scope)
       items = { { width = 30 }, { remaining = true } },
    })
    return function(result)
-      local title = result.title or ("#" .. tostring(result.note_id or "?"))
+      local line = (result.line and result.line > 0) and result.line or 1
+      local entry = base_entry(result, line)
+      local title = result_title(result)
       local snippet = result.snippet or ""
-      local lnum = (result.line and result.line > 0) and result.line or 1
-      return {
-         value = result,
-         display = function(entry)
-            return displayer({ entry.value.title or title, { snippet, "Comment" } })
-         end,
-         ordinal = title .. " " .. snippet,
-         path = result.path or "",
-         filename = result.path or "",
-         lnum = lnum,
-      }
+      entry.display = function()
+         return displayer({ title, { snippet, "Comment" } })
+      end
+      entry.ordinal = title .. " " .. snippet
+      return entry
    end
 end
 

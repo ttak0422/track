@@ -26,7 +26,7 @@ type SearchResult struct {
 }
 
 // Search returns notes whose title, body, or any alias contains query (case-insensitive substring).
-// A short snippet is built around the first body match.
+// Each hit carries the first matching body line via Line/Snippet.
 // FTS5 can replace this later behind the same signature.
 func (s *Store) Search(query string, limit int) ([]SearchResult, error) {
 	return s.SearchScoped(query, limit, SearchAll)
