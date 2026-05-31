@@ -11,6 +11,22 @@ Each item starts as undecided. Before implementation, decide whether track shoul
 - `Reject`: outside track's intended scope.
 - `Done`: shipped; remaining follow-ups are noted inline.
 
+## Rejected Scope (Decided)
+
+The following directions are intentionally out of scope. The matching table rows are
+marked `Reject`.
+
+- Workspaces: no multi-workspace or dynamic-workspace concept. track uses a single
+  explicit vault only.
+- Obsidian app integration / sync / bookmarks: track does not aim for Obsidian
+  compatibility, so there is no app linking, sync, or `.obsidian/bookmarks.json` support.
+- Frontmatter / property compatibility: track does not adopt YAML frontmatter, so there
+  is nothing to reconcile against Obsidian/Org property models. Metadata stays in
+  sidecar files.
+- Note IDs: managed by a single fixed unique rule, not user-configurable slugs or
+  policies.
+- Subdirectories: notes stay flat; no notes subdirectory or placement rules.
+
 ## Recently Shipped
 
 Items below have landed since this roadmap was drafted. The matching table rows are
@@ -39,21 +55,21 @@ For each item, answer:
 
 | Area | Candidate | State | Notes / likely implementation |
 | --- | --- | --- | --- |
-| Workspace | Multiple workspaces and workspace-specific overrides | TBD | Current model is one explicit `TRACK_VAULT`. Decide whether multi-vault belongs in track or only editor config. |
-| Workspace | Dynamic workspace for markdown outside a vault | TBD | Conflicts with explicit-vault ADR unless constrained. Could be a Neovim-only mode with no durable writes. |
+| Workspace | Multiple workspaces and workspace-specific overrides | Reject | Decided out of scope. Single explicit `TRACK_VAULT` only; no multi-workspace support. |
+| Workspace | Dynamic workspace for markdown outside a vault | Reject | Decided out of scope. No workspace concept beyond the single explicit vault. |
 | Picker UX | Quick switch note picker | TBD | Engine already has notes/search primitives. Neovim can use quickfix first, picker adapters later. |
 | Picker UX | Dailies picker | TBD | CLI has journal open by offset, but no list/range command. Add store/query or filesystem scan. |
 | Picker UX | Search picker with preview and create-on-empty | Done | Shipped: Telescope `search_title`/`search_body` pickers with file preview; body search jumps to the matched line via `search --scope`. Remaining: create-on-empty, optional ripgrep-backed body search. |
-| Obsidian app | Open note in Obsidian app / advanced URI | TBD | Optional integration. Likely Neovim command only; no engine impact. |
-| Sync | Obsidian Sync / obsidian-headless integration | TBD | Large external dependency and product-specific scope. Likely defer/reject unless explicit goal. |
-| Bookmarks | Read `.obsidian/bookmarks.json` | TBD | Optional Obsidian compatibility feature. Could expose picker/quickfix. |
-| Metadata | YAML frontmatter/properties compatibility | TBD | Track intentionally uses sidecar metadata. Need decide read-only import vs bidirectional support. |
+| Obsidian app | Open note in Obsidian app / advanced URI | Reject | Decided out of scope. track does not target Obsidian compatibility, so no app integration. |
+| Sync | Obsidian Sync / obsidian-headless integration | Reject | Decided out of scope. No app sync/integration. |
+| Bookmarks | Read `.obsidian/bookmarks.json` | Reject | Decided out of scope. No bookmarks feature. |
+| Metadata | YAML frontmatter/properties compatibility | Reject | Decided out of scope. track does not adopt frontmatter, so there is no property-compatibility concern. |
 | Metadata | Property editing UI/code action | TBD | Sidecar-native property editor may be useful even without frontmatter. |
 | Tags | Inline `#tag` parsing and indexing | TBD | Current tags are sidecar-only. Requires parser/index changes and completion/rendering decisions. |
 | Tags | Tag completion and tag references | TBD | Depends on tag indexing. Could use LSP completion after `#` and `textDocument/references`. |
-| Note creation | Configurable note IDs/slugs | TBD | Current IDs are Unix timestamps. Add policy config and collision handling if needed. |
-| Note creation | Unique note command and unique link insertion | TBD | Similar to configurable IDs; useful for Zettelkasten workflows. |
-| Note creation | Notes subdirectory / placement rules | TBD | Affects config and note path derivation. Needs migration story for current flat notes. |
+| Note creation | Configurable note IDs/slugs | Reject | Decided out of scope. Note IDs are managed by a single fixed unique rule, not user-configurable. |
+| Note creation | Unique note command and unique link insertion | Reject | Decided out of scope. IDs follow one unique rule by default; no configurable uniqueness policy. |
+| Note creation | Notes subdirectory / placement rules | Reject | Decided out of scope. Notes stay flat; no subdirectories or placement rules. |
 | Templates | Insert template into current note | TBD | Neovim command can read template files; engine support needed for substitutions if shared. |
 | Templates | Create note from template | TBD | Extend `new` / LSP create-note command with template selection or name. |
 | Templates | Template substitutions | TBD | Track-native variables: id, title, date, time, path. Custom Lua substitutions are Neovim-specific. |
@@ -117,8 +133,8 @@ For each item, answer:
 ## Suggested Discussion Order
 
 1. Refactor/navigation essentials: rename links, outgoing links list, document/workspace symbols, diagnostics.
-2. Metadata and tags: sidecar editing UI, inline tag decision, frontmatter compatibility decision.
-3. Creation workflows: templates, configurable note IDs, placement rules, visual extract/link.
+2. Metadata and tags: sidecar editing UI, inline tag decision.
+3. Creation workflows: templates, visual extract/link.
 4. Attachments and images.
 5. Org-like task/agenda features.
-6. Larger compatibility areas: multi-workspace, sync, export/publish, full Babel.
+6. Larger compatibility areas: export/publish, full Babel.
