@@ -4,17 +4,104 @@ local client = require("track.client")
 local util = require("track.util")
 
 local M = {}
+local subcommands = {}
 
 local function cmd(name, fn, opts)
    vim.api.nvim_create_user_command(name, fn, opts or {})
 end
 
+local function command_names()
+   local names = vim.tbl_keys(subcommands)
+   table.sort(names)
+   return names
+end
+
+local function register(name, fn, opts)
+   opts = opts or {}
+   subcommands[name] = {
+      fn = fn,
+      nargs = opts.nargs or 0,
+      range = opts.range == true,
+      complete = opts.complete,
+      desc = opts.desc,
+   }
+end
+
+local function validate_args(name, spec, opts)
+   local nargs = #opts.fargs
+   local expected = spec.nargs
+   if expected == "?" then
+      if nargs > 1 then
+         vim.notify("track: " .. name .. " expects 0 or 1 arguments", vim.log.levels.ERROR)
+         return false
+      end
+   elseif expected == "+" then
+      if nargs == 0 then
+         vim.notify("track: " .. name .. " expects at least one argument", vim.log.levels.ERROR)
+         return false
+      end
+   elseif expected ~= "*" and nargs ~= expected then
+      vim.notify("track: " .. name .. " expects " .. expected .. " arguments", vim.log.levels.ERROR)
+      return false
+   end
+   if opts.range > 0 and not spec.range then
+      vim.notify("track: " .. name .. " does not accept a range", vim.log.levels.ERROR)
+      return false
+   end
+   return true
+end
+
+local function handle_track(opts)
+   local name = opts.fargs[1]
+   if not name then
+      vim.ui.select(command_names(), { prompt = "Track command" }, function(choice)
+         if choice then
+            vim.cmd.Track(choice)
+         end
+      end)
+      return
+   end
+   table.remove(opts.fargs, 1)
+   opts.args = table.concat(opts.fargs, " ")
+
+   local spec = subcommands[name]
+   if not spec then
+      vim.notify("track: unknown command " .. name, vim.log.levels.ERROR)
+      return
+   end
+   if validate_args(name, spec, opts) then
+      spec.fn(opts)
+   end
+end
+
+local function complete_track(arg_lead, cmdline, cursor_pos)
+   local split = vim.split(cmdline:sub(1, cursor_pos), " ", { plain = true, trimempty = true })
+   local name = split[2]
+   local names = command_names()
+
+   if cmdline:match("^['<,'>]*Track%s*$") then
+      return names
+   end
+   if #split <= 2 and name then
+      return vim.tbl_filter(function(candidate)
+         return vim.startswith(candidate, name)
+      end, names)
+   end
+
+   local spec = subcommands[name]
+   if type(spec and spec.complete) == "function" then
+      return spec.complete(arg_lead, cmdline, cursor_pos)
+   elseif type(spec and spec.complete) == "string" then
+      return vim.fn.getcompletion(arg_lead, spec.complete)
+   end
+end
+
 function M.setup()
-   cmd("TrackDump", function()
+   register("dump", function()
       util.open_scratch("track://dump", "json", client.run({ "dump" }))
    end, { desc = "Open a diagnostic dump of track state" })
 
-   cmd("TrackNew", function(opts)
+   register("new", function(opts)
       local create = require("track.create")
       if opts.range > 0 then
          create.from_visual()
@@ -25,43 +112,43 @@ function M.setup()
       end
    end, { nargs = "*", range = true, desc = "Create a track note (selection, args, or prompt)" })
 
-   cmd("TrackFollow", function()
+   register("follow", function()
       require("track.follow").follow()
    end, { desc = "Follow the track link under the cursor" })
 
-   cmd("TrackBacklinks", function()
+   register("backlinks", function()
       require("track.backlinks").show()
    end, { desc = "Show notes that link to the current note" })
 
-   cmd("TrackBabelExec", function()
+   register("babel_exec", function()
       require("track.babel").exec()
    end, { desc = "Run the source block under the cursor and show its result" })
 
-   cmd("TrackBabelRestore", function()
+   register("babel_restore", function()
       require("track.babel").restore()
    end, { desc = "Restore stored source block results in the buffer" })
 
-   cmd("TrackBabelClear", function()
+   register("babel_clear", function()
       require("track.babel").clear()
    end, { desc = "Clear rendered babel results in the buffer" })
 
-   cmd("TrackToday", function()
+   register("today", function()
       require("track.journal").open(0)
    end, { desc = "Open today's journal note" })
 
-   cmd("TrackYesterday", function()
+   register("yesterday", function()
       require("track.journal").open(-1)
    end, { desc = "Open yesterday's journal note" })
 
-   cmd("TrackTomorrow", function()
+   register("tomorrow", function()
       require("track.journal").open(1)
    end, { desc = "Open tomorrow's journal note" })
 
-   cmd("TrackJournal", function(opts)
+   register("journal", function(opts)
       require("track.journal").open(tonumber(opts.args) or 0)
    end, { nargs = "?", desc = "Open the journal note at a day offset (default 0)" })
 
-   cmd("TrackKeywords", function()
+   register("keywords", function()
       local data, err = client.run_json({ "keywords" })
       if not data then
          vim.notify("track: " .. tostring(err), vim.log.levels.ERROR)
@@ -76,6 +163,13 @@ function M.setup()
       end
       util.open_scratch("track://keywords", "text", table.concat(lines, "\n"))
    end, { desc = "List the track link keyword dictionary" })
+
+   cmd("Track", handle_track, {
+      nargs = "*",
+      range = true,
+      complete = complete_track,
+      desc = "Run a track subcommand",
+   })
 end
 
 return M

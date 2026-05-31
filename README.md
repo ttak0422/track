@@ -87,18 +87,18 @@ require("track").setup({
 Commands:
 
 ```vim
-:TrackNew [title]   " create a note (visual selection / args / prompt-with-cword)
-:TrackFollow        " follow the [[...]] link under the cursor (also mapped to <CR>)
-:TrackBacklinks     " show notes that link to the current note in quickfix
-:TrackBabelExec     " run the source block under the cursor; result shows below it
-:TrackBabelRestore  " restore stored babel results without running code
-:TrackBabelClear    " clear rendered babel results in the buffer
-:TrackToday         " open today's journal note
-:TrackYesterday
-:TrackTomorrow
-:TrackJournal [n]   " journal note at day offset n
-:TrackKeywords      " list the link keyword dictionary
-:TrackDump          " diagnostic state dump
+:Track new [title]     " create a note (visual selection / args / prompt-with-cword)
+:Track follow          " follow the [[...]] link under the cursor (also mapped to <CR>)
+:Track backlinks       " show notes that link to the current note in quickfix
+:Track babel_exec      " run the source block under the cursor; result shows below it
+:Track babel_restore   " restore stored babel results without running code
+:Track babel_clear     " clear rendered babel results in the buffer
+:Track today           " open today's journal note
+:Track yesterday
+:Track tomorrow
+:Track journal [n]     " journal note at day offset n
+:Track keywords        " list the link keyword dictionary
+:Track dump            " diagnostic state dump
 ```
 
 In a vault buffer, resolved `[[...]]` links are underlined (`TrackLink` highlight group) and unresolved ones use `TrackLinkUnresolved`; press `<CR>` on a link to jump to its note. By default the `[[ ]]` brackets are concealed so links read as plain text (`[[Go|ゴー]]` shows `ゴー`); in normal mode the link under the cursor is shown raw (anti-conceal) while other links stay concealed, and while typing the whole cursor line is shown raw so the completion popup stays aligned. `conceal = false` keeps brackets visible. Raising conceallevel would otherwise let Neovim's treesitter markdown query hide code-fence delimiters, so track reveals them by default (toggle with `reveal_code_fences`). This is backed by `track-lsp`.
