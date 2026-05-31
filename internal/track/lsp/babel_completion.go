@@ -31,6 +31,56 @@ var babelHeaderValues = map[string][]string{
 	"tangle":  {"no"},
 }
 
+var babelHeaderDocs = map[string]string{
+	":name":    "Names the source block for stable result lookup, future calls, and noweb references. Names should be unique within a note.",
+	":results": "Controls how execution results are captured and stored in sidecar metadata instead of mutating the Markdown body.",
+	":eval":    "Controls whether the block may execute: `yes` allows execution, `no` prevents execution, and `query` asks before running.",
+	":cache":   "Controls result reuse with a cache key based on the block body, normalized header arguments, and variable references.",
+	":var":     "Defines literal input variables such as `x=1`; values are normalized into block metadata.",
+	":session": "Controls interpreter session behavior. `none` runs without a long-lived session; named sessions are reserved for later support.",
+	":dir":     "Sets the execution working directory. Relative paths resolve from the note directory or vault and are restricted to allowed roots.",
+	":exports": "Records export intent for future compatibility. Track does not currently provide an exporter.",
+	":noweb":   "Controls expansion of `<<name>>` references. Initial support keeps expansion disabled with `no`.",
+	":tangle":  "Controls writing source blocks to files. Initial support keeps file output disabled with `no`.",
+}
+
+var babelHeaderValueDocs = map[string]map[string]string{
+	"results": {
+		"output":   "Capture stdout, stderr, and exit status in sidecar metadata.",
+		"verbatim": "Store raw text without coercing the result display format.",
+		"replace":  "Replace the last stored result for this block in metadata.",
+		"silent":   "Execute without updating stored results; command output can still be transient.",
+		"none":     "Execute without storing or displaying a result.",
+		"discard":  "Execute and ignore the result completely.",
+		"raw":      "Store a raw-result marker in metadata without inserting into the Markdown body.",
+		"code":     "Store the result plus a code render-format marker in metadata.",
+	},
+	"eval": {
+		"yes":   "Allow execution subject to Track's security policy.",
+		"no":    "Never execute this block.",
+		"query": "Ask before execution; non-interactive frontends should require explicit confirmation.",
+	},
+	"cache": {
+		"yes": "Reuse results when the body hash, normalized header arguments, and variable references match.",
+		"no":  "Do not reuse cached results.",
+	},
+	"session": {
+		"none": "Run without a long-lived interpreter session; effectively one process per block.",
+	},
+	"exports": {
+		"code":    "Record that code should be exported when exporter support exists.",
+		"results": "Record that results should be exported when exporter support exists.",
+		"both":    "Record that both code and results should be exported when exporter support exists.",
+		"none":    "Record that neither code nor results should be exported when exporter support exists.",
+	},
+	"noweb": {
+		"no": "Do not expand `<<name>>` references.",
+	},
+	"tangle": {
+		"no": "Do not write this block to an output file.",
+	},
+}
+
 type babelCompletionContext struct {
 	Line         int
 	ReplaceStart int
@@ -38,6 +88,7 @@ type babelCompletionContext struct {
 	Mode         string
 	Key          string
 	HasKeyValue  bool
+	UsedKeys     map[string]bool
 	Prefix       string
 }
 
@@ -54,19 +105,22 @@ func (s *Server) babelCompletion(text string, pos position) []completionItem {
 			langs = append(langs, lang)
 		}
 		sort.Strings(langs)
-		return babelCompletionItems(ctx, langs, protocol.KeywordCompletion, "babel language", "")
+		return babelCompletionItems(ctx, langs, protocol.KeywordCompletion, "babel language", "", nil)
 	case "key":
 		keys := make([]string, 0, len(babelHeaderKeys))
 		for _, key := range babelHeaderKeys {
+			if ctx.UsedKeys[key] {
+				continue
+			}
 			keys = append(keys, ":"+key)
 		}
-		return babelCompletionItems(ctx, keys, protocol.PropertyCompletion, "babel header", " ")
+		return babelCompletionItems(ctx, keys, protocol.PropertyCompletion, "babel header", " ", babelHeaderDoc)
 	case "value":
 		if ctx.Prefix == "" && ctx.HasKeyValue {
 			return s.babelHeaderKeyItems(ctx)
 		}
 		values := slices.Clone(babelHeaderValues[ctx.Key])
-		return babelCompletionItems(ctx, values, protocol.ValueCompletion, ":"+ctx.Key, "")
+		return babelCompletionItems(ctx, values, protocol.ValueCompletion, ":"+ctx.Key, "", babelHeaderValueDoc(ctx.Key))
 	}
 	return []completionItem{}
 }
@@ -77,25 +131,32 @@ func (s *Server) babelHeaderKeyItems(ctx babelCompletionContext) []completionIte
 	keyCtx.Key = ""
 	keys := make([]string, 0, len(babelHeaderKeys))
 	for _, key := range babelHeaderKeys {
+		if ctx.UsedKeys[key] {
+			continue
+		}
 		keys = append(keys, ":"+key)
 	}
-	return babelCompletionItems(keyCtx, keys, protocol.PropertyCompletion, "babel header", " ")
+	return babelCompletionItems(keyCtx, keys, protocol.PropertyCompletion, "babel header", " ", babelHeaderDoc)
 }
 
-func babelCompletionItems(ctx babelCompletionContext, candidates []string, kind protocol.CompletionItemKind, detail, suffix string) []completionItem {
+func babelCompletionItems(ctx babelCompletionContext, candidates []string, kind protocol.CompletionItemKind, detail, suffix string, doc func(string) string) []completionItem {
 	items := make([]completionItem, 0, len(candidates))
 	for _, candidate := range candidates {
 		if ctx.Prefix != "" && !strings.HasPrefix(candidate, ctx.Prefix) {
 			continue
 		}
 		newText := candidate + suffix
-		items = append(items, completionItem{
+		item := completionItem{
 			Label:      candidate,
 			Kind:       kind,
 			Detail:     detail,
 			InsertText: candidate,
 			TextEdit:   plainCompletionTextEdit(ctx.Line, ctx.ReplaceStart, ctx.ReplaceEnd, newText),
-		})
+		}
+		if doc != nil {
+			item.Documentation = markdownDocumentation(doc(candidate))
+		}
+		items = append(items, item)
 	}
 	return items
 }
@@ -126,6 +187,7 @@ func babelCompletionContextAt(text string, pos position) (babelCompletionContext
 		Line:         lineNo,
 		ReplaceStart: tokenStart,
 		ReplaceEnd:   col,
+		UsedKeys:     usedBabelHeaderKeys(tokens),
 		Prefix:       prefix,
 	}
 
@@ -171,6 +233,41 @@ func plainCompletionTextEdit(line, start, end int, text string) *protocol.Or_Com
 			NewText: text,
 		},
 	}
+}
+
+func markdownDocumentation(text string) *protocol.Or_CompletionItem_documentation {
+	if text == "" {
+		return nil
+	}
+	return &protocol.Or_CompletionItem_documentation{
+		Value: protocol.MarkupContent{
+			Kind:  protocol.Markdown,
+			Value: text,
+		},
+	}
+}
+
+func babelHeaderDoc(candidate string) string {
+	return babelHeaderDocs[candidate]
+}
+
+func babelHeaderValueDoc(key string) func(string) string {
+	return func(candidate string) string {
+		return babelHeaderValueDocs[key][candidate]
+	}
+}
+
+func usedBabelHeaderKeys(tokens []string) map[string]bool {
+	used := make(map[string]bool)
+	if len(tokens) < 2 {
+		return used
+	}
+	for _, token := range tokens[1:] {
+		if strings.HasPrefix(token, ":") {
+			used[strings.TrimPrefix(token, ":")] = true
+		}
+	}
+	return used
 }
 
 func isSpace(b byte) bool {

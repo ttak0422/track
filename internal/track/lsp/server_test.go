@@ -430,6 +430,10 @@ func TestBabelCompletionHeaderKeysAtColon(t *testing.T) {
 	if edit == nil || edit.NewText != ":eval " || edit.Range.Start.Character != 7 || edit.Range.End.Character != 8 {
 		t.Fatalf("unexpected :eval text edit: %+v", edit)
 	}
+	doc := completionDocumentation(item)
+	if !strings.Contains(doc, "Controls whether the block may execute") {
+		t.Fatalf("expected :eval documentation, got %q", doc)
+	}
 }
 
 func TestBabelCompletionHeaderValueAfterKeySpace(t *testing.T) {
@@ -446,6 +450,11 @@ func TestBabelCompletionHeaderValueAfterKeySpace(t *testing.T) {
 	}
 	if completionLabelsContain(items, ":eval") || completionLabelsContain(items, ":results") {
 		t.Fatalf("property completions should not appear before an eval value is chosen, got %+v", items)
+	}
+	item := completionItemByLabel(items, "no")
+	doc := completionDocumentation(item)
+	if !strings.Contains(doc, "Never execute this block") {
+		t.Fatalf("expected eval value documentation, got %q", doc)
 	}
 }
 
@@ -475,11 +484,31 @@ func TestBabelCompletionOffersOnlyHeaderKeysAfterValue(t *testing.T) {
 	if err != nil {
 		t.Fatalf("completion: %v", err)
 	}
-	if !completionLabelsContain(items, ":results") || !completionLabelsContain(items, ":eval") {
+	if !completionLabelsContain(items, ":results") {
 		t.Fatalf("expected header keys after eval value, got %+v", items)
+	}
+	if completionLabelsContain(items, ":eval") {
+		t.Fatalf("used header key should not appear again, got %+v", items)
 	}
 	if completionLabelsContain(items, "yes") || completionLabelsContain(items, "no") {
 		t.Fatalf("value completions should not appear after an eval value is chosen, got %+v", items)
+	}
+}
+
+func TestBabelCompletionOmitsUsedHeaderKeys(t *testing.T) {
+	srv, vault := setupServer(t)
+	uri := uriFromPath(filepath.Join(vault, "200.md"))
+	srv.docs[uri] = "```lua :name test :eval query "
+
+	items, err := srv.completion(uri, newPosition(0, 30))
+	if err != nil {
+		t.Fatalf("completion: %v", err)
+	}
+	if completionLabelsContain(items, ":name") || completionLabelsContain(items, ":eval") {
+		t.Fatalf("used header keys should not appear again, got %+v", items)
+	}
+	if !completionLabelsContain(items, ":results") {
+		t.Fatalf("expected unused header key completion, got %+v", items)
 	}
 }
 
@@ -660,6 +689,20 @@ func completionItemByLabel(items []completionItem, label string) *completionItem
 		}
 	}
 	return nil
+}
+
+func completionDocumentation(item *completionItem) string {
+	if item == nil || item.Documentation == nil {
+		return ""
+	}
+	switch doc := item.Documentation.Value.(type) {
+	case protocol.MarkupContent:
+		return doc.Value
+	case string:
+		return doc
+	default:
+		return ""
+	}
 }
 
 func stringSliceContains(values []string, target string) bool {
