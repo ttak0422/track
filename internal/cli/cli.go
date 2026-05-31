@@ -31,6 +31,8 @@ func Run(args []string) int {
 		return 0
 	case "reindex":
 		return cmdReindex(rest)
+	case "repair":
+		return cmdRepair(rest)
 	case "new":
 		return cmdNew(rest)
 	case "journal":
@@ -59,6 +61,7 @@ Usage:
   track new --title <t> [--id <unix>]   create a note
   track journal [--offset <n>]          open/create a daily note
   track reindex [--full]                rebuild the index
+  track repair                          rebuild missing/broken sidecar metadata
   track keywords                        dump the auto-link dictionary (JSON)
   track resolve --term <s>              resolve a keyword to a note (JSON)
   track search --query <s> [--limit N]  search notes (JSON)
