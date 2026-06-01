@@ -182,6 +182,83 @@ func TestDefinition(t *testing.T) {
 	}
 }
 
+func TestDefinitionJumpsToHeading(t *testing.T) {
+	srv, vault := setupServer(t)
+	targetURI := uriFromPath(filepath.Join(vault, "100.md"))
+	srv.docs[targetURI] = "# Go\n\n## foo\n\n### bar\n\n## bar\n"
+	uri := uriFromPath(filepath.Join(vault, "200.md"))
+	srv.docs[uri] = "see [[Go##bar]] and [[Go###bar]]"
+
+	// [[Go##bar]] resolves to the first h2 "bar" (line 6), not the h3 with the same text.
+	loc, err := srv.definition(uri, newPosition(0, 8))
+	if err != nil || loc == nil {
+		t.Fatalf("h2 anchor definition: loc=%+v err=%v", loc, err)
+	}
+	if string(loc.URI) != targetURI || loc.Range.Start.Line != 6 {
+		t.Fatalf("expected jump to line 6, got %+v", loc)
+	}
+	// [[Go###bar]] resolves to the h3 "bar" (line 4): the level disambiguates.
+	loc, err = srv.definition(uri, newPosition(0, 24))
+	if err != nil || loc == nil {
+		t.Fatalf("h3 anchor definition: loc=%+v err=%v", loc, err)
+	}
+	if loc.Range.Start.Line != 4 {
+		t.Fatalf("expected jump to line 4, got %+v", loc)
+	}
+}
+
+func TestDefinitionHeadingFallsBackToTop(t *testing.T) {
+	srv, vault := setupServer(t)
+	targetURI := uriFromPath(filepath.Join(vault, "100.md"))
+	srv.docs[targetURI] = "# Go\n\n## foo\n"
+	uri := uriFromPath(filepath.Join(vault, "200.md"))
+	srv.docs[uri] = "see [[Go#missing]]"
+
+	loc, err := srv.definition(uri, newPosition(0, 8))
+	if err != nil || loc == nil {
+		t.Fatalf("definition: loc=%+v err=%v", loc, err)
+	}
+	if string(loc.URI) != targetURI || loc.Range.Start.Line != 0 {
+		t.Fatalf("missing heading should fall back to the note top, got %+v", loc)
+	}
+}
+
+func TestDefinitionFollowsSameNoteHeading(t *testing.T) {
+	srv, vault := setupServer(t)
+	uri := uriFromPath(filepath.Join(vault, "100.md"))
+	srv.docs[uri] = "# Go\n\n## foo\n\nsee [[Go##foo]]"
+
+	// A plain self-link has nowhere to go, but a heading anchor navigates within the note.
+	loc, err := srv.definition(uri, newPosition(4, 8))
+	if err != nil || loc == nil {
+		t.Fatalf("same-note heading definition: loc=%+v err=%v", loc, err)
+	}
+	if string(loc.URI) != uri || loc.Range.Start.Line != 2 {
+		t.Fatalf("expected jump to line 2 within the same note, got %+v", loc)
+	}
+}
+
+func TestCompletionOffersHeadings(t *testing.T) {
+	srv, vault := setupServer(t)
+	targetURI := uriFromPath(filepath.Join(vault, "100.md"))
+	srv.docs[targetURI] = "# Go\n\n## foo\n\n## food\n\n### other\n"
+	uri := uriFromPath(filepath.Join(vault, "200.md"))
+	srv.docs[uri] = "see [[Go##fo"
+
+	items, err := srv.completion(uri, position{Line: 0, Character: 12})
+	if err != nil {
+		t.Fatalf("completion: %v", err)
+	}
+	// Only the two h2 headings prefixed "fo" qualify; the h3 is excluded by level.
+	if len(items) != 2 {
+		t.Fatalf("expected 2 heading candidates, got %+v", items)
+	}
+	edit := completionEdit(&items[0])
+	if items[0].Label != "foo" || edit == nil || edit.NewText != "Go##foo]]" {
+		t.Fatalf("heading completion should insert the full anchor, got %+v / %+v", items[0], edit)
+	}
+}
+
 func TestSelfLinksAreNotLinked(t *testing.T) {
 	srv, vault := setupServer(t)
 	uri := uriFromPath(filepath.Join(vault, "100.md"))

@@ -74,7 +74,7 @@ For each item, answer:
 | Templates | Create note from template | TBD | Extend `new` / LSP create-note command with template selection or name. |
 | Templates | Template substitutions | TBD | Track-native variables: id, title, date, time, path. Custom Lua substitutions are Neovim-specific. |
 | Links | Markdown link support `[label](target.md)` | TBD | Parser/LSP/index work. Decide whether track remains wiki-link-only. |
-| Links | Heading/block links | TBD | Requires heading/block indexing and link target semantics. |
+| Links | Heading/block links | Done | Shipped heading anchors: `[[note#foo]]`/`[[note##bar]]` where the `#` count is the Markdown heading level; first matching heading wins (ADR 0009). Definition jumps to the heading and completion offers headings after `#`. Block-level anchors (Obsidian `#^`) remain out of scope. |
 | Links | URI and attachment links | TBD | Decide whether to delegate to `gx`/`vim.ui.open` or integrate into LSP definition. |
 | Links | Configurable link style/format | TBD | Needed if supporting path-based links or Obsidian compatibility. |
 | Refactor | Rename note and update links | TBD | High-value. Implement via LSP rename + workspace edits; engine must rewrite note bodies safely. |

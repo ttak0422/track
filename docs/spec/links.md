@@ -13,6 +13,22 @@ The inner `text` is the resolution key; surrounding ASCII whitespace is trimmed,
 - Links do not span lines.
 - `[[target|display]]` links to `target` while showing `display` (Obsidian-style). The first `|` separates them; later `|` stay in the display. An empty `display` falls back to `target`, and an empty `target` (`[[|x]]`) is not a link.
 
+### Heading anchors
+
+A target may carry a heading anchor: `[[note#heading]]` links to a heading inside `note`. The number of `#` selects the **Markdown heading level**, and the text after the `#` run is the heading text:
+
+- `[[note#foo]]` targets the first `# foo` (h1).
+- `[[note##bar]]` targets the first `## bar` (h2).
+- `[[note###baz]]` targets the first `### baz` (h3), and so on through h6.
+
+The note key is the text before the first `#`; it still resolves against titles and aliases by exact match. Whitespace around both the key and the heading is trimmed, so `[[ note ## bar ]]` equals `[[note##bar]]`. Anchors compose with display aliases: `[[note##bar|ラベル]]` links to `note`'s `## bar` while showing `ラベル`.
+
+Heading text is **not unique** within a note (a note may have two `## bar` sections). Resolution adopts the **first matching heading** by document order, matching both the level and the text exactly. ATX heading lines are recognized after trimming leading whitespace; a closing `#` run (`## bar ##`) is ignored. Fenced code blocks are skipped, so a `## foo` inside a code fence is not an anchor target.
+
+A `#` with no heading text after it stays part of the note key, so a note titled `C#` is still reachable as `[[C#]]`. A target that is only an anchor with no note key (`[[#foo]]`) is not a link.
+
+When the note resolves but the heading is not found, navigation falls back to the top of the note rather than failing.
+
 Fenced code blocks delimited by lines starting with ` ``` ` are excluded.
 
 ## Resolution
@@ -34,6 +50,7 @@ A `[[...]]` whose inner text matches no title or alias is **unresolved**. It is 
 
 The Go indexer extracts each note body's `[[...]]` references and resolves them to outgoing links.
 Self-links are ignored when writing the graph.
+The graph is note-to-note: a heading anchor refines where navigation lands but does not change which note a link points to, so `[[note#foo]]` and `[[note##bar]]` both contribute a single edge to `note`.
 
 `reindex --full` recomputes the complete graph.
 Single-note indexing updates only that note's outgoing links, so callers that need newly created inbound links should run a full reindex.
@@ -55,5 +72,5 @@ The Neovim frontend starts `track-lsp` and is the only link frontend.
 - `textDocument/documentLink` returns ranges over the inner text of **resolved** `[[...]]`, rendered with the `TrackLink` group (linked to `Underlined` by default).
 - Unresolved `[[...]]` are scanned client-side and rendered with the `TrackLinkUnresolved` group (linked to `Comment` by default), marking notes that don't exist yet.
 - By default the `[[ ]]` brackets are concealed (and the `target|` of a display alias hidden), so `[[Go]]` shows `Go` and `[[Go|ゴー]]` shows `ゴー`, both underlined. In normal mode the link **under the cursor** is shown raw (anti-conceal) while other links — including others on the same line — stay concealed. While inserting, the whole cursor line is shown raw so byte and screen columns line up and the completion popup stays aligned. Set `conceal = false` to keep brackets visible. Raising conceallevel also lets Neovim's bundled treesitter markdown query hide code-fence delimiters (```lang), so track reveals those fences again by default; toggle with `reveal_code_fences`.
-- `textDocument/definition` (also bound to `<CR>`) jumps from a link to its target note.
-- `textDocument/completion` offers titles and aliases (triggered on `[`) while the cursor is inside an open `[[`, excluding the current note's own terms. This is a standard LSP capability and is UI-independent: the plugin merges `cmp-nvim-lsp` capabilities when nvim-cmp is installed, so completion surfaces through the user's nvim-cmp setup. Without nvim-cmp, the server still advertises completion for any other client.
+- `textDocument/definition` (also bound to `<CR>`) jumps from a link to its target note. With a heading anchor (`[[note##bar]]`) it jumps to the matching heading line, falling back to the note top when the heading is absent. A same-note anchor (`[[self#foo]]` inside `self`) navigates within the buffer even though a plain self-link does not.
+- `textDocument/completion` offers titles and aliases (triggered on `[`) while the cursor is inside an open `[[`, excluding the current note's own terms. Once the typed target contains `#`, completion switches to the resolved note's headings at the typed level, inserting the full `note##heading` anchor. This is a standard LSP capability and is UI-independent: the plugin merges `cmp-nvim-lsp` capabilities when nvim-cmp is installed, so completion surfaces through the user's nvim-cmp setup. Without nvim-cmp, the server still advertises completion for any other client.

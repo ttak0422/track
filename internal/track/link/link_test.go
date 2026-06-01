@@ -83,6 +83,58 @@ func TestRefsDisplayEdgeCases(t *testing.T) {
 	}
 }
 
+func TestRefsHeadingAnchor(t *testing.T) {
+	// Single "#" is an h1 anchor; the note key excludes the anchor.
+	if g := Refs("[[test#foo]]"); len(g) != 1 || g[0].Text != "test" || g[0].Heading != "foo" || g[0].HeadingLevel != 1 {
+		t.Fatalf("h1 anchor: %+v", g)
+	}
+	// Double "##" is an h2 anchor.
+	if g := Refs("[[test##bar]]"); len(g) != 1 || g[0].Text != "test" || g[0].Heading != "bar" || g[0].HeadingLevel != 2 {
+		t.Fatalf("h2 anchor: %+v", g)
+	}
+	// Whitespace around the key and heading is trimmed.
+	if g := Refs("[[ test # foo ]]"); len(g) != 1 || g[0].Text != "test" || g[0].Heading != "foo" || g[0].HeadingLevel != 1 {
+		t.Fatalf("trimmed anchor: %+v", g)
+	}
+	// An anchor composes with a display alias: target#heading|display.
+	if g := Refs("[[test#foo|ふー]]"); len(g) != 1 || g[0].Text != "test" || g[0].Heading != "foo" || g[0].Display != "ふー" {
+		t.Fatalf("anchor with display: %+v", g)
+	}
+	// A trailing "#" with no heading text stays part of the note key.
+	if g := Refs("[[C#]]"); len(g) != 1 || g[0].Text != "C#" || g[0].Heading != "" || g[0].HeadingLevel != 0 {
+		t.Fatalf("trailing hash key: %+v", g)
+	}
+	// An empty note key (anchor only) is not a link.
+	if g := Refs("[[#foo]]"); len(g) != 0 {
+		t.Fatalf("anchor-only should be invalid: %+v", g)
+	}
+}
+
+func TestHeadingsAndFind(t *testing.T) {
+	body := "# Title\n\n## foo\nbody\n## foo\n```\n## fenced\n```\n### bar ###\n"
+	got := Headings(body)
+	want := []Heading{
+		{Level: 1, Text: "Title", Line: 0},
+		{Level: 2, Text: "foo", Line: 2},
+		{Level: 2, Text: "foo", Line: 4},
+		{Level: 3, Text: "bar", Line: 8},
+	}
+	if !reflect.DeepEqual(got, want) {
+		t.Fatalf("got %+v, want %+v", got, want)
+	}
+	// First matching heading wins.
+	if line, ok := FindHeading(body, 2, "foo"); !ok || line != 2 {
+		t.Fatalf("FindHeading h2 foo: line=%d ok=%v", line, ok)
+	}
+	if line, ok := FindHeading(body, 3, "bar"); !ok || line != 8 {
+		t.Fatalf("FindHeading h3 bar: line=%d ok=%v", line, ok)
+	}
+	// Level must match: an h1 "foo" does not exist.
+	if _, ok := FindHeading(body, 1, "foo"); ok {
+		t.Fatalf("FindHeading should not match wrong level")
+	}
+}
+
 func TestRefsIgnoresMalformed(t *testing.T) {
 	for _, in := range []string{
 		"[[unterminated",

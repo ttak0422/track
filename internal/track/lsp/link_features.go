@@ -29,7 +29,8 @@ func (s *Server) documentLinks(uri string) ([]documentLink, error) {
 		if !ok {
 			continue // unresolved [[...]]: the Lua side highlights these separately
 		}
-		if hasCurrentID && kw.NoteID == currentID {
+		// A same-note link is inert unless it carries a heading anchor, which navigates within the note.
+		if hasCurrentID && kw.NoteID == currentID && ref.Heading == "" {
 			continue
 		}
 		target := protocol.URI(uriFromPath(kw.Path))
@@ -195,15 +196,34 @@ func (s *Server) definition(uri string, pos position) (*location, error) {
 		if !ok {
 			return nil, nil
 		}
-		if hasCurrentID && kw.NoteID == currentID {
+		// A heading anchor ([[note#heading]]) navigates within the note, so same-note links
+		// are still worth following; a plain self-link has nowhere to jump.
+		if hasCurrentID && kw.NoteID == currentID && ref.Heading == "" {
 			return nil, nil
+		}
+		line := 0
+		if ref.Heading != "" {
+			if l, found := s.headingLine(kw.Path, ref.HeadingLevel, ref.Heading); found {
+				line = l
+			}
 		}
 		return &location{
 			URI:   protocol.DocumentURI(uriFromPath(kw.Path)),
-			Range: newRange(0, 0, 0, 0),
+			Range: newRange(line, 0, line, 0),
 		}, nil
 	}
 	return nil, nil
+}
+
+// headingLine resolves a [[note#heading]] anchor to a 0-based line in the target note.
+// It reads the target's current text (open buffer or disk) and returns the first heading whose
+// level and text match. The boolean is false when the note has no such heading.
+func (s *Server) headingLine(path string, level int, heading string) (int, bool) {
+	text, err := s.documentText(uriFromPath(path))
+	if err != nil {
+		return 0, false
+	}
+	return link.FindHeading(text, level, heading)
 }
 
 func refContainsPosition(ref link.Ref, pos position) bool {
@@ -224,6 +244,9 @@ func (s *Server) completion(uri string, pos position) ([]completionItem, error) 
 	ctx, ok := openLinkCompletionContext(text, pos)
 	if !ok {
 		return s.babelCompletion(text, pos), nil
+	}
+	if strings.Contains(ctx.Target, "#") {
+		return s.headingCompletion(ctx)
 	}
 	currentID, hasCurrentID := noteIDFromURI(uri)
 	kws, err := s.store.Keywords()
@@ -251,6 +274,60 @@ func (s *Server) completion(uri string, pos position) ([]completionItem, error) 
 		items = append(items, createNoteCompletionItem(uri, ctx))
 	}
 	return items, nil
+}
+
+// headingCompletion offers a note's headings while the cursor sits inside an open [[note# ... ]].
+// The note key before "#" is resolved against the keyword dictionary; matching headings (by the
+// already-typed level and a prefix on the text) are offered, inserting the full [[note##heading]] target.
+func (s *Server) headingCompletion(ctx openLinkContext) ([]completionItem, error) {
+	key, level, prefix := splitHeadingPrefix(ctx.Target)
+	if key == "" {
+		return []completionItem{}, nil
+	}
+	dict, err := s.keywordDict()
+	if err != nil {
+		return nil, err
+	}
+	kw, ok := dict[key]
+	if !ok {
+		return []completionItem{}, nil
+	}
+	text, err := s.documentText(uriFromPath(kw.Path))
+	if err != nil {
+		return nil, err
+	}
+	lowerPrefix := strings.ToLower(prefix)
+	items := make([]completionItem, 0)
+	for _, h := range link.Headings(text) {
+		if h.Level != level {
+			continue
+		}
+		if prefix != "" && !strings.HasPrefix(strings.ToLower(h.Text), lowerPrefix) {
+			continue
+		}
+		target := key + strings.Repeat("#", level) + h.Text
+		items = append(items, completionItem{
+			Label:      h.Text,
+			Kind:       protocol.ReferenceCompletion,
+			Detail:     fmt.Sprintf("h%d", h.Level),
+			InsertText: target,
+			TextEdit:   completionTextEdit(ctx, target),
+		})
+	}
+	return items, nil
+}
+
+// splitHeadingPrefix parses an in-progress link target ("note#part") into the note key, the typed
+// heading level (the run of "#"), and the partial heading text after it.
+func splitHeadingPrefix(target string) (key string, level int, prefix string) {
+	i := strings.IndexByte(target, '#')
+	key = strings.TrimSpace(target[:i])
+	rest := target[i:]
+	for level < len(rest) && rest[level] == '#' {
+		level++
+	}
+	prefix = strings.TrimSpace(rest[level:])
+	return key, level, prefix
 }
 
 // insideOpenLink reports whether pos sits after a "[[" with no closing "]]" before it on the same line.
