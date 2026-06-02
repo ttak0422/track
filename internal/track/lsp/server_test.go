@@ -329,6 +329,34 @@ func TestCompletionOffersNoteAndHeadingsTogether(t *testing.T) {
 	}
 }
 
+func TestCompletionDedupesDuplicateHeadings(t *testing.T) {
+	srv, vault := setupServer(t)
+	targetURI := uriFromPath(filepath.Join(vault, "100.md"))
+	// Two "## foo" sections: the link resolves to the first, so completion must not offer it twice.
+	srv.docs[targetURI] = "# Go\n\n## foo\n\n## foo\n"
+	uri := uriFromPath(filepath.Join(vault, "200.md"))
+
+	// Pre-"#" stage: the bare note plus a single Go##foo anchor.
+	srv.docs[uri] = "see [[Go"
+	pre, err := srv.completion(uri, position{Line: 0, Character: 8})
+	if err != nil {
+		t.Fatalf("completion: %v", err)
+	}
+	if n := countLabel(pre, "Go##foo"); n != 1 {
+		t.Fatalf("expected exactly one Go##foo anchor, got %d in %+v", n, pre)
+	}
+
+	// Post-"#" stage: a single "foo" heading candidate.
+	srv.docs[uri] = "see [[Go##"
+	post, err := srv.completion(uri, position{Line: 0, Character: 10})
+	if err != nil {
+		t.Fatalf("completion: %v", err)
+	}
+	if n := countLabel(post, "foo"); n != 1 {
+		t.Fatalf("expected exactly one foo heading candidate, got %d in %+v", n, post)
+	}
+}
+
 func TestCompletionAnchorsOnlyForTitleKeyword(t *testing.T) {
 	srv, vault := setupServer(t)
 	targetURI := uriFromPath(filepath.Join(vault, "100.md"))
@@ -896,12 +924,17 @@ func completionEdit(item *completionItem) *textEdit {
 }
 
 func completionLabelsContain(items []completionItem, label string) bool {
+	return countLabel(items, label) > 0
+}
+
+func countLabel(items []completionItem, label string) int {
+	n := 0
 	for _, item := range items {
 		if item.Label == label {
-			return true
+			n++
 		}
 	}
-	return false
+	return n
 }
 
 func completionItemByLabel(items []completionItem, label string) *completionItem {

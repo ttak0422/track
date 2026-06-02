@@ -296,11 +296,17 @@ func (s *Server) headingAnchorItems(ctx openLinkContext, term, path string) []co
 	}
 	title := note.FirstH1Title(body)
 	var items []completionItem
+	seen := map[string]bool{}
 	for _, h := range link.Headings(body) {
 		if h.Level == 1 && h.Text == title {
 			continue
 		}
 		target := term + strings.Repeat("#", h.Level) + h.Text
+		// Duplicate headings resolve to their first occurrence, so later twins are unreachable noise.
+		if seen[target] {
+			continue
+		}
+		seen[target] = true
 		items = append(items, completionItem{
 			Label:      target,
 			Kind:       protocol.ReferenceCompletion,
@@ -338,6 +344,7 @@ func (s *Server) headingCompletion(ctx openLinkContext) ([]completionItem, error
 	title := note.FirstH1Title(text)
 	lowerPrefix := strings.ToLower(prefix)
 	items := make([]completionItem, 0)
+	seen := map[string]bool{}
 	for _, h := range link.Headings(text) {
 		if h.Level != level {
 			continue
@@ -348,6 +355,11 @@ func (s *Server) headingCompletion(ctx openLinkContext) ([]completionItem, error
 		if prefix != "" && !strings.HasPrefix(strings.ToLower(h.Text), lowerPrefix) {
 			continue
 		}
+		// Duplicate headings resolve to their first occurrence, so later twins are unreachable noise.
+		if seen[h.Text] {
+			continue
+		}
+		seen[h.Text] = true
 		target := key + strings.Repeat("#", level) + h.Text
 		items = append(items, completionItem{
 			Label:      h.Text,
