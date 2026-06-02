@@ -1,11 +1,14 @@
--- Create new notes (keywords) from three entry points: the word under the cursor, a visual selection, or a prompt/command argument.
+-- Open or create notes (keywords) from three entry points: the word under the cursor, a visual selection, or a prompt/command argument.
 
 local client = require("track.client")
 
 local M = {}
 
--- create makes a new note titled `title`, then runs a full reindex so other notes' inbound links to the new title are picked up, and opens the note.
--- The LSP server reloads the keyword dictionary on each request, so no client-side cache refresh is needed.
+-- create opens the note titled `title`, creating it only when none exists. Titles are link keywords,
+-- so resolving an existing title instead of minting a duplicate keeps them unique. A freshly created
+-- note triggers a full reindex so other notes' inbound links to the new title are picked up; opening
+-- an existing note needs none. The LSP server reloads the keyword dictionary per request, so no
+-- client-side cache refresh is needed.
 function M.create(title)
    title = vim.trim(title or "")
    if title == "" then
@@ -13,15 +16,17 @@ function M.create(title)
       return
    end
 
-   local data, err = client.run_json({ "new", "--title", title, "--id", tostring(os.time()) })
+   local data, err = client.run_json({ "open", "--title", title })
    if not data then
       vim.notify("track: " .. tostring(err), vim.log.levels.ERROR)
       return
    end
 
-   local _, rerr = client.run_json({ "reindex", "--full" })
-   if rerr then
-      vim.notify("track: reindex failed: " .. tostring(rerr), vim.log.levels.WARN)
+   if data.created then
+      local _, rerr = client.run_json({ "reindex", "--full" })
+      if rerr then
+         vim.notify("track: reindex failed: " .. tostring(rerr), vim.log.levels.WARN)
+      end
    end
 
    vim.cmd.edit(vim.fn.fnameescape(data.path))

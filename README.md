@@ -48,7 +48,8 @@ All commands except `version` print a single line of JSON; errors are `{"error":
 The vault must be set explicitly with `$TRACK_VAULT`; the index db defaults to `<vault>/.track/index.db`.
 
 ```sh
-track new --title <t> [--id <unix>]   # create a note
+track new --title <t> [--id <unix>]   # create a note (fails if the title exists)
+track open --title <t>                # open the note with this title, creating it if absent
 track journal [--offset <n>]          # open/create a daily note (0=today)
 track reindex [--full]                # rebuild the index
 track keywords                        # dump the link keyword dictionary
@@ -91,7 +92,7 @@ require("track").setup({
 Commands:
 
 ```vim
-:Track new [title]     " create a note (visual selection / args / prompt-with-cword)
+:Track new [title]     " open or create a note (visual selection / args / prompt-with-cword); existing titles are reused
 :Track follow          " follow the [[...]] link under the cursor (also mapped to <CR>)
 :Track backlinks       " show notes that link to the current note in quickfix
 :Track babel_exec      " run the source block under the cursor; result shows below it
