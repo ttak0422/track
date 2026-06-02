@@ -65,7 +65,7 @@ func TestInitializeCompletionTriggerCharacters(t *testing.T) {
 		t.Fatalf("expected initialize result, got %T", resp.Result)
 	}
 	triggers := result.Capabilities.CompletionProvider.TriggerCharacters
-	for _, want := range []string{"[", ":", " "} {
+	for _, want := range []string{"[", "#", ":", " "} {
 		if !stringSliceContains(triggers, want) {
 			t.Fatalf("expected completion trigger %q in %+v", want, triggers)
 		}
@@ -256,6 +256,37 @@ func TestCompletionOffersHeadings(t *testing.T) {
 	edit := completionEdit(&items[0])
 	if items[0].Label != "foo" || edit == nil || edit.NewText != "Go##foo]]" {
 		t.Fatalf("heading completion should insert the full anchor, got %+v / %+v", items[0], edit)
+	}
+}
+
+func TestCompletionHeadingLevelMatchesHashCount(t *testing.T) {
+	srv, vault := setupServer(t)
+	targetURI := uriFromPath(filepath.Join(vault, "100.md"))
+	// note "Go" holds an h1 "foobar" and an h2 "hoge".
+	srv.docs[targetURI] = "# Go\n\n# foobar\n\n## hoge\n"
+	uri := uriFromPath(filepath.Join(vault, "200.md"))
+
+	// Typing a single "#" offers the h1 headings (the title "Go" plus "foobar"), not the h2.
+	srv.docs[uri] = "see [[Go#"
+	h1, err := srv.completion(uri, position{Line: 0, Character: 9})
+	if err != nil {
+		t.Fatalf("completion: %v", err)
+	}
+	if !completionLabelsContain(h1, "foobar") || completionLabelsContain(h1, "hoge") {
+		t.Fatalf("single # should offer h1 headings only, got %+v", h1)
+	}
+
+	// Typing "##" offers the h2 heading "hoge".
+	srv.docs[uri] = "see [[Go##"
+	h2, err := srv.completion(uri, position{Line: 0, Character: 10})
+	if err != nil {
+		t.Fatalf("completion: %v", err)
+	}
+	if !completionLabelsContain(h2, "hoge") || completionLabelsContain(h2, "foobar") {
+		t.Fatalf("double ## should offer h2 headings only, got %+v", h2)
+	}
+	if edit := completionEdit(&h2[0]); edit == nil || edit.NewText != "Go##hoge]]" {
+		t.Fatalf("## completion should insert the full anchor, got %+v", edit)
 	}
 }
 

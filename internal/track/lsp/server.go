@@ -123,7 +123,7 @@ func (s *Server) handleRequest(msg rpcMessage) rpcMessage {
 				DefinitionProvider:     &protocol.Or_ServerCapabilities_definitionProvider{Value: true},
 				ReferencesProvider:     &protocol.Or_ServerCapabilities_referencesProvider{Value: true},
 				DocumentLinkProvider:   &protocol.DocumentLinkOptions{ResolveProvider: false},
-				CompletionProvider:     &protocol.CompletionOptions{TriggerCharacters: []string{"[", ":", " "}},
+				CompletionProvider:     &protocol.CompletionOptions{TriggerCharacters: []string{"[", "#", ":", " "}},
 				CodeActionProvider:     true,
 				ExecuteCommandProvider: &protocol.ExecuteCommandOptions{Commands: []string{createNoteCommand}},
 				WorkspaceSymbolProvider: &protocol.Or_ServerCapabilities_workspaceSymbolProvider{
