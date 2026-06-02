@@ -294,6 +294,61 @@ func TestCompletionHeadingLevelMatchesHashCount(t *testing.T) {
 	}
 }
 
+func TestCompletionOffersNoteAndHeadingsTogether(t *testing.T) {
+	srv, vault := setupServer(t)
+	targetURI := uriFromPath(filepath.Join(vault, "100.md"))
+	srv.docs[targetURI] = "# Go\n\n## foo\n\n## bar\n"
+	uri := uriFromPath(filepath.Join(vault, "200.md"))
+	// Typing just the note name (no "#") should already surface the headings as full anchors.
+	srv.docs[uri] = "see [[Go"
+
+	items, err := srv.completion(uri, position{Line: 0, Character: 8})
+	if err != nil {
+		t.Fatalf("completion: %v", err)
+	}
+	// The bare note and both h2 anchors are offered; the title h1 anchor (Go#Go) is omitted as noise.
+	if !completionLabelsContain(items, "Go") {
+		t.Fatalf("expected the bare note candidate, got %+v", items)
+	}
+	if !completionLabelsContain(items, "Go##foo") || !completionLabelsContain(items, "Go##bar") {
+		t.Fatalf("expected heading anchors alongside the note, got %+v", items)
+	}
+	if completionLabelsContain(items, "Go#Go") {
+		t.Fatalf("title heading anchor should be excluded, got %+v", items)
+	}
+	// The anchor inserts the whole [[note##heading]] target and closes the link.
+	var anchor *completionItem
+	for i := range items {
+		if items[i].Label == "Go##foo" {
+			anchor = &items[i]
+			break
+		}
+	}
+	if edit := completionEdit(anchor); edit == nil || edit.NewText != "Go##foo]]" {
+		t.Fatalf("anchor should insert the full closed anchor, got %+v", edit)
+	}
+}
+
+func TestCompletionAnchorsOnlyForTitleKeyword(t *testing.T) {
+	srv, vault := setupServer(t)
+	targetURI := uriFromPath(filepath.Join(vault, "100.md"))
+	srv.docs[targetURI] = "# Go\n\n## foo\n"
+	uri := uriFromPath(filepath.Join(vault, "200.md"))
+	// "Golang" is an alias of note 100; typing it must not expand heading anchors (only "#" does).
+	srv.docs[uri] = "see [[Gol"
+
+	items, err := srv.completion(uri, position{Line: 0, Character: 9})
+	if err != nil {
+		t.Fatalf("completion: %v", err)
+	}
+	if !completionLabelsContain(items, "Golang") {
+		t.Fatalf("expected the alias candidate, got %+v", items)
+	}
+	if completionLabelsContain(items, "Golang##foo") {
+		t.Fatalf("alias should not expand heading anchors before '#', got %+v", items)
+	}
+}
+
 func TestCompletionExcludesTitleHeadingOnly(t *testing.T) {
 	srv, vault := setupServer(t)
 	targetURI := uriFromPath(filepath.Join(vault, "100.md"))

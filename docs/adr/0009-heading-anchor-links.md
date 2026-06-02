@@ -20,7 +20,7 @@ A link target may carry a heading anchor, and the number of `#` selects the Mark
 - ATX headings are matched after trimming leading whitespace; a closing `#` run (`## bar ##`) is ignored, and headings inside fenced code blocks are skipped — the same exclusions the title parser already uses.
 - A `#` with no heading text stays part of the note key, so a note titled `C#` remains reachable as `[[C#]]`. An anchor with no note key (`[[#foo]]`) is not a link.
 - The anchor refines navigation only. The link graph stays note-to-note, so anchors do not change backlinks, references, or edge counts.
-- In the editor, `textDocument/definition` jumps to the matched heading line (top-of-note fallback when absent), same-note anchors navigate within the buffer, and completion offers the resolved note's headings once the typed target contains `#`. Heading completion drops the note's own title heading (its first h1), since a link to it is equivalent to a plain `[[note]]` and so is noise.
+- In the editor, `textDocument/definition` jumps to the matched heading line (top-of-note fallback when absent), and same-note anchors navigate within the buffer. Completion surfaces headings in two stages: while typing a note name it offers each prefix-matching note's headings as full `note##heading` anchors beside the bare note (so a section needs no separate `#` step), limited to the title keyword to keep the list focused; once the target contains `#` it narrows to that note's headings at the typed level. Both stages drop the note's own title heading (its first h1), since a link to it is equivalent to a plain `[[note]]` and so is noise.
 
 ## Consequences
 

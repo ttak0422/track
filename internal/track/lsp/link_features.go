@@ -255,8 +255,10 @@ func (s *Server) completion(uri string, pos position) ([]completionItem, error) 
 	}
 	items := make([]completionItem, 0, len(kws))
 	hasPrefixMatch := false
+	lowerTarget := strings.ToLower(ctx.Target)
 	for _, kw := range kws {
-		if ctx.Target != "" && strings.HasPrefix(strings.ToLower(kw.Term), strings.ToLower(ctx.Target)) {
+		prefixMatch := ctx.Target != "" && strings.HasPrefix(strings.ToLower(kw.Term), lowerTarget)
+		if prefixMatch {
 			hasPrefixMatch = true
 		}
 		if hasCurrentID && kw.NoteID == currentID {
@@ -269,11 +271,46 @@ func (s *Server) completion(uri string, pos position) ([]completionItem, error) 
 			InsertText: kw.Term,
 			TextEdit:   completionTextEdit(ctx, kw.Term),
 		})
+		// Once the user has started typing a note name, surface that note's headings as full
+		// [[note##heading]] anchors next to the bare note, so jumping to a section needs no extra "#".
+		// Restricted to the title keyword (one per note) to keep the list focused; alias-keyed anchors
+		// remain reachable by typing "#", which routes to headingCompletion.
+		if prefixMatch && kw.Kind == "title" {
+			items = append(items, s.headingAnchorItems(ctx, kw.Term, kw.Path)...)
+		}
 	}
 	if ctx.Target != "" && !hasPrefixMatch {
 		items = append(items, createNoteCompletionItem(uri, ctx))
 	}
 	return items, nil
+}
+
+// headingAnchorItems offers a note's headings as full "note##heading" anchor completions for the
+// pre-"#" stage, where the user has typed (part of) the note name but no "#" yet. The note's own
+// title heading (its first h1) is dropped as noise, matching headingCompletion. A note whose body
+// cannot be read (e.g. not yet on disk) contributes nothing.
+func (s *Server) headingAnchorItems(ctx openLinkContext, term, path string) []completionItem {
+	body, err := s.documentText(uriFromPath(path))
+	if err != nil {
+		return nil
+	}
+	title := note.FirstH1Title(body)
+	var items []completionItem
+	for _, h := range link.Headings(body) {
+		if h.Level == 1 && h.Text == title {
+			continue
+		}
+		target := term + strings.Repeat("#", h.Level) + h.Text
+		items = append(items, completionItem{
+			Label:      target,
+			Kind:       protocol.ReferenceCompletion,
+			Detail:     fmt.Sprintf("h%d", h.Level),
+			InsertText: target,
+			FilterText: target,
+			TextEdit:   completionTextEdit(ctx, target),
+		})
+	}
+	return items
 }
 
 // headingCompletion offers a note's headings while the cursor sits inside an open [[note# ... ]].
