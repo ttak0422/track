@@ -92,7 +92,7 @@ require("track").setup({
 Commands:
 
 ```vim
-:Track new [title]     " open or create a note (visual selection / args / prompt-with-cword); existing titles are reused
+:Track open [title]    " open or create a note by title (visual selection / args / prompt-with-cword); existing titles are reused
 :Track follow          " follow the [[...]] link under the cursor (also mapped to <CR>)
 :Track backlinks       " show notes that link to the current note in quickfix
 :Track babel_exec      " run the source block under the cursor; result shows below it

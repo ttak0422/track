@@ -101,7 +101,7 @@ function M.setup()
       util.open_scratch("track://dump", "json", client.run({ "dump" }))
    end, { desc = "Open a diagnostic dump of track state" })
 
-   register("new", function(opts)
+   register("open", function(opts)
       local create = require("track.create")
       if opts.range > 0 then
          create.from_visual()
@@ -110,7 +110,7 @@ function M.setup()
       else
          create.prompt(vim.fn.expand("<cword>"))
       end
-   end, { nargs = "*", range = true, desc = "Create a track note (selection, args, or prompt)" })
+   end, { nargs = "*", range = true, desc = "Open or create a track note by title (selection, args, or prompt); existing titles are reused" })
 
    register("follow", function()
       require("track.follow").follow()

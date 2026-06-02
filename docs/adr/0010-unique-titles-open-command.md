@@ -18,7 +18,7 @@ Titles are unique, and creation enforces it at every entry point.
   - `track new --title <t>` **creates** and fails when the title already resolves (to a title or alias). It no longer mints duplicates.
   - `track open --title <t>` **resolves or creates**: if the title resolves it returns that note (`created: false`); otherwise it creates one (`created: true`). Repeating `open` on the same title is a no-op that just returns the note.
 - Both routes share one `createTitledNote` helper, and both check `ResolveTerm` before writing, so the LSP `createNote`, the CLI, and the Neovim frontend all uphold the same invariant.
-- The Neovim "new note" flow switches from `new` to `open`, so acting on an existing title opens it instead of erroring or duplicating. A reindex runs only when `open` actually created a note.
+- The Neovim frontend exposes only `:Track open` (the former `:Track new` is removed) and calls the `open` CLI command, so acting on an existing title opens it instead of erroring or duplicating. A reindex runs only when `open` actually created a note.
 
 ## Consequences
 
