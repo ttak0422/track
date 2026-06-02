@@ -14,13 +14,13 @@ The open question was what a run of `#` should mean. The chosen reading aligns t
 
 A link target may carry a heading anchor, and the number of `#` selects the Markdown heading level.
 
-- `[[note#foo]]` targets an h1 `# foo`, `[[note##bar]]` an h2 `## bar`, and so on through h6. The text after the `#` run is the heading text.
+- `[[note#foo]]` targets an h1 `# foo`, `[[note##bar]]` an h2 `## bar`, and so on through **h6** (`######`), the full ATX range. The text after the `#` run is the heading text. Seven or more `#` is not a heading level and is left unresolved rather than clamped to h6.
 - The note key is the text before the first `#` and still resolves against titles and aliases by exact match. Anchors compose with display aliases (`[[note##bar|label]]`) and with whitespace trimming.
 - Heading text is **not unique** within a note, and track does not try to make it so. Resolution adopts the **first heading** that matches both level and text exactly, in document order. This keeps resolution cheap and predictable without a uniqueness constraint or disambiguation syntax.
 - ATX headings are matched after trimming leading whitespace; a closing `#` run (`## bar ##`) is ignored, and headings inside fenced code blocks are skipped — the same exclusions the title parser already uses.
 - A `#` with no heading text stays part of the note key, so a note titled `C#` remains reachable as `[[C#]]`. An anchor with no note key (`[[#foo]]`) is not a link.
 - The anchor refines navigation only. The link graph stays note-to-note, so anchors do not change backlinks, references, or edge counts.
-- In the editor, `textDocument/definition` jumps to the matched heading line (top-of-note fallback when absent), same-note anchors navigate within the buffer, and completion offers the resolved note's headings once the typed target contains `#`.
+- In the editor, `textDocument/definition` jumps to the matched heading line (top-of-note fallback when absent), same-note anchors navigate within the buffer, and completion offers the resolved note's headings once the typed target contains `#`. Heading completion drops the note's own title heading (its first h1), since a link to it is equivalent to a plain `[[note]]` and so is noise.
 
 ## Consequences
 

@@ -296,10 +296,16 @@ func (s *Server) headingCompletion(ctx openLinkContext) ([]completionItem, error
 	if err != nil {
 		return nil, err
 	}
+	// The note's title is derived from its first h1, so completing that heading just points at the
+	// note itself ([[note#title]] == [[note]]). Drop it as noise; other h1 headings still appear.
+	title := note.FirstH1Title(text)
 	lowerPrefix := strings.ToLower(prefix)
 	items := make([]completionItem, 0)
 	for _, h := range link.Headings(text) {
 		if h.Level != level {
+			continue
+		}
+		if h.Level == 1 && h.Text == title {
 			continue
 		}
 		if prefix != "" && !strings.HasPrefix(strings.ToLower(h.Text), lowerPrefix) {

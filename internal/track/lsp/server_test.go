@@ -275,6 +275,10 @@ func TestCompletionHeadingLevelMatchesHashCount(t *testing.T) {
 	if !completionLabelsContain(h1, "foobar") || completionLabelsContain(h1, "hoge") {
 		t.Fatalf("single # should offer h1 headings only, got %+v", h1)
 	}
+	// The title heading ("Go", note 100's first h1) is omitted as self-evident noise.
+	if completionLabelsContain(h1, "Go") {
+		t.Fatalf("h1 completion should exclude the note's own title, got %+v", h1)
+	}
 
 	// Typing "##" offers the h2 heading "hoge".
 	srv.docs[uri] = "see [[Go##"
@@ -287,6 +291,24 @@ func TestCompletionHeadingLevelMatchesHashCount(t *testing.T) {
 	}
 	if edit := completionEdit(&h2[0]); edit == nil || edit.NewText != "Go##hoge]]" {
 		t.Fatalf("## completion should insert the full anchor, got %+v", edit)
+	}
+}
+
+func TestCompletionExcludesTitleHeadingOnly(t *testing.T) {
+	srv, vault := setupServer(t)
+	targetURI := uriFromPath(filepath.Join(vault, "100.md"))
+	// The first h1 "Go" is the title; a later h1 "Go" repeats it, and "intro" is a distinct h1.
+	srv.docs[targetURI] = "# Go\n\n# intro\n\n# Go\n"
+	uri := uriFromPath(filepath.Join(vault, "200.md"))
+	srv.docs[uri] = "see [[Go#"
+
+	items, err := srv.completion(uri, position{Line: 0, Character: 9})
+	if err != nil {
+		t.Fatalf("completion: %v", err)
+	}
+	// Only "intro" survives: every "Go" h1 is the title text and a link to it just points at the note.
+	if len(items) != 1 || items[0].Label != "intro" {
+		t.Fatalf("expected only the non-title h1 heading, got %+v", items)
 	}
 }
 

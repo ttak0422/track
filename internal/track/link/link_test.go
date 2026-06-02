@@ -135,6 +135,33 @@ func TestHeadingsAndFind(t *testing.T) {
 	}
 }
 
+func TestHeadingsLevelRange(t *testing.T) {
+	// h1 through h6 are valid ATX heading levels; a run of seven "#" is not a heading.
+	body := "# a\n## b\n### c\n#### d\n##### e\n###### f\n####### g\n"
+	got := Headings(body)
+	want := []Heading{
+		{Level: 1, Text: "a", Line: 0},
+		{Level: 2, Text: "b", Line: 1},
+		{Level: 3, Text: "c", Line: 2},
+		{Level: 4, Text: "d", Line: 3},
+		{Level: 5, Text: "e", Line: 4},
+		{Level: 6, Text: "f", Line: 5},
+	}
+	if !reflect.DeepEqual(got, want) {
+		t.Fatalf("got %+v, want %+v", got, want)
+	}
+	// h5/h6 resolve; a level-7 anchor has no heading to match (no clamp to h6).
+	if line, ok := FindHeading(body, 5, "e"); !ok || line != 4 {
+		t.Fatalf("FindHeading h5: line=%d ok=%v", line, ok)
+	}
+	if line, ok := FindHeading(body, 6, "f"); !ok || line != 5 {
+		t.Fatalf("FindHeading h6: line=%d ok=%v", line, ok)
+	}
+	if _, ok := FindHeading(body, 7, "g"); ok {
+		t.Fatalf("FindHeading should not resolve a level-7 anchor")
+	}
+}
+
 func TestRefsIgnoresMalformed(t *testing.T) {
 	for _, in := range []string{
 		"[[unterminated",
