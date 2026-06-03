@@ -3,6 +3,8 @@
 package config
 
 import (
+	"crypto/sha256"
+	"encoding/hex"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -25,7 +27,8 @@ type Config struct {
 
 // Load resolves configuration from the environment.
 // TRACK_VAULT is required so track never creates or reads an implicit vault by accident.
-// TRACK_DB overrides the index database path (default: <vault>/.track/index.db).
+// TRACK_DB overrides the index database path. Otherwise the rebuildable SQLite cache lives under
+// TRACK_CACHE_DIR, or the platform user cache directory when TRACK_CACHE_DIR is unset.
 func Load() (*Config, error) {
 	vault := os.Getenv("TRACK_VAULT")
 	if vault == "" {
@@ -39,7 +42,15 @@ func Load() (*Config, error) {
 
 	db := os.Getenv("TRACK_DB")
 	if db == "" {
-		db = filepath.Join(vault, ".track", "index.db")
+		cacheDir := os.Getenv("TRACK_CACHE_DIR")
+		if cacheDir == "" {
+			userCache, err := os.UserCacheDir()
+			if err != nil {
+				return nil, fmt.Errorf("resolve cache dir: %w", err)
+			}
+			cacheDir = filepath.Join(userCache, "track")
+		}
+		db = filepath.Join(cacheDir, vaultCacheKey(vault), "index.db")
 	}
 
 	return &Config{
@@ -50,6 +61,11 @@ func Load() (*Config, error) {
 		JournalDateFormat: "20060102",
 		BabelLanguages:    loadBabelLanguages(),
 	}, nil
+}
+
+func vaultCacheKey(vault string) string {
+	sum := sha256.Sum256([]byte(filepath.Clean(vault)))
+	return hex.EncodeToString(sum[:8])
 }
 
 // loadBabelLanguages returns the sample executors (lua, viml), overlaid with TRACK_BABEL_<LANG> env
@@ -94,16 +110,16 @@ func (c *Config) NotePath(id int64) string {
 
 // JournalDir returns the directory used for daily journal notes.
 func (c *Config) JournalDir() string {
-	return filepath.Join(c.VaultDir, "journal")
+	return c.VaultDir
 }
 
 // JournalPath returns the path for a daily journal note named yyyyMMdd.
 func (c *Config) JournalPath(name string) string {
-	return filepath.Join(c.JournalDir(), name+c.PrimaryExt())
+	return filepath.Join(c.VaultDir, name+c.PrimaryExt())
 }
 
-// TrackDir returns the hidden directory used for track-owned data inside the vault.
-// It contains both the SQLite index and per-note metadata files.
+// TrackDir returns the hidden directory used for authoritative track-owned data inside the vault.
+// Rebuildable caches such as the SQLite index live outside the vault.
 func (c *Config) TrackDir() string {
 	return filepath.Join(c.VaultDir, ".track")
 }

@@ -29,7 +29,7 @@ The engine lives in reusable `internal/track/*` packages so a future LSP server 
   ```
 
 - **Links** are explicit, written `[[title or alias]]`, with optional Obsidian-style `[[target|display]]` aliases. A heading anchor jumps inside a note: `[[note#foo]]`, `[[note##bar]]`, … where the number of `#` is the Markdown heading level and the first matching heading wins. Resolved links are highlighted and followable; links to notes that don't exist yet are highlighted distinctly. Completion offers titles and aliases as you type inside `[[`, then headings once you type `#`. Exact-match resolution works for Japanese without word boundaries. See [docs/spec/links.md](docs/spec/links.md).
-- **Journal**: each day maps to a stable `yyyyMMdd` note, so opening "today" is idempotent. Journal notes are stored separately under `journal/` and named `yyyyMMdd.md`, so lexical file order follows day order.
+- **Journal**: each day maps to a stable `yyyyMMdd` note, so opening "today" is idempotent. Journal notes are stored as flat `<yyyyMMdd>.md` files in the vault, so their path is derivable from the note id.
 
 ## Layout
 
@@ -45,7 +45,8 @@ flake.nix                # Go CLI + Vim plugin packaging
 ## CLI
 
 All commands except `version` print a single line of JSON; errors are `{"error":...}` with exit code 1.
-The vault must be set explicitly with `$TRACK_VAULT`; the index db defaults to `<vault>/.track/index.db`.
+The vault must be set explicitly with `$TRACK_VAULT`; the rebuildable index db defaults to the user cache directory under `track/`.
+The Neovim frontend sets `TRACK_CACHE_DIR` to `vim.fn.stdpath("cache") .. "/track"`.
 
 ```sh
 track new --title <t> [--id <unix>]   # create a note (fails if the title exists)
@@ -126,7 +127,7 @@ Babel fence info strings are completed over the same LSP source. On an opening f
 
 Note bodies are plain `.md` files, but their metadata (aliases, tags, created date, Babel results) lives in sidecar files under `.track/notes/`.
 That directory is **authoritative** and cannot be rebuilt from the note bodies, so back it up and keep it in version control, just as you would `.git`.
-The SQLite index at `.track/index.db` is disposable and can be rebuilt at any time with `track reindex --full`.
+The SQLite index is a disposable cache outside the vault and can be rebuilt at any time with `track reindex --full`.
 See [docs/spec/storage.md](docs/spec/storage.md) for details.
 
 ## Development

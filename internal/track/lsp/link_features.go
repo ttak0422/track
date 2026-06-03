@@ -33,7 +33,7 @@ func (s *Server) documentLinks(uri string) ([]documentLink, error) {
 		if hasCurrentID && kw.NoteID == currentID && ref.Heading == "" {
 			continue
 		}
-		target := protocol.URI(uriFromPath(kw.Path))
+		target := protocol.URI(uriFromPath(s.notePath(kw.NoteID)))
 		links = append(links, documentLink{
 			Range:   newRange(ref.Line, ref.StartByte, ref.Line, ref.EndByte),
 			Target:  &target,
@@ -69,7 +69,8 @@ func (s *Server) backlinksTo(noteID int64) ([]backlink, error) {
 
 	var out []backlink
 	for _, source := range sources {
-		sourceURI := uriFromPath(source.Path)
+		sourcePath := s.notePath(source.NoteID)
+		sourceURI := uriFromPath(sourcePath)
 		text, err := s.documentText(sourceURI)
 		if err != nil {
 			return nil, err
@@ -87,7 +88,7 @@ func (s *Server) backlinksTo(noteID int64) ([]backlink, error) {
 			out = append(out, backlink{
 				NoteID:  source.NoteID,
 				URI:     sourceURI,
-				Path:    source.Path,
+				Path:    sourcePath,
 				Title:   source.Title,
 				Range:   newRange(ref.Line, ref.OpenByte, ref.Line, ref.CloseByte),
 				Preview: preview,
@@ -203,12 +204,12 @@ func (s *Server) definition(uri string, pos position) (*location, error) {
 		}
 		line := 0
 		if ref.Heading != "" {
-			if l, found := s.headingLine(kw.Path, ref.HeadingLevel, ref.Heading); found {
+			if l, found := s.headingLine(s.notePath(kw.NoteID), ref.HeadingLevel, ref.Heading); found {
 				line = l
 			}
 		}
 		return &location{
-			URI:   protocol.DocumentURI(uriFromPath(kw.Path)),
+			URI:   protocol.DocumentURI(uriFromPath(s.notePath(kw.NoteID))),
 			Range: newRange(line, 0, line, 0),
 		}, nil
 	}
@@ -276,7 +277,7 @@ func (s *Server) completion(uri string, pos position) ([]completionItem, error) 
 		// Restricted to the title keyword (one per note) to keep the list focused; alias-keyed anchors
 		// remain reachable by typing "#", which routes to headingCompletion.
 		if prefixMatch && kw.Kind == "title" {
-			items = append(items, s.headingAnchorItems(ctx, kw.Term, kw.Path)...)
+			items = append(items, s.headingAnchorItems(ctx, kw.Term, s.notePath(kw.NoteID))...)
 		}
 	}
 	if ctx.Target != "" && !hasPrefixMatch {
@@ -335,7 +336,7 @@ func (s *Server) headingCompletion(ctx openLinkContext) ([]completionItem, error
 	if !ok {
 		return []completionItem{}, nil
 	}
-	text, err := s.documentText(uriFromPath(kw.Path))
+	text, err := s.documentText(uriFromPath(s.notePath(kw.NoteID)))
 	if err != nil {
 		return nil, err
 	}
@@ -549,4 +550,8 @@ func noteIDFromURI(uri string) (int64, bool) {
 	}
 	id, err := note.IDFromPath(path)
 	return id, err == nil
+}
+
+func (s *Server) notePath(id int64) string {
+	return s.cfg.NotePath(id)
 }

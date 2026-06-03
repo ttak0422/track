@@ -44,7 +44,7 @@ func TestUpsertAndKeywords(t *testing.T) {
 	terms := map[string]string{}
 	for _, k := range kws {
 		terms[k.Term] = k.Kind
-		if k.NoteID != 100 || k.Path != "/vault/100.md" {
+		if k.NoteID != 100 || k.Path != "" {
 			t.Fatalf("unexpected keyword ref: %+v", k)
 		}
 	}

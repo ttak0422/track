@@ -2,8 +2,6 @@ package store
 
 import (
 	"fmt"
-	"strings"
-	"unicode/utf8"
 )
 
 type SearchScope string
@@ -14,9 +12,9 @@ const (
 	SearchBody  SearchScope = "body"
 )
 
-// SearchResult is one hit from a content/title/alias search.
+// SearchResult is one hit from a title/alias search, or a file-backed body search assembled by callers.
 // Line and Snippet locate the first matching body line (1-based); they are zero/empty
-// when the hit is title-only or the scope is title.
+// when the hit is title-only.
 type SearchResult struct {
 	NoteID  int64  `json:"note_id"`
 	Path    string `json:"path"`
@@ -25,8 +23,7 @@ type SearchResult struct {
 	Snippet string `json:"snippet,omitempty"`
 }
 
-// Search returns notes whose title, body, or any alias contains query (case-insensitive substring).
-// Each hit carries the first matching body line via Line/Snippet.
+// Search returns notes whose title or any alias contains query (case-insensitive substring).
 // FTS5 can replace this later behind the same signature.
 func (s *Store) Search(query string, limit int) ([]SearchResult, error) {
 	return s.SearchScoped(query, limit, SearchAll)
@@ -50,13 +47,8 @@ func (s *Store) SearchScoped(query string, limit int, scope SearchScope) ([]Sear
 	var out []SearchResult
 	for rows.Next() {
 		var r SearchResult
-		var body string
-		if err := rows.Scan(&r.NoteID, &r.Path, &r.Title, &body); err != nil {
+		if err := rows.Scan(&r.NoteID, &r.Title); err != nil {
 			return nil, err
-		}
-		// Title-scoped searches never touch the body, so leave Line/Snippet empty.
-		if scope != SearchTitle {
-			r.Line, r.Snippet = lineMatch(body, query)
 		}
 		out = append(out, r)
 	}
@@ -66,46 +58,19 @@ func (s *Store) SearchScoped(query string, limit int, scope SearchScope) ([]Sear
 func searchQuery(scope SearchScope, like string, limit int) (string, []any, error) {
 	switch scope {
 	case SearchAll:
-		return `SELECT DISTINCT n.id, n.path, n.title, n.body
+		return `SELECT DISTINCT n.id, n.title
 		 FROM notes n
 		 LEFT JOIN aliases a ON a.note_id = n.id
-		 WHERE n.title LIKE ? OR n.body LIKE ? OR a.alias LIKE ?
-		 ORDER BY n.id LIMIT ?`, []any{like, like, like, limit}, nil
+		 WHERE n.title LIKE ? OR a.alias LIKE ?
+		 ORDER BY n.id LIMIT ?`, []any{like, like, limit}, nil
 	case SearchTitle:
-		return `SELECT n.id, n.path, n.title, n.body
+		return `SELECT n.id, n.title
 		 FROM notes n
 		 WHERE n.title LIKE ?
 		 ORDER BY n.id LIMIT ?`, []any{like, limit}, nil
 	case SearchBody:
-		return `SELECT n.id, n.path, n.title, n.body
-		 FROM notes n
-		 WHERE n.body LIKE ?
-		 ORDER BY n.id LIMIT ?`, []any{like, limit}, nil
+		return "", nil, fmt.Errorf("body search is not stored in the SQLite cache")
 	default:
 		return "", nil, fmt.Errorf("unknown search scope %q", scope)
 	}
-}
-
-// lineMatch returns the 1-based number and trimmed text of the first body line that
-// contains query (case-insensitive). It returns (0, "") when no line matches, so a
-// title-only hit in an "all" search carries no body location.
-func lineMatch(body, query string) (int, string) {
-	lq := strings.ToLower(query)
-	for i, line := range strings.Split(body, "\n") {
-		if strings.Contains(strings.ToLower(line), lq) {
-			return i + 1, truncate(strings.TrimSpace(line), 120)
-		}
-	}
-	return 0, ""
-}
-
-func truncate(s string, max int) string {
-	if len(s) <= max {
-		return s
-	}
-	end := max
-	for end > 0 && !utf8.RuneStart(s[end]) {
-		end--
-	}
-	return s[:end] + "…"
 }

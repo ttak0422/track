@@ -24,6 +24,28 @@ func TestOpenAppliesSchema(t *testing.T) {
 		}
 	}
 
+	rows, err := s.db.Query("PRAGMA table_info(notes)")
+	if err != nil {
+		t.Fatalf("notes schema: %v", err)
+	}
+	defer rows.Close()
+	columns := map[string]bool{}
+	for rows.Next() {
+		var cid int
+		var name, typ string
+		var notNull, pk int
+		var defaultValue any
+		if err := rows.Scan(&cid, &name, &typ, &notNull, &defaultValue, &pk); err != nil {
+			t.Fatalf("scan notes column: %v", err)
+		}
+		columns[name] = true
+	}
+	for _, removed := range []string{"path", "body"} {
+		if columns[removed] {
+			t.Fatalf("notes table should not cache %s", removed)
+		}
+	}
+
 	var view string
 	if err := s.db.QueryRow(
 		"SELECT name FROM sqlite_master WHERE type='view' AND name='keywords'",

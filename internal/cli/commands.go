@@ -4,8 +4,11 @@ import (
 	"flag"
 	"fmt"
 	"os"
+	"path/filepath"
+	"slices"
 	"strings"
 	"time"
+	"unicode/utf8"
 
 	"github.com/ttak0422/track/internal/track/config"
 	"github.com/ttak0422/track/internal/track/index"
@@ -108,7 +111,7 @@ func cmdOpen(args []string) int {
 		return fail("resolve: %v", err)
 	}
 	if found {
-		return emit(map[string]any{"id": ref.NoteID, "path": ref.Path, "title": t, "created": false})
+		return emit(map[string]any{"id": ref.NoteID, "path": cfg.NotePath(ref.NoteID), "title": t, "created": false})
 	}
 
 	noteID, err := note.FreeID(cfg, time.Now().UnixMilli())
@@ -173,7 +176,7 @@ func cmdJournal(args []string) int {
 	created := false
 	if _, err := os.Stat(path); os.IsNotExist(err) {
 		if err := os.MkdirAll(cfg.JournalDir(), 0o755); err != nil {
-			return fail("create journal dir: %v", err)
+			return fail("create vault dir: %v", err)
 		}
 		if err := os.WriteFile(path, []byte("# "+name+"\n"), 0o644); err != nil {
 			return fail("write journal: %v", err)
@@ -193,7 +196,7 @@ func cmdJournal(args []string) int {
 }
 
 func cmdKeywords(args []string) int {
-	_, s, err := open()
+	cfg, s, err := open()
 	if err != nil {
 		return fail("%v", err)
 	}
@@ -205,6 +208,9 @@ func cmdKeywords(args []string) int {
 	}
 	if kws == nil {
 		kws = []store.Keyword{}
+	}
+	for i := range kws {
+		kws[i].Path = cfg.NotePath(kws[i].NoteID)
 	}
 	return emit(map[string]any{"keywords": kws})
 }
@@ -219,7 +225,7 @@ func cmdResolve(args []string) int {
 		return fail("--term is required")
 	}
 
-	_, s, err := open()
+	cfg, s, err := open()
 	if err != nil {
 		return fail("%v", err)
 	}
@@ -232,7 +238,7 @@ func cmdResolve(args []string) int {
 	if !found {
 		return emit(map[string]any{"found": false})
 	}
-	return emit(map[string]any{"found": true, "note_id": ref.NoteID, "path": ref.Path})
+	return emit(map[string]any{"found": true, "note_id": ref.NoteID, "path": cfg.NotePath(ref.NoteID)})
 }
 
 func cmdSearch(args []string) int {
@@ -247,13 +253,13 @@ func cmdSearch(args []string) int {
 		return fail("--query is required")
 	}
 
-	_, s, err := open()
+	cfg, s, err := open()
 	if err != nil {
 		return fail("%v", err)
 	}
 	defer s.Close()
 
-	results, err := s.SearchScoped(*query, *limit, store.SearchScope(*scope))
+	results, err := searchResults(cfg, s, *query, *limit, store.SearchScope(*scope))
 	if err != nil {
 		return fail("search: %v", err)
 	}
@@ -271,7 +277,7 @@ func cmdBacklinks(args []string) int {
 		return fail("parse args: %v", err)
 	}
 
-	_, s, err := open()
+	cfg, s, err := open()
 	if err != nil {
 		return fail("%v", err)
 	}
@@ -296,7 +302,141 @@ func cmdBacklinks(args []string) int {
 	if back == nil {
 		back = []store.NoteRef{}
 	}
+	for i := range back {
+		back[i].Path = cfg.NotePath(back[i].NoteID)
+	}
 	return emit(map[string]any{"backlinks": back})
+}
+
+func searchResults(cfg *config.Config, s *store.Store, query string, limit int, scope store.SearchScope) ([]store.SearchResult, error) {
+	if limit <= 0 {
+		limit = 50
+	}
+	switch scope {
+	case store.SearchTitle:
+		results, err := s.SearchScoped(query, limit, scope)
+		addSearchPaths(cfg, results)
+		return results, err
+	case store.SearchAll:
+		results, err := s.SearchScoped(query, limit, scope)
+		if err != nil {
+			return nil, err
+		}
+		addSearchPaths(cfg, results)
+		seen := make(map[int64]bool, len(results))
+		for _, result := range results {
+			seen[result.NoteID] = true
+		}
+		body, err := bodySearchResults(cfg, s, query, limit-len(results), seen)
+		if err != nil {
+			return nil, err
+		}
+		return append(results, body...), nil
+	case store.SearchBody:
+		return bodySearchResults(cfg, s, query, limit, nil)
+	default:
+		return nil, fmt.Errorf("unknown search scope %q", scope)
+	}
+}
+
+func addSearchPaths(cfg *config.Config, results []store.SearchResult) {
+	for i := range results {
+		results[i].Path = cfg.NotePath(results[i].NoteID)
+	}
+}
+
+func bodySearchResults(cfg *config.Config, s *store.Store, query string, limit int, skip map[int64]bool) ([]store.SearchResult, error) {
+	if limit <= 0 {
+		return []store.SearchResult{}, nil
+	}
+	notes, err := s.AllNotes()
+	if err != nil {
+		return nil, err
+	}
+	titles := make(map[int64]string, len(notes))
+	for _, n := range notes {
+		titles[n.NoteID] = n.Title
+	}
+	paths, err := scanSearchFiles(cfg)
+	if err != nil {
+		return nil, err
+	}
+	var out []store.SearchResult
+	for _, path := range paths {
+		id, err := note.IDFromPath(path)
+		title, indexed := titles[id]
+		if err != nil || !indexed || skip[id] {
+			continue
+		}
+		raw, err := os.ReadFile(path)
+		if err != nil {
+			return nil, err
+		}
+		body, _, _ := note.SplitLegacyFootmatter(string(raw))
+		line, snippet := bodyLineMatch(body, query)
+		if line == 0 {
+			continue
+		}
+		out = append(out, store.SearchResult{
+			NoteID:  id,
+			Path:    cfg.NotePath(id),
+			Title:   title,
+			Line:    line,
+			Snippet: snippet,
+		})
+		if len(out) >= limit {
+			break
+		}
+	}
+	return out, nil
+}
+
+func scanSearchFiles(cfg *config.Config) ([]string, error) {
+	var out []string
+	err := filepath.WalkDir(cfg.VaultDir, func(path string, d os.DirEntry, err error) error {
+		if err != nil {
+			if d == nil {
+				return nil
+			}
+			return err
+		}
+		if d.IsDir() {
+			if strings.HasPrefix(d.Name(), ".") && path != cfg.VaultDir {
+				return filepath.SkipDir
+			}
+			return nil
+		}
+		if slices.Contains(cfg.Extensions, filepath.Ext(path)) {
+			out = append(out, path)
+		}
+		return nil
+	})
+	if err != nil {
+		return nil, err
+	}
+	slices.Sort(out)
+	return out, nil
+}
+
+func bodyLineMatch(body, query string) (int, string) {
+	lq := strings.ToLower(query)
+	for i, line := range strings.Split(body, "\n") {
+		if strings.Contains(strings.ToLower(line), lq) {
+			return i + 1, truncateSearchSnippet(strings.TrimSpace(line), 120)
+		}
+	}
+	return 0, ""
+}
+
+func truncateSearchSnippet(s string, max int) string {
+	if len(s) <= max {
+		return s
+	}
+	end := max
+	for end > 0 && !utf8.RuneStart(s[end]) {
+		end--
+	}
+	return s[:end] + "…"
 }
 
 func startOfDay(t time.Time) time.Time {

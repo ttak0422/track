@@ -1140,7 +1140,7 @@ func TestInVaultClassification(t *testing.T) {
 		want bool
 	}{
 		{filepath.Join(vault, "100.md"), true},
-		{filepath.Join(vault, "journal", "20260531.md"), true},
+		{filepath.Join(vault, "20260531.md"), true},
 		{filepath.Join(vault, ".track", "x.md"), false},
 		{filepath.Join(vault, "note.txt"), false},
 		{filepath.Join(filepath.Dir(vault), "elsewhere.md"), false},

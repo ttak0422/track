@@ -9,23 +9,22 @@ The vault must be configured explicitly with `$TRACK_VAULT`. track does not fall
 Notes are markdown files directly under the vault and are named by note id:
 
 ```text
-<vault>/<unix-timestamp>.md
+<vault>/<id>.md
 ```
 
 The first supported extension is `.md`; newly created notes use that extension.
 
-Journal notes are stored separately:
+Regular notes use Unix timestamp ids. Journal notes use `yyyyMMdd` ids and follow the same flat path rule:
 
 ```text
-<vault>/journal/yyyyMMdd.md
+<vault>/yyyyMMdd.md
 ```
 
-The journal file name is also the numeric journal note id.
-The `yyyyMMdd` format is chosen so lexical file order follows chronological order.
+Because note files are flat, a note path is derived from its id and is not stored in the SQLite cache.
 
 ## Track Directory
 
-track-owned data lives under:
+Authoritative track-owned vault data lives under:
 
 ```text
 <vault>/.track/
@@ -34,12 +33,24 @@ track-owned data lives under:
 Current contents:
 
 ```text
-<vault>/.track/index.db
 <vault>/.track/notes/<id>.yaml
 ```
 
-`.track/index.db` is the SQLite index.
 `.track/notes/` contains versioned sidecar metadata files for notes.
+
+The rebuildable SQLite index is a cache outside the vault. By default it lives under the platform user cache directory:
+
+```text
+<user-cache>/track/<vault-key>/index.db
+```
+
+`TRACK_CACHE_DIR` overrides the `track` cache directory. The Neovim frontend sets it to:
+
+```text
+vim.fn.stdpath("cache") .. "/track"
+```
+
+`TRACK_DB` can still point at an explicit database path for debugging or tests.
 
 ## Note Metadata
 
@@ -92,22 +103,20 @@ SQLite `PRAGMA user_version` stores the database schema version and is independe
 
 Schema version 1 contains:
 
-- `notes`: note id, path, title, body, created date, and mtime.
+- `notes`: note id, title, created date, and mtime.
 - `aliases`: aliases for each note.
 - `tags`: tags for each note.
 - `links`: computed directed links between notes.
 - `keywords`: a view over note titles and aliases.
 
-The index uses WAL mode and foreign keys.
+The index uses WAL mode and foreign keys. It intentionally does not cache note paths or bodies: flat note paths are derived from note ids, and body search reads markdown files directly.
 
 ### Schema Version 1
 
 ```sql
 CREATE TABLE notes (
   id      INTEGER PRIMARY KEY,
-  path    TEXT NOT NULL UNIQUE,
   title   TEXT NOT NULL DEFAULT '',
-  body    TEXT NOT NULL DEFAULT '',
   created TEXT,
   mtime   INTEGER NOT NULL DEFAULT 0
 );
@@ -142,9 +151,7 @@ CREATE VIEW keywords AS
 Column notes:
 
 - `notes.id`: numeric note id. Regular notes use Unix timestamps; journal notes use `yyyyMMdd`.
-- `notes.path`: absolute note path at the time it was indexed.
 - `notes.title`: cached title used as the primary keyword. It mirrors the first H1 heading when available.
-- `notes.body`: cached markdown body with legacy footmatter stripped.
 - `notes.created`: cached metadata creation date string.
 - `notes.mtime`: note file modification time as a Unix timestamp. It is kept for future change detection and incremental reindexing.
 - `aliases.note_id` and `tags.note_id`: metadata rows attached to a note. They are replaced on note upsert.
@@ -158,10 +165,10 @@ Their sidecar metadata files are also removed.
 
 ## Durability: do not delete `.track/notes/`
 
-`.track/` holds two very different kinds of data:
+The vault and cache hold two very different kinds of data:
 
-- `.track/index.db` is a **rebuildable cache**. The notes on disk are the source of truth; `track reindex --full` regenerates the database from them. Deleting it is safe.
 - `.track/notes/<id>.yaml` are the **authoritative** per-note metadata sidecars. The markdown body only owns the fields it can express (the first H1 owns the title); `aliases`, `tags`, `created`, and Babel block results live *only* in the sidecar and cannot be reconstructed from the `.md` file.
+- The SQLite index under the cache directory is **rebuildable**. The notes on disk are the source of truth; `track reindex --full` regenerates the database from them. Deleting it is safe.
 
 Deleting `.track/notes/` is therefore irrecoverable data loss for everything except note titles. Treat it like `.git`: keep it under version control and back it up alongside the note bodies.
 

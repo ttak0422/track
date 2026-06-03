@@ -30,6 +30,7 @@ func capture(t *testing.T, fn func() int) (string, int) {
 func runIn(t *testing.T, vault string, args ...string) (map[string]any, int) {
 	t.Helper()
 	t.Setenv("TRACK_VAULT", vault)
+	t.Setenv("TRACK_CACHE_DIR", filepath.Join(vault, ".test-cache"))
 	out, code := capture(t, func() int { return Run(args) })
 	var decoded map[string]any
 	if err := json.Unmarshal([]byte(out), &decoded); err != nil {
@@ -270,8 +271,8 @@ func TestJournalIdempotent(t *testing.T) {
 		t.Fatalf("first journal: %v", first)
 	}
 	path := first["path"].(string)
-	if filepath.Dir(path) != filepath.Join(vault, "journal") {
-		t.Fatalf("journal path should be under journal dir, got %q", path)
+	if filepath.Dir(path) != vault {
+		t.Fatalf("journal path should be under vault root, got %q", path)
 	}
 	name := strings.TrimSuffix(filepath.Base(path), filepath.Ext(path))
 	if len(name) != 8 || first["id"].(float64) == 0 {

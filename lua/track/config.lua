@@ -18,6 +18,8 @@ M.defaults = {
    lsp_bin = "track-lsp",
    -- Vault directory; link highlighting only attaches to files here.
    vault_dir = default_vault(),
+   -- Rebuildable SQLite cache directory. Kept outside the vault so synced folders do not sync DB locks.
+   cache_dir = vim.fn.stdpath("cache") .. "/track",
    -- Note file extensions (without dot).
    extensions = { "md" },
    -- Autocommand group name.
@@ -48,6 +50,7 @@ function M.setup(opts)
       error("track: vault_dir is required. Set TRACK_VAULT or call require('track').setup({ vault_dir = ... }).")
    end
    vim.env.TRACK_VAULT = M.options.vault_dir
+   vim.env.TRACK_CACHE_DIR = M.options.cache_dir
    return M.options
 end
 

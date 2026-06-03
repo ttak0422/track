@@ -26,7 +26,7 @@ The LSP layer under `internal/track/lsp` handles JSON-RPC, document link request
 1. A command creates or updates a markdown note in the vault.
 2. Per-note metadata is written under `.track/notes/`.
 3. The indexer parses note bodies and metadata.
-4. The SQLite index under `.track/index.db` is updated.
+4. The SQLite cache index under the user cache directory is updated.
 5. Neovim commands fetch keywords, resolve terms, and open paths through the CLI or LSP server.
 
 ## Neovim Frontend

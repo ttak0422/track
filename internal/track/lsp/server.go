@@ -365,7 +365,7 @@ func (s *Server) inVault(uri string) bool {
 		return false
 	}
 	// Exclude track-owned hidden directories such as .track, matching the indexer's scan rules.
-	// This keeps vault/journal/*.md in scope while dropping vault/.track/*.md.
+	// This keeps vault notes in scope while dropping vault/.track/*.md.
 	for _, part := range strings.Split(filepath.Dir(rel), string(filepath.Separator)) {
 		if part != "." && strings.HasPrefix(part, ".") {
 			return false
