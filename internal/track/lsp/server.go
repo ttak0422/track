@@ -58,7 +58,15 @@ func (s *Server) Serve(in io.Reader, out io.Writer) error {
 			return nil
 		}
 		if msg.ID == nil {
-			s.handleNotification(msg)
+			notifications := s.handleNotification(msg)
+			for _, notification := range notifications {
+				if err := writeMessage(out, notification); err != nil {
+					if isDisconnect(err) {
+						return nil
+					}
+					return err
+				}
+			}
 			continue
 		}
 		resp := s.handleRequest(msg)
@@ -81,18 +89,26 @@ func isDisconnect(err error) bool {
 		errors.Is(err, syscall.EPIPE)
 }
 
-func (s *Server) handleNotification(msg rpcMessage) {
+func (s *Server) handleNotification(msg rpcMessage) []rpcMessage {
 	switch msg.Method {
 	case "initialized":
 	case "textDocument/didOpen":
 		var p didOpenParams
 		if json.Unmarshal(msg.Params, &p) == nil {
-			s.docs[string(p.TextDocument.URI)] = p.TextDocument.Text
+			uri := string(p.TextDocument.URI)
+			s.docs[uri] = p.TextDocument.Text
+			if notification, err := s.publishDiagnostics(uri); err == nil {
+				return []rpcMessage{notification}
+			}
 		}
 	case "textDocument/didChange":
 		var p didChangeParams
 		if json.Unmarshal(msg.Params, &p) == nil && len(p.ContentChanges) > 0 {
-			s.docs[string(p.TextDocument.URI)] = p.ContentChanges[len(p.ContentChanges)-1].Text
+			uri := string(p.TextDocument.URI)
+			s.docs[uri] = p.ContentChanges[len(p.ContentChanges)-1].Text
+			if notification, err := s.publishDiagnostics(uri); err == nil {
+				return []rpcMessage{notification}
+			}
 		}
 	case "textDocument/didSave":
 		var p didSaveParams
@@ -106,8 +122,27 @@ func (s *Server) handleNotification(msg rpcMessage) {
 					_ = index.New(s.cfg, s.store).One(path)
 				}
 			}
+			if notification, err := s.publishDiagnostics(uri); err == nil {
+				return []rpcMessage{notification}
+			}
+		}
+	case "textDocument/didClose":
+		var p didCloseParams
+		if json.Unmarshal(msg.Params, &p) == nil {
+			uri := string(p.TextDocument.URI)
+			delete(s.docs, uri)
+			if s.inVault(uri) {
+				notification, err := newNotification("textDocument/publishDiagnostics", publishDiagnosticsParams{
+					URI:         documentURI(uri),
+					Diagnostics: []diagnostic{},
+				})
+				if err == nil {
+					return []rpcMessage{notification}
+				}
+			}
 		}
 	}
+	return nil
 }
 
 func (s *Server) handleRequest(msg rpcMessage) rpcMessage {

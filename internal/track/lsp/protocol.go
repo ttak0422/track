@@ -30,9 +30,11 @@ type completionItem = protocol.CompletionItem
 type completionList = protocol.CompletionList
 type command = protocol.Command
 type codeAction = protocol.CodeAction
+type diagnostic = protocol.Diagnostic
 type textDocumentIdentifier = protocol.TextDocumentIdentifier
 type textDocumentPositionParams = protocol.TextDocumentPositionParams
 type documentLinkParams = protocol.DocumentLinkParams
+type publishDiagnosticsParams = protocol.PublishDiagnosticsParams
 
 type backlink struct {
 	NoteID  int64      `json:"note_id"`
@@ -48,6 +50,7 @@ type executeCommandParams = protocol.ExecuteCommandParams
 type didOpenParams = protocol.DidOpenTextDocumentParams
 type didChangeParams = protocol.DidChangeTextDocumentParams
 type didSaveParams = protocol.DidSaveTextDocumentParams
+type didCloseParams = protocol.DidCloseTextDocumentParams
 
 func newPosition(line, character int) position {
 	return position{Line: uint32(line), Character: uint32(character)}

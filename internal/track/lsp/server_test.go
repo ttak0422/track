@@ -72,6 +72,113 @@ func TestInitializeCompletionTriggerCharacters(t *testing.T) {
 	}
 }
 
+func TestDiagnosticsWarnOnH1OutsideFirstLine(t *testing.T) {
+	srv, vault := setupServer(t)
+	uri := uriFromPath(filepath.Join(vault, "200.md"))
+	srv.docs[uri] = "# Title\n\n# Later\n\n## Section\n\n# Another\n"
+
+	diags, err := srv.diagnostics(uri)
+	if err != nil {
+		t.Fatalf("diagnostics: %v", err)
+	}
+	if len(diags) != 2 {
+		t.Fatalf("expected warnings for h1 headings outside the first line, got %+v", diags)
+	}
+	if diags[0].Severity != protocol.SeverityWarning || diags[0].Code != diagnosticCodeH1TitleLine {
+		t.Fatalf("unexpected diagnostic metadata: %+v", diags[0])
+	}
+	if diags[0].Range.Start.Line != 2 || diags[0].Range.End.Character != 7 {
+		t.Fatalf("expected later h1 line range, got %+v", diags[0].Range)
+	}
+	if diags[1].Range.Start.Line != 6 {
+		t.Fatalf("expected later h1 on line 6, got %+v", diags[1].Range)
+	}
+}
+
+func TestDiagnosticsWarnWhenFirstH1IsNotOnFirstLine(t *testing.T) {
+	srv, vault := setupServer(t)
+	uri := uriFromPath(filepath.Join(vault, "200.md"))
+	srv.docs[uri] = "\n# Title\n"
+
+	diags, err := srv.diagnostics(uri)
+	if err != nil {
+		t.Fatalf("diagnostics: %v", err)
+	}
+	if len(diags) != 1 {
+		t.Fatalf("expected the off-first-line h1 to be warned, got %+v", diags)
+	}
+	if diags[0].Range.Start.Line != 1 {
+		t.Fatalf("expected h1 on line 1 to be warned, got %+v", diags[0].Range)
+	}
+}
+
+func TestDiagnosticsIgnoreH1InsideFences(t *testing.T) {
+	srv, vault := setupServer(t)
+	uri := uriFromPath(filepath.Join(vault, "200.md"))
+	srv.docs[uri] = "# Title\n\n```markdown\n# Example\n```\n\n## Section\n"
+
+	diags, err := srv.diagnostics(uri)
+	if err != nil {
+		t.Fatalf("diagnostics: %v", err)
+	}
+	if len(diags) != 0 {
+		t.Fatalf("fenced h1 should not produce diagnostics, got %+v", diags)
+	}
+}
+
+func TestNotificationPublishesDiagnosticsAndClearsThem(t *testing.T) {
+	srv, vault := setupServer(t)
+	uri := uriFromPath(filepath.Join(vault, "200.md"))
+	openParams, err := jsonMarshalRaw(didOpenParams{
+		TextDocument: protocol.TextDocumentItem{
+			URI:        documentURI(uri),
+			LanguageID: protocol.LanguageKind("markdown"),
+			Version:    1,
+			Text:       "# Title\n\n# Later\n",
+		},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	notifications := srv.handleNotification(rpcMessage{
+		JSONRPC: "2.0",
+		Method:  "textDocument/didOpen",
+		Params:  openParams,
+	})
+	published := publishedDiagnostics(t, notifications)
+	if string(published.URI) != uri || len(published.Diagnostics) != 1 {
+		t.Fatalf("expected one published diagnostic for %q, got %+v", uri, published)
+	}
+
+	changeParams, err := jsonMarshalRaw(didChangeParams{
+		TextDocument: protocol.VersionedTextDocumentIdentifier{
+			Version:                2,
+			TextDocumentIdentifier: textDocumentIdentifier{URI: documentURI(uri)},
+		},
+		ContentChanges: []protocol.TextDocumentContentChangeEvent{{Text: "# Title\n\n## Later\n"}},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	notifications = srv.handleNotification(rpcMessage{
+		JSONRPC: "2.0",
+		Method:  "textDocument/didChange",
+		Params:  changeParams,
+	})
+	published = publishedDiagnostics(t, notifications)
+	if len(published.Diagnostics) != 0 {
+		t.Fatalf("expected diagnostics to be cleared after fixing h1s, got %+v", published.Diagnostics)
+	}
+	body, err := json.Marshal(notifications[0])
+	if err != nil {
+		t.Fatalf("marshal clear diagnostics notification: %v", err)
+	}
+	if !strings.Contains(string(body), `"diagnostics":[]`) {
+		t.Fatalf("empty diagnostics must marshal as [] for LSP clients, got %s", body)
+	}
+}
+
 func TestDocumentLinks(t *testing.T) {
 	srv, vault := setupServer(t)
 	uri := uriFromPath(filepath.Join(vault, "200.md"))
@@ -903,6 +1010,21 @@ func TestIsDisconnect(t *testing.T) {
 func jsonMarshalRaw(v any) (json.RawMessage, error) {
 	b, err := json.Marshal(v)
 	return json.RawMessage(b), err
+}
+
+func publishedDiagnostics(t *testing.T, notifications []rpcMessage) publishDiagnosticsParams {
+	t.Helper()
+	if len(notifications) != 1 {
+		t.Fatalf("expected one notification, got %+v", notifications)
+	}
+	if notifications[0].Method != "textDocument/publishDiagnostics" {
+		t.Fatalf("expected publishDiagnostics notification, got %+v", notifications[0])
+	}
+	var params publishDiagnosticsParams
+	if err := json.Unmarshal(notifications[0].Params, &params); err != nil {
+		t.Fatalf("unmarshal publish diagnostics params: %v", err)
+	}
+	return params
 }
 
 func targetString(link documentLink) string {
