@@ -14,7 +14,7 @@ Notes are markdown files directly under the vault and are named by note id:
 
 The first supported extension is `.md`; newly created notes use that extension.
 
-Regular notes use Unix timestamp ids. Journal notes use `yyyyMMdd` ids and follow the same flat path rule:
+Regular note ids are `Unix seconds * 1000 + same-second sequence`, preserving chronological sort order while allowing multiple notes per second. Journal notes use `yyyyMMdd` ids and follow the same flat path rule:
 
 ```text
 <vault>/yyyyMMdd.md
@@ -150,7 +150,7 @@ CREATE VIEW keywords AS
 
 Column notes:
 
-- `notes.id`: numeric note id. Regular notes use Unix timestamps; journal notes use `yyyyMMdd`.
+- `notes.id`: numeric note id. Regular notes use time-derived second buckets plus a sequence; journal notes use `yyyyMMdd`.
 - `notes.title`: cached title used as the primary keyword. It mirrors the first H1 heading when available.
 - `notes.created`: cached metadata creation date string.
 - `notes.mtime`: note file modification time as a Unix timestamp. It is kept for future change detection and incremental reindexing.

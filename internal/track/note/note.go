@@ -7,6 +7,7 @@ import (
 	"path/filepath"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/ttak0422/track/internal/track/babel"
 	"github.com/ttak0422/track/internal/track/config"
@@ -94,10 +95,17 @@ func IDFromName(name string) (int64, error) {
 	return strconv.ParseInt(name, 10, 64)
 }
 
+// NewID returns a sortable note id for t.
+// The id is Unix seconds shifted three decimal places, plus the first free same-second sequence
+// number. For example, 2026-06-04T12:00:00Z starts at ...000; subsequent notes in that same second
+// take ...001, ...002, and so on.
+func NewID(c *config.Config, t time.Time) (int64, error) {
+	return FreeID(c, t.Unix()*1000)
+}
+
 // FreeID returns the first note id at or after start whose note file does not yet exist.
-// Callers derive start from a timestamp (e.g. time.Now().UnixMilli()); scanning upward guarantees
-// that notes created in the same instant—such as a batch of machine-generated notes—never collide
-// or overwrite each other, the later ones simply taking the next free id.
+// Callers usually pass a second-based bucket from NewID; scanning upward guarantees that notes
+// created in the same second never collide or overwrite each other.
 func FreeID(c *config.Config, start int64) (int64, error) {
 	for id := start; ; id++ {
 		_, err := os.Stat(c.NotePath(id))

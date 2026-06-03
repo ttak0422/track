@@ -11,7 +11,7 @@ The engine lives in reusable `internal/track/*` packages so a future LSP server 
 
 ## Concepts
 
-- **Notes** are markdown files named `{unix-timestamp}.md` in a vault directory.
+- **Notes** are markdown files named `{id}.md` in a vault directory. Regular note ids are sortable time-derived ids: `Unix seconds * 1000 + same-second sequence`.
 - **Metadata**: note metadata is stored outside the markdown file, under `.track/notes/{id}.yaml`. The file is versioned so future metadata shape changes can be handled explicitly:
 
   ```markdown
@@ -49,7 +49,7 @@ The vault must be set explicitly with `$TRACK_VAULT`; the rebuildable index db d
 The Neovim frontend sets `TRACK_CACHE_DIR` to `vim.fn.stdpath("cache") .. "/track"`.
 
 ```sh
-track new --title <t> [--id <unix>]   # create a note (fails if the title exists)
+track new --title <t> [--id <id>]     # create a note (fails if the title exists)
 track open --title <t>                # open the note with this title, creating it if absent
 track journal [--offset <n>]          # open/create a daily note (0=today)
 track reindex [--full]                # rebuild the index

@@ -6,6 +6,7 @@ import (
 	"reflect"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/ttak0422/track/internal/track/babel"
 	"github.com/ttak0422/track/internal/track/config"
@@ -33,6 +34,30 @@ func TestWriteReadMetadataRoundTrip(t *testing.T) {
 	in.Version = CurrentMetadataVersion
 	if !reflect.DeepEqual(got, in) {
 		t.Fatalf("metadata mismatch:\n got %+v\nwant %+v", got, in)
+	}
+}
+
+func TestNewIDUsesSecondBucketWithSequence(t *testing.T) {
+	vault := t.TempDir()
+	cfg := &config.Config{VaultDir: vault, Extensions: []string{".md"}}
+	now := time.Unix(1_800_000_000, 987_000_000)
+
+	id, err := NewID(cfg, now)
+	if err != nil {
+		t.Fatalf("new id: %v", err)
+	}
+	if id != 1_800_000_000_000 {
+		t.Fatalf("id = %d, want second bucket ending in 000", id)
+	}
+	if err := os.WriteFile(cfg.NotePath(id), []byte("# Taken\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	next, err := NewID(cfg, now)
+	if err != nil {
+		t.Fatalf("next id: %v", err)
+	}
+	if next != id+1 {
+		t.Fatalf("next id = %d, want %d", next, id+1)
 	}
 }
 

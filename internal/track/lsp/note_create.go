@@ -76,7 +76,7 @@ func (s *Server) createNote(title string) (map[string]any, error) {
 		return nil, fmt.Errorf("note already exists for %q", title)
 	}
 
-	noteID, err := note.FreeID(s.cfg, time.Now().UnixMilli())
+	noteID, err := note.NewID(s.cfg, time.Now())
 	if err != nil {
 		return nil, err
 	}

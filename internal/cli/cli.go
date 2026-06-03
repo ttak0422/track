@@ -58,7 +58,7 @@ func usage() {
 	fmt.Fprint(os.Stderr, `track - note tool
 
 Usage:
-  track new --title <t> [--id <unix>]   create a note (fails if the title exists)
+  track new --title <t> [--id <id>]     create a note (fails if the title exists)
   track open --title <t>                open the note with this title, creating it if absent
   track journal [--offset <n>]          open/create a daily note
   track reindex [--full]                rebuild the index

@@ -45,7 +45,7 @@ func cmdReindex(args []string) int {
 func cmdNew(args []string) int {
 	fs := flag.NewFlagSet("new", flag.ContinueOnError)
 	title := fs.String("title", "", "note title (also a link keyword)")
-	id := fs.Int64("id", 0, "note id (unix timestamp in milliseconds); defaults to now")
+	id := fs.Int64("id", 0, "note id; defaults to current Unix second * 1000 plus a same-second sequence")
 	if err := fs.Parse(args); err != nil {
 		return fail("parse args: %v", err)
 	}
@@ -71,9 +71,7 @@ func cmdNew(args []string) int {
 
 	noteID := *id
 	if noteID == 0 {
-		// Auto id: start from the current millisecond and take the next free slot so a burst of
-		// machine-generated notes in the same instant never overwrite one another.
-		noteID, err = note.FreeID(cfg, time.Now().UnixMilli())
+		noteID, err = note.NewID(cfg, time.Now())
 		if err != nil {
 			return fail("allocate note id: %v", err)
 		}
@@ -114,7 +112,7 @@ func cmdOpen(args []string) int {
 		return emit(map[string]any{"id": ref.NoteID, "path": cfg.NotePath(ref.NoteID), "title": t, "created": false})
 	}
 
-	noteID, err := note.FreeID(cfg, time.Now().UnixMilli())
+	noteID, err := note.NewID(cfg, time.Now())
 	if err != nil {
 		return fail("allocate note id: %v", err)
 	}
