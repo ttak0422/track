@@ -83,7 +83,7 @@ It currently provides:
 - `textDocument/documentLink`: returns ranges for resolved `[[...]]` links.
 - `textDocument/definition`: jumps from the `[[...]]` under the cursor to the target note, or to the matching heading line for a `[[note##heading]]` anchor.
 - `textDocument/references`: lists backlinks to the current note or the link target under the cursor.
-- `textDocument/completion`: offers titles and aliases inside an open `[[` — with each matching note's headings offered alongside it as full `note##heading` anchors — plus narrowed heading candidates after a `[[note#` anchor (more `#` selects a deeper heading level) and Babel fence info-string candidates, triggered on `[`, `#`, `:`, and space.
+- `textDocument/completion`: offers titles and aliases inside an open `[[` — with each matching note's headings offered alongside it as full `note##heading` anchors — plus narrowed heading candidates after a `[[note#` anchor (more `#` selects a deeper heading level), Markdown action link candidates inside `[label](<...>)`, and Babel fence info-string candidates.
 - `textDocument/codeAction`: creates a note from an unresolved `[[...]]` link.
 - `track/backlinks`: returns notes and link locations that reference the current note.
 

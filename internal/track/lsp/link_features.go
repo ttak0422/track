@@ -242,6 +242,9 @@ func (s *Server) completion(uri string, pos position) ([]completionItem, error) 
 	if err != nil {
 		return nil, err
 	}
+	if items, ok := s.actionCompletion(text, pos); ok {
+		return items, nil
+	}
 	ctx, ok := openLinkCompletionContext(text, pos)
 	if !ok {
 		return s.babelCompletion(text, pos), nil

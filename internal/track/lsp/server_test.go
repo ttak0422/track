@@ -65,7 +65,7 @@ func TestInitializeCompletionTriggerCharacters(t *testing.T) {
 		t.Fatalf("expected initialize result, got %T", resp.Result)
 	}
 	triggers := result.Capabilities.CompletionProvider.TriggerCharacters
-	for _, want := range []string{"[", "#", ":", " "} {
+	for _, want := range []string{"[", "#", ":", " ", "<", "?", "&", "="} {
 		if !stringSliceContains(triggers, want) {
 			t.Fatalf("expected completion trigger %q in %+v", want, triggers)
 		}
@@ -693,6 +693,74 @@ func TestCompletionResponseIsIncomplete(t *testing.T) {
 	}
 	if !list.IsIncomplete {
 		t.Fatalf("completion list should be incomplete so cmp re-queries after additional typing")
+	}
+}
+
+func TestActionCompletion(t *testing.T) {
+	srv, vault := setupServer(t)
+	if err := os.MkdirAll(filepath.Join(vault, "template"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(vault, "template", "700.template.md"), []byte("<!-- track-template\nname: project-mtg\n-->\n# {{ title }}\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	uri := uriFromPath(filepath.Join(vault, "note", "200.md"))
+
+	srv.docs[uri] = "[x](<jo"
+	actions, err := srv.completion(uri, newPosition(0, len("[x](<jo")))
+	if err != nil {
+		t.Fatalf("completion: %v", err)
+	}
+	journal := completionItemByLabel(actions, "journal")
+	if edit := completionEdit(journal); journal == nil || edit == nil || edit.NewText != "journal?template=" {
+		t.Fatalf("expected journal action completion, got %+v edit=%+v", journal, edit)
+	}
+
+	srv.docs[uri] = "[x](<open?ti"
+	params, err := srv.completion(uri, newPosition(0, len("[x](<open?ti")))
+	if err != nil {
+		t.Fatalf("completion: %v", err)
+	}
+	title := completionItemByLabel(params, "title")
+	if edit := completionEdit(title); title == nil || edit == nil || edit.NewText != "title=" {
+		t.Fatalf("expected title parameter completion, got %+v edit=%+v", title, edit)
+	}
+
+	srv.docs[uri] = "[x](<open?title="
+	placeholders, err := srv.completion(uri, newPosition(0, len("[x](<open?title=")))
+	if err != nil {
+		t.Fatalf("completion: %v", err)
+	}
+	if !completionLabelsContain(placeholders, "{{date}}") || !completionLabelsContain(placeholders, "{{journal}}") {
+		t.Fatalf("expected title placeholders, got %+v", placeholders)
+	}
+
+	srv.docs[uri] = "[x](<open?template=proj"
+	templates, err := srv.completion(uri, newPosition(0, len("[x](<open?template=proj")))
+	if err != nil {
+		t.Fatalf("completion: %v", err)
+	}
+	tmpl := completionItemByLabel(templates, "project-mtg")
+	if edit := completionEdit(tmpl); tmpl == nil || edit == nil || edit.NewText != "project-mtg" {
+		t.Fatalf("expected template name completion, got %+v edit=%+v", tmpl, edit)
+	}
+
+	srv.docs[uri] = "[x](open?ti"
+	plain, err := srv.completion(uri, newPosition(0, len("[x](open?ti")))
+	if err != nil {
+		t.Fatalf("completion: %v", err)
+	}
+	if len(plain) != 0 {
+		t.Fatalf("plain markdown links should not get action completions, got %+v", plain)
+	}
+
+	srv.docs[uri] = "[x](<unknown?te"
+	unknown, err := srv.completion(uri, newPosition(0, len("[x](<unknown?te")))
+	if err != nil {
+		t.Fatalf("completion: %v", err)
+	}
+	if len(unknown) != 0 {
+		t.Fatalf("unknown action should not get parameter completions, got %+v", unknown)
 	}
 }
 

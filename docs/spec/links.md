@@ -116,6 +116,13 @@ Query values are URL-decoded, but percent encoding is not required for spaces be
 `title` can use `{{date}}` (`YYYY-MM-DD`) and `{{journal}}` (`yyyyMMdd`) placeholders, evaluated on the client before calling the CLI.
 Track action links cannot run shell commands; executable behavior belongs in templates and will require template trust when implemented.
 
+LSP completion helps build action links:
+
+- after `[label](<`, it offers action snippets such as `open?title={{date}} &template=` and `journal?template=`;
+- after `?` or `&`, it offers valid parameter keys for the selected action;
+- after `template=`, it offers template names found under `template/`;
+- after `title=`, it offers `{{date}}` and `{{journal}}`.
+
 ## Neovim Behavior
 
 The Neovim frontend starts `track-lsp` and is the only link frontend.
