@@ -60,7 +60,12 @@ local function under_vault(buf)
    local path = uv.fs_realpath(name) or vim.fn.fnamemodify(name, ":p")
    vault = vim.fn.fnamemodify(vault, ":p")
    path = vim.fn.fnamemodify(path, ":p")
-   return path:sub(1, #vault) == vault
+   if path:sub(1, #vault) ~= vault then
+      return false
+   end
+   local rel = path:sub(#vault + 1)
+   local dir = rel:match("^([^/]+)/")
+   return dir == "note" or dir == "journal"
 end
 
 local function text_document_params(buf)

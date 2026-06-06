@@ -1,6 +1,6 @@
 # ADR 0005: Store Journals Under Date-Named Paths
 
-Status: Superseded. Journal note ids remain `yyyyMMdd`, but current storage is flat (`<vault>/<yyyyMMdd>.md`) so paths can be derived from ids and do not need to be cached.
+Status: Superseded. Journal note ids remain `yyyyMMdd`, but current storage is under `journal/` (`<vault>/journal/<yyyyMMdd>.md`) so paths can be derived from file kind plus id and do not need to be cached.
 
 ## Status
 

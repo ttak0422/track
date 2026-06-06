@@ -44,7 +44,7 @@ func TestUpsertAndKeywords(t *testing.T) {
 	terms := map[string]string{}
 	for _, k := range kws {
 		terms[k.Term] = k.Kind
-		if k.NoteID != 100 || k.Path != "" {
+		if k.NoteID != 100 || k.FileKind != "note" || k.Path != "" {
 			t.Fatalf("unexpected keyword ref: %+v", k)
 		}
 	}
@@ -85,6 +85,9 @@ func TestResolveTerm(t *testing.T) {
 	}
 	if ref.NoteID != 7 || ref.Title != "Go" {
 		t.Fatalf("unexpected ref: %+v", ref)
+	}
+	if ref.FileKind != "note" {
+		t.Fatalf("unexpected file kind: %+v", ref)
 	}
 
 	_, found, err = s.ResolveTerm("missing")

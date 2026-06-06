@@ -49,6 +49,9 @@ func TestNewIDUsesSecondBucketWithSequence(t *testing.T) {
 	if id != 1_800_000_000_000 {
 		t.Fatalf("id = %d, want second bucket ending in 000", id)
 	}
+	if err := os.MkdirAll(filepath.Dir(cfg.NotePath(id)), 0o755); err != nil {
+		t.Fatal(err)
+	}
 	if err := os.WriteFile(cfg.NotePath(id), []byte("# Taken\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
@@ -185,6 +188,9 @@ func TestParseFileReconcilesMetadataTitleFromBody(t *testing.T) {
 		DateFormat: "2006-01-02",
 	}
 	path := cfg.NotePath(1000)
+	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+		t.Fatal(err)
+	}
 	raw := "# Body\n\n<!--track\ntitle: legacy\n-->\n"
 	if err := os.WriteFile(path, []byte(raw), 0o644); err != nil {
 		t.Fatal(err)
@@ -236,6 +242,9 @@ func TestParseFileCreatesMetadataFromBodyTitle(t *testing.T) {
 		DateFormat: "2006-01-02",
 	}
 	path := cfg.NotePath(1000)
+	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+		t.Fatal(err)
+	}
 	if err := os.WriteFile(path, []byte("# Created From Body\n\ntext\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}

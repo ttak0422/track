@@ -27,6 +27,7 @@ type Metadata struct {
 
 type Note struct {
 	ID    int64
+	Kind  string
 	Path  string
 	Body  string
 	Mtime int64
@@ -50,6 +51,10 @@ func ParseFile(path string, c *config.Config) (*Note, error) {
 	id, err := IDFromPath(path)
 	if err != nil {
 		return nil, err
+	}
+	kind, ok := c.KindFromPath(path)
+	if !ok {
+		kind = config.KindNote
 	}
 	body, legacy, hasLegacy := SplitLegacyFootmatter(string(raw))
 
@@ -80,7 +85,7 @@ func ParseFile(path string, c *config.Config) (*Note, error) {
 			return nil, err
 		}
 	}
-	return &Note{ID: id, Path: path, Body: body, Mtime: info.ModTime().Unix(), Meta: meta}, nil
+	return &Note{ID: id, Kind: kind, Path: path, Body: body, Mtime: info.ModTime().Unix(), Meta: meta}, nil
 }
 
 // IDFromPath extracts the numeric id encoded in a note's filename.

@@ -30,6 +30,9 @@ func setup(t *testing.T) (*config.Config, *store.Store) {
 func writeNote(t *testing.T, cfg *config.Config, id int64, body string, meta note.Metadata) {
 	t.Helper()
 	path := cfg.NotePath(id)
+	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+		t.Fatalf("create note dir: %v", err)
+	}
 	if err := os.WriteFile(path, []byte(body+"\n"), 0o644); err != nil {
 		t.Fatalf("write note %d: %v", id, err)
 	}
@@ -63,6 +66,50 @@ func TestFullIndexesAndLinks(t *testing.T) {
 	}
 	if len(back) != 1 || back[0].NoteID != 2 {
 		t.Fatalf("expected note 2 to backlink note 1, got %+v", back)
+	}
+}
+
+func TestFullIndexesOnlyNoteAndJournalDirs(t *testing.T) {
+	cfg, s := setup(t)
+	writeNote(t, cfg, 1, "# Note", note.Metadata{Title: "Note"})
+	if err := os.MkdirAll(cfg.JournalDir(), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(cfg.JournalPath("20260606"), []byte("# Journal\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := note.WriteMetadata(cfg.MetadataPath(20260606), note.Metadata{Title: "Journal"}); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.MkdirAll(cfg.TemplateDir(), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(cfg.TemplatePath(2), []byte("# Template\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(cfg.VaultDir, "3.md"), []byte("# Root\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.MkdirAll(filepath.Join(cfg.NoteDir(), "nested"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(cfg.NoteDir(), "nested", "4.md"), []byte("# Nested\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	rep, err := New(cfg, s).Full()
+	if err != nil {
+		t.Fatalf("full: %v", err)
+	}
+	if rep.Indexed != 2 {
+		t.Fatalf("indexed = %d, want note and journal only", rep.Indexed)
+	}
+	notes, err := s.AllNotes()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(notes) != 2 || notes[0].FileKind != config.KindNote || notes[1].FileKind != config.KindJournal {
+		t.Fatalf("unexpected indexed files: %+v", notes)
 	}
 }
 

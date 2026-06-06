@@ -6,21 +6,29 @@ This document describes the current on-disk data model.
 
 The vault must be configured explicitly with `$TRACK_VAULT`. track does not fallback to an implicit user data directory because accidentally creating or reading the wrong vault is worse than failing early.
 
-Notes are markdown files directly under the vault and are named by note id:
+Notes are markdown files under managed vault directories and are named by note id:
 
 ```text
-<vault>/<id>.md
+<vault>/note/<id>.md
 ```
 
 The first supported extension is `.md`; newly created notes use that extension.
 
-Regular note ids are `Unix seconds * 1000 + same-second sequence`, preserving chronological sort order while allowing multiple notes per second. Journal notes use `yyyyMMdd` ids and follow the same flat path rule:
+Regular note ids are `Unix seconds * 1000 + same-second sequence`, preserving chronological sort order while allowing multiple notes per second. Journal notes use `yyyyMMdd` ids:
 
 ```text
-<vault>/yyyyMMdd.md
+<vault>/journal/yyyyMMdd.md
 ```
 
-Because note files are flat, a note path is derived from its id and is not stored in the SQLite cache.
+Template files live under `template/` and use a template-specific extension:
+
+```text
+<vault>/template/<id>.template.md
+```
+
+A file path is derived from its kind and id, so paths are not stored in the SQLite cache. The current file kinds are `note`, `journal`, and `template`; the note index currently scans `note/` and `journal/` only.
+
+Templates are not notes and must not appear in note search or link resolution. When template expansion gains executable substitutions, track will validate the template content and require a first-use trust step keyed by the template content hash, similar to `mise trust`.
 
 ## Track Directory
 
@@ -103,19 +111,20 @@ SQLite `PRAGMA user_version` stores the database schema version and is independe
 
 Schema version 1 contains:
 
-- `notes`: note id, title, created date, and mtime.
+- `notes`: note id, file kind, title, created date, and mtime.
 - `aliases`: aliases for each note.
 - `tags`: tags for each note.
 - `links`: computed directed links between notes.
 - `keywords`: a view over note titles and aliases.
 
-The index uses WAL mode and foreign keys. It intentionally does not cache note paths or bodies: flat note paths are derived from note ids, and body search reads markdown files directly.
+The index uses WAL mode and foreign keys. It intentionally does not cache note paths or bodies: paths are derived from file kind plus note id, and body search reads markdown files directly.
 
 ### Schema Version 1
 
 ```sql
 CREATE TABLE notes (
   id      INTEGER PRIMARY KEY,
+  kind    TEXT NOT NULL DEFAULT 'note',
   title   TEXT NOT NULL DEFAULT '',
   created TEXT,
   mtime   INTEGER NOT NULL DEFAULT 0
@@ -151,6 +160,7 @@ CREATE VIEW keywords AS
 Column notes:
 
 - `notes.id`: numeric note id. Regular notes use time-derived second buckets plus a sequence; journal notes use `yyyyMMdd`.
+- `notes.kind`: file kind used with `id` to derive the path. Current values are `note` and `journal` for indexed notes; `template` is reserved for template files.
 - `notes.title`: cached title used as the primary keyword. It mirrors the first H1 heading when available.
 - `notes.created`: cached metadata creation date string.
 - `notes.mtime`: note file modification time as a Unix timestamp. It is kept for future change detection and incremental reindexing.

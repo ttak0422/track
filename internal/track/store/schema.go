@@ -10,6 +10,7 @@ const schemaVersion = 1
 const schemaSQL = `
 CREATE TABLE notes (
   id      INTEGER PRIMARY KEY,
+  kind    TEXT NOT NULL DEFAULT 'note',
   title   TEXT NOT NULL DEFAULT '',
   created TEXT,
   mtime   INTEGER NOT NULL DEFAULT 0

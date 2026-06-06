@@ -25,6 +25,12 @@ type Config struct {
 	BabelLanguages map[string]babel.Executor
 }
 
+const (
+	KindNote     = "note"
+	KindJournal  = "journal"
+	KindTemplate = "template"
+)
+
 // Load resolves configuration from the environment.
 // TRACK_VAULT is required so track never creates or reads an implicit vault by accident.
 // TRACK_DB overrides the index database path. Otherwise the rebuildable SQLite cache lives under
@@ -105,17 +111,91 @@ func (c *Config) PrimaryExt() string {
 
 // NotePath returns the absolute path for a note with the given id.
 func (c *Config) NotePath(id int64) string {
-	return filepath.Join(c.VaultDir, strconv.FormatInt(id, 10)+c.PrimaryExt())
+	return filepath.Join(c.NoteDir(), strconv.FormatInt(id, 10)+c.PrimaryExt())
+}
+
+// NoteDir returns the directory used for regular notes.
+func (c *Config) NoteDir() string {
+	return filepath.Join(c.VaultDir, KindNote)
 }
 
 // JournalDir returns the directory used for daily journal notes.
 func (c *Config) JournalDir() string {
-	return c.VaultDir
+	return filepath.Join(c.VaultDir, KindJournal)
 }
 
 // JournalPath returns the path for a daily journal note named yyyyMMdd.
 func (c *Config) JournalPath(name string) string {
-	return filepath.Join(c.VaultDir, name+c.PrimaryExt())
+	return filepath.Join(c.JournalDir(), name+c.PrimaryExt())
+}
+
+// TemplateDir returns the directory used for template markdown files.
+func (c *Config) TemplateDir() string {
+	return filepath.Join(c.VaultDir, KindTemplate)
+}
+
+// TemplatePath returns the path for a template file with the given id.
+func (c *Config) TemplatePath(id int64) string {
+	return filepath.Join(c.TemplateDir(), strconv.FormatInt(id, 10)+".template"+c.PrimaryExt())
+}
+
+// PathForKind returns the derived path for a tracked file kind and id.
+func (c *Config) PathForKind(kind string, id int64) string {
+	switch kind {
+	case KindJournal:
+		return c.JournalPath(strconv.FormatInt(id, 10))
+	case KindTemplate:
+		return c.TemplatePath(id)
+	default:
+		return c.NotePath(id)
+	}
+}
+
+// KindFromPath classifies a vault file by its managed directory.
+func (c *Config) KindFromPath(path string) (string, bool) {
+	abs, err := filepath.Abs(path)
+	if err != nil {
+		return "", false
+	}
+	vault, err := filepath.Abs(c.VaultDir)
+	if err != nil {
+		return "", false
+	}
+	rel, err := filepath.Rel(vault, abs)
+	if err != nil {
+		return "", false
+	}
+	parts := strings.Split(filepath.Clean(rel), string(filepath.Separator))
+	if len(parts) != 2 {
+		return "", false
+	}
+	name := parts[1]
+	switch parts[0] {
+	case KindNote:
+		stem := strings.TrimSuffix(name, c.PrimaryExt())
+		if filepath.Ext(name) == c.PrimaryExt() && isNumericID(stem) {
+			return KindNote, true
+		}
+	case KindJournal:
+		stem := strings.TrimSuffix(name, c.PrimaryExt())
+		if filepath.Ext(name) == c.PrimaryExt() && isNumericID(stem) {
+			return KindJournal, true
+		}
+	case KindTemplate:
+		stem := strings.TrimSuffix(name, ".template"+c.PrimaryExt())
+		if strings.HasSuffix(name, ".template"+c.PrimaryExt()) && isNumericID(stem) {
+			return KindTemplate, true
+		}
+	}
+	return "", false
+}
+
+func isNumericID(name string) bool {
+	if name == "" {
+		return false
+	}
+	_, err := strconv.ParseInt(name, 10, 64)
+	return err == nil
 }
 
 // TrackDir returns the hidden directory used for authoritative track-owned data inside the vault.

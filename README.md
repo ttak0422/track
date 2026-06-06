@@ -11,7 +11,7 @@ The engine lives in reusable `internal/track/*` packages so a future LSP server 
 
 ## Concepts
 
-- **Notes** are markdown files named `{id}.md` in a vault directory. Regular note ids are sortable time-derived ids: `Unix seconds * 1000 + same-second sequence`.
+- **Notes** are markdown files named `note/{id}.md` in a vault directory. Regular note ids are sortable time-derived ids: `Unix seconds * 1000 + same-second sequence`.
 - **Metadata**: note metadata is stored outside the markdown file, under `.track/notes/{id}.yaml`. The file is versioned so future metadata shape changes can be handled explicitly:
 
   ```markdown
@@ -29,7 +29,7 @@ The engine lives in reusable `internal/track/*` packages so a future LSP server 
   ```
 
 - **Links** are explicit, written `[[title or alias]]`, with optional Obsidian-style `[[target|display]]` aliases. A heading anchor jumps inside a note: `[[note#foo]]`, `[[note##bar]]`, … where the number of `#` is the Markdown heading level and the first matching heading wins. Resolved links are highlighted and followable; links to notes that don't exist yet are highlighted distinctly. Completion offers titles and aliases as you type inside `[[`, then headings once you type `#`. Exact-match resolution works for Japanese without word boundaries. See [docs/spec/links.md](docs/spec/links.md).
-- **Journal**: each day maps to a stable `yyyyMMdd` note, so opening "today" is idempotent. Journal notes are stored as flat `<yyyyMMdd>.md` files in the vault, so their path is derivable from the note id.
+- **Journal**: each day maps to a stable `yyyyMMdd` note, so opening "today" is idempotent. Journal notes are stored as `journal/<yyyyMMdd>.md`.
 
 ## Layout
 

@@ -45,6 +45,9 @@ func TestOpenAppliesSchema(t *testing.T) {
 			t.Fatalf("notes table should not cache %s", removed)
 		}
 	}
+	if !columns["kind"] {
+		t.Fatalf("notes table should store file kind")
+	}
 
 	var view string
 	if err := s.db.QueryRow(

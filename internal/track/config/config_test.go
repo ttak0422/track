@@ -53,3 +53,28 @@ func TestLoadHonorsExplicitTrackDB(t *testing.T) {
 		t.Fatalf("DBPath = %q, want %q", cfg.DBPath, db)
 	}
 }
+
+func TestKindPaths(t *testing.T) {
+	vault := t.TempDir()
+	cfg := &Config{VaultDir: vault, Extensions: []string{".md"}}
+
+	cases := []struct {
+		path string
+		kind string
+		want bool
+	}{
+		{cfg.NotePath(100), KindNote, true},
+		{cfg.JournalPath("20260606"), KindJournal, true},
+		{cfg.TemplatePath(200), KindTemplate, true},
+		{filepath.Join(vault, "100.md"), "", false},
+		{filepath.Join(cfg.NoteDir(), "abc.md"), "", false},
+		{filepath.Join(cfg.TemplateDir(), "200.md"), "", false},
+		{filepath.Join(cfg.TemplateDir(), "abc.template.md"), "", false},
+	}
+	for _, c := range cases {
+		kind, ok := cfg.KindFromPath(c.path)
+		if ok != c.want || kind != c.kind {
+			t.Fatalf("KindFromPath(%q) = %q, %v; want %q, %v", c.path, kind, ok, c.kind, c.want)
+		}
+	}
+}

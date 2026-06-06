@@ -6,17 +6,19 @@ import (
 
 // Keyword is one entry in the auto-link dictionary: a title or alias that, when it appears in note text, links to NoteID.
 type Keyword struct {
-	Term   string `json:"term"`
-	NoteID int64  `json:"note_id"`
-	Path   string `json:"path,omitempty"`
-	Kind   string `json:"kind"`
+	Term     string `json:"term"`
+	NoteID   int64  `json:"note_id"`
+	FileKind string `json:"file_kind"`
+	Path     string `json:"path,omitempty"`
+	Kind     string `json:"kind"`
 }
 
 // NoteRef is a lightweight reference to a note.
 type NoteRef struct {
-	NoteID int64  `json:"note_id"`
-	Path   string `json:"path,omitempty"`
-	Title  string `json:"title"`
+	NoteID   int64  `json:"note_id"`
+	FileKind string `json:"file_kind"`
+	Path     string `json:"path,omitempty"`
+	Title    string `json:"title"`
 }
 
 // UpsertNote inserts or updates a note row and replaces its aliases and tags in a single transaction.
@@ -27,12 +29,16 @@ func (s *Store) UpsertNote(n *note.Note) error {
 	}
 	defer tx.Rollback()
 
+	kind := n.Kind
+	if kind == "" {
+		kind = "note"
+	}
 	if _, err := tx.Exec(
-		`INSERT INTO notes (id, title, created, mtime)
-		 VALUES (?, ?, ?, ?)
+		`INSERT INTO notes (id, kind, title, created, mtime)
+		 VALUES (?, ?, ?, ?, ?)
 		 ON CONFLICT(id) DO UPDATE SET
-		   title=excluded.title, created=excluded.created, mtime=excluded.mtime`,
-		n.ID, n.Meta.Title, n.Meta.Created, n.Mtime,
+		   kind=excluded.kind, title=excluded.title, created=excluded.created, mtime=excluded.mtime`,
+		n.ID, kind, n.Meta.Title, n.Meta.Created, n.Mtime,
 	); err != nil {
 		return err
 	}
@@ -95,8 +101,9 @@ func (s *Store) ReplaceLinks(srcID int64, dstIDs []int64) error {
 // Keywords returns the full auto-link dictionary (titles and aliases).
 func (s *Store) Keywords() ([]Keyword, error) {
 	rows, err := s.db.Query(
-		`SELECT k.term, k.note_id, k.kind
-		 FROM keywords k JOIN notes n ON n.id = k.note_id`,
+		`SELECT k.term, k.note_id, n.kind, k.kind
+		 FROM keywords k JOIN notes n ON n.id = k.note_id
+		 WHERE n.kind IN ('note', 'journal')`,
 	)
 	if err != nil {
 		return nil, err
@@ -106,7 +113,7 @@ func (s *Store) Keywords() ([]Keyword, error) {
 	var out []Keyword
 	for rows.Next() {
 		var k Keyword
-		if err := rows.Scan(&k.Term, &k.NoteID, &k.Kind); err != nil {
+		if err := rows.Scan(&k.Term, &k.NoteID, &k.FileKind, &k.Kind); err != nil {
 			return nil, err
 		}
 		out = append(out, k)
@@ -118,11 +125,11 @@ func (s *Store) Keywords() ([]Keyword, error) {
 func (s *Store) ResolveTerm(term string) (NoteRef, bool, error) {
 	var ref NoteRef
 	err := s.db.QueryRow(
-		`SELECT k.note_id, n.title
+		`SELECT k.note_id, n.kind, n.title
 		 FROM keywords k JOIN notes n ON n.id = k.note_id
-		 WHERE k.term = ? LIMIT 1`,
+		 WHERE k.term = ? AND n.kind IN ('note', 'journal') LIMIT 1`,
 		term,
-	).Scan(&ref.NoteID, &ref.Title)
+	).Scan(&ref.NoteID, &ref.FileKind, &ref.Title)
 	if err != nil {
 		if isNoRows(err) {
 			return NoteRef{}, false, nil
@@ -135,7 +142,7 @@ func (s *Store) ResolveTerm(term string) (NoteRef, bool, error) {
 // Backlinks returns notes that link to the given note id.
 func (s *Store) Backlinks(id int64) ([]NoteRef, error) {
 	rows, err := s.db.Query(
-		`SELECT n.id, n.title
+		`SELECT n.id, n.kind, n.title
 		 FROM links l JOIN notes n ON n.id = l.src_id
 		 WHERE l.dst_id = ? ORDER BY n.id`,
 		id,
@@ -149,7 +156,7 @@ func (s *Store) Backlinks(id int64) ([]NoteRef, error) {
 
 // AllNotes returns every note as a NoteRef, ordered by id.
 func (s *Store) AllNotes() ([]NoteRef, error) {
-	rows, err := s.db.Query(`SELECT id, title FROM notes ORDER BY id`)
+	rows, err := s.db.Query(`SELECT id, kind, title FROM notes ORDER BY id`)
 	if err != nil {
 		return nil, err
 	}

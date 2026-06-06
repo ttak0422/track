@@ -364,14 +364,19 @@ func (s *Server) inVault(uri string) bool {
 	if rel == ".." || strings.HasPrefix(rel, ".."+string(filepath.Separator)) {
 		return false
 	}
+	rel = filepath.Clean(rel)
+	parts := strings.Split(rel, string(filepath.Separator))
+	if len(parts) != 2 || (parts[0] != config.KindNote && parts[0] != config.KindJournal) {
+		return false
+	}
 	// Exclude track-owned hidden directories such as .track, matching the indexer's scan rules.
-	// This keeps vault notes in scope while dropping vault/.track/*.md.
 	for _, part := range strings.Split(filepath.Dir(rel), string(filepath.Separator)) {
 		if part != "." && strings.HasPrefix(part, ".") {
 			return false
 		}
 	}
-	return true
+	_, ok := noteIDFromURI(uri)
+	return ok
 }
 
 func canonicalPath(path string) string {

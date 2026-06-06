@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"os"
+	"path/filepath"
 	"strings"
 	"time"
 
@@ -81,7 +82,7 @@ func (s *Server) createNote(title string) (map[string]any, error) {
 		return nil, err
 	}
 	path := s.cfg.NotePath(noteID)
-	if err := os.MkdirAll(s.cfg.VaultDir, 0o755); err != nil {
+	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
 		return nil, err
 	}
 	if err := os.WriteFile(path, []byte("# "+title+"\n"), 0o644); err != nil {

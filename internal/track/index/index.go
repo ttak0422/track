@@ -6,7 +6,6 @@ import (
 	"os"
 	"path/filepath"
 	"slices"
-	"strings"
 
 	"github.com/ttak0422/track/internal/track/config"
 	"github.com/ttak0422/track/internal/track/link"
@@ -137,26 +136,28 @@ func resolveLinks(body string, dict map[string]int64) []int64 {
 
 func (ix *Indexer) scanFiles() ([]string, error) {
 	var out []string
-	err := filepath.WalkDir(ix.cfg.VaultDir, func(path string, d fs.DirEntry, err error) error {
-		if err != nil {
-			if d == nil {
-				return nil // vault dir may not exist yet
+	for _, root := range []string{ix.cfg.NoteDir(), ix.cfg.JournalDir()} {
+		err := filepath.WalkDir(root, func(path string, d fs.DirEntry, err error) error {
+			if err != nil {
+				if d == nil {
+					return nil // note/journal dir may not exist yet
+				}
+				return err
 			}
-			return err
-		}
-		if d.IsDir() {
-			if strings.HasPrefix(d.Name(), ".") && path != ix.cfg.VaultDir {
-				return filepath.SkipDir
+			if d.IsDir() {
+				if path != root {
+					return filepath.SkipDir
+				}
+				return nil
+			}
+			if slices.Contains(ix.cfg.Extensions, filepath.Ext(path)) {
+				out = append(out, path)
 			}
 			return nil
+		})
+		if err != nil {
+			return nil, err
 		}
-		if slices.Contains(ix.cfg.Extensions, filepath.Ext(path)) {
-			out = append(out, path)
-		}
-		return nil
-	})
-	if err != nil {
-		return nil, err
 	}
 	slices.Sort(out)
 	return out, nil

@@ -84,7 +84,7 @@ func TestNewResolveKeywordsFlow(t *testing.T) {
 	if created["id"].(float64) != 1000 {
 		t.Fatalf("unexpected id: %v", created["id"])
 	}
-	noteContent, err := os.ReadFile(vault + "/1000.md")
+	noteContent, err := os.ReadFile(filepath.Join(vault, "note", "1000.md"))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -213,7 +213,7 @@ func TestBacklinksAndReindex(t *testing.T) {
 	runIn(t, vault, "new", "--title", "Other", "--id", "200")
 
 	// Make note 200 reference Go, then full reindex to build the link graph.
-	if err := os.WriteFile(vault+"/200.md",
+	if err := os.WriteFile(filepath.Join(vault, "note", "200.md"),
 		[]byte("[[Go]] を参照\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
@@ -239,7 +239,7 @@ func TestReindexReconcilesMetadataTitleFromBody(t *testing.T) {
 	vault := t.TempDir()
 	runIn(t, vault, "new", "--title", "Old", "--id", "100")
 
-	if err := os.WriteFile(vault+"/100.md", []byte("# New\n\nbody\n"), 0o644); err != nil {
+	if err := os.WriteFile(filepath.Join(vault, "note", "100.md"), []byte("# New\n\nbody\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
 	rep, code := runIn(t, vault, "reindex", "--full")
@@ -271,8 +271,8 @@ func TestJournalIdempotent(t *testing.T) {
 		t.Fatalf("first journal: %v", first)
 	}
 	path := first["path"].(string)
-	if filepath.Dir(path) != vault {
-		t.Fatalf("journal path should be under vault root, got %q", path)
+	if filepath.Dir(path) != filepath.Join(vault, "journal") {
+		t.Fatalf("journal path should be under journal dir, got %q", path)
 	}
 	name := strings.TrimSuffix(filepath.Base(path), filepath.Ext(path))
 	if len(name) != 8 || first["id"].(float64) == 0 {
@@ -294,7 +294,7 @@ func TestSearch(t *testing.T) {
 	vault := t.TempDir()
 	runIn(t, vault, "new", "--title", "Golang notes", "--id", "300")
 	runIn(t, vault, "new", "--title", "Body note", "--id", "301")
-	if err := os.WriteFile(vault+"/301.md", []byte("# Body note\n\nneedle body text\n"), 0o644); err != nil {
+	if err := os.WriteFile(filepath.Join(vault, "note", "301.md"), []byte("# Body note\n\nneedle body text\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
 	if rep, code := runIn(t, vault, "reindex", "--full"); code != 0 {
@@ -359,7 +359,7 @@ func TestBabelExecRunsAndStores(t *testing.T) {
 		t.Fatal("new failed")
 	}
 	body := "# Demo\n\n```sh :name hi :results output\necho hello\n```\n"
-	if err := os.WriteFile(vault+"/500.md", []byte(body), 0o644); err != nil {
+	if err := os.WriteFile(filepath.Join(vault, "note", "500.md"), []byte(body), 0o644); err != nil {
 		t.Fatal(err)
 	}
 
@@ -395,7 +395,7 @@ func TestBabelExecRunsAndStores(t *testing.T) {
 		t.Fatalf("expected restored end_line 4, got %v", restoredBlock["end_line"])
 	}
 
-	if err := os.WriteFile(vault+"/500.md", []byte("# Demo\n\n```sh :name hi :results output\necho changed\n```\n"), 0o644); err != nil {
+	if err := os.WriteFile(filepath.Join(vault, "note", "500.md"), []byte("# Demo\n\n```sh :name hi :results output\necho changed\n```\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
 	stale, code := runIn(t, vault, "babel", "restore", "--id", "500")
@@ -417,7 +417,7 @@ func TestBabelExecByLine(t *testing.T) {
 	runIn(t, vault, "new", "--title", "Demo", "--id", "502")
 	// Two blocks; the cursor row (0-based) lands inside the second one.
 	body := "# Demo\n\n```sh\necho first\n```\n\n```sh\necho second\n```\n"
-	if err := os.WriteFile(vault+"/502.md", []byte(body), 0o644); err != nil {
+	if err := os.WriteFile(filepath.Join(vault, "note", "502.md"), []byte(body), 0o644); err != nil {
 		t.Fatal(err)
 	}
 
@@ -441,7 +441,7 @@ func TestBabelExecCanUseStdinBody(t *testing.T) {
 	t.Setenv("TRACK_BABEL_SH", "sh {{file}}")
 
 	runIn(t, vault, "new", "--title", "Demo", "--id", "503")
-	if err := os.WriteFile(vault+"/503.md", []byte("# Demo\n\n```sh\necho saved\n```\n"), 0o644); err != nil {
+	if err := os.WriteFile(filepath.Join(vault, "note", "503.md"), []byte("# Demo\n\n```sh\necho saved\n```\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
 	unsaved := "# Demo\n\n```sh\necho unsaved\n```\n"
@@ -463,7 +463,7 @@ func TestBabelExecRefusesEvalNo(t *testing.T) {
 	t.Setenv("TRACK_BABEL_SH", "sh {{file}}")
 
 	runIn(t, vault, "new", "--title", "D", "--id", "501")
-	if err := os.WriteFile(vault+"/501.md", []byte("# D\n\n```sh :name x :eval no\necho hi\n```\n"), 0o644); err != nil {
+	if err := os.WriteFile(filepath.Join(vault, "note", "501.md"), []byte("# D\n\n```sh :name x :eval no\necho hi\n```\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
 

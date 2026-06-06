@@ -74,7 +74,7 @@ func TestInitializeCompletionTriggerCharacters(t *testing.T) {
 
 func TestDiagnosticsWarnOnH1OutsideFirstLine(t *testing.T) {
 	srv, vault := setupServer(t)
-	uri := uriFromPath(filepath.Join(vault, "200.md"))
+	uri := uriFromPath(filepath.Join(vault, "note", "200.md"))
 	srv.docs[uri] = "# Title\n\n# Later\n\n## Section\n\n# Another\n"
 
 	diags, err := srv.diagnostics(uri)
@@ -97,7 +97,7 @@ func TestDiagnosticsWarnOnH1OutsideFirstLine(t *testing.T) {
 
 func TestDiagnosticsWarnWhenFirstH1IsNotOnFirstLine(t *testing.T) {
 	srv, vault := setupServer(t)
-	uri := uriFromPath(filepath.Join(vault, "200.md"))
+	uri := uriFromPath(filepath.Join(vault, "note", "200.md"))
 	srv.docs[uri] = "\n# Title\n"
 
 	diags, err := srv.diagnostics(uri)
@@ -114,7 +114,7 @@ func TestDiagnosticsWarnWhenFirstH1IsNotOnFirstLine(t *testing.T) {
 
 func TestDiagnosticsIgnoreH1InsideFences(t *testing.T) {
 	srv, vault := setupServer(t)
-	uri := uriFromPath(filepath.Join(vault, "200.md"))
+	uri := uriFromPath(filepath.Join(vault, "note", "200.md"))
 	srv.docs[uri] = "# Title\n\n```markdown\n# Example\n```\n\n## Section\n"
 
 	diags, err := srv.diagnostics(uri)
@@ -128,7 +128,7 @@ func TestDiagnosticsIgnoreH1InsideFences(t *testing.T) {
 
 func TestNotificationPublishesDiagnosticsAndClearsThem(t *testing.T) {
 	srv, vault := setupServer(t)
-	uri := uriFromPath(filepath.Join(vault, "200.md"))
+	uri := uriFromPath(filepath.Join(vault, "note", "200.md"))
 	openParams, err := jsonMarshalRaw(didOpenParams{
 		TextDocument: protocol.TextDocumentItem{
 			URI:        documentURI(uri),
@@ -181,7 +181,7 @@ func TestNotificationPublishesDiagnosticsAndClearsThem(t *testing.T) {
 
 func TestDocumentLinks(t *testing.T) {
 	srv, vault := setupServer(t)
-	uri := uriFromPath(filepath.Join(vault, "200.md"))
+	uri := uriFromPath(filepath.Join(vault, "note", "200.md"))
 	srv.docs[uri] = "[[Golang]] and [[Go]]"
 
 	links, err := srv.documentLinks(uri)
@@ -194,14 +194,14 @@ func TestDocumentLinks(t *testing.T) {
 	if links[0].Range.Start.Line != 0 || links[0].Range.Start.Character != 2 || links[0].Range.End.Character != 8 {
 		t.Fatalf("unexpected first range: %+v", links[0].Range)
 	}
-	if targetString(links[0]) != uriFromPath(filepath.Join(vault, "100.md")) {
+	if targetString(links[0]) != uriFromPath(filepath.Join(vault, "note", "100.md")) {
 		t.Fatalf("unexpected target: %q", targetString(links[0]))
 	}
 }
 
 func TestBacklinks(t *testing.T) {
 	srv, vault := setupServer(t)
-	sourcePath := filepath.Join(vault, "200.md")
+	sourcePath := filepath.Join(vault, "note", "200.md")
 	sourceURI := uriFromPath(sourcePath)
 	if err := srv.store.UpsertNote(&note.Note{
 		ID:   200,
@@ -215,7 +215,7 @@ func TestBacklinks(t *testing.T) {
 	}
 	srv.docs[sourceURI] = "first [[Go]]\nsecond [[Golang]]"
 
-	backlinks, err := srv.backlinks(uriFromPath(filepath.Join(vault, "100.md")))
+	backlinks, err := srv.backlinks(uriFromPath(filepath.Join(vault, "note", "100.md")))
 	if err != nil {
 		t.Fatalf("backlinks: %v", err)
 	}
@@ -232,7 +232,7 @@ func TestBacklinks(t *testing.T) {
 
 func TestReferences(t *testing.T) {
 	srv, vault := setupServer(t)
-	sourcePath := filepath.Join(vault, "200.md")
+	sourcePath := filepath.Join(vault, "note", "200.md")
 	sourceURI := uriFromPath(sourcePath)
 	if err := srv.store.UpsertNote(&note.Note{
 		ID:   200,
@@ -246,7 +246,7 @@ func TestReferences(t *testing.T) {
 	}
 	srv.docs[sourceURI] = "see [[Go]]"
 
-	refs, err := srv.references(uriFromPath(filepath.Join(vault, "100.md")), position{Line: 0, Character: 0})
+	refs, err := srv.references(uriFromPath(filepath.Join(vault, "note", "100.md")), position{Line: 0, Character: 0})
 	if err != nil {
 		t.Fatalf("references: %v", err)
 	}
@@ -265,7 +265,7 @@ func TestReferences(t *testing.T) {
 
 func TestDefinition(t *testing.T) {
 	srv, vault := setupServer(t)
-	uri := uriFromPath(filepath.Join(vault, "200.md"))
+	uri := uriFromPath(filepath.Join(vault, "note", "200.md"))
 	srv.docs[uri] = "mentions [[Golang]]"
 
 	for _, col := range []int{9, 10, 13, 17, 18} {
@@ -276,7 +276,7 @@ func TestDefinition(t *testing.T) {
 		if loc == nil {
 			t.Fatalf("expected definition at col %d", col)
 		}
-		if string(loc.URI) != uriFromPath(filepath.Join(vault, "100.md")) {
+		if string(loc.URI) != uriFromPath(filepath.Join(vault, "note", "100.md")) {
 			t.Fatalf("unexpected definition uri at col %d: %q", col, loc.URI)
 		}
 	}
@@ -291,9 +291,9 @@ func TestDefinition(t *testing.T) {
 
 func TestDefinitionJumpsToHeading(t *testing.T) {
 	srv, vault := setupServer(t)
-	targetURI := uriFromPath(filepath.Join(vault, "100.md"))
+	targetURI := uriFromPath(filepath.Join(vault, "note", "100.md"))
 	srv.docs[targetURI] = "# Go\n\n## foo\n\n### bar\n\n## bar\n"
-	uri := uriFromPath(filepath.Join(vault, "200.md"))
+	uri := uriFromPath(filepath.Join(vault, "note", "200.md"))
 	srv.docs[uri] = "see [[Go##bar]] and [[Go###bar]]"
 
 	// [[Go##bar]] resolves to the first h2 "bar" (line 6), not the h3 with the same text.
@@ -316,9 +316,9 @@ func TestDefinitionJumpsToHeading(t *testing.T) {
 
 func TestDefinitionHeadingFallsBackToTop(t *testing.T) {
 	srv, vault := setupServer(t)
-	targetURI := uriFromPath(filepath.Join(vault, "100.md"))
+	targetURI := uriFromPath(filepath.Join(vault, "note", "100.md"))
 	srv.docs[targetURI] = "# Go\n\n## foo\n"
-	uri := uriFromPath(filepath.Join(vault, "200.md"))
+	uri := uriFromPath(filepath.Join(vault, "note", "200.md"))
 	srv.docs[uri] = "see [[Go#missing]]"
 
 	loc, err := srv.definition(uri, newPosition(0, 8))
@@ -332,7 +332,7 @@ func TestDefinitionHeadingFallsBackToTop(t *testing.T) {
 
 func TestDefinitionFollowsSameNoteHeading(t *testing.T) {
 	srv, vault := setupServer(t)
-	uri := uriFromPath(filepath.Join(vault, "100.md"))
+	uri := uriFromPath(filepath.Join(vault, "note", "100.md"))
 	srv.docs[uri] = "# Go\n\n## foo\n\nsee [[Go##foo]]"
 
 	// A plain self-link has nowhere to go, but a heading anchor navigates within the note.
@@ -347,9 +347,9 @@ func TestDefinitionFollowsSameNoteHeading(t *testing.T) {
 
 func TestCompletionOffersHeadings(t *testing.T) {
 	srv, vault := setupServer(t)
-	targetURI := uriFromPath(filepath.Join(vault, "100.md"))
+	targetURI := uriFromPath(filepath.Join(vault, "note", "100.md"))
 	srv.docs[targetURI] = "# Go\n\n## foo\n\n## food\n\n### other\n"
-	uri := uriFromPath(filepath.Join(vault, "200.md"))
+	uri := uriFromPath(filepath.Join(vault, "note", "200.md"))
 	srv.docs[uri] = "see [[Go##fo"
 
 	items, err := srv.completion(uri, position{Line: 0, Character: 12})
@@ -368,10 +368,10 @@ func TestCompletionOffersHeadings(t *testing.T) {
 
 func TestCompletionHeadingLevelMatchesHashCount(t *testing.T) {
 	srv, vault := setupServer(t)
-	targetURI := uriFromPath(filepath.Join(vault, "100.md"))
+	targetURI := uriFromPath(filepath.Join(vault, "note", "100.md"))
 	// note "Go" holds an h1 "foobar" and an h2 "hoge".
 	srv.docs[targetURI] = "# Go\n\n# foobar\n\n## hoge\n"
-	uri := uriFromPath(filepath.Join(vault, "200.md"))
+	uri := uriFromPath(filepath.Join(vault, "note", "200.md"))
 
 	// Typing a single "#" offers the h1 headings (the title "Go" plus "foobar"), not the h2.
 	srv.docs[uri] = "see [[Go#"
@@ -403,9 +403,9 @@ func TestCompletionHeadingLevelMatchesHashCount(t *testing.T) {
 
 func TestCompletionOffersNoteAndHeadingsTogether(t *testing.T) {
 	srv, vault := setupServer(t)
-	targetURI := uriFromPath(filepath.Join(vault, "100.md"))
+	targetURI := uriFromPath(filepath.Join(vault, "note", "100.md"))
 	srv.docs[targetURI] = "# Go\n\n## foo\n\n## bar\n"
-	uri := uriFromPath(filepath.Join(vault, "200.md"))
+	uri := uriFromPath(filepath.Join(vault, "note", "200.md"))
 	// Typing just the note name (no "#") should already surface the headings as full anchors.
 	srv.docs[uri] = "see [[Go"
 
@@ -438,10 +438,10 @@ func TestCompletionOffersNoteAndHeadingsTogether(t *testing.T) {
 
 func TestCompletionDedupesDuplicateHeadings(t *testing.T) {
 	srv, vault := setupServer(t)
-	targetURI := uriFromPath(filepath.Join(vault, "100.md"))
+	targetURI := uriFromPath(filepath.Join(vault, "note", "100.md"))
 	// Two "## foo" sections: the link resolves to the first, so completion must not offer it twice.
 	srv.docs[targetURI] = "# Go\n\n## foo\n\n## foo\n"
-	uri := uriFromPath(filepath.Join(vault, "200.md"))
+	uri := uriFromPath(filepath.Join(vault, "note", "200.md"))
 
 	// Pre-"#" stage: the bare note plus a single Go##foo anchor.
 	srv.docs[uri] = "see [[Go"
@@ -466,9 +466,9 @@ func TestCompletionDedupesDuplicateHeadings(t *testing.T) {
 
 func TestCompletionAnchorsOnlyForTitleKeyword(t *testing.T) {
 	srv, vault := setupServer(t)
-	targetURI := uriFromPath(filepath.Join(vault, "100.md"))
+	targetURI := uriFromPath(filepath.Join(vault, "note", "100.md"))
 	srv.docs[targetURI] = "# Go\n\n## foo\n"
-	uri := uriFromPath(filepath.Join(vault, "200.md"))
+	uri := uriFromPath(filepath.Join(vault, "note", "200.md"))
 	// "Golang" is an alias of note 100; typing it must not expand heading anchors (only "#" does).
 	srv.docs[uri] = "see [[Gol"
 
@@ -486,10 +486,10 @@ func TestCompletionAnchorsOnlyForTitleKeyword(t *testing.T) {
 
 func TestCompletionExcludesTitleHeadingOnly(t *testing.T) {
 	srv, vault := setupServer(t)
-	targetURI := uriFromPath(filepath.Join(vault, "100.md"))
+	targetURI := uriFromPath(filepath.Join(vault, "note", "100.md"))
 	// The first h1 "Go" is the title; a later h1 "Go" repeats it, and "intro" is a distinct h1.
 	srv.docs[targetURI] = "# Go\n\n# intro\n\n# Go\n"
-	uri := uriFromPath(filepath.Join(vault, "200.md"))
+	uri := uriFromPath(filepath.Join(vault, "note", "200.md"))
 	srv.docs[uri] = "see [[Go#"
 
 	items, err := srv.completion(uri, position{Line: 0, Character: 9})
@@ -504,7 +504,7 @@ func TestCompletionExcludesTitleHeadingOnly(t *testing.T) {
 
 func TestSelfLinksAreNotLinked(t *testing.T) {
 	srv, vault := setupServer(t)
-	uri := uriFromPath(filepath.Join(vault, "100.md"))
+	uri := uriFromPath(filepath.Join(vault, "note", "100.md"))
 	srv.docs[uri] = "# Go\n\n[[Go]]"
 
 	links, err := srv.documentLinks(uri)
@@ -526,7 +526,7 @@ func TestSelfLinksAreNotLinked(t *testing.T) {
 
 func TestTitleLineCanLinkToAnotherNote(t *testing.T) {
 	srv, vault := setupServer(t)
-	uri := uriFromPath(filepath.Join(vault, "200.md"))
+	uri := uriFromPath(filepath.Join(vault, "note", "200.md"))
 	srv.docs[uri] = "# [[Go]]"
 
 	links, err := srv.documentLinks(uri)
@@ -540,7 +540,7 @@ func TestTitleLineCanLinkToAnotherNote(t *testing.T) {
 
 func TestDisplayAliasResolves(t *testing.T) {
 	srv, vault := setupServer(t)
-	uri := uriFromPath(filepath.Join(vault, "200.md"))
+	uri := uriFromPath(filepath.Join(vault, "note", "200.md"))
 	srv.docs[uri] = "see [[Go|ゴー]]"
 
 	links, err := srv.documentLinks(uri)
@@ -550,14 +550,14 @@ func TestDisplayAliasResolves(t *testing.T) {
 	if len(links) != 1 {
 		t.Fatalf("expected display-alias link to resolve, got %+v", links)
 	}
-	if targetString(links[0]) != uriFromPath(filepath.Join(vault, "100.md")) {
+	if targetString(links[0]) != uriFromPath(filepath.Join(vault, "note", "100.md")) {
 		t.Fatalf("unexpected target: %q", targetString(links[0]))
 	}
 }
 
 func TestCompletionInsideBrackets(t *testing.T) {
 	srv, vault := setupServer(t)
-	uri := uriFromPath(filepath.Join(vault, "200.md"))
+	uri := uriFromPath(filepath.Join(vault, "note", "200.md"))
 	srv.docs[uri] = "see [[Go"
 
 	items, err := srv.completion(uri, position{Line: 0, Character: 8})
@@ -584,7 +584,7 @@ func TestCompletionInsideBrackets(t *testing.T) {
 func TestCompletionExcludesSelfAndOutsideBrackets(t *testing.T) {
 	srv, vault := setupServer(t)
 
-	selfURI := uriFromPath(filepath.Join(vault, "100.md"))
+	selfURI := uriFromPath(filepath.Join(vault, "note", "100.md"))
 	srv.docs[selfURI] = "[[Go"
 	items, err := srv.completion(selfURI, position{Line: 0, Character: 4})
 	if err != nil {
@@ -594,7 +594,7 @@ func TestCompletionExcludesSelfAndOutsideBrackets(t *testing.T) {
 		t.Fatalf("a note should not complete its own terms, got %+v", items)
 	}
 
-	uri := uriFromPath(filepath.Join(vault, "200.md"))
+	uri := uriFromPath(filepath.Join(vault, "note", "200.md"))
 	srv.docs[uri] = "plain text"
 	outside, err := srv.completion(uri, position{Line: 0, Character: 5})
 	if err != nil {
@@ -607,7 +607,7 @@ func TestCompletionExcludesSelfAndOutsideBrackets(t *testing.T) {
 
 func TestCompletionOffersCreateNoteWhenNoKeywordMatches(t *testing.T) {
 	srv, vault := setupServer(t)
-	uri := uriFromPath(filepath.Join(vault, "200.md"))
+	uri := uriFromPath(filepath.Join(vault, "note", "200.md"))
 	srv.docs[uri] = "see [[Rust"
 
 	items, err := srv.completion(uri, position{Line: 0, Character: 10})
@@ -643,7 +643,7 @@ func TestCompletionOffersCreateNoteWhenNoKeywordMatches(t *testing.T) {
 
 func TestCompletionDoesNotDuplicateExistingClose(t *testing.T) {
 	srv, vault := setupServer(t)
-	uri := uriFromPath(filepath.Join(vault, "200.md"))
+	uri := uriFromPath(filepath.Join(vault, "note", "200.md"))
 	srv.docs[uri] = "see [[Go]]"
 
 	items, err := srv.completion(uri, position{Line: 0, Character: 8})
@@ -668,7 +668,7 @@ func TestCompletionDoesNotDuplicateExistingClose(t *testing.T) {
 
 func TestCompletionResponseIsIncomplete(t *testing.T) {
 	srv, vault := setupServer(t)
-	uri := uriFromPath(filepath.Join(vault, "200.md"))
+	uri := uriFromPath(filepath.Join(vault, "note", "200.md"))
 	srv.docs[uri] = "see [["
 	params, err := json.Marshal(textDocumentPositionParams{
 		TextDocument: textDocumentIdentifier{URI: documentURI(uri)},
@@ -698,7 +698,7 @@ func TestCompletionResponseIsIncomplete(t *testing.T) {
 
 func TestBabelCompletionLanguage(t *testing.T) {
 	srv, vault := setupServer(t)
-	uri := uriFromPath(filepath.Join(vault, "200.md"))
+	uri := uriFromPath(filepath.Join(vault, "note", "200.md"))
 	srv.docs[uri] = "```l"
 
 	items, err := srv.completion(uri, newPosition(0, 4))
@@ -716,7 +716,7 @@ func TestBabelCompletionLanguage(t *testing.T) {
 
 func TestBabelCompletionHeaderKeys(t *testing.T) {
 	srv, vault := setupServer(t)
-	uri := uriFromPath(filepath.Join(vault, "200.md"))
+	uri := uriFromPath(filepath.Join(vault, "note", "200.md"))
 	srv.docs[uri] = "```lua :res"
 
 	items, err := srv.completion(uri, newPosition(0, 11))
@@ -735,7 +735,7 @@ func TestBabelCompletionHeaderKeys(t *testing.T) {
 
 func TestBabelCompletionHeaderKeysAtColon(t *testing.T) {
 	srv, vault := setupServer(t)
-	uri := uriFromPath(filepath.Join(vault, "200.md"))
+	uri := uriFromPath(filepath.Join(vault, "note", "200.md"))
 	srv.docs[uri] = "```lua :"
 
 	items, err := srv.completion(uri, newPosition(0, 8))
@@ -758,7 +758,7 @@ func TestBabelCompletionHeaderKeysAtColon(t *testing.T) {
 
 func TestBabelCompletionHeaderValueAfterKeySpace(t *testing.T) {
 	srv, vault := setupServer(t)
-	uri := uriFromPath(filepath.Join(vault, "200.md"))
+	uri := uriFromPath(filepath.Join(vault, "note", "200.md"))
 	srv.docs[uri] = "```lua :eval "
 
 	items, err := srv.completion(uri, newPosition(0, 13))
@@ -780,7 +780,7 @@ func TestBabelCompletionHeaderValueAfterKeySpace(t *testing.T) {
 
 func TestBabelCompletionHeaderValues(t *testing.T) {
 	srv, vault := setupServer(t)
-	uri := uriFromPath(filepath.Join(vault, "200.md"))
+	uri := uriFromPath(filepath.Join(vault, "note", "200.md"))
 	srv.docs[uri] = "```lua :results o"
 
 	items, err := srv.completion(uri, newPosition(0, 17))
@@ -797,7 +797,7 @@ func TestBabelCompletionHeaderValues(t *testing.T) {
 
 func TestBabelCompletionResultsOffersMoreValuesAfterValue(t *testing.T) {
 	srv, vault := setupServer(t)
-	uri := uriFromPath(filepath.Join(vault, "200.md"))
+	uri := uriFromPath(filepath.Join(vault, "note", "200.md"))
 	srv.docs[uri] = "```lua :results output "
 
 	items, err := srv.completion(uri, newPosition(0, 23))
@@ -817,7 +817,7 @@ func TestBabelCompletionResultsOffersMoreValuesAfterValue(t *testing.T) {
 
 func TestBabelCompletionResultsFiltersUsedValues(t *testing.T) {
 	srv, vault := setupServer(t)
-	uri := uriFromPath(filepath.Join(vault, "200.md"))
+	uri := uriFromPath(filepath.Join(vault, "note", "200.md"))
 	srv.docs[uri] = "```lua :results output replace "
 
 	items, err := srv.completion(uri, newPosition(0, 31))
@@ -834,7 +834,7 @@ func TestBabelCompletionResultsFiltersUsedValues(t *testing.T) {
 
 func TestBabelCompletionOffersOnlyHeaderKeysAfterValue(t *testing.T) {
 	srv, vault := setupServer(t)
-	uri := uriFromPath(filepath.Join(vault, "200.md"))
+	uri := uriFromPath(filepath.Join(vault, "note", "200.md"))
 	srv.docs[uri] = "```lua :eval no "
 
 	items, err := srv.completion(uri, newPosition(0, 16))
@@ -854,7 +854,7 @@ func TestBabelCompletionOffersOnlyHeaderKeysAfterValue(t *testing.T) {
 
 func TestBabelCompletionOmitsUsedHeaderKeys(t *testing.T) {
 	srv, vault := setupServer(t)
-	uri := uriFromPath(filepath.Join(vault, "200.md"))
+	uri := uriFromPath(filepath.Join(vault, "note", "200.md"))
 	srv.docs[uri] = "```lua :name test :eval query "
 
 	items, err := srv.completion(uri, newPosition(0, 30))
@@ -871,7 +871,7 @@ func TestBabelCompletionOmitsUsedHeaderKeys(t *testing.T) {
 
 func TestCompletionResponseMarshalsForLSP(t *testing.T) {
 	srv, vault := setupServer(t)
-	uri := uriFromPath(filepath.Join(vault, "200.md"))
+	uri := uriFromPath(filepath.Join(vault, "note", "200.md"))
 	srv.docs[uri] = "see [[Go"
 	params, err := json.Marshal(textDocumentPositionParams{
 		TextDocument: textDocumentIdentifier{URI: documentURI(uri)},
@@ -898,10 +898,10 @@ func TestCompletionResponseMarshalsForLSP(t *testing.T) {
 
 func TestCodeActionCreatesUnresolvedNote(t *testing.T) {
 	srv, vault := setupServer(t)
-	uri := uriFromPath(filepath.Join(vault, "200.md"))
+	uri := uriFromPath(filepath.Join(vault, "note", "200.md"))
 	if err := srv.store.UpsertNote(&note.Note{
 		ID:   200,
-		Path: filepath.Join(vault, "200.md"),
+		Path: filepath.Join(vault, "note", "200.md"),
 		Meta: note.Metadata{Title: "Source"},
 	}); err != nil {
 		t.Fatal(err)
@@ -1099,7 +1099,7 @@ func TestFeaturesIgnoreVaultOutsiders(t *testing.T) {
 
 	outside := uriFromPath(filepath.Join(filepath.Dir(vault), "outside-readme.md"))
 	dotTrack := uriFromPath(filepath.Join(vault, ".track", "notes-scratch.md"))
-	nonMarkdown := uriFromPath(filepath.Join(vault, "200.txt"))
+	nonMarkdown := uriFromPath(filepath.Join(vault, "note", "200.txt"))
 	body := "[[Go]] and [[Golang]]"
 
 	for _, uri := range []string{outside, dotTrack, nonMarkdown} {
@@ -1139,8 +1139,11 @@ func TestInVaultClassification(t *testing.T) {
 		path string
 		want bool
 	}{
-		{filepath.Join(vault, "100.md"), true},
-		{filepath.Join(vault, "20260531.md"), true},
+		{filepath.Join(vault, "note", "100.md"), true},
+		{filepath.Join(vault, "journal", "20260531.md"), true},
+		{filepath.Join(vault, "template", "100.template.md"), false},
+		{filepath.Join(vault, "100.md"), false},
+		{filepath.Join(vault, "note", "abc.md"), false},
 		{filepath.Join(vault, ".track", "x.md"), false},
 		{filepath.Join(vault, "note.txt"), false},
 		{filepath.Join(filepath.Dir(vault), "elsewhere.md"), false},
@@ -1161,7 +1164,7 @@ func TestInVaultAllowsRealpathUnderSymlinkedVault(t *testing.T) {
 	}
 	srv.cfg.VaultDir = link
 
-	if !srv.inVault(uriFromPath(filepath.Join(vault, "100.md"))) {
+	if !srv.inVault(uriFromPath(filepath.Join(vault, "note", "100.md"))) {
 		t.Fatalf("realpath under symlinked vault should be in vault")
 	}
 }

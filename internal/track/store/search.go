@@ -16,11 +16,12 @@ const (
 // Line and Snippet locate the first matching body line (1-based); they are zero/empty
 // when the hit is title-only.
 type SearchResult struct {
-	NoteID  int64  `json:"note_id"`
-	Path    string `json:"path"`
-	Title   string `json:"title"`
-	Line    int    `json:"line,omitempty"`
-	Snippet string `json:"snippet,omitempty"`
+	NoteID   int64  `json:"note_id"`
+	FileKind string `json:"file_kind"`
+	Path     string `json:"path"`
+	Title    string `json:"title"`
+	Line     int    `json:"line,omitempty"`
+	Snippet  string `json:"snippet,omitempty"`
 }
 
 // Search returns notes whose title or any alias contains query (case-insensitive substring).
@@ -47,7 +48,7 @@ func (s *Store) SearchScoped(query string, limit int, scope SearchScope) ([]Sear
 	var out []SearchResult
 	for rows.Next() {
 		var r SearchResult
-		if err := rows.Scan(&r.NoteID, &r.Title); err != nil {
+		if err := rows.Scan(&r.NoteID, &r.FileKind, &r.Title); err != nil {
 			return nil, err
 		}
 		out = append(out, r)
@@ -58,15 +59,15 @@ func (s *Store) SearchScoped(query string, limit int, scope SearchScope) ([]Sear
 func searchQuery(scope SearchScope, like string, limit int) (string, []any, error) {
 	switch scope {
 	case SearchAll:
-		return `SELECT DISTINCT n.id, n.title
+		return `SELECT DISTINCT n.id, n.kind, n.title
 		 FROM notes n
 		 LEFT JOIN aliases a ON a.note_id = n.id
-		 WHERE n.title LIKE ? OR a.alias LIKE ?
+		 WHERE n.kind IN ('note', 'journal') AND (n.title LIKE ? OR a.alias LIKE ?)
 		 ORDER BY n.id LIMIT ?`, []any{like, like, limit}, nil
 	case SearchTitle:
-		return `SELECT n.id, n.title
+		return `SELECT n.id, n.kind, n.title
 		 FROM notes n
-		 WHERE n.title LIKE ?
+		 WHERE n.kind IN ('note', 'journal') AND n.title LIKE ?
 		 ORDER BY n.id LIMIT ?`, []any{like, limit}, nil
 	case SearchBody:
 		return "", nil, fmt.Errorf("body search is not stored in the SQLite cache")

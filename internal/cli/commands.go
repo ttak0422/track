@@ -109,7 +109,7 @@ func cmdOpen(args []string) int {
 		return fail("resolve: %v", err)
 	}
 	if found {
-		return emit(map[string]any{"id": ref.NoteID, "path": cfg.NotePath(ref.NoteID), "title": t, "created": false})
+		return emit(map[string]any{"id": ref.NoteID, "path": cfg.PathForKind(ref.FileKind, ref.NoteID), "title": t, "created": false})
 	}
 
 	noteID, err := note.NewID(cfg, time.Now())
@@ -131,8 +131,8 @@ func createTitledNote(cfg *config.Config, s *store.Store, noteID int64, title st
 	if _, err := os.Stat(path); err == nil {
 		return nil, fmt.Errorf("note already exists: %s", path)
 	}
-	if err := os.MkdirAll(cfg.VaultDir, 0o755); err != nil {
-		return nil, fmt.Errorf("create vault dir: %v", err)
+	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+		return nil, fmt.Errorf("create note dir: %v", err)
 	}
 	if err := os.WriteFile(path, []byte("# "+title+"\n"), 0o644); err != nil {
 		return nil, fmt.Errorf("write note: %v", err)
@@ -208,7 +208,7 @@ func cmdKeywords(args []string) int {
 		kws = []store.Keyword{}
 	}
 	for i := range kws {
-		kws[i].Path = cfg.NotePath(kws[i].NoteID)
+		kws[i].Path = cfg.PathForKind(kws[i].FileKind, kws[i].NoteID)
 	}
 	return emit(map[string]any{"keywords": kws})
 }
@@ -236,7 +236,7 @@ func cmdResolve(args []string) int {
 	if !found {
 		return emit(map[string]any{"found": false})
 	}
-	return emit(map[string]any{"found": true, "note_id": ref.NoteID, "path": cfg.NotePath(ref.NoteID)})
+	return emit(map[string]any{"found": true, "note_id": ref.NoteID, "path": cfg.PathForKind(ref.FileKind, ref.NoteID)})
 }
 
 func cmdSearch(args []string) int {
@@ -301,7 +301,7 @@ func cmdBacklinks(args []string) int {
 		back = []store.NoteRef{}
 	}
 	for i := range back {
-		back[i].Path = cfg.NotePath(back[i].NoteID)
+		back[i].Path = cfg.PathForKind(back[i].FileKind, back[i].NoteID)
 	}
 	return emit(map[string]any{"backlinks": back})
 }
@@ -339,7 +339,7 @@ func searchResults(cfg *config.Config, s *store.Store, query string, limit int, 
 
 func addSearchPaths(cfg *config.Config, results []store.SearchResult) {
 	for i := range results {
-		results[i].Path = cfg.NotePath(results[i].NoteID)
+		results[i].Path = cfg.PathForKind(results[i].FileKind, results[i].NoteID)
 	}
 }
 
@@ -351,9 +351,9 @@ func bodySearchResults(cfg *config.Config, s *store.Store, query string, limit i
 	if err != nil {
 		return nil, err
 	}
-	titles := make(map[int64]string, len(notes))
+	refs := make(map[int64]store.NoteRef, len(notes))
 	for _, n := range notes {
-		titles[n.NoteID] = n.Title
+		refs[n.NoteID] = n
 	}
 	paths, err := scanSearchFiles(cfg)
 	if err != nil {
@@ -362,7 +362,7 @@ func bodySearchResults(cfg *config.Config, s *store.Store, query string, limit i
 	var out []store.SearchResult
 	for _, path := range paths {
 		id, err := note.IDFromPath(path)
-		title, indexed := titles[id]
+		ref, indexed := refs[id]
 		if err != nil || !indexed || skip[id] {
 			continue
 		}
@@ -376,11 +376,12 @@ func bodySearchResults(cfg *config.Config, s *store.Store, query string, limit i
 			continue
 		}
 		out = append(out, store.SearchResult{
-			NoteID:  id,
-			Path:    cfg.NotePath(id),
-			Title:   title,
-			Line:    line,
-			Snippet: snippet,
+			NoteID:   id,
+			FileKind: ref.FileKind,
+			Path:     cfg.PathForKind(ref.FileKind, id),
+			Title:    ref.Title,
+			Line:     line,
+			Snippet:  snippet,
 		})
 		if len(out) >= limit {
 			break
@@ -391,26 +392,28 @@ func bodySearchResults(cfg *config.Config, s *store.Store, query string, limit i
 
 func scanSearchFiles(cfg *config.Config) ([]string, error) {
 	var out []string
-	err := filepath.WalkDir(cfg.VaultDir, func(path string, d os.DirEntry, err error) error {
-		if err != nil {
-			if d == nil {
+	for _, root := range []string{cfg.NoteDir(), cfg.JournalDir()} {
+		err := filepath.WalkDir(root, func(path string, d os.DirEntry, err error) error {
+			if err != nil {
+				if d == nil {
+					return nil
+				}
+				return err
+			}
+			if d.IsDir() {
+				if path != root {
+					return filepath.SkipDir
+				}
 				return nil
 			}
-			return err
-		}
-		if d.IsDir() {
-			if strings.HasPrefix(d.Name(), ".") && path != cfg.VaultDir {
-				return filepath.SkipDir
+			if slices.Contains(cfg.Extensions, filepath.Ext(path)) {
+				out = append(out, path)
 			}
 			return nil
+		})
+		if err != nil {
+			return nil, err
 		}
-		if slices.Contains(cfg.Extensions, filepath.Ext(path)) {
-			out = append(out, path)
-		}
-		return nil
-	})
-	if err != nil {
-		return nil, err
 	}
 	slices.Sort(out)
 	return out, nil

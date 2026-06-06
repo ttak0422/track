@@ -25,7 +25,8 @@ marked `Reject`.
   sidecar files.
 - Note IDs: managed by a single fixed unique rule, not user-configurable slugs or
   policies.
-- Subdirectories: notes stay flat; no notes subdirectory or placement rules.
+- Placement: files live in fixed kind directories (`note/`, `journal/`, `template/`);
+  paths are derived from kind plus id, not stored in the cache.
 
 ## Recently Shipped
 
@@ -69,7 +70,7 @@ For each item, answer:
 | Tags | Tag completion and tag references | TBD | Depends on tag indexing. Could use LSP completion after `#` and `textDocument/references`. |
 | Note creation | Configurable note IDs/slugs | Reject | Decided out of scope. Note IDs are managed by a single fixed unique rule, not user-configurable. |
 | Note creation | Unique note command and unique link insertion | Reject | Decided out of scope. IDs follow one unique rule by default; no configurable uniqueness policy. |
-| Note creation | Notes subdirectory / placement rules | Reject | Decided out of scope. Notes stay flat; no subdirectories or placement rules. |
+| Note creation | Typed file directories | Done | Files live under fixed kind directories (`note/`, `journal/`, `template/`) so path = kind + id. |
 | Templates | Insert template into current note | TBD | Neovim command can read template files; engine support needed for substitutions if shared. |
 | Templates | Create note from template | TBD | Extend `new` / LSP create-note command with template selection or name. |
 | Templates | Template substitutions | TBD | Track-native variables: id, title, date, time, path. Custom Lua substitutions are Neovim-specific. |
