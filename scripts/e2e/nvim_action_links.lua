@@ -24,13 +24,13 @@ end
 
 local vault = vim.env.TRACK_VAULT
 assert_true(vault and vault ~= "", "TRACK_VAULT is required")
+assert_true(vim.fn.isdirectory(vault .. "/note") == 0, "initial vault should not have note dir")
+assert_true(vim.fn.isdirectory(vault .. "/journal") == 0, "initial vault should not have journal dir")
 
-vim.fn.mkdir(vault .. "/note", "p")
-vim.fn.mkdir(vault .. "/journal", "p")
-
+vim.cmd.enew()
 local seed = vault .. "/note/100.md"
-vim.fn.writefile({ "# Seed", "", "[x](<" }, seed)
-vim.cmd.edit(vim.fn.fnameescape(seed))
+vim.api.nvim_buf_set_name(0, seed)
+vim.api.nvim_buf_set_lines(0, 0, -1, false, { "# Seed", "", "[x](<" })
 vim.bo.filetype = "markdown"
 
 local bufnr = vim.api.nvim_get_current_buf()
@@ -71,16 +71,29 @@ local date_value, journal_value = parsed.params.title:match("^([^/]+)/([^/]+)$")
 assert_true(date_value == journal_value, "{{date}} and {{journal}} should match: " .. tostring(parsed.params.title))
 assert_true(date_value:match("^%d%d%d%d%d%d%d%d$") ~= nil, "date placeholder should be yyyyMMdd: " .. tostring(date_value))
 
+local action_vault = vim.fn.tempname()
+local action_cache = vim.fn.tempname()
+local config = require("track.config")
+config.options.vault_dir = action_vault
+config.options.cache_dir = action_cache
+vim.env.TRACK_VAULT = action_vault
+vim.env.TRACK_CACHE_DIR = action_cache
+assert_true(vim.fn.isdirectory(action_vault .. "/note") == 0, "fresh action vault should not have note dir")
+assert_true(vim.fn.isdirectory(action_vault .. "/journal") == 0, "fresh action vault should not have journal dir")
+
 require("track.action").run("note?title={{date}} E2E")
 local today = os.date("%Y%m%d")
+assert_true(vim.fn.isdirectory(action_vault .. "/note") == 1, "note action should create note dir")
 assert_true(vim.api.nvim_buf_get_name(0):match("/note/%d+%.md$") ~= nil, "note action did not open a note file")
 local note_title = vim.api.nvim_buf_get_lines(0, 0, 1, false)[1]
 assert_true(note_title == "# " .. today .. " E2E", "note action created unexpected title: " .. tostring(note_title))
 
+assert_true(vim.fn.isdirectory(action_vault .. "/journal") == 0, "journal dir should not exist before journal action")
 require("track.action").run("journal?offset=0")
+assert_true(vim.fn.isdirectory(action_vault .. "/journal") == 1, "journal action should create journal dir")
 assert_true(vim.api.nvim_buf_get_name(0):sub(-#("/journal/" .. today .. ".md")) == "/journal/" .. today .. ".md", "journal action did not open today's journal")
 local journal_title = vim.api.nvim_buf_get_lines(0, 0, 1, false)[1]
 assert_true(journal_title == "# " .. today, "journal action created unexpected title: " .. tostring(journal_title))
 
 print("track-e2e: PASS nvim action links")
-vim.cmd("qa")
+vim.cmd("qa!")
