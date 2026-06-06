@@ -169,6 +169,28 @@ function M.setup()
       require("track.journal").open(tonumber(opts.args) or 0)
    end, { nargs = "?", desc = "Open the journal note at a day offset (default 0)" })
 
+   register("reindex", function()
+      vim.ui.select({ "Rebuild index", "Cancel" }, { prompt = "Rebuild track index from note files?" }, function(choice)
+         if choice ~= "Rebuild index" then
+            return
+         end
+         local data, err = client.run_json({ "reindex", "--full" })
+         if not data then
+            vim.notify("track: " .. tostring(err), vim.log.levels.ERROR)
+            return
+         end
+         vim.notify(
+            string.format(
+               "track: reindexed %d notes, deleted %d stale rows, %d links",
+               data.indexed or 0,
+               data.deleted or 0,
+               data.links or 0
+            ),
+            vim.log.levels.INFO
+         )
+      end)
+   end, { desc = "Rebuild the track SQLite index after confirmation" })
+
    register("keywords", function()
       local data, err = client.run_json({ "keywords" })
       if not data then

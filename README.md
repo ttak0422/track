@@ -115,6 +115,7 @@ Commands:
 :Track yesterday
 :Track tomorrow
 :Track journal [n]     " journal note at day offset n
+:Track reindex         " rebuild the SQLite index after confirmation
 :Track keywords        " list the link keyword dictionary
 :Track dump            " diagnostic state dump
 ```
