@@ -78,6 +78,33 @@ Examples:
 [今日の会議ノート](<open?template=meeting&title={{date}} Project MTG>)
 ```
 
+Example meeting note:
+
+```markdown
+# Project MTG
+
+[今日の会議ノート](<open?template=project-mtg&title={{date}} Project MTG>)
+```
+
+Example template:
+
+```markdown
+<!-- track-template
+name: project-mtg
+-->
+# {{ title }}
+
+date: {{ date }}
+
+## Agenda
+
+## Notes
+
+## Actions
+```
+
+Following the link on 2026-06-06 creates or opens a regular note titled `2026-06-06 Project MTG` from the `project-mtg` template.
+
 Current actions:
 
 - `<journal?template=<name>&offset=<n>>`: open or create the journal note at day offset `n`; `template` is used only when creating.
