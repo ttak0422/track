@@ -706,18 +706,22 @@ func TestActionCompletion(t *testing.T) {
 	}
 	uri := uriFromPath(filepath.Join(vault, "note", "200.md"))
 
-	srv.docs[uri] = "[x](<jo"
-	actions, err := srv.completion(uri, newPosition(0, len("[x](<jo")))
+	srv.docs[uri] = "[x](<"
+	actions, err := srv.completion(uri, newPosition(0, len("[x](<")))
 	if err != nil {
 		t.Fatalf("completion: %v", err)
 	}
 	journal := completionItemByLabel(actions, "journal")
-	if edit := completionEdit(journal); journal == nil || edit == nil || edit.NewText != "journal" {
+	if edit := completionEdit(journal); journal == nil || edit == nil || edit.NewText != "journal?offset=0" {
 		t.Fatalf("expected journal action completion, got %+v edit=%+v", journal, edit)
 	}
+	note := completionItemByLabel(actions, "note")
+	if edit := completionEdit(note); note == nil || edit == nil || edit.NewText != "note?title={{date}} " {
+		t.Fatalf("expected note action completion, got %+v edit=%+v", note, edit)
+	}
 
-	srv.docs[uri] = "[x](<open?ti"
-	params, err := srv.completion(uri, newPosition(0, len("[x](<open?ti")))
+	srv.docs[uri] = "[x](<note?ti"
+	params, err := srv.completion(uri, newPosition(0, len("[x](<note?ti")))
 	if err != nil {
 		t.Fatalf("completion: %v", err)
 	}
@@ -726,8 +730,8 @@ func TestActionCompletion(t *testing.T) {
 		t.Fatalf("expected title parameter completion, got %+v edit=%+v", title, edit)
 	}
 
-	srv.docs[uri] = "[x](<open?title="
-	placeholders, err := srv.completion(uri, newPosition(0, len("[x](<open?title=")))
+	srv.docs[uri] = "[x](<note?title="
+	placeholders, err := srv.completion(uri, newPosition(0, len("[x](<note?title=")))
 	if err != nil {
 		t.Fatalf("completion: %v", err)
 	}
@@ -735,8 +739,8 @@ func TestActionCompletion(t *testing.T) {
 		t.Fatalf("expected title placeholders, got %+v", placeholders)
 	}
 
-	srv.docs[uri] = "[x](<open?template=proj"
-	templates, err := srv.completion(uri, newPosition(0, len("[x](<open?template=proj")))
+	srv.docs[uri] = "[x](<note?template=proj"
+	templates, err := srv.completion(uri, newPosition(0, len("[x](<note?template=proj")))
 	if err != nil {
 		t.Fatalf("completion: %v", err)
 	}
@@ -745,8 +749,8 @@ func TestActionCompletion(t *testing.T) {
 		t.Fatalf("expected template name completion, got %+v edit=%+v", tmpl, edit)
 	}
 
-	srv.docs[uri] = "[x](open?ti"
-	plain, err := srv.completion(uri, newPosition(0, len("[x](open?ti")))
+	srv.docs[uri] = "[x](note?ti"
+	plain, err := srv.completion(uri, newPosition(0, len("[x](note?ti")))
 	if err != nil {
 		t.Fatalf("completion: %v", err)
 	}

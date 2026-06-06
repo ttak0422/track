@@ -22,10 +22,7 @@ type actionCompletionContext struct {
 
 var trackActions = map[string]bool{
 	"journal": true,
-	"new":     true,
 	"note":    true,
-	"open":    true,
-	"today":   true,
 }
 
 func (s *Server) actionCompletion(text string, pos position) ([]completionItem, bool) {
@@ -36,9 +33,8 @@ func (s *Server) actionCompletion(text string, pos position) ([]completionItem, 
 	switch ctx.Mode {
 	case "action":
 		return actionCompletionItems(ctx, []actionCandidate{
-			{Label: "open", Insert: "open?title={{date}} &template=", Doc: "Open or create a regular note from a title."},
-			{Label: "journal", Insert: "journal", Doc: "Open or create a journal note. Add parameters when you need offset, date, or template."},
-			{Label: "today", Insert: "today", Doc: "Open or create today's journal note."},
+			{Label: "note", Insert: "note?title={{date}} ", Doc: "Open or create a regular note. The title parameter is required."},
+			{Label: "journal", Insert: "journal?offset=0", Doc: "Open or create a journal note. The offset parameter is required."},
 		}, protocol.SnippetCompletion), true
 	case "param":
 		return actionCompletionItems(ctx, actionParamCandidates(ctx), protocol.PropertyCompletion), true
@@ -81,12 +77,12 @@ func actionCompletionItems(ctx actionCompletionContext, candidates []actionCandi
 func actionParamCandidates(ctx actionCompletionContext) []actionCandidate {
 	var keys []string
 	switch ctx.Action {
-	case "journal", "today":
-		keys = []string{"template", "offset", "date"}
-	case "open", "new", "note":
+	case "journal":
+		keys = []string{"offset", "template"}
+	case "note":
 		keys = []string{"title", "template"}
 	default:
-		keys = []string{"template"}
+		return nil
 	}
 	out := make([]actionCandidate, 0, len(keys))
 	for _, key := range keys {
@@ -112,8 +108,6 @@ func (s *Server) actionValueCompletions(ctx actionCompletionContext) []completio
 		}
 	case "offset":
 		candidates = []actionCandidate{{Label: "0"}, {Label: "-1"}, {Label: "1"}}
-	case "date":
-		candidates = []actionCandidate{{Label: "today"}, {Label: "yesterday"}, {Label: "tomorrow"}}
 	}
 	return actionCompletionItems(ctx, candidates, protocol.ValueCompletion)
 }

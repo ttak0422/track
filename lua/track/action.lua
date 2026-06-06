@@ -31,27 +31,11 @@ end
 
 local track_actions = {
    journal = true,
-   new = true,
    note = true,
-   open = true,
-   today = true,
 }
 
 local function day_from_params(params)
-   local offset = tonumber(params.offset or "")
-   if params.date == "today" or params.date == nil or params.date == "" then
-      return os.time() + ((offset or 0) * 86400)
-   end
-   if params.date == "yesterday" then
-      return os.time() - 86400
-   end
-   if params.date == "tomorrow" then
-      return os.time() + 86400
-   end
-   local y, m, d = tostring(params.date):match("^(%d%d%d%d)%-(%d%d)%-(%d%d)$")
-   if y then
-      return os.time({ year = tonumber(y), month = tonumber(m), day = tonumber(d), hour = 12 })
-   end
+   local offset = tonumber(params.offset or "") or 0
    return os.time() + ((offset or 0) * 86400)
 end
 
@@ -110,21 +94,24 @@ function M.markdown_link_at_cursor(line, col)
    end
 end
 
-local function run_open(params)
+local function run_note(params)
    local title = vim.trim(params.title or "")
    if title == "" then
-      vim.notify("track: open action requires title", vim.log.levels.ERROR)
+      vim.notify("track: note action requires title", vim.log.levels.ERROR)
       return
    end
    require("track.create").create(title, params.template)
 end
 
 local function run_journal(params)
-   local offset = tonumber(params.offset or "0") or 0
-   if params.date == "yesterday" then
-      offset = -1
-   elseif params.date == "tomorrow" then
-      offset = 1
+   if params.offset == nil or params.offset == "" then
+      vim.notify("track: journal action requires offset", vim.log.levels.ERROR)
+      return
+   end
+   local offset = tonumber(params.offset)
+   if not offset then
+      vim.notify("track: journal action offset must be a number", vim.log.levels.ERROR)
+      return
    end
    require("track.journal").open(offset, params.template)
 end
@@ -136,12 +123,9 @@ function M.run(uri)
    end
 
    local action = parsed.action
-   if action == "open" or action == "new" or action == "note" then
-      run_open(parsed.params)
+   if action == "note" then
+      run_note(parsed.params)
    elseif action == "journal" then
-      run_journal(parsed.params)
-   elseif action == "today" then
-      parsed.params.offset = parsed.params.offset or "0"
       run_journal(parsed.params)
    else
       vim.notify("track: unknown action " .. action, vim.log.levels.ERROR)
