@@ -23,7 +23,14 @@ func cmdReindex(args []string) int {
 		return fail("parse args: %v", err)
 	}
 
-	cfg, s, err := open()
+	cfg, err := config.Load()
+	if err != nil {
+		return fail("%v", err)
+	}
+	if err := store.Reset(cfg.DBPath); err != nil {
+		return fail("reset index db: %v", err)
+	}
+	s, err := store.Open(cfg.DBPath)
 	if err != nil {
 		return fail("%v", err)
 	}

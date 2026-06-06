@@ -191,7 +191,7 @@ Their sidecar metadata files are also removed.
 The vault and cache hold two very different kinds of data:
 
 - `.track/notes/<id>.yaml` are the **authoritative** per-note metadata sidecars. The markdown body only owns the fields it can express (the first H1 owns the title); `aliases`, `tags`, `created`, and Babel block results live *only* in the sidecar and cannot be reconstructed from the `.md` file.
-- The SQLite index under the cache directory is **rebuildable**. The notes on disk are the source of truth; `track reindex --full` regenerates the database from them. Deleting it is safe.
+- The SQLite index under the cache directory is **rebuildable**. The notes on disk are the source of truth; `track reindex --full` deletes the cache database and regenerates it from them. Deleting it is safe.
 
 Deleting `.track/notes/` is therefore irrecoverable data loss for everything except note titles. Treat it like `.git`: keep it under version control and back it up alongside the note bodies.
 

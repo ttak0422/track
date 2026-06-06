@@ -170,8 +170,8 @@ function M.setup()
    end, { nargs = "?", desc = "Open the journal note at a day offset (default 0)" })
 
    register("reindex", function()
-      vim.ui.select({ "Rebuild index", "Cancel" }, { prompt = "Rebuild track index from note files?" }, function(choice)
-         if choice ~= "Rebuild index" then
+      vim.ui.select({ "Delete and rebuild index", "Cancel" }, { prompt = "Delete and rebuild the track index cache?" }, function(choice)
+         if choice ~= "Delete and rebuild index" then
             return
          end
          local data, err = client.run_json({ "reindex", "--full" })
@@ -189,7 +189,7 @@ function M.setup()
             vim.log.levels.INFO
          )
       end)
-   end, { desc = "Rebuild the track SQLite index after confirmation" })
+   end, { desc = "Delete and rebuild the track SQLite index after confirmation" })
 
    register("keywords", function()
       local data, err = client.run_json({ "keywords" })

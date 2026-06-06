@@ -1,6 +1,7 @@
 package cli
 
 import (
+	"database/sql"
 	"encoding/json"
 	"io"
 	"os"
@@ -8,6 +9,8 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+
+	_ "modernc.org/sqlite"
 )
 
 // capture redirects stdout while fn runs and returns what it printed.
@@ -261,6 +264,58 @@ func TestReindexReconcilesMetadataTitleFromBody(t *testing.T) {
 	}
 	if !strings.Contains(string(metaContent), "title: New") {
 		t.Fatalf("expected metadata title to be rewritten, got %q", metaContent)
+	}
+}
+
+func TestReindexResetsLegacyCacheDB(t *testing.T) {
+	vault := t.TempDir()
+	dbPath := filepath.Join(vault, "legacy-index.db")
+	t.Setenv("TRACK_DB", dbPath)
+
+	if err := os.MkdirAll(filepath.Join(vault, "note"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(vault, "note", "100.md"), []byte("# Legacy\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	db, err := sql.Open("sqlite", dbPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := db.Exec(`
+CREATE TABLE notes (
+  id INTEGER PRIMARY KEY,
+  title TEXT NOT NULL DEFAULT '',
+  created TEXT,
+  mtime INTEGER NOT NULL DEFAULT 0
+);
+CREATE TABLE aliases (note_id INTEGER NOT NULL, alias TEXT NOT NULL);
+CREATE TABLE tags (note_id INTEGER NOT NULL, tag TEXT NOT NULL);
+CREATE TABLE links (src_id INTEGER NOT NULL, dst_id INTEGER NOT NULL);
+CREATE VIEW keywords AS SELECT title AS term, id AS note_id, 'title' AS kind FROM notes;
+PRAGMA user_version = 1;
+`); err != nil {
+		db.Close()
+		t.Fatal(err)
+	}
+	db.Close()
+
+	rep, code := runIn(t, vault, "reindex", "--full")
+	if code != 0 {
+		t.Fatalf("reindex should reset legacy db and rebuild: %v", rep)
+	}
+	if rep["indexed"].(float64) != 1 {
+		t.Fatalf("expected one indexed note, got %v", rep)
+	}
+
+	kws, code := runIn(t, vault, "keywords")
+	if code != 0 {
+		t.Fatalf("keywords should work after reset: %v", kws)
+	}
+	list := kws["keywords"].([]any)
+	if len(list) != 1 || list[0].(map[string]any)["term"] != "Legacy" {
+		t.Fatalf("unexpected keywords after reset: %v", list)
 	}
 }
 

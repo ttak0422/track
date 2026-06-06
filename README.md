@@ -115,7 +115,7 @@ Commands:
 :Track yesterday
 :Track tomorrow
 :Track journal [n]     " journal note at day offset n
-:Track reindex         " rebuild the SQLite index after confirmation
+:Track reindex         " delete and rebuild the SQLite index after confirmation
 :Track keywords        " list the link keyword dictionary
 :Track dump            " diagnostic state dump
 ```
@@ -142,7 +142,7 @@ Babel fence info strings are completed over the same LSP source. On an opening f
 
 Note bodies are plain `.md` files, but their metadata (aliases, tags, created date, Babel results) lives in sidecar files under `.track/notes/`.
 That directory is **authoritative** and cannot be rebuilt from the note bodies, so back it up and keep it in version control, just as you would `.git`.
-The SQLite index is a disposable cache outside the vault and can be rebuilt at any time with `track reindex --full`.
+The SQLite index is a disposable cache outside the vault. `track reindex --full` deletes the cache database and rebuilds it from note files and sidecar metadata.
 See [docs/spec/storage.md](docs/spec/storage.md) for details.
 
 ## Development

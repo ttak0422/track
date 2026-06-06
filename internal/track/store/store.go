@@ -45,6 +45,16 @@ func (s *Store) Close() error {
 	return s.db.Close()
 }
 
+// Reset removes the rebuildable SQLite cache files for dbPath.
+func Reset(dbPath string) error {
+	for _, path := range []string{dbPath, dbPath + "-wal", dbPath + "-shm"} {
+		if err := os.Remove(path); err != nil && !os.IsNotExist(err) {
+			return err
+		}
+	}
+	return nil
+}
+
 func (s *Store) ensureSchema() error {
 	var version int
 	if err := s.db.QueryRow("PRAGMA user_version").Scan(&version); err != nil {
