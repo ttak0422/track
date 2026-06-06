@@ -22,6 +22,14 @@ local function query_params(query)
    return params
 end
 
+local function normalize_target(target)
+   target = vim.trim(tostring(target or ""))
+   if target:sub(1, 1) == "<" and target:sub(-1) == ">" then
+      target = vim.trim(target:sub(2, -2))
+   end
+   return target
+end
+
 local function day_from_params(params)
    local offset = tonumber(params.offset or "")
    if params.date == "today" or params.date == nil or params.date == "" then
@@ -56,6 +64,7 @@ local function expand_params(params)
 end
 
 function M.parse_track_uri(uri)
+   uri = normalize_target(uri)
    if type(uri) ~= "string" or not vim.startswith(uri, "track://") then
       return nil
    end
@@ -86,7 +95,7 @@ function M.markdown_link_at_cursor(line, col)
       if col >= start_pos and col <= end_pos then
          return {
             label = label,
-            target = target,
+            target = normalize_target(target),
             start_col = start_pos,
             end_col = end_pos,
          }

@@ -75,7 +75,7 @@ Examples:
 
 ```markdown
 [本日のmtg](track://journal?template=meeting)
-[今日の会議ノート](track://open?template=meeting&title={{date}}%20Project%20MTG)
+[今日の会議ノート](<track://open?template=meeting&title={{date}} Project MTG>)
 ```
 
 Current actions:
@@ -85,7 +85,8 @@ Current actions:
 - `track://open?title=<title>&template=<name>`: open or create a regular note by title; `template` is used only when creating.
 - `track://new?title=<title>&template=<name>` and `track://note?...`: aliases for `open`.
 
-Query values are URL-decoded. `title` can use `{{date}}` (`YYYY-MM-DD`) and `{{journal}}` (`yyyyMMdd`) placeholders, evaluated on the client before calling the CLI.
+Query values are URL-decoded, but percent encoding is not required for spaces. For values that contain spaces, use Markdown's angle-bracket link destination form: `[label](<track://open?title={{date}} Project MTG>)`.
+`title` can use `{{date}}` (`YYYY-MM-DD`) and `{{journal}}` (`yyyyMMdd`) placeholders, evaluated on the client before calling the CLI.
 Track action links cannot run shell commands; executable behavior belongs in templates and will require template trust when implemented.
 
 ## Neovim Behavior
