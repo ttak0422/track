@@ -73,6 +73,8 @@ track dump                            # placeholder state
 track version                         # print the version
 ```
 
+Templates are stored under `template/`, are not indexed as notes, and currently support only safe built-in substitutions. See [docs/spec/templates.md](docs/spec/templates.md).
+
 ## LSP
 
 `track-lsp` is a Go Language Server Protocol frontend over the same engine packages.

@@ -41,6 +41,7 @@ name: daily
 
 The directive names the template for `track template open --name <name>` and `track new/open/journal --template <name>`.
 It is stripped from generated notes. Current substitutions are safe built-ins only: `{{ title }}`, `{{ id }}`, `{{ date }}`, and `{{ kind }}`.
+See [templates.md](templates.md) for the current template behavior.
 
 ## Track Directory
 

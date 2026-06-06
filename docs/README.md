@@ -8,6 +8,7 @@ This directory contains durable project knowledge that should be committed and s
 - `spec/architecture.md`: implementation architecture and package boundaries.
 - `spec/babel.md`: Markdown-first Org Babel compatibility and support matrix.
 - `spec/storage.md`: vault layout, sidecar metadata, and SQLite cache shape.
+- `spec/templates.md`: template file format, substitutions, and creation flows.
 - `spec/links.md`: `[[...]]` link syntax, keyword resolution, and link graph behavior.
 
 ## ADRs
