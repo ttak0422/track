@@ -322,7 +322,9 @@ local function attach(buf)
    attached[buf] = true
 
    start_client(buf)
-   vim.keymap.set("n", "<CR>", vim.lsp.buf.definition, { buffer = buf, desc = "track: follow link under cursor" })
+   vim.keymap.set("n", "<CR>", function()
+      require("track.follow").follow()
+   end, { buffer = buf, desc = "track: follow link under cursor" })
 
    local group = vim.api.nvim_create_augroup(config.options.augroup .. "_lsp_buf_" .. buf, { clear = true })
    vim.api.nvim_create_autocmd("LspAttach", {
