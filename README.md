@@ -155,6 +155,10 @@ go build ./cmd/track ./cmd/track-lsp  # build the Go binaries
 nix build .#track-cli    # build the Go CLI and LSP binaries
 nix build .#track        # build the Neovim plugin (references the CLI)
 nix run .#test-nvim      # launch Neovim with a test vault under /tmp
+
+TRACK_VAULT="$(mktemp -d)" TRACK_CACHE_DIR="$(mktemp -d)" \
+  nix run .#test-nvim -- --headless '+luafile scripts/e2e/nvim_action_links.lua'
+                         # run the Neovim action-link E2E used by CI
 ```
 
 The Nix-built Neovim plugin embeds the store paths of the matching `track` and `track-lsp` binaries, so Nix users do not need to add them to `$PATH` manually.
