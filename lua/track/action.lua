@@ -22,12 +22,11 @@ local function query_params(query)
    return params
 end
 
-local function normalize_target(target)
+local function angle_target(target)
    target = vim.trim(tostring(target or ""))
    if target:sub(1, 1) == "<" and target:sub(-1) == ">" then
-      return vim.trim(target:sub(2, -2)), true
+      return vim.trim(target:sub(2, -2))
    end
-   return target, false
 end
 
 local track_actions = {
@@ -71,21 +70,11 @@ local function expand_params(params)
    return expanded
 end
 
-function M.parse_track_uri(uri)
-   local local_only
-   uri, local_only = normalize_target(uri)
-   if type(uri) ~= "string" then
+function M.parse_action(spec)
+   if type(spec) ~= "string" then
       return nil
    end
-   local rest
-   if vim.startswith(uri, "track://") then
-      rest = uri:sub(#"track://" + 1)
-   elseif local_only then
-      rest = uri
-   else
-      return nil
-   end
-   local before_fragment = rest:match("^([^#]*)")
+   local before_fragment = spec:match("^([^#]*)")
    local head, query = before_fragment:match("^([^?]*)%??(.*)$")
    local action = vim.trim((head or ""):gsub("^/+", ""):gsub("/+$", ""))
    if not track_actions[action] then
@@ -109,12 +98,10 @@ function M.markdown_link_at_cursor(line, col)
          return nil
       end
       if col >= start_pos and col <= end_pos then
-         local normalized, angled = normalize_target(target)
          return {
             label = label,
-            target = normalized,
-            raw_target = target,
-            angled = angled,
+            target = target,
+            action_target = angle_target(target),
             start_col = start_pos,
             end_col = end_pos,
          }
@@ -126,7 +113,7 @@ end
 local function run_open(params)
    local title = vim.trim(params.title or "")
    if title == "" then
-      vim.notify("track: track://open requires title", vim.log.levels.ERROR)
+      vim.notify("track: open action requires title", vim.log.levels.ERROR)
       return
    end
    require("track.create").create(title, params.template)
@@ -143,7 +130,7 @@ local function run_journal(params)
 end
 
 function M.run(uri)
-   local parsed = M.parse_track_uri(uri)
+   local parsed = M.parse_action(uri)
    if not parsed then
       return false
    end
@@ -169,7 +156,10 @@ function M.run_markdown_link_at_cursor()
    if not link then
       return false
    end
-   return M.run(link.raw_target or link.target)
+   if not link.action_target then
+      return false
+   end
+   return M.run(link.action_target)
 end
 
 return M
