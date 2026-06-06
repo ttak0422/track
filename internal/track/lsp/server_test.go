@@ -712,7 +712,7 @@ func TestActionCompletion(t *testing.T) {
 		t.Fatalf("completion: %v", err)
 	}
 	journal := completionItemByLabel(actions, "journal")
-	if edit := completionEdit(journal); journal == nil || edit == nil || edit.NewText != "journal?template=" {
+	if edit := completionEdit(journal); journal == nil || edit == nil || edit.NewText != "journal" {
 		t.Fatalf("expected journal action completion, got %+v edit=%+v", journal, edit)
 	}
 

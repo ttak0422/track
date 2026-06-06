@@ -74,6 +74,7 @@ They remain ordinary Markdown links for other tools.
 Examples:
 
 ```markdown
+[今日のjournal](<today>)
 [本日のmtg](<journal?template=meeting>)
 [今日の会議ノート](<open?template=meeting&title={{date}} Project MTG>)
 ```
@@ -107,8 +108,8 @@ Following the link on 2026-06-06 creates or opens a regular note titled `2026-06
 
 Current actions:
 
-- `<journal?template=<name>&offset=<n>>`: open or create the journal note at day offset `n`; `template` is used only when creating.
-- `<today?template=<name>>`: alias for `journal?offset=0`.
+- `<journal>` or `<journal?offset=<n>&template=<name>>`: open or create the journal note at day offset `n`; `template` is optional and used only when creating.
+- `<today>` or `<today?template=<name>>`: alias for `journal?offset=0`; `template` is optional and used only when creating.
 - `<open?title=<title>&template=<name>>`: open or create a regular note by title; `template` is used only when creating.
 - `<new?title=<title>&template=<name>>` and `<note?...>`: aliases for `open`.
 
@@ -118,7 +119,7 @@ Track action links cannot run shell commands; executable behavior belongs in tem
 
 LSP completion helps build action links:
 
-- after `[label](<`, it offers action snippets such as `open?title={{date}} &template=` and `journal?template=`;
+- after `[label](<`, it offers action snippets such as `open?title={{date}} &template=`, `journal`, and `today`;
 - after `?` or `&`, it offers valid parameter keys for the selected action;
 - after `template=`, it offers template names found under `template/`;
 - after `title=`, it offers `{{date}}` and `{{journal}}`.

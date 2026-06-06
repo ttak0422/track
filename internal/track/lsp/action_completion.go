@@ -37,8 +37,8 @@ func (s *Server) actionCompletion(text string, pos position) ([]completionItem, 
 	case "action":
 		return actionCompletionItems(ctx, []actionCandidate{
 			{Label: "open", Insert: "open?title={{date}} &template=", Doc: "Open or create a regular note from a title."},
-			{Label: "journal", Insert: "journal?template=", Doc: "Open or create a journal note; template is used only when creating."},
-			{Label: "today", Insert: "today?template=", Doc: "Open or create today's journal note."},
+			{Label: "journal", Insert: "journal", Doc: "Open or create a journal note. Add parameters when you need offset, date, or template."},
+			{Label: "today", Insert: "today", Doc: "Open or create today's journal note."},
 		}, protocol.SnippetCompletion), true
 	case "param":
 		return actionCompletionItems(ctx, actionParamCandidates(ctx), protocol.PropertyCompletion), true
