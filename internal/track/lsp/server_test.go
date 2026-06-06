@@ -712,11 +712,11 @@ func TestActionCompletion(t *testing.T) {
 		t.Fatalf("completion: %v", err)
 	}
 	journal := completionItemByLabel(actions, "journal")
-	if edit := completionEdit(journal); journal == nil || edit == nil || edit.NewText != "journal?offset=0" {
+	if edit := completionEdit(journal); journal == nil || edit == nil || edit.NewText != "journal?offset=0>)" || journal.InsertTextFormat == nil || *journal.InsertTextFormat != protocol.SnippetTextFormat {
 		t.Fatalf("expected journal action completion, got %+v edit=%+v", journal, edit)
 	}
 	note := completionItemByLabel(actions, "note")
-	if edit := completionEdit(note); note == nil || edit == nil || edit.NewText != "note?title={{date}} " {
+	if edit := completionEdit(note); note == nil || edit == nil || edit.NewText != "note?title={{date}} $0>)" || note.InsertTextFormat == nil || *note.InsertTextFormat != protocol.SnippetTextFormat {
 		t.Fatalf("expected note action completion, got %+v edit=%+v", note, edit)
 	}
 

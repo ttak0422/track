@@ -117,7 +117,7 @@ Track action links cannot run shell commands; executable behavior belongs in tem
 
 LSP completion helps build action links:
 
-- after `[label](<`, it offers action snippets such as `note?title={{date}} ` and `journal?offset=0`;
+- after `[label](<`, it offers action snippets such as `note?title={{date}} $0>)` and `journal?offset=0>)`, so accepting the completion closes the Markdown link;
 - after `?` or `&`, it offers valid parameter keys for the selected action;
 - after `template=`, it offers template names found under `template/`;
 - after `title=`, it offers `{{date}}` and `{{journal}}`.

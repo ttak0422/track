@@ -25,6 +25,8 @@ var trackActions = map[string]bool{
 	"note":    true,
 }
 
+var actionSnippetFormat = protocol.SnippetTextFormat
+
 func (s *Server) actionCompletion(text string, pos position) ([]completionItem, bool) {
 	ctx, ok := actionCompletionContextAt(text, pos)
 	if !ok {
@@ -33,8 +35,8 @@ func (s *Server) actionCompletion(text string, pos position) ([]completionItem, 
 	switch ctx.Mode {
 	case "action":
 		return actionCompletionItems(ctx, []actionCandidate{
-			{Label: "note", Insert: "note?title={{date}} ", Doc: "Open or create a regular note. The title parameter is required."},
-			{Label: "journal", Insert: "journal?offset=0", Doc: "Open or create a journal note. The offset parameter is required."},
+			{Label: "note", Insert: "note?title={{date}} $0>)", Format: &actionSnippetFormat, Doc: "Open or create a regular note. The title parameter is required."},
+			{Label: "journal", Insert: "journal?offset=0>)", Format: &actionSnippetFormat, Doc: "Open or create a journal note. The offset parameter is required."},
 		}, protocol.SnippetCompletion), true
 	case "param":
 		return actionCompletionItems(ctx, actionParamCandidates(ctx), protocol.PropertyCompletion), true
@@ -47,6 +49,7 @@ func (s *Server) actionCompletion(text string, pos position) ([]completionItem, 
 type actionCandidate struct {
 	Label  string
 	Insert string
+	Format *protocol.InsertTextFormat
 	Doc    string
 }
 
@@ -61,10 +64,13 @@ func actionCompletionItems(ctx actionCompletionContext, candidates []actionCandi
 			insert = candidate.Label
 		}
 		item := completionItem{
-			Label:    candidate.Label,
-			Kind:     kind,
-			Detail:   "track action",
-			TextEdit: plainCompletionTextEdit(ctx.Line, ctx.ReplaceStart, ctx.ReplaceEnd, insert),
+			Label:            candidate.Label,
+			Kind:             kind,
+			Detail:           "track action",
+			InsertText:       candidate.Label,
+			FilterText:       candidate.Label,
+			InsertTextFormat: candidate.Format,
+			TextEdit:         plainCompletionTextEdit(ctx.Line, ctx.ReplaceStart, ctx.ReplaceEnd, insert),
 		}
 		if candidate.Doc != "" {
 			item.Documentation = markdownDocumentation(candidate.Doc)
