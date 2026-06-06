@@ -66,6 +66,28 @@ Markdown is a common format, so an editor may attach `track-lsp` to files that a
 
 This is a server-side guarantee that does not depend on the editor. Editors should still avoid attaching the server to non-note buffers where they can (see Neovim Behavior); the server gate is the backstop, not the only line of defense.
 
+## Markdown Action Links
+
+Markdown links whose target starts with `track://` are interpreted by the Neovim `:Track follow` path as track actions.
+They remain ordinary Markdown links for other tools.
+
+Examples:
+
+```markdown
+[本日のmtg](track://journal?template=meeting)
+[今日の会議ノート](track://open?template=meeting&title={{date}}%20Project%20MTG)
+```
+
+Current actions:
+
+- `track://journal?template=<name>&offset=<n>`: open or create the journal note at day offset `n`; `template` is used only when creating.
+- `track://today?template=<name>`: alias for `track://journal?offset=0`.
+- `track://open?title=<title>&template=<name>`: open or create a regular note by title; `template` is used only when creating.
+- `track://new?title=<title>&template=<name>` and `track://note?...`: aliases for `open`.
+
+Query values are URL-decoded. `title` can use `{{date}}` (`YYYY-MM-DD`) and `{{journal}}` (`yyyyMMdd`) placeholders, evaluated on the client before calling the CLI.
+Track action links cannot run shell commands; executable behavior belongs in templates and will require template trust when implemented.
+
 ## Neovim Behavior
 
 The Neovim frontend starts `track-lsp` and is the only link frontend.

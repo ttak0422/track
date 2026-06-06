@@ -119,6 +119,8 @@ Commands:
 :Track dump            " diagnostic state dump
 ```
 
+Markdown links whose target starts with `track://` are handled as track actions when followed with `:Track follow` / `<CR>`, for example `[本日のmtg](track://journal?template=meeting)`.
+
 The optional [telescope.nvim](https://github.com/nvim-telescope/telescope.nvim) extension provides title and body search pickers:
 
 ```lua

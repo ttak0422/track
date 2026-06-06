@@ -1,9 +1,12 @@
--- Follow the [[...]] link under the cursor.
--- The Go LSP server owns link resolution; follow just asks it to jump to the definition.
+-- Follow a track link under the cursor.
+-- Markdown track:// action links are handled client-side; [[...]] links are resolved by the LSP.
 
 local M = {}
 
 function M.follow()
+   if require("track.action").run_markdown_link_at_cursor() then
+      return
+   end
    vim.lsp.buf.definition()
 end
 
