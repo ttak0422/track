@@ -112,6 +112,27 @@ function M.setup()
       end
    end, { nargs = "*", range = true, desc = "Open or create a track note by title (selection, args, or prompt); existing titles are reused" })
 
+   register("template", function(opts)
+      require("track.template").open(table.concat(opts.fargs, " "))
+   end, { nargs = "*", complete = function(arg_lead)
+      return require("track.template").complete(arg_lead)
+   end, desc = "Open or create a template by name" })
+
+   register("from_template", function(opts)
+      local template = opts.fargs[1] or ""
+      local title = ""
+      if #opts.fargs > 1 then
+         local parts = {}
+         for i = 2, #opts.fargs do
+            parts[#parts + 1] = opts.fargs[i]
+         end
+         title = table.concat(parts, " ")
+      end
+      require("track.template").create_note(template, title)
+   end, { nargs = "*", complete = function(arg_lead)
+      return require("track.template").complete(arg_lead)
+   end, desc = "Create a note from a template" })
+
    register("follow", function()
       require("track.follow").follow()
    end, { desc = "Follow the track link under the cursor" })

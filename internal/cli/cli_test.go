@@ -290,6 +290,99 @@ func TestJournalIdempotent(t *testing.T) {
 	}
 }
 
+func TestTemplateCommands(t *testing.T) {
+	vault := t.TempDir()
+
+	created, code := runIn(t, vault, "template", "new", "--name", "daily", "--id", "700")
+	if code != 0 {
+		t.Fatalf("template new failed: %v", created)
+	}
+	if created["created"] != true || created["name"] != "daily" || created["id"].(float64) != 700 {
+		t.Fatalf("unexpected created template: %v", created)
+	}
+	path := filepath.Join(vault, "template", "700.template.md")
+	if created["path"] != path {
+		t.Fatalf("template path = %v, want %s", created["path"], path)
+	}
+	body, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(body), "name: daily") || !strings.Contains(string(body), "# {{ title }}") {
+		t.Fatalf("unexpected default template body: %q", body)
+	}
+
+	opened, code := runIn(t, vault, "template", "open", "--name", "daily")
+	if code != 0 {
+		t.Fatalf("template open failed: %v", opened)
+	}
+	if opened["created"] != false || opened["path"] != path {
+		t.Fatalf("open should return the existing template: %v", opened)
+	}
+
+	listed, code := runIn(t, vault, "template", "list")
+	if code != 0 {
+		t.Fatalf("template list failed: %v", listed)
+	}
+	templates := listed["templates"].([]any)
+	if len(templates) != 1 || templates[0].(map[string]any)["name"] != "daily" {
+		t.Fatalf("unexpected template list: %v", templates)
+	}
+
+	dupe, code := runIn(t, vault, "template", "new", "--name", "daily")
+	if code != 1 || !strings.Contains(dupe["error"].(string), "already exists") {
+		t.Fatalf("expected duplicate template error, code=%d out=%v", code, dupe)
+	}
+}
+
+func TestCreateFromTemplate(t *testing.T) {
+	vault := t.TempDir()
+	if _, code := runIn(t, vault, "template", "new", "--name", "standard", "--id", "701"); code != 0 {
+		t.Fatalf("template new failed")
+	}
+	templatePath := filepath.Join(vault, "template", "701.template.md")
+	templateBody := "<!-- track-template\nname: standard\n-->\n# {{ title }}\n\nid={{ id }}\ndate={{ date }}\nkind={{ kind }}\n"
+	if err := os.WriteFile(templatePath, []byte(templateBody), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	created, code := runIn(t, vault, "new", "--title", "Templated", "--id", "800", "--template", "standard")
+	if code != 0 {
+		t.Fatalf("new from template failed: %v", created)
+	}
+	noteBody, err := os.ReadFile(filepath.Join(vault, "note", "800.md"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	got := string(noteBody)
+	if strings.Contains(got, "track-template") {
+		t.Fatalf("rendered note should not contain template directive: %q", got)
+	}
+	if !strings.Contains(got, "# Templated") || !strings.Contains(got, "id=800") || !strings.Contains(got, "kind=note") {
+		t.Fatalf("unexpected rendered note: %q", got)
+	}
+
+	journal, code := runIn(t, vault, "journal", "--template", "standard")
+	if code != 0 {
+		t.Fatalf("journal from template failed: %v", journal)
+	}
+	journalBody, err := os.ReadFile(journal["path"].(string))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(journalBody), "kind=journal") {
+		t.Fatalf("unexpected rendered journal: %q", journalBody)
+	}
+
+	search, code := runIn(t, vault, "search", "--query", "standard")
+	if code != 0 {
+		t.Fatalf("search failed: %v", search)
+	}
+	if got := len(search["results"].([]any)); got != 0 {
+		t.Fatalf("templates should not appear in note search, got %v", search["results"])
+	}
+}
+
 func TestSearch(t *testing.T) {
 	vault := t.TempDir()
 	runIn(t, vault, "new", "--title", "Golang notes", "--id", "300")

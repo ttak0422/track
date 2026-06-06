@@ -46,6 +46,7 @@ func cmdNew(args []string) int {
 	fs := flag.NewFlagSet("new", flag.ContinueOnError)
 	title := fs.String("title", "", "note title (also a link keyword)")
 	id := fs.Int64("id", 0, "note id; defaults to current Unix second * 1000 plus a same-second sequence")
+	template := fs.String("template", "", "template name or path")
 	if err := fs.Parse(args); err != nil {
 		return fail("parse args: %v", err)
 	}
@@ -77,7 +78,7 @@ func cmdNew(args []string) int {
 		}
 	}
 
-	res, err := createTitledNote(cfg, s, noteID, t)
+	res, err := createTitledNote(cfg, s, noteID, t, *template)
 	if err != nil {
 		return fail("%v", err)
 	}
@@ -90,6 +91,7 @@ func cmdNew(args []string) int {
 func cmdOpen(args []string) int {
 	fs := flag.NewFlagSet("open", flag.ContinueOnError)
 	title := fs.String("title", "", "note title to open, or create when absent")
+	template := fs.String("template", "", "template name or path used when creating")
 	if err := fs.Parse(args); err != nil {
 		return fail("parse args: %v", err)
 	}
@@ -116,7 +118,7 @@ func cmdOpen(args []string) int {
 	if err != nil {
 		return fail("allocate note id: %v", err)
 	}
-	res, err := createTitledNote(cfg, s, noteID, t)
+	res, err := createTitledNote(cfg, s, noteID, t, *template)
 	if err != nil {
 		return fail("%v", err)
 	}
@@ -126,7 +128,7 @@ func cmdOpen(args []string) int {
 
 // createTitledNote writes a new note titled `title` at `noteID`, indexes it, and returns its summary.
 // It guards against clobbering an existing file so an explicit id collision surfaces as an error.
-func createTitledNote(cfg *config.Config, s *store.Store, noteID int64, title string) (map[string]any, error) {
+func createTitledNote(cfg *config.Config, s *store.Store, noteID int64, title string, template string) (map[string]any, error) {
 	path := cfg.NotePath(noteID)
 	if _, err := os.Stat(path); err == nil {
 		return nil, fmt.Errorf("note already exists: %s", path)
@@ -134,7 +136,21 @@ func createTitledNote(cfg *config.Config, s *store.Store, noteID int64, title st
 	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
 		return nil, fmt.Errorf("create note dir: %v", err)
 	}
-	if err := os.WriteFile(path, []byte("# "+title+"\n"), 0o644); err != nil {
+	body := "# " + title + "\n"
+	if strings.TrimSpace(template) != "" {
+		rendered, err := renderTemplate(cfg, template, title, noteID, config.KindNote, time.Now())
+		if err != nil {
+			return nil, fmt.Errorf("render template: %v", err)
+		}
+		if h1 := note.FirstH1Title(rendered); h1 != title {
+			return nil, fmt.Errorf("rendered template title %q does not match note title %q", h1, title)
+		}
+		body = rendered
+		if !strings.HasSuffix(body, "\n") {
+			body += "\n"
+		}
+	}
+	if err := os.WriteFile(path, []byte(body), 0o644); err != nil {
 		return nil, fmt.Errorf("write note: %v", err)
 	}
 	if err := note.WriteMetadata(
@@ -152,6 +168,7 @@ func createTitledNote(cfg *config.Config, s *store.Store, noteID int64, title st
 func cmdJournal(args []string) int {
 	fs := flag.NewFlagSet("journal", flag.ContinueOnError)
 	offset := fs.Int("offset", 0, "day offset: 0=today, -1=yesterday, 1=tomorrow")
+	template := fs.String("template", "", "template name or path used when creating")
 	if err := fs.Parse(args); err != nil {
 		return fail("parse args: %v", err)
 	}
@@ -176,7 +193,21 @@ func cmdJournal(args []string) int {
 		if err := os.MkdirAll(cfg.JournalDir(), 0o755); err != nil {
 			return fail("create vault dir: %v", err)
 		}
-		if err := os.WriteFile(path, []byte("# "+name+"\n"), 0o644); err != nil {
+		body := "# " + name + "\n"
+		if strings.TrimSpace(*template) != "" {
+			rendered, err := renderTemplate(cfg, *template, name, noteID, config.KindJournal, day)
+			if err != nil {
+				return fail("render template: %v", err)
+			}
+			if h1 := note.FirstH1Title(rendered); h1 != name {
+				return fail("rendered template title %q does not match journal title %q", h1, name)
+			}
+			body = rendered
+			if !strings.HasSuffix(body, "\n") {
+				body += "\n"
+			}
+		}
+		if err := os.WriteFile(path, []byte(body), 0o644); err != nil {
 			return fail("write journal: %v", err)
 		}
 		if err := note.WriteMetadata(

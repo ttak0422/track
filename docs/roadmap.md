@@ -71,9 +71,9 @@ For each item, answer:
 | Note creation | Configurable note IDs/slugs | Reject | Decided out of scope. Note IDs are managed by a single fixed unique rule, not user-configurable. |
 | Note creation | Unique note command and unique link insertion | Reject | Decided out of scope. IDs follow one unique rule by default; no configurable uniqueness policy. |
 | Note creation | Typed file directories | Done | Files live under fixed kind directories (`note/`, `journal/`, `template/`) so path = kind + id. |
-| Templates | Insert template into current note | TBD | Neovim command can read template files; engine support needed for substitutions if shared. |
-| Templates | Create note from template | TBD | Extend `new` / LSP create-note command with template selection or name. |
-| Templates | Template substitutions | TBD | Track-native variables: id, title, date, time, path. Custom Lua substitutions are Neovim-specific. |
+| Templates | Edit template files | Done | `track template open` and `:Track template` open or create template files under `template/`. |
+| Templates | Create note from template | Done | `track new/open/journal --template` and `:Track from_template` render template-backed notes. |
+| Templates | Template substitutions | Partial | Safe built-ins exist for `title`, `id`, `date`, and `kind`; executable substitutions still need validation and trust. |
 | Links | Markdown link support `[label](target.md)` | TBD | Parser/LSP/index work. Decide whether track remains wiki-link-only. |
 | Links | Heading/block links | Done | Shipped heading anchors: `[[note#foo]]`/`[[note##bar]]` where the `#` count is the Markdown heading level; first matching heading wins (ADR 0009). Definition jumps to the heading and completion offers headings after `#`. Block-level anchors (Obsidian `#^`) remain out of scope. |
 | Links | URI and attachment links | TBD | Decide whether to delegate to `gx`/`vim.ui.open` or integrate into LSP definition. |

@@ -30,6 +30,18 @@ A file path is derived from its kind and id, so paths are not stored in the SQLi
 
 Templates are not notes and must not appear in note search or link resolution. When template expansion gains executable substitutions, track will validate the template content and require a first-use trust step keyed by the template content hash, similar to `mise trust`.
 
+Template files begin with a template directive and then contain the markdown body to render:
+
+```markdown
+<!-- track-template
+name: daily
+-->
+# {{ title }}
+```
+
+The directive names the template for `track template open --name <name>` and `track new/open/journal --template <name>`.
+It is stripped from generated notes. Current substitutions are safe built-ins only: `{{ title }}`, `{{ id }}`, `{{ date }}`, and `{{ kind }}`.
+
 ## Track Directory
 
 Authoritative track-owned vault data lives under:

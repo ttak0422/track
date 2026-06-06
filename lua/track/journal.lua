@@ -6,8 +6,13 @@ local client = require("track.client")
 local M = {}
 
 -- open opens (creating if needed) the journal note `offset` days from today (0 = today, -1 = yesterday, 1 = tomorrow).
-function M.open(offset)
-   local data, err = client.run_json({ "journal", "--offset", tostring(offset or 0) })
+function M.open(offset, template)
+   local args = { "journal", "--offset", tostring(offset or 0) }
+   template = vim.trim(template or "")
+   if template ~= "" then
+      vim.list_extend(args, { "--template", template })
+   end
+   local data, err = client.run_json(args)
    if not data then
       vim.notify("track: " .. tostring(err), vim.log.levels.ERROR)
       return

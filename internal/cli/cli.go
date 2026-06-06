@@ -45,6 +45,8 @@ func Run(args []string) int {
 		return cmdSearch(rest)
 	case "backlinks":
 		return cmdBacklinks(rest)
+	case "template":
+		return cmdTemplate(rest)
 	case "babel":
 		return cmdBabel(rest)
 	default:
@@ -58,15 +60,22 @@ func usage() {
 	fmt.Fprint(os.Stderr, `track - note tool
 
 Usage:
-  track new --title <t> [--id <id>]     create a note (fails if the title exists)
-  track open --title <t>                open the note with this title, creating it if absent
-  track journal [--offset <n>]          open/create a daily note
+  track new --title <t> [--id <id>] [--template <s>]
+                                        create a note (fails if the title exists)
+  track open --title <t> [--template <s>]
+                                        open the note with this title, creating it if absent
+  track journal [--offset <n>] [--template <s>]
+                                        open/create a daily note
   track reindex [--full]                rebuild the index
   track keywords                        dump the auto-link dictionary (JSON)
   track resolve --term <s>              resolve a keyword to a note (JSON)
   track search --query <s> [--scope all|title|body] [--limit N]
                                         search notes (JSON)
   track backlinks (--id N | --path P)   list backlinks (JSON)
+  track template new --name <s> [--id N]
+                                        create a template (JSON)
+  track template open --name <s>         open or create a template (JSON)
+  track template list                    list templates (JSON)
   track babel exec (--id N | --path P) [--name S | --ordinal N] [--yes]
                                         run a source block (JSON)
   track babel restore (--id N | --path P)

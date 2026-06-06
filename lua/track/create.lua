@@ -9,14 +9,19 @@ local M = {}
 -- note triggers a full reindex so other notes' inbound links to the new title are picked up; opening
 -- an existing note needs none. The LSP server reloads the keyword dictionary per request, so no
 -- client-side cache refresh is needed.
-function M.create(title)
+function M.create(title, template)
    title = vim.trim(title or "")
    if title == "" then
       vim.notify("track: empty title", vim.log.levels.WARN)
       return
    end
 
-   local data, err = client.run_json({ "open", "--title", title })
+   local args = { "open", "--title", title }
+   template = vim.trim(template or "")
+   if template ~= "" then
+      vim.list_extend(args, { "--template", template })
+   end
+   local data, err = client.run_json(args)
    if not data then
       vim.notify("track: " .. tostring(err), vim.log.levels.ERROR)
       return

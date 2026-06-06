@@ -49,15 +49,22 @@ The vault must be set explicitly with `$TRACK_VAULT`; the rebuildable index db d
 The Neovim frontend sets `TRACK_CACHE_DIR` to `vim.fn.stdpath("cache") .. "/track"`.
 
 ```sh
-track new --title <t> [--id <id>]     # create a note (fails if the title exists)
-track open --title <t>                # open the note with this title, creating it if absent
-track journal [--offset <n>]          # open/create a daily note (0=today)
+track new --title <t> [--id <id>] [--template <s>]
+                                      # create a note (fails if the title exists)
+track open --title <t> [--template <s>]
+                                      # open the note with this title, creating it if absent
+track journal [--offset <n>] [--template <s>]
+                                      # open/create a daily note (0=today)
 track reindex [--full]                # rebuild the index
 track keywords                        # dump the link keyword dictionary
 track resolve --term <s>              # resolve a keyword to a note
 track search --query <s> [--scope all|title|body] [--limit N]
                                       # search notes
 track backlinks (--id N | --path P)   # list backlinks
+track template new --name <s> [--id N]
+                                      # create a template under template/
+track template open --name <s>        # open or create a template
+track template list                   # list templates
 track babel exec (--id N | --path P) [--name S|--ordinal N] [--yes]
                                       # run a fenced source block (see docs/spec/babel.md)
 track babel restore (--id N | --path P)
@@ -94,6 +101,9 @@ Commands:
 
 ```vim
 :Track open [title]    " open or create a note by title (visual selection / args / prompt-with-cword); existing titles are reused
+:Track template [name] " open or create a template for editing
+:Track from_template [template] [title]
+                       " create a note from a template; prompts when omitted
 :Track follow          " follow the [[...]] link under the cursor (also mapped to <CR>)
 :Track backlinks       " show notes that link to the current note in quickfix
 :Track babel_exec      " run the source block under the cursor; result shows below it
