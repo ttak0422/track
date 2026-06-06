@@ -25,10 +25,18 @@ end
 local function normalize_target(target)
    target = vim.trim(tostring(target or ""))
    if target:sub(1, 1) == "<" and target:sub(-1) == ">" then
-      target = vim.trim(target:sub(2, -2))
+      return vim.trim(target:sub(2, -2)), true
    end
-   return target
+   return target, false
 end
+
+local track_actions = {
+   journal = true,
+   new = true,
+   note = true,
+   open = true,
+   today = true,
+}
 
 local function day_from_params(params)
    local offset = tonumber(params.offset or "")
@@ -64,15 +72,23 @@ local function expand_params(params)
 end
 
 function M.parse_track_uri(uri)
-   uri = normalize_target(uri)
-   if type(uri) ~= "string" or not vim.startswith(uri, "track://") then
+   local local_only
+   uri, local_only = normalize_target(uri)
+   if type(uri) ~= "string" then
       return nil
    end
-   local rest = uri:sub(#"track://" + 1)
+   local rest
+   if vim.startswith(uri, "track://") then
+      rest = uri:sub(#"track://" + 1)
+   elseif local_only then
+      rest = uri
+   else
+      return nil
+   end
    local before_fragment = rest:match("^([^#]*)")
    local head, query = before_fragment:match("^([^?]*)%??(.*)$")
    local action = vim.trim((head or ""):gsub("^/+", ""):gsub("/+$", ""))
-   if action == "" then
+   if not track_actions[action] then
       return nil
    end
    return {
@@ -93,9 +109,12 @@ function M.markdown_link_at_cursor(line, col)
          return nil
       end
       if col >= start_pos and col <= end_pos then
+         local normalized, angled = normalize_target(target)
          return {
             label = label,
-            target = normalize_target(target),
+            target = normalized,
+            raw_target = target,
+            angled = angled,
             start_col = start_pos,
             end_col = end_pos,
          }
@@ -150,7 +169,7 @@ function M.run_markdown_link_at_cursor()
    if not link then
       return false
    end
-   return M.run(link.target)
+   return M.run(link.raw_target or link.target)
 end
 
 return M

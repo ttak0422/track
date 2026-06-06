@@ -69,23 +69,24 @@ This is a server-side guarantee that does not depend on the editor. Editors shou
 ## Markdown Action Links
 
 Markdown links whose target starts with `track://` are interpreted by the Neovim `:Track follow` path as track actions.
+When the link destination uses Markdown's `<...>` form, the `track://` scheme may be omitted.
 They remain ordinary Markdown links for other tools.
 
 Examples:
 
 ```markdown
-[本日のmtg](track://journal?template=meeting)
-[今日の会議ノート](<track://open?template=meeting&title={{date}} Project MTG>)
+[本日のmtg](<journal?template=meeting>)
+[今日の会議ノート](<open?template=meeting&title={{date}} Project MTG>)
 ```
 
 Current actions:
 
-- `track://journal?template=<name>&offset=<n>`: open or create the journal note at day offset `n`; `template` is used only when creating.
-- `track://today?template=<name>`: alias for `track://journal?offset=0`.
-- `track://open?title=<title>&template=<name>`: open or create a regular note by title; `template` is used only when creating.
-- `track://new?title=<title>&template=<name>` and `track://note?...`: aliases for `open`.
+- `<journal?template=<name>&offset=<n>>` or `track://journal?...`: open or create the journal note at day offset `n`; `template` is used only when creating.
+- `<today?template=<name>>` or `track://today?...`: alias for `journal?offset=0`.
+- `<open?title=<title>&template=<name>>` or `track://open?...`: open or create a regular note by title; `template` is used only when creating.
+- `<new?title=<title>&template=<name>>` and `<note?...>`: aliases for `open`.
 
-Query values are URL-decoded, but percent encoding is not required for spaces. For values that contain spaces, use Markdown's angle-bracket link destination form: `[label](<track://open?title={{date}} Project MTG>)`.
+Query values are URL-decoded, but percent encoding is not required for spaces. For values that contain spaces, use Markdown's angle-bracket link destination form: `[label](<open?title={{date}} Project MTG>)`.
 `title` can use `{{date}}` (`YYYY-MM-DD`) and `{{journal}}` (`yyyyMMdd`) placeholders, evaluated on the client before calling the CLI.
 Track action links cannot run shell commands; executable behavior belongs in templates and will require template trust when implemented.
 
