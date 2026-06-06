@@ -112,7 +112,7 @@ Current actions:
 - `<note?title=<title>&template=<name>>`: open or create a regular note by title. `title` is required; `template` is optional and used only when creating.
 
 Query values are URL-decoded, but percent encoding is not required for spaces because action links always use Markdown's angle-bracket destination form: `[label](<note?title={{date}} Project MTG>)`.
-`title` can use `{{date}}` (`YYYY-MM-DD`) and `{{journal}}` (`yyyyMMdd`) placeholders, evaluated on the client before calling the CLI.
+`title` can use `{{date}}` and `{{journal}}` placeholders, both formatted as `yyyyMMdd` and evaluated on the client before calling the CLI.
 Track action links cannot run shell commands; executable behavior belongs in templates and will require template trust when implemented.
 
 LSP completion helps build action links:

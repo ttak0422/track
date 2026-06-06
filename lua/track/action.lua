@@ -42,7 +42,7 @@ end
 local function expand_params(params)
    local day = day_from_params(params)
    local values = {
-      date = os.date("%Y-%m-%d", day),
+      date = os.date("%Y%m%d", day),
       journal = os.date("%Y%m%d", day),
    }
    local expanded = {}
