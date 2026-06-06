@@ -86,6 +86,19 @@ local function open_selection(telescope, prompt_bufnr)
    end
 end
 
+local function make_template_entry(template)
+   local name = template.name or ("#" .. tostring(template.id or "?"))
+   local path = template.path or ""
+   return {
+      value = template,
+      display = name,
+      ordinal = name,
+      path = path,
+      filename = path,
+      lnum = 1,
+   }
+end
+
 local function pick(scope, opts)
    opts = opts or {}
    local telescope = load_telescope()
@@ -134,6 +147,41 @@ end
 
 function M.search_body(opts)
    pick("body", opts)
+end
+
+function M.search_templates(opts)
+   opts = opts or {}
+   local telescope = load_telescope()
+   if not telescope then
+      return
+   end
+
+   local data, err = client.run_json({ "template", "list" })
+   if not data then
+      vim.notify("track: " .. tostring(err), vim.log.levels.ERROR)
+      return
+   end
+   local picker_opts = vim.tbl_extend("force", opts, {
+      default_text = opts.default_text or opts.query,
+   })
+
+   telescope.pickers
+      .new(picker_opts, {
+         prompt_title = "Track templates",
+         finder = telescope.finders.new_table({
+            results = data.templates or {},
+            entry_maker = make_template_entry,
+         }),
+         sorter = telescope.conf.generic_sorter(picker_opts),
+         previewer = telescope.conf.file_previewer(picker_opts),
+         attach_mappings = function(prompt_bufnr)
+            telescope.actions.select_default:replace(function()
+               open_selection(telescope, prompt_bufnr)
+            end)
+            return true
+         end,
+      })
+      :find()
 end
 
 return M

@@ -805,6 +805,29 @@ func TestBabelCompletionHeaderKeys(t *testing.T) {
 	}
 }
 
+func TestBabelCompletionVisibleLinesHeader(t *testing.T) {
+	srv, vault := setupServer(t)
+	uri := uriFromPath(filepath.Join(vault, "note", "200.md"))
+	srv.docs[uri] = "```c :visible"
+
+	items, err := srv.completion(uri, newPosition(0, len("```c :visible")))
+	if err != nil {
+		t.Fatalf("completion: %v", err)
+	}
+	item := completionItemByLabel(items, ":visible-lines")
+	if item == nil {
+		t.Fatalf("expected :visible-lines header completion, got %+v", items)
+	}
+	edit := completionEdit(item)
+	if edit == nil || edit.NewText != ":visible-lines " {
+		t.Fatalf("unexpected :visible-lines text edit: %+v", edit)
+	}
+	doc := completionDocumentation(item)
+	if !strings.Contains(doc, "execution still uses the full source block") {
+		t.Fatalf("expected :visible-lines documentation, got %q", doc)
+	}
+}
+
 func TestBabelCompletionHeaderKeysAtColon(t *testing.T) {
 	srv, vault := setupServer(t)
 	uri := uriFromPath(filepath.Join(vault, "note", "200.md"))

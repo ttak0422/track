@@ -35,6 +35,21 @@ Execution results should not be inserted into the Markdown body. They belong in 
 
 In Neovim, results render as virtual lines just below the block's closing fence, so the buffer text is unchanged and multi-line output is shown without editing the note. The stored result persists in the sidecar across sessions.
 
+Source display can also be narrowed without changing execution. `:visible-lines` is a track-specific, editor-only header argument that hides source block body lines outside the listed 1-based line ranges:
+
+````markdown
+```c :visible-lines 4-5
+#include <stdio.h>
+
+int main(void) {
+    printf("hello\n");
+    return 0;
+}
+```
+````
+
+The block above still executes with the full C source. The Neovim frontend only conceals body lines not listed by `:visible-lines`; fence lines remain visible, and the cursor row is revealed for editing. Supported range syntax is a comma-separated list such as `4`, `4-5`, or `4-5,8`.
+
 ## Proposed Metadata Shape
 
 The current metadata schema is version 1. Babel support should require a future metadata version because result storage adds new durable fields.
@@ -79,6 +94,7 @@ When a source block omits a Babel header argument, track uses these defaults:
 | `:exports` | `code` for future export semantics | Parsed as metadata only; track has no exporter yet. |
 | `:noweb` | `no` | Do not expand `<<name>>` references. |
 | `:tangle` | `no` | Do not write source blocks to output files. |
+| `:visible-lines` | none | Track-specific Neovim display hint. Execution and stored block bodies still use the full source. |
 
 These defaults are intentionally close to Org Babel where practical, but track stores results outside the Markdown body and only executes blocks in response to an explicit user command.
 
@@ -150,6 +166,7 @@ These defaults are intentionally close to Org Babel where practical, but track s
 | `:tangle-mode <mode>` | Same token | Later | Only meaningful with tangling; needs permission validation. |
 | `:no-expand` | Same token | Later | Only meaningful when tangling/noweb expansion exists. |
 | `:file`, `:output-dir`, `:file-ext`, `:file-desc`, `:file-mode`, `:sep` | Same tokens | Later | File artifact handling should be designed as a separate storage policy. |
+| Track source display | `:visible-lines 4-5,8` | Yes | Track-specific editor display hint. Org Babel has no generic header for showing only selected source lines; Obsidian has similar behavior through plugins such as Codeblock Customizer rather than a Markdown standard. |
 
 ## Initial Implementation Set
 
@@ -158,7 +175,7 @@ Start with execution of ordinary fenced code blocks:
 - Parse fenced code blocks in Markdown notes.
 - Read language from the first info-string token.
 - Read block args from Org-style `:<key> <value>` tokens in the rest of the info string.
-- Support `:name`, `:results output`, `:results verbatim`, `:results replace`, `:results silent`, `:results none`, `:results discard`, `:eval yes/no/query`, `:cache yes/no`, `:var` literal values, `:session none`, `:dir`, `:exports` as parsed metadata, `:noweb no`, and `:tangle no`.
+- Support `:name`, `:results output`, `:results verbatim`, `:results replace`, `:results silent`, `:results none`, `:results discard`, `:eval yes/no/query`, `:cache yes/no`, `:var` literal values, `:session none`, `:dir`, `:exports` as parsed metadata, `:noweb no`, `:tangle no`, and `:visible-lines` as an editor-only display hint.
 - Complete configured languages, supported header keys, and fixed header values in fence info strings through LSP completion; `:` starts header-key completion, and accepted header keys insert one trailing space before value completion.
 - Store execution result metadata outside the Markdown body.
 - Keep stdout, stderr, exit code, wall-clock timestamps, status, body hash, and normalized header args.

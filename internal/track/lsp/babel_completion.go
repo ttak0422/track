@@ -19,6 +19,7 @@ var babelHeaderKeys = []string{
 	"exports",
 	"noweb",
 	"tangle",
+	"visible-lines",
 }
 
 var babelHeaderValues = map[string][]string{
@@ -32,16 +33,17 @@ var babelHeaderValues = map[string][]string{
 }
 
 var babelHeaderDocs = map[string]string{
-	":name":    "Names the source block for stable result lookup, future calls, and noweb references. Names should be unique within a note.",
-	":results": "Controls how execution results are captured and stored in sidecar metadata instead of mutating the Markdown body.",
-	":eval":    "Controls whether the block may execute: `yes` allows execution, `no` prevents execution, and `query` asks before running.",
-	":cache":   "Controls result reuse with a cache key based on the block body, normalized header arguments, and variable references.",
-	":var":     "Defines literal input variables such as `x=1`; values are normalized into block metadata.",
-	":session": "Controls interpreter session behavior. `none` runs without a long-lived session; named sessions are reserved for later support.",
-	":dir":     "Sets the execution working directory. Relative paths resolve from the note directory or vault and are restricted to allowed roots.",
-	":exports": "Records export intent for future compatibility. Track does not currently provide an exporter.",
-	":noweb":   "Controls expansion of `<<name>>` references. Initial support keeps expansion disabled with `no`.",
-	":tangle":  "Controls writing source blocks to files. Initial support keeps file output disabled with `no`.",
+	":name":          "Names the source block for stable result lookup, future calls, and noweb references. Names should be unique within a note.",
+	":results":       "Controls how execution results are captured and stored in sidecar metadata instead of mutating the Markdown body.",
+	":eval":          "Controls whether the block may execute: `yes` allows execution, `no` prevents execution, and `query` asks before running.",
+	":cache":         "Controls result reuse with a cache key based on the block body, normalized header arguments, and variable references.",
+	":var":           "Defines literal input variables such as `x=1`; values are normalized into block metadata.",
+	":session":       "Controls interpreter session behavior. `none` runs without a long-lived session; named sessions are reserved for later support.",
+	":dir":           "Sets the execution working directory. Relative paths resolve from the note directory or vault and are restricted to allowed roots.",
+	":exports":       "Records export intent for future compatibility. Track does not currently provide an exporter.",
+	":noweb":         "Controls expansion of `<<name>>` references. Initial support keeps expansion disabled with `no`.",
+	":tangle":        "Controls writing source blocks to files. Initial support keeps file output disabled with `no`.",
+	":visible-lines": "Controls editor-only source display. Use 1-based block-body lines such as `4-5` or `4-5,8`; execution still uses the full source block.",
 }
 
 var babelHeaderValueDocs = map[string]map[string]string{

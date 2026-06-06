@@ -8,7 +8,9 @@ local client = require("track.client")
 local M = {}
 
 local ns = vim.api.nvim_create_namespace("track_babel_results")
+local visibility_ns = vim.api.nvim_create_namespace("track_babel_source_visibility")
 local augroup = vim.api.nvim_create_augroup("track_babel_restore", { clear = true })
+local visibility_augroup = vim.api.nvim_create_augroup("track_babel_source_visibility", { clear = true })
 
 -- lines_of splits captured output into display lines, dropping the trailing newline.
 local function lines_of(s)
@@ -53,6 +55,117 @@ local function render_all(buf, blocks)
    vim.api.nvim_buf_clear_namespace(buf, ns, 0, -1)
    for _, block in ipairs(blocks or {}) do
       render(buf, block.end_line, block)
+   end
+end
+
+local function is_fence(line)
+   return vim.trim(line):sub(1, 3) == "```"
+end
+
+local function first_header_value(info, key)
+   local tokens = vim.split(vim.trim(info or ""), "%s+")
+   local active
+   for _, token in ipairs(tokens) do
+      if vim.startswith(token, ":") then
+         active = token:sub(2)
+      elseif active == key then
+         return token
+      end
+   end
+end
+
+local function parse_visible_lines(spec, line_count)
+   spec = vim.trim(spec or "")
+   if spec == "" then
+      return nil
+   end
+   local visible = {}
+   for part in spec:gmatch("[^,]+") do
+      part = vim.trim(part)
+      local first, last = part:match("^(%d+)%-(%d+)$")
+      if first then
+         first = tonumber(first)
+         last = tonumber(last)
+      else
+         first = tonumber(part:match("^(%d+)$"))
+         last = first
+      end
+      if first and last and first <= last then
+         for line = first, last do
+            if line >= 1 and line <= line_count then
+               visible[line] = true
+            end
+         end
+      end
+   end
+   return next(visible) and visible or nil
+end
+
+local function current_cursor_row(buf)
+   local win = vim.api.nvim_get_current_win()
+   if vim.api.nvim_win_get_buf(win) ~= buf then
+      return nil
+   end
+   return vim.api.nvim_win_get_cursor(win)[1] - 1
+end
+
+local function ensure_conceallevel(buf)
+   for _, win in ipairs(vim.fn.win_findbuf(buf)) do
+      local level = vim.api.nvim_get_option_value("conceallevel", { scope = "local", win = win })
+      if level == 0 then
+         vim.api.nvim_set_option_value("conceallevel", 2, { scope = "local", win = win })
+      end
+   end
+end
+
+-- apply_visibility conceals source block body lines outside :visible-lines.
+-- It never changes the buffer text or execution body; the cursor row is revealed so hidden code stays editable.
+function M.apply_visibility(buf)
+   buf = buf or vim.api.nvim_get_current_buf()
+   if not vim.api.nvim_buf_is_valid(buf) then
+      return
+   end
+   vim.api.nvim_buf_clear_namespace(buf, visibility_ns, 0, -1)
+
+   local lines = vim.api.nvim_buf_get_lines(buf, 0, -1, false)
+   local cursor_row = current_cursor_row(buf)
+   local any_hidden = false
+   local i = 1
+   while i <= #lines do
+      if is_fence(lines[i]) then
+         local info = vim.trim(lines[i]):sub(4)
+         local lang = vim.split(vim.trim(info), "%s+")[1] or ""
+         local start_line = i
+         local j = i + 1
+         while j <= #lines and not is_fence(lines[j]) do
+            j = j + 1
+         end
+         if j <= #lines and lang ~= "" then
+            local body_count = j - start_line - 1
+            local visible = parse_visible_lines(first_header_value(info, "visible-lines"), body_count)
+            if visible then
+               for body_line = 1, body_count do
+                  local row = start_line + body_line - 1
+                  if not visible[body_line] and row ~= cursor_row then
+                     vim.api.nvim_buf_set_extmark(buf, visibility_ns, row, 0, {
+                        end_row = row + 1,
+                        end_col = 0,
+                        conceal_lines = "",
+                        priority = 130,
+                     })
+                     any_hidden = true
+                  end
+               end
+            end
+         end
+         i = j + 1
+      else
+         i = i + 1
+      end
+   end
+
+   if any_hidden then
+      ensure_conceallevel(buf)
    end
 end
 
@@ -105,6 +218,7 @@ function M.restore(opts)
    if not vim.api.nvim_buf_is_valid(buf) then
       return
    end
+   M.apply_visibility(buf)
    local path = vim.api.nvim_buf_get_name(buf)
    if path == "" then
       if not opts.silent then
@@ -141,6 +255,16 @@ function M.setup()
          end)
       end,
       desc = "Restore stored track Babel results",
+   })
+   vim.api.nvim_create_autocmd({ "BufReadPost", "BufWritePost", "TextChanged", "TextChangedI", "CursorMoved", "CursorMovedI", "BufEnter", "WinEnter" }, {
+      group = visibility_augroup,
+      pattern = "*.md",
+      callback = function(args)
+         vim.schedule(function()
+            M.apply_visibility(args.buf)
+         end)
+      end,
+      desc = "Apply track Babel source visibility",
    })
 end
 

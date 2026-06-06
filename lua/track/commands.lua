@@ -133,6 +133,10 @@ function M.setup()
       return require("track.template").complete(arg_lead)
    end, desc = "Create a note from a template" })
 
+   register("templates", function()
+      require("track.telescope").search_templates()
+   end, { desc = "Search templates with Telescope and open one for editing" })
+
    register("follow", function()
       require("track.follow").follow()
    end, { desc = "Follow the track link under the cursor" })

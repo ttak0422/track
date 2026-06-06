@@ -106,6 +106,7 @@ Commands:
 :Track template [name] " open or create a template for editing
 :Track from_template [template] [title]
                        " create a note from a template; prompts when omitted
+:Track templates       " search templates with Telescope and open one for editing
 :Track follow          " follow the [[...]] link under the cursor (also mapped to <CR>)
 :Track backlinks       " show notes that link to the current note in quickfix
 :Track babel_exec      " run the source block under the cursor; result shows below it
@@ -128,6 +129,7 @@ The optional [telescope.nvim](https://github.com/nvim-telescope/telescope.nvim) 
 require("telescope").load_extension("track")
 require("telescope").extensions.track.search_title({ query = "Go" })
 require("telescope").extensions.track.search_body(require("telescope.themes").get_dropdown({ query = "TODO" }))
+require("telescope").extensions.track.search_templates()
 ```
 
 The picker uses Telescope's prompt for live searching. `query` seeds the initial prompt text when supplied, and Telescope picker options, including themes, can be passed through the opts table.

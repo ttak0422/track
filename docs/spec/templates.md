@@ -91,11 +91,14 @@ The Neovim frontend exposes:
 ```vim
 :Track template [name]
 :Track from_template [template] [title]
+:Track templates
 ```
 
 `:Track template` opens or creates a template file for editing.
 
 `:Track from_template` creates a regular note from a template. If either the template name or title is omitted, the command prompts through Neovim UI helpers.
+
+`:Track templates` opens a Telescope picker over `track template list`; selecting a template opens its file for editing. The same picker is exported as `require("telescope").extensions.track.search_templates()`.
 
 ## Trust
 
