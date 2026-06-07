@@ -213,3 +213,8 @@ func (c *Config) MetadataDir() string {
 func (c *Config) MetadataPath(id int64) string {
 	return filepath.Join(c.MetadataDir(), strconv.FormatInt(id, 10)+".yaml")
 }
+
+// RenamesPath returns the vault-local title rename history path.
+func (c *Config) RenamesPath() string {
+	return filepath.Join(c.TrackDir(), "renames.yaml")
+}

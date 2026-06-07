@@ -6,6 +6,7 @@ import (
 
 	"github.com/ttak0422/track/internal/track/link"
 	"github.com/ttak0422/track/internal/track/note"
+	trackrename "github.com/ttak0422/track/internal/track/rename"
 	"github.com/ttak0422/track/internal/track/store"
 	protocol "typefox.dev/lsp"
 )
@@ -495,6 +496,9 @@ func (s *Server) codeActions(uri string, rng rangeValue) ([]codeAction, error) {
 			continue
 		}
 		title := ref.Text
+		if action, ok := s.renameRepairAction(uri, text, ref, dict); ok {
+			actions = append(actions, action)
+		}
 		actions = append(actions, codeAction{
 			Title:   fmt.Sprintf("Create note %q", title),
 			Kind:    protocol.QuickFix,
@@ -505,6 +509,48 @@ func (s *Server) codeActions(uri string, rng rangeValue) ([]codeAction, error) {
 		actions = []codeAction{}
 	}
 	return actions, nil
+}
+
+func (s *Server) renameRepairAction(uri string, text string, ref link.Ref, dict map[string]store.Keyword) (codeAction, bool) {
+	entry, ok, err := trackrename.LatestReachable(s.cfg.RenamesPath(), ref.Text, func(title string) bool {
+		_, ok := dict[title]
+		return ok
+	})
+	if err != nil || !ok {
+		return codeAction{}, false
+	}
+	rng, ok := refKeyRange(text, ref)
+	if !ok {
+		return codeAction{}, false
+	}
+	edit := textEdit{
+		Range:   rng,
+		NewText: entry.To,
+	}
+	return codeAction{
+		Title:       fmt.Sprintf("Rewrite link %q to renamed note %q", ref.Text, entry.To),
+		Kind:        protocol.QuickFix,
+		IsPreferred: true,
+		Edit: &workspaceEdit{
+			Changes: map[documentURI][]textEdit{
+				documentURI(uri): {edit},
+			},
+		},
+	}, true
+}
+
+func refKeyRange(text string, ref link.Ref) (rangeValue, bool) {
+	lines := strings.Split(text, "\n")
+	if ref.Line < 0 || ref.Line >= len(lines) || ref.StartByte > ref.EndByte || ref.EndByte > len(lines[ref.Line]) {
+		return rangeValue{}, false
+	}
+	inner := lines[ref.Line][ref.StartByte:ref.EndByte]
+	i := strings.Index(inner, ref.Text)
+	if i < 0 {
+		return rangeValue{}, false
+	}
+	start := ref.StartByte + i
+	return newRange(ref.Line, start, ref.Line, start+len(ref.Text)), true
 }
 
 func rangeTouchesRef(rng rangeValue, ref link.Ref) bool {

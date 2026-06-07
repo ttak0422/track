@@ -11,6 +11,7 @@ import (
 
 	"github.com/ttak0422/track/internal/track/babel"
 	"github.com/ttak0422/track/internal/track/config"
+	trackrename "github.com/ttak0422/track/internal/track/rename"
 )
 
 // Metadata is the structured data stored beside a note under .track/notes.
@@ -77,6 +78,11 @@ func ParseFile(path string, c *config.Config) (*Note, error) {
 
 	dirty := !found && metadataSource
 	if title := FirstH1Title(body); title != "" && meta.Title != title {
+		if meta.Title != "" {
+			if err := trackrename.Append(c.RenamesPath(), trackrename.Entry{From: meta.Title, To: title, NoteID: id}); err != nil {
+				return nil, err
+			}
+		}
 		meta.Title = title
 		dirty = true
 	}

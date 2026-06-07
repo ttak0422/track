@@ -13,6 +13,7 @@ import (
 	"github.com/ttak0422/track/internal/track/babel"
 	"github.com/ttak0422/track/internal/track/config"
 	"github.com/ttak0422/track/internal/track/note"
+	trackrename "github.com/ttak0422/track/internal/track/rename"
 	"github.com/ttak0422/track/internal/track/store"
 	protocol "typefox.dev/lsp"
 )
@@ -1056,6 +1057,53 @@ func TestCodeActionCreatesUnresolvedNote(t *testing.T) {
 	}
 	if len(again) != 0 {
 		t.Fatalf("resolved link should not offer create action, got %+v", again)
+	}
+}
+
+func TestCodeActionRepairsRenamedLink(t *testing.T) {
+	srv, vault := setupServer(t)
+	uri := uriFromPath(filepath.Join(vault, "note", "200.md"))
+	if err := srv.store.UpsertNote(&note.Note{
+		ID:   300,
+		Path: filepath.Join(vault, "note", "300.md"),
+		Meta: note.Metadata{Title: "New"},
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if err := trackrename.Append(srv.cfg.RenamesPath(), trackrename.Entry{From: "Old", To: "Mid", NoteID: 300}); err != nil {
+		t.Fatal(err)
+	}
+	if err := trackrename.Append(srv.cfg.RenamesPath(), trackrename.Entry{From: "Mid", To: "New", NoteID: 300}); err != nil {
+		t.Fatal(err)
+	}
+	srv.docs[uri] = "see [[ Old##Heading | label ]]"
+
+	actions, err := srv.codeActions(uri, rangeValue{
+		Start: position{Line: 0, Character: 8},
+		End:   position{Line: 0, Character: 8},
+	})
+	if err != nil {
+		t.Fatalf("code actions: %v", err)
+	}
+	var repair *codeAction
+	for i := range actions {
+		if actions[i].Edit != nil {
+			repair = &actions[i]
+			break
+		}
+	}
+	if repair == nil {
+		t.Fatalf("expected rename repair action, got %+v", actions)
+	}
+	edits := repair.Edit.Changes[documentURI(uri)]
+	if len(edits) != 1 || edits[0].NewText != "New" {
+		t.Fatalf("unexpected repair edit: %+v", edits)
+	}
+	if edits[0].Range.Start.Character != 7 || edits[0].Range.End.Character != 10 {
+		t.Fatalf("repair should replace only the old note key, got %+v", edits[0].Range)
+	}
+	if !repair.IsPreferred {
+		t.Fatalf("rename repair should be preferred")
 	}
 }
 

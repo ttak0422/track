@@ -115,6 +115,8 @@ If a sidecar is missing, the current parser can still read the legacy trailing `
 The markdown body is authoritative for fields it can express.
 If the first H1 heading and `metadata.title` disagree, parsing or reindexing updates the sidecar title from the body while preserving fields that cannot currently be derived from the body, such as aliases, tags, and created date.
 
+Title changes are also recorded in `.track/renames.yaml` as repair history. Rename history is not a link keyword source: an old title remains available for a new note, and `[[old title]]` does not resolve through the history. LSP code actions may use the history only when an old title is unresolved, offering to rewrite the link to the newest recorded title.
+
 ## SQLite Index
 
 The SQLite index is derived state.
@@ -191,6 +193,7 @@ Their sidecar metadata files are also removed.
 The vault and cache hold two very different kinds of data:
 
 - `.track/notes/<id>.yaml` are the **authoritative** per-note metadata sidecars. The markdown body only owns the fields it can express (the first H1 owns the title); `aliases`, `tags`, `created`, and Babel block results live *only* in the sidecar and cannot be reconstructed from the `.md` file.
+- `.track/renames.yaml` is repair history for manual title edits. It can improve unresolved-link quickfixes, but it is not used for normal link resolution.
 - The SQLite index under the cache directory is **rebuildable**. The notes on disk are the source of truth; `track reindex --full` deletes the cache database and regenerates it from them. Deleting it is safe.
 
 Deleting `.track/notes/` is therefore irrecoverable data loss for everything except note titles. Treat it like `.git`: keep it under version control and back it up alongside the note bodies.

@@ -231,6 +231,13 @@ func TestParseFileReconcilesMetadataTitleFromBody(t *testing.T) {
 	if !reflect.DeepEqual(got, want) {
 		t.Fatalf("reconciled metadata mismatch:\n got %+v\nwant %+v", got, want)
 	}
+	renames, err := os.ReadFile(cfg.RenamesPath())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(renames), "from: sidecar") || !strings.Contains(string(renames), "to: Body") || !strings.Contains(string(renames), "note_id: 1000") {
+		t.Fatalf("expected rename history, got %q", renames)
+	}
 }
 
 func TestParseFileCreatesMetadataFromBodyTitle(t *testing.T) {

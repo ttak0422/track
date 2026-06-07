@@ -31,6 +31,7 @@ type completionList = protocol.CompletionList
 type command = protocol.Command
 type codeAction = protocol.CodeAction
 type diagnostic = protocol.Diagnostic
+type workspaceEdit = protocol.WorkspaceEdit
 type textDocumentIdentifier = protocol.TextDocumentIdentifier
 type textDocumentPositionParams = protocol.TextDocumentPositionParams
 type documentLinkParams = protocol.DocumentLinkParams

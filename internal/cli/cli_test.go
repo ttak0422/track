@@ -265,6 +265,13 @@ func TestReindexReconcilesMetadataTitleFromBody(t *testing.T) {
 	if !strings.Contains(string(metaContent), "title: New") {
 		t.Fatalf("expected metadata title to be rewritten, got %q", metaContent)
 	}
+	renames, err := os.ReadFile(vault + "/.track/renames.yaml")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(renames), "from: Old") || !strings.Contains(string(renames), "to: New") || !strings.Contains(string(renames), "note_id: 100") {
+		t.Fatalf("expected title rename history, got %q", renames)
+	}
 }
 
 func TestReindexResetsLegacyCacheDB(t *testing.T) {
