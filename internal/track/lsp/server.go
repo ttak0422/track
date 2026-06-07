@@ -160,6 +160,7 @@ func (s *Server) handleRequest(msg rpcMessage) rpcMessage {
 				DocumentLinkProvider:   &protocol.DocumentLinkOptions{ResolveProvider: false},
 				CompletionProvider:     &protocol.CompletionOptions{TriggerCharacters: []string{"[", "#", ":", " ", "<", "?", "&", "="}},
 				CodeActionProvider:     true,
+				RenameProvider:         &protocol.Or_ServerCapabilities_renameProvider{Value: true},
 				ExecuteCommandProvider: &protocol.ExecuteCommandOptions{Commands: []string{createNoteCommand}},
 				WorkspaceSymbolProvider: &protocol.Or_ServerCapabilities_workspaceSymbolProvider{
 					Value: false,
@@ -240,6 +241,18 @@ func (s *Server) handleRequest(msg rpcMessage) rpcMessage {
 			return resp
 		}
 		resp.Result = actions
+	case "textDocument/rename":
+		var p renameParams
+		if err := json.Unmarshal(msg.Params, &p); err != nil {
+			resp.Error = &rpcError{Code: -32602, Message: err.Error()}
+			return resp
+		}
+		edit, err := s.rename(string(p.TextDocument.URI), p.Position, p.NewName)
+		if err != nil {
+			resp.Error = &rpcError{Code: -32000, Message: err.Error()}
+			return resp
+		}
+		resp.Result = edit
 	case "workspace/executeCommand":
 		var p executeCommandParams
 		if err := json.Unmarshal(msg.Params, &p); err != nil {

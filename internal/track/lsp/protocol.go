@@ -46,6 +46,7 @@ type backlink struct {
 	Preview string     `json:"preview"`
 }
 
+type renameParams = protocol.RenameParams
 type codeActionParams = protocol.CodeActionParams
 type executeCommandParams = protocol.ExecuteCommandParams
 type didOpenParams = protocol.DidOpenTextDocumentParams

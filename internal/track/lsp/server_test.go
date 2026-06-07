@@ -1117,6 +1117,94 @@ func TestCodeActionRepairsRenamedLink(t *testing.T) {
 	}
 }
 
+func renameFixture(t *testing.T, srv *Server, vault string) (targetURI, srcURI string) {
+	t.Helper()
+	targetURI = uriFromPath(filepath.Join(vault, "note", "100.md"))
+	srv.docs[targetURI] = "# Go\n\nbody"
+	srcPath := filepath.Join(vault, "note", "200.md")
+	srcURI = uriFromPath(srcPath)
+	if err := srv.store.UpsertNote(&note.Note{ID: 200, Path: srcPath, Meta: note.Metadata{Title: "Source"}}); err != nil {
+		t.Fatal(err)
+	}
+	if err := srv.store.ReplaceLinks(200, []int64{100}); err != nil {
+		t.Fatal(err)
+	}
+	srv.docs[srcURI] = "see [[Go]] here"
+	return targetURI, srcURI
+}
+
+func TestRenameRewritesTitleAndBacklinks(t *testing.T) {
+	srv, vault := setupServer(t)
+	targetURI, srcURI := renameFixture(t, srv, vault)
+
+	// Cursor on the [[Go]] link in note 200.
+	edit, err := srv.rename(srcURI, position{Line: 0, Character: 6}, "Golang")
+	if err != nil {
+		t.Fatalf("rename: %v", err)
+	}
+	if edit == nil {
+		t.Fatalf("expected a rename edit")
+	}
+	tEdits := edit.Changes[documentURI(targetURI)]
+	if len(tEdits) != 1 || tEdits[0].NewText != "# Golang" {
+		t.Fatalf("target H1 edit: %+v", tEdits)
+	}
+	sEdits := edit.Changes[documentURI(srcURI)]
+	if len(sEdits) != 1 || sEdits[0].NewText != "Golang" {
+		t.Fatalf("backlink edit: %+v", sEdits)
+	}
+	if sEdits[0].Range.Start.Character != 6 || sEdits[0].Range.End.Character != 8 {
+		t.Fatalf("backlink should replace only the key, got %+v", sEdits[0].Range)
+	}
+}
+
+func TestRenameFromTitleLine(t *testing.T) {
+	srv, vault := setupServer(t)
+	targetURI, srcURI := renameFixture(t, srv, vault)
+
+	// Cursor on note 100's own H1 line.
+	edit, err := srv.rename(targetURI, position{Line: 0, Character: 2}, "Golang")
+	if err != nil {
+		t.Fatalf("rename: %v", err)
+	}
+	if edit == nil {
+		t.Fatalf("expected a rename edit from the title line")
+	}
+	if e := edit.Changes[documentURI(targetURI)]; len(e) != 1 || e[0].NewText != "# Golang" {
+		t.Fatalf("target H1 edit: %+v", e)
+	}
+	if e := edit.Changes[documentURI(srcURI)]; len(e) != 1 || e[0].NewText != "Golang" {
+		t.Fatalf("backlink edit: %+v", e)
+	}
+}
+
+func TestRenameUnresolvedLinkDoesNothing(t *testing.T) {
+	srv, vault := setupServer(t)
+	uri := uriFromPath(filepath.Join(vault, "note", "200.md"))
+	srv.docs[uri] = "see [[Nope]]"
+
+	edit, err := srv.rename(uri, position{Line: 0, Character: 6}, "X")
+	if err != nil {
+		t.Fatalf("rename: %v", err)
+	}
+	if edit != nil {
+		t.Fatalf("unresolved link should not rename, got %+v", edit)
+	}
+}
+
+func TestRenameToSameNameDoesNothing(t *testing.T) {
+	srv, vault := setupServer(t)
+	_, srcURI := renameFixture(t, srv, vault)
+
+	edit, err := srv.rename(srcURI, position{Line: 0, Character: 6}, "Go")
+	if err != nil {
+		t.Fatalf("rename: %v", err)
+	}
+	if edit != nil {
+		t.Fatalf("renaming to the same name should be a no-op, got %+v", edit)
+	}
+}
+
 func TestServeEndsCleanlyOnPartialMessage(t *testing.T) {
 	srv, _ := setupServer(t)
 	// The header promises more bytes than the stream delivers, like Neovim closing stdin mid shutdown.

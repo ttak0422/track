@@ -85,6 +85,7 @@ It currently provides:
 - `textDocument/references`: lists backlinks to the current note or the link target under the cursor.
 - `textDocument/completion`: offers titles inside an open `[[` — with each matching note's headings offered alongside it as full `note##heading` anchors — plus narrowed heading candidates after a `[[note#` anchor (more `#` selects a deeper heading level), Markdown action link candidates inside `[label](<...>)`, and Babel fence info-string candidates.
 - `textDocument/codeAction`: creates a note from an unresolved `[[...]]` link.
+- `textDocument/rename`: renaming the `[[link]]` under the cursor (or the current note's H1) rewrites the target's H1 and every backlink to it in one workspace edit; the title-rename history is recorded on save.
 - `track/backlinks`: returns notes and link locations that reference the current note.
 
 The server uses UTF-8 positions and reads the same `$TRACK_VAULT` configuration as the CLI.
