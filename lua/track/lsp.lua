@@ -107,9 +107,7 @@ local function highlight_links(buf, resolved, cursor)
             local open_start = s - 1 -- 0-based "[" of "[["
             local inner_start = s + 1 -- 0-based byte col just after "[["
             local inner_end = e - 2 -- 0-based exclusive end just before "]]"
-            local hl = resolved[row .. ":" .. inner_start .. ":" .. inner_end]
-                  and config.options.hl_group
-               or config.options.hl_group_unresolved
+            local is_resolved = resolved[row .. ":" .. inner_start .. ":" .. inner_end]
 
             -- Reveal (skip conceal for) the link the cursor sits on, so its raw text can be edited.
             local revealed = cursor ~= nil
@@ -138,10 +136,12 @@ local function highlight_links(buf, resolved, cursor)
                })
             end
 
-            if inner_end > hl_start then
+            -- Only resolved links are underlined; an unresolved link stays plain and is flagged by the
+            -- server's "unresolved-link" diagnostic instead.
+            if is_resolved and inner_end > hl_start then
                vim.api.nvim_buf_set_extmark(buf, ns, row, hl_start, {
                   end_col = inner_end,
-                  hl_group = hl,
+                  hl_group = config.options.hl_group,
                   priority = 120,
                })
             end
@@ -381,7 +381,6 @@ end
 
 function M.setup()
    vim.api.nvim_set_hl(0, config.options.hl_group, { default = true, link = "Underlined" })
-   vim.api.nvim_set_hl(0, config.options.hl_group_unresolved, { default = true, link = "Comment" })
    register_create_note_command()
    if config.options.conceal and config.options.reveal_code_fences then
       reveal_code_fences()

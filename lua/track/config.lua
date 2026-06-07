@@ -24,10 +24,9 @@ M.defaults = {
    extensions = { "md" },
    -- Autocommand group name.
    augroup = "track",
-   -- Highlight group applied to resolved [[...]] links.
+   -- Highlight group applied to resolved [[...]] links. Unresolved links are left unstyled and
+   -- surfaced by the server's "unresolved-link" diagnostic instead.
    hl_group = "TrackLink",
-   -- Highlight group applied to unresolved [[...]] links (no matching note yet).
-   hl_group_unresolved = "TrackLinkUnresolved",
    -- Conceal the [[ ]] brackets (and the "target|" of display aliases), showing just the link text.
    -- Sets conceallevel locally in windows showing vault buffers; the cursor line stays raw for editing.
    conceal = true,

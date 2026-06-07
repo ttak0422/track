@@ -45,7 +45,7 @@ Titles are kept unique on creation (ADR 0010); if a duplicate ever slips in, the
 
 Self-links are excluded: a note's own title does not link to itself, and is not offered when completing inside that note.
 
-A `[[...]]` whose inner text matches no title is **unresolved**. It is not written to the link graph and not returned as a document link; the editor highlights it distinctly (see below).
+A `[[...]]` whose inner text matches no title is **unresolved**. It is not written to the link graph and not returned as a document link; the server flags it with a warning diagnostic (see below).
 
 ## Link Graph
 
@@ -127,7 +127,7 @@ The Neovim frontend starts `track-lsp` and is the only link frontend.
 
 - It attaches `track-lsp` only to markdown buffers whose file lives under the vault, so unrelated markdown never starts a client. Other editor integrations should gate attachment the same way.
 - `textDocument/documentLink` returns ranges over the inner text of **resolved** `[[...]]`, rendered with the `TrackLink` group (linked to `Underlined` by default).
-- Unresolved `[[...]]` are scanned client-side and rendered with the `TrackLinkUnresolved` group (linked to `Comment` by default), marking notes that don't exist yet.
+- Unresolved `[[...]]` are left unstyled; the server publishes an `unresolved-link` Warning diagnostic for each, so notes that don't exist yet surface through the editor's diagnostics rather than a separate highlight.
 - By default the `[[ ]]` brackets are concealed (and the `target|` of a display alias hidden), so `[[Go]]` shows `Go` and `[[Go|ゴー]]` shows `ゴー`, both underlined. In normal mode the link **under the cursor** is shown raw (anti-conceal) while other links — including others on the same line — stay concealed. While inserting, the whole cursor line is shown raw so byte and screen columns line up and the completion popup stays aligned. Set `conceal = false` to keep brackets visible. Raising conceallevel also lets Neovim's bundled treesitter markdown query hide code-fence delimiters (```lang), so track reveals those fences again by default; toggle with `reveal_code_fences`.
 - `:Track follow` and the `<CR>` mapping first handle Markdown action links, then fall back to `textDocument/definition` for `[[...]]` links. With a heading anchor (`[[note##bar]]`) definition jumps to the matching heading line, falling back to the note top when the heading is absent. A same-note anchor (`[[self#foo]]` inside `self`) navigates within the buffer even though a plain self-link does not.
 - `:Track graph` renders a local one-hop graph around the current note using the SQLite link cache: incoming backlinks on the left, the current note in the center, and outgoing links on the right. The graph is a scratch buffer and `<CR>` opens the node under the cursor line.

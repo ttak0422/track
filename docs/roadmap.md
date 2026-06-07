@@ -106,7 +106,7 @@ For each item, answer:
 | Help | In-plugin help/search | TBD | Lower priority. README/docs may be enough for now. |
 | Smart action | Context-aware `<CR>` action | TBD | Current `<CR>` follows links only. Decide whether to include checkboxes/tags/headings. |
 | LSP | Hover | TBD | Could show target note title/path/backlink count or unresolved create hint. |
-| LSP | Diagnostics | Adopt | Unresolved-link diagnostics only (Severity Warning), reusing documentLinks resolution; Lua's unresolved highlight folds into it. Duplicate titles (prevented at creation) and stale metadata (auto-reconciled) are out of scope. Not yet implemented. |
+| LSP | Diagnostics | Done | Shipped: unresolved-link diagnostics (Severity Warning) reusing documentLinks resolution, with the Lua unresolved highlight removed in favor of them; h1-title diagnostics already existed. Duplicate titles (prevented at creation) and stale metadata (auto-reconciled) are out of scope. |
 | LSP | Code action resolve | TBD | Only needed if actions become expensive to compute. |
 | LSP | Document highlight | TBD | Highlight same link target or references in current buffer. |
 | LSP | Folding range | TBD | Mostly Markdown heading support; may defer to Treesitter. |
