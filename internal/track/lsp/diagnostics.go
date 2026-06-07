@@ -2,6 +2,7 @@ package lsp
 
 import (
 	"encoding/json"
+	"fmt"
 	"strings"
 
 	"github.com/ttak0422/track/internal/track/link"
@@ -9,8 +10,9 @@ import (
 )
 
 const (
-	diagnosticSource          = "track"
-	diagnosticCodeH1TitleLine = "h1-outside-title-line"
+	diagnosticSource             = "track"
+	diagnosticCodeH1TitleLine    = "h1-outside-title-line"
+	diagnosticCodeUnresolvedLink = "unresolved-link"
 )
 
 func (s *Server) diagnostics(uri string) ([]diagnostic, error) {
@@ -21,7 +23,35 @@ func (s *Server) diagnostics(uri string) ([]diagnostic, error) {
 	if err != nil {
 		return nil, err
 	}
-	return titleDiagnostics(text), nil
+	diags := titleDiagnostics(text)
+	links, err := s.unresolvedLinkDiagnostics(text)
+	if err != nil {
+		return nil, err
+	}
+	return append(diags, links...), nil
+}
+
+// unresolvedLinkDiagnostics warns on each [[...]] whose key matches no note title. It reuses the same
+// keyword dictionary as link resolution, so the warning lines up with what documentLinks skips.
+func (s *Server) unresolvedLinkDiagnostics(text string) ([]diagnostic, error) {
+	dict, err := s.keywordDict()
+	if err != nil {
+		return nil, err
+	}
+	var diags []diagnostic
+	for _, ref := range link.Refs(text) {
+		if _, ok := dict[ref.Text]; ok {
+			continue
+		}
+		diags = append(diags, diagnostic{
+			Range:    newRange(ref.Line, ref.OpenByte, ref.Line, ref.CloseByte),
+			Severity: protocol.SeverityWarning,
+			Source:   diagnosticSource,
+			Code:     diagnosticCodeUnresolvedLink,
+			Message:  fmt.Sprintf("Unresolved link: no note titled %q", ref.Text),
+		})
+	}
+	return diags, nil
 }
 
 func titleDiagnostics(text string) []diagnostic {

@@ -126,6 +126,37 @@ func TestDiagnosticsIgnoreH1InsideFences(t *testing.T) {
 	}
 }
 
+func TestDiagnosticsWarnOnUnresolvedLink(t *testing.T) {
+	srv, vault := setupServer(t)
+	uri := uriFromPath(filepath.Join(vault, "note", "200.md"))
+	srv.docs[uri] = "see [[Go]] and [[Nope]]"
+
+	diags, err := srv.diagnostics(uri)
+	if err != nil {
+		t.Fatalf("diagnostics: %v", err)
+	}
+	var unresolved []diagnostic
+	for _, d := range diags {
+		if d.Code == diagnosticCodeUnresolvedLink {
+			unresolved = append(unresolved, d)
+		}
+	}
+	if len(unresolved) != 1 {
+		t.Fatalf("expected one unresolved-link diagnostic ([[Nope]]), got %+v", diags)
+	}
+	d := unresolved[0]
+	if d.Severity != protocol.SeverityWarning {
+		t.Fatalf("unresolved link should be a warning, got %+v", d)
+	}
+	if !strings.Contains(d.Message, "Nope") {
+		t.Fatalf("message should name the unresolved key, got %q", d.Message)
+	}
+	// The resolved [[Go]] must not warn.
+	if strings.Contains(d.Message, "Go") {
+		t.Fatalf("resolved link should not warn, got %q", d.Message)
+	}
+}
+
 func TestNotificationPublishesDiagnosticsAndClearsThem(t *testing.T) {
 	srv, vault := setupServer(t)
 	uri := uriFromPath(filepath.Join(vault, "note", "200.md"))
