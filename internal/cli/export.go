@@ -13,7 +13,7 @@ import (
 func cmdExport(args []string) int {
 	fs := flag.NewFlagSet("export", flag.ContinueOnError)
 	id := fs.Int64("id", 0, "note id")
-	title := fs.String("title", "", "note title or alias (alternative to --id)")
+	title := fs.String("title", "", "note title (alternative to --id)")
 	path := fs.String("path", "", "note path (alternative to --id/--title)")
 	out := fs.String("out", "", "write to a file instead of stdout")
 	frontmatter := fs.Bool("frontmatter", false, "prepend a YAML metadata block")

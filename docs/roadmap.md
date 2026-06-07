@@ -31,6 +31,9 @@ marked `Reject`.
   existing notes; links stay explicit `[[...]]`. An LSP code action for this was
   prototyped and reverted (false positives, visual noise, and no clean "do not link"
   decision; Hatena Keyword's auto-link was itself retired).
+- Alias keywords: a note resolves only by its title, not by extra alias keywords. The
+  sidecar `aliases` field and the store `aliases` table were removed (ADR 0012).
+  Display aliases (`[[target|shown]]`) are unaffected.
 
 ## Recently Shipped
 
@@ -95,7 +98,7 @@ For each item, answer:
 | Checkboxes | Create checkbox from plain list/paragraph | TBD | Pair with toggle action if adopted. |
 | Navigation | Current-note links list | TBD | Similar to backlinks, but outgoing occurrences. LSP custom request or document symbols. |
 | Navigation | Table of contents / document symbols | TBD | Implement `textDocument/documentSymbol` for Markdown headings. |
-| Navigation | Workspace symbols | TBD | Implement `workspace/symbol` over note titles, aliases, maybe headings. |
+| Navigation | Workspace symbols | TBD | Implement `workspace/symbol` over note titles, maybe headings. |
 | Attachments | Paste image from clipboard | TBD | Neovim-only command plus attachment storage policy. |
 | Attachments | Attachment file management/opening | TBD | Requires attachment path policy and link/open behavior. |
 | Status | Footer/statusline data | TBD | Backlink count, word count, metadata count. Could expose Lua helper and no UI opinion. |
@@ -103,7 +106,7 @@ For each item, answer:
 | Help | In-plugin help/search | TBD | Lower priority. README/docs may be enough for now. |
 | Smart action | Context-aware `<CR>` action | TBD | Current `<CR>` follows links only. Decide whether to include checkboxes/tags/headings. |
 | LSP | Hover | TBD | Could show target note title/path/backlink count or unresolved create hint. |
-| LSP | Diagnostics | TBD | Unresolved links, duplicate aliases/titles, stale metadata. |
+| LSP | Diagnostics | TBD | Unresolved links, duplicate titles, stale metadata. |
 | LSP | Code action resolve | TBD | Only needed if actions become expensive to compute. |
 | LSP | Document highlight | TBD | Highlight same link target or references in current buffer. |
 | LSP | Folding range | TBD | Mostly Markdown heading support; may defer to Treesitter. |

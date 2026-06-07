@@ -12,7 +12,7 @@ const (
 	SearchBody  SearchScope = "body"
 )
 
-// SearchResult is one hit from a title/alias search, or a file-backed body search assembled by callers.
+// SearchResult is one hit from a title search, or a file-backed body search assembled by callers.
 // Line and Snippet locate the first matching body line (1-based); they are zero/empty
 // when the hit is title-only.
 type SearchResult struct {
@@ -24,7 +24,7 @@ type SearchResult struct {
 	Snippet  string `json:"snippet,omitempty"`
 }
 
-// Search returns notes whose title or any alias contains query (case-insensitive substring).
+// Search returns notes whose title contains query (case-insensitive substring).
 // FTS5 can replace this later behind the same signature.
 func (s *Store) Search(query string, limit int) ([]SearchResult, error) {
 	return s.SearchScoped(query, limit, SearchAll)
@@ -59,11 +59,10 @@ func (s *Store) SearchScoped(query string, limit int, scope SearchScope) ([]Sear
 func searchQuery(scope SearchScope, like string, limit int) (string, []any, error) {
 	switch scope {
 	case SearchAll:
-		return `SELECT DISTINCT n.id, n.kind, n.title
+		return `SELECT n.id, n.kind, n.title
 		 FROM notes n
-		 LEFT JOIN aliases a ON a.note_id = n.id
-		 WHERE n.kind IN ('note', 'journal') AND (n.title LIKE ? OR a.alias LIKE ?)
-		 ORDER BY n.id LIMIT ?`, []any{like, like, limit}, nil
+		 WHERE n.kind IN ('note', 'journal') AND n.title LIKE ?
+		 ORDER BY n.id LIMIT ?`, []any{like, limit}, nil
 	case SearchTitle:
 		return `SELECT n.id, n.kind, n.title
 		 FROM notes n

@@ -119,7 +119,7 @@ func (ix *Indexer) keywordDict() (map[string]int64, error) {
 }
 
 // resolveLinks returns the deduplicated note ids referenced by body's [[...]] links, in first-seen order.
-// Unresolved references (no matching title or alias) are skipped.
+// Unresolved references (no matching title) are skipped.
 func resolveLinks(body string, dict map[string]int64) []int64 {
 	var ids []int64
 	seen := make(map[int64]bool)

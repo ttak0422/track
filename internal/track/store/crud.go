@@ -4,7 +4,7 @@ import (
 	"github.com/ttak0422/track/internal/track/note"
 )
 
-// Keyword is one entry in the auto-link dictionary: a title or alias that, when it appears in note text, links to NoteID.
+// Keyword is one entry in the auto-link dictionary: a note title that, written as [[title]], links to NoteID.
 type Keyword struct {
 	Term     string `json:"term"`
 	NoteID   int64  `json:"note_id"`
@@ -21,7 +21,7 @@ type NoteRef struct {
 	Title    string `json:"title"`
 }
 
-// UpsertNote inserts or updates a note row and replaces its aliases and tags in a single transaction.
+// UpsertNote inserts or updates a note row and replaces its tags in a single transaction.
 func (s *Store) UpsertNote(n *note.Note) error {
 	tx, err := s.db.Begin()
 	if err != nil {
@@ -43,18 +43,6 @@ func (s *Store) UpsertNote(n *note.Note) error {
 		return err
 	}
 
-	if _, err := tx.Exec(`DELETE FROM aliases WHERE note_id = ?`, n.ID); err != nil {
-		return err
-	}
-	for _, a := range n.Meta.Aliases {
-		if a == "" {
-			continue
-		}
-		if _, err := tx.Exec(`INSERT OR IGNORE INTO aliases (note_id, alias) VALUES (?, ?)`, n.ID, a); err != nil {
-			return err
-		}
-	}
-
 	if _, err := tx.Exec(`DELETE FROM tags WHERE note_id = ?`, n.ID); err != nil {
 		return err
 	}
@@ -70,7 +58,7 @@ func (s *Store) UpsertNote(n *note.Note) error {
 	return tx.Commit()
 }
 
-// DeleteNote removes a note; aliases, tags, and links cascade.
+// DeleteNote removes a note; tags and links cascade.
 func (s *Store) DeleteNote(id int64) error {
 	_, err := s.db.Exec(`DELETE FROM notes WHERE id = ?`, id)
 	return err
@@ -98,7 +86,7 @@ func (s *Store) ReplaceLinks(srcID int64, dstIDs []int64) error {
 	return tx.Commit()
 }
 
-// Keywords returns the full auto-link dictionary (titles and aliases).
+// Keywords returns the full auto-link dictionary (note titles).
 func (s *Store) Keywords() ([]Keyword, error) {
 	rows, err := s.db.Query(
 		`SELECT k.term, k.note_id, n.kind, k.kind
@@ -121,7 +109,7 @@ func (s *Store) Keywords() ([]Keyword, error) {
 	return out, rows.Err()
 }
 
-// ResolveTerm finds the note a title or alias points to.
+// ResolveTerm finds the note a title points to.
 func (s *Store) ResolveTerm(term string) (NoteRef, bool, error) {
 	var ref NoteRef
 	err := s.db.QueryRow(

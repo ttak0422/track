@@ -28,7 +28,6 @@ func TestUpsertAndKeywords(t *testing.T) {
 		Mtime: 42,
 		Meta: note.Metadata{
 			Title:   "リンク",
-			Aliases: []string{"link", "TEST"},
 			Tags:    []string{"zettel"},
 			Created: "2026-05-24",
 		},
@@ -48,40 +47,22 @@ func TestUpsertAndKeywords(t *testing.T) {
 			t.Fatalf("unexpected keyword ref: %+v", k)
 		}
 	}
-	for term, wantKind := range map[string]string{"リンク": "title", "link": "alias", "TEST": "alias"} {
+	for term, wantKind := range map[string]string{"リンク": "title"} {
 		if terms[term] != wantKind {
 			t.Fatalf("term %q kind = %q, want %q", term, terms[term], wantKind)
 		}
 	}
 }
 
-func TestUpsertReplacesAliases(t *testing.T) {
-	s := newTestStore(t)
-	base := &note.Note{ID: 1, Path: "/v/1.md", Meta: note.Metadata{Title: "t", Aliases: []string{"a", "b"}}}
-	if err := s.UpsertNote(base); err != nil {
-		t.Fatal(err)
-	}
-	base.Meta.Aliases = []string{"c"}
-	if err := s.UpsertNote(base); err != nil {
-		t.Fatal(err)
-	}
-	kws, _ := s.Keywords()
-	for _, k := range kws {
-		if k.Term == "a" || k.Term == "b" {
-			t.Fatalf("stale alias %q still present", k.Term)
-		}
-	}
-}
-
 func TestResolveTerm(t *testing.T) {
 	s := newTestStore(t)
-	if err := s.UpsertNote(&note.Note{ID: 7, Path: "/v/7.md", Meta: note.Metadata{Title: "Go", Aliases: []string{"golang"}}}); err != nil {
+	if err := s.UpsertNote(&note.Note{ID: 7, Path: "/v/7.md", Meta: note.Metadata{Title: "Go"}}); err != nil {
 		t.Fatal(err)
 	}
 
-	ref, found, err := s.ResolveTerm("golang")
+	ref, found, err := s.ResolveTerm("Go")
 	if err != nil || !found {
-		t.Fatalf("resolve golang: found=%v err=%v", found, err)
+		t.Fatalf("resolve Go: found=%v err=%v", found, err)
 	}
 	if ref.NoteID != 7 || ref.Title != "Go" {
 		t.Fatalf("unexpected ref: %+v", ref)
@@ -128,7 +109,7 @@ func TestLinksAndBacklinks(t *testing.T) {
 
 func TestDeleteNoteCascades(t *testing.T) {
 	s := newTestStore(t)
-	if err := s.UpsertNote(&note.Note{ID: 5, Path: "/v/5.md", Meta: note.Metadata{Title: "t", Aliases: []string{"a"}}}); err != nil {
+	if err := s.UpsertNote(&note.Note{ID: 5, Path: "/v/5.md", Meta: note.Metadata{Title: "t"}}); err != nil {
 		t.Fatal(err)
 	}
 	if err := s.DeleteNote(5); err != nil {

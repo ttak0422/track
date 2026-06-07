@@ -41,8 +41,7 @@ func setupServer(t *testing.T) (*Server, string) {
 		ID:   100,
 		Path: cfg.NotePath(100),
 		Meta: note.Metadata{
-			Title:   "Go",
-			Aliases: []string{"Golang"},
+			Title: "Go",
 		},
 	}); err != nil {
 		t.Fatalf("upsert note: %v", err)
@@ -183,7 +182,7 @@ func TestNotificationPublishesDiagnosticsAndClearsThem(t *testing.T) {
 func TestDocumentLinks(t *testing.T) {
 	srv, vault := setupServer(t)
 	uri := uriFromPath(filepath.Join(vault, "note", "200.md"))
-	srv.docs[uri] = "[[Golang]] and [[Go]]"
+	srv.docs[uri] = "[[Go]] and [[Go]]"
 
 	links, err := srv.documentLinks(uri)
 	if err != nil {
@@ -192,7 +191,7 @@ func TestDocumentLinks(t *testing.T) {
 	if len(links) != 2 {
 		t.Fatalf("expected 2 links, got %+v", links)
 	}
-	if links[0].Range.Start.Line != 0 || links[0].Range.Start.Character != 2 || links[0].Range.End.Character != 8 {
+	if links[0].Range.Start.Line != 0 || links[0].Range.Start.Character != 2 || links[0].Range.End.Character != 4 {
 		t.Fatalf("unexpected first range: %+v", links[0].Range)
 	}
 	if targetString(links[0]) != uriFromPath(filepath.Join(vault, "note", "100.md")) {
@@ -214,7 +213,7 @@ func TestBacklinks(t *testing.T) {
 	if err := srv.store.ReplaceLinks(200, []int64{100}); err != nil {
 		t.Fatal(err)
 	}
-	srv.docs[sourceURI] = "first [[Go]]\nsecond [[Golang]]"
+	srv.docs[sourceURI] = "first [[Go]]\nsecond [[Go]]"
 
 	backlinks, err := srv.backlinks(uriFromPath(filepath.Join(vault, "note", "100.md")))
 	if err != nil {
@@ -226,7 +225,7 @@ func TestBacklinks(t *testing.T) {
 	if backlinks[0].NoteID != 200 || backlinks[0].Title != "Source" || backlinks[0].Range.Start.Line != 0 {
 		t.Fatalf("unexpected first backlink: %+v", backlinks[0])
 	}
-	if backlinks[1].Range.Start.Line != 1 || backlinks[1].Preview != "second [[Golang]]" {
+	if backlinks[1].Range.Start.Line != 1 || backlinks[1].Preview != "second [[Go]]" {
 		t.Fatalf("unexpected second backlink: %+v", backlinks[1])
 	}
 }
@@ -267,9 +266,9 @@ func TestReferences(t *testing.T) {
 func TestDefinition(t *testing.T) {
 	srv, vault := setupServer(t)
 	uri := uriFromPath(filepath.Join(vault, "note", "200.md"))
-	srv.docs[uri] = "mentions [[Golang]]"
+	srv.docs[uri] = "mentions [[Go]]"
 
-	for _, col := range []int{9, 10, 13, 17, 18} {
+	for _, col := range []int{9, 10, 11, 13, 14} {
 		loc, err := srv.definition(uri, newPosition(0, col))
 		if err != nil {
 			t.Fatalf("definition at col %d: %v", col, err)
@@ -281,7 +280,7 @@ func TestDefinition(t *testing.T) {
 			t.Fatalf("unexpected definition uri at col %d: %q", col, loc.URI)
 		}
 	}
-	loc, err := srv.definition(uri, position{Line: 0, Character: 19})
+	loc, err := srv.definition(uri, position{Line: 0, Character: 15})
 	if err != nil {
 		t.Fatalf("definition after link: %v", err)
 	}
@@ -465,26 +464,6 @@ func TestCompletionDedupesDuplicateHeadings(t *testing.T) {
 	}
 }
 
-func TestCompletionAnchorsOnlyForTitleKeyword(t *testing.T) {
-	srv, vault := setupServer(t)
-	targetURI := uriFromPath(filepath.Join(vault, "note", "100.md"))
-	srv.docs[targetURI] = "# Go\n\n## foo\n"
-	uri := uriFromPath(filepath.Join(vault, "note", "200.md"))
-	// "Golang" is an alias of note 100; typing it must not expand heading anchors (only "#" does).
-	srv.docs[uri] = "see [[Gol"
-
-	items, err := srv.completion(uri, position{Line: 0, Character: 9})
-	if err != nil {
-		t.Fatalf("completion: %v", err)
-	}
-	if !completionLabelsContain(items, "Golang") {
-		t.Fatalf("expected the alias candidate, got %+v", items)
-	}
-	if completionLabelsContain(items, "Golang##foo") {
-		t.Fatalf("alias should not expand heading anchors before '#', got %+v", items)
-	}
-}
-
 func TestCompletionExcludesTitleHeadingOnly(t *testing.T) {
 	srv, vault := setupServer(t)
 	targetURI := uriFromPath(filepath.Join(vault, "note", "100.md"))
@@ -565,9 +544,9 @@ func TestCompletionInsideBrackets(t *testing.T) {
 	if err != nil {
 		t.Fatalf("completion: %v", err)
 	}
-	// note 100 contributes both its title (Go) and alias (Golang).
-	if len(items) != 2 {
-		t.Fatalf("expected 2 candidates, got %+v", items)
+	// note 100 contributes its title (Go).
+	if len(items) != 1 {
+		t.Fatalf("expected 1 candidate, got %+v", items)
 	}
 	var goItem *completionItem
 	for i := range items {

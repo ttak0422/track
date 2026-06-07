@@ -93,9 +93,6 @@ Version 1 metadata:
 ```yaml
 version: 1
 title: リンク
-aliases:
-  - link
-  - TEST
 tags:
   - zettel
 created: 2026-05-24
@@ -104,8 +101,7 @@ created: 2026-05-24
 Fields:
 
 - `version`: metadata schema version. Required for new writes.
-- `title`: note title and primary link keyword. This mirrors the first H1 heading in the markdown body when one exists.
-- `aliases`: additional link keywords.
+- `title`: note title and the link keyword. This mirrors the first H1 heading in the markdown body when one exists.
 - `tags`: note tags.
 - `created`: creation date string. The current format is `YYYY-MM-DD`.
 
@@ -113,7 +109,7 @@ Readers reject unsupported metadata versions.
 If a sidecar is missing, the current parser can still read the legacy trailing `<!--track ... -->` metadata block for compatibility, but new writes must use sidecar metadata.
 
 The markdown body is authoritative for fields it can express.
-If the first H1 heading and `metadata.title` disagree, parsing or reindexing updates the sidecar title from the body while preserving fields that cannot currently be derived from the body, such as aliases, tags, and created date.
+If the first H1 heading and `metadata.title` disagree, parsing or reindexing updates the sidecar title from the body while preserving fields that cannot currently be derived from the body, such as tags and created date.
 
 Title changes are also recorded in `.track/renames.yaml` as repair history. Rename history is not a link keyword source: an old title remains available for a new note, and `[[old title]]` does not resolve through the history. LSP code actions may use the history only when an old title is unresolved, offering to rewrite the link to the newest recorded title.
 
@@ -127,10 +123,9 @@ SQLite `PRAGMA user_version` stores the database schema version and is independe
 Schema version 1 contains:
 
 - `notes`: note id, file kind, title, created date, and mtime.
-- `aliases`: aliases for each note.
 - `tags`: tags for each note.
 - `links`: computed directed links between notes.
-- `keywords`: a view over note titles and aliases.
+- `keywords`: a view over note titles.
 
 The index uses WAL mode and foreign keys. It intentionally does not cache note paths or bodies: paths are derived from file kind plus note id, and body search reads markdown files directly.
 
@@ -144,13 +139,6 @@ CREATE TABLE notes (
   created TEXT,
   mtime   INTEGER NOT NULL DEFAULT 0
 );
-
-CREATE TABLE aliases (
-  note_id INTEGER NOT NULL REFERENCES notes(id) ON DELETE CASCADE,
-  alias   TEXT NOT NULL,
-  PRIMARY KEY (note_id, alias)
-);
-CREATE INDEX idx_aliases_alias ON aliases(alias);
 
 CREATE TABLE tags (
   note_id INTEGER NOT NULL REFERENCES notes(id) ON DELETE CASCADE,
@@ -167,9 +155,7 @@ CREATE TABLE links (
 CREATE INDEX idx_links_dst ON links(dst_id);
 
 CREATE VIEW keywords AS
-  SELECT title AS term, id AS note_id, 'title' AS kind FROM notes WHERE title <> ''
-  UNION ALL
-  SELECT alias AS term, note_id, 'alias' AS kind FROM aliases;
+  SELECT title AS term, id AS note_id, 'title' AS kind FROM notes WHERE title <> '';
 ```
 
 Column notes:
@@ -179,7 +165,7 @@ Column notes:
 - `notes.title`: cached title used as the primary keyword. It mirrors the first H1 heading when available.
 - `notes.created`: cached metadata creation date string.
 - `notes.mtime`: note file modification time as a Unix timestamp. It is kept for future change detection and incremental reindexing.
-- `aliases.note_id` and `tags.note_id`: metadata rows attached to a note. They are replaced on note upsert.
+- `tags.note_id`: metadata rows attached to a note. They are replaced on note upsert.
 - `links.src_id` and `links.dst_id`: computed directed note links. Self-links are ignored by the writer.
 - `keywords`: convenience view used by keyword dumping, resolution, and `[[...]]` link highlighting.
 
@@ -192,10 +178,10 @@ Their sidecar metadata files are also removed.
 
 The vault and cache hold two very different kinds of data:
 
-- `.track/notes/<id>.yaml` are the **authoritative** per-note metadata sidecars. The markdown body only owns the fields it can express (the first H1 owns the title); `aliases`, `tags`, `created`, and Babel block results live *only* in the sidecar and cannot be reconstructed from the `.md` file.
+- `.track/notes/<id>.yaml` are the **authoritative** per-note metadata sidecars. The markdown body only owns the fields it can express (the first H1 owns the title); `tags`, `created`, and Babel block results live *only* in the sidecar and cannot be reconstructed from the `.md` file.
 - `.track/renames.yaml` is repair history for manual title edits. It can improve unresolved-link quickfixes, but it is not used for normal link resolution.
 - The SQLite index under the cache directory is **rebuildable**. The notes on disk are the source of truth; `track reindex --full` deletes the cache database and regenerates it from them. Deleting it is safe.
 
 Deleting `.track/notes/` is therefore irrecoverable data loss for everything except note titles. Treat it like `.git`: keep it under version control and back it up alongside the note bodies.
 
-track intentionally does **not** provide a metadata "repair" command. Rebuilding a sidecar from the note body alone would silently drop aliases, tags, and block results while appearing to succeed, which is more dangerous than a clear "restore from backup" rule.
+track intentionally does **not** provide a metadata "repair" command. Rebuilding a sidecar from the note body alone would silently drop tags and block results while appearing to succeed, which is more dangerous than a clear "restore from backup" rule.

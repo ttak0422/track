@@ -1,7 +1,7 @@
 # Link Specification
 
 Links are explicit references from note text to other notes, written with `[[...]]`.
-Earlier versions linked implicitly by matching every registered title/alias anywhere in the text; that is superseded by this spec (see ADR 0008).
+Earlier versions linked implicitly by matching every registered title anywhere in the text; that is superseded by this spec (see ADR 0008).
 
 ## Syntax
 
@@ -38,15 +38,14 @@ Fenced code blocks delimited by lines starting with ` ``` ` are excluded.
 The target (the inner text before any `|`) resolves against the keyword dictionary by **exact match**:
 
 - each non-empty note `title`
-- each non-empty note `alias`
 
 Resolution is an O(1) dictionary lookup, independent of the number of notes. Extraction of `[[...]]` from a line is O(line length), so detection no longer scans the whole body against every keyword.
 
-When a term is ambiguous (e.g. a title and an alias share text), the first match by note id wins (`store.ResolveTerm` uses `LIMIT 1`).
+Titles are kept unique on creation (ADR 0010); if a duplicate ever slips in, the first match by note id wins (`store.ResolveTerm` uses `LIMIT 1`).
 
-Self-links are excluded: a note's own title or alias does not link to itself, and is not offered when completing inside that note.
+Self-links are excluded: a note's own title does not link to itself, and is not offered when completing inside that note.
 
-A `[[...]]` whose inner text matches no title or alias is **unresolved**. It is not written to the link graph and not returned as a document link; the editor highlights it distinctly (see below).
+A `[[...]]` whose inner text matches no title is **unresolved**. It is not written to the link graph and not returned as a document link; the editor highlights it distinctly (see below).
 
 ## Link Graph
 
@@ -132,4 +131,4 @@ The Neovim frontend starts `track-lsp` and is the only link frontend.
 - By default the `[[ ]]` brackets are concealed (and the `target|` of a display alias hidden), so `[[Go]]` shows `Go` and `[[Go|ゴー]]` shows `ゴー`, both underlined. In normal mode the link **under the cursor** is shown raw (anti-conceal) while other links — including others on the same line — stay concealed. While inserting, the whole cursor line is shown raw so byte and screen columns line up and the completion popup stays aligned. Set `conceal = false` to keep brackets visible. Raising conceallevel also lets Neovim's bundled treesitter markdown query hide code-fence delimiters (```lang), so track reveals those fences again by default; toggle with `reveal_code_fences`.
 - `:Track follow` and the `<CR>` mapping first handle Markdown action links, then fall back to `textDocument/definition` for `[[...]]` links. With a heading anchor (`[[note##bar]]`) definition jumps to the matching heading line, falling back to the note top when the heading is absent. A same-note anchor (`[[self#foo]]` inside `self`) navigates within the buffer even though a plain self-link does not.
 - `:Track graph` renders a local one-hop graph around the current note using the SQLite link cache: incoming backlinks on the left, the current note in the center, and outgoing links on the right. The graph is a scratch buffer and `<CR>` opens the node under the cursor line.
-- `textDocument/completion` offers titles and aliases (triggered on `[`) while the cursor is inside an open `[[`, excluding the current note's own terms. While typing the note name (before any `#`), each prefix-matching note also contributes its headings as full `note##heading` anchor candidates next to the bare note name, so reaching a section needs no separate `#` step: `[[te` can offer both `test` and `test##foo`. This expansion is limited to the note's **title** keyword (one per note); alias-keyed anchors are reached by typing `#`. Because a duplicate heading resolves only to its first occurrence, each `note##heading` (and each `#`-stage heading) is offered once even when the note repeats it. Once the typed target contains `#` (also a trigger character), completion switches to the resolved note's headings whose level equals the typed `#` count — `[[note#` offers h1 headings, `[[note##` offers h2 — inserting the full `note##heading` anchor and showing just the heading text. In both stages the note's own title heading (its first h1) is omitted, since linking to it is equivalent to linking to the note itself. This is a standard LSP capability and is UI-independent: the plugin merges `cmp-nvim-lsp` capabilities when nvim-cmp is installed, so completion surfaces through the user's nvim-cmp setup. Without nvim-cmp, the server still advertises completion for any other client.
+- `textDocument/completion` offers titles (triggered on `[`) while the cursor is inside an open `[[`, excluding the current note's own terms. While typing the note name (before any `#`), each prefix-matching note also contributes its headings as full `note##heading` anchor candidates next to the bare note name, so reaching a section needs no separate `#` step: `[[te` can offer both `test` and `test##foo`. Because a duplicate heading resolves only to its first occurrence, each `note##heading` (and each `#`-stage heading) is offered once even when the note repeats it. Once the typed target contains `#` (also a trigger character), completion switches to the resolved note's headings whose level equals the typed `#` count — `[[note#` offers h1 headings, `[[note##` offers h2 — inserting the full `note##heading` anchor and showing just the heading text. In both stages the note's own title heading (its first h1) is omitted, since linking to it is equivalent to linking to the note itself. This is a standard LSP capability and is UI-independent: the plugin merges `cmp-nvim-lsp` capabilities when nvim-cmp is installed, so completion surfaces through the user's nvim-cmp setup. Without nvim-cmp, the server still advertises completion for any other client.

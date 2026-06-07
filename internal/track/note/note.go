@@ -20,7 +20,6 @@ import (
 type Metadata struct {
 	Version int                        `yaml:"version"`
 	Title   string                     `yaml:"title,omitempty"`
-	Aliases []string                   `yaml:"aliases,omitempty"`
 	Tags    []string                   `yaml:"tags,omitempty"`
 	Created string                     `yaml:"created,omitempty"`
 	Blocks  map[string]babel.BlockMeta `yaml:"blocks,omitempty"`
@@ -39,7 +38,7 @@ type Note struct {
 // For compatibility with early track notes, a legacy trailing footmatter block is used only when no sidecar exists.
 //
 // The note body is authoritative for fields it can express.
-// Today that means the first H1 heading owns the note title; if sidecar metadata disagrees, the sidecar is rewritten to match the body while preserving aliases, tags, and created.
+// Today that means the first H1 heading owns the note title; if sidecar metadata disagrees, the sidecar is rewritten to match the body while preserving tags and created.
 func ParseFile(path string, c *config.Config) (*Note, error) {
 	raw, err := os.ReadFile(path)
 	if err != nil {

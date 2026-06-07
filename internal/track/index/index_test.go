@@ -45,7 +45,7 @@ func TestFullIndexesAndLinks(t *testing.T) {
 	cfg, s := setup(t)
 	// Note 1 is titled "リンク".
 	// Note 2's body references リンク → link 2->1.
-	writeNote(t, cfg, 1, "# リンク\n\nthe target note", note.Metadata{Title: "リンク", Aliases: []string{"link"}})
+	writeNote(t, cfg, 1, "# リンク\n\nthe target note", note.Metadata{Title: "リンク"})
 	writeNote(t, cfg, 2, "本文で [[リンク]] を参照する", note.Metadata{Title: "ノート2"})
 
 	ix := New(cfg, s)

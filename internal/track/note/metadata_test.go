@@ -16,7 +16,6 @@ func TestWriteReadMetadataRoundTrip(t *testing.T) {
 	path := filepath.Join(t.TempDir(), ".track", "notes", "1000.yaml")
 	in := Metadata{
 		Title:   "リンク",
-		Aliases: []string{"link", "TEST"},
 		Tags:    []string{"zettel"},
 		Created: "2026-05-24",
 	}
@@ -132,9 +131,6 @@ func TestSplitLegacyFootmatter(t *testing.T) {
 		"",
 		"<!--track",
 		"title: リンク",
-		"aliases:",
-		"    - link",
-		"    - TEST",
 		"tags:",
 		"    - zettel",
 		"created: 2026-05-24",
@@ -156,7 +152,6 @@ func TestSplitLegacyFootmatter(t *testing.T) {
 	want := Metadata{
 		Version: CurrentMetadataVersion,
 		Title:   "リンク",
-		Aliases: []string{"link", "TEST"},
 		Tags:    []string{"zettel"},
 		Created: "2026-05-24",
 	}
@@ -197,7 +192,6 @@ func TestParseFileReconcilesMetadataTitleFromBody(t *testing.T) {
 	}
 	if err := WriteMetadata(cfg.MetadataPath(1000), Metadata{
 		Title:   "sidecar",
-		Aliases: []string{"alias"},
 		Tags:    []string{"tag"},
 		Created: "2026-05-30",
 	}); err != nil {
@@ -224,7 +218,6 @@ func TestParseFileReconcilesMetadataTitleFromBody(t *testing.T) {
 	want := Metadata{
 		Version: CurrentMetadataVersion,
 		Title:   "Body",
-		Aliases: []string{"alias"},
 		Tags:    []string{"tag"},
 		Created: "2026-05-30",
 	}

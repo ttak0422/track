@@ -43,9 +43,8 @@ func (markdownRenderer) Frontmatter(meta note.Metadata) string {
 		Title:   meta.Title,
 		Created: meta.Created,
 		Tags:    meta.Tags,
-		Aliases: meta.Aliases,
 	}
-	if fm.Title == "" && fm.Created == "" && len(fm.Tags) == 0 && len(fm.Aliases) == 0 {
+	if fm.Title == "" && fm.Created == "" && len(fm.Tags) == 0 {
 		return ""
 	}
 	out, err := yaml.Marshal(fm)
@@ -61,7 +60,6 @@ type frontmatter struct {
 	Title   string   `yaml:"title,omitempty"`
 	Created string   `yaml:"created,omitempty"`
 	Tags    []string `yaml:"tags,omitempty"`
-	Aliases []string `yaml:"aliases,omitempty"`
 }
 
 func renderSource(b babel.Block) string {

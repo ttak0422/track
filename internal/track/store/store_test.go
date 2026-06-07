@@ -13,7 +13,7 @@ func TestOpenAppliesSchema(t *testing.T) {
 	}
 	defer s.Close()
 
-	tables := []string{"notes", "aliases", "tags", "links"}
+	tables := []string{"notes", "tags", "links"}
 	for _, name := range tables {
 		var got string
 		err := s.db.QueryRow(

@@ -38,7 +38,7 @@ The Lua plugin is intentionally thin:
 - It registers the `:Track` dispatcher command with subcommands such as `:Track open`, `:Track follow`, and `:Track journal`.
 - It starts `track-lsp` for markdown buffers under the vault.
 - It renders resolved `textDocument/documentLink` results as underlined ranges and highlights unresolved `[[...]]` distinctly.
-- It follows links through `textDocument/definition` and completes titles/aliases inside `[[` through `textDocument/completion`.
+- It follows links through `textDocument/definition` and completes titles inside `[[` through `textDocument/completion`.
 
 Persistent behavior should stay in the Go engine unless there is a clear reason to duplicate it in Lua.
 

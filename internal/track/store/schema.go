@@ -16,13 +16,6 @@ CREATE TABLE notes (
   mtime   INTEGER NOT NULL DEFAULT 0
 );
 
-CREATE TABLE aliases (
-  note_id INTEGER NOT NULL REFERENCES notes(id) ON DELETE CASCADE,
-  alias   TEXT NOT NULL,
-  PRIMARY KEY (note_id, alias)
-);
-CREATE INDEX idx_aliases_alias ON aliases(alias);
-
 CREATE TABLE tags (
   note_id INTEGER NOT NULL REFERENCES notes(id) ON DELETE CASCADE,
   tag     TEXT NOT NULL,
@@ -38,7 +31,5 @@ CREATE TABLE links (
 CREATE INDEX idx_links_dst ON links(dst_id);
 
 CREATE VIEW keywords AS
-  SELECT title AS term, id AS note_id, 'title' AS kind FROM notes WHERE title <> ''
-  UNION ALL
-  SELECT alias AS term, note_id, 'alias' AS kind FROM aliases;
+  SELECT title AS term, id AS note_id, 'title' AS kind FROM notes WHERE title <> '';
 `

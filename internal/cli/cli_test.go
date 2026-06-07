@@ -170,28 +170,6 @@ func TestOpenCreatesThenReopens(t *testing.T) {
 	}
 }
 
-func TestOpenResolvesAlias(t *testing.T) {
-	vault := t.TempDir()
-	runIn(t, vault, "new", "--title", "Go", "--id", "100")
-	// Give note 100 an alias "Golang" and reindex so the keyword exists.
-	if err := os.WriteFile(filepath.Join(vault, ".track", "notes", "100.yaml"),
-		[]byte("version: 1\ntitle: Go\naliases:\n  - Golang\n"), 0o644); err != nil {
-		t.Fatalf("write metadata: %v", err)
-	}
-	if _, code := runIn(t, vault, "reindex", "--full"); code != 0 {
-		t.Fatalf("reindex failed")
-	}
-
-	// Opening by the alias resolves to the existing note rather than creating a new one.
-	out, code := runIn(t, vault, "open", "--title", "Golang")
-	if code != 0 {
-		t.Fatalf("open by alias failed: %v", out)
-	}
-	if out["created"] != false || out["id"].(float64) != 100 {
-		t.Fatalf("alias open should resolve to note 100 without creating, got %v", out)
-	}
-}
-
 func TestNewRequiresTitle(t *testing.T) {
 	out, code := runIn(t, t.TempDir(), "new")
 	if code != 1 || !strings.Contains(out["error"].(string), "title") {

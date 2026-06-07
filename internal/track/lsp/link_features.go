@@ -232,7 +232,7 @@ func refContainsPosition(ref link.Ref, pos position) bool {
 	return ref.Line == int(pos.Line) && int(pos.Character) >= ref.OpenByte && int(pos.Character) < ref.CloseByte
 }
 
-// completion offers note titles and aliases when the cursor sits inside an unclosed [[ on the current line.
+// completion offers note titles when the cursor sits inside an unclosed [[ on the current line.
 // Existing candidates come from the same dictionary that resolves links. If the typed target has no
 // matching keyword, an extra item lets the client create a note from that input.
 func (s *Server) completion(uri string, pos position) ([]completionItem, error) {
@@ -278,8 +278,6 @@ func (s *Server) completion(uri string, pos position) ([]completionItem, error) 
 		})
 		// Once the user has started typing a note name, surface that note's headings as full
 		// [[note##heading]] anchors next to the bare note, so jumping to a section needs no extra "#".
-		// Restricted to the title keyword (one per note) to keep the list focused; alias-keyed anchors
-		// remain reachable by typing "#", which routes to headingCompletion.
 		if prefixMatch && kw.Kind == "title" {
 			items = append(items, s.headingAnchorItems(ctx, kw.Term, s.notePath(kw.FileKind, kw.NoteID))...)
 		}
