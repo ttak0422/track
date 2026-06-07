@@ -14,6 +14,12 @@ import (
 	trackrename "github.com/ttak0422/track/internal/track/rename"
 )
 
+const (
+	// GeneratedByAITag marks provenance, not quality: generated notes stay searchable,
+	// but search and graph UIs may use this tag as a light ranking/display signal.
+	GeneratedByAITag = "generated-by-ai"
+)
+
 // Metadata is the structured data stored beside a note under .track/notes.
 // Created is kept as a string so YAML round-trips it verbatim instead of reformatting a time.Time.
 // Blocks holds Babel source-block results, keyed by block id; it is only present in version 2 sidecars.
