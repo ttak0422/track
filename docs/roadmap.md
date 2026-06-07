@@ -27,6 +27,10 @@ marked `Reject`.
   policies.
 - Placement: files live in fixed kind directories (`note/`, `journal/`, `template/`);
   paths are derived from kind plus id, not stored in the cache.
+- Auto-linking body text: no automatic or suggested linking of plain note text to
+  existing notes; links stay explicit `[[...]]`. An LSP code action for this was
+  prototyped and reverted (false positives, visual noise, and no clean "do not link"
+  decision; Hatena Keyword's auto-link was itself retired).
 
 ## Recently Shipped
 
@@ -40,6 +44,10 @@ marked `Done` with any remaining follow-up called out.
 - Babel LSP completions: block-header argument and multi-token `:results` completion
   served over LSP (trigger characters `[`, `:`, space), plus running a block directly
   from the editor buffer using the unsaved buffer body.
+- Markdown export: `track export` renders a single note to Markdown — flattening wiki
+  links to plain text, removing template action links, honoring Babel `:exports`
+  (results from sidecar v2 `last_run`), and an optional metadata frontmatter (ADR 0011,
+  `spec/export.md`). Remaining: batch export, relative-link rewriting, other formats.
 
 ## Discussion Template
 
@@ -80,7 +88,7 @@ For each item, answer:
 | Links | Configurable link style/format | TBD | Needed if supporting path-based links or Obsidian compatibility. |
 | Refactor | Rename note and update links | TBD | High-value. Implement via LSP rename + workspace edits; engine must rewrite note bodies safely. |
 | Refactor | React to file rename and update references | TBD | LSP workspace file-operation support or Neovim autocmd integration. |
-| Visual actions | Link selection to existing note | TBD | LSP code action or Neovim command; needs text edit only. |
+| Visual actions | Link selection to existing note | Reject | Prototyped as an LSP code action (plain-text mention -> `[[...]]`) then reverted. Auto/semi-auto linking of body text has high false-positive and visual-noise cost with no clean "do not link" decision; Hatena Keyword's auto-link was itself retired. Explicit `[[...]]` only. |
 | Visual actions | Create note from selection and link it | TBD | Similar to current unresolved-link create, but range-based. |
 | Visual actions | Extract selection to new note | TBD | Needs source edit and new note creation in one operation. |
 | Checkboxes | Toggle/cycle checkbox state | TBD | Markdown-only editor action; likely Neovim-first. |
@@ -118,7 +126,7 @@ For each item, answer:
 | Columns | Column view | TBD | Depends on properties/TODO. Likely defer. |
 | Tables | Org table editing | TBD | Could rely on external Markdown table plugins instead. |
 | Tables | Spreadsheet formulas | TBD | Large feature; likely reject/defer. |
-| Export | HTML/PDF/LaTeX/etc. export | TBD | Track currently has no exporter. Decide whether external tools cover this. |
+| Export | Markdown export; HTML/PDF/LaTeX/etc. | Partial | Markdown exporter shipped (`track export`, single note): flattens wiki links, removes template action links, honors Babel `:exports`, optional frontmatter (ADR 0011, `spec/export.md`). Batch export, relative-link rewriting, and other formats remain TBD. |
 | Publish | Publishing projects | TBD | Depends on export. Likely defer. |
 | Markup | Footnotes/citations/macros/includes | TBD | Mostly parser/export concerns; decide if track should understand them. |
 | Links | Rich Org link types and custom IDs | TBD | Some overlap with Obsidian link expansion. |
@@ -129,7 +137,7 @@ For each item, answer:
 | Babel | Tangling | TBD | Requires safe output path policy and write permissions. |
 | Babel | Typed table/list/value results | TBD | Requires result coercion and rendering model. |
 | Babel | File/graphics results | TBD | Depends on attachment/artifact storage policy. |
-| Babel | Export integration | TBD | Depends on exporter. |
+| Babel | Export integration | Partial | `:exports code/results/both/none` honored by the Markdown exporter; results pulled from sidecar v2 `last_run` (`spec/export.md`). Richer result types depend on the result model rows above. |
 
 ## Suggested Discussion Order
 
