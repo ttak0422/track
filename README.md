@@ -138,7 +138,7 @@ In a vault buffer, resolved `[[...]]` links are underlined (`TrackLink` highligh
 
 Completion of titles and aliases inside `[[` is served over LSP. The plugin merges [`cmp-nvim-lsp`](https://github.com/hrsh7th/cmp-nvim-lsp) capabilities when nvim-cmp is installed, so candidates surface through your existing nvim-cmp setup (add `{ name = "nvim_lsp" }` to its sources). The completion source is UI-independent, so other clients work too.
 
-Babel fence info strings are completed over the same LSP source. On an opening fence such as ```` ```lua :results output ````, track completes configured Babel languages, supported header keys, and fixed values for headers such as `:results`, `:eval`, `:cache`, `:session`, `:exports`, `:noweb`, and `:tangle`. Header-key candidates insert one trailing space, so accepting `:eval` leaves the cursor at `:eval ` where value candidates such as `yes`, `no`, and `query` are available.
+Babel fence info strings are completed over the same LSP source. On an opening fence such as ```` ```lua :results output ````, track completes configured Babel languages, supported header keys, and fixed values for headers such as `:results`, `:eval`, `:cache`, `:session`, `:exports`, `:noweb`, `:tangle`, and `:visible-lines`. Header-key candidates insert one trailing space, so accepting `:eval` leaves the cursor at `:eval ` where value candidates such as `yes`, `no`, and `query` are available. `:visible-lines 4-5,8` is an editor-only display hint that hides source block body lines outside the listed 1-based ranges without changing execution.
 
 ## Data safety
 
