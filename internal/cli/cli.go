@@ -51,6 +51,8 @@ func Run(args []string) int {
 		return cmdTemplate(rest)
 	case "babel":
 		return cmdBabel(rest)
+	case "export":
+		return cmdExport(rest)
 	default:
 		fmt.Fprintf(os.Stderr, "track: unknown command %q\n", cmd)
 		usage()
@@ -83,6 +85,8 @@ Usage:
                                         run a source block (JSON)
   track babel restore (--id N | --path P)
                                         list stored source block results (JSON)
+  track export (--id N | --title S | --path P) [--out F] [--frontmatter] [--exports-default M]
+                                        write a note out as Markdown (stdout, or JSON path with --out)
   track dump                            print placeholder state (JSON)
   track version                         print the version
 `)

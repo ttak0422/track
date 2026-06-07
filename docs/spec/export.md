@@ -100,10 +100,10 @@ Only non-empty fields are written. Babel block metadata is never emitted as fron
 ## CLI
 
 ```sh
-track export <note-id-or-title> [--out <file>] [--frontmatter] [--exports-default <mode>]
+track export (--id <n> | --title <s> | --path <p>) [--out <file>] [--frontmatter] [--exports-default <mode>]
 ```
 
-The target is a note id or a title; titles resolve through the keyword dictionary like other commands. Output goes to stdout unless `--out` is given.
+The target note is given by `--id`, by `--title` (resolved through the keyword dictionary like other commands, aliases included), or by `--path`. The rendered Markdown is written to stdout. With `--out`, it is written to the file instead and the command prints `{"path": <file>}` as JSON, matching the other commands. Warnings (such as a missing stored result) go to stderr and do not change the exit code.
 
 ## Future
 
