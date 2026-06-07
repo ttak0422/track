@@ -121,7 +121,7 @@ Commands:
 :Track dump            " diagnostic state dump
 ```
 
-Markdown links can trigger track actions when followed with `:Track follow` / `<CR>`, for example `[今日](<journal?offset=0>)` or `[今日の会議](<note?template=meeting&title={{date}} Project MTG>)`.
+Markdown links can trigger track actions when followed with `:Track follow` / `<CR>`, for example `[今日](<journal?offset=0>)` or `[今日の会議](<note?template=meeting&title={{date}} Project MTG>)`. In action links, `{{date}}` and `{{journal}}` both expand as `yyyyMMdd`.
 
 The optional [telescope.nvim](https://github.com/nvim-telescope/telescope.nvim) extension provides title and body search pickers:
 

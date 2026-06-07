@@ -104,7 +104,7 @@ date: {{ date }}
 ## Actions
 ```
 
-Following the link on 2026-06-06 creates or opens a regular note titled `2026-06-06 Project MTG` from the `project-mtg` template.
+Following the link on 2026-06-06 creates or opens a regular note titled `20260606 Project MTG` from the `project-mtg` template. The action-link `{{date}}` placeholder uses `yyyyMMdd`; the template body's `{{ date }}` substitution is separate and still uses the configured track date format such as `2026-06-06`.
 
 Current actions:
 
