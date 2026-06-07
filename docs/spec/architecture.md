@@ -20,6 +20,7 @@ The CLI layer under `internal/cli` handles argument parsing, command routing, an
 `cmd/track/main.go` is only the process entry point.
 The LSP layer under `internal/track/lsp` handles JSON-RPC, document link requests, definition requests, completion, and open document text.
 `cmd/track-lsp/main.go` is only the LSP process entry point.
+The local web workspace under `internal/track/webui` serves HTTP APIs and a browser UI over the same SQLite index. It is for interactive local exploration, not publication; public output belongs to export/static-site tooling.
 
 ## Data Flow
 

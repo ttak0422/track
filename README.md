@@ -27,6 +27,8 @@ The engine lives in reusable `internal/track/*` packages so a future LSP server 
   created: 2026-05-24
   ```
 
+  `generated-by-ai` is reserved as a provenance tag for AI-agent-generated drafts. It is still included in normal search; track treats it as a light ranking/display signal rather than a quality label.
+
 - **Links** are explicit, written `[[title]]`, with optional Obsidian-style `[[target|display]]` aliases. A heading anchor jumps inside a note: `[[note#foo]]`, `[[note##bar]]`, … where the number of `#` is the Markdown heading level and the first matching heading wins. Resolved links are highlighted and followable; links to notes that don't exist yet are flagged with a warning diagnostic. Completion offers titles as you type inside `[[`, then headings once you type `#`. Exact-match resolution works for Japanese without word boundaries. See [docs/spec/links.md](docs/spec/links.md).
 - **Journal**: each day maps to a stable `yyyyMMdd` note, so opening "today" is idempotent. Journal notes are stored as `journal/<yyyyMMdd>.md`.
 
@@ -61,6 +63,7 @@ track search --query <s> [--scope all|title|body] [--limit N]
                                       # search notes
 track backlinks (--id N | --path P)   # list backlinks
 track graph (--id N | --path P)       # local link graph around a note
+track web [--addr 127.0.0.1:8765]     # local interactive web workspace
 track template new --name <s> [--id N]
                                       # create a template under template/
 track template open --name <s>        # open or create a template
@@ -74,6 +77,16 @@ track version                         # print the version
 ```
 
 Templates are stored under `template/`, are not indexed as notes, and currently support only safe built-in substitutions. See [docs/spec/templates.md](docs/spec/templates.md). A ready-to-copy example covering every supported option lives at [examples/templates/example.template.md](examples/templates/example.template.md).
+
+## Web
+
+`track web` serves a local-only workspace for interactive exploration:
+
+```sh
+track web
+```
+
+Open `http://127.0.0.1:8765/` while the command is running. The first version includes note search, Markdown preview, backlinks, and a local Canvas graph. This is not the publish/export path; public output should use `track export` plus a static site generator.
 
 ## LSP
 

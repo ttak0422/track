@@ -14,6 +14,7 @@ import (
 	"github.com/ttak0422/track/internal/track/index"
 	"github.com/ttak0422/track/internal/track/note"
 	"github.com/ttak0422/track/internal/track/store"
+	"github.com/ttak0422/track/internal/track/webui"
 )
 
 func cmdReindex(args []string) int {
@@ -380,6 +381,26 @@ func cmdGraph(args []string) int {
 	return emit(map[string]any{"graph": graph})
 }
 
+func cmdWeb(args []string) int {
+	fs := flag.NewFlagSet("web", flag.ContinueOnError)
+	addr := fs.String("addr", "127.0.0.1:8765", "listen address")
+	if err := fs.Parse(args); err != nil {
+		return fail("parse args: %v", err)
+	}
+
+	cfg, s, err := open()
+	if err != nil {
+		return fail("%v", err)
+	}
+	defer s.Close()
+
+	fmt.Fprintf(os.Stderr, "track web: http://%s\n", *addr)
+	if err := webui.Serve(cfg, s, *addr); err != nil {
+		return fail("web: %v", err)
+	}
+	return 0
+}
+
 func searchResults(cfg *config.Config, s *store.Store, query string, limit int, scope store.SearchScope) ([]store.SearchResult, error) {
 	if limit <= 0 {
 		limit = 50
@@ -421,11 +442,11 @@ func bodySearchResults(cfg *config.Config, s *store.Store, query string, limit i
 	if limit <= 0 {
 		return []store.SearchResult{}, nil
 	}
-	notes, err := s.AllNotes()
+	notes, err := s.SearchRefs()
 	if err != nil {
 		return nil, err
 	}
-	refs := make(map[int64]store.NoteRef, len(notes))
+	refs := make(map[int64]store.SearchResult, len(notes))
 	for _, n := range notes {
 		refs[n.NoteID] = n
 	}
@@ -450,18 +471,47 @@ func bodySearchResults(cfg *config.Config, s *store.Store, query string, limit i
 			continue
 		}
 		out = append(out, store.SearchResult{
-			NoteID:   id,
-			FileKind: ref.FileKind,
-			Path:     cfg.PathForKind(ref.FileKind, id),
-			Title:    ref.Title,
-			Line:     line,
-			Snippet:  snippet,
+			NoteID:        id,
+			FileKind:      ref.FileKind,
+			Path:          cfg.PathForKind(ref.FileKind, id),
+			Title:         ref.Title,
+			GeneratedByAI: ref.GeneratedByAI,
+			Line:          line,
+			Snippet:       snippet,
+			Mtime:         ref.Mtime,
 		})
-		if len(out) >= limit {
-			break
-		}
+	}
+	sortSearchResults(out)
+	if len(out) > limit {
+		out = out[:limit]
 	}
 	return out, nil
+}
+
+func sortSearchResults(results []store.SearchResult) {
+	slices.SortFunc(results, func(a, b store.SearchResult) int {
+		if a.Mtime != b.Mtime {
+			return cmpDesc(a.Mtime, b.Mtime)
+		}
+		if a.GeneratedByAI != b.GeneratedByAI {
+			if a.GeneratedByAI {
+				return 1
+			}
+			return -1
+		}
+		return cmpDesc(a.NoteID, b.NoteID)
+	})
+}
+
+func cmpDesc[T ~int64](a, b T) int {
+	switch {
+	case a > b:
+		return -1
+	case a < b:
+		return 1
+	default:
+		return 0
+	}
 }
 
 func scanSearchFiles(cfg *config.Config) ([]string, error) {

@@ -2,11 +2,12 @@ package store
 
 // GraphNode is one note shown in a local graph.
 type GraphNode struct {
-	NoteID   int64  `json:"note_id"`
-	FileKind string `json:"file_kind"`
-	Path     string `json:"path,omitempty"`
-	Title    string `json:"title"`
-	Center   bool   `json:"center,omitempty"`
+	NoteID        int64  `json:"note_id"`
+	FileKind      string `json:"file_kind"`
+	Path          string `json:"path,omitempty"`
+	Title         string `json:"title"`
+	GeneratedByAI bool   `json:"generated_by_ai,omitempty"`
+	Center        bool   `json:"center,omitempty"`
 }
 
 // GraphEdge is one directed link between graph nodes.
@@ -43,11 +44,11 @@ func (s *Store) LocalGraph(centerID int64) (Graph, error) {
 		return Graph{}, err
 	}
 
-	notes, err := s.AllNotes()
+	notes, err := s.SearchRefs()
 	if err != nil {
 		return Graph{}, err
 	}
-	known := make(map[int64]NoteRef, len(notes))
+	known := make(map[int64]SearchResult, len(notes))
 	for _, n := range notes {
 		known[n.NoteID] = n
 	}
@@ -57,10 +58,11 @@ func (s *Store) LocalGraph(centerID int64) (Graph, error) {
 			continue
 		}
 		nodes = append(nodes, GraphNode{
-			NoteID:   n.NoteID,
-			FileKind: n.FileKind,
-			Title:    n.Title,
-			Center:   n.NoteID == centerID,
+			NoteID:        n.NoteID,
+			FileKind:      n.FileKind,
+			Title:         n.Title,
+			GeneratedByAI: n.GeneratedByAI,
+			Center:        n.NoteID == centerID,
 		})
 	}
 
