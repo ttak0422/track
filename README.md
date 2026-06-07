@@ -74,7 +74,7 @@ track dump                            # placeholder state
 track version                         # print the version
 ```
 
-Templates are stored under `template/`, are not indexed as notes, and currently support only safe built-in substitutions. See [docs/spec/templates.md](docs/spec/templates.md).
+Templates are stored under `template/`, are not indexed as notes, and currently support only safe built-in substitutions. See [docs/spec/templates.md](docs/spec/templates.md). A ready-to-copy example covering every supported option lives at [examples/templates/example.template.md](examples/templates/example.template.md).
 
 ## LSP
 
