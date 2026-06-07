@@ -505,93 +505,10 @@ func (s *Server) codeActions(uri string, rng rangeValue) ([]codeAction, error) {
 			Command: createNoteLSPCommand(title, uri),
 		})
 	}
-	mentionActions, err := s.mentionLinkActions(uri, text, rng)
-	if err != nil {
-		return nil, err
-	}
-	actions = append(actions, mentionActions...)
 	if actions == nil {
 		actions = []codeAction{}
 	}
 	return actions, nil
-}
-
-// mentionLinkActions offers, for each plain-text occurrence of a known note title or alias that
-// overlaps the request range, a quick fix rewriting just that occurrence to a [[<canonical title>]] link.
-func (s *Server) mentionLinkActions(uri, text string, rng rangeValue) ([]codeAction, error) {
-	terms, err := s.mentionTerms(uri)
-	if err != nil {
-		return nil, err
-	}
-	var actions []codeAction
-	for _, m := range mentions(text, terms) {
-		mrng := newRange(m.Line, m.StartByte, m.Line, m.EndByte)
-		if !rangesOverlap(rng, mrng) {
-			continue
-		}
-		actions = append(actions, codeAction{
-			Title: fmt.Sprintf("Link to [[%s]]", m.Title),
-			Kind:  protocol.QuickFix,
-			Edit: &workspaceEdit{
-				Changes: map[documentURI][]textEdit{
-					documentURI(uri): {{
-						Range:   mrng,
-						NewText: "[[" + m.Title + "]]",
-					}},
-				},
-			},
-		})
-	}
-	return actions, nil
-}
-
-// mentionTerms builds the keyword list for plain-text mention detection: every title and alias except
-// the current note's own, each carrying the canonical title it should link to so alias mentions still
-// rewrite to [[<title>]].
-func (s *Server) mentionTerms(uri string) ([]mentionTerm, error) {
-	kws, err := s.store.Keywords()
-	if err != nil {
-		return nil, err
-	}
-	titleByNote := make(map[int64]string)
-	for _, kw := range kws {
-		if kw.Kind == "title" {
-			if _, ok := titleByNote[kw.NoteID]; !ok {
-				titleByNote[kw.NoteID] = kw.Term
-			}
-		}
-	}
-	currentID, hasCurrent := noteIDFromURI(uri)
-	var terms []mentionTerm
-	seen := make(map[string]bool)
-	for _, kw := range kws {
-		if hasCurrent && kw.NoteID == currentID {
-			continue
-		}
-		if seen[kw.Term] {
-			continue
-		}
-		seen[kw.Term] = true
-		title := kw.Term
-		if t, ok := titleByNote[kw.NoteID]; ok {
-			title = t
-		}
-		terms = append(terms, mentionTerm{Term: kw.Term, Title: title})
-	}
-	return terms, nil
-}
-
-// rangesOverlap reports whether two ranges share any position, treating touching endpoints as overlap
-// so a zero-width cursor sitting at either edge of a mention still triggers its action.
-func rangesOverlap(a, b rangeValue) bool {
-	return !positionBefore(a.End, b.Start) && !positionBefore(b.End, a.Start)
-}
-
-func positionBefore(p, q position) bool {
-	if p.Line != q.Line {
-		return p.Line < q.Line
-	}
-	return p.Character < q.Character
 }
 
 func (s *Server) renameRepairAction(uri string, text string, ref link.Ref, dict map[string]store.Keyword) (codeAction, bool) {
