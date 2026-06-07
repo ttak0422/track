@@ -89,7 +89,7 @@ For each item, answer:
 | Links | Heading/block links | Done | Shipped heading anchors: `[[note#foo]]`/`[[note##bar]]` where the `#` count is the Markdown heading level; first matching heading wins (ADR 0009). Definition jumps to the heading and completion offers headings after `#`. Block-level anchors (Obsidian `#^`) remain out of scope. |
 | Links | URI and attachment links | TBD | Decide whether to delegate to `gx`/`vim.ui.open` or integrate into LSP definition. |
 | Links | Configurable link style/format | TBD | Needed if supporting path-based links or Obsidian compatibility. |
-| Refactor | Rename note and update links | TBD | High-value. Implement via LSP rename + workspace edits; engine must rewrite note bodies safely. |
+| Refactor | Rename note and update links | Adopt | LSP `textDocument/rename`: renaming a title or `[[link]]` rewrites every backlink via a workspace edit, updates the target's H1, and records rename history. An explicit user action, so it fits the explicit-link model. Not yet implemented. |
 | Refactor | React to file rename and update references | TBD | LSP workspace file-operation support or Neovim autocmd integration. |
 | Visual actions | Link selection to existing note | Reject | Prototyped as an LSP code action (plain-text mention -> `[[...]]`) then reverted. Auto/semi-auto linking of body text has high false-positive and visual-noise cost with no clean "do not link" decision; Hatena Keyword's auto-link was itself retired. Explicit `[[...]]` only. |
 | Visual actions | Create note from selection and link it | TBD | Similar to current unresolved-link create, but range-based. |
@@ -97,8 +97,8 @@ For each item, answer:
 | Checkboxes | Toggle/cycle checkbox state | TBD | Markdown-only editor action; likely Neovim-first. |
 | Checkboxes | Create checkbox from plain list/paragraph | TBD | Pair with toggle action if adopted. |
 | Navigation | Current-note links list | TBD | Similar to backlinks, but outgoing occurrences. LSP custom request or document symbols. |
-| Navigation | Table of contents / document symbols | TBD | Implement `textDocument/documentSymbol` for Markdown headings. |
-| Navigation | Workspace symbols | TBD | Implement `workspace/symbol` over note titles, maybe headings. |
+| Navigation | Table of contents / document symbols | Reject | Standard Markdown structure, not track-specific; covered by treesitter (aerial/navic/Telescope) or a general Markdown LSP, which track-lsp would only duplicate. Reconsider if track moves off Markdown. |
+| Navigation | Workspace symbols | Reject | Covered by the existing `search_title` Telescope picker (`track search --scope title`); a general Markdown LSP can also surface headings. (Note ids are filenames, so `find_files` is not title search, but the picker handles it.) Reconsider if track moves off Markdown. |
 | Attachments | Paste image from clipboard | TBD | Neovim-only command plus attachment storage policy. |
 | Attachments | Attachment file management/opening | TBD | Requires attachment path policy and link/open behavior. |
 | Status | Footer/statusline data | TBD | Backlink count, word count, metadata count. Could expose Lua helper and no UI opinion. |
@@ -106,7 +106,7 @@ For each item, answer:
 | Help | In-plugin help/search | TBD | Lower priority. README/docs may be enough for now. |
 | Smart action | Context-aware `<CR>` action | TBD | Current `<CR>` follows links only. Decide whether to include checkboxes/tags/headings. |
 | LSP | Hover | TBD | Could show target note title/path/backlink count or unresolved create hint. |
-| LSP | Diagnostics | TBD | Unresolved links, duplicate titles, stale metadata. |
+| LSP | Diagnostics | Adopt | Unresolved-link diagnostics only (Severity Warning), reusing documentLinks resolution; Lua's unresolved highlight folds into it. Duplicate titles (prevented at creation) and stale metadata (auto-reconciled) are out of scope. Not yet implemented. |
 | LSP | Code action resolve | TBD | Only needed if actions become expensive to compute. |
 | LSP | Document highlight | TBD | Highlight same link target or references in current buffer. |
 | LSP | Folding range | TBD | Mostly Markdown heading support; may defer to Treesitter. |
