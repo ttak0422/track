@@ -145,6 +145,10 @@ function M.setup()
       require("track.backlinks").show()
    end, { desc = "Show notes that link to the current note" })
 
+   register("graph", function()
+      require("track.graph").show()
+   end, { desc = "Show a local note graph around the current note" })
+
    register("babel_exec", function()
       require("track.babel").exec()
    end, { desc = "Run the source block under the cursor and show its result" })

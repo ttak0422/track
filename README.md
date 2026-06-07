@@ -61,6 +61,7 @@ track resolve --term <s>              # resolve a keyword to a note
 track search --query <s> [--scope all|title|body] [--limit N]
                                       # search notes
 track backlinks (--id N | --path P)   # list backlinks
+track graph (--id N | --path P)       # local link graph around a note
 track template new --name <s> [--id N]
                                       # create a template under template/
 track template open --name <s>        # open or create a template
@@ -109,6 +110,7 @@ Commands:
 :Track templates       " search templates with Telescope and open one for editing
 :Track follow          " follow the [[...]] link under the cursor (also mapped to <CR>)
 :Track backlinks       " show notes that link to the current note in quickfix
+:Track graph           " show a local note graph around the current note
 :Track babel_exec      " run the source block under the cursor; result shows below it
 :Track babel_restore   " restore stored babel results without running code
 :Track babel_clear     " clear rendered babel results in the buffer

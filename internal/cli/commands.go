@@ -344,6 +344,42 @@ func cmdBacklinks(args []string) int {
 	return emit(map[string]any{"backlinks": back})
 }
 
+func cmdGraph(args []string) int {
+	fs := flag.NewFlagSet("graph", flag.ContinueOnError)
+	id := fs.Int64("id", 0, "note id")
+	path := fs.String("path", "", "note path (alternative to --id)")
+	if err := fs.Parse(args); err != nil {
+		return fail("parse args: %v", err)
+	}
+
+	cfg, s, err := open()
+	if err != nil {
+		return fail("%v", err)
+	}
+	defer s.Close()
+
+	noteID := *id
+	if noteID == 0 {
+		if *path == "" {
+			return fail("--id or --path is required")
+		}
+		parsed, err := note.IDFromPath(*path)
+		if err != nil {
+			return fail("invalid path: %v", err)
+		}
+		noteID = parsed
+	}
+
+	graph, err := s.LocalGraph(noteID)
+	if err != nil {
+		return fail("graph: %v", err)
+	}
+	for i := range graph.Nodes {
+		graph.Nodes[i].Path = cfg.PathForKind(graph.Nodes[i].FileKind, graph.Nodes[i].NoteID)
+	}
+	return emit(map[string]any{"graph": graph})
+}
+
 func searchResults(cfg *config.Config, s *store.Store, query string, limit int, scope store.SearchScope) ([]store.SearchResult, error) {
 	if limit <= 0 {
 		limit = 50

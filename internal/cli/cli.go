@@ -45,6 +45,8 @@ func Run(args []string) int {
 		return cmdSearch(rest)
 	case "backlinks":
 		return cmdBacklinks(rest)
+	case "graph":
+		return cmdGraph(rest)
 	case "template":
 		return cmdTemplate(rest)
 	case "babel":
@@ -72,6 +74,7 @@ Usage:
   track search --query <s> [--scope all|title|body] [--limit N]
                                         search notes (JSON)
   track backlinks (--id N | --path P)   list backlinks (JSON)
+  track graph (--id N | --path P)       show a local link graph (JSON)
   track template new --name <s> [--id N]
                                         create a template (JSON)
   track template open --name <s>         open or create a template (JSON)

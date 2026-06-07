@@ -214,18 +214,23 @@ func TestBacklinksAndReindex(t *testing.T) {
 	vault := t.TempDir()
 	runIn(t, vault, "new", "--title", "Go", "--id", "100")
 	runIn(t, vault, "new", "--title", "Other", "--id", "200")
+	runIn(t, vault, "new", "--title", "Test", "--id", "300")
 
-	// Make note 200 reference Go, then full reindex to build the link graph.
+	// Make note 200 reference Go, and Go reference Test, then full reindex to build the link graph.
 	if err := os.WriteFile(filepath.Join(vault, "note", "200.md"),
 		[]byte("[[Go]] を参照\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(vault, "note", "100.md"),
+		[]byte("# Go\n\n[[Test]] を参照\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
 	rep, code := runIn(t, vault, "reindex", "--full")
 	if code != 0 {
 		t.Fatalf("reindex failed: %v", rep)
 	}
-	if rep["links"].(float64) != 1 {
-		t.Fatalf("expected 1 link, got %v", rep["links"])
+	if rep["links"].(float64) != 2 {
+		t.Fatalf("expected 2 links, got %v", rep["links"])
 	}
 
 	back, code := runIn(t, vault, "backlinks", "--id", "100")
@@ -235,6 +240,17 @@ func TestBacklinksAndReindex(t *testing.T) {
 	list := back["backlinks"].([]any)
 	if len(list) != 1 || list[0].(map[string]any)["note_id"].(float64) != 200 {
 		t.Fatalf("expected note 200 backlink, got %v", list)
+	}
+
+	graph, code := runIn(t, vault, "graph", "--id", "100")
+	if code != 0 {
+		t.Fatalf("graph failed: %v", graph)
+	}
+	g := graph["graph"].(map[string]any)
+	nodes := g["nodes"].([]any)
+	edges := g["edges"].([]any)
+	if len(nodes) != 3 || len(edges) != 2 {
+		t.Fatalf("expected local graph with 3 nodes and 2 edges, got nodes=%v edges=%v", nodes, edges)
 	}
 }
 
