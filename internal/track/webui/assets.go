@@ -24,10 +24,22 @@ const indexHTML = `<!doctype html>
           <h1>track</h1>
           <p>Local graph workspace</p>
         </div>
-        <div class="theme-switch" role="group" aria-label="Theme">
-          <button type="button" data-theme-choice="system">System</button>
-          <button type="button" data-theme-choice="light">Light</button>
-          <button type="button" data-theme-choice="dark">Dark</button>
+        <div class="app-menu">
+          <button id="menu-button" class="menu-button" type="button" aria-label="Open menu" aria-haspopup="true" aria-expanded="false">
+            <span></span>
+            <span></span>
+            <span></span>
+          </button>
+          <div id="menu-panel" class="menu-panel" hidden>
+            <section class="menu-section" aria-labelledby="theme-menu-label">
+              <h2 id="theme-menu-label">Theme</h2>
+              <div class="theme-switch" role="group" aria-label="Theme">
+                <button type="button" data-theme-choice="system">System</button>
+                <button type="button" data-theme-choice="light">Light</button>
+                <button type="button" data-theme-choice="dark">Dark</button>
+              </div>
+            </section>
+          </div>
         </div>
       </header>
       <div class="searchbar">
@@ -137,8 +149,7 @@ button, input {
 
 .brand {
   display: flex;
-  flex-wrap: wrap;
-  align-items: flex-start;
+  align-items: center;
   justify-content: space-between;
   gap: 16px;
   min-height: 76px;
@@ -146,10 +157,59 @@ button, input {
   border-bottom: 1px solid var(--line);
 }
 
+.app-menu {
+  position: relative;
+  flex: 0 0 auto;
+}
+
+.menu-button {
+  display: inline-grid;
+  place-content: center;
+  gap: 4px;
+  width: 34px;
+  height: 34px;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  color: var(--text);
+  background: var(--panel);
+  cursor: pointer;
+}
+
+.menu-button:hover, .menu-button[aria-expanded="true"] {
+  background: var(--panel-soft);
+}
+
+.menu-button span {
+  display: block;
+  width: 16px;
+  height: 2px;
+  border-radius: 2px;
+  background: currentColor;
+}
+
+.menu-panel {
+  position: absolute;
+  z-index: 20;
+  top: calc(100% + 8px);
+  right: 0;
+  width: 214px;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  padding: 10px;
+  background: var(--panel);
+  box-shadow: 0 16px 38px color-mix(in srgb, #000 18%, transparent);
+}
+
+.menu-section h2 {
+  margin: 0 0 8px;
+  color: var(--muted);
+  font-size: 12px;
+  font-weight: 650;
+}
+
 .theme-switch {
   display: grid;
   grid-template-columns: repeat(3, minmax(0, 1fr));
-  flex: 0 0 154px;
   overflow: hidden;
   border: 1px solid var(--line);
   border-radius: 6px;
@@ -283,6 +343,10 @@ p {
 
 .hidden {
   display: none;
+}
+
+[hidden] {
+  display: none !important;
 }
 
 .reader {
@@ -430,6 +494,8 @@ const appJS = `(function () {
     backlinks: document.getElementById("backlinks"),
     graphMeta: document.getElementById("graph-meta"),
     canvas: document.getElementById("graph"),
+    menuButton: document.getElementById("menu-button"),
+    menuPanel: document.getElementById("menu-panel"),
     themeButtons: Array.prototype.slice.call(document.querySelectorAll("[data-theme-choice]"))
   };
 
@@ -453,6 +519,11 @@ const appJS = `(function () {
       button.setAttribute("aria-pressed", button.dataset.themeChoice === mode ? "true" : "false");
     });
     drawGraph();
+  }
+
+  function setMenuOpen(open) {
+    el.menuButton.setAttribute("aria-expanded", open ? "true" : "false");
+    el.menuPanel.hidden = !open;
   }
 
   function api(path) {
@@ -1014,9 +1085,23 @@ const appJS = `(function () {
     resizeCanvas();
     drawGraph();
   });
+  el.menuButton.addEventListener("click", function (event) {
+    event.stopPropagation();
+    setMenuOpen(el.menuButton.getAttribute("aria-expanded") !== "true");
+  });
+  el.menuPanel.addEventListener("click", function (event) {
+    event.stopPropagation();
+  });
+  document.addEventListener("click", function () {
+    setMenuOpen(false);
+  });
+  document.addEventListener("keydown", function (event) {
+    if (event.key === "Escape") setMenuOpen(false);
+  });
   el.themeButtons.forEach(function (button) {
     button.addEventListener("click", function () {
       applyTheme(button.dataset.themeChoice);
+      setMenuOpen(false);
     });
   });
   if (systemTheme) {
