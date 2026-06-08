@@ -492,6 +492,10 @@ p {
   font-weight: 650;
 }
 
+.home-summary {
+  margin-top: 4px;
+}
+
 .wiki-link {
   border: 0;
   padding: 0;
@@ -755,7 +759,7 @@ const appJS = `(function () {
     state.selectedID = null;
     renderResults();
     var notes = state.results.slice(0, 12);
-    var body = '<h1>Home</h1>';
+    var body = '<h1>Recent Notes</h1><p class="home-summary">Showing ' + notes.length + ' recent notes</p>';
     if (notes.length === 0) {
       body += '<div class="empty">No notes found</div>';
     } else {
