@@ -336,6 +336,14 @@ p {
   font-weight: 560;
 }
 
+.note-tags {
+  margin: -2px 0 16px;
+}
+
+.note-tags .tag {
+  font-size: 12px;
+}
+
 .result-meta {
   margin-top: 3px;
   color: var(--muted);
@@ -605,15 +613,25 @@ const appJS = `(function () {
     api("/api/note?id=" + encodeURIComponent(id)).then(function (data) {
       var note = data.note;
       el.body.innerHTML = renderMarkdown(note.body || "");
-      if (note.generated_by_ai) {
-        el.body.insertAdjacentHTML("afterbegin", '<span class="badge">generated-by-ai</span>');
-      }
+      insertNoteTags(note.tags || []);
       renderBacklinks(data.backlinks || []);
       updateHistory(note, opts.history || "push");
       return api("/api/graph/local?id=" + encodeURIComponent(id));
     }).then(function (data) {
       setGraph(data.graph || { nodes: [], edges: [] });
     }).catch(showError);
+  }
+
+  function insertNoteTags(tags) {
+    var html = renderTags(tags);
+    if (!html) return;
+    html = html.replace('class="tag-list"', 'class="tag-list note-tags"');
+    var firstTitle = el.body.querySelector("h1");
+    if (firstTitle) {
+      firstTitle.insertAdjacentHTML("afterend", html);
+    } else {
+      el.body.insertAdjacentHTML("afterbegin", html);
+    }
   }
 
   function renderBacklinks(backlinks) {
