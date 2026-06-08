@@ -70,6 +70,9 @@ func TestInitializeCompletionTriggerCharacters(t *testing.T) {
 			t.Fatalf("expected completion trigger %q in %+v", want, triggers)
 		}
 	}
+	if result.Capabilities.HoverProvider == nil || result.Capabilities.HoverProvider.Value != true {
+		t.Fatalf("expected hover provider, got %+v", result.Capabilities.HoverProvider)
+	}
 }
 
 func TestDiagnosticsWarnOnH1OutsideFirstLine(t *testing.T) {
@@ -227,6 +230,40 @@ func TestDocumentLinks(t *testing.T) {
 	}
 	if targetString(links[0]) != uriFromPath(filepath.Join(vault, "note", "100.md")) {
 		t.Fatalf("unexpected target: %q", targetString(links[0]))
+	}
+}
+
+func TestHoverShowsLinkedNotePreview(t *testing.T) {
+	srv, vault := setupServer(t)
+	targetURI := uriFromPath(filepath.Join(vault, "note", "100.md"))
+	srv.docs[targetURI] = "# Go\n\nThis is the target note.\n\nIt links to [[Source]].\n"
+	if err := srv.store.UpsertNote(&note.Note{
+		ID:    100,
+		Mtime: 100,
+		Meta:  note.Metadata{Title: "Go", Tags: []string{"lang", note.GeneratedByAITag}},
+	}); err != nil {
+		t.Fatalf("upsert target tags: %v", err)
+	}
+
+	sourceURI := uriFromPath(filepath.Join(vault, "note", "200.md"))
+	srv.docs[sourceURI] = "See [[Go]] now."
+	hov, err := srv.hover(sourceURI, newPosition(0, 7))
+	if err != nil {
+		t.Fatalf("hover: %v", err)
+	}
+	if hov == nil {
+		t.Fatal("expected hover")
+	}
+	if hov.Contents.Kind != protocol.Markdown {
+		t.Fatalf("hover kind = %q, want markdown", hov.Contents.Kind)
+	}
+	for _, want := range []string{"### Go", "#generated-by-ai", "#lang", "This is the target note.", "[[Source]]"} {
+		if !strings.Contains(hov.Contents.Value, want) {
+			t.Fatalf("hover content missing %q:\n%s", want, hov.Contents.Value)
+		}
+	}
+	if hov.Range.Start.Line != 0 || hov.Range.Start.Character != 4 || hov.Range.End.Character != 10 {
+		t.Fatalf("unexpected hover range: %+v", hov.Range)
 	}
 }
 

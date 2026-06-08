@@ -157,6 +157,7 @@ func (s *Server) handleRequest(msg rpcMessage) rpcMessage {
 				TextDocumentSync:       protocol.Full,
 				DefinitionProvider:     &protocol.Or_ServerCapabilities_definitionProvider{Value: true},
 				ReferencesProvider:     &protocol.Or_ServerCapabilities_referencesProvider{Value: true},
+				HoverProvider:          &protocol.Or_ServerCapabilities_hoverProvider{Value: true},
 				DocumentLinkProvider:   &protocol.DocumentLinkOptions{ResolveProvider: false},
 				CompletionProvider:     &protocol.CompletionOptions{TriggerCharacters: []string{"[", "#", ":", " ", "<", "?", "&", "="}},
 				CodeActionProvider:     true,
@@ -205,6 +206,18 @@ func (s *Server) handleRequest(msg rpcMessage) rpcMessage {
 			return resp
 		}
 		resp.Result = loc
+	case "textDocument/hover":
+		var p hoverParams
+		if err := json.Unmarshal(msg.Params, &p); err != nil {
+			resp.Error = &rpcError{Code: -32602, Message: err.Error()}
+			return resp
+		}
+		hov, err := s.hover(string(p.TextDocument.URI), p.Position)
+		if err != nil {
+			resp.Error = &rpcError{Code: -32000, Message: err.Error()}
+			return resp
+		}
+		resp.Result = hov
 	case "textDocument/references":
 		var p textDocumentPositionParams
 		if err := json.Unmarshal(msg.Params, &p); err != nil {
