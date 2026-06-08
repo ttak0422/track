@@ -21,7 +21,7 @@ const indexHTML = `<!doctype html>
     <aside class="sidebar">
       <header class="brand">
         <div>
-          <h1>track</h1>
+          <h1><a id="home-link" class="home-link" href="/">track</a></h1>
           <p>Local graph workspace</p>
         </div>
         <div class="app-menu">
@@ -163,6 +163,15 @@ button, input {
 .app-menu {
   position: relative;
   flex: 0 0 auto;
+}
+
+.home-link {
+  color: inherit;
+  text-decoration: none;
+}
+
+.home-link:hover {
+  color: var(--accent-strong);
 }
 
 .menu-button {
@@ -459,6 +468,30 @@ p {
   font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
 }
 
+.home-list {
+  display: grid;
+  gap: 12px;
+  max-width: 760px;
+  margin-top: 14px;
+}
+
+.home-note {
+  display: block;
+  color: var(--text);
+  text-decoration: none;
+}
+
+.home-note:hover .home-note-title {
+  color: var(--accent-strong);
+  text-decoration: underline;
+  text-underline-offset: 3px;
+}
+
+.home-note-title {
+  font-size: 15px;
+  font-weight: 650;
+}
+
 .wiki-link {
   border: 0;
   padding: 0;
@@ -570,6 +603,7 @@ const appJS = `(function () {
   };
 
   var el = {
+    homeLink: document.getElementById("home-link"),
     search: document.getElementById("search"),
     searchChips: document.getElementById("search-chips"),
     results: document.getElementById("results"),
@@ -635,8 +669,8 @@ const appJS = `(function () {
     api("/api/search?limit=100&q=" + q).then(function (data) {
       state.results = data.results || [];
       renderResults();
-      if (!state.selectedID && state.results.length > 0) {
-        selectNote(state.results[0].note_id, { history: "replace" });
+      if (!state.selectedID) {
+        renderHome();
       }
     }).catch(showError);
   }
@@ -717,6 +751,37 @@ const appJS = `(function () {
     }).join("") + '</div>';
   }
 
+  function renderHome() {
+    state.selectedID = null;
+    renderResults();
+    var notes = state.results.slice(0, 12);
+    var body = '<h1>Home</h1>';
+    if (notes.length === 0) {
+      body += '<div class="empty">No notes found</div>';
+    } else {
+      body += '<div class="home-list">' + notes.map(function (note) {
+        return '<a class="home-note" href="/?id=' + encodeURIComponent(note.note_id) + '" data-note-id="' + escapeHTML(note.note_id) + '">' +
+          '<div class="home-note-title">' + escapeHTML(note.title || "#" + note.note_id) + '</div>' +
+          renderTags(note.tags || []) +
+          '</a>';
+      }).join("") + '</div>';
+    }
+    el.body.innerHTML = body;
+    el.backlinks.innerHTML = '<div class="empty">No backlinks</div>';
+    setGraph({ nodes: [], edges: [] });
+  }
+
+  function goHome(mode) {
+    state.selectedID = null;
+    state.activeTags = [];
+    el.search.value = "";
+    renderSearchFilter();
+    renderHome();
+    updateHomeHistory(mode || "push");
+    loadSearch();
+    el.search.focus();
+  }
+
   function selectNote(id, opts) {
     opts = opts || {};
     state.selectedID = id;
@@ -775,6 +840,17 @@ const appJS = `(function () {
     } else {
       if (window.history.state && window.history.state.note_id === note.note_id) return;
       window.history.pushState(payload, "", url);
+    }
+  }
+
+  function updateHomeHistory(mode) {
+    if (mode === "none") return;
+    var url = new URL(window.location.href);
+    url.searchParams.delete("id");
+    if (mode === "replace") {
+      window.history.replaceState({ home: true }, "", url);
+    } else {
+      window.history.pushState({ home: true }, "", url);
     }
   }
 
@@ -1227,6 +1303,13 @@ const appJS = `(function () {
       applyTagSearch(tag.dataset.tag);
       return;
     }
+    var noteLink = event.target.closest(".home-note");
+    if (noteLink) {
+      if (event.metaKey || event.ctrlKey || event.shiftKey || event.altKey || event.button !== 0) return;
+      event.preventDefault();
+      selectNote(Number(noteLink.dataset.noteId), { history: "push" });
+      return;
+    }
     var link = event.target.closest(".wiki-link");
     if (!link) return;
     event.preventDefault();
@@ -1240,6 +1323,8 @@ const appJS = `(function () {
     }
     if (id) {
       selectNote(id, { history: "none" });
+    } else {
+      goHome("none");
     }
   });
 
@@ -1278,12 +1363,19 @@ const appJS = `(function () {
   });
   var debouncedLoadSearch = debounce(loadSearch, 160);
   el.search.addEventListener("input", debouncedLoadSearch);
+  el.homeLink.addEventListener("click", function (event) {
+    if (event.metaKey || event.ctrlKey || event.shiftKey || event.altKey || event.button !== 0) return;
+    event.preventDefault();
+    goHome("push");
+  });
 
   applyTheme(themeMode());
   var initialID = Number(new URL(window.location.href).searchParams.get("id"));
   if (initialID) {
     window.history.replaceState({ note_id: initialID }, "", window.location.href);
     selectNote(initialID, { history: "none" });
+  } else {
+    window.history.replaceState({ home: true }, "", window.location.href);
   }
   loadSearch();
 })();
