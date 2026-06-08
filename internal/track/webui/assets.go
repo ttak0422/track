@@ -496,6 +496,47 @@ p {
   margin-top: 4px;
 }
 
+.note-preview {
+  position: fixed;
+  z-index: 60;
+  width: min(380px, calc(100vw - 24px));
+  max-height: min(520px, calc(100vh - 24px));
+  overflow: auto;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  padding: 14px 16px;
+  background: var(--panel);
+  box-shadow: 0 18px 42px color-mix(in srgb, #000 18%, transparent);
+}
+
+.note-preview-title {
+  color: var(--text);
+  font-size: 16px;
+  font-weight: 680;
+  line-height: 1.35;
+}
+
+.note-preview-body {
+  margin-top: 10px;
+}
+
+.note-preview-body h1, .note-preview-body h2, .note-preview-body h3 {
+  margin: 12px 0 6px;
+  color: var(--text);
+}
+
+.note-preview-body h1 { font-size: 18px; }
+.note-preview-body h2 { font-size: 16px; }
+.note-preview-body h3 { font-size: 14px; }
+.note-preview-body p { margin: 7px 0; color: var(--text); font-size: 13px; }
+.note-preview-body pre {
+  overflow: auto;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  padding: 10px;
+  background: var(--panel-soft);
+}
+
 .wiki-link {
   border: 0;
   padding: 0;
@@ -603,7 +644,13 @@ const appJS = `(function () {
     dragging: null,
     pointers: {},
     pinch: null,
-    animation: null
+    animation: null,
+    preview: {
+      panel: null,
+      hideTimer: null,
+      request: 0,
+      cache: {}
+    }
   };
 
   var el = {
@@ -730,6 +777,7 @@ const appJS = `(function () {
       var button = document.createElement("button");
       button.className = "result" + (note.note_id === state.selectedID ? " active" : "");
       button.type = "button";
+      button.dataset.noteId = note.note_id;
       button.onclick = function (event) {
         var tag = event.target.closest("[data-tag]");
         if (tag) {
@@ -776,6 +824,7 @@ const appJS = `(function () {
   }
 
   function goHome(mode) {
+    hidePreview();
     state.selectedID = null;
     state.activeTags = [];
     el.search.value = "";
@@ -788,6 +837,7 @@ const appJS = `(function () {
 
   function selectNote(id, opts) {
     opts = opts || {};
+    hidePreview();
     state.selectedID = id;
     renderResults();
     api("/api/note?id=" + encodeURIComponent(id)).then(function (data) {
@@ -824,6 +874,7 @@ const appJS = `(function () {
       var link = document.createElement("a");
       link.className = "backlink";
       link.href = "/?id=" + encodeURIComponent(note.note_id);
+      link.dataset.noteId = note.note_id;
       link.textContent = note.title || "#" + note.note_id;
       link.onclick = function (event) {
         if (event.metaKey || event.ctrlKey || event.shiftKey || event.altKey || event.button !== 0) return;
@@ -959,6 +1010,123 @@ const appJS = `(function () {
   function cssEscape(value) {
     if (window.CSS && window.CSS.escape) return window.CSS.escape(value);
     return String(value).replace(/["\\]/g, "\\$&");
+  }
+
+  function previewTarget(node) {
+    if (node && node.closest && node.closest("[data-tag]")) return null;
+    var target = node && node.closest ? node.closest(".wiki-link, .backlink, .home-note, .result") : null;
+    if (!target) return null;
+    return target;
+  }
+
+  function ensurePreview() {
+    if (state.preview.panel) return state.preview.panel;
+    var panel = document.createElement("div");
+    panel.className = "note-preview";
+    panel.hidden = true;
+    panel.addEventListener("mouseenter", clearPreviewHide);
+    panel.addEventListener("mouseleave", schedulePreviewHide);
+    document.body.appendChild(panel);
+    state.preview.panel = panel;
+    return panel;
+  }
+
+  function clearPreviewHide() {
+    clearTimeout(state.preview.hideTimer);
+    state.preview.hideTimer = null;
+  }
+
+  function schedulePreviewHide() {
+    clearPreviewHide();
+    state.preview.hideTimer = setTimeout(hidePreview, 140);
+  }
+
+  function hidePreview() {
+    clearPreviewHide();
+    if (state.preview.panel) state.preview.panel.hidden = true;
+  }
+
+  function showPreviewFor(target) {
+    clearPreviewHide();
+    var panel = ensurePreview();
+    var request = ++state.preview.request;
+    panel.hidden = false;
+    panel.innerHTML = '<div class="empty">Loading preview</div>';
+    positionPreview(panel, target);
+    previewData(target).then(function (data) {
+      if (request !== state.preview.request) return;
+      panel.innerHTML = data.html;
+      positionPreview(panel, target);
+    }).catch(function () {
+      if (request !== state.preview.request) return;
+      panel.innerHTML = '<div class="empty">Preview unavailable</div>';
+      positionPreview(panel, target);
+    });
+  }
+
+  function previewData(target) {
+    if (target.classList.contains("wiki-link")) {
+      var term = normalizeTerm(target.dataset.term);
+      if (!term) return Promise.reject(new Error("empty link"));
+      return api("/api/resolve?term=" + encodeURIComponent(term)).then(function (data) {
+        if (!data.found || !data.note || !data.note.note_id) {
+          return { html: '<div class="empty">Unresolved: ' + escapeHTML(term) + '</div>' };
+        }
+        return previewNote(data.note.note_id);
+      });
+    }
+    var id = Number(target.dataset.noteId);
+    if (!id) return Promise.reject(new Error("missing note id"));
+    return previewNote(id);
+  }
+
+  function previewNote(id) {
+    if (state.preview.cache[id]) {
+      return Promise.resolve(state.preview.cache[id]);
+    }
+    return api("/api/note?id=" + encodeURIComponent(id)).then(function (data) {
+      var note = data.note || {};
+      var html = '<div class="note-preview-title">' + escapeHTML(note.title || "#" + note.note_id) + '</div>' +
+        renderTags(note.tags || []) +
+        '<div class="note-preview-body">' + renderMarkdown(previewMarkdown(note.body || "")) + '</div>';
+      var result = { html: html };
+      state.preview.cache[id] = result;
+      return result;
+    });
+  }
+
+  function previewMarkdown(markdown) {
+    var lines = markdown.split("\n");
+    var out = [];
+    var chars = 0;
+    for (var i = 0; i < lines.length; i++) {
+      if (i === 0 && /^#\s+/.test(lines[i])) continue;
+      out.push(lines[i]);
+      chars += lines[i].length;
+      if (out.length >= 12 || chars > 900) break;
+    }
+    return out.join("\n");
+  }
+
+  function positionPreview(panel, target) {
+    var rect = target.getBoundingClientRect();
+    var margin = 12;
+    var panelRect = panel.getBoundingClientRect();
+    var width = panelRect.width || 380;
+    var height = panelRect.height || 260;
+    var left = rect.right + margin;
+    if (left + width > window.innerWidth - margin) {
+      left = rect.left - width - margin;
+    }
+    if (left < margin) {
+      left = Math.min(Math.max(margin, rect.left), window.innerWidth - width - margin);
+    }
+    var top = rect.top;
+    if (top + height > window.innerHeight - margin) {
+      top = window.innerHeight - height - margin;
+    }
+    panel.style.left = Math.max(margin, left) + "px";
+    panel.style.top = Math.max(margin, top) + "px";
   }
 
   function showError(err) {
@@ -1299,6 +1467,37 @@ const appJS = `(function () {
     state.graphView.y = point.y - el.canvas.height / 2 - before.y * state.graphView.scale;
     drawGraph();
   }, { passive: false });
+
+  document.addEventListener("mouseover", function (event) {
+    var target = previewTarget(event.target);
+    if (!target) return;
+    if (target.contains(event.relatedTarget)) return;
+    showPreviewFor(target);
+  });
+
+  document.addEventListener("mouseout", function (event) {
+    var target = previewTarget(event.target);
+    if (!target) return;
+    var panel = state.preview.panel;
+    if (target.contains(event.relatedTarget) || (panel && panel.contains(event.relatedTarget))) return;
+    schedulePreviewHide();
+  });
+
+  document.addEventListener("click", function (event) {
+    var panel = state.preview.panel;
+    if (!panel || !panel.contains(event.target)) return;
+    var tag = event.target.closest("[data-tag]");
+    if (tag) {
+      event.preventDefault();
+      applyTagSearch(tag.dataset.tag);
+      return;
+    }
+    var link = event.target.closest(".wiki-link");
+    if (link) {
+      event.preventDefault();
+      openLinkTerm(link.dataset.term);
+    }
+  });
 
   el.body.addEventListener("click", function (event) {
     var tag = event.target.closest("[data-tag]");
