@@ -60,7 +60,7 @@ track reindex [--full]                # rebuild the index
 track keywords                        # dump the link keyword dictionary
 track resolve --term <s>              # resolve a keyword to a note
 track search --query <s> [--scope all|title|body] [--limit N]
-                                      # search notes; prefix with # to search tags
+                                      # search notes; use #tag terms to filter by tags
 track backlinks (--id N | --path P)   # list backlinks
 track graph (--id N | --path P)       # local link graph around a note
 track web [--addr 127.0.0.1:8765]     # local interactive web workspace
@@ -86,7 +86,7 @@ Templates are stored under `template/`, are not indexed as notes, and currently 
 track web
 ```
 
-Open `http://127.0.0.1:8765/` while the command is running. The first version includes note search, Markdown preview, backlinks, and a local Canvas graph. Prefix a search with `#`, such as `#graph`, to search sidecar tags. This is not the publish/export path; public output should use `track export` plus a static site generator.
+Open `http://127.0.0.1:8765/` while the command is running. The first version includes note search, Markdown preview, backlinks, and a local Canvas graph. Use `#tag` terms, such as `#graph #web`, to filter by sidecar tags. This is not the publish/export path; public output should use `track export` plus a static site generator.
 
 ## LSP
 

@@ -67,10 +67,10 @@ func (s *Store) SearchScoped(query string, limit int, scope SearchScope) ([]Sear
 }
 
 func searchQuery(scope SearchScope, query string, limit int) (string, []any, error) {
-	if tagQuery, ok := parseTagQuery(query); ok {
+	if parsed, ok := parseTaggedQuery(query); ok {
 		switch scope {
 		case SearchAll, SearchTitle:
-			return searchTagQuery(), searchTagArgs(tagQuery, limit), nil
+			return searchTaggedQuery(parsed), searchTaggedArgs(parsed, limit), nil
 		case SearchBody:
 			return "", nil, fmt.Errorf("body search is not stored in the SQLite cache")
 		default:
@@ -124,15 +124,64 @@ func searchQuery(scope SearchScope, query string, limit int) (string, []any, err
 	}
 }
 
-func parseTagQuery(query string) (string, bool) {
-	if !strings.HasPrefix(query, "#") {
-		return "", false
-	}
-	tag := strings.TrimSpace(strings.TrimPrefix(query, "#"))
-	return tag, tag != ""
+type parsedTaggedQuery struct {
+	Text string
+	Tags []string
 }
 
-func searchTagQuery() string {
+func parseTaggedQuery(query string) (parsedTaggedQuery, bool) {
+	var parsed parsedTaggedQuery
+	var text []string
+	seen := map[string]bool{}
+	for _, field := range strings.Fields(query) {
+		if strings.HasPrefix(field, "#") {
+			tag := strings.TrimSpace(strings.TrimPrefix(field, "#"))
+			if tag == "" || seen[tag] {
+				continue
+			}
+			seen[tag] = true
+			parsed.Tags = append(parsed.Tags, tag)
+			continue
+		}
+		text = append(text, field)
+	}
+	parsed.Text = strings.Join(text, " ")
+	return parsed, len(parsed.Tags) > 0
+}
+
+func searchTaggedQuery(parsed parsedTaggedQuery) string {
+	var where []string
+	where = append(where, "n.kind IN ('note', 'journal')")
+	for range parsed.Tags {
+		where = append(where, "EXISTS (SELECT 1 FROM tags t WHERE t.note_id = n.id AND t.tag LIKE ?)")
+	}
+	if parsed.Text != "" {
+		where = append(where, "n.title LIKE ?")
+	}
+
+	var order []string
+	for range parsed.Tags {
+		order = append(order, `CASE WHEN EXISTS (
+	     SELECT 1 FROM tags t WHERE t.note_id = n.id AND t.tag = ? COLLATE NOCASE
+	   ) THEN 0 ELSE 1 END`)
+	}
+	for range parsed.Tags {
+		order = append(order, `CASE WHEN EXISTS (
+	     SELECT 1 FROM tags t WHERE t.note_id = n.id AND t.tag LIKE ?
+	   ) THEN 0 ELSE 1 END`)
+	}
+	if parsed.Text != "" {
+		order = append(order,
+			"CASE WHEN n.title = ? COLLATE NOCASE THEN 0 ELSE 1 END",
+			"CASE WHEN n.title LIKE ? THEN 0 ELSE 1 END",
+		)
+	}
+	order = append(order,
+		"n.mtime DESC",
+		"generated_by_ai ASC",
+		"n.id DESC",
+	)
+
 	return `SELECT n.id, n.kind, n.title, n.mtime,
 	   COALESCE((
 	     SELECT group_concat(tag, char(31))
@@ -142,30 +191,29 @@ func searchTagQuery() string {
 	     SELECT 1 FROM tags t WHERE t.note_id = n.id AND t.tag = ?
 	   ) THEN 1 ELSE 0 END AS generated_by_ai
 	 FROM notes n
-	 WHERE n.kind IN ('note', 'journal') AND EXISTS (
-	   SELECT 1 FROM tags t WHERE t.note_id = n.id AND t.tag LIKE ?
-	 )
-	 ORDER BY
-	   CASE WHEN EXISTS (
-	     SELECT 1 FROM tags t WHERE t.note_id = n.id AND t.tag = ? COLLATE NOCASE
-	   ) THEN 0 ELSE 1 END,
-	   CASE WHEN EXISTS (
-	     SELECT 1 FROM tags t WHERE t.note_id = n.id AND t.tag LIKE ?
-	   ) THEN 0 ELSE 1 END,
-	   n.mtime DESC,
-	   generated_by_ai ASC,
-	   n.id DESC
+	 WHERE ` + strings.Join(where, " AND ") + `
+	 ORDER BY ` + strings.Join(order, ",\n	   ") + `
 	 LIMIT ?`
 }
 
-func searchTagArgs(tag string, limit int) []any {
-	return []any{
-		note.GeneratedByAITag,
-		"%" + tag + "%",
-		tag,
-		tag + "%",
-		limit,
+func searchTaggedArgs(parsed parsedTaggedQuery, limit int) []any {
+	args := []any{note.GeneratedByAITag}
+	for _, tag := range parsed.Tags {
+		args = append(args, "%"+tag+"%")
 	}
+	if parsed.Text != "" {
+		args = append(args, "%"+parsed.Text+"%")
+	}
+	for _, tag := range parsed.Tags {
+		args = append(args, tag)
+	}
+	for _, tag := range parsed.Tags {
+		args = append(args, tag+"%")
+	}
+	if parsed.Text != "" {
+		args = append(args, parsed.Text, parsed.Text+"%")
+	}
+	return append(args, limit)
 }
 
 // SearchRefs returns indexed notes with search-only ranking/display metadata.

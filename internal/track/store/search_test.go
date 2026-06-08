@@ -97,3 +97,44 @@ func TestSearchHashPrefixMatchesTags(t *testing.T) {
 		t.Fatalf("expected tag metadata on result: %+v", results[0])
 	}
 }
+
+func TestSearchHashPrefixCombinesMultipleTagsAndTitleText(t *testing.T) {
+	s := newTestStore(t)
+	for _, n := range []*note.Note{
+		{
+			ID:    100,
+			Mtime: 100,
+			Meta:  note.Metadata{Title: "Graph Workspace", Tags: []string{"graph", "web"}},
+		},
+		{
+			ID:    200,
+			Mtime: 200,
+			Meta:  note.Metadata{Title: "Graph Draft", Tags: []string{"graph", "draft"}},
+		},
+		{
+			ID:    300,
+			Mtime: 300,
+			Meta:  note.Metadata{Title: "Web Workspace", Tags: []string{"web", "workspace"}},
+		},
+	} {
+		if err := s.UpsertNote(n); err != nil {
+			t.Fatalf("upsert %d: %v", n.ID, err)
+		}
+	}
+
+	results, err := s.SearchScoped("#graph #web", 10, SearchTitle)
+	if err != nil {
+		t.Fatalf("search tags: %v", err)
+	}
+	if len(results) != 1 || results[0].NoteID != 100 {
+		t.Fatalf("multi-tag results = %+v, want only note 100", results)
+	}
+
+	results, err = s.SearchScoped("#graph Workspace", 10, SearchTitle)
+	if err != nil {
+		t.Fatalf("search tag plus text: %v", err)
+	}
+	if len(results) != 1 || results[0].NoteID != 100 {
+		t.Fatalf("tag plus text results = %+v, want only note 100", results)
+	}
+}

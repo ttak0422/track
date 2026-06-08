@@ -44,10 +44,7 @@ const indexHTML = `<!doctype html>
       </header>
       <div class="searchbar">
         <div class="searchbox">
-          <button id="search-chip" class="search-chip" type="button" hidden aria-label="Clear tag filter">
-            <span aria-hidden="true">x</span>
-            <span id="search-chip-label"></span>
-          </button>
+          <div id="search-chips" class="search-chips" aria-label="Tag filters"></div>
           <input id="search" type="search" placeholder="Search notes" autocomplete="off">
         </div>
       </div>
@@ -278,6 +275,7 @@ p {
 .searchbox {
   display: flex;
   align-items: center;
+  flex-wrap: wrap;
   gap: 6px;
   width: 100%;
   min-height: 36px;
@@ -300,6 +298,10 @@ p {
   background: transparent;
   color: var(--text);
   outline: none;
+}
+
+.search-chips {
+  display: contents;
 }
 
 .search-chip {
@@ -553,7 +555,7 @@ const appJS = `(function () {
   var state = {
     results: [],
     selectedID: null,
-    activeTag: null,
+    activeTags: [],
     graph: null,
     nodes: [],
     edges: [],
@@ -566,8 +568,7 @@ const appJS = `(function () {
 
   var el = {
     search: document.getElementById("search"),
-    searchChip: document.getElementById("search-chip"),
-    searchChipLabel: document.getElementById("search-chip-label"),
+    searchChips: document.getElementById("search-chips"),
     results: document.getElementById("results"),
     body: document.getElementById("note-body"),
     backlinks: document.getElementById("backlinks"),
@@ -638,34 +639,41 @@ const appJS = `(function () {
   }
 
   function currentSearchQuery() {
-    return state.activeTag ? "#" + state.activeTag : el.search.value.trim();
+    var parts = state.activeTags.map(function (tag) { return "#" + tag; });
+    var text = el.search.value.trim();
+    if (text) parts.push(text);
+    return parts.join(" ");
   }
 
   function renderSearchFilter() {
-    if (state.activeTag) {
-      el.searchChip.hidden = false;
-      el.searchChipLabel.textContent = "#" + state.activeTag;
-      el.search.placeholder = "Search notes";
-      return;
-    }
-    el.searchChip.hidden = true;
-    el.searchChipLabel.textContent = "";
+    el.searchChips.innerHTML = "";
+    state.activeTags.forEach(function (tag) {
+      var chip = document.createElement("button");
+      chip.className = "search-chip";
+      chip.type = "button";
+      chip.dataset.tag = tag;
+      chip.setAttribute("aria-label", "Remove tag filter #" + tag);
+      chip.innerHTML = '<span aria-hidden="true">x</span><span>#' + escapeHTML(tag) + '</span>';
+      el.searchChips.appendChild(chip);
+    });
     el.search.placeholder = "Search notes";
   }
 
   function applyTagSearch(tag) {
     tag = String(tag || "").trim();
     if (!tag) return;
-    state.activeTag = tag;
-    el.search.value = "";
+    if (!state.activeTags.some(function (active) { return active === tag; })) {
+      state.activeTags.push(tag);
+    }
     renderSearchFilter();
     loadSearch();
     el.search.focus();
   }
 
-  function clearTagSearch() {
-    if (!state.activeTag) return;
-    state.activeTag = null;
+  function clearTagSearch(tag) {
+    var next = state.activeTags.filter(function (active) { return active !== tag; });
+    if (next.length === state.activeTags.length) return;
+    state.activeTags = next;
     renderSearchFilter();
     loadSearch();
     el.search.focus();
@@ -1256,15 +1264,13 @@ const appJS = `(function () {
       if (themeMode() === "system") drawGraph();
     });
   }
-  el.searchChip.addEventListener("click", clearTagSearch);
-  var debouncedLoadSearch = debounce(loadSearch, 160);
-  el.search.addEventListener("input", function () {
-    if (state.activeTag) {
-      state.activeTag = null;
-      renderSearchFilter();
-    }
-    debouncedLoadSearch();
+  el.searchChips.addEventListener("click", function (event) {
+    var chip = event.target.closest(".search-chip");
+    if (!chip) return;
+    clearTagSearch(chip.dataset.tag);
   });
+  var debouncedLoadSearch = debounce(loadSearch, 160);
+  el.search.addEventListener("input", debouncedLoadSearch);
 
   applyTheme(themeMode());
   var initialID = Number(new URL(window.location.href).searchParams.get("id"));
