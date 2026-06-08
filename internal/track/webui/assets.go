@@ -489,13 +489,17 @@ p {
   display: block;
   width: 100%;
   margin-top: 8px;
-  border: 0;
   border-radius: 6px;
   padding: 8px 9px;
-  text-align: left;
   color: var(--text);
   background: var(--panel-soft);
-  cursor: pointer;
+  text-decoration: none;
+}
+
+.backlink:hover {
+  color: var(--accent-strong);
+  text-decoration: underline;
+  text-underline-offset: 3px;
 }
 
 .graph-panel {
@@ -749,12 +753,16 @@ const appJS = `(function () {
       return;
     }
     backlinks.forEach(function (note) {
-      var button = document.createElement("button");
-      button.type = "button";
-      button.className = "backlink";
-      button.textContent = note.title || "#" + note.note_id;
-      button.onclick = function () { selectNote(note.note_id, { history: "push" }); };
-      el.backlinks.appendChild(button);
+      var link = document.createElement("a");
+      link.className = "backlink";
+      link.href = "/?id=" + encodeURIComponent(note.note_id);
+      link.textContent = note.title || "#" + note.note_id;
+      link.onclick = function (event) {
+        if (event.metaKey || event.ctrlKey || event.shiftKey || event.altKey || event.button !== 0) return;
+        event.preventDefault();
+        selectNote(note.note_id, { history: "push" });
+      };
+      el.backlinks.appendChild(link);
     });
   }
 
