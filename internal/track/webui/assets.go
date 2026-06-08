@@ -646,9 +646,9 @@ const appJS = `(function () {
     pinch: null,
     animation: null,
     preview: {
-      panel: null,
+      panels: [],
       hideTimer: null,
-      request: 0,
+      requests: [],
       cache: {}
     }
   };
@@ -1019,15 +1019,17 @@ const appJS = `(function () {
     return target;
   }
 
-  function ensurePreview() {
-    if (state.preview.panel) return state.preview.panel;
+  function ensurePreview(depth) {
+    if (state.preview.panels[depth]) return state.preview.panels[depth];
     var panel = document.createElement("div");
     panel.className = "note-preview";
+    panel.dataset.depth = String(depth);
+    panel.style.zIndex = String(60 + depth);
     panel.hidden = true;
     panel.addEventListener("mouseenter", clearPreviewHide);
     panel.addEventListener("mouseleave", schedulePreviewHide);
     document.body.appendChild(panel);
-    state.preview.panel = panel;
+    state.preview.panels[depth] = panel;
     return panel;
   }
 
@@ -1041,26 +1043,46 @@ const appJS = `(function () {
     state.preview.hideTimer = setTimeout(hidePreview, 140);
   }
 
-  function hidePreview() {
+  function hidePreview(depth) {
     clearPreviewHide();
-    if (state.preview.panel) state.preview.panel.hidden = true;
+    depth = depth || 0;
+    for (var i = depth; i < state.preview.panels.length; i++) {
+      if (state.preview.panels[i]) state.preview.panels[i].hidden = true;
+      state.preview.requests[i] = (state.preview.requests[i] || 0) + 1;
+    }
   }
 
   function showPreviewFor(target) {
     clearPreviewHide();
-    var panel = ensurePreview();
-    var request = ++state.preview.request;
+    var depth = previewDepth(target);
+    var anchor = target.getBoundingClientRect();
+    hidePreview(depth + 1);
+    var panel = ensurePreview(depth);
+    var request = (state.preview.requests[depth] || 0) + 1;
+    state.preview.requests[depth] = request;
     panel.hidden = false;
     panel.innerHTML = '<div class="empty">Loading preview</div>';
-    positionPreview(panel, target);
+    positionPreview(panel, anchor);
     previewData(target).then(function (data) {
-      if (request !== state.preview.request) return;
+      if (request !== state.preview.requests[depth]) return;
       panel.innerHTML = data.html;
-      positionPreview(panel, target);
+      positionPreview(panel, anchor);
     }).catch(function () {
-      if (request !== state.preview.request) return;
+      if (request !== state.preview.requests[depth]) return;
       panel.innerHTML = '<div class="empty">Preview unavailable</div>';
-      positionPreview(panel, target);
+      positionPreview(panel, anchor);
+    });
+  }
+
+  function previewDepth(target) {
+    var panel = target.closest(".note-preview");
+    return panel ? Number(panel.dataset.depth || 0) + 1 : 0;
+  }
+
+  function containsPreview(node) {
+    if (!node) return false;
+    return state.preview.panels.some(function (panel) {
+      return panel && panel.contains(node);
     });
   }
 
@@ -1108,8 +1130,7 @@ const appJS = `(function () {
     return out.join("\n");
   }
 
-  function positionPreview(panel, target) {
-    var rect = target.getBoundingClientRect();
+  function positionPreview(panel, rect) {
     var margin = 12;
     var panelRect = panel.getBoundingClientRect();
     var width = panelRect.width || 380;
@@ -1478,14 +1499,12 @@ const appJS = `(function () {
   document.addEventListener("mouseout", function (event) {
     var target = previewTarget(event.target);
     if (!target) return;
-    var panel = state.preview.panel;
-    if (target.contains(event.relatedTarget) || (panel && panel.contains(event.relatedTarget))) return;
+    if (target.contains(event.relatedTarget) || containsPreview(event.relatedTarget)) return;
     schedulePreviewHide();
   });
 
   document.addEventListener("click", function (event) {
-    var panel = state.preview.panel;
-    if (!panel || !panel.contains(event.target)) return;
+    if (!containsPreview(event.target)) return;
     var tag = event.target.closest("[data-tag]");
     if (tag) {
       event.preventDefault();
