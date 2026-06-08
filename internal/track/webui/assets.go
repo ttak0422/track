@@ -487,19 +487,18 @@ p {
 
 .backlink {
   display: block;
-  width: 100%;
-  margin-top: 8px;
-  border-radius: 6px;
-  padding: 8px 9px;
-  color: var(--text);
-  background: var(--panel-soft);
-  text-decoration: none;
+  margin-top: 7px;
+  color: var(--accent-strong);
+  font-size: 14px;
+  font-weight: 650;
+  line-height: 1.45;
+  text-decoration: underline;
+  text-decoration-thickness: 1px;
+  text-underline-offset: 3px;
 }
 
 .backlink:hover {
-  color: var(--accent-strong);
-  text-decoration: underline;
-  text-underline-offset: 3px;
+  color: var(--accent);
 }
 
 .graph-panel {
