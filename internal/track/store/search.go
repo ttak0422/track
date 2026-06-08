@@ -67,6 +67,17 @@ func (s *Store) SearchScoped(query string, limit int, scope SearchScope) ([]Sear
 }
 
 func searchQuery(scope SearchScope, query string, limit int) (string, []any, error) {
+	if tagQuery, ok := parseTagQuery(query); ok {
+		switch scope {
+		case SearchAll, SearchTitle:
+			return searchTagQuery(), searchTagArgs(tagQuery, limit), nil
+		case SearchBody:
+			return "", nil, fmt.Errorf("body search is not stored in the SQLite cache")
+		default:
+			return "", nil, fmt.Errorf("unknown search scope %q", scope)
+		}
+	}
+
 	like := "%" + query + "%"
 	prefix := query + "%"
 	switch scope {
@@ -110,6 +121,50 @@ func searchQuery(scope SearchScope, query string, limit int) (string, []any, err
 		return "", nil, fmt.Errorf("body search is not stored in the SQLite cache")
 	default:
 		return "", nil, fmt.Errorf("unknown search scope %q", scope)
+	}
+}
+
+func parseTagQuery(query string) (string, bool) {
+	if !strings.HasPrefix(query, "#") {
+		return "", false
+	}
+	tag := strings.TrimSpace(strings.TrimPrefix(query, "#"))
+	return tag, tag != ""
+}
+
+func searchTagQuery() string {
+	return `SELECT n.id, n.kind, n.title, n.mtime,
+	   COALESCE((
+	     SELECT group_concat(tag, char(31))
+	     FROM (SELECT tag FROM tags WHERE note_id = n.id ORDER BY tag)
+	   ), '') AS tags,
+	   CASE WHEN EXISTS (
+	     SELECT 1 FROM tags t WHERE t.note_id = n.id AND t.tag = ?
+	   ) THEN 1 ELSE 0 END AS generated_by_ai
+	 FROM notes n
+	 WHERE n.kind IN ('note', 'journal') AND EXISTS (
+	   SELECT 1 FROM tags t WHERE t.note_id = n.id AND t.tag LIKE ?
+	 )
+	 ORDER BY
+	   CASE WHEN EXISTS (
+	     SELECT 1 FROM tags t WHERE t.note_id = n.id AND t.tag = ? COLLATE NOCASE
+	   ) THEN 0 ELSE 1 END,
+	   CASE WHEN EXISTS (
+	     SELECT 1 FROM tags t WHERE t.note_id = n.id AND t.tag LIKE ?
+	   ) THEN 0 ELSE 1 END,
+	   n.mtime DESC,
+	   generated_by_ai ASC,
+	   n.id DESC
+	 LIMIT ?`
+}
+
+func searchTagArgs(tag string, limit int) []any {
+	return []any{
+		note.GeneratedByAITag,
+		"%" + tag + "%",
+		tag,
+		tag + "%",
+		limit,
 	}
 }
 
