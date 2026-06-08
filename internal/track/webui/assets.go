@@ -43,7 +43,13 @@ const indexHTML = `<!doctype html>
         </div>
       </header>
       <div class="searchbar">
-        <input id="search" type="search" placeholder="Search notes" autocomplete="off">
+        <div class="searchbox">
+          <button id="search-chip" class="search-chip" type="button" hidden aria-label="Clear tag filter">
+            <span aria-hidden="true">x</span>
+            <span id="search-chip-label"></span>
+          </button>
+          <input id="search" type="search" placeholder="Search notes" autocomplete="off">
+        </div>
       </div>
       <div id="results" class="results" aria-live="polite"></div>
       <section class="graph-panel" aria-label="Local graph">
@@ -269,19 +275,58 @@ p {
   border-bottom: 1px solid var(--line);
 }
 
-.searchbar input {
+.searchbox {
+  display: flex;
+  align-items: center;
+  gap: 6px;
   width: 100%;
-  height: 36px;
+  min-height: 36px;
   border: 1px solid var(--line);
   border-radius: 6px;
-  padding: 0 10px;
+  padding: 3px 7px;
   background: var(--panel);
+}
+
+.searchbox:focus-within {
+  border-color: var(--accent);
+}
+
+.searchbox input {
+  flex: 1 1 auto;
+  min-width: 70px;
+  height: 28px;
+  border: 0;
+  padding: 0 3px;
+  background: transparent;
   color: var(--text);
   outline: none;
 }
 
-.searchbar input:focus {
-  border-color: var(--accent);
+.search-chip {
+  flex: 0 1 auto;
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  max-width: 100%;
+  min-height: 24px;
+  border: 1px solid color-mix(in srgb, var(--accent) 50%, transparent);
+  border-radius: 999px;
+  padding: 0 8px;
+  color: var(--accent-strong);
+  background: var(--panel-soft);
+  font-size: 12px;
+  font-weight: 620;
+  cursor: pointer;
+}
+
+.search-chip span:last-child {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.search-chip span:first-child {
+  color: var(--muted);
 }
 
 .results {
@@ -330,10 +375,19 @@ p {
 }
 
 .tag {
+  border: 0;
+  padding: 0;
   color: var(--accent-strong);
+  background: transparent;
   font-size: 11px;
   line-height: 1.35;
   font-weight: 560;
+  cursor: pointer;
+}
+
+.tag:hover {
+  text-decoration: underline;
+  text-underline-offset: 2px;
 }
 
 .note-tags {
@@ -499,6 +553,7 @@ const appJS = `(function () {
   var state = {
     results: [],
     selectedID: null,
+    activeTag: null,
     graph: null,
     nodes: [],
     edges: [],
@@ -511,6 +566,8 @@ const appJS = `(function () {
 
   var el = {
     search: document.getElementById("search"),
+    searchChip: document.getElementById("search-chip"),
+    searchChipLabel: document.getElementById("search-chip-label"),
     results: document.getElementById("results"),
     body: document.getElementById("note-body"),
     backlinks: document.getElementById("backlinks"),
@@ -569,7 +626,8 @@ const appJS = `(function () {
   }
 
   function loadSearch() {
-    var q = encodeURIComponent(el.search.value.trim());
+    renderSearchFilter();
+    var q = encodeURIComponent(currentSearchQuery());
     api("/api/search?limit=100&q=" + q).then(function (data) {
       state.results = data.results || [];
       renderResults();
@@ -577,6 +635,40 @@ const appJS = `(function () {
         selectNote(state.results[0].note_id, { history: "replace" });
       }
     }).catch(showError);
+  }
+
+  function currentSearchQuery() {
+    return state.activeTag ? "#" + state.activeTag : el.search.value.trim();
+  }
+
+  function renderSearchFilter() {
+    if (state.activeTag) {
+      el.searchChip.hidden = false;
+      el.searchChipLabel.textContent = "#" + state.activeTag;
+      el.search.placeholder = "Search notes";
+      return;
+    }
+    el.searchChip.hidden = true;
+    el.searchChipLabel.textContent = "";
+    el.search.placeholder = "Search notes";
+  }
+
+  function applyTagSearch(tag) {
+    tag = String(tag || "").trim();
+    if (!tag) return;
+    state.activeTag = tag;
+    el.search.value = "";
+    renderSearchFilter();
+    loadSearch();
+    el.search.focus();
+  }
+
+  function clearTagSearch() {
+    if (!state.activeTag) return;
+    state.activeTag = null;
+    renderSearchFilter();
+    loadSearch();
+    el.search.focus();
   }
 
   function renderResults() {
@@ -589,7 +681,15 @@ const appJS = `(function () {
       var button = document.createElement("button");
       button.className = "result" + (note.note_id === state.selectedID ? " active" : "");
       button.type = "button";
-      button.onclick = function () { selectNote(note.note_id, { history: "push" }); };
+      button.onclick = function (event) {
+        var tag = event.target.closest("[data-tag]");
+        if (tag) {
+          event.preventDefault();
+          applyTagSearch(tag.dataset.tag);
+          return;
+        }
+        selectNote(note.note_id, { history: "push" });
+      };
       var badge = note.generated_by_ai ? '<span class="badge">generated</span>' : "";
       var tags = renderTags(note.tags || []);
       button.innerHTML = '<div class="result-title"><span>' + escapeHTML(note.title || "#" + note.note_id) + '</span>' + badge + '</div>' +
@@ -602,7 +702,7 @@ const appJS = `(function () {
   function renderTags(tags) {
     if (!tags || tags.length === 0) return "";
     return '<div class="tag-list">' + tags.map(function (tag) {
-      return '<span class="tag">#' + escapeHTML(tag) + '</span>';
+      return '<span class="tag" data-tag="' + escapeHTML(tag) + '">#' + escapeHTML(tag) + '</span>';
     }).join("") + '</div>';
   }
 
@@ -1106,6 +1206,12 @@ const appJS = `(function () {
   }, { passive: false });
 
   el.body.addEventListener("click", function (event) {
+    var tag = event.target.closest("[data-tag]");
+    if (tag) {
+      event.preventDefault();
+      applyTagSearch(tag.dataset.tag);
+      return;
+    }
     var link = event.target.closest(".wiki-link");
     if (!link) return;
     event.preventDefault();
@@ -1150,7 +1256,15 @@ const appJS = `(function () {
       if (themeMode() === "system") drawGraph();
     });
   }
-  el.search.addEventListener("input", debounce(loadSearch, 160));
+  el.searchChip.addEventListener("click", clearTagSearch);
+  var debouncedLoadSearch = debounce(loadSearch, 160);
+  el.search.addEventListener("input", function () {
+    if (state.activeTag) {
+      state.activeTag = null;
+      renderSearchFilter();
+    }
+    debouncedLoadSearch();
+  });
 
   applyTheme(themeMode());
   var initialID = Number(new URL(window.location.href).searchParams.get("id"));
