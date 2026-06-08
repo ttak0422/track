@@ -2,6 +2,8 @@ package store
 
 import (
 	"fmt"
+	"slices"
+	"strings"
 
 	"github.com/ttak0422/track/internal/track/note"
 )
@@ -18,14 +20,15 @@ const (
 // Line and Snippet locate the first matching body line (1-based); they are zero/empty
 // when the hit is title-only.
 type SearchResult struct {
-	NoteID        int64  `json:"note_id"`
-	FileKind      string `json:"file_kind"`
-	Path          string `json:"path"`
-	Title         string `json:"title"`
-	GeneratedByAI bool   `json:"generated_by_ai,omitempty"`
-	Line          int    `json:"line,omitempty"`
-	Snippet       string `json:"snippet,omitempty"`
-	Mtime         int64  `json:"-"`
+	NoteID        int64    `json:"note_id"`
+	FileKind      string   `json:"file_kind"`
+	Path          string   `json:"path"`
+	Title         string   `json:"title"`
+	Tags          []string `json:"tags,omitempty"`
+	GeneratedByAI bool     `json:"generated_by_ai,omitempty"`
+	Line          int      `json:"line,omitempty"`
+	Snippet       string   `json:"snippet,omitempty"`
+	Mtime         int64    `json:"-"`
 }
 
 // Search returns notes whose title contains query (case-insensitive substring).
@@ -52,9 +55,11 @@ func (s *Store) SearchScoped(query string, limit int, scope SearchScope) ([]Sear
 	for rows.Next() {
 		var r SearchResult
 		var generated int
-		if err := rows.Scan(&r.NoteID, &r.FileKind, &r.Title, &r.Mtime, &generated); err != nil {
+		var tags string
+		if err := rows.Scan(&r.NoteID, &r.FileKind, &r.Title, &r.Mtime, &tags, &generated); err != nil {
 			return nil, err
 		}
+		r.Tags = splitTags(tags)
 		r.GeneratedByAI = generated != 0
 		out = append(out, r)
 	}
@@ -67,6 +72,10 @@ func searchQuery(scope SearchScope, query string, limit int) (string, []any, err
 	switch scope {
 	case SearchAll:
 		return `SELECT n.id, n.kind, n.title, n.mtime,
+		   COALESCE((
+		     SELECT group_concat(tag, char(31))
+		     FROM (SELECT tag FROM tags WHERE note_id = n.id ORDER BY tag)
+		   ), '') AS tags,
 		   CASE WHEN EXISTS (
 		     SELECT 1 FROM tags t WHERE t.note_id = n.id AND t.tag = ?
 		   ) THEN 1 ELSE 0 END AS generated_by_ai
@@ -81,6 +90,10 @@ func searchQuery(scope SearchScope, query string, limit int) (string, []any, err
 		 LIMIT ?`, []any{note.GeneratedByAITag, like, query, prefix, limit}, nil
 	case SearchTitle:
 		return `SELECT n.id, n.kind, n.title, n.mtime,
+		   COALESCE((
+		     SELECT group_concat(tag, char(31))
+		     FROM (SELECT tag FROM tags WHERE note_id = n.id ORDER BY tag)
+		   ), '') AS tags,
 		   CASE WHEN EXISTS (
 		     SELECT 1 FROM tags t WHERE t.note_id = n.id AND t.tag = ?
 		   ) THEN 1 ELSE 0 END AS generated_by_ai
@@ -104,6 +117,10 @@ func searchQuery(scope SearchScope, query string, limit int) (string, []any, err
 func (s *Store) SearchRefs() ([]SearchResult, error) {
 	rows, err := s.db.Query(
 		`SELECT n.id, n.kind, n.title, n.mtime,
+		   COALESCE((
+		     SELECT group_concat(tag, char(31))
+		     FROM (SELECT tag FROM tags WHERE note_id = n.id ORDER BY tag)
+		   ), '') AS tags,
 		   CASE WHEN EXISTS (
 		     SELECT 1 FROM tags t WHERE t.note_id = n.id AND t.tag = ?
 		   ) THEN 1 ELSE 0 END AS generated_by_ai
@@ -120,11 +137,25 @@ func (s *Store) SearchRefs() ([]SearchResult, error) {
 	for rows.Next() {
 		var r SearchResult
 		var generated int
-		if err := rows.Scan(&r.NoteID, &r.FileKind, &r.Title, &r.Mtime, &generated); err != nil {
+		var tags string
+		if err := rows.Scan(&r.NoteID, &r.FileKind, &r.Title, &r.Mtime, &tags, &generated); err != nil {
 			return nil, err
 		}
+		r.Tags = splitTags(tags)
 		r.GeneratedByAI = generated != 0
 		out = append(out, r)
 	}
 	return out, rows.Err()
+}
+
+func splitTags(value string) []string {
+	if value == "" {
+		return nil
+	}
+	tags := strings.Split(value, "\x1f")
+	tags = slices.DeleteFunc(tags, func(tag string) bool { return tag == "" })
+	if len(tags) == 0 {
+		return nil
+	}
+	return tags
 }

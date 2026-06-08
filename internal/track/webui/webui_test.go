@@ -36,7 +36,7 @@ func TestAPIHandlers(t *testing.T) {
 		t.Fatalf("open store: %v", err)
 	}
 	t.Cleanup(func() { s.Close() })
-	if err := s.UpsertNote(&note.Note{ID: 100, Mtime: 200, Meta: note.Metadata{Title: "Alpha"}}); err != nil {
+	if err := s.UpsertNote(&note.Note{ID: 100, Mtime: 200, Meta: note.Metadata{Title: "Alpha", Tags: []string{"project"}}}); err != nil {
 		t.Fatal(err)
 	}
 	if err := s.UpsertNote(&note.Note{ID: 200, Mtime: 100, Meta: note.Metadata{Title: "Beta", Tags: []string{note.GeneratedByAITag}}}); err != nil {
@@ -54,6 +54,10 @@ func TestAPIHandlers(t *testing.T) {
 	if len(results) != 1 || results[0].(map[string]any)["title"] != "Alpha" {
 		t.Fatalf("unexpected search results: %v", results)
 	}
+	tags := results[0].(map[string]any)["tags"].([]any)
+	if len(tags) != 1 || tags[0] != "project" {
+		t.Fatalf("unexpected search result tags: %v", results[0])
+	}
 
 	resolved := getJSON(t, server.URL+"/api/resolve?term=Beta")
 	if resolved["found"] != true || resolved["note"].(map[string]any)["note_id"].(float64) != 200 {
@@ -62,7 +66,8 @@ func TestAPIHandlers(t *testing.T) {
 
 	noteResp := getJSON(t, server.URL+"/api/note?id=200")
 	noteBody := noteResp["note"].(map[string]any)
-	if noteBody["generated_by_ai"] != true || noteBody["title"] != "Beta" {
+	noteTags := noteBody["tags"].([]any)
+	if noteBody["generated_by_ai"] != true || noteBody["title"] != "Beta" || len(noteTags) != 1 || noteTags[0] != note.GeneratedByAITag {
 		t.Fatalf("unexpected note response: %v", noteBody)
 	}
 

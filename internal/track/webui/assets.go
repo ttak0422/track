@@ -322,6 +322,20 @@ p {
   white-space: nowrap;
 }
 
+.tag-list {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 6px;
+  margin-top: 5px;
+}
+
+.tag {
+  color: var(--accent-strong);
+  font-size: 11px;
+  line-height: 1.35;
+  font-weight: 560;
+}
+
 .result-meta {
   margin-top: 3px;
   color: var(--muted);
@@ -569,10 +583,19 @@ const appJS = `(function () {
       button.type = "button";
       button.onclick = function () { selectNote(note.note_id, { history: "push" }); };
       var badge = note.generated_by_ai ? '<span class="badge">generated</span>' : "";
+      var tags = renderTags(note.tags || []);
       button.innerHTML = '<div class="result-title"><span>' + escapeHTML(note.title || "#" + note.note_id) + '</span>' + badge + '</div>' +
+        tags +
         '<div class="result-meta">' + escapeHTML(note.file_kind || "note") + " / " + note.note_id + '</div>';
       el.results.appendChild(button);
     });
+  }
+
+  function renderTags(tags) {
+    if (!tags || tags.length === 0) return "";
+    return '<div class="tag-list">' + tags.map(function (tag) {
+      return '<span class="tag">#' + escapeHTML(tag) + '</span>';
+    }).join("") + '</div>';
   }
 
   function selectNote(id, opts) {

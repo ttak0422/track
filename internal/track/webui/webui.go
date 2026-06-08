@@ -150,6 +150,7 @@ func (s *Server) handleNote(w http.ResponseWriter, r *http.Request) {
 			"file_kind":       ref.FileKind,
 			"path":            path,
 			"title":           ref.Title,
+			"tags":            ref.Tags,
 			"generated_by_ai": ref.GeneratedByAI,
 			"body":            body,
 		},

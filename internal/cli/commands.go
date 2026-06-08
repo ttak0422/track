@@ -475,6 +475,7 @@ func bodySearchResults(cfg *config.Config, s *store.Store, query string, limit i
 			FileKind:      ref.FileKind,
 			Path:          cfg.PathForKind(ref.FileKind, id),
 			Title:         ref.Title,
+			Tags:          ref.Tags,
 			GeneratedByAI: ref.GeneratedByAI,
 			Line:          line,
 			Snippet:       snippet,
