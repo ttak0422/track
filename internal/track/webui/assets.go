@@ -1051,7 +1051,6 @@ const appJS = `(function () {
       body += '<div class="home-list">' + notes.map(function (note) {
         return '<a class="home-note" href="/?id=' + encodeURIComponent(note.note_id) + '" data-note-id="' + escapeHTML(note.note_id) + '">' +
           '<div class="home-note-title">' + escapeHTML(note.title || "#" + note.note_id) + '</div>' +
-          renderTags(note.tags || []) +
           '</a>';
       }).join("") + '</div>';
     }
