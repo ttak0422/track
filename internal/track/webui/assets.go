@@ -73,14 +73,12 @@ const indexHTML = `<!doctype html>
     <section class="graph-panel" aria-label="Local graph">
       <header class="graph-header">
         <h3>Local Graph</h3>
-        <div class="graph-actions">
-          <p id="graph-meta"></p>
-          <button id="graph-reset" class="graph-reset" type="button" aria-label="Reset graph view" title="Reset graph view">
-            <span class="graph-reset-icon" aria-hidden="true"></span>
-          </button>
-        </div>
+        <p id="graph-meta"></p>
       </header>
       <canvas id="graph"></canvas>
+      <button id="graph-reset" class="graph-reset" type="button" aria-label="Reset graph view" title="Reset graph view">
+        <span class="graph-reset-icon" aria-hidden="true"></span>
+      </button>
     </section>
   </main>
   <script src="/app.js"></script>
@@ -742,22 +740,20 @@ p {
   white-space: nowrap;
 }
 
-.graph-actions {
-  display: inline-flex;
-  align-items: center;
-  gap: 8px;
-  min-width: 0;
-}
-
 .graph-reset {
+  position: absolute;
+  right: 12px;
+  bottom: 12px;
+  z-index: 1;
   display: grid;
   place-items: center;
-  width: 28px;
-  height: 28px;
+  width: 34px;
+  height: 34px;
   border: 1px solid var(--line);
   border-radius: 6px;
   color: var(--muted);
-  background: var(--panel);
+  background: color-mix(in srgb, var(--panel) 92%, transparent);
+  box-shadow: 0 8px 22px color-mix(in srgb, #000 16%, transparent);
   cursor: pointer;
 }
 
