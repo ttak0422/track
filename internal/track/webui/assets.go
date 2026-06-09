@@ -23,7 +23,7 @@ const indexHTML = `<!doctype html>
         <button id="sidebar-toggle" class="rail-button" type="button" aria-label="Collapse sidebar" title="Collapse sidebar" aria-expanded="true">
           <span class="rail-icon rail-icon-sidebar" aria-hidden="true"></span>
         </button>
-        <button id="rail-home" class="rail-button" type="button" aria-label="Recent notes" title="Recent notes">
+        <button id="rail-home" class="rail-button" type="button" aria-label="Home" title="Home">
           <span class="rail-icon rail-icon-home" aria-hidden="true"></span>
         </button>
         <button id="rail-search" class="rail-button" type="button" aria-label="Search" title="Search">
@@ -227,26 +227,31 @@ button, input {
 }
 
 .rail-icon-home {
-  border: 2px solid currentColor;
-  border-radius: 3px;
+  border: 0;
 }
 
 .rail-icon-home::before {
   content: "";
   position: absolute;
   left: 4px;
-  right: 4px;
-  top: 5px;
-  height: 2px;
-  border-radius: 2px;
-  background: currentColor;
-  box-shadow: 0 4px 0 currentColor, 0 8px 0 currentColor;
+  top: 8px;
+  width: 12px;
+  height: 9px;
+  border: 2px solid currentColor;
+  border-top: 0;
+  border-radius: 0 0 2px 2px;
 }
 
 .rail-icon-home::after {
   content: "";
   position: absolute;
-  display: none;
+  left: 5px;
+  top: 2px;
+  width: 10px;
+  height: 10px;
+  border-left: 2px solid currentColor;
+  border-top: 2px solid currentColor;
+  transform: rotate(45deg);
 }
 
 .rail-icon-search::before {
