@@ -149,6 +149,10 @@ function M.setup()
       require("track.graph").show()
    end, { desc = "Show a local note graph around the current note" })
 
+   register("web", function(opts)
+      require("track.web").open(opts.fargs)
+   end, { nargs = "*", desc = "Start the local web workspace and open it in a browser" })
+
    register("babel_exec", function()
       require("track.babel").exec()
    end, { desc = "Run the source block under the cursor and show its result" })

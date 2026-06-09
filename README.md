@@ -125,6 +125,7 @@ Commands:
 :Track follow          " follow the [[...]] link under the cursor (also mapped to <CR>)
 :Track backlinks       " show notes that link to the current note in quickfix
 :Track graph           " show a local note graph around the current note
+:Track web [addr]      " start the local web workspace and open it in a browser
 :Track babel_exec      " run the source block under the cursor; result shows below it
 :Track babel_restore   " restore stored babel results without running code
 :Track babel_clear     " clear rendered babel results in the buffer

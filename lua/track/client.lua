@@ -44,6 +44,11 @@ local function find_binary()
    error("track binary not found. Install track with Nix or add it to $PATH.")
 end
 
+-- bin returns the resolved track CLI path for asynchronous callers.
+function M.bin()
+   return find_binary()
+end
+
 -- run executes the CLI with args and returns raw stdout.
 function M.run(args, input)
    local cmd = { find_binary() }

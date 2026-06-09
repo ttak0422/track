@@ -20,6 +20,8 @@ M.defaults = {
    vault_dir = default_vault(),
    -- Rebuildable SQLite cache directory. Kept outside the vault so synced folders do not sync DB locks.
    cache_dir = vim.fn.stdpath("cache") .. "/track",
+   -- Address used by `:Track web` when no address argument is supplied.
+   web_addr = "127.0.0.1:8765",
    -- Note file extensions (without dot).
    extensions = { "md" },
    -- Autocommand group name.
