@@ -821,6 +821,7 @@ p {
     grid-template-rows: 56px minmax(360px, 1fr);
   }
   .sidebar {
+    flex-direction: column;
     border-right: 0;
     border-bottom: 1px solid var(--line);
   }
@@ -833,6 +834,7 @@ p {
   }
   .sidebar-content {
     min-height: 0;
+    overflow: hidden;
   }
   .graph-panel {
     right: 12px;
