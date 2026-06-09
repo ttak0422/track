@@ -982,6 +982,8 @@ const appJS = `(function () {
   function inline(text) {
     var escaped = escapeHTML(text);
     return escaped
+      .replace(/\[([^\[\]]*)\]\(&lt;(?:journal|note)\?.*?&gt;\)/g, "$1")
+      .replace(/&lt;(?:journal|note)\?.*?&gt;/g, "")
       .replace(/\[\[([^\]|]+)\|([^\]]+)\]\]/g, function (_, target, display) {
         return wikiButton(target, display);
       })
