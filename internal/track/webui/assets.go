@@ -1231,7 +1231,8 @@ const appJS = `(function () {
     var graphH = Math.max(1, maxY - minY);
     var availW = Math.max(1, el.canvas.width - padding);
     var availH = Math.max(1, el.canvas.height - padding);
-    var scale = Math.max(0.05, Math.min(1.5, Math.min(availW / graphW, availH / graphH)));
+    var maxInitialScale = 0.85;
+    var scale = Math.max(0.05, Math.min(maxInitialScale, Math.min(availW / graphW, availH / graphH)));
     var centerX = (minX + maxX) / 2;
     var centerY = (minY + maxY) / 2;
     return {
