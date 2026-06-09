@@ -1157,11 +1157,13 @@ const appJS = `(function () {
 
   function setGraph(graph) {
     state.graph = graph;
-    state.nodes = (graph.nodes || []).map(function (node, i) {
-      var angle = (Math.PI * 2 * i) / Math.max(1, graph.nodes.length);
+    var graphNodes = graph.nodes || [];
+    state.nodes = graphNodes.map(function (node, i) {
+      var isolated = graphNodes.length === 1;
+      var angle = (Math.PI * 2 * i) / Math.max(1, graphNodes.length);
       return Object.assign({}, node, {
-        x: Math.cos(angle) * 160,
-        y: Math.sin(angle) * 160,
+        x: isolated ? 0 : Math.cos(angle) * 160,
+        y: isolated ? 0 : Math.sin(angle) * 160,
         vx: 0,
         vy: 0
       });
@@ -1184,6 +1186,11 @@ const appJS = `(function () {
   function startGraph() {
     if (state.animation) cancelAnimationFrame(state.animation);
     resizeCanvas();
+    if (state.nodes.length <= 1 || state.edges.length === 0) {
+      state.animation = null;
+      drawGraph();
+      return;
+    }
     var ticks = 0;
     function frame() {
       stepGraph();
