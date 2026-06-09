@@ -17,45 +17,51 @@ const indexHTML = `<!doctype html>
   <link rel="stylesheet" href="/style.css">
 </head>
 <body>
-  <main class="workspace">
-    <aside class="sidebar">
-      <header class="brand">
-        <div>
-          <h1><a id="home-link" class="home-link" href="/">track</a></h1>
-          <p>Local graph workspace</p>
-        </div>
-        <div class="app-menu">
-          <button id="menu-button" class="menu-button" type="button" aria-label="Open menu" aria-haspopup="true" aria-expanded="false">
-            <span></span>
-            <span></span>
-            <span></span>
-          </button>
-          <div id="menu-panel" class="menu-panel" hidden>
-            <section class="menu-section" aria-labelledby="theme-menu-label">
-              <h2 id="theme-menu-label">Theme</h2>
-              <div class="theme-switch" role="group" aria-label="Theme">
-                <button type="button" data-theme-choice="system">System</button>
-                <button type="button" data-theme-choice="light">Light</button>
-                <button type="button" data-theme-choice="dark">Dark</button>
-              </div>
-            </section>
+  <main id="workspace" class="workspace">
+    <aside id="sidebar" class="sidebar">
+      <nav class="activity-rail" aria-label="Workspace views">
+        <button id="sidebar-toggle" class="rail-button" type="button" aria-label="Collapse sidebar" title="Collapse sidebar" aria-expanded="true">
+          <span class="rail-icon rail-icon-sidebar" aria-hidden="true"></span>
+        </button>
+        <button id="rail-home" class="rail-button" type="button" aria-label="Home" title="Home">
+          <span class="rail-icon rail-icon-home" aria-hidden="true"></span>
+        </button>
+        <button id="rail-search" class="rail-button" type="button" aria-label="Search" title="Search">
+          <span class="rail-icon rail-icon-search" aria-hidden="true"></span>
+        </button>
+      </nav>
+      <div class="sidebar-content">
+        <header class="brand">
+          <div>
+            <h1><a id="home-link" class="home-link" href="/">track</a></h1>
+            <p>Local graph workspace</p>
+          </div>
+          <div class="app-menu">
+            <button id="menu-button" class="menu-button" type="button" aria-label="Open menu" aria-haspopup="true" aria-expanded="false">
+              <span></span>
+              <span></span>
+              <span></span>
+            </button>
+            <div id="menu-panel" class="menu-panel" hidden>
+              <section class="menu-section" aria-labelledby="theme-menu-label">
+                <h2 id="theme-menu-label">Theme</h2>
+                <div class="theme-switch" role="group" aria-label="Theme">
+                  <button type="button" data-theme-choice="system">System</button>
+                  <button type="button" data-theme-choice="light">Light</button>
+                  <button type="button" data-theme-choice="dark">Dark</button>
+                </div>
+              </section>
+            </div>
+          </div>
+        </header>
+        <div class="searchbar">
+          <div class="searchbox">
+            <div id="search-chips" class="search-chips" aria-label="Tag filters"></div>
+            <input id="search" type="search" placeholder="Search notes" autocomplete="off">
           </div>
         </div>
-      </header>
-      <div class="searchbar">
-        <div class="searchbox">
-          <div id="search-chips" class="search-chips" aria-label="Tag filters"></div>
-          <input id="search" type="search" placeholder="Search notes" autocomplete="off">
-        </div>
+        <div id="results" class="results" aria-live="polite"></div>
       </div>
-      <div id="results" class="results" aria-live="polite"></div>
-      <section class="graph-panel" aria-label="Local graph">
-        <header class="graph-header">
-          <h3>Local Graph</h3>
-          <p id="graph-meta"></p>
-        </header>
-        <canvas id="graph"></canvas>
-      </section>
     </aside>
     <section class="reader">
       <article id="note-body" class="note-body"></article>
@@ -63,6 +69,13 @@ const indexHTML = `<!doctype html>
         <h3>Backlinks</h3>
         <div id="backlinks"></div>
       </section>
+    </section>
+    <section class="graph-panel" aria-label="Local graph">
+      <header class="graph-header">
+        <h3>Local Graph</h3>
+        <p id="graph-meta"></p>
+      </header>
+      <canvas id="graph"></canvas>
     </section>
   </main>
   <script src="/app.js"></script>
@@ -133,12 +146,17 @@ button, input {
 
 .workspace {
   display: grid;
-  grid-template-columns: minmax(260px, 340px) minmax(380px, 1fr);
+  grid-template-columns: minmax(300px, 360px) minmax(380px, 1fr);
   height: 100vh;
   min-height: 560px;
+  transition: grid-template-columns 160ms ease;
 }
 
-.sidebar, .reader {
+.workspace.sidebar-collapsed {
+  grid-template-columns: 56px minmax(380px, 1fr);
+}
+
+.sidebar {
   min-width: 0;
   min-height: 0;
   border-right: 1px solid var(--line);
@@ -147,7 +165,119 @@ button, input {
 
 .sidebar {
   display: flex;
+  overflow: hidden;
+}
+
+.reader {
+  min-width: 0;
+  min-height: 0;
+  background: var(--panel);
+}
+
+.activity-rail {
+  flex: 0 0 56px;
+  display: flex;
   flex-direction: column;
+  align-items: center;
+  gap: 6px;
+  padding: 8px 6px;
+  border-right: 1px solid var(--line);
+  background: var(--panel-soft);
+}
+
+.rail-button {
+  display: grid;
+  place-items: center;
+  width: 40px;
+  height: 40px;
+  border: 0;
+  border-radius: 6px;
+  color: var(--muted);
+  background: transparent;
+  cursor: pointer;
+}
+
+.rail-button:hover, .rail-button:focus-visible {
+  color: var(--text);
+  background: var(--panel);
+}
+
+.rail-icon {
+  position: relative;
+  display: block;
+  width: 20px;
+  height: 20px;
+}
+
+.rail-icon-sidebar {
+  border: 2px solid currentColor;
+  border-radius: 3px;
+}
+
+.rail-icon-sidebar::before {
+  content: "";
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  left: 6px;
+  border-left: 2px solid currentColor;
+}
+
+.rail-icon-home::before {
+  content: "";
+  position: absolute;
+  left: 4px;
+  top: 8px;
+  width: 12px;
+  height: 9px;
+  border: 2px solid currentColor;
+  border-top: 0;
+  border-radius: 0 0 2px 2px;
+}
+
+.rail-icon-home::after {
+  content: "";
+  position: absolute;
+  left: 5px;
+  top: 2px;
+  width: 10px;
+  height: 10px;
+  border-left: 2px solid currentColor;
+  border-top: 2px solid currentColor;
+  transform: rotate(45deg);
+}
+
+.rail-icon-search::before {
+  content: "";
+  position: absolute;
+  left: 2px;
+  top: 2px;
+  width: 10px;
+  height: 10px;
+  border: 2px solid currentColor;
+  border-radius: 50%;
+}
+
+.rail-icon-search::after {
+  content: "";
+  position: absolute;
+  right: 2px;
+  bottom: 3px;
+  width: 8px;
+  border-top: 2px solid currentColor;
+  transform: rotate(45deg);
+  transform-origin: center;
+}
+
+.sidebar-content {
+  flex: 1 1 auto;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+}
+
+.workspace.sidebar-collapsed .sidebar-content {
+  display: none;
 }
 
 .brand {
@@ -580,10 +710,18 @@ p {
 }
 
 .graph-panel {
-  flex: 0 0 360px;
+  position: fixed;
+  right: 18px;
+  bottom: 18px;
+  z-index: 30;
+  width: min(520px, calc(100vw - 36px));
+  height: min(380px, calc(100vh - 112px));
   min-height: 260px;
-  border-top: 1px solid var(--line);
+  overflow: hidden;
+  border: 1px solid var(--line);
+  border-radius: 8px;
   background: var(--panel);
+  box-shadow: 0 18px 42px color-mix(in srgb, #000 18%, transparent);
 }
 
 .graph-header {
@@ -621,13 +759,34 @@ p {
 @media (max-width: 980px) {
   .workspace {
     grid-template-columns: 1fr;
-    grid-template-rows: 620px minmax(360px, 1fr);
+    grid-template-rows: minmax(360px, 46vh) minmax(360px, 1fr);
     height: auto;
     min-height: 100vh;
   }
-  .sidebar, .reader {
+  .workspace.sidebar-collapsed {
+    grid-template-columns: 1fr;
+    grid-template-rows: 56px minmax(360px, 1fr);
+  }
+  .sidebar {
     border-right: 0;
     border-bottom: 1px solid var(--line);
+  }
+  .activity-rail {
+    flex: 0 0 56px;
+    flex-direction: row;
+    align-items: center;
+    border-right: 0;
+    border-bottom: 1px solid var(--line);
+  }
+  .sidebar-content {
+    min-height: 0;
+  }
+  .graph-panel {
+    right: 12px;
+    bottom: 12px;
+    width: min(420px, calc(100vw - 24px));
+    height: 280px;
+    min-height: 220px;
   }
 }
 `
@@ -645,6 +804,7 @@ const appJS = `(function () {
     pointers: {},
     pinch: null,
     animation: null,
+    sidebarCollapsed: false,
     preview: {
       panels: [],
       hideTimer: null,
@@ -654,7 +814,11 @@ const appJS = `(function () {
   };
 
   var el = {
+    workspace: document.getElementById("workspace"),
     homeLink: document.getElementById("home-link"),
+    sidebarToggle: document.getElementById("sidebar-toggle"),
+    railHome: document.getElementById("rail-home"),
+    railSearch: document.getElementById("rail-search"),
     search: document.getElementById("search"),
     searchChips: document.getElementById("search-chips"),
     results: document.getElementById("results"),
@@ -692,6 +856,24 @@ const appJS = `(function () {
   function setMenuOpen(open) {
     el.menuButton.setAttribute("aria-expanded", open ? "true" : "false");
     el.menuPanel.hidden = !open;
+  }
+
+  function storedSidebarCollapsed() {
+    return localStorage.getItem("track.sidebar") === "collapsed";
+  }
+
+  function applySidebar(collapsed) {
+    state.sidebarCollapsed = collapsed;
+    el.workspace.classList.toggle("sidebar-collapsed", collapsed);
+    localStorage.setItem("track.sidebar", collapsed ? "collapsed" : "expanded");
+    el.sidebarToggle.setAttribute("aria-expanded", collapsed ? "false" : "true");
+    el.sidebarToggle.setAttribute("aria-label", collapsed ? "Expand sidebar" : "Collapse sidebar");
+    el.sidebarToggle.title = collapsed ? "Expand sidebar" : "Collapse sidebar";
+    setMenuOpen(false);
+    window.setTimeout(function () {
+      resizeCanvas();
+      drawGraph();
+    }, 170);
   }
 
   function api(path) {
@@ -755,6 +937,7 @@ const appJS = `(function () {
     }
     renderSearchFilter();
     loadSearch();
+    applySidebar(false);
     el.search.focus();
   }
 
@@ -832,7 +1015,7 @@ const appJS = `(function () {
     renderHome();
     updateHomeHistory(mode || "push");
     loadSearch();
-    el.search.focus();
+    if (!state.sidebarCollapsed) el.search.focus();
   }
 
   function selectNote(id, opts) {
@@ -1231,7 +1414,7 @@ const appJS = `(function () {
     var graphH = Math.max(1, maxY - minY);
     var availW = Math.max(1, el.canvas.width - padding);
     var availH = Math.max(1, el.canvas.height - padding);
-    var maxInitialScale = 0.85;
+    var maxInitialScale = 0.65;
     var scale = Math.max(0.05, Math.min(maxInitialScale, Math.min(availW / graphW, availH / graphH)));
     var centerX = (minX + maxX) / 2;
     var centerY = (minY + maxY) / 2;
@@ -1602,7 +1785,20 @@ const appJS = `(function () {
     event.preventDefault();
     goHome("push");
   });
+  el.sidebarToggle.addEventListener("click", function () {
+    applySidebar(!state.sidebarCollapsed);
+  });
+  el.railHome.addEventListener("click", function () {
+    goHome("push");
+  });
+  el.railSearch.addEventListener("click", function () {
+    applySidebar(false);
+    window.setTimeout(function () {
+      el.search.focus();
+    }, 170);
+  });
 
+  applySidebar(storedSidebarCollapsed());
   applyTheme(themeMode());
   var initialID = Number(new URL(window.location.href).searchParams.get("id"));
   if (initialID) {
