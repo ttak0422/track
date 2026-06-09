@@ -73,7 +73,12 @@ const indexHTML = `<!doctype html>
     <section class="graph-panel" aria-label="Local graph">
       <header class="graph-header">
         <h3>Local Graph</h3>
-        <p id="graph-meta"></p>
+        <div class="graph-actions">
+          <p id="graph-meta"></p>
+          <button id="graph-reset" class="graph-reset" type="button" aria-label="Reset graph view" title="Reset graph view">
+            <span class="graph-reset-icon" aria-hidden="true"></span>
+          </button>
+        </div>
       </header>
       <canvas id="graph"></canvas>
     </section>
@@ -737,6 +742,59 @@ p {
   white-space: nowrap;
 }
 
+.graph-actions {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+}
+
+.graph-reset {
+  display: grid;
+  place-items: center;
+  width: 28px;
+  height: 28px;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  color: var(--muted);
+  background: var(--panel);
+  cursor: pointer;
+}
+
+.graph-reset:hover, .graph-reset:focus-visible {
+  color: var(--text);
+  background: var(--panel-soft);
+}
+
+.graph-reset-icon {
+  position: relative;
+  display: block;
+  width: 16px;
+  height: 16px;
+  border: 2px solid currentColor;
+  border-radius: 50%;
+}
+
+.graph-reset-icon::before, .graph-reset-icon::after {
+  content: "";
+  position: absolute;
+  background: currentColor;
+}
+
+.graph-reset-icon::before {
+  left: 5px;
+  top: 2px;
+  width: 2px;
+  height: 8px;
+}
+
+.graph-reset-icon::after {
+  left: 2px;
+  top: 5px;
+  width: 8px;
+  height: 2px;
+}
+
 #graph {
   display: block;
   width: 100%;
@@ -825,6 +883,7 @@ const appJS = `(function () {
     body: document.getElementById("note-body"),
     backlinks: document.getElementById("backlinks"),
     graphMeta: document.getElementById("graph-meta"),
+    graphReset: document.getElementById("graph-reset"),
     canvas: document.getElementById("graph"),
     menuButton: document.getElementById("menu-button"),
     menuPanel: document.getElementById("menu-panel"),
@@ -1425,6 +1484,16 @@ const appJS = `(function () {
     };
   }
 
+  function resetGraphView() {
+    state.dragging = null;
+    state.pinch = null;
+    state.pointers = {};
+    el.canvas.classList.remove("dragging");
+    resizeCanvas();
+    state.graphView = fitGraphView();
+    drawGraph();
+  }
+
   function stepGraph() {
     var nodes = visibleNodes();
     var visible = {};
@@ -1797,6 +1866,7 @@ const appJS = `(function () {
       el.search.focus();
     }, 170);
   });
+  el.graphReset.addEventListener("click", resetGraphView);
 
   applySidebar(storedSidebarCollapsed());
   applyTheme(themeMode());
