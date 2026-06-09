@@ -9,6 +9,8 @@ local job_id
 local running_addr
 local stopping = false
 local autostop_registered = false
+local readiness_token = 0
+local uv = vim.uv or vim.loop
 
 local function is_running()
    return job_id ~= nil and vim.fn.jobwait({ job_id }, 0)[1] == -1
@@ -39,6 +41,76 @@ local function open_url(url)
       return
    end
    pcall(vim.ui.open, url)
+end
+
+local function listen_host_port(addr)
+   local host, port = addr:match("^%[([^%]]+)%]:(%d+)$")
+   if not port then
+      host, port = addr:match("^([^:]*):(%d+)$")
+   end
+   if not port then
+      return nil, nil
+   end
+   if host == "" or host == "0.0.0.0" or host == "::" then
+      host = "127.0.0.1"
+   end
+   return host, tonumber(port)
+end
+
+local function wait_until_ready(addr, url)
+   readiness_token = readiness_token + 1
+   local token = readiness_token
+   local host, port = listen_host_port(addr)
+   if not host or not port then
+      vim.defer_fn(function()
+         if token == readiness_token and job_id ~= nil then
+            open_url(url)
+         end
+      end, 350)
+      return
+   end
+
+   local deadline = uv.hrtime() + 5 * 1000 * 1000 * 1000
+   local function attempt()
+      if token ~= readiness_token or job_id == nil then
+         return
+      end
+      local tcp = uv.new_tcp()
+      if not tcp then
+         open_url(url)
+         return
+      end
+      local ok = pcall(function()
+         tcp:connect(host, port, function(err)
+            if not tcp:is_closing() then
+               tcp:close()
+            end
+            vim.schedule(function()
+               if token ~= readiness_token or job_id == nil then
+                  return
+               end
+               if not err then
+                  open_url(url)
+                  return
+               end
+               if uv.hrtime() >= deadline then
+                  vim.notify("track web did not become ready quickly; opening anyway: " .. url, vim.log.levels.WARN)
+                  open_url(url)
+                  return
+               end
+               vim.defer_fn(attempt, 80)
+            end)
+         end)
+      end)
+      if not ok then
+         if not tcp:is_closing() then
+            tcp:close()
+         end
+         vim.defer_fn(attempt, 80)
+      end
+   end
+
+   attempt()
 end
 
 local function register_autostop()
@@ -109,6 +181,7 @@ function M.open(args)
          local stopped = stopping
          job_id = nil
          running_addr = nil
+         readiness_token = readiness_token + 1
          stopping = false
          if code ~= 0 and not stopped then
             vim.schedule(function()
@@ -122,12 +195,13 @@ function M.open(args)
       local failed = job_id
       job_id = nil
       running_addr = nil
+      readiness_token = readiness_token + 1
       vim.notify("track: failed to start web server job (" .. tostring(failed) .. ")", vim.log.levels.ERROR)
       return
    end
 
    running_addr = addr
-   open_url(url)
+   wait_until_ready(addr, url)
 end
 
 return M
