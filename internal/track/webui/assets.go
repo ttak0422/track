@@ -1014,8 +1014,10 @@ const appJS = `(function () {
 
   function previewTarget(node) {
     if (node && node.closest && node.closest("[data-tag]")) return null;
-    var target = node && node.closest ? node.closest(".wiki-link, .backlink, .home-note, .result") : null;
+    var target = node && node.closest ? node.closest(".wiki-link") : null;
     if (!target) return null;
+    if (containsPreview(target)) return target;
+    if (!el.body.contains(target)) return null;
     return target;
   }
 
