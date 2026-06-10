@@ -133,9 +133,9 @@ function M.run(uri)
    return true
 end
 
-function M.run_markdown_link_at_cursor(ctx)
-   local line = ctx and ctx.line or vim.api.nvim_get_current_line()
-   local col = ctx and ctx.col or vim.fn.col(".")
+function M.run_markdown_link_at_cursor()
+   local line = vim.api.nvim_get_current_line()
+   local col = vim.fn.col(".")
    local link = M.markdown_link_at_cursor(line, col)
    if not link then
       return false
