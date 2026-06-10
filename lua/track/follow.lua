@@ -194,6 +194,14 @@ function M.follow(ctx)
    follow_definition(ctx)
 end
 
+function M.smart_action()
+   local ctx = current_context()
+   if require("track.action").markdown_link_at_cursor(ctx.line, ctx.col) or wiki_link_at_cursor(ctx.line, ctx.col) then
+      return "<cmd>Track follow<cr>"
+   end
+   return "<CR>"
+end
+
 function M.current_context()
    return current_context()
 end
