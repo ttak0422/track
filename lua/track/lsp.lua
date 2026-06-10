@@ -373,7 +373,8 @@ local function attach(buf)
 
    start_client(buf)
    vim.keymap.set("n", "<CR>", function()
-      require("track.follow").follow()
+      local follow = require("track.follow")
+      follow.follow(follow.current_context())
    end, { buffer = buf, desc = "track: follow link under cursor" })
    vim.keymap.set("n", "K", function()
       if track_client(buf, "textDocument/hover") then
