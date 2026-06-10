@@ -72,6 +72,51 @@ local function text_document_params(buf)
    return { uri = vim.uri_from_bufnr(buf) }
 end
 
+local method_capabilities = {
+   ["textDocument/definition"] = "definitionProvider",
+   ["textDocument/documentLink"] = "documentLinkProvider",
+   ["textDocument/hover"] = "hoverProvider",
+}
+
+local function lsp_clients(buf)
+   if vim.lsp.get_clients then
+      return vim.lsp.get_clients({ bufnr = buf })
+   end
+   return vim.lsp.get_active_clients({ bufnr = buf })
+end
+
+local function supports_method(client, method, buf)
+   if type(client.supports_method) == "function" then
+      local ok, supported = pcall(client.supports_method, client, method, buf)
+      if ok then
+         return supported
+      end
+      ok, supported = pcall(client.supports_method, client, method, { bufnr = buf })
+      if ok then
+         return supported
+      end
+      ok, supported = pcall(client.supports_method, client, method)
+      if ok then
+         return supported
+      end
+   end
+   local capability = method_capabilities[method]
+   return capability ~= nil and client.server_capabilities and client.server_capabilities[capability] ~= nil
+end
+
+local function track_client(buf, method)
+   for _, client in ipairs(lsp_clients(buf)) do
+      if client.name == "track-lsp" and (method == nil or supports_method(client, method, buf)) then
+         return client
+      end
+   end
+   return nil
+end
+
+function M.client(buf, method)
+   return track_client(buf or vim.api.nvim_get_current_buf(), method)
+end
+
 -- fenced_rows returns a set (0-based row -> true) of lines that are fence delimiters or inside a fenced code block, plus the buffer lines.
 local function fenced_rows(buf)
    local lines = vim.api.nvim_buf_get_lines(buf, 0, -1, false)
@@ -216,7 +261,12 @@ local function refresh(buf)
       return
    end
 
-   vim.lsp.buf_request(buf, "textDocument/documentLink", { textDocument = text_document_params(buf) }, function(err, result)
+   local client = track_client(buf, "textDocument/documentLink")
+   if not client then
+      return
+   end
+
+   client:request("textDocument/documentLink", { textDocument = text_document_params(buf) }, function(err, result)
       if err or not vim.api.nvim_buf_is_valid(buf) then
          return
       end
@@ -229,7 +279,7 @@ local function refresh(buf)
       end
       resolved_cache[buf] = resolved
       render(buf)
-   end)
+   end, buf)
 end
 
 local function register_create_note_command()
@@ -326,7 +376,11 @@ local function attach(buf)
       require("track.follow").follow()
    end, { buffer = buf, desc = "track: follow link under cursor" })
    vim.keymap.set("n", "K", function()
-      vim.lsp.buf.hover()
+      if track_client(buf, "textDocument/hover") then
+         vim.lsp.buf.hover()
+      else
+         vim.notify("track: LSP hover is not ready for this buffer", vim.log.levels.INFO)
+      end
    end, { buffer = buf, desc = "track: hover note link" })
 
    local group = vim.api.nvim_create_augroup(config.options.augroup .. "_lsp_buf_" .. buf, { clear = true })
