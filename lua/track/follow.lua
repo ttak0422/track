@@ -2,7 +2,6 @@
 -- Markdown action links are handled client-side; [[...]] links are resolved by the LSP.
 
 local M = {}
-local pending_context
 
 local function wiki_link_at_cursor(line, col)
    local search_from = 1
@@ -30,19 +29,6 @@ local function current_context()
       col = cursor[2] + 1,
       line = line,
    }
-end
-
-local function valid_context(ctx)
-   return ctx ~= nil and vim.api.nvim_buf_is_valid(ctx.buf) and vim.api.nvim_win_is_valid(ctx.win)
-end
-
-local function take_context()
-   local ctx = pending_context
-   pending_context = nil
-   if valid_context(ctx) then
-      return ctx
-   end
-   return current_context()
 end
 
 local function definition_params(ctx)
@@ -121,7 +107,7 @@ local function open_locations(ctx, result)
 end
 
 function M.follow(ctx)
-   ctx = ctx or take_context()
+   ctx = ctx or current_context()
    if require("track.action").run_markdown_link_at_cursor(ctx) then
       return
    end
@@ -146,11 +132,9 @@ end
 function M.smart_action()
    local ctx = current_context()
    if require("track.action").markdown_link_at_cursor(ctx.line, ctx.col) or wiki_link_at_cursor(ctx.line, ctx.col) then
-      pending_context = nil
       M.follow(ctx)
       return ""
    end
-   pending_context = nil
    return "<CR>"
 end
 
