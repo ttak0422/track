@@ -120,8 +120,8 @@ local function open_locations(ctx, result)
    open_item(ctx, items[1])
 end
 
-function M.follow()
-   local ctx = take_context()
+function M.follow(ctx)
+   ctx = ctx or take_context()
    if require("track.action").run_markdown_link_at_cursor(ctx) then
       return
    end
@@ -146,8 +146,9 @@ end
 function M.smart_action()
    local ctx = current_context()
    if require("track.action").markdown_link_at_cursor(ctx.line, ctx.col) or wiki_link_at_cursor(ctx.line, ctx.col) then
-      pending_context = ctx
-      return "<cmd>Track follow<cr>"
+      pending_context = nil
+      M.follow(ctx)
+      return ""
    end
    pending_context = nil
    return "<CR>"
