@@ -3,9 +3,11 @@ package cli
 import (
 	"flag"
 	"fmt"
+	"io"
 	"os"
 	"path/filepath"
 	"slices"
+	"strconv"
 	"strings"
 	"time"
 	"unicode/utf8"
@@ -55,12 +57,27 @@ func cmdNew(args []string) int {
 	title := fs.String("title", "", "note title (also a link keyword)")
 	id := fs.Int64("id", 0, "note id; defaults to current Unix second * 1000 plus a same-second sequence")
 	template := fs.String("template", "", "template name or path")
+	bodyFlag := fs.String("body", "", "note body placed under the title; read from stdin when omitted and piped")
+	var tags tagsFlag
+	fs.Var(&tags, "tag", "tag to attach (repeatable, comma-separated)")
+	ai := fs.Bool("ai", false, "attach the reserved generated-by-ai tag")
 	if err := fs.Parse(args); err != nil {
 		return fail("parse args: %v", err)
 	}
 	t := strings.TrimSpace(*title)
 	if t == "" {
 		return fail("--title is required")
+	}
+
+	body, err := readBody(fs, *bodyFlag)
+	if err != nil {
+		return fail("read body: %v", err)
+	}
+	if strings.TrimSpace(*template) != "" && strings.TrimSpace(body) != "" {
+		return fail("--body cannot be combined with --template")
+	}
+	if h1 := note.FirstH1Title(body); h1 != "" {
+		return fail("--body must not contain an H1 heading; the title line is added automatically")
 	}
 
 	cfg, s, err := open()
@@ -86,7 +103,7 @@ func cmdNew(args []string) int {
 		}
 	}
 
-	res, err := createTitledNote(cfg, s, noteID, t, *template)
+	res, err := createTitledNote(cfg, s, noteID, t, *template, body, collectTags(tags, *ai))
 	if err != nil {
 		return fail("%v", err)
 	}
@@ -100,12 +117,29 @@ func cmdOpen(args []string) int {
 	fs := flag.NewFlagSet("open", flag.ContinueOnError)
 	title := fs.String("title", "", "note title to open, or create when absent")
 	template := fs.String("template", "", "template name or path used when creating")
+	bodyFlag := fs.String("body", "", "body used when creating; read from stdin when omitted and piped")
+	var tags tagsFlag
+	fs.Var(&tags, "tag", "tag attached when creating (repeatable, comma-separated)")
+	ai := fs.Bool("ai", false, "attach the reserved generated-by-ai tag when creating")
 	if err := fs.Parse(args); err != nil {
 		return fail("parse args: %v", err)
 	}
 	t := strings.TrimSpace(*title)
 	if t == "" {
 		return fail("--title is required")
+	}
+
+	body, err := readBody(fs, *bodyFlag)
+	if err != nil {
+		return fail("read body: %v", err)
+	}
+	noteTags := collectTags(tags, *ai)
+	hasContent := strings.TrimSpace(body) != "" || len(noteTags) > 0
+	if strings.TrimSpace(*template) != "" && strings.TrimSpace(body) != "" {
+		return fail("--body cannot be combined with --template")
+	}
+	if h1 := note.FirstH1Title(body); h1 != "" {
+		return fail("--body must not contain an H1 heading; the title line is added automatically")
 	}
 
 	cfg, s, err := open()
@@ -119,6 +153,11 @@ func cmdOpen(args []string) int {
 		return fail("resolve: %v", err)
 	}
 	if found {
+		// open is create-or-open; content flags only apply on creation. Adding to an existing note
+		// is append's job, so surface that rather than silently dropping --body/--tag.
+		if hasContent {
+			return fail("note %q already exists; use `track append` to add content or tags", t)
+		}
 		return emit(map[string]any{"id": ref.NoteID, "path": cfg.PathForKind(ref.FileKind, ref.NoteID), "title": t, "created": false})
 	}
 
@@ -126,7 +165,7 @@ func cmdOpen(args []string) int {
 	if err != nil {
 		return fail("allocate note id: %v", err)
 	}
-	res, err := createTitledNote(cfg, s, noteID, t, *template)
+	res, err := createTitledNote(cfg, s, noteID, t, *template, body, noteTags)
 	if err != nil {
 		return fail("%v", err)
 	}
@@ -136,7 +175,9 @@ func cmdOpen(args []string) int {
 
 // createTitledNote writes a new note titled `title` at `noteID`, indexes it, and returns its summary.
 // It guards against clobbering an existing file so an explicit id collision surfaces as an error.
-func createTitledNote(cfg *config.Config, s *store.Store, noteID int64, title string, template string) (map[string]any, error) {
+// extraBody, when non-empty, is placed under the auto-generated title line; it is mutually exclusive
+// with template (callers enforce that). tags are stored on the sidecar metadata.
+func createTitledNote(cfg *config.Config, s *store.Store, noteID int64, title string, template string, extraBody string, tags []string) (map[string]any, error) {
 	path := cfg.NotePath(noteID)
 	if _, err := os.Stat(path); err == nil {
 		return nil, fmt.Errorf("note already exists: %s", path)
@@ -157,13 +198,15 @@ func createTitledNote(cfg *config.Config, s *store.Store, noteID int64, title st
 		if !strings.HasSuffix(body, "\n") {
 			body += "\n"
 		}
+	} else if strings.TrimSpace(extraBody) != "" {
+		body = "# " + title + "\n\n" + strings.TrimRight(extraBody, "\n") + "\n"
 	}
 	if err := os.WriteFile(path, []byte(body), 0o644); err != nil {
 		return nil, fmt.Errorf("write note: %v", err)
 	}
 	if err := note.WriteMetadata(
 		cfg.MetadataPath(noteID),
-		note.Metadata{Title: title, Created: time.Now().Format(cfg.DateFormat)},
+		note.Metadata{Title: title, Tags: tags, Created: time.Now().Format(cfg.DateFormat)},
 	); err != nil {
 		return nil, fmt.Errorf("write metadata: %v", err)
 	}
@@ -177,8 +220,21 @@ func cmdJournal(args []string) int {
 	fs := flag.NewFlagSet("journal", flag.ContinueOnError)
 	offset := fs.Int("offset", 0, "day offset: 0=today, -1=yesterday, 1=tomorrow")
 	template := fs.String("template", "", "template name or path used when creating")
+	bodyFlag := fs.String("body", "", "body used when creating; read from stdin when omitted and piped")
+	ai := fs.Bool("ai", false, "attach the reserved generated-by-ai tag when creating")
 	if err := fs.Parse(args); err != nil {
 		return fail("parse args: %v", err)
+	}
+
+	body, err := readBody(fs, *bodyFlag)
+	if err != nil {
+		return fail("read body: %v", err)
+	}
+	if strings.TrimSpace(*template) != "" && strings.TrimSpace(body) != "" {
+		return fail("--body cannot be combined with --template")
+	}
+	if h1 := note.FirstH1Title(body); h1 != "" {
+		return fail("--body must not contain an H1 heading; the title line is added automatically")
 	}
 
 	cfg, s, err := open()
@@ -201,7 +257,7 @@ func cmdJournal(args []string) int {
 		if err := os.MkdirAll(cfg.JournalDir(), 0o755); err != nil {
 			return fail("create vault dir: %v", err)
 		}
-		body := "# " + name + "\n"
+		jbody := "# " + name + "\n"
 		if strings.TrimSpace(*template) != "" {
 			rendered, err := renderTemplate(cfg, *template, name, noteID, config.KindJournal, day)
 			if err != nil {
@@ -210,17 +266,19 @@ func cmdJournal(args []string) int {
 			if h1 := note.FirstH1Title(rendered); h1 != name {
 				return fail("rendered template title %q does not match journal title %q", h1, name)
 			}
-			body = rendered
-			if !strings.HasSuffix(body, "\n") {
-				body += "\n"
+			jbody = rendered
+			if !strings.HasSuffix(jbody, "\n") {
+				jbody += "\n"
 			}
+		} else if strings.TrimSpace(body) != "" {
+			jbody = "# " + name + "\n\n" + strings.TrimRight(body, "\n") + "\n"
 		}
-		if err := os.WriteFile(path, []byte(body), 0o644); err != nil {
+		if err := os.WriteFile(path, []byte(jbody), 0o644); err != nil {
 			return fail("write journal: %v", err)
 		}
 		if err := note.WriteMetadata(
 			cfg.MetadataPath(noteID),
-			note.Metadata{Title: name, Tags: []string{"journal"}, Created: date},
+			note.Metadata{Title: name, Tags: collectTags([]string{"journal"}, *ai), Created: date},
 		); err != nil {
 			return fail("write metadata: %v", err)
 		}
@@ -228,8 +286,209 @@ func cmdJournal(args []string) int {
 			return fail("index journal: %v", err)
 		}
 		created = true
+	} else if strings.TrimSpace(body) != "" || *ai {
+		// The journal exists already; content flags only apply on creation. Point to append so the
+		// daily-log workflow has an explicit path rather than silently dropping the body.
+		return fail("journal %s already exists; use `track append --id %d` to add content or tags", name, noteID)
 	}
 	return emit(map[string]any{"id": noteID, "path": path, "created": created})
+}
+
+// cmdAppend grows an existing note: it appends body text and/or merges tags, then reindexes the note
+// so its links and provenance are reflected without a full rebuild. The target is named by one of
+// --id, --title, or --path. This is the create-or-open counterpart for editing notes through the CLI.
+func cmdAppend(args []string) int {
+	fs := flag.NewFlagSet("append", flag.ContinueOnError)
+	id := fs.Int64("id", 0, "note id")
+	title := fs.String("title", "", "note title (alternative to --id)")
+	path := fs.String("path", "", "note path (alternative to --id)")
+	bodyFlag := fs.String("body", "", "text to append; read from stdin when omitted and piped")
+	var tags tagsFlag
+	fs.Var(&tags, "tag", "tag to add (repeatable, comma-separated)")
+	ai := fs.Bool("ai", false, "add the reserved generated-by-ai tag")
+	if err := fs.Parse(args); err != nil {
+		return fail("parse args: %v", err)
+	}
+
+	appendText, err := readBody(fs, *bodyFlag)
+	if err != nil {
+		return fail("read body: %v", err)
+	}
+	addTags := collectTags(tags, *ai)
+	if strings.TrimSpace(appendText) == "" && len(addTags) == 0 {
+		return fail("nothing to do: provide --body (or piped stdin), --tag, or --ai")
+	}
+
+	cfg, s, err := open()
+	if err != nil {
+		return fail("%v", err)
+	}
+	defer s.Close()
+
+	notePath, err := resolveNotePath(cfg, s, *id, strings.TrimSpace(*title), strings.TrimSpace(*path))
+	if err != nil {
+		return fail("%v", err)
+	}
+	noteID, err := note.IDFromPath(notePath)
+	if err != nil {
+		return fail("invalid note path: %v", err)
+	}
+
+	if appendText != "" {
+		existing, err := os.ReadFile(notePath)
+		if err != nil {
+			return fail("read note: %v", err)
+		}
+		if err := os.WriteFile(notePath, []byte(appendBody(string(existing), appendText)), 0o644); err != nil {
+			return fail("write note: %v", err)
+		}
+	}
+
+	if len(addTags) > 0 {
+		meta, found, err := note.ReadMetadata(cfg.MetadataPath(noteID))
+		if err != nil {
+			return fail("read metadata: %v", err)
+		}
+		if !found {
+			// A note without a sidecar is unusual, but reconstruct enough to keep the schema valid
+			// rather than failing the append outright.
+			raw, _ := os.ReadFile(notePath)
+			meta = note.Metadata{Title: note.FirstH1Title(string(raw)), Created: time.Now().Format(cfg.DateFormat)}
+		}
+		meta.Tags = dedupTags(append(meta.Tags, addTags...))
+		if err := note.WriteMetadata(cfg.MetadataPath(noteID), meta); err != nil {
+			return fail("write metadata: %v", err)
+		}
+	}
+
+	if err := index.New(cfg, s).One(notePath); err != nil {
+		return fail("index note: %v", err)
+	}
+	return emit(map[string]any{"id": noteID, "path": notePath})
+}
+
+// resolveNotePath turns one of --id/--title/--path into a concrete, existing note file path.
+func resolveNotePath(cfg *config.Config, s *store.Store, id int64, title, path string) (string, error) {
+	switch {
+	case path != "":
+		if _, ok := cfg.KindFromPath(path); !ok {
+			return "", fmt.Errorf("path is not a vault note: %s", path)
+		}
+		abs, err := filepath.Abs(path)
+		if err != nil {
+			return "", err
+		}
+		if !fileExists(abs) {
+			return "", fmt.Errorf("note not found: %s", abs)
+		}
+		return abs, nil
+	case title != "":
+		ref, found, err := s.ResolveTerm(title)
+		if err != nil {
+			return "", fmt.Errorf("resolve: %v", err)
+		}
+		if !found {
+			return "", fmt.Errorf("no note titled %q", title)
+		}
+		return cfg.PathForKind(ref.FileKind, ref.NoteID), nil
+	case id != 0:
+		// A bare id does not carry its kind; journal ids equal their yyyyMMdd name, so probe both layouts.
+		if p := cfg.NotePath(id); fileExists(p) {
+			return p, nil
+		}
+		if p := cfg.JournalPath(strconv.FormatInt(id, 10)); fileExists(p) {
+			return p, nil
+		}
+		return "", fmt.Errorf("no note with id %d", id)
+	default:
+		return "", fmt.Errorf("--id, --title, or --path is required")
+	}
+}
+
+func fileExists(p string) bool {
+	_, err := os.Stat(p)
+	return err == nil
+}
+
+// appendBody appends text to an existing note body, separated by a blank line and ending in a newline.
+func appendBody(existing, text string) string {
+	base := strings.TrimRight(existing, "\n")
+	add := strings.TrimRight(text, "\n")
+	if base == "" {
+		return add + "\n"
+	}
+	return base + "\n\n" + add + "\n"
+}
+
+// tagsFlag collects repeatable --tag values; each value may itself be comma-separated.
+type tagsFlag []string
+
+func (t *tagsFlag) String() string { return strings.Join(*t, ",") }
+
+func (t *tagsFlag) Set(v string) error {
+	for _, part := range strings.Split(v, ",") {
+		if p := strings.TrimSpace(part); p != "" {
+			*t = append(*t, p)
+		}
+	}
+	return nil
+}
+
+// collectTags merges explicit tags with the reserved AI tag when ai is set, de-duplicating the result.
+func collectTags(tags []string, ai bool) []string {
+	if ai {
+		tags = append(tags, note.GeneratedByAITag)
+	}
+	return dedupTags(tags)
+}
+
+// dedupTags trims and de-duplicates tags, preserving first-seen order. It returns nil for an empty set.
+func dedupTags(tags []string) []string {
+	if len(tags) == 0 {
+		return nil
+	}
+	seen := make(map[string]bool, len(tags))
+	var out []string
+	for _, tg := range tags {
+		tg = strings.TrimSpace(tg)
+		if tg == "" || seen[tg] {
+			continue
+		}
+		seen[tg] = true
+		out = append(out, tg)
+	}
+	return out
+}
+
+// readBody returns body text from the --body flag when it was set, otherwise from piped stdin.
+// An interactive terminal (no pipe) yields an empty body instead of blocking on a read.
+func readBody(fs *flag.FlagSet, flagVal string) (string, error) {
+	if flagWasSet(fs, "body") {
+		return flagVal, nil
+	}
+	fi, err := os.Stdin.Stat()
+	if err != nil {
+		return "", nil
+	}
+	if fi.Mode()&os.ModeCharDevice != 0 {
+		return "", nil
+	}
+	data, err := io.ReadAll(os.Stdin)
+	if err != nil {
+		return "", err
+	}
+	return string(data), nil
+}
+
+// flagWasSet reports whether the named flag was explicitly provided on the command line.
+func flagWasSet(fs *flag.FlagSet, name string) bool {
+	found := false
+	fs.Visit(func(f *flag.Flag) {
+		if f.Name == name {
+			found = true
+		}
+	})
+	return found
 }
 
 func cmdKeywords(args []string) int {

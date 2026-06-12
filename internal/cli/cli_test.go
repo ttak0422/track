@@ -624,3 +624,132 @@ func TestBabelExecRefusesEvalNo(t *testing.T) {
 		t.Fatalf("expected :eval no error, got %v", out)
 	}
 }
+
+func TestNewWithBodyAndTags(t *testing.T) {
+	vault := t.TempDir()
+
+	created, code := runIn(t, vault, "new", "--title", "Go", "--id", "100",
+		"--body", "first line\n\n[[Other]] reference", "--tag", "lang,zettel", "--ai")
+	if code != 0 {
+		t.Fatalf("new with body failed: %v", created)
+	}
+
+	body, err := os.ReadFile(filepath.Join(vault, "note", "100.md"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := "# Go\n\nfirst line\n\n[[Other]] reference\n"
+	if string(body) != want {
+		t.Fatalf("body = %q, want %q", body, want)
+	}
+
+	meta, err := os.ReadFile(vault + "/.track/notes/100.yaml")
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, tag := range []string{"lang", "zettel", "generated-by-ai"} {
+		if !strings.Contains(string(meta), tag) {
+			t.Fatalf("metadata %q missing tag %q", meta, tag)
+		}
+	}
+}
+
+func TestNewBodyFromStdin(t *testing.T) {
+	vault := t.TempDir()
+
+	created, code := runInWithStdin(t, vault, "piped body line\n", "new", "--title", "Piped", "--id", "110")
+	if code != 0 {
+		t.Fatalf("new with stdin body failed: %v", created)
+	}
+	body, err := os.ReadFile(filepath.Join(vault, "note", "110.md"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if want := "# Piped\n\npiped body line\n"; string(body) != want {
+		t.Fatalf("body = %q, want %q", body, want)
+	}
+}
+
+func TestNewBodyRejectsH1(t *testing.T) {
+	out, code := runIn(t, t.TempDir(), "new", "--title", "Go", "--body", "# Go\n\ndup title")
+	if code != 1 || !strings.Contains(out["error"].(string), "H1") {
+		t.Fatalf("expected H1 rejection, got code=%d out=%v", code, out)
+	}
+}
+
+func TestNewBodyTemplateExclusive(t *testing.T) {
+	out, code := runIn(t, t.TempDir(), "new", "--title", "Go", "--template", "x", "--body", "text")
+	if code != 1 || !strings.Contains(out["error"].(string), "--body cannot be combined with --template") {
+		t.Fatalf("expected body/template exclusivity error, got code=%d out=%v", code, out)
+	}
+}
+
+func TestAppendUpdatesBodyAndBacklinksWithoutReindex(t *testing.T) {
+	vault := t.TempDir()
+	runIn(t, vault, "new", "--title", "Target", "--id", "200")
+	runIn(t, vault, "new", "--title", "Source", "--id", "100")
+
+	// Append a link from Source to Target via the CLI; index.One must pick up the new outgoing link,
+	// so Target's backlinks reflect it without any full reindex.
+	appended, code := runIn(t, vault, "append", "--id", "100", "--body", "see [[Target]] for details")
+	if code != 0 {
+		t.Fatalf("append failed: %v", appended)
+	}
+
+	body, err := os.ReadFile(filepath.Join(vault, "note", "100.md"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if want := "# Source\n\nsee [[Target]] for details\n"; string(body) != want {
+		t.Fatalf("appended body = %q, want %q", body, want)
+	}
+
+	back, code := runIn(t, vault, "backlinks", "--id", "200")
+	if code != 0 {
+		t.Fatalf("backlinks failed: %v", back)
+	}
+	list := back["backlinks"].([]any)
+	if len(list) != 1 || list[0].(map[string]any)["note_id"].(float64) != 100 {
+		t.Fatalf("expected note 100 backlink without reindex, got %v", list)
+	}
+}
+
+func TestAppendByTitleMergesTags(t *testing.T) {
+	vault := t.TempDir()
+	runIn(t, vault, "new", "--title", "Go", "--id", "100", "--tag", "lang")
+
+	if _, code := runIn(t, vault, "append", "--title", "Go", "--tag", "lang,zettel", "--ai"); code != 0 {
+		t.Fatalf("append tags failed")
+	}
+	meta, err := os.ReadFile(vault + "/.track/notes/100.yaml")
+	if err != nil {
+		t.Fatal(err)
+	}
+	// "lang" was already present; it must not be duplicated, and new tags must be added.
+	if got := strings.Count(string(meta), "- lang\n"); got != 1 {
+		t.Fatalf("expected lang tag once, got %d in %q", got, meta)
+	}
+	for _, tag := range []string{"zettel", "generated-by-ai"} {
+		if !strings.Contains(string(meta), tag) {
+			t.Fatalf("metadata %q missing tag %q", meta, tag)
+		}
+	}
+}
+
+func TestAppendRequiresContent(t *testing.T) {
+	vault := t.TempDir()
+	runIn(t, vault, "new", "--title", "Go", "--id", "100")
+	out, code := runIn(t, vault, "append", "--id", "100")
+	if code != 1 || !strings.Contains(out["error"].(string), "nothing to do") {
+		t.Fatalf("expected nothing-to-do error, got code=%d out=%v", code, out)
+	}
+}
+
+func TestOpenExistingWithContentErrors(t *testing.T) {
+	vault := t.TempDir()
+	runIn(t, vault, "open", "--title", "Go")
+	out, code := runIn(t, vault, "open", "--title", "Go", "--body", "more")
+	if code != 1 || !strings.Contains(out["error"].(string), "track append") {
+		t.Fatalf("expected append guidance on existing note, got code=%d out=%v", code, out)
+	}
+}

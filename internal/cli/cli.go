@@ -37,6 +37,8 @@ func Run(args []string) int {
 		return cmdOpen(rest)
 	case "journal":
 		return cmdJournal(rest)
+	case "append":
+		return cmdAppend(rest)
 	case "keywords":
 		return cmdKeywords(rest)
 	case "resolve":
@@ -65,12 +67,18 @@ func Run(args []string) int {
 func usage() {
 	fmt.Fprint(os.Stderr, `track - note tool
 
+Notes carry content through these commands; titles are link keywords. Write [[Title]] in a body to
+link notes. --body is read from stdin when omitted and stdin is piped. --ai stamps the reserved
+generated-by-ai tag. Creating or appending indexes the note immediately, so reindex is for bulk repair.
+
 Usage:
-  track new --title <t> [--id <id>] [--template <s>]
-                                        create a note (fails if the title exists)
-  track open --title <t> [--template <s>]
+  track new --title <t> [--id <id>] [--template <s>] [--body <s>] [--tag <s>] [--ai]
+                                        create a note (fails if the title exists); --body fills the body
+  track open --title <t> [--template <s>] [--body <s>] [--tag <s>] [--ai]
                                         open the note with this title, creating it if absent
-  track journal [--offset <n>] [--template <s>]
+  track append (--id N | --title S | --path P) [--body <s>] [--tag <s>] [--ai]
+                                        append body text and/or merge tags into an existing note
+  track journal [--offset <n>] [--template <s>] [--body <s>] [--ai]
                                         open/create a daily note
   track reindex [--full]                rebuild the index
   track keywords                        dump the auto-link dictionary (JSON)
