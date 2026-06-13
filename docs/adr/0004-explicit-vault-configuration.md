@@ -15,11 +15,11 @@ The cost of a missing configuration error is lower than the cost of writing note
 
 Require explicit vault configuration, but use the user config file as the normal CLI path.
 
-- The Go CLI reads `~/.config/track/config.yml` by default.
+- The Go CLI reads the platform user config file by default (`~/.config/track/config.yml` on XDG-style systems, `~/Library/Application Support/track/config.yml` on macOS).
 - The config file must set `vault_dir`.
 - `TRACK_VAULT` remains available as an override for tests and one-off runs.
-- The Neovim plugin requires either `TRACK_VAULT` or `require("track").setup({ vault_dir = ... })`.
-- When `vault_dir` is set in Neovim, the plugin exports it as `TRACK_VAULT` so child CLI commands use the same vault.
+- The Neovim plugin reads the same config file by default, and `require("track").setup({ vault_dir = ... })` can override it for editor-local configuration.
+- When `vault_dir` is resolved in Neovim, the plugin exports it as `TRACK_VAULT` for child CLI/LSP processes so they use the same vault.
 
 ## Consequences
 

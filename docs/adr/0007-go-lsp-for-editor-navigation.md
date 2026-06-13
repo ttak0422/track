@@ -24,7 +24,7 @@ The LSP surface is:
 - `textDocument/didOpen` and `textDocument/didChange` keep unsaved buffer text available for link detection.
 - `textDocument/didSave` reindexes the saved note's outgoing links.
 
-The server uses the same `$TRACK_VAULT` and SQLite index as the CLI, resolving links through the shared keyword dictionary.
+The server uses the same configured vault and SQLite index as the CLI, resolving links through the shared keyword dictionary. `TRACK_VAULT` remains a test/one-off override.
 The Neovim plugin starts `track-lsp` by default for markdown buffers under the vault, renders resolved document links as underlined ranges, and highlights unresolved `[[...]]` distinctly.
 
 ## Consequences

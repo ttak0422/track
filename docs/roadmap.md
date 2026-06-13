@@ -67,7 +67,7 @@ For each item, answer:
 
 | Area | Candidate | State | Notes / likely implementation |
 | --- | --- | --- | --- |
-| Workspace | Multiple workspaces and workspace-specific overrides | Reject | Decided out of scope. Single explicit `TRACK_VAULT` only; no multi-workspace support. |
+| Workspace | Multiple workspaces and workspace-specific overrides | Reject | Decided out of scope. Single explicit configured vault only; no multi-workspace support. |
 | Workspace | Dynamic workspace for markdown outside a vault | Reject | Decided out of scope. No workspace concept beyond the single explicit vault. |
 | Picker UX | Quick switch note picker | TBD | Engine already has notes/search primitives. Neovim can use quickfix first, picker adapters later. |
 | Picker UX | Dailies picker | TBD | CLI has journal open by offset, but no list/range command. Add store/query or filesystem scan. |

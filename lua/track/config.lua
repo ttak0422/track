@@ -1,14 +1,72 @@
 -- track.nvim configuration.
--- The vault must be explicit: either set TRACK_VAULT or pass setup({ vault_dir = ... }).
+-- The vault must be explicit in config.yml, or through setup({ vault_dir = ... }) for editor-local
+-- configuration. TRACK_VAULT remains a test/one-off override.
 
 local M = {}
+
+local function expand_home(path)
+   if path == "~" then
+      return vim.env.HOME
+   end
+   if type(path) == "string" and path:sub(1, 2) == "~/" then
+      return vim.env.HOME .. path:sub(2)
+   end
+   return path
+end
+
+local function config_path()
+   if vim.env.TRACK_CONFIG and vim.env.TRACK_CONFIG ~= "" then
+      return expand_home(vim.env.TRACK_CONFIG)
+   end
+
+   local home = vim.env.HOME
+   if vim.loop.os_uname().sysname == "Darwin" then
+      return home .. "/Library/Application Support/track/config.yml"
+   end
+
+   local xdg = vim.env.XDG_CONFIG_HOME
+   if xdg and xdg ~= "" then
+      return xdg .. "/track/config.yml"
+   end
+   return home .. "/.config/track/config.yml"
+end
+
+local function parse_config_file()
+   local path = config_path()
+   local ok, lines = pcall(vim.fn.readfile, path)
+   if not ok then
+      return {}
+   end
+
+   local parsed = {}
+   for _, line in ipairs(lines) do
+      local key, value = line:match("^%s*([%w_]+)%s*:%s*(.-)%s*$")
+      if key and value and value ~= "" then
+         value = value:gsub("%s+#.*$", "")
+         value = value:gsub('^"(.*)"$', "%1")
+         value = value:gsub("^'(.*)'$", "%1")
+         parsed[key] = expand_home(value)
+      end
+   end
+   return parsed
+end
+
+local file_config = parse_config_file()
 
 local function default_vault()
    local env = vim.env.TRACK_VAULT
    if env and env ~= "" then
       return env
    end
-   return nil
+   return file_config.vault_dir
+end
+
+local function default_cache_dir()
+   local env = vim.env.TRACK_CACHE_DIR
+   if env and env ~= "" then
+      return env
+   end
+   return file_config.cache_dir or (vim.fn.stdpath("cache") .. "/track")
 end
 
 M.defaults = {
@@ -19,7 +77,7 @@ M.defaults = {
    -- Vault directory; link highlighting only attaches to files here.
    vault_dir = default_vault(),
    -- Rebuildable SQLite cache directory. Kept outside the vault so synced folders do not sync DB locks.
-   cache_dir = vim.fn.stdpath("cache") .. "/track",
+   cache_dir = default_cache_dir(),
    -- Address used by `:Track web` when no address argument is supplied.
    web_addr = "127.0.0.1:8765",
    -- Note file extensions (without dot).
@@ -48,7 +106,7 @@ M.options = vim.deepcopy(M.defaults)
 function M.setup(opts)
    M.options = vim.tbl_deep_extend("force", M.options, opts or {})
    if not M.options.vault_dir or M.options.vault_dir == "" then
-      error("track: vault_dir is required. Set TRACK_VAULT or call require('track').setup({ vault_dir = ... }).")
+      error("track: vault_dir is required in config.yml or require('track').setup({ vault_dir = ... }).")
    end
    vim.env.TRACK_VAULT = M.options.vault_dir
    vim.env.TRACK_CACHE_DIR = M.options.cache_dir

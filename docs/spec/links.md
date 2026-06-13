@@ -58,7 +58,7 @@ Single-note indexing updates only that note's outgoing links, so callers that ne
 
 ## Scope
 
-Markdown is a common format, so an editor may attach `track-lsp` to files that are not track notes (this repo's own README, docs, scratch files elsewhere). The server therefore gates every link feature on note membership: a request is served only when the document is a file with a supported extension (`.md`) located inside `$TRACK_VAULT`, excluding the track-owned `.track/` directory.
+Markdown is a common format, so an editor may attach `track-lsp` to files that are not track notes (this repo's own README, docs, scratch files elsewhere). The server therefore gates every link feature on note membership: a request is served only when the document is a file with a supported extension (`.md`) located inside the configured vault, excluding the track-owned `.track/` directory.
 
 - Notes under `note/` and `journal/` are in scope.
 - Anything outside the vault, or under a hidden directory such as `.track/`, gets an empty result: no document links, definition, references, completion, or code actions. `didSave` does not reindex it either.

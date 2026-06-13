@@ -4,13 +4,13 @@ This document describes the current on-disk data model.
 
 ## Vault
 
-The vault must be configured explicitly. The normal CLI path is the user config file:
+The vault must be configured explicitly. The normal CLI path is the platform user config file:
 
 ```yaml
 vault_dir: ~/track
 ```
 
-The default location is `~/.config/track/config.yml` on XDG-style systems, or the platform user config equivalent. `TRACK_CONFIG` may point at another config file for tests and one-off runs. `TRACK_VAULT` overrides `vault_dir`.
+The default location is `~/.config/track/config.yml` on XDG-style systems, `~/Library/Application Support/track/config.yml` on macOS, or the platform user config equivalent. `TRACK_CONFIG` may point at another config file for tests and one-off runs. `TRACK_VAULT` overrides `vault_dir` only for tests and one-off commands.
 
 track does not fallback to an implicit vault directory because accidentally creating or reading the wrong vault is worse than failing early.
 
@@ -73,7 +73,7 @@ The rebuildable SQLite index is a cache outside the vault. By default it lives u
 <user-cache>/track/<vault-key>/index.db
 ```
 
-`TRACK_CACHE_DIR` overrides the `track` cache directory. The Neovim frontend sets it to:
+`TRACK_CACHE_DIR` overrides the `track` cache directory for tests and one-off runs. The Neovim frontend sets it to:
 
 ```text
 vim.fn.stdpath("cache") .. "/track"
@@ -81,7 +81,7 @@ vim.fn.stdpath("cache") .. "/track"
 
 `TRACK_DB` can still point at an explicit database path for debugging or tests.
 
-The config file can also set `cache_dir`, `db_path`, `extensions`, `date_format`, and `journal_date_format`. Environment values override the matching file values.
+The config file can also set `cache_dir`, `db_path`, `extensions`, `date_format`, and `journal_date_format`. Environment values override the matching file values, but normal user configuration should live in `config.yml`.
 
 ## Note Metadata
 

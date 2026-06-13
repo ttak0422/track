@@ -1,6 +1,6 @@
 ---
 name: track
-description: Use the track CLI when the user asks to create, record, search, rename, or maintain notes, journal entries, Zettelkasten items, or linked Markdown knowledge in a track vault (the vault directory set by $TRACK_VAULT).
+description: Use the track CLI when the user asks to create, record, search, rename, or maintain notes, journal entries, Zettelkasten items, or linked Markdown knowledge in a configured track vault (normally config.yml with vault_dir; TRACK_VAULT is only a test/one-off override).
 ---
 
 # track CLI
@@ -14,7 +14,7 @@ Trigger on requests such as: take a note, record this, start a journal entry, fi
 ## Prerequisites
 
 - `track` binary on `PATH`. (Only when developing track itself, with the source repo as the working directory, `go run ./cmd/track` works as a substitute.)
-- `TRACK_VAULT` set to the vault directory. Without it, commands error.
+- `vault_dir` set in the platform user `config.yml`. `TRACK_VAULT` is only for tests and one-off overrides. Without a configured vault, commands error.
 
 ## Core commands
 

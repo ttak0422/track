@@ -46,13 +46,15 @@ flake.nix                # Go CLI + Vim plugin packaging
 ## CLI
 
 All commands except `version` print a single line of JSON; errors are `{"error":...}` with exit code 1.
-The vault must be set explicitly in `~/.config/track/config.yml`; `$TRACK_VAULT` remains an override for tests and one-off runs.
+The vault must be set explicitly in the platform user config file (`config.yml` under the track config directory). Environment variables are intended for tests and one-off overrides.
 The rebuildable index db defaults to the user cache directory under `track/`.
 The Neovim frontend sets `TRACK_CACHE_DIR` to `vim.fn.stdpath("cache") .. "/track"`.
 
 ```yaml
 vault_dir: ~/track
 ```
+
+Typical config locations are `~/.config/track/config.yml` on XDG-style systems and `~/Library/Application Support/track/config.yml` on macOS.
 
 ```sh
 track new --title <t> [--id <id>] [--template <s>] [--body <s>] [--tag <s>] [--ai]
@@ -113,14 +115,14 @@ It currently provides:
 - `textDocument/rename`: renaming the `[[link]]` under the cursor (or the current note when not on a link) updates the target's sidecar title, records rename history, and returns backlink edits; the target body is not edited.
 - `track/backlinks`: returns notes and link locations that reference the current note.
 
-The server uses UTF-8 positions and reads the same config-file or `$TRACK_VAULT` override as the CLI.
+The server uses UTF-8 positions and reads the same config file as the CLI. `TRACK_VAULT` remains available as a test/one-off override.
 It only acts on track notes: a request is served only for a supported note file (`.md`) inside the vault, excluding `.track/`. Markdown opened elsewhere gets no links, completion, or actions, even if the editor attaches the server to it. The Neovim layer also attaches `track-lsp` only to markdown under the vault; other editor integrations should gate attachment the same way. See [docs/spec/links.md](docs/spec/links.md).
 
 ## Neovim
 
 ```lua
 require("track").setup({
-  -- vault_dir is required unless TRACK_VAULT is already set
+  -- Optional: overrides config.yml for this Neovim setup.
   vault_dir = "/path/to/vault",
 })
 ```
@@ -186,7 +188,7 @@ This repository doubles as a [Claude Code](https://docs.claude.com/en/docs/claud
 /plugin install track@track
 ```
 
-The marketplace manifest is [`.claude-plugin/marketplace.json`](.claude-plugin/marketplace.json) and the plugin lives at [`plugins/track`](plugins/track) (manifest `plugins/track/.claude-plugin/plugin.json`, skill `plugins/track/skills/track/SKILL.md`). After installing, the skill is namespaced as `/track:track`; set `$TRACK_VAULT` so the agent's commands resolve against your vault. The tool-neutral contract the skill points to is [docs/spec/agent-workflows.md](docs/spec/agent-workflows.md).
+The marketplace manifest is [`.claude-plugin/marketplace.json`](.claude-plugin/marketplace.json) and the plugin lives at [`plugins/track`](plugins/track) (manifest `plugins/track/.claude-plugin/plugin.json`, skill `plugins/track/skills/track/SKILL.md`). After installing, the skill is namespaced as `/track:track`; configure `vault_dir` in `config.yml` so the agent's commands resolve against your vault. The tool-neutral contract the skill points to is [docs/spec/agent-workflows.md](docs/spec/agent-workflows.md).
 
 ## Codex skill
 
@@ -206,7 +208,7 @@ codex plugin marketplace add ttak0422/track
 codex plugin add track@track
 ```
 
-Restart Codex or start a new thread after installing. Set `$TRACK_VAULT` so Codex-run `track` commands resolve against your vault.
+Restart Codex or start a new thread after installing. Configure `vault_dir` in `config.yml` so Codex-run `track` commands resolve against your vault.
 
 ## Data safety
 
@@ -228,7 +230,7 @@ nix run .#test-nvim      # launch Neovim with a test vault under /tmp
 
 TRACK_VAULT="$(mktemp -d)" TRACK_CACHE_DIR="$(mktemp -d)" \
   nix run .#test-nvim -- --headless '+luafile scripts/e2e/nvim_action_links.lua'
-                         # run the Neovim action-link E2E used by CI
+                         # run the Neovim action-link E2E used by CI with temporary overrides
 ```
 
 The Nix-built Neovim plugin embeds the store paths of the matching `track` and `track-lsp` binaries, so Nix users do not need to add them to `$PATH` manually.
