@@ -81,7 +81,9 @@ vim.fn.stdpath("cache") .. "/track"
 
 `TRACK_DB` can still point at an explicit database path for debugging or tests.
 
-The config file can also set `cache_dir`, `db_path`, `extensions`, `date_format`, and `journal_date_format`. Environment values override the matching file values, but normal user configuration should live in `config.yml`.
+The config file can also set `cache_dir`, `db_path`, `extensions`, `date_format`, and `journal_date_format`. A `web:` section configures the local web workspace (`web.theme` and `web.colors_path`); see [web.md](web.md). Environment values override the matching file values, but normal user configuration should live in `config.yml`.
+
+The vault path is canonicalized (symlinks resolved, made absolute) before use. A symlinked vault — for example `~/track` pointing at a cloud-synced `~/OneDrive/track` — therefore resolves to one stable path, so the `<vault-key>` cache key stays the same no matter which path the CLI is invoked through.
 
 ## Note Metadata
 
@@ -185,6 +187,8 @@ Column notes:
 During a full reindex, notes missing from the filesystem are removed from the SQLite index.
 Their sidecar metadata files are also removed.
 
+Because a full reindex deletes the sidecars of notes whose markdown is gone, run `track doctor` first when a vault may be only partially synced: it reports orphan sidecars (and other divergence) read-only, so a sync gap is not silently treated as a deletion. See [agent-workflows.md](agent-workflows.md) and ADR 0014.
+
 ## Durability: do not delete `.track/notes/`
 
 The vault and cache hold two very different kinds of data:
@@ -195,4 +199,4 @@ The vault and cache hold two very different kinds of data:
 
 Deleting `.track/notes/` is therefore irrecoverable data loss. Treat it like `.git`: keep it under version control and back it up alongside the note bodies.
 
-track intentionally does **not** provide a metadata "repair" command. Rebuilding a sidecar from the note body alone would silently drop tags and block results while appearing to succeed, which is more dangerous than a clear "restore from backup" rule.
+track does **not** reconstruct lost metadata from the note body, because rebuilding a sidecar from the `.md` alone would silently drop tags and block results while appearing to succeed. The `track doctor --fix` repair is deliberately limited to restoring *structure and identity*, never inventing content: a missing sidecar is recreated with a placeholder `Untitled N` title, an orphan sidecar's markdown is recreated empty, a duplicate title is renumbered, and a stray conflict copy is imported as a new note. It never recovers the original title, tags, or block results — a backup of `.track/notes/` is still the only way to get those back. See ADR 0014 for the health-check and repair model.

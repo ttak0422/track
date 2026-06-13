@@ -10,6 +10,8 @@ This directory contains durable project knowledge that should be committed and s
 - `spec/storage.md`: vault layout, sidecar metadata, and SQLite cache shape.
 - `spec/templates.md`: template file format, substitutions, and creation flows.
 - `spec/links.md`: `[[...]]` link syntax, keyword resolution, and link graph behavior.
+- `spec/export.md`: single-note Markdown export rendering and options.
+- `spec/web.md`: local web workspace HTTP API, save conflict detection, graph scopes, and theme/palette config.
 - `spec/agent-workflows.md`: CLI workflow contract for agents and automation.
 
 ## ADRs
@@ -27,6 +29,7 @@ This directory contains durable project knowledge that should be committed and s
 - `adr/0011-markdown-export-pipeline.md`
 - `adr/0012-drop-alias-keywords.md`
 - `adr/0013-metadata-title-is-authoritative.md`
+- `adr/0014-vault-health-checks-and-repair.md`
 
 ## Not Here
 

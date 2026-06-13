@@ -56,6 +56,8 @@ The graph is note-to-note: a heading anchor refines where navigation lands but d
 `reindex --full` recomputes the complete graph.
 Single-note indexing updates only that note's outgoing links, so callers that need newly created inbound links should run a full reindex.
 
+The graph is exposed two ways over the store: the one-hop *local* graph around a single note (`store.LocalGraph`, `:Track graph`, and the web `Local` view) and the whole-vault *global* graph (`store.FullGraph`, the web `Global` view). See [web.md](web.md) for the web rendering.
+
 ## Scope
 
 Markdown is a common format, so an editor may attach `track-lsp` to files that are not track notes (this repo's own README, docs, scratch files elsewhere). The server therefore gates every link feature on note membership: a request is served only when the document is a file with a supported extension (`.md`) located inside the configured vault, excluding the track-owned `.track/` directory.
