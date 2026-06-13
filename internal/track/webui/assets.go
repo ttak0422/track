@@ -75,7 +75,10 @@ __TRACK_COLOR_OVERRIDES__
     </section>
     <section class="graph-panel" aria-label="Local graph">
       <header class="graph-header">
-        <h3>Local Graph</h3>
+        <div class="graph-title">
+          <h3 id="graph-heading">Local Graph</h3>
+          <button id="graph-scope" class="graph-scope" type="button" aria-pressed="false" title="Toggle local / global graph">Global</button>
+        </div>
         <p id="graph-meta"></p>
       </header>
       <canvas id="graph"></canvas>
@@ -790,6 +793,29 @@ p {
   white-space: nowrap;
 }
 
+.graph-title {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+}
+
+.graph-scope {
+  border: 1px solid var(--line);
+  background: var(--panel-soft);
+  color: var(--muted);
+  border-radius: 999px;
+  padding: 2px 10px;
+  font-size: 12px;
+  cursor: pointer;
+}
+
+.graph-scope[aria-pressed="true"] {
+  color: var(--text);
+  border-color: var(--accent);
+  background: color-mix(in srgb, var(--accent) 16%, transparent);
+}
+
 .graph-reset {
   position: absolute;
   right: 12px;
@@ -903,6 +929,7 @@ const appJS = `(function () {
     selectedID: null,
     activeTags: [],
     graph: null,
+    graphScope: "local",
     nodes: [],
     edges: [],
     graphView: { x: 0, y: 0, scale: 1 },
@@ -932,6 +959,8 @@ const appJS = `(function () {
     backlinks: document.getElementById("backlinks"),
     graphMeta: document.getElementById("graph-meta"),
     graphReset: document.getElementById("graph-reset"),
+    graphScope: document.getElementById("graph-scope"),
+    graphHeading: document.getElementById("graph-heading"),
     canvas: document.getElementById("graph"),
     menuButton: document.getElementById("menu-button"),
     menuPanel: document.getElementById("menu-panel"),
@@ -1114,7 +1143,8 @@ const appJS = `(function () {
     }
     el.body.innerHTML = body;
     el.backlinks.innerHTML = '<div class="empty">No backlinks</div>';
-    setGraph({ nodes: [], edges: [] });
+    // No note is selected; the local graph is empty, but a global graph still renders the whole vault.
+    loadGraph();
   }
 
   function goHome(mode) {
@@ -1140,14 +1170,9 @@ const appJS = `(function () {
       insertNoteTags(note.tags || []);
       renderBacklinks(data.backlinks || []);
       updateHistory(note, opts.history || "push");
-      // TODO(track): a whole-vault graph is available at GET /api/graph (store.FullGraph). Wiring a
-      // local/full toggle needs UI decisions first: where the toggle lives, and how the canvas layout
-      // and node-count thinning behave when the full graph is large. Keep the per-note local graph here
-      // until that is designed.
-      return api("/api/graph/local?id=" + encodeURIComponent(id));
-    }).then(function (data) {
-      setGraph(data.graph || { nodes: [], edges: [] });
     }).catch(showError);
+    // The graph follows the current scope: the local graph around this note, or the whole vault.
+    loadGraph();
   }
 
   function insertNoteTags(tags) {
@@ -1499,14 +1524,46 @@ const appJS = `(function () {
       });
     });
     var byID = {};
-    state.nodes.forEach(function (node) { byID[node.note_id] = node; });
+    state.nodes.forEach(function (node) { byID[node.note_id] = node; node.degree = 0; });
     state.edges = (graph.edges || []).map(function (edge) {
       return { source: byID[edge.source_id], target: byID[edge.target_id] };
     }).filter(function (edge) { return edge.source && edge.target; });
+    // Degree drives node size and label thinning (Obsidian-style): hubs stay big and labeled even when
+    // the whole-vault graph is zoomed out.
+    state.edges.forEach(function (edge) { edge.source.degree++; edge.target.degree++; });
     resizeCanvas();
     state.graphView = fitGraphView();
     el.graphMeta.textContent = state.nodes.length + " nodes / " + state.edges.length + " links";
     startGraph();
+  }
+
+  function loadGraph() {
+    if (state.graphScope === "global") {
+      api("/api/graph").then(function (data) {
+        setGraph(data.graph || { nodes: [], edges: [] });
+      }).catch(showError);
+      return;
+    }
+    if (state.selectedID == null) {
+      setGraph({ nodes: [], edges: [] });
+      return;
+    }
+    api("/api/graph/local?id=" + encodeURIComponent(state.selectedID)).then(function (data) {
+      setGraph(data.graph || { nodes: [], edges: [] });
+    }).catch(showError);
+  }
+
+  function syncGraphScopeUI() {
+    var global = state.graphScope === "global";
+    el.graphScope.setAttribute("aria-pressed", global ? "true" : "false");
+    el.graphScope.textContent = global ? "Local" : "Global";
+    el.graphHeading.textContent = global ? "Global Graph" : "Local Graph";
+  }
+
+  function toggleGraphScope() {
+    state.graphScope = state.graphScope === "global" ? "local" : "global";
+    syncGraphScopeUI();
+    loadGraph();
   }
 
   function visibleNodes() {
@@ -1522,6 +1579,9 @@ const appJS = `(function () {
       return;
     }
     var ticks = 0;
+    // TODO(track): stepGraph is O(n^2) per frame and the loop never cools down. Labels are already
+    // thinned for large global graphs, but the simulation itself needs a Barnes-Hut quadtree and/or a
+    // cooling/stop heuristic before very large vaults render smoothly.
     function frame() {
       stepGraph();
       drawGraph();
@@ -1642,18 +1702,25 @@ const appJS = `(function () {
       ctx.stroke();
     });
     ctx.globalAlpha = 0.9;
+    // Label thinning: when zoomed out (e.g. a large global graph fit to view), only the center and
+    // high-degree hubs keep their labels so the canvas stays legible. Zooming in reveals the rest.
+    var showLabels = state.graphView.scale >= 0.4;
     visibleNodes().forEach(function (node) {
-      var radius = node.center ? 10 * ratio / state.graphView.scale : 7 * ratio / state.graphView.scale;
+      var deg = node.degree || 0;
+      var base = node.center ? 10 : 6;
+      var radius = (base + Math.min(8, Math.sqrt(deg) * 2)) * ratio / state.graphView.scale;
       ctx.beginPath();
       ctx.arc(node.x, node.y, radius, 0, Math.PI * 2);
       ctx.fillStyle = node.center ? css("--accent") : (node.generated_by_ai ? css("--generated") : css("--panel-soft"));
       ctx.strokeStyle = node.center ? css("--accent-strong") : css("--muted");
       ctx.fill();
       ctx.stroke();
-      ctx.globalAlpha = node.center ? 0.95 : 0.78;
-      ctx.fillStyle = css("--text");
-      ctx.fillText(trim(node.title || "#" + node.note_id, 20), node.x + radius + 5, node.y + 4 * ratio / state.graphView.scale);
-      ctx.globalAlpha = 0.9;
+      if (showLabels || node.center || deg >= 5) {
+        ctx.globalAlpha = node.center ? 0.95 : 0.78;
+        ctx.fillStyle = css("--text");
+        ctx.fillText(trim(node.title || "#" + node.note_id, 20), node.x + radius + 5, node.y + 4 * ratio / state.graphView.scale);
+        ctx.globalAlpha = 0.9;
+      }
     });
     ctx.restore();
   }
@@ -1951,6 +2018,7 @@ const appJS = `(function () {
     }, 170);
   });
   el.graphReset.addEventListener("click", resetGraphView);
+  el.graphScope.addEventListener("click", toggleGraphScope);
 
   applySidebar(storedSidebarCollapsed());
   applyTheme(themeMode());
