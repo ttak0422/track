@@ -31,6 +31,8 @@ func Run(args []string) int {
 		return 0
 	case "reindex":
 		return cmdReindex(rest)
+	case "doctor":
+		return cmdDoctor(rest)
 	case "new":
 		return cmdNew(rest)
 	case "open":
@@ -85,6 +87,7 @@ Usage:
   track journal [--offset <n>] [--template <s>] [--body <s>] [--ai]
                                         open/create a daily note
   track reindex [--full]                rebuild the index
+  track doctor                          report vault/sidecar divergence without changing files (JSON)
   track keywords                        dump the auto-link dictionary (JSON)
   track resolve --term <s>              resolve a keyword to a note (JSON)
   track search --query <s> [--scope all|title|body] [--limit N]

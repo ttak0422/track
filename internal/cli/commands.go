@@ -13,6 +13,7 @@ import (
 	"unicode/utf8"
 
 	"github.com/ttak0422/track/internal/track/config"
+	"github.com/ttak0422/track/internal/track/doctor"
 	"github.com/ttak0422/track/internal/track/index"
 	"github.com/ttak0422/track/internal/track/link"
 	"github.com/ttak0422/track/internal/track/note"
@@ -51,6 +52,29 @@ func cmdReindex(args []string) int {
 		"deleted": rep.Deleted,
 		"links":   rep.Links,
 		"took_ms": time.Since(start).Milliseconds(),
+	})
+}
+
+// cmdDoctor reports vault/sidecar divergence (missing or orphan sidecars, stray conflict copies,
+// duplicate titles) without touching any file. Finding issues is not an error, so it still exits 0;
+// callers branch on the issues array, reserving the {"error":...}/exit 1 contract for real failures.
+func cmdDoctor(args []string) int {
+	fs := flag.NewFlagSet("doctor", flag.ContinueOnError)
+	if err := fs.Parse(args); err != nil {
+		return fail("parse args: %v", err)
+	}
+	cfg, err := config.Load()
+	if err != nil {
+		return fail("%v", err)
+	}
+	rep, err := doctor.Diagnose(cfg)
+	if err != nil {
+		return fail("doctor: %v", err)
+	}
+	return emit(map[string]any{
+		"scanned": rep.Scanned,
+		"issues":  rep.Issues,
+		"ok":      len(rep.Issues) == 0,
 	})
 }
 

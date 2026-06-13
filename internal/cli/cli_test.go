@@ -961,3 +961,31 @@ func TestRenameNoOp(t *testing.T) {
 		t.Fatalf("unexpected no-op output: %v", out)
 	}
 }
+
+func TestDoctorReportsOrphanSidecar(t *testing.T) {
+	vault := t.TempDir()
+	// A clean note plus an orphan sidecar (its markdown was removed by a sync gap).
+	if _, code := runIn(t, vault, "new", "--title", "Alpha", "--id", "100"); code != 0 {
+		t.Fatalf("new failed")
+	}
+	orphan := filepath.Join(vault, ".track", "notes", "999.yaml")
+	if err := os.WriteFile(orphan, []byte("version: 1\ntitle: Gone\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	out, code := runIn(t, vault, "doctor")
+	if code != 0 {
+		t.Fatalf("doctor exit = %d, want 0 (issues are not errors): %v", code, out)
+	}
+	if out["ok"] != false {
+		t.Fatalf("ok = %v, want false", out["ok"])
+	}
+	issues, _ := out["issues"].([]any)
+	if len(issues) != 1 {
+		t.Fatalf("issues = %v, want one orphan_sidecar", out["issues"])
+	}
+	first, _ := issues[0].(map[string]any)
+	if first["kind"] != "orphan_sidecar" || first["id"].(float64) != 999 {
+		t.Fatalf("unexpected issue: %v", first)
+	}
+}
