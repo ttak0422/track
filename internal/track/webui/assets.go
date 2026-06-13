@@ -595,14 +595,44 @@ p {
 .note-body h3 { font-size: 17px; }
 .note-body p { margin: 10px 0; color: var(--text); font-size: 15px; }
 .note-body pre {
+  position: relative;
   overflow: auto;
   border: 1px solid var(--line);
   border-radius: 6px;
   padding: 12px;
   background: var(--panel-soft);
 }
+.note-body pre[data-language] {
+  padding-top: 30px;
+}
+.note-body pre[data-language]::before {
+  content: attr(data-language);
+  position: absolute;
+  top: 7px;
+  right: 10px;
+  color: var(--muted);
+  font-size: 11px;
+  line-height: 1;
+}
 .note-body code {
   font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+}
+.task-list {
+  margin: 10px 0;
+  padding-left: 0;
+  list-style: none;
+}
+.task-list-item {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  margin: 6px 0;
+  color: var(--text);
+  font-size: 15px;
+}
+.task-list-item input {
+  flex: 0 0 auto;
+  margin-top: 5px;
 }
 
 .home-list {
@@ -667,11 +697,24 @@ p {
 .note-preview-body h3 { font-size: 14px; }
 .note-preview-body p { margin: 7px 0; color: var(--text); font-size: 13px; }
 .note-preview-body pre {
+  position: relative;
   overflow: auto;
   border: 1px solid var(--line);
   border-radius: 6px;
   padding: 10px;
   background: var(--panel-soft);
+}
+.note-preview-body pre[data-language] {
+  padding-top: 24px;
+}
+.note-preview-body pre[data-language]::before {
+  content: attr(data-language);
+  position: absolute;
+  top: 6px;
+  right: 8px;
+  color: var(--muted);
+  font-size: 10px;
+  line-height: 1;
 }
 
 .wiki-link {
@@ -1180,6 +1223,7 @@ const appJS = `(function () {
     var lines = markdown.split("\n");
     var html = [];
     var inCode = false;
+    var inTasks = false;
     var para = [];
     function flushPara() {
       if (para.length) {
@@ -1187,14 +1231,26 @@ const appJS = `(function () {
         para = [];
       }
     }
+    function flushTasks() {
+      if (inTasks) {
+        html.push("</ul>");
+        inTasks = false;
+      }
+    }
     lines.forEach(function (line) {
-      if (line.indexOf(String.fromCharCode(96, 96, 96)) === 0) {
+      var fencePrefix = String.fromCharCode(96, 96, 96);
+      if (line.indexOf(fencePrefix) === 0) {
         if (inCode) {
           html.push("</code></pre>");
           inCode = false;
         } else {
           flushPara();
-          html.push("<pre><code>");
+          flushTasks();
+          var fence = line.slice(fencePrefix.length).trim().match(/^([A-Za-z0-9_+.-]*)/);
+          var language = fence[1] || "";
+          var languageAttr = language ? ' data-language="' + escapeHTML(language) + '"' : "";
+          var classAttr = language ? ' class="language-' + escapeHTML(language.replace(/[^\w+.-]/g, "")) + '"' : "";
+          html.push("<pre" + languageAttr + "><code" + classAttr + ">");
           inCode = true;
         }
         return;
@@ -1205,17 +1261,32 @@ const appJS = `(function () {
       }
       if (line.trim() === "") {
         flushPara();
+        flushTasks();
         return;
       }
       var h = line.match(/^(#{1,3})\s+(.*)$/);
       if (h) {
         flushPara();
+        flushTasks();
         html.push("<h" + h[1].length + ">" + inline(h[2]) + "</h" + h[1].length + ">");
         return;
       }
+      var task = line.match(/^\s*[-*]\s+\[([ xX])\]\s+(.*)$/);
+      if (task) {
+        flushPara();
+        if (!inTasks) {
+          html.push('<ul class="task-list">');
+          inTasks = true;
+        }
+        var checked = task[1].toLowerCase() === "x" ? " checked" : "";
+        html.push('<li class="task-list-item"><input type="checkbox" disabled' + checked + ">" + '<span>' + inline(task[2]) + "</span></li>");
+        return;
+      }
+      flushTasks();
       para.push(line.trim());
     });
     flushPara();
+    flushTasks();
     if (inCode) {
       html.push("</code></pre>");
     }
