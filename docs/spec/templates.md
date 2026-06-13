@@ -48,9 +48,9 @@ No executable substitutions are implemented yet. Template syntax such as shell c
 
 ## Rendering Rules
 
-Rendering requires the rendered body to contain an H1 title.
+The rendered body is saved as note content. It may contain any headings or no headings.
 
-For regular notes, the first rendered H1 must equal the requested note title. For journals, the first rendered H1 must equal the journal name. If this check fails, creation fails and no note body is written.
+The target title is written to sidecar metadata, not inferred from the rendered body.
 
 Generated notes get a trailing newline if the rendered template omitted one.
 

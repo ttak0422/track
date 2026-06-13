@@ -20,7 +20,7 @@ The LSP surface is:
 
 - `textDocument/documentLink` returns ranges for resolved `[[...]]` links (see ADR 0008).
 - `textDocument/definition` jumps from a link to the target note.
-- `textDocument/completion` offers titles and aliases inside an open `[[`, triggered on `[`.
+- `textDocument/completion` offers titles inside an open `[[`, triggered on `[`.
 - `textDocument/didOpen` and `textDocument/didChange` keep unsaved buffer text available for link detection.
 - `textDocument/didSave` reindexes the saved note's outgoing links.
 

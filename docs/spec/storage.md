@@ -101,7 +101,7 @@ created: 2026-05-24
 Fields:
 
 - `version`: metadata schema version. Required for new writes.
-- `title`: note title and the link keyword. This mirrors the first H1 heading in the markdown body when one exists.
+- `title`: note title and the link keyword. This sidecar field is authoritative.
 - `tags`: note tags.
 - `created`: creation date string. The current format is `YYYY-MM-DD`.
 
@@ -110,8 +110,7 @@ The tag `generated-by-ai` is reserved as a provenance marker for notes whose ini
 Readers reject unsupported metadata versions.
 If a sidecar is missing, the current parser can still read the legacy trailing `<!--track ... -->` metadata block for compatibility, but new writes must use sidecar metadata.
 
-The markdown body is authoritative for fields it can express.
-If the first H1 heading and `metadata.title` disagree, parsing or reindexing updates the sidecar title from the body while preserving fields that cannot currently be derived from the body, such as tags and created date.
+The markdown body is plain content. It may be empty or contain any headings, including a leading H1. Parsing and reindexing never derive or reconcile the title from the body; title changes must go through create/open/journal/append metadata writes, `track rename`, or LSP rename.
 
 Title changes are also recorded in `.track/renames.yaml` as repair history. Rename history is not a link keyword source: an old title remains available for a new note, and `[[old title]]` does not resolve through the history. LSP code actions may use the history only when an old title is unresolved, offering to rewrite the link to the newest recorded title.
 
@@ -164,7 +163,7 @@ Column notes:
 
 - `notes.id`: numeric note id. Regular notes use time-derived second buckets plus a sequence; journal notes use `yyyyMMdd`.
 - `notes.kind`: file kind used with `id` to derive the path. Current values are `note` and `journal` for indexed notes; `template` is reserved for template files.
-- `notes.title`: cached title used as the primary keyword. It mirrors the first H1 heading when available.
+- `notes.title`: cached sidecar title used as the primary keyword.
 - `notes.created`: cached metadata creation date string.
 - `notes.mtime`: note file modification time as a Unix timestamp. It is kept for future change detection and incremental reindexing.
 - `tags.note_id`: metadata rows attached to a note. They are replaced on note upsert.
@@ -180,10 +179,10 @@ Their sidecar metadata files are also removed.
 
 The vault and cache hold two very different kinds of data:
 
-- `.track/notes/<id>.yaml` are the **authoritative** per-note metadata sidecars. The markdown body only owns the fields it can express (the first H1 owns the title); `tags`, `created`, and Babel block results live *only* in the sidecar and cannot be reconstructed from the `.md` file.
+- `.track/notes/<id>.yaml` are the **authoritative** per-note metadata sidecars. The markdown body is content only; `title`, `tags`, `created`, and Babel block results live in the sidecar and cannot be reconstructed from the `.md` file.
 - `.track/renames.yaml` is repair history for manual title edits. It can improve unresolved-link quickfixes, but it is not used for normal link resolution.
 - The SQLite index under the cache directory is **rebuildable**. The notes on disk are the source of truth; `track reindex --full` deletes the cache database and regenerates it from them. Deleting it is safe.
 
-Deleting `.track/notes/` is therefore irrecoverable data loss for everything except note titles. Treat it like `.git`: keep it under version control and back it up alongside the note bodies.
+Deleting `.track/notes/` is therefore irrecoverable data loss. Treat it like `.git`: keep it under version control and back it up alongside the note bodies.
 
 track intentionally does **not** provide a metadata "repair" command. Rebuilding a sidecar from the note body alone would silently drop tags and block results while appearing to succeed, which is more dangerous than a clear "restore from backup" rule.

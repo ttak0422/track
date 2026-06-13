@@ -28,7 +28,7 @@ Element handling:
 - **Babel blocks follow `:exports`** (`code` default, plus `results`, `both`, `none`). track-specific header arguments (`:name`, `:results`, `:visible-lines`, `:session`, …) are stripped to a plain language-tagged fence. Results are pulled from sidecar v2 `last_run`. `:visible-lines` is an editor-only hint, so export emits the full body.
 - **Legacy footmatter → removed.**
 - **Metadata → off by default.** `--frontmatter` prepends a YAML block.
-- **The h1 title line is kept**, since the body h1 is the authoritative title (ADR 0006).
+- **Headings pass through unchanged.** Body H1 headings are content; frontmatter title, when requested, comes from sidecar metadata (ADR 0013).
 
 Engine code lives in `internal/track/export`; `track export` is a thin CLI command over it.
 

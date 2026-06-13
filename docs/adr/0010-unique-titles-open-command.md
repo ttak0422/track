@@ -6,7 +6,7 @@ Accepted
 
 ## Context
 
-A note's title is also a link keyword: `[[title]]` resolves against titles by exact match, and ambiguous terms fall back to the first note by id (`store.ResolveTerm` uses `LIMIT 1`). If two notes share a title, every `[[title]]` silently points at only one of them and the other becomes unreachable by name.
+A note's sidecar metadata title is also a link keyword: `[[title]]` resolves against titles by exact match, and ambiguous terms fall back to the first note by id (`store.ResolveTerm` uses `LIMIT 1`). If two notes share a title, every `[[title]]` silently points at only one of them and the other becomes unreachable by name.
 
 The original creation path did not enforce this. `track new` only guarded against an existing *file id*, not an existing *title*, and the Neovim frontend created notes with `new --title <t> --id <os.time()>`. Triggering creation twice for the same title (e.g. from the word under the cursor) minted a second note with a duplicate title. The LSP `track.createNote` command already refused duplicate titles, so the two creation paths disagreed.
 
@@ -22,6 +22,6 @@ Titles are unique, and creation enforces it at every entry point.
 
 ## Consequences
 
-Titles stay unique by construction, so `[[title]]` resolution is unambiguous and no note is shadowed by a namesake. The common editor gesture — "make a note for this word" — becomes safely repeatable: the second invocation opens the first note.
+Sidecar titles stay unique by construction, so `[[title]]` resolution is unambiguous and no note is shadowed by a namesake. The common editor gesture — "make a note for this word" — becomes safely repeatable: the second invocation opens the first note.
 
 `open` resolves against the index, so a note that exists on disk but is not yet indexed could still be missed and duplicated; this matches the existing keyword-resolution model and is the price of an O(1) lookup. `new` remains for callers that want an explicit id or an error on collision (scripts, tests), while `open` is the default interactive path. Uniqueness is enforced on titles; this ADR does not add a separate uniqueness constraint for ids, which `createTitledNote` still guards by refusing to overwrite an existing file.

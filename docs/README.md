@@ -10,6 +10,7 @@ This directory contains durable project knowledge that should be committed and s
 - `spec/storage.md`: vault layout, sidecar metadata, and SQLite cache shape.
 - `spec/templates.md`: template file format, substitutions, and creation flows.
 - `spec/links.md`: `[[...]]` link syntax, keyword resolution, and link graph behavior.
+- `spec/agent-workflows.md`: CLI workflow contract for agents and automation.
 
 ## ADRs
 
@@ -21,6 +22,11 @@ This directory contains durable project knowledge that should be committed and s
 - `adr/0006-body-title-is-authoritative.md`
 - `adr/0007-go-lsp-for-editor-navigation.md`
 - `adr/0008-explicit-wiki-links.md`
+- `adr/0009-heading-anchor-links.md`
+- `adr/0010-unique-titles-open-command.md`
+- `adr/0011-markdown-export-pipeline.md`
+- `adr/0012-drop-alias-keywords.md`
+- `adr/0013-metadata-title-is-authoritative.md`
 
 ## Not Here
 

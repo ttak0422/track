@@ -12,7 +12,7 @@ The engine lives in reusable `internal/track/*` packages so a future LSP server 
 ## Concepts
 
 - **Notes** are markdown files named `note/{id}.md` in a vault directory. Regular note ids are sortable time-derived ids: `Unix seconds * 1000 + same-second sequence`.
-- **Metadata**: note metadata is stored outside the markdown file, under `.track/notes/{id}.yaml`. The file is versioned so future metadata shape changes can be handled explicitly:
+- **Metadata**: note metadata is stored outside the markdown file, under `.track/notes/{id}.yaml`. The sidecar `title` is the authoritative note title and link keyword; body H1 headings are ordinary Markdown content. The file is versioned so future metadata shape changes can be handled explicitly:
 
   ```markdown
   # リンク
@@ -50,11 +50,15 @@ The vault must be set explicitly with `$TRACK_VAULT`; the rebuildable index db d
 The Neovim frontend sets `TRACK_CACHE_DIR` to `vim.fn.stdpath("cache") .. "/track"`.
 
 ```sh
-track new --title <t> [--id <id>] [--template <s>]
-                                      # create a note (fails if the title exists)
-track open --title <t> [--template <s>]
+track new --title <t> [--id <id>] [--template <s>] [--body <s>] [--tag <s>] [--ai]
+                                      # create a note (fails if the title exists); body is saved verbatim
+track open --title <t> [--template <s>] [--body <s>] [--tag <s>] [--ai]
                                       # open the note with this title, creating it if absent
-track journal [--offset <n>] [--template <s>]
+track append (--id N | --title S | --path P) [--body <s>] [--tag <s>] [--ai]
+                                      # append body text and/or merge tags
+track rename (--id N | --title S | --path P) --to S
+                                      # rename a sidecar title and rewrite backlinks
+track journal [--offset <n>] [--template <s>] [--body <s>] [--ai]
                                       # open/create a daily note (0=today)
 track reindex [--full]                # rebuild the index
 track keywords                        # dump the link keyword dictionary
@@ -72,6 +76,8 @@ track babel exec (--id N | --path P) [--name S|--ordinal N] [--yes]
                                       # run a fenced source block (see docs/spec/babel.md)
 track babel restore (--id N | --path P)
                                       # list stored source block results
+track export (--id N | --title S | --path P) [--out F] [--frontmatter]
+                                      # render a note as Markdown
 track dump                            # placeholder state
 track version                         # print the version
 ```
@@ -99,7 +105,7 @@ It currently provides:
 - `textDocument/references`: lists backlinks to the current note or the link target under the cursor.
 - `textDocument/completion`: offers titles inside an open `[[` — with each matching note's headings offered alongside it as full `note##heading` anchors — plus narrowed heading candidates after a `[[note#` anchor (more `#` selects a deeper heading level), Markdown action link candidates inside `[label](<...>)`, and Babel fence info-string candidates.
 - `textDocument/codeAction`: creates a note from an unresolved `[[...]]` link.
-- `textDocument/rename`: renaming the `[[link]]` under the cursor (or the current note's H1) rewrites the target's H1 and every backlink to it in one workspace edit; the title-rename history is recorded on save.
+- `textDocument/rename`: renaming the `[[link]]` under the cursor (or the current note when not on a link) updates the target's sidecar title, records rename history, and returns backlink edits; the target body is not edited.
 - `track/backlinks`: returns notes and link locations that reference the current note.
 
 The server uses UTF-8 positions and reads the same `$TRACK_VAULT` configuration as the CLI.
@@ -161,7 +167,7 @@ Babel fence info strings are completed over the same LSP source. On an opening f
 
 ## Data safety
 
-Note bodies are plain `.md` files, but their metadata (tags, created date, Babel results) lives in sidecar files under `.track/notes/`. Manual title rename history lives in `.track/renames.yaml` for unresolved-link repair suggestions.
+Note bodies are plain `.md` files, but their metadata (title, tags, created date, Babel results) lives in sidecar files under `.track/notes/`. Manual title rename history lives in `.track/renames.yaml` for unresolved-link repair suggestions.
 The `.track/` directory is **authoritative** and cannot be fully rebuilt from the note bodies, so back it up and keep it in version control, just as you would `.git`.
 The SQLite index is a disposable cache outside the vault. `track reindex --full` deletes the cache database and rebuilds it from note files and sidecar metadata.
 See [docs/spec/storage.md](docs/spec/storage.md) for details.

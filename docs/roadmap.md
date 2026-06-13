@@ -89,7 +89,7 @@ For each item, answer:
 | Links | Heading/block links | Done | Shipped heading anchors: `[[note#foo]]`/`[[note##bar]]` where the `#` count is the Markdown heading level; first matching heading wins (ADR 0009). Definition jumps to the heading and completion offers headings after `#`. Block-level anchors (Obsidian `#^`) remain out of scope. |
 | Links | URI and attachment links | TBD | Decide whether to delegate to `gx`/`vim.ui.open` or integrate into LSP definition. |
 | Links | Configurable link style/format | TBD | Needed if supporting path-based links or Obsidian compatibility. |
-| Refactor | Rename note and update links | Done | Shipped: LSP `textDocument/rename` on a `[[link]]` or the note's H1 rewrites the target's H1 and every backlink (key only, preserving display text and anchors) via one workspace edit; rename history is recorded on save. |
+| Refactor | Rename note and update links | Done | Shipped: `track rename` and LSP `textDocument/rename` update the sidecar title, record rename history, and rewrite backlink keys while preserving display text and anchors. |
 | Refactor | React to file rename and update references | TBD | LSP workspace file-operation support or Neovim autocmd integration. |
 | Visual actions | Link selection to existing note | Reject | Prototyped as an LSP code action (plain-text mention -> `[[...]]`) then reverted. Auto/semi-auto linking of body text has high false-positive and visual-noise cost with no clean "do not link" decision; Hatena Keyword's auto-link was itself retired. Explicit `[[...]]` only. |
 | Visual actions | Create note from selection and link it | TBD | Similar to current unresolved-link create, but range-based. |
@@ -106,7 +106,7 @@ For each item, answer:
 | Help | In-plugin help/search | TBD | Lower priority. README/docs may be enough for now. |
 | Smart action | Context-aware `<CR>` action | TBD | Current `<CR>` follows links only. Decide whether to include checkboxes/tags/headings. |
 | LSP | Hover | TBD | Could show target note title/path/backlink count or unresolved create hint. |
-| LSP | Diagnostics | Done | Shipped: unresolved-link diagnostics (Severity Warning) reusing documentLinks resolution, with the Lua unresolved highlight removed in favor of them; h1-title diagnostics already existed. Duplicate titles (prevented at creation) and stale metadata (auto-reconciled) are out of scope. |
+| LSP | Diagnostics | Done | Shipped: unresolved-link diagnostics (Severity Warning) reusing documentLinks resolution, with the Lua unresolved highlight removed in favor of them. H1 placement is ordinary Markdown content and not diagnosed. Duplicate titles are prevented at creation. |
 | LSP | Code action resolve | TBD | Only needed if actions become expensive to compute. |
 | LSP | Document highlight | TBD | Highlight same link target or references in current buffer. |
 | LSP | Folding range | TBD | Mostly Markdown heading support; may defer to Treesitter. |

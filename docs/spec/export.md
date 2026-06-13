@@ -26,7 +26,7 @@ The output format is produced by a `Renderer`. The first and only renderer is Ma
 
 ### Headings
 
-ATX headings pass through unchanged. The first h1 is the note title and is kept, since the body h1 is authoritative ([ADR 0006](../adr/0006-body-title-is-authoritative.md)).
+ATX headings pass through unchanged. Body headings are content; the exported title, when requested as frontmatter, comes from sidecar metadata.
 
 ### Wiki links
 
