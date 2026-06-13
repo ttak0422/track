@@ -14,7 +14,9 @@ import (
 
 	"github.com/ttak0422/track/internal/track/config"
 	"github.com/ttak0422/track/internal/track/index"
+	"github.com/ttak0422/track/internal/track/link"
 	"github.com/ttak0422/track/internal/track/note"
+	trackrename "github.com/ttak0422/track/internal/track/rename"
 	"github.com/ttak0422/track/internal/track/store"
 	"github.com/ttak0422/track/internal/track/webui"
 )
@@ -54,10 +56,10 @@ func cmdReindex(args []string) int {
 
 func cmdNew(args []string) int {
 	fs := flag.NewFlagSet("new", flag.ContinueOnError)
-	title := fs.String("title", "", "note title (also a link keyword)")
+	title := fs.String("title", "", "note title stored in metadata and used as a link keyword")
 	id := fs.Int64("id", 0, "note id; defaults to current Unix second * 1000 plus a same-second sequence")
 	template := fs.String("template", "", "template name or path")
-	bodyFlag := fs.String("body", "", "note body placed under the title; read from stdin when omitted and piped")
+	bodyFlag := fs.String("body", "", "note body; read from stdin when omitted and piped")
 	var tags tagsFlag
 	fs.Var(&tags, "tag", "tag to attach (repeatable, comma-separated)")
 	ai := fs.Bool("ai", false, "attach the reserved generated-by-ai tag")
@@ -75,9 +77,6 @@ func cmdNew(args []string) int {
 	}
 	if strings.TrimSpace(*template) != "" && strings.TrimSpace(body) != "" {
 		return fail("--body cannot be combined with --template")
-	}
-	if h1 := note.FirstH1Title(body); h1 != "" {
-		return fail("--body must not contain an H1 heading; the title line is added automatically")
 	}
 
 	cfg, s, err := open()
@@ -115,7 +114,7 @@ func cmdNew(args []string) int {
 // "created" so callers can decide whether a reindex (to pick up new inbound links) is needed.
 func cmdOpen(args []string) int {
 	fs := flag.NewFlagSet("open", flag.ContinueOnError)
-	title := fs.String("title", "", "note title to open, or create when absent")
+	title := fs.String("title", "", "note title to open, or create when absent (JSON)")
 	template := fs.String("template", "", "template name or path used when creating")
 	bodyFlag := fs.String("body", "", "body used when creating; read from stdin when omitted and piped")
 	var tags tagsFlag
@@ -137,9 +136,6 @@ func cmdOpen(args []string) int {
 	hasContent := strings.TrimSpace(body) != "" || len(noteTags) > 0
 	if strings.TrimSpace(*template) != "" && strings.TrimSpace(body) != "" {
 		return fail("--body cannot be combined with --template")
-	}
-	if h1 := note.FirstH1Title(body); h1 != "" {
-		return fail("--body must not contain an H1 heading; the title line is added automatically")
 	}
 
 	cfg, s, err := open()
@@ -175,7 +171,7 @@ func cmdOpen(args []string) int {
 
 // createTitledNote writes a new note titled `title` at `noteID`, indexes it, and returns its summary.
 // It guards against clobbering an existing file so an explicit id collision surfaces as an error.
-// extraBody, when non-empty, is placed under the auto-generated title line; it is mutually exclusive
+// extraBody is written as the note body without injecting a title heading; it is mutually exclusive
 // with template (callers enforce that). tags are stored on the sidecar metadata.
 func createTitledNote(cfg *config.Config, s *store.Store, noteID int64, title string, template string, extraBody string, tags []string) (map[string]any, error) {
 	path := cfg.NotePath(noteID)
@@ -185,21 +181,15 @@ func createTitledNote(cfg *config.Config, s *store.Store, noteID int64, title st
 	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
 		return nil, fmt.Errorf("create note dir: %v", err)
 	}
-	body := "# " + title + "\n"
+	body := ""
 	if strings.TrimSpace(template) != "" {
 		rendered, err := renderTemplate(cfg, template, title, noteID, config.KindNote, time.Now())
 		if err != nil {
 			return nil, fmt.Errorf("render template: %v", err)
 		}
-		if h1 := note.FirstH1Title(rendered); h1 != title {
-			return nil, fmt.Errorf("rendered template title %q does not match note title %q", h1, title)
-		}
-		body = rendered
-		if !strings.HasSuffix(body, "\n") {
-			body += "\n"
-		}
+		body = ensureTrailingNewline(rendered)
 	} else if strings.TrimSpace(extraBody) != "" {
-		body = "# " + title + "\n\n" + strings.TrimRight(extraBody, "\n") + "\n"
+		body = ensureTrailingNewline(extraBody)
 	}
 	if err := os.WriteFile(path, []byte(body), 0o644); err != nil {
 		return nil, fmt.Errorf("write note: %v", err)
@@ -233,9 +223,6 @@ func cmdJournal(args []string) int {
 	if strings.TrimSpace(*template) != "" && strings.TrimSpace(body) != "" {
 		return fail("--body cannot be combined with --template")
 	}
-	if h1 := note.FirstH1Title(body); h1 != "" {
-		return fail("--body must not contain an H1 heading; the title line is added automatically")
-	}
 
 	cfg, s, err := open()
 	if err != nil {
@@ -257,21 +244,15 @@ func cmdJournal(args []string) int {
 		if err := os.MkdirAll(cfg.JournalDir(), 0o755); err != nil {
 			return fail("create vault dir: %v", err)
 		}
-		jbody := "# " + name + "\n"
+		jbody := ""
 		if strings.TrimSpace(*template) != "" {
 			rendered, err := renderTemplate(cfg, *template, name, noteID, config.KindJournal, day)
 			if err != nil {
 				return fail("render template: %v", err)
 			}
-			if h1 := note.FirstH1Title(rendered); h1 != name {
-				return fail("rendered template title %q does not match journal title %q", h1, name)
-			}
-			jbody = rendered
-			if !strings.HasSuffix(jbody, "\n") {
-				jbody += "\n"
-			}
+			jbody = ensureTrailingNewline(rendered)
 		} else if strings.TrimSpace(body) != "" {
-			jbody = "# " + name + "\n\n" + strings.TrimRight(body, "\n") + "\n"
+			jbody = ensureTrailingNewline(body)
 		}
 		if err := os.WriteFile(path, []byte(jbody), 0o644); err != nil {
 			return fail("write journal: %v", err)
@@ -352,8 +333,7 @@ func cmdAppend(args []string) int {
 		if !found {
 			// A note without a sidecar is unusual, but reconstruct enough to keep the schema valid
 			// rather than failing the append outright.
-			raw, _ := os.ReadFile(notePath)
-			meta = note.Metadata{Title: note.FirstH1Title(string(raw)), Created: time.Now().Format(cfg.DateFormat)}
+			meta = note.Metadata{Created: time.Now().Format(cfg.DateFormat)}
 		}
 		meta.Tags = dedupTags(append(meta.Tags, addTags...))
 		if err := note.WriteMetadata(cfg.MetadataPath(noteID), meta); err != nil {
@@ -365,6 +345,86 @@ func cmdAppend(args []string) int {
 		return fail("index note: %v", err)
 	}
 	return emit(map[string]any{"id": noteID, "path": notePath})
+}
+
+func cmdRename(args []string) int {
+	fs := flag.NewFlagSet("rename", flag.ContinueOnError)
+	id := fs.Int64("id", 0, "note id")
+	title := fs.String("title", "", "note title (alternative to --id)")
+	path := fs.String("path", "", "note path (alternative to --id)")
+	toFlag := fs.String("to", "", "new note title")
+	if err := fs.Parse(args); err != nil {
+		return fail("parse args: %v", err)
+	}
+	to := strings.TrimSpace(*toFlag)
+	if to == "" {
+		return fail("--to is required")
+	}
+
+	cfg, s, err := open()
+	if err != nil {
+		return fail("%v", err)
+	}
+	defer s.Close()
+
+	notePath, err := resolveNotePath(cfg, s, *id, strings.TrimSpace(*title), strings.TrimSpace(*path))
+	if err != nil {
+		return fail("%v", err)
+	}
+	noteID, err := note.IDFromPath(notePath)
+	if err != nil {
+		return fail("invalid note path: %v", err)
+	}
+
+	meta, found, err := note.ReadMetadata(cfg.MetadataPath(noteID))
+	if err != nil {
+		return fail("read metadata: %v", err)
+	}
+	if !found {
+		return fail("no metadata for note %d", noteID)
+	}
+	oldTitle := meta.Title
+	if oldTitle == to {
+		return emit(map[string]any{"id": noteID, "path": notePath, "old_title": oldTitle, "new_title": to, "backlinks_updated": 0})
+	}
+	if ref, ok, err := s.ResolveTerm(to); err != nil {
+		return fail("resolve: %v", err)
+	} else if ok && ref.NoteID != noteID {
+		return fail("title %q already in use by note %d", to, ref.NoteID)
+	}
+
+	backlinks, err := s.Backlinks(noteID)
+	if err != nil {
+		return fail("backlinks: %v", err)
+	}
+	updated := 0
+	for _, src := range backlinks {
+		srcPath := cfg.PathForKind(src.FileKind, src.NoteID)
+		raw, err := os.ReadFile(srcPath)
+		if err != nil {
+			return fail("read backlink %d: %v", src.NoteID, err)
+		}
+		rewritten, n := link.ReplaceRefKey(string(raw), oldTitle, to)
+		if n == 0 {
+			continue
+		}
+		if err := os.WriteFile(srcPath, []byte(rewritten), 0o644); err != nil {
+			return fail("write backlink %d: %v", src.NoteID, err)
+		}
+		updated += n
+	}
+
+	meta.Title = to
+	if err := note.WriteMetadata(cfg.MetadataPath(noteID), meta); err != nil {
+		return fail("write metadata: %v", err)
+	}
+	if err := trackrename.Append(cfg.RenamesPath(), trackrename.Entry{From: oldTitle, To: to, NoteID: noteID}); err != nil {
+		return fail("write rename history: %v", err)
+	}
+	if _, err := index.New(cfg, s).Full(); err != nil {
+		return fail("reindex: %v", err)
+	}
+	return emit(map[string]any{"id": noteID, "path": notePath, "old_title": oldTitle, "new_title": to, "backlinks_updated": updated})
 }
 
 // resolveNotePath turns one of --id/--title/--path into a concrete, existing note file path.
@@ -418,6 +478,13 @@ func appendBody(existing, text string) string {
 		return add + "\n"
 	}
 	return base + "\n\n" + add + "\n"
+}
+
+func ensureTrailingNewline(body string) string {
+	if body == "" || strings.HasSuffix(body, "\n") {
+		return body
+	}
+	return body + "\n"
 }
 
 // tagsFlag collects repeatable --tag values; each value may itself be comma-separated.
@@ -539,7 +606,7 @@ func cmdResolve(args []string) int {
 
 func cmdSearch(args []string) int {
 	fs := flag.NewFlagSet("search", flag.ContinueOnError)
-	query := fs.String("query", "", "search query")
+	query := fs.String("query", "", "search query; #tag filters tags")
 	limit := fs.Int("limit", 50, "max results")
 	scope := fs.String("scope", string(store.SearchAll), "search scope: all, title, body")
 	if err := fs.Parse(args); err != nil {

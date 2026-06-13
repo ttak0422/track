@@ -94,6 +94,9 @@ func TestNewResolveKeywordsFlow(t *testing.T) {
 	if strings.Contains(string(noteContent), "<!--track") {
 		t.Fatalf("note file should not contain metadata: %q", noteContent)
 	}
+	if string(noteContent) != "" {
+		t.Fatalf("new without a body should write an empty note body, got %q", noteContent)
+	}
 	metaContent, err := os.ReadFile(vault + "/.track/notes/1000.yaml")
 	if err != nil {
 		t.Fatal(err)
@@ -232,10 +235,11 @@ func TestBacklinksAndReindex(t *testing.T) {
 	}
 }
 
-func TestReindexReconcilesMetadataTitleFromBody(t *testing.T) {
+func TestReindexKeepsMetadataTitleIgnoringBodyH1(t *testing.T) {
 	vault := t.TempDir()
 	runIn(t, vault, "new", "--title", "Old", "--id", "100")
 
+	// Hand-editing the body H1 must not rename the note: the sidecar title is authoritative.
 	if err := os.WriteFile(filepath.Join(vault, "note", "100.md"), []byte("# New\n\nbody\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
@@ -249,22 +253,18 @@ func TestReindexReconcilesMetadataTitleFromBody(t *testing.T) {
 		t.Fatalf("keywords failed: %v", kws)
 	}
 	list := kws["keywords"].([]any)
-	if len(list) != 1 || list[0].(map[string]any)["term"] != "New" {
-		t.Fatalf("expected reconciled keyword New, got %v", list)
+	if len(list) != 1 || list[0].(map[string]any)["term"] != "Old" {
+		t.Fatalf("expected keyword to stay Old, got %v", list)
 	}
 	metaContent, err := os.ReadFile(vault + "/.track/notes/100.yaml")
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !strings.Contains(string(metaContent), "title: New") {
-		t.Fatalf("expected metadata title to be rewritten, got %q", metaContent)
+	if !strings.Contains(string(metaContent), "title: Old") {
+		t.Fatalf("expected metadata title to stay Old, got %q", metaContent)
 	}
-	renames, err := os.ReadFile(vault + "/.track/renames.yaml")
-	if err != nil {
-		t.Fatal(err)
-	}
-	if !strings.Contains(string(renames), "from: Old") || !strings.Contains(string(renames), "to: New") || !strings.Contains(string(renames), "note_id: 100") {
-		t.Fatalf("expected title rename history, got %q", renames)
+	if _, err := os.Stat(vault + "/.track/renames.yaml"); !os.IsNotExist(err) {
+		t.Fatalf("expected no rename history from a body edit, stat err=%v", err)
 	}
 }
 
@@ -277,6 +277,12 @@ func TestReindexResetsLegacyCacheDB(t *testing.T) {
 		t.Fatal(err)
 	}
 	if err := os.WriteFile(filepath.Join(vault, "note", "100.md"), []byte("# Legacy\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.MkdirAll(filepath.Join(vault, ".track", "notes"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(vault, ".track", "notes", "100.yaml"), []byte("version: 1\ntitle: Legacy\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
 
@@ -343,6 +349,13 @@ func TestJournalIdempotent(t *testing.T) {
 	}
 	if first["path"] != second["path"] {
 		t.Fatalf("journal path changed between calls: %v vs %v", first["path"], second["path"])
+	}
+	body, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(body) != "" {
+		t.Fatalf("journal without a body should write an empty note body, got %q", body)
 	}
 }
 
@@ -638,7 +651,7 @@ func TestNewWithBodyAndTags(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	want := "# Go\n\nfirst line\n\n[[Other]] reference\n"
+	want := "first line\n\n[[Other]] reference\n"
 	if string(body) != want {
 		t.Fatalf("body = %q, want %q", body, want)
 	}
@@ -665,15 +678,69 @@ func TestNewBodyFromStdin(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if want := "# Piped\n\npiped body line\n"; string(body) != want {
+	if want := "piped body line\n"; string(body) != want {
 		t.Fatalf("body = %q, want %q", body, want)
 	}
 }
 
-func TestNewBodyRejectsH1(t *testing.T) {
-	out, code := runIn(t, t.TempDir(), "new", "--title", "Go", "--body", "# Go\n\ndup title")
-	if code != 1 || !strings.Contains(out["error"].(string), "H1") {
-		t.Fatalf("expected H1 rejection, got code=%d out=%v", code, out)
+func TestNewBodyAcceptsH1Verbatim(t *testing.T) {
+	vault := t.TempDir()
+	body := "# 記事\n\n## 背景\n本文 [[他ノート]]\n"
+	created, code := runIn(t, vault, "new", "--title", "記事", "--id", "120", "--body", body)
+	if code != 0 {
+		t.Fatalf("new with H1 body failed: %v", created)
+	}
+	got, err := os.ReadFile(filepath.Join(vault, "note", "120.md"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(got) != body {
+		t.Fatalf("body = %q, want %q", got, body)
+	}
+	meta, err := os.ReadFile(vault + "/.track/notes/120.yaml")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(meta), "title: 記事") {
+		t.Fatalf("expected sidecar title, got %q", meta)
+	}
+}
+
+func TestNewWithoutBodyWritesEmptyFile(t *testing.T) {
+	vault := t.TempDir()
+	created, code := runIn(t, vault, "new", "--title", "Empty", "--id", "130")
+	if code != 0 {
+		t.Fatalf("new failed: %v", created)
+	}
+	got, err := os.ReadFile(filepath.Join(vault, "note", "130.md"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(got) != "" {
+		t.Fatalf("body = %q, want empty", got)
+	}
+	meta, err := os.ReadFile(vault + "/.track/notes/130.yaml")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(meta), "title: Empty") {
+		t.Fatalf("expected sidecar title, got %q", meta)
+	}
+}
+
+func TestJournalBodyAcceptsH1Verbatim(t *testing.T) {
+	vault := t.TempDir()
+	body := "# Journal Heading\n\nentry\n"
+	created, code := runIn(t, vault, "journal", "--body", body)
+	if code != 0 {
+		t.Fatalf("journal with body failed: %v", created)
+	}
+	got, err := os.ReadFile(created["path"].(string))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(got) != body {
+		t.Fatalf("body = %q, want %q", got, body)
 	}
 }
 
@@ -700,7 +767,7 @@ func TestAppendUpdatesBodyAndBacklinksWithoutReindex(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if want := "# Source\n\nsee [[Target]] for details\n"; string(body) != want {
+	if want := "see [[Target]] for details\n"; string(body) != want {
 		t.Fatalf("appended body = %q, want %q", body, want)
 	}
 
@@ -751,5 +818,71 @@ func TestOpenExistingWithContentErrors(t *testing.T) {
 	out, code := runIn(t, vault, "open", "--title", "Go", "--body", "more")
 	if code != 1 || !strings.Contains(out["error"].(string), "track append") {
 		t.Fatalf("expected append guidance on existing note, got code=%d out=%v", code, out)
+	}
+}
+
+func TestRenameUpdatesTitleAndBacklinks(t *testing.T) {
+	vault := t.TempDir()
+	runIn(t, vault, "new", "--title", "Old", "--id", "100")
+	runIn(t, vault, "new", "--title", "Source", "--id", "200", "--body", "see [[Old]]\n")
+	if rep, code := runIn(t, vault, "reindex", "--full"); code != 0 {
+		t.Fatalf("reindex failed: %v", rep)
+	}
+
+	renamed, code := runIn(t, vault, "rename", "--id", "100", "--to", "New")
+	if code != 0 {
+		t.Fatalf("rename failed: %v", renamed)
+	}
+	if renamed["old_title"] != "Old" || renamed["new_title"] != "New" || renamed["backlinks_updated"].(float64) != 1 {
+		t.Fatalf("unexpected rename output: %v", renamed)
+	}
+	source, err := os.ReadFile(filepath.Join(vault, "note", "200.md"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(source) != "see [[New]]\n" {
+		t.Fatalf("expected backlink rewrite, got %q", source)
+	}
+	meta, err := os.ReadFile(vault + "/.track/notes/100.yaml")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(meta), "title: New") {
+		t.Fatalf("expected new title metadata, got %q", meta)
+	}
+	res, code := runIn(t, vault, "resolve", "--term", "New")
+	if code != 0 || res["found"] != true || res["note_id"].(float64) != 100 {
+		t.Fatalf("resolve New failed: %v", res)
+	}
+	renames, err := os.ReadFile(vault + "/.track/renames.yaml")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(renames), "from: Old") || !strings.Contains(string(renames), "to: New") || !strings.Contains(string(renames), "note_id: 100") {
+		t.Fatalf("expected rename history, got %q", renames)
+	}
+}
+
+func TestRenameRejectsDuplicateTitle(t *testing.T) {
+	vault := t.TempDir()
+	runIn(t, vault, "new", "--title", "Old", "--id", "100")
+	runIn(t, vault, "new", "--title", "Other", "--id", "200")
+
+	out, code := runIn(t, vault, "rename", "--id", "100", "--to", "Other")
+	if code != 1 || !strings.Contains(out["error"].(string), "already in use") {
+		t.Fatalf("expected duplicate title error, code=%d out=%v", code, out)
+	}
+}
+
+func TestRenameNoOp(t *testing.T) {
+	vault := t.TempDir()
+	runIn(t, vault, "new", "--title", "Old", "--id", "100")
+
+	out, code := runIn(t, vault, "rename", "--id", "100", "--to", "Old")
+	if code != 0 {
+		t.Fatalf("rename no-op failed: %v", out)
+	}
+	if out["old_title"] != "Old" || out["new_title"] != "Old" || out["backlinks_updated"].(float64) != 0 {
+		t.Fatalf("unexpected no-op output: %v", out)
 	}
 }

@@ -176,3 +176,64 @@ func TestRefsIgnoresMalformed(t *testing.T) {
 		}
 	}
 }
+
+func TestReplaceRefKey(t *testing.T) {
+	tests := []struct {
+		name   string
+		in     string
+		oldKey string
+		newKey string
+		want   string
+		count  int
+	}{
+		{
+			name:   "single reference",
+			in:     "see [[Old]]",
+			oldKey: "Old",
+			newKey: "New",
+			want:   "see [[New]]",
+			count:  1,
+		},
+		{
+			name:   "multiple references across lines",
+			in:     "[[Old]] and [[Old]]\nthen [[Other]] and [[Old]]",
+			oldKey: "Old",
+			newKey: "New",
+			want:   "[[New]] and [[New]]\nthen [[Other]] and [[New]]",
+			count:  3,
+		},
+		{
+			name:   "heading and display are preserved",
+			in:     "[[Old#sec]] [[Old|表示]] [[Old##deep|深い]]",
+			oldKey: "Old",
+			newKey: "New",
+			want:   "[[New#sec]] [[New|表示]] [[New##deep|深い]]",
+			count:  3,
+		},
+		{
+			name:   "no match",
+			in:     "[[Other]]",
+			oldKey: "Old",
+			newKey: "New",
+			want:   "[[Other]]",
+			count:  0,
+		},
+		{
+			name:   "empty old key",
+			in:     "[[Old]]",
+			oldKey: "",
+			newKey: "New",
+			want:   "[[Old]]",
+			count:  0,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got, count := ReplaceRefKey(tt.in, tt.oldKey, tt.newKey)
+			if got != tt.want || count != tt.count {
+				t.Fatalf("ReplaceRefKey() = %q, %d; want %q, %d", got, count, tt.want, tt.count)
+			}
+		})
+	}
+}

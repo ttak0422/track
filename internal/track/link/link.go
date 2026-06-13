@@ -92,6 +92,45 @@ func splitHeading(target string) (key, heading string, level int) {
 	return strings.TrimSpace(target[:i]), heading, level
 }
 
+// ReplaceRefKey rewrites the resolution key of every [[key]] reference whose key equals oldKey,
+// replacing just the key span with newKey. Heading anchors and "|display" aliases are preserved
+// because only the key portion is touched. It returns the rewritten text and the number of
+// references replaced. This is the shared backlink rewriter used when a note is renamed.
+func ReplaceRefKey(text, oldKey, newKey string) (string, int) {
+	if oldKey == "" {
+		return text, 0
+	}
+	lines := strings.Split(text, "\n")
+	byLine := map[int][]Ref{}
+	for _, ref := range Refs(text) {
+		if ref.Text == oldKey {
+			byLine[ref.Line] = append(byLine[ref.Line], ref)
+		}
+	}
+	count := 0
+	for lineNo, refs := range byLine {
+		line := lines[lineNo]
+		// Replace right-to-left so earlier byte offsets stay valid as the line is edited.
+		for i := len(refs) - 1; i >= 0; i-- {
+			ref := refs[i]
+			if ref.StartByte > ref.EndByte || ref.EndByte > len(line) {
+				continue
+			}
+			inner := line[ref.StartByte:ref.EndByte]
+			j := strings.Index(inner, ref.Text)
+			if j < 0 {
+				continue
+			}
+			keyStart := ref.StartByte + j
+			keyEnd := keyStart + len(ref.Text)
+			line = line[:keyStart] + newKey + line[keyEnd:]
+			count++
+		}
+		lines[lineNo] = line
+	}
+	return strings.Join(lines, "\n"), count
+}
+
 // Heading is one ATX heading occurrence in note text.
 type Heading struct {
 	Level int    // number of leading "#" (1 == h1, 2 == h2, ...)

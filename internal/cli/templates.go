@@ -14,7 +14,6 @@ import (
 	"time"
 
 	"github.com/ttak0422/track/internal/track/config"
-	"github.com/ttak0422/track/internal/track/note"
 )
 
 type templateRef struct {
@@ -308,9 +307,6 @@ func renderTemplate(cfg *config.Config, templateSpec string, title string, id in
 		key := strings.TrimSpace(strings.TrimSuffix(strings.TrimPrefix(match, "{{"), "}}"))
 		return values[key]
 	})
-	if note.FirstH1Title(rendered) == "" {
-		return "", fmt.Errorf("rendered template %q must contain an H1 title", t.ref.Name)
-	}
 	return rendered, nil
 }
 

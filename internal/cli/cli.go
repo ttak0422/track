@@ -39,6 +39,8 @@ func Run(args []string) int {
 		return cmdJournal(rest)
 	case "append":
 		return cmdAppend(rest)
+	case "rename":
+		return cmdRename(rest)
 	case "keywords":
 		return cmdKeywords(rest)
 	case "resolve":
@@ -73,11 +75,13 @@ generated-by-ai tag. Creating or appending indexes the note immediately, so rein
 
 Usage:
   track new --title <t> [--id <id>] [--template <s>] [--body <s>] [--tag <s>] [--ai]
-                                        create a note (fails if the title exists); --body fills the body
+                                        create a note (fails if the title exists); --body is saved verbatim
   track open --title <t> [--template <s>] [--body <s>] [--tag <s>] [--ai]
                                         open the note with this title, creating it if absent
   track append (--id N | --title S | --path P) [--body <s>] [--tag <s>] [--ai]
                                         append body text and/or merge tags into an existing note
+  track rename (--id N | --title S | --path P) --to S
+                                        rename a note's title and rewrite its backlinks (JSON)
   track journal [--offset <n>] [--template <s>] [--body <s>] [--ai]
                                         open/create a daily note
   track reindex [--full]                rebuild the index
@@ -100,6 +104,16 @@ Usage:
                                         write a note out as Markdown (stdout, or JSON path with --out)
   track dump                            print placeholder state (JSON)
   track version                         print the version
+
+Examples:
+  cat article.md | track new --title "記事" --ai
+                                        save stdin verbatim; leading # headings are allowed
+  printf '本文 [[他ノート]]\n' | track open --title "メモ"
+                                        create if absent, otherwise open existing note
+  track search --query '#zettel'         filter search by #tag
+  track export --id 1781314534000        write a note as Markdown to stdout
+  track rename --title "旧題" --to "新題"
+                                        rename title and rewrite backlinks
 `)
 }
 

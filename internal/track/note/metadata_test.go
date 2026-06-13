@@ -174,7 +174,7 @@ func TestSplitLegacyFootmatterAbsent(t *testing.T) {
 	}
 }
 
-func TestParseFileReconcilesMetadataTitleFromBody(t *testing.T) {
+func TestParseFileKeepsSidecarTitleIgnoringBodyH1(t *testing.T) {
 	vault := t.TempDir()
 	cfg := &config.Config{
 		VaultDir:   vault,
@@ -186,8 +186,7 @@ func TestParseFileReconcilesMetadataTitleFromBody(t *testing.T) {
 	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
 		t.Fatal(err)
 	}
-	raw := "# Body\n\n<!--track\ntitle: legacy\n-->\n"
-	if err := os.WriteFile(path, []byte(raw), 0o644); err != nil {
+	if err := os.WriteFile(path, []byte("# Body\n\ntext\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
 	if err := WriteMetadata(cfg.MetadataPath(1000), Metadata{
@@ -202,38 +201,31 @@ func TestParseFileReconcilesMetadataTitleFromBody(t *testing.T) {
 	if err != nil {
 		t.Fatalf("parse file: %v", err)
 	}
-	if n.Body != "# Body" {
-		t.Fatalf("body should strip legacy block, got %q", n.Body)
-	}
-	if n.Meta.Title != "Body" {
-		t.Fatalf("expected body title to win, got %+v", n.Meta)
+	if n.Meta.Title != "sidecar" {
+		t.Fatalf("expected the sidecar title to stay authoritative, got %+v", n.Meta)
 	}
 	got, found, err := ReadMetadata(cfg.MetadataPath(1000))
 	if err != nil {
 		t.Fatal(err)
 	}
 	if !found {
-		t.Fatal("expected reconciled metadata to be written")
+		t.Fatal("expected the sidecar metadata to remain")
 	}
 	want := Metadata{
 		Version: CurrentMetadataVersion,
-		Title:   "Body",
+		Title:   "sidecar",
 		Tags:    []string{"tag"},
 		Created: "2026-05-30",
 	}
 	if !reflect.DeepEqual(got, want) {
-		t.Fatalf("reconciled metadata mismatch:\n got %+v\nwant %+v", got, want)
+		t.Fatalf("sidecar metadata should be untouched by the body H1:\n got %+v\nwant %+v", got, want)
 	}
-	renames, err := os.ReadFile(cfg.RenamesPath())
-	if err != nil {
-		t.Fatal(err)
-	}
-	if !strings.Contains(string(renames), "from: sidecar") || !strings.Contains(string(renames), "to: Body") || !strings.Contains(string(renames), "note_id: 1000") {
-		t.Fatalf("expected rename history, got %q", renames)
+	if _, err := os.Stat(cfg.RenamesPath()); !os.IsNotExist(err) {
+		t.Fatalf("expected no rename history to be recorded, stat err=%v", err)
 	}
 }
 
-func TestParseFileCreatesMetadataFromBodyTitle(t *testing.T) {
+func TestParseFileWithoutSidecarDerivesNoTitle(t *testing.T) {
 	vault := t.TempDir()
 	cfg := &config.Config{
 		VaultDir:   vault,
@@ -253,15 +245,13 @@ func TestParseFileCreatesMetadataFromBodyTitle(t *testing.T) {
 	if err != nil {
 		t.Fatalf("parse file: %v", err)
 	}
-	if n.Meta.Title != "Created From Body" {
-		t.Fatalf("expected title from body, got %+v", n.Meta)
+	if n.Meta.Title != "" {
+		t.Fatalf("expected no title to be derived from the body H1, got %+v", n.Meta)
 	}
-	got, found, err := ReadMetadata(cfg.MetadataPath(1000))
-	if err != nil {
+	if _, found, err := ReadMetadata(cfg.MetadataPath(1000)); err != nil {
 		t.Fatal(err)
-	}
-	if !found || got.Title != "Created From Body" {
-		t.Fatalf("expected metadata to be created from body title, found=%v got=%+v", found, got)
+	} else if found {
+		t.Fatal("expected no sidecar to be created from the body title")
 	}
 }
 

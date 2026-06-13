@@ -10,7 +10,7 @@ import (
 
 func TestExportCommandRendersMarkdown(t *testing.T) {
 	vault := t.TempDir()
-	if _, code := runIn(t, vault, "new", "--title", "Doc", "--id", "100"); code != 0 {
+	if _, code := runIn(t, vault, "new", "--title", "Doc", "--id", "100", "--body", "# Doc\n"); code != 0 {
 		t.Fatalf("new failed")
 	}
 	path := filepath.Join(vault, "note", "100.md")
@@ -36,7 +36,7 @@ func TestExportCommandRendersMarkdown(t *testing.T) {
 
 func TestExportCommandWritesFile(t *testing.T) {
 	vault := t.TempDir()
-	if _, code := runIn(t, vault, "new", "--title", "Doc", "--id", "100"); code != 0 {
+	if _, code := runIn(t, vault, "new", "--title", "Doc", "--id", "100", "--body", "# Doc\n"); code != 0 {
 		t.Fatalf("new failed")
 	}
 	outPath := filepath.Join(vault, "out.md")

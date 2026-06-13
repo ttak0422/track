@@ -11,7 +11,6 @@ import (
 
 	"github.com/ttak0422/track/internal/track/babel"
 	"github.com/ttak0422/track/internal/track/config"
-	trackrename "github.com/ttak0422/track/internal/track/rename"
 )
 
 const (
@@ -43,8 +42,9 @@ type Note struct {
 // ParseFile reads a note from disk, deriving the id from the filename and loading its sidecar metadata.
 // For compatibility with early track notes, a legacy trailing footmatter block is used only when no sidecar exists.
 //
-// The note body is authoritative for fields it can express.
-// Today that means the first H1 heading owns the note title; if sidecar metadata disagrees, the sidecar is rewritten to match the body while preserving tags and created.
+// The sidecar metadata is authoritative for the title and other structured fields: the body is plain
+// content. A note's title comes from the sidecar and changes only through the create/rename commands,
+// never by editing a body heading, so the body may contain any headings (including a leading H1).
 func ParseFile(path string, c *config.Config) (*Note, error) {
 	raw, err := os.ReadFile(path)
 	if err != nil {
@@ -81,17 +81,9 @@ func ParseFile(path string, c *config.Config) (*Note, error) {
 		meta.Version = CurrentMetadataVersion
 	}
 
-	dirty := !found && metadataSource
-	if title := FirstH1Title(body); title != "" && meta.Title != title {
-		if meta.Title != "" {
-			if err := trackrename.Append(c.RenamesPath(), trackrename.Entry{From: meta.Title, To: title, NoteID: id}); err != nil {
-				return nil, err
-			}
-		}
-		meta.Title = title
-		dirty = true
-	}
-	if dirty {
+	// A freshly migrated legacy footmatter note has no sidecar yet; persist one so later reads are
+	// metadata-driven. Sidecars that already exist are never rewritten from the body.
+	if !found && metadataSource {
 		if err := WriteMetadata(metaPath, meta); err != nil {
 			return nil, err
 		}
