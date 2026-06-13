@@ -989,3 +989,35 @@ func TestDoctorReportsOrphanSidecar(t *testing.T) {
 		t.Fatalf("unexpected issue: %v", first)
 	}
 }
+
+func TestDoctorFixRestoresAndReindexes(t *testing.T) {
+	vault := t.TempDir()
+	if _, code := runIn(t, vault, "new", "--title", "Alpha", "--id", "100"); code != 0 {
+		t.Fatalf("new failed")
+	}
+	// Drop the sidecar so the note looks lost (a sync gap).
+	if err := os.Remove(filepath.Join(vault, ".track", "notes", "100.yaml")); err != nil {
+		t.Fatal(err)
+	}
+
+	out, code := runIn(t, vault, "doctor", "--fix")
+	if code != 0 {
+		t.Fatalf("doctor --fix exit = %d: %v", code, out)
+	}
+	if out["changed"] != true {
+		t.Fatalf("expected changed=true, got %v", out)
+	}
+	fixed, _ := out["fixed"].([]any)
+	if len(fixed) != 1 || fixed[0].(map[string]any)["kind"] != "missing_sidecar" {
+		t.Fatalf("expected one missing_sidecar fix, got %v", out["fixed"])
+	}
+	if out["reindexed"] == nil {
+		t.Fatalf("fix should reindex, got %v", out)
+	}
+
+	// A second pass is a clean no-op.
+	out2, _ := runIn(t, vault, "doctor", "--fix")
+	if out2["changed"] != false {
+		t.Fatalf("second --fix should be a no-op, got %v", out2)
+	}
+}

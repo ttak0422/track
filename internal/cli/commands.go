@@ -58,8 +58,12 @@ func cmdReindex(args []string) int {
 // cmdDoctor reports vault/sidecar divergence (missing or orphan sidecars, stray conflict copies,
 // duplicate titles) without touching any file. Finding issues is not an error, so it still exits 0;
 // callers branch on the issues array, reserving the {"error":...}/exit 1 contract for real failures.
+//
+// With --fix it repairs the divergence by auto-numbered restore (see doctor.Fix), then rebuilds the
+// index so the cache reflects the repaired vault.
 func cmdDoctor(args []string) int {
 	fs := flag.NewFlagSet("doctor", flag.ContinueOnError)
+	fix := fs.Bool("fix", false, "repair divergence by auto-numbered restore, then reindex")
 	if err := fs.Parse(args); err != nil {
 		return fail("parse args: %v", err)
 	}
@@ -67,6 +71,36 @@ func cmdDoctor(args []string) int {
 	if err != nil {
 		return fail("%v", err)
 	}
+
+	if *fix {
+		startID := time.Now().Unix() * 1000
+		rep, err := doctor.Fix(cfg, startID)
+		if err != nil {
+			return fail("doctor --fix: %v", err)
+		}
+		out := map[string]any{
+			"changed": rep.Changed,
+			"fixed":   rep.Fixed,
+			"skipped": rep.Skipped,
+		}
+		if rep.Changed {
+			if err := store.Reset(cfg.DBPath); err != nil {
+				return fail("reset index db: %v", err)
+			}
+			s, err := store.Open(cfg.DBPath)
+			if err != nil {
+				return fail("%v", err)
+			}
+			defer s.Close()
+			ix, err := index.New(cfg, s).Full()
+			if err != nil {
+				return fail("reindex: %v", err)
+			}
+			out["reindexed"] = ix.Indexed
+		}
+		return emit(out)
+	}
+
 	rep, err := doctor.Diagnose(cfg)
 	if err != nil {
 		return fail("doctor: %v", err)
