@@ -51,9 +51,9 @@ func (s *Server) noteHoverMarkdown(kind string, id int64, ref link.Ref) (string,
 		return "", err
 	}
 	body, _, _ := note.SplitLegacyFootmatter(raw)
-	title := note.FirstH1Title(body)
-	if title == "" {
-		title = fmt.Sprintf("#%d", id)
+	title := fmt.Sprintf("#%d", id)
+	if meta, found, err := note.ReadMetadata(s.cfg.MetadataPath(id)); err == nil && found && meta.Title != "" {
+		title = meta.Title
 	}
 
 	var out []string
@@ -90,8 +90,6 @@ func hoverPreviewMarkdown(markdown string, ref link.Ref) string {
 		if line, found := link.FindHeading(markdown, ref.HeadingLevel, ref.Heading); found {
 			start = line
 		}
-	} else if len(lines) > 0 && strings.HasPrefix(strings.TrimSpace(lines[0]), "# ") {
-		start = 1
 	}
 
 	var out []string

@@ -46,6 +46,9 @@ func setupServer(t *testing.T) (*Server, string) {
 	}); err != nil {
 		t.Fatalf("upsert note: %v", err)
 	}
+	if err := note.WriteMetadata(cfg.MetadataPath(100), note.Metadata{Title: "Go"}); err != nil {
+		t.Fatalf("write metadata: %v", err)
+	}
 	return NewServer(cfg, s), vault
 }
 
@@ -75,7 +78,7 @@ func TestInitializeCompletionTriggerCharacters(t *testing.T) {
 	}
 }
 
-func TestDiagnosticsWarnOnH1OutsideFirstLine(t *testing.T) {
+func TestDiagnosticsAllowBodyH1Headings(t *testing.T) {
 	srv, vault := setupServer(t)
 	uri := uriFromPath(filepath.Join(vault, "note", "200.md"))
 	srv.docs[uri] = "# Title\n\n# Later\n\n## Section\n\n# Another\n"
@@ -84,48 +87,8 @@ func TestDiagnosticsWarnOnH1OutsideFirstLine(t *testing.T) {
 	if err != nil {
 		t.Fatalf("diagnostics: %v", err)
 	}
-	if len(diags) != 2 {
-		t.Fatalf("expected warnings for h1 headings outside the first line, got %+v", diags)
-	}
-	if diags[0].Severity != protocol.SeverityWarning || diags[0].Code != diagnosticCodeH1TitleLine {
-		t.Fatalf("unexpected diagnostic metadata: %+v", diags[0])
-	}
-	if diags[0].Range.Start.Line != 2 || diags[0].Range.End.Character != 7 {
-		t.Fatalf("expected later h1 line range, got %+v", diags[0].Range)
-	}
-	if diags[1].Range.Start.Line != 6 {
-		t.Fatalf("expected later h1 on line 6, got %+v", diags[1].Range)
-	}
-}
-
-func TestDiagnosticsWarnWhenFirstH1IsNotOnFirstLine(t *testing.T) {
-	srv, vault := setupServer(t)
-	uri := uriFromPath(filepath.Join(vault, "note", "200.md"))
-	srv.docs[uri] = "\n# Title\n"
-
-	diags, err := srv.diagnostics(uri)
-	if err != nil {
-		t.Fatalf("diagnostics: %v", err)
-	}
-	if len(diags) != 1 {
-		t.Fatalf("expected the off-first-line h1 to be warned, got %+v", diags)
-	}
-	if diags[0].Range.Start.Line != 1 {
-		t.Fatalf("expected h1 on line 1 to be warned, got %+v", diags[0].Range)
-	}
-}
-
-func TestDiagnosticsIgnoreH1InsideFences(t *testing.T) {
-	srv, vault := setupServer(t)
-	uri := uriFromPath(filepath.Join(vault, "note", "200.md"))
-	srv.docs[uri] = "# Title\n\n```markdown\n# Example\n```\n\n## Section\n"
-
-	diags, err := srv.diagnostics(uri)
-	if err != nil {
-		t.Fatalf("diagnostics: %v", err)
-	}
 	if len(diags) != 0 {
-		t.Fatalf("fenced h1 should not produce diagnostics, got %+v", diags)
+		t.Fatalf("body H1 headings should not produce diagnostics, got %+v", diags)
 	}
 }
 
@@ -168,7 +131,7 @@ func TestNotificationPublishesDiagnosticsAndClearsThem(t *testing.T) {
 			URI:        documentURI(uri),
 			LanguageID: protocol.LanguageKind("markdown"),
 			Version:    1,
-			Text:       "# Title\n\n# Later\n",
+			Text:       "see [[Nope]]\n\n# Later\n",
 		},
 	})
 	if err != nil {
@@ -182,7 +145,7 @@ func TestNotificationPublishesDiagnosticsAndClearsThem(t *testing.T) {
 	})
 	published := publishedDiagnostics(t, notifications)
 	if string(published.URI) != uri || len(published.Diagnostics) != 1 {
-		t.Fatalf("expected one published diagnostic for %q, got %+v", uri, published)
+		t.Fatalf("expected one unresolved-link diagnostic for %q, got %+v", uri, published)
 	}
 
 	changeParams, err := jsonMarshalRaw(didChangeParams{
@@ -190,7 +153,7 @@ func TestNotificationPublishesDiagnosticsAndClearsThem(t *testing.T) {
 			Version:                2,
 			TextDocumentIdentifier: textDocumentIdentifier{URI: documentURI(uri)},
 		},
-		ContentChanges: []protocol.TextDocumentContentChangeEvent{{Text: "# Title\n\n## Later\n"}},
+		ContentChanges: []protocol.TextDocumentContentChangeEvent{{Text: "see [[Go]]\n\n# Later\n"}},
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -236,7 +199,10 @@ func TestDocumentLinks(t *testing.T) {
 func TestHoverShowsLinkedNotePreview(t *testing.T) {
 	srv, vault := setupServer(t)
 	targetURI := uriFromPath(filepath.Join(vault, "note", "100.md"))
-	srv.docs[targetURI] = "# Go\n\nThis is the target note.\n\nIt links to [[Source]].\n"
+	srv.docs[targetURI] = "# Body Heading\n\nThis is the target note.\n\nIt links to [[Source]].\n"
+	if err := note.WriteMetadata(srv.cfg.MetadataPath(100), note.Metadata{Title: "Go"}); err != nil {
+		t.Fatal(err)
+	}
 	if err := srv.store.UpsertNote(&note.Note{
 		ID:    100,
 		Mtime: 100,
@@ -257,7 +223,7 @@ func TestHoverShowsLinkedNotePreview(t *testing.T) {
 	if hov.Contents.Kind != protocol.Markdown {
 		t.Fatalf("hover kind = %q, want markdown", hov.Contents.Kind)
 	}
-	for _, want := range []string{"### Go", "#generated-by-ai", "#lang", "This is the target note.", "[[Source]]"} {
+	for _, want := range []string{"### Go", "#generated-by-ai", "#lang", "# Body Heading", "This is the target note.", "[[Source]]"} {
 		if !strings.Contains(hov.Contents.Value, want) {
 			t.Fatalf("hover content missing %q:\n%s", want, hov.Contents.Value)
 		}
@@ -441,18 +407,14 @@ func TestCompletionHeadingLevelMatchesHashCount(t *testing.T) {
 	srv.docs[targetURI] = "# Go\n\n# foobar\n\n## hoge\n"
 	uri := uriFromPath(filepath.Join(vault, "note", "200.md"))
 
-	// Typing a single "#" offers the h1 headings (the title "Go" plus "foobar"), not the h2.
+	// Typing a single "#" offers all h1 headings, not the h2.
 	srv.docs[uri] = "see [[Go#"
 	h1, err := srv.completion(uri, position{Line: 0, Character: 9})
 	if err != nil {
 		t.Fatalf("completion: %v", err)
 	}
-	if !completionLabelsContain(h1, "foobar") || completionLabelsContain(h1, "hoge") {
+	if !completionLabelsContain(h1, "Go") || !completionLabelsContain(h1, "foobar") || completionLabelsContain(h1, "hoge") {
 		t.Fatalf("single # should offer h1 headings only, got %+v", h1)
-	}
-	// The title heading ("Go", note 100's first h1) is omitted as self-evident noise.
-	if completionLabelsContain(h1, "Go") {
-		t.Fatalf("h1 completion should exclude the note's own title, got %+v", h1)
 	}
 
 	// Typing "##" offers the h2 heading "hoge".
@@ -481,15 +443,15 @@ func TestCompletionOffersNoteAndHeadingsTogether(t *testing.T) {
 	if err != nil {
 		t.Fatalf("completion: %v", err)
 	}
-	// The bare note and both h2 anchors are offered; the title h1 anchor (Go#Go) is omitted as noise.
+	// The bare note, the h1 anchor, and both h2 anchors are offered.
 	if !completionLabelsContain(items, "Go") {
 		t.Fatalf("expected the bare note candidate, got %+v", items)
 	}
 	if !completionLabelsContain(items, "Go##foo") || !completionLabelsContain(items, "Go##bar") {
 		t.Fatalf("expected heading anchors alongside the note, got %+v", items)
 	}
-	if completionLabelsContain(items, "Go#Go") {
-		t.Fatalf("title heading anchor should be excluded, got %+v", items)
+	if !completionLabelsContain(items, "Go#Go") {
+		t.Fatalf("expected h1 heading anchor alongside the note, got %+v", items)
 	}
 	// The anchor inserts the whole [[note##heading]] target and closes the link.
 	var anchor *completionItem
@@ -532,10 +494,10 @@ func TestCompletionDedupesDuplicateHeadings(t *testing.T) {
 	}
 }
 
-func TestCompletionExcludesTitleHeadingOnly(t *testing.T) {
+func TestCompletionIncludesBodyH1Headings(t *testing.T) {
 	srv, vault := setupServer(t)
 	targetURI := uriFromPath(filepath.Join(vault, "note", "100.md"))
-	// The first h1 "Go" is the title; a later h1 "Go" repeats it, and "intro" is a distinct h1.
+	// Duplicate H1 headings are deduped by text, but no H1 is filtered as a title line.
 	srv.docs[targetURI] = "# Go\n\n# intro\n\n# Go\n"
 	uri := uriFromPath(filepath.Join(vault, "note", "200.md"))
 	srv.docs[uri] = "see [[Go#"
@@ -544,9 +506,8 @@ func TestCompletionExcludesTitleHeadingOnly(t *testing.T) {
 	if err != nil {
 		t.Fatalf("completion: %v", err)
 	}
-	// Only "intro" survives: every "Go" h1 is the title text and a link to it just points at the note.
-	if len(items) != 1 || items[0].Label != "intro" {
-		t.Fatalf("expected only the non-title h1 heading, got %+v", items)
+	if !completionLabelsContain(items, "Go") || !completionLabelsContain(items, "intro") || countLabel(items, "Go") != 1 {
+		t.Fatalf("expected deduped h1 heading candidates, got %+v", items)
 	}
 }
 
@@ -1079,6 +1040,13 @@ func TestCodeActionCreatesUnresolvedNote(t *testing.T) {
 	if result["title"] != "Rust" {
 		t.Fatalf("unexpected create result: %+v", result)
 	}
+	createdBody, err := os.ReadFile(result["path"].(string))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(createdBody) != "" {
+		t.Fatalf("created note body should be empty, got %q", createdBody)
+	}
 
 	links, err := srv.documentLinks(uri)
 	if err != nil {
@@ -1156,21 +1124,39 @@ func TestCodeActionRepairsRenamedLink(t *testing.T) {
 
 func renameFixture(t *testing.T, srv *Server, vault string) (targetURI, srcURI string) {
 	t.Helper()
-	targetURI = uriFromPath(filepath.Join(vault, "note", "100.md"))
-	srv.docs[targetURI] = "# Go\n\nbody"
+	targetPath := filepath.Join(vault, "note", "100.md")
+	targetURI = uriFromPath(targetPath)
+	targetBody := "body without a title heading\n"
+	if err := os.MkdirAll(filepath.Dir(targetPath), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(targetPath, []byte(targetBody), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := note.WriteMetadata(srv.cfg.MetadataPath(100), note.Metadata{Title: "Go"}); err != nil {
+		t.Fatal(err)
+	}
+	srv.docs[targetURI] = targetBody
 	srcPath := filepath.Join(vault, "note", "200.md")
 	srcURI = uriFromPath(srcPath)
+	srcBody := "see [[Go]] here"
+	if err := os.WriteFile(srcPath, []byte(srcBody), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := note.WriteMetadata(srv.cfg.MetadataPath(200), note.Metadata{Title: "Source"}); err != nil {
+		t.Fatal(err)
+	}
 	if err := srv.store.UpsertNote(&note.Note{ID: 200, Path: srcPath, Meta: note.Metadata{Title: "Source"}}); err != nil {
 		t.Fatal(err)
 	}
 	if err := srv.store.ReplaceLinks(200, []int64{100}); err != nil {
 		t.Fatal(err)
 	}
-	srv.docs[srcURI] = "see [[Go]] here"
+	srv.docs[srcURI] = srcBody
 	return targetURI, srcURI
 }
 
-func TestRenameRewritesTitleAndBacklinks(t *testing.T) {
+func TestRenameUpdatesMetadataAndBacklinks(t *testing.T) {
 	srv, vault := setupServer(t)
 	targetURI, srcURI := renameFixture(t, srv, vault)
 
@@ -1183,8 +1169,8 @@ func TestRenameRewritesTitleAndBacklinks(t *testing.T) {
 		t.Fatalf("expected a rename edit")
 	}
 	tEdits := edit.Changes[documentURI(targetURI)]
-	if len(tEdits) != 1 || tEdits[0].NewText != "# Golang" {
-		t.Fatalf("target H1 edit: %+v", tEdits)
+	if len(tEdits) != 0 {
+		t.Fatalf("rename should not edit the target body: %+v", tEdits)
 	}
 	sEdits := edit.Changes[documentURI(srcURI)]
 	if len(sEdits) != 1 || sEdits[0].NewText != "Golang" {
@@ -1193,25 +1179,40 @@ func TestRenameRewritesTitleAndBacklinks(t *testing.T) {
 	if sEdits[0].Range.Start.Character != 6 || sEdits[0].Range.End.Character != 8 {
 		t.Fatalf("backlink should replace only the key, got %+v", sEdits[0].Range)
 	}
+	meta, found, err := note.ReadMetadata(srv.cfg.MetadataPath(100))
+	if err != nil || !found || meta.Title != "Golang" {
+		t.Fatalf("metadata title not updated: found=%v meta=%+v err=%v", found, meta, err)
+	}
+	renames, err := os.ReadFile(srv.cfg.RenamesPath())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(renames), "from: Go") || !strings.Contains(string(renames), "to: Golang") || !strings.Contains(string(renames), "note_id: 100") {
+		t.Fatalf("expected rename history, got %q", renames)
+	}
 }
 
-func TestRenameFromTitleLine(t *testing.T) {
+func TestRenameCurrentNoteWithoutH1(t *testing.T) {
 	srv, vault := setupServer(t)
 	targetURI, srcURI := renameFixture(t, srv, vault)
 
-	// Cursor on note 100's own H1 line.
+	// Cursor anywhere in the current note body renames its metadata title when not on a link.
 	edit, err := srv.rename(targetURI, position{Line: 0, Character: 2}, "Golang")
 	if err != nil {
 		t.Fatalf("rename: %v", err)
 	}
 	if edit == nil {
-		t.Fatalf("expected a rename edit from the title line")
+		t.Fatalf("expected a rename edit from the current note")
 	}
-	if e := edit.Changes[documentURI(targetURI)]; len(e) != 1 || e[0].NewText != "# Golang" {
-		t.Fatalf("target H1 edit: %+v", e)
+	if e := edit.Changes[documentURI(targetURI)]; len(e) != 0 {
+		t.Fatalf("rename should not edit the target body: %+v", e)
 	}
 	if e := edit.Changes[documentURI(srcURI)]; len(e) != 1 || e[0].NewText != "Golang" {
 		t.Fatalf("backlink edit: %+v", e)
+	}
+	meta, found, err := note.ReadMetadata(srv.cfg.MetadataPath(100))
+	if err != nil || !found || meta.Title != "Golang" {
+		t.Fatalf("metadata title not updated: found=%v meta=%+v err=%v", found, meta, err)
 	}
 }
 

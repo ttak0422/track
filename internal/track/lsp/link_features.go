@@ -289,21 +289,16 @@ func (s *Server) completion(uri string, pos position) ([]completionItem, error) 
 }
 
 // headingAnchorItems offers a note's headings as full "note##heading" anchor completions for the
-// pre-"#" stage, where the user has typed (part of) the note name but no "#" yet. The note's own
-// title heading (its first h1) is dropped as noise, matching headingCompletion. A note whose body
+// pre-"#" stage, where the user has typed (part of) the note name but no "#" yet. A note whose body
 // cannot be read (e.g. not yet on disk) contributes nothing.
 func (s *Server) headingAnchorItems(ctx openLinkContext, term, path string) []completionItem {
 	body, err := s.documentText(uriFromPath(path))
 	if err != nil {
 		return nil
 	}
-	title := note.FirstH1Title(body)
 	var items []completionItem
 	seen := map[string]bool{}
 	for _, h := range link.Headings(body) {
-		if h.Level == 1 && h.Text == title {
-			continue
-		}
 		target := term + strings.Repeat("#", h.Level) + h.Text
 		// Duplicate headings resolve to their first occurrence, so later twins are unreachable noise.
 		if seen[target] {
@@ -342,17 +337,11 @@ func (s *Server) headingCompletion(ctx openLinkContext) ([]completionItem, error
 	if err != nil {
 		return nil, err
 	}
-	// The note's title is derived from its first h1, so completing that heading just points at the
-	// note itself ([[note#title]] == [[note]]). Drop it as noise; other h1 headings still appear.
-	title := note.FirstH1Title(text)
 	lowerPrefix := strings.ToLower(prefix)
 	items := make([]completionItem, 0)
 	seen := map[string]bool{}
 	for _, h := range link.Headings(text) {
 		if h.Level != level {
-			continue
-		}
-		if h.Level == 1 && h.Text == title {
 			continue
 		}
 		if prefix != "" && !strings.HasPrefix(strings.ToLower(h.Text), lowerPrefix) {

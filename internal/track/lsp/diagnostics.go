@@ -3,7 +3,6 @@ package lsp
 import (
 	"encoding/json"
 	"fmt"
-	"strings"
 
 	"github.com/ttak0422/track/internal/track/link"
 	protocol "typefox.dev/lsp"
@@ -11,7 +10,6 @@ import (
 
 const (
 	diagnosticSource             = "track"
-	diagnosticCodeH1TitleLine    = "h1-outside-title-line"
 	diagnosticCodeUnresolvedLink = "unresolved-link"
 )
 
@@ -23,12 +21,11 @@ func (s *Server) diagnostics(uri string) ([]diagnostic, error) {
 	if err != nil {
 		return nil, err
 	}
-	diags := titleDiagnostics(text)
 	links, err := s.unresolvedLinkDiagnostics(text)
 	if err != nil {
 		return nil, err
 	}
-	return append(diags, links...), nil
+	return links, nil
 }
 
 // unresolvedLinkDiagnostics warns on each [[...]] whose key matches no note title. It reuses the same
@@ -52,31 +49,6 @@ func (s *Server) unresolvedLinkDiagnostics(text string) ([]diagnostic, error) {
 		})
 	}
 	return diags, nil
-}
-
-func titleDiagnostics(text string) []diagnostic {
-	lines := strings.Split(text, "\n")
-	diagnostics := []diagnostic{}
-	for _, h := range link.Headings(text) {
-		if h.Level != 1 {
-			continue
-		}
-		if h.Line == 0 {
-			continue
-		}
-		end := 0
-		if h.Line >= 0 && h.Line < len(lines) {
-			end = len(lines[h.Line])
-		}
-		diagnostics = append(diagnostics, diagnostic{
-			Range:    newRange(h.Line, 0, h.Line, end),
-			Severity: protocol.SeverityWarning,
-			Source:   diagnosticSource,
-			Code:     diagnosticCodeH1TitleLine,
-			Message:  "H1 headings are only valid on the first line, where they define the note title.",
-		})
-	}
-	return diagnostics
 }
 
 func (s *Server) publishDiagnostics(uri string) (rpcMessage, error) {
