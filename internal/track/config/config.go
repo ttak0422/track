@@ -61,12 +61,10 @@ func Load() (*Config, error) {
 	if vault == "" {
 		return nil, fmt.Errorf("vault_dir is required in %s or TRACK_VAULT", ConfigPath())
 	}
-	vault = expandHome(vault)
-	abs, err := filepath.Abs(vault)
+	vault, err = canonicalPath(vault)
 	if err != nil {
 		return nil, err
 	}
-	vault = abs
 
 	db := fc.DBPath
 	if env := os.Getenv("TRACK_DB"); env != "" {
@@ -155,6 +153,38 @@ func expandHome(path string) string {
 	return path
 }
 
+func canonicalPath(path string) (string, error) {
+	abs, err := filepath.Abs(expandHome(path))
+	if err != nil {
+		return "", err
+	}
+	if resolved, err := filepath.EvalSymlinks(abs); err == nil {
+		return resolved, nil
+	}
+
+	existing := abs
+	var missing []string
+	for {
+		if _, err := os.Stat(existing); err == nil {
+			break
+		}
+		parent := filepath.Dir(existing)
+		if parent == existing {
+			return abs, nil
+		}
+		missing = append(missing, filepath.Base(existing))
+		existing = parent
+	}
+	resolved, err := filepath.EvalSymlinks(existing)
+	if err != nil {
+		return abs, nil
+	}
+	for i := len(missing) - 1; i >= 0; i-- {
+		resolved = filepath.Join(resolved, missing[i])
+	}
+	return resolved, nil
+}
+
 func vaultCacheKey(vault string) string {
 	sum := sha256.Sum256([]byte(filepath.Clean(vault)))
 	return hex.EncodeToString(sum[:8])
@@ -239,11 +269,11 @@ func (c *Config) PathForKind(kind string, id int64) string {
 
 // KindFromPath classifies a vault file by its managed directory.
 func (c *Config) KindFromPath(path string) (string, bool) {
-	abs, err := filepath.Abs(path)
+	abs, err := canonicalPath(path)
 	if err != nil {
 		return "", false
 	}
-	vault, err := filepath.Abs(c.VaultDir)
+	vault, err := canonicalPath(c.VaultDir)
 	if err != nil {
 		return "", false
 	}

@@ -36,10 +36,48 @@ func TestLoadUsesConfigFileVault(t *testing.T) {
 	if err != nil {
 		t.Fatalf("load: %v", err)
 	}
-	if cfg.VaultDir != vault {
-		t.Fatalf("VaultDir = %q, want %q", cfg.VaultDir, vault)
+	wantVault, err := canonicalPath(vault)
+	if err != nil {
+		t.Fatal(err)
 	}
-	wantDB := filepath.Join(cache, vaultCacheKey(vault), "index.db")
+	if cfg.VaultDir != wantVault {
+		t.Fatalf("VaultDir = %q, want %q", cfg.VaultDir, wantVault)
+	}
+	wantDB := filepath.Join(cache, vaultCacheKey(wantVault), "index.db")
+	if cfg.DBPath != wantDB {
+		t.Fatalf("DBPath = %q, want %q", cfg.DBPath, wantDB)
+	}
+}
+
+func TestLoadCanonicalizesSymlinkVault(t *testing.T) {
+	realVault := t.TempDir()
+	linkParent := t.TempDir()
+	linkVault := filepath.Join(linkParent, "vault-link")
+	if err := os.Symlink(realVault, linkVault); err != nil {
+		t.Skipf("symlink unavailable: %v", err)
+	}
+	cache := t.TempDir()
+	configPath := filepath.Join(t.TempDir(), "config.yml")
+	if err := os.WriteFile(configPath, []byte("vault_dir: "+linkVault+"\ncache_dir: "+cache+"\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("TRACK_CONFIG", configPath)
+	t.Setenv("TRACK_VAULT", "")
+	t.Setenv("TRACK_DB", "")
+	t.Setenv("TRACK_CACHE_DIR", "")
+
+	cfg, err := Load()
+	if err != nil {
+		t.Fatalf("load: %v", err)
+	}
+	wantVault, err := canonicalPath(realVault)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cfg.VaultDir != wantVault {
+		t.Fatalf("VaultDir = %q, want %q", cfg.VaultDir, wantVault)
+	}
+	wantDB := filepath.Join(cache, vaultCacheKey(wantVault), "index.db")
 	if cfg.DBPath != wantDB {
 		t.Fatalf("DBPath = %q, want %q", cfg.DBPath, wantDB)
 	}
@@ -57,10 +95,14 @@ func TestLoadUsesExplicitTrackVault(t *testing.T) {
 	if err != nil {
 		t.Fatalf("load: %v", err)
 	}
-	if cfg.VaultDir != vault {
-		t.Fatalf("VaultDir = %q, want %q", cfg.VaultDir, vault)
+	wantVault, err := canonicalPath(vault)
+	if err != nil {
+		t.Fatal(err)
 	}
-	wantDB := filepath.Join(cache, vaultCacheKey(vault), "index.db")
+	if cfg.VaultDir != wantVault {
+		t.Fatalf("VaultDir = %q, want %q", cfg.VaultDir, wantVault)
+	}
+	wantDB := filepath.Join(cache, vaultCacheKey(wantVault), "index.db")
 	if cfg.DBPath != wantDB {
 		t.Fatalf("DBPath = %q, want %q", cfg.DBPath, wantDB)
 	}
@@ -105,5 +147,20 @@ func TestKindPaths(t *testing.T) {
 		if ok != c.want || kind != c.kind {
 			t.Fatalf("KindFromPath(%q) = %q, %v; want %q, %v", c.path, kind, ok, c.kind, c.want)
 		}
+	}
+}
+
+func TestKindFromPathCanonicalizesSymlinkPath(t *testing.T) {
+	realVault := t.TempDir()
+	linkParent := t.TempDir()
+	linkVault := filepath.Join(linkParent, "vault-link")
+	if err := os.Symlink(realVault, linkVault); err != nil {
+		t.Skipf("symlink unavailable: %v", err)
+	}
+	cfg := &Config{VaultDir: realVault, Extensions: []string{".md"}}
+
+	kind, ok := cfg.KindFromPath(filepath.Join(linkVault, "note", "100.md"))
+	if !ok || kind != KindNote {
+		t.Fatalf("KindFromPath through symlink = %q, %v; want %q, true", kind, ok, KindNote)
 	}
 }

@@ -66,6 +66,19 @@ func runInWithStdin(t *testing.T, vault, stdin string, args ...string) (map[stri
 	return runIn(t, vault, args...)
 }
 
+func canonicalTestPath(t *testing.T, path string) string {
+	t.Helper()
+	abs, err := filepath.Abs(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	resolved, err := filepath.EvalSymlinks(abs)
+	if err != nil {
+		return abs
+	}
+	return resolved
+}
+
 func TestVersion(t *testing.T) {
 	out, code := capture(t, func() int { return Run([]string{"version"}) })
 	if code != 0 || out != "track "+Version+"\n" {
@@ -332,12 +345,13 @@ PRAGMA user_version = 1;
 
 func TestJournalIdempotent(t *testing.T) {
 	vault := t.TempDir()
+	wantVault := canonicalTestPath(t, vault)
 	first, code := runIn(t, vault, "journal", "--offset", "0")
 	if code != 0 || first["created"] != true {
 		t.Fatalf("first journal: %v", first)
 	}
 	path := first["path"].(string)
-	if filepath.Dir(path) != filepath.Join(vault, "journal") {
+	if filepath.Dir(path) != filepath.Join(wantVault, "journal") {
 		t.Fatalf("journal path should be under journal dir, got %q", path)
 	}
 	name := strings.TrimSuffix(filepath.Base(path), filepath.Ext(path))
@@ -365,6 +379,7 @@ func TestJournalIdempotent(t *testing.T) {
 
 func TestTemplateCommands(t *testing.T) {
 	vault := t.TempDir()
+	wantVault := canonicalTestPath(t, vault)
 
 	created, code := runIn(t, vault, "template", "new", "--name", "daily", "--id", "700")
 	if code != 0 {
@@ -373,7 +388,7 @@ func TestTemplateCommands(t *testing.T) {
 	if created["created"] != true || created["name"] != "daily" || created["id"].(float64) != 700 {
 		t.Fatalf("unexpected created template: %v", created)
 	}
-	path := filepath.Join(vault, "template", "700.template.md")
+	path := filepath.Join(wantVault, "template", "700.template.md")
 	if created["path"] != path {
 		t.Fatalf("template path = %v, want %s", created["path"], path)
 	}
@@ -458,6 +473,7 @@ func TestCreateFromTemplate(t *testing.T) {
 
 func TestSearch(t *testing.T) {
 	vault := t.TempDir()
+	wantVault := canonicalTestPath(t, vault)
 	runIn(t, vault, "new", "--title", "Golang notes", "--id", "300")
 	runIn(t, vault, "new", "--title", "Body note", "--id", "301")
 	if err := os.WriteFile(filepath.Join(vault, "note", "301.md"), []byte("# Body note\n\nneedle body text\n"), 0o644); err != nil {
@@ -468,7 +484,7 @@ func TestSearch(t *testing.T) {
 		t.Fatalf("journal failed: %v", journal)
 	}
 	journalID := strconv.FormatInt(int64(journal["id"].(float64)), 10)
-	journalPath := filepath.Join(vault, "journal", journalID+".md")
+	journalPath := filepath.Join(wantVault, "journal", journalID+".md")
 	if rep, code := runIn(t, vault, "reindex", "--full"); code != 0 {
 		t.Fatalf("reindex failed: %v", rep)
 	}
