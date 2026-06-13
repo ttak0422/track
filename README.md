@@ -68,6 +68,7 @@ track rename (--id N | --title S | --path P) --to S
 track journal [--offset <n>] [--template <s>] [--body <s>] [--ai]
                                       # open/create a daily note (0=today)
 track reindex [--full]                # rebuild the index
+track doctor                          # report vault/sidecar divergence without changing files
 track keywords                        # dump the link keyword dictionary
 track resolve --term <s>              # resolve a keyword to a note
 track search --query <s> [--scope all|title|body] [--limit N]

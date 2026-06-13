@@ -64,3 +64,9 @@ Typical creation loop:
 3. `track resolve --term LinkedTitle` to verify important links.
 4. `track search --query X` to rediscover notes.
 5. `track rename --title Old --to New` when a title changes.
+
+## Maintenance
+
+`track reindex --full` rebuilds the cache index from the on-disk notes and sidecars; it reconciles deletions silently.
+
+`track doctor` is a read-only health check that never changes files. It reports vault/sidecar divergence — the kind a cloud sync (e.g. OneDrive) can introduce — as a JSON `issues` array, with `ok: true` when clean. Issue kinds: `missing_sidecar`, `orphan_sidecar`, `stray_file` (e.g. a conflict copy that breaks the `<id>.md` naming rule), `unreadable_sidecar`, and `duplicate_title`. Finding issues is not an error, so it still exits 0; only real failures use the `{"error":...}`/exit 1 contract. Run it before a `reindex --full` if you suspect a partially synced vault, so an orphan sidecar is not mistaken for a delete.
