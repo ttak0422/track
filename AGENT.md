@@ -13,6 +13,7 @@ Keep this file focused on durable collaboration rules and pointers to shared pro
 
 - Put durable design decisions in `docs/adr/`.
 - Put stable specifications and reference material in `docs/spec/`.
+- Use `docs/spec/agent-workflows.md` for the stable CLI contract expected by agents and automation.
 - Do not put daily scratch notes, rough ideas, or private agent transcripts in `docs/`; they are not project assets.
 
 ## Local Notes
