@@ -66,7 +66,13 @@ func (s *Server) handleIndex(w http.ResponseWriter, r *http.Request) {
 	}
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
 	w.Header().Set("Cache-Control", "no-store")
-	_, _ = w.Write([]byte(indexHTML))
+	// Inject the configured default theme. Config.WebTheme is normalized to system/light/dark, so this
+	// is never arbitrary text from the user's config.
+	theme := s.cfg.WebTheme
+	if theme == "" {
+		theme = "system"
+	}
+	_, _ = w.Write([]byte(strings.Replace(indexHTML, "__TRACK_DEFAULT_THEME__", theme, 1)))
 }
 
 func (s *Server) handleSearch(w http.ResponseWriter, r *http.Request) {

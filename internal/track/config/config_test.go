@@ -164,3 +164,36 @@ func TestKindFromPathCanonicalizesSymlinkPath(t *testing.T) {
 		t.Fatalf("KindFromPath through symlink = %q, %v; want %q, true", kind, ok, KindNote)
 	}
 }
+
+func TestLoadWebTheme(t *testing.T) {
+	cases := map[string]string{
+		"dark":     "dark",
+		"light":    "light",
+		"system":   "system",
+		"":         "system", // unset
+		"hot-pink": "system", // unknown values are normalized away
+	}
+	for in, want := range cases {
+		vault := t.TempDir()
+		configPath := filepath.Join(t.TempDir(), "config.yml")
+		contents := "vault_dir: " + vault + "\ncache_dir: " + t.TempDir() + "\n"
+		if in != "" {
+			contents += "web:\n  theme: " + in + "\n"
+		}
+		if err := os.WriteFile(configPath, []byte(contents), 0o644); err != nil {
+			t.Fatal(err)
+		}
+		t.Setenv("TRACK_CONFIG", configPath)
+		t.Setenv("TRACK_VAULT", "")
+		t.Setenv("TRACK_DB", "")
+		t.Setenv("TRACK_CACHE_DIR", "")
+
+		cfg, err := Load()
+		if err != nil {
+			t.Fatalf("load (theme=%q): %v", in, err)
+		}
+		if cfg.WebTheme != want {
+			t.Fatalf("theme %q -> WebTheme %q, want %q", in, cfg.WebTheme, want)
+		}
+	}
+}

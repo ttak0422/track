@@ -8,7 +8,9 @@ const indexHTML = `<!doctype html>
   <title>track web</title>
   <script>
     (function () {
-      var theme = localStorage.getItem("track.theme") || "system";
+      var serverDefault = "__TRACK_DEFAULT_THEME__";
+      window.__trackDefaultTheme = serverDefault;
+      var theme = localStorage.getItem("track.theme") || serverDefault;
       if (theme === "light" || theme === "dark") {
         document.documentElement.dataset.theme = theme;
       }
@@ -939,7 +941,12 @@ const appJS = `(function () {
 
   function themeMode() {
     var saved = localStorage.getItem("track.theme");
-    return saved === "light" || saved === "dark" ? saved : "system";
+    if (saved === "light" || saved === "dark" || saved === "system") {
+      return saved;
+    }
+    // No explicit in-browser choice yet: fall back to the server-configured default (web.theme).
+    var serverDefault = window.__trackDefaultTheme;
+    return serverDefault === "light" || serverDefault === "dark" ? serverDefault : "system";
   }
 
   function applyTheme(mode) {

@@ -2,6 +2,7 @@ package webui
 
 import (
 	"encoding/json"
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -200,5 +201,35 @@ func TestPutNoteRequiresEtag(t *testing.T) {
 	code, _ := putNote(t, server.URL+"/api/note?id=100", `{"body":"x\n"}`)
 	if code != http.StatusBadRequest {
 		t.Fatalf("missing etag should be 400, got %d", code)
+	}
+}
+
+func TestIndexInjectsConfiguredTheme(t *testing.T) {
+	cfg := &config.Config{
+		VaultDir:   t.TempDir(),
+		DBPath:     filepath.Join(t.TempDir(), "index.db"),
+		Extensions: []string{".md"},
+		WebTheme:   "dark",
+	}
+	s, err := store.Open(cfg.DBPath)
+	if err != nil {
+		t.Fatalf("open store: %v", err)
+	}
+	t.Cleanup(func() { s.Close() })
+	server := httptest.NewServer(New(cfg, s).Handler())
+	t.Cleanup(server.Close)
+
+	resp, err := http.Get(server.URL + "/")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer resp.Body.Close()
+	bodyBytes, _ := io.ReadAll(resp.Body)
+	html := string(bodyBytes)
+	if !strings.Contains(html, `var serverDefault = "dark"`) {
+		t.Fatalf("served HTML should inject the dark default theme")
+	}
+	if strings.Contains(html, "__TRACK_DEFAULT_THEME__") {
+		t.Fatalf("placeholder should be replaced")
 	}
 }

@@ -24,15 +24,29 @@ type Config struct {
 	// BabelLanguages maps a source-block language to the command that runs it. lua and viml ship as
 	// samples; TRACK_BABEL_<LANG> overrides or adds languages (value is "command arg arg...").
 	BabelLanguages map[string]babel.Executor
+	// WebTheme is the default theme the web UI boots with ("system", "light", or "dark"); empty means
+	// "system". A user's in-browser choice is still stored client-side and overrides this default.
+	WebTheme string
 }
 
 type fileConfig struct {
-	VaultDir          string   `yaml:"vault_dir"`
-	DBPath            string   `yaml:"db_path"`
-	CacheDir          string   `yaml:"cache_dir"`
-	Extensions        []string `yaml:"extensions"`
-	DateFormat        string   `yaml:"date_format"`
-	JournalDateFormat string   `yaml:"journal_date_format"`
+	VaultDir          string        `yaml:"vault_dir"`
+	DBPath            string        `yaml:"db_path"`
+	CacheDir          string        `yaml:"cache_dir"`
+	Extensions        []string      `yaml:"extensions"`
+	DateFormat        string        `yaml:"date_format"`
+	JournalDateFormat string        `yaml:"journal_date_format"`
+	Web               webFileConfig `yaml:"web"`
+}
+
+// webFileConfig holds web-only settings read from config.yml.
+//
+// TODO(track): a full colorscheme (web.colors) is the larger half of "カラースキームの設定をyaml形式".
+// It needs two decisions before it is safe: which CSS variables are publicly themeable (a whitelist,
+// not arbitrary CSS injection into the served page) and whether Web-side edits write back here or to a
+// separate cache-local file. Until then only the boot theme is read.
+type webFileConfig struct {
+	Theme string `yaml:"theme"`
 }
 
 const (
@@ -108,7 +122,19 @@ func Load() (*Config, error) {
 		DateFormat:        dateFormat,
 		JournalDateFormat: journalDateFormat,
 		BabelLanguages:    loadBabelLanguages(),
+		WebTheme:          normalizeWebTheme(fc.Web.Theme),
 	}, nil
+}
+
+// normalizeWebTheme keeps only the recognized theme values; anything else (including empty) becomes
+// "system", so a stray config value can never inject an unexpected attribute into the served page.
+func normalizeWebTheme(theme string) string {
+	switch theme {
+	case "light", "dark", "system":
+		return theme
+	default:
+		return "system"
+	}
 }
 
 // ConfigPath returns the fixed user config path, or TRACK_CONFIG when set for tests and one-off runs.
