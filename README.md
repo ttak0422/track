@@ -68,7 +68,7 @@ track rename (--id N | --title S | --path P) --to S
 track journal [--offset <n>] [--template <s>] [--body <s>] [--ai]
                                       # open/create a daily note (0=today)
 track reindex [--full]                # rebuild the index
-track doctor                          # report vault/sidecar divergence without changing files
+track doctor [--fix]                  # report vault/sidecar divergence; --fix restores by auto-numbering
 track keywords                        # dump the link keyword dictionary
 track resolve --term <s>              # resolve a keyword to a note
 track search --query <s> [--scope all|title|body] [--limit N]
@@ -100,7 +100,17 @@ Templates are stored under `template/`, are not indexed as notes, and currently 
 track web
 ```
 
-Open `http://127.0.0.1:8765/` while the command is running. The first version includes note search, Markdown preview, backlinks, and a local Canvas graph. Use `#tag` terms, such as `#graph #web`, to filter by sidecar tags. This is not the publish/export path; public output should use `track export` plus a static site generator.
+Open `http://127.0.0.1:8765/` while the command is running. The first version includes note search, Markdown preview, backlinks, and a Canvas graph with a Local/Global toggle. Use `#tag` terms, such as `#graph #web`, to filter by sidecar tags. This is not the publish/export path; public output should use `track export` plus a static site generator.
+
+The workspace theme can be set with `web.theme` (`system`/`light`/`dark`) in `config.yml`, and colors can be overridden by pointing `web.colors_path` at a palette file:
+
+```yaml
+web:
+  theme: dark
+  colors_path: ~/.config/track/colors.yml
+```
+
+The palette file has optional `light:` and `dark:` sections mapping a themeable variable (`accent`, `accent-strong`, `bg`, `panel`, `panel-soft`, `text`, `muted`, `line`, `generated`, `danger`) to a CSS color. Unknown keys are ignored and only safe color values are accepted.
 
 ## LSP
 
