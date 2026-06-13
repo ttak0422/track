@@ -30,7 +30,8 @@ type Report struct {
 }
 
 // Full re-parses every note in the vault, reconciles deletions, and recomputes the entire link graph.
-// It is the authoritative rebuild; single-file updates can't see new inbound links, so callers run Full after creating notes.
+// It is the authoritative rebuild; single-file updates can't see new inbound links, so use Full for
+// bulk repair or when previously unresolved links should become backlinks after creating a title.
 func (ix *Indexer) Full() (Report, error) {
 	var rep Report
 

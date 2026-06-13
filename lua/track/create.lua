@@ -6,9 +6,9 @@ local M = {}
 
 -- create opens the note titled `title`, creating it only when none exists. Titles are link keywords,
 -- so resolving an existing title instead of minting a duplicate keeps them unique. A freshly created
--- note triggers a full reindex so other notes' inbound links to the new title are picked up; opening
--- an existing note needs none. The LSP server reloads the keyword dictionary per request, so no
--- client-side cache refresh is needed.
+-- note is indexed by the CLI. Run `track reindex --full` separately when older unresolved links to
+-- the new title should become backlinks. The LSP server reloads the keyword dictionary per request,
+-- so no client-side cache refresh is needed.
 function M.create(title, template)
    title = vim.trim(title or "")
    if title == "" then
@@ -25,13 +25,6 @@ function M.create(title, template)
    if not data then
       vim.notify("track: " .. tostring(err), vim.log.levels.ERROR)
       return
-   end
-
-   if data.created then
-      local _, rerr = client.run_json({ "reindex", "--full" })
-      if rerr then
-         vim.notify("track: reindex failed: " .. tostring(rerr), vim.log.levels.WARN)
-      end
    end
 
    vim.cmd.edit(vim.fn.fnameescape(data.path))
