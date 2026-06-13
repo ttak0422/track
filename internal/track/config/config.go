@@ -27,6 +27,9 @@ type Config struct {
 	// WebTheme is the default theme the web UI boots with ("system", "light", or "dark"); empty means
 	// "system". A user's in-browser choice is still stored client-side and overrides this default.
 	WebTheme string
+	// WebColorsPath is the resolved path to an optional palette file overriding the web UI's themeable
+	// CSS colors. Empty means use the built-in palette. The file is read by the web layer, not here.
+	WebColorsPath string
 }
 
 type fileConfig struct {
@@ -39,14 +42,12 @@ type fileConfig struct {
 	Web               webFileConfig `yaml:"web"`
 }
 
-// webFileConfig holds web-only settings read from config.yml.
-//
-// TODO(track): a full colorscheme (web.colors) is the larger half of "カラースキームの設定をyaml形式".
-// It needs two decisions before it is safe: which CSS variables are publicly themeable (a whitelist,
-// not arbitrary CSS injection into the served page) and whether Web-side edits write back here or to a
-// separate cache-local file. Until then only the boot theme is read.
+// webFileConfig holds web-only settings read from config.yml. The colorscheme is kept out of this file:
+// colors_path points to a separate palette file (see webui.LoadPalette) so the palette can be edited
+// and shared independently of the main config.
 type webFileConfig struct {
-	Theme string `yaml:"theme"`
+	Theme      string `yaml:"theme"`
+	ColorsPath string `yaml:"colors_path"`
 }
 
 const (
@@ -123,7 +124,19 @@ func Load() (*Config, error) {
 		JournalDateFormat: journalDateFormat,
 		BabelLanguages:    loadBabelLanguages(),
 		WebTheme:          normalizeWebTheme(fc.Web.Theme),
+		WebColorsPath:     resolveColorsPath(fc.Web.ColorsPath),
 	}, nil
+}
+
+// resolveColorsPath expands and absolutizes an optional palette path; empty stays empty.
+func resolveColorsPath(path string) string {
+	if strings.TrimSpace(path) == "" {
+		return ""
+	}
+	if abs, err := filepath.Abs(expandHome(path)); err == nil {
+		return abs
+	}
+	return expandHome(path)
 }
 
 // normalizeWebTheme keeps only the recognized theme values; anything else (including empty) becomes

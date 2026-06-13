@@ -17,6 +17,7 @@ const indexHTML = `<!doctype html>
     })();
   </script>
   <link rel="stylesheet" href="/style.css">
+__TRACK_COLOR_OVERRIDES__
 </head>
 <body>
   <main id="workspace" class="workspace">

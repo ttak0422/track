@@ -233,3 +233,59 @@ func TestIndexInjectsConfiguredTheme(t *testing.T) {
 		t.Fatalf("placeholder should be replaced")
 	}
 }
+
+func TestIndexInjectsPaletteOverrides(t *testing.T) {
+	palettePath := filepath.Join(t.TempDir(), "colors.yml")
+	if err := os.WriteFile(palettePath, []byte("dark:\n  accent: \"#123456\"\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	cfg := &config.Config{
+		VaultDir:      t.TempDir(),
+		DBPath:        filepath.Join(t.TempDir(), "index.db"),
+		Extensions:    []string{".md"},
+		WebColorsPath: palettePath,
+	}
+	s, err := store.Open(cfg.DBPath)
+	if err != nil {
+		t.Fatalf("open store: %v", err)
+	}
+	t.Cleanup(func() { s.Close() })
+	server := httptest.NewServer(New(cfg, s).Handler())
+	t.Cleanup(server.Close)
+
+	resp, err := http.Get(server.URL + "/")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer resp.Body.Close()
+	body, _ := io.ReadAll(resp.Body)
+	html := string(body)
+	if !strings.Contains(html, `id="track-colors"`) || !strings.Contains(html, "--accent:#123456;") {
+		t.Fatalf("served HTML should inject palette overrides, got:\n%s", html)
+	}
+}
+
+func TestIndexNoPaletteRemovesPlaceholder(t *testing.T) {
+	cfg := &config.Config{VaultDir: t.TempDir(), DBPath: filepath.Join(t.TempDir(), "index.db"), Extensions: []string{".md"}}
+	s, err := store.Open(cfg.DBPath)
+	if err != nil {
+		t.Fatalf("open store: %v", err)
+	}
+	t.Cleanup(func() { s.Close() })
+	server := httptest.NewServer(New(cfg, s).Handler())
+	t.Cleanup(server.Close)
+
+	resp, err := http.Get(server.URL + "/")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer resp.Body.Close()
+	body, _ := io.ReadAll(resp.Body)
+	html := string(body)
+	if strings.Contains(html, "__TRACK_COLOR_OVERRIDES__") {
+		t.Fatalf("color placeholder should be replaced even with no palette")
+	}
+	if strings.Contains(html, `id="track-colors"`) {
+		t.Fatalf("no palette should mean no override style block")
+	}
+}

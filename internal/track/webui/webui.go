@@ -20,13 +20,21 @@ import (
 )
 
 type Server struct {
-	cfg   *config.Config
-	store *store.Store
-	mux   *http.ServeMux
+	cfg      *config.Config
+	store    *store.Store
+	mux      *http.ServeMux
+	colorCSS string
 }
 
 func New(cfg *config.Config, s *store.Store) *Server {
 	srv := &Server{cfg: cfg, store: s, mux: http.NewServeMux()}
+	// A palette is a best-effort cosmetic override; a bad file must not take the workspace down, so we
+	// warn and fall back to the built-in colors rather than failing to start.
+	if css, err := LoadPalette(cfg.WebColorsPath); err != nil {
+		fmt.Fprintf(os.Stderr, "track web: ignoring palette: %v\n", err)
+	} else {
+		srv.colorCSS = css
+	}
 	srv.routes()
 	return srv
 }
@@ -72,7 +80,13 @@ func (s *Server) handleIndex(w http.ResponseWriter, r *http.Request) {
 	if theme == "" {
 		theme = "system"
 	}
-	_, _ = w.Write([]byte(strings.Replace(indexHTML, "__TRACK_DEFAULT_THEME__", theme, 1)))
+	html := strings.Replace(indexHTML, "__TRACK_DEFAULT_THEME__", theme, 1)
+	overrides := ""
+	if s.colorCSS != "" {
+		overrides = "<style id=\"track-colors\">\n" + s.colorCSS + "</style>"
+	}
+	html = strings.Replace(html, "__TRACK_COLOR_OVERRIDES__", overrides, 1)
+	_, _ = w.Write([]byte(html))
 }
 
 func (s *Server) handleSearch(w http.ResponseWriter, r *http.Request) {
