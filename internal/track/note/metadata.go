@@ -104,22 +104,3 @@ func ParseLegacyMetadata(yamlText string) (Metadata, error) {
 	}
 	return meta, nil
 }
-
-// FirstH1Title returns the first markdown H1 title from body.
-// Fenced code blocks are ignored so examples do not become metadata.
-func FirstH1Title(body string) string {
-	inFence := false
-	for _, line := range strings.Split(body, "\n") {
-		trimmed := strings.TrimSpace(line)
-		if strings.HasPrefix(trimmed, "```") {
-			inFence = !inFence
-			continue
-		}
-		if inFence || !strings.HasPrefix(trimmed, "# ") {
-			continue
-		}
-		title := strings.TrimSpace(strings.TrimPrefix(trimmed, "# "))
-		return strings.TrimSpace(strings.TrimRight(title, "#"))
-	}
-	return ""
-}

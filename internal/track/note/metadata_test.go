@@ -254,18 +254,3 @@ func TestParseFileWithoutSidecarDerivesNoTitle(t *testing.T) {
 		t.Fatal("expected no sidecar to be created from the body title")
 	}
 }
-
-func TestFirstH1Title(t *testing.T) {
-	body := strings.Join([]string{
-		"```",
-		"# Example",
-		"```",
-		"",
-		"## Not H1",
-		"# Actual Title #",
-	}, "\n")
-
-	if got := FirstH1Title(body); got != "Actual Title" {
-		t.Fatalf("FirstH1Title = %q, want %q", got, "Actual Title")
-	}
-}
