@@ -137,6 +137,14 @@ function M.setup()
       require("track.telescope").search_templates()
    end, { desc = "Search templates with Telescope and open one for editing" })
 
+   register("search_title", function(opts)
+      require("track.telescope").search_title({ query = opts.args })
+   end, { nargs = "*", desc = "Search note titles with Telescope" })
+
+   register("search_body", function(opts)
+      require("track.telescope").search_body({ query = opts.args })
+   end, { nargs = "*", desc = "Search note bodies with Telescope" })
+
    register("follow", function()
       require("track.follow").follow()
    end, { desc = "Follow the track link under the cursor" })

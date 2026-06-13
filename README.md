@@ -128,6 +128,10 @@ Commands:
 :Track from_template [template] [title]
                        " create a note from a template; prompts when omitted
 :Track templates       " search templates with Telescope and open one for editing
+:Track search_title [query]
+                       " search note titles with Telescope
+:Track search_body [query]
+                       " search note bodies with Telescope
 :Track follow          " follow the [[...]] link under the cursor (also mapped to <CR>)
 :Track backlinks       " show notes that link to the current note in quickfix
 :Track graph           " show a local note graph around the current note
@@ -154,6 +158,8 @@ require("telescope").extensions.track.search_title({ query = "Go" })
 require("telescope").extensions.track.search_body(require("telescope.themes").get_dropdown({ query = "TODO" }))
 require("telescope").extensions.track.search_templates()
 ```
+
+The same pickers are available as `:Track search_title [query]` and `:Track search_body [query]`, which is useful when a plugin manager lazy-loads track on the `:Track` command before Telescope extensions are registered.
 
 The picker uses Telescope's prompt for live searching. `query` seeds the initial prompt text when supplied, and Telescope picker options, including themes, can be passed through the opts table.
 
