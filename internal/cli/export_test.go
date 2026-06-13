@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"testing"
 )
@@ -58,6 +59,23 @@ func TestExportCommandWritesFile(t *testing.T) {
 	}
 	if !strings.Contains(string(content), "# Doc") {
 		t.Fatalf("exported file missing body: %q", content)
+	}
+}
+
+func TestExportCommandResolvesJournalID(t *testing.T) {
+	vault := t.TempDir()
+	created, code := runIn(t, vault, "journal", "--body", "# Journal\n\nentry\n")
+	if code != 0 {
+		t.Fatalf("journal failed: %v", created)
+	}
+	id := strconv.FormatInt(int64(created["id"].(float64)), 10)
+
+	out, code := capture(t, func() int { return Run([]string{"export", "--id", id}) })
+	if code != 0 {
+		t.Fatalf("export journal by id failed: %q", out)
+	}
+	if !strings.Contains(out, "entry") {
+		t.Fatalf("exported journal missing body: %q", out)
 	}
 }
 

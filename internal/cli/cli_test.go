@@ -7,6 +7,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"testing"
 
@@ -459,6 +460,12 @@ func TestSearch(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(vault, "note", "301.md"), []byte("# Body note\n\nneedle body text\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
+	journal, code := runIn(t, vault, "journal", "--body", "# Journal\n\njournal body needle\n")
+	if code != 0 {
+		t.Fatalf("journal failed: %v", journal)
+	}
+	journalID := strconv.FormatInt(int64(journal["id"].(float64)), 10)
+	journalPath := filepath.Join(vault, "journal", journalID+".md")
 	if rep, code := runIn(t, vault, "reindex", "--full"); code != 0 {
 		t.Fatalf("reindex failed: %v", rep)
 	}
@@ -479,6 +486,19 @@ func TestSearch(t *testing.T) {
 		t.Fatalf("expected 1 title result, got %v", title["results"])
 	}
 
+	journalTitle, code := runIn(t, vault, "search", "--scope", "title", "--query", journalID)
+	if code != 0 {
+		t.Fatalf("journal title search failed: %v", journalTitle)
+	}
+	journalTitleResults := journalTitle["results"].([]any)
+	if len(journalTitleResults) != 1 {
+		t.Fatalf("expected 1 journal title result, got %v", journalTitleResults)
+	}
+	journalTitleHit := journalTitleResults[0].(map[string]any)
+	if journalTitleHit["file_kind"] != "journal" || journalTitleHit["path"] != journalPath {
+		t.Fatalf("journal title result should point to journal path, got %v", journalTitleHit)
+	}
+
 	titleMiss, code := runIn(t, vault, "search", "--scope", "title", "--query", "needle")
 	if code != 0 {
 		t.Fatalf("title search miss failed: %v", titleMiss)
@@ -487,7 +507,7 @@ func TestSearch(t *testing.T) {
 		t.Fatalf("expected no title results, got %v", titleMiss["results"])
 	}
 
-	body, code := runIn(t, vault, "search", "--scope", "body", "--query", "needle")
+	body, code := runIn(t, vault, "search", "--scope", "body", "--query", "needle body text")
 	if code != 0 {
 		t.Fatalf("body search failed: %v", body)
 	}
@@ -502,6 +522,19 @@ func TestSearch(t *testing.T) {
 	}
 	if bodyHit["snippet"] != "needle body text" {
 		t.Fatalf("expected matched line snippet, got %v", bodyHit["snippet"])
+	}
+
+	journalBody, code := runIn(t, vault, "search", "--scope", "body", "--query", "journal body needle")
+	if code != 0 {
+		t.Fatalf("journal body search failed: %v", journalBody)
+	}
+	journalBodyResults := journalBody["results"].([]any)
+	if len(journalBodyResults) != 1 {
+		t.Fatalf("expected 1 journal body result, got %v", journalBodyResults)
+	}
+	journalBodyHit := journalBodyResults[0].(map[string]any)
+	if journalBodyHit["file_kind"] != "journal" || journalBodyHit["path"] != journalPath {
+		t.Fatalf("journal body result should point to journal path, got %v", journalBodyHit)
 	}
 
 	bad, code := runIn(t, vault, "search", "--scope", "bogus", "--query", "needle")
@@ -566,6 +599,29 @@ func TestBabelExecRunsAndStores(t *testing.T) {
 	}
 	if got := len(stale["blocks"].([]any)); got != 0 {
 		t.Fatalf("stale result should not be restored, got %v", stale["blocks"])
+	}
+}
+
+func TestBabelExecResolvesJournalID(t *testing.T) {
+	if _, err := exec.LookPath("sh"); err != nil {
+		t.Skip("sh not available")
+	}
+	vault := t.TempDir()
+	t.Setenv("TRACK_BABEL_SH", "sh {{file}}")
+
+	body := "# Journal\n\n```sh :name hi :results output\necho journal\n```\n"
+	created, code := runIn(t, vault, "journal", "--body", body)
+	if code != 0 {
+		t.Fatalf("journal failed: %v", created)
+	}
+	id := strconv.FormatInt(int64(created["id"].(float64)), 10)
+
+	out, code := runIn(t, vault, "babel", "exec", "--id", id, "--name", "hi")
+	if code != 0 {
+		t.Fatalf("babel exec journal by id failed: %v", out)
+	}
+	if out["status"] != "success" || out["stdout"] != "journal\n" {
+		t.Fatalf("unexpected result: %v", out)
 	}
 }
 

@@ -4,7 +4,6 @@ import (
 	"flag"
 	"fmt"
 	"os"
-	"strings"
 
 	"github.com/ttak0422/track/internal/track/export"
 	"github.com/ttak0422/track/internal/track/note"
@@ -34,23 +33,9 @@ func cmdExport(args []string) int {
 	}
 	defer s.Close()
 
-	notePath := *path
-	if notePath == "" {
-		switch {
-		case *id != 0:
-			notePath = cfg.NotePath(*id)
-		case strings.TrimSpace(*title) != "":
-			ref, found, err := s.ResolveTerm(strings.TrimSpace(*title))
-			if err != nil {
-				return fail("resolve title: %v", err)
-			}
-			if !found {
-				return fail("no note for title %q", *title)
-			}
-			notePath = cfg.PathForKind(ref.FileKind, ref.NoteID)
-		default:
-			return fail("--id, --title, or --path is required")
-		}
+	notePath, err := resolveNotePath(cfg, s, *id, *title, *path)
+	if err != nil {
+		return fail("%v", err)
 	}
 
 	n, err := note.ParseFile(notePath, cfg)

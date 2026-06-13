@@ -53,7 +53,11 @@ func cmdBabelExec(args []string) int {
 		if *id == 0 {
 			return fail("--path or --id is required")
 		}
-		notePath = cfg.NotePath(*id)
+		var err error
+		notePath, err = resolveNotePath(cfg, s, *id, "", "")
+		if err != nil {
+			return fail("%v", err)
+		}
 	}
 
 	n, err := note.ParseFile(notePath, cfg)
@@ -139,7 +143,11 @@ func cmdBabelRestore(args []string) int {
 		if *id == 0 {
 			return fail("--path or --id is required")
 		}
-		notePath = cfg.NotePath(*id)
+		var err error
+		notePath, err = resolveNotePath(cfg, s, *id, "", "")
+		if err != nil {
+			return fail("%v", err)
+		}
 	}
 
 	n, err := note.ParseFile(notePath, cfg)
