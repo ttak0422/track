@@ -2,7 +2,7 @@
 
 ## Status
 
-Accepted
+Superseded by config-file based explicit vault configuration.
 
 ## Context
 
@@ -13,14 +13,16 @@ The cost of a missing configuration error is lower than the cost of writing note
 
 ## Decision
 
-Require explicit vault configuration.
+Require explicit vault configuration, but use the user config file as the normal CLI path.
 
-- The Go CLI requires `TRACK_VAULT`.
+- The Go CLI reads `~/.config/track/config.yml` by default.
+- The config file must set `vault_dir`.
+- `TRACK_VAULT` remains available as an override for tests and one-off runs.
 - The Neovim plugin requires either `TRACK_VAULT` or `require("track").setup({ vault_dir = ... })`.
 - When `vault_dir` is set in Neovim, the plugin exports it as `TRACK_VAULT` so child CLI commands use the same vault.
 
 ## Consequences
 
-First-time setup has one required step, but failures are clear and early.
+First-time setup has one required config step, but failures are clear and early.
 
 No command should create a fallback vault under XDG or `~/.local/share`.

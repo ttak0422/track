@@ -4,7 +4,15 @@ This document describes the current on-disk data model.
 
 ## Vault
 
-The vault must be configured explicitly with `$TRACK_VAULT`. track does not fallback to an implicit user data directory because accidentally creating or reading the wrong vault is worse than failing early.
+The vault must be configured explicitly. The normal CLI path is the user config file:
+
+```yaml
+vault_dir: ~/track
+```
+
+The default location is `~/.config/track/config.yml` on XDG-style systems, or the platform user config equivalent. `TRACK_CONFIG` may point at another config file for tests and one-off runs. `TRACK_VAULT` overrides `vault_dir`.
+
+track does not fallback to an implicit vault directory because accidentally creating or reading the wrong vault is worse than failing early.
 
 Notes are markdown files under managed vault directories and are named by note id:
 
@@ -72,6 +80,8 @@ vim.fn.stdpath("cache") .. "/track"
 ```
 
 `TRACK_DB` can still point at an explicit database path for debugging or tests.
+
+The config file can also set `cache_dir`, `db_path`, `extensions`, `date_format`, and `journal_date_format`. Environment values override the matching file values.
 
 ## Note Metadata
 

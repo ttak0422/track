@@ -12,6 +12,7 @@ import (
 	"strings"
 
 	"github.com/ttak0422/track/internal/track/babel"
+	"gopkg.in/yaml.v3"
 )
 
 type Config struct {
@@ -25,30 +26,57 @@ type Config struct {
 	BabelLanguages map[string]babel.Executor
 }
 
+type fileConfig struct {
+	VaultDir          string   `yaml:"vault_dir"`
+	DBPath            string   `yaml:"db_path"`
+	CacheDir          string   `yaml:"cache_dir"`
+	Extensions        []string `yaml:"extensions"`
+	DateFormat        string   `yaml:"date_format"`
+	JournalDateFormat string   `yaml:"journal_date_format"`
+}
+
 const (
 	KindNote     = "note"
 	KindJournal  = "journal"
 	KindTemplate = "template"
 )
 
-// Load resolves configuration from the environment.
-// TRACK_VAULT is required so track never creates or reads an implicit vault by accident.
-// TRACK_DB overrides the index database path. Otherwise the rebuildable SQLite cache lives under
-// TRACK_CACHE_DIR, or the platform user cache directory when TRACK_CACHE_DIR is unset.
+// Load resolves configuration from the fixed user config file, with environment overrides for tests
+// and one-off debugging. The default file is ~/.config/track/config.yml on XDG-style systems, or the
+// platform user config equivalent.
+//
+// TRACK_CONFIG overrides the config file path. TRACK_VAULT, TRACK_DB, and TRACK_CACHE_DIR override
+// the matching resolved values. A vault must still be configured explicitly, either in the config
+// file or through TRACK_VAULT.
 func Load() (*Config, error) {
-	vault := os.Getenv("TRACK_VAULT")
-	if vault == "" {
-		return nil, fmt.Errorf("TRACK_VAULT is required; set it to your track vault directory")
+	fc, err := loadFileConfig()
+	if err != nil {
+		return nil, err
 	}
+
+	vault := fc.VaultDir
+	if env := os.Getenv("TRACK_VAULT"); env != "" {
+		vault = env
+	}
+	if vault == "" {
+		return nil, fmt.Errorf("vault_dir is required in %s or TRACK_VAULT", ConfigPath())
+	}
+	vault = expandHome(vault)
 	abs, err := filepath.Abs(vault)
 	if err != nil {
 		return nil, err
 	}
 	vault = abs
 
-	db := os.Getenv("TRACK_DB")
+	db := fc.DBPath
+	if env := os.Getenv("TRACK_DB"); env != "" {
+		db = env
+	}
 	if db == "" {
-		cacheDir := os.Getenv("TRACK_CACHE_DIR")
+		cacheDir := fc.CacheDir
+		if env := os.Getenv("TRACK_CACHE_DIR"); env != "" {
+			cacheDir = env
+		}
 		if cacheDir == "" {
 			userCache, err := os.UserCacheDir()
 			if err != nil {
@@ -56,17 +84,75 @@ func Load() (*Config, error) {
 			}
 			cacheDir = filepath.Join(userCache, "track")
 		}
+		cacheDir = expandHome(cacheDir)
 		db = filepath.Join(cacheDir, vaultCacheKey(vault), "index.db")
+	} else {
+		db = expandHome(db)
+	}
+
+	extensions := fc.Extensions
+	if len(extensions) == 0 {
+		extensions = []string{".md"}
+	}
+	dateFormat := fc.DateFormat
+	if dateFormat == "" {
+		dateFormat = "2006-01-02"
+	}
+	journalDateFormat := fc.JournalDateFormat
+	if journalDateFormat == "" {
+		journalDateFormat = "20060102"
 	}
 
 	return &Config{
 		VaultDir:          vault,
 		DBPath:            db,
-		Extensions:        []string{".md"},
-		DateFormat:        "2006-01-02",
-		JournalDateFormat: "20060102",
+		Extensions:        extensions,
+		DateFormat:        dateFormat,
+		JournalDateFormat: journalDateFormat,
 		BabelLanguages:    loadBabelLanguages(),
 	}, nil
+}
+
+// ConfigPath returns the fixed user config path, or TRACK_CONFIG when set for tests and one-off runs.
+func ConfigPath() string {
+	if path := os.Getenv("TRACK_CONFIG"); path != "" {
+		return expandHome(path)
+	}
+	userConfig, err := os.UserConfigDir()
+	if err != nil {
+		return filepath.Join(expandHome("~"), ".config", "track", "config.yml")
+	}
+	return filepath.Join(userConfig, "track", "config.yml")
+}
+
+func loadFileConfig() (fileConfig, error) {
+	path := ConfigPath()
+	raw, err := os.ReadFile(path)
+	if err != nil {
+		if os.IsNotExist(err) {
+			return fileConfig{}, nil
+		}
+		return fileConfig{}, fmt.Errorf("read config %s: %w", path, err)
+	}
+	var cfg fileConfig
+	if err := yaml.Unmarshal(raw, &cfg); err != nil {
+		return fileConfig{}, fmt.Errorf("parse config %s: %w", path, err)
+	}
+	return cfg, nil
+}
+
+func expandHome(path string) string {
+	if path == "~" {
+		if home, err := os.UserHomeDir(); err == nil {
+			return home
+		}
+	}
+	if strings.HasPrefix(path, "~/") {
+		if home, err := os.UserHomeDir(); err == nil {
+			return filepath.Join(home, path[2:])
+		}
+	}
+	return path
 }
 
 func vaultCacheKey(vault string) string {

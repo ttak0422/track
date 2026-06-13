@@ -6,7 +6,7 @@ This document is a tool-neutral guide for agents that use track through the CLI.
 
 All commands except `version` print one compact JSON object on stdout. Failures print `{"error":"..."}` and exit 1. Agents should parse JSON instead of scraping human text.
 
-`$TRACK_VAULT` is required. The SQLite index is a rebuildable cache; `TRACK_CACHE_DIR` can point at a temporary cache. Authoritative per-note metadata lives under `.track/notes/` and must be backed up with note bodies.
+The vault is required in the user config file (`~/.config/track/config.yml`, with `vault_dir`) or through the `TRACK_VAULT` override. The SQLite index is a rebuildable cache; `TRACK_CACHE_DIR` can point at a temporary cache. Authoritative per-note metadata lives under `.track/notes/` and must be backed up with note bodies.
 
 ## Title Model
 

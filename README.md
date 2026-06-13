@@ -46,8 +46,13 @@ flake.nix                # Go CLI + Vim plugin packaging
 ## CLI
 
 All commands except `version` print a single line of JSON; errors are `{"error":...}` with exit code 1.
-The vault must be set explicitly with `$TRACK_VAULT`; the rebuildable index db defaults to the user cache directory under `track/`.
+The vault must be set explicitly in `~/.config/track/config.yml`; `$TRACK_VAULT` remains an override for tests and one-off runs.
+The rebuildable index db defaults to the user cache directory under `track/`.
 The Neovim frontend sets `TRACK_CACHE_DIR` to `vim.fn.stdpath("cache") .. "/track"`.
+
+```yaml
+vault_dir: ~/track
+```
 
 ```sh
 track new --title <t> [--id <id>] [--template <s>] [--body <s>] [--tag <s>] [--ai]
@@ -108,7 +113,7 @@ It currently provides:
 - `textDocument/rename`: renaming the `[[link]]` under the cursor (or the current note when not on a link) updates the target's sidecar title, records rename history, and returns backlink edits; the target body is not edited.
 - `track/backlinks`: returns notes and link locations that reference the current note.
 
-The server uses UTF-8 positions and reads the same `$TRACK_VAULT` configuration as the CLI.
+The server uses UTF-8 positions and reads the same config-file or `$TRACK_VAULT` override as the CLI.
 It only acts on track notes: a request is served only for a supported note file (`.md`) inside the vault, excluding `.track/`. Markdown opened elsewhere gets no links, completion, or actions, even if the editor attaches the server to it. The Neovim layer also attaches `track-lsp` only to markdown under the vault; other editor integrations should gate attachment the same way. See [docs/spec/links.md](docs/spec/links.md).
 
 ## Neovim

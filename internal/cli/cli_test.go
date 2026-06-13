@@ -33,7 +33,9 @@ func capture(t *testing.T, fn func() int) (string, int) {
 // run sets up an isolated vault for one Run invocation.
 func runIn(t *testing.T, vault string, args ...string) (map[string]any, int) {
 	t.Helper()
+	t.Setenv("TRACK_CONFIG", filepath.Join(t.TempDir(), "missing.yml"))
 	t.Setenv("TRACK_VAULT", vault)
+	t.Setenv("TRACK_DB", "")
 	t.Setenv("TRACK_CACHE_DIR", filepath.Join(vault, ".test-cache"))
 	out, code := capture(t, func() int { return Run(args) })
 	var decoded map[string]any
@@ -182,13 +184,14 @@ func TestNewRequiresTitle(t *testing.T) {
 }
 
 func TestRequiresTrackVault(t *testing.T) {
+	t.Setenv("TRACK_CONFIG", filepath.Join(t.TempDir(), "missing.yml"))
 	t.Setenv("TRACK_VAULT", "")
 	out, code := capture(t, func() int { return Run([]string{"keywords"}) })
 	if code != 1 {
 		t.Fatalf("expected exit 1 without TRACK_VAULT, got %d", code)
 	}
-	if !strings.Contains(out, "TRACK_VAULT is required") {
-		t.Fatalf("expected TRACK_VAULT error, got %q", out)
+	if !strings.Contains(out, "vault_dir is required") {
+		t.Fatalf("expected vault config error, got %q", out)
 	}
 }
 

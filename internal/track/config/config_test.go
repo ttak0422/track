@@ -1,26 +1,54 @@
 package config
 
 import (
+	"os"
 	"path/filepath"
 	"strings"
 	"testing"
 )
 
 func TestLoadRequiresTrackVault(t *testing.T) {
+	t.Setenv("TRACK_CONFIG", filepath.Join(t.TempDir(), "missing.yml"))
 	t.Setenv("TRACK_VAULT", "")
 
 	_, err := Load()
 	if err == nil {
 		t.Fatal("expected TRACK_VAULT error")
 	}
-	if !strings.Contains(err.Error(), "TRACK_VAULT is required") {
+	if !strings.Contains(err.Error(), "vault_dir is required") {
 		t.Fatalf("unexpected error: %v", err)
+	}
+}
+
+func TestLoadUsesConfigFileVault(t *testing.T) {
+	vault := t.TempDir()
+	cache := t.TempDir()
+	configPath := filepath.Join(t.TempDir(), "config.yml")
+	if err := os.WriteFile(configPath, []byte("vault_dir: "+vault+"\ncache_dir: "+cache+"\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("TRACK_CONFIG", configPath)
+	t.Setenv("TRACK_VAULT", "")
+	t.Setenv("TRACK_DB", "")
+	t.Setenv("TRACK_CACHE_DIR", "")
+
+	cfg, err := Load()
+	if err != nil {
+		t.Fatalf("load: %v", err)
+	}
+	if cfg.VaultDir != vault {
+		t.Fatalf("VaultDir = %q, want %q", cfg.VaultDir, vault)
+	}
+	wantDB := filepath.Join(cache, vaultCacheKey(vault), "index.db")
+	if cfg.DBPath != wantDB {
+		t.Fatalf("DBPath = %q, want %q", cfg.DBPath, wantDB)
 	}
 }
 
 func TestLoadUsesExplicitTrackVault(t *testing.T) {
 	vault := t.TempDir()
 	cache := t.TempDir()
+	t.Setenv("TRACK_CONFIG", filepath.Join(t.TempDir(), "missing.yml"))
 	t.Setenv("TRACK_VAULT", vault)
 	t.Setenv("TRACK_DB", "")
 	t.Setenv("TRACK_CACHE_DIR", cache)
@@ -41,6 +69,7 @@ func TestLoadUsesExplicitTrackVault(t *testing.T) {
 func TestLoadHonorsExplicitTrackDB(t *testing.T) {
 	vault := t.TempDir()
 	db := filepath.Join(t.TempDir(), "custom.db")
+	t.Setenv("TRACK_CONFIG", filepath.Join(t.TempDir(), "missing.yml"))
 	t.Setenv("TRACK_VAULT", vault)
 	t.Setenv("TRACK_DB", db)
 	t.Setenv("TRACK_CACHE_DIR", t.TempDir())

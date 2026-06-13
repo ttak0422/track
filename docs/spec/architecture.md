@@ -35,7 +35,7 @@ The local web workspace under `internal/track/webui` serves HTTP APIs and a brow
 The Lua plugin is intentionally thin:
 
 - It resolves the `track` and `track-lsp` binaries.
-- It requires an explicit vault through `TRACK_VAULT` or `setup({ vault_dir = ... })`.
+- It requires an explicit vault through the user config file, `TRACK_VAULT`, or `setup({ vault_dir = ... })`.
 - It registers the `:Track` dispatcher command with subcommands such as `:Track open`, `:Track follow`, and `:Track journal`.
 - It can start the local web workspace through `:Track web`, delegating the server to the Go CLI.
 - It starts `track-lsp` for markdown buffers under the vault.
