@@ -2,6 +2,8 @@
 package webui
 
 import (
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -12,6 +14,7 @@ import (
 	"strings"
 
 	"github.com/ttak0422/track/internal/track/config"
+	"github.com/ttak0422/track/internal/track/index"
 	"github.com/ttak0422/track/internal/track/note"
 	"github.com/ttak0422/track/internal/track/store"
 )
@@ -119,6 +122,17 @@ func (s *Server) handleResolve(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) handleNote(w http.ResponseWriter, r *http.Request) {
+	switch r.Method {
+	case http.MethodGet, "":
+		s.getNote(w, r)
+	case http.MethodPut:
+		s.putNote(w, r)
+	default:
+		writeError(w, fmt.Errorf("method %s not allowed", r.Method), http.StatusMethodNotAllowed)
+	}
+}
+
+func (s *Server) getNote(w http.ResponseWriter, r *http.Request) {
 	id, err := parseID(r)
 	if err != nil {
 		writeError(w, err, http.StatusBadRequest)
@@ -156,9 +170,82 @@ func (s *Server) handleNote(w http.ResponseWriter, r *http.Request) {
 			"tags":            ref.Tags,
 			"generated_by_ai": ref.GeneratedByAI,
 			"body":            body,
+			// etag is a content hash of the file as read; clients echo it back on PUT so a save can be
+			// rejected when the file changed underneath (e.g. an OneDrive sync) since this read.
+			"etag": etagFor(raw),
 		},
 		"backlinks": backlinks,
 	})
+}
+
+// putNote saves the body of an existing note. The request JSON carries the new body and the etag the
+// client last read; if the file changed on disk since then the save is refused with 409 so a cloud-sync
+// update is not silently overwritten. Titles stay sidecar-authoritative, so only the body is touched.
+//
+// TODO(track): the web frontend has no editor UI yet (textarea/keymap/save affordance) and PUT cannot
+// create new notes. Both are deferred follow-ups; this is the save+conflict-detection backend slice only.
+func (s *Server) putNote(w http.ResponseWriter, r *http.Request) {
+	id, err := parseID(r)
+	if err != nil {
+		writeError(w, err, http.StatusBadRequest)
+		return
+	}
+	ref, err := s.noteByID(id)
+	if err != nil {
+		writeError(w, err, http.StatusNotFound)
+		return
+	}
+	var req struct {
+		Body string `json:"body"`
+		ETag string `json:"etag"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		writeError(w, fmt.Errorf("decode request: %w", err), http.StatusBadRequest)
+		return
+	}
+
+	path := s.cfg.PathForKind(ref.FileKind, ref.NoteID)
+	current, err := os.ReadFile(path)
+	if err != nil {
+		writeError(w, err, http.StatusInternalServerError)
+		return
+	}
+	if req.ETag == "" {
+		writeError(w, errors.New("etag is required to detect conflicts"), http.StatusBadRequest)
+		return
+	}
+	if req.ETag != etagFor(current) {
+		writeError(w, errors.New("note changed on disk since it was loaded; reload before saving"), http.StatusConflict)
+		return
+	}
+
+	out := []byte(ensureTrailingNewline(req.Body))
+	if err := os.WriteFile(path, out, 0o644); err != nil {
+		writeError(w, err, http.StatusInternalServerError)
+		return
+	}
+	if err := index.New(s.cfg, s.store).One(path); err != nil {
+		writeError(w, fmt.Errorf("reindex: %w", err), http.StatusInternalServerError)
+		return
+	}
+	writeJSON(w, map[string]any{"note_id": ref.NoteID, "etag": etagFor(out), "saved": true})
+}
+
+// etagFor returns a short content hash used as an optimistic-concurrency token for note bodies.
+func etagFor(raw []byte) string {
+	sum := sha256.Sum256(raw)
+	return hex.EncodeToString(sum[:16])
+}
+
+// ensureTrailingNewline mirrors the CLI's write behavior so saved bodies end with exactly one newline.
+func ensureTrailingNewline(body string) string {
+	if body == "" {
+		return ""
+	}
+	if strings.HasSuffix(body, "\n") {
+		return body
+	}
+	return body + "\n"
 }
 
 func (s *Server) handleLocalGraph(w http.ResponseWriter, r *http.Request) {

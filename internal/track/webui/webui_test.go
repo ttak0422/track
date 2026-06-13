@@ -6,6 +6,7 @@ import (
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/ttak0422/track/internal/track/config"
@@ -104,4 +105,100 @@ func getJSON(t *testing.T, url string) map[string]any {
 		t.Fatalf("decode %s: %v", url, err)
 	}
 	return decoded
+}
+
+// putNoteSetup builds a server with one indexed note (id, title) whose markdown and sidecar exist on
+// disk, ready for save/conflict tests.
+func putNoteSetup(t *testing.T, id int64, title, body string) (*httptest.Server, *config.Config) {
+	t.Helper()
+	cfg := &config.Config{
+		VaultDir:          t.TempDir(),
+		DBPath:            filepath.Join(t.TempDir(), "index.db"),
+		Extensions:        []string{".md"},
+		DateFormat:        "2006-01-02",
+		JournalDateFormat: "20060102",
+	}
+	if err := os.MkdirAll(cfg.NoteDir(), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(cfg.NotePath(id), []byte(body), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := note.WriteMetadata(cfg.MetadataPath(id), note.Metadata{Title: title}); err != nil {
+		t.Fatal(err)
+	}
+	s, err := store.Open(cfg.DBPath)
+	if err != nil {
+		t.Fatalf("open store: %v", err)
+	}
+	t.Cleanup(func() { s.Close() })
+	if err := s.UpsertNote(&note.Note{ID: id, Path: cfg.NotePath(id), Meta: note.Metadata{Title: title}}); err != nil {
+		t.Fatal(err)
+	}
+	server := httptest.NewServer(New(cfg, s).Handler())
+	t.Cleanup(server.Close)
+	return server, cfg
+}
+
+func putNote(t *testing.T, url, jsonBody string) (int, map[string]any) {
+	t.Helper()
+	req, err := http.NewRequest(http.MethodPut, url, strings.NewReader(jsonBody))
+	if err != nil {
+		t.Fatal(err)
+	}
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatalf("put %s: %v", url, err)
+	}
+	defer resp.Body.Close()
+	var decoded map[string]any
+	_ = json.NewDecoder(resp.Body).Decode(&decoded)
+	return resp.StatusCode, decoded
+}
+
+func TestPutNoteSavesBodyWithEtag(t *testing.T) {
+	server, cfg := putNoteSetup(t, 100, "Alpha", "old body\n")
+
+	got := getJSON(t, server.URL+"/api/note?id=100")["note"].(map[string]any)
+	etag, _ := got["etag"].(string)
+	if etag == "" {
+		t.Fatalf("GET should return an etag, got %v", got)
+	}
+
+	body := `{"body":"new body line\n","etag":"` + etag + `"}`
+	code, resp := putNote(t, server.URL+"/api/note?id=100", body)
+	if code != http.StatusOK || resp["saved"] != true {
+		t.Fatalf("put status=%d resp=%v", code, resp)
+	}
+	if resp["etag"] == etag {
+		t.Fatalf("etag should change after save")
+	}
+	raw, err := os.ReadFile(cfg.NotePath(100))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(raw) != "new body line\n" {
+		t.Fatalf("file body = %q, want %q", string(raw), "new body line\n")
+	}
+}
+
+func TestPutNoteRejectsStaleEtag(t *testing.T) {
+	server, cfg := putNoteSetup(t, 100, "Alpha", "old body\n")
+
+	code, resp := putNote(t, server.URL+"/api/note?id=100", `{"body":"x\n","etag":"deadbeef"}`)
+	if code != http.StatusConflict {
+		t.Fatalf("stale etag should be 409, got %d (%v)", code, resp)
+	}
+	raw, _ := os.ReadFile(cfg.NotePath(100))
+	if string(raw) != "old body\n" {
+		t.Fatalf("file must be unchanged on conflict, got %q", string(raw))
+	}
+}
+
+func TestPutNoteRequiresEtag(t *testing.T) {
+	server, _ := putNoteSetup(t, 100, "Alpha", "old body\n")
+	code, _ := putNote(t, server.URL+"/api/note?id=100", `{"body":"x\n"}`)
+	if code != http.StatusBadRequest {
+		t.Fatalf("missing etag should be 400, got %d", code)
+	}
 }
