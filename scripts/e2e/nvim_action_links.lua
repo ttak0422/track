@@ -78,6 +78,12 @@ config.options.vault_dir = action_vault
 config.options.cache_dir = action_cache
 vim.env.TRACK_VAULT = action_vault
 vim.env.TRACK_CACHE_DIR = action_cache
+local client = require("track.client")
+local function run_json(args)
+   local data, err = client.run_json(args)
+   assert_true(data ~= nil, table.concat(args, " ") .. ": " .. tostring(err))
+   return data
+end
 assert_true(vim.fn.isdirectory(action_vault .. "/note") == 0, "fresh action vault should not have note dir")
 assert_true(vim.fn.isdirectory(action_vault .. "/journal") == 0, "fresh action vault should not have journal dir")
 
@@ -85,15 +91,19 @@ require("track.action").run("note?title={{date}} E2E")
 local today = os.date("%Y%m%d")
 assert_true(vim.fn.isdirectory(action_vault .. "/note") == 1, "note action should create note dir")
 assert_true(vim.api.nvim_buf_get_name(0):match("/note/%d+%.md$") ~= nil, "note action did not open a note file")
-local note_title = vim.api.nvim_buf_get_lines(0, 0, 1, false)[1]
-assert_true(note_title == "# " .. today .. " E2E", "note action created unexpected title: " .. tostring(note_title))
+local note_lines = vim.api.nvim_buf_get_lines(0, 0, -1, false)
+assert_true(#note_lines == 1 and note_lines[1] == "", "note action should create an empty body: " .. vim.inspect(note_lines))
+local note_resolved = run_json({ "resolve", "--term", today .. " E2E" })
+assert_true(note_resolved.found == true, "note action should write sidecar title: " .. vim.inspect(note_resolved))
 
 assert_true(vim.fn.isdirectory(action_vault .. "/journal") == 0, "journal dir should not exist before journal action")
 require("track.action").run("journal?offset=0")
 assert_true(vim.fn.isdirectory(action_vault .. "/journal") == 1, "journal action should create journal dir")
 assert_true(vim.api.nvim_buf_get_name(0):sub(-#("/journal/" .. today .. ".md")) == "/journal/" .. today .. ".md", "journal action did not open today's journal")
-local journal_title = vim.api.nvim_buf_get_lines(0, 0, 1, false)[1]
-assert_true(journal_title == "# " .. today, "journal action created unexpected title: " .. tostring(journal_title))
+local journal_lines = vim.api.nvim_buf_get_lines(0, 0, -1, false)
+assert_true(#journal_lines == 1 and journal_lines[1] == "", "journal action should create an empty body: " .. vim.inspect(journal_lines))
+local journal_resolved = run_json({ "resolve", "--term", today })
+assert_true(journal_resolved.found == true, "journal action should write sidecar title: " .. vim.inspect(journal_resolved))
 
 print("track-e2e: PASS nvim action links")
 vim.cmd("qa!")

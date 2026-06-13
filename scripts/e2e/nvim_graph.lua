@@ -22,8 +22,8 @@ end
 run({ "new", "--title", "Go", "--id", "100" })
 run({ "new", "--title", "Other", "--id", "200" })
 run({ "new", "--title", "Test", "--id", "300" })
-vim.fn.writefile({ "# Go", "", "[[Test]]" }, vault .. "/note/100.md")
-vim.fn.writefile({ "# Other", "", "[[Go]]" }, vault .. "/note/200.md")
+vim.fn.writefile({ "[[Test]]" }, vault .. "/note/100.md")
+vim.fn.writefile({ "[[Go]]" }, vault .. "/note/200.md")
 run({ "reindex", "--full" })
 
 vim.cmd.edit(vim.fn.fnameescape(vault .. "/note/100.md"))
