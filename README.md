@@ -171,6 +171,18 @@ Completion of titles inside `[[` is served over LSP. The plugin merges [`cmp-nvi
 
 Babel fence info strings are completed over the same LSP source. On an opening fence such as ```` ```lua :results output ````, track completes configured Babel languages, supported header keys, and fixed values for headers such as `:results`, `:eval`, `:cache`, `:session`, `:exports`, `:noweb`, `:tangle`, and `:visible-lines`. Header-key candidates insert one trailing space, so accepting `:eval` leaves the cursor at `:eval ` where value candidates such as `yes`, `no`, and `query` are available. `:visible-lines 4-5,8` is an editor-only display hint that hides source block body lines outside the listed 1-based ranges without changing execution.
 
+## Claude Code plugin
+
+This repository doubles as a [Claude Code](https://docs.claude.com/en/docs/claude-code) plugin marketplace, so coding agents can drive the CLI through a bundled skill. The skill triggers on note/journal/Zettelkasten requests and carries the JSON output contract and the core commands.
+
+```text
+# add this repo as a marketplace, then install the track plugin
+/plugin marketplace add ttak0422/track
+/plugin install track@track
+```
+
+The marketplace manifest is [`.claude-plugin/marketplace.json`](.claude-plugin/marketplace.json) and the plugin lives at [`plugins/track`](plugins/track) (manifest `plugins/track/.claude-plugin/plugin.json`, skill `plugins/track/skills/track/SKILL.md`). After installing, the skill is namespaced as `/track:track`; set `$TRACK_VAULT` so the agent's commands resolve against your vault. The tool-neutral contract the skill points to is [docs/spec/agent-workflows.md](docs/spec/agent-workflows.md).
+
 ## Data safety
 
 Note bodies are plain `.md` files, but their metadata (title, tags, created date, Babel results) lives in sidecar files under `.track/notes/`. Manual title rename history lives in `.track/renames.yaml` for unresolved-link repair suggestions.

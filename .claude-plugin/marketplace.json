@@ -1,0 +1,19 @@
+{
+  "name": "track",
+  "owner": {
+    "name": "ttak0422",
+    "email": "ttak0422@gmail.com"
+  },
+  "description": "Marketplace for the track note tool: a Go CLI/LSP engine with a SQLite index and a Neovim frontend.",
+  "version": "0.1.0",
+  "metadata": {
+    "pluginRoot": "./plugins"
+  },
+  "plugins": [
+    {
+      "name": "track",
+      "source": "./plugins/track",
+      "description": "Use the track CLI to create, record, search, rename, and maintain notes, journals, Zettelkasten items, and linked Markdown in a $TRACK_VAULT vault."
+    }
+  ]
+}

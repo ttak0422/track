@@ -1,0 +1,13 @@
+{
+  "name": "track",
+  "description": "Use the track CLI to create, record, search, rename, and maintain notes, journals, Zettelkasten items, and linked Markdown in a $TRACK_VAULT vault.",
+  "version": "0.1.0",
+  "author": {
+    "name": "ttak0422",
+    "email": "ttak0422@gmail.com"
+  },
+  "homepage": "https://github.com/ttak0422/track",
+  "repository": "https://github.com/ttak0422/track",
+  "license": "MIT",
+  "keywords": ["notes", "journal", "zettelkasten", "markdown", "cli"]
+}
