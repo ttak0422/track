@@ -1,0 +1,20 @@
+{
+  "name": "track",
+  "interface": {
+    "displayName": "Track"
+  },
+  "plugins": [
+    {
+      "name": "track",
+      "source": {
+        "source": "local",
+        "path": "./plugins/track"
+      },
+      "policy": {
+        "installation": "AVAILABLE",
+        "authentication": "ON_INSTALL"
+      },
+      "category": "Productivity"
+    }
+  ]
+}

@@ -188,6 +188,26 @@ This repository doubles as a [Claude Code](https://docs.claude.com/en/docs/claud
 
 The marketplace manifest is [`.claude-plugin/marketplace.json`](.claude-plugin/marketplace.json) and the plugin lives at [`plugins/track`](plugins/track) (manifest `plugins/track/.claude-plugin/plugin.json`, skill `plugins/track/skills/track/SKILL.md`). After installing, the skill is namespaced as `/track:track`; set `$TRACK_VAULT` so the agent's commands resolve against your vault. The tool-neutral contract the skill points to is [docs/spec/agent-workflows.md](docs/spec/agent-workflows.md).
 
+## Codex skill
+
+The bundled skill is also installable by Codex through this repository's marketplace. The marketplace manifest is [`.agents/plugins/marketplace.json`](.agents/plugins/marketplace.json), and the Codex plugin manifest is [`plugins/track/.codex-plugin/plugin.json`](plugins/track/.codex-plugin/plugin.json). It points at the same [`plugins/track/skills/track`](plugins/track/skills/track) skill.
+
+From a local checkout:
+
+```sh
+codex plugin marketplace add .
+codex plugin add track@track
+```
+
+From GitHub:
+
+```sh
+codex plugin marketplace add ttak0422/track
+codex plugin add track@track
+```
+
+Restart Codex or start a new thread after installing. Set `$TRACK_VAULT` so Codex-run `track` commands resolve against your vault.
+
 ## Data safety
 
 Note bodies are plain `.md` files, but their metadata (title, tags, created date, Babel results) lives in sidecar files under `.track/notes/`. Manual title rename history lives in `.track/renames.yaml` for unresolved-link repair suggestions.

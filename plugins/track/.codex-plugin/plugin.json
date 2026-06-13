@@ -1,0 +1,35 @@
+{
+  "name": "track",
+  "version": "0.1.0",
+  "description": "Use the track CLI to create, record, search, rename, and maintain linked Markdown notes in a TRACK_VAULT vault.",
+  "author": {
+    "name": "ttak0422",
+    "email": "ttak0422@gmail.com"
+  },
+  "homepage": "https://github.com/ttak0422/track",
+  "repository": "https://github.com/ttak0422/track",
+  "license": "MIT",
+  "keywords": [
+    "notes",
+    "journal",
+    "zettelkasten",
+    "markdown",
+    "cli"
+  ],
+  "skills": "./skills/",
+  "interface": {
+    "displayName": "Track",
+    "shortDescription": "Manage linked Markdown notes with track",
+    "longDescription": "Use the track CLI to create, record, search, rename, and maintain notes, journals, Zettelkasten items, and linked Markdown in a TRACK_VAULT vault.",
+    "developerName": "ttak0422",
+    "category": "Productivity",
+    "capabilities": [
+      "Write"
+    ],
+    "defaultPrompt": [
+      "Use track to create a linked note in my vault.",
+      "Use track to search my notes.",
+      "Use track to rename a note and update backlinks."
+    ]
+  }
+}
