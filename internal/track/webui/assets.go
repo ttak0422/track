@@ -1132,6 +1132,10 @@ const appJS = `(function () {
       insertNoteTags(note.tags || []);
       renderBacklinks(data.backlinks || []);
       updateHistory(note, opts.history || "push");
+      // TODO(track): a whole-vault graph is available at GET /api/graph (store.FullGraph). Wiring a
+      // local/full toggle needs UI decisions first: where the toggle lives, and how the canvas layout
+      // and node-count thinning behave when the full graph is large. Keep the per-note local graph here
+      // until that is designed.
       return api("/api/graph/local?id=" + encodeURIComponent(id));
     }).then(function (data) {
       setGraph(data.graph || { nodes: [], edges: [] });

@@ -75,6 +75,18 @@ func TestAPIHandlers(t *testing.T) {
 	if len(graph["nodes"].([]any)) != 2 || len(graph["edges"].([]any)) != 1 {
 		t.Fatalf("unexpected graph: %v", graph)
 	}
+
+	full := getJSON(t, server.URL+"/api/graph")["graph"].(map[string]any)
+	if len(full["nodes"].([]any)) != 2 || len(full["edges"].([]any)) != 1 {
+		t.Fatalf("unexpected full graph: %v", full)
+	}
+	if full["center_id"].(float64) != 0 {
+		t.Fatalf("full graph should have no center, got %v", full["center_id"])
+	}
+	firstNode := full["nodes"].([]any)[0].(map[string]any)
+	if firstNode["path"] == nil || firstNode["path"] == "" {
+		t.Fatalf("full graph node should carry a resolved path: %v", firstNode)
+	}
 }
 
 func getJSON(t *testing.T, url string) map[string]any {

@@ -45,6 +45,7 @@ func (s *Server) routes() {
 	s.mux.HandleFunc("/api/resolve", s.handleResolve)
 	s.mux.HandleFunc("/api/note", s.handleNote)
 	s.mux.HandleFunc("/api/graph/local", s.handleLocalGraph)
+	s.mux.HandleFunc("/api/graph", s.handleGraph)
 }
 
 func serveText(contentType string, body string) http.HandlerFunc {
@@ -167,6 +168,18 @@ func (s *Server) handleLocalGraph(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	graph, err := s.store.LocalGraph(id)
+	if err != nil {
+		writeError(w, err, http.StatusInternalServerError)
+		return
+	}
+	for i := range graph.Nodes {
+		graph.Nodes[i].Path = s.cfg.PathForKind(graph.Nodes[i].FileKind, graph.Nodes[i].NoteID)
+	}
+	writeJSON(w, map[string]any{"graph": graph})
+}
+
+func (s *Server) handleGraph(w http.ResponseWriter, r *http.Request) {
+	graph, err := s.store.FullGraph()
 	if err != nil {
 		writeError(w, err, http.StatusInternalServerError)
 		return

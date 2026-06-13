@@ -23,6 +23,53 @@ type Graph struct {
 	Edges    []GraphEdge `json:"edges"`
 }
 
+// FullGraph returns the entire link graph: every indexed note as a node and every link between two
+// known notes as an edge. Unlike LocalGraph there is no center, so the client lays out the whole vault.
+func (s *Store) FullGraph() (Graph, error) {
+	notes, err := s.SearchRefs()
+	if err != nil {
+		return Graph{}, err
+	}
+	known := make(map[int64]bool, len(notes))
+	nodes := make([]GraphNode, 0, len(notes))
+	for _, n := range notes {
+		known[n.NoteID] = true
+		nodes = append(nodes, GraphNode{
+			NoteID:        n.NoteID,
+			FileKind:      n.FileKind,
+			Title:         n.Title,
+			GeneratedByAI: n.GeneratedByAI,
+		})
+	}
+
+	rows, err := s.db.Query(`SELECT src_id, dst_id FROM links ORDER BY src_id, dst_id`)
+	if err != nil {
+		return Graph{}, err
+	}
+	var edges []GraphEdge
+	for rows.Next() {
+		var edge GraphEdge
+		if err := rows.Scan(&edge.SourceID, &edge.TargetID); err != nil {
+			rows.Close()
+			return Graph{}, err
+		}
+		if known[edge.SourceID] && known[edge.TargetID] {
+			edges = append(edges, edge)
+		}
+	}
+	if err := rows.Close(); err != nil {
+		return Graph{}, err
+	}
+
+	if nodes == nil {
+		nodes = []GraphNode{}
+	}
+	if edges == nil {
+		edges = []GraphEdge{}
+	}
+	return Graph{CenterID: 0, Nodes: nodes, Edges: edges}, nil
+}
+
 // LocalGraph returns the one-hop graph around centerID: notes linking to the center,
 // notes the center links to, and edges among those visible nodes.
 func (s *Store) LocalGraph(centerID int64) (Graph, error) {
