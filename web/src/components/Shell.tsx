@@ -1,6 +1,7 @@
-import { Link, Outlet } from "@tanstack/react-router";
+import { Link, Outlet, useRouterState } from "@tanstack/react-router";
 import { useState } from "react";
 import { ActivityPanel } from "./ActivityPanel";
+import { GraphBackground } from "./GraphBackground";
 import { GraphPanel } from "./GraphPanel";
 import { KMark } from "./Logo";
 import { SearchPanel } from "./SearchPanel";
@@ -9,6 +10,7 @@ import { SearchProvider } from "../searchState";
 
 export function Shell() {
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
+  const isHome = useRouterState({ select: (state) => state.location.pathname === "/" });
 
   return (
     <SearchProvider>
@@ -37,7 +39,6 @@ export function Shell() {
                     <KMark className="brand-mark" />
                   </Link>
                 </h1>
-                <p>Local graph workspace</p>
               </div>
               <ThemeMenu />
             </header>
@@ -46,9 +47,10 @@ export function Shell() {
           </div>
         </aside>
         <section className="reader">
+          {isHome ? <GraphBackground /> : null}
           <Outlet />
         </section>
-        <GraphPanel />
+        {isHome ? null : <GraphPanel />}
       </main>
     </SearchProvider>
   );

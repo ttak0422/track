@@ -45,7 +45,6 @@ function HomeRoute() {
   return (
     <section className="home-hero">
       <TrackLogo className="home-logo" />
-      <p>Local graph workspace — search notes, follow links, and explore the graph.</p>
     </section>
   );
 }

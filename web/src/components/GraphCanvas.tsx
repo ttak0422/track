@@ -5,6 +5,8 @@ interface GraphCanvasProps {
   graph: Graph;
   onSelect: (noteID: NoteID) => void;
   resetToken: number;
+  // Background decoration: draw nodes/edges only, no labels or interaction.
+  decorative?: boolean;
 }
 
 interface SimNode extends GraphNode {
@@ -38,7 +40,7 @@ interface DragState {
   moved: boolean;
 }
 
-export function GraphCanvas({ graph, onSelect, resetToken }: GraphCanvasProps) {
+export function GraphCanvas({ graph, onSelect, resetToken, decorative = false }: GraphCanvasProps) {
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
   const nodesRef = useRef<SimNode[]>([]);
   const edgesRef = useRef<SimEdge[]>([]);
@@ -281,7 +283,7 @@ export function GraphCanvas({ graph, onSelect, resetToken }: GraphCanvasProps) {
       ctx.stroke();
 
       const hovered = node.note_id === hoverRef.current;
-      if (showLabels || center || node.degree >= 5 || hovered) {
+      if (!decorative && (showLabels || center || node.degree >= 5 || hovered)) {
         ctx.globalAlpha = center || hovered ? 0.95 : 0.78;
         ctx.fillStyle = css("--text");
         ctx.textAlign = "start";
