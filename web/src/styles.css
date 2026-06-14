@@ -683,10 +683,7 @@ button {
 }
 
 .wiki-preview {
-  position: absolute;
-  z-index: 10;
-  left: 0;
-  top: calc(100% + 8px);
+  position: fixed;
   width: min(320px, 80vw);
   border: 1px solid var(--line);
   border-radius: 6px;

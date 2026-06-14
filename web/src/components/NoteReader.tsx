@@ -62,7 +62,6 @@ export function NoteReader({ noteID }: NoteReaderProps) {
       <header className="note-header">
         <div>
           <h2>{note.title}</h2>
-          <p>{note.copy_path}</p>
         </div>
         <div className="note-header-actions">
           <div className="mode-switch" role="group" aria-label="Markdown display mode">

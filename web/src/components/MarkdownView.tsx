@@ -1,7 +1,14 @@
 import { Link } from "@tanstack/react-router";
-import { Fragment, useEffect, useRef, useState } from "react";
+import { createContext, Fragment, useContext, useEffect, useRef, useState } from "react";
 import { parseInline, parseMarkdown } from "../markdown";
 import { useNoteQuery, useResolveQuery } from "../queries";
+
+// Nesting depth of the current markdown render. Each preview renders its body
+// one level deeper so nested previews can stack in front of their parent.
+const PreviewDepthContext = createContext(0);
+
+// Base stacking order for previews; deeper levels sit in front.
+const previewBaseZIndex = 100;
 
 interface MarkdownViewProps {
   markdown: string;
@@ -59,9 +66,17 @@ interface WikiLinkProps {
   display: string;
 }
 
+interface PreviewAnchor {
+  left: number;
+  top: number;
+}
+
 function WikiLink({ target, display }: WikiLinkProps) {
   const [open, setOpen] = useState(false);
+  const [anchor, setAnchor] = useState<PreviewAnchor | null>(null);
+  const linkRef = useRef<HTMLAnchorElement>(null);
   const closeTimer = useRef<number | undefined>(undefined);
+  const depth = useContext(PreviewDepthContext);
   const resolved = useResolveQuery(target);
   const noteID = resolved.data?.found ? resolved.data.note.note_id : undefined;
 
@@ -76,6 +91,10 @@ function WikiLink({ target, display }: WikiLinkProps) {
   function openPreview() {
     if (closeTimer.current !== undefined) {
       window.clearTimeout(closeTimer.current);
+    }
+    const rect = linkRef.current?.getBoundingClientRect();
+    if (rect) {
+      setAnchor({ left: rect.left, top: rect.bottom + 8 });
     }
     setOpen(true);
   }
@@ -103,30 +122,42 @@ function WikiLink({ target, display }: WikiLinkProps) {
       onMouseEnter={openPreview}
       onMouseLeave={scheduleClose}
     >
-      <Link className="wiki-link" to="/notes/$noteId" params={{ noteId: String(noteID) }}>
+      <Link
+        className="wiki-link"
+        ref={linkRef}
+        to="/notes/$noteId"
+        params={{ noteId: String(noteID) }}
+      >
         {display}
       </Link>
-      {open ? <WikiPreview noteID={noteID} /> : null}
+      {open && anchor ? <WikiPreview noteID={noteID} anchor={anchor} depth={depth} /> : null}
     </span>
   );
 }
 
 interface WikiPreviewProps {
   noteID: number;
+  anchor: PreviewAnchor;
+  depth: number;
 }
 
-function WikiPreview({ noteID }: WikiPreviewProps) {
+function WikiPreview({ noteID, anchor, depth }: WikiPreviewProps) {
   const note = useNoteQuery(noteID);
 
   return (
-    <aside className="wiki-preview">
+    <aside
+      className="wiki-preview"
+      style={{ left: anchor.left, top: anchor.top, zIndex: previewBaseZIndex + depth }}
+    >
       {note.isPending ? <p className="muted">Loading...</p> : null}
       {note.isError ? <p className="error">{note.error.message}</p> : null}
       {note.data ? (
         <>
           <strong>{note.data.note.title}</strong>
           <div className="wiki-preview-body">
-            <MarkdownView markdown={note.data.note.body} />
+            <PreviewDepthContext.Provider value={depth + 1}>
+              <MarkdownView markdown={note.data.note.body} />
+            </PreviewDepthContext.Provider>
           </div>
         </>
       ) : null}
