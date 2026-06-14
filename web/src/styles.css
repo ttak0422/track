@@ -258,6 +258,7 @@ button {
   gap: 6px 8px;
   padding: 10px;
   border-radius: 6px;
+  text-decoration: none;
 }
 
 .result:hover {

@@ -37,10 +37,10 @@ interface SearchResultItemProps {
 
 function SearchResultItem({ note }: SearchResultItemProps) {
   return (
-    <article className="result">
-      <Link className="result-title" to="/notes/$noteId" params={{ noteId: String(note.note_id) }}>
+    <Link className="result" to="/notes/$noteId" params={{ noteId: String(note.note_id) }}>
+      <span className="result-title">
         {note.title}
-      </Link>
+      </span>
       {note.generated_by_ai ? <span className="badge">AI</span> : null}
       {note.snippet ? <p className="result-snippet">{note.snippet}</p> : null}
       {note.tags && note.tags.length > 0 ? (
@@ -52,6 +52,6 @@ function SearchResultItem({ note }: SearchResultItemProps) {
           ))}
         </div>
       ) : null}
-    </article>
+    </Link>
   );
 }
