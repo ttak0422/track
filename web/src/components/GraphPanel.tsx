@@ -1,10 +1,12 @@
 import { useNavigate, useRouterState } from "@tanstack/react-router";
-import { useMemo, useState } from "react";
+import { useState } from "react";
 import { useGraphQuery, useLocalGraphQuery } from "../queries";
-import type { Graph, NoteID } from "../types";
+import type { NoteID } from "../types";
 import { GraphCanvas } from "./GraphCanvas";
 
 type GraphScope = "local" | "global";
+
+const scopes: GraphScope[] = ["local", "global"];
 
 export function GraphPanel() {
   const pathname = useRouterState({ select: (state) => state.location.pathname });
@@ -21,25 +23,9 @@ export function GraphPanel() {
 
   const state = effectiveScope === "local" ? localGraph : globalGraph;
   const graph = state.data?.graph;
-  const meta = useMemo(() => graphMeta(graph), [graph]);
 
   return (
     <aside className="graph-panel" aria-label="Graph">
-      <header className="graph-header">
-        <div>
-          <h2>{effectiveScope === "local" ? "Local Graph" : "Global Graph"}</h2>
-          <p>{meta}</p>
-        </div>
-        <button
-          className="graph-scope"
-          type="button"
-          aria-pressed={effectiveScope === "local"}
-          title="Toggle local / global graph"
-          onClick={() => setScope((current) => (current === "local" ? "global" : "local"))}
-        >
-          {effectiveScope === "local" ? "Global" : "Local"}
-        </button>
-      </header>
       {state.isPending ? <p className="muted graph-message">Loading graph...</p> : null}
       {state.isError ? <p className="error graph-message">{state.error.message}</p> : null}
       {graph ? (
@@ -51,15 +37,30 @@ export function GraphPanel() {
           }
         />
       ) : null}
-      <button
-        className="graph-reset"
-        type="button"
-        aria-label="Reset graph view"
-        title="Reset graph view"
-        onClick={() => setResetToken((token) => token + 1)}
-      >
-        Reset
-      </button>
+      <div className="graph-controls">
+        <div className="graph-scope" role="group" aria-label="Graph scope">
+          {scopes.map((option) => (
+            <button
+              aria-pressed={effectiveScope === option}
+              disabled={option === "local" && selectedNoteID === undefined}
+              key={option}
+              type="button"
+              onClick={() => setScope(option)}
+            >
+              {scopeLabel(option)}
+            </button>
+          ))}
+        </div>
+        <button
+          className="graph-reset"
+          type="button"
+          aria-label="Reset graph view"
+          title="Reset graph view"
+          onClick={() => setResetToken((token) => token + 1)}
+        >
+          ↺
+        </button>
+      </div>
     </aside>
   );
 }
@@ -71,7 +72,6 @@ function noteIDFromPath(pathname: string): NoteID | undefined {
   return Number.isSafeInteger(noteID) && noteID > 0 ? noteID : undefined;
 }
 
-function graphMeta(graph: Graph | undefined): string {
-  if (!graph) return "";
-  return `${graph.nodes.length} notes, ${graph.edges.length} links`;
+function scopeLabel(scope: GraphScope): string {
+  return scope[0].toUpperCase() + scope.slice(1);
 }
