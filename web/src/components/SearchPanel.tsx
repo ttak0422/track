@@ -1,4 +1,4 @@
-import { Link } from "@tanstack/react-router";
+import { Link, useNavigate } from "@tanstack/react-router";
 import { useDebouncedValue } from "../hooks/useDebouncedValue";
 import { useSearchQuery } from "../queries";
 import { useSearchState } from "../searchState";
@@ -8,6 +8,15 @@ export function SearchPanel() {
   const { query, setQuery } = useSearchState();
   const debouncedQuery = useDebouncedValue(query, 180);
   const search = useSearchQuery(debouncedQuery, 100);
+  const navigate = useNavigate();
+  const topResult = search.data?.results[0];
+
+  function onKeyDown(event: React.KeyboardEvent<HTMLInputElement>) {
+    if (event.key === "Enter" && topResult) {
+      event.preventDefault();
+      void navigate({ to: "/notes/$noteId", params: { noteId: String(topResult.note_id) } });
+    }
+  }
 
   return (
     <section className="search-panel" aria-label="Search notes">
@@ -18,6 +27,7 @@ export function SearchPanel() {
           placeholder="Search notes"
           value={query}
           onChange={(event) => setQuery(event.currentTarget.value)}
+          onKeyDown={onKeyDown}
         />
       </label>
       <div className="results" aria-live="polite">
