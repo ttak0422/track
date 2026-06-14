@@ -186,6 +186,7 @@ func (s *Server) getNote(w http.ResponseWriter, r *http.Request) {
 			"note_id":         ref.NoteID,
 			"file_kind":       ref.FileKind,
 			"path":            path,
+			"copy_path":       s.cfg.DisplayPathForKind(ref.FileKind, ref.NoteID),
 			"title":           ref.Title,
 			"tags":            ref.Tags,
 			"generated_by_ai": ref.GeneratedByAI,

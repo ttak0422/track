@@ -30,6 +30,10 @@ type Config struct {
 	// WebColorsPath is the resolved path to an optional palette file overriding the web UI's themeable
 	// CSS colors. Empty means use the built-in palette. The file is read by the web layer, not here.
 	WebColorsPath string
+	// VaultDirDisplay is the configured vault path made absolute but with symlinks left intact, for
+	// user-facing output (e.g. a copy-path action). VaultDir resolves symlinks for a stable cache key;
+	// this keeps the friendlier path the user configured.
+	VaultDirDisplay string
 }
 
 type fileConfig struct {
@@ -69,14 +73,20 @@ func Load() (*Config, error) {
 		return nil, err
 	}
 
-	vault := fc.VaultDir
+	rawVault := fc.VaultDir
 	if env := os.Getenv("TRACK_VAULT"); env != "" {
-		vault = env
+		rawVault = env
 	}
-	if vault == "" {
+	if rawVault == "" {
 		return nil, fmt.Errorf("vault_dir is required in %s or TRACK_VAULT", ConfigPath())
 	}
-	vault, err = canonicalPath(vault)
+	// displayVault keeps the configured path absolute but symlink-intact, so user-facing paths read as
+	// the vault the user knows (e.g. ~/track) rather than its resolved target (~/OneDrive/track).
+	displayVault, err := filepath.Abs(expandHome(rawVault))
+	if err != nil {
+		return nil, err
+	}
+	vault, err := canonicalPath(rawVault)
 	if err != nil {
 		return nil, err
 	}
@@ -125,6 +135,7 @@ func Load() (*Config, error) {
 		BabelLanguages:    loadBabelLanguages(),
 		WebTheme:          normalizeWebTheme(fc.Web.Theme),
 		WebColorsPath:     resolveColorsPath(fc.Web.ColorsPath),
+		VaultDirDisplay:   displayVault,
 	}, nil
 }
 
@@ -304,6 +315,20 @@ func (c *Config) PathForKind(kind string, id int64) string {
 	default:
 		return c.NotePath(id)
 	}
+}
+
+// DisplayPathForKind is PathForKind rebased onto the symlink-intact display vault, for user-facing
+// output. It falls back to the canonical path when no separate display path is configured.
+func (c *Config) DisplayPathForKind(kind string, id int64) string {
+	canonical := c.PathForKind(kind, id)
+	if c.VaultDirDisplay == "" || c.VaultDirDisplay == c.VaultDir {
+		return canonical
+	}
+	rel, err := filepath.Rel(c.VaultDir, canonical)
+	if err != nil {
+		return canonical
+	}
+	return filepath.Join(c.VaultDirDisplay, rel)
 }
 
 // KindFromPath classifies a vault file by its managed directory.

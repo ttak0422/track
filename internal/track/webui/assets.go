@@ -67,6 +67,9 @@ __TRACK_COLOR_OVERRIDES__
       </div>
     </aside>
     <section class="reader">
+      <div id="reader-toolbar" class="reader-toolbar" hidden>
+        <button id="copy-path" class="copy-path" type="button">Copy path</button>
+      </div>
       <article id="note-body" class="note-body"></article>
       <section class="backlinks">
         <h3>Backlinks</h3>
@@ -584,6 +587,34 @@ p {
   flex-direction: column;
 }
 
+.reader-toolbar {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+  padding: 10px 28px 0;
+}
+
+.copy-path {
+  border: 1px solid var(--line);
+  background: var(--panel-soft);
+  color: var(--muted);
+  border-radius: 999px;
+  padding: 3px 12px;
+  font-size: 12px;
+  cursor: pointer;
+}
+
+.copy-path:hover, .copy-path:focus-visible {
+  color: var(--text);
+  border-color: var(--accent);
+}
+
+.copy-path.copied {
+  color: var(--text);
+  border-color: var(--accent);
+  background: color-mix(in srgb, var(--accent) 16%, transparent);
+}
+
 .note-body {
   flex: 1;
   overflow: auto;
@@ -930,6 +961,7 @@ const appJS = `(function () {
     activeTags: [],
     graph: null,
     graphScope: "local",
+    copyPath: null,
     nodes: [],
     edges: [],
     graphView: { x: 0, y: 0, scale: 1 },
@@ -956,6 +988,8 @@ const appJS = `(function () {
     searchChips: document.getElementById("search-chips"),
     results: document.getElementById("results"),
     body: document.getElementById("note-body"),
+    readerToolbar: document.getElementById("reader-toolbar"),
+    copyPathButton: document.getElementById("copy-path"),
     backlinks: document.getElementById("backlinks"),
     graphMeta: document.getElementById("graph-meta"),
     graphReset: document.getElementById("graph-reset"),
@@ -1143,6 +1177,7 @@ const appJS = `(function () {
     }
     el.body.innerHTML = body;
     el.backlinks.innerHTML = '<div class="empty">No backlinks</div>';
+    setCopyPath(null);
     // No note is selected; the local graph is empty, but a global graph still renders the whole vault.
     loadGraph();
   }
@@ -1169,6 +1204,7 @@ const appJS = `(function () {
       el.body.innerHTML = renderMarkdown(note.body || "");
       insertNoteTags(note.tags || []);
       renderBacklinks(data.backlinks || []);
+      setCopyPath(note.copy_path || note.path || "");
       updateHistory(note, opts.history || "push");
     }).catch(showError);
     // The graph follows the current scope: the local graph around this note, or the whole vault.
@@ -1564,6 +1600,50 @@ const appJS = `(function () {
     state.graphScope = state.graphScope === "global" ? "local" : "global";
     syncGraphScopeUI();
     loadGraph();
+  }
+
+  function setCopyPath(path) {
+    state.copyPath = path || null;
+    var has = !!state.copyPath;
+    el.readerToolbar.hidden = !has;
+    el.copyPathButton.classList.remove("copied");
+    el.copyPathButton.textContent = "Copy path";
+    if (has) el.copyPathButton.title = state.copyPath;
+  }
+
+  function writeClipboard(text) {
+    if (navigator.clipboard && navigator.clipboard.writeText) {
+      return navigator.clipboard.writeText(text);
+    }
+    // Fallback for the rare browser without the async Clipboard API.
+    return new Promise(function (resolve, reject) {
+      try {
+        var area = document.createElement("textarea");
+        area.value = text;
+        area.setAttribute("readonly", "");
+        area.style.position = "absolute";
+        area.style.left = "-9999px";
+        document.body.appendChild(area);
+        area.select();
+        document.execCommand("copy");
+        document.body.removeChild(area);
+        resolve();
+      } catch (err) {
+        reject(err);
+      }
+    });
+  }
+
+  function copyCurrentPath() {
+    if (!state.copyPath) return;
+    writeClipboard(state.copyPath).then(function () {
+      el.copyPathButton.classList.add("copied");
+      el.copyPathButton.textContent = "Copied";
+      setTimeout(function () {
+        el.copyPathButton.classList.remove("copied");
+        el.copyPathButton.textContent = "Copy path";
+      }, 1200);
+    }).catch(showError);
   }
 
   function visibleNodes() {
@@ -2019,6 +2099,7 @@ const appJS = `(function () {
   });
   el.graphReset.addEventListener("click", resetGraphView);
   el.graphScope.addEventListener("click", toggleGraphScope);
+  el.copyPathButton.addEventListener("click", copyCurrentPath);
 
   applySidebar(storedSidebarCollapsed());
   applyTheme(themeMode());

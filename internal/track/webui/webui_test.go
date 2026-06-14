@@ -72,6 +72,9 @@ func TestAPIHandlers(t *testing.T) {
 	if noteBody["generated_by_ai"] != true || noteBody["title"] != "Beta" || len(noteTags) != 1 || noteTags[0] != note.GeneratedByAITag {
 		t.Fatalf("unexpected note response: %v", noteBody)
 	}
+	if cp, _ := noteBody["copy_path"].(string); cp == "" {
+		t.Fatalf("note response should carry a copy_path: %v", noteBody)
+	}
 
 	graph := getJSON(t, server.URL+"/api/graph/local?id=100")["graph"].(map[string]any)
 	if len(graph["nodes"].([]any)) != 2 || len(graph["edges"].([]any)) != 1 {

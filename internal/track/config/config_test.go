@@ -197,3 +197,36 @@ func TestLoadWebTheme(t *testing.T) {
 		}
 	}
 }
+
+func TestDisplayPathForKindKeepsSymlink(t *testing.T) {
+	realVault := t.TempDir()
+	linkParent := t.TempDir()
+	linkVault := filepath.Join(linkParent, "vault-link")
+	if err := os.Symlink(realVault, linkVault); err != nil {
+		t.Skipf("symlink unavailable: %v", err)
+	}
+	cache := t.TempDir()
+	configPath := filepath.Join(t.TempDir(), "config.yml")
+	if err := os.WriteFile(configPath, []byte("vault_dir: "+linkVault+"\ncache_dir: "+cache+"\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("TRACK_CONFIG", configPath)
+	t.Setenv("TRACK_VAULT", "")
+	t.Setenv("TRACK_DB", "")
+	t.Setenv("TRACK_CACHE_DIR", "")
+
+	cfg, err := Load()
+	if err != nil {
+		t.Fatalf("load: %v", err)
+	}
+	// Canonical path resolves the symlink; the display path keeps it.
+	canonical := cfg.PathForKind(KindNote, 100)
+	display := cfg.DisplayPathForKind(KindNote, 100)
+	wantDisplay := filepath.Join(linkVault, "note", "100.md")
+	if display != wantDisplay {
+		t.Fatalf("display path = %q, want %q", display, wantDisplay)
+	}
+	if display == canonical {
+		t.Fatalf("display path should differ from canonical through a symlink: %q", display)
+	}
+}
