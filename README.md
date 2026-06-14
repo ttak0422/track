@@ -127,6 +127,7 @@ It currently provides:
 - `textDocument/codeAction`: creates a note from an unresolved `[[...]]` link.
 - `textDocument/rename`: renaming the `[[link]]` under the cursor (or the current note when not on a link) updates the target's sidecar title, records rename history, and returns backlink edits; the target body is not edited.
 - `track/backlinks`: returns notes and link locations that reference the current note.
+- `track/outgoingLinks`: returns resolved link locations inside the current note.
 
 The server uses UTF-8 positions and reads the same config file as the CLI. `TRACK_VAULT` remains available as a test/one-off override.
 It only acts on track notes: a request is served only for a supported note file (`.md`) inside the vault, excluding `.track/`. Markdown opened elsewhere gets no links, completion, or actions, even if the editor attaches the server to it. The Neovim layer also attaches `track-lsp` only to markdown under the vault; other editor integrations should gate attachment the same way. See [docs/spec/links.md](docs/spec/links.md).
@@ -154,6 +155,7 @@ Commands:
                        " search note bodies with Telescope
 :Track follow          " follow the [[...]] link under the cursor (also mapped to <CR>)
 :Track backlinks       " show notes that link to the current note in quickfix
+:Track links           " show links from the current note in quickfix
 :Track graph           " show a local note graph around the current note
 :Track web [addr]      " start the local web workspace and open it in a browser
 :Track babel_exec      " run the source block under the cursor; result shows below it
@@ -186,6 +188,8 @@ The picker uses Telescope's prompt for live searching. `query` seeds the initial
 In a vault buffer, resolved `[[...]]` links are underlined (`TrackLink` highlight group); unresolved ones are flagged by an `unresolved-link` warning diagnostic. Press `<CR>` on a link to jump to its note. By default the `[[ ]]` brackets are concealed so links read as plain text (`[[Go|ゴー]]` shows `ゴー`); in normal mode the link under the cursor is shown raw (anti-conceal) while other links stay concealed, and while typing the whole cursor line is shown raw so the completion popup stays aligned. `conceal = false` keeps brackets visible. Raising conceallevel would otherwise let Neovim's treesitter markdown query hide code-fence delimiters, so track reveals them by default (toggle with `reveal_code_fences`). This is backed by `track-lsp`.
 
 Press `K` on a resolved link to show the linked note preview in Neovim's hover window.
+
+Use `:checkhealth track` to verify the resolved CLI/LSP binaries, vault/cache configuration, and current-buffer LSP attachment.
 
 Completion of titles inside `[[` is served over LSP. The plugin merges [`cmp-nvim-lsp`](https://github.com/hrsh7th/cmp-nvim-lsp) capabilities when nvim-cmp is installed, so candidates surface through your existing nvim-cmp setup (add `{ name = "nvim_lsp" }` to its sources). The completion source is UI-independent, so other clients work too.
 

@@ -51,6 +51,8 @@ marked `Done` with any remaining follow-up called out.
   links to plain text, removing template action links, honoring Babel `:exports`
   (results from sidecar v2 `last_run`), and an optional metadata frontmatter (ADR 0011,
   `spec/export.md`). Remaining: batch export, relative-link rewriting, other formats.
+- Editor foundations: `:checkhealth track` reports binary/config/attachment status, and
+  `:Track links` lists resolved outgoing link occurrences from the current note in quickfix.
 
 ## Discussion Template
 
@@ -96,16 +98,16 @@ For each item, answer:
 | Visual actions | Extract selection to new note | TBD | Needs source edit and new note creation in one operation. |
 | Checkboxes | Toggle/cycle checkbox state | TBD | Markdown-only editor action; likely Neovim-first. |
 | Checkboxes | Create checkbox from plain list/paragraph | TBD | Pair with toggle action if adopted. |
-| Navigation | Current-note links list | TBD | Similar to backlinks, but outgoing occurrences. LSP custom request or document symbols. |
+| Navigation | Current-note links list | Done | Shipped: LSP custom request `track/outgoingLinks` and `:Track links` quickfix list resolved outgoing occurrences from the current note. |
 | Navigation | Table of contents / document symbols | Reject | Standard Markdown structure, not track-specific; covered by treesitter (aerial/navic/Telescope) or a general Markdown LSP, which track-lsp would only duplicate. Reconsider if track moves off Markdown. |
 | Navigation | Workspace symbols | Reject | Covered by the existing `search_title` Telescope picker (`track search --scope title`); a general Markdown LSP can also surface headings. (Note ids are filenames, so `find_files` is not title search, but the picker handles it.) Reconsider if track moves off Markdown. |
 | Attachments | Paste image from clipboard | TBD | Neovim-only command plus attachment storage policy. |
 | Attachments | Attachment file management/opening | TBD | Requires attachment path policy and link/open behavior. |
 | Status | Footer/statusline data | TBD | Backlink count, word count, metadata count. Could expose Lua helper and no UI opinion. |
-| Health | `:checkhealth track` | TBD | Useful low-cost Neovim diagnostic for binaries, vault, index, LSP. |
+| Health | `:checkhealth track` | Done | Shipped: reports resolved CLI/LSP binaries, vault/cache configuration, and current-buffer LSP attachment. |
 | Help | In-plugin help/search | TBD | Lower priority. README/docs may be enough for now. |
 | Smart action | Context-aware `<CR>` action | TBD | Current `<CR>` follows links only. Decide whether to include checkboxes/tags/headings. |
-| LSP | Hover | TBD | Could show target note title/path/backlink count or unresolved create hint. |
+| LSP | Hover | Done | Shipped: previews the linked note under the cursor, including tags and leading body content. |
 | LSP | Diagnostics | Done | Shipped: unresolved-link diagnostics (Severity Warning) reusing documentLinks resolution, with the Lua unresolved highlight removed in favor of them. H1 placement is ordinary Markdown content and not diagnosed. Duplicate titles are prevented at creation. |
 | LSP | Code action resolve | TBD | Only needed if actions become expensive to compute. |
 | LSP | Document highlight | TBD | Highlight same link target or references in current buffer. |

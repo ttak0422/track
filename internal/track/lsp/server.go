@@ -194,6 +194,18 @@ func (s *Server) handleRequest(msg rpcMessage) rpcMessage {
 			return resp
 		}
 		resp.Result = backlinks
+	case "track/outgoingLinks":
+		var p documentLinkParams
+		if err := json.Unmarshal(msg.Params, &p); err != nil {
+			resp.Error = &rpcError{Code: -32602, Message: err.Error()}
+			return resp
+		}
+		links, err := s.outgoingLinks(string(p.TextDocument.URI))
+		if err != nil {
+			resp.Error = &rpcError{Code: -32000, Message: err.Error()}
+			return resp
+		}
+		resp.Result = links
 	case "textDocument/definition":
 		var p textDocumentPositionParams
 		if err := json.Unmarshal(msg.Params, &p); err != nil {

@@ -49,6 +49,15 @@ type backlink struct {
 	Preview string     `json:"preview"`
 }
 
+type outgoingLink struct {
+	NoteID  int64      `json:"note_id"`
+	URI     string     `json:"uri"`
+	Path    string     `json:"path"`
+	Title   string     `json:"title"`
+	Range   rangeValue `json:"range"`
+	Preview string     `json:"preview"`
+}
+
 type renameParams = protocol.RenameParams
 type codeActionParams = protocol.CodeActionParams
 type executeCommandParams = protocol.ExecuteCommandParams

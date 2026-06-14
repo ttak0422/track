@@ -153,6 +153,10 @@ function M.setup()
       require("track.backlinks").show()
    end, { desc = "Show notes that link to the current note" })
 
+   register("links", function()
+      require("track.links").show()
+   end, { desc = "Show links from the current note" })
+
    register("graph", function()
       require("track.graph").show()
    end, { desc = "Show a local note graph around the current note" })

@@ -117,6 +117,10 @@ function M.client(buf, method)
    return track_client(buf or vim.api.nvim_get_current_buf(), method)
 end
 
+function M.bin()
+   return find_binary()
+end
+
 -- fenced_rows returns a set (0-based row -> true) of lines that are fence delimiters or inside a fenced code block, plus the buffer lines.
 local function fenced_rows(buf)
    local lines = vim.api.nvim_buf_get_lines(buf, 0, -1, false)

@@ -264,6 +264,37 @@ func TestBacklinks(t *testing.T) {
 	}
 }
 
+func TestOutgoingLinks(t *testing.T) {
+	srv, vault := setupServer(t)
+	otherPath := filepath.Join(vault, "note", "200.md")
+	if err := srv.store.UpsertNote(&note.Note{
+		ID:   200,
+		Path: otherPath,
+		Meta: note.Metadata{Title: "Other"},
+	}); err != nil {
+		t.Fatal(err)
+	}
+	uri := uriFromPath(filepath.Join(vault, "note", "100.md"))
+	srv.docs[uri] = "first [[Other]] and [[Missing]]\nself [[Go]]\nsection [[Go##Intro]]"
+
+	links, err := srv.outgoingLinks(uri)
+	if err != nil {
+		t.Fatalf("outgoing links: %v", err)
+	}
+	if len(links) != 2 {
+		t.Fatalf("expected two outgoing link occurrences, got %+v", links)
+	}
+	if links[0].NoteID != 200 || links[0].Title != "Other" || links[0].Path != otherPath {
+		t.Fatalf("unexpected first outgoing link: %+v", links[0])
+	}
+	if links[0].Range.Start.Line != 0 || links[0].Range.Start.Character != 6 || links[0].Preview != "first [[Other]] and [[Missing]]" {
+		t.Fatalf("unexpected first outgoing range/preview: %+v", links[0])
+	}
+	if links[1].NoteID != 100 || links[1].Title != "Go" || links[1].Range.Start.Line != 2 {
+		t.Fatalf("same-note heading links should be listed, got %+v", links[1])
+	}
+}
+
 func TestReferences(t *testing.T) {
 	srv, vault := setupServer(t)
 	sourcePath := filepath.Join(vault, "note", "200.md")

@@ -58,6 +58,49 @@ func (s *Server) backlinks(uri string) ([]backlink, error) {
 	return s.backlinksTo(currentID)
 }
 
+func (s *Server) outgoingLinks(uri string) ([]outgoingLink, error) {
+	if !s.inVault(uri) {
+		return []outgoingLink{}, nil
+	}
+	text, err := s.documentText(uri)
+	if err != nil {
+		return nil, err
+	}
+	currentID, hasCurrentID := noteIDFromURI(uri)
+	dict, err := s.keywordDict()
+	if err != nil {
+		return nil, err
+	}
+	lines := strings.Split(text, "\n")
+	var out []outgoingLink
+	for _, ref := range link.Refs(text) {
+		kw, ok := dict[ref.Text]
+		if !ok {
+			continue
+		}
+		if hasCurrentID && kw.NoteID == currentID && ref.Heading == "" {
+			continue
+		}
+		preview := ""
+		if ref.Line >= 0 && ref.Line < len(lines) {
+			preview = strings.TrimSpace(lines[ref.Line])
+		}
+		targetPath := s.notePath(kw.FileKind, kw.NoteID)
+		out = append(out, outgoingLink{
+			NoteID:  kw.NoteID,
+			URI:     uriFromPath(targetPath),
+			Path:    targetPath,
+			Title:   kw.Term,
+			Range:   newRange(ref.Line, ref.OpenByte, ref.Line, ref.CloseByte),
+			Preview: preview,
+		})
+	}
+	if out == nil {
+		out = []outgoingLink{}
+	}
+	return out, nil
+}
+
 func (s *Server) backlinksTo(noteID int64) ([]backlink, error) {
 	sources, err := s.store.Backlinks(noteID)
 	if err != nil {
