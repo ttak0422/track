@@ -31,7 +31,7 @@ export function GraphPanel() {
   const selectedNoteID = noteIDFromPath(pathname);
   const [scope, setScope] = useState<GraphScope>("local");
   const [resetToken, setResetToken] = useState(0);
-  const [visible, setVisible] = useState(true);
+  const [visible, setVisible] = useState(false);
   const [panelSize, setPanelSize] = useState<PanelSize>(() => ({
     width: Math.min(defaultWidth, window.innerWidth - 36),
     height: Math.min(defaultHeight, window.innerHeight - 112),
