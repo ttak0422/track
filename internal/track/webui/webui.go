@@ -7,8 +7,12 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
+	"io/fs"
+	"mime"
 	"net/http"
 	"os"
+	"path"
 	"slices"
 	"strconv"
 	"strings"
@@ -54,9 +58,6 @@ func Serve(cfg *config.Config, st *store.Store, addr string) error {
 }
 
 func (s *Server) routes() {
-	s.mux.HandleFunc("/", s.handleIndex)
-	s.mux.HandleFunc("/app.js", serveText("text/javascript; charset=utf-8", appJS))
-	s.mux.HandleFunc("/style.css", serveText("text/css; charset=utf-8", styleCSS))
 	s.mux.HandleFunc("/api/search", s.handleSearch)
 	s.mux.HandleFunc("/api/notes", s.handleNotes)
 	s.mux.HandleFunc("/api/activity", s.handleActivity)
@@ -65,30 +66,72 @@ func (s *Server) routes() {
 	s.mux.HandleFunc("/api/graph/local", s.handleLocalGraph)
 	s.mux.HandleFunc("/api/graph", s.handleGraph)
 	s.mux.HandleFunc("/api/events", s.handleEvents)
+	// Everything that is not an API route is served from the embedded frontend build.
+	s.mux.HandleFunc("/", s.handleApp)
 }
 
-func serveText(contentType string, body string) http.HandlerFunc {
-	return func(w http.ResponseWriter, r *http.Request) {
-		w.Header().Set("Content-Type", contentType)
-		w.Header().Set("Cache-Control", "no-store")
-		_, _ = w.Write([]byte(body))
+// handleApp serves the embedded React frontend: a request that maps to a real built file (the hashed
+// JS/CSS bundles, icons, etc.) returns that file, and anything else falls back to index.html so the
+// client-side router can handle deep links like /notes/123.
+func (s *Server) handleApp(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet && r.Method != http.MethodHead {
+		writeError(w, fmt.Errorf("method %s not allowed", r.Method), http.StatusMethodNotAllowed)
+		return
 	}
+
+	upath := strings.TrimPrefix(path.Clean("/"+r.URL.Path), "/")
+	if upath == "" || upath == "." || upath == "index.html" {
+		s.serveIndex(w, r)
+		return
+	}
+
+	f, err := webRoot.Open(upath)
+	if err != nil {
+		s.serveIndex(w, r)
+		return
+	}
+	defer f.Close()
+	stat, err := f.Stat()
+	if err != nil || stat.IsDir() {
+		s.serveIndex(w, r)
+		return
+	}
+
+	if ct := mime.TypeByExtension(path.Ext(upath)); ct != "" {
+		w.Header().Set("Content-Type", ct)
+	}
+	// Vite emits content-hashed filenames under assets/, so those are safe to cache indefinitely; any
+	// other static file (icons, etc.) is left uncached so swaps are picked up immediately.
+	if strings.HasPrefix(upath, "assets/") {
+		w.Header().Set("Cache-Control", "public, max-age=31536000, immutable")
+	} else {
+		w.Header().Set("Cache-Control", "no-store")
+	}
+	if rs, ok := f.(io.ReadSeeker); ok {
+		http.ServeContent(w, r, upath, stat.ModTime(), rs)
+		return
+	}
+	_, _ = io.Copy(w, f)
 }
 
-func (s *Server) handleIndex(w http.ResponseWriter, r *http.Request) {
-	if r.URL.Path != "/" {
-		http.NotFound(w, r)
+func (s *Server) serveIndex(w http.ResponseWriter, r *http.Request) {
+	raw, err := fs.ReadFile(webRoot, "index.html")
+	if err != nil {
+		writeError(w, fmt.Errorf("read index: %w", err), http.StatusInternalServerError)
 		return
 	}
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
 	w.Header().Set("Cache-Control", "no-store")
+	if r.Method == http.MethodHead {
+		return
+	}
 	// Inject the configured default theme. Config.WebTheme is normalized to system/light/dark, so this
 	// is never arbitrary text from the user's config.
 	theme := s.cfg.WebTheme
 	if theme == "" {
 		theme = "system"
 	}
-	html := strings.Replace(indexHTML, "__TRACK_DEFAULT_THEME__", theme, 1)
+	html := strings.Replace(string(raw), "__TRACK_DEFAULT_THEME__", theme, 1)
 	overrides := ""
 	if s.colorCSS != "" {
 		overrides = "<style id=\"track-colors\">\n" + s.colorCSS + "</style>"

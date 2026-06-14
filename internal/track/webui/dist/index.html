@@ -6,8 +6,6 @@
     <link rel="icon" type="image/svg+xml" href="/k_logo.svg" />
     <title>track</title>
     <script>
-      // The Go server replaces __TRACK_DEFAULT_THEME__ with the configured default before serving this
-      // file, so the saved theme is applied before first paint and there is no flash of the wrong theme.
       (function () {
         var serverDefault = "__TRACK_DEFAULT_THEME__";
         window.__trackDefaultTheme = serverDefault;
@@ -20,7 +18,12 @@
     __TRACK_COLOR_OVERRIDES__
   </head>
   <body>
-    <div id="root"></div>
-    <script type="module" src="/src/main.tsx"></script>
+    <div id="root">
+      <p>
+        The track web UI has not been built. Run
+        <code>nix build .#track-cli</code> or
+        <code>npm --prefix web run build</code> and rebuild to populate it.
+      </p>
+    </div>
   </body>
 </html>

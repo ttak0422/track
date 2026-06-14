@@ -85,7 +85,12 @@ export function ThemeMenu() {
 
 function storedTheme(): ThemeMode {
   const value = localStorage.getItem(storageKey);
-  return value === "light" || value === "dark" ? value : "system";
+  if (value === "light" || value === "dark") {
+    return value;
+  }
+  // Fall back to the server-configured default the index bootstrap recorded on window.
+  const serverDefault = window.__trackDefaultTheme;
+  return serverDefault === "light" || serverDefault === "dark" ? serverDefault : "system";
 }
 
 function label(mode: ThemeMode): string {

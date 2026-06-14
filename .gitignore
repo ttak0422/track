@@ -6,6 +6,11 @@ web/node_modules/
 web/dist/
 web/*.tsbuildinfo
 
+# Embedded web UI build output (only the placeholder index.html is tracked;
+# the real assets are produced by the web build and copied in before embedding).
+/internal/track/webui/dist/*
+!/internal/track/webui/dist/index.html
+
 # Nix
 /result
 .direnv/

@@ -36,6 +36,31 @@
             (fileset.fileFilter (file: file.hasExt "go") ./.)
           ];
 
+          # The React frontend source, excluding generated/installed directories.
+          webFiles = fileset.difference ./web (
+            fileset.unions [
+              (fileset.maybeMissing ./web/node_modules)
+              (fileset.maybeMissing ./web/dist)
+            ]
+          );
+
+          # web-dist builds the Vite frontend; its output is the contents of web/dist, which the CLI
+          # embeds (see internal/track/webui/embed.go).
+          web-dist = pkgs.buildNpmPackage {
+            pname = "track-web";
+            version = "0.1.0";
+            src = fileset.toSource {
+              root = ./web;
+              fileset = webFiles;
+            };
+            npmDepsHash = "sha256-P7OfXjMC0nuBL3MIH1AU97a4KyQgtQgdNJXO6PC3z7w=";
+            installPhase = ''
+              runHook preInstall
+              cp -r dist $out
+              runHook postInstall
+            '';
+          };
+
           track-cli = pkgs.buildGoModule {
             pname = "track";
             version = "0.1.0";
@@ -48,6 +73,11 @@
               "cmd/track"
               "cmd/track-lsp"
             ];
+            # Replace the committed placeholder dist with the real frontend build before the embed runs.
+            preBuild = ''
+              mkdir -p internal/track/webui/dist
+              cp -rf ${web-dist}/. internal/track/webui/dist/
+            '';
           };
 
           track = pkgs.vimUtils.buildVimPlugin {

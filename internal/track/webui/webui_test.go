@@ -241,8 +241,37 @@ func TestIndexInjectsConfiguredTheme(t *testing.T) {
 	if strings.Contains(html, "__TRACK_DEFAULT_THEME__") {
 		t.Fatalf("placeholder should be replaced")
 	}
-	if !strings.Contains(html, `id="activity-grid"`) {
-		t.Fatalf("served HTML should include the sidebar activity grid")
+	if !strings.Contains(html, `id="root"`) {
+		t.Fatalf("served HTML should include the React mount point")
+	}
+}
+
+// TestAppServesSPAFallback verifies that a client-side route that is not a real file (e.g. /notes/123)
+// is served the frontend index so the router can handle the deep link instead of returning 404.
+func TestAppServesSPAFallback(t *testing.T) {
+	cfg := &config.Config{VaultDir: t.TempDir(), DBPath: filepath.Join(t.TempDir(), "index.db"), Extensions: []string{".md"}}
+	s, err := store.Open(cfg.DBPath)
+	if err != nil {
+		t.Fatalf("open store: %v", err)
+	}
+	t.Cleanup(func() { s.Close() })
+	server := httptest.NewServer(New(cfg, s).Handler())
+	t.Cleanup(server.Close)
+
+	resp, err := http.Get(server.URL + "/notes/123")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("deep link should fall back to index, got status %d", resp.StatusCode)
+	}
+	if ct := resp.Header.Get("Content-Type"); !strings.HasPrefix(ct, "text/html") {
+		t.Fatalf("deep link should serve HTML, got content-type %q", ct)
+	}
+	body, _ := io.ReadAll(resp.Body)
+	if !strings.Contains(string(body), `id="root"`) {
+		t.Fatalf("deep link fallback should serve the frontend index")
 	}
 }
 
