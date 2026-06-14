@@ -88,6 +88,10 @@ button {
   grid-template-columns: 56px minmax(380px, 1fr);
 }
 
+.workspace.home {
+  grid-template-columns: 1fr;
+}
+
 .sidebar {
   display: flex;
   min-width: 0;
@@ -219,17 +223,34 @@ button {
   position: relative;
   z-index: 1;
   display: flex;
-  min-height: 60vh;
   flex-direction: column;
   align-items: center;
-  justify-content: center;
   gap: 18px;
+  padding-top: 16vh;
   text-align: center;
 }
 
 .home-logo {
   width: min(260px, 70%);
   height: auto;
+}
+
+.home-hero .search-panel {
+  width: min(560px, 100%);
+  flex: none;
+}
+
+.home-hero .searchbox {
+  padding: 0;
+  border-bottom: 0;
+}
+
+.home-hero .results {
+  flex: none;
+  max-height: none;
+  overflow: visible;
+  padding: 8px 0;
+  text-align: left;
 }
 
 .home-hero p {

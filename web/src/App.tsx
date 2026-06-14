@@ -2,6 +2,7 @@ import { RouterProvider, createRootRoute, createRoute, createRouter } from "@tan
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { TrackLogo } from "./components/Logo";
 import { NoteReader } from "./components/NoteReader";
+import { SearchPanel } from "./components/SearchPanel";
 import { Shell } from "./components/Shell";
 import "./styles.css";
 
@@ -45,6 +46,7 @@ function HomeRoute() {
   return (
     <section className="home-hero">
       <TrackLogo className="home-logo" />
+      <SearchPanel />
     </section>
   );
 }

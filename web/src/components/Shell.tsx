@@ -14,7 +14,12 @@ export function Shell() {
 
   return (
     <SearchProvider>
-      <main className={sidebarCollapsed ? "workspace sidebar-collapsed" : "workspace"}>
+      <main
+        className={`workspace${isHome ? " home" : ""}${
+          sidebarCollapsed ? " sidebar-collapsed" : ""
+        }`}
+      >
+        {isHome ? null : (
         <aside className="sidebar">
           <nav className="activity-rail" aria-label="Workspace views">
             <button
@@ -46,6 +51,7 @@ export function Shell() {
             <ActivityPanel />
           </div>
         </aside>
+        )}
         <section className="reader">
           {isHome ? <GraphBackground /> : null}
           <Outlet />
