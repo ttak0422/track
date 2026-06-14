@@ -9,7 +9,7 @@ import { ThemeMenu } from "./ThemeMenu";
 import { SearchProvider } from "../searchState";
 
 export function Shell() {
-  const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
+  const [sidebarCollapsed, setSidebarCollapsed] = useState(true);
   const isHome = useRouterState({ select: (state) => state.location.pathname === "/" });
 
   return (

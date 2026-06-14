@@ -50,10 +50,15 @@ export function useResolveQuery(term: string) {
   });
 }
 
-export function useNoteQuery(noteID: NoteID) {
+// Poll interval for views that should reflect notes edited elsewhere (Neovim,
+// CLI, or a cloud sync) without a manual refresh.
+const liveRefetchInterval = 4000;
+
+export function useNoteQuery(noteID: NoteID, options: { live?: boolean } = {}) {
   return useQuery({
     queryKey: queryKeys.note(noteID),
     queryFn: () => getNote(noteID),
+    refetchInterval: options.live ? liveRefetchInterval : false,
   });
 }
 

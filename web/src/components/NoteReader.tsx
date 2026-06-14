@@ -1,5 +1,5 @@
 import { Link } from "@tanstack/react-router";
-import { FormEvent, useEffect, useState } from "react";
+import { FormEvent, useEffect, useRef, useState } from "react";
 import { MarkdownView } from "./MarkdownView";
 import { useNoteQuery, useSaveNoteMutation } from "../queries";
 import { useSearchState } from "../searchState";
@@ -14,16 +14,25 @@ const editorModeKey = "track.editor.mode";
 const editorModes: EditorMode[] = ["preview", "edit", "split"];
 
 export function NoteReader({ noteID }: NoteReaderProps) {
-  const noteQuery = useNoteQuery(noteID);
+  // Poll so the note reflects edits made elsewhere; we still guard against
+  // clobbering unsaved local edits below.
+  const noteQuery = useNoteQuery(noteID, { live: true });
   const saveNote = useSaveNoteMutation(noteID);
   const { setQuery } = useSearchState();
   const [body, setBody] = useState("");
   const [copied, setCopied] = useState(false);
   const [editorMode, setEditorMode] = useState<EditorMode>(() => storedEditorMode());
+  // The body/etag last adopted from disk. Edits are "dirty" relative to this, and
+  // saves use this etag so a background reload cannot mask a conflicting change.
+  const loadedRef = useRef({ body: "", etag: "" });
 
   useEffect(() => {
-    if (noteQuery.data) {
-      setBody(noteQuery.data.note.body);
+    const incoming = noteQuery.data?.note;
+    if (!incoming) return;
+    // Only adopt the latest disk content when the user has no unsaved edits.
+    if (body === loadedRef.current.body) {
+      loadedRef.current = { body: incoming.body, etag: incoming.etag };
+      setBody(incoming.body);
     }
   }, [noteQuery.data?.note.etag]);
 
@@ -41,7 +50,8 @@ export function NoteReader({ noteID }: NoteReaderProps) {
 
   const data = noteQuery.data;
   const note = data.note;
-  const dirty = body !== note.body;
+  const dirty = body !== loadedRef.current.body;
+  const changedOnDisk = note.etag !== loadedRef.current.etag;
   const tags = note.tags ?? [];
 
   async function copyPath() {
@@ -51,10 +61,15 @@ export function NoteReader({ noteID }: NoteReaderProps) {
     window.setTimeout(() => setCopied(false), 1200);
   }
 
-  function submit(event: FormEvent<HTMLFormElement>) {
+  async function submit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
-    if (!note || !dirty || saveNote.isPending) return;
-    saveNote.mutate({ body, etag: note.etag });
+    if (!dirty || saveNote.isPending) return;
+    try {
+      const response = await saveNote.mutateAsync({ body, etag: loadedRef.current.etag });
+      loadedRef.current = { body, etag: response.etag };
+    } catch {
+      // Conflict/errors surface via saveNote.isError below.
+    }
   }
 
   return (
@@ -112,6 +127,9 @@ export function NoteReader({ noteID }: NoteReaderProps) {
           ) : null}
         </div>
         <div className="editor-actions">
+          {dirty && changedOnDisk ? (
+            <p className="error">This note changed on disk while you were editing.</p>
+          ) : null}
           {saveNote.isError ? <p className="error">{saveNote.error.message}</p> : null}
           {saveNote.isSuccess && !dirty ? <p className="muted">Saved.</p> : null}
           <button className="primary-button" type="submit" disabled={!dirty || saveNote.isPending}>
