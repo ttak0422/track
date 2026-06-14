@@ -196,6 +196,45 @@ button {
   font-size: 24px;
 }
 
+.brand-title {
+  line-height: 0;
+}
+
+.brand-title a {
+  display: inline-flex;
+  color: var(--text);
+}
+
+.brand-title a:hover {
+  color: var(--accent);
+}
+
+.brand-mark {
+  display: block;
+  width: auto;
+  height: 30px;
+}
+
+.home-hero {
+  display: flex;
+  min-height: 60vh;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 18px;
+  text-align: center;
+}
+
+.home-logo {
+  width: min(260px, 70%);
+  height: auto;
+}
+
+.home-hero p {
+  max-width: 44ch;
+  color: var(--muted);
+}
+
 .brand p {
   margin: 4px 0 0;
   color: var(--muted);

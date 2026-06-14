@@ -1,3 +1,7 @@
+<p align="center">
+  <img src="web/public/track-logo.svg" alt="track" width="220" />
+</p>
+
 # track
 
 > [!CAUTION]

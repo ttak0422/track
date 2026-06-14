@@ -1,0 +1,54 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 260 320" role="img" aria-label="k logo" fill="none">
+  <defs>
+    <linearGradient id="dark" x1="24" y1="17" x2="205" y2="303" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#243044"/>
+      <stop offset="1" stop-color="#1e2635"/>
+    </linearGradient>
+    <linearGradient id="blue" x1="119" y1="174" x2="252" y2="84" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#1769f4"/>
+      <stop offset="1" stop-color="#1f7dff"/>
+    </linearGradient>
+    <filter id="softShadow" x="-10%" y="-10%" width="120%" height="120%">
+      <feDropShadow dx="0" dy="1" stdDeviation="1.2" flood-color="#000" flood-opacity="0.18"/>
+    </filter>
+  </defs>
+
+  <g filter="url(#softShadow)">
+    <!-- main k -->
+    <path fill="url(#dark)" stroke="#151b26" stroke-width="1" stroke-linejoin="round" d="
+      M27 17
+      H65
+      Q69 17 69 21
+      V208
+      L109 166
+      Q113 162 117 166
+      L130 177
+      H156
+      L134 200
+      L231 303
+      H178
+      Q174 303 171 300
+      L103 228
+      L70 262
+      V299
+      Q70 303 66 303
+      H27
+      Q23 303 23 299
+      V21
+      Q23 17 27 17
+      Z"/>
+
+    <!-- blue note / highlight -->
+    <path fill="url(#blue)" d="
+      M179 85
+      H245
+      Q254 85 250 93
+      L193 173
+      Q190 177 185 177
+      H124
+      Q117 177 112 169
+      L174 91
+      Q176 85 179 85
+      Z"/>
+  </g>
+</svg>

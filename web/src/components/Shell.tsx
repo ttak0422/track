@@ -2,6 +2,7 @@ import { Link, Outlet } from "@tanstack/react-router";
 import { useState } from "react";
 import { ActivityPanel } from "./ActivityPanel";
 import { GraphPanel } from "./GraphPanel";
+import { KMark } from "./Logo";
 import { SearchPanel } from "./SearchPanel";
 import { ThemeMenu } from "./ThemeMenu";
 import { SearchProvider } from "../searchState";
@@ -31,8 +32,10 @@ export function Shell() {
           <div className="sidebar-content">
             <header className="brand">
               <div>
-                <h1>
-                  <Link to="/">track</Link>
+                <h1 className="brand-title">
+                  <Link to="/" aria-label="track home">
+                    <KMark className="brand-mark" />
+                  </Link>
                 </h1>
                 <p>Local graph workspace</p>
               </div>
