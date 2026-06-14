@@ -31,8 +31,10 @@ export function GraphPanel() {
           <p>{meta}</p>
         </div>
         <button
-          className="secondary-button"
+          className="graph-scope"
           type="button"
+          aria-pressed={effectiveScope === "local"}
+          title="Toggle local / global graph"
           onClick={() => setScope((current) => (current === "local" ? "global" : "local"))}
         >
           {effectiveScope === "local" ? "Global" : "Local"}

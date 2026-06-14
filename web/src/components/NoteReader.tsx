@@ -77,7 +77,11 @@ export function NoteReader({ noteID }: NoteReaderProps) {
               </button>
             ))}
           </div>
-          <button className="secondary-button" type="button" onClick={copyPath}>
+          <button
+            className={`copy-path${copied ? " copied" : ""}`}
+            type="button"
+            onClick={copyPath}
+          >
             {copied ? "Copied" : "Copy path"}
           </button>
         </div>
