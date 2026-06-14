@@ -482,6 +482,13 @@ button {
   overflow-wrap: anywhere;
 }
 
+.note-header-actions {
+  display: flex;
+  flex: 0 0 auto;
+  align-items: center;
+  gap: 8px;
+}
+
 .note-tags button {
   border: 1px solid var(--line);
   border-radius: 999px;
@@ -504,11 +511,6 @@ button {
   flex: 1;
   flex-direction: column;
   gap: 10px;
-}
-
-.editor-toolbar {
-  display: flex;
-  justify-content: flex-end;
 }
 
 .mode-switch {
@@ -538,7 +540,7 @@ button {
   min-height: 420px;
   flex: 1;
   grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
-  gap: 14px;
+  gap: 0;
 }
 
 .editor-grid-preview,
@@ -563,10 +565,12 @@ button {
 .note-preview {
   min-width: 0;
   overflow: auto;
-  border: 1px solid var(--line);
-  border-radius: 6px;
   padding: 16px;
   background: var(--panel);
+}
+
+.editor-grid-split .note-preview {
+  border-left: 1px solid var(--line);
 }
 
 .markdown-view {

@@ -64,9 +64,23 @@ export function NoteReader({ noteID }: NoteReaderProps) {
           <h2>{note.title}</h2>
           <p>{note.copy_path}</p>
         </div>
-        <button className="secondary-button" type="button" onClick={copyPath}>
-          {copied ? "Copied" : "Copy path"}
-        </button>
+        <div className="note-header-actions">
+          <div className="mode-switch" role="group" aria-label="Markdown display mode">
+            {editorModes.map((mode) => (
+              <button
+                aria-pressed={editorMode === mode}
+                key={mode}
+                type="button"
+                onClick={() => setEditorMode(mode)}
+              >
+                {modeLabel(mode)}
+              </button>
+            ))}
+          </div>
+          <button className="secondary-button" type="button" onClick={copyPath}>
+            {copied ? "Copied" : "Copy path"}
+          </button>
+        </div>
       </header>
 
       {tags.length > 0 ? (
@@ -80,20 +94,6 @@ export function NoteReader({ noteID }: NoteReaderProps) {
       ) : null}
 
       <form className="note-editor" onSubmit={submit}>
-        <div className="editor-toolbar">
-          <div className="mode-switch" role="group" aria-label="Markdown display mode">
-            {editorModes.map((mode) => (
-              <button
-                aria-pressed={editorMode === mode}
-                key={mode}
-                type="button"
-                onClick={() => setEditorMode(mode)}
-              >
-                {modeLabel(mode)}
-              </button>
-            ))}
-          </div>
-        </div>
         <div className={`editor-grid editor-grid-${editorMode}`}>
           {editorMode !== "preview" ? (
             <textarea
