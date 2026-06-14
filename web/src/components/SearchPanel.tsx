@@ -9,7 +9,8 @@ export function SearchPanel() {
   const debouncedQuery = useDebouncedValue(query, 180);
   const search = useSearchQuery(debouncedQuery, 100);
   const navigate = useNavigate();
-  const topResult = search.data?.results[0];
+  const results = search.data?.results ?? [];
+  const topResult = results[0];
 
   function onKeyDown(event: React.KeyboardEvent<HTMLInputElement>) {
     if (event.key === "Enter" && topResult) {
@@ -33,7 +34,7 @@ export function SearchPanel() {
       <div className="results" aria-live="polite">
         {search.isPending ? <p className="muted">Loading notes...</p> : null}
         {search.isError ? <p className="error">{search.error.message}</p> : null}
-        {search.data?.results.map((note) => (
+        {results.map((note) => (
           <SearchResultItem key={note.note_id} note={note} />
         ))}
       </div>

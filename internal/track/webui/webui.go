@@ -160,6 +160,9 @@ func (s *Server) handleSearch(w http.ResponseWriter, r *http.Request) {
 		writeError(w, err, http.StatusInternalServerError)
 		return
 	}
+	if results == nil {
+		results = []store.SearchResult{}
+	}
 	addSearchPaths(s.cfg, results)
 	writeJSON(w, map[string]any{"results": results})
 }

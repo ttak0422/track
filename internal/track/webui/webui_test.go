@@ -5,6 +5,7 @@ import (
 	"io"
 	"net/http"
 	"net/http/httptest"
+	"net/url"
 	"os"
 	"path/filepath"
 	"strings"
@@ -61,6 +62,11 @@ func TestAPIHandlers(t *testing.T) {
 	tags := results[0].(map[string]any)["tags"].([]any)
 	if len(tags) != 1 || tags[0] != "project" {
 		t.Fatalf("unexpected search result tags: %v", results[0])
+	}
+	emptySearch := getJSON(t, server.URL+"/api/search?q="+url.QueryEscape("検索"))
+	emptyResults, ok := emptySearch["results"].([]any)
+	if !ok || len(emptyResults) != 0 {
+		t.Fatalf("search miss should return an empty array, got %T %v", emptySearch["results"], emptySearch["results"])
 	}
 	resolved := getJSON(t, server.URL+"/api/resolve?term=Beta")
 	if resolved["found"] != true || resolved["note"].(map[string]any)["note_id"].(float64) != 200 {
