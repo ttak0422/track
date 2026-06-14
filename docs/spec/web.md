@@ -19,8 +19,10 @@ All `/api/*` responses are JSON. Read endpoints:
   notes. `#tag` terms filter by sidecar tags.
 - `GET /api/notes`: list indexed notes.
 - `GET /api/resolve?term=<title>`: resolve a title to a note.
-- `GET /api/note?id=<id>`: the note's body, tags, resolved path, backlinks, and an
-  `etag` (a content hash of the file as read).
+- `GET /api/note?id=<id>`: the note's body, tags, paths, backlinks, and an `etag`
+  (a content hash of the file as read). It returns two paths: `path`, the canonical
+  (symlink-resolved) location, and `copy_path`, the same note in the configured,
+  symlink-intact form used for the copy-path button.
 - `GET /api/graph/local?id=<id>`: the one-hop local graph around a note.
 - `GET /api/graph`: the whole-vault graph — every indexed note as a node and every
   link between two known notes as an edge, with no center.
@@ -44,6 +46,14 @@ on disk:
 
 A missing `etag` is a `400`. Titles stay sidecar-authoritative (ADR 0013), so a
 save only writes the markdown body, never the title.
+
+## Copy path
+
+The note view has a **Copy path** button that copies the note's absolute file path
+to the clipboard. The copied path keeps the configured, symlink-intact form (e.g.
+`~/track/note/100.md`) rather than the resolved target (`~/OneDrive/track/...`),
+since that is the path the user recognizes and is usually shorter. This is the
+`copy_path` field from `GET /api/note`.
 
 ## Graph view
 
