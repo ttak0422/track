@@ -1,19 +1,12 @@
-import {
-  Link,
-  Outlet,
-  RouterProvider,
-  createRootRoute,
-  createRoute,
-  createRouter,
-} from "@tanstack/react-router";
+import { RouterProvider, createRootRoute, createRoute, createRouter } from "@tanstack/react-router";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { useActivityQuery } from "./queries";
+import { Shell } from "./components/Shell";
 import "./styles.css";
 
 const queryClient = new QueryClient();
 
 const rootRoute = createRootRoute({
-  component: RootLayout,
+  component: Shell,
 });
 
 const indexRoute = createRoute({
@@ -46,33 +39,7 @@ export function App() {
   );
 }
 
-function RootLayout() {
-  return (
-    <main className="workspace">
-      <aside className="sidebar">
-        <header className="brand">
-          <h1>
-            <Link to="/">track</Link>
-          </h1>
-          <p>React workspace migration</p>
-        </header>
-        <nav className="nav">
-          <Link to="/">Home</Link>
-          <Link to="/notes/$noteId" params={{ noteId: "1781359469000" }}>
-            Example note route
-          </Link>
-        </nav>
-      </aside>
-      <section className="reader">
-        <Outlet />
-      </section>
-    </main>
-  );
-}
-
 function HomeRoute() {
-  const activity = useActivityQuery(14);
-
   return (
     <article className="panel">
       <h2>Web migration shell</h2>
@@ -80,16 +47,6 @@ function HomeRoute() {
         This React/Vite entry is intentionally small. The current Go-served UI stays in place while
         routes, server-state queries, and components are migrated incrementally.
       </p>
-      <section>
-        <h3>Activity query</h3>
-        {activity.isPending ? <p>Loading activity...</p> : null}
-        {activity.isError ? <p className="error">{activity.error.message}</p> : null}
-        {activity.data ? (
-          <p>
-            {activity.data.activity.total} updates over {activity.data.activity.days} days.
-          </p>
-        ) : null}
-      </section>
     </article>
   );
 }
