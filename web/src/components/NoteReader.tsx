@@ -126,16 +126,18 @@ export function NoteReader({ noteID }: NoteReaderProps) {
             </section>
           ) : null}
         </div>
-        <div className="editor-actions">
-          {dirty && changedOnDisk ? (
-            <p className="error">This note changed on disk while you were editing.</p>
-          ) : null}
-          {saveNote.isError ? <p className="error">{saveNote.error.message}</p> : null}
-          {saveNote.isSuccess && !dirty ? <p className="muted">Saved.</p> : null}
-          <button className="primary-button" type="submit" disabled={!dirty || saveNote.isPending}>
-            {saveNote.isPending ? "Saving..." : "Save"}
-          </button>
-        </div>
+        {editorMode !== "preview" ? (
+          <div className="editor-actions">
+            {dirty && changedOnDisk ? (
+              <p className="error">This note changed on disk while you were editing.</p>
+            ) : null}
+            {saveNote.isError ? <p className="error">{saveNote.error.message}</p> : null}
+            {saveNote.isSuccess && !dirty ? <p className="muted">Saved.</p> : null}
+            <button className="primary-button" type="submit" disabled={!dirty || saveNote.isPending}>
+              {saveNote.isPending ? "Saving..." : "Save"}
+            </button>
+          </div>
+        ) : null}
       </form>
 
       <section className="backlinks" aria-labelledby="backlinks-heading">
