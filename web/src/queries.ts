@@ -57,17 +57,24 @@ export function useNoteQuery(noteID: NoteID) {
   });
 }
 
-export function useGraphQuery() {
+export function useGraphQuery(enabled = true) {
   return useQuery({
     queryKey: queryKeys.graph(),
     queryFn: getGraph,
+    enabled,
   });
 }
 
-export function useLocalGraphQuery(noteID: NoteID) {
+export function useLocalGraphQuery(noteID: NoteID | undefined, enabled = noteID !== undefined) {
   return useQuery({
-    queryKey: queryKeys.localGraph(noteID),
-    queryFn: () => getLocalGraph(noteID),
+    queryKey: queryKeys.localGraph(noteID ?? 0),
+    queryFn: () => {
+      if (noteID === undefined) {
+        throw new Error("note id is required for local graph");
+      }
+      return getLocalGraph(noteID);
+    },
+    enabled,
   });
 }
 

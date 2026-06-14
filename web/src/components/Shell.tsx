@@ -1,5 +1,6 @@
 import { Link, Outlet } from "@tanstack/react-router";
 import { ActivityPanel } from "./ActivityPanel";
+import { GraphPanel } from "./GraphPanel";
 import { SearchPanel } from "./SearchPanel";
 import { ThemeMenu } from "./ThemeMenu";
 
@@ -22,6 +23,7 @@ export function Shell() {
       <section className="reader">
         <Outlet />
       </section>
+      <GraphPanel />
     </main>
   );
 }
