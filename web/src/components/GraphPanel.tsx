@@ -10,6 +10,7 @@ export function GraphPanel() {
   const pathname = useRouterState({ select: (state) => state.location.pathname });
   const selectedNoteID = noteIDFromPath(pathname);
   const [scope, setScope] = useState<GraphScope>("local");
+  const [resetToken, setResetToken] = useState(0);
   const effectiveScope = selectedNoteID === undefined ? "global" : scope;
   const localGraph = useLocalGraphQuery(
     selectedNoteID,
@@ -42,11 +43,21 @@ export function GraphPanel() {
       {graph ? (
         <GraphCanvas
           graph={graph}
+          resetToken={resetToken}
           onSelect={(noteID) =>
             void navigate({ to: "/notes/$noteId", params: { noteId: String(noteID) } })
           }
         />
       ) : null}
+      <button
+        className="graph-reset"
+        type="button"
+        aria-label="Reset graph view"
+        title="Reset graph view"
+        onClick={() => setResetToken((token) => token + 1)}
+      >
+        Reset
+      </button>
     </aside>
   );
 }
