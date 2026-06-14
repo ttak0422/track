@@ -319,9 +319,17 @@ button {
   gap: 10px;
 }
 
+.editor-grid {
+  display: grid;
+  min-height: 420px;
+  flex: 1;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+  gap: 14px;
+}
+
 .note-editor textarea {
   width: 100%;
-  min-height: 360px;
+  min-height: 420px;
   flex: 1;
   resize: vertical;
   border: 1px solid var(--line);
@@ -331,6 +339,95 @@ button {
   background: var(--panel-soft);
   font:
     14px/1.6 ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", monospace;
+}
+
+.note-preview {
+  min-width: 0;
+  overflow: auto;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  padding: 16px;
+  background: var(--panel);
+}
+
+.markdown-view {
+  line-height: 1.65;
+}
+
+.markdown-view h1,
+.markdown-view h2,
+.markdown-view h3 {
+  margin: 1.1em 0 0.45em;
+  line-height: 1.25;
+}
+
+.markdown-view h1:first-child,
+.markdown-view h2:first-child,
+.markdown-view h3:first-child,
+.markdown-view p:first-child {
+  margin-top: 0;
+}
+
+.markdown-view p {
+  margin: 0.8em 0;
+}
+
+.markdown-view ul {
+  margin: 0.8em 0;
+  padding-left: 1.3em;
+}
+
+.task-item {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  margin: 8px 0;
+}
+
+.wiki-link-wrap {
+  position: relative;
+  display: inline-block;
+}
+
+.wiki-link {
+  color: var(--accent);
+  font-weight: 700;
+  text-decoration: none;
+}
+
+.wiki-link.pending {
+  color: var(--muted);
+}
+
+.wiki-link.unresolved {
+  color: var(--danger);
+  text-decoration: underline;
+  text-decoration-style: dotted;
+}
+
+.wiki-preview {
+  position: absolute;
+  z-index: 10;
+  left: 0;
+  top: calc(100% + 8px);
+  width: min(320px, 80vw);
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  padding: 12px;
+  color: var(--text);
+  background: var(--panel);
+  box-shadow: 0 12px 28px rgb(0 0 0 / 18%);
+}
+
+.wiki-preview strong {
+  display: block;
+  margin-bottom: 6px;
+}
+
+.wiki-preview p {
+  margin: 0;
+  color: var(--muted);
+  font-size: 13px;
 }
 
 .editor-actions {

@@ -1,5 +1,6 @@
 import { Link } from "@tanstack/react-router";
 import { FormEvent, useEffect, useState } from "react";
+import { MarkdownView } from "./MarkdownView";
 import { useNoteQuery, useSaveNoteMutation } from "../queries";
 import type { NoteID } from "../types";
 
@@ -66,11 +67,16 @@ export function NoteReader({ noteID }: NoteReaderProps) {
       ) : null}
 
       <form className="note-editor" onSubmit={submit}>
-        <textarea
-          aria-label="Note body"
-          value={body}
-          onChange={(event) => setBody(event.currentTarget.value)}
-        />
+        <div className="editor-grid">
+          <textarea
+            aria-label="Note body"
+            value={body}
+            onChange={(event) => setBody(event.currentTarget.value)}
+          />
+          <section className="note-preview" aria-label="Rendered note preview">
+            <MarkdownView markdown={body} />
+          </section>
+        </div>
         <div className="editor-actions">
           {saveNote.isError ? <p className="error">{saveNote.error.message}</p> : null}
           {saveNote.isSuccess && !dirty ? <p className="muted">Saved.</p> : null}
