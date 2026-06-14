@@ -866,7 +866,7 @@ button {
 
 .wiki-preview {
   position: fixed;
-  width: min(320px, 80vw);
+  width: min(50vw, 640px);
   border: 1px solid var(--line);
   border-radius: 6px;
   padding: 12px;
