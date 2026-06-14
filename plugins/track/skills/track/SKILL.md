@@ -1,6 +1,11 @@
 ---
 name: track
-description: Use the track CLI for linked Markdown knowledge-base maintenance beyond basic note creation or read-only search: renaming notes and fixing backlinks, checking backlinks/graphs, running diagnostics, maintaining indexes, or coordinating multi-step vault workflows. For creating notes use track-create-note; for searching or reading notes use track-search-notes.
+description: >-
+  Use the track CLI for linked Markdown knowledge-base maintenance beyond basic
+  note creation or read-only search: renaming notes and fixing backlinks,
+  checking backlinks/graphs, running diagnostics, maintaining indexes, or
+  coordinating multi-step vault workflows. For creating notes use
+  track-create-note; for searching or reading notes use track-search-notes.
 ---
 
 # track CLI

@@ -1,6 +1,6 @@
 {
   "name": "track",
-  "version": "0.1.0",
+  "version": "0.1.0+codex.20260614170159",
   "description": "Use focused track CLI skills to create, search, read, and maintain linked Markdown notes in a configured track vault.",
   "author": {
     "name": "ttak0422",
