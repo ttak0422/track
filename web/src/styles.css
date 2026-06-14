@@ -481,12 +481,20 @@ button {
   overflow-wrap: anywhere;
 }
 
-.note-tags span {
+.note-tags button {
   border: 1px solid var(--line);
   border-radius: 999px;
   padding: 2px 8px;
   color: var(--muted);
+  background: transparent;
   font-size: 12px;
+}
+
+.note-tags button:hover,
+.note-tags button:focus-visible {
+  color: var(--text);
+  border-color: var(--accent);
+  background: color-mix(in srgb, var(--accent) 12%, transparent);
 }
 
 .note-editor {
@@ -497,12 +505,44 @@ button {
   gap: 10px;
 }
 
+.editor-toolbar {
+  display: flex;
+  justify-content: flex-end;
+}
+
+.mode-switch {
+  display: flex;
+  gap: 4px;
+  padding: 2px;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  background: var(--panel-soft);
+}
+
+.mode-switch button {
+  border: 0;
+  border-radius: 4px;
+  padding: 5px 10px;
+  color: var(--muted);
+  background: transparent;
+}
+
+.mode-switch button[aria-pressed="true"] {
+  color: var(--text);
+  background: var(--panel);
+}
+
 .editor-grid {
   display: grid;
   min-height: 420px;
   flex: 1;
   grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
   gap: 14px;
+}
+
+.editor-grid-preview,
+.editor-grid-edit {
+  grid-template-columns: minmax(0, 1fr);
 }
 
 .note-editor textarea {
@@ -597,15 +637,33 @@ button {
   box-shadow: 0 12px 28px rgb(0 0 0 / 18%);
 }
 
+.wiki-preview::before {
+  content: "";
+  position: absolute;
+  left: 0;
+  right: 0;
+  top: -10px;
+  height: 10px;
+}
+
 .wiki-preview strong {
   display: block;
   margin-bottom: 6px;
 }
 
-.wiki-preview p {
+.wiki-preview-body {
+  max-height: 220px;
+  overflow: auto;
+}
+
+.wiki-preview-body .markdown-view {
+  font-size: 13px;
+  line-height: 1.5;
+}
+
+.wiki-preview-body .markdown-view p {
   margin: 0;
   color: var(--muted);
-  font-size: 13px;
 }
 
 .editor-actions {

@@ -1,6 +1,6 @@
 import { Link } from "@tanstack/react-router";
-import { Fragment, useState } from "react";
-import { excerpt, parseInline, parseMarkdown } from "../markdown";
+import { Fragment, useEffect, useRef, useState } from "react";
+import { parseInline, parseMarkdown } from "../markdown";
 import { useNoteQuery, useResolveQuery } from "../queries";
 
 interface MarkdownViewProps {
@@ -61,8 +61,31 @@ interface WikiLinkProps {
 
 function WikiLink({ target, display }: WikiLinkProps) {
   const [open, setOpen] = useState(false);
+  const closeTimer = useRef<number | undefined>(undefined);
   const resolved = useResolveQuery(target);
   const noteID = resolved.data?.found ? resolved.data.note.note_id : undefined;
+
+  useEffect(() => {
+    return () => {
+      if (closeTimer.current !== undefined) {
+        window.clearTimeout(closeTimer.current);
+      }
+    };
+  }, []);
+
+  function openPreview() {
+    if (closeTimer.current !== undefined) {
+      window.clearTimeout(closeTimer.current);
+    }
+    setOpen(true);
+  }
+
+  function scheduleClose() {
+    if (closeTimer.current !== undefined) {
+      window.clearTimeout(closeTimer.current);
+    }
+    closeTimer.current = window.setTimeout(() => setOpen(false), 220);
+  }
 
   if (resolved.isPending) {
     return <span className="wiki-link pending">{display}</span>;
@@ -75,10 +98,10 @@ function WikiLink({ target, display }: WikiLinkProps) {
   return (
     <span
       className="wiki-link-wrap"
-      onBlur={() => setOpen(false)}
-      onFocus={() => setOpen(true)}
-      onMouseEnter={() => setOpen(true)}
-      onMouseLeave={() => setOpen(false)}
+      onBlur={scheduleClose}
+      onFocus={openPreview}
+      onMouseEnter={openPreview}
+      onMouseLeave={scheduleClose}
     >
       <Link className="wiki-link" to="/notes/$noteId" params={{ noteId: String(noteID) }}>
         {display}
@@ -102,7 +125,9 @@ function WikiPreview({ noteID }: WikiPreviewProps) {
       {note.data ? (
         <>
           <strong>{note.data.note.title}</strong>
-          <p>{excerpt(note.data.note.body)}</p>
+          <div className="wiki-preview-body">
+            <MarkdownView markdown={note.data.note.body} />
+          </div>
         </>
       ) : null}
     </aside>

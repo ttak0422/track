@@ -1,11 +1,11 @@
 import { Link } from "@tanstack/react-router";
-import { useState } from "react";
 import { useDebouncedValue } from "../hooks/useDebouncedValue";
 import { useSearchQuery } from "../queries";
+import { useSearchState } from "../searchState";
 import type { SearchResult } from "../types";
 
 export function SearchPanel() {
-  const [query, setQuery] = useState("");
+  const { query, setQuery } = useSearchState();
   const debouncedQuery = useDebouncedValue(query, 180);
   const search = useSearchQuery(debouncedQuery, 100);
 

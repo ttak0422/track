@@ -2,23 +2,34 @@ import { Link } from "@tanstack/react-router";
 import { FormEvent, useEffect, useState } from "react";
 import { MarkdownView } from "./MarkdownView";
 import { useNoteQuery, useSaveNoteMutation } from "../queries";
+import { useSearchState } from "../searchState";
 import type { NoteID } from "../types";
 
 interface NoteReaderProps {
   noteID: NoteID;
 }
 
+type EditorMode = "preview" | "edit" | "split";
+const editorModeKey = "track.editor.mode";
+const editorModes: EditorMode[] = ["preview", "edit", "split"];
+
 export function NoteReader({ noteID }: NoteReaderProps) {
   const noteQuery = useNoteQuery(noteID);
   const saveNote = useSaveNoteMutation(noteID);
+  const { setQuery } = useSearchState();
   const [body, setBody] = useState("");
   const [copied, setCopied] = useState(false);
+  const [editorMode, setEditorMode] = useState<EditorMode>(() => storedEditorMode());
 
   useEffect(() => {
     if (noteQuery.data) {
       setBody(noteQuery.data.note.body);
     }
   }, [noteQuery.data?.note.etag]);
+
+  useEffect(() => {
+    localStorage.setItem(editorModeKey, editorMode);
+  }, [editorMode]);
 
   if (noteQuery.isPending) {
     return <p className="muted">Loading note...</p>;
@@ -61,21 +72,41 @@ export function NoteReader({ noteID }: NoteReaderProps) {
       {tags.length > 0 ? (
         <div className="tag-list note-tags" aria-label="Note tags">
           {tags.map((tag) => (
-            <span key={tag}>#{tag}</span>
+            <button key={tag} type="button" onClick={() => setQuery(`#${tag}`)}>
+              #{tag}
+            </button>
           ))}
         </div>
       ) : null}
 
       <form className="note-editor" onSubmit={submit}>
-        <div className="editor-grid">
-          <textarea
-            aria-label="Note body"
-            value={body}
-            onChange={(event) => setBody(event.currentTarget.value)}
-          />
-          <section className="note-preview" aria-label="Rendered note preview">
-            <MarkdownView markdown={body} />
-          </section>
+        <div className="editor-toolbar">
+          <div className="mode-switch" role="group" aria-label="Markdown display mode">
+            {editorModes.map((mode) => (
+              <button
+                aria-pressed={editorMode === mode}
+                key={mode}
+                type="button"
+                onClick={() => setEditorMode(mode)}
+              >
+                {modeLabel(mode)}
+              </button>
+            ))}
+          </div>
+        </div>
+        <div className={`editor-grid editor-grid-${editorMode}`}>
+          {editorMode !== "preview" ? (
+            <textarea
+              aria-label="Note body"
+              value={body}
+              onChange={(event) => setBody(event.currentTarget.value)}
+            />
+          ) : null}
+          {editorMode !== "edit" ? (
+            <section className="note-preview" aria-label="Rendered note preview">
+              <MarkdownView markdown={body} />
+            </section>
+          ) : null}
         </div>
         <div className="editor-actions">
           {saveNote.isError ? <p className="error">{saveNote.error.message}</p> : null}
@@ -102,4 +133,20 @@ export function NoteReader({ noteID }: NoteReaderProps) {
       </section>
     </article>
   );
+}
+
+function storedEditorMode(): EditorMode {
+  const value = localStorage.getItem(editorModeKey);
+  return value === "edit" || value === "split" || value === "preview" ? value : "preview";
+}
+
+function modeLabel(mode: EditorMode): string {
+  switch (mode) {
+    case "edit":
+      return "Edit";
+    case "preview":
+      return "Preview";
+    case "split":
+      return "Split";
+  }
 }

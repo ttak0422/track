@@ -1,15 +1,34 @@
+import { useEffect, useRef, useState } from "react";
 import { useActivityQuery } from "../queries";
 
-interface ActivityPanelProps {
-  days?: number;
-}
+const cellWidth = 9;
+const cellGap = 3;
 
-export function ActivityPanel({ days = 28 }: ActivityPanelProps) {
-  const activity = useActivityQuery(days);
+export function ActivityPanel() {
+  const panelRef = useRef<HTMLElement | null>(null);
+  const [visibleDays, setVisibleDays] = useState(28);
+  const activity = useActivityQuery(visibleDays);
+
+  useEffect(() => {
+    const panel = panelRef.current;
+    if (!panel) return;
+    const observedPanel = panel;
+
+    function updateDays() {
+      const width = Math.max(1, observedPanel.clientWidth - 36);
+      const columns = Math.max(1, Math.floor((width + cellGap) / (cellWidth + cellGap)));
+      setVisibleDays(columns * 7);
+    }
+
+    updateDays();
+    const observer = new ResizeObserver(updateDays);
+    observer.observe(observedPanel);
+    return () => observer.disconnect();
+  }, []);
 
   if (activity.isPending) {
     return (
-      <section className="activity-panel" aria-labelledby="activity-heading">
+      <section className="activity-panel" aria-labelledby="activity-heading" ref={panelRef}>
         <h2 id="activity-heading">Activity</h2>
         <p className="muted">Loading activity...</p>
       </section>
@@ -18,7 +37,7 @@ export function ActivityPanel({ days = 28 }: ActivityPanelProps) {
 
   if (activity.isError) {
     return (
-      <section className="activity-panel" aria-labelledby="activity-heading">
+      <section className="activity-panel" aria-labelledby="activity-heading" ref={panelRef}>
         <h2 id="activity-heading">Activity</h2>
         <p className="error">{activity.error.message}</p>
       </section>
@@ -30,7 +49,7 @@ export function ActivityPanel({ days = 28 }: ActivityPanelProps) {
   const dates = recentDates(summary.start_date, summary.days);
 
   return (
-    <section className="activity-panel" aria-labelledby="activity-heading">
+    <section className="activity-panel" aria-labelledby="activity-heading" ref={panelRef}>
       <div className="activity-header">
         <h2 id="activity-heading">Activity</h2>
         <p>{summary.total} updates</p>
