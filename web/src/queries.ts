@@ -9,7 +9,7 @@ import {
   saveNote,
   searchNotes,
 } from "./api";
-import type { NoteID, SaveNoteRequest } from "./types";
+import type { NoteID, NoteResponse, SaveNoteRequest } from "./types";
 
 export const queryKeys = {
   activity: (days: number) => ["activity", days] as const,
@@ -76,7 +76,18 @@ export function useSaveNoteMutation(noteID: NoteID) {
 
   return useMutation({
     mutationFn: (request: SaveNoteRequest) => saveNote(noteID, request),
-    onSuccess: () => {
+    onSuccess: (response, request) => {
+      queryClient.setQueryData<NoteResponse>(queryKeys.note(noteID), (current) => {
+        if (!current) return current;
+        return {
+          ...current,
+          note: {
+            ...current.note,
+            body: request.body,
+            etag: response.etag,
+          },
+        };
+      });
       void queryClient.invalidateQueries({ queryKey: queryKeys.note(noteID) });
       void queryClient.invalidateQueries({ queryKey: queryKeys.notes() });
       void queryClient.invalidateQueries({ queryKey: ["search"] });

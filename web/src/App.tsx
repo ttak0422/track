@@ -1,5 +1,6 @@
 import { RouterProvider, createRootRoute, createRoute, createRouter } from "@tanstack/react-router";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
+import { NoteReader } from "./components/NoteReader";
 import { Shell } from "./components/Shell";
 import "./styles.css";
 
@@ -53,11 +54,11 @@ function HomeRoute() {
 
 function NoteRoute() {
   const { noteId } = noteRoute.useParams();
+  const parsed = Number(noteId);
 
-  return (
-    <article className="panel">
-      <h2>Note route</h2>
-      <p>Selected note id: {noteId}</p>
-    </article>
-  );
+  if (!Number.isSafeInteger(parsed) || parsed <= 0) {
+    return <p className="error">Invalid note id: {noteId}</p>;
+  }
+
+  return <NoteReader noteID={parsed} />;
 }

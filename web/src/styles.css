@@ -277,6 +277,118 @@ button {
   margin-top: 0;
 }
 
+.note-reader {
+  display: flex;
+  min-height: calc(100vh - 64px);
+  flex-direction: column;
+  gap: 18px;
+}
+
+.note-header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 20px;
+}
+
+.note-header h2 {
+  margin: 0;
+  font-size: 28px;
+}
+
+.note-header p {
+  margin: 6px 0 0;
+  color: var(--muted);
+  font-size: 13px;
+  overflow-wrap: anywhere;
+}
+
+.note-tags span {
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  padding: 2px 8px;
+  color: var(--muted);
+  font-size: 12px;
+}
+
+.note-editor {
+  display: flex;
+  min-height: 360px;
+  flex: 1;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.note-editor textarea {
+  width: 100%;
+  min-height: 360px;
+  flex: 1;
+  resize: vertical;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  padding: 16px;
+  color: var(--text);
+  background: var(--panel-soft);
+  font:
+    14px/1.6 ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", monospace;
+}
+
+.editor-actions {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 12px;
+}
+
+.editor-actions p {
+  margin: 0;
+}
+
+.primary-button,
+.secondary-button {
+  border-radius: 6px;
+  padding: 8px 12px;
+}
+
+.primary-button {
+  border: 1px solid var(--accent);
+  color: var(--panel);
+  background: var(--accent);
+}
+
+.primary-button:disabled {
+  cursor: default;
+  opacity: 0.55;
+}
+
+.secondary-button {
+  border: 1px solid var(--line);
+  color: var(--text);
+  background: var(--panel-soft);
+}
+
+.backlinks {
+  border-top: 1px solid var(--line);
+  padding-top: 16px;
+}
+
+.backlinks h3 {
+  margin: 0 0 10px;
+  font-size: 13px;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+
+.backlink {
+  display: block;
+  width: fit-content;
+  border-radius: 6px;
+  padding: 6px 0;
+  color: var(--accent);
+  font-weight: 700;
+  text-decoration: none;
+}
+
 .error {
   color: var(--danger);
 }
