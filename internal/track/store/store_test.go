@@ -55,6 +55,12 @@ func TestOpenAppliesSchema(t *testing.T) {
 	).Scan(&view); err != nil {
 		t.Fatalf("keywords view not found: %v", err)
 	}
+	var indexName string
+	if err := s.db.QueryRow(
+		"SELECT name FROM sqlite_master WHERE type='index' AND name='idx_notes_kind_mtime'",
+	).Scan(&indexName); err != nil {
+		t.Fatalf("mtime index not found: %v", err)
+	}
 
 	var version int
 	if err := s.db.QueryRow("PRAGMA user_version").Scan(&version); err != nil {

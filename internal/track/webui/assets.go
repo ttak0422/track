@@ -64,6 +64,13 @@ __TRACK_COLOR_OVERRIDES__
           </div>
         </div>
         <div id="results" class="results" aria-live="polite"></div>
+        <section class="activity-panel" aria-labelledby="activity-heading">
+          <div class="activity-header">
+            <h2 id="activity-heading">Activity</h2>
+            <p id="activity-summary"></p>
+          </div>
+          <div id="activity-grid" class="activity-grid" aria-label="Recent note activity"></div>
+        </section>
       </div>
     </aside>
     <section class="reader">
@@ -547,6 +554,14 @@ p {
   text-underline-offset: 2px;
 }
 
+.tag-static {
+  cursor: default;
+}
+
+.tag-static:hover {
+  text-decoration: none;
+}
+
 .note-tags {
   margin: -2px 0 16px;
 }
@@ -559,6 +574,63 @@ p {
   margin-top: 3px;
   color: var(--muted);
   font-size: 11px;
+}
+
+.activity-panel {
+  flex: 0 0 auto;
+  border-top: 1px solid var(--line);
+  padding: 10px 12px 12px;
+}
+
+.activity-header {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 10px;
+  margin-bottom: 8px;
+}
+
+.activity-header h2 {
+  color: var(--muted);
+  font-size: 12px;
+  font-weight: 650;
+}
+
+.activity-header p {
+  white-space: nowrap;
+}
+
+.activity-grid {
+  display: grid;
+  grid-auto-flow: column;
+  grid-template-rows: repeat(7, 9px);
+  grid-auto-columns: 9px;
+  gap: 3px;
+  align-items: center;
+  overflow: hidden;
+}
+
+.activity-cell {
+  width: 9px;
+  height: 9px;
+  border-radius: 2px;
+  background: var(--panel-soft);
+}
+
+.activity-cell[data-level="1"] {
+  background: color-mix(in srgb, var(--accent) 28%, var(--panel-soft));
+}
+
+.activity-cell[data-level="2"] {
+  background: color-mix(in srgb, var(--accent) 50%, var(--panel-soft));
+}
+
+.activity-cell[data-level="3"] {
+  background: color-mix(in srgb, var(--accent) 72%, var(--panel-soft));
+}
+
+.activity-cell[data-level="4"] {
+  background: var(--accent);
 }
 
 .badge {
@@ -971,6 +1043,7 @@ const appJS = `(function () {
     pinch: null,
     animation: null,
     sidebarCollapsed: false,
+    activityDays: 0,
     preview: {
       panels: [],
       hideTimer: null,
@@ -988,6 +1061,8 @@ const appJS = `(function () {
     search: document.getElementById("search"),
     searchChips: document.getElementById("search-chips"),
     results: document.getElementById("results"),
+    activityGrid: document.getElementById("activity-grid"),
+    activitySummary: document.getElementById("activity-summary"),
     body: document.getElementById("note-body"),
     readerToolbar: document.getElementById("reader-toolbar"),
     copyPathButton: document.getElementById("copy-path"),
@@ -1049,6 +1124,7 @@ const appJS = `(function () {
     window.setTimeout(function () {
       resizeCanvas();
       drawGraph();
+      loadActivity();
     }, 170);
   }
 
@@ -1138,16 +1214,10 @@ const appJS = `(function () {
       button.type = "button";
       button.dataset.noteId = note.note_id;
       button.onclick = function (event) {
-        var tag = event.target.closest("[data-tag]");
-        if (tag) {
-          event.preventDefault();
-          applyTagSearch(tag.dataset.tag);
-          return;
-        }
         selectNote(note.note_id, { history: "push" });
       };
       var badge = note.generated_by_ai ? '<span class="badge">generated</span>' : "";
-      var tags = renderTags(note.tags || []);
+      var tags = renderTags(note.tags || [], { static: true });
       button.innerHTML = '<div class="result-title"><span>' + escapeHTML(note.title || "#" + note.note_id) + '</span>' + badge + '</div>' +
         tags +
         '<div class="result-meta">' + escapeHTML(note.file_kind || "note") + " / " + note.note_id + '</div>';
@@ -1155,11 +1225,82 @@ const appJS = `(function () {
     });
   }
 
-  function renderTags(tags) {
+  function renderTags(tags, opts) {
     if (!tags || tags.length === 0) return "";
+    opts = opts || {};
     return '<div class="tag-list">' + tags.map(function (tag) {
+      if (opts.static) {
+        return '<span class="tag tag-static">#' + escapeHTML(tag) + '</span>';
+      }
       return '<span class="tag" data-tag="' + escapeHTML(tag) + '">#' + escapeHTML(tag) + '</span>';
     }).join("") + '</div>';
+  }
+
+  function loadActivity() {
+    var days = visibleActivityDays();
+    if (days === state.activityDays && el.activityGrid.children.length > 0) return;
+    state.activityDays = days;
+    api("/api/activity?days=" + encodeURIComponent(days)).then(function (data) {
+      renderActivity(data.activity || { start_date: dateKey(new Date()), days: days, total: 0, counts: [] });
+    }).catch(function () {
+      el.activitySummary.textContent = "";
+      el.activityGrid.innerHTML = "";
+    });
+  }
+
+  function visibleActivityDays() {
+    var style = getComputedStyle(el.activityGrid);
+    var column = parseFloat(style.gridAutoColumns) || 9;
+    var gap = parseFloat(style.columnGap) || 3;
+    var width = el.activityGrid.clientWidth;
+    if (!width) return state.activityDays || 7;
+    var columns = Math.max(1, Math.floor((width + gap) / (column + gap)));
+    return columns * 7;
+  }
+
+  function renderActivity(activity) {
+    var days = Number(activity.days || state.activityDays || 7);
+    var start = parseDateKey(activity.start_date) || new Date();
+    var counts = {};
+    (activity.counts || []).forEach(function (day) {
+      counts[day.date] = Number(day.count || 0);
+    });
+
+    var total = Number(activity.total || 0);
+    el.activityGrid.innerHTML = "";
+    for (var i = 0; i < days; i++) {
+      var day = new Date(start);
+      day.setDate(start.getDate() + i);
+      var key = dateKey(day);
+      var count = counts[key] || 0;
+      var cell = document.createElement("span");
+      cell.className = "activity-cell";
+      cell.dataset.level = String(activityLevel(count));
+      cell.title = key + ": " + count + " note" + (count === 1 ? "" : "s");
+      el.activityGrid.appendChild(cell);
+    }
+    el.activitySummary.textContent = total + " updates";
+  }
+
+  function parseDateKey(value) {
+    var m = String(value || "").match(/^(\d{4})-(\d{2})-(\d{2})$/);
+    if (!m) return null;
+    return new Date(Number(m[1]), Number(m[2]) - 1, Number(m[3]));
+  }
+
+  function dateKey(date) {
+    var y = date.getFullYear();
+    var m = String(date.getMonth() + 1).padStart(2, "0");
+    var d = String(date.getDate()).padStart(2, "0");
+    return y + "-" + m + "-" + d;
+  }
+
+  function activityLevel(count) {
+    if (count <= 0) return 0;
+    if (count === 1) return 1;
+    if (count <= 3) return 2;
+    if (count <= 6) return 3;
+    return 4;
   }
 
   function renderHome() {
@@ -2063,6 +2204,7 @@ const appJS = `(function () {
   window.addEventListener("resize", function () {
     resizeCanvas();
     drawGraph();
+    loadActivity();
   });
   el.menuButton.addEventListener("click", function (event) {
     event.stopPropagation();
@@ -2118,6 +2260,7 @@ const appJS = `(function () {
 
   applySidebar(storedSidebarCollapsed());
   applyTheme(themeMode());
+  loadActivity();
   var initialID = Number(new URL(window.location.href).searchParams.get("id"));
   if (initialID) {
     window.history.replaceState({ note_id: initialID }, "", window.location.href);

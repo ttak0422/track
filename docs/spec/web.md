@@ -18,6 +18,8 @@ All `/api/*` responses are JSON. Read endpoints:
 - `GET /api/search?q=<query>&limit=<n>`: search notes; an empty `q` lists recent
   notes. `#tag` terms filter by sidecar tags.
 - `GET /api/notes`: list indexed notes.
+- `GET /api/activity?days=<n>`: return local-day update counts for the recent
+  `n` days. The sidebar activity grid uses this instead of fetching every note.
 - `GET /api/resolve?term=<title>`: resolve a title to a note.
 - `GET /api/note?id=<id>`: the note's body, tags, paths, backlinks, and an `etag`
   (a content hash of the file as read). It returns two paths: `path`, the canonical

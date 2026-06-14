@@ -12,6 +12,7 @@ import (
 	"slices"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/ttak0422/track/internal/track/config"
 	"github.com/ttak0422/track/internal/track/index"
@@ -53,6 +54,7 @@ func (s *Server) routes() {
 	s.mux.HandleFunc("/style.css", serveText("text/css; charset=utf-8", styleCSS))
 	s.mux.HandleFunc("/api/search", s.handleSearch)
 	s.mux.HandleFunc("/api/notes", s.handleNotes)
+	s.mux.HandleFunc("/api/activity", s.handleActivity)
 	s.mux.HandleFunc("/api/resolve", s.handleResolve)
 	s.mux.HandleFunc("/api/note", s.handleNote)
 	s.mux.HandleFunc("/api/graph/local", s.handleLocalGraph)
@@ -122,6 +124,29 @@ func (s *Server) handleNotes(w http.ResponseWriter, r *http.Request) {
 	sortRefs(results)
 	addSearchPaths(s.cfg, results)
 	writeJSON(w, map[string]any{"notes": results})
+}
+
+func (s *Server) handleActivity(w http.ResponseWriter, r *http.Request) {
+	days := parseDays(r.URL.Query().Get("days"), 7)
+	today := localDate(time.Now())
+	start := today.AddDate(0, 0, -(days - 1))
+	counts, err := s.store.ActivitySince(start)
+	if err != nil {
+		writeError(w, err, http.StatusInternalServerError)
+		return
+	}
+	total := 0
+	for _, day := range counts {
+		total += day.Count
+	}
+	writeJSON(w, map[string]any{
+		"activity": map[string]any{
+			"start_date": start.Format("2006-01-02"),
+			"days":       days,
+			"total":      total,
+			"counts":     counts,
+		},
+	})
 }
 
 func (s *Server) handleResolve(w http.ResponseWriter, r *http.Request) {
@@ -367,6 +392,22 @@ func parseLimit(raw string, fallback int) int {
 		return 500
 	}
 	return n
+}
+
+func parseDays(raw string, fallback int) int {
+	days := parseLimit(raw, fallback)
+	if days < 7 {
+		return 7
+	}
+	if days > 3650 {
+		return 3650
+	}
+	return days
+}
+
+func localDate(t time.Time) time.Time {
+	y, m, d := t.In(time.Local).Date()
+	return time.Date(y, m, d, 0, 0, 0, 0, time.Local)
 }
 
 func writeJSON(w http.ResponseWriter, v any) {

@@ -9,6 +9,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/ttak0422/track/internal/track/config"
 	"github.com/ttak0422/track/internal/track/note"
@@ -38,10 +39,11 @@ func TestAPIHandlers(t *testing.T) {
 		t.Fatalf("open store: %v", err)
 	}
 	t.Cleanup(func() { s.Close() })
-	if err := s.UpsertNote(&note.Note{ID: 100, Mtime: 200, Meta: note.Metadata{Title: "Alpha", Tags: []string{"project"}}}); err != nil {
+	now := time.Now().Unix()
+	if err := s.UpsertNote(&note.Note{ID: 100, Mtime: now, Meta: note.Metadata{Title: "Alpha", Tags: []string{"project"}}}); err != nil {
 		t.Fatal(err)
 	}
-	if err := s.UpsertNote(&note.Note{ID: 200, Mtime: 100, Meta: note.Metadata{Title: "Beta", Tags: []string{note.GeneratedByAITag}}}); err != nil {
+	if err := s.UpsertNote(&note.Note{ID: 200, Mtime: now - 86400, Meta: note.Metadata{Title: "Beta", Tags: []string{note.GeneratedByAITag}}}); err != nil {
 		t.Fatal(err)
 	}
 	if err := s.ReplaceLinks(100, []int64{200}); err != nil {
@@ -60,7 +62,6 @@ func TestAPIHandlers(t *testing.T) {
 	if len(tags) != 1 || tags[0] != "project" {
 		t.Fatalf("unexpected search result tags: %v", results[0])
 	}
-
 	resolved := getJSON(t, server.URL+"/api/resolve?term=Beta")
 	if resolved["found"] != true || resolved["note"].(map[string]any)["note_id"].(float64) != 200 {
 		t.Fatalf("unexpected resolve result: %v", resolved)
@@ -91,6 +92,11 @@ func TestAPIHandlers(t *testing.T) {
 	firstNode := full["nodes"].([]any)[0].(map[string]any)
 	if firstNode["path"] == nil || firstNode["path"] == "" {
 		t.Fatalf("full graph node should carry a resolved path: %v", firstNode)
+	}
+
+	activity := getJSON(t, server.URL+"/api/activity?days=7")["activity"].(map[string]any)
+	if activity["days"].(float64) != 7 || activity["total"].(float64) != 2 {
+		t.Fatalf("unexpected activity response: %v", activity)
 	}
 }
 
@@ -234,6 +240,9 @@ func TestIndexInjectsConfiguredTheme(t *testing.T) {
 	}
 	if strings.Contains(html, "__TRACK_DEFAULT_THEME__") {
 		t.Fatalf("placeholder should be replaced")
+	}
+	if !strings.Contains(html, `id="activity-grid"`) {
+		t.Fatalf("served HTML should include the sidebar activity grid")
 	}
 }
 

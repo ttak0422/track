@@ -61,7 +61,7 @@ func (s *Store) ensureSchema() error {
 		return err
 	}
 	if version >= schemaVersion {
-		return nil
+		return s.ensureCompatibleIndexes()
 	}
 	if _, err := s.db.Exec(schemaSQL); err != nil {
 		return fmt.Errorf("apply schema: %w", err)
@@ -70,5 +70,10 @@ func (s *Store) ensureSchema() error {
 	if _, err := s.db.Exec(fmt.Sprintf("PRAGMA user_version = %d", schemaVersion)); err != nil {
 		return err
 	}
-	return nil
+	return s.ensureCompatibleIndexes()
+}
+
+func (s *Store) ensureCompatibleIndexes() error {
+	_, err := s.db.Exec(`CREATE INDEX IF NOT EXISTS idx_notes_kind_mtime ON notes(kind, mtime)`)
+	return err
 }

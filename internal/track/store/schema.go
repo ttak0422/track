@@ -15,6 +15,7 @@ CREATE TABLE notes (
   created TEXT,
   mtime   INTEGER NOT NULL DEFAULT 0
 );
+CREATE INDEX IF NOT EXISTS idx_notes_kind_mtime ON notes(kind, mtime);
 
 CREATE TABLE tags (
   note_id INTEGER NOT NULL REFERENCES notes(id) ON DELETE CASCADE,
