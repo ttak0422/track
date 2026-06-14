@@ -907,8 +907,13 @@ button {
 .editor-actions {
   display: flex;
   align-items: center;
-  justify-content: flex-end;
+  justify-content: flex-start;
   gap: 12px;
+}
+
+/* Keep Save at the bottom-left so it never sits under the bottom-right graph. */
+.editor-actions .primary-button {
+  order: -1;
 }
 
 .editor-actions p {
