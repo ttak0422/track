@@ -3,20 +3,26 @@ package config
 import (
 	"os"
 	"path/filepath"
-	"strings"
 	"testing"
 )
 
-func TestLoadRequiresTrackVault(t *testing.T) {
+func TestLoadDefaultsToHomeTrack(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
 	t.Setenv("TRACK_CONFIG", filepath.Join(t.TempDir(), "missing.yml"))
 	t.Setenv("TRACK_VAULT", "")
+	t.Setenv("TRACK_DB", "")
+	t.Setenv("TRACK_CACHE_DIR", t.TempDir())
 
-	_, err := Load()
-	if err == nil {
-		t.Fatal("expected TRACK_VAULT error")
+	cfg, err := Load()
+	if err != nil {
+		t.Fatalf("load: %v", err)
 	}
-	if !strings.Contains(err.Error(), "vault_dir is required") {
-		t.Fatalf("unexpected error: %v", err)
+	// With nothing configured, the vault defaults to $HOME/track (ADR 0015). The display path keeps
+	// the configured form verbatim, so it is deterministic regardless of symlinks.
+	want := filepath.Join(home, "track")
+	if cfg.VaultDirDisplay != want {
+		t.Fatalf("VaultDirDisplay = %q, want %q", cfg.VaultDirDisplay, want)
 	}
 }
 

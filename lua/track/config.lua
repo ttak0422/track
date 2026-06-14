@@ -1,6 +1,6 @@
 -- track.nvim configuration.
--- The vault must be explicit in config.yml, or through setup({ vault_dir = ... }) for editor-local
--- configuration. TRACK_VAULT remains a test/one-off override.
+-- The vault is resolved from config.yml or setup({ vault_dir = ... }); when neither is set it defaults
+-- to $HOME/track (ADR 0015). TRACK_VAULT remains a test/one-off override.
 
 local M = {}
 
@@ -58,7 +58,15 @@ local function default_vault()
    if env and env ~= "" then
       return env
    end
-   return file_config.vault_dir
+   if file_config.vault_dir and file_config.vault_dir ~= "" then
+      return file_config.vault_dir
+   end
+   -- Fall back to $HOME/track (ADR 0015) so the plugin works without any explicit configuration.
+   local home = vim.env.HOME
+   if home and home ~= "" then
+      return home .. "/track"
+   end
+   return nil
 end
 
 local function default_cache_dir()

@@ -6,7 +6,7 @@ This document is a tool-neutral guide for agents that use track through the CLI.
 
 All commands except `version` print one compact JSON object on stdout. Failures print `{"error":"..."}` and exit 1. Agents should parse JSON instead of scraping human text.
 
-The vault is required in the platform user config file (`config.yml`, with `vault_dir`). Typical locations are `~/.config/track/config.yml` on XDG-style systems and `~/Library/Application Support/track/config.yml` on macOS. Environment overrides such as `TRACK_VAULT` and `TRACK_CACHE_DIR` are for tests and one-off commands. The SQLite index is a rebuildable cache; authoritative per-note metadata lives under `.track/notes/` and must be backed up with note bodies.
+The vault comes from the platform user config file (`config.yml`, with `vault_dir`), defaulting to `$HOME/track` when unset (ADR 0015). Typical config locations are `~/.config/track/config.yml` on XDG-style systems and `~/Library/Application Support/track/config.yml` on macOS. Environment overrides such as `TRACK_VAULT` and `TRACK_CACHE_DIR` are for tests and one-off commands. The SQLite index is a rebuildable cache; authoritative per-note metadata lives under `.track/notes/` and must be backed up with note bodies.
 
 ## Title Model
 

@@ -196,15 +196,27 @@ func TestNewRequiresTitle(t *testing.T) {
 	}
 }
 
-func TestRequiresTrackVault(t *testing.T) {
+func TestDefaultsToHomeTrackVault(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
 	t.Setenv("TRACK_CONFIG", filepath.Join(t.TempDir(), "missing.yml"))
 	t.Setenv("TRACK_VAULT", "")
-	out, code := capture(t, func() int { return Run([]string{"keywords"}) })
-	if code != 1 {
-		t.Fatalf("expected exit 1 without TRACK_VAULT, got %d", code)
+	t.Setenv("TRACK_DB", "")
+	t.Setenv("TRACK_CACHE_DIR", t.TempDir())
+
+	// With nothing configured the vault defaults to $HOME/track (ADR 0015): the command succeeds and
+	// creates the note under that vault rather than failing.
+	out, code := capture(t, func() int { return Run([]string{"new", "--title", "Solo", "--id", "100"}) })
+	if code != 0 {
+		t.Fatalf("expected default-vault success, got exit %d: %s", code, out)
 	}
-	if !strings.Contains(out, "vault_dir is required") {
-		t.Fatalf("expected vault config error, got %q", out)
+	var decoded map[string]any
+	if err := json.Unmarshal([]byte(out), &decoded); err != nil {
+		t.Fatalf("output is not JSON: %q", out)
+	}
+	path, _ := decoded["path"].(string)
+	if !strings.HasSuffix(path, filepath.Join("track", "note", "100.md")) {
+		t.Fatalf("note should be created under the default $HOME/track vault, got %q", path)
 	}
 }
 

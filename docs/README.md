@@ -30,6 +30,7 @@ This directory contains durable project knowledge that should be committed and s
 - `adr/0012-drop-alias-keywords.md`
 - `adr/0013-metadata-title-is-authoritative.md`
 - `adr/0014-vault-health-checks-and-repair.md`
+- `adr/0015-default-vault-to-home-track.md`
 
 ## Not Here
 

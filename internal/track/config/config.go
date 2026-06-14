@@ -65,8 +65,8 @@ const (
 // platform user config equivalent.
 //
 // TRACK_CONFIG overrides the config file path. TRACK_VAULT, TRACK_DB, and TRACK_CACHE_DIR override
-// the matching resolved values. A vault must still be configured explicitly, either in the config
-// file or through TRACK_VAULT.
+// the matching resolved values. When neither the config file nor TRACK_VAULT sets a vault, it
+// defaults to $HOME/track (ADR 0015).
 func Load() (*Config, error) {
 	fc, err := loadFileConfig()
 	if err != nil {
@@ -78,7 +78,12 @@ func Load() (*Config, error) {
 		rawVault = env
 	}
 	if rawVault == "" {
-		return nil, fmt.Errorf("vault_dir is required in %s or TRACK_VAULT", ConfigPath())
+		// With no config_file vault_dir and no TRACK_VAULT, default to $HOME/track (ADR 0015).
+		home, err := os.UserHomeDir()
+		if err != nil {
+			return nil, fmt.Errorf("vault_dir is unset and the home directory is unavailable: %w", err)
+		}
+		rawVault = filepath.Join(home, "track")
 	}
 	// displayVault keeps the configured path absolute but symlink-intact, so user-facing paths read as
 	// the vault the user knows (e.g. ~/track) rather than its resolved target (~/OneDrive/track).

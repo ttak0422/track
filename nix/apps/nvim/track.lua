@@ -1,10 +1,5 @@
--- Default the track root to $HOME/track so the launcher starts without any env or config.yml.
--- TRACK_VAULT and config.yml still win: track.config.options.vault_dir already reflects them.
-local resolved_vault = require("track.config").options.vault_dir
-if not resolved_vault or resolved_vault == "" then
-   resolved_vault = vim.env.HOME .. "/track"
-end
-require("track").setup({ vault_dir = resolved_vault })
+-- The vault defaults to $HOME/track (ADR 0015); TRACK_VAULT or config.yml override it.
+require("track").setup({})
 -- Telescope's default horizontal layout hides the previewer when the window is
 -- narrower than preview_cutoff (120). Force it on so the test instance always
 -- shows the note preview regardless of terminal width.

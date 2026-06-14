@@ -2,7 +2,9 @@
 
 ## Status
 
-Superseded by config-file based explicit vault configuration.
+Superseded by ADR 0015 (vault now defaults to $HOME/track when unconfigured).
+The config-file resolution described here still stands; only the "fail when
+unconfigured" decision is reversed.
 
 ## Context
 
