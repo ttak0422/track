@@ -76,6 +76,15 @@ button {
   cursor: pointer;
 }
 
+.sr-only {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+}
+
 .workspace {
   display: grid;
   grid-template-columns: minmax(300px, 360px) minmax(380px, 1fr);
@@ -240,6 +249,11 @@ button {
   flex: none;
 }
 
+.home-hero .activity-panel {
+  width: min(560px, 100%);
+  flex: none;
+}
+
 .home-hero .searchbox {
   padding: 0;
   border-bottom: 0;
@@ -247,10 +261,15 @@ button {
 
 .home-hero .results {
   flex: none;
-  max-height: none;
-  overflow: visible;
+  max-height: min(56vh, 620px);
+  overflow: auto;
   padding: 8px 0;
+  scrollbar-width: none;
   text-align: left;
+}
+
+.home-hero .results::-webkit-scrollbar {
+  display: none;
 }
 
 .home-hero p {
@@ -430,6 +449,22 @@ button {
   border-top: 1px solid var(--line);
 }
 
+.activity-panel-home {
+  padding: 0;
+  border-top: 0;
+}
+
+.activity-panel-home .activity-grid {
+  justify-content: center;
+}
+
+.activity-hover {
+  min-height: 18px;
+  margin: 8px 0 0;
+  color: var(--muted);
+  font-size: 12px;
+}
+
 .activity-header {
   display: flex;
   align-items: baseline;
@@ -467,6 +502,11 @@ button {
   height: 9px;
   border-radius: 2px;
   background: var(--panel-soft);
+}
+
+.activity-cell:hover {
+  outline: 1px solid var(--accent-strong);
+  outline-offset: 1px;
 }
 
 .activity-cell[data-level="1"] {

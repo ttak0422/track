@@ -1,6 +1,5 @@
 import { Link, Outlet, useRouterState } from "@tanstack/react-router";
 import { useState } from "react";
-import { ActivityPanel } from "./ActivityPanel";
 import { GraphBackground } from "./GraphBackground";
 import { GraphPanel } from "./GraphPanel";
 import { KMark } from "./Logo";
@@ -50,7 +49,6 @@ export function Shell() {
               <ThemeMenu />
             </header>
             <SearchPanel />
-            <ActivityPanel />
           </div>
         </aside>
         )}

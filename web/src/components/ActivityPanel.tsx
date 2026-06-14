@@ -4,10 +4,17 @@ import { useActivityQuery } from "../queries";
 const cellWidth = 9;
 const cellGap = 3;
 
-export function ActivityPanel() {
+interface ActivityPanelProps {
+  variant?: "sidebar" | "home";
+}
+
+export function ActivityPanel({ variant = "sidebar" }: ActivityPanelProps) {
   const panelRef = useRef<HTMLElement | null>(null);
   const [visibleDays, setVisibleDays] = useState(28);
+  const [hovered, setHovered] = useState<{ date: string; count: number } | null>(null);
   const activity = useActivityQuery(visibleDays);
+  const className = `activity-panel activity-panel-${variant}`;
+  const isHome = variant === "home";
 
   useEffect(() => {
     const panel = panelRef.current;
@@ -15,7 +22,10 @@ export function ActivityPanel() {
     const observedPanel = panel;
 
     function updateDays() {
-      const width = Math.max(1, observedPanel.clientWidth - 36);
+      const style = window.getComputedStyle(observedPanel);
+      const padding =
+        Number.parseFloat(style.paddingLeft || "0") + Number.parseFloat(style.paddingRight || "0");
+      const width = Math.max(1, observedPanel.clientWidth - padding);
       const columns = Math.max(1, Math.floor((width + cellGap) / (cellWidth + cellGap)));
       setVisibleDays(columns * 7);
     }
@@ -28,8 +38,10 @@ export function ActivityPanel() {
 
   if (activity.isPending) {
     return (
-      <section className="activity-panel" aria-labelledby="activity-heading" ref={panelRef}>
-        <h2 id="activity-heading">Activity</h2>
+      <section className={className} aria-labelledby="activity-heading" ref={panelRef}>
+        <h2 className={isHome ? "sr-only" : undefined} id="activity-heading">
+          Activity
+        </h2>
         <p className="muted">Loading activity...</p>
       </section>
     );
@@ -37,8 +49,10 @@ export function ActivityPanel() {
 
   if (activity.isError) {
     return (
-      <section className="activity-panel" aria-labelledby="activity-heading" ref={panelRef}>
-        <h2 id="activity-heading">Activity</h2>
+      <section className={className} aria-labelledby="activity-heading" ref={panelRef}>
+        <h2 className={isHome ? "sr-only" : undefined} id="activity-heading">
+          Activity
+        </h2>
         <p className="error">{activity.error.message}</p>
       </section>
     );
@@ -49,11 +63,17 @@ export function ActivityPanel() {
   const dates = recentDates(summary.start_date, summary.days);
 
   return (
-    <section className="activity-panel" aria-labelledby="activity-heading" ref={panelRef}>
-      <div className="activity-header">
-        <h2 id="activity-heading">Activity</h2>
-        <p>{summary.total} updates</p>
-      </div>
+    <section className={className} aria-labelledby="activity-heading" ref={panelRef}>
+      {isHome ? (
+        <h2 className="sr-only" id="activity-heading">
+          Activity
+        </h2>
+      ) : (
+        <div className="activity-header">
+          <h2 id="activity-heading">Activity</h2>
+          <p>{summary.total} updates</p>
+        </div>
+      )}
       <div className="activity-grid" aria-label={`Recent ${summary.days} day activity`}>
         {dates.map((date) => {
           const count = counts.get(date) ?? 0;
@@ -61,13 +81,26 @@ export function ActivityPanel() {
             <time
               className="activity-cell"
               data-level={activityLevel(count)}
+              data-date={date}
+              data-count={count}
               dateTime={date}
               key={date}
-              title={`${date}: ${count} updates`}
+              onMouseEnter={() => setHovered({ date, count })}
+              onMouseLeave={() => setHovered(null)}
+              title={
+                isHome
+                  ? `${date}: ${count} ${contributionLabel(count)}`
+                  : `${date}: ${count} updates`
+              }
             />
           );
         })}
       </div>
+      {isHome ? (
+        <p className="activity-hover" aria-live="polite">
+          {hovered ? `${hovered.date}: ${hovered.count} ${contributionLabel(hovered.count)}` : ""}
+        </p>
+      ) : null}
     </section>
   );
 }
@@ -99,4 +132,8 @@ function activityLevel(count: number): number {
   if (count <= 3) return 2;
   if (count <= 6) return 3;
   return 4;
+}
+
+function contributionLabel(count: number): string {
+  return count === 1 ? "contribution" : "contributions";
 }
