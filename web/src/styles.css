@@ -797,6 +797,41 @@ button {
   padding-left: 1.3em;
 }
 
+.inline-code {
+  padding: 0.1em 0.35em;
+  border-radius: 4px;
+  background: var(--panel-soft);
+  font-family: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, monospace;
+  font-size: 0.9em;
+}
+
+.code-block {
+  position: relative;
+  margin: 0.9em 0;
+  overflow: auto;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  padding: 12px 14px;
+  background: var(--panel-soft);
+}
+
+.code-block code {
+  font-family: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, monospace;
+  font-size: 0.88em;
+  line-height: 1.5;
+  white-space: pre;
+}
+
+.code-block[data-language]::before {
+  content: attr(data-language);
+  display: block;
+  margin-bottom: 6px;
+  color: var(--muted);
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+
 .task-item {
   display: flex;
   align-items: flex-start;

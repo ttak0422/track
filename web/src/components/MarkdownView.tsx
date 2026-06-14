@@ -1,6 +1,6 @@
 import { Link } from "@tanstack/react-router";
 import { createContext, Fragment, useContext, useEffect, useRef, useState } from "react";
-import { parseInline, parseMarkdown } from "../markdown";
+import { parseInline, parseMarkdown, type InlinePart } from "../markdown";
 import { useNoteQuery, useResolveQuery } from "../queries";
 
 // Nesting depth of the current markdown render. Each preview renders its body
@@ -46,6 +46,12 @@ export function MarkdownView({ markdown }: MarkdownViewProps) {
                 <span>{renderInline(block.text)}</span>
               </label>
             );
+          case "code":
+            return (
+              <pre className="code-block" data-language={block.lang || undefined} key={index}>
+                <code>{block.text}</code>
+              </pre>
+            );
         }
       })}
     </div>
@@ -53,11 +59,29 @@ export function MarkdownView({ markdown }: MarkdownViewProps) {
 }
 
 function renderInline(text: string) {
-  return parseInline(text).map((part, index) => {
-    if (part.type === "text") {
-      return <Fragment key={index}>{part.text}</Fragment>;
+  return renderParts(parseInline(text));
+}
+
+function renderParts(parts: InlinePart[]) {
+  return parts.map((part, index) => {
+    switch (part.type) {
+      case "text":
+        return <Fragment key={index}>{part.text}</Fragment>;
+      case "wiki":
+        return <WikiLink display={part.display} key={index} target={part.target} />;
+      case "code":
+        return (
+          <code className="inline-code" key={index}>
+            {part.text}
+          </code>
+        );
+      case "strong":
+        return <strong key={index}>{renderParts(part.children)}</strong>;
+      case "em":
+        return <em key={index}>{renderParts(part.children)}</em>;
+      case "del":
+        return <del key={index}>{renderParts(part.children)}</del>;
     }
-    return <WikiLink display={part.display} key={`${part.target}-${index}`} target={part.target} />;
   });
 }
 

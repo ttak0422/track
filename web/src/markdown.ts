@@ -2,16 +2,24 @@ export type MarkdownBlock =
   | { type: "heading"; level: 1 | 2 | 3; text: string }
   | { type: "paragraph"; text: string }
   | { type: "list"; items: string[] }
-  | { type: "task"; checked: boolean; text: string };
+  | { type: "task"; checked: boolean; text: string }
+  | { type: "code"; lang: string; text: string };
 
 export type InlinePart =
   | { type: "text"; text: string }
-  | { type: "wiki"; target: string; display: string };
+  | { type: "wiki"; target: string; display: string }
+  | { type: "code"; text: string }
+  | { type: "strong"; children: InlinePart[] }
+  | { type: "em"; children: InlinePart[] }
+  | { type: "del"; children: InlinePart[] };
 
 export function parseMarkdown(markdown: string): MarkdownBlock[] {
   const blocks: MarkdownBlock[] = [];
   const paragraph: string[] = [];
   let list: string[] = [];
+  let inCode = false;
+  let codeLang = "";
+  let codeLines: string[] = [];
 
   function flushParagraph() {
     if (paragraph.length === 0) return;
@@ -25,9 +33,34 @@ export function parseMarkdown(markdown: string): MarkdownBlock[] {
     list = [];
   }
 
+  function flushCode() {
+    blocks.push({ type: "code", lang: codeLang, text: codeLines.join("\n") });
+    inCode = false;
+    codeLang = "";
+    codeLines = [];
+  }
+
   for (const rawLine of markdown.split(/\r?\n/)) {
     const line = rawLine.trimEnd();
     const trimmed = line.trim();
+
+    if (inCode) {
+      if (/^```/.test(trimmed)) {
+        flushCode();
+      } else {
+        codeLines.push(line);
+      }
+      continue;
+    }
+
+    const openFence = /^```(.*)$/.exec(trimmed);
+    if (openFence) {
+      flushParagraph();
+      flushList();
+      inCode = true;
+      codeLang = openFence[1].trim();
+      continue;
+    }
 
     if (trimmed === "") {
       flushParagraph();
@@ -64,39 +97,109 @@ export function parseMarkdown(markdown: string): MarkdownBlock[] {
 
   flushParagraph();
   flushList();
+  if (inCode) {
+    flushCode();
+  }
   return blocks;
 }
 
 export function parseInline(text: string): InlinePart[] {
   const parts: InlinePart[] = [];
-  const pattern = /\[\[([^\]|]+)(?:\|([^\]]+))?\]\]/g;
-  let last = 0;
-  let match: RegExpExecArray | null;
+  let buf = "";
+  let i = 0;
 
-  while ((match = pattern.exec(text)) !== null) {
-    if (match.index > last) {
-      parts.push({ type: "text", text: text.slice(last, match.index) });
+  const flush = () => {
+    if (buf) {
+      parts.push({ type: "text", text: buf });
+      buf = "";
     }
-    const target = match[1].trim();
-    const display = (match[2] ?? match[1]).trim();
-    parts.push({ type: "wiki", target, display });
-    last = pattern.lastIndex;
+  };
+
+  while (i < text.length) {
+    const rest = text.slice(i);
+
+    const wiki = /^\[\[([^\]|]+)(?:\|([^\]]+))?\]\]/.exec(rest);
+    if (wiki) {
+      flush();
+      parts.push({ type: "wiki", target: wiki[1].trim(), display: (wiki[2] ?? wiki[1]).trim() });
+      i += wiki[0].length;
+      continue;
+    }
+
+    // Inline code is literal: no nested markup inside the backticks.
+    if (text[i] === "`") {
+      const close = text.indexOf("`", i + 1);
+      if (close > i + 1) {
+        flush();
+        parts.push({ type: "code", text: text.slice(i + 1, close) });
+        i = close + 1;
+        continue;
+      }
+    }
+
+    const strong = matchDelimiter(text, i, "**") ?? matchDelimiter(text, i, "__");
+    if (strong) {
+      flush();
+      parts.push({ type: "strong", children: parseInline(strong.inner) });
+      i = strong.end;
+      continue;
+    }
+
+    const del = matchDelimiter(text, i, "~~");
+    if (del) {
+      flush();
+      parts.push({ type: "del", children: parseInline(del.inner) });
+      i = del.end;
+      continue;
+    }
+
+    const em = matchDelimiter(text, i, "*") ?? matchDelimiter(text, i, "_");
+    if (em) {
+      flush();
+      parts.push({ type: "em", children: parseInline(em.inner) });
+      i = em.end;
+      continue;
+    }
+
+    buf += text[i];
+    i += 1;
   }
 
-  if (last < text.length) {
-    parts.push({ type: "text", text: text.slice(last) });
-  }
-
+  flush();
   return parts.length > 0 ? parts : [{ type: "text", text }];
+}
+
+// matchDelimiter matches a paired inline marker (e.g. ** ... **) starting at i,
+// returning the inner text and the index just past the closing marker.
+function matchDelimiter(
+  text: string,
+  i: number,
+  marker: string,
+): { inner: string; end: number } | null {
+  if (!text.startsWith(marker, i)) {
+    return null;
+  }
+  const contentStart = i + marker.length;
+  const close = text.indexOf(marker, contentStart);
+  if (close === -1 || close === contentStart) {
+    return null;
+  }
+  return { inner: text.slice(contentStart, close), end: close + marker.length };
 }
 
 export function excerpt(markdown: string, maxLength = 180): string {
   const text = markdown
+    .replace(/```[^\n]*\n?/g, "")
     .replace(/\[\[([^\]|]+)\|([^\]]+)\]\]/g, "$2")
     .replace(/\[\[([^\]]+)\]\]/g, "$1")
     .replace(/^#{1,6}\s+/gm, "")
     .replace(/^[-*]\s+\[[ xX]\]\s+/gm, "")
     .replace(/^[-*]\s+/gm, "")
+    .replace(/`([^`]+)`/g, "$1")
+    .replace(/\*\*([^*]+)\*\*/g, "$1")
+    .replace(/__([^_]+)__/g, "$1")
+    .replace(/~~([^~]+)~~/g, "$1")
+    .replace(/[*_]([^*_]+)[*_]/g, "$1")
     .replace(/\s+/g, " ")
     .trim();
 
