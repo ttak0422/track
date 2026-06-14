@@ -12,6 +12,7 @@ import (
 	"slices"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/ttak0422/track/internal/track/config"
@@ -21,14 +22,16 @@ import (
 )
 
 type Server struct {
-	cfg      *config.Config
-	store    *store.Store
-	mux      *http.ServeMux
-	colorCSS string
+	cfg       *config.Config
+	store     *store.Store
+	mux       *http.ServeMux
+	colorCSS  string
+	events    *eventHub
+	reindexMu sync.Mutex
 }
 
 func New(cfg *config.Config, s *store.Store) *Server {
-	srv := &Server{cfg: cfg, store: s, mux: http.NewServeMux()}
+	srv := &Server{cfg: cfg, store: s, mux: http.NewServeMux(), events: newEventHub()}
 	// A palette is a best-effort cosmetic override; a bad file must not take the workspace down, so we
 	// warn and fall back to the built-in colors rather than failing to start.
 	if css, err := LoadPalette(cfg.WebColorsPath); err != nil {
@@ -45,7 +48,9 @@ func (s *Server) Handler() http.Handler {
 }
 
 func Serve(cfg *config.Config, st *store.Store, addr string) error {
-	return http.ListenAndServe(addr, New(cfg, st).Handler())
+	srv := New(cfg, st)
+	srv.startWatch()
+	return http.ListenAndServe(addr, srv.Handler())
 }
 
 func (s *Server) routes() {
@@ -59,6 +64,7 @@ func (s *Server) routes() {
 	s.mux.HandleFunc("/api/note", s.handleNote)
 	s.mux.HandleFunc("/api/graph/local", s.handleLocalGraph)
 	s.mux.HandleFunc("/api/graph", s.handleGraph)
+	s.mux.HandleFunc("/api/events", s.handleEvents)
 }
 
 func serveText(contentType string, body string) http.HandlerFunc {

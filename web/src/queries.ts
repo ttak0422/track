@@ -50,9 +50,9 @@ export function useResolveQuery(term: string) {
   });
 }
 
-// Poll interval for views that should reflect notes edited elsewhere (Neovim,
-// CLI, or a cloud sync) without a manual refresh.
-const liveRefetchInterval = 4000;
+// Fallback poll interval for the open note. Live updates normally arrive via the
+// SSE change stream (see useLiveEvents); this only covers a dropped stream.
+const liveRefetchInterval = 30000;
 
 export function useNoteQuery(noteID: NoteID, options: { live?: boolean } = {}) {
   return useQuery({

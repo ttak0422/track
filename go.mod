@@ -3,6 +3,7 @@ module github.com/ttak0422/track
 go 1.26.0
 
 require (
+	github.com/fsnotify/fsnotify v1.10.1
 	gopkg.in/yaml.v3 v3.0.1
 	modernc.org/sqlite v1.50.1
 	typefox.dev/lsp v0.0.4

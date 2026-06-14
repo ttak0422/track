@@ -6,11 +6,13 @@ import { GraphPanel } from "./GraphPanel";
 import { KMark } from "./Logo";
 import { SearchPanel } from "./SearchPanel";
 import { ThemeMenu } from "./ThemeMenu";
+import { useLiveEvents } from "../hooks/useLiveEvents";
 import { SearchProvider } from "../searchState";
 
 export function Shell() {
   const [sidebarCollapsed, setSidebarCollapsed] = useState(true);
   const isHome = useRouterState({ select: (state) => state.location.pathname === "/" });
+  useLiveEvents();
 
   return (
     <SearchProvider>
