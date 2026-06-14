@@ -1,8 +1,6 @@
 <p align="center">
-  <img src="web/public/track-logo.svg" alt="track" width="220" />
+  <img src="docs/assets/logo.png" alt="track" width="320" />
 </p>
-
-# track
 
 > [!CAUTION]
 >  Please note that this is currently in an experimental phase. Destructive changes may be apply.
