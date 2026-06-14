@@ -132,7 +132,12 @@ end
 function M.smart_action()
    local ctx = current_context()
    if require("track.action").markdown_link_at_cursor(ctx.line, ctx.col) or wiki_link_at_cursor(ctx.line, ctx.col) then
-      M.follow(ctx)
+      -- <CR> is an <expr> mapping, so it runs under textlock. Defer follow so
+      -- notify, markdown actions, and window edits happen outside textlock and
+      -- do not raise E565 (e.g. via nvim-notify's buffer rendering).
+      vim.schedule(function()
+         M.follow(ctx)
+      end)
       return ""
    end
    return "<CR>"
