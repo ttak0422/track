@@ -46,6 +46,7 @@ export function GraphCanvas({ graph, onSelect, resetToken }: GraphCanvasProps) {
   const dragRef = useRef<DragState | null>(null);
   const animationRef = useRef<number | null>(null);
   const ticksRef = useRef(0);
+  const hoverRef = useRef<NoteID | null>(null);
   const userAdjustedRef = useRef(false);
   const graphRef = useRef(graph);
   const onSelectRef = useRef(onSelect);
@@ -279,8 +280,9 @@ export function GraphCanvas({ graph, onSelect, resetToken }: GraphCanvasProps) {
       ctx.fill();
       ctx.stroke();
 
-      if (showLabels || center || node.degree >= 5) {
-        ctx.globalAlpha = center ? 0.95 : 0.78;
+      const hovered = node.note_id === hoverRef.current;
+      if (showLabels || center || node.degree >= 5 || hovered) {
+        ctx.globalAlpha = center || hovered ? 0.95 : 0.78;
         ctx.fillStyle = css("--text");
         ctx.textAlign = "start";
         ctx.fillText(trim(node.title || `#${node.note_id}`, 20), x + radius + 5, y + (4 * ratio) / view.scale);
@@ -331,9 +333,22 @@ export function GraphCanvas({ graph, onSelect, resetToken }: GraphCanvasProps) {
     event.currentTarget.classList.add("dragging");
   }
 
+  function updateHover(event: PointerEvent<HTMLCanvasElement>) {
+    const node = graphNodeAt(canvasPoint(event));
+    const hoverID = node ? node.note_id : null;
+    if (hoverID !== hoverRef.current) {
+      hoverRef.current = hoverID;
+      event.currentTarget.style.cursor = hoverID !== null ? "pointer" : "";
+      drawGraph(size);
+    }
+  }
+
   function pointerMove(event: PointerEvent<HTMLCanvasElement>) {
     const drag = dragRef.current;
-    if (!drag || drag.pointerId !== event.pointerId) return;
+    if (!drag || drag.pointerId !== event.pointerId) {
+      updateHover(event);
+      return;
+    }
     event.preventDefault();
     const point = canvasPoint(event);
     const dx = point.x - drag.last.x;
@@ -367,6 +382,14 @@ export function GraphCanvas({ graph, onSelect, resetToken }: GraphCanvasProps) {
     event.currentTarget.classList.remove("dragging");
   }
 
+  function pointerLeave(event: PointerEvent<HTMLCanvasElement>) {
+    if (hoverRef.current !== null) {
+      hoverRef.current = null;
+      event.currentTarget.style.cursor = "";
+      drawGraph(size);
+    }
+  }
+
   function wheel(event: WheelEvent<HTMLCanvasElement>) {
     event.preventDefault();
     const point = canvasPoint(event);
@@ -390,6 +413,7 @@ export function GraphCanvas({ graph, onSelect, resetToken }: GraphCanvasProps) {
       onPointerMove={pointerMove}
       onPointerUp={pointerUp}
       onPointerCancel={pointerCancel}
+      onPointerLeave={pointerLeave}
       onWheel={wheel}
     />
   );
