@@ -1,7 +1,7 @@
 {
   "name": "track",
   "version": "0.1.0",
-  "description": "Use the track CLI to create, record, search, rename, and maintain linked Markdown notes in a TRACK_VAULT vault.",
+  "description": "Use focused track CLI skills to create, search, read, and maintain linked Markdown notes in a configured track vault.",
   "author": {
     "name": "ttak0422",
     "email": "ttak0422@gmail.com"
@@ -19,17 +19,17 @@
   "skills": "./skills/",
   "interface": {
     "displayName": "Track",
-    "shortDescription": "Manage linked Markdown notes with track",
-    "longDescription": "Use the track CLI to create, record, search, rename, and maintain notes, journals, Zettelkasten items, and linked Markdown in a TRACK_VAULT vault.",
+    "shortDescription": "Create, search, and maintain track notes",
+    "longDescription": "Use focused track CLI skills for note creation, note search/read workflows, and vault maintenance such as rename, doctor, and reindex.",
     "developerName": "ttak0422",
     "category": "Productivity",
     "capabilities": [
       "Write"
     ],
     "defaultPrompt": [
-      "Use track to create a linked note in my vault.",
-      "Use track to search my notes.",
-      "Use track to rename a note and update backlinks."
+      "Use $track-create-note to create a linked note in my vault.",
+      "Use $track-search-notes to search my notes.",
+      "Use $track to rename a note and update backlinks."
     ]
   }
 }

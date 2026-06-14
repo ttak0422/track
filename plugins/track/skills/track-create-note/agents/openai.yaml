@@ -1,0 +1,4 @@
+interface:
+  display_name: "Track Create Note"
+  short_description: "Create track notes and journals"
+  default_prompt: "Use $track-create-note to create a linked Markdown note in my track vault."

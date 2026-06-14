@@ -197,7 +197,11 @@ Babel fence info strings are completed over the same LSP source. On an opening f
 
 ## Claude Code plugin
 
-This repository doubles as a [Claude Code](https://docs.claude.com/en/docs/claude-code) plugin marketplace, so coding agents can drive the CLI through a bundled skill. The skill triggers on note/journal/Zettelkasten requests and carries the JSON output contract and the core commands.
+This repository doubles as a [Claude Code](https://docs.claude.com/en/docs/claude-code) plugin marketplace, so coding agents can drive the CLI through bundled skills. The skills carry the JSON output contract and focused command workflows:
+
+- `track-create-note`: create/open notes and journals, append to notes, and create notes from templates.
+- `track-search-notes`: search, resolve, export/read notes, backlinks, and graph inspection.
+- `track`: maintenance workflows such as rename/backlink repair, doctor, and reindex.
 
 ```text
 # add this repo as a marketplace, then install the track plugin
@@ -205,11 +209,11 @@ This repository doubles as a [Claude Code](https://docs.claude.com/en/docs/claud
 /plugin install track@track
 ```
 
-The marketplace manifest is [`.claude-plugin/marketplace.json`](.claude-plugin/marketplace.json) and the plugin lives at [`plugins/track`](plugins/track) (manifest `plugins/track/.claude-plugin/plugin.json`, skill `plugins/track/skills/track/SKILL.md`). After installing, the skill is namespaced as `/track:track`; configure `vault_dir` in `config.yml` so the agent's commands resolve against your vault. The tool-neutral contract the skill points to is [docs/spec/agent-workflows.md](docs/spec/agent-workflows.md).
+The marketplace manifest is [`.claude-plugin/marketplace.json`](.claude-plugin/marketplace.json) and the plugin lives at [`plugins/track`](plugins/track) (manifest `plugins/track/.claude-plugin/plugin.json`, skills under `plugins/track/skills/`). After installing, configure `vault_dir` in `config.yml` so the agent's commands resolve against your vault. The tool-neutral contract the skills point to is [docs/spec/agent-workflows.md](docs/spec/agent-workflows.md).
 
 ## Codex skill
 
-The bundled skill is also installable by Codex through this repository's marketplace. The marketplace manifest is [`.agents/plugins/marketplace.json`](.agents/plugins/marketplace.json), and the Codex plugin manifest is [`plugins/track/.codex-plugin/plugin.json`](plugins/track/.codex-plugin/plugin.json). It points at the same [`plugins/track/skills/track`](plugins/track/skills/track) skill.
+The bundled skills are also installable by Codex through this repository's marketplace. The marketplace manifest is [`.agents/plugins/marketplace.json`](.agents/plugins/marketplace.json), and the Codex plugin manifest is [`plugins/track/.codex-plugin/plugin.json`](plugins/track/.codex-plugin/plugin.json). It points at the same `plugins/track/skills/` directory.
 
 From a local checkout:
 

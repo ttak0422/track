@@ -1,31 +1,32 @@
 ---
 name: track
-description: Use the track CLI when the user asks to create, record, search, rename, or maintain notes, journal entries, Zettelkasten items, or linked Markdown knowledge in a configured track vault (normally config.yml with vault_dir; TRACK_VAULT is only a test/one-off override).
+description: Use the track CLI for linked Markdown knowledge-base maintenance beyond basic note creation or read-only search: renaming notes and fixing backlinks, checking backlinks/graphs, running diagnostics, maintaining indexes, or coordinating multi-step vault workflows. For creating notes use track-create-note; for searching or reading notes use track-search-notes.
 ---
 
 # track CLI
 
-The track CLI is the source of truth for notes, indexing, search, and link resolution. The Go engine parses notes, maintains the SQLite index, and resolves `[[links]]`. Use it for any note/journal/Zettelkasten request in a configured track vault.
+The track CLI is the source of truth for notes, indexing, search, and link resolution. The Go engine parses notes, maintains the SQLite index, and resolves `[[links]]`.
 
 ## When to use
 
-Trigger on requests such as: take a note, record this, start a journal entry, find a note, rename a note (and fix backlinks), or maintain a knowledge base of linked Markdown.
+Use this general skill for maintenance tasks such as renaming a note and fixing backlinks, inspecting backlinks or graph context as part of a workflow, reindexing/diagnostics, or coordinating multiple track operations.
+
+Use the narrower skills when they fit:
+
+- `track-create-note`: create/open notes, journals, and template-backed notes.
+- `track-search-notes`: search, resolve, export/read notes, backlinks, and graph inspection without modifying notes.
 
 ## Prerequisites
 
 - `track` binary on `PATH`. (Only when developing track itself, with the source repo as the working directory, `go run ./cmd/track` works as a substitute.)
-- `vault_dir` set in the platform user `config.yml`. `TRACK_VAULT` is only for tests and one-off overrides. Without a configured vault, commands error.
+- Prefer the user's normal track config. `TRACK_VAULT` is only for tests and one-off overrides.
 
 ## Core commands
 
-- `track new --title <t> [--body <s>] [--tag <s>] [--ai]` — create a note (fails if the title exists). Body from `--body` or stdin; leading `#` headings are fine.
-- `track open --title <t> [--body <s>] [--tag <s>] [--ai]` — create-or-open by title (idempotent).
-- `track journal [--offset <n>] [--body <s>]` — open/create a daily note.
-- `track append (--id N | --title S | --path P) [--body <s>] [--tag <s>]` — append body and/or merge tags.
-- `track search --query <s> [--scope all|title|body] [--limit N]` — search; `#tag` terms filter by tag.
-- `track resolve --term <s>` — resolve a title to a note (existence check).
 - `track rename (--id N | --title S | --path P) --to <s>` — rename title and rewrite backlinks.
 - `track backlinks (--id N | --path P)` / `track graph (--id N | --path P)` — inbound links / local graph.
+- `track doctor [--fix]` — diagnose or repair vault/index drift when available in the current build.
+- `track reindex [--full]` — rebuild the SQLite index.
 - `track export (--id N | --title S | --path P)` — full note Markdown to stdout.
 
 ## Output contract
@@ -39,12 +40,12 @@ All commands print single-line JSON; errors are `{"error":...}` with exit code 1
 
 ## Typical workflow
 
-Create with `new`/`open` (body via `--body` or piped stdin) → link related notes with `[[Title]]` in the body → confirm a target exists with `resolve --term` → rediscover later with `search` (use `#tag` to filter) → change a title and fix every backlink with `rename`. Read a note's full Markdown with `export`.
+For maintenance workflows, inspect the target (`resolve`, `export`, `backlinks`, or `graph` as needed) → apply the maintenance command such as `rename` or `doctor --fix` → verify with search/backlinks/export. Prefer the narrower create/search skills for simple note creation or read-only lookup.
 
 ## Example
 
 ```sh
-echo "本文 [[関連ノート]]" | track new --title "会議メモ" --ai
+track rename --title "Old title" --to "New title"
 ```
 
 ## For track contributors

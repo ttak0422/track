@@ -1,0 +1,4 @@
+interface:
+  display_name: "Track Search Notes"
+  short_description: "Search and read track notes"
+  default_prompt: "Use $track-search-notes to find notes in my track vault."
