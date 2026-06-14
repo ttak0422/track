@@ -95,6 +95,7 @@
             inherit (self'.checks.pre-commit-check) shellHook;
             packages = [
               pkgs.go
+              pkgs.nodejs_22
             ];
           };
         };

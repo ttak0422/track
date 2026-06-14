@@ -34,6 +34,21 @@ Write endpoint:
 - `PUT /api/note?id=<id>`: save the body of an existing note. The request body is
   `{"body": "...", "etag": "<etag-from-GET>"}`.
 
+## Frontend implementation
+
+The current production UI is still served by the Go `internal/track/webui`
+package. The React migration lives under `web/` and is built with Vite,
+TypeScript, TanStack Query, and TanStack Router while it is brought up to parity.
+
+During migration:
+
+- keep the existing `/api/*` contract stable;
+- run `npm install` and `npm run build` from `web/` for frontend changes;
+- run `track web --addr 127.0.0.1:8765` and `npm run dev` from `web/` to use the
+  Vite dev server against the local Go API;
+- only switch Go's served assets to the Vite build once the React workspace has
+  reached feature parity with the existing raw-string UI.
+
 ### Save conflict detection
 
 `PUT /api/note` is guarded by an optimistic-concurrency `etag`, the content hash
