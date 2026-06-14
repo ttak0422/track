@@ -1,21 +1,32 @@
-export interface ActivityDay {
-  date: string;
-  count: number;
+import type {
+  ActivityResponse,
+  GraphResponse,
+  NoteResponse,
+  NotesResponse,
+  ResolveResponse,
+  SaveNoteRequest,
+  SaveNoteResponse,
+  SearchResponse,
+} from "./types";
+
+interface APIOptions {
+  method?: string;
+  body?: unknown;
 }
 
-export interface ActivitySummary {
-  start_date: string;
-  days: number;
-  total: number;
-  counts: ActivityDay[];
-}
+export async function api<T>(path: string, options: APIOptions = {}): Promise<T> {
+  const headers = new Headers();
+  const init: RequestInit = {
+    method: options.method,
+    headers,
+  };
 
-export interface ActivityResponse {
-  activity: ActivitySummary;
-}
+  if (options.body !== undefined) {
+    headers.set("Content-Type", "application/json");
+    init.body = JSON.stringify(options.body);
+  }
 
-export async function api<T>(path: string): Promise<T> {
-  const response = await fetch(path);
+  const response = await fetch(path, init);
   const body = await response.json().catch(() => ({}));
 
   if (!response.ok) {
@@ -27,4 +38,40 @@ export async function api<T>(path: string): Promise<T> {
   }
 
   return body as T;
+}
+
+export function searchNotes(query: string, limit = 100): Promise<SearchResponse> {
+  const params = new URLSearchParams({ limit: String(limit), q: query });
+  return api<SearchResponse>(`/api/search?${params}`);
+}
+
+export function listNotes(): Promise<NotesResponse> {
+  return api<NotesResponse>("/api/notes");
+}
+
+export function getActivity(days = 14): Promise<ActivityResponse> {
+  return api<ActivityResponse>(`/api/activity?days=${encodeURIComponent(days)}`);
+}
+
+export function resolveTerm(term: string): Promise<ResolveResponse> {
+  return api<ResolveResponse>(`/api/resolve?term=${encodeURIComponent(term)}`);
+}
+
+export function getNote(noteID: number): Promise<NoteResponse> {
+  return api<NoteResponse>(`/api/note?id=${encodeURIComponent(noteID)}`);
+}
+
+export function saveNote(noteID: number, request: SaveNoteRequest): Promise<SaveNoteResponse> {
+  return api<SaveNoteResponse>(`/api/note?id=${encodeURIComponent(noteID)}`, {
+    method: "PUT",
+    body: request,
+  });
+}
+
+export function getLocalGraph(noteID: number): Promise<GraphResponse> {
+  return api<GraphResponse>(`/api/graph/local?id=${encodeURIComponent(noteID)}`);
+}
+
+export function getGraph(): Promise<GraphResponse> {
+  return api<GraphResponse>("/api/graph");
 }

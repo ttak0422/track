@@ -6,8 +6,8 @@ import {
   createRoute,
   createRouter,
 } from "@tanstack/react-router";
-import { QueryClient, QueryClientProvider, useQuery } from "@tanstack/react-query";
-import { api, type ActivityResponse } from "./api";
+import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
+import { useActivityQuery } from "./queries";
 import "./styles.css";
 
 const queryClient = new QueryClient();
@@ -71,10 +71,7 @@ function RootLayout() {
 }
 
 function HomeRoute() {
-  const activity = useQuery({
-    queryKey: ["activity", 14],
-    queryFn: () => api<ActivityResponse>("/api/activity?days=14"),
-  });
+  const activity = useActivityQuery(14);
 
   return (
     <article className="panel">

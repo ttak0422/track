@@ -1,0 +1,87 @@
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import {
+  getActivity,
+  getGraph,
+  getLocalGraph,
+  getNote,
+  listNotes,
+  resolveTerm,
+  saveNote,
+  searchNotes,
+} from "./api";
+import type { NoteID, SaveNoteRequest } from "./types";
+
+export const queryKeys = {
+  activity: (days: number) => ["activity", days] as const,
+  graph: () => ["graph"] as const,
+  localGraph: (noteID: NoteID) => ["graph", "local", noteID] as const,
+  note: (noteID: NoteID) => ["note", noteID] as const,
+  notes: () => ["notes"] as const,
+  resolve: (term: string) => ["resolve", term] as const,
+  search: (query: string, limit: number) => ["search", query, limit] as const,
+};
+
+export function useActivityQuery(days = 14) {
+  return useQuery({
+    queryKey: queryKeys.activity(days),
+    queryFn: () => getActivity(days),
+  });
+}
+
+export function useSearchQuery(query: string, limit = 100) {
+  return useQuery({
+    queryKey: queryKeys.search(query, limit),
+    queryFn: () => searchNotes(query, limit),
+  });
+}
+
+export function useNotesQuery() {
+  return useQuery({
+    queryKey: queryKeys.notes(),
+    queryFn: listNotes,
+  });
+}
+
+export function useResolveQuery(term: string) {
+  return useQuery({
+    queryKey: queryKeys.resolve(term),
+    queryFn: () => resolveTerm(term),
+    enabled: term.trim() !== "",
+  });
+}
+
+export function useNoteQuery(noteID: NoteID) {
+  return useQuery({
+    queryKey: queryKeys.note(noteID),
+    queryFn: () => getNote(noteID),
+  });
+}
+
+export function useGraphQuery() {
+  return useQuery({
+    queryKey: queryKeys.graph(),
+    queryFn: getGraph,
+  });
+}
+
+export function useLocalGraphQuery(noteID: NoteID) {
+  return useQuery({
+    queryKey: queryKeys.localGraph(noteID),
+    queryFn: () => getLocalGraph(noteID),
+  });
+}
+
+export function useSaveNoteMutation(noteID: NoteID) {
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: (request: SaveNoteRequest) => saveNote(noteID, request),
+    onSuccess: () => {
+      void queryClient.invalidateQueries({ queryKey: queryKeys.note(noteID) });
+      void queryClient.invalidateQueries({ queryKey: queryKeys.notes() });
+      void queryClient.invalidateQueries({ queryKey: ["search"] });
+      void queryClient.invalidateQueries({ queryKey: ["graph"] });
+      void queryClient.invalidateQueries({ queryKey: ["activity"] });
+    },
+  });
+}
