@@ -961,6 +961,7 @@ const appJS = `(function () {
     activeTags: [],
     graph: null,
     graphScope: "local",
+    graphUserAdjusted: false,
     copyPath: null,
     nodes: [],
     edges: [],
@@ -1567,6 +1568,9 @@ const appJS = `(function () {
     // Degree drives node size and label thinning (Obsidian-style): hubs stay big and labeled even when
     // the whole-vault graph is zoomed out.
     state.edges.forEach(function (edge) { edge.source.degree++; edge.target.degree++; });
+    // A freshly loaded graph re-enables auto-fit so it settles into a framed view (like the reset
+    // button) instead of staying zoomed in on the initial layout after navigation.
+    state.graphUserAdjusted = false;
     resizeCanvas();
     state.graphView = fitGraphView();
     el.graphMeta.textContent = state.nodes.length + " nodes / " + state.edges.length + " links";
@@ -1659,11 +1663,17 @@ const appJS = `(function () {
       return;
     }
     var ticks = 0;
+    // While the layout spreads from its initial circle, keep the view framed on the whole graph so it
+    // ends in the same fit-to-view state as the reset button. Stop once it settles or the user pans/zooms.
+    var settleTicks = 150;
     // TODO(track): stepGraph is O(n^2) per frame and the loop never cools down. Labels are already
     // thinned for large global graphs, but the simulation itself needs a Barnes-Hut quadtree and/or a
     // cooling/stop heuristic before very large vaults render smoothly.
     function frame() {
       stepGraph();
+      if (!state.graphUserAdjusted && ticks < settleTicks) {
+        state.graphView = fitGraphView();
+      }
       drawGraph();
       ticks++;
       state.animation = requestAnimationFrame(frame);
@@ -1713,6 +1723,8 @@ const appJS = `(function () {
     state.pinch = null;
     state.pointers = {};
     el.canvas.classList.remove("dragging");
+    // Reset restores auto-framing so a still-settling layout keeps tracking the fit.
+    state.graphUserAdjusted = false;
     resizeCanvas();
     state.graphView = fitGraphView();
     drawGraph();
@@ -1878,6 +1890,7 @@ const appJS = `(function () {
     state.graphView.scale = nextScale;
     state.graphView.x = center.x - el.canvas.width / 2 - state.pinch.world.x * nextScale;
     state.graphView.y = center.y - el.canvas.height / 2 - state.pinch.world.y * nextScale;
+    state.graphUserAdjusted = true;
     if (Math.abs(center.x - state.pinch.center.x) + Math.abs(center.y - state.pinch.center.y) > 4 || Math.abs(nextScale - state.pinch.scale) > 0.02) {
       state.pinch.moved = true;
     }
@@ -1928,6 +1941,7 @@ const appJS = `(function () {
     var dy = point.y - state.dragging.last.y;
     state.graphView.x += dx;
     state.graphView.y += dy;
+    state.graphUserAdjusted = true;
     if (Math.abs(point.x - state.dragging.start.x) + Math.abs(point.y - state.dragging.start.y) > 4) {
       state.dragging.moved = true;
     }
@@ -1981,6 +1995,7 @@ const appJS = `(function () {
     state.graphView.scale = Math.max(0.05, Math.min(4, state.graphView.scale * factor));
     state.graphView.x = point.x - el.canvas.width / 2 - before.x * state.graphView.scale;
     state.graphView.y = point.y - el.canvas.height / 2 - before.y * state.graphView.scale;
+    state.graphUserAdjusted = true;
     drawGraph();
   }, { passive: false });
 
