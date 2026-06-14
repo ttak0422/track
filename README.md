@@ -39,7 +39,7 @@ cmd/track/main.go        # thin CLI entry point
 internal/cli/            # argument routing -> engine -> JSON
 internal/track/          # engine (config, note metadata, store, index, link, lsp)
 lua/track/               # Neovim frontend (config, client, lsp, follow, ...)
-nix/apps/                # `nix run .#nvim` (real vault) and `.#test-nvim` (test vault) launchers
+nix/apps/                # `nix run .#test-nvim` launcher
 flake.nix                # Go CLI + Vim plugin packaging
 ```
 
@@ -237,8 +237,7 @@ go build ./cmd/track ./cmd/track-lsp  # build the Go binaries
 
 nix build .#track-cli    # build the Go CLI and LSP binaries
 nix build .#track        # build the Neovim plugin (references the CLI)
-nix run .#nvim           # launch Neovim against your configured vault (config.yml)
-nix run .#test-nvim      # launch Neovim with a throwaway test vault under /tmp
+nix run .#test-nvim      # launch Neovim; the vault defaults to $HOME/track (TRACK_VAULT/config.yml override)
 
 TRACK_VAULT="$(mktemp -d)" TRACK_CACHE_DIR="$(mktemp -d)" \
   nix run .#test-nvim -- --headless '+luafile scripts/e2e/nvim_action_links.lua'
