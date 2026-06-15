@@ -60,7 +60,7 @@ function M.check()
    if #running > 0 then
       h.ok(string.format("track-lsp running (%d client(s))", #running))
    else
-      h.info("track-lsp is not running (use :Track lsp_start to attach open notes)")
+      h.info("track-lsp is not running (open a note under the vault to start it)")
    end
 
    local buf = vim.api.nvim_get_current_buf()
@@ -68,7 +68,7 @@ function M.check()
    if client then
       h.ok("track-lsp attached to current buffer")
    else
-      h.info("track-lsp is not attached to the current buffer (:Track lsp_restart to recover)")
+      h.info("track-lsp is not attached to the current buffer (re-enter the note to re-attach)")
    end
 end
 

@@ -8,20 +8,17 @@ local M = {}
 -- Patched by Nix at build time to the bundled track-lsp binary's store path.
 local bundled_lsp_binary_path = nil
 local cached_binary
-local client_id
 
 local uv = vim.uv or vim.loop
 local ns = vim.api.nvim_create_namespace("track_lsp_links")
 local timers = {}
+-- attached[buf] guards the one-time per-buffer setup (keymaps, render autocmds). The LSP client itself
+-- is owned by vim.lsp.start, which dedupes by name + root_dir, so we never cache a client id here.
 local attached = {}
 -- resolved_cache[buf] = set of "row:start:end" keys the server returned as resolved document links,
 -- kept so cursor moves can repaint (toggle anti-conceal) without another LSP round trip.
 local resolved_cache = {}
 local create_command_registered = false
--- Forward declaration: start_client's on_exit handler resets this when the server process dies, but
--- detach_all is defined further down (it needs attach's per-buffer state). Declaring it here keeps the
--- single shared local in scope for both.
-local detach_all
 
 local function find_binary()
    if cached_binary then
@@ -355,33 +352,12 @@ local function make_capabilities()
    return caps
 end
 
--- live_client returns the cached track-lsp client only when it is still running. A crashed or stopped
--- client lingers briefly in the registry, so checking is_stopped avoids re-binding buffers to a corpse.
-local function live_client()
-   if not client_id then
-      return nil
-   end
-   local c = vim.lsp.get_client_by_id(client_id)
-   if c and not c.is_stopped() then
-      return c
-   end
-   return nil
-end
-
--- start_client binds buf to the track-lsp client, starting the server when it is not already running.
--- It returns the client id, or nil when the server fails to start. If the cached client has died, its
--- stale per-buffer state is cleared first so every note re-attaches to the fresh client.
-local function start_client(buf)
-   if live_client() then
-      vim.lsp.buf_attach_client(buf, client_id)
-      return client_id
-   end
-   if client_id then
-      detach_all()
-      client_id = nil
-   end
-
-   client_id = vim.lsp.start({
+-- ensure_client starts (or re-binds to) the track-lsp client for buf. vim.lsp.start reuses a client
+-- whose name and root_dir match, so this is idempotent and cheap to call on every BufEnter. That call
+-- pattern is the self-heal: if the server crashed, the next time the note is entered a fresh client is
+-- started, so links recover without any manual command. Returns the client id, or nil on failure.
+local function ensure_client(buf)
+   local ok, id = pcall(vim.lsp.start, {
       name = "track-lsp",
       cmd = { find_binary() },
       root_dir = vim.fn.fnamemodify(config.options.vault_dir, ":p"),
@@ -390,40 +366,21 @@ local function start_client(buf)
          TRACK_CACHE_DIR = config.options.cache_dir,
       },
       capabilities = make_capabilities(),
-      -- When the server process exits (crash or shutdown), drop the cached id and every buffer's hooks
-      -- so a later BufEnter re-runs attach against a new client instead of silently doing nothing. The
-      -- exited_id guard ignores a stale exit from an old client when a restart already started a newer
-      -- one, so we never tear the live client down.
-      on_exit = vim.schedule_wrap(function(code, _signal, exited_id)
-         if exited_id ~= client_id then
-            return
-         end
-         client_id = nil
-         detach_all()
-         if code ~= 0 then
-            vim.notify(
-               string.format("track: track-lsp exited (code %d); reopen a note or run :Track lsp_restart", code),
-               vim.log.levels.WARN
-            )
-         end
-      end),
    }, { bufnr = buf })
-   return client_id
-end
-
-local function attach(buf)
-   if attached[buf] then
-      return
-   end
-
-   -- Start (or re-bind to) the server before marking the buffer attached. If the server fails to
-   -- start, leave attached[buf] unset so the next BufEnter retries instead of locking the buffer out.
-   local ok, id = pcall(start_client, buf)
    if not ok then
       vim.notify("track: failed to start track-lsp: " .. tostring(id), vim.log.levels.WARN)
+      return nil
+   end
+   return id
+end
+
+-- attach wires buf to the server and, once, sets up its keymaps and link-rendering hooks. ensure_client
+-- runs every call (self-heal); the rest is guarded by attached[buf] so it is built a single time.
+local function attach(buf)
+   if not ensure_client(buf) then
       return
    end
-   if not id then
+   if attached[buf] then
       return
    end
    attached[buf] = true
@@ -450,7 +407,16 @@ local function attach(buf)
          end
       end,
    })
-   vim.api.nvim_create_autocmd({ "BufEnter", "TextChanged", "TextChangedI", "WinScrolled" }, {
+   -- Re-entering the buffer re-binds the client (self-heal after a crash) before repainting.
+   vim.api.nvim_create_autocmd("BufEnter", {
+      group = group,
+      buffer = buf,
+      callback = function()
+         ensure_client(buf)
+         schedule(buf)
+      end,
+   })
+   vim.api.nvim_create_autocmd({ "TextChanged", "TextChangedI", "WinScrolled" }, {
       group = group,
       buffer = buf,
       callback = function()
@@ -492,89 +458,6 @@ local function attach(buf)
    end, config.options.debounce_ms * 4)
 end
 
--- detach_all forgets every per-buffer hook and cancels pending refreshes, so the next attach starts
--- clean. It does not touch the LSP client itself; stop/restart own that. Assigned to the forward
--- declaration above so start_client's on_exit can call it.
-function detach_all()
-   for buf, timer in pairs(timers) do
-      timer:stop()
-      timer:close()
-      timers[buf] = nil
-   end
-   for buf in pairs(attached) do
-      if vim.api.nvim_buf_is_valid(buf) then
-         vim.api.nvim_buf_clear_namespace(buf, ns, 0, -1)
-         pcall(vim.api.nvim_del_augroup_by_name, config.options.augroup .. "_lsp_buf_" .. buf)
-      end
-      attached[buf] = nil
-      resolved_cache[buf] = nil
-   end
-end
-
--- vault_markdown_buffers lists loaded markdown buffers that live under the vault, i.e. the ones the
--- server should attach to. Used to (re)attach in bulk after a start or restart.
-local function vault_markdown_buffers()
-   local bufs = {}
-   for _, buf in ipairs(vim.api.nvim_list_bufs()) do
-      if vim.api.nvim_buf_is_valid(buf) and vim.bo[buf].filetype == "markdown" and under_vault(buf) then
-         bufs[#bufs + 1] = buf
-      end
-   end
-   return bufs
-end
-
--- stop tears down the running track-lsp client and all buffer state. It is the shared teardown for
--- M.stop and M.restart; pass notify=true to surface the result to the user.
-local function stop(notify)
-   detach_all()
-   local id = client_id
-   client_id = nil
-   if id then
-      pcall(vim.lsp.stop_client, id, true)
-   end
-   if notify then
-      vim.notify(id and "track: stopped track-lsp" or "track: track-lsp was not running", vim.log.levels.INFO)
-   end
-end
-
--- M.start attaches the server to every open vault markdown buffer. It is also the recovery path when
--- the server has exited (e.g. crashed): buffers that were left "attached" without a live client are
--- detached first so attach can spin up a fresh client. Safe to call repeatedly.
-function M.start()
-   if client_id and not live_client() then
-      -- The cached client is dead; clear stale buffer state before re-attaching.
-      stop(false)
-   end
-   local bufs = vault_markdown_buffers()
-   for _, buf in ipairs(bufs) do
-      attach(buf)
-   end
-   vim.notify(
-      string.format("track: track-lsp attached to %d buffer(s)", #bufs),
-      #bufs > 0 and vim.log.levels.INFO or vim.log.levels.WARN
-   )
-end
-
--- M.restart stops the running server and re-attaches every open vault markdown buffer with a fresh
--- client. Use it when links stop resolving because the LSP became unresponsive or its index drifted.
-function M.restart()
-   stop(false)
-   vim.schedule(function()
-      local bufs = vault_markdown_buffers()
-      for _, buf in ipairs(bufs) do
-         attach(buf)
-      end
-      vim.notify(
-         string.format("track: restarted track-lsp (%d buffer(s))", #bufs),
-         vim.log.levels.INFO
-      )
-   end)
-end
-
-function M.stop()
-   stop(true)
-end
-
 function M.setup()
    vim.api.nvim_set_hl(0, config.options.hl_group, { default = true, link = "Underlined" })
    register_create_note_command()
@@ -582,14 +465,13 @@ function M.setup()
       reveal_code_fences()
    end
    local group = vim.api.nvim_create_augroup(config.options.augroup .. "_lsp", { clear = true })
-   -- FileType fires for freshly loaded notes; BufEnter also re-attaches notes that are already loaded.
-   -- The latter is the self-heal path: if the server crashed (on_exit cleared attached state), simply
-   -- returning to a note buffer brings the LSP back without a manual command. attach() no-ops when the
-   -- buffer is already attached to a live client, so the extra BufEnter is cheap.
-   vim.api.nvim_create_autocmd({ "FileType", "BufEnter" }, {
+   -- FileType wires a freshly loaded note once; from then on its per-buffer BufEnter autocmd re-binds
+   -- the client on every entry, which is what recovers the LSP after a crash.
+   vim.api.nvim_create_autocmd("FileType", {
       group = group,
+      pattern = "markdown",
       callback = function(ev)
-         if vim.bo[ev.buf].filetype == "markdown" and under_vault(ev.buf) then
+         if under_vault(ev.buf) then
             attach(ev.buf)
          end
       end,

@@ -152,18 +152,6 @@ function M.setup()
       require("track.follow").follow()
    end, { desc = "Follow the track link under the cursor" })
 
-   register("lsp_restart", function()
-      require("track.lsp").restart()
-   end, { desc = "Restart the track LSP server and re-attach open notes" })
-
-   register("lsp_start", function()
-      require("track.lsp").start()
-   end, { desc = "Start (or recover) the track LSP server on open notes" })
-
-   register("lsp_stop", function()
-      require("track.lsp").stop()
-   end, { desc = "Stop the track LSP server" })
-
    register("backlinks", function()
       require("track.backlinks").show()
    end, { desc = "Show notes that link to the current note" })

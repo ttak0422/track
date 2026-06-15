@@ -167,9 +167,6 @@ Commands:
 :Track journal [n]     " journal note at day offset n
 :Track reindex         " delete and rebuild the SQLite index after confirmation
 :Track keywords        " list the link keyword dictionary
-:Track lsp_restart     " restart the track LSP and re-attach open notes (recover broken links)
-:Track lsp_start       " start (or recover) the track LSP on open notes
-:Track lsp_stop        " stop the track LSP
 :Track dump            " diagnostic state dump
 ```
 
