@@ -55,11 +55,7 @@ export function MarkdownView({ markdown }: MarkdownViewProps) {
               </label>
             );
           case "code":
-            return (
-              <pre className="code-block" data-language={block.lang || undefined} key={index}>
-                <code>{block.text}</code>
-              </pre>
-            );
+            return <CodeBlock key={index} lang={block.lang} text={block.text} />;
         }
       })}
     </div>
@@ -68,6 +64,78 @@ export function MarkdownView({ markdown }: MarkdownViewProps) {
 
 function renderInline(text: string) {
   return renderParts(parseInline(text));
+}
+
+interface CodeBlockProps {
+  lang: string;
+  text: string;
+}
+
+// CodeBlock renders a fenced code block with a copy-to-clipboard button. The button briefly switches
+// to a "Copied" state so the action is acknowledged, then resets.
+function CodeBlock({ lang, text }: CodeBlockProps) {
+  const [copied, setCopied] = useState(false);
+  const resetTimer = useRef<number | undefined>(undefined);
+
+  useEffect(() => {
+    return () => {
+      if (resetTimer.current !== undefined) {
+        window.clearTimeout(resetTimer.current);
+      }
+    };
+  }, []);
+
+  async function copy() {
+    const ok = await copyText(text);
+    if (!ok) return;
+    setCopied(true);
+    if (resetTimer.current !== undefined) {
+      window.clearTimeout(resetTimer.current);
+    }
+    resetTimer.current = window.setTimeout(() => setCopied(false), 1500);
+  }
+
+  return (
+    <div className="code-block" data-language={lang || undefined}>
+      <button
+        type="button"
+        className="code-copy"
+        onClick={copy}
+        aria-label={copied ? "Copied" : "Copy code"}
+      >
+        {copied ? "Copied" : "Copy"}
+      </button>
+      <pre className="code-block-pre">
+        <code>{text}</code>
+      </pre>
+    </div>
+  );
+}
+
+// copyText writes to the clipboard, falling back to a hidden textarea + execCommand when the async
+// Clipboard API is unavailable (older browsers or non-secure contexts). Returns whether it succeeded.
+async function copyText(text: string): Promise<boolean> {
+  if (navigator.clipboard?.writeText) {
+    try {
+      await navigator.clipboard.writeText(text);
+      return true;
+    } catch {
+      // fall through to the legacy path
+    }
+  }
+  try {
+    const area = document.createElement("textarea");
+    area.value = text;
+    area.style.position = "fixed";
+    area.style.opacity = "0";
+    document.body.appendChild(area);
+    area.select();
+    const ok = document.execCommand("copy");
+    document.body.removeChild(area);
+    return ok;
+  } catch {
+    return false;
+  }
 }
 
 function renderParts(parts: InlinePart[]) {
