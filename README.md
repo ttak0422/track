@@ -144,7 +144,7 @@ require("track").setup({
 Commands:
 
 ```vim
-:Track open [title]    " open or create a note by title (visual selection / args / prompt-with-cword); existing titles are reused
+:Track open [title]    " open or create a note by title (visual selection / args / empty prompt); existing titles are reused
 :Track template [name] " open or create a template for editing
 :Track from_template [template] [title]
                        " create a note from a template; prompts when omitted

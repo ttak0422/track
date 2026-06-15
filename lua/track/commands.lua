@@ -108,7 +108,10 @@ function M.setup()
       elseif #opts.fargs > 0 then
          create.create(table.concat(opts.fargs, " "))
       else
-         create.prompt(vim.fn.expand("<cword>"))
+         -- A bare :Track open prompts for a title from an empty field. It deliberately ignores the
+         -- word under the cursor: in normal mode that <cword> is whatever the cursor happens to sit
+         -- on, which seeded the prompt with unrelated text. Follow links with :Track follow / <CR>.
+         create.prompt()
       end
    end, { nargs = "*", range = true, desc = "Open or create a track note by title (selection, args, or prompt); existing titles are reused" })
 

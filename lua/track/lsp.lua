@@ -8,11 +8,12 @@ local M = {}
 -- Patched by Nix at build time to the bundled track-lsp binary's store path.
 local bundled_lsp_binary_path = nil
 local cached_binary
-local client_id
 
 local uv = vim.uv or vim.loop
 local ns = vim.api.nvim_create_namespace("track_lsp_links")
 local timers = {}
+-- attached[buf] guards the one-time per-buffer setup (keymaps, render autocmds). The LSP client itself
+-- is owned by vim.lsp.start, which dedupes by name + root_dir, so we never cache a client id here.
 local attached = {}
 -- resolved_cache[buf] = set of "row:start:end" keys the server returned as resolved document links,
 -- kept so cursor moves can repaint (toggle anti-conceal) without another LSP round trip.
@@ -351,13 +352,12 @@ local function make_capabilities()
    return caps
 end
 
-local function start_client(buf)
-   if client_id and vim.lsp.get_client_by_id(client_id) then
-      vim.lsp.buf_attach_client(buf, client_id)
-      return
-   end
-
-   client_id = vim.lsp.start({
+-- ensure_client starts (or re-binds to) the track-lsp client for buf. vim.lsp.start reuses a client
+-- whose name and root_dir match, so this is idempotent and cheap to call on every BufEnter. That call
+-- pattern is the self-heal: if the server crashed, the next time the note is entered a fresh client is
+-- started, so links recover without any manual command. Returns the client id, or nil on failure.
+local function ensure_client(buf)
+   local ok, id = pcall(vim.lsp.start, {
       name = "track-lsp",
       cmd = { find_binary() },
       root_dir = vim.fn.fnamemodify(config.options.vault_dir, ":p"),
@@ -367,15 +367,24 @@ local function start_client(buf)
       },
       capabilities = make_capabilities(),
    }, { bufnr = buf })
+   if not ok then
+      vim.notify("track: failed to start track-lsp: " .. tostring(id), vim.log.levels.WARN)
+      return nil
+   end
+   return id
 end
 
+-- attach wires buf to the server and, once, sets up its keymaps and link-rendering hooks. ensure_client
+-- runs every call (self-heal); the rest is guarded by attached[buf] so it is built a single time.
 local function attach(buf)
+   if not ensure_client(buf) then
+      return
+   end
    if attached[buf] then
       return
    end
    attached[buf] = true
 
-   start_client(buf)
    vim.keymap.set("n", "<CR>", function()
       return require("track.follow").smart_action()
    end, { expr = true, buffer = buf, desc = "track: follow link under cursor" })
@@ -398,7 +407,16 @@ local function attach(buf)
          end
       end,
    })
-   vim.api.nvim_create_autocmd({ "BufEnter", "TextChanged", "TextChangedI", "WinScrolled" }, {
+   -- Re-entering the buffer re-binds the client (self-heal after a crash) before repainting.
+   vim.api.nvim_create_autocmd("BufEnter", {
+      group = group,
+      buffer = buf,
+      callback = function()
+         ensure_client(buf)
+         schedule(buf)
+      end,
+   })
+   vim.api.nvim_create_autocmd({ "TextChanged", "TextChangedI", "WinScrolled" }, {
       group = group,
       buffer = buf,
       callback = function()
@@ -447,6 +465,8 @@ function M.setup()
       reveal_code_fences()
    end
    local group = vim.api.nvim_create_augroup(config.options.augroup .. "_lsp", { clear = true })
+   -- FileType wires a freshly loaded note once; from then on its per-buffer BufEnter autocmd re-binds
+   -- the client on every entry, which is what recovers the LSP after a crash.
    vim.api.nvim_create_autocmd("FileType", {
       group = group,
       pattern = "markdown",

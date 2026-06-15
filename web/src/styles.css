@@ -904,6 +904,17 @@ button {
   text-decoration-style: dotted;
 }
 
+.md-link {
+  color: var(--accent);
+  text-decoration: underline;
+}
+
+.md-link.action {
+  color: var(--muted);
+  text-decoration: underline dotted;
+  cursor: default;
+}
+
 .wiki-preview {
   position: fixed;
   width: min(50vw, 640px);

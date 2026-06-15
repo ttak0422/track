@@ -54,12 +54,21 @@ function M.check()
       h.warn("cache_dir is not configured")
    end
 
+   local running = vim.tbl_filter(function(c)
+      return c.name == "track-lsp"
+   end, (vim.lsp.get_clients or vim.lsp.get_active_clients)())
+   if #running > 0 then
+      h.ok(string.format("track-lsp running (%d client(s))", #running))
+   else
+      h.info("track-lsp is not running (open a note under the vault to start it)")
+   end
+
    local buf = vim.api.nvim_get_current_buf()
    local client = require("track.lsp").client(buf)
    if client then
       h.ok("track-lsp attached to current buffer")
    else
-      h.info("track-lsp is not attached to the current buffer")
+      h.info("track-lsp is not attached to the current buffer (re-enter the note to re-attach)")
    end
 end
 
