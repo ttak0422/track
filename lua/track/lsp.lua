@@ -440,6 +440,88 @@ local function attach(buf)
    end, config.options.debounce_ms * 4)
 end
 
+-- detach forgets every per-buffer hook and cancels pending refreshes, so the next attach starts clean.
+-- It does not touch the LSP client itself; stop/restart own that.
+local function detach_all()
+   for buf, timer in pairs(timers) do
+      timer:stop()
+      timer:close()
+      timers[buf] = nil
+   end
+   for buf in pairs(attached) do
+      if vim.api.nvim_buf_is_valid(buf) then
+         vim.api.nvim_buf_clear_namespace(buf, ns, 0, -1)
+         pcall(vim.api.nvim_del_augroup_by_name, config.options.augroup .. "_lsp_buf_" .. buf)
+      end
+      attached[buf] = nil
+      resolved_cache[buf] = nil
+   end
+end
+
+-- vault_markdown_buffers lists loaded markdown buffers that live under the vault, i.e. the ones the
+-- server should attach to. Used to (re)attach in bulk after a start or restart.
+local function vault_markdown_buffers()
+   local bufs = {}
+   for _, buf in ipairs(vim.api.nvim_list_bufs()) do
+      if vim.api.nvim_buf_is_valid(buf) and vim.bo[buf].filetype == "markdown" and under_vault(buf) then
+         bufs[#bufs + 1] = buf
+      end
+   end
+   return bufs
+end
+
+-- stop tears down the running track-lsp client and all buffer state. It is the shared teardown for
+-- M.stop and M.restart; pass notify=true to surface the result to the user.
+local function stop(notify)
+   detach_all()
+   local id = client_id
+   client_id = nil
+   if id then
+      pcall(vim.lsp.stop_client, id, true)
+   end
+   if notify then
+      vim.notify(id and "track: stopped track-lsp" or "track: track-lsp was not running", vim.log.levels.INFO)
+   end
+end
+
+-- M.start attaches the server to every open vault markdown buffer. It is also the recovery path when
+-- the server has exited (e.g. crashed): buffers that were left "attached" without a live client are
+-- detached first so attach can spin up a fresh client. Safe to call repeatedly.
+function M.start()
+   if client_id and not vim.lsp.get_client_by_id(client_id) then
+      -- The cached client is dead; clear stale buffer state before re-attaching.
+      stop(false)
+   end
+   local bufs = vault_markdown_buffers()
+   for _, buf in ipairs(bufs) do
+      attach(buf)
+   end
+   vim.notify(
+      string.format("track: track-lsp attached to %d buffer(s)", #bufs),
+      #bufs > 0 and vim.log.levels.INFO or vim.log.levels.WARN
+   )
+end
+
+-- M.restart stops the running server and re-attaches every open vault markdown buffer with a fresh
+-- client. Use it when links stop resolving because the LSP became unresponsive or its index drifted.
+function M.restart()
+   stop(false)
+   vim.schedule(function()
+      local bufs = vault_markdown_buffers()
+      for _, buf in ipairs(bufs) do
+         attach(buf)
+      end
+      vim.notify(
+         string.format("track: restarted track-lsp (%d buffer(s))", #bufs),
+         vim.log.levels.INFO
+      )
+   end)
+end
+
+function M.stop()
+   stop(true)
+end
+
 function M.setup()
    vim.api.nvim_set_hl(0, config.options.hl_group, { default = true, link = "Underlined" })
    register_create_note_command()

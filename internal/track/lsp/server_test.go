@@ -1223,6 +1223,33 @@ func TestRenameUpdatesMetadataAndBacklinks(t *testing.T) {
 	}
 }
 
+func TestRenameRewritesClosedBacklinkOnDisk(t *testing.T) {
+	srv, vault := setupServer(t)
+	_, srcURI := renameFixture(t, srv, vault)
+	// The backlink note is not open in the editor, so a workspace edit could not reach it.
+	delete(srv.docs, srcURI)
+
+	edit, err := srv.rename(srcURI, position{Line: 0, Character: 6}, "Golang")
+	if err != nil {
+		t.Fatalf("rename: %v", err)
+	}
+	if edit != nil {
+		t.Fatalf("closed backlink should be written to disk, not returned as an edit: %+v", edit)
+	}
+	srcPath := filepath.Join(vault, "note", "200.md")
+	raw, err := os.ReadFile(srcPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := string(raw); got != "see [[Golang]] here" {
+		t.Fatalf("closed backlink not rewritten on disk, got %q", got)
+	}
+	meta, found, err := note.ReadMetadata(srv.cfg.MetadataPath(100))
+	if err != nil || !found || meta.Title != "Golang" {
+		t.Fatalf("metadata title not updated: found=%v meta=%+v err=%v", found, meta, err)
+	}
+}
+
 func TestRenameCurrentNoteWithoutH1(t *testing.T) {
 	srv, vault := setupServer(t)
 	targetURI, srcURI := renameFixture(t, srv, vault)

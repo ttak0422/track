@@ -8,6 +8,7 @@ export type MarkdownBlock =
 export type InlinePart =
   | { type: "text"; text: string }
   | { type: "wiki"; target: string; display: string }
+  | { type: "link"; href: string; children: InlinePart[] }
   | { type: "code"; text: string }
   | { type: "strong"; children: InlinePart[] }
   | { type: "em"; children: InlinePart[] }
@@ -126,6 +127,16 @@ export function parseInline(text: string): InlinePart[] {
       continue;
     }
 
+    // Standard markdown link [text](href). The label may carry nested markup; the href is literal.
+    // Checked after the wiki rule so [[...]] never falls through to here.
+    const mdLink = /^\[([^\]]+)\]\(([^)\s]+)\)/.exec(rest);
+    if (mdLink) {
+      flush();
+      parts.push({ type: "link", href: mdLink[2], children: parseInline(mdLink[1]) });
+      i += mdLink[0].length;
+      continue;
+    }
+
     // Inline code is literal: no nested markup inside the backticks.
     if (text[i] === "`") {
       const close = text.indexOf("`", i + 1);
@@ -192,6 +203,7 @@ export function excerpt(markdown: string, maxLength = 180): string {
     .replace(/```[^\n]*\n?/g, "")
     .replace(/\[\[([^\]|]+)\|([^\]]+)\]\]/g, "$2")
     .replace(/\[\[([^\]]+)\]\]/g, "$1")
+    .replace(/\[([^\]]+)\]\(([^)\s]+)\)/g, "$1")
     .replace(/^#{1,6}\s+/gm, "")
     .replace(/^[-*]\s+\[[ xX]\]\s+/gm, "")
     .replace(/^[-*]\s+/gm, "")

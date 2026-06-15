@@ -1,6 +1,7 @@
 package lsp
 
 import (
+	"os"
 	"strings"
 
 	"github.com/ttak0422/track/internal/track/index"
@@ -45,15 +46,34 @@ func (s *Server) rename(uri string, pos position, newName string) (*workspaceEdi
 		if err != nil {
 			continue
 		}
-		for _, ref := range link.Refs(text) {
-			if ref.Text != oldTitle {
-				continue
+		if _, open := s.docs[srcURI]; open {
+			// The editor owns this buffer (it may hold unsaved edits), so hand it a workspace edit
+			// rather than writing the file ourselves. didSave will reindex it once the user saves.
+			for _, ref := range link.Refs(text) {
+				if ref.Text != oldTitle {
+					continue
+				}
+				rng, ok := refKeyRange(text, ref)
+				if !ok {
+					continue
+				}
+				changes[documentURI(srcURI)] = append(changes[documentURI(srcURI)], textEdit{Range: rng, NewText: newName})
 			}
-			rng, ok := refKeyRange(text, ref)
-			if !ok {
-				continue
-			}
-			changes[documentURI(srcURI)] = append(changes[documentURI(srcURI)], textEdit{Range: rng, NewText: newName})
+			continue
+		}
+		// Closed file: rewrite it on disk so the reindex below reads the new link text. A workspace
+		// edit only reaches open buffers, so without this the backlink would silently drop until the
+		// file is next opened and saved.
+		rewritten, n := link.ReplaceRefKey(text, oldTitle, newName)
+		if n == 0 {
+			continue
+		}
+		path, err := pathFromURI(srcURI)
+		if err != nil {
+			continue
+		}
+		if err := os.WriteFile(path, []byte(rewritten), 0o644); err != nil {
+			return nil, err
 		}
 	}
 

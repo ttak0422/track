@@ -1,4 +1,4 @@
--- Open or create notes (keywords) from three entry points: the word under the cursor, a visual selection, or a prompt/command argument.
+-- Open or create notes (keywords) from three entry points: a visual selection, a command argument, or a prompt.
 
 local client = require("track.client")
 

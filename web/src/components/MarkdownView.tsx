@@ -1,5 +1,13 @@
 import { Link } from "@tanstack/react-router";
-import { createContext, Fragment, useContext, useEffect, useRef, useState } from "react";
+import {
+  createContext,
+  Fragment,
+  type ReactNode,
+  useContext,
+  useEffect,
+  useRef,
+  useState,
+} from "react";
 import { parseInline, parseMarkdown, type InlinePart } from "../markdown";
 import { useNoteQuery, useResolveQuery } from "../queries";
 
@@ -69,6 +77,12 @@ function renderParts(parts: InlinePart[]) {
         return <Fragment key={index}>{part.text}</Fragment>;
       case "wiki":
         return <WikiLink display={part.display} key={index} target={part.target} />;
+      case "link":
+        return (
+          <ExternalLink href={part.href} key={index}>
+            {renderParts(part.children)}
+          </ExternalLink>
+        );
       case "code":
         return (
           <code className="inline-code" key={index}>
@@ -83,6 +97,30 @@ function renderParts(parts: InlinePart[]) {
         return <del key={index}>{renderParts(part.children)}</del>;
     }
   });
+}
+
+interface ExternalLinkProps {
+  href: string;
+  children: ReactNode;
+}
+
+// ExternalLink renders a standard markdown [text](href). Track action links wrap the destination in
+// angle brackets (e.g. [今日](<journal?offset=0>)); those are editor-only and not web-navigable, so we
+// render their label as plain text. http(s) links open in a new tab; other hrefs are left as-is.
+function ExternalLink({ href, children }: ExternalLinkProps) {
+  if (href.startsWith("<") && href.endsWith(">")) {
+    return <span className="md-link action">{children}</span>;
+  }
+  const external = /^https?:\/\//i.test(href);
+  return (
+    <a
+      className="md-link"
+      href={href}
+      {...(external ? { target: "_blank", rel: "noreferrer noopener" } : {})}
+    >
+      {children}
+    </a>
+  );
 }
 
 interface WikiLinkProps {
