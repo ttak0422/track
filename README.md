@@ -59,9 +59,9 @@ vault_dir: ~/track
 Typical config locations are `~/.config/track/config.yml` on XDG-style systems and `~/Library/Application Support/track/config.yml` on macOS.
 
 ```sh
-track new --title <t> [--id <id>] [--template <s>] [--body <s>] [--tag <s>] [--ai]
+track new --title <t> [--id <id>] [--template <s>] [--parent-path <p>] [--body <s>] [--tag <s>] [--ai]
                                       # create a note (fails if the title exists); body is saved verbatim
-track open --title <t> [--template <s>] [--body <s>] [--tag <s>] [--ai]
+track open --title <t> [--template <s>] [--parent-path <p>] [--body <s>] [--tag <s>] [--ai]
                                       # open the note with this title, creating it if absent
 track append (--id N | --title S | --path P) [--body <s>] [--tag <s>] [--ai]
                                       # append body text and/or merge tags
@@ -170,7 +170,7 @@ Commands:
 :Track dump            " diagnostic state dump
 ```
 
-Markdown links can trigger track actions when followed with `:Track follow` / `<CR>`, for example `[今日](<journal?offset=0>)` or `[今日の会議](<note?template=meeting&title={{date}} Project MTG>)`. In action links, `{{date}}` and `{{journal}}` both expand as `yyyyMMdd`.
+Markdown links can trigger track actions when followed with `:Track follow` / `<CR>`, for example `[今日](<journal?offset=0>)` or `[今日の会議](<note?template=meeting&title={{date}} Project MTG>)`. In action links, `{{date}}` and `{{journal}}` both expand as `yyyyMMdd`. When a `note` action creates from a template, the source note (where the link was followed) is passed as the parent, so the template can reference it with `{{ parent }}`.
 
 The optional [telescope.nvim](https://github.com/nvim-telescope/telescope.nvim) extension provides title and body search pickers:
 

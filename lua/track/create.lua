@@ -9,7 +9,7 @@ local M = {}
 -- note is indexed by the CLI. Run `track reindex --full` separately when older unresolved links to
 -- the new title should become backlinks. The LSP server reloads the keyword dictionary per request,
 -- so no client-side cache refresh is needed.
-function M.create(title, template)
+function M.create(title, template, parent_path)
    title = vim.trim(title or "")
    if title == "" then
       vim.notify("track: empty title", vim.log.levels.WARN)
@@ -20,6 +20,11 @@ function M.create(title, template)
    template = vim.trim(template or "")
    if template ~= "" then
       vim.list_extend(args, { "--template", template })
+   end
+   parent_path = vim.trim(parent_path or "")
+   if parent_path ~= "" then
+      -- The source note's title fills the template {{ parent }} (resolved server-side from this path).
+      vim.list_extend(args, { "--parent-path", parent_path })
    end
    local data, err = client.run_json(args)
    if not data then

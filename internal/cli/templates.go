@@ -290,18 +290,22 @@ func splitTemplateDirective(body string) (name string, content string, err error
 	return name, strings.TrimLeft(rest[i+len(close):], "\r\n"), nil
 }
 
-var templateVar = regexp.MustCompile(`\{\{\s*(title|id|date|kind)\s*\}\}`)
+var templateVar = regexp.MustCompile(`\{\{\s*(title|id|date|kind|parent)\s*\}\}`)
 
-func renderTemplate(cfg *config.Config, templateSpec string, title string, id int64, kind string, now time.Time) (string, error) {
+// renderTemplate expands a template body. parent is the title of the note the creation was triggered
+// from (e.g. an action link's source note); it is empty when there is no such context, in which case
+// {{ parent }} renders as an empty string.
+func renderTemplate(cfg *config.Config, templateSpec string, title string, id int64, kind, parent string, now time.Time) (string, error) {
 	t, err := resolveTemplate(cfg, templateSpec)
 	if err != nil {
 		return "", err
 	}
 	values := map[string]string{
-		"title": title,
-		"id":    strconv.FormatInt(id, 10),
-		"date":  now.Format(cfg.DateFormat),
-		"kind":  kind,
+		"title":  title,
+		"id":     strconv.FormatInt(id, 10),
+		"date":   now.Format(cfg.DateFormat),
+		"kind":   kind,
+		"parent": parent,
 	}
 	rendered := templateVar.ReplaceAllStringFunc(t.body, func(match string) string {
 		key := strings.TrimSpace(strings.TrimSuffix(strings.TrimPrefix(match, "{{"), "}}"))

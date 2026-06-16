@@ -524,6 +524,47 @@ func TestCreateFromTemplate(t *testing.T) {
 	}
 }
 
+func TestTemplateParentSubstitution(t *testing.T) {
+	vault := t.TempDir()
+	if _, code := runIn(t, vault, "new", "--title", "Project X", "--id", "900"); code != 0 {
+		t.Fatalf("create parent failed")
+	}
+	parentPath := filepath.Join(vault, "note", "900.md")
+
+	if _, code := runIn(t, vault, "template", "new", "--name", "child", "--id", "710"); code != 0 {
+		t.Fatalf("template new failed")
+	}
+	tmpl := "<!-- track-template\nname: child\n-->\nparent={{ parent }}\n"
+	if err := os.WriteFile(filepath.Join(vault, "template", "710.template.md"), []byte(tmpl), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	created, code := runIn(t, vault, "open", "--title", "Child", "--template", "child", "--parent-path", parentPath)
+	if code != 0 {
+		t.Fatalf("open from template failed: %v", created)
+	}
+	body, err := os.ReadFile(created["path"].(string))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(body), "parent=Project X") {
+		t.Fatalf("template {{ parent }} should resolve to the parent title, got %q", body)
+	}
+
+	// Without --parent-path, {{ parent }} renders empty rather than failing.
+	orphan, code := runIn(t, vault, "open", "--title", "Orphan", "--template", "child")
+	if code != 0 {
+		t.Fatalf("open without parent failed: %v", orphan)
+	}
+	body2, err := os.ReadFile(orphan["path"].(string))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(string(body2), "Project X") || !strings.Contains(string(body2), "parent=") {
+		t.Fatalf("missing parent should leave {{ parent }} empty, got %q", body2)
+	}
+}
+
 func TestSearch(t *testing.T) {
 	vault := t.TempDir()
 	wantVault := canonicalTestPath(t, vault)

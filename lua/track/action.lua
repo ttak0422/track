@@ -94,13 +94,13 @@ function M.markdown_link_at_cursor(line, col)
    end
 end
 
-local function run_note(params)
+local function run_note(params, parent_path)
    local title = vim.trim(params.title or "")
    if title == "" then
       vim.notify("track: note action requires title", vim.log.levels.ERROR)
       return
    end
-   require("track.create").create(title, params.template)
+   require("track.create").create(title, params.template, parent_path)
 end
 
 local function run_journal(params)
@@ -116,7 +116,7 @@ local function run_journal(params)
    require("track.journal").open(offset, params.template)
 end
 
-function M.run(uri)
+function M.run(uri, parent_path)
    local parsed = M.parse_action(uri)
    if not parsed then
       return false
@@ -124,7 +124,7 @@ function M.run(uri)
 
    local action = parsed.action
    if action == "note" then
-      run_note(parsed.params)
+      run_note(parsed.params, parent_path)
    elseif action == "journal" then
       run_journal(parsed.params)
    else
@@ -136,6 +136,7 @@ end
 function M.run_markdown_link_at_cursor(ctx)
    local line = ctx and ctx.line or vim.api.nvim_get_current_line()
    local col = ctx and ctx.col or vim.fn.col(".")
+   local buf = (ctx and ctx.buf) or vim.api.nvim_get_current_buf()
    local link = M.markdown_link_at_cursor(line, col)
    if not link then
       return false
@@ -143,7 +144,8 @@ function M.run_markdown_link_at_cursor(ctx)
    if not link.action_target then
       return false
    end
-   return M.run(link.action_target)
+   -- Pass the source note's path so a note action's template can resolve {{ parent }} to its title.
+   return M.run(link.action_target, vim.api.nvim_buf_get_name(buf))
 end
 
 return M

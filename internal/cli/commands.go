@@ -117,6 +117,7 @@ func cmdNew(args []string) int {
 	title := fs.String("title", "", "note title stored in metadata and used as a link keyword")
 	id := fs.Int64("id", 0, "note id; defaults to current Unix second * 1000 plus a same-second sequence")
 	template := fs.String("template", "", "template name or path")
+	parentPath := fs.String("parent-path", "", "path of the note this creation was triggered from; its title fills the template {{ parent }}")
 	bodyFlag := fs.String("body", "", "note body; read from stdin when omitted and piped")
 	var tags tagsFlag
 	fs.Var(&tags, "tag", "tag to attach (repeatable, comma-separated)")
@@ -160,7 +161,7 @@ func cmdNew(args []string) int {
 		}
 	}
 
-	res, err := createTitledNote(cfg, s, noteID, t, *template, body, collectTags(tags, *ai))
+	res, err := createTitledNote(cfg, s, noteID, t, *template, body, collectTags(tags, *ai), parentTitleFromPath(cfg, *parentPath))
 	if err != nil {
 		return fail("%v", err)
 	}
@@ -174,6 +175,7 @@ func cmdOpen(args []string) int {
 	fs := flag.NewFlagSet("open", flag.ContinueOnError)
 	title := fs.String("title", "", "note title to open, or create when absent (JSON)")
 	template := fs.String("template", "", "template name or path used when creating")
+	parentPath := fs.String("parent-path", "", "path of the note this creation was triggered from; its title fills the template {{ parent }}")
 	bodyFlag := fs.String("body", "", "body used when creating; read from stdin when omitted and piped")
 	var tags tagsFlag
 	fs.Var(&tags, "tag", "tag attached when creating (repeatable, comma-separated)")
@@ -219,7 +221,7 @@ func cmdOpen(args []string) int {
 	if err != nil {
 		return fail("allocate note id: %v", err)
 	}
-	res, err := createTitledNote(cfg, s, noteID, t, *template, body, noteTags)
+	res, err := createTitledNote(cfg, s, noteID, t, *template, body, noteTags, parentTitleFromPath(cfg, *parentPath))
 	if err != nil {
 		return fail("%v", err)
 	}
@@ -227,11 +229,32 @@ func cmdOpen(args []string) int {
 	return emit(res)
 }
 
+// parentTitleFromPath resolves a parent note's title from its file path, for the template {{ parent }}
+// substitution. It is best-effort: an empty path, a non-note path, or missing metadata yields "".
+func parentTitleFromPath(cfg *config.Config, path string) string {
+	path = strings.TrimSpace(path)
+	if path == "" {
+		return ""
+	}
+	if _, ok := cfg.KindFromPath(path); !ok {
+		return ""
+	}
+	id, err := note.IDFromPath(path)
+	if err != nil {
+		return ""
+	}
+	meta, found, err := note.ReadMetadata(cfg.MetadataPath(id))
+	if err != nil || !found {
+		return ""
+	}
+	return meta.Title
+}
+
 // createTitledNote writes a new note titled `title` at `noteID`, indexes it, and returns its summary.
 // It guards against clobbering an existing file so an explicit id collision surfaces as an error.
 // extraBody is written as the note body without injecting a title heading; it is mutually exclusive
 // with template (callers enforce that). tags are stored on the sidecar metadata.
-func createTitledNote(cfg *config.Config, s *store.Store, noteID int64, title string, template string, extraBody string, tags []string) (map[string]any, error) {
+func createTitledNote(cfg *config.Config, s *store.Store, noteID int64, title string, template string, extraBody string, tags []string, parent string) (map[string]any, error) {
 	path := cfg.NotePath(noteID)
 	if _, err := os.Stat(path); err == nil {
 		return nil, fmt.Errorf("note already exists: %s", path)
@@ -241,7 +264,7 @@ func createTitledNote(cfg *config.Config, s *store.Store, noteID int64, title st
 	}
 	body := ""
 	if strings.TrimSpace(template) != "" {
-		rendered, err := renderTemplate(cfg, template, title, noteID, config.KindNote, time.Now())
+		rendered, err := renderTemplate(cfg, template, title, noteID, config.KindNote, parent, time.Now())
 		if err != nil {
 			return nil, fmt.Errorf("render template: %v", err)
 		}
@@ -304,7 +327,7 @@ func cmdJournal(args []string) int {
 		}
 		jbody := ""
 		if strings.TrimSpace(*template) != "" {
-			rendered, err := renderTemplate(cfg, *template, name, noteID, config.KindJournal, day)
+			rendered, err := renderTemplate(cfg, *template, name, noteID, config.KindJournal, "", day)
 			if err != nil {
 				return fail("render template: %v", err)
 			}

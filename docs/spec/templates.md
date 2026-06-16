@@ -43,6 +43,7 @@ Current substitutions are safe built-ins only:
 - `{{ id }}`: target note id.
 - `{{ date }}`: target date formatted with track's date format, currently `YYYY-MM-DD`.
 - `{{ kind }}`: target kind, currently `note` or `journal`.
+- `{{ parent }}`: title of the note the creation was triggered from, supplied by `track new`/`track open --parent-path <path>` (track resolves the title from that note's metadata). It is empty when no parent path is given — for example, when following a `[label](<note?template=...>)` action link, the Neovim frontend passes the source note as the parent so the template can reference it.
 
 No executable substitutions are implemented yet. Template syntax such as shell command execution is intentionally unsupported in the current implementation.
 
