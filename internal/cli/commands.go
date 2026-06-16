@@ -121,7 +121,6 @@ func cmdNew(args []string) int {
 	bodyFlag := fs.String("body", "", "note body; read from stdin when omitted and piped")
 	var tags tagsFlag
 	fs.Var(&tags, "tag", "tag to attach (repeatable, comma-separated)")
-	ai := fs.Bool("ai", false, "attach the reserved generated-by-ai tag")
 	if err := fs.Parse(args); err != nil {
 		return fail("parse args: %v", err)
 	}
@@ -161,7 +160,7 @@ func cmdNew(args []string) int {
 		}
 	}
 
-	res, err := createTitledNote(cfg, s, noteID, t, *template, body, collectTags(tags, *ai), parentTitleFromPath(cfg, *parentPath))
+	res, err := createTitledNote(cfg, s, noteID, t, *template, body, dedupTags(tags), parentTitleFromPath(cfg, *parentPath))
 	if err != nil {
 		return fail("%v", err)
 	}
@@ -179,7 +178,6 @@ func cmdOpen(args []string) int {
 	bodyFlag := fs.String("body", "", "body used when creating; read from stdin when omitted and piped")
 	var tags tagsFlag
 	fs.Var(&tags, "tag", "tag attached when creating (repeatable, comma-separated)")
-	ai := fs.Bool("ai", false, "attach the reserved generated-by-ai tag when creating")
 	if err := fs.Parse(args); err != nil {
 		return fail("parse args: %v", err)
 	}
@@ -192,7 +190,7 @@ func cmdOpen(args []string) int {
 	if err != nil {
 		return fail("read body: %v", err)
 	}
-	noteTags := collectTags(tags, *ai)
+	noteTags := dedupTags(tags)
 	hasContent := strings.TrimSpace(body) != "" || len(noteTags) > 0
 	if strings.TrimSpace(*template) != "" && strings.TrimSpace(body) != "" {
 		return fail("--body cannot be combined with --template")
@@ -292,7 +290,6 @@ func cmdJournal(args []string) int {
 	offset := fs.Int("offset", 0, "day offset: 0=today, -1=yesterday, 1=tomorrow")
 	template := fs.String("template", "", "template name or path used when creating")
 	bodyFlag := fs.String("body", "", "body used when creating; read from stdin when omitted and piped")
-	ai := fs.Bool("ai", false, "attach the reserved generated-by-ai tag when creating")
 	if err := fs.Parse(args); err != nil {
 		return fail("parse args: %v", err)
 	}
@@ -340,7 +337,7 @@ func cmdJournal(args []string) int {
 		}
 		if err := note.WriteMetadata(
 			cfg.MetadataPath(noteID),
-			note.Metadata{Title: name, Tags: collectTags([]string{"journal"}, *ai), Created: date},
+			note.Metadata{Title: name, Tags: []string{"journal"}, Created: date},
 		); err != nil {
 			return fail("write metadata: %v", err)
 		}
@@ -348,7 +345,7 @@ func cmdJournal(args []string) int {
 			return fail("index journal: %v", err)
 		}
 		created = true
-	} else if strings.TrimSpace(body) != "" || *ai {
+	} else if strings.TrimSpace(body) != "" {
 		// The journal exists already; content flags only apply on creation. Point to append so the
 		// daily-log workflow has an explicit path rather than silently dropping the body.
 		return fail("journal %s already exists; use `track append --id %d` to add content or tags", name, noteID)
@@ -434,7 +431,6 @@ func cmdAppend(args []string) int {
 	bodyFlag := fs.String("body", "", "text to append; read from stdin when omitted and piped")
 	var tags tagsFlag
 	fs.Var(&tags, "tag", "tag to add (repeatable, comma-separated)")
-	ai := fs.Bool("ai", false, "add the reserved generated-by-ai tag")
 	if err := fs.Parse(args); err != nil {
 		return fail("parse args: %v", err)
 	}
@@ -443,9 +439,9 @@ func cmdAppend(args []string) int {
 	if err != nil {
 		return fail("read body: %v", err)
 	}
-	addTags := collectTags(tags, *ai)
+	addTags := dedupTags(tags)
 	if strings.TrimSpace(appendText) == "" && len(addTags) == 0 {
-		return fail("nothing to do: provide --body (or piped stdin), --tag, or --ai")
+		return fail("nothing to do: provide --body (or piped stdin) or --tag")
 	}
 
 	cfg, s, err := open()
@@ -647,14 +643,6 @@ func (t *tagsFlag) Set(v string) error {
 		}
 	}
 	return nil
-}
-
-// collectTags merges explicit tags with the reserved AI tag when ai is set, de-duplicating the result.
-func collectTags(tags []string, ai bool) []string {
-	if ai {
-		tags = append(tags, note.GeneratedByAITag)
-	}
-	return dedupTags(tags)
 }
 
 // dedupTags trims and de-duplicates tags, preserving first-seen order. It returns nil for an empty set.
@@ -945,15 +933,14 @@ func bodySearchResults(cfg *config.Config, s *store.Store, query string, limit i
 			continue
 		}
 		out = append(out, store.SearchResult{
-			NoteID:        id,
-			FileKind:      ref.FileKind,
-			Path:          cfg.PathForKind(ref.FileKind, id),
-			Title:         ref.Title,
-			Tags:          ref.Tags,
-			GeneratedByAI: ref.GeneratedByAI,
-			Line:          line,
-			Snippet:       snippet,
-			Mtime:         ref.Mtime,
+			NoteID:   id,
+			FileKind: ref.FileKind,
+			Path:     cfg.PathForKind(ref.FileKind, id),
+			Title:    ref.Title,
+			Tags:     ref.Tags,
+			Line:     line,
+			Snippet:  snippet,
+			Mtime:    ref.Mtime,
 		})
 	}
 	sortSearchResults(out)
@@ -967,12 +954,6 @@ func sortSearchResults(results []store.SearchResult) {
 	slices.SortFunc(results, func(a, b store.SearchResult) int {
 		if a.Mtime != b.Mtime {
 			return cmpDesc(a.Mtime, b.Mtime)
-		}
-		if a.GeneratedByAI != b.GeneratedByAI {
-			if a.GeneratedByAI {
-				return 1
-			}
-			return -1
 		}
 		return cmpDesc(a.NoteID, b.NoteID)
 	})

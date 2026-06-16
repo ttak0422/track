@@ -275,9 +275,7 @@ export function GraphCanvas({ graph, onSelect, resetToken, decorative = false }:
       ctx.arc(x, y, radius, 0, Math.PI * 2);
       ctx.fillStyle = center
         ? css("--accent")
-        : node.generated_by_ai
-          ? css("--generated")
-          : css("--panel-soft");
+        : css("--panel-soft");
       ctx.strokeStyle = center ? css("--accent-strong") : css("--muted");
       ctx.fill();
       ctx.stroke();

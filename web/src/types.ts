@@ -11,7 +11,6 @@ export interface NoteRef {
 export interface SearchResult extends NoteRef {
   path: string;
   tags?: string[];
-  generated_by_ai?: boolean;
   line?: number;
   snippet?: string;
 }
@@ -72,7 +71,6 @@ export interface GraphNode {
   file_kind: FileKind;
   path?: string;
   title: string;
-  generated_by_ai?: boolean;
   center?: boolean;
 }
 

@@ -44,7 +44,7 @@ func TestAPIHandlers(t *testing.T) {
 	if err := s.UpsertNote(&note.Note{ID: 100, Mtime: now, Meta: note.Metadata{Title: "Alpha", Tags: []string{"project"}}}); err != nil {
 		t.Fatal(err)
 	}
-	if err := s.UpsertNote(&note.Note{ID: 200, Mtime: now - 86400, Meta: note.Metadata{Title: "Beta", Tags: []string{note.GeneratedByAITag}}}); err != nil {
+	if err := s.UpsertNote(&note.Note{ID: 200, Mtime: now - 86400, Meta: note.Metadata{Title: "Beta", Tags: []string{"draft"}}}); err != nil {
 		t.Fatal(err)
 	}
 	if err := s.ReplaceLinks(100, []int64{200}); err != nil {
@@ -76,7 +76,7 @@ func TestAPIHandlers(t *testing.T) {
 	noteResp := getJSON(t, server.URL+"/api/note?id=200")
 	noteBody := noteResp["note"].(map[string]any)
 	noteTags := noteBody["tags"].([]any)
-	if noteBody["generated_by_ai"] != true || noteBody["title"] != "Beta" || len(noteTags) != 1 || noteTags[0] != note.GeneratedByAITag {
+	if noteBody["title"] != "Beta" || len(noteTags) != 1 || noteTags[0] != "draft" {
 		t.Fatalf("unexpected note response: %v", noteBody)
 	}
 	if cp, _ := noteBody["copy_path"].(string); cp == "" {

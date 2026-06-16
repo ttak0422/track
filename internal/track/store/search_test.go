@@ -7,23 +7,23 @@ import (
 	"github.com/ttak0422/track/internal/track/note"
 )
 
-func TestSearchRanksGeneratedByAIAsTieBreaker(t *testing.T) {
+func TestSearchRanksByTitleMatchMtimeAndID(t *testing.T) {
 	s := newTestStore(t)
 	for _, n := range []*note.Note{
 		{
 			ID:    100,
 			Mtime: 100,
-			Meta:  note.Metadata{Title: "Topic old human"},
+			Meta:  note.Metadata{Title: "Topic old"},
 		},
 		{
 			ID:    200,
 			Mtime: 300,
-			Meta:  note.Metadata{Title: "Topic recent generated", Tags: []string{note.GeneratedByAITag}},
+			Meta:  note.Metadata{Title: "Topic recent lower id"},
 		},
 		{
 			ID:    300,
 			Mtime: 300,
-			Meta:  note.Metadata{Title: "Topic recent human"},
+			Meta:  note.Metadata{Title: "Topic recent higher id"},
 		},
 	} {
 		if err := s.UpsertNote(n); err != nil {
@@ -45,9 +45,6 @@ func TestSearchRanksGeneratedByAIAsTieBreaker(t *testing.T) {
 			t.Fatalf("result order = %v, want %v", gotIDs, wantIDs)
 		}
 	}
-	if !results[1].GeneratedByAI {
-		t.Fatalf("expected generated result to be marked: %+v", results[1])
-	}
 }
 
 func TestSearchHashPrefixMatchesTags(t *testing.T) {
@@ -61,7 +58,7 @@ func TestSearchHashPrefixMatchesTags(t *testing.T) {
 		{
 			ID:    200,
 			Mtime: 300,
-			Meta:  note.Metadata{Title: "Exact generated", Tags: []string{"graph", note.GeneratedByAITag}},
+			Meta:  note.Metadata{Title: "Exact recent", Tags: []string{"graph", "draft"}},
 		},
 		{
 			ID:    300,
@@ -93,7 +90,7 @@ func TestSearchHashPrefixMatchesTags(t *testing.T) {
 			t.Fatalf("result order = %v, want %v", gotIDs, wantIDs)
 		}
 	}
-	if !slices.Contains(results[0].Tags, "graph") || !results[0].GeneratedByAI {
+	if !slices.Contains(results[0].Tags, "graph") || !slices.Contains(results[0].Tags, "draft") {
 		t.Fatalf("expected tag metadata on result: %+v", results[0])
 	}
 }

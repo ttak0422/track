@@ -41,7 +41,6 @@ All commands print single-line JSON; errors are `{"error":...}` with exit code 1
 ## Conventions
 
 - Titles are link keywords; write `[[Title]]` in bodies to link. Title lives in sidecar metadata, not the body, so a body may start with any `#` heading.
-- Use `--ai` to stamp the `generated-by-ai` provenance tag on agent-created notes.
 
 ## Typical workflow
 

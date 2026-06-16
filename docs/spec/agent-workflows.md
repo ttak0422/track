@@ -36,13 +36,11 @@ Use `track resolve --term X` to check whether a title exists before relying on a
 
 ## Common Workflows
 
-Create an AI-generated note from complete Markdown, preserving a leading H1:
+Create a note from complete Markdown, preserving a leading H1:
 
 ```sh
-cat article.md | track new --title "Article Title" --ai
+cat article.md | track new --title "Article Title"
 ```
-
-Use `--ai` for initial AI-generated drafts. It adds the reserved `generated-by-ai` tag; it is provenance, not a quality marker.
 
 Search by text or tag:
 

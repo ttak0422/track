@@ -29,8 +29,6 @@ The engine lives in reusable `internal/track/*` packages so a future LSP server 
   created: 2026-05-24
   ```
 
-  `generated-by-ai` is reserved as a provenance tag for AI-agent-generated drafts. It is still included in normal search; track treats it as a light ranking/display signal rather than a quality label.
-
 - **Links** are explicit, written `[[title]]`, with optional Obsidian-style `[[target|display]]` aliases. A heading anchor jumps inside a note: `[[note#foo]]`, `[[note##bar]]`, … where the number of `#` is the Markdown heading level and the first matching heading wins. Resolved links are highlighted and followable; links to notes that don't exist yet are flagged with a warning diagnostic. Completion offers titles as you type inside `[[`, then headings once you type `#`. Exact-match resolution works for Japanese without word boundaries. See [docs/spec/links.md](docs/spec/links.md).
 - **Journal**: each day maps to a stable `yyyyMMdd` note, so opening "today" is idempotent. Journal notes are stored as `journal/<yyyyMMdd>.md`. Creating a daily note also rolls it up into month (`journal/<yyyyMM>.md`) and year (`journal/<yyyy>.md`) summary notes, appending `- [[yyyyMMdd]]` to the month and `- [[yyyyMM]]` to the year. The appends are idempotent, so reopening a journal never duplicates the links.
 
@@ -59,15 +57,15 @@ vault_dir: ~/track
 Typical config locations are `~/.config/track/config.yml` on XDG-style systems and `~/Library/Application Support/track/config.yml` on macOS.
 
 ```sh
-track new --title <t> [--id <id>] [--template <s>] [--parent-path <p>] [--body <s>] [--tag <s>] [--ai]
+track new --title <t> [--id <id>] [--template <s>] [--parent-path <p>] [--body <s>] [--tag <s>]
                                       # create a note (fails if the title exists); body is saved verbatim
-track open --title <t> [--template <s>] [--parent-path <p>] [--body <s>] [--tag <s>] [--ai]
+track open --title <t> [--template <s>] [--parent-path <p>] [--body <s>] [--tag <s>]
                                       # open the note with this title, creating it if absent
-track append (--id N | --title S | --path P) [--body <s>] [--tag <s>] [--ai]
+track append (--id N | --title S | --path P) [--body <s>] [--tag <s>]
                                       # append body text and/or merge tags
 track rename (--id N | --title S | --path P) --to S
                                       # rename a sidecar title and rewrite backlinks
-track journal [--offset <n>] [--template <s>] [--body <s>] [--ai]
+track journal [--offset <n>] [--template <s>] [--body <s>]
                                       # open/create a daily note (0=today)
 track reindex [--full]                # rebuild the index
 track doctor [--fix]                  # report vault/sidecar divergence; --fix restores by auto-numbering

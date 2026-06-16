@@ -811,7 +811,7 @@ func TestNewWithBodyAndTags(t *testing.T) {
 	vault := t.TempDir()
 
 	created, code := runIn(t, vault, "new", "--title", "Go", "--id", "100",
-		"--body", "first line\n\n[[Other]] reference", "--tag", "lang,zettel", "--ai")
+		"--body", "first line\n\n[[Other]] reference", "--tag", "lang,zettel")
 	if code != 0 {
 		t.Fatalf("new with body failed: %v", created)
 	}
@@ -829,7 +829,7 @@ func TestNewWithBodyAndTags(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	for _, tag := range []string{"lang", "zettel", "generated-by-ai"} {
+	for _, tag := range []string{"lang", "zettel"} {
 		if !strings.Contains(string(meta), tag) {
 			t.Fatalf("metadata %q missing tag %q", meta, tag)
 		}
@@ -954,7 +954,7 @@ func TestAppendByTitleMergesTags(t *testing.T) {
 	vault := t.TempDir()
 	runIn(t, vault, "new", "--title", "Go", "--id", "100", "--tag", "lang")
 
-	if _, code := runIn(t, vault, "append", "--title", "Go", "--tag", "lang,zettel", "--ai"); code != 0 {
+	if _, code := runIn(t, vault, "append", "--title", "Go", "--tag", "lang,zettel"); code != 0 {
 		t.Fatalf("append tags failed")
 	}
 	meta, err := os.ReadFile(vault + "/.track/notes/100.yaml")
@@ -965,7 +965,7 @@ func TestAppendByTitleMergesTags(t *testing.T) {
 	if got := strings.Count(string(meta), "- lang\n"); got != 1 {
 		t.Fatalf("expected lang tag once, got %d in %q", got, meta)
 	}
-	for _, tag := range []string{"zettel", "generated-by-ai"} {
+	for _, tag := range []string{"zettel"} {
 		if !strings.Contains(string(meta), tag) {
 			t.Fatalf("metadata %q missing tag %q", meta, tag)
 		}

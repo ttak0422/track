@@ -206,7 +206,7 @@ func TestHoverShowsLinkedNotePreview(t *testing.T) {
 	if err := srv.store.UpsertNote(&note.Note{
 		ID:    100,
 		Mtime: 100,
-		Meta:  note.Metadata{Title: "Go", Tags: []string{"lang", note.GeneratedByAITag}},
+		Meta:  note.Metadata{Title: "Go", Tags: []string{"lang", "draft"}},
 	}); err != nil {
 		t.Fatalf("upsert target tags: %v", err)
 	}
@@ -223,7 +223,7 @@ func TestHoverShowsLinkedNotePreview(t *testing.T) {
 	if hov.Contents.Kind != protocol.Markdown {
 		t.Fatalf("hover kind = %q, want markdown", hov.Contents.Kind)
 	}
-	for _, want := range []string{"### Go", "#generated-by-ai", "#lang", "# Body Heading", "This is the target note.", "[[Source]]"} {
+	for _, want := range []string{"### Go", "#draft", "#lang", "# Body Heading", "This is the target note.", "[[Source]]"} {
 		if !strings.Contains(hov.Contents.Value, want) {
 			t.Fatalf("hover content missing %q:\n%s", want, hov.Contents.Value)
 		}

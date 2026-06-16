@@ -72,19 +72,19 @@ func usage() {
 	fmt.Fprint(os.Stderr, `track - note tool
 
 Notes carry content through these commands; titles are link keywords. Write [[Title]] in a body to
-link notes. --body is read from stdin when omitted and stdin is piped. --ai stamps the reserved
-generated-by-ai tag. Creating or appending indexes the note immediately, so reindex is for bulk repair.
+link notes. --body is read from stdin when omitted and stdin is piped. Creating or appending indexes
+the note immediately, so reindex is for bulk repair.
 
 Usage:
-  track new --title <t> [--id <id>] [--template <s>] [--body <s>] [--tag <s>] [--ai]
+  track new --title <t> [--id <id>] [--template <s>] [--body <s>] [--tag <s>]
                                         create a note (fails if the title exists); --body is saved verbatim
-  track open --title <t> [--template <s>] [--body <s>] [--tag <s>] [--ai]
+  track open --title <t> [--template <s>] [--body <s>] [--tag <s>]
                                         open the note with this title, creating it if absent
-  track append (--id N | --title S | --path P) [--body <s>] [--tag <s>] [--ai]
+  track append (--id N | --title S | --path P) [--body <s>] [--tag <s>]
                                         append body text and/or merge tags into an existing note
   track rename (--id N | --title S | --path P) --to S
                                         rename a note's title and rewrite its backlinks (JSON)
-  track journal [--offset <n>] [--template <s>] [--body <s>] [--ai]
+  track journal [--offset <n>] [--template <s>] [--body <s>]
                                         open/create a daily note
   track reindex [--full]                rebuild the index
   track doctor                          report vault/sidecar divergence without changing files (JSON)
@@ -109,7 +109,7 @@ Usage:
   track version                         print the version
 
 Examples:
-  cat article.md | track new --title "記事" --ai
+  cat article.md | track new --title "記事"
                                         save stdin verbatim; leading # headings are allowed
   printf '本文 [[他ノート]]\n' | track open --title "メモ"
                                         create if absent, otherwise open existing note

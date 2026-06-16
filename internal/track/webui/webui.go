@@ -260,14 +260,13 @@ func (s *Server) getNote(w http.ResponseWriter, r *http.Request) {
 	}
 	writeJSON(w, map[string]any{
 		"note": map[string]any{
-			"note_id":         ref.NoteID,
-			"file_kind":       ref.FileKind,
-			"path":            path,
-			"copy_path":       s.cfg.DisplayPathForKind(ref.FileKind, ref.NoteID),
-			"title":           ref.Title,
-			"tags":            ref.Tags,
-			"generated_by_ai": ref.GeneratedByAI,
-			"body":            body,
+			"note_id":   ref.NoteID,
+			"file_kind": ref.FileKind,
+			"path":      path,
+			"copy_path": s.cfg.DisplayPathForKind(ref.FileKind, ref.NoteID),
+			"title":     ref.Title,
+			"tags":      ref.Tags,
+			"body":      body,
 			// etag is a content hash of the file as read; clients echo it back on PUT so a save can be
 			// rejected when the file changed underneath (e.g. an OneDrive sync) since this read.
 			"etag": etagFor(raw),
@@ -398,12 +397,6 @@ func sortRefs(results []store.SearchResult) {
 	slices.SortFunc(results, func(a, b store.SearchResult) int {
 		if a.Mtime != b.Mtime {
 			return desc(a.Mtime, b.Mtime)
-		}
-		if a.GeneratedByAI != b.GeneratedByAI {
-			if a.GeneratedByAI {
-				return 1
-			}
-			return -1
 		}
 		return desc(a.NoteID, b.NoteID)
 	})

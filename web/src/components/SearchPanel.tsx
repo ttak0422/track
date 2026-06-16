@@ -52,7 +52,6 @@ function SearchResultItem({ note }: SearchResultItemProps) {
       <span className="result-title">
         {note.title}
       </span>
-      {note.generated_by_ai ? <span className="badge">AI</span> : null}
       {note.snippet ? <p className="result-snippet">{note.snippet}</p> : null}
       {note.tags && note.tags.length > 0 ? (
         <div className="tag-list" aria-label={`${note.title} tags`}>
