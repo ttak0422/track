@@ -246,8 +246,11 @@ button {
 }
 
 .home-logo {
-  width: min(260px, 70%);
+  /* Fixed size: don't scale down with the viewport width or shrink inside the flex column. */
+  width: 260px;
+  max-width: 100%;
   height: auto;
+  flex: none;
 }
 
 .home-hero .search-panel {
