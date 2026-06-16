@@ -22,19 +22,23 @@ export function NoteReader({ noteID }: NoteReaderProps) {
   const [body, setBody] = useState("");
   const [copied, setCopied] = useState(false);
   const [editorMode, setEditorMode] = useState<EditorMode>(() => storedEditorMode());
-  // The body/etag last adopted from disk. Edits are "dirty" relative to this, and
-  // saves use this etag so a background reload cannot mask a conflicting change.
-  const loadedRef = useRef({ body: "", etag: "" });
+  // The note/body/etag last adopted from disk. Edits are "dirty" relative to this, and
+  // saves use this etag so a background reload cannot mask a conflicting change. noteID is
+  // tracked so switching notes always reloads, even with unsaved edits to the previous note.
+  const loadedRef = useRef({ noteID, body: "", etag: "" });
 
   useEffect(() => {
     const incoming = noteQuery.data?.note;
     if (!incoming) return;
-    // Only adopt the latest disk content when the user has no unsaved edits.
-    if (body === loadedRef.current.body) {
-      loadedRef.current = { body: incoming.body, etag: incoming.etag };
+    // Adopt the incoming note when switching to a different note (discarding any unsaved edits to
+    // the previous one — otherwise the dirty guard below would block the switch entirely), or when
+    // the current note changed on disk and the user has no unsaved edits.
+    const switchedNote = noteID !== loadedRef.current.noteID;
+    if (switchedNote || body === loadedRef.current.body) {
+      loadedRef.current = { noteID, body: incoming.body, etag: incoming.etag };
       setBody(incoming.body);
     }
-  }, [noteQuery.data?.note.etag]);
+  }, [noteID, noteQuery.data?.note.etag]);
 
   useEffect(() => {
     localStorage.setItem(editorModeKey, editorMode);
@@ -66,7 +70,7 @@ export function NoteReader({ noteID }: NoteReaderProps) {
     if (!dirty || saveNote.isPending) return;
     try {
       const response = await saveNote.mutateAsync({ body, etag: loadedRef.current.etag });
-      loadedRef.current = { body, etag: response.etag };
+      loadedRef.current = { noteID, body, etag: response.etag };
     } catch {
       // Conflict/errors surface via saveNote.isError below.
     }
