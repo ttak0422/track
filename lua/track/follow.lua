@@ -80,6 +80,44 @@ local function open_item(ctx, item)
    end
 end
 
+local function open_url(url)
+   if type(vim.ui.open) ~= "function" then
+      vim.notify("track: vim.ui.open is unavailable (needs Neovim 0.10+)", vim.log.levels.ERROR)
+      return
+   end
+   pcall(vim.ui.open, url)
+end
+
+-- open_markdown_target follows a plain (non-action) Markdown link `[label](target)`. A URL opens with
+-- the system handler; a bare domain (example.com) is assumed https unless a sibling file shadows it; an
+-- existing relative/absolute path is edited in Neovim. Track action links (`<...>`) never reach here.
+local function open_markdown_target(ctx, target)
+   target = vim.trim(target or "")
+   if target == "" then
+      return
+   end
+   if target:match("^%a[%w+.-]*://") or target:match("^mailto:") then
+      open_url(target)
+      return
+   end
+
+   local dir = vim.fn.fnamemodify(vim.api.nvim_buf_get_name(ctx.buf), ":h")
+   -- A bare domain such as example.com or example.com/path: treat as https unless a file of that name
+   -- sits next to the note (so links to local files keep working).
+   if target:match("^[%w-]+%.[%w.-]+") and not target:match("%s") then
+      if dir == "" or vim.fn.filereadable(dir .. "/" .. target) == 0 then
+         open_url("https://" .. target)
+         return
+      end
+   end
+
+   local path = vim.fn.expand(target)
+   if not path:match("^/") and dir ~= "" then
+      path = dir .. "/" .. path
+   end
+   open_item(ctx, { filename = vim.fn.fnamemodify(path, ":p") })
+end
+
 local function open_locations(ctx, result)
    local locations = result or {}
    if locations.uri or locations.targetUri then
@@ -108,7 +146,15 @@ end
 
 function M.follow(ctx)
    ctx = ctx or current_context()
-   if require("track.action").run_markdown_link_at_cursor(ctx) then
+   local action = require("track.action")
+   if action.run_markdown_link_at_cursor(ctx) then
+      return
+   end
+   -- A plain Markdown link (URL or file, no `<...>` action) navigates client-side; only [[...]] links
+   -- need the LSP. Checking here keeps `[foo](example.com)` from falling through to a "no target" miss.
+   local link = action.markdown_link_at_cursor(ctx.line, ctx.col)
+   if link and not link.action_target then
+      open_markdown_target(ctx, link.target)
       return
    end
    local client = require("track.lsp").client(ctx.buf, "textDocument/definition")
