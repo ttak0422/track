@@ -885,6 +885,66 @@ button {
   white-space: pre;
 }
 
+.syntax-comment {
+  color: var(--muted);
+  font-style: italic;
+}
+
+.syntax-keyword {
+  color: var(--accent-strong);
+  font-weight: 700;
+}
+
+.syntax-string {
+  color: #7c4a28;
+}
+
+.syntax-number {
+  color: #5b5aa8;
+}
+
+.syntax-function {
+  color: #1f6f86;
+}
+
+.syntax-property {
+  color: #8a4f83;
+}
+
+:root[data-theme="dark"] .syntax-string {
+  color: #d59b75;
+}
+
+:root[data-theme="dark"] .syntax-number {
+  color: #aaa7ff;
+}
+
+:root[data-theme="dark"] .syntax-function {
+  color: #72c7d7;
+}
+
+:root[data-theme="dark"] .syntax-property {
+  color: #d89ad1;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) .syntax-string {
+    color: #d59b75;
+  }
+
+  :root:not([data-theme="light"]) .syntax-number {
+    color: #aaa7ff;
+  }
+
+  :root:not([data-theme="light"]) .syntax-function {
+    color: #72c7d7;
+  }
+
+  :root:not([data-theme="light"]) .syntax-property {
+    color: #d89ad1;
+  }
+}
+
 .code-copy {
   position: absolute;
   top: 8px;
