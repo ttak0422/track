@@ -404,21 +404,65 @@ interface ExternalLinkProps {
 
 // ExternalLink renders a standard markdown [text](href). Track action links wrap the destination in
 // angle brackets (e.g. [今日](<journal?offset=0>)); those are editor-only and not web-navigable, so we
-// render their label as plain text. http(s) links open in a new tab; other hrefs are left as-is.
+// render their label as plain text. Non-action links first try to resolve as track notes; otherwise
+// http(s) and domain-like links open in a new tab.
 function ExternalLink({ href, children }: ExternalLinkProps) {
-  if (href.startsWith("<") && href.endsWith(">")) {
+  const action = href.startsWith("<") && href.endsWith(">");
+  const noteCandidate = action ? "" : noteCandidateFromHref(href);
+  const resolved = useResolveQuery(noteCandidate);
+
+  if (action) {
     return <span className="md-link action">{children}</span>;
   }
-  const external = /^https?:\/\//i.test(href);
+  if (noteCandidate !== "" && resolved.data?.found) {
+    return (
+      <Link
+        className="md-link"
+        to="/notes/$noteId"
+        params={{ noteId: String(resolved.data.note.note_id) }}
+      >
+        {children}
+      </Link>
+    );
+  }
+  const target = webHref(href);
+  const external = /^https?:\/\//i.test(target);
   return (
     <a
       className="md-link"
-      href={href}
+      href={target}
       {...(external ? { target: "_blank", rel: "noreferrer noopener" } : {})}
     >
       {children}
     </a>
   );
+}
+
+function noteCandidateFromHref(href: string): string {
+  const trimmed = href.trim();
+  if (
+    trimmed === "" ||
+    trimmed.startsWith("#") ||
+    /^[a-z][a-z0-9+.-]*:/i.test(trimmed)
+  ) {
+    return "";
+  }
+  const withoutHash = trimmed.split("#", 1)[0] ?? "";
+  const withoutQuery = withoutHash.split("?", 1)[0] ?? "";
+  const withoutExt = withoutQuery.replace(/\.md$/i, "");
+  try {
+    return decodeURIComponent(withoutExt).trim();
+  } catch {
+    return withoutExt.trim();
+  }
+}
+
+function webHref(href: string): string {
+  const trimmed = href.trim();
+  if (/^www\./i.test(trimmed) || /^[\w.-]+\.[a-z]{2,}(?:[/:?#]|$)/i.test(trimmed)) {
+    return `https://${trimmed}`;
+  }
+  return href;
 }
 
 interface WikiLinkProps {
