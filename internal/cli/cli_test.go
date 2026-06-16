@@ -389,6 +389,47 @@ func TestJournalIdempotent(t *testing.T) {
 	}
 }
 
+func TestJournalCreatesMonthAndYearSummaries(t *testing.T) {
+	vault := t.TempDir()
+	wantVault := canonicalTestPath(t, vault)
+	first, code := runIn(t, vault, "journal", "--offset", "0")
+	if code != 0 || first["created"] != true {
+		t.Fatalf("first journal: %v", first)
+	}
+	day := strings.TrimSuffix(filepath.Base(first["path"].(string)), ".md")
+	month, year := day[:6], day[:4]
+
+	monthPath := filepath.Join(wantVault, "journal", month+".md")
+	monthBody, err := os.ReadFile(monthPath)
+	if err != nil {
+		t.Fatalf("month summary not created: %v", err)
+	}
+	if !strings.Contains(string(monthBody), "[["+day+"]]") {
+		t.Fatalf("month summary should link the day, got %q", monthBody)
+	}
+
+	yearPath := filepath.Join(wantVault, "journal", year+".md")
+	yearBody, err := os.ReadFile(yearPath)
+	if err != nil {
+		t.Fatalf("year summary not created: %v", err)
+	}
+	if !strings.Contains(string(yearBody), "[["+month+"]]") {
+		t.Fatalf("year summary should link the month, got %q", yearBody)
+	}
+
+	// Reopening the day must not append a duplicate link to the month summary.
+	if _, code := runIn(t, vault, "journal", "--offset", "0"); code != 0 {
+		t.Fatalf("reopen journal failed")
+	}
+	monthBody2, err := os.ReadFile(monthPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := strings.Count(string(monthBody2), "[["+day+"]]"); got != 1 {
+		t.Fatalf("day link should appear exactly once, got %d: %q", got, monthBody2)
+	}
+}
+
 func TestTemplateCommands(t *testing.T) {
 	vault := t.TempDir()
 	wantVault := canonicalTestPath(t, vault)

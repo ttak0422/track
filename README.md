@@ -32,7 +32,7 @@ The engine lives in reusable `internal/track/*` packages so a future LSP server 
   `generated-by-ai` is reserved as a provenance tag for AI-agent-generated drafts. It is still included in normal search; track treats it as a light ranking/display signal rather than a quality label.
 
 - **Links** are explicit, written `[[title]]`, with optional Obsidian-style `[[target|display]]` aliases. A heading anchor jumps inside a note: `[[note#foo]]`, `[[note##bar]]`, … where the number of `#` is the Markdown heading level and the first matching heading wins. Resolved links are highlighted and followable; links to notes that don't exist yet are flagged with a warning diagnostic. Completion offers titles as you type inside `[[`, then headings once you type `#`. Exact-match resolution works for Japanese without word boundaries. See [docs/spec/links.md](docs/spec/links.md).
-- **Journal**: each day maps to a stable `yyyyMMdd` note, so opening "today" is idempotent. Journal notes are stored as `journal/<yyyyMMdd>.md`.
+- **Journal**: each day maps to a stable `yyyyMMdd` note, so opening "today" is idempotent. Journal notes are stored as `journal/<yyyyMMdd>.md`. Creating a daily note also rolls it up into month (`journal/<yyyyMM>.md`) and year (`journal/<yyyy>.md`) summary notes, appending `- [[yyyyMMdd]]` to the month and `- [[yyyyMM]]` to the year. The appends are idempotent, so reopening a journal never duplicates the links.
 
 ## Layout
 

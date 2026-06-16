@@ -330,7 +330,74 @@ func cmdJournal(args []string) int {
 		// daily-log workflow has an explicit path rather than silently dropping the body.
 		return fail("journal %s already exists; use `track append --id %d` to add content or tags", name, noteID)
 	}
+
+	// Roll the day up into month and year summary notes: journal/<yyyyMM>.md links each day, and
+	// journal/<yyyy>.md links each month. Both are idempotent (links are appended only when missing),
+	// so reopening a journal self-heals the summaries without duplicating entries.
+	month := day.Format("200601")
+	year := day.Format("2006")
+	if err := ensureJournalSummary(cfg, s, month, name, date, "journal-month"); err != nil {
+		return fail("journal month summary: %v", err)
+	}
+	if err := ensureJournalSummary(cfg, s, year, month, date, "journal-year"); err != nil {
+		return fail("journal year summary: %v", err)
+	}
+
 	return emit(map[string]any{"id": noteID, "path": path, "created": created})
+}
+
+// ensureJournalSummary makes sure the summary journal note named `name` exists and lists `childTerm`
+// as a "- [[childTerm]]" bullet. The note is created (and indexed) when absent, and the link is
+// appended only when missing, so calling it repeatedly is safe. date seeds the created metadata when
+// the note is new; kindTag distinguishes month/year rollups from daily notes.
+func ensureJournalSummary(cfg *config.Config, s *store.Store, name, childTerm, date, kindTag string) error {
+	noteID, err := note.IDFromName(name)
+	if err != nil {
+		return err
+	}
+	path := cfg.JournalPath(name)
+
+	body := ""
+	exists := true
+	if raw, err := os.ReadFile(path); err == nil {
+		body = string(raw)
+	} else if os.IsNotExist(err) {
+		exists = false
+	} else {
+		return err
+	}
+
+	link := "[[" + childTerm + "]]"
+	changed := false
+	if !exists {
+		if err := os.MkdirAll(cfg.JournalDir(), 0o755); err != nil {
+			return err
+		}
+		changed = true
+	}
+	if !strings.Contains(body, link) {
+		if body != "" && !strings.HasSuffix(body, "\n") {
+			body += "\n"
+		}
+		body += "- " + link + "\n"
+		changed = true
+	}
+	if !changed {
+		return nil
+	}
+
+	if err := os.WriteFile(path, []byte(body), 0o644); err != nil {
+		return err
+	}
+	if !exists {
+		if err := note.WriteMetadata(
+			cfg.MetadataPath(noteID),
+			note.Metadata{Title: name, Tags: []string{"journal", kindTag}, Created: date},
+		); err != nil {
+			return err
+		}
+	}
+	return index.New(cfg, s).One(path)
 }
 
 // cmdAppend grows an existing note: it appends body text and/or merges tags, then reindexes the note
