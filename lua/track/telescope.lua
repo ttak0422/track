@@ -131,9 +131,20 @@ local function pick(scope, opts)
          }),
          sorter = telescope.conf.generic_sorter(picker_opts),
          previewer = telescope.conf.file_previewer(picker_opts),
-         attach_mappings = function(prompt_bufnr)
+         attach_mappings = function(prompt_bufnr, map)
             telescope.actions.select_default:replace(function()
                open_selection(telescope, prompt_bufnr)
+            end)
+            -- Create a note titled with the current prompt when the search finds nothing (or you just
+            -- want a new note by that name). <C-n> works in both insert and normal mode.
+            map({ "i", "n" }, "<C-n>", function()
+               local title = vim.trim(telescope.action_state.get_current_line() or "")
+               if title == "" then
+                  vim.notify("track: type a title to create a note", vim.log.levels.WARN)
+                  return
+               end
+               telescope.actions.close(prompt_bufnr)
+               require("track.create").create(title)
             end)
             return true
          end,

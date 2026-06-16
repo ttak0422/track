@@ -183,7 +183,7 @@ require("telescope").extensions.track.search_templates()
 
 The same pickers are available as `:Track search_title [query]` and `:Track search_body [query]`, which is useful when a plugin manager lazy-loads track on the `:Track` command before Telescope extensions are registered.
 
-The picker uses Telescope's prompt for live searching. `query` seeds the initial prompt text when supplied, and Telescope picker options, including themes, can be passed through the opts table.
+The picker uses Telescope's prompt for live searching. `query` seeds the initial prompt text when supplied, and Telescope picker options, including themes, can be passed through the opts table. When the search turns up nothing (or you want a fresh note by that name), press `<C-n>` to create and open a note titled with the current prompt text.
 
 In a vault buffer, resolved `[[...]]` links are underlined (`TrackLink` highlight group); unresolved ones are flagged by an `unresolved-link` warning diagnostic. Press `<CR>` on a link to jump to its note. By default the `[[ ]]` brackets are concealed so links read as plain text (`[[Go|ゴー]]` shows `ゴー`); in normal mode the link under the cursor is shown raw (anti-conceal) while other links stay concealed, and while typing the whole cursor line is shown raw so the completion popup stays aligned. `conceal = false` keeps brackets visible. Raising conceallevel would otherwise let Neovim's treesitter markdown query hide code-fence delimiters, so track reveals them by default (toggle with `reveal_code_fences`). This is backed by `track-lsp`.
 
