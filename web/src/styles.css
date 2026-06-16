@@ -269,6 +269,21 @@ button {
   border-bottom: 0;
 }
 
+/* On home the search field is a minimal underline rather than a boxed input. */
+.home-hero .searchbox input {
+  border: 0;
+  border-bottom: 1px solid var(--line);
+  border-radius: 0;
+  padding: 10px 4px;
+  background: transparent;
+  transition: border-color 0.12s ease;
+}
+
+.home-hero .searchbox input:focus {
+  outline: none;
+  border-bottom-color: var(--accent);
+}
+
 .home-hero .results {
   /* Shrink to content when it fits, and scroll inside this box (not the page) when it does not. */
   flex: 0 1 auto;
