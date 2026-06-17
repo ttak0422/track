@@ -412,7 +412,7 @@ function ExternalLink({ href, children }: ExternalLinkProps) {
   const resolved = useResolveQuery(noteCandidate);
 
   if (action) {
-    return <span className="md-link action">{children}</span>;
+    return <>{children}</>;
   }
   if (noteCandidate !== "" && resolved.data?.found) {
     return (
