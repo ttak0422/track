@@ -319,7 +319,7 @@ func (c *Config) JournalPath(name string) string {
 	return filepath.Join(c.JournalDir(), name+c.PrimaryExt())
 }
 
-// TemplateDir returns the directory used for template markdown files.
+// TemplateDir returns the directory used for user template markdown files.
 func (c *Config) TemplateDir() string {
 	return filepath.Join(c.VaultDir, KindTemplate)
 }

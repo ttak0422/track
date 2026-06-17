@@ -52,9 +52,10 @@ The Neovim frontend sets `TRACK_CACHE_DIR` to `vim.fn.stdpath("cache") .. "/trac
 
 ```yaml
 vault_dir: ~/track
-# Optional: template applied to new notes/journals created without --template or a body.
-default_template: default
-journal_template: journal
+# Optional: pick a different template as the default for new notes/journals (created without
+# --template or a body). Defaults to the shipped builtin "default" / "journal" templates.
+# default_template: my-note
+# journal_template: my-journal
 ```
 
 Typical config locations are `~/.config/track/config.yml` on XDG-style systems and `~/Library/Application Support/track/config.yml` on macOS.
@@ -93,7 +94,7 @@ track dump                            # placeholder state
 track version                         # print the version
 ```
 
-Templates are stored under `template/`, are not indexed as notes, and currently support only safe built-in substitutions. Creating a note or journal without `--template` or a body applies a default template — `default_template`/`journal_template` from `config.yml`, or a template named `default`/`journal` when present — and an explicit `--template` or `--body` overrides it. See [docs/spec/templates.md](docs/spec/templates.md). A ready-to-copy example covering every supported option lives at [examples/templates/example.template.md](examples/templates/example.template.md).
+User templates are stored under `template/`, are not indexed as notes, and currently support only safe built-in substitutions. track also ships builtin `default` and `journal` templates in the binary; creating a note or journal without `--template` or a body applies the default (a new note gets `# {{ title }}`). A same-named user template in `template/` overrides a builtin, `default_template`/`journal_template` in `config.yml` pick a different default, and an explicit `--template` or `--body` overrides per invocation. See [docs/spec/templates.md](docs/spec/templates.md). A ready-to-copy example covering every supported option lives at [examples/templates/example.template.md](examples/templates/example.template.md).
 
 ## Web
 

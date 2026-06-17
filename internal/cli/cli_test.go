@@ -110,8 +110,8 @@ func TestNewResolveKeywordsFlow(t *testing.T) {
 	if strings.Contains(string(noteContent), "<!--track") {
 		t.Fatalf("note file should not contain metadata: %q", noteContent)
 	}
-	if string(noteContent) != "" {
-		t.Fatalf("new without a body should write an empty note body, got %q", noteContent)
+	if string(noteContent) != "# リンク\n" {
+		t.Fatalf("new without a body should apply the builtin default template, got %q", noteContent)
 	}
 	metaContent, err := os.ReadFile(vault + "/.track/notes/1000.yaml")
 	if err != nil {
@@ -384,8 +384,8 @@ func TestJournalIdempotent(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if string(body) != "" {
-		t.Fatalf("journal without a body should write an empty note body, got %q", body)
+	if !strings.Contains(string(body), "# "+name) {
+		t.Fatalf("journal without a body should apply the builtin journal template, got %q", body)
 	}
 }
 
@@ -875,7 +875,7 @@ func TestNewBodyAcceptsH1Verbatim(t *testing.T) {
 	}
 }
 
-func TestNewWithoutBodyWritesEmptyFile(t *testing.T) {
+func TestNewWithoutBodyAppliesDefaultTemplate(t *testing.T) {
 	vault := t.TempDir()
 	created, code := runIn(t, vault, "new", "--title", "Empty", "--id", "130")
 	if code != 0 {
@@ -885,8 +885,9 @@ func TestNewWithoutBodyWritesEmptyFile(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if string(got) != "" {
-		t.Fatalf("body = %q, want empty", got)
+	// With neither --template nor --body, the shipped builtin "default" template is applied.
+	if string(got) != "# Empty\n" {
+		t.Fatalf("body = %q, want the builtin default template", got)
 	}
 	meta, err := os.ReadFile(vault + "/.track/notes/130.yaml")
 	if err != nil {
@@ -923,7 +924,8 @@ func TestNewBodyTemplateExclusive(t *testing.T) {
 func TestAppendUpdatesBodyAndBacklinksWithoutReindex(t *testing.T) {
 	vault := t.TempDir()
 	runIn(t, vault, "new", "--title", "Target", "--id", "200")
-	runIn(t, vault, "new", "--title", "Source", "--id", "100")
+	// An explicit --body keeps this note's content independent of the default template.
+	runIn(t, vault, "new", "--title", "Source", "--id", "100", "--body", "intro")
 
 	// Append a link from Source to Target via the CLI; index.One must pick up the new outgoing link,
 	// so Target's backlinks reflect it without any full reindex.
@@ -936,7 +938,7 @@ func TestAppendUpdatesBodyAndBacklinksWithoutReindex(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if want := "see [[Target]] for details\n"; string(body) != want {
+	if want := "intro\n\nsee [[Target]] for details\n"; string(body) != want {
 		t.Fatalf("appended body = %q, want %q", body, want)
 	}
 
@@ -1226,4 +1228,37 @@ func readFileString(t *testing.T, path string) string {
 		t.Fatal(err)
 	}
 	return string(raw)
+}
+
+func TestBuiltinDefaultProvidedAndOverridden(t *testing.T) {
+	vault := t.TempDir()
+	// With no user template, the builtin "default" (shipped in the binary) applies.
+	if _, code := runIn(t, vault, "new", "--title", "Plain", "--id", "140"); code != 0 {
+		t.Fatalf("new failed")
+	}
+	if got := readFileString(t, filepath.Join(vault, "note", "140.md")); got != "# Plain\n" {
+		t.Fatalf("builtin default template not applied: %q", got)
+	}
+	// builtin templates are not written into the vault.
+	if _, err := os.Stat(filepath.Join(vault, "builtin")); !os.IsNotExist(err) {
+		t.Fatalf("builtin templates should not be materialized in the vault, stat err=%v", err)
+	}
+
+	// A user template of the same name overrides the builtin.
+	if _, code := runIn(t, vault, "template", "new", "--name", "default", "--id", "950"); code != 0 {
+		t.Fatalf("create user default template failed")
+	}
+	if err := os.WriteFile(
+		filepath.Join(vault, "template", "950.template.md"),
+		[]byte("<!-- track-template\nname: default\n-->\n# {{ title }}\n\nuser-default\n"),
+		0o644,
+	); err != nil {
+		t.Fatal(err)
+	}
+	if _, code := runIn(t, vault, "new", "--title", "Custom", "--id", "141"); code != 0 {
+		t.Fatalf("new failed")
+	}
+	if got := readFileString(t, filepath.Join(vault, "note", "141.md")); !strings.Contains(got, "user-default") {
+		t.Fatalf("user template should override the builtin default, got %q", got)
+	}
 }

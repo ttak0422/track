@@ -85,13 +85,21 @@ track journal [--offset <n>] --template <name-or-path>
 
 The template spec can be a template name or a path. Relative paths are resolved from the vault root.
 
+## Builtin Templates
+
+track ships builtin templates in the binary (provided by the repository, not the vault):
+
+- `default`: applied to new notes.
+- `journal`: applied to new journals.
+
+Builtins are resolved by name like any other template, but a user template of the same name in `template/` is resolved first, so creating a `default` (or `journal`) user template overrides the builtin. Builtins are never written into the vault; to customize one, create a same-named user template rather than editing a vault file. A builtin is also usable explicitly, e.g. `--template default`.
+
 ## Default Templates
 
-When `track new`, `track open` (on create), or `track journal` (on create) is called with neither `--template` nor an inline body, track applies a default template:
+When `track new`, `track open` (on create), or `track journal` (on create) is called with neither `--template` nor an inline body, track applies a default template, resolved in this order:
 
 1. A configured default wins: `default_template` (notes) or `journal_template` (journals) in `config.yml`, overridable for one-off runs by `TRACK_DEFAULT_TEMPLATE` / `TRACK_JOURNAL_TEMPLATE`. The value is a template name or a vault path, same as `--template`.
-2. Otherwise, a template literally named `default` (notes) or `journal` (journals) is used when one exists — a zero-config way to provide a default just by creating that template.
-3. Otherwise no template is applied and the note is created with an empty body, as before.
+2. Otherwise the template named `default` (notes) or `journal` (journals) is used — a user template of that name when present, otherwise the shipped builtin. Because the builtins always exist, a bare `track new` / `track journal` applies them by default (a new note gets `# {{ title }}`, a journal additionally gets the date).
 
 The default is always overridable per invocation: an explicit `--template` selects a different template, and an explicit `--body` opts out of the default entirely. A configured default that names a missing template surfaces the usual "template not found" error. The default applies only to the explicit creation commands; the LSP "create note" code action on an unresolved `[[link]]` still writes an empty stub.
 

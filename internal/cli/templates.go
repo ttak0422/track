@@ -21,6 +21,7 @@ type templateRef struct {
 	Name        string `json:"name"`
 	Path        string `json:"path"`
 	ContentHash string `json:"content_hash"`
+	Builtin     bool   `json:"builtin,omitempty"`
 }
 
 type templateData struct {
@@ -224,12 +225,21 @@ func defaultTemplateSpec(cfg *config.Config, kind string) (string, error) {
 	if strings.TrimSpace(configured) != "" {
 		return strings.TrimSpace(configured), nil
 	}
-	if _, found, err := findTemplateByName(cfg, reserved); err != nil {
+	if found, err := templateNameExists(cfg, reserved); err != nil {
 		return "", err
 	} else if found {
 		return reserved, nil
 	}
 	return "", nil
+}
+
+// templateNameExists reports whether a template resolves for name, as a user template or a builtin.
+func templateNameExists(cfg *config.Config, name string) (bool, error) {
+	if _, found, err := findTemplateByName(cfg, name); err != nil || found {
+		return found, err
+	}
+	_, found, err := builtinTemplateByName(name)
+	return found, err
 }
 
 func resolveTemplate(cfg *config.Config, spec string) (templateData, error) {
@@ -248,10 +258,17 @@ func resolveTemplate(cfg *config.Config, spec string) (templateData, error) {
 	if err != nil {
 		return templateData{}, err
 	}
-	if !found {
-		return templateData{}, fmt.Errorf("template %q not found", spec)
+	if found {
+		return readTemplate(ref.Path)
 	}
-	return readTemplate(ref.Path)
+	// Fall back to a builtin shipped with track. A user template of the same name was resolved above,
+	// so it takes precedence.
+	if t, found, err := builtinTemplateByName(spec); err != nil {
+		return templateData{}, err
+	} else if found {
+		return t, nil
+	}
+	return templateData{}, fmt.Errorf("template %q not found", spec)
 }
 
 func looksLikeTemplatePath(spec string, cfg *config.Config) bool {
