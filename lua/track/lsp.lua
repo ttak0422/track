@@ -19,6 +19,7 @@ local attached = {}
 -- kept so cursor moves can repaint (toggle anti-conceal) without another LSP round trip.
 local resolved_cache = {}
 local create_command_registered = false
+local rename_command_registered = false
 
 local function find_binary()
    if cached_binary then
@@ -327,6 +328,56 @@ local function register_create_note_command()
    end
 end
 
+-- The "Rename note" code action carries the target note and position; the actual rename runs through
+-- textDocument/rename. We register a client-side command so selecting the action prompts for the new
+-- title (prefilled with the current one) instead of round-tripping to the server, which cannot prompt.
+local function register_rename_note_command()
+   if rename_command_registered then
+      return
+   end
+   rename_command_registered = true
+
+   vim.lsp.commands = vim.lsp.commands or {}
+   vim.lsp.commands["track.renameNote"] = function(command, ctx)
+      local arg = (command.arguments or {})[1] or {}
+      local title = (type(arg) == "table" and arg.title) or ""
+      local uri = type(arg) == "table" and arg.uri or nil
+      local pos = type(arg) == "table" and arg.position or nil
+      local buf = (ctx and ctx.bufnr) or vim.api.nvim_get_current_buf()
+      local lsp_client = ctx and ctx.client_id and vim.lsp.get_client_by_id(ctx.client_id)
+      if not lsp_client then
+         vim.notify("track: LSP client is not available", vim.log.levels.ERROR)
+         return
+      end
+      vim.ui.input({ prompt = "Rename note: ", default = title }, function(input)
+         if input == nil then
+            return
+         end
+         input = vim.trim(input)
+         if input == "" or input == title then
+            return
+         end
+         lsp_client:request("textDocument/rename", {
+            textDocument = { uri = uri or vim.uri_from_bufnr(buf) },
+            position = pos or { line = 0, character = 0 },
+            newName = input,
+         }, function(err, result)
+            if err then
+               vim.notify("track: " .. tostring(err.message or err), vim.log.levels.ERROR)
+               return
+            end
+            if result then
+               vim.lsp.util.apply_workspace_edit(result, lsp_client.offset_encoding or "utf-8")
+            end
+            vim.notify("track: renamed note to " .. input, vim.log.levels.INFO)
+            vim.schedule(function()
+               refresh(buf)
+            end)
+         end, buf)
+      end)
+   end
+end
+
 local function schedule(buf)
    local timer = timers[buf]
    if not timer then
@@ -461,6 +512,7 @@ end
 function M.setup()
    vim.api.nvim_set_hl(0, config.options.hl_group, { default = true, link = "Underlined" })
    register_create_note_command()
+   register_rename_note_command()
    if config.options.conceal and config.options.reveal_code_fences then
       reveal_code_fences()
    end

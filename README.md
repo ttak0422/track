@@ -122,7 +122,7 @@ It currently provides:
 - `textDocument/hover`: previews the linked note under the cursor, including tags and the note's leading body.
 - `textDocument/references`: lists backlinks to the current note or the link target under the cursor.
 - `textDocument/completion`: offers titles inside an open `[[` — with each matching note's headings offered alongside it as full `note##heading` anchors — plus narrowed heading candidates after a `[[note#` anchor (more `#` selects a deeper heading level), Markdown action link candidates inside `[label](<...>)`, and Babel fence info-string candidates.
-- `textDocument/codeAction`: creates a note from an unresolved `[[...]]` link.
+- `textDocument/codeAction`: creates a note from an unresolved `[[...]]` link, repairs a link to a renamed note, and offers "Rename note …" for the link target under the cursor (or the current note), which prompts for a new title and runs the rename below.
 - `textDocument/rename`: renaming the `[[link]]` under the cursor (or the current note when not on a link) updates the target's sidecar title, records rename history, and returns backlink edits; the target body is not edited.
 - `track/backlinks`: returns notes and link locations that reference the current note.
 - `track/outgoingLinks`: returns resolved link locations inside the current note.

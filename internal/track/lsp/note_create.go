@@ -14,6 +14,11 @@ import (
 
 const createNoteCommand = "track.createNote"
 
+// renameNoteCommand is handled entirely on the client: it prompts for a new title, then issues a
+// textDocument/rename at the carried position. The server never receives it as a workspace/executeCommand,
+// so it is intentionally absent from ExecuteCommandProvider.
+const renameNoteCommand = "track.renameNote"
+
 func createNoteLSPCommand(title, uri string) *command {
 	arg, _ := json.Marshal(map[string]any{
 		"title": title,
@@ -22,6 +27,21 @@ func createNoteLSPCommand(title, uri string) *command {
 	return &command{
 		Title:     fmt.Sprintf("Create note %q", title),
 		Command:   createNoteCommand,
+		Arguments: []json.RawMessage{arg},
+	}
+}
+
+// renameNoteLSPCommand carries the rename target so the client can prompt (prefilled with title) and
+// rename at pos, mirroring how the editor's own rename keybinding would.
+func renameNoteLSPCommand(uri string, pos position, title string) *command {
+	arg, _ := json.Marshal(map[string]any{
+		"uri":      uri,
+		"position": pos,
+		"title":    title,
+	})
+	return &command{
+		Title:     fmt.Sprintf("Rename note %q", title),
+		Command:   renameNoteCommand,
 		Arguments: []json.RawMessage{arg},
 	}
 }

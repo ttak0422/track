@@ -535,10 +535,29 @@ func (s *Server) codeActions(uri string, rng rangeValue) ([]codeAction, error) {
 			Command: createNoteLSPCommand(title, uri),
 		})
 	}
+	if action, ok := s.renameNoteAction(uri, rng); ok {
+		actions = append(actions, action)
+	}
 	if actions == nil {
 		actions = []codeAction{}
 	}
 	return actions, nil
+}
+
+// renameNoteAction offers renaming the note the action range targets: the note a resolved [[link]]
+// under the range points to, or the current note when the range is not on a link. The work itself runs
+// through textDocument/rename; this only surfaces it in the code-action menu, since rename otherwise
+// requires a separate keybinding that is easy to forget.
+func (s *Server) renameNoteAction(uri string, rng rangeValue) (codeAction, bool) {
+	_, oldTitle, ok, err := s.renameTarget(uri, rng.Start)
+	if err != nil || !ok || oldTitle == "" {
+		return codeAction{}, false
+	}
+	return codeAction{
+		Title:   fmt.Sprintf("Rename note %q", oldTitle),
+		Kind:    protocol.Refactor,
+		Command: renameNoteLSPCommand(uri, rng.Start, oldTitle),
+	}, true
 }
 
 func (s *Server) renameRepairAction(uri string, text string, ref link.Ref, dict map[string]store.Keyword) (codeAction, bool) {

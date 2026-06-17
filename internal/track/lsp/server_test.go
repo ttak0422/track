@@ -1101,9 +1101,71 @@ func TestCodeActionCreatesUnresolvedNote(t *testing.T) {
 	if err != nil {
 		t.Fatalf("code actions after create: %v", err)
 	}
-	if len(again) != 0 {
-		t.Fatalf("resolved link should not offer create action, got %+v", again)
+	for _, action := range again {
+		if action.Command != nil && action.Command.Command == createNoteCommand {
+			t.Fatalf("resolved link should not offer create action, got %+v", again)
+		}
 	}
+}
+
+func TestCodeActionOffersRename(t *testing.T) {
+	srv, vault := setupServer(t)
+
+	notePath := filepath.Join(vault, "note", "400.md")
+	noteURI := uriFromPath(notePath)
+	if err := note.WriteMetadata(srv.cfg.MetadataPath(400), note.Metadata{Title: "Current"}); err != nil {
+		t.Fatal(err)
+	}
+	if err := srv.store.UpsertNote(&note.Note{ID: 400, Path: notePath, Meta: note.Metadata{Title: "Current"}}); err != nil {
+		t.Fatal(err)
+	}
+	srv.store.UpsertNote(&note.Note{ID: 401, Path: filepath.Join(vault, "note", "401.md"), Meta: note.Metadata{Title: "Target"}})
+
+	// Cursor in the body, not on a link: rename targets the current note.
+	srv.docs[noteURI] = "plain body line with [[Target]]"
+	actions, err := srv.codeActions(noteURI, rangeValue{Start: position{Line: 0, Character: 2}, End: position{Line: 0, Character: 2}})
+	if err != nil {
+		t.Fatalf("code actions: %v", err)
+	}
+	rename := findRenameAction(actions)
+	if rename == nil {
+		t.Fatalf("expected rename action for current note, got %+v", actions)
+	}
+	if string(rename.Kind) != "refactor" {
+		t.Fatalf("rename action kind = %q, want refactor", rename.Kind)
+	}
+	if rename.Title != `Rename note "Current"` {
+		t.Fatalf("unexpected rename title: %q", rename.Title)
+	}
+	var arg struct {
+		URI   string `json:"uri"`
+		Title string `json:"title"`
+	}
+	if err := json.Unmarshal(rename.Command.Arguments[0], &arg); err != nil {
+		t.Fatalf("unmarshal rename arg: %v", err)
+	}
+	if arg.Title != "Current" || arg.URI != noteURI {
+		t.Fatalf("unexpected rename arg: %+v", arg)
+	}
+
+	// Cursor on a resolved link: rename targets the linked note instead.
+	onLink, err := srv.codeActions(noteURI, rangeValue{Start: position{Line: 0, Character: 24}, End: position{Line: 0, Character: 24}})
+	if err != nil {
+		t.Fatalf("code actions on link: %v", err)
+	}
+	linkRename := findRenameAction(onLink)
+	if linkRename == nil || linkRename.Title != `Rename note "Target"` {
+		t.Fatalf("expected rename action targeting the linked note, got %+v", onLink)
+	}
+}
+
+func findRenameAction(actions []codeAction) *codeAction {
+	for i := range actions {
+		if actions[i].Command != nil && actions[i].Command.Command == renameNoteCommand {
+			return &actions[i]
+		}
+	}
+	return nil
 }
 
 func TestCodeActionRepairsRenamedLink(t *testing.T) {
