@@ -32,6 +32,33 @@ type Server struct {
 	colorCSS  string
 	events    *eventHub
 	reindexMu sync.Mutex
+	lastStale time.Time
+}
+
+// staleCheckInterval throttles the read-time freshness scan. The fsnotify watcher already reindexes on
+// local changes; this scan is the safety net for changes it misses (another process, or a cloud sync
+// that raises no event). Throttling keeps a burst of requests from each rescanning the vault.
+const staleCheckInterval = 250 * time.Millisecond
+
+// refreshIfStale reconciles the index with the notes on disk before a read, so the web workspace
+// reflects edits made by another process or an external/cloud sync even when no filesystem event
+// arrived. It shares reindexMu with the watcher so the two never reindex concurrently, and notifies
+// connected clients when a reconcile actually changed something.
+func (s *Server) refreshIfStale() {
+	s.reindexMu.Lock()
+	defer s.reindexMu.Unlock()
+	if time.Since(s.lastStale) < staleCheckInterval {
+		return
+	}
+	s.lastStale = time.Now()
+	changed, err := index.New(s.cfg, s.store).RefreshIfStale()
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "track web: refresh-if-stale failed: %v\n", err)
+		return
+	}
+	if changed {
+		s.events.broadcast()
+	}
 }
 
 func New(cfg *config.Config, s *store.Store) *Server {
@@ -141,6 +168,7 @@ func (s *Server) serveIndex(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) handleSearch(w http.ResponseWriter, r *http.Request) {
+	s.refreshIfStale()
 	query := strings.TrimSpace(r.URL.Query().Get("q"))
 	limit := parseLimit(r.URL.Query().Get("limit"), 50)
 	var (
@@ -168,6 +196,7 @@ func (s *Server) handleSearch(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) handleNotes(w http.ResponseWriter, r *http.Request) {
+	s.refreshIfStale()
 	results, err := s.store.SearchRefs()
 	if err != nil {
 		writeError(w, err, http.StatusInternalServerError)
@@ -179,6 +208,7 @@ func (s *Server) handleNotes(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) handleActivity(w http.ResponseWriter, r *http.Request) {
+	s.refreshIfStale()
 	days := parseDays(r.URL.Query().Get("days"), 7)
 	today := localDate(time.Now())
 	start := today.AddDate(0, 0, -(days - 1))
@@ -202,6 +232,7 @@ func (s *Server) handleActivity(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) handleResolve(w http.ResponseWriter, r *http.Request) {
+	s.refreshIfStale()
 	term := strings.TrimSpace(r.URL.Query().Get("term"))
 	if term == "" {
 		writeError(w, errors.New("term is required"), http.StatusBadRequest)
@@ -230,6 +261,7 @@ func (s *Server) handleNote(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) getNote(w http.ResponseWriter, r *http.Request) {
+	s.refreshIfStale()
 	id, err := parseID(r)
 	if err != nil {
 		writeError(w, err, http.StatusBadRequest)
@@ -346,6 +378,7 @@ func ensureTrailingNewline(body string) string {
 }
 
 func (s *Server) handleLocalGraph(w http.ResponseWriter, r *http.Request) {
+	s.refreshIfStale()
 	id, err := parseID(r)
 	if err != nil {
 		writeError(w, err, http.StatusBadRequest)
@@ -363,6 +396,7 @@ func (s *Server) handleLocalGraph(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) handleGraph(w http.ResponseWriter, r *http.Request) {
+	s.refreshIfStale()
 	graph, err := s.store.FullGraph()
 	if err != nil {
 		writeError(w, err, http.StatusInternalServerError)

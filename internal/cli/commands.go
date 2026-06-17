@@ -758,6 +758,13 @@ func cmdSearch(args []string) int {
 	}
 	defer s.Close()
 
+	// Self-heal before reading: the index is a cache keyed by (cache_dir, vault), so another editor's
+	// CLI, the web server, or an external/cloud sync may have changed notes this process never indexed.
+	// A cheap mtime scan reconciles those before search, so results match the files on disk.
+	if _, err := index.New(cfg, s).RefreshIfStale(); err != nil {
+		return fail("refresh index: %v", err)
+	}
+
 	results, err := searchResults(cfg, s, *query, *limit, store.SearchScope(*scope))
 	if err != nil {
 		return fail("search: %v", err)

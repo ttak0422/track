@@ -34,6 +34,14 @@ func TestAPIHandlers(t *testing.T) {
 	if err := os.WriteFile(cfg.NotePath(200), []byte("# Beta\n\nBody.\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
+	// Sidecars carry the authoritative titles/tags, and the file mtimes are pinned to the indexed values
+	// below, so the server's read-time freshness check sees the index as already in sync with disk.
+	if err := note.WriteMetadata(cfg.MetadataPath(100), note.Metadata{Title: "Alpha", Tags: []string{"project"}}); err != nil {
+		t.Fatal(err)
+	}
+	if err := note.WriteMetadata(cfg.MetadataPath(200), note.Metadata{Title: "Beta", Tags: []string{"draft"}}); err != nil {
+		t.Fatal(err)
+	}
 
 	s, err := store.Open(cfg.DBPath)
 	if err != nil {
@@ -45,6 +53,12 @@ func TestAPIHandlers(t *testing.T) {
 		t.Fatal(err)
 	}
 	if err := s.UpsertNote(&note.Note{ID: 200, Mtime: now - 86400, Meta: note.Metadata{Title: "Beta", Tags: []string{"draft"}}}); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Chtimes(cfg.NotePath(100), time.Unix(now, 0), time.Unix(now, 0)); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Chtimes(cfg.NotePath(200), time.Unix(now-86400, 0), time.Unix(now-86400, 0)); err != nil {
 		t.Fatal(err)
 	}
 	if err := s.ReplaceLinks(100, []int64{200}); err != nil {
@@ -103,6 +117,43 @@ func TestAPIHandlers(t *testing.T) {
 	activity := getJSON(t, server.URL+"/api/activity?days=7")["activity"].(map[string]any)
 	if activity["days"].(float64) != 7 || activity["total"].(float64) != 2 {
 		t.Fatalf("unexpected activity response: %v", activity)
+	}
+}
+
+// TestReadReflectsExternalChange covers a note that appears on disk without going through this server
+// (another editor's CLI, or a cloud sync that raised no filesystem event). The read-time freshness
+// check must reconcile the index so the note shows up without an explicit reindex.
+func TestReadReflectsExternalChange(t *testing.T) {
+	cfg := &config.Config{
+		VaultDir:          t.TempDir(),
+		DBPath:            filepath.Join(t.TempDir(), "index.db"),
+		Extensions:        []string{".md"},
+		DateFormat:        "2006-01-02",
+		JournalDateFormat: "20060102",
+	}
+	if err := os.MkdirAll(cfg.NoteDir(), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	s, err := store.Open(cfg.DBPath)
+	if err != nil {
+		t.Fatalf("open store: %v", err)
+	}
+	t.Cleanup(func() { s.Close() })
+
+	server := httptest.NewServer(New(cfg, s).Handler())
+	t.Cleanup(server.Close)
+
+	if err := os.WriteFile(cfg.NotePath(300), []byte("# Gamma\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := note.WriteMetadata(cfg.MetadataPath(300), note.Metadata{Title: "Gamma"}); err != nil {
+		t.Fatal(err)
+	}
+
+	search := getJSON(t, server.URL+"/api/search?q=Gamma")
+	results := search["results"].([]any)
+	if len(results) != 1 || results[0].(map[string]any)["title"] != "Gamma" {
+		t.Fatalf("external note not reflected in search: %v", results)
 	}
 }
 

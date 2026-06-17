@@ -4,6 +4,7 @@ import (
 	"os"
 	"path/filepath"
 	"testing"
+	"time"
 
 	"github.com/ttak0422/track/internal/track/config"
 	"github.com/ttak0422/track/internal/track/note"
@@ -158,5 +159,52 @@ func TestOneUpdatesOutgoingLinks(t *testing.T) {
 	back, _ := s.Backlinks(1)
 	if len(back) != 1 || back[0].NoteID != 2 {
 		t.Fatalf("expected 2->1 link after One, got %+v", back)
+	}
+}
+
+func TestRefreshIfStale(t *testing.T) {
+	cfg, s := setup(t)
+	writeNote(t, cfg, 1000, "first", note.Metadata{Title: "First"})
+	ix := New(cfg, s)
+	if _, err := ix.Full(); err != nil {
+		t.Fatalf("full: %v", err)
+	}
+
+	// In sync: no reindex, no work.
+	if changed, err := ix.RefreshIfStale(); err != nil || changed {
+		t.Fatalf("RefreshIfStale on unchanged vault = %v, %v; want false, nil", changed, err)
+	}
+
+	// A note written by another process (present on disk, not yet indexed) is picked up.
+	writeNote(t, cfg, 2000, "本文 [[First]]", note.Metadata{Title: "Second"})
+	if changed, err := ix.RefreshIfStale(); err != nil || !changed {
+		t.Fatalf("RefreshIfStale after add = %v, %v; want true, nil", changed, err)
+	}
+	if _, found, err := s.ResolveTerm("Second"); err != nil || !found {
+		t.Fatalf("added note not indexed: found=%v err=%v", found, err)
+	}
+
+	// An external edit (new mtime) triggers a reindex.
+	path := cfg.NotePath(1000)
+	if err := os.WriteFile(path, []byte("edited\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	future := time.Now().Add(2 * time.Second)
+	if err := os.Chtimes(path, future, future); err != nil {
+		t.Fatal(err)
+	}
+	if changed, err := ix.RefreshIfStale(); err != nil || !changed {
+		t.Fatalf("RefreshIfStale after edit = %v, %v; want true, nil", changed, err)
+	}
+
+	// A deletion is reconciled.
+	if err := os.Remove(cfg.NotePath(2000)); err != nil {
+		t.Fatal(err)
+	}
+	if changed, err := ix.RefreshIfStale(); err != nil || !changed {
+		t.Fatalf("RefreshIfStale after delete = %v, %v; want true, nil", changed, err)
+	}
+	if _, found, _ := s.ResolveTerm("Second"); found {
+		t.Fatalf("deleted note still indexed")
 	}
 }

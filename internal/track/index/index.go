@@ -87,6 +87,82 @@ func (ix *Indexer) Full() (Report, error) {
 	return rep, nil
 }
 
+// RefreshIfStale compares the note and journal files on disk against the indexed mtimes and, when they
+// diverge (a note added, changed, or removed), runs Full to bring the index back in sync. It reports
+// whether a reindex happened. The common "nothing changed" path only reads directory entries and their
+// mtimes, so it is cheap enough to call before serving a query. This is how a long-lived process (the
+// web server, a second editor's CLI) picks up edits it never observed as an event — a write by another
+// process, or an external/cloud-sync change that raised no filesystem notification.
+func (ix *Indexer) RefreshIfStale() (bool, error) {
+	disk, err := ix.scanMtimes()
+	if err != nil {
+		return false, err
+	}
+	indexed, err := ix.store.NoteMtimes()
+	if err != nil {
+		return false, err
+	}
+	if sameMtimes(disk, indexed) {
+		return false, nil
+	}
+	if _, err := ix.Full(); err != nil {
+		return false, err
+	}
+	return true, nil
+}
+
+// scanMtimes maps note id -> file mtime (Unix seconds) for every note/journal file, mirroring how
+// UpsertNote records mtime. Files whose basename is not a numeric note id are skipped, matching the ids
+// the indexer assigns; reading mtimes never parses a file.
+func (ix *Indexer) scanMtimes() (map[int64]int64, error) {
+	out := map[int64]int64{}
+	for _, root := range []string{ix.cfg.NoteDir(), ix.cfg.JournalDir()} {
+		err := filepath.WalkDir(root, func(path string, d fs.DirEntry, err error) error {
+			if err != nil {
+				if d == nil {
+					return nil // note/journal dir may not exist yet
+				}
+				return err
+			}
+			if d.IsDir() {
+				if path != root {
+					return filepath.SkipDir
+				}
+				return nil
+			}
+			if !slices.Contains(ix.cfg.Extensions, filepath.Ext(path)) {
+				return nil
+			}
+			id, err := note.IDFromPath(path)
+			if err != nil {
+				return nil // not an indexed note id
+			}
+			info, err := d.Info()
+			if err != nil {
+				return err
+			}
+			out[id] = info.ModTime().Unix()
+			return nil
+		})
+		if err != nil {
+			return nil, err
+		}
+	}
+	return out, nil
+}
+
+func sameMtimes(disk, indexed map[int64]int64) bool {
+	if len(disk) != len(indexed) {
+		return false
+	}
+	for id, m := range disk {
+		if im, ok := indexed[id]; !ok || im != m {
+			return false
+		}
+	}
+	return true
+}
+
 // One updates a single note and recomputes its outgoing links.
 // Inbound links from other notes to this one are not refreshed here; run Full for that.
 func (ix *Indexer) One(path string) error {
