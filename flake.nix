@@ -34,6 +34,9 @@
             ./go.mod
             (fileset.maybeMissing ./go.sum)
             (fileset.fileFilter (file: file.hasExt "go") ./.)
+            # Builtin templates are embedded (builtin/*.template.md via go:embed), so the non-.go assets
+            # must be part of the build source too.
+            ./builtin
           ];
 
           # The React frontend source, excluding generated/installed directories.

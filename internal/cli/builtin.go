@@ -1,18 +1,10 @@
 package cli
 
 import (
-	"embed"
 	"fmt"
+
+	"github.com/ttak0422/track/builtin"
 )
-
-// builtinTemplateFS holds the templates shipped with track itself (provided by the repository, not the
-// vault). They are read straight from the binary; a user template of the same name in template/ is
-// resolved first, so creating one overrides the builtin.
-//
-//go:embed builtin_templates/*.template.md
-var builtinTemplateFS embed.FS
-
-const builtinTemplateSrcDir = "builtin_templates"
 
 // builtinTemplateByName returns the shipped builtin whose directive name matches.
 func builtinTemplateByName(name string) (templateData, bool, error) {
@@ -31,13 +23,13 @@ func builtinTemplateByName(name string) (templateData, bool, error) {
 // builtinTemplates parses every embedded builtin template. A builtin has no vault file, so its ref
 // carries id 0, Builtin=true, and a "builtin:<name>" marker path.
 func builtinTemplates() ([]templateData, error) {
-	entries, err := builtinTemplateFS.ReadDir(builtinTemplateSrcDir)
+	entries, err := builtin.Templates.ReadDir(".")
 	if err != nil {
 		return nil, err
 	}
 	var out []templateData
 	for _, entry := range entries {
-		raw, err := builtinTemplateFS.ReadFile(builtinTemplateSrcDir + "/" + entry.Name())
+		raw, err := builtin.Templates.ReadFile(entry.Name())
 		if err != nil {
 			return nil, err
 		}

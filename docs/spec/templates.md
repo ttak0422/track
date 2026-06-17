@@ -87,7 +87,9 @@ The template spec can be a template name or a path. Relative paths are resolved 
 
 ## Builtin Templates
 
-track ships builtin templates in the binary (provided by the repository, not the vault):
+track ships builtin templates in the binary (provided by the repository, not the vault).
+In the source tree, these files live under `builtin/*.template.md` and are embedded by the
+`github.com/ttak0422/track/builtin` package:
 
 - `default`: applied to new notes.
 - `journal`: applied to new journals.
