@@ -209,6 +209,29 @@ func findTemplateByName(cfg *config.Config, name string) (templateRef, bool, err
 	return *found, true, nil
 }
 
+// defaultTemplateSpec returns the template to apply when a note/journal is created without an explicit
+// --template (and without an inline body). A configured default wins (config default_template /
+// journal_template, or the matching env override); otherwise a template literally named "default"
+// (notes) or "journal" (journals) is used when one exists. It returns "" when no default applies, so
+// creation falls back to an empty body as before. An explicit --template still overrides this entirely.
+func defaultTemplateSpec(cfg *config.Config, kind string) (string, error) {
+	configured := cfg.DefaultTemplate
+	reserved := "default"
+	if kind == config.KindJournal {
+		configured = cfg.JournalTemplate
+		reserved = "journal"
+	}
+	if strings.TrimSpace(configured) != "" {
+		return strings.TrimSpace(configured), nil
+	}
+	if _, found, err := findTemplateByName(cfg, reserved); err != nil {
+		return "", err
+	} else if found {
+		return reserved, nil
+	}
+	return "", nil
+}
+
 func resolveTemplate(cfg *config.Config, spec string) (templateData, error) {
 	spec = strings.TrimSpace(spec)
 	if spec == "" {

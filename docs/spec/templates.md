@@ -85,6 +85,16 @@ track journal [--offset <n>] --template <name-or-path>
 
 The template spec can be a template name or a path. Relative paths are resolved from the vault root.
 
+## Default Templates
+
+When `track new`, `track open` (on create), or `track journal` (on create) is called with neither `--template` nor an inline body, track applies a default template:
+
+1. A configured default wins: `default_template` (notes) or `journal_template` (journals) in `config.yml`, overridable for one-off runs by `TRACK_DEFAULT_TEMPLATE` / `TRACK_JOURNAL_TEMPLATE`. The value is a template name or a vault path, same as `--template`.
+2. Otherwise, a template literally named `default` (notes) or `journal` (journals) is used when one exists — a zero-config way to provide a default just by creating that template.
+3. Otherwise no template is applied and the note is created with an empty body, as before.
+
+The default is always overridable per invocation: an explicit `--template` selects a different template, and an explicit `--body` opts out of the default entirely. A configured default that names a missing template surfaces the usual "template not found" error. The default applies only to the explicit creation commands; the LSP "create note" code action on an unresolved `[[link]]` still writes an empty stub.
+
 ## Neovim
 
 The Neovim frontend exposes:

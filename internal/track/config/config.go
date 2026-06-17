@@ -34,6 +34,12 @@ type Config struct {
 	// user-facing output (e.g. a copy-path action). VaultDir resolves symlinks for a stable cache key;
 	// this keeps the friendlier path the user configured.
 	VaultDirDisplay string
+	// DefaultTemplate and JournalTemplate name the template applied when a note or journal is created
+	// without an explicit --template (and without an inline body). Empty means fall back to a template
+	// literally named "default" / "journal" when one exists, otherwise no template. A name or a vault
+	// path is accepted, same as the --template flag.
+	DefaultTemplate string
+	JournalTemplate string
 }
 
 type fileConfig struct {
@@ -43,6 +49,8 @@ type fileConfig struct {
 	Extensions        []string      `yaml:"extensions"`
 	DateFormat        string        `yaml:"date_format"`
 	JournalDateFormat string        `yaml:"journal_date_format"`
+	DefaultTemplate   string        `yaml:"default_template"`
+	JournalTemplate   string        `yaml:"journal_template"`
 	Web               webFileConfig `yaml:"web"`
 }
 
@@ -131,6 +139,15 @@ func Load() (*Config, error) {
 		journalDateFormat = "20060102"
 	}
 
+	defaultTemplate := fc.DefaultTemplate
+	if env := os.Getenv("TRACK_DEFAULT_TEMPLATE"); env != "" {
+		defaultTemplate = env
+	}
+	journalTemplate := fc.JournalTemplate
+	if env := os.Getenv("TRACK_JOURNAL_TEMPLATE"); env != "" {
+		journalTemplate = env
+	}
+
 	return &Config{
 		VaultDir:          vault,
 		DBPath:            db,
@@ -141,6 +158,8 @@ func Load() (*Config, error) {
 		WebTheme:          normalizeWebTheme(fc.Web.Theme),
 		WebColorsPath:     resolveColorsPath(fc.Web.ColorsPath),
 		VaultDirDisplay:   displayVault,
+		DefaultTemplate:   defaultTemplate,
+		JournalTemplate:   journalTemplate,
 	}, nil
 }
 

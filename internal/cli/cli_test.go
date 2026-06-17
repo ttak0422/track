@@ -1115,3 +1115,115 @@ func TestDoctorFixRestoresAndReindexes(t *testing.T) {
 		t.Fatalf("second --fix should be a no-op, got %v", out2)
 	}
 }
+
+func TestDefaultTemplateAppliedAndOverridden(t *testing.T) {
+	vault := t.TempDir()
+	// A template literally named "default" is the zero-config default for new notes.
+	if _, code := runIn(t, vault, "template", "new", "--name", "default", "--id", "900"); code != 0 {
+		t.Fatalf("create default template failed")
+	}
+	if err := os.WriteFile(
+		filepath.Join(vault, "template", "900.template.md"),
+		[]byte("<!-- track-template\nname: default\n-->\n# {{ title }}\n\nfrom-default kind={{ kind }}\n"),
+		0o644,
+	); err != nil {
+		t.Fatal(err)
+	}
+	// A second template used to prove --template overrides the default.
+	if _, code := runIn(t, vault, "template", "new", "--name", "alt", "--id", "901"); code != 0 {
+		t.Fatalf("create alt template failed")
+	}
+	if err := os.WriteFile(
+		filepath.Join(vault, "template", "901.template.md"),
+		[]byte("<!-- track-template\nname: alt\n-->\n# {{ title }}\n\nfrom-alt\n"),
+		0o644,
+	); err != nil {
+		t.Fatal(err)
+	}
+
+	// No --template, no --body: the default template is applied.
+	if created, code := runIn(t, vault, "new", "--title", "Auto", "--id", "1001"); code != 0 {
+		t.Fatalf("new failed: %v", created)
+	}
+	got := readFileString(t, filepath.Join(vault, "note", "1001.md"))
+	if !strings.Contains(got, "# Auto") || !strings.Contains(got, "from-default kind=note") {
+		t.Fatalf("default template not applied: %q", got)
+	}
+	if strings.Contains(got, "track-template") {
+		t.Fatalf("template directive leaked into note: %q", got)
+	}
+
+	// An explicit --template overrides the default.
+	if created, code := runIn(t, vault, "new", "--title", "Picked", "--id", "1002", "--template", "alt"); code != 0 {
+		t.Fatalf("new --template failed: %v", created)
+	}
+	got = readFileString(t, filepath.Join(vault, "note", "1002.md"))
+	if !strings.Contains(got, "from-alt") || strings.Contains(got, "from-default") {
+		t.Fatalf("explicit --template did not override default: %q", got)
+	}
+
+	// An explicit --body opts out of the default entirely.
+	if created, code := runIn(t, vault, "new", "--title", "Manual", "--id", "1003", "--body", "just text"); code != 0 {
+		t.Fatalf("new --body failed: %v", created)
+	}
+	got = readFileString(t, filepath.Join(vault, "note", "1003.md"))
+	if got != "just text\n" {
+		t.Fatalf("--body should skip the default template, got %q", got)
+	}
+}
+
+func TestDefaultTemplateConfiguredName(t *testing.T) {
+	vault := t.TempDir()
+	if _, code := runIn(t, vault, "template", "new", "--name", "alt", "--id", "902"); code != 0 {
+		t.Fatalf("create alt template failed")
+	}
+	if err := os.WriteFile(
+		filepath.Join(vault, "template", "902.template.md"),
+		[]byte("<!-- track-template\nname: alt\n-->\n# {{ title }}\n\nconfigured-default\n"),
+		0o644,
+	); err != nil {
+		t.Fatal(err)
+	}
+	// config (here via the env override) names the default; no template literally named "default" exists.
+	t.Setenv("TRACK_DEFAULT_TEMPLATE", "alt")
+
+	if created, code := runIn(t, vault, "new", "--title", "Cfg", "--id", "1004"); code != 0 {
+		t.Fatalf("new failed: %v", created)
+	}
+	got := readFileString(t, filepath.Join(vault, "note", "1004.md"))
+	if !strings.Contains(got, "configured-default") {
+		t.Fatalf("configured default template not applied: %q", got)
+	}
+}
+
+func TestJournalDefaultTemplate(t *testing.T) {
+	vault := t.TempDir()
+	if _, code := runIn(t, vault, "template", "new", "--name", "journal", "--id", "903"); code != 0 {
+		t.Fatalf("create journal template failed")
+	}
+	if err := os.WriteFile(
+		filepath.Join(vault, "template", "903.template.md"),
+		[]byte("<!-- track-template\nname: journal\n-->\n# {{ title }}\n\ndaily kind={{ kind }}\n"),
+		0o644,
+	); err != nil {
+		t.Fatal(err)
+	}
+
+	journal, code := runIn(t, vault, "journal")
+	if code != 0 {
+		t.Fatalf("journal failed: %v", journal)
+	}
+	got := readFileString(t, journal["path"].(string))
+	if !strings.Contains(got, "daily kind=journal") {
+		t.Fatalf("journal default template not applied: %q", got)
+	}
+}
+
+func readFileString(t *testing.T, path string) string {
+	t.Helper()
+	raw, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return string(raw)
+}

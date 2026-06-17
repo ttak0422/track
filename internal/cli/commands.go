@@ -261,8 +261,16 @@ func createTitledNote(cfg *config.Config, s *store.Store, noteID int64, title st
 		return nil, fmt.Errorf("create note dir: %v", err)
 	}
 	body := ""
-	if strings.TrimSpace(template) != "" {
-		rendered, err := renderTemplate(cfg, template, title, noteID, config.KindNote, parent, time.Now())
+	effectiveTemplate := strings.TrimSpace(template)
+	if effectiveTemplate == "" && strings.TrimSpace(extraBody) == "" {
+		def, err := defaultTemplateSpec(cfg, config.KindNote)
+		if err != nil {
+			return nil, fmt.Errorf("resolve default template: %v", err)
+		}
+		effectiveTemplate = def
+	}
+	if effectiveTemplate != "" {
+		rendered, err := renderTemplate(cfg, effectiveTemplate, title, noteID, config.KindNote, parent, time.Now())
 		if err != nil {
 			return nil, fmt.Errorf("render template: %v", err)
 		}
@@ -323,8 +331,16 @@ func cmdJournal(args []string) int {
 			return fail("create vault dir: %v", err)
 		}
 		jbody := ""
-		if strings.TrimSpace(*template) != "" {
-			rendered, err := renderTemplate(cfg, *template, name, noteID, config.KindJournal, "", day)
+		effectiveTemplate := strings.TrimSpace(*template)
+		if effectiveTemplate == "" && strings.TrimSpace(body) == "" {
+			def, err := defaultTemplateSpec(cfg, config.KindJournal)
+			if err != nil {
+				return fail("resolve default template: %v", err)
+			}
+			effectiveTemplate = def
+		}
+		if effectiveTemplate != "" {
+			rendered, err := renderTemplate(cfg, effectiveTemplate, name, noteID, config.KindJournal, "", day)
 			if err != nil {
 				return fail("render template: %v", err)
 			}
