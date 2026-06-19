@@ -1262,3 +1262,41 @@ func TestBuiltinDefaultProvidedAndOverridden(t *testing.T) {
 		t.Fatalf("user template should override the builtin default, got %q", got)
 	}
 }
+
+func TestToggleCheckbox(t *testing.T) {
+	vault := t.TempDir()
+	body := "# Tasks\n\n- [ ] first\n- [x] second\n- not a checkbox\n"
+	if _, code := runInWithStdin(t, vault, body, "new", "--title", "Tasks", "--id", "500"); code != 0 {
+		t.Fatalf("new failed")
+	}
+	path := filepath.Join(vault, "note", "500.md")
+
+	// Toggle the unchecked item on; the JSON reports the new state and the file is rewritten.
+	res, code := runIn(t, vault, "toggle", "--id", "500", "--line", "3")
+	if code != 0 {
+		t.Fatalf("toggle failed: %v", res)
+	}
+	if res["checked"] != true || res["changed"] != true {
+		t.Fatalf("expected checked+changed, got %v", res)
+	}
+	if got := readFileString(t, path); !strings.Contains(got, "- [x] first") {
+		t.Fatalf("first item should be checked: %q", got)
+	}
+
+	// --state uncheck is idempotent: re-running reports no change.
+	if res, code := runIn(t, vault, "toggle", "--id", "500", "--line", "4", "--state", "uncheck"); code != 0 || res["checked"] != false {
+		t.Fatalf("uncheck failed: %v", res)
+	}
+	again, _ := runIn(t, vault, "toggle", "--id", "500", "--line", "4", "--state", "uncheck")
+	if again["checked"] != false || again["changed"] != false {
+		t.Fatalf("uncheck should be idempotent, got %v", again)
+	}
+
+	// A non-checkbox line is rejected without touching the file.
+	if out, code := runIn(t, vault, "toggle", "--id", "500", "--line", "5"); code == 0 || out["error"] == nil {
+		t.Fatalf("expected error toggling a non-checkbox line, got %v", out)
+	}
+	if out, code := runIn(t, vault, "toggle", "--id", "500", "--line", "99"); code == 0 || out["error"] == nil {
+		t.Fatalf("expected error for out-of-range line, got %v", out)
+	}
+}

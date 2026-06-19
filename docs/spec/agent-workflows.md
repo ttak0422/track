@@ -21,6 +21,7 @@ Use titles for user-facing workflows and ids/paths for exact targets:
 - `track new --title X`: strict create; fails if `X` already exists.
 - `track open --title X`: create-or-open; safe to repeat.
 - `track append (--id N | --title X | --path P)`: add body text and/or tags to an existing note.
+- `track toggle (--id N | --title X | --path P) --line N`: flip a single task checkbox by line number, leaving surrounding text untouched. `--state check|uncheck` forces a result idempotently. Prefer this over hand-editing `- [ ]`/`- [x]` lines.
 - `track rename (--id N | --title X | --path P) --to Y`: change the sidecar title and rewrite backlinks.
 - `track backlinks` and `track graph`: inspect incoming links and local graph around a target.
 

@@ -33,6 +33,21 @@ Use the narrower skills when they fit:
 - `track doctor [--fix]` — diagnose or repair vault/index drift when available in the current build.
 - `track reindex [--full]` — rebuild the SQLite index.
 - `track export (--id N | --title S | --path P)` — full note Markdown to stdout.
+- `track toggle (--id N | --title S | --path P) --line N [--state toggle|check|uncheck]` — flip or set a task checkbox.
+
+## Updating task checkboxes
+
+To change a `- [ ]`/`- [x]` task item, prefer `track toggle` over editing the Markdown by hand: it
+flips exactly one box and leaves the surrounding text untouched. First locate the box's line number
+(`track search --scope body …` and `track export` both report 1-based line numbers), then:
+
+```sh
+track toggle --id 1781359469000 --line 14            # flip the box on line 14
+track toggle --title "Tasks" --line 3 --state check  # idempotent: force checked
+```
+
+The result reports the resulting `checked` state and whether anything `changed`. `--state check`/
+`uncheck` are idempotent, so re-running is safe. Toggling reindexes the note automatically.
 
 ## Output contract
 

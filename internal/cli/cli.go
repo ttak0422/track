@@ -41,6 +41,8 @@ func Run(args []string) int {
 		return cmdJournal(rest)
 	case "append":
 		return cmdAppend(rest)
+	case "toggle":
+		return cmdToggle(rest)
 	case "rename":
 		return cmdRename(rest)
 	case "keywords":
@@ -82,6 +84,8 @@ Usage:
                                         open the note with this title, creating it if absent
   track append (--id N | --title S | --path P) [--body <s>] [--tag <s>]
                                         append body text and/or merge tags into an existing note
+  track toggle (--id N | --title S | --path P) --line N [--state toggle|check|uncheck]
+                                        flip (or set) a task checkbox on one line of a note (JSON)
   track rename (--id N | --title S | --path P) --to S
                                         rename a note's title and rewrite its backlinks (JSON)
   track journal [--offset <n>] [--template <s>] [--body <s>]
