@@ -72,18 +72,42 @@ local function make_entry_maker(telescope, scope)
    end
 end
 
-local function open_selection(telescope, prompt_bufnr)
-   local selection = telescope.action_state.get_selected_entry()
-   telescope.actions.close(prompt_bufnr)
-   if not selection or not selection.value or not selection.value.path then
-      return
-   end
+-- Open the note backing `selection`, jumping to its matched line when present.
+local function open_note(selection)
    vim.cmd.edit(vim.fn.fnameescape(selection.value.path))
    local line = selection.value.line
    if line and line > 0 then
       pcall(vim.api.nvim_win_set_cursor, 0, { line, 0 })
       vim.cmd("normal! zz")
    end
+end
+
+local function open_selection(telescope, prompt_bufnr)
+   local selection = telescope.action_state.get_selected_entry()
+   telescope.actions.close(prompt_bufnr)
+   if not selection or not selection.value or not selection.value.path then
+      return
+   end
+   open_note(selection)
+end
+
+-- Handle <CR> for the search pickers: open the highlighted note, or—when the
+-- search matched nothing—create a note titled with the current prompt. Note
+-- creation is gated behind <CR> alone so that moving through the results
+-- (e.g. <C-n>) never mints a note by accident.
+local function select_or_create(telescope, prompt_bufnr)
+   local selection = telescope.action_state.get_selected_entry()
+   local title = vim.trim(telescope.action_state.get_current_line() or "")
+   telescope.actions.close(prompt_bufnr)
+   if selection and selection.value and selection.value.path then
+      open_note(selection)
+      return
+   end
+   if title == "" then
+      vim.notify("track: type a title to create a note", vim.log.levels.WARN)
+      return
+   end
+   require("track.create").create(title)
 end
 
 local function make_template_entry(template)
@@ -131,20 +155,12 @@ local function pick(scope, opts)
          }),
          sorter = telescope.conf.generic_sorter(picker_opts),
          previewer = telescope.conf.file_previewer(picker_opts),
-         attach_mappings = function(prompt_bufnr, map)
+         attach_mappings = function(prompt_bufnr)
+            -- <CR> opens the highlighted note, or creates one titled with the prompt when the
+            -- search finds nothing. Creation lives on <CR> alone so list navigation never
+            -- creates a note by accident.
             telescope.actions.select_default:replace(function()
-               open_selection(telescope, prompt_bufnr)
-            end)
-            -- Create a note titled with the current prompt when the search finds nothing (or you just
-            -- want a new note by that name). <C-n> works in both insert and normal mode.
-            map({ "i", "n" }, "<C-n>", function()
-               local title = vim.trim(telescope.action_state.get_current_line() or "")
-               if title == "" then
-                  vim.notify("track: type a title to create a note", vim.log.levels.WARN)
-                  return
-               end
-               telescope.actions.close(prompt_bufnr)
-               require("track.create").create(title)
+               select_or_create(telescope, prompt_bufnr)
             end)
             return true
          end,
