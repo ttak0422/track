@@ -156,7 +156,7 @@ Commands:
 :Track search_body [query]
                        " search note bodies with Telescope
 :Track follow          " follow the [[...]] link under the cursor (also mapped to <CR>)
-:Track backlinks       " show notes that link to the current note in quickfix
+:Track backlinks       " show notes that link to the current note (Telescope when available, else quickfix); listed by title, not the epoch filename
 :Track links           " show links from the current note in quickfix
 :Track graph           " show a local note graph around the current note
 :Track web [addr]      " start the local web workspace and open it in a browser

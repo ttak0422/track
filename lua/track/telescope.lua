@@ -110,6 +110,36 @@ local function select_or_create(telescope, prompt_bufnr)
    require("track.create").create(title)
 end
 
+local function backlink_title(backlink)
+   return backlink.title or ("#" .. tostring(backlink.note_id or "?"))
+end
+
+-- Build entries for the backlinks picker: the note title is the primary column and the matched line
+-- is shown alongside it, so the opaque epoch filename never surfaces. value carries the path and line
+-- that open_selection jumps to.
+local function make_backlink_entry(telescope)
+   local displayer = telescope.entry_display.create({
+      separator = "  ",
+      items = { { width = 30 }, { remaining = true } },
+   })
+   return function(backlink)
+      local start = (backlink.range or {}).start or {}
+      local line = (start.line or 0) + 1
+      local title = backlink_title(backlink)
+      local preview = backlink.preview or ""
+      return {
+         value = { path = backlink.path, line = line },
+         path = backlink.path,
+         filename = backlink.path,
+         lnum = line,
+         display = function()
+            return displayer({ title, { preview, "Comment" } })
+         end,
+         ordinal = title .. " " .. preview,
+      }
+   end
+end
+
 local function make_template_entry(template)
    local name = template.name or ("#" .. tostring(template.id or "?"))
    local path = template.path or ""
@@ -174,6 +204,41 @@ end
 
 function M.search_body(opts)
    pick("body", opts)
+end
+
+-- backlinks shows the notes linking to the current note in a Telescope picker, titled by note title
+-- with the matched line as context. The epoch filename stays hidden in the entry value.
+function M.backlinks(opts)
+   opts = opts or {}
+   local telescope = load_telescope()
+   if not telescope then
+      return
+   end
+
+   require("track.backlinks").request(function(result)
+      if #result == 0 then
+         vim.notify("track: no backlinks", vim.log.levels.INFO)
+         return
+      end
+      local picker_opts = vim.tbl_extend("force", opts, {})
+      telescope.pickers
+         .new(picker_opts, {
+            prompt_title = "Track backlinks",
+            finder = telescope.finders.new_table({
+               results = result,
+               entry_maker = make_backlink_entry(telescope),
+            }),
+            sorter = telescope.conf.generic_sorter(picker_opts),
+            previewer = telescope.conf.file_previewer(picker_opts),
+            attach_mappings = function(prompt_bufnr)
+               telescope.actions.select_default:replace(function()
+                  open_selection(telescope, prompt_bufnr)
+               end)
+               return true
+            end,
+         })
+         :find()
+   end)
 end
 
 function M.search_templates(opts)

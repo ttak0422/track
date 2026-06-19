@@ -153,7 +153,13 @@ function M.setup()
    end, { desc = "Follow the track link under the cursor" })
 
    register("backlinks", function()
-      require("track.backlinks").show()
+      -- Prefer the Telescope picker (title-led, epoch filename hidden); fall back to the quickfix list,
+      -- which uses the note title as the displayed module so titles show without Telescope installed.
+      if pcall(require, "telescope") then
+         require("track.telescope").backlinks()
+      else
+         require("track.backlinks").show()
+      end
    end, { desc = "Show notes that link to the current note" })
 
    register("links", function()
