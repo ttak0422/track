@@ -23,6 +23,8 @@ Keep this file focused on durable collaboration rules and pointers to shared pro
 
 ## Development
 
+- This project is under active development: prioritize the best design over backward compatibility, and do not hesitate to make breaking changes when they lead to a better result.
+- Work on the `main` branch by default unless told otherwise. The exception is parallel work (e.g. concurrent agents or worktrees), where a separate branch per stream is expected.
 - Prefer existing package boundaries and local helpers over introducing new abstractions.
 - Keep metadata separate from markdown note bodies. Per-note metadata belongs under `.track/notes/` and must include a schema `version`.
 - Run `go test ./...` after Go changes.
