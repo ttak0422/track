@@ -295,10 +295,30 @@ export function GraphCanvas({ graph, onSelect, resetToken, decorative = false }:
 
       const hovered = node.note_id === hoverRef.current;
       if (!decorative && (showLabels || center || node.degree >= 5 || hovered)) {
-        ctx.globalAlpha = center || hovered ? 0.95 : 0.78;
-        ctx.fillStyle = css("--text");
+        const label = trim(node.title || `#${node.note_id}`, 20);
+        const fontPx = (12 * ratio) / view.scale;
+        const padX = (5 * ratio) / view.scale;
+        const padY = (3 * ratio) / view.scale;
+        const tx = x + radius + (7 * ratio) / view.scale;
+        const ty = y;
         ctx.textAlign = "start";
-        ctx.fillText(trim(node.title || `#${node.note_id}`, 20), x + radius + 5, y + (4 * ratio) / view.scale);
+        ctx.textBaseline = "middle";
+        const textWidth = ctx.measureText(label).width;
+        // A padded backdrop keeps the label legible where edges or other nodes pass behind it,
+        // instead of the text sitting directly on a line.
+        ctx.globalAlpha = center || hovered ? 0.92 : 0.78;
+        ctx.fillStyle = css("--panel");
+        fillRoundRect(
+          ctx,
+          tx - padX,
+          ty - fontPx / 2 - padY,
+          textWidth + padX * 2,
+          fontPx + padY * 2,
+          (4 * ratio) / view.scale,
+        );
+        ctx.globalAlpha = center || hovered ? 0.98 : 0.88;
+        ctx.fillStyle = css("--text");
+        ctx.fillText(label, tx, ty);
         ctx.globalAlpha = 0.9;
       }
     });
@@ -455,6 +475,25 @@ function css(name: string): string {
 
 function clamp(value: number, min: number, max: number): number {
   return Math.max(min, Math.min(max, value));
+}
+
+// fillRoundRect fills a rounded rectangle, falling back to a plain rectangle where the canvas API
+// lacks roundRect (older engines). Used for the padded backdrop behind graph labels.
+function fillRoundRect(
+  ctx: CanvasRenderingContext2D,
+  x: number,
+  y: number,
+  w: number,
+  h: number,
+  r: number,
+): void {
+  ctx.beginPath();
+  if (typeof ctx.roundRect === "function") {
+    ctx.roundRect(x, y, w, h, r);
+  } else {
+    ctx.rect(x, y, w, h);
+  }
+  ctx.fill();
 }
 
 function trim(text: string, max: number): string {
