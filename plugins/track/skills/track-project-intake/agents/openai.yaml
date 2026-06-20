@@ -1,0 +1,4 @@
+interface:
+  display_name: "Track Project Intake"
+  short_description: "Record project work into a track note"
+  default_prompt: "Use $track-project-intake to record this bug/TODO in my project's track note."
