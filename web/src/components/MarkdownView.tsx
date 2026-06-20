@@ -513,11 +513,136 @@ function Embed({ src, alt }: EmbedProps) {
     }
   }
 
+  const tweetId = tweetIdFromUrl(src);
+  if (tweetId) {
+    return <TweetEmbed tweetId={tweetId} url={target} alt={alt} />;
+  }
+
   if (!isImageHref(src) && /^https?:\/\//i.test(target)) {
     return <OgpCard url={target} alt={alt} />;
   }
 
   return <img className="embed embed-image" src={target} alt={alt} loading="lazy" />;
+}
+
+// tweetIdFromUrl returns the numeric status id of a Twitter/X post URL, or null for any other URL.
+function tweetIdFromUrl(src: string): string | null {
+  let url: URL;
+  try {
+    url = new URL(webHref(src));
+  } catch {
+    return null;
+  }
+  const host = url.hostname.replace(/^www\./i, "").replace(/^mobile\./i, "").toLowerCase();
+  if (host !== "twitter.com" && host !== "x.com") {
+    return null;
+  }
+  return /^\/[^/]+\/status(?:es)?\/(\d+)/.exec(url.pathname)?.[1] ?? null;
+}
+
+interface TweetEmbedProps {
+  tweetId: string;
+  url: string;
+  alt: string;
+}
+
+type TweetStatus = "loading" | "ready" | "error";
+
+// TweetEmbed renders the actual Twitter/X post (not just a card) via Twitter's official widgets.js,
+// matching how Obsidian embeds tweets. While the widget loads it shows a plain link, and if the tweet
+// cannot be rendered (deleted, blocked, offline) it falls back to the generic OGP card.
+function TweetEmbed({ tweetId, url, alt }: TweetEmbedProps) {
+  const containerRef = useRef<HTMLDivElement>(null);
+  const [status, setStatus] = useState<TweetStatus>("loading");
+
+  useEffect(() => {
+    let cancelled = false;
+    setStatus("loading");
+    loadTwitterWidgets()
+      .then((twttr) => {
+        if (cancelled) return;
+        const container = containerRef.current;
+        if (!twttr || !container) {
+          setStatus("error");
+          return;
+        }
+        container.replaceChildren();
+        return twttr.widgets
+          .createTweet(tweetId, container, { dnt: true, theme: currentTheme(), conversation: "none" })
+          .then((el) => {
+            if (cancelled) return;
+            setStatus(el ? "ready" : "error");
+          });
+      })
+      .catch(() => {
+        if (!cancelled) setStatus("error");
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [tweetId]);
+
+  if (status === "error") {
+    return <OgpCard url={url} alt={alt} />;
+  }
+  return (
+    <div className="embed embed-tweet">
+      <div ref={containerRef} />
+      {status === "loading" ? (
+        <a className="md-link embed-fallback" href={url} target="_blank" rel="noreferrer noopener">
+          {alt || url}
+        </a>
+      ) : null}
+    </div>
+  );
+}
+
+interface TwitterWidgets {
+  createTweet: (
+    id: string,
+    container: HTMLElement,
+    options?: Record<string, unknown>,
+  ) => Promise<HTMLElement | undefined>;
+}
+
+interface Twttr {
+  widgets: TwitterWidgets;
+}
+
+let twitterWidgetsPromise: Promise<Twttr | null> | null = null;
+
+// loadTwitterWidgets injects Twitter's widgets.js once and resolves the global twttr API. Subsequent
+// calls reuse the same promise so the script is never loaded twice.
+function loadTwitterWidgets(): Promise<Twttr | null> {
+  if (typeof window === "undefined" || typeof document === "undefined") {
+    return Promise.resolve(null);
+  }
+  const existing = (window as unknown as { twttr?: Twttr }).twttr;
+  if (existing?.widgets) {
+    return Promise.resolve(existing);
+  }
+  if (twitterWidgetsPromise) {
+    return twitterWidgetsPromise;
+  }
+  twitterWidgetsPromise = new Promise((resolve, reject) => {
+    const script = document.createElement("script");
+    script.src = "https://platform.twitter.com/widgets.js";
+    script.async = true;
+    script.onload = () => resolve((window as unknown as { twttr?: Twttr }).twttr ?? null);
+    script.onerror = () => reject(new Error("failed to load twitter widgets"));
+    document.head.appendChild(script);
+  });
+  return twitterWidgetsPromise;
+}
+
+// currentTheme resolves the embed theme from the app's data-theme attribute, falling back to the OS
+// preference when it is unset or set to "system".
+function currentTheme(): "light" | "dark" {
+  const attr = document.documentElement.getAttribute("data-theme");
+  if (attr === "dark" || attr === "light") {
+    return attr;
+  }
+  return window.matchMedia?.("(prefers-color-scheme: dark)").matches ? "dark" : "light";
 }
 
 interface OgpCardProps {

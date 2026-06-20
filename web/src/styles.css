@@ -903,6 +903,17 @@ button {
   font-size: 0.9em;
 }
 
+.embed-tweet {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.embed-tweet :first-child {
+  /* Twitter's widget injects a centered iframe; keep it left-aligned with the note body. */
+  margin: 0;
+}
+
 .ogp-card {
   display: flex;
   align-items: stretch;

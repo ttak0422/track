@@ -62,6 +62,9 @@ embed instead of a link:
   iframe player,
   carrying a `t=`/`start=` timestamp (plain seconds or the `1h2m3s` form) as the
   player's `start`;
+- Twitter/X status URLs (`twitter.com`/`x.com/<user>/status/<id>`) embed the actual
+  post through Twitter's official `widgets.js`, loaded once on demand; if the widget
+  cannot render the tweet (deleted, blocked, offline) it falls back to the OGP card;
 - `.pdf` URLs become an inline iframe viewer with an "open" link fallback;
 - image URLs (`.png`, `.jpg`, `.gif`, `.webp`, `.avif`, `.svg`, …) render as an `<img>`;
 - any other `http(s)` URL renders as an Open Graph card.
