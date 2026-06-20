@@ -146,17 +146,24 @@ export function NoteReader({ noteID }: NoteReaderProps) {
 
       <section className="backlinks" aria-labelledby="backlinks-heading">
         <h3 id="backlinks-heading">Backlinks</h3>
-        {data.backlinks.length === 0 ? <p className="muted">No backlinks.</p> : null}
-        {data.backlinks.map((backlink) => (
-          <Link
-            className="backlink"
-            key={backlink.note_id}
-            to="/notes/$noteId"
-            params={{ noteId: String(backlink.note_id) }}
-          >
-            {backlink.title}
-          </Link>
-        ))}
+        {data.backlinks.length === 0 ? (
+          <p className="muted">No backlinks.</p>
+        ) : (
+          // Cap the height so a heavily linked note does not push the rest of the page away; the list
+          // scrolls past that point.
+          <div className="backlink-list">
+            {data.backlinks.map((backlink) => (
+              <Link
+                className="backlink"
+                key={backlink.note_id}
+                to="/notes/$noteId"
+                params={{ noteId: String(backlink.note_id) }}
+              >
+                {backlink.title}
+              </Link>
+            ))}
+          </div>
+        )}
       </section>
     </article>
   );

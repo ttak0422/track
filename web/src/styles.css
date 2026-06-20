@@ -1175,6 +1175,12 @@ button {
   text-transform: uppercase;
 }
 
+.backlink-list {
+  max-height: 320px;
+  overflow-y: auto;
+  padding-right: 4px;
+}
+
 .backlink {
   display: block;
   width: fit-content;
