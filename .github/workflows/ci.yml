@@ -39,6 +39,12 @@ jobs:
           export TRACK_CACHE_DIR="$(mktemp -d)"
           nix run .#test-nvim -- --headless '+luafile scripts/e2e/nvim_telescope_templates.lua'
 
+      - name: Neovim search order E2E
+        run: |
+          export TRACK_VAULT="$(mktemp -d)"
+          export TRACK_CACHE_DIR="$(mktemp -d)"
+          nix run .#test-nvim -- --headless '+luafile scripts/e2e/nvim_telescope_search_order.lua'
+
       - name: Neovim Babel visibility E2E
         run: |
           export TRACK_VAULT="$(mktemp -d)"

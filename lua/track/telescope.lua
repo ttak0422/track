@@ -11,7 +11,8 @@ local function load_telescope()
    local ok_actions, actions = pcall(require, "telescope.actions")
    local ok_state, action_state = pcall(require, "telescope.actions.state")
    local ok_display, entry_display = pcall(require, "telescope.pickers.entry_display")
-   if not (ok_pickers and ok_finders and ok_conf and ok_actions and ok_state and ok_display) then
+   local ok_sorters, sorters = pcall(require, "telescope.sorters")
+   if not (ok_pickers and ok_finders and ok_conf and ok_actions and ok_state and ok_display and ok_sorters) then
       vim.notify("track: telescope.nvim is required for this command", vim.log.levels.ERROR)
       return nil
    end
@@ -22,6 +23,7 @@ local function load_telescope()
       actions = actions,
       action_state = action_state,
       entry_display = entry_display,
+      sorters = sorters,
    }
 end
 
@@ -183,7 +185,12 @@ local function pick(scope, opts)
             end,
             entry_maker = make_entry_maker(telescope, scope),
          }),
-         sorter = telescope.conf.generic_sorter(picker_opts),
+         -- The CLI already ranks results (title exact > prefix > mtime DESC) and the
+         -- dynamic finder re-runs the query on each keystroke, so the backend is the
+         -- source of truth for both filtering and order. An identity sorter preserves
+         -- that order; generic_sorter would re-rank by fuzzy proximity to the prompt,
+         -- demoting frequently-updated notes and dropping non-fuzzy-matching hits.
+         sorter = telescope.sorters.empty(),
          previewer = telescope.conf.file_previewer(picker_opts),
          attach_mappings = function(prompt_bufnr)
             -- <CR> opens the highlighted note, or creates one titled with the prompt when the
