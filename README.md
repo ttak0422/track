@@ -205,6 +205,7 @@ This repository doubles as a [Claude Code](https://docs.claude.com/en/docs/claud
 
 - `track-create-note`: create/open notes and journals, append to notes, and create notes from templates.
 - `track-search-notes`: search, resolve, export/read notes, backlinks, and graph inspection.
+- `track-project-intake`: record an incoming project request (bug/TODO) into the project's note, creating the note if missing.
 - `track`: maintenance workflows such as rename/backlink repair, doctor, and reindex.
 
 ```text

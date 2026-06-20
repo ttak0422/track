@@ -29,6 +29,7 @@
     "defaultPrompt": [
       "Use $track-create-note to create a linked note in my vault.",
       "Use $track-search-notes to search my notes.",
+      "Use $track-project-intake to record this bug/TODO in my project's note.",
       "Use $track to rename a note and update backlinks."
     ]
   }
