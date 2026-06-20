@@ -38,6 +38,8 @@ interface DragState {
   start: Point;
   last: Point;
   moved: boolean;
+  // When set, the drag moves this node (with elastic edges) instead of panning the view.
+  node?: SimNode;
 }
 
 export function GraphCanvas({ graph, onSelect, resetToken, decorative = false }: GraphCanvasProps) {
@@ -46,6 +48,9 @@ export function GraphCanvas({ graph, onSelect, resetToken, decorative = false }:
   const edgesRef = useRef<SimEdge[]>([]);
   const viewRef = useRef<GraphView>({ x: 0, y: 0, scale: 1 });
   const dragRef = useRef<DragState | null>(null);
+  // The node currently held under the cursor. The simulation keeps it fixed while still letting it
+  // pull its neighbours, so grabbing a node stretches its edges like Obsidian's graph.
+  const pinnedRef = useRef<SimNode | null>(null);
   const animationRef = useRef<number | null>(null);
   const ticksRef = useRef(0);
   const hoverRef = useRef<NoteID | null>(null);
@@ -222,7 +227,15 @@ export function GraphCanvas({ graph, onSelect, resetToken, decorative = false }:
       edge.target.vy -= fy;
     });
 
+    const pinned = pinnedRef.current;
     nodes.forEach((node) => {
+      if (node === pinned) {
+        // The grabbed node stays where the pointer holds it: it still pushes and pulls its neighbours
+        // through the forces above, but its own accumulated force is dropped so it doesn't drift off.
+        node.vx = 0;
+        node.vy = 0;
+        return;
+      }
       node.vx += -node.x * 0.002;
       node.vy += -node.y * 0.002;
       node.vx *= 0.82;
@@ -328,7 +341,10 @@ export function GraphCanvas({ graph, onSelect, resetToken, decorative = false }:
   function pointerDown(event: PointerEvent<HTMLCanvasElement>) {
     event.preventDefault();
     const point = canvasPoint(event);
-    dragRef.current = { pointerId: event.pointerId, start: point, last: point, moved: false };
+    // Grabbing a node drags it (edges stay elastic, pulling neighbours); grabbing empty space pans.
+    const node = decorative ? undefined : graphNodeAt(point);
+    dragRef.current = { pointerId: event.pointerId, start: point, last: point, moved: false, node };
+    pinnedRef.current = node ?? null;
     event.currentTarget.setPointerCapture(event.pointerId);
     event.currentTarget.classList.add("dragging");
   }
@@ -351,17 +367,27 @@ export function GraphCanvas({ graph, onSelect, resetToken, decorative = false }:
     }
     event.preventDefault();
     const point = canvasPoint(event);
-    const dx = point.x - drag.last.x;
-    const dy = point.y - drag.last.y;
-    viewRef.current = {
-      ...viewRef.current,
-      x: viewRef.current.x + dx,
-      y: viewRef.current.y + dy,
-    };
-    userAdjustedRef.current = true;
     if (Math.abs(point.x - drag.start.x) + Math.abs(point.y - drag.start.y) > 4) {
       drag.moved = true;
     }
+    if (drag.node) {
+      // Pin the grabbed node to the cursor; the running simulation keeps the edges springy so linked
+      // nodes trail after it and settle elastically once it is released.
+      const world = worldPoint(point);
+      drag.node.x = world.x;
+      drag.node.y = world.y;
+      drag.node.vx = 0;
+      drag.node.vy = 0;
+    } else {
+      const dx = point.x - drag.last.x;
+      const dy = point.y - drag.last.y;
+      viewRef.current = {
+        ...viewRef.current,
+        x: viewRef.current.x + dx,
+        y: viewRef.current.y + dy,
+      };
+    }
+    userAdjustedRef.current = true;
     drag.last = point;
     drawGraph(size);
   }
@@ -369,16 +395,20 @@ export function GraphCanvas({ graph, onSelect, resetToken, decorative = false }:
   function pointerUp(event: PointerEvent<HTMLCanvasElement>) {
     const drag = dragRef.current;
     dragRef.current = null;
+    // Releasing unpins the node, so the simulation eases it back into equilibrium with its neighbours.
+    pinnedRef.current = null;
     event.currentTarget.classList.remove("dragging");
     if (!drag || drag.pointerId !== event.pointerId) return;
     event.currentTarget.releasePointerCapture(event.pointerId);
     if (drag.moved) return;
-    const node = graphNodeAt(canvasPoint(event));
+    // A click without a drag selects the node under the pointer (navigation).
+    const node = drag.node ?? graphNodeAt(canvasPoint(event));
     if (node) onSelectRef.current(node.note_id);
   }
 
   function pointerCancel(event: PointerEvent<HTMLCanvasElement>) {
     dragRef.current = null;
+    pinnedRef.current = null;
     event.currentTarget.classList.remove("dragging");
   }
 
