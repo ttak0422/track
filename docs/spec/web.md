@@ -49,6 +49,23 @@ During migration:
 - only switch Go's served assets to the Vite build once the React workspace has
   reached feature parity with the existing raw-string UI.
 
+### Markdown embeds
+
+A line that is exactly a Markdown image link (`![alt](url)`) renders as a block
+embed instead of a link:
+
+- YouTube URLs (`youtu.be/<id>`, `youtube.com/watch?v=<id>`, `/shorts/<id>`,
+  `/embed/<id>`) become a privacy-enhanced `youtube-nocookie.com` iframe player,
+  carrying a `t=`/`start=` timestamp (plain seconds or the `1h2m3s` form) as the
+  player's `start`;
+- `.pdf` URLs become an inline iframe viewer with an "open" link fallback;
+- any other URL renders as an `<img>`.
+
+Only `http(s)` and same-origin relative URLs feed an iframe, so a note cannot
+smuggle a `javascript:`/`data:` document into the frame. A plain `[label](url)`
+stays a link, and inline `![…](…)` inside a paragraph is left untouched so block
+embeds never nest inside a `<p>`.
+
 ### Save conflict detection
 
 `PUT /api/note` is guarded by an optimistic-concurrency `etag`, the content hash

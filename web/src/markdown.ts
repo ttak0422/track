@@ -3,7 +3,13 @@ export type MarkdownBlock =
   | { type: "paragraph"; text: string }
   | { type: "list"; items: string[] }
   | { type: "task"; checked: boolean; text: string }
+  | { type: "embed"; src: string; alt: string }
   | { type: "code"; lang: string; text: string };
+
+// A standalone Markdown image link (![alt](src)) on its own line becomes an embed block: YouTube
+// links render as a player, PDFs as a viewer, and anything else as an image. Inline ![...](...) inside
+// a paragraph is left as-is so block-level embeds never end up nested in a <p>.
+const EMBED_LINE = /^!\[([^\]]*)\]\(([^)\s]+)\)$/;
 
 export type InlinePart =
   | { type: "text"; text: string }
@@ -74,6 +80,14 @@ export function parseMarkdown(markdown: string): MarkdownBlock[] {
       flushParagraph();
       flushList();
       blocks.push({ type: "heading", level: heading[1].length as 1 | 2 | 3, text: heading[2] });
+      continue;
+    }
+
+    const embed = EMBED_LINE.exec(trimmed);
+    if (embed) {
+      flushParagraph();
+      flushList();
+      blocks.push({ type: "embed", src: embed[2], alt: embed[1].trim() });
       continue;
     }
 
@@ -201,6 +215,7 @@ function matchDelimiter(
 export function excerpt(markdown: string, maxLength = 180): string {
   const text = markdown
     .replace(/```[^\n]*\n?/g, "")
+    .replace(/!\[([^\]]*)\]\([^)\s]+\)/g, "$1")
     .replace(/\[\[([^\]|]+)\|([^\]]+)\]\]/g, "$2")
     .replace(/\[\[([^\]]+)\]\]/g, "$1")
     .replace(/\[([^\]]+)\]\(([^)\s]+)\)/g, "$1")

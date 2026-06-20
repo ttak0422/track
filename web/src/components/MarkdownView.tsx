@@ -54,6 +54,8 @@ export function MarkdownView({ markdown }: MarkdownViewProps) {
                 <span>{renderInline(block.text)}</span>
               </label>
             );
+          case "embed":
+            return <Embed key={index} src={block.src} alt={block.alt} />;
           case "code":
             return <CodeBlock key={index} lang={block.lang} text={block.text} />;
         }
@@ -463,6 +465,113 @@ function webHref(href: string): string {
     return `https://${trimmed}`;
   }
   return href;
+}
+
+interface EmbedProps {
+  src: string;
+  alt: string;
+}
+
+// Embed renders a standalone ![alt](src): YouTube links become an inline player, PDFs an inline
+// viewer, and everything else an image. The fenced URL is normalized through webHref so bare domains
+// still resolve, and only http(s)/relative URLs feed the iframe so a note cannot smuggle a javascript:
+// document into the frame.
+function Embed({ src, alt }: EmbedProps) {
+  const youtube = youtubeEmbedUrl(src);
+  if (youtube) {
+    return (
+      <div className="embed embed-video">
+        <iframe
+          src={youtube}
+          title={alt || "YouTube video"}
+          loading="lazy"
+          allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share"
+          allowFullScreen
+        />
+      </div>
+    );
+  }
+
+  const target = webHref(src);
+  if (isPdfHref(src)) {
+    const safe = safeFrameUrl(target);
+    if (safe) {
+      return (
+        <div className="embed embed-pdf">
+          <iframe src={safe} title={alt || "PDF document"} loading="lazy" />
+          <a
+            className="md-link embed-fallback"
+            href={safe}
+            target="_blank"
+            rel="noreferrer noopener"
+          >
+            {alt || "Open PDF"}
+          </a>
+        </div>
+      );
+    }
+  }
+
+  return <img className="embed embed-image" src={target} alt={alt} loading="lazy" />;
+}
+
+// youtubeEmbedUrl turns a YouTube watch/share/shorts/embed URL into a privacy-enhanced embed URL,
+// carrying a start time when the original had one (t= or start=). It returns null for non-YouTube URLs
+// so the caller can fall back to a PDF/image embed.
+function youtubeEmbedUrl(src: string): string | null {
+  let url: URL;
+  try {
+    url = new URL(webHref(src));
+  } catch {
+    return null;
+  }
+  const host = url.hostname.replace(/^www\./i, "").toLowerCase();
+  let id = "";
+  if (host === "youtu.be") {
+    id = url.pathname.slice(1).split("/")[0] ?? "";
+  } else if (host === "youtube.com" || host === "m.youtube.com" || host === "youtube-nocookie.com") {
+    if (url.pathname === "/watch") {
+      id = url.searchParams.get("v") ?? "";
+    } else {
+      id = /^\/(?:embed|shorts|v)\/([^/?#]+)/.exec(url.pathname)?.[1] ?? "";
+    }
+  }
+  if (!/^[\w-]{6,}$/.test(id)) {
+    return null;
+  }
+  const start = youtubeStartSeconds(url.searchParams.get("t") ?? url.searchParams.get("start"));
+  const query = start > 0 ? `?start=${start}` : "";
+  return `https://www.youtube-nocookie.com/embed/${id}${query}`;
+}
+
+// youtubeStartSeconds parses a YouTube timestamp, accepting plain seconds ("90") and the 1h2m3s form.
+function youtubeStartSeconds(raw: string | null): number {
+  if (!raw) {
+    return 0;
+  }
+  if (/^\d+$/.test(raw)) {
+    return Number(raw);
+  }
+  const match = /^(?:(\d+)h)?(?:(\d+)m)?(?:(\d+)s)?$/.exec(raw);
+  if (!match || (!match[1] && !match[2] && !match[3])) {
+    return 0;
+  }
+  return Number(match[1] ?? 0) * 3600 + Number(match[2] ?? 0) * 60 + Number(match[3] ?? 0);
+}
+
+function isPdfHref(src: string): boolean {
+  const path = src.split(/[?#]/, 1)[0] ?? "";
+  return /\.pdf$/i.test(path.trim());
+}
+
+// safeFrameUrl returns the URL only when it is safe to load in an iframe: http(s) or a same-origin
+// relative path. It rejects javascript:/data: and other schemes that could run script in the frame.
+function safeFrameUrl(target: string): string | null {
+  const trimmed = target.trim();
+  if (/^https?:\/\//i.test(trimmed) || trimmed.startsWith("/") || trimmed.startsWith("./")) {
+    return trimmed;
+  }
+  return null;
 }
 
 interface WikiLinkProps {

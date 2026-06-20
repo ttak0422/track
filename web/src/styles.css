@@ -856,6 +856,53 @@ button {
   padding-left: 1.3em;
 }
 
+.embed {
+  margin: 0.9em 0;
+}
+
+.embed-image {
+  display: block;
+  max-width: 100%;
+  height: auto;
+  border-radius: 8px;
+}
+
+.embed-video {
+  position: relative;
+  width: 100%;
+  aspect-ratio: 16 / 9;
+  border-radius: 8px;
+  overflow: hidden;
+  background: #000;
+}
+
+.embed-video iframe {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  border: 0;
+}
+
+.embed-pdf {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.embed-pdf iframe {
+  width: 100%;
+  height: min(70vh, 720px);
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--panel-soft);
+}
+
+.embed-fallback {
+  align-self: flex-start;
+  font-size: 0.9em;
+}
+
 .inline-code {
   padding: 0.1em 0.35em;
   border-radius: 4px;
