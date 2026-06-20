@@ -68,6 +68,12 @@ const (
 	KindTemplate = "template"
 )
 
+// AssetsDirName is the per-kind subdirectory that holds a kind's media/attachments (note/assets,
+// journal/assets). It is reserved: note scanning skips subdirectories, so files placed here are never
+// treated as notes. A note of a given kind references its assets with the relative path
+// "assets/<file>".
+const AssetsDirName = "assets"
+
 // Load resolves configuration from the fixed user config file, with environment overrides for tests
 // and one-off debugging. The default file is ~/.config/track/config.yml on XDG-style systems, or the
 // platform user config equivalent.
@@ -322,6 +328,15 @@ func (c *Config) JournalPath(name string) string {
 // TemplateDir returns the directory used for user template markdown files.
 func (c *Config) TemplateDir() string {
 	return filepath.Join(c.VaultDir, KindTemplate)
+}
+
+// AssetsDirForKind returns the assets directory for a note kind: journal assets live under
+// journal/assets, and everything else (notes) under note/assets. The directory is not created.
+func (c *Config) AssetsDirForKind(kind string) string {
+	if kind == KindJournal {
+		return filepath.Join(c.JournalDir(), AssetsDirName)
+	}
+	return filepath.Join(c.NoteDir(), AssetsDirName)
 }
 
 // TemplatePath returns the path for a template file with the given id.

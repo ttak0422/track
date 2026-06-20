@@ -1300,3 +1300,37 @@ func TestToggleCheckbox(t *testing.T) {
 		t.Fatalf("expected error for out-of-range line, got %v", out)
 	}
 }
+
+func TestAssetImportAndDir(t *testing.T) {
+	vault := t.TempDir()
+	src := filepath.Join(t.TempDir(), "Cover Image.png")
+	if err := os.WriteFile(src, []byte("png"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	res, code := runIn(t, vault, "asset", "import", "--file", src, "--kind", "note")
+	if code != 0 {
+		t.Fatalf("asset import failed: %v", res)
+	}
+	if res["ref"] != "assets/Cover-Image.png" {
+		t.Fatalf("unexpected ref: %v", res)
+	}
+	stored := filepath.Join(vault, "note", "assets", "Cover-Image.png")
+	if got := readFileString(t, stored); got != "png" {
+		t.Fatalf("asset not copied into note/assets: %q", got)
+	}
+
+	// dir --ensure reports and creates the journal assets directory. The vault path is canonicalized
+	// (symlinks resolved), so assert on the suffix and that the reported dir now exists.
+	dirRes, code := runIn(t, vault, "asset", "dir", "--kind", "journal", "--ensure")
+	if code != 0 {
+		t.Fatalf("asset dir failed: %v", dirRes)
+	}
+	dir, _ := dirRes["dir"].(string)
+	if !strings.HasSuffix(dir, filepath.Join("journal", "assets")) {
+		t.Fatalf("unexpected dir: %v", dirRes)
+	}
+	if info, err := os.Stat(dir); err != nil || !info.IsDir() {
+		t.Fatalf("journal assets dir should be created: err=%v", err)
+	}
+}

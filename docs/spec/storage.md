@@ -36,6 +36,15 @@ Template files live under `template/` and use a template-specific extension:
 
 A file path is derived from its kind and id, so paths are not stored in the SQLite cache. The current file kinds are `note`, `journal`, and `template`; the note index currently scans `note/` and `journal/` only.
 
+Media for a kind lives in a reserved `assets/` subdirectory of that kind, and a note references it with the relative path `assets/<file>`:
+
+```text
+<vault>/note/assets/<file>
+<vault>/journal/assets/<file>
+```
+
+Assets are part of the authoritative vault (back them up like note bodies), but they are not notes: the note scanner skips subdirectories, so files under `assets/` are never indexed or flagged by `track doctor`. `track asset import`/`track asset dir` and the `internal/track/asset` engine package manage this storage; see ADR 0016.
+
 Templates are not notes and must not appear in note search or link resolution. When template expansion gains executable substitutions, track will validate the template content and require a first-use trust step keyed by the template content hash, similar to `mise trust`.
 
 Template files begin with a template directive and then contain the markdown body to render:

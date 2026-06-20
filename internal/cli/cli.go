@@ -43,6 +43,8 @@ func Run(args []string) int {
 		return cmdAppend(rest)
 	case "toggle":
 		return cmdToggle(rest)
+	case "asset":
+		return cmdAsset(rest)
 	case "rename":
 		return cmdRename(rest)
 	case "keywords":
@@ -86,6 +88,10 @@ Usage:
                                         append body text and/or merge tags into an existing note
   track toggle (--id N | --title S | --path P) --line N [--state toggle|check|uncheck]
                                         flip (or set) a task checkbox on one line of a note (JSON)
+  track asset import <file> [--kind note|journal]
+                                        copy a file into note/assets (or journal/assets); prints the assets/<file> ref (JSON)
+  track asset dir [--kind note|journal] [--ensure]
+                                        print (and optionally create) a kind's assets directory (JSON)
   track rename (--id N | --title S | --path P) --to S
                                         rename a note's title and rewrite its backlinks (JSON)
   track journal [--offset <n>] [--template <s>] [--body <s>]
