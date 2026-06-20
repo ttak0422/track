@@ -106,7 +106,7 @@ track web
 
 Open `http://127.0.0.1:8765/` while the command is running. The first version includes note search, Markdown preview, backlinks, and a Canvas graph with a Local/Global toggle. Use `#tag` terms, such as `#graph #web`, to filter by sidecar tags. This is not the publish/export path; public output should use `track export` plus a static site generator.
 
-A standalone Markdown image link on its own line (`![alt](url)`) renders as an embed: YouTube links (`youtu.be`, `youtube.com/watch`, `/shorts`, `/embed`, honoring a `t=`/`start=` timestamp) become an inline player, `.pdf` links an inline viewer with an "open" fallback, and any other URL an image. A plain `[label](url)` stays a link, and inline `![…](…)` mixed into a paragraph is left untouched.
+A standalone Markdown image link on its own line (`![alt](url)`) renders as an embed: YouTube links (`youtu.be`, `youtube.com/watch`, `/shorts`, `/live`, `/embed`, honoring a `t=`/`start=` timestamp) become an inline player, `.pdf` links an inline viewer with an "open" fallback, and any other URL an image. A plain `[label](url)` stays a link, and inline `![…](…)` mixed into a paragraph is left untouched.
 
 The workspace theme can be set with `web.theme` (`system`/`light`/`dark`) in `config.yml`, and colors can be overridden by pointing `web.colors_path` at a palette file:
 

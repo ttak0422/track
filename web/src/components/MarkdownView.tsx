@@ -533,7 +533,7 @@ function youtubeEmbedUrl(src: string): string | null {
     if (url.pathname === "/watch") {
       id = url.searchParams.get("v") ?? "";
     } else {
-      id = /^\/(?:embed|shorts|v)\/([^/?#]+)/.exec(url.pathname)?.[1] ?? "";
+      id = /^\/(?:embed|shorts|live|v)\/([^/?#]+)/.exec(url.pathname)?.[1] ?? "";
     }
   }
   if (!/^[\w-]{6,}$/.test(id)) {

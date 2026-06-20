@@ -55,7 +55,8 @@ A line that is exactly a Markdown image link (`![alt](url)`) renders as a block
 embed instead of a link:
 
 - YouTube URLs (`youtu.be/<id>`, `youtube.com/watch?v=<id>`, `/shorts/<id>`,
-  `/embed/<id>`) become a privacy-enhanced `youtube-nocookie.com` iframe player,
+  `/live/<id>`, `/embed/<id>`) become a privacy-enhanced `youtube-nocookie.com`
+  iframe player,
   carrying a `t=`/`start=` timestamp (plain seconds or the `1h2m3s` form) as the
   player's `start`;
 - `.pdf` URLs become an inline iframe viewer with an "open" link fallback;
