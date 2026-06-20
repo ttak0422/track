@@ -88,3 +88,11 @@ export interface Graph {
 export interface GraphResponse {
   graph: Graph;
 }
+
+export interface OgpResponse {
+  url: string;
+  title?: string;
+  description?: string;
+  image?: string;
+  site_name?: string;
+}

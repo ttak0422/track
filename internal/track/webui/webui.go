@@ -33,6 +33,8 @@ type Server struct {
 	events    *eventHub
 	reindexMu sync.Mutex
 	lastStale time.Time
+	ogpMu     sync.Mutex
+	ogpCache  map[string]ogpCacheEntry
 }
 
 // staleCheckInterval throttles the read-time freshness scan. The fsnotify watcher already reindexes on
@@ -90,6 +92,7 @@ func (s *Server) routes() {
 	s.mux.HandleFunc("/api/activity", s.handleActivity)
 	s.mux.HandleFunc("/api/resolve", s.handleResolve)
 	s.mux.HandleFunc("/api/note", s.handleNote)
+	s.mux.HandleFunc("/api/ogp", s.handleOGP)
 	s.mux.HandleFunc("/api/graph/local", s.handleLocalGraph)
 	s.mux.HandleFunc("/api/graph", s.handleGraph)
 	s.mux.HandleFunc("/api/events", s.handleEvents)

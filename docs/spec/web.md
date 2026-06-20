@@ -28,6 +28,9 @@ All `/api/*` responses are JSON. Read endpoints:
 - `GET /api/graph/local?id=<id>`: the one-hop local graph around a note.
 - `GET /api/graph`: the whole-vault graph — every indexed note as a node and every
   link between two known notes as an edge, with no center.
+- `GET /api/ogp?url=<url>`: Open Graph metadata for an embedded link, used to render
+  link cards. Only `http(s)` URLs are accepted and the fetch is SSRF-guarded; see
+  "Markdown embeds" below.
 
 Write endpoint:
 
@@ -60,12 +63,22 @@ embed instead of a link:
   carrying a `t=`/`start=` timestamp (plain seconds or the `1h2m3s` form) as the
   player's `start`;
 - `.pdf` URLs become an inline iframe viewer with an "open" link fallback;
-- any other URL renders as an `<img>`.
+- image URLs (`.png`, `.jpg`, `.gif`, `.webp`, `.avif`, `.svg`, …) render as an `<img>`;
+- any other `http(s)` URL renders as an Open Graph card.
 
 Only `http(s)` and same-origin relative URLs feed an iframe, so a note cannot
 smuggle a `javascript:`/`data:` document into the frame. A plain `[label](url)`
-stays a link, and inline `![…](…)` inside a paragraph is left untouched so block
+stays a link — embedding is opt-in via `![…]()` so ordinary links are never turned
+into cards — and inline `![…](…)` inside a paragraph is left untouched so block
 embeds never nest inside a `<p>`.
+
+The Open Graph card is fetched server-side via `GET /api/ogp?url=<url>`, which
+returns `{url, title?, description?, image?, site_name?}`. The fetch is guarded:
+only `http(s)` URLs are accepted, the dialer refuses loopback/private/link-local
+addresses (SSRF), redirects and body size are capped, and results are cached
+(positive and negative) so repeated renders do not refetch. The client renders
+the card as a link and falls back to a plain link when the fetch fails or the
+page exposes no metadata.
 
 ### Save conflict detection
 

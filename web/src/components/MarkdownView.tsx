@@ -9,7 +9,7 @@ import {
   useState,
 } from "react";
 import { parseInline, parseMarkdown, type InlinePart } from "../markdown";
-import { useNoteQuery, useResolveQuery } from "../queries";
+import { useNoteQuery, useOgpQuery, useResolveQuery } from "../queries";
 
 // Nesting depth of the current markdown render. Each preview renders its body
 // one level deeper so nested previews can stack in front of their parent.
@@ -472,10 +472,11 @@ interface EmbedProps {
   alt: string;
 }
 
-// Embed renders a standalone ![alt](src): YouTube links become an inline player, PDFs an inline
-// viewer, and everything else an image. The fenced URL is normalized through webHref so bare domains
-// still resolve, and only http(s)/relative URLs feed the iframe so a note cannot smuggle a javascript:
-// document into the frame.
+// Embed renders a standalone ![alt](src), routing by the kind of target: YouTube links become an
+// inline player, PDFs an inline viewer, image URLs an <img>, and any other http(s) page an Open Graph
+// card. Embedding stays opt-in via the ![...]() syntax so ordinary [text](url) links are never turned
+// into noisy previews. The URL is normalized through webHref so bare domains still resolve, and only
+// http(s)/relative URLs feed an iframe so a note cannot smuggle a javascript: document into the frame.
 function Embed({ src, alt }: EmbedProps) {
   const youtube = youtubeEmbedUrl(src);
   if (youtube) {
@@ -512,7 +513,60 @@ function Embed({ src, alt }: EmbedProps) {
     }
   }
 
+  if (!isImageHref(src) && /^https?:\/\//i.test(target)) {
+    return <OgpCard url={target} alt={alt} />;
+  }
+
   return <img className="embed embed-image" src={target} alt={alt} loading="lazy" />;
+}
+
+interface OgpCardProps {
+  url: string;
+  alt: string;
+}
+
+// OgpCard fetches the link's Open Graph metadata through the local server and renders it as a card. It
+// degrades gracefully: while loading it shows the host and label, and on a failed/blocked fetch it
+// falls back to a plain link so the embed is never a dead end.
+function OgpCard({ url, alt }: OgpCardProps) {
+  const ogp = useOgpQuery(url);
+  const host = hostOf(url);
+
+  if (ogp.isError) {
+    return (
+      <a className="embed md-link ogp-fallback" href={url} target="_blank" rel="noreferrer noopener">
+        {alt || url}
+      </a>
+    );
+  }
+
+  const data = ogp.data;
+  const title = data?.title || alt || url;
+  return (
+    <a className="embed ogp-card" href={url} target="_blank" rel="noreferrer noopener">
+      {data?.image ? (
+        <img className="ogp-card-image" src={data.image} alt="" loading="lazy" />
+      ) : null}
+      <span className="ogp-card-body">
+        <span className="ogp-card-site">{data?.site_name || host}</span>
+        <span className="ogp-card-title">{title}</span>
+        {data?.description ? <span className="ogp-card-desc">{data.description}</span> : null}
+      </span>
+    </a>
+  );
+}
+
+function hostOf(url: string): string {
+  try {
+    return new URL(url).hostname;
+  } catch {
+    return url;
+  }
+}
+
+function isImageHref(src: string): boolean {
+  const path = src.split(/[?#]/, 1)[0] ?? "";
+  return /\.(png|jpe?g|gif|webp|avif|svg|bmp|ico)$/i.test(path.trim());
 }
 
 // youtubeEmbedUrl turns a YouTube watch/share/shorts/embed URL into a privacy-enhanced embed URL,

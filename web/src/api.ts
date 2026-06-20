@@ -3,6 +3,7 @@ import type {
   GraphResponse,
   NoteResponse,
   NotesResponse,
+  OgpResponse,
   ResolveResponse,
   SaveNoteRequest,
   SaveNoteResponse,
@@ -74,4 +75,9 @@ export function getLocalGraph(noteID: number): Promise<GraphResponse> {
 
 export function getGraph(): Promise<GraphResponse> {
   return api<GraphResponse>("/api/graph");
+}
+
+// getOgp fetches Open Graph metadata for an embedded link so the preview can render a rich card.
+export function getOgp(url: string): Promise<OgpResponse> {
+  return api<OgpResponse>(`/api/ogp?url=${encodeURIComponent(url)}`);
 }

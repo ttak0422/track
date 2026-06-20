@@ -4,6 +4,7 @@ import {
   getGraph,
   getLocalGraph,
   getNote,
+  getOgp,
   listNotes,
   resolveTerm,
   saveNote,
@@ -19,12 +20,25 @@ export const queryKeys = {
   notes: () => ["notes"] as const,
   resolve: (term: string) => ["resolve", term] as const,
   search: (query: string, limit: number) => ["search", query, limit] as const,
+  ogp: (url: string) => ["ogp", url] as const,
 };
 
 export function useActivityQuery(days = 14) {
   return useQuery({
     queryKey: queryKeys.activity(days),
     queryFn: () => getActivity(days),
+  });
+}
+
+export function useOgpQuery(url: string, enabled = true) {
+  return useQuery({
+    queryKey: queryKeys.ogp(url),
+    queryFn: () => getOgp(url),
+    enabled: enabled && url !== "",
+    // Link metadata is effectively static for a session and the server caches it too, so never refetch.
+    staleTime: Infinity,
+    gcTime: Infinity,
+    retry: false,
   });
 }
 
