@@ -236,3 +236,27 @@ func TestDisplayPathForKindKeepsSymlink(t *testing.T) {
 		t.Fatalf("display path should differ from canonical through a symlink: %q", display)
 	}
 }
+
+func TestEnsureVaultSkeleton(t *testing.T) {
+	cfg := &Config{VaultDir: t.TempDir(), Extensions: []string{".md"}}
+	created, err := cfg.EnsureVaultSkeleton()
+	if err != nil {
+		t.Fatalf("ensure: %v", err)
+	}
+	if len(created) != len(cfg.VaultSkeleton()) {
+		t.Fatalf("expected all skeleton dirs created, got %v", created)
+	}
+	for _, dir := range cfg.VaultSkeleton() {
+		if info, err := os.Stat(dir); err != nil || !info.IsDir() {
+			t.Fatalf("skeleton dir missing: %s (err %v)", dir, err)
+		}
+	}
+	// Idempotent: a second call creates nothing.
+	again, err := cfg.EnsureVaultSkeleton()
+	if err != nil {
+		t.Fatalf("ensure again: %v", err)
+	}
+	if len(again) != 0 {
+		t.Fatalf("second ensure should create nothing, got %v", again)
+	}
+}

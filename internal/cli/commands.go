@@ -22,6 +22,28 @@ import (
 	"github.com/ttak0422/track/internal/track/webui"
 )
 
+// cmdInit creates the vault directory skeleton (note/journal trees with their assets subdirectories,
+// the template directory, and the sidecar metadata directory). It is idempotent and reports the
+// directories it created, so it is safe to run on an existing vault.
+func cmdInit(args []string) int {
+	fs := flag.NewFlagSet("init", flag.ContinueOnError)
+	if err := fs.Parse(args); err != nil {
+		return fail("parse args: %v", err)
+	}
+	cfg, err := config.Load()
+	if err != nil {
+		return fail("%v", err)
+	}
+	created, err := cfg.EnsureVaultSkeleton()
+	if err != nil {
+		return fail("%v", err)
+	}
+	if created == nil {
+		created = []string{}
+	}
+	return emit(map[string]any{"vault": cfg.VaultDir, "created": created})
+}
+
 func cmdReindex(args []string) int {
 	fs := flag.NewFlagSet("reindex", flag.ContinueOnError)
 	fs.Bool("full", false, "full rebuild (default and only mode for now)")

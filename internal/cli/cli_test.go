@@ -1301,6 +1301,35 @@ func TestToggleCheckbox(t *testing.T) {
 	}
 }
 
+func TestInitScaffoldsVault(t *testing.T) {
+	vault := t.TempDir()
+	res, code := runIn(t, vault, "init")
+	if code != 0 {
+		t.Fatalf("init failed: %v", res)
+	}
+	for _, rel := range []string{
+		"note", filepath.Join("note", "assets"),
+		"journal", filepath.Join("journal", "assets"),
+		"template", filepath.Join(".track", "notes"),
+	} {
+		if info, err := os.Stat(filepath.Join(vault, rel)); err != nil || !info.IsDir() {
+			t.Fatalf("init should create %s: err=%v", rel, err)
+		}
+	}
+}
+
+func TestFirstLaunchAutoScaffolds(t *testing.T) {
+	// A vault that does not exist yet is scaffolded the first time a command touches it.
+	base := t.TempDir()
+	vault := filepath.Join(base, "fresh-vault")
+	if _, code := runIn(t, vault, "search", "--query", "anything"); code != 0 {
+		t.Fatalf("search on a fresh vault should succeed")
+	}
+	if info, err := os.Stat(filepath.Join(vault, "note", "assets")); err != nil || !info.IsDir() {
+		t.Fatalf("first launch should have created the vault skeleton: err=%v", err)
+	}
+}
+
 func TestAssetImportAndDir(t *testing.T) {
 	vault := t.TempDir()
 	src := filepath.Join(t.TempDir(), "Cover Image.png")

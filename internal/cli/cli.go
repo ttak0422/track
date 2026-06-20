@@ -29,6 +29,8 @@ func Run(args []string) int {
 	case "dump":
 		fmt.Printf("{\n  \"version\": %q,\n  \"entries\": []\n}\n", Version)
 		return 0
+	case "init":
+		return cmdInit(rest)
 	case "reindex":
 		return cmdReindex(rest)
 	case "doctor":
@@ -96,6 +98,7 @@ Usage:
                                         rename a note's title and rewrite its backlinks (JSON)
   track journal [--offset <n>] [--template <s>] [--body <s>]
                                         open/create a daily note
+  track init                            create the vault directory skeleton (idempotent, JSON)
   track reindex [--full]                rebuild the index
   track doctor                          report vault/sidecar divergence without changing files (JSON)
   track keywords                        dump the auto-link dictionary (JSON)
@@ -153,6 +156,13 @@ func open() (*config.Config, *store.Store, error) {
 	cfg, err := config.Load()
 	if err != nil {
 		return nil, nil, err
+	}
+	// First launch: lay down the vault skeleton when the vault directory does not exist yet. An existing
+	// vault is left to lazy per-kind creation, so this never resurrects directories a user removed.
+	if _, statErr := os.Stat(cfg.VaultDir); os.IsNotExist(statErr) {
+		if _, err := cfg.EnsureVaultSkeleton(); err != nil {
+			return nil, nil, err
+		}
 	}
 	s, err := store.Open(cfg.DBPath)
 	if err != nil {

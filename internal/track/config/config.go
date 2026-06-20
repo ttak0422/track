@@ -339,6 +339,35 @@ func (c *Config) AssetsDirForKind(kind string) string {
 	return filepath.Join(c.NoteDir(), AssetsDirName)
 }
 
+// VaultSkeleton lists the directories that make up an initialized vault: the note and journal trees
+// with their assets subdirectories, the template directory, and the sidecar metadata directory.
+func (c *Config) VaultSkeleton() []string {
+	return []string{
+		c.NoteDir(),
+		c.AssetsDirForKind(KindNote),
+		c.JournalDir(),
+		c.AssetsDirForKind(KindJournal),
+		c.TemplateDir(),
+		c.MetadataDir(),
+	}
+}
+
+// EnsureVaultSkeleton creates any missing directories of the vault layout and returns the ones it
+// created. It is idempotent: directories that already exist are left untouched.
+func (c *Config) EnsureVaultSkeleton() ([]string, error) {
+	var created []string
+	for _, dir := range c.VaultSkeleton() {
+		if _, err := os.Stat(dir); err == nil {
+			continue
+		}
+		if err := os.MkdirAll(dir, 0o755); err != nil {
+			return created, fmt.Errorf("create %s: %w", dir, err)
+		}
+		created = append(created, dir)
+	}
+	return created, nil
+}
+
 // TemplatePath returns the path for a template file with the given id.
 func (c *Config) TemplatePath(id int64) string {
 	return filepath.Join(c.TemplateDir(), strconv.FormatInt(id, 10)+".template"+c.PrimaryExt())
