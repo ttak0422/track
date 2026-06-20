@@ -91,8 +91,12 @@ require("track.action").run("note?title={{date}} E2E")
 local today = os.date("%Y%m%d")
 assert_true(vim.fn.isdirectory(action_vault .. "/note") == 1, "note action should create note dir")
 assert_true(vim.api.nvim_buf_get_name(0):match("/note/%d+%.md$") ~= nil, "note action did not open a note file")
+-- With no explicit template, creation applies the builtin "default" template (# {{ title }}).
 local note_lines = vim.api.nvim_buf_get_lines(0, 0, -1, false)
-assert_true(#note_lines == 1 and note_lines[1] == "", "note action should create an empty body: " .. vim.inspect(note_lines))
+assert_true(
+   #note_lines == 1 and note_lines[1] == "# " .. today .. " E2E",
+   "note action should apply the builtin default template: " .. vim.inspect(note_lines)
+)
 local note_resolved = run_json({ "resolve", "--term", today .. " E2E" })
 assert_true(note_resolved.found == true, "note action should write sidecar title: " .. vim.inspect(note_resolved))
 
@@ -100,8 +104,16 @@ assert_true(vim.fn.isdirectory(action_vault .. "/journal") == 0, "journal dir sh
 require("track.action").run("journal?offset=0")
 assert_true(vim.fn.isdirectory(action_vault .. "/journal") == 1, "journal action should create journal dir")
 assert_true(vim.api.nvim_buf_get_name(0):sub(-#("/journal/" .. today .. ".md")) == "/journal/" .. today .. ".md", "journal action did not open today's journal")
+-- With no explicit template, creation applies the builtin "journal" template (# {{ title }} + {{ date }}).
 local journal_lines = vim.api.nvim_buf_get_lines(0, 0, -1, false)
-assert_true(#journal_lines == 1 and journal_lines[1] == "", "journal action should create an empty body: " .. vim.inspect(journal_lines))
+local iso_date = os.date("%Y-%m-%d")
+assert_true(
+   #journal_lines == 3
+      and journal_lines[1] == "# " .. today
+      and journal_lines[2] == ""
+      and journal_lines[3] == iso_date,
+   "journal action should apply the builtin journal template: " .. vim.inspect(journal_lines)
+)
 local journal_resolved = run_json({ "resolve", "--term", today })
 assert_true(journal_resolved.found == true, "journal action should write sidecar title: " .. vim.inspect(journal_resolved))
 

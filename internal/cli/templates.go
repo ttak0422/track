@@ -213,8 +213,10 @@ func findTemplateByName(cfg *config.Config, name string) (templateRef, bool, err
 // defaultTemplateSpec returns the template to apply when a note/journal is created without an explicit
 // --template (and without an inline body). A configured default wins (config default_template /
 // journal_template, or the matching env override); otherwise a template literally named "default"
-// (notes) or "journal" (journals) is used when one exists. It returns "" when no default applies, so
-// creation falls back to an empty body as before. An explicit --template still overrides this entirely.
+// (notes) or "journal" (journals) is used when one exists, resolving a user template first and then the
+// builtin shipped with track. Because track ships builtin "default"/"journal" templates, a note/journal
+// created with nothing specified gets the builtin body by default. It returns "" only when no template
+// of that name resolves at all. An explicit --template still overrides this entirely.
 func defaultTemplateSpec(cfg *config.Config, kind string) (string, error) {
 	configured := cfg.DefaultTemplate
 	reserved := "default"
