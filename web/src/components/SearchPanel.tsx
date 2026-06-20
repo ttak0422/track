@@ -7,9 +7,13 @@ import type { SearchResult } from "../types";
 export function SearchPanel() {
   const { query, setQuery } = useSearchState();
   const debouncedQuery = useDebouncedValue(query, 180);
-  const search = useSearchQuery(debouncedQuery, 100);
+  // With no query the home should stay empty rather than listing every note, so the search only runs
+  // once something is typed.
+  const trimmedQuery = debouncedQuery.trim();
+  const hasQuery = trimmedQuery !== "";
+  const search = useSearchQuery(trimmedQuery, 100, { enabled: hasQuery });
   const navigate = useNavigate();
-  const results = search.data?.results ?? [];
+  const results = hasQuery ? (search.data?.results ?? []) : [];
   const topResult = results[0];
 
   function onKeyDown(event: React.KeyboardEvent<HTMLInputElement>) {
@@ -32,8 +36,8 @@ export function SearchPanel() {
         />
       </label>
       <div className="results" aria-live="polite">
-        {search.isPending ? <p className="muted">Loading notes...</p> : null}
-        {search.isError ? <p className="error">{search.error.message}</p> : null}
+        {hasQuery && search.isPending ? <p className="muted">Loading notes...</p> : null}
+        {hasQuery && search.isError ? <p className="error">{search.error.message}</p> : null}
         {results.map((note) => (
           <SearchResultItem key={note.note_id} note={note} />
         ))}

@@ -28,10 +28,11 @@ export function useActivityQuery(days = 14) {
   });
 }
 
-export function useSearchQuery(query: string, limit = 100) {
+export function useSearchQuery(query: string, limit = 100, options?: { enabled?: boolean }) {
   return useQuery({
     queryKey: queryKeys.search(query, limit),
     queryFn: () => searchNotes(query, limit),
+    enabled: options?.enabled ?? true,
   });
 }
 
