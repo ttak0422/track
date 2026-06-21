@@ -100,9 +100,11 @@ assert_true(
 local note_resolved = run_json({ "resolve", "--term", today .. " E2E" })
 assert_true(note_resolved.found == true, "note action should write sidecar title: " .. vim.inspect(note_resolved))
 
-assert_true(vim.fn.isdirectory(action_vault .. "/journal") == 0, "journal dir should not exist before journal action")
+-- The first track command (the note action above) scaffolds the whole vault skeleton, so the journal dir
+-- already exists here; the journal action then opens today's journal inside it.
+assert_true(vim.fn.isdirectory(action_vault .. "/journal") == 1, "first command should scaffold the journal dir")
 require("track.action").run("journal?offset=0")
-assert_true(vim.fn.isdirectory(action_vault .. "/journal") == 1, "journal action should create journal dir")
+assert_true(vim.fn.isdirectory(action_vault .. "/journal") == 1, "journal dir should still exist after journal action")
 assert_true(vim.api.nvim_buf_get_name(0):sub(-#("/journal/" .. today .. ".md")) == "/journal/" .. today .. ".md", "journal action did not open today's journal")
 -- With no explicit template, creation applies the builtin "journal" template (# {{ title }} + {{ date }}).
 local journal_lines = vim.api.nvim_buf_get_lines(0, 0, -1, false)
