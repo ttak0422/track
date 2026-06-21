@@ -264,6 +264,3 @@ The Nix-built Neovim plugin embeds the store paths of the matching `track` and `
 ## License
 
 MIT
-
-
-test
