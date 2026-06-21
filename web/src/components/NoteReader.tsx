@@ -126,7 +126,7 @@ export function NoteReader({ noteID }: NoteReaderProps) {
           ) : null}
           {editorMode !== "edit" ? (
             <section className="note-preview" aria-label="Rendered note preview">
-              <MarkdownView markdown={body} />
+              <MarkdownView markdown={body} kind={note.file_kind} />
             </section>
           ) : null}
         </div>

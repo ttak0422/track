@@ -15,14 +15,19 @@ import { useNoteQuery, useOgpQuery, useResolveQuery } from "../queries";
 // one level deeper so nested previews can stack in front of their parent.
 const PreviewDepthContext = createContext(0);
 
+// Kind ("note"/"journal") of the note being rendered, so relative "assets/<file>" references resolve to
+// the right per-kind assets directory on the server. Defaults to "note".
+const NoteKindContext = createContext<string>("note");
+
 // Base stacking order for previews; deeper levels sit in front.
 const previewBaseZIndex = 100;
 
 interface MarkdownViewProps {
   markdown: string;
+  kind?: string;
 }
 
-export function MarkdownView({ markdown }: MarkdownViewProps) {
+export function MarkdownView({ markdown, kind = "note" }: MarkdownViewProps) {
   const blocks = parseMarkdown(markdown);
 
   if (blocks.length === 0) {
@@ -30,6 +35,7 @@ export function MarkdownView({ markdown }: MarkdownViewProps) {
   }
 
   return (
+    <NoteKindContext.Provider value={kind}>
     <div className="markdown-view">
       {blocks.map((block, index) => {
         switch (block.type) {
@@ -61,6 +67,7 @@ export function MarkdownView({ markdown }: MarkdownViewProps) {
         }
       })}
     </div>
+    </NoteKindContext.Provider>
   );
 }
 
@@ -409,12 +416,23 @@ interface ExternalLinkProps {
 // render their label as plain text. Non-action links first try to resolve as track notes; otherwise
 // http(s) and domain-like links open in a new tab.
 function ExternalLink({ href, children }: ExternalLinkProps) {
+  const kind = useContext(NoteKindContext);
+  const asset = assetHref(href, kind);
   const action = href.startsWith("<") && href.endsWith(">");
-  const noteCandidate = action ? "" : noteCandidateFromHref(href);
+  const noteCandidate = action || asset ? "" : noteCandidateFromHref(href);
   const resolved = useResolveQuery(noteCandidate);
 
   if (action) {
     return <>{children}</>;
+  }
+  // A link into the vault's assets/ goes straight to the server endpoint that serves the file, rather
+  // than being resolved against the current /notes/<id> route.
+  if (asset) {
+    return (
+      <a className="md-link" href={asset} target="_blank" rel="noreferrer noopener">
+        {children}
+      </a>
+    );
   }
   if (noteCandidate !== "" && resolved.data?.found) {
     return (
@@ -467,6 +485,32 @@ function webHref(href: string): string {
   return href;
 }
 
+// assetHref maps a note-relative attachment reference ("assets/<file>", optionally written "./assets/…")
+// to the local server endpoint that serves it from the vault's per-kind assets directory. It returns
+// null for anything that is not such a reference (absolute URLs, schemes, anchors, root-absolute paths),
+// leaving those to the normal link/embed handling.
+function assetHref(src: string, kind: string): string | null {
+  const trimmed = src.trim();
+  if (
+    trimmed === "" ||
+    trimmed.startsWith("/") ||
+    trimmed.startsWith("#") ||
+    /^[a-z][a-z0-9+.-]*:/i.test(trimmed)
+  ) {
+    return null;
+  }
+  const rel = trimmed.replace(/^\.\//, "");
+  if (!rel.startsWith("assets/")) {
+    return null;
+  }
+  const name = rel.slice("assets/".length);
+  if (name === "") {
+    return null;
+  }
+  const params = new URLSearchParams({ kind: kind || "note", name });
+  return `/api/asset?${params}`;
+}
+
 interface EmbedProps {
   src: string;
   alt: string;
@@ -478,7 +522,13 @@ interface EmbedProps {
 // into noisy previews. The URL is normalized through webHref so bare domains still resolve, and only
 // http(s)/relative URLs feed an iframe so a note cannot smuggle a javascript: document into the frame.
 function Embed({ src, alt }: EmbedProps) {
-  const youtube = youtubeEmbedUrl(src);
+  const kind = useContext(NoteKindContext);
+  // A relative "assets/<file>" reference is served from the vault by the local server. Resolving it here
+  // means it is never treated as a YouTube/tweet/OGP URL and never resolved against the /notes/<id>
+  // route (which the SPA fallback would answer with index.html, rendering the app inside the embed).
+  const asset = assetHref(src, kind);
+
+  const youtube = asset ? null : youtubeEmbedUrl(src);
   if (youtube) {
     return (
       <div className="embed embed-video">
@@ -493,7 +543,7 @@ function Embed({ src, alt }: EmbedProps) {
     );
   }
 
-  const target = webHref(src);
+  const target = asset ?? webHref(src);
   if (isPdfHref(src)) {
     const safe = safeFrameUrl(target);
     if (safe) {
@@ -513,12 +563,12 @@ function Embed({ src, alt }: EmbedProps) {
     }
   }
 
-  const tweetId = tweetIdFromUrl(src);
+  const tweetId = asset ? null : tweetIdFromUrl(src);
   if (tweetId) {
     return <TweetEmbed tweetId={tweetId} url={target} alt={alt} />;
   }
 
-  if (!isImageHref(src) && /^https?:\/\//i.test(target)) {
+  if (!asset && !isImageHref(src) && /^https?:\/\//i.test(target)) {
     return <OgpCard url={target} alt={alt} />;
   }
 
@@ -848,7 +898,7 @@ function WikiPreview({ noteID, anchor, depth }: WikiPreviewProps) {
           <strong>{note.data.note.title}</strong>
           <div className="wiki-preview-body">
             <PreviewDepthContext.Provider value={depth + 1}>
-              <MarkdownView markdown={note.data.note.body} />
+              <MarkdownView markdown={note.data.note.body} kind={note.data.note.file_kind} />
             </PreviewDepthContext.Provider>
           </div>
         </>

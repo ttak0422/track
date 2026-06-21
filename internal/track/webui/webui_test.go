@@ -157,6 +157,68 @@ func TestReadReflectsExternalChange(t *testing.T) {
 	}
 }
 
+// TestAssetServesVaultFile covers /api/asset: a note's "assets/<file>" attachment must be served from
+// the vault's per-kind assets directory, not swallowed by the SPA index fallback, and traversal out of
+// that directory must be rejected.
+func TestAssetServesVaultFile(t *testing.T) {
+	cfg := &config.Config{VaultDir: t.TempDir(), DBPath: filepath.Join(t.TempDir(), "index.db"), Extensions: []string{".md"}}
+	if err := os.MkdirAll(cfg.AssetsDirForKind(config.KindNote), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	pdf := []byte("%PDF-1.4 fake pdf bytes")
+	if err := os.WriteFile(filepath.Join(cfg.AssetsDirForKind(config.KindNote), "report.pdf"), pdf, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	s, err := store.Open(cfg.DBPath)
+	if err != nil {
+		t.Fatalf("open store: %v", err)
+	}
+	t.Cleanup(func() { s.Close() })
+	server := httptest.NewServer(New(cfg, s).Handler())
+	t.Cleanup(server.Close)
+
+	resp, err := http.Get(server.URL + "/api/asset?kind=note&name=report.pdf")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("asset status = %d, want 200", resp.StatusCode)
+	}
+	if ct := resp.Header.Get("Content-Type"); !strings.HasPrefix(ct, "application/pdf") {
+		t.Fatalf("asset content-type = %q, want application/pdf", ct)
+	}
+	body, _ := io.ReadAll(resp.Body)
+	if string(body) != string(pdf) {
+		t.Fatalf("asset body = %q, want %q", string(body), string(pdf))
+	}
+
+	missing, err := http.Get(server.URL + "/api/asset?kind=note&name=nope.pdf")
+	if err != nil {
+		t.Fatal(err)
+	}
+	missing.Body.Close()
+	if missing.StatusCode != http.StatusNotFound {
+		t.Fatalf("missing asset status = %d, want 404", missing.StatusCode)
+	}
+
+	// A traversal attempt must never reach a file outside the assets directory. The leading-slash clean
+	// neutralizes "../" so the path stays inside assets/ and simply misses (404); it must not serve the
+	// secret placed at the vault root.
+	if err := os.WriteFile(filepath.Join(cfg.VaultDir, "secret.md"), []byte("top secret"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	traversal, err := http.Get(server.URL + "/api/asset?kind=note&name=" + url.QueryEscape("../../secret.md"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer traversal.Body.Close()
+	if traversal.StatusCode == http.StatusOK {
+		leaked, _ := io.ReadAll(traversal.Body)
+		t.Fatalf("traversal must not serve files outside assets/, got 200 with body %q", string(leaked))
+	}
+}
+
 func getJSON(t *testing.T, url string) map[string]any {
 	t.Helper()
 	resp, err := http.Get(url)

@@ -13,6 +13,7 @@ import (
 	"net/http"
 	"os"
 	"path"
+	"path/filepath"
 	"slices"
 	"strconv"
 	"strings"
@@ -92,6 +93,7 @@ func (s *Server) routes() {
 	s.mux.HandleFunc("/api/activity", s.handleActivity)
 	s.mux.HandleFunc("/api/resolve", s.handleResolve)
 	s.mux.HandleFunc("/api/note", s.handleNote)
+	s.mux.HandleFunc("/api/asset", s.handleAsset)
 	s.mux.HandleFunc("/api/ogp", s.handleOGP)
 	s.mux.HandleFunc("/api/graph/local", s.handleLocalGraph)
 	s.mux.HandleFunc("/api/graph", s.handleGraph)
@@ -168,6 +170,51 @@ func (s *Server) serveIndex(w http.ResponseWriter, r *http.Request) {
 	}
 	html = strings.Replace(html, "__TRACK_COLOR_OVERRIDES__", overrides, 1)
 	_, _ = w.Write([]byte(html))
+}
+
+// handleAsset serves a note's media/attachments from the vault's per-kind assets directory
+// (note/assets, journal/assets). Notes reference an attachment with the relative path "assets/<file>";
+// the frontend rewrites that to /api/asset?kind=<kind>&name=<file> so the file is served from the vault
+// instead of being resolved against the /notes/<id> route and swallowed by the SPA index fallback (an
+// embedded image/PDF would otherwise render the app inside itself). name is constrained to the assets
+// directory so a note cannot read arbitrary files via "../" traversal.
+func (s *Server) handleAsset(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet && r.Method != http.MethodHead {
+		writeError(w, fmt.Errorf("method %s not allowed", r.Method), http.StatusMethodNotAllowed)
+		return
+	}
+	name := strings.TrimSpace(r.URL.Query().Get("name"))
+	if name == "" {
+		writeError(w, errors.New("name is required"), http.StatusBadRequest)
+		return
+	}
+	dir := s.cfg.AssetsDirForKind(r.URL.Query().Get("kind"))
+	// Clean the slash path, drop any leading separator, then confirm the result stays inside the assets
+	// directory before touching the filesystem.
+	clean := strings.TrimPrefix(path.Clean("/"+name), "/")
+	full := filepath.Join(dir, filepath.FromSlash(clean))
+	rel, err := filepath.Rel(dir, full)
+	if err != nil || rel == ".." || strings.HasPrefix(rel, ".."+string(filepath.Separator)) {
+		writeError(w, errors.New("invalid asset path"), http.StatusBadRequest)
+		return
+	}
+	f, err := os.Open(full)
+	if err != nil {
+		writeError(w, errors.New("asset not found"), http.StatusNotFound)
+		return
+	}
+	defer f.Close()
+	stat, err := f.Stat()
+	if err != nil || stat.IsDir() {
+		writeError(w, errors.New("asset not found"), http.StatusNotFound)
+		return
+	}
+	if ct := mime.TypeByExtension(filepath.Ext(full)); ct != "" {
+		w.Header().Set("Content-Type", ct)
+	}
+	// Vault assets can change underneath us (an edit or a cloud sync), so they are not cached.
+	w.Header().Set("Cache-Control", "no-store")
+	http.ServeContent(w, r, stat.Name(), stat.ModTime(), f)
 }
 
 func (s *Server) handleSearch(w http.ResponseWriter, r *http.Request) {
