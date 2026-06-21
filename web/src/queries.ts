@@ -1,6 +1,7 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import {
   getActivity,
+  getAgenda,
   getGraph,
   getLocalGraph,
   getNote,
@@ -14,6 +15,7 @@ import type { NoteID, NoteResponse, SaveNoteRequest } from "./types";
 
 export const queryKeys = {
   activity: (days: number) => ["activity", days] as const,
+  agenda: (date: string) => ["agenda", date] as const,
   graph: () => ["graph"] as const,
   localGraph: (noteID: NoteID) => ["graph", "local", noteID] as const,
   note: (noteID: NoteID) => ["note", noteID] as const,
@@ -27,6 +29,14 @@ export function useActivityQuery(days = 14) {
   return useQuery({
     queryKey: queryKeys.activity(days),
     queryFn: () => getActivity(days),
+  });
+}
+
+export function useAgendaQuery(date: string, options?: { enabled?: boolean }) {
+  return useQuery({
+    queryKey: queryKeys.agenda(date),
+    queryFn: () => getAgenda(date),
+    enabled: (options?.enabled ?? true) && date !== "",
   });
 }
 

@@ -120,6 +120,50 @@ func TestAPIHandlers(t *testing.T) {
 	}
 }
 
+func TestAgendaEndpoint(t *testing.T) {
+	cfg := &config.Config{
+		VaultDir:          t.TempDir(),
+		DBPath:            filepath.Join(t.TempDir(), "index.db"),
+		Extensions:        []string{".md"},
+		DateFormat:        "2006-01-02",
+		JournalDateFormat: "20060102",
+	}
+	if err := os.MkdirAll(cfg.NoteDir(), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	// A note whose sidecar records an activity day. The server self-heals on read, indexing the on-disk
+	// note and its day, so the agenda endpoint can surface it.
+	if err := os.WriteFile(cfg.NotePath(100), []byte("body\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := note.WriteMetadata(cfg.MetadataPath(100), note.Metadata{Title: "Worked", Days: []string{"2026-06-22"}}); err != nil {
+		t.Fatal(err)
+	}
+
+	s, err := store.Open(cfg.DBPath)
+	if err != nil {
+		t.Fatalf("open store: %v", err)
+	}
+	t.Cleanup(func() { s.Close() })
+
+	server := httptest.NewServer(New(cfg, s).Handler())
+	t.Cleanup(server.Close)
+
+	agenda := getJSON(t, server.URL+"/api/agenda?date=2026-06-22")
+	if agenda["date"] != "2026-06-22" {
+		t.Fatalf("agenda echoed date = %v, want 2026-06-22", agenda["date"])
+	}
+	notes := agenda["notes"].([]any)
+	if len(notes) != 1 || notes[0].(map[string]any)["title"] != "Worked" {
+		t.Fatalf("unexpected agenda notes: %v", notes)
+	}
+
+	empty := getJSON(t, server.URL+"/api/agenda?date=2020-01-01")
+	if list, _ := empty["notes"].([]any); len(list) != 0 {
+		t.Fatalf("agenda for empty day should be empty: %v", empty["notes"])
+	}
+}
+
 // TestReadReflectsExternalChange covers a note that appears on disk without going through this server
 // (another editor's CLI, or a cloud sync that raised no filesystem event). The read-time freshness
 // check must reconcile the index so the note shows up without an explicit reindex.

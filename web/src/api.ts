@@ -1,5 +1,6 @@
 import type {
   ActivityResponse,
+  AgendaResponse,
   GraphResponse,
   NoteResponse,
   NotesResponse,
@@ -56,6 +57,10 @@ export function getActivity(days = 14): Promise<ActivityResponse> {
 
 export function resolveTerm(term: string): Promise<ResolveResponse> {
   return api<ResolveResponse>(`/api/resolve?term=${encodeURIComponent(term)}`);
+}
+
+export function getAgenda(date: string): Promise<AgendaResponse> {
+  return api<AgendaResponse>(`/api/agenda?date=${encodeURIComponent(date)}`);
 }
 
 export function getNote(noteID: number): Promise<NoteResponse> {

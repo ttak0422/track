@@ -1,9 +1,9 @@
 import { Link } from "@tanstack/react-router";
 import { FormEvent, useEffect, useRef, useState } from "react";
 import { MarkdownView } from "./MarkdownView";
-import { useNoteQuery, useSaveNoteMutation } from "../queries";
+import { useAgendaQuery, useNoteQuery, useSaveNoteMutation } from "../queries";
 import { useSearchState } from "../searchState";
-import type { NoteID } from "../types";
+import type { FileKind, NoteID } from "../types";
 
 interface NoteReaderProps {
   noteID: NoteID;
@@ -19,6 +19,9 @@ export function NoteReader({ noteID }: NoteReaderProps) {
   const noteQuery = useNoteQuery(noteID, { live: true });
   const saveNote = useSaveNoteMutation(noteID);
   const { setQuery } = useSearchState();
+  // For a journal, surface the notes worked on that day. The day comes from the journal id (yyyyMMdd).
+  const journalDate = journalDateFromNote(noteQuery.data?.note);
+  const agendaQuery = useAgendaQuery(journalDate, { enabled: journalDate !== "" });
   const [body, setBody] = useState("");
   const [copied, setCopied] = useState(false);
   const [editorMode, setEditorMode] = useState<EditorMode>(() => storedEditorMode());
@@ -144,6 +147,37 @@ export function NoteReader({ noteID }: NoteReaderProps) {
         ) : null}
       </form>
 
+      {journalDate !== "" ? (
+        <section className="backlinks" aria-labelledby="on-this-day-heading">
+          <h3 id="on-this-day-heading">On this day</h3>
+          {agendaQuery.isPending ? (
+            <p className="muted">Loading...</p>
+          ) : (
+            (() => {
+              // Exclude the journal itself so the section lists the other notes touched that day.
+              const items = (agendaQuery.data?.notes ?? []).filter((item) => item.note_id !== noteID);
+              if (items.length === 0) {
+                return <p className="muted">No notes were worked on this day.</p>;
+              }
+              return (
+                <div className="backlink-list">
+                  {items.map((item) => (
+                    <Link
+                      className="backlink"
+                      key={item.note_id}
+                      to="/notes/$noteId"
+                      params={{ noteId: String(item.note_id) }}
+                    >
+                      {item.title}
+                    </Link>
+                  ))}
+                </div>
+              );
+            })()
+          )}
+        </section>
+      ) : null}
+
       <section className="backlinks" aria-labelledby="backlinks-heading">
         <h3 id="backlinks-heading">Backlinks</h3>
         {data.backlinks.length === 0 ? (
@@ -167,6 +201,16 @@ export function NoteReader({ noteID }: NoteReaderProps) {
       </section>
     </article>
   );
+}
+
+// journalDateFromNote returns the YYYY-MM-DD a journal note is for, derived from its yyyyMMdd id, or ""
+// when the note is not a journal. Journal ids are date-addressed (see ADR 0005), so no extra lookup is
+// needed to know which day's activity to show.
+function journalDateFromNote(note?: { file_kind: FileKind; note_id: NoteID }): string {
+  if (!note || note.file_kind !== "journal") return "";
+  const id = String(note.note_id);
+  if (!/^\d{8}$/.test(id)) return "";
+  return `${id.slice(0, 4)}-${id.slice(4, 6)}-${id.slice(6, 8)}`;
 }
 
 function storedEditorMode(): EditorMode {

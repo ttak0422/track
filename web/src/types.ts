@@ -44,6 +44,11 @@ export interface ResolveResponse {
   note: NoteRef;
 }
 
+export interface AgendaResponse {
+  date: string;
+  notes: NoteRef[];
+}
+
 export interface NoteDetail extends SearchResult {
   copy_path: string;
   body: string;

@@ -91,6 +91,7 @@ func (s *Server) routes() {
 	s.mux.HandleFunc("/api/search", s.handleSearch)
 	s.mux.HandleFunc("/api/notes", s.handleNotes)
 	s.mux.HandleFunc("/api/activity", s.handleActivity)
+	s.mux.HandleFunc("/api/agenda", s.handleAgenda)
 	s.mux.HandleFunc("/api/resolve", s.handleResolve)
 	s.mux.HandleFunc("/api/note", s.handleNote)
 	s.mux.HandleFunc("/api/asset", s.handleAsset)
@@ -279,6 +280,28 @@ func (s *Server) handleActivity(w http.ResponseWriter, r *http.Request) {
 			"counts":     counts,
 		},
 	})
+}
+
+// handleAgenda lists the notes active (created or updated) on a calendar day, so a journal view can show
+// which notes were worked on that day. The date defaults to today; the format is YYYY-MM-DD.
+func (s *Server) handleAgenda(w http.ResponseWriter, r *http.Request) {
+	s.refreshIfStale()
+	date := strings.TrimSpace(r.URL.Query().Get("date"))
+	if date == "" {
+		date = localDate(time.Now()).Format("2006-01-02")
+	}
+	notes, err := s.store.NotesOnDay(date)
+	if err != nil {
+		writeError(w, err, http.StatusInternalServerError)
+		return
+	}
+	if notes == nil {
+		notes = []store.NoteRef{}
+	}
+	for i := range notes {
+		notes[i].Path = s.cfg.PathForKind(notes[i].FileKind, notes[i].NoteID)
+	}
+	writeJSON(w, map[string]any{"date": date, "notes": notes})
 }
 
 func (s *Server) handleResolve(w http.ResponseWriter, r *http.Request) {
