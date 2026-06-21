@@ -117,8 +117,12 @@ func TestNewResolveKeywordsFlow(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !strings.Contains(string(metaContent), "version: 1") || !strings.Contains(string(metaContent), "title: リンク") {
+	// Creating a note records its activity day, so the sidecar is written at version 3 with a days list.
+	if !strings.Contains(string(metaContent), "version: 3") || !strings.Contains(string(metaContent), "title: リンク") {
 		t.Fatalf("unexpected metadata content: %q", metaContent)
+	}
+	if !strings.Contains(string(metaContent), "days:") {
+		t.Fatalf("metadata should record the creation day: %q", metaContent)
 	}
 
 	kws, code := runIn(t, vault, "keywords")
@@ -261,6 +265,41 @@ func TestBacklinksAndReindex(t *testing.T) {
 	edges := g["edges"].([]any)
 	if len(nodes) != 3 || len(edges) != 2 {
 		t.Fatalf("expected local graph with 3 nodes and 2 edges, got nodes=%v edges=%v", nodes, edges)
+	}
+}
+
+func TestAgendaListsNotesByDay(t *testing.T) {
+	vault := t.TempDir()
+	created, code := runIn(t, vault, "new", "--title", "Today A")
+	if code != 0 {
+		t.Fatalf("new failed: %v", created)
+	}
+	idA := int64(created["id"].(float64))
+
+	// The default date is today, which is when the note above was created and stamped.
+	out, code := runIn(t, vault, "agenda")
+	if code != 0 {
+		t.Fatalf("agenda failed: %v", out)
+	}
+	notes, ok := out["notes"].([]any)
+	if !ok || len(notes) != 1 {
+		t.Fatalf("agenda notes = %v, want one note", out["notes"])
+	}
+	first := notes[0].(map[string]any)
+	if int64(first["note_id"].(float64)) != idA || first["title"] != "Today A" {
+		t.Fatalf("unexpected agenda note: %v", first)
+	}
+
+	// A day with no activity returns an empty list rather than an error.
+	empty, code := runIn(t, vault, "agenda", "--date", "2020-01-01")
+	if code != 0 {
+		t.Fatalf("agenda failed: %v", empty)
+	}
+	if empty["date"] != "2020-01-01" {
+		t.Fatalf("agenda echoed date = %v, want 2020-01-01", empty["date"])
+	}
+	if list, _ := empty["notes"].([]any); len(list) != 0 {
+		t.Fatalf("agenda for empty day = %v, want none", empty["notes"])
 	}
 }
 
@@ -683,8 +722,10 @@ func TestBabelExecRunsAndStores(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !strings.Contains(string(metaContent), "version: 2") || !strings.Contains(string(metaContent), "hi:") {
-		t.Fatalf("sidecar should store the block result at v2: %q", metaContent)
+	// The note also carries an activity day from creation, so its sidecar is at version 3 while still
+	// storing the babel block result.
+	if !strings.Contains(string(metaContent), "version: 3") || !strings.Contains(string(metaContent), "hi:") {
+		t.Fatalf("sidecar should store the block result: %q", metaContent)
 	}
 
 	restored, code := runIn(t, vault, "babel", "restore", "--id", "500")

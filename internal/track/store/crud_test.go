@@ -121,6 +121,46 @@ func TestDeleteNoteCascades(t *testing.T) {
 	}
 }
 
+func TestNotesOnDay(t *testing.T) {
+	s := newTestStore(t)
+	// Note 1 carries an explicit activity day list.
+	if err := s.UpsertNote(&note.Note{ID: 1, Path: "/v/1.md", Meta: note.Metadata{
+		Title: "Listed", Created: "2026-06-20", Days: []string{"2026-06-20", "2026-06-22"},
+	}}); err != nil {
+		t.Fatal(err)
+	}
+	// Note 2 predates the days field: it falls back to its created day.
+	if err := s.UpsertNote(&note.Note{ID: 2, Path: "/v/2.md", Meta: note.Metadata{
+		Title: "Fallback", Created: "2026-06-22",
+	}}); err != nil {
+		t.Fatal(err)
+	}
+
+	on22, err := s.NotesOnDay("2026-06-22")
+	if err != nil {
+		t.Fatalf("notes on day: %v", err)
+	}
+	if len(on22) != 2 || on22[0].NoteID != 1 || on22[1].NoteID != 2 {
+		t.Fatalf("NotesOnDay(2026-06-22) = %+v, want notes 1 and 2", on22)
+	}
+
+	on20, err := s.NotesOnDay("2026-06-20")
+	if err != nil {
+		t.Fatalf("notes on day: %v", err)
+	}
+	if len(on20) != 1 || on20[0].NoteID != 1 {
+		t.Fatalf("NotesOnDay(2026-06-20) = %+v, want only note 1", on20)
+	}
+
+	empty, err := s.NotesOnDay("2026-01-01")
+	if err != nil {
+		t.Fatalf("notes on day: %v", err)
+	}
+	if len(empty) != 0 {
+		t.Fatalf("NotesOnDay with no matches = %+v, want empty", empty)
+	}
+}
+
 func TestNoteMtimes(t *testing.T) {
 	s := newTestStore(t)
 	if err := s.UpsertNote(&note.Note{ID: 9, Path: "/v/9.md", Mtime: 1234, Meta: note.Metadata{Title: "t"}}); err != nil {

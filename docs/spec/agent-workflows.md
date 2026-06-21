@@ -25,6 +25,7 @@ Use titles for user-facing workflows and ids/paths for exact targets:
 - `track asset import <file> [--kind note|journal]`: copy a local file into the kind's `assets/` directory and return the `assets/<file>` reference to embed (`![alt](assets/<file>)`). `track asset dir [--kind] [--ensure]` reports the assets directory.
 - `track rename (--id N | --title X | --path P) --to Y`: change the sidecar title and rewrite backlinks.
 - `track backlinks` and `track graph`: inspect incoming links and local graph around a target.
+- `track agenda [--date YYYY-MM-DD]`: list the notes created or updated on a calendar day (default today), for "what was worked on that day" lookups. Activity days are recorded per note in the sidecar and cover both CLI mutations and direct editor edits.
 
 ## Links
 

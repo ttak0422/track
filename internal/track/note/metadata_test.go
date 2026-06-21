@@ -97,6 +97,50 @@ func TestWriteReadMetadataV2RoundTrip(t *testing.T) {
 	}
 }
 
+func TestWriteReadMetadataV3DaysRoundTrip(t *testing.T) {
+	path := filepath.Join(t.TempDir(), ".track", "notes", "1000.yaml")
+	in := Metadata{
+		Title:   "Example",
+		Created: "2026-06-20",
+		Days:    []string{"2026-06-20", "2026-06-22"},
+	}
+	if err := WriteMetadata(path, in); err != nil {
+		t.Fatalf("write metadata: %v", err)
+	}
+
+	got, found, err := ReadMetadata(path)
+	if err != nil || !found {
+		t.Fatalf("read metadata: found=%v err=%v", found, err)
+	}
+	if got.Version != MetadataVersionV3 {
+		t.Fatalf("days should bump to version 3, got %d", got.Version)
+	}
+	in.Version = MetadataVersionV3
+	if !reflect.DeepEqual(got, in) {
+		t.Fatalf("v3 metadata mismatch:\n got %+v\nwant %+v", got, in)
+	}
+}
+
+func TestEnsureDay(t *testing.T) {
+	meta := Metadata{Days: []string{"2026-06-20"}}
+
+	meta, changed := EnsureDay(meta, "2026-06-22")
+	if !changed {
+		t.Fatal("inserting a new day should report a change")
+	}
+	if _, changed := EnsureDay(meta, "2026-06-22"); changed {
+		t.Fatal("re-inserting an existing day should be a no-op")
+	}
+	// Inserting an earlier day keeps the list sorted.
+	meta, _ = EnsureDay(meta, "2026-06-19")
+	if want := []string{"2026-06-19", "2026-06-20", "2026-06-22"}; !reflect.DeepEqual(meta.Days, want) {
+		t.Fatalf("days not sorted/deduped: got %v want %v", meta.Days, want)
+	}
+	if _, changed := EnsureDay(meta, ""); changed {
+		t.Fatal("an empty day should be ignored")
+	}
+}
+
 func TestReadMetadataAbsent(t *testing.T) {
 	got, found, err := ReadMetadata(filepath.Join(t.TempDir(), ".track", "notes", "missing.yaml"))
 	if err != nil {

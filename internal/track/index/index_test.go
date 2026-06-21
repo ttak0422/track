@@ -3,6 +3,7 @@ package index
 import (
 	"os"
 	"path/filepath"
+	"slices"
 	"testing"
 	"time"
 
@@ -206,5 +207,54 @@ func TestRefreshIfStale(t *testing.T) {
 	}
 	if _, found, _ := s.ResolveTerm("Second"); found {
 		t.Fatalf("deleted note still indexed")
+	}
+}
+
+func TestActivityDaysRecorded(t *testing.T) {
+	cfg, s := setup(t)
+	ix := New(cfg, s)
+
+	// The CLI-mutation path (One) stamps today's activity day into the sidecar.
+	writeNote(t, cfg, 1, "body", note.Metadata{Title: "One"})
+	if err := ix.One(cfg.NotePath(1)); err != nil {
+		t.Fatalf("one: %v", err)
+	}
+	today := time.Now().Format(cfg.DateFormat)
+	meta, _, err := note.ReadMetadata(cfg.MetadataPath(1))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !slices.Contains(meta.Days, today) {
+		t.Fatalf("One should record today %q, got %v", today, meta.Days)
+	}
+
+	// The editor/external-edit path (RefreshIfStale) stamps the file's mtime day.
+	path := cfg.NotePath(1)
+	if err := os.WriteFile(path, []byte("edited\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	editDay := time.Date(2026, 6, 19, 12, 0, 0, 0, time.Local)
+	if err := os.Chtimes(path, editDay, editDay); err != nil {
+		t.Fatal(err)
+	}
+	if changed, err := ix.RefreshIfStale(); err != nil || !changed {
+		t.Fatalf("RefreshIfStale after edit = %v, %v; want true, nil", changed, err)
+	}
+	want := editDay.Format(cfg.DateFormat)
+	meta, _, err = note.ReadMetadata(cfg.MetadataPath(1))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !slices.Contains(meta.Days, want) {
+		t.Fatalf("RefreshIfStale should record edit day %q, got %v", want, meta.Days)
+	}
+
+	// The index exposes the note on that day for agenda lookups.
+	notes, err := s.NotesOnDay(want)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(notes) != 1 || notes[0].NoteID != 1 {
+		t.Fatalf("NotesOnDay(%q) = %+v, want note 1", want, notes)
 	}
 }

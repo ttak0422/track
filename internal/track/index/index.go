@@ -6,6 +6,7 @@ import (
 	"os"
 	"path/filepath"
 	"slices"
+	"time"
 
 	"github.com/ttak0422/track/internal/track/config"
 	"github.com/ttak0422/track/internal/track/link"
@@ -105,10 +106,51 @@ func (ix *Indexer) RefreshIfStale() (bool, error) {
 	if sameMtimes(disk, indexed) {
 		return false, nil
 	}
+	// Record the activity day on each note that was added or changed (mtime diverged) before the rebuild,
+	// so Full picks the new days into note_days. Removed ids are skipped. This is how an editor's direct
+	// body save — which never goes through a track mutation command — gets its day stamped into the sidecar.
+	changed := map[int64]int64{}
+	for id, m := range disk {
+		if im, ok := indexed[id]; !ok || im != m {
+			changed[id] = m
+		}
+	}
+	if err := ix.recordActivity(changed); err != nil {
+		return false, err
+	}
 	if _, err := ix.Full(); err != nil {
 		return false, err
 	}
 	return true, nil
+}
+
+// activityDay formats a file mtime as the local calendar day used for activity tracking, matching the
+// format Created is stamped with so day strings compare consistently across the sidecar and index.
+func (ix *Indexer) activityDay(mtime int64) string {
+	return time.Unix(mtime, 0).In(time.Local).Format(ix.cfg.DateFormat)
+}
+
+// recordActivity stamps each note's mtime day into its sidecar Days set, writing the sidecar only when the
+// day was not already recorded. Notes without a sidecar yet are skipped; Full creates one for them.
+func (ix *Indexer) recordActivity(ids map[int64]int64) error {
+	for id, mtime := range ids {
+		path := ix.cfg.MetadataPath(id)
+		meta, found, err := note.ReadMetadata(path)
+		if err != nil {
+			return err
+		}
+		if !found {
+			continue
+		}
+		updated, changed := note.EnsureDay(meta, ix.activityDay(mtime))
+		if !changed {
+			continue
+		}
+		if err := note.WriteMetadata(path, updated); err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 // scanMtimes maps note id -> file mtime (Unix seconds) for every note/journal file, mirroring how
@@ -169,6 +211,14 @@ func (ix *Indexer) One(path string) error {
 	n, err := note.ParseFile(path, ix.cfg)
 	if err != nil {
 		return err
+	}
+	// A track mutation command (new/append/toggle/journal) just wrote this file, so stamp its mtime day
+	// into the sidecar. The editor-edit path is handled separately by RefreshIfStale.
+	if meta, changed := note.EnsureDay(n.Meta, ix.activityDay(n.Mtime)); changed {
+		if err := note.WriteMetadata(ix.cfg.MetadataPath(n.ID), meta); err != nil {
+			return err
+		}
+		n.Meta = meta
 	}
 	if err := ix.store.UpsertNote(n); err != nil {
 		return err

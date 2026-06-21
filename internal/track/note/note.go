@@ -16,11 +16,15 @@ import (
 // Metadata is the structured data stored beside a note under .track/notes.
 // Created is kept as a string so YAML round-trips it verbatim instead of reformatting a time.Time.
 // Blocks holds Babel source-block results, keyed by block id; it is only present in version 2 sidecars.
+// Days is the sorted, deduplicated set of local calendar days the note was created or updated on; it lets
+// a day's journal (and a future calendar) surface which notes were worked on that day. It first appears in
+// version 3 sidecars.
 type Metadata struct {
 	Version int                        `yaml:"version"`
 	Title   string                     `yaml:"title,omitempty"`
 	Tags    []string                   `yaml:"tags,omitempty"`
 	Created string                     `yaml:"created,omitempty"`
+	Days    []string                   `yaml:"days,omitempty"`
 	Blocks  map[string]babel.BlockMeta `yaml:"blocks,omitempty"`
 }
 

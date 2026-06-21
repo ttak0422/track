@@ -63,6 +63,14 @@ func (s *Store) ensureSchema() error {
 	if version >= schemaVersion {
 		return s.ensureCompatibleIndexes()
 	}
+	// An older schema is present (version > 0): the index is a rebuildable cache, so drop the existing
+	// objects and re-apply. The emptied store is repopulated by the next RefreshIfStale -> Full, which
+	// sees no indexed mtimes and reparses every note. A fresh database (version 0) has nothing to drop.
+	if version > 0 {
+		if err := s.dropAll(); err != nil {
+			return fmt.Errorf("drop stale schema: %w", err)
+		}
+	}
 	if _, err := s.db.Exec(schemaSQL); err != nil {
 		return fmt.Errorf("apply schema: %w", err)
 	}
@@ -71,6 +79,36 @@ func (s *Store) ensureSchema() error {
 		return err
 	}
 	return s.ensureCompatibleIndexes()
+}
+
+// dropAll removes every user-defined table and view so a stale schema can be rebuilt in place. Dropping a
+// table also drops its indexes, so they need no separate handling.
+func (s *Store) dropAll() error {
+	rows, err := s.db.Query(`SELECT type, name FROM sqlite_master WHERE type IN ('table', 'view') AND name NOT LIKE 'sqlite_%'`)
+	if err != nil {
+		return err
+	}
+	type object struct{ kind, name string }
+	var objects []object
+	for rows.Next() {
+		var o object
+		if err := rows.Scan(&o.kind, &o.name); err != nil {
+			rows.Close()
+			return err
+		}
+		objects = append(objects, o)
+	}
+	if err := rows.Err(); err != nil {
+		rows.Close()
+		return err
+	}
+	rows.Close()
+	for _, o := range objects {
+		if _, err := s.db.Exec(fmt.Sprintf("DROP %s IF EXISTS %q", o.kind, o.name)); err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 func (s *Store) ensureCompatibleIndexes() error {

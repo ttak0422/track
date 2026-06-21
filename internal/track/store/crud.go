@@ -55,6 +55,24 @@ func (s *Store) UpsertNote(n *note.Note) error {
 		}
 	}
 
+	if _, err := tx.Exec(`DELETE FROM note_days WHERE note_id = ?`, n.ID); err != nil {
+		return err
+	}
+	// Days is the authoritative activity record from the sidecar. A sidecar predating the days field has
+	// none yet, so fall back to its created day so the note still surfaces on the day it was made.
+	days := n.Meta.Days
+	if len(days) == 0 && n.Meta.Created != "" {
+		days = []string{n.Meta.Created}
+	}
+	for _, d := range days {
+		if d == "" {
+			continue
+		}
+		if _, err := tx.Exec(`INSERT OR IGNORE INTO note_days (note_id, day) VALUES (?, ?)`, n.ID, d); err != nil {
+			return err
+		}
+	}
+
 	return tx.Commit()
 }
 
@@ -134,6 +152,21 @@ func (s *Store) Backlinks(id int64) ([]NoteRef, error) {
 		 FROM links l JOIN notes n ON n.id = l.src_id
 		 WHERE l.dst_id = ? ORDER BY n.id`,
 		id,
+	)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	return scanNoteRefs(rows)
+}
+
+// NotesOnDay returns the notes active (created or updated) on the given local calendar day, ordered by id.
+func (s *Store) NotesOnDay(day string) ([]NoteRef, error) {
+	rows, err := s.db.Query(
+		`SELECT n.id, n.kind, n.title
+		 FROM note_days d JOIN notes n ON n.id = d.note_id
+		 WHERE d.day = ? ORDER BY n.id`,
+		day,
 	)
 	if err != nil {
 		return nil, err

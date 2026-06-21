@@ -111,22 +111,26 @@ the metadata path is:
 <vault>/.track/notes/1000.yaml
 ```
 
-Version 1 metadata:
+Metadata example:
 
 ```yaml
-version: 1
+version: 3
 title: リンク
 tags:
   - zettel
 created: 2026-05-24
+days:
+  - 2026-05-24
+  - 2026-06-22
 ```
 
 Fields:
 
-- `version`: metadata schema version. Required for new writes.
+- `version`: metadata schema version. Required for new writes. The version is the newest schema any present field needs: a sidecar carrying Babel block results is at least v2, and one carrying `days` is at least v3.
 - `title`: note title and the link keyword. This sidecar field is authoritative.
 - `tags`: note tags.
 - `created`: creation date string. The current format is `YYYY-MM-DD`.
+- `days`: sorted, deduplicated set of local calendar days the note was created or updated on (`YYYY-MM-DD`). A day is stamped whenever the note is touched: a track mutation command stamps it via single-note reindex, and a direct editor/external edit is stamped during the mtime-divergence scan in `RefreshIfStale`. This is the authoritative activity record used by `track agenda` to answer "which notes were worked on that day". Sidecars predating the field have no `days`; the index then falls back to `created` so the note still appears on the day it was made.
 
 Readers reject unsupported metadata versions.
 If a sidecar is missing, the current parser can still read the legacy trailing `<!--track ... -->` metadata block for compatibility, but new writes must use sidecar metadata.
@@ -142,16 +146,19 @@ It can be rebuilt from markdown note files and sidecar metadata.
 The indexer scans supported note files recursively under the vault, excluding hidden directories such as `.track`.
 SQLite `PRAGMA user_version` stores the database schema version and is independent from sidecar metadata versions.
 
-Schema version 1 contains:
+Schema version 2 contains:
 
 - `notes`: note id, file kind, title, created date, and mtime.
 - `tags`: tags for each note.
 - `links`: computed directed links between notes.
+- `note_days`: the activity days each note was created or updated on.
 - `keywords`: a view over note titles.
 
 The index uses WAL mode and foreign keys. It intentionally does not cache note paths or bodies: paths are derived from file kind plus note id, and body search reads markdown files directly.
 
-### Schema Version 1
+Because the index is a rebuildable cache, a schema bump needs no migration: when `Open` finds an older `user_version`, it drops the existing tables and views and re-applies the schema in place. The emptied store is repopulated by the next `RefreshIfStale` → full reindex, which reparses every note and sidecar.
+
+### Schema Version 2
 
 ```sql
 CREATE TABLE notes (
@@ -176,6 +183,13 @@ CREATE TABLE links (
 );
 CREATE INDEX idx_links_dst ON links(dst_id);
 
+CREATE TABLE note_days (
+  note_id INTEGER NOT NULL REFERENCES notes(id) ON DELETE CASCADE,
+  day     TEXT NOT NULL,
+  PRIMARY KEY (note_id, day)
+);
+CREATE INDEX idx_note_days_day ON note_days(day);
+
 CREATE VIEW keywords AS
   SELECT title AS term, id AS note_id, 'title' AS kind FROM notes WHERE title <> '';
 ```
@@ -189,6 +203,7 @@ Column notes:
 - `notes.mtime`: note file modification time as a Unix timestamp. It is kept for future change detection and incremental reindexing.
 - `tags.note_id`: metadata rows attached to a note. They are replaced on note upsert.
 - `links.src_id` and `links.dst_id`: computed directed note links. Self-links are ignored by the writer.
+- `note_days.day`: one local calendar day the note was active, mirrored from the sidecar `days` field and replaced on note upsert. When a sidecar has no `days` yet, the upsert falls back to its `created` day so the note still surfaces on the day it was made.
 - `keywords`: convenience view used by keyword dumping, resolution, and `[[...]]` link highlighting.
 
 ## Deletion
@@ -202,7 +217,7 @@ Because a full reindex deletes the sidecars of notes whose markdown is gone, run
 
 The vault and cache hold two very different kinds of data:
 
-- `.track/notes/<id>.yaml` are the **authoritative** per-note metadata sidecars. The markdown body is content only; `title`, `tags`, `created`, and Babel block results live in the sidecar and cannot be reconstructed from the `.md` file.
+- `.track/notes/<id>.yaml` are the **authoritative** per-note metadata sidecars. The markdown body is content only; `title`, `tags`, `created`, `days`, and Babel block results live in the sidecar and cannot be reconstructed from the `.md` file.
 - `.track/renames.yaml` is repair history for manual title edits. It can improve unresolved-link quickfixes, but it is not used for normal link resolution.
 - The SQLite index under the cache directory is **rebuildable**. The notes on disk are the source of truth; `track reindex --full` deletes the cache database and regenerates it from them. Deleting it is safe.
 

@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 
 	"gopkg.in/yaml.v3"
@@ -15,8 +16,10 @@ const (
 	CurrentMetadataVersion = 1
 	// MetadataVersionV2 adds Babel source-block results under blocks.
 	MetadataVersionV2 = 2
+	// MetadataVersionV3 adds the activity day list under days.
+	MetadataVersionV3 = 3
 	// MaxMetadataVersion is the newest schema this build can read and write.
-	MaxMetadataVersion = MetadataVersionV2
+	MaxMetadataVersion = MetadataVersionV3
 )
 
 func supportedVersion(v int) bool {
@@ -42,13 +45,16 @@ func ReadMetadata(path string) (meta Metadata, found bool, err error) {
 }
 
 // WriteMetadata writes a note's versioned sidecar metadata, creating the containing .track/notes directory when needed.
-// Sidecars stay at version 1 until they carry Babel block results, which require version 2.
+// Sidecars stay at version 1 until they carry Babel block results (version 2) or activity days (version 3).
 func WriteMetadata(path string, meta Metadata) error {
 	if meta.Version == 0 {
 		meta.Version = CurrentMetadataVersion
 	}
 	if len(meta.Blocks) > 0 && meta.Version < MetadataVersionV2 {
 		meta.Version = MetadataVersionV2
+	}
+	if len(meta.Days) > 0 && meta.Version < MetadataVersionV3 {
+		meta.Version = MetadataVersionV3
 	}
 	if !supportedVersion(meta.Version) {
 		return fmt.Errorf("unsupported metadata version %d", meta.Version)
@@ -61,6 +67,21 @@ func WriteMetadata(path string, meta Metadata) error {
 		return err
 	}
 	return os.WriteFile(path, out, 0o644)
+}
+
+// EnsureDay returns meta with day recorded in its sorted, deduplicated Days set, and reports whether
+// that changed anything. An empty day is ignored. Callers persist the result with WriteMetadata only
+// when changed is true, so re-indexing an unchanged note never rewrites its sidecar.
+func EnsureDay(meta Metadata, day string) (Metadata, bool) {
+	if day == "" {
+		return meta, false
+	}
+	i, found := slices.BinarySearch(meta.Days, day)
+	if found {
+		return meta, false
+	}
+	meta.Days = slices.Insert(meta.Days, i, day)
+	return meta, true
 }
 
 // SplitLegacyFootmatter strips the old trailing HTML-comment metadata block from a note body.

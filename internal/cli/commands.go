@@ -852,6 +852,46 @@ func cmdBacklinks(args []string) int {
 	return emit(map[string]any{"backlinks": back})
 }
 
+// cmdAgenda lists the notes active (created or updated) on a given local calendar day, derived from the
+// activity days recorded in each note's sidecar. It powers "what did I work on that day" lookups from a
+// day's journal and, later, a calendar.
+func cmdAgenda(args []string) int {
+	fs := flag.NewFlagSet("agenda", flag.ContinueOnError)
+	date := fs.String("date", "", "calendar day (default: today)")
+	if err := fs.Parse(args); err != nil {
+		return fail("parse args: %v", err)
+	}
+
+	cfg, s, err := open()
+	if err != nil {
+		return fail("%v", err)
+	}
+	defer s.Close()
+
+	// Self-heal before reading so an editor's direct save (recorded into the sidecar by RefreshIfStale)
+	// is reflected in today's agenda.
+	if _, err := index.New(cfg, s).RefreshIfStale(); err != nil {
+		return fail("refresh index: %v", err)
+	}
+
+	day := *date
+	if day == "" {
+		day = time.Now().Format(cfg.DateFormat)
+	}
+
+	notes, err := s.NotesOnDay(day)
+	if err != nil {
+		return fail("agenda: %v", err)
+	}
+	if notes == nil {
+		notes = []store.NoteRef{}
+	}
+	for i := range notes {
+		notes[i].Path = cfg.PathForKind(notes[i].FileKind, notes[i].NoteID)
+	}
+	return emit(map[string]any{"date": day, "notes": notes})
+}
+
 func cmdGraph(args []string) int {
 	fs := flag.NewFlagSet("graph", flag.ContinueOnError)
 	id := fs.Int64("id", 0, "note id")

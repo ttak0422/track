@@ -1,6 +1,7 @@
 package store
 
 import (
+	"database/sql"
 	"path/filepath"
 	"testing"
 )
@@ -68,6 +69,53 @@ func TestOpenAppliesSchema(t *testing.T) {
 	}
 	if version != schemaVersion {
 		t.Fatalf("user_version = %d, want %d", version, schemaVersion)
+	}
+}
+
+func TestOpenRebuildsStaleSchema(t *testing.T) {
+	dbPath := filepath.Join(t.TempDir(), "index.db")
+
+	// Simulate an older schema (no note_days table) stamped with an earlier user_version, holding a row.
+	raw, err := sql.Open("sqlite", dbPath)
+	if err != nil {
+		t.Fatalf("open raw: %v", err)
+	}
+	if _, err := raw.Exec(`CREATE TABLE notes (id INTEGER PRIMARY KEY, kind TEXT, title TEXT, created TEXT, mtime INTEGER);
+		INSERT INTO notes (id, kind, title) VALUES (1, 'note', 'Old');
+		PRAGMA user_version = 1;`); err != nil {
+		t.Fatalf("seed old schema: %v", err)
+	}
+	if err := raw.Close(); err != nil {
+		t.Fatalf("close raw: %v", err)
+	}
+
+	// Open must rebuild in place rather than fail on the pre-existing notes table.
+	s, err := Open(dbPath)
+	if err != nil {
+		t.Fatalf("open over stale schema: %v", err)
+	}
+	defer s.Close()
+
+	// The new note_days table exists and the stale row was dropped (the cache is rebuilt from disk later).
+	var name string
+	if err := s.db.QueryRow(
+		"SELECT name FROM sqlite_master WHERE type='table' AND name='note_days'",
+	).Scan(&name); err != nil {
+		t.Fatalf("note_days table not found after rebuild: %v", err)
+	}
+	var version int
+	if err := s.db.QueryRow("PRAGMA user_version").Scan(&version); err != nil {
+		t.Fatalf("user_version: %v", err)
+	}
+	if version != schemaVersion {
+		t.Fatalf("user_version = %d, want %d", version, schemaVersion)
+	}
+	var count int
+	if err := s.db.QueryRow("SELECT COUNT(*) FROM notes").Scan(&count); err != nil {
+		t.Fatalf("count notes: %v", err)
+	}
+	if count != 0 {
+		t.Fatalf("rebuilt notes table should be empty, got %d rows", count)
 	}
 }
 
