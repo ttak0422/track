@@ -447,6 +447,17 @@ local function attach(buf)
       end
    end, { buffer = buf, desc = "track: hover note link" })
 
+   -- User hook for a freshly attached track note buffer. It runs once per buffer, after the built-in
+   -- keymaps, so a config can add buffer-local mappings (e.g. point a references key at Track backlinks,
+   -- which lists by title instead of the epoch filename) without writing its own LspAttach autocmd. A
+   -- failing hook is reported but must not abort the rest of the buffer setup (link-render autocmds).
+   if config.options.on_attach then
+      local ok, err = pcall(config.options.on_attach, buf)
+      if not ok then
+         vim.notify("track: on_attach failed: " .. tostring(err), vim.log.levels.ERROR)
+      end
+   end
+
    local group = vim.api.nvim_create_augroup(config.options.augroup .. "_lsp_buf_" .. buf, { clear = true })
    vim.api.nvim_create_autocmd("LspAttach", {
       group = group,

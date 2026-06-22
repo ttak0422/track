@@ -142,8 +142,16 @@ It only acts on track notes: a request is served only for a supported note file 
 require("track").setup({
   -- Optional: overrides config.yml for this Neovim setup.
   vault_dir = "/path/to/vault",
+  -- Optional: runs once per track note buffer as on_attach(buf), after the built-in <CR>/K maps.
+  -- The place for buffer-local keymaps that should apply only to vault notes.
+  on_attach = function(buf)
+    vim.keymap.set("n", "grr", require("track.backlinks").show,
+      { buffer = buf, desc = "track: references (backlinks)" })
+  end,
 })
 ```
+
+`on_attach` fires only for markdown under the vault (a `track-lsp` buffer), so it is the precise hook for note-only mappings without a manual `LspAttach` autocmd. The example above points a references key at `:Track backlinks`: the server answers `textDocument/references` with bare locations, which a quickfix lists by the opaque epoch filename (and a quickfix formatter such as nvim-pqf renders its own filename column, ignoring the title), whereas `:Track backlinks` lists by note title. Pointing your references key at it (per buffer) is the recommended way to read references with titles.
 
 Commands:
 

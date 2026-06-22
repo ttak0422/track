@@ -107,6 +107,10 @@ M.defaults = {
    babel_hl_header = "TrackBabelHeader",
    babel_hl_result = "TrackBabelResult",
    babel_hl_error = "TrackBabelError",
+   -- Optional hook run once per track note buffer right after it attaches, as on_attach(buf). The place
+   -- for buffer-local keymaps (e.g. mapping a references key to require("track.backlinks").show). Left
+   -- unset by default; a nil table value is omitted, so it is documented here rather than assigned.
+   -- on_attach = nil,
 }
 
 M.options = vim.deepcopy(M.defaults)
