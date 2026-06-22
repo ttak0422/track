@@ -2,43 +2,49 @@ import { useMemo } from "react";
 import { useDebouncedValue } from "../hooks/useDebouncedValue";
 import { useGraphQuery } from "../queries";
 import { useSearchState } from "../searchState";
-import type { Graph } from "../types";
+import type { Graph, NoteID } from "../types";
 import { GraphCanvas } from "./GraphCanvas";
 
 // Renders the whole-vault graph as a non-interactive background decoration. While the home search box
-// has a query, the graph narrows to the matching notes in real time (debounced) so typing visibly
-// filters the constellation. GraphCanvas re-fits whenever the graph it receives changes, and edges to
-// dropped nodes are pruned for us, so filtering the node list here is enough.
+// has a query, the matching notes light up (debounced) and the rest dim in place — the constellation
+// keeps its shape instead of dropping nodes, so typing highlights rather than hides.
 export function GraphBackground() {
   const globalGraph = useGraphQuery(true);
   const { query } = useSearchState();
   const debouncedQuery = useDebouncedValue(query, 180);
   const graph = globalGraph.data?.graph;
 
-  const filtered = useMemo(() => filterGraph(graph, debouncedQuery), [graph, debouncedQuery]);
+  const highlightIds = useMemo(() => matchingIds(graph, debouncedQuery), [graph, debouncedQuery]);
 
-  if (!filtered) {
+  if (!graph) {
     return null;
   }
 
   return (
     <div className="graph-background" aria-hidden="true">
-      <GraphCanvas graph={filtered} resetToken={0} onSelect={() => {}} decorative />
+      <GraphCanvas
+        graph={graph}
+        resetToken={0}
+        onSelect={() => {}}
+        decorative
+        highlightIds={highlightIds}
+      />
     </div>
   );
 }
 
-// filterGraph keeps only nodes whose title matches the query (case-insensitive). An empty query returns
-// the original graph unchanged so the full constellation shows. Returns the same reference when there is
-// nothing to filter, keeping GraphCanvas from re-seeding on every render.
-function filterGraph(graph: Graph | undefined, query: string): Graph | undefined {
-  if (!graph) {
-    return undefined;
-  }
+// matchingIds returns the ids of nodes whose title matches the query (case-insensitive), or null for an
+// empty query so the canvas draws every node normally instead of dimming the unmatched ones.
+function matchingIds(graph: Graph | undefined, query: string): ReadonlySet<NoteID> | null {
   const term = query.trim().toLowerCase();
-  if (term === "") {
-    return graph;
+  if (!graph || term === "") {
+    return null;
   }
-  const nodes = graph.nodes.filter((node) => node.title.toLowerCase().includes(term));
-  return { ...graph, nodes };
+  const ids = new Set<NoteID>();
+  for (const node of graph.nodes) {
+    if (node.title.toLowerCase().includes(term)) {
+      ids.add(node.note_id);
+    }
+  }
+  return ids;
 }

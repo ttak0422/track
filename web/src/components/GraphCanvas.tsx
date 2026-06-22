@@ -7,6 +7,9 @@ interface GraphCanvasProps {
   resetToken: number;
   // Background decoration: draw nodes/edges only, no labels or interaction.
   decorative?: boolean;
+  // When set, only these nodes are drawn at full strength (accent); the rest dim in place. null draws
+  // every node normally. Used by the home search to highlight matches without dropping the others.
+  highlightIds?: ReadonlySet<NoteID> | null;
 }
 
 interface SimNode extends GraphNode {
@@ -42,7 +45,13 @@ interface DragState {
   node?: SimNode;
 }
 
-export function GraphCanvas({ graph, onSelect, resetToken, decorative = false }: GraphCanvasProps) {
+export function GraphCanvas({
+  graph,
+  onSelect,
+  resetToken,
+  decorative = false,
+  highlightIds = null,
+}: GraphCanvasProps) {
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
   const nodesRef = useRef<SimNode[]>([]);
   const edgesRef = useRef<SimEdge[]>([]);
@@ -57,9 +66,11 @@ export function GraphCanvas({ graph, onSelect, resetToken, decorative = false }:
   const userAdjustedRef = useRef(false);
   const graphRef = useRef(graph);
   const onSelectRef = useRef(onSelect);
+  const highlightRef = useRef<ReadonlySet<NoteID> | null>(highlightIds);
   const [size, setSize] = useState({ width: 1, height: 1 });
 
   onSelectRef.current = onSelect;
+  highlightRef.current = highlightIds;
 
   useEffect(() => {
     const canvas = canvasRef.current;
@@ -98,6 +109,11 @@ export function GraphCanvas({ graph, onSelect, resetToken, decorative = false }:
     viewRef.current = fitGraphView(size);
     drawGraph(size);
   }, [resetToken]);
+
+  // Recolor in place when the highlight set changes (a settled graph is not otherwise redrawing).
+  useEffect(() => {
+    drawGraph(size);
+  }, [highlightIds]);
 
   function initializeGraph(nextGraph: Graph) {
     const graphNodes = nextGraph.nodes || [];
@@ -266,35 +282,48 @@ export function GraphCanvas({ graph, onSelect, resetToken, decorative = false }:
     ctx.scale(view.scale, view.scale);
     ctx.font = `${Math.floor((12 * ratio) / view.scale)}px system-ui, sans-serif`;
     ctx.lineWidth = (1 * ratio) / view.scale;
-    ctx.globalAlpha = 0.62;
     ctx.strokeStyle = css("--line");
 
+    // When a search is active, highlight holds the matching node ids; matched nodes (and edges between
+    // them) stay strong while the rest dim in place instead of being removed from the graph.
+    const highlight = highlightRef.current;
     edgesRef.current.forEach((edge) => {
+      if (highlight) {
+        const linked = highlight.has(edge.source.note_id) && highlight.has(edge.target.note_id);
+        ctx.globalAlpha = linked ? 0.55 : 0.1;
+      } else {
+        ctx.globalAlpha = 0.62;
+      }
       ctx.beginPath();
       ctx.moveTo(edge.source.x * ratio, edge.source.y * ratio);
       ctx.lineTo(edge.target.x * ratio, edge.target.y * ratio);
       ctx.stroke();
     });
 
-    ctx.globalAlpha = 0.9;
     const showLabels = view.scale >= 0.4;
     nodesRef.current.forEach((node) => {
       const center = node.center || node.note_id === graph.center_id;
+      const matched = !highlight || highlight.has(node.note_id);
       const base = center ? 10 : 6;
       const radius = ((base + Math.min(8, Math.sqrt(node.degree) * 2)) * ratio) / view.scale;
       const x = node.x * ratio;
       const y = node.y * ratio;
+      ctx.globalAlpha = matched ? 0.92 : 0.18;
       ctx.beginPath();
       ctx.arc(x, y, radius, 0, Math.PI * 2);
-      ctx.fillStyle = center
-        ? css("--accent")
-        : css("--panel-soft");
-      ctx.strokeStyle = center ? css("--accent-strong") : css("--muted");
+      if (highlight && matched) {
+        // Light the matches up with the accent so they read as the search result, not just the center.
+        ctx.fillStyle = css("--accent");
+        ctx.strokeStyle = css("--accent-strong");
+      } else {
+        ctx.fillStyle = center ? css("--accent") : css("--panel-soft");
+        ctx.strokeStyle = center ? css("--accent-strong") : css("--muted");
+      }
       ctx.fill();
       ctx.stroke();
 
       const hovered = node.note_id === hoverRef.current;
-      if (!decorative && (showLabels || center || node.degree >= 5 || hovered)) {
+      if (!decorative && (showLabels || center || node.degree >= 5 || hovered || (highlight && matched))) {
         const label = trim(node.title || `#${node.note_id}`, 20);
         const fontPx = (12 * ratio) / view.scale;
         const padX = (5 * ratio) / view.scale;
