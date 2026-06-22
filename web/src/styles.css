@@ -898,12 +898,75 @@ button {
   gap: 6px;
 }
 
-.embed-pdf iframe {
+.embed-pdf:focus-visible {
+  outline: 2px solid var(--accent, #4c8bf5);
+  outline-offset: 2px;
+  border-radius: 8px;
+}
+
+.pdf-deck-stage {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  position: relative;
   width: 100%;
-  height: min(70vh, 720px);
+  min-height: 120px;
+  padding: 8px;
   border: 1px solid var(--line);
   border-radius: 8px;
   background: var(--panel-soft);
+  cursor: pointer;
+}
+
+.pdf-deck-canvas {
+  display: block;
+  max-width: 100%;
+  border-radius: 4px;
+  box-shadow: 0 1px 6px rgba(0, 0, 0, 0.18);
+}
+
+.pdf-deck-loading {
+  position: absolute;
+  font-size: 0.9em;
+  color: var(--muted, #888);
+}
+
+.pdf-deck-bar {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.pdf-deck-nav {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 28px;
+  padding: 0;
+  font-size: 1.1em;
+  line-height: 1;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  background: var(--panel-soft);
+  color: inherit;
+  cursor: pointer;
+}
+
+.pdf-deck-nav:disabled {
+  opacity: 0.4;
+  cursor: default;
+}
+
+.pdf-deck-count {
+  font-size: 0.9em;
+  color: var(--muted, #888);
+  font-variant-numeric: tabular-nums;
+}
+
+.pdf-deck-open {
+  margin-left: auto;
+  font-size: 0.9em;
 }
 
 .embed-fallback {

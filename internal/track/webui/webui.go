@@ -66,6 +66,14 @@ func (s *Server) refreshIfStale() {
 	}
 }
 
+// The frontend ships an ES-module web worker (pdf.js) as a .mjs asset. Browsers only run a module
+// worker when it is served with a JavaScript MIME type, but Go's mime table lacks a .mjs entry on some
+// platforms (e.g. a Linux host with no /etc/mime.types), where it would default to no Content-Type and
+// the worker would fail to start. Register it here so the type is deterministic across hosts.
+func init() {
+	_ = mime.AddExtensionType(".mjs", "text/javascript; charset=utf-8")
+}
+
 func New(cfg *config.Config, s *store.Store) *Server {
 	srv := &Server{cfg: cfg, store: s, mux: http.NewServeMux(), events: newEventHub()}
 	// A palette is a best-effort cosmetic override; a bad file must not take the workspace down, so we

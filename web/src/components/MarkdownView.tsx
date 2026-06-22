@@ -10,6 +10,7 @@ import {
 } from "react";
 import { parseInline, parseMarkdown, type InlinePart } from "../markdown";
 import { useNoteQuery, useOgpQuery, useResolveQuery } from "../queries";
+import { PdfDeck } from "./PdfDeck";
 
 // Nesting depth of the current markdown render. Each preview renders its body
 // one level deeper so nested previews can stack in front of their parent.
@@ -517,7 +518,7 @@ interface EmbedProps {
 }
 
 // Embed renders a standalone ![alt](src), routing by the kind of target: YouTube links become an
-// inline player, PDFs an inline viewer, image URLs an <img>, and any other http(s) page an Open Graph
+// inline player, PDFs a slide-deck viewer, image URLs an <img>, and any other http(s) page an Open Graph
 // card. Embedding stays opt-in via the ![...]() syntax so ordinary [text](url) links are never turned
 // into noisy previews. The URL is normalized through webHref so bare domains still resolve, and only
 // http(s)/relative URLs feed an iframe so a note cannot smuggle a javascript: document into the frame.
@@ -547,19 +548,7 @@ function Embed({ src, alt }: EmbedProps) {
   if (isPdfHref(src)) {
     const safe = safeFrameUrl(target);
     if (safe) {
-      return (
-        <div className="embed embed-pdf">
-          <iframe src={safe} title={alt || "PDF document"} loading="lazy" />
-          <a
-            className="md-link embed-fallback"
-            href={safe}
-            target="_blank"
-            rel="noreferrer noopener"
-          >
-            {alt || "Open PDF"}
-          </a>
-        </div>
-      );
+      return <PdfDeck src={safe} alt={alt} />;
     }
   }
 
