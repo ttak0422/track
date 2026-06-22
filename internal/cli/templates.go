@@ -1,33 +1,12 @@
 package cli
 
 import (
-	"crypto/sha256"
-	"encoding/hex"
 	"flag"
-	"fmt"
-	"os"
-	"path/filepath"
-	"regexp"
-	"slices"
-	"strconv"
 	"strings"
-	"time"
 
 	"github.com/ttak0422/track/internal/track/config"
+	tmpl "github.com/ttak0422/track/internal/track/template"
 )
-
-type templateRef struct {
-	ID          int64  `json:"id"`
-	Name        string `json:"name"`
-	Path        string `json:"path"`
-	ContentHash string `json:"content_hash"`
-	Builtin     bool   `json:"builtin,omitempty"`
-}
-
-type templateData struct {
-	ref  templateRef
-	body string
-}
 
 func cmdTemplate(args []string) int {
 	if len(args) == 0 {
@@ -56,7 +35,7 @@ func cmdTemplateNew(args []string) int {
 	if err != nil {
 		return fail("%v", err)
 	}
-	t, err := createTemplate(cfg, strings.TrimSpace(*name), *id, false)
+	t, err := tmpl.Create(cfg, strings.TrimSpace(*name), *id, false)
 	if err != nil {
 		return fail("%v", err)
 	}
@@ -77,12 +56,12 @@ func cmdTemplateOpen(args []string) int {
 	if n == "" {
 		return fail("--name is required")
 	}
-	if t, found, err := findTemplateByName(cfg, n); err != nil {
+	if t, found, err := tmpl.FindByName(cfg, n); err != nil {
 		return fail("find template: %v", err)
 	} else if found {
 		return emit(map[string]any{"id": t.ID, "name": t.Name, "path": t.Path, "created": false})
 	}
-	t, err := createTemplate(cfg, n, 0, false)
+	t, err := tmpl.Create(cfg, n, 0, false)
 	if err != nil {
 		return fail("%v", err)
 	}
@@ -98,265 +77,16 @@ func cmdTemplateList(args []string) int {
 	if err != nil {
 		return fail("%v", err)
 	}
-	templates, err := listTemplates(cfg)
+	templates, err := tmpl.List(cfg)
 	if err != nil {
 		return fail("list templates: %v", err)
 	}
 	if templates == nil {
-		templates = []templateRef{}
+		templates = []tmpl.Ref{}
 	}
 	return emit(map[string]any{"templates": templates})
 }
 
 func flagSet(name string) *flag.FlagSet {
 	return flag.NewFlagSet(name, flag.ContinueOnError)
-}
-
-func createTemplate(cfg *config.Config, name string, id int64, overwrite bool) (templateRef, error) {
-	if name == "" {
-		return templateRef{}, fmt.Errorf("--name is required")
-	}
-	if _, found, err := findTemplateByName(cfg, name); err != nil {
-		return templateRef{}, err
-	} else if found {
-		return templateRef{}, fmt.Errorf("template already exists for name %q", name)
-	}
-	var err error
-	if id == 0 {
-		id, err = freeTemplateID(cfg, time.Now())
-		if err != nil {
-			return templateRef{}, err
-		}
-	}
-	path := cfg.TemplatePath(id)
-	if !overwrite {
-		if _, err := os.Stat(path); err == nil {
-			return templateRef{}, fmt.Errorf("template already exists: %s", path)
-		}
-	}
-	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
-		return templateRef{}, fmt.Errorf("create template dir: %v", err)
-	}
-	body := defaultTemplateBody(name)
-	if err := os.WriteFile(path, []byte(body), 0o644); err != nil {
-		return templateRef{}, fmt.Errorf("write template: %v", err)
-	}
-	return templateRef{ID: id, Name: name, Path: path, ContentHash: contentHash(body)}, nil
-}
-
-func defaultTemplateBody(name string) string {
-	return fmt.Sprintf("<!-- track-template\nname: %s\n-->\n# {{ title }}\n", name)
-}
-
-func freeTemplateID(cfg *config.Config, t time.Time) (int64, error) {
-	for id := t.Unix() * 1000; ; id++ {
-		_, err := os.Stat(cfg.TemplatePath(id))
-		if os.IsNotExist(err) {
-			return id, nil
-		}
-		if err != nil {
-			return 0, err
-		}
-	}
-}
-
-func listTemplates(cfg *config.Config) ([]templateRef, error) {
-	entries, err := os.ReadDir(cfg.TemplateDir())
-	if err != nil {
-		if os.IsNotExist(err) {
-			return []templateRef{}, nil
-		}
-		return nil, err
-	}
-	var out []templateRef
-	for _, entry := range entries {
-		if entry.IsDir() || !strings.HasSuffix(entry.Name(), ".template"+cfg.PrimaryExt()) {
-			continue
-		}
-		id, err := templateIDFromName(entry.Name(), cfg)
-		if err != nil {
-			continue
-		}
-		t, err := readTemplate(cfg.TemplatePath(id))
-		if err != nil {
-			return nil, err
-		}
-		out = append(out, t.ref)
-	}
-	slices.SortFunc(out, func(a, b templateRef) int {
-		return strings.Compare(a.Name, b.Name)
-	})
-	return out, nil
-}
-
-func findTemplateByName(cfg *config.Config, name string) (templateRef, bool, error) {
-	templates, err := listTemplates(cfg)
-	if err != nil {
-		return templateRef{}, false, err
-	}
-	var found *templateRef
-	for i := range templates {
-		if templates[i].Name != name {
-			continue
-		}
-		if found != nil {
-			return templateRef{}, false, fmt.Errorf("template name %q is ambiguous", name)
-		}
-		found = &templates[i]
-	}
-	if found == nil {
-		return templateRef{}, false, nil
-	}
-	return *found, true, nil
-}
-
-// defaultTemplateSpec returns the template to apply when a note/journal is created without an explicit
-// --template (and without an inline body). A configured default wins (config default_template /
-// journal_template, or the matching env override); otherwise a template literally named "default"
-// (notes) or "journal" (journals) is used when one exists, resolving a user template first and then the
-// builtin shipped with track. Because track ships builtin "default"/"journal" templates, a note/journal
-// created with nothing specified gets the builtin body by default. It returns "" only when no template
-// of that name resolves at all. An explicit --template still overrides this entirely.
-func defaultTemplateSpec(cfg *config.Config, kind string) (string, error) {
-	configured := cfg.DefaultTemplate
-	reserved := "default"
-	if kind == config.KindJournal {
-		configured = cfg.JournalTemplate
-		reserved = "journal"
-	}
-	if strings.TrimSpace(configured) != "" {
-		return strings.TrimSpace(configured), nil
-	}
-	if found, err := templateNameExists(cfg, reserved); err != nil {
-		return "", err
-	} else if found {
-		return reserved, nil
-	}
-	return "", nil
-}
-
-// templateNameExists reports whether a template resolves for name, as a user template or a builtin.
-func templateNameExists(cfg *config.Config, name string) (bool, error) {
-	if _, found, err := findTemplateByName(cfg, name); err != nil || found {
-		return found, err
-	}
-	_, found, err := builtinTemplateByName(name)
-	return found, err
-}
-
-func resolveTemplate(cfg *config.Config, spec string) (templateData, error) {
-	spec = strings.TrimSpace(spec)
-	if spec == "" {
-		return templateData{}, fmt.Errorf("template is required")
-	}
-	if looksLikeTemplatePath(spec, cfg) {
-		path := spec
-		if !filepath.IsAbs(path) {
-			path = filepath.Join(cfg.VaultDir, path)
-		}
-		return readTemplate(path)
-	}
-	ref, found, err := findTemplateByName(cfg, spec)
-	if err != nil {
-		return templateData{}, err
-	}
-	if found {
-		return readTemplate(ref.Path)
-	}
-	// Fall back to a builtin shipped with track. A user template of the same name was resolved above,
-	// so it takes precedence.
-	if t, found, err := builtinTemplateByName(spec); err != nil {
-		return templateData{}, err
-	} else if found {
-		return t, nil
-	}
-	return templateData{}, fmt.Errorf("template %q not found", spec)
-}
-
-func looksLikeTemplatePath(spec string, cfg *config.Config) bool {
-	return strings.ContainsAny(spec, `/\`) || strings.HasSuffix(spec, ".template"+cfg.PrimaryExt())
-}
-
-func readTemplate(path string) (templateData, error) {
-	raw, err := os.ReadFile(path)
-	if err != nil {
-		return templateData{}, err
-	}
-	body := string(raw)
-	id, err := templateIDFromName(filepath.Base(path), &config.Config{Extensions: []string{filepath.Ext(path)}})
-	if err != nil {
-		return templateData{}, err
-	}
-	name, content, err := splitTemplateDirective(body)
-	if err != nil {
-		return templateData{}, fmt.Errorf("%s: %w", path, err)
-	}
-	return templateData{
-		ref:  templateRef{ID: id, Name: name, Path: path, ContentHash: contentHash(body)},
-		body: content,
-	}, nil
-}
-
-func templateIDFromName(name string, cfg *config.Config) (int64, error) {
-	suffix := ".template" + cfg.PrimaryExt()
-	stem := strings.TrimSuffix(name, suffix)
-	if stem == name {
-		return 0, fmt.Errorf("not a template filename: %s", name)
-	}
-	return strconv.ParseInt(stem, 10, 64)
-}
-
-func splitTemplateDirective(body string) (name string, content string, err error) {
-	const open = "<!-- track-template"
-	const close = "-->"
-	if !strings.HasPrefix(body, open) {
-		return "", "", fmt.Errorf("missing track-template directive")
-	}
-	rest := strings.TrimPrefix(body, open)
-	i := strings.Index(rest, close)
-	if i < 0 {
-		return "", "", fmt.Errorf("unterminated track-template directive")
-	}
-	for _, line := range strings.Split(rest[:i], "\n") {
-		key, value, ok := strings.Cut(strings.TrimSpace(line), ":")
-		if !ok {
-			continue
-		}
-		if strings.TrimSpace(key) == "name" {
-			name = strings.TrimSpace(value)
-		}
-	}
-	if name == "" {
-		return "", "", fmt.Errorf("track-template directive requires name")
-	}
-	return name, strings.TrimLeft(rest[i+len(close):], "\r\n"), nil
-}
-
-var templateVar = regexp.MustCompile(`\{\{\s*(title|id|date|kind|parent)\s*\}\}`)
-
-// renderTemplate expands a template body. parent is the title of the note the creation was triggered
-// from (e.g. an action link's source note); it is empty when there is no such context, in which case
-// {{ parent }} renders as an empty string.
-func renderTemplate(cfg *config.Config, templateSpec string, title string, id int64, kind, parent string, now time.Time) (string, error) {
-	t, err := resolveTemplate(cfg, templateSpec)
-	if err != nil {
-		return "", err
-	}
-	values := map[string]string{
-		"title":  title,
-		"id":     strconv.FormatInt(id, 10),
-		"date":   now.Format(cfg.DateFormat),
-		"kind":   kind,
-		"parent": parent,
-	}
-	rendered := templateVar.ReplaceAllStringFunc(t.body, func(match string) string {
-		key := strings.TrimSpace(strings.TrimSuffix(strings.TrimPrefix(match, "{{"), "}}"))
-		return values[key]
-	})
-	return rendered, nil
-}
-
-func contentHash(body string) string {
-	sum := sha256.Sum256([]byte(body))
-	return "sha256:" + hex.EncodeToString(sum[:])
 }

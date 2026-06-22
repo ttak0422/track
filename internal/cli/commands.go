@@ -20,6 +20,7 @@ import (
 	"github.com/ttak0422/track/internal/track/note"
 	trackrename "github.com/ttak0422/track/internal/track/rename"
 	"github.com/ttak0422/track/internal/track/store"
+	tmpl "github.com/ttak0422/track/internal/track/template"
 	"github.com/ttak0422/track/internal/track/webui"
 )
 
@@ -286,14 +287,14 @@ func createTitledNote(cfg *config.Config, s *store.Store, noteID int64, title st
 	body := ""
 	effectiveTemplate := strings.TrimSpace(template)
 	if effectiveTemplate == "" && strings.TrimSpace(extraBody) == "" {
-		def, err := defaultTemplateSpec(cfg, config.KindNote)
+		def, err := tmpl.DefaultSpec(cfg, config.KindNote)
 		if err != nil {
 			return nil, fmt.Errorf("resolve default template: %v", err)
 		}
 		effectiveTemplate = def
 	}
 	if effectiveTemplate != "" {
-		rendered, err := renderTemplate(cfg, effectiveTemplate, title, noteID, config.KindNote, parent, time.Now())
+		rendered, err := tmpl.Render(cfg, effectiveTemplate, title, noteID, config.KindNote, parent, time.Now())
 		if err != nil {
 			return nil, fmt.Errorf("render template: %v", err)
 		}
@@ -346,14 +347,14 @@ func cmdJournal(args []string) int {
 		CreateBody: func(name string, id int64, d time.Time) (string, error) {
 			effectiveTemplate := strings.TrimSpace(*template)
 			if effectiveTemplate == "" && strings.TrimSpace(body) == "" {
-				def, err := defaultTemplateSpec(cfg, config.KindJournal)
+				def, err := tmpl.DefaultSpec(cfg, config.KindJournal)
 				if err != nil {
 					return "", err
 				}
 				effectiveTemplate = def
 			}
 			if effectiveTemplate != "" {
-				return renderTemplate(cfg, effectiveTemplate, name, id, config.KindJournal, "", d)
+				return tmpl.Render(cfg, effectiveTemplate, name, id, config.KindJournal, "", d)
 			}
 			return body, nil
 		},
