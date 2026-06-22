@@ -203,7 +203,7 @@ Column notes:
 - `notes.mtime`: note file modification time as a Unix timestamp. It is kept for future change detection and incremental reindexing.
 - `tags.note_id`: metadata rows attached to a note. They are replaced on note upsert.
 - `links.src_id` and `links.dst_id`: computed directed note links. Self-links are ignored by the writer.
-- `note_days.day`: one local calendar day the note was active, mirrored from the sidecar `days` field and replaced on note upsert. When a sidecar has no `days` yet, the upsert falls back to its `created` day so the note still surfaces on the day it was made.
+- `note_days.day`: one local calendar day the note was active, mirrored from the sidecar `days` field and replaced on note upsert. When a sidecar has no `days` yet, the upsert falls back to its `created` day so the note still surfaces on the day it was made. Journals (the daily note and the month/year summary journals) contribute no rows: activity tracks real notes worked on, so a day's journal does not count as activity on the days it is opened. The `agenda` query and the web activity heatmap read from this table and so exclude journals.
 - `keywords`: convenience view used by keyword dumping, resolution, and `[[...]]` link highlighting.
 
 ## Deletion
