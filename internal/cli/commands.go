@@ -341,9 +341,10 @@ func cmdJournal(args []string) int {
 	defer s.Close()
 
 	day := time.Now().AddDate(0, 0, *offset)
-	// The journal engine owns file/sidecar/index/summaries; the CLI keeps template policy by rendering the
-	// creation body here (honoring an explicit --template, --body, or the configured/builtin default).
-	res, err := journal.Open(cfg, s, day, journal.Options{
+	// The journal engine owns file/sidecar/summaries; the CLI keeps template policy by rendering the
+	// creation body here (honoring an explicit --template, --body, or the configured/builtin default) and
+	// indexes whatever the engine reports as changed.
+	res, err := journal.Open(cfg, day, journal.Options{
 		CreateBody: func(name string, id int64, d time.Time) (string, error) {
 			effectiveTemplate := strings.TrimSpace(*template)
 			if effectiveTemplate == "" && strings.TrimSpace(body) == "" {
@@ -361,6 +362,12 @@ func cmdJournal(args []string) int {
 	})
 	if err != nil {
 		return fail("journal: %v", err)
+	}
+	ix := index.New(cfg, s)
+	for _, p := range res.Reindex {
+		if err := ix.One(p); err != nil {
+			return fail("index journal: %v", err)
+		}
 	}
 	if !res.Created && strings.TrimSpace(body) != "" {
 		// The journal existed already; content flags only apply on creation. Point to append so the

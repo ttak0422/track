@@ -25,6 +25,7 @@ import (
 	"github.com/ttak0422/track/internal/track/journal"
 	"github.com/ttak0422/track/internal/track/note"
 	"github.com/ttak0422/track/internal/track/store"
+	tmpl "github.com/ttak0422/track/internal/track/template"
 )
 
 type Server struct {
@@ -338,10 +339,28 @@ func (s *Server) handleJournal(w http.ResponseWriter, r *http.Request) {
 		}
 		day = t
 	}
-	res, err := journal.Open(s.cfg, s.store, day, journal.Options{})
+	res, err := journal.Open(s.cfg, day, journal.Options{
+		CreateBody: func(name string, id int64, d time.Time) (string, error) {
+			spec, err := tmpl.DefaultSpec(s.cfg, config.KindJournal)
+			if err != nil {
+				return "", err
+			}
+			if spec == "" {
+				return "", nil
+			}
+			return tmpl.Render(s.cfg, spec, name, id, config.KindJournal, "", d)
+		},
+	})
 	if err != nil {
 		writeError(w, err, http.StatusInternalServerError)
 		return
+	}
+	ix := index.New(s.cfg, s.store)
+	for _, p := range res.Reindex {
+		if err := ix.One(p); err != nil {
+			writeError(w, err, http.StatusInternalServerError)
+			return
+		}
 	}
 	writeJSON(w, map[string]any{"note_id": res.NoteID, "created": res.Created})
 }
