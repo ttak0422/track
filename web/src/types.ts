@@ -49,6 +49,11 @@ export interface AgendaResponse {
   notes: NoteRef[];
 }
 
+export interface JournalResponse {
+  note_id: NoteID;
+  created: boolean;
+}
+
 export interface NoteDetail extends SearchResult {
   copy_path: string;
   body: string;

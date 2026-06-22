@@ -2,6 +2,7 @@ import type {
   ActivityResponse,
   AgendaResponse,
   GraphResponse,
+  JournalResponse,
   NoteResponse,
   NotesResponse,
   OgpResponse,
@@ -62,6 +63,12 @@ export function resolveTerm(term: string): Promise<ResolveResponse> {
 
 export function getAgenda(date: string): Promise<AgendaResponse> {
   return api<AgendaResponse>(`/api/agenda?date=${encodeURIComponent(date)}`);
+}
+
+// openJournal opens or creates the journal for a day and returns its note id, so the activity heatmap
+// can jump straight to that day's journal.
+export function openJournal(date: string): Promise<JournalResponse> {
+  return api<JournalResponse>(`/api/journal?date=${encodeURIComponent(date)}`, { method: "POST" });
 }
 
 export function getNote(noteID: number): Promise<NoteResponse> {

@@ -22,6 +22,7 @@ import (
 
 	"github.com/ttak0422/track/internal/track/config"
 	"github.com/ttak0422/track/internal/track/index"
+	"github.com/ttak0422/track/internal/track/journal"
 	"github.com/ttak0422/track/internal/track/note"
 	"github.com/ttak0422/track/internal/track/store"
 )
@@ -92,6 +93,7 @@ func (s *Server) routes() {
 	s.mux.HandleFunc("/api/notes", s.handleNotes)
 	s.mux.HandleFunc("/api/activity", s.handleActivity)
 	s.mux.HandleFunc("/api/agenda", s.handleAgenda)
+	s.mux.HandleFunc("/api/journal", s.handleJournal)
 	s.mux.HandleFunc("/api/resolve", s.handleResolve)
 	s.mux.HandleFunc("/api/note", s.handleNote)
 	s.mux.HandleFunc("/api/asset", s.handleAsset)
@@ -317,6 +319,31 @@ func (s *Server) handleAgenda(w http.ResponseWriter, r *http.Request) {
 		notes[i].Path = s.cfg.PathForKind(notes[i].FileKind, notes[i].NoteID)
 	}
 	writeJSON(w, map[string]any{"date": date, "notes": notes})
+}
+
+// handleJournal opens or creates the journal for a day and returns its note id, letting the activity
+// heatmap navigate to that day's journal. The day defaults to today; date is YYYY-MM-DD. Web-created
+// journals start empty (their date is the note's title); the CLI applies its template engine.
+func (s *Server) handleJournal(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		writeError(w, fmt.Errorf("method %s not allowed", r.Method), http.StatusMethodNotAllowed)
+		return
+	}
+	day := localDate(time.Now())
+	if raw := strings.TrimSpace(r.URL.Query().Get("date")); raw != "" {
+		t, err := time.ParseInLocation("2006-01-02", raw, time.Local)
+		if err != nil {
+			writeError(w, fmt.Errorf("invalid date %q", raw), http.StatusBadRequest)
+			return
+		}
+		day = t
+	}
+	res, err := journal.Open(s.cfg, s.store, day, journal.Options{})
+	if err != nil {
+		writeError(w, err, http.StatusInternalServerError)
+		return
+	}
+	writeJSON(w, map[string]any{"note_id": res.NoteID, "created": res.Created})
 }
 
 func (s *Server) handleResolve(w http.ResponseWriter, r *http.Request) {

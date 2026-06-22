@@ -164,6 +164,38 @@ func TestAgendaEndpoint(t *testing.T) {
 	}
 }
 
+func TestJournalEndpointCreatesAndReopens(t *testing.T) {
+	cfg := &config.Config{
+		VaultDir:          t.TempDir(),
+		DBPath:            filepath.Join(t.TempDir(), "index.db"),
+		Extensions:        []string{".md"},
+		DateFormat:        "2006-01-02",
+		JournalDateFormat: "20060102",
+	}
+	s, err := store.Open(cfg.DBPath)
+	if err != nil {
+		t.Fatalf("open store: %v", err)
+	}
+	t.Cleanup(func() { s.Close() })
+
+	server := httptest.NewServer(New(cfg, s).Handler())
+	t.Cleanup(server.Close)
+
+	created := postJSON(t, server.URL+"/api/journal?date=2026-06-22")
+	if created["created"] != true || created["note_id"].(float64) != 20260622 {
+		t.Fatalf("unexpected journal create response: %v", created)
+	}
+	if _, err := os.Stat(cfg.JournalPath("20260622")); err != nil {
+		t.Fatalf("journal file not created: %v", err)
+	}
+
+	// Clicking the same day again is idempotent: it reopens rather than recreating.
+	reopened := postJSON(t, server.URL+"/api/journal?date=2026-06-22")
+	if reopened["created"] != false || reopened["note_id"].(float64) != 20260622 {
+		t.Fatalf("unexpected journal reopen response: %v", reopened)
+	}
+}
+
 // TestReadReflectsExternalChange covers a note that appears on disk without going through this server
 // (another editor's CLI, or a cloud sync that raised no filesystem event). The read-time freshness
 // check must reconcile the index so the note shows up without an explicit reindex.
@@ -272,6 +304,23 @@ func getJSON(t *testing.T, url string) map[string]any {
 	defer resp.Body.Close()
 	if resp.StatusCode != http.StatusOK {
 		t.Fatalf("get %s status = %d", url, resp.StatusCode)
+	}
+	var decoded map[string]any
+	if err := json.NewDecoder(resp.Body).Decode(&decoded); err != nil {
+		t.Fatalf("decode %s: %v", url, err)
+	}
+	return decoded
+}
+
+func postJSON(t *testing.T, url string) map[string]any {
+	t.Helper()
+	resp, err := http.Post(url, "application/json", nil)
+	if err != nil {
+		t.Fatalf("post %s: %v", url, err)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("post %s status = %d", url, resp.StatusCode)
 	}
 	var decoded map[string]any
 	if err := json.NewDecoder(resp.Body).Decode(&decoded); err != nil {

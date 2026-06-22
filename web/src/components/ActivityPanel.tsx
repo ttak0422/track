@@ -1,4 +1,6 @@
+import { useNavigate } from "@tanstack/react-router";
 import { useEffect, useRef, useState } from "react";
+import { openJournal } from "../api";
 import { useActivityQuery } from "../queries";
 
 const cellWidth = 9;
@@ -16,8 +18,20 @@ export function ActivityPanel({ variant = "sidebar" }: ActivityPanelProps) {
   const until = dateKey(new Date());
   const since = dateKey(daysAgo(visibleDays - 1));
   const activity = useActivityQuery(since, until);
+  const navigate = useNavigate();
   const className = `activity-panel activity-panel-${variant}`;
   const isHome = variant === "home";
+
+  // Clicking a day opens (creating if needed) that day's journal and navigates to it, so the heatmap is
+  // the entry point to a day's work log.
+  async function openDay(date: string) {
+    try {
+      const { note_id } = await openJournal(date);
+      navigate({ to: "/notes/$noteId", params: { noteId: String(note_id) } });
+    } catch {
+      // Surfacing a toast is out of scope; a failed open simply leaves the user on the current view.
+    }
+  }
 
   useEffect(() => {
     const panel = panelRef.current;
@@ -81,13 +95,15 @@ export function ActivityPanel({ variant = "sidebar" }: ActivityPanelProps) {
         {dates.map((date) => {
           const count = counts.get(date) ?? 0;
           return (
-            <time
+            <button
+              type="button"
               className="activity-cell"
               data-level={activityLevel(count)}
               data-date={date}
               data-count={count}
-              dateTime={date}
               key={date}
+              aria-label={`${date}: ${count} ${contributionLabel(count)} — open journal`}
+              onClick={() => openDay(date)}
               onMouseEnter={() => setHovered({ date, count })}
               onMouseLeave={() => setHovered(null)}
               title={
