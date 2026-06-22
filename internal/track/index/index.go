@@ -213,12 +213,16 @@ func (ix *Indexer) One(path string) error {
 		return err
 	}
 	// A track mutation command (new/append/toggle/journal) just wrote this file, so stamp its mtime day
-	// into the sidecar. The editor-edit path is handled separately by RefreshIfStale.
-	if meta, changed := note.EnsureDay(n.Meta, ix.activityDay(n.Mtime)); changed {
-		if err := note.WriteMetadata(ix.cfg.MetadataPath(n.ID), meta); err != nil {
-			return err
+	// into the sidecar. The editor-edit path is handled separately by RefreshIfStale. Journals carry no
+	// activity day: their note_days rows are excluded anyway (see store.UpsertNote), so stamping would
+	// only write dead metadata.
+	if n.Kind != "journal" {
+		if meta, changed := note.EnsureDay(n.Meta, ix.activityDay(n.Mtime)); changed {
+			if err := note.WriteMetadata(ix.cfg.MetadataPath(n.ID), meta); err != nil {
+				return err
+			}
+			n.Meta = meta
 		}
-		n.Meta = meta
 	}
 	if err := ix.store.UpsertNote(n); err != nil {
 		return err

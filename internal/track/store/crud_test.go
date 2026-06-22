@@ -135,13 +135,19 @@ func TestNotesOnDay(t *testing.T) {
 	}}); err != nil {
 		t.Fatal(err)
 	}
+	// A journal active that day must NOT count as activity: journals are excluded from note_days.
+	if err := s.UpsertNote(&note.Note{ID: 20260622, Kind: "journal", Path: "/v/journal/20260622.md", Meta: note.Metadata{
+		Title: "20260622", Created: "2026-06-22", Days: []string{"2026-06-22"},
+	}}); err != nil {
+		t.Fatal(err)
+	}
 
 	on22, err := s.NotesOnDay("2026-06-22")
 	if err != nil {
 		t.Fatalf("notes on day: %v", err)
 	}
 	if len(on22) != 2 || on22[0].NoteID != 1 || on22[1].NoteID != 2 {
-		t.Fatalf("NotesOnDay(2026-06-22) = %+v, want notes 1 and 2", on22)
+		t.Fatalf("NotesOnDay(2026-06-22) = %+v, want notes 1 and 2 (journal excluded)", on22)
 	}
 
 	on20, err := s.NotesOnDay("2026-06-20")
