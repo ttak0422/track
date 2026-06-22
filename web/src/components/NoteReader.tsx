@@ -147,58 +147,63 @@ export function NoteReader({ noteID }: NoteReaderProps) {
         ) : null}
       </form>
 
-      {journalDate !== "" ? (
-        <section className="backlinks" aria-labelledby="on-this-day-heading">
-          <h3 id="on-this-day-heading">On this day</h3>
-          {agendaQuery.isPending ? (
-            <p className="muted">Loading...</p>
+      {/* Backlinks (references) sit on the left and a journal's "On this day" on the right, so the two
+          share the reader's width instead of stacking. With only Backlinks (a non-journal note) the
+          single column grows to full width, and both wrap to a stack when the reader is narrow. */}
+      <div className="note-aside">
+        <section className="backlinks" aria-labelledby="backlinks-heading">
+          <h3 id="backlinks-heading">Backlinks</h3>
+          {data.backlinks.length === 0 ? (
+            <p className="muted">No backlinks.</p>
           ) : (
-            (() => {
-              // Exclude the journal itself so the section lists the other notes touched that day.
-              const items = (agendaQuery.data?.notes ?? []).filter((item) => item.note_id !== noteID);
-              if (items.length === 0) {
-                return <p className="muted">No notes were worked on this day.</p>;
-              }
-              return (
-                <div className="backlink-list">
-                  {items.map((item) => (
-                    <Link
-                      className="backlink"
-                      key={item.note_id}
-                      to="/notes/$noteId"
-                      params={{ noteId: String(item.note_id) }}
-                    >
-                      {item.title}
-                    </Link>
-                  ))}
-                </div>
-              );
-            })()
+            // Cap the height so a heavily linked note does not push the rest of the page away; the list
+            // scrolls past that point.
+            <div className="backlink-list">
+              {data.backlinks.map((backlink) => (
+                <Link
+                  className="backlink"
+                  key={backlink.note_id}
+                  to="/notes/$noteId"
+                  params={{ noteId: String(backlink.note_id) }}
+                >
+                  {backlink.title}
+                </Link>
+              ))}
+            </div>
           )}
         </section>
-      ) : null}
 
-      <section className="backlinks" aria-labelledby="backlinks-heading">
-        <h3 id="backlinks-heading">Backlinks</h3>
-        {data.backlinks.length === 0 ? (
-          <p className="muted">No backlinks.</p>
-        ) : (
-          // Cap the height so a heavily linked note does not push the rest of the page away; the list
-          // scrolls past that point.
-          <div className="backlink-list">
-            {data.backlinks.map((backlink) => (
-              <Link
-                className="backlink"
-                key={backlink.note_id}
-                to="/notes/$noteId"
-                params={{ noteId: String(backlink.note_id) }}
-              >
-                {backlink.title}
-              </Link>
-            ))}
-          </div>
-        )}
-      </section>
+        {journalDate !== "" ? (
+          <section className="backlinks" aria-labelledby="on-this-day-heading">
+            <h3 id="on-this-day-heading">On this day</h3>
+            {agendaQuery.isPending ? (
+              <p className="muted">Loading...</p>
+            ) : (
+              (() => {
+                // Exclude the journal itself so the section lists the other notes touched that day.
+                const items = (agendaQuery.data?.notes ?? []).filter((item) => item.note_id !== noteID);
+                if (items.length === 0) {
+                  return <p className="muted">No notes were worked on this day.</p>;
+                }
+                return (
+                  <div className="backlink-list">
+                    {items.map((item) => (
+                      <Link
+                        className="backlink"
+                        key={item.note_id}
+                        to="/notes/$noteId"
+                        params={{ noteId: String(item.note_id) }}
+                      >
+                        {item.title}
+                      </Link>
+                    ))}
+                  </div>
+                );
+              })()
+            )}
+          </section>
+        ) : null}
+      </div>
     </article>
   );
 }

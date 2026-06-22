@@ -1337,6 +1337,18 @@ button {
   background: color-mix(in srgb, var(--accent) 16%, transparent);
 }
 
+.note-aside {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 16px 32px;
+  align-items: flex-start;
+}
+
+.note-aside > .backlinks {
+  flex: 1 1 280px;
+  min-width: 0;
+}
+
 .backlinks {
   border-top: 1px solid var(--line);
   padding-top: 16px;
