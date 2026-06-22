@@ -162,6 +162,16 @@ function M.setup()
       end
    end, { desc = "Show notes that link to the current note" })
 
+   register("on_this_day", function()
+      -- Telescope gives a title-led picker with preview; quickfix keeps the
+      -- command useful in minimal Neovim installations.
+      if pcall(require, "telescope") then
+         require("track.telescope").on_this_day()
+      else
+         require("track.on_this_day").show()
+      end
+   end, { desc = "Show notes worked on the current daily journal's date" })
+
    register("links", function()
       require("track.links").show()
    end, { desc = "Show links from the current note" })

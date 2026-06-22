@@ -159,6 +159,7 @@ Commands:
                        " search note bodies with Telescope
 :Track follow          " follow the [[...]] link under the cursor (also mapped to <CR>)
 :Track backlinks       " show notes that link to the current note (Telescope when available, else quickfix); listed by title, not the epoch filename
+:Track on_this_day     " from a daily journal, show notes worked on that date (Telescope when available, else quickfix)
 :Track links           " show links from the current note in quickfix
 :Track graph           " show a local note graph around the current note
 :Track web [addr]      " start the local web workspace and open it in a browser
