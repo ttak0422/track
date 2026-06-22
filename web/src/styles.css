@@ -181,6 +181,32 @@ button {
   transform: rotate(45deg);
 }
 
+.rail-icon-journal {
+  border: 2px solid currentColor;
+  border-radius: 3px;
+}
+
+.rail-icon-journal::before {
+  content: "";
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  height: 4px;
+  border-bottom: 2px solid currentColor;
+}
+
+.rail-icon-journal::after {
+  content: "";
+  position: absolute;
+  left: 4px;
+  top: 9px;
+  width: 4px;
+  height: 4px;
+  background: currentColor;
+  border-radius: 1px;
+}
+
 .sidebar-content {
   flex: 1 1 auto;
   min-width: 0;

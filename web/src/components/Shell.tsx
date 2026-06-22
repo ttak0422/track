@@ -1,17 +1,34 @@
-import { Link, Outlet, useRouterState } from "@tanstack/react-router";
+import { Link, Outlet, useNavigate, useRouterState } from "@tanstack/react-router";
 import { useState } from "react";
 import { GraphBackground } from "./GraphBackground";
 import { GraphPanel } from "./GraphPanel";
 import { KMark } from "./Logo";
 import { SearchPanel } from "./SearchPanel";
 import { ThemeMenu } from "./ThemeMenu";
+import { openJournal } from "../api";
 import { useLiveEvents } from "../hooks/useLiveEvents";
 import { SearchProvider } from "../searchState";
 
 export function Shell() {
   const [sidebarCollapsed, setSidebarCollapsed] = useState(true);
   const isHome = useRouterState({ select: (state) => state.location.pathname === "/" });
+  const navigate = useNavigate();
   useLiveEvents();
+
+  // Open (creating if needed) today's journal and jump to it, mirroring how the activity heatmap opens a
+  // day. The local-time YYYY-MM-DD key matches the journal id the server derives from the date.
+  async function openTodayJournal() {
+    const now = new Date();
+    const date = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}-${String(
+      now.getDate(),
+    ).padStart(2, "0")}`;
+    try {
+      const { note_id } = await openJournal(date);
+      navigate({ to: "/notes/$noteId", params: { noteId: String(note_id) } });
+    } catch {
+      // A failed open simply leaves the user on the current view.
+    }
+  }
 
   return (
     <SearchProvider>
@@ -36,6 +53,15 @@ export function Shell() {
             <Link className="rail-button" to="/" aria-label="Home" title="Home">
               <span className="rail-icon rail-icon-home" aria-hidden="true" />
             </Link>
+            <button
+              className="rail-button"
+              type="button"
+              aria-label="Today's journal"
+              title="Today's journal"
+              onClick={openTodayJournal}
+            >
+              <span className="rail-icon rail-icon-journal" aria-hidden="true" />
+            </button>
           </nav>
           <div className="sidebar-content">
             <header className="brand">
