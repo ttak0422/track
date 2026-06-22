@@ -94,16 +94,22 @@ export function ActivityPanel({ variant = "sidebar" }: ActivityPanelProps) {
       <div className="activity-grid" aria-label={`Recent ${visibleDays} day activity`}>
         {dates.map((date) => {
           const count = counts.get(date) ?? 0;
+          // A day with activity has a journal (ensured when its notes were created/edited), so the cell
+          // opens it. An empty day has nothing to open and offers no creation path; it stays hoverable
+          // (to read its 0 count) but is not actionable.
+          const active = count > 0;
           return (
             <button
               type="button"
               className="activity-cell"
               data-level={activityLevel(count)}
+              data-empty={active ? undefined : ""}
               data-date={date}
               data-count={count}
               key={date}
-              aria-label={`${date}: ${count} ${contributionLabel(count)} — open journal`}
-              onClick={() => openDay(date)}
+              aria-label={active ? `${date}: ${count} ${contributionLabel(count)} — open journal` : `${date}: no activity`}
+              tabIndex={active ? undefined : -1}
+              onClick={active ? () => openDay(date) : undefined}
               onMouseEnter={() => setHovered({ date, count })}
               onMouseLeave={() => setHovered(null)}
               title={

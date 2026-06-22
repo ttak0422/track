@@ -518,6 +518,10 @@ button {
   cursor: pointer;
 }
 
+.activity-cell[data-empty] {
+  cursor: default;
+}
+
 .activity-cell:hover {
   outline: 1px solid var(--accent-strong);
   outline-offset: 1px;
