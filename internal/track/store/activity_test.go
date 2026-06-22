@@ -2,27 +2,27 @@ package store
 
 import (
 	"testing"
-	"time"
 
 	"github.com/ttak0422/track/internal/track/note"
 )
 
-func TestActivitySinceGroupsByLocalDay(t *testing.T) {
+func TestNoteActivityRange(t *testing.T) {
 	s := newTestStore(t)
-	day1 := time.Date(2026, 6, 10, 10, 0, 0, 0, time.Local)
-	day2 := time.Date(2026, 6, 11, 9, 0, 0, 0, time.Local)
+	// Two notes active on 2026-06-10, one on 2026-06-11, and one outside the queried window.
 	for _, n := range []*note.Note{
-		{ID: 100, Mtime: day1.Unix(), Meta: note.Metadata{Title: "A"}},
-		{ID: 200, Mtime: day1.Add(2 * time.Hour).Unix(), Meta: note.Metadata{Title: "B"}},
-		{ID: 300, Mtime: day2.Unix(), Meta: note.Metadata{Title: "C"}},
-		{ID: 400, Mtime: day1.AddDate(0, 0, -3).Unix(), Meta: note.Metadata{Title: "Old"}},
+		{ID: 100, Meta: note.Metadata{Title: "A", Days: []string{"2026-06-10"}}},
+		{ID: 200, Meta: note.Metadata{Title: "B", Days: []string{"2026-06-10", "2026-06-11"}}},
+		{ID: 300, Meta: note.Metadata{Title: "C", Days: []string{"2026-06-11"}}},
+		{ID: 400, Meta: note.Metadata{Title: "Old", Days: []string{"2026-06-01"}}},
+		// A journal active in-window must not count: journals are excluded from note_days.
+		{ID: 20260610, Kind: "journal", Meta: note.Metadata{Title: "20260610", Days: []string{"2026-06-10"}}},
 	} {
 		if err := s.UpsertNote(n); err != nil {
 			t.Fatalf("upsert %d: %v", n.ID, err)
 		}
 	}
 
-	got, err := s.ActivitySince(day1)
+	got, err := s.NoteActivityRange("2026-06-10", "2026-06-11")
 	if err != nil {
 		t.Fatalf("activity: %v", err)
 	}
@@ -30,9 +30,9 @@ func TestActivitySinceGroupsByLocalDay(t *testing.T) {
 		t.Fatalf("activity days = %+v, want 2 days", got)
 	}
 	if got[0].Date != "2026-06-10" || got[0].Count != 2 {
-		t.Fatalf("first activity day = %+v", got[0])
+		t.Fatalf("first activity day = %+v, want 2026-06-10 count 2 (journal excluded)", got[0])
 	}
-	if got[1].Date != "2026-06-11" || got[1].Count != 1 {
-		t.Fatalf("second activity day = %+v", got[1])
+	if got[1].Date != "2026-06-11" || got[1].Count != 2 {
+		t.Fatalf("second activity day = %+v, want 2026-06-11 count 2", got[1])
 	}
 }

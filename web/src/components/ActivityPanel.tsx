@@ -12,7 +12,10 @@ export function ActivityPanel({ variant = "sidebar" }: ActivityPanelProps) {
   const panelRef = useRef<HTMLElement | null>(null);
   const [visibleDays, setVisibleDays] = useState(28);
   const [hovered, setHovered] = useState<{ date: string; count: number } | null>(null);
-  const activity = useActivityQuery(visibleDays);
+  // Show a window of visibleDays ending today; the activity endpoint takes a generic [since, until] range.
+  const until = dateKey(new Date());
+  const since = dateKey(daysAgo(visibleDays - 1));
+  const activity = useActivityQuery(since, until);
   const className = `activity-panel activity-panel-${variant}`;
   const isHome = variant === "home";
 
@@ -60,7 +63,7 @@ export function ActivityPanel({ variant = "sidebar" }: ActivityPanelProps) {
 
   const summary = activity.data.activity;
   const counts = new Map(summary.counts.map((day) => [day.date, day.count]));
-  const dates = recentDates(summary.start_date, summary.days);
+  const dates = recentDates(since, visibleDays);
 
   return (
     <section className={className} aria-labelledby="activity-heading" ref={panelRef}>
@@ -74,7 +77,7 @@ export function ActivityPanel({ variant = "sidebar" }: ActivityPanelProps) {
           <p>{summary.total} updates</p>
         </div>
       )}
-      <div className="activity-grid" aria-label={`Recent ${summary.days} day activity`}>
+      <div className="activity-grid" aria-label={`Recent ${visibleDays} day activity`}>
         {dates.map((date) => {
           const count = counts.get(date) ?? 0;
           return (
@@ -103,6 +106,12 @@ export function ActivityPanel({ variant = "sidebar" }: ActivityPanelProps) {
       ) : null}
     </section>
   );
+}
+
+function daysAgo(days: number): Date {
+  const date = new Date();
+  date.setDate(date.getDate() - days);
+  return date;
 }
 
 function recentDates(startDate: string, days: number): string[] {

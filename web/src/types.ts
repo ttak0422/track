@@ -29,8 +29,8 @@ export interface ActivityDay {
 }
 
 export interface ActivitySummary {
-  start_date: string;
-  days: number;
+  since: string;
+  until: string;
   total: number;
   counts: ActivityDay[];
 }

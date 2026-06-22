@@ -49,10 +49,10 @@ func TestAPIHandlers(t *testing.T) {
 	}
 	t.Cleanup(func() { s.Close() })
 	now := time.Now().Unix()
-	if err := s.UpsertNote(&note.Note{ID: 100, Mtime: now, Meta: note.Metadata{Title: "Alpha", Tags: []string{"project"}}}); err != nil {
+	if err := s.UpsertNote(&note.Note{ID: 100, Mtime: now, Meta: note.Metadata{Title: "Alpha", Tags: []string{"project"}, Days: []string{"2026-06-15"}}}); err != nil {
 		t.Fatal(err)
 	}
-	if err := s.UpsertNote(&note.Note{ID: 200, Mtime: now - 86400, Meta: note.Metadata{Title: "Beta", Tags: []string{"draft"}}}); err != nil {
+	if err := s.UpsertNote(&note.Note{ID: 200, Mtime: now - 86400, Meta: note.Metadata{Title: "Beta", Tags: []string{"draft"}, Days: []string{"2026-06-15"}}}); err != nil {
 		t.Fatal(err)
 	}
 	if err := os.Chtimes(cfg.NotePath(100), time.Unix(now, 0), time.Unix(now, 0)); err != nil {
@@ -114,8 +114,8 @@ func TestAPIHandlers(t *testing.T) {
 		t.Fatalf("full graph node should carry a resolved path: %v", firstNode)
 	}
 
-	activity := getJSON(t, server.URL+"/api/activity?days=7")["activity"].(map[string]any)
-	if activity["days"].(float64) != 7 || activity["total"].(float64) != 2 {
+	activity := getJSON(t, server.URL+"/api/activity?since=2026-06-15&until=2026-06-15")["activity"].(map[string]any)
+	if activity["since"] != "2026-06-15" || activity["until"] != "2026-06-15" || activity["total"].(float64) != 2 {
 		t.Fatalf("unexpected activity response: %v", activity)
 	}
 }

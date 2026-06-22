@@ -14,7 +14,7 @@ import {
 import type { NoteID, NoteResponse, SaveNoteRequest } from "./types";
 
 export const queryKeys = {
-  activity: (days: number) => ["activity", days] as const,
+  activity: (since: string, until: string) => ["activity", since, until] as const,
   agenda: (date: string) => ["agenda", date] as const,
   graph: () => ["graph"] as const,
   localGraph: (noteID: NoteID) => ["graph", "local", noteID] as const,
@@ -25,10 +25,11 @@ export const queryKeys = {
   ogp: (url: string) => ["ogp", url] as const,
 };
 
-export function useActivityQuery(days = 14) {
+export function useActivityQuery(since: string, until: string) {
   return useQuery({
-    queryKey: queryKeys.activity(days),
-    queryFn: () => getActivity(days),
+    queryKey: queryKeys.activity(since, until),
+    queryFn: () => getActivity(since, until),
+    enabled: since !== "" && until !== "",
   });
 }
 

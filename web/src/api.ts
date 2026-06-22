@@ -51,8 +51,9 @@ export function listNotes(): Promise<NotesResponse> {
   return api<NotesResponse>("/api/notes");
 }
 
-export function getActivity(days = 14): Promise<ActivityResponse> {
-  return api<ActivityResponse>(`/api/activity?days=${encodeURIComponent(days)}`);
+export function getActivity(since: string, until: string): Promise<ActivityResponse> {
+  const params = new URLSearchParams({ since, until });
+  return api<ActivityResponse>(`/api/activity?${params}`);
 }
 
 export function resolveTerm(term: string): Promise<ResolveResponse> {

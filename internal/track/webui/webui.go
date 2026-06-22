@@ -258,12 +258,27 @@ func (s *Server) handleNotes(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, map[string]any{"notes": results})
 }
 
+// handleActivity returns the per-day note activity within a [since, until] window (inclusive), counted
+// from note_days so it reflects notes worked on, not journal opens. The window is generic: since/until
+// are YYYY-MM-DD. until defaults to today and since to four weeks before until.
 func (s *Server) handleActivity(w http.ResponseWriter, r *http.Request) {
 	s.refreshIfStale()
-	days := parseDays(r.URL.Query().Get("days"), 7)
 	today := localDate(time.Now())
-	start := today.AddDate(0, 0, -(days - 1))
-	counts, err := s.store.ActivitySince(start)
+	until := today
+	if raw := strings.TrimSpace(r.URL.Query().Get("until")); raw != "" {
+		if t, err := time.ParseInLocation("2006-01-02", raw, time.Local); err == nil {
+			until = t
+		}
+	}
+	since := until.AddDate(0, 0, -27)
+	if raw := strings.TrimSpace(r.URL.Query().Get("since")); raw != "" {
+		if t, err := time.ParseInLocation("2006-01-02", raw, time.Local); err == nil {
+			since = t
+		}
+	}
+	sinceStr := since.Format("2006-01-02")
+	untilStr := until.Format("2006-01-02")
+	counts, err := s.store.NoteActivityRange(sinceStr, untilStr)
 	if err != nil {
 		writeError(w, err, http.StatusInternalServerError)
 		return
@@ -274,10 +289,10 @@ func (s *Server) handleActivity(w http.ResponseWriter, r *http.Request) {
 	}
 	writeJSON(w, map[string]any{
 		"activity": map[string]any{
-			"start_date": start.Format("2006-01-02"),
-			"days":       days,
-			"total":      total,
-			"counts":     counts,
+			"since":  sinceStr,
+			"until":  untilStr,
+			"total":  total,
+			"counts": counts,
 		},
 	})
 }
@@ -544,17 +559,6 @@ func parseLimit(raw string, fallback int) int {
 		return 500
 	}
 	return n
-}
-
-func parseDays(raw string, fallback int) int {
-	days := parseLimit(raw, fallback)
-	if days < 7 {
-		return 7
-	}
-	if days > 3650 {
-		return 3650
-	}
-	return days
 }
 
 func localDate(t time.Time) time.Time {

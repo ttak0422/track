@@ -1,57 +1,36 @@
 package store
 
-import (
-	"slices"
-	"time"
-)
-
-// ActivityDay is a day bucket for note updates in the local timezone.
+// ActivityDay is a day bucket for note activity in the local timezone.
 type ActivityDay struct {
 	Date  string `json:"date"`
 	Count int    `json:"count"`
 }
 
-// ActivitySince returns note update counts grouped by local calendar day.
-func (s *Store) ActivitySince(start time.Time) ([]ActivityDay, error) {
-	start = start.In(time.Local)
+// NoteActivityRange returns the number of notes active on each day within [since, until] (inclusive),
+// counted from note_days. Journals are excluded upstream when note_days is populated, so the counts
+// reflect real notes worked on. Only days that have activity are returned, ascending by day. since and
+// until are local calendar-day strings ("YYYY-MM-DD"), matching how note_days stores days.
+func (s *Store) NoteActivityRange(since, until string) ([]ActivityDay, error) {
 	rows, err := s.db.Query(
-		`SELECT mtime
-		 FROM notes
-		 WHERE kind IN ('note', 'journal') AND mtime >= ?
-		 ORDER BY mtime`,
-		start.Unix(),
+		`SELECT day, COUNT(*) AS n
+		 FROM note_days
+		 WHERE day >= ? AND day <= ?
+		 GROUP BY day
+		 ORDER BY day`,
+		since, until,
 	)
 	if err != nil {
 		return nil, err
 	}
 	defer rows.Close()
 
-	counts := map[string]int{}
+	out := make([]ActivityDay, 0)
 	for rows.Next() {
-		var mtime int64
-		if err := rows.Scan(&mtime); err != nil {
+		var d ActivityDay
+		if err := rows.Scan(&d.Date, &d.Count); err != nil {
 			return nil, err
 		}
-		day := time.Unix(mtime, 0).In(time.Local).Format("2006-01-02")
-		counts[day]++
+		out = append(out, d)
 	}
-	if err := rows.Err(); err != nil {
-		return nil, err
-	}
-
-	out := make([]ActivityDay, 0, len(counts))
-	for day, count := range counts {
-		out = append(out, ActivityDay{Date: day, Count: count})
-	}
-	slices.SortFunc(out, func(a, b ActivityDay) int {
-		switch {
-		case a.Date < b.Date:
-			return -1
-		case a.Date > b.Date:
-			return 1
-		default:
-			return 0
-		}
-	})
-	return out, nil
+	return out, rows.Err()
 }
