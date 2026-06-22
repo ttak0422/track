@@ -30,6 +30,8 @@ Regular note ids are `Unix seconds * 1000 + same-second sequence`, preserving ch
 <vault>/journal/yyyyMMdd.md
 ```
 
+A day with note activity always has a journal: indexing a note (creating or editing it through the CLI, the editor LSP, or the web workspace) ensures that day's journal exists, so the journal is the day's aggregation hub. The auto-created journal uses the configured journal template (`journal_template`, builtin `journal` when unset). Journals roll up into `journal/<yyyyMM>.md` and `journal/<yyyy>.md` summaries, and are excluded from activity tracking (see `note_days` below).
+
 Template files live under `template/` and use a template-specific extension:
 
 ```text

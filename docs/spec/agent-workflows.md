@@ -27,6 +27,8 @@ Use titles for user-facing workflows and ids/paths for exact targets:
 - `track backlinks` and `track graph`: inspect incoming links and local graph around a target.
 - `track agenda [--date YYYY-MM-DD]`: list the notes created or updated on a calendar day (default today), for "what was worked on that day" lookups. Activity days are recorded per note in the sidecar and cover both CLI mutations and direct editor edits.
 
+Creating or editing a note also ensures that day's journal exists (it is the day's aggregation hub); the journal itself is excluded from activity. An explicit `track journal --body/--template` therefore only applies before the day's first note edit — afterward the journal already exists, so add to it with `track append --id <yyyyMMdd>`.
+
 ## Links
 
 Use explicit wiki links:
