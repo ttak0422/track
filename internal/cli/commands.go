@@ -15,6 +15,7 @@ import (
 	"github.com/ttak0422/track/internal/track/config"
 	"github.com/ttak0422/track/internal/track/doctor"
 	"github.com/ttak0422/track/internal/track/index"
+	"github.com/ttak0422/track/internal/track/journal"
 	"github.com/ttak0422/track/internal/track/link"
 	"github.com/ttak0422/track/internal/track/note"
 	trackrename "github.com/ttak0422/track/internal/track/rename"
@@ -338,124 +339,35 @@ func cmdJournal(args []string) int {
 	}
 	defer s.Close()
 
-	day := startOfDay(time.Now()).AddDate(0, 0, *offset)
-	name := day.Format(cfg.JournalDateFormat)
-	noteID, err := note.IDFromName(name)
+	day := time.Now().AddDate(0, 0, *offset)
+	// The journal engine owns file/sidecar/index/summaries; the CLI keeps template policy by rendering the
+	// creation body here (honoring an explicit --template, --body, or the configured/builtin default).
+	res, err := journal.Open(cfg, s, day, journal.Options{
+		CreateBody: func(name string, id int64, d time.Time) (string, error) {
+			effectiveTemplate := strings.TrimSpace(*template)
+			if effectiveTemplate == "" && strings.TrimSpace(body) == "" {
+				def, err := defaultTemplateSpec(cfg, config.KindJournal)
+				if err != nil {
+					return "", err
+				}
+				effectiveTemplate = def
+			}
+			if effectiveTemplate != "" {
+				return renderTemplate(cfg, effectiveTemplate, name, id, config.KindJournal, "", d)
+			}
+			return body, nil
+		},
+	})
 	if err != nil {
-		return fail("journal id: %v", err)
+		return fail("journal: %v", err)
 	}
-	date := day.Format(cfg.DateFormat)
-	path := cfg.JournalPath(name)
-
-	created := false
-	if _, err := os.Stat(path); os.IsNotExist(err) {
-		if err := os.MkdirAll(cfg.JournalDir(), 0o755); err != nil {
-			return fail("create vault dir: %v", err)
-		}
-		jbody := ""
-		effectiveTemplate := strings.TrimSpace(*template)
-		if effectiveTemplate == "" && strings.TrimSpace(body) == "" {
-			def, err := defaultTemplateSpec(cfg, config.KindJournal)
-			if err != nil {
-				return fail("resolve default template: %v", err)
-			}
-			effectiveTemplate = def
-		}
-		if effectiveTemplate != "" {
-			rendered, err := renderTemplate(cfg, effectiveTemplate, name, noteID, config.KindJournal, "", day)
-			if err != nil {
-				return fail("render template: %v", err)
-			}
-			jbody = ensureTrailingNewline(rendered)
-		} else if strings.TrimSpace(body) != "" {
-			jbody = ensureTrailingNewline(body)
-		}
-		if err := os.WriteFile(path, []byte(jbody), 0o644); err != nil {
-			return fail("write journal: %v", err)
-		}
-		if err := note.WriteMetadata(
-			cfg.MetadataPath(noteID),
-			note.Metadata{Title: name, Tags: []string{"journal"}, Created: date},
-		); err != nil {
-			return fail("write metadata: %v", err)
-		}
-		if err := index.New(cfg, s).One(path); err != nil {
-			return fail("index journal: %v", err)
-		}
-		created = true
-	} else if strings.TrimSpace(body) != "" {
-		// The journal exists already; content flags only apply on creation. Point to append so the
+	if !res.Created && strings.TrimSpace(body) != "" {
+		// The journal existed already; content flags only apply on creation. Point to append so the
 		// daily-log workflow has an explicit path rather than silently dropping the body.
-		return fail("journal %s already exists; use `track append --id %d` to add content or tags", name, noteID)
+		return fail("journal %s already exists; use `track append --id %d` to add content or tags", res.Name, res.NoteID)
 	}
 
-	// Roll the day up into month and year summary notes: journal/<yyyyMM>.md links each day, and
-	// journal/<yyyy>.md links each month. Both are idempotent (links are appended only when missing),
-	// so reopening a journal self-heals the summaries without duplicating entries.
-	month := day.Format("200601")
-	year := day.Format("2006")
-	if err := ensureJournalSummary(cfg, s, month, name, date, "journal-month"); err != nil {
-		return fail("journal month summary: %v", err)
-	}
-	if err := ensureJournalSummary(cfg, s, year, month, date, "journal-year"); err != nil {
-		return fail("journal year summary: %v", err)
-	}
-
-	return emit(map[string]any{"id": noteID, "path": path, "created": created})
-}
-
-// ensureJournalSummary makes sure the summary journal note named `name` exists and lists `childTerm`
-// as a "- [[childTerm]]" bullet. The note is created (and indexed) when absent, and the link is
-// appended only when missing, so calling it repeatedly is safe. date seeds the created metadata when
-// the note is new; kindTag distinguishes month/year rollups from daily notes.
-func ensureJournalSummary(cfg *config.Config, s *store.Store, name, childTerm, date, kindTag string) error {
-	noteID, err := note.IDFromName(name)
-	if err != nil {
-		return err
-	}
-	path := cfg.JournalPath(name)
-
-	body := ""
-	exists := true
-	if raw, err := os.ReadFile(path); err == nil {
-		body = string(raw)
-	} else if os.IsNotExist(err) {
-		exists = false
-	} else {
-		return err
-	}
-
-	link := "[[" + childTerm + "]]"
-	changed := false
-	if !exists {
-		if err := os.MkdirAll(cfg.JournalDir(), 0o755); err != nil {
-			return err
-		}
-		changed = true
-	}
-	if !strings.Contains(body, link) {
-		if body != "" && !strings.HasSuffix(body, "\n") {
-			body += "\n"
-		}
-		body += "- " + link + "\n"
-		changed = true
-	}
-	if !changed {
-		return nil
-	}
-
-	if err := os.WriteFile(path, []byte(body), 0o644); err != nil {
-		return err
-	}
-	if !exists {
-		if err := note.WriteMetadata(
-			cfg.MetadataPath(noteID),
-			note.Metadata{Title: name, Tags: []string{"journal", kindTag}, Created: date},
-		); err != nil {
-			return err
-		}
-	}
-	return index.New(cfg, s).One(path)
+	return emit(map[string]any{"id": res.NoteID, "path": res.Path, "created": res.Created})
 }
 
 // cmdAppend grows an existing note: it appends body text and/or merges tags, then reindexes the note
@@ -1103,9 +1015,4 @@ func truncateSearchSnippet(s string, max int) string {
 		end--
 	}
 	return s[:end] + "…"
-}
-
-func startOfDay(t time.Time) time.Time {
-	y, m, d := t.Date()
-	return time.Date(y, m, d, 0, 0, 0, 0, t.Location())
 }
