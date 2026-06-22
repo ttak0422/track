@@ -66,6 +66,19 @@ func runInWithStdin(t *testing.T, vault, stdin string, args ...string) (map[stri
 	return runIn(t, vault, args...)
 }
 
+// noteKeywords returns the note-kind keyword terms, filtering out the journal/summary keywords that note
+// creation now auto-generates for the day (the day's journal plus its month/year summaries).
+func noteKeywords(list []any) []string {
+	var out []string
+	for _, item := range list {
+		m := item.(map[string]any)
+		if m["file_kind"] == "note" {
+			out = append(out, m["term"].(string))
+		}
+	}
+	return out
+}
+
 func canonicalTestPath(t *testing.T, path string) string {
 	t.Helper()
 	abs, err := filepath.Abs(path)
@@ -129,9 +142,8 @@ func TestNewResolveKeywordsFlow(t *testing.T) {
 	if code != 0 {
 		t.Fatalf("keywords failed: %v", kws)
 	}
-	list := kws["keywords"].([]any)
-	if len(list) != 1 || list[0].(map[string]any)["term"] != "リンク" {
-		t.Fatalf("unexpected keywords: %v", list)
+	if terms := noteKeywords(kws["keywords"].([]any)); len(terms) != 1 || terms[0] != "リンク" {
+		t.Fatalf("unexpected note keywords: %v", kws["keywords"])
 	}
 
 	res, code := runIn(t, vault, "resolve", "--term", "リンク")
@@ -186,10 +198,10 @@ func TestOpenCreatesThenReopens(t *testing.T) {
 		t.Fatalf("reopen should return the same note: first=%v second=%v", first, second)
 	}
 
-	// Exactly one note (keyword) exists for the title.
+	// Exactly one note (keyword) exists for the title (journal keywords are auto-generated and ignored).
 	kws, _ := runIn(t, vault, "keywords")
-	if list := kws["keywords"].([]any); len(list) != 1 {
-		t.Fatalf("expected a single keyword after repeated opens, got %v", list)
+	if terms := noteKeywords(kws["keywords"].([]any)); len(terms) != 1 || terms[0] != "Go" {
+		t.Fatalf("expected a single note keyword after repeated opens, got %v", kws["keywords"])
 	}
 }
 
@@ -243,8 +255,10 @@ func TestBacklinksAndReindex(t *testing.T) {
 	if code != 0 {
 		t.Fatalf("reindex failed: %v", rep)
 	}
-	if rep["links"].(float64) != 2 {
-		t.Fatalf("expected 2 links, got %v", rep["links"])
+	// Two note links (200->Go, Go->Test) plus two from the auto-generated journal summaries
+	// (month->day, year->month).
+	if rep["links"].(float64) != 4 {
+		t.Fatalf("expected 4 links, got %v", rep["links"])
 	}
 
 	back, code := runIn(t, vault, "backlinks", "--id", "100")
@@ -320,9 +334,8 @@ func TestReindexKeepsMetadataTitleIgnoringBodyH1(t *testing.T) {
 	if code != 0 {
 		t.Fatalf("keywords failed: %v", kws)
 	}
-	list := kws["keywords"].([]any)
-	if len(list) != 1 || list[0].(map[string]any)["term"] != "Old" {
-		t.Fatalf("expected keyword to stay Old, got %v", list)
+	if terms := noteKeywords(kws["keywords"].([]any)); len(terms) != 1 || terms[0] != "Old" {
+		t.Fatalf("expected keyword to stay Old, got %v", kws["keywords"])
 	}
 	metaContent, err := os.ReadFile(vault + "/.track/notes/100.yaml")
 	if err != nil {
@@ -526,6 +539,21 @@ func TestCreateFromTemplate(t *testing.T) {
 		t.Fatal(err)
 	}
 
+	// Create the journal from the template first: creating a note auto-creates today's journal (with the
+	// configured/builtin journal template), so an explicit `journal --template` must run before any note
+	// that day to take effect.
+	journal, code := runIn(t, vault, "journal", "--template", "standard")
+	if code != 0 {
+		t.Fatalf("journal from template failed: %v", journal)
+	}
+	journalBody, err := os.ReadFile(journal["path"].(string))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(journalBody), "kind=journal") {
+		t.Fatalf("unexpected rendered journal: %q", journalBody)
+	}
+
 	created, code := runIn(t, vault, "new", "--title", "Templated", "--id", "800", "--template", "standard")
 	if code != 0 {
 		t.Fatalf("new from template failed: %v", created)
@@ -540,18 +568,6 @@ func TestCreateFromTemplate(t *testing.T) {
 	}
 	if !strings.Contains(got, "# Templated") || !strings.Contains(got, "id=800") || !strings.Contains(got, "kind=note") {
 		t.Fatalf("unexpected rendered note: %q", got)
-	}
-
-	journal, code := runIn(t, vault, "journal", "--template", "standard")
-	if code != 0 {
-		t.Fatalf("journal from template failed: %v", journal)
-	}
-	journalBody, err := os.ReadFile(journal["path"].(string))
-	if err != nil {
-		t.Fatal(err)
-	}
-	if !strings.Contains(string(journalBody), "kind=journal") {
-		t.Fatalf("unexpected rendered journal: %q", journalBody)
 	}
 
 	search, code := runIn(t, vault, "search", "--query", "standard")
@@ -607,14 +623,16 @@ func TestTemplateParentSubstitution(t *testing.T) {
 func TestSearch(t *testing.T) {
 	vault := t.TempDir()
 	wantVault := canonicalTestPath(t, vault)
+	// Create the journal with explicit content first: creating a note now auto-creates today's journal,
+	// so the explicit `journal --body` must run before any note that day.
+	journal, code := runIn(t, vault, "journal", "--body", "# Journal\n\njournal body needle\n")
+	if code != 0 {
+		t.Fatalf("journal failed: %v", journal)
+	}
 	runIn(t, vault, "new", "--title", "Golang notes", "--id", "300")
 	runIn(t, vault, "new", "--title", "Body note", "--id", "301")
 	if err := os.WriteFile(filepath.Join(vault, "note", "301.md"), []byte("# Body note\n\nneedle body text\n"), 0o644); err != nil {
 		t.Fatal(err)
-	}
-	journal, code := runIn(t, vault, "journal", "--body", "# Journal\n\njournal body needle\n")
-	if code != 0 {
-		t.Fatalf("journal failed: %v", journal)
 	}
 	journalID := strconv.FormatInt(int64(journal["id"].(float64)), 10)
 	journalPath := filepath.Join(wantVault, "journal", journalID+".md")

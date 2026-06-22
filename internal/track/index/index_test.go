@@ -16,10 +16,11 @@ func setup(t *testing.T) (*config.Config, *store.Store) {
 	t.Helper()
 	vault := t.TempDir()
 	cfg := &config.Config{
-		VaultDir:   vault,
-		DBPath:     filepath.Join(vault, ".track", "index.db"),
-		Extensions: []string{".md"},
-		DateFormat: "2006-01-02",
+		VaultDir:          vault,
+		DBPath:            filepath.Join(vault, ".track", "index.db"),
+		Extensions:        []string{".md"},
+		DateFormat:        "2006-01-02",
+		JournalDateFormat: "20060102",
 	}
 	s, err := store.Open(cfg.DBPath)
 	if err != nil {
@@ -207,6 +208,39 @@ func TestRefreshIfStale(t *testing.T) {
 	}
 	if _, found, _ := s.ResolveTerm("Second"); found {
 		t.Fatalf("deleted note still indexed")
+	}
+}
+
+func TestOneEnsuresDayJournal(t *testing.T) {
+	cfg, s := setup(t)
+	ix := New(cfg, s)
+	writeNote(t, cfg, 1, "body", note.Metadata{Title: "Work"})
+	if err := ix.One(cfg.NotePath(1)); err != nil {
+		t.Fatalf("one: %v", err)
+	}
+
+	// Indexing a note ensures that day's journal exists and is itself indexed (without recursing).
+	today := time.Now().Format(cfg.JournalDateFormat)
+	if _, err := os.Stat(cfg.JournalPath(today)); err != nil {
+		t.Fatalf("today's journal should be auto-created: %v", err)
+	}
+	ref, found, err := s.ResolveTerm(today)
+	if err != nil || !found {
+		t.Fatalf("auto-created journal should be indexed: found=%v err=%v", found, err)
+	}
+	if ref.FileKind != "journal" {
+		t.Fatalf("auto-created note should be a journal, got %q", ref.FileKind)
+	}
+
+	// The journal is excluded from note_days, so it never appears as activity.
+	notes, err := s.NotesOnDay(time.Now().Format(cfg.DateFormat))
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, n := range notes {
+		if n.FileKind == "journal" {
+			t.Fatalf("journal must not appear in note_days: %+v", n)
+		}
 	}
 }
 

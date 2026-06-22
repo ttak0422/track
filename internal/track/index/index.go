@@ -9,9 +9,11 @@ import (
 	"time"
 
 	"github.com/ttak0422/track/internal/track/config"
+	"github.com/ttak0422/track/internal/track/journal"
 	"github.com/ttak0422/track/internal/track/link"
 	"github.com/ttak0422/track/internal/track/note"
 	"github.com/ttak0422/track/internal/track/store"
+	tmpl "github.com/ttak0422/track/internal/track/template"
 )
 
 type Indexer struct {
@@ -231,7 +233,43 @@ func (ix *Indexer) One(path string) error {
 	if err != nil {
 		return err
 	}
-	return ix.store.ReplaceLinks(n.ID, resolveLinks(n.Body, dict))
+	if err := ix.store.ReplaceLinks(n.ID, resolveLinks(n.Body, dict)); err != nil {
+		return err
+	}
+	// A note's activity day implies its journal exists: editing or creating a note (via any path that
+	// reaches here — CLI, the LSP's didSave for nvim, or a web save) ensures that day's journal so it is
+	// the aggregation hub for the day. Journals never trigger this, which also prevents recursion.
+	if n.Kind != "journal" {
+		return ix.ensureDayJournal(n.Mtime)
+	}
+	return nil
+}
+
+// ensureDayJournal makes sure the journal for the local day of mtime exists, creating it with the
+// configured journal template (builtin default when unset) and indexing whatever journal.Open reports as
+// changed. It is a no-op once the day's journal and summaries are in place.
+func (ix *Indexer) ensureDayJournal(mtime int64) error {
+	res, err := journal.Open(ix.cfg, time.Unix(mtime, 0), journal.Options{
+		CreateBody: func(name string, id int64, d time.Time) (string, error) {
+			spec, err := tmpl.DefaultSpec(ix.cfg, config.KindJournal)
+			if err != nil {
+				return "", err
+			}
+			if spec == "" {
+				return "", nil
+			}
+			return tmpl.Render(ix.cfg, spec, name, id, config.KindJournal, "", d)
+		},
+	})
+	if err != nil {
+		return err
+	}
+	for _, p := range res.Reindex {
+		if err := ix.One(p); err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 // keywordDict loads the auto-link dictionary once as term -> note id, so resolving each [[...]] is an O(1) map lookup.
