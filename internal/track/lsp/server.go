@@ -147,6 +147,14 @@ func (s *Server) handleNotification(msg rpcMessage) []rpcMessage {
 
 func (s *Server) handleRequest(msg rpcMessage) rpcMessage {
 	resp := rpcMessage{JSONRPC: "2.0", ID: msg.ID}
+	// Index-backed features resolve [[links]] against the keyword index; refresh it from disk first so
+	// notes created or changed outside this process (CLI, web, another editor, cloud sync) are visible.
+	switch msg.Method {
+	case "textDocument/documentLink", "track/backlinks", "track/outgoingLinks",
+		"textDocument/definition", "textDocument/hover", "textDocument/references",
+		"textDocument/completion", "textDocument/codeAction", "textDocument/rename":
+		s.refreshIndex()
+	}
 	switch msg.Method {
 	case "initialize":
 		encoding := protocol.UTF8
@@ -294,6 +302,17 @@ func (s *Server) handleRequest(msg rpcMessage) rpcMessage {
 		resp.Error = &rpcError{Code: -32601, Message: "method not found"}
 	}
 	return resp
+}
+
+// refreshIndex brings the keyword index back in sync with disk before serving an index-backed query.
+// A long-lived LSP process never observes notes created, renamed, or removed by another process (the
+// CLI, the web server, a second editor) or by a cloud-sync write, because those raise no LSP event.
+// RefreshIfStale is cheap on the common unchanged path (it only stats directory entries), so calling
+// it here lets a [[link]] to such a note resolve immediately instead of failing until an unrelated
+// didSave happens to reindex. Mirrors the self-heal the web server and CLI already do before a query.
+// A refresh error is non-fatal: serving from the current index degrades the same way it did before.
+func (s *Server) refreshIndex() {
+	_, _ = index.New(s.cfg, s.store).RefreshIfStale()
 }
 
 func (s *Server) documentText(uri string) (string, error) {
