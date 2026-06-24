@@ -122,8 +122,8 @@ export function GraphCanvas({
       const angle = (Math.PI * 2 * index) / Math.max(1, graphNodes.length);
       return {
         ...node,
-        x: isolated ? 0 : Math.cos(angle) * 220,
-        y: isolated ? 0 : Math.sin(angle) * 220,
+        x: isolated ? 0 : Math.cos(angle) * 160,
+        y: isolated ? 0 : Math.sin(angle) * 160,
         vx: 0,
         vy: 0,
         degree: 0,
@@ -222,7 +222,7 @@ export function GraphCanvas({
         const dx = a.x - b.x;
         const dy = a.y - b.y;
         const d2 = Math.max(80, dx * dx + dy * dy);
-        const force = 2200 / d2;
+        const force = 1400 / d2;
         a.vx += dx * force;
         a.vy += dy * force;
         b.vx -= dx * force;
@@ -234,7 +234,7 @@ export function GraphCanvas({
       const dx = edge.target.x - edge.source.x;
       const dy = edge.target.y - edge.source.y;
       const dist = Math.max(1, Math.sqrt(dx * dx + dy * dy));
-      const force = (dist - 150) * 0.012;
+      const force = (dist - 110) * 0.012;
       const fx = (dx / dist) * force;
       const fy = (dy / dist) * force;
       edge.source.vx += fx;
