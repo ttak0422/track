@@ -7,5 +7,6 @@ return telescope.register_extension({
       search_body = track.search_body,
       search_templates = track.search_templates,
       backlinks = track.backlinks,
+      on_this_day = track.on_this_day,
    },
 })

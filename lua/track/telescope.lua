@@ -155,6 +155,19 @@ local function make_template_entry(template)
    }
 end
 
+local function make_note_entry(note)
+   local title = result_title(note)
+   local path = note.path or ""
+   return {
+      value = note,
+      display = title,
+      ordinal = title,
+      path = path,
+      filename = path,
+      lnum = 1,
+   }
+end
+
 local function pick(scope, opts)
    opts = opts or {}
    local telescope = load_telescope()
@@ -234,6 +247,42 @@ function M.backlinks(opts)
             finder = telescope.finders.new_table({
                results = result,
                entry_maker = make_backlink_entry(telescope),
+            }),
+            sorter = telescope.conf.generic_sorter(picker_opts),
+            previewer = telescope.conf.file_previewer(picker_opts),
+            attach_mappings = function(prompt_bufnr)
+               telescope.actions.select_default:replace(function()
+                  open_selection(telescope, prompt_bufnr)
+               end)
+               return true
+            end,
+         })
+         :find()
+   end)
+end
+
+-- on_this_day lists notes worked on the date represented by the current daily
+-- journal. Entries carry real paths, so Telescope selection opens them with
+-- the same <CR> flow as other track pickers.
+function M.on_this_day(opts)
+   opts = opts or {}
+   local telescope = load_telescope()
+   if not telescope then
+      return
+   end
+
+   require("track.on_this_day").request(function(notes, date)
+      if #notes == 0 then
+         vim.notify("track: no notes worked on " .. date, vim.log.levels.INFO)
+         return
+      end
+      local picker_opts = vim.tbl_extend("force", opts, {})
+      telescope.pickers
+         .new(picker_opts, {
+            prompt_title = "Track on this day: " .. date,
+            finder = telescope.finders.new_table({
+               results = notes,
+               entry_maker = make_note_entry,
             }),
             sorter = telescope.conf.generic_sorter(picker_opts),
             previewer = telescope.conf.file_previewer(picker_opts),
