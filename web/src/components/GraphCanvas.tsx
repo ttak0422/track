@@ -500,7 +500,7 @@ export function GraphCanvas({
     const point = canvasPoint(event);
     const before = worldPoint(point);
     const factor = Math.exp(-event.deltaY * 0.001);
-    const scale = clamp(viewRef.current.scale * factor, 0.05, 4);
+    const scale = clamp(viewRef.current.scale * factor, 0.015, 4);
     viewRef.current = {
       x: point.x - size.width / 2 - before.x * scale,
       y: point.y - size.height / 2 - before.y * scale,
