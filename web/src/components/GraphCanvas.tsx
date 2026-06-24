@@ -286,15 +286,34 @@ export function GraphCanvas({
     ctx.lineWidth = baseLineWidth;
     ctx.strokeStyle = css("--line");
 
-    // When a search is active, highlight holds the matching node ids; matched nodes (and edges between
-    // them) stay strong while the rest dim in place instead of being removed from the graph.
-    const highlight = highlightRef.current;
+    // Search and hover both keep the graph shape intact: active nodes/edges stay strong while the rest
+    // dim in place instead of being removed from the graph.
+    const searchHighlight = highlightRef.current;
+    const hoverID = decorative ? null : hoverRef.current;
+    const hoverHighlight = hoverID === null ? null : new Set<NoteID>([hoverID]);
+    if (hoverHighlight) {
+      edgesRef.current.forEach((edge) => {
+        if (edge.source.note_id === hoverID || edge.target.note_id === hoverID) {
+          hoverHighlight.add(edge.source.note_id);
+          hoverHighlight.add(edge.target.note_id);
+        }
+      });
+    }
+    const hasActiveHighlight = searchHighlight !== null || hoverHighlight !== null;
+    const nodeIsActive = (nodeID: NoteID): boolean =>
+      !hasActiveHighlight || Boolean(searchHighlight?.has(nodeID) || hoverHighlight?.has(nodeID));
+    const edgeIsActive = (edge: SimEdge): boolean =>
+      Boolean(
+        (searchHighlight?.has(edge.source.note_id) && searchHighlight.has(edge.target.note_id)) ||
+          edge.source.note_id === hoverID ||
+          edge.target.note_id === hoverID,
+      );
     edgesRef.current.forEach((edge) => {
-      if (highlight) {
-        const linked = highlight.has(edge.source.note_id) && highlight.has(edge.target.note_id);
-        ctx.globalAlpha = linked ? 0.86 : 0.08;
-        ctx.lineWidth = linked ? highlightLineWidth : baseLineWidth;
-        ctx.strokeStyle = linked ? css("--accent-strong") : css("--line");
+      if (hasActiveHighlight) {
+        const active = edgeIsActive(edge);
+        ctx.globalAlpha = active ? 0.86 : 0.08;
+        ctx.lineWidth = active ? highlightLineWidth : baseLineWidth;
+        ctx.strokeStyle = active ? css("--accent-strong") : css("--line");
       } else {
         ctx.globalAlpha = 0.62;
         ctx.lineWidth = baseLineWidth;
@@ -309,17 +328,17 @@ export function GraphCanvas({
     const showLabels = view.scale >= 0.4;
     nodesRef.current.forEach((node) => {
       const center = node.center || node.note_id === graph.center_id;
-      const matched = !highlight || highlight.has(node.note_id);
+      const active = nodeIsActive(node.note_id);
       const base = center ? 10 : 6;
       const radius = ((base + Math.min(8, Math.sqrt(node.degree) * 2)) * ratio) / view.scale;
       const x = node.x * ratio;
       const y = node.y * ratio;
-      ctx.globalAlpha = matched ? 0.92 : 0.18;
-      ctx.lineWidth = highlight && matched ? highlightLineWidth : baseLineWidth;
+      ctx.globalAlpha = active ? 0.92 : 0.18;
+      ctx.lineWidth = hasActiveHighlight && active ? highlightLineWidth : baseLineWidth;
       ctx.beginPath();
       ctx.arc(x, y, radius, 0, Math.PI * 2);
-      if (highlight && matched) {
-        // Light the matches up with the accent so they read as the search result, not just the center.
+      if (hasActiveHighlight && active) {
+        // Light active nodes up with the accent so they read as the current search or hover focus.
         ctx.fillStyle = css("--accent");
         ctx.strokeStyle = css("--accent-strong");
       } else {
@@ -330,7 +349,7 @@ export function GraphCanvas({
       ctx.stroke();
 
       const hovered = node.note_id === hoverRef.current;
-      if (!decorative && (showLabels || center || node.degree >= 5 || hovered || (highlight && matched))) {
+      if (!decorative && (showLabels || center || node.degree >= 5 || hovered || (hasActiveHighlight && active))) {
         const label = trim(node.title || `#${node.note_id}`, 20);
         const fontPx = (12 * ratio) / view.scale;
         const padX = (5 * ratio) / view.scale;
