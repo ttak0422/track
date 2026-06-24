@@ -281,7 +281,9 @@ export function GraphCanvas({
     ctx.translate(width / 2 + view.x * ratio, height / 2 + view.y * ratio);
     ctx.scale(view.scale, view.scale);
     ctx.font = `${Math.floor((12 * ratio) / view.scale)}px system-ui, sans-serif`;
-    ctx.lineWidth = (1 * ratio) / view.scale;
+    const baseLineWidth = (1 * ratio) / view.scale;
+    const highlightLineWidth = (2.6 * ratio) / view.scale;
+    ctx.lineWidth = baseLineWidth;
     ctx.strokeStyle = css("--line");
 
     // When a search is active, highlight holds the matching node ids; matched nodes (and edges between
@@ -290,9 +292,13 @@ export function GraphCanvas({
     edgesRef.current.forEach((edge) => {
       if (highlight) {
         const linked = highlight.has(edge.source.note_id) && highlight.has(edge.target.note_id);
-        ctx.globalAlpha = linked ? 0.55 : 0.1;
+        ctx.globalAlpha = linked ? 0.86 : 0.08;
+        ctx.lineWidth = linked ? highlightLineWidth : baseLineWidth;
+        ctx.strokeStyle = linked ? css("--accent-strong") : css("--line");
       } else {
         ctx.globalAlpha = 0.62;
+        ctx.lineWidth = baseLineWidth;
+        ctx.strokeStyle = css("--line");
       }
       ctx.beginPath();
       ctx.moveTo(edge.source.x * ratio, edge.source.y * ratio);
@@ -309,6 +315,7 @@ export function GraphCanvas({
       const x = node.x * ratio;
       const y = node.y * ratio;
       ctx.globalAlpha = matched ? 0.92 : 0.18;
+      ctx.lineWidth = highlight && matched ? highlightLineWidth : baseLineWidth;
       ctx.beginPath();
       ctx.arc(x, y, radius, 0, Math.PI * 2);
       if (highlight && matched) {
