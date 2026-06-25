@@ -329,8 +329,7 @@ export function GraphCanvas({
     nodesRef.current.forEach((node) => {
       const center = node.center || node.note_id === graph.center_id;
       const active = nodeIsActive(node.note_id);
-      const base = center ? 10 : 6;
-      const radius = ((base + Math.min(8, Math.sqrt(node.degree) * 2)) * ratio) / view.scale;
+      const radius = (nodeRadius(node) * ratio) / view.scale;
       const x = node.x * ratio;
       const y = node.y * ratio;
       ctx.globalAlpha = active ? 0.92 : 0.18;
@@ -396,21 +395,35 @@ export function GraphCanvas({
     };
   }
 
+  // nodeRadius returns a node's drawn radius in CSS pixels (independent of zoom): larger for the center
+  // node and for higher-degree nodes. Rendering and hit-testing both use it so the clickable area always
+  // matches the dot the user actually sees.
+  function nodeRadius(node: SimNode): number {
+    const center = node.center || node.note_id === graphRef.current.center_id;
+    const base = center ? 10 : 6;
+    return base + Math.min(8, Math.sqrt(node.degree) * 2);
+  }
+
   function graphNodeAt(point: Point): SimNode | undefined {
     const world = worldPoint(point);
+    const scale = viewRef.current.scale;
+    // A few CSS pixels of slack on top of the drawn radius keep small dots comfortably clickable,
+    // without the old flat 34px hit area that selected nodes the pointer was nowhere near.
+    const pad = 5;
     let best: SimNode | undefined;
     let bestD = Infinity;
     nodesRef.current.forEach((node) => {
       const dx = node.x - world.x;
       const dy = node.y - world.y;
       const distance = dx * dx + dy * dy;
-      if (distance < bestD) {
+      if (distance >= bestD) return;
+      const threshold = (nodeRadius(node) + pad) / scale;
+      if (distance <= threshold * threshold) {
         bestD = distance;
         best = node;
       }
     });
-    const threshold = 34 / viewRef.current.scale;
-    return best && bestD <= threshold * threshold ? best : undefined;
+    return best;
   }
 
   function pointerDown(event: PointerEvent<HTMLCanvasElement>) {
