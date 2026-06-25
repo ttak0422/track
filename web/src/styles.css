@@ -747,6 +747,11 @@ button {
 
 .note-reader {
   display: flex;
+  /* Cap the reading column and center it so a wide viewport keeps a comfortable
+     measure (like GitHub's README) instead of stretching prose edge to edge. */
+  width: 100%;
+  max-width: 960px;
+  margin-inline: auto;
   min-height: calc(100vh - 64px);
   flex-direction: column;
   gap: 18px;
