@@ -106,14 +106,11 @@ assert_true(vim.fn.isdirectory(action_vault .. "/journal") == 1, "first command 
 require("track.action").run("journal?offset=0")
 assert_true(vim.fn.isdirectory(action_vault .. "/journal") == 1, "journal dir should still exist after journal action")
 assert_true(vim.api.nvim_buf_get_name(0):sub(-#("/journal/" .. today .. ".md")) == "/journal/" .. today .. ".md", "journal action did not open today's journal")
--- With no explicit template, creation applies the builtin "journal" template (# {{ title }} + {{ date }}).
+-- With no explicit template, creation applies the builtin "journal" template, which is just the
+-- title heading (# {{ title }}); the journal name is already the date.
 local journal_lines = vim.api.nvim_buf_get_lines(0, 0, -1, false)
-local iso_date = os.date("%Y-%m-%d")
 assert_true(
-   #journal_lines == 3
-      and journal_lines[1] == "# " .. today
-      and journal_lines[2] == ""
-      and journal_lines[3] == iso_date,
+   #journal_lines == 1 and journal_lines[1] == "# " .. today,
    "journal action should apply the builtin journal template: " .. vim.inspect(journal_lines)
 )
 local journal_resolved = run_json({ "resolve", "--term", today })
