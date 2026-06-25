@@ -6,6 +6,7 @@ import type {
   NoteResponse,
   NotesResponse,
   OgpResponse,
+  RenderResponse,
   ResolveResponse,
   SaveNoteRequest,
   SaveNoteResponse,
@@ -80,6 +81,14 @@ export function saveNote(noteID: number, request: SaveNoteRequest): Promise<Save
     method: "PUT",
     body: request,
   });
+}
+
+// renderMarkdown asks the server to sanitize a raw note body into the Markdown the frontend renders:
+// track action links are flattened to plain text while wiki links and ordinary Markdown pass through.
+// Posting the live (possibly unsaved) body keeps the engine the single source of truth for track-specific
+// Markdown rules instead of duplicating them in the frontend.
+export function renderMarkdown(body: string): Promise<RenderResponse> {
+  return api<RenderResponse>("/api/render", { method: "POST", body: { body } });
 }
 
 export function getLocalGraph(noteID: number): Promise<GraphResponse> {

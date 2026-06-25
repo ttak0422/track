@@ -1,4 +1,4 @@
-import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { keepPreviousData, useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import {
   getActivity,
   getAgenda,
@@ -7,10 +7,12 @@ import {
   getNote,
   getOgp,
   listNotes,
+  renderMarkdown,
   resolveTerm,
   saveNote,
   searchNotes,
 } from "./api";
+import { useDebouncedValue } from "./hooks/useDebouncedValue";
 import type { NoteID, NoteResponse, SaveNoteRequest } from "./types";
 
 export const queryKeys = {
@@ -23,6 +25,7 @@ export const queryKeys = {
   resolve: (term: string) => ["resolve", term] as const,
   search: (query: string, limit: number) => ["search", query, limit] as const,
   ogp: (url: string) => ["ogp", url] as const,
+  render: (body: string) => ["render", body] as const,
 };
 
 export function useActivityQuery(since: string, until: string) {
@@ -85,6 +88,22 @@ export function useNoteQuery(noteID: NoteID, options: { live?: boolean } = {}) {
     queryKey: queryKeys.note(noteID),
     queryFn: () => getNote(noteID),
     refetchInterval: options.live ? liveRefetchInterval : false,
+  });
+}
+
+// useRenderQuery turns a raw note body into the sanitized Markdown the preview renders, via the server's
+// /api/render endpoint. The body is debounced so typing in the editor does not post on every keystroke,
+// and the previous render is kept while the next one loads so the preview never flashes empty mid-edit.
+export function useRenderQuery(body: string) {
+  const debounced = useDebouncedValue(body, 200);
+  return useQuery({
+    queryKey: queryKeys.render(debounced),
+    queryFn: () => renderMarkdown(debounced),
+    enabled: debounced.trim() !== "",
+    // Sanitization is a pure function of the body and the server caches nothing per-note, so an identical
+    // body never needs re-posting within a session.
+    staleTime: Infinity,
+    placeholderData: keepPreviousData,
   });
 }
 

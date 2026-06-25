@@ -1,7 +1,7 @@
 import { Link } from "@tanstack/react-router";
 import { FormEvent, useEffect, useRef, useState } from "react";
 import { MarkdownView } from "./MarkdownView";
-import { useAgendaQuery, useNoteQuery, useSaveNoteMutation } from "../queries";
+import { useAgendaQuery, useNoteQuery, useRenderQuery, useSaveNoteMutation } from "../queries";
 import { useSearchState } from "../searchState";
 import type { FileKind, NoteID } from "../types";
 
@@ -25,6 +25,9 @@ export function NoteReader({ noteID }: NoteReaderProps) {
   const [body, setBody] = useState("");
   const [copied, setCopied] = useState(false);
   const [editorMode, setEditorMode] = useState<EditorMode>(() => storedEditorMode());
+  // The preview renders server-sanitized Markdown (action links flattened, wiki links kept) rather than
+  // the raw body, so track-specific rules live only in the engine. The body is posted as you type.
+  const renderQuery = useRenderQuery(body);
   // The note/body/etag last adopted from disk. Edits are "dirty" relative to this, and
   // saves use this etag so a background reload cannot mask a conflicting change. noteID is
   // tracked so switching notes always reloads, even with unsaved edits to the previous note.
@@ -129,7 +132,7 @@ export function NoteReader({ noteID }: NoteReaderProps) {
           ) : null}
           {editorMode !== "edit" ? (
             <section className="note-preview" aria-label="Rendered note preview">
-              <MarkdownView markdown={body} kind={note.file_kind} />
+              <MarkdownView markdown={renderQuery.data?.markdown ?? ""} kind={note.file_kind} />
             </section>
           ) : null}
         </div>

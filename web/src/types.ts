@@ -106,3 +106,7 @@ export interface OgpResponse {
   image?: string;
   site_name?: string;
 }
+
+export interface RenderResponse {
+  markdown: string;
+}
