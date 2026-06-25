@@ -1,7 +1,6 @@
 package template
 
 import (
-	"strings"
 	"testing"
 	"time"
 
@@ -43,8 +42,10 @@ func TestRenderBuiltinJournal(t *testing.T) {
 	if err != nil {
 		t.Fatalf("render: %v", err)
 	}
-	if !strings.Contains(body, "# 20260622") || !strings.Contains(body, "2026-06-22") {
-		t.Fatalf("rendered journal body did not expand vars: %q", body)
+	// The builtin journal is just the title (the journal name is already the date), so the rendered
+	// body is the expanded heading and nothing else.
+	if body != "# 20260622\n" {
+		t.Fatalf("unexpected rendered journal body: %q", body)
 	}
 }
 

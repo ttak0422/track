@@ -2,5 +2,3 @@
 name: journal
 -->
 # {{ title }}
-
-{{ date }}

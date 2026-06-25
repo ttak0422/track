@@ -101,7 +101,7 @@ Builtins are resolved by name like any other template, but a user template of th
 When `track new`, `track open` (on create), or `track journal` (on create) is called with neither `--template` nor an inline body, track applies a default template, resolved in this order:
 
 1. A configured default wins: `default_template` (notes) or `journal_template` (journals) in `config.yml`, overridable for one-off runs by `TRACK_DEFAULT_TEMPLATE` / `TRACK_JOURNAL_TEMPLATE`. The value is a template name or a vault path, same as `--template`.
-2. Otherwise the template named `default` (notes) or `journal` (journals) is used — a user template of that name when present, otherwise the shipped builtin. Because the builtins always exist, a bare `track new` / `track journal` applies them by default (a new note gets `# {{ title }}`, a journal additionally gets the date).
+2. Otherwise the template named `default` (notes) or `journal` (journals) is used — a user template of that name when present, otherwise the shipped builtin. Because the builtins always exist, a bare `track new` / `track journal` applies them by default (both are just `# {{ title }}`; for a journal the title is already the date).
 
 The default is always overridable per invocation: an explicit `--template` selects a different template, and an explicit `--body` opts out of the default entirely. A configured default that names a missing template surfaces the usual "template not found" error. The default applies only to the explicit creation commands; the LSP "create note" code action on an unresolved `[[link]]` still writes an empty stub.
 
