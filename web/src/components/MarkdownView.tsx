@@ -1,4 +1,5 @@
 import { Link } from "@tanstack/react-router";
+import { loadDefaultJapaneseParser } from "budoux";
 import {
   createContext,
   Fragment,
@@ -74,6 +75,27 @@ export function MarkdownView({ markdown, kind = "note" }: MarkdownViewProps) {
 
 function renderInline(text: string) {
   return renderParts(parseInline(text));
+}
+
+// BudouX segments Japanese text at phrase boundaries. Paired with CSS `word-break: keep-all`, the
+// inserted <wbr> markers let lines wrap between phrases instead of at arbitrary characters, so long
+// Japanese paragraphs read naturally on wide viewports.
+const jaParser = loadDefaultJapaneseParser();
+
+function renderWordBreaks(text: string): ReactNode {
+  if (text === "") {
+    return text;
+  }
+  const segments = jaParser.parse(text);
+  if (segments.length <= 1) {
+    return text;
+  }
+  return segments.map((segment, index) => (
+    <Fragment key={index}>
+      {index > 0 ? <wbr /> : null}
+      {segment}
+    </Fragment>
+  ));
 }
 
 interface CodeBlockProps {
@@ -382,7 +404,7 @@ function renderParts(parts: InlinePart[]) {
   return parts.map((part, index) => {
     switch (part.type) {
       case "text":
-        return <Fragment key={index}>{part.text}</Fragment>;
+        return <Fragment key={index}>{renderWordBreaks(part.text)}</Fragment>;
       case "wiki":
         return <WikiLink display={part.display} key={index} target={part.target} />;
       case "link":

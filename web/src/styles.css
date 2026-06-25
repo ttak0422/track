@@ -870,6 +870,10 @@ button {
 
 .markdown-view {
   line-height: 1.65;
+  /* Wrap Japanese only at the phrase boundaries BudouX marks with <wbr>, falling back to breaking a
+     long unbroken run (e.g. a URL) so nothing overflows the column. */
+  word-break: keep-all;
+  overflow-wrap: anywhere;
 }
 
 .markdown-view h1,

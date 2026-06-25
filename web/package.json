@@ -11,6 +11,7 @@
     "@tanstack/react-query": "5.101.0",
     "@tanstack/react-router": "1.170.15",
     "@vitejs/plugin-react": "6.0.2",
+    "budoux": "0.8.4",
     "pdfjs-dist": "6.0.227",
     "react": "19.2.7",
     "react-dom": "19.2.7",
