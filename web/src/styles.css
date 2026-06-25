@@ -894,9 +894,49 @@ button {
   margin: 0.8em 0;
 }
 
-.markdown-view ul {
+.markdown-view ul,
+.markdown-view ol {
   margin: 0.8em 0;
   padding-left: 1.3em;
+}
+
+.markdown-view blockquote {
+  margin: 0.8em 0;
+  padding: 0.2em 0 0.2em 1em;
+  border-left: 3px solid var(--line);
+  color: var(--muted);
+}
+
+.markdown-view hr {
+  margin: 1.4em 0;
+  border: 0;
+  border-top: 1px solid var(--line);
+}
+
+/* GFM tables: a bordered, zebra-striped grid that scrolls horizontally when wider than the column. */
+.markdown-view table {
+  display: block;
+  width: max-content;
+  max-width: 100%;
+  margin: 0.9em 0;
+  overflow-x: auto;
+  border-collapse: collapse;
+}
+
+.markdown-view th,
+.markdown-view td {
+  padding: 6px 12px;
+  border: 1px solid var(--line);
+  text-align: left;
+}
+
+.markdown-view th {
+  background: var(--panel-soft);
+  font-weight: 700;
+}
+
+.markdown-view tbody tr:nth-child(even) {
+  background: color-mix(in srgb, var(--panel-soft) 45%, transparent);
 }
 
 .embed {
@@ -1212,11 +1252,20 @@ button {
   letter-spacing: 0.04em;
 }
 
-.task-item {
+/* GFM task lists: drop the bullet and align the checkbox with the text. */
+.markdown-view .contains-task-list {
+  padding-left: 0;
+  list-style: none;
+}
+
+.markdown-view .task-list-item {
   display: flex;
   align-items: flex-start;
   gap: 8px;
-  margin: 8px 0;
+}
+
+.markdown-view .task-list-item input[type="checkbox"] {
+  margin-top: 0.3em;
 }
 
 .wiki-link-wrap {

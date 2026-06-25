@@ -1,5 +1,7 @@
 import { Link } from "@tanstack/react-router";
 import { loadDefaultJapaneseParser } from "budoux";
+import type { Element, Root as HastRoot, Text as HastText } from "hast";
+import type { Root as MdastRoot } from "mdast";
 import {
   createContext,
   Fragment,
@@ -9,8 +11,10 @@ import {
   useRef,
   useState,
 } from "react";
-import { parseInline, parseMarkdown, type InlinePart } from "../markdown";
-import { useNoteQuery, useOgpQuery, useResolveQuery } from "../queries";
+import Markdown, { type Components } from "react-markdown";
+import remarkGfm from "remark-gfm";
+import { visit } from "unist-util-visit";
+import { useNoteQuery, useOgpQuery, useRenderQuery, useResolveQuery } from "../queries";
 import { PdfDeck } from "./PdfDeck";
 
 // Nesting depth of the current markdown render. Each preview renders its body
@@ -29,52 +33,127 @@ interface MarkdownViewProps {
   kind?: string;
 }
 
+// The markdown is parsed by react-markdown (CommonMark + GFM tables/strikethrough/task lists). The body
+// arrives already sanitized by the server's /api/render (action links flattened), so the only
+// track-specific construct the frontend still parses is [[...]] wiki links, handled by remarkWikiLink.
 export function MarkdownView({ markdown, kind = "note" }: MarkdownViewProps) {
-  const blocks = parseMarkdown(markdown);
-
-  if (blocks.length === 0) {
+  if (markdown.trim() === "") {
     return <p className="muted">Empty note.</p>;
   }
 
   return (
     <NoteKindContext.Provider value={kind}>
-    <div className="markdown-view">
-      {blocks.map((block, index) => {
-        switch (block.type) {
-          case "heading": {
-            const Heading = `h${block.level}` as "h1" | "h2" | "h3";
-            return <Heading key={index}>{renderInline(block.text)}</Heading>;
-          }
-          case "paragraph":
-            return <p key={index}>{renderInline(block.text)}</p>;
-          case "list":
-            return (
-              <ul key={index}>
-                {block.items.map((item, itemIndex) => (
-                  <li key={itemIndex}>{renderInline(item)}</li>
-                ))}
-              </ul>
-            );
-          case "task":
-            return (
-              <label className="task-item" key={index}>
-                <input type="checkbox" checked={block.checked} readOnly />
-                <span>{renderInline(block.text)}</span>
-              </label>
-            );
-          case "embed":
-            return <Embed key={index} src={block.src} alt={block.alt} />;
-          case "code":
-            return <CodeBlock key={index} lang={block.lang} text={block.text} />;
-        }
-      })}
-    </div>
+      <div className="markdown-view">
+        <Markdown
+          remarkPlugins={[remarkGfm, remarkWikiLink]}
+          rehypePlugins={[rehypeBudoux]}
+          components={markdownComponents}
+        >
+          {markdown}
+        </Markdown>
+      </div>
     </NoteKindContext.Provider>
   );
 }
 
-function renderInline(text: string) {
-  return renderParts(parseInline(text));
+// markdownComponents maps the rendered HTML elements to track's interactive presentation: links resolve
+// to notes/assets/external pages, standalone images become rich embeds, fenced code gets the copy button
+// and highlighter, and [[...]] wiki links (from remarkWikiLink) get hover previews. The object carries a
+// custom "wikilink" element key, so it is cast to Components.
+interface ElementProps {
+  node?: Element;
+  children?: ReactNode;
+}
+
+const markdownComponents = {
+  a: ({ href, children }: { href?: string; children?: ReactNode }) => (
+    <ExternalLink href={href ?? ""}>{children}</ExternalLink>
+  ),
+  img: ({ src, alt }: { src?: string; alt?: string }) => (
+    <Embed src={typeof src === "string" ? src : ""} alt={alt ?? ""} />
+  ),
+  // A standalone image is a block embed (player/PDF/OGP card), so unwrap the paragraph that would
+  // otherwise nest a block element inside a <p>.
+  p: ({ node, children }: ElementProps) => (isSoleImage(node) ? <>{children}</> : <p>{children}</p>),
+  pre: ({ node, children }: ElementProps) => {
+    const code = node?.children?.[0];
+    if (code && code.type === "element" && code.tagName === "code") {
+      return <CodeBlock lang={codeLanguage(code)} text={hastText(code)} />;
+    }
+    return <pre>{children}</pre>;
+  },
+  code: ({ children }: { children?: ReactNode }) => <code className="inline-code">{children}</code>,
+  wikilink: ({ node }: ElementProps) => {
+    const props = (node?.properties ?? {}) as { target?: unknown; display?: unknown };
+    return <WikiLink target={String(props.target ?? "")} display={String(props.display ?? "")} />;
+  },
+} as Components;
+
+// hastText concatenates the text content of a hast element, dropping the single trailing newline that a
+// fenced code block carries, so the code is shown exactly as written.
+function hastText(node: Element): string {
+  let out = "";
+  for (const child of node.children) {
+    if (child.type === "text") out += child.value;
+    else if (child.type === "element") out += hastText(child);
+  }
+  return out.replace(/\n$/, "");
+}
+
+// codeLanguage reads the "language-xxx" class react-markdown puts on a fenced code element.
+function codeLanguage(node: Element): string {
+  const className = node.properties?.className;
+  const classes = Array.isArray(className) ? className : className == null ? [] : [className];
+  for (const c of classes) {
+    const match = /^language-(.+)$/.exec(String(c));
+    if (match) return match[1];
+  }
+  return "";
+}
+
+// isSoleImage reports whether a paragraph node wraps nothing but a single image (ignoring whitespace).
+function isSoleImage(node?: Element): boolean {
+  if (!node) return false;
+  const kids = node.children.filter((c) => !(c.type === "text" && c.value.trim() === ""));
+  return kids.length === 1 && kids[0].type === "element" && kids[0].tagName === "img";
+}
+
+const wikiPattern = /\[\[([^\]|]+)(?:\|([^\]]+))?\]\]/g;
+
+// remarkWikiLink rewrites [[target|display]] text into a custom "wikilink" element carrying the target
+// and display as properties, so markdownComponents can render it as a navigable, hover-previewable link.
+function remarkWikiLink() {
+  return (tree: MdastRoot) => {
+    visit(tree, "text", (node, index, parent) => {
+      if (!parent || index === undefined) return;
+      const value = node.value;
+      wikiPattern.lastIndex = 0;
+      if (!wikiPattern.test(value)) return;
+      wikiPattern.lastIndex = 0;
+      const replacement: unknown[] = [];
+      let last = 0;
+      let match: RegExpExecArray | null;
+      while ((match = wikiPattern.exec(value)) !== null) {
+        if (match.index > last) {
+          replacement.push({ type: "text", value: value.slice(last, match.index) });
+        }
+        const target = match[1].trim();
+        const display = (match[2] ?? match[1]).trim();
+        replacement.push({
+          type: "wikilink",
+          data: { hName: "wikilink", hProperties: { target, display } },
+          children: [],
+        });
+        last = wikiPattern.lastIndex;
+      }
+      if (last < value.length) {
+        replacement.push({ type: "text", value: value.slice(last) });
+      }
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      parent.children.splice(index, 1, ...(replacement as any[]));
+      return index + replacement.length;
+    });
+  };
 }
 
 // BudouX segments Japanese text at phrase boundaries. Paired with CSS `word-break: keep-all`, the
@@ -82,20 +161,28 @@ function renderInline(text: string) {
 // Japanese paragraphs read naturally on wide viewports.
 const jaParser = loadDefaultJapaneseParser();
 
-function renderWordBreaks(text: string): ReactNode {
-  if (text === "") {
-    return text;
-  }
-  const segments = jaParser.parse(text);
-  if (segments.length <= 1) {
-    return text;
-  }
-  return segments.map((segment, index) => (
-    <Fragment key={index}>
-      {index > 0 ? <wbr /> : null}
-      {segment}
-    </Fragment>
-  ));
+// rehypeBudoux runs on the rendered tree (after wiki links and code are elements) and replaces each text
+// node with its BudouX phrase segments separated by <wbr>. Text inside code/pre is left untouched.
+function rehypeBudoux() {
+  return (tree: HastRoot) => {
+    visit(tree, "text", (node, index, parent) => {
+      if (!parent || index === undefined) return;
+      if (parent.type === "element" && (parent.tagName === "code" || parent.tagName === "pre")) {
+        return;
+      }
+      const segments = jaParser.parse(node.value);
+      if (segments.length <= 1) return;
+      const replacement: (HastText | Element)[] = [];
+      segments.forEach((segment, i) => {
+        if (i > 0) {
+          replacement.push({ type: "element", tagName: "wbr", properties: {}, children: [] });
+        }
+        replacement.push({ type: "text", value: segment });
+      });
+      parent.children.splice(index, 1, ...replacement);
+      return index + replacement.length;
+    });
+  };
 }
 
 interface CodeBlockProps {
@@ -400,54 +487,20 @@ async function copyText(text: string): Promise<boolean> {
   }
 }
 
-function renderParts(parts: InlinePart[]) {
-  return parts.map((part, index) => {
-    switch (part.type) {
-      case "text":
-        return <Fragment key={index}>{renderWordBreaks(part.text)}</Fragment>;
-      case "wiki":
-        return <WikiLink display={part.display} key={index} target={part.target} />;
-      case "link":
-        return (
-          <ExternalLink href={part.href} key={index}>
-            {renderParts(part.children)}
-          </ExternalLink>
-        );
-      case "code":
-        return (
-          <code className="inline-code" key={index}>
-            {part.text}
-          </code>
-        );
-      case "strong":
-        return <strong key={index}>{renderParts(part.children)}</strong>;
-      case "em":
-        return <em key={index}>{renderParts(part.children)}</em>;
-      case "del":
-        return <del key={index}>{renderParts(part.children)}</del>;
-    }
-  });
-}
-
 interface ExternalLinkProps {
   href: string;
   children: ReactNode;
 }
 
-// ExternalLink renders a standard markdown [text](href). Track action links wrap the destination in
-// angle brackets (e.g. [今日](<journal?offset=0>)); those are editor-only and not web-navigable, so we
-// render their label as plain text. Non-action links first try to resolve as track notes; otherwise
-// http(s) and domain-like links open in a new tab.
+// ExternalLink renders a standard markdown [text](href). Track action links are flattened to plain text
+// by the server before the body reaches the frontend, so they never appear here. A link first tries to
+// resolve as a track note; otherwise http(s) and domain-like links open in a new tab.
 function ExternalLink({ href, children }: ExternalLinkProps) {
   const kind = useContext(NoteKindContext);
   const asset = assetHref(href, kind);
-  const action = href.startsWith("<") && href.endsWith(">");
-  const noteCandidate = action || asset ? "" : noteCandidateFromHref(href);
+  const noteCandidate = asset ? "" : noteCandidateFromHref(href);
   const resolved = useResolveQuery(noteCandidate);
 
-  if (action) {
-    return <>{children}</>;
-  }
   // A link into the vault's assets/ goes straight to the server endpoint that serves the file, rather
   // than being resolved against the current /notes/<id> route.
   if (asset) {
@@ -896,6 +949,8 @@ interface WikiPreviewProps {
 
 function WikiPreview({ noteID, anchor, depth }: WikiPreviewProps) {
   const note = useNoteQuery(noteID);
+  // Sanitize the previewed body the same way as the main reader, so action links are flattened here too.
+  const rendered = useRenderQuery(note.data?.note.body ?? "");
 
   return (
     <aside
@@ -909,7 +964,7 @@ function WikiPreview({ noteID, anchor, depth }: WikiPreviewProps) {
           <strong>{note.data.note.title}</strong>
           <div className="wiki-preview-body">
             <PreviewDepthContext.Provider value={depth + 1}>
-              <MarkdownView markdown={note.data.note.body} kind={note.data.note.file_kind} />
+              <MarkdownView markdown={rendered.data?.markdown ?? ""} kind={note.data.note.file_kind} />
             </PreviewDepthContext.Provider>
           </div>
         </>
