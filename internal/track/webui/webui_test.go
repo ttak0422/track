@@ -425,6 +425,27 @@ func TestPutNoteRequiresEtag(t *testing.T) {
 	}
 }
 
+func TestRenderSanitizesActionLinksKeepsWiki(t *testing.T) {
+	server, _ := putNoteSetup(t, 100, "Alpha", "old body\n")
+
+	resp, err := http.Post(server.URL+"/api/render", "application/json",
+		strings.NewReader(`{"body":"see [[Go]] and [今日](<journal?offset=0>) here\n"}`))
+	if err != nil {
+		t.Fatalf("post render: %v", err)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("render status = %d", resp.StatusCode)
+	}
+	var decoded map[string]any
+	if err := json.NewDecoder(resp.Body).Decode(&decoded); err != nil {
+		t.Fatalf("decode render: %v", err)
+	}
+	if got, want := decoded["markdown"], "see [[Go]] and 今日 here\n"; got != want {
+		t.Fatalf("render markdown = %q, want %q", got, want)
+	}
+}
+
 func TestIndexInjectsConfiguredTheme(t *testing.T) {
 	cfg := &config.Config{
 		VaultDir:   t.TempDir(),

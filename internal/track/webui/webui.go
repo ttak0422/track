@@ -21,6 +21,7 @@ import (
 	"time"
 
 	"github.com/ttak0422/track/internal/track/config"
+	"github.com/ttak0422/track/internal/track/export"
 	"github.com/ttak0422/track/internal/track/index"
 	"github.com/ttak0422/track/internal/track/journal"
 	"github.com/ttak0422/track/internal/track/note"
@@ -105,6 +106,7 @@ func (s *Server) routes() {
 	s.mux.HandleFunc("/api/journal", s.handleJournal)
 	s.mux.HandleFunc("/api/resolve", s.handleResolve)
 	s.mux.HandleFunc("/api/note", s.handleNote)
+	s.mux.HandleFunc("/api/render", s.handleRender)
 	s.mux.HandleFunc("/api/asset", s.handleAsset)
 	s.mux.HandleFunc("/api/ogp", s.handleOGP)
 	s.mux.HandleFunc("/api/graph/local", s.handleLocalGraph)
@@ -500,6 +502,31 @@ func (s *Server) putNote(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, map[string]any{"note_id": ref.NoteID, "etag": etagFor(out), "saved": true})
+}
+
+// handleRender sanitizes a raw note body into the Markdown the frontend renders: track action links
+// (editor-only, not web-navigable) are flattened to plain text while wiki links, code, and ordinary
+// Markdown pass through. Keeping this on the server makes the engine the single source of truth for
+// track-specific Markdown semantics, and lets the editor preview the live (unsaved) body by posting it
+// here rather than re-implementing the rules in the frontend.
+func (s *Server) handleRender(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		writeError(w, fmt.Errorf("method %s not allowed", r.Method), http.StatusMethodNotAllowed)
+		return
+	}
+	var req struct {
+		Body string `json:"body"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		writeError(w, err, http.StatusBadRequest)
+		return
+	}
+	res, err := export.Export(&note.Note{Body: req.Body}, export.NewWebRenderer(), export.Options{})
+	if err != nil {
+		writeError(w, err, http.StatusInternalServerError)
+		return
+	}
+	writeJSON(w, map[string]any{"markdown": res.Markdown})
 }
 
 // etagFor returns a short content hash used as an optimistic-concurrency token for note bodies.
