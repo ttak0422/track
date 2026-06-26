@@ -769,6 +769,22 @@ button {
   font-size: 28px;
 }
 
+.note-title-row {
+  display: flex;
+  min-width: 0;
+  align-items: center;
+  gap: 10px;
+}
+
+.dirty-indicator {
+  width: 9px;
+  height: 9px;
+  flex: 0 0 auto;
+  border-radius: 999px;
+  background: var(--accent);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent) 18%, transparent);
+}
+
 .note-header p {
   margin: 6px 0 0;
   color: var(--muted);

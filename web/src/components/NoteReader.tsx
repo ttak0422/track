@@ -197,8 +197,11 @@ export function NoteReader({ noteID }: NoteReaderProps) {
   return (
     <article className="note-reader">
       <header className="note-header">
-        <div>
+        <div className="note-title-row">
           <h2>{note.title}</h2>
+          {dirty ? (
+            <span className="dirty-indicator" aria-label="Unsaved changes" title="Unsaved changes" />
+          ) : null}
         </div>
         <div className="note-header-actions">
           <button
