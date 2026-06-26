@@ -1,0 +1,147 @@
+import { Link } from "@tanstack/react-router";
+import { useContext, useEffect, useRef, useState } from "react";
+import { useResolveQuery } from "../../queries";
+import { PreviewDepthContext } from "../markdown/context";
+import { type PreviewAnchor } from "./bounds";
+import { nextPreviewStackOrder, previewOpenDelay } from "./stack";
+import { WikiPreview } from "./WikiPreview";
+
+interface WikiLinkProps {
+  target: string;
+  display: string;
+}
+
+export function WikiLink({ target, display }: WikiLinkProps) {
+  const [open, setOpen] = useState(false);
+  const [anchor, setAnchor] = useState<PreviewAnchor | null>(null);
+  const [pinned, setPinned] = useState(false);
+  const [stackOrder, setStackOrder] = useState(nextPreviewStackOrder);
+  const pinnedRef = useRef(false);
+  const linkRef = useRef<HTMLAnchorElement>(null);
+  const closeTimer = useRef<number | undefined>(undefined);
+  const openTimer = useRef<number | undefined>(undefined);
+  const depth = useContext(PreviewDepthContext);
+  const resolved = useResolveQuery(target);
+  const noteID = resolved.data?.found ? resolved.data.note.note_id : undefined;
+
+  useEffect(() => {
+    return () => {
+      if (closeTimer.current !== undefined) {
+        window.clearTimeout(closeTimer.current);
+      }
+      if (openTimer.current !== undefined) {
+        window.clearTimeout(openTimer.current);
+      }
+    };
+  }, []);
+
+  // scheduleOpen defers opening on hover until the pointer has rested on the link, so a cursor passing
+  // over a column of links does not flash a preview under each one.
+  function scheduleOpen() {
+    holdPreview();
+    if (pinnedRef.current || open || openTimer.current !== undefined) return;
+    openTimer.current = window.setTimeout(() => {
+      openTimer.current = undefined;
+      openPreview();
+    }, previewOpenDelay);
+  }
+
+  function cancelOpen() {
+    if (openTimer.current !== undefined) {
+      window.clearTimeout(openTimer.current);
+      openTimer.current = undefined;
+    }
+  }
+
+  function openPreview() {
+    holdPreview();
+    cancelOpen();
+    // A pinned preview is a persisted window: like an OS window it is only raised by selecting it
+    // (pointer down / drag), not by hovering its link, so leave its stacking order untouched here.
+    if (pinnedRef.current) return;
+    bringPreviewToFront();
+    const rect = linkRef.current?.getBoundingClientRect();
+    if (rect) {
+      setAnchor({
+        linkLeft: rect.left,
+        linkRight: rect.right,
+        linkTop: rect.top,
+        linkBottom: rect.bottom,
+      });
+    }
+    setOpen(true);
+  }
+
+  function holdPreview() {
+    if (closeTimer.current !== undefined) {
+      window.clearTimeout(closeTimer.current);
+    }
+  }
+
+  function bringPreviewToFront() {
+    setStackOrder(nextPreviewStackOrder());
+  }
+
+  function scheduleClose() {
+    cancelOpen();
+    if (pinnedRef.current) return;
+    if (closeTimer.current !== undefined) {
+      window.clearTimeout(closeTimer.current);
+    }
+    closeTimer.current = window.setTimeout(() => setOpen(false), 220);
+  }
+
+  function pinPreview() {
+    holdPreview();
+    bringPreviewToFront();
+    pinnedRef.current = true;
+    setPinned(true);
+  }
+
+  function closePreview() {
+    holdPreview();
+    pinnedRef.current = false;
+    setPinned(false);
+    setOpen(false);
+  }
+
+  if (resolved.isPending) {
+    return <span className="wiki-link pending">{display}</span>;
+  }
+
+  if (!noteID) {
+    return <span className="wiki-link unresolved">{display}</span>;
+  }
+
+  return (
+    <span
+      className="wiki-link-wrap"
+      onBlur={scheduleClose}
+      onFocus={openPreview}
+      onMouseEnter={scheduleOpen}
+      onMouseLeave={scheduleClose}
+    >
+      <Link
+        className="wiki-link"
+        ref={linkRef}
+        to="/notes/$noteId"
+        params={{ noteId: String(noteID) }}
+      >
+        {display}
+      </Link>
+      {open && anchor ? (
+        <WikiPreview
+          noteID={noteID}
+          anchor={anchor}
+          depth={depth}
+          pinned={pinned}
+          stackOrder={stackOrder}
+          onActivate={bringPreviewToFront}
+          onClose={closePreview}
+          onHold={holdPreview}
+          onPin={pinPreview}
+        />
+      ) : null}
+    </span>
+  );
+}
