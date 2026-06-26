@@ -1326,6 +1326,11 @@ button {
 .wiki-preview-body {
   max-height: 220px;
   overflow: auto;
+  scrollbar-width: none;
+}
+
+.wiki-preview-body::-webkit-scrollbar {
+  display: none;
 }
 
 .wiki-preview-body .markdown-view {
@@ -1427,6 +1432,11 @@ button {
   max-height: 320px;
   overflow-y: auto;
   padding-right: 4px;
+  scrollbar-width: none;
+}
+
+.backlink-list::-webkit-scrollbar {
+  display: none;
 }
 
 .backlink {
