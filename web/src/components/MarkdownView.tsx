@@ -31,6 +31,11 @@ const previewBaseZIndex = 100;
 const previewMargin = 12;
 const minPreviewWidth = 280;
 const minPreviewHeight = 180;
+// Hover intent: only open a preview once the pointer rests on a link, so sweeping the cursor down a
+// column of links does not flash a popup under every one it crosses.
+const previewOpenDelay = 260;
+// Gap between a link and a preview placed beside it.
+const previewSideGap = 12;
 let previewStackOrder = 0;
 
 function nextPreviewStackOrder(): number {
@@ -882,9 +887,13 @@ interface WikiLinkProps {
   display: string;
 }
 
+// The link's viewport rect, so the preview can be placed beside it (keeping the link column visible)
+// rather than directly below it.
 interface PreviewAnchor {
-  left: number;
-  top: number;
+  linkLeft: number;
+  linkRight: number;
+  linkTop: number;
+  linkBottom: number;
 }
 
 function WikiLink({ target, display }: WikiLinkProps) {
@@ -895,6 +904,7 @@ function WikiLink({ target, display }: WikiLinkProps) {
   const pinnedRef = useRef(false);
   const linkRef = useRef<HTMLAnchorElement>(null);
   const closeTimer = useRef<number | undefined>(undefined);
+  const openTimer = useRef<number | undefined>(undefined);
   const depth = useContext(PreviewDepthContext);
   const resolved = useResolveQuery(target);
   const noteID = resolved.data?.found ? resolved.data.note.note_id : undefined;
@@ -904,18 +914,45 @@ function WikiLink({ target, display }: WikiLinkProps) {
       if (closeTimer.current !== undefined) {
         window.clearTimeout(closeTimer.current);
       }
+      if (openTimer.current !== undefined) {
+        window.clearTimeout(openTimer.current);
+      }
     };
   }, []);
 
+  // scheduleOpen defers opening on hover until the pointer has rested on the link, so a cursor passing
+  // over a column of links does not flash a preview under each one.
+  function scheduleOpen() {
+    holdPreview();
+    if (pinnedRef.current || open || openTimer.current !== undefined) return;
+    openTimer.current = window.setTimeout(() => {
+      openTimer.current = undefined;
+      openPreview();
+    }, previewOpenDelay);
+  }
+
+  function cancelOpen() {
+    if (openTimer.current !== undefined) {
+      window.clearTimeout(openTimer.current);
+      openTimer.current = undefined;
+    }
+  }
+
   function openPreview() {
     holdPreview();
+    cancelOpen();
     // A pinned preview is a persisted window: like an OS window it is only raised by selecting it
     // (pointer down / drag), not by hovering its link, so leave its stacking order untouched here.
     if (pinnedRef.current) return;
     bringPreviewToFront();
     const rect = linkRef.current?.getBoundingClientRect();
     if (rect) {
-      setAnchor({ left: rect.left, top: rect.bottom + 8 });
+      setAnchor({
+        linkLeft: rect.left,
+        linkRight: rect.right,
+        linkTop: rect.top,
+        linkBottom: rect.bottom,
+      });
     }
     setOpen(true);
   }
@@ -931,6 +968,7 @@ function WikiLink({ target, display }: WikiLinkProps) {
   }
 
   function scheduleClose() {
+    cancelOpen();
     if (pinnedRef.current) return;
     if (closeTimer.current !== undefined) {
       window.clearTimeout(closeTimer.current);
@@ -965,7 +1003,7 @@ function WikiLink({ target, display }: WikiLinkProps) {
       className="wiki-link-wrap"
       onBlur={scheduleClose}
       onFocus={openPreview}
-      onMouseEnter={openPreview}
+      onMouseEnter={scheduleOpen}
       onMouseLeave={scheduleClose}
     >
       <Link
@@ -1043,7 +1081,7 @@ function WikiPreview({
     if (!pinned) {
       setBounds(initialPreviewBounds(anchor));
     }
-  }, [anchor.left, anchor.top, pinned]);
+  }, [anchor.linkLeft, anchor.linkRight, anchor.linkTop, anchor.linkBottom, pinned]);
 
   function startMove(event: PointerEvent<HTMLElement>) {
     startDrag(event, "move");
@@ -1157,12 +1195,28 @@ function initialPreviewBounds(anchor: PreviewAnchor): PreviewBounds {
     minPreviewWidth,
     Math.max(minPreviewWidth, window.innerWidth - previewMargin * 2),
   );
+  // Prefer placing the preview beside the link (right, then left) so a column of links below the
+  // hovered one stays visible. Fall back to just below the link only when neither side has room.
+  const roomRight = window.innerWidth - previewMargin - (anchor.linkRight + previewSideGap);
+  const roomLeft = anchor.linkLeft - previewSideGap - previewMargin;
+  let left: number;
+  let top: number;
+  if (roomRight >= width) {
+    left = anchor.linkRight + previewSideGap;
+    top = anchor.linkTop;
+  } else if (roomLeft >= width) {
+    left = anchor.linkLeft - previewSideGap - width;
+    top = anchor.linkTop;
+  } else {
+    left = anchor.linkLeft;
+    top = anchor.linkBottom + 8;
+  }
   const height = clamp(
     280,
     minPreviewHeight,
-    Math.max(minPreviewHeight, window.innerHeight - anchor.top - previewMargin),
+    Math.max(minPreviewHeight, window.innerHeight - top - previewMargin),
   );
-  return constrainPreviewBounds({ left: anchor.left, top: anchor.top, width, height });
+  return constrainPreviewBounds({ left, top, width, height });
 }
 
 function constrainPreviewBounds(bounds: PreviewBounds): PreviewBounds {
