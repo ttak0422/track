@@ -178,8 +178,10 @@ func TestFollowEndpointStoresNeovimState(t *testing.T) {
 		t.Fatalf("open store: %v", err)
 	}
 	t.Cleanup(func() { s.Close() })
+	addIndexedTestNote(t, cfg, s, 100, "Tracked")
 
-	server := httptest.NewServer(New(cfg, s).Handler())
+	srv := New(cfg, s)
+	server := httptest.NewServer(srv.Handler())
 	t.Cleanup(server.Close)
 
 	initial := getJSON(t, server.URL+"/api/follow")
@@ -215,6 +217,69 @@ func TestFollowEndpointStoresNeovimState(t *testing.T) {
 	}
 	if state["updated_at"] == "" {
 		t.Fatalf("follow state should include updated_at: %v", state)
+	}
+
+	srv.followMu.Lock()
+	srv.follow.UpdatedAt = time.Now().Add(-followStateTTL - time.Second).Format(time.RFC3339Nano)
+	srv.followMu.Unlock()
+	stale := getJSON(t, server.URL+"/api/follow")
+	if stale["active"] != false {
+		t.Fatalf("stale follow state should be inactive: %v", stale)
+	}
+}
+
+func TestFollowEndpointRejectsUnknownNote(t *testing.T) {
+	cfg := &config.Config{
+		VaultDir:          t.TempDir(),
+		DBPath:            filepath.Join(t.TempDir(), "index.db"),
+		Extensions:        []string{".md"},
+		DateFormat:        "2006-01-02",
+		JournalDateFormat: "20060102",
+	}
+	s, err := store.Open(cfg.DBPath)
+	if err != nil {
+		t.Fatalf("open store: %v", err)
+	}
+	t.Cleanup(func() { s.Close() })
+
+	server := httptest.NewServer(New(cfg, s).Handler())
+	t.Cleanup(server.Close)
+
+	resp, err := http.Post(server.URL+"/api/follow", "application/json", strings.NewReader(`{
+		"note_id": 999,
+		"file_kind": "note",
+		"line": 1,
+		"top_line": 1,
+		"line_count": 20
+	}`))
+	if err != nil {
+		t.Fatalf("post follow: %v", err)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusNotFound {
+		body, _ := io.ReadAll(resp.Body)
+		t.Fatalf("post follow status = %d, want 404: %s", resp.StatusCode, body)
+	}
+}
+
+func addIndexedTestNote(t *testing.T, cfg *config.Config, s *store.Store, id int64, title string) {
+	t.Helper()
+	if err := os.MkdirAll(cfg.NoteDir(), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	path := cfg.NotePath(id)
+	if err := os.WriteFile(path, []byte("# "+title+"\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := note.WriteMetadata(cfg.MetadataPath(id), note.Metadata{Title: title}); err != nil {
+		t.Fatal(err)
+	}
+	now := time.Now().Unix()
+	if err := s.UpsertNote(&note.Note{ID: id, Kind: config.KindNote, Mtime: now, Meta: note.Metadata{Title: title}}); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Chtimes(path, time.Unix(now, 0), time.Unix(now, 0)); err != nil {
+		t.Fatal(err)
 	}
 }
 

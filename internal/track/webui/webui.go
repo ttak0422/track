@@ -58,6 +58,11 @@ type followState struct {
 // that raises no event). Throttling keeps a burst of requests from each rescanning the vault.
 const staleCheckInterval = 250 * time.Millisecond
 
+// followStateTTL keeps the web Follow toggle from jumping to an old Neovim position when the user turns
+// it on after leaving the web server running. Fresh states still let an already-open Neovim buffer sync
+// immediately instead of waiting for the next cursor event.
+const followStateTTL = 10 * time.Second
+
 // refreshIfStale reconciles the index with the notes on disk before a read, so the web workspace
 // reflects edits made by another process or an external/cloud sync even when no filesystem event
 // arrived. It shares reindexMu with the watcher so the two never reindex concurrently, and notifies
@@ -593,10 +598,8 @@ func (s *Server) handleGraph(w http.ResponseWriter, r *http.Request) {
 func (s *Server) handleFollow(w http.ResponseWriter, r *http.Request) {
 	switch r.Method {
 	case http.MethodGet:
-		s.followMu.Lock()
-		state := s.follow
-		s.followMu.Unlock()
-		if state == nil {
+		state, active := s.currentFollowState()
+		if !active {
 			writeJSON(w, map[string]any{"active": false})
 			return
 		}
@@ -613,6 +616,15 @@ func (s *Server) handleFollow(w http.ResponseWriter, r *http.Request) {
 		}
 		if state.FileKind != config.KindNote && state.FileKind != config.KindJournal {
 			writeError(w, errors.New("file_kind must be note or journal"), http.StatusBadRequest)
+			return
+		}
+		ref, err := s.noteByID(state.NoteID)
+		if err != nil {
+			writeError(w, err, http.StatusNotFound)
+			return
+		}
+		if ref.FileKind != state.FileKind {
+			writeError(w, fmt.Errorf("note %d is indexed as %s, not %s", state.NoteID, ref.FileKind, state.FileKind), http.StatusBadRequest)
 			return
 		}
 		if state.Line < 1 {
@@ -634,6 +646,28 @@ func (s *Server) handleFollow(w http.ResponseWriter, r *http.Request) {
 	default:
 		writeError(w, fmt.Errorf("method %s not allowed", r.Method), http.StatusMethodNotAllowed)
 	}
+}
+
+func (s *Server) currentFollowState() (*followState, bool) {
+	s.followMu.Lock()
+	defer s.followMu.Unlock()
+	if s.follow == nil {
+		return nil, false
+	}
+	if followStateExpired(*s.follow) {
+		s.follow = nil
+		return nil, false
+	}
+	state := *s.follow
+	return &state, true
+}
+
+func followStateExpired(state followState) bool {
+	updated, err := time.Parse(time.RFC3339Nano, state.UpdatedAt)
+	if err != nil {
+		return true
+	}
+	return time.Since(updated) > followStateTTL
 }
 
 func (s *Server) noteByID(id int64) (store.SearchResult, error) {
