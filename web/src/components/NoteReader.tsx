@@ -1,4 +1,4 @@
-import { Link } from "@tanstack/react-router";
+import { Link, useBlocker } from "@tanstack/react-router";
 import { FormEvent, useEffect, useRef, useState } from "react";
 import { MarkdownView } from "./MarkdownView";
 import { useAgendaQuery, useNoteQuery, useRenderQuery, useSaveNoteMutation } from "../queries";
@@ -12,6 +12,7 @@ interface NoteReaderProps {
 type EditorMode = "preview" | "edit" | "split";
 const editorModeKey = "track.editor.mode";
 const editorModes: EditorMode[] = ["preview", "edit", "split"];
+const unsavedChangesMessage = "保存していない変更は失われます。移動しますか？";
 
 export function NoteReader({ noteID }: NoteReaderProps) {
   // Poll so the note reflects edits made elsewhere; we still guard against
@@ -50,6 +51,17 @@ export function NoteReader({ noteID }: NoteReaderProps) {
     localStorage.setItem(editorModeKey, editorMode);
   }, [editorMode]);
 
+  const dirty = body !== loadedRef.current.body;
+
+  useBlocker({
+    shouldBlockFn: ({ current, next }) => {
+      if (!dirty || current.pathname === next.pathname) return false;
+      return !window.confirm(unsavedChangesMessage);
+    },
+    enableBeforeUnload: () => dirty,
+    disabled: !dirty,
+  });
+
   if (noteQuery.isPending) {
     return <p className="muted">Loading note...</p>;
   }
@@ -60,7 +72,6 @@ export function NoteReader({ noteID }: NoteReaderProps) {
 
   const data = noteQuery.data;
   const note = data.note;
-  const dirty = body !== loadedRef.current.body;
   const changedOnDisk = note.etag !== loadedRef.current.etag;
   const tags = note.tags ?? [];
 
