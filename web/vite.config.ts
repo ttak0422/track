@@ -13,8 +13,10 @@ export default defineConfig({
     },
   },
   test: {
-    // jsdom gives the pure helpers a window (viewport size, URL) without a real browser.
+    // jsdom gives the pure helpers a window (viewport size, URL) without a real browser, and the
+    // components a DOM to render into.
     environment: "jsdom",
     include: ["src/**/*.test.{ts,tsx}"],
+    setupFiles: ["./src/test-setup.ts"],
   },
 });

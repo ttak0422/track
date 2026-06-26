@@ -56,7 +56,7 @@
               root = ./web;
               fileset = webFiles;
             };
-            npmDepsHash = "sha256-cbvlyMWParR7xgqgbfSZPin5XeCVww2xV+P5Vc7Yb1Y=";
+            npmDepsHash = "sha256-Jo77ZAPvw9uxabJeaPbMooPwXxJUngVRIMHtGqh+eHI=";
             installPhase = ''
               runHook preInstall
               cp -r dist $out

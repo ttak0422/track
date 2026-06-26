@@ -1,0 +1,49 @@
+import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
+import { render, screen, within } from "@testing-library/react";
+import type { ReactElement } from "react";
+import { describe, expect, it } from "vitest";
+import { MarkdownView } from "./MarkdownView";
+
+// A QueryClient is only needed for markdown that produces links (ExternalLink/WikiLink call useQuery).
+// Pure block content (tables, task lists, code) renders without it.
+function renderWithQuery(ui: ReactElement) {
+  const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+  return render(<QueryClientProvider client={client}>{ui}</QueryClientProvider>);
+}
+
+describe("MarkdownView", () => {
+  it("shows a placeholder for empty input", () => {
+    render(<MarkdownView markdown="   " />);
+    expect(screen.getByText("Empty note.")).toBeInTheDocument();
+  });
+
+  it("renders a GFM table", () => {
+    render(<MarkdownView markdown={"| a | b |\n| --- | --- |\n| 1 | 2 |"} />);
+    const table = screen.getByRole("table");
+    expect(within(table).getByText("a")).toBeInTheDocument();
+    expect(within(table).getByText("2")).toBeInTheDocument();
+  });
+
+  it("renders a GFM task list with checkbox state", () => {
+    const { container } = render(<MarkdownView markdown={"- [ ] todo\n- [x] done"} />);
+    const items = container.querySelectorAll(".task-list-item");
+    expect(items).toHaveLength(2);
+    const boxes = container.querySelectorAll<HTMLInputElement>("input[type='checkbox']");
+    expect(boxes).toHaveLength(2);
+    expect(boxes[0]).not.toBeChecked();
+    expect(boxes[1]).toBeChecked();
+  });
+
+  it("renders a fenced code block through CodeBlock", () => {
+    const { container } = render(<MarkdownView markdown={"```js\nconst x = 1\n```"} />);
+    expect(container.querySelector(".code-block")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Copy code" })).toBeInTheDocument();
+  });
+
+  it("renders an external link that opens in a new tab", () => {
+    renderWithQuery(<MarkdownView markdown="[example](https://example.com)" />);
+    const link = screen.getByRole("link", { name: "example" });
+    expect(link).toHaveAttribute("href", "https://example.com");
+    expect(link).toHaveAttribute("target", "_blank");
+  });
+});
