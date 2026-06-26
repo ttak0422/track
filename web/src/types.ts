@@ -76,6 +76,21 @@ export interface SaveNoteResponse {
   saved: boolean;
 }
 
+export interface FollowState {
+  note_id: NoteID;
+  file_kind: FileKind;
+  path?: string;
+  line: number;
+  top_line: number;
+  line_count: number;
+  updated_at: string;
+}
+
+export interface FollowResponse {
+  active: boolean;
+  state?: FollowState;
+}
+
 export interface GraphNode {
   note_id: NoteID;
   file_kind: FileKind;

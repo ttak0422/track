@@ -123,6 +123,13 @@ function M.bin()
    return find_binary()
 end
 
+local function publish_web_follow(buf)
+   local ok, web = pcall(require, "track.web")
+   if ok and type(web.publish_follow) == "function" then
+      web.publish_follow(buf)
+   end
+end
+
 -- fenced_rows returns a set (0-based row -> true) of lines that are fence delimiters or inside a fenced code block, plus the buffer lines.
 local function fenced_rows(buf)
    local lines = vim.api.nvim_buf_get_lines(buf, 0, -1, false)
@@ -476,6 +483,7 @@ local function attach(buf)
       callback = function()
          ensure_client(buf)
          schedule(buf)
+         publish_web_follow(buf)
       end,
    })
    vim.api.nvim_create_autocmd({ "TextChanged", "TextChangedI", "WinScrolled" }, {
@@ -483,6 +491,7 @@ local function attach(buf)
       buffer = buf,
       callback = function()
          schedule(buf)
+         publish_web_follow(buf)
       end,
    })
    -- Cursor moves only toggle anti-conceal, so repaint from cache without re-querying the server.
@@ -491,6 +500,7 @@ local function attach(buf)
       buffer = buf,
       callback = function()
          render(buf)
+         publish_web_follow(buf)
       end,
    })
    apply_conceal_options(buf)

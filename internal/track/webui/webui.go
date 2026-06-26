@@ -39,6 +39,18 @@ type Server struct {
 	lastStale time.Time
 	ogpMu     sync.Mutex
 	ogpCache  map[string]ogpCacheEntry
+	followMu  sync.Mutex
+	follow    *followState
+}
+
+type followState struct {
+	NoteID    int64  `json:"note_id"`
+	FileKind  string `json:"file_kind"`
+	Path      string `json:"path,omitempty"`
+	Line      int    `json:"line"`
+	TopLine   int    `json:"top_line"`
+	LineCount int    `json:"line_count"`
+	UpdatedAt string `json:"updated_at"`
 }
 
 // staleCheckInterval throttles the read-time freshness scan. The fsnotify watcher already reindexes on
@@ -63,7 +75,7 @@ func (s *Server) refreshIfStale() {
 		return
 	}
 	if changed {
-		s.events.broadcast()
+		s.events.broadcastChange()
 	}
 }
 
@@ -111,6 +123,7 @@ func (s *Server) routes() {
 	s.mux.HandleFunc("/api/ogp", s.handleOGP)
 	s.mux.HandleFunc("/api/graph/local", s.handleLocalGraph)
 	s.mux.HandleFunc("/api/graph", s.handleGraph)
+	s.mux.HandleFunc("/api/follow", s.handleFollow)
 	s.mux.HandleFunc("/api/events", s.handleEvents)
 	// Everything that is not an API route is served from the embedded frontend build.
 	s.mux.HandleFunc("/", s.handleApp)
@@ -575,6 +588,52 @@ func (s *Server) handleGraph(w http.ResponseWriter, r *http.Request) {
 		graph.Nodes[i].Path = s.cfg.PathForKind(graph.Nodes[i].FileKind, graph.Nodes[i].NoteID)
 	}
 	writeJSON(w, map[string]any{"graph": graph})
+}
+
+func (s *Server) handleFollow(w http.ResponseWriter, r *http.Request) {
+	switch r.Method {
+	case http.MethodGet:
+		s.followMu.Lock()
+		state := s.follow
+		s.followMu.Unlock()
+		if state == nil {
+			writeJSON(w, map[string]any{"active": false})
+			return
+		}
+		writeJSON(w, map[string]any{"active": true, "state": state})
+	case http.MethodPost:
+		var state followState
+		if err := json.NewDecoder(r.Body).Decode(&state); err != nil {
+			writeError(w, fmt.Errorf("decode follow state: %w", err), http.StatusBadRequest)
+			return
+		}
+		if state.NoteID <= 0 {
+			writeError(w, errors.New("note_id is required"), http.StatusBadRequest)
+			return
+		}
+		if state.FileKind != config.KindNote && state.FileKind != config.KindJournal {
+			writeError(w, errors.New("file_kind must be note or journal"), http.StatusBadRequest)
+			return
+		}
+		if state.Line < 1 {
+			state.Line = 1
+		}
+		if state.TopLine < 1 {
+			state.TopLine = state.Line
+		}
+		if state.LineCount < 1 {
+			state.LineCount = state.TopLine
+		}
+		state.Path = s.cfg.PathForKind(state.FileKind, state.NoteID)
+		state.UpdatedAt = time.Now().Format(time.RFC3339Nano)
+		s.followMu.Lock()
+		s.follow = &state
+		s.followMu.Unlock()
+		s.events.broadcastFollow(state)
+		writeJSON(w, map[string]any{"active": true, "state": state})
+	default:
+		writeError(w, fmt.Errorf("method %s not allowed", r.Method), http.StatusMethodNotAllowed)
+	}
 }
 
 func (s *Server) noteByID(id int64) (store.SearchResult, error) {

@@ -1,9 +1,10 @@
-import { Link, useBlocker } from "@tanstack/react-router";
+import { Link, useBlocker, useNavigate } from "@tanstack/react-router";
 import { FormEvent, useEffect, useRef, useState } from "react";
 import { MarkdownView } from "./MarkdownView";
+import { getFollowState } from "../api";
 import { useAgendaQuery, useNoteQuery, useRenderQuery, useSaveNoteMutation } from "../queries";
 import { useSearchState } from "../searchState";
-import type { FileKind, NoteID } from "../types";
+import type { FileKind, FollowState, NoteID } from "../types";
 
 interface NoteReaderProps {
   noteID: NoteID;
@@ -20,12 +21,14 @@ export function NoteReader({ noteID }: NoteReaderProps) {
   const noteQuery = useNoteQuery(noteID, { live: true });
   const saveNote = useSaveNoteMutation(noteID);
   const { setQuery } = useSearchState();
+  const navigate = useNavigate();
   // For a journal, surface the notes worked on that day. The day comes from the journal id (yyyyMMdd).
   const journalDate = journalDateFromNote(noteQuery.data?.note);
   const agendaQuery = useAgendaQuery(journalDate, { enabled: journalDate !== "" });
   const [body, setBody] = useState("");
   const [copied, setCopied] = useState(false);
   const [editorMode, setEditorMode] = useState<EditorMode>(() => storedEditorMode());
+  const [followEnabled, setFollowEnabled] = useState(false);
   // The preview renders server-sanitized Markdown (action links flattened, wiki links kept) rather than
   // the raw body, so track-specific rules live only in the engine. The body is posted as you type.
   const renderQuery = useRenderQuery(body);
@@ -33,6 +36,19 @@ export function NoteReader({ noteID }: NoteReaderProps) {
   // saves use this etag so a background reload cannot mask a conflicting change. noteID is
   // tracked so switching notes always reloads, even with unsaved edits to the previous note.
   const loadedRef = useRef({ noteID, body: "", etag: "" });
+  const noteIDRef = useRef(noteID);
+  const editorModeRef = useRef(editorMode);
+  const pendingFollowRef = useRef<FollowState | null>(null);
+  const previewRef = useRef<HTMLElement>(null);
+  const textareaRef = useRef<HTMLTextAreaElement>(null);
+
+  useEffect(() => {
+    noteIDRef.current = noteID;
+  }, [noteID]);
+
+  useEffect(() => {
+    editorModeRef.current = editorMode;
+  }, [editorMode]);
 
   useEffect(() => {
     const incoming = noteQuery.data?.note;
@@ -61,6 +77,62 @@ export function NoteReader({ noteID }: NoteReaderProps) {
     enableBeforeUnload: () => dirty,
     disabled: !dirty,
   });
+
+  useEffect(() => {
+    if (!followEnabled || typeof EventSource === "undefined") return;
+    let closed = false;
+
+    getFollowState()
+      .then((response) => {
+        if (!closed && response.active && response.state) {
+          applyFollowState(response.state);
+        }
+      })
+      .catch(() => {
+        // Follow is best-effort: the button can stay active while the Neovim side has not published yet.
+      });
+
+    const source = new EventSource("/api/events");
+    source.addEventListener("follow", (event) => {
+      try {
+        applyFollowState(JSON.parse(event.data) as FollowState);
+      } catch {
+        // Ignore malformed events from an older or interrupted server.
+      }
+    });
+    return () => {
+      closed = true;
+      source.close();
+    };
+  }, [followEnabled]);
+
+  useEffect(() => {
+    if (!followEnabled || noteQuery.isPending) return;
+    const state = pendingFollowRef.current;
+    if (state && state.note_id === noteID) {
+      window.requestAnimationFrame(() => scrollToFollowState(state));
+    }
+  }, [body, editorMode, followEnabled, noteID, noteQuery.isPending, renderQuery.data?.markdown]);
+
+  function applyFollowState(state: FollowState) {
+    pendingFollowRef.current = state;
+    if (state.note_id !== noteIDRef.current) {
+      void navigate({ to: "/notes/$noteId", params: { noteId: String(state.note_id) } });
+      return;
+    }
+    window.requestAnimationFrame(() => scrollToFollowState(state));
+  }
+
+  function scrollToFollowState(state: FollowState) {
+    const target = editorModeRef.current === "edit" ? textareaRef.current : previewRef.current;
+    if (!target) return;
+    const maxScroll = target.scrollHeight - target.clientHeight;
+    if (maxScroll <= 0) return;
+    const sourceTop = Math.max(1, state.top_line || state.line || 1);
+    const sourceLines = Math.max(sourceTop, state.line_count || 1);
+    const ratio = sourceLines <= 1 ? 0 : (sourceTop - 1) / (sourceLines - 1);
+    target.scrollTo({ top: maxScroll * ratio });
+  }
 
   if (noteQuery.isPending) {
     return <p className="muted">Loading note...</p>;
@@ -101,6 +173,13 @@ export function NoteReader({ noteID }: NoteReaderProps) {
         </div>
         <div className="note-header-actions">
           <div className="mode-switch" role="group" aria-label="Markdown display mode">
+            <button
+              aria-pressed={followEnabled}
+              type="button"
+              onClick={() => setFollowEnabled((value) => !value)}
+            >
+              Follow
+            </button>
             {editorModes.map((mode) => (
               <button
                 aria-pressed={editorMode === mode}
@@ -137,12 +216,13 @@ export function NoteReader({ noteID }: NoteReaderProps) {
           {editorMode !== "preview" ? (
             <textarea
               aria-label="Note body"
+              ref={textareaRef}
               value={body}
               onChange={(event) => setBody(event.currentTarget.value)}
             />
           ) : null}
           {editorMode !== "edit" ? (
-            <section className="note-preview" aria-label="Rendered note preview">
+            <section className="note-preview" ref={previewRef} aria-label="Rendered note preview">
               <MarkdownView markdown={renderQuery.data?.markdown ?? ""} kind={note.file_kind} />
             </section>
           ) : null}

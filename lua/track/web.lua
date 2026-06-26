@@ -11,9 +11,90 @@ local stopping = false
 local autostop_registered = false
 local readiness_token = 0
 local uv = vim.uv or vim.loop
+local follow_timer
+local pending_follow_buf
 
 local function is_running()
    return job_id ~= nil and vim.fn.jobwait({ job_id }, 0)[1] == -1
+end
+
+local function normalize_path(path)
+   return vim.fn.fnamemodify(path, ":p"):gsub("/+$", "")
+end
+
+local function follow_state(buf)
+   buf = buf or vim.api.nvim_get_current_buf()
+   if not vim.api.nvim_buf_is_valid(buf) then
+      return nil
+   end
+   local name = vim.api.nvim_buf_get_name(buf)
+   if name == "" then
+      return nil
+   end
+
+   local vault = uv.fs_realpath(config.options.vault_dir) or normalize_path(config.options.vault_dir)
+   local path = uv.fs_realpath(name) or normalize_path(name)
+   vault = normalize_path(vault)
+   path = normalize_path(path)
+   if path ~= vault and path:sub(1, #vault + 1) ~= vault .. "/" then
+      return nil
+   end
+
+   local rel = path:sub(#vault + 2)
+   local kind, raw_id = rel:match("^(note)/(%d+)%.md$")
+   if not raw_id then
+      kind, raw_id = rel:match("^(journal)/(%d+)%.md$")
+   end
+   if not raw_id then
+      return nil
+   end
+
+   local win = vim.api.nvim_get_current_win()
+   if vim.api.nvim_win_get_buf(win) ~= buf then
+      local wins = vim.fn.win_findbuf(buf)
+      win = wins[1]
+   end
+   if not win or not vim.api.nvim_win_is_valid(win) then
+      return nil
+   end
+
+   local cursor = vim.api.nvim_win_get_cursor(win)
+   local topline = vim.api.nvim_win_call(win, function()
+      return vim.fn.line("w0")
+   end)
+   return {
+      note_id = tonumber(raw_id),
+      file_kind = kind,
+      line = cursor[1],
+      top_line = topline,
+      line_count = vim.api.nvim_buf_line_count(buf),
+   }
+end
+
+local function post_follow_state(state)
+   if not running_addr or vim.fn.executable("curl") ~= 1 then
+      return
+   end
+   local ok, body = pcall(vim.json.encode, state)
+   if not ok then
+      return
+   end
+   vim.fn.jobstart({
+      "curl",
+      "-fsS",
+      "--max-time",
+      "1",
+      "-H",
+      "Content-Type: application/json",
+      "-X",
+      "POST",
+      "-d",
+      body,
+      "http://" .. running_addr .. "/api/follow",
+   }, {
+      stdout_buffered = true,
+      stderr_buffered = true,
+   })
 end
 
 local function notify_lines(data, level)
@@ -43,6 +124,13 @@ local function open_url(url)
    pcall(vim.ui.open, url)
 end
 
+local function open_ready_url(url)
+   open_url(url)
+   if type(M.publish_follow) == "function" then
+      M.publish_follow(vim.api.nvim_get_current_buf())
+   end
+end
+
 local function listen_host_port(addr)
    local host, port = addr:match("^%[([^%]]+)%]:(%d+)$")
    if not port then
@@ -64,7 +152,7 @@ local function wait_until_ready(addr, url)
    if not host or not port then
       vim.defer_fn(function()
          if token == readiness_token and job_id ~= nil then
-            open_url(url)
+            open_ready_url(url)
          end
       end, 350)
       return
@@ -77,7 +165,7 @@ local function wait_until_ready(addr, url)
       end
       local tcp = uv.new_tcp()
       if not tcp then
-         open_url(url)
+         open_ready_url(url)
          return
       end
       local ok = pcall(function()
@@ -90,12 +178,12 @@ local function wait_until_ready(addr, url)
                   return
                end
                if not err then
-                  open_url(url)
+                  open_ready_url(url)
                   return
                end
                if uv.hrtime() >= deadline then
                   vim.notify("track web did not become ready quickly; opening anyway: " .. url, vim.log.levels.WARN)
-                  open_url(url)
+                  open_ready_url(url)
                   return
                end
                vim.defer_fn(attempt, 80)
@@ -155,7 +243,7 @@ function M.open(args)
    if is_running() then
       local running_url = "http://" .. (running_addr or addr)
       vim.notify("track web already running: " .. running_url, vim.log.levels.INFO)
-      open_url(running_url)
+      open_ready_url(running_url)
       return
    end
 
@@ -202,6 +290,30 @@ function M.open(args)
 
    running_addr = addr
    wait_until_ready(addr, url)
+end
+
+function M.publish_follow(buf)
+   if not is_running() then
+      return
+   end
+   pending_follow_buf = buf or vim.api.nvim_get_current_buf()
+   if follow_timer then
+      follow_timer:stop()
+   else
+      follow_timer = uv.new_timer()
+   end
+   follow_timer:start(80, 0, function()
+      local target = pending_follow_buf
+      vim.schedule(function()
+         if not is_running() then
+            return
+         end
+         local state = follow_state(target)
+         if state then
+            post_follow_state(state)
+         end
+      end)
+   end)
 end
 
 return M

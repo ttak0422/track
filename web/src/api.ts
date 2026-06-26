@@ -1,6 +1,7 @@
 import type {
   ActivityResponse,
   AgendaResponse,
+  FollowResponse,
   GraphResponse,
   JournalResponse,
   NoteResponse,
@@ -81,6 +82,10 @@ export function saveNote(noteID: number, request: SaveNoteRequest): Promise<Save
     method: "PUT",
     body: request,
   });
+}
+
+export function getFollowState(): Promise<FollowResponse> {
+  return api<FollowResponse>("/api/follow");
 }
 
 // renderMarkdown asks the server to sanitize a raw note body into the Markdown the frontend renders:

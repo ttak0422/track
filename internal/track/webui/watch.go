@@ -1,6 +1,7 @@
 package webui
 
 import (
+	"encoding/json"
 	"fmt"
 	"net/http"
 	"os"
@@ -11,25 +12,30 @@ import (
 	"github.com/ttak0422/track/internal/track/index"
 )
 
-// eventHub fans out "vault changed" signals to connected SSE clients.
+type serverEvent struct {
+	name string
+	data []byte
+}
+
+// eventHub fans out Server-Sent Events to connected clients.
 type eventHub struct {
 	mu   sync.Mutex
-	subs map[chan struct{}]struct{}
+	subs map[chan serverEvent]struct{}
 }
 
 func newEventHub() *eventHub {
-	return &eventHub{subs: make(map[chan struct{}]struct{})}
+	return &eventHub{subs: make(map[chan serverEvent]struct{})}
 }
 
-func (h *eventHub) subscribe() chan struct{} {
-	ch := make(chan struct{}, 1)
+func (h *eventHub) subscribe() chan serverEvent {
+	ch := make(chan serverEvent, 1)
 	h.mu.Lock()
 	h.subs[ch] = struct{}{}
 	h.mu.Unlock()
 	return ch
 }
 
-func (h *eventHub) unsubscribe(ch chan struct{}) {
+func (h *eventHub) unsubscribe(ch chan serverEvent) {
 	h.mu.Lock()
 	if _, ok := h.subs[ch]; ok {
 		delete(h.subs, ch)
@@ -38,21 +44,34 @@ func (h *eventHub) unsubscribe(ch chan struct{}) {
 	h.mu.Unlock()
 }
 
-// broadcast wakes every subscriber. The channels are buffered size 1, so a
-// pending signal is coalesced rather than blocking.
-func (h *eventHub) broadcast() {
+// broadcast wakes every subscriber. The channels are buffered size 1, so pending
+// signals are coalesced rather than blocking.
+func (h *eventHub) broadcast(ev serverEvent) {
 	h.mu.Lock()
 	for ch := range h.subs {
 		select {
-		case ch <- struct{}{}:
+		case ch <- ev:
 		default:
 		}
 	}
 	h.mu.Unlock()
 }
 
+func (h *eventHub) broadcastChange() {
+	h.broadcast(serverEvent{name: "change", data: []byte("{}")})
+}
+
+func (h *eventHub) broadcastFollow(state followState) {
+	data, err := json.Marshal(state)
+	if err != nil {
+		data = []byte("{}")
+	}
+	h.broadcast(serverEvent{name: "follow", data: data})
+}
+
 // handleEvents streams Server-Sent Events. Clients receive a `change` event
-// whenever the vault is reindexed after a filesystem change.
+// whenever the vault is reindexed after a filesystem change, and a `follow`
+// event whenever Neovim publishes its active track note.
 func (s *Server) handleEvents(w http.ResponseWriter, r *http.Request) {
 	flusher, ok := w.(http.Flusher)
 	if !ok {
@@ -81,11 +100,11 @@ func (s *Server) handleEvents(w http.ResponseWriter, r *http.Request) {
 		case <-ping.C:
 			fmt.Fprint(w, ": ping\n\n")
 			flusher.Flush()
-		case _, ok := <-ch:
+		case ev, ok := <-ch:
 			if !ok {
 				return
 			}
-			fmt.Fprint(w, "event: change\ndata: {}\n\n")
+			fmt.Fprintf(w, "event: %s\ndata: %s\n\n", ev.name, ev.data)
 			flusher.Flush()
 		}
 	}
@@ -135,7 +154,7 @@ func (s *Server) reconcileAfterChange() {
 		fmt.Fprintf(os.Stderr, "track web: reindex after change failed: %v\n", err)
 		return
 	}
-	s.events.broadcast()
+	s.events.broadcastChange()
 }
 
 func (s *Server) watchLoop(watcher *fsnotify.Watcher) {

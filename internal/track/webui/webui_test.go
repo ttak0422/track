@@ -165,6 +165,59 @@ func TestAgendaEndpoint(t *testing.T) {
 	}
 }
 
+func TestFollowEndpointStoresNeovimState(t *testing.T) {
+	cfg := &config.Config{
+		VaultDir:          t.TempDir(),
+		DBPath:            filepath.Join(t.TempDir(), "index.db"),
+		Extensions:        []string{".md"},
+		DateFormat:        "2006-01-02",
+		JournalDateFormat: "20060102",
+	}
+	s, err := store.Open(cfg.DBPath)
+	if err != nil {
+		t.Fatalf("open store: %v", err)
+	}
+	t.Cleanup(func() { s.Close() })
+
+	server := httptest.NewServer(New(cfg, s).Handler())
+	t.Cleanup(server.Close)
+
+	initial := getJSON(t, server.URL+"/api/follow")
+	if initial["active"] != false {
+		t.Fatalf("initial follow state should be inactive: %v", initial)
+	}
+
+	resp, err := http.Post(server.URL+"/api/follow", "application/json", strings.NewReader(`{
+		"note_id": 100,
+		"file_kind": "note",
+		"line": 12,
+		"top_line": 8,
+		"line_count": 40
+	}`))
+	if err != nil {
+		t.Fatalf("post follow: %v", err)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("post follow status = %d", resp.StatusCode)
+	}
+
+	current := getJSON(t, server.URL+"/api/follow")
+	if current["active"] != true {
+		t.Fatalf("follow should be active after POST: %v", current)
+	}
+	state := current["state"].(map[string]any)
+	if state["note_id"].(float64) != 100 || state["file_kind"] != "note" || state["top_line"].(float64) != 8 {
+		t.Fatalf("unexpected follow state: %v", state)
+	}
+	if state["path"] != cfg.NotePath(100) {
+		t.Fatalf("follow path should be derived from config, got %v want %s", state["path"], cfg.NotePath(100))
+	}
+	if state["updated_at"] == "" {
+		t.Fatalf("follow state should include updated_at: %v", state)
+	}
+}
+
 // TestWatcherReconcileStampsEditDay guards against the watcher swallowing a note's edit-day activity.
 // The watcher must reconcile through RefreshIfStale (which stamps each changed note's mtime day into its
 // sidecar), not a bare Full() that only syncs mtimes. Otherwise an edited note never surfaces under "on
