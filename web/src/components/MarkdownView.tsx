@@ -16,6 +16,26 @@ import Markdown, { type Components } from "react-markdown";
 import remarkGfm from "remark-gfm";
 import { visit } from "unist-util-visit";
 import { useNoteQuery, useOgpQuery, useRenderQuery, useResolveQuery } from "../queries";
+import { tokenizeCode } from "./markdown/highlight";
+import {
+  assetHref,
+  hostOf,
+  isImageHref,
+  isPdfHref,
+  noteCandidateFromHref,
+  safeFrameUrl,
+  tweetIdFromUrl,
+  webHref,
+  youtubeEmbedUrl,
+} from "./markdown/urls";
+import {
+  constrainPreviewBounds,
+  initialPreviewBounds,
+  type PreviewAnchor,
+  type PreviewBounds,
+  type PreviewResizeCorner,
+  resizePreviewBounds,
+} from "./preview/bounds";
 import { PdfDeck } from "./PdfDeck";
 
 // Nesting depth of the current markdown render. Each preview renders its body
@@ -28,14 +48,9 @@ const NoteKindContext = createContext<string>("note");
 
 // Base stacking order for previews. Each interaction bumps a preview above the other open previews.
 const previewBaseZIndex = 100;
-const previewMargin = 12;
-const minPreviewWidth = 280;
-const minPreviewHeight = 180;
 // Hover intent: only open a preview once the pointer rests on a link, so sweeping the cursor down a
 // column of links does not flash a popup under every one it crosses.
 const previewOpenDelay = 260;
-// Gap between a link and a preview placed beside it.
-const previewSideGap = 12;
 let previewStackOrder = 0;
 
 function nextPreviewStackOrder(): number {
@@ -246,103 +261,6 @@ function CodeBlock({ lang, text }: CodeBlockProps) {
   );
 }
 
-interface HighlightToken {
-  text: string;
-  className?: string;
-}
-
-const keywordSets: Record<string, Set<string>> = {
-  css: new Set(["important", "from", "to"]),
-  go: new Set([
-    "break",
-    "case",
-    "chan",
-    "const",
-    "continue",
-    "default",
-    "defer",
-    "else",
-    "fallthrough",
-    "for",
-    "func",
-    "go",
-    "goto",
-    "if",
-    "import",
-    "interface",
-    "map",
-    "package",
-    "range",
-    "return",
-    "select",
-    "struct",
-    "switch",
-    "type",
-    "var",
-  ]),
-  js: new Set([
-    "await",
-    "break",
-    "case",
-    "catch",
-    "class",
-    "const",
-    "continue",
-    "default",
-    "else",
-    "export",
-    "extends",
-    "finally",
-    "for",
-    "from",
-    "function",
-    "if",
-    "import",
-    "let",
-    "new",
-    "return",
-    "switch",
-    "throw",
-    "try",
-    "typeof",
-    "var",
-    "while",
-  ]),
-  lua: new Set([
-    "and",
-    "break",
-    "do",
-    "else",
-    "elseif",
-    "end",
-    "false",
-    "for",
-    "function",
-    "if",
-    "in",
-    "local",
-    "nil",
-    "not",
-    "or",
-    "repeat",
-    "return",
-    "then",
-    "true",
-    "until",
-    "while",
-  ]),
-  sh: new Set(["case", "do", "done", "elif", "else", "esac", "fi", "for", "function", "if", "in", "then", "while"]),
-};
-
-keywordSets.ts = keywordSets.js;
-keywordSets.tsx = keywordSets.js;
-keywordSets.jsx = keywordSets.js;
-keywordSets.javascript = keywordSets.js;
-keywordSets.typescript = keywordSets.js;
-keywordSets.bash = keywordSets.sh;
-keywordSets.shell = keywordSets.sh;
-keywordSets.zsh = keywordSets.sh;
-
 function highlightCode(text: string, lang: string) {
   const tokens = tokenizeCode(text, lang);
   return tokens.map((token, index) =>
@@ -354,126 +272,6 @@ function highlightCode(text: string, lang: string) {
       <Fragment key={index}>{token.text}</Fragment>
     ),
   );
-}
-
-function tokenizeCode(text: string, lang: string): HighlightToken[] {
-  const normalized = normalizeCodeLang(lang);
-  if (normalized === "") return [{ text }];
-  if (normalized === "json") return tokenizeGeneric(text, normalized, jsonKeyword);
-  if (normalized === "yaml" || normalized === "yml") return tokenizeYaml(text);
-  if (normalized === "html" || normalized === "xml") return tokenizeHtml(text);
-  if (normalized === "md" || normalized === "markdown") return tokenizeMarkdownCode(text);
-  return tokenizeGeneric(text, normalized, keywordSets[normalized]);
-}
-
-function normalizeCodeLang(lang: string): string {
-  const first = lang.trim().split(/\s+/)[0] ?? "";
-  return first.replace(/^language-/, "").toLowerCase();
-}
-
-function tokenizeGeneric(text: string, lang: string, keywords?: Set<string>): HighlightToken[] {
-  const out: HighlightToken[] = [];
-  let i = 0;
-  while (i < text.length) {
-    const rest = text.slice(i);
-    const comment = matchComment(rest, lang);
-    if (comment) {
-      out.push({ text: comment, className: "syntax-comment" });
-      i += comment.length;
-      continue;
-    }
-    const string = matchPrefix(rest, /^`(?:\\.|[^`\\])*`|^"(?:\\.|[^"\\])*"|^'(?:\\.|[^'\\])*'/);
-    if (string) {
-      out.push({ text: string, className: "syntax-string" });
-      i += string.length;
-      continue;
-    }
-    const number = matchPrefix(rest, /^\b\d+(?:\.\d+)?\b/);
-    if (number) {
-      out.push({ text: number, className: "syntax-number" });
-      i += number.length;
-      continue;
-    }
-    const word = matchPrefix(rest, /^[A-Za-z_][\w-]*/);
-    if (word) {
-      if (keywords?.has(word)) {
-        out.push({ text: word, className: "syntax-keyword" });
-      } else if (/^\s*\(/.test(text.slice(i + word.length))) {
-        out.push({ text: word, className: "syntax-function" });
-      } else {
-        out.push({ text: word });
-      }
-      i += word.length;
-      continue;
-    }
-    out.push({ text: text[i] });
-    i += 1;
-  }
-  return out;
-}
-
-function matchComment(rest: string, lang: string): string {
-  if (rest.startsWith("/*")) {
-    const end = rest.indexOf("*/", 2);
-    return end === -1 ? rest : rest.slice(0, end + 2);
-  }
-  if (lang === "lua" && rest.startsWith("--")) {
-    return rest.slice(0, lineEnd(rest));
-  }
-  if ((lang === "sh" || lang === "bash" || lang === "shell" || lang === "zsh") && rest.startsWith("#")) {
-    return rest.slice(0, lineEnd(rest));
-  }
-  if (rest.startsWith("//")) {
-    return rest.slice(0, lineEnd(rest));
-  }
-  return "";
-}
-
-function lineEnd(text: string): number {
-  const next = text.indexOf("\n");
-  return next === -1 ? text.length : next;
-}
-
-function matchPrefix(text: string, pattern: RegExp): string {
-  return pattern.exec(text)?.[0] ?? "";
-}
-
-const jsonKeyword = new Set(["false", "null", "true"]);
-
-function tokenizeYaml(text: string): HighlightToken[] {
-  return text.split(/(\n)/).flatMap((line) => {
-    if (line === "\n") return [{ text: line }];
-    const match = /^(\s*)([-\w.]+)(\s*:)/.exec(line);
-    if (!match) return tokenizeGeneric(line, "yaml");
-    const rest = line.slice(match[0].length);
-    return [
-      { text: match[1] },
-      { text: match[2], className: "syntax-property" },
-      { text: match[3] },
-      ...tokenizeGeneric(rest, "yaml"),
-    ];
-  });
-}
-
-function tokenizeHtml(text: string): HighlightToken[] {
-  const out: HighlightToken[] = [];
-  const pattern = /(<!--[\s\S]*?-->|<\/?[A-Za-z][^>]*>)/g;
-  let last = 0;
-  for (const match of text.matchAll(pattern)) {
-    if (match.index > last) out.push({ text: text.slice(last, match.index) });
-    out.push({ text: match[0], className: match[0].startsWith("<!--") ? "syntax-comment" : "syntax-keyword" });
-    last = match.index + match[0].length;
-  }
-  if (last < text.length) out.push({ text: text.slice(last) });
-  return out;
-}
-
-function tokenizeMarkdownCode(text: string): HighlightToken[] {
-  return text.split(/(\n)/).flatMap((line) => {
-    if (/^\s*#{1,6}\s/.test(line)) return [{ text: line, className: "syntax-keyword" }];
-    if (/^\s*[-*]\s/.test(line)) return [{ text: line, className: "syntax-property" }];
-    return [{ text: line }];
-  });
 }
 
 // copyText writes to the clipboard, falling back to a hidden textarea + execCommand when the async
@@ -549,59 +347,6 @@ function ExternalLink({ href, children }: ExternalLinkProps) {
   );
 }
 
-function noteCandidateFromHref(href: string): string {
-  const trimmed = href.trim();
-  if (
-    trimmed === "" ||
-    trimmed.startsWith("#") ||
-    /^[a-z][a-z0-9+.-]*:/i.test(trimmed)
-  ) {
-    return "";
-  }
-  const withoutHash = trimmed.split("#", 1)[0] ?? "";
-  const withoutQuery = withoutHash.split("?", 1)[0] ?? "";
-  const withoutExt = withoutQuery.replace(/\.md$/i, "");
-  try {
-    return decodeURIComponent(withoutExt).trim();
-  } catch {
-    return withoutExt.trim();
-  }
-}
-
-function webHref(href: string): string {
-  const trimmed = href.trim();
-  if (/^www\./i.test(trimmed) || /^[\w.-]+\.[a-z]{2,}(?:[/:?#]|$)/i.test(trimmed)) {
-    return `https://${trimmed}`;
-  }
-  return href;
-}
-
-// assetHref maps a note-relative attachment reference ("assets/<file>", optionally written "./assets/…")
-// to the local server endpoint that serves it from the vault's per-kind assets directory. It returns
-// null for anything that is not such a reference (absolute URLs, schemes, anchors, root-absolute paths),
-// leaving those to the normal link/embed handling.
-function assetHref(src: string, kind: string): string | null {
-  const trimmed = src.trim();
-  if (
-    trimmed === "" ||
-    trimmed.startsWith("/") ||
-    trimmed.startsWith("#") ||
-    /^[a-z][a-z0-9+.-]*:/i.test(trimmed)
-  ) {
-    return null;
-  }
-  const rel = trimmed.replace(/^\.\//, "");
-  if (!rel.startsWith("assets/")) {
-    return null;
-  }
-  const name = rel.slice("assets/".length);
-  if (name === "") {
-    return null;
-  }
-  const params = new URLSearchParams({ kind: kind || "note", name });
-  return `/api/asset?${params}`;
-}
-
 interface EmbedProps {
   src: string;
   alt: string;
@@ -652,21 +397,6 @@ function Embed({ src, alt }: EmbedProps) {
   }
 
   return <img className="embed embed-image" src={target} alt={alt} loading="lazy" />;
-}
-
-// tweetIdFromUrl returns the numeric status id of a Twitter/X post URL, or null for any other URL.
-function tweetIdFromUrl(src: string): string | null {
-  let url: URL;
-  try {
-    url = new URL(webHref(src));
-  } catch {
-    return null;
-  }
-  const host = url.hostname.replace(/^www\./i, "").replace(/^mobile\./i, "").toLowerCase();
-  if (host !== "twitter.com" && host !== "x.com") {
-    return null;
-  }
-  return /^\/[^/]+\/status(?:es)?\/(\d+)/.exec(url.pathname)?.[1] ?? null;
 }
 
 interface TweetEmbedProps {
@@ -810,90 +540,9 @@ function OgpCard({ url, alt }: OgpCardProps) {
   );
 }
 
-function hostOf(url: string): string {
-  try {
-    return new URL(url).hostname;
-  } catch {
-    return url;
-  }
-}
-
-function isImageHref(src: string): boolean {
-  const path = src.split(/[?#]/, 1)[0] ?? "";
-  return /\.(png|jpe?g|gif|webp|avif|svg|bmp|ico)$/i.test(path.trim());
-}
-
-// youtubeEmbedUrl turns a YouTube watch/share/shorts/embed URL into a privacy-enhanced embed URL,
-// carrying a start time when the original had one (t= or start=). It returns null for non-YouTube URLs
-// so the caller can fall back to a PDF/image embed.
-function youtubeEmbedUrl(src: string): string | null {
-  let url: URL;
-  try {
-    url = new URL(webHref(src));
-  } catch {
-    return null;
-  }
-  const host = url.hostname.replace(/^www\./i, "").toLowerCase();
-  let id = "";
-  if (host === "youtu.be") {
-    id = url.pathname.slice(1).split("/")[0] ?? "";
-  } else if (host === "youtube.com" || host === "m.youtube.com" || host === "youtube-nocookie.com") {
-    if (url.pathname === "/watch") {
-      id = url.searchParams.get("v") ?? "";
-    } else {
-      id = /^\/(?:embed|shorts|live|v)\/([^/?#]+)/.exec(url.pathname)?.[1] ?? "";
-    }
-  }
-  if (!/^[\w-]{6,}$/.test(id)) {
-    return null;
-  }
-  const start = youtubeStartSeconds(url.searchParams.get("t") ?? url.searchParams.get("start"));
-  const query = start > 0 ? `?start=${start}` : "";
-  return `https://www.youtube-nocookie.com/embed/${id}${query}`;
-}
-
-// youtubeStartSeconds parses a YouTube timestamp, accepting plain seconds ("90") and the 1h2m3s form.
-function youtubeStartSeconds(raw: string | null): number {
-  if (!raw) {
-    return 0;
-  }
-  if (/^\d+$/.test(raw)) {
-    return Number(raw);
-  }
-  const match = /^(?:(\d+)h)?(?:(\d+)m)?(?:(\d+)s)?$/.exec(raw);
-  if (!match || (!match[1] && !match[2] && !match[3])) {
-    return 0;
-  }
-  return Number(match[1] ?? 0) * 3600 + Number(match[2] ?? 0) * 60 + Number(match[3] ?? 0);
-}
-
-function isPdfHref(src: string): boolean {
-  const path = src.split(/[?#]/, 1)[0] ?? "";
-  return /\.pdf$/i.test(path.trim());
-}
-
-// safeFrameUrl returns the URL only when it is safe to load in an iframe: http(s) or a same-origin
-// relative path. It rejects javascript:/data: and other schemes that could run script in the frame.
-function safeFrameUrl(target: string): string | null {
-  const trimmed = target.trim();
-  if (/^https?:\/\//i.test(trimmed) || trimmed.startsWith("/") || trimmed.startsWith("./")) {
-    return trimmed;
-  }
-  return null;
-}
-
 interface WikiLinkProps {
   target: string;
   display: string;
-}
-
-// The link's viewport rect, so the preview can be placed beside it (keeping the link column visible)
-// rather than directly below it.
-interface PreviewAnchor {
-  linkLeft: number;
-  linkRight: number;
-  linkTop: number;
-  linkBottom: number;
 }
 
 function WikiLink({ target, display }: WikiLinkProps) {
@@ -1043,15 +692,6 @@ interface WikiPreviewProps {
   onPin: () => void;
 }
 
-interface PreviewBounds {
-  left: number;
-  top: number;
-  width: number;
-  height: number;
-}
-
-type PreviewResizeCorner = "nw" | "ne" | "sw" | "se";
-
 interface PreviewDragState {
   pointerId: number;
   mode: "move" | PreviewResizeCorner;
@@ -1187,83 +827,4 @@ function WikiPreview({
       ))}
     </aside>
   );
-}
-
-function initialPreviewBounds(anchor: PreviewAnchor): PreviewBounds {
-  const width = clamp(
-    Math.min(window.innerWidth * 0.5, 640),
-    minPreviewWidth,
-    Math.max(minPreviewWidth, window.innerWidth - previewMargin * 2),
-  );
-  // Prefer placing the preview beside the link (right, then left) so a column of links below the
-  // hovered one stays visible. Fall back to just below the link only when neither side has room.
-  const roomRight = window.innerWidth - previewMargin - (anchor.linkRight + previewSideGap);
-  const roomLeft = anchor.linkLeft - previewSideGap - previewMargin;
-  let left: number;
-  let top: number;
-  if (roomRight >= width) {
-    left = anchor.linkRight + previewSideGap;
-    top = anchor.linkTop;
-  } else if (roomLeft >= width) {
-    left = anchor.linkLeft - previewSideGap - width;
-    top = anchor.linkTop;
-  } else {
-    left = anchor.linkLeft;
-    top = anchor.linkBottom + 8;
-  }
-  const height = clamp(
-    280,
-    minPreviewHeight,
-    Math.max(minPreviewHeight, window.innerHeight - top - previewMargin),
-  );
-  return constrainPreviewBounds({ left, top, width, height });
-}
-
-function constrainPreviewBounds(bounds: PreviewBounds): PreviewBounds {
-  const width = clamp(bounds.width, minPreviewWidth, Math.max(minPreviewWidth, window.innerWidth - previewMargin * 2));
-  const height = clamp(
-    bounds.height,
-    minPreviewHeight,
-    Math.max(minPreviewHeight, window.innerHeight - previewMargin * 2),
-  );
-  return {
-    width,
-    height,
-    left: clamp(bounds.left, previewMargin, Math.max(previewMargin, window.innerWidth - width - previewMargin)),
-    top: clamp(bounds.top, previewMargin, Math.max(previewMargin, window.innerHeight - height - previewMargin)),
-  };
-}
-
-function resizePreviewBounds(
-  corner: PreviewResizeCorner,
-  start: PreviewBounds,
-  dx: number,
-  dy: number,
-): PreviewBounds {
-  let next = { ...start };
-  if (corner.includes("e")) {
-    next.width = start.width + dx;
-  }
-  if (corner.includes("s")) {
-    next.height = start.height + dy;
-  }
-  if (corner.includes("w")) {
-    next.left = start.left + dx;
-    next.width = start.width - dx;
-  }
-  if (corner.includes("n")) {
-    next.top = start.top + dy;
-    next.height = start.height - dy;
-  }
-  if (next.width < minPreviewWidth && corner.includes("w")) {
-    next.left = start.left + start.width - minPreviewWidth;
-  }
-  if (next.height < minPreviewHeight && corner.includes("n")) {
-    next.top = start.top + start.height - minPreviewHeight;
-  }
-  return constrainPreviewBounds(next);
-}
-
-function clamp(value: number, min: number, max: number): number {
-  return Math.min(Math.max(value, min), max);
 }
