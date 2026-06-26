@@ -26,11 +26,17 @@ const PreviewDepthContext = createContext(0);
 // the right per-kind assets directory on the server. Defaults to "note".
 const NoteKindContext = createContext<string>("note");
 
-// Base stacking order for previews; deeper levels sit in front.
+// Base stacking order for previews. Each interaction bumps a preview above the other open previews.
 const previewBaseZIndex = 100;
 const previewMargin = 12;
 const minPreviewWidth = 280;
 const minPreviewHeight = 180;
+let previewStackOrder = 0;
+
+function nextPreviewStackOrder(): number {
+  previewStackOrder += 1;
+  return previewStackOrder;
+}
 
 interface MarkdownViewProps {
   markdown: string;
@@ -885,6 +891,7 @@ function WikiLink({ target, display }: WikiLinkProps) {
   const [open, setOpen] = useState(false);
   const [anchor, setAnchor] = useState<PreviewAnchor | null>(null);
   const [pinned, setPinned] = useState(false);
+  const [stackOrder, setStackOrder] = useState(nextPreviewStackOrder);
   const pinnedRef = useRef(false);
   const linkRef = useRef<HTMLAnchorElement>(null);
   const closeTimer = useRef<number | undefined>(undefined);
@@ -902,6 +909,7 @@ function WikiLink({ target, display }: WikiLinkProps) {
 
   function openPreview() {
     holdPreview();
+    bringPreviewToFront();
     if (pinnedRef.current) return;
     const rect = linkRef.current?.getBoundingClientRect();
     if (rect) {
@@ -916,6 +924,10 @@ function WikiLink({ target, display }: WikiLinkProps) {
     }
   }
 
+  function bringPreviewToFront() {
+    setStackOrder(nextPreviewStackOrder());
+  }
+
   function scheduleClose() {
     if (pinnedRef.current) return;
     if (closeTimer.current !== undefined) {
@@ -926,6 +938,7 @@ function WikiLink({ target, display }: WikiLinkProps) {
 
   function pinPreview() {
     holdPreview();
+    bringPreviewToFront();
     pinnedRef.current = true;
     setPinned(true);
   }
@@ -967,6 +980,8 @@ function WikiLink({ target, display }: WikiLinkProps) {
           anchor={anchor}
           depth={depth}
           pinned={pinned}
+          stackOrder={stackOrder}
+          onActivate={bringPreviewToFront}
           onClose={closePreview}
           onHold={holdPreview}
           onPin={pinPreview}
@@ -981,6 +996,8 @@ interface WikiPreviewProps {
   anchor: PreviewAnchor;
   depth: number;
   pinned: boolean;
+  stackOrder: number;
+  onActivate: () => void;
   onClose: () => void;
   onHold: () => void;
   onPin: () => void;
@@ -1003,7 +1020,17 @@ interface PreviewDragState {
   startBounds: PreviewBounds;
 }
 
-function WikiPreview({ noteID, anchor, depth, pinned, onClose, onHold, onPin }: WikiPreviewProps) {
+function WikiPreview({
+  noteID,
+  anchor,
+  depth,
+  pinned,
+  stackOrder,
+  onActivate,
+  onClose,
+  onHold,
+  onPin,
+}: WikiPreviewProps) {
   const note = useNoteQuery(noteID);
   const [bounds, setBounds] = useState(() => initialPreviewBounds(anchor));
   const dragRef = useRef<PreviewDragState | null>(null);
@@ -1027,6 +1054,7 @@ function WikiPreview({ noteID, anchor, depth, pinned, onClose, onHold, onPin }: 
   function startDrag(event: PointerEvent<HTMLElement>, mode: PreviewDragState["mode"]) {
     event.preventDefault();
     event.stopPropagation();
+    onActivate();
     onPin();
     dragRef.current = {
       pointerId: event.pointerId,
@@ -1066,13 +1094,18 @@ function WikiPreview({ noteID, anchor, depth, pinned, onClose, onHold, onPin }: 
   return (
     <aside
       className={`wiki-preview${pinned ? " pinned" : ""}`}
-      onMouseEnter={onHold}
+      onFocusCapture={onActivate}
+      onMouseEnter={() => {
+        onHold();
+        onActivate();
+      }}
+      onPointerDownCapture={onActivate}
       style={{
         left: bounds.left,
         top: bounds.top,
         width: bounds.width,
         height: bounds.height,
-        zIndex: previewBaseZIndex + depth,
+        zIndex: previewBaseZIndex + depth + stackOrder,
       }}
     >
       <div
