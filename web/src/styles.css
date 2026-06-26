@@ -1252,20 +1252,24 @@ button {
   letter-spacing: 0.04em;
 }
 
-/* GFM task lists: drop the bullet and align the checkbox with the text. */
+/* GFM task lists: drop the bullet and pull the checkbox into the list gutter. The item content must stay
+   in normal inline flow (not a flex row) so a decorated item — inline code, bold, wiki links, or BudouX
+   <wbr> markers — wraps across lines like ordinary text instead of each inline becoming a flex child that
+   refuses to wrap. */
 .markdown-view .contains-task-list {
-  padding-left: 0;
+  padding-left: 1.3em;
   list-style: none;
 }
 
 .markdown-view .task-list-item {
-  display: flex;
-  align-items: flex-start;
-  gap: 8px;
+  list-style: none;
 }
 
 .markdown-view .task-list-item input[type="checkbox"] {
-  margin-top: 0.3em;
+  width: 1em;
+  height: 1em;
+  margin: 0 0.4em 0 -1.3em;
+  vertical-align: middle;
 }
 
 .wiki-link-wrap {
