@@ -785,8 +785,8 @@ button {
 
 .follow-toggle {
   border: 1px solid var(--line);
-  border-radius: 6px;
-  padding: 3px 10px;
+  border-radius: 999px;
+  padding: 2px 10px;
   color: var(--muted);
   background: var(--panel-soft);
   font-size: 12px;

@@ -11,7 +11,6 @@ interface NoteReaderProps {
 }
 
 type EditorMode = "preview" | "edit" | "split";
-const editorModeKey = "track.editor.mode";
 const editorModes: EditorMode[] = ["preview", "edit", "split"];
 const unsavedChangesMessage = "保存していない変更は失われます。移動しますか？";
 
@@ -27,7 +26,7 @@ export function NoteReader({ noteID }: NoteReaderProps) {
   const agendaQuery = useAgendaQuery(journalDate, { enabled: journalDate !== "" });
   const [body, setBody] = useState("");
   const [copied, setCopied] = useState(false);
-  const [editorMode, setEditorMode] = useState<EditorMode>(() => storedEditorMode());
+  const [editorMode, setEditorMode] = useState<EditorMode>("preview");
   const [followEnabled, setFollowEnabled] = useState(false);
   // The preview renders server-sanitized Markdown (action links flattened, wiki links kept) rather than
   // the raw body, so track-specific rules live only in the engine. The body is posted as you type.
@@ -66,10 +65,6 @@ export function NoteReader({ noteID }: NoteReaderProps) {
       }
     }
   }, [noteID, noteQuery.data?.note.etag]);
-
-  useEffect(() => {
-    localStorage.setItem(editorModeKey, editorMode);
-  }, [editorMode]);
 
   const dirty = body !== loadedRef.current.body;
 
@@ -351,11 +346,6 @@ function journalDateFromNote(note?: { file_kind: FileKind; note_id: NoteID }): s
   const id = String(note.note_id);
   if (!/^\d{8}$/.test(id)) return "";
   return `${id.slice(0, 4)}-${id.slice(4, 6)}-${id.slice(6, 8)}`;
-}
-
-function storedEditorMode(): EditorMode {
-  const value = localStorage.getItem(editorModeKey);
-  return value === "edit" || value === "split" || value === "preview" ? value : "preview";
 }
 
 function modeLabel(mode: EditorMode): string {
