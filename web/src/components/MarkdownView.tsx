@@ -909,8 +909,10 @@ function WikiLink({ target, display }: WikiLinkProps) {
 
   function openPreview() {
     holdPreview();
-    bringPreviewToFront();
+    // A pinned preview is a persisted window: like an OS window it is only raised by selecting it
+    // (pointer down / drag), not by hovering its link, so leave its stacking order untouched here.
     if (pinnedRef.current) return;
+    bringPreviewToFront();
     const rect = linkRef.current?.getBoundingClientRect();
     if (rect) {
       setAnchor({ left: rect.left, top: rect.bottom + 8 });
@@ -1095,10 +1097,7 @@ function WikiPreview({
     <aside
       className={`wiki-preview${pinned ? " pinned" : ""}`}
       onFocusCapture={onActivate}
-      onMouseEnter={() => {
-        onHold();
-        onActivate();
-      }}
+      onMouseEnter={onHold}
       onPointerDownCapture={onActivate}
       style={{
         left: bounds.left,
