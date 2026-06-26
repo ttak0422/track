@@ -1300,13 +1300,14 @@ button {
 
 .wiki-preview {
   position: fixed;
-  width: min(50vw, 640px);
+  display: flex;
+  flex-direction: column;
   border: 1px solid var(--line);
   border-radius: 6px;
-  padding: 12px;
   color: var(--text);
   background: var(--panel);
   box-shadow: 0 12px 28px rgb(0 0 0 / 18%);
+  overflow: hidden;
 }
 
 .wiki-preview::before {
@@ -1318,14 +1319,57 @@ button {
   height: 10px;
 }
 
-.wiki-preview strong {
-  display: block;
-  margin-bottom: 6px;
+.wiki-preview-chrome {
+  display: flex;
+  min-height: 34px;
+  align-items: center;
+  gap: 8px;
+  border-bottom: 1px solid var(--line);
+  padding: 5px 6px 5px 12px;
+  cursor: grab;
+  user-select: none;
+  touch-action: none;
+}
+
+.wiki-preview-chrome:active {
+  cursor: grabbing;
+}
+
+.wiki-preview-title {
+  min-width: 0;
+  flex: 1;
+  overflow: hidden;
+  font-weight: 700;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.wiki-preview-close {
+  display: grid;
+  width: 24px;
+  height: 24px;
+  place-items: center;
+  margin-right: 10px;
+  border: 1px solid transparent;
+  border-radius: 6px;
+  padding: 0;
+  color: var(--muted);
+  background: transparent;
+  cursor: pointer;
+}
+
+.wiki-preview-close:hover,
+.wiki-preview-close:focus-visible {
+  border-color: var(--line);
+  color: var(--text);
+  background: var(--panel-soft);
 }
 
 .wiki-preview-body {
-  max-height: 220px;
+  min-height: 0;
+  flex: 1;
   overflow: auto;
+  padding: 12px;
   scrollbar-width: none;
 }
 
@@ -1341,6 +1385,40 @@ button {
 .wiki-preview-body .markdown-view p {
   margin: 0;
   color: var(--muted);
+}
+
+.wiki-preview-resize {
+  position: absolute;
+  width: 14px;
+  height: 14px;
+  border: 0;
+  padding: 0;
+  background: transparent;
+  touch-action: none;
+}
+
+.wiki-preview-resize-nw {
+  top: 0;
+  left: 0;
+  cursor: nwse-resize;
+}
+
+.wiki-preview-resize-ne {
+  top: 0;
+  right: 0;
+  cursor: nesw-resize;
+}
+
+.wiki-preview-resize-sw {
+  bottom: 0;
+  left: 0;
+  cursor: nesw-resize;
+}
+
+.wiki-preview-resize-se {
+  right: 0;
+  bottom: 0;
+  cursor: nwse-resize;
 }
 
 .editor-actions {

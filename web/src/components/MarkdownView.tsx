@@ -6,6 +6,7 @@ import {
   createContext,
   Fragment,
   type ReactNode,
+  type PointerEvent,
   useContext,
   useEffect,
   useRef,
@@ -27,6 +28,9 @@ const NoteKindContext = createContext<string>("note");
 
 // Base stacking order for previews; deeper levels sit in front.
 const previewBaseZIndex = 100;
+const previewMargin = 12;
+const minPreviewWidth = 280;
+const minPreviewHeight = 180;
 
 interface MarkdownViewProps {
   markdown: string;
@@ -880,6 +884,8 @@ interface PreviewAnchor {
 function WikiLink({ target, display }: WikiLinkProps) {
   const [open, setOpen] = useState(false);
   const [anchor, setAnchor] = useState<PreviewAnchor | null>(null);
+  const [pinned, setPinned] = useState(false);
+  const pinnedRef = useRef(false);
   const linkRef = useRef<HTMLAnchorElement>(null);
   const closeTimer = useRef<number | undefined>(undefined);
   const depth = useContext(PreviewDepthContext);
@@ -895,9 +901,8 @@ function WikiLink({ target, display }: WikiLinkProps) {
   }, []);
 
   function openPreview() {
-    if (closeTimer.current !== undefined) {
-      window.clearTimeout(closeTimer.current);
-    }
+    holdPreview();
+    if (pinnedRef.current) return;
     const rect = linkRef.current?.getBoundingClientRect();
     if (rect) {
       setAnchor({ left: rect.left, top: rect.bottom + 8 });
@@ -905,11 +910,31 @@ function WikiLink({ target, display }: WikiLinkProps) {
     setOpen(true);
   }
 
+  function holdPreview() {
+    if (closeTimer.current !== undefined) {
+      window.clearTimeout(closeTimer.current);
+    }
+  }
+
   function scheduleClose() {
+    if (pinnedRef.current) return;
     if (closeTimer.current !== undefined) {
       window.clearTimeout(closeTimer.current);
     }
     closeTimer.current = window.setTimeout(() => setOpen(false), 220);
+  }
+
+  function pinPreview() {
+    holdPreview();
+    pinnedRef.current = true;
+    setPinned(true);
+  }
+
+  function closePreview() {
+    holdPreview();
+    pinnedRef.current = false;
+    setPinned(false);
+    setOpen(false);
   }
 
   if (resolved.isPending) {
@@ -936,7 +961,17 @@ function WikiLink({ target, display }: WikiLinkProps) {
       >
         {display}
       </Link>
-      {open && anchor ? <WikiPreview noteID={noteID} anchor={anchor} depth={depth} /> : null}
+      {open && anchor ? (
+        <WikiPreview
+          noteID={noteID}
+          anchor={anchor}
+          depth={depth}
+          pinned={pinned}
+          onClose={closePreview}
+          onHold={holdPreview}
+          onPin={pinPreview}
+        />
+      ) : null}
     </span>
   );
 }
@@ -945,30 +980,204 @@ interface WikiPreviewProps {
   noteID: number;
   anchor: PreviewAnchor;
   depth: number;
+  pinned: boolean;
+  onClose: () => void;
+  onHold: () => void;
+  onPin: () => void;
 }
 
-function WikiPreview({ noteID, anchor, depth }: WikiPreviewProps) {
+interface PreviewBounds {
+  left: number;
+  top: number;
+  width: number;
+  height: number;
+}
+
+type PreviewResizeCorner = "nw" | "ne" | "sw" | "se";
+
+interface PreviewDragState {
+  pointerId: number;
+  mode: "move" | PreviewResizeCorner;
+  startX: number;
+  startY: number;
+  startBounds: PreviewBounds;
+}
+
+function WikiPreview({ noteID, anchor, depth, pinned, onClose, onHold, onPin }: WikiPreviewProps) {
   const note = useNoteQuery(noteID);
+  const [bounds, setBounds] = useState(() => initialPreviewBounds(anchor));
+  const dragRef = useRef<PreviewDragState | null>(null);
   // Sanitize the previewed body the same way as the main reader, so action links are flattened here too.
   const rendered = useRenderQuery(note.data?.note.body ?? "");
 
+  useEffect(() => {
+    if (!pinned) {
+      setBounds(initialPreviewBounds(anchor));
+    }
+  }, [anchor.left, anchor.top, pinned]);
+
+  function startMove(event: PointerEvent<HTMLElement>) {
+    startDrag(event, "move");
+  }
+
+  function startResize(corner: PreviewResizeCorner) {
+    return (event: PointerEvent<HTMLElement>) => startDrag(event, corner);
+  }
+
+  function startDrag(event: PointerEvent<HTMLElement>, mode: PreviewDragState["mode"]) {
+    event.preventDefault();
+    event.stopPropagation();
+    onPin();
+    dragRef.current = {
+      pointerId: event.pointerId,
+      mode,
+      startX: event.clientX,
+      startY: event.clientY,
+      startBounds: bounds,
+    };
+    event.currentTarget.setPointerCapture(event.pointerId);
+  }
+
+  function dragPreview(event: PointerEvent<HTMLElement>) {
+    const drag = dragRef.current;
+    if (!drag || drag.pointerId !== event.pointerId) return;
+    const dx = event.clientX - drag.startX;
+    const dy = event.clientY - drag.startY;
+    setBounds(
+      drag.mode === "move"
+        ? constrainPreviewBounds({
+            ...drag.startBounds,
+            left: drag.startBounds.left + dx,
+            top: drag.startBounds.top + dy,
+          })
+        : resizePreviewBounds(drag.mode, drag.startBounds, dx, dy),
+    );
+  }
+
+  function endDrag(event: PointerEvent<HTMLElement>) {
+    const drag = dragRef.current;
+    dragRef.current = null;
+    if (!drag || drag.pointerId !== event.pointerId) return;
+    event.currentTarget.releasePointerCapture(event.pointerId);
+  }
+
+  const title = note.data?.note.title ?? "Preview";
+
   return (
     <aside
-      className="wiki-preview"
-      style={{ left: anchor.left, top: anchor.top, zIndex: previewBaseZIndex + depth }}
+      className={`wiki-preview${pinned ? " pinned" : ""}`}
+      onMouseEnter={onHold}
+      style={{
+        left: bounds.left,
+        top: bounds.top,
+        width: bounds.width,
+        height: bounds.height,
+        zIndex: previewBaseZIndex + depth,
+      }}
     >
-      {note.isPending ? <p className="muted">Loading...</p> : null}
-      {note.isError ? <p className="error">{note.error.message}</p> : null}
-      {note.data ? (
-        <>
-          <strong>{note.data.note.title}</strong>
-          <div className="wiki-preview-body">
-            <PreviewDepthContext.Provider value={depth + 1}>
-              <MarkdownView markdown={rendered.data?.markdown ?? ""} kind={note.data.note.file_kind} />
-            </PreviewDepthContext.Provider>
-          </div>
-        </>
-      ) : null}
+      <div
+        className="wiki-preview-chrome"
+        onPointerDown={startMove}
+        onPointerMove={dragPreview}
+        onPointerUp={endDrag}
+        onPointerCancel={endDrag}
+      >
+        <span className="wiki-preview-title">{title}</span>
+        <button
+          className="wiki-preview-close"
+          type="button"
+          onClick={onClose}
+          onPointerDown={(event) => event.stopPropagation()}
+          aria-label="Close preview"
+        >
+          ×
+        </button>
+      </div>
+      <div className="wiki-preview-body">
+        {note.isPending ? <p className="muted">Loading...</p> : null}
+        {note.isError ? <p className="error">{note.error.message}</p> : null}
+        {note.data ? (
+          <PreviewDepthContext.Provider value={depth + 1}>
+            <MarkdownView markdown={rendered.data?.markdown ?? ""} kind={note.data.note.file_kind} />
+          </PreviewDepthContext.Provider>
+        ) : null}
+      </div>
+      {(["nw", "ne", "sw", "se"] as const).map((corner) => (
+        <button
+          aria-label="Resize preview"
+          className={`wiki-preview-resize wiki-preview-resize-${corner}`}
+          key={corner}
+          onPointerCancel={endDrag}
+          onPointerDown={startResize(corner)}
+          onPointerMove={dragPreview}
+          onPointerUp={endDrag}
+          title="Resize"
+          type="button"
+        />
+      ))}
     </aside>
   );
+}
+
+function initialPreviewBounds(anchor: PreviewAnchor): PreviewBounds {
+  const width = clamp(
+    Math.min(window.innerWidth * 0.5, 640),
+    minPreviewWidth,
+    Math.max(minPreviewWidth, window.innerWidth - previewMargin * 2),
+  );
+  const height = clamp(
+    280,
+    minPreviewHeight,
+    Math.max(minPreviewHeight, window.innerHeight - anchor.top - previewMargin),
+  );
+  return constrainPreviewBounds({ left: anchor.left, top: anchor.top, width, height });
+}
+
+function constrainPreviewBounds(bounds: PreviewBounds): PreviewBounds {
+  const width = clamp(bounds.width, minPreviewWidth, Math.max(minPreviewWidth, window.innerWidth - previewMargin * 2));
+  const height = clamp(
+    bounds.height,
+    minPreviewHeight,
+    Math.max(minPreviewHeight, window.innerHeight - previewMargin * 2),
+  );
+  return {
+    width,
+    height,
+    left: clamp(bounds.left, previewMargin, Math.max(previewMargin, window.innerWidth - width - previewMargin)),
+    top: clamp(bounds.top, previewMargin, Math.max(previewMargin, window.innerHeight - height - previewMargin)),
+  };
+}
+
+function resizePreviewBounds(
+  corner: PreviewResizeCorner,
+  start: PreviewBounds,
+  dx: number,
+  dy: number,
+): PreviewBounds {
+  let next = { ...start };
+  if (corner.includes("e")) {
+    next.width = start.width + dx;
+  }
+  if (corner.includes("s")) {
+    next.height = start.height + dy;
+  }
+  if (corner.includes("w")) {
+    next.left = start.left + dx;
+    next.width = start.width - dx;
+  }
+  if (corner.includes("n")) {
+    next.top = start.top + dy;
+    next.height = start.height - dy;
+  }
+  if (next.width < minPreviewWidth && corner.includes("w")) {
+    next.left = start.left + start.width - minPreviewWidth;
+  }
+  if (next.height < minPreviewHeight && corner.includes("n")) {
+    next.top = start.top + start.height - minPreviewHeight;
+  }
+  return constrainPreviewBounds(next);
+}
+
+function clamp(value: number, min: number, max: number): number {
+  return Math.min(Math.max(value, min), max);
 }
