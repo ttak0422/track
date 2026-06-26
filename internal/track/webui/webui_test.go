@@ -8,6 +8,7 @@ import (
 	"net/url"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -161,6 +162,72 @@ func TestAgendaEndpoint(t *testing.T) {
 	empty := getJSON(t, server.URL+"/api/agenda?date=2020-01-01")
 	if list, _ := empty["notes"].([]any); len(list) != 0 {
 		t.Fatalf("agenda for empty day should be empty: %v", empty["notes"])
+	}
+}
+
+// TestWatcherReconcileStampsEditDay guards against the watcher swallowing a note's edit-day activity.
+// The watcher must reconcile through RefreshIfStale (which stamps each changed note's mtime day into its
+// sidecar), not a bare Full() that only syncs mtimes. Otherwise an edited note never surfaces under "on
+// this day" for the day it was edited — it stays pinned to its creation day.
+func TestWatcherReconcileStampsEditDay(t *testing.T) {
+	cfg := &config.Config{
+		VaultDir:          t.TempDir(),
+		DBPath:            filepath.Join(t.TempDir(), "index.db"),
+		Extensions:        []string{".md"},
+		DateFormat:        "2006-01-02",
+		JournalDateFormat: "20060102",
+	}
+	if err := os.MkdirAll(cfg.NoteDir(), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	// A note created on an earlier day, with its mtime pinned to that day so the first reconcile records
+	// only the creation day.
+	created := time.Date(2026, 6, 20, 9, 0, 0, 0, time.Local)
+	if err := os.WriteFile(cfg.NotePath(400), []byte("# Delta\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := note.WriteMetadata(cfg.MetadataPath(400), note.Metadata{Title: "Delta", Created: "2026-06-20", Days: []string{"2026-06-20"}}); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Chtimes(cfg.NotePath(400), created, created); err != nil {
+		t.Fatal(err)
+	}
+
+	s, err := store.Open(cfg.DBPath)
+	if err != nil {
+		t.Fatalf("open store: %v", err)
+	}
+	t.Cleanup(func() { s.Close() })
+
+	server := New(cfg, s)
+	server.reconcileAfterChange() // initial index, records the creation day
+
+	// The note is edited later: bump its body and mtime to a new day, then run the same reconcile the
+	// watcher fires on a filesystem event.
+	editDay := time.Date(2026, 6, 25, 14, 0, 0, 0, time.Local)
+	if err := os.WriteFile(cfg.NotePath(400), []byte("# Delta edited\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Chtimes(cfg.NotePath(400), editDay, editDay); err != nil {
+		t.Fatal(err)
+	}
+	server.reconcileAfterChange()
+
+	// The edit day must be stamped into the sidecar...
+	meta, _, err := note.ReadMetadata(cfg.MetadataPath(400))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !slices.Contains(meta.Days, "2026-06-25") {
+		t.Fatalf("watcher reconcile did not stamp edit day; Days = %v", meta.Days)
+	}
+	// ...so the note surfaces under "on this day" for the day it was edited.
+	notes, err := s.NotesOnDay("2026-06-25")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(notes) != 1 || notes[0].Title != "Delta" {
+		t.Fatalf("edited note missing from agenda for edit day: %+v", notes)
 	}
 }
 

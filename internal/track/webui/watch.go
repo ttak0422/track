@@ -123,21 +123,28 @@ func (s *Server) startWatch() {
 	go s.watchLoop(watcher)
 }
 
+// reconcileAfterChange reindexes the vault after a watched filesystem change and notifies clients.
+// It must go through RefreshIfStale, not a bare Full(): RefreshIfStale stamps each changed note's
+// activity day into its sidecar (recordActivity) before rebuilding, which is what surfaces an edited
+// note under "on this day" for the day it was edited. A bare Full() would only sync mtimes, silently
+// swallowing the staleness so the read-time refresh later sees nothing left to stamp.
+func (s *Server) reconcileAfterChange() {
+	s.reindexMu.Lock()
+	defer s.reindexMu.Unlock()
+	if _, err := index.New(s.cfg, s.store).RefreshIfStale(); err != nil {
+		fmt.Fprintf(os.Stderr, "track web: reindex after change failed: %v\n", err)
+		return
+	}
+	s.events.broadcast()
+}
+
 func (s *Server) watchLoop(watcher *fsnotify.Watcher) {
 	defer watcher.Close()
 
 	const debounce = 300 * time.Millisecond
 	var timer *time.Timer
-	// reindex coalesces a burst of events into a single Full() + broadcast.
-	reindex := func() {
-		s.reindexMu.Lock()
-		defer s.reindexMu.Unlock()
-		if _, err := index.New(s.cfg, s.store).Full(); err != nil {
-			fmt.Fprintf(os.Stderr, "track web: reindex after change failed: %v\n", err)
-			return
-		}
-		s.events.broadcast()
-	}
+	// reindex coalesces a burst of events into a single reconcile + broadcast.
+	reindex := func() { s.reconcileAfterChange() }
 
 	for {
 		select {
