@@ -57,9 +57,13 @@ export function NoteReader({ noteID }: NoteReaderProps) {
     // the previous one — otherwise the dirty guard below would block the switch entirely), or when
     // the current note changed on disk and the user has no unsaved edits.
     const switchedNote = noteID !== loadedRef.current.noteID;
+    const discardedUnsavedEdit = switchedNote && body !== loadedRef.current.body;
     if (switchedNote || body === loadedRef.current.body) {
       loadedRef.current = { noteID, body: incoming.body, etag: incoming.etag };
       setBody(incoming.body);
+      if (discardedUnsavedEdit) {
+        setEditorMode("preview");
+      }
     }
   }, [noteID, noteQuery.data?.note.etag]);
 
@@ -124,7 +128,7 @@ export function NoteReader({ noteID }: NoteReaderProps) {
   }
 
   function scrollToFollowState(state: FollowState) {
-    const target = editorModeRef.current === "edit" ? textareaRef.current : previewRef.current;
+    const target = followScrollTarget();
     if (!target) return;
     const maxScroll = target.scrollHeight - target.clientHeight;
     if (maxScroll <= 0) return;
@@ -132,6 +136,36 @@ export function NoteReader({ noteID }: NoteReaderProps) {
     const sourceLines = Math.max(sourceTop, state.line_count || 1);
     const ratio = sourceLines <= 1 ? 0 : (sourceTop - 1) / (sourceLines - 1);
     target.scrollTo({ top: maxScroll * ratio });
+  }
+
+  function followScrollTarget(): HTMLElement | null {
+    if (editorModeRef.current === "edit") {
+      return textareaRef.current;
+    }
+    const preview = previewRef.current;
+    if (!preview) return null;
+    if (preview.scrollHeight > preview.clientHeight) {
+      return preview;
+    }
+    return preview.closest<HTMLElement>(".reader");
+  }
+
+  function revealTextareaCaret(textarea: HTMLTextAreaElement) {
+    window.requestAnimationFrame(() => {
+      const position = textarea.selectionStart ?? 0;
+      const line = textarea.value.slice(0, position).split("\n").length;
+      const styles = window.getComputedStyle(textarea);
+      const lineHeight = Number.parseFloat(styles.lineHeight) || 22;
+      const paddingTop = Number.parseFloat(styles.paddingTop) || 0;
+      const caretTop = paddingTop + (line - 1) * lineHeight;
+      const visibleTop = textarea.scrollTop;
+      const visibleBottom = visibleTop + textarea.clientHeight - lineHeight;
+      if (caretTop < visibleTop) {
+        textarea.scrollTop = Math.max(0, caretTop - lineHeight);
+      } else if (caretTop > visibleBottom) {
+        textarea.scrollTop = caretTop - textarea.clientHeight + lineHeight * 2;
+      }
+    });
   }
 
   if (noteQuery.isPending) {
@@ -172,14 +206,15 @@ export function NoteReader({ noteID }: NoteReaderProps) {
           <h2>{note.title}</h2>
         </div>
         <div className="note-header-actions">
+          <button
+            className={`follow-toggle${followEnabled ? " active" : ""}`}
+            type="button"
+            aria-pressed={followEnabled}
+            onClick={() => setFollowEnabled((value) => !value)}
+          >
+            Follow
+          </button>
           <div className="mode-switch" role="group" aria-label="Markdown display mode">
-            <button
-              aria-pressed={followEnabled}
-              type="button"
-              onClick={() => setFollowEnabled((value) => !value)}
-            >
-              Follow
-            </button>
             {editorModes.map((mode) => (
               <button
                 aria-pressed={editorMode === mode}
@@ -218,7 +253,13 @@ export function NoteReader({ noteID }: NoteReaderProps) {
               aria-label="Note body"
               ref={textareaRef}
               value={body}
-              onChange={(event) => setBody(event.currentTarget.value)}
+              onChange={(event) => {
+                setBody(event.currentTarget.value);
+                revealTextareaCaret(event.currentTarget);
+              }}
+              onClick={(event) => revealTextareaCaret(event.currentTarget)}
+              onKeyUp={(event) => revealTextareaCaret(event.currentTarget)}
+              onSelect={(event) => revealTextareaCaret(event.currentTarget)}
             />
           ) : null}
           {editorMode !== "edit" ? (

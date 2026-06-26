@@ -783,6 +783,27 @@ button {
   gap: 8px;
 }
 
+.follow-toggle {
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  padding: 3px 10px;
+  color: var(--muted);
+  background: var(--panel-soft);
+  font-size: 12px;
+}
+
+.follow-toggle:hover,
+.follow-toggle:focus-visible {
+  color: var(--text);
+  border-color: var(--accent);
+}
+
+.follow-toggle.active {
+  color: var(--panel);
+  border-color: var(--accent);
+  background: var(--accent);
+}
+
 .note-tags button {
   border: 1px solid var(--line);
   border-radius: 999px;
@@ -847,6 +868,7 @@ button {
   width: 100%;
   min-height: 420px;
   flex: 1;
+  overflow: auto;
   resize: vertical;
   border: 1px solid var(--line);
   border-radius: 6px;
