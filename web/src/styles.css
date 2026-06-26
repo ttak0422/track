@@ -1363,7 +1363,9 @@ button {
   align-items: center;
   gap: 8px;
   border-bottom: 1px solid var(--line);
-  padding: 5px 6px 5px 12px;
+  /* Reserve room on the right for the absolutely-positioned close button so the title never runs
+     under it. */
+  padding: 5px 34px 5px 12px;
   cursor: grab;
   user-select: none;
   touch-action: none;
@@ -1383,14 +1385,19 @@ button {
 }
 
 .wiki-preview-close {
+  /* Hug the top-right corner with equal top/right insets, above the corner resize handle. */
+  position: absolute;
+  top: 5px;
+  right: 5px;
+  z-index: 1;
   display: grid;
   width: 24px;
   height: 24px;
   place-items: center;
-  margin-right: 10px;
   border: 1px solid transparent;
   border-radius: 6px;
   padding: 0;
+  line-height: 1;
   color: var(--muted);
   background: transparent;
   cursor: pointer;
