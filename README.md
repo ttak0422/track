@@ -67,6 +67,8 @@ track open --title <t> [--template <s>] [--parent-path <p>] [--body <s>] [--tag 
                                       # open the note with this title, creating it if absent
 track append (--id N | --title S | --path P) [--body <s>] [--tag <s>]
                                       # append body text and/or merge tags
+track update (--id N | --title S | --path P) [--body <s>] [--tag <s>] [--clear-tags]
+                                      # replace body text and/or update tags
 track rename (--id N | --title S | --path P) --to S
                                       # rename a sidecar title and rewrite backlinks
 track journal [--offset <n>] [--template <s>] [--body <s>]

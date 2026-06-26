@@ -21,6 +21,7 @@ Use titles for user-facing workflows and ids/paths for exact targets:
 - `track new --title X`: strict create; fails if `X` already exists.
 - `track open --title X`: create-or-open; safe to repeat.
 - `track append (--id N | --title X | --path P)`: add body text and/or tags to an existing note.
+- `track update (--id N | --title X | --path P)`: replace body text and/or update tags on an existing note. Use `--clear-tags` before `--tag` when the existing tag set should be replaced.
 - `track toggle (--id N | --title X | --path P) --line N`: flip a single task checkbox by line number, leaving surrounding text untouched. `--state check|uncheck` forces a result idempotently. Prefer this over hand-editing `- [ ]`/`- [x]` lines.
 - `track asset import <file> [--kind note|journal]`: copy a local file into the kind's `assets/` directory and return the `assets/<file>` reference to embed (`![alt](assets/<file>)`). `track asset dir [--kind] [--ensure]` reports the assets directory.
 - `track rename (--id N | --title X | --path P) --to Y`: change the sidecar title and rewrite backlinks.

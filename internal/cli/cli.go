@@ -43,6 +43,8 @@ func Run(args []string) int {
 		return cmdJournal(rest)
 	case "append":
 		return cmdAppend(rest)
+	case "update":
+		return cmdUpdate(rest)
 	case "toggle":
 		return cmdToggle(rest)
 	case "asset":
@@ -90,6 +92,8 @@ Usage:
                                         open the note with this title, creating it if absent
   track append (--id N | --title S | --path P) [--body <s>] [--tag <s>]
                                         append body text and/or merge tags into an existing note
+  track update (--id N | --title S | --path P) [--body <s>] [--tag <s>] [--clear-tags]
+                                        replace body text and/or update tags on an existing note
   track toggle (--id N | --title S | --path P) --line N [--state toggle|check|uncheck]
                                         flip (or set) a task checkbox on one line of a note (JSON)
   track asset import <file> [--kind note|journal]

@@ -1042,6 +1042,85 @@ func TestAppendRequiresContent(t *testing.T) {
 	}
 }
 
+func TestUpdateReplacesBodyAndBacklinksWithoutReindex(t *testing.T) {
+	vault := t.TempDir()
+	runIn(t, vault, "new", "--title", "Old", "--id", "100")
+	runIn(t, vault, "new", "--title", "Target", "--id", "200")
+	runIn(t, vault, "new", "--title", "Source", "--id", "300", "--body", "see [[Old]]")
+
+	updated, code := runIn(t, vault, "update", "--title", "Source", "--body", "now see [[Target]]")
+	if code != 0 {
+		t.Fatalf("update failed: %v", updated)
+	}
+	if updated["body_updated"] != true || updated["tags_updated"] != false {
+		t.Fatalf("unexpected update output: %v", updated)
+	}
+	body, err := os.ReadFile(filepath.Join(vault, "note", "300.md"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(body) != "now see [[Target]]\n" {
+		t.Fatalf("updated body = %q", body)
+	}
+
+	oldBacklinks, code := runIn(t, vault, "backlinks", "--id", "100")
+	if code != 0 {
+		t.Fatalf("old backlinks failed: %v", oldBacklinks)
+	}
+	if len(oldBacklinks["backlinks"].([]any)) != 0 {
+		t.Fatalf("old target should have no backlinks after update: %v", oldBacklinks)
+	}
+	targetBacklinks, code := runIn(t, vault, "backlinks", "--id", "200")
+	if code != 0 {
+		t.Fatalf("target backlinks failed: %v", targetBacklinks)
+	}
+	list := targetBacklinks["backlinks"].([]any)
+	if len(list) != 1 || list[0].(map[string]any)["note_id"].(float64) != 300 {
+		t.Fatalf("expected note 300 backlink without reindex, got %v", list)
+	}
+}
+
+func TestUpdateCanClearBodyAndReplaceTags(t *testing.T) {
+	vault := t.TempDir()
+	runIn(t, vault, "new", "--title", "Go", "--id", "100", "--body", "body", "--tag", "old,lang")
+
+	updated, code := runIn(t, vault, "update", "--id", "100", "--body", "", "--clear-tags", "--tag", "zettel,lang")
+	if code != 0 {
+		t.Fatalf("update failed: %v", updated)
+	}
+	if updated["body_updated"] != true || updated["tags_updated"] != true {
+		t.Fatalf("unexpected update output: %v", updated)
+	}
+	body, err := os.ReadFile(filepath.Join(vault, "note", "100.md"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(body) != "" {
+		t.Fatalf("body should be cleared, got %q", body)
+	}
+	meta, err := os.ReadFile(vault + "/.track/notes/100.yaml")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(string(meta), "- old\n") {
+		t.Fatalf("metadata should not keep old tag: %q", meta)
+	}
+	for _, tag := range []string{"zettel", "lang"} {
+		if !strings.Contains(string(meta), "- "+tag+"\n") {
+			t.Fatalf("metadata %q missing tag %q", meta, tag)
+		}
+	}
+}
+
+func TestUpdateRequiresContent(t *testing.T) {
+	vault := t.TempDir()
+	runIn(t, vault, "new", "--title", "Go", "--id", "100")
+	out, code := runIn(t, vault, "update", "--id", "100")
+	if code != 1 || !strings.Contains(out["error"].(string), "nothing to do") {
+		t.Fatalf("expected nothing-to-do error, got code=%d out=%v", code, out)
+	}
+}
+
 func TestOpenExistingWithContentErrors(t *testing.T) {
 	vault := t.TempDir()
 	runIn(t, vault, "open", "--title", "Go")

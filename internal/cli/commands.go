@@ -449,6 +449,85 @@ func cmdAppend(args []string) int {
 	return emit(map[string]any{"id": noteID, "path": notePath})
 }
 
+// cmdUpdate replaces an existing note body and/or updates its tags, then reindexes the note so search,
+// outgoing links, backlinks, and activity days reflect the new content without a full rebuild. Title
+// changes remain the job of rename because they have backlink-rewrite semantics.
+func cmdUpdate(args []string) int {
+	fs := flag.NewFlagSet("update", flag.ContinueOnError)
+	id := fs.Int64("id", 0, "note id")
+	title := fs.String("title", "", "note title (alternative to --id)")
+	path := fs.String("path", "", "note path (alternative to --id)")
+	bodyFlag := fs.String("body", "", "replacement body; read from stdin when omitted and piped")
+	clearTags := fs.Bool("clear-tags", false, "remove existing tags before applying --tag")
+	var tags tagsFlag
+	fs.Var(&tags, "tag", "tag to add (repeatable, comma-separated)")
+	if err := fs.Parse(args); err != nil {
+		return fail("parse args: %v", err)
+	}
+
+	bodyWasSet := flagWasSet(fs, "body")
+	updateText, err := readBody(fs, *bodyFlag)
+	if err != nil {
+		return fail("read body: %v", err)
+	}
+	if updateText != "" {
+		bodyWasSet = true
+	}
+	addTags := dedupTags(tags)
+	if !bodyWasSet && len(addTags) == 0 && !*clearTags {
+		return fail("nothing to do: provide --body (or piped stdin), --tag, or --clear-tags")
+	}
+
+	cfg, s, err := open()
+	if err != nil {
+		return fail("%v", err)
+	}
+	defer s.Close()
+
+	notePath, err := resolveNotePath(cfg, s, *id, strings.TrimSpace(*title), strings.TrimSpace(*path))
+	if err != nil {
+		return fail("%v", err)
+	}
+	noteID, err := note.IDFromPath(notePath)
+	if err != nil {
+		return fail("invalid note path: %v", err)
+	}
+
+	if bodyWasSet {
+		if err := os.WriteFile(notePath, []byte(ensureTrailingNewline(updateText)), 0o644); err != nil {
+			return fail("write note: %v", err)
+		}
+	}
+
+	tagsUpdated := len(addTags) > 0 || *clearTags
+	if tagsUpdated {
+		meta, found, err := note.ReadMetadata(cfg.MetadataPath(noteID))
+		if err != nil {
+			return fail("read metadata: %v", err)
+		}
+		if !found {
+			meta = note.Metadata{Created: time.Now().Format(cfg.DateFormat)}
+		}
+		if *clearTags {
+			meta.Tags = nil
+		}
+		meta.Tags = dedupTags(append(meta.Tags, addTags...))
+		if err := note.WriteMetadata(cfg.MetadataPath(noteID), meta); err != nil {
+			return fail("write metadata: %v", err)
+		}
+	}
+
+	if err := index.New(cfg, s).One(notePath); err != nil {
+		return fail("index note: %v", err)
+	}
+	return emit(map[string]any{
+		"id":           noteID,
+		"path":         notePath,
+		"body_updated": bodyWasSet,
+		"tags_updated": tagsUpdated,
+	})
+}
+
 func cmdRename(args []string) int {
 	fs := flag.NewFlagSet("rename", flag.ContinueOnError)
 	id := fs.Int64("id", 0, "note id")
