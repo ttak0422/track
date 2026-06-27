@@ -71,7 +71,7 @@
               root = ./.;
               fileset = goFiles;
             };
-            vendorHash = "sha256-8sOIz+DWd4LtanL+A6LcMtTbq1/L9Bf2HMoEiRuKdL0=";
+            vendorHash = "sha256-RVRG4u1UhQ04w1qGRii9Xl+P/ISUKIw3VhFjqd7DT+Y=";
             subPackages = [
               "cmd/track"
               "cmd/track-lsp"

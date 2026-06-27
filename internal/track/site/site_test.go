@@ -1,197 +1,165 @@
 package site
 
 import (
+	"encoding/json"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
 
 	"github.com/ttak0422/track/internal/track/config"
+	"github.com/ttak0422/track/internal/track/index"
 	"github.com/ttak0422/track/internal/track/note"
+	"github.com/ttak0422/track/internal/track/store"
 )
 
-// writeNote lays down a note file and its sidecar metadata directly, the minimum ParseFile needs.
-func writeNote(t *testing.T, cfg *config.Config, id int64, title, body string) {
+// fakeFrontend creates a minimal static-mode frontend build to copy into the site.
+func fakeFrontend(t *testing.T) string {
 	t.Helper()
-	if err := os.MkdirAll(cfg.NoteDir(), 0o755); err != nil {
+	dir := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(dir, "assets"), 0o755); err != nil {
 		t.Fatal(err)
 	}
-	if err := os.WriteFile(cfg.NotePath(id), []byte(body), 0o644); err != nil {
+	if err := os.WriteFile(filepath.Join(dir, "index.html"), []byte("<!doctype html><div id=root></div>"), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	if err := os.MkdirAll(cfg.MetadataDir(), 0o755); err != nil {
+	if err := os.WriteFile(filepath.Join(dir, "assets", "app.js"), []byte("console.log(1)"), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	meta := note.Metadata{Version: note.CurrentMetadataVersion, Title: title}
-	if err := note.WriteMetadata(cfg.MetadataPath(id), meta); err != nil {
-		t.Fatal(err)
-	}
+	return dir
 }
 
-func testConfig(t *testing.T) *config.Config {
+func vaultStore(t *testing.T) (*config.Config, *store.Store) {
 	t.Helper()
 	vault := t.TempDir()
-	t.Setenv("TRACK_VAULT", vault)
-	t.Setenv("TRACK_CACHE_DIR", filepath.Join(vault, ".cache"))
-	cfg, err := config.Load()
-	if err != nil {
-		t.Fatalf("config: %v", err)
+	cfg := &config.Config{
+		VaultDir:          vault,
+		DBPath:            filepath.Join(vault, ".track", "index.db"),
+		Extensions:        []string{".md"},
+		DateFormat:        "2006-01-02",
+		JournalDateFormat: "20060102",
 	}
-	return cfg
+	s, err := store.Open(cfg.DBPath)
+	if err != nil {
+		t.Fatalf("open store: %v", err)
+	}
+	t.Cleanup(func() { s.Close() })
+	return cfg, s
 }
 
-func TestBuildRendersRootAndLinks(t *testing.T) {
-	cfg := testConfig(t)
-	writeNote(t, cfg, 100, "Home", "# Home\n\nsee [[Child]] and [[Outsider]]\n")
-	writeNote(t, cfg, 200, "Child", "# Child\n\nhello\n")
-	writeNote(t, cfg, 300, "Outsider", "# Outsider\n\nnot published\n")
+func writeVaultNote(t *testing.T, cfg *config.Config, id int64, title, body string) {
+	t.Helper()
+	path := cfg.NotePath(id)
+	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(path, []byte(body), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := note.WriteMetadata(cfg.MetadataPath(id), note.Metadata{Version: note.CurrentMetadataVersion, Title: title}); err != nil {
+		t.Fatal(err)
+	}
+}
 
-	resolve := func(key string) (int64, bool) {
-		switch key {
-		case "Home":
-			return 100, true
-		case "Child":
-			return 200, true
-		case "Outsider":
-			return 300, true
+func readJSON[T any](t *testing.T, path string) T {
+	t.Helper()
+	raw, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatalf("read %s: %v", path, err)
+	}
+	var v T
+	if err := json.Unmarshal(raw, &v); err != nil {
+		t.Fatalf("decode %s: %v", path, err)
+	}
+	return v
+}
+
+func TestBuildVaultBundle(t *testing.T) {
+	cfg, s := vaultStore(t)
+	writeVaultNote(t, cfg, 100, "Home", "# Home\n\ngo to [[Child]] and [[Outsider]]\n")
+	writeVaultNote(t, cfg, 200, "Child", "# Child\n\nback [[Home]]\n")
+	writeVaultNote(t, cfg, 300, "Outsider", "# Outsider\n")
+	if _, err := index.New(cfg, s).Full(); err != nil {
+		t.Fatalf("index: %v", err)
+	}
+
+	out := t.TempDir()
+	res, err := Build(cfg, s, Options{Root: 100, IDs: []int64{200}}, fakeFrontend(t), out)
+	if err != nil {
+		t.Fatalf("build: %v", err)
+	}
+	if len(res.Notes) != 2 {
+		t.Fatalf("expected 2 published notes, got %v", res.Notes)
+	}
+
+	// Frontend copied in.
+	if !fileExists(filepath.Join(out, "index.html")) || !fileExists(filepath.Join(out, "assets", "app.js")) {
+		t.Fatalf("frontend not copied into site")
+	}
+
+	// notes.json holds the published set only.
+	notes := readJSON[struct {
+		Notes []jsonSearchResult `json:"notes"`
+	}](t, filepath.Join(out, "data", "notes.json"))
+	if len(notes.Notes) != 2 {
+		t.Fatalf("notes.json should list 2 notes, got %d", len(notes.Notes))
+	}
+
+	// Root note: body keeps wiki links for the frontend; out-of-set note not in graph.
+	root := readJSON[jsonNoteResponse](t, filepath.Join(out, "data", "note", "100.json"))
+	if !strings.Contains(root.Note.Body, "[[Child]]") {
+		t.Fatalf("root body should keep wiki links: %q", root.Note.Body)
+	}
+
+	// Child note has a backlink from Home.
+	child := readJSON[jsonNoteResponse](t, filepath.Join(out, "data", "note", "200.json"))
+	if len(child.Backlinks) != 1 || child.Backlinks[0].NoteID != 100 {
+		t.Fatalf("child should have a backlink from 100, got %v", child.Backlinks)
+	}
+
+	// graph.json: edge 100->200 present; nothing references 300 (out of set).
+	graph := readJSON[struct {
+		Graph jsonGraph `json:"graph"`
+	}](t, filepath.Join(out, "data", "graph.json"))
+	if !hasEdge(graph.Graph.Edges, 100, 200) {
+		t.Fatalf("graph missing edge 100->200: %+v", graph.Graph.Edges)
+	}
+	for _, n := range graph.Graph.Nodes {
+		if n.NoteID == 300 {
+			t.Fatalf("out-of-set note 300 should not be a graph node")
 		}
-		return 0, false
 	}
 
-	out := t.TempDir()
-	res, err := Build(cfg, resolve, Options{Root: 100, IDs: []int64{200}}, out)
-	if err != nil {
-		t.Fatalf("build: %v", err)
+	// resolve.json maps titles to published notes only.
+	resolve := readJSON[map[string]jsonRef](t, filepath.Join(out, "data", "resolve.json"))
+	if resolve["Child"].NoteID != 200 {
+		t.Fatalf("resolve[Child] should be 200, got %v", resolve["Child"])
 	}
-	if res.OutDir != out {
-		t.Fatalf("OutDir = %q, want %q", res.OutDir, out)
-	}
-
-	index := readFile(t, filepath.Join(out, "index.html"))
-	// In-set link points to the child page; out-of-set link is inert plain text.
-	if !strings.Contains(index, `href="200.html"`) {
-		t.Fatalf("index missing in-set link to child:\n%s", index)
-	}
-	if strings.Contains(index, "300.html") || strings.Contains(index, "Outsider.html") {
-		t.Fatalf("out-of-set note must not be linked:\n%s", index)
-	}
-	if !strings.Contains(index, "Outsider") {
-		t.Fatalf("out-of-set link text should remain as inert text:\n%s", index)
-	}
-	if strings.Contains(index, "[[") {
-		t.Fatalf("wiki syntax leaked into html:\n%s", index)
+	if _, ok := resolve["Outsider"]; ok {
+		t.Fatalf("out-of-set note should not be resolvable")
 	}
 
-	// Child page exists and links home.
-	child := readFile(t, filepath.Join(out, "200.html"))
-	if !strings.Contains(child, `href="index.html"`) {
-		t.Fatalf("child page missing home nav:\n%s", child)
-	}
-	if !fileExists(filepath.Join(out, "style.css")) {
-		t.Fatalf("style.css not written")
-	}
-	// Outsider was not selected, so no page for it.
-	if fileExists(filepath.Join(out, "300.html")) {
-		t.Fatalf("unselected note should not produce a page")
-	}
-}
-
-func TestBuildRendersGFMTable(t *testing.T) {
-	cfg := testConfig(t)
-	writeNote(t, cfg, 100, "Home", "# Home\n\n| a | b |\n| --- | --- |\n| 1 | 2 |\n")
-	out := t.TempDir()
-	if _, err := Build(cfg, func(string) (int64, bool) { return 0, false }, Options{Root: 100}, out); err != nil {
-		t.Fatalf("build: %v", err)
-	}
-	index := readFile(t, filepath.Join(out, "index.html"))
-	if !strings.Contains(index, "<table>") || !strings.Contains(index, "<td>1</td>") {
-		t.Fatalf("GFM table not rendered:\n%s", index)
-	}
-}
-
-func TestBuildCopiesReferencedAssets(t *testing.T) {
-	cfg := testConfig(t)
-	writeNote(t, cfg, 100, "Home", "# Home\n\n![pic](assets/pic.png)\n")
-	// Seed the referenced asset and an unreferenced one in the note assets dir.
-	assetsDir := cfg.AssetsDirForKind(config.KindNote)
-	if err := os.MkdirAll(assetsDir, 0o755); err != nil {
-		t.Fatal(err)
-	}
-	if err := os.WriteFile(filepath.Join(assetsDir, "pic.png"), []byte("PNG"), 0o644); err != nil {
-		t.Fatal(err)
-	}
-	if err := os.WriteFile(filepath.Join(assetsDir, "unused.png"), []byte("X"), 0o644); err != nil {
-		t.Fatal(err)
-	}
-
-	out := t.TempDir()
-	res, err := Build(cfg, nil, Options{Root: 100}, out)
-	if err != nil {
-		t.Fatalf("build: %v", err)
-	}
-	if got := readFile(t, filepath.Join(out, "assets", "pic.png")); got != "PNG" {
-		t.Fatalf("asset not copied, got %q", got)
-	}
-	if fileExists(filepath.Join(out, "assets", "unused.png")) {
-		t.Fatalf("unreferenced asset should not be copied")
-	}
-	if len(res.Assets) != 1 || res.Assets[0] != "pic.png" {
-		t.Fatalf("unexpected copied assets: %v", res.Assets)
-	}
-}
-
-func TestBuildReportsMissingAsset(t *testing.T) {
-	cfg := testConfig(t)
-	writeNote(t, cfg, 100, "Home", "# Home\n\n![gone](assets/gone.png)\n")
-	out := t.TempDir()
-	res, err := Build(cfg, nil, Options{Root: 100}, out)
-	if err != nil {
-		t.Fatalf("build should not fail on missing asset: %v", err)
-	}
-	if len(res.Missing) != 1 || res.Missing[0] != "gone.png" {
-		t.Fatalf("expected gone.png reported missing, got %v", res.Missing)
-	}
-}
-
-func TestBuildRendersMermaid(t *testing.T) {
-	cfg := testConfig(t)
-	writeNote(t, cfg, 100, "Home", "# Home\n\n```mermaid\ngraph TD\nA-->B\n```\n")
-	writeNote(t, cfg, 200, "Plain", "# Plain\n\nno diagram here\n")
-	out := t.TempDir()
-	if _, err := Build(cfg, nil, Options{Root: 100, IDs: []int64{200}}, out); err != nil {
-		t.Fatalf("build: %v", err)
-	}
-	index := readFile(t, filepath.Join(out, "index.html"))
-	if !strings.Contains(index, `<div class="mermaid">`) {
-		t.Fatalf("mermaid block not converted:\n%s", index)
-	}
-	if strings.Contains(index, "language-mermaid") {
-		t.Fatalf("raw mermaid code block leaked:\n%s", index)
-	}
-	if !strings.Contains(index, "mermaid.esm.min.mjs") {
-		t.Fatalf("mermaid script not included on diagram page")
-	}
-	// A page without a diagram must not pull in the runtime.
-	plain := readFile(t, filepath.Join(out, "200.html"))
-	if strings.Contains(plain, "mermaid") {
-		t.Fatalf("non-diagram page should not include mermaid:\n%s", plain)
+	// site.json names the entry note.
+	site := readJSON[jsonSite](t, filepath.Join(out, "data", "site.json"))
+	if site.Root != 100 || site.Title != "Home" {
+		t.Fatalf("unexpected site.json: %+v", site)
 	}
 }
 
 func TestBuildRequiresRoot(t *testing.T) {
-	cfg := testConfig(t)
-	if _, err := Build(cfg, nil, Options{}, t.TempDir()); err == nil {
+	cfg, s := vaultStore(t)
+	if _, err := Build(cfg, s, Options{}, fakeFrontend(t), t.TempDir()); err == nil {
 		t.Fatalf("expected error when root is missing")
 	}
 }
 
-func readFile(t *testing.T, path string) string {
-	t.Helper()
-	b, err := os.ReadFile(path)
-	if err != nil {
-		t.Fatalf("read %s: %v", path, err)
+func hasEdge(edges []jsonGraphEdge, src, dst int64) bool {
+	for _, e := range edges {
+		if e.SourceID == src && e.TargetID == dst {
+			return true
+		}
 	}
-	return string(b)
+	return false
 }
 
 func fileExists(path string) bool {

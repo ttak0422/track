@@ -19,31 +19,41 @@ ready-to-host HTML site, so we target HTML directly.
 
 ## Decision
 
-Add `track export-site --root <id> [--id <id> ...] --out <dir>`, backed by a new store-free package
-`internal/track/site`.
+Add `track export-site`, backed by the `internal/track/site` package. **The published site is the React
+web frontend running in a static mode against a pre-generated JSON bundle** — not bespoke HTML. This
+keeps track's real reading experience (sidebar, graph, hover previews, mermaid, media) in the output
+instead of a second, lower-fidelity renderer.
 
-- **Selection is an explicit id set.** `--root` designates the entry note, rendered as `index.html`
-  (the live heatmap top page is intentionally not published). Each additional `--id` note becomes
-  `<id>.html`. The root is always part of the set. Tag/query-based selection is deferred.
-- **Two-stage rendering reuses the export pipeline.** The note body is first transformed by
-  `internal/track/export` with a site-specific `Renderer` into intermediate Markdown, then
-  [goldmark](https://github.com/yuin/goldmark) (GFM extension) converts that Markdown to HTML. This
-  keeps track-specific span handling (`[[...]]`, action links, babel blocks) in one place and delegates
-  CommonMark/GFM block structure to a maintained library rather than reinventing it.
-- **Wiki links resolve against the selection.** A `[[key]]` whose key resolves (via the caller-supplied
-  `Resolver`, normally the index) to a note in the set becomes a relative `<a href="<page>.html">`;
-  anything outside the set is flattened to inert display text. Output filenames are flat and relative so
-  the site works under a GitHub Pages subpath without a `<base>`.
-- **The site package is store-free.** It takes a `Resolver` closure and a `*config.Config`; the CLI
-  wires the closure to `store.ResolveTerm`. This mirrors the link package's split between extraction
-  and resolution and keeps the package unit-testable.
+> An earlier iteration generated plain HTML in Go via goldmark. It was replaced because it lost the
+> features that make track worth reading; reusing the frontend is the only way to keep them without a
+> parallel UI to maintain. The goldmark dependency was removed.
+
+- **The frontend has a static mode** (build flag `VITE_TRACK_STATIC=1`). In static mode `web/src/api.ts`
+  reads `./data/*.json` instead of the `/api/*` server, runs read-only (no editing, follow, live
+  updates), uses hash routing (GitHub Pages has no SPA fallback), redirects the home route to the entry
+  note, and is built with a relative base so it works under any Pages subpath. The live `track web`
+  build is unchanged (flag off).
+- **The exporter emits a JSON bundle mirroring the server's `/api/*` shapes** under `<out>/data`:
+  `notes.json`, `note/<id>.json` (sanitized body + backlinks), `graph.json`, `resolve.json`, and
+  `site.json` (the entry note). It then copies the static frontend build (passed as `--frontend <dir>`)
+  and referenced assets into the output.
+- **One bundle writer, two input front-ends.** `Build` publishes a vault selection (`--root <id>
+  [--id ...]`) read through the index/store; `BuildDir` publishes a directory of plain Markdown files
+  (`--src <dir> [--root <name>]`) for repo-mounted help/docs outside any vault, assigning ids in name
+  order and resolving wiki links by file base name or first H1 title. Both reduce to the same
+  `doc`/`edge` model.
+- **Note bodies are sanitized with `export.NewWebRenderer`** — the same transform the live `/api/render`
+  applies — so wiki links stay for the frontend to resolve and a published note reads identically.
+- **Vault export does a full reindex first**, so the published link graph includes edges to notes that
+  were created after their linker (which a partial index would miss).
 
 ## Consequences
 
-- A new Go dependency (goldmark) is added; the Nix `vendorHash` must be refreshed when it changes.
-- Rendering fidelity now has two paths: the live web frontend (react-markdown) and the static export
-  (goldmark). They can diverge; track-specific syntax is shared through the export renderer, but
-  frontend-only niceties (hover previews, OGP cards, budoux line breaking) are not reproduced in the
-  static output by default.
-- Asset publishing and mermaid rendering are layered on in follow-up changes; the first slice
-  establishes the command, page layout, and link resolution.
+- The static build is a second Vite build of the same app; CI builds it (`VITE_TRACK_STATIC=1`) and
+  passes it to `track export-site --frontend`. The bundle is heavier than plain HTML (it ships the SPA),
+  but fidelity matches the live app.
+- The goldmark dependency was removed, reverting the Nix `vendorHash` to its pre-goldmark value.
+- Links to notes outside the published set are not in `resolve.json`/`graph.json`, so the frontend
+  leaves them unresolved (inert) — the site has no dangling navigation.
+- OGP link cards degrade to bare cards (no network at view time); editing, follow, and the heatmap home
+  are intentionally absent in the published site.

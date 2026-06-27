@@ -127,10 +127,10 @@ Usage:
                                         list stored source block results (JSON)
   track export (--id N | --title S | --path P) [--out F] [--frontmatter] [--exports-default M]
                                         write a note out as Markdown (stdout, or JSON path with --out)
-  track export-site --root N [--id N ...] --out <dir>
-                                        build a static HTML site from selected vault notes (--root is index.html) (JSON)
-  track export-site --src <dir> [--root <name>] --out <dir>
-                                        build a static HTML site from a directory of Markdown files (JSON)
+  track export-site --root N [--id N ...] --frontend <dist> --out <dir>
+                                        publish selected vault notes as a static site (React frontend + JSON bundle) (JSON)
+  track export-site --src <dir> [--root <name>] --frontend <dist> --out <dir>
+                                        publish a directory of Markdown files as a static site (JSON)
   track dump                            print placeholder state (JSON)
   track version                         print the version
 

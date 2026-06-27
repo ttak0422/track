@@ -106,16 +106,16 @@ The target note is given by `--id`, by `--title` (resolved through the keyword d
 
 ## Static site export
 
-`track export-site` is a separate, HTML-targeted command built on the same transform pipeline: it renders a selected set of notes into a self-contained static site (one HTML page per note) for hosting on GitHub Pages or any plain file server. Unlike `track export`, the export set *is* known, so wiki links to notes inside the set become navigable relative anchors while links outside it are flattened to inert text. The design is [ADR 0019](../adr/0019-static-site-export.md).
+`track export-site` publishes a selected set of notes as a self-contained static site for GitHub Pages or any plain file server. The site is **the React web frontend in a static mode running against a pre-generated JSON bundle**, so it keeps track's real reading experience — sidebar, graph, hover previews, mermaid, media — without a server. The design is [ADR 0019](../adr/0019-static-site-export.md).
 
-Two input modes:
+Two input modes (both require `--frontend <dir>`, the static-mode frontend build, and `--out <dir>`):
 
 | Mode | Invocation | Source |
 | --- | --- | --- |
-| Vault | `track export-site --root <id> [--id <id> ...] --out <dir>` | Vault notes by id; `--root` becomes `index.html`. |
-| Directory | `track export-site --src <dir> [--root <name>] --out <dir>` | A directory of plain Markdown files (e.g. repo-mounted help) outside any vault; wiki links resolve by file base name or first H1 title. |
+| Vault | `track export-site --root <id> [--id <id> ...] --frontend <dist> --out <dir>` | Vault notes by id; `--root` is the landing page. A full reindex runs first so the published graph is complete. |
+| Directory | `track export-site --src <dir> [--root <name>] --frontend <dist> --out <dir>` | A directory of plain Markdown files (e.g. repo-mounted help) outside any vault; wiki links resolve by file base name or first H1 title. |
 
-The live heatmap top page is never published; the root page is the entry point. Referenced `assets/<path>` media are copied into `<out>/assets`, and `mermaid` code blocks are rendered as diagrams. The bundled `docs/help/` set is a working example.
+The exporter writes a JSON bundle under `<out>/data` mirroring the server's `/api/*` shapes — `notes.json`, `note/<id>.json` (web-sanitized body + backlinks), `graph.json`, `resolve.json`, `site.json` — then copies the static frontend build and referenced `assets/<path>` media into `<out>`. Wiki links to notes outside the published set are absent from `resolve.json`/`graph.json`, so the frontend leaves them inert. The live heatmap home is not published; the root note is the entry point. The bundled `docs/help/` set is a working example.
 
 ## Future
 

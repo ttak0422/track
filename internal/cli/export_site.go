@@ -4,25 +4,26 @@ import (
 	"flag"
 	"strconv"
 
+	"github.com/ttak0422/track/internal/track/index"
 	"github.com/ttak0422/track/internal/track/site"
 )
 
-// cmdExportSite renders a chosen set of notes as a self-contained static HTML site under --out.
+// cmdExportSite publishes a chosen set of notes as a self-contained static site under --out: the React
+// web frontend (built in static mode) running against a pre-generated JSON bundle, so the published
+// site keeps track's sidebar, graph, and hover previews without a server.
 //
-// Two input modes:
-//   - Vault:     --root <id> [--id <id> ...]  publishes vault notes; --root becomes index.html and each
-//     --id note its own page. Wiki links between selected notes are navigable; links outside the
-//     selection are flattened to inert text.
-//   - Directory: --src <dir> [--root <name>]  publishes a directory of plain Markdown files (e.g.
-//     repo-mounted help) that live outside any vault. --root names the entry file (default index).
-//
-// The live heatmap top page is never published; the root page is the site's entry point.
+// --frontend points at the static-mode frontend build (Vite output) to copy into the site. Two input
+// modes:
+//   - Vault:     --root <id> [--id <id> ...]  publishes vault notes; --root is the landing page.
+//   - Directory: --src <dir> [--root <name>]  publishes a directory of plain Markdown files outside any
+//     vault. --root names the entry file (default index).
 func cmdExportSite(args []string) int {
 	fs := flag.NewFlagSet("export-site", flag.ContinueOnError)
 	src := fs.String("src", "", "build from a directory of Markdown files instead of vault notes")
 	root := fs.String("root", "", "entry page: a note id (vault mode) or file base name (with --src)")
 	var ids idsFlag
 	fs.Var(&ids, "id", "note id to include in vault mode (repeatable, comma-separated)")
+	frontend := fs.String("frontend", "", "static-mode frontend build directory to copy into the site")
 	out := fs.String("out", "", "output directory")
 	if err := fs.Parse(args); err != nil {
 		return fail("parse args: %v", err)
@@ -30,10 +31,13 @@ func cmdExportSite(args []string) int {
 	if *out == "" {
 		return fail("--out <dir> is required")
 	}
+	if *frontend == "" {
+		return fail("--frontend <dir> is required (static-mode frontend build)")
+	}
 
 	// Directory mode: repo-mounted Markdown, no vault or index needed.
 	if *src != "" {
-		res, err := site.BuildDir(*src, *root, *out)
+		res, err := site.BuildDir(*src, *root, *frontend, *out)
 		if err != nil {
 			return fail("export-site: %v", err)
 		}
@@ -42,7 +46,7 @@ func cmdExportSite(args []string) int {
 
 	// Vault mode.
 	if *root == "" {
-		return fail("--root <id> is required (entry note rendered as index.html)")
+		return fail("--root <id> is required (entry note for the site landing page)")
 	}
 	rootID, err := strconv.ParseInt(*root, 10, 64)
 	if err != nil {
@@ -55,15 +59,13 @@ func cmdExportSite(args []string) int {
 	}
 	defer s.Close()
 
-	resolve := func(key string) (int64, bool) {
-		ref, ok, err := s.ResolveTerm(key)
-		if err != nil || !ok {
-			return 0, false
-		}
-		return ref.NoteID, true
+	// Reindex so the published link graph reflects every note's current links: a note that links to one
+	// created later only gets that edge on a full reindex, which export should not miss.
+	if _, err := index.New(cfg, s).Full(); err != nil {
+		return fail("reindex: %v", err)
 	}
 
-	res, err := site.Build(cfg, resolve, site.Options{Root: rootID, IDs: ids}, *out)
+	res, err := site.Build(cfg, s, site.Options{Root: rootID, IDs: ids}, *frontend, *out)
 	if err != nil {
 		return fail("export-site: %v", err)
 	}
