@@ -109,6 +109,50 @@ func TestBuildRendersGFMTable(t *testing.T) {
 	}
 }
 
+func TestBuildCopiesReferencedAssets(t *testing.T) {
+	cfg := testConfig(t)
+	writeNote(t, cfg, 100, "Home", "# Home\n\n![pic](assets/pic.png)\n")
+	// Seed the referenced asset and an unreferenced one in the note assets dir.
+	assetsDir := cfg.AssetsDirForKind(config.KindNote)
+	if err := os.MkdirAll(assetsDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(assetsDir, "pic.png"), []byte("PNG"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(assetsDir, "unused.png"), []byte("X"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	out := t.TempDir()
+	res, err := Build(cfg, nil, Options{Root: 100}, out)
+	if err != nil {
+		t.Fatalf("build: %v", err)
+	}
+	if got := readFile(t, filepath.Join(out, "assets", "pic.png")); got != "PNG" {
+		t.Fatalf("asset not copied, got %q", got)
+	}
+	if fileExists(filepath.Join(out, "assets", "unused.png")) {
+		t.Fatalf("unreferenced asset should not be copied")
+	}
+	if len(res.Assets) != 1 || res.Assets[0] != "pic.png" {
+		t.Fatalf("unexpected copied assets: %v", res.Assets)
+	}
+}
+
+func TestBuildReportsMissingAsset(t *testing.T) {
+	cfg := testConfig(t)
+	writeNote(t, cfg, 100, "Home", "# Home\n\n![gone](assets/gone.png)\n")
+	out := t.TempDir()
+	res, err := Build(cfg, nil, Options{Root: 100}, out)
+	if err != nil {
+		t.Fatalf("build should not fail on missing asset: %v", err)
+	}
+	if len(res.Missing) != 1 || res.Missing[0] != "gone.png" {
+		t.Fatalf("expected gone.png reported missing, got %v", res.Missing)
+	}
+}
+
 func TestBuildRequiresRoot(t *testing.T) {
 	cfg := testConfig(t)
 	if _, err := Build(cfg, nil, Options{}, t.TempDir()); err == nil {

@@ -15,6 +15,7 @@ import (
 	"html"
 	"os"
 	"path/filepath"
+	"sort"
 	"strconv"
 
 	"github.com/ttak0422/track/internal/track/config"
@@ -40,7 +41,10 @@ type Options struct {
 // Result reports what a Build produced.
 type Result struct {
 	OutDir string   `json:"out"`
-	Pages  []string `json:"pages"` // generated HTML filenames, in publish order
+	Pages  []string `json:"pages"`            // generated HTML filenames, in publish order
+	Assets []string `json:"assets,omitempty"` // asset paths copied under <out>/assets
+	// Missing lists referenced assets whose source file was not found; the build still succeeds.
+	Missing []string `json:"missing_assets,omitempty"`
 }
 
 // Build renders the selected notes as a static HTML site under outDir, creating the directory if
@@ -64,10 +68,14 @@ func Build(cfg *config.Config, resolve Resolver, opts Options, outDir string) (R
 	renderer := siteRenderer{resolve: resolve, inSet: inSet, root: opts.Root}
 
 	res := Result{OutDir: outDir}
+	assetRefs := map[string]bool{}
 	for _, id := range ids {
 		n, err := note.ParseFile(cfg.NotePath(id), cfg)
 		if err != nil {
 			return Result{}, fmt.Errorf("load note %d: %w", id, err)
+		}
+		for _, rel := range collectAssets(n.Body) {
+			assetRefs[rel] = true
 		}
 		ex, err := export.Export(n, renderer, export.Options{})
 		if err != nil {
@@ -83,6 +91,20 @@ func Build(cfg *config.Config, resolve Resolver, opts Options, outDir string) (R
 			return Result{}, fmt.Errorf("write %s: %w", page, err)
 		}
 		res.Pages = append(res.Pages, page)
+	}
+
+	if len(assetRefs) > 0 {
+		rels := make([]string, 0, len(assetRefs))
+		for rel := range assetRefs {
+			rels = append(rels, rel)
+		}
+		sort.Strings(rels)
+		copied, missing, err := copyAssets(cfg.AssetsDirForKind(config.KindNote), outDir, rels)
+		if err != nil {
+			return Result{}, fmt.Errorf("copy assets: %w", err)
+		}
+		res.Assets = copied
+		res.Missing = missing
 	}
 
 	if err := os.WriteFile(filepath.Join(outDir, "style.css"), []byte(styleCSS), 0o644); err != nil {
