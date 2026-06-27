@@ -71,6 +71,8 @@ func Run(args []string) int {
 		return cmdBabel(rest)
 	case "export":
 		return cmdExport(rest)
+	case "export-site":
+		return cmdExportSite(rest)
 	default:
 		fmt.Fprintf(os.Stderr, "track: unknown command %q\n", cmd)
 		usage()
@@ -125,6 +127,8 @@ Usage:
                                         list stored source block results (JSON)
   track export (--id N | --title S | --path P) [--out F] [--frontmatter] [--exports-default M]
                                         write a note out as Markdown (stdout, or JSON path with --out)
+  track export-site --root N [--id N ...] --out <dir>
+                                        build a static HTML site from selected notes (--root is index.html) (JSON)
   track dump                            print placeholder state (JSON)
   track version                         print the version
 

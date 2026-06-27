@@ -2,8 +2,10 @@ package cli
 
 import (
 	"flag"
+	"fmt"
 	"io"
 	"os"
+	"strconv"
 	"strings"
 )
 
@@ -17,6 +19,32 @@ func (t *tagsFlag) Set(v string) error {
 		if p := strings.TrimSpace(part); p != "" {
 			*t = append(*t, p)
 		}
+	}
+	return nil
+}
+
+// idsFlag collects repeatable --id values; each value may itself be comma-separated note ids.
+type idsFlag []int64
+
+func (f *idsFlag) String() string {
+	parts := make([]string, len(*f))
+	for i, id := range *f {
+		parts[i] = strconv.FormatInt(id, 10)
+	}
+	return strings.Join(parts, ",")
+}
+
+func (f *idsFlag) Set(v string) error {
+	for _, part := range strings.Split(v, ",") {
+		p := strings.TrimSpace(part)
+		if p == "" {
+			continue
+		}
+		id, err := strconv.ParseInt(p, 10, 64)
+		if err != nil {
+			return fmt.Errorf("invalid id %q", p)
+		}
+		*f = append(*f, id)
 	}
 	return nil
 }
