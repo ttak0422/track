@@ -4,7 +4,11 @@
 # Web frontend
 web/node_modules/
 web/dist/
+web/dist-static/
 web/*.tsbuildinfo
+
+# Local static-site preview (make site)
+/_site/
 
 # Embedded web UI build output (only the placeholder index.html is tracked;
 # the real assets are produced by the web build and copied in before embedding).
