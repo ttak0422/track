@@ -8,6 +8,7 @@ import { SidebarSearch } from "./SidebarSearch";
 import { ThemeMenu } from "./ThemeMenu";
 import { openJournal } from "../api";
 import { useLiveEvents } from "../hooks/useLiveEvents";
+import { STATIC_MODE } from "../runtime";
 import { SearchProvider } from "../searchState";
 
 export function Shell() {
@@ -43,15 +44,18 @@ export function Shell() {
                 <KMark className="rail-mark" />
               </Link>
               <SidebarSearch />
-              <button
-                className="rail-button"
-                type="button"
-                aria-label="Today's journal"
-                title="Today's journal"
-                onClick={openTodayJournal}
-              >
-                <span className="rail-icon rail-icon-journal" aria-hidden="true" />
-              </button>
+              {/* The published static site is read-only and cannot create journals. */}
+              {!STATIC_MODE && (
+                <button
+                  className="rail-button"
+                  type="button"
+                  aria-label="Today's journal"
+                  title="Today's journal"
+                  onClick={openTodayJournal}
+                >
+                  <span className="rail-icon rail-icon-journal" aria-hidden="true" />
+                </button>
+              )}
               <Link
                 className="rail-button"
                 to="/graph"
