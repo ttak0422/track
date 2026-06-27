@@ -2,6 +2,7 @@ import { useContext, useEffect, useRef, useState } from "react";
 import { useOgpQuery } from "../../queries";
 import { PdfDeck } from "../PdfDeck";
 import { NoteKindContext } from "./context";
+import { MediaFrame } from "./MediaFrame";
 import {
   assetHref,
   hostOf,
@@ -49,7 +50,11 @@ export function Embed({ src, alt }: EmbedProps) {
   if (isPdfHref(src)) {
     const safe = safeFrameUrl(target);
     if (safe) {
-      return <PdfDeck src={safe} alt={alt} />;
+      return (
+        <MediaFrame src={src} alt={alt}>
+          <PdfDeck src={safe} alt={alt} />
+        </MediaFrame>
+      );
     }
   }
 
@@ -62,7 +67,11 @@ export function Embed({ src, alt }: EmbedProps) {
     return <OgpCard url={target} alt={alt} />;
   }
 
-  return <img className="embed embed-image" src={target} alt={alt} loading="lazy" />;
+  return (
+    <MediaFrame src={src} alt={alt}>
+      <img className="embed embed-image" src={target} alt={alt} loading="lazy" />
+    </MediaFrame>
+  );
 }
 
 interface TweetEmbedProps {

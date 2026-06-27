@@ -7,6 +7,7 @@ import {
   type PreviewResizeCorner,
   resizePreviewBounds,
 } from "./bounds";
+import { InFloatingWindowContext } from "./floatingStore";
 import { previewBaseZIndex } from "./stack";
 
 // The window's frame/behavior props, shared by the content wrappers (NoteWindow, MediaWindow).
@@ -165,7 +166,11 @@ export function FloatingWindow({
           ×
         </button>
       </div>
-      {collapsed ? null : <div className="wiki-preview-body">{children}</div>}
+      {collapsed ? null : (
+        <div className="wiki-preview-body">
+          <InFloatingWindowContext.Provider value={true}>{children}</InFloatingWindowContext.Provider>
+        </div>
+      )}
       {collapsed
         ? null
         : (["nw", "ne", "sw", "se"] as const).map((corner) => (

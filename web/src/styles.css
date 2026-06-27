@@ -909,6 +909,33 @@ button {
   margin: 0.9em 0;
 }
 
+/* Wraps a media embed so hovering reveals a pin that floats it into a window. */
+.media-frame {
+  position: relative;
+}
+
+.media-pin {
+  position: absolute;
+  top: 8px;
+  right: 8px;
+  display: grid;
+  place-items: center;
+  width: 28px;
+  height: 28px;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  color: var(--text);
+  background: color-mix(in srgb, var(--panel) 82%, transparent);
+  opacity: 0;
+  transition: opacity 120ms ease;
+  cursor: pointer;
+}
+
+.media-frame:hover .media-pin,
+.media-pin:focus-visible {
+  opacity: 1;
+}
+
 .embed-image {
   display: block;
   max-width: 100%;

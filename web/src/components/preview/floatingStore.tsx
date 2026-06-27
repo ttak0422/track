@@ -25,6 +25,10 @@ interface FloatingApi {
 
 const FloatingContext = createContext<FloatingApi | null>(null);
 
+// True while rendering inside a floating window, so media inside a floating window does not offer its
+// own "float this" pin (which would nest a window in a window).
+export const InFloatingWindowContext = createContext(false);
+
 function contentKey(content: FloatingContent): string {
   return content.kind === "note" ? `note:${content.noteID}` : `media:${content.src}`;
 }
