@@ -325,7 +325,8 @@ export function GraphCanvas({
       ctx.stroke();
     });
 
-    const showLabels = view.scale >= 0.4;
+    // Draw all node circles first, then all labels, so a label is never hidden behind a node drawn
+    // later in the pass. (Edges are already drawn underneath above.)
     nodesRef.current.forEach((node) => {
       const center = node.center || node.note_id === graph.center_id;
       const active = nodeIsActive(node.note_id);
@@ -346,35 +347,45 @@ export function GraphCanvas({
       }
       ctx.fill();
       ctx.stroke();
+    });
 
+    const showLabels = view.scale >= 0.4;
+    nodesRef.current.forEach((node) => {
+      if (decorative) return;
+      const center = node.center || node.note_id === graph.center_id;
+      const active = nodeIsActive(node.note_id);
       const hovered = node.note_id === hoverRef.current;
-      if (!decorative && (showLabels || center || node.degree >= 5 || hovered || (hasActiveHighlight && active))) {
-        const label = trim(node.title || `#${node.note_id}`, 20);
-        const fontPx = (12 * ratio) / view.scale;
-        const padX = (5 * ratio) / view.scale;
-        const padY = (3 * ratio) / view.scale;
-        const tx = x + radius + (7 * ratio) / view.scale;
-        const ty = y;
-        ctx.textAlign = "start";
-        ctx.textBaseline = "middle";
-        const textWidth = ctx.measureText(label).width;
-        // A padded backdrop keeps the label legible where edges or other nodes pass behind it,
-        // instead of the text sitting directly on a line.
-        ctx.globalAlpha = center || hovered ? 0.92 : 0.78;
-        ctx.fillStyle = css("--panel");
-        fillRoundRect(
-          ctx,
-          tx - padX,
-          ty - fontPx / 2 - padY,
-          textWidth + padX * 2,
-          fontPx + padY * 2,
-          (4 * ratio) / view.scale,
-        );
-        ctx.globalAlpha = center || hovered ? 0.98 : 0.88;
-        ctx.fillStyle = css("--text");
-        ctx.fillText(label, tx, ty);
-        ctx.globalAlpha = 0.9;
+      if (!(showLabels || center || node.degree >= 5 || hovered || (hasActiveHighlight && active))) {
+        return;
       }
+      const radius = (nodeRadius(node) * ratio) / view.scale;
+      const x = node.x * ratio;
+      const y = node.y * ratio;
+      const label = trim(node.title || `#${node.note_id}`, 20);
+      const fontPx = (12 * ratio) / view.scale;
+      const padX = (5 * ratio) / view.scale;
+      const padY = (3 * ratio) / view.scale;
+      const tx = x + radius + (7 * ratio) / view.scale;
+      const ty = y;
+      ctx.textAlign = "start";
+      ctx.textBaseline = "middle";
+      const textWidth = ctx.measureText(label).width;
+      // A padded backdrop keeps the label legible where edges or other nodes pass behind it,
+      // instead of the text sitting directly on a line.
+      ctx.globalAlpha = center || hovered ? 0.92 : 0.78;
+      ctx.fillStyle = css("--panel");
+      fillRoundRect(
+        ctx,
+        tx - padX,
+        ty - fontPx / 2 - padY,
+        textWidth + padX * 2,
+        fontPx + padY * 2,
+        (4 * ratio) / view.scale,
+      );
+      ctx.globalAlpha = center || hovered ? 0.98 : 0.88;
+      ctx.fillStyle = css("--text");
+      ctx.fillText(label, tx, ty);
+      ctx.globalAlpha = 0.9;
     });
     ctx.restore();
   }
