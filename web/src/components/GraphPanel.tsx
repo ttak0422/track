@@ -150,15 +150,6 @@ export function GraphPanel() {
         <button
           className="graph-reset"
           type="button"
-          aria-label="Open full graph"
-          title="Open full graph"
-          onClick={() => void navigate({ to: "/graph" })}
-        >
-          ⤢
-        </button>
-        <button
-          className="graph-reset"
-          type="button"
           aria-label="Hide graph"
           title="Hide graph"
           onClick={() => setVisible(false)}
