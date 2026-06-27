@@ -3,6 +3,7 @@ import { PointerEvent, useRef, useState } from "react";
 import { useGraphQuery, useLocalGraphQuery } from "../queries";
 import type { NoteID } from "../types";
 import { GraphCanvas } from "./GraphCanvas";
+import { GraphFullView } from "./GraphFullView";
 
 type GraphScope = "local" | "global";
 
@@ -32,6 +33,7 @@ export function GraphPanel() {
   const [scope, setScope] = useState<GraphScope>("local");
   const [resetToken, setResetToken] = useState(0);
   const [visible, setVisible] = useState(false);
+  const [fullView, setFullView] = useState(false);
   const [panelSize, setPanelSize] = useState<PanelSize>(() => ({
     width: Math.min(defaultWidth, window.innerWidth - 36),
     height: Math.min(defaultHeight, window.innerHeight - 112),
@@ -88,21 +90,28 @@ export function GraphPanel() {
     }
   }
 
+  const fullOverlay = fullView ? <GraphFullView onClose={() => setFullView(false)} /> : null;
+
   if (!visible) {
     return (
-      <button
-        className="graph-fab"
-        type="button"
-        aria-label="Show graph"
-        title="Show graph"
-        onClick={() => setVisible(true)}
-      >
-        <GraphGlyph />
-      </button>
+      <>
+        {fullOverlay}
+        <button
+          className="graph-fab"
+          type="button"
+          aria-label="Show graph"
+          title="Show graph"
+          onClick={() => setVisible(true)}
+        >
+          <GraphGlyph />
+        </button>
+      </>
     );
   }
 
   return (
+    <>
+    {fullOverlay}
     <aside
       className="graph-panel"
       aria-label="Graph"
@@ -153,8 +162,18 @@ export function GraphPanel() {
         >
           ↺
         </button>
+        <button
+          className="graph-reset"
+          type="button"
+          aria-label="Open full graph"
+          title="Open full graph"
+          onClick={() => setFullView(true)}
+        >
+          ⤢
+        </button>
       </div>
     </aside>
+    </>
   );
 }
 
