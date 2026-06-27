@@ -1,4 +1,5 @@
-import { createContext, type ReactNode, useCallback, useContext, useMemo, useState } from "react";
+import { useRouterState } from "@tanstack/react-router";
+import { createContext, type ReactNode, useCallback, useContext, useEffect, useMemo, useState } from "react";
 import type { PreviewBounds } from "./bounds";
 import { nextPreviewStackOrder } from "./stack";
 
@@ -13,12 +14,21 @@ export interface FloatingWin {
   initialBounds: PreviewBounds;
   initialCollapsed: boolean;
   stackOrder: number;
+  // Pinned windows persist across navigation; unpinned ones are dropped when the route changes.
+  pinned: boolean;
 }
 
 interface FloatingApi {
   windows: FloatingWin[];
-  // Pin a window into the layer. If one with the same content is already pinned, raise it instead.
-  pin: (content: FloatingContent, initialBounds: PreviewBounds, initialCollapsed: boolean) => void;
+  // Open a window in the layer. If one with the same content exists, raise it (and pin it if requested
+  // now). Otherwise add it with the given pinned state.
+  open: (
+    content: FloatingContent,
+    initialBounds: PreviewBounds,
+    initialCollapsed: boolean,
+    pinned: boolean,
+  ) => void;
+  setPinned: (id: string, pinned: boolean) => void;
   remove: (id: string) => void;
   bringToFront: (id: string) => void;
 }
@@ -35,20 +45,43 @@ function contentKey(content: FloatingContent): string {
 
 export function FloatingProvider({ children }: { children: ReactNode }) {
   const [windows, setWindows] = useState<FloatingWin[]>([]);
+  const pathname = useRouterState({ select: (state) => state.location.pathname });
 
-  const pin = useCallback<FloatingApi["pin"]>((content, initialBounds, initialCollapsed) => {
+  // Navigating drops the unpinned windows (they were only meant for the page you opened them on); pinned
+  // windows stay.
+  useEffect(() => {
+    setWindows((current) => {
+      const kept = current.filter((w) => w.pinned);
+      return kept.length === current.length ? current : kept;
+    });
+  }, [pathname]);
+
+  const open = useCallback<FloatingApi["open"]>((content, initialBounds, initialCollapsed, pinned) => {
     const key = contentKey(content);
     setWindows((current) => {
       const existing = current.find((w) => contentKey(w.content) === key);
       if (existing) {
         const order = nextPreviewStackOrder();
-        return current.map((w) => (w.id === existing.id ? { ...w, stackOrder: order } : w));
+        return current.map((w) =>
+          w.id === existing.id ? { ...w, stackOrder: order, pinned: w.pinned || pinned } : w,
+        );
       }
       return [
         ...current,
-        { id: `${key}#${Date.now()}`, content, initialBounds, initialCollapsed, stackOrder: nextPreviewStackOrder() },
+        {
+          id: `${key}#${Date.now()}`,
+          content,
+          initialBounds,
+          initialCollapsed,
+          stackOrder: nextPreviewStackOrder(),
+          pinned,
+        },
       ];
     });
+  }, []);
+
+  const setPinned = useCallback<FloatingApi["setPinned"]>((id, pinned) => {
+    setWindows((current) => current.map((w) => (w.id === id ? { ...w, pinned } : w)));
   }, []);
 
   const remove = useCallback<FloatingApi["remove"]>((id) => {
@@ -61,8 +94,8 @@ export function FloatingProvider({ children }: { children: ReactNode }) {
   }, []);
 
   const api = useMemo<FloatingApi>(
-    () => ({ windows, pin, remove, bringToFront }),
-    [windows, pin, remove, bringToFront],
+    () => ({ windows, open, setPinned, remove, bringToFront }),
+    [windows, open, setPinned, remove, bringToFront],
   );
 
   return <FloatingContext.Provider value={api}>{children}</FloatingContext.Provider>;

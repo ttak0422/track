@@ -15,7 +15,8 @@ export function GraphFullView({ onClose }: { onClose: () => void }) {
   const graph = graphQuery.data?.graph;
 
   function openNote(noteID: NoteID) {
-    floating.pin({ kind: "note", noteID }, initialPreviewBounds(centerAnchor()), false);
+    // Opens like a normal note popup: unpinned, so pin toggles persistence and × closes.
+    floating.open({ kind: "note", noteID }, initialPreviewBounds(centerAnchor()), false, false);
   }
 
   return (

@@ -13,6 +13,7 @@ function renderWithFloating(ui: ReactElement) {
 // needs to anchor the preview) and the data hooks to a resolved note, so the test exercises only the
 // hover-intent open/close logic.
 vi.mock("@tanstack/react-router", () => ({
+  useRouterState: () => "/",
   Link: ({
     children,
     className,

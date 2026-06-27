@@ -84,10 +84,6 @@ export function GraphPanel() {
     resizeRef.current = null;
     if (!drag || drag.pointerId !== event.pointerId) return;
     event.currentTarget.releasePointerCapture(event.pointerId);
-    // A click (no drag) toggles the panel away.
-    if (!drag.moved) {
-      setVisible(false);
-    }
   }
 
   const fullOverlay = fullView ? <GraphFullView onClose={() => setFullView(false)} /> : null;
@@ -120,8 +116,8 @@ export function GraphPanel() {
       <button
         className="graph-resize-handle"
         type="button"
-        aria-label="Resize graph (drag) or hide it (click)"
-        title="Drag to resize, click to hide"
+        aria-label="Resize graph (drag)"
+        title="Drag to resize"
         onPointerDown={onHandleDown}
         onPointerMove={onHandleMove}
         onPointerUp={onHandleUp}
@@ -168,6 +164,15 @@ export function GraphPanel() {
           onClick={() => setFullView(true)}
         >
           ⤢
+        </button>
+        <button
+          className="graph-reset"
+          type="button"
+          aria-label="Hide graph"
+          title="Hide graph"
+          onClick={() => setVisible(false)}
+        >
+          ×
         </button>
       </div>
     </aside>

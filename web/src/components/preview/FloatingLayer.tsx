@@ -5,7 +5,7 @@ import { NoteWindow } from "./NoteWindow";
 // FloatingLayer renders the pinned floating windows. It lives in Shell, above the router Outlet, so its
 // windows persist across note navigation until closed.
 export function FloatingLayer() {
-  const { windows, remove, bringToFront } = useFloating();
+  const { windows, setPinned, remove, bringToFront } = useFloating();
 
   return (
     <>
@@ -13,13 +13,13 @@ export function FloatingLayer() {
         const controls = {
           initialBounds: win.initialBounds,
           initialCollapsed: win.initialCollapsed,
-          pinned: true as const,
+          pinned: win.pinned,
           depth: 0,
           stackOrder: win.stackOrder,
           onActivate: () => bringToFront(win.id),
           onClose: () => remove(win.id),
-          // A pinned window's pin button unpins, which removes it from the layer.
-          onPinToggle: () => remove(win.id),
+          // The pin button toggles persistence (it does not close the window); × closes.
+          onPinToggle: () => setPinned(win.id, !win.pinned),
         };
         return win.content.kind === "note" ? (
           <NoteWindow key={win.id} noteID={win.content.noteID} {...controls} />

@@ -21,7 +21,7 @@ export function MediaFrame({ src, alt, children }: { src: string; alt: string; c
     const anchor: PreviewAnchor = rect
       ? { linkLeft: rect.left, linkRight: rect.right, linkTop: rect.top, linkBottom: rect.bottom }
       : { linkLeft: 0, linkRight: 0, linkTop: 0, linkBottom: 0 };
-    floating.pin({ kind: "media", src, alt, noteKind: kind }, initialPreviewBounds(anchor), false);
+    floating.open({ kind: "media", src, alt, noteKind: kind }, initialPreviewBounds(anchor), false, false);
   }
 
   return (

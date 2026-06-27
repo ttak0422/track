@@ -78,7 +78,7 @@ export function WikiLink({ target, display }: WikiLinkProps) {
   // position, then closes the inline copy.
   function promote(bounds: PreviewBounds, collapsed: boolean) {
     if (noteID === undefined) return;
-    floating.pin({ kind: "note", noteID }, bounds, collapsed);
+    floating.open({ kind: "note", noteID }, bounds, collapsed, true);
     setOpen(false);
   }
 
