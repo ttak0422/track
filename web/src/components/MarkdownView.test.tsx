@@ -40,6 +40,12 @@ describe("MarkdownView", () => {
     expect(screen.getByRole("button", { name: "Copy code" })).toBeInTheDocument();
   });
 
+  it("renders Mermaid fences through the diagram component", () => {
+    const { container } = render(<MarkdownView markdown={"```mermaid\ngraph TD\nA-->B\n```"} />);
+    expect(container.querySelector(".mermaid-diagram")).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Copy code" })).not.toBeInTheDocument();
+  });
+
   it("renders an external link that opens in a new tab", () => {
     renderWithQuery(<MarkdownView markdown="[example](https://example.com)" />);
     const link = screen.getByRole("link", { name: "example" });

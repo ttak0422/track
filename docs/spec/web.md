@@ -83,6 +83,14 @@ addresses (SSRF), redirects and body size are capped, and results are cached
 the card as a link and falls back to a plain link when the fetch fails or the
 page exposes no metadata.
 
+### Mermaid diagrams
+
+Fenced code blocks tagged `mermaid` render as Mermaid diagrams in the web
+preview. The frontend initializes Mermaid with `securityLevel: "strict"` and the
+current track theme colors. If a diagram fails to parse or render, the preview
+shows the error and falls back to the original fenced source as a normal code
+block.
+
 ### Save conflict detection
 
 `PUT /api/note` is guarded by an optimistic-concurrency `etag`, the content hash

@@ -6,6 +6,7 @@ import { CodeBlock } from "./markdown/CodeBlock";
 import { NoteKindContext } from "./markdown/context";
 import { Embed } from "./markdown/Embed";
 import { ExternalLink } from "./markdown/ExternalLink";
+import { MermaidDiagram } from "./markdown/MermaidDiagram";
 import { rehypeBudoux, remarkWikiLink } from "./markdown/plugins";
 import { WikiLink } from "./preview/WikiLink";
 
@@ -59,7 +60,12 @@ const markdownComponents = {
   pre: ({ node, children }: ElementProps) => {
     const code = node?.children?.[0];
     if (code && code.type === "element" && code.tagName === "code") {
-      return <CodeBlock lang={codeLanguage(code)} text={hastText(code)} />;
+      const lang = codeLanguage(code);
+      const text = hastText(code);
+      if (normalizeCodeLanguage(lang) === "mermaid") {
+        return <MermaidDiagram text={text} />;
+      }
+      return <CodeBlock lang={lang} text={text} />;
     }
     return <pre>{children}</pre>;
   },
@@ -90,6 +96,10 @@ function codeLanguage(node: Element): string {
     if (match) return match[1];
   }
   return "";
+}
+
+function normalizeCodeLanguage(lang: string): string {
+  return lang.trim().toLowerCase();
 }
 
 // isSoleImage reports whether a paragraph node wraps nothing but a single image (ignoring whitespace).
