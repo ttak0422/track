@@ -273,12 +273,16 @@ button {
   box-shadow: 0 16px 38px color-mix(in srgb, #000 18%, transparent);
 }
 
-/* In the rail the settings menu sits at the bottom, so its panel opens upward and beside the rail. */
+/* In the rail the settings menu sits at the bottom, so its panel opens beside the rail. It must be
+   fixed, not absolute: the rail clips overflow, and a high z-index keeps it above reader content like
+   a note's backlinks. */
 .rail-menu-panel {
+  position: fixed;
+  z-index: 40;
   top: auto;
   right: auto;
-  bottom: 0;
-  left: calc(100% + 8px);
+  bottom: 12px;
+  left: 64px;
 }
 
 /* The sidebar search popup floats beside the rail, escaping the rail's overflow with fixed positioning. */
@@ -1427,28 +1431,6 @@ button {
   border: 1px solid var(--line);
   color: var(--text);
   background: var(--panel-soft);
-}
-
-.copy-path {
-  border: 1px solid var(--line);
-  background: var(--panel-soft);
-  color: var(--muted);
-  border-radius: 999px;
-  padding: 3px 12px;
-  font-size: 12px;
-  cursor: pointer;
-}
-
-.copy-path:hover,
-.copy-path:focus-visible {
-  color: var(--text);
-  border-color: var(--accent);
-}
-
-.copy-path.copied {
-  color: var(--text);
-  border-color: var(--accent);
-  background: color-mix(in srgb, var(--accent) 16%, transparent);
 }
 
 .note-aside {

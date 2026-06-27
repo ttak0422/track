@@ -25,7 +25,6 @@ export function NoteReader({ noteID }: NoteReaderProps) {
   const journalDate = journalDateFromNote(noteQuery.data?.note);
   const agendaQuery = useAgendaQuery(journalDate, { enabled: journalDate !== "" });
   const [body, setBody] = useState("");
-  const [copied, setCopied] = useState(false);
   const [editorMode, setEditorMode] = useState<EditorMode>("preview");
   const [followEnabled, setFollowEnabled] = useState(false);
   // The preview renders server-sanitized Markdown (action links flattened, wiki links kept) rather than
@@ -176,13 +175,6 @@ export function NoteReader({ noteID }: NoteReaderProps) {
   const changedOnDisk = note.etag !== loadedRef.current.etag;
   const tags = note.tags ?? [];
 
-  async function copyPath() {
-    if (!note) return;
-    await navigator.clipboard.writeText(note.copy_path);
-    setCopied(true);
-    window.setTimeout(() => setCopied(false), 1200);
-  }
-
   async function submit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     if (!dirty || saveNote.isPending) return;
@@ -224,13 +216,6 @@ export function NoteReader({ noteID }: NoteReaderProps) {
               </button>
             ))}
           </div>
-          <button
-            className={`copy-path${copied ? " copied" : ""}`}
-            type="button"
-            onClick={copyPath}
-          >
-            {copied ? "Copied" : "Copy path"}
-          </button>
         </div>
       </header>
 
