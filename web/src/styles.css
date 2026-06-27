@@ -723,6 +723,13 @@ button {
   gap: 18px;
 }
 
+/* Split view shows the editor and preview side by side, so allow up to roughly double the width
+   (capped) — otherwise each pane only gets half the single-column measure and reads cramped. On
+   narrower viewports it simply uses the available width. */
+.note-reader-split {
+  max-width: 1920px;
+}
+
 .note-header {
   display: flex;
   align-items: flex-start;

@@ -187,7 +187,7 @@ export function NoteReader({ noteID }: NoteReaderProps) {
   }
 
   return (
-    <article className="note-reader">
+    <article className={`note-reader${editorMode === "split" ? " note-reader-split" : ""}`}>
       {/* Note controls float over the reader as a graph-style overlay, not in the header bar. */}
       <div className="note-float-controls">
         <button
