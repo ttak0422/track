@@ -104,6 +104,19 @@ track export (--id <n> | --title <s> | --path <p>) [--out <file>] [--frontmatter
 
 The target note is given by `--id`, by `--title` (resolved through the keyword dictionary like other commands), or by `--path`. The rendered Markdown is written to stdout. With `--out`, it is written to the file instead and the command prints `{"path": <file>}` as JSON, matching the other commands. Warnings (such as a missing stored result) go to stderr and do not change the exit code.
 
+## Static site export
+
+`track export-site` is a separate, HTML-targeted command built on the same transform pipeline: it renders a selected set of notes into a self-contained static site (one HTML page per note) for hosting on GitHub Pages or any plain file server. Unlike `track export`, the export set *is* known, so wiki links to notes inside the set become navigable relative anchors while links outside it are flattened to inert text. The design is [ADR 0019](../adr/0019-static-site-export.md).
+
+Two input modes:
+
+| Mode | Invocation | Source |
+| --- | --- | --- |
+| Vault | `track export-site --root <id> [--id <id> ...] --out <dir>` | Vault notes by id; `--root` becomes `index.html`. |
+| Directory | `track export-site --src <dir> [--root <name>] --out <dir>` | A directory of plain Markdown files (e.g. repo-mounted help) outside any vault; wiki links resolve by file base name or first H1 title. |
+
+The live heatmap top page is never published; the root page is the entry point. Referenced `assets/<path>` media are copied into `<out>/assets`, and `mermaid` code blocks are rendered as diagrams. The bundled `docs/help/` set is a working example.
+
 ## Future
 
 - **Batch export** of a whole vault, a tag, or a search result. With the export set known, wiki links can be rewritten as relative Markdown links (`[[a]]` → `[a](a.md)`) instead of being flattened — implemented as an alternative renderer rather than a change to the pipeline.
