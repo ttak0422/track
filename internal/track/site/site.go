@@ -4,9 +4,16 @@
 // notes become navigable anchors, and links to anything outside the selection are flattened to inert
 // text. There is no live index, heatmap, or editor — the published output is rendered content only.
 //
-// The note body is transformed in two stages: the export pipeline (internal/track/export) rewrites
-// track-specific spans into intermediate Markdown, then goldmark turns that Markdown into HTML. The
-// selection is an explicit set of note ids with one designated root that becomes index.html.
+// Each note body is transformed in two stages: the export pipeline (internal/track/export) rewrites
+// track-specific spans into intermediate Markdown, then goldmark turns that Markdown into HTML.
+//
+// Two input front-ends share one rendering core:
+//   - Build:    a selection of vault notes by id (resolved through the index).
+//   - BuildDir: a directory of plain Markdown files, for repo-mounted help/docs that live outside any
+//     vault. Wiki links resolve by filename among the directory's files.
+//
+// Internally a page is keyed by a string slug (the note id, or a file's base name); the root slug owns
+// index.html.
 package site
 
 import (
@@ -47,65 +54,102 @@ type Result struct {
 	Missing []string `json:"missing_assets,omitempty"`
 }
 
-// Build renders the selected notes as a static HTML site under outDir, creating the directory if
-// needed. The root note is written as index.html; every other note becomes "<id>.html". A shared
-// style.css is written alongside the pages.
+// page is one document to publish, keyed by a slug. The body still carries track syntax; assetSrc is
+// the directory its "assets/<path>" references resolve against.
+type page struct {
+	slug     string
+	title    string
+	note     *note.Note
+	assetSrc string
+}
+
+// Build renders the selected vault notes as a static HTML site under outDir. The root note is written
+// as index.html; every other note becomes "<id>.html". A shared style.css is written alongside.
 func Build(cfg *config.Config, resolve Resolver, opts Options, outDir string) (Result, error) {
 	if opts.Root == 0 {
 		return Result{}, fmt.Errorf("root note id is required")
 	}
 	ids := dedupIDs(append([]int64{opts.Root}, opts.IDs...))
-	inSet := make(map[int64]bool, len(ids))
-	for _, id := range ids {
-		inSet[id] = true
-	}
 
-	if err := os.MkdirAll(outDir, 0o755); err != nil {
-		return Result{}, fmt.Errorf("create out dir: %w", err)
-	}
-
-	md := newMarkdown()
-	renderer := siteRenderer{resolve: resolve, inSet: inSet, root: opts.Root}
-
-	res := Result{OutDir: outDir}
-	assetRefs := map[string]bool{}
+	assetSrc := cfg.AssetsDirForKind(config.KindNote)
+	pages := make([]page, 0, len(ids))
 	for _, id := range ids {
 		n, err := note.ParseFile(cfg.NotePath(id), cfg)
 		if err != nil {
 			return Result{}, fmt.Errorf("load note %d: %w", id, err)
 		}
-		for _, rel := range collectAssets(n.Body) {
-			assetRefs[rel] = true
+		pages = append(pages, page{slug: idSlug(id), title: noteTitle(n), note: n, assetSrc: assetSrc})
+	}
+
+	// Adapt the id-based resolver to the slug-based core: a key resolves to a published page only when
+	// its target id is part of the selection.
+	slugResolve := func(key string) (string, bool) {
+		if resolve == nil {
+			return "", false
 		}
-		ex, err := export.Export(n, renderer, export.Options{})
+		id, ok := resolve(key)
+		if !ok {
+			return "", false
+		}
+		return idSlug(id), true
+	}
+
+	return build(pages, slugResolve, idSlug(opts.Root), outDir)
+}
+
+// build is the shared rendering core: it writes one HTML page per document, copies referenced assets,
+// and emits the stylesheet. rootSlug names the page that becomes index.html.
+func build(pages []page, resolve func(key string) (string, bool), rootSlug, outDir string) (Result, error) {
+	if err := os.MkdirAll(outDir, 0o755); err != nil {
+		return Result{}, fmt.Errorf("create out dir: %w", err)
+	}
+
+	inSet := make(map[string]bool, len(pages))
+	for _, p := range pages {
+		inSet[p.slug] = true
+	}
+
+	md := newMarkdown()
+	renderer := siteRenderer{resolve: resolve, inSet: inSet, rootSlug: rootSlug}
+
+	res := Result{OutDir: outDir}
+	assetRefs := map[string]map[string]bool{} // assetSrc dir -> set of referenced rel paths
+	for _, p := range pages {
+		for _, rel := range collectAssets(p.note.Body) {
+			if assetRefs[p.assetSrc] == nil {
+				assetRefs[p.assetSrc] = map[string]bool{}
+			}
+			assetRefs[p.assetSrc][rel] = true
+		}
+		ex, err := export.Export(p.note, renderer, export.Options{})
 		if err != nil {
-			return Result{}, fmt.Errorf("render note %d: %w", id, err)
+			return Result{}, fmt.Errorf("render %s: %w", p.slug, err)
 		}
 		var body bytes.Buffer
 		if err := md.Convert([]byte(ex.Markdown), &body); err != nil {
-			return Result{}, fmt.Errorf("markdown note %d: %w", id, err)
+			return Result{}, fmt.Errorf("markdown %s: %w", p.slug, err)
 		}
 		bodyHTML, hasMermaid := transformMermaid(body.String())
-		page := pageName(id, opts.Root)
-		full := renderPage(noteTitle(n), bodyHTML, id != opts.Root, hasMermaid)
-		if err := os.WriteFile(filepath.Join(outDir, page), []byte(full), 0o644); err != nil {
-			return Result{}, fmt.Errorf("write %s: %w", page, err)
+		file := pageFile(p.slug, rootSlug)
+		full := renderPage(p.title, bodyHTML, p.slug != rootSlug, hasMermaid)
+		if err := os.WriteFile(filepath.Join(outDir, file), []byte(full), 0o644); err != nil {
+			return Result{}, fmt.Errorf("write %s: %w", file, err)
 		}
-		res.Pages = append(res.Pages, page)
+		res.Pages = append(res.Pages, file)
 	}
 
-	if len(assetRefs) > 0 {
-		rels := make([]string, 0, len(assetRefs))
-		for rel := range assetRefs {
+	for _, src := range sortedKeys(assetRefs) {
+		rels := make([]string, 0, len(assetRefs[src]))
+		for rel := range assetRefs[src] {
 			rels = append(rels, rel)
 		}
 		sort.Strings(rels)
-		copied, missing, err := copyAssets(cfg.AssetsDirForKind(config.KindNote), outDir, rels)
+		copied, missing, err := copyAssets(src, outDir, rels)
 		if err != nil {
 			return Result{}, fmt.Errorf("copy assets: %w", err)
 		}
-		res.Assets = copied
-		res.Missing = missing
+		res.Assets = append(res.Assets, copied...)
+		res.Missing = append(res.Missing, missing...)
 	}
 
 	if err := os.WriteFile(filepath.Join(outDir, "style.css"), []byte(styleCSS), 0o644); err != nil {
@@ -125,13 +169,16 @@ func newMarkdown() goldmark.Markdown {
 	)
 }
 
-// pageName is the output filename for a note: the root note owns index.html, every other note gets
-// its id-based page so cross-links between selected notes are stable and relative.
-func pageName(id, root int64) string {
-	if id == root {
+// idSlug is the slug for a vault note: its decimal id.
+func idSlug(id int64) string { return strconv.FormatInt(id, 10) }
+
+// pageFile is the output filename for a slug: the root slug owns index.html, every other slug gets its
+// own "<slug>.html" so cross-links between published pages are stable and relative.
+func pageFile(slug, rootSlug string) string {
+	if slug == rootSlug {
 		return "index.html"
 	}
-	return strconv.FormatInt(id, 10) + ".html"
+	return slug + ".html"
 }
 
 func noteTitle(n *note.Note) string {
@@ -178,5 +225,14 @@ func dedupIDs(ids []int64) []int64 {
 		seen[id] = true
 		out = append(out, id)
 	}
+	return out
+}
+
+func sortedKeys(m map[string]map[string]bool) []string {
+	out := make([]string, 0, len(m))
+	for k := range m {
+		out = append(out, k)
+	}
+	sort.Strings(out)
 	return out
 }

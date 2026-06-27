@@ -13,16 +13,16 @@ import (
 // published. Action links are editor-only and flattened. Babel blocks pass through as plain
 // language-tagged fences for the Markdown-to-HTML stage to render.
 type siteRenderer struct {
-	resolve Resolver
-	inSet   map[int64]bool
-	root    int64
+	resolve  func(key string) (string, bool) // wiki-link key -> published page slug
+	inSet    map[string]bool                 // slugs that have a published page
+	rootSlug string
 }
 
 func (r siteRenderer) WikiLink(inner string) string {
 	key, display := splitWiki(inner)
 	if key != "" && r.resolve != nil {
-		if id, ok := r.resolve(key); ok && r.inSet[id] {
-			return "[" + display + "](" + pageName(id, r.root) + ")"
+		if slug, ok := r.resolve(key); ok && r.inSet[slug] {
+			return "[" + display + "](" + pageFile(slug, r.rootSlug) + ")"
 		}
 	}
 	return display

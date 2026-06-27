@@ -128,7 +128,9 @@ Usage:
   track export (--id N | --title S | --path P) [--out F] [--frontmatter] [--exports-default M]
                                         write a note out as Markdown (stdout, or JSON path with --out)
   track export-site --root N [--id N ...] --out <dir>
-                                        build a static HTML site from selected notes (--root is index.html) (JSON)
+                                        build a static HTML site from selected vault notes (--root is index.html) (JSON)
+  track export-site --src <dir> [--root <name>] --out <dir>
+                                        build a static HTML site from a directory of Markdown files (JSON)
   track dump                            print placeholder state (JSON)
   track version                         print the version
 
