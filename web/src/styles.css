@@ -589,30 +589,20 @@ button {
   box-shadow: 0 18px 42px rgb(0 0 0 / 18%);
 }
 
+/* An invisible corner grip: it still drags to resize (and clicks to hide), but shows no button so it is
+   not confused with the full-graph button. */
 .graph-resize-handle {
   position: absolute;
   top: 0;
   left: 0;
   z-index: 2;
-  display: grid;
-  place-items: center;
-  width: 22px;
-  height: 22px;
+  width: 20px;
+  height: 20px;
   border: 0;
-  border-top-left-radius: 8px;
-  border-bottom-right-radius: 8px;
-  color: var(--muted);
-  background: color-mix(in srgb, var(--panel) 78%, transparent);
-  font-size: 13px;
-  line-height: 1;
+  padding: 0;
+  background: transparent;
   cursor: nwse-resize;
   touch-action: none;
-}
-
-.graph-resize-handle:hover,
-.graph-resize-handle:focus-visible {
-  color: var(--text);
-  background: var(--panel-soft);
 }
 
 .graph-fab {

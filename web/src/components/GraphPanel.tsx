@@ -125,9 +125,7 @@ export function GraphPanel() {
         onPointerDown={onHandleDown}
         onPointerMove={onHandleMove}
         onPointerUp={onHandleUp}
-      >
-        <span aria-hidden="true">⤡</span>
-      </button>
+      />
       {state.isPending ? <p className="muted graph-message">Loading graph...</p> : null}
       {state.isError ? <p className="error graph-message">{state.error.message}</p> : null}
       {graph ? (
