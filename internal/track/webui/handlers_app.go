@@ -28,14 +28,22 @@ func (s *Server) handleApp(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	f, err := webRoot.Open(upath)
+	f, err := s.webRoot.Open(upath)
 	if err != nil {
+		if strings.HasPrefix(upath, "assets/") {
+			writeError(w, fmt.Errorf("asset %s not found", upath), http.StatusNotFound)
+			return
+		}
 		s.serveIndex(w, r)
 		return
 	}
 	defer f.Close()
 	stat, err := f.Stat()
 	if err != nil || stat.IsDir() {
+		if strings.HasPrefix(upath, "assets/") {
+			writeError(w, fmt.Errorf("asset %s not found", upath), http.StatusNotFound)
+			return
+		}
 		s.serveIndex(w, r)
 		return
 	}
@@ -58,7 +66,7 @@ func (s *Server) handleApp(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) serveIndex(w http.ResponseWriter, r *http.Request) {
-	raw, err := fs.ReadFile(webRoot, "index.html")
+	raw, err := fs.ReadFile(s.webRoot, "index.html")
 	if err != nil {
 		writeError(w, fmt.Errorf("read index: %w", err), http.StatusInternalServerError)
 		return
@@ -74,12 +82,12 @@ func (s *Server) serveIndex(w http.ResponseWriter, r *http.Request) {
 	if theme == "" {
 		theme = "system"
 	}
-	html := strings.Replace(string(raw), "__TRACK_DEFAULT_THEME__", theme, 1)
+	html := strings.ReplaceAll(string(raw), "__TRACK_DEFAULT_THEME__", theme)
 	overrides := ""
 	if s.colorCSS != "" {
 		overrides = "<style id=\"track-colors\">\n" + s.colorCSS + "</style>"
 	}
-	html = strings.Replace(html, "__TRACK_COLOR_OVERRIDES__", overrides, 1)
+	html = strings.ReplaceAll(html, "__TRACK_COLOR_OVERRIDES__", overrides)
 	_, _ = w.Write([]byte(html))
 }
 

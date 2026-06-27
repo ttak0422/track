@@ -3,6 +3,7 @@ package webui
 
 import (
 	"fmt"
+	"io/fs"
 	"mime"
 	"net/http"
 	"os"
@@ -18,6 +19,7 @@ type Server struct {
 	cfg       *config.Config
 	store     *store.Store
 	mux       *http.ServeMux
+	webRoot   fs.FS
 	colorCSS  string
 	events    *eventHub
 	reindexMu sync.Mutex
@@ -78,7 +80,7 @@ func init() {
 }
 
 func New(cfg *config.Config, s *store.Store) *Server {
-	srv := &Server{cfg: cfg, store: s, mux: http.NewServeMux(), events: newEventHub()}
+	srv := &Server{cfg: cfg, store: s, mux: http.NewServeMux(), webRoot: selectWebRoot(), events: newEventHub()}
 	// A palette is a best-effort cosmetic override; a bad file must not take the workspace down, so we
 	// warn and fall back to the built-in colors rather than failing to start.
 	if css, err := LoadPalette(cfg.WebColorsPath); err != nil {

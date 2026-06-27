@@ -3,6 +3,7 @@ package webui
 import (
 	"encoding/json"
 	"io"
+	"io/fs"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
@@ -118,6 +119,112 @@ func TestAPIHandlers(t *testing.T) {
 	activity := getJSON(t, server.URL+"/api/activity?since=2026-06-15&until=2026-06-15")["activity"].(map[string]any)
 	if activity["since"] != "2026-06-15" || activity["until"] != "2026-06-15" || activity["total"].(float64) != 2 {
 		t.Fatalf("unexpected activity response: %v", activity)
+	}
+}
+
+func TestAppServesLocalWebDistWhenPresent(t *testing.T) {
+	cwd := t.TempDir()
+	t.Chdir(cwd)
+	if err := os.MkdirAll(filepath.Join(cwd, "web", "dist", "assets"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	index := `<!doctype html><html><head><script>// __TRACK_DEFAULT_THEME__ appears in the Vite source comment too.
+window.theme="__TRACK_DEFAULT_THEME__"</script>__TRACK_COLOR_OVERRIDES__<script type="module" src="/assets/app.js"></script></head><body><div id="root">local app</div></body></html>`
+	if err := os.WriteFile(filepath.Join(cwd, "web", "dist", "index.html"), []byte(index), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(cwd, "web", "dist", "assets", "app.js"), []byte(`console.log("local app")`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	server := httptest.NewServer(New(&config.Config{WebTheme: "dark"}, nil).Handler())
+	t.Cleanup(server.Close)
+
+	resp, err := http.Get(server.URL + "/")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer resp.Body.Close()
+	body, _ := io.ReadAll(resp.Body)
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("index status = %d", resp.StatusCode)
+	}
+	if !strings.Contains(string(body), "local app") || !strings.Contains(string(body), `window.theme="dark"`) {
+		t.Fatalf("index did not come from local web/dist with injected theme: %s", body)
+	}
+	if strings.Contains(string(body), "__TRACK_DEFAULT_THEME__") || strings.Contains(string(body), "__TRACK_COLOR_OVERRIDES__") {
+		t.Fatalf("index still contains placeholders: %s", body)
+	}
+
+	asset, err := http.Get(server.URL + "/assets/app.js")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer asset.Body.Close()
+	assetBody, _ := io.ReadAll(asset.Body)
+	if asset.StatusCode != http.StatusOK || string(assetBody) != `console.log("local app")` {
+		t.Fatalf("asset response = %d %q", asset.StatusCode, assetBody)
+	}
+	if got := asset.Header.Get("Cache-Control"); !strings.Contains(got, "immutable") {
+		t.Fatalf("asset cache-control = %q, want immutable", got)
+	}
+
+	missingAsset, err := http.Get(server.URL + "/assets/missing.js")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer missingAsset.Body.Close()
+	if missingAsset.StatusCode != http.StatusNotFound {
+		body, _ := io.ReadAll(missingAsset.Body)
+		t.Fatalf("missing asset status = %d, want 404; body = %q", missingAsset.StatusCode, body)
+	}
+	if ct := missingAsset.Header.Get("Content-Type"); !strings.HasPrefix(ct, "application/json") {
+		t.Fatalf("missing asset content-type = %q, want JSON error rather than SPA HTML", ct)
+	}
+}
+
+func TestAppIgnoresPlaceholderLocalWebDist(t *testing.T) {
+	cwd := t.TempDir()
+	t.Chdir(cwd)
+	if err := os.MkdirAll(filepath.Join(cwd, "web", "dist"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(cwd, "web", "dist", "index.html"), []byte("LOCAL PLACEHOLDER"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	srv := New(&config.Config{}, nil)
+	raw, err := fs.ReadFile(srv.webRoot, "index.html")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(string(raw), "LOCAL PLACEHOLDER") {
+		t.Fatalf("placeholder web/dist should not replace embedded frontend")
+	}
+}
+
+func TestAppIgnoresIncompleteLocalWebDist(t *testing.T) {
+	cwd := t.TempDir()
+	t.Chdir(cwd)
+	dist := filepath.Join(cwd, "web", "dist")
+	if err := os.MkdirAll(dist, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	index := `<!doctype html><script type="module" src="/assets/app.js"></script>`
+	if err := os.WriteFile(filepath.Join(dist, "index.html"), []byte(index), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if isBuiltFrontendDist(dist) {
+		t.Fatalf("web/dist without referenced assets must not be treated as built")
+	}
+
+	srv := New(&config.Config{}, nil)
+	raw, err := fs.ReadFile(srv.webRoot, "index.html")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(string(raw), "/assets/app.js") {
+		t.Fatalf("incomplete web/dist should not replace embedded frontend")
 	}
 }
 
