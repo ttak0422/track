@@ -38,11 +38,13 @@ jobs:
           extra_nix_config: |
             experimental-features = nix-command flakes
 
-      - name: Build track CLI
-        run: nix develop --command go build -o track ./cmd/track
-
-      - name: Build help site
-        run: ./track export-site --src docs/help --root index --out ./_site
+      - name: Build static help site
+        run: |
+          nix develop --command bash -euo pipefail -c '
+            (cd web && npm ci && VITE_TRACK_STATIC=1 npm run build)
+            go build -o track ./cmd/track
+            ./track export-site --src docs/help --root index --frontend web/dist --out ./_site
+          '
 
       - name: Configure Pages
         uses: actions/configure-pages@v5
