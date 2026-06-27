@@ -1,0 +1,57 @@
+name: Pages
+
+# Build the bundled help notes (docs/help) into a static site with `track export-site` and publish it
+# to GitHub Pages. Reusable (workflow_call) so the Release workflow deploys on every release; also runs
+# when a release is published directly and on manual dispatch.
+#
+# GitHub Pages must be enabled for the repository with the source set to "GitHub Actions".
+on:
+  workflow_call:
+  workflow_dispatch:
+  release:
+    types:
+      - published
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+# Allow one concurrent Pages deployment; do not cancel an in-progress one so a deploy always finishes.
+concurrency:
+  group: pages
+  cancel-in-progress: false
+
+jobs:
+  build-deploy:
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deploy.outputs.page_url }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+
+      - name: Install Nix
+        uses: cachix/install-nix-action@v31
+        with:
+          extra_nix_config: |
+            experimental-features = nix-command flakes
+
+      - name: Build track CLI
+        run: nix develop --command go build -o track ./cmd/track
+
+      - name: Build help site
+        run: ./track export-site --src docs/help --root index --out ./_site
+
+      - name: Configure Pages
+        uses: actions/configure-pages@v5
+
+      - name: Upload artifact
+        uses: actions/upload-pages-artifact@v3
+        with:
+          path: ./_site
+
+      - name: Deploy to GitHub Pages
+        id: deploy
+        uses: actions/deploy-pages@v4
