@@ -85,8 +85,9 @@ func Build(cfg *config.Config, resolve Resolver, opts Options, outDir string) (R
 		if err := md.Convert([]byte(ex.Markdown), &body); err != nil {
 			return Result{}, fmt.Errorf("markdown note %d: %w", id, err)
 		}
+		bodyHTML, hasMermaid := transformMermaid(body.String())
 		page := pageName(id, opts.Root)
-		full := renderPage(noteTitle(n), body.String(), id != opts.Root)
+		full := renderPage(noteTitle(n), bodyHTML, id != opts.Root, hasMermaid)
 		if err := os.WriteFile(filepath.Join(outDir, page), []byte(full), 0o644); err != nil {
 			return Result{}, fmt.Errorf("write %s: %w", page, err)
 		}
@@ -140,10 +141,14 @@ func noteTitle(n *note.Note) string {
 	return strconv.FormatInt(n.ID, 10)
 }
 
-func renderPage(title, body string, showHome bool) string {
+func renderPage(title, body string, showHome, hasMermaid bool) string {
 	var nav string
 	if showHome {
 		nav = "<nav class=\"site-nav\"><a href=\"index.html\">← home</a></nav>\n"
+	}
+	var script string
+	if hasMermaid {
+		script = mermaidScript
 	}
 	return "<!DOCTYPE html>\n" +
 		"<html lang=\"ja\">\n" +
@@ -158,6 +163,7 @@ func renderPage(title, body string, showHome bool) string {
 		nav +
 		"<article>\n" + body + "</article>\n" +
 		"</main>\n" +
+		script +
 		"</body>\n" +
 		"</html>\n"
 }

@@ -153,6 +153,31 @@ func TestBuildReportsMissingAsset(t *testing.T) {
 	}
 }
 
+func TestBuildRendersMermaid(t *testing.T) {
+	cfg := testConfig(t)
+	writeNote(t, cfg, 100, "Home", "# Home\n\n```mermaid\ngraph TD\nA-->B\n```\n")
+	writeNote(t, cfg, 200, "Plain", "# Plain\n\nno diagram here\n")
+	out := t.TempDir()
+	if _, err := Build(cfg, nil, Options{Root: 100, IDs: []int64{200}}, out); err != nil {
+		t.Fatalf("build: %v", err)
+	}
+	index := readFile(t, filepath.Join(out, "index.html"))
+	if !strings.Contains(index, `<div class="mermaid">`) {
+		t.Fatalf("mermaid block not converted:\n%s", index)
+	}
+	if strings.Contains(index, "language-mermaid") {
+		t.Fatalf("raw mermaid code block leaked:\n%s", index)
+	}
+	if !strings.Contains(index, "mermaid.esm.min.mjs") {
+		t.Fatalf("mermaid script not included on diagram page")
+	}
+	// A page without a diagram must not pull in the runtime.
+	plain := readFile(t, filepath.Join(out, "200.html"))
+	if strings.Contains(plain, "mermaid") {
+		t.Fatalf("non-diagram page should not include mermaid:\n%s", plain)
+	}
+}
+
 func TestBuildRequiresRoot(t *testing.T) {
 	cfg := testConfig(t)
 	if _, err := Build(cfg, nil, Options{}, t.TempDir()); err == nil {
