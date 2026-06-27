@@ -4,7 +4,13 @@ import { useSearchQuery } from "../queries";
 import { useSearchState } from "../searchState";
 import type { SearchResult } from "../types";
 
-export function SearchPanel() {
+interface SearchPanelProps {
+  // Called when a result is chosen (click or Enter), so a host like the sidebar popup can close itself.
+  onNavigate?: () => void;
+  autoFocus?: boolean;
+}
+
+export function SearchPanel({ onNavigate, autoFocus }: SearchPanelProps = {}) {
   const { query, setQuery } = useSearchState();
   const debouncedQuery = useDebouncedValue(query, 180);
   // With no query the home should stay empty rather than listing every note, so the search only runs
@@ -20,6 +26,7 @@ export function SearchPanel() {
     if (event.key === "Enter" && topResult) {
       event.preventDefault();
       void navigate({ to: "/notes/$noteId", params: { noteId: String(topResult.note_id) } });
+      onNavigate?.();
     }
   }
 
@@ -33,13 +40,14 @@ export function SearchPanel() {
           value={query}
           onChange={(event) => setQuery(event.currentTarget.value)}
           onKeyDown={onKeyDown}
+          autoFocus={autoFocus}
         />
       </label>
       <div className="results" aria-live="polite">
         {hasQuery && search.isPending ? <p className="muted">Loading notes...</p> : null}
         {hasQuery && search.isError ? <p className="error">{search.error.message}</p> : null}
         {results.map((note) => (
-          <SearchResultItem key={note.note_id} note={note} />
+          <SearchResultItem key={note.note_id} note={note} onNavigate={onNavigate} />
         ))}
       </div>
     </section>
@@ -48,11 +56,17 @@ export function SearchPanel() {
 
 interface SearchResultItemProps {
   note: SearchResult;
+  onNavigate?: () => void;
 }
 
-function SearchResultItem({ note }: SearchResultItemProps) {
+function SearchResultItem({ note, onNavigate }: SearchResultItemProps) {
   return (
-    <Link className="result" to="/notes/$noteId" params={{ noteId: String(note.note_id) }}>
+    <Link
+      className="result"
+      to="/notes/$noteId"
+      params={{ noteId: String(note.note_id) }}
+      onClick={() => onNavigate?.()}
+    >
       <span className="result-title">
         {note.title}
       </span>

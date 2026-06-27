@@ -1,16 +1,14 @@
 import { Link, Outlet, useNavigate, useRouterState } from "@tanstack/react-router";
-import { useState } from "react";
 import { GraphBackground } from "./GraphBackground";
 import { GraphPanel } from "./GraphPanel";
 import { KMark } from "./Logo";
-import { SearchPanel } from "./SearchPanel";
+import { SidebarSearch } from "./SidebarSearch";
 import { ThemeMenu } from "./ThemeMenu";
 import { openJournal } from "../api";
 import { useLiveEvents } from "../hooks/useLiveEvents";
 import { SearchProvider } from "../searchState";
 
 export function Shell() {
-  const [sidebarCollapsed, setSidebarCollapsed] = useState(true);
   const isHome = useRouterState({ select: (state) => state.location.pathname === "/" });
   const navigate = useNavigate();
   useLiveEvents();
@@ -32,51 +30,27 @@ export function Shell() {
 
   return (
     <SearchProvider>
-      <main
-        className={`workspace${isHome ? " home" : ""}${
-          sidebarCollapsed ? " sidebar-collapsed" : ""
-        }`}
-      >
+      <main className={`workspace${isHome ? " home" : ""}`}>
         {isHome ? null : (
-        <aside className="sidebar">
-          <nav className="activity-rail" aria-label="Workspace views">
-            <button
-              className="rail-button"
-              type="button"
-              aria-label={sidebarCollapsed ? "Expand sidebar" : "Collapse sidebar"}
-              aria-expanded={!sidebarCollapsed}
-              title={sidebarCollapsed ? "Expand sidebar" : "Collapse sidebar"}
-              onClick={() => setSidebarCollapsed((collapsed) => !collapsed)}
-            >
-              <span className="rail-icon rail-icon-sidebar" aria-hidden="true" />
-            </button>
-            <Link className="rail-button" to="/" aria-label="Home" title="Home">
-              <span className="rail-icon rail-icon-home" aria-hidden="true" />
-            </Link>
-            <button
-              className="rail-button"
-              type="button"
-              aria-label="Today's journal"
-              title="Today's journal"
-              onClick={openTodayJournal}
-            >
-              <span className="rail-icon rail-icon-journal" aria-hidden="true" />
-            </button>
-          </nav>
-          <div className="sidebar-content">
-            <header className="brand">
-              <div>
-                <h1 className="brand-title">
-                  <Link to="/" aria-label="track home">
-                    <KMark className="brand-mark" />
-                  </Link>
-                </h1>
-              </div>
+          <aside className="sidebar">
+            <nav className="activity-rail" aria-label="Workspace views">
+              <Link className="rail-button rail-brand" to="/" aria-label="track home" title="track home">
+                <KMark className="rail-mark" />
+              </Link>
+              <SidebarSearch />
+              <button
+                className="rail-button"
+                type="button"
+                aria-label="Today's journal"
+                title="Today's journal"
+                onClick={openTodayJournal}
+              >
+                <span className="rail-icon rail-icon-journal" aria-hidden="true" />
+              </button>
+              <div className="rail-spacer" />
               <ThemeMenu />
-            </header>
-            <SearchPanel />
-          </div>
-        </aside>
+            </nav>
+          </aside>
         )}
         <section className="reader">
           {isHome ? <GraphBackground /> : null}

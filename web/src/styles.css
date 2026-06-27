@@ -84,14 +84,9 @@ button {
 
 .workspace {
   display: grid;
-  grid-template-columns: minmax(300px, 360px) minmax(380px, 1fr);
+  grid-template-columns: 56px minmax(380px, 1fr);
   height: 100vh;
   min-height: 560px;
-  transition: grid-template-columns 160ms ease;
-}
-
-.workspace.sidebar-collapsed {
-  grid-template-columns: 56px minmax(380px, 1fr);
 }
 
 .workspace.home {
@@ -103,19 +98,35 @@ button {
   min-width: 0;
   min-height: 0;
   border-right: 1px solid var(--line);
-  background: var(--panel);
+  background: var(--panel-soft);
   overflow: hidden;
 }
 
 .activity-rail {
-  flex: 0 0 56px;
+  flex: 1;
   display: flex;
   flex-direction: column;
   align-items: center;
   gap: 6px;
   padding: 8px 6px;
-  border-right: 1px solid var(--line);
-  background: var(--panel-soft);
+}
+
+.rail-spacer {
+  flex: 1 1 auto;
+}
+
+.rail-search {
+  position: relative;
+}
+
+.rail-mark {
+  display: block;
+  width: auto;
+  height: 26px;
+}
+
+.rail-icon-svg {
+  display: block;
 }
 
 .rail-button {
@@ -143,44 +154,6 @@ button {
   height: 20px;
 }
 
-.rail-icon-sidebar {
-  border: 2px solid currentColor;
-  border-radius: 3px;
-}
-
-.rail-icon-sidebar::before {
-  content: "";
-  position: absolute;
-  top: 0;
-  bottom: 0;
-  left: 6px;
-  border-left: 2px solid currentColor;
-}
-
-.rail-icon-home::before {
-  content: "";
-  position: absolute;
-  left: 4px;
-  top: 8px;
-  width: 12px;
-  height: 9px;
-  border: 2px solid currentColor;
-  border-top: 0;
-  border-radius: 0 0 2px 2px;
-}
-
-.rail-icon-home::after {
-  content: "";
-  position: absolute;
-  left: 5px;
-  top: 2px;
-  width: 10px;
-  height: 10px;
-  border-left: 2px solid currentColor;
-  border-top: 2px solid currentColor;
-  transform: rotate(45deg);
-}
-
 .rail-icon-journal {
   border: 2px solid currentColor;
   border-radius: 3px;
@@ -205,50 +178,6 @@ button {
   height: 4px;
   background: currentColor;
   border-radius: 1px;
-}
-
-.sidebar-content {
-  flex: 1 1 auto;
-  min-width: 0;
-  display: flex;
-  flex-direction: column;
-}
-
-.workspace.sidebar-collapsed .sidebar-content {
-  display: none;
-}
-
-.brand {
-  display: flex;
-  align-items: flex-start;
-  justify-content: space-between;
-  gap: 16px;
-  padding: 20px 18px 14px;
-  border-bottom: 1px solid var(--line);
-}
-
-.brand h1 {
-  margin: 0;
-  font-size: 24px;
-}
-
-.brand-title {
-  line-height: 0;
-}
-
-.brand-title a {
-  display: inline-flex;
-  color: var(--text);
-}
-
-.brand-title a:hover {
-  color: var(--accent);
-}
-
-.brand-mark {
-  display: block;
-  width: auto;
-  height: 30px;
 }
 
 .home-hero {
@@ -326,40 +255,9 @@ button {
   color: var(--muted);
 }
 
-.brand p {
-  margin: 4px 0 0;
-  color: var(--muted);
-}
-
 .app-menu {
   position: relative;
   flex: 0 0 auto;
-}
-
-.menu-button {
-  display: inline-grid;
-  place-content: center;
-  gap: 4px;
-  width: 34px;
-  height: 34px;
-  border: 1px solid var(--line);
-  border-radius: 6px;
-  color: var(--text);
-  background: var(--panel);
-  cursor: pointer;
-}
-
-.menu-button:hover,
-.menu-button[aria-expanded="true"] {
-  background: var(--panel-soft);
-}
-
-.menu-button span {
-  display: block;
-  width: 16px;
-  height: 2px;
-  border-radius: 2px;
-  background: currentColor;
 }
 
 .menu-panel {
@@ -373,6 +271,32 @@ button {
   padding: 10px;
   background: var(--panel);
   box-shadow: 0 16px 38px color-mix(in srgb, #000 18%, transparent);
+}
+
+/* In the rail the settings menu sits at the bottom, so its panel opens upward and beside the rail. */
+.rail-menu-panel {
+  top: auto;
+  right: auto;
+  bottom: 0;
+  left: calc(100% + 8px);
+}
+
+/* The sidebar search popup floats beside the rail, escaping the rail's overflow with fixed positioning. */
+.search-popup {
+  position: fixed;
+  left: 64px;
+  top: 52px;
+  z-index: 30;
+  display: flex;
+  flex-direction: column;
+  width: 360px;
+  max-width: calc(100vw - 80px);
+  max-height: calc(100vh - 80px);
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--panel);
+  box-shadow: 0 16px 38px color-mix(in srgb, #000 18%, transparent);
+  overflow: hidden;
 }
 
 .menu-section h2 {
