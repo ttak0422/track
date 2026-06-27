@@ -26,7 +26,7 @@ const defaultHeight = 380;
 const minWidth = 280;
 const minHeight = 220;
 
-export function GraphPanel({ onOpenFull }: { onOpenFull: () => void }) {
+export function GraphPanel() {
   const pathname = useRouterState({ select: (state) => state.location.pathname });
   const selectedNoteID = noteIDFromPath(pathname);
   const [scope, setScope] = useState<GraphScope>("local");
@@ -152,7 +152,7 @@ export function GraphPanel({ onOpenFull }: { onOpenFull: () => void }) {
           type="button"
           aria-label="Open full graph"
           title="Open full graph"
-          onClick={onOpenFull}
+          onClick={() => void navigate({ to: "/graph" })}
         >
           ⤢
         </button>

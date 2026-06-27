@@ -1,7 +1,5 @@
 import { Link, Outlet, useNavigate, useRouterState } from "@tanstack/react-router";
-import { useState } from "react";
 import { GraphBackground } from "./GraphBackground";
-import { GraphFullView } from "./GraphFullView";
 import { GraphPanel } from "./GraphPanel";
 import { KMark } from "./Logo";
 import { FloatingLayer } from "./preview/FloatingLayer";
@@ -13,9 +11,10 @@ import { useLiveEvents } from "../hooks/useLiveEvents";
 import { SearchProvider } from "../searchState";
 
 export function Shell() {
-  const isHome = useRouterState({ select: (state) => state.location.pathname === "/" });
+  const pathname = useRouterState({ select: (state) => state.location.pathname });
+  const isHome = pathname === "/";
+  const isGraph = pathname === "/graph";
   const navigate = useNavigate();
-  const [graphFull, setGraphFull] = useState(false);
   useLiveEvents();
 
   // Open (creating if needed) today's journal and jump to it, mirroring how the activity heatmap opens a
@@ -53,15 +52,14 @@ export function Shell() {
               >
                 <span className="rail-icon rail-icon-journal" aria-hidden="true" />
               </button>
-              <button
+              <Link
                 className="rail-button"
-                type="button"
+                to="/graph"
                 aria-label="Full graph"
                 title="Full graph"
-                onClick={() => setGraphFull(true)}
               >
                 <RailGraphIcon />
-              </button>
+              </Link>
               <div className="rail-spacer" />
               <ThemeMenu />
             </nav>
@@ -71,8 +69,7 @@ export function Shell() {
           {isHome ? <GraphBackground /> : null}
           <Outlet />
         </section>
-        {isHome ? null : <GraphPanel onOpenFull={() => setGraphFull(true)} />}
-        {graphFull ? <GraphFullView onClose={() => setGraphFull(false)} /> : null}
+        {isHome || isGraph ? null : <GraphPanel />}
         <FloatingLayer />
       </main>
       </FloatingProvider>

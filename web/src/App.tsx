@@ -1,6 +1,7 @@
-import { RouterProvider, createRootRoute, createRoute, createRouter } from "@tanstack/react-router";
+import { RouterProvider, createRootRoute, createRoute, createRouter, useNavigate } from "@tanstack/react-router";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { ActivityPanel } from "./components/ActivityPanel";
+import { GraphFullView } from "./components/GraphFullView";
 import { TrackLogo } from "./components/Logo";
 import { NoteReader } from "./components/NoteReader";
 import { SearchPanel } from "./components/SearchPanel";
@@ -25,7 +26,13 @@ const noteRoute = createRoute({
   component: NoteRoute,
 });
 
-const routeTree = rootRoute.addChildren([indexRoute, noteRoute]);
+const graphRoute = createRoute({
+  getParentRoute: () => rootRoute,
+  path: "/graph",
+  component: GraphRoute,
+});
+
+const routeTree = rootRoute.addChildren([indexRoute, noteRoute, graphRoute]);
 
 const router = createRouter({ routeTree });
 
@@ -62,4 +69,9 @@ function NoteRoute() {
   }
 
   return <NoteReader noteID={parsed} />;
+}
+
+function GraphRoute() {
+  const navigate = useNavigate();
+  return <GraphFullView onClose={() => void navigate({ to: "/" })} />;
 }

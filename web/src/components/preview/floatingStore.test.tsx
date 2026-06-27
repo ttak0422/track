@@ -1,11 +1,13 @@
 import { act, renderHook } from "@testing-library/react";
 import type { ReactNode } from "react";
-import { describe, expect, it, vi } from "vitest";
+import { beforeEach, describe, expect, it, vi } from "vitest";
 import { FloatingProvider, useFloating } from "./floatingStore";
 
-// The store reads the router location to drop unpinned windows on navigation; stub it to a fixed path.
+const routerMock = vi.hoisted(() => ({ pathname: "/" }));
+
+// The store reads the router location to drop unpinned windows on navigation.
 vi.mock("@tanstack/react-router", () => ({
-  useRouterState: () => "/",
+  useRouterState: () => routerMock.pathname,
 }));
 
 const bounds = { left: 0, top: 0, width: 300, height: 200 };
@@ -15,6 +17,10 @@ function wrapper({ children }: { children: ReactNode }) {
 }
 
 describe("FloatingProvider", () => {
+  beforeEach(() => {
+    routerMock.pathname = "/";
+  });
+
   it("opens, dedupes by content key, raises, and removes", () => {
     const { result } = renderHook(() => useFloating(), { wrapper });
 
@@ -53,5 +59,19 @@ describe("FloatingProvider", () => {
       result.current.open({ kind: "media", src: "a.png", alt: "", noteKind: "note" }, bounds, false, false),
     );
     expect(result.current.windows).toHaveLength(2);
+  });
+
+  it("drops unpinned windows on route changes while keeping pinned windows", () => {
+    const { result, rerender } = renderHook(() => useFloating(), { wrapper });
+    act(() => result.current.open({ kind: "note", noteID: 1 }, bounds, false, false));
+    act(() => result.current.open({ kind: "note", noteID: 2 }, bounds, false, true));
+    expect(result.current.windows).toHaveLength(2);
+
+    routerMock.pathname = "/graph";
+    rerender();
+
+    expect(result.current.windows).toHaveLength(1);
+    expect(result.current.windows[0].content).toEqual({ kind: "note", noteID: 2 });
+    expect(result.current.windows[0].pinned).toBe(true);
   });
 });
