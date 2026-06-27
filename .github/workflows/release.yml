@@ -3,8 +3,8 @@ name: Release
 # Manually cut a release: derive the next semantic version from existing release/v* branches, create a
 # release/vX.Y.Z branch from the chosen base, publish a matching GitHub release, then deploy the help
 # site to GitHub Pages. The version/branch scheme (semver resolved from release branches) has no
-# mainstream action that fits, so it is a small custom script; release creation uses the gh CLI and the
-# Pages step reuses the official pages workflow.
+# mainstream action that fits, so it is a small custom script; release creation uses
+# softprops/action-gh-release and the Pages step reuses the official pages workflow.
 on:
   workflow_dispatch:
     inputs:
@@ -68,15 +68,12 @@ jobs:
           git push origin "HEAD:refs/heads/$branch"
 
       - name: Create GitHub release
-        env:
-          GH_TOKEN: ${{ github.token }}
-        run: |
-          set -euo pipefail
-          version="${{ steps.version.outputs.version }}"
-          gh release create "$version" \
-            --target "release/$version" \
-            --title "$version" \
-            --generate-notes
+        uses: softprops/action-gh-release@v3
+        with:
+          tag_name: ${{ steps.version.outputs.version }}
+          target_commitish: release/${{ steps.version.outputs.version }}
+          name: ${{ steps.version.outputs.version }}
+          generate_release_notes: true
 
   pages:
     needs: release
