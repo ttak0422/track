@@ -1,4 +1,4 @@
-// Stacking helpers shared by WikiLink and WikiPreview.
+// Stacking helpers shared by WikiLink and the floating windows.
 
 // Base stacking order for previews. Each interaction bumps a preview above the other open previews.
 export const previewBaseZIndex = 100;

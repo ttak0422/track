@@ -1,0 +1,29 @@
+import { useNoteQuery, useRenderQuery } from "../../queries";
+import { PreviewDepthContext } from "../markdown/context";
+import { MarkdownView } from "../MarkdownView";
+import { FloatingWindow, type FloatingWindowControls } from "./FloatingWindow";
+
+interface NoteWindowProps extends FloatingWindowControls {
+  noteID: number;
+}
+
+// NoteWindow frames a note's body in a FloatingWindow, used both for the inline hover preview and for a
+// pinned window in the floating layer. It re-fetches by id, so a pinned window survives its link.
+export function NoteWindow({ noteID, ...controls }: NoteWindowProps) {
+  const note = useNoteQuery(noteID);
+  // Sanitize the previewed body the same way as the main reader, so action links are flattened here too.
+  const rendered = useRenderQuery(note.data?.note.body ?? "");
+  const title = note.data?.note.title ?? "Preview";
+
+  return (
+    <FloatingWindow title={title} {...controls}>
+      {note.isPending ? <p className="muted">Loading...</p> : null}
+      {note.isError ? <p className="error">{note.error.message}</p> : null}
+      {note.data ? (
+        <PreviewDepthContext.Provider value={controls.depth + 1}>
+          <MarkdownView markdown={rendered.data?.markdown ?? ""} kind={note.data.note.file_kind} />
+        </PreviewDepthContext.Provider>
+      ) : null}
+    </FloatingWindow>
+  );
+}

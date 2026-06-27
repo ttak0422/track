@@ -1,7 +1,4 @@
-import { type PointerEvent, useEffect, useRef, useState } from "react";
-import { useNoteQuery, useRenderQuery } from "../../queries";
-import { PreviewDepthContext } from "../markdown/context";
-import { MarkdownView } from "../MarkdownView";
+import { type PointerEvent, type ReactNode, useEffect, useRef, useState } from "react";
 import {
   constrainPreviewBounds,
   initialPreviewBounds,
@@ -12,19 +9,28 @@ import {
 } from "./bounds";
 import { previewBaseZIndex } from "./stack";
 
-export interface WikiPreviewProps {
-  noteID: number;
-  anchor: PreviewAnchor;
-  depth: number;
+// The window's frame/behavior props, shared by the content wrappers (NoteWindow, MediaWindow).
+export interface FloatingWindowControls {
+  initialBounds: PreviewBounds;
+  // While unpinned, re-place the window when its source link's rect changes (a fresh hover).
+  reanchor?: PreviewAnchor;
   pinned: boolean;
+  initialCollapsed?: boolean;
+  depth: number;
   stackOrder: number;
   onActivate: () => void;
+  onHold?: () => void;
   onClose: () => void;
-  onHold: () => void;
-  onPin: () => void;
+  // Toggle pin: an unpinned window promotes (carrying its current bounds/collapsed); a pinned one unpins.
+  onPinToggle: (bounds: PreviewBounds, collapsed: boolean) => void;
 }
 
-interface PreviewDragState {
+interface FloatingWindowProps extends FloatingWindowControls {
+  title: string;
+  children: ReactNode;
+}
+
+interface DragState {
   pointerId: number;
   mode: "move" | PreviewResizeCorner;
   startX: number;
@@ -32,29 +38,33 @@ interface PreviewDragState {
   startBounds: PreviewBounds;
 }
 
-export function WikiPreview({
-  noteID,
-  anchor,
-  depth,
+// FloatingWindow is the draggable/resizable/collapsible chrome shared by hover previews and the pinned
+// windows in the floating layer. Content (a note body or a media embed) is passed as children.
+export function FloatingWindow({
+  title,
+  initialBounds,
+  reanchor,
   pinned,
+  initialCollapsed = false,
+  depth,
   stackOrder,
   onActivate,
-  onClose,
   onHold,
-  onPin,
-}: WikiPreviewProps) {
-  const note = useNoteQuery(noteID);
-  const [bounds, setBounds] = useState(() => initialPreviewBounds(anchor));
-  const [collapsed, setCollapsed] = useState(false);
-  const dragRef = useRef<PreviewDragState | null>(null);
-  // Sanitize the previewed body the same way as the main reader, so action links are flattened here too.
-  const rendered = useRenderQuery(note.data?.note.body ?? "");
+  onClose,
+  onPinToggle,
+  children,
+}: FloatingWindowProps) {
+  const [bounds, setBounds] = useState(initialBounds);
+  const [collapsed, setCollapsed] = useState(initialCollapsed);
+  const dragRef = useRef<DragState | null>(null);
 
   useEffect(() => {
-    if (!pinned) {
-      setBounds(initialPreviewBounds(anchor));
+    if (!pinned && reanchor) {
+      setBounds(initialPreviewBounds(reanchor));
     }
-  }, [anchor.linkLeft, anchor.linkRight, anchor.linkTop, anchor.linkBottom, pinned]);
+    // Re-place only when the anchor actually moves (a new hover), not on every render.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [reanchor?.linkLeft, reanchor?.linkRight, reanchor?.linkTop, reanchor?.linkBottom, pinned]);
 
   function startMove(event: PointerEvent<HTMLElement>) {
     startDrag(event, "move");
@@ -64,11 +74,10 @@ export function WikiPreview({
     return (event: PointerEvent<HTMLElement>) => startDrag(event, corner);
   }
 
-  function startDrag(event: PointerEvent<HTMLElement>, mode: PreviewDragState["mode"]) {
+  function startDrag(event: PointerEvent<HTMLElement>, mode: DragState["mode"]) {
     event.preventDefault();
     event.stopPropagation();
     onActivate();
-    onPin();
     dragRef.current = {
       pointerId: event.pointerId,
       mode,
@@ -102,8 +111,6 @@ export function WikiPreview({
     event.currentTarget.releasePointerCapture(event.pointerId);
   }
 
-  const title = note.data?.note.title ?? "Preview";
-
   return (
     <aside
       className={`wiki-preview${pinned ? " pinned" : ""}${collapsed ? " collapsed" : ""}`}
@@ -114,7 +121,6 @@ export function WikiPreview({
         left: bounds.left,
         top: bounds.top,
         width: bounds.width,
-        // Collapsed shows only the chrome bar, so let its height shrink to content.
         height: collapsed ? "auto" : bounds.height,
         zIndex: previewBaseZIndex + depth + stackOrder,
       }}
@@ -139,6 +145,17 @@ export function WikiPreview({
         </button>
         <span className="wiki-preview-title">{title}</span>
         <button
+          className={`wiki-preview-pin${pinned ? " active" : ""}`}
+          type="button"
+          onClick={() => onPinToggle(bounds, collapsed)}
+          onPointerDown={(event) => event.stopPropagation()}
+          aria-pressed={pinned}
+          aria-label={pinned ? "Unpin preview" : "Pin preview"}
+          title={pinned ? "Unpin" : "Pin"}
+        >
+          <PinIcon filled={pinned} />
+        </button>
+        <button
           className="wiki-preview-close"
           type="button"
           onClick={onClose}
@@ -148,17 +165,7 @@ export function WikiPreview({
           ×
         </button>
       </div>
-      {collapsed ? null : (
-        <div className="wiki-preview-body">
-          {note.isPending ? <p className="muted">Loading...</p> : null}
-          {note.isError ? <p className="error">{note.error.message}</p> : null}
-          {note.data ? (
-            <PreviewDepthContext.Provider value={depth + 1}>
-              <MarkdownView markdown={rendered.data?.markdown ?? ""} kind={note.data.note.file_kind} />
-            </PreviewDepthContext.Provider>
-          ) : null}
-        </div>
-      )}
+      {collapsed ? null : <div className="wiki-preview-body">{children}</div>}
       {collapsed
         ? null
         : (["nw", "ne", "sw", "se"] as const).map((corner) => (
@@ -175,5 +182,24 @@ export function WikiPreview({
             />
           ))}
     </aside>
+  );
+}
+
+function PinIcon({ filled }: { filled: boolean }) {
+  return (
+    <svg
+      viewBox="0 0 24 24"
+      width="15"
+      height="15"
+      fill={filled ? "currentColor" : "none"}
+      stroke="currentColor"
+      strokeWidth="2"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      aria-hidden="true"
+    >
+      <line x1="12" y1="17" x2="12" y2="22" />
+      <path d="M9 4h6l-1 6 3 3H7l3-3-1-6z" />
+    </svg>
   );
 }

@@ -1,8 +1,13 @@
 import { act, fireEvent, render } from "@testing-library/react";
-import type { ReactNode, Ref } from "react";
+import type { ReactElement, ReactNode, Ref } from "react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { FloatingProvider } from "./floatingStore";
 import { previewOpenDelay } from "./stack";
 import { WikiLink } from "./WikiLink";
+
+function renderWithFloating(ui: ReactElement) {
+  return render(<FloatingProvider>{ui}</FloatingProvider>);
+}
 
 // Render WikiLink in isolation: stub the router Link to a plain anchor (forwarding ref, which WikiLink
 // needs to anchor the preview) and the data hooks to a resolved note, so the test exercises only the
@@ -45,7 +50,7 @@ describe("WikiLink hover intent", () => {
   afterEach(() => vi.useRealTimers());
 
   it("opens the preview only after the pointer rests past the open delay", async () => {
-    const { container } = render(<WikiLink target="Target" display="Target" />);
+    const { container } = renderWithFloating(<WikiLink target="Target" display="Target" />);
     const wrap = container.querySelector(".wiki-link-wrap")!;
 
     fireEvent.mouseEnter(wrap);
@@ -61,7 +66,7 @@ describe("WikiLink hover intent", () => {
   });
 
   it("does not open when the pointer leaves before the delay elapses", async () => {
-    const { container } = render(<WikiLink target="Target" display="Target" />);
+    const { container } = renderWithFloating(<WikiLink target="Target" display="Target" />);
     const wrap = container.querySelector(".wiki-link-wrap")!;
 
     fireEvent.mouseEnter(wrap);

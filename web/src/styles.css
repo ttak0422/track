@@ -1291,9 +1291,9 @@ button {
   align-items: center;
   gap: 8px;
   border-bottom: 1px solid var(--line);
-  /* Reserve room on the right for the absolutely-positioned close button so the title never runs
-     under it. */
-  padding: 5px 34px 5px 6px;
+  /* Reserve room on the right for the absolutely-positioned pin + close buttons so the title never
+     runs under them. */
+  padding: 5px 62px 5px 6px;
   cursor: grab;
   user-select: none;
   touch-action: none;
@@ -1374,6 +1374,35 @@ button {
   border-color: var(--line);
   color: var(--text);
   background: var(--panel-soft);
+}
+
+/* Pin sits just left of the close button, sharing its corner-hugging style. */
+.wiki-preview-pin {
+  position: absolute;
+  top: 5px;
+  right: 34px;
+  z-index: 1;
+  display: grid;
+  width: 24px;
+  height: 24px;
+  place-items: center;
+  border: 1px solid transparent;
+  border-radius: 6px;
+  padding: 0;
+  color: var(--muted);
+  background: transparent;
+  cursor: pointer;
+}
+
+.wiki-preview-pin:hover,
+.wiki-preview-pin:focus-visible {
+  border-color: var(--line);
+  color: var(--text);
+  background: var(--panel-soft);
+}
+
+.wiki-preview-pin.active {
+  color: var(--accent);
 }
 
 .wiki-preview-body {

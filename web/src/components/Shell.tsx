@@ -2,6 +2,8 @@ import { Link, Outlet, useNavigate, useRouterState } from "@tanstack/react-route
 import { GraphBackground } from "./GraphBackground";
 import { GraphPanel } from "./GraphPanel";
 import { KMark } from "./Logo";
+import { FloatingLayer } from "./preview/FloatingLayer";
+import { FloatingProvider } from "./preview/floatingStore";
 import { SidebarSearch } from "./SidebarSearch";
 import { ThemeMenu } from "./ThemeMenu";
 import { openJournal } from "../api";
@@ -30,6 +32,7 @@ export function Shell() {
 
   return (
     <SearchProvider>
+      <FloatingProvider>
       <main className={`workspace${isHome ? " home" : ""}`}>
         {isHome ? null : (
           <aside className="sidebar">
@@ -57,7 +60,9 @@ export function Shell() {
           <Outlet />
         </section>
         {isHome ? null : <GraphPanel />}
+        <FloatingLayer />
       </main>
+      </FloatingProvider>
     </SearchProvider>
   );
 }
