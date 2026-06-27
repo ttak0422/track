@@ -13,16 +13,18 @@ import (
 // paletteVars is the whitelist of themeable CSS custom properties. Only these keys are honored in a
 // palette file, so a palette can never inject arbitrary properties into the served page.
 var paletteVars = map[string]bool{
-	"bg":            true,
-	"panel":         true,
-	"panel-soft":    true,
-	"text":          true,
-	"muted":         true,
-	"line":          true,
-	"accent":        true,
-	"accent-strong": true,
-	"generated":     true,
-	"danger":        true,
+	"bg":                  true,
+	"panel":               true,
+	"panel-soft":          true,
+	"text":                true,
+	"muted":               true,
+	"line":                true,
+	"accent":              true,
+	"accent-strong":       true,
+	"graph-active":        true,
+	"graph-active-strong": true,
+	"generated":           true,
+	"danger":              true,
 }
 
 // colorValue restricts palette values to safe CSS color syntax (hex, rgb()/hsl()/keyword). It excludes

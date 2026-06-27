@@ -154,9 +154,9 @@ dark:
 ```
 
 Themeable variables: `bg`, `panel`, `panel-soft`, `text`, `muted`, `line`,
-`accent`, `accent-strong`, `generated`, `danger`. Unknown keys are ignored and
-values are validated against safe color syntax, so a palette can never inject
-arbitrary CSS. A malformed value is an error; a missing or unreadable palette file
-is logged and the server falls back to the built-in palette rather than failing to
-start. The overrides follow the same light/dark/system cascade as the default
-stylesheet.
+`accent`, `accent-strong`, `graph-active`, `graph-active-strong`, `generated`,
+`danger`. Unknown keys are ignored and values are validated against safe color
+syntax, so a palette can never inject arbitrary CSS. A malformed value is an
+error; a missing or unreadable palette file is logged and the server falls back
+to the built-in palette rather than failing to start. The overrides follow the
+same light/dark/system cascade as the default stylesheet.

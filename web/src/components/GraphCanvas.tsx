@@ -313,7 +313,7 @@ export function GraphCanvas({
         const active = edgeIsActive(edge);
         ctx.globalAlpha = active ? 0.86 : 0.08;
         ctx.lineWidth = active ? highlightLineWidth : baseLineWidth;
-        ctx.strokeStyle = active ? css("--accent-strong") : css("--line");
+        ctx.strokeStyle = active ? css("--graph-active-strong") : css("--line");
       } else {
         ctx.globalAlpha = 0.62;
         ctx.lineWidth = baseLineWidth;
@@ -338,12 +338,13 @@ export function GraphCanvas({
       ctx.beginPath();
       ctx.arc(x, y, radius, 0, Math.PI * 2);
       if (hasActiveHighlight && active) {
-        // Light active nodes up with the accent so they read as the current search or hover focus.
-        ctx.fillStyle = css("--accent");
-        ctx.strokeStyle = css("--accent-strong");
+        // Light active nodes up with the graph accent so search and hover focus stay distinct from
+        // the rest of the UI accent system.
+        ctx.fillStyle = css("--graph-active");
+        ctx.strokeStyle = css("--graph-active-strong");
       } else {
-        ctx.fillStyle = center ? css("--accent") : css("--panel-soft");
-        ctx.strokeStyle = center ? css("--accent-strong") : css("--muted");
+        ctx.fillStyle = center ? css("--graph-active") : css("--panel-soft");
+        ctx.strokeStyle = center ? css("--graph-active-strong") : css("--muted");
       }
       ctx.fill();
       ctx.stroke();

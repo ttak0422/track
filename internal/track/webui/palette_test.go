@@ -16,7 +16,7 @@ func TestLoadPaletteEmptyPath(t *testing.T) {
 
 func TestLoadPaletteBuildsScopedCSS(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "colors.yml")
-	contents := "light:\n  accent: \"#2f6f5e\"\n  text: \"#20231f\"\ndark:\n  accent: \"#62b39b\"\n"
+	contents := "light:\n  accent: \"#2f6f5e\"\n  graph-active: \"#F08300\"\n  text: \"#20231f\"\ndark:\n  accent: \"#62b39b\"\n  graph-active-strong: \"#ffc06a\"\n"
 	if err := os.WriteFile(path, []byte(contents), 0o644); err != nil {
 		t.Fatal(err)
 	}
@@ -25,8 +25,8 @@ func TestLoadPaletteBuildsScopedCSS(t *testing.T) {
 		t.Fatalf("load: %v", err)
 	}
 	for _, want := range []string{
-		":root{--accent:#2f6f5e;--text:#20231f;}",
-		`:root[data-theme="dark"]{--accent:#62b39b;}`,
+		":root{--accent:#2f6f5e;--graph-active:#F08300;--text:#20231f;}",
+		`:root[data-theme="dark"]{--accent:#62b39b;--graph-active-strong:#ffc06a;}`,
 		"@media (prefers-color-scheme: dark)",
 	} {
 		if !strings.Contains(css, want) {
