@@ -1293,7 +1293,7 @@ button {
   border-bottom: 1px solid var(--line);
   /* Reserve room on the right for the absolutely-positioned close button so the title never runs
      under it. */
-  padding: 5px 34px 5px 12px;
+  padding: 5px 34px 5px 6px;
   cursor: grab;
   user-select: none;
   touch-action: none;
@@ -1301,6 +1301,44 @@ button {
 
 .wiki-preview-chrome:active {
   cursor: grabbing;
+}
+
+.wiki-preview-toggle {
+  display: grid;
+  place-items: center;
+  flex: 0 0 auto;
+  width: 20px;
+  height: 20px;
+  border: 0;
+  border-radius: 4px;
+  padding: 0;
+  color: var(--muted);
+  background: transparent;
+  cursor: pointer;
+}
+
+.wiki-preview-toggle:hover,
+.wiki-preview-toggle:focus-visible {
+  color: var(--text);
+  background: var(--panel-soft);
+}
+
+/* Down-pointing caret when expanded; rotates to point right when collapsed. */
+.wiki-preview-caret {
+  width: 0;
+  height: 0;
+  border-left: 4px solid transparent;
+  border-right: 4px solid transparent;
+  border-top: 5px solid currentColor;
+  transition: transform 120ms ease;
+}
+
+.wiki-preview.collapsed .wiki-preview-caret {
+  transform: rotate(-90deg);
+}
+
+.wiki-preview.collapsed .wiki-preview-chrome {
+  border-bottom: 0;
 }
 
 .wiki-preview-title {

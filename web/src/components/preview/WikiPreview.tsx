@@ -45,6 +45,7 @@ export function WikiPreview({
 }: WikiPreviewProps) {
   const note = useNoteQuery(noteID);
   const [bounds, setBounds] = useState(() => initialPreviewBounds(anchor));
+  const [collapsed, setCollapsed] = useState(false);
   const dragRef = useRef<PreviewDragState | null>(null);
   // Sanitize the previewed body the same way as the main reader, so action links are flattened here too.
   const rendered = useRenderQuery(note.data?.note.body ?? "");
@@ -105,7 +106,7 @@ export function WikiPreview({
 
   return (
     <aside
-      className={`wiki-preview${pinned ? " pinned" : ""}`}
+      className={`wiki-preview${pinned ? " pinned" : ""}${collapsed ? " collapsed" : ""}`}
       onFocusCapture={onActivate}
       onMouseEnter={onHold}
       onPointerDownCapture={onActivate}
@@ -113,7 +114,8 @@ export function WikiPreview({
         left: bounds.left,
         top: bounds.top,
         width: bounds.width,
-        height: bounds.height,
+        // Collapsed shows only the chrome bar, so let its height shrink to content.
+        height: collapsed ? "auto" : bounds.height,
         zIndex: previewBaseZIndex + depth + stackOrder,
       }}
     >
@@ -124,6 +126,17 @@ export function WikiPreview({
         onPointerUp={endDrag}
         onPointerCancel={endDrag}
       >
+        <button
+          className="wiki-preview-toggle"
+          type="button"
+          onClick={() => setCollapsed((value) => !value)}
+          onPointerDown={(event) => event.stopPropagation()}
+          aria-expanded={!collapsed}
+          aria-label={collapsed ? "Expand preview" : "Collapse preview"}
+          title={collapsed ? "Expand" : "Collapse"}
+        >
+          <span className="wiki-preview-caret" aria-hidden="true" />
+        </button>
         <span className="wiki-preview-title">{title}</span>
         <button
           className="wiki-preview-close"
@@ -135,28 +148,32 @@ export function WikiPreview({
           ×
         </button>
       </div>
-      <div className="wiki-preview-body">
-        {note.isPending ? <p className="muted">Loading...</p> : null}
-        {note.isError ? <p className="error">{note.error.message}</p> : null}
-        {note.data ? (
-          <PreviewDepthContext.Provider value={depth + 1}>
-            <MarkdownView markdown={rendered.data?.markdown ?? ""} kind={note.data.note.file_kind} />
-          </PreviewDepthContext.Provider>
-        ) : null}
-      </div>
-      {(["nw", "ne", "sw", "se"] as const).map((corner) => (
-        <button
-          aria-label="Resize preview"
-          className={`wiki-preview-resize wiki-preview-resize-${corner}`}
-          key={corner}
-          onPointerCancel={endDrag}
-          onPointerDown={startResize(corner)}
-          onPointerMove={dragPreview}
-          onPointerUp={endDrag}
-          title="Resize"
-          type="button"
-        />
-      ))}
+      {collapsed ? null : (
+        <div className="wiki-preview-body">
+          {note.isPending ? <p className="muted">Loading...</p> : null}
+          {note.isError ? <p className="error">{note.error.message}</p> : null}
+          {note.data ? (
+            <PreviewDepthContext.Provider value={depth + 1}>
+              <MarkdownView markdown={rendered.data?.markdown ?? ""} kind={note.data.note.file_kind} />
+            </PreviewDepthContext.Provider>
+          ) : null}
+        </div>
+      )}
+      {collapsed
+        ? null
+        : (["nw", "ne", "sw", "se"] as const).map((corner) => (
+            <button
+              aria-label="Resize preview"
+              className={`wiki-preview-resize wiki-preview-resize-${corner}`}
+              key={corner}
+              onPointerCancel={endDrag}
+              onPointerDown={startResize(corner)}
+              onPointerMove={dragPreview}
+              onPointerUp={endDrag}
+              title="Resize"
+              type="button"
+            />
+          ))}
     </aside>
   );
 }
