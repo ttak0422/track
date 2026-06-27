@@ -268,7 +268,8 @@ export function GraphCanvas({
     ctx.save();
     ctx.translate(width / 2 + view.x * ratio, height / 2 + view.y * ratio);
     ctx.scale(view.scale, view.scale);
-    ctx.font = `${Math.floor((12 * ratio) / view.scale)}px system-ui, sans-serif`;
+    const labelFontSize = 13;
+    ctx.font = `${Math.floor((labelFontSize * ratio) / view.scale)}px system-ui, sans-serif`;
     const baseLineWidth = (1 * ratio) / view.scale;
     const highlightLineWidth = (2.6 * ratio) / view.scale;
     ctx.lineWidth = baseLineWidth;
@@ -338,20 +339,20 @@ export function GraphCanvas({
       ctx.stroke();
     });
 
-    const showLabels = view.scale >= 0.4;
+    const showLabels = view.scale >= 0.26;
     nodesRef.current.forEach((node) => {
       if (decorative) return;
       const center = node.center || node.note_id === graph.center_id;
       const active = nodeIsActive(node.note_id);
       const hovered = node.note_id === hoverRef.current;
-      if (!(showLabels || center || node.degree >= 5 || hovered || (hasActiveHighlight && active))) {
+      if (!(showLabels || center || node.degree >= 4 || hovered || (hasActiveHighlight && active))) {
         return;
       }
       const radius = (nodeRadius(node) * ratio) / view.scale;
       const x = node.x * ratio;
       const y = node.y * ratio;
-      const label = trim(node.title || `#${node.note_id}`, 20);
-      const fontPx = (12 * ratio) / view.scale;
+      const label = trim(node.title || `#${node.note_id}`, 24);
+      const fontPx = (labelFontSize * ratio) / view.scale;
       const padX = (5 * ratio) / view.scale;
       const padY = (3 * ratio) / view.scale;
       const tx = x + radius + (7 * ratio) / view.scale;
