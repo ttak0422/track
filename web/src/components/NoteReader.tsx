@@ -2,6 +2,7 @@ import { Link, useBlocker, useNavigate } from "@tanstack/react-router";
 import { FormEvent, useEffect, useRef, useState } from "react";
 import { MarkdownView } from "./MarkdownView";
 import { getFollowState } from "../api";
+import { STATIC_MODE } from "../runtime";
 import { useAgendaQuery, useNoteQuery, useRenderQuery, useSaveNoteMutation } from "../queries";
 import { useSearchState } from "../searchState";
 import type { FileKind, FollowState, NoteID } from "../types";
@@ -188,29 +189,32 @@ export function NoteReader({ noteID }: NoteReaderProps) {
 
   return (
     <article className={`note-reader${editorMode === "split" ? " note-reader-split" : ""}`}>
-      {/* Note controls float over the reader as a graph-style overlay, not in the header bar. */}
-      <div className="note-float-controls">
-        <button
-          className={`follow-toggle${followEnabled ? " active" : ""}`}
-          type="button"
-          aria-pressed={followEnabled}
-          onClick={() => setFollowEnabled((value) => !value)}
-        >
-          Follow
-        </button>
-        <div className="mode-switch" role="group" aria-label="Markdown display mode">
-          {editorModes.map((mode) => (
-            <button
-              aria-pressed={editorMode === mode}
-              key={mode}
-              type="button"
-              onClick={() => setEditorMode(mode)}
-            >
-              {modeLabel(mode)}
-            </button>
-          ))}
+      {/* Note controls float over the reader as a graph-style overlay, not in the header bar. The
+          published static site is read-only and never follows Neovim, so it shows no controls. */}
+      {!STATIC_MODE && (
+        <div className="note-float-controls">
+          <button
+            className={`follow-toggle${followEnabled ? " active" : ""}`}
+            type="button"
+            aria-pressed={followEnabled}
+            onClick={() => setFollowEnabled((value) => !value)}
+          >
+            Follow
+          </button>
+          <div className="mode-switch" role="group" aria-label="Markdown display mode">
+            {editorModes.map((mode) => (
+              <button
+                aria-pressed={editorMode === mode}
+                key={mode}
+                type="button"
+                onClick={() => setEditorMode(mode)}
+              >
+                {modeLabel(mode)}
+              </button>
+            ))}
+          </div>
         </div>
-      </div>
+      )}
       <header className="note-header">
         <div className="note-title-row">
           <h2>{note.title}</h2>

@@ -1,6 +1,7 @@
 import { useQueryClient } from "@tanstack/react-query";
 import { useEffect } from "react";
 import { queryKeys } from "../queries";
+import { STATIC_MODE } from "../runtime";
 
 // Subscribes to the server's change stream and refreshes data when the vault
 // changes on disk (edits from Neovim/CLI or a cloud sync). The backend reindexes
@@ -9,7 +10,8 @@ export function useLiveEvents() {
   const queryClient = useQueryClient();
 
   useEffect(() => {
-    if (typeof EventSource === "undefined") {
+    // The published static site has no server/change stream to subscribe to.
+    if (STATIC_MODE || typeof EventSource === "undefined") {
       return;
     }
     let invalidateTimer: number | undefined;
