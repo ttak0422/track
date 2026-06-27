@@ -758,9 +758,15 @@ button {
   overflow-wrap: anywhere;
 }
 
-.note-header-actions {
+/* The note's controls float over the reader as a graph-style overlay (shadowed, translucent pills),
+   fixed to the top-right so they stay put while the note scrolls. They sit below the full-graph overlay
+   and the floating windows. */
+.note-float-controls {
+  position: fixed;
+  top: 14px;
+  right: 18px;
+  z-index: 30;
   display: flex;
-  flex: 0 0 auto;
   align-items: center;
   gap: 8px;
 }
@@ -768,10 +774,12 @@ button {
 .follow-toggle {
   border: 1px solid var(--line);
   border-radius: 999px;
-  padding: 2px 10px;
+  padding: 4px 14px;
   color: var(--muted);
-  background: var(--panel-soft);
+  background: color-mix(in srgb, var(--panel) 92%, transparent);
+  box-shadow: 0 8px 22px rgb(0 0 0 / 16%);
   font-size: 12px;
+  cursor: pointer;
 }
 
 .follow-toggle:hover,
@@ -816,16 +824,18 @@ button {
   padding: 2px;
   border: 1px solid var(--line);
   border-radius: 999px;
-  background: var(--panel-soft);
+  background: color-mix(in srgb, var(--panel) 92%, transparent);
+  box-shadow: 0 8px 22px rgb(0 0 0 / 16%);
 }
 
 .mode-switch button {
   border: 0;
   border-radius: 999px;
-  padding: 1px 10px;
+  padding: 4px 12px;
   color: var(--muted);
   background: transparent;
   font-size: 12px;
+  cursor: pointer;
 }
 
 .mode-switch button[aria-pressed="true"] {

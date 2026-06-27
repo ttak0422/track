@@ -188,34 +188,35 @@ export function NoteReader({ noteID }: NoteReaderProps) {
 
   return (
     <article className="note-reader">
+      {/* Note controls float over the reader as a graph-style overlay, not in the header bar. */}
+      <div className="note-float-controls">
+        <button
+          className={`follow-toggle${followEnabled ? " active" : ""}`}
+          type="button"
+          aria-pressed={followEnabled}
+          onClick={() => setFollowEnabled((value) => !value)}
+        >
+          Follow
+        </button>
+        <div className="mode-switch" role="group" aria-label="Markdown display mode">
+          {editorModes.map((mode) => (
+            <button
+              aria-pressed={editorMode === mode}
+              key={mode}
+              type="button"
+              onClick={() => setEditorMode(mode)}
+            >
+              {modeLabel(mode)}
+            </button>
+          ))}
+        </div>
+      </div>
       <header className="note-header">
         <div className="note-title-row">
           <h2>{note.title}</h2>
           {dirty ? (
             <span className="dirty-indicator" aria-label="Unsaved changes" title="Unsaved changes" />
           ) : null}
-        </div>
-        <div className="note-header-actions">
-          <button
-            className={`follow-toggle${followEnabled ? " active" : ""}`}
-            type="button"
-            aria-pressed={followEnabled}
-            onClick={() => setFollowEnabled((value) => !value)}
-          >
-            Follow
-          </button>
-          <div className="mode-switch" role="group" aria-label="Markdown display mode">
-            {editorModes.map((mode) => (
-              <button
-                aria-pressed={editorMode === mode}
-                key={mode}
-                type="button"
-                onClick={() => setEditorMode(mode)}
-              >
-                {modeLabel(mode)}
-              </button>
-            ))}
-          </div>
         </div>
       </header>
 
