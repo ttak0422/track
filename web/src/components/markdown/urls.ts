@@ -1,5 +1,6 @@
 // Pure URL/href helpers shared by the markdown link and embed rendering. None of these touch React or
 // the DOM, so they are unit-tested directly.
+import { STATIC_MODE } from "../../runtime";
 
 // noteCandidateFromHref turns a markdown link target into a track note title to resolve, or "" when the
 // href is an anchor, an explicit scheme (http:, mailto:, …), or otherwise not a vault note reference.
@@ -53,6 +54,11 @@ export function assetHref(src: string, kind: string): string | null {
   const name = rel.slice("assets/".length);
   if (name === "") {
     return null;
+  }
+  // The static export copies attachments to ./assets/<name>, so reference them relatively instead of the
+  // live server's /api/asset endpoint.
+  if (STATIC_MODE) {
+    return `assets/${name}`;
   }
   const params = new URLSearchParams({ kind: kind || "note", name });
   return `/api/asset?${params}`;

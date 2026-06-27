@@ -1,5 +1,15 @@
-import { RouterProvider, createRootRoute, createRoute, createRouter, useNavigate } from "@tanstack/react-router";
-import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
+import { useEffect } from "react";
+import {
+  RouterProvider,
+  createHashHistory,
+  createRootRoute,
+  createRoute,
+  createRouter,
+  useNavigate,
+} from "@tanstack/react-router";
+import { QueryClient, QueryClientProvider, useQuery } from "@tanstack/react-query";
+import { getSite } from "./api";
+import { STATIC_MODE } from "./runtime";
 import { ActivityPanel } from "./components/ActivityPanel";
 import { GraphFullView } from "./components/GraphFullView";
 import { TrackLogo } from "./components/Logo";
@@ -34,7 +44,12 @@ const graphRoute = createRoute({
 
 const routeTree = rootRoute.addChildren([indexRoute, noteRoute, graphRoute]);
 
-const router = createRouter({ routeTree });
+// Static sites are served from plain file hosts (GitHub Pages) that have no SPA fallback, so deep links
+// would 404 under browser history. Hash history keeps every route inside index.html.
+const router = createRouter({
+  routeTree,
+  ...(STATIC_MODE ? { history: createHashHistory() } : {}),
+});
 
 declare module "@tanstack/react-router" {
   interface Register {
@@ -51,11 +66,39 @@ export function App() {
 }
 
 function HomeRoute() {
+  // The published site has no heatmap home; its entry point is the root note, so redirect there.
+  if (STATIC_MODE) {
+    return <StaticHome />;
+  }
   return (
     <section className="home-hero">
       <TrackLogo className="home-logo" />
       <ActivityPanel variant="home" />
       <SearchPanel />
+    </section>
+  );
+}
+
+function StaticHome() {
+  const navigate = useNavigate();
+  const { data, isError } = useQuery({ queryKey: ["site"], queryFn: getSite });
+
+  useEffect(() => {
+    if (data?.root) {
+      void navigate({
+        to: "/notes/$noteId",
+        params: { noteId: String(data.root) },
+        replace: true,
+      });
+    }
+  }, [data, navigate]);
+
+  if (isError) {
+    return <p className="error">site data is missing</p>;
+  }
+  return (
+    <section className="home-hero">
+      <TrackLogo className="home-logo" />
     </section>
   );
 }
