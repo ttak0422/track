@@ -20,7 +20,8 @@ func fakeFrontend(t *testing.T) string {
 	if err := os.MkdirAll(filepath.Join(dir, "assets"), 0o755); err != nil {
 		t.Fatal(err)
 	}
-	if err := os.WriteFile(filepath.Join(dir, "index.html"), []byte("<!doctype html><div id=root></div>"), 0o644); err != nil {
+	index := `<!doctype html><script>var t="__TRACK_DEFAULT_THEME__"</script>__TRACK_COLOR_OVERRIDES__<div id=root></div>`
+	if err := os.WriteFile(filepath.Join(dir, "index.html"), []byte(index), 0o644); err != nil {
 		t.Fatal(err)
 	}
 	if err := os.WriteFile(filepath.Join(dir, "assets", "app.js"), []byte("console.log(1)"), 0o644); err != nil {
@@ -92,9 +93,13 @@ func TestBuildVaultBundle(t *testing.T) {
 		t.Fatalf("expected 2 published notes, got %v", res.Notes)
 	}
 
-	// Frontend copied in.
+	// Frontend copied in, with server-only placeholders substituted.
 	if !fileExists(filepath.Join(out, "index.html")) || !fileExists(filepath.Join(out, "assets", "app.js")) {
 		t.Fatalf("frontend not copied into site")
+	}
+	indexHTML, _ := os.ReadFile(filepath.Join(out, "index.html"))
+	if strings.Contains(string(indexHTML), "__TRACK_") {
+		t.Fatalf("index.html still has unsubstituted placeholders:\n%s", indexHTML)
 	}
 
 	// notes.json holds the published set only.

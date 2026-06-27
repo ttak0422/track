@@ -182,6 +182,9 @@ func writeBundle(docs []doc, edges []edge, root int64, frontendDir, outDir strin
 	if err := copyTree(frontendDir, outDir); err != nil {
 		return Result{}, fmt.Errorf("copy frontend: %w", err)
 	}
+	if err := finalizeIndex(filepath.Join(outDir, "index.html")); err != nil {
+		return Result{}, fmt.Errorf("finalize index.html: %w", err)
+	}
 
 	// Copy referenced note assets.
 	res := Result{OutDir: outDir}
@@ -242,6 +245,19 @@ func writeJSONFile(path string, v any) error {
 		return err
 	}
 	return os.WriteFile(path, data, 0o644)
+}
+
+// finalizeIndex substitutes the placeholders the live server fills in at request time. The static site
+// has no server, so the default theme falls back to "system" and there are no color overrides; left
+// unsubstituted, __TRACK_COLOR_OVERRIDES__ would otherwise show as literal text in the page.
+func finalizeIndex(path string) error {
+	raw, err := os.ReadFile(path)
+	if err != nil {
+		return err
+	}
+	html := strings.ReplaceAll(string(raw), "__TRACK_DEFAULT_THEME__", "system")
+	html = strings.ReplaceAll(html, "__TRACK_COLOR_OVERRIDES__", "")
+	return os.WriteFile(path, []byte(html), 0o644)
 }
 
 // copyTree copies every file under src into dst, preserving the relative layout. Dot-prefixed entries
