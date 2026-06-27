@@ -5,6 +5,11 @@ import { GraphCanvas } from "./GraphCanvas";
 import { initialPreviewBounds, type PreviewAnchor } from "./preview/bounds";
 import { useFloating } from "./preview/floatingStore";
 
+interface Point {
+  x: number;
+  y: number;
+}
+
 // GraphFullView draws the whole graph filling the screen. Unlike the corner graph panel (which
 // navigates on click), pressing a node here opens that note in a pinned floating window, so you can
 // explore the graph and pop notes open without leaving it.
@@ -14,9 +19,9 @@ export function GraphFullView({ onClose }: { onClose: () => void }) {
   const [resetToken, setResetToken] = useState(0);
   const graph = graphQuery.data?.graph;
 
-  function openNote(noteID: NoteID) {
+  function openNote(noteID: NoteID, point: Point) {
     // Opens like a normal note popup: unpinned, so pin toggles persistence and × closes.
-    floating.open({ kind: "note", noteID }, initialPreviewBounds(centerAnchor()), false, false);
+    floating.open({ kind: "note", noteID }, initialPreviewBounds(graphPointAnchor(point)), false, false);
   }
 
   return (
@@ -43,9 +48,8 @@ export function GraphFullView({ onClose }: { onClose: () => void }) {
   );
 }
 
-// A point near the upper-left third of the viewport, so the opened note window lands beside it with room.
-function centerAnchor(): PreviewAnchor {
-  const x = window.innerWidth * 0.4;
-  const y = window.innerHeight * 0.3;
+export function graphPointAnchor(point: Point): PreviewAnchor {
+  const x = point.x;
+  const y = point.y;
   return { linkLeft: x, linkRight: x, linkTop: y, linkBottom: y };
 }

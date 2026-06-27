@@ -3,7 +3,7 @@ import type { Graph, GraphEdge, GraphNode, NoteID } from "../types";
 
 interface GraphCanvasProps {
   graph: Graph;
-  onSelect: (noteID: NoteID) => void;
+  onSelect: (noteID: NoteID, point: Point) => void;
   resetToken: number;
   // Background decoration: draw nodes/edges only, no labels or interaction.
   decorative?: boolean;
@@ -493,6 +493,7 @@ export function GraphCanvas({
 
   function pointerUp(event: PointerEvent<HTMLCanvasElement>) {
     const drag = dragRef.current;
+    const point = canvasPoint(event);
     dragRef.current = null;
     // Releasing unpins the node, so the simulation eases it back into equilibrium with its neighbours.
     pinnedRef.current = null;
@@ -501,8 +502,8 @@ export function GraphCanvas({
     event.currentTarget.releasePointerCapture(event.pointerId);
     if (drag.moved) return;
     // A click without a drag selects the node under the pointer (navigation).
-    const node = drag.node ?? graphNodeAt(canvasPoint(event));
-    if (node) onSelectRef.current(node.note_id);
+    const node = drag.node ?? graphNodeAt(point);
+    if (node) onSelectRef.current(node.note_id, point);
   }
 
   function pointerCancel(event: PointerEvent<HTMLCanvasElement>) {
