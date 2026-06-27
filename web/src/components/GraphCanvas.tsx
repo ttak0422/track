@@ -1,3 +1,13 @@
+import {
+  forceLink,
+  forceManyBody,
+  forceSimulation,
+  forceX,
+  forceY,
+  type Simulation,
+  type SimulationLinkDatum,
+  type SimulationNodeDatum,
+} from "d3-force";
 import { PointerEvent, WheelEvent, useEffect, useRef, useState } from "react";
 import type { Graph, GraphEdge, GraphNode, NoteID } from "../types";
 
@@ -10,9 +20,11 @@ interface GraphCanvasProps {
   // When set, only these nodes are drawn at full strength (accent); the rest dim in place. null draws
   // every node normally. Used by the home search to highlight matches without dropping the others.
   highlightIds?: ReadonlySet<NoteID> | null;
+  // When set, the automatic initial/reset view follows this node instead of fitting the whole graph.
+  focusNodeID?: NoteID;
 }
 
-interface SimNode extends GraphNode {
+interface SimNode extends GraphNode, SimulationNodeDatum {
   x: number;
   y: number;
   vx: number;
@@ -20,7 +32,7 @@ interface SimNode extends GraphNode {
   degree: number;
 }
 
-interface SimEdge {
+interface SimEdge extends SimulationLinkDatum<SimNode> {
   source: SimNode;
   target: SimNode;
 }
@@ -51,6 +63,7 @@ export function GraphCanvas({
   resetToken,
   decorative = false,
   highlightIds = null,
+  focusNodeID,
 }: GraphCanvasProps) {
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
   const nodesRef = useRef<SimNode[]>([]);
@@ -60,7 +73,7 @@ export function GraphCanvas({
   // The node currently held under the cursor. The simulation keeps it fixed while still letting it
   // pull its neighbours, so grabbing a node stretches its edges like Obsidian's graph.
   const pinnedRef = useRef<SimNode | null>(null);
-  const animationRef = useRef<number | null>(null);
+  const simulationRef = useRef<Simulation<SimNode, SimEdge> | null>(null);
   const ticksRef = useRef(0);
   const hoverRef = useRef<NoteID | null>(null);
   const userAdjustedRef = useRef(false);
@@ -93,7 +106,7 @@ export function GraphCanvas({
     startGraph();
 
     return () => stopGraph();
-  }, [graph, size]);
+  }, [graph, size, focusNodeID]);
 
   useEffect(() => {
     resizeCanvas(size);
@@ -153,23 +166,33 @@ export function GraphCanvas({
       return;
     }
 
-    const frame = () => {
-      stepGraph();
-      if (!userAdjustedRef.current && ticksRef.current < 150) {
-        viewRef.current = fitGraphView(size);
-      }
-      drawGraph(size);
-      ticksRef.current += 1;
-      animationRef.current = window.requestAnimationFrame(frame);
-    };
-    frame();
+    const simulation = forceSimulation<SimNode, SimEdge>(nodesRef.current)
+      .velocityDecay(0.18)
+      .alpha(1)
+      .alphaDecay(0.035)
+      .force(
+        "link",
+        forceLink<SimNode, SimEdge>(edgesRef.current)
+          .id((node) => String(node.note_id))
+          .distance(110)
+          .strength(0.12),
+      )
+      .force("charge", forceManyBody<SimNode>().strength(-1400).distanceMin(9))
+      .force("x", forceX<SimNode>(0).strength(0.002))
+      .force("y", forceY<SimNode>(0).strength(0.002))
+      .on("tick", () => {
+        if (!userAdjustedRef.current && ticksRef.current < 150) {
+          viewRef.current = fitGraphView(size);
+        }
+        drawGraph(size);
+        ticksRef.current += 1;
+      });
+    simulationRef.current = simulation;
   }
 
   function stopGraph() {
-    if (animationRef.current !== null) {
-      window.cancelAnimationFrame(animationRef.current);
-      animationRef.current = null;
-    }
+    simulationRef.current?.stop();
+    simulationRef.current = null;
   }
 
   function resizeCanvas(nextSize: { width: number; height: number }) {
@@ -181,6 +204,9 @@ export function GraphCanvas({
   }
 
   function fitGraphView(nextSize: { width: number; height: number }): GraphView {
+    const focused = focusedGraphView(nextSize);
+    if (focused) return focused;
+
     const nodes = nodesRef.current;
     if (nodes.length === 0) {
       return { x: 0, y: 0, scale: 1 };
@@ -211,54 +237,16 @@ export function GraphCanvas({
     };
   }
 
-  function stepGraph() {
-    const nodes = nodesRef.current;
-    const edges = edgesRef.current;
-
-    for (let i = 0; i < nodes.length; i += 1) {
-      for (let j = i + 1; j < nodes.length; j += 1) {
-        const a = nodes[i];
-        const b = nodes[j];
-        const dx = a.x - b.x;
-        const dy = a.y - b.y;
-        const d2 = Math.max(80, dx * dx + dy * dy);
-        const force = 1400 / d2;
-        a.vx += dx * force;
-        a.vy += dy * force;
-        b.vx -= dx * force;
-        b.vy -= dy * force;
-      }
-    }
-
-    edges.forEach((edge) => {
-      const dx = edge.target.x - edge.source.x;
-      const dy = edge.target.y - edge.source.y;
-      const dist = Math.max(1, Math.sqrt(dx * dx + dy * dy));
-      const force = (dist - 110) * 0.012;
-      const fx = (dx / dist) * force;
-      const fy = (dy / dist) * force;
-      edge.source.vx += fx;
-      edge.source.vy += fy;
-      edge.target.vx -= fx;
-      edge.target.vy -= fy;
-    });
-
-    const pinned = pinnedRef.current;
-    nodes.forEach((node) => {
-      if (node === pinned) {
-        // The grabbed node stays where the pointer holds it: it still pushes and pulls its neighbours
-        // through the forces above, but its own accumulated force is dropped so it doesn't drift off.
-        node.vx = 0;
-        node.vy = 0;
-        return;
-      }
-      node.vx += -node.x * 0.002;
-      node.vy += -node.y * 0.002;
-      node.vx *= 0.82;
-      node.vy *= 0.82;
-      node.x += node.vx;
-      node.y += node.vy;
-    });
+  function focusedGraphView(nextSize: { width: number; height: number }): GraphView | null {
+    if (focusNodeID === undefined) return null;
+    const node = nodesRef.current.find((candidate) => candidate.note_id === focusNodeID);
+    if (!node) return null;
+    const scale = clamp(Math.min(nextSize.width, nextSize.height) / 640, 0.42, 0.65);
+    return {
+      x: -node.x * scale,
+      y: -node.y * scale,
+      scale,
+    };
   }
 
   function drawGraph(nextSize: { width: number; height: number }) {
@@ -445,6 +433,11 @@ export function GraphCanvas({
     const node = decorative ? undefined : graphNodeAt(point);
     dragRef.current = { pointerId: event.pointerId, start: point, last: point, moved: false, node };
     pinnedRef.current = node ?? null;
+    if (node) {
+      node.fx = node.x;
+      node.fy = node.y;
+      simulationRef.current?.alphaTarget(0.18).restart();
+    }
     event.currentTarget.setPointerCapture(event.pointerId);
     event.currentTarget.classList.add("dragging");
   }
@@ -478,6 +471,8 @@ export function GraphCanvas({
       drag.node.y = world.y;
       drag.node.vx = 0;
       drag.node.vy = 0;
+      drag.node.fx = world.x;
+      drag.node.fy = world.y;
     } else {
       const dx = point.x - drag.last.x;
       const dy = point.y - drag.last.y;
@@ -497,7 +492,15 @@ export function GraphCanvas({
     const point = canvasPoint(event);
     dragRef.current = null;
     // Releasing unpins the node, so the simulation eases it back into equilibrium with its neighbours.
+    if (pinnedRef.current) {
+      pinnedRef.current.fx = null;
+      pinnedRef.current.fy = null;
+    }
     pinnedRef.current = null;
+    const simulation = simulationRef.current;
+    if (drag?.node && simulation) {
+      simulation.alphaTarget(0).alpha(Math.max(simulation.alpha(), 0.25)).restart();
+    }
     event.currentTarget.classList.remove("dragging");
     if (!drag || drag.pointerId !== event.pointerId) return;
     event.currentTarget.releasePointerCapture(event.pointerId);
@@ -509,6 +512,11 @@ export function GraphCanvas({
 
   function pointerCancel(event: PointerEvent<HTMLCanvasElement>) {
     dragRef.current = null;
+    if (pinnedRef.current) {
+      pinnedRef.current.fx = null;
+      pinnedRef.current.fy = null;
+      simulationRef.current?.alphaTarget(0).restart();
+    }
     pinnedRef.current = null;
     event.currentTarget.classList.remove("dragging");
   }

@@ -119,6 +119,7 @@ export function GraphPanel() {
         <GraphCanvas
           graph={graph}
           resetToken={resetToken}
+          focusNodeID={effectiveScope === "global" ? selectedNoteID : undefined}
           onSelect={(noteID) =>
             void navigate({ to: "/notes/$noteId", params: { noteId: String(noteID) } })
           }
