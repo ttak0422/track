@@ -1,5 +1,7 @@
 import { Link, Outlet, useNavigate, useRouterState } from "@tanstack/react-router";
+import { useState } from "react";
 import { GraphBackground } from "./GraphBackground";
+import { GraphFullView } from "./GraphFullView";
 import { GraphPanel } from "./GraphPanel";
 import { KMark } from "./Logo";
 import { FloatingLayer } from "./preview/FloatingLayer";
@@ -13,6 +15,7 @@ import { SearchProvider } from "../searchState";
 export function Shell() {
   const isHome = useRouterState({ select: (state) => state.location.pathname === "/" });
   const navigate = useNavigate();
+  const [graphFull, setGraphFull] = useState(false);
   useLiveEvents();
 
   // Open (creating if needed) today's journal and jump to it, mirroring how the activity heatmap opens a
@@ -50,6 +53,15 @@ export function Shell() {
               >
                 <span className="rail-icon rail-icon-journal" aria-hidden="true" />
               </button>
+              <button
+                className="rail-button"
+                type="button"
+                aria-label="Full graph"
+                title="Full graph"
+                onClick={() => setGraphFull(true)}
+              >
+                <RailGraphIcon />
+              </button>
               <div className="rail-spacer" />
               <ThemeMenu />
             </nav>
@@ -59,10 +71,24 @@ export function Shell() {
           {isHome ? <GraphBackground /> : null}
           <Outlet />
         </section>
-        {isHome ? null : <GraphPanel />}
+        {isHome ? null : <GraphPanel onOpenFull={() => setGraphFull(true)} />}
+        {graphFull ? <GraphFullView onClose={() => setGraphFull(false)} /> : null}
         <FloatingLayer />
       </main>
       </FloatingProvider>
     </SearchProvider>
+  );
+}
+
+function RailGraphIcon() {
+  return (
+    <svg className="rail-icon-svg" viewBox="0 0 24 24" width="20" height="20" aria-hidden="true">
+      <line x1="7" y1="8" x2="16" y2="7" stroke="currentColor" strokeWidth="1.6" />
+      <line x1="7" y1="8" x2="12" y2="17" stroke="currentColor" strokeWidth="1.6" />
+      <line x1="16" y1="7" x2="12" y2="17" stroke="currentColor" strokeWidth="1.6" />
+      <circle cx="7" cy="8" r="2.4" fill="currentColor" />
+      <circle cx="16" cy="7" r="2.4" fill="currentColor" />
+      <circle cx="12" cy="17" r="2.4" fill="currentColor" />
+    </svg>
   );
 }

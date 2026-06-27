@@ -3,7 +3,6 @@ import { PointerEvent, useRef, useState } from "react";
 import { useGraphQuery, useLocalGraphQuery } from "../queries";
 import type { NoteID } from "../types";
 import { GraphCanvas } from "./GraphCanvas";
-import { GraphFullView } from "./GraphFullView";
 
 type GraphScope = "local" | "global";
 
@@ -27,13 +26,12 @@ const defaultHeight = 380;
 const minWidth = 280;
 const minHeight = 220;
 
-export function GraphPanel() {
+export function GraphPanel({ onOpenFull }: { onOpenFull: () => void }) {
   const pathname = useRouterState({ select: (state) => state.location.pathname });
   const selectedNoteID = noteIDFromPath(pathname);
   const [scope, setScope] = useState<GraphScope>("local");
   const [resetToken, setResetToken] = useState(0);
   const [visible, setVisible] = useState(false);
-  const [fullView, setFullView] = useState(false);
   const [panelSize, setPanelSize] = useState<PanelSize>(() => ({
     width: Math.min(defaultWidth, window.innerWidth - 36),
     height: Math.min(defaultHeight, window.innerHeight - 112),
@@ -86,28 +84,21 @@ export function GraphPanel() {
     event.currentTarget.releasePointerCapture(event.pointerId);
   }
 
-  const fullOverlay = fullView ? <GraphFullView onClose={() => setFullView(false)} /> : null;
-
   if (!visible) {
     return (
-      <>
-        {fullOverlay}
-        <button
-          className="graph-fab"
-          type="button"
-          aria-label="Show graph"
-          title="Show graph"
-          onClick={() => setVisible(true)}
-        >
-          <GraphGlyph />
-        </button>
-      </>
+      <button
+        className="graph-fab"
+        type="button"
+        aria-label="Show graph"
+        title="Show graph"
+        onClick={() => setVisible(true)}
+      >
+        <GraphGlyph />
+      </button>
     );
   }
 
   return (
-    <>
-    {fullOverlay}
     <aside
       className="graph-panel"
       aria-label="Graph"
@@ -161,7 +152,7 @@ export function GraphPanel() {
           type="button"
           aria-label="Open full graph"
           title="Open full graph"
-          onClick={() => setFullView(true)}
+          onClick={onOpenFull}
         >
           ⤢
         </button>
@@ -176,7 +167,6 @@ export function GraphPanel() {
         </button>
       </div>
     </aside>
-    </>
   );
 }
 
