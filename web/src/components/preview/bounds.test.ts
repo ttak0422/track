@@ -31,7 +31,12 @@ describe("constrainPreviewBounds", () => {
   });
   it("clamps an oversized off-screen box back into the viewport", () => {
     const out = constrainPreviewBounds({ left: -100, top: -100, width: 5000, height: 5000 });
-    expect(out).toEqual({ left: 12, top: 12, width: 1176, height: 776 });
+    expect(out).toEqual({ left: -100, top: -20, width: 1176, height: 776 });
+  });
+  it("allows a dragged preview to sit mostly off-screen while leaving a visible strip", () => {
+    expect(constrainPreviewBounds({ left: -1000, top: 100, width: 400, height: 300 }).left).toBe(-356);
+    expect(constrainPreviewBounds({ left: 2000, top: 100, width: 400, height: 300 }).left).toBe(1156);
+    expect(constrainPreviewBounds({ left: 100, top: 2000, width: 400, height: 300 }).top).toBe(756);
   });
 });
 

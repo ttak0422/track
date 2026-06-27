@@ -4,6 +4,8 @@
 export const previewMargin = 12;
 export const minPreviewWidth = 280;
 export const minPreviewHeight = 180;
+// Keep at least a short grab/readable strip visible when a preview is dragged mostly off-screen.
+export const minPreviewVisible = 32;
 // Gap between a link and a preview placed beside it.
 export const previewSideGap = 12;
 
@@ -66,11 +68,16 @@ export function constrainPreviewBounds(bounds: PreviewBounds): PreviewBounds {
     minPreviewHeight,
     Math.max(minPreviewHeight, window.innerHeight - previewMargin * 2),
   );
+  const horizontalMin = previewMargin + minPreviewVisible - width;
+  const horizontalMax = window.innerWidth - previewMargin - minPreviewVisible;
+  // Allow a little upward overflow, but keep enough chrome visible that the window remains draggable.
+  const verticalMin = previewMargin - minPreviewVisible;
+  const verticalMax = window.innerHeight - previewMargin - minPreviewVisible;
   return {
     width,
     height,
-    left: clamp(bounds.left, previewMargin, Math.max(previewMargin, window.innerWidth - width - previewMargin)),
-    top: clamp(bounds.top, previewMargin, Math.max(previewMargin, window.innerHeight - height - previewMargin)),
+    left: clamp(bounds.left, horizontalMin, Math.max(horizontalMin, horizontalMax)),
+    top: clamp(bounds.top, verticalMin, Math.max(verticalMin, verticalMax)),
   };
 }
 
