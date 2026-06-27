@@ -15,6 +15,7 @@ interface WikiLinkProps {
 export function WikiLink({ target, display }: WikiLinkProps) {
   const [open, setOpen] = useState(false);
   const [anchor, setAnchor] = useState<PreviewAnchor | null>(null);
+  const [sticky, setSticky] = useState(false);
   const [stackOrder, setStackOrder] = useState(nextPreviewStackOrder);
   const linkRef = useRef<HTMLAnchorElement>(null);
   const closeTimer = useRef<number | undefined>(undefined);
@@ -70,6 +71,7 @@ export function WikiLink({ target, display }: WikiLinkProps) {
 
   function scheduleClose() {
     cancelOpen();
+    if (sticky) return;
     if (closeTimer.current !== undefined) window.clearTimeout(closeTimer.current);
     closeTimer.current = window.setTimeout(() => setOpen(false), 220);
   }
@@ -79,6 +81,17 @@ export function WikiLink({ target, display }: WikiLinkProps) {
   function promote(bounds: PreviewBounds, collapsed: boolean) {
     if (noteID === undefined) return;
     floating.open({ kind: "note", noteID }, bounds, collapsed, true);
+    setSticky(false);
+    setOpen(false);
+  }
+
+  function detachPreview() {
+    holdPreview();
+    setSticky(true);
+  }
+
+  function closePreview() {
+    setSticky(false);
     setOpen(false);
   }
 
@@ -105,13 +118,14 @@ export function WikiLink({ target, display }: WikiLinkProps) {
         <NoteWindow
           noteID={noteID}
           initialBounds={initialPreviewBounds(anchor)}
-          reanchor={anchor}
+          reanchor={sticky ? undefined : anchor}
           pinned={false}
           depth={depth}
           stackOrder={stackOrder}
           onActivate={bringPreviewToFront}
           onHold={holdPreview}
-          onClose={() => setOpen(false)}
+          onDetach={detachPreview}
+          onClose={closePreview}
           onPinToggle={promote}
         />
       ) : null}

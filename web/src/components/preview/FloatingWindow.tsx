@@ -21,6 +21,9 @@ export interface FloatingWindowControls {
   stackOrder: number;
   onActivate: () => void;
   onHold?: () => void;
+  // Called once the user actually moves/resizes the preview. Hover previews use this to become sticky
+  // until the page changes or the user closes them.
+  onDetach?: () => void;
   onClose: () => void;
   // Toggle pin: an unpinned window promotes (carrying its current bounds/collapsed); a pinned one unpins.
   onPinToggle: (bounds: PreviewBounds, collapsed: boolean) => void;
@@ -37,6 +40,7 @@ interface DragState {
   startX: number;
   startY: number;
   startBounds: PreviewBounds;
+  detached: boolean;
 }
 
 // FloatingWindow is the draggable/resizable/collapsible chrome shared by hover previews and the pinned
@@ -51,6 +55,7 @@ export function FloatingWindow({
   stackOrder,
   onActivate,
   onHold,
+  onDetach,
   onClose,
   onPinToggle,
   children,
@@ -85,6 +90,7 @@ export function FloatingWindow({
       startX: event.clientX,
       startY: event.clientY,
       startBounds: bounds,
+      detached: false,
     };
     event.currentTarget.setPointerCapture(event.pointerId);
   }
@@ -94,6 +100,10 @@ export function FloatingWindow({
     if (!drag || drag.pointerId !== event.pointerId) return;
     const dx = event.clientX - drag.startX;
     const dy = event.clientY - drag.startY;
+    if (!drag.detached && Math.abs(dx) + Math.abs(dy) > 4) {
+      drag.detached = true;
+      onDetach?.();
+    }
     setBounds(
       drag.mode === "move"
         ? constrainPreviewBounds({
