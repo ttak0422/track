@@ -30,6 +30,26 @@ The image above is just:
 The same standalone image syntax also embeds YouTube videos, Twitter/X posts, PDFs, image URLs, and
 ordinary web pages with Open Graph metadata. Inline image syntax inside a paragraph stays inline.
 
+## Code and diagrams
+
+Fenced code blocks are syntax highlighted when the language is named. The web reader also adds a copy
+button to each block.
+
+```go
+func Title(text string) string {
+	return strings.TrimSpace(text)
+}
+```
+
+Use a `mermaid` fence for diagrams; the web reader renders it inline and shows the original source if
+the diagram has a syntax error.
+
+```mermaid
+flowchart LR
+  note[Markdown note] --> web[Web workspace]
+  web --> preview[Rendered preview]
+```
+
 ## Relationship to the static export
 
 The static site produced by `track export-site` is the *published* counterpart of this workspace:
