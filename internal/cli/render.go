@@ -1,12 +1,15 @@
 package cli
 
 import (
+	"bytes"
+	"encoding/json"
 	"flag"
 	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
 
+	"github.com/ttak0422/track/internal/track/article"
 	"github.com/ttak0422/track/internal/track/dataset"
 	"github.com/ttak0422/track/internal/track/render"
 	"github.com/ttak0422/track/internal/track/viewspec"
@@ -36,46 +39,92 @@ func cmdRender(args []string) int {
 		return fail("--out is required")
 	}
 
+	specJSON, err := os.ReadFile(*spec)
+	if err != nil {
+		return fail("open spec: %v", err)
+	}
+	// A spec with a "blocks" array is a composed article (prose + multiple charts); otherwise it is a
+	// single View Spec chart.
+	if isArticle(specJSON) {
+		return cmdRenderArticle(*spec, specJSON, *out)
+	}
+
 	r, err := render.Get(*renderer)
 	if err != nil {
 		return fail("%v", err)
 	}
-
-	specFile, err := os.Open(*spec)
-	if err != nil {
-		return fail("open spec: %v", err)
-	}
-	vs, err := viewspec.Load(specFile)
-	specFile.Close()
+	vs, err := viewspec.Load(bytes.NewReader(specJSON))
 	if err != nil {
 		return fail("%v", err)
 	}
-
-	// Data and overlay sources are resolved relative to the spec file so a spec is portable alongside
-	// its data.
-	records, err := readJSONLRelative(*spec, vs.Data.Source)
+	resolved, err := resolveChart(*spec, vs)
 	if err != nil {
 		return fail("%v", err)
 	}
-
-	resolved := vs.Resolve(records)
-	for i, ov := range vs.Overlays {
-		ovRecords, err := readJSONLRelative(*spec, ov.Source)
-		if err != nil {
-			return fail("overlay[%d]: %v", i, err)
-		}
-		resolved.Markers = append(resolved.Markers, ov.Markers(ovRecords)...)
-	}
-
 	doc, err := r.Render(resolved)
 	if err != nil {
 		return fail("render: %v", err)
 	}
-
 	if err := os.WriteFile(*out, []byte(doc), 0o644); err != nil {
 		return fail("write %s: %v", *out, err)
 	}
-	return emit(map[string]any{"path": *out, "renderer": r.Name(), "records": len(records)})
+	return emit(map[string]any{"path": *out, "renderer": r.Name(), "records": len(resolved.Labels) + len(resolved.Series)})
+}
+
+// isArticle reports whether a spec is a composed article, detected by a non-empty top-level "blocks".
+func isArticle(specJSON []byte) bool {
+	var probe struct {
+		Blocks json.RawMessage `json:"blocks"`
+	}
+	_ = json.Unmarshal(specJSON, &probe)
+	return len(probe.Blocks) > 0
+}
+
+// resolveChart reads a chart's data and overlay sources (relative to the spec/article file) and
+// resolves the View Spec against them. It is shared by the single-chart and article render paths.
+func resolveChart(specPath string, vs viewspec.Spec) (viewspec.Resolved, error) {
+	records, err := readJSONLRelative(specPath, vs.Data.Source)
+	if err != nil {
+		return viewspec.Resolved{}, err
+	}
+	res := vs.Resolve(records)
+	for i, ov := range vs.Overlays {
+		ovRecords, err := readJSONLRelative(specPath, ov.Source)
+		if err != nil {
+			return viewspec.Resolved{}, fmt.Errorf("overlay[%d]: %w", i, err)
+		}
+		res.Markers = append(res.Markers, ov.Markers(ovRecords)...)
+	}
+	return res, nil
+}
+
+// cmdRenderArticle resolves each chart block in an article and composes prose + charts into one HTML
+// page. Article output is always the Chart.js-based document renderer.
+func cmdRenderArticle(specPath string, specJSON []byte, out string) int {
+	a, err := article.Load(bytes.NewReader(specJSON))
+	if err != nil {
+		return fail("%v", err)
+	}
+	doc := render.Document{Title: a.Title}
+	for i, b := range a.Blocks {
+		if b.Chart != nil {
+			res, err := resolveChart(specPath, *b.Chart)
+			if err != nil {
+				return fail("blocks[%d]: %v", i, err)
+			}
+			doc.Items = append(doc.Items, render.Item{Chart: &res})
+			continue
+		}
+		doc.Items = append(doc.Items, render.Item{Markdown: b.Markdown})
+	}
+	page, err := render.RenderDocument(doc)
+	if err != nil {
+		return fail("render: %v", err)
+	}
+	if err := os.WriteFile(out, []byte(page), 0o644); err != nil {
+		return fail("write %s: %v", out, err)
+	}
+	return emit(map[string]any{"path": out, "renderer": "chartjs", "blocks": len(a.Blocks)})
 }
 
 // wantsHelp reports whether the args request help, so the command can print usage instead of failing
@@ -136,6 +185,20 @@ func viewSpecReference() string {
     ],
     "overlays": [
       { "source": "events.jsonl", "kind": "event", "at": "time", "label": "title" }
+    ]
+  }
+
+Bubble adds size (radius):
+  { "type": "bubble", ..., "x": {"field":"ret"}, "y": [{"field":"vol"}], "size": {"field":"exposure"} }
+
+Article (composed document): a spec with a "blocks" array of prose and charts is
+rendered as one HTML page (prose via marked, charts via Chart.js):
+  {
+    "version": 1,
+    "title": "Market narrative",
+    "blocks": [
+      { "markdown": "# Overview\n\nNarrative text..." },
+      { "chart": { <a View Spec as above> } }
     ]
   }
 `)

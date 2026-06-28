@@ -132,6 +132,32 @@ Emits a self-contained HTML page that loads **Chart.js from a CDN**
   only when the spec has overlays (plain charts stay lean).
 - The page requires network access at view time to load Chart.js (and the annotation plugin, if used).
 
+## Article (composed document)
+
+An article composes prose and multiple charts into one HTML page — the "data + layout + rendering"
+unit. It is defined in `internal/track/article`: a spec whose top-level has a `blocks` array.
+
+```json
+{
+  "version": 1,
+  "title": "Market narrative",
+  "blocks": [
+    { "markdown": "# Overview\n\nNarrative text with **bold** and [links](https://example.com)." },
+    { "chart": { "version": 1, "type": "line", "data": { "source": "metrics.jsonl", "kind": "metric" },
+                 "x": { "field": "time" }, "y": [ { "field": "value" } ] } },
+    { "markdown": "Commentary between charts." },
+    { "chart": { "version": 1, "type": "hbar", "data": { "source": "ranking.jsonl", "kind": "metric" },
+                 "x": { "field": "name" }, "y": [ { "field": "value" } ] } }
+  ]
+}
+```
+
+- Each block sets **exactly one** of `markdown` (prose) or `chart` (an inline View Spec as above).
+- Chart data/overlay sources resolve relative to the article file, like a standalone spec.
+- Output is one HTML page: prose is rendered by **marked.js** (CDN) at view time so track keeps no Go
+  Markdown dependency; charts reuse the Chart.js renderer. The annotation plugin loads only if a chart
+  has overlays, and marked only if there is prose.
+
 ## CLI
 
 ```
@@ -140,12 +166,16 @@ track render --spec <spec.json> --out <file> [--renderer chartjs]
 
 - Loads and validates the spec, resolves its data source relative to the spec file, reads the JSONL,
   renders, and **writes the result to `--out`** (both `--spec` and `--out` are required).
+- A spec with a top-level `blocks` array is rendered as an **article** (see above); otherwise as a
+  single chart.
 - Independent of the note index/store — works on any canonical JSONL, in a vault or not.
-- On success prints JSON: `{"path": "...", "renderer": "chartjs", "records": N}`.
+- On success prints JSON: `{"path": "...", "renderer": "chartjs", "records": N}` for a chart, or
+  `{"path": "...", "renderer": "chartjs", "blocks": N}` for an article.
 - Errors print `{"error": "..."}` with exit code 1, like other track commands.
 
-Example:
+Examples:
 
 ```sh
 track render --spec chart.json --out chart.html
+track render --spec article.json --out article.html
 ```

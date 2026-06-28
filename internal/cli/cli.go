@@ -134,7 +134,8 @@ Usage:
   track export-site --src <dir> [--root <name>] --frontend <dist> --out <dir>
                                         publish a directory of Markdown files as a static site (JSON)
   track render --spec <spec.json> --out <file> [--renderer chartjs]
-                                        render a View Spec over its JSONL data to a file (JSON path);
+                                        render a View Spec chart, or a composed article (a spec with
+                                        "blocks"), to an HTML file (JSON path);
                                         run "track render --help" for the View Spec notation
   track dump                            print placeholder state (JSON)
   track version                         print the version

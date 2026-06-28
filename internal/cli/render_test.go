@@ -83,6 +83,46 @@ func TestRenderCommandDrawsOverlayMarkers(t *testing.T) {
 	}
 }
 
+func TestRenderArticleComposesDocument(t *testing.T) {
+	dir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(dir, "metrics.jsonl"),
+		[]byte(`{"version":1,"name":"p","time":"d1","value":10}`+"\n"+`{"version":1,"name":"p","time":"d2","value":20}`+"\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	art := `{"version":1,"title":"Doc","blocks":[` +
+		`{"markdown":"# Intro"},` +
+		`{"chart":{"version":1,"type":"line","data":{"source":"metrics.jsonl","kind":"metric"},"x":{"field":"time"},"y":[{"field":"value"}]}}` +
+		`]}`
+	artPath := filepath.Join(dir, "article.json")
+	if err := os.WriteFile(artPath, []byte(art), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	outPath := filepath.Join(dir, "out.html")
+
+	raw, code := capture(t, func() int { return Run([]string{"render", "--spec", artPath, "--out", outPath}) })
+	if code != 0 {
+		t.Fatalf("render article failed: %q", raw)
+	}
+	var decoded map[string]any
+	if err := json.Unmarshal([]byte(raw), &decoded); err != nil {
+		t.Fatalf("expected JSON result, got %q", raw)
+	}
+	if decoded["blocks"] != float64(2) {
+		t.Fatalf("expected 2 blocks, got %v", decoded["blocks"])
+	}
+	html, err := os.ReadFile(outPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	got := string(html)
+	if !strings.Contains(got, `canvas id="chart-0"`) || !strings.Contains(got, `class="prose"`) {
+		t.Fatalf("article structure missing: %s", got)
+	}
+	if !strings.Contains(got, `"data":[10,20]`) {
+		t.Fatalf("chart data not resolved in article: %s", got)
+	}
+}
+
 func TestRenderHelpListsNotationAndExits0(t *testing.T) {
 	out, code := capture(t, func() int { return Run([]string{"render", "--help"}) })
 	if code != 0 {

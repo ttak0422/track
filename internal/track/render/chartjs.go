@@ -67,6 +67,25 @@ func chartJSType(t viewspec.ChartType) string {
 
 // Render builds the Chart.js config from the resolved spec and embeds it in a complete HTML document.
 func (ChartJS) Render(res viewspec.Resolved) (string, error) {
+	cfgJSON, usesAnnotation, err := chartJSConfigJSON(res)
+	if err != nil {
+		return "", err
+	}
+	title := res.Spec.Title
+	if title == "" {
+		title = "track chart"
+	}
+	scripts := []string{chartJSCDN}
+	if usesAnnotation {
+		scripts = append(scripts, annotationCDN)
+	}
+	return renderPage(html.EscapeString(title), cfgJSON, scripts), nil
+}
+
+// chartJSConfigJSON builds the Chart.js config JSON for a resolved spec and reports whether it uses
+// the annotation plugin (so a page can decide to load that CDN). It is the shared core behind both the
+// single-chart page (Render) and embedded charts in a composed document (RenderDocument).
+func chartJSConfigJSON(res viewspec.Resolved) (string, bool, error) {
 	cfg := chartConfig{
 		Type:    chartJSType(res.Spec.Type),
 		Data:    chartData{Labels: res.Labels},
@@ -128,18 +147,9 @@ func (ChartJS) Render(res viewspec.Resolved) (string, error) {
 
 	cfgJSON, err := json.Marshal(cfg)
 	if err != nil {
-		return "", fmt.Errorf("marshal chart config: %w", err)
+		return "", false, fmt.Errorf("marshal chart config: %w", err)
 	}
-
-	title := res.Spec.Title
-	if title == "" {
-		title = "track chart"
-	}
-	scripts := []string{chartJSCDN}
-	if len(res.Markers) > 0 {
-		scripts = append(scripts, annotationCDN)
-	}
-	return renderPage(html.EscapeString(title), string(cfgJSON), scripts), nil
+	return string(cfgJSON), len(res.Markers) > 0, nil
 }
 
 // markerAnnotations builds the chartjs-plugin-annotation `annotations` object: one vertical line per
