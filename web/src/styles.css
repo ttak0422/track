@@ -503,10 +503,20 @@ button {
   background: var(--accent);
 }
 
+/* The reader column is a flex stack: the tab bar stays pinned while the reader below it scrolls. */
+.reader-pane {
+  display: flex;
+  min-width: 0;
+  min-height: 0;
+  flex-direction: column;
+  overflow: hidden;
+}
+
 .reader {
   position: relative;
   min-width: 0;
   min-height: 0;
+  flex: 1;
   overflow: auto;
   padding: 32px;
   background: var(--panel);
@@ -736,39 +746,118 @@ button {
   max-width: 1920px;
 }
 
-.note-header {
+/* Tab bar: a horizontally scrolling strip of open notes pinned above the reader. */
+.tabbar {
   display: flex;
-  align-items: flex-start;
-  justify-content: space-between;
-  gap: 20px;
+  flex: 0 0 auto;
+  align-items: stretch;
+  overflow-x: auto;
+  border-bottom: 1px solid var(--line);
+  background: var(--panel-soft);
+  scrollbar-width: none;
 }
 
-.note-header h2 {
-  margin: 0;
-  font-size: 28px;
+.tabbar::-webkit-scrollbar {
+  display: none;
 }
 
-.note-title-row {
+.tab {
+  position: relative;
   display: flex;
+  max-width: 220px;
   min-width: 0;
   align-items: center;
-  gap: 10px;
-}
-
-.dirty-indicator {
-  width: 9px;
-  height: 9px;
-  flex: 0 0 auto;
-  border-radius: 999px;
-  background: var(--accent);
-  box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent) 18%, transparent);
-}
-
-.note-header p {
-  margin: 6px 0 0;
+  border-right: 1px solid var(--line);
+  background: var(--panel-soft);
   color: var(--muted);
+}
+
+.tab.active {
+  background: var(--panel);
+  color: var(--text);
+  /* An accent underline marks the active tab; -1px overlaps the strip's bottom border. */
+  box-shadow: inset 0 -2px 0 var(--accent);
+}
+
+.tab-label {
+  display: flex;
+  min-width: 0;
+  max-width: 100%;
+  align-items: center;
+  border: 0;
+  /* Leave room on the right for the absolutely-placed close button / dirty dot. */
+  padding: 8px 30px 8px 12px;
+  color: inherit;
+  background: transparent;
+  font: inherit;
+  cursor: pointer;
+}
+
+/* Titles that overflow show their beginning, with an ellipsis standing in for the clipped tail. */
+.tab-title {
+  overflow: hidden;
   font-size: 13px;
-  overflow-wrap: anywhere;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.tab-close {
+  position: absolute;
+  top: 50%;
+  right: 6px;
+  display: grid;
+  width: 18px;
+  height: 18px;
+  translate: 0 -50%;
+  place-items: center;
+  border: 0;
+  border-radius: 4px;
+  padding: 0;
+  color: inherit;
+  background: transparent;
+  cursor: pointer;
+}
+
+.tab-close:hover {
+  background: var(--line);
+  color: var(--text);
+}
+
+.tab-close-glyph {
+  font-size: 15px;
+  line-height: 1;
+}
+
+.tab-dirty-dot {
+  position: absolute;
+  width: 8px;
+  height: 8px;
+  border-radius: 999px;
+  background: currentColor;
+}
+
+/* The close button is hidden until the tab is hovered or active, leaving just the title. A dirty note
+   instead shows a dot in the close slot, which the hover/active state swaps back for the × button. */
+.tab-close-glyph {
+  opacity: 0;
+}
+
+.tab:hover .tab-close-glyph,
+.tab.active .tab-close-glyph {
+  opacity: 1;
+}
+
+.tab-dirty-dot {
+  opacity: 0;
+}
+
+.tab.dirty .tab-dirty-dot {
+  opacity: 1;
+}
+
+.tab.dirty:hover .tab-dirty-dot,
+.tab.dirty.active .tab-dirty-dot {
+  opacity: 0;
 }
 
 /* The note's controls float over the reader as a graph-style overlay (shadowed, translucent pills),

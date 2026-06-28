@@ -5,6 +5,8 @@ import { KMark } from "./Logo";
 import { FloatingLayer } from "./preview/FloatingLayer";
 import { FloatingProvider } from "./preview/floatingStore";
 import { SidebarSearch } from "./SidebarSearch";
+import { TabBar } from "./tabs/TabBar";
+import { TabsProvider } from "./tabs/tabsStore";
 import { ThemeMenu } from "./ThemeMenu";
 import { openJournal } from "../api";
 import { useLiveEvents } from "../hooks/useLiveEvents";
@@ -36,6 +38,7 @@ export function Shell() {
   return (
     <SearchProvider>
       <FloatingProvider>
+      <TabsProvider>
       <main className={`workspace${isHome ? " home" : ""}`}>
         {isHome ? null : (
           <aside className="sidebar">
@@ -69,13 +72,17 @@ export function Shell() {
             </nav>
           </aside>
         )}
-        <section className="reader">
-          {isHome ? <GraphBackground /> : null}
-          <Outlet />
-        </section>
+        <div className="reader-pane">
+          {isHome ? null : <TabBar />}
+          <section className="reader">
+            {isHome ? <GraphBackground /> : null}
+            <Outlet />
+          </section>
+        </div>
         {isHome || isGraph ? null : <GraphPanel />}
         <FloatingLayer />
       </main>
+      </TabsProvider>
       </FloatingProvider>
     </SearchProvider>
   );

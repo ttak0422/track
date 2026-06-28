@@ -5,6 +5,7 @@ import { getFollowState } from "../api";
 import { STATIC_MODE } from "../runtime";
 import { useAgendaQuery, useNoteQuery, useRenderQuery, useSaveNoteMutation } from "../queries";
 import { useSearchState } from "../searchState";
+import { useTabs } from "./tabs/tabsStore";
 import type { FileKind, FollowState, NoteID } from "../types";
 
 interface NoteReaderProps {
@@ -21,6 +22,7 @@ export function NoteReader({ noteID }: NoteReaderProps) {
   const noteQuery = useNoteQuery(noteID, { live: true });
   const saveNote = useSaveNoteMutation(noteID);
   const { setQuery } = useSearchState();
+  const { setTitle: setTabTitle, setDirty: setTabDirty } = useTabs();
   const navigate = useNavigate();
   // For a journal, surface the notes worked on that day. The day comes from the journal id (yyyyMMdd).
   const journalDate = journalDateFromNote(noteQuery.data?.note);
@@ -76,6 +78,20 @@ export function NoteReader({ noteID }: NoteReaderProps) {
     enableBeforeUnload: () => dirty,
     disabled: !dirty,
   });
+
+  // The tab bar owns the note's title and unsaved-edit indicator (the reader no longer renders its own
+  // header), so keep its tab in sync. Only the active note can be dirty, so dirtiness is a single id.
+  const noteTitle = noteQuery.data?.note.title;
+  useEffect(() => {
+    if (noteTitle) setTabTitle(noteID, noteTitle);
+  }, [noteID, noteTitle, setTabTitle]);
+
+  useEffect(() => {
+    setTabDirty(dirty ? noteID : null);
+  }, [dirty, noteID, setTabDirty]);
+
+  // Leaving the reader entirely (home/graph) drops the dirty marker; a closed tab discards its edits.
+  useEffect(() => () => setTabDirty(null), [setTabDirty]);
 
   useEffect(() => {
     if (!followEnabled || typeof EventSource === "undefined") return;
@@ -215,15 +231,6 @@ export function NoteReader({ noteID }: NoteReaderProps) {
           </div>
         </div>
       )}
-      <header className="note-header">
-        <div className="note-title-row">
-          <h2>{note.title}</h2>
-          {dirty ? (
-            <span className="dirty-indicator" aria-label="Unsaved changes" title="Unsaved changes" />
-          ) : null}
-        </div>
-      </header>
-
       {tags.length > 0 ? (
         <div className="tag-list note-tags" aria-label="Note tags">
           {tags.map((tag) => (
