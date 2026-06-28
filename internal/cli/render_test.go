@@ -47,6 +47,42 @@ func TestRenderCommandWritesHTML(t *testing.T) {
 	}
 }
 
+func TestRenderCommandDrawsOverlayMarkers(t *testing.T) {
+	dir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(dir, "metrics.jsonl"),
+		[]byte(`{"version":1,"name":"p","time":"d1","value":10}`+"\n"+`{"version":1,"name":"p","time":"d2","value":20}`+"\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "events.jsonl"),
+		[]byte(`{"version":1,"time":"d2","title":"tariff"}`+"\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	spec := `{"version":1,"type":"line","title":"P","data":{"source":"metrics.jsonl","kind":"metric"},` +
+		`"x":{"field":"time"},"y":[{"field":"value"}],` +
+		`"overlays":[{"source":"events.jsonl","kind":"event","at":"time","label":"title"}]}`
+	specPath := filepath.Join(dir, "spec.json")
+	if err := os.WriteFile(specPath, []byte(spec), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	outPath := filepath.Join(dir, "out.html")
+
+	raw, code := capture(t, func() int { return Run([]string{"render", "--spec", specPath, "--out", outPath}) })
+	if code != 0 {
+		t.Fatalf("render failed: %q", raw)
+	}
+	html, err := os.ReadFile(outPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	got := string(html)
+	if !strings.Contains(got, "chartjs-plugin-annotation") {
+		t.Fatalf("overlay should load annotation plugin: %s", got)
+	}
+	if !strings.Contains(got, `"value":"d2"`) || !strings.Contains(got, `"content":"tariff"`) {
+		t.Fatalf("event marker not rendered: %s", got)
+	}
+}
+
 func TestRenderCommandRequiresSpecAndOut(t *testing.T) {
 	out, code := capture(t, func() int { return Run([]string{"render", "--out", "x.html"}) })
 	if code == 0 || !strings.Contains(out, "spec") {

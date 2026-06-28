@@ -37,13 +37,63 @@ var renderableTypes = map[ChartType]bool{ChartLine: true, ChartBar: true, ChartS
 
 // Spec is a single visualization.
 type Spec struct {
-	Version int        `json:"version"`
-	Type    ChartType  `json:"type"`
-	Title   string     `json:"title,omitempty"`
-	Data    DataRef    `json:"data"`
-	X       Encoding   `json:"x"`
-	Y       []Encoding `json:"y"`
-	Filter  *Filter    `json:"filter,omitempty"`
+	Version  int        `json:"version"`
+	Type     ChartType  `json:"type"`
+	Title    string     `json:"title,omitempty"`
+	Data     DataRef    `json:"data"`
+	X        Encoding   `json:"x"`
+	Y        []Encoding `json:"y"`
+	Filter   *Filter    `json:"filter,omitempty"`
+	Overlays []Overlay  `json:"overlays,omitempty"`
+}
+
+// Overlay draws events/annotations from a second data source on top of the chart as vertical markers
+// — e.g. plotting policy events along a Pressure Index time series. It reads its own JSONL source
+// (typically kind event or annotation): At names the field holding the x position (a value that should
+// match an x-axis label), and Label names the field holding the marker text.
+type Overlay struct {
+	Source string       `json:"source"`
+	Kind   dataset.Kind `json:"kind"`
+	At     string       `json:"at,omitempty"`    // x-position field; defaults to "time"
+	Label  string       `json:"label,omitempty"` // marker text field; defaults to "text"
+}
+
+// atField returns the configured x-position field, defaulting to "time".
+func (o Overlay) atField() string {
+	if o.At != "" {
+		return o.At
+	}
+	return "time"
+}
+
+// labelField returns the configured marker-text field, defaulting to "text".
+func (o Overlay) labelField() string {
+	if o.Label != "" {
+		return o.Label
+	}
+	return "text"
+}
+
+// Markers extracts vertical markers from an overlay's records: one per record that has an x position.
+// The text is best-effort (empty when the label field is absent), so an event without a title still
+// draws its line.
+func (o Overlay) Markers(records []dataset.Record) []Marker {
+	var ms []Marker
+	for _, rec := range records {
+		at, ok := rec.String(o.atField())
+		if !ok || at == "" {
+			continue
+		}
+		label, _ := rec.String(o.labelField())
+		ms = append(ms, Marker{At: at, Label: label})
+	}
+	return ms
+}
+
+// Marker is a resolved vertical overlay: a label drawn at x position At.
+type Marker struct {
+	At    string
+	Label string
 }
 
 // DataRef points at the records to plot: a JSONL file (Source, resolved relative to the spec file)
@@ -119,6 +169,14 @@ func (s Spec) Validate() error {
 			return fmt.Errorf("view spec: y[%d].field is required", i)
 		}
 	}
+	for i, o := range s.Overlays {
+		if strings.TrimSpace(o.Source) == "" {
+			return fmt.Errorf("view spec: overlays[%d].source is required", i)
+		}
+		if !o.Kind.Valid() {
+			return fmt.Errorf("view spec: overlays[%d].kind %q is not a canonical kind", i, o.Kind)
+		}
+	}
 	return nil
 }
 
@@ -132,9 +190,10 @@ type Series struct {
 // Resolved is a Spec applied to data: the shared x-axis labels plus one Series per y encoding. A
 // Renderer consumes Resolved and never touches raw records, keeping field extraction in one place.
 type Resolved struct {
-	Spec   Spec
-	Labels []string
-	Series []Series
+	Spec    Spec
+	Labels  []string
+	Series  []Series
+	Markers []Marker // vertical overlays (events/annotations), filled by the caller from Overlays
 }
 
 // Resolve applies the spec's filter and encodings to records, producing aligned x labels and y

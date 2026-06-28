@@ -2,6 +2,7 @@ package cli
 
 import (
 	"flag"
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
@@ -44,22 +45,23 @@ func cmdRender(args []string) int {
 		return fail("%v", err)
 	}
 
-	// Data source is resolved relative to the spec file so a spec is portable alongside its data.
-	dataPath := vs.Data.Source
-	if !filepath.IsAbs(dataPath) {
-		dataPath = filepath.Join(filepath.Dir(*spec), dataPath)
-	}
-	dataFile, err := os.Open(dataPath)
+	// Data and overlay sources are resolved relative to the spec file so a spec is portable alongside
+	// its data.
+	records, err := readJSONLRelative(*spec, vs.Data.Source)
 	if err != nil {
-		return fail("open data %s: %v", dataPath, err)
-	}
-	records, err := dataset.ReadJSONL(dataFile)
-	dataFile.Close()
-	if err != nil {
-		return fail("read data %s: %v", dataPath, err)
+		return fail("%v", err)
 	}
 
-	doc, err := r.Render(vs.Resolve(records))
+	resolved := vs.Resolve(records)
+	for i, ov := range vs.Overlays {
+		ovRecords, err := readJSONLRelative(*spec, ov.Source)
+		if err != nil {
+			return fail("overlay[%d]: %v", i, err)
+		}
+		resolved.Markers = append(resolved.Markers, ov.Markers(ovRecords)...)
+	}
+
+	doc, err := r.Render(resolved)
 	if err != nil {
 		return fail("render: %v", err)
 	}
@@ -68,4 +70,23 @@ func cmdRender(args []string) int {
 		return fail("write %s: %v", *out, err)
 	}
 	return emit(map[string]any{"path": *out, "renderer": r.Name(), "records": len(records)})
+}
+
+// readJSONLRelative reads a JSONL data source named in a spec. A relative source is resolved against
+// the spec file's directory so specs travel with their data; an absolute source is used as-is.
+func readJSONLRelative(specPath, source string) ([]dataset.Record, error) {
+	p := source
+	if !filepath.IsAbs(p) {
+		p = filepath.Join(filepath.Dir(specPath), p)
+	}
+	f, err := os.Open(p)
+	if err != nil {
+		return nil, fmt.Errorf("open data %s: %w", p, err)
+	}
+	defer f.Close()
+	records, err := dataset.ReadJSONL(f)
+	if err != nil {
+		return nil, fmt.Errorf("read data %s: %w", p, err)
+	}
+	return records, nil
 }

@@ -14,6 +14,10 @@ import (
 // dependency-free for the MVP; switching to a bundled/pinned asset later is a renderer-local change.
 const chartJSCDN = "https://cdn.jsdelivr.net/npm/chart.js@4"
 
+// annotationCDN is the chartjs-plugin-annotation UMD build, which self-registers when loaded after
+// Chart.js. It is only included when a spec has overlay markers to draw, so plain charts stay lean.
+const annotationCDN = "https://cdn.jsdelivr.net/npm/chartjs-plugin-annotation@3"
+
 func init() { Register(ChartJS{}) }
 
 // ChartJS renders a resolved View Spec as a self-contained HTML page that draws the chart with
@@ -76,6 +80,14 @@ func (ChartJS) Render(res viewspec.Resolved) (string, error) {
 		cfg.Data.Datasets = append(cfg.Data.Datasets, ds)
 	}
 
+	// Overlay markers (events/annotations) become vertical lines via chartjs-plugin-annotation.
+	if len(res.Markers) > 0 {
+		if cfg.Options.Plugins == nil {
+			cfg.Options.Plugins = map[string]any{}
+		}
+		cfg.Options.Plugins["annotation"] = map[string]any{"annotations": markerAnnotations(res.Markers)}
+	}
+
 	cfgJSON, err := json.Marshal(cfg)
 	if err != nil {
 		return "", fmt.Errorf("marshal chart config: %w", err)
@@ -85,7 +97,37 @@ func (ChartJS) Render(res viewspec.Resolved) (string, error) {
 	if title == "" {
 		title = "track chart"
 	}
-	return renderPage(html.EscapeString(title), string(cfgJSON)), nil
+	scripts := []string{chartJSCDN}
+	if len(res.Markers) > 0 {
+		scripts = append(scripts, annotationCDN)
+	}
+	return renderPage(html.EscapeString(title), string(cfgJSON), scripts), nil
+}
+
+// markerAnnotations builds the chartjs-plugin-annotation `annotations` object: one vertical line per
+// marker, pinned to the category x-axis at the marker's value, labeled with its text. Keys are stable
+// (m0, m1, ...) so output is deterministic.
+func markerAnnotations(markers []viewspec.Marker) map[string]any {
+	out := make(map[string]any, len(markers))
+	for i, m := range markers {
+		ann := map[string]any{
+			"type":        "line",
+			"scaleID":     "x",
+			"value":       m.At,
+			"borderColor": "rgba(220,53,69,0.7)",
+			"borderWidth": 1,
+		}
+		if m.Label != "" {
+			ann["label"] = map[string]any{
+				"content":  m.Label,
+				"display":  true,
+				"position": "start",
+				"rotation": 90,
+			}
+		}
+		out[fmt.Sprintf("m%d", i)] = ann
+	}
+	return out
 }
 
 // floatsToJSON converts series values to a JSON-marshalable slice, mapping NaN (a missing value) to
@@ -104,8 +146,9 @@ func floatsToJSON(vs []float64) []any {
 }
 
 // renderPage wraps a marshaled Chart.js config in a minimal, self-contained HTML document. escapedTitle
-// must already be HTML-escaped; configJSON must be valid JSON safe to inline in a <script>.
-func renderPage(escapedTitle, configJSON string) string {
+// must already be HTML-escaped; configJSON must be valid JSON safe to inline in a <script>; scripts are
+// the script srcs to load in order (Chart.js first, then any plugins).
+func renderPage(escapedTitle, configJSON string, scripts []string) string {
 	var b strings.Builder
 	b.WriteString("<!DOCTYPE html>\n")
 	b.WriteString(`<html lang="en">` + "\n")
@@ -113,7 +156,9 @@ func renderPage(escapedTitle, configJSON string) string {
 	b.WriteString(`<meta charset="utf-8">` + "\n")
 	b.WriteString(`<meta name="viewport" content="width=device-width, initial-scale=1">` + "\n")
 	b.WriteString("<title>" + escapedTitle + "</title>\n")
-	b.WriteString(`<script src="` + chartJSCDN + `"></script>` + "\n")
+	for _, src := range scripts {
+		b.WriteString(`<script src="` + src + `"></script>` + "\n")
+	}
 	b.WriteString("<style>html,body{margin:0;height:100%}#chart-wrap{box-sizing:border-box;padding:16px;height:100%}</style>\n")
 	b.WriteString("</head>\n")
 	b.WriteString("<body>\n")

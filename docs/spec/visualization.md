@@ -66,8 +66,31 @@ chart over a single data source. Unknown fields are rejected.
 | `x.field`  | yes      | Record field used for x-axis category labels.                               |
 | `y`        | yes      | One or more series; each `y[i].field` is a numeric record field.            |
 | `filter`   | no       | Keep only records where `filter.field` equals `filter.equals` (string).     |
+| `overlays` | no       | Vertical event/annotation markers drawn over the chart (see below).         |
 
 `label` overrides the legend/axis text, defaulting to the field name.
+
+### Overlays (event/annotation markers)
+
+An overlay draws records from a second JSONL source as vertical markers on top of the chart — e.g.
+plotting policy events along a Pressure Index time series. Each overlay:
+
+```json
+"overlays": [
+  { "source": "events.jsonl", "kind": "event", "at": "time", "label": "title" }
+]
+```
+
+| Field    | Required | Notes                                                                        |
+|----------|----------|------------------------------------------------------------------------------|
+| `source` | yes      | Path to a JSONL file, resolved relative to the spec file (like `data.source`).|
+| `kind`   | yes      | A canonical kind (typically `event` or `annotation`).                        |
+| `at`     | no       | Field giving the marker's x position; defaults to `time`.                    |
+| `label`  | no       | Field giving the marker text; defaults to `text`.                            |
+
+A record with no `at` value is skipped. The marker is placed at the matching x-axis category, so the
+`at` value should equal one of the x-axis labels (the renderer uses a category x-axis). Multiple
+overlays accumulate.
 
 ### Resolution semantics
 
@@ -90,7 +113,9 @@ Emits a self-contained HTML page that loads **Chart.js from a CDN**
 - `line`/`bar` map directly to Chart.js types over a category x-axis.
 - `scatter` uses the same category x-axis with the connecting line suppressed.
 - `NaN`/`Inf` values are emitted as JSON `null` (a gap).
-- The page requires network access at view time to load Chart.js.
+- **Overlay markers** are drawn as vertical lines via `chartjs-plugin-annotation`, loaded from a CDN
+  only when the spec has overlays (plain charts stay lean).
+- The page requires network access at view time to load Chart.js (and the annotation plugin, if used).
 
 ## CLI
 

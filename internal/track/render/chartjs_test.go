@@ -79,6 +79,33 @@ func TestChartJSRenderEscapesTitle(t *testing.T) {
 	}
 }
 
+func TestChartJSRenderMarkersAddAnnotationPluginAndLines(t *testing.T) {
+	res := resolved(viewspec.ChartLine, "Pressure", []float64{1, 2})
+	res.Markers = []viewspec.Marker{{At: "b", Label: "event!"}}
+	out, err := ChartJS{}.Render(res)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(out, "chartjs-plugin-annotation@3") {
+		t.Fatalf("annotation plugin script missing: %s", out)
+	}
+	for _, want := range []string{`"annotation"`, `"scaleID":"x"`, `"value":"b"`, `"content":"event!"`} {
+		if !strings.Contains(out, want) {
+			t.Errorf("annotation config missing %q", want)
+		}
+	}
+}
+
+func TestChartJSRenderNoMarkersOmitsPlugin(t *testing.T) {
+	out, err := ChartJS{}.Render(resolved(viewspec.ChartLine, "", []float64{1, 2}))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(out, "chartjs-plugin-annotation") || strings.Contains(out, `"annotation"`) {
+		t.Fatalf("plugin should be omitted when there are no markers: %s", out)
+	}
+}
+
 func TestGetUnknownRenderer(t *testing.T) {
 	if _, err := Get("nope"); err == nil {
 		t.Fatal("expected error for unknown renderer")

@@ -83,6 +83,38 @@ func TestResolveMissingYBecomesNaN(t *testing.T) {
 	}
 }
 
+func TestOverlayMarkersDefaultsAndSkips(t *testing.T) {
+	// At/Label unset → defaults to "time"/"text"; a record without the at field is skipped.
+	ov := Overlay{Source: "ann.jsonl", Kind: dataset.KindAnnotation}
+	recs, _ := dataset.ReadJSONL(strings.NewReader(
+		`{"time":"d1","text":"hello"}` + "\n" + `{"text":"no time here"}` + "\n"))
+	ms := ov.Markers(recs)
+	if len(ms) != 1 || ms[0].At != "d1" || ms[0].Label != "hello" {
+		t.Fatalf("markers = %+v", ms)
+	}
+}
+
+func TestOverlayMarkersCustomFields(t *testing.T) {
+	ov := Overlay{Source: "events.jsonl", Kind: dataset.KindEvent, At: "time", Label: "title"}
+	recs, _ := dataset.ReadJSONL(strings.NewReader(`{"time":"d2","title":"tariff"}`))
+	ms := ov.Markers(recs)
+	if len(ms) != 1 || ms[0].Label != "tariff" {
+		t.Fatalf("markers = %+v", ms)
+	}
+}
+
+func TestValidateRejectsBadOverlay(t *testing.T) {
+	s := Spec{
+		Version: 1, Type: ChartLine,
+		Data: DataRef{Source: "x", Kind: dataset.KindMetric},
+		X:    Encoding{Field: "time"}, Y: []Encoding{{Field: "value"}},
+		Overlays: []Overlay{{Kind: dataset.KindEvent}}, // missing source
+	}
+	if err := s.Validate(); err == nil || !strings.Contains(err.Error(), "overlays[0].source") {
+		t.Fatalf("want overlay source error, got %v", err)
+	}
+}
+
 func equalStrings(a, b []string) bool {
 	if len(a) != len(b) {
 		return false
