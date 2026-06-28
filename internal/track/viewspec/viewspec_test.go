@@ -103,6 +103,30 @@ func TestOverlayMarkersCustomFields(t *testing.T) {
 	}
 }
 
+func TestResolveAssignsAxis(t *testing.T) {
+	s, _ := Load(strings.NewReader(`{"version":1,"type":"line","data":{"source":"x","kind":"price"},` +
+		`"x":{"field":"time"},"y":[{"field":"close"},{"field":"vix","axis":"y2"}]}`))
+	recs, _ := dataset.ReadJSONL(strings.NewReader(`{"time":"d1","close":1,"vix":2}`))
+	res := s.Resolve(recs)
+	if res.Series[0].Axis != "y" {
+		t.Fatalf("default axis = %q, want y", res.Series[0].Axis)
+	}
+	if res.Series[1].Axis != "y2" {
+		t.Fatalf("explicit axis = %q, want y2", res.Series[1].Axis)
+	}
+}
+
+func TestValidateRejectsBadAxis(t *testing.T) {
+	s := Spec{
+		Version: 1, Type: ChartLine,
+		Data: DataRef{Source: "x", Kind: dataset.KindPrice},
+		X:    Encoding{Field: "time"}, Y: []Encoding{{Field: "close", Axis: "y3"}},
+	}
+	if err := s.Validate(); err == nil || !strings.Contains(err.Error(), "axis") {
+		t.Fatalf("want axis error, got %v", err)
+	}
+}
+
 func TestValidateRejectsBadOverlay(t *testing.T) {
 	s := Spec{
 		Version: 1, Type: ChartLine,

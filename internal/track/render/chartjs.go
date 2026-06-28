@@ -46,6 +46,7 @@ type dataset struct {
 	Label    string `json:"label"`
 	Data     []any  `json:"data"`
 	ShowLine *bool  `json:"showLine,omitempty"`
+	YAxisID  string `json:"yAxisID,omitempty"`
 }
 
 type chartOption struct {
@@ -71,13 +72,32 @@ func (ChartJS) Render(res viewspec.Resolved) (string, error) {
 	if res.Spec.Type == viewspec.ChartScatter {
 		cfg.Options.Scales = map[string]any{"x": map[string]any{"type": "category"}}
 	}
+	usesY2 := false
 	for _, s := range res.Series {
 		ds := dataset{Label: s.Label, Data: floatsToJSON(s.Values)}
 		if res.Spec.Type == viewspec.ChartScatter {
 			no := false
 			ds.ShowLine = &no
 		}
+		if s.Axis == "y2" {
+			ds.YAxisID = "y2"
+			usesY2 = true
+		}
 		cfg.Data.Datasets = append(cfg.Data.Datasets, ds)
+	}
+
+	// A secondary axis: keep the default left "y" and add a right "y2" whose gridlines stay off the
+	// chart area so the two scales don't visually collide.
+	if usesY2 {
+		if cfg.Options.Scales == nil {
+			cfg.Options.Scales = map[string]any{}
+		}
+		cfg.Options.Scales["y"] = map[string]any{"type": "linear", "position": "left"}
+		cfg.Options.Scales["y2"] = map[string]any{
+			"type":     "linear",
+			"position": "right",
+			"grid":     map[string]any{"drawOnChartArea": false},
+		}
 	}
 
 	// Overlay markers (events/annotations) become vertical lines via chartjs-plugin-annotation.

@@ -106,6 +106,41 @@ func TestChartJSRenderNoMarkersOmitsPlugin(t *testing.T) {
 	}
 }
 
+func TestChartJSRenderSecondaryAxis(t *testing.T) {
+	res := viewspec.Resolved{
+		Spec:   viewspec.Spec{Version: 1, Type: viewspec.ChartLine},
+		Labels: []string{"a", "b"},
+		Series: []viewspec.Series{
+			{Label: "Close", Values: []float64{1, 2}, Axis: "y"},
+			{Label: "Index", Values: []float64{10, 20}, Axis: "y2"},
+		},
+	}
+	out, err := ChartJS{}.Render(res)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(out, `"label":"Index","data":[10,20],"yAxisID":"y2"`) {
+		t.Fatalf("y2 series missing yAxisID: %s", out)
+	}
+	if !strings.Contains(out, `"y2":{`) || !strings.Contains(out, `"position":"right"`) {
+		t.Fatalf("y2 scale missing: %s", out)
+	}
+	// A primary-only series carries no yAxisID, so single-axis charts stay untouched.
+	if strings.Contains(out, `"label":"Close","data":[1,2],"yAxisID"`) {
+		t.Fatalf("primary series should not set yAxisID: %s", out)
+	}
+}
+
+func TestChartJSRenderSingleAxisHasNoY2(t *testing.T) {
+	out, err := ChartJS{}.Render(resolved(viewspec.ChartLine, "", []float64{1, 2}))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(out, `"y2"`) {
+		t.Fatalf("single-axis chart should not define y2: %s", out)
+	}
+}
+
 func TestGetUnknownRenderer(t *testing.T) {
 	if _, err := Get("nope"); err == nil {
 		t.Fatal("expected error for unknown renderer")

@@ -68,7 +68,16 @@ chart over a single data source. Unknown fields are rejected.
 | `filter`   | no       | Keep only records where `filter.field` equals `filter.equals` (string).     |
 | `overlays` | no       | Vertical event/annotation markers drawn over the chart (see below).         |
 
-`label` overrides the legend/axis text, defaulting to the field name.
+`label` overrides the legend/axis text, defaulting to the field name. A y series may set
+`"axis": "y2"` to plot on a secondary right-hand axis (default `"y"`), so series on different scales —
+e.g. a price and an index — can share one x-axis:
+
+```json
+"y": [
+  { "field": "close", "label": "Close", "axis": "y" },
+  { "field": "index", "label": "Index", "axis": "y2" }
+]
+```
 
 ### Overlays (event/annotation markers)
 
@@ -112,6 +121,8 @@ Emits a self-contained HTML page that loads **Chart.js from a CDN**
 
 - `line`/`bar` map directly to Chart.js types over a category x-axis.
 - `scatter` uses the same category x-axis with the connecting line suppressed.
+- A series with `axis: "y2"` is bound to a right-hand secondary linear axis (its gridlines kept off the
+  chart area); single-axis charts define no `y2`.
 - `NaN`/`Inf` values are emitted as JSON `null` (a gap).
 - **Overlay markers** are drawn as vertical lines via `chartjs-plugin-annotation`, loaded from a CDN
   only when the spec has overlays (plain charts stay lean).

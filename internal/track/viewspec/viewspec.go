@@ -104,10 +104,13 @@ type DataRef struct {
 }
 
 // Encoding binds a chart axis/series to a record field. Label overrides the legend/axis text, which
-// otherwise defaults to the field name.
+// otherwise defaults to the field name. Axis assigns a y series to the primary ("y", default) or
+// secondary ("y2") axis, so e.g. a price and an index can share an x-axis on independent scales. Axis
+// is ignored for the x encoding.
 type Encoding struct {
 	Field string `json:"field"`
 	Label string `json:"label,omitempty"`
+	Axis  string `json:"axis,omitempty"`
 }
 
 // label returns the user-facing label for an encoding, falling back to the field name.
@@ -116,6 +119,14 @@ func (e Encoding) label() string {
 		return e.Label
 	}
 	return e.Field
+}
+
+// axisID normalizes the target axis, defaulting an empty value to the primary "y".
+func (e Encoding) axisID() string {
+	if e.Axis == "" {
+		return "y"
+	}
+	return e.Axis
 }
 
 // Filter keeps only records whose Field equals Equals. It is intentionally minimal (single equality);
@@ -168,6 +179,11 @@ func (s Spec) Validate() error {
 		if y.Field == "" {
 			return fmt.Errorf("view spec: y[%d].field is required", i)
 		}
+		switch y.Axis {
+		case "", "y", "y2":
+		default:
+			return fmt.Errorf("view spec: y[%d].axis %q is not y or y2", i, y.Axis)
+		}
 	}
 	for i, o := range s.Overlays {
 		if strings.TrimSpace(o.Source) == "" {
@@ -185,6 +201,7 @@ func (s Spec) Validate() error {
 type Series struct {
 	Label  string
 	Values []float64
+	Axis   string // "y" (primary) or "y2" (secondary)
 }
 
 // Resolved is a Spec applied to data: the shared x-axis labels plus one Series per y encoding. A
@@ -202,7 +219,7 @@ type Resolved struct {
 func (s Spec) Resolve(records []dataset.Record) Resolved {
 	res := Resolved{Spec: s}
 	for _, y := range s.Y {
-		res.Series = append(res.Series, Series{Label: y.label()})
+		res.Series = append(res.Series, Series{Label: y.label(), Axis: y.axisID()})
 	}
 	for _, rec := range records {
 		if s.Filter != nil {
