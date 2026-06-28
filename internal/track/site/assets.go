@@ -16,6 +16,20 @@ import (
 // stopping at whitespace or characters that close a Markdown link, HTML attribute, or anchor.
 var assetRef = regexp.MustCompile(`assets/([^\s"')>?#]+)`)
 
+// rewriteAssetRefs rewrites every "assets/<rel>" reference in a note body to its published name
+// (assets/<slug><ext>), matching how copyAssets names the copied files, so the timestamp/source file
+// name never appears in the published HTML. References with "" or ".." are left untouched, as
+// collectAssets skips them too.
+func rewriteAssetRefs(body string) string {
+	return assetRef.ReplaceAllStringFunc(body, func(match string) string {
+		rel := strings.TrimSpace(strings.TrimPrefix(match, "assets/"))
+		if rel == "" || strings.Contains(rel, "..") {
+			return match
+		}
+		return "assets/" + publishAssetName(rel)
+	})
+}
+
 // collectAssets returns the distinct "assets/<path>" file references found in a note body.
 func collectAssets(body string) []string {
 	seen := map[string]bool{}
@@ -45,7 +59,7 @@ func copyAssets(srcDir, outDir string, rels []string) (copied, missing []string,
 			missing = append(missing, rel)
 			continue
 		}
-		dst := filepath.Join(outDir, config.AssetsDirName, filepath.FromSlash(rel))
+		dst := filepath.Join(outDir, config.AssetsDirName, publishAssetName(rel))
 		if err = copyFile(src, dst); err != nil {
 			return copied, missing, err
 		}

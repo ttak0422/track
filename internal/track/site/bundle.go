@@ -133,12 +133,14 @@ func writeBundle(docs []doc, edges []edge, root int64, frontendDir, outDir strin
 		if bl == nil {
 			bl = []jsonRef{}
 		}
+		// Rewrite asset references to their published (slugged) names, matching the copied files.
+		body := rewriteAssetRefs(d.body)
 		resp := jsonNoteResponse{
 			Note: jsonNoteDetail{
 				jsonSearchResult: searchResultOf(d),
 				CopyPath:         "", // see searchResultOf: the source path is intentionally not published.
-				Body:             d.body,
-				ETag:             etag(d.body),
+				Body:             body,
+				ETag:             etag(body),
 			},
 			Backlinks: bl,
 		}

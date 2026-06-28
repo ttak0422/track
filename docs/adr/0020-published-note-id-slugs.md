@@ -30,6 +30,11 @@ the frontend treats note ids as opaque strings end to end.**
   no URL reveals a date.
 - **`path` / `copy_path` are dropped from the bundle** (emitted empty). They held the timestamp-based
   source file name, which would re-expose what the slug hides; they were only informational.
+- **Referenced assets are published under slug names too.** `assets/<rel>` would otherwise leak the
+  source file name (and any directory structure) in the published HTML. `publishAssetName(rel)` =
+  `publishSlug("asset:"+rel)` keeping the lowercased extension (the frontend detects media kind and the
+  host sets the content type from it); the copied file is renamed and every reference in the note body
+  is rewritten to match. The `"asset:"` prefix keeps the asset and note-id slug spaces disjoint.
 - **The frontend's `NoteID` is a `string`.** It never does arithmetic on ids — only equality and URL
   building — so a string serves both modes. The live `track web` server still marshals numeric ids;
   `web/src/api.ts` stringifies every id field at the fetch boundary (`stringifyIDs`), so the rest of the

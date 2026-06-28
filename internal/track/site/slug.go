@@ -3,7 +3,9 @@ package site
 import (
 	"crypto/sha1"
 	"math/big"
+	"path"
 	"strconv"
+	"strings"
 )
 
 // publishNamespace is a fixed, arbitrary UUID namespace for the published-site id mapping. It must never
@@ -22,9 +24,22 @@ const base62Alphabet = "0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrst
 // nothing about the id (the source files are timestamp-based, see note.NewID). The 128-bit value is
 // base62-encoded to a fixed 22-character, URL/filename-safe string.
 func PublishID(id int64) string {
+	return publishSlug(strconv.FormatInt(id, 10))
+}
+
+// publishAssetName maps an "assets/<rel>" reference to its opaque published file name: a slug of the rel
+// path (so the original file name and any directory structure are hidden) keeping the lowercased
+// extension, which the frontend uses to detect the media kind and the host to set the content type. The
+// "asset:" prefix keeps the asset id space disjoint from the note-id space.
+func publishAssetName(rel string) string {
+	return publishSlug("asset:"+rel) + strings.ToLower(path.Ext(rel))
+}
+
+// publishSlug is the shared UUIDv5(namespace, name) → base62 mapping behind every published slug.
+func publishSlug(name string) string {
 	h := sha1.New()
 	h.Write(publishNamespace[:])
-	h.Write([]byte(strconv.FormatInt(id, 10)))
+	h.Write([]byte(name))
 	sum := h.Sum(nil)[:16]
 	// Set the RFC 4122 version (5) and variant (10) bits so the value is a well-formed UUIDv5.
 	sum[6] = (sum[6] & 0x0f) | 0x50

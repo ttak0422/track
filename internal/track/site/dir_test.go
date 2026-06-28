@@ -33,12 +33,19 @@ func TestBuildDirBundle(t *testing.T) {
 		t.Fatalf("expected 3 notes, got %v", res.Notes)
 	}
 
-	// Frontend + asset copied.
+	// Frontend + asset copied. The asset is published under its opaque slug name, not "pic.png".
 	if !fileExists(filepath.Join(out, "index.html")) {
 		t.Fatalf("frontend index.html not copied")
 	}
-	if data, _ := os.ReadFile(filepath.Join(out, "assets", "pic.png")); string(data) != "PNG" {
-		t.Fatalf("asset not copied: %q", data)
+	if fileExists(filepath.Join(out, "assets", "pic.png")) {
+		t.Fatalf("asset should not be published under its source name")
+	}
+	assetName := publishAssetName("pic.png")
+	if data, _ := os.ReadFile(filepath.Join(out, "assets", assetName)); string(data) != "PNG" {
+		t.Fatalf("asset not copied to %q: %q", assetName, data)
+	}
+	if !strings.HasSuffix(assetName, ".png") {
+		t.Fatalf("asset slug should keep its extension, got %q", assetName)
 	}
 
 	// site.json: index.md is the root.
@@ -71,6 +78,12 @@ func TestBuildDirBundle(t *testing.T) {
 	rootNote := readJSON[jsonNoteResponse](t, filepath.Join(out, "data", "note", site.Root+".json"))
 	if !strings.Contains(rootNote.Note.Body, "[[cli]]") {
 		t.Fatalf("root body should keep wiki link: %q", rootNote.Note.Body)
+	}
+
+	// The guide's body references the asset by its slug name, never the source "pic.png".
+	guide := readJSON[jsonNoteResponse](t, filepath.Join(out, "data", "note", resolve["guide"].NoteID+".json"))
+	if !strings.Contains(guide.Note.Body, "assets/"+assetName) || strings.Contains(guide.Note.Body, "assets/pic.png") {
+		t.Fatalf("guide body should reference the slugged asset: %q", guide.Note.Body)
 	}
 }
 
