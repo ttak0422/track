@@ -1,14 +1,19 @@
 import { useContext, useEffect, useRef, useState } from "react";
-import { useOgpQuery } from "../../queries";
+import { useAssetTextQuery, useOgpQuery } from "../../queries";
 import { PdfDeck } from "../PdfDeck";
+import { CodeBlock } from "./CodeBlock";
 import { NoteKindContext } from "./context";
 import { MediaFrame } from "./MediaFrame";
+import { MermaidDiagram } from "./MermaidDiagram";
 import {
   assetHref,
   hostOf,
   isImageHref,
+  isMermaidHref,
   isPdfHref,
+  isTextAssetHref,
   safeFrameUrl,
+  textAssetLang,
   tweetIdFromUrl,
   webHref,
   youtubeEmbedUrl,
@@ -58,6 +63,17 @@ export function Embed({ src, alt }: EmbedProps) {
     }
   }
 
+  // A text-file attachment (a mermaid diagram source, or any plain-text file) is fetched and rendered
+  // inline rather than handed to <img>, which would only show a broken image. This stays asset-only so a
+  // remote text URL is still treated as an ordinary link/OGP card.
+  if (asset && isTextAssetHref(src)) {
+    return (
+      <MediaFrame src={src} alt={alt}>
+        <TextAssetEmbed href={asset} src={src} alt={alt} />
+      </MediaFrame>
+    );
+  }
+
   const tweetId = asset ? null : tweetIdFromUrl(src);
   if (tweetId) {
     return <TweetEmbed tweetId={tweetId} url={target} alt={alt} />;
@@ -72,6 +88,35 @@ export function Embed({ src, alt }: EmbedProps) {
       <img className="embed embed-image" src={target} alt={alt} loading="lazy" />
     </MediaFrame>
   );
+}
+
+interface TextAssetEmbedProps {
+  href: string;
+  src: string;
+  alt: string;
+}
+
+// TextAssetEmbed fetches a text-file attachment and renders it: a mermaid source becomes a diagram (the
+// same renderer fenced ```mermaid blocks use), any other text file a syntax-highlighted code block. While
+// loading it shows a placeholder, and on a failed fetch it degrades to a plain link so the embed is never
+// a dead end.
+function TextAssetEmbed({ href, src, alt }: TextAssetEmbedProps) {
+  const text = useAssetTextQuery(href);
+
+  if (text.isLoading) {
+    return <div className="embed text-asset text-asset-loading">Loading…</div>;
+  }
+  if (text.isError || text.data === undefined) {
+    return (
+      <a className="embed md-link text-asset-fallback" href={href} target="_blank" rel="noreferrer noopener">
+        {alt || src}
+      </a>
+    );
+  }
+  if (isMermaidHref(src)) {
+    return <MermaidDiagram text={text.data} />;
+  }
+  return <CodeBlock lang={textAssetLang(src) ?? ""} text={text.data} />;
 }
 
 interface TweetEmbedProps {

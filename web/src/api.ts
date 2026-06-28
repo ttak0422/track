@@ -209,6 +209,17 @@ export function getSite(): Promise<SiteResponse> {
   return staticData<SiteResponse>("site.json");
 }
 
+// fetchAssetText loads the raw text of a vault asset from its resolved href (served by /api/asset live,
+// or copied to ./assets/<name> in the static export). Text-file embeds — Mermaid diagrams and other
+// inlined text files — read their source this way.
+export async function fetchAssetText(href: string): Promise<string> {
+  const response = await fetch(href);
+  if (!response.ok) {
+    throw new Error(`${response.status} ${response.statusText}`);
+  }
+  return response.text();
+}
+
 // filterNotes is the static-mode search: a case-insensitive match on title, or a "#tag" filter on the
 // note's tags. It mirrors the server search closely enough for navigating a published set.
 function filterNotes(notes: SearchResult[], query: string): SearchResult[] {

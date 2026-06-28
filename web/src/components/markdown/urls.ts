@@ -141,6 +141,54 @@ export function isPdfHref(src: string): boolean {
   return /\.pdf$/i.test(path.trim());
 }
 
+// isMermaidHref matches a Mermaid source file by extension, so an embedded ![](assets/chart.mmd) is
+// rendered as a diagram (the same renderer fenced ```mermaid blocks use) instead of a broken image.
+export function isMermaidHref(src: string): boolean {
+  const path = src.split(/[?#]/, 1)[0] ?? "";
+  return /\.(mmd|mermaid)$/i.test(path.trim());
+}
+
+// textAssetLangs maps a text-file asset extension to how its embed should render: "mermaid" renders a
+// diagram, every other entry is a CodeBlock language ("" means plain text, shown without highlighting).
+const textAssetLangs: Record<string, string> = {
+  mmd: "mermaid",
+  mermaid: "mermaid",
+  txt: "",
+  text: "",
+  log: "",
+  csv: "csv",
+  tsv: "tsv",
+  json: "json",
+  yaml: "yaml",
+  yml: "yaml",
+  toml: "toml",
+  xml: "xml",
+  ini: "ini",
+  conf: "ini",
+  env: "",
+  sh: "bash",
+  bash: "bash",
+  zsh: "bash",
+  dot: "dot",
+  gv: "dot",
+  puml: "plantuml",
+  plantuml: "plantuml",
+};
+
+// textAssetLang returns the render language for a text-file asset embed, or null when the extension is
+// not one we inline (image/PDF/remote links are handled elsewhere).
+export function textAssetLang(src: string): string | null {
+  const path = src.split(/[?#]/, 1)[0] ?? "";
+  const ext = /\.([a-z0-9]+)$/i.exec(path.trim())?.[1]?.toLowerCase() ?? "";
+  return ext in textAssetLangs ? textAssetLangs[ext] : null;
+}
+
+// isTextAssetHref reports whether src names a text-file asset we render inline (mermaid diagram or code
+// block), as opposed to an image/PDF/remote link handled elsewhere.
+export function isTextAssetHref(src: string): boolean {
+  return textAssetLang(src) !== null;
+}
+
 // safeFrameUrl returns the URL only when it is safe to load in an iframe: http(s) or a same-origin
 // relative path. It rejects javascript:/data: and other schemes that could run script in the frame.
 export function safeFrameUrl(target: string): string | null {

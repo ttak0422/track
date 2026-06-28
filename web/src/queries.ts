@@ -1,6 +1,7 @@
 import { keepPreviousData, useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import {
   deleteNote,
+  fetchAssetText,
   getActivity,
   getAgenda,
   getGraph,
@@ -27,6 +28,7 @@ export const queryKeys = {
   search: (query: string, limit: number) => ["search", query, limit] as const,
   ogp: (url: string) => ["ogp", url] as const,
   render: (body: string) => ["render", body] as const,
+  assetText: (href: string) => ["assetText", href] as const,
 };
 
 export function useActivityQuery(since: string, until: string) {
@@ -51,6 +53,18 @@ export function useOgpQuery(url: string, enabled = true) {
     queryFn: () => getOgp(url),
     enabled: enabled && url !== "",
     // Link metadata is effectively static for a session and the server caches it too, so never refetch.
+    staleTime: Infinity,
+    gcTime: Infinity,
+    retry: false,
+  });
+}
+
+export function useAssetTextQuery(href: string, enabled = true) {
+  return useQuery({
+    queryKey: queryKeys.assetText(href),
+    queryFn: () => fetchAssetText(href),
+    enabled: enabled && href !== "",
+    // The reader re-fetches a note when it changes, so caching an asset's text for the session is enough.
     staleTime: Infinity,
     gcTime: Infinity,
     retry: false,

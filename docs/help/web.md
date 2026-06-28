@@ -30,6 +30,14 @@ The image above is just:
 The same standalone image syntax also embeds YouTube videos, Twitter/X posts, PDFs, image URLs, and
 ordinary web pages with Open Graph metadata. Inline image syntax inside a paragraph stays inline.
 
+Text-file attachments work the same way. Import a text file with `track asset import` and embed the
+reference: a Mermaid source (`.mmd` / `.mermaid`) renders as a diagram, and any other text file
+(`.txt`, `.json`, `.yaml`, `.csv`, shell scripts, …) renders as a syntax-highlighted code block.
+
+```markdown
+![release plan](assets/roadmap.mmd)
+```
+
 ## Code and diagrams
 
 Fenced code blocks are syntax highlighted when the language is named. The web reader also adds a copy
@@ -42,7 +50,8 @@ func Title(text string) string {
 ```
 
 Use a `mermaid` fence for diagrams; the web reader renders it inline and shows the original source if
-the diagram has a syntax error.
+the diagram has a syntax error. The same renderer also backs an embedded `.mmd` / `.mermaid` attachment
+(see [Media embeds](#media-embeds)), so a diagram kept as a separate file renders identically.
 
 ```mermaid
 flowchart LR

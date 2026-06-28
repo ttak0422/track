@@ -71,6 +71,11 @@ embed instead of a link:
   cannot render the tweet (deleted, blocked, offline) it falls back to the OGP card;
 - `.pdf` URLs become an inline iframe viewer with an "open" link fallback;
 - image URLs (`.png`, `.jpg`, `.gif`, `.webp`, `.avif`, `.svg`, …) render as an `<img>`;
+- a text-file **attachment** (`assets/<file>`) is fetched and rendered inline: a
+  Mermaid source (`.mmd`/`.mermaid`) renders as a diagram, any other recognized text
+  extension (`.txt`, `.json`, `.yaml`, `.csv`, shell scripts, …) as a code block. This
+  is asset-only — a remote text URL is left to the OGP/link path — and degrades to a
+  plain link while loading fails;
 - any other `http(s)` URL renders as an Open Graph card.
 
 Only `http(s)` and same-origin relative URLs feed an iframe, so a note cannot
@@ -93,7 +98,9 @@ Fenced code blocks tagged `mermaid` render as Mermaid diagrams in the web
 preview. The frontend initializes Mermaid with `securityLevel: "strict"` and the
 current track theme colors. If a diagram fails to parse or render, the preview
 shows the error and falls back to the original fenced source as a normal code
-block.
+block. The same renderer backs an embedded `.mmd`/`.mermaid` attachment (see
+"Markdown embeds"), so a diagram kept as a separate file renders identically to a
+fenced block.
 
 ### Save conflict detection
 

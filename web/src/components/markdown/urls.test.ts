@@ -3,9 +3,12 @@ import {
   assetHref,
   hostOf,
   isImageHref,
+  isMermaidHref,
   isPdfHref,
+  isTextAssetHref,
   noteCandidateFromHref,
   safeFrameUrl,
+  textAssetLang,
   tweetIdFromUrl,
   webHref,
   youtubeEmbedUrl,
@@ -100,6 +103,27 @@ describe("href type guards", () => {
     expect(isPdfHref("a.pdf")).toBe(true);
     expect(isPdfHref("a.PDF?x")).toBe(true);
     expect(isPdfHref("a.txt")).toBe(false);
+  });
+});
+
+describe("text-file asset embeds", () => {
+  it("recognizes mermaid sources by extension", () => {
+    expect(isMermaidHref("assets/chart.mmd")).toBe(true);
+    expect(isMermaidHref("assets/CHART.MERMAID?x=1")).toBe(true);
+    expect(isMermaidHref("assets/chart.txt")).toBe(false);
+  });
+  it("maps text extensions to a render language, mermaid included", () => {
+    expect(textAssetLang("assets/chart.mmd")).toBe("mermaid");
+    expect(textAssetLang("assets/notes.txt")).toBe("");
+    expect(textAssetLang("assets/data.json")).toBe("json");
+    expect(textAssetLang("assets/run.sh")).toBe("bash");
+    expect(textAssetLang("assets/photo.png")).toBeNull();
+  });
+  it("treats only mapped text extensions as inline text assets", () => {
+    expect(isTextAssetHref("assets/chart.mmd")).toBe(true);
+    expect(isTextAssetHref("assets/notes.txt")).toBe(true);
+    expect(isTextAssetHref("assets/photo.png")).toBe(false);
+    expect(isTextAssetHref("assets/doc.pdf")).toBe(false);
   });
 });
 
