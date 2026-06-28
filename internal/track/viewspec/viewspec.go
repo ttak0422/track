@@ -14,6 +14,7 @@ import (
 	"fmt"
 	"io"
 	"math"
+	"slices"
 	"strings"
 
 	"github.com/ttak0422/track/internal/track/dataset"
@@ -32,8 +33,18 @@ const (
 	ChartScatter ChartType = "scatter"
 )
 
-// renderableTypes are the chart types the MVP renderer supports.
-var renderableTypes = map[ChartType]bool{ChartLine: true, ChartBar: true, ChartScatter: true}
+// RenderableTypes lists the chart types a renderer can draw, in a stable order. It is the single
+// source for both validation and help text, so a new chart type shows up in `track render --help`
+// automatically.
+var RenderableTypes = []ChartType{ChartLine, ChartBar, ChartScatter}
+
+// AxisOptions lists the valid y-series axis assignments (primary/secondary), for help and validation.
+var AxisOptions = []string{"y", "y2"}
+
+// renderable reports whether t is a chart type a renderer can draw.
+func renderable(t ChartType) bool {
+	return slices.Contains(RenderableTypes, t)
+}
 
 // Spec is a single visualization.
 type Spec struct {
@@ -160,7 +171,7 @@ func (s Spec) Validate() error {
 	if s.Version > Version {
 		return fmt.Errorf("view spec: version %d is newer than supported %d", s.Version, Version)
 	}
-	if !renderableTypes[s.Type] {
+	if !renderable(s.Type) {
 		return fmt.Errorf("view spec: unsupported type %q (line|bar|scatter)", s.Type)
 	}
 	if strings.TrimSpace(s.Data.Source) == "" {

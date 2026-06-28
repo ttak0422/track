@@ -83,6 +83,25 @@ func TestRenderCommandDrawsOverlayMarkers(t *testing.T) {
 	}
 }
 
+func TestRenderHelpListsNotationAndExits0(t *testing.T) {
+	out, code := capture(t, func() int { return Run([]string{"render", "--help"}) })
+	if code != 0 {
+		t.Fatalf("--help should exit 0, got %d: %q", code, out)
+	}
+	for _, want := range []string{
+		"line | bar | scatter",      // chart types from viewspec.RenderableTypes
+		"event | price | metric",    // kinds from dataset.KnownKinds
+		"y[].axis:",                 // secondary axis notation
+		"overlays[]:",               // overlay notation
+		"renderers:   chartjs",      // renderer names
+		`"source": "metrics.jsonl"`, // example spec
+	} {
+		if !strings.Contains(out, want) {
+			t.Errorf("help missing %q", want)
+		}
+	}
+}
+
 func TestRenderCommandRequiresSpecAndOut(t *testing.T) {
 	out, code := capture(t, func() int { return Run([]string{"render", "--out", "x.html"}) })
 	if code == 0 || !strings.Contains(out, "spec") {
