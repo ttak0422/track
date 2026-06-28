@@ -36,6 +36,10 @@ Write endpoint:
 
 - `PUT /api/note?id=<id>`: save the body of an existing note. The request body is
   `{"body": "...", "etag": "<etag-from-GET>"}`.
+- `DELETE /api/note?id=<id>`: permanently delete a note — its Markdown file, its
+  sidecar metadata, and its index row (tags and links cascade). Other notes keep
+  their now-dangling `[[links]]`. The destructive title-retype confirmation is
+  enforced in the web UI; the endpoint deletes by id.
 
 ## Frontend implementation
 

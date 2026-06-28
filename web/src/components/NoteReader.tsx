@@ -3,7 +3,13 @@ import { FormEvent, useEffect, useRef, useState } from "react";
 import { MarkdownView } from "./MarkdownView";
 import { getFollowState } from "../api";
 import { STATIC_MODE } from "../runtime";
-import { useAgendaQuery, useNoteQuery, useRenderQuery, useSaveNoteMutation } from "../queries";
+import {
+  useAgendaQuery,
+  useDeleteNoteMutation,
+  useNoteQuery,
+  useRenderQuery,
+  useSaveNoteMutation,
+} from "../queries";
 import { useSearchState } from "../searchState";
 import { useTabs } from "./tabs/tabsStore";
 import type { FileKind, FollowState, NoteID } from "../types";
@@ -21,8 +27,9 @@ export function NoteReader({ noteID }: NoteReaderProps) {
   // clobbering unsaved local edits below.
   const noteQuery = useNoteQuery(noteID, { live: true });
   const saveNote = useSaveNoteMutation(noteID);
+  const deleteNote = useDeleteNoteMutation(noteID);
   const { setQuery } = useSearchState();
-  const { setTitle: setTabTitle, setDirty: setTabDirty } = useTabs();
+  const { setTitle: setTabTitle, setDirty: setTabDirty, close: closeTab } = useTabs();
   const navigate = useNavigate();
   // For a journal, surface the notes worked on that day. The day comes from the journal id (yyyyMMdd).
   const journalDate = journalDateFromNote(noteQuery.data?.note);
@@ -30,6 +37,12 @@ export function NoteReader({ noteID }: NoteReaderProps) {
   const [body, setBody] = useState("");
   const [editorMode, setEditorMode] = useState<EditorMode>("preview");
   const [followEnabled, setFollowEnabled] = useState(false);
+  // Delete confirmation: the user must retype the title (GitHub-style) before the note can be removed.
+  const [confirmDeleteOpen, setConfirmDeleteOpen] = useState(false);
+  const [deleteConfirmText, setDeleteConfirmText] = useState("");
+  // Set just before the post-delete navigation so the unsaved-changes blocker does not fire on the way
+  // out (the note no longer exists, so any pending edits are moot).
+  const deletedRef = useRef(false);
   // The preview renders server-sanitized Markdown (action links flattened, wiki links kept) rather than
   // the raw body, so track-specific rules live only in the engine. The body is posted as you type.
   const renderQuery = useRenderQuery(body);
@@ -72,10 +85,10 @@ export function NoteReader({ noteID }: NoteReaderProps) {
 
   useBlocker({
     shouldBlockFn: ({ current, next }) => {
-      if (!dirty || current.pathname === next.pathname) return false;
+      if (deletedRef.current || !dirty || current.pathname === next.pathname) return false;
       return !window.confirm(unsavedChangesMessage);
     },
-    enableBeforeUnload: () => dirty,
+    enableBeforeUnload: () => dirty && !deletedRef.current,
     disabled: !dirty,
   });
 
@@ -203,6 +216,22 @@ export function NoteReader({ noteID }: NoteReaderProps) {
     }
   }
 
+  const deleteConfirmed = deleteConfirmText.trim() === note.title.trim();
+
+  async function confirmDelete() {
+    if (!deleteConfirmed || deleteNote.isPending) return;
+    try {
+      await deleteNote.mutateAsync();
+      // Skip the unsaved-changes guard, drop the dirty marker, then close this note's tab — which moves
+      // to a neighbouring tab (or home when none remain).
+      deletedRef.current = true;
+      setTabDirty(null);
+      closeTab(noteID);
+    } catch {
+      // Errors surface via deleteNote.isError in the dialog.
+    }
+  }
+
   return (
     <article className={`note-reader${editorMode === "split" ? " note-reader-split" : ""}`}>
       {/* Note controls float over the reader as a graph-style overlay, not in the header bar. The
@@ -229,8 +258,65 @@ export function NoteReader({ noteID }: NoteReaderProps) {
               </button>
             ))}
           </div>
+          <button
+            className="danger-toggle"
+            type="button"
+            onClick={() => {
+              setDeleteConfirmText("");
+              deleteNote.reset();
+              setConfirmDeleteOpen(true);
+            }}
+          >
+            Delete
+          </button>
         </div>
       )}
+
+      {confirmDeleteOpen ? (
+        <div
+          className="modal-backdrop"
+          role="dialog"
+          aria-modal="true"
+          aria-labelledby="delete-note-title"
+          onClick={() => setConfirmDeleteOpen(false)}
+        >
+          {/* Stop backdrop clicks inside the card from dismissing the dialog. */}
+          <div className="modal-card" onClick={(event) => event.stopPropagation()}>
+            <h3 id="delete-note-title">Delete note</h3>
+            <p>
+              This permanently deletes <strong>{note.title}</strong> and cannot be undone.
+            </p>
+            <label className="modal-field">
+              <span className="muted">Type the note title to confirm:</span>
+              <input
+                className="modal-input"
+                value={deleteConfirmText}
+                /* eslint-disable-next-line jsx-a11y/no-autofocus */
+                autoFocus
+                onChange={(event) => setDeleteConfirmText(event.currentTarget.value)}
+                onKeyDown={(event) => {
+                  if (event.key === "Enter" && deleteConfirmed) void confirmDelete();
+                  if (event.key === "Escape") setConfirmDeleteOpen(false);
+                }}
+              />
+            </label>
+            {deleteNote.isError ? <p className="error">{deleteNote.error.message}</p> : null}
+            <div className="modal-actions">
+              <button type="button" onClick={() => setConfirmDeleteOpen(false)}>
+                Cancel
+              </button>
+              <button
+                type="button"
+                className="danger-button"
+                disabled={!deleteConfirmed || deleteNote.isPending}
+                onClick={confirmDelete}
+              >
+                {deleteNote.isPending ? "Deleting..." : "Delete note"}
+              </button>
+            </div>
+          </div>
+        </div>
+      ) : null}
       {tags.length > 0 ? (
         <div className="tag-list note-tags" aria-label="Note tags">
           {tags.map((tag) => (

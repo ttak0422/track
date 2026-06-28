@@ -717,6 +717,49 @@ func TestPutNoteRequiresEtag(t *testing.T) {
 	}
 }
 
+func deleteNote(t *testing.T, url string) (int, map[string]any) {
+	t.Helper()
+	req, err := http.NewRequest(http.MethodDelete, url, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatalf("delete %s: %v", url, err)
+	}
+	defer resp.Body.Close()
+	var decoded map[string]any
+	_ = json.NewDecoder(resp.Body).Decode(&decoded)
+	return resp.StatusCode, decoded
+}
+
+func TestDeleteNoteRemovesFileSidecarAndIndex(t *testing.T) {
+	server, cfg := putNoteSetup(t, 100, "Alpha", "body\n")
+
+	code, resp := deleteNote(t, server.URL+"/api/note?id=100")
+	if code != http.StatusOK || resp["deleted"] != true {
+		t.Fatalf("delete status=%d resp=%v", code, resp)
+	}
+	if _, err := os.Stat(cfg.NotePath(100)); !os.IsNotExist(err) {
+		t.Fatalf("note file should be gone, stat err=%v", err)
+	}
+	if _, err := os.Stat(cfg.MetadataPath(100)); !os.IsNotExist(err) {
+		t.Fatalf("sidecar should be gone, stat err=%v", err)
+	}
+	// The note is no longer served, and a second delete reports it missing.
+	getResp, err := http.Get(server.URL + "/api/note?id=100")
+	if err != nil {
+		t.Fatal(err)
+	}
+	getResp.Body.Close()
+	if getResp.StatusCode != http.StatusNotFound {
+		t.Fatalf("deleted note should 404, got %d", getResp.StatusCode)
+	}
+	if code, _ := deleteNote(t, server.URL+"/api/note?id=100"); code != http.StatusNotFound {
+		t.Fatalf("deleting a missing note should 404, got %d", code)
+	}
+}
+
 func TestRenderSanitizesActionLinksKeepsWiki(t *testing.T) {
 	server, _ := putNoteSetup(t, 100, "Alpha", "old body\n")
 

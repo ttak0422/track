@@ -2,6 +2,7 @@ import { dataURL, STATIC_MODE } from "./runtime";
 import type {
   ActivityResponse,
   AgendaResponse,
+  DeleteNoteResponse,
   FollowResponse,
   Graph,
   GraphResponse,
@@ -148,6 +149,15 @@ export function saveNote(noteID: NoteID, request: SaveNoteRequest): Promise<Save
     method: "PUT",
     body: request,
   });
+}
+
+// deleteNote permanently removes a note (file + sidecar + index row). The destructive confirmation is in
+// the UI; the published static site is read-only and cannot delete.
+export function deleteNote(noteID: NoteID): Promise<DeleteNoteResponse> {
+  if (STATIC_MODE) {
+    return readOnly();
+  }
+  return api<DeleteNoteResponse>(`/api/note?id=${encodeURIComponent(noteID)}`, { method: "DELETE" });
 }
 
 export function getFollowState(): Promise<FollowResponse> {

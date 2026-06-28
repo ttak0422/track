@@ -900,6 +900,108 @@ button {
   background: var(--accent);
 }
 
+/* Delete sits in the float controls as a pill like Follow, but in a danger tone. */
+.danger-toggle {
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  padding: 4px 14px;
+  color: var(--muted);
+  background: color-mix(in srgb, var(--panel) 92%, transparent);
+  box-shadow: 0 8px 22px rgb(0 0 0 / 16%);
+  font-size: 12px;
+  cursor: pointer;
+}
+
+.danger-toggle:hover,
+.danger-toggle:focus-visible {
+  color: #d64f4f;
+  border-color: #d64f4f;
+  background: color-mix(in srgb, #d64f4f 12%, var(--panel));
+}
+
+/* Centered confirmation dialog, above the float controls and floating windows. */
+.modal-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 200;
+  display: grid;
+  place-items: center;
+  padding: 24px;
+  background: rgb(0 0 0 / 45%);
+}
+
+.modal-card {
+  display: flex;
+  width: 100%;
+  max-width: 420px;
+  flex-direction: column;
+  gap: 12px;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  padding: 20px;
+  background: var(--panel);
+  box-shadow: 0 24px 60px rgb(0 0 0 / 28%);
+}
+
+.modal-card h3 {
+  margin: 0;
+  font-size: 18px;
+}
+
+.modal-card p {
+  margin: 0;
+  font-size: 14px;
+  overflow-wrap: anywhere;
+}
+
+.modal-field {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  font-size: 13px;
+}
+
+.modal-input {
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  padding: 8px 10px;
+  color: var(--text);
+  background: var(--bg);
+  font: inherit;
+}
+
+.modal-input:focus-visible {
+  outline: none;
+  border-color: var(--accent);
+}
+
+.modal-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+}
+
+.modal-actions button {
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  padding: 6px 14px;
+  color: var(--text);
+  background: transparent;
+  font-size: 13px;
+  cursor: pointer;
+}
+
+.modal-actions .danger-button {
+  border-color: #d64f4f;
+  color: #fff;
+  background: #d64f4f;
+}
+
+.modal-actions .danger-button:disabled {
+  cursor: not-allowed;
+  opacity: 0.5;
+}
+
 .note-tags button {
   border: 1px solid var(--line);
   border-radius: 999px;

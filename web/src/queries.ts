@@ -1,5 +1,6 @@
 import { keepPreviousData, useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import {
+  deleteNote,
   getActivity,
   getAgenda,
   getGraph,
@@ -125,6 +126,22 @@ export function useLocalGraphQuery(noteID: NoteID | undefined, enabled = noteID 
       return getLocalGraph(noteID);
     },
     enabled,
+  });
+}
+
+export function useDeleteNoteMutation(noteID: NoteID) {
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: () => deleteNote(noteID),
+    onSuccess: () => {
+      // The note is gone: drop its cache and refresh the lists/graph that referenced it.
+      queryClient.removeQueries({ queryKey: queryKeys.note(noteID) });
+      void queryClient.invalidateQueries({ queryKey: queryKeys.notes() });
+      void queryClient.invalidateQueries({ queryKey: ["search"] });
+      void queryClient.invalidateQueries({ queryKey: ["graph"] });
+      void queryClient.invalidateQueries({ queryKey: ["activity"] });
+    },
   });
 }
 

@@ -22,9 +22,42 @@ func (s *Server) handleNote(w http.ResponseWriter, r *http.Request) {
 		s.getNote(w, r)
 	case http.MethodPut:
 		s.putNote(w, r)
+	case http.MethodDelete:
+		s.deleteNote(w, r)
 	default:
 		writeError(w, fmt.Errorf("method %s not allowed", r.Method), http.StatusMethodNotAllowed)
 	}
+}
+
+// deleteNote removes a note: its Markdown file, its sidecar metadata, and its index row (tags and links
+// cascade). Other notes' bodies keep their now-dangling [[links]]; the link rows pointing here are
+// dropped with the note, so the graph and backlinks stay consistent. The destructive confirmation
+// (typing the title) is enforced in the web UI; this endpoint deletes by id.
+func (s *Server) deleteNote(w http.ResponseWriter, r *http.Request) {
+	id, err := parseID(r)
+	if err != nil {
+		writeError(w, err, http.StatusBadRequest)
+		return
+	}
+	ref, err := s.noteByID(id)
+	if err != nil {
+		writeError(w, err, http.StatusNotFound)
+		return
+	}
+	path := s.cfg.PathForKind(ref.FileKind, ref.NoteID)
+	if err := os.Remove(path); err != nil && !os.IsNotExist(err) {
+		writeError(w, fmt.Errorf("remove note file: %w", err), http.StatusInternalServerError)
+		return
+	}
+	if err := os.Remove(s.cfg.MetadataPath(id)); err != nil && !os.IsNotExist(err) {
+		writeError(w, fmt.Errorf("remove note metadata: %w", err), http.StatusInternalServerError)
+		return
+	}
+	if err := s.store.DeleteNote(id); err != nil {
+		writeError(w, fmt.Errorf("delete from index: %w", err), http.StatusInternalServerError)
+		return
+	}
+	writeJSON(w, map[string]any{"note_id": ref.NoteID, "deleted": true})
 }
 
 func (s *Server) getNote(w http.ResponseWriter, r *http.Request) {

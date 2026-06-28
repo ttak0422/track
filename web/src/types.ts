@@ -79,6 +79,11 @@ export interface SaveNoteResponse {
   saved: boolean;
 }
 
+export interface DeleteNoteResponse {
+  note_id: NoteID;
+  deleted: boolean;
+}
+
 export interface FollowState {
   note_id: NoteID;
   file_kind: FileKind;
