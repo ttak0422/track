@@ -1,5 +1,6 @@
 import { useNavigate } from "@tanstack/react-router";
 import { type MouseEvent, useEffect, useRef, type WheelEvent } from "react";
+import type { NoteID } from "../../types";
 import { useTabs } from "./tabsStore";
 
 // TabBar is the VS Code-style strip of open notes above the reader. Tabs accumulate as notes are
@@ -25,12 +26,12 @@ export function TabBar() {
     strip.scrollLeft += event.deltaY;
   }
 
-  function openTab(id: number) {
+  function openTab(id: NoteID) {
     void navigate({ to: "/notes/$noteId", params: { noteId: String(id) } });
   }
 
   // Middle-click closes, matching editor conventions.
-  function onAuxClick(event: MouseEvent<HTMLButtonElement>, id: number) {
+  function onAuxClick(event: MouseEvent<HTMLButtonElement>, id: NoteID) {
     if (event.button === 1) {
       event.preventDefault();
       close(id);

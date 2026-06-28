@@ -111,14 +111,18 @@ func TestBuildVaultBundle(t *testing.T) {
 	}
 
 	// Root note: body keeps wiki links for the frontend; out-of-set note not in graph.
-	root := readJSON[jsonNoteResponse](t, filepath.Join(out, "data", "note", "100.json"))
+	root := readJSON[jsonNoteResponse](t, filepath.Join(out, "data", "note", PublishID(100)+".json"))
 	if !strings.Contains(root.Note.Body, "[[Child]]") {
 		t.Fatalf("root body should keep wiki links: %q", root.Note.Body)
 	}
+	// The published note carries the opaque slug, never the timestamp id or source path.
+	if root.Note.NoteID != PublishID(100) || root.Note.Path != "" || root.Note.CopyPath != "" {
+		t.Fatalf("note should publish the slug and drop the path: %+v", root.Note)
+	}
 
 	// Child note has a backlink from Home.
-	child := readJSON[jsonNoteResponse](t, filepath.Join(out, "data", "note", "200.json"))
-	if len(child.Backlinks) != 1 || child.Backlinks[0].NoteID != 100 {
+	child := readJSON[jsonNoteResponse](t, filepath.Join(out, "data", "note", PublishID(200)+".json"))
+	if len(child.Backlinks) != 1 || child.Backlinks[0].NoteID != PublishID(100) {
 		t.Fatalf("child should have a backlink from 100, got %v", child.Backlinks)
 	}
 
@@ -130,14 +134,14 @@ func TestBuildVaultBundle(t *testing.T) {
 		t.Fatalf("graph missing edge 100->200: %+v", graph.Graph.Edges)
 	}
 	for _, n := range graph.Graph.Nodes {
-		if n.NoteID == 300 {
+		if n.NoteID == PublishID(300) {
 			t.Fatalf("out-of-set note 300 should not be a graph node")
 		}
 	}
 
 	// resolve.json maps titles to published notes only.
 	resolve := readJSON[map[string]jsonRef](t, filepath.Join(out, "data", "resolve.json"))
-	if resolve["Child"].NoteID != 200 {
+	if resolve["Child"].NoteID != PublishID(200) {
 		t.Fatalf("resolve[Child] should be 200, got %v", resolve["Child"])
 	}
 	if _, ok := resolve["Outsider"]; ok {
@@ -146,7 +150,7 @@ func TestBuildVaultBundle(t *testing.T) {
 
 	// site.json names the entry note.
 	site := readJSON[jsonSite](t, filepath.Join(out, "data", "site.json"))
-	if site.Root != 100 || site.Title != "Home" {
+	if site.Root != PublishID(100) || site.Title != "Home" {
 		t.Fatalf("unexpected site.json: %+v", site)
 	}
 }
@@ -159,6 +163,10 @@ func TestBuildRequiresRoot(t *testing.T) {
 }
 
 func hasEdge(edges []jsonGraphEdge, src, dst int64) bool {
+	return hasSlugEdge(edges, PublishID(src), PublishID(dst))
+}
+
+func hasSlugEdge(edges []jsonGraphEdge, src, dst string) bool {
 	for _, e := range edges {
 		if e.SourceID == src && e.TargetID == dst {
 			return true

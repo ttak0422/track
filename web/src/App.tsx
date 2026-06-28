@@ -103,13 +103,14 @@ function StaticHome() {
 
 function NoteRoute() {
   const { noteId } = noteRoute.useParams();
-  const parsed = Number(noteId);
 
-  if (!Number.isSafeInteger(parsed) || parsed <= 0) {
+  // Ids are opaque (numeric in live mode, base62 slugs in the static site), so just require a non-empty
+  // param rather than parsing a number.
+  if (!noteId) {
     return <p className="error">Invalid note id: {noteId}</p>;
   }
 
-  return <NoteReader noteID={parsed} />;
+  return <NoteReader noteID={noteId} />;
 }
 
 function GraphRoute() {

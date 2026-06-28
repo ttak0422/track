@@ -163,10 +163,8 @@ export function GraphPanel() {
 }
 
 function noteIDFromPath(pathname: string): NoteID | undefined {
-  const match = /^\/notes\/(\d+)$/.exec(pathname);
-  if (!match) return undefined;
-  const noteID = Number(match[1]);
-  return Number.isSafeInteger(noteID) && noteID > 0 ? noteID : undefined;
+  const match = /^\/notes\/([^/]+)$/.exec(pathname);
+  return match ? match[1] : undefined;
 }
 
 function scopeLabel(scope: GraphScope): string {

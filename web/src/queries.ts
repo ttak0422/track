@@ -117,7 +117,7 @@ export function useGraphQuery(enabled = true) {
 
 export function useLocalGraphQuery(noteID: NoteID | undefined, enabled = noteID !== undefined) {
   return useQuery({
-    queryKey: queryKeys.localGraph(noteID ?? 0),
+    queryKey: queryKeys.localGraph(noteID ?? ""),
     queryFn: () => {
       if (noteID === undefined) {
         throw new Error("note id is required for local graph");

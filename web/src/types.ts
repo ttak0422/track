@@ -1,4 +1,7 @@
-export type NoteID = number;
+// Note ids are opaque strings end to end: the live server's numeric ids are stringified at the api
+// boundary (see api.ts), and the static site uses base62 slugs (see internal/track/site/PublishID). The
+// frontend never does arithmetic on them — only equality and URL building — so a string suits both.
+export type NoteID = string;
 export type FileKind = "note" | "journal" | string;
 
 export interface NoteRef {

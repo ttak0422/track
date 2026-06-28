@@ -6,6 +6,8 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"github.com/ttak0422/track/internal/track/site"
 )
 
 // fakeFrontend creates a minimal static-mode frontend build for export-site to copy.
@@ -40,7 +42,7 @@ func TestExportSiteBuildsStaticSite(t *testing.T) {
 	if _, err := os.Stat(filepath.Join(out, "index.html")); err != nil {
 		t.Fatalf("frontend not copied: %v", err)
 	}
-	raw, err := os.ReadFile(filepath.Join(out, "data", "note", "200.json"))
+	raw, err := os.ReadFile(filepath.Join(out, "data", "note", site.PublishID(200)+".json"))
 	if err != nil {
 		t.Fatalf("child note bundle missing: %v", err)
 	}
@@ -49,13 +51,13 @@ func TestExportSiteBuildsStaticSite(t *testing.T) {
 			Body string `json:"body"`
 		} `json:"note"`
 		Backlinks []struct {
-			NoteID int64 `json:"note_id"`
+			NoteID string `json:"note_id"`
 		} `json:"backlinks"`
 	}
 	if err := json.Unmarshal(raw, &note); err != nil {
 		t.Fatal(err)
 	}
-	if len(note.Backlinks) != 1 || note.Backlinks[0].NoteID != 100 {
+	if len(note.Backlinks) != 1 || note.Backlinks[0].NoteID != site.PublishID(100) {
 		t.Fatalf("child should have backlink from 100, got %+v", note.Backlinks)
 	}
 	if !strings.Contains(note.Note.Body, "[[Home]]") {

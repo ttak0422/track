@@ -1,10 +1,11 @@
 import { useRouterState } from "@tanstack/react-router";
 import { createContext, type ReactNode, useCallback, useContext, useEffect, useMemo, useState } from "react";
+import type { NoteID } from "../../types";
 import type { PreviewBounds } from "./bounds";
 import { nextPreviewStackOrder } from "./stack";
 
 export type FloatingContent =
-  | { kind: "note"; noteID: number }
+  | { kind: "note"; noteID: NoteID }
   | { kind: "media"; src: string; alt: string; noteKind: string };
 
 export interface FloatingWin {

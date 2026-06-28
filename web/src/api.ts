@@ -6,6 +6,7 @@ import type {
   Graph,
   GraphResponse,
   JournalResponse,
+  NoteID,
   NoteResponse,
   NotesResponse,
   OgpResponse,
@@ -46,7 +47,26 @@ export async function api<T>(path: string, options: APIOptions = {}): Promise<T>
     throw new Error(message);
   }
 
-  return body as T;
+  return stringifyIDs(body) as T;
+}
+
+// The live server marshals note ids as JSON numbers, but the frontend treats ids as opaque strings (so
+// they line up with route params and with the static site's slug ids). stringifyIDs normalizes every id
+// field in a response to a string at the boundary, so the rest of the app never sees a numeric id.
+const ID_KEYS = new Set(["note_id", "source_id", "target_id", "center_id", "root"]);
+
+function stringifyIDs<T>(value: T): T {
+  if (Array.isArray(value)) {
+    return value.map(stringifyIDs) as T;
+  }
+  if (value !== null && typeof value === "object") {
+    const out: Record<string, unknown> = {};
+    for (const [key, child] of Object.entries(value)) {
+      out[key] = ID_KEYS.has(key) && typeof child === "number" ? String(child) : stringifyIDs(child);
+    }
+    return out as T;
+  }
+  return value;
 }
 
 // staticData fetches a pre-generated JSON file from the exported data bundle. It is only used in static
@@ -91,7 +111,7 @@ export function resolveTerm(term: string): Promise<ResolveResponse> {
   if (STATIC_MODE) {
     return staticData<Record<string, ResolveResponse["note"]>>("resolve.json").then((map) => {
       const note = map[term];
-      return note ? { found: true, note } : { found: false, note: { note_id: 0, file_kind: "note", title: term } };
+      return note ? { found: true, note } : { found: false, note: { note_id: "", file_kind: "note", title: term } };
     });
   }
   return api<ResolveResponse>(`/api/resolve?term=${encodeURIComponent(term)}`);
@@ -113,14 +133,14 @@ export function openJournal(date: string): Promise<JournalResponse> {
   return api<JournalResponse>(`/api/journal?date=${encodeURIComponent(date)}`, { method: "POST" });
 }
 
-export function getNote(noteID: number): Promise<NoteResponse> {
+export function getNote(noteID: NoteID): Promise<NoteResponse> {
   if (STATIC_MODE) {
     return staticData<NoteResponse>(`note/${noteID}.json`);
   }
   return api<NoteResponse>(`/api/note?id=${encodeURIComponent(noteID)}`);
 }
 
-export function saveNote(noteID: number, request: SaveNoteRequest): Promise<SaveNoteResponse> {
+export function saveNote(noteID: NoteID, request: SaveNoteRequest): Promise<SaveNoteResponse> {
   if (STATIC_MODE) {
     return readOnly();
   }
@@ -149,7 +169,7 @@ export function renderMarkdown(body: string): Promise<RenderResponse> {
   return api<RenderResponse>("/api/render", { method: "POST", body: { body } });
 }
 
-export function getLocalGraph(noteID: number): Promise<GraphResponse> {
+export function getLocalGraph(noteID: NoteID): Promise<GraphResponse> {
   if (STATIC_MODE) {
     return staticData<GraphResponse>("graph.json").then((data) => ({
       graph: localGraph(data.graph, noteID),
@@ -195,8 +215,8 @@ function filterNotes(notes: SearchResult[], query: string): SearchResult[] {
 
 // localGraph derives the 1-hop neighbourhood of a note from the full graph, marking the center, so the
 // static site does not need a separate file per note.
-function localGraph(graph: Graph, noteID: number): Graph {
-  const keep = new Set<number>([noteID]);
+function localGraph(graph: Graph, noteID: NoteID): Graph {
+  const keep = new Set<NoteID>([noteID]);
   for (const edge of graph.edges) {
     if (edge.source_id === noteID) keep.add(edge.target_id);
     if (edge.target_id === noteID) keep.add(edge.source_id);

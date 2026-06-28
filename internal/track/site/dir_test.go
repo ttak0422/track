@@ -3,7 +3,6 @@ package site
 import (
 	"os"
 	"path/filepath"
-	"strconv"
 	"strings"
 	"testing"
 )
@@ -64,12 +63,12 @@ func TestBuildDirBundle(t *testing.T) {
 	graph := readJSON[struct {
 		Graph jsonGraph `json:"graph"`
 	}](t, filepath.Join(out, "data", "graph.json"))
-	if !hasEdge(graph.Graph.Edges, site.Root, resolve["cli"].NoteID) {
+	if !hasSlugEdge(graph.Graph.Edges, site.Root, resolve["cli"].NoteID) {
 		t.Fatalf("expected edge index->cli, got %+v", graph.Graph.Edges)
 	}
 
 	// Root note body keeps the wiki links for the frontend to resolve.
-	rootNote := readJSON[jsonNoteResponse](t, filepath.Join(out, "data", "note", strconv.FormatInt(site.Root, 10)+".json"))
+	rootNote := readJSON[jsonNoteResponse](t, filepath.Join(out, "data", "note", site.Root+".json"))
 	if !strings.Contains(rootNote.Note.Body, "[[cli]]") {
 		t.Fatalf("root body should keep wiki link: %q", rootNote.Note.Body)
 	}

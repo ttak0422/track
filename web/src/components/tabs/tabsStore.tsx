@@ -8,11 +8,12 @@ import {
   useMemo,
   useState,
 } from "react";
+import type { NoteID } from "../../types";
 
 // A note open in the tab bar. The title is cached so a reloaded session can label tabs before each
 // note's data resolves; it is refreshed from the note query when a tab becomes active.
 export interface NoteTab {
-  id: number;
+  id: NoteID;
   title: string;
 }
 
@@ -20,13 +21,13 @@ interface TabsApi {
   tabs: NoteTab[];
   // The note id of the route currently shown, or null when off a note (home/graph). Used to mark the
   // active tab; it may not be in `tabs` for a frame until the open effect adds it.
-  activeID: number | null;
+  activeID: NoteID | null;
   // The single note with unsaved edits, if any. Only one note is editable at a time, so dirtiness is a
   // single id rather than a per-tab flag (and it is never persisted).
-  dirtyID: number | null;
-  setTitle: (id: number, title: string) => void;
-  setDirty: (id: number | null) => void;
-  close: (id: number) => void;
+  dirtyID: NoteID | null;
+  setTitle: (id: NoteID, title: string) => void;
+  setDirty: (id: NoteID | null) => void;
+  close: (id: NoteID) => void;
 }
 
 const TabsContext = createContext<TabsApi | null>(null);
@@ -42,7 +43,7 @@ function loadTabs(): NoteTab[] {
     if (!Array.isArray(parsed)) return [];
     return parsed.flatMap((entry) => {
       const id = (entry as { id?: unknown }).id;
-      if (typeof id !== "number" || !Number.isSafeInteger(id) || id <= 0) return [];
+      if (typeof id !== "string" || id === "") return [];
       const title = (entry as { title?: unknown }).title;
       return [{ id, title: typeof title === "string" ? title : "" }];
     });
@@ -51,16 +52,14 @@ function loadTabs(): NoteTab[] {
   }
 }
 
-function noteIDFromPath(pathname: string): number | null {
-  const match = pathname.match(/^\/notes\/(\d+)$/);
-  if (!match) return null;
-  const id = Number(match[1]);
-  return Number.isSafeInteger(id) && id > 0 ? id : null;
+function noteIDFromPath(pathname: string): NoteID | null {
+  const match = pathname.match(/^\/notes\/([^/]+)$/);
+  return match ? match[1] : null;
 }
 
 export function TabsProvider({ children }: { children: ReactNode }) {
   const [tabs, setTabs] = useState<NoteTab[]>(loadTabs);
-  const [dirtyID, setDirtyID] = useState<number | null>(null);
+  const [dirtyID, setDirtyID] = useState<NoteID | null>(null);
   const pathname = useRouterState({ select: (state) => state.location.pathname });
   const navigate = useNavigate();
   const activeID = noteIDFromPath(pathname);

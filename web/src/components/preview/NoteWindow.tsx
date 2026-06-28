@@ -1,11 +1,12 @@
 import { useNavigate } from "@tanstack/react-router";
+import type { NoteID } from "../../types";
 import { useNoteQuery, useRenderQuery } from "../../queries";
 import { PreviewDepthContext } from "../markdown/context";
 import { MarkdownView } from "../MarkdownView";
 import { FloatingWindow, type FloatingWindowControls } from "./FloatingWindow";
 
 interface NoteWindowProps extends FloatingWindowControls {
-  noteID: number;
+  noteID: NoteID;
 }
 
 // NoteWindow frames a note's body in a FloatingWindow, used both for the inline hover preview and for a

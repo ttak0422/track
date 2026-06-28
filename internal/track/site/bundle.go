@@ -37,15 +37,17 @@ type edge struct{ src, dst int64 }
 // JSON shapes matching web/src/types.ts. Kept local so the bundle is self-describing and decoupled from
 // the store/webui structs.
 
+// Ids are the opaque published slugs (see PublishID), not the internal note ids, so the bundle never
+// exposes the timestamp-based source file names.
 type jsonRef struct {
-	NoteID   int64  `json:"note_id"`
+	NoteID   string `json:"note_id"`
 	FileKind string `json:"file_kind"`
 	Path     string `json:"path,omitempty"`
 	Title    string `json:"title"`
 }
 
 type jsonSearchResult struct {
-	NoteID   int64    `json:"note_id"`
+	NoteID   string   `json:"note_id"`
 	FileKind string   `json:"file_kind"`
 	Path     string   `json:"path"`
 	Title    string   `json:"title"`
@@ -65,24 +67,24 @@ type jsonNoteResponse struct {
 }
 
 type jsonGraphNode struct {
-	NoteID   int64  `json:"note_id"`
+	NoteID   string `json:"note_id"`
 	FileKind string `json:"file_kind"`
 	Title    string `json:"title"`
 }
 
 type jsonGraphEdge struct {
-	SourceID int64 `json:"source_id"`
-	TargetID int64 `json:"target_id"`
+	SourceID string `json:"source_id"`
+	TargetID string `json:"target_id"`
 }
 
 type jsonGraph struct {
-	CenterID int64           `json:"center_id"`
+	CenterID string          `json:"center_id"`
 	Nodes    []jsonGraphNode `json:"nodes"`
 	Edges    []jsonGraphEdge `json:"edges"`
 }
 
 type jsonSite struct {
-	Root  int64  `json:"root"`
+	Root  string `json:"root"`
 	Title string `json:"title"`
 }
 
@@ -134,13 +136,13 @@ func writeBundle(docs []doc, edges []edge, root int64, frontendDir, outDir strin
 		resp := jsonNoteResponse{
 			Note: jsonNoteDetail{
 				jsonSearchResult: searchResultOf(d),
-				CopyPath:         d.path,
+				CopyPath:         "", // see searchResultOf: the source path is intentionally not published.
 				Body:             d.body,
 				ETag:             etag(d.body),
 			},
 			Backlinks: bl,
 		}
-		if err := writeJSONFile(filepath.Join(outDir, "data", "note", fmt.Sprintf("%d.json", d.id)), resp); err != nil {
+		if err := writeJSONFile(filepath.Join(outDir, "data", "note", fmt.Sprintf("%s.json", PublishID(d.id))), resp); err != nil {
 			return Result{}, err
 		}
 	}
@@ -148,14 +150,15 @@ func writeBundle(docs []doc, edges []edge, root int64, frontendDir, outDir strin
 	// graph.json (whole published set).
 	nodes := make([]jsonGraphNode, 0, len(docs))
 	for _, d := range docs {
-		nodes = append(nodes, jsonGraphNode{NoteID: d.id, FileKind: kindOf(d), Title: d.title})
+		nodes = append(nodes, jsonGraphNode{NoteID: PublishID(d.id), FileKind: kindOf(d), Title: d.title})
 	}
 	gEdges := make([]jsonGraphEdge, 0, len(edges))
 	for _, e := range edges {
-		gEdges = append(gEdges, jsonGraphEdge{SourceID: e.src, TargetID: e.dst})
+		gEdges = append(gEdges, jsonGraphEdge{SourceID: PublishID(e.src), TargetID: PublishID(e.dst)})
 	}
+	// CenterID is empty for the whole-set graph: there is no centered node, and no slug ever equals "".
 	if err := writeJSONFile(filepath.Join(outDir, "data", "graph.json"),
-		map[string]any{"graph": jsonGraph{CenterID: 0, Nodes: nodes, Edges: gEdges}}); err != nil {
+		map[string]any{"graph": jsonGraph{CenterID: "", Nodes: nodes, Edges: gEdges}}); err != nil {
 		return Result{}, err
 	}
 
@@ -174,7 +177,7 @@ func writeBundle(docs []doc, edges []edge, root int64, frontendDir, outDir strin
 	}
 
 	// site.json: the entry note.
-	if err := writeJSONFile(filepath.Join(outDir, "data", "site.json"), jsonSite{Root: root, Title: rootTitle}); err != nil {
+	if err := writeJSONFile(filepath.Join(outDir, "data", "site.json"), jsonSite{Root: PublishID(root), Title: rootTitle}); err != nil {
 		return Result{}, err
 	}
 
@@ -216,12 +219,14 @@ func writeBundle(docs []doc, edges []edge, root int64, frontendDir, outDir strin
 	return res, nil
 }
 
+// The source path is dropped from the bundle: like the id, the file name is timestamp-based, so emitting
+// it would re-expose what the slug is meant to hide. It was only informational in the static site.
 func searchResultOf(d doc) jsonSearchResult {
-	return jsonSearchResult{NoteID: d.id, FileKind: kindOf(d), Path: d.path, Title: d.title, Tags: d.tags}
+	return jsonSearchResult{NoteID: PublishID(d.id), FileKind: kindOf(d), Path: "", Title: d.title, Tags: d.tags}
 }
 
 func refOf(d doc) jsonRef {
-	return jsonRef{NoteID: d.id, FileKind: kindOf(d), Path: d.path, Title: d.title}
+	return jsonRef{NoteID: PublishID(d.id), FileKind: kindOf(d), Title: d.title}
 }
 
 func kindOf(d doc) string {
