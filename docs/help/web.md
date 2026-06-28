@@ -35,7 +35,7 @@ reference: a Mermaid source (`.mmd` / `.mermaid`) renders as a diagram, and any 
 (`.txt`, `.json`, `.yaml`, `.csv`, shell scripts, …) renders as a syntax-highlighted code block.
 
 ```markdown
-![release plan](assets/roadmap.mmd)
+![](assets/gantt.mmd)
 ```
 
 ## Code and diagrams
