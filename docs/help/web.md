@@ -13,6 +13,23 @@ Back to [[track]].
 - A local link graph you can open per-note or full-screen.
 - Follow mode, so the web view tracks the note you are editing in Neovim.
 
+## Media embeds
+
+Put a Markdown image link on its own line to turn it into a block embed. Local files belong under the
+note kind's assets directory, and `track asset import ./image.png` prints the relative reference you
+can paste into a note.
+
+![track logo](assets/logo.png)
+
+The image above is just:
+
+```markdown
+![track logo](assets/logo.png)
+```
+
+The same standalone image syntax also embeds YouTube videos, Twitter/X posts, PDFs, image URLs, and
+ordinary web pages with Open Graph metadata. Inline image syntax inside a paragraph stays inline.
+
 ## Relationship to the static export
 
 The static site produced by `track export-site` is the *published* counterpart of this workspace:
