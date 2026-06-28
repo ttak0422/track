@@ -19,22 +19,35 @@ var assetRef = regexp.MustCompile(`assets/([^\s"')>?#]+)`)
 // rewriteAssetRefs rewrites every "assets/<rel>" reference in a note body to its published name
 // (assets/<slug><ext>), matching how copyAssets names the copied files, so the timestamp/source file
 // name never appears in the published HTML. References with "" or ".." are left untouched, as
-// collectAssets skips them too.
+// collectAssets skips them too. References written inside a fenced code block or inline code span are
+// literal documentation examples, not real attachments, so they are left exactly as written.
 func rewriteAssetRefs(body string) string {
-	return assetRef.ReplaceAllStringFunc(body, func(match string) string {
+	masked := maskCode(body)
+	var b strings.Builder
+	last := 0
+	for _, loc := range assetRef.FindAllStringIndex(masked, -1) {
+		start, end := loc[0], loc[1]
+		match := body[start:end]
 		rel := strings.TrimSpace(strings.TrimPrefix(match, "assets/"))
+		b.WriteString(body[last:start])
 		if rel == "" || strings.Contains(rel, "..") {
-			return match
+			b.WriteString(match)
+		} else {
+			b.WriteString("assets/" + publishAssetName(rel))
 		}
-		return "assets/" + publishAssetName(rel)
-	})
+		last = end
+	}
+	b.WriteString(body[last:])
+	return b.String()
 }
 
-// collectAssets returns the distinct "assets/<path>" file references found in a note body.
+// collectAssets returns the distinct "assets/<path>" file references found in a note body, ignoring any
+// written inside a code block or inline code span (those are examples, not attachments to publish).
 func collectAssets(body string) []string {
+	masked := maskCode(body)
 	seen := map[string]bool{}
-	for _, m := range assetRef.FindAllStringSubmatch(body, -1) {
-		rel := strings.TrimSpace(m[1])
+	for _, loc := range assetRef.FindAllStringSubmatchIndex(masked, -1) {
+		rel := strings.TrimSpace(body[loc[2]:loc[3]])
 		if rel == "" || strings.Contains(rel, "..") {
 			continue
 		}
