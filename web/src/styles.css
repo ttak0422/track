@@ -531,10 +531,10 @@ button {
   height: 100%;
 }
 
-/* The full-screen graph sits above the workspace but below the floating windows (previewBaseZIndex
-   100+), so a note opened from a node pops up in front of the graph. */
+/* The full-screen graph fills the reader pane while leaving the workspace rail visible. It still sits
+   below floating windows (previewBaseZIndex 100+), so notes opened from nodes pop up in front. */
 .graph-full {
-  position: fixed;
+  position: absolute;
   inset: 0;
   z-index: 90;
   display: flex;
