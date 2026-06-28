@@ -45,6 +45,24 @@ func TestChartJSRenderNaNBecomesNull(t *testing.T) {
 	}
 }
 
+func TestChartJSHBarUsesBarWithIndexAxisY(t *testing.T) {
+	out, err := ChartJS{}.Render(resolved(viewspec.ChartHBar, "Ranking", []float64{1, 2}))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(out, `"type":"bar"`) {
+		t.Fatalf("hbar should map to Chart.js bar: %s", out)
+	}
+	if !strings.Contains(out, `"indexAxis":"y"`) {
+		t.Fatalf("hbar should set indexAxis y: %s", out)
+	}
+	// A vertical bar must not set indexAxis, so it stays the default.
+	vout, _ := ChartJS{}.Render(resolved(viewspec.ChartBar, "", []float64{1}))
+	if strings.Contains(vout, "indexAxis") {
+		t.Fatalf("vertical bar should not set indexAxis: %s", vout)
+	}
+}
+
 func TestChartJSScatterPinsCategoryAxis(t *testing.T) {
 	out, err := ChartJS{}.Render(resolved(viewspec.ChartScatter, "", []float64{1, 2}))
 	if err != nil {

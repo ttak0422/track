@@ -23,20 +23,21 @@ import (
 // Version is the current View Spec schema version. Specs carry it so the format can evolve.
 const Version = 1
 
-// ChartType enumerates the visualization kinds. MVP renders line/bar/scatter; more (heatmap,
+// ChartType enumerates the visualization kinds. Renderers draw line/bar/hbar/scatter; more (heatmap,
 // timeline, narrative) are reserved names that renderers may add later without a spec change.
 type ChartType string
 
 const (
 	ChartLine    ChartType = "line"
 	ChartBar     ChartType = "bar"
+	ChartHBar    ChartType = "hbar" // horizontal bar, e.g. a ranking
 	ChartScatter ChartType = "scatter"
 )
 
 // RenderableTypes lists the chart types a renderer can draw, in a stable order. It is the single
 // source for both validation and help text, so a new chart type shows up in `track render --help`
 // automatically.
-var RenderableTypes = []ChartType{ChartLine, ChartBar, ChartScatter}
+var RenderableTypes = []ChartType{ChartLine, ChartBar, ChartHBar, ChartScatter}
 
 // AxisOptions lists the valid y-series axis assignments (primary/secondary), for help and validation.
 var AxisOptions = []string{"y", "y2"}

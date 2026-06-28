@@ -51,16 +51,29 @@ type dataset struct {
 
 type chartOption struct {
 	Responsive bool           `json:"responsive"`
+	IndexAxis  string         `json:"indexAxis,omitempty"`
 	Plugins    map[string]any `json:"plugins,omitempty"`
 	Scales     map[string]any `json:"scales,omitempty"`
+}
+
+// chartJSType maps a View Spec chart type to the Chart.js type name. hbar is a horizontal bar, which
+// in Chart.js is a "bar" with indexAxis "y" (set on options in Render); all others pass through.
+func chartJSType(t viewspec.ChartType) string {
+	if t == viewspec.ChartHBar {
+		return "bar"
+	}
+	return string(t)
 }
 
 // Render builds the Chart.js config from the resolved spec and embeds it in a complete HTML document.
 func (ChartJS) Render(res viewspec.Resolved) (string, error) {
 	cfg := chartConfig{
-		Type:    string(res.Spec.Type),
+		Type:    chartJSType(res.Spec.Type),
 		Data:    chartData{Labels: res.Labels},
 		Options: chartOption{Responsive: true},
+	}
+	if res.Spec.Type == viewspec.ChartHBar {
+		cfg.Options.IndexAxis = "y"
 	}
 	if res.Spec.Title != "" {
 		cfg.Options.Plugins = map[string]any{

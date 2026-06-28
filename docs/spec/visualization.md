@@ -59,7 +59,7 @@ chart over a single data source. Unknown fields are rejected.
 | Field      | Required | Notes                                                                       |
 |------------|----------|-----------------------------------------------------------------------------|
 | `version`  | yes      | View Spec schema version (current: `1`).                                     |
-| `type`     | yes      | `line`, `bar`, or `scatter`.                                                 |
+| `type`     | yes      | `line`, `bar`, `hbar` (horizontal bar, e.g. a ranking), or `scatter`.         |
 | `title`    | no       | Chart and page title.                                                        |
 | `data.source` | yes   | Path to a JSONL file, resolved **relative to the spec file** (or absolute).  |
 | `data.kind`   | yes   | One of the canonical kinds.                                                  |
@@ -120,6 +120,7 @@ Emits a self-contained HTML page that loads **Chart.js from a CDN**
 (`https://cdn.jsdelivr.net/npm/chart.js@4`) and draws the chart in a `<canvas>`:
 
 - `line`/`bar` map directly to Chart.js types over a category x-axis.
+- `hbar` renders as a Chart.js `bar` with `indexAxis: "y"` (horizontal), for rankings.
 - `scatter` uses the same category x-axis with the connecting line suppressed.
 - A series with `axis: "y2"` is bound to a right-hand secondary linear axis (its gridlines kept off the
   chart area); single-axis charts define no `y2`.
