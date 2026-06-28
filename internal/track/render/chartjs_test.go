@@ -63,6 +63,33 @@ func TestChartJSHBarUsesBarWithIndexAxisY(t *testing.T) {
 	}
 }
 
+func TestChartJSBubbleEmitsXYRPoints(t *testing.T) {
+	res := viewspec.Resolved{
+		Spec: viewspec.Spec{Version: 1, Type: viewspec.ChartBubble},
+		Series: []viewspec.Series{{Label: "Sectors", Points: []viewspec.Point{
+			{X: 12, Y: 40, R: 1000},
+			{X: 1, Y: 2, R: math.NaN()}, // missing radius → default
+			{X: math.NaN(), Y: 5, R: 3}, // incomplete → skipped
+		}}},
+	}
+	out, err := ChartJS{}.Render(res)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(out, `"type":"bubble"`) {
+		t.Fatalf("type should be bubble: %s", out)
+	}
+	if !strings.Contains(out, `"r":1000`) || !strings.Contains(out, `"x":12`) {
+		t.Fatalf("first point missing: %s", out)
+	}
+	if !strings.Contains(out, `"r":4`) {
+		t.Fatalf("missing radius should default to 4: %s", out)
+	}
+	if strings.Contains(out, `"y":5`) {
+		t.Fatalf("incomplete point should be skipped: %s", out)
+	}
+}
+
 func TestChartJSScatterPinsCategoryAxis(t *testing.T) {
 	out, err := ChartJS{}.Render(resolved(viewspec.ChartScatter, "", []float64{1, 2}))
 	if err != nil {

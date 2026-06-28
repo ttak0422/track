@@ -32,12 +32,13 @@ const (
 	ChartBar     ChartType = "bar"
 	ChartHBar    ChartType = "hbar" // horizontal bar, e.g. a ranking
 	ChartScatter ChartType = "scatter"
+	ChartBubble  ChartType = "bubble" // {x,y,r} points, e.g. sector positions sized by exposure
 )
 
 // RenderableTypes lists the chart types a renderer can draw, in a stable order. It is the single
 // source for both validation and help text, so a new chart type shows up in `track render --help`
 // automatically.
-var RenderableTypes = []ChartType{ChartLine, ChartBar, ChartHBar, ChartScatter}
+var RenderableTypes = []ChartType{ChartLine, ChartBar, ChartHBar, ChartScatter, ChartBubble}
 
 // AxisOptions lists the valid y-series axis assignments (primary/secondary), for help and validation.
 var AxisOptions = []string{"y", "y2"}
@@ -55,6 +56,7 @@ type Spec struct {
 	Data     DataRef    `json:"data"`
 	X        Encoding   `json:"x"`
 	Y        []Encoding `json:"y"`
+	Size     *Encoding  `json:"size,omitempty"` // bubble radius; required for type bubble
 	Filter   *Filter    `json:"filter,omitempty"`
 	Overlays []Overlay  `json:"overlays,omitempty"`
 }
@@ -197,6 +199,9 @@ func (s Spec) Validate() error {
 			return fmt.Errorf("view spec: y[%d].axis %q is not y or y2", i, y.Axis)
 		}
 	}
+	if s.Type == ChartBubble && (s.Size == nil || s.Size.Field == "") {
+		return fmt.Errorf("view spec: type bubble requires size.field (the bubble radius)")
+	}
 	for i, o := range s.Overlays {
 		if strings.TrimSpace(o.Source) == "" {
 			return fmt.Errorf("view spec: overlays[%d].source is required", i)
@@ -208,12 +213,25 @@ func (s Spec) Validate() error {
 	return nil
 }
 
+// match reports whether a record passes the filter (a single field equality).
+func (f *Filter) match(rec dataset.Record) bool {
+	got, _ := rec.String(f.Field)
+	return got == f.Equals
+}
+
 // Series holds one resolved y series: a label and the value/label pairs already aligned to the shared
 // x axis. Missing numeric values are NaN so a renderer can render a gap rather than a false zero.
 type Series struct {
 	Label  string
 	Values []float64
-	Axis   string // "y" (primary) or "y2" (secondary)
+	Axis   string  // "y" (primary) or "y2" (secondary)
+	Points []Point // populated instead of Values for bubble charts ({x,y,r} per record)
+}
+
+// Point is one bubble datum: position (X, Y) and radius (R). A coordinate is NaN when its field is
+// missing, so a renderer can skip an incomplete point rather than plot it at the origin.
+type Point struct {
+	X, Y, R float64
 }
 
 // Resolved is a Spec applied to data: the shared x-axis labels plus one Series per y encoding. A
@@ -234,11 +252,12 @@ func (s Spec) Resolve(records []dataset.Record) Resolved {
 		res.Series = append(res.Series, Series{Label: y.label(), Axis: y.axisID()})
 	}
 	for _, rec := range records {
-		if s.Filter != nil {
-			got, _ := rec.String(s.Filter.Field)
-			if got != s.Filter.Equals {
-				continue
-			}
+		if s.Filter != nil && !s.Filter.match(rec) {
+			continue
+		}
+		if s.Type == ChartBubble {
+			s.resolveBubblePoint(rec, &res)
+			continue
 		}
 		x, _ := rec.String(s.X.Field)
 		res.Labels = append(res.Labels, x)
@@ -251,4 +270,26 @@ func (s Spec) Resolve(records []dataset.Record) Resolved {
 		}
 	}
 	return res
+}
+
+// resolveBubblePoint appends one {x,y,r} point per y series for a bubble chart. A missing coordinate
+// becomes NaN so the renderer can skip an incomplete point instead of plotting it at the origin.
+func (s Spec) resolveBubblePoint(rec dataset.Record, res *Resolved) {
+	x, ok := rec.Float(s.X.Field)
+	if !ok {
+		x = math.NaN()
+	}
+	r := math.NaN()
+	if s.Size != nil {
+		if rv, ok := rec.Float(s.Size.Field); ok {
+			r = rv
+		}
+	}
+	for i, y := range s.Y {
+		yv, ok := rec.Float(y.Field)
+		if !ok {
+			yv = math.NaN()
+		}
+		res.Series[i].Points = append(res.Series[i].Points, Point{X: x, Y: yv, R: r})
+	}
 }

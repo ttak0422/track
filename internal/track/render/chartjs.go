@@ -87,7 +87,12 @@ func (ChartJS) Render(res viewspec.Resolved) (string, error) {
 	}
 	usesY2 := false
 	for _, s := range res.Series {
-		ds := dataset{Label: s.Label, Data: floatsToJSON(s.Values)}
+		ds := dataset{Label: s.Label}
+		if res.Spec.Type == viewspec.ChartBubble {
+			ds.Data = pointsToJSON(s.Points)
+		} else {
+			ds.Data = floatsToJSON(s.Values)
+		}
 		if res.Spec.Type == viewspec.ChartScatter {
 			no := false
 			ds.ShowLine = &no
@@ -159,6 +164,24 @@ func markerAnnotations(markers []viewspec.Marker) map[string]any {
 			}
 		}
 		out[fmt.Sprintf("m%d", i)] = ann
+	}
+	return out
+}
+
+// pointsToJSON converts bubble points to Chart.js {x,y,r} objects. A point missing its x or y is
+// skipped (an incomplete datum), and a missing/non-positive radius falls back to a small visible
+// default so the point still shows.
+func pointsToJSON(ps []viewspec.Point) []any {
+	out := make([]any, 0, len(ps))
+	for _, p := range ps {
+		if math.IsNaN(p.X) || math.IsNaN(p.Y) {
+			continue
+		}
+		r := p.R
+		if math.IsNaN(r) || r <= 0 {
+			r = 4
+		}
+		out = append(out, map[string]any{"x": p.X, "y": p.Y, "r": r})
 	}
 	return out
 }

@@ -59,12 +59,13 @@ chart over a single data source. Unknown fields are rejected.
 | Field      | Required | Notes                                                                       |
 |------------|----------|-----------------------------------------------------------------------------|
 | `version`  | yes      | View Spec schema version (current: `1`).                                     |
-| `type`     | yes      | `line`, `bar`, `hbar` (horizontal bar, e.g. a ranking), or `scatter`.         |
+| `type`     | yes      | `line`, `bar`, `hbar` (ranking), `scatter`, or `bubble`.                      |
 | `title`    | no       | Chart and page title.                                                        |
 | `data.source` | yes   | Path to a JSONL file, resolved **relative to the spec file** (or absolute).  |
 | `data.kind`   | yes   | One of the canonical kinds.                                                  |
-| `x.field`  | yes      | Record field used for x-axis category labels.                               |
+| `x.field`  | yes      | Record field used for x-axis labels (category), or numeric x for `bubble`.   |
 | `y`        | yes      | One or more series; each `y[i].field` is a numeric record field.            |
+| `size`     | bubble   | Field for the bubble radius; required when `type` is `bubble`.               |
 | `filter`   | no       | Keep only records where `filter.field` equals `filter.equals` (string).     |
 | `overlays` | no       | Vertical event/annotation markers drawn over the chart (see below).         |
 
@@ -122,6 +123,8 @@ Emits a self-contained HTML page that loads **Chart.js from a CDN**
 - `line`/`bar` map directly to Chart.js types over a category x-axis.
 - `hbar` renders as a Chart.js `bar` with `indexAxis: "y"` (horizontal), for rankings.
 - `scatter` uses the same category x-axis with the connecting line suppressed.
+- `bubble` plots one `{x, y, r}` point per record (numeric `x`, `y[i]`, and `size`); points missing a
+  coordinate are skipped and a missing/non-positive radius falls back to a small default.
 - A series with `axis: "y2"` is bound to a right-hand secondary linear axis (its gridlines kept off the
   chart area); single-axis charts define no `y2`.
 - `NaN`/`Inf` values are emitted as JSON `null` (a gap).

@@ -116,6 +116,35 @@ func TestResolveAssignsAxis(t *testing.T) {
 	}
 }
 
+func TestResolveBubbleBuildsPoints(t *testing.T) {
+	s, _ := Load(strings.NewReader(`{"version":1,"type":"bubble","data":{"source":"x","kind":"metric"},` +
+		`"x":{"field":"ret"},"y":[{"field":"vol"}],"size":{"field":"sz"}}`))
+	recs, _ := dataset.ReadJSONL(strings.NewReader(
+		`{"ret":12,"vol":40,"sz":1000}` + "\n" + `{"ret":-5,"vol":18,"sz":600}` + "\n"))
+	res := s.Resolve(recs)
+	if len(res.Labels) != 0 {
+		t.Fatalf("bubble should not produce category labels, got %v", res.Labels)
+	}
+	if len(res.Series) != 1 || len(res.Series[0].Points) != 2 {
+		t.Fatalf("series/points = %+v", res.Series)
+	}
+	p := res.Series[0].Points[0]
+	if p.X != 12 || p.Y != 40 || p.R != 1000 {
+		t.Fatalf("point = %+v", p)
+	}
+}
+
+func TestValidateBubbleRequiresSize(t *testing.T) {
+	s := Spec{
+		Version: 1, Type: ChartBubble,
+		Data: DataRef{Source: "x", Kind: dataset.KindMetric},
+		X:    Encoding{Field: "ret"}, Y: []Encoding{{Field: "vol"}},
+	}
+	if err := s.Validate(); err == nil || !strings.Contains(err.Error(), "size") {
+		t.Fatalf("want size error, got %v", err)
+	}
+}
+
 func TestValidateRejectsBadAxis(t *testing.T) {
 	s := Spec{
 		Version: 1, Type: ChartLine,

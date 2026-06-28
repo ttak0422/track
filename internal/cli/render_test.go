@@ -89,12 +89,12 @@ func TestRenderHelpListsNotationAndExits0(t *testing.T) {
 		t.Fatalf("--help should exit 0, got %d: %q", code, out)
 	}
 	for _, want := range []string{
-		"line | bar | hbar | scatter", // chart types from viewspec.RenderableTypes
-		"event | price | metric",      // kinds from dataset.KnownKinds
-		"y[].axis:",                   // secondary axis notation
-		"overlays[]:",                 // overlay notation
-		"renderers:   chartjs",        // renderer names
-		`"source": "metrics.jsonl"`,   // example spec
+		"line | bar | hbar | scatter | bubble", // chart types from viewspec.RenderableTypes
+		"event | price | metric",               // kinds from dataset.KnownKinds
+		"y[].axis:",                            // secondary axis notation
+		"overlays[]:",                          // overlay notation
+		"renderers:   chartjs",                 // renderer names
+		`"source": "metrics.jsonl"`,            // example spec
 	} {
 		if !strings.Contains(out, want) {
 			t.Errorf("help missing %q", want)
