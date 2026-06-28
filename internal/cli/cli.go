@@ -73,6 +73,8 @@ func Run(args []string) int {
 		return cmdExport(rest)
 	case "export-site":
 		return cmdExportSite(rest)
+	case "render":
+		return cmdRender(rest)
 	default:
 		fmt.Fprintf(os.Stderr, "track: unknown command %q\n", cmd)
 		usage()
@@ -131,6 +133,8 @@ Usage:
                                         publish selected vault notes as a static site (React frontend + JSON bundle) (JSON)
   track export-site --src <dir> [--root <name>] --frontend <dist> --out <dir>
                                         publish a directory of Markdown files as a static site (JSON)
+  track render --spec <spec.json> --out <file> [--renderer chartjs]
+                                        render a View Spec over its JSONL data to a file (JSON path)
   track dump                            print placeholder state (JSON)
   track version                         print the version
 
