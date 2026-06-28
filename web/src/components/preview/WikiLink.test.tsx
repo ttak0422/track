@@ -14,6 +14,7 @@ function renderWithFloating(ui: ReactElement) {
 // hover-intent open/close logic.
 vi.mock("@tanstack/react-router", () => ({
   useRouterState: () => "/",
+  useNavigate: () => vi.fn(),
   Link: ({
     children,
     className,

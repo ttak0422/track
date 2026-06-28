@@ -1417,6 +1417,11 @@ button {
   cursor: grabbing;
 }
 
+/* Notes add a jump button left of the pin, so widen the reserved gutter to keep the title clear of it. */
+.wiki-preview.with-jump .wiki-preview-chrome {
+  padding-right: 91px;
+}
+
 .wiki-preview-toggle {
   display: grid;
   place-items: center;
@@ -1517,6 +1522,31 @@ button {
 
 .wiki-preview-pin.active {
   color: var(--accent);
+}
+
+/* Jump sits just left of the pin, sharing the same corner-hugging chrome-button style. */
+.wiki-preview-jump {
+  position: absolute;
+  top: 5px;
+  right: 63px;
+  z-index: 1;
+  display: grid;
+  width: 24px;
+  height: 24px;
+  place-items: center;
+  border: 1px solid transparent;
+  border-radius: 6px;
+  padding: 0;
+  color: var(--muted);
+  background: transparent;
+  cursor: pointer;
+}
+
+.wiki-preview-jump:hover,
+.wiki-preview-jump:focus-visible {
+  border-color: var(--line);
+  color: var(--text);
+  background: var(--panel-soft);
 }
 
 .wiki-preview-body {

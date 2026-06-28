@@ -1,3 +1,4 @@
+import { useNavigate } from "@tanstack/react-router";
 import { useNoteQuery, useRenderQuery } from "../../queries";
 import { PreviewDepthContext } from "../markdown/context";
 import { MarkdownView } from "../MarkdownView";
@@ -10,13 +11,18 @@ interface NoteWindowProps extends FloatingWindowControls {
 // NoteWindow frames a note's body in a FloatingWindow, used both for the inline hover preview and for a
 // pinned window in the floating layer. It re-fetches by id, so a pinned window survives its link.
 export function NoteWindow({ noteID, ...controls }: NoteWindowProps) {
+  const navigate = useNavigate();
   const note = useNoteQuery(noteID);
   // Sanitize the previewed body the same way as the main reader, so action links are flattened here too.
   const rendered = useRenderQuery(note.data?.note.body ?? "");
   const title = note.data?.note.title ?? "Preview";
 
   return (
-    <FloatingWindow title={title} {...controls}>
+    <FloatingWindow
+      title={title}
+      {...controls}
+      onJump={() => navigate({ to: "/notes/$noteId", params: { noteId: String(noteID) } })}
+    >
       {note.isPending ? <p className="muted">Loading...</p> : null}
       {note.isError ? <p className="error">{note.error.message}</p> : null}
       {note.data ? (

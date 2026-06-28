@@ -27,6 +27,9 @@ export interface FloatingWindowControls {
   onClose: () => void;
   // Toggle pin: an unpinned window promotes (carrying its current bounds/collapsed); a pinned one unpins.
   onPinToggle: (bounds: PreviewBounds, collapsed: boolean) => void;
+  // Navigate to the previewed content as a full page. Only set for content that has its own page (a
+  // note); media embeds leave it undefined and the jump button is omitted.
+  onJump?: () => void;
 }
 
 interface FloatingWindowProps extends FloatingWindowControls {
@@ -58,6 +61,7 @@ export function FloatingWindow({
   onDetach,
   onClose,
   onPinToggle,
+  onJump,
   children,
 }: FloatingWindowProps) {
   const [bounds, setBounds] = useState(initialBounds);
@@ -124,7 +128,7 @@ export function FloatingWindow({
 
   return (
     <aside
-      className={`wiki-preview${pinned ? " pinned" : ""}${collapsed ? " collapsed" : ""}`}
+      className={`wiki-preview${pinned ? " pinned" : ""}${collapsed ? " collapsed" : ""}${onJump ? " with-jump" : ""}`}
       onFocusCapture={onActivate}
       onMouseEnter={onHold}
       onPointerDownCapture={onActivate}
@@ -155,6 +159,18 @@ export function FloatingWindow({
           <span className="wiki-preview-caret" aria-hidden="true" />
         </button>
         <span className="wiki-preview-title">{title}</span>
+        {onJump ? (
+          <button
+            className="wiki-preview-jump"
+            type="button"
+            onClick={onJump}
+            onPointerDown={(event) => event.stopPropagation()}
+            aria-label="Open as page"
+            title="Open as page"
+          >
+            <JumpIcon />
+          </button>
+        ) : null}
         <button
           className={`wiki-preview-pin${pinned ? " active" : ""}`}
           type="button"
@@ -197,6 +213,26 @@ export function FloatingWindow({
             />
           ))}
     </aside>
+  );
+}
+
+function JumpIcon() {
+  return (
+    <svg
+      viewBox="0 0 24 24"
+      width="15"
+      height="15"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="2"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      aria-hidden="true"
+    >
+      <path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6" />
+      <polyline points="15 3 21 3 21 9" />
+      <line x1="10" y1="14" x2="21" y2="3" />
+    </svg>
   );
 }
 
