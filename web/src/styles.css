@@ -764,8 +764,11 @@ button {
 .tab {
   position: relative;
   display: flex;
+  /* Keep tabs a uniform width: short titles pad out to the min, long ones grow to the max then clip.
+     They never shrink, so the strip scrolls horizontally once they overflow. */
+  flex: 0 0 auto;
+  min-width: 140px;
   max-width: 220px;
-  min-width: 0;
   align-items: center;
   border-right: 1px solid var(--line);
   background: var(--panel-soft);
@@ -781,6 +784,7 @@ button {
 
 .tab-label {
   display: flex;
+  flex: 1;
   min-width: 0;
   max-width: 100%;
   align-items: center;
