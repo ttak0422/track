@@ -96,11 +96,9 @@ function StaticHome() {
   if (isError) {
     return <p className="error">site data is missing</p>;
   }
-  return (
-    <section className="home-hero">
-      <TrackLogo className="home-logo" />
-    </section>
-  );
+  // Render nothing while the root note resolves: this route only exists to redirect there, and a logo
+  // here would flash for a frame before the redirect lands.
+  return null;
 }
 
 function NoteRoute() {
