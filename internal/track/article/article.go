@@ -25,12 +25,13 @@ type Article struct {
 	Blocks  []Block `json:"blocks"`
 }
 
-// Block is one element of an article. Exactly one of Markdown or Chart is set: Markdown is a prose
-// block, Chart is an inline View Spec. Chart data sources are resolved later, relative to the article
-// file.
+// Block is one element of an article. Exactly one of Markdown, Chart, or Table is set: Markdown is a
+// prose block, Chart is an inline View Spec, Table is an inline data table. Chart and Table data
+// sources are resolved later, relative to the article file.
 type Block struct {
-	Markdown string         `json:"markdown,omitempty"`
-	Chart    *viewspec.Spec `json:"chart,omitempty"`
+	Markdown string          `json:"markdown,omitempty"`
+	Chart    *viewspec.Spec  `json:"chart,omitempty"`
+	Table    *viewspec.Table `json:"table,omitempty"`
 }
 
 // Load parses an article from JSON and validates it. Unknown fields are rejected so a typo surfaces as
@@ -61,16 +62,28 @@ func (a Article) Validate() error {
 		return fmt.Errorf("article: at least one block is required")
 	}
 	for i, b := range a.Blocks {
-		hasMarkdown := b.Markdown != ""
-		hasChart := b.Chart != nil
+		set := 0
+		if b.Markdown != "" {
+			set++
+		}
+		if b.Chart != nil {
+			set++
+		}
+		if b.Table != nil {
+			set++
+		}
 		switch {
-		case hasMarkdown && hasChart:
-			return fmt.Errorf("article: blocks[%d] sets both markdown and chart (pick one)", i)
-		case !hasMarkdown && !hasChart:
-			return fmt.Errorf("article: blocks[%d] is empty (set markdown or chart)", i)
-		case hasChart:
+		case set > 1:
+			return fmt.Errorf("article: blocks[%d] sets more than one of markdown/chart/table (pick one)", i)
+		case set == 0:
+			return fmt.Errorf("article: blocks[%d] is empty (set markdown, chart, or table)", i)
+		case b.Chart != nil:
 			if err := b.Chart.Validate(); err != nil {
 				return fmt.Errorf("article: blocks[%d].chart: %w", i, err)
+			}
+		case b.Table != nil:
+			if err := b.Table.Validate(); err != nil {
+				return fmt.Errorf("article: blocks[%d].table: %w", i, err)
 			}
 		}
 	}

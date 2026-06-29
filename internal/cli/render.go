@@ -115,6 +115,15 @@ func cmdRenderArticle(specPath string, specJSON []byte, out string) int {
 			doc.Items = append(doc.Items, render.Item{Chart: &res})
 			continue
 		}
+		if b.Table != nil {
+			records, err := readJSONLRelative(specPath, b.Table.Data.Source)
+			if err != nil {
+				return fail("blocks[%d]: %v", i, err)
+			}
+			res := b.Table.Resolve(records)
+			doc.Items = append(doc.Items, render.Item{Table: &res})
+			continue
+		}
 		doc.Items = append(doc.Items, render.Item{Markdown: b.Markdown})
 	}
 	page, err := render.RenderDocument(doc)
@@ -191,14 +200,20 @@ func viewSpecReference() string {
 Bubble adds size (radius):
   { "type": "bubble", ..., "x": {"field":"ret"}, "y": [{"field":"vol"}], "size": {"field":"exposure"} }
 
-Article (composed document): a spec with a "blocks" array of prose and charts is
-rendered as one HTML page (prose via marked, charts via Chart.js):
+Article (composed document): a spec with a "blocks" array of prose, charts, and
+tables is rendered as one HTML page (prose via marked, charts via Chart.js,
+tables as server-side HTML). Each block sets exactly one of markdown/chart/table:
   {
     "version": 1,
     "title": "Market narrative",
     "blocks": [
       { "markdown": "# Overview\n\nNarrative text..." },
-      { "chart": { <a View Spec as above> } }
+      { "chart": { <a View Spec as above> } },
+      { "table": {
+          "data": { "source": "trades.jsonl", "kind": "event" },
+          "columns": [ { "field": "time", "label": "Date" }, { "field": "entity" } ],
+          "filter": true
+      } }
     ]
   }
 `)

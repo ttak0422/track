@@ -134,8 +134,9 @@ Emits a self-contained HTML page that loads **Chart.js from a CDN**
 
 ## Article (composed document)
 
-An article composes prose and multiple charts into one HTML page — the "data + layout + rendering"
-unit. It is defined in `internal/track/article`: a spec whose top-level has a `blocks` array.
+An article composes prose, multiple charts, and tables into one HTML page — the "data + layout +
+rendering" unit. It is defined in `internal/track/article`: a spec whose top-level has a `blocks`
+array.
 
 ```json
 {
@@ -147,16 +148,25 @@ unit. It is defined in `internal/track/article`: a spec whose top-level has a `b
                  "x": { "field": "time" }, "y": [ { "field": "value" } ] } },
     { "markdown": "Commentary between charts." },
     { "chart": { "version": 1, "type": "hbar", "data": { "source": "ranking.jsonl", "kind": "metric" },
-                 "x": { "field": "name" }, "y": [ { "field": "value" } ] } }
+                 "x": { "field": "name" }, "y": [ { "field": "value" } ] } },
+    { "table": { "data": { "source": "trades.jsonl", "kind": "event" },
+                 "columns": [ { "field": "time", "label": "Date" }, { "field": "entity" } ],
+                 "filter": true } }
   ]
 }
 ```
 
-- Each block sets **exactly one** of `markdown` (prose) or `chart` (an inline View Spec as above).
-- Chart data/overlay sources resolve relative to the article file, like a standalone spec.
+- Each block sets **exactly one** of `markdown` (prose), `chart` (an inline View Spec as above), or
+  `table` (a data table over a single source).
+- Chart and table data sources (and chart overlays) resolve relative to the article file, like a
+  standalone spec.
+- A **table** projects its source records onto the named `columns` (one row per record; a missing
+  cell renders empty so rows stay aligned). `filter: true` adds a client-side text filter box that
+  hides non-matching rows. Tables render as server-side HTML and need no CDN, so they work offline.
 - Output is one HTML page: prose is rendered by **marked.js** (CDN) at view time so track keeps no Go
   Markdown dependency; charts reuse the Chart.js renderer. The annotation plugin loads only if a chart
-  has overlays, and marked only if there is prose.
+  has overlays, marked only if there is prose, and the table-filter script only if a table is
+  filterable.
 
 ## CLI
 

@@ -70,6 +70,44 @@ func TestResolveFiltersAndAligns(t *testing.T) {
 	}
 }
 
+func TestTableResolveProjectsAndAligns(t *testing.T) {
+	tbl := Table{
+		Data:    DataRef{Source: "x", Kind: dataset.KindPrice},
+		Columns: []Column{{Field: "entity", Label: "Sym"}, {Field: "close"}},
+		Filter:  true,
+	}
+	recs, _ := dataset.ReadJSONL(strings.NewReader(
+		`{"entity":"AAPL","close":10}` + "\n" + `{"entity":"MSFT"}` + "\n"))
+	res := tbl.Resolve(recs)
+	if want := []string{"Sym", "close"}; !equalStrings(res.Columns, want) {
+		t.Fatalf("columns = %v, want %v", res.Columns, want)
+	}
+	if !res.Filter {
+		t.Fatal("filter flag should carry through")
+	}
+	if got := res.Rows[0]; got[0] != "AAPL" || got[1] != "10" {
+		t.Fatalf("row 0 = %v", got)
+	}
+	// Missing cell stays empty so the row still aligns to the header.
+	if got := res.Rows[1]; got[0] != "MSFT" || got[1] != "" {
+		t.Fatalf("row 1 = %v", got)
+	}
+}
+
+func TestTableValidateErrors(t *testing.T) {
+	cases := map[string]Table{
+		"no source":   {Data: DataRef{Kind: dataset.KindPrice}, Columns: []Column{{Field: "c"}}},
+		"bad kind":    {Data: DataRef{Source: "x", Kind: "bogus"}, Columns: []Column{{Field: "c"}}},
+		"no columns":  {Data: DataRef{Source: "x", Kind: dataset.KindPrice}},
+		"empty field": {Data: DataRef{Source: "x", Kind: dataset.KindPrice}, Columns: []Column{{Field: ""}}},
+	}
+	for name, tbl := range cases {
+		if err := tbl.Validate(); err == nil {
+			t.Errorf("%s: want error", name)
+		}
+	}
+}
+
 func TestResolveMissingYBecomesNaN(t *testing.T) {
 	s, _ := Load(strings.NewReader(`{"version":1,"type":"line","data":{"source":"x","kind":"metric"},"x":{"field":"time"},"y":[{"field":"value"}]}`))
 	recs, _ := dataset.ReadJSONL(strings.NewReader(

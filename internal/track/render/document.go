@@ -21,23 +21,27 @@ type Document struct {
 	Items []Item
 }
 
-// Item is one block of a Document: either Markdown prose or a resolved chart. Exactly one is set.
+// Item is one block of a Document: Markdown prose, a resolved chart, or a resolved table. Exactly one
+// is set.
 type Item struct {
 	Markdown string
 	Chart    *viewspec.Resolved
+	Table    *viewspec.ResolvedTable
 }
 
-// RenderDocument composes prose and charts into a single self-contained HTML page. Charts reuse the
-// same Chart.js config builder as the single-chart renderer; prose is rendered from Markdown by
-// marked.js at view time. CDNs are loaded conditionally: marked only when there is prose, the
-// annotation plugin only when some chart has overlay markers.
+// RenderDocument composes prose, charts, and tables into a single self-contained HTML page. Charts
+// reuse the same Chart.js config builder as the single-chart renderer; prose is rendered from Markdown
+// by marked.js at view time; tables are server-side HTML (no CDN). CDNs/scripts load conditionally:
+// marked only with prose, the annotation plugin only when a chart has markers, the filter script only
+// when a table is filterable.
 func RenderDocument(doc Document) (string, error) {
 	var charts []string // chart config JSON, in document order
-	hasProse := false
+	var mds []string    // prose sources, in prose order (aligned to data-md indices)
+	tableCount := 0
 	usesAnnotation := false
+	hasFilter := false
 
 	var body strings.Builder
-	mdIndex := 0
 	for _, it := range doc.Items {
 		switch {
 		case it.Chart != nil:
@@ -50,21 +54,20 @@ func RenderDocument(doc Document) (string, error) {
 			}
 			fmt.Fprintf(&body, `<div class="chart-wrap"><canvas id="chart-%d"></canvas></div>`+"\n", len(charts))
 			charts = append(charts, cfgJSON)
+		case it.Table != nil:
+			if it.Table.Filter {
+				hasFilter = true
+			}
+			writeTable(&body, tableCount, *it.Table)
+			tableCount++
 		default:
-			hasProse = true
-			fmt.Fprintf(&body, `<div class="prose" data-md="%d"></div>`+"\n", mdIndex)
-			mdIndex++
+			fmt.Fprintf(&body, `<div class="prose" data-md="%d"></div>`+"\n", len(mds))
+			mds = append(mds, it.Markdown)
 		}
 	}
 
 	// Markdown sources travel as a JSON array consumed by marked at runtime. Go's json escapes <, >, &
 	// so the array is safe to inline in a <script>.
-	var mds []string
-	for _, it := range doc.Items {
-		if it.Chart == nil {
-			mds = append(mds, it.Markdown)
-		}
-	}
 	mdJSON, err := json.Marshal(mds)
 	if err != nil {
 		return "", fmt.Errorf("marshal prose: %w", err)
@@ -74,14 +77,37 @@ func RenderDocument(doc Document) (string, error) {
 	if title == "" {
 		title = "track document"
 	}
-	return renderDocumentPage(html.EscapeString(title), body.String(), charts, string(mdJSON), hasProse, usesAnnotation), nil
+	return renderDocumentPage(html.EscapeString(title), body.String(), charts, string(mdJSON), len(mds) > 0, usesAnnotation, hasFilter), nil
+}
+
+// writeTable renders a resolved table as server-side HTML: an optional filter box plus a <table> with
+// escaped headers and cells. id makes the element unique within the page for filter wiring. Tables
+// need no CDN, so they render (and filter) offline.
+func writeTable(b *strings.Builder, id int, t viewspec.ResolvedTable) {
+	b.WriteString(`<div class="table-wrap">` + "\n")
+	if t.Filter {
+		fmt.Fprintf(b, `<input class="table-filter" data-table-filter="table-%d" placeholder="Filter…" aria-label="Filter table">`+"\n", id)
+	}
+	fmt.Fprintf(b, `<table id="table-%d">`+"\n<thead><tr>", id)
+	for _, c := range t.Columns {
+		b.WriteString("<th>" + html.EscapeString(c) + "</th>")
+	}
+	b.WriteString("</tr></thead>\n<tbody>\n")
+	for _, row := range t.Rows {
+		b.WriteString("<tr>")
+		for _, cell := range row {
+			b.WriteString("<td>" + html.EscapeString(cell) + "</td>")
+		}
+		b.WriteString("</tr>\n")
+	}
+	b.WriteString("</tbody>\n</table>\n</div>\n")
 }
 
 // renderDocumentPage assembles the article HTML: the prepared body (prose placeholders + chart
-// canvases), the chart configs, and the prose sources. CDNs load conditionally — the annotation plugin
-// only when a chart uses markers, marked only when there is prose. The script wires marked over the
-// prose placeholders and instantiates each chart.
-func renderDocumentPage(escapedTitle, body string, charts []string, mdJSON string, hasProse, usesAnnotation bool) string {
+// canvases + tables), the chart configs, and the prose sources. CDNs load conditionally — the
+// annotation plugin only when a chart uses markers, marked only when there is prose. The script wires
+// marked over the prose placeholders, instantiates each chart, and wires table filters (no CDN).
+func renderDocumentPage(escapedTitle, body string, charts []string, mdJSON string, hasProse, usesAnnotation, hasFilter bool) string {
 	scripts := []string{chartJSCDN}
 	if usesAnnotation {
 		scripts = append(scripts, annotationCDN)
@@ -99,7 +125,9 @@ func renderDocumentPage(escapedTitle, body string, charts []string, mdJSON strin
 		b.WriteString(`<script src="` + src + `"></script>` + "\n")
 	}
 	b.WriteString("<style>body{margin:0 auto;max-width:880px;padding:24px;font-family:system-ui,sans-serif;line-height:1.6}" +
-		".chart-wrap{position:relative;height:360px;margin:24px 0}.prose{margin:16px 0}</style>\n")
+		".chart-wrap{position:relative;height:360px;margin:24px 0}.prose{margin:16px 0}" +
+		".table-wrap{margin:24px 0;overflow-x:auto}.table-filter{margin-bottom:8px;padding:6px 8px;width:100%;box-sizing:border-box}" +
+		"table{border-collapse:collapse;width:100%}th,td{border:1px solid #ddd;padding:6px 10px;text-align:left}thead th{background:#f5f5f5}</style>\n")
 	b.WriteString("</head>\n<body>\n")
 	b.WriteString(body)
 	b.WriteString("<script>\n")
@@ -108,6 +136,14 @@ func renderDocumentPage(escapedTitle, body string, charts []string, mdJSON strin
 	if hasProse {
 		b.WriteString("const prose = " + mdJSON + ";\n")
 		b.WriteString(`document.querySelectorAll(".prose").forEach(el => { el.innerHTML = marked.parse(prose[+el.dataset.md]); });` + "\n")
+	}
+	if hasFilter {
+		b.WriteString(`document.querySelectorAll(".table-filter").forEach(input => {` + "\n")
+		b.WriteString(`  const rows = document.getElementById(input.dataset.tableFilter).tBodies[0].rows;` + "\n")
+		b.WriteString(`  input.addEventListener("input", () => {` + "\n")
+		b.WriteString(`    const q = input.value.toLowerCase();` + "\n")
+		b.WriteString(`    for (const r of rows) r.style.display = r.textContent.toLowerCase().includes(q) ? "" : "none";` + "\n")
+		b.WriteString(`  });` + "\n})\n")
 	}
 	b.WriteString("</script>\n</body>\n</html>\n")
 	return b.String()

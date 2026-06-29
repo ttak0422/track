@@ -73,6 +73,35 @@ func TestRenderDocumentLoadsAnnotationOnlyWithMarkers(t *testing.T) {
 	}
 }
 
+func TestRenderDocumentTable(t *testing.T) {
+	tbl := viewspec.ResolvedTable{
+		Columns: []string{"Sym", "Qty"},
+		Rows:    [][]string{{"AAPL", "10"}, {"<x>", "20"}},
+		Filter:  true,
+	}
+	out, err := RenderDocument(Document{Items: []Item{{Table: &tbl}}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, want := range []string{"<th>Sym</th>", "<td>AAPL</td>", "&lt;x&gt;", `class="table-filter"`, "table-filter\").forEach"} {
+		if !strings.Contains(out, want) {
+			t.Errorf("table output missing %q: %s", want, out)
+		}
+	}
+	// No prose/chart CDNs for a table-only document.
+	if strings.Contains(out, "marked@12") {
+		t.Fatalf("table only → marked should be omitted")
+	}
+}
+
+func TestRenderDocumentTableFilterScriptOnlyWhenFiltered(t *testing.T) {
+	tbl := viewspec.ResolvedTable{Columns: []string{"A"}, Rows: [][]string{{"1"}}}
+	out, _ := RenderDocument(Document{Items: []Item{{Table: &tbl}}})
+	if strings.Contains(out, "table-filter\").forEach") {
+		t.Fatalf("unfiltered table → filter script should be omitted: %s", out)
+	}
+}
+
 func TestRenderDocumentEscapesTitle(t *testing.T) {
 	out, _ := RenderDocument(Document{Title: "<b>x</b>", Items: []Item{{Markdown: "y"}}})
 	if strings.Contains(out, "<title><b>x</b></title>") {
