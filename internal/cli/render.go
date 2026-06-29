@@ -72,12 +72,17 @@ func cmdRender(args []string) int {
 }
 
 // resolvedCount reports how many data points a resolved spec produced, for the render summary: grid
-// charts (heatmap/timeline) count cells, the rest count x labels.
+// charts (heatmap/timeline) count cells, bubble counts its {x,y,r} points (it has no x labels), and
+// the rest count x labels.
 func resolvedCount(res viewspec.Resolved) int {
-	if res.Grid != nil {
+	switch {
+	case res.Grid != nil:
 		return len(res.Grid.Cells)
+	case res.Spec.Type == viewspec.ChartBubble && len(res.Series) > 0:
+		return len(res.Series[0].Points)
+	default:
+		return len(res.Labels)
 	}
-	return len(res.Labels)
 }
 
 // isArticle reports whether a spec is a composed article, detected by a non-empty top-level "blocks".
