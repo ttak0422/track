@@ -132,6 +132,21 @@ Emits a self-contained HTML page that loads **Chart.js from a CDN**
   only when the spec has overlays (plain charts stay lean).
 - The page requires network access at view time to load Chart.js (and the annotation plugin, if used).
 
+### `svg`
+
+Emits a **static, self-contained SVG** — no scripts, no CDN, no network access at view time — so the
+output embeds directly in notes, emails, or a static site:
+
+- `line`/`bar`/`hbar`/`scatter` are drawn over a category x-axis (bars are grouped per series; `hbar`
+  runs categories down the y-axis for rankings).
+- The value axis spans the data range; `bar`/`hbar` pin the baseline to zero.
+- `NaN`/`Inf` values are gaps: a `line` breaks its segment, a `bar`/`scatter` point is omitted.
+- **Overlay markers** are vertical lines at the matching category label (mirroring the Chart.js
+  annotation overlays).
+- `bubble` is **not supported yet** (its `{x, y, r}` shape needs linear axes); use `--renderer chartjs`.
+
+Select it with `track render --renderer svg --out chart.svg`.
+
 ## Article (composed document)
 
 An article composes prose, multiple charts, and tables into one HTML page — the "data + layout +

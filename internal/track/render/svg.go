@@ -1,0 +1,296 @@
+package render
+
+import (
+	"fmt"
+	"html"
+	"math"
+	"strconv"
+	"strings"
+
+	"github.com/ttak0422/track/internal/track/viewspec"
+)
+
+func init() { Register(SVG{}) }
+
+// SVG renders a resolved View Spec as a self-contained, dependency-free SVG document. Unlike the
+// Chart.js renderer it loads no scripts and no CDN, so the output is a static image suitable for
+// embedding in notes, emails, or a static site. It draws the category-axis chart types (line, bar,
+// hbar, scatter) plus overlay markers; bubble (a linear-axis {x,y,r} shape) is not yet supported here.
+type SVG struct{}
+
+// Name identifies this renderer for selection (track render --renderer svg).
+func (SVG) Name() string { return "svg" }
+
+// svgGeom is the fixed canvas layout: overall size and the plot-area insets (room for the title, the
+// y-axis labels on the left, and the x-axis labels at the bottom).
+type svgGeom struct {
+	w, h                     float64
+	left, right, top, bottom float64
+}
+
+func (g svgGeom) plotW() float64 { return g.w - g.left - g.right }
+func (g svgGeom) plotH() float64 { return g.h - g.top - g.bottom }
+
+// svgPalette cycles per series; six distinct hues are plenty for a readable static chart.
+var svgPalette = []string{"#4e79a7", "#f28e2b", "#e15759", "#76b7b2", "#59a14f", "#edc948"}
+
+func svgColor(i int) string { return svgPalette[i%len(svgPalette)] }
+
+// Render produces a complete SVG document for the resolved spec.
+func (SVG) Render(res viewspec.Resolved) (string, error) {
+	if res.Spec.Type == viewspec.ChartBubble {
+		return "", fmt.Errorf("svg renderer: bubble charts are not supported yet (use --renderer chartjs)")
+	}
+	g := svgGeom{w: 800, h: 480, left: 56, right: 16, top: 40, bottom: 56}
+	lo, hi := valueRange(res.Series, res.Spec.Type)
+
+	var b strings.Builder
+	b.WriteString(`<?xml version="1.0" encoding="UTF-8"?>` + "\n")
+	fmt.Fprintf(&b, `<svg xmlns="http://www.w3.org/2000/svg" width="%g" height="%g" viewBox="0 0 %g %g" font-family="sans-serif">`+"\n", g.w, g.h, g.w, g.h)
+	b.WriteString(`<rect width="100%" height="100%" fill="#ffffff"/>` + "\n")
+	if res.Spec.Title != "" {
+		fmt.Fprintf(&b, `<text x="%g" y="24" font-size="16" font-weight="bold" text-anchor="middle">%s</text>`+"\n",
+			g.w/2, html.EscapeString(res.Spec.Title))
+	}
+
+	writeAxes(&b, g, res, lo, hi)
+	if res.Spec.Type == viewspec.ChartHBar {
+		writeHBars(&b, g, res, lo, hi)
+	} else {
+		writeSeries(&b, g, res, lo, hi)
+		writeMarkers(&b, g, res)
+	}
+	writeLegend(&b, g, res)
+
+	b.WriteString("</svg>\n")
+	return b.String(), nil
+}
+
+// valueRange finds the value span across all finite points in every series. For bar charts the
+// baseline is pinned to zero so bars are measured from a common origin rather than floating. A
+// degenerate (zero-width) range is padded so the chart still has height.
+func valueRange(series []viewspec.Series, typ viewspec.ChartType) (lo, hi float64) {
+	lo, hi = math.Inf(1), math.Inf(-1)
+	for _, s := range series {
+		for _, v := range s.Values {
+			if math.IsNaN(v) || math.IsInf(v, 0) {
+				continue
+			}
+			lo, hi = math.Min(lo, v), math.Max(hi, v)
+		}
+	}
+	if math.IsInf(lo, 1) { // no finite data at all
+		lo, hi = 0, 1
+	}
+	if typ == viewspec.ChartBar || typ == viewspec.ChartHBar {
+		lo, hi = math.Min(lo, 0), math.Max(hi, 0)
+	}
+	if lo == hi {
+		lo, hi = lo-1, hi+1
+	}
+	return lo, hi
+}
+
+// bandCenters returns the x pixel at the center of each of n category slots across the plot width.
+func bandCenters(g svgGeom, n int) []float64 {
+	cs := make([]float64, n)
+	if n == 0 {
+		return cs
+	}
+	band := g.plotW() / float64(n)
+	for i := range cs {
+		cs[i] = g.left + band*(float64(i)+0.5)
+	}
+	return cs
+}
+
+// yPixel maps a value to its vertical pixel position (top of plot = hi, bottom = lo).
+func yPixel(g svgGeom, lo, hi, v float64) float64 {
+	return g.top + g.plotH()*(1-(v-lo)/(hi-lo))
+}
+
+// writeAxes draws the plot frame, three horizontal gridlines with value labels, and the category
+// labels along the x axis.
+func writeAxes(b *strings.Builder, g svgGeom, res viewspec.Resolved, lo, hi float64) {
+	// Plot border.
+	fmt.Fprintf(b, `<rect x="%g" y="%g" width="%g" height="%g" fill="none" stroke="#cccccc"/>`+"\n",
+		g.left, g.top, g.plotW(), g.plotH())
+	// Horizontal gridlines + y labels at lo, mid, hi.
+	for _, frac := range []float64{0, 0.5, 1} {
+		v := lo + (hi-lo)*frac
+		y := yPixel(g, lo, hi, v)
+		fmt.Fprintf(b, `<line x1="%g" y1="%s" x2="%g" y2="%s" stroke="#eeeeee"/>`+"\n",
+			g.left, num(y), g.left+g.plotW(), num(y))
+		fmt.Fprintf(b, `<text x="%g" y="%s" font-size="11" text-anchor="end" dominant-baseline="middle" fill="#666666">%s</text>`+"\n",
+			g.left-6, num(y), num(v))
+	}
+	// X labels: along the category axis for non-hbar; hbar labels its categories on the y axis.
+	if res.Spec.Type == viewspec.ChartHBar {
+		centers := bandCentersVertical(g, len(res.Labels))
+		for i, lbl := range res.Labels {
+			fmt.Fprintf(b, `<text x="%g" y="%s" font-size="11" text-anchor="end" dominant-baseline="middle" fill="#333333">%s</text>`+"\n",
+				g.left-6, num(centers[i]), html.EscapeString(lbl))
+		}
+		return
+	}
+	centers := bandCenters(g, len(res.Labels))
+	for i, lbl := range res.Labels {
+		fmt.Fprintf(b, `<text x="%s" y="%g" font-size="11" text-anchor="middle" fill="#333333">%s</text>`+"\n",
+			num(centers[i]), g.top+g.plotH()+16, html.EscapeString(lbl))
+	}
+}
+
+// writeSeries draws each y series for line/bar/scatter over a shared category x axis.
+func writeSeries(b *strings.Builder, g svgGeom, res viewspec.Resolved, lo, hi float64) {
+	centers := bandCenters(g, len(res.Labels))
+	switch res.Spec.Type {
+	case viewspec.ChartBar:
+		writeBars(b, g, res, centers, lo, hi)
+	case viewspec.ChartScatter:
+		for si, s := range res.Series {
+			for i, v := range s.Values {
+				if math.IsNaN(v) || i >= len(centers) {
+					continue
+				}
+				fmt.Fprintf(b, `<circle cx="%s" cy="%s" r="3.5" fill="%s"/>`+"\n",
+					num(centers[i]), num(yPixel(g, lo, hi, v)), svgColor(si))
+			}
+		}
+	default: // line
+		for si, s := range res.Series {
+			writePolyline(b, g, centers, s.Values, lo, hi, svgColor(si))
+		}
+	}
+}
+
+// writePolyline draws a series as connected segments, breaking the line at NaN gaps so a missing
+// value reads as a hole rather than a straight line through it.
+func writePolyline(b *strings.Builder, g svgGeom, centers, vals []float64, lo, hi float64, color string) {
+	var run []string
+	flush := func() {
+		if len(run) >= 2 {
+			fmt.Fprintf(b, `<polyline points="%s" fill="none" stroke="%s" stroke-width="2"/>`+"\n",
+				strings.Join(run, " "), color)
+		}
+		run = run[:0]
+	}
+	for i, v := range vals {
+		if math.IsNaN(v) || i >= len(centers) {
+			flush()
+			continue
+		}
+		run = append(run, num(centers[i])+","+num(yPixel(g, lo, hi, v)))
+	}
+	flush()
+}
+
+// writeBars draws grouped vertical bars: each category band is split evenly across the series so
+// multiple series sit side by side.
+func writeBars(b *strings.Builder, g svgGeom, res viewspec.Resolved, centers []float64, lo, hi float64) {
+	n := len(res.Series)
+	if n == 0 || len(centers) == 0 {
+		return
+	}
+	band := g.plotW() / float64(len(centers))
+	bw := band * 0.8 / float64(n) // 20% inter-band gap, split across series
+	baseY := yPixel(g, lo, hi, math.Max(lo, 0))
+	for si, s := range res.Series {
+		for i, v := range s.Values {
+			if math.IsNaN(v) || i >= len(centers) {
+				continue
+			}
+			x := centers[i] - band*0.4 + bw*float64(si)
+			y := yPixel(g, lo, hi, v)
+			top, h := math.Min(y, baseY), math.Abs(baseY-y)
+			fmt.Fprintf(b, `<rect x="%s" y="%s" width="%s" height="%s" fill="%s"/>`+"\n",
+				num(x), num(top), num(bw), num(h), svgColor(si))
+		}
+	}
+}
+
+// bandCentersVertical returns the y pixel at the center of each category slot down the plot height,
+// used by hbar where categories run along the vertical axis.
+func bandCentersVertical(g svgGeom, n int) []float64 {
+	cs := make([]float64, n)
+	if n == 0 {
+		return cs
+	}
+	band := g.plotH() / float64(n)
+	for i := range cs {
+		cs[i] = g.top + band*(float64(i)+0.5)
+	}
+	return cs
+}
+
+// writeHBars draws horizontal bars: categories along the y axis, value along the x axis.
+func writeHBars(b *strings.Builder, g svgGeom, res viewspec.Resolved, lo, hi float64) {
+	centers := bandCentersVertical(g, len(res.Labels))
+	n := len(res.Series)
+	if n == 0 || len(centers) == 0 {
+		return
+	}
+	band := g.plotH() / float64(len(centers))
+	bh := band * 0.8 / float64(n)
+	baseX := xPixel(g, lo, hi, math.Max(lo, 0))
+	for si, s := range res.Series {
+		for i, v := range s.Values {
+			if math.IsNaN(v) || i >= len(centers) {
+				continue
+			}
+			y := centers[i] - band*0.4 + bh*float64(si)
+			x := xPixel(g, lo, hi, v)
+			left, w := math.Min(x, baseX), math.Abs(x-baseX)
+			fmt.Fprintf(b, `<rect x="%s" y="%s" width="%s" height="%s" fill="%s"/>`+"\n",
+				num(left), num(y), num(w), num(bh), svgColor(si))
+		}
+	}
+}
+
+// xPixel maps a value to its horizontal pixel position (left of plot = lo, right = hi). Used by hbar.
+func xPixel(g svgGeom, lo, hi, v float64) float64 {
+	return g.left + g.plotW()*((v-lo)/(hi-lo))
+}
+
+// writeMarkers draws overlay markers as vertical lines at the category whose label matches the
+// marker's At value, mirroring the Chart.js annotation overlays for the static renderer.
+func writeMarkers(b *strings.Builder, g svgGeom, res viewspec.Resolved) {
+	if len(res.Markers) == 0 {
+		return
+	}
+	idx := make(map[string]int, len(res.Labels))
+	for i, l := range res.Labels {
+		idx[l] = i
+	}
+	centers := bandCenters(g, len(res.Labels))
+	for _, m := range res.Markers {
+		i, ok := idx[m.At]
+		if !ok || i >= len(centers) {
+			continue
+		}
+		x := centers[i]
+		fmt.Fprintf(b, `<line x1="%s" y1="%g" x2="%s" y2="%g" stroke="rgba(220,53,69,0.7)" stroke-width="1"/>`+"\n",
+			num(x), g.top, num(x), g.top+g.plotH())
+		if m.Label != "" {
+			fmt.Fprintf(b, `<text x="%s" y="%g" font-size="10" fill="#dc3545" transform="rotate(90 %s %g)">%s</text>`+"\n",
+				num(x+3), g.top+4, num(x+3), g.top+4, html.EscapeString(m.Label))
+		}
+	}
+}
+
+// writeLegend lists the series labels with their color swatches in the top-right of the plot.
+func writeLegend(b *strings.Builder, g svgGeom, res viewspec.Resolved) {
+	x := g.left + g.plotW() - 8
+	y := g.top + 14
+	for si, s := range res.Series {
+		yi := y + float64(si)*16
+		fmt.Fprintf(b, `<rect x="%g" y="%g" width="10" height="10" fill="%s"/>`+"\n", x-10, yi-9, svgColor(si))
+		fmt.Fprintf(b, `<text x="%g" y="%g" font-size="11" text-anchor="end" fill="#333333">%s</text>`+"\n",
+			x-14, yi, html.EscapeString(s.Label))
+	}
+}
+
+// num formats a pixel/value coordinate to two decimals so the SVG stays compact and golden-file
+// output is stable across platforms (Go's float formatting is deterministic at fixed precision).
+func num(v float64) string {
+	return strconv.FormatFloat(v, 'f', 2, 64)
+}
