@@ -47,6 +47,10 @@ about the renderer, so the same spec can be drawn by different backends.
 track render --spec chart.json --out chart.html
 ```
 
+Rendered output (a line series with an event drawn as an overlay marker):
+
+![Line chart with an event overlay](assets/chart-line.svg)
+
 Key fields:
 
 - `type` — `line`, `bar`, `hbar` (ranking), `scatter`, `bubble`, or the SVG-only `heatmap` / `timeline`.
@@ -54,6 +58,33 @@ Key fields:
 - `filter` — `{field, equals}` shorthand, or `{all: [{field, op, value}]}` with `op` of
   `eq|ne|lt|le|gt|ge` for multi-field, range, and period filtering.
 - `overlays` — draw events/annotations from a second source as vertical markers over a time series.
+
+## Chart types
+
+Every image below is a real `track render --renderer svg` output (static, self-contained SVG).
+
+**`bar`** — values per category; the baseline is pinned to zero, so negatives drop below it.
+
+![Bar chart of sector returns](assets/chart-bar.svg)
+
+**`hbar`** — a horizontal bar, for rankings; categories run down the left, the value axis along the bottom.
+
+![Horizontal bar ranking by exposure](assets/chart-hbar.svg)
+
+**`scatter`** — points over a category x-axis, the connecting line suppressed.
+
+![Scatter of sector returns](assets/chart-scatter.svg)
+
+**`heatmap`** — a 2D grid of `x` columns × `y[0]` rows, each cell colored by `size` (with a value legend).
+
+![Heatmap of value by sector and quarter](assets/chart-heatmap.svg)
+
+**`timeline`** — one dot per record at its `(column, lane)`; an optional `size` scales the dot, one color per lane.
+
+![Timeline of events per quarter by sector](assets/chart-timeline.svg)
+
+`bubble` (`{x, y, r}` points sized by `size`) is drawn by the default `chartjs` renderer; the `svg`
+renderer covers the types shown above.
 
 ## Renderers
 
