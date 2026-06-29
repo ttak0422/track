@@ -105,13 +105,34 @@ func yPixel(g svgGeom, lo, hi, v float64) float64 {
 	return g.top + g.plotH()*(1-(v-lo)/(hi-lo))
 }
 
-// writeAxes draws the plot frame, three horizontal gridlines with value labels, and the category
-// labels along the x axis.
+// writeAxes draws the plot frame, three value gridlines+labels, and the category labels. hbar
+// transposes the axes: its value axis runs horizontally (gridlines vertical, labels along the bottom)
+// and its categories run down the left, so value and category labels never collide.
 func writeAxes(b *strings.Builder, g svgGeom, res viewspec.Resolved, lo, hi float64) {
 	// Plot border.
 	fmt.Fprintf(b, `<rect x="%g" y="%g" width="%g" height="%g" fill="none" stroke="#cccccc"/>`+"\n",
 		g.left, g.top, g.plotW(), g.plotH())
-	// Horizontal gridlines + y labels at lo, mid, hi.
+
+	if res.Spec.Type == viewspec.ChartHBar {
+		// Value axis horizontal: vertical gridlines + value labels along the bottom.
+		for _, frac := range []float64{0, 0.5, 1} {
+			v := lo + (hi-lo)*frac
+			x := xPixel(g, lo, hi, v)
+			fmt.Fprintf(b, `<line x1="%s" y1="%g" x2="%s" y2="%g" stroke="#eeeeee"/>`+"\n",
+				num(x), g.top, num(x), g.top+g.plotH())
+			fmt.Fprintf(b, `<text x="%s" y="%g" font-size="11" text-anchor="middle" fill="#666666">%s</text>`+"\n",
+				num(x), g.top+g.plotH()+16, num(v))
+		}
+		// Categories down the left.
+		centers := bandCentersVertical(g, len(res.Labels))
+		for i, lbl := range res.Labels {
+			fmt.Fprintf(b, `<text x="%g" y="%s" font-size="11" text-anchor="end" dominant-baseline="middle" fill="#333333">%s</text>`+"\n",
+				g.left-6, num(centers[i]), html.EscapeString(lbl))
+		}
+		return
+	}
+
+	// Value axis vertical: horizontal gridlines + value labels on the left.
 	for _, frac := range []float64{0, 0.5, 1} {
 		v := lo + (hi-lo)*frac
 		y := yPixel(g, lo, hi, v)
@@ -120,15 +141,7 @@ func writeAxes(b *strings.Builder, g svgGeom, res viewspec.Resolved, lo, hi floa
 		fmt.Fprintf(b, `<text x="%g" y="%s" font-size="11" text-anchor="end" dominant-baseline="middle" fill="#666666">%s</text>`+"\n",
 			g.left-6, num(y), num(v))
 	}
-	// X labels: along the category axis for non-hbar; hbar labels its categories on the y axis.
-	if res.Spec.Type == viewspec.ChartHBar {
-		centers := bandCentersVertical(g, len(res.Labels))
-		for i, lbl := range res.Labels {
-			fmt.Fprintf(b, `<text x="%g" y="%s" font-size="11" text-anchor="end" dominant-baseline="middle" fill="#333333">%s</text>`+"\n",
-				g.left-6, num(centers[i]), html.EscapeString(lbl))
-		}
-		return
-	}
+	// Categories along the bottom.
 	centers := bandCenters(g, len(res.Labels))
 	for i, lbl := range res.Labels {
 		fmt.Fprintf(b, `<text x="%s" y="%g" font-size="11" text-anchor="middle" fill="#333333">%s</text>`+"\n",
