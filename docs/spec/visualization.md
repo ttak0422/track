@@ -66,7 +66,7 @@ chart over a single data source. Unknown fields are rejected.
 | `x.field`  | yes      | Record field used for x-axis labels (category), or numeric x for `bubble`.   |
 | `y`        | yes      | One or more series; each `y[i].field` is a numeric record field.            |
 | `size`     | bubble   | Field for the bubble radius; required when `type` is `bubble`.               |
-| `filter`   | no       | Keep only records where `filter.field` equals `filter.equals` (string).     |
+| `filter`   | no       | Keep matching records. Shorthand `{field, equals}` or `{all: [{field, op, value}]}` (AND). |
 | `overlays` | no       | Vertical event/annotation markers drawn over the chart (see below).         |
 
 `label` overrides the legend/axis text, defaulting to the field name. A y series may set
@@ -79,6 +79,26 @@ e.g. a price and an index — can share one x-axis:
   { "field": "index", "label": "Index", "axis": "y2" }
 ]
 ```
+
+### Filter
+
+A `filter` keeps only records matching **all** of its conditions (logical AND). The shorthand
+`{ "field": "entity", "equals": "AAPL" }` is a single equality; for multi-field, range, or period
+filtering use `all` with comparison operators:
+
+```json
+"filter": {
+  "all": [
+    { "field": "entity", "value": "AAPL" },
+    { "field": "time", "op": "ge", "value": "2026-01-01" },
+    { "field": "time", "op": "lt", "value": "2026-04-01" }
+  ]
+}
+```
+
+`op` is one of `eq` (default), `ne`, `lt`, `le`, `gt`, `ge`. Ordered comparisons (`lt`/`le`/`gt`/`ge`)
+compare numerically when both the record value and `value` parse as numbers, otherwise lexically — so
+ISO timestamps and numeric fields both order correctly. Shorthand and `all` combine.
 
 ### Overlays (event/annotation markers)
 

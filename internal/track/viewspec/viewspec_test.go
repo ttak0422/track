@@ -70,6 +70,55 @@ func TestResolveFiltersAndAligns(t *testing.T) {
 	}
 }
 
+func TestFilterAllConditionsAND(t *testing.T) {
+	// entity == AAPL AND time in [d2, d4): keeps d2 and d3, drops d1 (entity) and d4 (range).
+	f := &Filter{All: []Condition{
+		{Field: "entity", Value: "AAPL"},
+		{Field: "time", Op: "ge", Value: "d2"},
+		{Field: "time", Op: "lt", Value: "d4"},
+	}}
+	if err := f.validate(); err != nil {
+		t.Fatal(err)
+	}
+	recs, _ := dataset.ReadJSONL(strings.NewReader(
+		`{"time":"d1","entity":"AAPL"}` + "\n" +
+			`{"time":"d2","entity":"AAPL"}` + "\n" +
+			`{"time":"d3","entity":"MSFT"}` + "\n" +
+			`{"time":"d4","entity":"AAPL"}` + "\n"))
+	var kept []string
+	for _, r := range recs {
+		if f.match(r) {
+			t, _ := r.String("time")
+			kept = append(kept, t)
+		}
+	}
+	if want := []string{"d2"}; !equalStrings(kept, want) {
+		t.Fatalf("kept = %v, want %v", kept, want)
+	}
+}
+
+func TestFilterNumericRange(t *testing.T) {
+	// gt compares numerically: "9" < "100" even though lexically "9" > "100".
+	f := &Filter{All: []Condition{{Field: "v", Op: "gt", Value: "9"}}}
+	recs, _ := dataset.ReadJSONL(strings.NewReader(
+		`{"v":5}` + "\n" + `{"v":100}` + "\n"))
+	if f.match(recs[0]) {
+		t.Fatal("v=5 should be excluded by v>9")
+	}
+	if !f.match(recs[1]) {
+		t.Fatal("v=100 should be included by v>9 (numeric, not lexical)")
+	}
+}
+
+func TestFilterValidateRejectsBadOpAndEmpty(t *testing.T) {
+	if err := (&Filter{All: []Condition{{Field: "x", Op: "like", Value: "y"}}}).validate(); err == nil {
+		t.Fatal("expected error for unknown op")
+	}
+	if err := (&Filter{}).validate(); err == nil {
+		t.Fatal("expected error for empty filter")
+	}
+}
+
 func TestTableResolveProjectsAndAligns(t *testing.T) {
 	tbl := Table{
 		Data:    DataRef{Source: "x", Kind: dataset.KindPrice},

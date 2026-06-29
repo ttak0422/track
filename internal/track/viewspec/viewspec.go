@@ -15,6 +15,7 @@ import (
 	"io"
 	"math"
 	"slices"
+	"strconv"
 	"strings"
 
 	"github.com/ttak0422/track/internal/track/dataset"
@@ -143,11 +144,34 @@ func (e Encoding) axisID() string {
 	return e.Axis
 }
 
-// Filter keeps only records whose Field equals Equals. It is intentionally minimal (single equality);
-// richer querying belongs in a future query layer, not the spec.
+// Filter keeps only records matching all of its conditions (logical AND). The shorthand
+// {field, equals} expresses a single equality; All carries additional conditions with comparison
+// operators, which together cover multi-field, range, and period filtering (e.g. time >= start AND
+// time < end). Shorthand and All combine, so {field,equals} plus all[] is a valid mix.
 type Filter struct {
-	Field  string `json:"field"`
-	Equals string `json:"equals"`
+	Field  string      `json:"field,omitempty"`  // shorthand: single-field equality
+	Equals string      `json:"equals,omitempty"` // shorthand value
+	All    []Condition `json:"all,omitempty"`    // every condition must match (AND)
+}
+
+// Condition is one field comparison. Op is eq|ne|lt|le|gt|ge (default eq). Ordered comparisons
+// (lt/le/gt/ge) compare numerically when both the record value and Value parse as numbers, otherwise
+// lexically — so ISO timestamps and version-like strings order correctly without extra typing.
+type Condition struct {
+	Field string `json:"field"`
+	Op    string `json:"op,omitempty"`
+	Value string `json:"value"`
+}
+
+// FilterOps lists the valid condition operators in a stable order, for validation and help text.
+var FilterOps = []string{"eq", "ne", "lt", "le", "gt", "ge"}
+
+// opOrDefault returns the condition's operator, defaulting an empty op to equality.
+func (c Condition) opOrDefault() string {
+	if c.Op == "" {
+		return "eq"
+	}
+	return c.Op
 }
 
 // Load parses a View Spec from JSON and validates it. Unknown fields are rejected so typos in a spec
@@ -210,13 +234,88 @@ func (s Spec) Validate() error {
 			return fmt.Errorf("view spec: overlays[%d].kind %q is not a canonical kind", i, o.Kind)
 		}
 	}
+	if s.Filter != nil {
+		if err := s.Filter.validate(); err != nil {
+			return err
+		}
+	}
 	return nil
 }
 
-// match reports whether a record passes the filter (a single field equality).
+// validate checks the filter has at least one well-formed condition: each names a field and uses a
+// known operator. An empty filter object (no shorthand, no all[]) is a likely mistake, so it errors
+// rather than silently matching everything.
+func (f *Filter) validate() error {
+	conds := f.conditions()
+	if len(conds) == 0 {
+		return fmt.Errorf("view spec: filter has no conditions (set field/equals or all[])")
+	}
+	for i, c := range conds {
+		if c.Field == "" {
+			return fmt.Errorf("view spec: filter condition %d is missing field", i)
+		}
+		if !slices.Contains(FilterOps, c.opOrDefault()) {
+			return fmt.Errorf("view spec: filter condition %d op %q is not one of %s", i, c.Op, strings.Join(FilterOps, "|"))
+		}
+	}
+	return nil
+}
+
+// conditions flattens the shorthand and All into one AND list. The shorthand contributes an equality
+// condition only when its field is set.
+func (f *Filter) conditions() []Condition {
+	var cs []Condition
+	if f.Field != "" {
+		cs = append(cs, Condition{Field: f.Field, Op: "eq", Value: f.Equals})
+	}
+	return append(cs, f.All...)
+}
+
+// match reports whether a record passes every condition (logical AND).
 func (f *Filter) match(rec dataset.Record) bool {
-	got, _ := rec.String(f.Field)
-	return got == f.Equals
+	for _, c := range f.conditions() {
+		if !c.match(rec) {
+			return false
+		}
+	}
+	return true
+}
+
+// match reports whether a record satisfies one condition.
+func (c Condition) match(rec dataset.Record) bool {
+	got, _ := rec.String(c.Field)
+	switch c.opOrDefault() {
+	case "eq":
+		return got == c.Value
+	case "ne":
+		return got != c.Value
+	case "lt":
+		return compareValues(got, c.Value) < 0
+	case "le":
+		return compareValues(got, c.Value) <= 0
+	case "gt":
+		return compareValues(got, c.Value) > 0
+	case "ge":
+		return compareValues(got, c.Value) >= 0
+	}
+	return false
+}
+
+// compareValues orders two string values numerically when both parse as numbers, else lexically.
+func compareValues(a, b string) int {
+	af, aerr := strconv.ParseFloat(a, 64)
+	bf, berr := strconv.ParseFloat(b, 64)
+	if aerr == nil && berr == nil {
+		switch {
+		case af < bf:
+			return -1
+		case af > bf:
+			return 1
+		default:
+			return 0
+		}
+	}
+	return strings.Compare(a, b)
 }
 
 // Series holds one resolved y series: a label and the value/label pairs already aligned to the shared
