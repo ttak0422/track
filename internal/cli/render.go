@@ -184,9 +184,11 @@ func viewSpecReference() string {
 	b.WriteString("View Spec (JSON) reference:\n")
 	fmt.Fprintf(&b, "  type:        %s\n", strings.Join(types, " | "))
 	fmt.Fprintf(&b, "  data.kind:   %s\n", strings.Join(kinds, " | "))
+	b.WriteString("  metrics[]:   {name, terms:[{field, weight=1}], offset}  derived field = offset + Σ weight*field\n")
 	b.WriteString("  x.field:     record field for x-axis labels\n")
 	b.WriteString("  y[].field:   numeric record field (one or more series)\n")
 	fmt.Fprintf(&b, "  y[].axis:    %s   (y2 = secondary right-hand axis)\n", strings.Join(viewspec.AxisOptions, " | "))
+	fmt.Fprintf(&b, "  y[].transform: {op, window}  series aggregation; op: %s (sma/ema need window)\n", strings.Join(viewspec.TransformOps, " | "))
 	b.WriteString("  filter:      {field, equals}  keep records where field == equals (shorthand)\n")
 	fmt.Fprintf(&b, "               {all:[{field, op, value}]}  AND conditions; op: %s (range/period)\n", strings.Join(viewspec.FilterOps, " | "))
 	b.WriteString("  overlays[]:  {source, kind, at=time, label=text}  vertical event/annotation markers\n")
@@ -209,6 +211,17 @@ func viewSpecReference() string {
 
 Bubble adds size (radius):
   { "type": "bubble", ..., "x": {"field":"ret"}, "y": [{"field":"vol"}], "size": {"field":"exposure"} }
+
+Computed metric + smoothing (e.g. a Pressure Index):
+  {
+    "type": "line",
+    "metrics": [
+      { "name": "pressure",
+        "terms": [ {"field":"tariff","weight":0.4}, {"field":"rhetoric","weight":0.6} ] }
+    ],
+    "x": { "field": "time" },
+    "y": [ { "field": "pressure", "transform": { "op": "sma", "window": 7 } } ]
+  }
 
 Article (composed document): a spec with a "blocks" array of prose, charts, and
 tables is rendered as one HTML page (prose via marked, charts via Chart.js,

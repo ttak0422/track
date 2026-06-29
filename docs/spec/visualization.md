@@ -63,8 +63,9 @@ chart over a single data source. Unknown fields are rejected.
 | `title`    | no       | Chart and page title.                                                        |
 | `data.source` | yes   | Path to a JSONL file, resolved **relative to the spec file** (or absolute).  |
 | `data.kind`   | yes   | One of the canonical kinds.                                                  |
+| `metrics`  | no       | Derived per-record fields (weighted sums) addressable by name; see below.    |
 | `x.field`  | yes      | Record field used for x-axis labels (category), or numeric x for `bubble`.   |
-| `y`        | yes      | One or more series; each `y[i].field` is a numeric record field.            |
+| `y`        | yes      | One or more series; each `y[i].field` is a numeric record field. `y[i].transform` aggregates the series (see below). |
 | `size`     | bubble/heatmap | Numeric encoding: bubble radius (required for `bubble`), heatmap cell value (required for `heatmap`), or timeline dot radius (optional). |
 | `filter`   | no       | Keep matching records. Shorthand `{field, equals}` or `{all: [{field, op, value}]}` (AND). |
 | `overlays` | no       | Vertical event/annotation markers drawn over the chart (see below).         |
@@ -79,6 +80,38 @@ e.g. a price and an index — can share one x-axis:
   { "field": "index", "label": "Index", "axis": "y2" }
 ]
 ```
+
+### Computed metrics & transforms
+
+Two complementary computations let a spec build a composite indicator and smooth it, without
+pre-processing the data:
+
+- **`metrics`** — derived per-record fields, computed before encoding and addressable by `name`
+  anywhere a field is (x, y, size, filter, even a later metric). Each metric is a structured linear
+  combination `offset + Σ weightᵢ·fieldᵢ` — enough for a weighted composite like a Pressure Index, and
+  deliberately *not* a free expression language. A term's `weight` defaults to `1`. If any referenced
+  field is missing/non-numeric the metric is `NaN` (an incomplete sample → a gap).
+
+- **`y[].transform`** — a series-direction aggregation applied to the resolved y values: `op` is one of
+  `sma`, `ema`, `cumsum`, `diff`; `sma`/`ema` also take a `window`. It is only valid on value-series
+  chart types (not `bubble`/`heatmap`/`timeline`). Transforms honor the NaN-gap convention: the warm-up
+  before a moving-average window fills (and `diff` at index 0) is `NaN`.
+
+```json
+{
+  "version": 1, "type": "line", "title": "Pressure Index",
+  "data": { "source": "components.jsonl", "kind": "metric" },
+  "metrics": [
+    { "name": "pressure",
+      "terms": [ { "field": "tariff", "weight": 0.4 }, { "field": "rhetoric", "weight": 0.6 } ] }
+  ],
+  "x": { "field": "time" },
+  "y": [ { "field": "pressure", "label": "Pressure (7d SMA)", "transform": { "op": "sma", "window": 7 } } ]
+}
+```
+
+This computes `pressure` per record, plots it as a series, then smooths it with a 7-point moving
+average — the goal article's core "custom index over time" in one spec.
 
 ### Filter
 
