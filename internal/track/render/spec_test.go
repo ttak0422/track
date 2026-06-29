@@ -1,0 +1,39 @@
+package render
+
+import (
+	"strings"
+	"testing"
+)
+
+func TestSVGFromSpecInlineData(t *testing.T) {
+	spec := `{"version":1,"type":"bar","title":"Inline","data":{"kind":"metric","records":[
+		{"name":"A","v":3},{"name":"B","v":7}]},
+		"x":{"field":"name"},"y":[{"field":"v"}]}`
+	out, err := SVGFromSpec([]byte(spec))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.HasPrefix(out, "<?xml") || !strings.Contains(out, "<svg") {
+		t.Fatalf("not an SVG document: %.40s", out)
+	}
+	for _, want := range []string{">Inline<", ">A<", ">B<", "<rect"} {
+		if !strings.Contains(out, want) {
+			t.Errorf("SVG missing %q", want)
+		}
+	}
+}
+
+func TestSVGFromSpecRequiresInlineData(t *testing.T) {
+	// data.source (external file) is not supported by the embedded path.
+	spec := `{"version":1,"type":"line","data":{"kind":"metric","source":"x.jsonl"},
+		"x":{"field":"t"},"y":[{"field":"v"}]}`
+	if _, err := SVGFromSpec([]byte(spec)); err == nil {
+		t.Fatal("expected error: embedded chart needs inline data")
+	}
+}
+
+func TestSVGFromSpecRejectsBadSpec(t *testing.T) {
+	if _, err := SVGFromSpec([]byte(`{"version":1,"type":"pie"}`)); err == nil {
+		t.Fatal("expected error for invalid spec")
+	}
+}

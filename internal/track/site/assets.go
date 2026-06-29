@@ -1,6 +1,7 @@
 package site
 
 import (
+	"fmt"
 	"io"
 	"os"
 	"path/filepath"
@@ -9,6 +10,7 @@ import (
 	"strings"
 
 	"github.com/ttak0422/track/internal/track/config"
+	"github.com/ttak0422/track/internal/track/render"
 )
 
 // assetRef matches an "assets/<path>" reference as written in note bodies (the form printed by
@@ -73,12 +75,34 @@ func copyAssets(srcDir, outDir string, rels []string) (copied, missing []string,
 			continue
 		}
 		dst := filepath.Join(outDir, config.AssetsDirName, publishAssetName(rel))
-		if err = copyFile(src, dst); err != nil {
+		if isSpecAsset(rel) {
+			if err = renderSpecAsset(src, dst); err != nil {
+				return copied, missing, err
+			}
+		} else if err = copyFile(src, dst); err != nil {
 			return copied, missing, err
 		}
 		copied = append(copied, rel)
 	}
 	return copied, missing, nil
+}
+
+// renderSpecAsset reads a View Spec asset (inline-data chart) and writes its rendered SVG to dst. A
+// malformed spec fails the build loudly rather than being silently skipped, so a broken chart is not
+// published as a dead reference.
+func renderSpecAsset(src, dst string) error {
+	specJSON, err := os.ReadFile(src)
+	if err != nil {
+		return err
+	}
+	svg, err := render.SVGFromSpec(specJSON)
+	if err != nil {
+		return fmt.Errorf("render spec asset %s: %w", src, err)
+	}
+	if err := os.MkdirAll(filepath.Dir(dst), 0o755); err != nil {
+		return err
+	}
+	return os.WriteFile(dst, []byte(svg), 0o644)
 }
 
 func copyFile(src, dst string) error {

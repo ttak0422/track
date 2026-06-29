@@ -94,12 +94,17 @@ func isArticle(specJSON []byte) bool {
 	return len(probe.Blocks) > 0
 }
 
-// resolveChart reads a chart's data and overlay sources (relative to the spec/article file) and
-// resolves the View Spec against them. It is shared by the single-chart and article render paths.
+// resolveChart resolves the View Spec against its data: inline records when the spec carries them,
+// otherwise a JSONL file read relative to the spec/article file. Overlay sources are read relative to
+// the same file. It is shared by the single-chart and article render paths.
 func resolveChart(specPath string, vs viewspec.Spec) (viewspec.Resolved, error) {
-	records, err := readJSONLRelative(specPath, vs.Data.Source)
-	if err != nil {
-		return viewspec.Resolved{}, err
+	records := vs.Data.Records
+	if records == nil {
+		var err error
+		records, err = readJSONLRelative(specPath, vs.Data.Source)
+		if err != nil {
+			return viewspec.Resolved{}, err
+		}
 	}
 	res := vs.Resolve(records)
 	for i, ov := range vs.Overlays {

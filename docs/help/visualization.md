@@ -47,9 +47,9 @@ about the renderer, so the same spec can be drawn by different backends.
 track render --spec chart.json --out chart.html
 ```
 
-Rendered output (a line series with an event drawn as an overlay marker):
+Rendered output:
 
-![Line chart with an event overlay](assets/chart-line.svg)
+![AAPL close line chart](assets/chart-line.viewspec.json)
 
 Key fields:
 
@@ -59,32 +59,43 @@ Key fields:
   `eq|ne|lt|le|gt|ge` for multi-field, range, and period filtering.
 - `overlays` — draw events/annotations from a second source as vertical markers over a time series.
 
-## Chart types
+## Embedding a chart in a note
 
-Every image below is a real `track render --renderer svg` output (static, self-contained SVG).
+Every image on this page is a **View Spec asset rendered by track**, not a hand-made picture. A
+`.viewspec.json` asset carries the spec *and its data inline* (`data.records`), so it is a complete,
+self-contained chart. Embed it like any image and track renders it to a static SVG when the site is
+built:
+
+```markdown
+![AAPL close](assets/chart-line.viewspec.json)
+```
+
+Import the spec as an asset (`track asset import chart.viewspec.json`) and reference it; there is no
+separate data file to keep in sync, no CDN, and no client-side JavaScript — the engine turns the spec
+into an SVG image. The charts below are each one embedded `.viewspec.json`.
 
 **`bar`** — values per category; the baseline is pinned to zero, so negatives drop below it.
 
-![Bar chart of sector returns](assets/chart-bar.svg)
+![Bar chart of sector returns](assets/chart-bar.viewspec.json)
 
 **`hbar`** — a horizontal bar, for rankings; categories run down the left, the value axis along the bottom.
 
-![Horizontal bar ranking by exposure](assets/chart-hbar.svg)
+![Horizontal bar ranking by exposure](assets/chart-hbar.viewspec.json)
 
 **`scatter`** — points over a category x-axis, the connecting line suppressed.
 
-![Scatter of sector returns](assets/chart-scatter.svg)
+![Scatter of sector returns](assets/chart-scatter.viewspec.json)
 
 **`heatmap`** — a 2D grid of `x` columns × `y[0]` rows, each cell colored by `size` (with a value legend).
 
-![Heatmap of value by sector and quarter](assets/chart-heatmap.svg)
+![Heatmap of value by sector and quarter](assets/chart-heatmap.viewspec.json)
 
 **`timeline`** — one dot per record at its `(column, lane)`; an optional `size` scales the dot, one color per lane.
 
-![Timeline of events per quarter by sector](assets/chart-timeline.svg)
+![Timeline of events per quarter by sector](assets/chart-timeline.viewspec.json)
 
 `bubble` (`{x, y, r}` points sized by `size`) is drawn by the default `chartjs` renderer; the `svg`
-renderer covers the types shown above.
+renderer (used for embedded assets) covers the types shown above.
 
 ## Renderers
 

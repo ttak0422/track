@@ -154,6 +154,42 @@ func TestHeatmapRequiresSize(t *testing.T) {
 	}
 }
 
+func TestLoadInlineRecordsResolve(t *testing.T) {
+	spec := `{"version":1,"type":"line","data":{"kind":"metric","records":[
+		{"time":"d1","close":10},{"time":"d2","close":12}]},
+		"x":{"field":"time"},"y":[{"field":"close"}]}`
+	s, err := Load(strings.NewReader(spec))
+	if err != nil {
+		t.Fatalf("Load: %v", err)
+	}
+	res := s.Resolve(s.Data.Records)
+	if !equalStrings(res.Labels, []string{"d1", "d2"}) {
+		t.Fatalf("labels = %v", res.Labels)
+	}
+	if res.Series[0].Values[0] != 10 || res.Series[0].Values[1] != 12 {
+		t.Fatalf("values = %v", res.Series[0].Values)
+	}
+}
+
+func TestDataSourceRecordsMutuallyExclusive(t *testing.T) {
+	base := func(d DataRef) Spec {
+		return Spec{Version: 1, Type: ChartLine, Data: d, X: Encoding{Field: "t"}, Y: []Encoding{{Field: "c"}}}
+	}
+	rec := []dataset.Record{{"t": "d1", "c": 1.0}}
+	// neither source nor records → error
+	if err := base(DataRef{Kind: dataset.KindMetric}).Validate(); err == nil {
+		t.Error("expected error when neither source nor records is set")
+	}
+	// both → error
+	if err := base(DataRef{Kind: dataset.KindMetric, Source: "x.jsonl", Records: rec}).Validate(); err == nil {
+		t.Error("expected error when both source and records are set")
+	}
+	// records only → ok
+	if err := base(DataRef{Kind: dataset.KindMetric, Records: rec}).Validate(); err != nil {
+		t.Errorf("records-only should validate: %v", err)
+	}
+}
+
 func TestTableResolveProjectsAndAligns(t *testing.T) {
 	tbl := Table{
 		Data:    DataRef{Source: "x", Kind: dataset.KindPrice},

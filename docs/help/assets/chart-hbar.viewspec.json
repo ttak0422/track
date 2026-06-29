@@ -1,0 +1,15 @@
+{
+  "version": 1,
+  "type": "hbar",
+  "title": "Exposure ranking",
+  "data": {
+    "kind": "metric",
+    "records": [
+      { "name": "Tech", "exposure": 1000 },
+      { "name": "Energy", "exposure": 600 },
+      { "name": "Health", "exposure": 800 }
+    ]
+  },
+  "x": { "field": "name" },
+  "y": [ { "field": "exposure", "label": "Exposure" } ]
+}

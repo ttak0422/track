@@ -66,7 +66,8 @@ chart over a single data source. Unknown fields are rejected.
 | `version`  | yes      | View Spec schema version (current: `1`).                                     |
 | `type`     | yes      | `line`, `bar`, `hbar` (ranking), `scatter`, `bubble`, `heatmap`, or `timeline` (last two SVG-only). |
 | `title`    | no       | Chart and page title.                                                        |
-| `data.source` | yes   | Path to a JSONL file, resolved **relative to the spec file** (or absolute).  |
+| `data.source` | one of | Path to a JSONL file, resolved **relative to the spec file** (or absolute).  |
+| `data.records`| one of | Inline data: an array of records carried in the spec (mutually exclusive with `source`). |
 | `data.kind`   | yes   | One of the canonical kinds.                                                  |
 | `x.field`  | yes      | Record field used for x-axis labels (category), or numeric x for `bubble`.   |
 | `y`        | yes      | One or more series; each `y[i].field` is a numeric record field.            |
@@ -149,6 +150,35 @@ plotting policy events along a Pressure Index time series. Each overlay:
 A record with no `at` value is skipped. The marker is placed at the matching x-axis category, so the
 `at` value should equal one of the x-axis labels (the renderer uses a category x-axis). Multiple
 overlays accumulate.
+
+### Inline data (self-contained specs)
+
+A spec carries its data either by `data.source` (an external JSONL file) **or** by `data.records` (an
+inline array), never both. Inline data makes a spec self-contained — a single file is a complete chart
+— which is what the embedded-asset path (below) needs. Inline numbers decode as `float64` (not
+`json.Number`); `Record.Float` reads them the same way.
+
+```json
+{ "version": 1, "type": "line", "data": { "kind": "metric",
+    "records": [ { "time": "01", "close": 100 }, { "time": "02", "close": 110 } ] },
+  "x": { "field": "time" }, "y": [ { "field": "close" } ] }
+```
+
+### Embedding a chart as an asset
+
+A self-contained spec saved as a `.viewspec.json` **asset** is rendered to a static SVG by the engine
+(`render.SVGFromSpec`) when a note or doc embeds it as an image:
+
+```markdown
+![Close](assets/chart.viewspec.json)
+```
+
+`track export-site` (`internal/track/site`) detects a `.viewspec.json` asset reference, renders it with
+the `svg` renderer at build time, writes the SVG into the published `assets/`, and rewrites the
+reference to the generated `.svg` — so the static site shows the chart with no CDN and no client-side
+JavaScript. Embedded charts must use inline `data.records` (an asset is rendered in isolation, with no
+spec-relative file to read); overlays and `data.source` are not supported on this path. The live web
+workspace does not yet render embedded specs (it reuses the same `render.SVGFromSpec` when it does).
 
 ### Resolution semantics
 

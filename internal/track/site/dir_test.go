@@ -87,6 +87,47 @@ func TestBuildDirBundle(t *testing.T) {
 	}
 }
 
+func TestBuildDirRendersSpecAssetToSVG(t *testing.T) {
+	src := t.TempDir()
+	write := func(name, body string) {
+		if err := os.WriteFile(filepath.Join(src, name), []byte(body), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	write("index.md", "# Home\n\n![chart](assets/c.viewspec.json)\n")
+	if err := os.MkdirAll(filepath.Join(src, "assets"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	spec := `{"version":1,"type":"bar","title":"Demo","data":{"kind":"metric","records":[
+		{"name":"A","v":3},{"name":"B","v":7}]},"x":{"field":"name"},"y":[{"field":"v"}]}`
+	write(filepath.Join("assets", "c.viewspec.json"), spec)
+
+	out := t.TempDir()
+	if _, err := BuildDir(src, "index", fakeFrontend(t), out); err != nil {
+		t.Fatalf("BuildDir: %v", err)
+	}
+
+	// The spec asset is published as an SVG image (not the raw JSON).
+	assetName := publishAssetName("c.viewspec.json")
+	if !strings.HasSuffix(assetName, ".svg") {
+		t.Fatalf("spec asset should publish as .svg, got %q", assetName)
+	}
+	data, err := os.ReadFile(filepath.Join(out, "assets", assetName))
+	if err != nil {
+		t.Fatalf("rendered SVG not written: %v", err)
+	}
+	if !strings.HasPrefix(string(data), "<?xml") || !strings.Contains(string(data), ">Demo<") {
+		t.Fatalf("asset is not the rendered SVG: %.60s", data)
+	}
+
+	// The body references the rendered .svg, never the source .viewspec.json.
+	site := readJSON[jsonSite](t, filepath.Join(out, "data", "site.json"))
+	home := readJSON[jsonNoteResponse](t, filepath.Join(out, "data", "note", site.Root+".json"))
+	if !strings.Contains(home.Note.Body, "assets/"+assetName) || strings.Contains(home.Note.Body, "viewspec.json") {
+		t.Fatalf("body should reference the rendered svg: %q", home.Note.Body)
+	}
+}
+
 func TestBuildDirRejectsMissingRoot(t *testing.T) {
 	src := t.TempDir()
 	if err := os.WriteFile(filepath.Join(src, "a.md"), []byte("# A\n"), 0o644); err != nil {

@@ -1,0 +1,17 @@
+{
+  "version": 1,
+  "type": "timeline",
+  "title": "Events per quarter by sector",
+  "data": {
+    "kind": "event",
+    "records": [
+      { "q": "Q1", "sector": "Tech", "val": 3 },
+      { "q": "Q2", "sector": "Tech", "val": 8 },
+      { "q": "Q1", "sector": "Energy", "val": 5 },
+      { "q": "Q2", "sector": "Energy", "val": 2 }
+    ]
+  },
+  "x": { "field": "q" },
+  "y": [ { "field": "sector" } ],
+  "size": { "field": "val" }
+}

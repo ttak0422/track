@@ -117,11 +117,15 @@ type Marker struct {
 	Label string
 }
 
-// DataRef points at the records to plot: a JSONL file (Source, resolved relative to the spec file)
-// holding a single canonical Kind.
+// DataRef points at the records to plot, as exactly one of: Source (a JSONL file resolved relative to
+// the spec file) or Records (data carried inline in the spec). Inline data makes a spec self-contained
+// — a single .viewspec.json asset is a complete chart, which the embedded-asset rendering path needs.
+// Inline numbers decode as float64 (not json.Number), which Record.Float handles; the standalone CLI
+// keeps using Source for external JSONL.
 type DataRef struct {
-	Source string       `json:"source"`
-	Kind   dataset.Kind `json:"kind"`
+	Source  string           `json:"source,omitempty"`
+	Kind    dataset.Kind     `json:"kind"`
+	Records []dataset.Record `json:"records,omitempty"`
 }
 
 // Encoding binds a chart axis/series to a record field. Label overrides the legend/axis text, which
@@ -207,8 +211,13 @@ func (s Spec) Validate() error {
 	if !renderable(s.Type) {
 		return fmt.Errorf("view spec: unsupported type %q (line|bar|scatter)", s.Type)
 	}
-	if strings.TrimSpace(s.Data.Source) == "" {
-		return fmt.Errorf("view spec: data.source is required")
+	hasSource := strings.TrimSpace(s.Data.Source) != ""
+	hasRecords := len(s.Data.Records) > 0
+	if !hasSource && !hasRecords {
+		return fmt.Errorf("view spec: data needs source (a JSONL file) or records (inline data)")
+	}
+	if hasSource && hasRecords {
+		return fmt.Errorf("view spec: data.source and data.records are mutually exclusive")
 	}
 	if !s.Data.Kind.Valid() {
 		return fmt.Errorf("view spec: data.kind %q is not a canonical kind", s.Data.Kind)

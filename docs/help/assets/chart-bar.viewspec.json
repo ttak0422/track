@@ -1,0 +1,15 @@
+{
+  "version": 1,
+  "type": "bar",
+  "title": "Sector return",
+  "data": {
+    "kind": "metric",
+    "records": [
+      { "name": "Tech", "ret": 12 },
+      { "name": "Energy", "ret": -4 },
+      { "name": "Health", "ret": 7 }
+    ]
+  },
+  "x": { "field": "name" },
+  "y": [ { "field": "ret", "label": "Return %" } ]
+}

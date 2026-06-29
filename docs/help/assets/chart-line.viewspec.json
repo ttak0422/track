@@ -1,0 +1,16 @@
+{
+  "version": 1,
+  "type": "line",
+  "title": "AAPL close",
+  "data": {
+    "kind": "metric",
+    "records": [
+      { "time": "2026-01", "close": 100 },
+      { "time": "2026-02", "close": 110 },
+      { "time": "2026-03", "close": 108 },
+      { "time": "2026-04", "close": 125 }
+    ]
+  },
+  "x": { "field": "time" },
+  "y": [ { "field": "close", "label": "Close" } ]
+}
