@@ -12,6 +12,7 @@ static-site export.
 - [[CLI]] — the command-line interface that owns parsing, indexing, and search.
 - [[Linking notes]] — how `[[...]]` links, backlinks, and the note graph work.
 - [[Web workspace]] — the local browser UI for reading, previewing, and navigating notes.
+- [[Visualization]] — render charts from a declarative View Spec over the Canonical Data Model.
 
 ## How the pieces fit
 
