@@ -19,7 +19,6 @@ import (
 	"strings"
 
 	"github.com/ttak0422/track/internal/track/dataset"
-	"github.com/ttak0422/track/internal/track/metric"
 )
 
 // Version is the current View Spec schema version. Specs carry it so the format can evolve.
@@ -62,49 +61,12 @@ type Spec struct {
 	Type     ChartType  `json:"type"`
 	Title    string     `json:"title,omitempty"`
 	Data     DataRef    `json:"data"`
-	Metrics  []Metric   `json:"metrics,omitempty"` // derived per-record fields, computed before encoding
 	X        Encoding   `json:"x"`
 	Y        []Encoding `json:"y"`
 	Size     *Encoding  `json:"size,omitempty"` // bubble radius; required for type bubble
 	Filter   *Filter    `json:"filter,omitempty"`
 	Overlays []Overlay  `json:"overlays,omitempty"`
 }
-
-// Metric is a derived per-record value: offset plus a weighted sum of fields, addressable afterwards
-// by Name (so a metric can feed x/y/size/filter, or a later metric). It is a structured linear
-// combination — enough for composite indicators like a Pressure Index — deliberately not a free
-// expression language.
-type Metric struct {
-	Name   string  `json:"name"`
-	Terms  []Term  `json:"terms"`
-	Offset float64 `json:"offset,omitempty"`
-}
-
-// Term is one weighted field in a Metric. Weight is a pointer so an omitted weight defaults to 1.0
-// (a plain float would make a forgotten weight silently zero out the term, which is a footgun).
-type Term struct {
-	Field  string   `json:"field"`
-	Weight *float64 `json:"weight,omitempty"`
-}
-
-// weight returns the term's weight, defaulting an unset weight to 1.0.
-func (t Term) weight() float64 {
-	if t.Weight == nil {
-		return 1
-	}
-	return *t.Weight
-}
-
-// Transform is a series-direction aggregation applied to a resolved y series (e.g. a moving average
-// that smooths a noisy index). Window sizes the moving window for sma/ema.
-type Transform struct {
-	Op     string `json:"op"`
-	Window int    `json:"window,omitempty"`
-}
-
-// TransformOps lists the valid series-transform operators in a stable order, the single source for
-// validation and help text.
-var TransformOps = []string{"sma", "ema", "cumsum", "diff"}
 
 // Overlay draws events/annotations from a second data source on top of the chart as vertical markers
 // — e.g. plotting policy events along a Pressure Index time series. It reads its own JSONL source
@@ -167,10 +129,9 @@ type DataRef struct {
 // secondary ("y2") axis, so e.g. a price and an index can share an x-axis on independent scales. Axis
 // is ignored for the x encoding.
 type Encoding struct {
-	Field     string     `json:"field"`
-	Label     string     `json:"label,omitempty"`
-	Axis      string     `json:"axis,omitempty"`
-	Transform *Transform `json:"transform,omitempty"` // series aggregation (y series only, value-chart types)
+	Field string `json:"field"`
+	Label string `json:"label,omitempty"`
+	Axis  string `json:"axis,omitempty"`
 }
 
 // label returns the user-facing label for an encoding, falling back to the field name.
@@ -266,24 +227,6 @@ func (s Spec) Validate() error {
 		case "", "y", "y2":
 		default:
 			return fmt.Errorf("view spec: y[%d].axis %q is not y or y2", i, y.Axis)
-		}
-		if y.Transform != nil {
-			if err := y.Transform.validate(s.Type, i); err != nil {
-				return err
-			}
-		}
-	}
-	for i, m := range s.Metrics {
-		if strings.TrimSpace(m.Name) == "" {
-			return fmt.Errorf("view spec: metrics[%d].name is required", i)
-		}
-		if len(m.Terms) == 0 {
-			return fmt.Errorf("view spec: metrics[%d] (%s) needs at least one term", i, m.Name)
-		}
-		for j, t := range m.Terms {
-			if t.Field == "" {
-				return fmt.Errorf("view spec: metrics[%d].terms[%d].field is required", i, j)
-			}
 		}
 	}
 	if s.Type == ChartBubble && (s.Size == nil || s.Size.Field == "") {
@@ -430,7 +373,6 @@ type Resolved struct {
 // that series so the point becomes a gap.
 func (s Spec) Resolve(records []dataset.Record) Resolved {
 	res := Resolved{Spec: s}
-	s.applyMetrics(records)
 	if gridType(s.Type) {
 		g := s.resolveGrid(records)
 		res.Grid = &g
@@ -457,69 +399,7 @@ func (s Spec) Resolve(records []dataset.Record) Resolved {
 			res.Series[i].Values = append(res.Series[i].Values, v)
 		}
 	}
-	for i, y := range s.Y {
-		if y.Transform != nil {
-			res.Series[i].Values = y.Transform.apply(res.Series[i].Values)
-		}
-	}
 	return res
-}
-
-// applyMetrics computes each declared metric into every record under its Name, in declaration order
-// so a later metric can reference an earlier one. Records are augmented in place: they are read fresh
-// per render, so mutating the maps is cheaper than copying and visible only to this resolve. A metric
-// whose any referenced field is missing/non-numeric yields NaN (an incomplete sample → a gap).
-func (s Spec) applyMetrics(records []dataset.Record) {
-	for _, m := range s.Metrics {
-		for _, rec := range records {
-			rec[m.Name] = m.compute(rec)
-		}
-	}
-}
-
-// compute evaluates a metric for one record: offset + Σ weight·field. Any missing/non-numeric term
-// makes the whole metric NaN, since a composite indicator with a missing component is undefined.
-func (m Metric) compute(rec dataset.Record) float64 {
-	sum := m.Offset
-	for _, t := range m.Terms {
-		v, ok := rec.Float(t.Field)
-		if !ok {
-			return math.NaN()
-		}
-		sum += t.weight() * v
-	}
-	return sum
-}
-
-// validate checks a y-series transform: a known op, a positive window for the windowed ops, and a
-// value-series chart type (transforms operate on a series' Values, which bubble and grid charts do
-// not have).
-func (t *Transform) validate(typ ChartType, yi int) error {
-	if !slices.Contains(TransformOps, t.Op) {
-		return fmt.Errorf("view spec: y[%d].transform.op %q is not one of %s", yi, t.Op, strings.Join(TransformOps, "|"))
-	}
-	if typ == ChartBubble || gridType(typ) {
-		return fmt.Errorf("view spec: y[%d].transform is not supported for type %q", yi, typ)
-	}
-	if (t.Op == "sma" || t.Op == "ema") && t.Window < 1 {
-		return fmt.Errorf("view spec: y[%d].transform %q requires window >= 1", yi, t.Op)
-	}
-	return nil
-}
-
-// apply runs the series transform over resolved values, dispatching to the metric engine.
-func (t Transform) apply(values []float64) []float64 {
-	switch t.Op {
-	case "sma":
-		return metric.SMA(values, t.Window)
-	case "ema":
-		return metric.EMA(values, t.Window)
-	case "cumsum":
-		return metric.CumSum(values)
-	case "diff":
-		return metric.Diff(values)
-	}
-	return values
 }
 
 // resolveBubblePoint appends one {x,y,r} point per y series for a bubble chart. A missing coordinate
