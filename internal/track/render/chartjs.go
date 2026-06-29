@@ -67,6 +67,9 @@ func chartJSType(t viewspec.ChartType) string {
 
 // Render builds the Chart.js config from the resolved spec and embeds it in a complete HTML document.
 func (ChartJS) Render(res viewspec.Resolved) (string, error) {
+	if res.Spec.Type == viewspec.ChartHeatmap || res.Spec.Type == viewspec.ChartTimeline {
+		return "", fmt.Errorf("chartjs renderer: %s is only supported by --renderer svg", res.Spec.Type)
+	}
 	cfgJSON, usesAnnotation, err := chartJSConfigJSON(res)
 	if err != nil {
 		return "", err

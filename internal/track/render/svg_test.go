@@ -47,6 +47,22 @@ func goldenCases() map[string]viewspec.Resolved {
 			Series:  []viewspec.Series{{Label: "Index", Values: []float64{1, 2, 3}}},
 			Markers: []viewspec.Marker{{At: "b", Label: "event"}},
 		},
+		"heatmap": {
+			Spec: viewspec.Spec{Version: 1, Type: viewspec.ChartHeatmap, Title: "Heat"},
+			Grid: &viewspec.Grid{
+				Cols:  []string{"Q1", "Q2"},
+				Rows:  []string{"Tech", "Energy"},
+				Cells: []viewspec.Cell{{Col: 0, Row: 0, Value: 1}, {Col: 1, Row: 0, Value: 9}, {Col: 0, Row: 1, Value: math.NaN()}},
+			},
+		},
+		"timeline": {
+			Spec: viewspec.Spec{Version: 1, Type: viewspec.ChartTimeline, Title: "Events"},
+			Grid: &viewspec.Grid{
+				Cols:  []string{"d1", "d2", "d3"},
+				Rows:  []string{"AAPL", "MSFT"},
+				Cells: []viewspec.Cell{{Col: 0, Row: 0, Value: 1}, {Col: 2, Row: 0, Value: 5}, {Col: 1, Row: 1, Value: math.NaN()}},
+			},
+		},
 	}
 }
 

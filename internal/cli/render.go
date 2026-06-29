@@ -68,7 +68,16 @@ func cmdRender(args []string) int {
 	if err := os.WriteFile(*out, []byte(doc), 0o644); err != nil {
 		return fail("write %s: %v", *out, err)
 	}
-	return emit(map[string]any{"path": *out, "renderer": r.Name(), "records": len(resolved.Labels) + len(resolved.Series)})
+	return emit(map[string]any{"path": *out, "renderer": r.Name(), "records": resolvedCount(resolved)})
+}
+
+// resolvedCount reports how many data points a resolved spec produced, for the render summary: grid
+// charts (heatmap/timeline) count cells, the rest count x labels.
+func resolvedCount(res viewspec.Resolved) int {
+	if res.Grid != nil {
+		return len(res.Grid.Cells)
+	}
+	return len(res.Labels)
 }
 
 // isArticle reports whether a spec is a composed article, detected by a non-empty top-level "blocks".

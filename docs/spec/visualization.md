@@ -59,13 +59,13 @@ chart over a single data source. Unknown fields are rejected.
 | Field      | Required | Notes                                                                       |
 |------------|----------|-----------------------------------------------------------------------------|
 | `version`  | yes      | View Spec schema version (current: `1`).                                     |
-| `type`     | yes      | `line`, `bar`, `hbar` (ranking), `scatter`, or `bubble`.                      |
+| `type`     | yes      | `line`, `bar`, `hbar` (ranking), `scatter`, `bubble`, `heatmap`, or `timeline` (last two SVG-only). |
 | `title`    | no       | Chart and page title.                                                        |
 | `data.source` | yes   | Path to a JSONL file, resolved **relative to the spec file** (or absolute).  |
 | `data.kind`   | yes   | One of the canonical kinds.                                                  |
 | `x.field`  | yes      | Record field used for x-axis labels (category), or numeric x for `bubble`.   |
 | `y`        | yes      | One or more series; each `y[i].field` is a numeric record field.            |
-| `size`     | bubble   | Field for the bubble radius; required when `type` is `bubble`.               |
+| `size`     | bubble/heatmap | Numeric encoding: bubble radius (required for `bubble`), heatmap cell value (required for `heatmap`), or timeline dot radius (optional). |
 | `filter`   | no       | Keep matching records. Shorthand `{field, equals}` or `{all: [{field, op, value}]}` (AND). |
 | `overlays` | no       | Vertical event/annotation markers drawn over the chart (see below).         |
 
@@ -99,6 +99,29 @@ filtering use `all` with comparison operators:
 `op` is one of `eq` (default), `ne`, `lt`, `le`, `gt`, `ge`. Ordered comparisons (`lt`/`le`/`gt`/`ge`)
 compare numerically when both the record value and `value` parse as numbers, otherwise lexically — so
 ISO timestamps and numeric fields both order correctly. Shorthand and `all` combine.
+
+### Grid charts (`heatmap`, `timeline`)
+
+Two **SVG-only** chart types map records onto a 2D grid of `x` columns × `y[0]` rows (both treated as
+categories, accumulated in first-seen order). The Chart.js renderer rejects them.
+
+- **`heatmap`** colors each cell by `size.field` (light → dark, with a value legend); `size` is
+  required. Repeated `(column, row)` cells draw later-record-on-top. A cell with no value is gray.
+  Use it for a value-per-pair matrix, e.g. sector × quarter return.
+
+  ```json
+  { "version": 1, "type": "heatmap", "data": { "source": "returns.jsonl", "kind": "metric" },
+    "x": { "field": "quarter" }, "y": [ { "field": "sector" } ], "size": { "field": "return" } }
+  ```
+
+- **`timeline`** places one dot per record at its `(x column, y[0] lane)`; an optional `size.field`
+  scales the dot radius, and each lane gets its own color. Use it for a swimlane event strip, e.g.
+  events per entity over time.
+
+  ```json
+  { "version": 1, "type": "timeline", "data": { "source": "events.jsonl", "kind": "event" },
+    "x": { "field": "date" }, "y": [ { "field": "entity" } ], "size": { "field": "magnitude" } }
+  ```
 
 ### Overlays (event/annotation markers)
 

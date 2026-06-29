@@ -119,6 +119,41 @@ func TestFilterValidateRejectsBadOpAndEmpty(t *testing.T) {
 	}
 }
 
+func TestResolveGridHeatmap(t *testing.T) {
+	s := Spec{
+		Version: 1, Type: ChartHeatmap,
+		Data: DataRef{Source: "x", Kind: dataset.KindMetric},
+		X:    Encoding{Field: "col"}, Y: []Encoding{{Field: "row"}}, Size: &Encoding{Field: "v"},
+	}
+	if err := s.Validate(); err != nil {
+		t.Fatal(err)
+	}
+	recs, _ := dataset.ReadJSONL(strings.NewReader(
+		`{"col":"Q1","row":"Tech","v":1}` + "\n" +
+			`{"col":"Q2","row":"Tech","v":9}` + "\n" +
+			`{"col":"Q1","row":"Energy"}` + "\n")) // missing value → NaN cell
+	res := s.Resolve(recs)
+	if res.Grid == nil {
+		t.Fatal("grid type should populate Grid")
+	}
+	if !equalStrings(res.Grid.Cols, []string{"Q1", "Q2"}) || !equalStrings(res.Grid.Rows, []string{"Tech", "Energy"}) {
+		t.Fatalf("cols/rows = %v / %v", res.Grid.Cols, res.Grid.Rows)
+	}
+	if len(res.Grid.Cells) != 3 || res.Grid.Cells[1].Value != 9 {
+		t.Fatalf("cells = %+v", res.Grid.Cells)
+	}
+	if !math.IsNaN(res.Grid.Cells[2].Value) {
+		t.Fatal("missing size should be NaN cell")
+	}
+}
+
+func TestHeatmapRequiresSize(t *testing.T) {
+	s := Spec{Version: 1, Type: ChartHeatmap, Data: DataRef{Source: "x", Kind: dataset.KindMetric}, X: Encoding{Field: "c"}, Y: []Encoding{{Field: "r"}}}
+	if err := s.Validate(); err == nil {
+		t.Fatal("heatmap without size.field should fail validation")
+	}
+}
+
 func TestTableResolveProjectsAndAligns(t *testing.T) {
 	tbl := Table{
 		Data:    DataRef{Source: "x", Kind: dataset.KindPrice},

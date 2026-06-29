@@ -186,6 +186,15 @@ func TestChartJSRenderSingleAxisHasNoY2(t *testing.T) {
 	}
 }
 
+func TestChartJSRejectsGridTypes(t *testing.T) {
+	for _, typ := range []viewspec.ChartType{viewspec.ChartHeatmap, viewspec.ChartTimeline} {
+		res := viewspec.Resolved{Spec: viewspec.Spec{Version: 1, Type: typ}, Grid: &viewspec.Grid{}}
+		if _, err := (ChartJS{}).Render(res); err == nil {
+			t.Errorf("chartjs should reject %s (svg-only)", typ)
+		}
+	}
+}
+
 func TestGetUnknownRenderer(t *testing.T) {
 	if _, err := Get("nope"); err == nil {
 		t.Fatal("expected error for unknown renderer")

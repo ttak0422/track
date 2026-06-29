@@ -38,21 +38,17 @@ func svgColor(i int) string { return svgPalette[i%len(svgPalette)] }
 
 // Render produces a complete SVG document for the resolved spec.
 func (SVG) Render(res viewspec.Resolved) (string, error) {
-	if res.Spec.Type == viewspec.ChartBubble {
+	switch res.Spec.Type {
+	case viewspec.ChartBubble:
 		return "", fmt.Errorf("svg renderer: bubble charts are not supported yet (use --renderer chartjs)")
+	case viewspec.ChartHeatmap, viewspec.ChartTimeline:
+		return renderGrid(res), nil
 	}
 	g := svgGeom{w: 800, h: 480, left: 56, right: 16, top: 40, bottom: 56}
 	lo, hi := valueRange(res.Series, res.Spec.Type)
 
 	var b strings.Builder
-	b.WriteString(`<?xml version="1.0" encoding="UTF-8"?>` + "\n")
-	fmt.Fprintf(&b, `<svg xmlns="http://www.w3.org/2000/svg" width="%g" height="%g" viewBox="0 0 %g %g" font-family="sans-serif">`+"\n", g.w, g.h, g.w, g.h)
-	b.WriteString(`<rect width="100%" height="100%" fill="#ffffff"/>` + "\n")
-	if res.Spec.Title != "" {
-		fmt.Fprintf(&b, `<text x="%g" y="24" font-size="16" font-weight="bold" text-anchor="middle">%s</text>`+"\n",
-			g.w/2, html.EscapeString(res.Spec.Title))
-	}
-
+	writeSVGHeader(&b, g, res.Spec.Title)
 	writeAxes(&b, g, res, lo, hi)
 	if res.Spec.Type == viewspec.ChartHBar {
 		writeHBars(&b, g, res, lo, hi)

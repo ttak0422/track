@@ -29,17 +29,23 @@ const Version = 1
 type ChartType string
 
 const (
-	ChartLine    ChartType = "line"
-	ChartBar     ChartType = "bar"
-	ChartHBar    ChartType = "hbar" // horizontal bar, e.g. a ranking
-	ChartScatter ChartType = "scatter"
-	ChartBubble  ChartType = "bubble" // {x,y,r} points, e.g. sector positions sized by exposure
+	ChartLine     ChartType = "line"
+	ChartBar      ChartType = "bar"
+	ChartHBar     ChartType = "hbar" // horizontal bar, e.g. a ranking
+	ChartScatter  ChartType = "scatter"
+	ChartBubble   ChartType = "bubble"   // {x,y,r} points, e.g. sector positions sized by exposure
+	ChartHeatmap  ChartType = "heatmap"  // 2D grid: x column × y[0] row, size = cell value (color)
+	ChartTimeline ChartType = "timeline" // swimlane dots: x time column × y[0] lane, optional size = radius
 )
 
 // RenderableTypes lists the chart types a renderer can draw, in a stable order. It is the single
 // source for both validation and help text, so a new chart type shows up in `track render --help`
 // automatically.
-var RenderableTypes = []ChartType{ChartLine, ChartBar, ChartHBar, ChartScatter, ChartBubble}
+var RenderableTypes = []ChartType{ChartLine, ChartBar, ChartHBar, ChartScatter, ChartBubble, ChartHeatmap, ChartTimeline}
+
+// gridType reports whether a chart type is a 2D grid (heatmap/timeline) resolved into a Grid rather
+// than into x-aligned Series.
+func gridType(t ChartType) bool { return t == ChartHeatmap || t == ChartTimeline }
 
 // AxisOptions lists the valid y-series axis assignments (primary/secondary), for help and validation.
 var AxisOptions = []string{"y", "y2"}
@@ -226,6 +232,9 @@ func (s Spec) Validate() error {
 	if s.Type == ChartBubble && (s.Size == nil || s.Size.Field == "") {
 		return fmt.Errorf("view spec: type bubble requires size.field (the bubble radius)")
 	}
+	if s.Type == ChartHeatmap && (s.Size == nil || s.Size.Field == "") {
+		return fmt.Errorf("view spec: type heatmap requires size.field (the cell value)")
+	}
 	for i, o := range s.Overlays {
 		if strings.TrimSpace(o.Source) == "" {
 			return fmt.Errorf("view spec: overlays[%d].source is required", i)
@@ -333,12 +342,29 @@ type Point struct {
 	X, Y, R float64
 }
 
+// Grid is the resolved form of a 2D chart (heatmap/timeline): ordered column and row category labels
+// plus one Cell per source record. It is populated instead of Series for grid chart types.
+type Grid struct {
+	Cols  []string // x categories, in first-seen order
+	Rows  []string // y[0] categories (rows / lanes), in first-seen order
+	Cells []Cell
+}
+
+// Cell is one record placed in the grid: Col/Row index into Grid.Cols/Rows, Value is the size
+// encoding (heatmap intensity / timeline dot magnitude) or NaN when absent.
+type Cell struct {
+	Col, Row int
+	Value    float64
+}
+
 // Resolved is a Spec applied to data: the shared x-axis labels plus one Series per y encoding. A
 // Renderer consumes Resolved and never touches raw records, keeping field extraction in one place.
+// Grid is set instead of Series for grid chart types (heatmap/timeline).
 type Resolved struct {
 	Spec    Spec
 	Labels  []string
 	Series  []Series
+	Grid    *Grid
 	Markers []Marker // vertical overlays (events/annotations), filled by the caller from Overlays
 }
 
@@ -347,6 +373,11 @@ type Resolved struct {
 // that series so the point becomes a gap.
 func (s Spec) Resolve(records []dataset.Record) Resolved {
 	res := Resolved{Spec: s}
+	if gridType(s.Type) {
+		g := s.resolveGrid(records)
+		res.Grid = &g
+		return res
+	}
 	for _, y := range s.Y {
 		res.Series = append(res.Series, Series{Label: y.label(), Axis: y.axisID()})
 	}
@@ -391,4 +422,45 @@ func (s Spec) resolveBubblePoint(rec dataset.Record, res *Resolved) {
 		}
 		res.Series[i].Points = append(res.Series[i].Points, Point{X: x, Y: yv, R: r})
 	}
+}
+
+// resolveGrid maps records onto a 2D grid for heatmap/timeline: x.field is the column category,
+// y[0].field the row category, and size.field (when set) the cell value. Columns and rows accumulate
+// in first-seen order, mirroring the category-axis renderer's input-order labeling. One Cell is
+// produced per record; for a heatmap with repeated cells the later record draws on top.
+func (s Spec) resolveGrid(records []dataset.Record) Grid {
+	var g Grid
+	colIdx := map[string]int{}
+	rowIdx := map[string]int{}
+	intern := func(labels *[]string, idx map[string]int, key string) int {
+		if i, ok := idx[key]; ok {
+			return i
+		}
+		i := len(*labels)
+		idx[key] = i
+		*labels = append(*labels, key)
+		return i
+	}
+	for _, rec := range records {
+		if s.Filter != nil && !s.Filter.match(rec) {
+			continue
+		}
+		col, _ := rec.String(s.X.Field)
+		row := ""
+		if len(s.Y) > 0 {
+			row, _ = rec.String(s.Y[0].Field)
+		}
+		val := math.NaN()
+		if s.Size != nil {
+			if v, ok := rec.Float(s.Size.Field); ok {
+				val = v
+			}
+		}
+		g.Cells = append(g.Cells, Cell{
+			Col:   intern(&g.Cols, colIdx, col),
+			Row:   intern(&g.Rows, rowIdx, row),
+			Value: val,
+		})
+	}
+	return g
 }
