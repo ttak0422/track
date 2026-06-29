@@ -73,9 +73,10 @@ built:
 ![Line](assets/chart-line.viewspec.json)
 ```
 
-Import the spec as an asset (`track asset import chart.viewspec.json`) and reference it; there is no
-separate data file to keep in sync, no CDN, and no client-side JavaScript — the engine turns the spec
-into an SVG image. The charts below are each one embedded `.viewspec.json`.
+Just drop the `.viewspec.json` file into the assets directory and reference it — no `import` step is
+required (`track asset import` only copies a file there for you). There is no separate data file to keep
+in sync, no CDN, and no client-side JavaScript — the engine turns the spec into an SVG image. The charts
+below are each one embedded `.viewspec.json`.
 
 **`bar`** — values per category; the baseline is pinned to zero, so negatives drop below it.
 
