@@ -1,17 +1,19 @@
 {
   "version": 1,
   "type": "heatmap",
-  "title": "Value by sector and quarter",
+  "title": "Heatmap",
   "data": {
     "kind": "metric",
     "records": [
-      { "q": "Q1", "sector": "Tech", "val": 3 },
-      { "q": "Q2", "sector": "Tech", "val": 8 },
-      { "q": "Q1", "sector": "Energy", "val": 5 },
-      { "q": "Q2", "sector": "Energy", "val": 2 }
+      { "col": "C1", "row": "R1", "value": 1 },
+      { "col": "C2", "row": "R1", "value": 5 },
+      { "col": "C3", "row": "R1", "value": 3 },
+      { "col": "C1", "row": "R2", "value": 4 },
+      { "col": "C2", "row": "R2", "value": 2 },
+      { "col": "C3", "row": "R2", "value": 6 }
     ]
   },
-  "x": { "field": "q" },
-  "y": [ { "field": "sector" } ],
-  "size": { "field": "val" }
+  "x": { "field": "col" },
+  "y": [ { "field": "row" } ],
+  "size": { "field": "value" }
 }

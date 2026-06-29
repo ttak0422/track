@@ -1,17 +1,18 @@
 {
   "version": 1,
   "type": "timeline",
-  "title": "Events per quarter by sector",
+  "title": "Timeline",
   "data": {
-    "kind": "event",
+    "kind": "metric",
     "records": [
-      { "q": "Q1", "sector": "Tech", "val": 3 },
-      { "q": "Q2", "sector": "Tech", "val": 8 },
-      { "q": "Q1", "sector": "Energy", "val": 5 },
-      { "q": "Q2", "sector": "Energy", "val": 2 }
+      { "step": "1", "lane": "A", "value": 3 },
+      { "step": "2", "lane": "A", "value": 6 },
+      { "step": "3", "lane": "A", "value": 2 },
+      { "step": "1", "lane": "B", "value": 4 },
+      { "step": "3", "lane": "B", "value": 5 }
     ]
   },
-  "x": { "field": "q" },
-  "y": [ { "field": "sector" } ],
-  "size": { "field": "val" }
+  "x": { "field": "step" },
+  "y": [ { "field": "lane" } ],
+  "size": { "field": "value" }
 }

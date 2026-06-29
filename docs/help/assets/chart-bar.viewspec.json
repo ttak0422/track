@@ -1,15 +1,16 @@
 {
   "version": 1,
   "type": "bar",
-  "title": "Sector return",
+  "title": "Bar",
   "data": {
     "kind": "metric",
     "records": [
-      { "name": "Tech", "ret": 12 },
-      { "name": "Energy", "ret": -4 },
-      { "name": "Health", "ret": 7 }
+      { "category": "A", "value": 5 },
+      { "category": "B", "value": -2 },
+      { "category": "C", "value": 3 },
+      { "category": "D", "value": 6 }
     ]
   },
-  "x": { "field": "name" },
-  "y": [ { "field": "ret", "label": "Return %" } ]
+  "x": { "field": "category" },
+  "y": [ { "field": "value" } ]
 }

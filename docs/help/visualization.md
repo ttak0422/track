@@ -19,11 +19,12 @@ A data file is JSONL with one homogeneous *kind* per file. Every record carries 
 | `annotation` | `time`, `text` | A label for narrative overlays. |
 
 The full field list (with optional fields and types) is printed by `track render --help`, derived from
-the typed structs so it never drifts. Example `prices.jsonl`:
+the typed structs so it never drifts. Example `series.jsonl` (a `metric` kind):
 
 ```jsonl
-{"version":1,"entity":"AAPL","time":"2026-06-01","open":190,"high":195,"low":189,"close":194}
-{"version":1,"entity":"AAPL","time":"2026-06-02","open":194,"high":198,"low":193,"close":197}
+{"version":1,"name":"demo","time":"1","value":3}
+{"version":1,"name":"demo","time":"2","value":7}
+{"version":1,"name":"demo","time":"3","value":4}
 ```
 
 ## View Spec: one chart
@@ -35,11 +36,13 @@ about the renderer, so the same spec can be drawn by different backends.
 {
   "version": 1,
   "type": "line",
-  "title": "AAPL close",
-  "data": { "source": "prices.jsonl", "kind": "price" },
-  "x": { "field": "time" },
-  "y": [ { "field": "close", "label": "Close" } ],
-  "filter": { "field": "entity", "equals": "AAPL" }
+  "title": "Line",
+  "data": {
+    "kind": "metric",
+    "records": [ { "x": "1", "y": 3 }, { "x": "2", "y": 7 }, { "x": "3", "y": 4 } ]
+  },
+  "x": { "field": "x" },
+  "y": [ { "field": "y" } ]
 }
 ```
 
@@ -49,12 +52,12 @@ track render --spec chart.json --out chart.html
 
 Rendered output:
 
-![AAPL close line chart](assets/chart-line.viewspec.json)
+![Line chart](assets/chart-line.viewspec.json)
 
 Key fields:
 
 - `type` — `line`, `bar`, `hbar` (ranking), `scatter`, `bubble`, or the SVG-only `heatmap` / `timeline`.
-- `y[].axis` — set `"y2"` to put a series on a secondary right-hand axis (e.g. price + index).
+- `y[].axis` — set `"y2"` to put a series on a secondary right-hand axis (two series on different scales).
 - `filter` — `{field, equals}` shorthand, or `{all: [{field, op, value}]}` with `op` of
   `eq|ne|lt|le|gt|ge` for multi-field, range, and period filtering.
 - `overlays` — draw events/annotations from a second source as vertical markers over a time series.
@@ -67,7 +70,7 @@ self-contained chart. Embed it like any image and track renders it to a static S
 built:
 
 ```markdown
-![AAPL close](assets/chart-line.viewspec.json)
+![Line](assets/chart-line.viewspec.json)
 ```
 
 Import the spec as an asset (`track asset import chart.viewspec.json`) and reference it; there is no
@@ -76,23 +79,23 @@ into an SVG image. The charts below are each one embedded `.viewspec.json`.
 
 **`bar`** — values per category; the baseline is pinned to zero, so negatives drop below it.
 
-![Bar chart of sector returns](assets/chart-bar.viewspec.json)
+![Bar chart](assets/chart-bar.viewspec.json)
 
 **`hbar`** — a horizontal bar, for rankings; categories run down the left, the value axis along the bottom.
 
-![Horizontal bar ranking by exposure](assets/chart-hbar.viewspec.json)
+![Horizontal bar chart](assets/chart-hbar.viewspec.json)
 
 **`scatter`** — points over a category x-axis, the connecting line suppressed.
 
-![Scatter of sector returns](assets/chart-scatter.viewspec.json)
+![Scatter chart](assets/chart-scatter.viewspec.json)
 
 **`heatmap`** — a 2D grid of `x` columns × `y[0]` rows, each cell colored by `size` (with a value legend).
 
-![Heatmap of value by sector and quarter](assets/chart-heatmap.viewspec.json)
+![Heatmap](assets/chart-heatmap.viewspec.json)
 
 **`timeline`** — one dot per record at its `(column, lane)`; an optional `size` scales the dot, one color per lane.
 
-![Timeline of events per quarter by sector](assets/chart-timeline.viewspec.json)
+![Timeline](assets/chart-timeline.viewspec.json)
 
 `bubble` (`{x, y, r}` points sized by `size`) is drawn by the default `chartjs` renderer; the `svg`
 renderer (used for embedded assets) covers the types shown above.

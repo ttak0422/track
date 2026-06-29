@@ -1,15 +1,17 @@
 {
   "version": 1,
   "type": "scatter",
-  "title": "Returns by sector",
+  "title": "Scatter",
   "data": {
     "kind": "metric",
     "records": [
-      { "name": "Tech", "ret": 12 },
-      { "name": "Energy", "ret": -4 },
-      { "name": "Health", "ret": 7 }
+      { "category": "A", "value": 2 },
+      { "category": "B", "value": 6 },
+      { "category": "C", "value": 4 },
+      { "category": "D", "value": 7 },
+      { "category": "E", "value": 5 }
     ]
   },
-  "x": { "field": "name" },
-  "y": [ { "field": "ret", "label": "Return %" } ]
+  "x": { "field": "category" },
+  "y": [ { "field": "value" } ]
 }
