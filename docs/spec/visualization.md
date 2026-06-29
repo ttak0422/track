@@ -28,6 +28,11 @@ silently dropped.
 All records also carry `version`. `time` is an RFC 3339 / date-like string; it is treated as an opaque
 category label by the renderer (no time-axis parsing in the MVP).
 
+The kinds above are defined as typed structs in `internal/track/dataset` (the contract that
+`track-fetch-*` writers target). The same field schema is derived from those structs (via
+`dataset.KindFields`) and printed by `track render --help`, so this table, the help text, and the code
+stay in sync from one source.
+
 Example `prices.jsonl`:
 
 ```jsonl

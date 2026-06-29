@@ -168,6 +168,29 @@ func renderUsage(fs *flag.FlagSet) string {
 	return b.String()
 }
 
+// canonicalModelReference renders the input data format for `track render --help`: each canonical
+// kind with its fields (required marked *), derived from the typed structs in dataset so help never
+// drifts from the contract. render only draws this model — the data itself comes from track-fetch-*.
+func canonicalModelReference() string {
+	var b strings.Builder
+	b.WriteString("Canonical Data Model (JSONL input — one object per line, one kind per file):\n")
+	for _, k := range dataset.KnownKinds {
+		fields := make([]string, 0, len(dataset.KindFields(k)))
+		for _, f := range dataset.KindFields(k) {
+			name := f.Name
+			if f.Required {
+				name += "*"
+			}
+			fields = append(fields, name)
+		}
+		fmt.Fprintf(&b, "  %-11s %s\n", string(k)+":", strings.Join(fields, " "))
+		fmt.Fprintf(&b, "  %-11s — %s\n", "", k.Doc())
+	}
+	b.WriteString("  (* = required; every record also carries version. time is an RFC3339/date-like\n")
+	b.WriteString("   string, treated as an opaque category label by the renderer.)\n")
+	return b.String()
+}
+
 // viewSpecReference renders the View Spec notation for `track render --help`. The enumerated values
 // (chart types, data kinds, axes, renderers) are pulled from their defining packages so help never
 // drifts from what the code actually accepts.
@@ -181,7 +204,8 @@ func viewSpecReference() string {
 		types[i] = string(t)
 	}
 	var b strings.Builder
-	b.WriteString("View Spec (JSON) reference:\n")
+	b.WriteString(canonicalModelReference())
+	b.WriteString("\nView Spec (JSON) reference:\n")
 	fmt.Fprintf(&b, "  type:        %s\n", strings.Join(types, " | "))
 	fmt.Fprintf(&b, "  data.kind:   %s\n", strings.Join(kinds, " | "))
 	b.WriteString("  x.field:     record field for x-axis labels\n")

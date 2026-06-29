@@ -16,6 +16,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"reflect"
 	"slices"
 	"strconv"
 	"strings"
@@ -94,6 +95,81 @@ type Annotation struct {
 	Time    time.Time `json:"time"`
 	Text    string    `json:"text"`
 	Target  string    `json:"target,omitempty"`
+}
+
+// Field describes one field of a canonical kind for reference/help: its JSON name, a friendly type,
+// and whether it is required (a field without `,omitempty`). It is derived from the typed structs so
+// the contract, help text, and docs share one source.
+type Field struct {
+	Name     string
+	Type     string
+	Required bool
+}
+
+// kindStructs is the reflection source for KindFields: a zero value of each kind's typed struct. The
+// structs are the canonical contract; deriving the field list from them keeps help/docs from drifting.
+var kindStructs = map[Kind]any{
+	KindEvent:      Event{},
+	KindPrice:      Price{},
+	KindMetric:     Metric{},
+	KindEntity:     Entity{},
+	KindAnnotation: Annotation{},
+}
+
+// KindFields returns the canonical field schema of a kind in declaration order, omitting the shared
+// `version` field (every record carries it). Returns nil for an unknown kind.
+func KindFields(k Kind) []Field {
+	s, ok := kindStructs[k]
+	if !ok {
+		return nil
+	}
+	t := reflect.TypeOf(s)
+	var out []Field
+	for i := 0; i < t.NumField(); i++ {
+		f := t.Field(i)
+		name, opts, _ := strings.Cut(f.Tag.Get("json"), ",")
+		if name == "" || name == "-" || name == "version" {
+			continue
+		}
+		out = append(out, Field{
+			Name:     name,
+			Type:     jsonType(f.Type),
+			Required: !strings.Contains(opts, "omitempty"),
+		})
+	}
+	return out
+}
+
+// jsonType maps a Go field type to a friendly JSON type name for help/docs.
+func jsonType(t reflect.Type) string {
+	switch {
+	case t == reflect.TypeOf(time.Time{}):
+		return "time(RFC3339)"
+	case t.Kind() == reflect.String:
+		return "string"
+	case t.Kind() == reflect.Float64 || t.Kind() == reflect.Int:
+		return "number"
+	default:
+		return t.Kind().String()
+	}
+}
+
+// Doc returns a one-line description of a kind for help/reference.
+func (k Kind) Doc() string {
+	switch k {
+	case KindEvent:
+		return "a point-in-time happening (news, post, milestone)"
+	case KindPrice:
+		return "an OHLCV bar for an entity at a time"
+	case KindMetric:
+		return "a named numeric series sample (e.g. a Pressure Index)"
+	case KindEntity:
+		return "a thing series refer to (a ticker, index, sector)"
+	case KindAnnotation:
+		return "a label attached to a time/target, for narrative overlays"
+	default:
+		return ""
+	}
 }
 
 // Record is a generic canonical record: a decoded JSONL object keyed by field name. The render

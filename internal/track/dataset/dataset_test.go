@@ -67,3 +67,28 @@ func TestKindValid(t *testing.T) {
 		t.Fatal("bogus should be invalid")
 	}
 }
+
+func TestKindFieldsDerivedFromStructs(t *testing.T) {
+	fields := KindFields(KindPrice)
+	// version is omitted (shared); declaration order is preserved.
+	want := []Field{
+		{"entity", "string", true},
+		{"time", "time(RFC3339)", true},
+		{"open", "number", true},
+		{"high", "number", true},
+		{"low", "number", true},
+		{"close", "number", true},
+		{"volume", "number", false}, // ,omitempty → optional
+	}
+	if len(fields) != len(want) {
+		t.Fatalf("price fields = %+v, want %d", fields, len(want))
+	}
+	for i, f := range fields {
+		if f != want[i] {
+			t.Errorf("field[%d] = %+v, want %+v", i, f, want[i])
+		}
+	}
+	if KindFields(Kind("bogus")) != nil {
+		t.Fatal("unknown kind should have no fields")
+	}
+}
