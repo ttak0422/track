@@ -98,15 +98,15 @@ below are each one embedded `.viewspec.json`.
 
 ![Timeline](assets/chart-timeline.viewspec.json)
 
-`bubble` (`{x, y, r}` points sized by `size`) is drawn by the default `chartjs` renderer; the `svg`
-renderer (used for embedded assets) covers the types shown above.
+`bubble` (`{x, y, r}` points sized by `size`) is drawn over linear axes by both the default `chartjs`
+renderer and the `svg` renderer.
 
 ## Renderers
 
 | Renderer | Output | Notes |
 | --- | --- | --- |
 | `chartjs` (default) | Self-contained HTML | Interactive; loads Chart.js from a CDN at view time. |
-| `svg` | Static SVG | No scripts, no CDN — embeds anywhere. line/bar/hbar/scatter, heatmap, timeline. |
+| `svg` | Static SVG | No scripts, no CDN — embeds anywhere. line/bar/hbar/scatter/bubble, heatmap, timeline. |
 
 ```sh
 track render --spec chart.json --out chart.svg --renderer svg

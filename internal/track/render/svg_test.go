@@ -36,6 +36,14 @@ func goldenCases() map[string]viewspec.Resolved {
 			Labels: xy,
 			Series: []viewspec.Series{{Label: "S1", Values: []float64{1, 2, 3}}},
 		},
+		"bubble": {
+			Spec: viewspec.Spec{Version: 1, Type: viewspec.ChartBubble, Title: "Bubble"},
+			Series: []viewspec.Series{{Label: "S1", Points: []viewspec.Point{
+				{X: 1, Y: 2, R: 5},
+				{X: 3, Y: 4, R: 12},
+				{X: 2, Y: math.NaN(), R: 4}, // missing y is skipped, not plotted at the origin
+			}}},
+		},
 		"hbar": {
 			Spec:   viewspec.Spec{Version: 1, Type: viewspec.ChartHBar, Title: "Ranking"},
 			Labels: xy,
@@ -91,10 +99,14 @@ func TestSVGGolden(t *testing.T) {
 	}
 }
 
-func TestSVGBubbleUnsupported(t *testing.T) {
-	res := viewspec.Resolved{Spec: viewspec.Spec{Version: 1, Type: viewspec.ChartBubble}}
-	if _, err := (SVG{}).Render(res); err == nil {
-		t.Fatal("expected bubble to be unsupported in svg renderer")
+func TestSVGBubbleRenders(t *testing.T) {
+	out, err := SVG{}.Render(goldenCases()["bubble"])
+	if err != nil {
+		t.Fatalf("bubble should render: %v", err)
+	}
+	// The two finite points draw circles; the NaN-y point is skipped.
+	if n := strings.Count(out, "<circle"); n != 2 {
+		t.Fatalf("expected 2 bubble circles, got %d", n)
 	}
 }
 

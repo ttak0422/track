@@ -15,7 +15,7 @@ func init() { Register(SVG{}) }
 // SVG renders a resolved View Spec as a self-contained, dependency-free SVG document. Unlike the
 // Chart.js renderer it loads no scripts and no CDN, so the output is a static image suitable for
 // embedding in notes, emails, or a static site. It draws the category-axis chart types (line, bar,
-// hbar, scatter) plus overlay markers; bubble (a linear-axis {x,y,r} shape) is not yet supported here.
+// hbar, scatter) plus bubble (a linear-axis {x,y,r} scatter) and overlay markers.
 type SVG struct{}
 
 // Name identifies this renderer for selection (track render --renderer svg).
@@ -40,7 +40,7 @@ func svgColor(i int) string { return svgPalette[i%len(svgPalette)] }
 func (SVG) Render(res viewspec.Resolved) (string, error) {
 	switch res.Spec.Type {
 	case viewspec.ChartBubble:
-		return "", fmt.Errorf("svg renderer: bubble charts are not supported yet (use --renderer chartjs)")
+		return renderBubble(res), nil
 	case viewspec.ChartHeatmap, viewspec.ChartTimeline:
 		return renderGrid(res), nil
 	}
@@ -296,6 +296,84 @@ func writeLegend(b *strings.Builder, g svgGeom, res viewspec.Resolved) {
 		fmt.Fprintf(b, `<text x="%g" y="%g" font-size="11" text-anchor="end" fill="#333333">%s</text>`+"\n",
 			x-14, yi, html.EscapeString(s.Label))
 	}
+}
+
+// renderBubble draws a bubble chart: {x,y,r} points on linear x and y axes (unlike the category-axis
+// line/bar/scatter charts). Each y series is a color; a point missing x or y is skipped and a
+// missing/non-positive radius falls back to a small default, mirroring the Chart.js bubble renderer.
+func renderBubble(res viewspec.Resolved) string {
+	g := svgGeom{w: 800, h: 480, left: 56, right: 16, top: 40, bottom: 40}
+	xlo, xhi, ylo, yhi := bubbleRange(res.Series)
+
+	var b strings.Builder
+	writeSVGHeader(&b, g, res.Spec.Title)
+
+	// Plot border.
+	fmt.Fprintf(&b, `<rect x="%g" y="%g" width="%g" height="%g" fill="none" stroke="#cccccc"/>`+"\n",
+		g.left, g.top, g.plotW(), g.plotH())
+	// Both axes are linear here: vertical gridlines + x labels along the bottom, horizontal gridlines +
+	// y labels on the left, at the same three fractions the category charts use.
+	for _, frac := range []float64{0, 0.5, 1} {
+		x := g.left + g.plotW()*frac
+		fmt.Fprintf(&b, `<line x1="%s" y1="%g" x2="%s" y2="%g" stroke="#eeeeee"/>`+"\n",
+			num(x), g.top, num(x), g.top+g.plotH())
+		fmt.Fprintf(&b, `<text x="%s" y="%g" font-size="11" text-anchor="middle" fill="#666666">%s</text>`+"\n",
+			num(x), g.top+g.plotH()+16, num(xlo+(xhi-xlo)*frac))
+		y := g.top + g.plotH()*frac
+		fmt.Fprintf(&b, `<line x1="%g" y1="%s" x2="%g" y2="%s" stroke="#eeeeee"/>`+"\n",
+			g.left, num(y), g.left+g.plotW(), num(y))
+		fmt.Fprintf(&b, `<text x="%g" y="%s" font-size="11" text-anchor="end" dominant-baseline="middle" fill="#666666">%s</text>`+"\n",
+			g.left-6, num(y), num(yhi-(yhi-ylo)*frac))
+	}
+
+	for si, s := range res.Series {
+		color := svgColor(si)
+		for _, p := range s.Points {
+			if math.IsNaN(p.X) || math.IsNaN(p.Y) {
+				continue
+			}
+			r := p.R
+			if math.IsNaN(r) || r <= 0 {
+				r = 4
+			}
+			r = math.Min(r, 40) // keep a stray huge value from swamping the plot
+			fmt.Fprintf(&b, `<circle cx="%s" cy="%s" r="%s" fill="%s" fill-opacity="0.6" stroke="%s"/>`+"\n",
+				num(xPixel(g, xlo, xhi, p.X)), num(yPixel(g, ylo, yhi, p.Y)), num(r), color, color)
+		}
+	}
+	writeLegend(&b, g, res)
+	b.WriteString("</svg>\n")
+	return b.String()
+}
+
+// bubbleRange spans the finite x and y coordinates across every bubble series, padding a degenerate
+// (zero-width) range so the chart still has extent.
+func bubbleRange(series []viewspec.Series) (xlo, xhi, ylo, yhi float64) {
+	xlo, ylo = math.Inf(1), math.Inf(1)
+	xhi, yhi = math.Inf(-1), math.Inf(-1)
+	for _, s := range series {
+		for _, p := range s.Points {
+			if !math.IsNaN(p.X) {
+				xlo, xhi = math.Min(xlo, p.X), math.Max(xhi, p.X)
+			}
+			if !math.IsNaN(p.Y) {
+				ylo, yhi = math.Min(ylo, p.Y), math.Max(yhi, p.Y)
+			}
+		}
+	}
+	if math.IsInf(xlo, 1) {
+		xlo, xhi = 0, 1
+	}
+	if math.IsInf(ylo, 1) {
+		ylo, yhi = 0, 1
+	}
+	if xlo == xhi {
+		xlo, xhi = xlo-1, xhi+1
+	}
+	if ylo == yhi {
+		ylo, yhi = ylo-1, yhi+1
+	}
+	return xlo, xhi, ylo, yhi
 }
 
 // num formats a pixel/value coordinate to two decimals so the SVG stays compact and golden-file
