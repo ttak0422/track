@@ -133,6 +133,7 @@ export function GraphFullView() {
           stackOrder={stackOrder}
           onActivate={bringPreviewToFront}
           onHold={holdPreview}
+          onLeave={scheduleClose}
           onDetach={detachPreview}
           onClose={closePreview}
           onPinToggle={promote}

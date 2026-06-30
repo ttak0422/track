@@ -38,17 +38,22 @@ vi.mock("./preview/NoteWindow", () => ({
   NoteWindow: ({
     noteID,
     onDetach,
+    onLeave,
     onClose,
     onPinToggle,
   }: {
     noteID: string;
     onDetach?: () => void;
+    onLeave?: () => void;
     onClose: () => void;
     onPinToggle: (b: { left: number; top: number; width: number; height: number }, c: boolean) => void;
   }) => (
     <div data-testid="note-window" data-note-id={noteID}>
       <button type="button" onClick={() => onDetach?.()}>
         detach
+      </button>
+      <button type="button" onClick={() => onLeave?.()}>
+        leave
       </button>
       <button type="button" onClick={() => onPinToggle({ left: 0, top: 0, width: 300, height: 200 }, false)}>
         pin
@@ -104,6 +109,17 @@ describe("GraphFullView hover preview", () => {
     act(() => vi.advanceTimersByTime(previewOpenDelay - 50));
     click(container, "hover-out");
     act(() => vi.advanceTimersByTime(previewOpenDelay + 300));
+    expect(win(container)).toBeNull();
+  });
+
+  it("closes a hover preview when the pointer leaves it without dragging", () => {
+    const { container } = render(<GraphFullView />);
+    click(container, "hover-a");
+    act(() => vi.advanceTimersByTime(previewOpenDelay + 10));
+    expect(win(container)).not.toBeNull();
+
+    click(container, "leave"); // pointer leaves the window, no drag
+    act(() => vi.advanceTimersByTime(300));
     expect(win(container)).toBeNull();
   });
 

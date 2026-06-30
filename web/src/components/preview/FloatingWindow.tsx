@@ -21,6 +21,10 @@ export interface FloatingWindowControls {
   stackOrder: number;
   onActivate: () => void;
   onHold?: () => void;
+  // Called when the pointer leaves the window. A hover preview anchored to a separate element (the graph
+  // canvas) uses this to schedule its close; WikiLink instead closes via its wrapping link span, so it
+  // leaves this undefined.
+  onLeave?: () => void;
   // Called once the user actually moves/resizes the preview. Hover previews use this to become sticky
   // until the page changes or the user closes them.
   onDetach?: () => void;
@@ -58,6 +62,7 @@ export function FloatingWindow({
   stackOrder,
   onActivate,
   onHold,
+  onLeave,
   onDetach,
   onClose,
   onPinToggle,
@@ -131,6 +136,7 @@ export function FloatingWindow({
       className={`wiki-preview${pinned ? " pinned" : ""}${collapsed ? " collapsed" : ""}${onJump ? " with-jump" : ""}`}
       onFocusCapture={onActivate}
       onMouseEnter={onHold}
+      onMouseLeave={onLeave}
       onPointerDownCapture={onActivate}
       style={{
         left: bounds.left,
