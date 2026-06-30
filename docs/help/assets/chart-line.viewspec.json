@@ -5,13 +5,13 @@
   "data": {
     "kind": "metric",
     "records": [
-      { "x": "1", "y": 3 },
-      { "x": "2", "y": 7 },
-      { "x": "3", "y": 4 },
-      { "x": "4", "y": 8 },
-      { "x": "5", "y": 6 }
+      { "name": "Series", "time": "1", "value": 3 },
+      { "name": "Series", "time": "2", "value": 7 },
+      { "name": "Series", "time": "3", "value": 4 },
+      { "name": "Series", "time": "4", "value": 8 },
+      { "name": "Series", "time": "5", "value": 6 }
     ]
   },
-  "x": { "field": "x" },
-  "y": [ { "field": "y", "label": "y" } ]
+  "x": { "field": "time" },
+  "y": [ { "field": "value", "label": "value" } ]
 }

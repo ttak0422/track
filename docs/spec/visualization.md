@@ -46,8 +46,14 @@ Example `prices.jsonl`:
 ```
 
 Numeric fields are read losslessly (decoded as `json.Number`); numeric strings (`"3.5"`) are also
-accepted. The render pipeline reads records generically, so a View Spec may address any field present
-in the data by name, not only the documented ones.
+accepted. The render pipeline reads records generically, so a View Spec may address any **extra** field
+present in the data by name, on top of the documented ones.
+
+`kind` is a real schema, not a loose label: rendering validates every record against its kind
+(`dataset.Validate`) and **fails with an error rather than drawing a partial chart** if a required
+field is missing, a numeric field is non-numeric, or the schema version is newer than supported. Extra
+fields are still allowed, so a record may carry custom columns a spec then charts. (Validation is
+deliberately strict; loosening a field later is a one-line struct change.)
 
 ## View Spec
 
@@ -122,7 +128,8 @@ categories, accumulated in first-seen order). The Chart.js renderer rejects them
 
   ```json
   { "version": 1, "type": "heatmap", "data": { "source": "returns.jsonl", "kind": "metric" },
-    "x": { "field": "quarter" }, "y": [ { "field": "sector" } ], "size": { "field": "return" } }
+    "x": { "field": "time", "label": "Quarter" }, "y": [ { "field": "entity", "label": "Sector" } ],
+    "size": { "field": "value" } }
   ```
 
 - **`timeline`** places one dot per record at its `(x column, y[0] lane)`; an optional `size.field`
@@ -131,7 +138,7 @@ categories, accumulated in first-seen order). The Chart.js renderer rejects them
 
   ```json
   { "version": 1, "type": "timeline", "data": { "source": "events.jsonl", "kind": "event" },
-    "x": { "field": "date" }, "y": [ { "field": "entity" } ], "size": { "field": "magnitude" } }
+    "x": { "field": "time" }, "y": [ { "field": "entity" } ] }
   ```
 
 ### Overlays (event/annotation markers)
@@ -165,8 +172,8 @@ inline array), never both. Inline data makes a spec self-contained — a single 
 
 ```json
 { "version": 1, "type": "line", "data": { "kind": "metric",
-    "records": [ { "time": "01", "close": 100 }, { "time": "02", "close": 110 } ] },
-  "x": { "field": "time" }, "y": [ { "field": "close" } ] }
+    "records": [ { "name": "PI", "time": "01", "value": 100 }, { "name": "PI", "time": "02", "value": 110 } ] },
+  "x": { "field": "time" }, "y": [ { "field": "value" } ] }
 ```
 
 ### Embedding a chart as an asset

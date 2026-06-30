@@ -39,10 +39,14 @@ about the renderer, so the same spec can be drawn by different backends.
   "title": "Line",
   "data": {
     "kind": "metric",
-    "records": [ { "x": "1", "y": 3 }, { "x": "2", "y": 7 }, { "x": "3", "y": 4 } ]
+    "records": [
+      { "name": "demo", "time": "1", "value": 3 },
+      { "name": "demo", "time": "2", "value": 7 },
+      { "name": "demo", "time": "3", "value": 4 }
+    ]
   },
-  "x": { "field": "x" },
-  "y": [ { "field": "y" } ]
+  "x": { "field": "time" },
+  "y": [ { "field": "value" } ]
 }
 ```
 

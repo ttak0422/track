@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"fmt"
 
+	datamodel "github.com/ttak0422/track/internal/track/dataset"
 	"github.com/ttak0422/track/internal/track/viewspec"
 )
 
@@ -21,6 +22,9 @@ func SVGFromSpec(specJSON []byte) (string, error) {
 	}
 	if len(vs.Data.Records) == 0 {
 		return "", fmt.Errorf("embedded chart requires inline data (data.records); data.source is not supported here")
+	}
+	if err := datamodel.ValidateRecords(vs.Data.Kind, vs.Data.Records); err != nil {
+		return "", fmt.Errorf("data: %w", err)
 	}
 	return SVG{}.Render(vs.Resolve(vs.Data.Records))
 }

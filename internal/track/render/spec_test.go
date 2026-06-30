@@ -7,8 +7,8 @@ import (
 
 func TestSVGFromSpecInlineData(t *testing.T) {
 	spec := `{"version":1,"type":"bar","title":"Inline","data":{"kind":"metric","records":[
-		{"name":"A","v":3},{"name":"B","v":7}]},
-		"x":{"field":"name"},"y":[{"field":"v"}]}`
+		{"name":"A","time":"t1","value":3},{"name":"B","time":"t1","value":7}]},
+		"x":{"field":"name"},"y":[{"field":"value"}]}`
 	out, err := SVGFromSpec([]byte(spec))
 	if err != nil {
 		t.Fatal(err)
@@ -20,6 +20,15 @@ func TestSVGFromSpecInlineData(t *testing.T) {
 		if !strings.Contains(out, want) {
 			t.Errorf("SVG missing %q", want)
 		}
+	}
+}
+
+func TestSVGFromSpecRejectsNonConformantData(t *testing.T) {
+	// kind metric requires name/time/value; these records have none of them.
+	spec := `{"version":1,"type":"bar","data":{"kind":"metric","records":[{"x":"A","y":3}]},
+		"x":{"field":"x"},"y":[{"field":"y"}]}`
+	if _, err := SVGFromSpec([]byte(spec)); err == nil {
+		t.Fatal("expected non-conformant canonical data to be rejected")
 	}
 }
 

@@ -99,7 +99,7 @@ func TestBuildDirRendersSpecAssetToSVG(t *testing.T) {
 		t.Fatal(err)
 	}
 	spec := `{"version":1,"type":"bar","title":"Demo","data":{"kind":"metric","records":[
-		{"name":"A","v":3},{"name":"B","v":7}]},"x":{"field":"name"},"y":[{"field":"v"}]}`
+		{"name":"A","time":"t1","value":3},{"name":"B","time":"t1","value":7}]},"x":{"field":"name"},"y":[{"field":"value"}]}`
 	write(filepath.Join("assets", "c.viewspec.json"), spec)
 
 	out := t.TempDir()

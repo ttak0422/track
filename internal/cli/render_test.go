@@ -10,9 +10,9 @@ import (
 
 func TestRenderCommandWritesHTML(t *testing.T) {
 	dir := t.TempDir()
-	data := `{"version":1,"entity":"AAPL","time":"d1","close":10}` + "\n" +
-		`{"version":1,"entity":"MSFT","time":"d1","close":99}` + "\n" +
-		`{"version":1,"entity":"AAPL","time":"d2","close":12}` + "\n"
+	data := `{"version":1,"entity":"AAPL","time":"d1","open":9,"high":11,"low":9,"close":10}` + "\n" +
+		`{"version":1,"entity":"MSFT","time":"d1","open":98,"high":100,"low":97,"close":99}` + "\n" +
+		`{"version":1,"entity":"AAPL","time":"d2","open":10,"high":13,"low":10,"close":12}` + "\n"
 	if err := os.WriteFile(filepath.Join(dir, "prices.jsonl"), []byte(data), 0o644); err != nil {
 		t.Fatal(err)
 	}

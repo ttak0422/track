@@ -106,10 +106,16 @@ func resolveChart(specPath string, vs viewspec.Spec) (viewspec.Resolved, error) 
 			return viewspec.Resolved{}, err
 		}
 	}
+	if err := dataset.ValidateRecords(vs.Data.Kind, records); err != nil {
+		return viewspec.Resolved{}, fmt.Errorf("data: %w", err)
+	}
 	res := vs.Resolve(records)
 	for i, ov := range vs.Overlays {
 		ovRecords, err := readJSONLRelative(specPath, ov.Source)
 		if err != nil {
+			return viewspec.Resolved{}, fmt.Errorf("overlay[%d]: %w", i, err)
+		}
+		if err := dataset.ValidateRecords(ov.Kind, ovRecords); err != nil {
 			return viewspec.Resolved{}, fmt.Errorf("overlay[%d]: %w", i, err)
 		}
 		res.Markers = append(res.Markers, ov.Markers(ovRecords)...)
@@ -138,6 +144,9 @@ func cmdRenderArticle(specPath string, specJSON []byte, out string) int {
 			records, err := readJSONLRelative(specPath, b.Table.Data.Source)
 			if err != nil {
 				return fail("blocks[%d]: %v", i, err)
+			}
+			if err := dataset.ValidateRecords(b.Table.Data.Kind, records); err != nil {
+				return fail("blocks[%d]: data: %v", i, err)
 			}
 			res := b.Table.Resolve(records)
 			doc.Items = append(doc.Items, render.Item{Table: &res})

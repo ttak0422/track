@@ -5,15 +5,15 @@
   "data": {
     "kind": "metric",
     "records": [
-      { "col": "C1", "row": "R1", "value": 1 },
-      { "col": "C2", "row": "R1", "value": 5 },
-      { "col": "C3", "row": "R1", "value": 3 },
-      { "col": "C1", "row": "R2", "value": 4 },
-      { "col": "C2", "row": "R2", "value": 2 },
-      { "col": "C3", "row": "R2", "value": 6 }
+      { "name": "m", "entity": "R1", "time": "C1", "value": 1 },
+      { "name": "m", "entity": "R1", "time": "C2", "value": 5 },
+      { "name": "m", "entity": "R1", "time": "C3", "value": 3 },
+      { "name": "m", "entity": "R2", "time": "C1", "value": 4 },
+      { "name": "m", "entity": "R2", "time": "C2", "value": 2 },
+      { "name": "m", "entity": "R2", "time": "C3", "value": 6 }
     ]
   },
-  "x": { "field": "col" },
-  "y": [ { "field": "row" } ],
+  "x": { "field": "time" },
+  "y": [ { "field": "entity" } ],
   "size": { "field": "value" }
 }
