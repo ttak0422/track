@@ -14,6 +14,10 @@ import type { Graph, GraphEdge, GraphNode, NoteID } from "../types";
 interface GraphCanvasProps {
   graph: Graph;
   onSelect: (noteID: NoteID, point: Point) => void;
+  // Fires when the hovered node changes (null when the pointer leaves all nodes). The point is in
+  // viewport coordinates so callers can anchor a preview beside the cursor. Optional: only the full
+  // graph view drives a hover preview.
+  onHover?: (noteID: NoteID | null, viewportPoint: Point) => void;
   resetToken: number;
   // Background decoration: draw nodes/edges only, no labels or interaction.
   decorative?: boolean;
@@ -60,6 +64,7 @@ interface DragState {
 export function GraphCanvas({
   graph,
   onSelect,
+  onHover,
   resetToken,
   decorative = false,
   highlightIds = null,
@@ -79,10 +84,12 @@ export function GraphCanvas({
   const userAdjustedRef = useRef(false);
   const graphRef = useRef(graph);
   const onSelectRef = useRef(onSelect);
+  const onHoverRef = useRef(onHover);
   const highlightRef = useRef<ReadonlySet<NoteID> | null>(highlightIds);
   const [size, setSize] = useState({ width: 1, height: 1 });
 
   onSelectRef.current = onSelect;
+  onHoverRef.current = onHover;
   highlightRef.current = highlightIds;
 
   useEffect(() => {
@@ -434,6 +441,11 @@ export function GraphCanvas({
     const node = decorative ? undefined : graphNodeAt(point);
     dragRef.current = { pointerId: event.pointerId, start: point, last: point, moved: false, node };
     pinnedRef.current = node ?? null;
+    // Grabbing/panning dismisses the transient hover preview so it never blocks the drag.
+    if (!decorative && hoverRef.current !== null) {
+      hoverRef.current = null;
+      onHoverRef.current?.(null, { x: event.clientX, y: event.clientY });
+    }
     if (node) {
       node.fx = node.x;
       node.fy = node.y;
@@ -449,6 +461,7 @@ export function GraphCanvas({
     if (hoverID !== hoverRef.current) {
       hoverRef.current = hoverID;
       event.currentTarget.style.cursor = hoverID !== null ? "pointer" : "";
+      if (!decorative) onHoverRef.current?.(hoverID, { x: event.clientX, y: event.clientY });
       drawGraph(size);
     }
   }
@@ -526,6 +539,7 @@ export function GraphCanvas({
     if (hoverRef.current !== null) {
       hoverRef.current = null;
       event.currentTarget.style.cursor = "";
+      if (!decorative) onHoverRef.current?.(null, { x: event.clientX, y: event.clientY });
       drawGraph(size);
     }
   }
