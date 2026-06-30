@@ -197,7 +197,17 @@ export function NoteReader({ noteID }: NoteReaderProps) {
   }
 
   if (noteQuery.isError) {
-    return <p className="error">{noteQuery.error.message}</p>;
+    // The note may be gone (deleted via the CLI/Neovim, or a stale tab restored from localStorage). We
+    // cannot tell a 404 from a transient error here, so leave the tab in place but offer to close it —
+    // otherwise a tab with no resolvable title is awkward to dismiss from the strip alone.
+    return (
+      <div className="note-error">
+        <p className="error">{noteQuery.error.message}</p>
+        <button type="button" onClick={() => closeTab(noteID)}>
+          Close tab
+        </button>
+      </div>
+    );
   }
 
   const data = noteQuery.data;
