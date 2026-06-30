@@ -836,8 +836,10 @@ button {
    fixed to the top-right so they stay put while the note scrolls. They sit below the full-graph overlay
    and the floating windows. */
 .note-float-controls {
+  /* Pinned to the reader's top-right, but below the tab strip so the controls never sit on top of the
+     tabs. The offset clears the ~33px tab bar (see .tabbar) with a small gap. */
   position: fixed;
-  top: 14px;
+  top: 44px;
   right: 18px;
   z-index: 30;
   display: flex;
