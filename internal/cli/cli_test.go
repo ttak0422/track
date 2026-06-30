@@ -154,6 +154,12 @@ func TestNewResolveKeywordsFlow(t *testing.T) {
 		t.Fatalf("resolve note_id: %v", res["note_id"])
 	}
 
+	// The keyword may also be passed positionally, mirroring `asset import`.
+	pos, code := runIn(t, vault, "resolve", "リンク")
+	if code != 0 || pos["found"] != true || pos["note_id"].(float64) != 1000 {
+		t.Fatalf("positional resolve failed: %v", pos)
+	}
+
 	missing, _ := runIn(t, vault, "resolve", "--term", "なし")
 	if missing["found"] != false {
 		t.Fatalf("expected found=false, got %v", missing)

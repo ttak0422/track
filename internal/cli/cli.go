@@ -112,7 +112,7 @@ Usage:
   track reindex [--full]                rebuild the index
   track doctor                          report vault/sidecar divergence without changing files (JSON)
   track keywords                        dump the auto-link dictionary (JSON)
-  track resolve --term <s>              resolve a keyword to a note (JSON)
+  track resolve (--term <s> | <s>)      resolve a keyword to a note (JSON)
   track search --query <s> [--scope all|title|body] [--limit N]
                                         search notes (JSON)
   track backlinks (--id N | --path P)   list backlinks (JSON)

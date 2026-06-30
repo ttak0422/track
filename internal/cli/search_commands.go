@@ -38,12 +38,16 @@ func cmdKeywords(args []string) int {
 
 func cmdResolve(args []string) int {
 	fs := flag.NewFlagSet("resolve", flag.ContinueOnError)
-	term := fs.String("term", "", "keyword to resolve")
+	term := fs.String("term", "", "keyword to resolve (or pass it as the first argument)")
 	if err := fs.Parse(args); err != nil {
 		return fail("parse args: %v", err)
 	}
-	if *term == "" {
-		return fail("--term is required")
+	keyword := strings.TrimSpace(*term)
+	if keyword == "" && fs.NArg() > 0 {
+		keyword = strings.TrimSpace(fs.Arg(0))
+	}
+	if keyword == "" {
+		return fail("--term (or a keyword argument) is required")
 	}
 
 	cfg, s, err := open()
@@ -52,7 +56,7 @@ func cmdResolve(args []string) int {
 	}
 	defer s.Close()
 
-	ref, found, err := s.ResolveTerm(*term)
+	ref, found, err := s.ResolveTerm(keyword)
 	if err != nil {
 		return fail("resolve: %v", err)
 	}
