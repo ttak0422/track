@@ -14,8 +14,8 @@ import (
 )
 
 // cmdInit creates the vault directory skeleton (note/journal trees with their assets subdirectories,
-// the template directory, and the sidecar metadata directory). It is idempotent and reports the
-// directories it created, so it is safe to run on an existing vault.
+// the template directory, the canonical-data directory, and the sidecar metadata directory). It is
+// idempotent and reports the directories it created, so it is safe to run on an existing vault.
 func cmdInit(args []string) int {
 	fs := flag.NewFlagSet("init", flag.ContinueOnError)
 	if err := fs.Parse(args); err != nil {

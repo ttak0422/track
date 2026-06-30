@@ -74,6 +74,11 @@ const (
 // "assets/<file>".
 const AssetsDirName = "assets"
 
+// DataDirName is the top-level vault directory for Canonical Data Model JSONL (prices.jsonl,
+// events.jsonl, ...). It is where track-fetch-* tools write their output; the files themselves are the
+// source of truth (track keeps no separate data store). A View Spec references them by path.
+const DataDirName = "data"
+
 // Load resolves configuration from the fixed user config file, with environment overrides for tests
 // and one-off debugging. The default file is ~/.config/track/config.yml on XDG-style systems, or the
 // platform user config equivalent.
@@ -330,6 +335,11 @@ func (c *Config) TemplateDir() string {
 	return filepath.Join(c.VaultDir, KindTemplate)
 }
 
+// DataDir returns the directory that holds Canonical Data Model JSONL files (see DataDirName).
+func (c *Config) DataDir() string {
+	return filepath.Join(c.VaultDir, DataDirName)
+}
+
 // AssetsDirForKind returns the assets directory for a note kind: journal assets live under
 // journal/assets, and everything else (notes) under note/assets. The directory is not created.
 func (c *Config) AssetsDirForKind(kind string) string {
@@ -340,7 +350,8 @@ func (c *Config) AssetsDirForKind(kind string) string {
 }
 
 // VaultSkeleton lists the directories that make up an initialized vault: the note and journal trees
-// with their assets subdirectories, the template directory, and the sidecar metadata directory.
+// with their assets subdirectories, the template directory, the canonical-data directory, and the
+// sidecar metadata directory.
 func (c *Config) VaultSkeleton() []string {
 	return []string{
 		c.NoteDir(),
@@ -348,6 +359,7 @@ func (c *Config) VaultSkeleton() []string {
 		c.JournalDir(),
 		c.AssetsDirForKind(KindJournal),
 		c.TemplateDir(),
+		c.DataDir(),
 		c.MetadataDir(),
 	}
 }

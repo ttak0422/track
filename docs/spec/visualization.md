@@ -12,6 +12,11 @@ The model is defined in `internal/track/dataset`. Data is stored as **JSONL** â€
 line, one homogeneous file per kind (e.g. `prices.jsonl`). Every record carries a schema `version`
 (current: `1`) so the format can evolve.
 
+These JSONL files are the source of truth; track keeps no separate data store. The vault's `data/`
+directory (created by `track init`) is where `track-fetch-*` tools write their output, so the canonical
+data sits alongside the notes that reference it. A View Spec points at a file by path, so data may also
+live anywhere a spec can reach.
+
 Blank lines are skipped. A malformed line fails the whole read with its line number; data is never
 silently dropped.
 
