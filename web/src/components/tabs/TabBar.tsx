@@ -1,7 +1,7 @@
 import { useNavigate } from "@tanstack/react-router";
 import { type MouseEvent, useEffect, useRef, type WheelEvent } from "react";
 import type { NoteID } from "../../types";
-import { useTabs } from "./tabsStore";
+import { tabRoute, useTabs } from "./tabsStore";
 
 // TabBar is the VS Code-style strip of open notes above the reader. Tabs accumulate as notes are
 // opened, scroll horizontally when they overflow, and each carries a hover-revealed close button (a
@@ -27,7 +27,7 @@ export function TabBar() {
   }
 
   function openTab(id: NoteID) {
-    void navigate({ to: "/notes/$noteId", params: { noteId: String(id) } });
+    void navigate(tabRoute(id));
   }
 
   // Middle-click closes, matching editor conventions.

@@ -114,6 +114,5 @@ function NoteRoute() {
 }
 
 function GraphRoute() {
-  const navigate = useNavigate();
-  return <GraphFullView onClose={() => void navigate({ to: "/" })} />;
+  return <GraphFullView />;
 }

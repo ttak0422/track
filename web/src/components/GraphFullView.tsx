@@ -10,10 +10,11 @@ interface Point {
   y: number;
 }
 
-// GraphFullView draws the whole graph filling the screen. Unlike the corner graph panel (which
-// navigates on click), pressing a node here opens that note in a pinned floating window, so you can
-// explore the graph and pop notes open without leaving it.
-export function GraphFullView({ onClose }: { onClose: () => void }) {
+// GraphFullView draws the whole graph filling the reader. It lives in an ordinary "Graph" tab (closed
+// from the tab strip, no chrome of its own), so it carries only the canvas and a bottom-right reset
+// control mirroring the corner graph panel. Pressing a node opens that note in a floating window, so you
+// can explore the graph and pop notes open without leaving it.
+export function GraphFullView() {
   const graphQuery = useGraphQuery(true);
   const floating = useFloating();
   const [resetToken, setResetToken] = useState(0);
@@ -25,9 +26,11 @@ export function GraphFullView({ onClose }: { onClose: () => void }) {
   }
 
   return (
-    <div className="graph-full" role="dialog" aria-label="Graph">
-      <div className="graph-full-bar">
-        <span className="graph-full-title">Graph</span>
+    <div className="graph-full" aria-label="Graph">
+      {graphQuery.isPending ? <p className="muted graph-message">Loading graph...</p> : null}
+      {graphQuery.isError ? <p className="error graph-message">{graphQuery.error.message}</p> : null}
+      {graph ? <GraphCanvas graph={graph} resetToken={resetToken} onSelect={openNote} /> : null}
+      <div className="graph-controls">
         <button
           className="graph-reset"
           type="button"
@@ -37,13 +40,7 @@ export function GraphFullView({ onClose }: { onClose: () => void }) {
         >
           ↺
         </button>
-        <button className="graph-full-close" type="button" aria-label="Close graph" title="Close" onClick={onClose}>
-          ×
-        </button>
       </div>
-      {graphQuery.isPending ? <p className="muted graph-message">Loading graph...</p> : null}
-      {graphQuery.isError ? <p className="error graph-message">{graphQuery.error.message}</p> : null}
-      {graph ? <GraphCanvas graph={graph} resetToken={resetToken} onSelect={openNote} /> : null}
     </div>
   );
 }

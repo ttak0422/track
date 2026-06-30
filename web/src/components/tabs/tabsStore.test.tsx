@@ -82,6 +82,25 @@ describe("TabsProvider", () => {
     expect(routerMock.navigate).toHaveBeenCalledWith({ to: "/" });
   });
 
+  it("opens the full graph as a tab labelled Graph", () => {
+    routerMock.pathname = "/graph";
+    const { result } = renderHook(() => useTabs(), { wrapper });
+    expect(result.current.tabs).toEqual([{ id: "graph", title: "Graph" }]);
+    expect(result.current.activeID).toBe("graph");
+  });
+
+  it("routes back to /graph when closing a note tab next to the graph tab", () => {
+    window.localStorage.setItem(
+      "track.tabs",
+      JSON.stringify([{ id: "graph", title: "Graph" }, { id: "a", title: "" }]),
+    );
+    routerMock.pathname = "/notes/a";
+    const { result } = renderHook(() => useTabs(), { wrapper });
+
+    act(() => result.current.close("a"));
+    expect(routerMock.navigate).toHaveBeenCalledWith({ to: "/graph" });
+  });
+
   it("does not navigate when closing an inactive tab", () => {
     window.localStorage.setItem(
       "track.tabs",

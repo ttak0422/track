@@ -34,6 +34,19 @@ const TabsContext = createContext<TabsApi | null>(null);
 
 const STORAGE_KEY = "track.tabs";
 
+// The full graph opens as an ordinary tab (labelled "Graph") rather than a separate overlay. It uses a
+// sentinel id and routes to /graph instead of /notes/$id. A note slug of exactly "graph" would collide,
+// but live ids are numeric and that static slug is vanishingly unlikely. ponytail: sentinel id, revisit
+// if slugs ever need to be "graph".
+export const GRAPH_TAB_ID = "graph";
+
+// The route a tab points at: the graph tab goes to /graph, every other tab to its note.
+export function tabRoute(id: NoteID) {
+  return id === GRAPH_TAB_ID
+    ? ({ to: "/graph" } as const)
+    : ({ to: "/notes/$noteId", params: { noteId: String(id) } } as const);
+}
+
 // Open tabs survive reloads (persisted to localStorage); the dirty flag does not.
 function loadTabs(): NoteTab[] {
   try {
@@ -53,6 +66,7 @@ function loadTabs(): NoteTab[] {
 }
 
 function noteIDFromPath(pathname: string): NoteID | null {
+  if (pathname === "/graph") return GRAPH_TAB_ID;
   const match = pathname.match(/^\/notes\/([^/]+)$/);
   return match ? match[1] : null;
 }
@@ -68,7 +82,10 @@ export function TabsProvider({ children }: { children: ReactNode }) {
   useEffect(() => {
     if (activeID === null) return;
     setTabs((current) =>
-      current.some((tab) => tab.id === activeID) ? current : [...current, { id: activeID, title: "" }],
+      current.some((tab) => tab.id === activeID)
+        ? current
+        : // The graph tab carries a fixed label; note tabs get theirs once the note resolves.
+          [...current, { id: activeID, title: activeID === GRAPH_TAB_ID ? "Graph" : "" }],
     );
   }, [activeID]);
 
@@ -102,9 +119,7 @@ export function TabsProvider({ children }: { children: ReactNode }) {
       // its left); with none left, fall back home.
       if (id === activeID) {
         const target = next[index] ?? next[index - 1] ?? null;
-        void navigate(
-          target ? { to: "/notes/$noteId", params: { noteId: String(target.id) } } : { to: "/" },
-        );
+        void navigate(target ? tabRoute(target.id) : { to: "/" });
       }
     },
     [tabs, activeID, dirtyID, navigate],
