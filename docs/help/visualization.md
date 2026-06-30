@@ -27,6 +27,14 @@ the typed structs so it never drifts. Example `series.jsonl` (a `metric` kind):
 {"version":1,"name":"demo","time":"3","value":4}
 ```
 
+`kind` is a real schema: rendering validates each record against it and **fails with an error** if a
+required field is missing or a numeric field is non-numeric, rather than drawing a partial chart. Extra
+fields beyond the schema are allowed, so a spec can still chart custom columns.
+
+Canonical data files live in the vault's `data/` directory (created by `track init`) — that is where
+`track-fetch-*` tools write their output. A spec references a file by path, so data may live anywhere a
+spec can reach.
+
 ## View Spec: one chart
 
 A View Spec names a data source, the chart type, and how record fields map onto axes. It knows nothing

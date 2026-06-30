@@ -39,3 +39,9 @@ site — see [[Web workspace]] for the rendered reading experience it mirrors.
 ```sh
 track export-site --src docs/help --root index --out ./site
 ```
+
+`track render` turns a declarative View Spec into a chart or article — see [[Visualization]].
+
+```sh
+track render --spec chart.json --out chart.svg --renderer svg
+```
