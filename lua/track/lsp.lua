@@ -432,17 +432,19 @@ local function ensure_client(buf)
    return id
 end
 
--- attach wires buf to the server and, once, sets up its keymaps and link-rendering hooks. ensure_client
--- runs every call (self-heal); the rest is guarded by attached[buf] so it is built a single time.
+-- attach wires buf to the server and sets up its keymaps and link-rendering hooks. ensure_client and
+-- the keymaps run every call (self-heal); the heavier one-time setup (user hook, autocmds) is guarded
+-- by attached[buf].
 local function attach(buf)
    if not ensure_client(buf) then
       return
    end
-   if attached[buf] then
-      return
-   end
-   attached[buf] = true
 
+   -- Keymaps are buffer-local and are dropped when a buffer is unloaded (e.g. :bdelete, which fires
+   -- BufUnload but not BufWipeout, so it does not clear attached[buf]). Neovim reuses the same buffer
+   -- number when the note is reopened, so re-set the maps on every attach — otherwise the reopened
+   -- buffer keeps the stale guard and loses <CR>/K, and Enter silently stops following links. Autocmds
+   -- survive the unload, so they stay behind the one-time guard below.
    vim.keymap.set("n", "<CR>", function()
       return require("track.follow").smart_action()
    end, { expr = true, buffer = buf, desc = "track: follow link under cursor" })
@@ -453,6 +455,11 @@ local function attach(buf)
          vim.notify("track: LSP hover is not ready for this buffer", vim.log.levels.INFO)
       end
    end, { buffer = buf, desc = "track: hover note link" })
+
+   if attached[buf] then
+      return
+   end
+   attached[buf] = true
 
    -- User hook for a freshly attached track note buffer. It runs once per buffer, after the built-in
    -- keymaps, so a config can add buffer-local mappings (e.g. point a references key at Track backlinks,
