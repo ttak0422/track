@@ -88,6 +88,10 @@ func (s *Server) serveIndex(w http.ResponseWriter, r *http.Request) {
 		overrides = "<style id=\"track-colors\">\n" + s.colorCSS + "</style>"
 	}
 	html = strings.ReplaceAll(html, "__TRACK_COLOR_OVERRIDES__", overrides)
+	// A per-process token so the frontend can distinguish a reload (same token) from a fresh launch
+	// (new token) and drop the restored tab strip on the latter. The token is generated server-side,
+	// never user text.
+	html = strings.ReplaceAll(html, "__TRACK_SESSION__", s.session)
 	_, _ = w.Write([]byte(html))
 }
 

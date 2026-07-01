@@ -2,6 +2,8 @@
 package webui
 
 import (
+	"crypto/rand"
+	"encoding/hex"
 	"fmt"
 	"io/fs"
 	"mime"
@@ -16,11 +18,14 @@ import (
 )
 
 type Server struct {
-	cfg       *config.Config
-	store     *store.Store
-	mux       *http.ServeMux
-	webRoot   fs.FS
-	colorCSS  string
+	cfg      *config.Config
+	store    *store.Store
+	mux      *http.ServeMux
+	webRoot  fs.FS
+	colorCSS string
+	// session is a token unique to this server process, injected into index.html so the frontend can
+	// tell a fresh launch (new token → discard restored tab strip) from a reload (same token → keep it).
+	session   string
 	events    *eventHub
 	reindexMu sync.Mutex
 	lastStale time.Time
@@ -80,7 +85,7 @@ func init() {
 }
 
 func New(cfg *config.Config, s *store.Store) *Server {
-	srv := &Server{cfg: cfg, store: s, mux: http.NewServeMux(), webRoot: selectWebRoot(), events: newEventHub()}
+	srv := &Server{cfg: cfg, store: s, mux: http.NewServeMux(), webRoot: selectWebRoot(), session: newSessionToken(), events: newEventHub()}
 	// A palette is a best-effort cosmetic override; a bad file must not take the workspace down, so we
 	// warn and fall back to the built-in colors rather than failing to start.
 	if css, err := LoadPalette(cfg.WebColorsPath); err != nil {
@@ -90,6 +95,16 @@ func New(cfg *config.Config, s *store.Store) *Server {
 	}
 	srv.routes()
 	return srv
+}
+
+// newSessionToken returns a random per-process token. A crypto/rand read failure is not fatal: an empty
+// token just means the frontend keeps its restored tabs (the pre-existing behavior).
+func newSessionToken() string {
+	var b [8]byte
+	if _, err := rand.Read(b[:]); err != nil {
+		return ""
+	}
+	return hex.EncodeToString(b[:])
 }
 
 func (s *Server) Handler() http.Handler {

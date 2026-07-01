@@ -25,6 +25,7 @@ describe("TabsProvider", () => {
     routerMock.pathname = "/";
     routerMock.navigate.mockClear();
     window.localStorage.clear();
+    window.__trackSession = undefined;
   });
 
   it("opens a tab when navigating to a note and dedupes repeats", () => {
@@ -54,6 +55,24 @@ describe("TabsProvider", () => {
     routerMock.pathname = "/";
     const { result } = renderHook(() => useTabs(), { wrapper });
     expect(result.current.tabs.map((tab) => tab.id)).toEqual(["a1", "b2"]);
+  });
+
+  it("keeps restored tabs when the session token is unchanged (a reload)", () => {
+    window.__trackSession = "s1";
+    window.localStorage.setItem("track.tabs.session", "s1");
+    window.localStorage.setItem("track.tabs", JSON.stringify([{ id: "a", title: "" }]));
+    const { result } = renderHook(() => useTabs(), { wrapper });
+    expect(result.current.tabs.map((tab) => tab.id)).toEqual(["a"]);
+  });
+
+  it("discards restored tabs when the session token changes (a fresh launch)", () => {
+    window.__trackSession = "s2";
+    window.localStorage.setItem("track.tabs.session", "s1");
+    window.localStorage.setItem("track.tabs", JSON.stringify([{ id: "a", title: "" }]));
+    const { result } = renderHook(() => useTabs(), { wrapper });
+    expect(result.current.tabs).toEqual([]);
+    // The new token is adopted so a subsequent reload keeps whatever tabs open this run.
+    expect(window.localStorage.getItem("track.tabs.session")).toBe("s2");
   });
 
   it("closes the active tab and navigates to the neighbor that fills its slot", () => {

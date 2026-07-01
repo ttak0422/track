@@ -33,6 +33,10 @@ interface TabsApi {
 const TabsContext = createContext<TabsApi | null>(null);
 
 const STORAGE_KEY = "track.tabs";
+// The server session token the persisted tabs belong to. A reload carries the same token (keep the
+// tabs); a fresh `track web` launch injects a new one (discard the tabs, so a new day's `Track new`
+// starts clean rather than restoring yesterday's strip).
+const SESSION_KEY = "track.tabs.session";
 
 // The full graph opens as an ordinary tab (labelled "Graph") rather than a separate overlay. It uses a
 // sentinel id and routes to /graph instead of /notes/$id. A note slug of exactly "graph" would collide,
@@ -47,9 +51,16 @@ export function tabRoute(id: NoteID) {
     : ({ to: "/notes/$noteId", params: { noteId: String(id) } } as const);
 }
 
-// Open tabs survive reloads (persisted to localStorage); the dirty flag does not.
+// Open tabs survive reloads (persisted to localStorage); the dirty flag does not. A fresh server
+// launch (new session token) starts with an empty strip instead of restoring the previous run's tabs.
 function loadTabs(): NoteTab[] {
   try {
+    const session = window.__trackSession ?? "";
+    if (session && window.localStorage.getItem(SESSION_KEY) !== session) {
+      window.localStorage.setItem(SESSION_KEY, session);
+      window.localStorage.removeItem(STORAGE_KEY);
+      return [];
+    }
     const raw = window.localStorage.getItem(STORAGE_KEY);
     if (!raw) return [];
     const parsed: unknown = JSON.parse(raw);
