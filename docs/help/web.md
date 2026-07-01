@@ -16,7 +16,7 @@ Back to [[track]].
 ## Media embeds
 
 Put a Markdown image link on its own line to turn it into a block embed. Local files belong under the
-note kind's assets directory, and `track asset import ./image.png` prints the relative reference you
+vault's `assets/` directory, and `track asset import ./image.png` prints the relative reference you
 can paste into a note.
 
 ![track logo](assets/logo.png)

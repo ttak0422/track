@@ -91,12 +91,13 @@ func (s *Server) serveIndex(w http.ResponseWriter, r *http.Request) {
 	_, _ = w.Write([]byte(html))
 }
 
-// handleAsset serves a note's media/attachments from the vault's per-kind assets directory
-// (note/assets, journal/assets). Notes reference an attachment with the relative path "assets/<file>";
-// the frontend rewrites that to /api/asset?kind=<kind>&name=<file> so the file is served from the vault
-// instead of being resolved against the /notes/<id> route and swallowed by the SPA index fallback (an
-// embedded image/PDF would otherwise render the app inside itself). name is constrained to the assets
-// directory so a note cannot read arbitrary files via "../" traversal.
+// handleAsset serves a note's media/attachments from the vault's single assets directory
+// (<vault>/assets). Notes reference an attachment with the relative path "assets/<file>"; the frontend
+// rewrites that to /api/asset?name=<file> so the file is served from the vault instead of being
+// resolved against the /notes/<id> route and swallowed by the SPA index fallback (an embedded
+// image/PDF would otherwise render the app inside itself). A legacy "kind" query parameter, if present,
+// is ignored. name is constrained to the assets directory so a note cannot read arbitrary files via
+// "../" traversal.
 func (s *Server) handleAsset(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodGet && r.Method != http.MethodHead {
 		writeError(w, fmt.Errorf("method %s not allowed", r.Method), http.StatusMethodNotAllowed)
@@ -107,7 +108,7 @@ func (s *Server) handleAsset(w http.ResponseWriter, r *http.Request) {
 		writeError(w, errors.New("name is required"), http.StatusBadRequest)
 		return
 	}
-	dir := s.cfg.AssetsDirForKind(r.URL.Query().Get("kind"))
+	dir := s.cfg.AssetsDir()
 	// Clean the slash path, drop any leading separator, then confirm the result stays inside the assets
 	// directory before touching the filesystem.
 	clean := strings.TrimPrefix(path.Clean("/"+name), "/")

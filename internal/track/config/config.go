@@ -68,10 +68,10 @@ const (
 	KindTemplate = "template"
 )
 
-// AssetsDirName is the per-kind subdirectory that holds a kind's media/attachments (note/assets,
-// journal/assets). It is reserved: note scanning skips subdirectories, so files placed here are never
-// treated as notes. A note of a given kind references its assets with the relative path
-// "assets/<file>".
+// AssetsDirName is the single top-level vault directory that holds media/attachments for every note
+// kind (<vault>/assets). It is a sibling of note/ and journal/, so note scanning (which walks only
+// those trees) never treats its files as notes. A note references an attachment with the relative
+// path "assets/<file>".
 const AssetsDirName = "assets"
 
 // DataDirName is the top-level vault directory for Canonical Data Model JSONL (prices.jsonl,
@@ -340,24 +340,20 @@ func (c *Config) DataDir() string {
 	return filepath.Join(c.VaultDir, DataDirName)
 }
 
-// AssetsDirForKind returns the assets directory for a note kind: journal assets live under
-// journal/assets, and everything else (notes) under note/assets. The directory is not created.
-func (c *Config) AssetsDirForKind(kind string) string {
-	if kind == KindJournal {
-		return filepath.Join(c.JournalDir(), AssetsDirName)
-	}
-	return filepath.Join(c.NoteDir(), AssetsDirName)
+// AssetsDir returns the vault's single assets directory (<vault>/assets) that holds media/attachments
+// for every note kind. The directory is not created.
+func (c *Config) AssetsDir() string {
+	return filepath.Join(c.VaultDir, AssetsDirName)
 }
 
-// VaultSkeleton lists the directories that make up an initialized vault: the note and journal trees
-// with their assets subdirectories, the template directory, the canonical-data directory, and the
-// sidecar metadata directory.
+// VaultSkeleton lists the directories that make up an initialized vault: the note and journal trees,
+// the shared assets directory, the template directory, the canonical-data directory, and the sidecar
+// metadata directory.
 func (c *Config) VaultSkeleton() []string {
 	return []string{
 		c.NoteDir(),
-		c.AssetsDirForKind(KindNote),
 		c.JournalDir(),
-		c.AssetsDirForKind(KindJournal),
+		c.AssetsDir(),
 		c.TemplateDir(),
 		c.DataDir(),
 		c.MetadataDir(),

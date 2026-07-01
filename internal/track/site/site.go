@@ -44,7 +44,7 @@ func Build(cfg *config.Config, st *store.Store, opts Options, frontendDir, outDi
 		inSet[id] = true
 	}
 
-	assetSrc := cfg.AssetsDirForKind(config.KindNote)
+	assetSrc := cfg.AssetsDir()
 	docs := make([]doc, 0, len(ids))
 	for _, id := range ids {
 		n, err := note.ParseFile(cfg.NotePath(id), cfg)

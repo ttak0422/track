@@ -1452,8 +1452,7 @@ func TestInitScaffoldsVault(t *testing.T) {
 		t.Fatalf("init failed: %v", res)
 	}
 	for _, rel := range []string{
-		"note", filepath.Join("note", "assets"),
-		"journal", filepath.Join("journal", "assets"),
+		"note", "journal", "assets",
 		"template", filepath.Join(".track", "notes"),
 	} {
 		if info, err := os.Stat(filepath.Join(vault, rel)); err != nil || !info.IsDir() {
@@ -1469,7 +1468,7 @@ func TestFirstLaunchAutoScaffolds(t *testing.T) {
 	if _, code := runIn(t, vault, "search", "--query", "anything"); code != 0 {
 		t.Fatalf("search on a fresh vault should succeed")
 	}
-	if info, err := os.Stat(filepath.Join(vault, "note", "assets")); err != nil || !info.IsDir() {
+	if info, err := os.Stat(filepath.Join(vault, "assets")); err != nil || !info.IsDir() {
 		t.Fatalf("first launch should have created the vault skeleton: err=%v", err)
 	}
 }
@@ -1481,29 +1480,29 @@ func TestAssetImportAndDir(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	res, code := runIn(t, vault, "asset", "import", "--file", src, "--kind", "note")
+	res, code := runIn(t, vault, "asset", "import", "--file", src)
 	if code != 0 {
 		t.Fatalf("asset import failed: %v", res)
 	}
 	if res["ref"] != "assets/Cover-Image.png" {
 		t.Fatalf("unexpected ref: %v", res)
 	}
-	stored := filepath.Join(vault, "note", "assets", "Cover-Image.png")
+	stored := filepath.Join(vault, "assets", "Cover-Image.png")
 	if got := readFileString(t, stored); got != "png" {
-		t.Fatalf("asset not copied into note/assets: %q", got)
+		t.Fatalf("asset not copied into assets/: %q", got)
 	}
 
-	// dir --ensure reports and creates the journal assets directory. The vault path is canonicalized
+	// dir --ensure reports and creates the vault's assets directory. The vault path is canonicalized
 	// (symlinks resolved), so assert on the suffix and that the reported dir now exists.
-	dirRes, code := runIn(t, vault, "asset", "dir", "--kind", "journal", "--ensure")
+	dirRes, code := runIn(t, vault, "asset", "dir", "--ensure")
 	if code != 0 {
 		t.Fatalf("asset dir failed: %v", dirRes)
 	}
 	dir, _ := dirRes["dir"].(string)
-	if !strings.HasSuffix(dir, filepath.Join("journal", "assets")) {
+	if !strings.HasSuffix(dir, filepath.Join(string(filepath.Separator), "assets")) {
 		t.Fatalf("unexpected dir: %v", dirRes)
 	}
 	if info, err := os.Stat(dir); err != nil || !info.IsDir() {
-		t.Fatalf("journal assets dir should be created: err=%v", err)
+		t.Fatalf("assets dir should be created: err=%v", err)
 	}
 }

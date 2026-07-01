@@ -100,10 +100,8 @@ Usage:
                                         replace body text and/or update tags on an existing note
   track toggle (--id N | --title S | --path P) --line N [--state toggle|check|uncheck]
                                         flip (or set) a task checkbox on one line of a note (JSON)
-  track asset import <file> [--kind note|journal]
-                                        copy a file into note/assets (or journal/assets); prints the assets/<file> ref (JSON)
-  track asset dir [--kind note|journal] [--ensure]
-                                        print (and optionally create) a kind's assets directory (JSON)
+  track asset import <file>             copy a file into the vault's assets/ dir; prints the assets/<file> ref (JSON)
+  track asset dir [--ensure]            print (and optionally create) the vault's assets directory (JSON)
   track rename (--id N | --title S | --path P) --to S
                                         rename a note's title and rewrite its backlinks (JSON)
   track journal [--offset <n>] [--template <s>] [--body <s>]

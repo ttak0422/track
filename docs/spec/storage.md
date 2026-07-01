@@ -14,7 +14,7 @@ The default location is `~/.config/track/config.yml` on XDG-style systems, `~/Li
 
 When neither the config file nor `TRACK_VAULT` sets a vault, track defaults to `$HOME/track` (ADR 0015). Precedence is `TRACK_VAULT` > config file `vault_dir` > `$HOME/track`. The fixed, conventional default is low-risk; tests must still set `TRACK_VAULT` (or `HOME`) to a temp path so they never write to a real `$HOME/track`.
 
-On first launch — the first command that touches a vault whose directory does not exist yet (including `track web`) — track lays down the directory skeleton: `note/`, `note/assets/`, `journal/`, `journal/assets/`, `template/`, and `.track/notes/`. An existing vault is left alone (directories are otherwise created lazily as notes are written), so this never resurrects a directory that was intentionally removed. `track init` creates the skeleton explicitly and is idempotent.
+On first launch — the first command that touches a vault whose directory does not exist yet (including `track web`) — track lays down the directory skeleton: `note/`, `journal/`, `assets/`, `template/`, and `.track/notes/`. An existing vault is left alone (directories are otherwise created lazily as notes are written), so this never resurrects a directory that was intentionally removed. `track init` creates the skeleton explicitly and is idempotent.
 
 Notes are markdown files under managed vault directories and are named by note id:
 
@@ -40,14 +40,13 @@ Template files live under `template/` and use a template-specific extension:
 
 A file path is derived from its kind and id, so paths are not stored in the SQLite cache. The current file kinds are `note`, `journal`, and `template`; the note index currently scans `note/` and `journal/` only.
 
-Media for a kind lives in a reserved `assets/` subdirectory of that kind, and a note references it with the relative path `assets/<file>`:
+Media for every note kind lives in a single top-level `assets/` directory, and a note references it with the relative path `assets/<file>`:
 
 ```text
-<vault>/note/assets/<file>
-<vault>/journal/assets/<file>
+<vault>/assets/<file>
 ```
 
-Assets are part of the authoritative vault (back them up like note bodies), but they are not notes: the note scanner skips subdirectories, so files under `assets/` are never indexed or flagged by `track doctor`. `track asset import`/`track asset dir` and the `internal/track/asset` engine package manage this storage; see ADR 0016.
+Assets are part of the authoritative vault (back them up like note bodies), but they are not notes: the note scanner walks only `note/` and `journal/`, so the sibling `assets/` directory is never indexed or flagged by `track doctor`. `track asset import`/`track asset dir` and the `internal/track/asset` engine package manage this storage; see ADR 0016.
 
 Templates are not notes and must not appear in note search or link resolution. When template expansion gains executable substitutions, track will validate the template content and require a first-use trust step keyed by the template content hash, similar to `mise trust`.
 

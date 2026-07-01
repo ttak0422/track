@@ -526,15 +526,15 @@ func TestReadReflectsExternalChange(t *testing.T) {
 }
 
 // TestAssetServesVaultFile covers /api/asset: a note's "assets/<file>" attachment must be served from
-// the vault's per-kind assets directory, not swallowed by the SPA index fallback, and traversal out of
-// that directory must be rejected.
+// the vault's assets directory, not swallowed by the SPA index fallback, and traversal out of that
+// directory must be rejected.
 func TestAssetServesVaultFile(t *testing.T) {
 	cfg := &config.Config{VaultDir: t.TempDir(), DBPath: filepath.Join(t.TempDir(), "index.db"), Extensions: []string{".md"}}
-	if err := os.MkdirAll(cfg.AssetsDirForKind(config.KindNote), 0o755); err != nil {
+	if err := os.MkdirAll(cfg.AssetsDir(), 0o755); err != nil {
 		t.Fatal(err)
 	}
 	pdf := []byte("%PDF-1.4 fake pdf bytes")
-	if err := os.WriteFile(filepath.Join(cfg.AssetsDirForKind(config.KindNote), "report.pdf"), pdf, 0o644); err != nil {
+	if err := os.WriteFile(filepath.Join(cfg.AssetsDir(), "report.pdf"), pdf, 0o644); err != nil {
 		t.Fatal(err)
 	}
 	s, err := store.Open(cfg.DBPath)
