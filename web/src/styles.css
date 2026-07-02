@@ -312,7 +312,7 @@ button {
 .menu-section h2 {
   margin: 0 0 8px;
   color: var(--muted);
-  font-size: 12px;
+  font-size: calc(12px * var(--font-scale, 1));
   font-weight: 650;
 }
 
@@ -332,7 +332,7 @@ button {
   padding: 6px 8px;
   color: var(--muted);
   background: transparent;
-  font-size: 12px;
+  font-size: calc(12px * var(--font-scale, 1));
 }
 
 .theme-switch button[aria-pressed="true"] {
@@ -395,7 +395,7 @@ button {
   grid-column: 1 / -1;
   margin: 0;
   color: var(--muted);
-  font-size: 13px;
+  font-size: calc(13px * var(--font-scale, 1));
 }
 
 .tag-list {
@@ -411,7 +411,7 @@ button {
   padding: 2px 7px;
   color: var(--muted);
   background: transparent;
-  font-size: 12px;
+  font-size: calc(12px * var(--font-scale, 1));
 }
 
 .activity-panel {
@@ -432,7 +432,7 @@ button {
   min-height: 18px;
   margin: 8px 0 0;
   color: var(--muted);
-  font-size: 12px;
+  font-size: calc(12px * var(--font-scale, 1));
 }
 
 .activity-header {
@@ -446,7 +446,7 @@ button {
 .activity-header h2,
 .activity-panel h2 {
   margin: 0;
-  font-size: 13px;
+  font-size: calc(13px * var(--font-scale, 1));
   letter-spacing: 0.04em;
   text-transform: uppercase;
 }
@@ -454,7 +454,7 @@ button {
 .activity-header p {
   margin: 0;
   color: var(--muted);
-  font-size: 12px;
+  font-size: calc(12px * var(--font-scale, 1));
 }
 
 .activity-grid {
@@ -654,7 +654,7 @@ button {
   padding: 4px 12px;
   color: var(--muted);
   background: transparent;
-  font-size: 12px;
+  font-size: calc(12px * var(--font-scale, 1));
   cursor: pointer;
 }
 
@@ -678,7 +678,7 @@ button {
   color: var(--muted);
   background: color-mix(in srgb, var(--panel) 92%, transparent);
   box-shadow: 0 8px 22px rgb(0 0 0 / 16%);
-  font-size: 18px;
+  font-size: calc(18px * var(--font-scale, 1));
   line-height: 1;
 }
 
@@ -768,7 +768,7 @@ button {
 /* Titles that overflow show their beginning, with an ellipsis standing in for the clipped tail. */
 .tab-title {
   overflow: hidden;
-  font-size: 13px;
+  font-size: calc(13px * var(--font-scale, 1));
   text-overflow: ellipsis;
   white-space: nowrap;
 }
@@ -796,7 +796,7 @@ button {
 }
 
 .tab-close-glyph {
-  font-size: 15px;
+  font-size: calc(15px * var(--font-scale, 1));
   line-height: 1;
 }
 
@@ -854,7 +854,7 @@ button {
   color: var(--muted);
   background: color-mix(in srgb, var(--panel) 92%, transparent);
   box-shadow: 0 8px 22px rgb(0 0 0 / 16%);
-  font-size: 12px;
+  font-size: calc(12px * var(--font-scale, 1));
   cursor: pointer;
 }
 
@@ -878,7 +878,7 @@ button {
   color: var(--muted);
   background: color-mix(in srgb, var(--panel) 92%, transparent);
   box-shadow: 0 8px 22px rgb(0 0 0 / 16%);
-  font-size: 12px;
+  font-size: calc(12px * var(--font-scale, 1));
   cursor: pointer;
 }
 
@@ -915,12 +915,12 @@ button {
 
 .modal-card h3 {
   margin: 0;
-  font-size: 18px;
+  font-size: calc(18px * var(--font-scale, 1));
 }
 
 .modal-card p {
   margin: 0;
-  font-size: 14px;
+  font-size: calc(14px * var(--font-scale, 1));
   overflow-wrap: anywhere;
 }
 
@@ -928,7 +928,7 @@ button {
   display: flex;
   flex-direction: column;
   gap: 6px;
-  font-size: 13px;
+  font-size: calc(13px * var(--font-scale, 1));
 }
 
 .modal-input {
@@ -957,7 +957,7 @@ button {
   padding: 6px 14px;
   color: var(--text);
   background: transparent;
-  font-size: 13px;
+  font-size: calc(13px * var(--font-scale, 1));
   cursor: pointer;
 }
 
@@ -978,7 +978,7 @@ button {
   padding: 2px 8px;
   color: var(--muted);
   background: transparent;
-  font-size: 12px;
+  font-size: calc(12px * var(--font-scale, 1));
 }
 
 .note-tags button:hover,
@@ -1012,7 +1012,7 @@ button {
   padding: 4px 12px;
   color: var(--muted);
   background: transparent;
-  font-size: 12px;
+  font-size: calc(12px * var(--font-scale, 1));
   cursor: pointer;
 }
 
@@ -1444,7 +1444,7 @@ button {
   border-radius: 5px;
   color: var(--muted);
   background: var(--panel);
-  font-size: 11px;
+  font-size: calc(11px * var(--font-scale, 1));
   line-height: 1.6;
   cursor: pointer;
   opacity: 0;
@@ -1466,7 +1466,7 @@ button {
   display: block;
   margin-bottom: 6px;
   color: var(--muted);
-  font-size: 11px;
+  font-size: calc(11px * var(--font-scale, 1));
   text-transform: uppercase;
   letter-spacing: 0.04em;
 }
@@ -1728,7 +1728,7 @@ button {
 }
 
 .wiki-preview-body .markdown-view {
-  font-size: 13px;
+  font-size: calc(13px * var(--font-scale, 1));
   line-height: 1.5;
 }
 
@@ -1829,7 +1829,7 @@ button {
 
 .backlinks h3 {
   margin: 0 0 10px;
-  font-size: 13px;
+  font-size: calc(13px * var(--font-scale, 1));
   letter-spacing: 0.04em;
   text-transform: uppercase;
 }

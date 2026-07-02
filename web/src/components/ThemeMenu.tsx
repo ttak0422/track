@@ -3,10 +3,19 @@ import { useEffect, useRef, useState } from "react";
 type ThemeMode = "system" | "light" | "dark";
 
 const storageKey = "track.theme";
+const fontScaleKey = "track.fontScale";
 const themeModes: ThemeMode[] = ["system", "light", "dark"];
+// Whole-UI font scale, applied through the --font-scale CSS var every font-size is wrapped in.
+const fontScales: { label: string; value: number }[] = [
+  { label: "S", value: 0.85 },
+  { label: "M", value: 1 },
+  { label: "L", value: 1.15 },
+  { label: "XL", value: 1.3 },
+];
 
 export function ThemeMenu() {
   const [theme, setTheme] = useState<ThemeMode>(() => storedTheme());
+  const [fontScale, setFontScale] = useState<number>(() => storedFontScale());
   const [open, setOpen] = useState(false);
   const menuRef = useRef<HTMLDivElement>(null);
 
@@ -20,6 +29,17 @@ export function ThemeMenu() {
     localStorage.setItem(storageKey, theme);
     document.documentElement.dataset.theme = theme;
   }, [theme]);
+
+  useEffect(() => {
+    if (fontScale === 1) {
+      localStorage.removeItem(fontScaleKey);
+      document.documentElement.style.removeProperty("--font-scale");
+      return;
+    }
+
+    localStorage.setItem(fontScaleKey, String(fontScale));
+    document.documentElement.style.setProperty("--font-scale", String(fontScale));
+  }, [fontScale]);
 
   useEffect(() => {
     if (!open) {
@@ -76,6 +96,21 @@ export function ThemeMenu() {
               ))}
             </div>
           </section>
+          <section className="menu-section" aria-label="Text size">
+            <h2>Text size</h2>
+            <div className="theme-switch" role="group" aria-label="Text size">
+              {fontScales.map((scale) => (
+                <button
+                  aria-pressed={fontScale === scale.value}
+                  key={scale.value}
+                  type="button"
+                  onClick={() => setFontScale(scale.value)}
+                >
+                  {scale.label}
+                </button>
+              ))}
+            </div>
+          </section>
         </div>
       ) : null}
     </div>
@@ -110,6 +145,11 @@ function storedTheme(): ThemeMode {
   // Fall back to the server-configured default the index bootstrap recorded on window.
   const serverDefault = window.__trackDefaultTheme;
   return serverDefault === "light" || serverDefault === "dark" ? serverDefault : "system";
+}
+
+function storedFontScale(): number {
+  const value = Number(localStorage.getItem(fontScaleKey));
+  return fontScales.some((scale) => scale.value === value) ? value : 1;
 }
 
 function label(mode: ThemeMode): string {
