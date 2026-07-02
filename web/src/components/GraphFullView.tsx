@@ -33,6 +33,9 @@ export function GraphFullView() {
   const openTimer = useRef<number | undefined>(undefined);
   const closeTimer = useRef<number | undefined>(undefined);
   const pendingRef = useRef<{ noteID: NoteID; anchor: PreviewAnchor } | null>(null);
+  // Live bounds of the current preview, so a kept (sticky) window can be handed to the floating layer
+  // at the geometry the user dragged it to.
+  const boundsRef = useRef<{ bounds: PreviewBounds; collapsed: boolean } | null>(null);
 
   useEffect(
     () => () => {
@@ -76,8 +79,9 @@ export function GraphFullView() {
       return;
     }
     holdPreview();
-    if (sticky) return;
     if (preview?.noteID === noteID) return; // already showing this node; don't chase the cursor
+    // A kept window blocks the single preview slot; hand it to the floating layer so a new node can pop.
+    if (sticky) handOffSticky();
     pendingRef.current = { noteID, anchor: graphPointAnchor(point) };
     if (openTimer.current !== undefined) return;
     openTimer.current = window.setTimeout(() => {
@@ -96,6 +100,21 @@ export function GraphFullView() {
   function detachPreview() {
     holdPreview();
     setSticky(true);
+  }
+
+  // Move the kept preview into the floating layer as an unpinned window (persists on this page, dropped
+  // on navigation), freeing the transient slot for the next hover.
+  function handOffSticky() {
+    if (preview) {
+      const geo = boundsRef.current ?? {
+        bounds: initialPreviewBounds(preview.anchor),
+        collapsed: false,
+      };
+      floating.open({ kind: "note", noteID: preview.noteID }, geo.bounds, geo.collapsed, false);
+    }
+    boundsRef.current = null;
+    setSticky(false);
+    setPreview(null);
   }
 
   // Pinning promotes the transient preview into the persistent floating layer at its current bounds.
@@ -135,6 +154,9 @@ export function GraphFullView() {
           onHold={holdPreview}
           onLeave={scheduleClose}
           onDetach={detachPreview}
+          onBoundsChange={(bounds, collapsed) => {
+            boundsRef.current = { bounds, collapsed };
+          }}
           onClose={closePreview}
           onPinToggle={promote}
         />

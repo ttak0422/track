@@ -24,6 +24,9 @@ vi.mock("./GraphCanvas", () => ({
       <button type="button" onClick={() => onHover?.("a", { x: 10, y: 10 })}>
         hover-a
       </button>
+      <button type="button" onClick={() => onHover?.("b", { x: 20, y: 20 })}>
+        hover-b
+      </button>
       <button type="button" onClick={() => onHover?.(null, { x: 0, y: 0 })}>
         hover-out
       </button>
@@ -133,6 +136,24 @@ describe("GraphFullView hover preview", () => {
     expect(win(container)).not.toBeNull();
     click(container, "close");
     expect(win(container)).toBeNull();
+  });
+
+  it("hands a dragged preview to the floating layer (unpinned) when another node is hovered", () => {
+    const { container } = render(<GraphFullView />);
+    click(container, "hover-a");
+    act(() => vi.advanceTimersByTime(previewOpenDelay + 10));
+    click(container, "detach"); // keep window a without pinning
+    click(container, "hover-b");
+    // a is handed off unpinned so the slot frees up...
+    expect(floatingOpen).toHaveBeenCalledWith(
+      { kind: "note", noteID: "a" },
+      expect.anything(),
+      false,
+      false,
+    );
+    // ...and b pops in the freed transient slot.
+    act(() => vi.advanceTimersByTime(previewOpenDelay + 10));
+    expect(win(container)?.getAttribute("data-note-id")).toBe("b");
   });
 
   it("promotes to the floating layer on pin", () => {

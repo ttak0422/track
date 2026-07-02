@@ -28,6 +28,9 @@ export interface FloatingWindowControls {
   // Called once the user actually moves/resizes the preview. Hover previews use this to become sticky
   // until the page changes or the user closes them.
   onDetach?: () => void;
+  // Reports the live bounds/collapsed after every drag/resize/collapse, so a hover preview can hand its
+  // kept window off to the floating layer at its current geometry.
+  onBoundsChange?: (bounds: PreviewBounds, collapsed: boolean) => void;
   onClose: () => void;
   // Toggle pin: an unpinned window promotes (carrying its current bounds/collapsed); a pinned one unpins.
   onPinToggle: (bounds: PreviewBounds, collapsed: boolean) => void;
@@ -64,6 +67,7 @@ export function FloatingWindow({
   onHold,
   onLeave,
   onDetach,
+  onBoundsChange,
   onClose,
   onPinToggle,
   onJump,
@@ -72,6 +76,12 @@ export function FloatingWindow({
   const [bounds, setBounds] = useState(initialBounds);
   const [collapsed, setCollapsed] = useState(initialCollapsed);
   const dragRef = useRef<DragState | null>(null);
+
+  useEffect(() => {
+    onBoundsChange?.(bounds, collapsed);
+    // Report geometry only, not on every onBoundsChange identity change.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [bounds, collapsed]);
 
   useEffect(() => {
     if (!pinned && reanchor) {
