@@ -1,5 +1,5 @@
 import type { MermaidConfig } from "mermaid";
-import { useEffect, useState } from "react";
+import { type PointerEvent, useEffect, useRef, useState } from "react";
 import { CodeBlock } from "./CodeBlock";
 
 interface MermaidDiagramProps {
@@ -18,6 +18,7 @@ let renderSequence = 0;
 export function MermaidDiagram({ text }: MermaidDiagramProps) {
   const [state, setState] = useState<DiagramState>({ status: "loading" });
   const themeVersion = useThemeVersion();
+  const panZoom = usePanZoom(text);
 
   useEffect(() => {
     let cancelled = false;
@@ -54,14 +55,101 @@ export function MermaidDiagram({ text }: MermaidDiagramProps) {
     return <div className="mermaid-diagram mermaid-diagram-loading">Rendering diagram...</div>;
   }
 
+  const { transform, viewportRef, reset, handlers } = panZoom;
   return (
-    <div
-      className="mermaid-diagram"
-      role="img"
-      aria-label="Mermaid diagram"
-      dangerouslySetInnerHTML={{ __html: state.svg }}
-    />
+    <div className="mermaid-diagram">
+      <div className="mermaid-viewport" ref={viewportRef} {...handlers}>
+        <div
+          className="mermaid-pan"
+          style={{
+            transform: `translate(${transform.x}px, ${transform.y}px) scale(${transform.scale})`,
+            transformOrigin: "0 0",
+          }}
+          role="img"
+          aria-label="Mermaid diagram"
+          dangerouslySetInnerHTML={{ __html: state.svg }}
+        />
+      </div>
+      <button
+        className="mermaid-reset"
+        type="button"
+        onClick={reset}
+        aria-label="Reset diagram view"
+        title="Reset diagram view"
+      >
+        ↺
+      </button>
+    </div>
   );
+}
+
+interface Transform {
+  x: number;
+  y: number;
+  scale: number;
+}
+
+const identityTransform: Transform = { x: 0, y: 0, scale: 1 };
+
+// Pan (pointer drag) and zoom (wheel, toward the cursor) applied as a CSS transform on the diagram.
+// resetKey resets the view when the rendered diagram changes.
+function usePanZoom(resetKey: unknown) {
+  const [transform, setTransform] = useState<Transform>(identityTransform);
+  const viewportRef = useRef<HTMLDivElement>(null);
+  const dragRef = useRef<{ px: number; py: number; x: number; y: number } | null>(null);
+
+  useEffect(() => setTransform(identityTransform), [resetKey]);
+
+  // Wheel zoom needs a non-passive listener so it can preventDefault the page scroll.
+  useEffect(() => {
+    const el = viewportRef.current;
+    if (!el) return;
+    function onWheel(event: WheelEvent) {
+      event.preventDefault();
+      const rect = el!.getBoundingClientRect();
+      const cx = event.clientX - rect.left;
+      const cy = event.clientY - rect.top;
+      setTransform((prev) => {
+        const scale = clamp(prev.scale * Math.exp(-event.deltaY * 0.0015), 0.2, 8);
+        const k = scale / prev.scale;
+        // Keep the point under the cursor fixed while scaling.
+        return { scale, x: cx - (cx - prev.x) * k, y: cy - (cy - prev.y) * k };
+      });
+    }
+    el.addEventListener("wheel", onWheel, { passive: false });
+    return () => el.removeEventListener("wheel", onWheel);
+  }, []);
+
+  function onPointerDown(event: PointerEvent<HTMLDivElement>) {
+    event.currentTarget.setPointerCapture(event.pointerId);
+    dragRef.current = { px: event.clientX, py: event.clientY, x: transform.x, y: transform.y };
+  }
+
+  function onPointerMove(event: PointerEvent<HTMLDivElement>) {
+    const drag = dragRef.current;
+    if (!drag) return;
+    setTransform((prev) => ({
+      ...prev,
+      x: drag.x + (event.clientX - drag.px),
+      y: drag.y + (event.clientY - drag.py),
+    }));
+  }
+
+  function onPointerUp(event: PointerEvent<HTMLDivElement>) {
+    dragRef.current = null;
+    event.currentTarget.releasePointerCapture(event.pointerId);
+  }
+
+  return {
+    transform,
+    viewportRef,
+    reset: () => setTransform(identityTransform),
+    handlers: { onPointerDown, onPointerMove, onPointerUp, onPointerCancel: onPointerUp },
+  };
+}
+
+function clamp(value: number, min: number, max: number): number {
+  return Math.min(max, Math.max(min, value));
 }
 
 function mermaidConfig(): MermaidConfig {

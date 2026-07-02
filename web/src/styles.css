@@ -1472,19 +1472,54 @@ button {
 }
 
 .mermaid-diagram {
+  position: relative;
   margin: 1em 0;
-  overflow: auto;
   border: 1px solid var(--line);
   border-radius: 8px;
   padding: 14px;
   background: var(--panel);
 }
 
+.mermaid-viewport {
+  overflow: hidden;
+  cursor: grab;
+  touch-action: none;
+}
+
+.mermaid-viewport:active {
+  cursor: grabbing;
+}
+
+.mermaid-pan {
+  width: fit-content;
+}
+
 .mermaid-diagram svg {
   display: block;
-  max-width: 100%;
+  max-width: none;
   height: auto;
-  margin: 0 auto;
+}
+
+.mermaid-reset {
+  position: absolute;
+  top: 8px;
+  right: 8px;
+  width: 26px;
+  height: 26px;
+  display: grid;
+  place-items: center;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  background: var(--panel-soft);
+  color: var(--text);
+  cursor: pointer;
+  opacity: 0;
+  transition: opacity 0.12s ease;
+}
+
+.mermaid-diagram:hover .mermaid-reset,
+.mermaid-reset:focus-visible {
+  opacity: 1;
 }
 
 .mermaid-diagram-loading,
