@@ -1,16 +1,41 @@
 {
-  "version": 1,
-  "type": "bar",
+  "version": 2,
+  "mark": "bar",
   "title": "Bar",
   "data": {
     "kind": "metric",
     "records": [
-      { "name": "A", "time": "t", "value": 5 },
-      { "name": "B", "time": "t", "value": -2 },
-      { "name": "C", "time": "t", "value": 3 },
-      { "name": "D", "time": "t", "value": 6 }
+      {
+        "name": "A",
+        "time": "t",
+        "value": 5
+      },
+      {
+        "name": "B",
+        "time": "t",
+        "value": -2
+      },
+      {
+        "name": "C",
+        "time": "t",
+        "value": 3
+      },
+      {
+        "name": "D",
+        "time": "t",
+        "value": 6
+      }
     ]
   },
-  "x": { "field": "name" },
-  "y": [ { "field": "value" } ]
+  "encoding": {
+    "x": {
+      "field": "name",
+      "type": "nominal"
+    },
+    "y": [
+      {
+        "field": "value"
+      }
+    ]
+  }
 }

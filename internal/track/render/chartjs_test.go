@@ -10,7 +10,7 @@ import (
 
 func resolved(typ viewspec.ChartType, title string, vals []float64) viewspec.Resolved {
 	return viewspec.Resolved{
-		Spec:   viewspec.Spec{Version: 1, Type: typ, Title: title},
+		Spec: viewspec.Spec{Title: title}, Chart: typ,
 		Labels: []string{"a", "b"},
 		Series: []viewspec.Series{{Label: "S", Values: vals}},
 	}
@@ -65,7 +65,7 @@ func TestChartJSHBarUsesBarWithIndexAxisY(t *testing.T) {
 
 func TestChartJSBubbleEmitsXYRPoints(t *testing.T) {
 	res := viewspec.Resolved{
-		Spec: viewspec.Spec{Version: 1, Type: viewspec.ChartBubble},
+		Spec: viewspec.Spec{}, Chart: viewspec.ChartBubble,
 		Series: []viewspec.Series{{Label: "Sectors", Points: []viewspec.Point{
 			{X: 12, Y: 40, R: 1000},
 			{X: 1, Y: 2, R: math.NaN()}, // missing radius → default
@@ -153,7 +153,7 @@ func TestChartJSRenderNoMarkersOmitsPlugin(t *testing.T) {
 
 func TestChartJSRenderSecondaryAxis(t *testing.T) {
 	res := viewspec.Resolved{
-		Spec:   viewspec.Spec{Version: 1, Type: viewspec.ChartLine},
+		Spec: viewspec.Spec{}, Chart: viewspec.ChartLine,
 		Labels: []string{"a", "b"},
 		Series: []viewspec.Series{
 			{Label: "Close", Values: []float64{1, 2}, Axis: "y"},
@@ -188,7 +188,7 @@ func TestChartJSRenderSingleAxisHasNoY2(t *testing.T) {
 
 func TestChartJSRejectsGridTypes(t *testing.T) {
 	for _, typ := range []viewspec.ChartType{viewspec.ChartHeatmap, viewspec.ChartTimeline} {
-		res := viewspec.Resolved{Spec: viewspec.Spec{Version: 1, Type: typ}, Grid: &viewspec.Grid{}}
+		res := viewspec.Resolved{Spec: viewspec.Spec{}, Chart: typ, Grid: &viewspec.Grid{}}
 		if _, err := (ChartJS{}).Render(res); err == nil {
 			t.Errorf("chartjs should reject %s (svg-only)", typ)
 		}

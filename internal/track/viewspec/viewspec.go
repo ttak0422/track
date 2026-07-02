@@ -1,12 +1,13 @@
 // Package viewspec defines track's View Spec: a renderer-independent, declarative description of a
 // visualization over Canonical Data Model records.
 //
-// A View Spec names a data source (a JSONL file of one kind), how to map record fields onto chart
-// encodings (x and one or more y series), and an optional filter. It deliberately knows nothing about
-// Chart.js, SVG, or D3 — a Renderer (see internal/track/render) turns a Spec into concrete output, so
-// new renderers can be added without changing the spec. The spec is loaded from a standalone JSON
-// file today; the same struct is the unit a future note-embedded (Babel) path would parse, so that
-// extension needs no model change.
+// A View Spec (schema v2) names a data source (a JSONL file of one kind), a mark (what is drawn), and
+// an encoding that maps record fields onto visual channels (x, y series, color, size), plus an optional
+// filter. The shape is Vega-Lite-style: mark and encoding are orthogonal, so a channel (color, …) is
+// added once and works for every mark, and a mark is added once and gets every channel for free — cost
+// grows as marks + channels rather than the old type × feature matrix (see docs/adr/0024). It
+// deliberately knows nothing about Chart.js, SVG, or D3 — a Renderer (see internal/track/render) turns a
+// Spec into concrete output, so new renderers can be added without changing the spec.
 package viewspec
 
 import (
@@ -21,51 +22,141 @@ import (
 	"github.com/ttak0422/track/internal/track/dataset"
 )
 
-// Version is the current View Spec schema version. Specs carry it so the format can evolve.
-const Version = 1
+// Version is the current View Spec schema version. v2 introduced mark + encoding, replacing v1's
+// chart type + top-level x/y/size (ADR 0024). Specs carry it so the format can evolve.
+const Version = 2
 
-// ChartType enumerates the visualization kinds. Renderers draw line/bar/hbar/scatter; more (heatmap,
-// timeline, narrative) are reserved names that renderers may add later without a spec change.
+// Mark names what is drawn, orthogonally to how data is encoded onto it. line/bar/point/rect map the
+// former chart types; area is a stub that currently draws as a line (fill is a later addition).
+type Mark string
+
+const (
+	MarkLine  Mark = "line"
+	MarkBar   Mark = "bar"   // vertical bars; a nominal y (measure on x) draws them horizontally
+	MarkPoint Mark = "point" // scatter/bubble/timeline, distinguished by the encoding's channel types
+	MarkArea  Mark = "area"  // stub: drawn as a line until fill lands
+	MarkRect  Mark = "rect"  // heatmap: a grid colored by a value channel
+)
+
+// Marks lists the marks a spec may use, in a stable order. It is the single source for both validation
+// and help text, so a new mark shows up in `track render --help` automatically.
+var Marks = []Mark{MarkLine, MarkBar, MarkPoint, MarkArea, MarkRect}
+
+// validMark reports whether m is a drawable mark.
+func validMark(m Mark) bool { return slices.Contains(Marks, m) }
+
+// ChannelType classifies a channel's field as a measure (quantitative, the default) or a category
+// (nominal). It is the load-bearing hint that lets one mark cover several old chart types: a bar with a
+// nominal y is horizontal, a point with a nominal y is a timeline lane, a rect needs both axes nominal.
+type ChannelType string
+
+const (
+	Quantitative ChannelType = "quantitative"
+	Nominal      ChannelType = "nominal"
+)
+
+// ChannelTypes lists the valid channel types, for validation and help text.
+var ChannelTypes = []ChannelType{Quantitative, Nominal}
+
+// ChartType is the resolved drawing form a renderer draws. It is not part of the spec surface (specs
+// name a mark); Resolve computes it from mark + encoding and records it on Resolved so renderers keep a
+// single, stable switch over the concrete shape (category-axis series, horizontal bars, linear bubbles,
+// or a 2D grid).
 type ChartType string
 
 const (
 	ChartLine     ChartType = "line"
 	ChartBar      ChartType = "bar"
-	ChartHBar     ChartType = "hbar" // horizontal bar, e.g. a ranking
-	ChartScatter  ChartType = "scatter"
-	ChartBubble   ChartType = "bubble"   // {x,y,r} points, e.g. sector positions sized by exposure
-	ChartHeatmap  ChartType = "heatmap"  // 2D grid: x column × y[0] row, size = cell value (color)
-	ChartTimeline ChartType = "timeline" // swimlane dots: x time column × y[0] lane, optional size = radius
+	ChartHBar     ChartType = "hbar"     // horizontal bar (bar mark, nominal y)
+	ChartScatter  ChartType = "scatter"  // point mark, category x
+	ChartBubble   ChartType = "bubble"   // point mark, quantitative x/y ({x,y,r} on linear axes)
+	ChartHeatmap  ChartType = "heatmap"  // rect mark: x × y grid colored by the color channel
+	ChartTimeline ChartType = "timeline" // point mark, nominal y: swimlane dots sized by the size channel
 )
-
-// RenderableTypes lists the chart types a renderer can draw, in a stable order. It is the single
-// source for both validation and help text, so a new chart type shows up in `track render --help`
-// automatically.
-var RenderableTypes = []ChartType{ChartLine, ChartBar, ChartHBar, ChartScatter, ChartBubble, ChartHeatmap, ChartTimeline}
-
-// gridType reports whether a chart type is a 2D grid (heatmap/timeline) resolved into a Grid rather
-// than into x-aligned Series.
-func gridType(t ChartType) bool { return t == ChartHeatmap || t == ChartTimeline }
 
 // AxisOptions lists the valid y-series axis assignments (primary/secondary), for help and validation.
 var AxisOptions = []string{"y", "y2"}
 
-// renderable reports whether t is a chart type a renderer can draw.
-func renderable(t ChartType) bool {
-	return slices.Contains(RenderableTypes, t)
-}
-
 // Spec is a single visualization.
 type Spec struct {
-	Version  int        `json:"version"`
-	Type     ChartType  `json:"type"`
-	Title    string     `json:"title,omitempty"`
-	Data     DataRef    `json:"data"`
-	X        Encoding   `json:"x"`
-	Y        []Encoding `json:"y"`
-	Size     *Encoding  `json:"size,omitempty"` // bubble radius; required for type bubble
-	Filter   *Filter    `json:"filter,omitempty"`
-	Overlays []Overlay  `json:"overlays,omitempty"`
+	Version  int       `json:"version"`
+	Mark     Mark      `json:"mark"`
+	Title    string    `json:"title,omitempty"`
+	Data     DataRef   `json:"data"`
+	Encoding Encoding  `json:"encoding"`
+	Filter   *Filter   `json:"filter,omitempty"`
+	Overlays []Overlay `json:"overlays,omitempty"`
+}
+
+// Encoding maps record fields onto the visual channels of a mark. X is the horizontal channel; Y is one
+// or more series on the vertical channel(s). Color and Size are optional: a rect (heatmap) reads its
+// cell value from Color; a point (bubble/timeline) reads its radius from Size.
+type Encoding struct {
+	X     Channel   `json:"x"`
+	Y     []Channel `json:"y"`
+	Color *Channel  `json:"color,omitempty"`
+	Size  *Channel  `json:"size,omitempty"`
+}
+
+// Channel binds one visual channel to a record field. Title overrides the legend/axis text (defaulting
+// to the field name). Type marks the field as quantitative (default) or nominal, which selects the
+// drawing form. Axis assigns a y channel to the primary ("y", default) or secondary ("y2") axis; it is
+// ignored on non-y channels.
+type Channel struct {
+	Field string      `json:"field"`
+	Title string      `json:"title,omitempty"`
+	Type  ChannelType `json:"type,omitempty"`
+	Axis  string      `json:"axis,omitempty"`
+}
+
+// title returns the user-facing label for a channel, falling back to the field name.
+func (c Channel) title() string {
+	if c.Title != "" {
+		return c.Title
+	}
+	return c.Field
+}
+
+// nominal reports whether the channel's field is a category rather than a measure.
+func (c Channel) nominal() bool { return c.Type == Nominal }
+
+// axisID normalizes the target axis, defaulting an empty value to the primary "y".
+func (c Channel) axisID() string {
+	if c.Axis == "" {
+		return "y"
+	}
+	return c.Axis
+}
+
+// chart derives the resolved drawing form from the mark and the encoding's channel types. A bar with a
+// nominal y is horizontal; a point is a timeline (nominal y), a bubble (quantitative x), or a category
+// scatter (nominal x); a rect is a heatmap; line/area are a line.
+func (s Spec) chart() ChartType {
+	switch s.Mark {
+	case MarkBar:
+		if s.yNominal() {
+			return ChartHBar
+		}
+		return ChartBar
+	case MarkPoint:
+		if s.yNominal() {
+			return ChartTimeline
+		}
+		if s.Encoding.X.nominal() {
+			return ChartScatter
+		}
+		return ChartBubble
+	case MarkRect:
+		return ChartHeatmap
+	default: // line, area
+		return ChartLine
+	}
+}
+
+// yNominal reports whether the first y channel is a category (drives horizontal bars and timeline
+// lanes).
+func (s Spec) yNominal() bool {
+	return len(s.Encoding.Y) > 0 && s.Encoding.Y[0].nominal()
 }
 
 // Overlay draws events/annotations from a second data source on top of the chart as vertical markers
@@ -128,32 +219,6 @@ type DataRef struct {
 	Records []dataset.Record `json:"records,omitempty"`
 }
 
-// Encoding binds a chart axis/series to a record field. Label overrides the legend/axis text, which
-// otherwise defaults to the field name. Axis assigns a y series to the primary ("y", default) or
-// secondary ("y2") axis, so e.g. a price and an index can share an x-axis on independent scales. Axis
-// is ignored for the x encoding.
-type Encoding struct {
-	Field string `json:"field"`
-	Label string `json:"label,omitempty"`
-	Axis  string `json:"axis,omitempty"`
-}
-
-// label returns the user-facing label for an encoding, falling back to the field name.
-func (e Encoding) label() string {
-	if e.Label != "" {
-		return e.Label
-	}
-	return e.Field
-}
-
-// axisID normalizes the target axis, defaulting an empty value to the primary "y".
-func (e Encoding) axisID() string {
-	if e.Axis == "" {
-		return "y"
-	}
-	return e.Axis
-}
-
 // Filter keeps only records matching all of its conditions (logical AND). The shorthand
 // {field, equals} expresses a single equality; All carries additional conditions with comparison
 // operators, which together cover multi-field, range, and period filtering (e.g. time >= start AND
@@ -199,8 +264,9 @@ func Load(r io.Reader) (Spec, error) {
 	return s, nil
 }
 
-// Validate checks the spec is renderable: known version, a supported chart type, a data source with a
-// known kind, and at least one y series.
+// Validate checks the spec is renderable: a known version, a supported mark, a data source with a known
+// kind, a well-formed encoding (an x channel, at least one y channel, valid channel types/axes), and
+// the channels a mark needs (rect needs a color value).
 func (s Spec) Validate() error {
 	if s.Version == 0 {
 		return fmt.Errorf("view spec: missing version (current is %d)", Version)
@@ -208,8 +274,11 @@ func (s Spec) Validate() error {
 	if s.Version > Version {
 		return fmt.Errorf("view spec: version %d is newer than supported %d", s.Version, Version)
 	}
-	if !renderable(s.Type) {
-		return fmt.Errorf("view spec: unsupported type %q (line|bar|scatter)", s.Type)
+	if s.Version < Version {
+		return fmt.Errorf("view spec: version %d is no longer supported (current is %d; use mark + encoding)", s.Version, Version)
+	}
+	if !validMark(s.Mark) {
+		return fmt.Errorf("view spec: unsupported mark %q (one of %s)", s.Mark, joinMarks())
 	}
 	hasSource := strings.TrimSpace(s.Data.Source) != ""
 	hasRecords := len(s.Data.Records) > 0
@@ -222,27 +291,11 @@ func (s Spec) Validate() error {
 	if !s.Data.Kind.Valid() {
 		return fmt.Errorf("view spec: data.kind %q is not a canonical kind", s.Data.Kind)
 	}
-	if s.X.Field == "" {
-		return fmt.Errorf("view spec: x.field is required")
+	if err := s.Encoding.validate(); err != nil {
+		return err
 	}
-	if len(s.Y) == 0 {
-		return fmt.Errorf("view spec: at least one y series is required")
-	}
-	for i, y := range s.Y {
-		if y.Field == "" {
-			return fmt.Errorf("view spec: y[%d].field is required", i)
-		}
-		switch y.Axis {
-		case "", "y", "y2":
-		default:
-			return fmt.Errorf("view spec: y[%d].axis %q is not y or y2", i, y.Axis)
-		}
-	}
-	if s.Type == ChartBubble && (s.Size == nil || s.Size.Field == "") {
-		return fmt.Errorf("view spec: type bubble requires size.field (the bubble radius)")
-	}
-	if s.Type == ChartHeatmap && (s.Size == nil || s.Size.Field == "") {
-		return fmt.Errorf("view spec: type heatmap requires size.field (the cell value)")
+	if s.Mark == MarkRect && (s.Encoding.Color == nil || s.Encoding.Color.Field == "") {
+		return fmt.Errorf("view spec: mark rect requires encoding.color.field (the cell value)")
 	}
 	for i, o := range s.Overlays {
 		if strings.TrimSpace(o.Source) == "" {
@@ -258,6 +311,69 @@ func (s Spec) Validate() error {
 		}
 	}
 	return nil
+}
+
+// validate checks the encoding: an x field, at least one y series, and valid types/axes on every
+// channel (including the optional color/size).
+func (e Encoding) validate() error {
+	if e.X.Field == "" {
+		return fmt.Errorf("view spec: encoding.x.field is required")
+	}
+	if err := e.X.validateType("encoding.x"); err != nil {
+		return err
+	}
+	if len(e.Y) == 0 {
+		return fmt.Errorf("view spec: at least one encoding.y channel is required")
+	}
+	for i, y := range e.Y {
+		if y.Field == "" {
+			return fmt.Errorf("view spec: encoding.y[%d].field is required", i)
+		}
+		if err := y.validateType(fmt.Sprintf("encoding.y[%d]", i)); err != nil {
+			return err
+		}
+		switch y.Axis {
+		case "", "y", "y2":
+		default:
+			return fmt.Errorf("view spec: encoding.y[%d].axis %q is not y or y2", i, y.Axis)
+		}
+	}
+	for name, ch := range map[string]*Channel{"encoding.color": e.Color, "encoding.size": e.Size} {
+		if ch == nil {
+			continue
+		}
+		if ch.Field == "" {
+			return fmt.Errorf("view spec: %s.field is required when %s is set", name, name)
+		}
+		if err := ch.validateType(name); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+// validateType rejects an unknown channel type; an empty type means quantitative.
+func (c Channel) validateType(where string) error {
+	if c.Type == "" || slices.Contains(ChannelTypes, c.Type) {
+		return nil
+	}
+	return fmt.Errorf("view spec: %s.type %q is not one of %s", where, c.Type, joinChannelTypes())
+}
+
+func joinMarks() string {
+	ms := make([]string, len(Marks))
+	for i, m := range Marks {
+		ms[i] = string(m)
+	}
+	return strings.Join(ms, " | ")
+}
+
+func joinChannelTypes() string {
+	ts := make([]string, len(ChannelTypes))
+	for i, t := range ChannelTypes {
+		ts[i] = string(t)
+	}
+	return strings.Join(ts, " | ")
 }
 
 // validate checks the filter has at least one well-formed condition: each names a field and uses a
@@ -359,85 +475,100 @@ type Grid struct {
 	Cells []Cell
 }
 
-// Cell is one record placed in the grid: Col/Row index into Grid.Cols/Rows, Value is the size
-// encoding (heatmap intensity / timeline dot magnitude) or NaN when absent.
+// Cell is one record placed in the grid: Col/Row index into Grid.Cols/Rows, Value is the value
+// channel (heatmap color intensity / timeline dot magnitude) or NaN when absent.
 type Cell struct {
 	Col, Row int
 	Value    float64
 }
 
-// Resolved is a Spec applied to data: the shared x-axis labels plus one Series per y encoding. A
-// Renderer consumes Resolved and never touches raw records, keeping field extraction in one place.
-// Grid is set instead of Series for grid chart types (heatmap/timeline).
+// Resolved is a Spec applied to data: the resolved drawing form plus the shared x-axis labels and one
+// Series per y encoding. A Renderer consumes Resolved and never touches raw records, keeping field
+// extraction in one place. Grid is set instead of Series for grid forms (heatmap/timeline).
 type Resolved struct {
 	Spec    Spec
+	Chart   ChartType // resolved drawing form (computed from mark + encoding)
 	Labels  []string
 	Series  []Series
 	Grid    *Grid
 	Markers []Marker // vertical overlays (events/annotations), filled by the caller from Overlays
 }
 
-// Resolve applies the spec's filter and encodings to records, producing aligned x labels and y
-// series. Records that fail the filter are dropped; a record missing a y value contributes NaN for
-// that series so the point becomes a gap.
+// Resolve applies the spec's filter and encoding to records, producing the resolved drawing form and
+// its aligned data. Records that fail the filter are dropped; a record missing a numeric value
+// contributes NaN so the point becomes a gap.
 func (s Spec) Resolve(records []dataset.Record) Resolved {
-	res := Resolved{Spec: s}
-	if gridType(s.Type) {
-		g := s.resolveGrid(records)
+	chart := s.chart()
+	res := Resolved{Spec: s, Chart: chart}
+	switch chart {
+	case ChartHeatmap:
+		g := s.resolveGrid(records, s.Encoding.Color)
 		res.Grid = &g
-		return res
-	}
-	for _, y := range s.Y {
-		res.Series = append(res.Series, Series{Label: y.label(), Axis: y.axisID()})
-	}
-	for _, rec := range records {
-		if s.Filter != nil && !s.Filter.match(rec) {
-			continue
-		}
-		if s.Type == ChartBubble {
-			s.resolveBubblePoint(rec, &res)
-			continue
-		}
-		x, _ := rec.String(s.X.Field)
-		res.Labels = append(res.Labels, x)
-		for i, y := range s.Y {
-			v, ok := rec.Float(y.Field)
-			if !ok {
-				v = math.NaN()
-			}
-			res.Series[i].Values = append(res.Series[i].Values, v)
-		}
+	case ChartTimeline:
+		g := s.resolveGrid(records, s.Encoding.Size)
+		res.Grid = &g
+	case ChartBubble:
+		s.resolveBubble(records, &res)
+	case ChartHBar:
+		s.resolveHorizontal(records, &res)
+	default: // line, bar, scatter — category x, numeric y series
+		s.resolveSeries(records, &res)
 	}
 	return res
 }
 
-// resolveBubblePoint appends one {x,y,r} point per y series for a bubble chart. A missing coordinate
-// becomes NaN so the renderer can skip an incomplete point instead of plotting it at the origin.
-func (s Spec) resolveBubblePoint(rec dataset.Record, res *Resolved) {
-	x, ok := rec.Float(s.X.Field)
-	if !ok {
-		x = math.NaN()
+// resolveSeries maps records onto category x-axis labels and one numeric y series per y channel — the
+// shape line, bar, and scatter share.
+func (s Spec) resolveSeries(records []dataset.Record, res *Resolved) {
+	for _, y := range s.Encoding.Y {
+		res.Series = append(res.Series, Series{Label: y.title(), Axis: y.axisID()})
 	}
-	r := math.NaN()
-	if s.Size != nil {
-		if rv, ok := rec.Float(s.Size.Field); ok {
-			r = rv
+	for _, rec := range s.filtered(records) {
+		x, _ := rec.String(s.Encoding.X.Field)
+		res.Labels = append(res.Labels, x)
+		for i, y := range s.Encoding.Y {
+			res.Series[i].Values = append(res.Series[i].Values, floatOrNaN(rec, y.Field))
 		}
-	}
-	for i, y := range s.Y {
-		yv, ok := rec.Float(y.Field)
-		if !ok {
-			yv = math.NaN()
-		}
-		res.Series[i].Points = append(res.Series[i].Points, Point{X: x, Y: yv, R: r})
 	}
 }
 
-// resolveGrid maps records onto a 2D grid for heatmap/timeline: x.field is the column category,
-// y[0].field the row category, and size.field (when set) the cell value. Columns and rows accumulate
-// in first-seen order, mirroring the category-axis renderer's input-order labeling. One Cell is
-// produced per record; for a heatmap with repeated cells the later record draws on top.
-func (s Spec) resolveGrid(records []dataset.Record) Grid {
+// resolveHorizontal maps records onto a horizontal bar: the nominal y channel supplies the category
+// labels and the quantitative x channel supplies the bar lengths (the axes are swapped relative to a
+// vertical bar), matching ADR 0024's "hbar = bar with x/y swapped".
+func (s Spec) resolveHorizontal(records []dataset.Record, res *Resolved) {
+	res.Series = append(res.Series, Series{Label: s.Encoding.X.title(), Axis: "y"})
+	cat := s.Encoding.Y[0]
+	for _, rec := range s.filtered(records) {
+		label, _ := rec.String(cat.Field)
+		res.Labels = append(res.Labels, label)
+		res.Series[0].Values = append(res.Series[0].Values, floatOrNaN(rec, s.Encoding.X.Field))
+	}
+}
+
+// resolveBubble appends one {x,y,r} point per y series for a bubble (point mark on quantitative axes).
+// A missing coordinate becomes NaN so the renderer can skip an incomplete point; the radius comes from
+// the size channel when set.
+func (s Spec) resolveBubble(records []dataset.Record, res *Resolved) {
+	for _, y := range s.Encoding.Y {
+		res.Series = append(res.Series, Series{Label: y.title(), Axis: "y"})
+	}
+	for _, rec := range s.filtered(records) {
+		x := floatOrNaN(rec, s.Encoding.X.Field)
+		r := math.NaN()
+		if s.Encoding.Size != nil {
+			r = floatOrNaN(rec, s.Encoding.Size.Field)
+		}
+		for i, y := range s.Encoding.Y {
+			res.Series[i].Points = append(res.Series[i].Points, Point{X: x, Y: floatOrNaN(rec, y.Field), R: r})
+		}
+	}
+}
+
+// resolveGrid maps records onto a 2D grid: x.field is the column category, y[0].field the row category,
+// and value (the color channel for a heatmap, the size channel for a timeline, when set) the cell value.
+// Columns and rows accumulate in first-seen order. One Cell is produced per record; a repeated cell's
+// later record draws on top.
+func (s Spec) resolveGrid(records []dataset.Record, value *Channel) Grid {
 	var g Grid
 	colIdx := map[string]int{}
 	rowIdx := map[string]int{}
@@ -450,20 +581,15 @@ func (s Spec) resolveGrid(records []dataset.Record) Grid {
 		*labels = append(*labels, key)
 		return i
 	}
-	for _, rec := range records {
-		if s.Filter != nil && !s.Filter.match(rec) {
-			continue
-		}
-		col, _ := rec.String(s.X.Field)
+	for _, rec := range s.filtered(records) {
+		col, _ := rec.String(s.Encoding.X.Field)
 		row := ""
-		if len(s.Y) > 0 {
-			row, _ = rec.String(s.Y[0].Field)
+		if len(s.Encoding.Y) > 0 {
+			row, _ = rec.String(s.Encoding.Y[0].Field)
 		}
 		val := math.NaN()
-		if s.Size != nil {
-			if v, ok := rec.Float(s.Size.Field); ok {
-				val = v
-			}
+		if value != nil {
+			val = floatOrNaN(rec, value.Field)
 		}
 		g.Cells = append(g.Cells, Cell{
 			Col:   intern(&g.Cols, colIdx, col),
@@ -472,4 +598,27 @@ func (s Spec) resolveGrid(records []dataset.Record) Grid {
 		})
 	}
 	return g
+}
+
+// filtered returns the records passing the spec's filter (all of them when there is no filter).
+func (s Spec) filtered(records []dataset.Record) []dataset.Record {
+	if s.Filter == nil {
+		return records
+	}
+	out := records[:0:0]
+	for _, rec := range records {
+		if s.Filter.match(rec) {
+			out = append(out, rec)
+		}
+	}
+	return out
+}
+
+// floatOrNaN reads a numeric field, returning NaN when it is absent so a renderer draws a gap rather
+// than a false zero.
+func floatOrNaN(rec dataset.Record, field string) float64 {
+	if v, ok := rec.Float(field); ok {
+		return v
+	}
+	return math.NaN()
 }

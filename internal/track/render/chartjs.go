@@ -67,8 +67,8 @@ func chartJSType(t viewspec.ChartType) string {
 
 // Render builds the Chart.js config from the resolved spec and embeds it in a complete HTML document.
 func (ChartJS) Render(res viewspec.Resolved) (string, error) {
-	if res.Spec.Type == viewspec.ChartHeatmap || res.Spec.Type == viewspec.ChartTimeline {
-		return "", fmt.Errorf("chartjs renderer: %s is only supported by --renderer svg", res.Spec.Type)
+	if res.Chart == viewspec.ChartHeatmap || res.Chart == viewspec.ChartTimeline {
+		return "", fmt.Errorf("chartjs renderer: %s is only supported by --renderer svg", res.Chart)
 	}
 	cfgJSON, usesAnnotation, err := chartJSConfigJSON(res)
 	if err != nil {
@@ -90,11 +90,11 @@ func (ChartJS) Render(res viewspec.Resolved) (string, error) {
 // single-chart page (Render) and embedded charts in a composed document (RenderDocument).
 func chartJSConfigJSON(res viewspec.Resolved) (string, bool, error) {
 	cfg := chartConfig{
-		Type:    chartJSType(res.Spec.Type),
+		Type:    chartJSType(res.Chart),
 		Data:    chartData{Labels: res.Labels},
 		Options: chartOption{Responsive: true},
 	}
-	if res.Spec.Type == viewspec.ChartHBar {
+	if res.Chart == viewspec.ChartHBar {
 		cfg.Options.IndexAxis = "y"
 	}
 	if res.Spec.Title != "" {
@@ -104,18 +104,18 @@ func chartJSConfigJSON(res viewspec.Resolved) (string, bool, error) {
 	}
 	// Chart.js's scatter type defaults to a linear x-axis; pin it to category so the resolved x
 	// labels are honored, and suppress the connecting line.
-	if res.Spec.Type == viewspec.ChartScatter {
+	if res.Chart == viewspec.ChartScatter {
 		cfg.Options.Scales = map[string]any{"x": map[string]any{"type": "category"}}
 	}
 	usesY2 := false
 	for _, s := range res.Series {
 		ds := dataset{Label: s.Label}
-		if res.Spec.Type == viewspec.ChartBubble {
+		if res.Chart == viewspec.ChartBubble {
 			ds.Data = pointsToJSON(s.Points)
 		} else {
 			ds.Data = floatsToJSON(s.Values)
 		}
-		if res.Spec.Type == viewspec.ChartScatter {
+		if res.Chart == viewspec.ChartScatter {
 			no := false
 			ds.ShowLine = &no
 		}

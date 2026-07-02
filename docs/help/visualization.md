@@ -37,13 +37,14 @@ spec can reach.
 
 ## View Spec: one chart
 
-A View Spec names a data source, the chart type, and how record fields map onto axes. It knows nothing
-about the renderer, so the same spec can be drawn by different backends.
+A View Spec names a data source, a **mark** (what to draw), and an **encoding** that maps record fields
+onto visual channels. It knows nothing about the renderer, so the same spec can be drawn by different
+backends.
 
 ```json
 {
-  "version": 1,
-  "type": "line",
+  "version": 2,
+  "mark": "line",
   "title": "Line",
   "data": {
     "kind": "metric",
@@ -53,8 +54,10 @@ about the renderer, so the same spec can be drawn by different backends.
       { "name": "demo", "time": "3", "value": 4 }
     ]
   },
-  "x": { "field": "time" },
-  "y": [ { "field": "value" } ]
+  "encoding": {
+    "x": { "field": "time" },
+    "y": [ { "field": "value" } ]
+  }
 }
 ```
 
@@ -68,8 +71,11 @@ Rendered output:
 
 Key fields:
 
-- `type` — `line`, `bar`, `hbar` (ranking), `scatter`, `bubble`, or the SVG-only `heatmap` / `timeline`.
-- `y[].axis` — set `"y2"` to put a series on a secondary right-hand axis (two series on different scales).
+- `mark` — `line`, `bar`, `point`, `area`, or `rect`.
+- `encoding.*.type` — `quantitative` (default) or `nominal` (a category). Nominal on the right axis
+  picks the form: a nominal-y `bar` is horizontal, a nominal-x `point` is a scatter (vs a bubble), and
+  `rect` needs nominal x and y.
+- `encoding.y[].axis` — set `"y2"` to put a series on a secondary right-hand axis (two series on different scales).
 - `filter` — `{field, equals}` shorthand, or `{all: [{field, op, value}]}` with `op` of
   `eq|ne|lt|le|gt|ge` for multi-field, range, and period filtering.
 - `overlays` — draw events/annotations from a second source as vertical markers over a time series.
@@ -94,31 +100,31 @@ below are each one embedded `.viewspec.json`.
 
 ![Bar chart](assets/chart-bar.viewspec.json)
 
-**`hbar`** — a horizontal bar, for rankings; categories run down the left, the value axis along the bottom.
+**Horizontal bar** (`mark: bar`, nominal y) — for rankings; categories run down the left, the value axis along the bottom.
 
 ![Horizontal bar chart](assets/chart-hbar.viewspec.json)
 
-**`scatter`** — points over a category x-axis, the connecting line suppressed.
+**Scatter** (`mark: point`, nominal x) — points over a category x-axis, the connecting line suppressed.
 
 ![Scatter chart](assets/chart-scatter.viewspec.json)
 
-**`heatmap`** — a 2D grid of `x` columns × `y[0]` rows, each cell colored by `size` (with a value legend).
+**Heatmap** (`mark: rect`) — a 2D grid of `x` columns × `y[0]` rows, each cell colored by `encoding.color` (with a value legend).
 
 ![Heatmap](assets/chart-heatmap.viewspec.json)
 
-**`timeline`** — one dot per record at its `(column, lane)`; an optional `size` scales the dot, one color per lane.
+**Timeline** (`mark: point`, nominal y) — one dot per record at its `(column, lane)`; an optional `size` scales the dot, one color per lane.
 
 ![Timeline](assets/chart-timeline.viewspec.json)
 
-`bubble` (`{x, y, r}` points sized by `size`) is drawn over linear axes by both the default `chartjs`
-renderer and the `svg` renderer.
+A **bubble** (`mark: point` with a quantitative x, `{x, y, r}` points sized by `size`) is drawn over
+linear axes by both the default `chartjs` renderer and the `svg` renderer.
 
 ## Renderers
 
 | Renderer | Output | Notes |
 | --- | --- | --- |
 | `chartjs` (default) | Self-contained HTML | Interactive; loads Chart.js from a CDN at view time. |
-| `svg` | Static SVG | No scripts, no CDN — embeds anywhere. line/bar/hbar/scatter/bubble, heatmap, timeline. |
+| `svg` | Static SVG | No scripts, no CDN — embeds anywhere. All marks, including heatmap and timeline. |
 
 ```sh
 track render --spec chart.json --out chart.svg --renderer svg
@@ -129,7 +135,7 @@ track render --spec chart.json --out chart.svg --renderer svg
 A spec with a `blocks` array composes Markdown prose, multiple charts, and filterable tables into a
 single HTML article — the "data + layout + rendering" unit for a data story.
 
-The full notation (every field, all chart types, examples) is always available with:
+The full notation (every field, all marks, examples) is always available with:
 
 ```sh
 track render --help

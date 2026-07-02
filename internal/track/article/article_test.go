@@ -10,8 +10,8 @@ const goodArticle = `{
   "title": "Narrative",
   "blocks": [
     { "markdown": "# Hi" },
-    { "chart": { "version": 1, "type": "line", "data": {"source":"m.jsonl","kind":"metric"},
-                 "x": {"field":"time"}, "y": [{"field":"value"}] } }
+    { "chart": { "version": 2, "mark": "line", "data": {"source":"m.jsonl","kind":"metric"},
+                 "encoding": {"x": {"field":"time"}, "y": [{"field":"value"}]} } }
   ]
 }`
 
@@ -33,8 +33,8 @@ func TestValidateErrors(t *testing.T) {
 		"missing version": `{"blocks":[{"markdown":"x"}]}`,
 		"no blocks":       `{"version":1,"blocks":[]}`,
 		"empty block":     `{"version":1,"blocks":[{}]}`,
-		"both set":        `{"version":1,"blocks":[{"markdown":"x","chart":{"version":1,"type":"line","data":{"source":"m","kind":"metric"},"x":{"field":"t"},"y":[{"field":"v"}]}}]}`,
-		"bad chart":       `{"version":1,"blocks":[{"chart":{"version":1,"type":"pie","data":{"source":"m","kind":"metric"},"x":{"field":"t"},"y":[{"field":"v"}]}}]}`,
+		"both set":        `{"version":1,"blocks":[{"markdown":"x","chart":{"version":2,"mark":"line","data":{"source":"m","kind":"metric"},"encoding":{"x":{"field":"t"},"y":[{"field":"v"}]}}}]}`,
+		"bad chart":       `{"version":1,"blocks":[{"chart":{"version":2,"mark":"pie","data":{"source":"m","kind":"metric"},"encoding":{"x":{"field":"t"},"y":[{"field":"v"}]}}}]}`,
 	}
 	for name, body := range cases {
 		if _, err := Load(strings.NewReader(body)); err == nil {

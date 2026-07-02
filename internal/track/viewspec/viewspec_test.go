@@ -9,12 +9,14 @@ import (
 )
 
 const goodSpec = `{
-  "version": 1,
-  "type": "line",
+  "version": 2,
+  "mark": "line",
   "title": "AAPL",
   "data": {"source": "prices.jsonl", "kind": "price"},
-  "x": {"field": "time"},
-  "y": [{"field": "close", "label": "Close"}],
+  "encoding": {
+    "x": {"field": "time"},
+    "y": [{"field": "close", "title": "Close"}]
+  },
   "filter": {"field": "entity", "equals": "AAPL"}
 }`
 
@@ -23,27 +25,57 @@ func TestLoadValid(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Load: %v", err)
 	}
-	if s.Type != ChartLine || s.Data.Kind != dataset.KindPrice || len(s.Y) != 1 {
+	if s.Mark != MarkLine || s.Data.Kind != dataset.KindPrice || len(s.Encoding.Y) != 1 {
 		t.Fatalf("unexpected spec: %+v", s)
 	}
 }
 
 func TestLoadRejectsUnknownFields(t *testing.T) {
-	_, err := Load(strings.NewReader(`{"version":1,"type":"line","data":{"source":"x","kind":"price"},"x":{"field":"t"},"y":[{"field":"c"}],"bogus":1}`))
+	_, err := Load(strings.NewReader(`{"version":2,"mark":"line","data":{"source":"x","kind":"price"},"encoding":{"x":{"field":"t"},"y":[{"field":"c"}]},"bogus":1}`))
 	if err == nil || !strings.Contains(err.Error(), "bogus") {
 		t.Fatalf("want unknown-field error, got %v", err)
 	}
 }
 
+// lineSpec builds a minimal valid line spec, so validation cases can vary one field at a time.
+func lineSpec() Spec {
+	return Spec{
+		Version: Version, Mark: MarkLine,
+		Data:     DataRef{Source: "x", Kind: dataset.KindPrice},
+		Encoding: Encoding{X: Channel{Field: "t"}, Y: []Channel{{Field: "c"}}},
+	}
+}
+
 func TestValidateErrors(t *testing.T) {
+	noVer := lineSpec()
+	noVer.Version = 0
+	badMark := lineSpec()
+	badMark.Mark = "pie"
+	badKind := lineSpec()
+	badKind.Data.Kind = "bogus"
+	noSource := lineSpec()
+	noSource.Data.Source = ""
+	noX := lineSpec()
+	noX.Encoding.X = Channel{}
+	noY := lineSpec()
+	noY.Encoding.Y = nil
+	oldVer := lineSpec()
+	oldVer.Version = 1
+	future := lineSpec()
+	future.Version = Version + 1
+	badChanType := lineSpec()
+	badChanType.Encoding.X.Type = "ordinal"
+
 	cases := map[string]Spec{
-		"missing version": {Type: ChartLine, Data: DataRef{Source: "x", Kind: dataset.KindPrice}, X: Encoding{Field: "t"}, Y: []Encoding{{Field: "c"}}},
-		"bad type":        {Version: 1, Type: "pie", Data: DataRef{Source: "x", Kind: dataset.KindPrice}, X: Encoding{Field: "t"}, Y: []Encoding{{Field: "c"}}},
-		"bad kind":        {Version: 1, Type: ChartLine, Data: DataRef{Source: "x", Kind: "bogus"}, X: Encoding{Field: "t"}, Y: []Encoding{{Field: "c"}}},
-		"no source":       {Version: 1, Type: ChartLine, Data: DataRef{Kind: dataset.KindPrice}, X: Encoding{Field: "t"}, Y: []Encoding{{Field: "c"}}},
-		"no x":            {Version: 1, Type: ChartLine, Data: DataRef{Source: "x", Kind: dataset.KindPrice}, Y: []Encoding{{Field: "c"}}},
-		"no y":            {Version: 1, Type: ChartLine, Data: DataRef{Source: "x", Kind: dataset.KindPrice}, X: Encoding{Field: "t"}},
-		"future version":  {Version: Version + 1, Type: ChartLine, Data: DataRef{Source: "x", Kind: dataset.KindPrice}, X: Encoding{Field: "t"}, Y: []Encoding{{Field: "c"}}},
+		"missing version":  noVer,
+		"bad mark":         badMark,
+		"bad kind":         badKind,
+		"no source":        noSource,
+		"no x":             noX,
+		"no y":             noY,
+		"v1 no longer ok":  oldVer,
+		"future version":   future,
+		"bad channel type": badChanType,
 	}
 	for name, s := range cases {
 		if err := s.Validate(); err == nil {
@@ -59,6 +91,9 @@ func TestResolveFiltersAndAligns(t *testing.T) {
 			`{"time":"d2","entity":"MSFT","close":99}` + "\n" +
 			`{"time":"d3","entity":"AAPL","close":12}` + "\n"))
 	res := s.Resolve(recs)
+	if res.Chart != ChartLine {
+		t.Fatalf("chart form = %q, want line", res.Chart)
+	}
 	if want := []string{"d1", "d3"}; !equalStrings(res.Labels, want) {
 		t.Fatalf("labels = %v, want %v", res.Labels, want)
 	}
@@ -121,9 +156,13 @@ func TestFilterValidateRejectsBadOpAndEmpty(t *testing.T) {
 
 func TestResolveGridHeatmap(t *testing.T) {
 	s := Spec{
-		Version: 1, Type: ChartHeatmap,
+		Version: Version, Mark: MarkRect,
 		Data: DataRef{Source: "x", Kind: dataset.KindMetric},
-		X:    Encoding{Field: "col"}, Y: []Encoding{{Field: "row"}}, Size: &Encoding{Field: "v"},
+		Encoding: Encoding{
+			X:     Channel{Field: "col", Type: Nominal},
+			Y:     []Channel{{Field: "row", Type: Nominal}},
+			Color: &Channel{Field: "v"},
+		},
 	}
 	if err := s.Validate(); err != nil {
 		t.Fatal(err)
@@ -133,8 +172,8 @@ func TestResolveGridHeatmap(t *testing.T) {
 			`{"col":"Q2","row":"Tech","v":9}` + "\n" +
 			`{"col":"Q1","row":"Energy"}` + "\n")) // missing value → NaN cell
 	res := s.Resolve(recs)
-	if res.Grid == nil {
-		t.Fatal("grid type should populate Grid")
+	if res.Chart != ChartHeatmap || res.Grid == nil {
+		t.Fatalf("rect mark should resolve to a heatmap grid, got %q", res.Chart)
 	}
 	if !equalStrings(res.Grid.Cols, []string{"Q1", "Q2"}) || !equalStrings(res.Grid.Rows, []string{"Tech", "Energy"}) {
 		t.Fatalf("cols/rows = %v / %v", res.Grid.Cols, res.Grid.Rows)
@@ -143,21 +182,46 @@ func TestResolveGridHeatmap(t *testing.T) {
 		t.Fatalf("cells = %+v", res.Grid.Cells)
 	}
 	if !math.IsNaN(res.Grid.Cells[2].Value) {
-		t.Fatal("missing size should be NaN cell")
+		t.Fatal("missing color value should be NaN cell")
 	}
 }
 
-func TestHeatmapRequiresSize(t *testing.T) {
-	s := Spec{Version: 1, Type: ChartHeatmap, Data: DataRef{Source: "x", Kind: dataset.KindMetric}, X: Encoding{Field: "c"}, Y: []Encoding{{Field: "r"}}}
-	if err := s.Validate(); err == nil {
-		t.Fatal("heatmap without size.field should fail validation")
+func TestHeatmapRequiresColor(t *testing.T) {
+	s := Spec{
+		Version: Version, Mark: MarkRect,
+		Data:     DataRef{Source: "x", Kind: dataset.KindMetric},
+		Encoding: Encoding{X: Channel{Field: "c", Type: Nominal}, Y: []Channel{{Field: "r", Type: Nominal}}},
+	}
+	if err := s.Validate(); err == nil || !strings.Contains(err.Error(), "color") {
+		t.Fatalf("rect without color.field should fail validation, got %v", err)
+	}
+}
+
+func TestResolveTimelineGridUsesSize(t *testing.T) {
+	s := Spec{
+		Version: Version, Mark: MarkPoint,
+		Data: DataRef{Source: "x", Kind: dataset.KindMetric},
+		Encoding: Encoding{
+			X:    Channel{Field: "time", Type: Nominal},
+			Y:    []Channel{{Field: "lane", Type: Nominal}},
+			Size: &Channel{Field: "v"},
+		},
+	}
+	recs, _ := dataset.ReadJSONL(strings.NewReader(
+		`{"time":"1","lane":"A","v":3}` + "\n" + `{"time":"2","lane":"B","v":5}` + "\n"))
+	res := s.Resolve(recs)
+	if res.Chart != ChartTimeline || res.Grid == nil {
+		t.Fatalf("point mark with nominal y should be a timeline grid, got %q", res.Chart)
+	}
+	if len(res.Grid.Cells) != 2 || res.Grid.Cells[0].Value != 3 {
+		t.Fatalf("cells = %+v", res.Grid.Cells)
 	}
 }
 
 func TestLoadInlineRecordsResolve(t *testing.T) {
-	spec := `{"version":1,"type":"line","data":{"kind":"metric","records":[
+	spec := `{"version":2,"mark":"line","data":{"kind":"metric","records":[
 		{"time":"d1","close":10},{"time":"d2","close":12}]},
-		"x":{"field":"time"},"y":[{"field":"close"}]}`
+		"encoding":{"x":{"field":"time"},"y":[{"field":"close"}]}}`
 	s, err := Load(strings.NewReader(spec))
 	if err != nil {
 		t.Fatalf("Load: %v", err)
@@ -173,7 +237,7 @@ func TestLoadInlineRecordsResolve(t *testing.T) {
 
 func TestDataSourceRecordsMutuallyExclusive(t *testing.T) {
 	base := func(d DataRef) Spec {
-		return Spec{Version: 1, Type: ChartLine, Data: d, X: Encoding{Field: "t"}, Y: []Encoding{{Field: "c"}}}
+		return Spec{Version: Version, Mark: MarkLine, Data: d, Encoding: Encoding{X: Channel{Field: "t"}, Y: []Channel{{Field: "c"}}}}
 	}
 	rec := []dataset.Record{{"t": "d1", "c": 1.0}}
 	// neither source nor records → error
@@ -229,7 +293,7 @@ func TestTableValidateErrors(t *testing.T) {
 }
 
 func TestResolveMissingYBecomesNaN(t *testing.T) {
-	s, _ := Load(strings.NewReader(`{"version":1,"type":"line","data":{"source":"x","kind":"metric"},"x":{"field":"time"},"y":[{"field":"value"}]}`))
+	s, _ := Load(strings.NewReader(`{"version":2,"mark":"line","data":{"source":"x","kind":"metric"},"encoding":{"x":{"field":"time"},"y":[{"field":"value"}]}}`))
 	recs, _ := dataset.ReadJSONL(strings.NewReader(
 		`{"time":"d1","value":5}` + "\n" + `{"time":"d2"}` + "\n"))
 	res := s.Resolve(recs)
@@ -262,8 +326,8 @@ func TestOverlayMarkersCustomFields(t *testing.T) {
 }
 
 func TestResolveAssignsAxis(t *testing.T) {
-	s, _ := Load(strings.NewReader(`{"version":1,"type":"line","data":{"source":"x","kind":"price"},` +
-		`"x":{"field":"time"},"y":[{"field":"close"},{"field":"vix","axis":"y2"}]}`))
+	s, _ := Load(strings.NewReader(`{"version":2,"mark":"line","data":{"source":"x","kind":"price"},` +
+		`"encoding":{"x":{"field":"time"},"y":[{"field":"close"},{"field":"vix","axis":"y2"}]}}`))
 	recs, _ := dataset.ReadJSONL(strings.NewReader(`{"time":"d1","close":1,"vix":2}`))
 	res := s.Resolve(recs)
 	if res.Series[0].Axis != "y" {
@@ -275,11 +339,14 @@ func TestResolveAssignsAxis(t *testing.T) {
 }
 
 func TestResolveBubbleBuildsPoints(t *testing.T) {
-	s, _ := Load(strings.NewReader(`{"version":1,"type":"bubble","data":{"source":"x","kind":"metric"},` +
-		`"x":{"field":"ret"},"y":[{"field":"vol"}],"size":{"field":"sz"}}`))
+	s, _ := Load(strings.NewReader(`{"version":2,"mark":"point","data":{"source":"x","kind":"metric"},` +
+		`"encoding":{"x":{"field":"ret"},"y":[{"field":"vol"}],"size":{"field":"sz"}}}`))
 	recs, _ := dataset.ReadJSONL(strings.NewReader(
 		`{"ret":12,"vol":40,"sz":1000}` + "\n" + `{"ret":-5,"vol":18,"sz":600}` + "\n"))
 	res := s.Resolve(recs)
+	if res.Chart != ChartBubble {
+		t.Fatalf("point with quantitative x should be a bubble, got %q", res.Chart)
+	}
 	if len(res.Labels) != 0 {
 		t.Fatalf("bubble should not produce category labels, got %v", res.Labels)
 	}
@@ -292,22 +359,55 @@ func TestResolveBubbleBuildsPoints(t *testing.T) {
 	}
 }
 
-func TestValidateBubbleRequiresSize(t *testing.T) {
-	s := Spec{
-		Version: 1, Type: ChartBubble,
-		Data: DataRef{Source: "x", Kind: dataset.KindMetric},
-		X:    Encoding{Field: "ret"}, Y: []Encoding{{Field: "vol"}},
+func TestPointNominalXResolvesToScatter(t *testing.T) {
+	s, _ := Load(strings.NewReader(`{"version":2,"mark":"point","data":{"source":"x","kind":"metric"},` +
+		`"encoding":{"x":{"field":"name","type":"nominal"},"y":[{"field":"value"}]}}`))
+	recs, _ := dataset.ReadJSONL(strings.NewReader(
+		`{"name":"A","value":2}` + "\n" + `{"name":"B","value":6}` + "\n"))
+	res := s.Resolve(recs)
+	if res.Chart != ChartScatter {
+		t.Fatalf("point with nominal x should be a scatter, got %q", res.Chart)
 	}
-	if err := s.Validate(); err == nil || !strings.Contains(err.Error(), "size") {
-		t.Fatalf("want size error, got %v", err)
+	if !equalStrings(res.Labels, []string{"A", "B"}) || res.Series[0].Values[1] != 6 {
+		t.Fatalf("scatter resolve = labels %v series %+v", res.Labels, res.Series)
+	}
+}
+
+func TestResolveHorizontalBarSwapsAxes(t *testing.T) {
+	// bar + nominal y = horizontal bar: the category comes from y, the measure from x.
+	s, _ := Load(strings.NewReader(`{"version":2,"mark":"bar","data":{"source":"x","kind":"metric"},` +
+		`"encoding":{"x":{"field":"value"},"y":[{"field":"name","type":"nominal"}]}}`))
+	recs, _ := dataset.ReadJSONL(strings.NewReader(
+		`{"name":"A","value":8}` + "\n" + `{"name":"B","value":3}` + "\n"))
+	res := s.Resolve(recs)
+	if res.Chart != ChartHBar {
+		t.Fatalf("bar with nominal y should be hbar, got %q", res.Chart)
+	}
+	if !equalStrings(res.Labels, []string{"A", "B"}) {
+		t.Fatalf("hbar labels (categories from y) = %v", res.Labels)
+	}
+	if len(res.Series) != 1 || res.Series[0].Values[0] != 8 || res.Series[0].Values[1] != 3 {
+		t.Fatalf("hbar series (measure from x) = %+v", res.Series)
+	}
+}
+
+func TestBubbleWithoutSizeIsValid(t *testing.T) {
+	// A point on quantitative axes with no size is a plain linear scatter — allowed (uniform radius).
+	s := Spec{
+		Version: Version, Mark: MarkPoint,
+		Data:     DataRef{Source: "x", Kind: dataset.KindMetric},
+		Encoding: Encoding{X: Channel{Field: "ret"}, Y: []Channel{{Field: "vol"}}},
+	}
+	if err := s.Validate(); err != nil {
+		t.Fatalf("point without size should validate: %v", err)
 	}
 }
 
 func TestValidateRejectsBadAxis(t *testing.T) {
 	s := Spec{
-		Version: 1, Type: ChartLine,
-		Data: DataRef{Source: "x", Kind: dataset.KindPrice},
-		X:    Encoding{Field: "time"}, Y: []Encoding{{Field: "close", Axis: "y3"}},
+		Version: Version, Mark: MarkLine,
+		Data:     DataRef{Source: "x", Kind: dataset.KindPrice},
+		Encoding: Encoding{X: Channel{Field: "time"}, Y: []Channel{{Field: "close", Axis: "y3"}}},
 	}
 	if err := s.Validate(); err == nil || !strings.Contains(err.Error(), "axis") {
 		t.Fatalf("want axis error, got %v", err)
@@ -316,9 +416,9 @@ func TestValidateRejectsBadAxis(t *testing.T) {
 
 func TestValidateRejectsBadOverlay(t *testing.T) {
 	s := Spec{
-		Version: 1, Type: ChartLine,
-		Data: DataRef{Source: "x", Kind: dataset.KindMetric},
-		X:    Encoding{Field: "time"}, Y: []Encoding{{Field: "value"}},
+		Version: Version, Mark: MarkLine,
+		Data:     DataRef{Source: "x", Kind: dataset.KindMetric},
+		Encoding: Encoding{X: Channel{Field: "time"}, Y: []Channel{{Field: "value"}}},
 		Overlays: []Overlay{{Kind: dataset.KindEvent}}, // missing source
 	}
 	if err := s.Validate(); err == nil || !strings.Contains(err.Error(), "overlays[0].source") {

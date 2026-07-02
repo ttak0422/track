@@ -16,8 +16,8 @@ func TestRenderCommandWritesHTML(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(dir, "prices.jsonl"), []byte(data), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	spec := `{"version":1,"type":"line","title":"AAPL","data":{"source":"prices.jsonl","kind":"price"},` +
-		`"x":{"field":"time"},"y":[{"field":"close"}],"filter":{"field":"entity","equals":"AAPL"}}`
+	spec := `{"version":2,"mark":"line","title":"AAPL","data":{"source":"prices.jsonl","kind":"price"},` +
+		`"encoding":{"x":{"field":"time"},"y":[{"field":"close"}]},"filter":{"field":"entity","equals":"AAPL"}}`
 	specPath := filepath.Join(dir, "spec.json")
 	if err := os.WriteFile(specPath, []byte(spec), 0o644); err != nil {
 		t.Fatal(err)
@@ -57,8 +57,8 @@ func TestRenderCommandDrawsOverlayMarkers(t *testing.T) {
 		[]byte(`{"version":1,"time":"d2","title":"tariff"}`+"\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	spec := `{"version":1,"type":"line","title":"P","data":{"source":"metrics.jsonl","kind":"metric"},` +
-		`"x":{"field":"time"},"y":[{"field":"value"}],` +
+	spec := `{"version":2,"mark":"line","title":"P","data":{"source":"metrics.jsonl","kind":"metric"},` +
+		`"encoding":{"x":{"field":"time"},"y":[{"field":"value"}]},` +
 		`"overlays":[{"source":"events.jsonl","kind":"event","at":"time","label":"title"}]}`
 	specPath := filepath.Join(dir, "spec.json")
 	if err := os.WriteFile(specPath, []byte(spec), 0o644); err != nil {
@@ -91,7 +91,7 @@ func TestRenderArticleComposesDocument(t *testing.T) {
 	}
 	art := `{"version":1,"title":"Doc","blocks":[` +
 		`{"markdown":"# Intro"},` +
-		`{"chart":{"version":1,"type":"line","data":{"source":"metrics.jsonl","kind":"metric"},"x":{"field":"time"},"y":[{"field":"value"}]}}` +
+		`{"chart":{"version":2,"mark":"line","data":{"source":"metrics.jsonl","kind":"metric"},"encoding":{"x":{"field":"time"},"y":[{"field":"value"}]}}}` +
 		`]}`
 	artPath := filepath.Join(dir, "article.json")
 	if err := os.WriteFile(artPath, []byte(art), 0o644); err != nil {
@@ -129,13 +129,14 @@ func TestRenderHelpListsNotationAndExits0(t *testing.T) {
 		t.Fatalf("--help should exit 0, got %d: %q", code, out)
 	}
 	for _, want := range []string{
-		"line | bar | hbar | scatter | bubble",  // chart types from viewspec.RenderableTypes
+		"line | bar | point | area | rect",      // marks from viewspec.Marks
+		"quantitative | nominal",                // channel types from viewspec.ChannelTypes
 		"event | price | metric",                // kinds from dataset.KnownKinds
 		"Canonical Data Model",                  // input data format section
 		"entity* time* open* high* low* close*", // price fields from dataset.KindFields (required marked)
 		"y[].axis:",                             // secondary axis notation
 		"overlays[]:",                           // overlay notation
-		"renderers:   chartjs",                  // renderer names
+		"chartjs | svg",                         // renderer names
 		`"source": "metrics.jsonl"`,             // example spec
 	} {
 		if !strings.Contains(out, want) {

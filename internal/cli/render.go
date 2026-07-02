@@ -78,7 +78,7 @@ func resolvedCount(res viewspec.Resolved) int {
 	switch {
 	case res.Grid != nil:
 		return len(res.Grid.Cells)
-	case res.Spec.Type == viewspec.ChartBubble && len(res.Series) > 0:
+	case res.Chart == viewspec.ChartBubble && len(res.Series) > 0:
 		return len(res.Series[0].Points)
 	default:
 		return len(res.Labels)
@@ -211,47 +211,58 @@ func canonicalModelReference() string {
 }
 
 // viewSpecReference renders the View Spec notation for `track render --help`. The enumerated values
-// (chart types, data kinds, axes, renderers) are pulled from their defining packages so help never
-// drifts from what the code actually accepts.
+// (marks, channel types, data kinds, axes, renderers) are pulled from their defining packages so help
+// never drifts from what the code actually accepts.
 func viewSpecReference() string {
 	kinds := make([]string, len(dataset.KnownKinds))
 	for i, k := range dataset.KnownKinds {
 		kinds[i] = string(k)
 	}
-	types := make([]string, len(viewspec.RenderableTypes))
-	for i, t := range viewspec.RenderableTypes {
-		types[i] = string(t)
+	marks := make([]string, len(viewspec.Marks))
+	for i, m := range viewspec.Marks {
+		marks[i] = string(m)
+	}
+	chTypes := make([]string, len(viewspec.ChannelTypes))
+	for i, t := range viewspec.ChannelTypes {
+		chTypes[i] = string(t)
 	}
 	var b strings.Builder
 	b.WriteString(canonicalModelReference())
-	b.WriteString("\nView Spec (JSON) reference:\n")
-	fmt.Fprintf(&b, "  type:        %s\n", strings.Join(types, " | "))
-	fmt.Fprintf(&b, "  data.kind:   %s\n", strings.Join(kinds, " | "))
-	b.WriteString("  x.field:     record field for x-axis labels\n")
-	b.WriteString("  y[].field:   numeric record field (one or more series)\n")
-	fmt.Fprintf(&b, "  y[].axis:    %s   (y2 = secondary right-hand axis)\n", strings.Join(viewspec.AxisOptions, " | "))
-	b.WriteString("  filter:      {field, equals}  keep records where field == equals (shorthand)\n")
-	fmt.Fprintf(&b, "               {all:[{field, op, value}]}  AND conditions; op: %s (range/period)\n", strings.Join(viewspec.FilterOps, " | "))
-	b.WriteString("  overlays[]:  {source, kind, at=time, label=text}  vertical event/annotation markers\n")
-	fmt.Fprintf(&b, "  renderers:   %s\n", strings.Join(render.Names(), " | "))
+	b.WriteString("\nView Spec (JSON) reference — mark names what to draw, encoding maps fields to channels:\n")
+	fmt.Fprintf(&b, "  mark:            %s\n", strings.Join(marks, " | "))
+	fmt.Fprintf(&b, "  data.kind:       %s\n", strings.Join(kinds, " | "))
+	b.WriteString("  encoding.x:      {field, type?}   x channel\n")
+	b.WriteString("  encoding.y[]:    {field, type?, title?, axis?}   one or more y series\n")
+	fmt.Fprintf(&b, "  encoding.*.type: %s   (default quantitative; nominal = category)\n", strings.Join(chTypes, " | "))
+	fmt.Fprintf(&b, "  y[].axis:        %s   (y2 = secondary right-hand axis)\n", strings.Join(viewspec.AxisOptions, " | "))
+	b.WriteString("  encoding.color:  {field}   rect (heatmap) cell value\n")
+	b.WriteString("  encoding.size:   {field}   point radius (bubble / timeline dot)\n")
+	b.WriteString("  filter:          {field, equals}  keep records where field == equals (shorthand)\n")
+	fmt.Fprintf(&b, "                   {all:[{field, op, value}]}  AND conditions; op: %s (range/period)\n", strings.Join(viewspec.FilterOps, " | "))
+	b.WriteString("  overlays[]:      {source, kind, at=time, label=text}  vertical event/annotation markers\n")
+	fmt.Fprintf(&b, "  renderers:       %s\n", strings.Join(render.Names(), " | "))
+	b.WriteString("\nMarks cover the old chart types: bar+nominal-y = horizontal bar; point =\n")
+	b.WriteString("scatter (nominal x) / bubble (quantitative x) / timeline (nominal y); rect = heatmap.\n")
 	b.WriteString("\nExample:\n")
 	b.WriteString(`  {
-    "version": 1,
-    "type": "line",
+    "version": 2,
+    "mark": "line",
     "title": "Price vs Index",
     "data": { "source": "metrics.jsonl", "kind": "metric" },
-    "x": { "field": "time" },
-    "y": [
-      { "field": "close", "label": "Close", "axis": "y" },
-      { "field": "index", "label": "Index", "axis": "y2" }
-    ],
+    "encoding": {
+      "x": { "field": "time" },
+      "y": [
+        { "field": "close", "title": "Close", "axis": "y" },
+        { "field": "index", "title": "Index", "axis": "y2" }
+      ]
+    },
     "overlays": [
       { "source": "events.jsonl", "kind": "event", "at": "time", "label": "title" }
     ]
   }
 
-Bubble adds size (radius):
-  { "type": "bubble", ..., "x": {"field":"ret"}, "y": [{"field":"vol"}], "size": {"field":"exposure"} }
+Bubble is a point with a size (radius) channel:
+  { "mark": "point", ..., "encoding": { "x": {"field":"ret"}, "y": [{"field":"vol"}], "size": {"field":"exposure"} } }
 
 Article (composed document): a spec with a "blocks" array of prose, charts, and
 tables is rendered as one HTML page (prose via marked, charts via Chart.js,

@@ -1,17 +1,46 @@
 {
-  "version": 1,
-  "type": "line",
+  "version": 2,
+  "mark": "line",
   "title": "Line",
   "data": {
     "kind": "metric",
     "records": [
-      { "name": "Series", "time": "1", "value": 3 },
-      { "name": "Series", "time": "2", "value": 7 },
-      { "name": "Series", "time": "3", "value": 4 },
-      { "name": "Series", "time": "4", "value": 8 },
-      { "name": "Series", "time": "5", "value": 6 }
+      {
+        "name": "Series",
+        "time": "1",
+        "value": 3
+      },
+      {
+        "name": "Series",
+        "time": "2",
+        "value": 7
+      },
+      {
+        "name": "Series",
+        "time": "3",
+        "value": 4
+      },
+      {
+        "name": "Series",
+        "time": "4",
+        "value": 8
+      },
+      {
+        "name": "Series",
+        "time": "5",
+        "value": 6
+      }
     ]
   },
-  "x": { "field": "time" },
-  "y": [ { "field": "value", "label": "value" } ]
+  "encoding": {
+    "x": {
+      "field": "time"
+    },
+    "y": [
+      {
+        "field": "value",
+        "title": "value"
+      }
+    ]
+  }
 }

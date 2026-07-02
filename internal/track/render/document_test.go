@@ -9,7 +9,7 @@ import (
 
 func lineChart(label string, vals []float64) viewspec.Resolved {
 	return viewspec.Resolved{
-		Spec:   viewspec.Spec{Version: 1, Type: viewspec.ChartLine},
+		Spec: viewspec.Spec{}, Chart: viewspec.ChartLine,
 		Labels: []string{"a", "b"},
 		Series: []viewspec.Series{{Label: label, Values: vals}},
 	}

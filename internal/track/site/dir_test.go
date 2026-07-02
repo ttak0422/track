@@ -98,8 +98,8 @@ func TestBuildDirRendersSpecAssetToSVG(t *testing.T) {
 	if err := os.MkdirAll(filepath.Join(src, "assets"), 0o755); err != nil {
 		t.Fatal(err)
 	}
-	spec := `{"version":1,"type":"bar","title":"Demo","data":{"kind":"metric","records":[
-		{"name":"A","time":"t1","value":3},{"name":"B","time":"t1","value":7}]},"x":{"field":"name"},"y":[{"field":"value"}]}`
+	spec := `{"version":2,"mark":"bar","title":"Demo","data":{"kind":"metric","records":[
+		{"name":"A","time":"t1","value":3},{"name":"B","time":"t1","value":7}]},"encoding":{"x":{"field":"name","type":"nominal"},"y":[{"field":"value"}]}}`
 	write(filepath.Join("assets", "c.viewspec.json"), spec)
 
 	out := t.TempDir()

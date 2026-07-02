@@ -1,15 +1,36 @@
 {
-  "version": 1,
-  "type": "hbar",
+  "version": 2,
+  "mark": "bar",
   "title": "Horizontal bar",
   "data": {
     "kind": "metric",
     "records": [
-      { "name": "A", "time": "t", "value": 8 },
-      { "name": "B", "time": "t", "value": 3 },
-      { "name": "C", "time": "t", "value": 5 }
+      {
+        "name": "A",
+        "time": "t",
+        "value": 8
+      },
+      {
+        "name": "B",
+        "time": "t",
+        "value": 3
+      },
+      {
+        "name": "C",
+        "time": "t",
+        "value": 5
+      }
     ]
   },
-  "x": { "field": "name" },
-  "y": [ { "field": "value" } ]
+  "encoding": {
+    "x": {
+      "field": "value"
+    },
+    "y": [
+      {
+        "field": "name",
+        "type": "nominal"
+      }
+    ]
+  }
 }

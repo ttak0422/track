@@ -1,7 +1,9 @@
 # Visualization: Canonical Data Model, View Spec, and Rendering
 
 This document specifies how track represents visualization data and how it draws charts from a
-declarative spec. Design rationale is in [ADR 0021](../adr/0021-visualization-canonical-data-model.md).
+declarative spec. Design rationale is in [ADR 0021](../adr/0021-visualization-canonical-data-model.md)
+(Canonical Data Model, renderer registry) and
+[ADR 0024](../adr/0024-mark-encoding-view-spec.md) (the mark + encoding View Spec, v2).
 
 track never fetches data. External sources are converted into the Canonical Data Model below by
 separate `track-fetch-*` tools (out of scope here); track only imports, queries, and renders that model.
@@ -58,42 +60,55 @@ deliberately strict; loosening a field later is a one-line struct change.)
 ## View Spec
 
 Defined in `internal/track/viewspec`. A View Spec is a renderer-independent JSON description of one
-chart over a single data source. Unknown fields are rejected.
+chart over a single data source. A **`mark`** names *what* is drawn; an **`encoding`** maps record
+fields onto *visual channels* (x, y series, color, size), orthogonally. Unknown fields are rejected.
 
 ```json
 {
-  "version": 1,
-  "type": "line",
+  "version": 2,
+  "mark": "line",
   "title": "AAPL close",
   "data": { "source": "prices.jsonl", "kind": "price" },
-  "x": { "field": "time", "label": "Date" },
-  "y": [ { "field": "close", "label": "Close" } ],
+  "encoding": {
+    "x": { "field": "time", "title": "Date" },
+    "y": [ { "field": "close", "title": "Close" } ]
+  },
   "filter": { "field": "entity", "equals": "AAPL" }
 }
 ```
 
-| Field      | Required | Notes                                                                       |
-|------------|----------|-----------------------------------------------------------------------------|
-| `version`  | yes      | View Spec schema version (current: `1`).                                     |
-| `type`     | yes      | `line`, `bar`, `hbar` (ranking), `scatter`, `bubble`, `heatmap`, or `timeline` (last two SVG-only). |
-| `title`    | no       | Chart and page title.                                                        |
-| `data.source` | one of | Path to a JSONL file, resolved **relative to the spec file** (or absolute).  |
-| `data.records`| one of | Inline data: an array of records carried in the spec (mutually exclusive with `source`). |
-| `data.kind`   | yes   | One of the canonical kinds.                                                  |
-| `x.field`  | yes      | Record field used for x-axis labels (category), or numeric x for `bubble`.   |
-| `y`        | yes      | One or more series; each `y[i].field` is a numeric record field.            |
-| `size`     | bubble/heatmap | Numeric encoding: bubble radius (required for `bubble`), heatmap cell value (required for `heatmap`), or timeline dot radius (optional). |
-| `filter`   | no       | Keep matching records. Shorthand `{field, equals}` or `{all: [{field, op, value}]}` (AND). |
-| `overlays` | no       | Vertical event/annotation markers drawn over the chart (see below).         |
+| Field            | Required | Notes                                                                 |
+|------------------|----------|-----------------------------------------------------------------------|
+| `version`        | yes      | View Spec schema version (current: `2`).                              |
+| `mark`           | yes      | `line`, `bar`, `point`, `area`, or `rect`.                            |
+| `title`          | no       | Chart and page title.                                                 |
+| `data.source`    | one of   | Path to a JSONL file, resolved **relative to the spec file** (or absolute). |
+| `data.records`   | one of   | Inline data: an array of records carried in the spec (mutually exclusive with `source`). |
+| `data.kind`      | yes      | One of the canonical kinds.                                           |
+| `encoding.x`     | yes      | The x channel: `{ field, type?, title? }`.                           |
+| `encoding.y`     | yes      | One or more y series; each `{ field, type?, title?, axis? }`.        |
+| `encoding.color` | rect     | Value channel for a `rect` (heatmap) cell.                           |
+| `encoding.size`  | no       | Radius channel for a `point` (bubble radius / timeline dot).         |
+| `filter`         | no       | Keep matching records. Shorthand `{field, equals}` or `{all: [{field, op, value}]}` (AND). |
+| `overlays`       | no       | Vertical event/annotation markers drawn over the chart (see below).  |
 
-`label` overrides the legend/axis text, defaulting to the field name. A y series may set
+A channel's `type` is `quantitative` (default, a measure) or `nominal` (a category). The type is the
+hint that lets one mark cover the former chart types, since it names which axis is categorical:
+
+- **`bar`** with a **nominal y** (and the measure on `x`) draws **horizontal** bars (a ranking);
+  a nominal x with a numeric y is the usual vertical bar.
+- **`point`** is a **scatter** with a nominal x, a **bubble** (linear axes, `{x,y,r}`) with a
+  quantitative x, or a **timeline** swimlane with a nominal y.
+- **`rect`** is a **heatmap**: nominal x and y form the grid, `color` gives the cell value.
+
+`title` overrides the legend/axis text, defaulting to the field name. A y channel may set
 `"axis": "y2"` to plot on a secondary right-hand axis (default `"y"`), so series on different scales —
 e.g. a price and an index — can share one x-axis:
 
 ```json
 "y": [
-  { "field": "close", "label": "Close", "axis": "y" },
-  { "field": "index", "label": "Index", "axis": "y2" }
+  { "field": "close", "title": "Close", "axis": "y" },
+  { "field": "index", "title": "Index", "axis": "y2" }
 ]
 ```
 
@@ -117,28 +132,30 @@ filtering use `all` with comparison operators:
 compare numerically when both the record value and `value` parse as numbers, otherwise lexically — so
 ISO timestamps and numeric fields both order correctly. Shorthand and `all` combine.
 
-### Grid charts (`heatmap`, `timeline`)
+### Grid charts (heatmap, timeline)
 
-Two **SVG-only** chart types map records onto a 2D grid of `x` columns × `y[0]` rows (both treated as
-categories, accumulated in first-seen order). The Chart.js renderer rejects them.
+Two **SVG-only** drawing forms map records onto a 2D grid of `x` columns × `y[0]` rows (both **nominal**,
+accumulated in first-seen order). The Chart.js renderer rejects them.
 
-- **`heatmap`** colors each cell by `size.field` (light → dark, with a value legend); `size` is
-  required. Repeated `(column, row)` cells draw later-record-on-top. A cell with no value is gray.
-  Use it for a value-per-pair matrix, e.g. sector × quarter return.
+- **Heatmap** (`mark: rect`) colors each cell by `encoding.color.field` (light → dark, with a value
+  legend); `color` is required. Repeated `(column, row)` cells draw later-record-on-top. A cell with
+  no value is gray. Use it for a value-per-pair matrix, e.g. sector × quarter return.
 
   ```json
-  { "version": 1, "type": "heatmap", "data": { "source": "returns.jsonl", "kind": "metric" },
-    "x": { "field": "time", "label": "Quarter" }, "y": [ { "field": "entity", "label": "Sector" } ],
-    "size": { "field": "value" } }
+  { "version": 2, "mark": "rect", "data": { "source": "returns.jsonl", "kind": "metric" },
+    "encoding": { "x": { "field": "time", "type": "nominal", "title": "Quarter" },
+                  "y": [ { "field": "entity", "type": "nominal", "title": "Sector" } ],
+                  "color": { "field": "value" } } }
   ```
 
-- **`timeline`** places one dot per record at its `(x column, y[0] lane)`; an optional `size.field`
-  scales the dot radius, and each lane gets its own color. Use it for a swimlane event strip, e.g.
-  events per entity over time.
+- **Timeline** (`mark: point` with a **nominal y**) places one dot per record at its
+  `(x column, y[0] lane)`; an optional `encoding.size.field` scales the dot radius, and each lane gets
+  its own color. Use it for a swimlane event strip, e.g. events per entity over time.
 
   ```json
-  { "version": 1, "type": "timeline", "data": { "source": "events.jsonl", "kind": "event" },
-    "x": { "field": "time" }, "y": [ { "field": "entity" } ] }
+  { "version": 2, "mark": "point", "data": { "source": "events.jsonl", "kind": "event" },
+    "encoding": { "x": { "field": "time", "type": "nominal" },
+                  "y": [ { "field": "entity", "type": "nominal" } ] } }
   ```
 
 ### Overlays (event/annotation markers)
@@ -171,9 +188,9 @@ inline array), never both. Inline data makes a spec self-contained — a single 
 `json.Number`); `Record.Float` reads them the same way.
 
 ```json
-{ "version": 1, "type": "line", "data": { "kind": "metric",
+{ "version": 2, "mark": "line", "data": { "kind": "metric",
     "records": [ { "name": "PI", "time": "01", "value": 100 }, { "name": "PI", "time": "02", "value": 110 } ] },
-  "x": { "field": "time" }, "y": [ { "field": "value" } ] }
+  "encoding": { "x": { "field": "time" }, "y": [ { "field": "value" } ] } }
 ```
 
 ### Embedding a chart as an asset
@@ -194,11 +211,14 @@ workspace does not yet render embedded specs (it reuses the same `render.SVGFrom
 
 ### Resolution semantics
 
-Applying a spec to records (`Spec.Resolve`) produces aligned x labels and one series of values per `y`:
+Applying a spec to records (`Spec.Resolve`) first derives the drawing form from the mark and channel
+types, then produces the aligned data that form needs (category-axis series, horizontal bars, linear
+bubble points, or a grid), recorded on `Resolved.Chart` so a renderer switches over one concrete shape:
 
 - Records failing the filter are dropped.
-- Each surviving record contributes its `x` value as a label and each `y` field as a series value.
-- A record **missing a y value** contributes `NaN`, which renders as a gap (not a zero).
+- For the series forms, each surviving record contributes its `x` (or, for horizontal bars, its nominal
+  `y`) as a label and each measure field as a series value.
+- A record **missing a numeric value** contributes `NaN`, which renders as a gap (not a zero).
 
 ## Rendering
 
@@ -210,11 +230,12 @@ output formats can be added without changing the model or the spec.
 Emits a self-contained HTML page that loads **Chart.js from a CDN**
 (`https://cdn.jsdelivr.net/npm/chart.js@4`) and draws the chart in a `<canvas>`:
 
-- `line`/`bar` map directly to Chart.js types over a category x-axis.
-- `hbar` renders as a Chart.js `bar` with `indexAxis: "y"` (horizontal), for rankings.
-- `scatter` uses the same category x-axis with the connecting line suppressed.
-- `bubble` plots one `{x, y, r}` point per record (numeric `x`, `y[i]`, and `size`); points missing a
-  coordinate are skipped and a missing/non-positive radius falls back to a small default.
+- `line`/`bar` marks map directly to Chart.js types over a category x-axis.
+- A `bar` with a nominal y renders as a Chart.js `bar` with `indexAxis: "y"` (horizontal), for rankings.
+- A `point` with a nominal x (scatter) uses the same category x-axis with the connecting line suppressed.
+- A `point` with a quantitative x (bubble) plots one `{x, y, r}` point per record (numeric `x`, `y[i]`,
+  and `size`); points missing a coordinate are skipped and a missing/non-positive radius falls back to a
+  small default.
 - A series with `axis: "y2"` is bound to a right-hand secondary linear axis (its gridlines kept off the
   chart area); single-axis charts define no `y2`.
 - `NaN`/`Inf` values are emitted as JSON `null` (a gap).
@@ -227,13 +248,13 @@ Emits a self-contained HTML page that loads **Chart.js from a CDN**
 Emits a **static, self-contained SVG** — no scripts, no CDN, no network access at view time — so the
 output embeds directly in notes, emails, or a static site:
 
-- `line`/`bar`/`hbar`/`scatter` are drawn over a category x-axis (bars are grouped per series; `hbar`
-  runs categories down the y-axis for rankings).
-- `bubble` is drawn over **linear** x and y axes (one circle per `{x, y, r}` point, sized by `size`); a
-  point missing x or y is skipped and a missing/non-positive radius falls back to a small default, like
-  the Chart.js renderer.
-- The value axis spans the data range; `bar`/`hbar` pin the baseline to zero.
-- `NaN`/`Inf` values are gaps: a `line` breaks its segment, a `bar`/`scatter`/`bubble` point is omitted.
+- line/bar/scatter are drawn over a category x-axis (bars are grouped per series; a nominal-y bar runs
+  categories down the y-axis for rankings).
+- A bubble (quantitative-x point) is drawn over **linear** x and y axes (one circle per `{x, y, r}`
+  point, sized by `size`); a point missing x or y is skipped and a missing/non-positive radius falls
+  back to a small default, like the Chart.js renderer.
+- The value axis spans the data range; bars pin the baseline to zero.
+- `NaN`/`Inf` values are gaps: a line breaks its segment, a bar/scatter/bubble point is omitted.
 - **Overlay markers** are vertical lines at the matching category label (mirroring the Chart.js
   annotation overlays).
 
@@ -251,11 +272,11 @@ array.
   "title": "Market narrative",
   "blocks": [
     { "markdown": "# Overview\n\nNarrative text with **bold** and [links](https://example.com)." },
-    { "chart": { "version": 1, "type": "line", "data": { "source": "metrics.jsonl", "kind": "metric" },
-                 "x": { "field": "time" }, "y": [ { "field": "value" } ] } },
+    { "chart": { "version": 2, "mark": "line", "data": { "source": "metrics.jsonl", "kind": "metric" },
+                 "encoding": { "x": { "field": "time" }, "y": [ { "field": "value" } ] } } },
     { "markdown": "Commentary between charts." },
-    { "chart": { "version": 1, "type": "hbar", "data": { "source": "ranking.jsonl", "kind": "metric" },
-                 "x": { "field": "name" }, "y": [ { "field": "value" } ] } },
+    { "chart": { "version": 2, "mark": "bar", "data": { "source": "ranking.jsonl", "kind": "metric" },
+                 "encoding": { "x": { "field": "value" }, "y": [ { "field": "name", "type": "nominal" } ] } } },
     { "table": { "data": { "source": "trades.jsonl", "kind": "event" },
                  "columns": [ { "field": "time", "label": "Date" }, { "field": "entity" } ],
                  "filter": true } }

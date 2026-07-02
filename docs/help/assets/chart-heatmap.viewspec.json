@@ -1,19 +1,61 @@
 {
-  "version": 1,
-  "type": "heatmap",
+  "version": 2,
+  "mark": "rect",
   "title": "Heatmap",
   "data": {
     "kind": "metric",
     "records": [
-      { "name": "m", "entity": "R1", "time": "C1", "value": 1 },
-      { "name": "m", "entity": "R1", "time": "C2", "value": 5 },
-      { "name": "m", "entity": "R1", "time": "C3", "value": 3 },
-      { "name": "m", "entity": "R2", "time": "C1", "value": 4 },
-      { "name": "m", "entity": "R2", "time": "C2", "value": 2 },
-      { "name": "m", "entity": "R2", "time": "C3", "value": 6 }
+      {
+        "name": "m",
+        "entity": "R1",
+        "time": "C1",
+        "value": 1
+      },
+      {
+        "name": "m",
+        "entity": "R1",
+        "time": "C2",
+        "value": 5
+      },
+      {
+        "name": "m",
+        "entity": "R1",
+        "time": "C3",
+        "value": 3
+      },
+      {
+        "name": "m",
+        "entity": "R2",
+        "time": "C1",
+        "value": 4
+      },
+      {
+        "name": "m",
+        "entity": "R2",
+        "time": "C2",
+        "value": 2
+      },
+      {
+        "name": "m",
+        "entity": "R2",
+        "time": "C3",
+        "value": 6
+      }
     ]
   },
-  "x": { "field": "time" },
-  "y": [ { "field": "entity" } ],
-  "size": { "field": "value" }
+  "encoding": {
+    "x": {
+      "field": "time",
+      "type": "nominal"
+    },
+    "y": [
+      {
+        "field": "entity",
+        "type": "nominal"
+      }
+    ],
+    "color": {
+      "field": "value"
+    }
+  }
 }

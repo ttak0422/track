@@ -1,18 +1,55 @@
 {
-  "version": 1,
-  "type": "timeline",
+  "version": 2,
+  "mark": "point",
   "title": "Timeline",
   "data": {
     "kind": "metric",
     "records": [
-      { "name": "m", "entity": "A", "time": "1", "value": 3 },
-      { "name": "m", "entity": "A", "time": "2", "value": 6 },
-      { "name": "m", "entity": "A", "time": "3", "value": 2 },
-      { "name": "m", "entity": "B", "time": "1", "value": 4 },
-      { "name": "m", "entity": "B", "time": "3", "value": 5 }
+      {
+        "name": "m",
+        "entity": "A",
+        "time": "1",
+        "value": 3
+      },
+      {
+        "name": "m",
+        "entity": "A",
+        "time": "2",
+        "value": 6
+      },
+      {
+        "name": "m",
+        "entity": "A",
+        "time": "3",
+        "value": 2
+      },
+      {
+        "name": "m",
+        "entity": "B",
+        "time": "1",
+        "value": 4
+      },
+      {
+        "name": "m",
+        "entity": "B",
+        "time": "3",
+        "value": 5
+      }
     ]
   },
-  "x": { "field": "time" },
-  "y": [ { "field": "entity" } ],
-  "size": { "field": "value" }
+  "encoding": {
+    "x": {
+      "field": "time",
+      "type": "nominal"
+    },
+    "y": [
+      {
+        "field": "entity",
+        "type": "nominal"
+      }
+    ],
+    "size": {
+      "field": "value"
+    }
+  }
 }

@@ -19,12 +19,12 @@ func goldenCases() map[string]viewspec.Resolved {
 	xy := []string{"a", "b", "c"}
 	return map[string]viewspec.Resolved{
 		"line": {
-			Spec:   viewspec.Spec{Version: 1, Type: viewspec.ChartLine, Title: "Line"},
+			Spec: viewspec.Spec{Title: "Line"}, Chart: viewspec.ChartLine,
 			Labels: xy,
 			Series: []viewspec.Series{{Label: "S1", Values: []float64{1, math.NaN(), 3}}},
 		},
 		"bar": {
-			Spec:   viewspec.Spec{Version: 1, Type: viewspec.ChartBar, Title: "Bar"},
+			Spec: viewspec.Spec{Title: "Bar"}, Chart: viewspec.ChartBar,
 			Labels: xy,
 			Series: []viewspec.Series{
 				{Label: "S1", Values: []float64{1, 2, 3}},
@@ -32,12 +32,12 @@ func goldenCases() map[string]viewspec.Resolved {
 			},
 		},
 		"scatter": {
-			Spec:   viewspec.Spec{Version: 1, Type: viewspec.ChartScatter, Title: "Scatter"},
+			Spec: viewspec.Spec{Title: "Scatter"}, Chart: viewspec.ChartScatter,
 			Labels: xy,
 			Series: []viewspec.Series{{Label: "S1", Values: []float64{1, 2, 3}}},
 		},
 		"bubble": {
-			Spec: viewspec.Spec{Version: 1, Type: viewspec.ChartBubble, Title: "Bubble"},
+			Spec: viewspec.Spec{Title: "Bubble"}, Chart: viewspec.ChartBubble,
 			Series: []viewspec.Series{{Label: "S1", Points: []viewspec.Point{
 				{X: 1, Y: 2, R: 5},
 				{X: 3, Y: 4, R: 12},
@@ -45,18 +45,18 @@ func goldenCases() map[string]viewspec.Resolved {
 			}}},
 		},
 		"hbar": {
-			Spec:   viewspec.Spec{Version: 1, Type: viewspec.ChartHBar, Title: "Ranking"},
+			Spec: viewspec.Spec{Title: "Ranking"}, Chart: viewspec.ChartHBar,
 			Labels: xy,
 			Series: []viewspec.Series{{Label: "S1", Values: []float64{3, 2, 1}}},
 		},
 		"line-overlay": {
-			Spec:    viewspec.Spec{Version: 1, Type: viewspec.ChartLine, Title: "Pressure"},
+			Spec: viewspec.Spec{Title: "Pressure"}, Chart: viewspec.ChartLine,
 			Labels:  xy,
 			Series:  []viewspec.Series{{Label: "Index", Values: []float64{1, 2, 3}}},
 			Markers: []viewspec.Marker{{At: "b", Label: "event"}},
 		},
 		"heatmap": {
-			Spec: viewspec.Spec{Version: 1, Type: viewspec.ChartHeatmap, Title: "Heat"},
+			Spec: viewspec.Spec{Title: "Heat"}, Chart: viewspec.ChartHeatmap,
 			Grid: &viewspec.Grid{
 				Cols:  []string{"Q1", "Q2"},
 				Rows:  []string{"Tech", "Energy"},
@@ -64,7 +64,7 @@ func goldenCases() map[string]viewspec.Resolved {
 			},
 		},
 		"timeline": {
-			Spec: viewspec.Spec{Version: 1, Type: viewspec.ChartTimeline, Title: "Events"},
+			Spec: viewspec.Spec{Title: "Events"}, Chart: viewspec.ChartTimeline,
 			Grid: &viewspec.Grid{
 				Cols:  []string{"d1", "d2", "d3"},
 				Rows:  []string{"AAPL", "MSFT"},

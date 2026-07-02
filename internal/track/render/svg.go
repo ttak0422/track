@@ -38,19 +38,19 @@ func svgColor(i int) string { return svgPalette[i%len(svgPalette)] }
 
 // Render produces a complete SVG document for the resolved spec.
 func (SVG) Render(res viewspec.Resolved) (string, error) {
-	switch res.Spec.Type {
+	switch res.Chart {
 	case viewspec.ChartBubble:
 		return renderBubble(res), nil
 	case viewspec.ChartHeatmap, viewspec.ChartTimeline:
 		return renderGrid(res), nil
 	}
 	g := svgGeom{w: 800, h: 480, left: 56, right: 16, top: 40, bottom: 56}
-	lo, hi := valueRange(res.Series, res.Spec.Type)
+	lo, hi := valueRange(res.Series, res.Chart)
 
 	var b strings.Builder
 	writeSVGHeader(&b, g, res.Spec.Title)
 	writeAxes(&b, g, res, lo, hi)
-	if res.Spec.Type == viewspec.ChartHBar {
+	if res.Chart == viewspec.ChartHBar {
 		writeHBars(&b, g, res, lo, hi)
 	} else {
 		writeSeries(&b, g, res, lo, hi)
@@ -113,7 +113,7 @@ func writeAxes(b *strings.Builder, g svgGeom, res viewspec.Resolved, lo, hi floa
 	fmt.Fprintf(b, `<rect x="%g" y="%g" width="%g" height="%g" fill="none" stroke="#cccccc"/>`+"\n",
 		g.left, g.top, g.plotW(), g.plotH())
 
-	if res.Spec.Type == viewspec.ChartHBar {
+	if res.Chart == viewspec.ChartHBar {
 		// Value axis horizontal: vertical gridlines + value labels along the bottom.
 		for _, frac := range []float64{0, 0.5, 1} {
 			v := lo + (hi-lo)*frac
@@ -152,7 +152,7 @@ func writeAxes(b *strings.Builder, g svgGeom, res viewspec.Resolved, lo, hi floa
 // writeSeries draws each y series for line/bar/scatter over a shared category x axis.
 func writeSeries(b *strings.Builder, g svgGeom, res viewspec.Resolved, lo, hi float64) {
 	centers := bandCenters(g, len(res.Labels))
-	switch res.Spec.Type {
+	switch res.Chart {
 	case viewspec.ChartBar:
 		writeBars(b, g, res, centers, lo, hi)
 	case viewspec.ChartScatter:

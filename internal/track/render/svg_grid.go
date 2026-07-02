@@ -26,7 +26,7 @@ func writeSVGHeader(b *strings.Builder, g svgGeom, title string) {
 // x columns × y rows; heatmap colors each cell by value, timeline places a sized dot per record.
 func renderGrid(res viewspec.Resolved) string {
 	g := svgGeom{w: 800, h: 480, left: 110, right: 16, top: 40, bottom: 56}
-	if res.Spec.Type == viewspec.ChartHeatmap {
+	if res.Chart == viewspec.ChartHeatmap {
 		g.right = 72 // room for the color legend
 	}
 	grid := res.Grid
@@ -36,7 +36,7 @@ func renderGrid(res viewspec.Resolved) string {
 	var b strings.Builder
 	writeSVGHeader(&b, g, res.Spec.Title)
 	writeGridAxes(&b, g, grid)
-	if res.Spec.Type == viewspec.ChartHeatmap {
+	if res.Chart == viewspec.ChartHeatmap {
 		writeHeatmapCells(&b, g, grid)
 	} else {
 		writeTimelineCells(&b, g, grid)

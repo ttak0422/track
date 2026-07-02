@@ -1,17 +1,46 @@
 {
-  "version": 1,
-  "type": "scatter",
+  "version": 2,
+  "mark": "point",
   "title": "Scatter",
   "data": {
     "kind": "metric",
     "records": [
-      { "name": "A", "time": "t", "value": 2 },
-      { "name": "B", "time": "t", "value": 6 },
-      { "name": "C", "time": "t", "value": 4 },
-      { "name": "D", "time": "t", "value": 7 },
-      { "name": "E", "time": "t", "value": 5 }
+      {
+        "name": "A",
+        "time": "t",
+        "value": 2
+      },
+      {
+        "name": "B",
+        "time": "t",
+        "value": 6
+      },
+      {
+        "name": "C",
+        "time": "t",
+        "value": 4
+      },
+      {
+        "name": "D",
+        "time": "t",
+        "value": 7
+      },
+      {
+        "name": "E",
+        "time": "t",
+        "value": 5
+      }
     ]
   },
-  "x": { "field": "name" },
-  "y": [ { "field": "value" } ]
+  "encoding": {
+    "x": {
+      "field": "name",
+      "type": "nominal"
+    },
+    "y": [
+      {
+        "field": "value"
+      }
+    ]
+  }
 }
