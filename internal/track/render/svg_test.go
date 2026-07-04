@@ -49,6 +49,16 @@ func goldenCases() map[string]viewspec.Resolved {
 			Labels: xy,
 			Series: []viewspec.Series{{Label: "S1", Values: []float64{3, 2, 1}}},
 		},
+		// The resolved shape of a color-channel split: one series per category, labeled with the
+		// category value, aligned to the shared x axis with NaN gaps.
+		"line-color": {
+			Spec: viewspec.Spec{Title: "By entity"}, Chart: viewspec.ChartLine,
+			Labels: xy,
+			Series: []viewspec.Series{
+				{Label: "A", Values: []float64{1, 2, math.NaN()}},
+				{Label: "B", Values: []float64{10, math.NaN(), 30}},
+			},
+		},
 		"line-overlay": {
 			Spec: viewspec.Spec{Title: "Pressure"}, Chart: viewspec.ChartLine,
 			Labels:  xy,

@@ -1,0 +1,60 @@
+{
+  "version": 2,
+  "mark": "line",
+  "title": "Color split",
+  "data": {
+    "kind": "metric",
+    "records": [
+      {
+        "name": "value",
+        "entity": "A",
+        "time": "1",
+        "value": 3
+      },
+      {
+        "name": "value",
+        "entity": "B",
+        "time": "1",
+        "value": 6
+      },
+      {
+        "name": "value",
+        "entity": "A",
+        "time": "2",
+        "value": 5
+      },
+      {
+        "name": "value",
+        "entity": "B",
+        "time": "2",
+        "value": 4
+      },
+      {
+        "name": "value",
+        "entity": "A",
+        "time": "3",
+        "value": 8
+      },
+      {
+        "name": "value",
+        "entity": "B",
+        "time": "3",
+        "value": 7
+      }
+    ]
+  },
+  "encoding": {
+    "x": {
+      "field": "time"
+    },
+    "y": [
+      {
+        "field": "value"
+      }
+    ],
+    "color": {
+      "field": "entity",
+      "type": "nominal"
+    }
+  }
+}

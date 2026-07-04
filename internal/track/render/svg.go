@@ -31,10 +31,13 @@ type svgGeom struct {
 func (g svgGeom) plotW() float64 { return g.w - g.left - g.right }
 func (g svgGeom) plotH() float64 { return g.h - g.top - g.bottom }
 
-// svgPalette cycles per series; six distinct hues are plenty for a readable static chart.
-var svgPalette = []string{"#4e79a7", "#f28e2b", "#e15759", "#76b7b2", "#59a14f", "#edc948"}
+// seriesPalette cycles per series index and is shared by both renderers, so the same spec draws its
+// series (including a color-channel category split) in the same deterministic colors everywhere. Six
+// distinct hues are plenty for a readable chart; the heatmap's quantitative color ramp (heatColor) is
+// a separate scale and unaffected.
+var seriesPalette = []string{"#4e79a7", "#f28e2b", "#e15759", "#76b7b2", "#59a14f", "#edc948"}
 
-func svgColor(i int) string { return svgPalette[i%len(svgPalette)] }
+func seriesColor(i int) string { return seriesPalette[i%len(seriesPalette)] }
 
 // Render produces a complete SVG document for the resolved spec.
 func (SVG) Render(res viewspec.Resolved) (string, error) {
@@ -162,12 +165,12 @@ func writeSeries(b *strings.Builder, g svgGeom, res viewspec.Resolved, lo, hi fl
 					continue
 				}
 				fmt.Fprintf(b, `<circle cx="%s" cy="%s" r="3.5" fill="%s"/>`+"\n",
-					num(centers[i]), num(yPixel(g, lo, hi, v)), svgColor(si))
+					num(centers[i]), num(yPixel(g, lo, hi, v)), seriesColor(si))
 			}
 		}
 	default: // line
 		for si, s := range res.Series {
-			writePolyline(b, g, centers, s.Values, lo, hi, svgColor(si))
+			writePolyline(b, g, centers, s.Values, lo, hi, seriesColor(si))
 		}
 	}
 }
@@ -212,7 +215,7 @@ func writeBars(b *strings.Builder, g svgGeom, res viewspec.Resolved, centers []f
 			y := yPixel(g, lo, hi, v)
 			top, h := math.Min(y, baseY), math.Abs(baseY-y)
 			fmt.Fprintf(b, `<rect x="%s" y="%s" width="%s" height="%s" fill="%s"/>`+"\n",
-				num(x), num(top), num(bw), num(h), svgColor(si))
+				num(x), num(top), num(bw), num(h), seriesColor(si))
 		}
 	}
 }
@@ -250,7 +253,7 @@ func writeHBars(b *strings.Builder, g svgGeom, res viewspec.Resolved, lo, hi flo
 			x := xPixel(g, lo, hi, v)
 			left, w := math.Min(x, baseX), math.Abs(x-baseX)
 			fmt.Fprintf(b, `<rect x="%s" y="%s" width="%s" height="%s" fill="%s"/>`+"\n",
-				num(left), num(y), num(w), num(bh), svgColor(si))
+				num(left), num(y), num(w), num(bh), seriesColor(si))
 		}
 	}
 }
@@ -292,7 +295,7 @@ func writeLegend(b *strings.Builder, g svgGeom, res viewspec.Resolved) {
 	y := g.top + 14
 	for si, s := range res.Series {
 		yi := y + float64(si)*16
-		fmt.Fprintf(b, `<rect x="%g" y="%g" width="10" height="10" fill="%s"/>`+"\n", x-10, yi-9, svgColor(si))
+		fmt.Fprintf(b, `<rect x="%g" y="%g" width="10" height="10" fill="%s"/>`+"\n", x-10, yi-9, seriesColor(si))
 		fmt.Fprintf(b, `<text x="%g" y="%g" font-size="11" text-anchor="end" fill="#333333">%s</text>`+"\n",
 			x-14, yi, html.EscapeString(s.Label))
 	}
@@ -327,7 +330,7 @@ func renderBubble(res viewspec.Resolved) string {
 	}
 
 	for si, s := range res.Series {
-		color := svgColor(si)
+		color := seriesColor(si)
 		for _, p := range s.Points {
 			if math.IsNaN(p.X) || math.IsNaN(p.Y) {
 				continue

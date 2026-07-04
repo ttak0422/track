@@ -235,7 +235,8 @@ func viewSpecReference() string {
 	b.WriteString("  encoding.y[]:    {field, type?, title?, axis?}   one or more y series\n")
 	fmt.Fprintf(&b, "  encoding.*.type: %s   (default quantitative; nominal = category)\n", strings.Join(chTypes, " | "))
 	fmt.Fprintf(&b, "  y[].axis:        %s   (y2 = secondary right-hand axis)\n", strings.Join(viewspec.AxisOptions, " | "))
-	b.WriteString("  encoding.color:  {field}   rect (heatmap) cell value\n")
+	b.WriteString("  encoding.color:  {field, type?}   rect: cell value; other marks: a nominal category\n")
+	b.WriteString("                   that splits records into one colored series per value (single y)\n")
 	b.WriteString("  encoding.size:   {field}   point radius (bubble / timeline dot)\n")
 	b.WriteString("  filter:          {field, equals}  keep records where field == equals (shorthand)\n")
 	fmt.Fprintf(&b, "                   {all:[{field, op, value}]}  AND conditions; op: %s (range/period)\n", strings.Join(viewspec.FilterOps, " | "))
@@ -263,6 +264,9 @@ func viewSpecReference() string {
 
 Bubble is a point with a size (radius) channel:
   { "mark": "point", ..., "encoding": { "x": {"field":"ret"}, "y": [{"field":"vol"}], "size": {"field":"exposure"} } }
+
+A nominal color splits records into one series per category (one line/bar/point group per value):
+  { "mark": "line", ..., "encoding": { "x": {"field":"time"}, "y": [{"field":"value"}], "color": {"field":"entity","type":"nominal"} } }
 
 Article (composed document): a spec with a "blocks" array of prose, charts, and
 tables is rendered as one HTML page (prose via marked, charts via Chart.js,

@@ -90,7 +90,9 @@ type Spec struct {
 
 // Encoding maps record fields onto the visual channels of a mark. X is the horizontal channel; Y is one
 // or more series on the vertical channel(s). Color and Size are optional: a rect (heatmap) reads its
-// cell value from Color; a point (bubble/timeline) reads its radius from Size.
+// cell value from Color; every other mark reads Color as a nominal category that splits records into
+// one series per value (each drawn in its own color); a point (bubble/timeline) reads its radius from
+// Size.
 type Encoding struct {
 	X     Channel   `json:"x"`
 	Y     []Channel `json:"y"`
@@ -296,6 +298,19 @@ func (s Spec) Validate() error {
 	}
 	if s.Mark == MarkRect && (s.Encoding.Color == nil || s.Encoding.Color.Field == "") {
 		return fmt.Errorf("view spec: mark rect requires encoding.color.field (the cell value)")
+	}
+	// On every mark but rect, color is a nominal category that splits records into one series per
+	// value; the constraints keep that split well-defined.
+	if s.Encoding.Color != nil && s.Mark != MarkRect {
+		if !s.Encoding.Color.nominal() {
+			return fmt.Errorf("view spec: encoding.color on mark %s must be type nominal (records split into one series per category)", s.Mark)
+		}
+		if len(s.Encoding.Y) > 1 {
+			return fmt.Errorf("view spec: encoding.color needs a single encoding.y channel (each color category becomes its own series)")
+		}
+		if s.chart() == ChartTimeline {
+			return fmt.Errorf("view spec: encoding.color is not supported on a timeline (lanes are already colored by the nominal y)")
+		}
 	}
 	for i, o := range s.Overlays {
 		if strings.TrimSpace(o.Source) == "" {
@@ -520,6 +535,10 @@ func (s Spec) Resolve(records []dataset.Record) Resolved {
 // resolveSeries maps records onto category x-axis labels and one numeric y series per y channel — the
 // shape line, bar, and scatter share.
 func (s Spec) resolveSeries(records []dataset.Record, res *Resolved) {
+	if s.Encoding.Color != nil {
+		s.resolveColorSeries(records, res, s.Encoding.X.Field, s.Encoding.Y[0].Field, s.Encoding.Y[0].axisID())
+		return
+	}
 	for _, y := range s.Encoding.Y {
 		res.Series = append(res.Series, Series{Label: y.title(), Axis: y.axisID()})
 	}
@@ -536,6 +555,10 @@ func (s Spec) resolveSeries(records []dataset.Record, res *Resolved) {
 // labels and the quantitative x channel supplies the bar lengths (the axes are swapped relative to a
 // vertical bar), matching ADR 0024's "hbar = bar with x/y swapped".
 func (s Spec) resolveHorizontal(records []dataset.Record, res *Resolved) {
+	if s.Encoding.Color != nil {
+		s.resolveColorSeries(records, res, s.Encoding.Y[0].Field, s.Encoding.X.Field, "y")
+		return
+	}
 	res.Series = append(res.Series, Series{Label: s.Encoding.X.title(), Axis: "y"})
 	cat := s.Encoding.Y[0]
 	for _, rec := range s.filtered(records) {
@@ -545,23 +568,84 @@ func (s Spec) resolveHorizontal(records []dataset.Record, res *Resolved) {
 	}
 }
 
+// resolveColorSeries splits records into one series per color category: labelField supplies the shared
+// category axis (x for the vertical forms, the nominal y for horizontal bars), valueField the measure.
+// Labels and series accumulate in first-seen order (which keeps output deterministic for a given
+// input), several records may share one label slot (one per category), and every series is aligned to
+// the shared axis with NaN gaps so a category missing at a label renders as a gap.
+func (s Spec) resolveColorSeries(records []dataset.Record, res *Resolved, labelField, valueField, axis string) {
+	labelIdx := map[string]int{}
+	seriesIdx := map[string]int{}
+	for _, rec := range s.filtered(records) {
+		label, _ := rec.String(labelField)
+		li, ok := labelIdx[label]
+		if !ok {
+			li = len(res.Labels)
+			labelIdx[label] = li
+			res.Labels = append(res.Labels, label)
+		}
+		cat, _ := rec.String(s.Encoding.Color.Field)
+		si, ok := seriesIdx[cat]
+		if !ok {
+			si = len(res.Series)
+			seriesIdx[cat] = si
+			res.Series = append(res.Series, Series{Label: cat, Axis: axis})
+		}
+		vals := &res.Series[si].Values
+		for len(*vals) < li {
+			*vals = append(*vals, math.NaN())
+		}
+		v := floatOrNaN(rec, valueField)
+		if len(*vals) == li {
+			*vals = append(*vals, v)
+		} else {
+			(*vals)[li] = v // repeated (label, category): the later record wins, like grid cells
+		}
+	}
+	for i := range res.Series {
+		for len(res.Series[i].Values) < len(res.Labels) {
+			res.Series[i].Values = append(res.Series[i].Values, math.NaN())
+		}
+	}
+}
+
 // resolveBubble appends one {x,y,r} point per y series for a bubble (point mark on quantitative axes).
 // A missing coordinate becomes NaN so the renderer can skip an incomplete point; the radius comes from
-// the size channel when set.
+// the size channel when set. A color channel splits the points into one series per category instead
+// (first-seen order), so each category plots in its own color.
 func (s Spec) resolveBubble(records []dataset.Record, res *Resolved) {
+	if s.Encoding.Color != nil {
+		seriesIdx := map[string]int{}
+		for _, rec := range s.filtered(records) {
+			cat, _ := rec.String(s.Encoding.Color.Field)
+			si, ok := seriesIdx[cat]
+			if !ok {
+				si = len(res.Series)
+				seriesIdx[cat] = si
+				res.Series = append(res.Series, Series{Label: cat, Axis: "y"})
+			}
+			res.Series[si].Points = append(res.Series[si].Points, s.bubblePoint(rec, s.Encoding.Y[0]))
+		}
+		return
+	}
 	for _, y := range s.Encoding.Y {
 		res.Series = append(res.Series, Series{Label: y.title(), Axis: "y"})
 	}
 	for _, rec := range s.filtered(records) {
-		x := floatOrNaN(rec, s.Encoding.X.Field)
-		r := math.NaN()
-		if s.Encoding.Size != nil {
-			r = floatOrNaN(rec, s.Encoding.Size.Field)
-		}
 		for i, y := range s.Encoding.Y {
-			res.Series[i].Points = append(res.Series[i].Points, Point{X: x, Y: floatOrNaN(rec, y.Field), R: r})
+			res.Series[i].Points = append(res.Series[i].Points, s.bubblePoint(rec, y))
 		}
 	}
+}
+
+// bubblePoint reads one {x,y,r} point from a record: x from the x channel, y from the given y channel,
+// and the radius from the size channel when set (NaN otherwise, which renderers default).
+func (s Spec) bubblePoint(rec dataset.Record, y Channel) Point {
+	r := math.NaN()
+	if s.Encoding.Size != nil {
+		r = floatOrNaN(rec, s.Encoding.Size.Field)
+	}
+	return Point{X: floatOrNaN(rec, s.Encoding.X.Field), Y: floatOrNaN(rec, y.Field), R: r}
 }
 
 // resolveGrid maps records onto a 2D grid: x.field is the column category, y[0].field the row category,

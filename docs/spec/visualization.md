@@ -87,7 +87,7 @@ fields onto *visual channels* (x, y series, color, size), orthogonally. Unknown 
 | `data.kind`      | yes      | One of the canonical kinds.                                           |
 | `encoding.x`     | yes      | The x channel: `{ field, type?, title? }`.                           |
 | `encoding.y`     | yes      | One or more y series; each `{ field, type?, title?, axis? }`.        |
-| `encoding.color` | rect     | Value channel for a `rect` (heatmap) cell.                           |
+| `encoding.color` | rect     | On `rect`: the (quantitative) heatmap cell value. On every other mark: a **nominal** category that splits records into one colored series per value (see below). |
 | `encoding.size`  | no       | Radius channel for a `point` (bubble radius / timeline dot).         |
 | `filter`         | no       | Keep matching records. Shorthand `{field, equals}` or `{all: [{field, op, value}]}` (AND). |
 | `overlays`       | no       | Vertical event/annotation markers drawn over the chart (see below).  |
@@ -111,6 +111,31 @@ e.g. a price and an index — can share one x-axis:
   { "field": "index", "title": "Index", "axis": "y2" }
 ]
 ```
+
+### Color (series split by category)
+
+On every mark except `rect`, `encoding.color` names a **nominal** field whose values split the records
+into one series per category — each drawn in its own color and listed in the legend under the category
+value. One spec covers "one line per entity", grouped bars per category, or a scatter/bubble colored by
+group:
+
+```json
+{ "version": 2, "mark": "line", "data": { "source": "metrics.jsonl", "kind": "metric" },
+  "encoding": { "x": { "field": "time" },
+                "y": [ { "field": "value" } ],
+                "color": { "field": "entity", "type": "nominal" } } }
+```
+
+- `color` must set `"type": "nominal"` (on `rect` it is instead the quantitative cell value).
+- It combines with a **single** `y` channel (each category becomes its own series).
+- Categories and x labels accumulate in **first-seen order**, so the same input always produces the
+  same series order — and therefore the same colors. Both renderers assign colors from the same
+  fixed palette by series index, so a spec is colored identically in HTML and SVG output. The
+  heatmap's light→dark value ramp is a separate scale and is unaffected.
+- A category with no record at some x label contributes `NaN` there (a gap, not a zero). A repeated
+  `(x, category)` pair keeps the later record's value.
+- A timeline (`point` with a nominal y) rejects `color`: its lanes are already colored by the
+  nominal y.
 
 ### Filter
 
@@ -218,6 +243,8 @@ bubble points, or a grid), recorded on `Resolved.Chart` so a renderer switches o
 - Records failing the filter are dropped.
 - For the series forms, each surviving record contributes its `x` (or, for horizontal bars, its nominal
   `y`) as a label and each measure field as a series value.
+- With a `color` channel, records are instead grouped by the color field's value: one series per
+  category, aligned to the shared label axis with `NaN` gaps (see "Color" above).
 - A record **missing a numeric value** contributes `NaN`, which renders as a gap (not a zero).
 
 ## Rendering
@@ -238,6 +265,8 @@ Emits a self-contained HTML page that loads **Chart.js from a CDN**
   small default.
 - A series with `axis: "y2"` is bound to a right-hand secondary linear axis (its gridlines kept off the
   chart area); single-axis charts define no `y2`.
+- Every dataset carries explicit `borderColor`/`backgroundColor` from the fixed palette shared with the
+  `svg` renderer (keyed by series index), so colors are deterministic and identical across renderers.
 - `NaN`/`Inf` values are emitted as JSON `null` (a gap).
 - **Overlay markers** are drawn as vertical lines via `chartjs-plugin-annotation`, loaded from a CDN
   only when the spec has overlays (plain charts stay lean).

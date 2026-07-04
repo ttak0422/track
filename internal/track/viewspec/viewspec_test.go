@@ -391,6 +391,108 @@ func TestResolveHorizontalBarSwapsAxes(t *testing.T) {
 	}
 }
 
+func TestResolveColorSplitsSeries(t *testing.T) {
+	// A nominal color splits records into one series per category, aligned to a shared x axis with
+	// NaN gaps where a category has no record.
+	s, err := Load(strings.NewReader(`{"version":2,"mark":"line","data":{"source":"x","kind":"metric"},` +
+		`"encoding":{"x":{"field":"time"},"y":[{"field":"value"}],"color":{"field":"entity","type":"nominal"}}}`))
+	if err != nil {
+		t.Fatalf("Load: %v", err)
+	}
+	recs, _ := dataset.ReadJSONL(strings.NewReader(
+		`{"name":"m","time":"d1","entity":"A","value":1}` + "\n" +
+			`{"name":"m","time":"d1","entity":"B","value":10}` + "\n" +
+			`{"name":"m","time":"d2","entity":"A","value":2}` + "\n" +
+			`{"name":"m","time":"d3","entity":"B","value":30}` + "\n"))
+	res := s.Resolve(recs)
+	if !equalStrings(res.Labels, []string{"d1", "d2", "d3"}) {
+		t.Fatalf("labels = %v", res.Labels)
+	}
+	if len(res.Series) != 2 || res.Series[0].Label != "A" || res.Series[1].Label != "B" {
+		t.Fatalf("series = %+v", res.Series)
+	}
+	a, b := res.Series[0].Values, res.Series[1].Values
+	if a[0] != 1 || a[1] != 2 || !math.IsNaN(a[2]) {
+		t.Fatalf("series A = %v (want [1 2 NaN])", a)
+	}
+	if b[0] != 10 || !math.IsNaN(b[1]) || b[2] != 30 {
+		t.Fatalf("series B = %v (want [10 NaN 30])", b)
+	}
+}
+
+func TestResolveColorHorizontalBar(t *testing.T) {
+	// hbar keeps its nominal-y categories as labels; color splits the measure into grouped series.
+	s, _ := Load(strings.NewReader(`{"version":2,"mark":"bar","data":{"source":"x","kind":"metric"},` +
+		`"encoding":{"x":{"field":"value"},"y":[{"field":"name","type":"nominal"}],"color":{"field":"entity","type":"nominal"}}}`))
+	recs, _ := dataset.ReadJSONL(strings.NewReader(
+		`{"name":"r1","entity":"A","value":8}` + "\n" +
+			`{"name":"r1","entity":"B","value":5}` + "\n" +
+			`{"name":"r2","entity":"A","value":3}` + "\n"))
+	res := s.Resolve(recs)
+	if res.Chart != ChartHBar {
+		t.Fatalf("chart = %q, want hbar", res.Chart)
+	}
+	if !equalStrings(res.Labels, []string{"r1", "r2"}) {
+		t.Fatalf("labels = %v", res.Labels)
+	}
+	if len(res.Series) != 2 || res.Series[0].Label != "A" || res.Series[1].Label != "B" {
+		t.Fatalf("series = %+v", res.Series)
+	}
+	if res.Series[0].Values[0] != 8 || res.Series[0].Values[1] != 3 || !math.IsNaN(res.Series[1].Values[1]) {
+		t.Fatalf("values = %v / %v", res.Series[0].Values, res.Series[1].Values)
+	}
+}
+
+func TestResolveColorBubbleSplitsPoints(t *testing.T) {
+	s, _ := Load(strings.NewReader(`{"version":2,"mark":"point","data":{"source":"x","kind":"metric"},` +
+		`"encoding":{"x":{"field":"ret"},"y":[{"field":"vol"}],"size":{"field":"sz"},"color":{"field":"entity","type":"nominal"}}}`))
+	recs, _ := dataset.ReadJSONL(strings.NewReader(
+		`{"name":"m","entity":"A","ret":12,"vol":40,"sz":100}` + "\n" +
+			`{"name":"m","entity":"B","ret":-5,"vol":18,"sz":60}` + "\n" +
+			`{"name":"m","entity":"A","ret":3,"vol":25,"sz":80}` + "\n"))
+	res := s.Resolve(recs)
+	if res.Chart != ChartBubble {
+		t.Fatalf("chart = %q, want bubble", res.Chart)
+	}
+	if len(res.Series) != 2 || res.Series[0].Label != "A" || res.Series[1].Label != "B" {
+		t.Fatalf("series = %+v", res.Series)
+	}
+	if len(res.Series[0].Points) != 2 || len(res.Series[1].Points) != 1 {
+		t.Fatalf("points split = %d/%d, want 2/1", len(res.Series[0].Points), len(res.Series[1].Points))
+	}
+	if p := res.Series[0].Points[1]; p.X != 3 || p.Y != 25 || p.R != 80 {
+		t.Fatalf("point = %+v", p)
+	}
+}
+
+func TestValidateColorConstraints(t *testing.T) {
+	base := func() Spec {
+		s := lineSpec()
+		s.Encoding.Color = &Channel{Field: "entity", Type: Nominal}
+		return s
+	}
+	if err := base().Validate(); err != nil {
+		t.Fatalf("nominal color on line should validate: %v", err)
+	}
+	quant := base()
+	quant.Encoding.Color.Type = "" // default quantitative
+	if err := quant.Validate(); err == nil || !strings.Contains(err.Error(), "nominal") {
+		t.Fatalf("non-nominal color on line should fail, got %v", err)
+	}
+	multiY := base()
+	multiY.Encoding.Y = append(multiY.Encoding.Y, Channel{Field: "d"})
+	if err := multiY.Validate(); err == nil || !strings.Contains(err.Error(), "single encoding.y") {
+		t.Fatalf("color with multiple y should fail, got %v", err)
+	}
+	timeline := base()
+	timeline.Mark = MarkPoint
+	timeline.Encoding.X.Type = Nominal
+	timeline.Encoding.Y[0].Type = Nominal
+	if err := timeline.Validate(); err == nil || !strings.Contains(err.Error(), "timeline") {
+		t.Fatalf("color on timeline should fail, got %v", err)
+	}
+}
+
 func TestBubbleWithoutSizeIsValid(t *testing.T) {
 	// A point on quantitative axes with no size is a plain linear scatter — allowed (uniform radius).
 	s := Spec{

@@ -76,6 +76,8 @@ Key fields:
   picks the form: a nominal-y `bar` is horizontal, a nominal-x `point` is a scatter (vs a bubble), and
   `rect` needs nominal x and y.
 - `encoding.y[].axis` — set `"y2"` to put a series on a secondary right-hand axis (two series on different scales).
+- `encoding.color` — a nominal field that splits records into one colored series per value
+  (on `rect` it is instead the quantitative heatmap cell value).
 - `filter` — `{field, equals}` shorthand, or `{all: [{field, op, value}]}` with `op` of
   `eq|ne|lt|le|gt|ge` for multi-field, range, and period filtering.
 - `overlays` — draw events/annotations from a second source as vertical markers over a time series.
@@ -107,6 +109,10 @@ below are each one embedded `.viewspec.json`.
 **Scatter** (`mark: point`, nominal x) — points over a category x-axis, the connecting line suppressed.
 
 ![Scatter chart](assets/chart-scatter.viewspec.json)
+
+**Color split** (`encoding.color`, nominal) — one series per category value, each in its own color; works on `line`, `bar`, and `point`.
+
+![Color split line chart](assets/chart-color.viewspec.json)
 
 **Heatmap** (`mark: rect`) — a 2D grid of `x` columns × `y[0]` rows, each cell colored by `encoding.color` (with a value legend).
 

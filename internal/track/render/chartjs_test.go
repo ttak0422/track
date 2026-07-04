@@ -106,6 +106,28 @@ func TestChartJSScatterPinsCategoryAxis(t *testing.T) {
 	}
 }
 
+func TestChartJSDatasetsUseSharedPalette(t *testing.T) {
+	// Datasets carry explicit colors from the palette shared with the SVG renderer, keyed by series
+	// index, so the same spec is colored identically (and deterministically) by both renderers.
+	res := viewspec.Resolved{
+		Spec: viewspec.Spec{}, Chart: viewspec.ChartLine,
+		Labels: []string{"a"},
+		Series: []viewspec.Series{
+			{Label: "A", Values: []float64{1}},
+			{Label: "B", Values: []float64{2}},
+		},
+	}
+	out, err := ChartJS{}.Render(res)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for i, want := range []string{seriesColor(0), seriesColor(1)} {
+		if !strings.Contains(out, `"borderColor":"`+want+`"`) || !strings.Contains(out, `"backgroundColor":"`+want+`"`) {
+			t.Errorf("dataset %d missing palette color %s: %s", i, want, out)
+		}
+	}
+}
+
 func TestChartJSRenderEscapesTitle(t *testing.T) {
 	out, err := ChartJS{}.Render(resolved(viewspec.ChartLine, "<script>x</script>", []float64{1, 2}))
 	if err != nil {

@@ -47,6 +47,10 @@ type dataset struct {
 	Data     []any  `json:"data"`
 	ShowLine *bool  `json:"showLine,omitempty"`
 	YAxisID  string `json:"yAxisID,omitempty"`
+	// Explicit colors from the shared seriesPalette, so the same spec draws its series in the same
+	// deterministic colors as the SVG renderer (Chart.js's own defaults would otherwise apply).
+	BorderColor     string `json:"borderColor,omitempty"`
+	BackgroundColor string `json:"backgroundColor,omitempty"`
 }
 
 type chartOption struct {
@@ -108,8 +112,8 @@ func chartJSConfigJSON(res viewspec.Resolved) (string, bool, error) {
 		cfg.Options.Scales = map[string]any{"x": map[string]any{"type": "category"}}
 	}
 	usesY2 := false
-	for _, s := range res.Series {
-		ds := dataset{Label: s.Label}
+	for i, s := range res.Series {
+		ds := dataset{Label: s.Label, BorderColor: seriesColor(i), BackgroundColor: seriesColor(i)}
 		if res.Chart == viewspec.ChartBubble {
 			ds.Data = pointsToJSON(s.Points)
 		} else {
