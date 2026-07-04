@@ -52,14 +52,15 @@ export function createAppRouter(history?: RouterHistory) {
   });
 }
 
-// The client's singleton router, and the type the Register interface binds to.
-const router = createAppRouter();
-
 declare module "@tanstack/react-router" {
   interface Register {
-    router: typeof router;
+    router: ReturnType<typeof createAppRouter>;
   }
 }
+
+// The client's router is created lazily (not at module scope) so importing this module for the prerender
+// (entry-server) does not run the browser/hash history, which touches window and would crash in Node.
+let clientRouter: ReturnType<typeof createAppRouter> | null = null;
 
 // AppTree is the provider stack parameterized by a router and query client, shared by the client entry
 // (App) and the prerender (entry-server), so both render an identical tree.
@@ -80,7 +81,8 @@ export function AppTree({
 const queryClient = new QueryClient();
 
 export function App() {
-  return <AppTree router={router} queryClient={queryClient} />;
+  clientRouter ??= createAppRouter();
+  return <AppTree router={clientRouter} queryClient={queryClient} />;
 }
 
 function HomeRoute() {

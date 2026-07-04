@@ -174,6 +174,9 @@ function GearIcon() {
 }
 
 function storedTheme(): ThemeMode {
+  // During prerender there is no localStorage/window; return the neutral default so SSR does not crash
+  // (the settings panel is closed initially, so this value is not in the prerendered output anyway).
+  if (typeof window === "undefined") return "system";
   const value = localStorage.getItem(storageKey);
   if (value === "light" || value === "dark") {
     return value;
@@ -184,11 +187,13 @@ function storedTheme(): ThemeMode {
 }
 
 function storedFontScale(): number {
+  if (typeof window === "undefined") return 1;
   const value = Number(localStorage.getItem(fontScaleKey));
   return fontScales.some((scale) => scale.value === value) ? value : 1;
 }
 
 function storedContentWidth(): string {
+  if (typeof window === "undefined") return defaultContentWidth;
   const value = localStorage.getItem(contentWidthKey);
   return contentWidths.some((width) => width.value === value) ? (value as string) : defaultContentWidth;
 }
