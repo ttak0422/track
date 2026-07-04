@@ -28,6 +28,8 @@ export function MediaFrame({ src, alt, children }: { src: string; alt: string; c
     <div className="media-frame" ref={ref}>
       {children}
       <button className="media-pin" type="button" onClick={floatMedia} aria-label="Float media" title="Float">
+        {/* Picture-in-picture glyph: pop the media out into the floating layer. Deliberately not the
+            pushpin PinIcon, which means "keep this preview open" on a floating window. */}
         <svg
           viewBox="0 0 24 24"
           width="15"
@@ -39,8 +41,8 @@ export function MediaFrame({ src, alt, children }: { src: string; alt: string; c
           strokeLinejoin="round"
           aria-hidden="true"
         >
-          <line x1="12" y1="17" x2="12" y2="22" />
-          <path d="M9 4h6l-1 6 3 3H7l3-3-1-6z" />
+          <rect x="3" y="5" width="18" height="14" rx="2" />
+          <rect x="12" y="11" width="7" height="6" rx="1" fill="currentColor" stroke="none" />
         </svg>
       </button>
     </div>
