@@ -1,7 +1,9 @@
 import { type PointerEvent, type ReactNode, useEffect, useRef, useState } from "react";
 import {
+  clamp,
   constrainPreviewBounds,
   initialPreviewBounds,
+  minPreviewHeight,
   type PreviewAnchor,
   type PreviewBounds,
   type PreviewResizeCorner,
@@ -76,12 +78,45 @@ export function FloatingWindow({
   const [bounds, setBounds] = useState(initialBounds);
   const [collapsed, setCollapsed] = useState(initialCollapsed);
   const dragRef = useRef<DragState | null>(null);
+  const asideRef = useRef<HTMLElement>(null);
+  const chromeRef = useRef<HTMLDivElement>(null);
+  const bodyRef = useRef<HTMLDivElement>(null);
+  const contentRef = useRef<HTMLDivElement>(null);
+  // Once the user resizes the window, stop auto-fitting its height to the content.
+  const manualResizeRef = useRef(false);
 
   useEffect(() => {
     onBoundsChange?.(bounds, collapsed);
     // Report geometry only, not on every onBoundsChange identity change.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [bounds, collapsed]);
+
+  // Auto-fit the height to the content: a preview with little to show shrinks to the old minimum instead
+  // of opening needlessly tall, while a long note still fills up to the viewport-based cap
+  // (initialBounds.height). Width is left alone. Re-runs as async content (images, math) settles, and
+  // stops once the user resizes the window by hand.
+  useEffect(() => {
+    if (collapsed || typeof ResizeObserver === "undefined") return;
+    const aside = asideRef.current;
+    const chrome = chromeRef.current;
+    const body = bodyRef.current;
+    const content = contentRef.current;
+    if (!aside || !chrome || !body || !content) return;
+    const fit = () => {
+      if (manualResizeRef.current) return;
+      // border-box height = chrome + body content (incl. its padding) + the aside's own vertical border.
+      const border = aside.offsetHeight - aside.clientHeight;
+      const desired = chrome.offsetHeight + body.scrollHeight + border;
+      setBounds((current) => {
+        const height = clamp(desired, minPreviewHeight, initialBounds.height);
+        return height === current.height ? current : constrainPreviewBounds({ ...current, height });
+      });
+    };
+    fit();
+    const observer = new ResizeObserver(fit);
+    observer.observe(content);
+    return () => observer.disconnect();
+  }, [collapsed, initialBounds.height]);
 
   useEffect(() => {
     if (!pinned && reanchor) {
@@ -96,7 +131,11 @@ export function FloatingWindow({
   }
 
   function startResize(corner: PreviewResizeCorner) {
-    return (event: PointerEvent<HTMLElement>) => startDrag(event, corner);
+    return (event: PointerEvent<HTMLElement>) => {
+      // A manual resize locks the height; auto-fit no longer overrides the user's chosen size.
+      manualResizeRef.current = true;
+      startDrag(event, corner);
+    };
   }
 
   function startDrag(event: PointerEvent<HTMLElement>, mode: DragState["mode"]) {
@@ -143,6 +182,7 @@ export function FloatingWindow({
 
   return (
     <aside
+      ref={asideRef}
       className={`wiki-preview${pinned ? " pinned" : ""}${collapsed ? " collapsed" : ""}${onJump ? " with-jump" : ""}`}
       onFocusCapture={onActivate}
       onMouseEnter={onHold}
@@ -158,6 +198,7 @@ export function FloatingWindow({
     >
       <div
         className="wiki-preview-chrome"
+        ref={chromeRef}
         onPointerDown={startMove}
         onPointerMove={dragPreview}
         onPointerUp={endDrag}
@@ -209,8 +250,10 @@ export function FloatingWindow({
         </button>
       </div>
       {collapsed ? null : (
-        <div className="wiki-preview-body">
-          <InFloatingWindowContext.Provider value={true}>{children}</InFloatingWindowContext.Provider>
+        <div className="wiki-preview-body" ref={bodyRef}>
+          <div ref={contentRef}>
+            <InFloatingWindowContext.Provider value={true}>{children}</InFloatingWindowContext.Provider>
+          </div>
         </div>
       )}
       {collapsed
