@@ -186,6 +186,56 @@ button {
   border-radius: 1px;
 }
 
+/* Static-site empty state (every tab closed): a faint centered mark plus arrows pointing back at the
+   sidebar, so the blank reader reads as "nothing open" rather than broken. */
+.empty-state {
+  /* Fill the reader's padding box (ignoring its 32px padding) so the guide offsets share the sidebar
+     rail's origin — the rail and the reader both start at the workspace top. */
+  position: absolute;
+  inset: 0;
+}
+
+.empty-mark {
+  position: absolute;
+  inset: 0;
+  margin: auto;
+  width: 180px;
+  height: auto;
+  color: var(--text);
+  opacity: 0.05;
+  pointer-events: none;
+}
+
+.empty-guides {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.empty-guide {
+  position: absolute;
+  left: 16px;
+  color: var(--muted);
+  font-size: 0.9em;
+  white-space: nowrap;
+}
+
+.empty-guide::before {
+  content: "←";
+  margin-right: 8px;
+  opacity: 0.8;
+}
+
+/* Line each hint up with the sidebar button it points at (rail: 8px pad, 40px buttons, 6px gap, so the
+   search button centers near 74px and the graph button near 120px from the top). */
+.empty-guide-search {
+  top: 66px;
+}
+
+.empty-guide-graph {
+  top: 112px;
+}
+
 .home-hero {
   position: relative;
   z-index: 1;

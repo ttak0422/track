@@ -8,6 +8,7 @@ import {
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { STATIC_MODE } from "./runtime";
 import { ActivityPanel } from "./components/ActivityPanel";
+import { EmptyState } from "./components/EmptyState";
 import { GraphFullView } from "./components/GraphFullView";
 import { TrackLogo } from "./components/Logo";
 import { NoteReader } from "./components/NoteReader";
@@ -65,10 +66,10 @@ export function App() {
 
 function HomeRoute() {
   // The published site has no heatmap home. It opens the start page on launch (see Shell); this route is
-  // only reached once every tab is closed, and then the reader is simply empty — the normal workspace
-  // chrome with nothing loaded.
+  // only reached once every tab is closed, where the empty reader shows a faint mark and pointers to the
+  // sidebar so the blank area reads as "nothing open".
   if (STATIC_MODE) {
-    return null;
+    return <EmptyState />;
   }
   return (
     <section className="home-hero">
