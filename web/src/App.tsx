@@ -14,7 +14,6 @@ import { TrackLogo } from "./components/Logo";
 import { NoteReader } from "./components/NoteReader";
 import { SearchPanel } from "./components/SearchPanel";
 import { Shell } from "./components/Shell";
-import "katex/dist/katex.min.css";
 import "./styles.css";
 
 const queryClient = new QueryClient();

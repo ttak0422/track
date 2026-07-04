@@ -1,13 +1,12 @@
 import type { Element } from "hast";
-import { type ReactNode } from "react";
-import rehypeKatex from "rehype-katex";
+import { type ReactNode, useEffect, useState } from "react";
 import Markdown, { type Components } from "react-markdown";
 import remarkGfm from "remark-gfm";
-import remarkMath from "remark-math";
 import { CodeBlock } from "./markdown/CodeBlock";
 import { NoteKindContext } from "./markdown/context";
 import { Embed } from "./markdown/Embed";
 import { ExternalLink } from "./markdown/ExternalLink";
+import { loadMathPlugins, looksLikeMath, type MathPlugins, mathPluginsIfLoaded } from "./markdown/math";
 import { MermaidDiagram } from "./markdown/MermaidDiagram";
 import { rehypeBudoux, remarkWikiLink } from "./markdown/plugins";
 import { WikiLink } from "./preview/WikiLink";
@@ -20,19 +19,34 @@ interface MarkdownViewProps {
 // The markdown is parsed by react-markdown (CommonMark + GFM tables/strikethrough/task lists, plus
 // $...$/$$...$$ math via remark-math + rehype-katex). The body arrives already sanitized by the server's
 // /api/render (action links flattened); the track-specific construct is [[...]] wiki links (remarkWikiLink).
+// KaTeX is loaded lazily (see ./markdown/math), so a note without math never pulls in its bundle; while a
+// math note's first render waits for that chunk, the "$…$" briefly shows as source, then typesets.
 export function MarkdownView({ markdown, kind = "note" }: MarkdownViewProps) {
+  const hasMath = looksLikeMath(markdown);
+  const [math, setMath] = useState<MathPlugins | null>(() => (hasMath ? mathPluginsIfLoaded() : null));
+
+  useEffect(() => {
+    if (!hasMath || math) return;
+    let cancelled = false;
+    void loadMathPlugins().then((plugins) => {
+      if (!cancelled) setMath(plugins);
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [hasMath, math]);
+
   if (markdown.trim() === "") {
     return <p className="muted">Empty note.</p>;
   }
 
+  const remarkPlugins = math ? [remarkGfm, math.remark, remarkWikiLink] : [remarkGfm, remarkWikiLink];
+  const rehypePlugins = math ? [math.rehype, rehypeBudoux] : [rehypeBudoux];
+
   return (
     <NoteKindContext.Provider value={kind}>
       <div className="markdown-view">
-        <Markdown
-          remarkPlugins={[remarkGfm, remarkMath, remarkWikiLink]}
-          rehypePlugins={[rehypeKatex, rehypeBudoux]}
-          components={markdownComponents}
-        >
+        <Markdown remarkPlugins={remarkPlugins} rehypePlugins={rehypePlugins} components={markdownComponents}>
           {markdown}
         </Markdown>
       </div>

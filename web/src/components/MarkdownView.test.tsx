@@ -1,5 +1,5 @@
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { render, screen, within } from "@testing-library/react";
+import { render, screen, waitFor, within } from "@testing-library/react";
 import type { ReactElement } from "react";
 import { describe, expect, it } from "vitest";
 import { MarkdownView } from "./MarkdownView";
@@ -53,10 +53,11 @@ describe("MarkdownView", () => {
     expect(link).toHaveAttribute("target", "_blank");
   });
 
-  it("renders inline and block math with KaTeX", () => {
+  it("renders inline and block math with KaTeX (loaded lazily)", async () => {
     const { container } = render(<MarkdownView markdown={"inline $a^2+b^2$\n\n$$\n\\int_0^1 x\\,dx\n$$"} />);
-    // KaTeX emits .katex spans; a block ($$…$$) is wrapped in .katex-display.
-    expect(container.querySelectorAll(".katex").length).toBeGreaterThanOrEqual(2);
+    // KaTeX is imported on demand, so the .katex spans appear once the chunk resolves. A block
+    // ($$…$$) is wrapped in .katex-display.
+    await waitFor(() => expect(container.querySelectorAll(".katex").length).toBeGreaterThanOrEqual(2));
     expect(container.querySelector(".katex-display")).toBeInTheDocument();
   });
 });
