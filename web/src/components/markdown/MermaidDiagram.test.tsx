@@ -1,6 +1,6 @@
 import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { afterEach, beforeAll, describe, expect, it, vi } from "vitest";
-import { MermaidDiagram } from "./MermaidDiagram";
+import { computeFit, MermaidDiagram } from "./MermaidDiagram";
 
 // jsdom does not implement pointer capture; drag relies on it, so stub it to a no-op.
 beforeAll(() => {
@@ -52,5 +52,20 @@ describe("MermaidDiagram", () => {
 
     fireEvent.click(screen.getByRole("button", { name: "Zoom out" }));
     expect(scaleOf()).toBeCloseTo(1);
+  });
+});
+
+describe("computeFit", () => {
+  it("shrinks a wide diagram to 80% width and centers it", () => {
+    const { transform, height } = computeFit(1000, 400, 500);
+    expect(transform.scale).toBeCloseTo(0.4); // 500 * 0.8 / 1000
+    expect(transform.x).toBeCloseTo(50); // (500 - 1000 * 0.4) / 2
+    expect(height).toBeCloseTo(160); // 400 * 0.4
+  });
+
+  it("enlarges a small diagram to 80% width", () => {
+    const { transform } = computeFit(100, 60, 500);
+    expect(transform.scale).toBeCloseTo(4); // 500 * 0.8 / 100
+    expect(transform.x).toBeCloseTo(50); // (500 - 100 * 4) / 2
   });
 });

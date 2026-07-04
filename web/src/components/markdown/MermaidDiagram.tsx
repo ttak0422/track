@@ -1,5 +1,5 @@
 import type { MermaidConfig } from "mermaid";
-import { type PointerEvent, useEffect, useRef, useState } from "react";
+import { type PointerEvent, useEffect, useLayoutEffect, useRef, useState } from "react";
 import { CodeBlock } from "./CodeBlock";
 
 interface MermaidDiagramProps {
@@ -18,7 +18,7 @@ let renderSequence = 0;
 export function MermaidDiagram({ text }: MermaidDiagramProps) {
   const [state, setState] = useState<DiagramState>({ status: "loading" });
   const themeVersion = useThemeVersion();
-  const panZoom = usePanZoom(text);
+  const panZoom = usePanZoom(state.status === "ready" ? state.svg : null);
 
   useEffect(() => {
     let cancelled = false;
@@ -55,12 +55,18 @@ export function MermaidDiagram({ text }: MermaidDiagramProps) {
     return <div className="mermaid-diagram mermaid-diagram-loading">Rendering diagram...</div>;
   }
 
-  const { transform, viewportRef, reset, zoomBy, handlers } = panZoom;
+  const { transform, viewportRef, panRef, viewportHeight, reset, zoomBy, handlers } = panZoom;
   return (
     <div className="mermaid-diagram">
-      <div className="mermaid-viewport" ref={viewportRef} {...handlers}>
+      <div
+        className="mermaid-viewport"
+        ref={viewportRef}
+        style={viewportHeight != null ? { height: viewportHeight } : undefined}
+        {...handlers}
+      >
         <div
           className="mermaid-pan"
+          ref={panRef}
           style={{
             transform: `translate(${transform.x}px, ${transform.y}px) scale(${transform.scale})`,
             transformOrigin: "0 0",
@@ -114,14 +120,35 @@ interface Transform {
 
 const identityTransform: Transform = { x: 0, y: 0, scale: 1 };
 
-// Pan (pointer drag) and zoom (wheel, toward the cursor) applied as a CSS transform on the diagram.
-// resetKey resets the view when the rendered diagram changes.
-function usePanZoom(resetKey: unknown) {
+// Fraction of the viewport width the diagram fills on first paint.
+const fitWidthRatio = 0.8;
+
+// Pan (pointer drag) and zoom (wheel/buttons) applied as a CSS transform on the diagram. On first paint
+// the diagram is fitted to fitWidthRatio of the viewport width, and the viewport height is sized to the
+// scaled diagram; reset returns to that fit. `svg` is the rendered markup (null until ready), used to
+// re-fit whenever the diagram changes.
+function usePanZoom(svg: string | null) {
   const [transform, setTransform] = useState<Transform>(identityTransform);
+  const [viewportHeight, setViewportHeight] = useState<number | null>(null);
   const viewportRef = useRef<HTMLDivElement>(null);
+  const panRef = useRef<HTMLDivElement>(null);
+  const fitRef = useRef<Transform>(identityTransform);
   const dragRef = useRef<{ px: number; py: number; x: number; y: number } | null>(null);
 
-  useEffect(() => setTransform(identityTransform), [resetKey]);
+  // Measure after the SVG is in the DOM but before paint, so the initial fit shows without a flash.
+  // .mermaid-pan is width:fit-content, so its offset size is the diagram's natural (untransformed) size.
+  useLayoutEffect(() => {
+    const viewport = viewportRef.current;
+    const pan = panRef.current;
+    if (!svg || !viewport || !pan) return;
+    const naturalW = pan.offsetWidth;
+    const naturalH = pan.offsetHeight;
+    if (naturalW === 0 || naturalH === 0) return;
+    const { transform: fit, height } = computeFit(naturalW, naturalH, viewport.clientWidth);
+    fitRef.current = fit;
+    setTransform(fit);
+    setViewportHeight(height);
+  }, [svg]);
 
   // Wheel zoom needs a non-passive listener so it can preventDefault the page scroll.
   useEffect(() => {
@@ -169,10 +196,23 @@ function usePanZoom(resetKey: unknown) {
   return {
     transform,
     viewportRef,
-    reset: () => setTransform(identityTransform),
+    panRef,
+    viewportHeight,
+    reset: () => setTransform(fitRef.current),
     zoomBy,
     handlers: { onPointerDown, onPointerMove, onPointerUp, onPointerCancel: onPointerUp },
   };
+}
+
+// computeFit scales a naturalW×naturalH diagram to fill fitWidthRatio of viewW, centers it
+// horizontally, and returns the viewport height that hugs the scaled diagram.
+export function computeFit(
+  naturalW: number,
+  naturalH: number,
+  viewW: number,
+): { transform: Transform; height: number } {
+  const scale = clamp((viewW * fitWidthRatio) / naturalW, 0.2, 8);
+  return { transform: { scale, x: (viewW - naturalW * scale) / 2, y: 0 }, height: naturalH * scale };
 }
 
 // zoomAt multiplies the scale by factor while keeping the point (cx, cy) fixed in the viewport.
