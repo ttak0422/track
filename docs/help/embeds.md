@@ -6,7 +6,7 @@ embedding is always opt-in and ordinary `[text](url)` links are never turned int
 routes each embed by the kind of target (below); only `http(s)` and relative URLs feed an iframe, so a
 note cannot smuggle a `javascript:` document into an embed.
 
-Part of [[Visualization]] (see also [[Diagrams]] and [[Charts]]). Back to [[track]].
+Part of [[Visualization]] (see also [[Charts]]). Back to [[track]].
 
 ## Local files
 
@@ -64,9 +64,8 @@ from the page's `og:` metadata:
 ## Text-file attachments
 
 A text file imported with `track asset import` is fetched and rendered inline instead of shown as a
-broken image. A Mermaid source (`.mmd` / `.mermaid`) renders as a diagram (see [[Diagrams]]), and any
-other text file (`.txt`, `.json`, `.yaml`, `.csv`, shell scripts, …) renders as a syntax-highlighted
-code block:
+broken image. Any text file (`.txt`, `.json`, `.yaml`, `.csv`, shell scripts, …) renders as a
+syntax-highlighted code block, and a Mermaid source (`.mmd` / `.mermaid`) renders as a diagram:
 
 ```markdown
 ![](assets/gantt.mmd)
@@ -74,5 +73,26 @@ code block:
 
 A `.viewspec.json` attachment is a **chart** embed — see [[Charts]] for the View Spec that drives it.
 
-The [[Web workspace]] renders every embed live; the static export ([[CLI]] `export-site`) renders the
-same output for a published note.
+## Mermaid diagrams
+
+track has **full Mermaid support** — every diagram type works (flowchart, sequence, class, state,
+Gantt, pie, …), because the block is handed straight to the Mermaid library. Write one inline with a
+fenced ```mermaid``` block, or keep it in its own `.mmd` file and embed it as above:
+
+```mermaid
+flowchart TD
+  idea([New idea or source]) --> capture["Capture a note"]
+  capture --> link["Link related notes with wiki links"]
+  link --> explore{"Explore the local graph"}
+  explore -->|gap found| capture
+  explore -->|ready| write["Synthesize a write-up"]
+  write --> embed["Embed charts, media, and diagrams"]
+  embed --> publish["Publish with track export-site"]
+  publish --> review([Review and revisit])
+  review --> idea
+```
+
+If the syntax is wrong the original source is shown instead of a broken image, so a typo never hides
+your text. In the [[Web workspace]] a rendered diagram is interactive — drag to pan, the wheel or the
++/- buttons to zoom toward the cursor, and ↺ to reset — and a large diagram opens fitted to a readable
+size. The published static export ([[CLI]] `export-site`) renders the same output.
