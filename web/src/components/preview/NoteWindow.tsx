@@ -3,6 +3,7 @@ import type { NoteID } from "../../types";
 import { useNoteQuery, useRenderQuery } from "../../queries";
 import { PreviewDepthContext } from "../markdown/context";
 import { MarkdownView } from "../MarkdownView";
+import { LoadingIndicator } from "../noteShared";
 import { FloatingWindow, type FloatingWindowControls } from "./FloatingWindow";
 
 interface NoteWindowProps extends FloatingWindowControls {
@@ -24,7 +25,7 @@ export function NoteWindow({ noteID, ...controls }: NoteWindowProps) {
       {...controls}
       onJump={() => navigate({ to: "/notes/$noteId", params: { noteId: String(noteID) } })}
     >
-      {note.isPending ? <p className="muted">Loading...</p> : null}
+      {note.isPending ? <LoadingIndicator label="Loading note" /> : null}
       {note.isError ? <p className="error">{note.error.message}</p> : null}
       {note.data ? (
         <PreviewDepthContext.Provider value={controls.depth + 1}>
