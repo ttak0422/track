@@ -34,6 +34,31 @@ Use the narrower skills when they fit:
 - `track reindex [--full]` — rebuild the SQLite index.
 - `track export (--id N | --title S | --path P)` — full note Markdown to stdout.
 - `track toggle (--id N | --title S | --path P) --line N [--state toggle|check|uncheck]` — flip or set a task checkbox.
+- `track rm (--id N | --title S | --path P)` — soft-delete a note into `.track/trash` (track never empties it) and reindex.
+- `track gen increment|undo|redo|list|peek` — vault generation snapshots (undo/redo across bulk edits); see below.
+
+## Generations (bulk-edit safety net)
+
+`track gen` snapshots the vault's notes and metadata as numbered generations with an undo/redo
+cursor — the release model: `increment` cuts an immutable save point, `undo`/`redo` check one out.
+Bracket any bulk rewrite (mass rename/update/rm, memory consolidation) with generations so the run
+is reviewable and rejectable:
+
+```sh
+track gen increment    # seal the pre-run state
+# ... rename / update / rm notes ...
+track gen increment    # approve the result
+# or
+track gen undo         # reject; the run's output is auto-saved, redo revisits it
+```
+
+- `track gen list` reports generations, the `cursor`, and `dirty` (unsaved changes). Check `dirty`
+  before `undo`/`redo`: off the head, a cursor move discards unsaved changes.
+- `track gen peek [--gen N] (--id N | --title S | --path P)` prints a note's Markdown as of a
+  generation (default: cursor) without moving anything — deleted notes peek by `--id`. For a
+  partial restore, diff the peeked body against the current note and write back the wanted parts
+  with `track update`.
+- Snapshots cover note bodies, journals, and sidecars only; `assets/` is excluded.
 
 ## Updating task checkboxes
 
