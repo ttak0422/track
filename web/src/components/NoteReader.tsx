@@ -193,7 +193,7 @@ export function NoteReader({ noteID }: NoteReaderProps) {
   }
 
   if (noteQuery.isPending) {
-    return <p className="muted">Loading note...</p>;
+    return <LoadingIndicator label="Loading note" />;
   }
 
   if (noteQuery.isError) {
@@ -355,7 +355,13 @@ export function NoteReader({ noteID }: NoteReaderProps) {
           ) : null}
           {editorMode !== "edit" ? (
             <section className="note-preview" ref={previewRef} aria-label="Rendered note preview">
-              <MarkdownView markdown={renderQuery.data?.markdown ?? ""} kind={note.file_kind} />
+              {/* A non-empty body with no render yet is still loading — show a spinner rather than let
+                  MarkdownView flash "Empty note." for a body that is not actually empty. */}
+              {body.trim() !== "" && renderQuery.data?.markdown === undefined ? (
+                <LoadingIndicator label="Loading note" />
+              ) : (
+                <MarkdownView markdown={renderQuery.data?.markdown ?? ""} kind={note.file_kind} />
+              )}
             </section>
           ) : null}
         </div>
@@ -442,6 +448,16 @@ function journalDateFromNote(note?: { file_kind: FileKind; note_id: NoteID }): s
   const id = String(note.note_id);
   if (!/^\d{8}$/.test(id)) return "";
   return `${id.slice(0, 4)}-${id.slice(4, 6)}-${id.slice(6, 8)}`;
+}
+
+// LoadingIndicator is the spinner shown while a note (or its render) is still loading, in place of the
+// old "Loading note..." text and MarkdownView's "Empty note." placeholder.
+function LoadingIndicator({ label }: { label: string }) {
+  return (
+    <div className="note-loading" role="status" aria-label={label}>
+      <span className="spinner" aria-hidden="true" />
+    </div>
+  );
 }
 
 function modeLabel(mode: EditorMode): string {

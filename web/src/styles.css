@@ -244,6 +244,35 @@ button {
   bottom: 20px;
 }
 
+/* Note/render loading spinner (pure CSS, so no runtime cost) — replaces the old "Loading note..." text
+   and the misleading "Empty note." shown while a non-empty note is still rendering. */
+.note-loading {
+  display: flex;
+  justify-content: center;
+  padding: 32px 0;
+}
+
+.spinner {
+  width: 22px;
+  height: 22px;
+  border: 2px solid var(--line);
+  border-top-color: var(--accent);
+  border-radius: 50%;
+  animation: spin 0.7s linear infinite;
+}
+
+@keyframes spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .spinner {
+    animation-duration: 2s;
+  }
+}
+
 .home-hero {
   position: relative;
   z-index: 1;
