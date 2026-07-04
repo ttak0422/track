@@ -15,8 +15,10 @@ import { SearchProvider } from "../searchState";
 
 export function Shell() {
   const pathname = useRouterState({ select: (state) => state.location.pathname });
-  const isHome = pathname === "/";
-  const isGraph = pathname === "/graph";
+  // Normalize a trailing slash: the prerendered static site serves routes as directories (/graph/).
+  const path = pathname.replace(/\/$/, "") || "/";
+  const isHome = path === "/";
+  const isGraph = path === "/graph";
   // The live workspace has a heatmap home at "/"; the static site does not — there "/" is the empty state
   // (all tabs closed), so it keeps the normal chrome (sidebar, no home hero, no ambient graph).
   const isLiveHome = isHome && !STATIC_MODE;

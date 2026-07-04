@@ -9,6 +9,7 @@ import {
   useRef,
   useState,
 } from "react";
+import { STATIC_MODE } from "../../runtime";
 import type { NoteID } from "../../types";
 
 // A note open in the tab bar. The title is cached so a reloaded session can label tabs before each
@@ -78,8 +79,11 @@ function loadTabs(): NoteTab[] {
 }
 
 function noteIDFromPath(pathname: string): NoteID | null {
-  if (pathname === "/graph") return GRAPH_TAB_ID;
-  const match = pathname.match(/^\/notes\/([^/]+)$/);
+  // Tolerate a trailing slash: the prerendered static site serves each route as a directory
+  // (/notes/<id>/), so the router's pathname carries the slash.
+  const path = pathname.replace(/\/$/, "") || "/";
+  if (path === "/graph") return GRAPH_TAB_ID;
+  const match = path.match(/^\/notes\/([^/]+)$/);
   return match ? match[1] : null;
 }
 
@@ -145,10 +149,11 @@ export function TabsProvider({ children }: { children: ReactNode }) {
       setTabs(next);
       if (id === dirtyID) setDirtyID(null);
       // Closing the active tab moves to a neighbor (the one that slides into its slot, else the tab to
-      // its left); with none left, fall back home.
+      // its left); with none left, fall back home — the empty state on the static site (whose "/" is the
+      // start page), or "/" (the heatmap home) on the live workspace.
       if (id === activeID) {
         const target = next[index] ?? next[index - 1] ?? null;
-        void navigate(target ? tabRoute(target.id) : { to: "/" });
+        void navigate(target ? tabRoute(target.id) : { to: STATIC_MODE ? "/empty" : "/" });
       }
     },
     [tabs, activeID, dirtyID, navigate],
