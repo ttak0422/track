@@ -4,6 +4,11 @@
 export const previewMargin = 12;
 export const minPreviewWidth = 280;
 export const minPreviewHeight = 180;
+// A preview's opening height: at least this (the previous fixed size, kept as the floor) and otherwise
+// a fraction of the viewport height, so a taller screen opens a taller, more readable window. Width is
+// unchanged. The height is still capped by the room below the placement point.
+export const defaultPreviewHeight = 280;
+export const previewHeightRatio = 0.7;
 // Keep at least a short grab/readable strip visible when a preview is dragged mostly off-screen.
 export const minPreviewVisible = 32;
 // Gap between a link and a preview placed beside it.
@@ -54,7 +59,7 @@ export function initialPreviewBounds(anchor: PreviewAnchor): PreviewBounds {
     top = anchor.linkBottom + 8;
   }
   const height = clamp(
-    280,
+    Math.max(defaultPreviewHeight, window.innerHeight * previewHeightRatio),
     minPreviewHeight,
     Math.max(minPreviewHeight, window.innerHeight - top - previewMargin),
   );

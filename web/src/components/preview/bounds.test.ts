@@ -67,6 +67,21 @@ describe("initialPreviewBounds", () => {
     expect(b.left).toBe(250); // linkLeft
     expect(b.top).toBe(128); // linkBottom + 8
   });
+
+  it("scales the opening height with the viewport height (width unchanged)", () => {
+    setViewport(1200, 800);
+    const short = initialPreviewBounds(anchor({}));
+    expect(short.height).toBe(560); // 0.7 * 800
+    setViewport(1200, 1200);
+    const tall = initialPreviewBounds(anchor({}));
+    expect(tall.height).toBe(840); // 0.7 * 1200
+    expect(tall.width).toBe(short.width); // height change leaves width alone
+  });
+
+  it("floors the opening height at the previous default on a short viewport", () => {
+    setViewport(1200, 396); // 0.7 * 396 ≈ 277 < 280, and there is room for 280 below the link
+    expect(initialPreviewBounds(anchor({})).height).toBe(280);
+  });
 });
 
 describe("resizePreviewBounds", () => {
