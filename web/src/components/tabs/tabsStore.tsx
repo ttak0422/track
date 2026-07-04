@@ -6,6 +6,7 @@ import {
   useContext,
   useEffect,
   useMemo,
+  useRef,
   useState,
 } from "react";
 import type { NoteID } from "../../types";
@@ -83,11 +84,23 @@ function noteIDFromPath(pathname: string): NoteID | null {
 }
 
 export function TabsProvider({ children }: { children: ReactNode }) {
-  const [tabs, setTabs] = useState<NoteTab[]>(loadTabs);
+  // Start empty so a prerendered page and the client's first (hydration) render agree — localStorage is
+  // client-only, so reading it during render would desync SSR HTML from hydration. The persisted strip is
+  // restored in a mount effect below instead.
+  const [tabs, setTabs] = useState<NoteTab[]>([]);
   const [dirtyID, setDirtyID] = useState<NoteID | null>(null);
   const pathname = useRouterState({ select: (state) => state.location.pathname });
   const navigate = useNavigate();
   const activeID = noteIDFromPath(pathname);
+  // Skip the first persist (of the empty initial strip) so it does not clobber the saved tabs before the
+  // restore effect reads them.
+  const persistArmed = useRef(false);
+
+  // Restore the persisted strip once, after mount.
+  useEffect(() => {
+    const restored = loadTabs();
+    if (restored.length > 0) setTabs(restored);
+  }, []);
 
   // Navigating to a note opens a tab for it (appended) unless one is already open.
   useEffect(() => {
@@ -100,8 +113,13 @@ export function TabsProvider({ children }: { children: ReactNode }) {
     );
   }, [activeID]);
 
-  // Persist the open set/order (without titles' dirtiness) so a reload restores the strip.
+  // Persist the open set/order (without titles' dirtiness) so a reload restores the strip. The first run
+  // (the empty initial strip) is skipped so it cannot overwrite the saved tabs before they are restored.
   useEffect(() => {
+    if (!persistArmed.current) {
+      persistArmed.current = true;
+      return;
+    }
     try {
       window.localStorage.setItem(STORAGE_KEY, JSON.stringify(tabs));
     } catch {
