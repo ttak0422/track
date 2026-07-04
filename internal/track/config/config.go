@@ -40,6 +40,8 @@ type Config struct {
 	// path is accepted, same as the --template flag.
 	DefaultTemplate string
 	JournalTemplate string
+	// GenKeep is how many generation snapshots `gen increment` retains (count-based pruning).
+	GenKeep int
 }
 
 type fileConfig struct {
@@ -51,6 +53,7 @@ type fileConfig struct {
 	JournalDateFormat string        `yaml:"journal_date_format"`
 	DefaultTemplate   string        `yaml:"default_template"`
 	JournalTemplate   string        `yaml:"journal_template"`
+	GenKeep           int           `yaml:"gen_keep"`
 	Web               webFileConfig `yaml:"web"`
 }
 
@@ -159,6 +162,16 @@ func Load() (*Config, error) {
 		journalTemplate = env
 	}
 
+	genKeep := fc.GenKeep
+	if env := os.Getenv("TRACK_GEN_KEEP"); env != "" {
+		if n, err := strconv.Atoi(env); err == nil {
+			genKeep = n
+		}
+	}
+	if genKeep < 1 {
+		genKeep = 10
+	}
+
 	return &Config{
 		VaultDir:          vault,
 		DBPath:            db,
@@ -171,6 +184,7 @@ func Load() (*Config, error) {
 		VaultDirDisplay:   displayVault,
 		DefaultTemplate:   defaultTemplate,
 		JournalTemplate:   journalTemplate,
+		GenKeep:           genKeep,
 	}, nil
 }
 
@@ -473,4 +487,16 @@ func (c *Config) MetadataPath(id int64) string {
 // RenamesPath returns the vault-local title rename history path.
 func (c *Config) RenamesPath() string {
 	return filepath.Join(c.TrackDir(), "renames.yaml")
+}
+
+// GenDir returns the generation snapshot store (<vault>/.track/gen). It lives under .track so note
+// scanning never indexes it, and generations never snapshot it; it stays inside the vault so cloud
+// sync carries undo history to every device.
+func (c *Config) GenDir() string {
+	return filepath.Join(c.TrackDir(), "gen")
+}
+
+// TrashDir returns where `track rm` moves soft-deleted note files and their sidecars.
+func (c *Config) TrashDir() string {
+	return filepath.Join(c.TrackDir(), "trash")
 }

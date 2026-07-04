@@ -72,6 +72,44 @@ Typical creation loop:
 4. `track search --query X` to rediscover notes.
 5. `track rename --title Old --to New` when a title changes.
 
+## Generations and Deletion
+
+`track gen` gives an agent run a non-destructive review boundary without git (ADR 0025). The model
+is a git release: a generation is an immutable save point, the working vault is a disposable
+working tree.
+
+- `track gen increment`: save the working vault as a generation. Returns `{"gen":N,"changed":true}`,
+  or `changed: false` when nothing diverged from the cursor generation. Generations past the cursor
+  are dropped (`dropped`), the oldest beyond `gen_keep` are pruned (`pruned`).
+- `track gen undo` / `track gen redo`: move the cursor one generation back/forward and restore the
+  vault to it, then rebuild the index (search stays consistent). `undo` at the head auto-saves
+  unsaved changes as a generation first and reports it as `saved`; everywhere else unsaved changes
+  are discarded, so save with `increment` before moving.
+- `track gen list`: `{"generations":[{"gen":1,"created":"...","notes":12}],"cursor":1,"dirty":false}`.
+  Check `dirty` before a cursor move to know whether anything unsaved is at stake.
+- `track gen peek [--gen N] (--id N | --title X | --path P)`: print a note's Markdown as of a
+  generation (default: the cursor generation) to stdout, like `export`. The cursor does not move.
+  A deleted note no longer resolves by title; peek it by `--id`. Selective revert is peek + diff +
+  `track update` with only the parts to restore.
+
+`track rm (--id N | --title X | --path P)` soft-deletes a note: the file and its sidecar move to
+`.track/trash/` (never emptied by track) and the index is rebuilt. Backlinks pointing at the
+removed title simply stop resolving.
+
+A bulk rewrite (e.g. a memory-consolidation / dream skill) should bracket itself with generations:
+
+```sh
+track gen increment    # seal the pre-run state
+# ... rename / update / rm notes ...
+track gen increment    # approve the result as the new head
+# or
+track gen undo         # reject; the rejected output survives as the auto-saved
+                       # generation and redo revisits it
+```
+
+Snapshots cover note bodies, journals, and sidecar metadata only — `assets/` and `data/` are
+excluded, so an undo never restores or removes attachments.
+
 ## Maintenance
 
 `track reindex --full` rebuilds the cache index from the on-disk notes and sidecars; it reconciles deletions silently.

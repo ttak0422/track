@@ -491,6 +491,56 @@ func cmdRename(args []string) int {
 	return emit(map[string]any{"id": noteID, "path": notePath, "old_title": oldTitle, "new_title": to, "backlinks_updated": updated})
 }
 
+// cmdRm soft-deletes a note: the note file and its sidecar move into .track/trash (never removed
+// by track itself), then a full reindex reconciles search and links. Trash names are prefixed with
+// a millisecond timestamp so re-created ids never collide. This is the deletion primitive a memory
+// consolidation (dream) uses when merging notes; a `gen` snapshot taken before the run remains the
+// way to undo it wholesale.
+func cmdRm(args []string) int {
+	fs := flag.NewFlagSet("rm", flag.ContinueOnError)
+	id := fs.Int64("id", 0, "note id")
+	title := fs.String("title", "", "note title (alternative to --id)")
+	path := fs.String("path", "", "note path (alternative to --id)")
+	if err := fs.Parse(args); err != nil {
+		return fail("parse args: %v", err)
+	}
+
+	cfg, s, err := open()
+	if err != nil {
+		return fail("%v", err)
+	}
+	defer s.Close()
+
+	notePath, err := resolveNotePath(cfg, s, *id, strings.TrimSpace(*title), strings.TrimSpace(*path))
+	if err != nil {
+		return fail("%v", err)
+	}
+	noteID, err := note.IDFromPath(notePath)
+	if err != nil {
+		return fail("invalid note path: %v", err)
+	}
+
+	if err := os.MkdirAll(cfg.TrashDir(), 0o755); err != nil {
+		return fail("create trash dir: %v", err)
+	}
+	stamp := time.Now().UnixMilli()
+	trashed := filepath.Join(cfg.TrashDir(), fmt.Sprintf("%d-%s", stamp, filepath.Base(notePath)))
+	if err := os.Rename(notePath, trashed); err != nil {
+		return fail("move to trash: %v", err)
+	}
+	metaPath := cfg.MetadataPath(noteID)
+	if fileExists(metaPath) {
+		if err := os.Rename(metaPath, filepath.Join(cfg.TrashDir(), fmt.Sprintf("%d-%s", stamp, filepath.Base(metaPath)))); err != nil {
+			return fail("move sidecar to trash: %v", err)
+		}
+	}
+
+	if _, err := index.New(cfg, s).Full(); err != nil {
+		return fail("reindex: %v", err)
+	}
+	return emit(map[string]any{"id": noteID, "path": notePath, "trash": trashed})
+}
+
 // resolveNotePath turns one of --id/--title/--path into a concrete, existing note file path.
 func resolveNotePath(cfg *config.Config, s *store.Store, id int64, title, path string) (string, error) {
 	switch {
