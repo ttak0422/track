@@ -14,6 +14,7 @@ static-site export.
 - [[Web workspace]] — the local browser UI for reading, previewing, and navigating notes.
 - [[Visualization]] — how notes render as visuals: [[Diagrams]] (full Mermaid support), [[Charts]] from
   a View Spec, and [[Embeds]] for YouTube, PDFs, tweets, and other rich media.
+- [[Babel]] — run a note's fenced code blocks and keep their results in the sidecar.
 
 ## How the pieces fit
 

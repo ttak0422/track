@@ -71,6 +71,8 @@ broken image. A config file, script, or data snippet you want to keep beside a n
 ![](assets/config.yaml)
 ```
 
+![](assets/config.yaml)
+
 Two text kinds render as something richer instead: a Mermaid source (`.mmd` / `.mermaid`) becomes a
 diagram — see [[Diagrams]] — and a `.viewspec.json` becomes a **chart** — see [[Charts]].
 
