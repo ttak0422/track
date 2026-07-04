@@ -51,3 +51,4 @@ assert_true(wait_attached(buf2), "track-lsp did not re-attach after reopen")
 assert_true(has_follow_cr(buf2), "track <CR> follow map missing after reopen (regression)")
 
 print("track-e2e: PASS nvim link keymap")
+vim.cmd("qa!")
