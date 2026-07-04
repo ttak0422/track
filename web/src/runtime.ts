@@ -13,12 +13,11 @@ export const STATIC_MODE = import.meta.env.VITE_TRACK_STATIC === "1";
 export const START_PAGE_ID =
   (typeof window !== "undefined" ? window.__trackStartPage : "") || "";
 
-// dataURL resolves a path inside the exported data bundle relative to the current document, so it keeps
-// working under any GitHub Pages subpath. Static mode uses hash routing, so document.baseURI stays at
-// the site root (index.html) regardless of the in-app route.
+// dataURL resolves a path inside the exported data bundle. The static site is path-routed, so it cannot
+// rely on document.baseURI (which varies per route); anchor to the build-time base (BASE_URL, "/" or the
+// configured subpath) instead, which is where the data bundle sits. During prerender (no import.meta in
+// some contexts) BASE_URL is still inlined at build, and the leading path is matched by the prerender's
+// fetch shim.
 export function dataURL(path: string): string {
-  if (typeof document !== "undefined") {
-    return new URL(`data/${path}`, document.baseURI).toString();
-  }
-  return `data/${path}`;
+  return `${import.meta.env.BASE_URL}data/${path}`;
 }

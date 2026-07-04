@@ -1,13 +1,14 @@
 import {
   type RouterHistory,
   RouterProvider,
-  createHashHistory,
+  createBrowserHistory,
   createRootRoute,
   createRoute,
   createRouter,
 } from "@tanstack/react-router";
-import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { STATIC_MODE } from "./runtime";
+import { QueryClient, QueryClientProvider, hydrate } from "@tanstack/react-query";
+import type { ReactNode } from "react";
+import { START_PAGE_ID, STATIC_MODE } from "./runtime";
 import { ActivityPanel } from "./components/ActivityPanel";
 import { EmptyState } from "./components/EmptyState";
 import { GraphFullView } from "./components/GraphFullView";
@@ -39,16 +40,33 @@ const graphRoute = createRoute({
   component: GraphRoute,
 });
 
-const routeTree = rootRoute.addChildren([indexRoute, noteRoute, graphRoute]);
+// The static site's empty state (reached by closing every tab) has its own route so it is a real
+// prerendered file, rather than sharing "/" — which is the start page.
+const emptyRoute = createRoute({
+  getParentRoute: () => rootRoute,
+  path: "/empty",
+  component: () => <EmptyState />,
+});
 
-// createAppRouter builds a router over the shared route tree. The client leaves history undefined (Tan
-// Stack defaults to browser history) except the static site, which used hash history so deep links stay
-// inside one index.html on a fallback-less host. The prerender (entry-server) passes a memory history for
-// a specific URL. Kept a factory so client and SSR each get their own instance.
-export function createAppRouter(history?: RouterHistory) {
+const routeTree = rootRoute.addChildren([indexRoute, noteRoute, graphRoute, emptyRoute]);
+
+// The router basepath (and asset URLs) come from the build-time base (import.meta.env.BASE_URL), so the
+// prerender and the hydrating client agree on link paths even under a GitHub Pages subpath. Trailing
+// slash stripped: "/" → "", "/repo/" → "/repo".
+const basepath = import.meta.env.BASE_URL.replace(/\/$/, "");
+
+// createAppRouter builds a router over the shared route tree. The static site is path-routed and
+// prerendered (every route is a real file), so it uses browser history like the live server; the
+// prerender (entry-server) passes a memory history for the URL being rendered. Kept a factory so the
+// client and each SSR render get their own instance.
+export function createAppRouter(history?: RouterHistory, opts?: { isServer?: boolean }) {
   return createRouter({
     routeTree,
-    ...(history ? { history } : STATIC_MODE ? { history: createHashHistory() } : {}),
+    basepath: STATIC_MODE ? basepath : undefined,
+    // The prerender forces isServer so the router renders in server mode despite jsdom providing a
+    // document (which would otherwise make it think it is on the client).
+    ...(opts?.isServer ? { isServer: true } : {}),
+    ...(history ? { history } : STATIC_MODE ? { history: createBrowserHistory() } : {}),
   });
 }
 
@@ -62,35 +80,46 @@ declare module "@tanstack/react-router" {
 // (entry-server) does not run the browser/hash history, which touches window and would crash in Node.
 let clientRouter: ReturnType<typeof createAppRouter> | null = null;
 
-// AppTree is the provider stack parameterized by a router and query client, shared by the client entry
-// (App) and the prerender (entry-server), so both render an identical tree.
-export function AppTree({
-  router: r,
-  queryClient,
-}: {
-  router: ReturnType<typeof createAppRouter>;
-  queryClient: QueryClient;
-}) {
+// AppTree is the provider stack shared by the live client (App), the prerender (entry-server via
+// RouterServer), and the static client hydration (main.tsx via RouterClient). The router element is
+// passed as children so each entry supplies the SSR-appropriate variant — RouterServer and RouterClient
+// coordinate the same Suspense boundaries so prerender and hydration agree, which a plain RouterProvider
+// on both sides does not.
+export function AppTree({ queryClient, children }: { queryClient: QueryClient; children: ReactNode }) {
+  return <QueryClientProvider client={queryClient}>{children}</QueryClientProvider>;
+}
+
+// The client's shared query client. On the static site the prerender inlines its dehydrated react-query
+// cache as window.__TRACK_STATE__; hydrate it here so the client reuses the prerendered content instead
+// of refetching and flashing.
+export const queryClient = new QueryClient();
+if (typeof window !== "undefined" && window.__TRACK_STATE__) {
+  hydrate(queryClient, window.__TRACK_STATE__);
+}
+
+// clientAppRouter returns the client's singleton router (created lazily so importing this module for the
+// prerender does not construct browser history in Node). main.tsx awaits its load() before hydrating the
+// static site so the first client render matches the prerendered (already-loaded) markup.
+export function clientAppRouter() {
+  clientRouter ??= createAppRouter();
+  return clientRouter;
+}
+
+export function App() {
   return (
-    <QueryClientProvider client={queryClient}>
-      <RouterProvider router={r} />
-    </QueryClientProvider>
+    <AppTree queryClient={queryClient}>
+      <RouterProvider router={clientAppRouter()} />
+    </AppTree>
   );
 }
 
-const queryClient = new QueryClient();
-
-export function App() {
-  clientRouter ??= createAppRouter();
-  return <AppTree router={clientRouter} queryClient={queryClient} />;
-}
-
 function HomeRoute() {
-  // The published site has no heatmap home. It opens the start page on launch (see Shell); this route is
-  // only reached once every tab is closed, where the empty reader shows a faint mark and pointers to the
-  // sidebar so the blank area reads as "nothing open".
+  // The published site's "/" is the start page: it renders the configured root note directly, so the
+  // prerendered index.html carries real content (fast FCP/LCP) instead of an empty shell that redirects.
+  // The empty state lives at /empty (reached by closing every tab). The live workspace shows the heatmap
+  // home here instead.
   if (STATIC_MODE) {
-    return <EmptyState />;
+    return START_PAGE_ID ? <NoteReader noteID={START_PAGE_ID} /> : <EmptyState />;
   }
   return (
     <section className="home-hero">

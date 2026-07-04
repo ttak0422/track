@@ -44,16 +44,18 @@ jobs:
           name: ttak0422
           authToken: ${{ secrets.CACHIX_AUTH_TOKEN }}
 
-      - name: Build static help site
-        run: |
-          nix develop --command bash -euo pipefail -c '
-            (cd web && npm ci && VITE_TRACK_STATIC=1 npm run build)
-            go build -o track ./cmd/track
-            ./track export-site --src docs/help --root index --frontend web/dist --out ./_site
-          '
-
       - name: Configure Pages
+        id: pages
         uses: actions/configure-pages@v5
+
+      # Build + prerender the site. SITE_BASE is the Pages base path (e.g. /track/ for a project site),
+      # baked into the bundle so the path-routed, prerendered pages resolve assets, data, and routes under
+      # the subpath. make site builds the client + SSR bundles, exports the data, and prerenders each route.
+      - name: Build + prerender static help site
+        env:
+          SITE_BASE: ${{ steps.pages.outputs.base_path }}
+        run: |
+          nix develop --command bash -euo pipefail -c 'make site SITE_OUT=./_site'
 
       - name: Upload artifact
         uses: actions/upload-pages-artifact@v3

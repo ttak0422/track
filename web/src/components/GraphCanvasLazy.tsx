@@ -1,4 +1,4 @@
-import { lazy, Suspense } from "react";
+import { lazy, Suspense, useEffect, useState } from "react";
 import type { GraphCanvasProps } from "./GraphCanvas";
 
 // GraphCanvas is the only importer of d3-force (the force-layout engine). Load it on demand so d3-force
@@ -11,6 +11,13 @@ const GraphCanvasInner = lazy(() =>
 );
 
 export function GraphCanvas(props: GraphCanvasProps) {
+  // Render nothing until mounted on the client. renderToString does not support a lazy/Suspense boundary
+  // cleanly, so a prerendered page would emit a Suspense fallback that mismatches on hydration; gating on
+  // mount makes the server and the first client render agree (both empty), then the canvas loads. The
+  // graph is secondary content, so deferring it to after hydration costs nothing above the fold.
+  const [mounted, setMounted] = useState(false);
+  useEffect(() => setMounted(true), []);
+  if (!mounted) return null;
   return (
     <Suspense fallback={null}>
       <GraphCanvasInner {...props} />

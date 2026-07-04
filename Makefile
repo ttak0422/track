@@ -20,11 +20,19 @@ help: ## List the available targets
 	@grep -E '^[a-zA-Z0-9_-]+:.*?## ' $(MAKEFILE_LIST) \
 		| awk 'BEGIN{FS=":.*?## "}{printf "  \033[36m%-12s\033[0m %s\n", $$1, $$2}'
 
-site: web/node_modules ## Build the static help site into $(SITE_OUT)
-	cd web && npx tsc -b && VITE_TRACK_STATIC=1 npx vite build --outDir dist-static
+# SITE_BASE is the deploy base path baked into the bundle (asset/data URLs + router basepath). Default
+# root; set e.g. SITE_BASE=/track/ for a GitHub Pages project subpath.
+SITE_BASE  ?= /
+
+site: web/node_modules ## Build + prerender the static help site into $(SITE_OUT)
+	rm -rf $(SITE_OUT)
+	cd web && npx tsc -b
+	cd web && VITE_TRACK_STATIC=1 SITE_BASE=$(SITE_BASE) npx vite build --outDir dist-static
+	cd web && VITE_TRACK_STATIC=1 SITE_BASE=$(SITE_BASE) npx vite build --ssr src/entry-server.tsx --outDir dist-server
 	go build -o $(TRACK_BIN) ./cmd/track
 	./$(TRACK_BIN) export-site --src $(SITE_SRC) --root $(SITE_ROOT) --frontend $(WEB_DIST) --out $(SITE_OUT)
-	@echo "Built $(SITE_OUT)/ — run 'make site-serve' to preview"
+	node web/scripts/prerender.mjs $(SITE_OUT) web/dist-server/entry-server.js
+	@echo "Built + prerendered $(SITE_OUT)/ — run 'make site-serve' to preview"
 
 lighthouse: site ## Run Lighthouse on the built site and print the scores (needs Chrome)
 	npx --yes @lhci/cli@0.14.x collect

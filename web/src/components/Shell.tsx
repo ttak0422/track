@@ -1,6 +1,4 @@
 import { Link, Outlet, useNavigate, useRouterState } from "@tanstack/react-router";
-import { useQuery } from "@tanstack/react-query";
-import { useEffect, useRef } from "react";
 import { GraphBackground } from "./GraphBackground";
 import { GraphPanel } from "./GraphPanel";
 import { KMark } from "./Logo";
@@ -10,11 +8,10 @@ import { SidebarSearch } from "./SidebarSearch";
 import { TabBar } from "./tabs/TabBar";
 import { TabsProvider } from "./tabs/tabsStore";
 import { ThemeMenu } from "./ThemeMenu";
-import { getSite, openJournal } from "../api";
+import { openJournal } from "../api";
 import { useLiveEvents } from "../hooks/useLiveEvents";
-import { START_PAGE_ID, STATIC_MODE } from "../runtime";
+import { STATIC_MODE } from "../runtime";
 import { SearchProvider } from "../searchState";
-import type { NoteID } from "../types";
 
 export function Shell() {
   const pathname = useRouterState({ select: (state) => state.location.pathname });
@@ -25,11 +22,6 @@ export function Shell() {
   const isLiveHome = isHome && !STATIC_MODE;
   const navigate = useNavigate();
   useLiveEvents();
-  // The static site's start page (the configured root note); the brand button and the launch redirect
-  // both go there instead of "/", which is the empty state.
-  const site = useQuery({ queryKey: ["site"], queryFn: getSite, enabled: STATIC_MODE });
-  const startPageID = site.data?.root;
-  useStaticStartPage(navigate, startPageID);
 
   // Open (creating if needed) today's journal and jump to it, mirroring how the activity heatmap opens a
   // day. The local-time YYYY-MM-DD key matches the journal id the server derives from the date.
@@ -54,21 +46,15 @@ export function Shell() {
         {isLiveHome ? null : (
           <aside className="sidebar">
             <nav className="activity-rail" aria-label="Workspace views">
-              {STATIC_MODE && startPageID ? (
-                <Link
-                  className="rail-button rail-brand"
-                  to="/notes/$noteId"
-                  params={{ noteId: String(startPageID) }}
-                  aria-label="Start page"
-                  title="Start page"
-                >
-                  <KMark className="rail-mark" />
-                </Link>
-              ) : (
-                <Link className="rail-button rail-brand" to="/" aria-label="track home" title="track home">
-                  <KMark className="rail-mark" />
-                </Link>
-              )}
+              {/* On the static site "/" is the start page; on the live server it is the heatmap home. */}
+              <Link
+                className="rail-button rail-brand"
+                to="/"
+                aria-label={STATIC_MODE ? "Start page" : "track home"}
+                title={STATIC_MODE ? "Start page" : "track home"}
+              >
+                <KMark className="rail-mark" />
+              </Link>
               <SidebarSearch />
               {/* The published static site is read-only and cannot create journals. */}
               {!STATIC_MODE && (
@@ -109,36 +95,6 @@ export function Shell() {
       </FloatingProvider>
     </SearchProvider>
   );
-}
-
-// useStaticStartPage opens the configured start page once, on launch, when the static site is entered at
-// its home route. It never fires again when the user later returns to "/" by closing every tab, so that
-// empty state stays empty instead of bouncing back to the start page.
-//
-// The root note's id is baked into index.html at export time (START_PAGE_ID), so the redirect fires
-// synchronously on the first render — the very first navigation targets the note, skipping the empty
-// state and the site.json round-trip. When START_PAGE_ID is empty (an older bundle) it falls back to the
-// id fetched from site.json (startPageID) so nothing regresses.
-function useStaticStartPage(navigate: ReturnType<typeof useNavigate>, startPageID: NoteID | undefined) {
-  const done = useRef(false);
-  // Whether the app was entered at the home route (vs a deep link to a note/graph), from the launch hash.
-  const enteredAtHome = useRef(
-    typeof window === "undefined" || window.location.hash === "" || window.location.hash === "#/",
-  );
-
-  useEffect(() => {
-    if (!STATIC_MODE || done.current) return;
-    if (!enteredAtHome.current) {
-      done.current = true;
-      return;
-    }
-    // START_PAGE_ID is known synchronously at build time; fall back to the site.json id for older bundles.
-    const target = START_PAGE_ID || (startPageID ? String(startPageID) : "");
-    if (target) {
-      done.current = true;
-      void navigate({ to: "/notes/$noteId", params: { noteId: target }, replace: true });
-    }
-  }, [startPageID, navigate]);
 }
 
 function RailGraphIcon() {
