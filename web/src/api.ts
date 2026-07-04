@@ -18,6 +18,7 @@ import type {
   SearchResponse,
   SearchResult,
   SiteResponse,
+  ViewSpecResponse,
 } from "./types";
 
 interface APIOptions {
@@ -177,6 +178,13 @@ export function renderMarkdown(body: string): Promise<RenderResponse> {
     return Promise.resolve({ markdown: body });
   }
   return api<RenderResponse>("/api/render", { method: "POST", body: { body } });
+}
+
+// renderViewSpec asks the server to draw a fenced ```viewspec block (View Spec JSON) as a static SVG
+// chart, keeping the engine the single source of truth for chart rendering. The static export replaces
+// these blocks with pre-rendered images at build time, so this is never called in static mode.
+export function renderViewSpec(spec: string): Promise<ViewSpecResponse> {
+  return api<ViewSpecResponse>("/api/viewspec", { method: "POST", body: { spec } });
 }
 
 export function getLocalGraph(noteID: NoteID): Promise<GraphResponse> {

@@ -10,6 +10,7 @@ import { ExternalLink } from "./markdown/ExternalLink";
 import { loadMathPlugins, looksLikeMath, type MathPlugins, mathPluginsIfLoaded } from "./markdown/math";
 import { MermaidDiagram } from "./markdown/MermaidDiagram";
 import { remarkWikiLink } from "./markdown/plugins";
+import { ViewSpecChart } from "./markdown/ViewSpecChart";
 import { WikiLink } from "./preview/WikiLink";
 
 interface MarkdownViewProps {
@@ -82,8 +83,12 @@ const markdownComponents = {
     if (code && code.type === "element" && code.tagName === "code") {
       const lang = codeLanguage(code);
       const text = hastText(code);
-      if (normalizeCodeLanguage(lang) === "mermaid") {
+      const normalized = normalizeCodeLanguage(lang);
+      if (normalized === "mermaid") {
         return <MermaidDiagram text={text} />;
+      }
+      if (normalized === "viewspec") {
+        return <ViewSpecChart text={text} />;
       }
       return <CodeBlock lang={lang} text={text} />;
     }

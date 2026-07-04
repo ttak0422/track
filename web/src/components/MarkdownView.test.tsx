@@ -46,6 +46,12 @@ describe("MarkdownView", () => {
     expect(screen.queryByRole("button", { name: "Copy code" })).not.toBeInTheDocument();
   });
 
+  it("renders viewspec fences through the chart component", () => {
+    const { container } = render(<MarkdownView markdown={'```viewspec\n{"version":2}\n```'} />);
+    expect(container.querySelector(".viewspec-chart")).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Copy code" })).not.toBeInTheDocument();
+  });
+
   it("renders an external link that opens in a new tab", () => {
     renderWithQuery(<MarkdownView markdown="[example](https://example.com)" />);
     const link = screen.getByRole("link", { name: "example" });

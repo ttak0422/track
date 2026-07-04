@@ -134,6 +134,11 @@ export interface RenderResponse {
   markdown: string;
 }
 
+// ViewSpecResponse carries the server-rendered SVG for a fenced ```viewspec chart block.
+export interface ViewSpecResponse {
+  svg: string;
+}
+
 // SiteResponse describes the published static site: which note is the entry page. It only exists in the
 // static export bundle (data/site.json).
 export interface SiteResponse {
