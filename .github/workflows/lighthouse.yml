@@ -1,0 +1,69 @@
+name: Lighthouse
+
+# Measure the published help site's Lighthouse scores and surface them on the run's Summary page. It
+# only runs when something that affects the site changes.
+on:
+  push:
+    branches:
+      - main
+    paths:
+      - "docs/help/**"
+      - "web/**"
+      - "internal/track/site/**"
+      - "Makefile"
+      - ".lighthouserc.json"
+      - "scripts/lhci-summary.mjs"
+      - ".github/workflows/lighthouse.yml"
+  pull_request:
+    paths:
+      - "docs/help/**"
+      - "web/**"
+      - "internal/track/site/**"
+      - "Makefile"
+      - ".lighthouserc.json"
+      - "scripts/lhci-summary.mjs"
+      - ".github/workflows/lighthouse.yml"
+
+jobs:
+  lighthouse:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+
+      - name: Install Nix
+        uses: cachix/install-nix-action@v31
+        with:
+          extra_nix_config: |
+            experimental-features = nix-command flakes
+
+      - name: Set up Cachix
+        uses: cachix/cachix-action@v15
+        with:
+          name: ttak0422
+          authToken: ${{ secrets.CACHIX_AUTH_TOKEN }}
+
+      - name: Install Chrome
+        id: chrome
+        uses: browser-actions/setup-chrome@v1
+
+      - name: Build the help site
+        run: nix develop --command make site
+
+      - name: Run Lighthouse
+        env:
+          CHROME_PATH: ${{ steps.chrome.outputs.chrome-path }}
+        run: nix develop --command npx --yes @lhci/cli@0.14.x collect
+
+      - name: Score summary
+        run: nix develop --command node scripts/lhci-summary.mjs
+
+      - name: Upload Lighthouse reports
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: lighthouse-report
+          path: .lighthouseci/
+          retention-days: 14
