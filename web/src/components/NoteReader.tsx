@@ -34,7 +34,12 @@ export function NoteReader({ noteID }: NoteReaderProps) {
   // For a journal, surface the notes worked on that day. The day comes from the journal id (yyyyMMdd).
   const journalDate = journalDateFromNote(noteQuery.data?.note);
   const agendaQuery = useAgendaQuery(journalDate, { enabled: journalDate !== "" });
-  const [body, setBody] = useState("");
+  // Seed the editor body from the note if it is already in cache at mount (prerender/hydration, or a
+  // warm query cache) so the very first render shows content instead of an empty preview waiting on the
+  // adopt effect below. When the note is not cached yet (a cold live load) this is "" and the effect
+  // adopts it once it arrives — unchanged behavior.
+  const cachedNote = noteQuery.data?.note;
+  const [body, setBody] = useState(() => cachedNote?.body ?? "");
   const [editorMode, setEditorMode] = useState<EditorMode>("preview");
   const [followEnabled, setFollowEnabled] = useState(false);
   // Delete confirmation: the user must retype the title (GitHub-style) before the note can be removed.
@@ -49,7 +54,8 @@ export function NoteReader({ noteID }: NoteReaderProps) {
   // The note/body/etag last adopted from disk. Edits are "dirty" relative to this, and
   // saves use this etag so a background reload cannot mask a conflicting change. noteID is
   // tracked so switching notes always reloads, even with unsaved edits to the previous note.
-  const loadedRef = useRef({ noteID, body: "", etag: "" });
+  // Initialized to match the seeded body so a cache-warm first render is not falsely "dirty".
+  const loadedRef = useRef({ noteID, body: cachedNote?.body ?? "", etag: cachedNote?.etag ?? "" });
   const noteIDRef = useRef(noteID);
   const editorModeRef = useRef(editorMode);
   const pendingFollowRef = useRef<FollowState | null>(null);
