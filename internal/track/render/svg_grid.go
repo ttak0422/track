@@ -9,10 +9,14 @@ import (
 	"github.com/ttak0422/track/internal/track/viewspec"
 )
 
+// svgXMLProlog opens every standalone SVG document; inlining a chart into HTML strips it
+// (RenderDocument), since an XML declaration is invalid mid-page.
+const svgXMLProlog = `<?xml version="1.0" encoding="UTF-8"?>` + "\n"
+
 // writeSVGHeader emits the document prolog shared by every SVG chart: the XML declaration, the root
 // <svg> sized to the canvas, a white background, and the centered title (when present).
 func writeSVGHeader(b *strings.Builder, g svgGeom, title string) {
-	b.WriteString(`<?xml version="1.0" encoding="UTF-8"?>` + "\n")
+	b.WriteString(svgXMLProlog)
 	fmt.Fprintf(b, `<svg xmlns="http://www.w3.org/2000/svg" width="%g" height="%g" viewBox="0 0 %g %g" font-family="sans-serif">`+"\n",
 		g.w, g.h, g.w, g.h)
 	b.WriteString(`<rect width="100%" height="100%" fill="#ffffff"/>` + "\n")

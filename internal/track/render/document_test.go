@@ -73,6 +73,46 @@ func TestRenderDocumentLoadsAnnotationOnlyWithMarkers(t *testing.T) {
 	}
 }
 
+func TestRenderDocumentInlinesSVGOnlyCharts(t *testing.T) {
+	line := lineChart("One", []float64{1, 2})
+	candle := viewspec.Resolved{
+		Spec: viewspec.Spec{Title: "OHLC"}, Chart: viewspec.ChartCandlestick,
+		Labels: []string{"a", "b"},
+		Series: []viewspec.Series{
+			{Label: "open", Values: []float64{1, 2}}, {Label: "high", Values: []float64{3, 4}},
+			{Label: "low", Values: []float64{0, 1}}, {Label: "close", Values: []float64{2, 3}},
+		},
+	}
+	out, err := RenderDocument(Document{Items: []Item{{Chart: &line}, {Chart: &candle}}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(out, `class="chart-wrap chart-wrap-svg"`) || !strings.Contains(out, "<svg") {
+		t.Fatalf("candlestick should inline an SVG: %s", out)
+	}
+	if strings.Contains(out, "<?xml") {
+		t.Fatalf("inline SVG must not carry the XML prolog: %s", out)
+	}
+	// Only the line chart gets a canvas; the SVG chart takes no chart index.
+	if strings.Count(out, `canvas id="chart-`) != 1 {
+		t.Fatalf("want 1 canvas: %s", out)
+	}
+}
+
+func TestRenderDocumentSVGOnlyChartsOmitChartJS(t *testing.T) {
+	timeline := viewspec.Resolved{
+		Spec: viewspec.Spec{}, Chart: viewspec.ChartTimeline,
+		Grid: &viewspec.Grid{Cols: []string{"a"}, Rows: []string{"r"}, Cells: []viewspec.Cell{{Col: 0, Row: 0, Value: 1}}},
+	}
+	out, err := RenderDocument(Document{Items: []Item{{Chart: &timeline}}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(out, "chart.js@4") {
+		t.Fatalf("no canvas chart → Chart.js CDN should be omitted: %s", out)
+	}
+}
+
 func TestRenderDocumentTable(t *testing.T) {
 	tbl := viewspec.ResolvedTable{
 		Columns: []string{"Sym", "Qty"},

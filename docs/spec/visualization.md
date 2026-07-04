@@ -448,9 +448,11 @@ array.
   cell renders empty so rows stay aligned). `filter: true` adds a client-side text filter box that
   hides non-matching rows. Tables render as server-side HTML and need no CDN, so they work offline.
 - Output is one HTML page: prose is rendered by **marked.js** (CDN) at view time so track keeps no Go
-  Markdown dependency; charts reuse the Chart.js renderer. The annotation plugin loads only if a chart
-  has overlays, marked only if there is prose, and the table-filter script only if a table is
-  filterable.
+  Markdown dependency; charts reuse the Chart.js renderer — except the SVG-only forms (candlestick,
+  heatmap, timeline), which are inlined as static server-rendered SVG so an article can still compose
+  them. Scripts load conditionally: Chart.js only if a block needs a canvas chart, the annotation
+  plugin only if a chart has overlays, marked only if there is prose, and the table-filter script only
+  if a table is filterable.
 
 ## CLI
 

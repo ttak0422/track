@@ -90,11 +90,16 @@ func chartJSType(t viewspec.ChartType) string {
 	return string(t)
 }
 
+// svgOnlyChart reports whether a drawing form has no Chart.js equivalent: Chart.js has no built-in
+// candlestick type (a lookalike would misread as OHLC) and no grid forms, so those render only as SVG.
+// A composed document falls back to an inline SVG for them (RenderDocument).
+func svgOnlyChart(t viewspec.ChartType) bool {
+	return t == viewspec.ChartHeatmap || t == viewspec.ChartTimeline || t == viewspec.ChartCandlestick
+}
+
 // Render builds the Chart.js config from the resolved spec and embeds it in a complete HTML document.
 func (ChartJS) Render(res viewspec.Resolved) (string, error) {
-	// Chart.js has no built-in candlestick type, so like the grid forms it stays SVG-only rather than
-	// shipping a lookalike that would misread as OHLC.
-	if res.Chart == viewspec.ChartHeatmap || res.Chart == viewspec.ChartTimeline || res.Chart == viewspec.ChartCandlestick {
+	if svgOnlyChart(res.Chart) {
 		return "", fmt.Errorf("chartjs renderer: %s is only supported by --renderer svg", res.Chart)
 	}
 	cfgJSON, usesAnnotation, err := chartJSConfigJSON(res)

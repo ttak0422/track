@@ -30,10 +30,11 @@ type Item struct {
 }
 
 // RenderDocument composes prose, charts, and tables into a single self-contained HTML page. Charts
-// reuse the same Chart.js config builder as the single-chart renderer; prose is rendered from Markdown
-// by marked.js at view time; tables are server-side HTML (no CDN). CDNs/scripts load conditionally:
-// marked only with prose, the annotation plugin only when a chart has markers, the filter script only
-// when a table is filterable.
+// reuse the same Chart.js config builder as the single-chart renderer, except SVG-only forms
+// (candlestick, heatmap, timeline), which are inlined as static server-rendered SVG; prose is rendered
+// from Markdown by marked.js at view time; tables are server-side HTML (no CDN). CDNs/scripts load
+// conditionally: Chart.js only with a canvas chart, marked only with prose, the annotation plugin only
+// when a chart has markers, the filter script only when a table is filterable.
 func RenderDocument(doc Document) (string, error) {
 	var charts []string // chart config JSON, in document order
 	var mds []string    // prose sources, in prose order (aligned to data-md indices)
@@ -45,6 +46,16 @@ func RenderDocument(doc Document) (string, error) {
 	for _, it := range doc.Items {
 		switch {
 		case it.Chart != nil:
+			// Forms Chart.js cannot draw (candlestick, heatmap, timeline) are inlined as static
+			// server-rendered SVG instead, so an article can still compose them.
+			if svgOnlyChart(it.Chart.Chart) {
+				svg, err := (SVG{}).Render(*it.Chart)
+				if err != nil {
+					return "", err
+				}
+				body.WriteString(`<div class="chart-wrap chart-wrap-svg">` + strings.TrimPrefix(svg, svgXMLProlog) + "</div>\n")
+				continue
+			}
 			cfgJSON, ann, err := chartJSConfigJSON(*it.Chart)
 			if err != nil {
 				return "", err
@@ -108,7 +119,10 @@ func writeTable(b *strings.Builder, id int, t viewspec.ResolvedTable) {
 // annotation plugin only when a chart uses markers, marked only when there is prose. The script wires
 // marked over the prose placeholders, instantiates each chart, and wires table filters (no CDN).
 func renderDocumentPage(escapedTitle, body string, charts []string, mdJSON string, hasProse, usesAnnotation, hasFilter bool) string {
-	scripts := []string{chartJSCDN}
+	var scripts []string
+	if len(charts) > 0 {
+		scripts = append(scripts, chartJSCDN)
+	}
 	if usesAnnotation {
 		scripts = append(scripts, annotationCDN)
 	}
@@ -126,6 +140,7 @@ func renderDocumentPage(escapedTitle, body string, charts []string, mdJSON strin
 	}
 	b.WriteString("<style>body{margin:0 auto;max-width:880px;padding:24px;font-family:system-ui,sans-serif;line-height:1.6}" +
 		".chart-wrap{position:relative;height:360px;margin:24px 0}.prose{margin:16px 0}" +
+		".chart-wrap-svg{height:auto}.chart-wrap-svg svg{max-width:100%;height:auto}" +
 		".table-wrap{margin:24px 0;overflow-x:auto}.table-filter{margin-bottom:8px;padding:6px 8px;width:100%;box-sizing:border-box}" +
 		"table{border-collapse:collapse;width:100%}th,td{border:1px solid #ddd;padding:6px 10px;text-align:left}thead th{background:#f5f5f5}</style>\n")
 	b.WriteString("</head>\n<body>\n")

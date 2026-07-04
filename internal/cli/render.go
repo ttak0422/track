@@ -285,7 +285,9 @@ A nominal color splits records into one series per category (one line/bar/point 
 
 Article (composed document): a spec with a "blocks" array of prose, charts, and
 tables is rendered as one HTML page (prose via marked, charts via Chart.js,
-tables as server-side HTML). Each block sets exactly one of markdown/chart/table:
+tables as server-side HTML; candlestick/heatmap/timeline charts are inlined as
+static SVG since Chart.js cannot draw them). Each block sets exactly one of
+markdown/chart/table:
   {
     "version": 1,
     "title": "Market narrative",
