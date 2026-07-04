@@ -1,12 +1,10 @@
 import { useQuery } from "@tanstack/react-query";
 import { Link } from "@tanstack/react-router";
 import { getSite } from "../api";
-import { TrackLogo } from "./Logo";
-import { SearchPanel } from "./SearchPanel";
 
-// Welcome is the static site's empty-state landing — VS Code's welcome tab. The reader has no note open,
-// so show the mark, a jump to the site's entry note and graph, and search to reach any other note (the
-// sidebar is hidden on the home route, so navigation has to live here).
+// Welcome is the static site's empty state — VS Code's "no editor open" watermark: nothing is loaded, so
+// show only a faint, centered list of the ways in. Deliberately minimal (no logo hero or search box) so
+// it reads as an empty canvas, not the live workspace home.
 export function Welcome() {
   const site = useQuery({ queryKey: ["site"], queryFn: getSite });
 
@@ -17,19 +15,19 @@ export function Welcome() {
   const root = site.data?.root;
 
   return (
-    <section className="home-hero">
-      <TrackLogo className="home-logo" />
-      <nav className="welcome-actions" aria-label="Get started">
+    <div className="welcome" aria-label="Nothing open">
+      <ul className="welcome-hints">
         {root ? (
-          <Link className="welcome-action" to="/notes/$noteId" params={{ noteId: String(root) }}>
-            Open the start page
-          </Link>
+          <li>
+            <Link to="/notes/$noteId" params={{ noteId: String(root) }}>
+              Open the start page
+            </Link>
+          </li>
         ) : null}
-        <Link className="welcome-action" to="/graph">
-          Explore the graph
-        </Link>
-      </nav>
-      <SearchPanel />
-    </section>
+        <li>
+          <Link to="/graph">Explore the graph</Link>
+        </li>
+      </ul>
+    </div>
   );
 }
