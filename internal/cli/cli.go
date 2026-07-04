@@ -51,6 +51,10 @@ func Run(args []string) int {
 		return cmdAsset(rest)
 	case "rename":
 		return cmdRename(rest)
+	case "rm":
+		return cmdRm(rest)
+	case "gen":
+		return cmdGen(rest)
 	case "keywords":
 		return cmdKeywords(rest)
 	case "resolve":
@@ -104,6 +108,16 @@ Usage:
   track asset dir [--ensure]            print (and optionally create) the vault's assets directory (JSON)
   track rename (--id N | --title S | --path P) --to S
                                         rename a note's title and rewrite its backlinks (JSON)
+  track rm (--id N | --title S | --path P)
+                                        soft-delete a note: move it and its sidecar into .track/trash (JSON)
+  track gen increment                   save the working vault as a new generation; drops generations
+                                        past the cursor and prunes old ones beyond gen_keep (JSON)
+  track gen undo                        step back one generation and restore it; unsaved changes are
+                                        auto-saved as a generation first when at the head (JSON)
+  track gen redo                        step forward one generation and restore it (JSON)
+  track gen list                        list generations, the cursor, and dirty state (JSON)
+  track gen peek [--gen N] (--id N | --title S | --path P)
+                                        print a note's content as of a generation (default: cursor)
   track journal [--offset <n>] [--template <s>] [--body <s>]
                                         open/create a daily note
   track init                            create the vault directory skeleton (idempotent, JSON)
