@@ -27,20 +27,22 @@ import (
 const Version = 2
 
 // Mark names what is drawn, orthogonally to how data is encoded onto it. line/bar/point/rect map the
-// former chart types; area is a stub that currently draws as a line (fill is a later addition).
+// former chart types; area is a line with the region down to zero filled; candlestick draws OHLC bars
+// from the price kind's canonical fields.
 type Mark string
 
 const (
-	MarkLine  Mark = "line"
-	MarkBar   Mark = "bar"   // vertical bars; a nominal y (measure on x) draws them horizontally
-	MarkPoint Mark = "point" // scatter/bubble/timeline, distinguished by the encoding's channel types
-	MarkArea  Mark = "area"  // stub: drawn as a line until fill lands
-	MarkRect  Mark = "rect"  // heatmap: a grid colored by a value channel
+	MarkLine        Mark = "line"
+	MarkBar         Mark = "bar"         // vertical bars; a nominal y (measure on x) draws them horizontally
+	MarkPoint       Mark = "point"       // scatter/bubble/timeline, distinguished by the encoding's channel types
+	MarkArea        Mark = "area"        // a line with the region between it and zero filled
+	MarkRect        Mark = "rect"        // heatmap: a grid colored by a value channel
+	MarkCandlestick Mark = "candlestick" // OHLC bars for the price kind; open/high/low/close are implied, so no y channels
 )
 
 // Marks lists the marks a spec may use, in a stable order. It is the single source for both validation
 // and help text, so a new mark shows up in `track render --help` automatically.
-var Marks = []Mark{MarkLine, MarkBar, MarkPoint, MarkArea, MarkRect}
+var Marks = []Mark{MarkLine, MarkBar, MarkPoint, MarkArea, MarkRect, MarkCandlestick}
 
 // validMark reports whether m is a drawable mark.
 func validMark(m Mark) bool { return slices.Contains(Marks, m) }
@@ -70,13 +72,15 @@ var SortOptions = []string{"ascending", "descending", "value", "-value"}
 type ChartType string
 
 const (
-	ChartLine     ChartType = "line"
-	ChartBar      ChartType = "bar"
-	ChartHBar     ChartType = "hbar"     // horizontal bar (bar mark, nominal y)
-	ChartScatter  ChartType = "scatter"  // point mark, category x
-	ChartBubble   ChartType = "bubble"   // point mark, quantitative x/y ({x,y,r} on linear axes)
-	ChartHeatmap  ChartType = "heatmap"  // rect mark: x × y grid colored by the color channel
-	ChartTimeline ChartType = "timeline" // point mark, nominal y: swimlane dots sized by the size channel
+	ChartLine        ChartType = "line"
+	ChartArea        ChartType = "area" // area mark: a line with the region down to zero filled
+	ChartBar         ChartType = "bar"
+	ChartHBar        ChartType = "hbar"        // horizontal bar (bar mark, nominal y)
+	ChartScatter     ChartType = "scatter"     // point mark, category x
+	ChartBubble      ChartType = "bubble"      // point mark, quantitative x/y ({x,y,r} on linear axes)
+	ChartHeatmap     ChartType = "heatmap"     // rect mark: x × y grid colored by the color channel
+	ChartTimeline    ChartType = "timeline"    // point mark, nominal y: swimlane dots sized by the size channel
+	ChartCandlestick ChartType = "candlestick" // candlestick mark: OHLC bars over a category x axis
 )
 
 // AxisOptions lists the valid y-series axis assignments (primary/secondary), for help and validation.
@@ -143,7 +147,7 @@ func (c Channel) axisID() string {
 
 // chart derives the resolved drawing form from the mark and the encoding's channel types. A bar with a
 // nominal y is horizontal; a point is a timeline (nominal y), a bubble (quantitative x), or a category
-// scatter (nominal x); a rect is a heatmap; line/area are a line.
+// scatter (nominal x); a rect is a heatmap; area and candlestick map one-to-one.
 func (s Spec) chart() ChartType {
 	switch s.Mark {
 	case MarkBar:
@@ -161,7 +165,11 @@ func (s Spec) chart() ChartType {
 		return ChartBubble
 	case MarkRect:
 		return ChartHeatmap
-	default: // line, area
+	case MarkArea:
+		return ChartArea
+	case MarkCandlestick:
+		return ChartCandlestick
+	default: // line
 		return ChartLine
 	}
 }
@@ -176,7 +184,7 @@ func (s Spec) yNominal() bool {
 // form — where sort/limit apply. It is "" for forms with no category axis (bubble and the grids).
 func (s Spec) labelChannelName() string {
 	switch s.chart() {
-	case ChartLine, ChartBar, ChartScatter:
+	case ChartLine, ChartArea, ChartBar, ChartScatter, ChartCandlestick:
 		return "encoding.x"
 	case ChartHBar:
 		return "encoding.y[0]"
@@ -381,7 +389,7 @@ func (s Spec) Validate() error {
 	if !s.Data.Kind.Valid() {
 		return fmt.Errorf("view spec: data.kind %q is not a canonical kind", s.Data.Kind)
 	}
-	if err := s.Encoding.validate(); err != nil {
+	if err := s.Encoding.validate(s.Mark != MarkCandlestick); err != nil {
 		return err
 	}
 	if err := s.validateChannelOptions(); err != nil {
@@ -389,6 +397,19 @@ func (s Spec) Validate() error {
 	}
 	if s.Mark == MarkRect && (s.Encoding.Color == nil || s.Encoding.Color.Field == "") {
 		return fmt.Errorf("view spec: mark rect requires encoding.color.field (the cell value)")
+	}
+	// A candlestick reads the price kind's canonical OHLC fields directly, so the vertical encoding is
+	// implied: no y channels, and no color/size (the up/down coloring is part of the mark).
+	if s.Mark == MarkCandlestick {
+		if s.Data.Kind != dataset.KindPrice {
+			return fmt.Errorf("view spec: mark candlestick requires data.kind %q (it reads the open/high/low/close fields)", dataset.KindPrice)
+		}
+		if len(s.Encoding.Y) > 0 {
+			return fmt.Errorf("view spec: mark candlestick takes no encoding.y (open/high/low/close are implied by the price kind)")
+		}
+		if s.Encoding.Color != nil || s.Encoding.Size != nil {
+			return fmt.Errorf("view spec: mark candlestick does not take encoding.color or encoding.size")
+		}
 	}
 	// On every mark but rect, color is a nominal category that splits records into one series per
 	// value; the constraints keep that split well-defined.
@@ -416,16 +437,17 @@ func (s Spec) Validate() error {
 	return nil
 }
 
-// validate checks the encoding: an x field, at least one y series, and valid types/axes on every
-// channel (including the optional color/size).
-func (e Encoding) validate() error {
+// validate checks the encoding: an x field, at least one y series (unless the mark implies its
+// vertical encoding, as candlestick does), and valid types/axes on every channel (including the
+// optional color/size).
+func (e Encoding) validate(yRequired bool) error {
 	if e.X.Field == "" {
 		return fmt.Errorf("view spec: encoding.x.field is required")
 	}
 	if err := e.X.validateType("encoding.x"); err != nil {
 		return err
 	}
-	if len(e.Y) == 0 {
+	if yRequired && len(e.Y) == 0 {
 		return fmt.Errorf("view spec: at least one encoding.y channel is required")
 	}
 	for i, y := range e.Y {
@@ -724,7 +746,9 @@ func (s Spec) Resolve(records []dataset.Record) Resolved {
 		s.resolveBubble(records, &res)
 	case ChartHBar:
 		s.resolveHorizontal(records, &res)
-	default: // line, bar, scatter — category x, numeric y series
+	case ChartCandlestick:
+		s.resolveCandles(records, &res)
+	default: // line, area, bar, scatter — category x, numeric y series
 		s.resolveSeries(records, &res)
 	}
 	// Sort/limit reorder and truncate the category axis after the series are aligned, so they compose
@@ -818,6 +842,27 @@ func (s Spec) resolveColorSeries(records []dataset.Record, res *Resolved, labelF
 	for i := range res.Series {
 		for len(res.Series[i].Values) < len(res.Labels) {
 			res.Series[i].Values = append(res.Series[i].Values, math.NaN())
+		}
+	}
+}
+
+// CandleSeries is the fixed order of the four aligned series a candlestick resolves to — the contract
+// a renderer indexes by. The fields are the price kind's canonical OHLC columns.
+var CandleSeries = []string{"open", "high", "low", "close"}
+
+// resolveCandles maps price records onto a candlestick: the x channel supplies the category labels and
+// the four canonical OHLC fields become four series aligned to them, in CandleSeries order. A record
+// missing a component contributes NaN, so the renderer skips that candle rather than drawing a wrong
+// one.
+func (s Spec) resolveCandles(records []dataset.Record, res *Resolved) {
+	for _, f := range CandleSeries {
+		res.Series = append(res.Series, Series{Label: f, Axis: "y"})
+	}
+	for _, rec := range s.filtered(records) {
+		x, _ := rec.String(s.Encoding.X.Field)
+		res.Labels = append(res.Labels, x)
+		for i, f := range CandleSeries {
+			res.Series[i].Values = append(res.Series[i].Values, floatOrNaN(rec, f))
 		}
 	}
 }

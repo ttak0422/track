@@ -80,13 +80,13 @@ fields onto *visual channels* (x, y series, color, size), orthogonally. Unknown 
 | Field            | Required | Notes                                                                 |
 |------------------|----------|-----------------------------------------------------------------------|
 | `version`        | yes      | View Spec schema version (current: `2`).                              |
-| `mark`           | yes      | `line`, `bar`, `point`, `area`, or `rect`.                            |
+| `mark`           | yes      | `line`, `bar`, `point`, `area`, `rect`, or `candlestick`.             |
 | `title`          | no       | Chart and page title.                                                 |
 | `data.source`    | one of   | Path to a JSONL file, resolved **relative to the spec file** (or absolute). |
 | `data.records`   | one of   | Inline data: an array of records carried in the spec (mutually exclusive with `source`). |
 | `data.kind`      | yes      | One of the canonical kinds.                                           |
 | `encoding.x`     | yes      | The x channel: `{ field, type?, title? }`.                           |
-| `encoding.y`     | yes      | One or more y series; each `{ field, type?, title?, axis? }`.        |
+| `encoding.y`     | yes*     | One or more y series; each `{ field, type?, title?, axis? }`. (*`candlestick` takes none — its OHLC fields are implied.) |
 | `encoding.color` | rect     | On `rect`: the (quantitative) heatmap cell value. On every other mark: a **nominal** category that splits records into one colored series per value (see below). |
 | `encoding.size`  | no       | Radius channel for a `point` (bubble radius / timeline dot).         |
 | `filter`         | no       | Keep matching records. Shorthand `{field, equals}` or `{all: [{field, op, value}]}` (AND). |
@@ -100,6 +100,15 @@ hint that lets one mark cover the former chart types, since it names which axis 
 - **`point`** is a **scatter** with a nominal x, a **bubble** (linear axes, `{x,y,r}`) with a
   quantitative x, or a **timeline** swimlane with a nominal y.
 - **`rect`** is a **heatmap**: nominal x and y form the grid, `color` gives the cell value.
+- **`area`** is a line with the region between it and the zero baseline filled (translucently, so
+  overlapping series stay readable). It resolves to the same series shape as a line, so every line
+  channel — multi-series y, `color` split, `axis: "y2"`, `sort`/`limit` — works unchanged.
+- **`candlestick`** draws one OHLC candle per record: a high–low wick behind an open–close body,
+  green when the close is at or above the open and red otherwise (a doji keeps a 1px body). It
+  requires `data.kind: "price"` and reads the kind's canonical `open`/`high`/`low`/`close` fields
+  directly, so the encoding needs only `x` — `encoding.y`, `color`, and `size` are rejected. A candle
+  missing any component is skipped. **SVG renderer only**: Chart.js has no candlestick type, so the
+  `chartjs` renderer rejects it like the grid forms.
 
 Channels also take per-channel options whose placement is validated (a misplaced option is an error,
 not a silent no-op):
@@ -366,8 +375,11 @@ output formats can be added without changing the model or the spec.
 Emits a self-contained HTML page that loads **Chart.js from a CDN**
 (`https://cdn.jsdelivr.net/npm/chart.js@4`) and draws the chart in a `<canvas>`:
 
-- `line`/`bar` marks map directly to Chart.js types over a category x-axis.
+- `line`/`bar` marks map directly to Chart.js types over a category x-axis; an `area` is a `line`
+  whose datasets fill to the origin with the translucent palette color.
 - A `bar` with a nominal y renders as a Chart.js `bar` with `indexAxis: "y"` (horizontal), for rankings.
+- A stacked bar sets `stacked: true` on both scales.
+- `candlestick` is rejected (Chart.js has no candlestick type) — use `--renderer svg`.
 - A `point` with a nominal x (scatter) uses the same category x-axis with the connecting line suppressed.
 - A `point` with a quantitative x (bubble) plots one `{x, y, r}` point per record (numeric `x`, `y[i]`,
   and `size`); points missing a coordinate are skipped and a missing/non-positive radius falls back to a
@@ -387,8 +399,11 @@ Emits a self-contained HTML page that loads **Chart.js from a CDN**
 Emits a **static, self-contained SVG** — no scripts, no CDN, no network access at view time — so the
 output embeds directly in notes, emails, or a static site:
 
-- line/bar/scatter are drawn over a category x-axis (bars are grouped per series; a nominal-y bar runs
-  categories down the y-axis for rankings).
+- line/area/bar/scatter are drawn over a category x-axis (bars are grouped per series — or stacked
+  with `stack: true` — and a nominal-y bar runs categories down the y-axis for rankings; an area
+  fills each series down to the zero baseline at 30% opacity, broken at NaN gaps like its line).
+- A candlestick draws a high–low wick and an open–close body per category, green for a rising candle
+  and red for a falling one; the OHLC component series are not listed in the legend.
 - A bubble (quantitative-x point) is drawn over **linear** x and y axes (one circle per `{x, y, r}`
   point, sized by `size`); a point missing x or y is skipped and a missing/non-positive radius falls
   back to a small default, like the Chart.js renderer.

@@ -248,12 +248,34 @@ func TestChartJSRenderSingleAxisHasNoY2(t *testing.T) {
 	}
 }
 
-func TestChartJSRejectsGridTypes(t *testing.T) {
-	for _, typ := range []viewspec.ChartType{viewspec.ChartHeatmap, viewspec.ChartTimeline} {
-		res := viewspec.Resolved{Spec: viewspec.Spec{}, Chart: typ, Grid: &viewspec.Grid{}}
+func TestChartJSRejectsSVGOnlyTypes(t *testing.T) {
+	for _, typ := range []viewspec.ChartType{viewspec.ChartHeatmap, viewspec.ChartTimeline, viewspec.ChartCandlestick} {
+		res := viewspec.Resolved{Spec: viewspec.Spec{}, Chart: typ}
 		if _, err := (ChartJS{}).Render(res); err == nil {
 			t.Errorf("chartjs should reject %s (svg-only)", typ)
 		}
+	}
+}
+
+func TestChartJSAreaFillsToOrigin(t *testing.T) {
+	out, err := ChartJS{}.Render(resolved(viewspec.ChartArea, "Area", []float64{1, 2}))
+	if err != nil {
+		t.Fatal(err)
+	}
+	// An area is a Chart.js line whose dataset fills to the origin with a translucent background.
+	if !strings.Contains(out, `"type":"line"`) {
+		t.Fatalf("area should map to Chart.js line: %s", out)
+	}
+	if !strings.Contains(out, `"fill":"origin"`) {
+		t.Fatalf("area dataset should fill to origin: %s", out)
+	}
+	if !strings.Contains(out, `"backgroundColor":"rgba(78,121,167,0.3)"`) {
+		t.Fatalf("area fill should be the translucent palette color: %s", out)
+	}
+	// A plain line stays unfilled.
+	line, _ := ChartJS{}.Render(resolved(viewspec.ChartLine, "", []float64{1}))
+	if strings.Contains(line, `"fill"`) {
+		t.Fatalf("line should not set fill: %s", line)
 	}
 }
 

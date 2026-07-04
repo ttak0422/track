@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"html"
 	"math"
+	"strconv"
 	"strings"
 
 	"github.com/ttak0422/track/internal/track/viewspec"
@@ -47,6 +48,7 @@ type dataset struct {
 	Label    string `json:"label"`
 	Data     []any  `json:"data"`
 	ShowLine *bool  `json:"showLine,omitempty"`
+	Fill     any    `json:"fill,omitempty"` // area: fill down to the zero baseline ("origin")
 	YAxisID  string `json:"yAxisID,omitempty"`
 	// Explicit colors from the shared seriesPalette, so the same spec draws its series in the same
 	// deterministic colors as the SVG renderer (Chart.js's own defaults would otherwise apply).
@@ -76,17 +78,23 @@ func (o *chartOption) scaleOption(id, key string, v any) {
 }
 
 // chartJSType maps a View Spec chart type to the Chart.js type name. hbar is a horizontal bar, which
-// in Chart.js is a "bar" with indexAxis "y" (set on options in Render); all others pass through.
+// in Chart.js is a "bar" with indexAxis "y" (set on options in Render); an area is a "line" whose
+// datasets fill to the origin; all others pass through.
 func chartJSType(t viewspec.ChartType) string {
-	if t == viewspec.ChartHBar {
+	switch t {
+	case viewspec.ChartHBar:
 		return "bar"
+	case viewspec.ChartArea:
+		return "line"
 	}
 	return string(t)
 }
 
 // Render builds the Chart.js config from the resolved spec and embeds it in a complete HTML document.
 func (ChartJS) Render(res viewspec.Resolved) (string, error) {
-	if res.Chart == viewspec.ChartHeatmap || res.Chart == viewspec.ChartTimeline {
+	// Chart.js has no built-in candlestick type, so like the grid forms it stays SVG-only rather than
+	// shipping a lookalike that would misread as OHLC.
+	if res.Chart == viewspec.ChartHeatmap || res.Chart == viewspec.ChartTimeline || res.Chart == viewspec.ChartCandlestick {
 		return "", fmt.Errorf("chartjs renderer: %s is only supported by --renderer svg", res.Chart)
 	}
 	cfgJSON, usesAnnotation, err := chartJSConfigJSON(res)
@@ -143,6 +151,12 @@ func chartJSConfigJSON(res viewspec.Resolved) (string, bool, error) {
 		if res.Chart == viewspec.ChartScatter {
 			no := false
 			ds.ShowLine = &no
+		}
+		// An area is a line dataset filled to the zero baseline, with the fill translucent so
+		// overlapping series stay readable (matching the SVG renderer's fill-opacity).
+		if res.Chart == viewspec.ChartArea {
+			ds.Fill = "origin"
+			ds.BackgroundColor = seriesFillColor(i)
 		}
 		if s.Axis == "y2" {
 			ds.YAxisID = "y2"
@@ -237,6 +251,17 @@ func overlayAnnotations(res viewspec.Resolved) map[string]any {
 		out[fmt.Sprintf("b%d", i)] = ann
 	}
 	return out
+}
+
+// seriesFillColor is the shared palette color at the same 30% opacity the SVG renderer fills areas
+// with, so an area chart reads identically in HTML and SVG output.
+func seriesFillColor(i int) string {
+	hex := seriesColor(i) // "#rrggbb" from the shared palette
+	v, err := strconv.ParseUint(hex[1:], 16, 32)
+	if err != nil {
+		return hex
+	}
+	return fmt.Sprintf("rgba(%d,%d,%d,0.3)", (v>>16)&0xff, (v>>8)&0xff, v&0xff)
 }
 
 // pointsToJSON converts bubble points to Chart.js {x,y,r} objects. A point missing its x or y is

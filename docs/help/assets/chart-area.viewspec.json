@@ -1,0 +1,19 @@
+{
+  "version": 2,
+  "mark": "area",
+  "title": "Area",
+  "data": {
+    "kind": "metric",
+    "records": [
+      { "name": "demo", "time": "1", "value": 3 },
+      { "name": "demo", "time": "2", "value": 7 },
+      { "name": "demo", "time": "3", "value": 5 },
+      { "name": "demo", "time": "4", "value": 9 },
+      { "name": "demo", "time": "5", "value": 6 }
+    ]
+  },
+  "encoding": {
+    "x": { "field": "time" },
+    "y": [ { "field": "value" } ]
+  }
+}

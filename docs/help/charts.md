@@ -71,7 +71,7 @@ Rendered output:
 
 Key fields:
 
-- `mark` — `line`, `bar`, `point`, `area`, or `rect`.
+- `mark` — `line`, `bar`, `point`, `area`, `rect`, or `candlestick`.
 - `encoding.*.type` — `quantitative` (default) or `nominal` (a category). Nominal on the right axis
   picks the form: a nominal-y `bar` is horizontal, a nominal-x `point` is a scatter (vs a bubble), and
   `rect` needs nominal x and y.
@@ -132,6 +132,10 @@ block's position, so a typo never hides your text. This one is live:
 }
 ```
 
+**`area`** — a line with the region down to zero filled; every line channel (color split, y2, sort) works unchanged.
+
+![Area chart](assets/chart-area.viewspec.json)
+
 **`bar`** — values per category; the baseline is pinned to zero, so negatives drop below it.
 
 ![Bar chart](assets/chart-bar.viewspec.json)
@@ -167,6 +171,13 @@ of sitting side by side; combines with a color split. On a horizontal bar, set i
 
 ![Timeline](assets/chart-timeline.viewspec.json)
 
+**Candlestick** (`mark: candlestick`, `kind: price`) — one OHLC candle per record: a high–low wick
+behind an open–close body, green when the close is at or above the open, red otherwise. The
+open/high/low/close fields are implied by the `price` kind, so the encoding needs only `x`.
+SVG renderer only (Chart.js has no candlestick type).
+
+![Candlestick chart](assets/chart-candlestick.viewspec.json)
+
 **Overlays** — a dashed `{y, label}` threshold line and a shaded `{from, to, label}` period band over
 any category-axis chart. They carry literal values (no second data file), so they work in embedded
 assets too.
@@ -181,7 +192,7 @@ linear axes by both the default `chartjs` renderer and the `svg` renderer.
 | Renderer | Output | Notes |
 | --- | --- | --- |
 | `chartjs` (default) | Self-contained HTML | Interactive; loads Chart.js from a CDN at view time. |
-| `svg` | Static SVG | No scripts, no CDN — embeds anywhere. All marks, including heatmap and timeline. |
+| `svg` | Static SVG | No scripts, no CDN — embeds anywhere. All marks, including heatmap, timeline, and candlestick. |
 
 ```sh
 track render --spec chart.json --out chart.svg --renderer svg

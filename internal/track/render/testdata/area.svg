@@ -1,0 +1,20 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" width="800" height="480" viewBox="0 0 800 480" font-family="sans-serif">
+<rect width="100%" height="100%" fill="#ffffff"/>
+<text x="400" y="24" font-size="16" font-weight="bold" text-anchor="middle">Area</text>
+<rect x="56" y="40" width="728" height="384" fill="none" stroke="#cccccc"/>
+<line x1="56" y1="424.00" x2="784" y2="424.00" stroke="#eeeeee"/>
+<text x="50" y="424.00" font-size="11" text-anchor="end" dominant-baseline="middle" fill="#666666">0.00</text>
+<line x1="56" y1="232.00" x2="784" y2="232.00" stroke="#eeeeee"/>
+<text x="50" y="232.00" font-size="11" text-anchor="end" dominant-baseline="middle" fill="#666666">1.50</text>
+<line x1="56" y1="40.00" x2="784" y2="40.00" stroke="#eeeeee"/>
+<text x="50" y="40.00" font-size="11" text-anchor="end" dominant-baseline="middle" fill="#666666">3.00</text>
+<text x="147.00" y="440" font-size="11" text-anchor="middle" fill="#333333">a</text>
+<text x="329.00" y="440" font-size="11" text-anchor="middle" fill="#333333">b</text>
+<text x="511.00" y="440" font-size="11" text-anchor="middle" fill="#333333">c</text>
+<text x="693.00" y="440" font-size="11" text-anchor="middle" fill="#333333">d</text>
+<polygon points="147.00,296.00 329.00,168.00 329.00,424.00 147.00,424.00" fill="#4e79a7" fill-opacity="0.3"/>
+<polyline points="147.00,296.00 329.00,168.00" fill="none" stroke="#4e79a7" stroke-width="2"/>
+<rect x="766" y="45" width="10" height="10" fill="#4e79a7"/>
+<text x="762" y="54" font-size="11" text-anchor="end" fill="#333333">S1</text>
+</svg>

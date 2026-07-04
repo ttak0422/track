@@ -705,6 +705,84 @@ func TestValidateChannelOptionPlacement(t *testing.T) {
 	}
 }
 
+func TestAreaResolvesToAreaChart(t *testing.T) {
+	s, _ := Load(strings.NewReader(`{"version":2,"mark":"area","data":{"source":"x","kind":"metric"},` +
+		`"encoding":{"x":{"field":"time"},"y":[{"field":"value"}]}}`))
+	recs, _ := dataset.ReadJSONL(strings.NewReader(
+		`{"time":"d1","value":1}` + "\n" + `{"time":"d2","value":3}` + "\n"))
+	res := s.Resolve(recs)
+	if res.Chart != ChartArea {
+		t.Fatalf("area mark should resolve to chart area, got %q", res.Chart)
+	}
+	// Same series shape as a line, so every channel (color, sort, y2, …) keeps working.
+	if !equalStrings(res.Labels, []string{"d1", "d2"}) || res.Series[0].Values[1] != 3 {
+		t.Fatalf("area resolve = labels %v series %+v", res.Labels, res.Series)
+	}
+}
+
+func TestCandlestickResolve(t *testing.T) {
+	s, err := Load(strings.NewReader(`{"version":2,"mark":"candlestick","data":{"source":"x","kind":"price"},` +
+		`"encoding":{"x":{"field":"time"}}}`))
+	if err != nil {
+		t.Fatalf("Load: %v", err)
+	}
+	recs, _ := dataset.ReadJSONL(strings.NewReader(
+		`{"entity":"AAPL","time":"d1","open":10,"high":14,"low":9,"close":13}` + "\n" +
+			`{"entity":"AAPL","time":"d2","open":13,"high":13,"low":8,"close":9}` + "\n"))
+	res := s.Resolve(recs)
+	if res.Chart != ChartCandlestick {
+		t.Fatalf("chart = %q, want candlestick", res.Chart)
+	}
+	if !equalStrings(res.Labels, []string{"d1", "d2"}) {
+		t.Fatalf("labels = %v", res.Labels)
+	}
+	if len(res.Series) != len(CandleSeries) {
+		t.Fatalf("series = %+v", res.Series)
+	}
+	for i, want := range CandleSeries {
+		if res.Series[i].Label != want {
+			t.Fatalf("series %d = %q, want %q", i, res.Series[i].Label, want)
+		}
+	}
+	// open/high/low/close of the second candle, in CandleSeries order.
+	for i, want := range []float64{13, 13, 8, 9} {
+		if got := res.Series[i].Values[1]; got != want {
+			t.Fatalf("series %s[1] = %v, want %v", CandleSeries[i], got, want)
+		}
+	}
+}
+
+func TestCandlestickValidation(t *testing.T) {
+	load := func(spec string) error {
+		_, err := Load(strings.NewReader(spec))
+		return err
+	}
+	if err := load(`{"version":2,"mark":"candlestick","data":{"source":"x","kind":"price"},` +
+		`"encoding":{"x":{"field":"time","sort":"ascending"}}}`); err != nil {
+		t.Fatalf("candlestick with sorted x should validate: %v", err)
+	}
+	invalid := map[string]string{
+		"non-price kind": `{"version":2,"mark":"candlestick","data":{"source":"x","kind":"metric"},` +
+			`"encoding":{"x":{"field":"time"}}}`,
+		"y channel set": `{"version":2,"mark":"candlestick","data":{"source":"x","kind":"price"},` +
+			`"encoding":{"x":{"field":"time"},"y":[{"field":"close"}]}}`,
+		"color set": `{"version":2,"mark":"candlestick","data":{"source":"x","kind":"price"},` +
+			`"encoding":{"x":{"field":"time"},"color":{"field":"entity","type":"nominal"}}}`,
+		"size set": `{"version":2,"mark":"candlestick","data":{"source":"x","kind":"price"},` +
+			`"encoding":{"x":{"field":"time"},"size":{"field":"volume"}}}`,
+	}
+	for name, spec := range invalid {
+		if err := load(spec); err == nil {
+			t.Errorf("%s: want error", name)
+		}
+	}
+	// Other marks still require a y channel.
+	if err := load(`{"version":2,"mark":"line","data":{"source":"x","kind":"metric"},` +
+		`"encoding":{"x":{"field":"time"}}}`); err == nil {
+		t.Error("line without y should still fail")
+	}
+}
+
 func equalStrings(a, b []string) bool {
 	if len(a) != len(b) {
 		return false

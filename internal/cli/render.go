@@ -254,7 +254,9 @@ func viewSpecReference() string {
 	b.WriteString("                   {from, to, label?}  shaded x-range band (period highlight)\n")
 	fmt.Fprintf(&b, "  renderers:       %s\n", strings.Join(render.Names(), " | "))
 	b.WriteString("\nMarks cover the old chart types: bar+nominal-y = horizontal bar; point =\n")
-	b.WriteString("scatter (nominal x) / bubble (quantitative x) / timeline (nominal y); rect = heatmap.\n")
+	b.WriteString("scatter (nominal x) / bubble (quantitative x) / timeline (nominal y); rect = heatmap;\n")
+	b.WriteString("area = line filled down to zero. candlestick draws OHLC bars from data.kind price\n")
+	b.WriteString("(open/high/low/close are implied, so it takes no encoding.y; svg renderer only).\n")
 	b.WriteString("\nExample:\n")
 	b.WriteString(`  {
     "version": 2,

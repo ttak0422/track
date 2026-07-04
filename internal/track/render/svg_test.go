@@ -36,6 +36,24 @@ func goldenCases() map[string]viewspec.Resolved {
 			Labels: xy,
 			Series: []viewspec.Series{{Label: "S1", Values: []float64{1, 2, 3}}},
 		},
+		// Area: the line plus a translucent fill down to the zero baseline, broken at NaN gaps.
+		"area": {
+			Spec: viewspec.Spec{Title: "Area"}, Chart: viewspec.ChartArea,
+			Labels: []string{"a", "b", "c", "d"},
+			Series: []viewspec.Series{{Label: "S1", Values: []float64{1, 2, math.NaN(), 3}}},
+		},
+		// Candlestick: series come in the fixed open/high/low/close order; the second candle falls
+		// (close < open) so it draws red, and the incomplete third candle is skipped.
+		"candlestick": {
+			Spec: viewspec.Spec{Title: "OHLC"}, Chart: viewspec.ChartCandlestick,
+			Labels: xy,
+			Series: []viewspec.Series{
+				{Label: "open", Values: []float64{10, 13, 11}},
+				{Label: "high", Values: []float64{14, 13, 12}},
+				{Label: "low", Values: []float64{9, 8, math.NaN()}},
+				{Label: "close", Values: []float64{13, 9, 11}},
+			},
+		},
 		"bubble": {
 			Spec: viewspec.Spec{Title: "Bubble"}, Chart: viewspec.ChartBubble,
 			Series: []viewspec.Series{{Label: "S1", Points: []viewspec.Point{
@@ -156,6 +174,24 @@ func TestSVGStackedHBarPilesSegments(t *testing.T) {
 		if !strings.Contains(out, `fill="`+seriesColor(si)+`"`) {
 			t.Errorf("stacked hbar missing segment for series %d", si)
 		}
+	}
+}
+
+func TestSVGCandlestickColorsAndSkips(t *testing.T) {
+	out, err := SVG{}.Render(goldenCases()["candlestick"])
+	if err != nil {
+		t.Fatal(err)
+	}
+	// Two complete candles: one up (green), one down (red); the NaN-low candle is skipped and the
+	// OHLC component series never show up as a legend.
+	if n := strings.Count(out, `<rect x="`); n != 3 { // plot border + 2 bodies
+		t.Fatalf("expected 2 candle bodies, got %d rects", n-1)
+	}
+	if !strings.Contains(out, candleUp) || !strings.Contains(out, candleDown) {
+		t.Fatalf("candles should color up/down: %s", out)
+	}
+	if strings.Contains(out, ">open<") || strings.Contains(out, ">close<") {
+		t.Fatalf("OHLC components should not be legend entries: %s", out)
 	}
 }
 

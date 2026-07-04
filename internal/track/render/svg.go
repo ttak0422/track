@@ -14,8 +14,8 @@ func init() { Register(SVG{}) }
 
 // SVG renders a resolved View Spec as a self-contained, dependency-free SVG document. Unlike the
 // Chart.js renderer it loads no scripts and no CDN, so the output is a static image suitable for
-// embedding in notes, emails, or a static site. It draws the category-axis chart types (line, bar,
-// hbar, scatter) plus bubble (a linear-axis {x,y,r} scatter) and overlay markers.
+// embedding in notes, emails, or a static site. It draws the category-axis chart types (line, area,
+// bar, hbar, scatter, candlestick) plus bubble (a linear-axis {x,y,r} scatter) and overlay markers.
 type SVG struct{}
 
 // Name identifies this renderer for selection (track render --renderer svg).
@@ -61,7 +61,11 @@ func (SVG) Render(res viewspec.Resolved) (string, error) {
 		writeMarkers(&b, g, res)
 		writeRefLines(&b, g, res, lo, hi)
 	}
-	writeLegend(&b, g, res)
+	// A candlestick's four series (open/high/low/close) are components of one mark, not user series,
+	// and its up/down coloring is fixed — a legend would mislabel it.
+	if res.Chart != viewspec.ChartCandlestick {
+		writeLegend(&b, g, res)
+	}
 
 	b.WriteString("</svg>\n")
 	return b.String(), nil
@@ -87,7 +91,8 @@ func valueRange(res viewspec.Resolved) (lo, hi float64) {
 	if math.IsInf(lo, 1) { // no finite data at all
 		lo, hi = 0, 1
 	}
-	if res.Chart == viewspec.ChartBar || res.Chart == viewspec.ChartHBar {
+	// Bars and areas measure from a zero baseline, so the axis must include it.
+	if res.Chart == viewspec.ChartBar || res.Chart == viewspec.ChartHBar || res.Chart == viewspec.ChartArea {
 		lo, hi = math.Min(lo, 0), math.Max(hi, 0)
 	}
 	if lo == hi {
@@ -186,12 +191,20 @@ func writeAxes(b *strings.Builder, g svgGeom, res viewspec.Resolved, lo, hi floa
 	}
 }
 
-// writeSeries draws each y series for line/bar/scatter over a shared category x axis.
+// writeSeries draws each y series for line/area/bar/scatter (and the candlestick's OHLC components)
+// over a shared category x axis.
 func writeSeries(b *strings.Builder, g svgGeom, res viewspec.Resolved, lo, hi float64) {
 	centers := bandCenters(g, len(res.Labels))
 	switch res.Chart {
 	case viewspec.ChartBar:
 		writeBars(b, g, res, centers, lo, hi)
+	case viewspec.ChartArea:
+		for si, s := range res.Series {
+			writeAreaFill(b, g, centers, s.Values, lo, hi, seriesColor(si))
+			writePolyline(b, g, centers, s.Values, lo, hi, seriesColor(si))
+		}
+	case viewspec.ChartCandlestick:
+		writeCandles(b, g, res, centers, lo, hi)
 	case viewspec.ChartScatter:
 		for si, s := range res.Series {
 			for i, v := range s.Values {
@@ -228,6 +241,73 @@ func writePolyline(b *strings.Builder, g svgGeom, centers, vals []float64, lo, h
 		run = append(run, num(centers[i])+","+num(yPixel(g, lo, hi, v)))
 	}
 	flush()
+}
+
+// writeAreaFill shades the region between a series and the zero baseline (valueRange pins zero into
+// the area's range) as one polygon per NaN-free run, so a missing value reads as a hole exactly like
+// the line it underlays. The stroke itself is drawn by writePolyline on top.
+func writeAreaFill(b *strings.Builder, g svgGeom, centers, vals []float64, lo, hi float64, color string) {
+	baseY := num(yPixel(g, lo, hi, 0))
+	var run []string
+	var xs []string // the run's x coordinates, to close the polygon along the baseline
+	flush := func() {
+		if len(run) >= 2 {
+			closing := xs[len(xs)-1] + "," + baseY + " " + xs[0] + "," + baseY
+			fmt.Fprintf(b, `<polygon points="%s %s" fill="%s" fill-opacity="0.3"/>`+"\n",
+				strings.Join(run, " "), closing, color)
+		}
+		run, xs = run[:0], xs[:0]
+	}
+	for i, v := range vals {
+		if math.IsNaN(v) || i >= len(centers) {
+			flush()
+			continue
+		}
+		x := num(centers[i])
+		run = append(run, x+","+num(yPixel(g, lo, hi, v)))
+		xs = append(xs, x)
+	}
+	flush()
+}
+
+// candleUp/candleDown color a rising (close >= open) and falling candle; they reuse the shared
+// palette's green and red so candlesticks match the rest of the chart family.
+const (
+	candleUp   = "#59a14f"
+	candleDown = "#e15759"
+)
+
+// writeCandles draws one OHLC candle per category: a high–low wick behind an open–close body, green
+// when the close is at or above the open and red otherwise. The resolved series come in the fixed
+// open/high/low/close order (viewspec.CandleSeries); a candle missing any component is skipped.
+func writeCandles(b *strings.Builder, g svgGeom, res viewspec.Resolved, centers []float64, lo, hi float64) {
+	if len(res.Series) != 4 || len(centers) == 0 {
+		return
+	}
+	open, high, low, close := res.Series[0].Values, res.Series[1].Values, res.Series[2].Values, res.Series[3].Values
+	band := g.plotW() / float64(len(centers))
+	bw := band * 0.6
+	for i := range centers {
+		if i >= len(open) || i >= len(high) || i >= len(low) || i >= len(close) {
+			continue
+		}
+		o, h, l, c := open[i], high[i], low[i], close[i]
+		if math.IsNaN(o) || math.IsNaN(h) || math.IsNaN(l) || math.IsNaN(c) {
+			continue
+		}
+		color := candleUp
+		if c < o {
+			color = candleDown
+		}
+		// Wick: the full high–low span.
+		fmt.Fprintf(b, `<line x1="%s" y1="%s" x2="%s" y2="%s" stroke="%s" stroke-width="1"/>`+"\n",
+			num(centers[i]), num(yPixel(g, lo, hi, h)), num(centers[i]), num(yPixel(g, lo, hi, l)), color)
+		// Body: the open–close span, kept at least 1px tall so a doji (open == close) stays visible.
+		yo, yc := yPixel(g, lo, hi, o), yPixel(g, lo, hi, c)
+		top, hgt := math.Min(yo, yc), math.Max(math.Abs(yo-yc), 1)
+		fmt.Fprintf(b, `<rect x="%s" y="%s" width="%s" height="%s" fill="%s"/>`+"\n",
+			num(centers[i]-bw/2), num(top), num(bw), num(hgt), color)
+	}
 }
 
 // writeBars draws grouped vertical bars: each category band is split evenly across the series so
