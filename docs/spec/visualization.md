@@ -248,7 +248,7 @@ of three shapes, discriminated by which fields are set (a mixed entry is rejecte
 "overlays": [
   { "source": "events.jsonl", "kind": "event", "at": "time", "label": "title" },
   { "y": 100, "axis": "y2", "label": "threshold" },
-  { "from": "2026-01-01", "to": "2026-02-01", "label": "tariff window" }
+  { "from": "2026-01-01", "to": "2026-02-01", "label": "earnings window" }
 ]
 ```
 

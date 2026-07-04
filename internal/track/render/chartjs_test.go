@@ -166,7 +166,7 @@ func TestChartJSRenderEscapesTitle(t *testing.T) {
 }
 
 func TestChartJSRenderMarkersAddAnnotationPluginAndLines(t *testing.T) {
-	res := resolved(viewspec.ChartLine, "Pressure", []float64{1, 2})
+	res := resolved(viewspec.ChartLine, "Overlaid", []float64{1, 2})
 	res.Markers = []viewspec.Marker{{At: "b", Label: "event!"}}
 	out, err := ChartJS{}.Render(res)
 	if err != nil {
@@ -183,7 +183,7 @@ func TestChartJSRenderMarkersAddAnnotationPluginAndLines(t *testing.T) {
 }
 
 func TestChartJSRenderRefLinesAndBands(t *testing.T) {
-	res := resolved(viewspec.ChartLine, "Pressure", []float64{1, 2})
+	res := resolved(viewspec.ChartLine, "Overlaid", []float64{1, 2})
 	res.Lines = []viewspec.RefLine{{Y: 1.5, Axis: "y2", Label: "limit"}}
 	res.Bands = []viewspec.Band{{From: "a", To: "b", Label: "Q1"}}
 	out, err := ChartJS{}.Render(res)

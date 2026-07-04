@@ -318,9 +318,9 @@ func TestOverlayMarkersDefaultsAndSkips(t *testing.T) {
 
 func TestOverlayMarkersCustomFields(t *testing.T) {
 	ov := Overlay{Source: "events.jsonl", Kind: dataset.KindEvent, At: "time", Label: "title"}
-	recs, _ := dataset.ReadJSONL(strings.NewReader(`{"time":"d2","title":"tariff"}`))
+	recs, _ := dataset.ReadJSONL(strings.NewReader(`{"time":"d2","title":"launch"}`))
 	ms := ov.Markers(recs)
-	if len(ms) != 1 || ms[0].Label != "tariff" {
+	if len(ms) != 1 || ms[0].Label != "launch" {
 		t.Fatalf("markers = %+v", ms)
 	}
 }

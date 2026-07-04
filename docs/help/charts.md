@@ -14,7 +14,7 @@ A data file is JSONL with one homogeneous *kind* per file. Every record carries 
 | --- | --- | --- |
 | `event` | `time`, `title` | A point-in-time happening (news, post, milestone). |
 | `price` | `entity`, `time`, `open`, `high`, `low`, `close` | One OHLCV bar. |
-| `metric` | `name`, `time`, `value` | A named numeric series sample (e.g. a Pressure Index). |
+| `metric` | `name`, `time`, `value` | A named numeric series sample (e.g. a custom index). |
 | `entity` | `id`, `name` | A thing series refer to (ticker, index, sector). |
 | `annotation` | `time`, `text` | A label for narrative overlays. |
 

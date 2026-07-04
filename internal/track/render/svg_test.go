@@ -89,7 +89,7 @@ func goldenCases() map[string]viewspec.Resolved {
 			},
 		},
 		"line-overlay": {
-			Spec: viewspec.Spec{Title: "Pressure"}, Chart: viewspec.ChartLine,
+			Spec: viewspec.Spec{Title: "Overlaid"}, Chart: viewspec.ChartLine,
 			Labels:  xy,
 			Series:  []viewspec.Series{{Label: "Index", Values: []float64{1, 2, 3}}},
 			Markers: []viewspec.Marker{{At: "b", Label: "event"}},

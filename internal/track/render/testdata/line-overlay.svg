@@ -1,7 +1,7 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <svg xmlns="http://www.w3.org/2000/svg" width="800" height="480" viewBox="0 0 800 480" font-family="sans-serif">
 <rect width="100%" height="100%" fill="#ffffff"/>
-<text x="400" y="24" font-size="16" font-weight="bold" text-anchor="middle">Pressure</text>
+<text x="400" y="24" font-size="16" font-weight="bold" text-anchor="middle">Overlaid</text>
 <rect x="56" y="40" width="728" height="384" fill="none" stroke="#cccccc"/>
 <line x1="56" y1="424.00" x2="784" y2="424.00" stroke="#eeeeee"/>
 <text x="50" y="424.00" font-size="11" text-anchor="end" dominant-baseline="middle" fill="#666666">1.00</text>

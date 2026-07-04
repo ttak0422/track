@@ -5,7 +5,7 @@ Status: Accepted
 ## Context
 
 track should grow from a note tool into a base for market analysis and visualization: prices, indices,
-FX, sector heatmaps, news, social posts, custom indicators (a Pressure Index), and event timelines —
+FX, sector heatmaps, news, social posts, custom indicators, and event timelines —
 combined and drawn from a declarative spec, the way Mermaid draws diagrams. (See the "track 可視化 PJ"
 project note for the full vision.)
 

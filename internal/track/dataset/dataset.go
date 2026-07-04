@@ -33,7 +33,7 @@ type Kind string
 const (
 	KindEvent      Kind = "event"      // a point-in-time happening (news, post, milestone)
 	KindPrice      Kind = "price"      // an OHLCV bar for an entity at a time
-	KindMetric     Kind = "metric"     // a named numeric series sample (e.g. a Pressure Index)
+	KindMetric     Kind = "metric"     // a named numeric series sample (e.g. a custom index)
 	KindEntity     Kind = "entity"     // a thing series refer to (a ticker, index, sector)
 	KindAnnotation Kind = "annotation" // a label attached to a time/target, for narrative overlays
 )
@@ -162,7 +162,7 @@ func (k Kind) Doc() string {
 	case KindPrice:
 		return "an OHLCV bar for an entity at a time"
 	case KindMetric:
-		return "a named numeric series sample (e.g. a Pressure Index)"
+		return "a named numeric series sample (e.g. a custom index)"
 	case KindEntity:
 		return "a thing series refer to (a ticker, index, sector)"
 	case KindAnnotation:

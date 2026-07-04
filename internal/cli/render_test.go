@@ -54,7 +54,7 @@ func TestRenderCommandDrawsOverlayMarkers(t *testing.T) {
 		t.Fatal(err)
 	}
 	if err := os.WriteFile(filepath.Join(dir, "events.jsonl"),
-		[]byte(`{"version":1,"time":"d2","title":"tariff"}`+"\n"), 0o644); err != nil {
+		[]byte(`{"version":1,"time":"d2","title":"launch"}`+"\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
 	spec := `{"version":2,"mark":"line","title":"P","data":{"source":"metrics.jsonl","kind":"metric"},` +
@@ -78,7 +78,7 @@ func TestRenderCommandDrawsOverlayMarkers(t *testing.T) {
 	if !strings.Contains(got, "chartjs-plugin-annotation") {
 		t.Fatalf("overlay should load annotation plugin: %s", got)
 	}
-	if !strings.Contains(got, `"value":"d2"`) || !strings.Contains(got, `"content":"tariff"`) {
+	if !strings.Contains(got, `"value":"d2"`) || !strings.Contains(got, `"content":"launch"`) {
 		t.Fatalf("event marker not rendered: %s", got)
 	}
 }
