@@ -1136,15 +1136,22 @@ button {
   margin: 0.9em 0;
 }
 
-/* Wraps a media embed so hovering reveals a pin that floats it into a window. */
+/* Wraps a media embed so hovering reveals fullscreen/float controls. */
 .media-frame {
   position: relative;
 }
 
-.media-pin {
+.media-controls {
   position: absolute;
   top: 8px;
   right: 8px;
+  display: flex;
+  gap: 4px;
+  opacity: 0;
+  transition: opacity 120ms ease;
+}
+
+.media-control {
   display: grid;
   place-items: center;
   width: 28px;
@@ -1153,21 +1160,33 @@ button {
   border-radius: 6px;
   color: var(--text);
   background: color-mix(in srgb, var(--panel) 82%, transparent);
-  opacity: 0;
-  transition: opacity 120ms ease;
   cursor: pointer;
 }
 
-.media-frame:hover .media-pin,
-.media-pin:focus-visible {
+.media-frame:hover .media-controls,
+.media-controls:focus-within {
   opacity: 1;
 }
 
-/* The float pin sits at top-right of the frame; a wrapped code block's copy button and a mermaid
-   diagram's controls also live there, so shift those left of the pin (28px + gap) to avoid overlap. */
+/* The frame controls sit at top-right; a wrapped code block's copy button and a mermaid diagram's
+   controls also live there, so shift those left of the two-button cluster (2×28 + gaps) to avoid overlap. */
 .media-frame .code-copy,
 .media-frame .mermaid-controls {
-  right: 44px;
+  right: 76px;
+}
+
+/* Native fullscreen: center the media on the page background and fit it to the screen. */
+.media-frame:fullscreen {
+  display: grid;
+  place-items: center;
+  background: var(--bg);
+  padding: 24px;
+}
+
+.media-frame:fullscreen img,
+.media-frame:fullscreen svg {
+  max-width: 100%;
+  max-height: 100%;
 }
 
 .embed-image {
