@@ -790,7 +790,9 @@ button {
   width: 100%;
   max-width: var(--content-width, 960px);
   margin-inline: auto;
-  min-height: calc(100vh - 64px);
+  /* Fill the reader's content box exactly — not calc(100vh - …), which ignored the tab bar's height and
+     left the article a few px too tall, so a short note (just a title) was needlessly scrollable. */
+  min-height: 100%;
   flex-direction: column;
   gap: 18px;
 }
