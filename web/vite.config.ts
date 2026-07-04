@@ -16,8 +16,34 @@ const staticBuild = process.env.VITE_TRACK_STATIC === "1";
 export default defineConfig({
   base: staticBuild ? process.env.SITE_BASE || "/" : "/",
   plugins: [react()],
+  // A literal boolean the bundler folds at build time, so code gated on `!__TRACK_STATIC__` (e.g. the
+  // BudouX word-break model) is dead-code-eliminated from the static build rather than merely unused.
+  define: {
+    __TRACK_STATIC__: JSON.stringify(staticBuild),
+  },
   build: {
     manifest: true,
+    rollupOptions: {
+      output: {
+        // Split the big, stable vendor groups out of the app chunk so they download in parallel and stay
+        // cached across app-code deploys. The prerendered HTML paints content without JS, so a smaller,
+        // parallel-loading initial chunk helps interactivity (TBT/TTI) without hurting LCP. Heavy optional
+        // libs (mermaid, pdf.js, KaTeX, cytoscape, d3-force) are already dynamically imported.
+        manualChunks(id: string) {
+          if (!id.includes("node_modules")) return;
+          if (id.includes("/react-dom/") || /\/react\//.test(id) || id.includes("/scheduler/")) return "react";
+          if (id.includes("/@tanstack/")) return "tanstack";
+          if (id.includes("/budoux/")) return "budoux";
+          if (
+            /\/(react-markdown|remark-|rehype-|micromark|mdast|hast|unist|unified|vfile|property-information|character-entities|decode-named|space-separated|comma-separated|trim-lines|zwitch|bail|is-plain-obj|ccount|escape-string-regexp|markdown-table|longest-streak|mdurl|devlop|estree|html-|web-namespaces|parse-entities|stringify-entities)/.test(
+              id,
+            )
+          ) {
+            return "markdown";
+          }
+        },
+      },
+    },
   },
   server: {
     proxy: {

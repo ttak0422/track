@@ -2,13 +2,14 @@ import type { Element } from "hast";
 import { type ReactNode, useEffect, useState } from "react";
 import Markdown, { type Components } from "react-markdown";
 import remarkGfm from "remark-gfm";
+import { rehypeBudoux } from "./markdown/budouxEager";
 import { CodeBlock } from "./markdown/CodeBlock";
 import { NoteKindContext } from "./markdown/context";
 import { Embed } from "./markdown/Embed";
 import { ExternalLink } from "./markdown/ExternalLink";
 import { loadMathPlugins, looksLikeMath, type MathPlugins, mathPluginsIfLoaded } from "./markdown/math";
 import { MermaidDiagram } from "./markdown/MermaidDiagram";
-import { rehypeBudoux, remarkWikiLink } from "./markdown/plugins";
+import { remarkWikiLink } from "./markdown/plugins";
 import { WikiLink } from "./preview/WikiLink";
 
 interface MarkdownViewProps {
@@ -41,7 +42,10 @@ export function MarkdownView({ markdown, kind = "note" }: MarkdownViewProps) {
   }
 
   const remarkPlugins = math ? [remarkGfm, math.remark, remarkWikiLink] : [remarkGfm, remarkWikiLink];
-  const rehypePlugins = math ? [math.rehype, rehypeBudoux] : [rehypeBudoux];
+  // BudouX (Japanese word-break) is gated behind __TRACK_STATIC__, a build-time literal, so the static
+  // help site tree-shakes its ~190KB model away (English content is never segmented) while the live
+  // workspace keeps it eager.
+  const rehypePlugins = [...(math ? [math.rehype] : []), ...(__TRACK_STATIC__ ? [] : [rehypeBudoux])];
 
   return (
     <NoteKindContext.Provider value={kind}>

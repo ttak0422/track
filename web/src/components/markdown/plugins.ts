@@ -1,4 +1,3 @@
-import { loadDefaultJapaneseParser } from "budoux";
 import type { Element, Root as HastRoot, Text as HastText } from "hast";
 import type { Root as MdastRoot } from "mdast";
 import { visit } from "unist-util-visit";
@@ -41,31 +40,32 @@ export function remarkWikiLink() {
   };
 }
 
-// BudouX segments Japanese text at phrase boundaries. Paired with CSS `word-break: keep-all`, the
-// inserted <wbr> markers let lines wrap between phrases instead of at arbitrary characters, so long
-// Japanese paragraphs read naturally on wide viewports.
-const jaParser = loadDefaultJapaneseParser();
-
-// rehypeBudoux runs on the rendered tree (after wiki links and code are elements) and replaces each text
-// node with its BudouX phrase segments separated by <wbr>. Text inside code/pre is left untouched.
-export function rehypeBudoux() {
-  return (tree: HastRoot) => {
-    visit(tree, "text", (node, index, parent) => {
-      if (!parent || index === undefined) return;
-      if (parent.type === "element" && (parent.tagName === "code" || parent.tagName === "pre")) {
-        return;
-      }
-      const segments = jaParser.parse(node.value);
-      if (segments.length <= 1) return;
-      const replacement: (HastText | Element)[] = [];
-      segments.forEach((segment, i) => {
-        if (i > 0) {
-          replacement.push({ type: "element", tagName: "wbr", properties: {}, children: [] });
+// makeRehypeBudoux builds a rehype plugin that segments Japanese text at BudouX phrase boundaries.
+// Paired with CSS `word-break: keep-all`, the inserted <wbr> markers let lines wrap between phrases
+// instead of at arbitrary characters. The BudouX parser is injected (not imported here) so its ~190KB
+// Japanese model is loaded only when this plugin is used — never in the English static help site (see
+// ./budoux). It runs on the rendered tree (after wiki links and code are elements); text inside code/pre
+// is left untouched.
+export function makeRehypeBudoux(parse: (text: string) => string[]) {
+  return function rehypeBudoux() {
+    return (tree: HastRoot) => {
+      visit(tree, "text", (node, index, parent) => {
+        if (!parent || index === undefined) return;
+        if (parent.type === "element" && (parent.tagName === "code" || parent.tagName === "pre")) {
+          return;
         }
-        replacement.push({ type: "text", value: segment });
+        const segments = parse(node.value);
+        if (segments.length <= 1) return;
+        const replacement: (HastText | Element)[] = [];
+        segments.forEach((segment, i) => {
+          if (i > 0) {
+            replacement.push({ type: "element", tagName: "wbr", properties: {}, children: [] });
+          }
+          replacement.push({ type: "text", value: segment });
+        });
+        parent.children.splice(index, 1, ...replacement);
+        return index + replacement.length;
       });
-      parent.children.splice(index, 1, ...replacement);
-      return index + replacement.length;
-    });
+    };
   };
 }

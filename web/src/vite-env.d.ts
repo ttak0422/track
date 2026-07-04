@@ -1,5 +1,9 @@
 /// <reference types="vite/client" />
 
+// Build-time boolean (vite `define`): true in the static-export build, false in the live build. Used to
+// dead-code-eliminate static-only-irrelevant code (e.g. the BudouX model) from the static bundle.
+declare const __TRACK_STATIC__: boolean;
+
 interface Window {
   // Injected by the Go server into index.html as the configured default theme (system/light/dark).
   __trackDefaultTheme?: string;
