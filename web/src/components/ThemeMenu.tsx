@@ -4,6 +4,7 @@ type ThemeMode = "system" | "light" | "dark";
 
 const storageKey = "track.theme";
 const fontScaleKey = "track.fontScale";
+const contentWidthKey = "track.contentWidth";
 const themeModes: ThemeMode[] = ["system", "light", "dark"];
 // Whole-UI font scale, applied through the --font-scale CSS var every font-size is wrapped in.
 const fontScales: { label: string; value: number }[] = [
@@ -12,10 +13,19 @@ const fontScales: { label: string; value: number }[] = [
   { label: "L", value: 1.15 },
   { label: "XL", value: 1.3 },
 ];
+// Reading-column max width, applied through the --content-width CSS var on .note-reader. "none" removes
+// the cap so prose fills the viewport for wide-display use.
+const defaultContentWidth = "960px";
+const contentWidths: { label: string; value: string }[] = [
+  { label: "Normal", value: "960px" },
+  { label: "Wide", value: "1280px" },
+  { label: "Full", value: "none" },
+];
 
 export function ThemeMenu() {
   const [theme, setTheme] = useState<ThemeMode>(() => storedTheme());
   const [fontScale, setFontScale] = useState<number>(() => storedFontScale());
+  const [contentWidth, setContentWidth] = useState<string>(() => storedContentWidth());
   const [open, setOpen] = useState(false);
   const menuRef = useRef<HTMLDivElement>(null);
 
@@ -40,6 +50,17 @@ export function ThemeMenu() {
     localStorage.setItem(fontScaleKey, String(fontScale));
     document.documentElement.style.setProperty("--font-scale", String(fontScale));
   }, [fontScale]);
+
+  useEffect(() => {
+    if (contentWidth === defaultContentWidth) {
+      localStorage.removeItem(contentWidthKey);
+      document.documentElement.style.removeProperty("--content-width");
+      return;
+    }
+
+    localStorage.setItem(contentWidthKey, contentWidth);
+    document.documentElement.style.setProperty("--content-width", contentWidth);
+  }, [contentWidth]);
 
   useEffect(() => {
     if (!open) {
@@ -111,6 +132,21 @@ export function ThemeMenu() {
               ))}
             </div>
           </section>
+          <section className="menu-section" aria-label="Content width">
+            <h2>Content width</h2>
+            <div className="theme-switch" role="group" aria-label="Content width">
+              {contentWidths.map((width) => (
+                <button
+                  aria-pressed={contentWidth === width.value}
+                  key={width.value}
+                  type="button"
+                  onClick={() => setContentWidth(width.value)}
+                >
+                  {width.label}
+                </button>
+              ))}
+            </div>
+          </section>
         </div>
       ) : null}
     </div>
@@ -150,6 +186,11 @@ function storedTheme(): ThemeMode {
 function storedFontScale(): number {
   const value = Number(localStorage.getItem(fontScaleKey));
   return fontScales.some((scale) => scale.value === value) ? value : 1;
+}
+
+function storedContentWidth(): string {
+  const value = localStorage.getItem(contentWidthKey);
+  return contentWidths.some((width) => width.value === value) ? (value as string) : defaultContentWidth;
 }
 
 function label(mode: ThemeMode): string {
