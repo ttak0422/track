@@ -57,6 +57,31 @@ jobs:
         run: |
           nix develop --command bash -euo pipefail -c 'make site SITE_OUT=./_site'
 
+      # HTML is cached by the Pages CDN for up to 10 minutes and cannot be hash-named, so a stale page
+      # can reference chunks a fresh deploy just deleted. Carry the previous deployment's hashed assets
+      # forward so that window keeps working. asset-manifest.txt is written before the merge, so each
+      # deploy carries exactly one generation back (no unbounded accumulation); hashed names are
+      # content-addressed, so mixing generations is safe.
+      - name: Keep previous deployment's assets for the CDN cache window
+        env:
+          SITE_URL: ${{ steps.pages.outputs.base_url }}
+        run: |
+          (cd _site && find assets -type f | sort > asset-manifest.txt)
+          curl -fsSL --max-time 30 "$SITE_URL/asset-manifest.txt" -o /tmp/prev-manifest.txt || {
+            echo "no previous manifest; skipping carry-forward"; exit 0; }
+          carried=0
+          while IFS= read -r f; do
+            case "$f" in assets/*) ;; *) continue ;; esac
+            [ -e "_site/$f" ] && continue
+            mkdir -p "_site/$(dirname "$f")"
+            if curl -fsSL --max-time 60 "$SITE_URL/$f" -o "_site/$f"; then
+              carried=$((carried + 1))
+            else
+              rm -f "_site/$f"
+            fi
+          done < /tmp/prev-manifest.txt
+          echo "carried $carried assets from the previous deployment"
+
       - name: Upload artifact
         uses: actions/upload-pages-artifact@v3
         with:
