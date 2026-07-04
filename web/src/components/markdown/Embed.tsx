@@ -65,13 +65,11 @@ export function Embed({ src, alt }: EmbedProps) {
 
   // A text-file attachment (a mermaid diagram source, or any plain-text file) is fetched and rendered
   // inline rather than handed to <img>, which would only show a broken image. This stays asset-only so a
-  // remote text URL is still treated as an ordinary link/OGP card.
+  // remote text URL is still treated as an ordinary link/OGP card. Unlike image/PDF media it is not
+  // wrapped in MediaFrame: a code block or diagram renders bare, matching inline ```fences``` (no float
+  // pin), so the two spellings of a diagram look the same.
   if (asset && isTextAssetHref(src)) {
-    return (
-      <MediaFrame src={src} alt={alt}>
-        <TextAssetEmbed href={asset} src={src} alt={alt} />
-      </MediaFrame>
-    );
+    return <TextAssetEmbed href={asset} src={src} alt={alt} />;
   }
 
   const tweetId = asset ? null : tweetIdFromUrl(src);
