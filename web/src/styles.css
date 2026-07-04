@@ -608,7 +608,10 @@ button {
 }
 
 .reader-pane:has(.tabbar),
-.workspace.home .reader-pane {
+.workspace.home .reader-pane,
+/* The empty state has no tab bar (and none will mount without navigating away), and its arrow guides are
+   aligned to the sidebar rail's top origin, so drop the reserved row there. */
+.reader-pane:has(.empty-state) {
   padding-top: 0;
 }
 

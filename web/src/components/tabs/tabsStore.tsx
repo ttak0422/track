@@ -9,7 +9,7 @@ import {
   useRef,
   useState,
 } from "react";
-import { STATIC_MODE } from "../../runtime";
+import { START_PAGE_ID, STATIC_MODE } from "../../runtime";
 import type { NoteID } from "../../types";
 
 // A note open in the tab bar. The title is cached so a reloaded session can label tabs before each
@@ -82,6 +82,9 @@ function noteIDFromPath(pathname: string): NoteID | null {
   // Tolerate a trailing slash: the prerendered static site serves each route as a directory
   // (/notes/<id>/), so the router's pathname carries the slash.
   const path = pathname.replace(/\/$/, "") || "/";
+  // On the static site "/" is the start page (the root note), so give it the root note's tab — the tab
+  // exists from the first render and the brand button (which navigates to "/") keeps it active.
+  if (path === "/" && STATIC_MODE && START_PAGE_ID) return START_PAGE_ID;
   if (path === "/graph") return GRAPH_TAB_ID;
   const match = path.match(/^\/notes\/([^/]+)$/);
   return match ? match[1] : null;
