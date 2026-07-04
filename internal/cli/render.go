@@ -111,6 +111,9 @@ func resolveChart(specPath string, vs viewspec.Spec) (viewspec.Resolved, error) 
 	}
 	res := vs.Resolve(records)
 	for i, ov := range vs.Overlays {
+		if ov.Source == "" {
+			continue // line/band overlays carry literal values; Resolve already placed them
+		}
 		ovRecords, err := readJSONLRelative(specPath, ov.Source)
 		if err != nil {
 			return viewspec.Resolved{}, fmt.Errorf("overlay[%d]: %w", i, err)
@@ -240,7 +243,10 @@ func viewSpecReference() string {
 	b.WriteString("  encoding.size:   {field}   point radius (bubble / timeline dot)\n")
 	b.WriteString("  filter:          {field, equals}  keep records where field == equals (shorthand)\n")
 	fmt.Fprintf(&b, "                   {all:[{field, op, value}]}  AND conditions; op: %s (range/period)\n", strings.Join(viewspec.FilterOps, " | "))
-	b.WriteString("  overlays[]:      {source, kind, at=time, label=text}  vertical event/annotation markers\n")
+	b.WriteString("  overlays[]:      one shape per entry:\n")
+	b.WriteString("                   {source, kind, at=time, label=text}  vertical event/annotation markers\n")
+	b.WriteString("                   {y, axis?, label?}  horizontal reference line at value y (threshold)\n")
+	b.WriteString("                   {from, to, label?}  shaded x-range band (period highlight)\n")
 	fmt.Fprintf(&b, "  renderers:       %s\n", strings.Join(render.Names(), " | "))
 	b.WriteString("\nMarks cover the old chart types: bar+nominal-y = horizontal bar; point =\n")
 	b.WriteString("scatter (nominal x) / bubble (quantitative x) / timeline (nominal y); rect = heatmap.\n")
@@ -258,7 +264,9 @@ func viewSpecReference() string {
       ]
     },
     "overlays": [
-      { "source": "events.jsonl", "kind": "event", "at": "time", "label": "title" }
+      { "source": "events.jsonl", "kind": "event", "at": "time", "label": "title" },
+      { "y": 100, "axis": "y2", "label": "threshold" },
+      { "from": "2026-01-01", "to": "2026-02-01", "label": "tariff window" }
     ]
   }
 

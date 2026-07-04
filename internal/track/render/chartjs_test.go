@@ -163,6 +163,27 @@ func TestChartJSRenderMarkersAddAnnotationPluginAndLines(t *testing.T) {
 	}
 }
 
+func TestChartJSRenderRefLinesAndBands(t *testing.T) {
+	res := resolved(viewspec.ChartLine, "Pressure", []float64{1, 2})
+	res.Lines = []viewspec.RefLine{{Y: 1.5, Axis: "y2", Label: "limit"}}
+	res.Bands = []viewspec.Band{{From: "a", To: "b", Label: "Q1"}}
+	out, err := ChartJS{}.Render(res)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(out, "chartjs-plugin-annotation@3") {
+		t.Fatalf("annotation plugin script missing: %s", out)
+	}
+	for _, want := range []string{
+		`"scaleID":"y2"`, `"value":1.5`, `"borderDash":[4,4]`, `"content":"limit"`, // reference line
+		`"type":"box"`, `"xMin":"a"`, `"xMax":"b"`, `"content":"Q1"`, // band
+	} {
+		if !strings.Contains(out, want) {
+			t.Errorf("annotation config missing %q", want)
+		}
+	}
+}
+
 func TestChartJSRenderNoMarkersOmitsPlugin(t *testing.T) {
 	out, err := ChartJS{}.Render(resolved(viewspec.ChartLine, "", []float64{1, 2}))
 	if err != nil {

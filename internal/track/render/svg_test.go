@@ -64,6 +64,14 @@ func goldenCases() map[string]viewspec.Resolved {
 			Labels:  xy,
 			Series:  []viewspec.Series{{Label: "Index", Values: []float64{1, 2, 3}}},
 			Markers: []viewspec.Marker{{At: "b", Label: "event"}},
+			Lines: []viewspec.RefLine{
+				{Y: 2.5, Axis: "y", Label: "limit"},
+				{Y: 9, Axis: "y", Label: "off-scale"}, // outside the value range → skipped
+			},
+			Bands: []viewspec.Band{
+				{From: "b", To: "c", Label: "period"},
+				{From: "x", To: "c"}, // unknown category → skipped
+			},
 		},
 		"heatmap": {
 			Spec: viewspec.Spec{Title: "Heat"}, Chart: viewspec.ChartHeatmap,

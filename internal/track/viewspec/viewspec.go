@@ -161,15 +161,31 @@ func (s Spec) yNominal() bool {
 	return len(s.Encoding.Y) > 0 && s.Encoding.Y[0].nominal()
 }
 
-// Overlay draws events/annotations from a second data source on top of the chart as vertical markers
-// — e.g. plotting policy events along a Pressure Index time series. It reads its own JSONL source
-// (typically kind event or annotation): At names the field holding the x position (a value that should
-// match an x-axis label), and Label names the field holding the marker text.
+// Overlay draws reference geometry on top of the chart. It is a flat union of three shapes,
+// discriminated by which fields are set (exactly one per overlay, enforced by Validate):
+//
+//   - markers: {source, kind, at?, label?} — vertical lines read from a second JSONL source
+//     (typically kind event or annotation), e.g. policy events along a Pressure Index time series.
+//     At names the field holding the x position (a value that should match an x-axis label), and
+//     Label names the field holding the marker text.
+//   - line: {y, axis?, label?} — a horizontal reference line at the literal value Y (a threshold),
+//     on the primary ("y", default) or secondary ("y2") axis. Label is the literal line text.
+//   - band: {from, to, label?} — a shaded x-range highlighting the period between the From and To
+//     category labels (inclusive). Label is the literal band text.
 type Overlay struct {
-	Source string       `json:"source"`
-	Kind   dataset.Kind `json:"kind"`
-	At     string       `json:"at,omitempty"`    // x-position field; defaults to "time"
-	Label  string       `json:"label,omitempty"` // marker text field; defaults to "text"
+	Source string       `json:"source,omitempty"`
+	Kind   dataset.Kind `json:"kind,omitempty"`
+	At     string       `json:"at,omitempty"` // x-position field; defaults to "time"
+
+	Y    *float64 `json:"y,omitempty"`    // line: the y value to draw at
+	Axis string   `json:"axis,omitempty"` // line: "y" (default) or "y2"
+
+	From string `json:"from,omitempty"` // band: first x category (inclusive)
+	To   string `json:"to,omitempty"`   // band: last x category (inclusive)
+
+	// Label is the marker-text field for a source overlay (defaults to "text"), or the literal
+	// label text for a line/band overlay.
+	Label string `json:"label,omitempty"`
 }
 
 // atField returns the configured x-position field, defaulting to "time".
@@ -208,6 +224,21 @@ func (o Overlay) Markers(records []dataset.Record) []Marker {
 type Marker struct {
 	At    string
 	Label string
+}
+
+// RefLine is a resolved horizontal reference line (a threshold): a value on axis "y" or "y2" plus an
+// optional label.
+type RefLine struct {
+	Y     float64
+	Axis  string // "y" (primary) or "y2" (secondary)
+	Label string
+}
+
+// Band is a resolved x-range highlight: a shaded region spanning the From..To categories (inclusive)
+// plus an optional label.
+type Band struct {
+	From, To string
+	Label    string
 }
 
 // DataRef points at the records to plot, as exactly one of: Source (a JSONL file resolved relative to
@@ -313,11 +344,8 @@ func (s Spec) Validate() error {
 		}
 	}
 	for i, o := range s.Overlays {
-		if strings.TrimSpace(o.Source) == "" {
-			return fmt.Errorf("view spec: overlays[%d].source is required", i)
-		}
-		if !o.Kind.Valid() {
-			return fmt.Errorf("view spec: overlays[%d].kind %q is not a canonical kind", i, o.Kind)
+		if err := o.validate(i); err != nil {
+			return err
 		}
 	}
 	if s.Filter != nil {
@@ -365,6 +393,57 @@ func (e Encoding) validate() error {
 		}
 	}
 	return nil
+}
+
+// validate checks an overlay is exactly one of its three shapes (source markers / line / band) and
+// that the chosen shape is complete: a source overlay needs a canonical kind, a line's axis must be
+// y or y2, and a band needs both ends. Fields of another shape are rejected rather than ignored, so
+// a mixed overlay surfaces as an error.
+func (o Overlay) validate(i int) error {
+	hasSource := strings.TrimSpace(o.Source) != ""
+	hasLine := o.Y != nil
+	hasBand := o.From != "" || o.To != ""
+	shapes := 0
+	for _, set := range []bool{hasSource, hasLine, hasBand} {
+		if set {
+			shapes++
+		}
+	}
+	if shapes != 1 {
+		return fmt.Errorf("view spec: overlays[%d] must be exactly one of markers {source, kind}, line {y}, or band {from, to}", i)
+	}
+	switch {
+	case hasSource:
+		if !o.Kind.Valid() {
+			return fmt.Errorf("view spec: overlays[%d].kind %q is not a canonical kind", i, o.Kind)
+		}
+		if o.Axis != "" {
+			return fmt.Errorf("view spec: overlays[%d].axis applies only to a line overlay", i)
+		}
+	case hasLine:
+		if o.Kind != "" || o.At != "" {
+			return fmt.Errorf("view spec: overlays[%d] line overlay does not take kind/at", i)
+		}
+		if o.Axis != "" && !slices.Contains(AxisOptions, o.Axis) {
+			return fmt.Errorf("view spec: overlays[%d].axis %q is not y or y2", i, o.Axis)
+		}
+	default: // band
+		if o.From == "" || o.To == "" {
+			return fmt.Errorf("view spec: overlays[%d] band needs both from and to", i)
+		}
+		if o.Kind != "" || o.At != "" || o.Axis != "" {
+			return fmt.Errorf("view spec: overlays[%d] band overlay does not take kind/at/axis", i)
+		}
+	}
+	return nil
+}
+
+// axisID normalizes a line overlay's target axis, defaulting an empty value to the primary "y".
+func (o Overlay) axisID() string {
+	if o.Axis == "" {
+		return "y"
+	}
+	return o.Axis
 }
 
 // validateType rejects an unknown channel type; an empty type means quantitative.
@@ -506,7 +585,9 @@ type Resolved struct {
 	Labels  []string
 	Series  []Series
 	Grid    *Grid
-	Markers []Marker // vertical overlays (events/annotations), filled by the caller from Overlays
+	Markers []Marker  // vertical overlays (events/annotations), filled by the caller from Overlays
+	Lines   []RefLine // horizontal reference lines, filled by Resolve (they carry no data source)
+	Bands   []Band    // x-range highlights, filled by Resolve (they carry no data source)
 }
 
 // Resolve applies the spec's filter and encoding to records, producing the resolved drawing form and
@@ -528,6 +609,16 @@ func (s Spec) Resolve(records []dataset.Record) Resolved {
 		s.resolveHorizontal(records, &res)
 	default: // line, bar, scatter — category x, numeric y series
 		s.resolveSeries(records, &res)
+	}
+	// Line/band overlays are literal values in the spec (no second data source), so they resolve here;
+	// source overlays need file IO and stay with the caller (Resolved.Markers).
+	for _, o := range s.Overlays {
+		switch {
+		case o.Y != nil:
+			res.Lines = append(res.Lines, RefLine{Y: *o.Y, Axis: o.axisID(), Label: o.Label})
+		case o.From != "":
+			res.Bands = append(res.Bands, Band{From: o.From, To: o.To, Label: o.Label})
+		}
 	}
 	return res
 }

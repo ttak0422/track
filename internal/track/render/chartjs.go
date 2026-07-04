@@ -15,7 +15,8 @@ import (
 const chartJSCDN = "https://cdn.jsdelivr.net/npm/chart.js@4"
 
 // annotationCDN is the chartjs-plugin-annotation UMD build, which self-registers when loaded after
-// Chart.js. It is only included when a spec has overlay markers to draw, so plain charts stay lean.
+// Chart.js. It is only included when a spec has overlays (markers, reference lines, or bands) to
+// draw, so plain charts stay lean.
 const annotationCDN = "https://cdn.jsdelivr.net/npm/chartjs-plugin-annotation@3"
 
 func init() { Register(ChartJS{}) }
@@ -144,27 +145,29 @@ func chartJSConfigJSON(res viewspec.Resolved) (string, bool, error) {
 		}
 	}
 
-	// Overlay markers (events/annotations) become vertical lines via chartjs-plugin-annotation.
-	if len(res.Markers) > 0 {
+	// Overlays (event/annotation markers, reference lines, bands) draw via chartjs-plugin-annotation.
+	usesAnnotation := len(res.Markers)+len(res.Lines)+len(res.Bands) > 0
+	if usesAnnotation {
 		if cfg.Options.Plugins == nil {
 			cfg.Options.Plugins = map[string]any{}
 		}
-		cfg.Options.Plugins["annotation"] = map[string]any{"annotations": markerAnnotations(res.Markers)}
+		cfg.Options.Plugins["annotation"] = map[string]any{"annotations": overlayAnnotations(res)}
 	}
 
 	cfgJSON, err := json.Marshal(cfg)
 	if err != nil {
 		return "", false, fmt.Errorf("marshal chart config: %w", err)
 	}
-	return string(cfgJSON), len(res.Markers) > 0, nil
+	return string(cfgJSON), usesAnnotation, nil
 }
 
-// markerAnnotations builds the chartjs-plugin-annotation `annotations` object: one vertical line per
-// marker, pinned to the category x-axis at the marker's value, labeled with its text. Keys are stable
-// (m0, m1, ...) so output is deterministic.
-func markerAnnotations(markers []viewspec.Marker) map[string]any {
-	out := make(map[string]any, len(markers))
-	for i, m := range markers {
+// overlayAnnotations builds the chartjs-plugin-annotation `annotations` object: one vertical line per
+// marker (pinned to the category x-axis), one dashed horizontal line per reference line (pinned to its
+// y/y2 axis), and one shaded box per band (spanning its x range over the full plot height). Keys are
+// stable (m0…, l0…, b0…) so output is deterministic.
+func overlayAnnotations(res viewspec.Resolved) map[string]any {
+	out := make(map[string]any, len(res.Markers)+len(res.Lines)+len(res.Bands))
+	for i, m := range res.Markers {
 		ann := map[string]any{
 			"type":        "line",
 			"scaleID":     "x",
@@ -181,6 +184,41 @@ func markerAnnotations(markers []viewspec.Marker) map[string]any {
 			}
 		}
 		out[fmt.Sprintf("m%d", i)] = ann
+	}
+	for i, l := range res.Lines {
+		ann := map[string]any{
+			"type":        "line",
+			"scaleID":     l.Axis,
+			"value":       l.Y,
+			"borderColor": "rgba(220,53,69,0.7)",
+			"borderWidth": 1,
+			"borderDash":  []int{4, 4},
+		}
+		if l.Label != "" {
+			ann["label"] = map[string]any{
+				"content":  l.Label,
+				"display":  true,
+				"position": "end",
+			}
+		}
+		out[fmt.Sprintf("l%d", i)] = ann
+	}
+	for i, bd := range res.Bands {
+		ann := map[string]any{
+			"type":            "box",
+			"xMin":            bd.From,
+			"xMax":            bd.To,
+			"backgroundColor": "rgba(108,117,125,0.15)",
+			"borderWidth":     0,
+		}
+		if bd.Label != "" {
+			ann["label"] = map[string]any{
+				"content":  bd.Label,
+				"display":  true,
+				"position": "start",
+			}
+		}
+		out[fmt.Sprintf("b%d", i)] = ann
 	}
 	return out
 }

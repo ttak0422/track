@@ -90,7 +90,7 @@ fields onto *visual channels* (x, y series, color, size), orthogonally. Unknown 
 | `encoding.color` | rect     | On `rect`: the (quantitative) heatmap cell value. On every other mark: a **nominal** category that splits records into one colored series per value (see below). |
 | `encoding.size`  | no       | Radius channel for a `point` (bubble radius / timeline dot).         |
 | `filter`         | no       | Keep matching records. Shorthand `{field, equals}` or `{all: [{field, op, value}]}` (AND). |
-| `overlays`       | no       | Vertical event/annotation markers drawn over the chart (see below).  |
+| `overlays`       | no       | Reference geometry drawn over the chart: markers, lines, bands (see below). |
 
 A channel's `type` is `quantitative` (default, a measure) or `nominal` (a category). The type is the
 hint that lets one mark cover the former chart types, since it names which axis is categorical:
@@ -183,16 +183,21 @@ accumulated in first-seen order). The Chart.js renderer rejects them.
                   "y": [ { "field": "entity", "type": "nominal" } ] } }
   ```
 
-### Overlays (event/annotation markers)
+### Overlays (markers, reference lines, bands)
 
-An overlay draws records from a second JSONL source as vertical markers on top of the chart — e.g.
-plotting policy events along a Pressure Index time series. Each overlay:
+An overlay draws reference geometry on top of the chart. Each entry in `overlays` is **exactly one**
+of three shapes, discriminated by which fields are set (a mixed entry is rejected):
 
 ```json
 "overlays": [
-  { "source": "events.jsonl", "kind": "event", "at": "time", "label": "title" }
+  { "source": "events.jsonl", "kind": "event", "at": "time", "label": "title" },
+  { "y": 100, "axis": "y2", "label": "threshold" },
+  { "from": "2026-01-01", "to": "2026-02-01", "label": "tariff window" }
 ]
 ```
+
+**Markers** — vertical lines read from a second JSONL source, e.g. plotting policy events along a
+Pressure Index time series:
 
 | Field    | Required | Notes                                                                        |
 |----------|----------|------------------------------------------------------------------------------|
@@ -204,6 +209,26 @@ plotting policy events along a Pressure Index time series. Each overlay:
 A record with no `at` value is skipped. The marker is placed at the matching x-axis category, so the
 `at` value should equal one of the x-axis labels (the renderer uses a category x-axis). Multiple
 overlays accumulate.
+
+**Reference line** — a dashed horizontal line at a literal value (a threshold):
+
+| Field   | Required | Notes                                                             |
+|---------|----------|-------------------------------------------------------------------|
+| `y`     | yes      | The value to draw the line at.                                    |
+| `axis`  | no       | `y` (default) or `y2` — which value axis the line is pinned to.  |
+| `label` | no       | Literal label text drawn on the line.                             |
+
+**Band** — a shaded x-range highlighting a period:
+
+| Field   | Required | Notes                                                              |
+|---------|----------|--------------------------------------------------------------------|
+| `from`  | yes      | First x category of the range (inclusive; should match an x label).|
+| `to`    | yes      | Last x category of the range (inclusive).                          |
+| `label` | no       | Literal label text drawn in the band.                              |
+
+Marker overlays need file IO, so they resolve in the CLI; line/band overlays carry literal values and
+resolve with the spec itself (`Spec.Resolve`), which is why they also work for embedded assets (below).
+A y-range band is deliberately not supported — a value threshold is a reference line.
 
 ### Inline data (self-contained specs)
 
@@ -231,7 +256,8 @@ A self-contained spec saved as a `.viewspec.json` **asset** is rendered to a sta
 the `svg` renderer at build time, writes the SVG into the published `assets/`, and rewrites the
 reference to the generated `.svg` — so the static site shows the chart with no CDN and no client-side
 JavaScript. Embedded charts must use inline `data.records` (an asset is rendered in isolation, with no
-spec-relative file to read); overlays and `data.source` are not supported on this path. The live web
+spec-relative file to read); marker overlays and `data.source` are not supported on this path, but
+line/band overlays (literal values) render. The live web
 workspace does not yet render embedded specs (it reuses the same `render.SVGFromSpec` when it does).
 
 ### Resolution semantics
@@ -268,8 +294,9 @@ Emits a self-contained HTML page that loads **Chart.js from a CDN**
 - Every dataset carries explicit `borderColor`/`backgroundColor` from the fixed palette shared with the
   `svg` renderer (keyed by series index), so colors are deterministic and identical across renderers.
 - `NaN`/`Inf` values are emitted as JSON `null` (a gap).
-- **Overlay markers** are drawn as vertical lines via `chartjs-plugin-annotation`, loaded from a CDN
-  only when the spec has overlays (plain charts stay lean).
+- **Overlays** are drawn via `chartjs-plugin-annotation`, loaded from a CDN only when the spec has
+  overlays (plain charts stay lean): markers as vertical lines, reference lines as dashed horizontal
+  lines on their `y`/`y2` axis, bands as translucent boxes spanning the x range.
 - The page requires network access at view time to load Chart.js (and the annotation plugin, if used).
 
 ### `svg`
@@ -284,8 +311,10 @@ output embeds directly in notes, emails, or a static site:
   back to a small default, like the Chart.js renderer.
 - The value axis spans the data range; bars pin the baseline to zero.
 - `NaN`/`Inf` values are gaps: a line breaks its segment, a bar/scatter/bubble point is omitted.
-- **Overlay markers** are vertical lines at the matching category label (mirroring the Chart.js
-  annotation overlays).
+- **Overlays** mirror the Chart.js annotations: markers are vertical lines at the matching category
+  label; reference lines are dashed horizontal lines (the SVG renderer has a single value scale, so
+  `axis: "y2"` is ignored; a line outside the data's value range is skipped); bands are translucent
+  rectangles spanning the `from`..`to` category slots (inclusive), drawn behind the series.
 
 Select it with `track render --renderer svg --out chart.svg`.
 

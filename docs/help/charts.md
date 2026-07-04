@@ -80,7 +80,9 @@ Key fields:
   (on `rect` it is instead the quantitative heatmap cell value).
 - `filter` — `{field, equals}` shorthand, or `{all: [{field, op, value}]}` with `op` of
   `eq|ne|lt|le|gt|ge` for multi-field, range, and period filtering.
-- `overlays` — draw events/annotations from a second source as vertical markers over a time series.
+- `overlays` — reference geometry over the chart: `{source, kind}` draws events/annotations from a
+  second source as vertical markers, `{y, axis?, label?}` a horizontal threshold line, and
+  `{from, to, label?}` a shaded period band.
 
 ## Embedding a chart in a note
 
@@ -121,6 +123,12 @@ below are each one embedded `.viewspec.json`.
 **Timeline** (`mark: point`, nominal y) — one dot per record at its `(column, lane)`; an optional `size` scales the dot, one color per lane.
 
 ![Timeline](assets/chart-timeline.viewspec.json)
+
+**Overlays** — a dashed `{y, label}` threshold line and a shaded `{from, to, label}` period band over
+any category-axis chart. They carry literal values (no second data file), so they work in embedded
+assets too.
+
+![Threshold line and period band](assets/chart-overlay.viewspec.json)
 
 A **bubble** (`mark: point` with a quantitative x, `{x, y, r}` points sized by `size`) is drawn over
 linear axes by both the default `chartjs` renderer and the `svg` renderer.

@@ -14,7 +14,8 @@ import (
 //
 // Embedded charts must carry their data inline; a spec that uses data.source (an external JSONL file)
 // is rejected here, since an asset is rendered in isolation without a spec-relative file to read.
-// Overlays (a second data source) are likewise out of scope for the embedded path.
+// Marker overlays (a second data source) are likewise out of scope for the embedded path; line/band
+// overlays carry literal values and render.
 func SVGFromSpec(specJSON []byte) (string, error) {
 	vs, err := viewspec.Load(bytes.NewReader(specJSON))
 	if err != nil {

@@ -516,15 +516,67 @@ func TestValidateRejectsBadAxis(t *testing.T) {
 	}
 }
 
-func TestValidateRejectsBadOverlay(t *testing.T) {
-	s := Spec{
-		Version: Version, Mark: MarkLine,
-		Data:     DataRef{Source: "x", Kind: dataset.KindMetric},
-		Encoding: Encoding{X: Channel{Field: "time"}, Y: []Channel{{Field: "value"}}},
-		Overlays: []Overlay{{Kind: dataset.KindEvent}}, // missing source
+func TestValidateOverlayShapes(t *testing.T) {
+	spec := func(o Overlay) Spec {
+		return Spec{
+			Version: Version, Mark: MarkLine,
+			Data:     DataRef{Source: "x", Kind: dataset.KindMetric},
+			Encoding: Encoding{X: Channel{Field: "time"}, Y: []Channel{{Field: "value"}}},
+			Overlays: []Overlay{o},
+		}
 	}
-	if err := s.Validate(); err == nil || !strings.Contains(err.Error(), "overlays[0].source") {
-		t.Fatalf("want overlay source error, got %v", err)
+	y := 6.5
+	valid := map[string]Overlay{
+		"markers":      {Source: "events.jsonl", Kind: dataset.KindEvent, At: "time", Label: "title"},
+		"line":         {Y: &y, Label: "threshold"},
+		"line-y2":      {Y: &y, Axis: "y2"},
+		"band":         {From: "d1", To: "d2", Label: "Q1"},
+		"line-at-zero": {Y: new(float64)}, // y: 0 is a value, not an unset shape
+	}
+	for name, o := range valid {
+		if err := spec(o).Validate(); err != nil {
+			t.Errorf("%s should validate: %v", name, err)
+		}
+	}
+	invalid := map[string]Overlay{
+		"no shape":            {Kind: dataset.KindEvent}, // kind without source names no shape
+		"empty":               {},
+		"line and band mixed": {Y: &y, From: "d1", To: "d2"},
+		"source and line":     {Source: "e.jsonl", Kind: dataset.KindEvent, Y: &y},
+		"band missing to":     {From: "d1"},
+		"band missing from":   {To: "d2"},
+		"bad line axis":       {Y: &y, Axis: "y3"},
+		"axis on markers":     {Source: "e.jsonl", Kind: dataset.KindEvent, Axis: "y"},
+		"kind on line":        {Y: &y, Kind: dataset.KindEvent},
+		"at on band":          {From: "d1", To: "d2", At: "time"},
+		"markers bad kind":    {Source: "e.jsonl", Kind: "nope"},
+	}
+	for name, o := range invalid {
+		if err := spec(o).Validate(); err == nil || !strings.Contains(err.Error(), "overlays[0]") {
+			t.Errorf("%s: want overlays[0] error, got %v", name, err)
+		}
+	}
+}
+
+func TestResolveFillsLinesAndBands(t *testing.T) {
+	s, err := Load(strings.NewReader(`{"version":2,"mark":"line","data":{"source":"x","kind":"metric"},` +
+		`"encoding":{"x":{"field":"time"},"y":[{"field":"value"}]},` +
+		`"overlays":[{"y":6.5,"label":"limit"},{"y":1,"axis":"y2"},{"from":"d1","to":"d2","label":"Q1"},` +
+		`{"source":"e.jsonl","kind":"event"}]}`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	recs, _ := dataset.ReadJSONL(strings.NewReader(`{"time":"d1","value":5}`))
+	res := s.Resolve(recs)
+	if len(res.Lines) != 2 || res.Lines[0] != (RefLine{Y: 6.5, Axis: "y", Label: "limit"}) || res.Lines[1].Axis != "y2" {
+		t.Fatalf("lines = %+v", res.Lines)
+	}
+	if len(res.Bands) != 1 || res.Bands[0] != (Band{From: "d1", To: "d2", Label: "Q1"}) {
+		t.Fatalf("bands = %+v", res.Bands)
+	}
+	// The source overlay resolves via Overlay.Markers with its own records, not here.
+	if len(res.Markers) != 0 {
+		t.Fatalf("markers should stay caller-filled, got %+v", res.Markers)
 	}
 }
 

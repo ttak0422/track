@@ -56,8 +56,10 @@ func (SVG) Render(res viewspec.Resolved) (string, error) {
 	if res.Chart == viewspec.ChartHBar {
 		writeHBars(&b, g, res, lo, hi)
 	} else {
+		writeBands(&b, g, res)
 		writeSeries(&b, g, res, lo, hi)
 		writeMarkers(&b, g, res)
+		writeRefLines(&b, g, res, lo, hi)
 	}
 	writeLegend(&b, g, res)
 
@@ -285,6 +287,59 @@ func writeMarkers(b *strings.Builder, g svgGeom, res viewspec.Resolved) {
 		if m.Label != "" {
 			fmt.Fprintf(b, `<text x="%s" y="%g" font-size="10" fill="#dc3545" transform="rotate(90 %s %g)">%s</text>`+"\n",
 				num(x+3), g.top+4, num(x+3), g.top+4, html.EscapeString(m.Label))
+		}
+	}
+}
+
+// writeBands shades each band overlay's x range: a translucent rectangle spanning the full plot
+// height from the left edge of the From category's slot to the right edge of the To category's slot
+// (inclusive), drawn before the series so data stays on top. A band whose From or To matches no
+// category label is skipped.
+func writeBands(b *strings.Builder, g svgGeom, res viewspec.Resolved) {
+	if len(res.Bands) == 0 || len(res.Labels) == 0 {
+		return
+	}
+	idx := make(map[string]int, len(res.Labels))
+	for i, l := range res.Labels {
+		idx[l] = i
+	}
+	band := g.plotW() / float64(len(res.Labels))
+	for _, bd := range res.Bands {
+		i, ok := idx[bd.From]
+		j, ok2 := idx[bd.To]
+		if !ok || !ok2 {
+			continue
+		}
+		if j < i {
+			i, j = j, i
+		}
+		x := g.left + band*float64(i)
+		w := band * float64(j-i+1)
+		fmt.Fprintf(b, `<rect x="%s" y="%g" width="%s" height="%g" fill="#6c757d" fill-opacity="0.15"/>`+"\n",
+			num(x), g.top, num(w), g.plotH())
+		if bd.Label != "" {
+			fmt.Fprintf(b, `<text x="%s" y="%g" font-size="10" fill="#6c757d">%s</text>`+"\n",
+				num(x+4), g.top+12, html.EscapeString(bd.Label))
+		}
+	}
+}
+
+// writeRefLines draws each reference-line overlay as a dashed horizontal line at its y value, labeled
+// at the right edge, mirroring the Chart.js annotation lines. The SVG renderer has a single value
+// scale, so the line's axis choice (y/y2) is ignored here.
+// ponytail: a line outside the data's value range is skipped, not drawn; expand valueRange over
+// res.Lines if off-scale thresholds need to show.
+func writeRefLines(b *strings.Builder, g svgGeom, res viewspec.Resolved, lo, hi float64) {
+	for _, l := range res.Lines {
+		if l.Y < lo || l.Y > hi {
+			continue
+		}
+		y := yPixel(g, lo, hi, l.Y)
+		fmt.Fprintf(b, `<line x1="%g" y1="%s" x2="%g" y2="%s" stroke="rgba(220,53,69,0.7)" stroke-width="1" stroke-dasharray="4 4"/>`+"\n",
+			g.left, num(y), g.left+g.plotW(), num(y))
+		if l.Label != "" {
+			fmt.Fprintf(b, `<text x="%g" y="%s" font-size="10" text-anchor="end" fill="#dc3545">%s</text>`+"\n",
+				g.left+g.plotW()-4, num(y-4), html.EscapeString(l.Label))
 		}
 	}
 }
