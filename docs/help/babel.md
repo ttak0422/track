@@ -24,6 +24,7 @@ Execute a block with the CLI, choosing one by `:name`, position, or cursor line:
 ```sh
 track babel exec --id <note-id> --name hello
 track babel exec --path note.md --ordinal 0      # 0-based block index
+track babel exec --path note.md --line 12        # block containing this 0-based line
 ```
 
 Execution is opt-in and never happens on its own. A block is subject to its `:eval` policy:

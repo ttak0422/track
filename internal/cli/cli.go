@@ -122,7 +122,8 @@ Usage:
                                         open/create a daily note
   track init                            create the vault directory skeleton (idempotent, JSON)
   track reindex [--full]                rebuild the index
-  track doctor                          report vault/sidecar divergence without changing files (JSON)
+  track doctor [--fix]                  report vault/sidecar divergence without changing files (JSON);
+                                        --fix repairs it by auto-numbered restore, then reindexes
   track keywords                        dump the auto-link dictionary (JSON)
   track resolve (--term <s> | <s>)      resolve a keyword to a note (JSON)
   track search --query <s> [--scope all|title|body] [--limit N]
@@ -135,8 +136,10 @@ Usage:
                                         create a template (JSON)
   track template open --name <s>         open or create a template (JSON)
   track template list                    list templates (JSON)
-  track babel exec (--id N | --path P) [--name S | --ordinal N] [--yes]
-                                        run a source block (JSON)
+  track babel exec (--id N | --path P) [--name S | --ordinal N | --line N] [--yes]
+                                        [--body-stdin] [--timeout D]
+                                        run a source block, selected by name, ordinal, or a line
+                                        inside it (JSON)
   track babel restore (--id N | --path P)
                                         list stored source block results (JSON)
   track export (--id N | --title S | --path P) [--out F] [--frontmatter] [--exports-default M]
