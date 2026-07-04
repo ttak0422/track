@@ -49,6 +49,16 @@ func goldenCases() map[string]viewspec.Resolved {
 			Labels: xy,
 			Series: []viewspec.Series{{Label: "S1", Values: []float64{3, 2, 1}}},
 		},
+		// Stacked bars: segments pile up per category (negatives grow down) and the value axis spans
+		// the stack totals, not the individual values.
+		"bar-stack": {
+			Spec: viewspec.Spec{Title: "Stacked"}, Chart: viewspec.ChartBar, Stacked: true,
+			Labels: xy,
+			Series: []viewspec.Series{
+				{Label: "S1", Values: []float64{1, 2, 3}},
+				{Label: "S2", Values: []float64{3, math.NaN(), -1}},
+			},
+		},
 		// The resolved shape of a color-channel split: one series per category, labeled with the
 		// category value, aligned to the shared x axis with NaN gaps.
 		"line-color": {
@@ -125,6 +135,27 @@ func TestSVGBubbleRenders(t *testing.T) {
 	// The two finite points draw circles; the NaN-y point is skipped.
 	if n := strings.Count(out, "<circle"); n != 2 {
 		t.Fatalf("expected 2 bubble circles, got %d", n)
+	}
+}
+
+func TestSVGStackedHBarPilesSegments(t *testing.T) {
+	res := viewspec.Resolved{
+		Spec: viewspec.Spec{}, Chart: viewspec.ChartHBar, Stacked: true,
+		Labels: []string{"a"},
+		Series: []viewspec.Series{
+			{Label: "S1", Values: []float64{2}},
+			{Label: "S2", Values: []float64{3}},
+		},
+	}
+	out, err := SVG{}.Render(res)
+	if err != nil {
+		t.Fatal(err)
+	}
+	// Both segments draw, in their series colors.
+	for si := range res.Series {
+		if !strings.Contains(out, `fill="`+seriesColor(si)+`"`) {
+			t.Errorf("stacked hbar missing segment for series %d", si)
+		}
 	}
 }
 

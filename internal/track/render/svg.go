@@ -48,7 +48,7 @@ func (SVG) Render(res viewspec.Resolved) (string, error) {
 		return renderGrid(res), nil
 	}
 	g := svgGeom{w: 800, h: 480, left: 56, right: 16, top: 40, bottom: 56}
-	lo, hi := valueRange(res.Series, res.Chart)
+	lo, hi := valueRange(res)
 
 	var b strings.Builder
 	writeSVGHeader(&b, g, res.Spec.Title)
@@ -68,11 +68,15 @@ func (SVG) Render(res viewspec.Resolved) (string, error) {
 }
 
 // valueRange finds the value span across all finite points in every series. For bar charts the
-// baseline is pinned to zero so bars are measured from a common origin rather than floating. A
-// degenerate (zero-width) range is padded so the chart still has height.
-func valueRange(series []viewspec.Series, typ viewspec.ChartType) (lo, hi float64) {
+// baseline is pinned to zero so bars are measured from a common origin rather than floating; stacked
+// bars span the per-category stack totals instead of individual values. A degenerate (zero-width)
+// range is padded so the chart still has height.
+func valueRange(res viewspec.Resolved) (lo, hi float64) {
+	if res.Stacked {
+		return stackedValueRange(res)
+	}
 	lo, hi = math.Inf(1), math.Inf(-1)
-	for _, s := range series {
+	for _, s := range res.Series {
 		for _, v := range s.Values {
 			if math.IsNaN(v) || math.IsInf(v, 0) {
 				continue
@@ -83,8 +87,36 @@ func valueRange(series []viewspec.Series, typ viewspec.ChartType) (lo, hi float6
 	if math.IsInf(lo, 1) { // no finite data at all
 		lo, hi = 0, 1
 	}
-	if typ == viewspec.ChartBar || typ == viewspec.ChartHBar {
+	if res.Chart == viewspec.ChartBar || res.Chart == viewspec.ChartHBar {
 		lo, hi = math.Min(lo, 0), math.Max(hi, 0)
+	}
+	if lo == hi {
+		lo, hi = lo-1, hi+1
+	}
+	return lo, hi
+}
+
+// stackedValueRange spans the stacked bar totals: per category, positive values pile up and negative
+// values pile down, so the axis must reach the summed extents (and zero, the common baseline).
+func stackedValueRange(res viewspec.Resolved) (lo, hi float64) {
+	lo, hi = 0, 0
+	for i := range res.Labels {
+		pos, neg := 0.0, 0.0
+		for _, s := range res.Series {
+			if i >= len(s.Values) {
+				continue
+			}
+			v := s.Values[i]
+			if math.IsNaN(v) || math.IsInf(v, 0) {
+				continue
+			}
+			if v >= 0 {
+				pos += v
+			} else {
+				neg += v
+			}
+		}
+		lo, hi = math.Min(lo, neg), math.Max(hi, pos)
 	}
 	if lo == hi {
 		lo, hi = lo-1, hi+1
@@ -199,13 +231,36 @@ func writePolyline(b *strings.Builder, g svgGeom, centers, vals []float64, lo, h
 }
 
 // writeBars draws grouped vertical bars: each category band is split evenly across the series so
-// multiple series sit side by side.
+// multiple series sit side by side. Stacked bars instead pile the series onto one full-width bar per
+// category: positives grow up from zero, negatives grow down, each segment starting where the
+// previous series ended.
 func writeBars(b *strings.Builder, g svgGeom, res viewspec.Resolved, centers []float64, lo, hi float64) {
 	n := len(res.Series)
 	if n == 0 || len(centers) == 0 {
 		return
 	}
 	band := g.plotW() / float64(len(centers))
+	if res.Stacked {
+		bw := band * 0.6
+		pos := make([]float64, len(centers))
+		neg := make([]float64, len(centers))
+		for si, s := range res.Series {
+			for i, v := range s.Values {
+				if math.IsNaN(v) || math.IsInf(v, 0) || i >= len(centers) {
+					continue
+				}
+				base := &pos[i]
+				if v < 0 {
+					base = &neg[i]
+				}
+				y0, y1 := yPixel(g, lo, hi, *base), yPixel(g, lo, hi, *base+v)
+				*base += v
+				fmt.Fprintf(b, `<rect x="%s" y="%s" width="%s" height="%s" fill="%s"/>`+"\n",
+					num(centers[i]-bw/2), num(math.Min(y0, y1)), num(bw), num(math.Abs(y0-y1)), seriesColor(si))
+			}
+		}
+		return
+	}
 	bw := band * 0.8 / float64(n) // 20% inter-band gap, split across series
 	baseY := yPixel(g, lo, hi, math.Max(lo, 0))
 	for si, s := range res.Series {
@@ -236,7 +291,9 @@ func bandCentersVertical(g svgGeom, n int) []float64 {
 	return cs
 }
 
-// writeHBars draws horizontal bars: categories along the y axis, value along the x axis.
+// writeHBars draws horizontal bars: categories along the y axis, value along the x axis. Stacked
+// horizontal bars pile the series onto one bar per category (positives grow right, negatives left),
+// mirroring writeBars with the axes transposed.
 func writeHBars(b *strings.Builder, g svgGeom, res viewspec.Resolved, lo, hi float64) {
 	centers := bandCentersVertical(g, len(res.Labels))
 	n := len(res.Series)
@@ -244,6 +301,27 @@ func writeHBars(b *strings.Builder, g svgGeom, res viewspec.Resolved, lo, hi flo
 		return
 	}
 	band := g.plotH() / float64(len(centers))
+	if res.Stacked {
+		bh := band * 0.6
+		pos := make([]float64, len(centers))
+		neg := make([]float64, len(centers))
+		for si, s := range res.Series {
+			for i, v := range s.Values {
+				if math.IsNaN(v) || math.IsInf(v, 0) || i >= len(centers) {
+					continue
+				}
+				base := &pos[i]
+				if v < 0 {
+					base = &neg[i]
+				}
+				x0, x1 := xPixel(g, lo, hi, *base), xPixel(g, lo, hi, *base+v)
+				*base += v
+				fmt.Fprintf(b, `<rect x="%s" y="%s" width="%s" height="%s" fill="%s"/>`+"\n",
+					num(math.Min(x0, x1)), num(centers[i]-bh/2), num(math.Abs(x0-x1)), num(bh), seriesColor(si))
+			}
+		}
+		return
+	}
 	bh := band * 0.8 / float64(n)
 	baseX := xPixel(g, lo, hi, math.Max(lo, 0))
 	for si, s := range res.Series {

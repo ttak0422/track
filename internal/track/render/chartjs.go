@@ -61,6 +61,20 @@ type chartOption struct {
 	Scales     map[string]any `json:"scales,omitempty"`
 }
 
+// scaleOption sets one option on a named scale, creating the scale maps as needed, so independent
+// features (category pinning, y2, stacking) can each touch scales without clobbering one another.
+func (o *chartOption) scaleOption(id, key string, v any) {
+	if o.Scales == nil {
+		o.Scales = map[string]any{}
+	}
+	m, ok := o.Scales[id].(map[string]any)
+	if !ok {
+		m = map[string]any{}
+		o.Scales[id] = m
+	}
+	m[key] = v
+}
+
 // chartJSType maps a View Spec chart type to the Chart.js type name. hbar is a horizontal bar, which
 // in Chart.js is a "bar" with indexAxis "y" (set on options in Render); all others pass through.
 func chartJSType(t viewspec.ChartType) string {
@@ -110,7 +124,13 @@ func chartJSConfigJSON(res viewspec.Resolved) (string, bool, error) {
 	// Chart.js's scatter type defaults to a linear x-axis; pin it to category so the resolved x
 	// labels are honored, and suppress the connecting line.
 	if res.Chart == viewspec.ChartScatter {
-		cfg.Options.Scales = map[string]any{"x": map[string]any{"type": "category"}}
+		cfg.Options.scaleOption("x", "type", "category")
+	}
+	// Stacked bars: Chart.js stacks datasets when both scales are marked stacked (the same pair works
+	// for a horizontal bar, whose category axis is y via indexAxis).
+	if res.Stacked {
+		cfg.Options.scaleOption("x", "stacked", true)
+		cfg.Options.scaleOption("y", "stacked", true)
 	}
 	usesY2 := false
 	for i, s := range res.Series {
@@ -134,15 +154,11 @@ func chartJSConfigJSON(res viewspec.Resolved) (string, bool, error) {
 	// A secondary axis: keep the default left "y" and add a right "y2" whose gridlines stay off the
 	// chart area so the two scales don't visually collide.
 	if usesY2 {
-		if cfg.Options.Scales == nil {
-			cfg.Options.Scales = map[string]any{}
-		}
-		cfg.Options.Scales["y"] = map[string]any{"type": "linear", "position": "left"}
-		cfg.Options.Scales["y2"] = map[string]any{
-			"type":     "linear",
-			"position": "right",
-			"grid":     map[string]any{"drawOnChartArea": false},
-		}
+		cfg.Options.scaleOption("y", "type", "linear")
+		cfg.Options.scaleOption("y", "position", "left")
+		cfg.Options.scaleOption("y2", "type", "linear")
+		cfg.Options.scaleOption("y2", "position", "right")
+		cfg.Options.scaleOption("y2", "grid", map[string]any{"drawOnChartArea": false})
 	}
 
 	// Overlays (event/annotation markers, reference lines, bands) draw via chartjs-plugin-annotation.

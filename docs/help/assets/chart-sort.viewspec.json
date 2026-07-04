@@ -1,0 +1,28 @@
+{
+  "version": 2,
+  "mark": "bar",
+  "title": "Top 5 by value",
+  "data": {
+    "kind": "metric",
+    "records": [
+      { "name": "ads", "time": "1", "value": 12 },
+      { "name": "search", "time": "1", "value": 31 },
+      { "name": "cloud", "time": "1", "value": 27 },
+      { "name": "video", "time": "1", "value": 9 },
+      { "name": "maps", "time": "1", "value": 15 },
+      { "name": "mail", "time": "1", "value": 6 },
+      { "name": "photos", "time": "1", "value": 18 }
+    ]
+  },
+  "encoding": {
+    "x": { "field": "value" },
+    "y": [
+      {
+        "field": "name",
+        "type": "nominal",
+        "sort": "-value",
+        "limit": 5
+      }
+    ]
+  }
+}

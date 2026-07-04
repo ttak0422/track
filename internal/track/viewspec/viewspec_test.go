@@ -580,6 +580,131 @@ func TestResolveFillsLinesAndBands(t *testing.T) {
 	}
 }
 
+func TestResolveSortByLabel(t *testing.T) {
+	// ascending is numeric-aware: "9" sorts before "100".
+	s, _ := Load(strings.NewReader(`{"version":2,"mark":"bar","data":{"source":"x","kind":"metric"},` +
+		`"encoding":{"x":{"field":"time","type":"nominal","sort":"ascending"},"y":[{"field":"value"}]}}`))
+	recs, _ := dataset.ReadJSONL(strings.NewReader(
+		`{"time":"100","value":1}` + "\n" + `{"time":"9","value":2}` + "\n" + `{"time":"30","value":3}` + "\n"))
+	res := s.Resolve(recs)
+	if !equalStrings(res.Labels, []string{"9", "30", "100"}) {
+		t.Fatalf("labels = %v", res.Labels)
+	}
+	if v := res.Series[0].Values; v[0] != 2 || v[1] != 3 || v[2] != 1 {
+		t.Fatalf("values moved with labels: %v", v)
+	}
+}
+
+func TestResolveSortByValueDescendingAndLimit(t *testing.T) {
+	// -value + limit = a top-N ranking; hbar's category axis is the nominal y.
+	s, _ := Load(strings.NewReader(`{"version":2,"mark":"bar","data":{"source":"x","kind":"metric"},` +
+		`"encoding":{"x":{"field":"value"},"y":[{"field":"name","type":"nominal","sort":"-value","limit":2}]}}`))
+	recs, _ := dataset.ReadJSONL(strings.NewReader(
+		`{"name":"low","value":1}` + "\n" + `{"name":"top","value":9}` + "\n" + `{"name":"mid","value":5}` + "\n"))
+	res := s.Resolve(recs)
+	if res.Chart != ChartHBar {
+		t.Fatalf("chart = %q", res.Chart)
+	}
+	if !equalStrings(res.Labels, []string{"top", "mid"}) {
+		t.Fatalf("labels = %v", res.Labels)
+	}
+	if v := res.Series[0].Values; len(v) != 2 || v[0] != 9 || v[1] != 5 {
+		t.Fatalf("values = %v", v)
+	}
+}
+
+func TestResolveSortByValueSumsSeries(t *testing.T) {
+	// A value sort orders categories by their series total (NaN gaps ignored), so it composes with a
+	// color split: B totals 10, A totals 3+4=7.
+	s, _ := Load(strings.NewReader(`{"version":2,"mark":"line","data":{"source":"x","kind":"metric"},` +
+		`"encoding":{"x":{"field":"time","sort":"value"},"y":[{"field":"value"}],` +
+		`"color":{"field":"entity","type":"nominal"}}}`))
+	recs, _ := dataset.ReadJSONL(strings.NewReader(
+		`{"time":"d1","entity":"A","value":3}` + "\n" +
+			`{"time":"d1","entity":"B","value":4}` + "\n" +
+			`{"time":"d2","entity":"B","value":10}` + "\n"))
+	res := s.Resolve(recs)
+	if !equalStrings(res.Labels, []string{"d1", "d2"}) { // 7 < 10
+		t.Fatalf("labels = %v", res.Labels)
+	}
+	desc := s
+	desc.Encoding.X.Sort = "-value"
+	res = desc.Resolve(recs)
+	if !equalStrings(res.Labels, []string{"d2", "d1"}) {
+		t.Fatalf("-value labels = %v", res.Labels)
+	}
+}
+
+func TestResolveLimitWithoutSortKeepsFirstSeen(t *testing.T) {
+	s, _ := Load(strings.NewReader(`{"version":2,"mark":"line","data":{"source":"x","kind":"metric"},` +
+		`"encoding":{"x":{"field":"time","limit":1},"y":[{"field":"value"}]}}`))
+	recs, _ := dataset.ReadJSONL(strings.NewReader(
+		`{"time":"d1","value":1}` + "\n" + `{"time":"d2","value":2}` + "\n"))
+	res := s.Resolve(recs)
+	if !equalStrings(res.Labels, []string{"d1"}) || len(res.Series[0].Values) != 1 {
+		t.Fatalf("limited resolve = %v / %v", res.Labels, res.Series[0].Values)
+	}
+}
+
+func TestResolveStackedFlag(t *testing.T) {
+	s, _ := Load(strings.NewReader(`{"version":2,"mark":"bar","data":{"source":"x","kind":"metric"},` +
+		`"encoding":{"x":{"field":"time","type":"nominal"},"y":[{"field":"value","stack":true}],` +
+		`"color":{"field":"entity","type":"nominal"}}}`))
+	recs, _ := dataset.ReadJSONL(strings.NewReader(`{"time":"d1","entity":"A","value":1}`))
+	if res := s.Resolve(recs); !res.Stacked {
+		t.Fatal("stack on the bar's y should set Resolved.Stacked")
+	}
+	// hbar: the measure channel is x.
+	h, _ := Load(strings.NewReader(`{"version":2,"mark":"bar","data":{"source":"x","kind":"metric"},` +
+		`"encoding":{"x":{"field":"value","stack":true},"y":[{"field":"name","type":"nominal"}]}}`))
+	if res := h.Resolve(recs); !res.Stacked {
+		t.Fatal("stack on the hbar's x should set Resolved.Stacked")
+	}
+}
+
+func TestValidateChannelOptionPlacement(t *testing.T) {
+	load := func(spec string) error {
+		_, err := Load(strings.NewReader(spec))
+		return err
+	}
+	valid := map[string]string{
+		"sort on line x": `{"version":2,"mark":"line","data":{"source":"x","kind":"metric"},` +
+			`"encoding":{"x":{"field":"t","sort":"descending"},"y":[{"field":"v"}]}}`,
+		"sort+limit on hbar y": `{"version":2,"mark":"bar","data":{"source":"x","kind":"metric"},` +
+			`"encoding":{"x":{"field":"v"},"y":[{"field":"n","type":"nominal","sort":"-value","limit":3}]}}`,
+		"stack on bar y": `{"version":2,"mark":"bar","data":{"source":"x","kind":"metric"},` +
+			`"encoding":{"x":{"field":"t","type":"nominal"},"y":[{"field":"v","stack":true}]}}`,
+	}
+	for name, spec := range valid {
+		if err := load(spec); err != nil {
+			t.Errorf("%s should validate: %v", name, err)
+		}
+	}
+	invalid := map[string]string{
+		"unknown sort": `{"version":2,"mark":"line","data":{"source":"x","kind":"metric"},` +
+			`"encoding":{"x":{"field":"t","sort":"sideways"},"y":[{"field":"v"}]}}`,
+		"sort on measure y": `{"version":2,"mark":"line","data":{"source":"x","kind":"metric"},` +
+			`"encoding":{"x":{"field":"t"},"y":[{"field":"v","sort":"ascending"}]}}`,
+		"sort on bubble": `{"version":2,"mark":"point","data":{"source":"x","kind":"metric"},` +
+			`"encoding":{"x":{"field":"a","sort":"ascending"},"y":[{"field":"b"}]}}`,
+		"sort on heatmap": `{"version":2,"mark":"rect","data":{"source":"x","kind":"metric"},` +
+			`"encoding":{"x":{"field":"c","type":"nominal","sort":"ascending"},"y":[{"field":"r","type":"nominal"}],"color":{"field":"v"}}}`,
+		"negative limit": `{"version":2,"mark":"line","data":{"source":"x","kind":"metric"},` +
+			`"encoding":{"x":{"field":"t","limit":-1},"y":[{"field":"v"}]}}`,
+		"limit on color": `{"version":2,"mark":"line","data":{"source":"x","kind":"metric"},` +
+			`"encoding":{"x":{"field":"t"},"y":[{"field":"v"}],"color":{"field":"e","type":"nominal","limit":2}}}`,
+		"stack on line": `{"version":2,"mark":"line","data":{"source":"x","kind":"metric"},` +
+			`"encoding":{"x":{"field":"t"},"y":[{"field":"v","stack":true}]}}`,
+		"stack on bar category x": `{"version":2,"mark":"bar","data":{"source":"x","kind":"metric"},` +
+			`"encoding":{"x":{"field":"t","type":"nominal","stack":true},"y":[{"field":"v"}]}}`,
+	}
+	for name, spec := range invalid {
+		if err := load(spec); err == nil {
+			t.Errorf("%s: want error", name)
+		}
+	}
+}
+
 func equalStrings(a, b []string) bool {
 	if len(a) != len(b) {
 		return false

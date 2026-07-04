@@ -78,6 +78,9 @@ Key fields:
 - `encoding.y[].axis` — set `"y2"` to put a series on a secondary right-hand axis (two series on different scales).
 - `encoding.color` — a nominal field that splits records into one colored series per value
   (on `rect` it is instead the quantitative heatmap cell value).
+- `sort` / `limit` — on the category-axis channel: order categories by label or value
+  (`ascending|descending|value|-value`) and keep only the first N (top-N).
+- `stack` — on a bar's measure channel (`y[0]`, or `x` for a horizontal bar): stack the series.
 - `filter` — `{field, equals}` shorthand, or `{all: [{field, op, value}]}` with `op` of
   `eq|ne|lt|le|gt|ge` for multi-field, range, and period filtering.
 - `overlays` — reference geometry over the chart: `{source, kind}` draws events/annotations from a
@@ -144,6 +147,17 @@ block's position, so a typo never hides your text. This one is live:
 **Color split** (`encoding.color`, nominal) — one series per category value, each in its own color; works on `line`, `bar`, and `point`.
 
 ![Color split line chart](assets/chart-color.viewspec.json)
+
+**Sort and top-N** (`sort`, `limit` on the category-axis channel) — order categories by label
+(`ascending`/`descending`) or by their value total (`value`/`-value`), and keep only the first N.
+Here a ranking: the nominal y sorted `-value` with `limit: 5`.
+
+![Top-5 ranking](assets/chart-sort.viewspec.json)
+
+**Stacked bars** (`stack: true` on the bar's measure channel) — series pile up per category instead
+of sitting side by side; combines with a color split. On a horizontal bar, set it on `encoding.x`.
+
+![Stacked bar chart](assets/chart-stack.viewspec.json)
 
 **Heatmap** (`mark: rect`) — a 2D grid of `x` columns × `y[0]` rows, each cell colored by `encoding.color` (with a value legend).
 

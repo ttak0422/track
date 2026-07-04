@@ -101,6 +101,13 @@ hint that lets one mark cover the former chart types, since it names which axis 
   quantitative x, or a **timeline** swimlane with a nominal y.
 - **`rect`** is a **heatmap**: nominal x and y form the grid, `color` gives the cell value.
 
+Channels also take per-channel options whose placement is validated (a misplaced option is an error,
+not a silent no-op):
+
+- `sort` / `limit` — on the **category-axis channel** only (`x` for line/bar/point; `y[0]` for a
+  horizontal bar). See "Sort, top-N, and stacking" below.
+- `stack` — on a **bar's measure channel** only (`y[0]`, or `x` for a horizontal bar).
+
 `title` overrides the legend/axis text, defaulting to the field name. A y channel may set
 `"axis": "y2"` to plot on a secondary right-hand axis (default `"y"`), so series on different scales —
 e.g. a price and an index — can share one x-axis:
@@ -136,6 +143,46 @@ group:
   `(x, category)` pair keeps the later record's value.
 - A timeline (`point` with a nominal y) rejects `color`: its lanes are already colored by the
   nominal y.
+
+### Sort, top-N, and stacking
+
+`sort` orders the category axis. It sits on the channel that supplies the category labels — `x` for
+line/bar/point, `y[0]` for a horizontal bar — and takes one of:
+
+| Value                      | Order                                                                    |
+|----------------------------|--------------------------------------------------------------------------|
+| `ascending` / `descending` | By the category **label** (numeric-aware: `"9"` sorts before `"100"`).  |
+| `value` / `-value`         | By the category's **measure**, summed across series (`-value` = biggest first). |
+
+`limit: N` on the same channel keeps only the first N categories (after the sort, when both are set)
+— together they express a top-N ranking:
+
+```json
+"encoding": {
+  "x": { "field": "value" },
+  "y": [ { "field": "name", "type": "nominal", "sort": "-value", "limit": 5 } ]
+}
+```
+
+Sorting is stable (ties keep first-seen order) and happens after series alignment, so it composes
+with multi-series encodings and a `color` split. Forms without a category axis (bubble, heatmap,
+timeline) reject `sort`/`limit`.
+
+`stack: true` stacks a bar's series instead of grouping them side by side: positive values pile up
+from zero, negative values pile down, per category. It sits on the bar's **measure channel** (`y[0]`
+for a vertical bar, `x` for a horizontal one) and is rejected on other marks and channels. It
+combines naturally with `color` (one stacked segment per category value) and with multiple y series:
+
+```json
+"encoding": {
+  "x": { "field": "time", "type": "nominal" },
+  "y": [ { "field": "value", "stack": true } ],
+  "color": { "field": "entity", "type": "nominal" }
+}
+```
+
+The Chart.js renderer stacks via stacked scales; the SVG renderer computes the stacked segment
+coordinates and spans the value axis over the stack totals.
 
 ### Filter
 

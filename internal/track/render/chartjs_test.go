@@ -128,6 +128,25 @@ func TestChartJSDatasetsUseSharedPalette(t *testing.T) {
 	}
 }
 
+func TestChartJSStackedSetsBothScales(t *testing.T) {
+	res := resolved(viewspec.ChartBar, "Stacked", []float64{1, 2})
+	res.Stacked = true
+	out, err := ChartJS{}.Render(res)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, id := range []string{`"x"`, `"y"`} {
+		if !strings.Contains(out, id+`:{"stacked":true}`) {
+			t.Errorf("scale %s should be stacked: %s", id, out)
+		}
+	}
+	// A plain bar stays unstacked.
+	plain, _ := ChartJS{}.Render(resolved(viewspec.ChartBar, "", []float64{1}))
+	if strings.Contains(plain, "stacked") {
+		t.Fatalf("unstacked bar should not mention stacked: %s", plain)
+	}
+}
+
 func TestChartJSRenderEscapesTitle(t *testing.T) {
 	out, err := ChartJS{}.Render(resolved(viewspec.ChartLine, "<script>x</script>", []float64{1, 2}))
 	if err != nil {

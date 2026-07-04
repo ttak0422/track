@@ -1,0 +1,21 @@
+{
+  "version": 2,
+  "mark": "bar",
+  "title": "Stacked by entity",
+  "data": {
+    "kind": "metric",
+    "records": [
+      { "name": "value", "entity": "A", "time": "Q1", "value": 3 },
+      { "name": "value", "entity": "B", "time": "Q1", "value": 5 },
+      { "name": "value", "entity": "A", "time": "Q2", "value": 6 },
+      { "name": "value", "entity": "B", "time": "Q2", "value": 2 },
+      { "name": "value", "entity": "A", "time": "Q3", "value": 4 },
+      { "name": "value", "entity": "B", "time": "Q3", "value": 7 }
+    ]
+  },
+  "encoding": {
+    "x": { "field": "time", "type": "nominal" },
+    "y": [ { "field": "value", "stack": true } ],
+    "color": { "field": "entity", "type": "nominal" }
+  }
+}

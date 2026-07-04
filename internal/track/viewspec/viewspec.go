@@ -58,6 +58,11 @@ const (
 // ChannelTypes lists the valid channel types, for validation and help text.
 var ChannelTypes = []ChannelType{Quantitative, Nominal}
 
+// SortOptions lists the valid category-axis orderings, for validation and help text.
+// ascending/descending order the category labels themselves (numeric-aware, so "9" < "100");
+// value/-value order categories by their measure (summed across series when there are several).
+var SortOptions = []string{"ascending", "descending", "value", "-value"}
+
 // ChartType is the resolved drawing form a renderer draws. It is not part of the spec surface (specs
 // name a mark); Resolve computes it from mark + encoding and records it on Resolved so renderers keep a
 // single, stable switch over the concrete shape (category-axis series, horizontal bars, linear bubbles,
@@ -103,12 +108,18 @@ type Encoding struct {
 // Channel binds one visual channel to a record field. Title overrides the legend/axis text (defaulting
 // to the field name). Type marks the field as quantitative (default) or nominal, which selects the
 // drawing form. Axis assigns a y channel to the primary ("y", default) or secondary ("y2") axis; it is
-// ignored on non-y channels.
+// ignored on non-y channels. Sort and Limit order and truncate the category axis (see SortOptions);
+// they are only accepted on the channel that supplies it. Stack stacks a bar's series and is only
+// accepted on the bar mark's measure channel. Placement of these options is enforced by Validate, so
+// a misplaced option errors instead of being silently ignored.
 type Channel struct {
 	Field string      `json:"field"`
 	Title string      `json:"title,omitempty"`
 	Type  ChannelType `json:"type,omitempty"`
 	Axis  string      `json:"axis,omitempty"`
+	Sort  string      `json:"sort,omitempty"`  // category-axis order: ascending | descending | value | -value
+	Limit int         `json:"limit,omitempty"` // keep only the first N categories (after sort): top-N
+	Stack bool        `json:"stack,omitempty"` // bar mark: stack the series instead of grouping them
 }
 
 // title returns the user-facing label for a channel, falling back to the field name.
@@ -159,6 +170,52 @@ func (s Spec) chart() ChartType {
 // lanes).
 func (s Spec) yNominal() bool {
 	return len(s.Encoding.Y) > 0 && s.Encoding.Y[0].nominal()
+}
+
+// labelChannelName names the channel that supplies the category-axis labels for the resolved drawing
+// form — where sort/limit apply. It is "" for forms with no category axis (bubble and the grids).
+func (s Spec) labelChannelName() string {
+	switch s.chart() {
+	case ChartLine, ChartBar, ChartScatter:
+		return "encoding.x"
+	case ChartHBar:
+		return "encoding.y[0]"
+	}
+	return ""
+}
+
+// stackChannelName names the measure channel a stack option may sit on: the quantitative axis of a
+// bar (y[0] for a vertical bar, x for a horizontal one). It is "" for non-bar forms.
+func (s Spec) stackChannelName() string {
+	switch s.chart() {
+	case ChartBar:
+		return "encoding.y[0]"
+	case ChartHBar:
+		return "encoding.x"
+	}
+	return ""
+}
+
+// labelChannel returns the channel named by labelChannelName (nil when there is none).
+func (s Spec) labelChannel() *Channel {
+	switch s.labelChannelName() {
+	case "encoding.x":
+		return &s.Encoding.X
+	case "encoding.y[0]":
+		return &s.Encoding.Y[0]
+	}
+	return nil
+}
+
+// stacked reports whether the bar's measure channel asks for stacked series.
+func (s Spec) stacked() bool {
+	switch s.stackChannelName() {
+	case "encoding.y[0]":
+		return s.Encoding.Y[0].Stack
+	case "encoding.x":
+		return s.Encoding.X.Stack
+	}
+	return false
 }
 
 // Overlay draws reference geometry on top of the chart. It is a flat union of three shapes,
@@ -327,6 +384,9 @@ func (s Spec) Validate() error {
 	if err := s.Encoding.validate(); err != nil {
 		return err
 	}
+	if err := s.validateChannelOptions(); err != nil {
+		return err
+	}
 	if s.Mark == MarkRect && (s.Encoding.Color == nil || s.Encoding.Color.Field == "") {
 		return fmt.Errorf("view spec: mark rect requires encoding.color.field (the cell value)")
 	}
@@ -393,6 +453,62 @@ func (e Encoding) validate() error {
 		}
 	}
 	return nil
+}
+
+// validateChannelOptions pins sort/limit/stack to the one channel where each is meaningful for the
+// resolved drawing form: sort/limit on the category-axis channel, stack on a bar's measure channel.
+// A misplaced option (or one on a form with no such channel) is an error rather than a silent no-op,
+// matching the strict-schema stance everywhere else in the spec.
+func (s Spec) validateChannelOptions() error {
+	type named struct {
+		name string
+		ch   Channel
+	}
+	chans := []named{{"encoding.x", s.Encoding.X}}
+	for i, y := range s.Encoding.Y {
+		chans = append(chans, named{fmt.Sprintf("encoding.y[%d]", i), y})
+	}
+	if s.Encoding.Color != nil {
+		chans = append(chans, named{"encoding.color", *s.Encoding.Color})
+	}
+	if s.Encoding.Size != nil {
+		chans = append(chans, named{"encoding.size", *s.Encoding.Size})
+	}
+	labelName, stackName := s.labelChannelName(), s.stackChannelName()
+	for _, nc := range chans {
+		if nc.ch.Sort != "" {
+			if !slices.Contains(SortOptions, nc.ch.Sort) {
+				return fmt.Errorf("view spec: %s.sort %q is not one of %s", nc.name, nc.ch.Sort, strings.Join(SortOptions, " | "))
+			}
+			if nc.name != labelName {
+				return sortPlacementError(nc.name, "sort", labelName)
+			}
+		}
+		if nc.ch.Limit != 0 {
+			if nc.ch.Limit < 0 {
+				return fmt.Errorf("view spec: %s.limit must be positive", nc.name)
+			}
+			if nc.name != labelName {
+				return sortPlacementError(nc.name, "limit", labelName)
+			}
+		}
+		if nc.ch.Stack && nc.name != stackName {
+			if stackName == "" {
+				return fmt.Errorf("view spec: %s.stack applies only to mark bar", nc.name)
+			}
+			return fmt.Errorf("view spec: %s.stack belongs on the bar's measure channel (%s)", nc.name, stackName)
+		}
+	}
+	return nil
+}
+
+// sortPlacementError explains where a misplaced sort/limit belongs, or that the drawing form has no
+// category axis at all.
+func sortPlacementError(where, opt, labelName string) error {
+	if labelName == "" {
+		return fmt.Errorf("view spec: %s.%s needs a category axis (this mark/encoding has none)", where, opt)
+	}
+	return fmt.Errorf("view spec: %s.%s belongs on the category-axis channel (%s)", where, opt, labelName)
 }
 
 // validate checks an overlay is exactly one of its three shapes (source markers / line / band) and
@@ -582,6 +698,7 @@ type Cell struct {
 type Resolved struct {
 	Spec    Spec
 	Chart   ChartType // resolved drawing form (computed from mark + encoding)
+	Stacked bool      // bar forms: draw the series stacked instead of grouped side by side
 	Labels  []string
 	Series  []Series
 	Grid    *Grid
@@ -595,7 +712,7 @@ type Resolved struct {
 // contributes NaN so the point becomes a gap.
 func (s Spec) Resolve(records []dataset.Record) Resolved {
 	chart := s.chart()
-	res := Resolved{Spec: s, Chart: chart}
+	res := Resolved{Spec: s, Chart: chart, Stacked: s.stacked()}
 	switch chart {
 	case ChartHeatmap:
 		g := s.resolveGrid(records, s.Encoding.Color)
@@ -609,6 +726,11 @@ func (s Spec) Resolve(records []dataset.Record) Resolved {
 		s.resolveHorizontal(records, &res)
 	default: // line, bar, scatter — category x, numeric y series
 		s.resolveSeries(records, &res)
+	}
+	// Sort/limit reorder and truncate the category axis after the series are aligned, so they compose
+	// with everything above (multi-series, a color split, horizontal bars) in one place.
+	if ch := s.labelChannel(); ch != nil {
+		sortAndLimit(&res, *ch)
 	}
 	// Line/band overlays are literal values in the spec (no second data source), so they resolve here;
 	// source overlays need file IO and stay with the caller (Resolved.Markers).
@@ -773,6 +895,88 @@ func (s Spec) resolveGrid(records []dataset.Record, value *Channel) Grid {
 		})
 	}
 	return g
+}
+
+// sortAndLimit reorders the resolved category axis per the label channel's sort option and truncates
+// it to the channel's limit (top-N). Labels and every series' values move together, so the alignment
+// established by the resolvers is preserved. Sorting is stable, so ties keep first-seen order and the
+// output stays deterministic.
+func sortAndLimit(res *Resolved, ch Channel) {
+	if ch.Sort != "" && len(res.Labels) > 1 {
+		idx := make([]int, len(res.Labels))
+		for i := range idx {
+			idx[i] = i
+		}
+		var cmp func(a, b int) int
+		switch ch.Sort {
+		case "ascending":
+			cmp = func(a, b int) int { return compareValues(res.Labels[a], res.Labels[b]) }
+		case "descending":
+			cmp = func(a, b int) int { return compareValues(res.Labels[b], res.Labels[a]) }
+		case "value":
+			cmp = func(a, b int) int { return compareFloats(labelValue(res, a), labelValue(res, b)) }
+		default: // "-value"
+			cmp = func(a, b int) int { return compareFloats(labelValue(res, b), labelValue(res, a)) }
+		}
+		slices.SortStableFunc(idx, cmp)
+		res.Labels = permuteStrings(res.Labels, idx)
+		for i := range res.Series {
+			res.Series[i].Values = permuteFloats(res.Series[i].Values, idx)
+		}
+	}
+	if ch.Limit > 0 && len(res.Labels) > ch.Limit {
+		res.Labels = res.Labels[:ch.Limit]
+		for i := range res.Series {
+			res.Series[i].Values = res.Series[i].Values[:ch.Limit]
+		}
+	}
+}
+
+// labelValue is the measure a value sort orders a category by: its finite series values summed (so a
+// multi-series or stacked chart sorts by the total). A category with no finite value at all sums to 0.
+func labelValue(res *Resolved, i int) float64 {
+	sum := 0.0
+	for _, s := range res.Series {
+		if i < len(s.Values) && !math.IsNaN(s.Values[i]) && !math.IsInf(s.Values[i], 0) {
+			sum += s.Values[i]
+		}
+	}
+	return sum
+}
+
+// compareFloats orders two float64s for sorting.
+func compareFloats(a, b float64) int {
+	switch {
+	case a < b:
+		return -1
+	case a > b:
+		return 1
+	default:
+		return 0
+	}
+}
+
+// permuteStrings returns ss reordered so element i comes from ss[idx[i]].
+func permuteStrings(ss []string, idx []int) []string {
+	out := make([]string, len(idx))
+	for i, j := range idx {
+		out[i] = ss[j]
+	}
+	return out
+}
+
+// permuteFloats returns vs reordered so element i comes from vs[idx[i]]; a short series (defensive —
+// resolvers always align) contributes NaN.
+func permuteFloats(vs []float64, idx []int) []float64 {
+	out := make([]float64, len(idx))
+	for i, j := range idx {
+		if j < len(vs) {
+			out[i] = vs[j]
+		} else {
+			out[i] = math.NaN()
+		}
+	}
+	return out
 }
 
 // filtered returns the records passing the spec's filter (all of them when there is no filter).
