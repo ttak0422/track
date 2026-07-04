@@ -9,6 +9,7 @@ static-site export.
 
 ## Where to go next
 
+- [[Syntax]] — the Markdown a note is written in: bold, math, tables, and the Obsidian-style constructs.
 - [[CLI]] — the command-line interface that owns parsing, indexing, and search.
 - [[Linking notes]] — how `[[...]]` links, backlinks, and the note graph work.
 - [[Web workspace]] — the local browser UI for reading, previewing, and navigating notes.
