@@ -20,7 +20,7 @@ func fakeFrontend(t *testing.T) string {
 	if err := os.MkdirAll(filepath.Join(dir, "assets"), 0o755); err != nil {
 		t.Fatal(err)
 	}
-	index := `<!doctype html><script>var t="__TRACK_DEFAULT_THEME__"</script>__TRACK_COLOR_OVERRIDES__<div id=root></div>`
+	index := `<!doctype html><script>var t="__TRACK_DEFAULT_THEME__";window.__trackStartPage="__TRACK_START_PAGE__"</script>__TRACK_COLOR_OVERRIDES__<div id=root></div>`
 	if err := os.WriteFile(filepath.Join(dir, "index.html"), []byte(index), 0o644); err != nil {
 		t.Fatal(err)
 	}
@@ -100,6 +100,10 @@ func TestBuildVaultBundle(t *testing.T) {
 	indexHTML, _ := os.ReadFile(filepath.Join(out, "index.html"))
 	if strings.Contains(string(indexHTML), "__TRACK_") {
 		t.Fatalf("index.html still has unsubstituted placeholders:\n%s", indexHTML)
+	}
+	// The root's published id is baked in so the static site redirects to the start page on launch.
+	if !strings.Contains(string(indexHTML), `window.__trackStartPage="`+PublishID(100)+`"`) {
+		t.Fatalf("index.html should inject the root start page id:\n%s", indexHTML)
 	}
 
 	// notes.json holds the published set only.

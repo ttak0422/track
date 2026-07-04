@@ -12,7 +12,7 @@ import { TabsProvider } from "./tabs/tabsStore";
 import { ThemeMenu } from "./ThemeMenu";
 import { getSite, openJournal } from "../api";
 import { useLiveEvents } from "../hooks/useLiveEvents";
-import { STATIC_MODE } from "../runtime";
+import { START_PAGE_ID, STATIC_MODE } from "../runtime";
 import { SearchProvider } from "../searchState";
 import type { NoteID } from "../types";
 
@@ -114,6 +114,11 @@ export function Shell() {
 // useStaticStartPage opens the configured start page once, on launch, when the static site is entered at
 // its home route. It never fires again when the user later returns to "/" by closing every tab, so that
 // empty state stays empty instead of bouncing back to the start page.
+//
+// The root note's id is baked into index.html at export time (START_PAGE_ID), so the redirect fires
+// synchronously on the first render — the very first navigation targets the note, skipping the empty
+// state and the site.json round-trip. When START_PAGE_ID is empty (an older bundle) it falls back to the
+// id fetched from site.json (startPageID) so nothing regresses.
 function useStaticStartPage(navigate: ReturnType<typeof useNavigate>, startPageID: NoteID | undefined) {
   const done = useRef(false);
   // Whether the app was entered at the home route (vs a deep link to a note/graph), from the launch hash.
@@ -127,9 +132,11 @@ function useStaticStartPage(navigate: ReturnType<typeof useNavigate>, startPageI
       done.current = true;
       return;
     }
-    if (startPageID) {
+    // START_PAGE_ID is known synchronously at build time; fall back to the site.json id for older bundles.
+    const target = START_PAGE_ID || (startPageID ? String(startPageID) : "");
+    if (target) {
       done.current = true;
-      void navigate({ to: "/notes/$noteId", params: { noteId: String(startPageID) }, replace: true });
+      void navigate({ to: "/notes/$noteId", params: { noteId: target }, replace: true });
     }
   }, [startPageID, navigate]);
 }

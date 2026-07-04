@@ -92,6 +92,9 @@ func (s *Server) serveIndex(w http.ResponseWriter, r *http.Request) {
 	// (new token) and drop the restored tab strip on the latter. The token is generated server-side,
 	// never user text.
 	html = strings.ReplaceAll(html, "__TRACK_SESSION__", s.session)
+	// The start-page redirect is a static-site concern (see internal/track/site/bundle.go); the live UI
+	// uses the heatmap home, so this is emptied here.
+	html = strings.ReplaceAll(html, "__TRACK_START_PAGE__", "")
 	_, _ = w.Write([]byte(html))
 }
 

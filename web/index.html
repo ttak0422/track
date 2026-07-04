@@ -23,6 +23,10 @@
         // uses it to keep restored tabs across a reload (same token) but drop them on a fresh launch
         // (new token). Left as the literal placeholder in the static export, where it stays constant.
         window.__trackSession = "__TRACK_SESSION__";
+        // The static export replaces __TRACK_START_PAGE__ with the root note's published id, so the app
+        // redirects straight to the start page on launch without first fetching site.json. The live
+        // server replaces it with empty (it uses the heatmap home, not a start-page redirect).
+        window.__trackStartPage = "__TRACK_START_PAGE__";
       })();
     </script>
     __TRACK_COLOR_OVERRIDES__
