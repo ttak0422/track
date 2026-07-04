@@ -134,9 +134,9 @@ export interface RenderResponse {
   markdown: string;
 }
 
-// ViewSpecResponse carries the server-rendered SVG for a fenced ```viewspec chart block.
+// ViewSpecResponse carries the server-resolved ECharts option for a fenced ```viewspec chart block.
 export interface ViewSpecResponse {
-  svg: string;
+  echarts: Record<string, unknown>;
 }
 
 // SiteResponse describes the published static site: which note is the entry page. It only exists in the

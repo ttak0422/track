@@ -1723,18 +1723,14 @@ button {
   font-size: 0.92em;
 }
 
-/* A viewspec chart is a server-rendered static SVG (white canvas baked in, like the exported asset
-   charts), shown at its natural size and shrunk to fit the column. */
+/* A viewspec chart is an ECharts instance drawing the server-resolved option; the container needs an
+   explicit height for echarts.init, and the frame matches the exported asset charts. */
 .viewspec-chart {
   margin: 1em 0;
-}
-
-.viewspec-chart svg {
-  display: block;
-  max-width: 100%;
-  height: auto;
+  height: 360px;
   border: 1px solid var(--line);
   border-radius: 8px;
+  background: #fff;
 }
 
 /* Mermaid renders async (dynamic import + layout pass), so without a reservation the placeholder text

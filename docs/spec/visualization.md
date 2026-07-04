@@ -332,17 +332,21 @@ block renders as a diagram. Fence the block with the language `viewspec` and wri
 ```
 ````
 
-Both rendering surfaces draw the block server-side with the `svg` renderer (`render.SVGFromSpecDir`),
-so the chart looks identical everywhere and no chart library ships to the browser:
+Chart semantics stay decided by the engine on both rendering surfaces; only the drawing runtime
+differs:
 
 - **Web workspace**: the frontend posts the block to `POST /api/viewspec` (`{"spec": "..."}`) and
-  inlines the returned static SVG (`{"svg": "..."}`). Charts re-render live: editing the note re-posts
-  the changed block through the normal note-refresh flow, and the server also watches the vault's
-  `data/` directory and emits a `data` Server-Sent Event (alongside the existing `change` event for
-  note edits) so displayed charts re-fetch when a `data.source` / `overlays[].source` file changes.
+  hands the returned ECharts option (`{"echarts": {...}}`, from `render.EChartsOptionFromSpecDir`) to
+  a local ECharts instance (a lazily loaded chunk), so embedded charts are interactive — tooltips,
+  legend toggling — without the frontend re-implementing chart resolution. Charts re-render live:
+  editing the note re-posts the changed block through the normal note-refresh flow, and the server
+  also watches the vault's `data/` directory and emits a `data` Server-Sent Event (alongside the
+  existing `change` event for note edits) so displayed charts re-fetch when a `data.source` /
+  `overlays[].source` file changes.
 - **Static site** (`track export-site`, both the vault and `--dir` front-ends): each fence is replaced
-  at build time by an image reference to a pre-rendered SVG written into the published `assets/`
-  (named by a content-derived slug), keeping the export free of client-side chart code.
+  at build time by an image reference to a pre-rendered SVG (`render.SVGFromSpecDir`) written into the
+  published `assets/` (named by a content-derived slug), keeping the export free of client-side chart
+  code.
 
 Unlike the isolated `.viewspec.json` asset path, a fenced block may use `data.source` (and
 `overlays[].source`): paths resolve **inside the vault's `data/` directory** (for `--dir` exports, a

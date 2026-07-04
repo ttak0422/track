@@ -28,21 +28,43 @@ func SVGFromSpec(specJSON []byte) (string, error) {
 // resolved inside it, so a note-embedded chart can reference the vault's data/ files while inline
 // data.records keeps working. An empty dataDir allows inline data only (the isolated-asset path above).
 func SVGFromSpecDir(specJSON []byte, dataDir string) (string, error) {
-	vs, err := viewspec.Load(bytes.NewReader(specJSON))
+	res, err := resolveSpecDir(specJSON, dataDir)
 	if err != nil {
 		return "", err
+	}
+	return SVG{}.Render(res)
+}
+
+// EChartsOptionFromSpecDir resolves a note-embedded View Spec (same data rules as SVGFromSpecDir) to
+// its ECharts option JSON. The web workspace serves this to the frontend, which hands the option to
+// its own ECharts instance — chart semantics stay decided here, and the embedded chart becomes
+// interactive instead of a static image.
+func EChartsOptionFromSpecDir(specJSON []byte, dataDir string) (string, error) {
+	res, err := resolveSpecDir(specJSON, dataDir)
+	if err != nil {
+		return "", err
+	}
+	return EChartsOptionJSON(res)
+}
+
+// resolveSpecDir loads and resolves an embedded View Spec against dataDir, the shared core of the
+// embedded rendering paths (static SVG and the ECharts option endpoint).
+func resolveSpecDir(specJSON []byte, dataDir string) (viewspec.Resolved, error) {
+	vs, err := viewspec.Load(bytes.NewReader(specJSON))
+	if err != nil {
+		return viewspec.Resolved{}, err
 	}
 	records := vs.Data.Records
 	if len(records) == 0 {
 		if dataDir == "" {
-			return "", fmt.Errorf("embedded chart requires inline data (data.records); data.source is not supported here")
+			return viewspec.Resolved{}, fmt.Errorf("embedded chart requires inline data (data.records); data.source is not supported here")
 		}
 		if records, err = readJSONLIn(dataDir, vs.Data.Source); err != nil {
-			return "", err
+			return viewspec.Resolved{}, err
 		}
 	}
 	if err := datamodel.ValidateRecords(vs.Data.Kind, records); err != nil {
-		return "", fmt.Errorf("data: %w", err)
+		return viewspec.Resolved{}, fmt.Errorf("data: %w", err)
 	}
 	res := vs.Resolve(records)
 	// Only source overlays read a file here (line/band literals and inline marker records resolve in
@@ -54,14 +76,14 @@ func SVGFromSpecDir(specJSON []byte, dataDir string) (string, error) {
 		}
 		ovRecords, err := readJSONLIn(dataDir, ov.Source)
 		if err != nil {
-			return "", fmt.Errorf("overlay[%d]: %w", i, err)
+			return viewspec.Resolved{}, fmt.Errorf("overlay[%d]: %w", i, err)
 		}
 		if err := datamodel.ValidateRecords(ov.Kind, ovRecords); err != nil {
-			return "", fmt.Errorf("overlay[%d]: %w", i, err)
+			return viewspec.Resolved{}, fmt.Errorf("overlay[%d]: %w", i, err)
 		}
 		res.Markers = append(res.Markers, ov.Markers(ovRecords)...)
 	}
-	return SVG{}.Render(res)
+	return res, nil
 }
 
 // readJSONLIn reads a JSONL data source confined to dir, so a spec written in a note cannot escape the

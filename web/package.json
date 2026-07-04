@@ -15,6 +15,7 @@
     "@vitejs/plugin-react": "6.0.2",
     "budoux": "0.8.4",
     "d3-force": "3.0.0",
+    "echarts": "^6.1.0",
     "katex": "^0.16.47",
     "mermaid": "^11.16.0",
     "pdfjs-dist": "6.0.227",

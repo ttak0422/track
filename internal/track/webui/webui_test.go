@@ -938,9 +938,9 @@ func TestIndexNoPaletteRemovesPlaceholder(t *testing.T) {
 	}
 }
 
-// TestViewSpecRendersSVG verifies the embedded-chart endpoint: a valid spec comes back as an SVG
-// document, and a broken spec is a 400 whose message the frontend shows at the block position.
-func TestViewSpecRendersSVG(t *testing.T) {
+// TestViewSpecReturnsEChartsOption verifies the embedded-chart endpoint: a valid spec comes back as
+// an ECharts option, and a broken spec is a 400 whose message the frontend shows at the block position.
+func TestViewSpecReturnsEChartsOption(t *testing.T) {
 	server, _ := putNoteSetup(t, 100, "Alpha", "body\n")
 
 	spec := `{"version":2,"mark":"bar","title":"Demo","data":{"kind":"metric","records":[
@@ -955,13 +955,14 @@ func TestViewSpecRendersSVG(t *testing.T) {
 		t.Fatalf("viewspec status = %d", resp.StatusCode)
 	}
 	var decoded struct {
-		SVG string `json:"svg"`
+		ECharts json.RawMessage `json:"echarts"`
 	}
 	if err := json.NewDecoder(resp.Body).Decode(&decoded); err != nil {
 		t.Fatalf("decode: %v", err)
 	}
-	if !strings.Contains(decoded.SVG, "<svg") || !strings.Contains(decoded.SVG, ">Demo<") {
-		t.Fatalf("expected rendered SVG, got %.80s", decoded.SVG)
+	opt := string(decoded.ECharts)
+	if !strings.Contains(opt, `"type":"bar"`) || !strings.Contains(opt, `"text":"Demo"`) {
+		t.Fatalf("expected an ECharts option, got %.120s", opt)
 	}
 
 	bad, _ := json.Marshal(map[string]string{"spec": `{"version":2,"mark":"pie"}`})

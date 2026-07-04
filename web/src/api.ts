@@ -180,9 +180,9 @@ export function renderMarkdown(body: string): Promise<RenderResponse> {
   return api<RenderResponse>("/api/render", { method: "POST", body: { body } });
 }
 
-// renderViewSpec asks the server to draw a fenced ```viewspec block (View Spec JSON) as a static SVG
-// chart, keeping the engine the single source of truth for chart rendering. The static export replaces
-// these blocks with pre-rendered images at build time, so this is never called in static mode.
+// renderViewSpec asks the server to resolve a fenced ```viewspec block (View Spec JSON) to its
+// ECharts option, keeping the engine the single source of truth for chart semantics. The static export
+// replaces these blocks with pre-rendered images at build time, so this is never called in static mode.
 export function renderViewSpec(spec: string): Promise<ViewSpecResponse> {
   return api<ViewSpecResponse>("/api/viewspec", { method: "POST", body: { spec } });
 }

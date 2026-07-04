@@ -125,7 +125,7 @@ export function useRenderQuery(body: string) {
   });
 }
 
-// useViewSpecQuery renders a fenced ```viewspec block to an SVG chart via the server. The key includes
+// useViewSpecQuery resolves a fenced ```viewspec block to an ECharts option via the server. The key includes
 // the spec text, so an edited block refetches on its own; useLiveEvents additionally invalidates the
 // ["viewspec"] prefix when the vault's data/ directory changes, re-rendering charts whose data.source /
 // overlays[].source files changed without the note body changing. The previous chart is kept while the
@@ -139,8 +139,6 @@ export function useViewSpecQuery(spec: string) {
     // A bad spec is a deterministic client error the user should see immediately, not retry through.
     retry: false,
     placeholderData: keepPreviousData,
-    // Drop the XML prolog: it is valid in a standalone .svg file but not inside an HTML element.
-    select: (data) => ({ svg: data.svg.replace(/^\s*<\?xml[^>]*>\s*/, "") }),
   });
 }
 

@@ -10,6 +10,15 @@ vi.mock("../../api", async (importOriginal) => ({
   renderViewSpec: vi.fn(),
 }));
 
+// The component lazy-imports echarts; the mock records setOption calls so tests can assert the
+// server-resolved option reached the chart instance.
+const setOption = vi.fn();
+const dispose = vi.fn();
+vi.mock("echarts", () => ({
+  init: vi.fn(() => ({ setOption, resize: vi.fn(), dispose })),
+  getInstanceByDom: vi.fn(() => undefined),
+}));
+
 const mockRender = vi.mocked(renderViewSpec);
 
 const spec = '{"version":2,"mark":"line"}';
@@ -25,18 +34,19 @@ describe("ViewSpecChart", () => {
     vi.clearAllMocks();
   });
 
-  it("inlines the server-rendered SVG, dropping the XML prolog", async () => {
-    mockRender.mockResolvedValue({ svg: '<?xml version="1.0" encoding="UTF-8"?>\n<svg><text>PI</text></svg>' });
-    const { container } = renderWithQuery(<ViewSpecChart text={spec} />);
+  it("hands the server-resolved option to an ECharts instance", async () => {
+    mockRender.mockResolvedValue({ echarts: { series: [{ type: "line" }] } });
+    renderWithQuery(<ViewSpecChart text={spec} />);
     expect(screen.getByText("Rendering chart...")).toBeInTheDocument();
-    await waitFor(() => expect(container.querySelector("svg")).toBeInTheDocument());
+    await waitFor(() => expect(screen.getByRole("img", { name: "Chart" })).toBeInTheDocument());
     expect(mockRender).toHaveBeenCalledWith(spec);
-    const chart = screen.getByRole("img", { name: "Chart" });
-    expect(chart.innerHTML).not.toContain("<?xml");
+    await waitFor(() =>
+      expect(setOption).toHaveBeenCalledWith({ series: [{ type: "line" }] }, { notMerge: true }),
+    );
   });
 
   it("shows the server error and the source at the block position", async () => {
-    mockRender.mockRejectedValue(new Error("view spec: unsupported mark \"pie\""));
+    mockRender.mockRejectedValue(new Error('view spec: unsupported mark "pie"'));
     renderWithQuery(<ViewSpecChart text={spec} />);
     await waitFor(() =>
       expect(screen.getByText(/View Spec error: view spec: unsupported mark/)).toBeInTheDocument(),
@@ -45,16 +55,20 @@ describe("ViewSpecChart", () => {
     expect(screen.getByRole("button", { name: "Copy code" })).toBeInTheDocument();
   });
 
-  it("refetches and swaps the chart when the viewspec queries are invalidated", async () => {
+  it("refetches and reapplies the option when the viewspec queries are invalidated", async () => {
     // This is the live-update path: useLiveEvents invalidates ["viewspec"] when the server emits a
     // `data` event for a change under the vault's data/ directory.
-    mockRender.mockResolvedValueOnce({ svg: "<svg><text>before</text></svg>" });
+    mockRender.mockResolvedValueOnce({ echarts: { title: { text: "before" } } });
     const { client } = renderWithQuery(<ViewSpecChart text={spec} />);
-    await waitFor(() => expect(screen.getByText("before")).toBeInTheDocument());
+    await waitFor(() =>
+      expect(setOption).toHaveBeenCalledWith({ title: { text: "before" } }, { notMerge: true }),
+    );
 
-    mockRender.mockResolvedValueOnce({ svg: "<svg><text>after</text></svg>" });
+    mockRender.mockResolvedValueOnce({ echarts: { title: { text: "after" } } });
     await client.invalidateQueries({ queryKey: ["viewspec"] });
-    await waitFor(() => expect(screen.getByText("after")).toBeInTheDocument());
+    await waitFor(() =>
+      expect(setOption).toHaveBeenCalledWith({ title: { text: "after" } }, { notMerge: true }),
+    );
     expect(mockRender).toHaveBeenCalledTimes(2);
   });
 });

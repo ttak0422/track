@@ -186,10 +186,11 @@ func (s *Server) handleRender(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, map[string]any{"markdown": res.Markdown})
 }
 
-// handleViewSpec renders a fenced ```viewspec block (a View Spec JSON) to a static SVG chart, reusing
-// the engine's SVG renderer so the frontend never re-implements chart drawing. data.source references
-// resolve inside the vault's data/ directory (render.SVGFromSpecDir confines them there). A bad spec is
-// a client error: the frontend shows the message at the block position instead of a chart.
+// handleViewSpec resolves a fenced ```viewspec block (a View Spec JSON) to its ECharts option JSON,
+// which the frontend hands to its own ECharts instance — the engine stays the single source of truth
+// for chart semantics while the embedded chart is interactive. data.source references resolve inside
+// the vault's data/ directory (render.EChartsOptionFromSpecDir confines them there). A bad spec is a
+// client error: the frontend shows the message at the block position instead of a chart.
 func (s *Server) handleViewSpec(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodPost {
 		writeError(w, fmt.Errorf("method %s not allowed", r.Method), http.StatusMethodNotAllowed)
@@ -202,12 +203,12 @@ func (s *Server) handleViewSpec(w http.ResponseWriter, r *http.Request) {
 		writeError(w, err, http.StatusBadRequest)
 		return
 	}
-	svg, err := render.SVGFromSpecDir([]byte(req.Spec), s.cfg.DataDir())
+	opt, err := render.EChartsOptionFromSpecDir([]byte(req.Spec), s.cfg.DataDir())
 	if err != nil {
 		writeError(w, err, http.StatusBadRequest)
 		return
 	}
-	writeJSON(w, map[string]any{"svg": svg})
+	writeJSON(w, map[string]any{"echarts": json.RawMessage(opt)})
 }
 
 // etagFor returns a short content hash used as an optimistic-concurrency token for note bodies.
