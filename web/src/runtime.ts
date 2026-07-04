@@ -8,10 +8,13 @@
 export const STATIC_MODE = import.meta.env.VITE_TRACK_STATIC === "1";
 
 // START_PAGE_ID is the root note's published id, injected into index.html at export time (see
-// internal/track/site/bundle.go). It lets the static site redirect to the start page on launch without
-// waiting for a site.json round-trip. Empty when unset (the live server, or an older bundle).
-export const START_PAGE_ID =
-  (typeof window !== "undefined" ? window.__trackStartPage : "") || "";
+// internal/track/site/bundle.go). The static "/" route renders this note. It is empty when unset (the
+// live server) or when the placeholder is left unsubstituted (the Vite dev server / `make site-dev`,
+// which serves web/index.html directly) — in which case "/" falls back to the empty state.
+export const START_PAGE_ID = (() => {
+  const raw = typeof window !== "undefined" ? window.__trackStartPage : "";
+  return !raw || raw.startsWith("__TRACK_") ? "" : raw;
+})();
 
 // dataURL resolves a path inside the exported data bundle. The static site is path-routed, so it cannot
 // rely on document.baseURI (which varies per route); anchor to the build-time base (BASE_URL, "/" or the

@@ -11,6 +11,9 @@ web/*.tsbuildinfo
 # Local static-site preview (make site)
 /_site/
 
+# make site-dev artifact (export-site's throwaway stub frontend; the data is served from _site by a dev middleware)
+/.site-stub/
+
 # Lighthouse reports (make lighthouse / lhci)
 /.lighthouseci/
 

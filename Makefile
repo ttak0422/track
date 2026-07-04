@@ -14,7 +14,7 @@ WEB_DIST   := web/dist-static
 # Open a URL in the browser: xdg-open on Linux, open on macOS. Empty if neither is on PATH.
 OPEN := $(shell command -v xdg-open 2>/dev/null || command -v open 2>/dev/null)
 
-.PHONY: help site site-serve site-clean lighthouse
+.PHONY: help site site-serve site-dev site-data site-clean lighthouse
 
 help: ## List the available targets
 	@grep -E '^[a-zA-Z0-9_-]+:.*?## ' $(MAKEFILE_LIST) \
@@ -38,6 +38,18 @@ lighthouse: site ## Run Lighthouse on the built site and print the scores (needs
 	npx --yes @lhci/cli@0.14.x collect
 	node scripts/lhci-summary.mjs
 	@echo "Full report: open .lighthouseci/lhr-*.html"
+
+# site-data regenerates only the exported JSON bundle ($(SITE_OUT)/data) — the part that changes when a
+# note changes. It needs a frontend dir to satisfy export-site, so it hands it a throwaway stub. Fast:
+# no Vite build, no prerender. Re-run it after editing docs/help while `make site-dev` is running.
+site-data:
+	go build -o $(TRACK_BIN) ./cmd/track
+	mkdir -p .site-stub && printf '<!doctype html><div id="root"></div>' > .site-stub/index.html
+	./$(TRACK_BIN) export-site --src $(SITE_SRC) --root $(SITE_ROOT) --frontend .site-stub --out $(SITE_OUT)
+
+site-dev: web/node_modules site-data ## Dev preview: Vite dev server (HMR) over the exported data — fast iteration
+	@echo "Vite dev server (static mode, HMR). Edit web/src for instant reload; re-run 'make site-data' after docs/help edits."
+	cd web && VITE_TRACK_STATIC=1 npx vite
 
 site-serve: site ## Serve at http://localhost:$(SITE_PORT), open a browser, and rebuild on change
 	@echo "Serving $(SITE_OUT) at http://localhost:$(SITE_PORT)/ (Ctrl-C to stop)"

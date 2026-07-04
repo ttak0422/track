@@ -1,10 +1,35 @@
 /// <reference types="vitest/config" />
-import { defineConfig } from "vite";
+import { type Connect, defineConfig, type PluginOption } from "vite";
 import react from "@vitejs/plugin-react";
 
-// Minimal process typing so the config compiles without pulling in @types/node; the Node runtime that
-// runs Vite provides it.
+// Node builtins used only by the dev-server data middleware. Imported without @types/node (which would
+// leak Node globals into the app's type surface); the Node runtime that runs Vite provides them.
 declare const process: { env: Record<string, string | undefined> };
+// @ts-expect-error node builtin — no @types/node installed on purpose
+import { existsSync, readFileSync } from "node:fs";
+// @ts-expect-error node builtin — no @types/node installed on purpose
+import { join } from "node:path";
+
+// serveExportedData lets `make site-dev` preview the help site with the Vite dev server (HMR): the
+// static-mode app fetches its JSON from /data/*, which this middleware serves from the exported bundle
+// (_site/data, produced by `make site-data`). Dev-only; the production build reads no data at build time.
+function serveExportedData(): PluginOption {
+  return {
+    name: "track-serve-exported-data",
+    apply: "serve",
+    configureServer(server) {
+      const handler: Connect.NextHandleFunction = (req, res, next) => {
+        const url = (req as { url?: string }).url ?? "";
+        if (!url.startsWith("/data/")) return next();
+        const file = join("..", "_site", url); // url already begins with /data/
+        if (!existsSync(file)) return next();
+        res.setHeader("content-type", "application/json");
+        res.end(readFileSync(file, "utf8"));
+      };
+      server.middlewares.use(handler);
+    },
+  };
+}
 
 // The static-site export build (VITE_TRACK_STATIC=1) is path-routed and prerendered, so it needs a known
 // absolute base (SITE_BASE, default "/") baked into the bundle: import.meta.env.BASE_URL then drives both
@@ -15,7 +40,7 @@ const staticBuild = process.env.VITE_TRACK_STATIC === "1";
 
 export default defineConfig({
   base: staticBuild ? process.env.SITE_BASE || "/" : "/",
-  plugins: [react()],
+  plugins: [react(), ...(staticBuild ? [serveExportedData()] : [])],
   // A literal boolean the bundler folds at build time, so code gated on `!__TRACK_STATIC__` (e.g. the
   // BudouX word-break model) is dead-code-eliminated from the static build rather than merely unused.
   define: {
