@@ -11,6 +11,9 @@ SITE_PORT  ?= 8000
 TRACK_BIN  := bin/track
 WEB_DIST   := web/dist-static
 
+# Open a URL in the browser: xdg-open on Linux, open on macOS. Empty if neither is on PATH.
+OPEN := $(shell command -v xdg-open 2>/dev/null || command -v open 2>/dev/null)
+
 .PHONY: help site site-serve site-clean
 
 help: ## List the available targets
@@ -23,9 +26,24 @@ site: web/node_modules ## Build the static help site into $(SITE_OUT)
 	./$(TRACK_BIN) export-site --src $(SITE_SRC) --root $(SITE_ROOT) --frontend $(WEB_DIST) --out $(SITE_OUT)
 	@echo "Built $(SITE_OUT)/ — run 'make site-serve' to preview"
 
-site-serve: site ## Build, then serve the site at http://localhost:$(SITE_PORT)
+site-serve: site ## Serve at http://localhost:$(SITE_PORT), open a browser, and rebuild on change
 	@echo "Serving $(SITE_OUT) at http://localhost:$(SITE_PORT)/ (Ctrl-C to stop)"
-	cd $(SITE_OUT) && python3 -m http.server $(SITE_PORT)
+	@python3 -m http.server --directory $(SITE_OUT) $(SITE_PORT) >/dev/null 2>&1 & \
+	server=$$!; \
+	trap 'kill $$server 2>/dev/null' EXIT INT TERM; \
+	sleep 1; \
+	[ -n "$(OPEN)" ] && $(OPEN) "http://localhost:$(SITE_PORT)/" >/dev/null 2>&1 || true; \
+	echo "Watching $(SITE_SRC), web/src, and the engine — edit and save to rebuild"; \
+	while true; do \
+		if [ -n "$$(find web/src cmd internal go.mod go.sum -type f -newer $(WEB_DIST)/index.html 2>/dev/null)" ]; then \
+			echo "== frontend/engine changed — full rebuild =="; \
+			$(MAKE) --no-print-directory site; \
+		elif [ -n "$$(find $(SITE_SRC) -type f -newer $(SITE_OUT)/index.html 2>/dev/null)" ]; then \
+			echo "== docs changed — rebuilding content =="; \
+			./$(TRACK_BIN) export-site --src $(SITE_SRC) --root $(SITE_ROOT) --frontend $(WEB_DIST) --out $(SITE_OUT); \
+		fi; \
+		sleep 1; \
+	done
 
 site-clean: ## Remove the built site, static frontend, and CLI binary
 	rm -rf $(SITE_OUT) $(WEB_DIST) $(TRACK_BIN)
