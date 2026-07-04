@@ -1,4 +1,5 @@
 import {
+  type RouterHistory,
   RouterProvider,
   createHashHistory,
   createRootRoute,
@@ -15,8 +16,6 @@ import { NoteReader } from "./components/NoteReader";
 import { SearchPanel } from "./components/SearchPanel";
 import { Shell } from "./components/Shell";
 import "./styles.css";
-
-const queryClient = new QueryClient();
 
 const rootRoute = createRootRoute({
   component: Shell,
@@ -42,12 +41,19 @@ const graphRoute = createRoute({
 
 const routeTree = rootRoute.addChildren([indexRoute, noteRoute, graphRoute]);
 
-// Static sites are served from plain file hosts (GitHub Pages) that have no SPA fallback, so deep links
-// would 404 under browser history. Hash history keeps every route inside index.html.
-const router = createRouter({
-  routeTree,
-  ...(STATIC_MODE ? { history: createHashHistory() } : {}),
-});
+// createAppRouter builds a router over the shared route tree. The client leaves history undefined (Tan
+// Stack defaults to browser history) except the static site, which used hash history so deep links stay
+// inside one index.html on a fallback-less host. The prerender (entry-server) passes a memory history for
+// a specific URL. Kept a factory so client and SSR each get their own instance.
+export function createAppRouter(history?: RouterHistory) {
+  return createRouter({
+    routeTree,
+    ...(history ? { history } : STATIC_MODE ? { history: createHashHistory() } : {}),
+  });
+}
+
+// The client's singleton router, and the type the Register interface binds to.
+const router = createAppRouter();
 
 declare module "@tanstack/react-router" {
   interface Register {
@@ -55,12 +61,26 @@ declare module "@tanstack/react-router" {
   }
 }
 
-export function App() {
+// AppTree is the provider stack parameterized by a router and query client, shared by the client entry
+// (App) and the prerender (entry-server), so both render an identical tree.
+export function AppTree({
+  router: r,
+  queryClient,
+}: {
+  router: ReturnType<typeof createAppRouter>;
+  queryClient: QueryClient;
+}) {
   return (
     <QueryClientProvider client={queryClient}>
-      <RouterProvider router={router} />
+      <RouterProvider router={r} />
     </QueryClientProvider>
   );
+}
+
+const queryClient = new QueryClient();
+
+export function App() {
+  return <AppTree router={router} queryClient={queryClient} />;
 }
 
 function HomeRoute() {
