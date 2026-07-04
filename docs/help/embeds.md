@@ -27,8 +27,10 @@ treated as a YouTube/tweet/OGP URL.
 A YouTube watch, share, or embed URL becomes an inline player:
 
 ```markdown
-![Intro](https://www.youtube.com/watch?v=VIDEO_ID)
+![Intro](https://www.youtube.com/watch?v=aqz-KE-bpKQ)
 ```
+
+![Intro](https://www.youtube.com/watch?v=aqz-KE-bpKQ)
 
 ## Twitter / X
 
@@ -37,8 +39,10 @@ tweets), not just a link card. While the widget loads it shows a plain link, and
 rendered — deleted, blocked, or offline — it falls back to the generic Open Graph card:
 
 ```markdown
-![](https://x.com/jack/status/20)
+![](https://x.com/elonmusk/status/1585341984679469056?s=20)
 ```
+
+![](https://x.com/elonmusk/status/1585341984679469056?s=20)
 
 ## PDF
 
