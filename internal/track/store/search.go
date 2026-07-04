@@ -62,53 +62,88 @@ func (s *Store) SearchScoped(query string, limit int, scope SearchScope) ([]Sear
 }
 
 func searchQuery(scope SearchScope, query string, limit int) (string, []any, error) {
-	if parsed, ok := parseTaggedQuery(query); ok {
-		switch scope {
-		case SearchAll, SearchTitle:
-			return searchTaggedQuery(parsed), searchTaggedArgs(parsed, limit), nil
-		case SearchBody:
-			return "", nil, fmt.Errorf("body search is not stored in the SQLite cache")
-		default:
-			return "", nil, fmt.Errorf("unknown search scope %q", scope)
-		}
-	}
-
-	like := "%" + query + "%"
-	prefix := query + "%"
 	switch scope {
-	case SearchAll:
-		return `SELECT n.id, n.kind, n.title, n.mtime,
-		   COALESCE((
-		     SELECT group_concat(tag, char(31))
-		     FROM (SELECT tag FROM tags WHERE note_id = n.id ORDER BY tag)
-		   ), '') AS tags
-		 FROM notes n
-		 WHERE n.kind IN ('note', 'journal') AND n.title LIKE ?
-		 ORDER BY
-		   CASE WHEN n.title = ? COLLATE NOCASE THEN 0 ELSE 1 END,
-		   CASE WHEN n.title LIKE ? THEN 0 ELSE 1 END,
-		   n.mtime DESC,
-		   n.id DESC
-		 LIMIT ?`, []any{like, query, prefix, limit}, nil
-	case SearchTitle:
-		return `SELECT n.id, n.kind, n.title, n.mtime,
-		   COALESCE((
-		     SELECT group_concat(tag, char(31))
-		     FROM (SELECT tag FROM tags WHERE note_id = n.id ORDER BY tag)
-		   ), '') AS tags
-		 FROM notes n
-		 WHERE n.kind IN ('note', 'journal') AND n.title LIKE ?
-		 ORDER BY
-		   CASE WHEN n.title = ? COLLATE NOCASE THEN 0 ELSE 1 END,
-		   CASE WHEN n.title LIKE ? THEN 0 ELSE 1 END,
-		   n.mtime DESC,
-		   n.id DESC
-		 LIMIT ?`, []any{like, query, prefix, limit}, nil
+	case SearchAll, SearchTitle:
+		// title search runs against the SQLite cache; body search does not (see below).
 	case SearchBody:
 		return "", nil, fmt.Errorf("body search is not stored in the SQLite cache")
 	default:
 		return "", nil, fmt.Errorf("unknown search scope %q", scope)
 	}
+
+	if parsed, ok := parseTaggedQuery(query); ok {
+		sql, args := searchTagged(parsed, limit)
+		return sql, args, nil
+	}
+
+	titleClause, titleArgs := titleMatchClause(query)
+	where := "n.kind IN ('note', 'journal')"
+	if titleClause != "" {
+		where += " AND (" + titleClause + ")"
+	}
+	sql := `SELECT n.id, n.kind, n.title, n.mtime,
+	   COALESCE((
+	     SELECT group_concat(tag, char(31))
+	     FROM (SELECT tag FROM tags WHERE note_id = n.id ORDER BY tag)
+	   ), '') AS tags
+	 FROM notes n
+	 WHERE ` + where + `
+	 ORDER BY
+	   CASE WHEN n.title = ? COLLATE NOCASE THEN 0 ELSE 1 END,
+	   CASE WHEN n.title LIKE ? THEN 0 ELSE 1 END,
+	   n.mtime DESC,
+	   n.id DESC
+	 LIMIT ?`
+	args := append(titleArgs, query, query+"%", limit)
+	return sql, args, nil
+}
+
+// titleMatchClause builds a WHERE fragment matching n.title against a text query that supports
+// space-separated implicit-AND terms with an uppercase OR between alternative groups. It returns
+// ("", nil) for an empty query, so the caller matches every title. Example: "a b OR c" yields
+// "(n.title LIKE ? AND n.title LIKE ?) OR (n.title LIKE ?)" with args ["%a%", "%b%", "%c%"].
+func titleMatchClause(text string) (string, []any) {
+	groups := splitOrGroups(text)
+	var ors []string
+	var args []any
+	for _, terms := range groups {
+		var ands []string
+		for _, term := range terms {
+			ands = append(ands, "n.title LIKE ?")
+			args = append(args, "%"+term+"%")
+		}
+		ors = append(ors, "("+strings.Join(ands, " AND ")+")")
+	}
+	if len(ors) == 0 {
+		return "", nil
+	}
+	return strings.Join(ors, " OR "), args
+}
+
+// splitOrGroups splits a query into OR-separated groups of AND terms. Uppercase OR ends a group and
+// uppercase AND is the (implicit) default and is dropped, so a bare lowercase "and"/"or" stays a
+// literal search term.
+func splitOrGroups(text string) [][]string {
+	var groups [][]string
+	var cur []string
+	flush := func() {
+		if len(cur) > 0 {
+			groups = append(groups, cur)
+			cur = nil
+		}
+	}
+	for _, field := range strings.Fields(text) {
+		switch field {
+		case "OR":
+			flush()
+		case "AND":
+			// implicit between terms; nothing to add
+		default:
+			cur = append(cur, field)
+		}
+	}
+	flush()
+	return groups
 }
 
 type parsedTaggedQuery struct {
@@ -136,39 +171,47 @@ func parseTaggedQuery(query string) (parsedTaggedQuery, bool) {
 	return parsed, len(parsed.Tags) > 0
 }
 
-func searchTaggedQuery(parsed parsedTaggedQuery) string {
-	var where []string
-	where = append(where, "n.kind IN ('note', 'journal')")
-	for range parsed.Tags {
+// searchTagged builds the SQL and args for a query that carries one or more #tags, combining the tag
+// filters (AND) with the same AND/OR title matching used for a plain query.
+func searchTagged(parsed parsedTaggedQuery, limit int) (string, []any) {
+	where := []string{"n.kind IN ('note', 'journal')"}
+	var whereArgs []any
+	for _, tag := range parsed.Tags {
 		where = append(where, "EXISTS (SELECT 1 FROM tags t WHERE t.note_id = n.id AND t.tag LIKE ?)")
+		whereArgs = append(whereArgs, "%"+tag+"%")
 	}
-	if parsed.Text != "" {
-		where = append(where, "n.title LIKE ?")
+	if titleClause, titleArgs := titleMatchClause(parsed.Text); titleClause != "" {
+		where = append(where, "("+titleClause+")")
+		whereArgs = append(whereArgs, titleArgs...)
 	}
 
 	var order []string
-	for range parsed.Tags {
+	var orderArgs []any
+	for _, tag := range parsed.Tags {
 		order = append(order, `CASE WHEN EXISTS (
 	     SELECT 1 FROM tags t WHERE t.note_id = n.id AND t.tag = ? COLLATE NOCASE
 	   ) THEN 0 ELSE 1 END`)
+		orderArgs = append(orderArgs, tag)
 	}
-	for range parsed.Tags {
+	for _, tag := range parsed.Tags {
 		order = append(order, `CASE WHEN EXISTS (
 	     SELECT 1 FROM tags t WHERE t.note_id = n.id AND t.tag LIKE ?
 	   ) THEN 0 ELSE 1 END`)
+		orderArgs = append(orderArgs, tag+"%")
 	}
 	if parsed.Text != "" {
 		order = append(order,
 			"CASE WHEN n.title = ? COLLATE NOCASE THEN 0 ELSE 1 END",
 			"CASE WHEN n.title LIKE ? THEN 0 ELSE 1 END",
 		)
+		orderArgs = append(orderArgs, parsed.Text, parsed.Text+"%")
 	}
 	order = append(order,
 		"n.mtime DESC",
 		"n.id DESC",
 	)
 
-	return `SELECT n.id, n.kind, n.title, n.mtime,
+	sql := `SELECT n.id, n.kind, n.title, n.mtime,
 	   COALESCE((
 	     SELECT group_concat(tag, char(31))
 	     FROM (SELECT tag FROM tags WHERE note_id = n.id ORDER BY tag)
@@ -177,26 +220,9 @@ func searchTaggedQuery(parsed parsedTaggedQuery) string {
 	 WHERE ` + strings.Join(where, " AND ") + `
 	 ORDER BY ` + strings.Join(order, ",\n	   ") + `
 	 LIMIT ?`
-}
-
-func searchTaggedArgs(parsed parsedTaggedQuery, limit int) []any {
-	var args []any
-	for _, tag := range parsed.Tags {
-		args = append(args, "%"+tag+"%")
-	}
-	if parsed.Text != "" {
-		args = append(args, "%"+parsed.Text+"%")
-	}
-	for _, tag := range parsed.Tags {
-		args = append(args, tag)
-	}
-	for _, tag := range parsed.Tags {
-		args = append(args, tag+"%")
-	}
-	if parsed.Text != "" {
-		args = append(args, parsed.Text, parsed.Text+"%")
-	}
-	return append(args, limit)
+	args := append(whereArgs, orderArgs...)
+	args = append(args, limit)
+	return sql, args
 }
 
 // SearchRefs returns indexed notes with search-only ranking/display metadata.

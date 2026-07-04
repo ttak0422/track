@@ -47,6 +47,49 @@ func TestSearchRanksByTitleMatchMtimeAndID(t *testing.T) {
 	}
 }
 
+func TestSearchTitleAndOr(t *testing.T) {
+	s := newTestStore(t)
+	for _, n := range []*note.Note{
+		{ID: 100, Mtime: 100, Meta: note.Metadata{Title: "Alpha Beta"}},
+		{ID: 200, Mtime: 200, Meta: note.Metadata{Title: "Alpha Gamma"}},
+		{ID: 300, Mtime: 300, Meta: note.Metadata{Title: "Delta"}},
+	} {
+		if err := s.UpsertNote(n); err != nil {
+			t.Fatalf("upsert %d: %v", n.ID, err)
+		}
+	}
+
+	ids := func(query string) []int64 {
+		t.Helper()
+		results, err := s.SearchScoped(query, 10, SearchTitle)
+		if err != nil {
+			t.Fatalf("search %q: %v", query, err)
+		}
+		got := make([]int64, len(results))
+		for i, r := range results {
+			got[i] = r.NoteID
+		}
+		slices.Sort(got)
+		return got
+	}
+
+	if got := ids("Alpha Beta"); !slices.Equal(got, []int64{100}) {
+		t.Fatalf("implicit AND = %v, want [100]", got)
+	}
+	if got := ids("Alpha AND Gamma"); !slices.Equal(got, []int64{200}) {
+		t.Fatalf("explicit AND = %v, want [200]", got)
+	}
+	if got := ids("Beta OR Delta"); !slices.Equal(got, []int64{100, 300}) {
+		t.Fatalf("OR = %v, want [100 300]", got)
+	}
+	if got := ids("Alpha Beta OR Delta"); !slices.Equal(got, []int64{100, 300}) {
+		t.Fatalf("grouped (Alpha AND Beta) OR Delta = %v, want [100 300]", got)
+	}
+	if got := ids("Alpha"); !slices.Equal(got, []int64{100, 200}) {
+		t.Fatalf("single term = %v, want [100 200]", got)
+	}
+}
+
 func TestSearchHashPrefixMatchesTags(t *testing.T) {
 	s := newTestStore(t)
 	for _, n := range []*note.Note{

@@ -48,11 +48,14 @@ Create a note from complete Markdown, preserving a leading H1:
 cat article.md | track new --title "Article Title"
 ```
 
-Search by text or tag:
+Search by text or tag. Title text is matched by term: space-separated words are ANDed, an uppercase
+`OR` separates alternatives (`a b OR c` is `(a AND b) OR c`), and a lowercase `and`/`or` stays a
+literal term. `#tag` filters by tag and combines with the text (AND):
 
 ```sh
-track search --query "distributed systems"
-track search --query "#zettel"
+track search --query "distributed systems"     # titles containing both words
+track search --query "graph OR chart"          # either word
+track search --query "#zettel graph"           # tagged #zettel and titled …graph…
 ```
 
 Read a full portable Markdown rendering:
