@@ -11,8 +11,9 @@ vi.mock("../queries", () => ({ useGraphQuery: () => ({ data: { graph: { nodes: [
 vi.mock("./preview/floatingStore", () => ({ useFloating: () => ({ open: floatingOpen }) }));
 
 // Stub the canvas so the test can drive onHover/onSelect directly, and the note window so it exposes the
-// detach/pin/close controls the hover machine wires up.
-vi.mock("./GraphCanvas", () => ({
+// detach/pin/close controls the hover machine wires up. GraphFullView consumes the canvas through the
+// lazy wrapper (GraphCanvasLazy), so mock that module — it renders synchronously here, bypassing Suspense.
+vi.mock("./GraphCanvasLazy", () => ({
   GraphCanvas: ({
     onHover,
     onSelect,

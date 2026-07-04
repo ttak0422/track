@@ -2,7 +2,7 @@ import { useEffect, useRef, useState } from "react";
 import { useNavigate } from "@tanstack/react-router";
 import { useGraphQuery } from "../queries";
 import type { NoteID } from "../types";
-import { GraphCanvas } from "./GraphCanvas";
+import { GraphCanvas } from "./GraphCanvasLazy";
 import { type PreviewAnchor, type PreviewBounds, initialPreviewBounds } from "./preview/bounds";
 import { useFloating } from "./preview/floatingStore";
 import { NoteWindow } from "./preview/NoteWindow";

@@ -3,7 +3,7 @@ import { useDebouncedValue } from "../hooks/useDebouncedValue";
 import { useGraphQuery } from "../queries";
 import { useSearchState } from "../searchState";
 import type { Graph, NoteID } from "../types";
-import { GraphCanvas } from "./GraphCanvas";
+import { GraphCanvas } from "./GraphCanvasLazy";
 
 // Renders the whole-vault graph as a non-interactive background decoration. While the home search box
 // has a query, the matching notes light up (debounced) and the rest dim in place — the constellation

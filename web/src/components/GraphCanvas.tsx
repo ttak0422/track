@@ -11,7 +11,7 @@ import {
 import { PointerEvent, WheelEvent, useEffect, useRef, useState } from "react";
 import type { Graph, GraphEdge, GraphNode, NoteID } from "../types";
 
-interface GraphCanvasProps {
+export interface GraphCanvasProps {
   graph: Graph;
   onSelect: (noteID: NoteID, point: Point) => void;
   // Fires when the hovered node changes (null when the pointer leaves all nodes). The point is in

@@ -2,7 +2,7 @@ import { useNavigate, useRouterState } from "@tanstack/react-router";
 import { PointerEvent, useRef, useState } from "react";
 import { useGraphQuery, useLocalGraphQuery } from "../queries";
 import type { NoteID } from "../types";
-import { GraphCanvas } from "./GraphCanvas";
+import { GraphCanvas } from "./GraphCanvasLazy";
 
 type GraphScope = "local" | "global";
 
