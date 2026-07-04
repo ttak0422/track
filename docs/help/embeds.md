@@ -2,31 +2,11 @@
 
 An embed is a standalone Markdown image link — `![alt](src)` **on its own line** — that track renders
 as rich media instead of a plain `<img>`. Inline image syntax inside a paragraph stays inline, so
-embedding is always opt-in and ordinary `[text](url)` links are never turned into noisy previews.
+embedding is always opt-in and ordinary `[text](url)` links are never turned into noisy previews. track
+routes each embed by the kind of target (below); only `http(s)` and relative URLs feed an iframe, so a
+note cannot smuggle a `javascript:` document into an embed.
 
 Part of [[Visualization]] (see also [[Diagrams]] and [[Charts]]). Back to [[track]].
-
-## What `src` can be
-
-track routes each embed by the kind of target:
-
-```mermaid
-flowchart TD
-  src["Standalone image link: alt / src"] --> yt{YouTube URL?}
-  yt -- yes --> player["Inline player"]
-  yt -- no --> pdf{PDF?}
-  pdf -- yes --> deck["PDF slide deck"]
-  pdf -- no --> tw{Twitter / X post?}
-  tw -- yes --> tweet["Embedded post"]
-  tw -- no --> txt{Text-file attachment?}
-  txt -- yes --> code["Diagram or code block"]
-  txt -- no --> img{Image URL?}
-  img -- yes --> image["Inline image"]
-  img -- no --> ogp["Open Graph card"]
-```
-
-Only `http(s)` and relative URLs feed an iframe, so a note cannot smuggle a `javascript:` document into
-an embed.
 
 ## Local files
 
