@@ -58,7 +58,11 @@ html,
 body,
 #root {
   margin: 0;
-  min-height: 100%;
+  /* A full-viewport minimum (not the old 100%, which needs an explicit height chain to mean anything)
+     so the page's own background fills the screen from first paint instead of collapsing to empty
+     content height (CLS: avoids a blank-then-full-page flash before React mounts). */
+  min-height: 100vh;
+  min-height: 100dvh;
 }
 
 body {
@@ -597,6 +601,15 @@ button {
   min-height: 0;
   flex-direction: column;
   overflow: hidden;
+  /* Tabs are added in a post-paint effect (from the URL/localStorage), so the tab bar's ~33px row
+     (see .tabbar) mounts a frame after the reader below it. Reserve that row up front so the reader
+     doesn't get pushed down once the real tab bar appears (CLS); cancelled below once it does. */
+  padding-top: 33px;
+}
+
+.reader-pane:has(.tabbar),
+.workspace.home .reader-pane {
+  padding-top: 0;
 }
 
 .reader {

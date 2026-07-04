@@ -29,6 +29,30 @@
         window.__trackStartPage = "__TRACK_START_PAGE__";
       })();
     </script>
+    <style>
+      /* Reserve the app-shell background before the CSS bundle and React arrive: without this the page
+         is blank/white until the bundle mounts, then the real background flashes in — and on the static
+         site that flash lands on top of already-rendered content, scoring as layout shift (CLS). Values
+         must stay in sync with the --bg light/dark tokens in styles.css. */
+      html,
+      body,
+      #root {
+        margin: 0;
+        min-height: 100vh;
+        min-height: 100dvh;
+      }
+      body {
+        background: #f7f7f4;
+      }
+      :root[data-theme="dark"] body {
+        background: #161814;
+      }
+      @media (prefers-color-scheme: dark) {
+        :root:not([data-theme="light"]) body {
+          background: #161814;
+        }
+      }
+    </style>
     __TRACK_COLOR_OVERRIDES__
   </head>
   <body>
