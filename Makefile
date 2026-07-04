@@ -30,7 +30,8 @@ site-serve: site ## Serve at http://localhost:$(SITE_PORT), open a browser, and 
 	@echo "Serving $(SITE_OUT) at http://localhost:$(SITE_PORT)/ (Ctrl-C to stop)"
 	@python3 -m http.server --directory $(SITE_OUT) $(SITE_PORT) >/dev/null 2>&1 & \
 	server=$$!; \
-	trap 'kill $$server 2>/dev/null' EXIT INT TERM; \
+	trap 'kill $$server 2>/dev/null' EXIT; \
+	trap 'kill $$server 2>/dev/null; exit 0' INT TERM; \
 	sleep 1; \
 	[ -n "$(OPEN)" ] && $(OPEN) "http://localhost:$(SITE_PORT)/" >/dev/null 2>&1 || true; \
 	echo "Watching $(SITE_SRC), web/src, and the engine — edit and save to rebuild"; \
