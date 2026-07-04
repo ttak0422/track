@@ -14,6 +14,7 @@ import { getSite, openJournal } from "../api";
 import { useLiveEvents } from "../hooks/useLiveEvents";
 import { STATIC_MODE } from "../runtime";
 import { SearchProvider } from "../searchState";
+import type { NoteID } from "../types";
 
 export function Shell() {
   const pathname = useRouterState({ select: (state) => state.location.pathname });
@@ -24,7 +25,11 @@ export function Shell() {
   const isLiveHome = isHome && !STATIC_MODE;
   const navigate = useNavigate();
   useLiveEvents();
-  useStaticStartPage(navigate);
+  // The static site's start page (the configured root note); the brand button and the launch redirect
+  // both go there instead of "/", which is the empty state.
+  const site = useQuery({ queryKey: ["site"], queryFn: getSite, enabled: STATIC_MODE });
+  const startPageID = site.data?.root;
+  useStaticStartPage(navigate, startPageID);
 
   // Open (creating if needed) today's journal and jump to it, mirroring how the activity heatmap opens a
   // day. The local-time YYYY-MM-DD key matches the journal id the server derives from the date.
@@ -49,9 +54,21 @@ export function Shell() {
         {isLiveHome ? null : (
           <aside className="sidebar">
             <nav className="activity-rail" aria-label="Workspace views">
-              <Link className="rail-button rail-brand" to="/" aria-label="track home" title="track home">
-                <KMark className="rail-mark" />
-              </Link>
+              {STATIC_MODE && startPageID ? (
+                <Link
+                  className="rail-button rail-brand"
+                  to="/notes/$noteId"
+                  params={{ noteId: String(startPageID) }}
+                  aria-label="Start page"
+                  title="Start page"
+                >
+                  <KMark className="rail-mark" />
+                </Link>
+              ) : (
+                <Link className="rail-button rail-brand" to="/" aria-label="track home" title="track home">
+                  <KMark className="rail-mark" />
+                </Link>
+              )}
               <SidebarSearch />
               {/* The published static site is read-only and cannot create journals. */}
               {!STATIC_MODE && (
@@ -97,8 +114,7 @@ export function Shell() {
 // useStaticStartPage opens the configured start page once, on launch, when the static site is entered at
 // its home route. It never fires again when the user later returns to "/" by closing every tab, so that
 // empty state stays empty instead of bouncing back to the start page.
-function useStaticStartPage(navigate: ReturnType<typeof useNavigate>) {
-  const site = useQuery({ queryKey: ["site"], queryFn: getSite, enabled: STATIC_MODE });
+function useStaticStartPage(navigate: ReturnType<typeof useNavigate>, startPageID: NoteID | undefined) {
   const done = useRef(false);
   // Whether the app was entered at the home route (vs a deep link to a note/graph), from the launch hash.
   const enteredAtHome = useRef(
@@ -111,12 +127,11 @@ function useStaticStartPage(navigate: ReturnType<typeof useNavigate>) {
       done.current = true;
       return;
     }
-    const root = site.data?.root;
-    if (root) {
+    if (startPageID) {
       done.current = true;
-      void navigate({ to: "/notes/$noteId", params: { noteId: String(root) }, replace: true });
+      void navigate({ to: "/notes/$noteId", params: { noteId: String(startPageID) }, replace: true });
     }
-  }, [site.data, navigate]);
+  }, [startPageID, navigate]);
 }
 
 function RailGraphIcon() {

@@ -8,8 +8,10 @@ export function EmptyState() {
     <div className="empty-state" aria-hidden="true">
       <KMark className="empty-mark" />
       <ul className="empty-guides">
+        <li className="empty-guide empty-guide-home">Start page</li>
         <li className="empty-guide empty-guide-search">Search notes</li>
         <li className="empty-guide empty-guide-graph">Explore the graph</li>
+        <li className="empty-guide empty-guide-settings">Settings</li>
       </ul>
     </div>
   );

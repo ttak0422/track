@@ -226,14 +226,22 @@ button {
   opacity: 0.8;
 }
 
-/* Line each hint up with the sidebar button it points at (rail: 8px pad, 40px buttons, 6px gap, so the
-   search button centers near 74px and the graph button near 120px from the top). */
+/* Line each hint up with the sidebar button it points at (rail: 8px pad, 40px buttons, 6px gap, so from
+   the top the brand centers near 28px, search near 74px, graph near 120px; settings sits at the bottom). */
+.empty-guide-home {
+  top: 20px;
+}
+
 .empty-guide-search {
   top: 66px;
 }
 
 .empty-guide-graph {
   top: 112px;
+}
+
+.empty-guide-settings {
+  bottom: 20px;
 }
 
 .home-hero {
