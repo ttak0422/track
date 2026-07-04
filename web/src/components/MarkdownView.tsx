@@ -1,7 +1,9 @@
 import type { Element } from "hast";
 import { type ReactNode } from "react";
+import rehypeKatex from "rehype-katex";
 import Markdown, { type Components } from "react-markdown";
 import remarkGfm from "remark-gfm";
+import remarkMath from "remark-math";
 import { CodeBlock } from "./markdown/CodeBlock";
 import { NoteKindContext } from "./markdown/context";
 import { Embed } from "./markdown/Embed";
@@ -15,9 +17,9 @@ interface MarkdownViewProps {
   kind?: string;
 }
 
-// The markdown is parsed by react-markdown (CommonMark + GFM tables/strikethrough/task lists). The body
-// arrives already sanitized by the server's /api/render (action links flattened), so the only
-// track-specific construct the frontend still parses is [[...]] wiki links, handled by remarkWikiLink.
+// The markdown is parsed by react-markdown (CommonMark + GFM tables/strikethrough/task lists, plus
+// $...$/$$...$$ math via remark-math + rehype-katex). The body arrives already sanitized by the server's
+// /api/render (action links flattened); the track-specific construct is [[...]] wiki links (remarkWikiLink).
 export function MarkdownView({ markdown, kind = "note" }: MarkdownViewProps) {
   if (markdown.trim() === "") {
     return <p className="muted">Empty note.</p>;
@@ -27,8 +29,8 @@ export function MarkdownView({ markdown, kind = "note" }: MarkdownViewProps) {
     <NoteKindContext.Provider value={kind}>
       <div className="markdown-view">
         <Markdown
-          remarkPlugins={[remarkGfm, remarkWikiLink]}
-          rehypePlugins={[rehypeBudoux]}
+          remarkPlugins={[remarkGfm, remarkMath, remarkWikiLink]}
+          rehypePlugins={[rehypeKatex, rehypeBudoux]}
           components={markdownComponents}
         >
           {markdown}

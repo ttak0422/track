@@ -52,4 +52,11 @@ describe("MarkdownView", () => {
     expect(link).toHaveAttribute("href", "https://example.com");
     expect(link).toHaveAttribute("target", "_blank");
   });
+
+  it("renders inline and block math with KaTeX", () => {
+    const { container } = render(<MarkdownView markdown={"inline $a^2+b^2$\n\n$$\n\\int_0^1 x\\,dx\n$$"} />);
+    // KaTeX emits .katex spans; a block ($$…$$) is wrapped in .katex-display.
+    expect(container.querySelectorAll(".katex").length).toBeGreaterThanOrEqual(2);
+    expect(container.querySelector(".katex-display")).toBeInTheDocument();
+  });
 });
