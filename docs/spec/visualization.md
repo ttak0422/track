@@ -260,6 +260,39 @@ spec-relative file to read); marker overlays and `data.source` are not supported
 line/band overlays (literal values) render. The live web
 workspace does not yet render embedded specs (it reuses the same `render.SVGFromSpec` when it does).
 
+### Embedding a chart in a note (fenced `viewspec` block)
+
+A View Spec written directly in a note body renders as a chart, the same way a fenced ` ```mermaid `
+block renders as a diagram. Fence the block with the language `viewspec` and write a single View Spec
+(JSON, as above) as the body:
+
+````markdown
+```viewspec
+{ "version": 2, "mark": "line", "title": "PI",
+  "data": { "kind": "metric", "source": "metrics.jsonl" },
+  "encoding": { "x": { "field": "time" }, "y": [ { "field": "value" } ] } }
+```
+````
+
+Both rendering surfaces draw the block server-side with the `svg` renderer (`render.SVGFromSpecDir`),
+so the chart looks identical everywhere and no chart library ships to the browser:
+
+- **Web workspace**: the frontend posts the block to `POST /api/viewspec` (`{"spec": "..."}`) and
+  inlines the returned static SVG (`{"svg": "..."}`).
+- **Static site** (`track export-site`, both the vault and `--dir` front-ends): each fence is replaced
+  at build time by an image reference to a pre-rendered SVG written into the published `assets/`
+  (named by a content-derived slug), keeping the export free of client-side chart code.
+
+Unlike the isolated `.viewspec.json` asset path, a fenced block may use `data.source` (and
+`overlays[].source`): paths resolve **inside the vault's `data/` directory** (for `--dir` exports, a
+`data/` directory next to the Markdown files). Absolute paths and `..` traversal are rejected, so a
+note cannot read files outside the data directory. Inline `data.records` works as well and keeps the
+block self-contained.
+
+An invalid spec (or unreadable data) never breaks the page: the web workspace shows the error message
+plus the original source at the block position, and the static export publishes an inline error
+blockquote followed by the source as a JSON code block.
+
 ### Resolution semantics
 
 Applying a spec to records (`Spec.Resolve`) first derives the drawing form from the mark and channel
