@@ -526,12 +526,14 @@ func TestValidateOverlayShapes(t *testing.T) {
 		}
 	}
 	y := 6.5
+	inline := []dataset.Record{{"time": "d1", "title": "ev"}}
 	valid := map[string]Overlay{
-		"markers":      {Source: "events.jsonl", Kind: dataset.KindEvent, At: "time", Label: "title"},
-		"line":         {Y: &y, Label: "threshold"},
-		"line-y2":      {Y: &y, Axis: "y2"},
-		"band":         {From: "d1", To: "d2", Label: "Q1"},
-		"line-at-zero": {Y: new(float64)}, // y: 0 is a value, not an unset shape
+		"markers":        {Source: "events.jsonl", Kind: dataset.KindEvent, At: "time", Label: "title"},
+		"inline markers": {Records: inline, Kind: dataset.KindEvent, At: "time", Label: "title"},
+		"line":           {Y: &y, Label: "threshold"},
+		"line-y2":        {Y: &y, Axis: "y2"},
+		"band":           {From: "d1", To: "d2", Label: "Q1"},
+		"line-at-zero":   {Y: new(float64)}, // y: 0 is a value, not an unset shape
 	}
 	for name, o := range valid {
 		if err := spec(o).Validate(); err != nil {
@@ -550,6 +552,8 @@ func TestValidateOverlayShapes(t *testing.T) {
 		"kind on line":        {Y: &y, Kind: dataset.KindEvent},
 		"at on band":          {From: "d1", To: "d2", At: "time"},
 		"markers bad kind":    {Source: "e.jsonl", Kind: "nope"},
+		"source and records":  {Source: "e.jsonl", Records: inline, Kind: dataset.KindEvent},
+		"bad inline record":   {Records: []dataset.Record{{"time": "d1"}}, Kind: dataset.KindEvent}, // missing required title
 	}
 	for name, o := range invalid {
 		if err := spec(o).Validate(); err == nil || !strings.Contains(err.Error(), "overlays[0]") {
@@ -577,6 +581,20 @@ func TestResolveFillsLinesAndBands(t *testing.T) {
 	// The source overlay resolves via Overlay.Markers with its own records, not here.
 	if len(res.Markers) != 0 {
 		t.Fatalf("markers should stay caller-filled, got %+v", res.Markers)
+	}
+}
+
+func TestResolveFillsInlineMarkerRecords(t *testing.T) {
+	s, err := Load(strings.NewReader(`{"version":2,"mark":"line","data":{"source":"x","kind":"metric"},` +
+		`"encoding":{"x":{"field":"time"},"y":[{"field":"value"}]},` +
+		`"overlays":[{"records":[{"time":"d1","title":"launch"}],"kind":"event","label":"title"}]}`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	recs, _ := dataset.ReadJSONL(strings.NewReader(`{"time":"d1","value":5}`))
+	res := s.Resolve(recs)
+	if len(res.Markers) != 1 || res.Markers[0] != (Marker{At: "d1", Label: "launch"}) {
+		t.Fatalf("markers = %+v", res.Markers)
 	}
 }
 

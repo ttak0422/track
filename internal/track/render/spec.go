@@ -17,8 +17,8 @@ import (
 //
 // Embedded charts must carry their data inline; a spec that uses data.source (an external JSONL file)
 // is rejected here, since an asset is rendered in isolation without a spec-relative file to read.
-// Marker overlays (a second data source) are likewise out of scope for the embedded path; line/band
-// overlays carry literal values and render.
+// Source marker overlays (a second data source) are likewise out of scope for the embedded path;
+// line/band overlays carry literal values and inline marker records travel with the spec, so both render.
 func SVGFromSpec(specJSON []byte) (string, error) {
 	return SVGFromSpecDir(specJSON, "")
 }
@@ -45,19 +45,21 @@ func SVGFromSpecDir(specJSON []byte, dataDir string) (string, error) {
 		return "", fmt.Errorf("data: %w", err)
 	}
 	res := vs.Resolve(records)
-	// Overlays read their own sources, so they only work when a data directory is available; the
-	// isolated-asset path keeps ignoring them, matching the documented asset-embed contract.
-	if dataDir != "" {
-		for i, ov := range vs.Overlays {
-			ovRecords, err := readJSONLIn(dataDir, ov.Source)
-			if err != nil {
-				return "", fmt.Errorf("overlay[%d]: %w", i, err)
-			}
-			if err := datamodel.ValidateRecords(ov.Kind, ovRecords); err != nil {
-				return "", fmt.Errorf("overlay[%d]: %w", i, err)
-			}
-			res.Markers = append(res.Markers, ov.Markers(ovRecords)...)
+	// Only source overlays read a file here (line/band literals and inline marker records resolve in
+	// Resolve). They need a data directory; the isolated-asset path keeps ignoring them, matching the
+	// documented asset-embed contract.
+	for i, ov := range vs.Overlays {
+		if ov.Source == "" || dataDir == "" {
+			continue
 		}
+		ovRecords, err := readJSONLIn(dataDir, ov.Source)
+		if err != nil {
+			return "", fmt.Errorf("overlay[%d]: %w", i, err)
+		}
+		if err := datamodel.ValidateRecords(ov.Kind, ovRecords); err != nil {
+			return "", fmt.Errorf("overlay[%d]: %w", i, err)
+		}
+		res.Markers = append(res.Markers, ov.Markers(ovRecords)...)
 	}
 	return SVG{}.Render(res)
 }

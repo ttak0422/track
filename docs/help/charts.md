@@ -83,9 +83,9 @@ Key fields:
 - `stack` — on a bar's measure channel (`y[0]`, or `x` for a horizontal bar): stack the series.
 - `filter` — `{field, equals}` shorthand, or `{all: [{field, op, value}]}` with `op` of
   `eq|ne|lt|le|gt|ge` for multi-field, range, and period filtering.
-- `overlays` — reference geometry over the chart: `{source, kind}` draws events/annotations from a
-  second source as vertical markers, `{y, axis?, label?}` a horizontal threshold line, and
-  `{from, to, label?}` a shaded period band.
+- `overlays` — reference geometry over the chart: `{source, kind}` (or `{records, kind}` with the
+  events inline) draws events/annotations as vertical markers, `{y, axis?, label?}` a horizontal
+  threshold line, and `{from, to, label?}` a shaded period band.
 
 ## Embedding a chart in a note
 
@@ -178,11 +178,11 @@ SVG renderer only (Chart.js has no candlestick type).
 
 ![Candlestick chart](assets/chart-candlestick.viewspec.json)
 
-**Overlays** — a dashed `{y, label}` threshold line and a shaded `{from, to, label}` period band over
-any category-axis chart. They carry literal values (no second data file), so they work in embedded
-assets too.
+**Overlays** — a vertical `{records, kind}` event marker, a dashed `{y, label}` threshold line, and a
+shaded `{from, to, label}` period band over any category-axis chart. All three travel with the spec
+(inline records or literal values — no second data file), so they work in embedded assets too.
 
-![Threshold line and period band](assets/chart-overlay.viewspec.json)
+![Event marker, threshold line, and period band](assets/chart-overlay.viewspec.json)
 
 A **bubble** (`mark: point` with a quantitative x, `{x, y, r}` points sized by `size`) is drawn over
 linear axes by both the default `chartjs` renderer and the `svg` renderer.

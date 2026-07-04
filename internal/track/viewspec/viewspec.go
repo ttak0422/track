@@ -229,18 +229,20 @@ func (s Spec) stacked() bool {
 // Overlay draws reference geometry on top of the chart. It is a flat union of three shapes,
 // discriminated by which fields are set (exactly one per overlay, enforced by Validate):
 //
-//   - markers: {source, kind, at?, label?} — vertical lines read from a second JSONL source
-//     (typically kind event or annotation), e.g. policy events along a Pressure Index time series.
-//     At names the field holding the x position (a value that should match an x-axis label), and
-//     Label names the field holding the marker text.
+//   - markers: {source|records, kind, at?, label?} — vertical lines read from a second JSONL source
+//     or carried inline as records (exactly one of the two; inline keeps an annotated chart
+//     self-contained, which a note-embedded spec needs), typically kind event or annotation, e.g.
+//     news events along a metric time series. At names the field holding the x position (a value
+//     that should match an x-axis label), and Label names the field holding the marker text.
 //   - line: {y, axis?, label?} — a horizontal reference line at the literal value Y (a threshold),
 //     on the primary ("y", default) or secondary ("y2") axis. Label is the literal line text.
 //   - band: {from, to, label?} — a shaded x-range highlighting the period between the From and To
 //     category labels (inclusive). Label is the literal band text.
 type Overlay struct {
-	Source string       `json:"source,omitempty"`
-	Kind   dataset.Kind `json:"kind,omitempty"`
-	At     string       `json:"at,omitempty"` // x-position field; defaults to "time"
+	Source  string           `json:"source,omitempty"`
+	Records []dataset.Record `json:"records,omitempty"` // marker records carried inline (XOR Source)
+	Kind    dataset.Kind     `json:"kind,omitempty"`
+	At      string           `json:"at,omitempty"` // x-position field; defaults to "time"
 
 	Y    *float64 `json:"y,omitempty"`    // line: the y value to draw at
 	Axis string   `json:"axis,omitempty"` // line: "y" (default) or "y2"
@@ -533,30 +535,37 @@ func sortPlacementError(where, opt, labelName string) error {
 	return fmt.Errorf("view spec: %s.%s belongs on the category-axis channel (%s)", where, opt, labelName)
 }
 
-// validate checks an overlay is exactly one of its three shapes (source markers / line / band) and
-// that the chosen shape is complete: a source overlay needs a canonical kind, a line's axis must be
-// y or y2, and a band needs both ends. Fields of another shape are rejected rather than ignored, so
-// a mixed overlay surfaces as an error.
+// validate checks an overlay is exactly one of its three shapes (markers / line / band) and that the
+// chosen shape is complete: a marker overlay needs a canonical kind and exactly one of source or
+// records, a line's axis must be y or y2, and a band needs both ends. Fields of another shape are
+// rejected rather than ignored, so a mixed overlay surfaces as an error.
 func (o Overlay) validate(i int) error {
 	hasSource := strings.TrimSpace(o.Source) != ""
+	hasRecords := len(o.Records) > 0
 	hasLine := o.Y != nil
 	hasBand := o.From != "" || o.To != ""
 	shapes := 0
-	for _, set := range []bool{hasSource, hasLine, hasBand} {
+	for _, set := range []bool{hasSource || hasRecords, hasLine, hasBand} {
 		if set {
 			shapes++
 		}
 	}
 	if shapes != 1 {
-		return fmt.Errorf("view spec: overlays[%d] must be exactly one of markers {source, kind}, line {y}, or band {from, to}", i)
+		return fmt.Errorf("view spec: overlays[%d] must be exactly one of markers {source|records, kind}, line {y}, or band {from, to}", i)
 	}
 	switch {
-	case hasSource:
+	case hasSource || hasRecords:
+		if hasSource && hasRecords {
+			return fmt.Errorf("view spec: overlays[%d] takes exactly one of source or records", i)
+		}
 		if !o.Kind.Valid() {
 			return fmt.Errorf("view spec: overlays[%d].kind %q is not a canonical kind", i, o.Kind)
 		}
 		if o.Axis != "" {
 			return fmt.Errorf("view spec: overlays[%d].axis applies only to a line overlay", i)
+		}
+		if err := dataset.ValidateRecords(o.Kind, o.Records); err != nil {
+			return fmt.Errorf("view spec: overlays[%d] records: %w", i, err)
 		}
 	case hasLine:
 		if o.Kind != "" || o.At != "" {
@@ -724,7 +733,7 @@ type Resolved struct {
 	Labels  []string
 	Series  []Series
 	Grid    *Grid
-	Markers []Marker  // vertical overlays (events/annotations), filled by the caller from Overlays
+	Markers []Marker  // vertical overlays (events/annotations): inline records fill them in Resolve, source overlays are filled by the caller from Overlays
 	Lines   []RefLine // horizontal reference lines, filled by Resolve (they carry no data source)
 	Bands   []Band    // x-range highlights, filled by Resolve (they carry no data source)
 }
@@ -756,14 +765,16 @@ func (s Spec) Resolve(records []dataset.Record) Resolved {
 	if ch := s.labelChannel(); ch != nil {
 		sortAndLimit(&res, *ch)
 	}
-	// Line/band overlays are literal values in the spec (no second data source), so they resolve here;
-	// source overlays need file IO and stay with the caller (Resolved.Markers).
+	// Overlays that carry no second data source (line/band literals, inline marker records) resolve
+	// here; source overlays need file IO and stay with the caller (Resolved.Markers).
 	for _, o := range s.Overlays {
 		switch {
 		case o.Y != nil:
 			res.Lines = append(res.Lines, RefLine{Y: *o.Y, Axis: o.axisID(), Label: o.Label})
 		case o.From != "":
 			res.Bands = append(res.Bands, Band{From: o.From, To: o.To, Label: o.Label})
+		case len(o.Records) > 0:
+			res.Markers = append(res.Markers, o.Markers(o.Records)...)
 		}
 	}
 	return res

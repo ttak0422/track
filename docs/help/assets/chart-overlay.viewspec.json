@@ -45,6 +45,16 @@
   },
   "overlays": [
     {
+      "records": [
+        {
+          "time": "4",
+          "title": "event"
+        }
+      ],
+      "kind": "event",
+      "label": "title"
+    },
+    {
       "y": 6,
       "label": "threshold"
     },

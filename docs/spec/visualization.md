@@ -252,15 +252,16 @@ of three shapes, discriminated by which fields are set (a mixed entry is rejecte
 ]
 ```
 
-**Markers** — vertical lines read from a second JSONL source, e.g. plotting policy events along a
-Pressure Index time series:
+**Markers** — vertical lines read from a second JSONL source or carried inline, e.g. plotting news
+events along a metric time series:
 
-| Field    | Required | Notes                                                                        |
-|----------|----------|------------------------------------------------------------------------------|
-| `source` | yes      | Path to a JSONL file, resolved relative to the spec file (like `data.source`).|
-| `kind`   | yes      | A canonical kind (typically `event` or `annotation`).                        |
-| `at`     | no       | Field giving the marker's x position; defaults to `time`.                    |
-| `label`  | no       | Field giving the marker text; defaults to `text`.                            |
+| Field     | Required        | Notes                                                                        |
+|-----------|-----------------|------------------------------------------------------------------------------|
+| `source`  | one of the two  | Path to a JSONL file, resolved relative to the spec file (like `data.source`).|
+| `records` | one of the two  | Marker records carried inline (like `data.records`), keeping an annotated chart self-contained. |
+| `kind`    | yes             | A canonical kind (typically `event` or `annotation`).                        |
+| `at`      | no              | Field giving the marker's x position; defaults to `time`.                    |
+| `label`   | no              | Field giving the marker text; defaults to `text`.                            |
 
 A record with no `at` value is skipped. The marker is placed at the matching x-axis category, so the
 `at` value should equal one of the x-axis labels (the renderer uses a category x-axis). Multiple
@@ -282,9 +283,10 @@ overlays accumulate.
 | `to`    | yes      | Last x category of the range (inclusive).                          |
 | `label` | no       | Literal label text drawn in the band.                              |
 
-Marker overlays need file IO, so they resolve in the CLI; line/band overlays carry literal values and
-resolve with the spec itself (`Spec.Resolve`), which is why they also work for embedded assets (below).
-A y-range band is deliberately not supported — a value threshold is a reference line.
+Source marker overlays need file IO, so they resolve in the CLI; line/band overlays (literal values)
+and inline marker records travel with the spec and resolve in `Spec.Resolve`, which is why all three
+also work for embedded assets (below). A y-range band is deliberately not supported — a value
+threshold is a reference line.
 
 ### Inline data (self-contained specs)
 
@@ -312,9 +314,10 @@ A self-contained spec saved as a `.viewspec.json` **asset** is rendered to a sta
 the `svg` renderer at build time, writes the SVG into the published `assets/`, and rewrites the
 reference to the generated `.svg` — so the static site shows the chart with no CDN and no client-side
 JavaScript. Embedded charts must use inline `data.records` (an asset is rendered in isolation, with no
-spec-relative file to read); marker overlays and `data.source` are not supported on this path, but
-line/band overlays (literal values) render. The live web
-workspace does not yet render embedded specs (it reuses the same `render.SVGFromSpec` when it does).
+spec-relative file to read); source marker overlays and `data.source` are not supported on this path,
+but line/band overlays (literal values) and inline marker records (`overlays[].records`) render. The
+live web workspace does not yet render embedded specs (it reuses the same `render.SVGFromSpec` when it
+does).
 
 ### Embedding a chart in a note (fenced `viewspec` block)
 

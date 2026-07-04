@@ -112,7 +112,7 @@ func resolveChart(specPath string, vs viewspec.Spec) (viewspec.Resolved, error) 
 	res := vs.Resolve(records)
 	for i, ov := range vs.Overlays {
 		if ov.Source == "" {
-			continue // line/band overlays carry literal values; Resolve already placed them
+			continue // line/band literals and inline marker records; Resolve already placed them
 		}
 		ovRecords, err := readJSONLRelative(specPath, ov.Source)
 		if err != nil {
@@ -249,7 +249,7 @@ func viewSpecReference() string {
 	b.WriteString("  filter:          {field, equals}  keep records where field == equals (shorthand)\n")
 	fmt.Fprintf(&b, "                   {all:[{field, op, value}]}  AND conditions; op: %s (range/period)\n", strings.Join(viewspec.FilterOps, " | "))
 	b.WriteString("  overlays[]:      one shape per entry:\n")
-	b.WriteString("                   {source, kind, at=time, label=text}  vertical event/annotation markers\n")
+	b.WriteString("                   {source|records, kind, at=time, label=text}  vertical event/annotation markers\n")
 	b.WriteString("                   {y, axis?, label?}  horizontal reference line at value y (threshold)\n")
 	b.WriteString("                   {from, to, label?}  shaded x-range band (period highlight)\n")
 	fmt.Fprintf(&b, "  renderers:       %s\n", strings.Join(render.Names(), " | "))
