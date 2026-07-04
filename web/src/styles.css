@@ -1335,12 +1335,18 @@ button {
   display: block;
   max-width: 100%;
   height: auto;
+  /* The browser doesn't know an image's intrinsic size until it loads, so with no reservation the box
+     is 0-height and content jumps down on load (CLS). The real aspect ratio varies per image (a logo vs.
+     a wide chart export), so a fixed aspect-ratio would distort most of them; a modest min-height instead
+     absorbs the common case without stretching anything once the image's true height is known. */
+  min-height: 160px;
   border-radius: 8px;
 }
 
 .embed-video {
   position: relative;
   width: 100%;
+  /* Already reserves its box via aspect-ratio, so the YouTube iframe never causes CLS. */
   aspect-ratio: 16 / 9;
   border-radius: 8px;
   overflow: hidden;
@@ -1373,7 +1379,10 @@ button {
   justify-content: center;
   position: relative;
   width: 100%;
-  min-height: 120px;
+  /* Reserved before the page loads/rasterizes so the deck doesn't jump the page once it renders (CLS).
+     True page height varies per PDF and is only known after pdf.js loads it, so this is an approximation,
+     not an exact fit. */
+  min-height: 320px;
   padding: 8px;
   border: 1px solid var(--line);
   border-radius: 8px;
@@ -1441,6 +1450,9 @@ button {
   display: flex;
   flex-direction: column;
   gap: 6px;
+  /* Twitter's widget iframe replaces this box asynchronously; reserving space up front avoids the page
+     jumping when it lands (CLS). A real tweet can still be taller than this once it loads. */
+  min-height: 200px;
 }
 
 .embed-tweet :first-child {
@@ -1704,6 +1716,16 @@ button {
 .text-asset-loading {
   color: var(--muted);
   font-size: 0.92em;
+}
+
+/* Mermaid renders async (dynamic import + layout pass), so without a reservation the placeholder text
+   collapses to one line and the page jumps down once the diagram appears (CLS). Scoped to the loading
+   state only, so a rendered diagram is never forced taller than its fitted height. */
+.mermaid-diagram-loading {
+  min-height: 160px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
 }
 
 .mermaid-diagram-error .code-block {
