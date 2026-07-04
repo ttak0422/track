@@ -4,7 +4,7 @@ An embed is a standalone Markdown image link — `![alt](src)` **on its own line
 as rich media instead of a plain `<img>`. Inline image syntax inside a paragraph stays inline, so
 embedding is always opt-in and ordinary `[text](url)` links are never turned into noisy previews.
 
-Part of [[Visualization]] (see also [[Charts]]). Back to [[track]].
+Part of [[Visualization]] (see also [[Diagrams]] and [[Charts]]). Back to [[track]].
 
 ## What `src` can be
 
@@ -80,27 +80,15 @@ from the page's `og:` metadata:
 ## Text-file attachments
 
 A text file imported with `track asset import` is fetched and rendered inline instead of shown as a
-broken image. A Mermaid source (`.mmd` / `.mermaid`) renders as a diagram — the same renderer that backs
-fenced ```mermaid``` blocks — and any other text file (`.txt`, `.json`, `.yaml`, `.csv`, shell scripts,
-…) renders as a syntax-highlighted code block:
+broken image. A Mermaid source (`.mmd` / `.mermaid`) renders as a diagram (see [[Diagrams]]), and any
+other text file (`.txt`, `.json`, `.yaml`, `.csv`, shell scripts, …) renders as a syntax-highlighted
+code block:
 
 ```markdown
 ![](assets/gantt.mmd)
 ```
 
 A `.viewspec.json` attachment is a **chart** embed — see [[Charts]] for the View Spec that drives it.
-
-## Mermaid diagrams inline
-
-You do not need a separate file for a diagram: a fenced ```mermaid``` block renders inline, showing the
-original source if the diagram has a syntax error. Pan with drag, zoom with the wheel or the +/- buttons,
-and reset with the ↺ control.
-
-```mermaid
-flowchart LR
-  note[Markdown note] --> web[Web workspace]
-  web --> preview[Rendered preview]
-```
 
 The [[Web workspace]] renders every embed live; the static export ([[CLI]] `export-site`) renders the
 same output for a published note.
