@@ -1,6 +1,7 @@
 package webui
 
 import (
+	"bytes"
 	"encoding/json"
 	"io"
 	"io/fs"
@@ -896,5 +897,42 @@ func TestIndexNoPaletteRemovesPlaceholder(t *testing.T) {
 	}
 	if strings.Contains(html, `id="track-colors"`) {
 		t.Fatalf("no palette should mean no override style block")
+	}
+}
+
+// TestViewSpecRendersSVG verifies the embedded-chart endpoint: a valid spec comes back as an SVG
+// document, and a broken spec is a 400 whose message the frontend shows at the block position.
+func TestViewSpecRendersSVG(t *testing.T) {
+	server, _ := putNoteSetup(t, 100, "Alpha", "body\n")
+
+	spec := `{"version":2,"mark":"bar","title":"Demo","data":{"kind":"metric","records":[
+		{"name":"A","time":"t1","value":3}]},"encoding":{"x":{"field":"name","type":"nominal"},"y":[{"field":"value"}]}}`
+	body, _ := json.Marshal(map[string]string{"spec": spec})
+	resp, err := http.Post(server.URL+"/api/viewspec", "application/json", bytes.NewReader(body))
+	if err != nil {
+		t.Fatalf("post viewspec: %v", err)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("viewspec status = %d", resp.StatusCode)
+	}
+	var decoded struct {
+		SVG string `json:"svg"`
+	}
+	if err := json.NewDecoder(resp.Body).Decode(&decoded); err != nil {
+		t.Fatalf("decode: %v", err)
+	}
+	if !strings.Contains(decoded.SVG, "<svg") || !strings.Contains(decoded.SVG, ">Demo<") {
+		t.Fatalf("expected rendered SVG, got %.80s", decoded.SVG)
+	}
+
+	bad, _ := json.Marshal(map[string]string{"spec": `{"version":2,"mark":"pie"}`})
+	resp2, err := http.Post(server.URL+"/api/viewspec", "application/json", bytes.NewReader(bad))
+	if err != nil {
+		t.Fatalf("post bad viewspec: %v", err)
+	}
+	defer resp2.Body.Close()
+	if resp2.StatusCode != http.StatusBadRequest {
+		t.Fatalf("bad spec status = %d, want 400", resp2.StatusCode)
 	}
 }

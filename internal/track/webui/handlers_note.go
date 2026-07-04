@@ -13,6 +13,7 @@ import (
 	"github.com/ttak0422/track/internal/track/export"
 	"github.com/ttak0422/track/internal/track/index"
 	"github.com/ttak0422/track/internal/track/note"
+	"github.com/ttak0422/track/internal/track/render"
 	"github.com/ttak0422/track/internal/track/store"
 )
 
@@ -183,6 +184,30 @@ func (s *Server) handleRender(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, map[string]any{"markdown": res.Markdown})
+}
+
+// handleViewSpec renders a fenced ```viewspec block (a View Spec JSON) to a static SVG chart, reusing
+// the engine's SVG renderer so the frontend never re-implements chart drawing. data.source references
+// resolve inside the vault's data/ directory (render.SVGFromSpecDir confines them there). A bad spec is
+// a client error: the frontend shows the message at the block position instead of a chart.
+func (s *Server) handleViewSpec(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		writeError(w, fmt.Errorf("method %s not allowed", r.Method), http.StatusMethodNotAllowed)
+		return
+	}
+	var req struct {
+		Spec string `json:"spec"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		writeError(w, err, http.StatusBadRequest)
+		return
+	}
+	svg, err := render.SVGFromSpecDir([]byte(req.Spec), s.cfg.DataDir())
+	if err != nil {
+		writeError(w, err, http.StatusBadRequest)
+		return
+	}
+	writeJSON(w, map[string]any{"svg": svg})
 }
 
 // etagFor returns a short content hash used as an optimistic-concurrency token for note bodies.

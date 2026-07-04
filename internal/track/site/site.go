@@ -65,6 +65,7 @@ func Build(cfg *config.Config, st *store.Store, opts Options, frontendDir, outDi
 			keys:     []string{noteTitle(n)},
 			assets:   collectAssets(n.Body),
 			assetSrc: assetSrc,
+			dataDir:  cfg.DataDir(),
 		})
 	}
 

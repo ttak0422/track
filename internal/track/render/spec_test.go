@@ -1,6 +1,8 @@
 package render
 
 import (
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 )
@@ -44,5 +46,45 @@ func TestSVGFromSpecRequiresInlineData(t *testing.T) {
 func TestSVGFromSpecRejectsBadSpec(t *testing.T) {
 	if _, err := SVGFromSpec([]byte(`{"version":2,"mark":"pie"}`)); err == nil {
 		t.Fatal("expected error for invalid spec")
+	}
+}
+
+func TestSVGFromSpecDirReadsSourceAndOverlay(t *testing.T) {
+	dir := t.TempDir()
+	writeFile(t, dir, "metrics.jsonl", `{"version":1,"name":"pi","time":"01","value":3}
+{"version":1,"name":"pi","time":"02","value":7}
+`)
+	writeFile(t, dir, "events.jsonl", `{"version":1,"time":"02","title":"Launch"}
+`)
+	spec := `{"version":2,"mark":"line","title":"Sourced","data":{"kind":"metric","source":"metrics.jsonl"},
+		"encoding":{"x":{"field":"time"},"y":[{"field":"value"}]},
+		"overlays":[{"source":"events.jsonl","kind":"event","label":"title"}]}`
+	out, err := SVGFromSpecDir([]byte(spec), dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, want := range []string{"<svg", ">Sourced<", ">Launch<"} {
+		if !strings.Contains(out, want) {
+			t.Errorf("SVG missing %q", want)
+		}
+	}
+}
+
+func TestSVGFromSpecDirConfinesSourceToDataDir(t *testing.T) {
+	dir := t.TempDir()
+	for _, source := range []string{"../secret.jsonl", "/etc/passwd"} {
+		spec := `{"version":2,"mark":"line","data":{"kind":"metric","source":"` + source + `"},
+			"encoding":{"x":{"field":"time"},"y":[{"field":"value"}]}}`
+		_, err := SVGFromSpecDir([]byte(spec), dir)
+		if err == nil || !strings.Contains(err.Error(), "inside the vault data directory") {
+			t.Errorf("source %q: expected confinement error, got %v", source, err)
+		}
+	}
+}
+
+func writeFile(t *testing.T, dir, name, content string) {
+	t.Helper()
+	if err := os.WriteFile(filepath.Join(dir, name), []byte(content), 0o644); err != nil {
+		t.Fatal(err)
 	}
 }

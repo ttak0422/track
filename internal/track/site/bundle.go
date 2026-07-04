@@ -10,6 +10,8 @@ import (
 	"path/filepath"
 	"sort"
 	"strings"
+
+	"github.com/ttak0422/track/internal/track/config"
 )
 
 // The static site is the React web frontend running against a pre-generated JSON bundle instead of the
@@ -29,6 +31,7 @@ type doc struct {
 	keys     []string // resolution keys ([[key]]) that point at this doc (title, file name, …)
 	assets   []string // "assets/<rel>" references in the body
 	assetSrc string   // directory those assets are copied from
+	dataDir  string   // canonical-data directory for embedded ```viewspec charts ("" = inline data only)
 }
 
 // edge is a directed [[link]] between two in-set docs.
@@ -135,6 +138,18 @@ func writeBundle(docs []doc, edges []edge, root int64, frontendDir, outDir strin
 		}
 		// Rewrite asset references to their published (slugged) names, matching the copied files.
 		body := rewriteAssetRefs(d.body)
+		// Then replace ```viewspec fences with pre-rendered SVG charts (the generated names are already
+		// published slugs, so this must run after the asset rewrite, not before).
+		body, charts := renderViewSpecBlocks(body, d.dataDir)
+		for name, svg := range charts {
+			dst := filepath.Join(outDir, config.AssetsDirName, name)
+			if err := os.MkdirAll(filepath.Dir(dst), 0o755); err != nil {
+				return Result{}, err
+			}
+			if err := os.WriteFile(dst, []byte(svg), 0o644); err != nil {
+				return Result{}, fmt.Errorf("write chart %s: %w", name, err)
+			}
+		}
 		resp := jsonNoteResponse{
 			Note: jsonNoteDetail{
 				jsonSearchResult: searchResultOf(d),

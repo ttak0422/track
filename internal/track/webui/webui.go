@@ -126,6 +126,7 @@ func (s *Server) routes() {
 	s.mux.HandleFunc("/api/resolve", s.handleResolve)
 	s.mux.HandleFunc("/api/note", s.handleNote)
 	s.mux.HandleFunc("/api/render", s.handleRender)
+	s.mux.HandleFunc("/api/viewspec", s.handleViewSpec)
 	s.mux.HandleFunc("/api/asset", s.handleAsset)
 	s.mux.HandleFunc("/api/ogp", s.handleOGP)
 	s.mux.HandleFunc("/api/graph/local", s.handleLocalGraph)
