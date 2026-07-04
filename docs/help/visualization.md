@@ -96,6 +96,49 @@ required (`track asset import` only copies a file there for you). There is no se
 in sync, no CDN, and no client-side JavaScript — the engine turns the spec into an SVG image. The charts
 below are each one embedded `.viewspec.json`.
 
+### From spec asset to image
+
+When `track export-site` walks the notes, each referenced `.viewspec.json` is loaded, validated in two
+stages (the spec, then its records against the `kind` schema), rendered to a self-contained SVG, and
+inlined into the page. A malformed spec or an invalid record **fails the build** rather than publishing
+a dead reference:
+
+```mermaid
+sequenceDiagram
+    autonumber
+    actor You
+    participant Doc as Markdown note
+    participant Build as track export-site
+    participant Spec as viewspec.Load
+    participant Schema as datamodel kind schema
+    participant SVG as SVG renderer
+    participant Site as Static site
+
+    You->>Doc: embed assets/chart.viewspec.json
+    You->>Build: track export-site
+    Build->>Doc: walk notes, collect asset refs
+    Doc-->>Build: assets/chart.viewspec.json
+    Build->>Spec: read + parse spec JSON
+    Spec->>Spec: check mark / encoding
+    alt spec invalid
+        Spec-->>Build: error
+        Build-->>You: build fails (no dead reference published)
+    else spec valid
+        Spec-->>Build: spec + inline data.records
+        Build->>Schema: validate records against kind
+        alt missing field / non-numeric
+            Schema-->>Build: error
+            Build-->>You: build fails
+        else records valid
+            Schema-->>Build: ok
+            Build->>SVG: render Resolve(spec, records)
+            SVG-->>Build: self-contained SVG
+            Build->>Site: inline SVG into the page
+        end
+    end
+    Site-->>You: chart page — no scripts, no CDN
+```
+
 **`bar`** — values per category; the baseline is pinned to zero, so negatives drop below it.
 
 ![Bar chart](assets/chart-bar.viewspec.json)
