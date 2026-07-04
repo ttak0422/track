@@ -147,6 +147,17 @@ func yPixel(g svgGeom, lo, hi, v float64) float64 {
 	return g.top + g.plotH()*(1-(v-lo)/(hi-lo))
 }
 
+// xLabelStep thins dense category labels: with n categories across plotW pixels, only every step-th
+// label is drawn so neighbours don't collide (a daily time series easily has 60+ categories).
+// ponytail: fixed 64px per label; measure real text width if labels get much longer than dates
+func xLabelStep(n int, plotW float64) int {
+	step := int(math.Ceil(float64(n) * 64 / plotW))
+	if step < 1 {
+		return 1
+	}
+	return step
+}
+
 // writeAxes draws the plot frame, three value gridlines+labels, and the category labels. hbar
 // transposes the axes: its value axis runs horizontally (gridlines vertical, labels along the bottom)
 // and its categories run down the left, so value and category labels never collide.
@@ -183,9 +194,13 @@ func writeAxes(b *strings.Builder, g svgGeom, res viewspec.Resolved, lo, hi floa
 		fmt.Fprintf(b, `<text x="%g" y="%s" font-size="11" text-anchor="end" dominant-baseline="middle" fill="#666666">%s</text>`+"\n",
 			g.left-6, num(y), num(v))
 	}
-	// Categories along the bottom.
+	// Categories along the bottom, thinned when too dense to read.
 	centers := bandCenters(g, len(res.Labels))
+	step := xLabelStep(len(res.Labels), g.plotW())
 	for i, lbl := range res.Labels {
+		if i%step != 0 {
+			continue
+		}
 		fmt.Fprintf(b, `<text x="%s" y="%g" font-size="11" text-anchor="middle" fill="#333333">%s</text>`+"\n",
 			num(centers[i]), g.top+g.plotH()+16, html.EscapeString(lbl))
 	}

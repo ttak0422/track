@@ -49,11 +49,16 @@ func renderGrid(res viewspec.Resolved) string {
 	return b.String()
 }
 
-// writeGridAxes draws the plot border, column labels along the bottom, and row labels down the left.
+// writeGridAxes draws the plot border, column labels along the bottom (thinned when too dense to
+// read), and row labels down the left.
 func writeGridAxes(b *strings.Builder, g svgGeom, grid *viewspec.Grid) {
 	fmt.Fprintf(b, `<rect x="%g" y="%g" width="%g" height="%g" fill="none" stroke="#cccccc"/>`+"\n",
 		g.left, g.top, g.plotW(), g.plotH())
+	step := xLabelStep(len(grid.Cols), g.plotW())
 	for i, c := range bandCenters(g, len(grid.Cols)) {
+		if i%step != 0 {
+			continue
+		}
 		fmt.Fprintf(b, `<text x="%s" y="%g" font-size="11" text-anchor="middle" fill="#333333">%s</text>`+"\n",
 			num(c), g.top+g.plotH()+16, html.EscapeString(grid.Cols[i]))
 	}

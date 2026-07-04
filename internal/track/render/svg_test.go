@@ -2,6 +2,7 @@ package render
 
 import (
 	"flag"
+	"fmt"
 	"math"
 	"os"
 	"path/filepath"
@@ -153,6 +154,33 @@ func TestSVGBubbleRenders(t *testing.T) {
 	// The two finite points draw circles; the NaN-y point is skipped.
 	if n := strings.Count(out, "<circle"); n != 2 {
 		t.Fatalf("expected 2 bubble circles, got %d", n)
+	}
+}
+
+func TestSVGThinsDenseCategoryLabels(t *testing.T) {
+	// A daily series has far more categories than fit as axis labels; only every step-th is drawn.
+	labels := make([]string, 90)
+	values := make([]float64, 90)
+	for i := range labels {
+		labels[i] = fmt.Sprintf("2026-01-%02d", i)
+		values[i] = float64(i)
+	}
+	res := viewspec.Resolved{
+		Spec: viewspec.Spec{}, Chart: viewspec.ChartLine,
+		Labels: labels,
+		Series: []viewspec.Series{{Label: "S", Values: values}},
+	}
+	out, err := SVG{}.Render(res)
+	if err != nil {
+		t.Fatal(err)
+	}
+	drawn := strings.Count(out, "2026-01-")
+	if drawn >= 90 || drawn < 5 {
+		t.Fatalf("dense labels should thin to a readable count, drew %d", drawn)
+	}
+	// The first category is always labeled.
+	if !strings.Contains(out, ">2026-01-00<") {
+		t.Fatalf("first label missing: %s", out)
 	}
 }
 
