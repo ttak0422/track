@@ -21,3 +21,17 @@ Keep this file focused on durable collaboration rules and pointers to shared pro
 - This project is under active development: prioritize the best design over backward compatibility, and do not hesitate to make breaking changes when they lead to a better result.
 - Prefer existing package boundaries and local helpers over introducing new abstractions.
 - When the user asks for implementation work, commit completed changes automatically in coherent units unless the user says not to commit.
+
+## Agent skills
+
+### Issue tracker
+
+Issues are tracked in this repo's GitHub Issues via the `gh` CLI; external PRs are not a triage surface. See `docs/agents/issue-tracker.md`.
+
+### Triage labels
+
+The five canonical triage roles use their default label strings (`needs-triage`, `needs-info`, `ready-for-agent`, `ready-for-human`, `wontfix`). See `docs/agents/triage-labels.md`.
+
+### Domain docs
+
+Single-context layout: `CONTEXT.md` + `docs/adr/` at the repo root. See `docs/agents/domain.md`.
