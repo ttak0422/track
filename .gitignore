@@ -5,6 +5,7 @@
 web/node_modules/
 web/dist/
 web/dist-static/
+web/dist-server/
 web/*.tsbuildinfo
 
 # Local static-site preview (make site)
