@@ -278,7 +278,10 @@ Both rendering surfaces draw the block server-side with the `svg` renderer (`ren
 so the chart looks identical everywhere and no chart library ships to the browser:
 
 - **Web workspace**: the frontend posts the block to `POST /api/viewspec` (`{"spec": "..."}`) and
-  inlines the returned static SVG (`{"svg": "..."}`).
+  inlines the returned static SVG (`{"svg": "..."}`). Charts re-render live: editing the note re-posts
+  the changed block through the normal note-refresh flow, and the server also watches the vault's
+  `data/` directory and emits a `data` Server-Sent Event (alongside the existing `change` event for
+  note edits) so displayed charts re-fetch when a `data.source` / `overlays[].source` file changes.
 - **Static site** (`track export-site`, both the vault and `--dir` front-ends): each fence is replaced
   at build time by an image reference to a pre-rendered SVG written into the published `assets/`
   (named by a content-derived slug), keeping the export free of client-side chart code.

@@ -4,8 +4,9 @@ import type { ReactElement } from "react";
 import { describe, expect, it } from "vitest";
 import { MarkdownView } from "./MarkdownView";
 
-// A QueryClient is only needed for markdown that produces links (ExternalLink/WikiLink call useQuery).
-// Pure block content (tables, task lists, code) renders without it.
+// A QueryClient is only needed for markdown that produces links (ExternalLink/WikiLink) or viewspec
+// charts (ViewSpecChart), which call useQuery. Pure block content (tables, task lists, code) renders
+// without it.
 function renderWithQuery(ui: ReactElement) {
   const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
   return render(<QueryClientProvider client={client}>{ui}</QueryClientProvider>);
@@ -47,7 +48,7 @@ describe("MarkdownView", () => {
   });
 
   it("renders viewspec fences through the chart component", () => {
-    const { container } = render(<MarkdownView markdown={'```viewspec\n{"version":2}\n```'} />);
+    const { container } = renderWithQuery(<MarkdownView markdown={'```viewspec\n{"version":2}\n```'} />);
     expect(container.querySelector(".viewspec-chart")).toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "Copy code" })).not.toBeInTheDocument();
   });

@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"net/http"
 	"os"
+	"path/filepath"
 	"sync"
 	"time"
 
@@ -61,6 +62,13 @@ func (h *eventHub) broadcastChange() {
 	h.broadcast(serverEvent{name: "change", data: []byte("{}")})
 }
 
+// broadcastData signals that a file under the vault's data/ directory changed. Charts rendered from
+// data.source / overlays[].source depend on those files without the note body changing, so this is a
+// separate event from "change": no reindex happens and the frontend only refreshes rendered charts.
+func (h *eventHub) broadcastData() {
+	h.broadcast(serverEvent{name: "data", data: []byte("{}")})
+}
+
 func (h *eventHub) broadcastFollow(state followState) {
 	data, err := json.Marshal(state)
 	if err != nil {
@@ -70,7 +78,8 @@ func (h *eventHub) broadcastFollow(state followState) {
 }
 
 // handleEvents streams Server-Sent Events. Clients receive a `change` event
-// whenever the vault is reindexed after a filesystem change, and a `follow`
+// whenever the vault is reindexed after a filesystem change, a `data` event
+// whenever a file in the vault's data/ directory changes, and a `follow`
 // event whenever Neovim publishes its active track note.
 func (s *Server) handleEvents(w http.ResponseWriter, r *http.Request) {
 	flusher, ok := w.(http.Flusher)
@@ -110,9 +119,10 @@ func (s *Server) handleEvents(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
-// startWatch watches the note and journal directories and, on any change,
-// reindexes the vault and notifies connected clients. It runs for the life of
-// the process; failures are logged and degrade to no live updates.
+// startWatch watches the note, journal, and data directories and, on any
+// change, notifies connected clients (reindexing first for note changes). It
+// runs for the life of the process; failures are logged and degrade to no
+// live updates.
 func (s *Server) startWatch() {
 	watcher, err := fsnotify.NewWatcher()
 	if err != nil {
@@ -121,9 +131,10 @@ func (s *Server) startWatch() {
 	}
 
 	watched := 0
-	for _, dir := range []string{s.cfg.NoteDir(), s.cfg.JournalDir()} {
-		// Ensure the directory exists so it is watched even before its first note
-		// (e.g. journal/ is created lazily on the first daily note).
+	for _, dir := range []string{s.cfg.NoteDir(), s.cfg.JournalDir(), s.cfg.DataDir()} {
+		// Ensure the directory exists so it is watched even before its first file
+		// (e.g. journal/ is created lazily on the first daily note, data/ on the
+		// first JSONL ingest).
 		if err := os.MkdirAll(dir, 0o755); err != nil {
 			fmt.Fprintf(os.Stderr, "track web: not watching %s: %v\n", dir, err)
 			continue
@@ -161,9 +172,12 @@ func (s *Server) watchLoop(watcher *fsnotify.Watcher) {
 	defer watcher.Close()
 
 	const debounce = 300 * time.Millisecond
-	var timer *time.Timer
-	// reindex coalesces a burst of events into a single reconcile + broadcast.
+	dataDir := s.cfg.DataDir()
+	var noteTimer, dataTimer *time.Timer
+	// Each timer coalesces a burst of events into a single broadcast (with a
+	// reconcile first for note changes; data files are not indexed).
 	reindex := func() { s.reconcileAfterChange() }
+	notifyData := func() { s.events.broadcastData() }
 
 	for {
 		select {
@@ -175,10 +189,19 @@ func (s *Server) watchLoop(watcher *fsnotify.Watcher) {
 			if ev.Op&(fsnotify.Create|fsnotify.Write|fsnotify.Remove|fsnotify.Rename) == 0 {
 				continue
 			}
-			if timer != nil {
-				timer.Stop()
+			// The watch is non-recursive, so events name direct children of a
+			// watched directory; a parent of dataDir means a data file changed.
+			if filepath.Dir(ev.Name) == dataDir {
+				if dataTimer != nil {
+					dataTimer.Stop()
+				}
+				dataTimer = time.AfterFunc(debounce, notifyData)
+				continue
 			}
-			timer = time.AfterFunc(debounce, reindex)
+			if noteTimer != nil {
+				noteTimer.Stop()
+			}
+			noteTimer = time.AfterFunc(debounce, reindex)
 		case err, ok := <-watcher.Errors:
 			if !ok {
 				return

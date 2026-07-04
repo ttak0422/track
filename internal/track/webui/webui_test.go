@@ -457,6 +457,44 @@ func TestWatcherReconcileStampsEditDay(t *testing.T) {
 	}
 }
 
+// TestWatchBroadcastsDataChanges guards the live-chart refresh path: a write under the vault's data/
+// directory (the JSONL files View Spec data.source / overlays[].source read) must reach SSE subscribers
+// as a `data` event, and the directory must be created and watched even when the vault starts without
+// it. Data files are not indexed, so this event is distinct from the reindex-backed `change` event.
+func TestWatchBroadcastsDataChanges(t *testing.T) {
+	cfg := &config.Config{
+		VaultDir:          t.TempDir(),
+		DBPath:            filepath.Join(t.TempDir(), "index.db"),
+		Extensions:        []string{".md"},
+		DateFormat:        "2006-01-02",
+		JournalDateFormat: "20060102",
+	}
+	s, err := store.Open(cfg.DBPath)
+	if err != nil {
+		t.Fatalf("open store: %v", err)
+	}
+	t.Cleanup(func() { s.Close() })
+
+	// The vault has no data/ yet; startWatch must create and watch it.
+	server := New(cfg, s)
+	server.startWatch()
+	ch := server.events.subscribe()
+	t.Cleanup(func() { server.events.unsubscribe(ch) })
+
+	if err := os.WriteFile(filepath.Join(cfg.DataDir(), "metrics.jsonl"), []byte("{\"time\":\"2026-07-05\",\"value\":1}\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	select {
+	case ev := <-ch:
+		if ev.name != "data" {
+			t.Fatalf("event = %q, want %q", ev.name, "data")
+		}
+	case <-time.After(5 * time.Second):
+		t.Fatal("no data event after writing a data file")
+	}
+}
+
 func TestJournalEndpointCreatesAndReopens(t *testing.T) {
 	cfg := &config.Config{
 		VaultDir:          t.TempDir(),

@@ -10,10 +10,12 @@ import {
   getOgp,
   listNotes,
   renderMarkdown,
+  renderViewSpec,
   resolveTerm,
   saveNote,
   searchNotes,
 } from "./api";
+import { STATIC_MODE } from "./runtime";
 import { useDebouncedValue } from "./hooks/useDebouncedValue";
 import type { NoteID, NoteResponse, SaveNoteRequest } from "./types";
 
@@ -29,6 +31,7 @@ export const queryKeys = {
   ogp: (url: string) => ["ogp", url] as const,
   render: (body: string) => ["render", body] as const,
   assetText: (href: string) => ["assetText", href] as const,
+  viewspec: (spec: string) => ["viewspec", spec] as const,
 };
 
 export function useActivityQuery(since: string, until: string) {
@@ -119,6 +122,25 @@ export function useRenderQuery(body: string) {
     // body never needs re-posting within a session.
     staleTime: Infinity,
     placeholderData: keepPreviousData,
+  });
+}
+
+// useViewSpecQuery renders a fenced ```viewspec block to an SVG chart via the server. The key includes
+// the spec text, so an edited block refetches on its own; useLiveEvents additionally invalidates the
+// ["viewspec"] prefix when the vault's data/ directory changes, re-rendering charts whose data.source /
+// overlays[].source files changed without the note body changing. The previous chart is kept while the
+// refetch is in flight so a live update never flashes the loading state.
+export function useViewSpecQuery(spec: string) {
+  return useQuery({
+    queryKey: queryKeys.viewspec(spec),
+    queryFn: () => renderViewSpec(spec),
+    // The static export replaces viewspec fences at build time; a leftover block shows its source.
+    enabled: !STATIC_MODE,
+    // A bad spec is a deterministic client error the user should see immediately, not retry through.
+    retry: false,
+    placeholderData: keepPreviousData,
+    // Drop the XML prolog: it is valid in a standalone .svg file but not inside an HTML element.
+    select: (data) => ({ svg: data.svg.replace(/^\s*<\?xml[^>]*>\s*/, "") }),
   });
 }
 
