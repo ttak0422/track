@@ -868,8 +868,9 @@ button {
   top: 50%;
   right: 6px;
   display: grid;
-  width: 18px;
-  height: 18px;
+  /* 24px hit target (WCAG 2.2 target size); the × glyph inside stays small. */
+  width: 24px;
+  height: 24px;
   translate: 0 -50%;
   place-items: center;
   border: 0;

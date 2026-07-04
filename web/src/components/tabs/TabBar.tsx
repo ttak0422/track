@@ -40,7 +40,7 @@ export function TabBar() {
   }
 
   return (
-    <div className="tabbar" role="tablist" aria-label="Open notes" ref={stripRef} onWheel={onWheel}>
+    <div className="tabbar" role="list" aria-label="Open notes" ref={stripRef} onWheel={onWheel}>
       {tabs.map((tab) => {
         const active = tab.id === activeID;
         const label = tab.title || "Untitled";
@@ -48,12 +48,12 @@ export function TabBar() {
           <div
             key={tab.id}
             ref={active ? activeRef : undefined}
+            role="listitem"
             className={`tab${active ? " active" : ""}${tab.id === dirtyID ? " dirty" : ""}`}
           >
             <button
               type="button"
-              role="tab"
-              aria-selected={active}
+              aria-current={active ? "page" : undefined}
               className="tab-label"
               title={label}
               onClick={() => openTab(tab.id)}
