@@ -1,4 +1,6 @@
 import { Link, Outlet, useNavigate, useRouterState } from "@tanstack/react-router";
+import { useQuery } from "@tanstack/react-query";
+import { useEffect, useRef } from "react";
 import { GraphBackground } from "./GraphBackground";
 import { GraphPanel } from "./GraphPanel";
 import { KMark } from "./Logo";
@@ -8,7 +10,7 @@ import { SidebarSearch } from "./SidebarSearch";
 import { TabBar } from "./tabs/TabBar";
 import { TabsProvider } from "./tabs/tabsStore";
 import { ThemeMenu } from "./ThemeMenu";
-import { openJournal } from "../api";
+import { getSite, openJournal } from "../api";
 import { useLiveEvents } from "../hooks/useLiveEvents";
 import { STATIC_MODE } from "../runtime";
 import { SearchProvider } from "../searchState";
@@ -17,8 +19,12 @@ export function Shell() {
   const pathname = useRouterState({ select: (state) => state.location.pathname });
   const isHome = pathname === "/";
   const isGraph = pathname === "/graph";
+  // The live workspace has a heatmap home at "/"; the static site does not — there "/" is the empty state
+  // (all tabs closed), so it keeps the normal chrome (sidebar, no home hero, no ambient graph).
+  const isLiveHome = isHome && !STATIC_MODE;
   const navigate = useNavigate();
   useLiveEvents();
+  useStaticStartPage(navigate);
 
   // Open (creating if needed) today's journal and jump to it, mirroring how the activity heatmap opens a
   // day. The local-time YYYY-MM-DD key matches the journal id the server derives from the date.
@@ -39,8 +45,8 @@ export function Shell() {
     <SearchProvider>
       <FloatingProvider>
       <TabsProvider>
-      <main className={`workspace${isHome ? " home" : ""}`}>
-        {isHome ? null : (
+      <main className={`workspace${isLiveHome ? " home" : ""}`}>
+        {isLiveHome ? null : (
           <aside className="sidebar">
             <nav className="activity-rail" aria-label="Workspace views">
               <Link className="rail-button rail-brand" to="/" aria-label="track home" title="track home">
@@ -73,9 +79,9 @@ export function Shell() {
           </aside>
         )}
         <div className="reader-pane">
-          {isHome ? null : <TabBar />}
+          {isLiveHome ? null : <TabBar />}
           <section className="reader">
-            {isHome ? <GraphBackground /> : null}
+            {isLiveHome ? <GraphBackground /> : null}
             <Outlet />
           </section>
         </div>
@@ -86,6 +92,31 @@ export function Shell() {
       </FloatingProvider>
     </SearchProvider>
   );
+}
+
+// useStaticStartPage opens the configured start page once, on launch, when the static site is entered at
+// its home route. It never fires again when the user later returns to "/" by closing every tab, so that
+// empty state stays empty instead of bouncing back to the start page.
+function useStaticStartPage(navigate: ReturnType<typeof useNavigate>) {
+  const site = useQuery({ queryKey: ["site"], queryFn: getSite, enabled: STATIC_MODE });
+  const done = useRef(false);
+  // Whether the app was entered at the home route (vs a deep link to a note/graph), from the launch hash.
+  const enteredAtHome = useRef(
+    typeof window === "undefined" || window.location.hash === "" || window.location.hash === "#/",
+  );
+
+  useEffect(() => {
+    if (!STATIC_MODE || done.current) return;
+    if (!enteredAtHome.current) {
+      done.current = true;
+      return;
+    }
+    const root = site.data?.root;
+    if (root) {
+      done.current = true;
+      void navigate({ to: "/notes/$noteId", params: { noteId: String(root) }, replace: true });
+    }
+  }, [site.data, navigate]);
 }
 
 function RailGraphIcon() {

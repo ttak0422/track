@@ -13,7 +13,6 @@ import { TrackLogo } from "./components/Logo";
 import { NoteReader } from "./components/NoteReader";
 import { SearchPanel } from "./components/SearchPanel";
 import { Shell } from "./components/Shell";
-import { Welcome } from "./components/Welcome";
 import "katex/dist/katex.min.css";
 import "./styles.css";
 
@@ -65,10 +64,11 @@ export function App() {
 }
 
 function HomeRoute() {
-  // The published site has no heatmap home; it lands on a welcome screen (its own entry points), while
-  // the live workspace shows the activity heatmap.
+  // The published site has no heatmap home. It opens the start page on launch (see Shell); this route is
+  // only reached once every tab is closed, and then the reader is simply empty — the normal workspace
+  // chrome with nothing loaded.
   if (STATIC_MODE) {
-    return <Welcome />;
+    return null;
   }
   return (
     <section className="home-hero">
