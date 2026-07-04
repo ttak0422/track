@@ -104,9 +104,13 @@ export function FloatingWindow({
     if (!aside || !chrome || !body || !content) return;
     const fit = () => {
       if (manualResizeRef.current) return;
-      // border-box height = chrome + body content (incl. its padding) + the aside's own vertical border.
+      // Measure the content's own height (content.offsetHeight), not body.scrollHeight — scrollHeight is
+      // at least the body's clientHeight, so a short note in a tall window would report the empty space
+      // as content and never shrink. border-box height = aside border + chrome + body padding + content.
       const border = aside.offsetHeight - aside.clientHeight;
-      const desired = chrome.offsetHeight + body.scrollHeight + border;
+      const bodyStyle = getComputedStyle(body);
+      const bodyPad = Number.parseFloat(bodyStyle.paddingTop) + Number.parseFloat(bodyStyle.paddingBottom);
+      const desired = border + chrome.offsetHeight + bodyPad + content.offsetHeight;
       setBounds((current) => {
         const height = clamp(desired, minPreviewHeight, initialBounds.height);
         return height === current.height ? current : constrainPreviewBounds({ ...current, height });
