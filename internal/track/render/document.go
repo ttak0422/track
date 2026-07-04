@@ -10,7 +10,7 @@ import (
 )
 
 // markedCDN renders Markdown prose blocks client-side, so document composition needs no Go Markdown
-// dependency (ADR 0019 deliberately dropped one). Like Chart.js, it is a CDN script; the generated
+// dependency (ADR 0019 deliberately dropped one). Like ECharts, it is a CDN script; the generated
 // page requires network access at view time.
 const markedCDN = "https://cdn.jsdelivr.net/npm/marked@12"
 
@@ -30,41 +30,27 @@ type Item struct {
 }
 
 // RenderDocument composes prose, charts, and tables into a single self-contained HTML page. Charts
-// reuse the same Chart.js config builder as the single-chart renderer, except SVG-only forms
-// (candlestick, heatmap, timeline), which are inlined as static server-rendered SVG; prose is rendered
+// reuse the same ECharts option builder as the single-chart renderer — ECharts draws every form
+// (including candlestick and the grid forms), so no per-mark fallback is needed; prose is rendered
 // from Markdown by marked.js at view time; tables are server-side HTML (no CDN). CDNs/scripts load
-// conditionally: Chart.js only with a canvas chart, marked only with prose, the annotation plugin only
-// when a chart has markers, the filter script only when a table is filterable.
+// conditionally: ECharts only with a chart, marked only with prose, the filter script only when a
+// table is filterable.
 func RenderDocument(doc Document) (string, error) {
-	var charts []string // chart config JSON, in document order
+	var charts []string // chart option JSON, in document order
 	var mds []string    // prose sources, in prose order (aligned to data-md indices)
 	tableCount := 0
-	usesAnnotation := false
 	hasFilter := false
 
 	var body strings.Builder
 	for _, it := range doc.Items {
 		switch {
 		case it.Chart != nil:
-			// Forms Chart.js cannot draw (candlestick, heatmap, timeline) are inlined as static
-			// server-rendered SVG instead, so an article can still compose them.
-			if svgOnlyChart(it.Chart.Chart) {
-				svg, err := (SVG{}).Render(*it.Chart)
-				if err != nil {
-					return "", err
-				}
-				body.WriteString(`<div class="chart-wrap chart-wrap-svg">` + strings.TrimPrefix(svg, svgXMLProlog) + "</div>\n")
-				continue
-			}
-			cfgJSON, ann, err := chartJSConfigJSON(*it.Chart)
+			optJSON, err := EChartsOptionJSON(*it.Chart)
 			if err != nil {
 				return "", err
 			}
-			if ann {
-				usesAnnotation = true
-			}
-			fmt.Fprintf(&body, `<div class="chart-wrap"><canvas id="chart-%d"></canvas></div>`+"\n", len(charts))
-			charts = append(charts, cfgJSON)
+			fmt.Fprintf(&body, `<div class="chart-wrap" id="chart-%d"></div>`+"\n", len(charts))
+			charts = append(charts, optJSON)
 		case it.Table != nil:
 			if it.Table.Filter {
 				hasFilter = true
@@ -88,7 +74,7 @@ func RenderDocument(doc Document) (string, error) {
 	if title == "" {
 		title = "track document"
 	}
-	return renderDocumentPage(html.EscapeString(title), body.String(), charts, string(mdJSON), len(mds) > 0, usesAnnotation, hasFilter), nil
+	return renderDocumentPage(html.EscapeString(title), body.String(), charts, string(mdJSON), len(mds) > 0, hasFilter), nil
 }
 
 // writeTable renders a resolved table as server-side HTML: an optional filter box plus a <table> with
@@ -115,16 +101,13 @@ func writeTable(b *strings.Builder, id int, t viewspec.ResolvedTable) {
 }
 
 // renderDocumentPage assembles the article HTML: the prepared body (prose placeholders + chart
-// canvases + tables), the chart configs, and the prose sources. CDNs load conditionally — the
-// annotation plugin only when a chart uses markers, marked only when there is prose. The script wires
-// marked over the prose placeholders, instantiates each chart, and wires table filters (no CDN).
-func renderDocumentPage(escapedTitle, body string, charts []string, mdJSON string, hasProse, usesAnnotation, hasFilter bool) string {
+// containers + tables), the chart options, and the prose sources. CDNs load conditionally — ECharts
+// only when there is a chart, marked only when there is prose. The script wires marked over the prose
+// placeholders, instantiates each chart (following window resizes), and wires table filters (no CDN).
+func renderDocumentPage(escapedTitle, body string, charts []string, mdJSON string, hasProse, hasFilter bool) string {
 	var scripts []string
 	if len(charts) > 0 {
-		scripts = append(scripts, chartJSCDN)
-	}
-	if usesAnnotation {
-		scripts = append(scripts, annotationCDN)
+		scripts = append(scripts, echartsCDN)
 	}
 	if hasProse {
 		scripts = append(scripts, markedCDN)
@@ -140,14 +123,18 @@ func renderDocumentPage(escapedTitle, body string, charts []string, mdJSON strin
 	}
 	b.WriteString("<style>body{margin:0 auto;max-width:880px;padding:24px;font-family:system-ui,sans-serif;line-height:1.6}" +
 		".chart-wrap{position:relative;height:360px;margin:24px 0}.prose{margin:16px 0}" +
-		".chart-wrap-svg{height:auto}.chart-wrap-svg svg{max-width:100%;height:auto}" +
 		".table-wrap{margin:24px 0;overflow-x:auto}.table-filter{margin-bottom:8px;padding:6px 8px;width:100%;box-sizing:border-box}" +
 		"table{border-collapse:collapse;width:100%}th,td{border:1px solid #ddd;padding:6px 10px;text-align:left}thead th{background:#f5f5f5}</style>\n")
 	b.WriteString("</head>\n<body>\n")
 	b.WriteString(body)
 	b.WriteString("<script>\n")
-	b.WriteString("const charts = [" + strings.Join(charts, ",") + "];\n")
-	b.WriteString(`charts.forEach((c, i) => new Chart(document.getElementById("chart-" + i), c));` + "\n")
+	if len(charts) > 0 {
+		b.WriteString("const charts = [" + strings.Join(charts, ",") + "];\n")
+		b.WriteString(`const instances = charts.map((o, i) => {` + "\n")
+		b.WriteString(`  const c = echarts.init(document.getElementById("chart-" + i));` + "\n")
+		b.WriteString("  c.setOption(o);\n  return c;\n});\n")
+		b.WriteString(`addEventListener("resize", () => instances.forEach(c => c.resize()));` + "\n")
+	}
 	if hasProse {
 		b.WriteString("const prose = " + mdJSON + ";\n")
 		b.WriteString(`document.querySelectorAll(".prose").forEach(el => { el.innerHTML = marked.parse(prose[+el.dataset.md]); });` + "\n")

@@ -32,7 +32,7 @@ func TestRenderCommandWritesHTML(t *testing.T) {
 	if err := json.Unmarshal([]byte(raw), &decoded); err != nil {
 		t.Fatalf("expected JSON result, got %q", raw)
 	}
-	if decoded["path"] != outPath || decoded["renderer"] != "chartjs" {
+	if decoded["path"] != outPath || decoded["renderer"] != "echarts" {
 		t.Fatalf("unexpected result: %v", decoded)
 	}
 
@@ -42,7 +42,7 @@ func TestRenderCommandWritesHTML(t *testing.T) {
 	}
 	got := string(html)
 	// Filter kept only the two AAPL rows, aligned to their close values.
-	if !strings.Contains(got, `"labels":["d1","d2"]`) || !strings.Contains(got, `"data":[10,12]`) {
+	if !strings.Contains(got, `"data":["d1","d2"]`) || !strings.Contains(got, `"data":[10,12]`) {
 		t.Fatalf("filtered/aligned data not rendered: %s", got)
 	}
 }
@@ -75,10 +75,10 @@ func TestRenderCommandDrawsOverlayMarkers(t *testing.T) {
 		t.Fatal(err)
 	}
 	got := string(html)
-	if !strings.Contains(got, "chartjs-plugin-annotation") {
-		t.Fatalf("overlay should load annotation plugin: %s", got)
+	if !strings.Contains(got, `"markLine"`) {
+		t.Fatalf("overlay should emit a markLine: %s", got)
 	}
-	if !strings.Contains(got, `"value":"d2"`) || !strings.Contains(got, `"content":"launch"`) {
+	if !strings.Contains(got, `"xAxis":"d2"`) || !strings.Contains(got, `"formatter":"launch"`) {
 		t.Fatalf("event marker not rendered: %s", got)
 	}
 }
@@ -108,12 +108,9 @@ func TestRenderCommandDrawsLineAndBandOverlays(t *testing.T) {
 		t.Fatal(err)
 	}
 	got := string(html)
-	if !strings.Contains(got, "chartjs-plugin-annotation") {
-		t.Fatalf("overlays should load annotation plugin: %s", got)
-	}
-	for _, want := range []string{`"value":15`, `"content":"limit"`, `"type":"box"`, `"xMin":"d1"`, `"xMax":"d2"`} {
+	for _, want := range []string{`"yAxis":15`, `"formatter":"limit"`, `"markArea"`, `"xAxis":"d1"`, `"xAxis":"d2"`} {
 		if !strings.Contains(got, want) {
-			t.Errorf("overlay annotation missing %q", want)
+			t.Errorf("overlay output missing %q", want)
 		}
 	}
 }
@@ -150,7 +147,7 @@ func TestRenderArticleComposesDocument(t *testing.T) {
 		t.Fatal(err)
 	}
 	got := string(html)
-	if !strings.Contains(got, `canvas id="chart-0"`) || !strings.Contains(got, `class="prose"`) {
+	if !strings.Contains(got, `id="chart-0"`) || !strings.Contains(got, `class="prose"`) {
 		t.Fatalf("article structure missing: %s", got)
 	}
 	if !strings.Contains(got, `"data":[10,20]`) {
@@ -171,7 +168,7 @@ func TestRenderHelpListsNotationAndExits0(t *testing.T) {
 		"entity* time* open* high* low* close*", // price fields from dataset.KindFields (required marked)
 		"y[].axis:",                             // secondary axis notation
 		"overlays[]:",                           // overlay notation
-		"chartjs | svg",                         // renderer names
+		"echarts | svg",                         // renderer names
 		`"source": "metrics.jsonl"`,             // example spec
 	} {
 		if !strings.Contains(out, want) {

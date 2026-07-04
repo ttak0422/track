@@ -174,7 +174,6 @@ of sitting side by side; combines with a color split. On a horizontal bar, set i
 **Candlestick** (`mark: candlestick`, `kind: price`) — one OHLC candle per record: a high–low wick
 behind an open–close body, green when the close is at or above the open, red otherwise. The
 open/high/low/close fields are implied by the `price` kind, so the encoding needs only `x`.
-SVG renderer only (Chart.js has no candlestick type).
 
 ![Candlestick chart](assets/chart-candlestick.viewspec.json)
 
@@ -185,13 +184,13 @@ shaded `{from, to, label}` period band over any category-axis chart. All three t
 ![Event marker, threshold line, and period band](assets/chart-overlay.viewspec.json)
 
 A **bubble** (`mark: point` with a quantitative x, `{x, y, r}` points sized by `size`) is drawn over
-linear axes by both the default `chartjs` renderer and the `svg` renderer.
+linear axes by both the default `echarts` renderer and the `svg` renderer.
 
 ## Renderers
 
 | Renderer | Output | Notes |
 | --- | --- | --- |
-| `chartjs` (default) | Self-contained HTML | Interactive; loads Chart.js from a CDN at view time. |
+| `echarts` (default) | Self-contained HTML | Interactive (tooltips, legend toggling); loads Apache ECharts from a CDN at view time. All marks. |
 | `svg` | Static SVG | No scripts, no CDN — embeds anywhere. All marks, including heatmap, timeline, and candlestick. |
 
 ```sh

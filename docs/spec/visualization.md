@@ -107,8 +107,7 @@ hint that lets one mark cover the former chart types, since it names which axis 
   green when the close is at or above the open and red otherwise (a doji keeps a 1px body). It
   requires `data.kind: "price"` and reads the kind's canonical `open`/`high`/`low`/`close` fields
   directly, so the encoding needs only `x` — `encoding.y`, `color`, and `size` are rejected. A candle
-  missing any component is skipped. **SVG renderer only**: Chart.js has no candlestick type, so the
-  `chartjs` renderer rejects it like the grid forms.
+  missing any component is skipped (the ECharts renderer draws it as a null gap).
 
 Channels also take per-channel options whose placement is validated (a misplaced option is an error,
 not a silent no-op):
@@ -190,8 +189,8 @@ combines naturally with `color` (one stacked segment per category value) and wit
 }
 ```
 
-The Chart.js renderer stacks via stacked scales; the SVG renderer computes the stacked segment
-coordinates and spans the value axis over the stack totals.
+The ECharts renderer stacks via per-series stack groups; the SVG renderer computes the stacked
+segment coordinates and spans the value axis over the stack totals.
 
 ### Filter
 
@@ -215,8 +214,8 @@ ISO timestamps and numeric fields both order correctly. Shorthand and `all` comb
 
 ### Grid charts (heatmap, timeline)
 
-Two **SVG-only** drawing forms map records onto a 2D grid of `x` columns × `y[0]` rows (both **nominal**,
-accumulated in first-seen order). The Chart.js renderer rejects them.
+Two drawing forms map records onto a 2D grid of `x` columns × `y[0]` rows (both **nominal**,
+accumulated in first-seen order).
 
 - **Heatmap** (`mark: rect`) colors each cell by `encoding.color.field` (light → dark, with a value
   legend); `color` is required. Repeated `(column, row)` cells draw later-record-on-top. A cell with
@@ -373,29 +372,35 @@ bubble points, or a grid), recorded on `Resolved.Chart` so a renderer switches o
 Renderers live in `internal/track/render` behind a `Renderer` interface and a name registry, so new
 output formats can be added without changing the model or the spec.
 
-### `chartjs` (default)
+### `echarts` (default)
 
-Emits a self-contained HTML page that loads **Chart.js from a CDN**
-(`https://cdn.jsdelivr.net/npm/chart.js@4`) and draws the chart in a `<canvas>`:
+Emits a self-contained HTML page that loads **Apache ECharts from a CDN**
+(`https://cdn.jsdelivr.net/npm/echarts@5`) and draws the chart into a full-page container. The page is
+interactive — hover tooltips (axis-slice on category charts, per-item on point-shaped ones), legend
+toggling, and window-resize tracking come with the library. Chart semantics are decided in Go: the
+renderer emits a **pure-JSON ECharts option** (`render.EChartsOptionJSON`), shared by the single-chart
+page, article composition, and the web workspace's fenced-block endpoint.
 
-- `line`/`bar` marks map directly to Chart.js types over a category x-axis; an `area` is a `line`
-  whose datasets fill to the origin with the translucent palette color.
-- A `bar` with a nominal y renders as a Chart.js `bar` with `indexAxis: "y"` (horizontal), for rankings.
-- A stacked bar sets `stacked: true` on both scales.
-- `candlestick` is rejected (Chart.js has no candlestick type) — use `--renderer svg`.
-- A `point` with a nominal x (scatter) uses the same category x-axis with the connecting line suppressed.
-- A `point` with a quantitative x (bubble) plots one `{x, y, r}` point per record (numeric `x`, `y[i]`,
-  and `size`); points missing a coordinate are skipped and a missing/non-positive radius falls back to a
-  small default.
-- A series with `axis: "y2"` is bound to a right-hand secondary linear axis (its gridlines kept off the
-  chart area); single-axis charts define no `y2`.
-- Every dataset carries explicit `borderColor`/`backgroundColor` from the fixed palette shared with the
-  `svg` renderer (keyed by series index), so colors are deterministic and identical across renderers.
-- `NaN`/`Inf` values are emitted as JSON `null` (a gap).
-- **Overlays** are drawn via `chartjs-plugin-annotation`, loaded from a CDN only when the spec has
-  overlays (plain charts stay lean): markers as vertical lines, reference lines as dashed horizontal
-  lines on their `y`/`y2` axis, bands as translucent boxes spanning the x range.
-- The page requires network access at view time to load Chart.js (and the annotation plugin, if used).
+- `line`/`bar` marks map directly to ECharts series over a category x-axis; an `area` is a `line`
+  with an `areaStyle` filled at the same 30% palette opacity as the SVG renderer.
+- A `bar` with a nominal y renders with the categories down an inverted y-axis (first label on top),
+  for rankings; a stacked bar joins its series into one stack group.
+- A `candlestick` maps to the native candlestick series (item order `[open, close, low, high]`), with
+  the SVG renderer's rising-green/falling-red colors; a candle missing a component is a null gap.
+- A `point` with a nominal x (scatter) uses the category axis; a quantitative x (bubble) plots over
+  linear axes with a **per-item `symbolSize`** (2× the resolved radius), so the option stays pure JSON
+  — no size callbacks; a nominal y (timeline) is a category-lane scatter sized the same way.
+- A `rect` (heatmap) uses the native heatmap series with a `visualMap` spanning the same light→dark
+  blue ramp as the SVG renderer.
+- A series with `axis: "y2"` is bound to a right-hand secondary value axis (its gridlines kept off the
+  chart area); single-axis charts define one axis.
+- Every chart carries the fixed palette shared with the `svg` renderer, so colors are deterministic
+  and identical across renderers. `NaN`/`Inf` values are emitted as JSON `null` (a gap).
+- **Overlays** map to built-in mark geometry on the first series: markers as vertical `markLine`
+  entries at their category, reference lines as dashed horizontal `markLine` entries (a `y2` line
+  rides a y2-bound series and is dropped without one, like the SVG renderer), bands as shaded
+  `markArea` ranges.
+- The page requires network access at view time to load ECharts.
 
 ### `svg`
 
@@ -409,10 +414,10 @@ output embeds directly in notes, emails, or a static site:
   and red for a falling one; the OHLC component series are not listed in the legend.
 - A bubble (quantitative-x point) is drawn over **linear** x and y axes (one circle per `{x, y, r}`
   point, sized by `size`); a point missing x or y is skipped and a missing/non-positive radius falls
-  back to a small default, like the Chart.js renderer.
+  back to a small default, like the ECharts renderer.
 - The value axis spans the data range; bars pin the baseline to zero.
 - `NaN`/`Inf` values are gaps: a line breaks its segment, a bar/scatter/bubble point is omitted.
-- **Overlays** mirror the Chart.js annotations: markers are vertical lines at the matching category
+- **Overlays** mirror the ECharts mark geometry: markers are vertical lines at the matching category
   label; reference lines are dashed horizontal lines (the SVG renderer has a single value scale, so
   `axis: "y2"` is ignored; a line outside the data's value range is skipped); bands are translucent
   rectangles spanning the `from`..`to` category slots (inclusive), drawn behind the series.
@@ -451,16 +456,15 @@ array.
   cell renders empty so rows stay aligned). `filter: true` adds a client-side text filter box that
   hides non-matching rows. Tables render as server-side HTML and need no CDN, so they work offline.
 - Output is one HTML page: prose is rendered by **marked.js** (CDN) at view time so track keeps no Go
-  Markdown dependency; charts reuse the Chart.js renderer — except the SVG-only forms (candlestick,
-  heatmap, timeline), which are inlined as static server-rendered SVG so an article can still compose
-  them. Scripts load conditionally: Chart.js only if a block needs a canvas chart, the annotation
-  plugin only if a chart has overlays, marked only if there is prose, and the table-filter script only
-  if a table is filterable.
+  Markdown dependency; charts reuse the ECharts option builder (ECharts draws every form, including
+  candlestick and the grid forms, so nothing needs a fallback). Scripts load conditionally: ECharts
+  only if there is a chart, marked only if there is prose, and the table-filter script only if a table
+  is filterable.
 
 ## CLI
 
 ```
-track render --spec <spec.json> --out <file> [--renderer chartjs]
+track render --spec <spec.json> --out <file> [--renderer echarts]
 ```
 
 - Loads and validates the spec, resolves its data source relative to the spec file, reads the JSONL,
@@ -468,8 +472,8 @@ track render --spec <spec.json> --out <file> [--renderer chartjs]
 - A spec with a top-level `blocks` array is rendered as an **article** (see above); otherwise as a
   single chart.
 - Independent of the note index/store — works on any canonical JSONL, in a vault or not.
-- On success prints JSON: `{"path": "...", "renderer": "chartjs", "records": N}` for a chart, or
-  `{"path": "...", "renderer": "chartjs", "blocks": N}` for an article.
+- On success prints JSON: `{"path": "...", "renderer": "echarts", "records": N}` for a chart, or
+  `{"path": "...", "renderer": "echarts", "blocks": N}` for an article.
 - Errors print `{"error": "..."}` with exit code 1, like other track commands.
 
 Examples:

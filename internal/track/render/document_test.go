@@ -30,20 +30,20 @@ func TestRenderDocumentComposesProseAndCharts(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if strings.Count(out, `canvas id="chart-`) != 2 {
-		t.Fatalf("want 2 canvases: %s", out)
+	if strings.Count(out, `class="chart-wrap" id="chart-`) != 2 {
+		t.Fatalf("want 2 chart containers: %s", out)
 	}
 	if strings.Count(out, `class="prose"`) != 2 {
 		t.Fatalf("want 2 prose blocks: %s", out)
 	}
-	for _, want := range []string{"chart.js@4", "marked@12", `"# Heading"`, `"between"`, "<title>Doc</title>"} {
+	for _, want := range []string{"echarts@5", "marked@12", `"# Heading"`, `"between"`, "<title>Doc</title>"} {
 		if !strings.Contains(out, want) {
 			t.Errorf("document missing %q", want)
 		}
 	}
-	// Both chart configs are inlined in order.
-	if !strings.Contains(out, `"label":"One"`) || !strings.Contains(out, `"label":"Two"`) {
-		t.Fatalf("chart configs missing: %s", out)
+	// Both chart options are inlined in order.
+	if !strings.Contains(out, `"name":"One"`) || !strings.Contains(out, `"name":"Two"`) {
+		t.Fatalf("chart options missing: %s", out)
 	}
 }
 
@@ -58,23 +58,20 @@ func TestRenderDocumentChartsOnlyOmitsMarked(t *testing.T) {
 	}
 }
 
-func TestRenderDocumentLoadsAnnotationOnlyWithMarkers(t *testing.T) {
-	plain := lineChart("One", []float64{1, 2})
-	out, _ := RenderDocument(Document{Items: []Item{{Chart: &plain}}})
-	if strings.Contains(out, "chartjs-plugin-annotation") {
-		t.Fatalf("no markers → annotation plugin should be omitted: %s", out)
-	}
-
+func TestRenderDocumentDrawsMarkersAsMarkLines(t *testing.T) {
 	marked := lineChart("Two", []float64{1, 2})
 	marked.Markers = []viewspec.Marker{{At: "a", Label: "ev"}}
-	out2, _ := RenderDocument(Document{Items: []Item{{Chart: &marked}}})
-	if !strings.Contains(out2, "chartjs-plugin-annotation") {
-		t.Fatalf("markers → annotation plugin should load: %s", out2)
+	out, err := RenderDocument(Document{Items: []Item{{Chart: &marked}}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(out, `"markLine"`) || !strings.Contains(out, `"xAxis":"a"`) {
+		t.Fatalf("marker should emit a markLine: %s", out)
 	}
 }
 
-func TestRenderDocumentInlinesSVGOnlyCharts(t *testing.T) {
-	line := lineChart("One", []float64{1, 2})
+func TestRenderDocumentComposesEveryForm(t *testing.T) {
+	// ECharts draws candlestick and the grid forms natively, so an article composes them like any chart.
 	candle := viewspec.Resolved{
 		Spec: viewspec.Spec{Title: "OHLC"}, Chart: viewspec.ChartCandlestick,
 		Labels: []string{"a", "b"},
@@ -83,33 +80,19 @@ func TestRenderDocumentInlinesSVGOnlyCharts(t *testing.T) {
 			{Label: "low", Values: []float64{0, 1}}, {Label: "close", Values: []float64{2, 3}},
 		},
 	}
-	out, err := RenderDocument(Document{Items: []Item{{Chart: &line}, {Chart: &candle}}})
-	if err != nil {
-		t.Fatal(err)
-	}
-	if !strings.Contains(out, `class="chart-wrap chart-wrap-svg"`) || !strings.Contains(out, "<svg") {
-		t.Fatalf("candlestick should inline an SVG: %s", out)
-	}
-	if strings.Contains(out, "<?xml") {
-		t.Fatalf("inline SVG must not carry the XML prolog: %s", out)
-	}
-	// Only the line chart gets a canvas; the SVG chart takes no chart index.
-	if strings.Count(out, `canvas id="chart-`) != 1 {
-		t.Fatalf("want 1 canvas: %s", out)
-	}
-}
-
-func TestRenderDocumentSVGOnlyChartsOmitChartJS(t *testing.T) {
 	timeline := viewspec.Resolved{
 		Spec: viewspec.Spec{}, Chart: viewspec.ChartTimeline,
 		Grid: &viewspec.Grid{Cols: []string{"a"}, Rows: []string{"r"}, Cells: []viewspec.Cell{{Col: 0, Row: 0, Value: 1}}},
 	}
-	out, err := RenderDocument(Document{Items: []Item{{Chart: &timeline}}})
+	out, err := RenderDocument(Document{Items: []Item{{Chart: &candle}, {Chart: &timeline}}})
 	if err != nil {
 		t.Fatal(err)
 	}
-	if strings.Contains(out, "chart.js@4") {
-		t.Fatalf("no canvas chart → Chart.js CDN should be omitted: %s", out)
+	if strings.Count(out, `class="chart-wrap" id="chart-`) != 2 {
+		t.Fatalf("want 2 chart containers: %s", out)
+	}
+	if !strings.Contains(out, `"type":"candlestick"`) || !strings.Contains(out, "echarts@5") {
+		t.Fatalf("candlestick option missing: %s", out)
 	}
 }
 
@@ -129,8 +112,8 @@ func TestRenderDocumentTable(t *testing.T) {
 		}
 	}
 	// No prose/chart CDNs for a table-only document.
-	if strings.Contains(out, "marked@12") {
-		t.Fatalf("table only → marked should be omitted")
+	if strings.Contains(out, "marked@12") || strings.Contains(out, "echarts@5") {
+		t.Fatalf("table only → marked and echarts should be omitted")
 	}
 }
 

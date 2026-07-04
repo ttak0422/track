@@ -6,7 +6,7 @@
 // filter. The shape is Vega-Lite-style: mark and encoding are orthogonal, so a channel (color, …) is
 // added once and works for every mark, and a mark is added once and gets every channel for free — cost
 // grows as marks + channels rather than the old type × feature matrix (see docs/adr/0024). It
-// deliberately knows nothing about Chart.js, SVG, or D3 — a Renderer (see internal/track/render) turns a
+// deliberately knows nothing about ECharts, SVG, or D3 — a Renderer (see internal/track/render) turns a
 // Spec into concrete output, so new renderers can be added without changing the spec.
 package viewspec
 

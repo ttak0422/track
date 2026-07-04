@@ -22,7 +22,7 @@ func cmdRender(args []string) int {
 	fs := flag.NewFlagSet("render", flag.ContinueOnError)
 	spec := fs.String("spec", "", "path to a View Spec JSON file")
 	out := fs.String("out", "", "path to write the rendered output file")
-	renderer := fs.String("renderer", "chartjs", "renderer name ("+strings.Join(render.Names(), "|")+")")
+	renderer := fs.String("renderer", "echarts", "renderer name ("+strings.Join(render.Names(), "|")+")")
 	// --help prints the flag list plus the View Spec notation reference to stdout, so the available
 	// chart types, data kinds, axes, and overlay fields are discoverable without reading the docs.
 	if wantsHelp(args) {
@@ -127,7 +127,7 @@ func resolveChart(specPath string, vs viewspec.Spec) (viewspec.Resolved, error) 
 }
 
 // cmdRenderArticle resolves each chart block in an article and composes prose + charts into one HTML
-// page. Article output is always the Chart.js-based document renderer.
+// page. Article output is always the ECharts-based document renderer.
 func cmdRenderArticle(specPath string, specJSON []byte, out string) int {
 	a, err := article.Load(bytes.NewReader(specJSON))
 	if err != nil {
@@ -164,7 +164,7 @@ func cmdRenderArticle(specPath string, specJSON []byte, out string) int {
 	if err := os.WriteFile(out, []byte(page), 0o644); err != nil {
 		return fail("write %s: %v", out, err)
 	}
-	return emit(map[string]any{"path": out, "renderer": "chartjs", "blocks": len(a.Blocks)})
+	return emit(map[string]any{"path": out, "renderer": "echarts", "blocks": len(a.Blocks)})
 }
 
 // wantsHelp reports whether the args request help, so the command can print usage instead of failing
@@ -256,7 +256,7 @@ func viewSpecReference() string {
 	b.WriteString("\nMarks cover the old chart types: bar+nominal-y = horizontal bar; point =\n")
 	b.WriteString("scatter (nominal x) / bubble (quantitative x) / timeline (nominal y); rect = heatmap;\n")
 	b.WriteString("area = line filled down to zero. candlestick draws OHLC bars from data.kind price\n")
-	b.WriteString("(open/high/low/close are implied, so it takes no encoding.y; svg renderer only).\n")
+	b.WriteString("(open/high/low/close are implied, so it takes no encoding.y).\n")
 	b.WriteString("\nExample:\n")
 	b.WriteString(`  {
     "version": 2,
@@ -284,10 +284,8 @@ A nominal color splits records into one series per category (one line/bar/point 
   { "mark": "line", ..., "encoding": { "x": {"field":"time"}, "y": [{"field":"value"}], "color": {"field":"entity","type":"nominal"} } }
 
 Article (composed document): a spec with a "blocks" array of prose, charts, and
-tables is rendered as one HTML page (prose via marked, charts via Chart.js,
-tables as server-side HTML; candlestick/heatmap/timeline charts are inlined as
-static SVG since Chart.js cannot draw them). Each block sets exactly one of
-markdown/chart/table:
+tables is rendered as one HTML page (prose via marked, charts via ECharts,
+tables as server-side HTML). Each block sets exactly one of markdown/chart/table:
   {
     "version": 1,
     "title": "Market narrative",

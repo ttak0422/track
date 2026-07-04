@@ -12,8 +12,7 @@ import (
 
 func init() { Register(SVG{}) }
 
-// SVG renders a resolved View Spec as a self-contained, dependency-free SVG document. Unlike the
-// Chart.js renderer it loads no scripts and no CDN, so the output is a static image suitable for
+// SVG renders a resolved View Spec as a self-contained, dependency-free SVG document. // ECharts renderer it loads no scripts and no CDN, so the output is a static image suitable for
 // embedding in notes, emails, or a static site. It draws the category-axis chart types (line, area,
 // bar, hbar, scatter, candlestick) plus bubble (a linear-axis {x,y,r} scatter) and overlay markers.
 type SVG struct{}
@@ -439,7 +438,7 @@ func xPixel(g svgGeom, lo, hi, v float64) float64 {
 }
 
 // writeMarkers draws overlay markers as vertical lines at the category whose label matches the
-// marker's At value, mirroring the Chart.js annotation overlays for the static renderer.
+// marker's At value, mirroring the ECharts markLine overlays for the static renderer.
 func writeMarkers(b *strings.Builder, g svgGeom, res viewspec.Resolved) {
 	if len(res.Markers) == 0 {
 		return
@@ -498,7 +497,7 @@ func writeBands(b *strings.Builder, g svgGeom, res viewspec.Resolved) {
 }
 
 // writeRefLines draws each reference-line overlay as a dashed horizontal line at its y value, labeled
-// at the right edge, mirroring the Chart.js annotation lines. The SVG renderer has a single value
+// at the right edge, mirroring the ECharts reference lines. The SVG renderer has a single value
 // scale, so the line's axis choice (y/y2) is ignored here.
 // ponytail: a line outside the data's value range is skipped, not drawn; expand valueRange over
 // res.Lines if off-scale thresholds need to show.
@@ -531,7 +530,7 @@ func writeLegend(b *strings.Builder, g svgGeom, res viewspec.Resolved) {
 
 // renderBubble draws a bubble chart: {x,y,r} points on linear x and y axes (unlike the category-axis
 // line/bar/scatter charts). Each y series is a color; a point missing x or y is skipped and a
-// missing/non-positive radius falls back to a small default, mirroring the Chart.js bubble renderer.
+// missing/non-positive radius falls back to a small default, mirroring the ECharts bubble renderer.
 func renderBubble(res viewspec.Resolved) string {
 	g := svgGeom{w: 800, h: 480, left: 56, right: 16, top: 40, bottom: 40}
 	xlo, xhi, ylo, yhi := bubbleRange(res.Series)
