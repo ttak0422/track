@@ -13,10 +13,15 @@ export function TabBar() {
   const stripRef = useRef<HTMLDivElement>(null);
   const activeRef = useRef<HTMLDivElement>(null);
 
-  // Keep the active tab in view when navigation (e.g. a backlink) selects an off-screen one.
+  // Keep the active tab in view when navigation (e.g. a backlink) selects an off-screen one. Also
+  // re-run when the tab count changes: opening a note with no tab yet appends one in a separate effect
+  // (tabsStore's), so on the render where activeID first changes the new tab isn't in `tabs` yet and
+  // activeRef is still unattached — the length dependency catches the follow-up render where it is.
+  // Depending on `tabs.length` rather than `tabs` itself avoids re-scrolling on unrelated updates (e.g.
+  // a title resolving) that produce a new array without changing the count.
   useEffect(() => {
     activeRef.current?.scrollIntoView({ inline: "nearest", block: "nearest" });
-  }, [activeID]);
+  }, [activeID, tabs.length]);
 
   if (tabs.length === 0) return null;
 
