@@ -12,8 +12,8 @@ static-site export.
 - [[CLI]] — the command-line interface that owns parsing, indexing, and search.
 - [[Linking notes]] — how `[[...]]` links, backlinks, and the note graph work.
 - [[Web workspace]] — the local browser UI for reading, previewing, and navigating notes.
-- [[Visualization]] — how notes render as visuals: [[Charts]] from a View Spec, and [[Embeds]] for
-  Mermaid diagrams, YouTube, PDFs, tweets, and other rich media.
+- [[Visualization]] — how notes render as visuals: [[Diagrams]] (full Mermaid support), [[Charts]] from
+  a View Spec, and [[Embeds]] for YouTube, PDFs, tweets, and other rich media.
 
 ## How the pieces fit
 
