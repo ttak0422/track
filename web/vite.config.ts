@@ -39,7 +39,9 @@ function serveExportedData(): PluginOption {
 const staticBuild = process.env.VITE_TRACK_STATIC === "1";
 
 export default defineConfig({
-  base: staticBuild ? process.env.SITE_BASE || "/" : "/",
+  // Normalize to a trailing slash: GitHub's configure-pages emits base_path as "/repo" (no slash), and
+  // BASE_URL consumers concatenate paths onto it ("/repo" + "data/…" would yield "/repodata/…").
+  base: staticBuild ? (process.env.SITE_BASE || "/").replace(/\/*$/, "/") : "/",
   plugins: [react(), ...(staticBuild ? [serveExportedData()] : [])],
   // A literal boolean the bundler folds at build time, so code gated on `!__TRACK_STATIC__` (e.g. the
   // BudouX word-break model) is dead-code-eliminated from the static build rather than merely unused.

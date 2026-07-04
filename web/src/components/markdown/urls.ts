@@ -55,10 +55,10 @@ export function assetHref(src: string, kind: string): string | null {
   if (name === "") {
     return null;
   }
-  // The static export copies attachments to ./assets/<name>, so reference them relatively instead of the
-  // live server's /api/asset endpoint.
+  // The static export copies attachments to <base>/assets/<name>. Anchor to the build-time base — a
+  // relative "assets/…" would resolve against the current route and 404 under /notes/<id>/.
   if (STATIC_MODE) {
-    return `assets/${name}`;
+    return `${import.meta.env.BASE_URL}assets/${name}`;
   }
   const params = new URLSearchParams({ kind: kind || "note", name });
   return `/api/asset?${params}`;
