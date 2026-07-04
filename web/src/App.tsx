@@ -1,14 +1,11 @@
-import { useEffect } from "react";
 import {
   RouterProvider,
   createHashHistory,
   createRootRoute,
   createRoute,
   createRouter,
-  useNavigate,
 } from "@tanstack/react-router";
-import { QueryClient, QueryClientProvider, useQuery } from "@tanstack/react-query";
-import { getSite } from "./api";
+import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { STATIC_MODE } from "./runtime";
 import { ActivityPanel } from "./components/ActivityPanel";
 import { GraphFullView } from "./components/GraphFullView";
@@ -16,6 +13,7 @@ import { TrackLogo } from "./components/Logo";
 import { NoteReader } from "./components/NoteReader";
 import { SearchPanel } from "./components/SearchPanel";
 import { Shell } from "./components/Shell";
+import { Welcome } from "./components/Welcome";
 import "katex/dist/katex.min.css";
 import "./styles.css";
 
@@ -67,9 +65,10 @@ export function App() {
 }
 
 function HomeRoute() {
-  // The published site has no heatmap home; its entry point is the root note, so redirect there.
+  // The published site has no heatmap home; it lands on a welcome screen (its own entry points), while
+  // the live workspace shows the activity heatmap.
   if (STATIC_MODE) {
-    return <StaticHome />;
+    return <Welcome />;
   }
   return (
     <section className="home-hero">
@@ -78,28 +77,6 @@ function HomeRoute() {
       <SearchPanel />
     </section>
   );
-}
-
-function StaticHome() {
-  const navigate = useNavigate();
-  const { data, isError } = useQuery({ queryKey: ["site"], queryFn: getSite });
-
-  useEffect(() => {
-    if (data?.root) {
-      void navigate({
-        to: "/notes/$noteId",
-        params: { noteId: String(data.root) },
-        replace: true,
-      });
-    }
-  }, [data, navigate]);
-
-  if (isError) {
-    return <p className="error">site data is missing</p>;
-  }
-  // Render nothing while the root note resolves: this route only exists to redirect there, and a logo
-  // here would flash for a frame before the redirect lands.
-  return null;
 }
 
 function NoteRoute() {

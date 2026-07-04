@@ -217,6 +217,28 @@ button {
   min-height: 0;
 }
 
+.welcome-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px 18px;
+  justify-content: center;
+  flex: none;
+}
+
+.welcome-action {
+  color: var(--accent);
+  text-decoration: none;
+}
+
+.welcome-action::after {
+  content: " →";
+  color: var(--muted);
+}
+
+.welcome-action:hover {
+  text-decoration: underline;
+}
+
 .home-hero .activity-panel {
   width: min(560px, 100%);
   flex: none;
@@ -831,6 +853,45 @@ button {
 .tab.dirty:hover .tab-dirty-dot,
 .tab.dirty.active .tab-dirty-dot {
   opacity: 0;
+}
+
+/* Hover popup of actions under the active tab. Fixed (measured from the tab in JS) so the strip's
+   horizontal-scroll overflow does not clip it; flush under the tab so the hover carries into it. */
+.tab-actions {
+  position: fixed;
+  z-index: 30;
+  display: flex;
+  gap: 4px;
+  padding: 4px;
+  border: 1px solid var(--line);
+  border-top: none;
+  border-radius: 0 0 6px 6px;
+  background: var(--panel);
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 120ms ease;
+}
+
+.tab:hover .tab-actions,
+.tab-actions:focus-within {
+  opacity: 1;
+  pointer-events: auto;
+}
+
+.tab-action {
+  display: grid;
+  place-items: center;
+  width: 26px;
+  height: 26px;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  color: var(--text);
+  background: var(--panel-soft);
+  cursor: pointer;
+}
+
+.tab-action:hover {
+  border-color: var(--accent);
 }
 
 /* The note's controls float over the reader as a graph-style overlay (shadowed, translucent pills),
