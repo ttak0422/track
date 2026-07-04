@@ -14,7 +14,7 @@ WEB_DIST   := web/dist-static
 # Open a URL in the browser: xdg-open on Linux, open on macOS. Empty if neither is on PATH.
 OPEN := $(shell command -v xdg-open 2>/dev/null || command -v open 2>/dev/null)
 
-.PHONY: help site site-serve site-clean
+.PHONY: help site site-serve site-clean lighthouse
 
 help: ## List the available targets
 	@grep -E '^[a-zA-Z0-9_-]+:.*?## ' $(MAKEFILE_LIST) \
@@ -25,6 +25,11 @@ site: web/node_modules ## Build the static help site into $(SITE_OUT)
 	go build -o $(TRACK_BIN) ./cmd/track
 	./$(TRACK_BIN) export-site --src $(SITE_SRC) --root $(SITE_ROOT) --frontend $(WEB_DIST) --out $(SITE_OUT)
 	@echo "Built $(SITE_OUT)/ — run 'make site-serve' to preview"
+
+lighthouse: site ## Run Lighthouse on the built site and print the scores (needs Chrome)
+	npx --yes @lhci/cli@0.14.x collect
+	node scripts/lhci-summary.mjs
+	@echo "Full report: open .lighthouseci/lhr-*.html"
 
 site-serve: site ## Serve at http://localhost:$(SITE_PORT), open a browser, and rebuild on change
 	@echo "Serving $(SITE_OUT) at http://localhost:$(SITE_PORT)/ (Ctrl-C to stop)"
