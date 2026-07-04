@@ -55,7 +55,7 @@ export function MermaidDiagram({ text }: MermaidDiagramProps) {
     return <div className="mermaid-diagram mermaid-diagram-loading">Rendering diagram...</div>;
   }
 
-  const { transform, viewportRef, reset, handlers } = panZoom;
+  const { transform, viewportRef, reset, zoomBy, handlers } = panZoom;
   return (
     <div className="mermaid-diagram">
       <div className="mermaid-viewport" ref={viewportRef} {...handlers}>
@@ -70,18 +70,41 @@ export function MermaidDiagram({ text }: MermaidDiagramProps) {
           dangerouslySetInnerHTML={{ __html: state.svg }}
         />
       </div>
-      <button
-        className="mermaid-reset"
-        type="button"
-        onClick={reset}
-        aria-label="Reset diagram view"
-        title="Reset diagram view"
-      >
-        ↺
-      </button>
+      <div className="mermaid-controls">
+        <button
+          className="mermaid-control"
+          type="button"
+          onClick={() => zoomBy(zoomStep)}
+          aria-label="Zoom in"
+          title="Zoom in"
+        >
+          +
+        </button>
+        <button
+          className="mermaid-control"
+          type="button"
+          onClick={() => zoomBy(1 / zoomStep)}
+          aria-label="Zoom out"
+          title="Zoom out"
+        >
+          −
+        </button>
+        <button
+          className="mermaid-control"
+          type="button"
+          onClick={reset}
+          aria-label="Reset diagram view"
+          title="Reset diagram view"
+        >
+          ↺
+        </button>
+      </div>
     </div>
   );
 }
+
+// Per-click zoom factor for the +/- controls.
+const zoomStep = 1.3;
 
 interface Transform {
   x: number;
@@ -109,12 +132,7 @@ function usePanZoom(resetKey: unknown) {
       const rect = el!.getBoundingClientRect();
       const cx = event.clientX - rect.left;
       const cy = event.clientY - rect.top;
-      setTransform((prev) => {
-        const scale = clamp(prev.scale * Math.exp(-event.deltaY * 0.0015), 0.2, 8);
-        const k = scale / prev.scale;
-        // Keep the point under the cursor fixed while scaling.
-        return { scale, x: cx - (cx - prev.x) * k, y: cy - (cy - prev.y) * k };
-      });
+      setTransform((prev) => zoomAt(prev, cx, cy, Math.exp(-event.deltaY * 0.0015)));
     }
     el.addEventListener("wheel", onWheel, { passive: false });
     return () => el.removeEventListener("wheel", onWheel);
@@ -140,12 +158,28 @@ function usePanZoom(resetKey: unknown) {
     event.currentTarget.releasePointerCapture(event.pointerId);
   }
 
+  // zoomBy scales toward the viewport center, so the +/- buttons keep the middle of the diagram put.
+  function zoomBy(factor: number) {
+    const el = viewportRef.current;
+    if (!el) return;
+    const rect = el.getBoundingClientRect();
+    setTransform((prev) => zoomAt(prev, rect.width / 2, rect.height / 2, factor));
+  }
+
   return {
     transform,
     viewportRef,
     reset: () => setTransform(identityTransform),
+    zoomBy,
     handlers: { onPointerDown, onPointerMove, onPointerUp, onPointerCancel: onPointerUp },
   };
+}
+
+// zoomAt multiplies the scale by factor while keeping the point (cx, cy) fixed in the viewport.
+function zoomAt(prev: Transform, cx: number, cy: number, factor: number): Transform {
+  const scale = clamp(prev.scale * factor, 0.2, 8);
+  const k = scale / prev.scale;
+  return { scale, x: cx - (cx - prev.x) * k, y: cy - (cy - prev.y) * k };
 }
 
 function clamp(value: number, min: number, max: number): number {

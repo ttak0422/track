@@ -40,4 +40,17 @@ describe("MermaidDiagram", () => {
     fireEvent.click(screen.getByRole("button", { name: "Reset diagram view" }));
     expect(pan.style.transform).toBe("translate(0px, 0px) scale(1)");
   });
+
+  it("zooms in and out with the control buttons", async () => {
+    const { container } = render(<MermaidDiagram text={"graph TD\nA-->B"} />);
+    await waitFor(() => expect(container.querySelector("svg")).toBeInTheDocument());
+    const pan = screen.getByRole("img", { name: "Mermaid diagram" });
+    const scaleOf = () => Number(pan.style.transform.match(/scale\(([^)]+)\)/)?.[1]);
+
+    fireEvent.click(screen.getByRole("button", { name: "Zoom in" }));
+    expect(scaleOf()).toBeCloseTo(1.3);
+
+    fireEvent.click(screen.getByRole("button", { name: "Zoom out" }));
+    expect(scaleOf()).toBeCloseTo(1);
+  });
 });

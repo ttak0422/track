@@ -1500,10 +1500,18 @@ button {
   height: auto;
 }
 
-.mermaid-reset {
+.mermaid-controls {
   position: absolute;
   top: 8px;
   right: 8px;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  opacity: 0;
+  transition: opacity 0.12s ease;
+}
+
+.mermaid-control {
   width: 26px;
   height: 26px;
   display: grid;
@@ -1512,13 +1520,13 @@ button {
   border-radius: 6px;
   background: var(--panel-soft);
   color: var(--text);
+  font-size: 15px;
+  line-height: 1;
   cursor: pointer;
-  opacity: 0;
-  transition: opacity 0.12s ease;
 }
 
-.mermaid-diagram:hover .mermaid-reset,
-.mermaid-reset:focus-visible {
+.mermaid-diagram:hover .mermaid-controls,
+.mermaid-controls:focus-within {
   opacity: 1;
 }
 
