@@ -184,6 +184,7 @@ func cmdGraph(args []string) int {
 	fs := flag.NewFlagSet("graph", flag.ContinueOnError)
 	id := fs.Int64("id", 0, "note id")
 	path := fs.String("path", "", "note path (alternative to --id)")
+	orphans := fs.Bool("orphans", false, "report notes with no inbound links and notes with a missing parent scope (ignores --id/--path)")
 	if err := fs.Parse(args); err != nil {
 		return fail("parse args: %v", err)
 	}
@@ -193,6 +194,21 @@ func cmdGraph(args []string) int {
 		return fail("%v", err)
 	}
 	defer s.Close()
+
+	if *orphans {
+		// Self-heal so orphan status reflects links/titles as they are on disk, not a stale index.
+		if _, err := index.New(cfg, s).RefreshIfStale(); err != nil {
+			return fail("refresh index: %v", err)
+		}
+		report, err := s.Orphans()
+		if err != nil {
+			return fail("graph orphans: %v", err)
+		}
+		for i := range report.Orphans {
+			report.Orphans[i].Path = cfg.PathForKind(report.Orphans[i].FileKind, report.Orphans[i].NoteID)
+		}
+		return emit(report)
+	}
 
 	noteID := *id
 	if noteID == 0 {

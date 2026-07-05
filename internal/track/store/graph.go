@@ -1,5 +1,85 @@
 package store
 
+import "strings"
+
+// titleSep separates hierarchy levels in a note title, Confluence-style: "foo / bar" is a child of "foo".
+const titleSep = " / "
+
+// DanglingPrefix is a note whose title names a parent scope that no note owns, e.g. "foo / bar" while
+// no note is titled "foo" — the hierarchy equivalent of an orphan.
+type DanglingPrefix struct {
+	NoteID        int64  `json:"note_id"`
+	Title         string `json:"title"`
+	MissingParent string `json:"missing_parent"`
+}
+
+// OrphanReport lists notes unreachable by the link graph or the title hierarchy: Orphans have no
+// inbound links (nothing discovers them via [[wikilinks]]); DanglingPrefixes name a missing parent scope.
+type OrphanReport struct {
+	Orphans          []GraphNode      `json:"orphans"`
+	DanglingPrefixes []DanglingPrefix `json:"dangling_prefixes"`
+}
+
+// Orphans reports notes (kind 'note', excluding journals which are dated and legitimately unlinked)
+// that have no inbound link, plus notes whose title prefix names a parent scope no note owns. It
+// replaces dream's per-note O(N) backlink probing with one query, and folds the title-hierarchy
+// integrity check into the same pass.
+func (s *Store) Orphans() (OrphanReport, error) {
+	report := OrphanReport{Orphans: []GraphNode{}, DanglingPrefixes: []DanglingPrefix{}}
+	notes, err := s.SearchRefs()
+	if err != nil {
+		return report, err
+	}
+
+	inbound := map[int64]bool{}
+	rows, err := s.db.Query(`SELECT src_id, dst_id FROM links WHERE src_id != dst_id`)
+	if err != nil {
+		return report, err
+	}
+	for rows.Next() {
+		var src, dst int64
+		if err := rows.Scan(&src, &dst); err != nil {
+			rows.Close()
+			return report, err
+		}
+		inbound[dst] = true
+	}
+	if err := rows.Close(); err != nil {
+		return report, err
+	}
+
+	titles := make(map[string]bool, len(notes))
+	for _, n := range notes {
+		if n.FileKind == "note" {
+			titles[n.Title] = true
+		}
+	}
+
+	for _, n := range notes {
+		if n.FileKind != "note" {
+			continue
+		}
+		if !inbound[n.NoteID] {
+			report.Orphans = append(report.Orphans, GraphNode{
+				NoteID:   n.NoteID,
+				FileKind: n.FileKind,
+				Title:    n.Title,
+			})
+		}
+		if i := strings.LastIndex(n.Title, titleSep); i >= 0 {
+			parent := n.Title[:i]
+			if !titles[parent] {
+				report.DanglingPrefixes = append(report.DanglingPrefixes, DanglingPrefix{
+					NoteID:        n.NoteID,
+					Title:         n.Title,
+					MissingParent: parent,
+				})
+			}
+		}
+	}
+	return report, nil
+}
+
 // GraphNode is one note shown in a local graph.
 type GraphNode struct {
 	NoteID   int64  `json:"note_id"`

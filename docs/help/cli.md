@@ -30,6 +30,7 @@ printf '本文 [[他ノート]]\n' | track open --title "メモ"
 | `track resolve --term <s>` | Resolve a keyword to a note. |
 | `track backlinks --id N` | List notes that link to a note. |
 | `track graph --id N` | Show a local link graph. |
+| `track graph --orphans` | List notes with no inbound link and notes whose title names a missing parent scope. |
 
 ## Publishing
 
