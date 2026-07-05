@@ -17,7 +17,8 @@ All `/api/*` responses are JSON. Read endpoints:
 
 - `GET /api/search?q=<query>&limit=<n>`: search notes; an empty `q` lists recent
   notes. `#tag` terms filter by sidecar tags.
-- `GET /api/notes`: list indexed notes.
+- `GET /api/notes`: list indexed notes; each entry carries its activity `days` (the local days the note
+  was created or updated), which the calendar view derives its per-day note lists from.
 - `GET /api/activity?days=<n>`: return local-day update counts for the recent
   `n` days. The sidebar activity grid uses this instead of fetching every note.
 - `GET /api/resolve?term=<title>`: resolve a title to a note.
@@ -140,13 +141,23 @@ nodes:
 
 ## Calendar view
 
-`/calendar` shows a month calendar of day journals, reached from the sidebar rail like the full graph.
-A day whose `yyyyMMdd` journal note exists links to it; the month title links to the `yyyyMM` summary
-journal when that exists. Empty days are inert — creation stays with the journal button and the
-activity heatmap. The view derives its days from the notes list (`/api/notes` live, `notes.json` in the
-static export), so it has no endpoint of its own and works identically in both modes. A published site
-whose selection contains no journal notes hides the calendar rail button instead of offering a
-permanently empty page.
+`/calendar` shows a month calendar of note activity, reached from the sidebar rail like the full graph.
+Each day cell lists the top notes active that day (as many as fit, freshest first, with a `+N` count for
+the rest) and links to that day's `/day/YYYY-MM-DD` page; days without activity are inert. The month
+title (`YYYY / M`) links to the `yyyyMM` summary journal when that exists. Journals carry no activity
+days by design, so cells list only real notes.
+
+`/day/YYYY-MM-DD` is the page a day cell opens: the notes active that day — the same set the reader's
+"On this day" aside shows — as a plain list of links. Its header offers the day's journal: the live
+workspace opens (creating if needed) it like the activity heatmap does; the static site links it only
+when the journal is published.
+
+Both pages derive from the notes listing, which carries each note's activity `days` (`/api/notes` live,
+`notes.json` in the static export), so neither needs an endpoint — or any journals — of its own. In the
+static export every active day is prerendered as a real `day/<date>/index.html`, and `getAgenda` derives
+day lists from `notes.json`, which also makes the reader's "On this day" work on published sites. A
+published set with no activity days (e.g. the repo help site, built from plain Markdown) hides the
+calendar rail button instead of offering a permanently empty page.
 
 ## Theme and colors
 

@@ -121,7 +121,12 @@ export function resolveTerm(term: string): Promise<ResolveResponse> {
 
 export function getAgenda(date: string): Promise<AgendaResponse> {
   if (STATIC_MODE) {
-    return Promise.resolve({ date, notes: [] });
+    // Derived from the notes list's activity days, mirroring the live /api/agenda (which also lists only
+    // real notes — journals carry no activity days).
+    return staticData<NotesResponse>("notes.json").then((data) => ({
+      date,
+      notes: data.notes.filter((note) => (note.days ?? []).includes(date)),
+    }));
   }
   return api<AgendaResponse>(`/api/agenda?date=${encodeURIComponent(date)}`);
 }

@@ -14,6 +14,9 @@ export interface NoteRef {
 export interface SearchResult extends NoteRef {
   path: string;
   tags?: string[];
+  // Activity days (YYYY-MM-DD) the note was created/updated on; filled by the notes listing (live and
+  // static), which the calendar derives its per-day note lists from. Journals carry none.
+  days?: string[];
   line?: number;
   snippet?: string;
 }

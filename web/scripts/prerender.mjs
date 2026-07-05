@@ -60,12 +60,17 @@ if (!template.includes('<div id="root"></div>')) {
 
 // route → output file (relative to siteDir). Every note gets its own directory index so path routing
 // resolves a real file on a fallback-less host.
+// Every day with note activity gets a real /day page file, so the calendar's day links survive a reload
+// on a fallback-less host.
+const dayDates = [...new Set(notes.flatMap((n) => n.days ?? []))];
+
 const targets = [
   { route: "/", out: "index.html" },
   { route: "/graph", out: "graph/index.html" },
   { route: "/calendar", out: "calendar/index.html" },
   { route: "/empty", out: "empty/index.html" },
   ...notes.map((n) => ({ route: `/notes/${n.note_id}`, out: `notes/${n.note_id}/index.html` })),
+  ...dayDates.map((d) => ({ route: `/day/${d}`, out: `day/${d}/index.html` })),
 ];
 
 for (const { route, out } of targets) {

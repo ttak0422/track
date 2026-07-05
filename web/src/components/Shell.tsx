@@ -27,11 +27,12 @@ export function Shell() {
   const navigate = useNavigate();
   useLiveEvents();
 
-  // A published set may contain no journals (e.g. the repo help site); hide the calendar there instead of
-  // offering a permanently empty page. The live workspace always has the journal system, so it never asks.
+  // A published set may carry no activity days (e.g. the repo help site, built from plain Markdown);
+  // hide the calendar there instead of offering a permanently empty page. The live workspace always has
+  // activity data, so it never asks.
   const staticNotes = useNotesQuery(STATIC_MODE);
   const showCalendar =
-    !STATIC_MODE || (staticNotes.data?.notes ?? []).some((note) => note.file_kind === "journal");
+    !STATIC_MODE || (staticNotes.data?.notes ?? []).some((note) => (note.days?.length ?? 0) > 0);
 
   // Open (creating if needed) today's journal and jump to it, mirroring how the activity heatmap opens a
   // day. The local-time YYYY-MM-DD key matches the journal id the server derives from the date.

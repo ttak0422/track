@@ -1,7 +1,7 @@
 import { RouterProvider, createMemoryHistory } from "@tanstack/react-router";
 import { QueryClient, dehydrate } from "@tanstack/react-query";
 import { renderToString } from "react-dom/server";
-import { getNote, getSite, listNotes, renderMarkdown } from "./api";
+import { getAgenda, getNote, getSite, listNotes, renderMarkdown, resolveTerm } from "./api";
 import { AppTree, createAppRouter } from "./App";
 import { queryKeys } from "./queries";
 
@@ -50,8 +50,18 @@ async function prefetchForRoute(queryClient: QueryClient, routePath: string): Pr
   await queryClient.prefetchQuery({ queryKey: ["site"], queryFn: getSite });
 
   if (routePath === "/calendar") {
-    // The calendar's above-the-fold content IS the notes list (it derives the journal days from it).
+    // The calendar's above-the-fold content IS the notes list (it derives the per-day notes from it).
     await queryClient.prefetchQuery({ queryKey: queryKeys.notes(), queryFn: listNotes });
+    return;
+  }
+
+  const dayMatch = routePath.match(/^\/day\/([^/?#]+)/);
+  if (dayMatch) {
+    // A day page's content is its agenda list, plus the resolved day journal for the header link.
+    const date = decodeURIComponent(dayMatch[1]);
+    const term = date.replaceAll("-", "");
+    await queryClient.prefetchQuery({ queryKey: queryKeys.agenda(date), queryFn: () => getAgenda(date) });
+    await queryClient.prefetchQuery({ queryKey: queryKeys.resolve(term), queryFn: () => resolveTerm(term) });
     return;
   }
 
