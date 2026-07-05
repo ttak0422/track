@@ -6,6 +6,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/ttak0422/track/internal/track/config"
 	"github.com/ttak0422/track/internal/track/index"
@@ -238,6 +239,46 @@ func TestBuildPublishesActivityDays(t *testing.T) {
 	site := readJSON[jsonSite](t, filepath.Join(out, "data", "site.json"))
 	if !site.Calendar {
 		t.Fatalf("Options.Calendar should surface in site.json, got %+v", site)
+	}
+}
+
+// TestBuildListsByRecency pins the shared note-list order in the bundle: notes.json and each note's
+// backlinks list most recently updated first, matching the live server, so the published calendar,
+// day pages, and backlinks read in the same order as the workspace.
+func TestBuildListsByRecency(t *testing.T) {
+	cfg, s := vaultStore(t)
+	writeVaultNote(t, cfg, 100, "Old", "# Old\n\n[[Target]]\n")
+	writeVaultNote(t, cfg, 200, "New", "# New\n\n[[Target]]\n")
+	writeVaultNote(t, cfg, 300, "Target", "# Target\n")
+	base := time.Now().Add(-time.Hour)
+	for id, offset := range map[int64]time.Duration{100: 0, 200: 2 * time.Minute, 300: time.Minute} {
+		if err := os.Chtimes(cfg.NotePath(id), base.Add(offset), base.Add(offset)); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if _, err := index.New(cfg, s).Full(); err != nil {
+		t.Fatalf("index: %v", err)
+	}
+
+	out := t.TempDir()
+	if _, err := Build(cfg, s, Options{Root: 300, IDs: []int64{100, 200}}, fakeFrontend(t), out); err != nil {
+		t.Fatalf("build: %v", err)
+	}
+
+	notes := readJSON[struct {
+		Notes []jsonSearchResult `json:"notes"`
+	}](t, filepath.Join(out, "data", "notes.json"))
+	titles := make([]string, 0, len(notes.Notes))
+	for _, n := range notes.Notes {
+		titles = append(titles, n.Title)
+	}
+	if len(titles) != 3 || titles[0] != "New" || titles[1] != "Target" || titles[2] != "Old" {
+		t.Fatalf("notes.json should list most recently updated first, got %v", titles)
+	}
+
+	target := readJSON[jsonNoteResponse](t, filepath.Join(out, "data", "note", PublishID(300)+".json"))
+	if len(target.Backlinks) != 2 || target.Backlinks[0].Title != "New" || target.Backlinks[1].Title != "Old" {
+		t.Fatalf("backlinks should list most recently updated first, got %+v", target.Backlinks)
 	}
 }
 

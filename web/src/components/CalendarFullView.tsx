@@ -17,8 +17,9 @@ export function CalendarFullView() {
   const notesQuery = useNotesQuery();
   const [month, setMonth] = useState(startOfCurrentMonth);
 
-  // day (YYYY-MM-DD) → notes active that day, kept in the listing's order (most recently updated first
-  // on the live server), so a cell's visible titles are the freshest ones.
+  // day (YYYY-MM-DD) → notes active that day, kept in the listing's order — most recently updated
+  // first, the one order every note-list surface shares — so a cell's visible titles read the same as
+  // the day page they open.
   const notesByDay = useMemo(() => {
     const map = new Map<string, SearchResult[]>();
     for (const note of notesQuery.data?.notes ?? []) {

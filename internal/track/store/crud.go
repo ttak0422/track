@@ -141,12 +141,13 @@ func (s *Store) ResolveTerm(term string) (NoteRef, bool, error) {
 	return ref, true, nil
 }
 
-// Backlinks returns notes that link to the given note id.
+// Backlinks returns notes that link to the given note id, most recently updated first — the one
+// ordering every note-list surface shares (see sortRefs in webui and the static bundle).
 func (s *Store) Backlinks(id int64) ([]NoteRef, error) {
 	rows, err := s.db.Query(
 		`SELECT n.id, n.kind, n.title
 		 FROM links l JOIN notes n ON n.id = l.src_id
-		 WHERE l.dst_id = ? ORDER BY n.id`,
+		 WHERE l.dst_id = ? ORDER BY n.mtime DESC, n.id`,
 		id,
 	)
 	if err != nil {
@@ -156,12 +157,14 @@ func (s *Store) Backlinks(id int64) ([]NoteRef, error) {
 	return scanNoteRefs(rows)
 }
 
-// NotesOnDay returns the notes active (created or updated) on the given local calendar day, ordered by id.
+// NotesOnDay returns the notes active (created or updated) on the given local calendar day, most
+// recently updated first — the shared note-list order, so a calendar cell's visible titles and the day
+// page it opens read identically.
 func (s *Store) NotesOnDay(day string) ([]NoteRef, error) {
 	rows, err := s.db.Query(
 		`SELECT n.id, n.kind, n.title
 		 FROM note_days d JOIN notes n ON n.id = d.note_id
-		 WHERE d.day = ? ORDER BY n.id`,
+		 WHERE d.day = ? ORDER BY n.mtime DESC, n.id`,
 		day,
 	)
 	if err != nil {

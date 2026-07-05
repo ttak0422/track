@@ -82,8 +82,9 @@ func TestResolveTerm(t *testing.T) {
 
 func TestLinksAndBacklinks(t *testing.T) {
 	s := newTestStore(t)
-	for _, id := range []int64{1, 2, 3} {
-		if err := s.UpsertNote(&note.Note{ID: id, Path: fmt.Sprintf("/v/%d.md", id), Meta: note.Metadata{Title: "n"}}); err != nil {
+	// Note 2 was updated more recently than 3, so it must list first (the shared recency order).
+	for id, mtime := range map[int64]int64{1: 10, 2: 300, 3: 200} {
+		if err := s.UpsertNote(&note.Note{ID: id, Path: fmt.Sprintf("/v/%d.md", id), Mtime: mtime, Meta: note.Metadata{Title: "n"}}); err != nil {
 			t.Fatal(err)
 		}
 	}
@@ -103,7 +104,7 @@ func TestLinksAndBacklinks(t *testing.T) {
 		t.Fatalf("backlinks: %v", err)
 	}
 	if len(back) != 2 || back[0].NoteID != 2 || back[1].NoteID != 3 {
-		t.Fatalf("unexpected backlinks: %+v", back)
+		t.Fatalf("backlinks should list most recently updated first: %+v", back)
 	}
 }
 
@@ -123,14 +124,15 @@ func TestDeleteNoteCascades(t *testing.T) {
 
 func TestNotesOnDay(t *testing.T) {
 	s := newTestStore(t)
-	// Note 1 carries an explicit activity day list.
-	if err := s.UpsertNote(&note.Note{ID: 1, Path: "/v/1.md", Meta: note.Metadata{
+	// Note 1 carries an explicit activity day list; note 2 was updated more recently, so on their
+	// shared day it lists first (the recency order every list surface uses).
+	if err := s.UpsertNote(&note.Note{ID: 1, Path: "/v/1.md", Mtime: 100, Meta: note.Metadata{
 		Title: "Listed", Created: "2026-06-20", Days: []string{"2026-06-20", "2026-06-22"},
 	}}); err != nil {
 		t.Fatal(err)
 	}
 	// Note 2 predates the days field: it falls back to its created day.
-	if err := s.UpsertNote(&note.Note{ID: 2, Path: "/v/2.md", Meta: note.Metadata{
+	if err := s.UpsertNote(&note.Note{ID: 2, Path: "/v/2.md", Mtime: 200, Meta: note.Metadata{
 		Title: "Fallback", Created: "2026-06-22",
 	}}); err != nil {
 		t.Fatal(err)
@@ -146,8 +148,8 @@ func TestNotesOnDay(t *testing.T) {
 	if err != nil {
 		t.Fatalf("notes on day: %v", err)
 	}
-	if len(on22) != 2 || on22[0].NoteID != 1 || on22[1].NoteID != 2 {
-		t.Fatalf("NotesOnDay(2026-06-22) = %+v, want notes 1 and 2 (journal excluded)", on22)
+	if len(on22) != 2 || on22[0].NoteID != 2 || on22[1].NoteID != 1 {
+		t.Fatalf("NotesOnDay(2026-06-22) = %+v, want notes 2 then 1 (recency order, journal excluded)", on22)
 	}
 
 	on20, err := s.NotesOnDay("2026-06-20")

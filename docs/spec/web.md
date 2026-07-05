@@ -157,6 +157,11 @@ Both pages derive from the notes listing, which carries each note's activity `da
 static site `getAgenda` derives day lists from `notes.json`, which also makes the reader's "On this day"
 work on published sites.
 
+Every note-list surface shares one ordering: most recently updated first (id ascending on ties). The
+notes listing, the calendar's cell titles, the day pages, the reader's "On this day" aside, and
+backlinks all sort this way, live and published alike, so a cell's visible titles read identically on
+the page they open.
+
 A published site opts into the calendar with `track export-site --calendar` (vault mode only; a `--src`
 directory has no activity days and is rejected). The flag is carried as `calendar` in `site.json`: the
 frontend shows the rail button and the prerender emits `calendar/index.html` plus a real

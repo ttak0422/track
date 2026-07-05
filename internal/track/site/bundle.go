@@ -25,6 +25,7 @@ type doc struct {
 	kind     string // "note" or "journal"
 	tags     []string
 	days     []string // activity days (YYYY-MM-DD) from the sidecar; journals carry none
+	mtime    int64    // file mtime, for the shared recently-updated-first listing order (0 in dir mode)
 	path     string   // source/display path (informational in the static site)
 	body     string   // web-sanitized Markdown the frontend renders
 	keys     []string // resolution keys ([[key]]) that point at this doc (title, file name, …)
@@ -113,17 +114,20 @@ func writeBundle(docs []doc, edges []edge, root int64, calendar bool, frontendDi
 		}
 	}
 
-	// notes.json
-	notes := make([]jsonSearchResult, 0, len(docs))
-	for _, d := range docs {
+	// notes.json, in the shared note-list order (recently updated first) so the published calendar,
+	// day pages, and search listing read like the live server's.
+	listed := append([]doc(nil), docs...)
+	byRecency(listed)
+	notes := make([]jsonSearchResult, 0, len(listed))
+	for _, d := range listed {
 		notes = append(notes, searchResultOf(d))
 	}
 	if err := writeJSONFile(filepath.Join(outDir, "data", "notes.json"), map[string]any{"notes": notes}); err != nil {
 		return Result{}, err
 	}
 
-	// note/<id>.json with backlinks derived from edges.
-	backlinks := map[int64][]jsonRef{}
+	// note/<id>.json with backlinks derived from edges, each list in the shared order.
+	linkers := map[int64][]doc{}
 	byID := map[int64]doc{}
 	for _, d := range docs {
 		byID[d.id] = d
@@ -133,12 +137,14 @@ func writeBundle(docs []doc, edges []edge, root int64, calendar bool, frontendDi
 		if !ok {
 			continue
 		}
-		backlinks[e.dst] = append(backlinks[e.dst], refOf(src))
+		linkers[e.dst] = append(linkers[e.dst], src)
 	}
 	for _, d := range docs {
-		bl := backlinks[d.id]
-		if bl == nil {
-			bl = []jsonRef{}
+		srcs := linkers[d.id]
+		byRecency(srcs)
+		bl := make([]jsonRef, 0, len(srcs))
+		for _, src := range srcs {
+			bl = append(bl, refOf(src))
 		}
 		// Rewrite asset references to their published (slugged) names, matching the copied files.
 		body := rewriteAssetRefs(d.body)
@@ -241,6 +247,18 @@ func searchResultOf(d doc) jsonSearchResult {
 
 func refOf(d doc) jsonRef {
 	return jsonRef{NoteID: PublishID(d.id), FileKind: kindOf(d), Title: d.title}
+}
+
+// byRecency sorts docs into the one note-list order every surface shares (see webui's sortRefs):
+// most recently updated first, id ascending on ties — which in dir mode (all mtimes zero) keeps the
+// name-derived id order.
+func byRecency(ds []doc) {
+	sort.Slice(ds, func(i, j int) bool {
+		if ds[i].mtime != ds[j].mtime {
+			return ds[i].mtime > ds[j].mtime
+		}
+		return ds[i].id < ds[j].id
+	})
 }
 
 func kindOf(d doc) string {

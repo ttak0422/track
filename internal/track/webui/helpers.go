@@ -33,12 +33,15 @@ func addSearchPaths(cfg *config.Config, results []store.SearchResult) {
 	}
 }
 
+// sortRefs applies the one ordering every note-list surface shares — most recently updated first, id
+// ascending on ties. The store's agenda/backlink queries and the static bundle's listing sort the same
+// way, so a calendar cell, the day page it opens, and a note's backlinks always read in the same order.
 func sortRefs(results []store.SearchResult) {
 	slices.SortFunc(results, func(a, b store.SearchResult) int {
 		if a.Mtime != b.Mtime {
 			return desc(a.Mtime, b.Mtime)
 		}
-		return desc(a.NoteID, b.NoteID)
+		return desc(b.NoteID, a.NoteID)
 	})
 }
 
