@@ -144,7 +144,7 @@ nodes:
 `/calendar` shows a month calendar of note activity, reached from the sidebar rail like the full graph.
 Each day cell lists the top notes active that day (as many as fit, freshest first, with a `+N` count for
 the rest) and links to that day's `/day/YYYY-MM-DD` page; days without activity are inert. The month
-title (`YYYY / M`) links to the `yyyyMM` summary journal when that exists. Journals carry no activity
+title (`YYYY / MM`) links to the `yyyyMM` summary journal when that exists. Journals carry no activity
 days by design, so cells list only real notes.
 
 `/day/YYYY-MM-DD` is the page a day cell opens: the notes active that day — the same set the reader's

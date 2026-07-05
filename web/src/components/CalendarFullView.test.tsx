@@ -54,7 +54,7 @@ describe("CalendarFullView", () => {
   it("renders the current month with active days linking to their day page", () => {
     const { container, getByText } = render(<CalendarFullView />);
 
-    expect(getByText("2026 / 7")).toBeTruthy();
+    expect(getByText("2026 / 07")).toBeTruthy();
     // July 2026 starts on a Wednesday: three leading blanks, then 31 day cells.
     expect(container.querySelectorAll(".calendar-day-blank")).toHaveLength(3);
     expect(container.querySelectorAll(".calendar-day:not(.calendar-day-blank)")).toHaveLength(31);
@@ -88,7 +88,7 @@ describe("CalendarFullView", () => {
     const { container, getByText, getByLabelText, queryByText } = render(<CalendarFullView />);
 
     fireEvent.click(getByLabelText("Previous month"));
-    expect(getByText("2026 / 6")).toBeTruthy();
+    expect(getByText("2026 / 06")).toBeTruthy();
     // June 2026 has no activity and no month note: no day links, plain title.
     expect(container.querySelectorAll("a.calendar-day")).toHaveLength(0);
     expect(container.querySelector("a.calendar-title")).toBeNull();
@@ -96,8 +96,8 @@ describe("CalendarFullView", () => {
     expect(container.querySelector('[aria-current="date"]')).toBeNull();
 
     fireEvent.click(getByText("Today"));
-    expect(getByText("2026 / 7")).toBeTruthy();
-    expect(queryByText("2026 / 6")).toBeNull();
+    expect(getByText("2026 / 07")).toBeTruthy();
+    expect(queryByText("2026 / 06")).toBeNull();
   });
 
   it("shows the pending state before the notes list resolves", () => {

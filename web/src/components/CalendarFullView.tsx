@@ -46,7 +46,7 @@ export function CalendarFullView() {
   // `month` is the 1st, so its weekday is the number of leading blank cells (weeks start on Sunday).
   const leadingBlanks = month.getDay();
   const todayKey = dateKey(new Date());
-  const monthLabel = `${year} / ${monthNo}`;
+  const monthLabel = `${year} / ${pad2(monthNo)}`;
   const monthNoteID = journals.get(`${year}${pad2(monthNo)}`);
 
   function shiftMonth(delta: number) {
