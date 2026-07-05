@@ -101,6 +101,10 @@ func goldenCases() map[string]viewspec.Resolved {
 				{From: "b", To: "c", Label: "period"},
 				{From: "x", To: "c"}, // unknown category → skipped
 			},
+			Callouts: []viewspec.Callout{
+				{X: "c", Y: 3, Label: "peak"},
+				{X: "zz", Y: 3, Label: "gone"}, // unknown category → skipped
+			},
 		},
 		"heatmap": {
 			Spec: viewspec.Spec{Title: "Heat"}, Chart: viewspec.ChartHeatmap,
