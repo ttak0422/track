@@ -47,12 +47,14 @@ type state struct {
 
 type genMeta struct {
 	Created string `yaml:"created"`
+	Label   string `yaml:"label,omitempty"`
 }
 
 // Info describes one generation for listing.
 type Info struct {
 	Gen     int    `json:"gen"`
 	Created string `json:"created,omitempty"`
+	Label   string `json:"label,omitempty"`
 	Notes   int    `json:"notes"`
 }
 
@@ -60,6 +62,17 @@ type ListResult struct {
 	Generations []Info `json:"generations"`
 	Cursor      int    `json:"cursor"`
 	Dirty       bool   `json:"dirty"`
+}
+
+// StatusResult lists how the working vault diverged from the cursor generation, git-status style.
+// Paths are vault-relative (forward-slash) snapshot paths. With no generations yet, Cursor is 0 and
+// every working file is reported under Added.
+type StatusResult struct {
+	Cursor  int      `json:"cursor"`
+	Dirty   bool     `json:"dirty"`
+	Added   []string `json:"added"`
+	Changed []string `json:"changed"`
+	Deleted []string `json:"deleted"`
 }
 
 type IncrementResult struct {
@@ -137,8 +150,10 @@ func (m *Manager) saveCursor(n int) error {
 
 // Increment saves the working vault as a new generation. Generations after the cursor are dropped
 // first (linear history), and when the working vault already equals the cursor generation no new
-// one is created. Old generations beyond Config.GenKeep are pruned.
-func (m *Manager) Increment() (IncrementResult, error) {
+// one is created. Old generations beyond Config.GenKeep are pruned. label is stored in the
+// generation's metadata so dream save points can be told apart from manual ones; it is dropped when
+// no new generation is cut (nothing changed).
+func (m *Manager) Increment(label string) (IncrementResult, error) {
 	var res IncrementResult
 	gens, err := m.generations()
 	if err != nil {
@@ -171,7 +186,7 @@ func (m *Manager) Increment() (IncrementResult, error) {
 	}
 
 	next := cur + 1
-	if err := m.snapshot(next); err != nil {
+	if err := m.snapshot(next, label); err != nil {
 		return res, err
 	}
 	if err := m.saveCursor(next); err != nil {
@@ -220,7 +235,7 @@ func (m *Manager) Undo() (MoveResult, error) {
 			// Auto-save the working state as a new head so undo never destroys it; the step back
 			// then lands on the generation the cursor was on.
 			res.Saved = head + 1
-			if err := m.snapshot(res.Saved); err != nil {
+			if err := m.snapshot(res.Saved, ""); err != nil {
 				return res, err
 			}
 			target = cur
@@ -291,6 +306,7 @@ func (m *Manager) List() (ListResult, error) {
 			var meta genMeta
 			if yaml.Unmarshal(raw, &meta) == nil {
 				info.Created = meta.Created
+				info.Label = meta.Label
 			}
 		}
 		for _, d := range []string{config.KindNote, config.KindJournal} {
@@ -323,6 +339,54 @@ func (m *Manager) List() (ListResult, error) {
 	return res, nil
 }
 
+// Status reports which snapshot files the working vault added, changed, or deleted relative to the
+// cursor generation — the machine-readable basis for a dream report, so the changed set no longer
+// depends on the agent's self-report. It is the file-level detail behind List's Dirty bool.
+func (m *Manager) Status() (StatusResult, error) {
+	res := StatusResult{Added: []string{}, Changed: []string{}, Deleted: []string{}}
+	gens, err := m.generations()
+	if err != nil {
+		return res, err
+	}
+	cur, err := m.cursor(gens)
+	if err != nil {
+		return res, err
+	}
+	res.Cursor = cur
+
+	work, err := treeSums(m.cfg.VaultDir)
+	if err != nil {
+		return res, err
+	}
+	var saved map[string]string
+	if cur > 0 {
+		if saved, err = treeSums(m.genDir(cur)); err != nil {
+			return res, err
+		}
+	} else {
+		saved = map[string]string{}
+	}
+
+	for rel, sum := range work {
+		switch prev, ok := saved[rel]; {
+		case !ok:
+			res.Added = append(res.Added, rel)
+		case prev != sum:
+			res.Changed = append(res.Changed, rel)
+		}
+	}
+	for rel := range saved {
+		if _, ok := work[rel]; !ok {
+			res.Deleted = append(res.Deleted, rel)
+		}
+	}
+	slices.Sort(res.Added)
+	slices.Sort(res.Changed)
+	slices.Sort(res.Deleted)
+	res.Dirty = len(res.Added)+len(res.Changed)+len(res.Deleted) > 0
+	return res, nil
+}
+
 // Peek returns a note's content as of generation n (0 means the cursor generation). rel is the
 // note's vault-relative path. The cursor does not move.
 func (m *Manager) Peek(n int, rel string) (string, error) {
@@ -351,8 +415,9 @@ func (m *Manager) Peek(n int, rel string) (string, error) {
 	return string(raw), nil
 }
 
-// snapshot copies the snapshot roots of the working vault into a new generation directory.
-func (m *Manager) snapshot(n int) error {
+// snapshot copies the snapshot roots of the working vault into a new generation directory. label is
+// recorded in the generation metadata (empty for auto-saves and unlabeled increments).
+func (m *Manager) snapshot(n int, label string) error {
 	dst := m.genDir(n)
 	for _, d := range snapshotDirs() {
 		if err := copyTree(filepath.Join(m.cfg.VaultDir, d), filepath.Join(dst, d)); err != nil {
@@ -364,7 +429,7 @@ func (m *Manager) snapshot(n int) error {
 			return err
 		}
 	}
-	raw, err := yaml.Marshal(genMeta{Created: time.Now().Format(time.RFC3339)})
+	raw, err := yaml.Marshal(genMeta{Created: time.Now().Format(time.RFC3339), Label: label})
 	if err != nil {
 		return err
 	}

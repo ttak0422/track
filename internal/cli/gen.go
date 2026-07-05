@@ -16,7 +16,7 @@ import (
 // cmdGen dispatches the generation-management subcommands (see internal/track/gen for the model).
 func cmdGen(args []string) int {
 	if len(args) == 0 {
-		return fail("gen: subcommand required (increment|undo|redo|list|peek)")
+		return fail("gen: subcommand required (increment|undo|redo|list|status|peek)")
 	}
 	sub, rest := args[0], args[1:]
 	switch sub {
@@ -28,15 +28,18 @@ func cmdGen(args []string) int {
 		return cmdGenMove(rest, "redo")
 	case "list":
 		return cmdGenList(rest)
+	case "status":
+		return cmdGenStatus(rest)
 	case "peek":
 		return cmdGenPeek(rest)
 	default:
-		return fail("gen: unknown subcommand %q (increment|undo|redo|list|peek)", sub)
+		return fail("gen: unknown subcommand %q (increment|undo|redo|list|status|peek)", sub)
 	}
 }
 
 func cmdGenIncrement(args []string) int {
 	fs := flag.NewFlagSet("gen increment", flag.ContinueOnError)
+	label := fs.String("label", "", "optional label stored with the generation (e.g. to mark a dream save point)")
 	if err := fs.Parse(args); err != nil {
 		return fail("parse args: %v", err)
 	}
@@ -44,9 +47,25 @@ func cmdGenIncrement(args []string) int {
 	if err != nil {
 		return fail("%v", err)
 	}
-	res, err := gen.New(cfg).Increment()
+	res, err := gen.New(cfg).Increment(strings.TrimSpace(*label))
 	if err != nil {
 		return fail("gen increment: %v", err)
+	}
+	return emit(res)
+}
+
+func cmdGenStatus(args []string) int {
+	fs := flag.NewFlagSet("gen status", flag.ContinueOnError)
+	if err := fs.Parse(args); err != nil {
+		return fail("parse args: %v", err)
+	}
+	cfg, err := config.Load()
+	if err != nil {
+		return fail("%v", err)
+	}
+	res, err := gen.New(cfg).Status()
+	if err != nil {
+		return fail("gen status: %v", err)
 	}
 	return emit(res)
 }

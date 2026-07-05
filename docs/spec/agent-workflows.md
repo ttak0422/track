@@ -78,15 +78,24 @@ Typical creation loop:
 is a git release: a generation is an immutable save point, the working vault is a disposable
 working tree.
 
-- `track gen increment`: save the working vault as a generation. Returns `{"gen":N,"changed":true}`,
-  or `changed: false` when nothing diverged from the cursor generation. Generations past the cursor
-  are dropped (`dropped`), the oldest beyond `gen_keep` are pruned (`pruned`).
+- `track gen increment [--label S]`: save the working vault as a generation. Returns
+  `{"gen":N,"changed":true}`, or `changed: false` when nothing diverged from the cursor generation.
+  Generations past the cursor are dropped (`dropped`), the oldest beyond `gen_keep` are pruned
+  (`pruned`). `--label` tags the new generation (e.g. to mark a dream save point) and shows up in
+  `gen list`; it is dropped when nothing changed and no generation is cut.
 - `track gen undo` / `track gen redo`: move the cursor one generation back/forward and restore the
   vault to it, then rebuild the index (search stays consistent). `undo` at the head auto-saves
   unsaved changes as a generation first and reports it as `saved`; everywhere else unsaved changes
   are discarded, so save with `increment` before moving.
-- `track gen list`: `{"generations":[{"gen":1,"created":"...","notes":12}],"cursor":1,"dirty":false}`.
-  Check `dirty` before a cursor move to know whether anything unsaved is at stake.
+- `track gen list`: `{"generations":[{"gen":1,"created":"...","label":"...","notes":12}],"cursor":1,"dirty":false}`.
+  Check `dirty` before a cursor move to know whether anything unsaved is at stake; `label` is present
+  only for generations that carried one.
+- `track gen status`: the file-level detail behind `dirty` — which snapshot files the working vault
+  added, changed, or deleted relative to the cursor generation, git-status style:
+  `{"cursor":1,"dirty":true,"added":["note/..."],"changed":["note/..."],"deleted":[]}`. Paths are
+  vault-relative (a body edit shows `note/<id>.md`, a metadata-only change its `.track/notes/<id>.yaml`
+  sidecar). This is the machine-readable basis for a dream report, so the changed set no longer
+  depends on the agent's self-report.
 - `track gen peek [--gen N] (--id N | --title X | --path P)`: print a note's Markdown as of a
   generation (default: the cursor generation) to stdout, like `export`. The cursor does not move.
   A deleted note no longer resolves by title; peek it by `--id`. Selective revert is peek + diff +
@@ -111,6 +120,8 @@ Snapshots cover note bodies, journals, and sidecar metadata only — `assets/` a
 excluded, so an undo never restores or removes attachments.
 
 ## Maintenance
+
+`track graph --orphans` reports vault-wide link-graph hygiene in one call (self-healing the index first): `orphans` are notes (journals excluded) with no inbound `[[link]]`, hence undiscoverable by navigation; `dangling_prefixes` are notes whose title `foo / bar` names a parent scope `foo` that no note owns. It replaces per-note `backlinks` probing when a dream/consolidation pass sweeps the whole vault for reconnection candidates.
 
 `track reindex --full` rebuilds the cache index from the on-disk notes and sidecars; it reconciles deletions silently.
 

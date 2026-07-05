@@ -43,7 +43,7 @@ func TestIncrementIsNoOpWhenClean(t *testing.T) {
 	m := New(cfg)
 	writeNote(t, cfg, "1.md", "v1\n")
 
-	res, err := m.Increment()
+	res, err := m.Increment("")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -51,7 +51,7 @@ func TestIncrementIsNoOpWhenClean(t *testing.T) {
 		t.Fatalf("first increment = %+v, want gen 1 changed", res)
 	}
 
-	res, err = m.Increment()
+	res, err = m.Increment("")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -64,11 +64,11 @@ func TestUndoRedoRoundTrip(t *testing.T) {
 	cfg := testConfig(t, 10)
 	m := New(cfg)
 	path := writeNote(t, cfg, "1.md", "v1\n")
-	if _, err := m.Increment(); err != nil {
+	if _, err := m.Increment(""); err != nil {
 		t.Fatal(err)
 	}
 	writeNote(t, cfg, "1.md", "v2\n")
-	if _, err := m.Increment(); err != nil {
+	if _, err := m.Increment(""); err != nil {
 		t.Fatal(err)
 	}
 
@@ -103,7 +103,7 @@ func TestUndoAtDirtyHeadAutoSaves(t *testing.T) {
 	cfg := testConfig(t, 10)
 	m := New(cfg)
 	path := writeNote(t, cfg, "1.md", "v1\n")
-	if _, err := m.Increment(); err != nil {
+	if _, err := m.Increment(""); err != nil {
 		t.Fatal(err)
 	}
 	writeNote(t, cfg, "1.md", "dirty\n")
@@ -132,15 +132,15 @@ func TestUndoOffHeadDiscardsDirty(t *testing.T) {
 	cfg := testConfig(t, 10)
 	m := New(cfg)
 	path := writeNote(t, cfg, "1.md", "v1\n")
-	if _, err := m.Increment(); err != nil {
+	if _, err := m.Increment(""); err != nil {
 		t.Fatal(err)
 	}
 	writeNote(t, cfg, "1.md", "v2\n")
-	if _, err := m.Increment(); err != nil {
+	if _, err := m.Increment(""); err != nil {
 		t.Fatal(err)
 	}
 	writeNote(t, cfg, "1.md", "v3\n")
-	if _, err := m.Increment(); err != nil {
+	if _, err := m.Increment(""); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := m.Undo(); err != nil { // cursor 2
@@ -164,11 +164,11 @@ func TestIncrementDropsFutureGenerations(t *testing.T) {
 	cfg := testConfig(t, 10)
 	m := New(cfg)
 	writeNote(t, cfg, "1.md", "v1\n")
-	if _, err := m.Increment(); err != nil {
+	if _, err := m.Increment(""); err != nil {
 		t.Fatal(err)
 	}
 	writeNote(t, cfg, "1.md", "v2\n")
-	if _, err := m.Increment(); err != nil {
+	if _, err := m.Increment(""); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := m.Undo(); err != nil { // cursor 1
@@ -176,7 +176,7 @@ func TestIncrementDropsFutureGenerations(t *testing.T) {
 	}
 	writeNote(t, cfg, "1.md", "branch\n")
 
-	res, err := m.Increment()
+	res, err := m.Increment("")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -193,7 +193,7 @@ func TestIncrementPrunesOldGenerations(t *testing.T) {
 	m := New(cfg)
 	for _, body := range []string{"v1\n", "v2\n", "v3\n"} {
 		writeNote(t, cfg, "1.md", body)
-		if _, err := m.Increment(); err != nil {
+		if _, err := m.Increment(""); err != nil {
 			t.Fatal(err)
 		}
 	}
@@ -210,11 +210,11 @@ func TestRestoreRemovesFilesCreatedAfterSnapshot(t *testing.T) {
 	cfg := testConfig(t, 10)
 	m := New(cfg)
 	writeNote(t, cfg, "1.md", "v1\n")
-	if _, err := m.Increment(); err != nil {
+	if _, err := m.Increment(""); err != nil {
 		t.Fatal(err)
 	}
 	writeNote(t, cfg, "2.md", "new note\n")
-	if _, err := m.Increment(); err != nil {
+	if _, err := m.Increment(""); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := m.Undo(); err != nil {
@@ -229,11 +229,11 @@ func TestPeekReadsSnapshotWithoutMovingCursor(t *testing.T) {
 	cfg := testConfig(t, 10)
 	m := New(cfg)
 	writeNote(t, cfg, "1.md", "old\n")
-	if _, err := m.Increment(); err != nil {
+	if _, err := m.Increment(""); err != nil {
 		t.Fatal(err)
 	}
 	writeNote(t, cfg, "1.md", "new\n")
-	if _, err := m.Increment(); err != nil {
+	if _, err := m.Increment(""); err != nil {
 		t.Fatal(err)
 	}
 
@@ -277,7 +277,7 @@ func TestListReportsDirty(t *testing.T) {
 		t.Fatalf("pre-increment list = %+v, want dirty with no cursor", list)
 	}
 
-	if _, err := m.Increment(); err != nil {
+	if _, err := m.Increment(""); err != nil {
 		t.Fatal(err)
 	}
 	list, err = m.List()
@@ -309,13 +309,13 @@ func TestSidecarMetadataTravelsWithGenerations(t *testing.T) {
 	if err := os.WriteFile(metaPath, []byte("version: 1\ntitle: Old\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := m.Increment(); err != nil {
+	if _, err := m.Increment(""); err != nil {
 		t.Fatal(err)
 	}
 	if err := os.WriteFile(metaPath, []byte("version: 1\ntitle: New\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := m.Increment(); err != nil {
+	if _, err := m.Increment(""); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := m.Undo(); err != nil {
@@ -324,4 +324,65 @@ func TestSidecarMetadataTravelsWithGenerations(t *testing.T) {
 	if got := readNote(t, metaPath); got != "version: 1\ntitle: Old\n" {
 		t.Fatalf("sidecar after undo = %q, want the old title", got)
 	}
+}
+
+func TestIncrementLabelShownInList(t *testing.T) {
+	cfg := testConfig(t, 10)
+	m := New(cfg)
+	writeNote(t, cfg, "1.md", "v1\n")
+	if _, err := m.Increment("dream-savepoint"); err != nil {
+		t.Fatal(err)
+	}
+	res, err := m.List()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(res.Generations) != 1 || res.Generations[0].Label != "dream-savepoint" {
+		t.Fatalf("list = %+v, want one gen labeled dream-savepoint", res.Generations)
+	}
+}
+
+func TestStatusReportsAddedChangedDeleted(t *testing.T) {
+	cfg := testConfig(t, 10)
+	m := New(cfg)
+	writeNote(t, cfg, "1.md", "v1\n")
+	writeNote(t, cfg, "2.md", "keep\n")
+	if _, err := m.Increment(""); err != nil {
+		t.Fatal(err)
+	}
+
+	writeNote(t, cfg, "1.md", "v2\n")  // changed
+	writeNote(t, cfg, "3.md", "new\n") // added
+	if err := os.Remove(filepath.Join(cfg.NoteDir(), "2.md")); err != nil {
+		t.Fatal(err) // deleted
+	}
+
+	st, err := m.Status()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !st.Dirty {
+		t.Fatalf("status = %+v, want dirty", st)
+	}
+	if want := []string{"note/3.md"}; !equalStrs(st.Added, want) {
+		t.Fatalf("added = %v, want %v", st.Added, want)
+	}
+	if want := []string{"note/1.md"}; !equalStrs(st.Changed, want) {
+		t.Fatalf("changed = %v, want %v", st.Changed, want)
+	}
+	if want := []string{"note/2.md"}; !equalStrs(st.Deleted, want) {
+		t.Fatalf("deleted = %v, want %v", st.Deleted, want)
+	}
+}
+
+func equalStrs(a, b []string) bool {
+	if len(a) != len(b) {
+		return false
+	}
+	for i := range a {
+		if a[i] != b[i] {
+			return false
+		}
+	}
+	return true
 }
