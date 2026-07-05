@@ -226,7 +226,7 @@ func (s Spec) stacked() bool {
 	return false
 }
 
-// Overlay draws reference geometry on top of the chart. It is a flat union of three shapes,
+// Overlay draws reference geometry on top of the chart. It is a flat union of four shapes,
 // discriminated by which fields are set (exactly one per overlay, enforced by Validate):
 //
 //   - markers: {source|records, kind, at?, label?} — vertical lines read from a second JSONL source
@@ -238,20 +238,25 @@ func (s Spec) stacked() bool {
 //     on the primary ("y", default) or secondary ("y2") axis. Label is the literal line text.
 //   - band: {from, to, label?} — a shaded x-range highlighting the period between the From and To
 //     category labels (inclusive). Label is the literal band text.
+//   - callout: {x, y, label} — a text bubble calling out one data point: the literal Label is drawn
+//     in a box near the point at (X category, Y value), connected by a leader. The presence of X
+//     (with Y) is what distinguishes a callout from a reference line (Y alone).
 type Overlay struct {
 	Source  string           `json:"source,omitempty"`
 	Records []dataset.Record `json:"records,omitempty"` // marker records carried inline (XOR Source)
 	Kind    dataset.Kind     `json:"kind,omitempty"`
 	At      string           `json:"at,omitempty"` // x-position field; defaults to "time"
 
-	Y    *float64 `json:"y,omitempty"`    // line: the y value to draw at
+	Y    *float64 `json:"y,omitempty"`    // line: the y value to draw at; callout: the point's value
 	Axis string   `json:"axis,omitempty"` // line: "y" (default) or "y2"
 
 	From string `json:"from,omitempty"` // band: first x category (inclusive)
 	To   string `json:"to,omitempty"`   // band: last x category (inclusive)
 
+	X string `json:"x,omitempty"` // callout: the point's x category (a value matching an x label)
+
 	// Label is the marker-text field for a source overlay (defaults to "text"), or the literal
-	// label text for a line/band overlay.
+	// label text for a line/band/callout overlay.
 	Label string `json:"label,omitempty"`
 }
 
@@ -306,6 +311,14 @@ type RefLine struct {
 type Band struct {
 	From, To string
 	Label    string
+}
+
+// Callout is a resolved text bubble pointing at one data point: the Label drawn in a box near
+// (X category, Y value), connected by a leader.
+type Callout struct {
+	X     string
+	Y     float64
+	Label string
 }
 
 // DataRef points at the records to plot, as exactly one of: Source (a JSONL file resolved relative to
@@ -535,23 +548,25 @@ func sortPlacementError(where, opt, labelName string) error {
 	return fmt.Errorf("view spec: %s.%s belongs on the category-axis channel (%s)", where, opt, labelName)
 }
 
-// validate checks an overlay is exactly one of its three shapes (markers / line / band) and that the
-// chosen shape is complete: a marker overlay needs a canonical kind and exactly one of source or
-// records, a line's axis must be y or y2, and a band needs both ends. Fields of another shape are
-// rejected rather than ignored, so a mixed overlay surfaces as an error.
+// validate checks an overlay is exactly one of its four shapes (markers / line / band / callout) and
+// that the chosen shape is complete: a marker overlay needs a canonical kind and exactly one of
+// source or records, a line's axis must be y or y2, a band needs both ends, and a callout needs its
+// point (x, y) and text. Fields of another shape are rejected rather than ignored, so a mixed overlay
+// surfaces as an error.
 func (o Overlay) validate(i int) error {
 	hasSource := strings.TrimSpace(o.Source) != ""
 	hasRecords := len(o.Records) > 0
-	hasLine := o.Y != nil
+	hasCallout := o.X != ""
+	hasLine := o.Y != nil && !hasCallout
 	hasBand := o.From != "" || o.To != ""
 	shapes := 0
-	for _, set := range []bool{hasSource || hasRecords, hasLine, hasBand} {
+	for _, set := range []bool{hasSource || hasRecords, hasLine, hasBand, hasCallout} {
 		if set {
 			shapes++
 		}
 	}
 	if shapes != 1 {
-		return fmt.Errorf("view spec: overlays[%d] must be exactly one of markers {source|records, kind}, line {y}, or band {from, to}", i)
+		return fmt.Errorf("view spec: overlays[%d] must be exactly one of markers {source|records, kind}, line {y}, band {from, to}, or callout {x, y, label}", i)
 	}
 	switch {
 	case hasSource || hasRecords:
@@ -573,6 +588,16 @@ func (o Overlay) validate(i int) error {
 		}
 		if o.Axis != "" && !slices.Contains(AxisOptions, o.Axis) {
 			return fmt.Errorf("view spec: overlays[%d].axis %q is not y or y2", i, o.Axis)
+		}
+	case hasCallout:
+		if o.Y == nil {
+			return fmt.Errorf("view spec: overlays[%d] callout needs both x and y (the point to call out)", i)
+		}
+		if strings.TrimSpace(o.Label) == "" {
+			return fmt.Errorf("view spec: overlays[%d] callout needs a label (the bubble text)", i)
+		}
+		if o.Kind != "" || o.At != "" || o.Axis != "" {
+			return fmt.Errorf("view spec: overlays[%d] callout overlay does not take kind/at/axis", i)
 		}
 	default: // band
 		if o.From == "" || o.To == "" {
@@ -727,15 +752,16 @@ type Cell struct {
 // Series per y encoding. A Renderer consumes Resolved and never touches raw records, keeping field
 // extraction in one place. Grid is set instead of Series for grid forms (heatmap/timeline).
 type Resolved struct {
-	Spec    Spec
-	Chart   ChartType // resolved drawing form (computed from mark + encoding)
-	Stacked bool      // bar forms: draw the series stacked instead of grouped side by side
-	Labels  []string
-	Series  []Series
-	Grid    *Grid
-	Markers []Marker  // vertical overlays (events/annotations): inline records fill them in Resolve, source overlays are filled by the caller from Overlays
-	Lines   []RefLine // horizontal reference lines, filled by Resolve (they carry no data source)
-	Bands   []Band    // x-range highlights, filled by Resolve (they carry no data source)
+	Spec     Spec
+	Chart    ChartType // resolved drawing form (computed from mark + encoding)
+	Stacked  bool      // bar forms: draw the series stacked instead of grouped side by side
+	Labels   []string
+	Series   []Series
+	Grid     *Grid
+	Markers  []Marker  // vertical overlays (events/annotations): inline records fill them in Resolve, source overlays are filled by the caller from Overlays
+	Lines    []RefLine // horizontal reference lines, filled by Resolve (they carry no data source)
+	Bands    []Band    // x-range highlights, filled by Resolve (they carry no data source)
+	Callouts []Callout // text bubbles pointing at data points, filled by Resolve (literal values)
 }
 
 // Resolve applies the spec's filter and encoding to records, producing the resolved drawing form and
@@ -765,10 +791,12 @@ func (s Spec) Resolve(records []dataset.Record) Resolved {
 	if ch := s.labelChannel(); ch != nil {
 		sortAndLimit(&res, *ch)
 	}
-	// Overlays that carry no second data source (line/band literals, inline marker records) resolve
-	// here; source overlays need file IO and stay with the caller (Resolved.Markers).
+	// Overlays that carry no second data source (line/band/callout literals, inline marker records)
+	// resolve here; source overlays need file IO and stay with the caller (Resolved.Markers).
 	for _, o := range s.Overlays {
 		switch {
+		case o.X != "" && o.Y != nil:
+			res.Callouts = append(res.Callouts, Callout{X: o.X, Y: *o.Y, Label: o.Label})
 		case o.Y != nil:
 			res.Lines = append(res.Lines, RefLine{Y: *o.Y, Axis: o.axisID(), Label: o.Label})
 		case o.From != "":

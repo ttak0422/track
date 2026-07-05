@@ -296,11 +296,12 @@ func buildHeatmap(opt map[string]any, res viewspec.Resolved) {
 }
 
 // applyOverlays attaches the resolved overlay geometry to the first series: vertical marker lines and
-// horizontal reference lines as markLine data, bands as markArea ranges. ECharts scopes mark geometry
-// to a series, so a reference line on the secondary axis rides a y2-bound series (any one works; the
-// geometry itself is chart-global). Colors match the other renderers' overlay red and band gray.
+// horizontal reference lines as markLine data, bands as markArea ranges, callouts as markPoint
+// bubbles. ECharts scopes mark geometry to a series, so a reference line on the secondary axis rides
+// a y2-bound series (any one works; the geometry itself is chart-global). Colors match the other
+// renderers' overlay red and band gray.
 func applyOverlays(opt map[string]any, res viewspec.Resolved) {
-	if len(res.Markers)+len(res.Lines)+len(res.Bands) == 0 {
+	if len(res.Markers)+len(res.Lines)+len(res.Bands)+len(res.Callouts) == 0 {
 		return
 	}
 	series, ok := opt["series"].([]any)
@@ -364,6 +365,35 @@ func applyOverlays(opt map[string]any, res viewspec.Resolved) {
 			"data":      ranges,
 			"itemStyle": map[string]any{"color": "rgba(108,117,125,0.15)"},
 			"label":     map[string]any{"color": "#6c757d"},
+		}
+	}
+
+	// Callouts: a small dot on the point plus its text in a bordered bubble above — markPoint with a
+	// boxed label reads as a speech bubble without needing free-form drawing primitives.
+	if len(res.Callouts) > 0 && first != nil {
+		var points []any
+		for _, c := range res.Callouts {
+			points = append(points, map[string]any{
+				"coord": []any{c.X, c.Y},
+				"label": map[string]any{"formatter": c.Label},
+			})
+		}
+		first["markPoint"] = map[string]any{
+			"silent":     true,
+			"symbol":     "circle",
+			"symbolSize": 7,
+			"itemStyle":  map[string]any{"color": "rgba(220,53,69,0.9)"},
+			"data":       points,
+			"label": map[string]any{
+				"position":        "top",
+				"distance":        10,
+				"color":           "#333333",
+				"backgroundColor": "#ffffff",
+				"borderColor":     "rgba(220,53,69,0.9)",
+				"borderWidth":     1,
+				"borderRadius":    3,
+				"padding":         []int{4, 6},
+			},
 		}
 	}
 }

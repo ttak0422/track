@@ -252,6 +252,7 @@ func viewSpecReference() string {
 	b.WriteString("                   {source|records, kind, at=time, label=text}  vertical event/annotation markers\n")
 	b.WriteString("                   {y, axis?, label?}  horizontal reference line at value y (threshold)\n")
 	b.WriteString("                   {from, to, label?}  shaded x-range band (period highlight)\n")
+	b.WriteString("                   {x, y, label}  callout bubble pointing at the data point (x, y)\n")
 	fmt.Fprintf(&b, "  renderers:       %s\n", strings.Join(render.Names(), " | "))
 	b.WriteString("\nMarks cover the old chart types: bar+nominal-y = horizontal bar; point =\n")
 	b.WriteString("scatter (nominal x) / bubble (quantitative x) / timeline (nominal y); rect = heatmap;\n")

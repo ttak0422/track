@@ -59,6 +59,7 @@ func (SVG) Render(res viewspec.Resolved) (string, error) {
 		writeSeries(&b, g, res, lo, hi)
 		writeMarkers(&b, g, res)
 		writeRefLines(&b, g, res, lo, hi)
+		writeCallouts(&b, g, res, lo, hi)
 	}
 	// A candlestick's four series (open/high/low/close) are components of one mark, not user series,
 	// and its up/down coloring is fixed — a legend would mislabel it.
@@ -514,6 +515,63 @@ func writeRefLines(b *strings.Builder, g svgGeom, res viewspec.Resolved, lo, hi 
 				g.left+g.plotW()-4, num(y-4), html.EscapeString(l.Label))
 		}
 	}
+}
+
+// writeCallouts draws each callout overlay as a speech bubble: a dot on the point, a short leader
+// line up, and the text in a bordered box. The box is kept inside the plot horizontally; a callout
+// whose x matches no category label or whose y is off-scale is skipped, like the other overlays.
+func writeCallouts(b *strings.Builder, g svgGeom, res viewspec.Resolved, lo, hi float64) {
+	if len(res.Callouts) == 0 || len(res.Labels) == 0 {
+		return
+	}
+	idx := make(map[string]int, len(res.Labels))
+	for i, l := range res.Labels {
+		idx[l] = i
+	}
+	centers := bandCenters(g, len(res.Labels))
+	for _, c := range res.Callouts {
+		i, ok := idx[c.X]
+		if !ok || c.Y < lo || c.Y > hi {
+			continue
+		}
+		x, y := centers[i], yPixel(g, lo, hi, c.Y)
+		// The point and its leader up to the bubble.
+		fmt.Fprintf(b, `<circle cx="%s" cy="%s" r="3.5" fill="rgba(220,53,69,0.9)"/>`+"\n", num(x), num(y))
+		boxW := calloutTextWidth(c.Label) + 12
+		boxH := 18.0
+		boxY := y - 14 - boxH
+		if boxY < g.top {
+			boxY = g.top // keep the bubble inside the plot; the leader just gets shorter
+		}
+		boxX := x - boxW/2
+		if boxX < g.left {
+			boxX = g.left
+		}
+		if boxX+boxW > g.left+g.plotW() {
+			boxX = g.left + g.plotW() - boxW
+		}
+		fmt.Fprintf(b, `<line x1="%s" y1="%s" x2="%s" y2="%s" stroke="rgba(220,53,69,0.9)" stroke-width="1"/>`+"\n",
+			num(x), num(y-3.5), num(x), num(boxY+boxH))
+		fmt.Fprintf(b, `<rect x="%s" y="%s" width="%s" height="%s" rx="3" fill="#ffffff" stroke="rgba(220,53,69,0.9)"/>`+"\n",
+			num(boxX), num(boxY), num(boxW), num(boxH))
+		fmt.Fprintf(b, `<text x="%s" y="%s" font-size="11" text-anchor="middle" fill="#333333">%s</text>`+"\n",
+			num(boxX+boxW/2), num(boxY+boxH-5), html.EscapeString(c.Label))
+	}
+}
+
+// calloutTextWidth estimates the pixel width of bubble text at font-size 11: narrow for ASCII, wide
+// for CJK and other full-width runes.
+// ponytail: heuristic glyph widths; measure real text metrics if bubbles start clipping
+func calloutTextWidth(s string) float64 {
+	w := 0.0
+	for _, r := range s {
+		if r < 0x2E80 { // Latin, digits, punctuation
+			w += 6.5
+		} else { // CJK and other full-width scripts
+			w += 11.5
+		}
+	}
+	return w
 }
 
 // writeLegend lists the series labels with their color swatches in the top-right of the plot.

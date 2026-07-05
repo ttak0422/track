@@ -85,7 +85,8 @@ Key fields:
   `eq|ne|lt|le|gt|ge` for multi-field, range, and period filtering.
 - `overlays` — reference geometry over the chart: `{source, kind}` (or `{records, kind}` with the
   events inline) draws events/annotations as vertical markers, `{y, axis?, label?}` a horizontal
-  threshold line, and `{from, to, label?}` a shaded period band.
+  threshold line, `{from, to, label?}` a shaded period band, and `{x, y, label}` a callout bubble
+  pointing at one data point.
 
 ## Embedding a chart in a note
 
@@ -178,9 +179,10 @@ open/high/low/close fields are implied by the `price` kind, so the encoding need
 
 ![Candlestick chart](assets/chart-candlestick.viewspec.json)
 
-**Overlays** — a vertical `{records, kind}` event marker, a dashed `{y, label}` threshold line, and a
-shaded `{from, to, label}` period band over any category-axis chart. All three travel with the spec
-(inline records or literal values — no second data file), so they work in embedded assets too.
+**Overlays** — a vertical `{records, kind}` event marker, a dashed `{y, label}` threshold line, a
+shaded `{from, to, label}` period band, and a `{x, y, label}` callout bubble pointing at a data point,
+over any category-axis chart. All four travel with the spec (inline records or literal values — no
+second data file), so they work in embedded assets too.
 
 ![Event marker, threshold line, and period band](assets/chart-overlay.viewspec.json)
 

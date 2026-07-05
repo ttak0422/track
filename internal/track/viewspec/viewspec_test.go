@@ -528,6 +528,7 @@ func TestValidateOverlayShapes(t *testing.T) {
 	y := 6.5
 	inline := []dataset.Record{{"time": "d1", "title": "ev"}}
 	valid := map[string]Overlay{
+		"callout":        {X: "d1", Y: &y, Label: "peak here"},
 		"markers":        {Source: "events.jsonl", Kind: dataset.KindEvent, At: "time", Label: "title"},
 		"inline markers": {Records: inline, Kind: dataset.KindEvent, At: "time", Label: "title"},
 		"line":           {Y: &y, Label: "threshold"},
@@ -541,19 +542,23 @@ func TestValidateOverlayShapes(t *testing.T) {
 		}
 	}
 	invalid := map[string]Overlay{
-		"no shape":            {Kind: dataset.KindEvent}, // kind without source names no shape
-		"empty":               {},
-		"line and band mixed": {Y: &y, From: "d1", To: "d2"},
-		"source and line":     {Source: "e.jsonl", Kind: dataset.KindEvent, Y: &y},
-		"band missing to":     {From: "d1"},
-		"band missing from":   {To: "d2"},
-		"bad line axis":       {Y: &y, Axis: "y3"},
-		"axis on markers":     {Source: "e.jsonl", Kind: dataset.KindEvent, Axis: "y"},
-		"kind on line":        {Y: &y, Kind: dataset.KindEvent},
-		"at on band":          {From: "d1", To: "d2", At: "time"},
-		"markers bad kind":    {Source: "e.jsonl", Kind: "nope"},
-		"source and records":  {Source: "e.jsonl", Records: inline, Kind: dataset.KindEvent},
-		"bad inline record":   {Records: []dataset.Record{{"time": "d1"}}, Kind: dataset.KindEvent}, // missing required title
+		"no shape":             {Kind: dataset.KindEvent}, // kind without source names no shape
+		"empty":                {},
+		"line and band mixed":  {Y: &y, From: "d1", To: "d2"},
+		"source and line":      {Source: "e.jsonl", Kind: dataset.KindEvent, Y: &y},
+		"band missing to":      {From: "d1"},
+		"band missing from":    {To: "d2"},
+		"bad line axis":        {Y: &y, Axis: "y3"},
+		"axis on markers":      {Source: "e.jsonl", Kind: dataset.KindEvent, Axis: "y"},
+		"kind on line":         {Y: &y, Kind: dataset.KindEvent},
+		"at on band":           {From: "d1", To: "d2", At: "time"},
+		"markers bad kind":     {Source: "e.jsonl", Kind: "nope"},
+		"source and records":   {Source: "e.jsonl", Records: inline, Kind: dataset.KindEvent},
+		"callout missing y":    {X: "d1", Label: "t"},
+		"callout missing text": {X: "d1", Y: &y},
+		"callout with kind":    {X: "d1", Y: &y, Label: "t", Kind: dataset.KindEvent},
+		"callout and band":     {X: "d1", Y: &y, Label: "t", From: "a", To: "b"},
+		"bad inline record":    {Records: []dataset.Record{{"time": "d1"}}, Kind: dataset.KindEvent}, // missing required title
 	}
 	for name, o := range invalid {
 		if err := spec(o).Validate(); err == nil || !strings.Contains(err.Error(), "overlays[0]") {
@@ -581,6 +586,24 @@ func TestResolveFillsLinesAndBands(t *testing.T) {
 	// The source overlay resolves via Overlay.Markers with its own records, not here.
 	if len(res.Markers) != 0 {
 		t.Fatalf("markers should stay caller-filled, got %+v", res.Markers)
+	}
+}
+
+func TestResolveFillsCallouts(t *testing.T) {
+	s, err := Load(strings.NewReader(`{"version":2,"mark":"line","data":{"source":"x","kind":"metric"},` +
+		`"encoding":{"x":{"field":"time"},"y":[{"field":"value"}]},` +
+		`"overlays":[{"x":"d2","y":7.5,"label":"peak"}]}`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	recs, _ := dataset.ReadJSONL(strings.NewReader(`{"time":"d2","value":7.5}`))
+	res := s.Resolve(recs)
+	if len(res.Callouts) != 1 || res.Callouts[0] != (Callout{X: "d2", Y: 7.5, Label: "peak"}) {
+		t.Fatalf("callouts = %+v", res.Callouts)
+	}
+	// A callout carries a y but is not a reference line.
+	if len(res.Lines) != 0 {
+		t.Fatalf("callout must not double as a line: %+v", res.Lines)
 	}
 }
 

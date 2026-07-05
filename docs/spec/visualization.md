@@ -241,13 +241,14 @@ accumulated in first-seen order).
 ### Overlays (markers, reference lines, bands)
 
 An overlay draws reference geometry on top of the chart. Each entry in `overlays` is **exactly one**
-of three shapes, discriminated by which fields are set (a mixed entry is rejected):
+of four shapes, discriminated by which fields are set (a mixed entry is rejected):
 
 ```json
 "overlays": [
   { "source": "events.jsonl", "kind": "event", "at": "time", "label": "title" },
   { "y": 100, "axis": "y2", "label": "threshold" },
-  { "from": "2026-01-01", "to": "2026-02-01", "label": "earnings window" }
+  { "from": "2026-01-01", "to": "2026-02-01", "label": "earnings window" },
+  { "x": "2026-01-15", "y": 112.5, "label": "peak before the drop" }
 ]
 ```
 
@@ -282,9 +283,21 @@ overlays accumulate.
 | `to`    | yes      | Last x category of the range (inclusive).                          |
 | `label` | no       | Literal label text drawn in the band.                              |
 
-Source marker overlays need file IO, so they resolve in the CLI; line/band overlays (literal values)
-and inline marker records travel with the spec and resolve in `Spec.Resolve`, which is why all three
-also work for embedded assets (below). A y-range band is deliberately not supported — a value
+**Callout** — a text bubble pointing at one data point, for narrative annotation:
+
+| Field   | Required | Notes                                                               |
+|---------|----------|---------------------------------------------------------------------|
+| `x`     | yes      | The point's x category (should match an x label). Its presence is what distinguishes a callout from a reference line. |
+| `y`     | yes      | The point's value on the primary axis.                              |
+| `label` | yes      | Literal bubble text.                                                |
+
+The ECharts renderer draws it as a dot on the point with the text in a bordered box above (a
+`markPoint`); the SVG renderer draws the dot, a leader line, and the box. A callout whose `x` matches
+no category label, or whose `y` is outside the value range (SVG), is skipped like the other overlays.
+
+Source marker overlays need file IO, so they resolve in the CLI; line/band/callout overlays (literal
+values) and inline marker records travel with the spec and resolve in `Spec.Resolve`, which is why
+they also work for embedded assets (below). A y-range band is deliberately not supported — a value
 threshold is a reference line.
 
 ### Inline data (self-contained specs)

@@ -166,6 +166,20 @@ func TestEChartsOverlays(t *testing.T) {
 	}
 }
 
+func TestEChartsCalloutBecomesMarkPoint(t *testing.T) {
+	res := resolvedChart(viewspec.ChartLine, "S", []float64{1, 2})
+	res.Callouts = []viewspec.Callout{{X: "b", Y: 2, Label: "peak here"}}
+	out, err := EChartsOptionJSON(res)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, want := range []string{`"markPoint"`, `"coord":["b",2]`, `"formatter":"peak here"`, `"backgroundColor"`} {
+		if !strings.Contains(out, want) {
+			t.Errorf("callout output missing %q: %s", want, out)
+		}
+	}
+}
+
 func TestEChartsY2RefLineNeedsY2Series(t *testing.T) {
 	// A y2 reference line rides a y2-bound series; with none it has no scale and is dropped.
 	res := resolvedChart(viewspec.ChartLine, "S", []float64{1, 2})

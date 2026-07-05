@@ -184,6 +184,29 @@ func TestSVGThinsDenseCategoryLabels(t *testing.T) {
 	}
 }
 
+func TestSVGCalloutDrawsBubble(t *testing.T) {
+	res := viewspec.Resolved{
+		Spec: viewspec.Spec{}, Chart: viewspec.ChartLine,
+		Labels:   []string{"a", "b", "c"},
+		Series:   []viewspec.Series{{Label: "S", Values: []float64{1, 5, 3}}},
+		Callouts: []viewspec.Callout{{X: "b", Y: 5, Label: "peak"}, {X: "zz", Y: 5, Label: "unknown x"}},
+	}
+	out, err := SVG{}.Render(res)
+	if err != nil {
+		t.Fatal(err)
+	}
+	// The known point draws a dot, a leader, and the bubble box with its text.
+	for _, want := range []string{"<circle", `rx="3"`, ">peak<"} {
+		if !strings.Contains(out, want) {
+			t.Errorf("callout output missing %q: %s", want, out)
+		}
+	}
+	// The callout whose x matches no category is skipped.
+	if strings.Contains(out, "unknown x") {
+		t.Fatalf("unknown-category callout should be skipped: %s", out)
+	}
+}
+
 func TestSVGStackedHBarPilesSegments(t *testing.T) {
 	res := viewspec.Resolved{
 		Spec: viewspec.Spec{}, Chart: viewspec.ChartHBar, Stacked: true,
