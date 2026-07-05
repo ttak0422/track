@@ -1463,6 +1463,16 @@ button {
   margin: 0;
 }
 
+.embed-tweet iframe {
+  /* The tweet card Twitter draws inside the iframe has its own rounded corners, but the iframe's
+     document background outside that card stays white regardless of the dark theme param we pass —
+     it's cross-origin, so we cannot restyle its content directly. Clipping the iframe itself to a
+     matching radius cuts away that white margin, exposing the page's own dark background instead. */
+  border-radius: 12px;
+  overflow: hidden;
+  background: var(--bg);
+}
+
 .ogp-card {
   display: flex;
   align-items: stretch;
