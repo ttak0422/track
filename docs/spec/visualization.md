@@ -6,7 +6,8 @@ declarative spec. Design rationale is in [ADR 0021](../adr/0021-visualization-ca
 [ADR 0024](../adr/0024-mark-encoding-view-spec.md) (the mark + encoding View Spec, v2).
 
 track never fetches data. External sources are converted into the Canonical Data Model below by
-separate `track-fetch-*` tools (out of scope here); track only imports, queries, and renders that model.
+separate `track-fetch-*` tools (see [fetch.md](fetch.md) for their contract); track only imports,
+queries, and renders that model.
 
 ## Canonical Data Model
 

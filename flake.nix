@@ -83,6 +83,20 @@
             '';
           };
 
+          # Fetch tools are separate binaries in the same module (docs/spec/fetch.md): each converts
+          # one external source into Canonical JSONL, packaged on its own so installing track never
+          # pulls in fetchers (and vice versa). No frontend embed — they are pure data converters.
+          track-fetch-rss = pkgs.buildGoModule {
+            pname = "track-fetch-rss";
+            version = "0.1.0";
+            src = fileset.toSource {
+              root = ./.;
+              fileset = goFiles;
+            };
+            vendorHash = "sha256-RVRG4u1UhQ04w1qGRii9Xl+P/ISUKIw3VhFjqd7DT+Y=";
+            subPackages = [ "cmd/track-fetch-rss" ];
+          };
+
           track = pkgs.vimUtils.buildVimPlugin {
             pname = "track";
             version = "0.1.0";
@@ -121,7 +135,7 @@
 
           packages = {
             default = track;
-            inherit track track-cli;
+            inherit track track-cli track-fetch-rss;
           };
 
           devShells.default = pkgs.mkShell {
