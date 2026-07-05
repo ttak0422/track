@@ -650,6 +650,13 @@ button {
   overflow: auto;
   padding: 32px;
   background: var(--panel);
+  /* The reader is the page scroller for the full-page views (calendar, day) and long notes; its
+     scrollbar stays hidden like every other scroller in the app (tab strip, backlinks, previews). */
+  scrollbar-width: none;
+}
+
+.reader::-webkit-scrollbar {
+  display: none;
 }
 
 /* On home the hero owns its own internal scrolling, so the reader must not also scroll/grow. */
