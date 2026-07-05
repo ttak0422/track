@@ -148,9 +148,9 @@ func applyLegend(opt map[string]any, labels []string) {
 	if len(labels) == 0 {
 		return
 	}
-	top, gridTop := 4, 44
+	top, gridTop := 4, 52
 	if _, ok := opt["title"]; ok {
-		top, gridTop = 36, 78
+		top, gridTop = 36, 88
 	}
 	opt["legend"] = map[string]any{"data": labels, "top": top}
 	gridOf(opt)["top"] = gridTop
@@ -177,10 +177,15 @@ func buildSeriesChart(opt map[string]any, res viewspec.Resolved) {
 			usesY2 = true
 		}
 	}
-	yAxes := []any{map[string]any{"type": "value"}}
+	// Headroom above the data max keeps overlay callouts and band labels from piling into the
+	// legend row at the plot's top edge (static percentages; min stays pinned for bar baselines).
+	headroom := []any{0, "12%"}
+	yAxes := []any{map[string]any{"type": "value", "boundaryGap": headroom}}
 	if usesY2 {
 		// Keep the secondary axis's gridlines off the chart area so the two scales don't collide.
-		yAxes = append(yAxes, map[string]any{"type": "value", "splitLine": map[string]any{"show": false}})
+		yAxes = append(yAxes, map[string]any{
+			"type": "value", "boundaryGap": headroom, "splitLine": map[string]any{"show": false},
+		})
 	}
 	opt["yAxis"] = yAxes
 
