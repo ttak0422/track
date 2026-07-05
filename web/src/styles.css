@@ -1736,12 +1736,10 @@ button {
 }
 
 /* A viewspec chart is an ECharts instance drawing the server-resolved option; the container needs an
-   explicit height for echarts.init, and the frame matches the exported asset charts. */
+   explicit height for echarts.init. */
 .viewspec-chart {
   margin: 1em 0;
   height: 360px;
-  border: 1px solid var(--line);
-  border-radius: 8px;
   background: #fff;
 }
 
