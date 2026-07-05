@@ -817,14 +817,10 @@ button {
   color: var(--text);
 }
 
-/* The calendar view: a month grid of note activity, centered in the reader like a note column. A day
-   cell lists the top notes active that day and links to its /day page; empty days are inert, matching
-   the activity grid's no-creation-path rule. */
-.calendar-full {
-  max-width: 860px;
-  margin: 0 auto;
-}
-
+/* The calendar view: a month grid of note activity spanning the full reader width (unlike the day
+   page's narrow text column, a grid earns the space). A day cell lists the top notes active that day
+   and links to its /day page; empty days are inert, matching the activity grid's no-creation-path
+   rule. */
 .calendar-head {
   display: flex;
   align-items: baseline;
