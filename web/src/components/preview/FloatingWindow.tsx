@@ -93,8 +93,8 @@ export function FloatingWindow({
 
   // Auto-fit the height to the content: a preview with little to show shrinks to the old minimum instead
   // of opening needlessly tall, while a long note still fills up to the viewport-based cap
-  // (initialBounds.height). Width is left alone. Re-runs as async content (images, math) settles, and
-  // stops once the user resizes the window by hand.
+  // (initialBounds.height). Width is left alone. Re-runs as async content (images, math, an embedded
+  // chart) settles, and stops once the user resizes the window by hand.
   useEffect(() => {
     if (collapsed || typeof ResizeObserver === "undefined") return;
     const aside = asideRef.current;
@@ -102,6 +102,13 @@ export function FloatingWindow({
     const body = bodyRef.current;
     const content = contentRef.current;
     if (!aside || !chrome || !body || !content) return;
+    let shrinkTimer: number | undefined;
+    const apply = (desired: number) => {
+      setBounds((current) => {
+        const height = clamp(desired, minPreviewHeight, initialBounds.height);
+        return height === current.height ? current : constrainPreviewBounds({ ...current, height });
+      });
+    };
     const fit = () => {
       if (manualResizeRef.current) return;
       // Measure the content's own height (content.offsetHeight), not body.scrollHeight — scrollHeight is
@@ -111,15 +118,35 @@ export function FloatingWindow({
       const bodyStyle = getComputedStyle(body);
       const bodyPad = Number.parseFloat(bodyStyle.paddingTop) + Number.parseFloat(bodyStyle.paddingBottom);
       const desired = border + chrome.offsetHeight + bodyPad + content.offsetHeight;
-      setBounds((current) => {
-        const height = clamp(desired, minPreviewHeight, initialBounds.height);
-        return height === current.height ? current : constrainPreviewBounds({ ...current, height });
-      });
+      if (shrinkTimer !== undefined) {
+        window.clearTimeout(shrinkTimer);
+        shrinkTimer = undefined;
+      }
+      // Growing applies immediately so new content (a note that just loaded, a chart that just claimed
+      // its reserved box) is never clipped. Shrinking is debounced: the note body and an embedded chart
+      // each render behind their own async fetch, so the window briefly holds just a loading placeholder
+      // before the real content lands — fitting to that immediately would flash the window down to the
+      // minimum and snap back up a moment later. Waiting a beat lets a same-tick regrowth cancel the
+      // shrink instead.
+      if (desired >= aside.offsetHeight) {
+        apply(desired);
+        return;
+      }
+      // ponytail: 300ms is a heuristic covering a local note fetch + render, not a guarantee — a
+      // slower fetch (a large note, a cold cache) can still shrink-then-grow once. Raise it, or drive
+      // this off the content's own loading state instead of a timer, if that turns out not to be enough.
+      shrinkTimer = window.setTimeout(() => {
+        shrinkTimer = undefined;
+        apply(desired);
+      }, 300);
     };
     fit();
     const observer = new ResizeObserver(fit);
     observer.observe(content);
-    return () => observer.disconnect();
+    return () => {
+      observer.disconnect();
+      if (shrinkTimer !== undefined) window.clearTimeout(shrinkTimer);
+    };
   }, [collapsed, initialBounds.height]);
 
   useEffect(() => {
