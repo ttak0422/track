@@ -136,22 +136,35 @@ func applyDataZoom(opt map[string]any, res viewspec.Resolved) {
 		// The slider owns the bottom edge (the legend sits up top); the grid shrinks so the x labels
 		// keep their room.
 		zooms = append(zooms, map[string]any{"type": "slider", "xAxisIndex": 0, "bottom": 10, "height": 16})
-		opt["grid"] = map[string]any{"bottom": 64}
+		gridOf(opt)["bottom"] = 64
 	}
 	opt["dataZoom"] = zooms
 }
 
 // applyLegend places the legend between the title and the plot, so the color→series key reads
-// before the chart; without a title it sits flush with the top edge.
+// before the chart; without a title it sits flush with the top edge. The plot is pushed down to
+// clear both rows.
 func applyLegend(opt map[string]any, labels []string) {
 	if len(labels) == 0 {
 		return
 	}
-	top := 0
+	top, gridTop := 4, 44
 	if _, ok := opt["title"]; ok {
-		top = 30
+		top, gridTop = 36, 78
 	}
 	opt["legend"] = map[string]any{"data": labels, "top": top}
+	gridOf(opt)["top"] = gridTop
+}
+
+// gridOf returns the option's grid map, creating it if needed, so placement tweaks from different
+// helpers merge instead of clobbering each other.
+func gridOf(opt map[string]any) map[string]any {
+	g, ok := opt["grid"].(map[string]any)
+	if !ok {
+		g = map[string]any{}
+		opt["grid"] = g
+	}
+	return g
 }
 
 // buildSeriesChart handles the shared category-x forms: line, area, bar, and scatter.
@@ -366,11 +379,22 @@ func applyOverlays(opt map[string]any, res viewspec.Resolved) {
 		return
 	}
 
+	// A label along a marker line crosses the series, so it gets a translucent box to stay legible
+	// over the data (plain ECharts label options; no free-form drawing needed).
+	boxedLabel := func(text string) map[string]any {
+		return map[string]any{
+			"formatter":       text,
+			"position":        "insideEndTop",
+			"backgroundColor": "rgba(255,255,255,0.8)",
+			"padding":         []any{2, 4},
+			"borderRadius":    2,
+		}
+	}
 	var primary, secondary []any // markLine items per target axis group
 	for _, m := range res.Markers {
 		item := map[string]any{"xAxis": m.At}
 		if m.Label != "" {
-			item["label"] = map[string]any{"formatter": m.Label, "position": "insideEndTop"}
+			item["label"] = boxedLabel(m.Label)
 		}
 		primary = append(primary, item)
 	}
@@ -380,7 +404,7 @@ func applyOverlays(opt map[string]any, res viewspec.Resolved) {
 			"lineStyle": map[string]any{"type": "dashed"},
 		}
 		if l.Label != "" {
-			item["label"] = map[string]any{"formatter": l.Label, "position": "insideEndTop"}
+			item["label"] = boxedLabel(l.Label)
 		}
 		if l.Axis == "y2" {
 			secondary = append(secondary, item)
