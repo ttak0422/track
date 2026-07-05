@@ -40,8 +40,12 @@ describe("ViewSpecChart", () => {
     expect(screen.getByText("Rendering chart...")).toBeInTheDocument();
     await waitFor(() => expect(screen.getByRole("img", { name: "Chart" })).toBeInTheDocument());
     expect(mockRender).toHaveBeenCalledWith(spec);
+    // The option arrives themed (applyChartTheme), so match on the semantic core.
     await waitFor(() =>
-      expect(setOption).toHaveBeenCalledWith({ series: [{ type: "line" }] }, { notMerge: true }),
+      expect(setOption).toHaveBeenCalledWith(
+        expect.objectContaining({ series: [{ type: "line" }] }),
+        { notMerge: true },
+      ),
     );
   });
 
@@ -61,13 +65,19 @@ describe("ViewSpecChart", () => {
     mockRender.mockResolvedValueOnce({ echarts: { title: { text: "before" } } });
     const { client } = renderWithQuery(<ViewSpecChart text={spec} />);
     await waitFor(() =>
-      expect(setOption).toHaveBeenCalledWith({ title: { text: "before" } }, { notMerge: true }),
+      expect(setOption).toHaveBeenCalledWith(
+        expect.objectContaining({ title: expect.objectContaining({ text: "before" }) }),
+        { notMerge: true },
+      ),
     );
 
     mockRender.mockResolvedValueOnce({ echarts: { title: { text: "after" } } });
     await client.invalidateQueries({ queryKey: ["viewspec"] });
     await waitFor(() =>
-      expect(setOption).toHaveBeenCalledWith({ title: { text: "after" } }, { notMerge: true }),
+      expect(setOption).toHaveBeenCalledWith(
+        expect.objectContaining({ title: expect.objectContaining({ text: "after" }) }),
+        { notMerge: true },
+      ),
     );
     expect(mockRender).toHaveBeenCalledTimes(2);
   });

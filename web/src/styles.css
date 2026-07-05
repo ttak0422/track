@@ -11,6 +11,15 @@
   --graph-active: #f08300;
   --graph-active-strong: #a85200;
   --danger: #8a352b;
+  /* Chart series palette + heatmap ramp, tuned to the app theme (read by echartsTheme.ts). */
+  --chart-1: #2f6f5e;
+  --chart-2: #f08300;
+  --chart-3: #5b7aa5;
+  --chart-4: #8a352b;
+  --chart-5: #7d8a4e;
+  --chart-6: #96608f;
+  --chart-ramp-lo: #e3ece9;
+  --chart-ramp-hi: #174c40;
   font-family:
     Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
 }
@@ -28,6 +37,14 @@
   --graph-active: #ff9a1f;
   --graph-active-strong: #ffc06a;
   --danger: #de766b;
+  --chart-1: #62b39b;
+  --chart-2: #ff9a1f;
+  --chart-3: #8fb0d8;
+  --chart-4: #de766b;
+  --chart-5: #b3c47a;
+  --chart-6: #c99bc2;
+  --chart-ramp-lo: #22302b;
+  --chart-ramp-hi: #8dd8c2;
 }
 
 :root[data-theme="light"] {
@@ -47,6 +64,14 @@
     --graph-active: #ff9a1f;
     --graph-active-strong: #ffc06a;
     --danger: #de766b;
+  --chart-1: #62b39b;
+  --chart-2: #ff9a1f;
+  --chart-3: #8fb0d8;
+  --chart-4: #de766b;
+  --chart-5: #b3c47a;
+  --chart-6: #c99bc2;
+  --chart-ramp-lo: #22302b;
+  --chart-ramp-hi: #8dd8c2;
   }
 }
 
@@ -1759,7 +1784,7 @@ button {
 .viewspec-chart {
   margin: 1em 0;
   height: 360px;
-  background: #fff;
+  background: var(--panel);
 }
 
 /* Mermaid renders async (dynamic import + layout pass), so without a reservation the placeholder text

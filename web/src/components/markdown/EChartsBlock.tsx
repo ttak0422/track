@@ -1,5 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import { CodeBlock } from "./CodeBlock";
+import { applyChartTheme, chartThemeFromCSS } from "./echartsTheme";
+import { useThemeVersion } from "./MermaidDiagram";
 
 // echartsModule caches the lazy import so every chart on a page shares one load. ECharts is pulled in
 // on demand (a separate chunk): pages without charts never download it. Both the live workspace and
@@ -23,6 +25,9 @@ interface EChartsBlockProps {
 export function EChartsBlock({ option }: EChartsBlockProps) {
   const containerRef = useRef<HTMLDivElement>(null);
   const visible = useVisible(containerRef);
+  // Redraw with the new colors when the app theme flips; the option itself is theme-neutral and
+  // recolored at draw time (applyChartTheme).
+  const themeVersion = useThemeVersion();
 
   useEffect(() => {
     const el = containerRef.current;
@@ -39,7 +44,7 @@ export function EChartsBlock({ option }: EChartsBlockProps) {
       // getInstanceByDom keeps the existing instance across live updates, so setOption transitions
       // smoothly instead of tearing the chart down.
       chart = echarts.getInstanceByDom(el) ?? echarts.init(el);
-      chart.setOption(option, { notMerge: true });
+      chart.setOption(applyChartTheme(option, chartThemeFromCSS()), { notMerge: true });
       if (typeof ResizeObserver !== "undefined") {
         observer = new ResizeObserver(() => chart?.resize());
         observer.observe(el);
@@ -49,7 +54,7 @@ export function EChartsBlock({ option }: EChartsBlockProps) {
       disposed = true;
       observer?.disconnect();
     };
-  }, [option, visible]);
+  }, [option, visible, themeVersion]);
 
   // Dispose the ECharts instance only on unmount; the option effect above reuses it across updates.
   useEffect(() => {

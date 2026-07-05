@@ -257,7 +257,9 @@ function errorMessage(error: unknown): string {
   return "Mermaid render failed.";
 }
 
-function useThemeVersion(): number {
+// useThemeVersion bumps whenever the app theme changes (the data-theme attribute or the OS
+// preference), so theme-dependent renders (Mermaid, ECharts) can redraw with the new colors.
+export function useThemeVersion(): number {
   const [version, setVersion] = useState(0);
 
   useEffect(() => {
