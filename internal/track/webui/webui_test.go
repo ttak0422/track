@@ -271,6 +271,20 @@ func TestAgendaEndpoint(t *testing.T) {
 	if list, _ := empty["notes"].([]any); len(list) != 0 {
 		t.Fatalf("agenda for empty day should be empty: %v", empty["notes"])
 	}
+
+	// The notes listing carries each note's activity days, which the calendar derives its per-day note
+	// lists from.
+	listing := getJSON(t, server.URL+"/api/notes")
+	refs := listing["notes"].([]any)
+	if len(refs) != 1 {
+		t.Fatalf("expected 1 listed note, got %v", refs)
+	}
+	// The self-heal on read also stamps the file's mtime day, so assert the seeded day is present rather
+	// than the exact set.
+	days, _ := refs[0].(map[string]any)["days"].([]any)
+	if !slices.Contains(days, any("2026-06-22")) {
+		t.Fatalf("notes listing should carry the seeded activity day, got %v", refs[0])
+	}
 }
 
 func TestFollowEndpointStoresNeovimState(t *testing.T) {

@@ -58,23 +58,14 @@ func (s *Store) UpsertNote(n *note.Note) error {
 	if _, err := tx.Exec(`DELETE FROM note_days WHERE note_id = ?`, n.ID); err != nil {
 		return err
 	}
-	// Activity days track real notes, not journals: a day's journal (and the month/year summary journals)
-	// would otherwise count as activity on every day they are opened, polluting the agenda and the
-	// activity heatmap that drives the calendar. So journals contribute no note_days rows.
-	if kind != "journal" {
-		// Days is the authoritative activity record from the sidecar. A sidecar predating the days field
-		// has none yet, so fall back to its created day so the note still surfaces on the day it was made.
-		days := n.Meta.Days
-		if len(days) == 0 && n.Meta.Created != "" {
-			days = []string{n.Meta.Created}
+	// note.ActivityDays owns which days a note surfaces on (journals none, created-day fallback), so the
+	// index and the static-site export apply the same rule.
+	for _, d := range note.ActivityDays(kind, n.Meta) {
+		if d == "" {
+			continue
 		}
-		for _, d := range days {
-			if d == "" {
-				continue
-			}
-			if _, err := tx.Exec(`INSERT OR IGNORE INTO note_days (note_id, day) VALUES (?, ?)`, n.ID, d); err != nil {
-				return err
-			}
+		if _, err := tx.Exec(`INSERT OR IGNORE INTO note_days (note_id, day) VALUES (?, ?)`, n.ID, d); err != nil {
+			return err
 		}
 	}
 

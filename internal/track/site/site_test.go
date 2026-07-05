@@ -170,9 +170,16 @@ func TestBuildPublishesJournals(t *testing.T) {
 	if err := os.WriteFile(cfg.JournalPath("20260701"), []byte("# day\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
+	// Journal sidecars written before the indexer skipped them may carry Days; the bundle must still
+	// publish the journal without activity days, matching the live index.
 	if err := note.WriteMetadata(
 		cfg.MetadataPath(20260701),
-		note.Metadata{Version: note.CurrentMetadataVersion, Title: "20260701", Tags: []string{"journal"}},
+		note.Metadata{
+			Version: note.CurrentMetadataVersion,
+			Title:   "20260701",
+			Tags:    []string{"journal"},
+			Days:    []string{"2026-07-01"},
+		},
 	); err != nil {
 		t.Fatal(err)
 	}
@@ -196,6 +203,37 @@ func TestBuildPublishesJournals(t *testing.T) {
 	}
 	if journal == nil || journal.FileKind != "journal" {
 		t.Fatalf("published journal should keep its kind and title, got %+v", notes.Notes)
+	}
+	if len(journal.Days) != 0 {
+		t.Fatalf("a journal must publish no activity days, got %v", journal.Days)
+	}
+}
+
+// TestBuildPublishesActivityDays covers the calendar's static data: notes.json carries each note's
+// sidecar activity days so the published calendar can derive its per-day note lists.
+func TestBuildPublishesActivityDays(t *testing.T) {
+	cfg, s := vaultStore(t)
+	writeVaultNote(t, cfg, 100, "Home", "# Home\n")
+	if err := note.WriteMetadata(
+		cfg.MetadataPath(100),
+		note.Metadata{Version: note.CurrentMetadataVersion, Title: "Home", Days: []string{"2026-07-03", "2026-07-05"}},
+	); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := index.New(cfg, s).Full(); err != nil {
+		t.Fatalf("index: %v", err)
+	}
+
+	out := t.TempDir()
+	if _, err := Build(cfg, s, Options{Root: 100}, fakeFrontend(t), out); err != nil {
+		t.Fatalf("build: %v", err)
+	}
+
+	notes := readJSON[struct {
+		Notes []jsonSearchResult `json:"notes"`
+	}](t, filepath.Join(out, "data", "notes.json"))
+	if len(notes.Notes) != 1 || len(notes.Notes[0].Days) != 2 || notes.Notes[0].Days[0] != "2026-07-03" {
+		t.Fatalf("notes.json should carry activity days, got %+v", notes.Notes)
 	}
 }
 

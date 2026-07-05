@@ -24,6 +24,7 @@ type doc struct {
 	title    string
 	kind     string // "note" or "journal"
 	tags     []string
+	days     []string // activity days (YYYY-MM-DD) from the sidecar; journals carry none
 	path     string   // source/display path (informational in the static site)
 	body     string   // web-sanitized Markdown the frontend renders
 	keys     []string // resolution keys ([[key]]) that point at this doc (title, file name, …)
@@ -53,6 +54,7 @@ type jsonSearchResult struct {
 	Path     string   `json:"path"`
 	Title    string   `json:"title"`
 	Tags     []string `json:"tags,omitempty"`
+	Days     []string `json:"days,omitempty"`
 }
 
 type jsonNoteDetail struct {
@@ -227,7 +229,7 @@ func writeBundle(docs []doc, edges []edge, root int64, frontendDir, outDir strin
 // The source path is dropped from the bundle: like the id, the file name is timestamp-based, so emitting
 // it would re-expose what the slug is meant to hide. It was only informational in the static site.
 func searchResultOf(d doc) jsonSearchResult {
-	return jsonSearchResult{NoteID: PublishID(d.id), FileKind: kindOf(d), Path: "", Title: d.title, Tags: d.tags}
+	return jsonSearchResult{NoteID: PublishID(d.id), FileKind: kindOf(d), Path: "", Title: d.title, Tags: d.tags, Days: d.days}
 }
 
 func refOf(d doc) jsonRef {

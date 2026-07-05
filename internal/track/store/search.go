@@ -23,6 +23,7 @@ type SearchResult struct {
 	Path     string   `json:"path"`
 	Title    string   `json:"title"`
 	Tags     []string `json:"tags,omitempty"`
+	Days     []string `json:"days,omitempty"` // activity days (YYYY-MM-DD); only the notes listing fills this
 	Line     int      `json:"line,omitempty"`
 	Snippet  string   `json:"snippet,omitempty"`
 	Mtime    int64    `json:"-"`

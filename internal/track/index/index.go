@@ -97,7 +97,7 @@ func (ix *Indexer) Full() (Report, error) {
 // web server, a second editor's CLI) picks up edits it never observed as an event — a write by another
 // process, or an external/cloud-sync change that raised no filesystem notification.
 func (ix *Indexer) RefreshIfStale() (bool, error) {
-	disk, err := ix.scanMtimes()
+	disk, journals, err := ix.scanMtimes()
 	if err != nil {
 		return false, err
 	}
@@ -111,8 +111,13 @@ func (ix *Indexer) RefreshIfStale() (bool, error) {
 	// Record the activity day on each note that was added or changed (mtime diverged) before the rebuild,
 	// so Full picks the new days into note_days. Removed ids are skipped. This is how an editor's direct
 	// body save — which never goes through a track mutation command — gets its day stamped into the sidecar.
+	// Journals are skipped like One does: they carry no activity days (see note.ActivityDays), so stamping
+	// would only write dead metadata.
 	changed := map[int64]int64{}
 	for id, m := range disk {
+		if journals[id] {
+			continue
+		}
 		if im, ok := indexed[id]; !ok || im != m {
 			changed[id] = m
 		}
@@ -158,8 +163,9 @@ func (ix *Indexer) recordActivity(ids map[int64]int64) error {
 // scanMtimes maps note id -> file mtime (Unix seconds) for every note/journal file, mirroring how
 // UpsertNote records mtime. Files whose basename is not a numeric note id are skipped, matching the ids
 // the indexer assigns; reading mtimes never parses a file.
-func (ix *Indexer) scanMtimes() (map[int64]int64, error) {
+func (ix *Indexer) scanMtimes() (map[int64]int64, map[int64]bool, error) {
 	out := map[int64]int64{}
+	journals := map[int64]bool{}
 	for _, root := range []string{ix.cfg.NoteDir(), ix.cfg.JournalDir()} {
 		err := filepath.WalkDir(root, func(path string, d fs.DirEntry, err error) error {
 			if err != nil {
@@ -186,13 +192,16 @@ func (ix *Indexer) scanMtimes() (map[int64]int64, error) {
 				return err
 			}
 			out[id] = info.ModTime().Unix()
+			if root == ix.cfg.JournalDir() {
+				journals[id] = true
+			}
 			return nil
 		})
 		if err != nil {
-			return nil, err
+			return nil, nil, err
 		}
 	}
-	return out, nil
+	return out, journals, nil
 }
 
 func sameMtimes(disk, indexed map[int64]int64) bool {
@@ -216,8 +225,7 @@ func (ix *Indexer) One(path string) error {
 	}
 	// A track mutation command (new/append/toggle/journal) just wrote this file, so stamp its mtime day
 	// into the sidecar. The editor-edit path is handled separately by RefreshIfStale. Journals carry no
-	// activity day: their note_days rows are excluded anyway (see store.UpsertNote), so stamping would
-	// only write dead metadata.
+	// activity day (see note.ActivityDays), so stamping would only write dead metadata.
 	if n.Kind != "journal" {
 		if meta, changed := note.EnsureDay(n.Meta, ix.activityDay(n.Mtime)); changed {
 			if err := note.WriteMetadata(ix.cfg.MetadataPath(n.ID), meta); err != nil {

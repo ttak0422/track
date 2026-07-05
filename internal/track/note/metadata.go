@@ -69,6 +69,24 @@ func WriteMetadata(path string, meta Metadata) error {
 	return os.WriteFile(path, out, 0o644)
 }
 
+// ActivityDays returns the days a note surfaces on in day-indexed views (the agenda, the calendar, the
+// activity heatmap). Journals contribute none — a day's journal (and the month/year summaries) would
+// otherwise count as activity on every day it is opened. A sidecar predating the Days field falls back
+// to the created day, so the note still surfaces on the day it was made. This is the single rule the
+// index (note_days) and the static-site export both apply, so live and published calendars agree.
+func ActivityDays(kind string, meta Metadata) []string {
+	if kind == "journal" {
+		return nil
+	}
+	if len(meta.Days) == 0 {
+		if meta.Created == "" {
+			return nil
+		}
+		return []string{meta.Created}
+	}
+	return meta.Days
+}
+
 // EnsureDay returns meta with day recorded in its sorted, deduplicated Days set, and reports whether
 // that changed anything. An empty day is ignored. Callers persist the result with WriteMetadata only
 // when changed is true, so re-indexing an unchanged note never rewrites its sidecar.

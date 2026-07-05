@@ -49,6 +49,16 @@ func (s *Server) handleNotes(w http.ResponseWriter, r *http.Request) {
 		writeError(w, err, http.StatusInternalServerError)
 		return
 	}
+	// Activity days ride along so the calendar can derive per-day note lists from this one listing,
+	// the same way the static export's notes.json carries them.
+	days, err := s.store.AllNoteDays()
+	if err != nil {
+		writeError(w, err, http.StatusInternalServerError)
+		return
+	}
+	for i := range results {
+		results[i].Days = days[results[i].NoteID]
+	}
 	sortRefs(results)
 	addSearchPaths(s.cfg, results)
 	writeJSON(w, map[string]any{"notes": results})

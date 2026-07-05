@@ -71,6 +71,7 @@ func Build(cfg *config.Config, st *store.Store, opts Options, frontendDir, outDi
 			title:    noteTitle(n),
 			kind:     n.Kind,
 			tags:     n.Meta.Tags,
+			days:     note.ActivityDays(n.Kind, n.Meta),
 			path:     cfg.PathForKind(n.Kind, id),
 			body:     body,
 			keys:     []string{noteTitle(n)},
