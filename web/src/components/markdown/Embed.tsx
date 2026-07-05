@@ -69,6 +69,11 @@ export function Embed({ src, alt }: EmbedProps) {
   // inline rather than handed to <img>, which would only show a broken image. This stays asset-only so a
   // remote text URL is still treated as an ordinary link/OGP card.
   if (asset && isTextAssetHref(src)) {
+    // A resolved-chart asset renders the same interactive block a fenced ```echarts chart does, so the
+    // media hover-preview/float chrome would only pop up a duplicate of it; render it bare like the fence.
+    if (isEChartsHref(src)) {
+      return <TextAssetEmbed href={asset} src={src} alt={alt} />;
+    }
     return (
       <MediaFrame src={src} alt={alt}>
         <TextAssetEmbed href={asset} src={src} alt={alt} />
