@@ -133,11 +133,25 @@ func applyDataZoom(opt map[string]any, res viewspec.Resolved) {
 	}
 	zooms := []any{map[string]any{"type": "inside", "xAxisIndex": 0}}
 	if len(res.Labels) > dataZoomSliderThreshold {
-		// The slider stacks above the bottom legend; the grid shrinks so the x labels keep their room.
-		zooms = append(zooms, map[string]any{"type": "slider", "xAxisIndex": 0, "bottom": 34, "height": 16})
-		opt["grid"] = map[string]any{"bottom": 88}
+		// The slider owns the bottom edge (the legend sits up top); the grid shrinks so the x labels
+		// keep their room.
+		zooms = append(zooms, map[string]any{"type": "slider", "xAxisIndex": 0, "bottom": 10, "height": 16})
+		opt["grid"] = map[string]any{"bottom": 64}
 	}
 	opt["dataZoom"] = zooms
+}
+
+// applyLegend places the legend between the title and the plot, so the color→series key reads
+// before the chart; without a title it sits flush with the top edge.
+func applyLegend(opt map[string]any, labels []string) {
+	if len(labels) == 0 {
+		return
+	}
+	top := 0
+	if _, ok := opt["title"]; ok {
+		top = 30
+	}
+	opt["legend"] = map[string]any{"data": labels, "top": top}
 }
 
 // buildSeriesChart handles the shared category-x forms: line, area, bar, and scatter.
@@ -170,6 +184,11 @@ func buildSeriesChart(opt map[string]any, res viewspec.Resolved) {
 			// Fill down to the baseline at the SVG renderer's 30% opacity so both outputs read alike.
 			es["areaStyle"] = map[string]any{"color": seriesFillColor(i), "origin": "start"}
 		}
+		if form == viewspec.ChartLine || form == viewspec.ChartArea {
+			// No vertex dots, matching the SVG renderer's plain polyline; the axis tooltip still
+			// highlights the hovered point.
+			es["showSymbol"] = false
+		}
 		if res.Stacked && form == viewspec.ChartBar {
 			es["stack"] = "total"
 		}
@@ -180,9 +199,7 @@ func buildSeriesChart(opt map[string]any, res viewspec.Resolved) {
 		legend = append(legend, s.Label)
 	}
 	opt["series"] = series
-	if len(legend) > 0 {
-		opt["legend"] = map[string]any{"data": legend, "top": "bottom"}
-	}
+	applyLegend(opt, legend)
 }
 
 // echartsSeriesType maps the category-x drawing forms to ECharts series types; an area is a line with
@@ -215,9 +232,7 @@ func buildHBar(opt map[string]any, res viewspec.Resolved) {
 		legend = append(legend, s.Label)
 	}
 	opt["series"] = series
-	if len(legend) > 0 {
-		opt["legend"] = map[string]any{"data": legend, "top": "bottom"}
-	}
+	applyLegend(opt, legend)
 }
 
 // buildBubble plots {x, y, r} points over linear axes, sizing each point individually (per-item
@@ -245,9 +260,7 @@ func buildBubble(opt map[string]any, res viewspec.Resolved) {
 		legend = append(legend, s.Label)
 	}
 	opt["series"] = series
-	if len(legend) > 0 {
-		opt["legend"] = map[string]any{"data": legend, "top": "bottom"}
-	}
+	applyLegend(opt, legend)
 }
 
 // buildCandlestick draws OHLC candles over the category x-axis. ECharts item order is
