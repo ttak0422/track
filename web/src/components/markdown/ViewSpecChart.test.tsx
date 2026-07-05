@@ -11,13 +11,16 @@ vi.mock("../../api", async (importOriginal) => ({
 }));
 
 // The component lazy-imports echarts; the mock records setOption calls so tests can assert the
-// server-resolved option reached the chart instance.
+// server-resolved option reached the chart instance. on/off back the provenance click handler.
 const setOption = vi.fn();
 const dispose = vi.fn();
 vi.mock("echarts", () => ({
-  init: vi.fn(() => ({ setOption, resize: vi.fn(), dispose })),
+  init: vi.fn(() => ({ setOption, resize: vi.fn(), dispose, on: vi.fn(), off: vi.fn() })),
   getInstanceByDom: vi.fn(() => undefined),
 }));
+
+// EChartsBlock reads the router for provenance clicks (navigate to a referenced note).
+vi.mock("@tanstack/react-router", () => ({ useNavigate: () => vi.fn() }));
 
 const mockRender = vi.mocked(renderViewSpec);
 
