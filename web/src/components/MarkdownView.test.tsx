@@ -1,8 +1,15 @@
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { render, screen, waitFor, within } from "@testing-library/react";
 import type { ReactElement } from "react";
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import { MarkdownView } from "./MarkdownView";
+
+// EChartsBlock lazy-imports echarts; stub it so a chart fence doesn't pull the real (heavy) library
+// into this suite and starve the KaTeX lazy-load test of its waitFor budget.
+vi.mock("echarts", () => ({
+  init: vi.fn(() => ({ setOption: vi.fn(), resize: vi.fn(), dispose: vi.fn() })),
+  getInstanceByDom: vi.fn(() => undefined),
+}));
 
 // A QueryClient is only needed for markdown that produces links (ExternalLink/WikiLink) or viewspec
 // charts (ViewSpecChart), which call useQuery. Pure block content (tables, task lists, code) renders
@@ -51,6 +58,15 @@ describe("MarkdownView", () => {
     const { container } = renderWithQuery(<MarkdownView markdown={'```viewspec\n{"version":2}\n```'} />);
     expect(container.querySelector(".viewspec-chart")).toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "Copy code" })).not.toBeInTheDocument();
+  });
+
+  it("renders echarts fences as a chart container, and bad JSON as a code block", () => {
+    const { container } = render(<MarkdownView markdown={'```echarts\n{"series":[]}\n```'} />);
+    expect(container.querySelector(".viewspec-chart")).toBeInTheDocument();
+
+    const { container: bad } = render(<MarkdownView markdown={"```echarts\nnot json\n```"} />);
+    expect(bad.querySelector(".viewspec-chart")).not.toBeInTheDocument();
+    expect(bad.querySelector(".code-block")).toBeInTheDocument();
   });
 
   it("renders an external link that opens in a new tab", () => {

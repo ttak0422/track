@@ -27,8 +27,8 @@ func PublishID(id int64) string {
 	return publishSlug(strconv.FormatInt(id, 10))
 }
 
-// specAssetExt marks a View Spec asset: a self-contained chart spec (inline data) that the site renders
-// to a static SVG at build time, so embedding it shows the chart, not the JSON.
+// specAssetExt marks a View Spec asset: a self-contained chart spec (inline data) that the site
+// resolves to an ECharts option at build time, so embedding it shows the chart, not the JSON.
 const specAssetExt = ".viewspec.json"
 
 // isSpecAsset reports whether an "assets/<rel>" reference is a View Spec chart asset.
@@ -40,10 +40,11 @@ func isSpecAsset(rel string) bool {
 // path (so the original file name and any directory structure are hidden) keeping the lowercased
 // extension, which the frontend uses to detect the media kind and the host to set the content type. The
 // "asset:" prefix keeps the asset id space disjoint from the note-id space. A View Spec asset publishes
-// as ".svg": it is rendered to an SVG image, so both the copied file and the rewritten reference agree.
+// as ".echarts.json": it is resolved to an ECharts option the frontend draws, so both the copied file
+// and the rewritten reference agree.
 func publishAssetName(rel string) string {
 	if isSpecAsset(rel) {
-		return publishSlug("asset:"+rel) + ".svg"
+		return publishSlug("asset:"+rel) + ".echarts.json"
 	}
 	return publishSlug("asset:"+rel) + strings.ToLower(path.Ext(rel))
 }

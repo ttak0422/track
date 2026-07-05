@@ -10,6 +10,7 @@ import { ExternalLink } from "./markdown/ExternalLink";
 import { loadMathPlugins, looksLikeMath, type MathPlugins, mathPluginsIfLoaded } from "./markdown/math";
 import { MermaidDiagram } from "./markdown/MermaidDiagram";
 import { remarkWikiLink } from "./markdown/plugins";
+import { EChartsFence } from "./markdown/EChartsBlock";
 import { ViewSpecChart } from "./markdown/ViewSpecChart";
 import { WikiLink } from "./preview/WikiLink";
 
@@ -89,6 +90,9 @@ const markdownComponents = {
       }
       if (normalized === "viewspec") {
         return <ViewSpecChart text={text} />;
+      }
+      if (normalized === "echarts") {
+        return <EChartsFence text={text} />;
       }
       return <CodeBlock lang={lang} text={text} />;
     }

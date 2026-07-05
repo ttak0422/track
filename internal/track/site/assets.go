@@ -87,22 +87,23 @@ func copyAssets(srcDir, outDir string, rels []string) (copied, missing []string,
 	return copied, missing, nil
 }
 
-// renderSpecAsset reads a View Spec asset (inline-data chart) and writes its rendered SVG to dst. A
-// malformed spec fails the build loudly rather than being silently skipped, so a broken chart is not
+// renderSpecAsset reads a View Spec asset (inline-data chart) and writes its resolved ECharts option
+// (pure JSON) to dst; the frontend fetches it and draws an interactive chart with its bundled ECharts.
+// A malformed spec fails the build loudly rather than being silently skipped, so a broken chart is not
 // published as a dead reference.
 func renderSpecAsset(src, dst string) error {
 	specJSON, err := os.ReadFile(src)
 	if err != nil {
 		return err
 	}
-	svg, err := render.SVGFromSpec(specJSON)
+	opt, err := render.EChartsOptionFromSpecDir(specJSON, "")
 	if err != nil {
 		return fmt.Errorf("render spec asset %s: %w", src, err)
 	}
 	if err := os.MkdirAll(filepath.Dir(dst), 0o755); err != nil {
 		return err
 	}
-	return os.WriteFile(dst, []byte(svg), 0o644)
+	return os.WriteFile(dst, []byte(opt), 0o644)
 }
 
 func copyFile(src, dst string) error {

@@ -302,21 +302,21 @@ inline array), never both. Inline data makes a spec self-contained — a single 
 
 ### Embedding a chart as an asset
 
-A self-contained spec saved as a `.viewspec.json` **asset** is rendered to a static SVG by the engine
-(`render.SVGFromSpec`) when a note or doc embeds it as an image:
+A self-contained spec saved as a `.viewspec.json` **asset** becomes a chart when a note or doc embeds
+it as an image:
 
 ```markdown
 ![Close](assets/chart.viewspec.json)
 ```
 
-`track export-site` (`internal/track/site`) detects a `.viewspec.json` asset reference, renders it with
-the `svg` renderer at build time, writes the SVG into the published `assets/`, and rewrites the
-reference to the generated `.svg` — so the static site shows the chart with no CDN and no client-side
-JavaScript. Embedded charts must use inline `data.records` (an asset is rendered in isolation, with no
-spec-relative file to read); source marker overlays and `data.source` are not supported on this path,
-but line/band overlays (literal values) and inline marker records (`overlays[].records`) render. The
-live web workspace does not yet render embedded specs (it reuses the same `render.SVGFromSpec` when it
-does).
+`track export-site` (`internal/track/site`) detects a `.viewspec.json` asset reference, resolves it to
+its ECharts option (`render.EChartsOptionFromSpecDir`) at build time, writes the option JSON into the
+published `assets/` as `.echarts.json`, and rewrites the reference — the frontend embed fetches it and
+draws an interactive chart with its bundled ECharts. Embedded charts must use inline `data.records`
+(an asset is resolved in isolation, with no spec-relative file to read); source marker overlays and
+`data.source` are not supported on this path, but line/band overlays (literal values) and inline
+marker records (`overlays[].records`) render. The live web workspace does not yet render embedded
+specs.
 
 ### Embedding a chart in a note (fenced `viewspec` block)
 
@@ -343,10 +343,11 @@ differs:
   also watches the vault's `data/` directory and emits a `data` Server-Sent Event (alongside the
   existing `change` event for note edits) so displayed charts re-fetch when a `data.source` /
   `overlays[].source` file changes.
-- **Static site** (`track export-site`, both the vault and `--dir` front-ends): each fence is replaced
-  at build time by an image reference to a pre-rendered SVG (`render.SVGFromSpecDir`) written into the
-  published `assets/` (named by a content-derived slug), keeping the export free of client-side chart
-  code.
+- **Static site** (`track export-site`, both the vault and `--dir` front-ends): each fence is
+  resolved at build time to a fenced ```` ```echarts ```` block carrying the ready-to-draw option, so
+  the published page draws the same interactive chart with the frontend's bundled ECharts (a lazily
+  loaded chunk; pages without charts never download it). No chart engine or vault data ships with the
+  site — resolution already happened.
 
 Unlike the isolated `.viewspec.json` asset path, a fenced block may use `data.source` (and
 `overlays[].source`): paths resolve **inside the vault's `data/` directory** (for `--dir` exports, a

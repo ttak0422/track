@@ -5,9 +5,11 @@ import { CodeBlock } from "./CodeBlock";
 import { NoteKindContext } from "./context";
 import { MediaFrame } from "./MediaFrame";
 import { MermaidDiagram } from "./MermaidDiagram";
+import { EChartsFence } from "./EChartsBlock";
 import {
   assetHref,
   hostOf,
+  isEChartsHref,
   isImageHref,
   isMermaidHref,
   isPdfHref,
@@ -97,9 +99,9 @@ interface TextAssetEmbedProps {
 }
 
 // TextAssetEmbed fetches a text-file attachment and renders it: a mermaid source becomes a diagram (the
-// same renderer fenced ```mermaid blocks use), any other text file a syntax-highlighted code block. While
-// loading it shows a placeholder, and on a failed fetch it degrades to a plain link so the embed is never
-// a dead end.
+// same renderer fenced ```mermaid blocks use), a resolved-chart option (.echarts.json) an interactive
+// chart, any other text file a syntax-highlighted code block. While loading it shows a placeholder, and
+// on a failed fetch it degrades to a plain link so the embed is never a dead end.
 function TextAssetEmbed({ href, src, alt }: TextAssetEmbedProps) {
   const text = useAssetTextQuery(href);
 
@@ -115,6 +117,9 @@ function TextAssetEmbed({ href, src, alt }: TextAssetEmbedProps) {
   }
   if (isMermaidHref(src)) {
     return <MermaidDiagram text={text.data} />;
+  }
+  if (isEChartsHref(src)) {
+    return <EChartsFence text={text.data} />;
   }
   return <CodeBlock lang={textAssetLang(src) ?? ""} text={text.data} />;
 }

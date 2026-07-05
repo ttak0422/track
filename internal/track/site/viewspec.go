@@ -1,8 +1,6 @@
 package site
 
 import (
-	"encoding/json"
-	"fmt"
 	"strings"
 
 	"github.com/ttak0422/track/internal/track/babel"
@@ -13,16 +11,20 @@ import (
 // mirroring how ```mermaid marks an embedded diagram.
 const viewSpecLang = "viewspec"
 
-// renderViewSpecBlocks replaces every fenced ```viewspec block in a published body with its rendered
-// chart: the spec JSON is drawn to a static SVG (render.SVGFromSpecDir, the same engine behind
-// ".viewspec.json" asset embeds) and the fence becomes an image reference to a generated asset, so the
-// static site shows the chart with no client-side JavaScript. dataDir resolves data.source references.
+// echartsLang is the fence language the export emits for a resolved chart: the body is a ready-to-draw
+// ECharts option (pure JSON), which the frontend hands to a bundled ECharts instance. Resolution
+// (data reading, filtering, encoding) happens here at build time, so the published site needs no
+// chart engine on the server and no vault data — only the drawing library it already bundles.
+const echartsLang = "echarts"
+
+// resolveViewSpecBlocks replaces every fenced ```viewspec block in a published body with a fenced
+// ```echarts block carrying the spec's resolved ECharts option, so the static site draws the same
+// interactive chart as the live workspace. dataDir resolves data.source references at build time.
 //
-// A spec that fails to load or render is replaced by an inline error plus the original JSON as a code
+// A spec that fails to load or resolve is replaced by an inline error plus the original JSON as a code
 // block — the page still publishes, matching how the live workspace shows a bad spec at the block
-// position. The returned map holds the generated SVGs by published asset name for the bundle to write.
-func renderViewSpecBlocks(body, dataDir string) (string, map[string]string) {
-	var charts map[string]string
+// position.
+func resolveViewSpecBlocks(body, dataDir string) string {
 	lines := strings.Split(body, "\n")
 	var out []string
 	next := 0
@@ -31,43 +33,17 @@ func renderViewSpecBlocks(body, dataDir string) (string, map[string]string) {
 			continue
 		}
 		out = append(out, lines[next:b.StartLine]...)
-		svg, err := render.SVGFromSpecDir([]byte(b.Body), dataDir)
+		opt, err := render.EChartsOptionFromSpecDir([]byte(b.Body), dataDir)
 		if err != nil {
 			out = append(out, "> View Spec error: "+err.Error(), "", "```json", b.Body, "```")
 		} else {
-			name := publishSlug("chart:"+b.BodyHash) + ".svg"
-			if charts == nil {
-				charts = map[string]string{}
-			}
-			charts[name] = svg
-			out = append(out, fmt.Sprintf("![%s](assets/%s)", chartAlt(b.Body), name))
+			out = append(out, "```"+echartsLang, opt, "```")
 		}
 		next = b.EndLine + 1
 	}
 	if next == 0 {
-		return body, nil // no viewspec fences: the common case, untouched
+		return body // no viewspec fences: the common case, untouched
 	}
 	out = append(out, lines[next:]...)
-	return strings.Join(out, "\n"), charts
-}
-
-// chartAlt returns the image alt text for an embedded chart: the spec's title when it parses, else a
-// generic label (the spec may be arbitrarily broken and still reach here on the success path only).
-func chartAlt(specJSON string) string {
-	var probe struct {
-		Title string `json:"title"`
-	}
-	if json.Unmarshal([]byte(specJSON), &probe) == nil && strings.TrimSpace(probe.Title) != "" {
-		// Strip the characters that would terminate the surrounding ![alt](url) syntax.
-		clean := strings.Map(func(r rune) rune {
-			if strings.ContainsRune("[]()\n", r) {
-				return -1
-			}
-			return r
-		}, probe.Title)
-		if clean = strings.TrimSpace(clean); clean != "" {
-			return clean
-		}
-	}
-	return "Chart"
+	return strings.Join(out, "\n")
 }

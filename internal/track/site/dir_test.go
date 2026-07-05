@@ -87,7 +87,7 @@ func TestBuildDirBundle(t *testing.T) {
 	}
 }
 
-func TestBuildDirRendersSpecAssetToSVG(t *testing.T) {
+func TestBuildDirResolvesSpecAssetToEChartsOption(t *testing.T) {
 	src := t.TempDir()
 	write := func(name, body string) {
 		if err := os.WriteFile(filepath.Join(src, name), []byte(body), 0o644); err != nil {
@@ -107,17 +107,17 @@ func TestBuildDirRendersSpecAssetToSVG(t *testing.T) {
 		t.Fatalf("BuildDir: %v", err)
 	}
 
-	// The spec asset is published as an SVG image (not the raw JSON).
+	// The spec asset is published as a resolved ECharts option (not the raw spec JSON).
 	assetName := publishAssetName("c.viewspec.json")
-	if !strings.HasSuffix(assetName, ".svg") {
-		t.Fatalf("spec asset should publish as .svg, got %q", assetName)
+	if !strings.HasSuffix(assetName, ".echarts.json") {
+		t.Fatalf("spec asset should publish as .echarts.json, got %q", assetName)
 	}
 	data, err := os.ReadFile(filepath.Join(out, "assets", assetName))
 	if err != nil {
-		t.Fatalf("rendered SVG not written: %v", err)
+		t.Fatalf("resolved option not written: %v", err)
 	}
-	if !strings.HasPrefix(string(data), "<?xml") || !strings.Contains(string(data), ">Demo<") {
-		t.Fatalf("asset is not the rendered SVG: %.60s", data)
+	if !strings.Contains(string(data), `"type":"bar"`) || !strings.Contains(string(data), `"text":"Demo"`) {
+		t.Fatalf("asset is not the resolved ECharts option: %.80s", data)
 	}
 
 	// The body references the rendered .svg, never the source .viewspec.json.

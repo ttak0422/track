@@ -91,23 +91,24 @@ Key fields:
 
 Every image on this page is a **View Spec asset rendered by track**, not a hand-made picture. A
 `.viewspec.json` asset carries the spec *and its data inline* (`data.records`), so it is a complete,
-self-contained chart. Embed it like any image and track renders it to a static SVG when the site is
-built:
+self-contained chart. Embed it like any image and track resolves it at build time; the published page
+draws it as an interactive ECharts chart:
 
 ```markdown
 ![Line](assets/chart-line.viewspec.json)
 ```
 
 Just drop the `.viewspec.json` file into the assets directory and reference it — no `import` step is
-required (`track asset import` only copies a file there for you). There is no separate data file to keep
-in sync, no CDN, and no client-side JavaScript — the engine turns the spec into an SVG image. The charts
-below are each one embedded `.viewspec.json`.
+required (`track asset import` only copies a file there for you). There is no separate data file to
+keep in sync and no CDN — the engine resolves the spec at build time and the site's bundled ECharts
+draws it. The charts below are each one embedded `.viewspec.json`.
 
 ### Writing the spec inline
 
 Prefer to keep the spec in the note itself? Fence a block with `viewspec` — the same way a `mermaid`
-fence embeds a [[Diagrams|diagram]] — and it renders as a chart: interactive (ECharts — hover
-tooltips, legend toggling) in the web workspace, pre-rendered static SVG in the published site. Inline `data.records` keeps the block self-contained; `data.source` reads a JSONL file
+fence embeds a [[Diagrams|diagram]] — and it renders as an interactive ECharts chart (hover
+tooltips, legend toggling) in both the web workspace and the published site.
+Inline `data.records` keeps the block self-contained; `data.source` reads a JSONL file
 from the vault's `data/` directory. If the spec is invalid, the error and the source are shown at the
 block's position, so a typo never hides your text. This one is live:
 

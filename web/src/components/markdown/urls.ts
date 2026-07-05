@@ -148,6 +148,13 @@ export function isMermaidHref(src: string): boolean {
   return /\.(mmd|mermaid)$/i.test(path.trim());
 }
 
+// isEChartsHref matches a resolved-chart asset (.echarts.json, published by the static export for a
+// .viewspec.json spec asset), so its embed draws an interactive chart instead of showing raw JSON.
+export function isEChartsHref(src: string): boolean {
+  const path = src.split(/[?#]/, 1)[0] ?? "";
+  return /\.echarts\.json$/i.test(path.trim());
+}
+
 // textAssetLangs maps a text-file asset extension to how its embed should render: "mermaid" renders a
 // diagram, every other entry is a CodeBlock language ("" means plain text, shown without highlighting).
 const textAssetLangs: Record<string, string> = {

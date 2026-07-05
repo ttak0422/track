@@ -4,7 +4,6 @@ import (
 	"encoding/json"
 	"os"
 	"path/filepath"
-	"regexp"
 	"strings"
 	"testing"
 
@@ -186,8 +185,9 @@ func fileExists(path string) bool {
 }
 
 // TestBuildRendersViewSpecFences verifies the note-embedded chart path: a valid ```viewspec block is
-// replaced by an image reference to a generated SVG asset (data.source read from the vault's data/),
-// and a broken block publishes an inline error plus its source instead of failing the build.
+// replaced by a fenced ```echarts block carrying its resolved option (data.source read from the
+// vault's data/), and a broken block publishes an inline error plus its source instead of failing the
+// build.
 func TestBuildRendersViewSpecFences(t *testing.T) {
 	cfg, s := vaultStore(t)
 	if err := os.MkdirAll(cfg.DataDir(), 0o755); err != nil {
@@ -214,17 +214,12 @@ func TestBuildRendersViewSpecFences(t *testing.T) {
 	if strings.Contains(note.Note.Body, "```viewspec") {
 		t.Fatalf("viewspec fences should be replaced:\n%s", note.Note.Body)
 	}
-	// The valid block became an image whose generated SVG asset was written into the site.
-	m := regexp.MustCompile(`!\[PI\]\(assets/([^)]+\.svg)\)`).FindStringSubmatch(note.Note.Body)
-	if m == nil {
-		t.Fatalf("body should embed the rendered chart image:\n%s", note.Note.Body)
+	// The valid block became a fenced echarts block carrying the resolved option inline.
+	if !strings.Contains(note.Note.Body, "```echarts\n") {
+		t.Fatalf("body should carry a resolved echarts block:\n%s", note.Note.Body)
 	}
-	svg, err := os.ReadFile(filepath.Join(out, "assets", m[1]))
-	if err != nil {
-		t.Fatalf("generated chart asset missing: %v", err)
-	}
-	if !strings.Contains(string(svg), "<svg") || !strings.Contains(string(svg), ">PI<") {
-		t.Fatalf("generated asset is not the rendered chart: %.80s", svg)
+	if !strings.Contains(note.Note.Body, `"text":"PI"`) || !strings.Contains(note.Note.Body, `"data":["01","02"]`) {
+		t.Fatalf("resolved option should inline the chart data:\n%s", note.Note.Body)
 	}
 	// The broken block shows an error at its position and keeps the source, and the page still built.
 	if !strings.Contains(note.Note.Body, "> View Spec error:") || !strings.Contains(note.Note.Body, "```json") {

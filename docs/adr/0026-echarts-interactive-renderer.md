@@ -49,6 +49,6 @@ design over backward compatibility).
   times, and the interactive/static split is exactly one axis (interactivity).
 - Generated HTML still requires network access at view time; fully offline interactive pages would
   need bundling (unchanged trade-off).
-- The web workspace can hand the option JSON to its own ECharts instance for interactive embedded
-  charts, replacing server-rendered static SVG in the reader (the static site export keeps
-  build-time SVG images).
+- The web workspace and the static site export both hand the option JSON to the frontend's bundled
+  ECharts: the reader posts specs to the server, the export resolves them at build time. Embedded
+  charts are interactive on every surface; `--renderer svg` remains for standalone static output.

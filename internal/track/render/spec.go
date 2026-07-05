@@ -11,34 +11,13 @@ import (
 	"github.com/ttak0422/track/internal/track/viewspec"
 )
 
-// SVGFromSpec loads a single View Spec carrying inline data (data.records) and renders it to a static
-// SVG. It is the engine behind embedding a ".viewspec.json" asset as a chart: a self-contained spec
-// becomes an image at build/serve time, with no external data file and no client-side JavaScript.
-//
-// Embedded charts must carry their data inline; a spec that uses data.source (an external JSONL file)
-// is rejected here, since an asset is rendered in isolation without a spec-relative file to read.
-// Source marker overlays (a second data source) are likewise out of scope for the embedded path;
-// line/band overlays carry literal values and inline marker records travel with the spec, so both render.
-func SVGFromSpec(specJSON []byte) (string, error) {
-	return SVGFromSpecDir(specJSON, "")
-}
-
-// SVGFromSpecDir renders a View Spec embedded in a note (a fenced ```viewspec block) to a static SVG.
-// dataDir is the vault's canonical-data directory: data.source and overlay sources are JSONL paths
-// resolved inside it, so a note-embedded chart can reference the vault's data/ files while inline
-// data.records keeps working. An empty dataDir allows inline data only (the isolated-asset path above).
-func SVGFromSpecDir(specJSON []byte, dataDir string) (string, error) {
-	res, err := resolveSpecDir(specJSON, dataDir)
-	if err != nil {
-		return "", err
-	}
-	return SVG{}.Render(res)
-}
-
-// EChartsOptionFromSpecDir resolves a note-embedded View Spec (same data rules as SVGFromSpecDir) to
-// its ECharts option JSON. The web workspace serves this to the frontend, which hands the option to
-// its own ECharts instance — chart semantics stay decided here, and the embedded chart becomes
-// interactive instead of a static image.
+// EChartsOptionFromSpecDir resolves an embedded View Spec (a fenced ```viewspec block, or a
+// ".viewspec.json" asset) to its ECharts option JSON, which a frontend hands to its own ECharts
+// instance — chart semantics stay decided here. dataDir is the vault's canonical-data directory:
+// data.source and overlay sources are JSONL paths resolved inside it, so a note-embedded chart can
+// reference the vault's data/ files while inline data.records keeps working. An empty dataDir allows
+// inline data only (the isolated-asset path); source marker overlays are likewise ignored there,
+// while line/band overlays and inline marker records travel with the spec and always render.
 func EChartsOptionFromSpecDir(specJSON []byte, dataDir string) (string, error) {
 	res, err := resolveSpecDir(specJSON, dataDir)
 	if err != nil {
