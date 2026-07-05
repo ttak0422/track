@@ -65,7 +65,7 @@ func echartsOption(res viewspec.Resolved) (map[string]any, error) {
 		"tooltip": map[string]any{"trigger": tooltipTrigger(res.Chart)},
 	}
 	if res.Spec.Title != "" {
-		opt["title"] = map[string]any{"text": res.Spec.Title, "left": 0}
+		opt["title"] = map[string]any{"text": res.Spec.Title, "left": echartsInset}
 	}
 
 	switch res.Chart {
@@ -95,13 +95,13 @@ func echartsOption(res viewspec.Resolved) (map[string]any, error) {
 // side margins. The heatmap keeps right-hand room for its vertical visualMap ramp.
 func applyGrid(opt map[string]any, t viewspec.ChartType) {
 	g := gridOf(opt)
-	g["left"] = 0
+	g["left"] = echartsInset
 	g["containLabel"] = true
 	if t == viewspec.ChartHeatmap {
 		g["right"] = 90
 		return
 	}
-	g["right"] = 8
+	g["right"] = echartsInset
 }
 
 // tooltipTrigger picks the hover behavior: category charts read best with the whole axis slice
@@ -130,6 +130,10 @@ func applyAxisPointer(opt map[string]any, t viewspec.ChartType) {
 	}
 }
 
+// echartsInset is the shared horizontal margin between the container edge and every chart
+// element (title, legend, plot, zoom slider), so they align while keeping breathing room.
+const echartsInset = 16
+
 // dataZoomSliderThreshold is the category count past which a chart gets a visible range slider on
 // top of the always-on wheel/pinch zoom: short series don't need one, dense time series (the shape
 // the goal articles zoom) do.
@@ -150,7 +154,10 @@ func applyDataZoom(opt map[string]any, res viewspec.Resolved) {
 	if len(res.Labels) > dataZoomSliderThreshold {
 		// The slider owns the bottom edge (the legend sits up top); the grid shrinks so the x labels
 		// keep their room.
-		zooms = append(zooms, map[string]any{"type": "slider", "xAxisIndex": 0, "bottom": 10, "height": 16})
+		zooms = append(zooms, map[string]any{
+			"type": "slider", "xAxisIndex": 0, "bottom": 10, "height": 16,
+			"left": echartsInset, "right": echartsInset,
+		})
 		gridOf(opt)["bottom"] = 64
 	}
 	opt["dataZoom"] = zooms
@@ -167,7 +174,7 @@ func applyLegend(opt map[string]any, labels []string) {
 	if _, ok := opt["title"]; ok {
 		top, gridTop = 40, 96
 	}
-	opt["legend"] = map[string]any{"data": labels, "top": top, "left": 0}
+	opt["legend"] = map[string]any{"data": labels, "top": top, "left": echartsInset}
 	gridOf(opt)["top"] = gridTop
 }
 
