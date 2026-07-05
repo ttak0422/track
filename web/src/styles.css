@@ -372,22 +372,24 @@ button {
 
 /* In the rail the settings menu sits at the bottom, so its panel opens beside the rail. It must be
    fixed, not absolute: the rail clips overflow, and a high z-index keeps it above reader content like
-   a note's backlinks. */
+   a note's backlinks (and, like the search popup below, the full-graph view at z-index 90). */
 .rail-menu-panel {
   position: fixed;
-  z-index: 40;
+  z-index: 95;
   top: auto;
   right: auto;
   bottom: 12px;
   left: 64px;
 }
 
-/* The sidebar search popup floats beside the rail, escaping the rail's overflow with fixed positioning. */
+/* The sidebar search popup floats beside the rail, escaping the rail's overflow with fixed positioning.
+   Above .graph-full (z-index 90): the rail (and this popup) render on every page including /graph, whose
+   full-bleed canvas would otherwise paint over the popup and swallow its clicks there. */
 .search-popup {
   position: fixed;
   left: 64px;
   top: 52px;
-  z-index: 30;
+  z-index: 95;
   display: flex;
   flex-direction: column;
   width: 360px;
