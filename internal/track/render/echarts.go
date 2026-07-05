@@ -65,7 +65,7 @@ func echartsOption(res viewspec.Resolved) (map[string]any, error) {
 		"tooltip": map[string]any{"trigger": tooltipTrigger(res.Chart)},
 	}
 	if res.Spec.Title != "" {
-		opt["title"] = map[string]any{"text": res.Spec.Title, "left": "center"}
+		opt["title"] = map[string]any{"text": res.Spec.Title, "left": 0}
 	}
 
 	switch res.Chart {
@@ -141,18 +141,18 @@ func applyDataZoom(opt map[string]any, res viewspec.Resolved) {
 	opt["dataZoom"] = zooms
 }
 
-// applyLegend places the legend between the title and the plot, so the color→series key reads
-// before the chart; without a title it sits flush with the top edge. The plot is pushed down to
-// clear both rows.
+// applyLegend places the legend between the title and the plot, left-aligned under the title so
+// the color→series key reads before the chart; without a title it sits flush with the top edge.
+// The plot is pushed down to clear both rows.
 func applyLegend(opt map[string]any, labels []string) {
 	if len(labels) == 0 {
 		return
 	}
-	top, gridTop := 4, 52
+	top, gridTop := 4, 56
 	if _, ok := opt["title"]; ok {
-		top, gridTop = 36, 88
+		top, gridTop = 40, 96
 	}
-	opt["legend"] = map[string]any{"data": labels, "top": top}
+	opt["legend"] = map[string]any{"data": labels, "top": top, "left": 0}
 	gridOf(opt)["top"] = gridTop
 }
 
