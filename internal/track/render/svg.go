@@ -91,8 +91,15 @@ func valueRange(res viewspec.Resolved) (lo, hi float64) {
 	if math.IsInf(lo, 1) { // no finite data at all
 		lo, hi = 0, 1
 	}
-	// Bars and areas measure from a zero baseline, so the axis must include it.
-	if res.Chart == viewspec.ChartBar || res.Chart == viewspec.ChartHBar || res.Chart == viewspec.ChartArea {
+	// Bars and areas measure from a zero baseline, so the axis must include it (a combo chart needs
+	// it as soon as any of its series draws as one).
+	needsZero := res.Chart == viewspec.ChartBar || res.Chart == viewspec.ChartHBar || res.Chart == viewspec.ChartArea
+	for i := range res.Series {
+		if f := res.SeriesForm(i); f == viewspec.ChartBar || f == viewspec.ChartArea {
+			needsZero = true
+		}
+	}
+	if needsZero {
 		lo, hi = math.Min(lo, 0), math.Max(hi, 0)
 	}
 	if lo == hi {
@@ -206,22 +213,22 @@ func writeAxes(b *strings.Builder, g svgGeom, res viewspec.Resolved, lo, hi floa
 	}
 }
 
-// writeSeries draws each y series for line/area/bar/scatter (and the candlestick's OHLC components)
-// over a shared category x axis.
+// writeSeries draws each y series by its own form — the chart's, or the series' mark override in a
+// combo chart — over a shared category x axis. Bars draw first so lines and areas stay readable on
+// top of them.
 func writeSeries(b *strings.Builder, g svgGeom, res viewspec.Resolved, lo, hi float64) {
 	centers := bandCenters(g, len(res.Labels))
-	switch res.Chart {
-	case viewspec.ChartBar:
-		writeBars(b, g, res, centers, lo, hi)
-	case viewspec.ChartArea:
-		for si, s := range res.Series {
+	if res.Chart == viewspec.ChartCandlestick {
+		writeCandles(b, g, res, centers, lo, hi)
+		return
+	}
+	writeBars(b, g, res, centers, lo, hi)
+	for si, s := range res.Series {
+		switch res.SeriesForm(si) {
+		case viewspec.ChartArea:
 			writeAreaFill(b, g, centers, s.Values, lo, hi, seriesColor(si))
 			writePolyline(b, g, centers, s.Values, lo, hi, seriesColor(si))
-		}
-	case viewspec.ChartCandlestick:
-		writeCandles(b, g, res, centers, lo, hi)
-	case viewspec.ChartScatter:
-		for si, s := range res.Series {
+		case viewspec.ChartScatter:
 			for i, v := range s.Values {
 				if math.IsNaN(v) || i >= len(centers) {
 					continue
@@ -229,9 +236,7 @@ func writeSeries(b *strings.Builder, g svgGeom, res viewspec.Resolved, lo, hi fl
 				fmt.Fprintf(b, `<circle cx="%s" cy="%s" r="3.5" fill="%s"/>`+"\n",
 					num(centers[i]), num(yPixel(g, lo, hi, v)), seriesColor(si))
 			}
-		}
-	default: // line
-		for si, s := range res.Series {
+		case viewspec.ChartLine:
 			writePolyline(b, g, centers, s.Values, lo, hi, seriesColor(si))
 		}
 	}
@@ -330,7 +335,15 @@ func writeCandles(b *strings.Builder, g svgGeom, res viewspec.Resolved, centers 
 // category: positives grow up from zero, negatives grow down, each segment starting where the
 // previous series ended.
 func writeBars(b *strings.Builder, g svgGeom, res viewspec.Resolved, centers []float64, lo, hi float64) {
-	n := len(res.Series)
+	// Only the bar-form series draw here (in a combo chart the rest are lines/areas), and the band
+	// slots are split among them alone so bars keep their width next to overlaid lines.
+	var bars []int
+	for si := range res.Series {
+		if res.SeriesForm(si) == viewspec.ChartBar {
+			bars = append(bars, si)
+		}
+	}
+	n := len(bars)
 	if n == 0 || len(centers) == 0 {
 		return
 	}
@@ -339,8 +352,8 @@ func writeBars(b *strings.Builder, g svgGeom, res viewspec.Resolved, centers []f
 		bw := band * 0.6
 		pos := make([]float64, len(centers))
 		neg := make([]float64, len(centers))
-		for si, s := range res.Series {
-			for i, v := range s.Values {
+		for _, si := range bars {
+			for i, v := range res.Series[si].Values {
 				if math.IsNaN(v) || math.IsInf(v, 0) || i >= len(centers) {
 					continue
 				}
@@ -356,14 +369,14 @@ func writeBars(b *strings.Builder, g svgGeom, res viewspec.Resolved, centers []f
 		}
 		return
 	}
-	bw := band * 0.8 / float64(n) // 20% inter-band gap, split across series
+	bw := band * 0.8 / float64(n) // 20% inter-band gap, split across the bar series
 	baseY := yPixel(g, lo, hi, math.Max(lo, 0))
-	for si, s := range res.Series {
-		for i, v := range s.Values {
+	for slot, si := range bars {
+		for i, v := range res.Series[si].Values {
 			if math.IsNaN(v) || i >= len(centers) {
 				continue
 			}
-			x := centers[i] - band*0.4 + bw*float64(si)
+			x := centers[i] - band*0.4 + bw*float64(slot)
 			y := yPixel(g, lo, hi, v)
 			top, h := math.Min(y, baseY), math.Abs(baseY-y)
 			fmt.Fprintf(b, `<rect x="%s" y="%s" width="%s" height="%s" fill="%s"/>`+"\n",

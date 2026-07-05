@@ -83,6 +83,8 @@ func echartsOption(res viewspec.Resolved) (map[string]any, error) {
 		buildSeriesChart(opt, res)
 	}
 
+	applyAxisPointer(opt, res.Chart)
+	applyDataZoom(opt, res)
 	applyOverlays(opt, res)
 	return opt, nil
 }
@@ -95,6 +97,47 @@ func tooltipTrigger(t viewspec.ChartType) string {
 		return "item"
 	}
 	return "axis"
+}
+
+// applyAxisPointer refines the axis tooltip's hover guide by drawing form: bar-shaped charts
+// highlight the hovered category band (shadow), continuous forms get a crosshair with axis value
+// readouts. Item-triggered charts keep their plain per-point tooltip.
+func applyAxisPointer(opt map[string]any, t viewspec.ChartType) {
+	tooltip, ok := opt["tooltip"].(map[string]any)
+	if !ok || tooltip["trigger"] != "axis" {
+		return
+	}
+	switch t {
+	case viewspec.ChartBar, viewspec.ChartHBar, viewspec.ChartCandlestick:
+		tooltip["axisPointer"] = map[string]any{"type": "shadow"}
+	default: // line, area
+		tooltip["axisPointer"] = map[string]any{"type": "cross"}
+	}
+}
+
+// dataZoomSliderThreshold is the category count past which a chart gets a visible range slider on
+// top of the always-on wheel/pinch zoom: short series don't need one, dense time series (the shape
+// the goal articles zoom) do.
+// ponytail: fixed count cutoff; derive from label pixel density if charts get configurable widths
+const dataZoomSliderThreshold = 30
+
+// applyDataZoom derives zooming mechanically from the drawing form: every category-x chart gets an
+// inside (wheel/pinch/drag) zoom on its x axis, and a dense one also gets the slider, so changing
+// the visible range needs no spec vocabulary. Value-axis and grid forms (bubble, heatmap) stay
+// unzoomed — range selection there reads as noise, not navigation.
+func applyDataZoom(opt map[string]any, res viewspec.Resolved) {
+	switch res.Chart {
+	case viewspec.ChartLine, viewspec.ChartArea, viewspec.ChartBar, viewspec.ChartScatter, viewspec.ChartCandlestick:
+	default:
+		return
+	}
+	zooms := []any{map[string]any{"type": "inside", "xAxisIndex": 0}}
+	if len(res.Labels) > dataZoomSliderThreshold {
+		// The slider stacks above the bottom legend; the grid shrinks so the x labels keep their room.
+		zooms = append(zooms, map[string]any{"type": "slider", "xAxisIndex": 0, "bottom": 34, "height": 16})
+		opt["grid"] = map[string]any{"bottom": 88}
+	}
+	opt["dataZoom"] = zooms
 }
 
 // buildSeriesChart handles the shared category-x forms: line, area, bar, and scatter.
@@ -117,16 +160,17 @@ func buildSeriesChart(opt map[string]any, res viewspec.Resolved) {
 	var series []any
 	var legend []string
 	for i, s := range res.Series {
+		form := res.SeriesForm(i) // per-series mark overrides compose bars and lines in one chart
 		es := map[string]any{
 			"name": s.Label,
-			"type": echartsSeriesType(res.Chart),
+			"type": echartsSeriesType(form),
 			"data": floatsToJSON(s.Values),
 		}
-		if res.Chart == viewspec.ChartArea {
+		if form == viewspec.ChartArea {
 			// Fill down to the baseline at the SVG renderer's 30% opacity so both outputs read alike.
 			es["areaStyle"] = map[string]any{"color": seriesFillColor(i), "origin": "start"}
 		}
-		if res.Stacked {
+		if res.Stacked && form == viewspec.ChartBar {
 			es["stack"] = "total"
 		}
 		if s.Axis == "y2" {

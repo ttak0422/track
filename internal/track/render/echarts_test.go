@@ -199,6 +199,65 @@ func TestEChartsY2RefLineNeedsY2Series(t *testing.T) {
 	}
 }
 
+func TestEChartsComboDrawsPerSeriesForms(t *testing.T) {
+	res := viewspec.Resolved{
+		Spec: viewspec.Spec{}, Chart: viewspec.ChartBar,
+		Labels: []string{"a", "b"},
+		Series: []viewspec.Series{
+			{Label: "vol", Values: []float64{1, 2}, Mark: viewspec.ChartBar},
+			{Label: "idx", Values: []float64{3, 4}, Axis: "y2", Mark: viewspec.ChartLine},
+		},
+	}
+	out, err := EChartsOptionJSON(res)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(out, `"type":"bar"`) || !strings.Contains(out, `"type":"line"`) {
+		t.Fatalf("combo should mix series types: %s", out)
+	}
+}
+
+func TestEChartsDerivesZoomFromDensity(t *testing.T) {
+	// Category-x charts always zoom from the wheel; only dense ones get the visible slider.
+	sparse, _ := EChartsOptionJSON(resolvedChart(viewspec.ChartLine, "S", []float64{1, 2}))
+	if !strings.Contains(sparse, `"type":"inside"`) || strings.Contains(sparse, `"type":"slider"`) {
+		t.Fatalf("sparse chart should zoom inside-only: %s", sparse)
+	}
+
+	labels := make([]string, 60)
+	values := make([]float64, 60)
+	for i := range labels {
+		labels[i] = string(rune('a' + i%26))
+		values[i] = float64(i)
+	}
+	dense, _ := EChartsOptionJSON(viewspec.Resolved{
+		Spec: viewspec.Spec{}, Chart: viewspec.ChartLine,
+		Labels: labels,
+		Series: []viewspec.Series{{Label: "S", Values: values}},
+	})
+	if !strings.Contains(dense, `"type":"slider"`) {
+		t.Fatalf("dense chart should add a range slider: %s", dense)
+	}
+
+	// Grid/value-axis forms stay unzoomed.
+	hm, _ := EChartsOptionJSON(viewspec.Resolved{Spec: viewspec.Spec{}, Chart: viewspec.ChartHeatmap,
+		Grid: &viewspec.Grid{Cols: []string{"a"}, Rows: []string{"r"}, Cells: []viewspec.Cell{{Value: 1}}}})
+	if strings.Contains(hm, `"dataZoom"`) {
+		t.Fatalf("heatmap should not zoom: %s", hm)
+	}
+}
+
+func TestEChartsAxisPointerByForm(t *testing.T) {
+	bar, _ := EChartsOptionJSON(resolvedChart(viewspec.ChartBar, "S", []float64{1, 2}))
+	if !strings.Contains(bar, `"axisPointer":{"type":"shadow"}`) {
+		t.Fatalf("bar tooltip should shadow the hovered band: %s", bar)
+	}
+	line, _ := EChartsOptionJSON(resolvedChart(viewspec.ChartLine, "S", []float64{1, 2}))
+	if !strings.Contains(line, `"axisPointer":{"type":"cross"}`) {
+		t.Fatalf("line tooltip should crosshair: %s", line)
+	}
+}
+
 func TestEChartsRegistered(t *testing.T) {
 	if _, err := Get("echarts"); err != nil {
 		t.Fatalf("echarts should be registered: %v", err)

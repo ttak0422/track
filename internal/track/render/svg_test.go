@@ -184,6 +184,28 @@ func TestSVGThinsDenseCategoryLabels(t *testing.T) {
 	}
 }
 
+func TestSVGComboDrawsBarsAndLine(t *testing.T) {
+	res := viewspec.Resolved{
+		Spec: viewspec.Spec{}, Chart: viewspec.ChartBar,
+		Labels: []string{"a", "b", "c"},
+		Series: []viewspec.Series{
+			{Label: "vol", Values: []float64{1, 2, 3}, Mark: viewspec.ChartBar},
+			{Label: "idx", Values: []float64{3, 4, 5}, Mark: viewspec.ChartLine},
+		},
+	}
+	out, err := SVG{}.Render(res)
+	if err != nil {
+		t.Fatal(err)
+	}
+	// Bars only for the bar series, plus a polyline for the line series.
+	if n := strings.Count(out, "<rect"); n != 1+1+3+2 { // background + border + 3 bars + 2 legend swatches
+		t.Fatalf("want 3 bar rects (plus background/border/legend), got %d rects: %s", n, out)
+	}
+	if !strings.Contains(out, "<polyline") {
+		t.Fatalf("line series missing: %s", out)
+	}
+}
+
 func TestSVGCalloutDrawsBubble(t *testing.T) {
 	res := viewspec.Resolved{
 		Spec: viewspec.Spec{}, Chart: viewspec.ChartLine,

@@ -124,6 +124,7 @@ type Channel struct {
 	Sort  string      `json:"sort,omitempty"`  // category-axis order: ascending | descending | value | -value
 	Limit int         `json:"limit,omitempty"` // keep only the first N categories (after sort): top-N
 	Stack bool        `json:"stack,omitempty"` // bar mark: stack the series instead of grouping them
+	Mark  Mark        `json:"mark,omitempty"`  // y channels only: draw this series as line|bar|area (a combo chart)
 }
 
 // title returns the user-facing label for a channel, falling back to the field name.
@@ -136,6 +137,19 @@ func (c Channel) title() string {
 
 // nominal reports whether the channel's field is a category rather than a measure.
 func (c Channel) nominal() bool { return c.Type == Nominal }
+
+// seriesForm maps a y channel's mark override onto its drawing form; empty means the chart default.
+func (c Channel) seriesForm() ChartType {
+	switch c.Mark {
+	case MarkLine:
+		return ChartLine
+	case MarkBar:
+		return ChartBar
+	case MarkArea:
+		return ChartArea
+	}
+	return ""
+}
 
 // axisID normalizes the target axis, defaulting an empty value to the primary "y".
 func (c Channel) axisID() string {
@@ -439,6 +453,37 @@ func (s Spec) Validate() error {
 			return fmt.Errorf("view spec: encoding.color is not supported on a timeline (lanes are already colored by the nominal y)")
 		}
 	}
+	// Per-series mark overrides compose a combo chart (e.g. bars with a line on y2). They are only
+	// well-defined on the vertical series forms, with explicit series (not a color split).
+	for i, y := range s.Encoding.Y {
+		if y.Mark == "" {
+			continue
+		}
+		switch y.Mark {
+		case MarkLine, MarkBar, MarkArea:
+		default:
+			return fmt.Errorf("view spec: encoding.y[%d].mark %q must be line, bar, or area", i, y.Mark)
+		}
+		switch s.Mark {
+		case MarkLine, MarkBar, MarkArea:
+		default:
+			return fmt.Errorf("view spec: encoding.y[%d].mark is only supported on line, bar, and area charts", i)
+		}
+		if s.yNominal() {
+			return fmt.Errorf("view spec: encoding.y[%d].mark is not supported on a horizontal bar", i)
+		}
+		if s.Encoding.Color != nil {
+			return fmt.Errorf("view spec: encoding.y[%d].mark cannot combine with encoding.color (split series share one mark)", i)
+		}
+	}
+	for _, nc := range []struct {
+		name string
+		ch   *Channel
+	}{{"encoding.x", &s.Encoding.X}, {"encoding.color", s.Encoding.Color}, {"encoding.size", s.Encoding.Size}} {
+		if nc.ch != nil && nc.ch.Mark != "" {
+			return fmt.Errorf("view spec: %s.mark is not supported (mark overrides belong on y channels)", nc.name)
+		}
+	}
 	for i, o := range s.Overlays {
 		if err := o.validate(i); err != nil {
 			return err
@@ -723,8 +768,9 @@ func compareValues(a, b string) int {
 type Series struct {
 	Label  string
 	Values []float64
-	Axis   string  // "y" (primary) or "y2" (secondary)
-	Points []Point // populated instead of Values for bubble charts ({x,y,r} per record)
+	Axis   string    // "y" (primary) or "y2" (secondary)
+	Points []Point   // populated instead of Values for bubble charts ({x,y,r} per record)
+	Mark   ChartType // per-series drawing form override (combo charts); empty = the chart's form
 }
 
 // Point is one bubble datum: position (X, Y) and radius (R). A coordinate is NaN when its field is
@@ -762,6 +808,15 @@ type Resolved struct {
 	Lines    []RefLine // horizontal reference lines, filled by Resolve (they carry no data source)
 	Bands    []Band    // x-range highlights, filled by Resolve (they carry no data source)
 	Callouts []Callout // text bubbles pointing at data points, filled by Resolve (literal values)
+}
+
+// SeriesForm is the drawing form of one series: its mark override when set (a combo chart), else the
+// chart's overall form. Renderers draw each series by this, so bars and lines mix in one plot.
+func (r Resolved) SeriesForm(i int) ChartType {
+	if i < len(r.Series) && r.Series[i].Mark != "" {
+		return r.Series[i].Mark
+	}
+	return r.Chart
 }
 
 // Resolve applies the spec's filter and encoding to records, producing the resolved drawing form and
@@ -816,7 +871,7 @@ func (s Spec) resolveSeries(records []dataset.Record, res *Resolved) {
 		return
 	}
 	for _, y := range s.Encoding.Y {
-		res.Series = append(res.Series, Series{Label: y.title(), Axis: y.axisID()})
+		res.Series = append(res.Series, Series{Label: y.title(), Axis: y.axisID(), Mark: y.seriesForm()})
 	}
 	for _, rec := range s.filtered(records) {
 		x, _ := rec.String(s.Encoding.X.Field)

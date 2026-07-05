@@ -589,6 +589,36 @@ func TestResolveFillsLinesAndBands(t *testing.T) {
 	}
 }
 
+func TestComboMarkOverrides(t *testing.T) {
+	// A y channel's mark override composes bars and lines in one chart.
+	s, err := Load(strings.NewReader(`{"version":2,"mark":"bar","data":{"source":"x","kind":"metric"},` +
+		`"encoding":{"x":{"field":"time"},"y":[{"field":"value"},{"field":"index","mark":"line","axis":"y2"}]}}`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	recs, _ := dataset.ReadJSONL(strings.NewReader(`{"name":"m","time":"d1","value":5,"index":40}`))
+	res := s.Resolve(recs)
+	if res.Chart != ChartBar {
+		t.Fatalf("chart = %v", res.Chart)
+	}
+	if res.SeriesForm(0) != ChartBar || res.SeriesForm(1) != ChartLine {
+		t.Fatalf("series forms = %v / %v", res.SeriesForm(0), res.SeriesForm(1))
+	}
+
+	invalid := map[string]string{
+		"bad value":     `{"version":2,"mark":"bar","data":{"source":"x","kind":"metric"},"encoding":{"x":{"field":"t"},"y":[{"field":"v","mark":"rect"}]}}`,
+		"on point mark": `{"version":2,"mark":"point","data":{"source":"x","kind":"metric"},"encoding":{"x":{"field":"t","type":"nominal"},"y":[{"field":"v","mark":"line"}]}}`,
+		"on hbar":       `{"version":2,"mark":"bar","data":{"source":"x","kind":"metric"},"encoding":{"x":{"field":"v"},"y":[{"field":"t","type":"nominal","mark":"line"}]}}`,
+		"with color":    `{"version":2,"mark":"bar","data":{"source":"x","kind":"metric"},"encoding":{"x":{"field":"t"},"y":[{"field":"v","mark":"line"}],"color":{"field":"c","type":"nominal"}}}`,
+		"on x channel":  `{"version":2,"mark":"bar","data":{"source":"x","kind":"metric"},"encoding":{"x":{"field":"t","mark":"line"},"y":[{"field":"v"}]}}`,
+	}
+	for name, spec := range invalid {
+		if _, err := Load(strings.NewReader(spec)); err == nil || !strings.Contains(err.Error(), "mark") {
+			t.Errorf("%s: want mark placement error, got %v", name, err)
+		}
+	}
+}
+
 func TestResolveFillsCallouts(t *testing.T) {
 	s, err := Load(strings.NewReader(`{"version":2,"mark":"line","data":{"source":"x","kind":"metric"},` +
 		`"encoding":{"x":{"field":"time"},"y":[{"field":"value"}]},` +

@@ -243,6 +243,8 @@ func viewSpecReference() string {
 	b.WriteString("  limit:           N   keep only the first N categories (after sort): top-N ranking\n")
 	b.WriteString("  stack:           true   stack a bar's series; on the measure channel (y[0], or x\n")
 	b.WriteString("                   for a horizontal bar)\n")
+	b.WriteString("  y[].mark:        line | bar | area   draw this series in its own form (a combo\n")
+	b.WriteString("                   chart, e.g. volume bars with an index line on y2)\n")
 	b.WriteString("  encoding.color:  {field, type?}   rect: cell value; other marks: a nominal category\n")
 	b.WriteString("                   that splits records into one colored series per value (single y)\n")
 	b.WriteString("  encoding.size:   {field}   point radius (bubble / timeline dot)\n")

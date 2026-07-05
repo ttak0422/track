@@ -83,6 +83,9 @@ Key fields:
 - `stack` — on a bar's measure channel (`y[0]`, or `x` for a horizontal bar): stack the series.
 - `filter` — `{field, equals}` shorthand, or `{all: [{field, op, value}]}` with `op` of
   `eq|ne|lt|le|gt|ge` for multi-field, range, and period filtering.
+- `y[].mark` — `line|bar|area` on a y channel draws that series in its own form: a **combo chart**
+  (volume bars + an index line on `y2`). Dense category charts also zoom automatically: wheel/pinch
+  always, plus a range slider past 30 categories.
 - `overlays` — reference geometry over the chart: `{source, kind}` (or `{records, kind}` with the
   events inline) draws events/annotations as vertical markers, `{y, axis?, label?}` a horizontal
   threshold line, `{from, to, label?}` a shaded period band, and `{x, y, label}` a callout bubble
@@ -164,6 +167,10 @@ Here a ranking: the nominal y sorted `-value` with `limit: 5`.
 of sitting side by side; combines with a color split. On a horizontal bar, set it on `encoding.x`.
 
 ![Stacked bar chart](assets/chart-stack.viewspec.json)
+
+**Combo** (`y[].mark`) — series in mixed forms: volume bars with an index line on the secondary axis.
+
+![Combo chart](assets/chart-combo.viewspec.json)
 
 **Heatmap** (`mark: rect`) — a 2D grid of `x` columns × `y[0]` rows, each cell colored by `encoding.color` (with a value legend).
 

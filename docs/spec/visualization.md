@@ -116,6 +116,11 @@ not a silent no-op):
 - `sort` / `limit` — on the **category-axis channel** only (`x` for line/bar/point; `y[0]` for a
   horizontal bar). See "Sort, top-N, and stacking" below.
 - `stack` — on a **bar's measure channel** only (`y[0]`, or `x` for a horizontal bar).
+- `mark` — on **y channels** only, and only on `line`/`bar`/`area` charts: draw that series in its
+  own form (`line`, `bar`, or `area`), composing a **combo chart** — e.g. volume bars with an index
+  line on `y2`, the shape data articles overlay macro context with. Bars split their band among the
+  bar-form series alone and draw behind lines; `stack` piles only the bar-form series. Not combinable
+  with a `color` split (split series share one mark) or a horizontal bar.
 
 `title` overrides the legend/axis text, defaulting to the field name. A y channel may set
 `"axis": "y2"` to plot on a secondary right-hand axis (default `"y"`), so series on different scales —
@@ -415,6 +420,10 @@ page, article composition, and the web workspace's fenced-block endpoint.
   chart area); single-axis charts define one axis.
 - Every chart carries the fixed palette shared with the `svg` renderer, so colors are deterministic
   and identical across renderers. `NaN`/`Inf` values are emitted as JSON `null` (a gap).
+- **Interactions are derived mechanically** from the drawing form — no spec vocabulary: every
+  category-x chart gets an inside (wheel/pinch/drag) x zoom, one with more than 30 categories also
+  gets a range slider, and the axis tooltip's pointer is a band shadow on bar-shaped charts and a
+  crosshair on continuous ones.
 - **Overlays** map to built-in mark geometry on the first series: markers as vertical `markLine`
   entries at their category, reference lines as dashed horizontal `markLine` entries (a `y2` line
   rides a y2-bound series and is dropped without one, like the SVG renderer), bands as shaded
