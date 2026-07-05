@@ -949,10 +949,6 @@ a.calendar-title:focus-visible {
   font-weight: 600;
 }
 
-.day-list {
-  max-height: none;
-}
-
 .panel {
   max-width: 760px;
 }
@@ -2280,6 +2276,12 @@ a.calendar-title:focus-visible {
   overflow-y: auto;
   padding-right: 4px;
   scrollbar-width: none;
+}
+
+/* The day page's list is the page content, not an aside: it grows with the reader's scroll instead of
+   clipping at the aside's cap. Defined after .backlink-list so it wins the equal-specificity cascade. */
+.day-list {
+  max-height: none;
 }
 
 .backlink-list::-webkit-scrollbar {
