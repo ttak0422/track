@@ -84,9 +84,24 @@ func echartsOption(res viewspec.Resolved) (map[string]any, error) {
 	}
 
 	applyAxisPointer(opt, res.Chart)
+	applyGrid(opt, res.Chart)
 	applyDataZoom(opt, res)
 	applyOverlays(opt, res)
 	return opt, nil
+}
+
+// applyGrid stretches the plot across the container so it lines up with the left-aligned title,
+// with containLabel keeping the axis labels inside the edges instead of ECharts' default 10%
+// side margins. The heatmap keeps right-hand room for its vertical visualMap ramp.
+func applyGrid(opt map[string]any, t viewspec.ChartType) {
+	g := gridOf(opt)
+	g["left"] = 0
+	g["containLabel"] = true
+	if t == viewspec.ChartHeatmap {
+		g["right"] = 90
+		return
+	}
+	g["right"] = 8
 }
 
 // tooltipTrigger picks the hover behavior: category charts read best with the whole axis slice
