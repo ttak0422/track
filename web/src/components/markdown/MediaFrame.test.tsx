@@ -26,6 +26,21 @@ function preview(container: HTMLElement) {
   return container.querySelector(".wiki-preview");
 }
 
+describe("MediaFrame enlarge lightbox", () => {
+  it("opens an in-window modal with the media and closes on backdrop click", () => {
+    const { container, getByLabelText } = renderWithFloating("assets/photo.png", "A photo");
+
+    fireEvent.click(getByLabelText("Enlarge"));
+    const dialog = container.querySelector("dialog.media-lightbox");
+    expect(dialog).not.toBeNull();
+    expect(dialog?.querySelector("img")?.getAttribute("src")).toBe("assets/photo.png");
+
+    // A backdrop click lands on the dialog element itself and closes (unmounts) the lightbox.
+    fireEvent.click(dialog!);
+    expect(container.querySelector("dialog.media-lightbox")).toBeNull();
+  });
+});
+
 describe("MediaFrame hover preview", () => {
   beforeEach(() => {
     vi.useFakeTimers();
@@ -62,6 +77,21 @@ describe("MediaFrame hover preview", () => {
     });
 
     expect(preview(container)).toBeNull();
+  });
+
+  it("drops the hover preview when the media is enlarged", async () => {
+    const { container, getByLabelText } = renderWithFloating("assets/photo.png", "A photo");
+    const frame = container.querySelector(".media-frame")!;
+
+    fireEvent.mouseEnter(frame);
+    await act(async () => {
+      vi.advanceTimersByTime(previewOpenDelay + 10);
+    });
+    expect(preview(container)).not.toBeNull();
+
+    fireEvent.click(getByLabelText("Enlarge"));
+    expect(preview(container)).toBeNull();
+    expect(container.querySelector("dialog.media-lightbox")).not.toBeNull();
   });
 
   it("closes shortly after the pointer leaves the frame", async () => {

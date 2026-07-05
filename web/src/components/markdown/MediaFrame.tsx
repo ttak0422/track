@@ -21,8 +21,16 @@ export function MediaFrame({ src, alt, children }: { src: string; alt: string; c
   const [anchor, setAnchor] = useState<PreviewAnchor | null>(null);
   const [sticky, setSticky] = useState(false);
   const [stackOrder, setStackOrder] = useState(nextPreviewStackOrder);
+  const [enlarged, setEnlarged] = useState(false);
   const closeTimer = useRef<number | undefined>(undefined);
   const openTimer = useRef<number | undefined>(undefined);
+  const dialogRef = useRef<HTMLDialogElement>(null);
+
+  // The lightbox <dialog> mounts only while enlarged; showModal() must run after that mount, so it
+  // lives in an effect rather than the click handler.
+  useEffect(() => {
+    if (enlarged) dialogRef.current?.showModal();
+  }, [enlarged]);
 
   useEffect(() => {
     return () => {
@@ -44,7 +52,9 @@ export function MediaFrame({ src, alt, children }: { src: string; alt: string; c
 
   // scheduleOpen defers opening the preview until the pointer has rested on the media, so a cursor
   // sweeping down a note full of images does not flash a popup under each one (same intent as WikiLink).
+  // While the lightbox is up the hover preview stays out of the way entirely.
   function scheduleOpen() {
+    if (enlarged) return;
     holdPreview();
     if (open || openTimer.current !== undefined) return;
     openTimer.current = window.setTimeout(() => {
@@ -101,10 +111,6 @@ export function MediaFrame({ src, alt, children }: { src: string; alt: string; c
     floating.open({ kind: "media", src, alt, noteKind: kind }, initialPreviewBounds(frameAnchor()), false, false);
   }
 
-  function enterFullscreen() {
-    ref.current?.requestFullscreen?.().catch(() => {});
-  }
-
   return (
     <div className="media-frame" ref={ref} onMouseEnter={scheduleOpen} onMouseLeave={scheduleClose}>
       {children}
@@ -112,11 +118,18 @@ export function MediaFrame({ src, alt, children }: { src: string; alt: string; c
         <button
           className="media-control"
           type="button"
-          onClick={enterFullscreen}
-          aria-label="Fullscreen"
-          title="Fullscreen"
+          onClick={() => {
+            // Reaching this button means the pointer rested on the frame, so a hover preview is open
+            // or pending; drop it rather than leaving a popup behind the modal.
+            cancelOpen();
+            closePreview();
+            setEnlarged(true);
+          }}
+          aria-label="Enlarge"
+          title="Enlarge"
         >
-          {/* Expand-to-corners glyph: view the media full-screen (native Fullscreen API). */}
+          {/* Expand-to-corners glyph: enlarge in an in-window lightbox (a modal <dialog> over a dimmed
+              backdrop), not display fullscreen. */}
           <svg
             viewBox="0 0 24 24"
             width="15"
@@ -156,6 +169,19 @@ export function MediaFrame({ src, alt, children }: { src: string; alt: string; c
           </svg>
         </button>
       </div>
+      {enlarged ? (
+        <dialog
+          ref={dialogRef}
+          className="media-lightbox"
+          onClose={() => setEnlarged(false)}
+          onClick={(event) => {
+            // A backdrop click lands on the dialog element itself (content clicks land on children).
+            if (event.target === dialogRef.current) dialogRef.current.close();
+          }}
+        >
+          {children}
+        </dialog>
+      ) : null}
       {open && anchor ? (
         <MediaWindow
           src={src}
