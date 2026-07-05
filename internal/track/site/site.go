@@ -44,10 +44,21 @@ func Build(cfg *config.Config, st *store.Store, opts Options, frontendDir, outDi
 		inSet[id] = true
 	}
 
+	// Paths are derived from each note's indexed file kind (the caller reindexed just before), so a
+	// selection can include journals, which live under journal/ rather than note/.
+	refs, err := st.AllNotes()
+	if err != nil {
+		return Result{}, fmt.Errorf("list notes: %w", err)
+	}
+	kinds := make(map[int64]string, len(refs))
+	for _, ref := range refs {
+		kinds[ref.NoteID] = ref.FileKind
+	}
+
 	assetSrc := cfg.AssetsDir()
 	docs := make([]doc, 0, len(ids))
 	for _, id := range ids {
-		n, err := note.ParseFile(cfg.NotePath(id), cfg)
+		n, err := note.ParseFile(cfg.PathForKind(kinds[id], id), cfg)
 		if err != nil {
 			return Result{}, fmt.Errorf("load note %d: %w", id, err)
 		}

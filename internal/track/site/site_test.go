@@ -159,6 +159,46 @@ func TestBuildVaultBundle(t *testing.T) {
 	}
 }
 
+// TestBuildPublishesJournals covers the calendar's SSG source: journal notes live under journal/, not
+// note/, so Build must resolve each selected id's path by its indexed file kind.
+func TestBuildPublishesJournals(t *testing.T) {
+	cfg, s := vaultStore(t)
+	writeVaultNote(t, cfg, 100, "Home", "# Home\n\nsee [[20260701]]\n")
+	if err := os.MkdirAll(cfg.JournalDir(), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(cfg.JournalPath("20260701"), []byte("# day\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := note.WriteMetadata(
+		cfg.MetadataPath(20260701),
+		note.Metadata{Version: note.CurrentMetadataVersion, Title: "20260701", Tags: []string{"journal"}},
+	); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := index.New(cfg, s).Full(); err != nil {
+		t.Fatalf("index: %v", err)
+	}
+
+	out := t.TempDir()
+	if _, err := Build(cfg, s, Options{Root: 100, IDs: []int64{20260701}}, fakeFrontend(t), out); err != nil {
+		t.Fatalf("build with a journal in the set: %v", err)
+	}
+
+	notes := readJSON[struct {
+		Notes []jsonSearchResult `json:"notes"`
+	}](t, filepath.Join(out, "data", "notes.json"))
+	var journal *jsonSearchResult
+	for i := range notes.Notes {
+		if notes.Notes[i].Title == "20260701" {
+			journal = &notes.Notes[i]
+		}
+	}
+	if journal == nil || journal.FileKind != "journal" {
+		t.Fatalf("published journal should keep its kind and title, got %+v", notes.Notes)
+	}
+}
+
 func TestBuildRequiresRoot(t *testing.T) {
 	cfg, s := vaultStore(t)
 	if _, err := Build(cfg, s, Options{}, fakeFrontend(t), t.TempDir()); err == nil {
