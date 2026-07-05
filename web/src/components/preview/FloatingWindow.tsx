@@ -75,7 +75,9 @@ export function FloatingWindow({
   onJump,
   children,
 }: FloatingWindowProps) {
-  const [bounds, setBounds] = useState(initialBounds);
+  // Open at the floor height, not the viewport-based cap: the auto-fit effect below grows it to the
+  // content immediately, so a short note opens small instead of flashing full-size then shrinking.
+  const [bounds, setBounds] = useState(() => ({ ...initialBounds, height: minPreviewHeight }));
   const [collapsed, setCollapsed] = useState(initialCollapsed);
   const dragRef = useRef<DragState | null>(null);
   const asideRef = useRef<HTMLElement>(null);
@@ -151,7 +153,7 @@ export function FloatingWindow({
 
   useEffect(() => {
     if (!pinned && reanchor) {
-      setBounds(initialPreviewBounds(reanchor));
+      setBounds({ ...initialPreviewBounds(reanchor), height: minPreviewHeight });
     }
     // Re-place only when the anchor actually moves (a new hover), not on every render.
     // eslint-disable-next-line react-hooks/exhaustive-deps

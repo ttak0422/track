@@ -808,9 +808,11 @@ button {
   width: 100%;
   max-width: var(--content-width, 960px);
   margin-inline: auto;
-  /* Fill the reader's content box exactly — not calc(100vh - …), which ignored the tab bar's height and
-     left the article a few px too tall, so a short note (just a title) was needlessly scrollable. */
-  min-height: 100%;
+  /* Bind to the reader's content box exactly — not calc(100vh - …), which ignored the tab bar's height
+     and left the article a few px too tall, so a short note (just a title) was needlessly scrollable.
+     A hard height (not min-height) lets .note-preview shrink and scroll internally before the whole
+     article would otherwise grow past this box and force the outer .reader to scroll instead. */
+  height: 100%;
   flex-direction: column;
   gap: 18px;
 }
@@ -1120,6 +1122,11 @@ button {
   opacity: 0.5;
 }
 
+.note-tags {
+  /* Never compressed by .note-reader's height bound — .note-preview shrinks first. */
+  flex-shrink: 0;
+}
+
 .note-tags button {
   border: 1px solid var(--line);
   border-radius: 999px;
@@ -1177,6 +1184,14 @@ button {
   gap: 0;
 }
 
+/* Read-only preview has no textarea to keep roomy, so drop the editing floor: .note-preview (already
+   min-height: 0, overflow: auto) can shrink and scroll internally instead of pushing .note-aside off
+   the bottom of a short viewport. Edit/split keep the 420px floor for a comfortable writing area. */
+.editor-grid-preview,
+.note-editor:has(.editor-grid-preview) {
+  min-height: 0;
+}
+
 .editor-grid-preview,
 .editor-grid-edit {
   grid-template-columns: minmax(0, 1fr);
@@ -1199,6 +1214,10 @@ button {
 
 .note-preview {
   min-width: 0;
+  /* Let this shrink (and scroll internally, via overflow above) before .note-reader as a whole grows
+     past its bound height — the tags and aside below never shrink (see their flex-shrink:0), so a note
+     with a lot of backlinks scrolls only its own backlink list, not the whole page. */
+  min-height: 0;
   overflow: auto;
   padding: 16px;
   background: var(--panel);
@@ -1736,12 +1755,10 @@ button {
 }
 
 /* A viewspec chart is an ECharts instance drawing the server-resolved option; the container needs an
-   explicit height for echarts.init, and the frame matches the exported asset charts. */
+   explicit height for echarts.init. */
 .viewspec-chart {
   margin: 1em 0;
   height: 360px;
-  border: 1px solid var(--line);
-  border-radius: 8px;
   background: #fff;
 }
 
@@ -2076,6 +2093,8 @@ button {
   flex-wrap: wrap;
   gap: 16px 32px;
   align-items: flex-start;
+  /* Never compressed by .note-reader's height bound — .note-preview shrinks first. */
+  flex-shrink: 0;
 }
 
 .note-aside > .backlinks {
