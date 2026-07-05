@@ -468,11 +468,19 @@ func writeMarkers(b *strings.Builder, g svgGeom, res viewspec.Resolved) {
 			continue
 		}
 		x := centers[i]
+		// A marker carrying a source URL becomes a real link — SVG anchors work in every host. Note
+		// references stay non-links here: the static renderer has no router to resolve them.
+		if m.Href != "" {
+			fmt.Fprintf(b, `<a href="%s" target="_blank" rel="noopener">`+"\n", html.EscapeString(m.Href))
+		}
 		fmt.Fprintf(b, `<line x1="%s" y1="%g" x2="%s" y2="%g" stroke="rgba(220,53,69,0.7)" stroke-width="1"/>`+"\n",
 			num(x), g.top, num(x), g.top+g.plotH())
 		if m.Label != "" {
 			fmt.Fprintf(b, `<text x="%s" y="%g" font-size="10" fill="#dc3545" transform="rotate(90 %s %g)">%s</text>`+"\n",
 				num(x+3), g.top+4, num(x+3), g.top+4, html.EscapeString(m.Label))
+		}
+		if m.Href != "" {
+			b.WriteString("</a>\n")
 		}
 	}
 }

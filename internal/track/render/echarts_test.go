@@ -251,6 +251,75 @@ func TestEChartsDerivesZoomFromDensity(t *testing.T) {
 	}
 }
 
+// TestEChartsSeriesCarryExtras pins the provenance contract: a datum with extras becomes a {value,...}
+// object whose href/detail land in event/tooltip params, the series cursor shows the click affordance,
+// and a series without extras keeps its plain scalar items.
+func TestEChartsSeriesCarryExtras(t *testing.T) {
+	res := viewspec.Resolved{
+		Spec: viewspec.Spec{}, Chart: viewspec.ChartScatter,
+		Labels: []string{"d1", "d2"},
+		Series: []viewspec.Series{{
+			Label:  "amount",
+			Values: []float64{120, 80},
+			Extras: []viewspec.PointExtra{
+				{Href: "https://example.com/t1", Note: "1700000000000", Detail: []viewspec.KV{{Label: "what", Value: "buy"}}},
+				{},
+			},
+		}},
+	}
+	out, err := EChartsOptionJSON(res)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(out, `"href":"https://example.com/t1"`) {
+		t.Fatalf("datum should carry its source link: %s", out)
+	}
+	if !strings.Contains(out, `"detail":[{"label":"what","value":"buy"}]`) {
+		t.Fatalf("datum should carry its detail rows: %s", out)
+	}
+	if !strings.Contains(out, `"note":"1700000000000"`) {
+		t.Fatalf("datum should carry its note reference: %s", out)
+	}
+	if !strings.Contains(out, `"cursor":"pointer"`) {
+		t.Fatalf("a linked series should show the pointer cursor: %s", out)
+	}
+	if !strings.Contains(out, `{"value":80}`) {
+		t.Fatalf("a datum without extras stays a bare value object: %s", out)
+	}
+
+	plain, _ := EChartsOptionJSON(resolvedChart(viewspec.ChartLine, "S", []float64{1, 2}))
+	if !strings.Contains(plain, `"data":[1,2]`) || strings.Contains(plain, `"cursor"`) {
+		t.Fatalf("a series without extras keeps scalar items: %s", plain)
+	}
+}
+
+// TestEChartsMarkersCarryProvenance pins the overlay contract: event url/note ride on the markLine
+// items, and a linked group stops being silent so it accepts clicks.
+func TestEChartsMarkersCarryProvenance(t *testing.T) {
+	res := resolvedChart(viewspec.ChartLine, "S", []float64{1, 2})
+	res.Markers = []viewspec.Marker{
+		{At: "a", Label: "ev", Href: "https://example.com/n", Note: "1700000000000"},
+	}
+	out, err := EChartsOptionJSON(res)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(out, `"href":"https://example.com/n"`) || !strings.Contains(out, `"note":"1700000000000"`) {
+		t.Fatalf("marker provenance should ride on the markLine item: %s", out)
+	}
+	if !strings.Contains(out, `"silent":false`) {
+		t.Fatalf("a linked marker group must accept clicks: %s", out)
+	}
+
+	plain, _ := EChartsOptionJSON(resolvedChart(viewspec.ChartLine, "S", []float64{1, 2}))
+	res2 := resolvedChart(viewspec.ChartLine, "S", []float64{1, 2})
+	res2.Markers = []viewspec.Marker{{At: "a", Label: "ev"}}
+	unlinked, _ := EChartsOptionJSON(res2)
+	if !strings.Contains(unlinked, `"silent":true`) || strings.Contains(plain, `"markLine"`) {
+		t.Fatalf("unlinked markers stay silent: %s", unlinked)
+	}
+}
+
 func TestEChartsAxisPointerByForm(t *testing.T) {
 	bar, _ := EChartsOptionJSON(resolvedChart(viewspec.ChartBar, "S", []float64{1, 2}))
 	if !strings.Contains(bar, `"axisPointer":{"type":"shadow"}`) {

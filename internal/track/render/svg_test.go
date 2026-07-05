@@ -233,6 +233,29 @@ func TestSVGCalloutDrawsBubble(t *testing.T) {
 	}
 }
 
+func TestSVGMarkerLinksSource(t *testing.T) {
+	res := viewspec.Resolved{
+		Spec: viewspec.Spec{}, Chart: viewspec.ChartLine,
+		Labels: []string{"a", "b"},
+		Series: []viewspec.Series{{Label: "S", Values: []float64{1, 2}}},
+		Markers: []viewspec.Marker{
+			{At: "a", Label: "linked", Href: "https://example.com/x?a=1&b=2"},
+			{At: "b", Label: "plain"},
+		},
+	}
+	out, err := SVG{}.Render(res)
+	if err != nil {
+		t.Fatal(err)
+	}
+	// The linked marker wraps in an escaped anchor; the plain one stays a bare line.
+	if !strings.Contains(out, `<a href="https://example.com/x?a=1&amp;b=2" target="_blank" rel="noopener">`) {
+		t.Fatalf("linked marker should wrap in an anchor: %s", out)
+	}
+	if n := strings.Count(out, "<a "); n != 1 {
+		t.Fatalf("only the linked marker gets an anchor, got %d: %s", n, out)
+	}
+}
+
 func TestSVGStackedHBarPilesSegments(t *testing.T) {
 	res := viewspec.Resolved{
 		Spec: viewspec.Spec{}, Chart: viewspec.ChartHBar, Stacked: true,

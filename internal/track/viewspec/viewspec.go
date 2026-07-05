@@ -101,12 +101,18 @@ type Spec struct {
 // or more series on the vertical channel(s). Color and Size are optional: a rect (heatmap) reads its
 // cell value from Color; every other mark reads Color as a nominal category that splits records into
 // one series per value (each drawn in its own color); a point (bubble/timeline) reads its radius from
-// Size.
+// Size. Detail, Href, and Note are the provenance channels: Detail names extra fields surfaced per
+// datum (an interactive renderer lists them in the tooltip), Href names the field carrying a datum's
+// source URL (opened on click), and Note the field carrying a vault note id the datum references.
+// All ride along without changing the drawing.
 type Encoding struct {
-	X     Channel   `json:"x"`
-	Y     []Channel `json:"y"`
-	Color *Channel  `json:"color,omitempty"`
-	Size  *Channel  `json:"size,omitempty"`
+	X      Channel   `json:"x"`
+	Y      []Channel `json:"y"`
+	Color  *Channel  `json:"color,omitempty"`
+	Size   *Channel  `json:"size,omitempty"`
+	Detail []Channel `json:"detail,omitempty"`
+	Href   *Channel  `json:"href,omitempty"`
+	Note   *Channel  `json:"note,omitempty"`
 }
 
 // Channel binds one visual channel to a record field. Title overrides the legend/axis text (defaulting
@@ -292,7 +298,8 @@ func (o Overlay) labelField() string {
 
 // Markers extracts vertical markers from an overlay's records: one per record that has an x position.
 // The text is best-effort (empty when the label field is absent), so an event without a title still
-// draws its line.
+// draws its line. The event kind's provenance fields (url, note — see dataset.Event) are adopted
+// automatically, so linking a marker to its source needs no extra vocabulary.
 func (o Overlay) Markers(records []dataset.Record) []Marker {
 	var ms []Marker
 	for _, rec := range records {
@@ -301,15 +308,21 @@ func (o Overlay) Markers(records []dataset.Record) []Marker {
 			continue
 		}
 		label, _ := rec.String(o.labelField())
-		ms = append(ms, Marker{At: at, Label: label})
+		href, _ := rec.String("url")
+		noteRef, _ := rec.String("note")
+		ms = append(ms, Marker{At: at, Label: label, Href: href, Note: noteRef})
 	}
 	return ms
 }
 
-// Marker is a resolved vertical overlay: a label drawn at x position At.
+// Marker is a resolved vertical overlay: a label drawn at x position At. Href carries the source
+// record's url and Note its vault note id, so an interactive renderer can make the marker clickable;
+// both are empty when the record carries no provenance.
 type Marker struct {
 	At    string
 	Label string
+	Href  string
+	Note  string
 }
 
 // RefLine is a resolved horizontal reference line (a threshold): a value on axis "y" or "y2" plus an
@@ -440,6 +453,15 @@ func (s Spec) Validate() error {
 			return fmt.Errorf("view spec: mark candlestick does not take encoding.color or encoding.size")
 		}
 	}
+	// The provenance channels ride on the record→(label, value) alignment of the series forms; the
+	// grid, bubble, and candlestick resolvers reshape records instead, so extras have no slot there
+	// yet. An explicit error beats silently dropping them (the strict-schema stance).
+	if s.Encoding.Href != nil || s.Encoding.Note != nil || len(s.Encoding.Detail) > 0 {
+		switch s.chart() {
+		case ChartHeatmap, ChartTimeline, ChartBubble, ChartCandlestick:
+			return fmt.Errorf("view spec: encoding.detail/href are not supported on %s charts", s.chart())
+		}
+	}
 	// On every mark but rect, color is a nominal category that splits records into one series per
 	// value; the constraints keep that split well-defined.
 	if s.Encoding.Color != nil && s.Mark != MarkRect {
@@ -523,7 +545,7 @@ func (e Encoding) validate(yRequired bool) error {
 			return fmt.Errorf("view spec: encoding.y[%d].axis %q is not y or y2", i, y.Axis)
 		}
 	}
-	for name, ch := range map[string]*Channel{"encoding.color": e.Color, "encoding.size": e.Size} {
+	for name, ch := range map[string]*Channel{"encoding.color": e.Color, "encoding.size": e.Size, "encoding.href": e.Href, "encoding.note": e.Note} {
 		if ch == nil {
 			continue
 		}
@@ -531,6 +553,14 @@ func (e Encoding) validate(yRequired bool) error {
 			return fmt.Errorf("view spec: %s.field is required when %s is set", name, name)
 		}
 		if err := ch.validateType(name); err != nil {
+			return err
+		}
+	}
+	for i, d := range e.Detail {
+		if d.Field == "" {
+			return fmt.Errorf("view spec: encoding.detail[%d].field is required", i)
+		}
+		if err := d.validateType(fmt.Sprintf("encoding.detail[%d]", i)); err != nil {
 			return err
 		}
 	}
@@ -555,6 +585,15 @@ func (s Spec) validateChannelOptions() error {
 	}
 	if s.Encoding.Size != nil {
 		chans = append(chans, named{"encoding.size", *s.Encoding.Size})
+	}
+	for i, d := range s.Encoding.Detail {
+		chans = append(chans, named{fmt.Sprintf("encoding.detail[%d]", i), d})
+	}
+	if s.Encoding.Href != nil {
+		chans = append(chans, named{"encoding.href", *s.Encoding.Href})
+	}
+	if s.Encoding.Note != nil {
+		chans = append(chans, named{"encoding.note", *s.Encoding.Note})
 	}
 	labelName, stackName := s.labelChannelName(), s.stackChannelName()
 	for _, nc := range chans {
@@ -768,9 +807,26 @@ func compareValues(a, b string) int {
 type Series struct {
 	Label  string
 	Values []float64
-	Axis   string    // "y" (primary) or "y2" (secondary)
-	Points []Point   // populated instead of Values for bubble charts ({x,y,r} per record)
-	Mark   ChartType // per-series drawing form override (combo charts); empty = the chart's form
+	Axis   string       // "y" (primary) or "y2" (secondary)
+	Points []Point      // populated instead of Values for bubble charts ({x,y,r} per record)
+	Mark   ChartType    // per-series drawing form override (combo charts); empty = the chart's form
+	Extras []PointExtra // per-datum provenance/detail (encoding.href/detail), aligned with Values; nil without those channels
+}
+
+// PointExtra carries one datum's provenance and tooltip detail, aligned with Series.Values: Href is
+// the record's source URL (encoding.href), Note the vault note id it references (encoding.note), and
+// Detail the labelled values to surface per datum (encoding.detail). The zero value means the datum
+// carries nothing extra.
+type PointExtra struct {
+	Href   string
+	Note   string
+	Detail []KV
+}
+
+// KV is one labelled tooltip line for a datum.
+type KV struct {
+	Label string
+	Value string
 }
 
 // Point is one bubble datum: position (X, Y) and radius (R). A coordinate is NaN when its field is
@@ -879,7 +935,37 @@ func (s Spec) resolveSeries(records []dataset.Record, res *Resolved) {
 		for i, y := range s.Encoding.Y {
 			res.Series[i].Values = append(res.Series[i].Values, floatOrNaN(rec, y.Field))
 		}
+		if s.hasExtras() {
+			// The record's extra rides on every series: a tooltip on any of its points shows it.
+			ex := s.pointExtra(rec)
+			for i := range res.Series {
+				res.Series[i].Extras = append(res.Series[i].Extras, ex)
+			}
+		}
 	}
+}
+
+// hasExtras reports whether the spec puts provenance/detail on data points.
+func (s Spec) hasExtras() bool {
+	return s.Encoding.Href != nil || s.Encoding.Note != nil || len(s.Encoding.Detail) > 0
+}
+
+// pointExtra reads one record's provenance channels: the href field and the detail fields, each
+// labelled by its channel title. Detail values render via Record.String, so numbers keep their
+// source precision.
+func (s Spec) pointExtra(rec dataset.Record) PointExtra {
+	var ex PointExtra
+	if s.Encoding.Href != nil {
+		ex.Href, _ = rec.String(s.Encoding.Href.Field)
+	}
+	if s.Encoding.Note != nil {
+		ex.Note, _ = rec.String(s.Encoding.Note.Field)
+	}
+	for _, d := range s.Encoding.Detail {
+		v, _ := rec.String(d.Field)
+		ex.Detail = append(ex.Detail, KV{Label: d.title(), Value: v})
+	}
+	return ex
 }
 
 // resolveHorizontal maps records onto a horizontal bar: the nominal y channel supplies the category
@@ -896,6 +982,9 @@ func (s Spec) resolveHorizontal(records []dataset.Record, res *Resolved) {
 		label, _ := rec.String(cat.Field)
 		res.Labels = append(res.Labels, label)
 		res.Series[0].Values = append(res.Series[0].Values, floatOrNaN(rec, s.Encoding.X.Field))
+		if s.hasExtras() {
+			res.Series[0].Extras = append(res.Series[0].Extras, s.pointExtra(rec))
+		}
 	}
 }
 
@@ -932,10 +1021,28 @@ func (s Spec) resolveColorSeries(records []dataset.Record, res *Resolved, labelF
 		} else {
 			(*vals)[li] = v // repeated (label, category): the later record wins, like grid cells
 		}
+		if s.hasExtras() {
+			// Extras follow the exact same slotting as Values so they stay aligned per (series, label).
+			exs := &res.Series[si].Extras
+			for len(*exs) < li {
+				*exs = append(*exs, PointExtra{})
+			}
+			ex := s.pointExtra(rec)
+			if len(*exs) == li {
+				*exs = append(*exs, ex)
+			} else {
+				(*exs)[li] = ex
+			}
+		}
 	}
 	for i := range res.Series {
 		for len(res.Series[i].Values) < len(res.Labels) {
 			res.Series[i].Values = append(res.Series[i].Values, math.NaN())
+		}
+		if s.hasExtras() {
+			for len(res.Series[i].Extras) < len(res.Labels) {
+				res.Series[i].Extras = append(res.Series[i].Extras, PointExtra{})
+			}
 		}
 	}
 }
@@ -1061,12 +1168,16 @@ func sortAndLimit(res *Resolved, ch Channel) {
 		res.Labels = permuteStrings(res.Labels, idx)
 		for i := range res.Series {
 			res.Series[i].Values = permuteFloats(res.Series[i].Values, idx)
+			res.Series[i].Extras = permuteExtras(res.Series[i].Extras, idx)
 		}
 	}
 	if ch.Limit > 0 && len(res.Labels) > ch.Limit {
 		res.Labels = res.Labels[:ch.Limit]
 		for i := range res.Series {
 			res.Series[i].Values = res.Series[i].Values[:ch.Limit]
+			if len(res.Series[i].Extras) > ch.Limit {
+				res.Series[i].Extras = res.Series[i].Extras[:ch.Limit]
+			}
 		}
 	}
 }
@@ -1113,6 +1224,21 @@ func permuteFloats(vs []float64, idx []int) []float64 {
 			out[i] = vs[j]
 		} else {
 			out[i] = math.NaN()
+		}
+	}
+	return out
+}
+
+// permuteExtras returns xs reordered so element i comes from xs[idx[i]], preserving nil (no extras
+// channels) as nil; a short slice (defensive) contributes the zero extra.
+func permuteExtras(xs []PointExtra, idx []int) []PointExtra {
+	if xs == nil {
+		return nil
+	}
+	out := make([]PointExtra, len(idx))
+	for i, j := range idx {
+		if j < len(xs) {
+			out[i] = xs[j]
 		}
 	}
 	return out
