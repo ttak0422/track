@@ -63,6 +63,7 @@ if (!template.includes('<div id="root"></div>')) {
 const targets = [
   { route: "/", out: "index.html" },
   { route: "/graph", out: "graph/index.html" },
+  { route: "/calendar", out: "calendar/index.html" },
   { route: "/empty", out: "empty/index.html" },
   ...notes.map((n) => ({ route: `/notes/${n.note_id}`, out: `notes/${n.note_id}/index.html` })),
 ];

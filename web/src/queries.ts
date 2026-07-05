@@ -82,10 +82,11 @@ export function useSearchQuery(query: string, limit = 100, options?: { enabled?:
   });
 }
 
-export function useNotesQuery() {
+export function useNotesQuery(enabled = true) {
   return useQuery({
     queryKey: queryKeys.notes(),
     queryFn: listNotes,
+    enabled,
   });
 }
 

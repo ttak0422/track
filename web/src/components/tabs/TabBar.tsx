@@ -2,7 +2,7 @@ import { useNavigate } from "@tanstack/react-router";
 import { type MouseEvent, useEffect, useRef, type WheelEvent } from "react";
 import type { NoteID } from "../../types";
 import { TabActions } from "./TabActions";
-import { GRAPH_TAB_ID, tabRoute, useTabs } from "./tabsStore";
+import { isViewTab, tabRoute, useTabs } from "./tabsStore";
 
 // TabBar is the VS Code-style strip of open notes above the reader. Tabs accumulate as notes are
 // opened, scroll horizontally when they overflow, and each carries a hover-revealed close button (a
@@ -78,7 +78,7 @@ export function TabBar() {
               </span>
               <span className="tab-dirty-dot" aria-hidden="true" />
             </button>
-            {active && tab.id !== GRAPH_TAB_ID ? <TabActions noteID={tab.id} tabRef={activeRef} /> : null}
+            {active && !isViewTab(tab.id) ? <TabActions noteID={tab.id} tabRef={activeRef} /> : null}
           </div>
         );
       })}

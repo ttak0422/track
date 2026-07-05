@@ -108,6 +108,13 @@ describe("TabsProvider", () => {
     expect(result.current.activeID).toBe("graph");
   });
 
+  it("opens the calendar as a tab labelled Calendar and routes back to it", () => {
+    routerMock.pathname = "/calendar";
+    const { result } = renderHook(() => useTabs(), { wrapper });
+    expect(result.current.tabs).toEqual([{ id: "calendar", title: "Calendar" }]);
+    expect(result.current.activeID).toBe("calendar");
+  });
+
   it("routes back to /graph when closing a note tab next to the graph tab", () => {
     window.localStorage.setItem(
       "track.tabs",

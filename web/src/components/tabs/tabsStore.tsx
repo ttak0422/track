@@ -40,16 +40,27 @@ const STORAGE_KEY = "track.tabs";
 // starts clean rather than restoring yesterday's strip).
 const SESSION_KEY = "track.tabs.session";
 
-// The full graph opens as an ordinary tab (labelled "Graph") rather than a separate overlay. It uses a
-// sentinel id and routes to /graph instead of /notes/$id. A note slug of exactly "graph" would collide,
-// but live ids are numeric and that static slug is vanishingly unlikely. ponytail: sentinel id, revisit
-// if slugs ever need to be "graph".
+// The full-page views (graph, calendar) open as ordinary tabs with fixed labels rather than separate
+// overlays. Each uses a sentinel id and routes to its own path instead of /notes/$id. A note slug equal
+// to a sentinel would collide, but live ids are numeric and such a static slug is vanishingly unlikely.
+// ponytail: sentinel ids, revisit if slugs ever collide.
 export const GRAPH_TAB_ID = "graph";
+export const CALENDAR_TAB_ID = "calendar";
+const VIEW_TABS: Record<string, { to: "/graph" | "/calendar"; label: string }> = {
+  [GRAPH_TAB_ID]: { to: "/graph", label: "Graph" },
+  [CALENDAR_TAB_ID]: { to: "/calendar", label: "Calendar" },
+};
 
-// The route a tab points at: the graph tab goes to /graph, every other tab to its note.
+// isViewTab tells a view tab (graph/calendar) apart from a note tab, e.g. to skip note-only actions.
+export function isViewTab(id: NoteID): boolean {
+  return id in VIEW_TABS;
+}
+
+// The route a tab points at: a view tab goes to its own path, every other tab to its note.
 export function tabRoute(id: NoteID) {
-  return id === GRAPH_TAB_ID
-    ? ({ to: "/graph" } as const)
+  const view = VIEW_TABS[id];
+  return view
+    ? ({ to: view.to } as const)
     : ({ to: "/notes/$noteId", params: { noteId: String(id) } } as const);
 }
 
@@ -86,6 +97,7 @@ function noteIDFromPath(pathname: string): NoteID | null {
   // exists from the first render and the brand button (which navigates to "/") keeps it active.
   if (path === "/" && STATIC_MODE && START_PAGE_ID) return START_PAGE_ID;
   if (path === "/graph") return GRAPH_TAB_ID;
+  if (path === "/calendar") return CALENDAR_TAB_ID;
   const match = path.match(/^\/notes\/([^/]+)$/);
   return match ? match[1] : null;
 }
@@ -115,8 +127,8 @@ export function TabsProvider({ children }: { children: ReactNode }) {
     setTabs((current) =>
       current.some((tab) => tab.id === activeID)
         ? current
-        : // The graph tab carries a fixed label; note tabs get theirs once the note resolves.
-          [...current, { id: activeID, title: activeID === GRAPH_TAB_ID ? "Graph" : "" }],
+        : // View tabs carry a fixed label; note tabs get theirs once the note resolves.
+          [...current, { id: activeID, title: VIEW_TABS[activeID]?.label ?? "" }],
     );
   }, [activeID]);
 

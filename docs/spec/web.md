@@ -138,6 +138,16 @@ nodes:
 - labels are thinned by zoom — when zoomed out, only the center and high-degree
   hubs keep their labels, and the rest appear as you zoom in.
 
+## Calendar view
+
+`/calendar` shows a month calendar of day journals, reached from the sidebar rail like the full graph.
+A day whose `yyyyMMdd` journal note exists links to it; the month title links to the `yyyyMM` summary
+journal when that exists. Empty days are inert — creation stays with the journal button and the
+activity heatmap. The view derives its days from the notes list (`/api/notes` live, `notes.json` in the
+static export), so it has no endpoint of its own and works identically in both modes. A published site
+whose selection contains no journal notes hides the calendar rail button instead of offering a
+permanently empty page.
+
 ## Theme and colors
 
 The workspace theme and colors are configured under `web:` in `config.yml`:

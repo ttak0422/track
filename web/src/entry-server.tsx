@@ -1,7 +1,7 @@
 import { RouterProvider, createMemoryHistory } from "@tanstack/react-router";
 import { QueryClient, dehydrate } from "@tanstack/react-query";
 import { renderToString } from "react-dom/server";
-import { getNote, getSite, renderMarkdown } from "./api";
+import { getNote, getSite, listNotes, renderMarkdown } from "./api";
 import { AppTree, createAppRouter } from "./App";
 import { queryKeys } from "./queries";
 
@@ -48,6 +48,12 @@ export async function renderPage(routePath: string): Promise<RenderedPage> {
 async function prefetchForRoute(queryClient: QueryClient, routePath: string): Promise<void> {
   // The site query key Shell uses is a bare ["site"].
   await queryClient.prefetchQuery({ queryKey: ["site"], queryFn: getSite });
+
+  if (routePath === "/calendar") {
+    // The calendar's above-the-fold content IS the notes list (it derives the journal days from it).
+    await queryClient.prefetchQuery({ queryKey: queryKeys.notes(), queryFn: listNotes });
+    return;
+  }
 
   const noteMatch = routePath.match(/^\/notes\/([^/?#]+)/);
   let noteID = noteMatch ? decodeURIComponent(noteMatch[1]) : "";

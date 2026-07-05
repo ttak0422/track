@@ -10,6 +10,7 @@ import { QueryClient, QueryClientProvider, hydrate } from "@tanstack/react-query
 import type { ReactNode } from "react";
 import { START_PAGE_ID, STATIC_MODE } from "./runtime";
 import { ActivityPanel } from "./components/ActivityPanel";
+import { CalendarFullView } from "./components/CalendarFullView";
 import { EmptyState } from "./components/EmptyState";
 import { GraphFullView } from "./components/GraphFullView";
 import { TrackLogo } from "./components/Logo";
@@ -40,6 +41,12 @@ const graphRoute = createRoute({
   component: GraphRoute,
 });
 
+const calendarRoute = createRoute({
+  getParentRoute: () => rootRoute,
+  path: "/calendar",
+  component: () => <CalendarFullView />,
+});
+
 // The static site's empty state (reached by closing every tab) has its own route so it is a real
 // prerendered file, rather than sharing "/" — which is the start page.
 const emptyRoute = createRoute({
@@ -48,7 +55,7 @@ const emptyRoute = createRoute({
   component: () => <EmptyState />,
 });
 
-const routeTree = rootRoute.addChildren([indexRoute, noteRoute, graphRoute, emptyRoute]);
+const routeTree = rootRoute.addChildren([indexRoute, noteRoute, graphRoute, calendarRoute, emptyRoute]);
 
 // The router basepath (and asset URLs) come from the build-time base (import.meta.env.BASE_URL), so the
 // prerender and the hydrating client agree on link paths even under a GitHub Pages subpath. Trailing

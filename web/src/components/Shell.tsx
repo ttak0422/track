@@ -10,6 +10,7 @@ import { TabsProvider } from "./tabs/tabsStore";
 import { ThemeMenu } from "./ThemeMenu";
 import { openJournal } from "../api";
 import { useLiveEvents } from "../hooks/useLiveEvents";
+import { useNotesQuery } from "../queries";
 import { STATIC_MODE } from "../runtime";
 import { SearchProvider } from "../searchState";
 
@@ -19,11 +20,18 @@ export function Shell() {
   const path = pathname.replace(/\/$/, "") || "/";
   const isHome = path === "/";
   const isGraph = path === "/graph";
+  const isCalendar = path === "/calendar";
   // The live workspace has a heatmap home at "/"; the static site does not — there "/" is the empty state
   // (all tabs closed), so it keeps the normal chrome (sidebar, no home hero, no ambient graph).
   const isLiveHome = isHome && !STATIC_MODE;
   const navigate = useNavigate();
   useLiveEvents();
+
+  // A published set may contain no journals (e.g. the repo help site); hide the calendar there instead of
+  // offering a permanently empty page. The live workspace always has the journal system, so it never asks.
+  const staticNotes = useNotesQuery(STATIC_MODE);
+  const showCalendar =
+    !STATIC_MODE || (staticNotes.data?.notes ?? []).some((note) => note.file_kind === "journal");
 
   // Open (creating if needed) today's journal and jump to it, mirroring how the activity heatmap opens a
   // day. The local-time YYYY-MM-DD key matches the journal id the server derives from the date.
@@ -70,6 +78,16 @@ export function Shell() {
                   <span className="rail-icon rail-icon-journal" aria-hidden="true" />
                 </button>
               )}
+              {showCalendar && (
+                <Link
+                  className="rail-button"
+                  to="/calendar"
+                  aria-label="Calendar"
+                  title="Calendar"
+                >
+                  <RailCalendarIcon />
+                </Link>
+              )}
               <Link
                 className="rail-button"
                 to="/graph"
@@ -90,12 +108,37 @@ export function Shell() {
             <Outlet />
           </section>
         </div>
-        {isHome || isGraph ? null : <GraphPanel />}
+        {isHome || isGraph || isCalendar ? null : <GraphPanel />}
         <FloatingLayer />
       </main>
       </TabsProvider>
       </FloatingProvider>
     </SearchProvider>
+  );
+}
+
+function RailCalendarIcon() {
+  return (
+    <svg className="rail-icon-svg" viewBox="0 0 24 24" width="20" height="20" aria-hidden="true">
+      <rect
+        x="4"
+        y="5.5"
+        width="16"
+        height="14"
+        rx="2"
+        fill="none"
+        stroke="currentColor"
+        strokeWidth="1.6"
+      />
+      <line x1="4" y1="9.5" x2="20" y2="9.5" stroke="currentColor" strokeWidth="1.6" />
+      <line x1="8.5" y1="3.5" x2="8.5" y2="6.5" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" />
+      <line x1="15.5" y1="3.5" x2="15.5" y2="6.5" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" />
+      <circle cx="8.5" cy="13" r="1.2" fill="currentColor" />
+      <circle cx="12" cy="13" r="1.2" fill="currentColor" />
+      <circle cx="15.5" cy="13" r="1.2" fill="currentColor" />
+      <circle cx="8.5" cy="16.5" r="1.2" fill="currentColor" />
+      <circle cx="12" cy="16.5" r="1.2" fill="currentColor" />
+    </svg>
   );
 }
 
