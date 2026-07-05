@@ -10,7 +10,7 @@ import { TabsProvider } from "./tabs/tabsStore";
 import { ThemeMenu } from "./ThemeMenu";
 import { openJournal } from "../api";
 import { useLiveEvents } from "../hooks/useLiveEvents";
-import { useNotesQuery } from "../queries";
+import { useSiteQuery } from "../queries";
 import { STATIC_MODE } from "../runtime";
 import { SearchProvider } from "../searchState";
 
@@ -27,12 +27,11 @@ export function Shell() {
   const navigate = useNavigate();
   useLiveEvents();
 
-  // A published set may carry no activity days (e.g. the repo help site, built from plain Markdown);
-  // hide the calendar there instead of offering a permanently empty page. The live workspace always has
-  // activity data, so it never asks.
-  const staticNotes = useNotesQuery(STATIC_MODE);
-  const showCalendar =
-    !STATIC_MODE || (staticNotes.data?.notes ?? []).some((note) => (note.days?.length ?? 0) > 0);
+  // A published site opts into the calendar explicitly (`track export-site --calendar`): reference
+  // sites (help docs) skip it, activity-shaped ones (a blog over a vault) include it. The live
+  // workspace always shows it.
+  const site = useSiteQuery();
+  const showCalendar = !STATIC_MODE || site.data?.calendar === true;
 
   // Open (creating if needed) today's journal and jump to it, mirroring how the activity heatmap opens a
   // day. The local-time YYYY-MM-DD key matches the journal id the server derives from the date.

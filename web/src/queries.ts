@@ -8,6 +8,7 @@ import {
   getLocalGraph,
   getNote,
   getOgp,
+  getSite,
   listNotes,
   renderMarkdown,
   renderViewSpec,
@@ -20,6 +21,7 @@ import { useDebouncedValue } from "./hooks/useDebouncedValue";
 import type { NoteID, NoteResponse, SaveNoteRequest } from "./types";
 
 export const queryKeys = {
+  site: () => ["site"] as const,
   activity: (since: string, until: string) => ["activity", since, until] as const,
   agenda: (date: string) => ["agenda", date] as const,
   graph: () => ["graph"] as const,
@@ -82,11 +84,21 @@ export function useSearchQuery(query: string, limit = 100, options?: { enabled?:
   });
 }
 
-export function useNotesQuery(enabled = true) {
+export function useNotesQuery() {
   return useQuery({
     queryKey: queryKeys.notes(),
     queryFn: listNotes,
-    enabled,
+  });
+}
+
+// useSiteQuery reads the published site's descriptor (entry note, calendar toggle). The file only
+// exists in the static export, so the query stays off on the live server.
+export function useSiteQuery() {
+  return useQuery({
+    queryKey: queryKeys.site(),
+    queryFn: getSite,
+    enabled: STATIC_MODE,
+    staleTime: Infinity,
   });
 }
 

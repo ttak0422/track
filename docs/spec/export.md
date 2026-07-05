@@ -112,8 +112,13 @@ Two input modes (both require `--frontend <dir>`, the static-mode frontend build
 
 | Mode | Invocation | Source |
 | --- | --- | --- |
-| Vault | `track export-site --root <id> [--id <id> ...] --frontend <dist> --out <dir>` | Vault notes by id; `--root` is the landing page. A full reindex runs first so the published graph is complete. |
+| Vault | `track export-site --root <id> [--id <id> ...] [--calendar] --frontend <dist> --out <dir>` | Vault notes by id; `--root` is the landing page. A full reindex runs first so the published graph is complete. |
 | Directory | `track export-site --src <dir> [--root <name>] --frontend <dist> --out <dir>` | A directory of plain Markdown files (e.g. repo-mounted help) outside any vault; wiki links resolve by file base name or first H1 title. |
+
+`--calendar` opts the published site into the calendar view and its per-day pages (see the web spec's
+"Calendar view"): off suits reference sites like help docs, on suits activity-shaped ones like a blog
+over a vault. Vault mode only — a `--src` directory carries no activity days, so the flag is rejected
+there.
 
 The exporter writes a JSON bundle under `<out>/data` mirroring the server's `/api/*` shapes — `notes.json`, `note/<id>.json` (web-sanitized body + backlinks), `graph.json`, `resolve.json`, `site.json` — then copies the static frontend build and referenced `assets/<path>` media into `<out>`. Wiki links to notes outside the published set are absent from `resolve.json`/`graph.json`, so the frontend leaves them inert. The live heatmap home is not published; the root note is the entry point. The bundled `docs/help/` set is a working example.
 

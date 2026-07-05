@@ -20,8 +20,9 @@ import (
 
 // Options selects which notes go into the static site and which one is the entry page.
 type Options struct {
-	Root int64   // entry note id, the site's landing page
-	IDs  []int64 // additional note ids to publish; Root is always included
+	Root     int64   // entry note id, the site's landing page
+	IDs      []int64 // additional note ids to publish; Root is always included
+	Calendar bool    // include the calendar view (and per-day pages) in the published site
 }
 
 // Result reports what a build produced.
@@ -85,7 +86,7 @@ func Build(cfg *config.Config, st *store.Store, opts Options, frontendDir, outDi
 	if err != nil {
 		return Result{}, err
 	}
-	return writeBundle(docs, edges, opts.Root, frontendDir, outDir)
+	return writeBundle(docs, edges, opts.Root, opts.Calendar, frontendDir, outDir)
 }
 
 // vaultEdges returns the [[link]] edges of the index whose endpoints are both in the published set.

@@ -89,11 +89,15 @@ type jsonGraph struct {
 type jsonSite struct {
 	Root  string `json:"root"`
 	Title string `json:"title"`
+	// Calendar opts the published site into the calendar view: the frontend shows the rail button and
+	// the prerender emits /calendar and the per-day pages. Off suits reference sites (help docs); on
+	// suits activity-shaped ones (a blog over a vault).
+	Calendar bool `json:"calendar,omitempty"`
 }
 
 // writeBundle emits the data bundle, copies the static frontend over it, and copies assets. frontendDir
 // is the static-mode Vite build (index.html + assets/...). root is the entry note's id.
-func writeBundle(docs []doc, edges []edge, root int64, frontendDir, outDir string) (Result, error) {
+func writeBundle(docs []doc, edges []edge, root int64, calendar bool, frontendDir, outDir string) (Result, error) {
 	if len(docs) == 0 {
 		return Result{}, fmt.Errorf("no notes to publish")
 	}
@@ -183,8 +187,11 @@ func writeBundle(docs []doc, edges []edge, root int64, frontendDir, outDir strin
 		return Result{}, err
 	}
 
-	// site.json: the entry note.
-	if err := writeJSONFile(filepath.Join(outDir, "data", "site.json"), jsonSite{Root: PublishID(root), Title: rootTitle}); err != nil {
+	// site.json: the entry note and site-level toggles.
+	if err := writeJSONFile(
+		filepath.Join(outDir, "data", "site.json"),
+		jsonSite{Root: PublishID(root), Title: rootTitle, Calendar: calendar},
+	); err != nil {
 		return Result{}, err
 	}
 

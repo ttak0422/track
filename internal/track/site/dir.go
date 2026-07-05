@@ -100,7 +100,9 @@ func BuildDir(srcDir, rootName, frontendDir, outDir string) (Result, error) {
 		}
 	}
 
-	return writeBundle(docs, edges, root, frontendDir, outDir)
+	// Plain Markdown files carry no activity days, so a calendar would be permanently empty; directory
+	// sites never include it (the CLI rejects --calendar with --src).
+	return writeBundle(docs, edges, root, false, frontendDir, outDir)
 }
 
 // firstHeading returns the text of the first level-1 ATX heading in body, or "" when there is none.

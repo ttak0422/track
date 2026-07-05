@@ -46,8 +46,8 @@ export async function renderPage(routePath: string): Promise<RenderedPage> {
 // note — additionally prefetches the note and its rendered markdown so the reader paints the body on the
 // first render.
 async function prefetchForRoute(queryClient: QueryClient, routePath: string): Promise<void> {
-  // The site query key Shell uses is a bare ["site"].
-  await queryClient.prefetchQuery({ queryKey: ["site"], queryFn: getSite });
+  // Every page's Shell reads the site descriptor (calendar toggle, entry note).
+  await queryClient.prefetchQuery({ queryKey: queryKeys.site(), queryFn: getSite });
 
   if (routePath === "/calendar") {
     // The calendar's above-the-fold content IS the notes list (it derives the per-day notes from it).
@@ -69,7 +69,7 @@ async function prefetchForRoute(queryClient: QueryClient, routePath: string): Pr
   let noteID = noteMatch ? decodeURIComponent(noteMatch[1]) : "";
   if (routePath === "/") {
     // "/" renders the start note (see HomeRoute); prefetch it too.
-    noteID = queryClient.getQueryData<{ root: string }>(["site"])?.root ?? "";
+    noteID = queryClient.getQueryData<{ root: string }>(queryKeys.site())?.root ?? "";
   }
   if (noteID === "") return;
 

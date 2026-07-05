@@ -152,9 +152,9 @@ func TestBuildVaultBundle(t *testing.T) {
 		t.Fatalf("out-of-set note should not be resolvable")
 	}
 
-	// site.json names the entry note.
+	// site.json names the entry note; the calendar stays opt-in and defaults off.
 	site := readJSON[jsonSite](t, filepath.Join(out, "data", "site.json"))
-	if site.Root != PublishID(100) || site.Title != "Home" {
+	if site.Root != PublishID(100) || site.Title != "Home" || site.Calendar {
 		t.Fatalf("unexpected site.json: %+v", site)
 	}
 }
@@ -225,7 +225,7 @@ func TestBuildPublishesActivityDays(t *testing.T) {
 	}
 
 	out := t.TempDir()
-	if _, err := Build(cfg, s, Options{Root: 100}, fakeFrontend(t), out); err != nil {
+	if _, err := Build(cfg, s, Options{Root: 100, Calendar: true}, fakeFrontend(t), out); err != nil {
 		t.Fatalf("build: %v", err)
 	}
 
@@ -234,6 +234,10 @@ func TestBuildPublishesActivityDays(t *testing.T) {
 	}](t, filepath.Join(out, "data", "notes.json"))
 	if len(notes.Notes) != 1 || len(notes.Notes[0].Days) != 2 || notes.Notes[0].Days[0] != "2026-07-03" {
 		t.Fatalf("notes.json should carry activity days, got %+v", notes.Notes)
+	}
+	site := readJSON[jsonSite](t, filepath.Join(out, "data", "site.json"))
+	if !site.Calendar {
+		t.Fatalf("Options.Calendar should surface in site.json, got %+v", site)
 	}
 }
 

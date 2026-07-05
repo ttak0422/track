@@ -153,11 +153,15 @@ workspace opens (creating if needed) it like the activity heatmap does; the stat
 when the journal is published.
 
 Both pages derive from the notes listing, which carries each note's activity `days` (`/api/notes` live,
-`notes.json` in the static export), so neither needs an endpoint — or any journals — of its own. In the
-static export every active day is prerendered as a real `day/<date>/index.html`, and `getAgenda` derives
-day lists from `notes.json`, which also makes the reader's "On this day" work on published sites. A
-published set with no activity days (e.g. the repo help site, built from plain Markdown) hides the
-calendar rail button instead of offering a permanently empty page.
+`notes.json` in the static export), so neither needs an endpoint — or any journals — of its own. On the
+static site `getAgenda` derives day lists from `notes.json`, which also makes the reader's "On this day"
+work on published sites.
+
+A published site opts into the calendar with `track export-site --calendar` (vault mode only; a `--src`
+directory has no activity days and is rejected). The flag is carried as `calendar` in `site.json`: the
+frontend shows the rail button and the prerender emits `calendar/index.html` plus a real
+`day/<date>/index.html` for every active day. Without the flag — the default, suiting reference sites
+like the repo help docs — the calendar and day pages are absent from the output.
 
 ## Theme and colors
 

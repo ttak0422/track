@@ -25,6 +25,7 @@ func cmdExportSite(args []string) int {
 	fs.Var(&ids, "id", "note id to include in vault mode (repeatable, comma-separated)")
 	frontend := fs.String("frontend", "", "static-mode frontend build directory to copy into the site")
 	out := fs.String("out", "", "output directory")
+	calendar := fs.Bool("calendar", false, "include the calendar view and per-day pages (vault mode)")
 	if err := fs.Parse(args); err != nil {
 		return fail("parse args: %v", err)
 	}
@@ -37,6 +38,9 @@ func cmdExportSite(args []string) int {
 
 	// Directory mode: repo-mounted Markdown, no vault or index needed.
 	if *src != "" {
+		if *calendar {
+			return fail("--calendar needs vault notes' activity days; a --src directory has none")
+		}
 		res, err := site.BuildDir(*src, *root, *frontend, *out)
 		if err != nil {
 			return fail("export-site: %v", err)
@@ -65,7 +69,7 @@ func cmdExportSite(args []string) int {
 		return fail("reindex: %v", err)
 	}
 
-	res, err := site.Build(cfg, s, site.Options{Root: rootID, IDs: ids}, *frontend, *out)
+	res, err := site.Build(cfg, s, site.Options{Root: rootID, IDs: ids, Calendar: *calendar}, *frontend, *out)
 	if err != nil {
 		return fail("export-site: %v", err)
 	}
