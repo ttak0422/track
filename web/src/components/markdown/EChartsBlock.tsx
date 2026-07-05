@@ -66,6 +66,20 @@ export function EChartsBlock({ option }: EChartsBlockProps) {
     };
   }, []);
 
+  // A plain wheel over the chart must keep scrolling the page, but zrender's canvas listener swallows
+  // every wheel event once an inside dataZoom exists — even with its zoom gated behind Shift. Stop
+  // plain wheels in the capture phase so zrender never sees them (the browser default, scrolling, still
+  // runs); Shift+wheel passes through and zooms, matching the option's zoomOnMouseWheel: "shift".
+  useEffect(() => {
+    const el = containerRef.current;
+    if (!el) return;
+    const onWheel = (event: WheelEvent) => {
+      if (!event.shiftKey) event.stopPropagation();
+    };
+    el.addEventListener("wheel", onWheel, { capture: true });
+    return () => el.removeEventListener("wheel", onWheel, { capture: true });
+  }, []);
+
   return <div ref={containerRef} className="viewspec-chart" role="img" aria-label="Chart" />;
 }
 

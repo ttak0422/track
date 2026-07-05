@@ -135,22 +135,28 @@ func applyAxisPointer(opt map[string]any, t viewspec.ChartType) {
 const echartsInset = 16
 
 // dataZoomSliderThreshold is the category count past which a chart gets a visible range slider on
-// top of the always-on wheel/pinch zoom: short series don't need one, dense time series (the shape
-// the goal articles zoom) do.
+// top of the inside (Shift+wheel/pinch/drag) zoom: short series don't need one, dense time series
+// (the shape the goal articles zoom) do.
 // ponytail: fixed count cutoff; derive from label pixel density if charts get configurable widths
 const dataZoomSliderThreshold = 30
 
 // applyDataZoom derives zooming mechanically from the drawing form: every category-x chart gets an
-// inside (wheel/pinch/drag) zoom on its x axis, and a dense one also gets the slider, so changing
-// the visible range needs no spec vocabulary. Value-axis and grid forms (bubble, heatmap) stay
-// unzoomed — range selection there reads as noise, not navigation.
+// inside (Shift+wheel/pinch/drag) zoom on its x axis, and a dense one also gets the slider, so
+// changing the visible range needs no spec vocabulary. Value-axis and grid forms (bubble, heatmap)
+// stay unzoomed — range selection there reads as noise, not navigation.
 func applyDataZoom(opt map[string]any, res viewspec.Resolved) {
 	switch res.Chart {
 	case viewspec.ChartLine, viewspec.ChartArea, viewspec.ChartBar, viewspec.ChartScatter, viewspec.ChartCandlestick:
 	default:
 		return
 	}
-	zooms := []any{map[string]any{"type": "inside", "xAxisIndex": 0}}
+	zooms := []any{map[string]any{
+		"type": "inside", "xAxisIndex": 0,
+		// A plain wheel keeps scrolling the page — an ECharts inside-zoom otherwise eats every wheel
+		// event over the plot, trapping the reader's scroll mid-note. Zooming asks for Shift+wheel
+		// (pinch and the slider still work unmodified).
+		"zoomOnMouseWheel": "shift",
+	}}
 	if len(res.Labels) > dataZoomSliderThreshold {
 		// The slider owns the bottom edge (the legend sits up top); the grid shrinks so the x labels
 		// keep their room.

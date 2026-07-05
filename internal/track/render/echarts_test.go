@@ -220,6 +220,10 @@ func TestEChartsComboDrawsPerSeriesForms(t *testing.T) {
 func TestEChartsDerivesZoomFromDensity(t *testing.T) {
 	// Category-x charts always zoom from the wheel; only dense ones get the visible slider.
 	sparse, _ := EChartsOptionJSON(resolvedChart(viewspec.ChartLine, "S", []float64{1, 2}))
+	// The inside zoom must leave the plain wheel to page scrolling (Shift gates wheel-zoom).
+	if !strings.Contains(sparse, `"zoomOnMouseWheel":"shift"`) {
+		t.Fatalf("inside zoom should gate wheel-zoom behind Shift: %s", sparse)
+	}
 	if !strings.Contains(sparse, `"type":"inside"`) || strings.Contains(sparse, `"type":"slider"`) {
 		t.Fatalf("sparse chart should zoom inside-only: %s", sparse)
 	}
