@@ -1385,6 +1385,12 @@ a.calendar-title:focus-visible {
   overflow: auto;
   padding: 16px;
   background: var(--panel);
+  /* A note page scrolls here (not the reader), so it needs the app's hidden-scrollbar treatment too. */
+  scrollbar-width: none;
+}
+
+.note-preview::-webkit-scrollbar {
+  display: none;
 }
 
 .editor-grid-split .note-preview {
