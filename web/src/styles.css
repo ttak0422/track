@@ -2030,7 +2030,8 @@ a.calendar-title:focus-visible {
 
 .chart-annotation-links {
   display: flex;
-  gap: 8px;
+  flex-wrap: wrap;
+  gap: 2px 8px;
   align-items: baseline;
 }
 

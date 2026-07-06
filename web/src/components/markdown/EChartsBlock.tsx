@@ -2,7 +2,7 @@ import { useNavigate } from "@tanstack/react-router";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { CodeBlock } from "./CodeBlock";
 import { applyChartTheme, chartThemeFromCSS } from "./echartsTheme";
-import { extractRail, MarkerRail } from "./MarkerRail";
+import { extractRail, MarkerRail, type RailAnchors } from "./MarkerRail";
 import { useThemeVersion } from "./MermaidDiagram";
 
 // echartsModule caches the lazy import so every chart on a page shares one load. ECharts is pulled in
@@ -35,7 +35,7 @@ export function EChartsBlock({ option }: EChartsBlockProps) {
   // full-range positions come straight off the option, so the rail lays out (and reserves its
   // height) before the chart instance exists; the instance later refines the pixel anchors.
   const rail = useMemo(() => extractRail(option), [option]);
-  const [anchors, setAnchors] = useState<(number | null)[] | null>(null);
+  const [anchors, setAnchors] = useState<RailAnchors | null>(null);
   useEffect(() => setAnchors(null), [option]);
 
   useEffect(() => {
@@ -82,14 +82,13 @@ export function EChartsBlock({ option }: EChartsBlockProps) {
           return;
         }
         const midY = el.clientHeight / 2;
-        setAnchors(
-          rail.boxes.map((b) => {
-            const x = chart!.convertToPixel({ xAxisIndex: 0 }, b.at);
-            return Number.isFinite(x) && chart!.containPixel({ gridIndex: 0 }, [x, midY])
-              ? x
-              : null;
-          }),
-        );
+        const xs = rail.boxes.map((b) => {
+          const x = chart!.convertToPixel({ xAxisIndex: 0 }, b.at);
+          return Number.isFinite(x) && chart!.containPixel({ gridIndex: 0 }, [x, midY])
+            ? x
+            : null;
+        });
+        setAnchors({ xs, gap: plotBottomGap(chart!, xs, el.clientHeight, midY) });
       };
       if (rail.boxes.length > 0) {
         layoutAnchors();
@@ -166,6 +165,33 @@ export function EChartsBlock({ option }: EChartsBlockProps) {
       <MarkerRail boxes={rail.boxes} fractions={rail.fractions} anchors={anchors} />
     </figure>
   );
+}
+
+// plotBottomGap measures how far the plot's bottom edge sits above the chart container's bottom —
+// the strip holding the axis labels and zoom slider — by bisecting containPixel along a visible
+// marker's x. The rail's stems span that strip so each box's line continues the marker line
+// unbroken. Without a visible anchor (everything zoomed out) there is nothing to bridge.
+export function plotBottomGap(
+  chart: import("echarts").ECharts,
+  xs: (number | null)[],
+  height: number,
+  insideY: number,
+): number {
+  const x = xs.find((v): v is number => v !== null);
+  if (x === undefined || !chart.containPixel({ gridIndex: 0 }, [x, insideY])) {
+    return 0;
+  }
+  let lo = insideY; // known inside the grid
+  let hi = height; // known below it
+  for (let i = 0; i < 10; i++) {
+    const mid = (lo + hi) / 2;
+    if (chart.containPixel({ gridIndex: 0 }, [x, mid])) {
+      lo = mid;
+    } else {
+      hi = mid;
+    }
+  }
+  return Math.max(0, Math.round(height - lo));
 }
 
 // suppressBoxLabels hides the classic in-plot label on box-mode markLine items — the rail shows the

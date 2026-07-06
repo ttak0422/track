@@ -1,7 +1,13 @@
 import { describe, expect, it, vi } from "vitest";
 import { BOX_WIDTH, extractRail, layoutLanes } from "./MarkerRail";
 
-vi.mock("@tanstack/react-router", () => ({ useNavigate: () => vi.fn() }));
+vi.mock("@tanstack/react-router", () => ({
+  useNavigate: () => vi.fn(),
+  Link: () => null,
+}));
+vi.mock("../../queries", () => ({
+  useNoteQuery: () => ({ data: undefined }),
+}));
 
 describe("extractRail", () => {
   const option = (): Record<string, unknown> => ({

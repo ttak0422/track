@@ -4,6 +4,7 @@ import {
   attachDetailTooltip,
   detailTooltipFormatter,
   EChartsBlock,
+  plotBottomGap,
   suppressBoxLabels,
 } from "./EChartsBlock";
 
@@ -31,7 +32,25 @@ vi.mock("echarts", () => ({
 }));
 
 const navigate = vi.hoisted(() => vi.fn());
-vi.mock("@tanstack/react-router", () => ({ useNavigate: () => navigate }));
+vi.mock("@tanstack/react-router", () => ({
+  useNavigate: () => navigate,
+  Link: ({
+    className,
+    params,
+    children,
+  }: {
+    className?: string;
+    params?: { noteId?: string };
+    children?: React.ReactNode;
+  }) => (
+    <a className={className} data-note={params?.noteId}>
+      {children}
+    </a>
+  ),
+}));
+vi.mock("../../queries", () => ({
+  useNoteQuery: () => ({ data: { note: { title: "参照先ノート" } } }),
+}));
 
 async function renderChart(option: Record<string, unknown>) {
   const result = render(<EChartsBlock option={option} />);
@@ -146,10 +165,24 @@ describe("annotation rail", () => {
     expect(original[0].markLine.data[0].label).toEqual({ formatter: "First event" });
   });
 
-  it("navigates to the referenced note from a box's note chip", async () => {
-    const { getAllByRole } = await renderChart(boxOption());
-    getAllByRole("button", { name: "note" })[0].click();
-    expect(navigate).toHaveBeenCalledWith({ to: "/notes/$noteId", params: { noteId: "123" } });
+  it("renders a box's note reference like any other note link: the title as a wiki link", async () => {
+    const { container } = await renderChart(boxOption());
+    const link = container.querySelector(".chart-annotation-links .wiki-link");
+    expect(link).not.toBeNull();
+    expect(link?.textContent).toBe("参照先ノート");
+    expect(link?.getAttribute("data-note")).toBe("123");
+  });
+});
+
+describe("plotBottomGap", () => {
+  it("bisects the plot's bottom edge from containPixel", () => {
+    // A grid spanning y=[56, 300] in a 360px container: the gap is the 60px axis-label strip.
+    const chart = {
+      containPixel: (_finder: unknown, [, y]: [number, number]) => y <= 300,
+    } as unknown as import("echarts").ECharts;
+    expect(plotBottomGap(chart, [100], 360, 180)).toBe(60);
+    // No visible anchor: nothing to bridge.
+    expect(plotBottomGap(chart, [null], 360, 180)).toBe(0);
   });
 });
 

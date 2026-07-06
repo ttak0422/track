@@ -1,5 +1,6 @@
-import { useNavigate } from "@tanstack/react-router";
+import { Link } from "@tanstack/react-router";
 import { useLayoutEffect, useRef, useState } from "react";
+import { useNoteQuery } from "../../queries";
 
 // One annotation box, read off a box-mode markLine item (ADR 0028). The engine already resolved the
 // content — the date line, the source host, the sort order — so the rail only decides geometry.
@@ -104,12 +105,35 @@ function clampLeft(x: number, width: number): number {
   return Math.min(Math.max(x - BOX_WIDTH / 2, 0), Math.max(0, width - BOX_WIDTH));
 }
 
+export interface RailAnchors {
+  // Refined pixel anchor per box; a null entry is a box outside the current dataZoom window
+  // (hidden without restacking the lanes).
+  xs: (number | null)[];
+  // Distance from the chart container's bottom edge up to the plot's bottom edge: the stems span it
+  // so each box's line visually continues the marker line instead of breaking at the axis labels.
+  gap: number;
+}
+
 interface MarkerRailProps {
   boxes: RailBox[];
   fractions: number[];
-  // Refined pixel anchors from the chart instance; a null entry is a box outside the current
-  // dataZoom window (hidden without restacking), a null array means "not measured yet".
-  anchors: (number | null)[] | null;
+  // Measured geometry from the chart instance; null means "not measured yet" (estimates place the
+  // boxes until the canvas has drawn).
+  anchors: RailAnchors | null;
+}
+
+// NoteRef renders a box's vault-note reference exactly like a note link anywhere else in the reader:
+// the referenced note's title as a wiki link. The title comes from the note endpoint (cached and
+// shared with previews); until it arrives — or if the reference cannot load — a neutral "note" label
+// keeps the link usable.
+function NoteRef({ noteID }: { noteID: string }) {
+  const note = useNoteQuery(noteID);
+  const title = note.data?.note.title ?? "";
+  return (
+    <Link className="wiki-link" to="/notes/$noteId" params={{ noteId: noteID }}>
+      {title !== "" ? title : "note"}
+    </Link>
+  );
 }
 
 // MarkerRail renders box-mode markers as an always-visible evidence band below the chart. It is a
@@ -121,7 +145,6 @@ interface MarkerRailProps {
 export function MarkerRail({ boxes, fractions, anchors }: MarkerRailProps) {
   const ref = useRef<HTMLOListElement>(null);
   const [width, setWidth] = useState(0);
-  const navigate = useNavigate();
 
   useLayoutEffect(() => {
     const el = ref.current;
@@ -153,14 +176,7 @@ export function MarkerRail({ boxes, fractions, anchors }: MarkerRailProps) {
               {b.host !== "" ? b.host : "source"} ↗
             </a>
           )}
-          {b.note !== "" && (
-            <button
-              type="button"
-              onClick={() => void navigate({ to: "/notes/$noteId", params: { noteId: b.note } })}
-            >
-              note
-            </button>
-          )}
+          {b.note !== "" && <NoteRef noteID={b.note} />}
         </span>
       )}
     </>
@@ -186,18 +202,22 @@ export function MarkerRail({ boxes, fractions, anchors }: MarkerRailProps) {
       style={{ height: lanes * LANE_HEIGHT + RAIL_TOP }}
     >
       {boxes.map((b, i) => {
-        const x = anchors === null ? fullXs[i] : anchors[i];
+        const x = anchors === null ? fullXs[i] : anchors.xs[i];
         if (x === null) {
           return null; // zoomed out of the window; lanes stay put, the box just disappears
         }
         const left = clampLeft(x, width);
         const top = slots[i].lane * LANE_HEIGHT + RAIL_TOP;
+        // The stem continues the marker line: it reaches up past the rail's top edge and across the
+        // chart's bottom inset (axis labels, zoom slider) to the plot itself, so the line reads as
+        // one unbroken drop from the plot into the box.
+        const stem = top + (anchors?.gap ?? 0);
         return (
           <li key={i} className="chart-annotation" style={{ left, top, width: BOX_WIDTH }}>
             <span
               className="chart-annotation-stem"
               aria-hidden
-              style={{ left: Math.min(Math.max(x - left, 4), BOX_WIDTH - 4), top: -top, height: top }}
+              style={{ left: Math.min(Math.max(x - left, 4), BOX_WIDTH - 4), top: -stem, height: stem }}
             />
             {content(b)}
           </li>
