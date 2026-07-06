@@ -5,8 +5,11 @@ import (
 	"fmt"
 	"html"
 	"math"
+	"net/url"
+	"sort"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/ttak0422/track/internal/track/viewspec"
 )
@@ -447,6 +450,34 @@ func buildHeatmap(opt map[string]any, res viewspec.Resolved) {
 	}}
 }
 
+// boxDate resolves an annotation box's date line from the marker's x value: an RFC3339 timestamp is
+// trimmed to its day, anything else is shown as written. The engine decides the text once so every
+// surface renders the same content (no per-consumer date heuristics).
+func boxDate(at string) string {
+	if t, err := time.Parse(time.RFC3339, at); err == nil {
+		return t.Format("2006-01-02")
+	}
+	return at
+}
+
+// boxSource scrubs an annotation box's source link: only http(s) URLs survive, and the display host
+// (without a www. prefix) is extracted here so no renderer ever parses a URL — closing the scheme
+// hole (javascript: etc.) before any surface sees the link.
+func boxSource(href string) (link, host string) {
+	if href == "" {
+		return "", ""
+	}
+	u, err := url.Parse(href)
+	if err != nil {
+		return "", ""
+	}
+	switch strings.ToLower(u.Scheme) {
+	case "http", "https":
+		return href, strings.TrimPrefix(u.Host, "www.")
+	}
+	return "", ""
+}
+
 // applyOverlays attaches the resolved overlay geometry to the first series: vertical marker lines and
 // horizontal reference lines as markLine data, bands as markArea ranges, callouts as markPoint
 // bubbles. ECharts scopes mark geometry to a series, so a reference line on the secondary axis rides
@@ -474,7 +505,7 @@ func applyOverlays(opt map[string]any, res viewspec.Resolved) {
 	}
 	var primary, secondary []any // markLine items per target axis group
 	linked := false              // any marker carrying provenance makes its markLine clickable
-	for _, m := range res.Markers {
+	markerItem := func(m viewspec.Marker) map[string]any {
 		item := map[string]any{"xAxis": m.At}
 		if m.Label != "" {
 			item["label"] = boxedLabel(m.Label)
@@ -487,7 +518,50 @@ func applyOverlays(opt map[string]any, res viewspec.Resolved) {
 			item["note"] = m.Note
 			linked = true
 		}
-		primary = append(primary, item)
+		return item
+	}
+	var boxed []viewspec.Marker
+	for _, m := range res.Markers {
+		if m.Box {
+			boxed = append(boxed, m)
+			continue
+		}
+		primary = append(primary, markerItem(m))
+	}
+	// Box-mode markers (display: "box", ADR 0028): the item additionally carries an engine-resolved
+	// "box" payload — the date line and the source host — and non-http(s) hrefs are scrubbed so no
+	// consumer ever parses a URL. Items are emitted sorted by category index (record order breaks
+	// ties) so same-day stacks lane deterministically on every surface; a marker whose At matches no
+	// label gets no payload (the line is equally unplaceable — skip, never fail). The classic label
+	// stays on the item: a bare setOption consumer keeps today's marker look, and the rail-drawing
+	// frontend suppresses it on its own clone.
+	if len(boxed) > 0 {
+		index := make(map[string]int, len(res.Labels))
+		for i, l := range res.Labels {
+			if _, ok := index[l]; !ok {
+				index[l] = i
+			}
+		}
+		at := func(m viewspec.Marker) int {
+			if i, ok := index[m.At]; ok {
+				return i
+			}
+			return len(res.Labels) // unmatched markers sort after every placeable one
+		}
+		sort.SliceStable(boxed, func(a, b int) bool { return at(boxed[a]) < at(boxed[b]) })
+		for _, m := range boxed {
+			var host string
+			m.Href, host = boxSource(m.Href)
+			item := markerItem(m)
+			if _, ok := index[m.At]; ok {
+				box := map[string]any{"date": boxDate(m.At)}
+				if host != "" {
+					box["host"] = host
+				}
+				item["box"] = box
+			}
+			primary = append(primary, item)
+		}
 	}
 	for _, l := range res.Lines {
 		item := map[string]any{

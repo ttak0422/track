@@ -278,6 +278,12 @@ type Overlay struct {
 	// Label is the marker-text field for a source overlay (defaults to "text"), or the literal
 	// label text for a line/band/callout overlay.
 	Label string `json:"label,omitempty"`
+
+	// Display selects how a marker overlay is presented (markers only): "" keeps the vertical
+	// line + in-plot label, "box" asks interactive renderers for an always-visible annotation box
+	// per marker — date, text, and source link along the axis (ADR 0028). Renderers without a box
+	// surface keep the classic marker look.
+	Display string `json:"display,omitempty"`
 }
 
 // atField returns the configured x-position field, defaulting to "time".
@@ -310,19 +316,21 @@ func (o Overlay) Markers(records []dataset.Record) []Marker {
 		label, _ := rec.String(o.labelField())
 		href, _ := rec.String("url")
 		noteRef, _ := rec.String("note")
-		ms = append(ms, Marker{At: at, Label: label, Href: href, Note: noteRef})
+		ms = append(ms, Marker{At: at, Label: label, Href: href, Note: noteRef, Box: o.Display == "box"})
 	}
 	return ms
 }
 
 // Marker is a resolved vertical overlay: a label drawn at x position At. Href carries the source
 // record's url and Note its vault note id, so an interactive renderer can make the marker clickable;
-// both are empty when the record carries no provenance.
+// both are empty when the record carries no provenance. Box asks for an always-visible annotation
+// box (display: "box", ADR 0028) on renderers that have such a surface.
 type Marker struct {
 	At    string
 	Label string
 	Href  string
 	Note  string
+	Box   bool
 }
 
 // RefLine is a resolved horizontal reference line (a threshold): a value on axis "y" or "y2" plus an
@@ -510,6 +518,15 @@ func (s Spec) Validate() error {
 		if err := o.validate(i); err != nil {
 			return err
 		}
+		// Annotation boxes anchor along a horizontal category x-axis; the grid forms have no
+		// category x for markers, and hbar's category axis is vertical, so no rail can hang there.
+		// An explicit error beats silently dropping the mode (the strict-schema stance).
+		if o.Display == "box" {
+			switch s.chart() {
+			case ChartHeatmap, ChartTimeline, ChartBubble, ChartHBar:
+				return fmt.Errorf("view spec: overlays[%d].display %q is not supported on %s charts", i, "box", s.chart())
+			}
+		}
 	}
 	if s.Filter != nil {
 		if err := s.Filter.validate(); err != nil {
@@ -663,12 +680,18 @@ func (o Overlay) validate(i int) error {
 		if o.Axis != "" {
 			return fmt.Errorf("view spec: overlays[%d].axis applies only to a line overlay", i)
 		}
+		if o.Display != "" && o.Display != "box" {
+			return fmt.Errorf("view spec: overlays[%d].display %q is not %q", i, o.Display, "box")
+		}
 		if err := dataset.ValidateRecords(o.Kind, o.Records); err != nil {
 			return fmt.Errorf("view spec: overlays[%d] records: %w", i, err)
 		}
 	case hasLine:
 		if o.Kind != "" || o.At != "" {
 			return fmt.Errorf("view spec: overlays[%d] line overlay does not take kind/at", i)
+		}
+		if o.Display != "" {
+			return fmt.Errorf("view spec: overlays[%d].display applies only to a marker overlay", i)
 		}
 		if o.Axis != "" && !slices.Contains(AxisOptions, o.Axis) {
 			return fmt.Errorf("view spec: overlays[%d].axis %q is not y or y2", i, o.Axis)
@@ -683,12 +706,18 @@ func (o Overlay) validate(i int) error {
 		if o.Kind != "" || o.At != "" || o.Axis != "" {
 			return fmt.Errorf("view spec: overlays[%d] callout overlay does not take kind/at/axis", i)
 		}
+		if o.Display != "" {
+			return fmt.Errorf("view spec: overlays[%d].display applies only to a marker overlay", i)
+		}
 	default: // band
 		if o.From == "" || o.To == "" {
 			return fmt.Errorf("view spec: overlays[%d] band needs both from and to", i)
 		}
 		if o.Kind != "" || o.At != "" || o.Axis != "" {
 			return fmt.Errorf("view spec: overlays[%d] band overlay does not take kind/at/axis", i)
+		}
+		if o.Display != "" {
+			return fmt.Errorf("view spec: overlays[%d].display applies only to a marker overlay", i)
 		}
 	}
 	return nil

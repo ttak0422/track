@@ -320,6 +320,64 @@ func TestEChartsMarkersCarryProvenance(t *testing.T) {
 	}
 }
 
+// TestEChartsBoxMarkersCarryPayload pins the annotation-box contract (ADR 0028): a box-mode marker's
+// markLine item gains an engine-resolved "box" payload (date + source host), items are emitted sorted
+// by category index, non-http(s) hrefs are scrubbed, an unplaceable marker gets no payload, and the
+// classic label stays so bare-setOption consumers keep today's look.
+func TestEChartsBoxMarkersCarryPayload(t *testing.T) {
+	res := resolvedChart(viewspec.ChartLine, "S", []float64{1, 2})
+	res.Markers = []viewspec.Marker{
+		{At: "b", Label: "second", Href: "https://www.example.com/n", Box: true},
+		{At: "a", Label: "first", Href: "javascript:alert(1)", Note: "1700000000000", Box: true},
+		{At: "zz", Label: "unplaced", Box: true},
+	}
+	out, err := EChartsOptionJSON(res)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(out, `"box":{"date":"a"}`) {
+		t.Fatalf("box payload should carry the raw x value as its date: %s", out)
+	}
+	if !strings.Contains(out, `"box":{"date":"b","host":"example.com"}`) {
+		t.Fatalf("box payload should carry the www-stripped source host: %s", out)
+	}
+	if strings.Contains(out, "javascript:") {
+		t.Fatalf("non-http(s) hrefs must be scrubbed engine-side: %s", out)
+	}
+	if a, b := strings.Index(out, `"first"`), strings.Index(out, `"second"`); a > b {
+		t.Fatalf("box items should be sorted by category index: %s", out)
+	}
+	if u, b := strings.Index(out, `"unplaced"`), strings.Index(out, `"second"`); u < b {
+		t.Fatalf("unplaceable box markers sort last: %s", out)
+	}
+	if strings.Count(out, `"box":{`) != 2 {
+		t.Fatalf("an unplaceable marker gets no box payload: %s", out)
+	}
+	if !strings.Contains(out, `"formatter":"first"`) {
+		t.Fatalf("the classic label must stay for bare-setOption consumers: %s", out)
+	}
+	if !strings.Contains(out, `"silent":false`) {
+		t.Fatalf("a note-linked box group must accept clicks: %s", out)
+	}
+
+	// RFC3339 timestamps trim to their day in the payload (the anchor keeps the raw value).
+	res2 := resolvedChart(viewspec.ChartLine, "S", []float64{1, 2})
+	res2.Labels = []string{"2026-01-02T00:00:00Z", "b"}
+	res2.Markers = []viewspec.Marker{{At: "2026-01-02T00:00:00Z", Label: "ev", Box: true}}
+	out2, _ := EChartsOptionJSON(res2)
+	if !strings.Contains(out2, `"box":{"date":"2026-01-02"}`) || !strings.Contains(out2, `"xAxis":"2026-01-02T00:00:00Z"`) {
+		t.Fatalf("RFC3339 at should trim to a day, anchor unchanged: %s", out2)
+	}
+
+	// Additive guarantee: no display box, no box key anywhere.
+	res3 := resolvedChart(viewspec.ChartLine, "S", []float64{1, 2})
+	res3.Markers = []viewspec.Marker{{At: "a", Label: "ev", Href: "https://example.com/n"}}
+	out3, _ := EChartsOptionJSON(res3)
+	if strings.Contains(out3, `"box"`) {
+		t.Fatalf("no box key without display box: %s", out3)
+	}
+}
+
 func TestEChartsAxisPointerByForm(t *testing.T) {
 	bar, _ := EChartsOptionJSON(resolvedChart(viewspec.ChartBar, "S", []float64{1, 2}))
 	if !strings.Contains(bar, `"axisPointer":{"type":"shadow"}`) {
