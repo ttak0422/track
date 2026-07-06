@@ -1956,6 +1956,12 @@ a.calendar-title:focus-visible {
 
 /* A viewspec chart is an ECharts instance drawing the server-resolved option; the container needs an
    explicit height for echarts.init. */
+/* Touch: one finger keeps scrolling the page (pan-y stays with the browser); a two-finger pinch and
+   horizontal drags reach the chart, so pinch-zoom works without trapping the scroll. */
+.viewspec-chart canvas {
+  touch-action: pan-y;
+}
+
 .viewspec-chart {
   margin: 1em 0;
   height: 360px;
