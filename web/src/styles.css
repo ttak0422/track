@@ -1968,6 +1968,103 @@ a.calendar-title:focus-visible {
   background: var(--panel);
 }
 
+/* Annotation rail (ADR 0028): box-mode markers render as an always-visible evidence band below the
+   chart. Geometry (lane positions, rail height) is computed from the option and set inline; only the
+   look lives here. The rail is a sibling of the role="img" chart host, so its links are real,
+   focusable DOM and the chart's wheel/pinch capture never sees them. */
+.viewspec-chart-wrap {
+  margin: 1em 0;
+}
+
+.viewspec-chart-wrap .viewspec-chart {
+  margin: 0;
+}
+
+.chart-annotations {
+  position: relative;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.chart-annotation {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: 4px 8px;
+  background: var(--panel);
+  border: 1px solid var(--line);
+  /* The left accent repeats the marker line's red, tying each box to its line in the plot. */
+  border-left: 3px solid color-mix(in srgb, var(--danger) 80%, transparent);
+  border-radius: 4px;
+  font-size: 11px;
+  line-height: 1.35;
+}
+
+.chart-annotations[data-mode="rail"] .chart-annotation {
+  position: absolute;
+}
+
+.chart-annotations[data-mode="list"] {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding-top: 8px;
+  max-height: 320px;
+  overflow-y: auto;
+}
+
+.chart-annotation-date {
+  color: var(--muted);
+}
+
+.chart-annotation-text {
+  color: var(--text);
+  font-size: 12px;
+  font-weight: 500;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+
+.chart-annotation-links {
+  display: flex;
+  gap: 8px;
+  align-items: baseline;
+}
+
+.chart-annotation-links a {
+  color: var(--danger);
+  text-decoration: none;
+}
+
+.chart-annotation-links a:hover {
+  text-decoration: underline;
+}
+
+.chart-annotation-links button {
+  padding: 0 6px;
+  font-size: 10px;
+  color: var(--muted);
+  background: var(--panel-soft);
+  border: 1px solid var(--line);
+  border-radius: 3px;
+  cursor: pointer;
+}
+
+.chart-annotation-links button:hover {
+  color: var(--text);
+}
+
+/* The stem drops from the chart's bottom edge to its box, continuing the vertical marker line. */
+.chart-annotation-stem {
+  position: absolute;
+  width: 1px;
+  background: color-mix(in srgb, var(--danger) 35%, transparent);
+  pointer-events: none;
+}
+
 /* Mermaid renders async (dynamic import + layout pass), so without a reservation the placeholder text
    collapses to one line and the page jumps down once the diagram appears (CLS). Scoped to the loading
    state only, so a rendered diagram is never forced taller than its fitted height. */

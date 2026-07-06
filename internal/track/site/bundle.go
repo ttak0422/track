@@ -242,7 +242,7 @@ func writeBundle(docs []doc, edges []edge, root int64, calendar bool, frontendDi
 			rels = append(rels, rel)
 		}
 		sort.Strings(rels)
-		copied, missing, err := copyAssets(src, outDir, rels)
+		copied, missing, err := copyAssets(src, outDir, rels, noteSlug)
 		if err != nil {
 			return Result{}, fmt.Errorf("copy assets: %w", err)
 		}

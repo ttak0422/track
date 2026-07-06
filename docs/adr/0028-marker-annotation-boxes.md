@@ -1,6 +1,6 @@
 # 0028. Marker annotation boxes
 
-Status: Proposed
+Status: Accepted
 
 ## Context
 

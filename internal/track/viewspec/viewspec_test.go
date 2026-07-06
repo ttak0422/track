@@ -637,6 +637,7 @@ func TestValidateOverlayShapes(t *testing.T) {
 		"line-y2":        {Y: &y, Axis: "y2"},
 		"band":           {From: "d1", To: "d2", Label: "Q1"},
 		"line-at-zero":   {Y: new(float64)}, // y: 0 is a value, not an unset shape
+		"box markers":    {Records: inline, Kind: dataset.KindEvent, Label: "title", Display: "box"},
 	}
 	for name, o := range valid {
 		if err := spec(o).Validate(); err != nil {
@@ -661,11 +662,58 @@ func TestValidateOverlayShapes(t *testing.T) {
 		"callout with kind":    {X: "d1", Y: &y, Label: "t", Kind: dataset.KindEvent},
 		"callout and band":     {X: "d1", Y: &y, Label: "t", From: "a", To: "b"},
 		"bad inline record":    {Records: []dataset.Record{{"time": "d1"}}, Kind: dataset.KindEvent}, // missing required title
+		"bad display value":    {Records: inline, Kind: dataset.KindEvent, Display: "boxx"},
+		"display on line":      {Y: &y, Display: "box"},
+		"display on band":      {From: "d1", To: "d2", Display: "box"},
+		"display on callout":   {X: "d1", Y: &y, Label: "t", Display: "box"},
 	}
 	for name, o := range invalid {
 		if err := spec(o).Validate(); err == nil || !strings.Contains(err.Error(), "overlays[0]") {
 			t.Errorf("%s: want overlays[0] error, got %v", name, err)
 		}
+	}
+}
+
+// TestValidateDisplayBoxFormGate pins where the annotation-box mode may appear: the category-x
+// series forms (candlestick included — markers anchor there today); the grid forms and hbar error.
+func TestValidateDisplayBoxFormGate(t *testing.T) {
+	overlay := `"overlays":[{"source":"e.jsonl","kind":"event","display":"box"}]`
+	allowed := map[string]string{
+		"line": `{"version":2,"mark":"line","data":{"source":"x","kind":"metric"},` +
+			`"encoding":{"x":{"field":"time"},"y":[{"field":"value"}]},` + overlay + `}`,
+		"candlestick": `{"version":2,"mark":"candlestick","data":{"source":"x","kind":"price"},` +
+			`"encoding":{"x":{"field":"time"}},` + overlay + `}`,
+	}
+	for name, s := range allowed {
+		if _, err := Load(strings.NewReader(s)); err != nil {
+			t.Errorf("%s should allow display box: %v", name, err)
+		}
+	}
+	gated := map[string]string{
+		"hbar": `{"version":2,"mark":"bar","data":{"source":"x","kind":"metric"},` +
+			`"encoding":{"x":{"field":"value"},"y":[{"field":"name","type":"nominal"}]},` + overlay + `}`,
+		"heatmap": `{"version":2,"mark":"rect","data":{"source":"x","kind":"metric"},` +
+			`"encoding":{"x":{"field":"c","type":"nominal"},"y":[{"field":"r","type":"nominal"}],"color":{"field":"v"}},` + overlay + `}`,
+	}
+	for name, s := range gated {
+		if _, err := Load(strings.NewReader(s)); err == nil || !strings.Contains(err.Error(), "display") {
+			t.Errorf("%s: want display form-gate error, got %v", name, err)
+		}
+	}
+}
+
+// TestMarkersStampBox pins that display: "box" rides onto every resolved Marker through the single
+// extraction point, so all three Resolved.Markers fill sites inherit it.
+func TestMarkersStampBox(t *testing.T) {
+	recs := []dataset.Record{{"time": "d1", "title": "ev", "url": "https://example.com/n"}}
+	o := Overlay{Kind: dataset.KindEvent, Label: "title", Display: "box"}
+	ms := o.Markers(recs)
+	if len(ms) != 1 || !ms[0].Box {
+		t.Fatalf("display box should stamp Marker.Box: %+v", ms)
+	}
+	o.Display = ""
+	if ms := o.Markers(recs); len(ms) != 1 || ms[0].Box {
+		t.Fatalf("no display should leave Marker.Box unset: %+v", ms)
 	}
 }
 
