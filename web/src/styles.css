@@ -119,7 +119,9 @@ button {
 
 .workspace {
   display: grid;
-  grid-template-columns: 56px minmax(380px, 1fr);
+  /* The reader column must shrink below its content's preferred width (a phone is narrower than the
+     old 380px floor, which forced sideways scrolling of the whole workspace). */
+  grid-template-columns: 56px minmax(0, 1fr);
   height: 100vh;
   min-height: 560px;
 }
@@ -1737,6 +1739,25 @@ a.calendar-title:focus-visible {
     width: 100%;
     flex-basis: 160px;
   }
+
+  /* Phone width: tighter chrome so the 56px rail plus content read comfortably. The published static
+     site is the main mobile surface (the live workspace is desk-bound), but both share these. */
+  .reader {
+    padding: 16px 12px;
+  }
+
+  .note-preview {
+    padding: 12px 8px;
+  }
+
+  .calendar-grid {
+    gap: 3px;
+  }
+
+  .calendar-day {
+    min-height: 56px;
+    padding: 4px;
+  }
 }
 
 .inline-code {
@@ -1935,6 +1956,12 @@ a.calendar-title:focus-visible {
 
 /* A viewspec chart is an ECharts instance drawing the server-resolved option; the container needs an
    explicit height for echarts.init. */
+/* Touch: one finger keeps scrolling the page (pan-y stays with the browser); a two-finger pinch and
+   horizontal drags reach the chart, so pinch-zoom works without trapping the scroll. */
+.viewspec-chart canvas {
+  touch-action: pan-y;
+}
+
 .viewspec-chart {
   margin: 1em 0;
   height: 360px;

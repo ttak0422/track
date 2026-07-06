@@ -52,6 +52,15 @@ interface Point {
   y: number;
 }
 
+// pinchGeometry reduces the first two active pointers to the midpoint and distance a pinch is made of.
+function pinchGeometry(points: Point[]): { mid: Point; dist: number } {
+  const [a, b] = points;
+  return {
+    mid: { x: (a.x + b.x) / 2, y: (a.y + b.y) / 2 },
+    dist: Math.hypot(a.x - b.x, a.y - b.y),
+  };
+}
+
 interface DragState {
   pointerId: number;
   start: Point;
@@ -75,6 +84,8 @@ export function GraphCanvas({
   const edgesRef = useRef<SimEdge[]>([]);
   const viewRef = useRef<GraphView>({ x: 0, y: 0, scale: 1 });
   const dragRef = useRef<DragState | null>(null);
+  // Active pointers by id (canvas coords): two make a touch pinch, which zooms instead of dragging.
+  const pointersRef = useRef(new Map<number, Point>());
   // The node currently held under the cursor. The simulation keeps it fixed while still letting it
   // pull its neighbours, so grabbing a node stretches its edges like Obsidian's graph.
   const pinnedRef = useRef<SimNode | null>(null);
@@ -437,6 +448,20 @@ export function GraphCanvas({
   function pointerDown(event: PointerEvent<HTMLCanvasElement>) {
     event.preventDefault();
     const point = canvasPoint(event);
+    pointersRef.current.set(event.pointerId, point);
+    if (pointersRef.current.size >= 2) {
+      // A second finger turns the gesture into a pinch: release the one-finger drag (and any grabbed
+      // node) so pinchMove owns the view until a finger lifts.
+      event.currentTarget.setPointerCapture(event.pointerId);
+      dragRef.current = null;
+      if (pinnedRef.current) {
+        pinnedRef.current.fx = null;
+        pinnedRef.current.fy = null;
+        simulationRef.current?.alphaTarget(0).restart();
+        pinnedRef.current = null;
+      }
+      return;
+    }
     // Grabbing a node drags it (edges stay elastic, pulling neighbours); grabbing empty space pans.
     const node = decorative ? undefined : graphNodeAt(point);
     dragRef.current = { pointerId: event.pointerId, start: point, last: point, moved: false, node };
@@ -467,6 +492,13 @@ export function GraphCanvas({
   }
 
   function pointerMove(event: PointerEvent<HTMLCanvasElement>) {
+    if (pointersRef.current.size >= 2 && pointersRef.current.has(event.pointerId)) {
+      pinchMove(event);
+      return;
+    }
+    if (pointersRef.current.has(event.pointerId)) {
+      pointersRef.current.set(event.pointerId, canvasPoint(event));
+    }
     const drag = dragRef.current;
     if (!drag || drag.pointerId !== event.pointerId) {
       updateHover(event);
@@ -501,7 +533,28 @@ export function GraphCanvas({
     drawGraph(size);
   }
 
+  // pinchMove zooms the view by the change in finger distance, keeping the world point that was under
+  // the previous midpoint pinned to the current midpoint (so the pinch pans and zooms together, like
+  // every touch map). The wheel handler is the single-pointer analogue of the same math.
+  function pinchMove(event: PointerEvent<HTMLCanvasElement>) {
+    event.preventDefault();
+    const before = pinchGeometry([...pointersRef.current.values()]);
+    pointersRef.current.set(event.pointerId, canvasPoint(event));
+    const after = pinchGeometry([...pointersRef.current.values()]);
+    if (before.dist <= 0 || after.dist <= 0) return;
+    const world = worldPoint(before.mid);
+    const scale = clamp(viewRef.current.scale * (after.dist / before.dist), 0.015, 4);
+    viewRef.current = {
+      x: after.mid.x - size.width / 2 - world.x * scale,
+      y: after.mid.y - size.height / 2 - world.y * scale,
+      scale,
+    };
+    userAdjustedRef.current = true;
+    drawGraph(size);
+  }
+
   function pointerUp(event: PointerEvent<HTMLCanvasElement>) {
+    pointersRef.current.delete(event.pointerId);
     const drag = dragRef.current;
     const point = canvasPoint(event);
     dragRef.current = null;
@@ -525,6 +578,7 @@ export function GraphCanvas({
   }
 
   function pointerCancel(event: PointerEvent<HTMLCanvasElement>) {
+    pointersRef.current.delete(event.pointerId);
     dragRef.current = null;
     if (pinnedRef.current) {
       pinnedRef.current.fx = null;

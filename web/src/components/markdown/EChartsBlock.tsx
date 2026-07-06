@@ -70,13 +70,33 @@ export function EChartsBlock({ option }: EChartsBlockProps) {
   // every wheel event once an inside dataZoom exists — even with its zoom gated behind Shift. Stop
   // plain wheels in the capture phase so zrender never sees them (the browser default, scrolling, still
   // runs); Shift+wheel passes through and zooms, matching the option's zoomOnMouseWheel: "shift".
+  //
+  // A trackpad pinch arrives as a ctrl+wheel event (every engine's convention). The option's zoom gate
+  // accepts a single key, so translate the pinch into the Shift+wheel the chart understands and keep
+  // the original from the browser, whose default for ctrl+wheel is zooming the whole page.
   useEffect(() => {
     const el = containerRef.current;
     if (!el) return;
     const onWheel = (event: WheelEvent) => {
+      if (event.ctrlKey) {
+        event.preventDefault();
+        event.stopPropagation();
+        el.querySelector("canvas")?.dispatchEvent(
+          new WheelEvent("wheel", {
+            deltaY: event.deltaY,
+            deltaX: event.deltaX,
+            clientX: event.clientX,
+            clientY: event.clientY,
+            shiftKey: true,
+            bubbles: true,
+            cancelable: true,
+          }),
+        );
+        return;
+      }
       if (!event.shiftKey) event.stopPropagation();
     };
-    el.addEventListener("wheel", onWheel, { capture: true });
+    el.addEventListener("wheel", onWheel, { capture: true, passive: false });
     return () => el.removeEventListener("wheel", onWheel, { capture: true });
   }, []);
 
