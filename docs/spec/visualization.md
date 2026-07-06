@@ -90,6 +90,9 @@ fields onto *visual channels* (x, y series, color, size), orthogonally. Unknown 
 | `encoding.y`     | yes*     | One or more y series; each `{ field, type?, title?, axis? }`. (*`candlestick` takes none — its OHLC fields are implied.) |
 | `encoding.color` | rect     | On `rect`: the (quantitative) heatmap cell value. On every other mark: a **nominal** category that splits records into one colored series per value (see below). |
 | `encoding.size`  | no       | Radius channel for a `point` (bubble radius / timeline dot).         |
+| `encoding.detail`| no       | Provenance channel: `[{ field, title? }]` — extra fields carried per datum; the web reader lists them in the tooltip. Series forms only (line/area/bar/scatter/hbar). |
+| `encoding.href`  | no       | Provenance channel: `{ field }` — the field holding a datum's source URL; the web reader opens it on click (`http(s)` only) and shows a pointer cursor. Series forms only. |
+| `encoding.note`  | no       | Provenance channel: `{ field }` — the field holding a vault note id the datum references; the web reader navigates to it on click (`href` wins when both are set). Series forms only. |
 | `filter`         | no       | Keep matching records. Shorthand `{field, equals}` or `{all: [{field, op, value}]}` (AND). |
 | `overlays`       | no       | Reference geometry drawn over the chart: markers, lines, bands (see below). |
 
@@ -272,6 +275,13 @@ events along a metric time series:
 A record with no `at` value is skipped. The marker is placed at the matching x-axis category, so the
 `at` value should equal one of the x-axis labels (the renderer uses a category x-axis). Multiple
 overlays accumulate.
+
+A marker record's provenance fields ride along automatically — no extra vocabulary: an event's `url`
+becomes the marker's click-through source (the web reader opens it; the SVG renderer wraps the marker
+in an `<a>`), and its `note` (a vault note id) makes the marker navigate to that note. When a datum or
+marker carries both, the click opens the URL (the external source); the note reference is the hover
+target for a future preview. The static export rewrites `note` ids to published slugs and drops
+references to unpublished notes (see ADR 0027).
 
 **Reference line** — a dashed horizontal line at a literal value (a threshold):
 

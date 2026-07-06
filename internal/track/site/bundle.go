@@ -9,6 +9,7 @@ import (
 	"os"
 	"path/filepath"
 	"sort"
+	"strconv"
 	"strings"
 )
 
@@ -132,6 +133,18 @@ func writeBundle(docs []doc, edges []edge, root int64, calendar bool, frontendDi
 	for _, d := range docs {
 		byID[d.id] = d
 	}
+	// Chart datums reference vault notes by internal id; published charts must carry the opaque slug
+	// instead (and drop references to notes outside the set — no dangling navigation).
+	noteSlug := func(ref string) (string, bool) {
+		id, err := strconv.ParseInt(ref, 10, 64)
+		if err != nil {
+			return "", false
+		}
+		if _, ok := byID[id]; !ok {
+			return "", false
+		}
+		return PublishID(id), true
+	}
 	for _, e := range edges {
 		src, ok := byID[e.src]
 		if !ok {
@@ -149,7 +162,7 @@ func writeBundle(docs []doc, edges []edge, root int64, calendar bool, frontendDi
 		// Rewrite asset references to their published (slugged) names, matching the copied files.
 		body := rewriteAssetRefs(d.body)
 		// Then resolve ```viewspec fences to ready-to-draw ```echarts option blocks at build time.
-		body = resolveViewSpecBlocks(body, d.dataDir)
+		body = resolveViewSpecBlocks(body, d.dataDir, noteSlug)
 		resp := jsonNoteResponse{
 			Note: jsonNoteDetail{
 				jsonSearchResult: searchResultOf(d),

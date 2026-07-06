@@ -282,6 +282,45 @@ func TestBuildListsByRecency(t *testing.T) {
 	}
 }
 
+// TestBuildRewritesChartNoteRefs pins the published-chart provenance contract: a chart datum's "note"
+// reference (a vault note id) becomes the note's opaque publish slug, and a reference to a note
+// outside the published set is dropped — the static site never navigates to a hidden internal id.
+func TestBuildRewritesChartNoteRefs(t *testing.T) {
+	cfg, s := vaultStore(t)
+	body := "# Chart\n\n```viewspec\n" +
+		`{"version":2,"mark":"line","title":"T",` +
+		`"data":{"kind":"metric","records":[{"name":"m","time":"d1","value":1},{"name":"m","time":"d2","value":2}]},` +
+		`"encoding":{"x":{"field":"time"},"y":[{"field":"value"}]},` +
+		`"overlays":[{"kind":"event","records":[` +
+		`{"time":"d1","title":"linked","note":"200"},` +
+		`{"time":"d2","title":"hidden","note":"999"}]}]}` +
+		"\n```\n"
+	writeVaultNote(t, cfg, 100, "Chart", body)
+	writeVaultNote(t, cfg, 200, "Cited", "# Cited\n")
+	if _, err := index.New(cfg, s).Full(); err != nil {
+		t.Fatalf("index: %v", err)
+	}
+
+	out := t.TempDir()
+	if _, err := Build(cfg, s, Options{Root: 100, IDs: []int64{200}}, fakeFrontend(t), out); err != nil {
+		t.Fatalf("build: %v", err)
+	}
+
+	page := readJSON[jsonNoteResponse](t, filepath.Join(out, "data", "note", PublishID(100)+".json"))
+	if !strings.Contains(page.Note.Body, "```echarts") {
+		t.Fatalf("viewspec fence should resolve: %s", page.Note.Body)
+	}
+	if !strings.Contains(page.Note.Body, `"note":"`+PublishID(200)+`"`) {
+		t.Fatalf("published note ref should become its slug: %s", page.Note.Body)
+	}
+	if strings.Contains(page.Note.Body, "200") && strings.Contains(page.Note.Body, `"note":"200"`) {
+		t.Fatalf("internal id must not leak: %s", page.Note.Body)
+	}
+	if strings.Contains(page.Note.Body, "999") {
+		t.Fatalf("unpublished note ref should be dropped: %s", page.Note.Body)
+	}
+}
+
 func TestBuildRequiresRoot(t *testing.T) {
 	cfg, s := vaultStore(t)
 	if _, err := Build(cfg, s, Options{}, fakeFrontend(t), t.TempDir()); err == nil {

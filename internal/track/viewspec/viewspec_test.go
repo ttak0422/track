@@ -325,6 +325,108 @@ func TestOverlayMarkersCustomFields(t *testing.T) {
 	}
 }
 
+func TestOverlayMarkersCarryProvenance(t *testing.T) {
+	// The event kind's url/note fields ride along automatically — no extra vocabulary.
+	ov := Overlay{Source: "events.jsonl", Kind: dataset.KindEvent, At: "time", Label: "title"}
+	recs, _ := dataset.ReadJSONL(strings.NewReader(
+		`{"time":"d1","title":"launch","url":"https://example.com/a","note":"1700000000000"}` + "\n" +
+			`{"time":"d2","title":"plain"}` + "\n"))
+	ms := ov.Markers(recs)
+	if len(ms) != 2 {
+		t.Fatalf("markers = %+v", ms)
+	}
+	if ms[0].Href != "https://example.com/a" || ms[0].Note != "1700000000000" {
+		t.Fatalf("provenance should ride along: %+v", ms[0])
+	}
+	if ms[1].Href != "" || ms[1].Note != "" {
+		t.Fatalf("a plain event carries no provenance: %+v", ms[1])
+	}
+}
+
+func TestValidateDetailAndHrefChannels(t *testing.T) {
+	noField := lineSpec()
+	noField.Encoding.Detail = []Channel{{Title: "x"}}
+	if err := noField.Validate(); err == nil || !strings.Contains(err.Error(), "encoding.detail[0].field") {
+		t.Fatalf("detail without a field should error, got %v", err)
+	}
+	noHrefField := lineSpec()
+	noHrefField.Encoding.Href = &Channel{}
+	if err := noHrefField.Validate(); err == nil || !strings.Contains(err.Error(), "encoding.href.field") {
+		t.Fatalf("href without a field should error, got %v", err)
+	}
+	misplacedSort := lineSpec()
+	misplacedSort.Encoding.Href = &Channel{Field: "url", Sort: "ascending"}
+	if err := misplacedSort.Validate(); err == nil || !strings.Contains(err.Error(), "encoding.href") {
+		t.Fatalf("sort on href should be rejected, got %v", err)
+	}
+	// Grid forms reshape records instead of aligning them per label, so extras have no slot yet.
+	heat := Spec{
+		Version: Version, Mark: MarkRect,
+		Data: DataRef{Source: "x", Kind: dataset.KindMetric},
+		Encoding: Encoding{
+			X:     Channel{Field: "col", Type: Nominal},
+			Y:     []Channel{{Field: "row", Type: Nominal}},
+			Color: &Channel{Field: "v"},
+			Href:  &Channel{Field: "url"},
+		},
+	}
+	if err := heat.Validate(); err == nil || !strings.Contains(err.Error(), "not supported") {
+		t.Fatalf("href on a heatmap should be rejected, got %v", err)
+	}
+}
+
+func TestResolveCarriesPointExtras(t *testing.T) {
+	s, err := Load(strings.NewReader(`{"version":2,"mark":"point","data":{"source":"x","kind":"event"},` +
+		`"encoding":{"x":{"field":"time","type":"nominal"},"y":[{"field":"amount"}],` +
+		`"detail":[{"field":"title","title":"what"},{"field":"amount"}],"href":{"field":"url"},"note":{"field":"ref"}}}`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	recs, _ := dataset.ReadJSONL(strings.NewReader(
+		`{"time":"d1","title":"buy","amount":120,"url":"https://example.com/t1","ref":"1700000000000"}` + "\n" +
+			`{"time":"d2","title":"sell","amount":80}` + "\n"))
+	res := s.Resolve(recs)
+	ex := res.Series[0].Extras
+	if len(ex) != 2 {
+		t.Fatalf("extras should align with values: %+v", ex)
+	}
+	if ex[0].Href != "https://example.com/t1" || ex[0].Note != "1700000000000" {
+		t.Fatalf("href/note channels should read the record: %+v", ex[0])
+	}
+	if len(ex[0].Detail) != 2 || ex[0].Detail[0] != (KV{Label: "what", Value: "buy"}) || ex[0].Detail[1] != (KV{Label: "amount", Value: "120"}) {
+		t.Fatalf("detail rows should be labelled by channel title and keep source precision: %+v", ex[0].Detail)
+	}
+	if ex[1].Href != "" {
+		t.Fatalf("a record without the href field carries none: %+v", ex[1])
+	}
+}
+
+func TestResolveExtrasFollowSortAndColorSplit(t *testing.T) {
+	s, err := Load(strings.NewReader(`{"version":2,"mark":"bar","data":{"source":"x","kind":"event"},` +
+		`"encoding":{"x":{"field":"who","type":"nominal","sort":"ascending"},"y":[{"field":"amount"}],` +
+		`"color":{"field":"side","type":"nominal"},"href":{"field":"url"}}}`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	recs, _ := dataset.ReadJSONL(strings.NewReader(
+		`{"who":"b","side":"buy","amount":2,"url":"https://example.com/b"}` + "\n" +
+			`{"who":"a","side":"buy","amount":1,"url":"https://example.com/a"}` + "\n" +
+			`{"who":"a","side":"sell","amount":3,"url":"https://example.com/as"}` + "\n"))
+	res := s.Resolve(recs)
+	// After the ascending sort the labels are a,b; extras must have moved with their values.
+	if !equalStrings(res.Labels, []string{"a", "b"}) {
+		t.Fatalf("labels = %v", res.Labels)
+	}
+	buy := res.Series[0]
+	if buy.Extras[0].Href != "https://example.com/a" || buy.Extras[1].Href != "https://example.com/b" {
+		t.Fatalf("buy extras should follow the sort: %+v", buy.Extras)
+	}
+	sell := res.Series[1]
+	if sell.Extras[0].Href != "https://example.com/as" || sell.Extras[1].Href != "" {
+		t.Fatalf("sell extras should align with the NaN gap: %+v", sell.Extras)
+	}
+}
+
 func TestResolveAssignsAxis(t *testing.T) {
 	s, _ := Load(strings.NewReader(`{"version":2,"mark":"line","data":{"source":"x","kind":"price"},` +
 		`"encoding":{"x":{"field":"time"},"y":[{"field":"close"},{"field":"vix","axis":"y2"}]}}`))

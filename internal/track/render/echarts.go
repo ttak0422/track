@@ -224,7 +224,10 @@ func buildSeriesChart(opt map[string]any, res viewspec.Resolved) {
 		es := map[string]any{
 			"name": s.Label,
 			"type": echartsSeriesType(form),
-			"data": floatsToJSON(s.Values),
+			"data": seriesData(s),
+		}
+		if seriesHasHref(s) {
+			es["cursor"] = "pointer"
 		}
 		if form == viewspec.ChartArea {
 			// Fill down to the baseline at the SVG renderer's 30% opacity so both outputs read alike.
@@ -246,6 +249,49 @@ func buildSeriesChart(opt map[string]any, res viewspec.Resolved) {
 	}
 	opt["series"] = series
 	applyLegend(opt, legend)
+}
+
+// seriesData emits a series' data items: bare numbers normally, {value, ...} objects when the spec's
+// provenance channels put extras on the data. ECharts hands an item's fields to event/tooltip params
+// untouched, so the frontend reads href/detail from params.data — the option stays pure JSON.
+func seriesData(s viewspec.Series) []any {
+	vals := floatsToJSON(s.Values)
+	if len(s.Extras) == 0 {
+		return vals
+	}
+	out := make([]any, len(vals))
+	for i, v := range vals {
+		item := map[string]any{"value": v}
+		if i < len(s.Extras) {
+			ex := s.Extras[i]
+			if ex.Href != "" {
+				item["href"] = ex.Href
+			}
+			if ex.Note != "" {
+				item["note"] = ex.Note
+			}
+			if len(ex.Detail) > 0 {
+				rows := make([]any, 0, len(ex.Detail))
+				for _, kv := range ex.Detail {
+					rows = append(rows, map[string]any{"label": kv.Label, "value": kv.Value})
+				}
+				item["detail"] = rows
+			}
+		}
+		out[i] = item
+	}
+	return out
+}
+
+// seriesHasHref reports whether any datum carries a click target (a source link or a note
+// reference), which turns the hover cursor into a pointer so the affordance is visible.
+func seriesHasHref(s viewspec.Series) bool {
+	for _, ex := range s.Extras {
+		if ex.Href != "" || ex.Note != "" {
+			return true
+		}
+	}
+	return false
 }
 
 // echartsSeriesType maps the category-x drawing forms to ECharts series types; an area is a line with
@@ -270,7 +316,10 @@ func buildHBar(opt map[string]any, res viewspec.Resolved) {
 	var series []any
 	var legend []string
 	for _, s := range res.Series {
-		es := map[string]any{"name": s.Label, "type": "bar", "data": floatsToJSON(s.Values)}
+		es := map[string]any{"name": s.Label, "type": "bar", "data": seriesData(s)}
+		if seriesHasHref(s) {
+			es["cursor"] = "pointer"
+		}
 		if res.Stacked {
 			es["stack"] = "total"
 		}
@@ -424,10 +473,19 @@ func applyOverlays(opt map[string]any, res viewspec.Resolved) {
 		}
 	}
 	var primary, secondary []any // markLine items per target axis group
+	linked := false              // any marker carrying provenance makes its markLine clickable
 	for _, m := range res.Markers {
 		item := map[string]any{"xAxis": m.At}
 		if m.Label != "" {
 			item["label"] = boxedLabel(m.Label)
+		}
+		if m.Href != "" {
+			item["href"] = m.Href
+			linked = true
+		}
+		if m.Note != "" {
+			item["note"] = m.Note
+			linked = true
 		}
 		primary = append(primary, item)
 	}
@@ -448,8 +506,10 @@ func applyOverlays(opt map[string]any, res viewspec.Resolved) {
 
 	markLine := func(items []any) map[string]any {
 		return map[string]any{
-			"symbol":    "none",
-			"silent":    true,
+			"symbol": "none",
+			// Silent lines ignore the mouse; provenance-linked markers must stay clickable, so the
+			// group wakes up as soon as one marker carries a link.
+			"silent":    !linked,
 			"data":      items,
 			"lineStyle": map[string]any{"color": "rgba(220,53,69,0.7)"},
 			"label":     map[string]any{"color": "rgba(220,53,69,0.9)"},

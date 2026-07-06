@@ -1,3 +1,4 @@
+import { useNavigate } from "@tanstack/react-router";
 import { useEffect, useRef, useState } from "react";
 import { CodeBlock } from "./CodeBlock";
 import { applyChartTheme, chartThemeFromCSS } from "./echartsTheme";
@@ -25,6 +26,7 @@ interface EChartsBlockProps {
 export function EChartsBlock({ option }: EChartsBlockProps) {
   const containerRef = useRef<HTMLDivElement>(null);
   const visible = useVisible(containerRef);
+  const navigate = useNavigate();
   // Redraw with the new colors when the app theme flips; the option itself is theme-neutral and
   // recolored at draw time (applyChartTheme).
   const themeVersion = useThemeVersion();
@@ -44,7 +46,26 @@ export function EChartsBlock({ option }: EChartsBlockProps) {
       // getInstanceByDom keeps the existing instance across live updates, so setOption transitions
       // smoothly instead of tearing the chart down.
       chart = echarts.getInstanceByDom(el) ?? echarts.init(el);
-      chart.setOption(applyChartTheme(option, chartThemeFromCSS()), { notMerge: true });
+      const themed = applyChartTheme(option, chartThemeFromCSS());
+      attachDetailTooltip(themed);
+      chart.setOption(themed, { notMerge: true });
+      // A datum can carry provenance the Go engine put on it (see the View Spec's encoding.href and
+      // the overlay event url/note): clicking opens the source URL, or navigates to the referenced
+      // vault note when there is no URL. off() first — the instance survives option updates, and the
+      // handler must not stack.
+      chart.off("click");
+      chart.on("click", (params: unknown) => {
+        const data = (params as { data?: { href?: unknown; note?: unknown } }).data;
+        const href = typeof data?.href === "string" ? data.href : "";
+        const note = typeof data?.note === "string" ? data.note : "";
+        if (/^https?:\/\//i.test(href)) {
+          window.open(href, "_blank", "noopener,noreferrer");
+          return;
+        }
+        if (note !== "") {
+          void navigate({ to: "/notes/$noteId", params: { noteId: note } });
+        }
+      });
       if (typeof ResizeObserver !== "undefined") {
         observer = new ResizeObserver(() => chart?.resize());
         observer.observe(el);
@@ -54,7 +75,7 @@ export function EChartsBlock({ option }: EChartsBlockProps) {
       disposed = true;
       observer?.disconnect();
     };
-  }, [option, visible, themeVersion]);
+  }, [option, visible, themeVersion, navigate]);
 
   // Dispose the ECharts instance only on unmount; the option effect above reuses it across updates.
   useEffect(() => {
@@ -101,6 +122,86 @@ export function EChartsBlock({ option }: EChartsBlockProps) {
   }, []);
 
   return <div ref={containerRef} className="viewspec-chart" role="img" aria-label="Chart" />;
+}
+
+// A tooltip param's shape, narrowed to what the detail formatter reads. detail rows come from the
+// View Spec's encoding.detail channel, carried on each data item by the Go engine.
+interface TooltipParam {
+  name?: string;
+  axisValueLabel?: string;
+  seriesName?: string;
+  marker?: string;
+  value?: unknown;
+  data?: { detail?: unknown };
+}
+
+// attachDetailTooltip installs a generic tooltip formatter when any datum carries detail rows: the
+// default series/value lines plus one "label: value" line per detail field. What to show is decided
+// by the spec (Go side); this only renders it. Charts without detail keep the ECharts default.
+export function attachDetailTooltip(option: Record<string, unknown>): void {
+  if (!chartHasDetail(option)) {
+    return;
+  }
+  const tooltip = (option.tooltip as Record<string, unknown> | undefined) ?? {};
+  option.tooltip = { ...tooltip, formatter: detailTooltipFormatter };
+}
+
+function chartHasDetail(option: Record<string, unknown>): boolean {
+  const series = Array.isArray(option.series) ? option.series : [];
+  return series.some((s) => {
+    const data = (s as { data?: unknown }).data;
+    return (
+      Array.isArray(data) &&
+      data.some((d) => typeof d === "object" && d !== null && "detail" in d)
+    );
+  });
+}
+
+// detailTooltipFormatter renders both trigger shapes (axis = array of params, item = one param):
+// header, then per-series value lines, then the datum's detail rows. Values come from note data, so
+// everything is HTML-escaped; the marker span is ECharts-generated and safe.
+export function detailTooltipFormatter(params: unknown): string {
+  const items = (Array.isArray(params) ? params : [params]) as TooltipParam[];
+  const lines: string[] = [];
+  const head = items[0]?.axisValueLabel ?? items[0]?.name;
+  if (head) {
+    lines.push(escapeHTML(String(head)));
+  }
+  const seen = new Set<string>();
+  for (const p of items) {
+    if (p?.seriesName) {
+      const v = Array.isArray(p.value) ? p.value[p.value.length - 1] : p.value;
+      lines.push(`${p.marker ?? ""}${escapeHTML(p.seriesName)}: ${escapeHTML(formatValue(v))}`);
+    }
+    const detail = p?.data?.detail;
+    if (!Array.isArray(detail)) {
+      continue;
+    }
+    for (const row of detail) {
+      const kv = row as { label?: unknown; value?: unknown };
+      const line = `${escapeHTML(String(kv?.label ?? ""))}: ${escapeHTML(String(kv?.value ?? ""))}`;
+      // Several series share one record's detail (the engine mirrors it), so dedupe across series.
+      if (!seen.has(line)) {
+        seen.add(line);
+        lines.push(line);
+      }
+    }
+  }
+  return lines.join("<br/>");
+}
+
+function formatValue(v: unknown): string {
+  if (v === null || v === undefined) {
+    return "-";
+  }
+  return String(v);
+}
+
+function escapeHTML(s: string): string {
+  return s.replace(
+    /[&<>"']/g,
+    (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[c] ?? c,
+  );
 }
 
 // useVisible defers work until the element scrolls near the viewport (a 200px head start), so a page
