@@ -65,8 +65,9 @@ func collectAssets(body string) []string {
 
 // copyAssets copies each referenced asset from srcDir into <outDir>/assets, preserving the relative
 // path so the "assets/<path>" references in the generated HTML resolve. Missing source files are
-// skipped and reported, so a broken reference does not fail the whole build.
-func copyAssets(srcDir, outDir string, rels []string) (copied, missing []string, err error) {
+// skipped and reported, so a broken reference does not fail the whole build. noteSlug maps note
+// provenance inside spec assets, exactly as resolveViewSpecBlocks does for fenced charts.
+func copyAssets(srcDir, outDir string, rels []string, noteSlug func(string) (string, bool)) (copied, missing []string, err error) {
 	for _, rel := range rels {
 		src := filepath.Join(srcDir, filepath.FromSlash(rel))
 		info, statErr := os.Stat(src)
@@ -76,7 +77,7 @@ func copyAssets(srcDir, outDir string, rels []string) (copied, missing []string,
 		}
 		dst := filepath.Join(outDir, config.AssetsDirName, publishAssetName(rel))
 		if isSpecAsset(rel) {
-			if err = renderSpecAsset(src, dst); err != nil {
+			if err = renderSpecAsset(src, dst, noteSlug); err != nil {
 				return copied, missing, err
 			}
 		} else if err = copyFile(src, dst); err != nil {
@@ -90,8 +91,9 @@ func copyAssets(srcDir, outDir string, rels []string) (copied, missing []string,
 // renderSpecAsset reads a View Spec asset (inline-data chart) and writes its resolved ECharts option
 // (pure JSON) to dst; the frontend fetches it and draws an interactive chart with its bundled ECharts.
 // A malformed spec fails the build loudly rather than being silently skipped, so a broken chart is not
-// published as a dead reference.
-func renderSpecAsset(src, dst string) error {
+// published as a dead reference. Note provenance is slug-rewritten like the fence path, so a spec
+// asset never publishes an internal note id.
+func renderSpecAsset(src, dst string, noteSlug func(string) (string, bool)) error {
 	specJSON, err := os.ReadFile(src)
 	if err != nil {
 		return err
@@ -103,7 +105,7 @@ func renderSpecAsset(src, dst string) error {
 	if err := os.MkdirAll(filepath.Dir(dst), 0o755); err != nil {
 		return err
 	}
-	return os.WriteFile(dst, []byte(opt), 0o644)
+	return os.WriteFile(dst, []byte(rewriteNoteRefs(opt, noteSlug)), 0o644)
 }
 
 func copyFile(src, dst string) error {

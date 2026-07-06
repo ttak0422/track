@@ -321,6 +321,46 @@ func TestBuildRewritesChartNoteRefs(t *testing.T) {
 	}
 }
 
+// TestBuildRewritesSpecAssetNoteRefs pins the same provenance contract for the isolated
+// .viewspec.json asset path: the published .echarts.json carries publish slugs, never internal ids.
+func TestBuildRewritesSpecAssetNoteRefs(t *testing.T) {
+	cfg, s := vaultStore(t)
+	writeVaultNote(t, cfg, 100, "Chart", "# Chart\n\n![chart](assets/c.viewspec.json)\n")
+	writeVaultNote(t, cfg, 200, "Cited", "# Cited\n")
+	spec := `{"version":2,"mark":"line","title":"T",` +
+		`"data":{"kind":"metric","records":[{"name":"m","time":"d1","value":1},{"name":"m","time":"d2","value":2}]},` +
+		`"encoding":{"x":{"field":"time"},"y":[{"field":"value"}]},` +
+		`"overlays":[{"kind":"event","records":[` +
+		`{"time":"d1","title":"linked","note":"200"},` +
+		`{"time":"d2","title":"hidden","note":"999"}]}]}`
+	if err := os.MkdirAll(filepath.Join(cfg.VaultDir, "assets"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(cfg.VaultDir, "assets", "c.viewspec.json"), []byte(spec), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := index.New(cfg, s).Full(); err != nil {
+		t.Fatalf("index: %v", err)
+	}
+
+	out := t.TempDir()
+	if _, err := Build(cfg, s, Options{Root: 100, IDs: []int64{200}}, fakeFrontend(t), out); err != nil {
+		t.Fatalf("build: %v", err)
+	}
+
+	raw, err := os.ReadFile(filepath.Join(out, "assets", publishAssetName("c.viewspec.json")))
+	if err != nil {
+		t.Fatalf("resolved option not written: %v", err)
+	}
+	opt := string(raw)
+	if !strings.Contains(opt, `"note":"`+PublishID(200)+`"`) {
+		t.Fatalf("published note ref should become its slug: %s", opt)
+	}
+	if strings.Contains(opt, `"note":"200"`) || strings.Contains(opt, "999") {
+		t.Fatalf("internal id must not leak from a spec asset: %s", opt)
+	}
+}
+
 func TestBuildRequiresRoot(t *testing.T) {
 	cfg, s := vaultStore(t)
 	if _, err := Build(cfg, s, Options{}, fakeFrontend(t), t.TempDir()); err == nil {
