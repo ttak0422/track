@@ -271,10 +271,21 @@ events along a metric time series:
 | `kind`    | yes             | A canonical kind (typically `event` or `annotation`).                        |
 | `at`      | no              | Field giving the marker's x position; defaults to `time`.                    |
 | `label`   | no              | Field giving the marker text; defaults to `text`.                            |
+| `display` | no              | `"box"` renders the markers as an always-visible **annotation rail** in the web reader (ADR 0028); see below. Category-x series forms only (line/area/bar/scatter/candlestick). |
 
 A record with no `at` value is skipped. The marker is placed at the matching x-axis category, so the
 `at` value should equal one of the x-axis labels (the renderer uses a category x-axis). Multiple
 overlays accumulate.
+
+With `"display": "box"` each marker additionally becomes a small always-visible box below the plot —
+date line, wrapped label, source link — staggered into lanes and anchored to its x position, so the
+chart doubles as a scannable index of its evidence. The engine resolves the box content: the date is
+the `at` value (an RFC3339 timestamp is trimmed to its day), the source link and its display host
+come from the record's `url` (non-`http(s)` URLs are dropped), and boxes are ordered by category.
+A marker whose `at` matches no x label gets a line but no box (skipped, like everywhere else). The
+rail is drawn by the web reader (workspace and published site); surfaces without it — the standalone
+HTML page, the composed article, the SVG renderer — keep the classic marker rendering, so the mode
+degrades to exactly today's look there.
 
 A marker record's provenance fields ride along automatically — no extra vocabulary: an event's `url`
 becomes the marker's click-through source (the web reader opens it; the SVG renderer wraps the marker
@@ -438,6 +449,10 @@ page, article composition, and the web workspace's fenced-block endpoint.
   entries at their category, reference lines as dashed horizontal `markLine` entries (a `y2` line
   rides a y2-bound series and is dropped without one, like the SVG renderer), bands as shaded
   `markArea` ranges.
+- A `display: "box"` marker's item additionally carries the engine-resolved `"box"` payload (date and
+  source host) the web reader's annotation rail draws; the classic label stays on the item, so a bare
+  `setOption` consumer — this standalone page, the composed article — renders today's marker look and
+  simply ignores the payload (ADR 0028).
 - The page requires network access at view time to load ECharts.
 
 ### `svg`
@@ -458,7 +473,9 @@ output embeds directly in notes, emails, or a static site:
 - **Overlays** mirror the ECharts mark geometry: markers are vertical lines at the matching category
   label; reference lines are dashed horizontal lines (the SVG renderer has a single value scale, so
   `axis: "y2"` is ignored; a line outside the data's value range is skipped); bands are translucent
-  rectangles spanning the `from`..`to` category slots (inclusive), drawn behind the series.
+  rectangles spanning the `from`..`to` category slots (inclusive), drawn behind the series. A marker
+  overlay's `display: "box"` is ignored — the classic marker rendering is the documented degradation
+  (ADR 0028), like note references staying inert here.
 
 Select it with `track render --renderer svg --out chart.svg`.
 
