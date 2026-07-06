@@ -1,7 +1,8 @@
 import { useNavigate } from "@tanstack/react-router";
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { CodeBlock } from "./CodeBlock";
 import { applyChartTheme, chartThemeFromCSS } from "./echartsTheme";
+import { extractRail, MarkerRail } from "./MarkerRail";
 import { useThemeVersion } from "./MermaidDiagram";
 
 // echartsModule caches the lazy import so every chart on a page shares one load. ECharts is pulled in
@@ -30,6 +31,12 @@ export function EChartsBlock({ option }: EChartsBlockProps) {
   // Redraw with the new colors when the app theme flips; the option itself is theme-neutral and
   // recolored at draw time (applyChartTheme).
   const themeVersion = useThemeVersion();
+  // Box-mode markers (ADR 0028) render as an annotation rail below the chart. The boxes and their
+  // full-range positions come straight off the option, so the rail lays out (and reserves its
+  // height) before the chart instance exists; the instance later refines the pixel anchors.
+  const rail = useMemo(() => extractRail(option), [option]);
+  const [anchors, setAnchors] = useState<(number | null)[] | null>(null);
+  useEffect(() => setAnchors(null), [option]);
 
   useEffect(() => {
     const el = containerRef.current;
@@ -48,6 +55,7 @@ export function EChartsBlock({ option }: EChartsBlockProps) {
       chart = echarts.getInstanceByDom(el) ?? echarts.init(el);
       const themed = applyChartTheme(option, chartThemeFromCSS());
       attachDetailTooltip(themed);
+      suppressBoxLabels(themed);
       chart.setOption(themed, { notMerge: true });
       // A datum can carry provenance the Go engine put on it (see the View Spec's encoding.href and
       // the overlay event url/note): clicking opens the source URL, or navigates to the referenced
@@ -66,8 +74,33 @@ export function EChartsBlock({ option }: EChartsBlockProps) {
           void navigate({ to: "/notes/$noteId", params: { noteId: note } });
         }
       });
+      // Refine each annotation box's anchor to the true axis pixel, and hide boxes whose marker sits
+      // outside the current dataZoom window. The rail's lanes are frozen at the full range, so this
+      // only ever slides or hides boxes — the rail's height never moves during a gesture.
+      const layoutAnchors = () => {
+        if (!chart || rail.boxes.length === 0) {
+          return;
+        }
+        const midY = el.clientHeight / 2;
+        setAnchors(
+          rail.boxes.map((b) => {
+            const x = chart!.convertToPixel({ xAxisIndex: 0 }, b.at);
+            return Number.isFinite(x) && chart!.containPixel({ gridIndex: 0 }, [x, midY])
+              ? x
+              : null;
+          }),
+        );
+      };
+      if (rail.boxes.length > 0) {
+        layoutAnchors();
+        chart.off("datazoom");
+        chart.on("datazoom", layoutAnchors);
+      }
       if (typeof ResizeObserver !== "undefined") {
-        observer = new ResizeObserver(() => chart?.resize());
+        observer = new ResizeObserver(() => {
+          chart?.resize();
+          layoutAnchors();
+        });
         observer.observe(el);
       }
     });
@@ -75,7 +108,7 @@ export function EChartsBlock({ option }: EChartsBlockProps) {
       disposed = true;
       observer?.disconnect();
     };
-  }, [option, visible, themeVersion, navigate]);
+  }, [option, visible, themeVersion, navigate, rail]);
 
   // Dispose the ECharts instance only on unmount; the option effect above reuses it across updates.
   useEffect(() => {
@@ -121,7 +154,37 @@ export function EChartsBlock({ option }: EChartsBlockProps) {
     return () => el.removeEventListener("wheel", onWheel, { capture: true });
   }, []);
 
-  return <div ref={containerRef} className="viewspec-chart" role="img" aria-label="Chart" />;
+  const chartHost = <div ref={containerRef} className="viewspec-chart" role="img" aria-label="Chart" />;
+  if (rail.boxes.length === 0) {
+    return chartHost;
+  }
+  // The rail is a sibling of the role="img" host (not a child): its links stay visible to assistive
+  // tech, and the wheel/pinch listeners above keep their scope.
+  return (
+    <figure className="viewspec-chart-wrap">
+      {chartHost}
+      <MarkerRail boxes={rail.boxes} fractions={rail.fractions} anchors={anchors} />
+    </figure>
+  );
+}
+
+// suppressBoxLabels hides the classic in-plot label on box-mode markLine items — the rail shows the
+// text instead, and double-rendering it on the canvas would shout. It runs on the themed clone only:
+// the option itself keeps the label so bare-setOption consumers (standalone page, composed article)
+// keep today's marker look.
+export function suppressBoxLabels(option: Record<string, unknown>): void {
+  const series = Array.isArray(option.series) ? option.series : [];
+  for (const s of series) {
+    const data = (s as { markLine?: { data?: unknown } }).markLine?.data;
+    if (!Array.isArray(data)) {
+      continue;
+    }
+    for (const item of data) {
+      if (typeof item === "object" && item !== null && "box" in item) {
+        (item as Record<string, unknown>).label = { show: false };
+      }
+    }
+  }
 }
 
 // A tooltip param's shape, narrowed to what the detail formatter reads. detail rows come from the
