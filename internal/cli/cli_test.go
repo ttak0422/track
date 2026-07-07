@@ -1506,3 +1506,68 @@ func TestAssetImportAndDir(t *testing.T) {
 		t.Fatalf("assets dir should be created: err=%v", err)
 	}
 }
+
+func TestMetaSetsAndClearsPageMetadata(t *testing.T) {
+	vault := t.TempDir()
+	runIn(t, vault, "new", "--title", "Meta", "--id", "100", "--body", "body")
+	if err := os.MkdirAll(filepath.Join(vault, "assets"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(vault, "assets", "cover.png"), []byte("png"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	// Set both fields, trimming the description.
+	out, code := runIn(t, vault, "meta", "--id", "100", "--description", "  a summary  ", "--image", "assets/cover.png")
+	if code != 0 {
+		t.Fatalf("meta set failed: %v", out)
+	}
+	if out["description"] != "a summary" || out["image"] != "assets/cover.png" || out["updated"] != true {
+		t.Fatalf("unexpected meta output: %v", out)
+	}
+
+	// Read-only invocation reports the stored values.
+	out, code = runIn(t, vault, "meta", "--id", "100")
+	if code != 0 || out["description"] != "a summary" || out["image"] != "assets/cover.png" || out["updated"] != false {
+		t.Fatalf("unexpected meta read: %v (code %d)", out, code)
+	}
+
+	// The sidecar carries the fields at version 4 and export --frontmatter surfaces them.
+	meta, err := os.ReadFile(vault + "/.track/notes/100.yaml")
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, want := range []string{"version: 4", "description: a summary", "image: assets/cover.png"} {
+		if !strings.Contains(string(meta), want) {
+			t.Fatalf("sidecar %q missing %q", meta, want)
+		}
+	}
+
+	// An explicitly empty value clears one field without touching the other.
+	out, code = runIn(t, vault, "meta", "--id", "100", "--image", "")
+	if code != 0 || out["image"] != "" || out["description"] != "a summary" {
+		t.Fatalf("clear image failed: %v (code %d)", out, code)
+	}
+}
+
+func TestMetaRejectsBadImages(t *testing.T) {
+	vault := t.TempDir()
+	runIn(t, vault, "new", "--title", "Meta", "--id", "100", "--body", "body")
+	if err := os.MkdirAll(filepath.Join(vault, "assets"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(vault, "assets", "cover.svg"), []byte("svg"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	for name, image := range map[string]string{
+		"missing file":   "assets/nope.png",
+		"outside assets": "note/100.md",
+		"traversal":      "assets/../secret.png",
+		"non-raster":     "assets/cover.svg",
+		"bare filename":  "cover.png",
+	} {
+		if _, code := runIn(t, vault, "meta", "--id", "100", "--image", image); code == 0 {
+			t.Errorf("%s: image %q should be rejected", name, image)
+		}
+	}
+}

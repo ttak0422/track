@@ -19,13 +19,17 @@ import (
 // Days is the sorted, deduplicated set of local calendar days the note was created or updated on; it lets
 // a day's journal (and a future calendar) surface which notes were worked on that day. It first appears in
 // version 3 sidecars.
+// Description and Image are the note's page metadata (version 4 sidecars): a short summary and an
+// assets-relative cover image, surfaced as og:description / og:image by the static export.
 type Metadata struct {
-	Version int                        `yaml:"version"`
-	Title   string                     `yaml:"title,omitempty"`
-	Tags    []string                   `yaml:"tags,omitempty"`
-	Created string                     `yaml:"created,omitempty"`
-	Days    []string                   `yaml:"days,omitempty"`
-	Blocks  map[string]babel.BlockMeta `yaml:"blocks,omitempty"`
+	Version     int                        `yaml:"version"`
+	Title       string                     `yaml:"title,omitempty"`
+	Tags        []string                   `yaml:"tags,omitempty"`
+	Created     string                     `yaml:"created,omitempty"`
+	Days        []string                   `yaml:"days,omitempty"`
+	Description string                     `yaml:"description,omitempty"`
+	Image       string                     `yaml:"image,omitempty"`
+	Blocks      map[string]babel.BlockMeta `yaml:"blocks,omitempty"`
 }
 
 type Note struct {

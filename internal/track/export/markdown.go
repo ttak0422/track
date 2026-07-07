@@ -40,11 +40,13 @@ func (markdownRenderer) CodeBlock(b babel.Block, exports string, result *babel.R
 
 func (markdownRenderer) Frontmatter(meta note.Metadata) string {
 	fm := frontmatter{
-		Title:   meta.Title,
-		Created: meta.Created,
-		Tags:    meta.Tags,
+		Title:       meta.Title,
+		Created:     meta.Created,
+		Tags:        meta.Tags,
+		Description: meta.Description,
+		Image:       meta.Image,
 	}
-	if fm.Title == "" && fm.Created == "" && len(fm.Tags) == 0 {
+	if fm.Title == "" && fm.Created == "" && len(fm.Tags) == 0 && fm.Description == "" && fm.Image == "" {
 		return ""
 	}
 	out, err := yaml.Marshal(fm)
@@ -57,9 +59,11 @@ func (markdownRenderer) Frontmatter(meta note.Metadata) string {
 // frontmatter is the subset of note metadata exported as a YAML header. A dedicated struct keeps
 // internal fields (version, babel blocks) out of the output and lets yaml.Marshal handle escaping.
 type frontmatter struct {
-	Title   string   `yaml:"title,omitempty"`
-	Created string   `yaml:"created,omitempty"`
-	Tags    []string `yaml:"tags,omitempty"`
+	Title       string   `yaml:"title,omitempty"`
+	Created     string   `yaml:"created,omitempty"`
+	Tags        []string `yaml:"tags,omitempty"`
+	Description string   `yaml:"description,omitempty"`
+	Image       string   `yaml:"image,omitempty"`
 }
 
 func renderSource(b babel.Block) string {

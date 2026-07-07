@@ -18,8 +18,10 @@ const (
 	MetadataVersionV2 = 2
 	// MetadataVersionV3 adds the activity day list under days.
 	MetadataVersionV3 = 3
+	// MetadataVersionV4 adds the page metadata fields description and image.
+	MetadataVersionV4 = 4
 	// MaxMetadataVersion is the newest schema this build can read and write.
-	MaxMetadataVersion = MetadataVersionV3
+	MaxMetadataVersion = MetadataVersionV4
 )
 
 func supportedVersion(v int) bool {
@@ -55,6 +57,9 @@ func WriteMetadata(path string, meta Metadata) error {
 	}
 	if len(meta.Days) > 0 && meta.Version < MetadataVersionV3 {
 		meta.Version = MetadataVersionV3
+	}
+	if (meta.Description != "" || meta.Image != "") && meta.Version < MetadataVersionV4 {
+		meta.Version = MetadataVersionV4
 	}
 	if !supportedVersion(meta.Version) {
 		return fmt.Errorf("unsupported metadata version %d", meta.Version)

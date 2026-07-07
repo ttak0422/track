@@ -411,6 +411,71 @@ func cmdUpdate(args []string) int {
 	})
 }
 
+// cmdMeta prints or edits a note's page metadata. With no edit flags it reports the current
+// metadata; --description / --image set fields through the engine's single validated write path
+// (note.ApplyMetaEdit), and an explicitly empty value clears the field.
+func cmdMeta(args []string) int {
+	fs := flag.NewFlagSet("meta", flag.ContinueOnError)
+	id := fs.Int64("id", 0, "note id")
+	title := fs.String("title", "", "note title (alternative to --id)")
+	path := fs.String("path", "", "note path (alternative to --id)")
+	description := fs.String("description", "", "page summary (og:description); empty clears")
+	image := fs.String("image", "", "cover image as assets/<file> (og:image); empty clears")
+	if err := fs.Parse(args); err != nil {
+		return fail("parse args: %v", err)
+	}
+
+	cfg, s, err := open()
+	if err != nil {
+		return fail("%v", err)
+	}
+	defer s.Close()
+
+	notePath, err := resolveNotePath(cfg, s, *id, strings.TrimSpace(*title), strings.TrimSpace(*path))
+	if err != nil {
+		return fail("%v", err)
+	}
+	noteID, err := note.IDFromPath(notePath)
+	if err != nil {
+		return fail("invalid note path: %v", err)
+	}
+
+	var edit note.MetaEdit
+	if flagWasSet(fs, "description") {
+		edit.Description = description
+	}
+	if flagWasSet(fs, "image") {
+		edit.Image = image
+	}
+	edited := edit.Description != nil || edit.Image != nil
+
+	var meta note.Metadata
+	if edited {
+		meta, err = note.ApplyMetaEdit(cfg, noteID, edit)
+		if err != nil {
+			return fail("%v", err)
+		}
+		if err := index.New(cfg, s).One(notePath); err != nil {
+			return fail("index note: %v", err)
+		}
+	} else {
+		meta, _, err = note.ReadMetadata(cfg.MetadataPath(noteID))
+		if err != nil {
+			return fail("read metadata: %v", err)
+		}
+	}
+	return emit(map[string]any{
+		"id":          noteID,
+		"path":        notePath,
+		"title":       meta.Title,
+		"tags":        meta.Tags,
+		"created":     meta.Created,
+		"description": meta.Description,
+		"image":       meta.Image,
+		"updated":     edited,
+	})
+}
+
 func cmdRename(args []string) int {
 	fs := flag.NewFlagSet("rename", flag.ContinueOnError)
 	id := fs.Int64("id", 0, "note id")

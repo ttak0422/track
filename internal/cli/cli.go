@@ -45,6 +45,8 @@ func Run(args []string) int {
 		return cmdAppend(rest)
 	case "update":
 		return cmdUpdate(rest)
+	case "meta":
+		return cmdMeta(rest)
 	case "toggle":
 		return cmdToggle(rest)
 	case "asset":
@@ -102,6 +104,10 @@ Usage:
                                         append body text and/or merge tags into an existing note
   track update (--id N | --title S | --path P) [--body <s>] [--tag <s>] [--clear-tags]
                                         replace body text and/or update tags on an existing note
+  track meta (--id N | --title S | --path P) [--description S] [--image assets/F]
+                                        print a note's page metadata, or set it: description (og:description)
+                                        and cover image (og:image; an existing vault asset). An empty
+                                        value clears the field (JSON)
   track toggle (--id N | --title S | --path P) --line N [--state toggle|check|uncheck]
                                         flip (or set) a task checkbox on one line of a note (JSON)
   track asset import <file>             copy a file into the vault's assets/ dir; prints the assets/<file> ref (JSON)

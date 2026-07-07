@@ -25,6 +25,7 @@ Use titles for user-facing workflows and ids/paths for exact targets:
 - `track toggle (--id N | --title X | --path P) --line N`: flip a single task checkbox by line number, leaving surrounding text untouched. `--state check|uncheck` forces a result idempotently. Prefer this over hand-editing `- [ ]`/`- [x]` lines.
 - `track asset import <file>`: copy a local file into the vault's single `assets/` directory and return the `assets/<file>` reference to embed (`![alt](assets/<file>)`). `track asset dir [--ensure]` reports the assets directory.
 - `track rename (--id N | --title X | --path P) --to Y`: change the sidecar title and rewrite backlinks.
+- `track meta (--id N | --title X | --path P) [--description S] [--image assets/F]`: print a note's page metadata, or set its summary (published as `og:description`) and cover image (`og:image`; must be an existing vault asset). An explicitly empty value clears the field.
 - `track backlinks` and `track graph`: inspect incoming links and local graph around a target.
 - `track agenda [--date YYYY-MM-DD]`: list the notes created or updated on a calendar day (default today), for "what was worked on that day" lookups. Activity days are recorded per note in the sidecar and cover both CLI mutations and direct editor edits.
 
