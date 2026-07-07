@@ -8,6 +8,24 @@ import workerUrl from "pdfjs-dist/build/pdf.worker.min.mjs?url";
 let pdfjsPromise: Promise<typeof import("pdfjs-dist")> | null = null;
 function loadPdfjs(): Promise<typeof import("pdfjs-dist")> {
   if (!pdfjsPromise) {
+    // pdf.js 6.x calls the stage-3 Map.getOrInsert/getOrInsertComputed proposals; on an engine
+    // without them every render throws — silently, since cancellations are the expected rejection
+    // below — and each page stays a blank canvas. Backfill them before the module loads.
+    /* eslint-disable @typescript-eslint/no-explicit-any -- proposal APIs, absent from lib.dom */
+    const proto = Map.prototype as any;
+    if (!proto.getOrInsertComputed) {
+      proto.getOrInsertComputed = function (key: unknown, cb: (key: unknown) => unknown) {
+        if (!this.has(key)) this.set(key, cb(key));
+        return this.get(key);
+      };
+    }
+    if (!proto.getOrInsert) {
+      proto.getOrInsert = function (key: unknown, value: unknown) {
+        if (!this.has(key)) this.set(key, value);
+        return this.get(key);
+      };
+    }
+    /* eslint-enable @typescript-eslint/no-explicit-any */
     pdfjsPromise = import("pdfjs-dist").then((pdfjs) => {
       pdfjs.GlobalWorkerOptions.workerSrc = workerUrl;
       return pdfjs;
@@ -108,8 +126,12 @@ export function PdfDeck({ src, alt }: PdfDeckProps) {
       canvas.style.height = `${Math.round(viewport.height / dpr)}px`;
       const task = pdfPage.render({ canvas, viewport });
       renderTaskRef.current = task;
-      task.promise.catch(() => {
-        // A render is cancelled whenever the page/width changes mid-flight; that rejection is expected.
+      task.promise.catch((err: unknown) => {
+        // A render is cancelled whenever the page/width changes mid-flight; that rejection is
+        // expected. Anything else must not vanish — a swallowed render error reads as a blank page.
+        if ((err as { name?: string })?.name !== "RenderingCancelledException") {
+          console.error("PdfDeck render failed:", err);
+        }
       });
     });
     return () => {
