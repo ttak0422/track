@@ -7,10 +7,12 @@ import { NoteKindContext } from "./context";
 
 // MediaFrame wraps a media embed (image, PDF) with hover-revealed controls: preview (an enlarged
 // copy floating beside the media, the same FloatingWindow chrome a WikiLink note preview uses via
-// MediaWindow), enlarge (an in-window lightbox), and float. Unlike a note link — whose target is
-// hidden until previewed — the media is already fully visible, so the preview popup opens only from
-// its button, never automatically on hover. Inside a floating window it renders the media bare, so a
-// floated/previewed image offers neither control nor a nested preview of itself again.
+// MediaWindow) and enlarge (an in-window lightbox). Unlike a note link — whose target is hidden
+// until previewed — the media is already fully visible, so the preview popup opens only from its
+// button, never automatically on hover. Keeping the media in a persistent window is the preview's
+// pin button (promote), not a separate control — one popup button, one path. Inside a floating
+// window it renders the media bare, so a floated/previewed image offers neither control nor a
+// nested preview of itself again.
 export function MediaFrame({ src, alt, children }: { src: string; alt: string; children: ReactNode }) {
   const inFloating = useContext(InFloatingWindowContext);
   const kind = useContext(NoteKindContext);
@@ -57,10 +59,6 @@ export function MediaFrame({ src, alt, children }: { src: string; alt: string; c
   function promote(bounds: PreviewBounds, collapsed: boolean) {
     floating.open({ kind: "media", src, alt, noteKind: kind }, bounds, collapsed, true);
     setOpen(false);
-  }
-
-  function floatMedia() {
-    floating.open({ kind: "media", src, alt, noteKind: kind }, initialPreviewBounds(frameAnchor()), false, false);
   }
 
   return (
@@ -118,30 +116,6 @@ export function MediaFrame({ src, alt, children }: { src: string; alt: string; c
             aria-hidden="true"
           >
             <path d="M8 3H5a2 2 0 0 0-2 2v3m18 0V5a2 2 0 0 0-2-2h-3M3 16v3a2 2 0 0 0 2 2h3m8 0h3a2 2 0 0 0 2-2v-3" />
-          </svg>
-        </button>
-        <button
-          className="media-control"
-          type="button"
-          onClick={floatMedia}
-          aria-label="Float media"
-          title="Float"
-        >
-          {/* Picture-in-picture glyph: pop the media out into the floating layer. Deliberately not the
-              pushpin PinIcon, which means "keep this preview open" on a floating window. */}
-          <svg
-            viewBox="0 0 24 24"
-            width="15"
-            height="15"
-            fill="none"
-            stroke="currentColor"
-            strokeWidth="2"
-            strokeLinecap="round"
-            strokeLinejoin="round"
-            aria-hidden="true"
-          >
-            <rect x="3" y="5" width="18" height="14" rx="2" />
-            <rect x="12" y="11" width="7" height="6" rx="1" fill="currentColor" stroke="none" />
           </svg>
         </button>
       </div>
