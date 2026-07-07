@@ -79,8 +79,11 @@ describe("MarkdownView", () => {
   it("renders inline and block math with KaTeX (loaded lazily)", async () => {
     const { container } = render(<MarkdownView markdown={"inline $a^2+b^2$\n\n$$\n\\int_0^1 x\\,dx\n$$"} />);
     // KaTeX is imported on demand, so the .katex spans appear once the chunk resolves. A block
-    // ($$…$$) is wrapped in .katex-display.
-    await waitFor(() => expect(container.querySelectorAll(".katex").length).toBeGreaterThanOrEqual(2));
+    // ($$…$$) is wrapped in .katex-display. Resolving the chunk competes with every other test file
+    // under a parallel run, so give it well past waitFor's default 1s — this was a recurring flake.
+    await waitFor(() => expect(container.querySelectorAll(".katex").length).toBeGreaterThanOrEqual(2), {
+      timeout: 10_000,
+    });
     expect(container.querySelector(".katex-display")).toBeInTheDocument();
   });
 });
