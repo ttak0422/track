@@ -1,0 +1,17 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" width="800" height="480" viewBox="0 0 800 480" font-family="sans-serif">
+<rect width="100%" height="100%" fill="#ffffff"/>
+<text x="400" y="24" font-size="16" font-weight="bold" text-anchor="middle">Industry map</text>
+<rect x="16.00" y="40.00" width="583.68" height="16.00" fill="#e6e6e6"/>
+<text x="20.00" y="52.00" font-size="11" fill="#333333">Tech</text>
+<rect x="16.00" y="56.00" width="460.80" height="408.00" fill="#a7cba2" stroke="#ffffff"/>
+<text x="246.40" y="260.00" font-size="11" text-anchor="middle" dominant-baseline="middle" fill="#333333">AAA</text>
+<rect x="476.80" y="56.00" width="122.88" height="408.00" fill="#cee0cc" stroke="#ffffff"/>
+<text x="538.24" y="260.00" font-size="11" text-anchor="middle" dominant-baseline="middle" fill="#333333">CCC</text>
+<rect x="16.00" y="40.00" width="583.68" height="424.00" fill="none" stroke="#999999"/>
+<rect x="599.68" y="40.00" width="184.32" height="16.00" fill="#e6e6e6"/>
+<text x="603.68" y="52.00" font-size="11" fill="#333333">Energy</text>
+<rect x="599.68" y="56.00" width="184.32" height="408.00" fill="#e15759" stroke="#ffffff"/>
+<text x="691.84" y="260.00" font-size="11" text-anchor="middle" dominant-baseline="middle" fill="#333333">BBB</text>
+<rect x="599.68" y="40.00" width="184.32" height="424.00" fill="none" stroke="#999999"/>
+</svg>

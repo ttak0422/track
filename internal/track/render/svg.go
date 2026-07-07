@@ -14,7 +14,8 @@ func init() { Register(SVG{}) }
 
 // SVG renders a resolved View Spec as a self-contained, dependency-free SVG document. // ECharts renderer it loads no scripts and no CDN, so the output is a static image suitable for
 // embedding in notes, emails, or a static site. It draws the category-axis chart types (line, area,
-// bar, hbar, scatter, candlestick) plus bubble (a linear-axis {x,y,r} scatter) and overlay markers.
+// bar, hbar, scatter, candlestick) plus bubble (a linear-axis {x,y,r} scatter), the axis-less
+// treemap, and overlay markers.
 type SVG struct{}
 
 // Name identifies this renderer for selection (track render --renderer svg).
@@ -45,6 +46,8 @@ func (SVG) Render(res viewspec.Resolved) (string, error) {
 		return renderBubble(res), nil
 	case viewspec.ChartHeatmap, viewspec.ChartTimeline:
 		return renderGrid(res), nil
+	case viewspec.ChartTreemap:
+		return renderTreemap(res), nil
 	}
 	g := svgGeom{w: 800, h: 480, left: 56, right: 16, top: 40, bottom: 56}
 	lo, hi := valueRange(res)
