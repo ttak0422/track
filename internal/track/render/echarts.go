@@ -366,12 +366,33 @@ func buildBubble(opt map[string]any, res viewspec.Resolved) {
 // buildCandlestick draws OHLC candles over the category x-axis. ECharts item order is
 // [open, close, lowest, highest]; the resolved series come in CandleSeries (open/high/low/close)
 // order. A candle missing any component is a null item (a gap), and the up/down colors match the SVG
-// renderer's (green rising, red falling).
+// renderer's (green rising, red falling). Resolved series past the four components are the spec's
+// explicit y channels — moving-average lines, volume bars — drawn as ordinary series over the candles
+// (the candle series holds palette slot 0, so extra j naturally picks palette color j+1, matching the
+// SVG renderer's assignment).
 func buildCandlestick(opt map[string]any, res viewspec.Resolved) {
 	opt["xAxis"] = map[string]any{"type": "category", "data": res.Labels}
-	opt["yAxis"] = map[string]any{"type": "value", "scale": true}
+
+	extras := res.Series[min(len(res.Series), len(viewspec.CandleSeries)):]
+	yAxes := []any{map[string]any{"type": "value", "scale": true}}
+	if usesY2, y2max := candleY2(extras); usesY2 {
+		// The secondary axis exists to host volume-style bars under the candles: gridlines and labels
+		// stay off (the magnitude is tooltip detail, not an axis to read), and when every y2 series is
+		// a bar its max is inflated 4x so the bars hug the bottom band instead of covering the candles.
+		axis := map[string]any{
+			"type":      "value",
+			"splitLine": map[string]any{"show": false},
+			"axisLabel": map[string]any{"show": false},
+		}
+		if y2max > 0 {
+			axis["max"] = y2max
+		}
+		yAxes = append(yAxes, axis)
+	}
+	opt["yAxis"] = yAxes
+
 	var data []any
-	if len(res.Series) == 4 {
+	if len(res.Series) >= len(viewspec.CandleSeries) {
 		open, high, low, close := res.Series[0].Values, res.Series[1].Values, res.Series[2].Values, res.Series[3].Values
 		for i := range res.Labels {
 			if i >= len(open) || i >= len(high) || i >= len(low) || i >= len(close) ||
@@ -382,7 +403,7 @@ func buildCandlestick(opt map[string]any, res viewspec.Resolved) {
 			data = append(data, []any{open[i], close[i], low[i], high[i]})
 		}
 	}
-	opt["series"] = []any{map[string]any{
+	series := []any{map[string]any{
 		"type": "candlestick",
 		"data": data,
 		"itemStyle": map[string]any{
@@ -390,6 +411,72 @@ func buildCandlestick(opt map[string]any, res viewspec.Resolved) {
 			"color0": candleDown, "borderColor0": candleDown,
 		},
 	}}
+	var legend []string
+	for _, s := range extras {
+		es := map[string]any{
+			"name": s.Label,
+			"type": echartsSeriesType(s.Mark),
+			"data": candleExtraData(s),
+		}
+		if s.Mark == viewspec.ChartLine || s.Mark == viewspec.ChartArea {
+			es["showSymbol"] = false
+		}
+		if s.Axis == "y2" {
+			es["yAxisIndex"] = 1
+		}
+		series = append(series, es)
+		legend = append(legend, s.Label)
+	}
+	opt["series"] = series
+	applyLegend(opt, legend)
+}
+
+// candleY2 reports whether any extra series rides the secondary axis, and the axis max to pin when
+// the y2 band is volume-shaped (every y2 series a bar): 4x the largest finite value, so the bars
+// occupy the bottom quarter under the candles. 0 means leave the max to ECharts.
+func candleY2(extras []viewspec.Series) (usesY2 bool, y2max float64) {
+	allBars := true
+	for _, s := range extras {
+		if s.Axis != "y2" {
+			continue
+		}
+		usesY2 = true
+		if s.Mark != viewspec.ChartBar {
+			allBars = false
+		}
+		for _, v := range s.Values {
+			if !math.IsNaN(v) && !math.IsInf(v, 0) {
+				y2max = math.Max(y2max, v)
+			}
+		}
+	}
+	if !usesY2 || !allBars {
+		return usesY2, 0
+	}
+	return true, 4 * y2max
+}
+
+// candleExtraData emits an extra series' data, coloring each bar datum by its rise hint (green
+// rising, red falling — the same colors as the candles) and leaving unknown datums to the series
+// color. Line series carry no hints and emit bare values.
+func candleExtraData(s viewspec.Series) []any {
+	vals := floatsToJSON(s.Values)
+	if len(s.Rise) == 0 {
+		return vals
+	}
+	out := make([]any, len(vals))
+	for i, v := range vals {
+		if i >= len(s.Rise) || s.Rise[i] == 0 {
+			out[i] = v
+			continue
+		}
+		c := candleUp
+		if s.Rise[i] < 0 {
+			c = candleDown
+		}
+		out[i] = map[string]any{"value": v, "itemStyle": map[string]any{"color": c}}
+	}
+	return out
 }
 
 // buildTimeline plots one dot per grid cell over a category x (time) and category y (lane) axis, the

@@ -86,6 +86,8 @@ Key fields:
 - `y[].mark` — `line|bar|area` on a y channel draws that series in its own form: a **combo chart**
   (volume bars + an index line on `y2`). Dense category charts also zoom automatically: wheel/pinch
   always, plus a range slider past 30 categories.
+- `y[].window` — replace the series with its rolling mean over the trailing N records (a moving
+  average); the first N-1 points stay empty.
 - `overlays` — reference geometry over the chart: `{source, kind}` (or `{records, kind}` with the
   events inline) draws events/annotations as vertical markers, `{y, axis?, label?}` a horizontal
   threshold line, `{from, to, label?}` a shaded period band, and `{x, y, label}` a callout bubble
@@ -186,6 +188,21 @@ behind an open–close body, green when the close is at or above the open, red o
 open/high/low/close fields are implied by the `price` kind, so the encoding needs only `x`.
 
 ![Candlestick chart](assets/chart-candlestick.viewspec.json)
+
+**Moving averages and volume** (`encoding.y` on a candlestick) — explicit y channels draw extra
+series over the candles: `window: N` turns a field into its rolling mean (`close` + `window: 25` =
+MA25, starting as a gap until N records exist), and `{"field": "volume", "mark": "bar", "axis": "y2"}`
+adds volume bars in a bottom band, each colored by its candle's direction (green rising, red falling).
+
+```json
+"y": [
+  { "field": "close", "window": 5,  "mark": "line", "title": "MA5" },
+  { "field": "close", "window": 25, "mark": "line", "title": "MA25" },
+  { "field": "volume", "mark": "bar", "axis": "y2", "title": "Volume" }
+]
+```
+
+![Candlestick with MA and volume](assets/chart-candle-ma.viewspec.json)
 
 **Overlays** — a vertical `{records, kind}` event marker, a dashed `{y, label}` threshold line, a
 shaded `{from, to, label}` period band, and a `{x, y, label}` callout bubble pointing at a data point,

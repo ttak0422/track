@@ -150,6 +150,38 @@ func TestEChartsCandlestickDataOrderAndColors(t *testing.T) {
 	}
 }
 
+func TestEChartsCandlestickExtras(t *testing.T) {
+	res := viewspec.Resolved{
+		Spec: viewspec.Spec{}, Chart: viewspec.ChartCandlestick,
+		Labels: []string{"a", "b"},
+		Series: []viewspec.Series{
+			{Label: "open", Values: []float64{10, 13}},
+			{Label: "high", Values: []float64{14, 13}},
+			{Label: "low", Values: []float64{9, 8}},
+			{Label: "close", Values: []float64{13, 9}},
+			{Label: "MA2", Values: []float64{math.NaN(), 11}, Axis: "y", Mark: viewspec.ChartLine},
+			{Label: "Vol", Values: []float64{100, 200}, Axis: "y2", Mark: viewspec.ChartBar, Rise: []int8{1, -1}},
+		},
+	}
+	out, err := EChartsOptionJSON(res)
+	if err != nil {
+		t.Fatal(err)
+	}
+	// The MA line rides the primary axis; the volume bars ride a label-less y2 whose max is inflated
+	// 4x so they hug the bottom band; each bar datum adopts its candle's up/down color.
+	for _, want := range []string{
+		`"name":"MA2"`, `"type":"line"`,
+		`"name":"Vol"`, `"type":"bar"`, `"yAxisIndex":1`, `"max":800`,
+		`{"itemStyle":{"color":"` + candleUp + `"},"value":100}`,
+		`{"itemStyle":{"color":"` + candleDown + `"},"value":200}`,
+		`"legend"`,
+	} {
+		if !strings.Contains(out, want) {
+			t.Errorf("candlestick extras missing %q: %s", want, out)
+		}
+	}
+}
+
 func TestEChartsOverlays(t *testing.T) {
 	res := resolvedChart(viewspec.ChartLine, "S", []float64{1, 2})
 	res.Markers = []viewspec.Marker{{At: "b", Label: "ev"}}

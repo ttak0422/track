@@ -2,6 +2,7 @@ package viewspec
 
 import (
 	"math"
+	"slices"
 	"strings"
 	"testing"
 
@@ -982,11 +983,17 @@ func TestCandlestickValidation(t *testing.T) {
 		`"encoding":{"x":{"field":"time","sort":"ascending"}}}`); err != nil {
 		t.Fatalf("candlestick with sorted x should validate: %v", err)
 	}
+	// Explicit y channels are extra series over the candles (MA lines, volume bars).
+	if err := load(`{"version":2,"mark":"candlestick","data":{"source":"x","kind":"price"},` +
+		`"encoding":{"x":{"field":"time"},"y":[{"field":"close","window":5},` +
+		`{"field":"volume","mark":"bar","axis":"y2"}]}}`); err != nil {
+		t.Fatalf("candlestick with MA and volume channels should validate: %v", err)
+	}
 	invalid := map[string]string{
 		"non-price kind": `{"version":2,"mark":"candlestick","data":{"source":"x","kind":"metric"},` +
 			`"encoding":{"x":{"field":"time"}}}`,
-		"y channel set": `{"version":2,"mark":"candlestick","data":{"source":"x","kind":"price"},` +
-			`"encoding":{"x":{"field":"time"},"y":[{"field":"close"}]}}`,
+		"nominal y": `{"version":2,"mark":"candlestick","data":{"source":"x","kind":"price"},` +
+			`"encoding":{"x":{"field":"time"},"y":[{"field":"entity","type":"nominal"}]}}`,
 		"color set": `{"version":2,"mark":"candlestick","data":{"source":"x","kind":"price"},` +
 			`"encoding":{"x":{"field":"time"},"color":{"field":"entity","type":"nominal"}}}`,
 		"size set": `{"version":2,"mark":"candlestick","data":{"source":"x","kind":"price"},` +
@@ -1001,6 +1008,74 @@ func TestCandlestickValidation(t *testing.T) {
 	if err := load(`{"version":2,"mark":"line","data":{"source":"x","kind":"metric"},` +
 		`"encoding":{"x":{"field":"time"}}}`); err == nil {
 		t.Error("line without y should still fail")
+	}
+}
+
+func TestWindowValidation(t *testing.T) {
+	load := func(spec string) error {
+		_, err := Load(strings.NewReader(spec))
+		return err
+	}
+	if err := load(`{"version":2,"mark":"line","data":{"source":"x","kind":"metric"},` +
+		`"encoding":{"x":{"field":"time"},"y":[{"field":"value","window":7}]}}`); err != nil {
+		t.Fatalf("line with window should validate: %v", err)
+	}
+	invalid := map[string]string{
+		"window of 1": `{"version":2,"mark":"line","data":{"source":"x","kind":"metric"},` +
+			`"encoding":{"x":{"field":"time"},"y":[{"field":"value","window":1}]}}`,
+		"window on x": `{"version":2,"mark":"line","data":{"source":"x","kind":"metric"},` +
+			`"encoding":{"x":{"field":"time","window":5},"y":[{"field":"value"}]}}`,
+		"window with color split": `{"version":2,"mark":"line","data":{"source":"x","kind":"metric"},` +
+			`"encoding":{"x":{"field":"time"},"y":[{"field":"value","window":5}],` +
+			`"color":{"field":"name","type":"nominal"}}}`,
+		"window on hbar category": `{"version":2,"mark":"bar","data":{"source":"x","kind":"metric"},` +
+			`"encoding":{"x":{"field":"value"},"y":[{"field":"name","type":"nominal","window":5}]}}`,
+	}
+	for name, spec := range invalid {
+		if err := load(spec); err == nil {
+			t.Errorf("%s: want error", name)
+		}
+	}
+}
+
+func TestResolveCandlestickExtras(t *testing.T) {
+	spec := Spec{
+		Version: 2,
+		Mark:    MarkCandlestick,
+		Data:    DataRef{Kind: dataset.KindPrice, Source: "x"},
+		Encoding: Encoding{
+			X: Channel{Field: "time"},
+			Y: []Channel{
+				{Field: "close", Window: 2, Title: "MA2"},
+				{Field: "volume", Mark: MarkBar, Axis: "y2"},
+			},
+		},
+	}
+	recs := []dataset.Record{
+		{"time": "1", "open": 10.0, "high": 12.0, "low": 9.0, "close": 11.0, "volume": 100.0},
+		{"time": "2", "open": 11.0, "high": 13.0, "low": 10.0, "close": 10.5, "volume": 200.0},
+		{"time": "3", "open": 10.5, "high": 14.0, "low": 10.0, "close": 13.0, "volume": 150.0},
+	}
+	res := spec.Resolve(recs)
+	if len(res.Series) != 6 {
+		t.Fatalf("series = %d, want 4 OHLC + 2 extras", len(res.Series))
+	}
+	ma := res.Series[4]
+	if ma.Label != "MA2" || ma.Mark != ChartLine || ma.Axis != "y" {
+		t.Fatalf("MA series = %+v, want line on y titled MA2", ma)
+	}
+	if !math.IsNaN(ma.Values[0]) || ma.Values[1] != 10.75 || ma.Values[2] != 11.75 {
+		t.Fatalf("MA values = %v, want [NaN 10.75 11.75]", ma.Values)
+	}
+	vol := res.Series[5]
+	if vol.Mark != ChartBar || vol.Axis != "y2" {
+		t.Fatalf("volume series = %+v, want bar on y2", vol)
+	}
+	if want := []int8{1, -1, 1}; !slices.Equal(vol.Rise, want) {
+		t.Fatalf("volume rise = %v, want %v", vol.Rise, want)
+	}
+	if len(ma.Rise) != 0 {
+		t.Fatalf("line extra should carry no rise hints, got %v", ma.Rise)
 	}
 }
 

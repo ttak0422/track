@@ -55,6 +55,20 @@ func goldenCases() map[string]viewspec.Resolved {
 				{Label: "close", Values: []float64{13, 9, 11}},
 			},
 		},
+		// Candlestick extras: an MA line rides the price scale; the y2 volume bars are skipped (this
+		// renderer has a single value scale) and the legend lists only the drawn extra.
+		"candlestick-extras": {
+			Spec: viewspec.Spec{Title: "OHLC+MA"}, Chart: viewspec.ChartCandlestick,
+			Labels: xy,
+			Series: []viewspec.Series{
+				{Label: "open", Values: []float64{10, 13, 11}},
+				{Label: "high", Values: []float64{14, 13, 12}},
+				{Label: "low", Values: []float64{9, 8, 10}},
+				{Label: "close", Values: []float64{13, 9, 11}},
+				{Label: "MA2", Values: []float64{math.NaN(), 11, 10}, Axis: "y", Mark: viewspec.ChartLine},
+				{Label: "Vol", Values: []float64{100, 200, 150}, Axis: "y2", Mark: viewspec.ChartBar, Rise: []int8{1, -1, 1}},
+			},
+		},
 		"bubble": {
 			Spec: viewspec.Spec{Title: "Bubble"}, Chart: viewspec.ChartBubble,
 			Series: []viewspec.Series{{Label: "S1", Points: []viewspec.Point{

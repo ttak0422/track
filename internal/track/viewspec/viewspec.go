@@ -131,6 +131,11 @@ type Channel struct {
 	Limit int         `json:"limit,omitempty"` // keep only the first N categories (after sort): top-N
 	Stack bool        `json:"stack,omitempty"` // bar mark: stack the series instead of grouping them
 	Mark  Mark        `json:"mark,omitempty"`  // y channels only: draw this series as line|bar|area (a combo chart)
+
+	// Window replaces the series with its rolling mean over the last N records (a moving average,
+	// e.g. MA25 on a candlestick). The engine computes it in record order; the first N-1 points are
+	// NaN, so the smoothed series starts as a gap. Y channels of the category-axis series forms only.
+	Window int `json:"window,omitempty"`
 }
 
 // title returns the user-facing label for a channel, falling back to the field name.
@@ -448,17 +453,21 @@ func (s Spec) Validate() error {
 	if s.Mark == MarkRect && (s.Encoding.Color == nil || s.Encoding.Color.Field == "") {
 		return fmt.Errorf("view spec: mark rect requires encoding.color.field (the cell value)")
 	}
-	// A candlestick reads the price kind's canonical OHLC fields directly, so the vertical encoding is
-	// implied: no y channels, and no color/size (the up/down coloring is part of the mark).
+	// A candlestick reads the price kind's canonical OHLC fields directly, so the candles' vertical
+	// encoding is implied and no color/size is taken (the up/down coloring is part of the mark).
+	// Explicit y channels are extra series over the same category axis — moving-average lines,
+	// volume bars on y2 — each drawn by its own mark (line when unset), so they must be measures.
 	if s.Mark == MarkCandlestick {
 		if s.Data.Kind != dataset.KindPrice {
 			return fmt.Errorf("view spec: mark candlestick requires data.kind %q (it reads the open/high/low/close fields)", dataset.KindPrice)
 		}
-		if len(s.Encoding.Y) > 0 {
-			return fmt.Errorf("view spec: mark candlestick takes no encoding.y (open/high/low/close are implied by the price kind)")
-		}
 		if s.Encoding.Color != nil || s.Encoding.Size != nil {
 			return fmt.Errorf("view spec: mark candlestick does not take encoding.color or encoding.size")
+		}
+		for i, y := range s.Encoding.Y {
+			if y.nominal() {
+				return fmt.Errorf("view spec: encoding.y[%d] on mark candlestick must be quantitative (a series over the candles)", i)
+			}
 		}
 	}
 	// The provenance channels ride on the record→(label, value) alignment of the series forms; the
@@ -495,9 +504,9 @@ func (s Spec) Validate() error {
 			return fmt.Errorf("view spec: encoding.y[%d].mark %q must be line, bar, or area", i, y.Mark)
 		}
 		switch s.Mark {
-		case MarkLine, MarkBar, MarkArea:
+		case MarkLine, MarkBar, MarkArea, MarkCandlestick:
 		default:
-			return fmt.Errorf("view spec: encoding.y[%d].mark is only supported on line, bar, and area charts", i)
+			return fmt.Errorf("view spec: encoding.y[%d].mark is only supported on line, bar, area, and candlestick charts", i)
 		}
 		if s.yNominal() {
 			return fmt.Errorf("view spec: encoding.y[%d].mark is not supported on a horizontal bar", i)
@@ -506,12 +515,37 @@ func (s Spec) Validate() error {
 			return fmt.Errorf("view spec: encoding.y[%d].mark cannot combine with encoding.color (split series share one mark)", i)
 		}
 	}
+	// A rolling mean is only well-defined over an ordered measure series, so window sits on the
+	// quantitative y channels of the category-x forms (candlestick included), never on a color split
+	// (the per-category record slotting has no stable record order to average over).
+	for i, y := range s.Encoding.Y {
+		if y.Window == 0 {
+			continue
+		}
+		if y.Window < 2 {
+			return fmt.Errorf("view spec: encoding.y[%d].window must be at least 2 (a rolling mean over N records)", i)
+		}
+		if y.nominal() {
+			return fmt.Errorf("view spec: encoding.y[%d].window needs a quantitative channel", i)
+		}
+		if s.Encoding.Color != nil {
+			return fmt.Errorf("view spec: encoding.y[%d].window cannot combine with encoding.color", i)
+		}
+		switch s.chart() {
+		case ChartLine, ChartArea, ChartBar, ChartScatter, ChartCandlestick:
+		default:
+			return fmt.Errorf("view spec: encoding.y[%d].window is not supported on %s charts", i, s.chart())
+		}
+	}
 	for _, nc := range []struct {
 		name string
 		ch   *Channel
 	}{{"encoding.x", &s.Encoding.X}, {"encoding.color", s.Encoding.Color}, {"encoding.size", s.Encoding.Size}} {
 		if nc.ch != nil && nc.ch.Mark != "" {
 			return fmt.Errorf("view spec: %s.mark is not supported (mark overrides belong on y channels)", nc.name)
+		}
+		if nc.ch != nil && nc.ch.Window != 0 {
+			return fmt.Errorf("view spec: %s.window is not supported (window belongs on y channels)", nc.name)
 		}
 	}
 	for i, o := range s.Overlays {
@@ -840,6 +874,7 @@ type Series struct {
 	Points []Point      // populated instead of Values for bubble charts ({x,y,r} per record)
 	Mark   ChartType    // per-series drawing form override (combo charts); empty = the chart's form
 	Extras []PointExtra // per-datum provenance/detail (encoding.href/detail), aligned with Values; nil without those channels
+	Rise   []int8       // candlestick bar series only: per-datum up/down hint (1 rising, -1 falling, 0 unknown), aligned with Values, so volume bars adopt the candle colors
 }
 
 // PointExtra carries one datum's provenance and tooltip detail, aligned with Series.Values: Href is
@@ -972,6 +1007,7 @@ func (s Spec) resolveSeries(records []dataset.Record, res *Resolved) {
 			}
 		}
 	}
+	s.applyWindows(res, 0)
 }
 
 // hasExtras reports whether the spec puts provenance/detail on data points.
@@ -1083,10 +1119,18 @@ var CandleSeries = []string{"open", "high", "low", "close"}
 // resolveCandles maps price records onto a candlestick: the x channel supplies the category labels and
 // the four canonical OHLC fields become four series aligned to them, in CandleSeries order. A record
 // missing a component contributes NaN, so the renderer skips that candle rather than drawing a wrong
-// one.
+// one. Explicit y channels follow as ordinary series over the same axis (index len(CandleSeries)+j):
+// moving-average lines (window), volume bars on y2 — line-form when the channel names no mark.
 func (s Spec) resolveCandles(records []dataset.Record, res *Resolved) {
 	for _, f := range CandleSeries {
 		res.Series = append(res.Series, Series{Label: f, Axis: "y"})
+	}
+	for _, y := range s.Encoding.Y {
+		form := y.seriesForm()
+		if form == "" {
+			form = ChartLine
+		}
+		res.Series = append(res.Series, Series{Label: y.title(), Axis: y.axisID(), Mark: form})
 	}
 	for _, rec := range s.filtered(records) {
 		x, _ := rec.String(s.Encoding.X.Field)
@@ -1094,7 +1138,70 @@ func (s Spec) resolveCandles(records []dataset.Record, res *Resolved) {
 		for i, f := range CandleSeries {
 			res.Series[i].Values = append(res.Series[i].Values, floatOrNaN(rec, f))
 		}
+		for j, y := range s.Encoding.Y {
+			res.Series[len(CandleSeries)+j].Values = append(res.Series[len(CandleSeries)+j].Values, floatOrNaN(rec, y.Field))
+		}
 	}
+	// Bar-form extras adopt the candles' up/down coloring (green rising, red falling — the
+	// international market convention), so volume bars read with their candles; a datum whose open
+	// or close is missing keeps 0 (renderers fall back to the series color).
+	open, close := res.Series[0].Values, res.Series[3].Values
+	for j := range s.Encoding.Y {
+		sr := &res.Series[len(CandleSeries)+j]
+		if sr.Mark != ChartBar {
+			continue
+		}
+		sr.Rise = make([]int8, len(sr.Values))
+		for i := range sr.Values {
+			if math.IsNaN(open[i]) || math.IsNaN(close[i]) {
+				continue
+			}
+			if close[i] >= open[i] {
+				sr.Rise[i] = 1
+			} else {
+				sr.Rise[i] = -1
+			}
+		}
+	}
+	s.applyWindows(res, len(CandleSeries))
+}
+
+// applyWindows replaces each y channel's series with its rolling mean when the channel asks for one
+// (window: N), matching channels to series by index from offset (0 for the plain series forms, the
+// four OHLC components for a candlestick). It runs in record order, before any sort/limit permutes
+// the axis.
+func (s Spec) applyWindows(res *Resolved, offset int) {
+	for j, y := range s.Encoding.Y {
+		if y.Window > 1 {
+			res.Series[offset+j].Values = rollingMean(res.Series[offset+j].Values, y.Window)
+		}
+	}
+}
+
+// rollingMean is the simple moving average over the trailing n values. The first n-1 points — and any
+// window containing a missing value — are NaN, so the smoothed series begins as a gap instead of a
+// partial average pretending to be one.
+func rollingMean(vals []float64, n int) []float64 {
+	out := make([]float64, len(vals))
+	for i := range vals {
+		out[i] = math.NaN()
+		if i < n-1 {
+			continue
+		}
+		sum := 0.0
+		ok := true
+		for k := i - n + 1; k <= i; k++ {
+			if math.IsNaN(vals[k]) || math.IsInf(vals[k], 0) {
+				ok = false
+				break
+			}
+			sum += vals[k]
+		}
+		if ok {
+			out[i] = sum / float64(n)
+		}
+	}
+	return out
 }
 
 // resolveBubble appends one {x,y,r} point per y series for a bubble (point mark on quantitative axes).
@@ -1198,6 +1305,7 @@ func sortAndLimit(res *Resolved, ch Channel) {
 		for i := range res.Series {
 			res.Series[i].Values = permuteFloats(res.Series[i].Values, idx)
 			res.Series[i].Extras = permuteExtras(res.Series[i].Extras, idx)
+			res.Series[i].Rise = permuteRise(res.Series[i].Rise, idx)
 		}
 	}
 	if ch.Limit > 0 && len(res.Labels) > ch.Limit {
@@ -1206,6 +1314,9 @@ func sortAndLimit(res *Resolved, ch Channel) {
 			res.Series[i].Values = res.Series[i].Values[:ch.Limit]
 			if len(res.Series[i].Extras) > ch.Limit {
 				res.Series[i].Extras = res.Series[i].Extras[:ch.Limit]
+			}
+			if len(res.Series[i].Rise) > ch.Limit {
+				res.Series[i].Rise = res.Series[i].Rise[:ch.Limit]
 			}
 		}
 	}
@@ -1253,6 +1364,21 @@ func permuteFloats(vs []float64, idx []int) []float64 {
 			out[i] = vs[j]
 		} else {
 			out[i] = math.NaN()
+		}
+	}
+	return out
+}
+
+// permuteRise returns rs reordered so element i comes from rs[idx[i]], preserving nil (no rise hints)
+// as nil; a short slice (defensive) contributes the zero (unknown) hint.
+func permuteRise(rs []int8, idx []int) []int8 {
+	if rs == nil {
+		return nil
+	}
+	out := make([]int8, len(idx))
+	for i, j := range idx {
+		if j < len(rs) {
+			out[i] = rs[j]
 		}
 	}
 	return out

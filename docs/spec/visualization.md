@@ -87,7 +87,7 @@ fields onto *visual channels* (x, y series, color, size), orthogonally. Unknown 
 | `data.records`   | one of   | Inline data: an array of records carried in the spec (mutually exclusive with `source`). |
 | `data.kind`      | yes      | One of the canonical kinds.                                           |
 | `encoding.x`     | yes      | The x channel: `{ field, type?, title? }`.                           |
-| `encoding.y`     | yes*     | One or more y series; each `{ field, type?, title?, axis? }`. (*`candlestick` takes none — its OHLC fields are implied.) |
+| `encoding.y`     | yes*     | One or more y series; each `{ field, type?, title?, axis? }`. (*optional on `candlestick` — its OHLC fields are implied, and explicit y channels are extra series over the candles.) |
 | `encoding.color` | rect     | On `rect`: the (quantitative) heatmap cell value. On every other mark: a **nominal** category that splits records into one colored series per value (see below). |
 | `encoding.size`  | no       | Radius channel for a `point` (bubble radius / timeline dot).         |
 | `encoding.detail`| no       | Provenance channel: `[{ field, title? }]` — extra fields carried per datum; the web reader lists them in the tooltip. Series forms only (line/area/bar/scatter/hbar). |
@@ -108,10 +108,17 @@ hint that lets one mark cover the former chart types, since it names which axis 
   overlapping series stay readable). It resolves to the same series shape as a line, so every line
   channel — multi-series y, `color` split, `axis: "y2"`, `sort`/`limit` — works unchanged.
 - **`candlestick`** draws one OHLC candle per record: a high–low wick behind an open–close body,
-  green when the close is at or above the open and red otherwise (a doji keeps a 1px body). It
-  requires `data.kind: "price"` and reads the kind's canonical `open`/`high`/`low`/`close` fields
-  directly, so the encoding needs only `x` — `encoding.y`, `color`, and `size` are rejected. A candle
-  missing any component is skipped (the ECharts renderer draws it as a null gap).
+  green when the close is at or above the open and red otherwise (a doji keeps a 1px body — the
+  international market colors). It requires `data.kind: "price"` and reads the kind's canonical
+  `open`/`high`/`low`/`close` fields directly, so the encoding needs only `x`; `color` and `size` are
+  rejected. A candle missing any component is skipped (the ECharts renderer draws it as a null gap).
+  Explicit `encoding.y` channels are **extra series over the candles** on the same category axis,
+  each drawn by its own `mark` (`line` when unset): moving averages via `window`
+  (`{"field":"close","window":25,"mark":"line"}`), and volume via
+  `{"field":"volume","mark":"bar","axis":"y2"}` — bar-form extras color each bar by its candle's
+  direction (green rising, red falling), and when every `y2` series is a bar the ECharts renderer
+  pins the secondary axis's max at 4× the data max so the bars hug the bottom band under the
+  candles, with the y2 labels and gridlines off.
 
 Channels also take per-channel options whose placement is validated (a misplaced option is an error,
 not a silent no-op):
@@ -119,11 +126,17 @@ not a silent no-op):
 - `sort` / `limit` — on the **category-axis channel** only (`x` for line/bar/point; `y[0]` for a
   horizontal bar). See "Sort, top-N, and stacking" below.
 - `stack` — on a **bar's measure channel** only (`y[0]`, or `x` for a horizontal bar).
-- `mark` — on **y channels** only, and only on `line`/`bar`/`area` charts: draw that series in its
-  own form (`line`, `bar`, or `area`), composing a **combo chart** — e.g. volume bars with an index
-  line on `y2`, the shape data articles overlay macro context with. Bars split their band among the
-  bar-form series alone and draw behind lines; `stack` piles only the bar-form series. Not combinable
-  with a `color` split (split series share one mark) or a horizontal bar.
+- `mark` — on **y channels** only, and only on `line`/`bar`/`area`/`candlestick` charts: draw that
+  series in its own form (`line`, `bar`, or `area`), composing a **combo chart** — e.g. volume bars
+  with an index line on `y2`, the shape data articles overlay macro context with. Bars split their
+  band among the bar-form series alone and draw behind lines; `stack` piles only the bar-form series.
+  Not combinable with a `color` split (split series share one mark) or a horizontal bar.
+- `window` — on **quantitative y channels** of the category-x forms (line/area/bar/scatter and
+  candlestick's extra series): replace the series with its **rolling mean** over the trailing N
+  records (a moving average, `"window": 25` → MA25). The engine computes it in record order, before
+  any `sort`; the first N-1 points — and any window containing a missing value — are NaN, so the
+  smoothed series starts as a gap. Not combinable with a `color` split (the per-category slotting has
+  no stable record order to average over).
 
 `title` overrides the legend/axis text, defaulting to the field name. A y channel may set
 `"axis": "y2"` to plot on a secondary right-hand axis (default `"y"`), so series on different scales —
@@ -434,6 +447,9 @@ page, article composition, and the web workspace's fenced-block endpoint.
   for rankings; a stacked bar joins its series into one stack group.
 - A `candlestick` maps to the native candlestick series (item order `[open, close, low, high]`), with
   the SVG renderer's rising-green/falling-red colors; a candle missing a component is a null gap.
+  Its extra y channels follow as ordinary line/bar/area series (the candles hold palette slot 0, so
+  extras pick up the palette from slot 1, matching the SVG renderer); bar datums carry per-item
+  rise/fall colors, and an all-bar `y2` gets the label-less, 4×-max bottom-band axis described above.
 - A `point` with a nominal x (scatter) uses the category axis; a quantitative x (bubble) plots over
   linear axes with a **per-item `symbolSize`** (2× the resolved radius), so the option stays pure JSON
   — no size callbacks; a nominal y (timeline) is a category-lane scatter sized the same way.
@@ -466,7 +482,11 @@ output embeds directly in notes, emails, or a static site:
   with `stack: true` — and a nominal-y bar runs categories down the y-axis for rankings; an area
   fills each series down to the zero baseline at 30% opacity, broken at NaN gaps like its line).
 - A candlestick draws a high–low wick and an open–close body per category, green for a rising candle
-  and red for a falling one; the OHLC component series are not listed in the legend.
+  and red for a falling one; the OHLC component series are not listed in the legend. Its extra y
+  channels draw over the candles on the price scale (moving-average lines, rise/fall-colored bars);
+  a `y2`-bound extra is **skipped** — this renderer has a single value scale, and stretching the
+  price axis to a volume magnitude would flatten the candles, so dropping the series is the
+  documented degradation (like `display: "box"` below) and the legend lists only what is drawn.
 - A bubble (quantitative-x point) is drawn over **linear** x and y axes (one circle per `{x, y, r}`
   point, sized by `size`); a point missing x or y is skipped and a missing/non-positive radius falls
   back to a small default, like the ECharts renderer.

@@ -61,11 +61,7 @@ func (SVG) Render(res viewspec.Resolved) (string, error) {
 		writeRefLines(&b, g, res, lo, hi)
 		writeCallouts(&b, g, res, lo, hi)
 	}
-	// A candlestick's four series (open/high/low/close) are components of one mark, not user series,
-	// and its up/down coloring is fixed — a legend would mislabel it.
-	if res.Chart != viewspec.ChartCandlestick {
-		writeLegend(&b, g, res)
-	}
+	writeLegend(&b, g, res)
 
 	b.WriteString("</svg>\n")
 	return b.String(), nil
@@ -80,7 +76,10 @@ func valueRange(res viewspec.Resolved) (lo, hi float64) {
 		return stackedValueRange(res)
 	}
 	lo, hi = math.Inf(1), math.Inf(-1)
-	for _, s := range res.Series {
+	for si, s := range res.Series {
+		if candleSkipsSeries(res, si) {
+			continue
+		}
 		for _, v := range s.Values {
 			if math.IsNaN(v) || math.IsInf(v, 0) {
 				continue
@@ -95,6 +94,9 @@ func valueRange(res viewspec.Resolved) (lo, hi float64) {
 	// it as soon as any of its series draws as one).
 	needsZero := res.Chart == viewspec.ChartBar || res.Chart == viewspec.ChartHBar || res.Chart == viewspec.ChartArea
 	for i := range res.Series {
+		if candleSkipsSeries(res, i) {
+			continue
+		}
 		if f := res.SeriesForm(i); f == viewspec.ChartBar || f == viewspec.ChartArea {
 			needsZero = true
 		}
@@ -213,13 +215,23 @@ func writeAxes(b *strings.Builder, g svgGeom, res viewspec.Resolved, lo, hi floa
 	}
 }
 
+// candleSkipsSeries reports whether the SVG renderer leaves a resolved series undrawn: on a
+// candlestick, extras bound to the secondary axis (volume bars). This renderer has a single value
+// scale, and stretching the price axis to a volume magnitude would flatten the candles — skipping is
+// the documented degradation, like display:"box" falling back to plain markers here.
+func candleSkipsSeries(res viewspec.Resolved, si int) bool {
+	return res.Chart == viewspec.ChartCandlestick && res.Series[si].Axis == "y2"
+}
+
 // writeSeries draws each y series by its own form — the chart's, or the series' mark override in a
 // combo chart — over a shared category x axis. Bars draw first so lines and areas stay readable on
-// top of them.
+// top of them. A candlestick draws its candles first, then its extra series (moving averages) on the
+// same price scale; y2-bound extras are skipped (see candleSkipsSeries).
 func writeSeries(b *strings.Builder, g svgGeom, res viewspec.Resolved, lo, hi float64) {
 	centers := bandCenters(g, len(res.Labels))
 	if res.Chart == viewspec.ChartCandlestick {
 		writeCandles(b, g, res, centers, lo, hi)
+		writeCandleExtras(b, g, res, centers, lo, hi)
 		return
 	}
 	writeBars(b, g, res, centers, lo, hi)
@@ -297,11 +309,62 @@ const (
 	candleDown = "#e15759"
 )
 
+// candleExtraColor colors a candlestick's extra series (index si past the four OHLC components).
+// The candle mark occupies the ECharts palette's slot 0, so extra j is drawn there in palette color
+// j+1; shifting the index by len(CandleSeries)-1 reproduces that assignment here.
+func candleExtraColor(si int) string { return seriesColor(si - len(viewspec.CandleSeries) + 1) }
+
+// writeCandleExtras draws the spec's explicit y channels over the candles — moving-average lines,
+// or bars adopting the candles' up/down colors via their rise hints. Bars draw first so lines stay
+// readable on top; y2-bound series are skipped (candleSkipsSeries).
+func writeCandleExtras(b *strings.Builder, g svgGeom, res viewspec.Resolved, centers []float64, lo, hi float64) {
+	band := 0.0
+	if len(centers) > 0 {
+		band = g.plotW() / float64(len(centers))
+	}
+	for si := len(viewspec.CandleSeries); si < len(res.Series); si++ {
+		if candleSkipsSeries(res, si) || res.Series[si].Mark != viewspec.ChartBar {
+			continue
+		}
+		s := res.Series[si]
+		bw := band * 0.6
+		baseY := yPixel(g, lo, hi, math.Max(lo, 0))
+		for i, v := range s.Values {
+			if math.IsNaN(v) || i >= len(centers) {
+				continue
+			}
+			color := candleExtraColor(si)
+			if i < len(s.Rise) && s.Rise[i] > 0 {
+				color = candleUp
+			} else if i < len(s.Rise) && s.Rise[i] < 0 {
+				color = candleDown
+			}
+			y := yPixel(g, lo, hi, v)
+			top, h := math.Min(y, baseY), math.Abs(baseY-y)
+			fmt.Fprintf(b, `<rect x="%s" y="%s" width="%s" height="%s" fill="%s"/>`+"\n",
+				num(centers[i]-bw/2), num(top), num(bw), num(h), color)
+		}
+	}
+	for si := len(viewspec.CandleSeries); si < len(res.Series); si++ {
+		if candleSkipsSeries(res, si) {
+			continue
+		}
+		s := res.Series[si]
+		switch s.Mark {
+		case viewspec.ChartArea:
+			writeAreaFill(b, g, centers, s.Values, lo, hi, candleExtraColor(si))
+			writePolyline(b, g, centers, s.Values, lo, hi, candleExtraColor(si))
+		case viewspec.ChartLine:
+			writePolyline(b, g, centers, s.Values, lo, hi, candleExtraColor(si))
+		}
+	}
+}
+
 // writeCandles draws one OHLC candle per category: a high–low wick behind an open–close body, green
 // when the close is at or above the open and red otherwise. The resolved series come in the fixed
 // open/high/low/close order (viewspec.CandleSeries); a candle missing any component is skipped.
 func writeCandles(b *strings.Builder, g svgGeom, res viewspec.Resolved, centers []float64, lo, hi float64) {
-	if len(res.Series) != 4 || len(centers) == 0 {
+	if len(res.Series) < 4 || len(centers) == 0 {
 		return
 	}
 	open, high, low, close := res.Series[0].Values, res.Series[1].Values, res.Series[2].Values, res.Series[3].Values
@@ -595,15 +658,30 @@ func calloutTextWidth(s string) float64 {
 	return w
 }
 
-// writeLegend lists the series labels with their color swatches in the top-right of the plot.
+// writeLegend lists the series labels with their color swatches in the top-right of the plot. A
+// candlestick's four OHLC series are components of one fixed-color mark, not user series, so only
+// its extras (and of those, only the ones this renderer draws) are listed.
 func writeLegend(b *strings.Builder, g svgGeom, res viewspec.Resolved) {
+	start := 0
+	if res.Chart == viewspec.ChartCandlestick {
+		start = len(viewspec.CandleSeries)
+	}
 	x := g.left + g.plotW() - 8
 	y := g.top + 14
-	for si, s := range res.Series {
-		yi := y + float64(si)*16
-		fmt.Fprintf(b, `<rect x="%g" y="%g" width="10" height="10" fill="%s"/>`+"\n", x-10, yi-9, seriesColor(si))
+	row := 0
+	for si := start; si < len(res.Series); si++ {
+		if candleSkipsSeries(res, si) {
+			continue
+		}
+		color := seriesColor(si)
+		if res.Chart == viewspec.ChartCandlestick {
+			color = candleExtraColor(si)
+		}
+		yi := y + float64(row)*16
+		row++
+		fmt.Fprintf(b, `<rect x="%g" y="%g" width="10" height="10" fill="%s"/>`+"\n", x-10, yi-9, color)
 		fmt.Fprintf(b, `<text x="%g" y="%g" font-size="11" text-anchor="end" fill="#333333">%s</text>`+"\n",
-			x-14, yi, html.EscapeString(s.Label))
+			x-14, yi, html.EscapeString(res.Series[si].Label))
 	}
 }
 

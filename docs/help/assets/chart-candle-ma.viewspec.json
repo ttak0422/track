@@ -1,0 +1,395 @@
+{
+  "version": 2,
+  "mark": "candlestick",
+  "title": "Candlestick with MA and volume",
+  "data": {
+    "kind": "price",
+    "records": [
+      {
+        "entity": "DEMO",
+        "time": "2026-04-01",
+        "open": 100.0,
+        "high": 100.3,
+        "low": 97.29,
+        "close": 98.59,
+        "volume": 96
+      },
+      {
+        "entity": "DEMO",
+        "time": "2026-04-02",
+        "open": 98.59,
+        "high": 99.61,
+        "low": 98.47,
+        "close": 98.88,
+        "volume": 192
+      },
+      {
+        "entity": "DEMO",
+        "time": "2026-04-03",
+        "open": 98.88,
+        "high": 99.75,
+        "low": 95.04,
+        "close": 95.18,
+        "volume": 100
+      },
+      {
+        "entity": "DEMO",
+        "time": "2026-04-04",
+        "open": 95.18,
+        "high": 96.83,
+        "low": 94.33,
+        "close": 94.57,
+        "volume": 129
+      },
+      {
+        "entity": "DEMO",
+        "time": "2026-04-05",
+        "open": 94.57,
+        "high": 97.49,
+        "low": 93.42,
+        "close": 95.59,
+        "volume": 167
+      },
+      {
+        "entity": "DEMO",
+        "time": "2026-04-06",
+        "open": 95.59,
+        "high": 99.5,
+        "low": 93.88,
+        "close": 99.4,
+        "volume": 144
+      },
+      {
+        "entity": "DEMO",
+        "time": "2026-04-07",
+        "open": 99.4,
+        "high": 99.64,
+        "low": 95.94,
+        "close": 96.56,
+        "volume": 260
+      },
+      {
+        "entity": "DEMO",
+        "time": "2026-04-08",
+        "open": 96.56,
+        "high": 97.72,
+        "low": 92.73,
+        "close": 94.0,
+        "volume": 162
+      },
+      {
+        "entity": "DEMO",
+        "time": "2026-04-09",
+        "open": 94.0,
+        "high": 94.51,
+        "low": 93.88,
+        "close": 94.39,
+        "volume": 125
+      },
+      {
+        "entity": "DEMO",
+        "time": "2026-04-10",
+        "open": 94.39,
+        "high": 96.68,
+        "low": 93.76,
+        "close": 95.83,
+        "volume": 209
+      },
+      {
+        "entity": "DEMO",
+        "time": "2026-04-11",
+        "open": 95.83,
+        "high": 96.43,
+        "low": 93.87,
+        "close": 95.45,
+        "volume": 234
+      },
+      {
+        "entity": "DEMO",
+        "time": "2026-04-12",
+        "open": 95.45,
+        "high": 96.6,
+        "low": 92.36,
+        "close": 93.41,
+        "volume": 273
+      },
+      {
+        "entity": "DEMO",
+        "time": "2026-04-13",
+        "open": 93.41,
+        "high": 95.82,
+        "low": 91.45,
+        "close": 95.24,
+        "volume": 106
+      },
+      {
+        "entity": "DEMO",
+        "time": "2026-04-14",
+        "open": 95.24,
+        "high": 96.76,
+        "low": 94.28,
+        "close": 94.59,
+        "volume": 188
+      },
+      {
+        "entity": "DEMO",
+        "time": "2026-04-15",
+        "open": 94.59,
+        "high": 95.92,
+        "low": 89.37,
+        "close": 90.9,
+        "volume": 206
+      },
+      {
+        "entity": "DEMO",
+        "time": "2026-04-16",
+        "open": 90.9,
+        "high": 94.53,
+        "low": 89.51,
+        "close": 93.9,
+        "volume": 211
+      },
+      {
+        "entity": "DEMO",
+        "time": "2026-04-17",
+        "open": 93.9,
+        "high": 95.46,
+        "low": 92.22,
+        "close": 94.54,
+        "volume": 288
+      },
+      {
+        "entity": "DEMO",
+        "time": "2026-04-18",
+        "open": 94.54,
+        "high": 95.87,
+        "low": 94.22,
+        "close": 94.34,
+        "volume": 234
+      },
+      {
+        "entity": "DEMO",
+        "time": "2026-04-19",
+        "open": 94.34,
+        "high": 97.5,
+        "low": 92.69,
+        "close": 95.51,
+        "volume": 143
+      },
+      {
+        "entity": "DEMO",
+        "time": "2026-04-20",
+        "open": 95.51,
+        "high": 96.85,
+        "low": 94.55,
+        "close": 94.6,
+        "volume": 182
+      },
+      {
+        "entity": "DEMO",
+        "time": "2026-04-21",
+        "open": 94.6,
+        "high": 94.83,
+        "low": 91.83,
+        "close": 91.94,
+        "volume": 249
+      },
+      {
+        "entity": "DEMO",
+        "time": "2026-04-22",
+        "open": 91.94,
+        "high": 92.44,
+        "low": 88.2,
+        "close": 88.98,
+        "volume": 272
+      },
+      {
+        "entity": "DEMO",
+        "time": "2026-04-23",
+        "open": 88.98,
+        "high": 89.88,
+        "low": 84.52,
+        "close": 85.62,
+        "volume": 274
+      },
+      {
+        "entity": "DEMO",
+        "time": "2026-04-24",
+        "open": 85.62,
+        "high": 89.91,
+        "low": 85.07,
+        "close": 88.18,
+        "volume": 171
+      },
+      {
+        "entity": "DEMO",
+        "time": "2026-04-25",
+        "open": 88.18,
+        "high": 89.95,
+        "low": 85.13,
+        "close": 87.05,
+        "volume": 113
+      },
+      {
+        "entity": "DEMO",
+        "time": "2026-04-26",
+        "open": 87.05,
+        "high": 87.51,
+        "low": 83.99,
+        "close": 84.46,
+        "volume": 187
+      },
+      {
+        "entity": "DEMO",
+        "time": "2026-04-27",
+        "open": 84.46,
+        "high": 85.7,
+        "low": 84.45,
+        "close": 85.17,
+        "volume": 172
+      },
+      {
+        "entity": "DEMO",
+        "time": "2026-04-28",
+        "open": 85.17,
+        "high": 86.3,
+        "low": 82.22,
+        "close": 84.12,
+        "volume": 232
+      },
+      {
+        "entity": "DEMO",
+        "time": "2026-04-29",
+        "open": 84.12,
+        "high": 85.48,
+        "low": 82.77,
+        "close": 84.25,
+        "volume": 92
+      },
+      {
+        "entity": "DEMO",
+        "time": "2026-04-30",
+        "open": 84.25,
+        "high": 89.0,
+        "low": 82.5,
+        "close": 87.45,
+        "volume": 256
+      },
+      {
+        "entity": "DEMO",
+        "time": "2026-05-01",
+        "open": 87.45,
+        "high": 88.24,
+        "low": 86.38,
+        "close": 86.58,
+        "volume": 220
+      },
+      {
+        "entity": "DEMO",
+        "time": "2026-05-02",
+        "open": 86.58,
+        "high": 86.72,
+        "low": 82.66,
+        "close": 83.08,
+        "volume": 116
+      },
+      {
+        "entity": "DEMO",
+        "time": "2026-05-03",
+        "open": 83.08,
+        "high": 83.19,
+        "low": 81.8,
+        "close": 81.8,
+        "volume": 113
+      },
+      {
+        "entity": "DEMO",
+        "time": "2026-05-04",
+        "open": 81.8,
+        "high": 82.53,
+        "low": 78.56,
+        "close": 78.61,
+        "volume": 272
+      },
+      {
+        "entity": "DEMO",
+        "time": "2026-05-05",
+        "open": 78.61,
+        "high": 79.82,
+        "low": 78.11,
+        "close": 79.53,
+        "volume": 156
+      },
+      {
+        "entity": "DEMO",
+        "time": "2026-05-06",
+        "open": 79.53,
+        "high": 79.77,
+        "low": 76.74,
+        "close": 78.44,
+        "volume": 298
+      },
+      {
+        "entity": "DEMO",
+        "time": "2026-05-07",
+        "open": 78.44,
+        "high": 79.41,
+        "low": 78.0,
+        "close": 78.17,
+        "volume": 102
+      },
+      {
+        "entity": "DEMO",
+        "time": "2026-05-08",
+        "open": 78.17,
+        "high": 78.7,
+        "low": 75.25,
+        "close": 76.91,
+        "volume": 116
+      },
+      {
+        "entity": "DEMO",
+        "time": "2026-05-09",
+        "open": 76.91,
+        "high": 78.81,
+        "low": 72.04,
+        "close": 73.09,
+        "volume": 112
+      },
+      {
+        "entity": "DEMO",
+        "time": "2026-05-10",
+        "open": 73.09,
+        "high": 73.49,
+        "low": 72.04,
+        "close": 73.44,
+        "volume": 295
+      }
+    ]
+  },
+  "encoding": {
+    "x": {
+      "field": "time"
+    },
+    "y": [
+      {
+        "field": "close",
+        "window": 5,
+        "mark": "line",
+        "title": "MA5"
+      },
+      {
+        "field": "close",
+        "window": 25,
+        "mark": "line",
+        "title": "MA25"
+      },
+      {
+        "field": "volume",
+        "mark": "bar",
+        "axis": "y2",
+        "title": "Volume"
+      }
+    ]
+  }
+}
