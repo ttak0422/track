@@ -1,9 +1,13 @@
 import { useNavigate } from "@tanstack/react-router";
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { CodeBlock } from "./CodeBlock";
 import { applyChartTheme, chartThemeFromCSS } from "./echartsTheme";
-import { extractRail, MarkerRail, type RailAnchors } from "./MarkerRail";
+import { computeRailLayout, extractRail, MarkerRail, type RailAnchors } from "./MarkerRail";
 import { useThemeVersion } from "./MermaidDiagram";
+
+// The chart container's CSS height (styles.css .viewspec-chart); the above annotation band grows the
+// container by its own height so the plot keeps this size while grid.top shifts down.
+const CHART_BASE_HEIGHT = 360;
 
 // echartsModule caches the lazy import so every chart on a page shares one load. ECharts is pulled in
 // on demand (a separate chunk): pages without charts never download it. Both the live workspace and
@@ -31,12 +35,34 @@ export function EChartsBlock({ option }: EChartsBlockProps) {
   // Redraw with the new colors when the app theme flips; the option itself is theme-neutral and
   // recolored at draw time (applyChartTheme).
   const themeVersion = useThemeVersion();
-  // Box-mode markers (ADR 0028) render as an annotation rail below the chart. The boxes and their
-  // full-range positions come straight off the option, so the rail lays out (and reserves its
-  // height) before the chart instance exists; the instance later refines the pixel anchors.
+  // Box-mode markers (ADR 0028) render as annotation bands hugging the chart. The boxes and their
+  // full-range positions come straight off the option, so the bands lay out (and reserve their
+  // heights) before the chart instance exists; the instance later refines the pixel anchors.
   const rail = useMemo(() => extractRail(option), [option]);
   const [anchors, setAnchors] = useState<RailAnchors | null>(null);
   useEffect(() => setAnchors(null), [option]);
+  const [width, setWidth] = useState(0);
+  useLayoutEffect(() => {
+    const el = containerRef.current;
+    if (!el) {
+      return;
+    }
+    setWidth(el.clientWidth);
+    if (typeof ResizeObserver === "undefined") {
+      return;
+    }
+    const ro = new ResizeObserver(() => setWidth(el.clientWidth));
+    ro.observe(el);
+    return () => ro.disconnect();
+  }, []);
+  const layout = useMemo(
+    () => computeRailLayout(rail.boxes.length, rail.fractions, width),
+    [rail, width],
+  );
+  // The above band lives between the legend and the plot: the chart grows by the band's height and
+  // grid.top shifts down the same amount (applyRailChrome), so the plot keeps its size.
+  const aboveHeight = layout.mode === "rail" ? layout.above.height : 0;
+  const baseGridTop = gridTopOf(option);
 
   useEffect(() => {
     const el = containerRef.current;
@@ -53,9 +79,15 @@ export function EChartsBlock({ option }: EChartsBlockProps) {
       // getInstanceByDom keeps the existing instance across live updates, so setOption transitions
       // smoothly instead of tearing the chart down.
       chart = echarts.getInstanceByDom(el) ?? echarts.init(el);
-      const themed = applyChartTheme(option, chartThemeFromCSS());
+      const theme = chartThemeFromCSS();
+      const themed = applyChartTheme(option, theme);
       attachDetailTooltip(themed);
       suppressBoxLabels(themed);
+      applyRailChrome(themed, {
+        aboveHeight,
+        labelChip: layout.mode === "rail" && layout.below.indexes.length > 0,
+        labelBackground: theme.panel,
+      });
       chart.setOption(themed, { notMerge: true });
       // A datum can carry provenance the Go engine put on it (see the View Spec's encoding.href and
       // the overlay event url/note): clicking opens the source URL, or navigates to the referenced
@@ -88,7 +120,7 @@ export function EChartsBlock({ option }: EChartsBlockProps) {
             ? x
             : null;
         });
-        setAnchors({ xs, ...plotEdgeGaps(chart!, xs, el.clientHeight, midY) });
+        setAnchors({ xs, gapBelow: plotBottomGap(chart!, xs, el.clientHeight, midY) });
       };
       if (rail.boxes.length > 0) {
         layoutAnchors();
@@ -107,7 +139,7 @@ export function EChartsBlock({ option }: EChartsBlockProps) {
       disposed = true;
       observer?.disconnect();
     };
-  }, [option, visible, themeVersion, navigate, rail]);
+  }, [option, visible, themeVersion, navigate, rail, layout, aboveHeight]);
 
   // Dispose the ECharts instance only on unmount; the option effect above reuses it across updates.
   useEffect(() => {
@@ -153,54 +185,100 @@ export function EChartsBlock({ option }: EChartsBlockProps) {
     return () => el.removeEventListener("wheel", onWheel, { capture: true });
   }, []);
 
-  const chartHost = <div ref={containerRef} className="viewspec-chart" role="img" aria-label="Chart" />;
+  const chartHost = (
+    <div
+      ref={containerRef}
+      className="viewspec-chart"
+      role="img"
+      aria-label="Chart"
+      style={aboveHeight > 0 ? { height: CHART_BASE_HEIGHT + aboveHeight } : undefined}
+    />
+  );
   if (rail.boxes.length === 0) {
     return chartHost;
   }
-  // The rails are siblings of the role="img" host (not children): their links stay visible to
+  // The bands are siblings of the role="img" host (not children): their links stay visible to
   // assistive tech, and the wheel/pinch listeners above keep their scope. Boxes alternate between
-  // the above and below bands (railSide), hugging the chart from both sides.
+  // the above and below bands (railSide); the above band overlays the strip reserved between the
+  // legend and the plot (offsetTop = the option's original grid top).
   return (
     <figure className="viewspec-chart-wrap">
-      <MarkerRail boxes={rail.boxes} fractions={rail.fractions} anchors={anchors} side="above" />
       {chartHost}
-      <MarkerRail boxes={rail.boxes} fractions={rail.fractions} anchors={anchors} side="below" />
+      <MarkerRail
+        boxes={rail.boxes}
+        layout={layout}
+        anchors={anchors}
+        side="above"
+        width={width}
+        offsetTop={baseGridTop}
+      />
+      <MarkerRail boxes={rail.boxes} layout={layout} anchors={anchors} side="below" width={width} />
     </figure>
   );
 }
 
-// plotEdgeGaps measures how far the plot's bottom and top edges sit inside the chart container —
-// the strips holding the axis labels / zoom slider (below) and the title / legend (above) — by
-// bisecting containPixel along a visible marker's x. The rails' stems span those strips so each
-// box's line continues the marker line unbroken. Without a visible anchor (everything zoomed out)
-// there is nothing to bridge.
-export function plotEdgeGaps(
+// gridTopOf reads the option's grid.top (the plot's top edge — where the above annotation band
+// starts). The engine emits it for every legend-bearing chart; 60 is ECharts' own default for the
+// rest (candlestick).
+function gridTopOf(option: Record<string, unknown>): number {
+  const grid = option.grid as { top?: unknown } | undefined;
+  return typeof grid?.top === "number" ? grid.top : 60;
+}
+
+// applyRailChrome adjusts the drawn clone for the annotation bands: the plot slides down by the
+// above band's height (the container grew the same amount, so the plot keeps its size), and the
+// x-axis labels get an opaque chip so a stem passing behind them never muddies the text. Clone
+// only — the option itself stays consumer-agnostic.
+export function applyRailChrome(
+  option: Record<string, unknown>,
+  opts: { aboveHeight: number; labelChip: boolean; labelBackground: string },
+): void {
+  if (opts.aboveHeight > 0) {
+    const grid = (option.grid as Record<string, unknown> | undefined) ?? {};
+    option.grid = { ...grid, top: gridTopOf(option) + opts.aboveHeight };
+  }
+  if (opts.labelChip) {
+    for (const axis of Array.isArray(option.xAxis) ? option.xAxis : [option.xAxis]) {
+      if (typeof axis !== "object" || axis === null) {
+        continue;
+      }
+      const a = axis as Record<string, unknown>;
+      a.axisLabel = {
+        ...(a.axisLabel as Record<string, unknown> | undefined),
+        backgroundColor: opts.labelBackground,
+        padding: [1, 3],
+        borderRadius: 2,
+      };
+    }
+  }
+}
+
+// plotBottomGap measures how far the plot's bottom edge sits above the chart container's bottom —
+// the strip holding the axis labels and zoom slider — by bisecting containPixel along a visible
+// marker's x. The below band's stems span that strip so each box's line continues the marker line
+// unbroken (the above band needs no measurement: its bottom edge is the plot top by construction).
+// Without a visible anchor (everything zoomed out) there is nothing to bridge.
+export function plotBottomGap(
   chart: import("echarts").ECharts,
   xs: (number | null)[],
   height: number,
   insideY: number,
-): { gapBelow: number; gapAbove: number } {
+): number {
   const x = xs.find((v): v is number => v !== null);
   if (x === undefined || !chart.containPixel({ gridIndex: 0 }, [x, insideY])) {
-    return { gapBelow: 0, gapAbove: 0 };
+    return 0;
   }
-  const edge = (outsideY: number) => {
-    let inside = insideY;
-    let outside = outsideY;
-    for (let i = 0; i < 10; i++) {
-      const mid = (inside + outside) / 2;
-      if (chart.containPixel({ gridIndex: 0 }, [x, mid])) {
-        inside = mid;
-      } else {
-        outside = mid;
-      }
+  let inside = insideY;
+  let outside = height;
+  for (let i = 0; i < 10; i++) {
+    const mid = (inside + outside) / 2;
+    if (chart.containPixel({ gridIndex: 0 }, [x, mid])) {
+      inside = mid;
+    } else {
+      outside = mid;
     }
-    return inside;
-  };
-  return {
-    gapBelow: Math.max(0, Math.round(height - edge(height))),
-    gapAbove: Math.max(0, Math.round(edge(0))),
-  };
+  }
+  return Math.max(0, Math.round(height - inside));
 }
 
 // suppressBoxLabels hides the classic in-plot label on box-mode markLine items — the rail shows the

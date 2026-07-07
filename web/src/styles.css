@@ -1968,16 +1968,38 @@ a.calendar-title:focus-visible {
   background: var(--panel);
 }
 
-/* Annotation rail (ADR 0028): box-mode markers render as an always-visible evidence band below the
-   chart. Geometry (lane positions, rail height) is computed from the option and set inline; only the
-   look lives here. The rail is a sibling of the role="img" chart host, so its links are real,
-   focusable DOM and the chart's wheel/pinch capture never sees them. */
+/* Annotation bands (ADR 0028): box-mode markers render as always-visible evidence bands hugging the
+   chart — below it, and in a strip reserved between the legend and the plot. Geometry (lane
+   positions, band heights) is computed from the option and set inline; only the look lives here.
+   The bands are siblings of the role="img" chart host, so their links are real, focusable DOM and
+   the chart's wheel/pinch capture never sees them. Z-order: the panel background moves to the wrap,
+   the chart host (z1, transparent) paints its canvas over the below band's stems — so axis labels
+   read over the line instead of under it — and the above band (z2) keeps its links clickable inside
+   the reserved strip. */
 .viewspec-chart-wrap {
+  position: relative;
   margin: 1em 0;
+  background: var(--panel);
 }
 
 .viewspec-chart-wrap .viewspec-chart {
+  position: relative;
+  z-index: 1;
   margin: 0;
+  background: transparent;
+}
+
+.viewspec-chart-wrap .chart-annotations[data-side="above"] {
+  position: absolute;
+  left: 0;
+  right: 0;
+  z-index: 2;
+  /* Only the boxes take the pointer: the strip itself must not swallow canvas gestures. */
+  pointer-events: none;
+}
+
+.viewspec-chart-wrap .chart-annotations[data-side="above"] .chart-annotation {
+  pointer-events: auto;
 }
 
 /* Scoped under the wrap to outrank the markdown view's generic list rules (margin/padding) — any

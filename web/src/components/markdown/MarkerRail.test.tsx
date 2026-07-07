@@ -1,5 +1,13 @@
 import { describe, expect, it } from "vitest";
-import { BOX_WIDTH, extractRail, layoutLanes, railSide } from "./MarkerRail";
+import {
+  BOX_WIDTH,
+  computeRailLayout,
+  extractRail,
+  LANE_HEIGHT,
+  layoutLanes,
+  RAIL_TOP,
+  railSide,
+} from "./MarkerRail";
 
 describe("extractRail", () => {
   const option = (): Record<string, unknown> => ({
@@ -51,6 +59,25 @@ describe("extractRail", () => {
 describe("railSide", () => {
   it("alternates boxes across the chart so same-day pairs split sides", () => {
     expect([0, 1, 2, 3].map(railSide)).toEqual(["below", "above", "below", "above"]);
+  });
+});
+
+describe("computeRailLayout", () => {
+  it("splits boxes across the bands and settles their heights from width alone", () => {
+    // 4 boxes spread over the axis: 2 per side, one lane each on a wide container.
+    const layout = computeRailLayout(4, [0.1, 0.35, 0.6, 0.85], 1000);
+    expect(layout.mode).toBe("rail");
+    expect(layout.below.indexes).toEqual([0, 2]);
+    expect(layout.above.indexes).toEqual([1, 3]);
+    expect(layout.below.height).toBe(LANE_HEIGHT + RAIL_TOP);
+    expect(layout.above.height).toBe(LANE_HEIGHT + RAIL_TOP);
+  });
+
+  it("flips to list mode on narrow containers and reports empty sides as zero height", () => {
+    expect(computeRailLayout(4, [0.1, 0.35, 0.6, 0.85], 400).mode).toBe("list");
+    const single = computeRailLayout(1, [0.5], 1000);
+    expect(single.above.height).toBe(0);
+    expect(single.below.height).toBe(LANE_HEIGHT + RAIL_TOP);
   });
 });
 

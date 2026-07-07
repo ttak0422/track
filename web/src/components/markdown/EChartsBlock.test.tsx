@@ -1,10 +1,11 @@
 import { render, waitFor } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import {
+  applyRailChrome,
   attachDetailTooltip,
   detailTooltipFormatter,
   EChartsBlock,
-  plotEdgeGaps,
+  plotBottomGap,
   suppressBoxLabels,
 } from "./EChartsBlock";
 
@@ -155,15 +156,35 @@ describe("annotation rail", () => {
   });
 });
 
-describe("plotEdgeGaps", () => {
-  it("bisects the plot's edges from containPixel", () => {
-    // A grid spanning y=[56, 300] in a 360px container: a 60px axis strip below, 56px legend above.
+describe("plotBottomGap", () => {
+  it("bisects the plot's bottom edge from containPixel", () => {
+    // A grid spanning y=[56, 300] in a 360px container: the gap is the 60px axis-label strip.
     const chart = {
       containPixel: (_finder: unknown, [, y]: [number, number]) => y >= 56 && y <= 300,
     } as unknown as import("echarts").ECharts;
-    expect(plotEdgeGaps(chart, [100], 360, 180)).toEqual({ gapBelow: 60, gapAbove: 56 });
+    expect(plotBottomGap(chart, [100], 360, 180)).toBe(60);
     // No visible anchor: nothing to bridge.
-    expect(plotEdgeGaps(chart, [null], 360, 180)).toEqual({ gapBelow: 0, gapAbove: 0 });
+    expect(plotBottomGap(chart, [null], 360, 180)).toBe(0);
+  });
+});
+
+describe("applyRailChrome", () => {
+  it("slides the plot down by the above band's height and chips the x-axis labels", () => {
+    const option: Record<string, unknown> = {
+      grid: { top: 96, containLabel: true },
+      xAxis: { type: "category", data: ["a"] },
+    };
+    applyRailChrome(option, { aboveHeight: 86, labelChip: true, labelBackground: "#fff" });
+    expect((option.grid as { top: number; containLabel: boolean }).top).toBe(182);
+    expect((option.grid as { containLabel: boolean }).containLabel).toBe(true);
+    expect((option.xAxis as { axisLabel: { backgroundColor: string } }).axisLabel.backgroundColor).toBe("#fff");
+  });
+
+  it("leaves the option untouched without bands", () => {
+    const option: Record<string, unknown> = { grid: { top: 56 }, xAxis: { type: "category" } };
+    applyRailChrome(option, { aboveHeight: 0, labelChip: false, labelBackground: "#fff" });
+    expect((option.grid as { top: number }).top).toBe(56);
+    expect((option.xAxis as { axisLabel?: unknown }).axisLabel).toBeUndefined();
   });
 });
 

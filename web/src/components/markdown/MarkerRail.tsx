@@ -1,5 +1,3 @@
-import { useLayoutEffect, useRef, useState } from "react";
-
 // One annotation box, read off a box-mode markLine item (ADR 0028). The engine already resolved the
 // content — the date line, the source host, the sort order — so the rail only decides geometry.
 // A box carries no vault-note affordance: fetched event data only ever provides a source URL, so
@@ -14,7 +12,7 @@ export interface RailBox {
 
 export const BOX_WIDTH = 160;
 export const LANE_HEIGHT = 76;
-const RAIL_TOP = 10;
+export const RAIL_TOP = 10;
 const LANE_GAP = 8;
 const MAX_LANES = 6;
 const MIN_RAIL_WIDTH = 560;
@@ -44,7 +42,6 @@ export function extractRail(option: Record<string, unknown>): {
         box?: unknown;
         label?: { formatter?: unknown };
         href?: unknown;
-        note?: unknown;
       };
       if (typeof item.box !== "object" || item.box === null) {
         continue;
@@ -103,17 +100,6 @@ function clampLeft(x: number, width: number): number {
   return Math.min(Math.max(x - BOX_WIDTH / 2, 0), Math.max(0, width - BOX_WIDTH));
 }
 
-export interface RailAnchors {
-  // Refined pixel anchor per box; a null entry is a box outside the current dataZoom window
-  // (hidden without restacking the lanes).
-  xs: (number | null)[];
-  // Distances from the chart container's bottom/top edge to the plot's own edge: the stems span
-  // them so each box's line visually continues the marker line instead of breaking at the axis
-  // labels (below) or the legend strip (above).
-  gapBelow: number;
-  gapAbove: number;
-}
-
 export type RailSide = "above" | "below";
 
 // railSide alternates boxes between the two rails (even emitted index below, odd above), so dense
@@ -123,54 +109,85 @@ export function railSide(index: number): RailSide {
   return index % 2 === 0 ? "below" : "above";
 }
 
+export interface SideLayout {
+  indexes: number[]; // box indexes on this side, in emitted (category-sorted) order
+  slots: RailSlot[]; // one per entry of indexes
+  lanes: number;
+  height: number; // the band's total height; 0 when the side is empty
+}
+
+export interface RailLayout {
+  mode: "rail" | "list";
+  fullXs: number[]; // full-range anchor estimate per box (all boxes, both sides)
+  above: SideLayout;
+  below: SideLayout;
+}
+
+// computeRailLayout settles the whole rail geometry from the option and the container width alone —
+// no chart instance — so band heights (and the grid-top shift the above band needs) are known before
+// the lazily initialized canvas ever draws. Lane assignment is frozen at the full category range:
+// zoom gestures only translate or hide boxes, never restack them.
+export function computeRailLayout(
+  boxCount: number,
+  fractions: number[],
+  width: number,
+): RailLayout {
+  const span = Math.max(0, width - PLOT_INSET * 2);
+  const fullXs = fractions.map((f) => PLOT_INSET + f * span);
+  const sideOf = (s: RailSide): SideLayout => {
+    const indexes = Array.from({ length: boxCount }, (_, i) => i).filter(
+      (i) => railSide(i) === s,
+    );
+    const { slots, lanes } = layoutLanes(
+      indexes.map((i) => fullXs[i]),
+      width,
+    );
+    return {
+      indexes,
+      slots,
+      lanes,
+      height: indexes.length === 0 ? 0 : lanes * LANE_HEIGHT + RAIL_TOP,
+    };
+  };
+  const above = sideOf("above");
+  const below = sideOf("below");
+  const mode =
+    width < MIN_RAIL_WIDTH || above.lanes > MAX_LANES || below.lanes > MAX_LANES
+      ? "list"
+      : "rail";
+  return { mode, fullXs, above, below };
+}
+
+export interface RailAnchors {
+  // Refined pixel anchor per box; a null entry is a box outside the current dataZoom window
+  // (hidden without restacking the lanes).
+  xs: (number | null)[];
+  // Distance from the chart container's bottom edge up to the plot's bottom edge (the axis-label /
+  // zoom-slider strip): the below band's stems span it so each box's line continues the marker line.
+  gapBelow: number;
+}
+
 interface MarkerRailProps {
   boxes: RailBox[];
-  fractions: number[];
+  layout: RailLayout;
   // Measured geometry from the chart instance; null means "not measured yet" (estimates place the
   // boxes until the canvas has drawn).
   anchors: RailAnchors | null;
   side: RailSide;
+  width: number;
+  // The above band overlays the chart between its legend and the (pushed-down) plot; the host
+  // positions it at the option's original grid top.
+  offsetTop?: number;
 }
 
-// MarkerRail renders one side of the box-mode markers as an always-visible evidence band hugging
-// the chart: boxes alternate above and below it (railSide), so dense timelines split their depth
-// across the plot like the goal articles. Each rail is a real list OUTSIDE the role="img" chart
-// host, so its links are reachable (keyboard and assistive tech) and the chart's wheel/pinch
-// handling is untouched. Lane geometry is frozen at the full category range: each rail's height is
-// settled from the option alone — before the lazily initialized canvas ever draws — and zoom
-// gestures translate or hide boxes without ever changing it (no layout shift, no mid-drag reflow).
-// When either side's lanes overflow (or the container is narrow), the "below" instance renders
-// every box as one flat list and the "above" instance disappears — a single degradation mechanism.
-export function MarkerRail({ boxes, fractions, anchors, side }: MarkerRailProps) {
-  const ref = useRef<HTMLOListElement>(null);
-  const [width, setWidth] = useState(0);
-
-  useLayoutEffect(() => {
-    const el = ref.current;
-    if (!el) {
-      return;
-    }
-    setWidth(el.clientWidth);
-    if (typeof ResizeObserver === "undefined") {
-      return;
-    }
-    const ro = new ResizeObserver(() => setWidth(el.clientWidth));
-    ro.observe(el);
-    return () => ro.disconnect();
-  }, []);
-
-  const span = Math.max(0, width - PLOT_INSET * 2);
-  const fullXs = fractions.map((f) => PLOT_INSET + f * span);
-  // Both instances lay out both sides from the same inputs, so their mode decision always agrees.
-  const sideIndexes = (s: RailSide) => boxes.map((_, i) => i).filter((i) => railSide(i) === s);
-  const mine = sideIndexes(side);
-  const laneCount = (s: RailSide) =>
-    layoutLanes(
-      sideIndexes(s).map((i) => fullXs[i]),
-      width,
-    ).lanes;
-  const list = width < MIN_RAIL_WIDTH || laneCount("below") > MAX_LANES || laneCount("above") > MAX_LANES;
-
+// MarkerRail renders one side of the box-mode markers as an always-visible evidence band: the below
+// band sits under the chart, the above band in a strip reserved between the legend and the plot
+// (the host grows the chart and shifts grid.top by its height). Each band is a real list OUTSIDE
+// the role="img" chart host, so its links are reachable (keyboard and assistive tech) and the
+// chart's wheel/pinch handling is untouched. When lanes overflow or the container is narrow, the
+// below instance renders every box as one flat list and the above instance disappears — a single
+// degradation mechanism.
+export function MarkerRail({ boxes, layout, anchors, side, width, offsetTop }: MarkerRailProps) {
   const content = (b: RailBox) => (
     <>
       <time className="chart-annotation-date">{b.date}</time>
@@ -185,19 +202,13 @@ export function MarkerRail({ boxes, fractions, anchors, side }: MarkerRailProps)
     </>
   );
 
-  // In list mode every box stacks in the single below-chart list; the above instance renders an
-  // empty rail. It must stay mounted either way: the element is what carries the width measurement
-  // (the first render always measures 0), so unmounting would freeze the mode decision.
-  if (list || mine.length === 0) {
-    const stacked = list && side === "below" ? boxes : [];
+  if (layout.mode === "list") {
+    if (side === "above") {
+      return null; // in list mode every box stacks in the single below-chart list
+    }
     return (
-      <ol
-        ref={ref}
-        className="chart-annotations"
-        data-mode={stacked.length > 0 ? "list" : "empty"}
-        aria-label="Chart annotations"
-      >
-        {stacked.map((b, i) => (
+      <ol className="chart-annotations" data-mode="list" aria-label="Chart annotations">
+        {boxes.map((b, i) => (
           <li key={i} className="chart-annotation">
             {content(b)}
           </li>
@@ -205,39 +216,40 @@ export function MarkerRail({ boxes, fractions, anchors, side }: MarkerRailProps)
       </ol>
     );
   }
-  const { slots, lanes } = layoutLanes(
-    mine.map((i) => fullXs[i]),
-    width,
-  );
-  const gap = side === "below" ? (anchors?.gapBelow ?? 0) : (anchors?.gapAbove ?? 0);
+  const mine = side === "below" ? layout.below : layout.above;
+  if (mine.indexes.length === 0) {
+    return null;
+  }
+  const { slots, lanes } = mine;
+  const gapBelow = anchors?.gapBelow ?? 0;
   return (
     <ol
-      ref={ref}
       className="chart-annotations"
       data-mode="rail"
       data-side={side}
       aria-label="Chart annotations"
-      style={{ height: lanes * LANE_HEIGHT + RAIL_TOP }}
+      style={side === "above" ? { top: offsetTop ?? 0, height: mine.height } : { height: mine.height }}
     >
-      {mine.map((boxIndex, j) => {
+      {mine.indexes.map((boxIndex, j) => {
         const b = boxes[boxIndex];
-        const x = anchors === null ? fullXs[boxIndex] : anchors.xs[boxIndex];
+        const x = anchors === null ? layout.fullXs[boxIndex] : anchors.xs[boxIndex];
         if (x === null) {
           return null; // zoomed out of the window; lanes stay put, the box just disappears
         }
         const left = clampLeft(x, width);
-        // Lane 0 hugs the chart on both sides: downward-growing lanes below, upward-growing above.
+        // Lane 0 hugs the plot on both sides: downward-growing lanes below, upward-growing above.
         const top =
           side === "below"
             ? slots[j].lane * LANE_HEIGHT + RAIL_TOP
             : (lanes - 1 - slots[j].lane) * LANE_HEIGHT;
-        // The stem continues the marker line across the chart's inset (axis labels below, the
-        // legend strip above) up to the plot itself. It is drawn from the box's own top edge and
-        // stacked behind every box (negative z-index), so the segment overlapping any box — its own
-        // or a nearer lane's — stays hidden behind the text instead of striking through it.
-        const stemTop = side === "below" ? -(gap + top) : top;
+        // The stem continues the marker line to the plot's edge. Below, it also spans the measured
+        // axis-label strip; above, the band's own bottom edge IS the plot top (the host reserved the
+        // strip), so it just runs to the band's end. Stems stack behind every box (negative z-index)
+        // and behind the canvas (the chart host paints over the bands' stems), so a line never
+        // strikes through box text or axis labels.
+        const stemTop = side === "below" ? -(gapBelow + top) : top;
         const stemHeight =
-          side === "below" ? gap + top + 2 : lanes * LANE_HEIGHT + RAIL_TOP - top + gap;
+          side === "below" ? gapBelow + top + 2 : mine.height - top;
         return (
           <li key={boxIndex} className="chart-annotation" style={{ left, top, width: BOX_WIDTH }}>
             <span
