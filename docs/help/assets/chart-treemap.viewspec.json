@@ -1,0 +1,114 @@
+{
+  "version": 2,
+  "mark": "treemap",
+  "title": "Industry map",
+  "data": {
+    "kind": "metric",
+    "records": [
+      {
+        "name": "ALPH",
+        "time": "1",
+        "value": 2.1,
+        "sector": "Tech",
+        "cap": 320
+      },
+      {
+        "name": "BYTE",
+        "time": "1",
+        "value": 1.4,
+        "sector": "Tech",
+        "cap": 210
+      },
+      {
+        "name": "CIRC",
+        "time": "1",
+        "value": -0.6,
+        "sector": "Tech",
+        "cap": 90
+      },
+      {
+        "name": "DGTL",
+        "time": "1",
+        "value": 0.9,
+        "sector": "Tech",
+        "cap": 60
+      },
+      {
+        "name": "EPWR",
+        "time": "1",
+        "value": -1.8,
+        "sector": "Energy",
+        "cap": 180
+      },
+      {
+        "name": "FUEL",
+        "time": "1",
+        "value": -2.6,
+        "sector": "Energy",
+        "cap": 140
+      },
+      {
+        "name": "GRID",
+        "time": "1",
+        "value": 0.4,
+        "sector": "Energy",
+        "cap": 70
+      },
+      {
+        "name": "HLDG",
+        "time": "1",
+        "value": 0.8,
+        "sector": "Finance",
+        "cap": 260
+      },
+      {
+        "name": "INSR",
+        "time": "1",
+        "value": -0.3,
+        "sector": "Finance",
+        "cap": 120
+      },
+      {
+        "name": "JCAP",
+        "time": "1",
+        "value": 1.9,
+        "sector": "Finance",
+        "cap": 100
+      },
+      {
+        "name": "KBNK",
+        "time": "1",
+        "value": -1.1,
+        "sector": "Finance",
+        "cap": 80
+      },
+      {
+        "name": "LMED",
+        "time": "1",
+        "value": 3.2,
+        "sector": "Health",
+        "cap": 150
+      }
+    ]
+  },
+  "encoding": {
+    "x": {
+      "field": "name",
+      "type": "nominal"
+    },
+    "y": [
+      {
+        "field": "sector",
+        "type": "nominal"
+      }
+    ],
+    "size": {
+      "field": "cap"
+    },
+    "color": {
+      "field": "value",
+      "title": "Change %",
+      "scale": "diverging"
+    }
+  }
+}

@@ -61,4 +61,13 @@ describe("applyChartTheme", () => {
     ) as any;
     expect(themed.visualMap.inRange.color).toEqual([THEME.rampLo, THEME.rampHi]);
   });
+
+  it("keeps the diverging (3-stop) ramp's semantic market colors", () => {
+    const ramp = ["#e15759", "#f5f5f5", "#59a14f"];
+    const themed = applyChartTheme(
+      { visualMap: { inRange: { color: [...ramp] } } },
+      THEME,
+    ) as any;
+    expect(themed.visualMap.inRange.color).toEqual(ramp);
+  });
 });

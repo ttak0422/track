@@ -66,7 +66,9 @@ export function applyChartTheme(
   }
   if (opt.visualMap) {
     opt.visualMap.textStyle = { ...opt.visualMap.textStyle, color: t.muted };
-    if (opt.visualMap.inRange?.color) {
+    // Only the sequential (2-stop) ramp follows the theme; a diverging ramp (3 stops) carries the
+    // engine's semantic market red→neutral→green and stays as chosen, like candlestick up/down.
+    if (opt.visualMap.inRange?.color?.length === 2) {
       opt.visualMap.inRange.color = [t.rampLo, t.rampHi];
     }
   }

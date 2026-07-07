@@ -71,7 +71,7 @@ Rendered output:
 
 Key fields:
 
-- `mark` — `line`, `bar`, `point`, `area`, `rect`, or `candlestick`.
+- `mark` — `line`, `bar`, `point`, `area`, `rect`, `candlestick`, or `treemap`.
 - `encoding.*.type` — `quantitative` (default) or `nominal` (a category). Nominal on the right axis
   picks the form: a nominal-y `bar` is horizontal, a nominal-x `point` is a scatter (vs a bubble), and
   `rect` needs nominal x and y.
@@ -185,6 +185,14 @@ behind an open–close body, green when the close is at or above the open, red o
 open/high/low/close fields are implied by the `price` kind, so the encoding needs only `x`.
 
 ![Candlestick chart](assets/chart-candlestick.viewspec.json)
+
+**Treemap** (`mark: treemap`) — the industry-map view: one rectangle per record, its area from
+`encoding.size` and its color from `encoding.color`, grouped one level by an optional nominal `y[0]`;
+the nominal `x` names each leaf. With `"scale": "diverging"` on the color channel the ramp centers on
+zero — negatives red, positives green, like the candlestick colors — so a market-cap map of daily
+change reads at a glance. It is axis-less: `sort`/`limit` and overlays are rejected.
+
+![Treemap](assets/chart-treemap.viewspec.json)
 
 **Overlays** — a vertical `{records, kind}` event marker, a dashed `{y, label}` threshold line, a
 shaded `{from, to, label}` period band, and a `{x, y, label}` callout bubble pointing at a data point,
