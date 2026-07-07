@@ -46,7 +46,14 @@ func renameNoteLSPCommand(uri string, pos position, title string) *command {
 	}
 }
 
-func (s *Server) executeCommand(p executeCommandParams) (map[string]any, error) {
+func (s *Server) executeCommand(p executeCommandParams) (any, error) {
+	if p.Command == includesCommand {
+		params, err := includesParamsFromArgs(p.Arguments)
+		if err != nil {
+			return nil, err
+		}
+		return s.includes(params.URI)
+	}
 	if p.Command != createNoteCommand {
 		return nil, fmt.Errorf("unsupported command %q", p.Command)
 	}

@@ -170,7 +170,7 @@ func (s *Server) handleRequest(msg rpcMessage) rpcMessage {
 				CompletionProvider:     &protocol.CompletionOptions{TriggerCharacters: []string{"[", "#", ":", " ", "<", "?", "&", "="}},
 				CodeActionProvider:     true,
 				RenameProvider:         &protocol.Or_ServerCapabilities_renameProvider{Value: true},
-				ExecuteCommandProvider: &protocol.ExecuteCommandOptions{Commands: []string{createNoteCommand}},
+				ExecuteCommandProvider: &protocol.ExecuteCommandOptions{Commands: []string{createNoteCommand, includesCommand}},
 				WorkspaceSymbolProvider: &protocol.Or_ServerCapabilities_workspaceSymbolProvider{
 					Value: false,
 				},

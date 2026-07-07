@@ -1061,12 +1061,16 @@ func TestCodeActionCreatesUnresolvedNote(t *testing.T) {
 	if err != nil {
 		t.Fatalf("marshal action arg: %v", err)
 	}
-	result, err := srv.executeCommand(executeCommandParams{
+	rawResult, err := srv.executeCommand(executeCommandParams{
 		Command:   createNoteCommand,
 		Arguments: []json.RawMessage{arg},
 	})
 	if err != nil {
 		t.Fatalf("execute create note: %v", err)
+	}
+	result, ok := rawResult.(map[string]any)
+	if !ok {
+		t.Fatalf("create result is not a map: %+v", rawResult)
 	}
 	if result["title"] != "Rust" {
 		t.Fatalf("unexpected create result: %+v", result)
