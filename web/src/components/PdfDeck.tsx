@@ -120,19 +120,31 @@ export function PdfDeck({ src, alt }: PdfDeckProps) {
       const maxHeight = window.innerHeight * 0.75;
       const cssScale = Math.min(width / base.width, maxHeight / base.height);
       const viewport = pdfPage.getViewport({ scale: cssScale * dpr });
-      canvas.width = Math.round(viewport.width);
-      canvas.height = Math.round(viewport.height);
-      canvas.style.width = `${Math.round(viewport.width / dpr)}px`;
-      canvas.style.height = `${Math.round(viewport.height / dpr)}px`;
-      const task = pdfPage.render({ canvas, viewport });
+      // Rasterize offscreen and blit once complete: pdf.js paints its operator list progressively,
+      // so rendering straight into the visible canvas shows the page drawing itself in (and page
+      // flips flash blank while the next page paints). Offscreen, the page appears in one frame.
+      const buffer = document.createElement("canvas");
+      buffer.width = Math.round(viewport.width);
+      buffer.height = Math.round(viewport.height);
+      const task = pdfPage.render({ canvas: buffer, viewport });
       renderTaskRef.current = task;
-      task.promise.catch((err: unknown) => {
-        // A render is cancelled whenever the page/width changes mid-flight; that rejection is
-        // expected. Anything else must not vanish — a swallowed render error reads as a blank page.
-        if ((err as { name?: string })?.name !== "RenderingCancelledException") {
-          console.error("PdfDeck render failed:", err);
-        }
-      });
+      task.promise.then(
+        () => {
+          if (cancelled) return;
+          canvas.width = buffer.width;
+          canvas.height = buffer.height;
+          canvas.style.width = `${Math.round(viewport.width / dpr)}px`;
+          canvas.style.height = `${Math.round(viewport.height / dpr)}px`;
+          canvas.getContext("2d")?.drawImage(buffer, 0, 0);
+        },
+        (err: unknown) => {
+          // A render is cancelled whenever the page/width changes mid-flight; that rejection is
+          // expected. Anything else must not vanish — a swallowed render error reads as a blank page.
+          if ((err as { name?: string })?.name !== "RenderingCancelledException") {
+            console.error("PdfDeck render failed:", err);
+          }
+        },
+      );
     });
     return () => {
       cancelled = true;
