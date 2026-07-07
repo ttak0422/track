@@ -238,20 +238,23 @@ function usePanZoom(svg: string | null) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [svg]);
 
-  // Wheel zoom needs a non-passive listener so it can preventDefault the page scroll. A collapsed
-  // thumbnail is inert: the wheel scrolls the page as usual. Keyed on svg for the same
-  // mount-timing reason as the resize observer above.
+  // Wheel zoom follows the charts' convention (db676ce): a plain wheel keeps scrolling the page,
+  // Shift+wheel zooms, and a trackpad pinch (ctrl+wheel) zooms instead of scaling the whole page.
+  // Non-passive so the zooming cases can preventDefault. A collapsed thumbnail is inert either way.
+  // Keyed on svg for the same mount-timing reason as the resize observer above.
   useEffect(() => {
     const el = viewportRef.current;
     if (!el) return;
     function onWheel(event: WheelEvent) {
-      if (collapsedRef.current) return;
+      if (collapsedRef.current || (!event.shiftKey && !event.ctrlKey)) return;
       event.preventDefault();
       touchedRef.current = true;
+      // Browsers report Shift+wheel on the horizontal axis; take whichever axis carries the delta.
+      const delta = event.deltaY !== 0 ? event.deltaY : event.deltaX;
       const rect = el!.getBoundingClientRect();
       const cx = event.clientX - rect.left;
       const cy = event.clientY - rect.top;
-      setTransform((prev) => zoomAt(prev, cx, cy, Math.exp(-event.deltaY * 0.0015)));
+      setTransform((prev) => zoomAt(prev, cx, cy, Math.exp(-delta * 0.0015)));
     }
     el.addEventListener("wheel", onWheel, { passive: false });
     return () => el.removeEventListener("wheel", onWheel);

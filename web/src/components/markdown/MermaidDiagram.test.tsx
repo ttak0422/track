@@ -41,6 +41,25 @@ describe("MermaidDiagram", () => {
     expect(pan.style.transform).toBe("translate(0px, 0px) scale(1)");
   });
 
+  it("zooms only on Shift/ctrl wheel; a plain wheel keeps scrolling the page", async () => {
+    const { container } = render(<MermaidDiagram text={"graph TD\nA-->B"} />);
+    await waitFor(() => expect(container.querySelector("svg")).toBeInTheDocument());
+    const viewport = container.querySelector(".mermaid-viewport") as HTMLElement;
+    const pan = screen.getByRole("img", { name: "Mermaid diagram" });
+    const scaleOf = () => Number(pan.style.transform.match(/scale\(([^)]+)\)/)?.[1]);
+
+    fireEvent.wheel(viewport, { deltaY: -240 });
+    expect(scaleOf()).toBe(1);
+
+    fireEvent.wheel(viewport, { deltaY: -240, shiftKey: true });
+    expect(scaleOf()).toBeGreaterThan(1);
+    const shifted = scaleOf();
+
+    // Shift+wheel arrives on the horizontal axis in some browsers; the delta still zooms.
+    fireEvent.wheel(viewport, { deltaX: -240, deltaY: 0, shiftKey: true });
+    expect(scaleOf()).toBeGreaterThan(shifted);
+  });
+
   it("zooms in and out with the control buttons", async () => {
     const { container } = render(<MermaidDiagram text={"graph TD\nA-->B"} />);
     await waitFor(() => expect(container.querySelector("svg")).toBeInTheDocument());
