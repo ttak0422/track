@@ -75,7 +75,9 @@ export function MediaFrame({ src, alt, children }: { src: string; alt: string; c
           aria-label="Preview"
           title="Preview"
         >
-          {/* Eye glyph: pop an enlarged copy up beside the media, on demand rather than on hover. */}
+          {/* Picture-in-picture glyph: pop an enlarged copy up beside the media, on demand rather
+              than on hover. The frame-with-inner-window shape (preferred over the eye it briefly
+              was) reads as "opens a window". */}
           <svg
             viewBox="0 0 24 24"
             width="15"
@@ -87,8 +89,8 @@ export function MediaFrame({ src, alt, children }: { src: string; alt: string; c
             strokeLinejoin="round"
             aria-hidden="true"
           >
-            <path d="M2 12s3.5-6 10-6 10 6 10 6-3.5 6-10 6-10-6-10-6Z" />
-            <circle cx="12" cy="12" r="2.5" />
+            <rect x="3" y="5" width="18" height="14" rx="2" />
+            <rect x="12" y="11" width="7" height="6" rx="1" fill="currentColor" stroke="none" />
           </svg>
         </button>
         <button
