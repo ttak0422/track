@@ -152,6 +152,10 @@ function M.setup()
       require("track.follow").follow()
    end, { desc = "Follow the track link under the cursor" })
 
+   register("meta", function()
+      require("track.meta").edit()
+   end, { desc = "Edit the current note's page metadata (description / OGP cover image) in a popup" })
+
    register("backlinks", function()
       -- Prefer the Telescope picker (title-led, epoch filename hidden); fall back to the quickfix list,
       -- which uses the note title as the displayed module so titles show without Telescope installed.
