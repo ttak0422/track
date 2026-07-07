@@ -3,6 +3,7 @@ import { FormEvent, useEffect, useRef, useState } from "react";
 import { MarkdownView } from "./MarkdownView";
 import { LoadingIndicator, NoteAside, NoteTags, journalDateFromNote } from "./noteShared";
 import { getFollowState } from "../api";
+import { NoteMetaDialog } from "./NoteMetaDialog";
 import { useDeleteNoteMutation, useNoteQuery, useRenderQuery, useSaveNoteMutation } from "../queries";
 import { useSearchState } from "../searchState";
 import { useTabs } from "./tabs/tabsStore";
@@ -40,6 +41,8 @@ export function NoteEditor({ noteID }: NoteEditorProps) {
   const [followEnabled, setFollowEnabled] = useState(false);
   // Delete confirmation: the user must retype the title (GitHub-style) before the note can be removed.
   const [confirmDeleteOpen, setConfirmDeleteOpen] = useState(false);
+  // Page-metadata dialog (description / cover image for the published og: tags).
+  const [metaOpen, setMetaOpen] = useState(false);
   const [deleteConfirmText, setDeleteConfirmText] = useState("");
   // Set just before the post-delete navigation so the unsaved-changes blocker does not fire on the way
   // out (the note no longer exists, so any pending edits are moot).
@@ -268,6 +271,9 @@ export function NoteEditor({ noteID }: NoteEditorProps) {
               </button>
             ))}
           </div>
+          <button type="button" onClick={() => setMetaOpen(true)}>
+            Meta
+          </button>
           <button
             className="danger-toggle"
             type="button"
@@ -280,6 +286,8 @@ export function NoteEditor({ noteID }: NoteEditorProps) {
             Delete
           </button>
         </div>
+
+      {metaOpen ? <NoteMetaDialog noteID={noteID} onClose={() => setMetaOpen(false)} /> : null}
 
       {confirmDeleteOpen ? (
         <div

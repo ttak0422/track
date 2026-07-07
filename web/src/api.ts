@@ -8,11 +8,13 @@ import type {
   GraphResponse,
   JournalResponse,
   NoteID,
+  NoteMetaResponse,
   NoteResponse,
   NotesResponse,
   OgpResponse,
   RenderResponse,
   ResolveResponse,
+  SaveNoteMetaRequest,
   SaveNoteRequest,
   SaveNoteResponse,
   SearchResponse,
@@ -153,6 +155,25 @@ export function saveNote(noteID: NoteID, request: SaveNoteRequest): Promise<Save
   }
   return api<SaveNoteResponse>(`/api/note?id=${encodeURIComponent(noteID)}`, {
     method: "PUT",
+    body: request,
+  });
+}
+
+// getNoteMeta / saveNoteMeta read and edit a note's page metadata (description, cover image). The
+// static site has no meta editor, so both are live-server only.
+export function getNoteMeta(noteID: NoteID): Promise<NoteMetaResponse> {
+  if (STATIC_MODE) {
+    return readOnly();
+  }
+  return api<NoteMetaResponse>(`/api/note/meta?id=${encodeURIComponent(noteID)}`);
+}
+
+export function saveNoteMeta(noteID: NoteID, request: SaveNoteMetaRequest): Promise<NoteMetaResponse> {
+  if (STATIC_MODE) {
+    return readOnly();
+  }
+  return api<NoteMetaResponse>(`/api/note/meta?id=${encodeURIComponent(noteID)}`, {
+    method: "POST",
     body: request,
   });
 }

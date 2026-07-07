@@ -161,6 +161,53 @@ func (s *Server) putNote(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, map[string]any{"note_id": ref.NoteID, "etag": etagFor(out), "saved": true})
 }
 
+// handleNoteMeta reads or edits a note's page metadata (description, cover image). Edits go through
+// the same validated engine write path as the CLI meta command (note.ApplyMetaEdit), so the rules —
+// an existing vault asset, raster format, no traversal — live in one place; a violation is a 400
+// whose message the editor shows inline. A JSON field left null is untouched, "" clears it.
+func (s *Server) handleNoteMeta(w http.ResponseWriter, r *http.Request) {
+	id, err := parseID(r)
+	if err != nil {
+		writeError(w, err, http.StatusBadRequest)
+		return
+	}
+	ref, err := s.noteByID(id)
+	if err != nil {
+		writeError(w, err, http.StatusNotFound)
+		return
+	}
+	switch r.Method {
+	case http.MethodGet, "":
+		meta, _, err := note.ReadMetadata(s.cfg.MetadataPath(id))
+		if err != nil {
+			writeError(w, err, http.StatusInternalServerError)
+			return
+		}
+		writeJSON(w, map[string]any{"description": meta.Description, "image": meta.Image})
+	case http.MethodPost:
+		var req struct {
+			Description *string `json:"description"`
+			Image       *string `json:"image"`
+		}
+		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+			writeError(w, fmt.Errorf("decode request: %w", err), http.StatusBadRequest)
+			return
+		}
+		meta, err := note.ApplyMetaEdit(s.cfg, id, note.MetaEdit{Description: req.Description, Image: req.Image})
+		if err != nil {
+			writeError(w, err, http.StatusBadRequest)
+			return
+		}
+		if err := index.New(s.cfg, s.store).One(s.cfg.PathForKind(ref.FileKind, ref.NoteID)); err != nil {
+			writeError(w, fmt.Errorf("reindex: %w", err), http.StatusInternalServerError)
+			return
+		}
+		writeJSON(w, map[string]any{"description": meta.Description, "image": meta.Image, "updated": true})
+	default:
+		writeError(w, fmt.Errorf("method %s not allowed", r.Method), http.StatusMethodNotAllowed)
+	}
+}
+
 // handleRender sanitizes a raw note body into the Markdown the frontend renders: track action links
 // (editor-only, not web-navigable) are flattened to plain text while wiki links, code, and ordinary
 // Markdown pass through. Keeping this on the server makes the engine the single source of truth for

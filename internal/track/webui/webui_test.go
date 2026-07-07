@@ -989,3 +989,48 @@ func TestViewSpecReturnsEChartsOption(t *testing.T) {
 		t.Fatalf("bad spec status = %d, want 400", resp2.StatusCode)
 	}
 }
+
+func TestNoteMetaEndpoint(t *testing.T) {
+	server, cfg := putNoteSetup(t, 100, "Alpha", "Body.\n")
+
+	if err := os.MkdirAll(cfg.AssetsDir(), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(cfg.AssetsDir(), "cover.png"), []byte("png"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	post := func(body string) (*http.Response, map[string]any) {
+		t.Helper()
+		resp, err := http.Post(server.URL+"/api/note/meta?id=100", "application/json", strings.NewReader(body))
+		if err != nil {
+			t.Fatal(err)
+		}
+		defer resp.Body.Close()
+		var decoded map[string]any
+		_ = json.NewDecoder(resp.Body).Decode(&decoded)
+		return resp, decoded
+	}
+
+	// Edits go through the engine's validated write path; the response echoes the stored values.
+	resp, res := post(`{"description":"  a summary  ","image":"assets/cover.png"}`)
+	if resp.StatusCode != http.StatusOK || res["description"] != "a summary" || res["image"] != "assets/cover.png" || res["updated"] != true {
+		t.Fatalf("unexpected meta response: %d %v", resp.StatusCode, res)
+	}
+	got := getJSON(t, server.URL+"/api/note/meta?id=100")
+	if got["description"] != "a summary" || got["image"] != "assets/cover.png" {
+		t.Fatalf("unexpected meta read: %v", got)
+	}
+
+	// A null field is untouched; an empty string clears.
+	resp, res = post(`{"image":""}`)
+	if resp.StatusCode != http.StatusOK || res["description"] != "a summary" || res["image"] != "" {
+		t.Fatalf("clear image failed: %d %v", resp.StatusCode, res)
+	}
+
+	// A bad image is a 400 carrying the engine's message.
+	resp, _ = post(`{"image":"assets/nope.png"}`)
+	if resp.StatusCode != http.StatusBadRequest {
+		t.Fatalf("bad image should be a 400, got %d", resp.StatusCode)
+	}
+}

@@ -87,6 +87,19 @@ export interface DeleteNoteResponse {
   deleted: boolean;
 }
 
+// A note's page metadata (sidecar description / cover image), edited via the meta dialog and
+// published as og:description / og:image by the static export.
+export interface NoteMetaResponse {
+  description: string;
+  image: string;
+}
+
+// A save request leaves an omitted field untouched; an empty string clears it (engine semantics).
+export interface SaveNoteMetaRequest {
+  description?: string;
+  image?: string;
+}
+
 export interface FollowState {
   note_id: NoteID;
   file_kind: FileKind;

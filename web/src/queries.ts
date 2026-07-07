@@ -7,6 +7,7 @@ import {
   getGraph,
   getLocalGraph,
   getNote,
+  getNoteMeta,
   getOgp,
   getSite,
   listNotes,
@@ -14,11 +15,12 @@ import {
   renderViewSpec,
   resolveTerm,
   saveNote,
+  saveNoteMeta,
   searchNotes,
 } from "./api";
 import { STATIC_MODE } from "./runtime";
 import { useDebouncedValue } from "./hooks/useDebouncedValue";
-import type { NoteID, NoteResponse, SaveNoteRequest } from "./types";
+import type { NoteID, NoteMetaResponse, NoteResponse, SaveNoteMetaRequest, SaveNoteRequest } from "./types";
 
 export const queryKeys = {
   site: () => ["site"] as const,
@@ -27,6 +29,7 @@ export const queryKeys = {
   graph: () => ["graph"] as const,
   localGraph: (noteID: NoteID) => ["graph", "local", noteID] as const,
   note: (noteID: NoteID) => ["note", noteID] as const,
+  noteMeta: (noteID: NoteID) => ["note-meta", noteID] as const,
   notes: () => ["notes"] as const,
   resolve: (term: string) => ["resolve", term] as const,
   search: (query: string, limit: number) => ["search", query, limit] as const,
@@ -214,6 +217,27 @@ export function useSaveNoteMutation(noteID: NoteID) {
       void queryClient.invalidateQueries({ queryKey: ["search"] });
       void queryClient.invalidateQueries({ queryKey: ["graph"] });
       void queryClient.invalidateQueries({ queryKey: ["activity"] });
+    },
+  });
+}
+
+// useNoteMetaQuery loads a note's page metadata for the meta dialog; fetched only while the dialog
+// is open (live server only — the static site has no editor).
+export function useNoteMetaQuery(noteID: NoteID, opts: { enabled: boolean }) {
+  return useQuery({
+    queryKey: queryKeys.noteMeta(noteID),
+    queryFn: () => getNoteMeta(noteID),
+    enabled: opts.enabled,
+  });
+}
+
+export function useSaveNoteMetaMutation(noteID: NoteID) {
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: (request: SaveNoteMetaRequest) => saveNoteMeta(noteID, request),
+    onSuccess: (response) => {
+      queryClient.setQueryData<NoteMetaResponse>(queryKeys.noteMeta(noteID), response);
     },
   });
 }
