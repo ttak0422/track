@@ -1,0 +1,65 @@
+{
+  "version": 2,
+  "mark": "line",
+  "title": "Annotation boxes",
+  "data": {
+    "kind": "metric",
+    "records": [
+      {
+        "name": "Series",
+        "time": "2026-01-05",
+        "value": 3
+      },
+      {
+        "name": "Series",
+        "time": "2026-01-12",
+        "value": 7
+      },
+      {
+        "name": "Series",
+        "time": "2026-01-19",
+        "value": 4
+      },
+      {
+        "name": "Series",
+        "time": "2026-01-26",
+        "value": 8
+      },
+      {
+        "name": "Series",
+        "time": "2026-02-02",
+        "value": 6
+      }
+    ]
+  },
+  "encoding": {
+    "x": {
+      "field": "time"
+    },
+    "y": [
+      {
+        "field": "value",
+        "title": "value"
+      }
+    ]
+  },
+  "overlays": [
+    {
+      "records": [
+        {
+          "time": "2026-01-12",
+          "title": "v1.0 released",
+          "url": "https://example.com/release"
+        },
+        {
+          "time": "2026-01-26",
+          "title": "outage postmortem",
+          "url": "https://example.com/postmortem"
+        }
+      ],
+      "kind": "event",
+      "label": "title",
+      "display": "box"
+    }
+  ]
+}

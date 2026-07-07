@@ -89,7 +89,8 @@ Key fields:
 - `overlays` — reference geometry over the chart: `{source, kind}` (or `{records, kind}` with the
   events inline) draws events/annotations as vertical markers, `{y, axis?, label?}` a horizontal
   threshold line, `{from, to, label?}` a shaded period band, and `{x, y, label}` a callout bubble
-  pointing at one data point.
+  pointing at one data point. A marker overlay with `display: "box"` also draws each event as an
+  always-visible annotation box hugging the plot (web reader only).
 
 ## Embedding a chart in a note
 
@@ -192,6 +193,28 @@ over any category-axis chart. All four travel with the spec (inline records or l
 second data file), so they work in embedded assets too.
 
 ![Event marker, threshold line, and period band](assets/chart-overlay.viewspec.json)
+
+**Annotation boxes** (`display: "box"` on a marker overlay) — each event also becomes a small
+always-visible box hugging the plot, boxes alternating above and below it: the date (the `at` value,
+trimmed to its day), the wrapped label, and a source link taken from the record's `url`. The chart
+doubles as a scannable index of its evidence. The rail is drawn by the web reader (workspace and
+published site); the standalone HTML page, the composed article, and the SVG renderer keep the
+classic marker look.
+
+```json
+"overlays": [
+  {
+    "records": [
+      { "time": "2026-01-12", "title": "v1.0 released", "url": "https://example.com/release" }
+    ],
+    "kind": "event",
+    "label": "title",
+    "display": "box"
+  }
+]
+```
+
+![Annotation boxes](assets/chart-box.viewspec.json)
 
 A **bubble** (`mark: point` with a quantitative x, `{x, y, r}` points sized by `size`) is drawn over
 linear axes by both the default `echarts` renderer and the `svg` renderer.
