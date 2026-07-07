@@ -277,7 +277,8 @@ A record with no `at` value is skipped. The marker is placed at the matching x-a
 `at` value should equal one of the x-axis labels (the renderer uses a category x-axis). Multiple
 overlays accumulate.
 
-With `"display": "box"` each marker additionally becomes a small always-visible box below the plot —
+With `"display": "box"` each marker additionally becomes a small always-visible box hugging the plot
+(boxes alternate above and below it) —
 date line, wrapped label, source link — staggered into lanes and anchored to its x position, so the
 chart doubles as a scannable index of its evidence. The engine resolves the box content: the date is
 the `at` value (an RFC3339 timestamp is trimmed to its day), the source link and its display host

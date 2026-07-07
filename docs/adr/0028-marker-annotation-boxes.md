@@ -20,9 +20,10 @@ between the spec, the option, and the drawing surface.
 
 ## Decision
 
-Add an opt-in display mode that renders a marker overlay as an **annotation rail**: an always-visible
-band of boxes below the plot, anchored to their x positions. The ADR 0027 split carries the seam: **the
-engine decides content, membership, and order; the web frontend owns geometry.**
+Add an opt-in display mode that renders a marker overlay as an **annotation rail**: always-visible
+bands of boxes hugging the plot above and below (boxes alternate sides, so dense timelines split
+their depth like the goal articles), anchored to their x positions. The ADR 0027 split carries the
+seam: **the engine decides content, membership, and order; the web frontend owns geometry.**
 
 - **One word of vocabulary.** The `overlays[]` marker entry gains `"display": "box"` (absent = today's
   line-and-label rendering). It is validated like every overlay option — unknown values error, the
@@ -55,11 +56,13 @@ engine decides content, membership, and order; the web frontend owns geometry.**
   shift); `convertToPixel` then only refines anchors horizontally on `finished`/`datazoom`/resize.
   Boxes zoomed out of the window turn invisible without reflowing the lanes; overflowing the lane cap
   or a narrow container (phones, small floating windows) flips the rail to a flat list. A box shows the
-  engine's date and host, the item's headline, the source link (`noopener`), and a note chip using the
-  existing note-navigation call.
+  engine's date and host, the item's headline, and the source link (`noopener`) — no vault-note
+  affordance: fetched event data only ever carries a source URL, so note references stay a line-click
+  concern (ADR 0027). Stems connect each box to the plot's measured edge and stack behind every box,
+  so a line never strikes through another box's text.
 - **Publish safety is inherited, plus one prerequisite.** Note ids stay under the key literally named
   `note`, so the static export's generic walk keeps rewriting them to publish slugs and dropping
-  unpublished references; a box whose reference was dropped renders without the chip. Prerequisite,
+  unpublished references (boxes never render them; the line click still uses them). Prerequisite,
   shipped as its own commit first: the `.viewspec.json` asset path must route through the same rewrite —
   it currently publishes raw internal ids inside `.echarts.json`, a dead click today that an
   always-visible box would print as text.
@@ -78,5 +81,5 @@ engine decides content, membership, and order; the web frontend owns geometry.**
   on its clone.
 - Box-mode markLine items are reordered (sorted by category index) relative to record order; nothing
   observable depends on the old order, but golden-style substring tests must not assume it.
-- Deferred: SVG rail boxes, hover linking between a box and its line, above-plot placement, and
+- Deferred: SVG rail boxes, hover linking between a box and its line, and
   partial-overflow degradation (a "+N more" chip) — each is a follow-up that needs no new vocabulary.

@@ -88,7 +88,7 @@ export function EChartsBlock({ option }: EChartsBlockProps) {
             ? x
             : null;
         });
-        setAnchors({ xs, gap: plotBottomGap(chart!, xs, el.clientHeight, midY) });
+        setAnchors({ xs, ...plotEdgeGaps(chart!, xs, el.clientHeight, midY) });
       };
       if (rail.boxes.length > 0) {
         layoutAnchors();
@@ -157,41 +157,50 @@ export function EChartsBlock({ option }: EChartsBlockProps) {
   if (rail.boxes.length === 0) {
     return chartHost;
   }
-  // The rail is a sibling of the role="img" host (not a child): its links stay visible to assistive
-  // tech, and the wheel/pinch listeners above keep their scope.
+  // The rails are siblings of the role="img" host (not children): their links stay visible to
+  // assistive tech, and the wheel/pinch listeners above keep their scope. Boxes alternate between
+  // the above and below bands (railSide), hugging the chart from both sides.
   return (
     <figure className="viewspec-chart-wrap">
+      <MarkerRail boxes={rail.boxes} fractions={rail.fractions} anchors={anchors} side="above" />
       {chartHost}
-      <MarkerRail boxes={rail.boxes} fractions={rail.fractions} anchors={anchors} />
+      <MarkerRail boxes={rail.boxes} fractions={rail.fractions} anchors={anchors} side="below" />
     </figure>
   );
 }
 
-// plotBottomGap measures how far the plot's bottom edge sits above the chart container's bottom —
-// the strip holding the axis labels and zoom slider — by bisecting containPixel along a visible
-// marker's x. The rail's stems span that strip so each box's line continues the marker line
-// unbroken. Without a visible anchor (everything zoomed out) there is nothing to bridge.
-export function plotBottomGap(
+// plotEdgeGaps measures how far the plot's bottom and top edges sit inside the chart container —
+// the strips holding the axis labels / zoom slider (below) and the title / legend (above) — by
+// bisecting containPixel along a visible marker's x. The rails' stems span those strips so each
+// box's line continues the marker line unbroken. Without a visible anchor (everything zoomed out)
+// there is nothing to bridge.
+export function plotEdgeGaps(
   chart: import("echarts").ECharts,
   xs: (number | null)[],
   height: number,
   insideY: number,
-): number {
+): { gapBelow: number; gapAbove: number } {
   const x = xs.find((v): v is number => v !== null);
   if (x === undefined || !chart.containPixel({ gridIndex: 0 }, [x, insideY])) {
-    return 0;
+    return { gapBelow: 0, gapAbove: 0 };
   }
-  let lo = insideY; // known inside the grid
-  let hi = height; // known below it
-  for (let i = 0; i < 10; i++) {
-    const mid = (lo + hi) / 2;
-    if (chart.containPixel({ gridIndex: 0 }, [x, mid])) {
-      lo = mid;
-    } else {
-      hi = mid;
+  const edge = (outsideY: number) => {
+    let inside = insideY;
+    let outside = outsideY;
+    for (let i = 0; i < 10; i++) {
+      const mid = (inside + outside) / 2;
+      if (chart.containPixel({ gridIndex: 0 }, [x, mid])) {
+        inside = mid;
+      } else {
+        outside = mid;
+      }
     }
-  }
-  return Math.max(0, Math.round(height - lo));
+    return inside;
+  };
+  return {
+    gapBelow: Math.max(0, Math.round(height - edge(height))),
+    gapAbove: Math.max(0, Math.round(edge(0))),
+  };
 }
 
 // suppressBoxLabels hides the classic in-plot label on box-mode markLine items — the rail shows the

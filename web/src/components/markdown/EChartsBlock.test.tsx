@@ -4,7 +4,7 @@ import {
   attachDetailTooltip,
   detailTooltipFormatter,
   EChartsBlock,
-  plotBottomGap,
+  plotEdgeGaps,
   suppressBoxLabels,
 } from "./EChartsBlock";
 
@@ -32,25 +32,7 @@ vi.mock("echarts", () => ({
 }));
 
 const navigate = vi.hoisted(() => vi.fn());
-vi.mock("@tanstack/react-router", () => ({
-  useNavigate: () => navigate,
-  Link: ({
-    className,
-    params,
-    children,
-  }: {
-    className?: string;
-    params?: { noteId?: string };
-    children?: React.ReactNode;
-  }) => (
-    <a className={className} data-note={params?.noteId}>
-      {children}
-    </a>
-  ),
-}));
-vi.mock("../../queries", () => ({
-  useNoteQuery: () => ({ data: { note: { title: "参照先ノート" } } }),
-}));
+vi.mock("@tanstack/react-router", () => ({ useNavigate: () => navigate }));
 
 async function renderChart(option: Record<string, unknown>) {
   const result = render(<EChartsBlock option={option} />);
@@ -165,24 +147,23 @@ describe("annotation rail", () => {
     expect(original[0].markLine.data[0].label).toEqual({ formatter: "First event" });
   });
 
-  it("renders a box's note reference like any other note link: the title as a wiki link", async () => {
+  it("carries no note affordance in the boxes: note refs stay a line-click concern", async () => {
     const { container } = await renderChart(boxOption());
-    const link = container.querySelector(".chart-annotation-links .wiki-link");
-    expect(link).not.toBeNull();
-    expect(link?.textContent).toBe("参照先ノート");
-    expect(link?.getAttribute("data-note")).toBe("123");
+    // The option's markLine item carries note "123" (for the line click and the publish rewrite),
+    // but the box renders only the external source.
+    expect(container.querySelectorAll(".chart-annotation-links a")).toHaveLength(1);
   });
 });
 
-describe("plotBottomGap", () => {
-  it("bisects the plot's bottom edge from containPixel", () => {
-    // A grid spanning y=[56, 300] in a 360px container: the gap is the 60px axis-label strip.
+describe("plotEdgeGaps", () => {
+  it("bisects the plot's edges from containPixel", () => {
+    // A grid spanning y=[56, 300] in a 360px container: a 60px axis strip below, 56px legend above.
     const chart = {
-      containPixel: (_finder: unknown, [, y]: [number, number]) => y <= 300,
+      containPixel: (_finder: unknown, [, y]: [number, number]) => y >= 56 && y <= 300,
     } as unknown as import("echarts").ECharts;
-    expect(plotBottomGap(chart, [100], 360, 180)).toBe(60);
+    expect(plotEdgeGaps(chart, [100], 360, 180)).toEqual({ gapBelow: 60, gapAbove: 56 });
     // No visible anchor: nothing to bridge.
-    expect(plotBottomGap(chart, [null], 360, 180)).toBe(0);
+    expect(plotEdgeGaps(chart, [null], 360, 180)).toEqual({ gapBelow: 0, gapAbove: 0 });
   });
 });
 

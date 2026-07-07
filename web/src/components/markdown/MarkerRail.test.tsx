@@ -1,13 +1,5 @@
-import { describe, expect, it, vi } from "vitest";
-import { BOX_WIDTH, extractRail, layoutLanes } from "./MarkerRail";
-
-vi.mock("@tanstack/react-router", () => ({
-  useNavigate: () => vi.fn(),
-  Link: () => null,
-}));
-vi.mock("../../queries", () => ({
-  useNoteQuery: () => ({ data: undefined }),
-}));
+import { describe, expect, it } from "vitest";
+import { BOX_WIDTH, extractRail, layoutLanes, railSide } from "./MarkerRail";
 
 describe("extractRail", () => {
   const option = (): Record<string, unknown> => ({
@@ -35,7 +27,6 @@ describe("extractRail", () => {
       headline: "ev",
       href: "https://example.com/x",
       host: "example.com",
-      note: "",
     });
     expect(rail.boxes[1].headline).toBe("");
     expect(rail.fractions).toEqual([1.5 / 4, 3.5 / 4]);
@@ -54,6 +45,12 @@ describe("extractRail", () => {
   it("returns nothing for options without box markers", () => {
     expect(extractRail({ series: [{ data: [1, 2] }] }).boxes).toHaveLength(0);
     expect(extractRail({}).boxes).toHaveLength(0);
+  });
+});
+
+describe("railSide", () => {
+  it("alternates boxes across the chart so same-day pairs split sides", () => {
+    expect([0, 1, 2, 3].map(railSide)).toEqual(["below", "above", "below", "above"]);
   });
 });
 

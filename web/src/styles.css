@@ -1980,8 +1980,15 @@ a.calendar-title:focus-visible {
   margin: 0;
 }
 
-.chart-annotations {
+/* Scoped under the wrap to outrank the markdown view's generic list rules (margin/padding) — any
+   gap between a rail and the chart would break the stem's continuity with its marker line. */
+.viewspec-chart-wrap .chart-annotations {
   position: relative;
+  /* Its own stacking context: the stems' negative z-index keeps them behind every box (and its
+     text/links) without letting them slip behind the page background; the positioned rail itself
+     paints above the chart div's panel background, so an above-rail stem crossing the legend strip
+     stays visible while legend text (drawn later on the canvas) still paints over the line. */
+  z-index: 0;
   margin: 0;
   padding: 0;
   list-style: none;
@@ -2058,9 +2065,12 @@ a.calendar-title:focus-visible {
   color: var(--text);
 }
 
-/* The stem drops from the chart's bottom edge to its box, continuing the vertical marker line. */
+/* The stem connects the plot's edge to its box, continuing the vertical marker line. It stacks
+   behind every box (negative z-index within the rail's context), so it never strikes through
+   another box's text or links. */
 .chart-annotation-stem {
   position: absolute;
+  z-index: -1;
   width: 1px;
   background: color-mix(in srgb, var(--danger) 35%, transparent);
   pointer-events: none;
