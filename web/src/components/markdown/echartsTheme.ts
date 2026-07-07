@@ -66,10 +66,14 @@ export function applyChartTheme(
   }
   if (opt.visualMap) {
     opt.visualMap.textStyle = { ...opt.visualMap.textStyle, color: t.muted };
-    // Only the sequential (2-stop) ramp follows the theme; a diverging ramp (3 stops) carries the
-    // engine's semantic market red→neutral→green and stays as chosen, like candlestick up/down.
+    // The sequential (2-stop) ramp follows the theme wholesale. A diverging ramp (3 stops) keeps the
+    // engine's semantic market red/green endpoints — like candlestick up/down — but its neutral
+    // midpoint is presentation, not semantics: it becomes the panel surface so a near-zero cell
+    // blends into the page in both themes instead of glowing near-white on dark.
     if (opt.visualMap.inRange?.color?.length === 2) {
       opt.visualMap.inRange.color = [t.rampLo, t.rampHi];
+    } else if (opt.visualMap.inRange?.color?.length === 3) {
+      opt.visualMap.inRange.color[1] = t.panel;
     }
   }
   for (const zoom of asArray(opt.dataZoom)) {
@@ -100,6 +104,19 @@ export function applyChartTheme(
         backgroundColor: t.panel,
         borderColor: t.danger,
       };
+    }
+    if (s.type === "treemap") {
+      // The engine (and ECharts' defaults) paint the tile gaps, outer frame, and group-heading bands
+      // white — right for the standalone page's white body, glaring in the reader's dark theme. The
+      // bands are border area (upperLabel widens its level's top border), so every level's
+      // borderColor becomes the panel surface, explicit or defaulted, and the headings become theme
+      // text. The tiles' semantic market colors stay as the engine chose them.
+      for (const level of asArray(s.levels)) {
+        level.itemStyle = { ...level.itemStyle, borderColor: t.panel };
+      }
+      if (s.upperLabel) {
+        s.upperLabel = { ...s.upperLabel, color: t.text };
+      }
     }
   });
 

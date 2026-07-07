@@ -62,12 +62,35 @@ describe("applyChartTheme", () => {
     expect(themed.visualMap.inRange.color).toEqual([THEME.rampLo, THEME.rampHi]);
   });
 
-  it("keeps the diverging (3-stop) ramp's semantic market colors", () => {
-    const ramp = ["#e15759", "#f5f5f5", "#59a14f"];
+  it("repaints treemap gaps and group headings to the theme surface", () => {
     const themed = applyChartTheme(
-      { visualMap: { inRange: { color: [...ramp] } } },
+      {
+        series: [
+          {
+            type: "treemap",
+            upperLabel: { show: true, height: 20 },
+            levels: [
+              { itemStyle: { gapWidth: 2, borderWidth: 2, borderColor: "#ffffff" } },
+              { itemStyle: { gapWidth: 1 } },
+            ],
+          },
+        ],
+      },
       THEME,
     ) as any;
-    expect(themed.visualMap.inRange.color).toEqual(ramp);
+    const s = themed.series[0];
+    // Every level's border becomes the panel surface — the group bands are ECharts' *default* white
+    // border on the un-styled level, so the defaulted level must be painted too.
+    expect(s.levels[0].itemStyle.borderColor).toBe(THEME.panel);
+    expect(s.levels[1].itemStyle.borderColor).toBe(THEME.panel);
+    expect(s.upperLabel.color).toBe(THEME.text);
+  });
+
+  it("keeps the diverging ramp's market endpoints and themes only its neutral", () => {
+    const themed = applyChartTheme(
+      { visualMap: { inRange: { color: ["#e15759", "#f5f5f5", "#59a14f"] } } },
+      THEME,
+    ) as any;
+    expect(themed.visualMap.inRange.color).toEqual(["#e15759", THEME.panel, "#59a14f"]);
   });
 });
