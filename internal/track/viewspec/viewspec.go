@@ -38,11 +38,12 @@ const (
 	MarkArea        Mark = "area"        // a line with the region between it and zero filled
 	MarkRect        Mark = "rect"        // heatmap: a grid colored by a value channel
 	MarkCandlestick Mark = "candlestick" // OHLC bars for the price kind; open/high/low/close are implied, so no y channels
+	MarkTreemap     Mark = "treemap"     // area-proportional rectangles (size), colored by a value (color), grouped one level (y[0])
 )
 
 // Marks lists the marks a spec may use, in a stable order. It is the single source for both validation
 // and help text, so a new mark shows up in `track render --help` automatically.
-var Marks = []Mark{MarkLine, MarkBar, MarkPoint, MarkArea, MarkRect, MarkCandlestick}
+var Marks = []Mark{MarkLine, MarkBar, MarkPoint, MarkArea, MarkRect, MarkCandlestick, MarkTreemap}
 
 // validMark reports whether m is a drawable mark.
 func validMark(m Mark) bool { return slices.Contains(Marks, m) }
@@ -81,6 +82,7 @@ const (
 	ChartHeatmap     ChartType = "heatmap"     // rect mark: x × y grid colored by the color channel
 	ChartTimeline    ChartType = "timeline"    // point mark, nominal y: swimlane dots sized by the size channel
 	ChartCandlestick ChartType = "candlestick" // candlestick mark: OHLC bars over a category x axis
+	ChartTreemap     ChartType = "treemap"     // treemap mark: axis-less area rectangles colored by the color channel
 )
 
 // AxisOptions lists the valid y-series axis assignments (primary/secondary), for help and validation.
@@ -120,8 +122,9 @@ type Encoding struct {
 // drawing form. Axis assigns a y channel to the primary ("y", default) or secondary ("y2") axis; it is
 // ignored on non-y channels. Sort and Limit order and truncate the category axis (see SortOptions);
 // they are only accepted on the channel that supplies it. Stack stacks a bar's series and is only
-// accepted on the bar mark's measure channel. Placement of these options is enforced by Validate, so
-// a misplaced option errors instead of being silently ignored.
+// accepted on the bar mark's measure channel. Scale selects the color ramp for a quantitative color
+// value (rect/treemap) and is only accepted there. Placement of these options is enforced by Validate,
+// so a misplaced option errors instead of being silently ignored.
 type Channel struct {
 	Field string      `json:"field"`
 	Title string      `json:"title,omitempty"`
@@ -131,7 +134,13 @@ type Channel struct {
 	Limit int         `json:"limit,omitempty"` // keep only the first N categories (after sort): top-N
 	Stack bool        `json:"stack,omitempty"` // bar mark: stack the series instead of grouping them
 	Mark  Mark        `json:"mark,omitempty"`  // y channels only: draw this series as line|bar|area (a combo chart)
+	Scale string      `json:"scale,omitempty"` // color channel on rect/treemap: "" (sequential) | "diverging"
 }
+
+// ScaleDiverging is the color channel's zero-centered ramp (negative red → neutral → positive green,
+// the market convention), for a quantitative cell value on rect/treemap. The empty scale is the
+// default sequential (light→dark) ramp.
+const ScaleDiverging = "diverging"
 
 // title returns the user-facing label for a channel, falling back to the field name.
 func (c Channel) title() string {
@@ -167,7 +176,7 @@ func (c Channel) axisID() string {
 
 // chart derives the resolved drawing form from the mark and the encoding's channel types. A bar with a
 // nominal y is horizontal; a point is a timeline (nominal y), a bubble (quantitative x), or a category
-// scatter (nominal x); a rect is a heatmap; area and candlestick map one-to-one.
+// scatter (nominal x); a rect is a heatmap; area, candlestick, and treemap map one-to-one.
 func (s Spec) chart() ChartType {
 	switch s.Mark {
 	case MarkBar:
@@ -189,6 +198,8 @@ func (s Spec) chart() ChartType {
 		return ChartArea
 	case MarkCandlestick:
 		return ChartCandlestick
+	case MarkTreemap:
+		return ChartTreemap
 	default: // line
 		return ChartLine
 	}
@@ -439,7 +450,7 @@ func (s Spec) Validate() error {
 	if !s.Data.Kind.Valid() {
 		return fmt.Errorf("view spec: data.kind %q is not a canonical kind", s.Data.Kind)
 	}
-	if err := s.Encoding.validate(s.Mark != MarkCandlestick); err != nil {
+	if err := s.Encoding.validate(s.Mark != MarkCandlestick && s.Mark != MarkTreemap); err != nil {
 		return err
 	}
 	if err := s.validateChannelOptions(); err != nil {
@@ -447,6 +458,30 @@ func (s Spec) Validate() error {
 	}
 	if s.Mark == MarkRect && (s.Encoding.Color == nil || s.Encoding.Color.Field == "") {
 		return fmt.Errorf("view spec: mark rect requires encoding.color.field (the cell value)")
+	}
+	// A treemap is the first axis-less form: x is the leaf label, an optional single nominal y[0] is
+	// the group, size gives each rectangle's area and color its (quantitative) cell value.
+	if s.Mark == MarkTreemap {
+		if !s.Encoding.X.nominal() {
+			return fmt.Errorf("view spec: mark treemap requires a nominal encoding.x (the leaf label)")
+		}
+		if len(s.Encoding.Y) > 1 {
+			return fmt.Errorf("view spec: mark treemap takes at most one encoding.y channel (the group)")
+		}
+		if len(s.Encoding.Y) == 1 && !s.Encoding.Y[0].nominal() {
+			return fmt.Errorf("view spec: mark treemap requires a nominal encoding.y[0] (the group)")
+		}
+		if s.Encoding.Size == nil || s.Encoding.Size.Field == "" {
+			return fmt.Errorf("view spec: mark treemap requires encoding.size.field (the rectangle area)")
+		}
+		if s.Encoding.Color == nil || s.Encoding.Color.Field == "" {
+			return fmt.Errorf("view spec: mark treemap requires encoding.color.field (the cell value)")
+		}
+		// Overlay geometry anchors on axes (a category x, a value y); a treemap has neither, so every
+		// overlay shape is rejected rather than silently dropped (the strict-schema stance).
+		if len(s.Overlays) > 0 {
+			return fmt.Errorf("view spec: overlays are not supported on treemap charts (no axes to anchor on)")
+		}
 	}
 	// A candlestick reads the price kind's canonical OHLC fields directly, so the vertical encoding is
 	// implied: no y channels, and no color/size (the up/down coloring is part of the mark).
@@ -466,13 +501,13 @@ func (s Spec) Validate() error {
 	// yet. An explicit error beats silently dropping them (the strict-schema stance).
 	if s.Encoding.Href != nil || s.Encoding.Note != nil || len(s.Encoding.Detail) > 0 {
 		switch s.chart() {
-		case ChartHeatmap, ChartTimeline, ChartBubble, ChartCandlestick:
+		case ChartHeatmap, ChartTimeline, ChartBubble, ChartCandlestick, ChartTreemap:
 			return fmt.Errorf("view spec: encoding.detail/href are not supported on %s charts", s.chart())
 		}
 	}
-	// On every mark but rect, color is a nominal category that splits records into one series per
-	// value; the constraints keep that split well-defined.
-	if s.Encoding.Color != nil && s.Mark != MarkRect {
+	// On every mark but rect and treemap, color is a nominal category that splits records into one
+	// series per value; the constraints keep that split well-defined.
+	if s.Encoding.Color != nil && s.Mark != MarkRect && s.Mark != MarkTreemap {
 		if !s.Encoding.Color.nominal() {
 			return fmt.Errorf("view spec: encoding.color on mark %s must be type nominal (records split into one series per category)", s.Mark)
 		}
@@ -635,6 +670,16 @@ func (s Spec) validateChannelOptions() error {
 				return fmt.Errorf("view spec: %s.stack applies only to mark bar", nc.name)
 			}
 			return fmt.Errorf("view spec: %s.stack belongs on the bar's measure channel (%s)", nc.name, stackName)
+		}
+		if nc.ch.Scale != "" {
+			if nc.ch.Scale != ScaleDiverging {
+				return fmt.Errorf("view spec: %s.scale %q is not %q", nc.name, nc.ch.Scale, ScaleDiverging)
+			}
+			// Only a quantitative cell value has a color ramp to pick; everywhere else color is a
+			// nominal series split (or absent) and a scale would be a silent no-op.
+			if nc.name != "encoding.color" || (s.Mark != MarkRect && s.Mark != MarkTreemap) {
+				return fmt.Errorf("view spec: %s.scale applies only to encoding.color on mark rect or treemap (a quantitative cell value)", nc.name)
+			}
 		}
 	}
 	return nil
@@ -879,9 +924,24 @@ type Cell struct {
 	Value    float64
 }
 
+// Tree is the resolved form of a treemap: one node per source record, in record order (so group
+// accumulation stays first-seen deterministic, like Grid). It is populated instead of Series.
+type Tree struct {
+	Nodes []TreeNode
+}
+
+// TreeNode is one treemap leaf: Label from the x channel, Group from the optional y[0] channel
+// (empty for a flat treemap), Size the rectangle area and Value its color value. Size or Value is
+// NaN when the field is absent; renderers skip a node without a drawable area or value.
+type TreeNode struct {
+	Label, Group string
+	Size, Value  float64
+}
+
 // Resolved is a Spec applied to data: the resolved drawing form plus the shared x-axis labels and one
 // Series per y encoding. A Renderer consumes Resolved and never touches raw records, keeping field
-// extraction in one place. Grid is set instead of Series for grid forms (heatmap/timeline).
+// extraction in one place. Grid is set instead of Series for grid forms (heatmap/timeline); Tree for
+// the treemap form.
 type Resolved struct {
 	Spec     Spec
 	Chart    ChartType // resolved drawing form (computed from mark + encoding)
@@ -889,6 +949,7 @@ type Resolved struct {
 	Labels   []string
 	Series   []Series
 	Grid     *Grid
+	Tree     *Tree
 	Markers  []Marker  // vertical overlays (events/annotations): inline records fill them in Resolve, source overlays are filled by the caller from Overlays
 	Lines    []RefLine // horizontal reference lines, filled by Resolve (they carry no data source)
 	Bands    []Band    // x-range highlights, filled by Resolve (they carry no data source)
@@ -902,6 +963,13 @@ func (r Resolved) SeriesForm(i int) ChartType {
 		return r.Series[i].Mark
 	}
 	return r.Chart
+}
+
+// DivergingColor reports whether the color channel asks for the diverging (zero-centered, negative
+// red → positive green) ramp instead of the default sequential one, so both renderers read the
+// option from one place.
+func (r Resolved) DivergingColor() bool {
+	return r.Spec.Encoding.Color != nil && r.Spec.Encoding.Color.Scale == ScaleDiverging
 }
 
 // Resolve applies the spec's filter and encoding to records, producing the resolved drawing form and
@@ -923,6 +991,9 @@ func (s Spec) Resolve(records []dataset.Record) Resolved {
 		s.resolveHorizontal(records, &res)
 	case ChartCandlestick:
 		s.resolveCandles(records, &res)
+	case ChartTreemap:
+		t := s.resolveTree(records)
+		res.Tree = &t
 	default: // line, area, bar, scatter — category x, numeric y series
 		s.resolveSeries(records, &res)
 	}
@@ -1170,6 +1241,28 @@ func (s Spec) resolveGrid(records []dataset.Record, value *Channel) Grid {
 		})
 	}
 	return g
+}
+
+// resolveTree maps records onto treemap leaves: x.field is the leaf label, the optional y[0].field
+// the group (empty for a flat treemap), size.field the area and color.field the color value. Nothing
+// is skipped here — a node with a NaN/non-positive size or NaN value is the renderer's call (both
+// skip it: no area cannot be drawn, and no value has no color).
+func (s Spec) resolveTree(records []dataset.Record) Tree {
+	var t Tree
+	for _, rec := range s.filtered(records) {
+		label, _ := rec.String(s.Encoding.X.Field)
+		group := ""
+		if len(s.Encoding.Y) > 0 {
+			group, _ = rec.String(s.Encoding.Y[0].Field)
+		}
+		t.Nodes = append(t.Nodes, TreeNode{
+			Label: label,
+			Group: group,
+			Size:  floatOrNaN(rec, s.Encoding.Size.Field),
+			Value: floatOrNaN(rec, s.Encoding.Color.Field),
+		})
+	}
+	return t
 }
 
 // sortAndLimit reorders the resolved category axis per the label channel's sort option and truncates

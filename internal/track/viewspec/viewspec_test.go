@@ -1004,6 +1004,118 @@ func TestCandlestickValidation(t *testing.T) {
 	}
 }
 
+func TestTreemapResolve(t *testing.T) {
+	s, err := Load(strings.NewReader(`{"version":2,"mark":"treemap","data":{"source":"x","kind":"metric"},` +
+		`"encoding":{"x":{"field":"entity","type":"nominal"},"y":[{"field":"sector","type":"nominal"}],` +
+		`"size":{"field":"cap"},"color":{"field":"value","scale":"diverging"}}}`))
+	if err != nil {
+		t.Fatalf("Load: %v", err)
+	}
+	recs, _ := dataset.ReadJSONL(strings.NewReader(
+		`{"name":"m","time":"1","entity":"AAA","sector":"Tech","cap":300,"value":2.1}` + "\n" +
+			`{"name":"m","time":"1","entity":"BBB","sector":"Energy","cap":120,"value":-1.4}` + "\n" +
+			`{"name":"m","time":"1","entity":"CCC","sector":"Tech","cap":80}` + "\n")) // missing value → NaN
+	res := s.Resolve(recs)
+	if res.Chart != ChartTreemap || res.Tree == nil {
+		t.Fatalf("treemap mark should resolve to a tree, got %q", res.Chart)
+	}
+	if !res.DivergingColor() {
+		t.Fatal("scale diverging should surface on Resolved")
+	}
+	if len(res.Tree.Nodes) != 3 {
+		t.Fatalf("nodes = %+v", res.Tree.Nodes)
+	}
+	if n := res.Tree.Nodes[0]; n.Label != "AAA" || n.Group != "Tech" || n.Size != 300 || n.Value != 2.1 {
+		t.Fatalf("node 0 = %+v", n)
+	}
+	if n := res.Tree.Nodes[1]; n.Group != "Energy" || n.Value != -1.4 {
+		t.Fatalf("node 1 = %+v", n)
+	}
+	if !math.IsNaN(res.Tree.Nodes[2].Value) {
+		t.Fatal("missing color value should be a NaN node value")
+	}
+}
+
+func TestTreemapFlatWithoutGroup(t *testing.T) {
+	// No y channel = a flat treemap; the group stays empty.
+	s, err := Load(strings.NewReader(`{"version":2,"mark":"treemap","data":{"source":"x","kind":"metric"},` +
+		`"encoding":{"x":{"field":"entity","type":"nominal"},"size":{"field":"cap"},"color":{"field":"value"}}}`))
+	if err != nil {
+		t.Fatalf("flat treemap should validate: %v", err)
+	}
+	recs, _ := dataset.ReadJSONL(strings.NewReader(`{"name":"m","time":"1","entity":"AAA","cap":10,"value":1}`))
+	res := s.Resolve(recs)
+	if res.DivergingColor() {
+		t.Fatal("default scale is sequential")
+	}
+	if len(res.Tree.Nodes) != 1 || res.Tree.Nodes[0].Group != "" {
+		t.Fatalf("nodes = %+v", res.Tree.Nodes)
+	}
+}
+
+func TestTreemapValidation(t *testing.T) {
+	load := func(spec string) error {
+		_, err := Load(strings.NewReader(spec))
+		return err
+	}
+	enc := `"x":{"field":"entity","type":"nominal"},"y":[{"field":"sector","type":"nominal"}],` +
+		`"size":{"field":"cap"},"color":{"field":"value"}`
+	invalid := map[string]string{
+		"quantitative x": `{"version":2,"mark":"treemap","data":{"source":"x","kind":"metric"},` +
+			`"encoding":{"x":{"field":"entity"},"y":[{"field":"sector","type":"nominal"}],"size":{"field":"cap"},"color":{"field":"value"}}}`,
+		"quantitative group": `{"version":2,"mark":"treemap","data":{"source":"x","kind":"metric"},` +
+			`"encoding":{"x":{"field":"entity","type":"nominal"},"y":[{"field":"sector"}],"size":{"field":"cap"},"color":{"field":"value"}}}`,
+		"two groups": `{"version":2,"mark":"treemap","data":{"source":"x","kind":"metric"},` +
+			`"encoding":{"x":{"field":"entity","type":"nominal"},"y":[{"field":"a","type":"nominal"},{"field":"b","type":"nominal"}],"size":{"field":"cap"},"color":{"field":"value"}}}`,
+		"no size": `{"version":2,"mark":"treemap","data":{"source":"x","kind":"metric"},` +
+			`"encoding":{"x":{"field":"entity","type":"nominal"},"color":{"field":"value"}}}`,
+		"no color": `{"version":2,"mark":"treemap","data":{"source":"x","kind":"metric"},` +
+			`"encoding":{"x":{"field":"entity","type":"nominal"},"size":{"field":"cap"}}}`,
+		"sort on x": `{"version":2,"mark":"treemap","data":{"source":"x","kind":"metric"},` +
+			`"encoding":{"x":{"field":"entity","type":"nominal","sort":"ascending"},"y":[{"field":"sector","type":"nominal"}],"size":{"field":"cap"},"color":{"field":"value"}}}`,
+		"detail set": `{"version":2,"mark":"treemap","data":{"source":"x","kind":"metric"},` +
+			`"encoding":{` + enc + `,"detail":[{"field":"note"}]}}`,
+		"href set": `{"version":2,"mark":"treemap","data":{"source":"x","kind":"metric"},` +
+			`"encoding":{` + enc + `,"href":{"field":"url"}}}`,
+		"line overlay": `{"version":2,"mark":"treemap","data":{"source":"x","kind":"metric"},` +
+			`"encoding":{` + enc + `},"overlays":[{"y":1}]}`,
+		"marker overlay": `{"version":2,"mark":"treemap","data":{"source":"x","kind":"metric"},` +
+			`"encoding":{` + enc + `},"overlays":[{"source":"e.jsonl","kind":"event"}]}`,
+	}
+	for name, spec := range invalid {
+		if err := load(spec); err == nil {
+			t.Errorf("%s: want error", name)
+		}
+	}
+}
+
+func TestValidateColorScalePlacement(t *testing.T) {
+	load := func(spec string) error {
+		_, err := Load(strings.NewReader(spec))
+		return err
+	}
+	if err := load(`{"version":2,"mark":"rect","data":{"source":"x","kind":"metric"},` +
+		`"encoding":{"x":{"field":"c","type":"nominal"},"y":[{"field":"r","type":"nominal"}],` +
+		`"color":{"field":"v","scale":"diverging"}}}`); err != nil {
+		t.Fatalf("diverging scale on a rect color should validate: %v", err)
+	}
+	invalid := map[string]string{
+		"unknown scale": `{"version":2,"mark":"rect","data":{"source":"x","kind":"metric"},` +
+			`"encoding":{"x":{"field":"c","type":"nominal"},"y":[{"field":"r","type":"nominal"}],"color":{"field":"v","scale":"rainbow"}}}`,
+		"scale on split color": `{"version":2,"mark":"line","data":{"source":"x","kind":"metric"},` +
+			`"encoding":{"x":{"field":"t"},"y":[{"field":"v"}],"color":{"field":"e","type":"nominal","scale":"diverging"}}}`,
+		"scale on x": `{"version":2,"mark":"rect","data":{"source":"x","kind":"metric"},` +
+			`"encoding":{"x":{"field":"c","type":"nominal","scale":"diverging"},"y":[{"field":"r","type":"nominal"}],"color":{"field":"v"}}}`,
+		"scale on size": `{"version":2,"mark":"treemap","data":{"source":"x","kind":"metric"},` +
+			`"encoding":{"x":{"field":"n","type":"nominal"},"size":{"field":"cap","scale":"diverging"},"color":{"field":"v"}}}`,
+	}
+	for name, spec := range invalid {
+		if err := load(spec); err == nil || !strings.Contains(err.Error(), "scale") {
+			t.Errorf("%s: want scale error, got %v", name, err)
+		}
+	}
+}
+
 func equalStrings(a, b []string) bool {
 	if len(a) != len(b) {
 		return false
