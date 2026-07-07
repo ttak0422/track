@@ -620,7 +620,11 @@ func buildTreemap(opt map[string]any, res viewspec.Resolved) {
 		"left": echartsInset, "right": 90, "top": top, "bottom": 16,
 		"breadcrumb": map[string]any{"show": false},
 		"nodeClick":  false,
-		"label":      map[string]any{"show": true},
+		// ECharts treemap roam (drag-pan / wheel-zoom) defaults to ON; a panned map slides its tiles
+		// over the title and the visualMap ramp, and the map is a static overview, not a navigation
+		// surface (like nodeClick above).
+		"roam":  false,
+		"label": map[string]any{"show": true},
 		// {c} prints the [size, value] pair, so the tooltip reads "label: size,value".
 		"tooltip": map[string]any{"formatter": "{b}: {c}"},
 		"levels": []any{

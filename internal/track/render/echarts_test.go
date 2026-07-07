@@ -157,7 +157,7 @@ func TestEChartsTreemapGroupsAndVisualMap(t *testing.T) {
 		// Diverging: domain symmetric around zero over dimension 1, market red→neutral→green.
 		`"dimension":1`, `"min":-4`, `"max":4`,
 		`"color":["` + candleDown + `","` + divergeNeutral + `","` + candleUp + `"]`,
-		`"breadcrumb":{"show":false}`, `"upperLabel"`,
+		`"breadcrumb":{"show":false}`, `"roam":false`, `"upperLabel"`,
 	} {
 		if !strings.Contains(out, want) {
 			t.Errorf("treemap option missing %q: %s", want, out)
