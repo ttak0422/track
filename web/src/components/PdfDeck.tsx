@@ -1,6 +1,19 @@
 import { useEffect, useRef, useState } from "react";
 import type { PDFDocumentLoadingTask, PDFDocumentProxy, RenderTask } from "pdfjs-dist";
 import workerUrl from "pdfjs-dist/build/pdf.worker.min.mjs?url";
+import { STATIC_MODE } from "../runtime";
+
+// pdf.js needs two asset directories at render time: cmaps (CID-keyed fonts — most CJK PDFs show no
+// text without them) and standard_fonts (the standard 14 fonts a PDF may reference without
+// embedding). The live build bundles both under pdfjs/ (vite.config's bundlePdfjsAssets; ADR 0029 —
+// the workspace works offline); the static export keeps its footprint small and loads them from
+// jsDelivr, pinned to the bundled pdfjs-dist version; the Vite dev server reads them straight out of
+// node_modules.
+function pdfjsAssetBase(version: string): string {
+  if (STATIC_MODE) return `https://cdn.jsdelivr.net/npm/pdfjs-dist@${version}/`;
+  if (import.meta.env.DEV) return "/node_modules/pdfjs-dist/";
+  return `${import.meta.env.BASE_URL}pdfjs/`;
+}
 
 // pdf.js is large, so it is code-split out of the main bundle and only fetched when a note actually
 // embeds a PDF. The first call wires up the worker (Vite emits it under assets/ with a content hash,
@@ -66,7 +79,13 @@ export function PdfDeck({ src, alt }: PdfDeckProps) {
     loadPdfjs().then(
       (pdfjs) => {
         if (cancelled) return;
-        const task = pdfjs.getDocument({ url: src });
+        const assetBase = pdfjsAssetBase(pdfjs.version);
+        const task = pdfjs.getDocument({
+          url: src,
+          cMapUrl: `${assetBase}cmaps/`,
+          cMapPacked: true,
+          standardFontDataUrl: `${assetBase}standard_fonts/`,
+        });
         loadingTaskRef.current = task;
         task.promise.then(
           (doc) => {

@@ -6,7 +6,7 @@ import react from "@vitejs/plugin-react";
 // leak Node globals into the app's type surface); the Node runtime that runs Vite provides them.
 declare const process: { env: Record<string, string | undefined> };
 // @ts-expect-error node builtin — no @types/node installed on purpose
-import { existsSync, readFileSync } from "node:fs";
+import { cpSync, existsSync, readFileSync } from "node:fs";
 // @ts-expect-error node builtin — no @types/node installed on purpose
 import { join } from "node:path";
 
@@ -38,11 +38,34 @@ function serveExportedData(): PluginOption {
 // root.
 const staticBuild = process.env.VITE_TRACK_STATIC === "1";
 
+// bundlePdfjsAssets copies pdf.js' render-time asset directories — cmaps (CID-keyed fonts, i.e. most
+// CJK PDFs) and standard_fonts (the standard 14 fonts PDFs may reference without embedding) — into
+// the live build under pdfjs/, so `track web` renders such PDFs offline (ADR 0029: app surfaces
+// bundle everything). The static-site build skips the ~2.5 MB and loads them from jsDelivr instead,
+// pinned to the bundled pdfjs-dist version (see PdfDeck's pdfjsAssetBase).
+function bundlePdfjsAssets(): PluginOption {
+  let outDir = "dist";
+  return {
+    name: "track-bundle-pdfjs-assets",
+    apply: "build",
+    configResolved(config) {
+      outDir = config.build.outDir;
+    },
+    closeBundle() {
+      for (const dir of ["cmaps", "standard_fonts"]) {
+        cpSync(join("node_modules", "pdfjs-dist", dir), join(outDir, "pdfjs", dir), {
+          recursive: true,
+        });
+      }
+    },
+  };
+}
+
 export default defineConfig({
   // Normalize to a trailing slash: GitHub's configure-pages emits base_path as "/repo" (no slash), and
   // BASE_URL consumers concatenate paths onto it ("/repo" + "data/…" would yield "/repodata/…").
   base: staticBuild ? (process.env.SITE_BASE || "/").replace(/\/*$/, "/") : "/",
-  plugins: [react(), ...(staticBuild ? [serveExportedData()] : [])],
+  plugins: [react(), ...(staticBuild ? [serveExportedData()] : [bundlePdfjsAssets()])],
   // A literal boolean the bundler folds at build time, so code gated on `!__TRACK_STATIC__` (e.g. the
   // BudouX word-break model) is dead-code-eliminated from the static build rather than merely unused.
   define: {
