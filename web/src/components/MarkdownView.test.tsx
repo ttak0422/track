@@ -3,6 +3,14 @@ import { render, screen, waitFor, within } from "@testing-library/react";
 import type { ReactElement } from "react";
 import { describe, expect, it, vi } from "vitest";
 import { MarkdownView } from "./MarkdownView";
+import { FloatingProvider } from "./preview/floatingStore";
+
+// FloatingProvider (needed by the include embed's WikiLink header) reads the current route, so stub
+// the router the same way WikiLink.test.tsx does.
+vi.mock("@tanstack/react-router", () => ({
+  useRouterState: () => "/",
+  useNavigate: () => vi.fn(),
+}));
 
 // EChartsBlock lazy-imports echarts; stub it so a chart fence doesn't pull the real (heavy) library
 // into this suite and starve the KaTeX lazy-load test of its waitFor budget.
@@ -85,5 +93,35 @@ describe("MarkdownView", () => {
       timeout: 10_000,
     });
     expect(container.querySelector(".katex-display")).toBeInTheDocument();
+  });
+
+  it("renders a resolved include as an embed card in place of its directive line", () => {
+    // The embed header's WikiLink needs the floating-window store (same as WikiLink.test.tsx).
+    const { container } = renderWithQuery(
+      <FloatingProvider>
+        <MarkdownView
+          markdown={"before\n\n![[Design##API]] :only-contents\n\nafter"}
+          includes={[{ line: 2, title: "Design", caption: "Design##API", lines: ["embedded line"] }]}
+        />
+      </FloatingProvider>,
+    );
+    const card = container.querySelector(".note-include");
+    expect(card).not.toBeNull();
+    expect(within(card as HTMLElement).getByText("embedded line")).toBeInTheDocument();
+    // The caption header links back to the source note; the raw directive text is gone.
+    expect(within(card as HTMLElement).getByText("Design##API")).toBeInTheDocument();
+    expect(container.textContent).not.toContain(":only-contents");
+  });
+
+  it("renders an include error as a warning card instead of dropping the line", () => {
+    const { container } = renderWithQuery(
+      <MarkdownView
+        markdown={"![[Nope]]"}
+        includes={[{ line: 0, caption: "Nope", lines: [], error: 'unresolved note "Nope"' }]}
+      />,
+    );
+    expect(container.querySelector(".note-include-error")?.textContent).toContain(
+      'unresolved note "Nope"',
+    );
   });
 });

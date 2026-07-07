@@ -359,7 +359,11 @@ export function NoteEditor({ noteID }: NoteEditorProps) {
               {body.trim() !== "" && renderQuery.data?.markdown === undefined ? (
                 <LoadingIndicator label="Loading note" />
               ) : (
-                <MarkdownView markdown={renderQuery.data?.markdown ?? ""} kind={note.file_kind} />
+                <MarkdownView
+                  markdown={renderQuery.data?.markdown ?? ""}
+                  kind={note.file_kind}
+                  includes={renderQuery.data?.includes}
+                />
               )}
             </section>
           ) : null}

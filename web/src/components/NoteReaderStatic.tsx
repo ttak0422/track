@@ -42,7 +42,11 @@ export function NoteReaderStatic({ noteID }: { noteID: NoteID }) {
         {body.trim() !== "" && rendered.data?.markdown === undefined ? (
           <LoadingIndicator label="Loading note" />
         ) : (
-          <MarkdownView markdown={rendered.data?.markdown ?? ""} kind={data.note.file_kind} />
+          <MarkdownView
+            markdown={rendered.data?.markdown ?? ""}
+            kind={data.note.file_kind}
+            includes={data.note.includes}
+          />
         )}
       </section>
 

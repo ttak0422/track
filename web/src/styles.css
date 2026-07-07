@@ -1651,6 +1651,29 @@ a.calendar-title:focus-visible {
   font-size: 0.9em;
 }
 
+/* ![[...]] include embeds (ADR 0031): a transcluded region framed as a quoted card, with a caption
+   header linking back to the source note. */
+.note-include {
+  margin: 12px 0;
+  padding: 8px 12px;
+  border: 1px solid var(--line);
+  border-left: 3px solid var(--accent, #4c8bf5);
+  border-radius: 6px;
+  background: var(--panel-soft);
+}
+
+.note-include-header {
+  margin-bottom: 4px;
+  font-size: 0.85em;
+  color: var(--muted, #888);
+}
+
+.note-include-error,
+.note-include-warning {
+  font-size: 0.9em;
+  color: var(--danger, #8a352b);
+}
+
 .embed-tweet {
   display: flex;
   flex-direction: column;

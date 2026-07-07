@@ -11,6 +11,8 @@ import (
 	"sort"
 	"strconv"
 	"strings"
+
+	"github.com/ttak0422/track/internal/track/link"
 )
 
 // The static site is the React web frontend running against a pre-generated JSON bundle instead of the
@@ -66,6 +68,7 @@ type jsonSearchResult struct {
 }
 
 type jsonNoteDetail struct {
+	Includes []link.ResolvedInclude `json:"includes,omitempty"`
 	jsonSearchResult
 	CopyPath string `json:"copy_path"`
 	Body     string `json:"body"`
@@ -139,8 +142,17 @@ func writeBundle(docs []doc, edges []edge, root int64, calendar bool, baseURL, f
 	// note/<id>.json with backlinks derived from edges, each list in the shared order.
 	linkers := map[int64][]doc{}
 	byID := map[int64]doc{}
+	// keyDocs resolves a [[key]] to its published doc, for include extraction — the bundle's
+	// counterpart of the live server's keyword dictionary. Only in-set docs resolve, so an include
+	// of an unpublished note renders as unresolved rather than leaking its content.
+	keyDocs := map[string]doc{}
 	for _, d := range docs {
 		byID[d.id] = d
+		for _, k := range d.keys {
+			if k != "" {
+				keyDocs[k] = d
+			}
+		}
 	}
 	// Chart datums reference vault notes by internal id; published charts must carry the opaque slug
 	// instead (and drop references to notes outside the set — no dangling navigation).
@@ -174,6 +186,18 @@ func writeBundle(docs []doc, edges []edge, root int64, calendar bool, baseURL, f
 		body = resolveViewSpecBlocks(body, d.dataDir, noteSlug)
 		resp := jsonNoteResponse{
 			Note: jsonNoteDetail{
+				// Includes resolve against the published body so their line numbers match what the
+				// frontend renders. Target ids stay unpublished (0): the embed header navigates by
+				// key through resolve.json, like every other link on the static site.
+				// ponytail: a viewspec fence inside an embedded region shows as source in static
+				// mode (targets skip resolveViewSpecBlocks); resolve per-target if that ever matters.
+				Includes: link.ResolveIncludes(body, func(key string) (int64, string, string, bool) {
+					t, ok := keyDocs[key]
+					if !ok {
+						return 0, "", "", false
+					}
+					return 0, kindOf(t), rewriteAssetRefs(t.body), true
+				}),
 				jsonSearchResult: searchResultOf(d),
 				CopyPath:         "", // see searchResultOf: the source path is intentionally not published.
 				Body:             body,

@@ -12,6 +12,7 @@ import (
 
 	"github.com/ttak0422/track/internal/track/export"
 	"github.com/ttak0422/track/internal/track/index"
+	"github.com/ttak0422/track/internal/track/link"
 	"github.com/ttak0422/track/internal/track/note"
 	"github.com/ttak0422/track/internal/track/render"
 	"github.com/ttak0422/track/internal/track/store"
@@ -230,7 +231,34 @@ func (s *Server) handleRender(w http.ResponseWriter, r *http.Request) {
 		writeError(w, err, http.StatusInternalServerError)
 		return
 	}
-	writeJSON(w, map[string]any{"markdown": res.Markdown})
+	// Includes resolve against the rendered markdown (what the frontend draws), so their line
+	// numbers align with the text the client splices them into; target bodies render through the
+	// same web renderer so embedded content arrives as sanitized as the note's own.
+	s.refreshIfStale()
+	writeJSON(w, map[string]any{
+		"markdown": res.Markdown,
+		"includes": link.ResolveIncludes(res.Markdown, s.loadRenderedNote),
+	})
+}
+
+// loadRenderedNote resolves a link key to a note and returns its web-rendered body, for include
+// resolution. Any failure (unknown key, unreadable file, render error) reads as "not found" — the
+// include renders as unresolved rather than surfacing a partial embed.
+func (s *Server) loadRenderedNote(key string) (int64, string, string, bool) {
+	ref, found, err := s.store.ResolveTerm(key)
+	if err != nil || !found {
+		return 0, "", "", false
+	}
+	raw, err := os.ReadFile(s.cfg.PathForKind(ref.FileKind, ref.NoteID))
+	if err != nil {
+		return 0, "", "", false
+	}
+	body, _, _ := note.SplitLegacyFootmatter(string(raw))
+	res, err := export.Export(&note.Note{Body: body}, export.NewWebRenderer(), export.Options{})
+	if err != nil {
+		return 0, "", "", false
+	}
+	return ref.NoteID, ref.FileKind, res.Markdown, true
 }
 
 // handleViewSpec resolves a fenced ```viewspec block (a View Spec JSON) to its ECharts option JSON,

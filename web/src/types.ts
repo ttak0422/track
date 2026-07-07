@@ -60,10 +60,25 @@ export interface JournalResponse {
   created: boolean;
 }
 
+// NoteInclude is one resolved ![[...]] transclusion directive (ADR 0031): the 0-based body line it
+// sits on, the target's extracted lines, and where it points. Emitted by /api/render (line numbers
+// align with the rendered markdown) and baked into the static bundle's note JSON.
+export interface NoteInclude {
+  line: number;
+  note_id?: number;
+  kind?: string;
+  title?: string;
+  caption: string;
+  lines: string[];
+  bad_options?: string[];
+  error?: string;
+}
+
 export interface NoteDetail extends SearchResult {
   copy_path: string;
   body: string;
   etag: string;
+  includes?: NoteInclude[];
 }
 
 export interface NoteResponse {
@@ -148,6 +163,7 @@ export interface OgpResponse {
 
 export interface RenderResponse {
   markdown: string;
+  includes?: NoteInclude[];
 }
 
 // ViewSpecResponse carries the server-resolved ECharts option for a fenced ```viewspec chart block.

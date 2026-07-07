@@ -29,7 +29,11 @@ export function NoteWindow({ noteID, ...controls }: NoteWindowProps) {
       {note.isError ? <p className="error">{note.error.message}</p> : null}
       {note.data ? (
         <PreviewDepthContext.Provider value={controls.depth + 1}>
-          <MarkdownView markdown={rendered.data?.markdown ?? ""} kind={note.data.note.file_kind} />
+          <MarkdownView
+            markdown={rendered.data?.markdown ?? ""}
+            kind={note.data.note.file_kind}
+            includes={rendered.data?.includes}
+          />
         </PreviewDepthContext.Provider>
       ) : null}
     </FloatingWindow>

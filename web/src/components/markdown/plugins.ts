@@ -4,6 +4,45 @@ import { visit } from "unist-util-visit";
 
 const wikiPattern = /\[\[([^\]|]+)(?:\|([^\]]+))?\]\]/g;
 
+// Include directives (ADR 0031) reach the renderer as data, not syntax: the server resolves each
+// ![[...]] line and reports its 0-based line number, so the client never re-implements the
+// directive grammar. spliceIncludeTokens swaps those lines for placeholder paragraphs, and
+// remarkInclude turns each placeholder into a custom "trackinclude" element that markdownComponents
+// renders as an embed card. The token carries the include's array index.
+const includeToken = "%%track-include-";
+const includeTokenPattern = /^%%track-include-(\d+)%%$/;
+
+export function spliceIncludeTokens(markdown: string, lineNumbers: number[]): string {
+  const lines = markdown.split("\n");
+  lineNumbers.forEach((line, i) => {
+    // Trust but verify: a stale line number (body edited since the response) must not swallow an
+    // unrelated line, so only a line that really is a directive is replaced.
+    if (lines[line]?.trimStart().startsWith("![[")) {
+      // Blank padding makes the token its own paragraph even mid-paragraph-block.
+      lines[line] = `\n${includeToken}${i}%%\n`;
+    }
+  });
+  return lines.join("\n");
+}
+
+export function remarkInclude() {
+  return (tree: MdastRoot) => {
+    visit(tree, "paragraph", (node, index, parent) => {
+      if (!parent || index === undefined || node.children.length !== 1) return;
+      const child = node.children[0];
+      if (child.type !== "text") return;
+      const match = includeTokenPattern.exec(child.value.trim());
+      if (!match) return;
+      parent.children[index] = {
+        type: "trackinclude",
+        data: { hName: "trackinclude", hProperties: { index: Number(match[1]) } },
+        children: [],
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any -- custom mdast node
+      } as any;
+    });
+  };
+}
+
 // remarkWikiLink rewrites [[target|display]] text into a custom "wikilink" element carrying the target
 // and display as properties, so markdownComponents can render it as a navigable, hover-previewable link.
 export function remarkWikiLink() {

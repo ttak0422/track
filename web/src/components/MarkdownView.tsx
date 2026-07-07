@@ -1,15 +1,16 @@
 import type { Element } from "hast";
-import { type ReactNode, useEffect, useState } from "react";
+import { type ReactNode, useContext, useEffect, useState } from "react";
 import Markdown, { type Components } from "react-markdown";
 import remarkGfm from "remark-gfm";
+import type { NoteInclude } from "../types";
 import { rehypeBudoux } from "./markdown/budouxEager";
 import { CodeBlock } from "./markdown/CodeBlock";
-import { NoteKindContext } from "./markdown/context";
+import { IncludesContext, NoteKindContext } from "./markdown/context";
 import { Embed } from "./markdown/Embed";
 import { ExternalLink } from "./markdown/ExternalLink";
 import { loadMathPlugins, looksLikeMath, type MathPlugins, mathPluginsIfLoaded } from "./markdown/math";
 import { MermaidDiagram } from "./markdown/MermaidDiagram";
-import { remarkWikiLink } from "./markdown/plugins";
+import { remarkInclude, remarkWikiLink, spliceIncludeTokens } from "./markdown/plugins";
 import { EChartsFence } from "./markdown/EChartsBlock";
 import { ViewSpecChart } from "./markdown/ViewSpecChart";
 import { WikiLink } from "./preview/WikiLink";
@@ -17,6 +18,9 @@ import { WikiLink } from "./preview/WikiLink";
 interface MarkdownViewProps {
   markdown: string;
   kind?: string;
+  // Resolved ![[...]] includes for this body (ADR 0031), from /api/render live or the static
+  // bundle. Absent or empty, include lines render as ordinary text (their [[...]] stays a link).
+  includes?: NoteInclude[];
 }
 
 // The markdown is parsed by react-markdown (CommonMark + GFM tables/strikethrough/task lists, plus
@@ -24,7 +28,7 @@ interface MarkdownViewProps {
 // /api/render (action links flattened); the track-specific construct is [[...]] wiki links (remarkWikiLink).
 // KaTeX is loaded lazily (see ./markdown/math), so a note without math never pulls in its bundle; while a
 // math note's first render waits for that chunk, the "$…$" briefly shows as source, then typesets.
-export function MarkdownView({ markdown, kind = "note" }: MarkdownViewProps) {
+export function MarkdownView({ markdown, kind = "note", includes }: MarkdownViewProps) {
   const hasMath = looksLikeMath(markdown);
   const [math, setMath] = useState<MathPlugins | null>(() => (hasMath ? mathPluginsIfLoaded() : null));
 
@@ -43,7 +47,19 @@ export function MarkdownView({ markdown, kind = "note" }: MarkdownViewProps) {
     return <p className="muted">Empty note.</p>;
   }
 
-  const remarkPlugins = math ? [remarkGfm, math.remark, remarkWikiLink] : [remarkGfm, remarkWikiLink];
+  const hasIncludes = includes !== undefined && includes.length > 0;
+  const source = hasIncludes
+    ? spliceIncludeTokens(
+        markdown,
+        includes.map((inc) => inc.line),
+      )
+    : markdown;
+  const remarkPlugins = [
+    remarkGfm,
+    ...(math ? [math.remark] : []),
+    remarkWikiLink,
+    ...(hasIncludes ? [remarkInclude] : []),
+  ];
   // BudouX (Japanese word-break) is gated behind __TRACK_STATIC__, a build-time literal, so the static
   // help site tree-shakes its ~190KB model away (English content is never segmented) while the live
   // workspace keeps it eager.
@@ -51,13 +67,50 @@ export function MarkdownView({ markdown, kind = "note" }: MarkdownViewProps) {
 
   return (
     <NoteKindContext.Provider value={kind}>
-      <div className="markdown-view">
-        <Markdown remarkPlugins={remarkPlugins} rehypePlugins={rehypePlugins} components={markdownComponents}>
-          {markdown}
-        </Markdown>
-      </div>
+      <IncludesContext.Provider value={includes ?? []}>
+        <div className="markdown-view">
+          <Markdown remarkPlugins={remarkPlugins} rehypePlugins={rehypePlugins} components={markdownComponents}>
+            {source}
+          </Markdown>
+        </div>
+      </IncludesContext.Provider>
     </NoteKindContext.Provider>
   );
+}
+
+// IncludeEmbed renders one resolved ![[...]] include as an embed card: a caption header linking to
+// the source note, and the extracted lines rendered as markdown. It lives here (not its own module)
+// because it renders through MarkdownView recursively — the nested render gets no includes, so an
+// include inside embedded content shows as text, matching the spec's no-recursion rule.
+function IncludeEmbed({ include }: { include: NoteInclude }) {
+  if (include.error) {
+    return <div className="note-include note-include-error">⚠ {include.error}</div>;
+  }
+  return (
+    <section className="note-include">
+      <div className="note-include-header">
+        {include.title ? (
+          <WikiLink target={include.title} display={include.caption} />
+        ) : (
+          include.caption
+        )}
+      </div>
+      <MarkdownView markdown={include.lines.join("\n")} kind={include.kind ?? "note"} />
+      {(include.bad_options ?? []).map((bad) => (
+        <div key={bad} className="note-include-warning">
+          ⚠ unknown option: {bad}
+        </div>
+      ))}
+    </section>
+  );
+}
+
+// TrackInclude resolves the placeholder's index against the includes of the note being rendered.
+function TrackInclude({ node }: ElementProps) {
+  const includes = useContext(IncludesContext);
+  const index = Number((node?.properties as { index?: unknown } | undefined)?.index);
+  const include = includes[index];
+  return include ? <IncludeEmbed include={include} /> : null;
 }
 
 // markdownComponents maps the rendered HTML elements to track's interactive presentation: links resolve
@@ -103,6 +156,7 @@ const markdownComponents = {
     const props = (node?.properties ?? {}) as { target?: unknown; display?: unknown };
     return <WikiLink target={String(props.target ?? "")} display={String(props.display ?? "")} />;
   },
+  trackinclude: TrackInclude,
 } as Components;
 
 // hastText concatenates the text content of a hast element, dropping the single trailing newline that a
