@@ -103,6 +103,11 @@ M.defaults = {
    reveal_code_fences = true,
    -- Debounce for re-highlighting, in milliseconds.
    debounce_ms = 150,
+   -- ![[...]] includes (ADR 0031) render as virtual lines below the directive. include_max_lines
+   -- caps how many show before an "… (+N lines)" tail (0 = no cap); :TrackIncludeToggle expands.
+   include_max_lines = 15,
+   include_prefix = "│ ",
+   include_hl = "TrackInclude",
    -- Highlight groups for rendered babel results (status header, stdout, stderr).
    babel_hl_header = "TrackBabelHeader",
    babel_hl_result = "TrackBabelResult",

@@ -200,6 +200,10 @@ function M.setup()
       require("track.babel").clear()
    end, { desc = "Clear rendered babel results in the buffer" })
 
+   register("include_toggle", function()
+      require("track.include").toggle()
+   end, { desc = "Expand or truncate the ![[...]] include under the cursor" })
+
    register("today", function()
       require("track.journal").open(0)
    end, { desc = "Open today's journal note" })

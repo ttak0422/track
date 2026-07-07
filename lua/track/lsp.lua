@@ -293,6 +293,9 @@ local function refresh(buf)
       resolved_cache[buf] = resolved
       render(buf)
    end, buf)
+   -- Includes repaint on the same debounced trigger; their extmarks live in their own namespace so
+   -- cursor-move repaints of the link highlights never touch them.
+   require("track.include").refresh(buf)
 end
 
 local function register_create_note_command()
