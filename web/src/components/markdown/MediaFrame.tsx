@@ -2,7 +2,7 @@ import { type ReactNode, useContext, useEffect, useRef, useState } from "react";
 import { initialPreviewBounds, type PreviewAnchor, type PreviewBounds } from "../preview/bounds";
 import { InFloatingWindowContext, useFloating } from "../preview/floatingStore";
 import { MediaWindow } from "../preview/MediaWindow";
-import { nextPreviewStackOrder, previewOpenDelay } from "../preview/stack";
+import { mediaPreviewOpenDelay, nextPreviewStackOrder } from "../preview/stack";
 import { NoteKindContext } from "./context";
 
 // MediaFrame wraps a media embed (image, PDF) so hovering it shows the same hover-preview popup a
@@ -60,7 +60,7 @@ export function MediaFrame({ src, alt, children }: { src: string; alt: string; c
     openTimer.current = window.setTimeout(() => {
       openTimer.current = undefined;
       openPreview();
-    }, previewOpenDelay);
+    }, mediaPreviewOpenDelay);
   }
 
   function cancelOpen() {

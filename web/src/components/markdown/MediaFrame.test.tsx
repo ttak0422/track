@@ -1,7 +1,7 @@
 import { act, fireEvent, render } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { FloatingProvider } from "../preview/floatingStore";
-import { previewOpenDelay } from "../preview/stack";
+import { mediaPreviewOpenDelay } from "../preview/stack";
 import { MediaFrame } from "./MediaFrame";
 
 // FloatingProvider reads the current route (to drop unpinned windows on navigation), so stub the router
@@ -53,7 +53,7 @@ describe("MediaFrame hover preview", () => {
 
     fireEvent.mouseEnter(frame);
     await act(async () => {
-      vi.advanceTimersByTime(previewOpenDelay - 50);
+      vi.advanceTimersByTime(mediaPreviewOpenDelay - 50);
     });
     expect(preview(container)).toBeNull();
 
@@ -73,7 +73,7 @@ describe("MediaFrame hover preview", () => {
     });
     fireEvent.mouseLeave(frame);
     await act(async () => {
-      vi.advanceTimersByTime(previewOpenDelay + 300);
+      vi.advanceTimersByTime(mediaPreviewOpenDelay + 300);
     });
 
     expect(preview(container)).toBeNull();
@@ -85,7 +85,7 @@ describe("MediaFrame hover preview", () => {
 
     fireEvent.mouseEnter(frame);
     await act(async () => {
-      vi.advanceTimersByTime(previewOpenDelay + 10);
+      vi.advanceTimersByTime(mediaPreviewOpenDelay + 10);
     });
     expect(preview(container)).not.toBeNull();
 
@@ -100,7 +100,7 @@ describe("MediaFrame hover preview", () => {
 
     fireEvent.mouseEnter(frame);
     await act(async () => {
-      vi.advanceTimersByTime(previewOpenDelay + 10);
+      vi.advanceTimersByTime(mediaPreviewOpenDelay + 10);
     });
     expect(preview(container)).not.toBeNull();
 
