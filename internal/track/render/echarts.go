@@ -620,10 +620,11 @@ func buildTreemap(opt map[string]any, res viewspec.Resolved) {
 		"left": echartsInset, "right": 90, "top": top, "bottom": 16,
 		"breadcrumb": map[string]any{"show": false},
 		"nodeClick":  false,
-		// ECharts treemap roam (drag-pan / wheel-zoom) defaults to ON; a panned map slides its tiles
-		// over the title and the visualMap ramp, and the map is a static overview, not a navigation
-		// surface (like nodeClick above).
-		"roam":  false,
+		// Drag-pan / wheel-zoom stays on: a dense map needs zooming to read the small tiles. ECharts
+		// never clips a roamed treemap, so panned tiles slide into the title/visualMap area; the web
+		// theme layer backs both with an opaque chip (they already draw above the series) so they
+		// stay legible.
+		"roam":  true,
 		"label": map[string]any{"show": true},
 		// {c} prints the [size, value] pair, so the tooltip reads "label: size,value".
 		"tooltip": map[string]any{"formatter": "{b}: {c}"},

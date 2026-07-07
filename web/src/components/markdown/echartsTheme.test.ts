@@ -86,6 +86,19 @@ describe("applyChartTheme", () => {
     expect(s.upperLabel.color).toBe(THEME.text);
   });
 
+  it("backs a treemap's title and visualMap with an opaque chip so roamed tiles pass beneath", () => {
+    const themed = applyChartTheme(
+      {
+        title: { text: "map" },
+        visualMap: { inRange: { color: ["#eee", "#333"] } },
+        series: [{ type: "treemap" }],
+      },
+      THEME,
+    ) as any;
+    expect(themed.title.backgroundColor).toBe(THEME.panel);
+    expect(themed.visualMap.backgroundColor).toBe(THEME.panel);
+  });
+
   it("keeps the diverging ramp's market endpoints and themes only its neutral", () => {
     const themed = applyChartTheme(
       { visualMap: { inRange: { color: ["#e15759", "#f5f5f5", "#59a14f"] } } },

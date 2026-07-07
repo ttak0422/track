@@ -117,6 +117,15 @@ export function applyChartTheme(
       if (s.upperLabel) {
         s.upperLabel = { ...s.upperLabel, color: t.text };
       }
+      // Roaming pans tiles into the title/visualMap area (ECharts never clips a roamed treemap).
+      // Both components already draw above the series (z 6 / z 4 vs 2), so an opaque panel chip —
+      // invisible against the page until tiles slide beneath — keeps them legible.
+      if (opt.title) {
+        opt.title.backgroundColor = t.panel;
+      }
+      if (opt.visualMap) {
+        opt.visualMap.backgroundColor = t.panel;
+      }
     }
   });
 
