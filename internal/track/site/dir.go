@@ -16,7 +16,7 @@ import (
 // order. Wiki links resolve by file base name or by the file's first H1 title among the directory's
 // files. rootName names the entry file (with or without ".md"); empty defaults to "index". An "assets"
 // subdirectory supplies referenced media. frontendDir is the static-mode frontend build.
-func BuildDir(srcDir, rootName, frontendDir, outDir string) (Result, error) {
+func BuildDir(srcDir, rootName, baseURL, frontendDir, outDir string) (Result, error) {
 	entries, err := os.ReadDir(srcDir)
 	if err != nil {
 		return Result{}, fmt.Errorf("read src dir: %w", err)
@@ -102,7 +102,7 @@ func BuildDir(srcDir, rootName, frontendDir, outDir string) (Result, error) {
 
 	// Plain Markdown files carry no activity days, so a calendar would be permanently empty; directory
 	// sites never include it (the CLI rejects --calendar with --src).
-	return writeBundle(docs, edges, root, false, frontendDir, outDir)
+	return writeBundle(docs, edges, root, false, baseURL, frontendDir, outDir)
 }
 
 // firstHeading returns the text of the first level-1 ATX heading in body, or "" when there is none.

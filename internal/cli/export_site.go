@@ -26,6 +26,7 @@ func cmdExportSite(args []string) int {
 	frontend := fs.String("frontend", "", "static-mode frontend build directory to copy into the site")
 	out := fs.String("out", "", "output directory")
 	calendar := fs.Bool("calendar", false, "include the calendar view and per-day pages (vault mode)")
+	baseURL := fs.String("base-url", "", "absolute site origin (https://example.com/site) for og:image/og:url; omitted, those tags are skipped")
 	if err := fs.Parse(args); err != nil {
 		return fail("parse args: %v", err)
 	}
@@ -41,7 +42,7 @@ func cmdExportSite(args []string) int {
 		if *calendar {
 			return fail("--calendar needs vault notes' activity days; a --src directory has none")
 		}
-		res, err := site.BuildDir(*src, *root, *frontend, *out)
+		res, err := site.BuildDir(*src, *root, *baseURL, *frontend, *out)
 		if err != nil {
 			return fail("export-site: %v", err)
 		}
@@ -69,7 +70,7 @@ func cmdExportSite(args []string) int {
 		return fail("reindex: %v", err)
 	}
 
-	res, err := site.Build(cfg, s, site.Options{Root: rootID, IDs: ids, Calendar: *calendar}, *frontend, *out)
+	res, err := site.Build(cfg, s, site.Options{Root: rootID, IDs: ids, Calendar: *calendar, BaseURL: *baseURL}, *frontend, *out)
 	if err != nil {
 		return fail("export-site: %v", err)
 	}

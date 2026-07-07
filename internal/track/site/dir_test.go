@@ -25,7 +25,7 @@ func TestBuildDirBundle(t *testing.T) {
 	}
 
 	out := t.TempDir()
-	res, err := BuildDir(src, "index", fakeFrontend(t), out)
+	res, err := BuildDir(src, "index", "", fakeFrontend(t), out)
 	if err != nil {
 		t.Fatalf("BuildDir: %v", err)
 	}
@@ -103,7 +103,7 @@ func TestBuildDirResolvesSpecAssetToEChartsOption(t *testing.T) {
 	write(filepath.Join("assets", "c.viewspec.json"), spec)
 
 	out := t.TempDir()
-	if _, err := BuildDir(src, "index", fakeFrontend(t), out); err != nil {
+	if _, err := BuildDir(src, "index", "", fakeFrontend(t), out); err != nil {
 		t.Fatalf("BuildDir: %v", err)
 	}
 
@@ -133,7 +133,7 @@ func TestBuildDirRejectsMissingRoot(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(src, "a.md"), []byte("# A\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := BuildDir(src, "index", fakeFrontend(t), t.TempDir()); err == nil {
+	if _, err := BuildDir(src, "index", "", fakeFrontend(t), t.TempDir()); err == nil {
 		t.Fatalf("expected error when root file is absent")
 	}
 }

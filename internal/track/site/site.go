@@ -11,6 +11,7 @@ package site
 import (
 	"fmt"
 	"sort"
+	"strings"
 
 	"github.com/ttak0422/track/internal/track/config"
 	"github.com/ttak0422/track/internal/track/export"
@@ -23,6 +24,7 @@ type Options struct {
 	Root     int64   // entry note id, the site's landing page
 	IDs      []int64 // additional note ids to publish; Root is always included
 	Calendar bool    // include the calendar view (and per-day pages) in the published site
+	BaseURL  string  // absolute site origin for og:image / og:url in the prerender ("" omits them)
 }
 
 // Result reports what a build produced.
@@ -78,6 +80,8 @@ func Build(cfg *config.Config, st *store.Store, opts Options, frontendDir, outDi
 			body:     body,
 			keys:     []string{noteTitle(n)},
 			assets:   collectAssets(n.Body),
+			desc:     n.Meta.Description,
+			image:    strings.TrimPrefix(n.Meta.Image, "assets/"),
 			assetSrc: assetSrc,
 			dataDir:  cfg.DataDir(),
 		})
@@ -87,7 +91,7 @@ func Build(cfg *config.Config, st *store.Store, opts Options, frontendDir, outDi
 	if err != nil {
 		return Result{}, err
 	}
-	return writeBundle(docs, edges, opts.Root, opts.Calendar, frontendDir, outDir)
+	return writeBundle(docs, edges, opts.Root, opts.Calendar, opts.BaseURL, frontendDir, outDir)
 }
 
 // vaultEdges returns the [[link]] edges of the index whose endpoints are both in the published set.

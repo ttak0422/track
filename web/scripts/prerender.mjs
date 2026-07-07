@@ -74,12 +74,17 @@ const targets = [
   ...dayDates.map((d) => ({ route: `/day/${d}`, out: `day/${d}/index.html` })),
 ];
 
+const notesById = new Map(notes.map((n) => [n.note_id, n]));
+const baseUrl = site.base_url ?? "";
+
 for (const { route, out } of targets) {
   const { html, state } = await renderPage(route);
   const stateScript = `<script>window.__TRACK_STATE__=${serializeState(state)}</script>`;
+  const head = ogpTags(route) + stateScript;
   const page = template
     .replace('<div id="root"></div>', `<div id="root">${html}</div>`)
-    .replace("</head>", `${stateScript}</head>`);
+    .replace("</head>", `${head}</head>`)
+    .replace(/<title>[^<]*<\/title>/, `<title>${escapeHTML(pageTitle(route))}</title>`);
   const file = join(siteDir, out);
   mkdirSync(dirname(file), { recursive: true });
   writeFileSync(file, page);
@@ -91,4 +96,71 @@ console.log(`prerendered ${targets.length} routes into ${siteDir}/`);
 // note content cannot close the inline script early.
 function serializeState(json) {
   return json.replace(/</g, "\\u003c");
+}
+
+// --- OGP head tags -------------------------------------------------------------------------------
+// Every prerendered page gets og:title/og:description (relative-safe); og:url and og:image need an
+// absolute origin, so they are emitted only when the export ran with --base-url (site.base_url).
+// A note's description comes from its sidecar metadata (`track meta --description`), falling back to
+// an excerpt of the body; its image from `track meta --image` (already published under assets/),
+// falling back to the site-wide default shipped with the frontend build (ogp-default.png).
+// (notesById / baseUrl are declared above the render loop, which calls into these helpers.)
+
+function noteFor(route) {
+  const m = route.match(/^\/notes\/(.+)$/);
+  return m ? notesById.get(m[1]) : undefined;
+}
+
+function pageTitle(route) {
+  const note = noteFor(route);
+  if (note && note.title && note.title !== site.title) return `${note.title} · ${site.title}`;
+  return site.title || "track";
+}
+
+// bodyExcerpt flattens the first meaningful lines of a note body into one og:description-sized line:
+// code fences and headings drop, links/images/emphasis reduce to their text.
+function bodyExcerpt(noteId) {
+  let body;
+  try {
+    body = JSON.parse(readFileSync(join(siteDir, "data", "note", `${noteId}.json`), "utf8")).note?.body ?? "";
+  } catch {
+    return "";
+  }
+  const text = body
+    .replace(/```[\s\S]*?```/g, " ")
+    .replace(/^#+\s.*$/gm, " ")
+    .replace(/!\[[^\]]*\]\([^)]*\)/g, " ")
+    .replace(/\[([^\]]*)\]\([^)]*\)/g, "$1")
+    .replace(/\[\[([^\]]+)\]\]/g, "$1")
+    .replace(/[`*_>#|-]/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+  return text.length > 160 ? `${text.slice(0, 157)}…` : text;
+}
+
+function ogpTags(route) {
+  const note = noteFor(route);
+  const title = note?.title || site.title || "track";
+  const description = (note?.description || (note ? bodyExcerpt(note.note_id) : "")).replace(/\s+/g, " ");
+  const tags = [
+    tag("og:site_name", site.title || "track"),
+    tag("og:title", title),
+    tag("og:type", note ? "article" : "website"),
+  ];
+  if (description) tags.push(tag("og:description", description));
+  if (baseUrl) {
+    tags.push(tag("og:url", baseUrl + (route === "/" ? "/" : `${route}/`)));
+    const image = note?.image ? `${baseUrl}/${note.image}` : `${baseUrl}/ogp-default.png`;
+    tags.push(tag("og:image", image));
+    tags.push(`<meta name="twitter:card" content="summary_large_image">`);
+  }
+  return tags.join("");
+}
+
+function tag(property, content) {
+  return `<meta property="${property}" content="${escapeHTML(content)}">`;
+}
+
+function escapeHTML(s) {
+  return String(s).replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
 }

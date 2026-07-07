@@ -32,6 +32,8 @@ type doc struct {
 	keys     []string // resolution keys ([[key]]) that point at this doc (title, file name, …)
 	assets   []string // "assets/<rel>" references in the body
 	assetSrc string   // directory those assets are copied from
+	desc     string   // page summary (sidecar description), published as og:description
+	image    string   // cover image, relative under assets/ ("" = none), published as og:image
 	dataDir  string   // canonical-data directory for embedded ```viewspec charts ("" = inline data only)
 }
 
@@ -57,6 +59,10 @@ type jsonSearchResult struct {
 	Title    string   `json:"title"`
 	Tags     []string `json:"tags,omitempty"`
 	Days     []string `json:"days,omitempty"`
+	// Description and Image feed the prerender's og: tags; Image is the published asset path
+	// (assets/<slug><ext>), so the consumer never sees the source file name.
+	Description string `json:"description,omitempty"`
+	Image       string `json:"image,omitempty"`
 }
 
 type jsonNoteDetail struct {
@@ -95,11 +101,14 @@ type jsonSite struct {
 	// the prerender emits /calendar and the per-day pages. Off suits reference sites (help docs); on
 	// suits activity-shaped ones (a blog over a vault).
 	Calendar bool `json:"calendar,omitempty"`
+	// BaseURL is the site's absolute origin (export-site --base-url, no trailing slash). The
+	// prerender needs it for og:image / og:url, which must be absolute; empty omits those tags.
+	BaseURL string `json:"base_url,omitempty"`
 }
 
 // writeBundle emits the data bundle, copies the static frontend over it, and copies assets. frontendDir
 // is the static-mode Vite build (index.html + assets/...). root is the entry note's id.
-func writeBundle(docs []doc, edges []edge, root int64, calendar bool, frontendDir, outDir string) (Result, error) {
+func writeBundle(docs []doc, edges []edge, root int64, calendar bool, baseURL, frontendDir, outDir string) (Result, error) {
 	if len(docs) == 0 {
 		return Result{}, fmt.Errorf("no notes to publish")
 	}
@@ -209,7 +218,7 @@ func writeBundle(docs []doc, edges []edge, root int64, calendar bool, frontendDi
 	// site.json: the entry note and site-level toggles.
 	if err := writeJSONFile(
 		filepath.Join(outDir, "data", "site.json"),
-		jsonSite{Root: PublishID(root), Title: rootTitle, Calendar: calendar},
+		jsonSite{Root: PublishID(root), Title: rootTitle, Calendar: calendar, BaseURL: strings.TrimRight(baseURL, "/")},
 	); err != nil {
 		return Result{}, err
 	}
@@ -229,7 +238,12 @@ func writeBundle(docs []doc, edges []edge, root int64, calendar bool, frontendDi
 	}
 	bySrc := map[string]map[string]bool{}
 	for _, d := range docs {
-		for _, rel := range d.assets {
+		rels := d.assets
+		if d.image != "" {
+			// The cover image is published even when the body never references it.
+			rels = append(append([]string(nil), rels...), d.image)
+		}
+		for _, rel := range rels {
 			if bySrc[d.assetSrc] == nil {
 				bySrc[d.assetSrc] = map[string]bool{}
 			}
@@ -255,7 +269,11 @@ func writeBundle(docs []doc, edges []edge, root int64, calendar bool, frontendDi
 // The source path is dropped from the bundle: like the id, the file name is timestamp-based, so emitting
 // it would re-expose what the slug is meant to hide. It was only informational in the static site.
 func searchResultOf(d doc) jsonSearchResult {
-	return jsonSearchResult{NoteID: PublishID(d.id), FileKind: kindOf(d), Path: "", Title: d.title, Tags: d.tags, Days: d.days}
+	out := jsonSearchResult{NoteID: PublishID(d.id), FileKind: kindOf(d), Path: "", Title: d.title, Tags: d.tags, Days: d.days, Description: d.desc}
+	if d.image != "" {
+		out.Image = "assets/" + publishAssetName(d.image)
+	}
+	return out
 }
 
 func refOf(d doc) jsonRef {

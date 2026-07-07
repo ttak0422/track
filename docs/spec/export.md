@@ -120,6 +120,15 @@ Two input modes (both require `--frontend <dir>`, the static-mode frontend build
 over a vault. Vault mode only — a `--src` directory carries no activity days, so the flag is rejected
 there.
 
+**OGP.** The prerender writes per-page `og:` tags into each page's head: `og:title` (the note title,
+also the page `<title>`), `og:description` (the note's sidecar description — `track meta
+--description` — falling back to a flattened excerpt of the body), and `og:type`/`og:site_name`.
+`og:url` and `og:image` require an absolute origin, so they are emitted only when the export ran with
+`--base-url <https://origin>` (carried to the prerender via `site.json`'s `base_url`). The image is
+the note's cover (`track meta --image assets/<file>`, published under its content-hiding slug like
+every asset); a note without one falls back to the site-wide default `ogp-default.png` shipped with
+the frontend build.
+
 The exporter writes a JSON bundle under `<out>/data` mirroring the server's `/api/*` shapes — `notes.json`, `note/<id>.json` (web-sanitized body + backlinks), `graph.json`, `resolve.json`, `site.json` — then copies the static frontend build and referenced `assets/<path>` media into `<out>`. Wiki links to notes outside the published set are absent from `resolve.json`/`graph.json`, so the frontend leaves them inert. The live heatmap home is not published; the root note is the entry point. The bundled `docs/help/` set is a working example.
 
 ## Future
