@@ -291,10 +291,13 @@ func writeAreaFill(b *strings.Builder, g svgGeom, centers, vals []float64, lo, h
 }
 
 // candleUp/candleDown color a rising (close >= open) and falling candle; they reuse the shared
-// palette's green and red so candlesticks match the rest of the chart family.
+// palette's green and red so candlesticks match the rest of the chart family. divergeNeutral is the
+// zero midpoint of the diverging color ramp (scale: "diverging"), which runs candleDown → neutral →
+// candleUp so treemaps/heatmaps and candlesticks agree on what red and green mean.
 const (
-	candleUp   = "#59a14f"
-	candleDown = "#e15759"
+	candleUp       = "#59a14f"
+	candleDown     = "#e15759"
+	divergeNeutral = "#f5f5f5"
 )
 
 // writeCandles draws one OHLC candle per category: a high–low wick behind an open–close body, green
