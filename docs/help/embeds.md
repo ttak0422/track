@@ -52,6 +52,11 @@ A PDF (local asset or remote URL) opens in a paged slide-deck viewer rather than
 ![Deck](assets/slides.pdf)
 ```
 
+This one is live — page through it with the arrows (or click a page). The sample is a three-page
+deck with just the page number on each page:
+
+![Deck](assets/slides.pdf)
+
 ## Web pages (Open Graph)
 
 Any other `http(s)` page becomes an Open Graph card — its title, description, and preview image pulled
