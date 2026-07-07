@@ -420,8 +420,9 @@ output formats can be added without changing the model or the spec.
 
 ### `echarts` (default)
 
-Emits a self-contained HTML page that loads **Apache ECharts from a CDN**
-(`https://cdn.jsdelivr.net/npm/echarts@5`) and draws the chart into a full-page container. The page is
+Emits a self-contained HTML page that loads **Apache ECharts from a CDN**, pinned to the exact
+version the web frontend bundles (`web/package.json`; a render-package test guards the pin — see
+ADR 0029), and draws the chart into a full-page container. The page is
 interactive — hover tooltips (axis-slice on category charts, per-item on point-shaped ones), legend
 toggling, and window-resize tracking come with the library. Chart semantics are decided in Go: the
 renderer emits a **pure-JSON ECharts option** (`render.EChartsOptionJSON`), shared by the single-chart

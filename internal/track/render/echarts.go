@@ -14,9 +14,11 @@ import (
 	"github.com/ttak0422/track/internal/track/viewspec"
 )
 
-// echartsCDN is the Apache ECharts bundle the generated page loads. A CDN reference keeps output
-// simple and dependency-free; switching to a bundled/pinned asset later is a renderer-local change.
-const echartsCDN = "https://cdn.jsdelivr.net/npm/echarts@5"
+// echartsCDN is the Apache ECharts bundle the generated page loads. A CDN reference keeps the
+// standalone artifact small (ADR 0029); the version is pinned to the exact ECharts the web frontend
+// bundles (web/package.json), so a chart option renders identically on every surface —
+// TestEChartsCDNMatchesWebBundle fails when the two drift.
+const echartsCDN = "https://cdn.jsdelivr.net/npm/echarts@6.1.0"
 
 func init() { Register(ECharts{}) }
 

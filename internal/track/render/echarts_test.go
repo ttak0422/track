@@ -21,7 +21,7 @@ func TestEChartsRenderPageLoadsCDN(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	for _, want := range []string{"echarts@5", "echarts.init", `"type":"line"`, `"data":["a","b"]`, `"showSymbol":false`} {
+	for _, want := range []string{echartsCDN, "echarts.init", `"type":"line"`, `"data":["a","b"]`, `"showSymbol":false`} {
 		if !strings.Contains(out, want) {
 			t.Errorf("page missing %q", want)
 		}

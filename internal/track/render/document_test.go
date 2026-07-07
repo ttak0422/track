@@ -36,7 +36,7 @@ func TestRenderDocumentComposesProseAndCharts(t *testing.T) {
 	if strings.Count(out, `class="prose"`) != 2 {
 		t.Fatalf("want 2 prose blocks: %s", out)
 	}
-	for _, want := range []string{"echarts@5", "marked@12", `"# Heading"`, `"between"`, "<title>Doc</title>"} {
+	for _, want := range []string{echartsCDN, markedCDN, `"# Heading"`, `"between"`, "<title>Doc</title>"} {
 		if !strings.Contains(out, want) {
 			t.Errorf("document missing %q", want)
 		}
@@ -53,7 +53,7 @@ func TestRenderDocumentChartsOnlyOmitsMarked(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if strings.Contains(out, "marked@12") {
+	if strings.Contains(out, markedCDN) {
 		t.Fatalf("no prose → marked should be omitted: %s", out)
 	}
 }
@@ -91,7 +91,7 @@ func TestRenderDocumentComposesEveryForm(t *testing.T) {
 	if strings.Count(out, `class="chart-wrap" id="chart-`) != 2 {
 		t.Fatalf("want 2 chart containers: %s", out)
 	}
-	if !strings.Contains(out, `"type":"candlestick"`) || !strings.Contains(out, "echarts@5") {
+	if !strings.Contains(out, `"type":"candlestick"`) || !strings.Contains(out, echartsCDN) {
 		t.Fatalf("candlestick option missing: %s", out)
 	}
 }
@@ -112,7 +112,7 @@ func TestRenderDocumentTable(t *testing.T) {
 		}
 	}
 	// No prose/chart CDNs for a table-only document.
-	if strings.Contains(out, "marked@12") || strings.Contains(out, "echarts@5") {
+	if strings.Contains(out, markedCDN) || strings.Contains(out, echartsCDN) {
 		t.Fatalf("table only → marked and echarts should be omitted")
 	}
 }
