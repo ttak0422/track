@@ -1945,6 +1945,20 @@ a.calendar-title:focus-visible {
   opacity: 1;
 }
 
+/* The fold toggle (縮小/展開) sits top-left and stays visible — a collapsed diagram must show how
+   to get it back without hunting for a hover control. */
+.mermaid-fold {
+  position: absolute;
+  top: 8px;
+  left: 8px;
+}
+
+/* A collapsed thumbnail is inert: no grab cursor, the wheel scrolls the page. */
+.mermaid-viewport[data-collapsed] {
+  cursor: default;
+  touch-action: auto;
+}
+
 .mermaid-diagram-loading,
 .mermaid-diagram-error > p,
 .viewspec-chart-loading,

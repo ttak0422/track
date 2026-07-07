@@ -55,12 +55,24 @@ export function MermaidDiagram({ text }: MermaidDiagramProps) {
     return <div className="mermaid-diagram mermaid-diagram-loading">Rendering diagram...</div>;
   }
 
-  const { transform, viewportRef, panRef, viewportHeight, reset, zoomBy, handlers } = panZoom;
+  const {
+    transform,
+    viewportRef,
+    panRef,
+    viewportHeight,
+    reset,
+    zoomBy,
+    handlers,
+    collapsed,
+    collapsible,
+    toggleCollapsed,
+  } = panZoom;
   return (
     <div className="mermaid-diagram">
       <div
         className="mermaid-viewport"
         ref={viewportRef}
+        data-collapsed={collapsed || undefined}
         style={viewportHeight != null ? { height: viewportHeight } : undefined}
         {...handlers}
       >
@@ -76,35 +88,48 @@ export function MermaidDiagram({ text }: MermaidDiagramProps) {
           dangerouslySetInnerHTML={{ __html: state.svg }}
         />
       </div>
-      <div className="mermaid-controls">
+      {collapsible && (
         <button
-          className="mermaid-control"
+          className="mermaid-control mermaid-fold"
           type="button"
-          onClick={() => zoomBy(zoomStep)}
-          aria-label="Zoom in"
-          title="Zoom in"
+          onClick={toggleCollapsed}
+          aria-label={collapsed ? "Expand diagram" : "Collapse diagram"}
+          title={collapsed ? "Expand diagram" : "Collapse diagram"}
         >
-          +
+          {collapsed ? "▸" : "▾"}
         </button>
-        <button
-          className="mermaid-control"
-          type="button"
-          onClick={() => zoomBy(1 / zoomStep)}
-          aria-label="Zoom out"
-          title="Zoom out"
-        >
-          −
-        </button>
-        <button
-          className="mermaid-control"
-          type="button"
-          onClick={reset}
-          aria-label="Reset diagram view"
-          title="Reset diagram view"
-        >
-          ↺
-        </button>
-      </div>
+      )}
+      {!collapsed && (
+        <div className="mermaid-controls">
+          <button
+            className="mermaid-control"
+            type="button"
+            onClick={() => zoomBy(zoomStep)}
+            aria-label="Zoom in"
+            title="Zoom in"
+          >
+            +
+          </button>
+          <button
+            className="mermaid-control"
+            type="button"
+            onClick={() => zoomBy(1 / zoomStep)}
+            aria-label="Zoom out"
+            title="Zoom out"
+          >
+            −
+          </button>
+          <button
+            className="mermaid-control"
+            type="button"
+            onClick={reset}
+            aria-label="Reset diagram view"
+            title="Reset diagram view"
+          >
+            ↺
+          </button>
+        </div>
+      )}
     </div>
   );
 }
@@ -123,17 +148,51 @@ const identityTransform: Transform = { x: 0, y: 0, scale: 1 };
 // Fraction of the viewport width the diagram fills on first paint.
 const fitWidthRatio = 0.8;
 
+// A collapsed (縮小) diagram fits entirely inside this height — a skimmable thumbnail.
+const collapsedHeight = 220;
+
+// A diagram whose fitted height exceeds this starts collapsed, so tall figures never dominate a
+// page being skimmed; the fold button restores the full size.
+const autoCollapseHeight = 480;
+
 // Pan (pointer drag) and zoom (wheel/buttons) applied as a CSS transform on the diagram. On first paint
 // the diagram is fitted to fitWidthRatio of the viewport width, and the viewport height is sized to the
-// scaled diagram; reset returns to that fit. `svg` is the rendered markup (null until ready), used to
-// re-fit whenever the diagram changes.
+// scaled diagram; reset returns to that fit, and the fit follows container resizes until the user pans
+// or zooms. A tall diagram starts collapsed: scaled down to fit collapsedHeight whole, interactions
+// off, with a fold toggle to expand. `svg` is the rendered markup (null until ready), used to re-fit
+// whenever the diagram changes.
 function usePanZoom(svg: string | null) {
   const [transform, setTransform] = useState<Transform>(identityTransform);
   const [viewportHeight, setViewportHeight] = useState<number | null>(null);
+  const [collapsed, setCollapsed] = useState(false);
+  const [collapsible, setCollapsible] = useState(false);
   const viewportRef = useRef<HTMLDivElement>(null);
   const panRef = useRef<HTMLDivElement>(null);
   const fitRef = useRef<Transform>(identityTransform);
+  const naturalRef = useRef({ w: 0, h: 0 });
+  // Set once the user pans or zooms: container resizes then stop re-fitting (the fit would stomp
+  // their view) and only the reset target keeps tracking the width.
+  const touchedRef = useRef(false);
+  const collapsedRef = useRef(false);
+  collapsedRef.current = collapsed;
   const dragRef = useRef<{ px: number; py: number; x: number; y: number } | null>(null);
+
+  // applyView recomputes the canonical view (fit or collapsed thumbnail) for the current width.
+  function applyView(col: boolean) {
+    const viewport = viewportRef.current;
+    const { w, h } = naturalRef.current;
+    if (!viewport || w === 0) {
+      // Unmeasurable (no layout engine): fall back to the last known fit so reset still resets.
+      setTransform(fitRef.current);
+      return;
+    }
+    const view = col
+      ? computeCollapsedFit(w, h, viewport.clientWidth)
+      : computeFit(w, h, viewport.clientWidth);
+    fitRef.current = computeFit(w, h, viewport.clientWidth).transform;
+    setTransform(view.transform);
+    setViewportHeight(view.height);
+  }
 
   // Measure after the SVG is in the DOM but before paint, so the initial fit shows without a flash.
   // .mermaid-pan is width:fit-content, so its offset size is the diagram's natural (untransformed) size.
@@ -144,18 +203,51 @@ function usePanZoom(svg: string | null) {
     const naturalW = pan.offsetWidth;
     const naturalH = pan.offsetHeight;
     if (naturalW === 0 || naturalH === 0) return;
-    const { transform: fit, height } = computeFit(naturalW, naturalH, viewport.clientWidth);
-    fitRef.current = fit;
-    setTransform(fit);
-    setViewportHeight(height);
+    naturalRef.current = { w: naturalW, h: naturalH };
+    touchedRef.current = false;
+    const { height } = computeFit(naturalW, naturalH, viewport.clientWidth);
+    setCollapsible(height > collapsedHeight + 1);
+    const startCollapsed = height > autoCollapseHeight;
+    setCollapsed(startCollapsed);
+    applyView(startCollapsed);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [svg]);
 
-  // Wheel zoom needs a non-passive listener so it can preventDefault the page scroll.
+  // Follow container width changes (a widened pane or window): the diagram re-fits — scale and
+  // viewport height included — instead of keeping its old size in a larger box. Keyed on svg: the
+  // viewport div only mounts once rendering succeeds, so a mount-time ([]) effect would observe
+  // nothing.
+  useEffect(() => {
+    const el = viewportRef.current;
+    if (!el || typeof ResizeObserver === "undefined") return;
+    let lastW = el.clientWidth;
+    const ro = new ResizeObserver(() => {
+      const w = el.clientWidth;
+      if (w === 0 || w === lastW || naturalRef.current.w === 0) return;
+      lastW = w;
+      const { w: nw, h: nh } = naturalRef.current;
+      const fit = computeFit(nw, nh, w);
+      fitRef.current = fit.transform;
+      setCollapsible(fit.height > collapsedHeight + 1);
+      if (!touchedRef.current) {
+        applyView(collapsedRef.current);
+      }
+    });
+    ro.observe(el);
+    return () => ro.disconnect();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [svg]);
+
+  // Wheel zoom needs a non-passive listener so it can preventDefault the page scroll. A collapsed
+  // thumbnail is inert: the wheel scrolls the page as usual. Keyed on svg for the same
+  // mount-timing reason as the resize observer above.
   useEffect(() => {
     const el = viewportRef.current;
     if (!el) return;
     function onWheel(event: WheelEvent) {
+      if (collapsedRef.current) return;
       event.preventDefault();
+      touchedRef.current = true;
       const rect = el!.getBoundingClientRect();
       const cx = event.clientX - rect.left;
       const cy = event.clientY - rect.top;
@@ -163,9 +255,10 @@ function usePanZoom(svg: string | null) {
     }
     el.addEventListener("wheel", onWheel, { passive: false });
     return () => el.removeEventListener("wheel", onWheel);
-  }, []);
+  }, [svg]);
 
   function onPointerDown(event: PointerEvent<HTMLDivElement>) {
+    if (collapsed) return;
     event.currentTarget.setPointerCapture(event.pointerId);
     dragRef.current = { px: event.clientX, py: event.clientY, x: transform.x, y: transform.y };
   }
@@ -173,6 +266,7 @@ function usePanZoom(svg: string | null) {
   function onPointerMove(event: PointerEvent<HTMLDivElement>) {
     const drag = dragRef.current;
     if (!drag) return;
+    touchedRef.current = true;
     setTransform((prev) => ({
       ...prev,
       x: drag.x + (event.clientX - drag.px),
@@ -181,6 +275,7 @@ function usePanZoom(svg: string | null) {
   }
 
   function onPointerUp(event: PointerEvent<HTMLDivElement>) {
+    if (dragRef.current === null) return;
     dragRef.current = null;
     event.currentTarget.releasePointerCapture(event.pointerId);
   }
@@ -188,7 +283,8 @@ function usePanZoom(svg: string | null) {
   // zoomBy scales toward the viewport center, so the +/- buttons keep the middle of the diagram put.
   function zoomBy(factor: number) {
     const el = viewportRef.current;
-    if (!el) return;
+    if (!el || collapsed) return;
+    touchedRef.current = true;
     const rect = el.getBoundingClientRect();
     setTransform((prev) => zoomAt(prev, rect.width / 2, rect.height / 2, factor));
   }
@@ -198,10 +294,36 @@ function usePanZoom(svg: string | null) {
     viewportRef,
     panRef,
     viewportHeight,
-    reset: () => setTransform(fitRef.current),
+    reset: () => {
+      touchedRef.current = false;
+      setCollapsed(false);
+      applyView(false);
+    },
     zoomBy,
     handlers: { onPointerDown, onPointerMove, onPointerUp, onPointerCancel: onPointerUp },
+    collapsed,
+    collapsible,
+    toggleCollapsed: () => {
+      touchedRef.current = false;
+      setCollapsed(!collapsed);
+      applyView(!collapsed);
+    },
   };
+}
+
+// computeCollapsedFit scales the diagram to fit WHOLE inside collapsedHeight (never wider than the
+// normal fit), centered — the skimmable thumbnail the fold button toggles.
+export function computeCollapsedFit(
+  naturalW: number,
+  naturalH: number,
+  viewW: number,
+): { transform: Transform; height: number } {
+  const scale = clamp(
+    Math.min((viewW * fitWidthRatio) / naturalW, collapsedHeight / naturalH),
+    0.02,
+    8,
+  );
+  return { transform: { scale, x: (viewW - naturalW * scale) / 2, y: 0 }, height: naturalH * scale };
 }
 
 // computeFit scales a naturalW×naturalH diagram to fill fitWidthRatio of viewW, centers it

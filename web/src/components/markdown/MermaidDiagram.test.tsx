@@ -1,6 +1,6 @@
 import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { afterEach, beforeAll, describe, expect, it, vi } from "vitest";
-import { computeFit, MermaidDiagram } from "./MermaidDiagram";
+import { computeCollapsedFit, computeFit, MermaidDiagram } from "./MermaidDiagram";
 
 // jsdom does not implement pointer capture; drag relies on it, so stub it to a no-op.
 beforeAll(() => {
@@ -67,5 +67,22 @@ describe("computeFit", () => {
     const { transform } = computeFit(100, 60, 500);
     expect(transform.scale).toBeCloseTo(4); // 500 * 0.8 / 100
     expect(transform.x).toBeCloseTo(50); // (500 - 100 * 4) / 2
+  });
+});
+
+describe("computeCollapsedFit", () => {
+  it("fits a tall diagram whole inside the collapsed height", () => {
+    // 400x2200 at 500 wide: the width fit (scale 1) would be 2200 tall; collapsed caps at 220.
+    const { transform, height } = computeCollapsedFit(400, 2200, 500);
+    expect(transform.scale).toBeCloseTo(0.1); // 220 / 2200
+    expect(height).toBeCloseTo(220);
+    expect(transform.x).toBeCloseTo((500 - 400 * 0.1) / 2);
+  });
+
+  it("never scales wider than the normal width fit", () => {
+    // A short-and-wide diagram: the height cap is not the binding constraint.
+    const collapsed = computeCollapsedFit(1000, 100, 500);
+    expect(collapsed.transform.scale).toBeCloseTo(0.4); // same as computeFit
+    expect(collapsed.height).toBeCloseTo(40);
   });
 });
