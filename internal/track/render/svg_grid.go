@@ -41,7 +41,7 @@ func renderGrid(res viewspec.Resolved) string {
 	writeSVGHeader(&b, g, res.Spec.Title)
 	writeGridAxes(&b, g, grid)
 	if res.Chart == viewspec.ChartHeatmap {
-		writeHeatmapCells(&b, g, grid)
+		writeHeatmapCells(&b, g, grid, res)
 	} else {
 		writeTimelineCells(&b, g, grid)
 	}
@@ -87,36 +87,41 @@ func gridValueRange(cells []viewspec.Cell) (lo, hi float64) {
 	return lo, hi
 }
 
-// writeHeatmapCells fills one rectangle per cell, colored by value (light→dark), and draws a color
-// legend in the right margin. A cell with no value is rendered light gray.
-func writeHeatmapCells(b *strings.Builder, g svgGeom, grid *viewspec.Grid) {
+// writeHeatmapCells fills one rectangle per cell, colored by value (light→dark, or the diverging
+// market ramp with scale "diverging"), and draws a color legend in the right margin. A cell with no
+// value is rendered light gray.
+func writeHeatmapCells(b *strings.Builder, g svgGeom, grid *viewspec.Grid, res viewspec.Resolved) {
 	nc, nr := len(grid.Cols), len(grid.Rows)
 	if nc == 0 || nr == 0 {
 		return
 	}
 	lo, hi := gridValueRange(grid.Cells)
+	if res.DivergingColor() {
+		lo, hi = divergingRange(lo, hi)
+	}
+	ramp := rampFor(res)
 	cw, ch := g.plotW()/float64(nc), g.plotH()/float64(nr)
 	for _, c := range grid.Cells {
 		fill := "#eeeeee"
 		if !math.IsNaN(c.Value) {
-			fill = heatColor((c.Value - lo) / (hi - lo))
+			fill = ramp((c.Value - lo) / (hi - lo))
 		}
 		fmt.Fprintf(b, `<rect x="%s" y="%s" width="%s" height="%s" fill="%s" stroke="#ffffff"/>`+"\n",
 			num(g.left+cw*float64(c.Col)), num(g.top+ch*float64(c.Row)), num(cw), num(ch), fill)
 	}
-	writeHeatLegend(b, g, lo, hi)
+	writeHeatLegend(b, g, lo, hi, ramp)
 }
 
 // writeHeatLegend draws a vertical color ramp in the right margin with min/max value labels, so the
 // heatmap's colors can be read back to numbers.
-func writeHeatLegend(b *strings.Builder, g svgGeom, lo, hi float64) {
+func writeHeatLegend(b *strings.Builder, g svgGeom, lo, hi float64, ramp func(float64) string) {
 	const steps = 10
 	lx := g.left + g.plotW() + 12
 	sh := g.plotH() / steps
 	for i := range steps {
 		t := 1 - float64(i)/(steps-1) // top of the ramp is the high value
 		fmt.Fprintf(b, `<rect x="%s" y="%s" width="12" height="%s" fill="%s"/>`+"\n",
-			num(lx), num(g.top+sh*float64(i)), num(sh+0.5), heatColor(t))
+			num(lx), num(g.top+sh*float64(i)), num(sh+0.5), ramp(t))
 	}
 	fmt.Fprintf(b, `<text x="%s" y="%g" font-size="10" fill="#666666">%s</text>`+"\n", num(lx+14), g.top+8, num(hi))
 	fmt.Fprintf(b, `<text x="%s" y="%g" font-size="10" fill="#666666">%s</text>`+"\n", num(lx+14), g.top+g.plotH(), num(lo))

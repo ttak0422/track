@@ -81,15 +81,15 @@ fields onto *visual channels* (x, y series, color, size), orthogonally. Unknown 
 | Field            | Required | Notes                                                                 |
 |------------------|----------|-----------------------------------------------------------------------|
 | `version`        | yes      | View Spec schema version (current: `2`).                              |
-| `mark`           | yes      | `line`, `bar`, `point`, `area`, `rect`, or `candlestick`.             |
+| `mark`           | yes      | `line`, `bar`, `point`, `area`, `rect`, `candlestick`, or `treemap`.  |
 | `title`          | no       | Chart and page title.                                                 |
 | `data.source`    | one of   | Path to a JSONL file, resolved **relative to the spec file** (or absolute). |
 | `data.records`   | one of   | Inline data: an array of records carried in the spec (mutually exclusive with `source`). |
 | `data.kind`      | yes      | One of the canonical kinds.                                           |
 | `encoding.x`     | yes      | The x channel: `{ field, type?, title? }`.                           |
-| `encoding.y`     | yes*     | One or more y series; each `{ field, type?, title?, axis? }`. (*optional on `candlestick` — its OHLC fields are implied, and explicit y channels are extra series over the candles.) |
-| `encoding.color` | rect     | On `rect`: the (quantitative) heatmap cell value. On every other mark: a **nominal** category that splits records into one colored series per value (see below). |
-| `encoding.size`  | no       | Radius channel for a `point` (bubble radius / timeline dot).         |
+| `encoding.y`     | yes*     | One or more y series; each `{ field, type?, title?, axis? }`. (*optional on `candlestick` — its OHLC fields are implied, and explicit y channels are extra series over the candles; at most one nominal group channel on `treemap`.) |
+| `encoding.color` | rect, treemap | On `rect`/`treemap`: the (quantitative) cell value, with an optional `scale: "diverging"` (see below). On every other mark: a **nominal** category that splits records into one colored series per value (see below). |
+| `encoding.size`  | no*      | Radius channel for a `point` (bubble radius / timeline dot); the rectangle area for a `treemap` (*required there). |
 | `encoding.detail`| no       | Provenance channel: `[{ field, title? }]` — extra fields carried per datum; the web reader lists them in the tooltip. Series forms only (line/area/bar/scatter/hbar). |
 | `encoding.href`  | no       | Provenance channel: `{ field }` — the field holding a datum's source URL; the web reader opens it on click (`http(s)` only) and shows a pointer cursor. Series forms only. |
 | `encoding.note`  | no       | Provenance channel: `{ field }` — the field holding a vault note id the datum references; the web reader navigates to it on click (`href` wins when both are set). Series forms only. |
@@ -119,6 +119,10 @@ hint that lets one mark cover the former chart types, since it names which axis 
   direction (green rising, red falling), and when every `y2` series is a bar the ECharts renderer
   pins the secondary axis's max at 4× the data max so the bars hug the bottom band under the
   candles, with the y2 labels and gridlines off.
+- **`treemap`** draws one area-proportional rectangle per record (the industry-map view): the
+  nominal `x` names each leaf, an optional single **nominal** `y[0]` groups them one level, `size`
+  (required) gives the area, and `color` (required) the quantitative cell value. See "Treemap"
+  below.
 
 Channels also take per-channel options whose placement is validated (a misplaced option is an error,
 not a silent no-op):
@@ -196,7 +200,7 @@ line/bar/point, `y[0]` for a horizontal bar — and takes one of:
 
 Sorting is stable (ties keep first-seen order) and happens after series alignment, so it composes
 with multi-series encodings and a `color` split. Forms without a category axis (bubble, heatmap,
-timeline) reject `sort`/`limit`.
+timeline, treemap) reject `sort`/`limit`.
 
 `stack: true` stacks a bar's series instead of grouping them side by side: positive values pile up
 from zero, negative values pile down, per category. It sits on the bar's **measure channel** (`y[0]`
@@ -259,6 +263,37 @@ accumulated in first-seen order).
     "encoding": { "x": { "field": "time", "type": "nominal" },
                   "y": [ { "field": "entity", "type": "nominal" } ] } }
   ```
+
+### Treemap (industry map)
+
+The `treemap` mark (ADR 0030) is the first **axis-less** form: rectangles whose **area** is
+proportional to `encoding.size` and whose **color** encodes `encoding.color`, optionally grouped one
+level by a nominal `y[0]` — the finviz-style industry map (leaves sized by market cap, colored by
+change, grouped by sector). It reuses the existing channels; no new encoding vocabulary:
+
+```json
+{ "version": 2, "mark": "treemap", "data": { "source": "caps.jsonl", "kind": "metric" },
+  "encoding": { "x": { "field": "name", "type": "nominal" },
+                "y": [ { "field": "sector", "type": "nominal" } ],
+                "size": { "field": "cap" },
+                "color": { "field": "value", "scale": "diverging" } } }
+```
+
+- `x` (nominal, required) names each leaf; `y[0]` (nominal, optional, at most one) is the group —
+  omit it for a flat treemap. `size` and `color` are required.
+- Groups accumulate in **first-seen order** (deterministic, like the grid forms); within the layout,
+  sizes place largest-first.
+- A record without a **positive, finite size** or a **finite color value** is skipped by both
+  renderers: a leaf with no area cannot be drawn, and one with no value has no color.
+- The form is axis-less, so `sort`/`limit`, the provenance channels (`detail`/`href`/`note`), and
+  **all overlays** are rejected.
+
+**`scale: "diverging"`** on `encoding.color` selects a zero-centered color ramp for a quantitative
+cell value — most-negative red, neutral at zero, most-positive green (the international market
+convention, matching the candlestick colors), over a domain symmetric around zero
+(`±max(|min|, |max|)`). The default (empty) scale is the sequential light→dark ramp the heatmap
+uses. The option is shared with `rect`, so a diverging heatmap works the same way; it is rejected
+anywhere else (on other marks `color` is a nominal series split, not a value).
 
 ### Overlays (markers, reference lines, bands)
 
@@ -454,7 +489,13 @@ page, article composition, and the web workspace's fenced-block endpoint.
   linear axes with a **per-item `symbolSize`** (2× the resolved radius), so the option stays pure JSON
   — no size callbacks; a nominal y (timeline) is a category-lane scatter sized the same way.
 - A `rect` (heatmap) uses the native heatmap series with a `visualMap` spanning the same light→dark
-  blue ramp as the SVG renderer.
+  blue ramp as the SVG renderer; with `scale: "diverging"` the map runs the market red→neutral→green
+  over a zero-symmetric domain instead.
+- A `treemap` uses the native treemap series: leaves carry `[size, value]` items (nested under
+  first-seen-order group items, which label their band via `upperLabel`) and a continuous
+  `visualMap` on dimension 1 colors the cells — sequential by default, the diverging market ramp
+  with `scale: "diverging"`. Breadcrumb and click-zoom are disabled: the map is a static overview,
+  not a drill-down.
 - A series with `axis: "y2"` is bound to a right-hand secondary value axis (its gridlines kept off the
   chart area); single-axis charts define one axis.
 - Every chart carries the fixed palette shared with the `svg` renderer, so colors are deterministic
@@ -490,6 +531,11 @@ output embeds directly in notes, emails, or a static site:
 - A bubble (quantitative-x point) is drawn over **linear** x and y axes (one circle per `{x, y, r}`
   point, sized by `size`); a point missing x or y is skipped and a missing/non-positive radius falls
   back to a small default, like the ECharts renderer.
+- A treemap is laid out with a deterministic **squarified** algorithm (Bruls et al., in Go, no
+  dependencies): groups partition the plot by their summed size and get a heading band and frame,
+  leaves fill their group's region, and a leaf is labelled only when the text fits its cell. Colors
+  interpolate the same sequential or diverging ramp the ECharts `visualMap` gets, so both outputs
+  read alike.
 - The value axis spans the data range; bars pin the baseline to zero.
 - `NaN`/`Inf` values are gaps: a line breaks its segment, a bar/scatter/bubble point is omitted.
 - **Overlays** mirror the ECharts mark geometry: markers are vertical lines at the matching category

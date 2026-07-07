@@ -76,6 +76,8 @@ func echartsOption(res viewspec.Resolved) (map[string]any, error) {
 	switch res.Chart {
 	case viewspec.ChartHeatmap:
 		buildHeatmap(opt, res)
+	case viewspec.ChartTreemap:
+		buildTreemap(opt, res)
 	case viewspec.ChartTimeline:
 		buildTimeline(opt, res)
 	case viewspec.ChartBubble:
@@ -99,6 +101,9 @@ func echartsOption(res viewspec.Resolved) (map[string]any, error) {
 // with containLabel keeping the axis labels inside the edges instead of ECharts' default 10%
 // side margins. The heatmap keeps right-hand room for its vertical visualMap ramp.
 func applyGrid(opt map[string]any, t viewspec.ChartType) {
+	if t == viewspec.ChartTreemap {
+		return // not a cartesian form: the treemap series carries its own placement
+	}
 	g := gridOf(opt)
 	g["left"] = echartsInset
 	g["containLabel"] = true
@@ -113,7 +118,7 @@ func applyGrid(opt map[string]any, t viewspec.ChartType) {
 // (every series at the hovered category), point-shaped charts with the single hovered item.
 func tooltipTrigger(t viewspec.ChartType) string {
 	switch t {
-	case viewspec.ChartBubble, viewspec.ChartTimeline, viewspec.ChartHeatmap, viewspec.ChartScatter:
+	case viewspec.ChartBubble, viewspec.ChartTimeline, viewspec.ChartHeatmap, viewspec.ChartScatter, viewspec.ChartTreemap:
 		return "item"
 	}
 	return "axis"
@@ -524,19 +529,109 @@ func buildHeatmap(opt map[string]any, res viewspec.Resolved) {
 		}
 		data = append(data, []any{grid.Cols[c.Col], grid.Rows[c.Row], c.Value})
 	}
-	opt["visualMap"] = map[string]any{
-		"min": lo, "max": hi,
+	opt["visualMap"] = valueVisualMap(res, 0, lo, hi)
+	opt["series"] = []any{map[string]any{
+		"type":  "heatmap",
+		"data":  data,
+		"label": map[string]any{"show": false},
+	}}
+}
+
+// valueVisualMap builds the continuous color legend for a quantitative cell value (heatmap and
+// treemap): the sequential light→dark ramp by default, or — with the color channel's scale
+// "diverging" — a domain symmetric around zero running the shared market red→neutral→green
+// (negative→positive), so treemaps and candlesticks agree on what red and green mean. dimension > 0
+// points the map at that index of an array-valued datum (the treemap's [size, value] items).
+func valueVisualMap(res viewspec.Resolved, dimension int, lo, hi float64) map[string]any {
+	vm := map[string]any{
+		"type": "continuous",
+		"min":  lo, "max": hi,
 		"calculable": true,
 		"orient":     "vertical",
 		"right":      0,
 		"top":        "center",
 		"inRange":    map[string]any{"color": []string{heatColor(0), heatColor(1)}},
 	}
-	opt["series"] = []any{map[string]any{
-		"type":  "heatmap",
-		"data":  data,
-		"label": map[string]any{"show": false},
-	}}
+	if dimension > 0 {
+		vm["dimension"] = dimension
+	}
+	if res.DivergingColor() {
+		m := math.Max(math.Abs(lo), math.Abs(hi))
+		if m == 0 { // all-zero values: keep a non-degenerate domain
+			m = 1
+		}
+		vm["min"], vm["max"] = -m, m
+		vm["inRange"] = map[string]any{"color": []string{candleDown, divergeNeutral, candleUp}}
+	}
+	return vm
+}
+
+// buildTreemap draws area-proportional rectangles (the finviz-style industry map): leaves sized by
+// the size channel and colored by the color channel through a dimension-1 visualMap over the items'
+// [size, value] pairs. A node with a group (the optional nominal y[0]) nests under a group item —
+// groups accumulate in first-seen order, like the grid forms — and grouped maps label the group band
+// via upperLabel. A node without a positive size or a finite value is skipped (no area cannot be
+// drawn; no value has no color). Breadcrumb and click-zoom are off: the map is a static overview,
+// not a drill-down.
+func buildTreemap(opt map[string]any, res viewspec.Resolved) {
+	tree := res.Tree
+	if tree == nil {
+		tree = &viewspec.Tree{}
+	}
+	lo, hi := math.Inf(1), math.Inf(-1)
+	var data []any
+	groupIdx := map[string]int{}
+	grouped := false
+	for _, n := range tree.Nodes {
+		if math.IsNaN(n.Size) || n.Size <= 0 || math.IsNaN(n.Value) {
+			continue
+		}
+		lo, hi = math.Min(lo, n.Value), math.Max(hi, n.Value)
+		item := map[string]any{"name": n.Label, "value": []any{n.Size, n.Value}}
+		if n.Group == "" {
+			data = append(data, item)
+			continue
+		}
+		grouped = true
+		gi, ok := groupIdx[n.Group]
+		if !ok {
+			gi = len(data)
+			groupIdx[n.Group] = gi
+			data = append(data, map[string]any{"name": n.Group, "children": []any{}})
+		}
+		g := data[gi].(map[string]any)
+		g["children"] = append(g["children"].([]any), item)
+	}
+	if math.IsInf(lo, 1) { // no drawable node at all
+		lo, hi = 0, 1
+	}
+	if lo == hi {
+		lo, hi = lo-1, hi+1
+	}
+	opt["visualMap"] = valueVisualMap(res, 1, lo, hi)
+	top := 10
+	if res.Spec.Title != "" {
+		top = 44 // clear the title row, like the cartesian forms' grid top
+	}
+	series := map[string]any{
+		"type": "treemap",
+		"data": data,
+		// The series places itself (no cartesian grid); the right inset leaves room for the visualMap.
+		"left": echartsInset, "right": 90, "top": top, "bottom": 16,
+		"breadcrumb": map[string]any{"show": false},
+		"nodeClick":  false,
+		"label":      map[string]any{"show": true},
+		// {c} prints the [size, value] pair, so the tooltip reads "label: size,value".
+		"tooltip": map[string]any{"formatter": "{b}: {c}"},
+		"levels": []any{
+			map[string]any{"itemStyle": map[string]any{"gapWidth": 2, "borderWidth": 2, "borderColor": "#ffffff"}},
+			map[string]any{"itemStyle": map[string]any{"gapWidth": 1}},
+		},
+	}
+	if grouped {
+		series["upperLabel"] = map[string]any{"show": true, "height": 20}
+	}
+	opt["series"] = []any{series}
 }
 
 // boxDate resolves an annotation box's date line from the marker's x value: an RFC3339 timestamp is

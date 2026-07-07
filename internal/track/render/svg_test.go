@@ -136,6 +136,21 @@ func goldenCases() map[string]viewspec.Resolved {
 				Cells: []viewspec.Cell{{Col: 0, Row: 0, Value: 1}, {Col: 2, Row: 0, Value: 5}, {Col: 1, Row: 1, Value: math.NaN()}},
 			},
 		},
+		// Treemap: grouped, diverging-colored leaves; the sizeless and valueless nodes are skipped.
+		"treemap": {
+			Spec: viewspec.Spec{
+				Title:    "Industry map",
+				Encoding: viewspec.Encoding{Color: &viewspec.Channel{Field: "change", Scale: viewspec.ScaleDiverging}},
+			},
+			Chart: viewspec.ChartTreemap,
+			Tree: &viewspec.Tree{Nodes: []viewspec.TreeNode{
+				{Label: "AAA", Group: "Tech", Size: 300, Value: 2},
+				{Label: "BBB", Group: "Energy", Size: 120, Value: -4},
+				{Label: "CCC", Group: "Tech", Size: 80, Value: 1},
+				{Label: "DDD", Group: "Tech", Size: math.NaN(), Value: 1},
+				{Label: "EEE", Group: "Energy", Size: 50, Value: math.NaN()},
+			}},
+		},
 	}
 }
 
@@ -306,6 +321,100 @@ func TestSVGCandlestickColorsAndSkips(t *testing.T) {
 	}
 	if strings.Contains(out, ">open<") || strings.Contains(out, ">close<") {
 		t.Fatalf("OHLC components should not be legend entries: %s", out)
+	}
+}
+
+func TestSVGTreemapGroupsColorsAndSkips(t *testing.T) {
+	out, err := SVG{}.Render(goldenCases()["treemap"])
+	if err != nil {
+		t.Fatal(err)
+	}
+	// Group heading bands and their labels; leaf labels of the drawable nodes.
+	for _, want := range []string{">Tech<", ">Energy<", ">AAA<", ">BBB<", ">CCC<"} {
+		if !strings.Contains(out, want) {
+			t.Errorf("treemap missing %q: %s", want, out)
+		}
+	}
+	// Diverging endpoints: the most negative node (BBB, -4) hits candleDown; +2 sits halfway to
+	// candleUp on the zero-symmetric [-4, 4] domain, and no leaf reaches full green.
+	if !strings.Contains(out, `fill="`+candleDown+`"`) {
+		t.Errorf("most negative leaf should be the full market red: %s", out)
+	}
+	if !strings.Contains(out, `fill="`+divergeColor(0.75)+`"`) {
+		t.Errorf("+2 on [-4,4] should sit halfway into the green ramp: %s", out)
+	}
+	// Undrawable nodes are skipped.
+	for _, gone := range []string{">DDD<", ">EEE<"} {
+		if strings.Contains(out, gone) {
+			t.Errorf("undrawable node %s should be skipped: %s", gone, out)
+		}
+	}
+}
+
+func TestSVGTreemapFlatSequential(t *testing.T) {
+	res := viewspec.Resolved{
+		Spec:  viewspec.Spec{},
+		Chart: viewspec.ChartTreemap,
+		Tree: &viewspec.Tree{Nodes: []viewspec.TreeNode{
+			{Label: "A", Size: 3, Value: 1},
+			{Label: "B", Size: 1, Value: 9},
+		}},
+	}
+	out, err := SVG{}.Render(res)
+	if err != nil {
+		t.Fatal(err)
+	}
+	// No groups: no heading band gray, and the sequential ramp colors the extremes.
+	if strings.Contains(out, `fill="#e6e6e6"`) {
+		t.Fatalf("flat treemap should not draw heading bands: %s", out)
+	}
+	for _, want := range []string{`fill="` + heatColor(0) + `"`, `fill="` + heatColor(1) + `"`} {
+		if !strings.Contains(out, want) {
+			t.Errorf("sequential treemap missing %q: %s", want, out)
+		}
+	}
+}
+
+// TestSquarifyPartitionsExactly pins the layout invariants: every rectangle stays inside the frame
+// and the areas match the weights' share of it (the treemap's one load-bearing proportionality).
+func TestSquarifyPartitionsExactly(t *testing.T) {
+	weights := []float64{6, 6, 4, 3, 2, 2, 1}
+	frame := rectF{10, 20, 400, 300}
+	rects := squarify(weights, frame)
+	total := 0.0
+	for _, w := range weights {
+		total += w
+	}
+	areaSum := 0.0
+	for i, r := range rects {
+		if r.x < frame.x-0.01 || r.y < frame.y-0.01 ||
+			r.x+r.w > frame.x+frame.w+0.01 || r.y+r.h > frame.y+frame.h+0.01 {
+			t.Errorf("rect %d escapes the frame: %+v", i, r)
+		}
+		want := weights[i] / total * frame.w * frame.h
+		if math.Abs(r.w*r.h-want) > 0.01 {
+			t.Errorf("rect %d area = %v, want %v", i, r.w*r.h, want)
+		}
+		areaSum += r.w * r.h
+	}
+	if math.Abs(areaSum-frame.w*frame.h) > 0.01 {
+		t.Errorf("areas should tile the frame: %v vs %v", areaSum, frame.w*frame.h)
+	}
+}
+
+func TestSVGHeatmapDivergingRamp(t *testing.T) {
+	res := goldenCases()["heatmap"]
+	res.Spec.Encoding = viewspec.Encoding{Color: &viewspec.Channel{Field: "v", Scale: viewspec.ScaleDiverging}}
+	res.Grid.Cells = []viewspec.Cell{{Col: 0, Row: 0, Value: -9}, {Col: 1, Row: 0, Value: 9}}
+	out, err := SVG{}.Render(res)
+	if err != nil {
+		t.Fatal(err)
+	}
+	// The extremes hit the market endpoints, and the legend spans the zero-symmetric domain.
+	for _, want := range []string{`fill="` + candleDown + `"`, `fill="` + candleUp + `"`, ">-9.00<", ">9.00<"} {
+		if !strings.Contains(out, want) {
+			t.Errorf("diverging heatmap missing %q: %s", want, out)
+		}
 	}
 }
 

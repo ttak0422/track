@@ -72,12 +72,14 @@ func cmdRender(args []string) int {
 }
 
 // resolvedCount reports how many data points a resolved spec produced, for the render summary: grid
-// charts (heatmap/timeline) count cells, bubble counts its {x,y,r} points (it has no x labels), and
-// the rest count x labels.
+// charts (heatmap/timeline) count cells, a treemap counts its leaf nodes, bubble counts its {x,y,r}
+// points (it has no x labels), and the rest count x labels.
 func resolvedCount(res viewspec.Resolved) int {
 	switch {
 	case res.Grid != nil:
 		return len(res.Grid.Cells)
+	case res.Tree != nil:
+		return len(res.Tree.Nodes)
 	case res.Chart == viewspec.ChartBubble && len(res.Series) > 0:
 		return len(res.Series[0].Points)
 	default:
@@ -248,9 +250,11 @@ func viewSpecReference() string {
 	b.WriteString("                   candlestick, y channels are extra series over the candles\n")
 	b.WriteString("  y[].window:      N   replace the series with its rolling mean over the trailing\n")
 	b.WriteString("                   N records (a moving average; the first N-1 points stay empty)\n")
-	b.WriteString("  encoding.color:  {field, type?}   rect: cell value; other marks: a nominal category\n")
-	b.WriteString("                   that splits records into one colored series per value (single y)\n")
-	b.WriteString("  encoding.size:   {field}   point radius (bubble / timeline dot)\n")
+	b.WriteString("  encoding.color:  {field, type?, scale?}   rect/treemap: cell value; other marks: a nominal\n")
+	b.WriteString("                   category that splits records into one colored series per value (single y)\n")
+	b.WriteString("  color.scale:     diverging   zero-centered red→neutral→green ramp for a rect/treemap\n")
+	b.WriteString("                   cell value (negative red, positive green); default is sequential\n")
+	b.WriteString("  encoding.size:   {field}   point radius (bubble / timeline dot); treemap rectangle area\n")
 	b.WriteString("  encoding.detail: [{field, title?}]   extra fields carried per datum; interactive\n")
 	b.WriteString("                   renderers list them in the tooltip (series forms only)\n")
 	b.WriteString("  encoding.href:   {field}   a datum's source URL; the web reader opens it on click\n")
@@ -269,6 +273,9 @@ func viewSpecReference() string {
 	b.WriteString("scatter (nominal x) / bubble (quantitative x) / timeline (nominal y); rect = heatmap;\n")
 	b.WriteString("area = line filled down to zero. candlestick draws OHLC bars from data.kind price\n")
 	b.WriteString("(open/high/low/close are implied, so it takes no encoding.y).\n")
+	b.WriteString("treemap draws area-proportional rectangles (an industry map): nominal x = leaf label,\n")
+	b.WriteString("optional nominal y[0] = group, size = area, color = cell value; it is axis-less,\n")
+	b.WriteString("so sort/limit and overlays are rejected.\n")
 	b.WriteString("\nExample:\n")
 	b.WriteString(`  {
     "version": 2,

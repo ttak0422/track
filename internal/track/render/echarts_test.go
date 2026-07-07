@@ -126,6 +126,106 @@ func TestEChartsTimelineAndHeatmapGrids(t *testing.T) {
 	}
 }
 
+// treemapResolved builds the resolved shape of the treemap demo: grouped leaves with a diverging
+// color value, one node skippable per rule (no size / no value).
+func treemapResolved(scale string) viewspec.Resolved {
+	return viewspec.Resolved{
+		Spec: viewspec.Spec{
+			Encoding: viewspec.Encoding{Color: &viewspec.Channel{Field: "change", Scale: scale}},
+		},
+		Chart: viewspec.ChartTreemap,
+		Tree: &viewspec.Tree{Nodes: []viewspec.TreeNode{
+			{Label: "AAA", Group: "Tech", Size: 300, Value: 2},
+			{Label: "BBB", Group: "Energy", Size: 120, Value: -4},
+			{Label: "CCC", Group: "Tech", Size: 80, Value: 1},
+			{Label: "DDD", Group: "Tech", Size: math.NaN(), Value: 1},    // no area → skipped
+			{Label: "EEE", Group: "Energy", Size: 50, Value: math.NaN()}, // no value → skipped
+		}},
+	}
+}
+
+func TestEChartsTreemapGroupsAndVisualMap(t *testing.T) {
+	out, err := EChartsOptionJSON(treemapResolved(viewspec.ScaleDiverging))
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, want := range []string{
+		`"type":"treemap"`,
+		// Groups nest their leaves, in first-seen order (Tech before Energy).
+		`{"children":[{"name":"AAA","value":[300,2]},{"name":"CCC","value":[80,1]}],"name":"Tech"}`,
+		`{"children":[{"name":"BBB","value":[120,-4]}],"name":"Energy"}`,
+		// Diverging: domain symmetric around zero over dimension 1, market red→neutral→green.
+		`"dimension":1`, `"min":-4`, `"max":4`,
+		`"color":["` + candleDown + `","` + divergeNeutral + `","` + candleUp + `"]`,
+		`"breadcrumb":{"show":false}`, `"upperLabel"`,
+	} {
+		if !strings.Contains(out, want) {
+			t.Errorf("treemap option missing %q: %s", want, out)
+		}
+	}
+	// Skipped nodes (no size / no value) never reach the option.
+	for _, gone := range []string{"DDD", "EEE"} {
+		if strings.Contains(out, gone) {
+			t.Errorf("undrawable node %s should be skipped: %s", gone, out)
+		}
+	}
+	// Not a cartesian form: no axes, no grid, no zoom.
+	for _, gone := range []string{`"xAxis"`, `"yAxis"`, `"grid"`, `"dataZoom"`} {
+		if strings.Contains(out, gone) {
+			t.Errorf("treemap should not carry %s: %s", gone, out)
+		}
+	}
+}
+
+func TestEChartsTreemapSequentialAndFlat(t *testing.T) {
+	// Default scale: the heatmap's sequential ramp over the real value range.
+	res := treemapResolved("")
+	out, err := EChartsOptionJSON(res)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(out, `"min":-4`) || !strings.Contains(out, `"max":2`) {
+		t.Fatalf("sequential scale should span the data range: %s", out)
+	}
+	if !strings.Contains(out, `"color":["`+heatColor(0)+`","`+heatColor(1)+`"]`) {
+		t.Fatalf("sequential scale should reuse the heatmap ramp: %s", out)
+	}
+	// Flat treemap (no groups): leaves sit at the top level, no upperLabel band.
+	flat := treemapResolved("")
+	for i := range flat.Tree.Nodes {
+		flat.Tree.Nodes[i].Group = ""
+	}
+	out2, _ := EChartsOptionJSON(flat)
+	if strings.Contains(out2, `"children"`) || strings.Contains(out2, `"upperLabel"`) {
+		t.Fatalf("flat treemap should keep leaves at the top level: %s", out2)
+	}
+	if !strings.Contains(out2, `{"name":"AAA","value":[300,2]}`) {
+		t.Fatalf("flat leaves missing: %s", out2)
+	}
+}
+
+func TestEChartsHeatmapDivergingRamp(t *testing.T) {
+	// The scale option is shared with rect: a diverging heatmap centers its domain on zero.
+	res := viewspec.Resolved{
+		Spec: viewspec.Spec{
+			Encoding: viewspec.Encoding{Color: &viewspec.Channel{Field: "v", Scale: viewspec.ScaleDiverging}},
+		},
+		Chart: viewspec.ChartHeatmap,
+		Grid: &viewspec.Grid{Cols: []string{"a"}, Rows: []string{"r"},
+			Cells: []viewspec.Cell{{Col: 0, Row: 0, Value: -3}, {Col: 0, Row: 0, Value: 1}}},
+	}
+	out, err := EChartsOptionJSON(res)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(out, `"min":-3`) || !strings.Contains(out, `"max":3`) {
+		t.Fatalf("diverging heatmap should center on zero: %s", out)
+	}
+	if !strings.Contains(out, candleDown) || !strings.Contains(out, candleUp) {
+		t.Fatalf("diverging heatmap should use the market ramp: %s", out)
+	}
+}
+
 func TestEChartsCandlestickDataOrderAndColors(t *testing.T) {
 	res := viewspec.Resolved{
 		Spec: viewspec.Spec{}, Chart: viewspec.ChartCandlestick,

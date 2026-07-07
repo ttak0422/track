@@ -14,7 +14,8 @@ func init() { Register(SVG{}) }
 
 // SVG renders a resolved View Spec as a self-contained, dependency-free SVG document. // ECharts renderer it loads no scripts and no CDN, so the output is a static image suitable for
 // embedding in notes, emails, or a static site. It draws the category-axis chart types (line, area,
-// bar, hbar, scatter, candlestick) plus bubble (a linear-axis {x,y,r} scatter) and overlay markers.
+// bar, hbar, scatter, candlestick) plus bubble (a linear-axis {x,y,r} scatter), the axis-less
+// treemap, and overlay markers.
 type SVG struct{}
 
 // Name identifies this renderer for selection (track render --renderer svg).
@@ -45,6 +46,8 @@ func (SVG) Render(res viewspec.Resolved) (string, error) {
 		return renderBubble(res), nil
 	case viewspec.ChartHeatmap, viewspec.ChartTimeline:
 		return renderGrid(res), nil
+	case viewspec.ChartTreemap:
+		return renderTreemap(res), nil
 	}
 	g := svgGeom{w: 800, h: 480, left: 56, right: 16, top: 40, bottom: 56}
 	lo, hi := valueRange(res)
@@ -303,10 +306,13 @@ func writeAreaFill(b *strings.Builder, g svgGeom, centers, vals []float64, lo, h
 }
 
 // candleUp/candleDown color a rising (close >= open) and falling candle; they reuse the shared
-// palette's green and red so candlesticks match the rest of the chart family.
+// palette's green and red so candlesticks match the rest of the chart family. divergeNeutral is the
+// zero midpoint of the diverging color ramp (scale: "diverging"), which runs candleDown → neutral →
+// candleUp so treemaps/heatmaps and candlesticks agree on what red and green mean.
 const (
-	candleUp   = "#59a14f"
-	candleDown = "#e15759"
+	candleUp       = "#59a14f"
+	candleDown     = "#e15759"
+	divergeNeutral = "#f5f5f5"
 )
 
 // candleExtraColor colors a candlestick's extra series (index si past the four OHLC components).
