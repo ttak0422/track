@@ -166,17 +166,20 @@ export function EChartsBlock({ option }: EChartsBlockProps) {
       if (event.ctrlKey) {
         event.preventDefault();
         event.stopPropagation();
-        el.querySelector("canvas")?.dispatchEvent(
-          new WheelEvent("wheel", {
-            deltaY: event.deltaY,
-            deltaX: event.deltaX,
-            clientX: event.clientX,
-            clientY: event.clientY,
-            shiftKey: true,
-            bubbles: true,
-            cancelable: true,
-          }),
-        );
+        const synthetic = new WheelEvent("wheel", {
+          deltaY: event.deltaY,
+          deltaX: event.deltaX,
+          clientX: event.clientX,
+          clientY: event.clientY,
+          shiftKey: true,
+          bubbles: true,
+          cancelable: true,
+        });
+        // Chromium gives a constructor-built WheelEvent a wheelDelta equal to deltaY — the opposite
+        // sign of a real event's wheelDelta (−3×deltaY) — so zrender read the pinch backwards
+        // (pinch-out zoomed out). Zero it so zrender's own deltaY polyfill derives the sign instead.
+        Object.defineProperty(synthetic, "wheelDelta", { value: 0 });
+        el.querySelector("canvas")?.dispatchEvent(synthetic);
         return;
       }
       if (!event.shiftKey) event.stopPropagation();
