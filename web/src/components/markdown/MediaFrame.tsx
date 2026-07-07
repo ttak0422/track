@@ -2,15 +2,15 @@ import { type ReactNode, useContext, useEffect, useRef, useState } from "react";
 import { initialPreviewBounds, type PreviewAnchor, type PreviewBounds } from "../preview/bounds";
 import { InFloatingWindowContext, useFloating } from "../preview/floatingStore";
 import { MediaWindow } from "../preview/MediaWindow";
-import { mediaPreviewOpenDelay, nextPreviewStackOrder } from "../preview/stack";
+import { nextPreviewStackOrder } from "../preview/stack";
 import { NoteKindContext } from "./context";
 
-// MediaFrame wraps a media embed (image, PDF) so hovering it shows the same hover-preview popup a
-// WikiLink gives a note link: rest the pointer and an enlarged copy floats up beside it (mirrors
-// WikiLink.tsx's open-delay/sticky-on-drag logic, reusing the same FloatingWindow chrome via
-// MediaWindow). Hovering also still reveals the fullscreen/float controls. Inside a floating window it
-// renders the media bare, so a floated/previewed image offers neither control nor a nested preview of
-// itself again.
+// MediaFrame wraps a media embed (image, PDF) with hover-revealed controls: preview (an enlarged
+// copy floating beside the media, the same FloatingWindow chrome a WikiLink note preview uses via
+// MediaWindow), enlarge (an in-window lightbox), and float. Unlike a note link — whose target is
+// hidden until previewed — the media is already fully visible, so the preview popup opens only from
+// its button, never automatically on hover. Inside a floating window it renders the media bare, so a
+// floated/previewed image offers neither control nor a nested preview of itself again.
 export function MediaFrame({ src, alt, children }: { src: string; alt: string; children: ReactNode }) {
   const inFloating = useContext(InFloatingWindowContext);
   const kind = useContext(NoteKindContext);
@@ -19,11 +19,8 @@ export function MediaFrame({ src, alt, children }: { src: string; alt: string; c
 
   const [open, setOpen] = useState(false);
   const [anchor, setAnchor] = useState<PreviewAnchor | null>(null);
-  const [sticky, setSticky] = useState(false);
   const [stackOrder, setStackOrder] = useState(nextPreviewStackOrder);
   const [enlarged, setEnlarged] = useState(false);
-  const closeTimer = useRef<number | undefined>(undefined);
-  const openTimer = useRef<number | undefined>(undefined);
   const dialogRef = useRef<HTMLDialogElement>(null);
 
   // The lightbox <dialog> mounts only while enlarged; showModal() must run after that mount, so it
@@ -31,13 +28,6 @@ export function MediaFrame({ src, alt, children }: { src: string; alt: string; c
   useEffect(() => {
     if (enlarged) dialogRef.current?.showModal();
   }, [enlarged]);
-
-  useEffect(() => {
-    return () => {
-      if (closeTimer.current !== undefined) window.clearTimeout(closeTimer.current);
-      if (openTimer.current !== undefined) window.clearTimeout(openTimer.current);
-    };
-  }, []);
 
   if (inFloating) {
     return <>{children}</>;
@@ -50,60 +40,22 @@ export function MediaFrame({ src, alt, children }: { src: string; alt: string; c
       : { linkLeft: 0, linkRight: 0, linkTop: 0, linkBottom: 0 };
   }
 
-  // scheduleOpen defers opening the preview until the pointer has rested on the media, so a cursor
-  // sweeping down a note full of images does not flash a popup under each one (same intent as WikiLink).
-  // While the lightbox is up the hover preview stays out of the way entirely.
-  function scheduleOpen() {
-    if (enlarged) return;
-    holdPreview();
-    if (open || openTimer.current !== undefined) return;
-    openTimer.current = window.setTimeout(() => {
-      openTimer.current = undefined;
-      openPreview();
-    }, mediaPreviewOpenDelay);
-  }
-
-  function cancelOpen() {
-    if (openTimer.current !== undefined) {
-      window.clearTimeout(openTimer.current);
-      openTimer.current = undefined;
-    }
-  }
-
+  // The preview was asked for by a click, so it stays until its close button (or enlarging the
+  // media) dismisses it, rather than evaporating when the pointer wanders off.
   function openPreview() {
-    holdPreview();
-    cancelOpen();
     setStackOrder(nextPreviewStackOrder());
     setAnchor(frameAnchor());
     setOpen(true);
   }
 
-  function holdPreview() {
-    if (closeTimer.current !== undefined) window.clearTimeout(closeTimer.current);
-  }
-
-  function scheduleClose() {
-    cancelOpen();
-    if (sticky) return;
-    if (closeTimer.current !== undefined) window.clearTimeout(closeTimer.current);
-    closeTimer.current = window.setTimeout(() => setOpen(false), 220);
-  }
-
-  function detachPreview() {
-    holdPreview();
-    setSticky(true);
-  }
-
   function closePreview() {
-    setSticky(false);
     setOpen(false);
   }
 
-  // Pin promotes the transient hover preview into the persistent floating layer at its current
-  // position/size, same as WikiLink promoting a note preview.
+  // Pin promotes the preview popup into the persistent floating layer at its current position/size,
+  // same as WikiLink promoting a note preview.
   function promote(bounds: PreviewBounds, collapsed: boolean) {
     floating.open({ kind: "media", src, alt, noteKind: kind }, bounds, collapsed, true);
-    setSticky(false);
     setOpen(false);
   }
 
@@ -112,16 +64,40 @@ export function MediaFrame({ src, alt, children }: { src: string; alt: string; c
   }
 
   return (
-    <div className="media-frame" ref={ref} onMouseEnter={scheduleOpen} onMouseLeave={scheduleClose}>
+    <div className="media-frame" ref={ref}>
       {children}
       <div className="media-controls">
         <button
           className="media-control"
           type="button"
           onClick={() => {
-            // Reaching this button means the pointer rested on the frame, so a hover preview is open
-            // or pending; drop it rather than leaving a popup behind the modal.
-            cancelOpen();
+            if (enlarged) return;
+            openPreview();
+          }}
+          aria-label="Preview"
+          title="Preview"
+        >
+          {/* Eye glyph: pop an enlarged copy up beside the media, on demand rather than on hover. */}
+          <svg
+            viewBox="0 0 24 24"
+            width="15"
+            height="15"
+            fill="none"
+            stroke="currentColor"
+            strokeWidth="2"
+            strokeLinecap="round"
+            strokeLinejoin="round"
+            aria-hidden="true"
+          >
+            <path d="M2 12s3.5-6 10-6 10 6 10 6-3.5 6-10 6-10-6-10-6Z" />
+            <circle cx="12" cy="12" r="2.5" />
+          </svg>
+        </button>
+        <button
+          className="media-control"
+          type="button"
+          onClick={() => {
+            // Drop any open preview popup rather than leaving it behind the modal.
             closePreview();
             setEnlarged(true);
           }}
@@ -188,14 +164,10 @@ export function MediaFrame({ src, alt, children }: { src: string; alt: string; c
           alt={alt}
           kind={kind}
           initialBounds={initialPreviewBounds(anchor)}
-          reanchor={sticky ? undefined : anchor}
           pinned={false}
           depth={0}
           stackOrder={stackOrder}
           onActivate={() => setStackOrder(nextPreviewStackOrder())}
-          onHold={holdPreview}
-          onLeave={scheduleClose}
-          onDetach={detachPreview}
           onClose={closePreview}
           onPinToggle={promote}
         />
