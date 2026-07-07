@@ -33,6 +33,45 @@ When the note resolves but the heading is not found, navigation falls back to th
 
 Fenced code blocks delimited by lines starting with ` ``` ` are excluded.
 
+### Includes (transclusion)
+
+A line that is **exactly** a link prefixed with `!`, plus optional trailing options, embeds the
+target note's content at that position (ADR 0031):
+
+```markdown
+![[Note]]
+![[Note##設計]] :only-contents
+![[議事録|今週の抜粋]] :lines 1-20
+```
+
+- Includes are **block-level only**: the `![[...]]` must start the line (leading whitespace
+  allowed). An `![[...]]` inside running text is not a directive; its `[[...]]` part is still an
+  ordinary link.
+- The link part shares the full `[[...]]` grammar — resolution key, heading anchors, `|display`
+  alias — and is also a plain link: it resolves the same way, appears in the link graph and
+  backlinks, is rewritten on rename, and gets the unresolved-link diagnostic when the key does not
+  match. The display alias serves as the embed's caption.
+- Without an anchor the whole note body is embedded. With `##heading` the embedded region runs from
+  the matched heading line through the line before the next heading of the same or a shallower
+  level (headings inside fenced code blocks neither match nor terminate, as above). A non-matching
+  anchor is an error surface — the include must render as unresolved, **not** fall back to the
+  whole note (unlike navigation).
+- Options after the closing `]]` use Org-style `:key value` header arguments, the same shape as
+  babel blocks:
+  - `:only-contents` — drop the matched heading line and embed only its body. Without an anchor it
+    is a no-op.
+  - `:lines 4-5,8` — 1-based inclusive ranges over the extracted region (after `:only-contents`),
+    concatenated in the order written; out-of-range parts are clipped. Same range syntax as babel's
+    `:visible-lines`.
+  - Unknown keys and malformed values are collected for diagnostics rather than silently ignored.
+- Leading and trailing blank lines of the extracted region are trimmed.
+- Embedded content is **not** recursively expanded: an include line inside the embedded region
+  renders as text. This bounds the work and makes include cycles harmless by construction.
+
+Extraction lives in the engine (`link.Includes`, `link.Extract`); every surface (Neovim, web, static
+export) renders from the same extractor. How each surface displays the embed (virtual lines, card,
+depth limits) is that surface's presentation choice.
+
 ## Resolution
 
 The target (the inner text before any `|`) resolves against the keyword dictionary by **exact match**:
