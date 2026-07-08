@@ -1000,7 +1000,6 @@ a.calendar-title:focus-visible {
   flex: 0 0 auto;
   align-items: stretch;
   overflow-x: auto;
-  border-bottom: 1px solid var(--line);
   background: var(--panel);
   scrollbar-width: none;
 }
@@ -1022,7 +1021,7 @@ a.calendar-title:focus-visible {
 
 .tab.active {
   color: var(--text);
-  /* The accent underline is the only active marker; -1px overlaps the strip's bottom border. */
+  /* The accent underline under the active tab is the strip's only line. */
   box-shadow: inset 0 -2px 0 var(--accent);
 }
 
@@ -1089,14 +1088,15 @@ a.calendar-title:focus-visible {
   background: currentColor;
 }
 
-/* The close button is hidden until the tab is hovered or active, leaving just the title. A dirty note
-   instead shows a dot in the close slot, which the hover/active state swaps back for the × button. */
+/* The close button is hidden until the tab is hovered (or reached by keyboard), leaving just the
+   title. A dirty note instead shows a dot in the close slot, which the hover state swaps back for
+   the × button. */
 .tab-close-glyph {
   opacity: 0;
 }
 
 .tab:hover .tab-close-glyph,
-.tab.active .tab-close-glyph {
+.tab-close:focus-visible .tab-close-glyph {
   opacity: 1;
 }
 
@@ -1108,8 +1108,7 @@ a.calendar-title:focus-visible {
   opacity: 1;
 }
 
-.tab.dirty:hover .tab-dirty-dot,
-.tab.dirty.active .tab-dirty-dot {
+.tab.dirty:hover .tab-dirty-dot {
   opacity: 0;
 }
 
