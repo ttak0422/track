@@ -1,6 +1,7 @@
-import { useEffect, useRef, useState } from "react";
+import { useContext, useEffect, useRef, useState } from "react";
 import type { PDFDocumentLoadingTask, PDFDocumentProxy, RenderTask } from "pdfjs-dist";
 import workerUrl from "pdfjs-dist/build/pdf.worker.min.mjs?url";
+import { InLightboxContext } from "./markdown/MediaFrame";
 import { STATIC_MODE } from "../runtime";
 
 // pdf.js needs two asset directories at render time: cmaps (CID-keyed fonts — most CJK PDFs show no
@@ -59,6 +60,7 @@ type Status = "loading" | "ready" | "error";
 // rather than handed to the browser's native <iframe> viewer, so none of the print/download/scroll
 // toolbar chrome leaks in — the note just gets a clean page-by-page reader.
 export function PdfDeck({ src, alt }: PdfDeckProps) {
+  const inLightbox = useContext(InLightboxContext);
   const stageRef = useRef<HTMLDivElement>(null);
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const docRef = useRef<PDFDocumentProxy | null>(null);
@@ -136,8 +138,12 @@ export function PdfDeck({ src, alt }: PdfDeckProps) {
       if (cancelled) return;
       const base = pdfPage.getViewport({ scale: 1 });
       const dpr = Math.min(window.devicePixelRatio || 1, 2);
-      const maxHeight = window.innerHeight * 0.75;
-      const cssScale = Math.min(width / base.width, maxHeight / base.height);
+      // In the lightbox the deck sizes from the viewport, not the stage: the dialog hugs its
+      // content, so the stage width follows the canvas and cannot be the input. The bounds mirror
+      // the dialog's 92vw/92vh cap, leaving room for the stage padding and the page bar.
+      const maxWidth = inLightbox ? window.innerWidth * 0.92 - 16 : width;
+      const maxHeight = window.innerHeight * (inLightbox ? 0.85 : 0.75);
+      const cssScale = Math.min(maxWidth / base.width, maxHeight / base.height);
       const viewport = pdfPage.getViewport({ scale: cssScale * dpr });
       // Rasterize offscreen and blit once complete: pdf.js paints its operator list progressively,
       // so rendering straight into the visible canvas shows the page drawing itself in (and page
@@ -168,7 +174,7 @@ export function PdfDeck({ src, alt }: PdfDeckProps) {
     return () => {
       cancelled = true;
     };
-  }, [status, page, width]);
+  }, [status, page, width, inLightbox]);
 
   const go = (delta: number) =>
     setPage((p) => Math.min(numPages || 1, Math.max(1, p + delta)));

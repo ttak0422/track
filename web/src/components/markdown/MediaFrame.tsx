@@ -1,4 +1,4 @@
-import { type ReactNode, useContext, useEffect, useRef, useState } from "react";
+import { createContext, type ReactNode, useContext, useEffect, useRef, useState } from "react";
 import { initialPreviewBounds, type PreviewAnchor, type PreviewBounds } from "../preview/bounds";
 import { InFloatingWindowContext, useFloating } from "../preview/floatingStore";
 import { MediaWindow } from "../preview/MediaWindow";
@@ -13,6 +13,11 @@ import { NoteKindContext } from "./context";
 // pin button (promote), not a separate control — one popup button, one path. Inside a floating
 // window it renders the media bare, so a floated/previewed image offers neither control nor a
 // nested preview of itself again.
+// True inside the enlarge lightbox. The dialog sizes itself to its content, so lightbox children
+// that fit themselves to their container (PdfDeck) must size from the viewport instead — measuring
+// a content-sized container is circular.
+export const InLightboxContext = createContext(false);
+
 export function MediaFrame({ src, alt, children }: { src: string; alt: string; children: ReactNode }) {
   const inFloating = useContext(InFloatingWindowContext);
   const kind = useContext(NoteKindContext);
@@ -131,7 +136,7 @@ export function MediaFrame({ src, alt, children }: { src: string; alt: string; c
             if (event.target === dialogRef.current) dialogRef.current.close();
           }}
         >
-          {children}
+          <InLightboxContext.Provider value={true}>{children}</InLightboxContext.Provider>
         </dialog>
       ) : null}
       {open && anchor ? (
