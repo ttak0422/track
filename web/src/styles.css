@@ -1163,7 +1163,8 @@ a.calendar-title:focus-visible {
   gap: 8px;
 }
 
-.follow-toggle {
+.follow-toggle,
+.meta-toggle {
   border: 1px solid var(--line);
   border-radius: 999px;
   padding: 4px 14px;
@@ -1175,7 +1176,9 @@ a.calendar-title:focus-visible {
 }
 
 .follow-toggle:hover,
-.follow-toggle:focus-visible {
+.follow-toggle:focus-visible,
+.meta-toggle:hover,
+.meta-toggle:focus-visible {
   color: var(--text);
   border-color: var(--accent);
 }

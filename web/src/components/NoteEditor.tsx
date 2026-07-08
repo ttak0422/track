@@ -271,7 +271,7 @@ export function NoteEditor({ noteID }: NoteEditorProps) {
               </button>
             ))}
           </div>
-          <button type="button" onClick={() => setMetaOpen(true)}>
+          <button className="meta-toggle" type="button" onClick={() => setMetaOpen(true)}>
             Meta
           </button>
           <button
