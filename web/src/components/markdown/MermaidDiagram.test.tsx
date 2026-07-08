@@ -82,10 +82,18 @@ describe("computeFit", () => {
     expect(height).toBeCloseTo(160); // 400 * 0.4
   });
 
-  it("enlarges a small diagram to 80% width", () => {
+  it("keeps a small diagram at the ideal scale instead of inflating it to fill the width", () => {
     const { transform } = computeFit(100, 60, 500);
-    expect(transform.scale).toBeCloseTo(4); // 500 * 0.8 / 100
-    expect(transform.x).toBeCloseTo(50); // (500 - 100 * 4) / 2
+    expect(transform.scale).toBe(1);
+    expect(transform.x).toBeCloseTo(200); // (500 - 100 * 1) / 2
+  });
+
+  it("scales toward a larger article font, still capped by the viewport width", () => {
+    const ideal = computeFit(100, 60, 500, 1.25);
+    expect(ideal.transform.scale).toBeCloseTo(1.25);
+
+    const capped = computeFit(1000, 400, 500, 1.25);
+    expect(capped.transform.scale).toBeCloseTo(0.4); // width cap binds before the ideal scale
   });
 });
 

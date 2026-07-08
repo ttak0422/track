@@ -145,8 +145,12 @@ interface Transform {
 
 const identityTransform: Transform = { x: 0, y: 0, scale: 1 };
 
-// Fraction of the viewport width the diagram fills on first paint.
+// Width cap: a diagram never exceeds this fraction of the viewport width.
 const fitWidthRatio = 0.8;
+
+// Font size mermaid renders at (pinned in mermaidConfig). The ideal display scale makes diagram
+// text match the surrounding article text: articleFontPx / mermaidFontPx.
+const mermaidFontPx = 16;
 
 // A collapsed (縮小) diagram fits entirely inside this height — a skimmable thumbnail.
 const collapsedHeight = 220;
@@ -156,7 +160,8 @@ const collapsedHeight = 220;
 const autoCollapseHeight = 480;
 
 // Pan (pointer drag) and zoom (wheel/buttons) applied as a CSS transform on the diagram. On first paint
-// the diagram is fitted to fitWidthRatio of the viewport width, and the viewport height is sized to the
+// the diagram is fitted to the ideal scale — diagram text matching the article's font size — shrunk
+// only if that would overflow fitWidthRatio of the viewport width; the viewport height is sized to the
 // scaled diagram; reset returns to that fit, and the fit follows container resizes until the user pans
 // or zooms. A tall diagram starts collapsed: scaled down to fit collapsedHeight whole, interactions
 // off, with a fold toggle to expand. `svg` is the rendered markup (null until ready), used to re-fit
@@ -170,6 +175,7 @@ function usePanZoom(svg: string | null) {
   const panRef = useRef<HTMLDivElement>(null);
   const fitRef = useRef<Transform>(identityTransform);
   const naturalRef = useRef({ w: 0, h: 0 });
+  const idealScaleRef = useRef(1);
   // Set once the user pans or zooms: container resizes then stop re-fitting (the fit would stomp
   // their view) and only the reset target keeps tracking the width.
   const touchedRef = useRef(false);
@@ -186,10 +192,11 @@ function usePanZoom(svg: string | null) {
       setTransform(fitRef.current);
       return;
     }
+    const ideal = idealScaleRef.current;
     const view = col
-      ? computeCollapsedFit(w, h, viewport.clientWidth)
-      : computeFit(w, h, viewport.clientWidth);
-    fitRef.current = computeFit(w, h, viewport.clientWidth).transform;
+      ? computeCollapsedFit(w, h, viewport.clientWidth, ideal)
+      : computeFit(w, h, viewport.clientWidth, ideal);
+    fitRef.current = computeFit(w, h, viewport.clientWidth, ideal).transform;
     setTransform(view.transform);
     setViewportHeight(view.height);
   }
@@ -204,8 +211,9 @@ function usePanZoom(svg: string | null) {
     const naturalH = pan.offsetHeight;
     if (naturalW === 0 || naturalH === 0) return;
     naturalRef.current = { w: naturalW, h: naturalH };
+    idealScaleRef.current = measureIdealScale(viewport);
     touchedRef.current = false;
-    const { height } = computeFit(naturalW, naturalH, viewport.clientWidth);
+    const { height } = computeFit(naturalW, naturalH, viewport.clientWidth, idealScaleRef.current);
     setCollapsible(height > collapsedHeight + 1);
     const startCollapsed = height > autoCollapseHeight;
     setCollapsed(startCollapsed);
@@ -225,8 +233,9 @@ function usePanZoom(svg: string | null) {
       const w = el.clientWidth;
       if (w === 0 || w === lastW || naturalRef.current.w === 0) return;
       lastW = w;
+      idealScaleRef.current = measureIdealScale(el);
       const { w: nw, h: nh } = naturalRef.current;
-      const fit = computeFit(nw, nh, w);
+      const fit = computeFit(nw, nh, w, idealScaleRef.current);
       fitRef.current = fit.transform;
       setCollapsible(fit.height > collapsedHeight + 1);
       if (!touchedRef.current) {
@@ -314,30 +323,41 @@ function usePanZoom(svg: string | null) {
   };
 }
 
-// computeCollapsedFit scales the diagram to fit WHOLE inside collapsedHeight (never wider than the
+// computeCollapsedFit scales the diagram to fit WHOLE inside collapsedHeight (never larger than the
 // normal fit), centered — the skimmable thumbnail the fold button toggles.
 export function computeCollapsedFit(
   naturalW: number,
   naturalH: number,
   viewW: number,
+  idealScale = 1,
 ): { transform: Transform; height: number } {
   const scale = clamp(
-    Math.min((viewW * fitWidthRatio) / naturalW, collapsedHeight / naturalH),
+    Math.min((viewW * fitWidthRatio) / naturalW, collapsedHeight / naturalH, idealScale),
     0.02,
     8,
   );
   return { transform: { scale, x: (viewW - naturalW * scale) / 2, y: 0 }, height: naturalH * scale };
 }
 
-// computeFit scales a naturalW×naturalH diagram to fill fitWidthRatio of viewW, centers it
-// horizontally, and returns the viewport height that hugs the scaled diagram.
+// computeFit shows a naturalW×naturalH diagram at idealScale (diagram text matches the article's
+// font size), shrinking only if that overflows fitWidthRatio of viewW; centers it horizontally and
+// returns the viewport height that hugs the scaled diagram.
 export function computeFit(
   naturalW: number,
   naturalH: number,
   viewW: number,
+  idealScale = 1,
 ): { transform: Transform; height: number } {
-  const scale = clamp((viewW * fitWidthRatio) / naturalW, 0.2, 8);
+  const scale = clamp(Math.min((viewW * fitWidthRatio) / naturalW, idealScale), 0.2, 8);
   return { transform: { scale, x: (viewW - naturalW * scale) / 2, y: 0 }, height: naturalH * scale };
+}
+
+// measureIdealScale reads the article font size at the diagram's position; scaling the 16px-rendered
+// SVG by this makes diagram text the same size as the surrounding text. jsdom (and any unstyled
+// context) reports no font size — fall back to 1.
+function measureIdealScale(el: HTMLElement): number {
+  const px = Number.parseFloat(getComputedStyle(el).fontSize);
+  return px > 0 ? px / mermaidFontPx : 1;
 }
 
 // zoomAt multiplies the scale by factor while keeping the point (cx, cy) fixed in the viewport.
@@ -360,6 +380,9 @@ function mermaidConfig(): MermaidConfig {
     securityLevel: "strict",
     theme: "base",
     themeVariables: {
+      // Pinned (mermaid's default, but relied on by measureIdealScale) so display scale can map
+      // diagram text onto the article's font size.
+      fontSize: `${mermaidFontPx}px`,
       background: color("--panel", "#ffffff"),
       primaryColor: color("--panel-soft", "#f6f6f3"),
       primaryTextColor: color("--text", "#20231f"),
