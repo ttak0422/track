@@ -1,5 +1,5 @@
 import type { MermaidConfig } from "mermaid";
-import { type PointerEvent, useEffect, useLayoutEffect, useRef, useState } from "react";
+import { type PointerEvent, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { CodeBlock } from "./CodeBlock";
 
 interface MermaidDiagramProps {
@@ -18,7 +18,15 @@ let renderSequence = 0;
 export function MermaidDiagram({ text }: MermaidDiagramProps) {
   const [state, setState] = useState<DiagramState>({ status: "loading" });
   const themeVersion = useThemeVersion();
-  const panZoom = usePanZoom(state.status === "ready" ? state.svg : null);
+  const svg = state.status === "ready" ? state.svg : null;
+  const panZoom = usePanZoom(svg);
+  // A stable element per svg string: pan/zoom re-renders reuse it untouched, so react-dom never
+  // rewrites the innerHTML — which would both discard sizeSvgToViewBox's sizing and re-parse a large
+  // SVG on every drag frame.
+  const svgHost = useMemo(
+    () => (svg == null ? null : <div dangerouslySetInnerHTML={{ __html: svg }} />),
+    [svg],
+  );
 
   useEffect(() => {
     let cancelled = false;
@@ -85,8 +93,9 @@ export function MermaidDiagram({ text }: MermaidDiagramProps) {
           }}
           role="img"
           aria-label="Mermaid diagram"
-          dangerouslySetInnerHTML={{ __html: state.svg }}
-        />
+        >
+          {svgHost}
+        </div>
       </div>
       {collapsible && (
         <button
@@ -207,6 +216,7 @@ function usePanZoom(svg: string | null) {
     const viewport = viewportRef.current;
     const pan = panRef.current;
     if (!svg || !viewport || !pan) return;
+    sizeSvgToViewBox(pan);
     const naturalW = pan.offsetWidth;
     const naturalH = pan.offsetHeight;
     if (naturalW === 0 || naturalH === 0) return;
@@ -350,6 +360,19 @@ export function computeFit(
 ): { transform: Transform; height: number } {
   const scale = clamp(Math.min((viewW * fitWidthRatio) / naturalW, idealScale), 0.2, 8);
   return { transform: { scale, x: (viewW - naturalW * scale) / 2, y: 0 }, height: naturalH * scale };
+}
+
+// sizeSvgToViewBox pins the rendered SVG to its natural (viewBox) pixel size. Mermaid emits
+// width="100%", which cannot resolve inside the width:fit-content pan, so the SVG would fall back to
+// the 300×150 replaced-element default — squishing wide diagrams and making every measurement
+// (fit scale, collapse detection) read the squished size instead of the diagram's real one.
+function sizeSvgToViewBox(pan: HTMLElement) {
+  const svgEl = pan.querySelector("svg");
+  const vb = svgEl?.viewBox?.baseVal;
+  if (!svgEl || !vb || vb.width <= 0 || vb.height <= 0) return;
+  svgEl.style.width = `${vb.width}px`;
+  svgEl.style.height = `${vb.height}px`;
+  svgEl.style.maxWidth = "none";
 }
 
 // measureIdealScale reads the article font size at the diagram's position; scaling the 16px-rendered

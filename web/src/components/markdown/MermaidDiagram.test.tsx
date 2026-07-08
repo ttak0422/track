@@ -60,6 +60,19 @@ describe("MermaidDiagram", () => {
     expect(scaleOf()).toBeGreaterThan(shifted);
   });
 
+  it("pins the SVG to its viewBox size so mermaid's width=100% cannot squish it", async () => {
+    const { default: mermaid } = await import("mermaid");
+    vi.mocked(mermaid.render).mockResolvedValueOnce({
+      svg: '<svg viewBox="0 0 866 217" width="100%" style="max-width: 866px;"></svg>',
+    } as Awaited<ReturnType<typeof mermaid.render>>);
+    const { container } = render(<MermaidDiagram text={"graph LR\nA-->B"} />);
+    await waitFor(() => expect(container.querySelector("svg")).toBeInTheDocument());
+    const svg = container.querySelector("svg") as SVGSVGElement;
+    expect(svg.style.width).toBe("866px");
+    expect(svg.style.height).toBe("217px");
+    expect(svg.style.maxWidth).toBe("none");
+  });
+
   it("zooms in and out with the control buttons", async () => {
     const { container } = render(<MermaidDiagram text={"graph TD\nA-->B"} />);
     await waitFor(() => expect(container.querySelector("svg")).toBeInTheDocument());
