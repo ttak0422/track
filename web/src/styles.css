@@ -1,50 +1,52 @@
 :root {
   color-scheme: light dark;
-  --bg: #f7f7f4;
+  /* One ink, one salient color, and quiet blue-grey neutrals: hierarchy comes from weight and
+     shade, not from spreading hues around the chrome. */
+  --bg: #fafafa;
   --panel: #ffffff;
-  --panel-soft: #f0f2ef;
-  --text: #20231f;
-  --muted: #687069;
-  --line: #d9ddd5;
-  --accent: #2f6f5e;
-  --accent-strong: #174c40;
-  --graph-active: #f08300;
-  --graph-active-strong: #a85200;
-  --danger: #8a352b;
+  --panel-soft: #eceff1;
+  --text: #37474f;
+  --muted: #78909c;
+  --line: #cfd8dc;
+  --accent: #673ab7;
+  --accent-strong: #4527a0;
+  --graph-active: #ef6c00;
+  --graph-active-strong: #e65100;
+  --danger: #c62828;
   /* Chart series palette + heatmap ramp, tuned to the app theme (read by echartsTheme.ts). */
-  --chart-1: #2f6f5e;
-  --chart-2: #f08300;
-  --chart-3: #5b7aa5;
-  --chart-4: #8a352b;
-  --chart-5: #7d8a4e;
-  --chart-6: #96608f;
-  --chart-ramp-lo: #e3ece9;
-  --chart-ramp-hi: #174c40;
+  --chart-1: #673ab7;
+  --chart-2: #ef6c00;
+  --chart-3: #00838f;
+  --chart-4: #c62828;
+  --chart-5: #558b2f;
+  --chart-6: #6d4c41;
+  --chart-ramp-lo: #ede7f6;
+  --chart-ramp-hi: #4527a0;
   font-family:
     Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
 }
 
 :root[data-theme="dark"] {
   color-scheme: dark;
-  --bg: #161814;
-  --panel: #20231f;
-  --panel-soft: #292d28;
-  --text: #ecefe8;
-  --muted: #a3aa9f;
-  --line: #3a4039;
-  --accent: #62b39b;
-  --accent-strong: #8dd8c2;
-  --graph-active: #ff9a1f;
-  --graph-active-strong: #ffc06a;
-  --danger: #de766b;
-  --chart-1: #62b39b;
-  --chart-2: #ff9a1f;
-  --chart-3: #8fb0d8;
-  --chart-4: #de766b;
-  --chart-5: #b3c47a;
-  --chart-6: #c99bc2;
-  --chart-ramp-lo: #22302b;
-  --chart-ramp-hi: #8dd8c2;
+  --bg: #2e3440;
+  --panel: #3b4252;
+  --panel-soft: #434c5e;
+  --text: #eceff4;
+  --muted: #a4b0c3;
+  --line: #4c566a;
+  --accent: #81a1c1;
+  --accent-strong: #88c0d0;
+  --graph-active: #d08770;
+  --graph-active-strong: #e2a084;
+  --danger: #bf616a;
+  --chart-1: #81a1c1;
+  --chart-2: #d08770;
+  --chart-3: #a3be8c;
+  --chart-4: #bf616a;
+  --chart-5: #ebcb8b;
+  --chart-6: #b48ead;
+  --chart-ramp-lo: #3b4252;
+  --chart-ramp-hi: #88c0d0;
 }
 
 :root[data-theme="light"] {
@@ -53,25 +55,25 @@
 
 @media (prefers-color-scheme: dark) {
   :root:not([data-theme="light"]) {
-    --bg: #161814;
-    --panel: #20231f;
-    --panel-soft: #292d28;
-    --text: #ecefe8;
-    --muted: #a3aa9f;
-    --line: #3a4039;
-    --accent: #62b39b;
-    --accent-strong: #8dd8c2;
-    --graph-active: #ff9a1f;
-    --graph-active-strong: #ffc06a;
-    --danger: #de766b;
-  --chart-1: #62b39b;
-  --chart-2: #ff9a1f;
-  --chart-3: #8fb0d8;
-  --chart-4: #de766b;
-  --chart-5: #b3c47a;
-  --chart-6: #c99bc2;
-  --chart-ramp-lo: #22302b;
-  --chart-ramp-hi: #8dd8c2;
+    --bg: #2e3440;
+    --panel: #3b4252;
+    --panel-soft: #434c5e;
+    --text: #eceff4;
+    --muted: #a4b0c3;
+    --line: #4c566a;
+    --accent: #81a1c1;
+    --accent-strong: #88c0d0;
+    --graph-active: #d08770;
+    --graph-active-strong: #e2a084;
+    --danger: #bf616a;
+    --chart-1: #81a1c1;
+    --chart-2: #d08770;
+    --chart-3: #a3be8c;
+    --chart-4: #bf616a;
+    --chart-5: #ebcb8b;
+    --chart-6: #b48ead;
+    --chart-ramp-lo: #3b4252;
+    --chart-ramp-hi: #88c0d0;
   }
 }
 
@@ -1203,9 +1205,9 @@ a.calendar-title:focus-visible {
 
 .danger-toggle:hover,
 .danger-toggle:focus-visible {
-  color: #d64f4f;
-  border-color: #d64f4f;
-  background: color-mix(in srgb, #d64f4f 12%, var(--panel));
+  color: var(--danger);
+  border-color: var(--danger);
+  background: color-mix(in srgb, var(--danger) 12%, var(--panel));
 }
 
 /* Centered confirmation dialog, above the float controls and floating windows. */
@@ -1281,9 +1283,9 @@ a.calendar-title:focus-visible {
 }
 
 .modal-actions .danger-button {
-  border-color: #d64f4f;
+  border-color: var(--danger);
   color: #fff;
-  background: #d64f4f;
+  background: var(--danger);
 }
 
 .modal-actions .danger-button:disabled {
@@ -1834,52 +1836,52 @@ a.calendar-title:focus-visible {
 }
 
 .syntax-string {
-  color: #7c4a28;
+  color: #6d4c41;
 }
 
 .syntax-number {
-  color: #5b5aa8;
+  color: #00695c;
 }
 
 .syntax-function {
-  color: #1f6f86;
+  color: #0277bd;
 }
 
 .syntax-property {
-  color: #8a4f83;
+  color: #ad1457;
 }
 
 :root[data-theme="dark"] .syntax-string {
-  color: #d59b75;
+  color: #a3be8c;
 }
 
 :root[data-theme="dark"] .syntax-number {
-  color: #aaa7ff;
+  color: #b48ead;
 }
 
 :root[data-theme="dark"] .syntax-function {
-  color: #72c7d7;
+  color: #88c0d0;
 }
 
 :root[data-theme="dark"] .syntax-property {
-  color: #d89ad1;
+  color: #d08770;
 }
 
 @media (prefers-color-scheme: dark) {
   :root:not([data-theme="light"]) .syntax-string {
-    color: #d59b75;
+    color: #a3be8c;
   }
 
   :root:not([data-theme="light"]) .syntax-number {
-    color: #aaa7ff;
+    color: #b48ead;
   }
 
   :root:not([data-theme="light"]) .syntax-function {
-    color: #72c7d7;
+    color: #88c0d0;
   }
 
   :root:not([data-theme="light"]) .syntax-property {
-    color: #d89ad1;
+    color: #d08770;
   }
 }
 
