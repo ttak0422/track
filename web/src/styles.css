@@ -1530,6 +1530,15 @@ a.calendar-title:focus-visible {
   background: rgb(0 0 0 / 60%);
 }
 
+/* A definite width for an enlarged PDF. The deck fits itself to its container, and the dialog sizes
+   itself to its content, so a content-sized dialog has no stable layout: each rasterize widened the
+   dialog, which triggered the next rasterize, and the page visibly "grew" open in steps. Pinning the
+   embed's width gives the deck one final size to render at (the canvas itself stays height-capped
+   and centered by the stage). */
+.media-lightbox .embed-pdf {
+  width: 92vw;
+}
+
 .media-lightbox img,
 .media-lightbox svg {
   display: block;
