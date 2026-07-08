@@ -2519,25 +2519,25 @@ a.calendar-title:focus-visible {
   text-decoration: none;
 }
 
-/* In the note aside the links wrap as compact pills (like the tag list) instead of one per row, so a
-   heavily linked note's Backlinks / On this day sections stay a few lines tall. The day page keeps
-   the row list — there the links are the page content, not an aside. */
+/* In the note aside the links wrap several to a row (not one per row) so a heavily linked note's
+   Backlinks / On this day sections stay a few lines tall. They're plain text links — accent, no pill
+   — with enough column gap to tell adjacent titles apart. The day page keeps the row list, where the
+   links are the page content, not an aside. */
 .note-aside .backlink-list {
   display: flex;
   flex-wrap: wrap;
-  gap: 6px;
+  gap: 4px 16px;
 }
 
 .note-aside .backlink {
-  border: 1px solid var(--line);
-  border-radius: 999px;
-  padding: 2px 10px;
+  padding: 2px 0;
   font-weight: 500;
   font-size: calc(13px * var(--font-scale, 1));
 }
 
 .note-aside .backlink:hover {
-  border-color: var(--accent);
+  color: var(--accent-strong);
+  text-decoration: underline;
 }
 
 .error {
