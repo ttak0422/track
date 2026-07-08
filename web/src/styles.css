@@ -412,7 +412,8 @@ button {
 
 /* The sidebar search popup floats beside the rail, escaping the rail's overflow with fixed positioning.
    Above .graph-full (z-index 90): the rail (and this popup) render on every page including /graph, whose
-   full-bleed canvas would otherwise paint over the popup and swallow its clicks there. */
+   full-bleed canvas would otherwise paint over the popup and swallow its clicks there. It carries
+   .home-hero too, so it opens the same start surface (wordmark, heatmap, underline search) as "/". */
 .search-popup {
   position: fixed;
   left: 64px;
@@ -420,7 +421,7 @@ button {
   z-index: 95;
   display: flex;
   flex-direction: column;
-  width: 360px;
+  width: 420px;
   max-width: calc(100vw - 80px);
   max-height: calc(100vh - 80px);
   border: 1px solid var(--line);
@@ -428,6 +429,18 @@ button {
   background: var(--panel);
   box-shadow: 0 16px 38px color-mix(in srgb, #000 18%, transparent);
   overflow: hidden;
+}
+
+/* Popup-sized overrides of the full-page home layout: shrink to content (no 16vh top band, no
+   full-viewport height) and scale the wordmark down for the narrower column. */
+.search-popup.home-hero {
+  height: auto;
+  gap: 14px;
+  padding: 20px 20px 18px;
+}
+
+.search-popup .home-logo {
+  width: 150px;
 }
 
 .menu-section h2 {
@@ -439,26 +452,26 @@ button {
 
 .theme-switch {
   display: flex;
-  gap: 4px;
-  padding: 2px;
-  border: 1px solid var(--line);
-  border-radius: 999px;
-  background: var(--panel-soft);
+  gap: 14px;
 }
 
 .theme-switch button {
-  flex: 1;
   border: 0;
-  border-radius: 999px;
-  padding: 6px 8px;
+  padding: 0;
   color: var(--muted);
   background: transparent;
   font-size: calc(12px * var(--font-scale, 1));
+  cursor: pointer;
+}
+
+.theme-switch button:hover,
+.theme-switch button:focus-visible {
+  color: var(--text);
 }
 
 .theme-switch button[aria-pressed="true"] {
   color: var(--text);
-  background: var(--panel);
+  font-weight: 600;
 }
 
 .search-panel {
@@ -526,12 +539,10 @@ button {
   gap: 6px;
 }
 
+/* Tags are text, not chips: a muted #tag reads as a tag by its hash, so the pill outline is just
+   noise. */
 .tag-list span {
-  border: 1px solid var(--line);
-  border-radius: 999px;
-  padding: 2px 7px;
   color: var(--muted);
-  background: transparent;
   font-size: calc(12px * var(--font-scale, 1));
 }
 
@@ -729,6 +740,8 @@ button {
   touch-action: none;
 }
 
+/* The graph launcher is a bare glyph pinned to the corner, not a floating action button — muted,
+   inking on hover, no disc. */
 .graph-fab {
   position: fixed;
   right: 18px;
@@ -738,17 +751,15 @@ button {
   place-items: center;
   width: 44px;
   height: 44px;
-  border: 1px solid var(--line);
-  border-radius: 50%;
+  border: 0;
   color: var(--muted);
-  background: var(--panel-soft);
+  background: transparent;
   cursor: pointer;
 }
 
 .graph-fab:hover,
 .graph-fab:focus-visible {
-  background: var(--panel-soft);
-  border-color: var(--accent);
+  color: var(--text);
 }
 
 .graph-message {
@@ -779,26 +790,26 @@ button {
 
 .graph-scope {
   display: flex;
-  gap: 4px;
-  padding: 2px;
-  border: 1px solid var(--line);
-  border-radius: 999px;
-  background: var(--panel-soft);
+  gap: 12px;
 }
 
 .graph-scope button {
   border: 0;
-  border-radius: 999px;
-  padding: 4px 12px;
+  padding: 0;
   color: var(--muted);
   background: transparent;
   font-size: calc(12px * var(--font-scale, 1));
   cursor: pointer;
 }
 
+.graph-scope button:hover:not(:disabled),
+.graph-scope button:focus-visible {
+  color: var(--text);
+}
+
 .graph-scope button[aria-pressed="true"] {
   color: var(--text);
-  background: var(--panel);
+  font-weight: 600;
 }
 
 .graph-scope button:disabled {
@@ -811,12 +822,12 @@ button {
   place-items: center;
   width: 34px;
   height: 34px;
-  border: 1px solid var(--line);
-  border-radius: 999px;
+  border: 0;
   color: var(--muted);
-  background: var(--panel-soft);
+  background: transparent;
   font-size: calc(18px * var(--font-scale, 1));
   line-height: 1;
+  cursor: pointer;
 }
 
 .graph-reset:hover,
@@ -850,14 +861,14 @@ a.calendar-title:focus-visible {
 
 .calendar-nav {
   display: flex;
-  gap: 4px;
+  align-items: center;
+  gap: 14px;
 }
 
 .calendar-nav button,
 .calendar-nav a {
-  border: 1px solid var(--line);
-  border-radius: 6px;
-  padding: 4px 10px;
+  border: 0;
+  padding: 0;
   color: var(--muted);
   background: transparent;
   font-size: calc(13px * var(--font-scale, 1));
@@ -871,7 +882,6 @@ a.calendar-title:focus-visible {
 .calendar-nav a:hover,
 .calendar-nav a:focus-visible {
   color: var(--text);
-  background: var(--panel-soft);
 }
 
 .calendar-grid {
@@ -1137,21 +1147,20 @@ a.calendar-title:focus-visible {
   place-items: center;
   width: 26px;
   height: 26px;
-  border: 1px solid var(--line);
-  border-radius: 6px;
-  color: var(--text);
-  background: var(--panel-soft);
+  border: 0;
+  color: var(--muted);
+  background: transparent;
   cursor: pointer;
 }
 
-.tab-action:hover {
-  border-color: var(--accent);
+.tab-action:hover,
+.tab-action:focus-visible {
+  color: var(--text);
 }
 
 /* The note's controls sit over the reader, fixed to the top-right so they stay put while the note
-   scrolls. They read as quiet chips on the surface — a slight tonal fill and a hairline, no drop
-   shadow — rather than pills hovering above it. They sit below the full-graph overlay and the
-   floating windows. */
+   scrolls. They're text, not buttons: muted labels that ink on hover, an active one carrying the
+   accent — no pills, no fills. They sit below the full-graph overlay and the floating windows. */
 .note-float-controls {
   /* Pinned to the reader's top-right, but below the tab strip so the controls never sit on top of the
      tabs. The offset clears the ~33px tab bar (see .tabbar) with a small gap. */
@@ -1161,16 +1170,16 @@ a.calendar-title:focus-visible {
   z-index: 30;
   display: flex;
   align-items: center;
-  gap: 8px;
+  gap: 14px;
 }
 
 .follow-toggle,
-.meta-toggle {
-  border: 1px solid var(--line);
-  border-radius: 999px;
-  padding: 4px 14px;
+.meta-toggle,
+.danger-toggle {
+  border: 0;
+  padding: 0;
   color: var(--muted);
-  background: var(--panel-soft);
+  background: transparent;
   font-size: calc(12px * var(--font-scale, 1));
   cursor: pointer;
 }
@@ -1180,31 +1189,16 @@ a.calendar-title:focus-visible {
 .meta-toggle:hover,
 .meta-toggle:focus-visible {
   color: var(--text);
-  border-color: var(--accent);
 }
 
 .follow-toggle.active {
-  color: var(--panel);
-  border-color: var(--accent);
-  background: var(--accent);
-}
-
-/* Delete sits in the float controls as a pill like Follow, but in a danger tone. */
-.danger-toggle {
-  border: 1px solid var(--line);
-  border-radius: 999px;
-  padding: 4px 14px;
-  color: var(--muted);
-  background: var(--panel-soft);
-  font-size: calc(12px * var(--font-scale, 1));
-  cursor: pointer;
+  color: var(--accent);
+  font-weight: 600;
 }
 
 .danger-toggle:hover,
 .danger-toggle:focus-visible {
-  color: #d64f4f;
-  border-color: #d64f4f;
-  background: color-mix(in srgb, #d64f4f 12%, var(--panel));
+  color: var(--danger);
 }
 
 /* Centered confirmation dialog, above the float controls and floating windows. */
@@ -1295,20 +1289,20 @@ a.calendar-title:focus-visible {
   flex-shrink: 0;
 }
 
+/* A note's tags seed a #tag search on click, but they're still text — no pill. Muted at rest, accent
+   on hover, the way a link would answer to the pointer. */
 .note-tags button {
-  border: 1px solid var(--line);
-  border-radius: 999px;
-  padding: 2px 8px;
+  border: 0;
+  padding: 0;
   color: var(--muted);
   background: transparent;
   font-size: calc(12px * var(--font-scale, 1));
+  cursor: pointer;
 }
 
 .note-tags button:hover,
 .note-tags button:focus-visible {
-  color: var(--text);
-  border-color: var(--accent);
-  background: color-mix(in srgb, var(--accent) 12%, transparent);
+  color: var(--accent);
 }
 
 .note-editor {
@@ -1319,28 +1313,30 @@ a.calendar-title:focus-visible {
   gap: 10px;
 }
 
+/* A text segmented control: the three modes read as a row of labels, the active one inked and bold,
+   the rest muted — no track, no thumb. */
 .mode-switch {
   display: flex;
-  gap: 4px;
-  padding: 2px;
-  border: 1px solid var(--line);
-  border-radius: 999px;
-  background: var(--panel-soft);
+  gap: 12px;
 }
 
 .mode-switch button {
   border: 0;
-  border-radius: 999px;
-  padding: 4px 12px;
+  padding: 0;
   color: var(--muted);
   background: transparent;
   font-size: calc(12px * var(--font-scale, 1));
   cursor: pointer;
 }
 
+.mode-switch button:hover,
+.mode-switch button:focus-visible {
+  color: var(--text);
+}
+
 .mode-switch button[aria-pressed="true"] {
   color: var(--text);
-  background: var(--panel);
+  font-weight: 600;
 }
 
 .editor-grid {

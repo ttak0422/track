@@ -9,14 +9,12 @@ import {
 import { QueryClient, QueryClientProvider, hydrate } from "@tanstack/react-query";
 import type { ReactNode } from "react";
 import { START_PAGE_ID, STATIC_MODE } from "./runtime";
-import { ActivityPanel } from "./components/ActivityPanel";
 import { CalendarFullView } from "./components/CalendarFullView";
 import { DayView } from "./components/DayView";
 import { EmptyState } from "./components/EmptyState";
 import { GraphFullView } from "./components/GraphFullView";
-import { TrackLogo } from "./components/Logo";
 import { NoteReader } from "./components/NoteReader";
-import { SearchPanel } from "./components/SearchPanel";
+import { SearchHome } from "./components/SearchHome";
 import { Shell } from "./components/Shell";
 import "./styles.css";
 
@@ -144,9 +142,7 @@ function HomeRoute() {
   }
   return (
     <section className="home-hero">
-      <TrackLogo className="home-logo" />
-      <ActivityPanel variant="home" />
-      <SearchPanel />
+      <SearchHome />
     </section>
   );
 }
