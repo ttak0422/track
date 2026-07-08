@@ -412,8 +412,9 @@ button {
 
 /* The sidebar search popup floats beside the rail, escaping the rail's overflow with fixed positioning.
    Above .graph-full (z-index 90): the rail (and this popup) render on every page including /graph, whose
-   full-bleed canvas would otherwise paint over the popup and swallow its clicks there. It carries
-   .home-hero too, so it opens the same start surface (wordmark, heatmap, underline search) as "/". */
+   full-bleed canvas would otherwise paint over the popup and swallow its clicks there. It is just the
+   search field + results — the wordmark and heatmap belong to the "/" home, not to a lookup from a
+   note. */
 .search-popup {
   position: fixed;
   left: 64px;
@@ -421,7 +422,7 @@ button {
   z-index: 95;
   display: flex;
   flex-direction: column;
-  width: 420px;
+  width: 380px;
   max-width: calc(100vw - 80px);
   max-height: calc(100vh - 80px);
   border: 1px solid var(--line);
@@ -431,16 +432,24 @@ button {
   overflow: hidden;
 }
 
-/* Popup-sized overrides of the full-page home layout: shrink to content (no 16vh top band, no
-   full-viewport height) and scale the wordmark down for the narrower column. */
-.search-popup.home-hero {
-  height: auto;
-  gap: 14px;
-  padding: 20px 20px 18px;
+/* A nano underline field, not a boxed input — matching the home search, minus its hero. */
+.search-popup .searchbox {
+  padding: 14px 16px 0;
+  border-bottom: 0;
 }
 
-.search-popup .home-logo {
-  width: 150px;
+.search-popup .searchbox input {
+  border: 0;
+  border-bottom: 1px solid var(--line);
+  border-radius: 0;
+  padding: 8px 2px;
+  background: transparent;
+  transition: border-color 0.12s ease;
+}
+
+.search-popup .searchbox input:focus {
+  outline: none;
+  border-bottom-color: var(--accent);
 }
 
 .menu-section h2 {

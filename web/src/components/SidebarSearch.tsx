@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from "react";
-import { SearchHome } from "./SearchHome";
+import { SearchPanel } from "./SearchPanel";
 
 // SidebarSearch is the rail's magnifier button plus the floating search popup it toggles open beside the
 // rail. The popup closes on Escape, on an outside click, and when a result is chosen.
@@ -40,8 +40,8 @@ export function SidebarSearch() {
         <SearchIcon />
       </button>
       {open ? (
-        <div className="search-popup home-hero" role="dialog" aria-label="Search notes">
-          <SearchHome autoFocus onNavigate={() => setOpen(false)} />
+        <div className="search-popup" role="dialog" aria-label="Search notes">
+          <SearchPanel autoFocus onNavigate={() => setOpen(false)} />
         </div>
       ) : null}
     </div>
