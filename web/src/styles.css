@@ -736,13 +736,12 @@ button {
   z-index: 30;
   display: grid;
   place-items: center;
-  width: 48px;
-  height: 48px;
+  width: 44px;
+  height: 44px;
   border: 1px solid var(--line);
   border-radius: 50%;
-  color: var(--text);
-  background: var(--panel);
-  box-shadow: 0 18px 42px rgb(0 0 0 / 18%);
+  color: var(--muted);
+  background: var(--panel-soft);
   cursor: pointer;
 }
 
@@ -784,8 +783,7 @@ button {
   padding: 2px;
   border: 1px solid var(--line);
   border-radius: 999px;
-  background: color-mix(in srgb, var(--panel) 92%, transparent);
-  box-shadow: 0 8px 22px rgb(0 0 0 / 16%);
+  background: var(--panel-soft);
 }
 
 .graph-scope button {
@@ -816,8 +814,7 @@ button {
   border: 1px solid var(--line);
   border-radius: 999px;
   color: var(--muted);
-  background: color-mix(in srgb, var(--panel) 92%, transparent);
-  box-shadow: 0 8px 22px rgb(0 0 0 / 16%);
+  background: var(--panel-soft);
   font-size: calc(18px * var(--font-scale, 1));
   line-height: 1;
 }
@@ -1151,9 +1148,10 @@ a.calendar-title:focus-visible {
   border-color: var(--accent);
 }
 
-/* The note's controls float over the reader as a graph-style overlay (shadowed, translucent pills),
-   fixed to the top-right so they stay put while the note scrolls. They sit below the full-graph overlay
-   and the floating windows. */
+/* The note's controls sit over the reader, fixed to the top-right so they stay put while the note
+   scrolls. They read as quiet chips on the surface — a slight tonal fill and a hairline, no drop
+   shadow — rather than pills hovering above it. They sit below the full-graph overlay and the
+   floating windows. */
 .note-float-controls {
   /* Pinned to the reader's top-right, but below the tab strip so the controls never sit on top of the
      tabs. The offset clears the ~33px tab bar (see .tabbar) with a small gap. */
@@ -1172,8 +1170,7 @@ a.calendar-title:focus-visible {
   border-radius: 999px;
   padding: 4px 14px;
   color: var(--muted);
-  background: color-mix(in srgb, var(--panel) 92%, transparent);
-  box-shadow: 0 8px 22px rgb(0 0 0 / 16%);
+  background: var(--panel-soft);
   font-size: calc(12px * var(--font-scale, 1));
   cursor: pointer;
 }
@@ -1198,8 +1195,7 @@ a.calendar-title:focus-visible {
   border-radius: 999px;
   padding: 4px 14px;
   color: var(--muted);
-  background: color-mix(in srgb, var(--panel) 92%, transparent);
-  box-shadow: 0 8px 22px rgb(0 0 0 / 16%);
+  background: var(--panel-soft);
   font-size: calc(12px * var(--font-scale, 1));
   cursor: pointer;
 }
@@ -1329,8 +1325,7 @@ a.calendar-title:focus-visible {
   padding: 2px;
   border: 1px solid var(--line);
   border-radius: 999px;
-  background: color-mix(in srgb, var(--panel) 92%, transparent);
-  box-shadow: 0 8px 22px rgb(0 0 0 / 16%);
+  background: var(--panel-soft);
 }
 
 .mode-switch button {
