@@ -72,7 +72,6 @@ export function MermaidDiagram({ text }: MermaidDiagramProps) {
     zoomBy,
     handlers,
     collapsed,
-    collapsible,
     toggleCollapsed,
   } = panZoom;
   return (
@@ -97,17 +96,15 @@ export function MermaidDiagram({ text }: MermaidDiagramProps) {
           {svgHost}
         </div>
       </div>
-      {collapsible && (
-        <button
-          className="mermaid-control mermaid-fold"
-          type="button"
-          onClick={toggleCollapsed}
-          aria-label={collapsed ? "Expand diagram" : "Collapse diagram"}
-          title={collapsed ? "Expand diagram" : "Collapse diagram"}
-        >
-          {collapsed ? "▸" : "▾"}
-        </button>
-      )}
+      <button
+        className="mermaid-control mermaid-fold"
+        type="button"
+        onClick={toggleCollapsed}
+        aria-label={collapsed ? "Expand diagram" : "Collapse diagram"}
+        title={collapsed ? "Expand diagram" : "Collapse diagram"}
+      >
+        {collapsed ? "▸" : "▾"}
+      </button>
       {!collapsed && (
         <div className="mermaid-controls">
           <button
@@ -179,7 +176,6 @@ function usePanZoom(svg: string | null) {
   const [transform, setTransform] = useState<Transform>(identityTransform);
   const [viewportHeight, setViewportHeight] = useState<number | null>(null);
   const [collapsed, setCollapsed] = useState(false);
-  const [collapsible, setCollapsible] = useState(false);
   const viewportRef = useRef<HTMLDivElement>(null);
   const panRef = useRef<HTMLDivElement>(null);
   const fitRef = useRef<Transform>(identityTransform);
@@ -224,7 +220,6 @@ function usePanZoom(svg: string | null) {
     idealScaleRef.current = measureIdealScale(viewport);
     touchedRef.current = false;
     const { height } = computeFit(naturalW, naturalH, viewport.clientWidth, idealScaleRef.current);
-    setCollapsible(height > collapsedHeight + 1);
     const startCollapsed = height > autoCollapseHeight;
     setCollapsed(startCollapsed);
     applyView(startCollapsed);
@@ -245,9 +240,7 @@ function usePanZoom(svg: string | null) {
       lastW = w;
       idealScaleRef.current = measureIdealScale(el);
       const { w: nw, h: nh } = naturalRef.current;
-      const fit = computeFit(nw, nh, w, idealScaleRef.current);
-      fitRef.current = fit.transform;
-      setCollapsible(fit.height > collapsedHeight + 1);
+      fitRef.current = computeFit(nw, nh, w, idealScaleRef.current).transform;
       if (!touchedRef.current) {
         applyView(collapsedRef.current);
       }
@@ -324,7 +317,6 @@ function usePanZoom(svg: string | null) {
     zoomBy,
     handlers: { onPointerDown, onPointerMove, onPointerUp, onPointerCancel: onPointerUp },
     collapsed,
-    collapsible,
     toggleCollapsed: () => {
       touchedRef.current = false;
       setCollapsed(!collapsed);
