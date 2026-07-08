@@ -121,7 +121,7 @@ button {
   display: grid;
   /* The reader column must shrink below its content's preferred width (a phone is narrower than the
      old 380px floor, which forced sideways scrolling of the whole workspace). */
-  grid-template-columns: 56px minmax(0, 1fr);
+  grid-template-columns: 48px minmax(0, 1fr);
   height: 100vh;
   min-height: 560px;
 }
@@ -130,12 +130,13 @@ button {
   grid-template-columns: 1fr;
 }
 
+/* The rail sits on the same surface as the note itself — no slab, no divider. Chrome is the icons,
+   nothing else; a hover chip is the only fill it ever paints. */
 .sidebar {
   display: flex;
   min-width: 0;
   min-height: 0;
-  border-right: 1px solid var(--line);
-  background: var(--panel-soft);
+  background: var(--panel);
   overflow: hidden;
 }
 
@@ -145,7 +146,7 @@ button {
   flex-direction: column;
   align-items: center;
   gap: 6px;
-  padding: 8px 6px;
+  padding: 8px 4px;
 }
 
 .rail-spacer {
@@ -181,7 +182,7 @@ button {
 .rail-button:hover,
 .rail-button:focus-visible {
   color: var(--text);
-  background: var(--panel);
+  background: var(--panel-soft);
 }
 
 .rail-icon {
@@ -991,13 +992,16 @@ a.calendar-title:focus-visible {
 }
 
 /* Tab bar: a horizontally scrolling strip of open notes pinned above the reader. */
+/* The tab strip shares the note's surface: no boxes, no per-tab fills. A tab is its title — faded
+   when inactive, ink plus an accent underline when active — so the row reads as a line of text, not
+   a bar of chrome. */
 .tabbar {
   display: flex;
   flex: 0 0 auto;
   align-items: stretch;
   overflow-x: auto;
   border-bottom: 1px solid var(--line);
-  background: var(--panel-soft);
+  background: var(--panel);
   scrollbar-width: none;
 }
 
@@ -1008,22 +1012,22 @@ a.calendar-title:focus-visible {
 .tab {
   position: relative;
   display: flex;
-  /* Keep tabs a uniform width: short titles pad out to the min, long ones grow to the max then clip.
-     They never shrink, so the strip scrolls horizontally once they overflow. */
+  /* Tabs take their title's width (capped); they never shrink, so the strip scrolls horizontally
+     once they overflow. */
   flex: 0 0 auto;
-  min-width: 140px;
   max-width: 220px;
   align-items: center;
-  border-right: 1px solid var(--line);
-  background: var(--panel-soft);
   color: var(--muted);
 }
 
 .tab.active {
-  background: var(--panel);
   color: var(--text);
-  /* An accent underline marks the active tab; -1px overlaps the strip's bottom border. */
+  /* The accent underline is the only active marker; -1px overlaps the strip's bottom border. */
   box-shadow: inset 0 -2px 0 var(--accent);
+}
+
+.tab.active .tab-title {
+  font-weight: 600;
 }
 
 .tab-label {
