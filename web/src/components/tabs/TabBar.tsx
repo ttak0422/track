@@ -73,9 +73,20 @@ export function TabBar() {
               title="Close"
               onClick={() => close(tab.id)}
             >
-              <span className="tab-close-glyph" aria-hidden="true">
-                ×
-              </span>
+              <svg
+                className="tab-close-glyph"
+                viewBox="0 0 24 24"
+                width="14"
+                height="14"
+                fill="none"
+                stroke="currentColor"
+                strokeWidth="2"
+                strokeLinecap="round"
+                aria-hidden="true"
+              >
+                <line x1="6" y1="6" x2="18" y2="18" />
+                <line x1="18" y1="6" x2="6" y2="18" />
+              </svg>
               <span className="tab-dirty-dot" aria-hidden="true" />
             </button>
             {active && !isViewTab(tab.id) ? <TabActions noteID={tab.id} tabRef={activeRef} /> : null}
