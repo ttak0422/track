@@ -1405,6 +1405,20 @@ a.calendar-title:focus-visible {
   border-left: 1px solid var(--line);
 }
 
+/* Read-only view (the static reader, and the editor's Preview mode — neither renders a textarea): let
+   the note flow in one column so the full-width .reader is what scrolls, gutters included. Otherwise
+   .note-reader is height-locked and .note-preview scrolls inside its own centered box, leaving the
+   empty side margins (which belong to the non-scrolling .reader) dead to the wheel.
+   ponytail: keyed off :has(textarea) so edit/split keep their fixed-height panes and internal scroll. */
+.note-reader:not(:has(textarea)) {
+  height: auto;
+  min-height: 100%;
+}
+
+.note-reader:not(:has(textarea)) .note-preview {
+  overflow: visible;
+}
+
 .markdown-view {
   line-height: 1.65;
   /* Wrap Japanese only at the phrase boundaries BudouX marks with <wbr>, falling back to breaking a
