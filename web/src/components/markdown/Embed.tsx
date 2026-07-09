@@ -11,6 +11,7 @@ import {
   googleMapsEmbedUrl,
   hostOf,
   isEChartsHref,
+  isHtmlHref,
   isImageHref,
   isMermaidHref,
   isPdfHref,
@@ -77,6 +78,21 @@ export function Embed({ src, alt }: EmbedProps) {
         <MediaFrame src={src} alt={alt}>
           <PdfDeck src={safe} alt={alt} />
         </MediaFrame>
+      );
+    }
+  }
+
+  // An HTML document (local asset or remote page) is mounted in a sandboxed iframe so its own JS/CSS run
+  // but it cannot reach the app/vault: no allow-same-origin, so the frame gets a unique opaque origin with
+  // no access to the parent, cookies, or storage. allow-scripts + allow-same-origin together would let the
+  // frame remove its own sandbox, so that pair is deliberately never used.
+  if (isHtmlHref(src)) {
+    const safe = safeFrameUrl(target);
+    if (safe) {
+      return (
+        <div className="embed embed-html">
+          <iframe src={safe} sandbox="allow-scripts allow-popups" loading="lazy" title={alt || "Embedded page"} />
+        </div>
       );
     }
   }
