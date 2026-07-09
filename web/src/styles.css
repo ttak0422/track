@@ -913,7 +913,6 @@ a.calendar-title:focus-visible {
   min-height: 84px;
   min-width: 0;
   padding: 6px;
-  border: 1px solid transparent;
   border-radius: 8px;
   color: var(--muted);
   text-decoration: none;
@@ -925,15 +924,23 @@ a.calendar-title:focus-visible {
   line-height: 1.4;
 }
 
+/* A day with notes reads as active through ink and weight, not a bordered box: the number goes to
+   text ink and its note titles stay legible. */
 .calendar-day-active {
   color: var(--text);
-  border-color: var(--line);
-  background: var(--panel-soft);
 }
 
-.calendar-day-active:hover,
+.calendar-day-active .calendar-day-number {
+  font-weight: 600;
+}
+
+.calendar-day-active:hover {
+  background: color-mix(in srgb, var(--accent) 8%, transparent);
+}
+
 .calendar-day-active:focus-visible {
-  border-color: var(--accent);
+  outline: 1px solid var(--accent);
+  outline-offset: -1px;
 }
 
 .calendar-day-note {
@@ -950,8 +957,10 @@ a.calendar-title:focus-visible {
   color: var(--muted);
 }
 
-.calendar-day[aria-current="date"] {
-  box-shadow: inset 0 0 0 2px var(--accent);
+/* Today: a quiet accent marker on the number rather than a resting ring. */
+.calendar-day[aria-current="date"] .calendar-day-number {
+  color: var(--accent);
+  font-weight: 600;
 }
 
 /* The day page: the notes active on one day (what the reader's "On this day" aside shows) as a plain
