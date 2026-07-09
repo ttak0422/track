@@ -83,6 +83,14 @@ func Title(text string) string {
 ```
 ````
 
+It renders as:
+
+```go
+func Title(text string) string {
+    return strings.TrimSpace(text)
+}
+```
+
 A ` ```mermaid ` fence renders a diagram instead — see [[Diagrams]]. Fenced blocks in a real note can
 also be *run* as code; see [[Babel]].
 
