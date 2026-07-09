@@ -10,6 +10,7 @@ import {
 } from "d3-force";
 import { PointerEvent, WheelEvent, useEffect, useRef, useState } from "react";
 import type { Graph, GraphEdge, GraphNode, NoteID } from "../types";
+import { isZoomWheel } from "./graphWheel";
 
 export interface GraphCanvasProps {
   graph: Graph;
@@ -599,9 +600,9 @@ export function GraphCanvas({
   }
 
   function wheel(event: WheelEvent<HTMLCanvasElement>) {
-    // A plain two-finger scroll (wheel without ctrlKey) must scroll the page as usual; only a trackpad
-    // pinch, which every engine reports as ctrl+wheel, zooms the graph. Mirrors the chart's wheel gate.
-    if (!event.ctrlKey) return;
+    // A mouse wheel and a trackpad pinch both zoom the graph; a trackpad two-finger scroll is left to
+    // scroll the page (see isZoomWheel for how the three are told apart).
+    if (!isZoomWheel(event)) return;
     event.preventDefault();
     const point = canvasPoint(event);
     const before = worldPoint(point);
