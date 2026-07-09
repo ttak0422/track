@@ -81,5 +81,18 @@ broken image. A config file, script, or data snippet you want to keep beside a n
 Two text kinds render as something richer instead: a Mermaid source (`.mmd` / `.mermaid`) becomes a
 diagram — see [[Diagrams]] — and a `.viewspec.json` becomes a **chart** — see [[Charts]].
 
+## HTML pages
+
+An HTML file is a vault asset like any other: `track asset import ./widget.html` copies it under
+`assets/`, and the standard embed syntax mounts it in a **sandboxed iframe** — its own JS and CSS run,
+but it is isolated from the workspace (unique opaque origin, no access to the app, cookies, or storage):
+
+```markdown
+![Widget](assets/widget.html)
+```
+
+A remote `http(s)://…/page.html` URL is mounted the same way. The frame has a fixed default height since
+an arbitrary page has no intrinsic aspect ratio.
+
 The [[Web workspace]] renders every embed live; the static export ([[CLI]] `export-site`) renders the
 same output for a published note.

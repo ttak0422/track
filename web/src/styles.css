@@ -1580,6 +1580,22 @@ a.calendar-title:focus-visible {
   border: 0;
 }
 
+/* An embedded HTML page has no intrinsic aspect ratio, so we reserve a fixed default box.
+   ponytail: fixed 360px height; add a per-embed height override (e.g. a ?h= query knob) only if
+   a real note needs a taller or shorter frame. */
+.embed-html {
+  width: 100%;
+  border-radius: 8px;
+  overflow: hidden;
+}
+
+.embed-html iframe {
+  width: 100%;
+  min-height: 360px;
+  border: 1px solid var(--line, #d9ddd5);
+  border-radius: 8px;
+}
+
 .embed-pdf {
   display: flex;
   flex-direction: column;

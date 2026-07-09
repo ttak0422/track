@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import {
   assetHref,
   hostOf,
+  isHtmlHref,
   isImageHref,
   isMermaidHref,
   isPdfHref,
@@ -118,6 +119,14 @@ describe("text-file asset embeds", () => {
     expect(textAssetLang("assets/data.json")).toBe("json");
     expect(textAssetLang("assets/run.sh")).toBe("bash");
     expect(textAssetLang("assets/photo.png")).toBeNull();
+  });
+  it("matches .html/.htm as HTML documents", () => {
+    expect(isHtmlHref("assets/widget.html")).toBe(true);
+    expect(isHtmlHref("assets/page.htm")).toBe(true);
+    expect(isHtmlHref("https://example.com/app.HTML?v=1")).toBe(true);
+    expect(isHtmlHref("assets/photo.png")).toBe(false);
+    expect(isHtmlHref("assets/notes.txt")).toBe(false);
+    expect(isHtmlHref("assets/htmlnotes.md")).toBe(false);
   });
   it("treats only mapped text extensions as inline text assets", () => {
     expect(isTextAssetHref("assets/chart.mmd")).toBe(true);
