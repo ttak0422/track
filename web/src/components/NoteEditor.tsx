@@ -4,7 +4,7 @@ import { MarkdownView } from "./MarkdownView";
 import { LoadingIndicator, NoteAside, NoteTags, journalDateFromNote } from "./noteShared";
 import { getFollowState } from "../api";
 import { NoteMetaDialog } from "./NoteMetaDialog";
-import { NoteCopyControls } from "./NoteCopyControls";
+import { NoteActionsMenu } from "./NoteActionsMenu";
 import { useDeleteNoteMutation, useNoteQuery, useRenderQuery, useSaveNoteMutation } from "../queries";
 import { useSearchState } from "../searchState";
 import { useTabs } from "./tabs/tabsStore";
@@ -272,21 +272,15 @@ export function NoteEditor({ noteID }: NoteEditorProps) {
               </button>
             ))}
           </div>
-          <NoteCopyControls body={body} />
-          <button className="meta-toggle" type="button" onClick={() => setMetaOpen(true)}>
-            Meta
-          </button>
-          <button
-            className="danger-toggle"
-            type="button"
-            onClick={() => {
+          <NoteActionsMenu
+            body={body}
+            onMeta={() => setMetaOpen(true)}
+            onDelete={() => {
               setDeleteConfirmText("");
               deleteNote.reset();
               setConfirmDeleteOpen(true);
             }}
-          >
-            Delete
-          </button>
+          />
         </div>
 
       {metaOpen ? <NoteMetaDialog noteID={noteID} onClose={() => setMetaOpen(false)} /> : null}

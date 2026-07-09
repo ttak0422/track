@@ -1184,9 +1184,7 @@ a.calendar-title:focus-visible {
 }
 
 .follow-toggle,
-.meta-toggle,
-.copy-toggle,
-.danger-toggle {
+.note-menu-toggle {
   border: 0;
   padding: 0;
   color: var(--muted);
@@ -1197,10 +1195,9 @@ a.calendar-title:focus-visible {
 
 .follow-toggle:hover,
 .follow-toggle:focus-visible,
-.meta-toggle:hover,
-.meta-toggle:focus-visible,
-.copy-toggle:hover,
-.copy-toggle:focus-visible {
+.note-menu-toggle:hover,
+.note-menu-toggle:focus-visible,
+.note-menu-toggle[aria-expanded="true"] {
   color: var(--text);
 }
 
@@ -1209,8 +1206,52 @@ a.calendar-title:focus-visible {
   font-weight: 600;
 }
 
-.danger-toggle:hover,
-.danger-toggle:focus-visible {
+/* The overflow menu anchors its floating panel; the glyph trigger reads as chrome until hovered/open. */
+.note-menu {
+  position: relative;
+  display: flex;
+}
+
+.note-menu-toggle {
+  /* Nudge the ⋯ glyph up a hair so it centers on the text baseline of its inline neighbours. */
+  line-height: 1;
+  letter-spacing: 1px;
+}
+
+/* A floating action list — the one layer that legitimately floats — sharing the .menu-panel surface
+   (panel bg + hairline + soft shadow) but stacking its items as flat muted-text rows, not a segmented
+   control. */
+.note-menu-panel {
+  top: calc(100% + 8px);
+  right: 0;
+  left: auto;
+  display: flex;
+  width: max-content;
+  min-width: 160px;
+  flex-direction: column;
+  gap: 2px;
+  padding: 6px;
+}
+
+.note-menu-panel button {
+  border: 0;
+  border-radius: 5px;
+  padding: 6px 10px;
+  color: var(--muted);
+  background: transparent;
+  font-size: calc(13px * var(--font-scale, 1));
+  text-align: left;
+  cursor: pointer;
+}
+
+.note-menu-panel button:hover,
+.note-menu-panel button:focus-visible {
+  color: var(--text);
+  background: var(--panel-soft);
+}
+
+.note-menu-panel .danger-item:hover,
+.note-menu-panel .danger-item:focus-visible {
   color: var(--danger);
 }
 
