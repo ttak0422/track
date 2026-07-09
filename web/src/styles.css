@@ -1451,6 +1451,49 @@ a.calendar-title:focus-visible {
   border-top: 1px solid var(--line);
 }
 
+/* GitHub-style alerts: a blockquote whose first line is [!NOTE]/[!TIP]/… (see remarkAlert). Each type
+   carries its own accent via --alert-color, reused for the left border, tinted background, and title. */
+.markdown-view .md-alert {
+  margin: 0.8em 0;
+  padding: 0.4em 1em;
+  border-left: 3px solid var(--alert-color);
+  border-radius: 0 4px 4px 0;
+  background: color-mix(in srgb, var(--alert-color) 8%, transparent);
+}
+
+.markdown-view .md-alert > :first-child {
+  margin-top: 0;
+}
+
+.markdown-view .md-alert > :last-child {
+  margin-bottom: 0;
+}
+
+.markdown-view .md-alert-title {
+  font-weight: 700;
+  color: var(--alert-color);
+}
+
+.markdown-view .md-alert-note {
+  --alert-color: var(--chart-3);
+}
+
+.markdown-view .md-alert-tip {
+  --alert-color: var(--accent);
+}
+
+.markdown-view .md-alert-important {
+  --alert-color: var(--chart-6);
+}
+
+.markdown-view .md-alert-warning {
+  --alert-color: var(--graph-active);
+}
+
+.markdown-view .md-alert-caution {
+  --alert-color: var(--danger);
+}
+
 /* GFM tables: a bordered, zebra-striped grid that scrolls horizontally when wider than the column. */
 .markdown-view table {
   display: block;

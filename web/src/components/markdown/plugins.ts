@@ -79,6 +79,48 @@ export function remarkWikiLink() {
   };
 }
 
+// remarkAlert turns a GitHub-style callout blockquote — one whose first line is `[!NOTE]` (or TIP,
+// IMPORTANT, WARNING, CAUTION) — into a titled admonition: the marker is stripped and the blockquote
+// is rendered as `<div class="md-alert md-alert-<type>">` with a title paragraph prepended. A
+// blockquote without the marker is left untouched, so ordinary quotes stay blockquotes.
+const alertTitles: Record<string, string> = {
+  NOTE: "Note",
+  TIP: "Tip",
+  IMPORTANT: "Important",
+  WARNING: "Warning",
+  CAUTION: "Caution",
+};
+const alertPattern = /^\[!(NOTE|TIP|IMPORTANT|WARNING|CAUTION)\]\s*/i;
+
+export function remarkAlert() {
+  return (tree: MdastRoot) => {
+    visit(tree, "blockquote", (node) => {
+      const first = node.children[0];
+      if (!first || first.type !== "paragraph") return;
+      const marker = first.children[0];
+      if (!marker || marker.type !== "text") return;
+      const match = alertPattern.exec(marker.value);
+      if (!match) return;
+      const type = match[1].toUpperCase();
+      // Drop the marker (and the newline/space before the body it consumed); if that empties the
+      // paragraph — marker alone on its line — remove it so only the body and title remain.
+      marker.value = marker.value.slice(match[0].length);
+      if (marker.value === "" && first.children.length === 1) {
+        node.children.shift();
+      }
+      const data = (node.data ??= {});
+      data.hName = "div";
+      data.hProperties = { className: ["md-alert", `md-alert-${type.toLowerCase()}`] };
+      node.children.unshift({
+        type: "paragraph",
+        data: { hProperties: { className: ["md-alert-title"] } },
+        children: [{ type: "text", value: alertTitles[type] }],
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any -- injected title node
+      } as any);
+    });
+  };
+}
+
 // makeRehypeBudoux builds a rehype plugin that segments Japanese text at BudouX phrase boundaries.
 // Paired with CSS `word-break: keep-all`, the inserted <wbr> markers let lines wrap between phrases
 // instead of at arbitrary characters. The BudouX parser is injected (not imported here) so its ~190KB

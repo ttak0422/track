@@ -10,7 +10,7 @@ import { Embed } from "./markdown/Embed";
 import { ExternalLink } from "./markdown/ExternalLink";
 import { loadMathPlugins, looksLikeMath, type MathPlugins, mathPluginsIfLoaded } from "./markdown/math";
 import { MermaidDiagram } from "./markdown/MermaidDiagram";
-import { remarkInclude, remarkWikiLink, spliceIncludeTokens } from "./markdown/plugins";
+import { remarkAlert, remarkInclude, remarkWikiLink, spliceIncludeTokens } from "./markdown/plugins";
 import { EChartsFence } from "./markdown/EChartsBlock";
 import { ViewSpecChart } from "./markdown/ViewSpecChart";
 import { WikiLink } from "./preview/WikiLink";
@@ -56,6 +56,7 @@ export function MarkdownView({ markdown, kind = "note", includes }: MarkdownView
     : markdown;
   const remarkPlugins = [
     remarkGfm,
+    remarkAlert,
     ...(math ? [math.remark] : []),
     remarkWikiLink,
     ...(hasIncludes ? [remarkInclude] : []),
