@@ -14,7 +14,7 @@ import (
 func fakeFrontend(t *testing.T) string {
 	t.Helper()
 	dir := t.TempDir()
-	if err := os.WriteFile(filepath.Join(dir, "index.html"), []byte("<!doctype html><div id=root></div>"), 0o644); err != nil {
+	if err := os.WriteFile(filepath.Join(dir, "index.html"), []byte("<!doctype html><head><title>track</title></head><body><div id=\"root\"></div></body>"), 0o644); err != nil {
 		t.Fatal(err)
 	}
 	return dir
@@ -62,6 +62,15 @@ func TestExportSiteBuildsStaticSite(t *testing.T) {
 	}
 	if !strings.Contains(note.Note.Body, "[[Home]]") {
 		t.Fatalf("child body should keep wiki link: %q", note.Note.Body)
+	}
+
+	// A crawlable per-note HTML page is written with the note's own OGP head.
+	childPage, err := os.ReadFile(filepath.Join(out, "notes", site.PublishID(200), "index.html"))
+	if err != nil {
+		t.Fatalf("per-note page not written: %v", err)
+	}
+	if !strings.Contains(string(childPage), `<meta property="og:title" content="Child">`) {
+		t.Fatalf("child page should carry its own og:title: %s", childPage)
 	}
 }
 

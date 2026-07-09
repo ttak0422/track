@@ -21,7 +21,7 @@ func fakeFrontend(t *testing.T) string {
 	if err := os.MkdirAll(filepath.Join(dir, "assets"), 0o755); err != nil {
 		t.Fatal(err)
 	}
-	index := `<!doctype html><script>var t="__TRACK_DEFAULT_THEME__";window.__trackStartPage="__TRACK_START_PAGE__"</script>__TRACK_COLOR_OVERRIDES__<div id=root></div>`
+	index := `<!doctype html><head><title>track</title><script>var t="__TRACK_DEFAULT_THEME__";window.__trackStartPage="__TRACK_START_PAGE__"</script>__TRACK_COLOR_OVERRIDES__</head><body><div id="root"></div></body>`
 	if err := os.WriteFile(filepath.Join(dir, "index.html"), []byte(index), 0o644); err != nil {
 		t.Fatal(err)
 	}
@@ -358,6 +358,75 @@ func TestBuildRewritesSpecAssetNoteRefs(t *testing.T) {
 	}
 	if strings.Contains(opt, `"note":"200"`) || strings.Contains(opt, "999") {
 		t.Fatalf("internal id must not leak from a spec asset: %s", opt)
+	}
+}
+
+// TestBuildWritesPerNoteOGP pins the SSG's per-page OGP: every published note gets a real
+// notes/<slug>/index.html carrying its own og:title/og:description, absolute og:url/og:image are gated
+// on --base-url, and the root index.html previews the start note.
+func TestBuildWritesPerNoteOGP(t *testing.T) {
+	cfg, s := vaultStore(t)
+	writeVaultNote(t, cfg, 100, "Home Page", "# Home Page\n\nlanding\n")
+	if err := note.WriteMetadata(
+		cfg.MetadataPath(200),
+		note.Metadata{Version: note.CurrentMetadataVersion, Title: "Child Page", Description: "a child summary", Image: "assets/cover.png"},
+	); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(cfg.NotePath(200), []byte("# Child Page\n\nchild body\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := index.New(cfg, s).Full(); err != nil {
+		t.Fatalf("index: %v", err)
+	}
+
+	// Without --base-url: relative-safe tags only, no absolute og:url/og:image.
+	out := t.TempDir()
+	if _, err := Build(cfg, s, Options{Root: 100, IDs: []int64{200}}, fakeFrontend(t), out); err != nil {
+		t.Fatalf("build: %v", err)
+	}
+	childPath := filepath.Join(out, "notes", PublishID(200), "index.html")
+	child, err := os.ReadFile(childPath)
+	if err != nil {
+		t.Fatalf("per-note page not written: %v", err)
+	}
+	page := string(child)
+	if !strings.Contains(page, `<meta property="og:title" content="Child Page">`) {
+		t.Fatalf("child page missing og:title: %s", page)
+	}
+	if !strings.Contains(page, `<meta property="og:description" content="a child summary">`) {
+		t.Fatalf("child page missing og:description: %s", page)
+	}
+	if !strings.Contains(page, `<meta property="og:type" content="article">`) {
+		t.Fatalf("child page missing og:type=article: %s", page)
+	}
+	if !strings.Contains(page, `<meta property="og:site_name" content="Home Page">`) {
+		t.Fatalf("child page missing og:site_name (root title): %s", page)
+	}
+	if !strings.Contains(page, `content="summary_large_image"`) {
+		t.Fatalf("a note with an image should use twitter summary_large_image: %s", page)
+	}
+	if strings.Contains(page, "og:url") || strings.Contains(page, "og:image") {
+		t.Fatalf("absolute tags must be omitted without --base-url: %s", page)
+	}
+	// The root index.html previews the start note.
+	rootHTML, _ := os.ReadFile(filepath.Join(out, "index.html"))
+	if !strings.Contains(string(rootHTML), `<meta property="og:title" content="Home Page">`) {
+		t.Fatalf("root index.html should carry the start note's og:title: %s", rootHTML)
+	}
+
+	// With --base-url: absolute og:url and og:image are emitted.
+	out2 := t.TempDir()
+	if _, err := Build(cfg, s, Options{Root: 100, IDs: []int64{200}, BaseURL: "https://example.com/site/"}, fakeFrontend(t), out2); err != nil {
+		t.Fatalf("build with base url: %v", err)
+	}
+	child2, _ := os.ReadFile(filepath.Join(out2, "notes", PublishID(200), "index.html"))
+	page2 := string(child2)
+	if !strings.Contains(page2, `<meta property="og:url" content="https://example.com/site/notes/`+PublishID(200)+`/">`) {
+		t.Fatalf("with base url, child page should carry an absolute og:url: %s", page2)
+	}
+	if !strings.Contains(page2, `<meta property="og:image" content="https://example.com/site/assets/`+publishAssetName("cover.png")+`">`) {
+		t.Fatalf("with base url, child page should carry an absolute og:image: %s", page2)
 	}
 }
 
