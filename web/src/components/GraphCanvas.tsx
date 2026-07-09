@@ -599,6 +599,9 @@ export function GraphCanvas({
   }
 
   function wheel(event: WheelEvent<HTMLCanvasElement>) {
+    // A plain two-finger scroll (wheel without ctrlKey) must scroll the page as usual; only a trackpad
+    // pinch, which every engine reports as ctrl+wheel, zooms the graph. Mirrors the chart's wheel gate.
+    if (!event.ctrlKey) return;
     event.preventDefault();
     const point = canvasPoint(event);
     const before = worldPoint(point);
