@@ -95,6 +95,20 @@ describe("MarkdownView", () => {
     expect(container.querySelector(".katex-display")).toBeInTheDocument();
   });
 
+  it("renders a [!NOTE] blockquote as a titled callout and leaves plain quotes alone", () => {
+    const { container } = render(<MarkdownView markdown={"> [!NOTE]\n> body text"} />);
+    const alert = container.querySelector(".md-alert.md-alert-note");
+    expect(alert).not.toBeNull();
+    expect(within(alert as HTMLElement).getByText("Note")).toBeInTheDocument();
+    expect(alert?.textContent).toContain("body text");
+    // The marker itself is stripped from the body.
+    expect(container.textContent).not.toContain("[!NOTE]");
+
+    const { container: quote } = render(<MarkdownView markdown={"> just a quote"} />);
+    expect(quote.querySelector(".md-alert")).toBeNull();
+    expect(quote.querySelector("blockquote")).not.toBeNull();
+  });
+
   it("renders a resolved include as an embed card in place of its directive line", () => {
     // The embed header's WikiLink needs the floating-window store (same as WikiLink.test.tsx).
     const { container } = renderWithQuery(
