@@ -106,10 +106,6 @@ but it is isolated from the workspace (unique opaque origin, no access to the ap
 ![Widget](assets/widget.html)
 ```
 
-This one is live — a small self-contained page that pulls three.js from a CDN and draws a rotating 3D
-graph (drag to orbit, scroll to zoom). It only demonstrates that an embedded page's own JS and CSS run;
-track's own graph is 2D — 3D is not part of the tool:
-
 ![Widget](assets/widget.html)
 
 A remote `http(s)://…/page.html` URL is mounted the same way. The frame has a fixed default height since
