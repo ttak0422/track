@@ -10,7 +10,13 @@ import { Embed } from "./markdown/Embed";
 import { ExternalLink } from "./markdown/ExternalLink";
 import { loadMathPlugins, looksLikeMath, type MathPlugins, mathPluginsIfLoaded } from "./markdown/math";
 import { MermaidDiagram } from "./markdown/MermaidDiagram";
-import { remarkAlert, remarkInclude, remarkWikiLink, spliceIncludeTokens } from "./markdown/plugins";
+import {
+  remarkAlert,
+  remarkEmbedOptions,
+  remarkInclude,
+  remarkWikiLink,
+  spliceIncludeTokens,
+} from "./markdown/plugins";
 import { EChartsFence } from "./markdown/EChartsBlock";
 import { ViewSpecChart } from "./markdown/ViewSpecChart";
 import { WikiLink } from "./preview/WikiLink";
@@ -57,6 +63,7 @@ export function MarkdownView({ markdown, kind = "note", includes }: MarkdownView
   const remarkPlugins = [
     remarkGfm,
     remarkAlert,
+    remarkEmbedOptions,
     ...(math ? [math.remark] : []),
     remarkWikiLink,
     ...(hasIncludes ? [remarkInclude] : []),
@@ -127,9 +134,16 @@ const markdownComponents = {
   a: ({ href, children }: { href?: string; children?: ReactNode }) => (
     <ExternalLink href={href ?? ""}>{children}</ExternalLink>
   ),
-  img: ({ src, alt }: { src?: string; alt?: string }) => (
-    <Embed src={typeof src === "string" ? src : ""} alt={alt ?? ""} />
-  ),
+  img: ({ node, src, alt }: ElementProps & { src?: string; alt?: string }) => {
+    const height = (node?.properties as { embedHeight?: unknown } | undefined)?.embedHeight;
+    return (
+      <Embed
+        src={typeof src === "string" ? src : ""}
+        alt={alt ?? ""}
+        height={typeof height === "string" ? height : undefined}
+      />
+    );
+  },
   // A standalone image is a block embed (player/PDF/OGP card), so unwrap the paragraph that would
   // otherwise nest a block element inside a <p>.
   p: ({ node, children }: ElementProps) => (isSoleImage(node) ? <>{children}</> : <p>{children}</p>),

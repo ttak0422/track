@@ -109,6 +109,19 @@ describe("MarkdownView", () => {
     expect(quote.querySelector("blockquote")).not.toBeNull();
   });
 
+  it("applies a :height embed option to an HTML embed and strips the option tail", () => {
+    const { container } = render(<MarkdownView markdown={"![Widget](assets/x.html) :height 240"} />);
+    const frame = container.querySelector(".embed-html iframe") as HTMLIFrameElement | null;
+    expect(frame).not.toBeNull();
+    expect(frame?.style.height).toBe("240px");
+    // The option tail is consumed, not rendered as text.
+    expect(container.textContent).not.toContain(":height");
+
+    // A percentage is treated as viewport height (vh), since a normal-flow iframe has no % basis.
+    const { container: pct } = render(<MarkdownView markdown={"![Widget](assets/x.html) :height 90%"} />);
+    expect((pct.querySelector(".embed-html iframe") as HTMLIFrameElement).style.height).toBe("90vh");
+  });
+
   it("renders a resolved include as an embed card in place of its directive line", () => {
     // The embed header's WikiLink needs the floating-window store (same as WikiLink.test.tsx).
     const { container } = renderWithQuery(

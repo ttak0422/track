@@ -26,6 +26,9 @@ import {
 interface EmbedProps {
   src: string;
   alt: string;
+  // A CSS length from the `:height` embed option (see remarkEmbedOptions); applied to the HTML-page
+  // frame, which otherwise has no intrinsic height. Ignored by intrinsically-sized embeds.
+  height?: string;
 }
 
 // Embed renders a standalone ![alt](src), routing by the kind of target: YouTube links become an
@@ -33,7 +36,7 @@ interface EmbedProps {
 // card. Embedding stays opt-in via the ![...]() syntax so ordinary [text](url) links are never turned
 // into noisy previews. The URL is normalized through webHref so bare domains still resolve, and only
 // http(s)/relative URLs feed an iframe so a note cannot smuggle a javascript: document into the frame.
-export function Embed({ src, alt }: EmbedProps) {
+export function Embed({ src, alt, height }: EmbedProps) {
   const kind = useContext(NoteKindContext);
   // A relative "assets/<file>" reference is served from the vault by the local server. Resolving it here
   // means it is never treated as a YouTube/tweet/OGP URL and never resolved against the /notes/<id>
@@ -91,7 +94,14 @@ export function Embed({ src, alt }: EmbedProps) {
     if (safe) {
       return (
         <div className="embed embed-html">
-          <iframe src={safe} sandbox="allow-scripts allow-popups" loading="lazy" title={alt || "Embedded page"} />
+          <iframe
+            src={safe}
+            sandbox="allow-scripts allow-popups"
+            loading="lazy"
+            title={alt || "Embedded page"}
+            // `:height` overrides the CSS min-height floor (both, so a value below the default can shrink).
+            style={height ? { height, minHeight: height } : undefined}
+          />
         </div>
       );
     }

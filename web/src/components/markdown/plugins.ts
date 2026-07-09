@@ -123,6 +123,43 @@ export function remarkAlert() {
   };
 }
 
+// remarkEmbedOptions reads a trailing Org-style ":key value" tail after a standalone image embed — the
+// same option shape includes and babel use (e.g. `![x](y) :height 360`). Only `:height` is defined: a
+// bare number is px, and `%`/`vh` are treated as viewport height (an iframe in normal flow has no
+// percentage-height basis). The parsed height is attached to the image via hProperties for the Embed
+// component to apply, and the option tail is stripped so the paragraph stays a sole-image block embed.
+const embedHeightPattern = /^:height\s+(\d+)(px|vh|%)?$/i;
+
+function normalizeEmbedHeight(value: string, unit: string): string | null {
+  const n = Number(value);
+  if (!Number.isFinite(n)) return null;
+  if (unit === "%" || unit === "vh") {
+    return `${Math.min(100, Math.max(10, n))}vh`;
+  }
+  return `${Math.min(4000, Math.max(80, n))}px`;
+}
+
+export function remarkEmbedOptions() {
+  return (tree: MdastRoot) => {
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any -- mdast image/text access
+    visit(tree, "paragraph", (node: any) => {
+      const kids = node.children;
+      // A standalone embed with options parses as [image, text(" :height 360")].
+      if (kids.length !== 2) return;
+      const [img, tail] = kids;
+      if (img.type !== "image" || tail.type !== "text") return;
+      const m = embedHeightPattern.exec(tail.value.trim());
+      if (!m) return; // an unrecognized ":..." tail is left as visible text rather than silently dropped
+      const height = normalizeEmbedHeight(m[1], (m[2] ?? "").toLowerCase());
+      if (!height) return;
+      const data = (img.data ??= {});
+      const props = (data.hProperties ??= {});
+      props.embedHeight = height;
+      node.children = [img]; // drop the tail so the paragraph is a sole image again
+    });
+  };
+}
+
 // makeRehypeBudoux builds a rehype plugin that segments Japanese text at BudouX phrase boundaries.
 // Paired with CSS `word-break: keep-all`, the inserted <wbr> markers let lines wrap between phrases
 // instead of at arbitrary characters. The BudouX parser is injected (not imported here) so its ~190KB

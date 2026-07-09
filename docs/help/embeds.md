@@ -106,10 +106,18 @@ but it is isolated from the workspace (unique opaque origin, no access to the ap
 ![Widget](assets/widget.html)
 ```
 
-![Widget](assets/widget.html)
+![Widget](assets/widget.html) :height 420
 
 A remote `http(s)://…/page.html` URL is mounted the same way. The frame has a fixed default height since
-an arbitrary page has no intrinsic aspect ratio.
+an arbitrary page has no intrinsic aspect ratio, but you can set it with a `:height` option after the
+embed — the same Org-style `:key value` tail [[Babel]] and note includes use:
+
+```markdown
+![Widget](assets/widget.html) :height 480
+![Map](assets/map.html) :height 90%
+```
+
+A bare number is pixels; a `%` or `vh` value is a share of the viewport height.
 
 The [[Web workspace]] renders every embed live; the static export ([[CLI]] `export-site`) renders the
 same output for a published note.
