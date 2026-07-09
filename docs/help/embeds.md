@@ -32,6 +32,21 @@ A YouTube watch, share, or embed URL becomes an inline player:
 
 ![Intro](https://www.youtube.com/watch?v=aqz-KE-bpKQ)
 
+## Google Maps
+
+A Google Maps share or embed URL becomes an inline map. Paste the `Share → Embed a map` URL as-is, or
+build the keyless form yourself with a query or coordinates — no API key is needed. Short
+`maps.app.goo.gl` links need a network redirect to resolve, so those fall back to an Open Graph card
+instead:
+
+```markdown
+![都庁](https://maps.google.com/maps?q=35.6896,139.6917&z=16&output=embed)
+```
+
+This one is live — it centers on the Tokyo Metropolitan Government building (都庁):
+
+![都庁](https://maps.google.com/maps?q=35.6896,139.6917&z=16&output=embed)
+
 ## Twitter / X
 
 A tweet URL renders the actual post via Twitter's official widgets (matching how Obsidian embeds

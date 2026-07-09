@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
   assetHref,
+  googleMapsEmbedUrl,
   hostOf,
   isImageHref,
   isMermaidHref,
@@ -71,6 +72,28 @@ describe("youtubeEmbedUrl", () => {
   it("returns null for non-YouTube and unparseable URLs", () => {
     expect(youtubeEmbedUrl("https://example.com")).toBeNull();
     expect(youtubeEmbedUrl("not a url ???")).toBeNull();
+  });
+});
+
+describe("googleMapsEmbedUrl", () => {
+  it("passes an existing /maps/embed URL through unchanged", () => {
+    expect(googleMapsEmbedUrl("https://www.google.com/maps/embed?pb=!1m18")).toBe(
+      "https://www.google.com/maps/embed?pb=!1m18",
+    );
+  });
+  it("builds a keyless embed from a ?q= query, carrying zoom", () => {
+    expect(googleMapsEmbedUrl("https://maps.google.com/maps?q=35.6896,139.6917&z=16&output=embed")).toBe(
+      "https://maps.google.com/maps?q=35.6896%2C139.6917&z=16&output=embed",
+    );
+  });
+  it("derives q/z from an @lat,lng,zoom share path", () => {
+    expect(googleMapsEmbedUrl("https://www.google.com/maps/@35.6896,139.6917,16z")).toBe(
+      "https://maps.google.com/maps?q=35.6896%2C139.6917&z=16&output=embed",
+    );
+  });
+  it("returns null for non-maps URLs and unresolvable short links", () => {
+    expect(googleMapsEmbedUrl("https://example.com")).toBeNull();
+    expect(googleMapsEmbedUrl("https://maps.app.goo.gl/abcdef")).toBeNull();
   });
 });
 

@@ -8,6 +8,7 @@ import { MermaidDiagram } from "./MermaidDiagram";
 import { EChartsFence } from "./EChartsBlock";
 import {
   assetHref,
+  googleMapsEmbedUrl,
   hostOf,
   isEChartsHref,
   isImageHref,
@@ -48,6 +49,21 @@ export function Embed({ src, alt }: EmbedProps) {
           loading="lazy"
           allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share"
           allowFullScreen
+        />
+      </div>
+    );
+  }
+
+  const map = asset ? null : googleMapsEmbedUrl(src);
+  if (map) {
+    return (
+      <div className="embed embed-map">
+        <iframe
+          src={map}
+          title={alt || "Map"}
+          loading="lazy"
+          allowFullScreen
+          referrerPolicy="no-referrer-when-downgrade"
         />
       </div>
     );
