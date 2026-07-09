@@ -52,7 +52,13 @@ globalThis.fetch = async (url) => {
 
 const { renderPage } = await import(pathToFileURL(serverEntry).href);
 
-const template = readFileSync(join(siteDir, "index.html"), "utf8");
+// export-site now bakes per-page OGP meta into every HTML file, including this root index.html reused
+// here as the shared template. Strip that baked head so each prerendered route carries exactly one set
+// of og:/twitter: tags — its own, injected below — rather than inheriting the root note's. The <title>
+// is replaced (not appended) per route below, so it needs no stripping.
+const template = readFileSync(join(siteDir, "index.html"), "utf8")
+  .replace(/<meta property="og:[^"]*"[^>]*>/g, "")
+  .replace(/<meta name="twitter:[^"]*"[^>]*>/g, "");
 if (!template.includes('<div id="root"></div>')) {
   console.error('prerender: index.html has no empty <div id="root"></div> to fill');
   process.exit(1);

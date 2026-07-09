@@ -240,10 +240,8 @@ func writeBundle(docs []doc, edges []edge, root int64, calendar bool, baseURL, f
 	}
 
 	// site.json: the entry note and site-level toggles.
-	if err := writeJSONFile(
-		filepath.Join(outDir, "data", "site.json"),
-		jsonSite{Root: PublishID(root), Title: rootTitle, Calendar: calendar, BaseURL: strings.TrimRight(baseURL, "/")},
-	); err != nil {
+	siteMeta := jsonSite{Root: PublishID(root), Title: rootTitle, Calendar: calendar, BaseURL: strings.TrimRight(baseURL, "/")}
+	if err := writeJSONFile(filepath.Join(outDir, "data", "site.json"), siteMeta); err != nil {
 		return Result{}, err
 	}
 
@@ -251,8 +249,11 @@ func writeBundle(docs []doc, edges []edge, root int64, calendar bool, baseURL, f
 	if err := copyTree(frontendDir, outDir); err != nil {
 		return Result{}, fmt.Errorf("copy frontend: %w", err)
 	}
-	if err := finalizeIndex(filepath.Join(outDir, "index.html"), PublishID(root)); err != nil {
-		return Result{}, fmt.Errorf("finalize index.html: %w", err)
+	// Emit a real HTML file per route (start page, per note, and the site-level pages) with that page's
+	// OGP meta injected into the copied shell, so crawlers/social shares see per-note metadata and deep
+	// links resolve without a host fallback.
+	if err := writePages(outDir, PublishID(root), root, docs, listed, siteMeta); err != nil {
+		return Result{}, fmt.Errorf("write pages: %w", err)
 	}
 
 	// Copy referenced note assets.
@@ -337,22 +338,6 @@ func writeJSONFile(path string, v any) error {
 		return err
 	}
 	return os.WriteFile(path, data, 0o644)
-}
-
-// finalizeIndex substitutes the placeholders the live server fills in at request time. The static site
-// has no server, so the default theme falls back to "system" and there are no color overrides; left
-// unsubstituted, __TRACK_COLOR_OVERRIDES__ would otherwise show as literal text in the page. startPage is
-// the root note's published id, baked in so the frontend redirects to the start page on launch without a
-// site.json round-trip (see web/src/runtime.ts START_PAGE_ID).
-func finalizeIndex(path, startPage string) error {
-	raw, err := os.ReadFile(path)
-	if err != nil {
-		return err
-	}
-	html := strings.ReplaceAll(string(raw), "__TRACK_DEFAULT_THEME__", "system")
-	html = strings.ReplaceAll(html, "__TRACK_COLOR_OVERRIDES__", "")
-	html = strings.ReplaceAll(html, "__TRACK_START_PAGE__", startPage)
-	return os.WriteFile(path, []byte(html), 0o644)
 }
 
 // copyTree copies every file under src into dst, preserving the relative layout. Dot-prefixed entries
