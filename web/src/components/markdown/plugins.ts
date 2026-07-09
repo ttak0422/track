@@ -2,7 +2,9 @@ import type { Element, Root as HastRoot, Text as HastText } from "hast";
 import type { Root as MdastRoot } from "mdast";
 import { visit } from "unist-util-visit";
 
-const wikiPattern = /\[\[([^\]|]+)(?:\|([^\]]+))?\]\]/g;
+// The [[target|display]] wiki-link grammar (target, optional |display alias). Shared with the portable
+// export so both flatten the same construct. It carries the /g flag; reset lastIndex before manual exec.
+export const wikiPattern = /\[\[([^\]|]+)(?:\|([^\]]+))?\]\]/g;
 
 // Include directives (ADR 0031) reach the renderer as data, not syntax: the server resolves each
 // ![[...]] line and reports its 0-based line number, so the client never re-implements the
