@@ -4,6 +4,7 @@ import { MarkdownView } from "./MarkdownView";
 import { LoadingIndicator, NoteAside, NoteTags, journalDateFromNote } from "./noteShared";
 import { getFollowState } from "../api";
 import { NoteMetaDialog } from "./NoteMetaDialog";
+import { NoteCopyControls } from "./NoteCopyControls";
 import { useDeleteNoteMutation, useNoteQuery, useRenderQuery, useSaveNoteMutation } from "../queries";
 import { useSearchState } from "../searchState";
 import { useTabs } from "./tabs/tabsStore";
@@ -271,6 +272,7 @@ export function NoteEditor({ noteID }: NoteEditorProps) {
               </button>
             ))}
           </div>
+          <NoteCopyControls body={body} />
           <button className="meta-toggle" type="button" onClick={() => setMetaOpen(true)}>
             Meta
           </button>

@@ -1185,6 +1185,7 @@ a.calendar-title:focus-visible {
 
 .follow-toggle,
 .meta-toggle,
+.copy-toggle,
 .danger-toggle {
   border: 0;
   padding: 0;
@@ -1197,7 +1198,9 @@ a.calendar-title:focus-visible {
 .follow-toggle:hover,
 .follow-toggle:focus-visible,
 .meta-toggle:hover,
-.meta-toggle:focus-visible {
+.meta-toggle:focus-visible,
+.copy-toggle:hover,
+.copy-toggle:focus-visible {
   color: var(--text);
 }
 
