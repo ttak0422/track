@@ -1,6 +1,7 @@
 import type { MermaidConfig } from "mermaid";
 import { type PointerEvent, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { CodeBlock } from "./CodeBlock";
+import { copyText } from "./clipboard";
 
 interface MermaidDiagramProps {
   text: string;
@@ -107,6 +108,7 @@ export function MermaidDiagram({ text }: MermaidDiagramProps) {
       </button>
       {!collapsed && (
         <div className="mermaid-controls">
+          <CopySource text={text} />
           <button
             className="mermaid-control"
             type="button"
@@ -137,6 +139,39 @@ export function MermaidDiagram({ text }: MermaidDiagramProps) {
         </div>
       )}
     </div>
+  );
+}
+
+// CopySource copies the diagram's raw mermaid source to the clipboard, briefly acknowledging with a
+// check — same idiom as CodeBlock's copy button, sized to sit among the mermaid controls.
+function CopySource({ text }: { text: string }) {
+  const [copied, setCopied] = useState(false);
+  const resetTimer = useRef<number | undefined>(undefined);
+
+  useEffect(
+    () => () => {
+      if (resetTimer.current !== undefined) window.clearTimeout(resetTimer.current);
+    },
+    [],
+  );
+
+  async function copy() {
+    if (!(await copyText(text))) return;
+    setCopied(true);
+    if (resetTimer.current !== undefined) window.clearTimeout(resetTimer.current);
+    resetTimer.current = window.setTimeout(() => setCopied(false), 1500);
+  }
+
+  return (
+    <button
+      className="mermaid-control"
+      type="button"
+      onClick={copy}
+      aria-label={copied ? "Copied" : "Copy source"}
+      title={copied ? "Copied" : "Copy source"}
+    >
+      {copied ? "✓" : "⧉"}
+    </button>
   );
 }
 

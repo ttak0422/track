@@ -73,6 +73,18 @@ describe("MermaidDiagram", () => {
     expect(svg.style.maxWidth).toBe("none");
   });
 
+  it("copies the diagram source, not the rendered SVG", async () => {
+    const writeText = vi.fn(async () => {});
+    Object.assign(navigator, { clipboard: { writeText } });
+    const source = "graph TD\nA-->B";
+    const { container } = render(<MermaidDiagram text={source} />);
+    await waitFor(() => expect(container.querySelector("svg")).toBeInTheDocument());
+
+    fireEvent.click(screen.getByRole("button", { name: "Copy source" }));
+    await waitFor(() => expect(writeText).toHaveBeenCalledWith(source));
+    expect(await screen.findByRole("button", { name: "Copied" })).toBeInTheDocument();
+  });
+
   it("zooms in and out with the control buttons", async () => {
     const { container } = render(<MermaidDiagram text={"graph TD\nA-->B"} />);
     await waitFor(() => expect(container.querySelector("svg")).toBeInTheDocument());
