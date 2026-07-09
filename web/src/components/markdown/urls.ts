@@ -121,6 +121,46 @@ export function youtubeEmbedUrl(src: string): string | null {
   return `https://www.youtube-nocookie.com/embed/${id}${query}`;
 }
 
+// googleMapsEmbedUrl turns a Google Maps share or embed URL into an inline-iframe embed src, keyless (no
+// API key). An existing /maps/embed URL passes through unchanged; otherwise a query or coordinates from
+// the URL (?q=, an @lat,lng,zoom path, or ?ll=) build the well-known keyless embed
+// https://maps.google.com/maps?q=…&output=embed. It returns null for anything that is not clearly a
+// Google Maps URL — short goo.gl links included, since resolving those needs a network redirect — so the
+// caller falls back to an Open Graph card.
+export function googleMapsEmbedUrl(src: string): string | null {
+  let url: URL;
+  try {
+    url = new URL(webHref(src));
+  } catch {
+    return null;
+  }
+  const host = url.hostname.replace(/^www\./i, "").toLowerCase();
+  if (host !== "google.com" && host !== "maps.google.com") {
+    return null;
+  }
+  if (url.pathname.startsWith("/maps/embed")) {
+    return safeFrameUrl(url.toString());
+  }
+  let query = url.searchParams.get("q")?.trim() ?? "";
+  let zoom = url.searchParams.get("z")?.trim() ?? "";
+  if (query === "") {
+    const at = /@(-?\d+(?:\.\d+)?),(-?\d+(?:\.\d+)?)(?:,(\d+(?:\.\d+)?)z)?/.exec(url.pathname);
+    if (at) {
+      query = `${at[1]},${at[2]}`;
+      if (at[3]) zoom = String(Math.round(Number(at[3])));
+    } else {
+      query = url.searchParams.get("ll")?.trim() ?? "";
+    }
+  }
+  if (query === "") {
+    return null;
+  }
+  const params = new URLSearchParams({ q: query });
+  if (zoom) params.set("z", zoom);
+  params.set("output", "embed");
+  return `https://maps.google.com/maps?${params}`;
+}
+
 // youtubeStartSeconds parses a YouTube timestamp, accepting plain seconds ("90") and the 1h2m3s form.
 export function youtubeStartSeconds(raw: string | null): number {
   if (!raw) {
