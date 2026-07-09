@@ -1092,8 +1092,9 @@ a.calendar-title:focus-visible {
 }
 
 .tab-close-glyph {
-  font-size: calc(15px * var(--font-scale, 1));
-  line-height: 1;
+  /* An SVG block centers by geometry under the button's place-items:center — no text baseline to
+     leave the × optically high (as the old text glyph did). */
+  display: block;
 }
 
 .tab-dirty-dot {
