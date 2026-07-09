@@ -38,6 +38,38 @@ Standard Markdown blocks work as expected:
 
 Task lists (`- [ ]` / `- [x]`) render as real checkboxes.
 
+## Alerts
+
+A blockquote whose first line is a `[!TYPE]` marker becomes a colored callout, matching GitHub's alert
+syntax. Five types are recognized — `NOTE`, `TIP`, `IMPORTANT`, `WARNING`, `CAUTION`:
+
+```markdown
+> [!NOTE]
+> Useful context the reader should notice.
+
+> [!WARNING]
+> Something that needs care.
+```
+
+They render as:
+
+> [!NOTE]
+> Useful context the reader should notice.
+
+> [!TIP]
+> A helpful suggestion.
+
+> [!IMPORTANT]
+> Key information the reader must not miss.
+
+> [!WARNING]
+> Something that needs care.
+
+> [!CAUTION]
+> A risky action to think twice about.
+
+A blockquote without a `[!TYPE]` marker stays an ordinary quote.
+
 ## Code blocks
 
 A fenced block is syntax-highlighted when you name the language after the opening fence, and the web

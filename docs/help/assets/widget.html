@@ -1,0 +1,153 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>3D graph demo</title>
+    <style>
+      /* This page is self-contained: its own CSS and JS run inside the sandboxed iframe.
+         It is only a demo of the HTML-embed feature — track itself renders its graph in 2D. */
+      html,
+      body {
+        margin: 0;
+        height: 100%;
+        overflow: hidden;
+        background: #14181c;
+        font: 12px ui-monospace, SFMono-Regular, Menlo, monospace;
+        color: #9fb3a6;
+      }
+      #hint {
+        position: absolute;
+        left: 10px;
+        bottom: 8px;
+        opacity: 0.6;
+        pointer-events: none;
+        user-select: none;
+      }
+      #err {
+        position: absolute;
+        inset: 0;
+        display: none;
+        place-items: center;
+        text-align: center;
+        padding: 24px;
+        color: #c98b8b;
+      }
+      canvas {
+        display: block;
+      }
+    </style>
+    <script type="importmap">
+      {
+        "imports": {
+          "three": "https://unpkg.com/three@0.160.0/build/three.module.js",
+          "three/addons/": "https://unpkg.com/three@0.160.0/examples/jsm/"
+        }
+      }
+    </script>
+  </head>
+  <body>
+    <div id="hint">drag to orbit &middot; scroll to zoom</div>
+    <div id="err">Could not load three.js from the CDN (offline?).</div>
+    <script type="module">
+      import * as THREE from "three";
+      import { OrbitControls } from "three/addons/controls/OrbitControls.js";
+
+      const scene = new THREE.Scene();
+      scene.fog = new THREE.FogExp2(0x14181c, 0.05);
+
+      const camera = new THREE.PerspectiveCamera(55, 1, 0.1, 100);
+      camera.position.set(0, 0, 16);
+
+      const renderer = new THREE.WebGLRenderer({ antialias: true });
+      renderer.setPixelRatio(Math.min(devicePixelRatio, 2));
+      document.body.appendChild(renderer.domElement);
+
+      const controls = new OrbitControls(camera, renderer.domElement);
+      controls.enableDamping = true;
+      controls.autoRotate = true;
+      controls.autoRotateSpeed = 0.9;
+
+      scene.add(new THREE.AmbientLight(0xffffff, 0.6));
+      const key = new THREE.PointLight(0x8fe3b0, 1.2, 100);
+      key.position.set(10, 10, 10);
+      scene.add(key);
+
+      // A ring of nodes with a few hub spokes — evokes a link graph, purely as atmosphere.
+      const N = 34;
+      const accent = new THREE.Color(0x57c98a);
+      const nodes = [];
+      const group = new THREE.Group();
+      scene.add(group);
+
+      const sphere = new THREE.SphereGeometry(0.34, 20, 20);
+      for (let i = 0; i < N; i++) {
+        // Distribute roughly on a sphere via the golden-angle spiral.
+        const y = 1 - (i / (N - 1)) * 2;
+        const r = Math.sqrt(1 - y * y);
+        const theta = i * 2.399963;
+        const p = new THREE.Vector3(Math.cos(theta) * r, y, Math.sin(theta) * r).multiplyScalar(6);
+        const mat = new THREE.MeshStandardMaterial({
+          color: accent.clone().offsetHSL(0, 0, (Math.random() - 0.5) * 0.25),
+          emissive: 0x0e2a1c,
+          roughness: 0.4,
+          metalness: 0.1,
+        });
+        const mesh = new THREE.Mesh(sphere, mat);
+        mesh.position.copy(p);
+        mesh.scale.setScalar(0.6 + Math.random());
+        group.add(mesh);
+        nodes.push(p);
+      }
+
+      // Edges: connect each node to its nearest couple of neighbours.
+      const positions = [];
+      for (let i = 0; i < N; i++) {
+        const dists = nodes
+          .map((p, j) => ({ j, d: nodes[i].distanceTo(p) }))
+          .filter((o) => o.j !== i)
+          .sort((a, b) => a.d - b.d)
+          .slice(0, 2);
+        for (const { j } of dists) {
+          positions.push(nodes[i].x, nodes[i].y, nodes[i].z, nodes[j].x, nodes[j].y, nodes[j].z);
+        }
+      }
+      const edgeGeo = new THREE.BufferGeometry();
+      edgeGeo.setAttribute("position", new THREE.Float32BufferAttribute(positions, 3));
+      const edges = new THREE.LineSegments(
+        edgeGeo,
+        new THREE.LineBasicMaterial({ color: 0x3f7a5c, transparent: true, opacity: 0.55 }),
+      );
+      group.add(edges);
+
+      function resize() {
+        const w = innerWidth,
+          h = innerHeight;
+        renderer.setSize(w, h);
+        camera.aspect = w / h;
+        camera.updateProjectionMatrix();
+      }
+      addEventListener("resize", resize);
+      resize();
+
+      renderer.setAnimationLoop(() => {
+        controls.update();
+        renderer.render(scene, camera);
+      });
+
+      // If the ES-module import failed (no network), the module never runs; a classic-script
+      // fallback flips on the error notice so the frame is not just a blank void.
+      window.addEventListener("error", () => {
+        document.getElementById("err").style.display = "grid";
+      });
+    </script>
+    <script>
+      // Runs even if the module above throws on import (CDN unreachable): reveal the notice.
+      setTimeout(() => {
+        if (!document.querySelector("canvas")) {
+          document.getElementById("err").style.display = "grid";
+        }
+      }, 4000);
+    </script>
+  </body>
+</html>
