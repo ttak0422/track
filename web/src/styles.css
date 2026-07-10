@@ -1193,6 +1193,7 @@ a.calendar-title:focus-visible {
 }
 
 .follow-toggle,
+.slide-toggle,
 .note-menu-toggle {
   border: 0;
   padding: 0;
@@ -1204,6 +1205,8 @@ a.calendar-title:focus-visible {
 
 .follow-toggle:hover,
 .follow-toggle:focus-visible,
+.slide-toggle:hover,
+.slide-toggle:focus-visible,
 .note-menu-toggle:hover,
 .note-menu-toggle:focus-visible,
 .note-menu-toggle[aria-expanded="true"] {
@@ -2712,4 +2715,85 @@ a.calendar-title:focus-visible {
   clip: rect(0, 0, 0, 0);
   white-space: nowrap;
   border: 0;
+}
+
+/* ---- Slide deck (SlideDeck.tsx): a note presented full screen, one `---`-delimited slide at a time.
+   Portaled to <body>; above the sidebar rail and its popups (z-index 95), below modals (200). ---- */
+.slide-deck {
+  position: fixed;
+  inset: 0;
+  z-index: 150;
+  display: flex;
+  flex-direction: column;
+  background: var(--bg);
+}
+
+.slide-deck-stage {
+  display: flex;
+  flex: 1;
+  min-height: 0;
+  overflow: auto;
+  padding: clamp(24px, 6vh, 64px) clamp(20px, 8vw, 120px);
+}
+
+/* margin:auto (not place-items:center) centers a short slide but lets a slide taller than the
+   viewport scroll from its top instead of clipping both ends. The larger base font is what makes a
+   note read as a slide; markdown headings scale with it (they are em-sized). */
+.slide-deck-slide {
+  width: min(880px, 100%);
+  margin: auto;
+  font-size: calc(20px * var(--font-scale, 1));
+}
+
+.slide-deck-close {
+  position: absolute;
+  top: 12px;
+  right: 18px;
+  z-index: 1;
+  border: 0;
+  padding: 4px 0;
+  color: var(--muted);
+  background: transparent;
+  font-size: calc(12px * var(--font-scale, 1));
+  cursor: pointer;
+}
+
+.slide-deck-close:hover,
+.slide-deck-close:focus-visible {
+  color: var(--text);
+}
+
+.slide-deck-nav {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 12px;
+  padding: 8px 0 14px;
+  color: var(--muted);
+  font-size: calc(13px * var(--font-scale, 1));
+}
+
+.slide-deck-nav button {
+  border: 0;
+  padding: 0 10px;
+  color: var(--muted);
+  background: transparent;
+  font-size: calc(16px * var(--font-scale, 1));
+  cursor: pointer;
+}
+
+.slide-deck-nav button:hover:not(:disabled),
+.slide-deck-nav button:focus-visible:not(:disabled) {
+  color: var(--text);
+}
+
+.slide-deck-nav button:disabled {
+  cursor: default;
+  opacity: 0.35;
+}
+
+.slide-deck-count {
+  min-width: 64px;
+  text-align: center;
+  font-variant-numeric: tabular-nums;
 }

@@ -5,6 +5,7 @@ import { LoadingIndicator, NoteAside, NoteTags, journalDateFromNote } from "./no
 import { getFollowState } from "../api";
 import { NoteMetaDialog } from "./NoteMetaDialog";
 import { NoteActionsMenu } from "./NoteActionsMenu";
+import { SlideDeckControl } from "./SlideDeck";
 import { useDeleteNoteMutation, useNoteQuery, useRenderQuery, useSaveNoteMutation } from "../queries";
 import { useSearchState } from "../searchState";
 import { useTabs } from "./tabs/tabsStore";
@@ -252,6 +253,11 @@ export function NoteEditor({ noteID }: NoteEditorProps) {
     <article className={`note-reader${editorMode === "split" ? " note-reader-split" : ""}`}>
       {/* Note controls float over the reader as a graph-style overlay, not in the header bar. */}
       <div className="note-float-controls">
+          <SlideDeckControl
+            markdown={renderQuery.data?.markdown ?? ""}
+            kind={note.file_kind}
+            includes={renderQuery.data?.includes}
+          />
           <button
             className={`follow-toggle${followEnabled ? " active" : ""}`}
             type="button"

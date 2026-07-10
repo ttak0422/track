@@ -1,5 +1,6 @@
 import { MarkdownView } from "./MarkdownView";
 import { LoadingIndicator, NoteAside, NoteTags, journalDateFromNote } from "./noteShared";
+import { SlideDeckControl } from "./SlideDeck";
 import { useNoteQuery, useRenderQuery } from "../queries";
 import { useSearchState } from "../searchState";
 import { useTabs } from "./tabs/tabsStore";
@@ -36,6 +37,15 @@ export function NoteReaderStatic({ noteID }: { noteID: NoteID }) {
 
   return (
     <article className="note-reader">
+      {/* The static reader's only float control: present the note as a slide deck (renders nothing
+          for a note without `---` separators). */}
+      <div className="note-float-controls">
+        <SlideDeckControl
+          markdown={rendered.data?.markdown ?? ""}
+          kind={data.note.file_kind}
+          includes={data.note.includes}
+        />
+      </div>
       <NoteTags tags={data.note.tags ?? []} onTag={setQuery} />
 
       <section className="note-preview" aria-label="Rendered note">
