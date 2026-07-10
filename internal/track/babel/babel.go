@@ -21,12 +21,15 @@ type Block struct {
 	HeaderArgs map[string][]string // ":key v1 v2" -> {"key": ["v1","v2"]}; repeated keys (e.g. :var) accumulate
 	Body       string              // code between the fences, without the fence lines
 	BodyHash   string              // "sha256:<hex>" of Body, for cache keys and result identity
+	Fence      string              // the opening backtick run (e.g. "```" or "````"), so renderers reproduce it
 	StartLine  int                 // 0-based line of the opening fence
 	EndLine    int                 // 0-based line of the closing fence
 	Ordinal    int                 // 0-based index among the note's language blocks
 }
 
 // ParseBlocks extracts every language-tagged fenced code block from a note body, in document order.
+// Fences follow the CommonMark length rule: a block opened with N backticks is closed only by a bare
+// run of at least N, so a ````markdown block can quote ``` fences without ending early.
 // Unterminated fences end the scan. Body offsets are 0-based line numbers within body.
 func ParseBlocks(body string) []Block {
 	lines := strings.Split(body, "\n")
@@ -34,16 +37,16 @@ func ParseBlocks(body string) []Block {
 	ordinal := 0
 	i := 0
 	for i < len(lines) {
-		if !isFence(lines[i]) {
+		marker, info, ok := openFence(lines[i])
+		if !ok {
 			i++
 			continue
 		}
-		info := fenceInfo(lines[i])
 		start := i
 		j := i + 1
 		closed := false
 		for j < len(lines) {
-			if isFence(lines[j]) {
+			if closesFence(lines[j], marker) {
 				closed = true
 				break
 			}
@@ -61,6 +64,7 @@ func ParseBlocks(body string) []Block {
 				HeaderArgs: args,
 				Body:       blockBody,
 				BodyHash:   hashBody(blockBody),
+				Fence:      marker,
 				StartLine:  start,
 				EndLine:    j,
 				Ordinal:    ordinal,
@@ -144,11 +148,27 @@ func shortHash(bodyHash string) string {
 	return hexPart
 }
 
-func isFence(line string) bool {
-	return strings.HasPrefix(strings.TrimSpace(line), "```")
+// openFence reports whether line opens a fence: a run of at least three backticks, returned as
+// marker, followed by the info string.
+func openFence(line string) (marker, info string, ok bool) {
+	t := strings.TrimSpace(line)
+	n := 0
+	for n < len(t) && t[n] == '`' {
+		n++
+	}
+	if n < 3 {
+		return "", "", false
+	}
+	return t[:n], strings.TrimSpace(t[n:]), true
 }
 
-func fenceInfo(line string) string {
+// closesFence reports whether line closes a fence opened with marker: at least as many backticks
+// and nothing but whitespace after them.
+func closesFence(line, marker string) bool {
 	t := strings.TrimSpace(line)
-	return strings.TrimSpace(strings.TrimPrefix(t, "```"))
+	n := 0
+	for n < len(t) && t[n] == '`' {
+		n++
+	}
+	return n >= len(marker) && strings.TrimSpace(t[n:]) == ""
 }

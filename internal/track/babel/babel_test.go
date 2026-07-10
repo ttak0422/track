@@ -74,6 +74,34 @@ func TestParseBlocksSkipsPlainAndUnterminated(t *testing.T) {
 	}
 }
 
+func TestParseBlocksFenceLengthRule(t *testing.T) {
+	// A ````-fenced block quoting ``` fences ends only at a bare run of >= 4 backticks.
+	body := strings.Join([]string{
+		"````markdown",
+		"```sh :name inner",
+		"echo hi",
+		"```",
+		"````",
+		"```lua",
+		"print(1)",
+		"```",
+	}, "\n")
+
+	blocks := ParseBlocks(body)
+	if len(blocks) != 2 {
+		t.Fatalf("expected 2 blocks, got %+v", blocks)
+	}
+	if blocks[0].Language != "markdown" || blocks[0].Fence != "````" || blocks[0].EndLine != 4 {
+		t.Fatalf("outer block: %+v", blocks[0])
+	}
+	if blocks[0].Body != "```sh :name inner\necho hi\n```" {
+		t.Fatalf("outer body should keep the quoted fence verbatim: %q", blocks[0].Body)
+	}
+	if blocks[1].Language != "lua" || blocks[1].Fence != "```" {
+		t.Fatalf("following block: %+v", blocks[1])
+	}
+}
+
 func TestParseInfoStringVarAccumulates(t *testing.T) {
 	_, args := parseInfoString("lua :var x=1 :var y=2 :eval no")
 	if !reflect.DeepEqual(args["var"], []string{"x=1", "y=2"}) {

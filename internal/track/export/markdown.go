@@ -67,7 +67,13 @@ type frontmatter struct {
 }
 
 func renderSource(b babel.Block) string {
-	return "```" + b.Language + "\n" + b.Body + "\n```"
+	// Reproduce the source's fence length: a ````markdown block quoting ``` fences must not be
+	// re-emitted with a fence its own body would close early.
+	fence := b.Fence
+	if fence == "" {
+		fence = "```"
+	}
+	return fence + b.Language + "\n" + b.Body + "\n" + fence
 }
 
 func renderResults(b babel.Block, result *babel.RunResult) string {
