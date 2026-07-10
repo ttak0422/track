@@ -163,6 +163,8 @@ var (
 	// keeps the link's own closing brackets inside the field.
 	inlineBracketRe = regexp.MustCompile(`\[([A-Za-z][A-Za-z0-9_-]*)::\s+((?:\[\[[^\[\]]+\]\]|[^\[\]])+)\]`)
 	fenceRe         = regexp.MustCompile("^\\s*(```|~~~)")
+	// codeSpanRe finds `inline code`; a bracketed field inside one is prose about the syntax, not data.
+	codeSpanRe = regexp.MustCompile("`[^`]*`")
 )
 
 // InlineFields scans a note body for "key:: value" fields — a whole line (list items included) or a
@@ -183,7 +185,8 @@ func InlineFields(body string) []Prop {
 			out = append(out, fieldProps(m[1], m[2], i+1)...)
 			continue
 		}
-		for _, m := range inlineBracketRe.FindAllStringSubmatch(line, -1) {
+		// Mask `inline code` first so a documented "[key:: value]" example never becomes data.
+		for _, m := range inlineBracketRe.FindAllStringSubmatch(codeSpanRe.ReplaceAllString(line, "``"), -1) {
 			out = append(out, fieldProps(m[1], m[2], i+1)...)
 		}
 	}

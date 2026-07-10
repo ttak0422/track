@@ -40,7 +40,8 @@ func TestInlineFields(t *testing.T) {
 		"fenced:: not a field\n" +
 		"```\n" +
 		"std::vector is not a field\n" +
-		"plain prose with key:: mid-sentence stays one line field? no marker\n"
+		"plain prose with key:: mid-sentence stays one line field? no marker\n" +
+		"docs may show `[example:: value]` in inline code without it becoming data\n"
 
 	got := InlineFields(body)
 	want := []Prop{
