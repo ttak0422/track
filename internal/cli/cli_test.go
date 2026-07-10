@@ -1571,3 +1571,65 @@ func TestMetaRejectsBadImages(t *testing.T) {
 		}
 	}
 }
+
+func TestMetaSetAndUnsetProperties(t *testing.T) {
+	vault := t.TempDir()
+	runIn(t, vault, "new", "--title", "Props", "--id", "100", "--body", "body")
+
+	out, code := runIn(t, vault, "meta", "--id", "100", "--set", "status=draft", "--set", "rating=8")
+	if code != 0 || out["updated"] != true {
+		t.Fatalf("meta set failed: %v (code %d)", out, code)
+	}
+	props, ok := out["props"].(map[string]any)
+	if !ok || props["status"] != "draft" || props["rating"] != float64(8) {
+		t.Fatalf("unexpected props: %v", out["props"])
+	}
+
+	// A read-only invocation reports the stored properties.
+	out, code = runIn(t, vault, "meta", "--id", "100")
+	if code != 0 {
+		t.Fatalf("meta read failed: %v", out)
+	}
+	props, _ = out["props"].(map[string]any)
+	if props["status"] != "draft" {
+		t.Fatalf("props after read: %v", out["props"])
+	}
+
+	// The properties are indexed: the sidecar rows land in the props table.
+	var count int
+	db := openDB(t, vault)
+	if err := db.QueryRow(`SELECT COUNT(*) FROM props WHERE note_id = 100`).Scan(&count); err != nil {
+		t.Fatal(err)
+	}
+	if count != 2 {
+		t.Fatalf("props rows = %d, want 2", count)
+	}
+
+	out, code = runIn(t, vault, "meta", "--id", "100", "--unset", "rating")
+	if code != 0 {
+		t.Fatalf("meta unset failed: %v", out)
+	}
+	props, _ = out["props"].(map[string]any)
+	if _, still := props["rating"]; still {
+		t.Fatalf("rating should be unset: %v", out["props"])
+	}
+
+	if out, code := runIn(t, vault, "meta", "--id", "100", "--set", "bad key=x"); code == 0 {
+		t.Fatalf("invalid key should fail: %v", out)
+	}
+}
+
+// openDB opens the index database runIn's TRACK_CACHE_DIR produced for this vault.
+func openDB(t *testing.T, vault string) *sql.DB {
+	t.Helper()
+	matches, err := filepath.Glob(filepath.Join(vault, ".test-cache", "*", "index.db"))
+	if err != nil || len(matches) != 1 {
+		t.Fatalf("locate index.db: matches=%v err=%v", matches, err)
+	}
+	db, err := sql.Open("sqlite", matches[0])
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { db.Close() })
+	return db
+}

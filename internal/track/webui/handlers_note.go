@@ -92,6 +92,16 @@ func (s *Server) getNote(w http.ResponseWriter, r *http.Request) {
 	for i := range backlinks {
 		backlinks[i].Path = s.cfg.PathForKind(backlinks[i].FileKind, backlinks[i].NoteID)
 	}
+	// Properties come from the index (refreshed above), which flattens sidecar props and inline
+	// "key:: value" fields through the same engine path everything else uses.
+	props, err := s.store.NoteProps(id)
+	if err != nil {
+		writeError(w, err, http.StatusInternalServerError)
+		return
+	}
+	if props == nil {
+		props = []note.Prop{}
+	}
 	writeJSON(w, map[string]any{
 		"note": map[string]any{
 			"note_id":   ref.NoteID,
@@ -100,6 +110,7 @@ func (s *Server) getNote(w http.ResponseWriter, r *http.Request) {
 			"copy_path": s.cfg.DisplayPathForKind(ref.FileKind, ref.NoteID),
 			"title":     ref.Title,
 			"tags":      ref.Tags,
+			"props":     props,
 			"body":      body,
 			// etag is a content hash of the file as read; clients echo it back on PUT so a save can be
 			// rejected when the file changed underneath (e.g. an OneDrive sync) since this read.

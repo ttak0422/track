@@ -21,6 +21,8 @@ import (
 // version 3 sidecars.
 // Description and Image are the note's page metadata (version 4 sidecars): a short summary and an
 // assets-relative cover image, surfaced as og:description / og:image by the static export.
+// Props (version 5 sidecars) is the note's typed key-value properties: YAML scalars or lists of
+// scalars, flattened and typed by SidecarProps and indexed alongside inline "key:: value" fields.
 type Metadata struct {
 	Version     int                        `yaml:"version"`
 	Title       string                     `yaml:"title,omitempty"`
@@ -29,6 +31,7 @@ type Metadata struct {
 	Days        []string                   `yaml:"days,omitempty"`
 	Description string                     `yaml:"description,omitempty"`
 	Image       string                     `yaml:"image,omitempty"`
+	Props       map[string]any             `yaml:"props,omitempty"`
 	Blocks      map[string]babel.BlockMeta `yaml:"blocks,omitempty"`
 }
 
