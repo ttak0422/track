@@ -143,9 +143,15 @@ Usage:
   track template open --name <s>         open or create a template (JSON)
   track template list                    list templates (JSON)
   track babel exec (--id N | --path P) [--name S | --ordinal N | --line N] [--yes]
-                                        [--body-stdin] [--timeout D]
+                                        [--var k=v ...] [--body-stdin] [--timeout D]
                                         run a source block, selected by name, ordinal, or a line
-                                        inside it (JSON)
+                                        inside it; --var feeds the block's environment and a value
+                                        naming another block uses its stored result (JSON)
+  track babel run --name S (--id N | --path P) [--var k=v ...]
+                                        call a named block with parameters (same as exec)
+  track babel tangle (--id N | --path P) [--dry-run]
+                                        write blocks carrying :tangle <file> out to files inside the
+                                        vault; same-target blocks concatenate in note order (JSON)
   track babel restore (--id N | --path P)
                                         list stored source block results (JSON)
   track export (--id N | --title S | --path P) [--out F] [--frontmatter] [--exports-default M]
