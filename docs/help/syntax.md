@@ -125,6 +125,28 @@ Euler's identity is $e^{i\pi} + 1 = 0$.
 
 $$\int_0^1 x^2 \,dx = \tfrac{1}{3}$$
 
+## Footnotes
+
+GitHub-Flavored footnotes work as written: mark a spot with `[^label]` and define it anywhere in the
+note with `[^label]: …`. The definitions collect at the end of the rendered note, numbered in the order
+they are first referenced, and the two ends link to each other — click a marker to jump to the
+definition, click ↩ to jump back:
+
+```markdown
+Zettelkasten favors many small notes.[^atomic] Links do the organizing.[^links]
+
+[^atomic]: One idea per note keeps every note quotable and linkable.
+[^links]: See Ahrens, *How to Take Smart Notes*, for the argument in full.
+```
+
+The paragraph above the definitions renders like this — the definitions themselves appear at the very
+bottom of this page:
+
+Zettelkasten favors many small notes.[^atomic] Links do the organizing.[^links]
+
+[^atomic]: One idea per note keeps every note quotable and linkable.
+[^links]: See Ahrens, *How to Take Smart Notes*, for the argument in full.
+
 ## Links, embeds, and visuals
 
 These are the track-specific constructs, each with its own page:
