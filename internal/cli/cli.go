@@ -43,6 +43,12 @@ func Run(args []string) int {
 		return cmdJournal(rest)
 	case "append":
 		return cmdAppend(rest)
+	case "capture":
+		return cmdCapture(rest)
+	case "refile":
+		return cmdRefile(rest)
+	case "archive":
+		return cmdArchive(rest)
 	case "update":
 		return cmdUpdate(rest)
 	case "meta":
@@ -102,6 +108,14 @@ Usage:
                                         open the note with this title, creating it if absent
   track append (--id N | --title S | --path P) [--body <s>] [--tag <s>]
                                         append body text and/or merge tags into an existing note
+  track capture [--target "<note>#<heading>"] [--template <s>] [--body <s>]
+                                        append a (templated) entry under a heading; --target defaults
+                                        to the configured capture inbox (created on first use) (JSON)
+  track refile --from "<note>#<heading>" --to "<note>#<heading>" [--line N]
+                                        move a heading subtree (or, with --line, one list item) to
+                                        another anchor; text moves verbatim and both ends reindex (JSON)
+  track archive "<note>#<heading>"      move a subtree into the archive note (per-year by default),
+                                        stamping a [[link]] back to the source and the date (JSON)
   track update (--id N | --title S | --path P) [--body <s>] [--tag <s>] [--clear-tags]
                                         replace body text and/or update tags on an existing note
   track meta (--id N | --title S | --path P) [--description S] [--image assets/F]
