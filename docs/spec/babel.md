@@ -88,7 +88,7 @@ When a source block omits a Babel header argument, track uses these defaults:
 | `:eval` | `yes` | A user-invoked execution command may run the block. `:eval query` requires confirmation and `:eval no` refuses execution. |
 | `:results` | `output replace` | `:results` accepts multiple tokens. The current default captures stdout, stderr, and exit status, then stores only the latest result for the block in the sidecar metadata. |
 | `:cache` | `no` | Execution runs when requested; stored results are restored only when the body hash and metadata still match. |
-| `:var` | none | No input variables are supplied. |
+| `:var` | none | No input variables are supplied. Declared variables reach the block as process environment entries; a value naming another block in the note resolves to that block's stored result. |
 | `:session` | `none` | Run without a long-lived interpreter session; effectively one process per block. |
 | `:dir` | note directory | Execute relative to the note file's directory unless `:dir` is set. |
 | `:exports` | `code` for future export semantics | Parsed as metadata only; track has no exporter yet. |
@@ -111,7 +111,7 @@ These defaults are intentionally close to Org Babel where practical, but track s
 | `#+NAME: <name>` | `:name <name>` in fence info string | Yes | Needed for stable result lookup, calls, and noweb. |
 | `#+HEADER:` multi-line headers | None initially | No | Markdown has no common multi-line fence metadata. Prefer single-line fence args. |
 | Inline source `src_lang{body}` | Markdown inline code with an optional future extension | No | Inline evaluation complicates parsing and display. Defer. |
-| `#+CALL:` named block calls | Future command/UI action against `:name` | Partial later | Keep parser model ready, but do not add new Markdown block syntax initially. |
+| `#+CALL:` named block calls | `track babel run --name <n> --var k=v` | Yes (CLI) | Calls a named block with parameters through the CLI; no Markdown call syntax is added. |
 | Inline `call_name(...)` | None initially | No | Defer with inline source. |
 | Org property defaults `#+PROPERTY: header-args...` | Note-level sidecar defaults or future Markdown comments | No initially | Avoid adding Org-only syntax to Markdown body. |
 | Global defaults | Track config | Yes later | Defaults such as `:results replace` can live in track config, not in each note. |
@@ -140,26 +140,27 @@ These defaults are intentionally close to Org Babel where practical, but track s
 | `:results discard` | `:results discard` | Yes | Execute and ignore result completely. |
 | `:results append` / `prepend` | Same tokens | Later | Metadata can keep result history, but initial support should store only the latest result. |
 | `:cache yes/no` | `:cache yes` | Yes | Use body hash plus normalized header args and variable refs. |
-| `:var name=value` literals | `:var x=1` | Yes | Support strings, numbers, booleans as normalized metadata inputs. |
+| `:var name=value` literals | `:var x=1` | Yes | Injected into the block's process environment as `x=1`; every value is a string (numbers arrive as decimal text). Keys must be valid environment names, and fence-info values cannot contain whitespace — use `--var` for those. |
 | `:var name=table` Org table refs | Same token | No initially | track Markdown does not define named tables yet. |
-| `:var name=block(args)` | Same token | Later | Requires named block dependency execution. |
+| `:var name=block(args)` | `:var x=<block-name>` (no arguments) | Partial | A value naming another named block feeds that block's stored result (value, else stdout). The dependency is never executed automatically; a missing stored result is an error naming the block to `exec` first. |
 | `:colnames yes/no/nil` | Same token | Later | Only meaningful once table variables/results are supported. |
 | `:rownames yes/no` | Same token | Later | Only meaningful once table variables/results are supported. |
 | `:hlines yes/no` | Same token | Later | Only meaningful once table variables/results are supported. |
 | `:session none` | `:session none` | Yes | Default: one process per block. |
 | `:session <name>` | `:session repl` | Later | Requires long-lived interpreter lifecycle per language/session. |
 | `:dir <path>` | `:dir ./scripts` | Yes with restrictions | Resolve relative to note directory or vault; deny paths outside allowed roots unless explicitly configured. |
-| `:mkdirp yes/no` | Same token | Later | Useful for `:dir`, `:tangle`, and file results. |
+| `:mkdirp yes/no` | Same token | Later | Tangle always creates missing parent directories inside the vault, so a toggle is not needed yet; `:dir` and file results may still want it. |
 | `:prologue` / `:epilogue` | Same token | Later | Requires careful quoting in fence info strings. |
 | `:post block(...)` | Same token | Later | Requires named block calls and result piping. |
 | `:exports code/results/both/none` | Same token | Parsed only | track has no exporter yet; keep for future compatibility. |
 | `:noweb no` | `:noweb no` | Yes | Default: do not expand `<<...>>`. |
-| `:noweb yes` | `:noweb yes` | Later | Requires named block registry and expansion before execution. |
-| `:noweb tangle` / `eval` / export variants | Same token | Later | Implement after separate evaluate/tangle/export phases exist. |
+| `:noweb yes` | `:noweb yes` | Yes | Expands `<<name>>` recursively against the note's named blocks before execution and before tangling. A whole-line reference keeps its indentation; unresolved references and cycles are errors naming the chain. |
+| `:noweb tangle` / `eval` | Same tokens | Yes | Expand only in that phase (tangling or evaluation). |
+| `:noweb` export variants | Same tokens | Later | Export-phase expansion waits on export semantics for babel blocks. |
 | `:noweb-ref <name>` | Same token | Later | Allows multiple blocks to share one noweb reference. |
 | `:tangle no` | `:tangle no` | Yes | Default: no file output. |
-| `:tangle yes` | `:tangle yes` | Later | Requires safe output naming and write policy. |
-| `:tangle <filename>` | Same token | Later | Filename must be constrained to vault or configured output roots. |
+| `:tangle yes` | `:tangle yes` | No | Rejected with an error: track has no derived output naming, so a tangled block must name its file. |
+| `:tangle <filename>` | Same token | Yes | `track babel tangle` resolves the target against the note's directory, refuses paths outside the vault, creates missing parent directories, and concatenates same-target blocks in note order separated by a blank line. `--dry-run` prints the plan without writing. |
 | `:comments no/link/org/both/noweb` | Same token | Later | Only meaningful with tangling. |
 | `:padline yes/no` | Same token | Later | Only meaningful with tangling. |
 | `:shebang <string>` | Same token | Later | Only meaningful with tangling. |
@@ -182,16 +183,30 @@ Start with execution of ordinary fenced code blocks:
 - Do not mutate the note body with `#+RESULTS:`-style blocks.
 - Editor integrations should execute current buffer contents, including unsaved edits, matching Emacs Org Babel. Plain CLI execution reads the saved file unless the caller explicitly supplies the body.
 
+## Literate Programming Commands
+
+Beyond per-block execution, the CLI supports the noweb/tangle/call trio:
+
+- `track babel run --name <n> (--id N | --path P) [--var k=v ...]` calls a named block with
+  parameters. `run` and `exec` are one command under two names; `--var` overrides a block `:var` of
+  the same key. Resolved variables are appended to the process environment in sorted key order.
+- `track babel tangle (--id N | --path P) [--dry-run]` writes every block carrying `:tangle <file>`
+  out to disk and prints the plan as JSON (`targets` with `path`, `blocks`, `bytes`). Dry-run plans
+  without writing.
+- Noweb expansion happens inside the engine (`babel.ExpandNoweb`) and is applied before execution and
+  before tangling according to each block's `:noweb` header. Expansion never changes a block's stored
+  identity: the sidecar keeps the body hash of the block as written, so `babel restore` still matches
+  the file on disk.
+
 ## Deferred Work
 
 Defer features that require a richer document model or file artifact policy:
 
 - Inline source and inline calls.
-- Named block calls and dependency graphs.
-- Table/list typed variables and result coercion.
+- Automatic dependency-graph execution (a `:var` block reference reads the stored result and never
+  runs the dependency).
+- Table/list typed variables and result coercion (variables are environment strings).
 - Sessions.
-- Noweb expansion.
-- Tangling.
 - File/graphics results.
 - Export behavior.
 - Org property drawer compatibility.
