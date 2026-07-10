@@ -1,0 +1,111 @@
+name: PR Preview
+
+# Build the static help site for each pull request and publish it to ttak0422/track-previews
+# (gh-pages branch, one pr-<number>/ directory per PR) so changes can be checked in a browser at
+# https://ttak0422.github.io/track-previews/pr-<number>/ without a local build. The preview URL is
+# posted as a PR comment on the first deploy; closing the PR removes its directory.
+#
+# Auth: PREVIEWS_DEPLOY_KEY is a write deploy key scoped to the track-previews repository. Fork PRs
+# are skipped (secrets are unavailable there anyway).
+on:
+  pull_request:
+    types: [opened, synchronize, reopened, closed]
+
+permissions:
+  contents: read
+  pull-requests: write
+
+# One run per PR; a newer push (or the close event) supersedes an in-flight deploy.
+concurrency:
+  group: preview-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
+env:
+  PREVIEW_REPO: ttak0422/track-previews
+  PR: ${{ github.event.pull_request.number }}
+
+jobs:
+  deploy:
+    if: github.event.action != 'closed' && github.event.pull_request.head.repo.full_name == github.repository
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+
+      - name: Install Nix
+        uses: cachix/install-nix-action@v31
+        with:
+          extra_nix_config: |
+            experimental-features = nix-command flakes
+
+      - name: Set up Cachix
+        uses: cachix/cachix-action@v15
+        with:
+          name: ttak0422
+          authToken: ${{ secrets.CACHIX_AUTH_TOKEN }}
+
+      # Same build as pages.yml, but based under the preview repo's Pages subpath for this PR.
+      - name: Build + prerender static help site
+        env:
+          SITE_BASE: /track-previews/pr-${{ github.event.pull_request.number }}/
+        run: |
+          nix develop --command bash -euo pipefail -c 'make site SITE_OUT=./_site'
+
+      # Plain git push into the preview repo. Concurrent PRs can race on gh-pages, so retry the push
+      # with a rebase a few times instead of serializing the (slow) builds.
+      - name: Publish preview
+        env:
+          DEPLOY_KEY: ${{ secrets.PREVIEWS_DEPLOY_KEY }}
+        run: |
+          echo "$DEPLOY_KEY" > /tmp/deploy_key && chmod 600 /tmp/deploy_key
+          export GIT_SSH_COMMAND="ssh -i /tmp/deploy_key -o StrictHostKeyChecking=accept-new"
+          git clone --depth 1 --branch gh-pages "git@github.com:${PREVIEW_REPO}.git" /tmp/previews
+          rm -rf "/tmp/previews/pr-${PR}"
+          cp -R _site "/tmp/previews/pr-${PR}"
+          cd /tmp/previews
+          git config user.name github-actions
+          git config user.email github-actions@users.noreply.github.com
+          git add -A
+          if git diff --cached --quiet; then echo "no changes to deploy"; exit 0; fi
+          git commit -m "Deploy preview for PR #${PR} (${GITHUB_SHA})"
+          for attempt in 1 2 3 4 5; do
+            git push && exit 0
+            git pull --rebase
+          done
+          echo "push failed after retries" >&2
+          exit 1
+
+      # The URL is deterministic, so keep a single comment up to date rather than adding one per push.
+      - name: Comment preview URL
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh pr comment "$PR" --repo "$GITHUB_REPOSITORY" --edit-last --create-if-none --body \
+            "Help site preview: https://ttak0422.github.io/track-previews/pr-${PR}/ (updated for ${{ github.event.pull_request.head.sha }})"
+
+  cleanup:
+    if: github.event.action == 'closed' && github.event.pull_request.head.repo.full_name == github.repository
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Remove preview
+        env:
+          DEPLOY_KEY: ${{ secrets.PREVIEWS_DEPLOY_KEY }}
+        run: |
+          echo "$DEPLOY_KEY" > /tmp/deploy_key && chmod 600 /tmp/deploy_key
+          export GIT_SSH_COMMAND="ssh -i /tmp/deploy_key -o StrictHostKeyChecking=accept-new"
+          git clone --depth 1 --branch gh-pages "git@github.com:${PREVIEW_REPO}.git" /tmp/previews
+          cd /tmp/previews
+          rm -rf "pr-${PR}"
+          git config user.name github-actions
+          git config user.email github-actions@users.noreply.github.com
+          git add -A
+          if git diff --cached --quiet; then echo "nothing to clean up"; exit 0; fi
+          git commit -m "Remove preview for PR #${PR}"
+          for attempt in 1 2 3 4 5; do
+            git push && exit 0
+            git pull --rebase
+          done
+          echo "push failed after retries" >&2
+          exit 1
