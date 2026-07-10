@@ -1368,6 +1368,40 @@ a.calendar-title:focus-visible {
   color: var(--accent);
 }
 
+/* Note properties: a quiet key/value strip between the tags and the body. Keys read muted like tags;
+   values sit in soft chips so a row of them still scans as discrete items. */
+.note-props {
+  flex-shrink: 0; /* like .note-tags: never squeezed by .note-reader's height bound */
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 16px;
+  margin: 0;
+  font-size: calc(12px * var(--font-scale, 1));
+}
+
+.note-prop {
+  display: flex;
+  align-items: baseline;
+  gap: 6px;
+}
+
+.note-prop dt {
+  color: var(--muted);
+}
+
+.note-prop dd {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  margin: 0;
+}
+
+.note-prop-value {
+  padding: 1px 6px;
+  border-radius: 4px;
+  background: var(--panel-soft);
+}
+
 .note-editor {
   display: flex;
   min-height: 360px;
