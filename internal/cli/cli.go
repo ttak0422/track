@@ -49,6 +49,10 @@ func Run(args []string) int {
 		return cmdMeta(rest)
 	case "toggle":
 		return cmdToggle(rest)
+	case "task":
+		return cmdTask(rest)
+	case "tasks":
+		return cmdTasks(rest)
 	case "asset":
 		return cmdAsset(rest)
 	case "rename":
@@ -110,6 +114,13 @@ Usage:
                                         value clears the field (JSON)
   track toggle (--id N | --title S | --path P) --line N [--state toggle|check|uncheck]
                                         flip (or set) a task checkbox on one line of a note (JSON)
+  track task set (--id N | --title S | --path P) --line N --state NAME
+                                        move a task line into a named state (default set: TODO, DOING,
+                                        WAITING, DONE, CANCELLED); done-family states stamp [done:date],
+                                        transitions are logged in the sidecar, and parent [n/m]/[p%]
+                                        progress cookies are recomputed (JSON)
+  track tasks [--id N | --title S | --path P] [--state A,B] [--due YYYY-MM-DD] [--overdue]
+              [--sort priority]         list indexed tasks with state/deadline filters (JSON)
   track asset import <file>             copy a file into the vault's assets/ dir; prints the assets/<file> ref (JSON)
   track asset dir [--ensure]            print (and optionally create) the vault's assets directory (JSON)
   track rename (--id N | --title S | --path P) --to S

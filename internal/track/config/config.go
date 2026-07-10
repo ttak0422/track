@@ -12,6 +12,7 @@ import (
 	"strings"
 
 	"github.com/ttak0422/track/internal/track/babel"
+	"github.com/ttak0422/track/internal/track/task"
 	"gopkg.in/yaml.v3"
 )
 
@@ -42,6 +43,9 @@ type Config struct {
 	JournalTemplate string
 	// GenKeep is how many generation snapshots `gen increment` retains (count-based pruning).
 	GenKeep int
+	// TaskStates is the vault's task state set (config task_states), defaulting to task.DefaultStates.
+	// Each state names a single checkbox marker character; done-family states stamp a completion date.
+	TaskStates []task.State
 }
 
 type fileConfig struct {
@@ -54,6 +58,7 @@ type fileConfig struct {
 	DefaultTemplate   string        `yaml:"default_template"`
 	JournalTemplate   string        `yaml:"journal_template"`
 	GenKeep           int           `yaml:"gen_keep"`
+	TaskStates        []task.State  `yaml:"task_states"`
 	Web               webFileConfig `yaml:"web"`
 }
 
@@ -172,6 +177,11 @@ func Load() (*Config, error) {
 		genKeep = 10
 	}
 
+	if err := task.ValidateStates(fc.TaskStates); err != nil {
+		return nil, fmt.Errorf("config task_states: %w", err)
+	}
+	taskStates := task.StatesOrDefault(fc.TaskStates)
+
 	return &Config{
 		VaultDir:          vault,
 		DBPath:            db,
@@ -185,6 +195,7 @@ func Load() (*Config, error) {
 		DefaultTemplate:   defaultTemplate,
 		JournalTemplate:   journalTemplate,
 		GenKeep:           genKeep,
+		TaskStates:        taskStates,
 	}, nil
 }
 

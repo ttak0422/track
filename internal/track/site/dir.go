@@ -88,6 +88,8 @@ func BuildDir(srcDir, rootName, baseURL, frontendDir, outDir string) (Result, er
 			assetSrc: assetSrc,
 			// A docs directory may keep canonical JSONL next to its assets, mirroring the vault's data/.
 			dataDir: filepath.Join(srcDir, "data"),
+			// Directory sources have no vault config, so tasks parse with the default state set.
+			tasks: docTasks(f.body, nil),
 		})
 		for _, ref := range link.Refs(f.body) {
 			if dst, ok := keyToID[ref.Text]; ok {

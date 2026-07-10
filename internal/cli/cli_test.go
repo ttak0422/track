@@ -1445,6 +1445,83 @@ func TestToggleCheckbox(t *testing.T) {
 	}
 }
 
+func TestTaskSetAndTasks(t *testing.T) {
+	vault := t.TempDir()
+	body := "# Sprint [0/3]\n\n- [ ] alpha [#B] [due:2000-01-02]\n- [ ] beta [#A] [due:2999-12-31]\n- [ ] gamma\n"
+	if _, code := runInWithStdin(t, vault, body, "new", "--title", "Board", "--id", "700"); code != 0 {
+		t.Fatalf("new failed")
+	}
+	path := filepath.Join(vault, "note", "700.md")
+
+	// Move alpha into DOING: no completion stamp, but the transition is logged in the sidecar.
+	res, code := runIn(t, vault, "task", "set", "--id", "700", "--line", "3", "--state", "doing")
+	if code != 0 {
+		t.Fatalf("task set failed: %v", res)
+	}
+	if res["state"] != "DOING" || res["from"] != "TODO" || res["changed"] != true || res["done"] != false {
+		t.Fatalf("unexpected task set result: %v", res)
+	}
+	if got := readFileString(t, path); !strings.Contains(got, "- [/] alpha [#B] [due:2000-01-02]") {
+		t.Fatalf("state marker not rewritten: %q", got)
+	}
+
+	// Completing beta stamps [done:...] and recomputes the heading cookie.
+	if res, code := runIn(t, vault, "task", "set", "--id", "700", "--line", "4", "--state", "DONE"); code != 0 || res["done"] != true {
+		t.Fatalf("task set done failed: %v", res)
+	}
+	got := readFileString(t, path)
+	if !strings.Contains(got, "- [x] beta [#A] [due:2999-12-31] [done:") {
+		t.Fatalf("completion stamp missing: %q", got)
+	}
+	if !strings.Contains(got, "# Sprint [1/3]") {
+		t.Fatalf("progress cookie not recomputed: %q", got)
+	}
+	sidecar := readFileString(t, filepath.Join(vault, ".track", "notes", "700.yaml"))
+	if !strings.Contains(sidecar, "task_log:") || !strings.Contains(sidecar, "to: DONE") || !strings.Contains(sidecar, "to: DOING") {
+		t.Fatalf("sidecar should log both transitions: %q", sidecar)
+	}
+
+	// An unknown state is rejected without touching the file.
+	if out, code := runIn(t, vault, "task", "set", "--id", "700", "--line", "3", "--state", "bogus"); code == 0 || out["error"] == nil {
+		t.Fatalf("expected unknown-state error, got %v", out)
+	}
+
+	// tasks lists everything; --state filters; --overdue keeps only the past-due open task; --sort
+	// priority puts open [#B] alpha before unprioritized gamma and done beta last.
+	list, code := runIn(t, vault, "tasks")
+	if code != 0 {
+		t.Fatalf("tasks failed: %v", list)
+	}
+	if all := list["tasks"].([]any); len(all) != 3 {
+		t.Fatalf("expected 3 tasks, got %v", list)
+	}
+	list, _ = runIn(t, vault, "tasks", "--state", "DOING")
+	if rows := list["tasks"].([]any); len(rows) != 1 || rows[0].(map[string]any)["text"] != "alpha" {
+		t.Fatalf("state filter failed: %v", list)
+	}
+	list, _ = runIn(t, vault, "tasks", "--overdue")
+	if rows := list["tasks"].([]any); len(rows) != 1 || rows[0].(map[string]any)["due"] != "2000-01-02" {
+		t.Fatalf("overdue filter failed: %v", list)
+	}
+	list, _ = runIn(t, vault, "tasks", "--due", "2999-12-31")
+	if rows := list["tasks"].([]any); len(rows) != 1 || rows[0].(map[string]any)["text"] != "alpha" {
+		t.Fatalf("due filter should keep open tasks due by the date: %v", list)
+	}
+	list, _ = runIn(t, vault, "tasks", "--sort", "priority")
+	rows := list["tasks"].([]any)
+	if len(rows) != 3 || rows[0].(map[string]any)["text"] != "alpha" || rows[2].(map[string]any)["text"] != "beta" {
+		t.Fatalf("priority sort failed: %v", list)
+	}
+
+	// Reopening beta clears the stamp.
+	if res, code := runIn(t, vault, "task", "set", "--id", "700", "--line", "4", "--state", "TODO"); code != 0 || res["completed"] != "" {
+		t.Fatalf("reopen should clear completion: %v", res)
+	}
+	if got := readFileString(t, path); strings.Contains(got, "[done:") || !strings.Contains(got, "# Sprint [0/3]") {
+		t.Fatalf("stamp/cookie not reverted: %q", got)
+	}
+}
+
 func TestInitScaffoldsVault(t *testing.T) {
 	vault := t.TempDir()
 	res, code := runIn(t, vault, "init")

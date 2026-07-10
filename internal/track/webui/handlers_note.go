@@ -16,6 +16,7 @@ import (
 	"github.com/ttak0422/track/internal/track/note"
 	"github.com/ttak0422/track/internal/track/render"
 	"github.com/ttak0422/track/internal/track/store"
+	"github.com/ttak0422/track/internal/track/task"
 )
 
 func (s *Server) handleNote(w http.ResponseWriter, r *http.Request) {
@@ -92,19 +93,25 @@ func (s *Server) getNote(w http.ResponseWriter, r *http.Request) {
 	for i := range backlinks {
 		backlinks[i].Path = s.cfg.PathForKind(backlinks[i].FileKind, backlinks[i].NoteID)
 	}
+	noteJSON := map[string]any{
+		"note_id":   ref.NoteID,
+		"file_kind": ref.FileKind,
+		"path":      path,
+		"copy_path": s.cfg.DisplayPathForKind(ref.FileKind, ref.NoteID),
+		"title":     ref.Title,
+		"tags":      ref.Tags,
+		"body":      body,
+		// etag is a content hash of the file as read; clients echo it back on PUT so a save can be
+		// rejected when the file changed underneath (e.g. an OneDrive sync) since this read.
+		"etag": etagFor(raw),
+	}
+	// Task lines ride along so a ```taskboard fence renders without a second request, mirroring the
+	// static bundle's note JSON.
+	if set := task.NewSet(body, s.cfg.TaskStates); len(set.Items) > 0 {
+		noteJSON["tasks"] = set
+	}
 	writeJSON(w, map[string]any{
-		"note": map[string]any{
-			"note_id":   ref.NoteID,
-			"file_kind": ref.FileKind,
-			"path":      path,
-			"copy_path": s.cfg.DisplayPathForKind(ref.FileKind, ref.NoteID),
-			"title":     ref.Title,
-			"tags":      ref.Tags,
-			"body":      body,
-			// etag is a content hash of the file as read; clients echo it back on PUT so a save can be
-			// rejected when the file changed underneath (e.g. an OneDrive sync) since this read.
-			"etag": etagFor(raw),
-		},
+		"note":      noteJSON,
 		"backlinks": backlinks,
 	})
 }

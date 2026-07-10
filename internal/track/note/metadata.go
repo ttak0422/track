@@ -20,8 +20,10 @@ const (
 	MetadataVersionV3 = 3
 	// MetadataVersionV4 adds the page metadata fields description and image.
 	MetadataVersionV4 = 4
+	// MetadataVersionV5 adds the task state transition log under task_log.
+	MetadataVersionV5 = 5
 	// MaxMetadataVersion is the newest schema this build can read and write.
-	MaxMetadataVersion = MetadataVersionV4
+	MaxMetadataVersion = MetadataVersionV5
 )
 
 func supportedVersion(v int) bool {
@@ -60,6 +62,9 @@ func WriteMetadata(path string, meta Metadata) error {
 	}
 	if (meta.Description != "" || meta.Image != "") && meta.Version < MetadataVersionV4 {
 		meta.Version = MetadataVersionV4
+	}
+	if len(meta.TaskLog) > 0 && meta.Version < MetadataVersionV5 {
+		meta.Version = MetadataVersionV5
 	}
 	if !supportedVersion(meta.Version) {
 		return fmt.Errorf("unsupported metadata version %d", meta.Version)

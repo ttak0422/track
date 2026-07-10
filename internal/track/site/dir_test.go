@@ -15,7 +15,7 @@ func TestBuildDirBundle(t *testing.T) {
 		}
 	}
 	write("index.md", "# Welcome\n\nstart with [[cli]] and the missing [[ghost]]\n")
-	write("cli.md", "# CLI\n\nback to [[Welcome]]\n")
+	write("cli.md", "# CLI\n\nback to [[Welcome]]\n\n- [ ] open item [#A]\n- [x] shipped item\n")
 	write("guide.md", "# Guide\n\n![pic](assets/pic.png)\n")
 	if err := os.MkdirAll(filepath.Join(src, "assets"), 0o755); err != nil {
 		t.Fatal(err)
@@ -78,6 +78,18 @@ func TestBuildDirBundle(t *testing.T) {
 	rootNote := readJSON[jsonNoteResponse](t, filepath.Join(out, "data", "note", site.Root+".json"))
 	if !strings.Contains(rootNote.Note.Body, "[[cli]]") {
 		t.Fatalf("root body should keep wiki link: %q", rootNote.Note.Body)
+	}
+
+	// Task lines are published with the default state set, so the static board can render read-only.
+	cliNote := readJSON[jsonNoteResponse](t, filepath.Join(out, "data", "note", resolve["cli"].NoteID+".json"))
+	if cliNote.Note.Tasks == nil || len(cliNote.Note.Tasks.Items) != 2 {
+		t.Fatalf("cli note should publish its tasks: %+v", cliNote.Note.Tasks)
+	}
+	if cliNote.Note.Tasks.Items[0].Priority != "A" || !cliNote.Note.Tasks.Items[1].Done {
+		t.Fatalf("unexpected published tasks: %+v", cliNote.Note.Tasks.Items)
+	}
+	if rootNote.Note.Tasks != nil {
+		t.Fatalf("taskless note should omit tasks, got %+v", rootNote.Note.Tasks)
 	}
 
 	// The guide's body references the asset by its slug name, never the source "pic.png".

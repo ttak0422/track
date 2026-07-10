@@ -13,6 +13,7 @@ import (
 	"strings"
 
 	"github.com/ttak0422/track/internal/track/link"
+	"github.com/ttak0422/track/internal/track/task"
 )
 
 // The static site is the React web frontend running against a pre-generated JSON bundle instead of the
@@ -37,6 +38,7 @@ type doc struct {
 	desc     string   // page summary (sidecar description), published as og:description
 	image    string   // cover image, relative under assets/ ("" = none), published as og:image
 	dataDir  string   // canonical-data directory for embedded ```viewspec charts ("" = inline data only)
+	tasks    *task.Set // parsed task lines + state set, for the read-only board (nil = none)
 }
 
 // edge is a directed [[link]] between two in-set docs.
@@ -73,6 +75,8 @@ type jsonNoteDetail struct {
 	CopyPath string `json:"copy_path"`
 	Body     string `json:"body"`
 	ETag     string `json:"etag"`
+	// Tasks feeds the read-only task board (```taskboard) on the published site.
+	Tasks *task.Set `json:"tasks,omitempty"`
 }
 
 type jsonNoteResponse struct {
@@ -202,6 +206,7 @@ func writeBundle(docs []doc, edges []edge, root int64, calendar bool, baseURL, f
 				CopyPath:         "", // see searchResultOf: the source path is intentionally not published.
 				Body:             body,
 				ETag:             etag(body),
+				Tasks:            d.tasks,
 			},
 			Backlinks: bl,
 		}

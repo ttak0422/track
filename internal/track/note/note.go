@@ -11,6 +11,7 @@ import (
 
 	"github.com/ttak0422/track/internal/track/babel"
 	"github.com/ttak0422/track/internal/track/config"
+	"github.com/ttak0422/track/internal/track/task"
 )
 
 // Metadata is the structured data stored beside a note under .track/notes.
@@ -21,6 +22,8 @@ import (
 // version 3 sidecars.
 // Description and Image are the note's page metadata (version 4 sidecars): a short summary and an
 // assets-relative cover image, surfaced as og:description / og:image by the static export.
+// TaskLog is the append-only history of task state transitions (version 5 sidecars); it keeps
+// transition timestamps out of the note body.
 type Metadata struct {
 	Version     int                        `yaml:"version"`
 	Title       string                     `yaml:"title,omitempty"`
@@ -30,6 +33,7 @@ type Metadata struct {
 	Description string                     `yaml:"description,omitempty"`
 	Image       string                     `yaml:"image,omitempty"`
 	Blocks      map[string]babel.BlockMeta `yaml:"blocks,omitempty"`
+	TaskLog     []task.LogEntry            `yaml:"task_log,omitempty"`
 }
 
 type Note struct {
@@ -39,6 +43,9 @@ type Note struct {
 	Body  string
 	Mtime int64
 	Meta  Metadata
+	// Tasks are the body's parsed task lines (checkbox items whose marker matches the configured
+	// state set), filled by ParseFile so the indexer can store them without reparsing.
+	Tasks []task.Task
 }
 
 // ParseFile reads a note from disk, deriving the id from the filename and loading its sidecar metadata.
@@ -90,7 +97,10 @@ func ParseFile(path string, c *config.Config) (*Note, error) {
 			return nil, err
 		}
 	}
-	return &Note{ID: id, Kind: kind, Path: path, Body: body, Mtime: info.ModTime().Unix(), Meta: meta}, nil
+	return &Note{
+		ID: id, Kind: kind, Path: path, Body: body, Mtime: info.ModTime().Unix(), Meta: meta,
+		Tasks: task.Parse(body, c.TaskStates),
+	}, nil
 }
 
 // IDFromPath extracts the numeric id encoded in a note's filename.
