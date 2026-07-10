@@ -35,6 +35,8 @@ func Run(args []string) int {
 		return cmdReindex(rest)
 	case "doctor":
 		return cmdDoctor(rest)
+	case "refresh-all":
+		return cmdRefreshAll(rest)
 	case "new":
 		return cmdNew(rest)
 	case "open":
@@ -63,6 +65,8 @@ func Run(args []string) int {
 		return cmdResolve(rest)
 	case "search":
 		return cmdSearch(rest)
+	case "notes":
+		return cmdNotes(rest)
 	case "backlinks":
 		return cmdBacklinks(rest)
 	case "agenda":
@@ -130,10 +134,14 @@ Usage:
   track reindex [--full]                rebuild the index
   track doctor [--fix]                  report vault/sidecar divergence without changing files (JSON);
                                         --fix repairs it by auto-numbered restore, then reindexes
+  track refresh-all                     run the maintenance pipeline in one idempotent pass (full reindex +
+                                        read-only doctor report); suitable for cron/launchd (JSON)
   track keywords                        dump the auto-link dictionary (JSON)
   track resolve (--term <s> | <s>)      resolve a keyword to a note (JSON)
   track search --query <s> [--scope all|title|body] [--limit N]
                                         search notes (JSON)
+  track notes [--untagged] [--limit N]  list notes, newest first; --untagged keeps only notes with no
+                                        tags, for a curation pass that adds tags via track append --tag (JSON)
   track backlinks (--id N | --path P)   list backlinks (JSON)
   track agenda [--date YYYY-MM-DD]       list notes active on a day (JSON)
   track graph (--id N | --path P)       show a local link graph (JSON)

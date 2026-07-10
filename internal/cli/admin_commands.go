@@ -125,6 +125,55 @@ func cmdDoctor(args []string) int {
 	})
 }
 
+// cmdRefreshAll runs the whole maintenance pipeline in one idempotent pass, suitable for cron/launchd:
+// it rebuilds the cache index from the on-disk notes and sidecars (reconciling deletions), then reports
+// vault/sidecar divergence in read-only doctor mode. It never edits notes, so repeated runs converge and
+// a doctor finding is not a failure — only real errors use the {"error":...}/exit 1 contract.
+func cmdRefreshAll(args []string) int {
+	fs := flag.NewFlagSet("refresh-all", flag.ContinueOnError)
+	if err := fs.Parse(args); err != nil {
+		return fail("parse args: %v", err)
+	}
+	cfg, err := config.Load()
+	if err != nil {
+		return fail("%v", err)
+	}
+
+	start := time.Now()
+	if err := store.Reset(cfg.DBPath); err != nil {
+		return fail("reset index db: %v", err)
+	}
+	s, err := store.Open(cfg.DBPath)
+	if err != nil {
+		return fail("%v", err)
+	}
+	defer s.Close()
+
+	rep, err := index.New(cfg, s).Full()
+	if err != nil {
+		return fail("reindex: %v", err)
+	}
+
+	diag, err := doctor.Diagnose(cfg)
+	if err != nil {
+		return fail("doctor: %v", err)
+	}
+
+	return emit(map[string]any{
+		"reindex": map[string]any{
+			"indexed": rep.Indexed,
+			"deleted": rep.Deleted,
+			"links":   rep.Links,
+		},
+		"doctor": map[string]any{
+			"scanned": diag.Scanned,
+			"issues":  diag.Issues,
+			"ok":      len(diag.Issues) == 0,
+		},
+		"took_ms": time.Since(start).Milliseconds(),
+	})
+}
+
 func cmdWeb(args []string) int {
 	fs := flag.NewFlagSet("web", flag.ContinueOnError)
 	addr := fs.String("addr", "127.0.0.1:8765", "listen address")
