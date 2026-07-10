@@ -12,6 +12,8 @@ static-site export.
 - [[Syntax]] — the Markdown a note is written in: bold, math, tables, and the Obsidian-style constructs.
 - [[CLI]] — the command-line interface that owns parsing, indexing, and search.
 - [[Linking notes]] — how `[[...]]` links, backlinks, and the note graph work.
+- [[Properties]] — typed key-value metadata on a note: sidecar props, inline `key:: value` fields,
+  and an optional schema.
 - [[Web workspace]] — the local browser UI for reading, previewing, and navigating notes.
 - [[Visualization]] — how notes render as visuals: [[Diagrams]] (full Mermaid support), [[Charts]] from
   a View Spec, and [[Embeds]] for YouTube, PDFs, tweets, and other rich media.
