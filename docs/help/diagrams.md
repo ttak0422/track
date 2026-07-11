@@ -37,3 +37,5 @@ In the [[Web workspace]] a rendered diagram is interactive: drag to pan, the whe
 zoom toward the cursor, and ↺ to reset. A large diagram opens fitted to a readable size, so you can take
 it in at a glance and explore the detail without scrolling the page. The published static export
 ([[CLI]] `export-site`) renders the same diagrams with the same engine.
+
+tags:: help/visualization/diagrams

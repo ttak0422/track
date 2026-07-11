@@ -26,7 +26,8 @@ printf '本文 [[他ノート]]\n' | track open --title "メモ"
 
 | Command | Purpose |
 | --- | --- |
-| `track search --query <s>` | Search notes; `--query '#tag'` filters by tag. |
+| `track search --query <s>` | Search notes; `--query '#tag'` filters by tag (hierarchical: `#a` matches `#a/b`). |
+| `track query '<expr>'` | Run a table [[Query]] over notes; `--saved <name>` runs a named one. |
 | `track resolve --term <s>` | Resolve a keyword to a note. |
 | `track backlinks --id N` | List notes that link to a note. |
 | `track graph --id N` | Show a local link graph. |
@@ -46,3 +47,5 @@ track export-site --src docs/help --root index --out ./site
 ```sh
 track render --spec chart.json --out chart.svg --renderer svg
 ```
+
+tags:: help/reference

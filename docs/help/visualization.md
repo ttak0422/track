@@ -16,3 +16,5 @@ plain text and portable, while the [[Web workspace]] and the static export ([[CL
 render the visuals identically.
 
 Back to [[track]].
+
+tags:: help/visualization

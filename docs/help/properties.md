@@ -100,5 +100,7 @@ properties:
 - The [[Web workspace]] note view (and this published site) shows a note's properties read-only
   above the body — sidecar values first, then inline fields in body order.
 - `track meta` prints them as JSON for scripts.
-- The index stores every value typed and with line provenance, ready for filtering and sorting in
-  future queries.
+- The index stores every value typed and with line provenance, and [[Query]] filters, sorts, and
+  tabulates notes by these values — from the CLI or an embedded `track-query` block.
+
+tags:: help/authoring

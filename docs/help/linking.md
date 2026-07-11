@@ -27,3 +27,5 @@ the local neighbourhood of a note as nodes and edges.
 When you publish with `track export-site`, a `[[...]]` link becomes a real anchor **only when its
 target is part of the published set**. Links to notes outside the selection are flattened to plain
 text, so the exported site never has dangling links. See [[CLI]] for the export commands.
+
+tags:: help/concepts

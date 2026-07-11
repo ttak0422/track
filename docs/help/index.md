@@ -14,6 +14,8 @@ static-site export.
 - [[Linking notes]] — how `[[...]]` links, backlinks, and the note graph work.
 - [[Properties]] — typed key-value metadata on a note: sidecar props, inline `key:: value` fields,
   and an optional schema.
+- [[Query]] — table queries over notes by tag and property, embeddable in a note as a live
+  `track-query` block; plus hierarchical tags and per-tag pages.
 - [[Web workspace]] — the local browser UI for reading, previewing, and navigating notes.
 - [[Visualization]] — how notes render as visuals: [[Diagrams]] (full Mermaid support), [[Charts]] from
   a View Spec, and [[Embeds]] for YouTube, PDFs, tweets, and other rich media.
