@@ -175,11 +175,13 @@ func (s *Server) putNote(w http.ResponseWriter, r *http.Request) {
 }
 
 // handleNoteMeta reads or edits a note's editable sidecar metadata — title, tags, description,
-// cover image, and typed props — as one YAML document ("doc"). Edits go through the same validated
-// engine write path as `track meta --edit` (note.ApplyMetaDoc; a changed title through rename.Do),
-// so all the rules — tag normalization, an existing vault asset in a raster format, props typed
-// against the configured schema, title uniqueness — live in one place; a violation is a 400 whose
-// message the editor shows inline, and a rejected document changes nothing.
+// cover image, and typed props — as structured fields. GET seeds the dialog's typed controls
+// (props as a free-form YAML "key: value" block); POST takes those fields back, composes a
+// document, and applies it through the same validated engine path as `track meta --edit`
+// (note.ApplyMetaDocValue; a changed title through rename.Do). Every rule — tag normalization, an
+// existing vault asset in a raster format, props typed against the configured schema, title
+// uniqueness — lives in the engine, so the frontend never assembles YAML: a violation is a 400
+// whose message the editor shows inline, and a rejected edit changes nothing.
 func (s *Server) handleNoteMeta(w http.ResponseWriter, r *http.Request) {
 	id, err := parseID(r)
 	if err != nil {
@@ -198,28 +200,34 @@ func (s *Server) handleNoteMeta(w http.ResponseWriter, r *http.Request) {
 			writeError(w, err, http.StatusInternalServerError)
 			return
 		}
-		doc, err := note.MetaDocYAML(meta)
-		if err != nil {
-			writeError(w, err, http.StatusInternalServerError)
-			return
-		}
-		writeJSON(w, map[string]any{"doc": doc})
+		writeMetaFields(w, meta)
 	case http.MethodPost:
 		var req struct {
-			Doc string `json:"doc"`
+			Title       string   `json:"title"`
+			Tags        []string `json:"tags"`
+			Description string   `json:"description"`
+			Image       string   `json:"image"`
+			Props       string   `json:"props"`
 		}
 		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 			writeError(w, fmt.Errorf("decode request: %w", err), http.StatusBadRequest)
 			return
 		}
-		parsed, err := note.ParseMetaDoc([]byte(req.Doc))
+		props, err := note.ParsePropsText(req.Props)
 		if err != nil {
 			writeError(w, err, http.StatusBadRequest)
 			return
 		}
-		// Pre-validate a title change so a conflicting title rejects the whole document before any
-		// write; an empty title in the document means "leave the title unchanged".
-		newTitle := strings.TrimSpace(parsed.Title)
+		doc := note.MetaDoc{
+			Title:       req.Title,
+			Tags:        req.Tags,
+			Description: req.Description,
+			Image:       req.Image,
+			Props:       props,
+		}
+		// Pre-validate a title change so a conflicting title rejects the whole edit before any
+		// write; an empty title means "leave the title unchanged".
+		newTitle := strings.TrimSpace(doc.Title)
 		if newTitle != "" {
 			if other, ok, err := s.store.ResolveTerm(newTitle); err != nil {
 				writeError(w, err, http.StatusInternalServerError)
@@ -229,7 +237,7 @@ func (s *Server) handleNoteMeta(w http.ResponseWriter, r *http.Request) {
 				return
 			}
 		}
-		meta, err := note.ApplyMetaDoc(s.cfg, id, []byte(req.Doc))
+		meta, err := note.ApplyMetaDocValue(s.cfg, id, doc)
 		if err != nil {
 			writeError(w, err, http.StatusBadRequest)
 			return
@@ -246,15 +254,31 @@ func (s *Server) handleNoteMeta(w http.ResponseWriter, r *http.Request) {
 			writeError(w, fmt.Errorf("reindex: %w", err), http.StatusInternalServerError)
 			return
 		}
-		doc, err := note.MetaDocYAML(meta)
-		if err != nil {
-			writeError(w, err, http.StatusInternalServerError)
-			return
-		}
-		writeJSON(w, map[string]any{"doc": doc, "updated": true})
+		writeMetaFields(w, meta)
 	default:
 		writeError(w, fmt.Errorf("method %s not allowed", r.Method), http.StatusMethodNotAllowed)
 	}
+}
+
+// writeMetaFields serializes a note's editable metadata as the dialog's typed fields, rendering the
+// props map back to the free-form YAML block the props textarea seeds from.
+func writeMetaFields(w http.ResponseWriter, meta note.Metadata) {
+	propsText, err := note.PropsText(meta.Props)
+	if err != nil {
+		writeError(w, err, http.StatusInternalServerError)
+		return
+	}
+	tags := meta.Tags
+	if tags == nil {
+		tags = []string{}
+	}
+	writeJSON(w, map[string]any{
+		"title":       meta.Title,
+		"tags":        tags,
+		"description": meta.Description,
+		"image":       meta.Image,
+		"props":       propsText,
+	})
 }
 
 // handleRender sanitizes a raw note body into the Markdown the frontend renders: track action links

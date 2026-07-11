@@ -50,7 +50,7 @@ func ApplyMetaEdit(cfg *config.Config, noteID int64, edit MetaEdit) (Metadata, e
 	if edit.Image != nil {
 		img := strings.TrimSpace(*edit.Image)
 		if img != "" {
-			if err := validateImageRef(cfg, img); err != nil {
+			if err := ValidateImageRef(cfg, img); err != nil {
 				return Metadata{}, err
 			}
 		}
@@ -149,10 +149,19 @@ func ApplyMetaDoc(cfg *config.Config, noteID int64, docYAML []byte) (Metadata, e
 	if err != nil {
 		return Metadata{}, err
 	}
+	return ApplyMetaDocValue(cfg, noteID, doc)
+}
+
+// ApplyMetaDocValue is ApplyMetaDoc for an already-parsed document. It is the single validated
+// apply shared by the YAML-document path (CLI --edit, Neovim popup) and the web editor's structured
+// form (which composes a MetaDoc from its typed fields and a free-form props block). The title is
+// deliberately not applied here — see ApplyMetaDoc — so both callers route a title change through
+// rename.Do afterward.
+func ApplyMetaDocValue(cfg *config.Config, noteID int64, doc MetaDoc) (Metadata, error) {
 	doc.Description = strings.TrimSpace(doc.Description)
 	doc.Image = strings.TrimSpace(doc.Image)
 	if doc.Image != "" {
-		if err := validateImageRef(cfg, doc.Image); err != nil {
+		if err := ValidateImageRef(cfg, doc.Image); err != nil {
 			return Metadata{}, err
 		}
 	}
@@ -225,9 +234,37 @@ func DedupTags(tags []string) []string {
 	return out
 }
 
-// validateImageRef checks a cover-image reference: assets/-relative, no escape from the assets
-// directory, a renderable raster format, and the file actually present.
-func validateImageRef(cfg *config.Config, ref string) error {
+// ParsePropsText parses the web editor's free-form props block — a YAML map, or "key: value" lines —
+// into a property map. Empty text yields no props. A document that is not a map (a bare scalar or a
+// list) is an error, surfaced to the dialog; per-key/per-value typing happens later in ApplyMetaDocValue.
+func ParsePropsText(text string) (map[string]any, error) {
+	if strings.TrimSpace(text) == "" {
+		return nil, nil
+	}
+	var props map[string]any
+	if err := yaml.Unmarshal([]byte(text), &props); err != nil {
+		return nil, fmt.Errorf("parse props: %w", err)
+	}
+	return props, nil
+}
+
+// PropsText renders a property map back to the web editor's props block (a YAML "key: value" block),
+// so the dialog seeds its free-form textarea from the stored props. No props renders as empty text.
+func PropsText(props map[string]any) (string, error) {
+	if len(props) == 0 {
+		return "", nil
+	}
+	out, err := yaml.Marshal(props)
+	if err != nil {
+		return "", err
+	}
+	return string(out), nil
+}
+
+// ValidateImageRef checks a cover-image reference: assets/-relative, no escape from the assets
+// directory, a renderable raster format, and the file actually present. It is the one gate for a
+// vault-legal cover image, shared by the metadata apply and the web asset-upload endpoint.
+func ValidateImageRef(cfg *config.Config, ref string) error {
 	if filepath.IsAbs(ref) || strings.Contains(ref, "..") {
 		return fmt.Errorf("image %q must be a plain assets/<file> reference", ref)
 	}
