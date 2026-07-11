@@ -3,7 +3,7 @@ name: PR Preview
 # Build the static help site for each pull request and publish it to ttak0422/track-previews
 # (gh-pages branch, one pr-<number>/ directory per PR) so changes can be checked in a browser at
 # https://ttak0422.github.io/track-previews/pr-<number>/ without a local build. The preview URL is
-# posted as a PR comment on the first deploy; closing the PR removes its directory.
+# kept current in a PR comment; closing the PR removes its directory.
 #
 # Auth: PREVIEWS_DEPLOY_KEY is a write deploy key scoped to the track-previews repository. Fork PRs
 # are skipped (secrets are unavailable there anyway).
@@ -32,6 +32,10 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v6
+        with:
+          # Build the pushed PR head, not GitHub's temporary merge ref, so every synchronize event
+          # regenerates the preview from exactly the commit named in the preview URL.
+          ref: ${{ github.event.pull_request.head.sha }}
 
       - name: Install Nix
         uses: cachix/install-nix-action@v31
@@ -68,7 +72,7 @@ jobs:
           git config user.email github-actions@users.noreply.github.com
           git add -A
           if git diff --cached --quiet; then echo "no changes to deploy"; exit 0; fi
-          git commit -m "Deploy preview for PR #${PR} (${GITHUB_SHA})"
+          git commit -m "Deploy preview for PR #${PR} (${{ github.event.pull_request.head.sha }})"
           for attempt in 1 2 3 4 5; do
             git push && exit 0
             git pull --rebase
@@ -82,7 +86,7 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: |
           gh pr comment "$PR" --repo "$GITHUB_REPOSITORY" --edit-last --create-if-none --body \
-            "Help site preview: https://ttak0422.github.io/track-previews/pr-${PR}/ (updated for ${{ github.event.pull_request.head.sha }})"
+            "Help site preview: https://ttak0422.github.io/track-previews/pr-${PR}/?v=${{ github.event.pull_request.head.sha }} (updated for ${{ github.event.pull_request.head.sha }})"
 
   cleanup:
     if: github.event.action == 'closed' && github.event.pull_request.head.repo.full_name == github.repository
