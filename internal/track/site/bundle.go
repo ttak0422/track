@@ -28,16 +28,16 @@ type doc struct {
 	title    string
 	kind     string // "note" or "journal"
 	tags     []string
-	days     []string // activity days (YYYY-MM-DD) from the sidecar; journals carry none
-	mtime    int64    // file mtime, for the shared recently-updated-first listing order (0 in dir mode)
-	path     string   // source/display path (informational in the static site)
-	body     string   // web-sanitized Markdown the frontend renders
-	keys     []string // resolution keys ([[key]]) that point at this doc (title, file name, …)
-	assets   []string // "assets/<rel>" references in the body
-	assetSrc string   // directory those assets are copied from
-	desc     string   // page summary (sidecar description), published as og:description
-	image    string   // cover image, relative under assets/ ("" = none), published as og:image
-	dataDir  string   // canonical-data directory for embedded ```viewspec charts ("" = inline data only)
+	days     []string  // activity days (YYYY-MM-DD) from the sidecar; journals carry none
+	mtime    int64     // file mtime, for the shared recently-updated-first listing order (0 in dir mode)
+	path     string    // source/display path (informational in the static site)
+	body     string    // web-sanitized Markdown the frontend renders
+	keys     []string  // resolution keys ([[key]]) that point at this doc (title, file name, …)
+	assets   []string  // "assets/<rel>" references in the body
+	assetSrc string    // directory those assets are copied from
+	desc     string    // page summary (sidecar description), published as og:description
+	image    string    // cover image, relative under assets/ ("" = none), published as og:image
+	dataDir  string    // canonical-data directory for embedded ```viewspec charts ("" = inline data only)
 	tasks    *task.Set // parsed task lines + state set, for the read-only board (nil = none)
 }
 
