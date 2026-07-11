@@ -38,38 +38,6 @@ Standard Markdown blocks work as expected:
 
 Task lists (`- [ ]` / `- [x]`) render as real checkboxes.
 
-## Alerts
-
-A blockquote whose first line is a `[!TYPE]` marker becomes a colored callout, matching GitHub's alert
-syntax. Five types are recognized — `NOTE`, `TIP`, `IMPORTANT`, `WARNING`, `CAUTION`:
-
-```markdown
-> [!NOTE]
-> Useful context the reader should notice.
-
-> [!WARNING]
-> Something that needs care.
-```
-
-They render as:
-
-> [!NOTE]
-> Useful context the reader should notice.
-
-> [!TIP]
-> A helpful suggestion.
-
-> [!IMPORTANT]
-> Key information the reader must not miss.
-
-> [!WARNING]
-> Something that needs care.
-
-> [!CAUTION]
-> A risky action to think twice about.
-
-A blockquote without a `[!TYPE]` marker stays an ordinary quote.
-
 ## Code blocks
 
 A fenced block is syntax-highlighted when you name the language after the opening fence, and the web
@@ -110,21 +78,6 @@ Pipe tables from GitHub-Flavored Markdown, with `:` in the divider row to set co
 | Tables | yes |
 | Math | yes |
 
-## Math
-
-Math is written in LaTeX, the same as in Obsidian: single dollars for inline, double dollars for a
-centered block. It is rendered by [KaTeX](https://katex.org/):
-
-```markdown
-Euler's identity is $e^{i\pi} + 1 = 0$.
-
-$$\int_0^1 x^2 \,dx = \tfrac{1}{3}$$
-```
-
-Euler's identity is $e^{i\pi} + 1 = 0$.
-
-$$\int_0^1 x^2 \,dx = \tfrac{1}{3}$$
-
 ## Footnotes
 
 GitHub-Flavored footnotes work as written: mark a spot with `[^label]` and define it anywhere in the
@@ -146,6 +99,53 @@ Zettelkasten favors many small notes.[^atomic] Links do the organizing.[^links]
 
 [^atomic]: One idea per note keeps every note quotable and linkable.
 [^links]: See Ahrens, *How to Take Smart Notes*, for the argument in full.
+
+## Alerts
+
+A blockquote whose first line is a `[!TYPE]` marker becomes a colored callout, matching GitHub's alert
+syntax. Five types are recognized — `NOTE`, `TIP`, `IMPORTANT`, `WARNING`, `CAUTION`:
+
+```markdown
+> [!NOTE]
+> Useful context the reader should notice.
+
+> [!WARNING]
+> Something that needs care.
+```
+
+They render as:
+
+> [!NOTE]
+> Useful context the reader should notice.
+
+> [!TIP]
+> A helpful suggestion.
+
+> [!IMPORTANT]
+> Key information the reader must not miss.
+
+> [!WARNING]
+> Something that needs care.
+
+> [!CAUTION]
+> A risky action to think twice about.
+
+A blockquote without a `[!TYPE]` marker stays an ordinary quote.
+
+## Math
+
+Math is written in LaTeX, the same as in Obsidian: single dollars for inline, double dollars for a
+centered block. It is rendered by [KaTeX](https://katex.org/):
+
+```markdown
+Euler's identity is $e^{i\pi} + 1 = 0$.
+
+$$\int_0^1 x^2 \,dx = \tfrac{1}{3}$$
+```
+
+Euler's identity is $e^{i\pi} + 1 = 0$.
+
+$$\int_0^1 x^2 \,dx = \tfrac{1}{3}$$
 
 ## Links, embeds, and visuals
 
