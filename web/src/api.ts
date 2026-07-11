@@ -255,7 +255,7 @@ export async function fetchAssetText(href: string): Promise<string> {
 }
 
 // filterNotes is the static-mode search: a case-insensitive match on title, or a "#tag" filter on the
-// note's tags. It mirrors the server search closely enough for navigating a published set.
+// note's tags. Tags match hierarchically like the server search: #a matches #a and #a/b, never #ab.
 function filterNotes(notes: SearchResult[], query: string): SearchResult[] {
   const q = query.trim().toLowerCase();
   if (q === "") {
@@ -263,7 +263,12 @@ function filterNotes(notes: SearchResult[], query: string): SearchResult[] {
   }
   if (q.startsWith("#")) {
     const tag = q.slice(1);
-    return notes.filter((n) => (n.tags ?? []).some((t) => t.toLowerCase() === tag));
+    return notes.filter((n) =>
+      (n.tags ?? []).some((t) => {
+        const lower = t.toLowerCase();
+        return lower === tag || lower.startsWith(`${tag}/`);
+      }),
+    );
   }
   return notes.filter((n) => n.title.toLowerCase().includes(q));
 }

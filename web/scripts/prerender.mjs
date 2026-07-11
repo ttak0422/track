@@ -71,6 +71,16 @@ if (!template.includes('<div id="root"></div>')) {
 // fallback-less host.
 const dayDates = site.calendar ? [...new Set(notes.flatMap((n) => n.days ?? []))] : [];
 
+// Every used tag gets a real /tags page file, plus each hierarchical ancestor ("a/b/c" also yields
+// "a/b" and "a") so prefix tag pages resolve too. Mirrors internal/track/site tagRoutes.
+const tags = [
+  ...new Set(
+    notes
+      .flatMap((n) => n.tags ?? [])
+      .flatMap((tag) => tag.split("/").map((_, i, parts) => parts.slice(0, i + 1).join("/"))),
+  ),
+];
+
 const targets = [
   { route: "/", out: "index.html" },
   { route: "/graph", out: "graph/index.html" },
@@ -78,6 +88,7 @@ const targets = [
   { route: "/empty", out: "empty/index.html" },
   ...notes.map((n) => ({ route: `/notes/${n.note_id}`, out: `notes/${n.note_id}/index.html` })),
   ...dayDates.map((d) => ({ route: `/day/${d}`, out: `day/${d}/index.html` })),
+  ...tags.map((t) => ({ route: `/tags/${t}`, out: `tags/${t}/index.html` })),
 ];
 
 const notesById = new Map(notes.map((n) => [n.note_id, n]));

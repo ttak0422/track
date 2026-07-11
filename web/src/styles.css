@@ -1352,19 +1352,16 @@ a.calendar-title:focus-visible {
   flex-shrink: 0;
 }
 
-/* A note's tags seed a #tag search on click, but they're still text — no pill. Muted at rest, accent
+/* A note's tags link to their tag pages, but they're still text — no pill. Muted at rest, accent
    on hover, the way a link would answer to the pointer. */
-.note-tags button {
-  border: 0;
-  padding: 0;
+.note-tags a {
   color: var(--muted);
-  background: transparent;
+  text-decoration: none;
   font-size: calc(12px * var(--font-scale, 1));
-  cursor: pointer;
 }
 
-.note-tags button:hover,
-.note-tags button:focus-visible {
+.note-tags a:hover,
+.note-tags a:focus-visible {
   color: var(--accent);
 }
 
