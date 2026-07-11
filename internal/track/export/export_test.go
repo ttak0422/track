@@ -62,6 +62,15 @@ func TestExportBabelCodeDefaultStripsHeaderArgs(t *testing.T) {
 	}
 }
 
+func TestExportMarkdownRoundTripsFourBacktickFence(t *testing.T) {
+	// A 4-backtick block must round-trip as 4 backticks (not collapse to 3), keeping its inner ```go.
+	body := "````markdown\n```go\nfunc F() {}\n```\n````\n"
+	got := exportMarkdown(t, &note.Note{ID: 1, Body: body}, Options{}).Markdown
+	if got != body {
+		t.Fatalf("4-backtick fence should round-trip:\n got: %q\nwant: %q", got, body)
+	}
+}
+
 func TestExportBabelNoneRemovesBlock(t *testing.T) {
 	n := &note.Note{ID: 1, Body: "before\n\n```lua :exports none\nprint(1)\n```\n\nafter\n"}
 	got := exportMarkdown(t, n, Options{}).Markdown

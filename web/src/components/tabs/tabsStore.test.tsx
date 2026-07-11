@@ -1,5 +1,5 @@
 import { act, renderHook } from "@testing-library/react";
-import type { ReactNode } from "react";
+import { useEffect, type ReactNode } from "react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { TabsProvider, useTabs } from "./tabsStore";
 
@@ -26,6 +26,29 @@ describe("TabsProvider", () => {
     routerMock.navigate.mockClear();
     window.localStorage.clear();
     window.__trackSession = undefined;
+  });
+
+  it("keeps a title reported before its tab exists (prerender hydration order)", () => {
+    // A note hydrated from prerendered state knows its title on first render, so the reader's
+    // setTitle effect fires before the provider's append effect creates the tab (child effects run
+    // first). The late-appended tab must still pick the title up instead of staying unlabeled.
+    function TitleReporter() {
+      const { setTitle } = useTabs();
+      useEffect(() => {
+        setTitle("a1", "Alpha");
+      }, [setTitle]);
+      return null;
+    }
+    routerMock.pathname = "/notes/a1";
+    const { result } = renderHook(() => useTabs(), {
+      wrapper: ({ children }: { children: ReactNode }) => (
+        <TabsProvider>
+          <TitleReporter />
+          {children}
+        </TabsProvider>
+      ),
+    });
+    expect(result.current.tabs).toEqual([{ id: "a1", title: "Alpha" }]);
   });
 
   it("opens a tab when navigating to a note and dedupes repeats", () => {
