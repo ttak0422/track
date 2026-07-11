@@ -23,9 +23,12 @@ frontmatter — the body stays plain Markdown. Properties follow the same rule: 
 live under `props` in the sidecar, and every frontend edits them there through the same validated
 engine path:
 
-- **The metadata editor** — the [[Web workspace]] Meta dialog, or the Neovim `:Track meta` popup —
-  shows the note's whole editable metadata (title, tags, description, cover image, props) as one
-  YAML document; saving validates and applies it atomically, and a changed title renames the note.
+- **The metadata editor** edits the note's whole editable metadata: title, tags, description, cover
+  image, and props. The [[Web workspace]] Meta dialog gives each built-in field a dedicated control
+  — a title box (a rename on change), a tags box, a description box, and a cover image you can upload
+  straight from the browser into the vault assets — and keeps props as the one free-form YAML block.
+  The Neovim `:Track meta` popup edits the same metadata as one YAML document. Either way the engine
+  validates and applies the edit atomically, and a changed title renames the note.
 - **The CLI**, for scripts and point edits:
 
 ```sh

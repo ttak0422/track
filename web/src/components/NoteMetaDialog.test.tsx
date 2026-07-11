@@ -7,10 +7,20 @@ import { NoteMetaDialog } from "./NoteMetaDialog";
 // The dialog reads/writes through the api module; stub it so the test drives the component alone.
 const getNoteMeta = vi.fn();
 const saveNoteMeta = vi.fn();
+const uploadAsset = vi.fn();
 vi.mock("../api", () => ({
   getNoteMeta: (id: string) => getNoteMeta(id),
   saveNoteMeta: (id: string, req: unknown) => saveNoteMeta(id, req),
+  uploadAsset: (file: File) => uploadAsset(file),
 }));
+
+const seedMeta = {
+  title: "Alpha",
+  tags: ["project", "draft"],
+  description: "A summary.",
+  image: "assets/old.png",
+  props: "status: draft\n",
+};
 
 function renderDialog(onClose = vi.fn()): { onClose: () => void } {
   const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
@@ -27,40 +37,82 @@ describe("NoteMetaDialog", () => {
   beforeEach(() => {
     getNoteMeta.mockReset();
     saveNoteMeta.mockReset();
+    uploadAsset.mockReset();
   });
 
-  it("seeds the editor from the fetched document", async () => {
-    getNoteMeta.mockResolvedValue({ doc: "title: Alpha\ntags:\n  - a\n" });
+  it("seeds each field from the fetched metadata", async () => {
+    getNoteMeta.mockResolvedValue(seedMeta);
     renderDialog();
-    const editor = await screen.findByRole("textbox");
-    await waitFor(() => expect(editor).toHaveValue("title: Alpha\ntags:\n  - a\n"));
+    await waitFor(() => expect(screen.getByLabelText("Title")).toHaveValue("Alpha"));
+    expect(screen.getByLabelText("Tags")).toHaveValue("project, draft");
+    expect(screen.getByLabelText("Description")).toHaveValue("A summary.");
+    expect(screen.getByLabelText("Cover image")).toHaveValue("assets/old.png");
+    expect(screen.getByLabelText("Properties")).toHaveValue("status: draft\n");
   });
 
-  it("submits the edited document and closes on success", async () => {
-    getNoteMeta.mockResolvedValue({ doc: "title: Alpha\n" });
-    saveNoteMeta.mockResolvedValue({ doc: "title: Beta\n" });
+  it("sends the edited fields and closes on success", async () => {
+    getNoteMeta.mockResolvedValue(seedMeta);
+    saveNoteMeta.mockResolvedValue(seedMeta);
     const { onClose } = renderDialog();
-    const editor = await screen.findByRole("textbox");
-    await waitFor(() => expect(editor).toHaveValue("title: Alpha\n"));
+    await waitFor(() => expect(screen.getByLabelText("Title")).toHaveValue("Alpha"));
 
-    fireEvent.change(editor, { target: { value: "title: Beta\n" } });
+    fireEvent.change(screen.getByLabelText("Title"), { target: { value: "Beta" } });
+    // The client only comma-splits and trims; blank entries drop out and the engine dedups.
+    fireEvent.change(screen.getByLabelText("Tags"), { target: { value: "go,  lua ," } });
+    fireEvent.change(screen.getByLabelText("Description"), { target: { value: "New." } });
+    fireEvent.change(screen.getByLabelText("Properties"), { target: { value: "rating: 8\n" } });
     fireEvent.click(screen.getByRole("button", { name: "Save" }));
 
-    await waitFor(() => expect(saveNoteMeta).toHaveBeenCalledWith("n1", { doc: "title: Beta\n" }));
+    await waitFor(() =>
+      expect(saveNoteMeta).toHaveBeenCalledWith("n1", {
+        title: "Beta",
+        tags: ["go", "lua"],
+        description: "New.",
+        image: "assets/old.png",
+        props: "rating: 8\n",
+      }),
+    );
     await waitFor(() => expect(onClose).toHaveBeenCalled());
   });
 
   it("surfaces a validation error and keeps the dialog open", async () => {
-    getNoteMeta.mockResolvedValue({ doc: "title: Alpha\n" });
-    saveNoteMeta.mockRejectedValue(new Error("image: assets/nope.png is not a vault asset"));
+    getNoteMeta.mockResolvedValue(seedMeta);
+    saveNoteMeta.mockRejectedValue(new Error("image \"assets/nope.png\" not found in the vault assets"));
     const { onClose } = renderDialog();
-    const editor = await screen.findByRole("textbox");
-    await waitFor(() => expect(editor).toHaveValue("title: Alpha\n"));
+    await waitFor(() => expect(screen.getByLabelText("Title")).toHaveValue("Alpha"));
 
     fireEvent.click(screen.getByRole("button", { name: "Save" }));
 
-    expect(await screen.findByText(/is not a vault asset/)).toBeInTheDocument();
+    expect(await screen.findByText(/not found in the vault assets/)).toBeInTheDocument();
     expect(onClose).not.toHaveBeenCalled();
     expect(screen.getByRole("dialog")).toBeInTheDocument();
+  });
+
+  it("uploads a picked image and sets the cover-image field to the returned ref", async () => {
+    getNoteMeta.mockResolvedValue(seedMeta);
+    uploadAsset.mockResolvedValue({ ref: "assets/new.png" });
+    renderDialog();
+    await waitFor(() => expect(screen.getByLabelText("Cover image")).toHaveValue("assets/old.png"));
+
+    const file = new File(["png"], "new.png", { type: "image/png" });
+    const picker = document.querySelector('input[type="file"]') as HTMLInputElement;
+    fireEvent.change(picker, { target: { files: [file] } });
+
+    await waitFor(() => expect(uploadAsset).toHaveBeenCalledWith(file));
+    await waitFor(() => expect(screen.getByLabelText("Cover image")).toHaveValue("assets/new.png"));
+  });
+
+  it("keeps the existing ref when an upload fails", async () => {
+    getNoteMeta.mockResolvedValue(seedMeta);
+    uploadAsset.mockRejectedValue(new Error("image must be one of .png .jpg"));
+    renderDialog();
+    await waitFor(() => expect(screen.getByLabelText("Cover image")).toHaveValue("assets/old.png"));
+
+    const file = new File(["x"], "bad.svg", { type: "image/svg+xml" });
+    const picker = document.querySelector('input[type="file"]') as HTMLInputElement;
+    fireEvent.change(picker, { target: { files: [file] } });
+
+    expect(await screen.findByText(/must be one of/)).toBeInTheDocument();
+    expect(screen.getByLabelText("Cover image")).toHaveValue("assets/old.png");
   });
 });

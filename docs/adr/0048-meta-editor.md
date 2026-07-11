@@ -31,26 +31,35 @@ engine.
 - **One validated apply path.** `note.MetaDocYAML` renders the document — empty keys stay present
   so editors always show every field, as bare `key:` lines rather than flow-style `[]`/`{}`/`""`,
   which are hostile to hand-editing (the parser accepts both forms). `note.ApplyMetaDoc` parses it
-  strictly (unknown top-level keys are rejected, not dropped), validates everything — tag
-  normalization (`note.DedupTags`, the same rule as the CLI tag flags), the vault-asset/raster
-  image check, prop keys and prop values typed against the configured `properties:` schema — and
-  only then performs the single sidecar write. A rejected document changes nothing.
+  strictly (unknown top-level keys are rejected, not dropped) and hands the parsed document to
+  `note.ApplyMetaDocValue`, which validates everything — tag normalization (`note.DedupTags`, the
+  same rule as the CLI tag flags), the vault-asset/raster image check, prop keys and prop values
+  typed against the configured `properties:` schema — and only then performs the single sidecar
+  write. A rejected document changes nothing. The web dialog, which sends structured fields rather
+  than a serialized document, composes a `MetaDoc` and calls `ApplyMetaDocValue` directly, so both
+  transports share the one validated apply.
 - **CLI is the transport.** `track meta` prints the document under `doc` alongside the existing
   JSON fields; `track meta --edit (FILE|-)` applies a document from a file or stdin. The field
   flags (`--description`, `--image`, `--set`, `--unset`) remain for scripted point edits.
 - **Both frontends are thin shells.** The Neovim popup is a floating acwrite YAML buffer seeded
   with the document; `:w` pipes the buffer verbatim to `track meta --edit -` — no client-side
-  parsing. The web meta dialog is the same document in a modal textarea, round-tripped through
-  `/api/note/meta` (`{doc}` in, `{doc}` out), which calls the same parse/pre-check/apply/rename
-  sequence. Validation errors surface as the engine's message and keep the editor open; the
-  static export stays read-only.
+  parsing. The web meta dialog gives each built-in field (title, tags, description, cover image) a
+  typed control and keeps props as the one free-form YAML block; it sends those fields as structured
+  JSON to `/api/note/meta`, and the engine composes the document and runs the same
+  pre-check/apply/rename sequence — the frontend never assembles YAML. A cover image can be uploaded
+  from the browser: `POST /api/asset` (multipart) imports the file into the vault assets via the
+  engine asset store, gates it with the same cover-image check (`note.ValidateImageRef`), and returns
+  its `assets/<name>` reference for the image field. Validation errors surface as the engine's
+  message and keep the editor open; the static export stays read-only.
 
 ## Consequences
 
 - Adding a future editable metadata field means extending `MetaDoc` once; both frontends pick it
   up without UI-schema work.
-- The web dialog's old `{description,image}` JSON shape is gone (pre-1.0 break); the endpoint and
-  the dialog speak only the document.
+- The web dialog's metadata contract is structured JSON — the typed built-in fields plus a free-form
+  props block — not a serialized document; the engine composes and validates the `MetaDoc` from
+  them, so all validation still lives in one place. The Neovim popup and CLI still speak the YAML
+  document.
 - The document is whole-state: applying it replaces tags/description/image/props entirely (the
   title only when non-empty and different), which is what an editor wants but means concurrent
   point edits between GET and apply are overwritten. Good enough for a single-user vault; an etag

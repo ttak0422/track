@@ -113,16 +113,31 @@ export interface DeleteNoteResponse {
   deleted: boolean;
 }
 
-// A note's editable sidecar metadata — title, tags, description, cover image, typed props — as one
-// YAML document. The dialog edits the document verbatim; the engine parses and validates it (the
-// same path as `track meta --edit`), so the frontend never interprets the YAML.
+// A note's editable sidecar metadata as the dialog's typed fields: title, tags, description, cover
+// image (an assets/<file> reference), and typed props. Built-in fields get dedicated controls; props
+// stays free-form — a YAML "key: value" block the engine parses and validates. The frontend never
+// assembles YAML: it sends these fields and the engine composes/validates the document.
 export interface NoteMetaResponse {
-  doc: string;
+  title: string;
+  tags: string[];
+  description: string;
+  image: string;
+  props: string;
 }
 
-// A save request replaces the whole editable document; a rejected document changes nothing.
+// A save request replaces the whole editable metadata; a rejected edit changes nothing. tags is the
+// comma-split list (the engine dedups/normalizes); props is the free-form block, parsed server-side.
 export interface SaveNoteMetaRequest {
-  doc: string;
+  title: string;
+  tags: string[];
+  description: string;
+  image: string;
+  props: string;
+}
+
+// The vault reference returned after uploading a cover image, e.g. "assets/cover.png".
+export interface AssetUploadResponse {
+  ref: string;
 }
 
 export interface FollowState {

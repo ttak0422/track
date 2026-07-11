@@ -12,10 +12,12 @@ Back to [[track]].
 - Hover previews and persistent floating windows for linked notes and media.
 - A local link graph you can open per-note or full-screen.
 - Follow mode, so the web view tracks the note you are editing in Neovim.
-- A metadata editor (the Meta dialog in the note actions menu): the note's title, tags,
-  description, cover image, and [[Properties]] as one YAML document, validated and applied by the
-  engine — the same round-trip as `track meta --edit` and the Neovim `:Track meta` popup. Changing
-  the title renames the note and rewrites its backlinks. The published static site has no editor.
+- A metadata editor (the Meta dialog in the note actions menu): dedicated fields for the note's
+  title, tags, description, and cover image, plus a free-form block for [[Properties]]. Built-in
+  fields get typed controls — the cover image can be uploaded straight from the browser into the
+  vault assets — while props stays free-form YAML. The engine composes and validates the whole edit
+  (the same rules as `track meta --edit`); the frontend never assembles YAML. Changing the title
+  renames the note and rewrites its backlinks. The published static site has no editor.
 
 ## Media embeds and diagrams
 

@@ -17,6 +17,7 @@ import {
   saveNote,
   saveNoteMeta,
   searchNotes,
+  uploadAsset,
 } from "./api";
 import { STATIC_MODE } from "./runtime";
 import { useDebouncedValue } from "./hooks/useDebouncedValue";
@@ -237,13 +238,21 @@ export function useSaveNoteMetaMutation(noteID: NoteID) {
   return useMutation({
     mutationFn: (request: SaveNoteMetaRequest) => saveNoteMeta(noteID, request),
     onSuccess: (response) => {
-      queryClient.setQueryData<NoteMetaResponse>(queryKeys.noteMeta(noteID), { doc: response.doc });
-      // The document carries the title, tags, and props, which the note view, lists, and graph
-      // render; a title change also rewrites backlinks in other notes.
+      queryClient.setQueryData<NoteMetaResponse>(queryKeys.noteMeta(noteID), response);
+      // The edit carries the title, tags, and props, which the note view, lists, and graph render;
+      // a title change also rewrites backlinks in other notes.
       void queryClient.invalidateQueries({ queryKey: queryKeys.note(noteID) });
       void queryClient.invalidateQueries({ queryKey: queryKeys.notes() });
       void queryClient.invalidateQueries({ queryKey: ["search"] });
       void queryClient.invalidateQueries({ queryKey: ["graph"] });
     },
+  });
+}
+
+// useUploadAssetMutation imports a picked cover image into the vault assets and yields its
+// assets/<name> reference; the dialog sets its image field to the result. Live server only.
+export function useUploadAssetMutation() {
+  return useMutation({
+    mutationFn: (file: File) => uploadAsset(file),
   });
 }

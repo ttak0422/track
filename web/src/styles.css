@@ -1320,13 +1320,42 @@ a.calendar-title:focus-visible {
   border-color: var(--accent);
 }
 
-/* YAML document editor in the note meta dialog. */
+/* Free-form props editor in the note meta dialog. */
 .modal-input--code {
   font-family: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, monospace;
   font-size: calc(13px * var(--font-scale, 1));
   line-height: 1.5;
   white-space: pre;
   resize: vertical;
+}
+
+/* Cover-image field: the assets/<file> text input beside the native "Choose image..." picker. */
+.modal-image-row {
+  display: flex;
+  gap: 8px;
+  align-items: stretch;
+}
+
+.modal-image-row .modal-input {
+  flex: 1;
+  min-width: 0;
+}
+
+.modal-image-row button {
+  flex: none;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  padding: 6px 12px;
+  color: var(--text);
+  background: transparent;
+  font-size: calc(13px * var(--font-scale, 1));
+  cursor: pointer;
+  white-space: nowrap;
+}
+
+.modal-image-row button:disabled {
+  cursor: default;
+  opacity: 0.6;
 }
 
 .modal-actions {
