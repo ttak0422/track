@@ -4,7 +4,12 @@ import (
 	"fmt"
 	"slices"
 	"strings"
+	"unicode/utf8"
 )
+
+// minTrigram is the shortest term the FTS5 trigram tokenizer can match: a term of one or two
+// characters forms no trigram, so a body query containing such a term must fall back to a scan.
+const minTrigram = 3
 
 type SearchScope string
 
@@ -67,7 +72,8 @@ func searchQuery(scope SearchScope, query string, limit int) (string, []any, err
 	case SearchAll, SearchTitle:
 		// title search runs against the SQLite cache; body search does not (see below).
 	case SearchBody:
-		return "", nil, fmt.Errorf("body search is not stored in the SQLite cache")
+		// Body search runs through the FTS5 index, not this title query — see SearchBodyFTS.
+		return "", nil, fmt.Errorf("use SearchBodyFTS for body scope")
 	default:
 		return "", nil, fmt.Errorf("unknown search scope %q", scope)
 	}
@@ -224,6 +230,89 @@ func searchTagged(parsed parsedTaggedQuery, limit int) (string, []any) {
 	args := append(whereArgs, orderArgs...)
 	args = append(args, limit)
 	return sql, args
+}
+
+// BodyTerms splits a body query into implicit-AND terms. A standalone uppercase AND is the default
+// join and is dropped; every other whitespace field is a literal substring to require.
+func BodyTerms(query string) []string {
+	var terms []string
+	for _, field := range strings.Fields(query) {
+		if field == "AND" {
+			continue
+		}
+		terms = append(terms, field)
+	}
+	return terms
+}
+
+// BodyQueryUsesFTS reports whether a body query can be served by the trigram FTS index: it needs at
+// least one term and every term must be long enough to form a trigram. Shorter terms (e.g. a two-letter
+// word or a two-character CJK word like 世界) have no trigram and are left to the per-file fallback.
+func BodyQueryUsesFTS(query string) bool {
+	terms := BodyTerms(query)
+	if len(terms) == 0 {
+		return false
+	}
+	for _, term := range terms {
+		if utf8.RuneCountInString(term) < minTrigram {
+			return false
+		}
+	}
+	return true
+}
+
+// SearchBodyFTS returns notes whose body matches every term of query, ranked by FTS5 bm25 relevance
+// then recency. Caller must ensure BodyQueryUsesFTS(query); a short-term query is handled by a scan.
+// Results carry note metadata but no Line/Snippet — the caller locates those in the file, preserving
+// the line-number contract while FTS does the matching and ranking.
+func (s *Store) SearchBodyFTS(query string, limit int) ([]SearchResult, error) {
+	if limit <= 0 {
+		limit = 50
+	}
+	terms := BodyTerms(query)
+	if len(terms) == 0 {
+		return nil, nil
+	}
+	rows, err := s.db.Query(
+		`SELECT n.id, n.kind, n.title, n.mtime,
+		   COALESCE((
+		     SELECT group_concat(tag, char(31))
+		     FROM (SELECT tag FROM tags WHERE note_id = n.id ORDER BY tag)
+		   ), '') AS tags
+		 FROM notes_fts f
+		 JOIN notes n ON n.id = f.rowid
+		 WHERE notes_fts MATCH ? AND n.kind IN ('note', 'journal')
+		 ORDER BY bm25(notes_fts), n.mtime DESC, n.id DESC
+		 LIMIT ?`,
+		ftsMatchExpr(terms), limit,
+	)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var out []SearchResult
+	for rows.Next() {
+		var r SearchResult
+		var tags string
+		if err := rows.Scan(&r.NoteID, &r.FileKind, &r.Title, &r.Mtime, &tags); err != nil {
+			return nil, err
+		}
+		r.Tags = splitTags(tags)
+		out = append(out, r)
+	}
+	return out, rows.Err()
+}
+
+// ftsMatchExpr builds an FTS5 MATCH expression that requires every term as a literal substring. Each
+// term is wrapped as a quoted string (doubling any embedded quote) so user punctuation is never parsed
+// as FTS5 query syntax, and terms are joined with AND.
+func ftsMatchExpr(terms []string) string {
+	quoted := make([]string, len(terms))
+	for i, term := range terms {
+		quoted[i] = `"` + strings.ReplaceAll(term, `"`, `""`) + `"`
+	}
+	return strings.Join(quoted, " AND ")
 }
 
 // SearchRefs returns indexed notes with search-only ranking/display metadata.

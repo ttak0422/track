@@ -43,6 +43,15 @@ func (s *Store) UpsertNote(n *note.Note) error {
 		return err
 	}
 
+	// Keep the FTS body index in step with the note row so --scope body search stays consistent
+	// with the vault after every reindex. Delete-then-insert covers both new and updated notes.
+	if _, err := tx.Exec(`DELETE FROM notes_fts WHERE rowid = ?`, n.ID); err != nil {
+		return err
+	}
+	if _, err := tx.Exec(`INSERT INTO notes_fts (rowid, body) VALUES (?, ?)`, n.ID, n.Body); err != nil {
+		return err
+	}
+
 	if _, err := tx.Exec(`DELETE FROM tags WHERE note_id = ?`, n.ID); err != nil {
 		return err
 	}
@@ -72,8 +81,12 @@ func (s *Store) UpsertNote(n *note.Note) error {
 	return tx.Commit()
 }
 
-// DeleteNote removes a note; tags and links cascade.
+// DeleteNote removes a note; tags and links cascade. The FTS body row is not a foreign-key child of
+// notes (virtual tables can't cascade), so it is deleted explicitly.
 func (s *Store) DeleteNote(id int64) error {
+	if _, err := s.db.Exec(`DELETE FROM notes_fts WHERE rowid = ?`, id); err != nil {
+		return err
+	}
 	_, err := s.db.Exec(`DELETE FROM notes WHERE id = ?`, id)
 	return err
 }
