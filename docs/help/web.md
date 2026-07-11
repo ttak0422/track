@@ -12,6 +12,10 @@ Back to [[track]].
 - Hover previews and persistent floating windows for linked notes and media.
 - A local link graph you can open per-note or full-screen.
 - Follow mode, so the web view tracks the note you are editing in Neovim.
+- A metadata editor (the Meta dialog in the note actions menu): the note's tags, description,
+  cover image, and [[Properties]] as one YAML document, validated and applied by the engine —
+  the same round-trip as `track meta --edit` and the Neovim `:Track meta` popup. The published
+  static site has no editor.
 
 ## Media embeds and diagrams
 

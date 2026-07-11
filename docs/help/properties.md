@@ -1,10 +1,10 @@
 # Properties
 
-Properties are typed key-value metadata on a note: a status, a rating, a due date, an owner. They
-stay out of your prose — either in the note's metadata sidecar or as small `key:: value` fields —
-and the engine indexes them with the rest of the vault, so they are queryable and visible wherever
-the note is shown. If you know Obsidian's properties or org-mode's property drawers, this is the
-same idea.
+Properties are typed key-value metadata on a note: a status, a rating, a due date, an owner. Their
+home is the note's metadata sidecar, next to its tags and description — out of your prose — and the
+engine indexes them with the rest of the vault, so they are queryable and visible wherever the note
+is shown. When a data point belongs *in* the prose, a small inline `key:: value` field embeds it
+there. If you know Obsidian's properties or org-mode's property drawers, this is the same idea.
 
 This page is its own demo: it carries the inline fields below, so the property strip at the top of
 this page is rendered from them.
@@ -19,14 +19,21 @@ Back to [[track]].
 ## Where properties live
 
 track keeps note metadata (title, tags, description) in a per-note sidecar file, not in YAML
-frontmatter — the body stays plain Markdown. Properties follow the same rule: they are stored under
-`props` in the sidecar and edited through the CLI:
+frontmatter — the body stays plain Markdown. Properties follow the same rule: note-level properties
+live under `props` in the sidecar, and every frontend edits them there through the same validated
+engine path:
+
+- **The metadata editor** — the [[Web workspace]] Meta dialog, or the Neovim `:Track meta` popup —
+  shows the note's whole editable metadata (tags, description, cover image, props) as one YAML
+  document; saving validates and applies it atomically.
+- **The CLI**, for scripts and point edits:
 
 ```sh
 track meta --title "My note" --set status=draft --set rating=8
 track meta --title "My note" --set "authors=[[Ada Lovelace]], [[Alan Turing]]"
 track meta --title "My note" --unset rating
-track meta --title "My note"          # prints metadata incl. props (JSON)
+track meta --title "My note"          # prints metadata incl. props and the editable doc (JSON)
+track meta --title "My note" --edit - # apply a full metadata document from stdin
 ```
 
 A comma-separated value becomes a list. `--unset` removes a key, and a plain `track meta` call
@@ -34,7 +41,8 @@ prints the current properties along with the rest of the note's metadata.
 
 ## Inline fields
 
-You can also write a property directly in the body, anywhere prose flows, as `key:: value`:
+The sidecar is the home for note-level facts; when a data point belongs in the prose itself, write
+it directly in the body, anywhere prose flows, as `key:: value`:
 
 ```text
 status:: draft
@@ -97,8 +105,9 @@ properties:
 
 ## Where properties show up
 
-- The [[Web workspace]] note view (and this published site) shows a note's properties read-only
-  above the body — sidecar values first, then inline fields in body order.
+- The [[Web workspace]] note view (and this published site) shows a note's properties above the
+  body — sidecar values first, then inline fields in body order. In the live workspace the Meta
+  dialog edits the sidecar values; the published site stays read-only.
 - `track meta` prints them as JSON for scripts.
 - The index stores every value typed and with line provenance, ready for filtering and sorting in
   future queries.
