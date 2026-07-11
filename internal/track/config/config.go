@@ -42,6 +42,11 @@ type Config struct {
 	JournalTemplate string
 	// GenKeep is how many generation snapshots `gen increment` retains (count-based pruning).
 	GenKeep int
+	// EmbedderCommand is the optional command that turns a note's text into an embedding vector, split
+	// into command and arguments. The engine feeds a note's text on stdin and reads a JSON array of
+	// floats from stdout (see the similar package). Empty means no embedder is configured, so semantic
+	// related-notes is unavailable and every other command is unaffected.
+	EmbedderCommand []string
 }
 
 type fileConfig struct {
@@ -54,6 +59,7 @@ type fileConfig struct {
 	DefaultTemplate   string        `yaml:"default_template"`
 	JournalTemplate   string        `yaml:"journal_template"`
 	GenKeep           int           `yaml:"gen_keep"`
+	Embedder          string        `yaml:"embedder"`
 	Web               webFileConfig `yaml:"web"`
 }
 
@@ -172,6 +178,11 @@ func Load() (*Config, error) {
 		genKeep = 10
 	}
 
+	embedder := fc.Embedder
+	if env := os.Getenv("TRACK_EMBEDDER"); env != "" {
+		embedder = env
+	}
+
 	return &Config{
 		VaultDir:          vault,
 		DBPath:            db,
@@ -185,6 +196,7 @@ func Load() (*Config, error) {
 		DefaultTemplate:   defaultTemplate,
 		JournalTemplate:   journalTemplate,
 		GenKeep:           genKeep,
+		EmbedderCommand:   strings.Fields(embedder),
 	}, nil
 }
 

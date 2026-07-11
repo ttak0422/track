@@ -204,6 +204,51 @@ func TestLoadWebTheme(t *testing.T) {
 	}
 }
 
+func TestLoadEmbedder(t *testing.T) {
+	// From config.yml: the command string is split into command + args.
+	vault := t.TempDir()
+	configPath := filepath.Join(t.TempDir(), "config.yml")
+	contents := "vault_dir: " + vault + "\ncache_dir: " + t.TempDir() + "\nembedder: track-embed --model mini\n"
+	if err := os.WriteFile(configPath, []byte(contents), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("TRACK_CONFIG", configPath)
+	t.Setenv("TRACK_VAULT", "")
+	t.Setenv("TRACK_DB", "")
+	t.Setenv("TRACK_CACHE_DIR", "")
+	t.Setenv("TRACK_EMBEDDER", "")
+
+	cfg, err := Load()
+	if err != nil {
+		t.Fatalf("load: %v", err)
+	}
+	if want := []string{"track-embed", "--model", "mini"}; !equalStrings(cfg.EmbedderCommand, want) {
+		t.Fatalf("EmbedderCommand = %v, want %v", cfg.EmbedderCommand, want)
+	}
+
+	// TRACK_EMBEDDER overrides the file value; unset leaves an empty (disabled) command.
+	t.Setenv("TRACK_EMBEDDER", "other-embed")
+	cfg, err = Load()
+	if err != nil {
+		t.Fatalf("load with env: %v", err)
+	}
+	if want := []string{"other-embed"}; !equalStrings(cfg.EmbedderCommand, want) {
+		t.Fatalf("env override EmbedderCommand = %v, want %v", cfg.EmbedderCommand, want)
+	}
+}
+
+func equalStrings(a, b []string) bool {
+	if len(a) != len(b) {
+		return false
+	}
+	for i := range a {
+		if a[i] != b[i] {
+			return false
+		}
+	}
+	return true
+}
+
 func TestDisplayPathForKindKeepsSymlink(t *testing.T) {
 	realVault := t.TempDir()
 	linkParent := t.TempDir()
