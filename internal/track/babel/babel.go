@@ -17,6 +17,7 @@ import (
 // Plain fenced blocks with no language are skipped and never become Blocks.
 type Block struct {
 	Language   string              // first info-string token
+	Info       string              // the full fence info string as written (language plus header arguments)
 	Name       string              // value of :name, empty when unnamed
 	HeaderArgs map[string][]string // ":key v1 v2" -> {"key": ["v1","v2"]}; repeated keys (e.g. :var) accumulate
 	Body       string              // code between the fences, without the fence lines
@@ -57,6 +58,7 @@ func ParseBlocks(body string) []Block {
 			blockBody := strings.Join(lines[start+1:j], "\n")
 			blocks = append(blocks, Block{
 				Language:   lang,
+				Info:       info,
 				Name:       firstValue(args, "name"),
 				HeaderArgs: args,
 				Body:       blockBody,
