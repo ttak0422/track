@@ -1,12 +1,17 @@
 package note
 
 import (
+	"bytes"
+	"errors"
 	"fmt"
+	"io"
 	"os"
 	"path/filepath"
 	"slices"
 	"strings"
 	"time"
+
+	"gopkg.in/yaml.v3"
 
 	"github.com/ttak0422/track/internal/track/config"
 )
@@ -74,6 +79,123 @@ func ApplyMetaEdit(cfg *config.Config, noteID int64, edit MetaEdit) (Metadata, e
 		return Metadata{}, fmt.Errorf("write metadata: %w", err)
 	}
 	return meta, nil
+}
+
+// MetaDoc is the canonical user-editable slice of a note's sidecar metadata as one YAML document:
+// tags, page description/image, and typed props. The title is excluded — it is a link keyword owned
+// by rename. Both frontends (the web meta dialog and the Neovim popup) show this document verbatim
+// and apply it through ApplyMetaDoc, so parsing and validation live here once.
+type MetaDoc struct {
+	Tags        []string       `yaml:"tags"`
+	Description string         `yaml:"description"`
+	Image       string         `yaml:"image"`
+	Props       map[string]any `yaml:"props"`
+}
+
+// MetaDocYAML renders a note's editable metadata document. Empty fields stay present (as empty
+// values) so an editor seeded from it always shows every editable key.
+func MetaDocYAML(meta Metadata) (string, error) {
+	doc := MetaDoc{Tags: meta.Tags, Description: meta.Description, Image: meta.Image, Props: meta.Props}
+	if doc.Tags == nil {
+		doc.Tags = []string{}
+	}
+	if doc.Props == nil {
+		doc.Props = map[string]any{}
+	}
+	out, err := yaml.Marshal(doc)
+	if err != nil {
+		return "", err
+	}
+	return string(out), nil
+}
+
+// ApplyMetaDoc replaces a note's editable metadata (tags, description, image, props) with the given
+// YAML document, validating everything before the single sidecar write — a rejected document changes
+// nothing on disk. Unknown top-level keys (title included) are rejected rather than silently
+// dropped, the image must pass the same vault-asset check as ApplyMetaEdit, tags are trimmed and
+// de-duplicated like every CLI tag flag, and props are typed against the configured schema exactly
+// like `track meta --set`. Non-editable sidecar fields (title, created, days, blocks) carry over.
+func ApplyMetaDoc(cfg *config.Config, noteID int64, docYAML []byte) (Metadata, error) {
+	var doc MetaDoc
+	dec := yaml.NewDecoder(bytes.NewReader(docYAML))
+	dec.KnownFields(true)
+	if err := dec.Decode(&doc); err != nil && !errors.Is(err, io.EOF) {
+		return Metadata{}, fmt.Errorf("parse metadata document: %w", err)
+	}
+	doc.Description = strings.TrimSpace(doc.Description)
+	doc.Image = strings.TrimSpace(doc.Image)
+	if doc.Image != "" {
+		if err := validateImageRef(cfg, doc.Image); err != nil {
+			return Metadata{}, err
+		}
+	}
+	if len(doc.Props) == 0 {
+		doc.Props = nil
+	}
+	for key, value := range doc.Props {
+		if !ValidPropKey(key) {
+			return Metadata{}, fmt.Errorf("invalid property key %q (want letter, then letters/digits/_/-)", key)
+		}
+		if !scalarOrScalarList(value) {
+			return Metadata{}, fmt.Errorf("property %s: value must be a scalar or a list of scalars", key)
+		}
+		if violations := CheckProps(flattenValue(key, value), cfg.Properties); len(violations) > 0 {
+			return Metadata{}, fmt.Errorf("property %s: %s", key, violations[0].Message)
+		}
+	}
+
+	metaPath := cfg.MetadataPath(noteID)
+	meta, found, err := ReadMetadata(metaPath)
+	if err != nil {
+		return Metadata{}, fmt.Errorf("read metadata: %w", err)
+	}
+	if !found {
+		meta = Metadata{Created: time.Now().Format(cfg.DateFormat)}
+	}
+	meta.Tags = DedupTags(doc.Tags)
+	meta.Description = doc.Description
+	meta.Image = doc.Image
+	meta.Props = doc.Props
+	if err := WriteMetadata(metaPath, meta); err != nil {
+		return Metadata{}, fmt.Errorf("write metadata: %w", err)
+	}
+	return meta, nil
+}
+
+// scalarOrScalarList reports whether a props value has an editable shape: a YAML scalar or a
+// (possibly nested) list of scalars — the shapes flattenValue indexes meaningfully. A map anywhere
+// would flatten to junk in the property index, so it is rejected at apply time.
+func scalarOrScalarList(v any) bool {
+	switch val := v.(type) {
+	case map[string]any:
+		return false
+	case []any:
+		for _, item := range val {
+			if !scalarOrScalarList(item) {
+				return false
+			}
+		}
+	}
+	return true
+}
+
+// DedupTags trims and de-duplicates tags, preserving first-seen order. It returns nil for an empty
+// set. This is the single tag-normalization rule, shared by the CLI tag flags and ApplyMetaDoc.
+func DedupTags(tags []string) []string {
+	if len(tags) == 0 {
+		return nil
+	}
+	seen := make(map[string]bool, len(tags))
+	var out []string
+	for _, tg := range tags {
+		tg = strings.TrimSpace(tg)
+		if tg == "" || seen[tg] {
+			continue
+		}
+		seen[tg] = true
+		out = append(out, tg)
+	}
+	return out
 }
 
 // validateImageRef checks a cover-image reference: assets/-relative, no escape from the assets

@@ -1012,25 +1012,37 @@ func TestNoteMetaEndpoint(t *testing.T) {
 		return resp, decoded
 	}
 
-	// Edits go through the engine's validated write path; the response echoes the stored values.
-	resp, res := post(`{"description":"  a summary  ","image":"assets/cover.png"}`)
-	if resp.StatusCode != http.StatusOK || res["description"] != "a summary" || res["image"] != "assets/cover.png" || res["updated"] != true {
+	// GET returns the editable YAML document with every editable key present.
+	seed, _ := getJSON(t, server.URL+"/api/note/meta?id=100")["doc"].(string)
+	for _, key := range []string{"tags:", "description:", "image:", "props:"} {
+		if !strings.Contains(seed, key) {
+			t.Fatalf("seed doc missing %q:\n%s", key, seed)
+		}
+	}
+
+	// Edits apply the whole document through the engine's validated write path; the response echoes
+	// the stored document.
+	edited := "tags:\n  - go\ndescription: a summary\nimage: assets/cover.png\nprops:\n  status: draft\n"
+	body, _ := json.Marshal(map[string]string{"doc": edited})
+	resp, res := post(string(body))
+	if resp.StatusCode != http.StatusOK || res["updated"] != true {
 		t.Fatalf("unexpected meta response: %d %v", resp.StatusCode, res)
 	}
-	got := getJSON(t, server.URL+"/api/note/meta?id=100")
-	if got["description"] != "a summary" || got["image"] != "assets/cover.png" {
-		t.Fatalf("unexpected meta read: %v", got)
+	doc, _ := getJSON(t, server.URL+"/api/note/meta?id=100")["doc"].(string)
+	for _, want := range []string{"- go", "a summary", "assets/cover.png", "status: draft"} {
+		if !strings.Contains(doc, want) {
+			t.Fatalf("stored doc missing %q:\n%s", want, doc)
+		}
 	}
 
-	// A null field is untouched; an empty string clears.
-	resp, res = post(`{"image":""}`)
-	if resp.StatusCode != http.StatusOK || res["description"] != "a summary" || res["image"] != "" {
-		t.Fatalf("clear image failed: %d %v", resp.StatusCode, res)
-	}
-
-	// A bad image is a 400 carrying the engine's message.
-	resp, _ = post(`{"image":"assets/nope.png"}`)
+	// A bad document is a 400 carrying the engine's message, and changes nothing.
+	bad, _ := json.Marshal(map[string]string{"doc": "image: assets/nope.png\n"})
+	resp, _ = post(string(bad))
 	if resp.StatusCode != http.StatusBadRequest {
 		t.Fatalf("bad image should be a 400, got %d", resp.StatusCode)
+	}
+	unchanged, _ := getJSON(t, server.URL+"/api/note/meta?id=100")["doc"].(string)
+	if unchanged != doc {
+		t.Fatalf("rejected doc must change nothing:\n%s\n---\n%s", doc, unchanged)
 	}
 }

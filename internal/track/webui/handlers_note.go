@@ -173,10 +173,12 @@ func (s *Server) putNote(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, map[string]any{"note_id": ref.NoteID, "etag": etagFor(out), "saved": true})
 }
 
-// handleNoteMeta reads or edits a note's page metadata (description, cover image). Edits go through
-// the same validated engine write path as the CLI meta command (note.ApplyMetaEdit), so the rules —
-// an existing vault asset, raster format, no traversal — live in one place; a violation is a 400
-// whose message the editor shows inline. A JSON field left null is untouched, "" clears it.
+// handleNoteMeta reads or edits a note's editable sidecar metadata — tags, description, cover
+// image, and typed props — as one YAML document ("doc"). Edits go through the same validated engine
+// write path as `track meta --edit` (note.ApplyMetaDoc), so all the rules — tag normalization, an
+// existing vault asset in a raster format, props typed against the configured schema — live in one
+// place; a violation is a 400 whose message the editor shows inline, and a rejected document
+// changes nothing.
 func (s *Server) handleNoteMeta(w http.ResponseWriter, r *http.Request) {
 	id, err := parseID(r)
 	if err != nil {
@@ -195,17 +197,21 @@ func (s *Server) handleNoteMeta(w http.ResponseWriter, r *http.Request) {
 			writeError(w, err, http.StatusInternalServerError)
 			return
 		}
-		writeJSON(w, map[string]any{"description": meta.Description, "image": meta.Image})
+		doc, err := note.MetaDocYAML(meta)
+		if err != nil {
+			writeError(w, err, http.StatusInternalServerError)
+			return
+		}
+		writeJSON(w, map[string]any{"doc": doc})
 	case http.MethodPost:
 		var req struct {
-			Description *string `json:"description"`
-			Image       *string `json:"image"`
+			Doc string `json:"doc"`
 		}
 		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 			writeError(w, fmt.Errorf("decode request: %w", err), http.StatusBadRequest)
 			return
 		}
-		meta, err := note.ApplyMetaEdit(s.cfg, id, note.MetaEdit{Description: req.Description, Image: req.Image})
+		meta, err := note.ApplyMetaDoc(s.cfg, id, []byte(req.Doc))
 		if err != nil {
 			writeError(w, err, http.StatusBadRequest)
 			return
@@ -214,7 +220,12 @@ func (s *Server) handleNoteMeta(w http.ResponseWriter, r *http.Request) {
 			writeError(w, fmt.Errorf("reindex: %w", err), http.StatusInternalServerError)
 			return
 		}
-		writeJSON(w, map[string]any{"description": meta.Description, "image": meta.Image, "updated": true})
+		doc, err := note.MetaDocYAML(meta)
+		if err != nil {
+			writeError(w, err, http.StatusInternalServerError)
+			return
+		}
+		writeJSON(w, map[string]any{"doc": doc, "updated": true})
 	default:
 		writeError(w, fmt.Errorf("method %s not allowed", r.Method), http.StatusMethodNotAllowed)
 	}

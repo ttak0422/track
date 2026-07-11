@@ -3,6 +3,7 @@ package cli
 import (
 	"flag"
 	"fmt"
+	"io"
 	"os"
 	"path/filepath"
 	"strconv"
@@ -411,10 +412,12 @@ func cmdUpdate(args []string) int {
 	})
 }
 
-// cmdMeta prints or edits a note's metadata. With no edit flags it reports the current metadata;
-// --description / --image set page metadata and --set / --unset edit typed note properties, all
-// through the engine's single validated write path (note.ApplyMetaEdit). An explicitly empty
-// --description / --image clears the field.
+// cmdMeta prints or edits a note's metadata. With no edit flags it reports the current metadata
+// (including its editable YAML document under "doc"); --description / --image set page metadata and
+// --set / --unset edit typed note properties. --edit applies a full metadata document (tags,
+// description, image, props) read from a file or stdin. All writes go through the engine's single
+// validated path (note.ApplyMetaEdit / note.ApplyMetaDoc). An explicitly empty --description /
+// --image clears the field.
 func cmdMeta(args []string) int {
 	fs := flag.NewFlagSet("meta", flag.ContinueOnError)
 	id := fs.Int64("id", 0, "note id")
@@ -422,6 +425,7 @@ func cmdMeta(args []string) int {
 	path := fs.String("path", "", "note path (alternative to --id)")
 	description := fs.String("description", "", "page summary (og:description); empty clears")
 	image := fs.String("image", "", "cover image as assets/<file> (og:image); empty clears")
+	editDoc := fs.String("edit", "", "apply a full metadata YAML document (tags/description/image/props) from this file, or stdin when \"-\"")
 	var sets kvFlag
 	var unsets tagsFlag
 	fs.Var(&sets, "set", "set a property as key=value (repeatable; comma-separated value makes a list)")
@@ -460,9 +464,27 @@ func cmdMeta(args []string) int {
 	}
 	edit.Unset = []string(unsets)
 	edited := edit.Description != nil || edit.Image != nil || len(edit.Set) > 0 || len(edit.Unset) > 0
+	docSource := strings.TrimSpace(*editDoc)
+	if docSource != "" && edited {
+		return fail("--edit cannot be combined with --description/--image/--set/--unset")
+	}
 
 	var meta note.Metadata
-	if edited {
+	switch {
+	case docSource != "":
+		raw, err := readMetaDoc(docSource)
+		if err != nil {
+			return fail("read metadata document: %v", err)
+		}
+		meta, err = note.ApplyMetaDoc(cfg, noteID, raw)
+		if err != nil {
+			return fail("%v", err)
+		}
+		edited = true
+		if err := index.New(cfg, s).One(notePath); err != nil {
+			return fail("index note: %v", err)
+		}
+	case edited:
 		meta, err = note.ApplyMetaEdit(cfg, noteID, edit)
 		if err != nil {
 			return fail("%v", err)
@@ -470,11 +492,15 @@ func cmdMeta(args []string) int {
 		if err := index.New(cfg, s).One(notePath); err != nil {
 			return fail("index note: %v", err)
 		}
-	} else {
+	default:
 		meta, _, err = note.ReadMetadata(cfg.MetadataPath(noteID))
 		if err != nil {
 			return fail("read metadata: %v", err)
 		}
+	}
+	doc, err := note.MetaDocYAML(meta)
+	if err != nil {
+		return fail("render metadata document: %v", err)
 	}
 	return emit(map[string]any{
 		"id":          noteID,
@@ -485,8 +511,18 @@ func cmdMeta(args []string) int {
 		"description": meta.Description,
 		"image":       meta.Image,
 		"props":       meta.Props,
+		"doc":         doc,
 		"updated":     edited,
 	})
+}
+
+// readMetaDoc reads the metadata document for `meta --edit`: from stdin when the source is "-",
+// otherwise from the named file.
+func readMetaDoc(source string) ([]byte, error) {
+	if source == "-" {
+		return io.ReadAll(os.Stdin)
+	}
+	return os.ReadFile(source)
 }
 
 func cmdRename(args []string) int {
