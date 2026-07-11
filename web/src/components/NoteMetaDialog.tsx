@@ -2,21 +2,20 @@ import { useEffect, useState } from "react";
 import { useNoteMetaQuery, useSaveNoteMetaMutation } from "../queries";
 import type { NoteID } from "../types";
 
-// NoteMetaDialog edits a note's page metadata — the description and cover image the static export
-// publishes as og:description / og:image. Validation lives in the engine (the same path as
-// `track meta`); a rejected image surfaces the server's message inline and keeps the dialog open.
+// NoteMetaDialog edits a note's editable sidecar metadata — tags, description, cover image, and
+// typed props — as one YAML document. Parsing and validation live in the engine (the same path as
+// `track meta --edit`): a rejected document (bad image, prop breaking the configured schema)
+// surfaces the server's message inline and keeps the dialog open; nothing is written on rejection.
 export function NoteMetaDialog({ noteID, onClose }: { noteID: NoteID; onClose: () => void }) {
   const meta = useNoteMetaQuery(noteID, { enabled: true });
   const save = useSaveNoteMetaMutation(noteID);
-  const [description, setDescription] = useState("");
-  const [image, setImage] = useState("");
+  const [doc, setDoc] = useState("");
   const [loadedFor, setLoadedFor] = useState<NoteID | null>(null);
 
-  // Seed the fields once from the fetched metadata; later edits belong to the user.
+  // Seed the document once from the fetched metadata; later edits belong to the user.
   useEffect(() => {
     if (meta.data && loadedFor !== noteID) {
-      setDescription(meta.data.description);
-      setImage(meta.data.image);
+      setDoc(meta.data.doc);
       setLoadedFor(noteID);
     }
   }, [meta.data, loadedFor, noteID]);
@@ -24,7 +23,7 @@ export function NoteMetaDialog({ noteID, onClose }: { noteID: NoteID; onClose: (
   async function submit() {
     if (save.isPending) return;
     try {
-      await save.mutateAsync({ description: description.trim(), image: image.trim() });
+      await save.mutateAsync({ doc });
       onClose();
     } catch {
       // The validation message surfaces via save.isError below; the dialog stays open.
@@ -41,32 +40,21 @@ export function NoteMetaDialog({ noteID, onClose }: { noteID: NoteID; onClose: (
     >
       {/* Stop backdrop clicks inside the card from dismissing the dialog. */}
       <div className="modal-card" onClick={(event) => event.stopPropagation()}>
-        <h3 id="note-meta-title">Page metadata</h3>
+        <h3 id="note-meta-title">Note metadata</h3>
         <label className="modal-field">
-          <span className="muted">Description (og:description)</span>
+          <span className="muted">
+            tags, description, cover image (assets/&lt;file&gt;), and props — YAML, validated on save.
+            The title is renamed elsewhere.
+          </span>
           <textarea
-            className="modal-input"
-            rows={3}
-            value={description}
+            className="modal-input modal-input--code"
+            rows={12}
+            value={doc}
             /* eslint-disable-next-line jsx-a11y/no-autofocus */
             autoFocus
             disabled={meta.isPending}
-            onChange={(event) => setDescription(event.currentTarget.value)}
+            onChange={(event) => setDoc(event.currentTarget.value)}
             onKeyDown={(event) => {
-              if (event.key === "Escape") onClose();
-            }}
-          />
-        </label>
-        <label className="modal-field">
-          <span className="muted">Cover image (og:image) — a vault asset, e.g. assets/cover.png</span>
-          <input
-            className="modal-input"
-            value={image}
-            placeholder="assets/cover.png"
-            disabled={meta.isPending}
-            onChange={(event) => setImage(event.currentTarget.value)}
-            onKeyDown={(event) => {
-              if (event.key === "Enter") void submit();
               if (event.key === "Escape") onClose();
             }}
           />

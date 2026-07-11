@@ -1320,6 +1320,15 @@ a.calendar-title:focus-visible {
   border-color: var(--accent);
 }
 
+/* YAML document editor in the note meta dialog. */
+.modal-input--code {
+  font-family: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, monospace;
+  font-size: calc(13px * var(--font-scale, 1));
+  line-height: 1.5;
+  white-space: pre;
+  resize: vertical;
+}
+
 .modal-actions {
   display: flex;
   justify-content: flex-end;

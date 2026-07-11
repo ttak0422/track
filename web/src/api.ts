@@ -159,8 +159,9 @@ export function saveNote(noteID: NoteID, request: SaveNoteRequest): Promise<Save
   });
 }
 
-// getNoteMeta / saveNoteMeta read and edit a note's page metadata (description, cover image). The
-// static site has no meta editor, so both are live-server only.
+// getNoteMeta / saveNoteMeta read and edit a note's editable sidecar metadata (tags, description,
+// cover image, props) as one YAML document. The static site has no meta editor, so both are
+// live-server only.
 export function getNoteMeta(noteID: NoteID): Promise<NoteMetaResponse> {
   if (STATIC_MODE) {
     return readOnly();

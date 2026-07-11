@@ -221,8 +221,8 @@ export function useSaveNoteMutation(noteID: NoteID) {
   });
 }
 
-// useNoteMetaQuery loads a note's page metadata for the meta dialog; fetched only while the dialog
-// is open (live server only — the static site has no editor).
+// useNoteMetaQuery loads a note's editable metadata document for the meta dialog; fetched only
+// while the dialog is open (live server only — the static site has no editor).
 export function useNoteMetaQuery(noteID: NoteID, opts: { enabled: boolean }) {
   return useQuery({
     queryKey: queryKeys.noteMeta(noteID),
@@ -237,7 +237,11 @@ export function useSaveNoteMetaMutation(noteID: NoteID) {
   return useMutation({
     mutationFn: (request: SaveNoteMetaRequest) => saveNoteMeta(noteID, request),
     onSuccess: (response) => {
-      queryClient.setQueryData<NoteMetaResponse>(queryKeys.noteMeta(noteID), response);
+      queryClient.setQueryData<NoteMetaResponse>(queryKeys.noteMeta(noteID), { doc: response.doc });
+      // The document carries tags and props, which the note view and lists render.
+      void queryClient.invalidateQueries({ queryKey: queryKeys.note(noteID) });
+      void queryClient.invalidateQueries({ queryKey: queryKeys.notes() });
+      void queryClient.invalidateQueries({ queryKey: ["search"] });
     },
   });
 }

@@ -113,17 +113,16 @@ export interface DeleteNoteResponse {
   deleted: boolean;
 }
 
-// A note's page metadata (sidecar description / cover image), edited via the meta dialog and
-// published as og:description / og:image by the static export.
+// A note's editable sidecar metadata — tags, description, cover image, typed props — as one YAML
+// document. The dialog edits the document verbatim; the engine parses and validates it (the same
+// path as `track meta --edit`), so the frontend never interprets the YAML.
 export interface NoteMetaResponse {
-  description: string;
-  image: string;
+  doc: string;
 }
 
-// A save request leaves an omitted field untouched; an empty string clears it (engine semantics).
+// A save request replaces the whole editable document; a rejected document changes nothing.
 export interface SaveNoteMetaRequest {
-  description?: string;
-  image?: string;
+  doc: string;
 }
 
 export interface FollowState {
