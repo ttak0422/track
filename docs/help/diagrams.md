@@ -1,11 +1,15 @@
 # Diagrams
 
-track renders [Mermaid](https://mermaid.js.org/) diagrams as a first-class part of [[Visualization]] —
-not only statistical [[Charts]]. **Every diagram type Mermaid supports works**, because track hands the
-block straight to the Mermaid library: flowcharts, sequence, class, state, entity-relationship, Gantt,
-pie, user-journey, gitgraph, and the rest.
+track renders diagrams as a first-class part of [[Visualization]] — not only statistical [[Charts]].
+Two engines are built in, each triggered by its fence language:
 
-Part of [[Visualization]] (see also [[Charts]] and [[Embeds]]). Back to [[track]].
+- **[Mermaid](https://mermaid.js.org/)** (` ```mermaid `) — **every diagram type Mermaid supports
+  works**, because track hands the block straight to the Mermaid library: flowcharts, sequence, class,
+  state, entity-relationship, Gantt, pie, user-journey, gitgraph, and the rest.
+- **[Graphviz](https://graphviz.org/)** (` ```dot `) — the DOT language with Graphviz's own layout
+  engine, for arbitrary graphs where you say *what connects to what* and let the layout be computed.
+
+Part of [[Visualization]] (see also [[Charts]], [[Mindmaps]], and [[Embeds]]). Back to [[track]].
 
 ## Writing a diagram
 
@@ -25,11 +29,39 @@ flowchart TD
   review --> idea
 ```
 
+## Graphviz
+
+Fence a block with `dot` (or `graphviz`) and write plain [DOT](https://graphviz.org/doc/info/lang.html).
+Graphviz runs compiled to WebAssembly, right in the browser — nothing to install — and a syntax error
+falls back to the message plus your source, the same as Mermaid:
+
+```dot
+digraph publish_workflow {
+  rankdir=TB;
+  node [shape=box, style=rounded];
+  capture [label="Capture a note"];
+  clarify [label="Clarify the idea"];
+  link [label="Link related notes"];
+  draft [label="Draft a write-up"];
+  review [label="Review and revise"];
+  publish [label="Publish"];
+  archive [label="Archive source material"];
+
+  capture -> clarify -> link -> draft -> review -> publish;
+  review -> draft [label="revise"];
+  publish -> archive;
+}
+```
+
+The graph background defaults to transparent so it sits on the page in both themes; set `bgcolor`
+yourself to override it.
+
 ## Diagrams as attachments
 
-Prefer to keep a diagram in its own file? A `.mmd` / `.mermaid` text attachment renders with the same
-engine — see [[Embeds]] for the standalone `![](assets/diagram.mmd)` syntax. A diagram kept as a
-separate file looks identical to one written inline.
+Prefer to keep a diagram in its own file? A `.mmd` / `.mermaid` attachment renders with the Mermaid
+engine and a `.dot` / `.gv` attachment with Graphviz — see [[Embeds]] for the standalone
+`![](assets/diagram.mmd)` syntax. A diagram kept as a separate file looks identical to one written
+inline.
 
 ## Viewing
 
