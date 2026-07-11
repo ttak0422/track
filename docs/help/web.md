@@ -26,3 +26,9 @@ The static site produced by `track export-site` is the *published* counterpart o
 rendered content only, with no editor, search index, or heatmap top page. It reuses the same Markdown
 and Mermaid rendering so a published note reads the way it does here, while [[Linking notes]] explains
 how cross-note links are resolved against the published set.
+
+## Searching from the workspace
+
+The workspace search box matches note titles and `#tags` through the [[CLI]] as you type. Full-text
+search across note *bodies* — ranked by relevance, with code-block and CJK matches — is a CLI
+capability: run `track search --scope body`. See [[Searching notes]] for the query rules it shares.
