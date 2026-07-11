@@ -173,6 +173,39 @@ func TestCustomStates(t *testing.T) {
 	}
 }
 
+func TestFencedCodeIsNotATask(t *testing.T) {
+	body := strings.Join([]string{
+		"# Plan [0/1]",
+		"",
+		"```md",
+		"- [ ] notation example",
+		"# Heading [9/9]",
+		"```",
+		"- [ ] real task",
+		"",
+	}, "\n")
+
+	tasks := Parse(body, nil)
+	if len(tasks) != 1 || tasks[0].Line != 7 {
+		t.Fatalf("only the real task should parse: %+v", tasks)
+	}
+	if _, ok := At(body, 4, nil); ok {
+		t.Fatal("a fenced example line must not be a task")
+	}
+	if _, _, err := SetState(body, 4, "DONE", nil, testNow); err == nil {
+		t.Fatal("setting state on a fenced line should fail")
+	}
+
+	// The cookie counts only the real task, and the fenced cookie example is left alone.
+	updated, _, err := SetState(body, 7, "DONE", nil, testNow)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(updated, "# Plan [1/1]") || !strings.Contains(updated, "# Heading [9/9]") {
+		t.Fatalf("cookie recompute should skip fenced lines: %q", updated)
+	}
+}
+
 func TestValidateStates(t *testing.T) {
 	if err := ValidateStates(DefaultStates()); err != nil {
 		t.Fatalf("default states should validate: %v", err)

@@ -140,10 +140,16 @@ var (
 )
 
 // Parse returns every task line in body, in order. Line numbers are 1-based over body's lines.
+// Lines inside fenced code blocks are skipped: notation shown as a code example is not a task.
 func Parse(body string, states []State) []Task {
 	states = StatesOrDefault(states)
+	lines := strings.Split(body, "\n")
+	mask := fenced(lines)
 	var out []Task
-	for i, line := range strings.Split(body, "\n") {
+	for i, line := range lines {
+		if mask[i] {
+			continue
+		}
 		t, ok := parseLine(line, states)
 		if !ok {
 			continue
@@ -160,12 +166,63 @@ func At(body string, line int, states []State) (Task, bool) {
 	if line < 1 || line > len(lines) {
 		return Task{}, false
 	}
+	if fenced(lines)[line-1] {
+		return Task{}, false
+	}
 	t, ok := parseLine(lines[line-1], StatesOrDefault(states))
 	if !ok {
 		return Task{}, false
 	}
 	t.Line = line
 	return t, true
+}
+
+// fenced reports which lines sit inside a fenced code block (delimiters included), mirroring the
+// static export's code-mask fence rules, so a task line quoted as a code example never parses as a
+// real task, counts toward a progress cookie, or accepts a state change.
+// ponytail: fences only; a 4-space indented code block still parses — tighten if it ever bites.
+func fenced(lines []string) []bool {
+	mask := make([]bool, len(lines))
+	inFence := false
+	var fenceChar byte
+	var fenceLen int
+	for i, line := range lines {
+		if inFence {
+			mask[i] = true
+			if c, l, rest, ok := fenceInfo(line); ok && c == fenceChar && l >= fenceLen && strings.TrimSpace(line[rest:]) == "" {
+				inFence = false
+			}
+			continue
+		}
+		if c, l, _, ok := fenceInfo(line); ok {
+			mask[i] = true
+			inFence = true
+			fenceChar, fenceLen = c, l
+		}
+	}
+	return mask
+}
+
+// fenceInfo reports whether line opens or closes a code fence: a run of at least three "`" or "~"
+// after up to three leading spaces. It returns the fence character, the run length, and the offset
+// just past the run (where a closing fence must hold only trailing whitespace).
+func fenceInfo(line string) (char byte, length, rest int, ok bool) {
+	k := 0
+	for k < len(line) && k < 3 && line[k] == ' ' {
+		k++
+	}
+	if k >= len(line) || (line[k] != '`' && line[k] != '~') {
+		return 0, 0, 0, false
+	}
+	c := line[k]
+	start := k
+	for k < len(line) && line[k] == c {
+		k++
+	}
+	if k-start < 3 {
+		return 0, 0, 0, false
+	}
+	return c, k - start, k, true
 }
 
 func parseLine(line string, states []State) (Task, bool) {
@@ -264,6 +321,9 @@ func SetState(body string, line int, target string, states []State, now time.Tim
 	if line < 1 || line > len(lines) {
 		return "", Transition{}, fmt.Errorf("line %d is out of range (note has %d lines)", line, len(lines))
 	}
+	if fenced(lines)[line-1] {
+		return "", Transition{}, fmt.Errorf("line %d is inside a code fence, not a task line", line)
+	}
 	m := lineRE.FindStringSubmatch(lines[line-1])
 	if m == nil {
 		return "", Transition{}, fmt.Errorf("line %d is not a task line: %q", line, lines[line-1])
@@ -308,14 +368,18 @@ func SetState(body string, line int, target string, states []State, now time.Tim
 // It reports whether any line changed.
 func recomputeCookies(lines []string, states []State) bool {
 	changed := false
+	mask := fenced(lines)
 	for i, line := range lines {
-		if !cookieRE.MatchString(line) {
+		if mask[i] || !cookieRE.MatchString(line) {
 			continue
 		}
 		var done, total int
 		if hm := headingRE.FindStringSubmatch(line); hm != nil {
 			level := len(hm[1])
 			for j := i + 1; j < len(lines); j++ {
+				if mask[j] {
+					continue
+				}
 				if hm2 := headingRE.FindStringSubmatch(lines[j]); hm2 != nil && len(hm2[1]) <= level {
 					break
 				}
@@ -326,6 +390,9 @@ func recomputeCookies(lines []string, states []State) bool {
 			// ponytail: the scan skips non-list text instead of modeling Markdown list termination;
 			// tighten to real list blocks if stray deep-indented lists ever miscount.
 			for j := i + 1; j < len(lines); j++ {
+				if mask[j] {
+					continue
+				}
 				if headingRE.MatchString(lines[j]) {
 					break
 				}
