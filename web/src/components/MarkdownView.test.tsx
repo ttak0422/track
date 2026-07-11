@@ -1,5 +1,5 @@
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { render, screen, waitFor, within } from "@testing-library/react";
+import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import type { ReactElement } from "react";
 import { describe, expect, it, vi } from "vitest";
 import { MarkdownView } from "./MarkdownView";
@@ -107,6 +107,19 @@ describe("MarkdownView", () => {
     const backref = section?.querySelector("a.footnote-backref") as HTMLAnchorElement;
     expect(backref.getAttribute("href")).toBe("#user-content-fnref-1");
     expect(container.querySelector("#user-content-fn-1")).toBeInTheDocument();
+  });
+
+  it("scrolls the original reference into view from a footnote back-link", () => {
+    const scrollIntoView = vi.fn();
+    Element.prototype.scrollIntoView = scrollIntoView;
+    const { container } = render(
+      <MarkdownView markdown={"A claim.[^1]\n\n[^1]: The source of the claim."} />,
+    );
+
+    const backref = container.querySelector("a.footnote-backref") as HTMLAnchorElement;
+    fireEvent.click(backref);
+
+    expect(scrollIntoView).toHaveBeenCalledWith({ block: "center" });
   });
 
   it("renders viewspec fences through the chart component", () => {
