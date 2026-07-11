@@ -140,6 +140,57 @@ func cmdBacklinks(args []string) int {
 	return emit(map[string]any{"backlinks": back})
 }
 
+// cmdNav prints a note's hierarchy navigation, built from the "up" relation property: the ancestor
+// trail (root first) and the children (notes whose "up" points at this note). This is the same data
+// the web note view renders as breadcrumbs.
+func cmdNav(args []string) int {
+	fs := flag.NewFlagSet("nav", flag.ContinueOnError)
+	id := fs.Int64("id", 0, "note id")
+	path := fs.String("path", "", "note path (alternative to --id)")
+	if err := fs.Parse(args); err != nil {
+		return fail("parse args: %v", err)
+	}
+
+	cfg, s, err := open()
+	if err != nil {
+		return fail("%v", err)
+	}
+	defer s.Close()
+
+	noteID := *id
+	if noteID == 0 {
+		if *path == "" {
+			return fail("--id or --path is required")
+		}
+		parsed, err := note.IDFromPath(*path)
+		if err != nil {
+			return fail("invalid path: %v", err)
+		}
+		noteID = parsed
+	}
+
+	trail, err := s.Trail(noteID)
+	if err != nil {
+		return fail("trail: %v", err)
+	}
+	children, err := s.ChildNotes(noteID)
+	if err != nil {
+		return fail("children: %v", err)
+	}
+	if trail == nil {
+		trail = []store.NoteRef{}
+	}
+	if children == nil {
+		children = []store.NoteRef{}
+	}
+	for _, refs := range [][]store.NoteRef{trail, children} {
+		for i := range refs {
+			refs[i].Path = cfg.PathForKind(refs[i].FileKind, refs[i].NoteID)
+		}
+	}
+	return emit(map[string]any{"trail": trail, "children": children})
+}
+
 // cmdAgenda lists the notes active (created or updated) on a given local calendar day, derived from the
 // activity days recorded in each note's sidecar. It powers "what did I work on that day" lookups from a
 // day's journal and, later, a calendar.

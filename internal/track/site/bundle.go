@@ -83,6 +83,10 @@ type jsonNoteDetail struct {
 type jsonNoteResponse struct {
 	Note      jsonNoteDetail `json:"note"`
 	Backlinks []jsonRef      `json:"backlinks"`
+	// Trail and Children mirror the live server's hierarchy navigation, derived from each doc's "up"
+	// relation property resolved within the published set.
+	Trail    []jsonRef `json:"trail"`
+	Children []jsonRef `json:"children"`
 }
 
 type jsonGraphNode struct {
@@ -178,12 +182,53 @@ func writeBundle(docs []doc, edges []edge, root int64, calendar bool, baseURL, f
 		}
 		linkers[e.dst] = append(linkers[e.dst], src)
 	}
+	// Hierarchy from the "up" relation property, resolved within the published set: parentOf follows
+	// a doc's first resolvable up-target (single-path trail, like the live server's Trail), and
+	// childrenOf collects the reverse for the children list.
+	parentOf := map[int64]int64{}
+	childrenOf := map[int64][]doc{}
+	childSeen := map[edge]bool{}
+	for _, d := range docs {
+		for _, key := range note.UpTargets(d.props) {
+			t, ok := keyDocs[key]
+			if !ok || t.id == d.id {
+				continue
+			}
+			if _, have := parentOf[d.id]; !have {
+				parentOf[d.id] = t.id
+			}
+			if e := (edge{src: d.id, dst: t.id}); !childSeen[e] {
+				childSeen[e] = true
+				childrenOf[t.id] = append(childrenOf[t.id], d)
+			}
+		}
+	}
+	// trailOf walks parentOf to the root, cycle-safe, returning ancestors root first.
+	trailOf := func(id int64) []jsonRef {
+		trail := []jsonRef{}
+		seen := map[int64]bool{id: true}
+		for cur := id; ; {
+			p, ok := parentOf[cur]
+			if !ok || seen[p] {
+				return trail
+			}
+			seen[p] = true
+			trail = append([]jsonRef{refOf(byID[p])}, trail...)
+			cur = p
+		}
+	}
 	for _, d := range docs {
 		srcs := linkers[d.id]
 		byRecency(srcs)
 		bl := make([]jsonRef, 0, len(srcs))
 		for _, src := range srcs {
 			bl = append(bl, refOf(src))
+		}
+		kids := childrenOf[d.id]
+		byRecency(kids)
+		children := make([]jsonRef, 0, len(kids))
+		for _, kid := range kids {
+			children = append(children, refOf(kid))
 		}
 		// Rewrite asset references to their published (slugged) names, matching the copied files.
 		body := rewriteAssetRefs(d.body)
@@ -210,6 +255,8 @@ func writeBundle(docs []doc, edges []edge, root int64, calendar bool, baseURL, f
 				ETag:             etag(body),
 			},
 			Backlinks: bl,
+			Trail:     trailOf(d.id),
+			Children:  children,
 		}
 		if err := writeJSONFile(filepath.Join(outDir, "data", "note", fmt.Sprintf("%s.json", PublishID(d.id))), resp); err != nil {
 			return Result{}, err
