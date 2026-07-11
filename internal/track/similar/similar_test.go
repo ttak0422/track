@@ -39,7 +39,7 @@ func TestCosine(t *testing.T) {
 		{[]float32{1, 0}, []float32{1, 0}, 1},
 		{[]float32{1, 0}, []float32{0, 1}, 0},
 		{[]float32{1, 0}, []float32{-1, 0}, -1},
-		{[]float32{0, 0}, []float32{1, 1}, 0},   // zero vector
+		{[]float32{0, 0}, []float32{1, 1}, 0},    // zero vector
 		{[]float32{1, 2, 3}, []float32{1, 2}, 0}, // dimension mismatch never panics
 	}
 	for _, c := range cases {
