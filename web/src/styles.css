@@ -2713,3 +2713,119 @@ a.calendar-title:focus-visible {
   white-space: nowrap;
   border: 0;
 }
+
+/* ```taskboard fence: a kanban board of the note's task lines, one column per configured state.
+   Columns scroll horizontally inside the board so a wide state set never widens the page. */
+.task-board {
+  margin: 12px 0;
+}
+
+.task-board-columns {
+  display: flex;
+  gap: 10px;
+  align-items: flex-start;
+  overflow-x: auto;
+  padding-bottom: 4px;
+}
+
+.task-column {
+  flex: 1 0 170px;
+  min-width: 170px;
+  padding: 8px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--panel-soft);
+}
+
+.task-column-dragover {
+  outline: 2px solid var(--accent);
+  outline-offset: -2px;
+}
+
+.task-column-header {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  margin-bottom: 8px;
+}
+
+.task-column-name {
+  font-size: 0.8em;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  color: var(--muted);
+}
+
+.task-column-count {
+  font-size: 0.8em;
+  color: var(--muted);
+  font-variant-numeric: tabular-nums;
+}
+
+.task-card {
+  margin: 0 0 8px;
+  padding: 8px 10px;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  background: var(--panel);
+}
+
+.task-card:last-child {
+  margin-bottom: 0;
+}
+
+.task-card[draggable="true"] {
+  cursor: grab;
+}
+
+.task-card-done .task-card-text {
+  color: var(--muted);
+  text-decoration: line-through;
+}
+
+.task-card-text {
+  font-size: 0.9em;
+  overflow-wrap: anywhere;
+}
+
+.task-card-meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  align-items: center;
+  margin-top: 6px;
+}
+
+.task-card-meta:empty {
+  display: none;
+}
+
+.task-chip {
+  font-size: 0.75em;
+  padding: 1px 6px;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  color: var(--muted);
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+
+.task-chip-priority {
+  color: var(--accent-strong);
+  border-color: var(--accent);
+}
+
+.task-chip-due {
+  color: var(--danger);
+  border-color: var(--danger);
+}
+
+.task-card-state {
+  margin-left: auto;
+  font-size: 0.75em;
+  padding: 1px 4px;
+  border: 1px solid var(--line);
+  border-radius: 4px;
+  background: var(--panel-soft);
+  color: var(--text);
+}

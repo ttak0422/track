@@ -20,6 +20,7 @@ import type {
   SearchResponse,
   SearchResult,
   SiteResponse,
+  TasksResponse,
   ViewSpecResponse,
 } from "./types";
 
@@ -175,6 +176,20 @@ export function saveNoteMeta(noteID: NoteID, request: SaveNoteMetaRequest): Prom
   return api<NoteMetaResponse>(`/api/note/meta?id=${encodeURIComponent(noteID)}`, {
     method: "POST",
     body: request,
+  });
+}
+
+// setTaskState moves one task line of a note into a named state through the engine's shared write
+// path (completion stamp, sidecar transition log, progress-cookie recompute). The response carries
+// the note's refreshed tasks so the board can redraw without a second request. Live server only —
+// the published static board is read-only.
+export function setTaskState(noteID: NoteID, line: number, state: string): Promise<TasksResponse> {
+  if (STATIC_MODE) {
+    return readOnly();
+  }
+  return api<TasksResponse>(`/api/task?id=${encodeURIComponent(noteID)}`, {
+    method: "POST",
+    body: { line, state },
   });
 }
 

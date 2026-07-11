@@ -1,5 +1,5 @@
 import { createContext } from "react";
-import type { NoteInclude } from "../../types";
+import type { NoteID, NoteInclude, NoteTasks } from "../../types";
 
 // Nesting depth of the current markdown render. Each preview renders its body
 // one level deeper so nested previews can stack in front of their parent.
@@ -13,3 +13,12 @@ export const NoteKindContext = createContext<string>("note");
 // tokens spliceIncludeTokens left in the markdown. Module-level markdownComponents cannot close
 // over per-render data, so the embed component reads them from here.
 export const IncludesContext = createContext<NoteInclude[]>([]);
+
+// The note whose ```taskboard fence is being rendered: its id (for the state-set API; "" disables
+// dragging, e.g. in hover previews) and its parsed tasks from the note response / static bundle.
+export interface TaskBoardData {
+  noteID: NoteID;
+  tasks?: NoteTasks;
+}
+
+export const TaskBoardContext = createContext<TaskBoardData>({ noteID: "" });

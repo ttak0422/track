@@ -74,11 +74,44 @@ export interface NoteInclude {
   error?: string;
 }
 
+// One named task state of the vault's configured set: the checkbox marker character and whether the
+// state is done-family (completion). The set defines the task board's columns.
+export interface TaskState {
+  name: string;
+  char: string;
+  done: boolean;
+}
+
+// One parsed task line of a note. line is 1-based over the note file — the coordinate the state-set
+// API takes. The date fields are plain YYYY-MM-DD strings from the inline bracket tokens.
+export interface TaskItem {
+  line: number;
+  state: string;
+  done: boolean;
+  priority?: string;
+  scheduled?: string;
+  due?: string;
+  completed?: string;
+  text: string;
+}
+
+// A note's tasks plus the state set, as served by /api/tasks, embedded in the note response, and
+// baked into the static bundle's note JSON.
+export interface NoteTasks {
+  states: TaskState[];
+  items: TaskItem[];
+}
+
+export interface TasksResponse {
+  tasks: NoteTasks;
+}
+
 export interface NoteDetail extends SearchResult {
   copy_path: string;
   body: string;
   etag: string;
   includes?: NoteInclude[];
+  tasks?: NoteTasks;
 }
 
 export interface NoteResponse {

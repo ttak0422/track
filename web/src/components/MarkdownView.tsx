@@ -5,7 +5,8 @@ import remarkGfm from "remark-gfm";
 import type { NoteInclude } from "../types";
 import { rehypeBudoux } from "./markdown/budouxEager";
 import { CodeBlock } from "./markdown/CodeBlock";
-import { IncludesContext, NoteKindContext } from "./markdown/context";
+import { IncludesContext, NoteKindContext, TaskBoardContext } from "./markdown/context";
+import { TaskBoard } from "./markdown/TaskBoard";
 import { Embed } from "./markdown/Embed";
 import { ExternalLink } from "./markdown/ExternalLink";
 import { loadMathPlugins, looksLikeMath, type MathPlugins, mathPluginsIfLoaded } from "./markdown/math";
@@ -103,7 +104,11 @@ function IncludeEmbed({ include }: { include: NoteInclude }) {
           include.caption
         )}
       </div>
-      <MarkdownView markdown={include.lines.join("\n")} kind={include.kind ?? "note"} />
+      {/* Reset the task-board context: a ```taskboard fence inside embedded content must not show
+          the host note's board. */}
+      <TaskBoardContext.Provider value={emptyTaskBoard}>
+        <MarkdownView markdown={include.lines.join("\n")} kind={include.kind ?? "note"} />
+      </TaskBoardContext.Provider>
       {(include.bad_options ?? []).map((bad) => (
         <div key={bad} className="note-include-warning">
           ⚠ unknown option: {bad}
@@ -112,6 +117,8 @@ function IncludeEmbed({ include }: { include: NoteInclude }) {
     </section>
   );
 }
+
+const emptyTaskBoard = { noteID: "" };
 
 // TrackInclude resolves the placeholder's index against the includes of the note being rendered.
 function TrackInclude({ node }: ElementProps) {
@@ -158,6 +165,9 @@ const markdownComponents = {
       }
       if (normalized === "viewspec") {
         return <ViewSpecChart text={text} />;
+      }
+      if (normalized === "taskboard") {
+        return <TaskBoard />;
       }
       if (normalized === "echarts") {
         return <EChartsFence text={text} />;
