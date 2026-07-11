@@ -149,7 +149,6 @@ const markdownComponents = {
           className={isRef ? "footnote-ref" : "footnote-backref"}
           aria-label={label}
           title={label}
-          onClick={() => scrollFootnoteTarget(href)}
         >
           {children}
         </a>
@@ -202,15 +201,6 @@ const markdownComponents = {
   },
   trackinclude: TrackInclude,
 } as Components;
-
-// Footnote anchors live inside the note pane, which can be its own scroll container in the editor.
-// Browser hash navigation only scrolls the document, so make both directions visible within that pane
-// while leaving the native hash update intact.
-function scrollFootnoteTarget(href?: string) {
-  if (!href?.startsWith("#")) return;
-  const id = decodeURIComponent(href.slice(1));
-  document.getElementById(id)?.scrollIntoView({ block: "center" });
-}
 
 // hastText concatenates the text content of a hast element, dropping the single trailing newline that a
 // fenced code block carries, so the code is shown exactly as written.
