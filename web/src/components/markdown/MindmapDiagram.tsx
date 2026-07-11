@@ -61,12 +61,12 @@ function MindmapNode({ node, root }: { node: MindmapPlacedNode; root: boolean })
     </g>
   );
   if (!node.link) return contents;
-  if (node.link.kind === "external") return <a href={node.link.href} target="_blank" rel="noreferrer">{contents}</a>;
+  if (node.link.kind === "external") return <a className="mindmap-link mindmap-external-link" href={node.link.href} target="_blank" rel="noreferrer">{contents}</a>;
   return <WikiMindmapNode target={node.link.target}>{contents}</WikiMindmapNode>;
 }
 
 function WikiMindmapNode({ target, children }: { target: string; children: ReactNode }) {
   const resolved = useResolveQuery(target);
   if (!resolved.data?.found) return children;
-  return <Link to="/notes/$noteId" params={{ noteId: String(resolved.data.note.note_id) }}>{children}</Link>;
+  return <Link className="mindmap-link mindmap-wiki-link" to="/notes/$noteId" params={{ noteId: String(resolved.data.note.note_id) }}>{children}</Link>;
 }
