@@ -5,7 +5,9 @@ not only statistical [[Charts]]. **Every diagram type Mermaid supports works**, 
 block straight to the Mermaid library: flowcharts, sequence, class, state, entity-relationship, Gantt,
 pie, user-journey, gitgraph, and the rest.
 
-Part of [[Visualization]] (see also [[Charts]] and [[Embeds]]). Back to [[track]].
+up:: [[Visualization]]
+
+See also [[Charts]] and [[Embeds]].
 
 ## Writing a diagram
 

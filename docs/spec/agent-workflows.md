@@ -27,6 +27,7 @@ Use titles for user-facing workflows and ids/paths for exact targets:
 - `track rename (--id N | --title X | --path P) --to Y`: change the sidecar title and rewrite backlinks.
 - `track meta (--id N | --title X | --path P) [--description S] [--image assets/F] [--set key=value ...] [--unset key ...]`: print a note's metadata (including its typed properties under `props`), or set it: the page summary (published as `og:description`), the cover image (`og:image`; must be an existing vault asset), and typed key-value properties (`--set`/`--unset`; a comma-separated value makes a list). An explicitly empty description/image clears that field. Property values are typed from their text — boolean, number, `YYYY-MM-DD` date, `[[link]]`, else string — and validated against the optional `properties:` schema in `config.yml`; schema violations also surface in `track doctor`.
 - `track backlinks` and `track graph`: inspect incoming links and local graph around a target.
+- `track nav (--id N | --path P)`: print hierarchy navigation derived from the `up` relation property (`up:: [[Parent]]`): the ancestor `trail` (root first) and the `children` whose `up` points at the target.
 - `track agenda [--date YYYY-MM-DD]`: list the notes created or updated on a calendar day (default today), for "what was worked on that day" lookups. Activity days are recorded per note in the sidecar and cover both CLI mutations and direct editor edits.
 
 Creating or editing a note also ensures that day's journal exists (it is the day's aggregation hub); the journal itself is excluded from activity. An explicit `track journal --body/--template` therefore only applies before the day's first note edit — afterward the journal already exists, so add to it with `track append --id <yyyyMMdd>`.
@@ -38,6 +39,7 @@ Use explicit wiki links:
 - `[[title]]`: link to the note titled `title`.
 - `[[title|display]]`: link to `title` while displaying `display`.
 - `[[note#heading]]`, `[[note##heading]]`: link to the first matching H1/H2 heading in `note`.
+- `[[note#^id]]`: link to the block (paragraph or list item) marked with a trailing `^id` in `note`. Ids are manual; the first matching marker wins.
 
 Use `track resolve --term X` to check whether a title exists before relying on a link.
 

@@ -4,7 +4,7 @@ The `track` command is the source of truth for the vault. Every subcommand that 
 reindexes immediately, so search and links stay current without a separate build step. Commands that
 return data print single-line JSON.
 
-Back to [[track]].
+up:: [[track]]
 
 ## Creating and editing notes
 

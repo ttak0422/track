@@ -5,7 +5,7 @@ A note is plain **Markdown** — CommonMark plus [GitHub-Flavored Markdown](http
 and borrows its conventions where they fit — `[[wiki links]]`, standalone-image embeds, and `$…$` / `$$…$$`
 math — so a note written for Obsidian mostly reads the same here.
 
-Back to [[track]].
+up:: [[track]]
 
 ## Text formatting
 

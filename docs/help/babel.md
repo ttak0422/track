@@ -4,7 +4,7 @@ Babel runs the fenced code blocks in a note and keeps their results, so a note c
 just read — track's take on Org Babel, in plain Markdown. Results are stored in the note's sidecar
 metadata, never written back into the Markdown body, so the source stays exactly as you typed it.
 
-Back to [[track]] (Babel is a [[CLI]] command).
+up:: [[CLI]]
 
 ## A runnable block
 

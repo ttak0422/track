@@ -14,7 +14,7 @@ rating:: 8
 updated:: 2026-07-11
 related:: [[Linking notes]]
 
-Back to [[track]].
+up:: [[track]]
 
 ## Where properties live
 

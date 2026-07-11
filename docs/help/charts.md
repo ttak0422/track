@@ -4,7 +4,9 @@
 **Canonical Data Model** — plain JSONL files, one record per line, one kind per file. track never
 fetches data itself; external sources are converted into this model by separate `track-fetch-*` tools.
 
-Part of [[Visualization]] (see also [[Diagrams]] and [[Embeds]]). Back to [[track]].
+up:: [[Visualization]]
+
+See also [[Diagrams]] and [[Embeds]].
 
 ## Data: the Canonical Data Model
 
