@@ -2,7 +2,7 @@ package store
 
 // schemaVersion is bumped whenever the DDL below changes in a way that requires a rebuild.
 // The schema is applied once when the database is fresh.
-const schemaVersion = 2
+const schemaVersion = 3
 
 // schemaSQL defines a rebuildable SQLite index, not the primary source of truth.
 // Notes and sidecar metadata on disk are authoritative; this database caches keyword rows and computed links for fast lookup.
@@ -13,7 +13,8 @@ CREATE TABLE notes (
   kind    TEXT NOT NULL DEFAULT 'note',
   title   TEXT NOT NULL DEFAULT '',
   created TEXT,
-  mtime   INTEGER NOT NULL DEFAULT 0
+  mtime   INTEGER NOT NULL DEFAULT 0,
+  icon    TEXT NOT NULL DEFAULT ''
 );
 CREATE INDEX IF NOT EXISTS idx_notes_kind_mtime ON notes(kind, mtime);
 

@@ -12,6 +12,7 @@ Back to [[track]].
 - Hover previews and persistent floating windows for linked notes and media.
 - A local link graph you can open per-note or full-screen.
 - Follow mode, so the web view tracks the note you are editing in Neovim.
+- A configurable [[Home dashboard]] landing note, with recent-notes, journal, and pinned widgets.
 
 ## Media embeds and diagrams
 

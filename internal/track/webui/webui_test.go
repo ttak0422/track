@@ -834,6 +834,56 @@ func TestRenderSanitizesActionLinksKeepsWiki(t *testing.T) {
 	}
 }
 
+func TestRenderResolvesDashboardWidget(t *testing.T) {
+	server, _ := putNoteSetup(t, 100, "Alpha", "old body\n")
+
+	resp, err := http.Post(server.URL+"/api/render", "application/json",
+		strings.NewReader("{\"body\":\"```dashboard\\nrecent: 3\\n```\\n\"}"))
+	if err != nil {
+		t.Fatalf("post render: %v", err)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("render status = %d", resp.StatusCode)
+	}
+	var decoded map[string]any
+	if err := json.NewDecoder(resp.Body).Decode(&decoded); err != nil {
+		t.Fatalf("decode render: %v", err)
+	}
+	md, _ := decoded["markdown"].(string)
+	if !strings.Contains(md, "**Recent notes**") || !strings.Contains(md, "[[Alpha]]") {
+		t.Fatalf("dashboard fence should resolve to a recent-notes list linking Alpha, got:\n%s", md)
+	}
+	if strings.Contains(md, "```dashboard") {
+		t.Fatalf("the dashboard fence should be consumed, got:\n%s", md)
+	}
+}
+
+func TestHomeNoteIDResolvesConfiguredTitle(t *testing.T) {
+	cfg := &config.Config{
+		VaultDir:   t.TempDir(),
+		DBPath:     filepath.Join(t.TempDir(), "index.db"),
+		Extensions: []string{".md"},
+		WebHome:    "Alpha",
+	}
+	s, err := store.Open(cfg.DBPath)
+	if err != nil {
+		t.Fatalf("open store: %v", err)
+	}
+	t.Cleanup(func() { s.Close() })
+	if err := s.UpsertNote(&note.Note{ID: 100, Meta: note.Metadata{Title: "Alpha"}}); err != nil {
+		t.Fatal(err)
+	}
+	srv := New(cfg, s)
+	if got := srv.homeNoteID(); got != 100 {
+		t.Fatalf("homeNoteID = %d, want 100", got)
+	}
+	cfg.WebHome = ""
+	if got := srv.homeNoteID(); got != 0 {
+		t.Fatalf("unset home should resolve to 0, got %d", got)
+	}
+}
+
 func TestIndexInjectsConfiguredTheme(t *testing.T) {
 	cfg := &config.Config{
 		VaultDir:   t.TempDir(),

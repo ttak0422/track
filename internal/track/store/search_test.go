@@ -47,6 +47,32 @@ func TestSearchRanksByTitleMatchMtimeAndID(t *testing.T) {
 	}
 }
 
+func TestSearchRefsCarriesIconOverride(t *testing.T) {
+	s := newTestStore(t)
+	for _, n := range []*note.Note{
+		{ID: 100, Mtime: 100, Meta: note.Metadata{Title: "Iconed", Icon: "🔥"}},
+		{ID: 200, Mtime: 200, Meta: note.Metadata{Title: "Plain"}},
+	} {
+		if err := s.UpsertNote(n); err != nil {
+			t.Fatalf("upsert: %v", err)
+		}
+	}
+	refs, err := s.SearchRefs()
+	if err != nil {
+		t.Fatalf("search refs: %v", err)
+	}
+	got := map[string]string{}
+	for _, r := range refs {
+		got[r.Title] = r.Icon
+	}
+	if got["Iconed"] != "🔥" {
+		t.Errorf("icon override lost through index/search: %q", got["Iconed"])
+	}
+	if got["Plain"] != "" {
+		t.Errorf("note without an override should carry no icon, got %q", got["Plain"])
+	}
+}
+
 func TestSearchTitleAndOr(t *testing.T) {
 	s := newTestStore(t)
 	for _, n := range []*note.Note{

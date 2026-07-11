@@ -82,6 +82,7 @@ func Build(cfg *config.Config, st *store.Store, opts Options, frontendDir, outDi
 			assets:   collectAssets(n.Body),
 			desc:     n.Meta.Description,
 			image:    strings.TrimPrefix(n.Meta.Image, "assets/"),
+			icon:     cfg.NoteIcon(n.Kind, n.Meta.Tags, n.Meta.Icon),
 			assetSrc: assetSrc,
 			dataDir:  cfg.DataDir(),
 		})

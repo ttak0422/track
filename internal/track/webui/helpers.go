@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/ttak0422/track/internal/track/config"
+	"github.com/ttak0422/track/internal/track/dashboard"
 	"github.com/ttak0422/track/internal/track/store"
 )
 
@@ -30,6 +31,9 @@ func (s *Server) noteByID(id int64) (store.SearchResult, error) {
 func addSearchPaths(cfg *config.Config, results []store.SearchResult) {
 	for i := range results {
 		results[i].Path = cfg.PathForKind(results[i].FileKind, results[i].NoteID)
+		// The store fills Icon with the per-note sidecar override; resolve it against the config
+		// tag/kind mapping here so an empty override falls back to the mapping (config.NoteIcon).
+		results[i].Icon = cfg.NoteIcon(results[i].FileKind, results[i].Tags, results[i].Icon)
 	}
 }
 
@@ -54,6 +58,46 @@ func desc(a, b int64) int {
 	default:
 		return 0
 	}
+}
+
+// dashboardData gathers the vault values a ```dashboard block renders from: note titles in the shared
+// recently-updated-first order for the recent widget, and today's journal name for the journal shortcut.
+// Errors are non-fatal — a widget just renders empty — so a dashboard note never fails to load.
+func (s *Server) dashboardData() dashboard.Data {
+	refs, err := s.store.SearchRefs()
+	if err != nil {
+		return dashboard.Data{}
+	}
+	sortRefs(refs)
+	titles := make([]string, 0, len(refs))
+	for _, r := range refs {
+		if r.FileKind == config.KindJournal {
+			continue // the recent widget lists real notes, not the auto-created daily journals
+		}
+		if r.Title != "" {
+			titles = append(titles, r.Title)
+		}
+	}
+	return dashboard.Data{
+		RecentTitles: titles,
+		JournalTitle: localDate(time.Now()).Format(s.cfg.JournalDateFormat),
+	}
+}
+
+// homeNoteID resolves the configured web.home (a note title or numeric id) to a note id, or 0 when unset
+// or unresolvable. It lets the workspace open a landing note instead of the search hero.
+func (s *Server) homeNoteID() int64 {
+	home := strings.TrimSpace(s.cfg.WebHome)
+	if home == "" {
+		return 0
+	}
+	if ref, found, err := s.store.ResolveTerm(home); err == nil && found {
+		return ref.NoteID
+	}
+	if id, err := strconv.ParseInt(home, 10, 64); err == nil {
+		return id
+	}
+	return 0
 }
 
 func parseID(r *http.Request) (int64, error) {

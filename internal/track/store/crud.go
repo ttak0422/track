@@ -34,11 +34,11 @@ func (s *Store) UpsertNote(n *note.Note) error {
 		kind = "note"
 	}
 	if _, err := tx.Exec(
-		`INSERT INTO notes (id, kind, title, created, mtime)
-		 VALUES (?, ?, ?, ?, ?)
+		`INSERT INTO notes (id, kind, title, created, mtime, icon)
+		 VALUES (?, ?, ?, ?, ?, ?)
 		 ON CONFLICT(id) DO UPDATE SET
-		   kind=excluded.kind, title=excluded.title, created=excluded.created, mtime=excluded.mtime`,
-		n.ID, kind, n.Meta.Title, n.Meta.Created, n.Mtime,
+		   kind=excluded.kind, title=excluded.title, created=excluded.created, mtime=excluded.mtime, icon=excluded.icon`,
+		n.ID, kind, n.Meta.Title, n.Meta.Created, n.Mtime, n.Meta.Icon,
 	); err != nil {
 		return err
 	}

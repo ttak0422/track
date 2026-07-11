@@ -12,11 +12,12 @@ import (
 )
 
 // MetaEdit is one page-metadata change: a nil field is left untouched, a pointer to "" clears the
-// field. It is the single write path for description/image, shared by the CLI meta command and the
+// field. It is the single write path for description/image/icon, shared by the CLI meta command and the
 // web editor, so validation lives here once.
 type MetaEdit struct {
 	Description *string
 	Image       *string
+	Icon        *string
 }
 
 // imageExtensions lists the cover-image formats OGP consumers actually render; anything else (an
@@ -47,6 +48,9 @@ func ApplyMetaEdit(cfg *config.Config, noteID int64, edit MetaEdit) (Metadata, e
 			}
 		}
 		meta.Image = img
+	}
+	if edit.Icon != nil {
+		meta.Icon = strings.TrimSpace(*edit.Icon)
 	}
 	if err := WriteMetadata(metaPath, meta); err != nil {
 		return Metadata{}, fmt.Errorf("write metadata: %w", err)

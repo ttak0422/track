@@ -10,6 +10,7 @@ import (
 	"os"
 	"strings"
 
+	"github.com/ttak0422/track/internal/track/dashboard"
 	"github.com/ttak0422/track/internal/track/export"
 	"github.com/ttak0422/track/internal/track/index"
 	"github.com/ttak0422/track/internal/track/link"
@@ -226,7 +227,16 @@ func (s *Server) handleRender(w http.ResponseWriter, r *http.Request) {
 		writeError(w, err, http.StatusBadRequest)
 		return
 	}
-	res, err := export.Export(&note.Note{Body: req.Body}, export.NewWebRenderer(), export.Options{})
+	// Resolve any ```dashboard widget blocks to Markdown before sanitizing, so a home/dashboard note's
+	// recent-notes, journal, and pinned widgets render live. The static export resolves the same blocks
+	// at build time (see site.writeBundle), keeping the two deployments identical. The store scan for
+	// widget data is skipped unless the body actually carries a dashboard fence (the common case).
+	s.refreshIfStale()
+	body := req.Body
+	if strings.Contains(body, "```"+dashboard.Lang) {
+		body = dashboard.Resolve(body, s.dashboardData())
+	}
+	res, err := export.Export(&note.Note{Body: body}, export.NewWebRenderer(), export.Options{})
 	if err != nil {
 		writeError(w, err, http.StatusInternalServerError)
 		return
@@ -234,7 +244,6 @@ func (s *Server) handleRender(w http.ResponseWriter, r *http.Request) {
 	// Includes resolve against the rendered markdown (what the frontend draws), so their line
 	// numbers align with the text the client splices them into; target bodies render through the
 	// same web renderer so embedded content arrives as sanitized as the note's own.
-	s.refreshIfStale()
 	writeJSON(w, map[string]any{
 		"markdown": res.Markdown,
 		"includes": link.ResolveIncludes(res.Markdown, s.loadRenderedNote),

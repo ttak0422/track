@@ -21,6 +21,8 @@ import (
 // version 3 sidecars.
 // Description and Image are the note's page metadata (version 4 sidecars): a short summary and an
 // assets-relative cover image, surfaced as og:description / og:image by the static export.
+// Icon is a per-note override (version 5 sidecars): an emoji shown beside the note's title in lists,
+// search, and navigation. When empty, the config tag/kind icon mapping applies (see config.NoteIcon).
 type Metadata struct {
 	Version     int                        `yaml:"version"`
 	Title       string                     `yaml:"title,omitempty"`
@@ -29,6 +31,7 @@ type Metadata struct {
 	Days        []string                   `yaml:"days,omitempty"`
 	Description string                     `yaml:"description,omitempty"`
 	Image       string                     `yaml:"image,omitempty"`
+	Icon        string                     `yaml:"icon,omitempty"`
 	Blocks      map[string]babel.BlockMeta `yaml:"blocks,omitempty"`
 }
 

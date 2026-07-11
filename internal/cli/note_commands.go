@@ -421,6 +421,7 @@ func cmdMeta(args []string) int {
 	path := fs.String("path", "", "note path (alternative to --id)")
 	description := fs.String("description", "", "page summary (og:description); empty clears")
 	image := fs.String("image", "", "cover image as assets/<file> (og:image); empty clears")
+	icon := fs.String("icon", "", "per-note icon shown beside the title (emoji); empty clears")
 	if err := fs.Parse(args); err != nil {
 		return fail("parse args: %v", err)
 	}
@@ -447,7 +448,10 @@ func cmdMeta(args []string) int {
 	if flagWasSet(fs, "image") {
 		edit.Image = image
 	}
-	edited := edit.Description != nil || edit.Image != nil
+	if flagWasSet(fs, "icon") {
+		edit.Icon = icon
+	}
+	edited := edit.Description != nil || edit.Image != nil || edit.Icon != nil
 
 	var meta note.Metadata
 	if edited {
@@ -472,6 +476,7 @@ func cmdMeta(args []string) int {
 		"created":     meta.Created,
 		"description": meta.Description,
 		"image":       meta.Image,
+		"icon":        meta.Icon,
 		"updated":     edited,
 	})
 }
