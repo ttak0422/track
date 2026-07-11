@@ -22,9 +22,9 @@ Add `track fmt` as the style counterpart to `track doctor`. The engine logic liv
 **The rule set, exhaustively:**
 
 1. Strip trailing whitespace (spaces, tabs, carriage returns) from every line.
-2. Collapse runs of blank lines to a single blank line, and drop blank lines at the start and end of
-   the document.
-3. Ensure exactly one blank line before and after each ATX heading (`#`…`######`).
+2. Collapse runs of blank lines to a single blank line, except for the two blank lines immediately
+   before a heading, and drop blank lines at the start and end of the document.
+3. Ensure exactly two blank lines before and one blank line after each ATX heading (`#`…`######`).
 4. Normalize unordered-list bullets to `-` (from `*` or `+`), preserving indentation and the text.
 5. End the document with exactly one newline.
 

@@ -17,11 +17,12 @@ var cases = []struct {
 	{"drop leading blanks", "\n\n\na\n", "a\n"},
 	{"drop trailing blanks", "a\n\n\n", "a\n"},
 
-	// Rule 3: one blank line around headings.
-	{"blank around heading", "a\n# H\nb\n", "a\n\n# H\n\nb\n"},
+	// Rule 3: two blank lines before headings, one after.
+	{"blank around heading", "a\n# H\nb\n", "a\n\n\n# H\n\nb\n"},
 	{"heading at start", "# H\nbody\n", "# H\n\nbody\n"},
-	{"consecutive headings", "# A\n## B\n", "# A\n\n## B\n"},
-	{"heading already spaced", "a\n\n# H\n\nb\n", "a\n\n# H\n\nb\n"},
+	{"consecutive headings", "# A\n## B\n", "# A\n\n\n## B\n"},
+	{"heading already spaced", "a\n\n\n# H\n\nb\n", "a\n\n\n# H\n\nb\n"},
+	{"extra blanks before heading", "a\n\n\n\n# H\n", "a\n\n\n# H\n"},
 
 	// Rule 4: normalize list markers to "-".
 	{"star bullets", "* one\n* two\n", "- one\n- two\n"},

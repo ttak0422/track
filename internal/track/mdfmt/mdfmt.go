@@ -5,7 +5,7 @@
 //  1. Strip trailing whitespace (spaces, tabs, carriage returns) from every line.
 //  2. Collapse runs of blank lines to a single blank line, and drop blank lines at the start and end
 //     of the document.
-//  3. Ensure exactly one blank line before and after each heading.
+//  3. Ensure exactly two blank lines before and one blank line after each heading.
 //  4. Normalize unordered-list markers to "-" (from "*" or "+").
 //  5. Ensure the document ends with exactly one newline.
 //
@@ -30,8 +30,22 @@ func Format(src string) string {
 	forceBlankBefore := false // the last emitted line was a heading, so the next content needs a blank first
 
 	emit := func(text string, heading bool) {
-		if len(out) > 0 && out[len(out)-1] != "" && (pendingBlank || forceBlankBefore || heading) {
-			out = append(out, "")
+		requiredBlanks := 0
+		if heading {
+			requiredBlanks = 2
+		} else if pendingBlank || forceBlankBefore {
+			requiredBlanks = 1
+		}
+
+		if len(out) > 0 && requiredBlanks > 0 {
+			trailingBlanks := 0
+			for i := len(out) - 1; i >= 0 && out[i] == ""; i-- {
+				trailingBlanks++
+			}
+			for trailingBlanks < requiredBlanks {
+				out = append(out, "")
+				trailingBlanks++
+			}
 		}
 		out = append(out, text)
 		pendingBlank = false

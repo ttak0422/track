@@ -34,10 +34,10 @@ running it twice changes nothing the second time.
 | `track fmt --all` | Format every note and journal file in the vault. |
 | `track fmt --check --all` | Write nothing; exit non-zero and list files that would change (for CI). |
 
-The rules are: strip trailing whitespace, collapse runs of blank lines (and drop blank lines at the
-start and end), put one blank line around each heading, normalize unordered-list bullets to `-`, and
-end the file with a single newline. Fenced code blocks are never touched, so their contents stay
-exactly as written.
+The rules are: strip trailing whitespace, collapse runs of blank lines (except before headings) and
+drop blank lines at the start and end, put two blank lines before and one after each heading,
+normalize unordered-list bullets to `-`, and end the file with a single newline. Fenced code blocks
+are never touched, so their contents stay exactly as written.
 
 A note like this:
 
