@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { headingTree, layoutMindmap, outlineTree } from "./mindmap";
+import { headingTree, layoutMindmap, markdownTree, outlineTree } from "./mindmap";
 
 describe("outlineTree", () => {
   it("nests by indentation and strips bullets", () => {
@@ -53,6 +53,19 @@ describe("headingTree", () => {
 
   it("returns null when there are no headings", () => {
     expect(headingTree("just prose\n\n- list")).toBeNull();
+  });
+});
+
+describe("markdownTree", () => {
+  it("uses headings for hierarchy and list items for linked leaves", () => {
+    const tree = markdownTree("# Mindmap\n\n## Links\n- [GitHub](https://github.com/ttak0422/track)\n\n## Notes\n- [[sample]]");
+    expect(tree).toEqual({
+      label: "Mindmap",
+      children: [
+        { label: "Links", children: [{ label: "GitHub", link: { kind: "external", href: "https://github.com/ttak0422/track" }, children: [] }] },
+        { label: "Notes", children: [{ label: "sample", link: { kind: "wiki", target: "sample" }, children: [] }] },
+      ],
+    });
   });
 });
 

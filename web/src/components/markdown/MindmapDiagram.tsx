@@ -1,6 +1,8 @@
-import { useContext } from "react";
+import { type ReactNode, useContext } from "react";
+import { Link } from "@tanstack/react-router";
+import { useResolveQuery } from "../../queries";
 import { MarkdownSourceContext } from "./context";
-import { headingTree, layoutMindmap, mindmapNodeHeight, outlineTree } from "./mindmap";
+import { headingTree, layoutMindmap, markdownTree, mindmapNodeHeight, outlineTree, type MindmapPlacedNode } from "./mindmap";
 
 interface MindmapDiagramProps {
   text: string;
@@ -13,7 +15,7 @@ interface MindmapDiagramProps {
 // variables, so it follows light/dark for free.
 export function MindmapDiagram({ text }: MindmapDiagramProps) {
   const source = useContext(MarkdownSourceContext);
-  const tree = text.trim() === "" ? headingTree(source) : outlineTree(text);
+  const tree = text.trim() === "" ? headingTree(source) : /^#{1,6}\s/m.test(text) ? markdownTree(text) : outlineTree(text);
   if (!tree) {
     return <p className="muted">Mindmap: nothing to map (no headings or outline lines).</p>;
   }
@@ -45,17 +47,26 @@ export function MindmapDiagram({ text }: MindmapDiagramProps) {
             />
           );
         })}
-        {nodes.map((node, i) => (
-          <g key={i} className={node.depth === 0 ? "mindmap-node mindmap-root" : "mindmap-node"}>
-            <rect x={node.x} y={node.y} width={node.w} height={node.h} rx={mindmapNodeHeight / 2} />
-            {node.label !== "" && (
-              <text x={node.x + node.w / 2} y={node.y + node.h / 2}>
-                {node.label}
-              </text>
-            )}
-          </g>
-        ))}
+        {nodes.map((node, i) => <MindmapNode key={i} node={node} root={node.depth === 0} />)}
       </svg>
     </div>
   );
+}
+
+function MindmapNode({ node, root }: { node: MindmapPlacedNode; root: boolean }) {
+  const contents = (
+    <g className={root ? "mindmap-node mindmap-root" : "mindmap-node"}>
+      <rect x={node.x} y={node.y} width={node.w} height={node.h} rx={mindmapNodeHeight / 2} />
+      {node.label !== "" && <text x={node.x + node.w / 2} y={node.y + node.h / 2}>{node.label}</text>}
+    </g>
+  );
+  if (!node.link) return contents;
+  if (node.link.kind === "external") return <a href={node.link.href} target="_blank" rel="noreferrer">{contents}</a>;
+  return <WikiMindmapNode target={node.link.target}>{contents}</WikiMindmapNode>;
+}
+
+function WikiMindmapNode({ target, children }: { target: string; children: ReactNode }) {
+  const resolved = useResolveQuery(target);
+  if (!resolved.data?.found) return children;
+  return <Link to="/notes/$noteId" params={{ noteId: String(resolved.data.note.note_id) }}>{children}</Link>;
 }

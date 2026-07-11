@@ -4,12 +4,18 @@
 
 export interface MindmapNode {
   label: string;
+  link?: MindmapLink;
   children: MindmapNode[];
 }
+
+export type MindmapLink =
+  | { kind: "external"; href: string }
+  | { kind: "wiki"; target: string };
 
 interface Item {
   depth: number;
   label: string;
+  link?: MindmapLink;
 }
 
 // outlineTree parses an indented outline (one node per line, deeper indent = child; optional -/*/+
@@ -22,9 +28,9 @@ export function outlineTree(text: string): MindmapNode | null {
     const indent = /^[\t ]*/.exec(raw)?.[0] ?? "";
     // A tab counts as one level-ish unit of 2 columns; plain spaces count as written.
     const depth = indent.replaceAll("\t", "  ").length;
-    const label = raw.trim().replace(/^[-*+]\s+/, "");
+    const { label, link } = parseLabel(raw.trim().replace(/^[-*+]\s+/, ""));
     if (label === "") continue;
-    items.push({ depth, label });
+    items.push({ depth, label, link });
   }
   return treeFromItems(items);
 }
@@ -45,7 +51,31 @@ export function headingTree(markdown: string): MindmapNode | null {
       continue;
     }
     const heading = /^(#{1,6})\s+(.+?)\s*#*\s*$/.exec(line);
-    if (heading) items.push({ depth: heading[1].length, label: heading[2] });
+    if (heading) {
+      const { label, link } = parseLabel(heading[2]);
+      items.push({ depth: heading[1].length, label, link });
+    }
+  }
+  return treeFromItems(items);
+}
+
+// markdownTree lets an explicit mindmap use Markdown headings for stable hierarchy and list items for
+// leaves. It is selected only when the fence contains a heading, leaving the legacy outline untouched.
+export function markdownTree(text: string): MindmapNode | null {
+  const items: Item[] = [];
+  let headingDepth = 0;
+  for (const raw of text.split("\n")) {
+    const heading = /^(#{1,6})\s+(.+?)\s*#*\s*$/.exec(raw);
+    if (heading) {
+      headingDepth = heading[1].length * 10;
+      const { label, link } = parseLabel(heading[2]);
+      items.push({ depth: headingDepth, label, link });
+      continue;
+    }
+    const list = /^(\s*)[-*+]\s+(.+?)\s*$/.exec(raw);
+    if (!list || headingDepth === 0) continue;
+    const { label, link } = parseLabel(list[2]);
+    items.push({ depth: headingDepth + 1 + list[1].replaceAll("\t", "  ").length, label, link });
   }
   return treeFromItems(items);
 }
@@ -58,14 +88,14 @@ function treeFromItems(items: Item[]): MindmapNode | null {
   const minDepth = Math.min(...items.map((it) => it.depth));
   const single = items[0].depth === minDepth && items.filter((it) => it.depth === minDepth).length === 1;
   const root: MindmapNode = single
-    ? { label: items[0].label, children: [] }
+    ? { label: items[0].label, link: items[0].link, children: [] }
     : { label: "", children: [] };
   const rest = single ? items.slice(1) : items;
 
   const stack: { depth: number; node: MindmapNode }[] = [{ depth: minDepth - 1, node: root }];
   for (const item of rest) {
     while (stack.length > 1 && stack[stack.length - 1].depth >= item.depth) stack.pop();
-    const node: MindmapNode = { label: item.label, children: [] };
+    const node: MindmapNode = { label: item.label, link: item.link, children: [] };
     stack[stack.length - 1].node.children.push(node);
     stack.push({ depth: item.depth, node });
   }
@@ -74,6 +104,7 @@ function treeFromItems(items: Item[]): MindmapNode | null {
 
 export interface MindmapPlacedNode {
   label: string;
+  link?: MindmapLink;
   depth: number;
   x: number; // left edge
   y: number; // top edge
@@ -142,6 +173,7 @@ export function layoutMindmap(root: MindmapNode): MindmapLayout {
     const index = nodes.length;
     nodes.push({
       label: node.label,
+      link: node.link,
       depth,
       x: columnX[depth],
       y: centerY - mindmapNodeHeight / 2,
@@ -151,6 +183,14 @@ export function layoutMindmap(root: MindmapNode): MindmapLayout {
     for (const to of childIndexes) edges.push({ from: index, to });
     return { centerY, index };
   }
+}
+
+function parseLabel(source: string): { label: string; link?: MindmapLink } {
+  const wiki = /^\[\[([^|\]]+)(?:\|([^\]]+))?\]\]$/.exec(source);
+  if (wiki) return { label: wiki[2] ?? wiki[1], link: { kind: "wiki", target: wiki[1] } };
+  const external = /^\[([^\]]+)\]\(([^\s)]+)\)$/.exec(source);
+  if (external) return { label: external[1], link: { kind: "external", href: external[2] } };
+  return { label: source };
 }
 
 // nodeWidth estimates the rendered width of a 13px label without a canvas: CJK and other wide
