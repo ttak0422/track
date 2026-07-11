@@ -13,7 +13,6 @@ import (
 	"github.com/ttak0422/track/internal/track/config"
 	"github.com/ttak0422/track/internal/track/index"
 	"github.com/ttak0422/track/internal/track/journal"
-	"github.com/ttak0422/track/internal/track/link"
 	"github.com/ttak0422/track/internal/track/note"
 	trackrename "github.com/ttak0422/track/internal/track/rename"
 	"github.com/ttak0422/track/internal/track/store"
@@ -476,12 +475,31 @@ func cmdMeta(args []string) int {
 		if err != nil {
 			return fail("read metadata document: %v", err)
 		}
+		doc, err := note.ParseMetaDoc(raw)
+		if err != nil {
+			return fail("%v", err)
+		}
+		// Pre-validate a title change so a conflicting title rejects the whole document before any
+		// write; an empty title in the document means "leave the title unchanged".
+		newTitle := strings.TrimSpace(doc.Title)
+		if newTitle != "" {
+			if ref, ok, err := s.ResolveTerm(newTitle); err != nil {
+				return fail("resolve: %v", err)
+			} else if ok && ref.NoteID != noteID {
+				return fail("title %q already in use by note %d", newTitle, ref.NoteID)
+			}
+		}
 		meta, err = note.ApplyMetaDoc(cfg, noteID, raw)
 		if err != nil {
 			return fail("%v", err)
 		}
 		edited = true
-		if err := index.New(cfg, s).One(notePath); err != nil {
+		if newTitle != "" && newTitle != meta.Title {
+			if _, err := trackrename.Do(cfg, s, noteID, newTitle); err != nil {
+				return fail("%v", err)
+			}
+			meta.Title = newTitle
+		} else if err := index.New(cfg, s).One(notePath); err != nil {
 			return fail("index note: %v", err)
 		}
 	case edited:
@@ -554,55 +572,11 @@ func cmdRename(args []string) int {
 		return fail("invalid note path: %v", err)
 	}
 
-	meta, found, err := note.ReadMetadata(cfg.MetadataPath(noteID))
+	res, err := trackrename.Do(cfg, s, noteID, to)
 	if err != nil {
-		return fail("read metadata: %v", err)
+		return fail("%v", err)
 	}
-	if !found {
-		return fail("no metadata for note %d", noteID)
-	}
-	oldTitle := meta.Title
-	if oldTitle == to {
-		return emit(map[string]any{"id": noteID, "path": notePath, "old_title": oldTitle, "new_title": to, "backlinks_updated": 0})
-	}
-	if ref, ok, err := s.ResolveTerm(to); err != nil {
-		return fail("resolve: %v", err)
-	} else if ok && ref.NoteID != noteID {
-		return fail("title %q already in use by note %d", to, ref.NoteID)
-	}
-
-	backlinks, err := s.Backlinks(noteID)
-	if err != nil {
-		return fail("backlinks: %v", err)
-	}
-	updated := 0
-	for _, src := range backlinks {
-		srcPath := cfg.PathForKind(src.FileKind, src.NoteID)
-		raw, err := os.ReadFile(srcPath)
-		if err != nil {
-			return fail("read backlink %d: %v", src.NoteID, err)
-		}
-		rewritten, n := link.ReplaceRefKey(string(raw), oldTitle, to)
-		if n == 0 {
-			continue
-		}
-		if err := os.WriteFile(srcPath, []byte(rewritten), 0o644); err != nil {
-			return fail("write backlink %d: %v", src.NoteID, err)
-		}
-		updated += n
-	}
-
-	meta.Title = to
-	if err := note.WriteMetadata(cfg.MetadataPath(noteID), meta); err != nil {
-		return fail("write metadata: %v", err)
-	}
-	if err := trackrename.Append(cfg.RenamesPath(), trackrename.Entry{From: oldTitle, To: to, NoteID: noteID}); err != nil {
-		return fail("write rename history: %v", err)
-	}
-	if _, err := index.New(cfg, s).Full(); err != nil {
-		return fail("reindex: %v", err)
-	}
-	return emit(map[string]any{"id": noteID, "path": notePath, "old_title": oldTitle, "new_title": to, "backlinks_updated": updated})
+	return emit(map[string]any{"id": noteID, "path": notePath, "old_title": res.OldTitle, "new_title": res.NewTitle, "backlinks_updated": res.BacklinksUpdated})
 }
 
 // cmdRm soft-deletes a note: the note file and its sidecar move into .track/trash (never removed

@@ -1,4 +1,5 @@
-// Package rename stores title rename history for repair suggestions.
+// Package rename owns note title renames: the rename operation itself (uniqueness check, backlink
+// rewrite, sidecar write, reindex) and the rename history used for repair suggestions.
 package rename
 
 import (

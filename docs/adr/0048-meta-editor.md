@@ -13,25 +13,37 @@ engine.
 
 ## Decision
 
-- **One canonical editable document.** A note's user-editable metadata — `tags`, `description`,
-  `image`, `props` — is one YAML document (`note.MetaDoc`). The title is excluded: it is a link
-  keyword owned by `track rename` (backlink-rewrite semantics). Non-editable sidecar fields
-  (created, days, blocks) never appear in the document and carry over untouched.
-- **One validated apply path.** `note.MetaDocYAML` renders the document (empty keys stay present so
-  editors always show every field); `note.ApplyMetaDoc` parses it strictly (unknown top-level keys
-  are rejected, not dropped), validates everything — tag normalization (`note.DedupTags`, the same
-  rule as the CLI tag flags), the vault-asset/raster image check, prop keys and prop values typed
-  against the configured `properties:` schema — and only then performs the single sidecar write.
-  A rejected document changes nothing.
+- **One canonical editable document.** A note's user-editable metadata — `title`, `tags`,
+  `description`, `image`, `props` — is one YAML document (`note.MetaDoc`). Non-editable sidecar
+  fields (created, days, blocks) never appear in the document and carry over untouched; the
+  document is a projection of the sidecar for editing, not a second store.
+- **A changed title is a rename, through the existing rename path.** The title is a link keyword,
+  so applying a document whose title differs routes through `rename.Do` — the engine rename
+  extracted from `track rename` (uniqueness against the index, backlink rewrite in referencing
+  notes, rename history, full reindex) — never a bare sidecar write. An empty `title:` in the
+  document means "leave the title unchanged", so older documents stay valid.
+- **Apply order and atomicity.** Everything validates before anything writes: document syntax and
+  unknown keys, sidecar-field rules, and the title-uniqueness pre-check. Then the sidecar fields
+  are written (one write), then the rename runs (which rewrites backlinks and reindexes; the
+  non-title path reindexes the one note instead). A validation failure therefore changes nothing;
+  the only window for a partial apply — sidecar fields updated, title not — is an I/O failure
+  between the two writes, which the pre-checks cannot cause.
+- **One validated apply path.** `note.MetaDocYAML` renders the document — empty keys stay present
+  so editors always show every field, as bare `key:` lines rather than flow-style `[]`/`{}`/`""`,
+  which are hostile to hand-editing (the parser accepts both forms). `note.ApplyMetaDoc` parses it
+  strictly (unknown top-level keys are rejected, not dropped), validates everything — tag
+  normalization (`note.DedupTags`, the same rule as the CLI tag flags), the vault-asset/raster
+  image check, prop keys and prop values typed against the configured `properties:` schema — and
+  only then performs the single sidecar write. A rejected document changes nothing.
 - **CLI is the transport.** `track meta` prints the document under `doc` alongside the existing
   JSON fields; `track meta --edit (FILE|-)` applies a document from a file or stdin. The field
   flags (`--description`, `--image`, `--set`, `--unset`) remain for scripted point edits.
 - **Both frontends are thin shells.** The Neovim popup is a floating acwrite YAML buffer seeded
   with the document; `:w` pipes the buffer verbatim to `track meta --edit -` — no client-side
   parsing. The web meta dialog is the same document in a modal textarea, round-tripped through
-  `/api/note/meta` (`{doc}` in, `{doc}` out), which calls `ApplyMetaDoc` directly. Validation
-  errors surface as the engine's message and keep the editor open; the static export stays
-  read-only.
+  `/api/note/meta` (`{doc}` in, `{doc}` out), which calls the same parse/pre-check/apply/rename
+  sequence. Validation errors surface as the engine's message and keep the editor open; the
+  static export stays read-only.
 
 ## Consequences
 
@@ -39,8 +51,12 @@ engine.
   up without UI-schema work.
 - The web dialog's old `{description,image}` JSON shape is gone (pre-1.0 break); the endpoint and
   the dialog speak only the document.
-- The document is whole-state: applying it replaces tags/description/image/props entirely, which
-  is what an editor wants but means concurrent point edits between GET and apply are overwritten.
-  Good enough for a single-user vault; an etag like the body editor's can join later if needed.
+- The document is whole-state: applying it replaces tags/description/image/props entirely (the
+  title only when non-empty and different), which is what an editor wants but means concurrent
+  point edits between GET and apply are overwritten. Good enough for a single-user vault; an etag
+  like the body editor's can join later if needed.
+- `track rename`, the meta editors, and (still separately, for buffer-awareness) the LSP rename
+  all end in the same backlink-rewrite semantics; `rename.Do` is now the shared engine home for
+  the file-level rename.
 - ADR 0032's "the web view is read-only for properties" is superseded: props are now editable from
   both frontends, still through the same engine validation.

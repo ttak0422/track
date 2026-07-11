@@ -2,10 +2,11 @@ import { useEffect, useState } from "react";
 import { useNoteMetaQuery, useSaveNoteMetaMutation } from "../queries";
 import type { NoteID } from "../types";
 
-// NoteMetaDialog edits a note's editable sidecar metadata — tags, description, cover image, and
-// typed props — as one YAML document. Parsing and validation live in the engine (the same path as
-// `track meta --edit`): a rejected document (bad image, prop breaking the configured schema)
-// surfaces the server's message inline and keeps the dialog open; nothing is written on rejection.
+// NoteMetaDialog edits a note's editable sidecar metadata — title, tags, description, cover image,
+// and typed props — as one YAML document. Parsing and validation live in the engine (the same path
+// as `track meta --edit`; a changed title renames the note, backlinks included): a rejected
+// document (bad image, prop breaking the configured schema, conflicting title) surfaces the
+// server's message inline and keeps the dialog open; nothing is written on rejection.
 export function NoteMetaDialog({ noteID, onClose }: { noteID: NoteID; onClose: () => void }) {
   const meta = useNoteMetaQuery(noteID, { enabled: true });
   const save = useSaveNoteMetaMutation(noteID);
@@ -43,8 +44,8 @@ export function NoteMetaDialog({ noteID, onClose }: { noteID: NoteID; onClose: (
         <h3 id="note-meta-title">Note metadata</h3>
         <label className="modal-field">
           <span className="muted">
-            tags, description, cover image (assets/&lt;file&gt;), and props — YAML, validated on save.
-            The title is renamed elsewhere.
+            title, tags, description, cover image (assets/&lt;file&gt;), and props — YAML, validated
+            on save. Changing the title renames the note and rewrites its backlinks.
           </span>
           <textarea
             className="modal-input modal-input--code"

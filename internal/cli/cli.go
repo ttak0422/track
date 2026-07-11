@@ -127,8 +127,9 @@ Usage:
                                         image (og:image; an existing vault asset), and typed
                                         properties (--set/--unset; comma-separated value makes a list).
                                         An empty description/image clears the field. --edit applies a
-                                        full document (tags/description/image/props) from a file or
-                                        stdin, validated as one atomic write (JSON)
+                                        full document (title/tags/description/image/props) from a file
+                                        or stdin, validated as a whole before anything is written; a
+                                        changed title renames the note, backlinks included (JSON)
   track toggle (--id N | --title S | --path P) --line N [--state toggle|check|uncheck]
                                         flip (or set) a task checkbox on one line of a note (JSON)
   track asset import <file>             copy a file into the vault's assets/ dir; prints the assets/<file> ref (JSON)

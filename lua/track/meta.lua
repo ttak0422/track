@@ -1,8 +1,9 @@
 -- Metadata editor: a floating YAML buffer over the current note's editable sidecar metadata —
--- tags, description, cover image, and typed props — saved through `track meta --edit -` so parsing
--- and validation live in the CLI. Saving (:w) applies the whole document atomically; a rejected
--- document (e.g. an image that is not a vault asset, or a prop breaking the configured schema)
--- surfaces the CLI error and keeps the popup open, a successful save closes it.
+-- title, tags, description, cover image, and typed props — saved through `track meta --edit -` so
+-- parsing and validation live in the CLI (a changed title renames the note, backlinks included).
+-- Saving (:w) applies the whole document atomically; a rejected document (e.g. an image that is
+-- not a vault asset, or a prop breaking the configured schema) surfaces the CLI error and keeps
+-- the popup open, a successful save closes it.
 local client = require("track.client")
 
 local M = {}
@@ -24,7 +25,7 @@ function M.edit()
 
    local lines = {
       "# note metadata — :w validates and saves; q closes",
-      "# edit tags / description / image / props here (title via :Track rename)",
+      "# edit title / tags / description / image / props (a changed title renames the note)",
    }
    for _, line in ipairs(vim.split(meta.doc or "", "\n", { trimempty = true })) do
       table.insert(lines, line)

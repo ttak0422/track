@@ -82,45 +82,64 @@ func ApplyMetaEdit(cfg *config.Config, noteID int64, edit MetaEdit) (Metadata, e
 }
 
 // MetaDoc is the canonical user-editable slice of a note's sidecar metadata as one YAML document:
-// tags, page description/image, and typed props. The title is excluded — it is a link keyword owned
-// by rename. Both frontends (the web meta dialog and the Neovim popup) show this document verbatim
-// and apply it through ApplyMetaDoc, so parsing and validation live here once.
+// title, tags, page description/image, and typed props. Both frontends (the web meta dialog and
+// the Neovim popup) show this document verbatim and apply it through ApplyMetaDoc, so parsing and
+// validation live here once. The title travels in the document but is applied by the callers
+// through the engine rename path (rename.Do — backlink rewrite, uniqueness, history), which needs
+// the index store this package cannot depend on.
 type MetaDoc struct {
+	Title       string         `yaml:"title"`
 	Tags        []string       `yaml:"tags"`
 	Description string         `yaml:"description"`
 	Image       string         `yaml:"image"`
 	Props       map[string]any `yaml:"props"`
 }
 
-// MetaDocYAML renders a note's editable metadata document. Empty fields stay present (as empty
-// values) so an editor seeded from it always shows every editable key.
+// MetaDocYAML renders a note's editable metadata document. Empty fields stay present so an editor
+// seeded from it always shows every editable key — as bare "key:" lines rather than the flow-style
+// "[]" / "{}" / '""', which are hostile to hand-editing (ParseMetaDoc reads both forms).
 func MetaDocYAML(meta Metadata) (string, error) {
-	doc := MetaDoc{Tags: meta.Tags, Description: meta.Description, Image: meta.Image, Props: meta.Props}
-	if doc.Tags == nil {
-		doc.Tags = []string{}
-	}
-	if doc.Props == nil {
-		doc.Props = map[string]any{}
-	}
+	doc := MetaDoc{Title: meta.Title, Tags: meta.Tags, Description: meta.Description, Image: meta.Image, Props: meta.Props}
 	out, err := yaml.Marshal(doc)
 	if err != nil {
 		return "", err
 	}
-	return string(out), nil
+	s := "\n" + string(out)
+	for _, key := range []string{"title", "tags", "description", "image", "props"} {
+		for _, empty := range []string{` ""`, " []", " {}"} {
+			s = strings.Replace(s, "\n"+key+":"+empty+"\n", "\n"+key+":\n", 1)
+		}
+	}
+	return s[1:], nil
 }
 
-// ApplyMetaDoc replaces a note's editable metadata (tags, description, image, props) with the given
-// YAML document, validating everything before the single sidecar write — a rejected document changes
-// nothing on disk. Unknown top-level keys (title included) are rejected rather than silently
-// dropped, the image must pass the same vault-asset check as ApplyMetaEdit, tags are trimmed and
-// de-duplicated like every CLI tag flag, and props are typed against the configured schema exactly
-// like `track meta --set`. Non-editable sidecar fields (title, created, days, blocks) carry over.
-func ApplyMetaDoc(cfg *config.Config, noteID int64, docYAML []byte) (Metadata, error) {
+// ParseMetaDoc parses an editable metadata document strictly: unknown top-level keys (created,
+// days, blocks — the non-editable sidecar fields) are rejected rather than silently dropped, so a
+// typo never loses data. An empty document is valid whole-state: it clears every editable field
+// (an empty title means "leave the title unchanged" — see ApplyMetaDoc).
+func ParseMetaDoc(docYAML []byte) (MetaDoc, error) {
 	var doc MetaDoc
 	dec := yaml.NewDecoder(bytes.NewReader(docYAML))
 	dec.KnownFields(true)
 	if err := dec.Decode(&doc); err != nil && !errors.Is(err, io.EOF) {
-		return Metadata{}, fmt.Errorf("parse metadata document: %w", err)
+		return MetaDoc{}, fmt.Errorf("parse metadata document: %w", err)
+	}
+	return doc, nil
+}
+
+// ApplyMetaDoc replaces a note's editable sidecar fields (tags, description, image, props) with the
+// given YAML document, validating everything before the single sidecar write — a rejected document
+// changes nothing on disk. The image must pass the same vault-asset check as ApplyMetaEdit, tags
+// are trimmed and de-duplicated like every CLI tag flag, and props are typed against the configured
+// schema exactly like `track meta --set`.
+//
+// The document's title is deliberately NOT applied here: a title change is a rename (backlink
+// rewrite, uniqueness against the index), so the callers pre-validate it and route it through
+// rename.Do after this write. Non-editable sidecar fields (created, days, blocks) carry over.
+func ApplyMetaDoc(cfg *config.Config, noteID int64, docYAML []byte) (Metadata, error) {
+	doc, err := ParseMetaDoc(docYAML)
+	if err != nil {
+		return Metadata{}, err
 	}
 	doc.Description = strings.TrimSpace(doc.Description)
 	doc.Image = strings.TrimSpace(doc.Image)

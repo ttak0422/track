@@ -238,10 +238,12 @@ export function useSaveNoteMetaMutation(noteID: NoteID) {
     mutationFn: (request: SaveNoteMetaRequest) => saveNoteMeta(noteID, request),
     onSuccess: (response) => {
       queryClient.setQueryData<NoteMetaResponse>(queryKeys.noteMeta(noteID), { doc: response.doc });
-      // The document carries tags and props, which the note view and lists render.
+      // The document carries the title, tags, and props, which the note view, lists, and graph
+      // render; a title change also rewrites backlinks in other notes.
       void queryClient.invalidateQueries({ queryKey: queryKeys.note(noteID) });
       void queryClient.invalidateQueries({ queryKey: queryKeys.notes() });
       void queryClient.invalidateQueries({ queryKey: ["search"] });
+      void queryClient.invalidateQueries({ queryKey: ["graph"] });
     },
   });
 }

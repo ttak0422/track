@@ -1045,4 +1045,15 @@ func TestNoteMetaEndpoint(t *testing.T) {
 	if unchanged != doc {
 		t.Fatalf("rejected doc must change nothing:\n%s\n---\n%s", doc, unchanged)
 	}
+
+	// A changed title in the document routes through the rename path.
+	renamed, _ := json.Marshal(map[string]string{"doc": "title: Alpha v2\ntags:\n  - go\n"})
+	resp, res = post(string(renamed))
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("title change failed: %d %v", resp.StatusCode, res)
+	}
+	noteRes := getJSON(t, server.URL+"/api/note?id=100")["note"].(map[string]any)
+	if noteRes["title"] != "Alpha v2" {
+		t.Fatalf("note title after doc rename = %v", noteRes["title"])
+	}
 }

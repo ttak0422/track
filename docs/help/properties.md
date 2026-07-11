@@ -24,8 +24,8 @@ live under `props` in the sidecar, and every frontend edits them there through t
 engine path:
 
 - **The metadata editor** — the [[Web workspace]] Meta dialog, or the Neovim `:Track meta` popup —
-  shows the note's whole editable metadata (tags, description, cover image, props) as one YAML
-  document; saving validates and applies it atomically.
+  shows the note's whole editable metadata (title, tags, description, cover image, props) as one
+  YAML document; saving validates and applies it atomically, and a changed title renames the note.
 - **The CLI**, for scripts and point edits:
 
 ```sh

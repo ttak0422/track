@@ -14,6 +14,7 @@ import (
 	"github.com/ttak0422/track/internal/track/index"
 	"github.com/ttak0422/track/internal/track/link"
 	"github.com/ttak0422/track/internal/track/note"
+	"github.com/ttak0422/track/internal/track/rename"
 	"github.com/ttak0422/track/internal/track/render"
 	"github.com/ttak0422/track/internal/track/store"
 )
@@ -173,12 +174,12 @@ func (s *Server) putNote(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, map[string]any{"note_id": ref.NoteID, "etag": etagFor(out), "saved": true})
 }
 
-// handleNoteMeta reads or edits a note's editable sidecar metadata — tags, description, cover
-// image, and typed props — as one YAML document ("doc"). Edits go through the same validated engine
-// write path as `track meta --edit` (note.ApplyMetaDoc), so all the rules — tag normalization, an
-// existing vault asset in a raster format, props typed against the configured schema — live in one
-// place; a violation is a 400 whose message the editor shows inline, and a rejected document
-// changes nothing.
+// handleNoteMeta reads or edits a note's editable sidecar metadata — title, tags, description,
+// cover image, and typed props — as one YAML document ("doc"). Edits go through the same validated
+// engine write path as `track meta --edit` (note.ApplyMetaDoc; a changed title through rename.Do),
+// so all the rules — tag normalization, an existing vault asset in a raster format, props typed
+// against the configured schema, title uniqueness — live in one place; a violation is a 400 whose
+// message the editor shows inline, and a rejected document changes nothing.
 func (s *Server) handleNoteMeta(w http.ResponseWriter, r *http.Request) {
 	id, err := parseID(r)
 	if err != nil {
@@ -211,12 +212,37 @@ func (s *Server) handleNoteMeta(w http.ResponseWriter, r *http.Request) {
 			writeError(w, fmt.Errorf("decode request: %w", err), http.StatusBadRequest)
 			return
 		}
+		parsed, err := note.ParseMetaDoc([]byte(req.Doc))
+		if err != nil {
+			writeError(w, err, http.StatusBadRequest)
+			return
+		}
+		// Pre-validate a title change so a conflicting title rejects the whole document before any
+		// write; an empty title in the document means "leave the title unchanged".
+		newTitle := strings.TrimSpace(parsed.Title)
+		if newTitle != "" {
+			if other, ok, err := s.store.ResolveTerm(newTitle); err != nil {
+				writeError(w, err, http.StatusInternalServerError)
+				return
+			} else if ok && other.NoteID != id {
+				writeError(w, fmt.Errorf("title %q already in use by note %d", newTitle, other.NoteID), http.StatusBadRequest)
+				return
+			}
+		}
 		meta, err := note.ApplyMetaDoc(s.cfg, id, []byte(req.Doc))
 		if err != nil {
 			writeError(w, err, http.StatusBadRequest)
 			return
 		}
-		if err := index.New(s.cfg, s.store).One(s.cfg.PathForKind(ref.FileKind, ref.NoteID)); err != nil {
+		if newTitle != "" && newTitle != meta.Title {
+			// A title change is a rename: backlink rewrite, history, full reindex — the same engine
+			// path as `track rename`.
+			if _, err := rename.Do(s.cfg, s.store, id, newTitle); err != nil {
+				writeError(w, err, http.StatusInternalServerError)
+				return
+			}
+			meta.Title = newTitle
+		} else if err := index.New(s.cfg, s.store).One(s.cfg.PathForKind(ref.FileKind, ref.NoteID)); err != nil {
 			writeError(w, fmt.Errorf("reindex: %w", err), http.StatusInternalServerError)
 			return
 		}

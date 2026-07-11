@@ -113,9 +113,9 @@ export interface DeleteNoteResponse {
   deleted: boolean;
 }
 
-// A note's editable sidecar metadata — tags, description, cover image, typed props — as one YAML
-// document. The dialog edits the document verbatim; the engine parses and validates it (the same
-// path as `track meta --edit`), so the frontend never interprets the YAML.
+// A note's editable sidecar metadata — title, tags, description, cover image, typed props — as one
+// YAML document. The dialog edits the document verbatim; the engine parses and validates it (the
+// same path as `track meta --edit`), so the frontend never interprets the YAML.
 export interface NoteMetaResponse {
   doc: string;
 }

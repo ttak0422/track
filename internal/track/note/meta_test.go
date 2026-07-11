@@ -47,13 +47,16 @@ func TestMetaDocRoundTrip(t *testing.T) {
 	if err != nil {
 		t.Fatalf("render doc: %v", err)
 	}
-	for _, key := range []string{"tags:", "description:", "image:", "props:"} {
+	for _, key := range []string{"title: Alpha", "tags:", "description:", "image:", "props:"} {
 		if !strings.Contains(doc, key) {
 			t.Fatalf("doc missing %q:\n%s", key, doc)
 		}
 	}
-	if strings.Contains(doc, "title") {
-		t.Fatalf("doc must not expose the title:\n%s", doc)
+	// Empty fields render as bare "key:" lines, not the hand-editing-hostile "[]"/"{}"/`""`.
+	for _, flow := range []string{"[]", "{}", `""`} {
+		if strings.Contains(doc, flow) {
+			t.Fatalf("empty fields must render bare, got %q in:\n%s", flow, doc)
+		}
 	}
 
 	// Applying the seed document unchanged keeps the sidecar equivalent.
@@ -61,7 +64,10 @@ func TestMetaDocRoundTrip(t *testing.T) {
 		t.Fatalf("apply unchanged doc: %v", err)
 	}
 
-	edited := "tags:\n  - go\n  - go\n  - \" lua \"\n" +
+	// A different title in the document is not applied by ApplyMetaDoc — a title change is a
+	// rename (index uniqueness, backlink rewrite), routed through rename.Do by the callers.
+	edited := "title: Renamed\n" +
+		"tags:\n  - go\n  - go\n  - \" lua \"\n" +
 		"description: '  a summary  '\n" +
 		"image: assets/cover.png\n" +
 		"props:\n  status: draft\n  rating: 8\n  authors: [\"[[Ada]]\", \"[[Alan]]\"]\n"
@@ -79,7 +85,10 @@ func TestMetaDocRoundTrip(t *testing.T) {
 		t.Fatalf("props = %#v", got.Props)
 	}
 	if got.Title != "Alpha" || got.Created != "2026-07-01" {
-		t.Fatalf("non-editable fields lost: title=%q created=%q", got.Title, got.Created)
+		t.Fatalf("title must stay rename-owned and created preserved: title=%q created=%q", got.Title, got.Created)
+	}
+	if parsed, err := ParseMetaDoc([]byte(edited)); err != nil || parsed.Title != "Renamed" {
+		t.Fatalf("ParseMetaDoc must surface the title for the rename leg: %+v err=%v", parsed, err)
 	}
 
 	stored, found, err := ReadMetadata(cfg.MetadataPath(100))
@@ -122,7 +131,7 @@ func TestApplyMetaDocRejectsInvalid(t *testing.T) {
 		"nested map property":     "props:\n  status:\n    nested: draft\n",
 		"missing image asset":     "image: assets/nope.png\n",
 		"non-raster image":        "image: assets/cover.svg\n",
-		"unknown top-level field": "title: Renamed\n",
+		"unknown top-level field": "created: 2020-01-01\n",
 		"malformed yaml":          "tags: [unclosed\n",
 	}
 	for name, doc := range cases {
