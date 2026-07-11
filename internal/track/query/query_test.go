@@ -184,7 +184,7 @@ func TestMarkdownTable(t *testing.T) {
 
 func TestExpandBlocks(t *testing.T) {
 	body := "before\n\n```track-query\nTABLE title WHERE #urgent\n```\n\nafter"
-	got := ExpandBlocks(body, nil, testRows())
+	got := ExpandBlocks(body, nil, testRows(), nil)
 	want := "before\n\n| title |\n| --- |\n| [[Delta]] |\n\nafter"
 	if got != want {
 		t.Fatalf("expanded =\n%s\nwant\n%s", got, want)
@@ -193,22 +193,22 @@ func TestExpandBlocks(t *testing.T) {
 
 func TestExpandBlocksSavedAndErrors(t *testing.T) {
 	saved := map[string]string{"urgent": "TABLE title WHERE #urgent"}
-	got := ExpandBlocks("```track-query\nsaved: urgent\n```", saved, testRows())
+	got := ExpandBlocks("```track-query\nsaved: urgent\n```", saved, testRows(), nil)
 	if !strings.Contains(got, "[[Delta]]") {
 		t.Fatalf("saved query not expanded: %s", got)
 	}
 
-	got = ExpandBlocks("```track-query\nsaved: missing\n```", saved, testRows())
+	got = ExpandBlocks("```track-query\nsaved: missing\n```", saved, testRows(), nil)
 	if !strings.Contains(got, "> Query error:") || !strings.Contains(got, "saved: missing") {
 		t.Fatalf("missing saved query should render an inline error with the source: %s", got)
 	}
 
-	got = ExpandBlocks("```track-query\nnot a query\n```", nil, testRows())
+	got = ExpandBlocks("```track-query\nnot a query\n```", nil, testRows(), nil)
 	if !strings.Contains(got, "> Query error:") || !strings.Contains(got, "not a query") {
 		t.Fatalf("bad query should render an inline error with the source: %s", got)
 	}
 
-	if got := ExpandBlocks("no fences here", nil, testRows()); got != "no fences here" {
+	if got := ExpandBlocks("no fences here", nil, testRows(), nil); got != "no fences here" {
 		t.Fatalf("body without fences must pass through: %q", got)
 	}
 }

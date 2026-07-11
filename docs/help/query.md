@@ -80,6 +80,55 @@ in at build time, over the published notes only — a published query never leak
 note. A typo shows an inline error with the expression at the block position, so it never hides
 your text.
 
+## Layouts
+
+A block renders as a table by default. A `:layout` header argument on the fence — the same
+Org-style header arguments [[Babel]] blocks use — picks a different shape: open the fence with
+`track-query :layout board :by status` instead of plain `track-query`, and the same expression
+renders as a board instead of a table.
+
+- **`:layout table`** (the default) — the Markdown table above.
+- **`:layout board`** — a kanban-style board: one lane per value of the grouping column, cards in
+  the query's order.
+- **`:layout gallery`** — a grid of cards showing each note's cover image (the note metadata's
+  image on a vault; a `cover:: assets/<file>` inline field on a directory site like this one).
+- **`:layout calendar`** — rows placed on a month grid by a date-valued column; one grid per month
+  that has rows.
+
+`:by <column>` names the grouping column (board) or the date column (calendar) and must be one of
+the `TABLE` columns; it defaults to the first non-title column. Every layout is read-only — cards
+and day entries link to their notes, like a table's title cells. If you know Obsidian's Bases views
+or org-mode's agenda, this is the same shape of idea.
+
+All three samples below are live, computed from this help site's pages.
+
+### Board
+
+Several pages of this site carry a `section::` inline field; the board lanes them by it. This block
+is `TABLE title, section, rating WHERE section SORT title` with `:layout board :by section`:
+
+```track-query :layout board :by section
+TABLE title, section, rating WHERE section SORT title
+```
+
+### Gallery
+
+The visualization pages each carry a cover image; the gallery shows them as cards. This block is
+`TABLE title FROM #help/visualization SORT title` with `:layout gallery`:
+
+```track-query :layout gallery
+TABLE title FROM #help/visualization SORT title
+```
+
+### Calendar
+
+Some pages carry a `reviewed::` date; the calendar places them on their day, one grid per month.
+This block is `TABLE title, reviewed WHERE reviewed` with `:layout calendar :by reviewed`:
+
+```track-query :layout calendar :by reviewed
+TABLE title, reviewed WHERE reviewed
+```
+
 ## Saved queries
 
 Name queries you reuse in `config.yml`. Quote the expression — an unquoted `#` starts a YAML
@@ -110,3 +159,5 @@ On a vault, tags come from note metadata (`track new --tag`, `track append --tag
 export like this site, a `tags:: a, b` inline field supplies the page's tags.
 
 tags:: help/reference
+section:: reference
+reviewed:: 2026-07-10

@@ -18,3 +18,5 @@ render the visuals identically.
 Back to [[track]].
 
 tags:: help/visualization
+section:: visualization
+cover:: assets/cover-visualization.svg

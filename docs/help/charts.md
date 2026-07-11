@@ -267,3 +267,6 @@ track render --help
 ```
 
 tags:: help/visualization/charts
+section:: visualization
+cover:: assets/cover-charts.svg
+reviewed:: 2026-06-24

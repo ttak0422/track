@@ -250,7 +250,12 @@ func (s *Server) handleRender(w http.ResponseWriter, r *http.Request) {
 	// source rather than failing the whole render.
 	markdown := res.Markdown
 	if rows, err := query.RowsFromStore(s.store); err == nil {
-		markdown = query.ExpandBlocks(markdown, s.cfg.Queries, rows)
+		// Gallery covers come from the sidecar metadata, read lazily per matched note; the value is
+		// the note-relative "assets/<file>" the frontend already maps to /api/asset.
+		markdown = query.ExpandBlocks(markdown, s.cfg.Queries, rows, func(id int64) string {
+			meta, _, _ := note.ReadMetadata(s.cfg.MetadataPath(id))
+			return meta.Image
+		})
 	}
 	// Includes resolve against the rendered markdown (what the frontend draws), so their line
 	// numbers align with the text the client splices them into; target bodies render through the

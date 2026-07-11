@@ -39,3 +39,5 @@ it in at a glance and explore the detail without scrolling the page. The publish
 ([[CLI]] `export-site`) renders the same diagrams with the same engine.
 
 tags:: help/visualization/diagrams
+section:: visualization
+cover:: assets/cover-diagrams.svg

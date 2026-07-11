@@ -104,3 +104,5 @@ properties:
   tabulates notes by these values — from the CLI or an embedded `track-query` block.
 
 tags:: help/authoring
+section:: authoring
+reviewed:: 2026-07-02

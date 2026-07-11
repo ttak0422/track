@@ -184,8 +184,14 @@ func writeBundle(docs []doc, edges []edge, root int64, calendar bool, baseURL st
 	// recently-updated-first order), so a published table never links to — or leaks — an unpublished
 	// note; its [[Title]] cells resolve through resolve.json like any other wiki link.
 	queryRows := make([]query.NoteRow, 0, len(listed))
+	// Gallery covers publish under their opaque asset names, matching the copied files (covers are
+	// always copied, referenced or not — see the asset loop below).
+	queryCovers := map[int64]string{}
 	for _, d := range listed {
 		queryRows = append(queryRows, query.NoteRow{ID: d.id, Title: d.title, Tags: d.tags, Props: d.props, Mtime: d.mtime})
+		if d.image != "" {
+			queryCovers[d.id] = "assets/" + publishAssetName(d.image)
+		}
 	}
 	for _, d := range docs {
 		srcs := linkers[d.id]
@@ -199,7 +205,7 @@ func writeBundle(docs []doc, edges []edge, root int64, calendar bool, baseURL st
 		// Then resolve ```viewspec fences to ready-to-draw ```echarts option blocks, and
 		// ```track-query fences to their Markdown result tables, at build time.
 		body = resolveViewSpecBlocks(body, d.dataDir, noteSlug)
-		body = query.ExpandBlocks(body, saved, queryRows)
+		body = query.ExpandBlocks(body, saved, queryRows, func(id int64) string { return queryCovers[id] })
 		resp := jsonNoteResponse{
 			Note: jsonNoteDetail{
 				// Includes resolve against the published body so their line numbers match what the

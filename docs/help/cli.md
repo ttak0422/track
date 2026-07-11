@@ -49,3 +49,4 @@ track render --spec chart.json --out chart.svg --renderer svg
 ```
 
 tags:: help/reference
+section:: reference

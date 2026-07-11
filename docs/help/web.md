@@ -28,3 +28,5 @@ and Mermaid rendering so a published note reads the way it does here, while [[Li
 how cross-note links are resolved against the published set.
 
 tags:: help/reference
+section:: reference
+reviewed:: 2026-06-18

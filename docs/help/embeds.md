@@ -123,3 +123,5 @@ The [[Web workspace]] renders every embed live; the static export ([[CLI]] `expo
 same output for a published note.
 
 tags:: help/visualization/embeds
+section:: visualization
+cover:: assets/cover-embeds.svg

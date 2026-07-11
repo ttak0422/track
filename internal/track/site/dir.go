@@ -79,13 +79,16 @@ func BuildDir(srcDir, rootName, baseURL, frontendDir, outDir string) (Result, er
 		}
 		// Plain Markdown files have no sidecar, so inline "key:: value" fields are their only
 		// properties — and a "tags:: a, b" field doubles as the page's tags, so tag pages, #tag
-		// search, and query FROM filters work on a directory site too.
+		// search, and query FROM filters work on a directory site too. Likewise a
+		// "cover:: assets/<file>" field is the page's cover image (a vault note keeps it in the
+		// sidecar), feeding gallery query layouts and og:image.
 		props := note.InlineFields(f.body)
 		docs = append(docs, doc{
 			id:       id,
 			title:    f.title,
 			kind:     "note",
 			tags:     tagsFromProps(props),
+			image:    coverFromProps(props),
 			path:     f.slug + ".md",
 			body:     body,
 			keys:     []string{f.slug, f.title},
@@ -110,6 +113,17 @@ func BuildDir(srcDir, rootName, baseURL, frontendDir, outDir string) (Result, er
 	// sites never include it (the CLI rejects --calendar with --src). There is no vault config either,
 	// so "saved:" query references do not resolve on a directory site.
 	return writeBundle(docs, edges, root, false, baseURL, nil, frontendDir, outDir)
+}
+
+// coverFromProps lifts a "cover:: assets/<file>" inline field into a doc's cover image, stored like
+// the vault path: relative under the assets directory.
+func coverFromProps(props []note.Prop) string {
+	for _, p := range props {
+		if p.Key == "cover" {
+			return strings.TrimPrefix(p.Value, "assets/")
+		}
+	}
+	return ""
 }
 
 // tagsFromProps lifts the values of the "tags" inline field into a doc's tags.

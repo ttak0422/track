@@ -69,3 +69,4 @@ A block whose language has no executor configured is left unrun with a clear err
 by surprise.
 
 tags:: help/authoring
+section:: authoring

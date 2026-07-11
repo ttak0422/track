@@ -1,6 +1,7 @@
 package query
 
 import (
+	"encoding/json"
 	"fmt"
 	"strings"
 
@@ -9,25 +10,59 @@ import (
 
 // FenceLang is the fence language that marks an embedded query (```track-query ... ```), mirroring
 // how ```viewspec marks an embedded chart. The fence body is a query expression, or "saved: <name>"
-// referencing a named query from config.
+// referencing a named query from config. Org-style header arguments on the fence choose the layout:
+// ":layout table|board|gallery|calendar" (default table) and ":by <column>" (the board grouping /
+// calendar date column).
 const FenceLang = "track-query"
 
-// ExpandBlocks replaces every fenced ```track-query block in body with its result rendered as a GFM
-// Markdown table, so the block draws as a live table wherever notes render — no dedicated frontend
-// component needed. A bad query is replaced by an inline error plus the original expression, so the
-// note still renders and the typo is visible at the block position. saved supplies named queries for
-// "saved: <name>" bodies; rows is the query domain.
-func ExpandBlocks(body string, saved map[string]string, rows []NoteRow) string {
+// ExpandBlocks replaces every fenced ```track-query block in body with its rendered result: a GFM
+// Markdown table by default, or — for a board/gallery/calendar :layout — a ```track-view fence whose
+// body is the laid-out View JSON the frontend draws. A bad query is replaced by an inline error plus
+// the original expression, so the note still renders and the typo is visible at the block position.
+// saved supplies named queries for "saved: <name>" bodies; rows is the query domain; cover supplies
+// note cover images for gallery cards (nil = no covers).
+func ExpandBlocks(body string, saved map[string]string, rows []NoteRow, cover func(noteID int64) string) string {
 	return babel.ReplaceBlocks(body, FenceLang, func(b babel.Block) []string {
 		expr, err := ResolveSaved(b.Body, saved)
 		if err == nil {
 			var q Query
 			if q, err = Parse(expr); err == nil {
-				return strings.Split(Markdown(Run(q, rows)), "\n")
+				var lines []string
+				if lines, err = resultLines(b, Run(q, rows), cover); err == nil {
+					return lines
+				}
 			}
 		}
 		return []string{"> Query error: " + err.Error(), "", "```", strings.TrimSpace(b.Body), "```"}
 	})
+}
+
+// resultLines renders one evaluated block per its :layout header argument. An empty result renders
+// as the table path's "no results" text in every layout — an empty board or month grid would just
+// look broken.
+func resultLines(b babel.Block, res Result, cover func(int64) string) ([]string, error) {
+	layout := headerArg(b, "layout")
+	if layout == "" || layout == "table" || len(res.Rows) == 0 {
+		return strings.Split(Markdown(res), "\n"), nil
+	}
+	v, err := BuildView(layout, headerArg(b, "by"), res, cover)
+	if err != nil {
+		return nil, err
+	}
+	// json.Marshal emits a single line, so the payload can never contain a fence-closing line.
+	data, err := json.Marshal(v)
+	if err != nil {
+		return nil, err
+	}
+	return []string{"```" + ViewFenceLang, string(data), "```"}, nil
+}
+
+// headerArg returns the first value of an Org-style ":key value" fence header argument.
+func headerArg(b babel.Block, key string) string {
+	if vs := b.HeaderArgs[key]; len(vs) > 0 {
+		return vs[0]
+	}
+	return ""
 }
 
 // ResolveSaved resolves a fence body to a query expression: "saved: <name>" looks the expression up
