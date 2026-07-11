@@ -95,6 +95,10 @@ export interface NoteDetail extends SearchResult {
 export interface NoteResponse {
   note: NoteDetail;
   backlinks: NoteRef[];
+  // Hierarchy navigation from the "up" relation property: the ancestor trail (root first) and the
+  // notes whose "up" points here. Both live and static responses carry them.
+  trail?: NoteRef[];
+  children?: NoteRef[];
 }
 
 export interface SaveNoteRequest {

@@ -1368,6 +1368,49 @@ a.calendar-title:focus-visible {
   color: var(--accent);
 }
 
+/* Breadcrumbs: the ancestor trail from the "up" relation property, above the tags. Quiet like the
+   tag strip — muted links, accent on hover — so it reads as orientation, not content. */
+.note-breadcrumbs {
+  flex-shrink: 0; /* like .note-tags: never squeezed by .note-reader's height bound */
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 2px;
+  font-size: calc(12px * var(--font-scale, 1));
+  color: var(--muted);
+}
+
+.note-breadcrumbs a {
+  color: var(--muted);
+  text-decoration: none;
+}
+
+.note-breadcrumbs a:hover,
+.note-breadcrumbs a:focus-visible {
+  color: var(--accent);
+}
+
+.note-crumb-sep {
+  margin: 0 4px;
+}
+
+/* Block-anchor arrival: the block a [[Note#^id]] link landed on flashes, then settles to a faint
+   tint so the eye keeps its place. Colors derive from --accent, so both themes are covered. */
+.block-target {
+  border-radius: 4px;
+  animation: block-flash 1.6s ease-out;
+  background: color-mix(in srgb, var(--accent) 10%, transparent);
+}
+
+@keyframes block-flash {
+  0% {
+    background: color-mix(in srgb, var(--accent) 30%, transparent);
+  }
+  100% {
+    background: color-mix(in srgb, var(--accent) 10%, transparent);
+  }
+}
+
 /* Note properties: a quiet key/value strip between the tags and the body. Keys read muted like tags;
    values sit in soft chips so a row of them still scans as discrete items. */
 .note-props {

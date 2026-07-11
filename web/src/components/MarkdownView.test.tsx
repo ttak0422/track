@@ -95,6 +95,26 @@ describe("MarkdownView", () => {
     expect(container.querySelector(".katex-display")).toBeInTheDocument();
   });
 
+  it("anchors a ^id-marked paragraph and list item, hiding the marker", () => {
+    const { container } = render(
+      <MarkdownView markdown={"A marked paragraph. ^para\n\n- item one ^item\n- item two"} />,
+    );
+    const para = container.querySelector("#block-para");
+    expect(para?.tagName).toBe("P");
+    expect(para?.textContent).toBe("A marked paragraph.");
+    const item = container.querySelector("#block-item");
+    expect(item?.tagName).toBe("LI");
+    expect(item?.textContent).toBe("item one");
+    expect(container.textContent).not.toContain("^para");
+    expect(container.textContent).not.toContain("^item");
+  });
+
+  it("leaves a lone ^id paragraph as prose (a marker needs content on its line)", () => {
+    const { container } = render(<MarkdownView markdown={"^orphan"} />);
+    expect(container.querySelector("#block-orphan")).toBeNull();
+    expect(container.textContent).toContain("^orphan");
+  });
+
   it("renders a [!NOTE] blockquote as a titled callout and leaves plain quotes alone", () => {
     const { container } = render(<MarkdownView markdown={"> [!NOTE]\n> body text"} />);
     const alert = container.querySelector(".md-alert.md-alert-note");

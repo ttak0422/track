@@ -1,4 +1,5 @@
-import { Link } from "@tanstack/react-router";
+import { Link, useLocation } from "@tanstack/react-router";
+import { useEffect } from "react";
 import { useAgendaQuery } from "../queries";
 import { WikiLink } from "./preview/WikiLink";
 import type { FileKind, NoteID, NoteProp, NoteRef } from "../types";
@@ -26,15 +27,54 @@ export function journalDateFromNote(note?: { file_kind: FileKind; note_id: NoteI
   return `${id.slice(0, 4)}-${id.slice(4, 6)}-${id.slice(6, 8)}`;
 }
 
-// NoteAside renders a note's backlinks and, for a journal, the other notes touched that day. Backlinks
-// (references) sit on the left and "On this day" on the right, so the two share the reader's width; a
-// non-journal note's single Backlinks column grows to full width, and both wrap to a stack when narrow.
+// NoteBreadcrumbs renders the ancestor trail derived from the "up" relation property — root first,
+// immediate parent last — as a quiet strip above the note. A note without an up-chain shows nothing.
+export function NoteBreadcrumbs({ trail }: { trail: NoteRef[] }) {
+  if (trail.length === 0) return null;
+  return (
+    <nav className="note-breadcrumbs" aria-label="Breadcrumbs">
+      {trail.map((ref) => (
+        <span className="note-crumb" key={ref.note_id}>
+          <Link to="/notes/$noteId" params={{ noteId: String(ref.note_id) }}>
+            {ref.title}
+          </Link>
+          <span className="note-crumb-sep" aria-hidden="true">
+            ›
+          </span>
+        </span>
+      ))}
+    </nav>
+  );
+}
+
+// useScrollToHash scrolls the note view to the element the URL hash names — a block anchor,
+// id="block-<id>" (see remarkBlockID) — once the rendered body is in the DOM, and marks it with
+// .block-target for the arrival highlight. The reader drives this itself because SPA navigation
+// does not retrigger native fragment scrolling, and on a direct page load the content mounts after
+// the fragment was already consumed. ready flips true when the markdown has rendered.
+export function useScrollToHash(ready: boolean) {
+  const hash = useLocation({ select: (location) => location.hash });
+  useEffect(() => {
+    if (!ready || !hash) return;
+    const el = document.getElementById(hash.replace(/^#/, ""));
+    if (!el) return;
+    el.classList.add("block-target");
+    el.scrollIntoView({ block: "center" });
+    return () => el.classList.remove("block-target");
+  }, [ready, hash]);
+}
+
+// NoteAside renders a note's backlinks, its hierarchy children (notes whose "up" property points
+// here), and, for a journal, the other notes touched that day. The sections share the reader's
+// width and wrap to a stack when narrow.
 export function NoteAside({
   backlinks,
+  childNotes = [],
   noteID,
   journalDate,
 }: {
   backlinks: NoteRef[];
+  childNotes?: NoteRef[];
   noteID: NoteID;
   journalDate: string;
 }) {
@@ -42,6 +82,24 @@ export function NoteAside({
 
   return (
     <div className="note-aside">
+      {childNotes.length > 0 ? (
+        <section className="backlinks" aria-labelledby="children-heading">
+          <h3 id="children-heading">Children</h3>
+          <div className="backlink-list">
+            {childNotes.map((child) => (
+              <Link
+                className="backlink"
+                key={child.note_id}
+                to="/notes/$noteId"
+                params={{ noteId: String(child.note_id) }}
+              >
+                {child.title}
+              </Link>
+            ))}
+          </div>
+        </section>
+      ) : null}
+
       <section className="backlinks" aria-labelledby="backlinks-heading">
         <h3 id="backlinks-heading">Backlinks</h3>
         {backlinks.length === 0 ? (
