@@ -122,6 +122,22 @@ describe("MarkdownView", () => {
     expect(scrollIntoView).toHaveBeenCalledWith({ block: "center" });
   });
 
+  it("renders one back-link for each reference to the same footnote", () => {
+    const { container } = render(
+      <MarkdownView markdown={"First claim.[^source] Second claim.[^source]\n\n[^source]: Shared source."} />,
+    );
+
+    const refs = container.querySelectorAll("a.footnote-ref");
+    const backrefs = container.querySelectorAll("a.footnote-backref");
+    expect(refs).toHaveLength(2);
+    expect(backrefs).toHaveLength(2);
+    for (const backref of backrefs) {
+      const target = backref.getAttribute("href")?.slice(1);
+      expect(target).toBeTruthy();
+      expect(container.querySelector(`#${target}`)).toBeInTheDocument();
+    }
+  });
+
   it("renders viewspec fences through the chart component", () => {
     const { container } = renderWithQuery(<MarkdownView markdown={'```viewspec\n{"version":2}\n```'} />);
     expect(container.querySelector(".viewspec-chart")).toBeInTheDocument();
