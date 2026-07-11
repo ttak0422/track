@@ -2789,18 +2789,13 @@ a.calendar-title:focus-visible {
   cursor: pointer;
 }
 
-.mindmap-link .mindmap-node rect {
-  fill: color-mix(in srgb, var(--accent) 10%, var(--panel));
-  stroke: var(--accent);
-}
-
-.mindmap-link .mindmap-node text {
+.mindmap-wiki-link .mindmap-node text {
   fill: var(--accent);
-  text-decoration: underline;
+  font-weight: 700;
 }
 
-.mindmap-external-link .mindmap-node rect {
-  stroke-dasharray: 3 2;
+.mindmap-external-link .mindmap-node text {
+  text-decoration: underline;
 }
 
 .mindmap-root rect {
