@@ -90,7 +90,7 @@ func TestSearchTitleAndOr(t *testing.T) {
 	}
 }
 
-func TestSearchHashPrefixMatchesTags(t *testing.T) {
+func TestSearchHashMatchesTagsHierarchically(t *testing.T) {
 	s := newTestStore(t)
 	for _, n := range []*note.Note{
 		{
@@ -106,12 +106,12 @@ func TestSearchHashPrefixMatchesTags(t *testing.T) {
 		{
 			ID:    300,
 			Mtime: 500,
-			Meta:  note.Metadata{Title: "Prefix", Tags: []string{"graph-workspace"}},
+			Meta:  note.Metadata{Title: "Nested", Tags: []string{"graph/workspace"}},
 		},
 		{
 			ID:    400,
 			Mtime: 900,
-			Meta:  note.Metadata{Title: "Substring", Tags: []string{"cartography"}},
+			Meta:  note.Metadata{Title: "Unrelated prefix", Tags: []string{"graph-workspace", "cartography"}},
 		},
 	} {
 		if err := s.UpsertNote(n); err != nil {
@@ -119,15 +119,17 @@ func TestSearchHashPrefixMatchesTags(t *testing.T) {
 		}
 	}
 
+	// #graph matches the exact tag and its descendants (graph/workspace), never "graph-workspace" or
+	// "cartography". Exact matches rank before descendants; recency breaks ties.
 	results, err := s.SearchScoped("#graph", 10, SearchTitle)
 	if err != nil {
 		t.Fatalf("search: %v", err)
 	}
-	if len(results) != 4 {
-		t.Fatalf("expected 4 results, got %+v", results)
+	if len(results) != 3 {
+		t.Fatalf("expected 3 results, got %+v", results)
 	}
-	gotIDs := []int64{results[0].NoteID, results[1].NoteID, results[2].NoteID, results[3].NoteID}
-	wantIDs := []int64{200, 100, 300, 400}
+	gotIDs := []int64{results[0].NoteID, results[1].NoteID, results[2].NoteID}
+	wantIDs := []int64{200, 100, 300}
 	for i := range wantIDs {
 		if gotIDs[i] != wantIDs[i] {
 			t.Fatalf("result order = %v, want %v", gotIDs, wantIDs)
@@ -135,6 +137,15 @@ func TestSearchHashPrefixMatchesTags(t *testing.T) {
 	}
 	if !slices.Contains(results[0].Tags, "graph") || !slices.Contains(results[0].Tags, "draft") {
 		t.Fatalf("expected tag metadata on result: %+v", results[0])
+	}
+
+	// The child tag matches only its own subtree.
+	results, err = s.SearchScoped("#graph/workspace", 10, SearchTitle)
+	if err != nil {
+		t.Fatalf("search child: %v", err)
+	}
+	if len(results) != 1 || results[0].NoteID != 300 {
+		t.Fatalf("child tag results = %+v, want only note 300", results)
 	}
 }
 

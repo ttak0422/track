@@ -173,19 +173,22 @@ func parseTaggedQuery(query string) (parsedTaggedQuery, bool) {
 }
 
 // searchTagged builds the SQL and args for a query that carries one or more #tags, combining the tag
-// filters (AND) with the same AND/OR title matching used for a plain query.
+// filters (AND) with the same AND/OR title matching used for a plain query. Tags are hierarchical:
+// #a matches a note tagged "a" or any descendant like "a/b", but never "ab" — the same rule the query
+// evaluator applies (see query.TagMatches).
 func searchTagged(parsed parsedTaggedQuery, limit int) (string, []any) {
 	where := []string{"n.kind IN ('note', 'journal')"}
 	var whereArgs []any
 	for _, tag := range parsed.Tags {
-		where = append(where, "EXISTS (SELECT 1 FROM tags t WHERE t.note_id = n.id AND t.tag LIKE ?)")
-		whereArgs = append(whereArgs, "%"+tag+"%")
+		where = append(where, "EXISTS (SELECT 1 FROM tags t WHERE t.note_id = n.id AND (t.tag = ? COLLATE NOCASE OR t.tag LIKE ? || '/%'))")
+		whereArgs = append(whereArgs, tag, tag)
 	}
 	if titleClause, titleArgs := titleMatchClause(parsed.Text); titleClause != "" {
 		where = append(where, "("+titleClause+")")
 		whereArgs = append(whereArgs, titleArgs...)
 	}
 
+	// Exact tag matches rank before descendant (prefix) matches.
 	var order []string
 	var orderArgs []any
 	for _, tag := range parsed.Tags {
@@ -193,12 +196,6 @@ func searchTagged(parsed parsedTaggedQuery, limit int) (string, []any) {
 	     SELECT 1 FROM tags t WHERE t.note_id = n.id AND t.tag = ? COLLATE NOCASE
 	   ) THEN 0 ELSE 1 END`)
 		orderArgs = append(orderArgs, tag)
-	}
-	for _, tag := range parsed.Tags {
-		order = append(order, `CASE WHEN EXISTS (
-	     SELECT 1 FROM tags t WHERE t.note_id = n.id AND t.tag LIKE ?
-	   ) THEN 0 ELSE 1 END`)
-		orderArgs = append(orderArgs, tag+"%")
 	}
 	if parsed.Text != "" {
 		order = append(order,

@@ -63,6 +63,8 @@ func Run(args []string) int {
 		return cmdResolve(rest)
 	case "search":
 		return cmdSearch(rest)
+	case "query":
+		return cmdQuery(rest)
 	case "backlinks":
 		return cmdBacklinks(rest)
 	case "agenda":
@@ -136,6 +138,8 @@ Usage:
   track resolve (--term <s> | <s>)      resolve a keyword to a note (JSON)
   track search --query <s> [--scope all|title|body] [--limit N]
                                         search notes (JSON)
+  track query (<expr> | --saved <name>)  run a table query over notes, e.g.
+                                        'TABLE title, status FROM #project WHERE status != done SORT due LIMIT 10' (JSON)
   track backlinks (--id N | --path P)   list backlinks (JSON)
   track agenda [--date YYYY-MM-DD]       list notes active on a day (JSON)
   track graph (--id N | --path P)       show a local link graph (JSON)

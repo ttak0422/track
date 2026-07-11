@@ -14,6 +14,7 @@ import (
 	"github.com/ttak0422/track/internal/track/index"
 	"github.com/ttak0422/track/internal/track/link"
 	"github.com/ttak0422/track/internal/track/note"
+	"github.com/ttak0422/track/internal/track/query"
 	"github.com/ttak0422/track/internal/track/render"
 	"github.com/ttak0422/track/internal/track/store"
 )
@@ -242,13 +243,21 @@ func (s *Server) handleRender(w http.ResponseWriter, r *http.Request) {
 		writeError(w, err, http.StatusInternalServerError)
 		return
 	}
+	s.refreshIfStale()
+	// Embedded ```track-query fences resolve here into Markdown result tables over the freshly
+	// reconciled index, so the workspace draws them with its ordinary table rendering — the same
+	// expansion the static export bakes in at build time. A row-load failure leaves the fences as
+	// source rather than failing the whole render.
+	markdown := res.Markdown
+	if rows, err := query.RowsFromStore(s.store); err == nil {
+		markdown = query.ExpandBlocks(markdown, s.cfg.Queries, rows)
+	}
 	// Includes resolve against the rendered markdown (what the frontend draws), so their line
 	// numbers align with the text the client splices them into; target bodies render through the
 	// same web renderer so embedded content arrives as sanitized as the note's own.
-	s.refreshIfStale()
 	writeJSON(w, map[string]any{
-		"markdown": res.Markdown,
-		"includes": link.ResolveIncludes(res.Markdown, s.loadRenderedNote),
+		"markdown": markdown,
+		"includes": link.ResolveIncludes(markdown, s.loadRenderedNote),
 	})
 }
 

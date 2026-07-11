@@ -5,6 +5,7 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
+	"sort"
 	"strings"
 )
 
@@ -79,7 +80,37 @@ func writePages(outDir, startPage string, root int64, docs, listed []doc, site j
 			}
 		}
 	}
+
+	// Per-tag pages: tags/<tag>/index.html resolves /tags/<tag> for every published tag and each of
+	// its ancestors (tags are hierarchical, so /tags/a lists #a/b notes too).
+	for _, tag := range tagRoutes(docs) {
+		if err := write(filepath.Join("tags", filepath.FromSlash(tag), "index.html"), pageHead(site, nil, "/tags/"+tag)); err != nil {
+			return err
+		}
+	}
 	return nil
+}
+
+// tagRoutes returns every tag used by the published docs plus each hierarchical ancestor ("a/b/c"
+// also yields "a/b" and "a"), deduplicated, so every reachable tag page is a real file.
+func tagRoutes(docs []doc) []string {
+	seen := map[string]bool{}
+	var out []string
+	for _, d := range docs {
+		for _, tag := range d.tags {
+			parts := strings.Split(tag, "/")
+			for i := range parts {
+				prefix := strings.Join(parts[:i+1], "/")
+				if prefix == "" || seen[prefix] {
+					continue
+				}
+				seen[prefix] = true
+				out = append(out, prefix)
+			}
+		}
+	}
+	sort.Strings(out)
+	return out
 }
 
 // applyPlaceholders substitutes the placeholders the live server fills in at request time. The static

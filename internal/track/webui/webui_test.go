@@ -834,6 +834,28 @@ func TestRenderSanitizesActionLinksKeepsWiki(t *testing.T) {
 	}
 }
 
+func TestRenderExpandsQueryBlocks(t *testing.T) {
+	server, _ := putNoteSetup(t, 100, "Alpha", "status:: open\n")
+
+	resp, err := http.Post(server.URL+"/api/render", "application/json",
+		strings.NewReader(`{"body":"before\n\n`+"```track-query\\nTABLE title WHERE status = open\\n```"+`\n"}`))
+	if err != nil {
+		t.Fatalf("post render: %v", err)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("render status = %d", resp.StatusCode)
+	}
+	var decoded map[string]any
+	if err := json.NewDecoder(resp.Body).Decode(&decoded); err != nil {
+		t.Fatalf("decode render: %v", err)
+	}
+	markdown, _ := decoded["markdown"].(string)
+	if strings.Contains(markdown, "```track-query") || !strings.Contains(markdown, "| [[Alpha]] |") {
+		t.Fatalf("query fence should expand to a result table, got %q", markdown)
+	}
+}
+
 func TestIndexInjectsConfiguredTheme(t *testing.T) {
 	cfg := &config.Config{
 		VaultDir:   t.TempDir(),

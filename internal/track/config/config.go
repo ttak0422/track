@@ -45,6 +45,10 @@ type Config struct {
 	// Properties is the optional per-key note-property schema (config `properties:`): a declared
 	// value type and/or enum candidates. Keys not listed here are unconstrained.
 	Properties map[string]PropSpec
+	// Queries names saved query expressions (config `queries:`), runnable as `track query --saved
+	// <name>` and referenced from a ```track-query fence as "saved: <name>". A bad expression fails
+	// when run, not at load, so a typo never blocks unrelated commands.
+	Queries map[string]string
 }
 
 // PropSpec constrains one property key: Type is a value type ("string", "number", "boolean",
@@ -66,6 +70,7 @@ type fileConfig struct {
 	JournalTemplate   string              `yaml:"journal_template"`
 	GenKeep           int                 `yaml:"gen_keep"`
 	Properties        map[string]PropSpec `yaml:"properties"`
+	Queries           map[string]string   `yaml:"queries"`
 	Web               webFileConfig       `yaml:"web"`
 }
 
@@ -202,6 +207,7 @@ func Load() (*Config, error) {
 		JournalTemplate:   journalTemplate,
 		GenKeep:           genKeep,
 		Properties:        fc.Properties,
+		Queries:           fc.Queries,
 	}, nil
 }
 
