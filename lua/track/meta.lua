@@ -23,8 +23,8 @@ function M.edit()
    end
 
    local lines = {
-      "# note metadata — :w で検査して保存、q で閉じる",
-      "# tags / description / image / props をここで編集(title は :Track rename で変更)",
+      "# note metadata — :w validates and saves; q closes",
+      "# edit tags / description / image / props here (title via :Track rename)",
    }
    for _, line in ipairs(vim.split(meta.doc or "", "\n", { trimempty = true })) do
       table.insert(lines, line)
