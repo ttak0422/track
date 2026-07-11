@@ -19,6 +19,9 @@ query on both surfaces (live web workspace and static export).
 A `:layout table|board|gallery|calendar` header argument on the `track-query` fence — the same
 Org-style header arguments Babel blocks already parse — picks the shape, with `:by <column>` naming
 the grouping column (board) or date column (calendar), defaulting to the first non-title column.
+`:by` matches a `TABLE` column verbatim, so it follows the ADR 0033 key namespace: a property column
+is `:by props.status`, not `:by status`. The generated `View` payload carries display-form labels
+(`props.status` → `status`), matching the Markdown-table header, since it is a rendering payload.
 `table` stays the default and keeps the ADR 0033 Markdown-table path untouched.
 
 For the other three, `query.BuildView` distributes the evaluated `Result` into named groups — board

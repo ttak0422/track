@@ -838,7 +838,7 @@ func TestRenderExpandsQueryBlocks(t *testing.T) {
 	server, _ := putNoteSetup(t, 100, "Alpha", "status:: open\n")
 
 	resp, err := http.Post(server.URL+"/api/render", "application/json",
-		strings.NewReader(`{"body":"before\n\n`+"```track-query\\nTABLE title WHERE status = open\\n```"+`\n"}`))
+		strings.NewReader(`{"body":"before\n\n`+"```track-query\\nTABLE title WHERE props.status = open\\n```"+`\n"}`))
 	if err != nil {
 		t.Fatalf("post render: %v", err)
 	}
@@ -862,7 +862,7 @@ func TestRenderExpandsQueryLayouts(t *testing.T) {
 	// The fence's :layout header argument must survive the whole render pipeline (sanitize, then
 	// query expansion) and come back as a track-view payload, not the default table.
 	resp, err := http.Post(server.URL+"/api/render", "application/json",
-		strings.NewReader(`{"body":"`+"```track-query :layout board :by status\\nTABLE title, status WHERE status = open\\n```"+`\n"}`))
+		strings.NewReader(`{"body":"`+"```track-query :layout board :by props.status\\nTABLE title, props.status WHERE props.status = open\\n```"+`\n"}`))
 	if err != nil {
 		t.Fatalf("post render: %v", err)
 	}

@@ -35,8 +35,8 @@ func TestRowsFromStore(t *testing.T) {
 	if !reflect.DeepEqual(rows[1].Tags, []string{"a/b"}) {
 		t.Fatalf("tags = %v", rows[1].Tags)
 	}
-	// The indexed inline field is queryable.
-	if got := values(rows[1], "status"); !reflect.DeepEqual(got, []string{"open"}) {
+	// The indexed inline field is queryable as a property (props.<key>, never bare).
+	if got := values(rows[1], "props.status"); !reflect.DeepEqual(got, []string{"open"}) {
 		t.Fatalf("props = %+v", rows[1].Props)
 	}
 }

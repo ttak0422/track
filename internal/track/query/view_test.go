@@ -57,7 +57,8 @@ func groupTitles(g ViewGroup) []string {
 }
 
 func TestBoardGroupsByColumnFirstAppearance(t *testing.T) {
-	v := buildView(t, "board", "state", "TABLE title, state", nil)
+	// :by names the raw query column (props.state); the View labels it as the display "state".
+	v := buildView(t, "board", "props.state", "TABLE title, props.state", nil)
 	if v.Key != "state" {
 		t.Fatalf("key = %q, want state", v.Key)
 	}
@@ -74,7 +75,7 @@ func TestBoardGroupsByColumnFirstAppearance(t *testing.T) {
 }
 
 func TestBoardDefaultsToFirstNonTitleColumn(t *testing.T) {
-	v := buildView(t, "board", "", "TABLE title, state", nil)
+	v := buildView(t, "board", "", "TABLE title, props.state", nil)
 	if v.Key != "state" {
 		t.Fatalf("default key = %q, want state", v.Key)
 	}
@@ -103,7 +104,7 @@ func TestGalleryCarriesCovers(t *testing.T) {
 }
 
 func TestCalendarBucketsByDayAscending(t *testing.T) {
-	v := buildView(t, "calendar", "due", "TABLE title, due SORT due DESC", nil)
+	v := buildView(t, "calendar", "props.due", "TABLE title, props.due SORT props.due DESC", nil)
 	// Days sort ascending regardless of query SORT; the datetime value lands on its day; the
 	// undated row (Delta) stays off the grid.
 	if got := groupNames(v); !reflect.DeepEqual(got, []string{"2026-07-01", "2026-07-02", "2026-08-15"}) {
@@ -115,7 +116,7 @@ func TestCalendarBucketsByDayAscending(t *testing.T) {
 }
 
 func TestExpandBlocksLayouts(t *testing.T) {
-	got := ExpandBlocks("```track-query :layout board :by state\nTABLE title, state\n```", nil, viewRows(), nil)
+	got := ExpandBlocks("```track-query :layout board :by props.state\nTABLE title, props.state\n```", nil, viewRows(), nil)
 	if !strings.HasPrefix(got, "```track-view\n") || !strings.HasSuffix(got, "\n```") {
 		t.Fatalf("board expansion must be a track-view fence:\n%s", got)
 	}
@@ -130,7 +131,7 @@ func TestExpandBlocksLayouts(t *testing.T) {
 	// An unknown layout and a bad :by degrade to the inline error, keeping the source visible.
 	for _, body := range []string{
 		"```track-query :layout waterfall\nTABLE title\n```",
-		"```track-query :layout board :by owner\nTABLE title, state\n```",
+		"```track-query :layout board :by props.owner\nTABLE title, props.state\n```",
 	} {
 		if got := ExpandBlocks(body, nil, viewRows(), nil); !strings.Contains(got, "> Query error:") {
 			t.Fatalf("expected inline error for %q, got:\n%s", body, got)
@@ -138,13 +139,13 @@ func TestExpandBlocksLayouts(t *testing.T) {
 	}
 
 	// An empty result renders the shared no-results text, not an empty board.
-	got = ExpandBlocks("```track-query :layout board :by state\nTABLE title, state WHERE state = nope\n```", nil, viewRows(), nil)
+	got = ExpandBlocks("```track-query :layout board :by props.state\nTABLE title, props.state WHERE props.state = nope\n```", nil, viewRows(), nil)
 	if got != "_No results._" {
 		t.Fatalf("empty layout = %q", got)
 	}
 
 	// The default layout stays the Markdown table.
-	got = ExpandBlocks("```track-query\nTABLE title WHERE state = todo\n```", nil, viewRows(), nil)
+	got = ExpandBlocks("```track-query\nTABLE title WHERE props.state = todo\n```", nil, viewRows(), nil)
 	if !strings.Contains(got, "| [[Beta]] |") {
 		t.Fatalf("table expansion = %q", got)
 	}

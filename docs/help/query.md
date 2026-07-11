@@ -25,8 +25,16 @@ TABLE <column>[, <column>...]
   [LIMIT <n>]
 ```
 
-- **Columns and keys** are property keys, plus two pseudo-keys: `title` (rendered as a link to the
-  note) and `tags`. A multi-valued property fills its cell with `a, b`.
+- **Columns and keys** come from two separate namespaces. A **bare** identifier is a note attribute:
+  `title` (rendered as a link to the note) and `tags`. A **user [[Properties|property]]** (a sidecar
+  value or an inline field) is written `props.<key>` — `props.status`, `props.rating` — and that is
+  the *only* way to reach one. Keeping properties under `props.` means a bare word never silently
+  picks up a property, and new note attributes can be added later without ever colliding with your
+  property names. A multi-valued property fills its cell with `a, b`; a `props.<key>` column shows
+  just `<key>` in the table header.
+- **An unknown bare key is an error, not an empty column.** `TABLE status` fails with
+  `unknown key "status": note attributes are title, tags; query a property as props.status` — so a
+  mistyped or mis-namespaced key is caught loudly instead of quietly returning nothing.
 - **`FROM #tag`** keeps only notes carrying the tag — or any descendant, since tags are
   hierarchical: `#a` matches `#a` and `#a/b`, never `#ab`.
 - **`WHERE`** conditions are `AND`-combined. Each one is a `#tag` filter, a comparison
@@ -40,7 +48,7 @@ TABLE <column>[, <column>...]
 Keywords are uppercase, so lowercase words are always keys or values.
 
 ```text
-TABLE title, status, due FROM #project WHERE status != done AND due < 2027-01-01 SORT due LIMIT 10
+TABLE title, props.status, props.due FROM #project WHERE props.status != done AND props.due < 2027-01-01 SORT props.due LIMIT 10
 ```
 
 ## From the command line
@@ -48,11 +56,11 @@ TABLE title, status, due FROM #project WHERE status != done AND due < 2027-01-01
 `track query` prints the result as JSON, ready for scripts and editor integrations:
 
 ```sh
-track query 'TABLE title, status FROM #project WHERE status = open SORT title'
+track query 'TABLE title, props.status FROM #project WHERE props.status = open SORT title'
 ```
 
 ```json
-{"columns":["title","status"],"rows":[{"note_id":1781310000000,"title":"Alpha","cells":["Alpha","open"]}],"count":1}
+{"columns":["title","props.status"],"rows":[{"note_id":1781310000000,"title":"Alpha","cells":["Alpha","open"]}],"count":1}
 ```
 
 ## Embedded query blocks
@@ -68,11 +76,12 @@ visualization pages — note how `#help/visualization` also matches the nested
 TABLE title, tags FROM #help/visualization SORT title
 ```
 
-Property comparisons work the same way. Two pages of this site carry a `rating` inline field (this
-page is one of them — see the strip at the top), so this block finds them:
+Property comparisons work the same way, written under `props.`. Two pages of this site carry a
+`rating` inline field (this page is one of them — see the strip at the top), so this block finds
+them — note the header still reads `rating`, not `props.rating`:
 
 ```track-query
-TABLE title, rating WHERE rating > 5 SORT rating DESC
+TABLE title, props.rating WHERE props.rating > 5 SORT props.rating DESC
 ```
 
 In the live workspace the table recomputes as the vault changes; the static export bakes the result
@@ -96,19 +105,22 @@ renders as a board instead of a table.
   that has rows.
 
 `:by <column>` names the grouping column (board) or the date column (calendar) and must be one of
-the `TABLE` columns; it defaults to the first non-title column. Every layout is read-only — cards
-and day entries link to their notes, like a table's title cells. If you know Obsidian's Bases views
-or org-mode's agenda, this is the same shape of idea.
+the `TABLE` columns, written exactly as in `TABLE` — so a property column is `:by props.status`, not
+`:by status`; it defaults to the first non-title column. Every layout is read-only — cards and day
+entries link to their notes, like a table's title cells. If you know Obsidian's Bases views or
+org-mode's agenda, this is the same shape of idea.
 
 All three samples below are live, computed from this help site's pages.
 
 ### Board
 
-Several pages of this site carry a `section::` inline field; the board lanes them by it. This block
-is `TABLE title, section, rating WHERE section SORT title` with `:layout board :by section`:
+Several pages of this site carry a `section::` inline field; the board lanes them by it. Because
+`section` is a user property, it is written `props.section` — bare `section` would be an unknown-key
+error. This block is `TABLE title, props.section, props.rating WHERE props.section SORT title` with
+`:layout board :by props.section` (the board lane header still reads `section`):
 
-```track-query :layout board :by section
-TABLE title, section, rating WHERE section SORT title
+```track-query :layout board :by props.section
+TABLE title, props.section, props.rating WHERE props.section SORT title
 ```
 
 ### Gallery
@@ -123,10 +135,11 @@ TABLE title FROM #help/visualization SORT title
 ### Calendar
 
 Some pages carry a `reviewed::` date; the calendar places them on their day, one grid per month.
-This block is `TABLE title, reviewed WHERE reviewed` with `:layout calendar :by reviewed`:
+`reviewed` is a user property, so it is written `props.reviewed`. This block is
+`TABLE title, props.reviewed WHERE props.reviewed` with `:layout calendar :by props.reviewed`:
 
-```track-query :layout calendar :by reviewed
-TABLE title, reviewed WHERE reviewed
+```track-query :layout calendar :by props.reviewed
+TABLE title, props.reviewed WHERE props.reviewed
 ```
 
 ## Saved queries
@@ -136,7 +149,7 @@ comment and would silently truncate it:
 
 ```yaml
 queries:
-  open-projects: "TABLE title, status, due FROM #project WHERE status != done SORT due"
+  open-projects: "TABLE title, props.status, props.due FROM #project WHERE props.status != done SORT props.due"
 ```
 
 Run one by name with `track query --saved open-projects`, or reference it from a block: a

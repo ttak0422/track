@@ -9,20 +9,20 @@ import (
 )
 
 func TestParseFullQuery(t *testing.T) {
-	q, err := Parse(`TABLE title, status, due FROM #project WHERE status != "done" AND due < 2026-01-01 AND #work AND owner SORT due DESC LIMIT 10`)
+	q, err := Parse(`TABLE title, props.status, props.due FROM #project WHERE props.status != "done" AND props.due < 2026-01-01 AND #work AND props.owner SORT props.due DESC LIMIT 10`)
 	if err != nil {
 		t.Fatalf("parse: %v", err)
 	}
 	want := Query{
-		Columns: []string{"title", "status", "due"},
+		Columns: []string{"title", "props.status", "props.due"},
 		From:    "project",
 		Where: []Cond{
-			{Key: "status", Op: "!=", Value: "done"},
-			{Key: "due", Op: "<", Value: "2026-01-01"},
+			{Key: "props.status", Op: "!=", Value: "done"},
+			{Key: "props.due", Op: "<", Value: "2026-01-01"},
 			{Tag: "work"},
-			{Key: "owner"},
+			{Key: "props.owner"},
 		},
-		Sort:  "due",
+		Sort:  "props.due",
 		Desc:  true,
 		Limit: 10,
 	}
@@ -42,11 +42,11 @@ func TestParseMinimalQuery(t *testing.T) {
 }
 
 func TestParseOperatorsWithoutSpaces(t *testing.T) {
-	q, err := Parse("TABLE title WHERE status!=done AND n>3")
+	q, err := Parse("TABLE title WHERE props.status!=done AND props.n>3")
 	if err != nil {
 		t.Fatalf("parse: %v", err)
 	}
-	want := []Cond{{Key: "status", Op: "!=", Value: "done"}, {Key: "n", Op: ">", Value: "3"}}
+	want := []Cond{{Key: "props.status", Op: "!=", Value: "done"}, {Key: "props.n", Op: ">", Value: "3"}}
 	if !reflect.DeepEqual(q.Where, want) {
 		t.Fatalf("where = %+v, want %+v", q.Where, want)
 	}
@@ -57,18 +57,70 @@ func TestParseErrors(t *testing.T) {
 		"",
 		"SELECT title",
 		"TABLE",
-		"TABLE title FROM project",  // missing #
-		"TABLE title WHERE",         // missing condition
-		"TABLE title WHERE due <",   // missing value
-		"TABLE title LIMIT many",    // not a number
-		"TABLE title SORT due up",   // trailing junk
-		`TABLE title WHERE a = "b`,  // unterminated string
-		"TABLE title WHERE a ! b",   // lone !
-		"TABLE title WHERE a = AND", // keyword as value
+		"TABLE title FROM project",        // missing #
+		"TABLE title WHERE",               // missing condition
+		"TABLE title WHERE props.due <",   // missing value
+		"TABLE title LIMIT many",          // not a number
+		"TABLE title SORT props.due up",   // trailing junk
+		`TABLE title WHERE a = "b`,        // unterminated string
+		"TABLE title WHERE props.a ! b",   // lone !
+		"TABLE title WHERE props.a = AND", // keyword as value
+		"TABLE status",                    // unknown bare key: props live under props.
+		"TABLE title WHERE status = open", // unknown bare key in a condition
+		"TABLE props.",                    // props. with no property name
+		"TABLE title SORT mtime",          // mtime is not a note attribute
 	} {
 		if _, err := Parse(bad); err == nil {
 			t.Errorf("Parse(%q) succeeded, want error", bad)
 		}
+	}
+}
+
+// TestUnknownBareKeyErrorMessage locks the loud-error contract: a bare key that is not a note
+// attribute names the offending key, lists the attributes, and points at the props. form.
+func TestUnknownBareKeyErrorMessage(t *testing.T) {
+	_, err := Parse("TABLE status")
+	if err == nil {
+		t.Fatal("unknown bare key should error, not silently return empty")
+	}
+	for _, want := range []string{`unknown key "status"`, "title, tags", "props.status"} {
+		if !strings.Contains(err.Error(), want) {
+			t.Fatalf("error %q missing %q", err.Error(), want)
+		}
+	}
+}
+
+// TestPropsNamespaceNotShadowed is the core regression: a property literally named "title" is
+// reachable ONLY as props.title and must NOT be shadowed by (nor shadow) the note's title attribute.
+func TestPropsNamespaceNotShadowed(t *testing.T) {
+	rows := []NoteRow{{ID: 1, Title: "Note Title", Props: []note.Prop{
+		{Key: "title", Value: "Prop Title", Type: note.TypeString},
+		{Key: "status", Value: "open", Type: note.TypeString},
+	}}}
+	mustRun := func(expr string) Result {
+		q, err := Parse(expr)
+		if err != nil {
+			t.Fatalf("parse %q: %v", expr, err)
+		}
+		return Run(q, rows)
+	}
+	bare := mustRun("TABLE title").Rows[0].Cells[0]
+	prop := mustRun("TABLE props.title").Rows[0].Cells[0]
+	if bare != "Note Title" {
+		t.Fatalf("bare title = %q, want the note attribute", bare)
+	}
+	if prop != "Prop Title" {
+		t.Fatalf("props.title = %q, want the property", prop)
+	}
+	if bare == prop {
+		t.Fatalf("title attribute and props.title must differ, both = %q", bare)
+	}
+	// props.<key> resolves in WHERE and SORT as well.
+	if got := ids(mustRun("TABLE title WHERE props.status = open")); !reflect.DeepEqual(got, []int64{1}) {
+		t.Fatalf("WHERE props.status = %v, want [1]", got)
+	}
+	if got := ids(mustRun("TABLE title SORT props.title")); !reflect.DeepEqual(got, []int64{1}) {
+		t.Fatalf("SORT props.title = %v, want [1]", got)
 	}
 }
 
@@ -122,36 +174,36 @@ func TestRunFromTagMatchesHierarchically(t *testing.T) {
 }
 
 func TestRunWhereComparisons(t *testing.T) {
-	if got := ids(run(t, "TABLE title WHERE status = open")); !reflect.DeepEqual(got, []int64{1, 3}) {
+	if got := ids(run(t, "TABLE title WHERE props.status = open")); !reflect.DeepEqual(got, []int64{1, 3}) {
 		t.Fatalf("= : %v", got)
 	}
 	// != is none-of: a note without the key matches.
-	if got := ids(run(t, "TABLE title WHERE status != done")); !reflect.DeepEqual(got, []int64{1, 3, 4}) {
+	if got := ids(run(t, "TABLE title WHERE props.status != done")); !reflect.DeepEqual(got, []int64{1, 3, 4}) {
 		t.Fatalf("!= : %v", got)
 	}
-	if got := ids(run(t, "TABLE title WHERE due < 2026-02-01")); !reflect.DeepEqual(got, []int64{2}) {
+	if got := ids(run(t, "TABLE title WHERE props.due < 2026-02-01")); !reflect.DeepEqual(got, []int64{2}) {
 		t.Fatalf("< date: %v", got)
 	}
 	// Numbers compare numerically, not lexically (9 < 10).
-	if got := ids(run(t, "TABLE title WHERE points > 9")); !reflect.DeepEqual(got, []int64{2}) {
+	if got := ids(run(t, "TABLE title WHERE props.points > 9")); !reflect.DeepEqual(got, []int64{2}) {
 		t.Fatalf("> number: %v", got)
 	}
-	if got := ids(run(t, "TABLE title WHERE due")); !reflect.DeepEqual(got, []int64{1, 2}) {
+	if got := ids(run(t, "TABLE title WHERE props.due")); !reflect.DeepEqual(got, []int64{1, 2}) {
 		t.Fatalf("presence: %v", got)
 	}
-	if got := ids(run(t, "TABLE title WHERE #urgent AND status != done")); !reflect.DeepEqual(got, []int64{4}) {
+	if got := ids(run(t, "TABLE title WHERE #urgent AND props.status != done")); !reflect.DeepEqual(got, []int64{4}) {
 		t.Fatalf("tag AND comparison: %v", got)
 	}
 }
 
 func TestRunSortAndLimit(t *testing.T) {
-	if got := ids(run(t, "TABLE title FROM #project SORT due")); !reflect.DeepEqual(got, []int64{2, 1, 4}) {
+	if got := ids(run(t, "TABLE title FROM #project SORT props.due")); !reflect.DeepEqual(got, []int64{2, 1, 4}) {
 		t.Fatalf("sort asc (missing last) = %v, want [2 1 4]", got)
 	}
-	if got := ids(run(t, "TABLE title FROM #project SORT due DESC")); !reflect.DeepEqual(got, []int64{1, 2, 4}) {
+	if got := ids(run(t, "TABLE title FROM #project SORT props.due DESC")); !reflect.DeepEqual(got, []int64{1, 2, 4}) {
 		t.Fatalf("sort desc (missing still last) = %v, want [1 2 4]", got)
 	}
-	if got := ids(run(t, "TABLE title FROM #project SORT due LIMIT 1")); !reflect.DeepEqual(got, []int64{2}) {
+	if got := ids(run(t, "TABLE title FROM #project SORT props.due LIMIT 1")); !reflect.DeepEqual(got, []int64{2}) {
 		t.Fatalf("limit = %v, want [2]", got)
 	}
 }
@@ -167,7 +219,9 @@ func TestRunCellsJoinMultiValues(t *testing.T) {
 }
 
 func TestMarkdownTable(t *testing.T) {
-	md := Markdown(run(t, "TABLE title, status WHERE status = open"))
+	// The props.status column renders its header as just "status" — the props. prefix scopes the
+	// query, not the reader's table.
+	md := Markdown(run(t, "TABLE title, props.status WHERE props.status = open"))
 	want := strings.Join([]string{
 		"| title | status |",
 		"| --- | --- |",
@@ -177,7 +231,7 @@ func TestMarkdownTable(t *testing.T) {
 	if md != want {
 		t.Fatalf("markdown =\n%s\nwant\n%s", md, want)
 	}
-	if got := Markdown(run(t, "TABLE title WHERE status = nothing-matches")); got != "_No results._" {
+	if got := Markdown(run(t, "TABLE title WHERE props.status = nothing-matches")); got != "_No results._" {
 		t.Fatalf("empty result = %q", got)
 	}
 }

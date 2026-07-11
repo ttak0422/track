@@ -47,7 +47,13 @@ var dayPrefix = regexp.MustCompile(`^\d{4}-\d{2}-\d{2}`)
 // (board) or the date-valued column (calendar); empty defaults to the first non-title column. cover
 // supplies a note's cover image for gallery cards (nil = no covers).
 func BuildView(layout, by string, res Result, cover func(noteID int64) string) (View, error) {
-	v := View{Layout: layout, Columns: res.Columns, Groups: []ViewGroup{}}
+	// The View is a rendering payload, so its column/key labels are display form (props.status →
+	// status), matching the Markdown table header; :by still matches the raw query columns below.
+	display := make([]string, len(res.Columns))
+	for i, c := range res.Columns {
+		display[i] = displayKey(c)
+	}
+	v := View{Layout: layout, Columns: display, Groups: []ViewGroup{}}
 	if layout == "gallery" {
 		rows := make([]ViewRow, 0, len(res.Rows))
 		for _, r := range res.Rows {
@@ -65,7 +71,7 @@ func BuildView(layout, by string, res Result, cover func(noteID int64) string) (
 	if err != nil {
 		return View{}, err
 	}
-	v.Key = res.Columns[idx]
+	v.Key = displayKey(res.Columns[idx])
 	switch layout {
 	case "board":
 		v.Groups = boardGroups(res, idx)
@@ -118,7 +124,7 @@ func boardGroups(res Result, idx int) []ViewGroup {
 		groups = append(groups, ViewGroup{Name: name, Rows: byName[name]})
 	}
 	if len(missing) > 0 {
-		groups = append(groups, ViewGroup{Name: "(no " + res.Columns[idx] + ")", Rows: missing})
+		groups = append(groups, ViewGroup{Name: "(no " + displayKey(res.Columns[idx]) + ")", Rows: missing})
 	}
 	return groups
 }
