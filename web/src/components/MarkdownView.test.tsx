@@ -106,6 +106,7 @@ describe("MarkdownView", () => {
     expect(section?.textContent).toContain("The source of the claim.");
     const backref = section?.querySelector("a.footnote-backref") as HTMLAnchorElement;
     expect(backref.getAttribute("href")).toBe("#user-content-fnref-1");
+    expect(backref).toHaveAttribute("title", "Back to reference 1");
     expect(container.querySelector("#user-content-fn-1")).toBeInTheDocument();
   });
 

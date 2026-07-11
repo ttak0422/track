@@ -141,12 +141,14 @@ const markdownComponents = {
     const props = (node?.properties ?? {}) as Record<string, unknown>;
     if (props.dataFootnoteRef !== undefined || props.dataFootnoteBackref !== undefined) {
       const isRef = props.dataFootnoteRef !== undefined;
+      const label = typeof props.ariaLabel === "string" ? props.ariaLabel : undefined;
       return (
         <a
           id={typeof props.id === "string" ? props.id : undefined}
           href={href}
           className={isRef ? "footnote-ref" : "footnote-backref"}
-          aria-label={typeof props.ariaLabel === "string" ? props.ariaLabel : undefined}
+          aria-label={label}
+          title={label}
           onClick={() => scrollFootnoteTarget(href)}
         >
           {children}
