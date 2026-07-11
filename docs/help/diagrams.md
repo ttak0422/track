@@ -36,13 +36,20 @@ Graphviz runs compiled to WebAssembly, right in the browser — nothing to insta
 falls back to the message plus your source, the same as Mermaid:
 
 ```dot
-digraph vault {
-  rankdir=LR;
+digraph publish_workflow {
+  rankdir=TB;
   node [shape=box, style=rounded];
-  capture -> draft -> review -> publish;
+  capture [label="Capture a note"];
+  clarify [label="Clarify the idea"];
+  link [label="Link related notes"];
+  draft [label="Draft a write-up"];
+  review [label="Review and revise"];
+  publish [label="Publish"];
+  archive [label="Archive source material"];
+
+  capture -> clarify -> link -> draft -> review -> publish;
   review -> draft [label="revise"];
-  draft -> archive [style=dashed];
-  capture -> inbox -> draft;
+  publish -> archive;
 }
 ```
 
