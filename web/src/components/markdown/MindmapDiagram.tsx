@@ -2,7 +2,7 @@ import { type ReactNode, useContext } from "react";
 import { Link } from "@tanstack/react-router";
 import { useResolveQuery } from "../../queries";
 import { MarkdownSourceContext } from "./context";
-import { headingTree, layoutMindmap, markdownTree, mindmapNodeHeight, outlineTree, type MindmapPlacedNode } from "./mindmap";
+import { headingTree, layoutMindmap, markdownTree, mindmapNodeHeight, type MindmapPlacedNode } from "./mindmap";
 
 interface MindmapDiagramProps {
   text: string;
@@ -15,9 +15,9 @@ interface MindmapDiagramProps {
 // variables, so it follows light/dark for free.
 export function MindmapDiagram({ text }: MindmapDiagramProps) {
   const source = useContext(MarkdownSourceContext);
-  const tree = text.trim() === "" ? headingTree(source) : /^#{1,6}\s/m.test(text) ? markdownTree(text) : outlineTree(text);
+  const tree = text.trim() === "" ? headingTree(source) : markdownTree(text);
   if (!tree) {
-    return <p className="muted">Mindmap: nothing to map (no headings or outline lines).</p>;
+    return <p className="muted">Mindmap: nothing to map (no headings).</p>;
   }
 
   const pad = 8;

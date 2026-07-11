@@ -75,8 +75,8 @@ describe("MarkdownView", () => {
     expect(screen.queryByRole("button", { name: "Copy code" })).not.toBeInTheDocument();
   });
 
-  it("renders a mindmap fence with an outline as an SVG tree", () => {
-    const { container } = render(<MarkdownView markdown={"```mindmap\nRoot\n  Leaf\n```"} />);
+  it("renders a heading-based mindmap fence as an SVG tree", () => {
+    const { container } = render(<MarkdownView markdown={"```mindmap\n# Root\n## Leaf\n```"} />);
     const svg = container.querySelector(".mindmap-diagram svg");
     expect(svg).toBeInTheDocument();
     expect(svg?.textContent).toContain("Root");

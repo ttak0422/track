@@ -1,29 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { headingTree, layoutMindmap, markdownTree, outlineTree } from "./mindmap";
-
-describe("outlineTree", () => {
-  it("nests by indentation and strips bullets", () => {
-    const tree = outlineTree("Root\n  - Left\n    - Deep\n  - Right");
-    expect(tree).toEqual({
-      label: "Root",
-      children: [
-        { label: "Left", children: [{ label: "Deep", children: [] }] },
-        { label: "Right", children: [] },
-      ],
-    });
-  });
-
-  it("synthesizes an unlabeled root when several lines share the top level", () => {
-    const tree = outlineTree("A\nB\n  B1");
-    expect(tree?.label).toBe("");
-    expect(tree?.children.map((c) => c.label)).toEqual(["A", "B"]);
-    expect(tree?.children[1].children[0].label).toBe("B1");
-  });
-
-  it("returns null for an empty outline", () => {
-    expect(outlineTree("  \n\n")).toBeNull();
-  });
-});
+import { headingTree, layoutMindmap, markdownTree } from "./mindmap";
 
 describe("headingTree", () => {
   it("builds the heading hierarchy and skips a level jump gracefully", () => {
@@ -70,7 +46,7 @@ describe("markdownTree", () => {
 });
 
 describe("layoutMindmap", () => {
-  const tree = outlineTree("Root\n  Left\n    Deep\n  Right");
+  const tree = markdownTree("# Root\n## Left\n### Deep\n## Right");
 
   it("places children one column right of their parent", () => {
     const layout = layoutMindmap(tree!);

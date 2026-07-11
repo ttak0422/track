@@ -19,41 +19,39 @@ actual outline:
 Drop one at the top of a long note and it doubles as a visual table of contents that can never go
 stale.
 
-## Writing an outline
+## Writing a Markdown mindmap
 
-A non-empty fence is an indented outline: one node per line, two more spaces (or a deeper bullet) per
-level. Leading `-`/`*` bullets are optional and stripped:
+A non-empty fence can use Markdown headings for the hierarchy and list items for leaves. Links stay
+interactive: ordinary Markdown links open their URL, and `[[wiki links]]` resolve to track notes:
 
 ````markdown
 ```mindmap
-Vault
-  Notes
-    Atomic ideas
-    Literature notes
-  Journals
-  Assets
-    Images
-    Diagrams
+# Vault
+
+## Notes
+- [[Syntax]]
+- [[Diagrams]]
+
+## Resources
+- [Graphviz](https://graphviz.org/)
 ```
 ````
 
 It renders as:
 
 ```mindmap
-Vault
-  Notes
-    Atomic ideas
-    Literature notes
-  Journals
-  Assets
-    Images
-    Diagrams
-```
+# Vault
 
-If several lines share the top level, they hang off an implicit unlabeled hub node.
+## Notes
+- [[Syntax]]
+- [[Diagrams]]
+
+## Resources
+- [Graphviz](https://graphviz.org/)
+```
 
 ## When to use which
 
-- **Mindmap** — hierarchy only, zero syntax beyond indentation; the fastest way to sketch a breakdown.
+- **Mindmap** — hierarchy and links expressed with ordinary Markdown headings and lists.
 - **[[Diagrams]]** (Mermaid, Graphviz) — anything with cross-links, cycles, or labeled edges.
 - **[[Charts]]** — numbers.

@@ -1,4 +1,4 @@
-// Mindmap model: parse a source (an indented outline, or a note's headings) into a tree, and lay the
+// Mindmap model: parse Markdown headings into a tree, and lay the
 // tree out as a left-to-right node/edge diagram. Pure data — no React, no DOM — so it is unit-tested
 // directly and renders identically in the browser and in the static prerender.
 
@@ -21,20 +21,6 @@ interface Item {
 // outlineTree parses an indented outline (one node per line, deeper indent = child; optional -/*/+
 // bullets are stripped) into a tree. The first line is the root; if several lines share the top level,
 // they become branches of an implicit unlabeled root. Returns null for an empty outline.
-export function outlineTree(text: string): MindmapNode | null {
-  const items: Item[] = [];
-  for (const raw of text.split("\n")) {
-    if (raw.trim() === "") continue;
-    const indent = /^[\t ]*/.exec(raw)?.[0] ?? "";
-    // A tab counts as one level-ish unit of 2 columns; plain spaces count as written.
-    const depth = indent.replaceAll("\t", "  ").length;
-    const { label, link } = parseLabel(raw.trim().replace(/^[-*+]\s+/, ""));
-    if (label === "") continue;
-    items.push({ depth, label, link });
-  }
-  return treeFromItems(items);
-}
-
 // headingTree builds the tree of a note's Markdown headings: "## Section" nests under "# Title" and so
 // on. Headings inside fenced code blocks are ignored. Returns null when the note has no headings.
 export function headingTree(markdown: string): MindmapNode | null {
@@ -59,8 +45,7 @@ export function headingTree(markdown: string): MindmapNode | null {
   return treeFromItems(items);
 }
 
-// markdownTree lets an explicit mindmap use Markdown headings for stable hierarchy and list items for
-// leaves. It is selected only when the fence contains a heading, leaving the legacy outline untouched.
+// markdownTree uses Markdown headings for stable hierarchy and list items for leaves.
 export function markdownTree(text: string): MindmapNode | null {
   const items: Item[] = [];
   let headingDepth = 0;
