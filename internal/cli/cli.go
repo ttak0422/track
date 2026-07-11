@@ -35,6 +35,8 @@ func Run(args []string) int {
 		return cmdReindex(rest)
 	case "doctor":
 		return cmdDoctor(rest)
+	case "fmt":
+		return cmdFmt(rest)
 	case "new":
 		return cmdNew(rest)
 	case "open":
@@ -144,6 +146,10 @@ Usage:
   track reindex [--full]                rebuild the index
   track doctor [--fix]                  report vault/sidecar divergence without changing files (JSON);
                                         --fix repairs it by auto-numbered restore, then reindexes
+  track fmt [--check] (<path>... | --all)
+                                        canonically format Markdown files (rewrites in place); --all
+                                        covers the whole vault, --check writes nothing and exits
+                                        non-zero when a file would change. Never touches fenced code (JSON)
   track keywords                        dump the auto-link dictionary (JSON)
   track resolve (--term <s> | <s>)      resolve a keyword to a note (JSON)
   track search --query <s> [--scope all|title|body] [--limit N]
