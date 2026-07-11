@@ -1,6 +1,7 @@
 import { useNavigate, useRouterState } from "@tanstack/react-router";
 import { PointerEvent, useRef, useState } from "react";
 import { useGraphQuery, useLocalGraphQuery } from "../queries";
+import { START_PAGE_ID, STATIC_MODE } from "../runtime";
 import type { NoteID } from "../types";
 import { GraphCanvas } from "./GraphCanvasLazy";
 
@@ -164,7 +165,11 @@ export function GraphPanel() {
 
 function noteIDFromPath(pathname: string): NoteID | undefined {
   const match = /^\/notes\/([^/]+)$/.exec(pathname);
-  return match ? match[1] : undefined;
+  if (match) return match[1];
+  // The static "/" route renders the start note, so the local graph should center on it.
+  const path = pathname.replace(/\/$/, "") || "/";
+  if (STATIC_MODE && path === "/" && START_PAGE_ID) return START_PAGE_ID;
+  return undefined;
 }
 
 function scopeLabel(scope: GraphScope): string {

@@ -1810,15 +1810,13 @@ a.calendar-title:focus-visible {
   font-size: 0.9em;
 }
 
-/* ![[...]] include embeds (ADR 0031): a transcluded region framed as a quoted card, with a caption
-   header linking back to the source note. */
+/* ![[...]] include embeds (ADR 0031): a transcluded region kept close to plain body text — just a
+   hairline frame and a muted caption linking back to the source note. */
 .note-include {
   margin: 12px 0;
   padding: 8px 12px;
   border: 1px solid var(--line);
-  border-left: 3px solid var(--accent, #4c8bf5);
   border-radius: 6px;
-  background: var(--panel-soft);
 }
 
 .note-include-header {
