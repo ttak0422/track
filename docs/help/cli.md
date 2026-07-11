@@ -22,6 +22,62 @@ Back to [[track]].
 printf '本文 [[他ノート]]\n' | track open --title "メモ"
 ```
 
+## Formatting notes
+
+`track fmt` rewrites notes into a canonical Markdown style. It is the style counterpart to
+`track doctor`: doctor reports breakage, `fmt` fixes style. The rule set is small and idempotent —
+running it twice changes nothing the second time.
+
+| Command | Purpose |
+| --- | --- |
+| `track fmt <path>...` | Format the given files or directories in place. |
+| `track fmt --all` | Format every note and journal file in the vault. |
+| `track fmt --check --all` | Write nothing; exit non-zero and list files that would change (for CI). |
+
+The rules are: strip trailing whitespace, collapse runs of blank lines (except before headings) and
+drop blank lines at the start and end, put two blank lines before and one after each heading,
+normalize unordered-list bullets to `-`, and end the file with a single newline. Fenced code blocks
+are never touched, so their contents stay exactly as written.
+
+A note like this:
+
+```md
+# Notes
+first line
+* apple
++ pear
+
+
+
+## Details
+done
+```
+
+becomes:
+
+```md
+# Notes
+
+first line
+- apple
+- pear
+
+## Details
+
+done
+```
+
+Code stays verbatim — the bullets and blank lines inside a fence are left alone:
+
+````md
+```text
+*  this bullet is code, not a list
+
+
+so these blank lines survive
+```
+````
+
 ## Finding notes
 
 | Command | Purpose |
