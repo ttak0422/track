@@ -133,6 +133,9 @@ func TestApplyMetaDocRejectsInvalid(t *testing.T) {
 		"non-raster image":        "image: assets/cover.svg\n",
 		"unknown top-level field": "created: 2020-01-01\n",
 		"malformed yaml":          "tags: [unclosed\n",
+		// A second "---" document must be rejected, not dropped — otherwise a forbidden title (or
+		// any field) rides along past validation. See ParseMetaDoc.
+		"trailing second document": "tags:\n  - keep\n---\ntitle: forbidden\n",
 	}
 	for name, doc := range cases {
 		if _, err := ApplyMetaDoc(cfg, 100, []byte(doc)); err == nil {

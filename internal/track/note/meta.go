@@ -124,6 +124,14 @@ func ParseMetaDoc(docYAML []byte) (MetaDoc, error) {
 	if err := dec.Decode(&doc); err != nil && !errors.Is(err, io.EOF) {
 		return MetaDoc{}, fmt.Errorf("parse metadata document: %w", err)
 	}
+	// One document only. A second "---"-separated document would otherwise be dropped silently,
+	// smuggling in fields (e.g. a forbidden title) that never reach validation. Require EOF here.
+	if err := dec.Decode(new(MetaDoc)); !errors.Is(err, io.EOF) {
+		if err == nil {
+			return MetaDoc{}, fmt.Errorf("parse metadata document: expected a single YAML document")
+		}
+		return MetaDoc{}, fmt.Errorf("parse metadata document: %w", err)
+	}
 	return doc, nil
 }
 
