@@ -37,15 +37,33 @@ query = "TABLE" key ("," key)*
         [ "SORT" key ["DESC"] ]
         [ "LIMIT" n ]
 cond  = "#"tag | key op value | key      (bare key = presence check)
+key   = attr | "props." name             (attr ∈ {title, tags})
 op    = "=" | "!=" | "<" | ">"
 value = "quoted string" | bareword
 ```
 
 Keywords are uppercase, so keys/values are always lowercase-safe; there is no OR, no functions, no
-expressions — deliberately. `title` and `tags` are pseudo-keys next to the property keys. Values
-compare typed: numbers numerically, everything else case-insensitive text (ISO dates order
-chronologically for free). Multi-valued keys: `=`/`<`/`>` are any-of, `!=` is none-of (a note
-without the key satisfies `!=`).
+expressions — deliberately. Values compare typed: numbers numerically, everything else
+case-insensitive text (ISO dates order chronologically for free). Multi-valued keys: `=`/`<`/`>` are
+any-of, `!=` is none-of (a note without the key satisfies `!=`).
+
+**Two key namespaces, kept apart.** A *bare* identifier is a note-intrinsic attribute, and the set
+is closed: `noteAttrs = {title, tags}` today, and it may grow. A *user property* (a sidecar prop or
+inline field, ADR 0032) is reachable only as `props.<name>` — never as a bare word. This split is
+deliberate:
+
+- **No shadowing.** Before, `title`/`tags` were note-backed pseudo-keys and every other bare word hit
+  the props; a property literally named `title` was silently unreachable. Now `props.title` reads the
+  property and bare `title` reads the attribute — they never collide.
+- **Growth-safe.** Because properties are quarantined under `props.`, adding a new bare attribute
+  (say `mtime`) can never clash with someone's property of the same name.
+- **Loud, never silent.** An unknown bare key is a parse error —
+  `unknown key "status": note attributes are title, tags; query a property as props.status` — instead
+  of a silently empty column. These queries are largely agent-authored, and an agent cannot see a
+  silently-wrong result. `props.` with no name errors too; an absent *property* still yields empty
+  (a note legitimately may not carry it). Validation lives at the single `parser.key` choke point
+  every column/sort/condition key passes through; `props.` is stripped in the rendered table header
+  (`props.status` → `status`) but kept verbatim in the CLI JSON `columns`.
 
 ### Generated fence blocks
 

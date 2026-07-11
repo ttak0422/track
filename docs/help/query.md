@@ -25,8 +25,16 @@ TABLE <column>[, <column>...]
   [LIMIT <n>]
 ```
 
-- **Columns and keys** are property keys, plus two pseudo-keys: `title` (rendered as a link to the
-  note) and `tags`. A multi-valued property fills its cell with `a, b`.
+- **Columns and keys** come from two separate namespaces. A **bare** identifier is a note attribute:
+  `title` (rendered as a link to the note) and `tags`. A **user [[Properties|property]]** (a sidecar
+  value or an inline field) is written `props.<key>` — `props.status`, `props.rating` — and that is
+  the *only* way to reach one. Keeping properties under `props.` means a bare word never silently
+  picks up a property, and new note attributes can be added later without ever colliding with your
+  property names. A multi-valued property fills its cell with `a, b`; a `props.<key>` column shows
+  just `<key>` in the table header.
+- **An unknown bare key is an error, not an empty column.** `TABLE status` fails with
+  `unknown key "status": note attributes are title, tags; query a property as props.status` — so a
+  mistyped or mis-namespaced key is caught loudly instead of quietly returning nothing.
 - **`FROM #tag`** keeps only notes carrying the tag — or any descendant, since tags are
   hierarchical: `#a` matches `#a` and `#a/b`, never `#ab`.
 - **`WHERE`** conditions are `AND`-combined. Each one is a `#tag` filter, a comparison
@@ -40,7 +48,7 @@ TABLE <column>[, <column>...]
 Keywords are uppercase, so lowercase words are always keys or values.
 
 ```text
-TABLE title, status, due FROM #project WHERE status != done AND due < 2027-01-01 SORT due LIMIT 10
+TABLE title, props.status, props.due FROM #project WHERE props.status != done AND props.due < 2027-01-01 SORT props.due LIMIT 10
 ```
 
 ## From the command line
@@ -48,11 +56,11 @@ TABLE title, status, due FROM #project WHERE status != done AND due < 2027-01-01
 `track query` prints the result as JSON, ready for scripts and editor integrations:
 
 ```sh
-track query 'TABLE title, status FROM #project WHERE status = open SORT title'
+track query 'TABLE title, props.status FROM #project WHERE props.status = open SORT title'
 ```
 
 ```json
-{"columns":["title","status"],"rows":[{"note_id":1781310000000,"title":"Alpha","cells":["Alpha","open"]}],"count":1}
+{"columns":["title","props.status"],"rows":[{"note_id":1781310000000,"title":"Alpha","cells":["Alpha","open"]}],"count":1}
 ```
 
 ## Embedded query blocks
@@ -68,11 +76,12 @@ visualization pages — note how `#help/visualization` also matches the nested
 TABLE title, tags FROM #help/visualization SORT title
 ```
 
-Property comparisons work the same way. Two pages of this site carry a `rating` inline field (this
-page is one of them — see the strip at the top), so this block finds them:
+Property comparisons work the same way, written under `props.`. Two pages of this site carry a
+`rating` inline field (this page is one of them — see the strip at the top), so this block finds
+them — note the header still reads `rating`, not `props.rating`:
 
 ```track-query
-TABLE title, rating WHERE rating > 5 SORT rating DESC
+TABLE title, props.rating WHERE props.rating > 5 SORT props.rating DESC
 ```
 
 In the live workspace the table recomputes as the vault changes; the static export bakes the result
@@ -87,7 +96,7 @@ comment and would silently truncate it:
 
 ```yaml
 queries:
-  open-projects: "TABLE title, status, due FROM #project WHERE status != done SORT due"
+  open-projects: "TABLE title, props.status, props.due FROM #project WHERE props.status != done SORT props.due"
 ```
 
 Run one by name with `track query --saved open-projects`, or reference it from a block: a

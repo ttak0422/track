@@ -103,22 +103,27 @@ func hasTag(tags []string, filter string) bool {
 	return false
 }
 
-// values returns a note's values for a key: "title" and "tags" are pseudo-keys backed by the note
-// itself; anything else reads the flattened typed properties (sidecar props + inline fields).
+// values returns a note's values for a key. props.<name> reads the flattened typed properties
+// (sidecar props + inline fields); a bare key is a note attribute (title, tags). Parse has already
+// rejected any other bare key, so an unknown bare key never reaches here. A note without a queried
+// property yields no values (empty is a legitimate answer for a property, unlike an unknown key).
 func values(r NoteRow, key string) []string {
+	if name, ok := propName(key); ok {
+		var out []string
+		for _, p := range r.Props {
+			if p.Key == name {
+				out = append(out, p.Value)
+			}
+		}
+		return out
+	}
 	switch key {
 	case "title":
 		return []string{r.Title}
 	case "tags":
 		return r.Tags
 	}
-	var out []string
-	for _, p := range r.Props {
-		if p.Key == key {
-			out = append(out, p.Value)
-		}
-	}
-	return out
+	return nil
 }
 
 func matchesAll(r NoteRow, conds []Cond) bool {

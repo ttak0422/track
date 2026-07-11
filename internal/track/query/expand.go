@@ -46,13 +46,23 @@ func ResolveSaved(body string, saved map[string]string) (string, error) {
 }
 
 // Markdown renders a result as a GFM table. The title column links each note as [[Title]], which
-// every rendering surface already resolves like any other wiki link; other cells are plain text.
+// every rendering surface already resolves like any other wiki link; other cells are plain text. A
+// props.<name> column shows just <name> in the header — the props. prefix disambiguates the query,
+// not the reader's table.
 func Markdown(res Result) string {
 	if len(res.Rows) == 0 {
 		return "_No results._"
 	}
+	headers := make([]string, len(res.Columns))
+	for i, col := range res.Columns {
+		if name, ok := propName(col); ok {
+			headers[i] = name
+		} else {
+			headers[i] = col
+		}
+	}
 	var b strings.Builder
-	b.WriteString("| " + strings.Join(escapeCells(res.Columns), " | ") + " |\n")
+	b.WriteString("| " + strings.Join(escapeCells(headers), " | ") + " |\n")
 	b.WriteString("|" + strings.Repeat(" --- |", len(res.Columns)))
 	for _, row := range res.Rows {
 		cells := escapeCells(row.Cells)

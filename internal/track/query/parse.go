@@ -9,8 +9,14 @@
 //	        [ "SORT" key ["DESC"] ]
 //	        [ "LIMIT" n ]
 //	cond  = "#"tag | key op value | key        (bare key = presence check)
+//	key   = attr | "props." name               (attr = a note attribute: title, tags)
 //	op    = "=" | "!=" | "<" | ">"
 //	value = "quoted string" | bareword
+//
+// Two namespaces, kept apart so they can never collide: a bare identifier is a note-intrinsic
+// attribute (the noteAttrs set, which may grow), and props.<name> is the only way to read a user
+// property (a sidecar prop or inline field). An unknown bare key is an ERROR, never a silent empty
+// result — these queries are mostly written by agents, which can't see a silently-wrong answer.
 //
 // Keywords are uppercase, so a lowercase word is always a key or value. Tags are hierarchical:
 // #a matches #a and #a/b but not #ab.
@@ -179,7 +185,8 @@ func (p *parser) eat(text string) bool {
 	return true
 }
 
-// key reads a column/sort key: a bare word that is not punctuation or a #tag.
+// key reads a column/sort/condition key: a bare word that is not punctuation or a #tag, and that
+// checkKey accepts as either a note attribute or a props.<name> reference.
 func (p *parser) key(what string) (string, error) {
 	if p.done() {
 		return "", fmt.Errorf("missing %s", what)
@@ -188,7 +195,38 @@ func (p *parser) key(what string) (string, error) {
 	if t.text == "" || strings.HasPrefix(t.text, "#") || strings.ContainsAny(t.text, ",=<>") {
 		return "", fmt.Errorf("expected a %s, got %q", what, t.text)
 	}
+	if err := checkKey(t.text); err != nil {
+		return "", err
+	}
 	return t.text, nil
+}
+
+// noteAttrs are the bare identifiers that name a note-intrinsic attribute. Every other bare
+// identifier is rejected, so a user property (reached only as props.<name>) can never be shadowed by
+// an attribute, and a future attribute added here can never collide with an existing property.
+var noteAttrs = []string{"title", "tags"}
+
+// propName reports whether raw references a user property (props.<name>) and returns that name.
+func propName(raw string) (name string, ok bool) {
+	return strings.CutPrefix(raw, "props.")
+}
+
+// checkKey validates a column/sort/condition key. props.<name> names a user property; a bare word
+// must be a note attribute. Anything else is a loud error rather than a silent empty result.
+func checkKey(raw string) error {
+	if name, ok := propName(raw); ok {
+		if name == "" {
+			return fmt.Errorf(`props. needs a property name, e.g. props.status`)
+		}
+		return nil
+	}
+	for _, a := range noteAttrs {
+		if raw == a {
+			return nil
+		}
+	}
+	return fmt.Errorf("unknown key %q: note attributes are %s; query a property as props.%s",
+		raw, strings.Join(noteAttrs, ", "), raw)
 }
 
 // tag reads a #tag token and returns the tag without the '#'.

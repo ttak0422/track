@@ -838,7 +838,7 @@ func TestRenderExpandsQueryBlocks(t *testing.T) {
 	server, _ := putNoteSetup(t, 100, "Alpha", "status:: open\n")
 
 	resp, err := http.Post(server.URL+"/api/render", "application/json",
-		strings.NewReader(`{"body":"before\n\n`+"```track-query\\nTABLE title WHERE status = open\\n```"+`\n"}`))
+		strings.NewReader(`{"body":"before\n\n`+"```track-query\\nTABLE title WHERE props.status = open\\n```"+`\n"}`))
 	if err != nil {
 		t.Fatalf("post render: %v", err)
 	}
