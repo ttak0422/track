@@ -13,6 +13,8 @@ import (
 	"strings"
 
 	"github.com/ttak0422/track/internal/track/link"
+	"github.com/ttak0422/track/internal/track/note"
+	"github.com/ttak0422/track/internal/track/query"
 )
 
 // The static site is the React web frontend running against a pre-generated JSON bundle instead of the
@@ -27,16 +29,17 @@ type doc struct {
 	title    string
 	kind     string // "note" or "journal"
 	tags     []string
-	days     []string // activity days (YYYY-MM-DD) from the sidecar; journals carry none
-	mtime    int64    // file mtime, for the shared recently-updated-first listing order (0 in dir mode)
-	path     string   // source/display path (informational in the static site)
-	body     string   // web-sanitized Markdown the frontend renders
-	keys     []string // resolution keys ([[key]]) that point at this doc (title, file name, …)
-	assets   []string // "assets/<rel>" references in the body
-	assetSrc string   // directory those assets are copied from
-	desc     string   // page summary (sidecar description), published as og:description
-	image    string   // cover image, relative under assets/ ("" = none), published as og:image
-	dataDir  string   // canonical-data directory for embedded ```viewspec charts ("" = inline data only)
+	days     []string    // activity days (YYYY-MM-DD) from the sidecar; journals carry none
+	mtime    int64       // file mtime, for the shared recently-updated-first listing order (0 in dir mode)
+	path     string      // source/display path (informational in the static site)
+	body     string      // web-sanitized Markdown the frontend renders
+	keys     []string    // resolution keys ([[key]]) that point at this doc (title, file name, …)
+	assets   []string    // "assets/<rel>" references in the body
+	assetSrc string      // directory those assets are copied from
+	desc     string      // page summary (sidecar description), published as og:description
+	image    string      // cover image, relative under assets/ ("" = none), published as og:image
+	dataDir  string      // canonical-data directory for embedded ```viewspec charts ("" = inline data only)
+	props    []note.Prop // flattened typed properties (sidecar props + inline fields), shown read-only
 }
 
 // edge is a directed [[link]] between two in-set docs.
@@ -71,8 +74,11 @@ type jsonNoteDetail struct {
 	Includes []link.ResolvedInclude `json:"includes,omitempty"`
 	jsonSearchResult
 	CopyPath string `json:"copy_path"`
-	Body     string `json:"body"`
-	ETag     string `json:"etag"`
+	// Props mirrors the live server's flattened note properties; link values stay resolution keys,
+	// which the frontend resolves through resolve.json like any other wiki link.
+	Props []note.Prop `json:"props,omitempty"`
+	Body  string      `json:"body"`
+	ETag  string      `json:"etag"`
 }
 
 type jsonNoteResponse struct {
@@ -110,8 +116,9 @@ type jsonSite struct {
 }
 
 // writeBundle emits the data bundle, copies the static frontend over it, and copies assets. frontendDir
-// is the static-mode Vite build (index.html + assets/...). root is the entry note's id.
-func writeBundle(docs []doc, edges []edge, root int64, calendar bool, baseURL, frontendDir, outDir string) (Result, error) {
+// is the static-mode Vite build (index.html + assets/...). root is the entry note's id. saved supplies
+// the named queries a ```track-query fence may reference (nil on a directory site, which has no config).
+func writeBundle(docs []doc, edges []edge, root int64, calendar bool, baseURL string, saved map[string]string, frontendDir, outDir string) (Result, error) {
 	if len(docs) == 0 {
 		return Result{}, fmt.Errorf("no notes to publish")
 	}
@@ -173,6 +180,19 @@ func writeBundle(docs []doc, edges []edge, root int64, calendar bool, baseURL, f
 		}
 		linkers[e.dst] = append(linkers[e.dst], src)
 	}
+	// The query domain for embedded ```track-query fences is the published set (in the shared
+	// recently-updated-first order), so a published table never links to — or leaks — an unpublished
+	// note; its [[Title]] cells resolve through resolve.json like any other wiki link.
+	queryRows := make([]query.NoteRow, 0, len(listed))
+	// Gallery covers publish under their opaque asset names, matching the copied files (covers are
+	// always copied, referenced or not — see the asset loop below).
+	queryCovers := map[int64]string{}
+	for _, d := range listed {
+		queryRows = append(queryRows, query.NoteRow{ID: d.id, Title: d.title, Tags: d.tags, Props: d.props, Mtime: d.mtime})
+		if d.image != "" {
+			queryCovers[d.id] = "assets/" + publishAssetName(d.image)
+		}
+	}
 	for _, d := range docs {
 		srcs := linkers[d.id]
 		byRecency(srcs)
@@ -182,15 +202,18 @@ func writeBundle(docs []doc, edges []edge, root int64, calendar bool, baseURL, f
 		}
 		// Rewrite asset references to their published (slugged) names, matching the copied files.
 		body := rewriteAssetRefs(d.body)
-		// Then resolve ```viewspec fences to ready-to-draw ```echarts option blocks at build time.
+		// Then resolve ```viewspec fences to ready-to-draw ```echarts option blocks, and
+		// ```track-query fences to their Markdown result tables, at build time.
 		body = resolveViewSpecBlocks(body, d.dataDir, noteSlug)
+		body = query.ExpandBlocks(body, saved, queryRows, func(id int64) string { return queryCovers[id] })
 		resp := jsonNoteResponse{
 			Note: jsonNoteDetail{
 				// Includes resolve against the published body so their line numbers match what the
 				// frontend renders. Target ids stay unpublished (0): the embed header navigates by
 				// key through resolve.json, like every other link on the static site.
-				// ponytail: a viewspec fence inside an embedded region shows as source in static
-				// mode (targets skip resolveViewSpecBlocks); resolve per-target if that ever matters.
+				// ponytail: a viewspec or track-query fence inside an embedded region shows as
+				// source in static mode (targets skip the fence resolvers); resolve per-target if
+				// that ever matters.
 				Includes: link.ResolveIncludes(body, func(key string) (int64, string, string, bool) {
 					t, ok := keyDocs[key]
 					if !ok {
@@ -200,6 +223,7 @@ func writeBundle(docs []doc, edges []edge, root int64, calendar bool, baseURL, f
 				}),
 				jsonSearchResult: searchResultOf(d),
 				CopyPath:         "", // see searchResultOf: the source path is intentionally not published.
+				Props:            d.props,
 				Body:             body,
 				ETag:             etag(body),
 			},

@@ -411,9 +411,10 @@ func cmdUpdate(args []string) int {
 	})
 }
 
-// cmdMeta prints or edits a note's page metadata. With no edit flags it reports the current
-// metadata; --description / --image set fields through the engine's single validated write path
-// (note.ApplyMetaEdit), and an explicitly empty value clears the field.
+// cmdMeta prints or edits a note's metadata. With no edit flags it reports the current metadata;
+// --description / --image set page metadata and --set / --unset edit typed note properties, all
+// through the engine's single validated write path (note.ApplyMetaEdit). An explicitly empty
+// --description / --image clears the field.
 func cmdMeta(args []string) int {
 	fs := flag.NewFlagSet("meta", flag.ContinueOnError)
 	id := fs.Int64("id", 0, "note id")
@@ -421,6 +422,10 @@ func cmdMeta(args []string) int {
 	path := fs.String("path", "", "note path (alternative to --id)")
 	description := fs.String("description", "", "page summary (og:description); empty clears")
 	image := fs.String("image", "", "cover image as assets/<file> (og:image); empty clears")
+	var sets kvFlag
+	var unsets tagsFlag
+	fs.Var(&sets, "set", "set a property as key=value (repeatable; comma-separated value makes a list)")
+	fs.Var(&unsets, "unset", "remove a property key (repeatable)")
 	if err := fs.Parse(args); err != nil {
 		return fail("parse args: %v", err)
 	}
@@ -447,7 +452,14 @@ func cmdMeta(args []string) int {
 	if flagWasSet(fs, "image") {
 		edit.Image = image
 	}
-	edited := edit.Description != nil || edit.Image != nil
+	if len(sets) > 0 {
+		edit.Set = map[string]string{}
+		for _, kv := range sets {
+			edit.Set[kv.Key] = kv.Value
+		}
+	}
+	edit.Unset = []string(unsets)
+	edited := edit.Description != nil || edit.Image != nil || len(edit.Set) > 0 || len(edit.Unset) > 0
 
 	var meta note.Metadata
 	if edited {
@@ -472,6 +484,7 @@ func cmdMeta(args []string) int {
 		"created":     meta.Created,
 		"description": meta.Description,
 		"image":       meta.Image,
+		"props":       meta.Props,
 		"updated":     edited,
 	})
 }

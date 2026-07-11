@@ -71,6 +71,8 @@ func Run(args []string) int {
 		return cmdResolve(rest)
 	case "search":
 		return cmdSearch(rest)
+	case "query":
+		return cmdQuery(rest)
 	case "backlinks":
 		return cmdBacklinks(rest)
 	case "agenda":
@@ -121,9 +123,11 @@ Usage:
   track update (--id N | --title S | --path P) [--body <s>] [--tag <s>] [--clear-tags]
                                         replace body text and/or update tags on an existing note
   track meta (--id N | --title S | --path P) [--description S] [--image assets/F]
-                                        print a note's page metadata, or set it: description (og:description)
-                                        and cover image (og:image; an existing vault asset). An empty
-                                        value clears the field (JSON)
+             [--set key=value ...] [--unset key ...]
+                                        print a note's metadata, or set it: description (og:description),
+                                        cover image (og:image; an existing vault asset), and typed
+                                        properties (--set/--unset; comma-separated value makes a list).
+                                        An empty description/image clears the field (JSON)
   track toggle (--id N | --title S | --path P) --line N [--state toggle|check|uncheck]
                                         flip (or set) a task checkbox on one line of a note (JSON)
   track asset import <file>             copy a file into the vault's assets/ dir; prints the assets/<file> ref (JSON)
@@ -154,6 +158,8 @@ Usage:
   track resolve (--term <s> | <s>)      resolve a keyword to a note (JSON)
   track search --query <s> [--scope all|title|body] [--limit N]
                                         search notes (JSON)
+  track query (<expr> | --saved <name>)  run a table query over notes, e.g.
+                                        'TABLE title, status FROM #project WHERE status != done SORT due LIMIT 10' (JSON)
   track backlinks (--id N | --path P)   list backlinks (JSON)
   track agenda [--date YYYY-MM-DD]       list notes active on a day (JSON)
   track graph (--id N | --path P)       show a local link graph (JSON)

@@ -265,3 +265,8 @@ The full notation (every field, all marks, examples) is always available with:
 ```sh
 track render --help
 ```
+
+tags:: help/visualization/charts
+section:: visualization
+cover:: assets/cover-charts.svg
+reviewed:: 2026-06-24

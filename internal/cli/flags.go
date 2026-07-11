@@ -49,6 +49,27 @@ func (f *idsFlag) Set(v string) error {
 	return nil
 }
 
+// kvFlag collects repeatable key=value pairs (e.g. --set status=draft). The value may contain "=".
+type kvFlag []struct{ Key, Value string }
+
+func (f *kvFlag) String() string {
+	parts := make([]string, len(*f))
+	for i, kv := range *f {
+		parts[i] = kv.Key + "=" + kv.Value
+	}
+	return strings.Join(parts, " ")
+}
+
+func (f *kvFlag) Set(v string) error {
+	key, value, ok := strings.Cut(v, "=")
+	key = strings.TrimSpace(key)
+	if !ok || key == "" {
+		return fmt.Errorf("expected key=value, got %q", v)
+	}
+	*f = append(*f, struct{ Key, Value string }{key, strings.TrimSpace(value)})
+	return nil
+}
+
 // dedupTags trims and de-duplicates tags, preserving first-seen order. It returns nil for an empty set.
 func dedupTags(tags []string) []string {
 	if len(tags) == 0 {

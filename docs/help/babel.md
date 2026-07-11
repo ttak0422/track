@@ -67,3 +67,6 @@ export TRACK_BABEL_SH="bash"
 
 A block whose language has no executor configured is left unrun with a clear error, so nothing executes
 by surprise.
+
+tags:: help/authoring
+section:: authoring

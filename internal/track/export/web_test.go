@@ -47,6 +47,16 @@ func TestWebRendererKeepsCodeBlock(t *testing.T) {
 	}
 }
 
+func TestWebRendererKeepsFenceHeaderArguments(t *testing.T) {
+	// Header arguments carry rendering options resolved after sanitization (e.g. a track-query
+	// fence's :layout), so the web renderer must round-trip the full info string.
+	got := renderWeb(t, "```track-query :layout board :by state\nTABLE title, state\n```\n")
+	want := "```track-query :layout board :by state\nTABLE title, state\n```\n"
+	if got != want {
+		t.Fatalf("fence header arguments should pass through:\n got: %q\nwant: %q", got, want)
+	}
+}
+
 func TestWebRendererDropsFrontmatter(t *testing.T) {
 	n := &note.Note{ID: 1, Body: "text\n", Meta: note.Metadata{Title: "T", Tags: []string{"a"}}}
 	res, err := Export(n, NewWebRenderer(), Options{Frontmatter: true})

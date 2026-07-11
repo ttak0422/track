@@ -11,12 +11,15 @@ import (
 	"github.com/ttak0422/track/internal/track/config"
 )
 
-// MetaEdit is one page-metadata change: a nil field is left untouched, a pointer to "" clears the
-// field. It is the single write path for description/image, shared by the CLI meta command and the
-// web editor, so validation lives here once.
+// MetaEdit is one metadata change: a nil field is left untouched, a pointer to "" clears the
+// field. It is the single write path for description/image and note properties, shared by the CLI
+// meta command and the web editor, so validation lives here once. Set assigns properties (value
+// text parsed by ParsePropValue and checked against the configured schema); Unset removes keys.
 type MetaEdit struct {
 	Description *string
 	Image       *string
+	Set         map[string]string
+	Unset       []string
 }
 
 // imageExtensions lists the cover-image formats OGP consumers actually render; anything else (an
@@ -47,6 +50,25 @@ func ApplyMetaEdit(cfg *config.Config, noteID int64, edit MetaEdit) (Metadata, e
 			}
 		}
 		meta.Image = img
+	}
+	if len(edit.Set) > 0 && meta.Props == nil {
+		meta.Props = map[string]any{}
+	}
+	for key, raw := range edit.Set {
+		if !ValidPropKey(key) {
+			return Metadata{}, fmt.Errorf("invalid property key %q (want letter, then letters/digits/_/-)", key)
+		}
+		value := ParsePropValue(raw)
+		if violations := CheckProps(flattenValue(key, value), cfg.Properties); len(violations) > 0 {
+			return Metadata{}, fmt.Errorf("property %s: %s", key, violations[0].Message)
+		}
+		meta.Props[key] = value
+	}
+	for _, key := range edit.Unset {
+		delete(meta.Props, key)
+	}
+	if len(meta.Props) == 0 {
+		meta.Props = nil
 	}
 	if err := WriteMetadata(metaPath, meta); err != nil {
 		return Metadata{}, fmt.Errorf("write metadata: %w", err)

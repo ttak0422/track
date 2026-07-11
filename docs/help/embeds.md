@@ -121,3 +121,7 @@ A bare number is pixels; a `%` or `vh` value is a share of the viewport height.
 
 The [[Web workspace]] renders every embed live; the static export ([[CLI]] `export-site`) renders the
 same output for a published note.
+
+tags:: help/visualization/embeds
+section:: visualization
+cover:: assets/cover-embeds.svg

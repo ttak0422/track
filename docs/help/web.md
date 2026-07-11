@@ -26,3 +26,7 @@ The static site produced by `track export-site` is the *published* counterpart o
 rendered content only, with no editor, search index, or heatmap top page. It reuses the same Markdown
 and Mermaid rendering so a published note reads the way it does here, while [[Linking notes]] explains
 how cross-note links are resolved against the published set.
+
+tags:: help/reference
+section:: reference
+reviewed:: 2026-06-18

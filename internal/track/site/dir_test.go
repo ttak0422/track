@@ -137,3 +137,75 @@ func TestBuildDirRejectsMissingRoot(t *testing.T) {
 		t.Fatalf("expected error when root file is absent")
 	}
 }
+
+func TestBuildDirTagsAndQueryBlocks(t *testing.T) {
+	src := t.TempDir()
+	write := func(name, body string) {
+		if err := os.WriteFile(filepath.Join(src, name), []byte(body), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	write("index.md", "# Home\n\n```track-query\nTABLE title, tags FROM #docs SORT title\n```\n\ntags:: docs\n")
+	write("a.md", "# Alpha\n\ntags:: docs/guide\n")
+	write("b.md", "# Beta\n\nno tags here\n")
+
+	out := t.TempDir()
+	if _, err := BuildDir(src, "index", "", fakeFrontend(t), out); err != nil {
+		t.Fatalf("BuildDir: %v", err)
+	}
+
+	// The tags:: inline field becomes the page's tags in notes.json.
+	notes := readJSON[struct {
+		Notes []jsonSearchResult `json:"notes"`
+	}](t, filepath.Join(out, "data", "notes.json"))
+	tagsByTitle := map[string][]string{}
+	for _, n := range notes.Notes {
+		tagsByTitle[n.Title] = n.Tags
+	}
+	if len(tagsByTitle["Alpha"]) != 1 || tagsByTitle["Alpha"][0] != "docs/guide" {
+		t.Fatalf("Alpha tags = %v", tagsByTitle["Alpha"])
+	}
+
+	// The track-query fence is expanded to a Markdown result table at build time; #docs matches the
+	// nested docs/guide tag too.
+	site := readJSON[jsonSite](t, filepath.Join(out, "data", "site.json"))
+	root := readJSON[jsonNoteResponse](t, filepath.Join(out, "data", "note", site.Root+".json"))
+	if strings.Contains(root.Note.Body, "```track-query") {
+		t.Fatalf("query fence should be expanded: %q", root.Note.Body)
+	}
+	if !strings.Contains(root.Note.Body, "| [[Alpha]] | docs/guide |") ||
+		!strings.Contains(root.Note.Body, "| [[Home]] | docs |") {
+		t.Fatalf("expanded table missing rows: %q", root.Note.Body)
+	}
+	if strings.Contains(root.Note.Body, "[[Beta]]") {
+		t.Fatalf("untagged note must not match #docs: %q", root.Note.Body)
+	}
+
+	// Every used tag and its ancestors get a real page file.
+	for _, rel := range []string{"tags/docs/index.html", "tags/docs/guide/index.html"} {
+		if !fileExists(filepath.Join(out, rel)) {
+			t.Fatalf("missing tag page %s", rel)
+		}
+	}
+}
+
+func TestBuildDirPublishesInlineFieldProps(t *testing.T) {
+	src := t.TempDir()
+	body := "# Fields\n\nstatus:: draft\n- rating:: 8\n"
+	if err := os.WriteFile(filepath.Join(src, "index.md"), []byte(body), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	out := t.TempDir()
+	if _, err := BuildDir(src, "index", "", fakeFrontend(t), out); err != nil {
+		t.Fatalf("BuildDir: %v", err)
+	}
+
+	site := readJSON[jsonSite](t, filepath.Join(out, "data", "site.json"))
+	root := readJSON[jsonNoteResponse](t, filepath.Join(out, "data", "note", site.Root+".json"))
+	props := root.Note.Props
+	if len(props) != 2 || props[0].Key != "status" || props[0].Value != "draft" ||
+		props[1].Key != "rating" || props[1].Type != "number" {
+		t.Fatalf("props = %+v", props)
+	}
+}

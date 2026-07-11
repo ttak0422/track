@@ -2,7 +2,7 @@ package store
 
 // schemaVersion is bumped whenever the DDL below changes in a way that requires a rebuild.
 // The schema is applied once when the database is fresh.
-const schemaVersion = 2
+const schemaVersion = 3
 
 // schemaSQL defines a rebuildable SQLite index, not the primary source of truth.
 // Notes and sidecar metadata on disk are authoritative; this database caches keyword rows and computed links for fast lookup.
@@ -37,6 +37,20 @@ CREATE TABLE note_days (
   PRIMARY KEY (note_id, day)
 );
 CREATE INDEX idx_note_days_day ON note_days(day);
+
+-- props holds a note's flattened typed properties: sidecar props (line = 0) and inline "key:: value"
+-- body fields (line = 1-based). A list value is one row per item; ord preserves flattened order so a
+-- list reads back in the order it was written.
+CREATE TABLE props (
+  note_id INTEGER NOT NULL REFERENCES notes(id) ON DELETE CASCADE,
+  key     TEXT NOT NULL,
+  value   TEXT NOT NULL,
+  type    TEXT NOT NULL,
+  line    INTEGER NOT NULL DEFAULT 0,
+  ord     INTEGER NOT NULL DEFAULT 0
+);
+CREATE INDEX idx_props_note ON props(note_id);
+CREATE INDEX idx_props_key ON props(key, value);
 
 CREATE VIEW keywords AS
   SELECT title AS term, id AS note_id, 'title' AS kind FROM notes WHERE title <> '';

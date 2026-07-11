@@ -28,27 +28,13 @@ const echartsLang = "echarts"
 // block — the page still publishes, matching how the live workspace shows a bad spec at the block
 // position.
 func resolveViewSpecBlocks(body, dataDir string, noteSlug func(string) (string, bool)) string {
-	lines := strings.Split(body, "\n")
-	var out []string
-	next := 0
-	for _, b := range babel.ParseBlocks(body) {
-		if !strings.EqualFold(b.Language, viewSpecLang) {
-			continue
-		}
-		out = append(out, lines[next:b.StartLine]...)
+	return babel.ReplaceBlocks(body, viewSpecLang, func(b babel.Block) []string {
 		opt, err := render.EChartsOptionFromSpecDir([]byte(b.Body), dataDir)
 		if err != nil {
-			out = append(out, "> View Spec error: "+err.Error(), "", "```json", b.Body, "```")
-		} else {
-			out = append(out, "```"+echartsLang, rewriteNoteRefs(opt, noteSlug), "```")
+			return []string{"> View Spec error: " + err.Error(), "", "```json", b.Body, "```"}
 		}
-		next = b.EndLine + 1
-	}
-	if next == 0 {
-		return body // no viewspec fences: the common case, untouched
-	}
-	out = append(out, lines[next:]...)
-	return strings.Join(out, "\n")
+		return []string{"```" + echartsLang, rewriteNoteRefs(opt, noteSlug), "```"}
+	})
 }
 
 // rewriteNoteRefs maps every "note" field in a resolved option (a chart datum's vault-note provenance)

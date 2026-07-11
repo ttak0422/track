@@ -74,11 +74,22 @@ export interface NoteInclude {
   error?: string;
 }
 
+// NoteProp is one flattened typed note property, as the engine indexes it: a sidecar props entry
+// (line 0) or an inline "key:: value" body field (1-based body line). A list value arrives as one
+// entry per item under the same key. Link values carry the resolution key ([[...]] inner text).
+export interface NoteProp {
+  key: string;
+  value: string;
+  type: "string" | "number" | "boolean" | "date" | "link" | string;
+  line: number;
+}
+
 export interface NoteDetail extends SearchResult {
   copy_path: string;
   body: string;
   etag: string;
   includes?: NoteInclude[];
+  props?: NoteProp[];
 }
 
 export interface NoteResponse {

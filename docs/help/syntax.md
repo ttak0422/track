@@ -135,3 +135,7 @@ These are the track-specific constructs, each with its own page:
 - **`.viewspec.json`** embeds — declarative charts. See [[Charts]].
 
 Everything renders the same in the [[Web workspace]] and in the published static export.
+
+tags:: help/authoring
+section:: authoring
+reviewed:: 2026-06-05

@@ -77,10 +77,18 @@ func BuildDir(srcDir, rootName, baseURL, frontendDir, outDir string) (Result, er
 		if err != nil {
 			return Result{}, fmt.Errorf("render %s: %w", f.slug, err)
 		}
+		// Plain Markdown files have no sidecar, so inline "key:: value" fields are their only
+		// properties — and a "tags:: a, b" field doubles as the page's tags, so tag pages, #tag
+		// search, and query FROM filters work on a directory site too. Likewise a
+		// "cover:: assets/<file>" field is the page's cover image (a vault note keeps it in the
+		// sidecar), feeding gallery query layouts and og:image.
+		props := note.InlineFields(f.body)
 		docs = append(docs, doc{
 			id:       id,
 			title:    f.title,
 			kind:     "note",
+			tags:     tagsFromProps(props),
+			image:    coverFromProps(props),
 			path:     f.slug + ".md",
 			body:     body,
 			keys:     []string{f.slug, f.title},
@@ -88,6 +96,7 @@ func BuildDir(srcDir, rootName, baseURL, frontendDir, outDir string) (Result, er
 			assetSrc: assetSrc,
 			// A docs directory may keep canonical JSONL next to its assets, mirroring the vault's data/.
 			dataDir: filepath.Join(srcDir, "data"),
+			props:   props,
 		})
 		for _, ref := range link.Refs(f.body) {
 			if dst, ok := keyToID[ref.Text]; ok {
@@ -101,8 +110,31 @@ func BuildDir(srcDir, rootName, baseURL, frontendDir, outDir string) (Result, er
 	}
 
 	// Plain Markdown files carry no activity days, so a calendar would be permanently empty; directory
-	// sites never include it (the CLI rejects --calendar with --src).
-	return writeBundle(docs, edges, root, false, baseURL, frontendDir, outDir)
+	// sites never include it (the CLI rejects --calendar with --src). There is no vault config either,
+	// so "saved:" query references do not resolve on a directory site.
+	return writeBundle(docs, edges, root, false, baseURL, nil, frontendDir, outDir)
+}
+
+// coverFromProps lifts a "cover:: assets/<file>" inline field into a doc's cover image, stored like
+// the vault path: relative under the assets directory.
+func coverFromProps(props []note.Prop) string {
+	for _, p := range props {
+		if p.Key == "cover" {
+			return strings.TrimPrefix(p.Value, "assets/")
+		}
+	}
+	return ""
+}
+
+// tagsFromProps lifts the values of the "tags" inline field into a doc's tags.
+func tagsFromProps(props []note.Prop) []string {
+	var out []string
+	for _, p := range props {
+		if p.Key == "tags" && p.Value != "" {
+			out = append(out, p.Value)
+		}
+	}
+	return out
 }
 
 // firstHeading returns the text of the first level-1 ATX heading in body, or "" when there is none.

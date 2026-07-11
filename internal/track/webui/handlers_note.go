@@ -14,6 +14,7 @@ import (
 	"github.com/ttak0422/track/internal/track/index"
 	"github.com/ttak0422/track/internal/track/link"
 	"github.com/ttak0422/track/internal/track/note"
+	"github.com/ttak0422/track/internal/track/query"
 	"github.com/ttak0422/track/internal/track/render"
 	"github.com/ttak0422/track/internal/track/store"
 )
@@ -92,6 +93,16 @@ func (s *Server) getNote(w http.ResponseWriter, r *http.Request) {
 	for i := range backlinks {
 		backlinks[i].Path = s.cfg.PathForKind(backlinks[i].FileKind, backlinks[i].NoteID)
 	}
+	// Properties come from the index (refreshed above), which flattens sidecar props and inline
+	// "key:: value" fields through the same engine path everything else uses.
+	props, err := s.store.NoteProps(id)
+	if err != nil {
+		writeError(w, err, http.StatusInternalServerError)
+		return
+	}
+	if props == nil {
+		props = []note.Prop{}
+	}
 	writeJSON(w, map[string]any{
 		"note": map[string]any{
 			"note_id":   ref.NoteID,
@@ -100,6 +111,7 @@ func (s *Server) getNote(w http.ResponseWriter, r *http.Request) {
 			"copy_path": s.cfg.DisplayPathForKind(ref.FileKind, ref.NoteID),
 			"title":     ref.Title,
 			"tags":      ref.Tags,
+			"props":     props,
 			"body":      body,
 			// etag is a content hash of the file as read; clients echo it back on PUT so a save can be
 			// rejected when the file changed underneath (e.g. an OneDrive sync) since this read.
@@ -231,13 +243,26 @@ func (s *Server) handleRender(w http.ResponseWriter, r *http.Request) {
 		writeError(w, err, http.StatusInternalServerError)
 		return
 	}
+	s.refreshIfStale()
+	// Embedded ```track-query fences resolve here into Markdown result tables over the freshly
+	// reconciled index, so the workspace draws them with its ordinary table rendering — the same
+	// expansion the static export bakes in at build time. A row-load failure leaves the fences as
+	// source rather than failing the whole render.
+	markdown := res.Markdown
+	if rows, err := query.RowsFromStore(s.store); err == nil {
+		// Gallery covers come from the sidecar metadata, read lazily per matched note; the value is
+		// the note-relative "assets/<file>" the frontend already maps to /api/asset.
+		markdown = query.ExpandBlocks(markdown, s.cfg.Queries, rows, func(id int64) string {
+			meta, _, _ := note.ReadMetadata(s.cfg.MetadataPath(id))
+			return meta.Image
+		})
+	}
 	// Includes resolve against the rendered markdown (what the frontend draws), so their line
 	// numbers align with the text the client splices them into; target bodies render through the
 	// same web renderer so embedded content arrives as sanitized as the note's own.
-	s.refreshIfStale()
 	writeJSON(w, map[string]any{
-		"markdown": res.Markdown,
-		"includes": link.ResolveIncludes(res.Markdown, s.loadRenderedNote),
+		"markdown": markdown,
+		"includes": link.ResolveIncludes(markdown, s.loadRenderedNote),
 	})
 }
 
