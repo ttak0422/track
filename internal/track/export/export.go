@@ -96,11 +96,13 @@ func Export(n *note.Note, r Renderer, opts Options) (Result, error) {
 			i = blk.EndLine + 1
 			continue
 		}
-		if isFence(lines[i]) {
+		if n, _, ok := babel.OpenFence(lines[i]); ok {
 			// A plain (non-babel) fenced block passes through verbatim: no link rewriting inside code.
+			// Copy through the matching close fence (length-aware, so a longer wrapper's shorter inner
+			// fences stay content rather than closing the block early).
 			out = append(out, lines[i])
 			i++
-			for i < len(lines) && !isFence(lines[i]) {
+			for i < len(lines) && !babel.CloseFence(lines[i], n) {
 				out = append(out, lines[i])
 				i++
 			}
@@ -137,8 +139,4 @@ func firstHeader(b babel.Block, key, def string) string {
 		return vs[0]
 	}
 	return def
-}
-
-func isFence(line string) bool {
-	return strings.HasPrefix(strings.TrimSpace(line), "```")
 }
