@@ -85,7 +85,7 @@ func init() {
 }
 
 func New(cfg *config.Config, s *store.Store) *Server {
-	srv := &Server{cfg: cfg, store: s, mux: http.NewServeMux(), webRoot: selectWebRoot(), session: newSessionToken(), events: newEventHub()}
+	srv := &Server{cfg: cfg, store: s, mux: http.NewServeMux(), webRoot: embeddedWebRoot, session: newSessionToken(), events: newEventHub()}
 	// A palette is a best-effort cosmetic override; a bad file must not take the workspace down, so we
 	// warn and fall back to the built-in colors rather than failing to start.
 	if css, err := LoadPalette(cfg.WebColorsPath); err != nil {

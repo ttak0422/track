@@ -119,7 +119,32 @@ fence embeds a [[Diagrams|diagram]] — and it renders as an interactive ECharts
 tooltips, legend toggling) in both the web workspace and the published site.
 Inline `data.records` keeps the block self-contained; `data.source` reads a JSONL file
 from the vault's `data/` directory. If the spec is invalid, the error and the source are shown at the
-block's position, so a typo never hides your text. This one is live:
+block's position, so a typo never hides your text:
+
+````markdown
+```viewspec
+{
+  "version": 2,
+  "mark": "bar",
+  "title": "Notes per week",
+  "data": {
+    "kind": "metric",
+    "records": [
+      { "name": "notes", "time": "W1", "value": 4 },
+      { "name": "notes", "time": "W2", "value": 7 },
+      { "name": "notes", "time": "W3", "value": 5 },
+      { "name": "notes", "time": "W4", "value": 9 }
+    ]
+  },
+  "encoding": {
+    "x": { "field": "time", "type": "nominal", "title": "Week" },
+    "y": [ { "field": "value", "title": "Notes" } ]
+  }
+}
+```
+````
+
+It renders as (live):
 
 ```viewspec
 {

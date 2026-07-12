@@ -24,6 +24,7 @@ type Block struct {
 	StartLine  int                 // 0-based line of the opening fence
 	EndLine    int                 // 0-based line of the closing fence
 	Ordinal    int                 // 0-based index among the note's language blocks
+	Fence      int                 // opening fence length (backtick count); 0 on Blocks built without it
 }
 
 // ParseBlocks extracts every language-tagged fenced code block from a note body, in document order.
@@ -34,16 +35,16 @@ func ParseBlocks(body string) []Block {
 	ordinal := 0
 	i := 0
 	for i < len(lines) {
-		if !isFence(lines[i]) {
+		n, info, ok := OpenFence(lines[i])
+		if !ok {
 			i++
 			continue
 		}
-		info := fenceInfo(lines[i])
 		start := i
 		j := i + 1
 		closed := false
 		for j < len(lines) {
-			if isFence(lines[j]) {
+			if CloseFence(lines[j], n) {
 				closed = true
 				break
 			}
@@ -64,6 +65,7 @@ func ParseBlocks(body string) []Block {
 				StartLine:  start,
 				EndLine:    j,
 				Ordinal:    ordinal,
+				Fence:      n,
 			})
 			ordinal++
 		}
@@ -144,11 +146,31 @@ func shortHash(bodyHash string) string {
 	return hexPart
 }
 
-func isFence(line string) bool {
-	return strings.HasPrefix(strings.TrimSpace(line), "```")
+// OpenFence reports whether line opens a fenced code block: after trimming leading spaces it begins with
+// a run of n >= 3 backticks. n is the fence length and info is the trimmed remainder (the info string).
+// Backtick fences only; track does not use tilde fences.
+func OpenFence(line string) (n int, info string, ok bool) {
+	t := strings.TrimLeft(line, " ")
+	for n < len(t) && t[n] == '`' {
+		n++
+	}
+	if n < 3 {
+		return 0, "", false
+	}
+	return n, strings.TrimSpace(t[n:]), true
 }
 
-func fenceInfo(line string) string {
+// CloseFence reports whether line closes an open fence of length n: after trimming spaces it is made up
+// only of backticks, at least n of them, with no info string.
+func CloseFence(line string, n int) bool {
 	t := strings.TrimSpace(line)
-	return strings.TrimSpace(strings.TrimPrefix(t, "```"))
+	if len(t) < n {
+		return false
+	}
+	for i := 0; i < len(t); i++ {
+		if t[i] != '`' {
+			return false
+		}
+	}
+	return true
 }

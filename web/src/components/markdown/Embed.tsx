@@ -3,6 +3,7 @@ import { useAssetTextQuery, useOgpQuery } from "../../queries";
 import { PdfDeck } from "../PdfDeck";
 import { CodeBlock } from "./CodeBlock";
 import { NoteKindContext } from "./context";
+import { GraphvizDiagram } from "./GraphvizDiagram";
 import { MediaFrame } from "./MediaFrame";
 import { MermaidDiagram } from "./MermaidDiagram";
 import { EChartsFence } from "./EChartsBlock";
@@ -164,6 +165,10 @@ function TextAssetEmbed({ href, src, alt }: TextAssetEmbedProps) {
   }
   if (isMermaidHref(src)) {
     return <MermaidDiagram text={text.data} />;
+  }
+  // A Graphviz source attachment (.dot/.gv) renders with the same engine fenced ```dot blocks use.
+  if (textAssetLang(src) === "dot") {
+    return <GraphvizDiagram text={text.data} />;
   }
   if (isEChartsHref(src)) {
     return <EChartsFence text={text.data} />;
