@@ -16,6 +16,7 @@ vi.mock("../api", () => ({
 
 const seedMeta = {
   title: "Alpha",
+  kind: "note",
   tags: ["project", "draft"],
   description: "A summary.",
   image: "assets/old.png",
@@ -73,6 +74,15 @@ describe("NoteMetaDialog", () => {
       }),
     );
     await waitFor(() => expect(onClose).toHaveBeenCalled());
+  });
+
+  it("disables the title for a journal note", async () => {
+    getNoteMeta.mockResolvedValue({ ...seedMeta, kind: "journal", title: "2026-07-12" });
+    renderDialog();
+    await waitFor(() => expect(screen.getByLabelText("Title")).toHaveValue("2026-07-12"));
+    expect(screen.getByLabelText("Title")).toBeDisabled();
+    // The other fields stay editable.
+    expect(screen.getByLabelText("Tags")).not.toBeDisabled();
   });
 
   it("surfaces a validation error and keeps the dialog open", async () => {

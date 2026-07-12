@@ -119,6 +119,9 @@ export interface DeleteNoteResponse {
 // assembles YAML: it sends these fields and the engine composes/validates the document.
 export interface NoteMetaResponse {
   title: string;
+  // The note's file kind ("note" | "journal"). Journal titles are date-derived, so the editor
+  // disables title editing for them.
+  kind: string;
   tags: string[];
   description: string;
   image: string;

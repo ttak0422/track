@@ -999,10 +999,14 @@ func TestNoteMetaEndpoint(t *testing.T) {
 	if seed["title"] != "Alpha" {
 		t.Fatalf("seed title = %v", seed["title"])
 	}
-	for _, key := range []string{"title", "tags", "description", "image", "props"} {
+	for _, key := range []string{"title", "kind", "tags", "description", "image", "props"} {
 		if _, ok := seed[key]; !ok {
 			t.Fatalf("seed missing field %q: %v", key, seed)
 		}
+	}
+	// The kind lets the dialog disable title editing for journals; a plain note reports "note".
+	if seed["kind"] != "note" {
+		t.Fatalf("seed kind = %v, want note", seed["kind"])
 	}
 
 	// A structured edit applies through the engine's validated write path; the response echoes the

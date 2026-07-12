@@ -19,6 +19,9 @@ export function NoteMetaDialog({ noteID, onClose }: { noteID: NoteID; onClose: (
   const [props, setProps] = useState("");
   const [loadedFor, setLoadedFor] = useState<NoteID | null>(null);
   const fileInput = useRef<HTMLInputElement>(null);
+  // A journal's title is derived from its date; the engine keeps that mechanical, so title editing is
+  // disabled here rather than offering a rename that would fight the naming scheme.
+  const isJournal = meta.data?.kind === "journal";
 
   // Seed the fields once from the fetched metadata; later edits belong to the user.
   useEffect(() => {
@@ -84,14 +87,18 @@ export function NoteMetaDialog({ noteID, onClose }: { noteID: NoteID; onClose: (
       <div className="modal-card" onClick={(event) => event.stopPropagation()}>
         <h3 id="note-meta-title">Note metadata</h3>
         <label className="modal-field">
-          <span className="muted">Title — changing it renames the note and rewrites backlinks</span>
+          <span className="muted">
+            {isJournal
+              ? "Title — a journal's title is set by its date and can't be changed here"
+              : "Title — changing it renames the note and rewrites backlinks"}
+          </span>
           <input
             className="modal-input"
             aria-label="Title"
             value={title}
             /* eslint-disable-next-line jsx-a11y/no-autofocus */
             autoFocus
-            disabled={meta.isPending}
+            disabled={meta.isPending || isJournal}
             onChange={(event) => setTitle(event.currentTarget.value)}
             onKeyDown={enterSubmits}
           />
@@ -121,7 +128,10 @@ export function NoteMetaDialog({ noteID, onClose }: { noteID: NoteID; onClose: (
           />
         </label>
         <div className="modal-field">
-          <span className="muted">Cover image (og:image) — a vault asset, e.g. assets/cover.png</span>
+          <span className="muted">
+            Cover image (og:image) — “Choose a file…” copies the picked image into the vault’s
+            assets/ and fills in its reference; or type an existing assets/… path
+          </span>
           <div className="modal-image-row">
             <input
               className="modal-input"
@@ -137,7 +147,7 @@ export function NoteMetaDialog({ noteID, onClose }: { noteID: NoteID; onClose: (
               disabled={meta.isPending || upload.isPending}
               onClick={() => fileInput.current?.click()}
             >
-              {upload.isPending ? "Uploading..." : "Choose image..."}
+              {upload.isPending ? "Importing…" : "Choose a file…"}
             </button>
           </div>
           <input ref={fileInput} type="file" accept="image/*" hidden onChange={pickImage} />

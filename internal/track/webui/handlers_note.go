@@ -200,7 +200,7 @@ func (s *Server) handleNoteMeta(w http.ResponseWriter, r *http.Request) {
 			writeError(w, err, http.StatusInternalServerError)
 			return
 		}
-		writeMetaFields(w, meta)
+		writeMetaFields(w, meta, ref.FileKind)
 	case http.MethodPost:
 		var req struct {
 			Title       string   `json:"title"`
@@ -254,15 +254,17 @@ func (s *Server) handleNoteMeta(w http.ResponseWriter, r *http.Request) {
 			writeError(w, fmt.Errorf("reindex: %w", err), http.StatusInternalServerError)
 			return
 		}
-		writeMetaFields(w, meta)
+		writeMetaFields(w, meta, ref.FileKind)
 	default:
 		writeError(w, fmt.Errorf("method %s not allowed", r.Method), http.StatusMethodNotAllowed)
 	}
 }
 
 // writeMetaFields serializes a note's editable metadata as the dialog's typed fields, rendering the
-// props map back to the free-form YAML block the props textarea seeds from.
-func writeMetaFields(w http.ResponseWriter, meta note.Metadata) {
+// props map back to the free-form YAML block the props textarea seeds from. kind is the note's file
+// kind (config.KindNote / KindJournal); the dialog disables title editing for journals, whose titles
+// are derived from their date.
+func writeMetaFields(w http.ResponseWriter, meta note.Metadata, kind string) {
 	propsText, err := note.PropsText(meta.Props)
 	if err != nil {
 		writeError(w, err, http.StatusInternalServerError)
@@ -274,6 +276,7 @@ func writeMetaFields(w http.ResponseWriter, meta note.Metadata) {
 	}
 	writeJSON(w, map[string]any{
 		"title":       meta.Title,
+		"kind":        kind,
 		"tags":        tags,
 		"description": meta.Description,
 		"image":       meta.Image,
