@@ -138,6 +138,45 @@ func TestBuildDirRejectsMissingRoot(t *testing.T) {
 	}
 }
 
+func TestBuildDirIconFromInlineField(t *testing.T) {
+	src := t.TempDir()
+	write := func(name, body string) {
+		if err := os.WriteFile(filepath.Join(src, name), []byte(body), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	write("index.md", "# Home\n\nicon:: 📓\n\nsee [[cli]], [[plain]] and [[blank]]\n")
+	write("cli.md", "# CLI\n\nicon:: 🛠\nicon:: 🔥\n") // more than one field: the first wins
+	write("plain.md", "# Plain\n\nno fields here\n")
+	write("blank.md", "# Blank\n\nicon:: \n") // empty value: no icon
+
+	out := t.TempDir()
+	if _, err := BuildDir(src, "index", "", fakeFrontend(t), out); err != nil {
+		t.Fatalf("BuildDir: %v", err)
+	}
+
+	icons := map[string]string{}
+	list := readJSON[struct {
+		Notes []jsonSearchResult `json:"notes"`
+	}](t, filepath.Join(out, "data", "notes.json"))
+	for _, n := range list.Notes {
+		icons[n.Title] = n.Icon
+	}
+	want := map[string]string{"Home": "📓", "CLI": "🛠", "Plain": "", "Blank": ""}
+	for title, icon := range want {
+		if icons[title] != icon {
+			t.Errorf("%s icon = %q, want %q", title, icons[title], icon)
+		}
+	}
+
+	// The icon:: field is an ordinary property and stays in the page's published props.
+	site := readJSON[jsonSite](t, filepath.Join(out, "data", "site.json"))
+	root := readJSON[jsonNoteResponse](t, filepath.Join(out, "data", "note", site.Root+".json"))
+	if len(root.Note.Props) != 1 || root.Note.Props[0].Key != "icon" || root.Note.Props[0].Value != "📓" {
+		t.Fatalf("props = %+v", root.Note.Props)
+	}
+}
+
 func TestBuildDirPublishesInlineFieldProps(t *testing.T) {
 	src := t.TempDir()
 	body := "# Fields\n\nstatus:: draft\n- rating:: 8\n"

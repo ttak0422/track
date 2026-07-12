@@ -9,6 +9,8 @@ Two engines are built in, each triggered by its fence language:
 - **[Graphviz](https://graphviz.org/)** (` ```dot `) — the DOT language with Graphviz's own layout
   engine, for arbitrary graphs where you say *what connects to what* and let the layout be computed.
 
+icon:: 📐
+
 Part of [[Visualization]] (see also [[Charts]], [[Mindmaps]], and [[Embeds]]). Back to [[track]].
 
 ## Writing a diagram

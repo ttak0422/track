@@ -9,6 +9,7 @@ there. If you know Obsidian's properties or org-mode's property drawers, this is
 This page is its own demo: it carries the inline fields below, so the property strip at the top of
 this page is rendered from them.
 
+icon:: 🏷️
 status:: example
 rating:: 8
 updated:: 2026-07-11

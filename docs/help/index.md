@@ -7,6 +7,8 @@ local web workspace.
 This help site is itself produced by `track export-site`, so it doubles as a working example of the
 static-site export.
 
+icon:: 🧭
+
 ## Your workspace at a glance
 
 The block below is a live [[Home dashboard]] widget — a `dashboard` fence the engine resolved into

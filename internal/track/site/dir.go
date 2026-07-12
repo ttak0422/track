@@ -15,7 +15,9 @@ import (
 // any vault). Each file becomes a published note slugged by its base name; ids are assigned in name
 // order. Wiki links resolve by file base name or by the file's first H1 title among the directory's
 // files. rootName names the entry file (with or without ".md"); empty defaults to "index". An "assets"
-// subdirectory supplies referenced media. frontendDir is the static-mode frontend build.
+// subdirectory supplies referenced media. frontendDir is the static-mode frontend build. There is no
+// vault, no sidecar, and no config here, so a page's metadata — its properties and its icon (see
+// inlineIcon) — comes only from its own inline "key:: value" fields.
 func BuildDir(srcDir, rootName, baseURL, frontendDir, outDir string) (Result, error) {
 	entries, err := os.ReadDir(srcDir)
 	if err != nil {
@@ -77,6 +79,8 @@ func BuildDir(srcDir, rootName, baseURL, frontendDir, outDir string) (Result, er
 		if err != nil {
 			return Result{}, fmt.Errorf("render %s: %w", f.slug, err)
 		}
+		// Plain Markdown files have no sidecar, so inline "key:: value" fields are their only properties.
+		props := note.InlineFields(f.body)
 		docs = append(docs, doc{
 			id:       id,
 			title:    f.title,
@@ -86,10 +90,10 @@ func BuildDir(srcDir, rootName, baseURL, frontendDir, outDir string) (Result, er
 			keys:     []string{f.slug, f.title},
 			assets:   collectAssets(f.body),
 			assetSrc: assetSrc,
+			icon:     inlineIcon(props),
 			// A docs directory may keep canonical JSONL next to its assets, mirroring the vault's data/.
 			dataDir: filepath.Join(srcDir, "data"),
-			// Plain Markdown files have no sidecar, so inline "key:: value" fields are their only properties.
-			props: note.InlineFields(f.body),
+			props:   props,
 		})
 		for _, ref := range link.Refs(f.body) {
 			if dst, ok := keyToID[ref.Text]; ok {
@@ -105,6 +109,22 @@ func BuildDir(srcDir, rootName, baseURL, frontendDir, outDir string) (Result, er
 	// Plain Markdown files carry no activity days, so a calendar would be permanently empty; directory
 	// sites never include it (the CLI rejects --calendar with --src).
 	return writeBundle(docs, edges, root, false, baseURL, frontendDir, outDir)
+}
+
+// inlineIcon resolves the icon shown beside a page's title. A vault note gets one from the config
+// tag/kind maps plus its sidecar override (config.NoteIcon), but directory mode has neither config nor
+// sidecars, so a page states its own with an "icon:: 📓" inline field — the same fields that are
+// already its only properties. The first icon field wins (a page has one icon; a later one is a
+// duplicate, not an override) and an empty value means no icon, as does having no field at all. The
+// field stays in the published props: it is an ordinary property, and hiding it would be a special case
+// that buys nothing.
+func inlineIcon(props []note.Prop) string {
+	for _, p := range props {
+		if p.Key == "icon" {
+			return strings.TrimSpace(p.Value)
+		}
+	}
+	return ""
 }
 
 // firstHeading returns the text of the first level-1 ATX heading in body, or "" when there is none.

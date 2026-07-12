@@ -79,7 +79,9 @@ type IconMap struct {
 // NoteIcon resolves the icon shown beside a note title. A non-empty per-note override (the sidecar's
 // Metadata.Icon) always wins; otherwise the first tag with a mapping (tags are checked in the order they
 // are stored) is used, then the note kind's mapping, then "" for no icon. Keeping this on Config means
-// every surface — live lists, search, the static export — resolves an icon the same way.
+// every surface backed by a vault — live lists, search, the vault export — resolves an icon the same
+// way. A config-free directory export has no maps and no sidecars, so it reads a page's icon from an
+// "icon::" inline field instead (see site.BuildDir).
 func (c *Config) NoteIcon(kind string, tags []string, override string) string {
 	if override != "" {
 		return override

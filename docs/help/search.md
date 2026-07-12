@@ -8,6 +8,8 @@
 | `body` | The full text of every note body, ranked by relevance. |
 | `all` (default) | Title hits first, then body hits that were not already found. |
 
+icon:: 🔍
+
 Back to [[track]]. The [[CLI]] page lists the surrounding commands.
 
 ## Title and tag search

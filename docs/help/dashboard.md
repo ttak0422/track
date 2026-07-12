@@ -4,6 +4,8 @@ The [[Web workspace]] can open a **home note** as its landing view instead of th
 note can embed **dashboard widgets** — a recent-notes list, today's journal shortcut, and pinned links —
 that render both in the live workspace and on this published site.
 
+icon:: 🏠
+
 Back to [[track]].
 
 ## A home note
@@ -51,8 +53,13 @@ pinned:
 
 ## Note icons
 
-An icon can sit beside a note's title in lists, search results, and navigation. Map an emoji to a tag or
-a note kind in your config:
+An icon can sit beside a note's title in lists, search results, and navigation. Where it comes from
+depends on what is being shown: a **vault** has a config and per-note metadata, while a **published site
+built from a plain Markdown directory** — like this help site — has neither, so each page states its own.
+
+### In a vault
+
+Map an emoji to a tag or a note kind in your config:
 
 ```yaml
 icons:
@@ -74,3 +81,21 @@ track meta --title "Reading list" --icon 📚
 Precedence is simple: a per-note `--icon` override beats a tag mapping, which beats a kind mapping. Set
 an empty `--icon ""` to clear the override and fall back to the mapping. Icons are cosmetic — they never
 change a note's title, id, or how `[[links]]` resolve.
+
+### On a published directory site
+
+`track export-site --src <dir>` publishes plain Markdown files that belong to no vault: there is no
+config to consult and no sidecar to override, and inline `key:: value` fields (see [[Properties]]) are a
+page's only metadata. So a page sets its own icon with an `icon::` field:
+
+```markdown
+# Home dashboard
+
+icon:: 🏠
+
+The Web workspace can open a home note as its landing view.
+```
+
+The first `icon::` field on a page wins, and an empty value means no icon — the same as having no field
+at all. It stays an ordinary property, so it also shows up in the page's property strip. Every page of
+this help site carries one: search for a page here and its icon is beside the title in the results.

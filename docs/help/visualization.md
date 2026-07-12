@@ -17,4 +17,6 @@ All are driven by ordinary Markdown — a fenced block or an image link on its o
 plain text and portable, while the [[Web workspace]] and the static export ([[CLI]] `export-site`)
 render the visuals identically.
 
+icon:: 📈
+
 Back to [[track]].
