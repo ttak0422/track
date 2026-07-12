@@ -99,7 +99,7 @@ identically from a contributor's laptop and from CI, and CI has no `~/.config/tr
 - Follow-up for PR #15 (`feat/query`), which adds `tags::` inline fields to a dozen `docs/help` pages to
   drive directory-mode tag pages: under this decision a page's tags are note-level metadata and a `tags::`
   field in a body is the wrong place for them, exactly as `icon::` was. When that branch lands its tags
-  belong in `site.yml` beside the icons — an entry growing from `cli: 📖` to `cli: {icon: 📖, tags:
+  belong in `site.yml` beside the icons — an entry growing from `cli: ⌨️` to `cli: {icon: ⌨️, tags:
   [reference]}` — which is also what would make the `icons.tags` map live on this site. Not done here: this
   ADR ships the icon, and the tag pages arrive with the branch that needs them.
 - `make site` and both site workflows keep working: their `--root index` was exactly the convention default,

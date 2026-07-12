@@ -83,5 +83,5 @@ what would have caught it.
 Follow-up (not yet done): PR #15 (`feat/query`) adds `tags::` inline fields to a dozen `docs/help` pages
 to drive directory-mode tag pages. A page's tags are note-level metadata, so a `tags::` field in a body is
 the same mistake `icon::` was, in the same place. When that branch lands its tags belong in the site config
-beside the icons — an `icons.pages` entry growing from `cli: 📖` to `cli: {icon: 📖, tags: [reference]}` —
+beside the icons — an `icons.pages` entry growing from `cli: ⌨️` to `cli: {icon: ⌨️, tags: [reference]}` —
 which would also make the shared `icons.tags` map live on that site. Nothing is implemented for it here.
