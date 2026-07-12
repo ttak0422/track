@@ -153,12 +153,13 @@ export function NoteMetaDialog({ noteID, onClose }: { noteID: NoteID; onClose: (
           <input ref={fileInput} type="file" accept="image/*" hidden onChange={pickImage} />
         </div>
         <label className="modal-field">
-          <span className="muted">Properties — free-form YAML (key: value)</span>
+          <span className="muted">Properties — free-form YAML, one “key: value” per line</span>
           <textarea
             className="modal-input modal-input--code"
             aria-label="Properties"
             rows={6}
             value={props}
+            placeholder={"status: reading\nrating: 8"}
             disabled={meta.isPending}
             onChange={(event) => setProps(event.currentTarget.value)}
             onKeyDown={escapeCloses}
