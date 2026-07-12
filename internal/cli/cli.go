@@ -35,6 +35,10 @@ func Run(args []string) int {
 		return cmdReindex(rest)
 	case "doctor":
 		return cmdDoctor(rest)
+	case "refresh-all":
+		return cmdRefreshAll(rest)
+	case "fmt":
+		return cmdFmt(rest)
 	case "new":
 		return cmdNew(rest)
 	case "open":
@@ -43,6 +47,12 @@ func Run(args []string) int {
 		return cmdJournal(rest)
 	case "append":
 		return cmdAppend(rest)
+	case "capture":
+		return cmdCapture(rest)
+	case "refile":
+		return cmdRefile(rest)
+	case "archive":
+		return cmdArchive(rest)
 	case "update":
 		return cmdUpdate(rest)
 	case "meta":
@@ -65,6 +75,8 @@ func Run(args []string) int {
 		return cmdSearch(rest)
 	case "similar":
 		return cmdSimilar(rest)
+	case "notes":
+		return cmdNotes(rest)
 	case "backlinks":
 		return cmdBacklinks(rest)
 	case "agenda":
@@ -104,6 +116,14 @@ Usage:
                                         open the note with this title, creating it if absent
   track append (--id N | --title S | --path P) [--body <s>] [--tag <s>]
                                         append body text and/or merge tags into an existing note
+  track capture [--target "<note>#<heading>"] [--template <s>] [--body <s>]
+                                        append a (templated) entry under a heading; --target defaults
+                                        to the configured capture inbox (created on first use) (JSON)
+  track refile --from "<note>#<heading>" --to "<note>#<heading>" [--line N]
+                                        move a heading subtree (or, with --line, one list item) to
+                                        another anchor; text moves verbatim and both ends reindex (JSON)
+  track archive "<note>#<heading>"      move a subtree into the archive note (per-year by default),
+                                        stamping a [[link]] back to the source and the date (JSON)
   track update (--id N | --title S | --path P) [--body <s>] [--tag <s>] [--clear-tags]
                                         replace body text and/or update tags on an existing note
   track meta (--id N | --title S | --path P) [--description S] [--image assets/F]
@@ -132,12 +152,20 @@ Usage:
   track reindex [--full]                rebuild the index
   track doctor [--fix]                  report vault/sidecar divergence without changing files (JSON);
                                         --fix repairs it by auto-numbered restore, then reindexes
+  track refresh-all                     run the maintenance pipeline in one idempotent pass (full reindex +
+                                        read-only doctor report); suitable for cron/launchd (JSON)
+  track fmt [--check] (<path>... | --all)
+                                         canonically format Markdown files (rewrites in place); --all
+                                         covers the whole vault, --check writes nothing and exits
+                                         non-zero when a file would change. Never touches fenced code (JSON)
   track keywords                        dump the auto-link dictionary (JSON)
   track resolve (--term <s> | <s>)      resolve a keyword to a note (JSON)
   track search --query <s> [--scope all|title|body] [--limit N]
                                         search notes (JSON)
   track similar --id N [--limit K]      list notes semantically closest to a note, using the configured
                                         embedder command; explains setup and exits cleanly if none (JSON)
+  track notes [--untagged] [--limit N]  list notes, newest first; --untagged keeps only notes with no
+                                        tags, for a curation pass that adds tags via track append --tag (JSON)
   track backlinks (--id N | --path P)   list backlinks (JSON)
   track agenda [--date YYYY-MM-DD]       list notes active on a day (JSON)
   track graph (--id N | --path P)       show a local link graph (JSON)

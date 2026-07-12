@@ -4,6 +4,7 @@ import (
 	"os"
 	"path/filepath"
 	"testing"
+	"time"
 )
 
 func TestLoadDefaultsToHomeTrack(t *testing.T) {
@@ -303,5 +304,32 @@ func TestEnsureVaultSkeleton(t *testing.T) {
 	}
 	if len(again) != 0 {
 		t.Fatalf("second ensure should create nothing, got %v", again)
+	}
+}
+
+func TestCaptureAndArchiveDefaults(t *testing.T) {
+	t.Setenv("HOME", t.TempDir())
+	t.Setenv("TRACK_CONFIG", filepath.Join(t.TempDir(), "missing.yml"))
+	t.Setenv("TRACK_VAULT", t.TempDir())
+	t.Setenv("TRACK_DB", "")
+	t.Setenv("TRACK_CACHE_DIR", t.TempDir())
+	t.Setenv("TRACK_CAPTURE_INBOX", "")
+	t.Setenv("TRACK_ARCHIVE_NOTE", "")
+
+	cfg, err := Load()
+	if err != nil {
+		t.Fatalf("load: %v", err)
+	}
+	if cfg.CaptureInbox != "Inbox" {
+		t.Fatalf("CaptureInbox = %q, want Inbox", cfg.CaptureInbox)
+	}
+	// {{year}} substitutes to the given year; a title without the placeholder is verbatim.
+	when := time.Date(2031, 3, 2, 0, 0, 0, 0, time.UTC)
+	if got := cfg.ArchiveNoteTitle(when); got != "Archive 2031" {
+		t.Fatalf("ArchiveNoteTitle = %q, want Archive 2031", got)
+	}
+	cfg.ArchiveNote = "Attic"
+	if got := cfg.ArchiveNoteTitle(when); got != "Attic" {
+		t.Fatalf("ArchiveNoteTitle verbatim = %q, want Attic", got)
 	}
 }

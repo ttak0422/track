@@ -1810,15 +1810,13 @@ a.calendar-title:focus-visible {
   font-size: 0.9em;
 }
 
-/* ![[...]] include embeds (ADR 0031): a transcluded region framed as a quoted card, with a caption
-   header linking back to the source note. */
+/* ![[...]] include embeds (ADR 0031): a transcluded region kept close to plain body text — just a
+   hairline frame and a muted caption linking back to the source note. */
 .note-include {
   margin: 12px 0;
   padding: 8px 12px;
   border: 1px solid var(--line);
-  border-left: 3px solid var(--accent, #4c8bf5);
   border-radius: 6px;
-  background: var(--panel-soft);
 }
 
 .note-include-header {
@@ -2712,4 +2710,93 @@ a.calendar-title:focus-visible {
   clip: rect(0, 0, 0, 0);
   white-space: nowrap;
   border: 0;
+}
+
+/* GFM footnotes: remark-gfm renders the definitions as a trailing <section class="footnotes"> with
+   numbered back-links; set it off from the body as smaller, muted end matter. */
+.markdown-view .footnotes {
+  margin-top: 2.5em;
+  border-top: 1px solid var(--line);
+  padding-top: 0.75em;
+  color: var(--muted);
+  font-size: calc(13px * var(--font-scale, 1));
+}
+
+.markdown-view .footnotes p {
+  display: inline;
+  margin: 0;
+}
+
+.markdown-view .footnote-backref {
+  text-decoration: none;
+  margin-left: 0.35em;
+}
+
+.markdown-view .footnote-ref {
+  padding: 0 0.15em;
+  text-decoration: none;
+  font-weight: 600;
+}
+
+/* Graphviz emits fixed colors (black strokes/text on transparent). In dark themes, invert the
+   rendered SVG and rotate hue back so custom node colors keep roughly their intent.
+   ponytail: a filter, not real theming — replace with SVG recoloring if diagrams need exact colors. */
+:root[data-theme="dark"] .graphviz-diagram .mermaid-pan svg {
+  filter: invert(0.88) hue-rotate(180deg);
+}
+
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) .graphviz-diagram .mermaid-pan svg {
+    filter: invert(0.88) hue-rotate(180deg);
+  }
+}
+
+/* Mindmap: an in-house SVG tree (see markdown/mindmap.ts); colors ride the theme variables. */
+.mindmap-diagram {
+  margin: 1em 0;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  padding: 14px;
+  background: var(--panel);
+}
+
+.mindmap-diagram svg {
+  display: block;
+  margin: 0 auto;
+}
+
+.mindmap-edge {
+  fill: none;
+  stroke: var(--line);
+  stroke-width: 1.5;
+}
+
+.mindmap-node rect {
+  fill: var(--panel-soft);
+  stroke: var(--line);
+}
+
+.mindmap-node text {
+  fill: var(--text);
+  font-size: 13px;
+  text-anchor: middle;
+  dominant-baseline: central;
+}
+
+.mindmap-link {
+  cursor: pointer;
+}
+
+.mindmap-wiki-link .mindmap-node text {
+  fill: var(--accent);
+  font-weight: 700;
+}
+
+.mindmap-external-link .mindmap-node text {
+  text-decoration: underline;
+}
+
+.mindmap-root rect {
+  fill: color-mix(in srgb, var(--accent) 14%, var(--panel));
+  stroke: var(--accent);
 }

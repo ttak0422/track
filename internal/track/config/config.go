@@ -8,8 +8,10 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"regexp"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/ttak0422/track/internal/track/babel"
 	"gopkg.in/yaml.v3"
@@ -47,6 +49,13 @@ type Config struct {
 	// floats from stdout (see the similar package). Empty means no embedder is configured, so semantic
 	// related-notes is unavailable and every other command is unaffected.
 	EmbedderCommand []string
+	// CaptureInbox is the default target for `track capture` when --target is omitted: a note title,
+	// optionally with a "#heading" anchor (e.g. "Inbox#Tasks"). The note is created on first capture
+	// when missing; a named heading must already exist.
+	CaptureInbox string
+	// ArchiveNote is the title of the note `track archive` moves subtrees into, with "{{year}}"
+	// substituted for the current year so archives partition per year (e.g. "Archive 2026").
+	ArchiveNote string
 }
 
 type fileConfig struct {
@@ -60,6 +69,8 @@ type fileConfig struct {
 	JournalTemplate   string        `yaml:"journal_template"`
 	GenKeep           int           `yaml:"gen_keep"`
 	Embedder          string        `yaml:"embedder"`
+	CaptureInbox      string        `yaml:"capture_inbox"`
+	ArchiveNote       string        `yaml:"archive_note"`
 	Web               webFileConfig `yaml:"web"`
 }
 
@@ -182,6 +193,20 @@ func Load() (*Config, error) {
 	if env := os.Getenv("TRACK_EMBEDDER"); env != "" {
 		embedder = env
 	}
+	captureInbox := fc.CaptureInbox
+	if env := os.Getenv("TRACK_CAPTURE_INBOX"); env != "" {
+		captureInbox = env
+	}
+	if strings.TrimSpace(captureInbox) == "" {
+		captureInbox = "Inbox"
+	}
+	archiveNote := fc.ArchiveNote
+	if env := os.Getenv("TRACK_ARCHIVE_NOTE"); env != "" {
+		archiveNote = env
+	}
+	if strings.TrimSpace(archiveNote) == "" {
+		archiveNote = "Archive {{year}}"
+	}
 
 	return &Config{
 		VaultDir:          vault,
@@ -197,7 +222,19 @@ func Load() (*Config, error) {
 		JournalTemplate:   journalTemplate,
 		GenKeep:           genKeep,
 		EmbedderCommand:   strings.Fields(embedder),
+		CaptureInbox:      captureInbox,
+		ArchiveNote:       archiveNote,
 	}, nil
+}
+
+// archiveYear matches the "{{year}}" placeholder (with optional inner whitespace) in ArchiveNote.
+var archiveYear = regexp.MustCompile(`\{\{\s*year\s*\}\}`)
+
+// ArchiveNoteTitle resolves ArchiveNote for a given time, substituting "{{year}}" with now's year so
+// `track archive` targets a per-year note (e.g. "Archive 2026"). A configured title without the
+// placeholder is used verbatim, giving a single archive note.
+func (c *Config) ArchiveNoteTitle(now time.Time) string {
+	return archiveYear.ReplaceAllString(c.ArchiveNote, strconv.Itoa(now.Year()))
 }
 
 // resolveColorsPath expands and absolutizes an optional palette path; empty stays empty.
