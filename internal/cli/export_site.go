@@ -14,13 +14,16 @@ import (
 //
 // --frontend points at the static-mode frontend build (Vite output) to copy into the site. Two input
 // modes:
-//   - Vault:     --root <id> [--id <id> ...]  publishes vault notes; --root is the landing page.
-//   - Directory: --src <dir> [--root <name>]  publishes a directory of plain Markdown files outside any
-//     vault. --root names the entry file (default index).
+//   - Vault:     --root <id> [--id <id> ...]  publishes vault notes; --root is the landing note's id.
+//   - Directory: --src <dir>  publishes every .md file in a directory of plain Markdown outside any vault.
+//     Its entry page is the site's own "home" (<src>/site.yml); unset, or with no such file, a page named
+//     "index". A site's front door does not change per deployment, so it lives with the content, not on
+//     the command line — --root, like --id and --calendar, is a vault-mode flag, and passing one with
+//     --src is an error, never a silent no-op.
 func cmdExportSite(args []string) int {
 	fs := flag.NewFlagSet("export-site", flag.ContinueOnError)
 	src := fs.String("src", "", "build from a directory of Markdown files instead of vault notes")
-	root := fs.String("root", "", "entry page: a note id (vault mode) or file base name (with --src)")
+	root := fs.String("root", "", "entry note id for the site landing page (vault mode)")
 	var ids idsFlag
 	fs.Var(&ids, "id", "note id to include in vault mode (repeatable, comma-separated)")
 	frontend := fs.String("frontend", "", "static-mode frontend build directory to copy into the site")
@@ -42,7 +45,13 @@ func cmdExportSite(args []string) int {
 		if *calendar {
 			return fail("--calendar needs vault notes' activity days; a --src directory has none")
 		}
-		res, err := site.BuildDir(*src, *root, *baseURL, *frontend, *out)
+		if *root != "" {
+			return fail("--root is a vault-mode flag; a directory's entry page comes from its site.yml \"home\" (or the index convention)")
+		}
+		if len(ids) > 0 {
+			return fail("--id is a vault-mode flag; a --src directory publishes every .md file in it")
+		}
+		res, err := site.BuildDir(*src, *baseURL, *frontend, *out)
 		if err != nil {
 			return fail("export-site: %v", err)
 		}

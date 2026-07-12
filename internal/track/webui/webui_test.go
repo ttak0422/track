@@ -815,6 +815,27 @@ func TestRenderSanitizesActionLinksKeepsWiki(t *testing.T) {
 	}
 }
 
+// A whole-line inline field is prose data (ADR 0032) — "weight:: 68.2" is a line of the journal — so the
+// live render returns the line the user typed. It is a property too, from the same line; it is not a
+// place to hide note-level metadata, so nothing lifts it out of the body.
+func TestRenderKeepsInlineFieldLines(t *testing.T) {
+	server, _ := putNoteSetup(t, 100, "Alpha", "old body\n")
+
+	resp, err := http.Post(server.URL+"/api/render", "application/json",
+		strings.NewReader(`{"body":"Morning check-in.\n\nweight:: 68.2\n"}`))
+	if err != nil {
+		t.Fatalf("post render: %v", err)
+	}
+	defer resp.Body.Close()
+	var decoded map[string]any
+	if err := json.NewDecoder(resp.Body).Decode(&decoded); err != nil {
+		t.Fatalf("decode render: %v", err)
+	}
+	if got, want := decoded["markdown"], "Morning check-in.\n\nweight:: 68.2\n"; got != want {
+		t.Fatalf("render markdown = %q, want %q", got, want)
+	}
+}
+
 func TestRenderResolvesDashboardWidget(t *testing.T) {
 	server, _ := putNoteSetup(t, 100, "Alpha", "old body\n")
 

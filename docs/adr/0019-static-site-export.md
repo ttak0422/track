@@ -39,7 +39,7 @@ instead of a second, lower-fidelity renderer.
   and referenced assets into the output.
 - **One bundle writer, two input front-ends.** `Build` publishes a vault selection (`--root <id>
   [--id ...]`) read through the index/store; `BuildDir` publishes a directory of plain Markdown files
-  (`--src <dir> [--root <name>]`) for repo-mounted help/docs outside any vault, assigning ids in name
+  (`--src <dir>`) for repo-mounted help/docs outside any vault, assigning ids in name
   order and resolving wiki links by file base name or first H1 title. Both reduce to the same
   `doc`/`edge` model.
 - **Note bodies are sanitized with `export.NewWebRenderer`** — the same transform the live `/api/render`

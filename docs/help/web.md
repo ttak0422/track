@@ -4,8 +4,6 @@
 frontend over the [[CLI]]: it renders note bodies, resolves `[[...]]` links into navigable,
 hover-previewable anchors, and draws the note graph.
 
-icon:: 🌐
-
 Back to [[track]].
 
 ## What it offers

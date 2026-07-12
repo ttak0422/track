@@ -1,12 +1,19 @@
 package site
 
 import (
+	"bytes"
+	"errors"
 	"fmt"
+	"io"
+	"io/fs"
 	"os"
 	"path/filepath"
 	"sort"
 	"strings"
 
+	"gopkg.in/yaml.v3"
+
+	"github.com/ttak0422/track/internal/track/config"
 	"github.com/ttak0422/track/internal/track/export"
 	"github.com/ttak0422/track/internal/track/link"
 	"github.com/ttak0422/track/internal/track/note"
@@ -15,11 +22,19 @@ import (
 // BuildDir publishes a directory of plain Markdown files (e.g. repo-mounted help/docs that live outside
 // any vault). Each file becomes a published note slugged by its base name; ids are assigned in name
 // order. Wiki links resolve by file base name or by the file's first H1 title among the directory's
-// files. rootName names the entry file (with or without ".md"); empty defaults to "index". An "assets"
-// subdirectory supplies referenced media. frontendDir is the static-mode frontend build. There is no
-// vault, no sidecar, and no config here, so a page's metadata — its properties and its icon (see
-// inlineIcon) — comes only from its own inline "key:: value" fields.
-func BuildDir(srcDir, rootName, baseURL, frontendDir, outDir string) (Result, error) {
+// files. An "assets" subdirectory supplies referenced media. frontendDir is the static-mode frontend
+// build.
+//
+// The bodies are pure Markdown and stay that way: no frontmatter, and no note-level fact smuggled into
+// the prose as an "icon::" inline field (ADR 0002/0032). What a page needs said about it — today, its
+// icon — is said once, in the site's own config at "<srcDir>/site.yml" (see siteConfig), which travels
+// with the content it publishes. The machine's ambient user config is never read. With no site.yml at
+// all this is a plain, config-free directory export whose entry page is the "index" convention.
+func BuildDir(srcDir, baseURL, frontendDir, outDir string) (Result, error) {
+	sc, err := loadSiteConfig(srcDir)
+	if err != nil {
+		return Result{}, err
+	}
 	entries, err := os.ReadDir(srcDir)
 	if err != nil {
 		return Result{}, fmt.Errorf("read src dir: %w", err)
@@ -60,14 +75,31 @@ func BuildDir(srcDir, rootName, baseURL, frontendDir, outDir string) (Result, er
 		keyToID[f.slug] = id
 		keyToID[f.title] = id
 	}
-
-	rootSlug := strings.TrimSuffix(rootName, filepath.Ext(rootName))
-	if rootSlug == "" {
-		rootSlug = "index"
+	if err := checkIconPages(sc.Icons.Pages, idForSlug, srcDir); err != nil {
+		return Result{}, err
 	}
-	root, ok := idForSlug[rootSlug]
+
+	// The entry page, named the same way a wiki link is: by file base name or by page title. The site's
+	// own "home" names it; with no config, the "index" convention does. Nothing found is a loud error —
+	// a site whose landing page silently moved is worse than one that fails to build. File base names
+	// are matched first, and never through the merged link map: titles and base names share that
+	// namespace, so a page whose H1 happens to spell another page's file name would otherwise steal the
+	// front door — the same silent move, dressed as a link. Both spellings are matched exactly before
+	// "index.md" is forgiven its extension, and only a ".md" one is: filepath.Ext would strip any dot
+	// suffix, so a page titled "v1.2" would otherwise land on v1.md's file base name instead.
+	entry := sc.Home
+	if entry == "" {
+		entry = "index"
+	}
+	root, ok := idForSlug[entry]
 	if !ok {
-		return Result{}, fmt.Errorf("root %q not found among .md files in %s", rootSlug, srcDir)
+		root, ok = keyToID[entry] // no file is named that: a page title, then.
+	}
+	if !ok && strings.EqualFold(filepath.Ext(entry), ".md") {
+		root, ok = idForSlug[strings.TrimSuffix(entry, filepath.Ext(entry))]
+	}
+	if !ok {
+		return Result{}, fmt.Errorf("entry page %q not found among .md files in %s", entry, srcDir)
 	}
 
 	assetSrc := filepath.Join(srcDir, "assets")
@@ -80,21 +112,27 @@ func BuildDir(srcDir, rootName, baseURL, frontendDir, outDir string) (Result, er
 		if err != nil {
 			return Result{}, fmt.Errorf("render %s: %w", f.slug, err)
 		}
-		// Plain Markdown files have no sidecar, so inline "key:: value" fields are their only properties.
-		props := note.InlineFields(f.body)
 		docs = append(docs, doc{
-			id:       id,
-			title:    f.title,
-			kind:     "note",
-			path:     f.slug + ".md",
-			body:     body,
-			keys:     []string{f.slug, f.title},
+			id:    id,
+			title: f.title,
+			kind:  "note",
+			path:  f.slug + ".md",
+			body:  body,
+			keys:  []string{f.slug, f.title},
+			// One icon resolver for every surface: the site's per-page override, then its kind map (a
+			// directory page is always kind "note") — config.NoteIcon, the same precedence a vault note
+			// resolves by, with icons.pages standing where a vault note's sidecar icon stands. The tags in
+			// between are nil because a directory page has none, and the site config accepts no tag map to
+			// match them with (see siteIcons).
+			icon:     sc.icons().NoteIcon("note", nil, sc.Icons.Pages[f.slug]),
 			assets:   collectAssets(f.body),
 			assetSrc: assetSrc,
-			icon:     inlineIcon(props),
 			// A docs directory may keep canonical JSONL next to its assets, mirroring the vault's data/.
 			dataDir: filepath.Join(srcDir, "data"),
-			props:   props,
+			// Inline "key:: value" fields are the page's properties, and only ever data that belongs in the
+			// prose (ADR 0032): they are indexed from the line they are written on, and that line publishes
+			// as the prose it is.
+			props: note.InlineFields(f.body),
 		})
 		for _, ref := range link.Refs(f.body) {
 			if dst, ok := keyToID[ref.Text]; ok {
@@ -112,21 +150,117 @@ func BuildDir(srcDir, rootName, baseURL, frontendDir, outDir string) (Result, er
 	return writeBundle(docs, edges, root, false, baseURL, frontendDir, outDir)
 }
 
-// inlineIcon resolves the icon shown beside a page's title. A vault note gets one from the config
-// tag/kind maps plus its sidecar override (config.NoteIcon), but directory mode has neither config nor
-// sidecars, so a page states its own with an "icon:: 📓" inline field — the same fields that are
-// already its only properties. The first icon field wins (a page has one icon; a later one is a
-// duplicate, not an override) and an empty value means no icon, as does having no field at all. The
-// field stays in the published props — it is an ordinary property, and hiding it there would be a
-// special case that buys nothing — while its source line, being metadata, is kept out of the published
-// prose like any other whole-line field (export.WebBody).
-func inlineIcon(props []note.Prop) string {
-	for _, p := range props {
-		if p.Key == "icon" {
-			return strings.TrimSpace(p.Value)
+// checkIconPages rejects an icons.pages entry that names no page, and one that names no icon. The first
+// is a typo — a page renamed, or its name misspelled — and the page it meant to decorate would otherwise
+// publish with the wrong icon (or none) without a word. The second is its sibling: an entry whose emoji
+// was deleted, or swallowed by YAML (a bare "page:" decodes to ""), which would fall through to the kind
+// map just as quietly. Both are no-ops in a file that is only exercised at publish time, and an entry
+// that does nothing is never what its author meant. Pages are checked in name order so the same
+// directory always fails on the same entry.
+func checkIconPages(pages map[string]string, idForSlug map[string]int64, srcDir string) error {
+	names := make([]string, 0, len(pages))
+	for name := range pages {
+		names = append(names, name)
+	}
+	sort.Strings(names)
+	for _, name := range names {
+		if _, ok := idForSlug[name]; !ok {
+			return fmt.Errorf("site config: icons.pages entry %q names no page: there is no %s.md in %s",
+				name, name, srcDir)
+		}
+		if pages[name] == "" {
+			return fmt.Errorf("site config: icons.pages entry %q has no icon: give %s.md an icon or drop the entry",
+				name, name)
 		}
 	}
-	return ""
+	return nil
+}
+
+// siteConfigNames are the per-site config file, discovered inside the published directory itself. Both
+// spellings are accepted: ".yml" and ".yaml" are a coin flip (this repo writes config.yml but also
+// renames.yaml, gen.yaml and note sidecars), and a config that is only exercised at publish time must not
+// be skipped over a filename typo — that is the same wrong site shipped quietly that strict key decoding
+// exists to prevent. Finding both is a loud error, not a guess.
+var siteConfigNames = []string{"site.yml", "site.yaml"}
+
+// siteConfig is the optional config of a *published site*, living with the content it publishes at
+// "<srcDir>/site.yml". It is deliberately not the machine's ambient user config (~/.config/track):
+// that one owns the user's machine (vault, cache, templates, editor, theme) and has no business
+// deciding what a checked-in docs directory publishes. This one owns only what the site is — its entry
+// page and its icons — so the same content publishes the same way on anyone's machine and in CI.
+// Anything that changes per deployment of the same content (--base-url, --out, --frontend) stays a
+// build flag, not site config. Absent file = zero value = a plain directory export, unchanged.
+//
+// It is also where a *page's* note-level metadata lives, for the reason a vault's does not: a vault note's
+// sidecar is written and renamed by "track new" and "track open", so no one hand-maintains it, while a
+// published directory is just files in a repository with no tool between the author and them. A per-page
+// sidecar there would be boilerplate to hand-write and hand-rename; one map in the site's own config is
+// not (ADR 0049).
+type siteConfig struct {
+	// Home is the site's entry page, by file base name or page title. Unset, the "index" convention.
+	Home string `yaml:"home"`
+	// Icons resolves the icon beside each page's title.
+	Icons siteIcons `yaml:"icons"`
+}
+
+// siteIcons is what a published directory can say about its icons: kinds, the ambient config's map with
+// the same shape and meaning, plus the one thing a directory has and a vault does not — pages, mapping a
+// page's file base name to its icon. Pages is the per-page *override* slot of config.NoteIcon, the slot a
+// vault note's sidecar icon occupies; it is not a fourth precedence level. So a page's own icon beats the
+// kind mapping — one rule, whether the page came from a vault or from a directory.
+//
+// There is deliberately no tags map. The ambient config has one and config.NoteIcon consults it, but a
+// directory page carries no tags (its body is pure Markdown, and a "tags::" inline field is prose, not
+// note-level metadata — ADR 0032), so the middle rung has no input here and never fires. Accepting the key
+// would make it the one thing this config forbids: a mapping that silently does nothing, in a file only
+// exercised at publish time. Unknown keys are loud, so `icons.tags` fails the build today, and the key
+// comes back with the change that gives a directory page tags to match (ADR 0049).
+type siteIcons struct {
+	Pages map[string]string `yaml:"pages"`
+	Kinds map[string]string `yaml:"kinds"`
+}
+
+// icons adapts the site's maps to the one icon resolver every other surface uses, so a published page
+// and a vault note can never drift into two different precedence rules.
+func (sc siteConfig) icons() *config.Config {
+	return &config.Config{Icons: config.IconMap{Kinds: sc.Icons.Kinds}}
+}
+
+// loadSiteConfig reads the site config out of srcDir if it is there; a directory without one publishes
+// exactly as it did before the file existed. Decoding is strict: an unknown key — or a second YAML
+// document, whose keys a single Decode would never even look at — is a loud error naming the file, never
+// a silent drop, because a typo'd key in a config that only shows up at publish time would otherwise ship
+// a wrong site quietly (the same reason note.ParseMetaDoc is strict).
+func loadSiteConfig(srcDir string) (siteConfig, error) {
+	var path string
+	var raw []byte
+	for _, name := range siteConfigNames {
+		p := filepath.Join(srcDir, name)
+		b, err := os.ReadFile(p)
+		if errors.Is(err, fs.ErrNotExist) {
+			continue
+		}
+		if err != nil {
+			return siteConfig{}, fmt.Errorf("read site config: %w", err)
+		}
+		if path != "" {
+			return siteConfig{}, fmt.Errorf("%s: a site config already exists as %s; keep one", p, path)
+		}
+		path, raw = p, b
+	}
+	if path == "" {
+		return siteConfig{}, nil
+	}
+	var sc siteConfig
+	dec := yaml.NewDecoder(bytes.NewReader(raw))
+	dec.KnownFields(true)
+	if err := dec.Decode(&sc); err != nil && !errors.Is(err, io.EOF) {
+		return siteConfig{}, fmt.Errorf("%s: %w", path, err)
+	}
+	if err := dec.Decode(new(siteConfig)); !errors.Is(err, io.EOF) {
+		return siteConfig{}, fmt.Errorf("%s: want a single YAML document, found more than one", path)
+	}
+	return sc, nil
 }
 
 // firstHeading returns the text of the first level-1 ATX heading in body, or "" when there is none.

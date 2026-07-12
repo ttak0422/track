@@ -62,41 +62,17 @@ func TestInlineFields(t *testing.T) {
 func TestInlineFieldsSkipsNestedFence(t *testing.T) {
 	body := "# X\n" + // 1
 		"````markdown\n" + // 2
-		"```dashboard\n" + // 3
-		"icon:: 🔥\n" + // 4
+		"```text\n" + // 3
+		"weight:: 99.9\n" + // 4
 		"status:: leaked\n" + // 5
 		"```\n" + // 6
 		"````\n" + // 7
-		"icon:: 🏠\n" // 8
+		"weight:: 68.2\n" // 8
 
 	got := InlineFields(body)
-	want := []Prop{{Key: "icon", Value: "🏠", Type: TypeString, Line: 8}}
+	want := []Prop{{Key: "weight", Value: "68.2", Type: TypeNumber, Line: 8}}
 	if !reflect.DeepEqual(got, want) {
 		t.Fatalf("InlineFields = %+v\nwant %+v", got, want)
-	}
-}
-
-func TestBlankFieldLines(t *testing.T) {
-	body := "# X\n" +
-		"status:: draft\n" +
-		"- rating:: 8\n" +
-		"Met with [owner:: [[Ada Lovelace]]] about the plan.\n" +
-		"```\n" +
-		"fenced:: stays\n" +
-		"```\n" +
-		"![[Other note]]\n"
-	// Whole-line fields go, the bracketed one and the fenced sample stay, and every line keeps its
-	// number so the include on line 8 is still on line 8.
-	want := "# X\n" +
-		"\n" +
-		"\n" +
-		"Met with [owner:: [[Ada Lovelace]]] about the plan.\n" +
-		"```\n" +
-		"fenced:: stays\n" +
-		"```\n" +
-		"![[Other note]]\n"
-	if got := BlankFieldLines(body); got != want {
-		t.Fatalf("BlankFieldLines = %q\nwant %q", got, want)
 	}
 }
 
