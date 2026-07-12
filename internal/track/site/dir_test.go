@@ -197,3 +197,123 @@ func TestBuildDirPublishesInlineFieldProps(t *testing.T) {
 		t.Fatalf("props = %+v", props)
 	}
 }
+
+// writeDir writes a directory-mode source tree: name -> content.
+func writeDir(t *testing.T, files map[string]string) string {
+	t.Helper()
+	src := t.TempDir()
+	for name, body := range files {
+		if err := os.WriteFile(filepath.Join(src, name), []byte(body), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	return src
+}
+
+// rootTitle builds the site and returns the title of its entry page.
+func rootTitle(t *testing.T, src, rootName string) string {
+	t.Helper()
+	out := t.TempDir()
+	if _, err := BuildDir(src, rootName, "", fakeFrontend(t), out); err != nil {
+		t.Fatalf("BuildDir: %v", err)
+	}
+	site := readJSON[jsonSite](t, filepath.Join(out, "data", "site.json"))
+	return site.Title
+}
+
+func TestBuildDirSiteConfigHome(t *testing.T) {
+	files := map[string]string{
+		"index.md": "# Index\n",
+		"start.md": "# Start here\n",
+	}
+
+	// No site.yml: the "index" convention.
+	if got := rootTitle(t, writeDir(t, files), ""); got != "Index" {
+		t.Errorf("without site.yml, entry = %q, want Index", got)
+	}
+
+	// home by file base name, and by page title.
+	for _, home := range []string{"start", "Start here"} {
+		files["site.yml"] = "home: " + home + "\n"
+		src := writeDir(t, files)
+		if got := rootTitle(t, src, ""); got != "Start here" {
+			t.Errorf("home %q: entry = %q, want Start here", home, got)
+		}
+		// --root is a one-off override and beats the site's home.
+		if got := rootTitle(t, src, "index"); got != "Index" {
+			t.Errorf("home %q: --root index gave entry %q, want Index", home, got)
+		}
+	}
+
+	// A home naming no page is as loud as a missing --root.
+	src := writeDir(t, map[string]string{"index.md": "# Index\n", "site.yml": "home: ghost\n"})
+	if _, err := BuildDir(src, "", "", fakeFrontend(t), t.TempDir()); err == nil || !strings.Contains(err.Error(), "ghost") {
+		t.Fatalf("expected a loud error naming the missing entry page, got %v", err)
+	}
+}
+
+func TestBuildDirSiteConfigRejectsBadFile(t *testing.T) {
+	cases := []struct {
+		name, yaml string
+		want       []string
+	}{
+		{"unknown key", "home: index\nbase_url: https://example.com\n", []string{"site.yml", "base_url"}},
+		{"unknown nested key", "icons:\n  colors:\n    idea: blue\n", []string{"site.yml", "colors"}},
+		{"malformed yaml", "home: [index\n", []string{"site.yml"}},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			src := writeDir(t, map[string]string{"index.md": "# Index\n", "site.yml": c.yaml})
+			_, err := BuildDir(src, "", "", fakeFrontend(t), t.TempDir())
+			if err == nil {
+				t.Fatalf("expected an error, got none")
+			}
+			for _, want := range c.want {
+				if !strings.Contains(err.Error(), want) {
+					t.Errorf("error %q should name %q", err, want)
+				}
+			}
+		})
+	}
+}
+
+func TestBuildDirSiteConfigIcons(t *testing.T) {
+	src := writeDir(t, map[string]string{
+		"index.md": "# Index\n\ntags:: idea, book\n",    // first mapped tag wins
+		"kind.md":  "# Kind\n\nno fields here\n",        // falls through to the kinds map
+		"over.md":  "# Over\n\ntags:: idea\nicon:: 🔥\n", // the page's own icon beats both maps
+		"other.md": "# Other\n\ntags:: unmapped\n",      // no mapping anywhere: no icon
+		"site.yml": "icons:\n  tags:\n    idea: 💡\n    book: 📚\n  kinds:\n    note: 📄\n",
+	})
+
+	out := t.TempDir()
+	if _, err := BuildDir(src, "index", "", fakeFrontend(t), out); err != nil {
+		t.Fatalf("BuildDir: %v", err)
+	}
+
+	list := readJSON[struct {
+		Notes []jsonSearchResult `json:"notes"`
+	}](t, filepath.Join(out, "data", "notes.json"))
+	icons := map[string]string{}
+	tags := map[string][]string{}
+	for _, n := range list.Notes {
+		icons[n.Title] = n.Icon
+		tags[n.Title] = n.Tags
+	}
+
+	// A page with no mapped tag still gets the kind mapping; "note" is the only kind a directory page has.
+	want := map[string]string{"Index": "💡", "Kind": "📄", "Over": "🔥", "Other": "📄"}
+	for title, icon := range want {
+		if icons[title] != icon {
+			t.Errorf("%s icon = %q, want %q", title, icons[title], icon)
+		}
+	}
+
+	// "tags::" is lifted into the page's tags and published with it.
+	if got := tags["Index"]; len(got) != 2 || got[0] != "idea" || got[1] != "book" {
+		t.Errorf("Index tags = %v, want [idea book]", got)
+	}
+	if got := tags["Kind"]; len(got) != 0 {
+		t.Errorf("Kind tags = %v, want none", got)
+	}
+}

@@ -1,0 +1,18 @@
+# Published-site config for this help site: `track export-site --src docs/help`.
+# It travels with the content it publishes, so this site lands on the same page and draws the same
+# icons on anyone's machine and in CI. Deployment-specific values (--base-url, --out, --frontend) are
+# build flags, not site config — the Pages and PR-preview workflows publish this same directory under
+# different base URLs.
+
+# The site's entry page: a file base name (docs/help/index.md) or a page title. `--root` overrides it.
+home: index
+
+# Tag and kind icon maps, the same shape and precedence as the ambient config's `icons:` (a page's own
+# `icon::` field wins, then the first of its tags with a mapping, then its kind — a page is kind "note").
+# Every page here states its own `icon::`, so these maps are the fallback for pages that do not.
+icons:
+  tags:
+    reference: 📖
+    guide: 🧭
+  kinds:
+    note: 📄

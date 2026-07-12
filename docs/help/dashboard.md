@@ -19,8 +19,9 @@ web:
 ```
 
 `home` takes a note title or a numeric id. When set, `track web` opens that note at `/` instead of the
-search hero. Leave it unset to keep the search home. On the published static site the entry note chosen
-with `track export-site --root` plays the same role.
+search hero. Leave it unset to keep the search home. This is the *workspace's* home: it lives in your
+machine's config, so it follows you, not the notes. A published site has a home of its own, in a config
+that travels with the content — see "The published site's config" below.
 
 ## Dashboard widgets
 
@@ -85,13 +86,14 @@ change a note's title, id, or how `[[links]]` resolve.
 ### On a published directory site
 
 `track export-site --src <dir>` publishes plain Markdown files that belong to no vault: there is no
-config to consult and no sidecar to override, and inline `key:: value` fields (see [[Properties]]) are a
-page's only metadata. So a page sets its own icon with an `icon::` field:
+sidecar to override a page's icon, and inline `key:: value` fields (see [[Properties]]) are a page's only
+metadata. So a page sets its own icon — and its own tags — with inline fields:
 
 ```markdown
 # Home dashboard
 
 icon:: 🏠
+tags:: guide
 
 The Web workspace can open a home note as its landing view.
 ```
@@ -99,3 +101,41 @@ The Web workspace can open a home note as its landing view.
 The first `icon::` field on a page wins, and an empty value means no icon — the same as having no field
 at all. It stays an ordinary property, so it also shows up in the page's property strip. Every page of
 this help site carries one: search for a page here and its icon is beside the title in the results.
+
+A page with no `icon::` field can still get one from the site's own tag and kind maps, below — the same
+precedence as in a vault, with the page's field playing the part the sidecar override plays there.
+
+## The published site's config
+
+A directory of Markdown files publishes with no config at all by default: no vault, no sidecars, and
+never your machine's `~/.config/track/config.yml` — the same directory has to publish the same way on
+your laptop and in CI. What the *site* is, though, belongs with the content, so `export-site --src <dir>`
+picks up an optional `site.yml` sitting in that directory (this help site has one, at
+`docs/help/site.yml`). No file means exactly the plain export above; the file is opt-in.
+
+```yaml
+# docs/help/site.yml
+home: index          # the entry page: a file base name or a page title
+icons:
+  tags:
+    reference: 📖
+    guide: 🧭
+  kinds:
+    note: 📄
+```
+
+- **`home`** is the site's landing page — the published counterpart of the workspace's `web.home`. The
+  `--root` flag still wins when you pass it, so a one-off build can land somewhere else; with neither, a
+  page named `index` is the fallback. If none of them names a real page, the build fails loudly rather
+  than quietly publishing a different front door.
+- **`icons`** is the same map, with the same meaning and precedence, as the ambient config's `icons:` —
+  a page's `icon::` field, then the first of its `tags::` with a mapping, then its kind (a published page
+  is always kind `note`). Every page of this help site states its own `icon::`, so the maps here are the
+  fallback for pages that do not.
+
+Unknown keys are a **build error** naming the file and the key, not a silent drop: a mistyped key in a
+config you only exercise at publish time would otherwise ship the wrong site without a word.
+
+What is *not* site config: `--base-url`, `--out`, and `--frontend`. Those change per deployment of the
+same content — this site is published to GitHub Pages and, for every pull request, to a preview URL, from
+the same `docs/help` directory with a different base URL — so they stay build flags.

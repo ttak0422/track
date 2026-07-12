@@ -252,6 +252,11 @@ site — see [[Web workspace]] for the rendered reading experience it mirrors.
 track export-site --src docs/help --root index --out ./site
 ```
 
+`--src` publishes a plain Markdown directory (this help site is built that way); without it, the site is
+built from vault notes and `--root` is a note id. The directory can carry a `site.yml` naming its entry
+page and its icons — see [[Home dashboard]]. `--base-url`, `--out`, and `--frontend` are per-deployment
+build flags, not part of that config.
+
 `track render` turns a declarative View Spec into a chart or article — see [[Visualization]].
 
 ```sh
