@@ -44,6 +44,11 @@ type Config struct {
 	JournalTemplate string
 	// GenKeep is how many generation snapshots `gen increment` retains (count-based pruning).
 	GenKeep int
+	// EmbedderCommand is the optional command that turns a note's text into an embedding vector, split
+	// into command and arguments. The engine feeds a note's text on stdin and reads a JSON array of
+	// floats from stdout (see the similar package). Empty means no embedder is configured, so semantic
+	// related-notes is unavailable and every other command is unaffected.
+	EmbedderCommand []string
 	// Properties is the optional per-key note-property schema (config `properties:`): a declared
 	// value type and/or enum candidates. Keys not listed here are unconstrained.
 	Properties map[string]PropSpec
@@ -78,11 +83,61 @@ type fileConfig struct {
 	DefaultTemplate   string              `yaml:"default_template"`
 	JournalTemplate   string              `yaml:"journal_template"`
 	GenKeep           int                 `yaml:"gen_keep"`
+	Embedder          argvList            `yaml:"embedder"`
 	Properties        map[string]PropSpec `yaml:"properties"`
 	Queries           map[string]string   `yaml:"queries"`
 	CaptureInbox      string              `yaml:"capture_inbox"`
 	ArchiveNote       string              `yaml:"archive_note"`
 	Web               webFileConfig       `yaml:"web"`
+}
+
+// argvList is a command in config.yml that accepts two YAML shapes: a scalar string, split on
+// whitespace (no shell quoting, so no argument can contain a space in this form), or a sequence used
+// verbatim as argv, where arguments may contain spaces. Any other node kind is a config error.
+type argvList []string
+
+func (a *argvList) UnmarshalYAML(value *yaml.Node) error {
+	switch value.Kind {
+	case yaml.ScalarNode:
+		if value.Tag == "!!null" { // `embedder:` with no value, or an explicit null
+			*a = nil
+			return nil
+		}
+		*a = strings.Fields(value.Value)
+		return nil
+	case yaml.SequenceNode:
+		// Decode element by element: yaml.v3 silently drops null items when decoding into []string,
+		// which would make a flag vanish (or shift argv[0]) instead of failing loudly at load.
+		argv := make([]string, len(value.Content))
+		for i, item := range value.Content {
+			var s *string
+			if err := item.Decode(&s); err != nil {
+				return fmt.Errorf("embedder: %w", err)
+			}
+			if s == nil {
+				return fmt.Errorf("embedder: list element %d is null, want a string", i+1)
+			}
+			argv[i] = *s
+		}
+		*a = argv
+		return nil
+	default:
+		return fmt.Errorf("embedder: must be a string (\"cmd --arg\") or a list of strings ([cmd, --arg]), got a %s", nodeKindName(value.Kind))
+	}
+}
+
+// nodeKindName names a YAML node kind for error messages.
+func nodeKindName(k yaml.Kind) string {
+	switch k {
+	case yaml.MappingNode:
+		return "mapping"
+	case yaml.SequenceNode:
+		return "sequence"
+	case yaml.ScalarNode:
+		return "scalar"
+	default:
+		return "unsupported node"
+	}
 }
 
 // webFileConfig holds web-only settings read from config.yml. The colorscheme is kept out of this file:
@@ -200,6 +255,16 @@ func Load() (*Config, error) {
 		genKeep = 10
 	}
 
+	// TRACK_EMBEDDER replaces the config value entirely; an env var cannot carry an array, so it is
+	// always whitespace-split — arguments containing spaces need the config sequence form.
+	embedder := []string(fc.Embedder)
+	if env := os.Getenv("TRACK_EMBEDDER"); env != "" {
+		embedder = strings.Fields(env)
+	}
+	if len(embedder) > 0 && strings.TrimSpace(embedder[0]) == "" {
+		return nil, fmt.Errorf("embedder: the first element must be the command, got an empty string")
+	}
+
 	if err := validateProperties(fc.Properties); err != nil {
 		return nil, err
 	}
@@ -232,6 +297,7 @@ func Load() (*Config, error) {
 		DefaultTemplate:   defaultTemplate,
 		JournalTemplate:   journalTemplate,
 		GenKeep:           genKeep,
+		EmbedderCommand:   embedder,
 		Properties:        fc.Properties,
 		Queries:           fc.Queries,
 		CaptureInbox:      captureInbox,

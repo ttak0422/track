@@ -75,6 +75,8 @@ func Run(args []string) int {
 		return cmdSearch(rest)
 	case "query":
 		return cmdQuery(rest)
+	case "similar":
+		return cmdSimilar(rest)
 	case "notes":
 		return cmdNotes(rest)
 	case "backlinks":
@@ -170,6 +172,8 @@ Usage:
                                         search notes (JSON)
   track query (<expr> | --saved <name>)  run a table query over notes, e.g.
                                         'TABLE title, status FROM #project WHERE status != done SORT due LIMIT 10' (JSON)
+  track similar --id N [--limit K]      list notes semantically closest to a note, using the configured
+                                        embedder command; explains setup and exits cleanly if none (JSON)
   track notes [--untagged] [--limit N]  list notes, newest first; --untagged keeps only notes with no
                                         tags, for a curation pass that adds tags via track append --tag (JSON)
   track backlinks (--id N | --path P)   list backlinks (JSON)
