@@ -2,6 +2,7 @@ import { dataURL, STATIC_MODE } from "./runtime";
 import type {
   ActivityResponse,
   AgendaResponse,
+  AssetUploadResponse,
   DeleteNoteResponse,
   FollowResponse,
   Graph,
@@ -41,16 +42,18 @@ export async function api<T>(path: string, options: APIOptions = {}): Promise<T>
   }
 
   const response = await fetch(path, init);
-  const body = await response.json().catch(() => ({}));
+  return handleResponse<T>(response);
+}
 
+async function handleResponse<T>(response: Response): Promise<T> {
+  const body = await response.json().catch(() => ({}));
   if (!response.ok) {
     const message =
       typeof body === "object" && body !== null && "error" in body
-        ? String(body.error)
+        ? String((body as { error: unknown }).error)
         : `${response.status} ${response.statusText}`;
     throw new Error(message);
   }
-
   return stringifyIDs(body) as T;
 }
 
@@ -159,8 +162,9 @@ export function saveNote(noteID: NoteID, request: SaveNoteRequest): Promise<Save
   });
 }
 
-// getNoteMeta / saveNoteMeta read and edit a note's page metadata (description, cover image). The
-// static site has no meta editor, so both are live-server only.
+// getNoteMeta / saveNoteMeta read and edit a note's editable sidecar metadata (tags, description,
+// cover image, props) as one YAML document. The static site has no meta editor, so both are
+// live-server only.
 export function getNoteMeta(noteID: NoteID): Promise<NoteMetaResponse> {
   if (STATIC_MODE) {
     return readOnly();
@@ -176,6 +180,20 @@ export function saveNoteMeta(noteID: NoteID, request: SaveNoteMetaRequest): Prom
     method: "POST",
     body: request,
   });
+}
+
+// uploadAsset imports a picked image into the vault's assets directory and returns its assets/<name>
+// reference for the cover-image field. The browser sets the multipart boundary, so this bypasses the
+// JSON api() helper. Live server only — the static site has no editor.
+export function uploadAsset(file: File): Promise<AssetUploadResponse> {
+  if (STATIC_MODE) {
+    return readOnly();
+  }
+  const form = new FormData();
+  form.append("file", file);
+  return fetch("/api/asset", { method: "POST", body: form }).then((response) =>
+    handleResponse<AssetUploadResponse>(response),
+  );
 }
 
 // deleteNote permanently removes a note (file + sidecar + index row). The destructive confirmation is in

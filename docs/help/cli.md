@@ -147,6 +147,7 @@ so these blank lines survive
 | Command | Purpose |
 | --- | --- |
 | `track search --query <s>` | Search notes; `--query '#tag'` filters by tag (hierarchical: `#a` matches `#a/b`). |
+| `track search --scope body --query <s>` | Full-text search of note bodies, ranked by relevance. |
 | `track query '<expr>'` | Run a table [[Query]] over notes; `--saved <name>` runs a named one. |
 | `track notes` | List every note, newest first. |
 | `track notes --untagged` | List only the notes that still carry no tags. |
@@ -154,6 +155,15 @@ so these blank lines survive
 | `track backlinks --id N` | List notes that link to a note. |
 | `track graph --id N` | Show a local link graph. |
 | `track graph --orphans` | List notes with no inbound link and notes whose title names a missing parent scope. |
+
+`--scope` selects `title`, `body`, or `all` (the default: titles first, then bodies). Body search
+uses a full-text index that stays in step with the vault automatically — see [[Searching notes]] for
+ranking, code-block matches, and CJK behavior.
+
+Terms combine the same way in title and body search: space-separated terms are an implicit **AND**,
+and an uppercase **OR** separates alternatives — `kubernetes OR postgres` returns notes matching
+either, and `deploy staging OR rollback` reads as `(deploy AND staging) OR rollback`. A lowercase
+`or` stays an ordinary search word.
 
 ## Curating tags
 
