@@ -14,11 +14,13 @@
 home: index
 
 # Icons, resolved by config.NoteIcon — the same precedence a vault note's icon resolves by, with `pages`
-# standing where a vault note's sidecar `icon` stands: a page's own icon, then the first of its `tags`
-# with a mapping (`icons.tags`, absent here: a directory page carries no tags today, so a tag map would
-# be config that can never match), then its kind — a published page is always kind `note`.
+# standing where a vault note's sidecar `icon` stands: a page's own icon, then its kind (a published page
+# is always kind `note`). The tag rung in between takes no config here: a directory page carries no tags,
+# so a tag map could never match one, and this config does not accept a key that can only do nothing — an
+# `icons.tags` here is an unknown key, and so a build error.
 icons:
-  # File base name -> icon. An entry naming no `<name>.md` is a build error, never a silent no-op.
+  # File base name -> icon. An entry naming no `<name>.md`, or naming no icon, is a build error, never a
+  # silent no-op.
   pages:
     babel: 🧪
     charts: 📊

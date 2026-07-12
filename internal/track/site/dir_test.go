@@ -238,6 +238,30 @@ func TestBuildDirEntryPrefersFileNameOverTitle(t *testing.T) {
 	}
 }
 
+// "home: index.md" is the same front door as "home: index" — but only a ".md" extension is forgiven.
+// filepath.Ext strips any dot suffix, so a page whose title carries one ("v1.2") must resolve to that
+// page and never to the file base name the strip would leave behind ("v1").
+func TestBuildDirEntryExtension(t *testing.T) {
+	pages := map[string]string{
+		"index.md":     "# Index\n",
+		"v1.md":        "# Version One\n",
+		"changelog.md": "# v1.2\n", // its title is what a dot-suffix strip would mangle
+	}
+	for _, c := range []struct{ home, want string }{
+		{"changelog.md", "v1.2"}, // a file base name, spelled with its extension
+		{"v1.2", "v1.2"},         // a page title with a dot: not "v1" with an extension
+		{"Version One", "Version One"},
+	} {
+		files := map[string]string{"site.yml": "home: " + c.home + "\n"}
+		for k, v := range pages {
+			files[k] = v
+		}
+		if got := rootTitle(t, writeDir(t, files)); got != c.want {
+			t.Errorf("home %q: entry = %q, want %q", c.home, got, c.want)
+		}
+	}
+}
+
 // The config is found under either spelling; two of them is a loud error, not a coin flip.
 func TestBuildDirSiteConfigFileName(t *testing.T) {
 	pages := map[string]string{"index.md": "# Index\n", "start.md": "# Start here\n"}
@@ -270,6 +294,9 @@ func TestBuildDirSiteConfigRejectsBadFile(t *testing.T) {
 		{"unknown key", "home: index\nbase_url: https://example.com\n", []string{"site.yml", "base_url"}},
 		{"unknown nested key", "icons:\n  colors:\n    idea: blue\n", []string{"site.yml", "colors"}},
 		{"malformed yaml", "home: [index\n", []string{"site.yml"}},
+		// A directory page has no tags, so a tag map could never match one: the site config does not take
+		// the key, rather than accept a mapping that silently does nothing.
+		{"tag map", "icons:\n  tags:\n    reference: 📖\n", []string{"site.yml", "tags"}},
 		// A second document is never read by a single Decode: its keys would be dropped unchecked.
 		{"second document", "home: index\n---\nhome: ghost\nbase_url: https://oops\n", []string{"site.yml", "document"}},
 	}
@@ -336,6 +363,27 @@ func TestBuildDirSiteConfigRejectsOrphanIconPage(t *testing.T) {
 	for _, want := range []string{"icons.pages", "ghost", "ghost.md"} {
 		if !strings.Contains(err.Error(), want) {
 			t.Errorf("error %q should name %q", err, want)
+		}
+	}
+}
+
+// An icons.pages entry with no icon is the orphan entry's sibling: the emoji deleted by hand, or a bare
+// "index:" that YAML decodes to null, and the page falls through to the kind map without a word. Both are
+// entries that do nothing, and neither is what its author meant.
+func TestBuildDirSiteConfigRejectsEmptyIconPage(t *testing.T) {
+	for _, yml := range []string{
+		"icons:\n  pages:\n    index: \"\"\n",
+		"icons:\n  pages:\n    index:\n", // YAML null
+	} {
+		src := writeDir(t, map[string]string{"index.md": "# Index\n", "site.yml": yml})
+		_, err := BuildDir(src, "", fakeFrontend(t), t.TempDir())
+		if err == nil {
+			t.Fatalf("%q: an icons.pages entry with no icon must fail the build", yml)
+		}
+		for _, want := range []string{"icons.pages", "index"} {
+			if !strings.Contains(err.Error(), want) {
+				t.Errorf("error %q should name %q", err, want)
+			}
 		}
 	}
 }

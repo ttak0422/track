@@ -101,9 +101,9 @@ icons:
 ```
 
 `icons.pages` is the *page's own icon*: it takes the slot a vault note's sidecar `icon` takes, so the
-precedence is the one you already know — the page's own icon, then a tag mapping, then the kind mapping
-(a published page is always kind `note`). A page with no entry simply falls through, which is why
-[[Syntax]] shows 📄 from the `kinds` map.
+precedence is the one you already know — the page's own icon, then (for a vault note) its tags, then the
+kind mapping. A page with no entry simply falls through, which is why [[Syntax]] shows 📄 from the `kinds`
+map: a published page is always kind `note`.
 
 An `icons.pages` entry naming a page that does not exist — no `<name>.md` in the directory — is a **build
 error** naming the entry and the file it looked for. It is a typo, or a page you renamed and forgot; it is
@@ -133,8 +133,6 @@ icons:
   pages:             # file base name -> the page's own icon
     index: 🧭
     dashboard: 🏠
-  tags:              # a tag -> an icon, for pages that carry tags
-    reference: 📖
   kinds:             # a published page is always kind `note`
     note: 📄
 ```
@@ -145,10 +143,13 @@ icons:
   neither names a real page, the build fails loudly
   rather than quietly publishing a different front door. There is no flag for it: a site's front door is
   the same wherever it is deployed, so it belongs with the content.
-- **`icons`** is the ambient config's `icons:` — same `tags` and `kinds` maps, same meaning, same
-  precedence — plus `pages`, the one thing a directory has and a vault does not: a per-page icon keyed by
-  file base name, filling the slot a note's sidecar `icon` fills. This site ships `pages` and `kinds` only:
-  its pages carry no tags, and a `tags` map that can never match is config that does nothing.
+- **`icons`** takes `kinds` — the ambient config's map, same meaning — plus `pages`, the one thing a
+  directory has and a vault does not: a per-page icon keyed by file base name, filling the slot a note's
+  sidecar `icon` fills. There is no `tags` map here, though the ambient config has one and the resolver
+  consults it: a directory page carries no tags, so a tag mapping could never match one, and a mapping that
+  can never match is not config — it is a line that does nothing. Writing `icons.tags` in a `site.yml` is an
+  unknown key, and so a build error, like any other. An `icons.pages` entry with no icon (the emoji
+  deleted, or a bare `dashboard:`) is one too — it is the same silent no-op wearing a different hat.
 
 Everything a page says about itself, then, is said in one file. A page's *title* is the exception that
 needs no config at all: it is the page's first `# H1`, or its file name when it has none.

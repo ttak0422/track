@@ -81,9 +81,18 @@ identically from a contributor's laptop and from CI, and CI has no `~/.config/tr
   entry as the *override* argument, the argument a vault note's sidecar `icon` fills. So the order is
   override → `tags` → `kinds` (a directory page is always kind `note`), the same order a vault note
   resolves in. One resolver, one precedence rule, nothing to drift.
-- **An `icons.pages` entry naming no page is a build error**, naming the entry and the `<name>.md` it
-  looked for. It is a typo or a forgotten rename, and the page it meant to decorate would otherwise publish
-  with the wrong icon and no one would hear a word. An orphan mapping is never a silent no-op.
+- **The site config has no `tags` map, because the resolver's tag rung has no input in directory mode.**
+  A directory page's body is pure Markdown and a `tags::` inline field is prose, not note-level metadata
+  (ADR 0032), so no directory page carries tags and no tag mapping could ever match one. Accepting the key
+  anyway would ship the one thing this config is strict to prevent: a mapping that quietly does nothing.
+  `icons.tags` in a `site.yml` is therefore an unknown key and a build error, and the key arrives with the
+  change that gives a directory page tags to match — not before it. (`config.NoteIcon` keeps its tag rung:
+  it is the vault's, and `BuildDir` passes it no tags.)
+- **An `icons.pages` entry that names no page, or no icon, is a build error** — the first naming the entry
+  and the `<name>.md` it looked for. An orphan entry is a typo or a forgotten rename; an entry with an
+  empty icon is its sibling, the emoji deleted by hand or a bare `page:` that YAML decodes to null. Either
+  way the page it meant to decorate publishes with the wrong icon and no one hears a word. An entry that
+  does nothing is never a silent no-op.
 - **Strict decoding, loud failures.** `site.yml` is decoded with `yaml.Decoder` + `KnownFields(true)` (the
   idiom `note.ParseMetaDoc` already uses): an unknown key is an error naming the file and the key, as is a
   second `---` document, whose keys one `Decode` would never even read. A file exercised only at publish
@@ -93,15 +102,15 @@ identically from a contributor's laptop and from CI, and CI has no `~/.config/tr
 
 - `docs/help/site.yml` ships with this ADR: an explicit `home: index`, an `icons.pages` entry for thirteen
   of the fourteen pages, and a `kinds` map. `syntax.md` has no entry and takes 📄 from `kinds`, so the
-  fallback is live and visible rather than asserted. There is no `icons.tags` map in it: these pages carry
-  no tags, and shipping a map that can never match would be dead config. The key and the code path stay —
-  it is the shared resolver's, and a directory site whose pages *do* have tags will use it.
+  fallback is live and visible rather than asserted. There is no `icons.tags` map in it, and no way to
+  write one: the config does not take the key at all (above), so what a site cannot use, it cannot say.
 - Follow-up for PR #15 (`feat/query`), which adds `tags::` inline fields to a dozen `docs/help` pages to
   drive directory-mode tag pages: under this decision a page's tags are note-level metadata and a `tags::`
   field in a body is the wrong place for them, exactly as `icon::` was. When that branch lands its tags
   belong in `site.yml` beside the icons — an entry growing from `cli: ⌨️` to `cli: {icon: ⌨️, tags:
-  [reference]}` — which is also what would make the `icons.tags` map live on this site. Not done here: this
-  ADR ships the icon, and the tag pages arrive with the branch that needs them.
+  [reference]}` — and *that* is the change that brings an `icons.tags` map into this config, with pages
+  whose tags it can match. Not done here: this ADR ships the icon, and the tag pages arrive with the branch
+  that needs them.
 - `make site` and both site workflows keep working: their `--root index` was exactly the convention default,
   so dropping it (and the `SITE_ROOT` variable) leaves the published site byte-for-byte identical, and
   everything else they pass is a build flag.

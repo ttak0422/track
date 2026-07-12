@@ -84,17 +84,19 @@ func BuildDir(srcDir, baseURL, frontendDir, outDir string) (Result, error) {
 	// a site whose landing page silently moved is worse than one that fails to build. File base names
 	// are matched first, and never through the merged link map: titles and base names share that
 	// namespace, so a page whose H1 happens to spell another page's file name would otherwise steal the
-	// front door — the same silent move, dressed as a link.
+	// front door — the same silent move, dressed as a link. Both spellings are matched exactly before
+	// "index.md" is forgiven its extension, and only a ".md" one is: filepath.Ext would strip any dot
+	// suffix, so a page titled "v1.2" would otherwise land on v1.md's file base name instead.
 	entry := sc.Home
 	if entry == "" {
 		entry = "index"
 	}
 	root, ok := idForSlug[entry]
 	if !ok {
-		root, ok = idForSlug[strings.TrimSuffix(entry, filepath.Ext(entry))]
-	}
-	if !ok {
 		root, ok = keyToID[entry] // no file is named that: a page title, then.
+	}
+	if !ok && strings.EqualFold(filepath.Ext(entry), ".md") {
+		root, ok = idForSlug[strings.TrimSuffix(entry, filepath.Ext(entry))]
 	}
 	if !ok {
 		return Result{}, fmt.Errorf("entry page %q not found among .md files in %s", entry, srcDir)
@@ -117,10 +119,11 @@ func BuildDir(srcDir, baseURL, frontendDir, outDir string) (Result, error) {
 			path:  f.slug + ".md",
 			body:  body,
 			keys:  []string{f.slug, f.title},
-			// One icon resolver for every surface: the site's per-page override, then its tag map against
-			// the page's tags, then its kind map (a directory page is always kind "note") — config.NoteIcon,
-			// the same precedence a vault note resolves by, with icons.pages standing where a vault note's
-			// sidecar icon stands. A directory page has no tags today, so the middle rung never fires here.
+			// One icon resolver for every surface: the site's per-page override, then its kind map (a
+			// directory page is always kind "note") — config.NoteIcon, the same precedence a vault note
+			// resolves by, with icons.pages standing where a vault note's sidecar icon stands. The tags in
+			// between are nil because a directory page has none, and the site config accepts no tag map to
+			// match them with (see siteIcons).
 			icon:     sc.icons().NoteIcon("note", nil, sc.Icons.Pages[f.slug]),
 			assets:   collectAssets(f.body),
 			assetSrc: assetSrc,
@@ -147,10 +150,13 @@ func BuildDir(srcDir, baseURL, frontendDir, outDir string) (Result, error) {
 	return writeBundle(docs, edges, root, false, baseURL, frontendDir, outDir)
 }
 
-// checkIconPages rejects an icons.pages entry that names no page. It is a typo — a page renamed, or its
-// name misspelled — and the page it meant to decorate would otherwise publish with the wrong icon (or
-// none) without a word, in a file that is only exercised at publish time. Pages are checked in name
-// order so the same directory always fails on the same entry.
+// checkIconPages rejects an icons.pages entry that names no page, and one that names no icon. The first
+// is a typo — a page renamed, or its name misspelled — and the page it meant to decorate would otherwise
+// publish with the wrong icon (or none) without a word. The second is its sibling: an entry whose emoji
+// was deleted, or swallowed by YAML (a bare "page:" decodes to ""), which would fall through to the kind
+// map just as quietly. Both are no-ops in a file that is only exercised at publish time, and an entry
+// that does nothing is never what its author meant. Pages are checked in name order so the same
+// directory always fails on the same entry.
 func checkIconPages(pages map[string]string, idForSlug map[string]int64, srcDir string) error {
 	names := make([]string, 0, len(pages))
 	for name := range pages {
@@ -161,6 +167,10 @@ func checkIconPages(pages map[string]string, idForSlug map[string]int64, srcDir 
 		if _, ok := idForSlug[name]; !ok {
 			return fmt.Errorf("site config: icons.pages entry %q names no page: there is no %s.md in %s",
 				name, name, srcDir)
+		}
+		if pages[name] == "" {
+			return fmt.Errorf("site config: icons.pages entry %q has no icon: give %s.md an icon or drop the entry",
+				name, name)
 		}
 	}
 	return nil
@@ -193,19 +203,28 @@ type siteConfig struct {
 	Icons siteIcons `yaml:"icons"`
 }
 
-// siteIcons is the ambient config's icons: map — tags and kinds, same shape, same meaning — plus the one
-// thing a published directory has and a vault does not: pages, mapping a page's file base name to its
-// icon. Pages is the per-page *override* slot of config.NoteIcon, the slot a vault note's sidecar icon
-// occupies; it is not a fourth precedence level. So a page's own icon beats its tags' mapping, which beats
-// the kind mapping — one rule, whether the page came from a vault or from a directory.
+// siteIcons is what a published directory can say about its icons: kinds, the ambient config's map with
+// the same shape and meaning, plus the one thing a directory has and a vault does not — pages, mapping a
+// page's file base name to its icon. Pages is the per-page *override* slot of config.NoteIcon, the slot a
+// vault note's sidecar icon occupies; it is not a fourth precedence level. So a page's own icon beats the
+// kind mapping — one rule, whether the page came from a vault or from a directory.
+//
+// There is deliberately no tags map. The ambient config has one and config.NoteIcon consults it, but a
+// directory page carries no tags (its body is pure Markdown, and a "tags::" inline field is prose, not
+// note-level metadata — ADR 0032), so the middle rung has no input here and never fires. Accepting the key
+// would make it the one thing this config forbids: a mapping that silently does nothing, in a file only
+// exercised at publish time. Unknown keys are loud, so `icons.tags` fails the build today, and the key
+// comes back with the change that gives a directory page tags to match (ADR 0049).
 type siteIcons struct {
-	config.IconMap `yaml:",inline"`
-	Pages          map[string]string `yaml:"pages"`
+	Pages map[string]string `yaml:"pages"`
+	Kinds map[string]string `yaml:"kinds"`
 }
 
 // icons adapts the site's maps to the one icon resolver every other surface uses, so a published page
 // and a vault note can never drift into two different precedence rules.
-func (sc siteConfig) icons() *config.Config { return &config.Config{Icons: sc.Icons.IconMap} }
+func (sc siteConfig) icons() *config.Config {
+	return &config.Config{Icons: config.IconMap{Kinds: sc.Icons.Kinds}}
+}
 
 // loadSiteConfig reads the site config out of srcDir if it is there; a directory without one publishes
 // exactly as it did before the file existed. Decoding is strict: an unknown key — or a second YAML
