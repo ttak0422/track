@@ -1,6 +1,7 @@
 package export
 
 import (
+	"strings"
 	"testing"
 
 	"github.com/ttak0422/track/internal/track/note"
@@ -54,6 +55,19 @@ func TestWebRendererKeepsFenceHeaderArguments(t *testing.T) {
 	want := "```track-query :layout board :by state\nTABLE title, state\n```\n"
 	if got != want {
 		t.Fatalf("fence header arguments should pass through:\n got: %q\nwant: %q", got, want)
+	}
+}
+
+func TestWebRendererPreservesNestedFence(t *testing.T) {
+	// A 4-backtick wrapper around a ```go sample must round-trip: the inner ```go stays verbatim (with
+	// its language) rather than collapsing to a bare ``` on the static export path.
+	body := "````markdown\n```go\nfunc F() {}\n```\n````\n"
+	got := renderWeb(t, body)
+	if got != body {
+		t.Fatalf("nested fence should round-trip:\n got: %q\nwant: %q", got, body)
+	}
+	if !strings.Contains(got, "```go") {
+		t.Fatalf("inner language token dropped: %q", got)
 	}
 }
 

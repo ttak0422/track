@@ -10,6 +10,7 @@
     "test:watch": "vitest"
   },
   "dependencies": {
+    "@hpcc-js/wasm-graphviz": "^1.24.1",
     "@tanstack/react-query": "5.101.0",
     "@tanstack/react-router": "1.170.15",
     "@vitejs/plugin-react": "6.0.2",

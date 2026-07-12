@@ -26,8 +26,14 @@ func (webRenderer) CodeBlock(b babel.Block, _ string, _ *babel.RunResult) string
 	// The full info string is kept, not just the language: fence header arguments carry rendering
 	// options resolved after sanitization (a ```track-query fence's :layout, for one), and the
 	// frontend reads only the first token anyway. Only the Markdown renderer strips them, because
-	// its output is meant to be portable.
-	return "```" + b.Info + "\n" + b.Body + "\n```"
+	// its output is meant to be portable. The fence length is preserved (not hardcoded to three) so a
+	// nested ``` sample inside a longer ```` wrapper round-trips instead of closing early.
+	fence := b.Fence
+	if fence < 3 {
+		fence = 3
+	}
+	f := strings.Repeat("`", fence)
+	return f + b.Info + "\n" + b.Body + "\n" + f
 }
 
 func (webRenderer) Frontmatter(note.Metadata) string { return "" }

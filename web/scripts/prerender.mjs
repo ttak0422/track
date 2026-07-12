@@ -99,9 +99,11 @@ for (const { route, out } of targets) {
   const stateScript = `<script>window.__TRACK_STATE__=${serializeState(state)}</script>`;
   const head = ogpTags(route) + stateScript;
   const page = template
-    .replace('<div id="root"></div>', `<div id="root">${html}</div>`)
-    .replace("</head>", `${head}</head>`)
-    .replace(/<title>[^<]*<\/title>/, `<title>${escapeHTML(pageTitle(route))}</title>`);
+    // Use replacer functions: Markdown content may contain `$&`, `$\``, or `$$`, which have special
+    // meanings in String.replace replacement strings and would corrupt the generated HTML/state.
+    .replace('<div id="root"></div>', () => `<div id="root">${html}</div>`)
+    .replace("</head>", () => `${head}</head>`)
+    .replace(/<title>[^<]*<\/title>/, () => `<title>${escapeHTML(pageTitle(route))}</title>`);
   const file = join(siteDir, out);
   mkdirSync(dirname(file), { recursive: true });
   writeFileSync(file, page);
