@@ -9,8 +9,9 @@ there. If you know Obsidian's properties or org-mode's property drawers, this is
 This page is its own demo: the four lines below are inline fields in its source, and the property strip
 at the top of this page is rendered from them. They stay in the prose, because that is what an inline
 field is *for* — a `weight:: 68.2` line in a journal is a line of the journal, not a hidden attribute.
-What is *not* here is this page's icon or its tags: that is note-level metadata, and it lives in the
-page's sidecar (see [[Home dashboard]]), never in the body.
+What is *not* here is this page's icon: that is note-level metadata, and it lives outside the body — in a
+vault note's sidecar, and for a published page like this one in the site's own config (see
+[[Home dashboard]]).
 
 status:: example
 rating:: 8
@@ -66,7 +67,8 @@ Inline fields are scanned at index time into the same property index as sidecar 
 the body line it came from — and they keep rendering as the text you wrote, wherever you put them: a
 whole line reads as its own line, a bracketed field stays inside its sentence. They are data *and* prose
 at once, which is the whole point of them; a fact that is not prose (a title, a tag, an icon) is not an
-inline field at all — it belongs in the sidecar. Code is never scanned: `std::vector` in a fenced block
+inline field at all — it belongs outside the body, in the note's sidecar or, on a published directory
+site, in its `site.yml`. Code is never scanned: `std::vector` in a fenced block
 stays code, and a `[key:: value]` example in inline code (like the ones on this page) never becomes
 data.
 

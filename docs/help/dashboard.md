@@ -53,10 +53,10 @@ pinned:
 ## Note icons
 
 An icon can sit beside a note's title in search results — in the live workspace and on a published site
-alike; that is the one surface that draws it today. It is metadata, so it lives where all of a note's
-metadata lives: in a sidecar file next to the body, never in the body itself. A **vault** has one per
-note; a **published site built from a plain Markdown directory** — like this help site — has one per
-page.
+alike; that is the one surface that draws it today. It is note-level metadata, so it never lives in the
+body: a **vault** note keeps it in its sidecar, and a **published site built from a plain Markdown
+directory** — like this help site — keeps every page's in its `site.yml`. Both resolve it by the same
+rule.
 
 ### In a vault
 
@@ -85,27 +85,35 @@ change a note's title, id, or how `[[links]]` resolve.
 
 ### On a published directory site
 
-`track export-site --src <dir>` publishes plain Markdown files that belong to no vault. They still keep
-the body and its metadata apart: a page gets a **page sidecar** at `.track/<name>.yml`, beside — not
-inside — `<name>.md`. This page's own sidecar is `docs/help/.track/dashboard.yml`:
+`track export-site --src <dir>` publishes plain Markdown files that belong to no vault — no note ids and
+no note sidecars, just files in a repository. Their bodies stay pure Markdown all the same, so a page's
+icon is not written inside it. It is declared once, in the site's own `site.yml`, under `icons.pages` —
+a map from a page's **file base name** to its icon:
 
 ```yaml
-# docs/help/.track/dashboard.yml
-icon: 🏠
-tags: [guide]
+# docs/help/site.yml
+icons:
+  pages:
+    dashboard: 🏠      # this page
+    index: 🧭
+  kinds:
+    note: 📄
 ```
 
-It carries the same keys a vault note's metadata does — `title`, `tags`, `description`, `image`, `icon`,
-`props` — and it is keyed by file name because a published directory has no note ids. Every key is
-optional, and so is the whole file: a page without one is a plain Markdown file, exactly as before (the
-[[Syntax]] page has no sidecar, and takes its icon from the kind map below). A sidecar naming no page, a
-key that is not one of the six, or the same page spelled both `.yml` and `.yaml` is a **build error**, not
-a shrug — a typo in a file you only exercise at publish time would otherwise publish a page missing the
-metadata you wrote.
+`icons.pages` is the *page's own icon*: it takes the slot a vault note's sidecar `icon` takes, so the
+precedence is the one you already know — the page's own icon, then a tag mapping, then the kind mapping
+(a published page is always kind `note`). A page with no entry simply falls through, which is why
+[[Syntax]] shows 📄 from the `kinds` map.
 
-A `title` here wins over the page's first `# H1`, and becomes the key `[[links]]` resolve by. A page with
-no `icon` falls through to the site's tag and kind maps, below — the same precedence as in a vault, with
-the page sidecar playing the part the note sidecar plays there.
+An `icons.pages` entry naming a page that does not exist — no `<name>.md` in the directory — is a **build
+error** naming the entry and the file it looked for. It is a typo, or a page you renamed and forgot; it is
+never a silent no-op.
+
+Why the site config and not a little metadata file per page? Because in a vault nobody hand-writes a
+sidecar: `track new` and `track open` create it, and `track rename` maintains it. A published directory has
+no tool between you and the files, so a per-page sidecar would be boilerplate to hand-write and hand-rename
+— thirteen files, plus one more rename every time you rename a page. One map in the config you already have
+is not.
 
 Note what does *not* set a page's icon: an inline `key:: value` field (see [[Properties]]). Those are for
 data that belongs in your prose; an icon is not prose.
@@ -116,18 +124,18 @@ A directory of Markdown files publishes with no config at all by default: no vau
 machine's `~/.config/track/config.yml` — the same directory has to publish the same way on your laptop and
 in CI. What the *site* is, though, belongs with the content, so `export-site --src <dir>` picks up an
 optional `site.yml` — or `site.yaml`, either spelling — sitting in that directory (this help site has one,
-at `docs/help/site.yml`). No file means exactly the plain export above: the `index` convention and no icon
-maps. The file is opt-in, and it is the *site's*: what a single *page* says about itself lives in that
-page's own sidecar, under `.track/`, so the two never collide.
+at `docs/help/site.yml`). No file means exactly the plain export above: the `index` convention and no icons.
 
 ```yaml
 # docs/help/site.yml
 home: index          # the entry page: a file base name or a page title
 icons:
-  tags:
+  pages:             # file base name -> the page's own icon
+    index: 🧭
+    dashboard: 🏠
+  tags:              # a tag -> an icon, for pages that carry tags
     reference: 📖
-    guide: 🧭
-  kinds:
+  kinds:             # a published page is always kind `note`
     note: 📄
 ```
 
@@ -137,11 +145,13 @@ icons:
   neither names a real page, the build fails loudly
   rather than quietly publishing a different front door. There is no flag for it: a site's front door is
   the same wherever it is deployed, so it belongs with the content.
-- **`icons`** is the same map, with the same meaning and precedence, as the ambient config's `icons:` —
-  a page sidecar's `icon`, then the first of the page's `tags` with a mapping, then its kind (a published
-  page is always kind `note`). All three paths are live on this site: most pages set their own `icon`, the
-  [[CLI]] page has none and takes 📖 from the `reference` tag, and [[Syntax]] has no sidecar at all and
-  takes 📄 from the kind map.
+- **`icons`** is the ambient config's `icons:` — same `tags` and `kinds` maps, same meaning, same
+  precedence — plus `pages`, the one thing a directory has and a vault does not: a per-page icon keyed by
+  file base name, filling the slot a note's sidecar `icon` fills. This site ships `pages` and `kinds` only:
+  its pages carry no tags, and a `tags` map that can never match is config that does nothing.
+
+Everything a page says about itself, then, is said in one file. A page's *title* is the exception that
+needs no config at all: it is the page's first `# H1`, or its file name when it has none.
 
 Unknown keys are a **build error** naming the file and the key — as is a second `---` document, which a
 single decode would never read — not a silent drop: a mistyped key in a config you only exercise at

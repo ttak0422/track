@@ -5,22 +5,34 @@
 # (--base-url) — stays a build flag: this same directory is published both to GitHub Pages and to a
 # per-PR preview URL.
 #
-# This file is the *site's*. What a single *page* says about itself — its title, tags, description,
-# image, icon, props — is that page's own metadata and lives in its sidecar, `.track/<name>.yml`,
-# beside (never inside) `<name>.md`.
+# The pages themselves stay pure Markdown: what a page says *about itself* is never written in its
+# body. It is said here, once, in the site's own config.
 
 # The site's entry page: a file base name (docs/help/index.md) or a page title, base name first.
 # Unset, a page named `index` is the fallback. There is no flag for it — the front door is the same
 # wherever this site is deployed.
 home: index
 
-# Tag and kind icon maps, the same shape and precedence as the ambient config's `icons:` (a page
-# sidecar's `icon` wins, then the first of the page's `tags` with a mapping, then its kind — a page is
-# kind "note"). All three paths are live here: most pages set their own `icon`, `cli.md` sets none and
-# takes 📖 from its `reference` tag, and `syntax.md` has no sidecar at all and takes 📄 from `kinds`.
+# Icons, resolved by config.NoteIcon — the same precedence a vault note's icon resolves by, with `pages`
+# standing where a vault note's sidecar `icon` stands: a page's own icon, then the first of its `tags`
+# with a mapping (`icons.tags`, absent here: a directory page carries no tags today, so a tag map would
+# be config that can never match), then its kind — a published page is always kind `note`.
 icons:
-  tags:
-    reference: 📖
-    guide: 🧭
+  # File base name -> icon. An entry naming no `<name>.md` is a build error, never a silent no-op.
+  pages:
+    babel: 🧪
+    charts: 📊
+    cli: 📖
+    dashboard: 🏠
+    diagrams: 📐
+    embeds: 🧩
+    index: 🧭
+    linking: 🔗
+    mindmaps: 🧠
+    properties: 🏷️
+    search: 🔍
+    visualization: 📈
+    web: 🌐
+  # syntax.md has no `pages` entry and lands here: the fallback, live on this site.
   kinds:
     note: 📄

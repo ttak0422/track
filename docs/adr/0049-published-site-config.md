@@ -15,12 +15,18 @@ had already appeared: the live workspace's landing note is the config key `web.h
 the published site's entry page is the `--root` flag; the help text says outright that they "play the same
 role". And `--root` is mode-overloaded ("a note id (vault mode) or file base name (with `--src`)").
 
-Directory *pages* could say nothing about themselves either — no tags, no icon. The first attempt gave
-them an `icon::` **inline field**, which was a mistake: it put note-level metadata back inside the body
-file, the very thing ADR 0002 and ADR 0032 exist to prevent, and then forced the web render to blank
-every whole-line inline field to hide it — which blanked users' real prose (`weight:: 68.2` in a journal)
-in the live workspace. ADR 0032 now records the correction and its rule. What a page needs is what a
-vault note has: a sidecar.
+Directory *pages* could say nothing about themselves either — no icon. The first attempt gave them an
+`icon::` **inline field**, which was a mistake: it put note-level metadata back inside the body file, the
+very thing ADR 0002 and ADR 0032 exist to prevent, and then forced the web render to blank every
+whole-line inline field to hide it — which blanked users' real prose (`weight:: 68.2` in a journal) in
+the live workspace. ADR 0032 records the correction and its rule.
+
+The second attempt gave each page a **sidecar file** at `<dir>/.track/<name>.yml`, mirroring the vault's
+`.track/notes/<id>.yaml`. That got the *split* right and the *medium* wrong. A vault's sidecar is never
+hand-written: `track new` and `track open` create it, `track meta` and `track rename` maintain it, and the
+user only ever sees the body. A published directory has no such tool — `docs/help/*.md` are just files in a
+repository — so the sidecar there is a file you hand-author, thirteen of them, plus one more to hand-rename
+every time a page is renamed. That is a lot of boilerplate for an emoji.
 
 The obvious fix — read the ambient user config in directory mode — is wrong: `docs/help` must publish
 identically from a contributor's laptop and from CI, and CI has no `~/.config/track/config.yml` at all.
@@ -30,15 +36,17 @@ identically from a contributor's laptop and from CI, and CI has no `~/.config/tr
 - **A per-site config file, opt-in, living with the content.** Directory mode auto-discovers
   `<srcDir>/site.yml` (or `site.yaml` — both spellings are read, and finding both is an error, because a
   filename typo that silently publishes a different site is the failure this config's strictness exists to
-  prevent). **Absent file = no site-level config at all** — the `index` convention, no icon maps — so a
+  prevent). **Absent file = no site-level config at all** — the `index` convention, no icons — so a
   plain Markdown directory still publishes with no config, which is what makes the mode safe to point at
-  any directory. (`BuildDir` only ever scanned top-level `*.md` and skipped directories, so both the
-  config file and the `.track/` sidecars sit harmlessly among the pages they describe.)
-- **Site-level and page-level are separated by location, not by name.** What a *page* says about itself
-  is not site config: it lives in that page's own sidecar at `<srcDir>/.track/<name>.yml` — the same
-  body/metadata split a vault note has, keyed by file base name (ADR 0032 carries the decision). Each is
-  read whether or not the other exists. `site.yml` stays at the directory root and does not move under
-  `.track/`; there is no name to collide over.
+  any directory. (`BuildDir` only ever scanned top-level `*.md` and skipped directories, so the config file
+  sits harmlessly among the pages it describes.)
+- **A page's note-level metadata lives in the site config, not in a per-page file — and never in the
+  body.** The body/metadata split of ADR 0002/0032 is not negotiable; the *medium* of the metadata is. In a
+  vault a per-note sidecar is right because no human writes one: `track new` and `track open` create it and
+  `track rename` maintains it. A published directory has no such path — its pages are files in a repo — so
+  a per-page sidecar is thirteen hand-written files and one hand-rename per page rename: boilerplate whose
+  only content is an emoji. A directory's page metadata therefore goes where the directory already speaks
+  for itself, in one map in `site.yml`, keyed by file base name (a directory has no note ids).
 - **An ownership split.** The **ambient user config owns the machine and the user**: `vault_dir`,
   `cache_dir`, templates, babel, embedder, capture inbox, web theme, `web.home`. It is unchanged, and
   directory mode still never reads it. The **site config owns the published site**: what its entry page is
@@ -54,7 +62,8 @@ identically from a contributor's laptop and from CI, and CI has no `~/.config/tr
 - **Keys: `home` and `icons`.** `home` names the entry page by file base name or page title — the same two
   keys a `[[wiki link]]` resolves by, so it is named the way everything else in a directory site is named.
   `icons: {tags: {...}, kinds: {...}}` is the same shape and meaning as the ambient config's `icons:`;
-  knowledge carries over from a vault unchanged. No `title`, no `base_url`, nothing speculative.
+  knowledge carries over from a vault unchanged. `icons: {pages: {...}}` is the one key a directory has and
+  a vault does not: file base name → that page's icon. No `title`, no `base_url`, nothing speculative.
 - **Entry page: `site.yml` `home`, else the `index` convention — and `--root` is gone from directory
   mode.** The site's home is now a config value, like the workspace's, and it is the *only* way to name it:
   by the ownership rule above, a site's front door does not change when the same content is deployed
@@ -67,28 +76,32 @@ identically from a contributor's laptop and from CI, and CI has no `~/.config/tr
   first and page titles only then: the two share one namespace in the link map, and a page whose H1 happens
   to spell another page's file name must not inherit the front door. Resolving to nothing stays a loud
   error; a site that silently publishes a different front door is worse than one that fails to build.
-- **Icon precedence is `config.NoteIcon`'s, literally.** `BuildDir` calls the single resolver with the
-  site's maps, so a page sidecar's `icon` beats the `tags` map, which beats the `kinds` map (a directory
-  page is always kind `note`) — the same order a vault note's sidecar override, tags and kind resolve in.
-  One resolver, no second precedence rule to drift.
-- **A page's tags come from its sidecar's `tags` key**, like its icon and its props. This is what gives
-  the `icons.tags` map something to match.
-- **Strict decoding, loud failures — for both files.** `site.yml` and every page sidecar are decoded with
-  `yaml.Decoder` + `KnownFields(true)` (the idiom `note.ParseMetaDoc` already uses): an unknown key is an
-  error naming the file and the key, as is a second `---` document, whose keys one `Decode` would never
-  even read. A page sidecar naming no page (`.track/ghost.yml` with no `ghost.md`) and one page spelled
-  both `.yml` and `.yaml` are errors too. Files exercised only at publish time are exactly where a
-  silently-dropped typo ships a wrong site — or a page missing the metadata its author wrote.
+- **Icon precedence is `config.NoteIcon`'s, literally — and `icons.pages` is its override slot, not a
+  fourth level.** `BuildDir` calls the single resolver with the site's maps and the page's `icons.pages`
+  entry as the *override* argument, the argument a vault note's sidecar `icon` fills. So the order is
+  override → `tags` → `kinds` (a directory page is always kind `note`), the same order a vault note
+  resolves in. One resolver, one precedence rule, nothing to drift.
+- **An `icons.pages` entry naming no page is a build error**, naming the entry and the `<name>.md` it
+  looked for. It is a typo or a forgotten rename, and the page it meant to decorate would otherwise publish
+  with the wrong icon and no one would hear a word. An orphan mapping is never a silent no-op.
+- **Strict decoding, loud failures.** `site.yml` is decoded with `yaml.Decoder` + `KnownFields(true)` (the
+  idiom `note.ParseMetaDoc` already uses): an unknown key is an error naming the file and the key, as is a
+  second `---` document, whose keys one `Decode` would never even read. A file exercised only at publish
+  time is exactly where a silently-dropped typo ships a wrong site.
 
 ## Consequences
 
-- `docs/help/site.yml` ships with this ADR (an explicit `home: index` plus both icon maps), and
-  `docs/help/.track/*.yml` carries the pages' own metadata. All three icon paths are live on that site:
-  twelve pages set their own `icon`, `cli.md` sets none and takes 📖 from its `reference` tag, and
-  `syntax.md` has no sidecar at all and takes 📄 from `kinds`. The maps are no longer dead config.
+- `docs/help/site.yml` ships with this ADR: an explicit `home: index`, an `icons.pages` entry for thirteen
+  of the fourteen pages, and a `kinds` map. `syntax.md` has no entry and takes 📄 from `kinds`, so the
+  fallback is live and visible rather than asserted. There is no `icons.tags` map in it: these pages carry
+  no tags, and shipping a map that can never match would be dead config. The key and the code path stay —
+  it is the shared resolver's, and a directory site whose pages *do* have tags will use it.
 - Follow-up for PR #15 (`feat/query`), which adds `tags::` inline fields to a dozen `docs/help` pages to
-  drive directory-mode tag pages: under this decision a `tags::` field is an ordinary prop, not the page's
-  tags. Those must move into the page sidecars' `tags` key when that branch lands.
+  drive directory-mode tag pages: under this decision a page's tags are note-level metadata and a `tags::`
+  field in a body is the wrong place for them, exactly as `icon::` was. When that branch lands its tags
+  belong in `site.yml` beside the icons — an entry growing from `cli: 📖` to `cli: {icon: 📖, tags:
+  [reference]}` — which is also what would make the `icons.tags` map live on this site. Not done here: this
+  ADR ships the icon, and the tag pages arrive with the branch that needs them.
 - `make site` and both site workflows keep working: their `--root index` was exactly the convention default,
   so dropping it (and the `SITE_ROOT` variable) leaves the published site byte-for-byte identical, and
   everything else they pass is a build flag.

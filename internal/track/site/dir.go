@@ -25,12 +25,11 @@ import (
 // files. An "assets" subdirectory supplies referenced media. frontendDir is the static-mode frontend
 // build.
 //
-// The machine's ambient user config is never read. A page's own metadata — title, tags, description,
-// image, icon, props — comes from an optional sidecar at "<srcDir>/.track/<name>.yml", the same split a
-// vault note has (pure Markdown body, metadata in a separate file), keyed by file base name because a
-// directory has no note ids (see pageMeta). The site's own settings (its entry page, its icon maps) come
-// from an optional "<srcDir>/site.yml" that travels with the content (see siteConfig); with neither file
-// this is a plain, config-free directory export whose entry page is the "index" convention.
+// The bodies are pure Markdown and stay that way: no frontmatter, and no note-level fact smuggled into
+// the prose as an "icon::" inline field (ADR 0002/0032). What a page needs said about it — today, its
+// icon — is said once, in the site's own config at "<srcDir>/site.yml" (see siteConfig), which travels
+// with the content it publishes. The machine's ambient user config is never read. With no site.yml at
+// all this is a plain, config-free directory export whose entry page is the "index" convention.
 func BuildDir(srcDir, baseURL, frontendDir, outDir string) (Result, error) {
 	sc, err := loadSiteConfig(srcDir)
 	if err != nil {
@@ -45,11 +44,9 @@ func BuildDir(srcDir, baseURL, frontendDir, outDir string) (Result, error) {
 		slug  string
 		title string
 		body  string // raw
-		meta  pageMeta
 	}
 	var files []file
 	for _, e := range entries {
-		// Only top-level *.md files are pages; directories (assets/, data/, .track/) are skipped here.
 		if e.IsDir() || !strings.EqualFold(filepath.Ext(e.Name()), ".md") {
 			continue
 		}
@@ -58,34 +55,16 @@ func BuildDir(srcDir, baseURL, frontendDir, outDir string) (Result, error) {
 			return Result{}, fmt.Errorf("read %s: %w", e.Name(), err)
 		}
 		slug := strings.TrimSuffix(e.Name(), filepath.Ext(e.Name()))
-		files = append(files, file{slug: slug, body: string(raw)})
+		title := firstHeading(string(raw))
+		if title == "" {
+			title = slug
+		}
+		files = append(files, file{slug: slug, title: title, body: string(raw)})
 	}
 	if len(files) == 0 {
 		return Result{}, fmt.Errorf("no .md files found in %s", srcDir)
 	}
 	sort.Slice(files, func(i, j int) bool { return files[i].slug < files[j].slug })
-
-	slugs := make(map[string]bool, len(files))
-	for _, f := range files {
-		slugs[f.slug] = true
-	}
-	metas, err := loadPageMeta(srcDir, slugs)
-	if err != nil {
-		return Result{}, err
-	}
-	// The sidecar's title is authoritative, exactly as a vault note's is; the first-H1 convention is what
-	// a page without one falls back to, and its file name what a page without a heading falls back to.
-	for i := range files {
-		files[i].meta = metas[files[i].slug]
-		title := files[i].meta.Title
-		if title == "" {
-			title = firstHeading(files[i].body)
-		}
-		if title == "" {
-			title = files[i].slug
-		}
-		files[i].title = title
-	}
 
 	// Assign ids in name order and build the key -> id map (base name and title both resolve).
 	keyToID := map[string]int64{}
@@ -95,6 +74,9 @@ func BuildDir(srcDir, baseURL, frontendDir, outDir string) (Result, error) {
 		idForSlug[f.slug] = id
 		keyToID[f.slug] = id
 		keyToID[f.title] = id
+	}
+	if err := checkIconPages(sc.Icons.Pages, idForSlug, srcDir); err != nil {
+		return Result{}, err
 	}
 
 	// The entry page, named the same way a wiki link is: by file base name or by page title. The site's
@@ -129,25 +111,25 @@ func BuildDir(srcDir, baseURL, frontendDir, outDir string) (Result, error) {
 			return Result{}, fmt.Errorf("render %s: %w", f.slug, err)
 		}
 		docs = append(docs, doc{
-			id:     id,
-			title:  f.title,
-			kind:   "note",
-			path:   f.slug + ".md",
-			body:   body,
-			tags:   f.meta.Tags,
-			keys:   []string{f.slug, f.title},
-			assets: collectAssets(f.body),
-			desc:   f.meta.Description,
-			image:  strings.TrimPrefix(f.meta.Image, "assets/"),
-			// One icon resolver for every surface: the page sidecar's icon override, then the site's tag
-			// map against the page's tags, then its kind map (a directory page is always kind "note") —
-			// config.NoteIcon, the same precedence a vault note resolves by.
-			icon:     sc.icons().NoteIcon("note", f.meta.Tags, f.meta.Icon),
+			id:    id,
+			title: f.title,
+			kind:  "note",
+			path:  f.slug + ".md",
+			body:  body,
+			keys:  []string{f.slug, f.title},
+			// One icon resolver for every surface: the site's per-page override, then its tag map against
+			// the page's tags, then its kind map (a directory page is always kind "note") — config.NoteIcon,
+			// the same precedence a vault note resolves by, with icons.pages standing where a vault note's
+			// sidecar icon stands. A directory page has no tags today, so the middle rung never fires here.
+			icon:     sc.icons().NoteIcon("note", nil, sc.Icons.Pages[f.slug]),
+			assets:   collectAssets(f.body),
 			assetSrc: assetSrc,
 			// A docs directory may keep canonical JSONL next to its assets, mirroring the vault's data/.
 			dataDir: filepath.Join(srcDir, "data"),
-			// The same flattening a vault note gets: sidecar props first, then the body's inline fields.
-			props: note.CollectProps(note.Metadata{Props: f.meta.Props}, f.body),
+			// Inline "key:: value" fields are the page's properties, and only ever data that belongs in the
+			// prose (ADR 0032): they are indexed from the line they are written on, and that line publishes
+			// as the prose it is.
+			props: note.InlineFields(f.body),
 		})
 		for _, ref := range link.Refs(f.body) {
 			if dst, ok := keyToID[ref.Text]; ok {
@@ -165,6 +147,25 @@ func BuildDir(srcDir, baseURL, frontendDir, outDir string) (Result, error) {
 	return writeBundle(docs, edges, root, false, baseURL, frontendDir, outDir)
 }
 
+// checkIconPages rejects an icons.pages entry that names no page. It is a typo — a page renamed, or its
+// name misspelled — and the page it meant to decorate would otherwise publish with the wrong icon (or
+// none) without a word, in a file that is only exercised at publish time. Pages are checked in name
+// order so the same directory always fails on the same entry.
+func checkIconPages(pages map[string]string, idForSlug map[string]int64, srcDir string) error {
+	names := make([]string, 0, len(pages))
+	for name := range pages {
+		names = append(names, name)
+	}
+	sort.Strings(names)
+	for _, name := range names {
+		if _, ok := idForSlug[name]; !ok {
+			return fmt.Errorf("site config: icons.pages entry %q names no page: there is no %s.md in %s",
+				name, name, srcDir)
+		}
+	}
+	return nil
+}
+
 // siteConfigNames are the per-site config file, discovered inside the published directory itself. Both
 // spellings are accepted: ".yml" and ".yaml" are a coin flip (this repo writes config.yml but also
 // renames.yaml, gen.yaml and note sidecars), and a config that is only exercised at publish time must not
@@ -179,17 +180,32 @@ var siteConfigNames = []string{"site.yml", "site.yaml"}
 // page and its icons — so the same content publishes the same way on anyone's machine and in CI.
 // Anything that changes per deployment of the same content (--base-url, --out, --frontend) stays a
 // build flag, not site config. Absent file = zero value = a plain directory export, unchanged.
+//
+// It is also where a *page's* note-level metadata lives, for the reason a vault's does not: a vault note's
+// sidecar is written and renamed by "track new" and "track open", so no one hand-maintains it, while a
+// published directory is just files in a repository with no tool between the author and them. A per-page
+// sidecar there would be boilerplate to hand-write and hand-rename; one map in the site's own config is
+// not (ADR 0049).
 type siteConfig struct {
 	// Home is the site's entry page, by file base name or page title. Unset, the "index" convention.
 	Home string `yaml:"home"`
-	// Icons maps a tag or a page kind to an emoji, exactly like the ambient config's icons: same shape,
-	// same meaning, same precedence (see config.NoteIcon), so what you know from a vault carries over.
-	Icons config.IconMap `yaml:"icons"`
+	// Icons resolves the icon beside each page's title.
+	Icons siteIcons `yaml:"icons"`
+}
+
+// siteIcons is the ambient config's icons: map — tags and kinds, same shape, same meaning — plus the one
+// thing a published directory has and a vault does not: pages, mapping a page's file base name to its
+// icon. Pages is the per-page *override* slot of config.NoteIcon, the slot a vault note's sidecar icon
+// occupies; it is not a fourth precedence level. So a page's own icon beats its tags' mapping, which beats
+// the kind mapping — one rule, whether the page came from a vault or from a directory.
+type siteIcons struct {
+	config.IconMap `yaml:",inline"`
+	Pages          map[string]string `yaml:"pages"`
 }
 
 // icons adapts the site's maps to the one icon resolver every other surface uses, so a published page
 // and a vault note can never drift into two different precedence rules.
-func (sc siteConfig) icons() *config.Config { return &config.Config{Icons: sc.Icons} }
+func (sc siteConfig) icons() *config.Config { return &config.Config{Icons: sc.Icons.IconMap} }
 
 // loadSiteConfig reads the site config out of srcDir if it is there; a directory without one publishes
 // exactly as it did before the file existed. Decoding is strict: an unknown key — or a second YAML
@@ -226,81 +242,6 @@ func loadSiteConfig(srcDir string) (siteConfig, error) {
 		return siteConfig{}, fmt.Errorf("%s: want a single YAML document, found more than one", path)
 	}
 	return sc, nil
-}
-
-// pageMetaDir is where a published directory keeps its page sidecars, mirroring the vault's .track.
-const pageMetaDir = ".track"
-
-// pageMeta is one page's sidecar: the note-level metadata of "<srcDir>/<name>.md", kept in a separate
-// file at "<srcDir>/.track/<name>.yml". It is the directory-mode form of the vault's
-// ".track/notes/<id>.yaml" (ADR 0002/0032) and exists for the same reason: a note's body is pure
-// Markdown, and its metadata lives beside it, never inside it — no frontmatter, and no note-level fact
-// smuggled into the prose as an inline "key:: value" field, which is only ever for data that belongs in
-// the prose. It carries the same top-level keys a vault sidecar's editable document does, plus the icon.
-// It is keyed by file base name because a directory has no note ids (BuildDir assigns them at build time
-// in name order), and it is optional: a page without one publishes exactly as it did before sidecars
-// existed. The vault's runtime-only fields (version, created, days, blocks) are not part of it and are
-// rejected as unknown keys.
-type pageMeta struct {
-	Title       string         `yaml:"title"`
-	Tags        []string       `yaml:"tags"`
-	Description string         `yaml:"description"`
-	Image       string         `yaml:"image"`
-	Icon        string         `yaml:"icon"`
-	Props       map[string]any `yaml:"props"`
-}
-
-// loadPageMeta reads every page sidecar under "<srcDir>/.track", keyed by page base name. slugs is the
-// set of pages that exist, and everything here is loud, because each silent case is a typo that would
-// publish a page missing the metadata its author wrote: a sidecar naming no page is an error (the .md was
-// renamed, or the sidecar misspelled), so is the same page spelled both ".yml" and ".yaml" (a coin flip
-// over which metadata wins), and so is an unknown key (this is track's own file, not a foreign import —
-// the note.ParseMetaDoc idiom). Files that are not YAML are ignored: .track holds sidecars, but an editor
-// or a Finder will drop its own litter in any directory. No .track directory at all is not an error —
-// sidecars are opt-in, per page and per site.
-func loadPageMeta(srcDir string, slugs map[string]bool) (map[string]pageMeta, error) {
-	dir := filepath.Join(srcDir, pageMetaDir)
-	entries, err := os.ReadDir(dir)
-	if errors.Is(err, fs.ErrNotExist) {
-		return nil, nil
-	}
-	if err != nil {
-		return nil, fmt.Errorf("read page metadata dir: %w", err)
-	}
-
-	metas := map[string]pageMeta{}
-	seen := map[string]string{} // slug -> the file that already claimed it
-	for _, e := range entries {
-		ext := strings.ToLower(filepath.Ext(e.Name()))
-		if e.IsDir() || (ext != ".yml" && ext != ".yaml") {
-			continue
-		}
-		path := filepath.Join(dir, e.Name())
-		slug := strings.TrimSuffix(e.Name(), filepath.Ext(e.Name()))
-		if !slugs[slug] {
-			return nil, fmt.Errorf("%s: no page %s.md to describe", path, slug)
-		}
-		if prev, ok := seen[slug]; ok {
-			return nil, fmt.Errorf("%s: %s already describes page %s; keep one", path, prev, slug)
-		}
-		seen[slug] = path
-
-		raw, err := os.ReadFile(path)
-		if err != nil {
-			return nil, fmt.Errorf("read page metadata: %w", err)
-		}
-		var meta pageMeta
-		dec := yaml.NewDecoder(bytes.NewReader(raw))
-		dec.KnownFields(true)
-		if err := dec.Decode(&meta); err != nil && !errors.Is(err, io.EOF) {
-			return nil, fmt.Errorf("%s: %w", path, err)
-		}
-		if err := dec.Decode(new(pageMeta)); !errors.Is(err, io.EOF) {
-			return nil, fmt.Errorf("%s: want a single YAML document, found more than one", path)
-		}
-		metas[slug] = meta
-	}
-	return metas, nil
 }
 
 // firstHeading returns the text of the first level-1 ATX heading in body, or "" when there is none.
