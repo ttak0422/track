@@ -44,6 +44,9 @@ type Config struct {
 	JournalTemplate string
 	// GenKeep is how many generation snapshots `gen increment` retains (count-based pruning).
 	GenKeep int
+	// Properties is the optional per-key note-property schema (config `properties:`): a declared
+	// value type and/or enum candidates. Keys not listed here are unconstrained.
+	Properties map[string]PropSpec
 	// CaptureInbox is the default target for `track capture` when --target is omitted: a note title,
 	// optionally with a "#heading" anchor (e.g. "Inbox#Tasks"). The note is created on first capture
 	// when missing; a named heading must already exist.
@@ -53,19 +56,28 @@ type Config struct {
 	ArchiveNote string
 }
 
+// PropSpec constrains one property key: Type is a value type ("string", "number", "boolean",
+// "date", "link"; empty means unconstrained) applied to each item of a list value, and Values is an
+// optional enum of accepted value texts. Doctor reports violations; the LSP completes Values.
+type PropSpec struct {
+	Type   string   `yaml:"type"`
+	Values []string `yaml:"values"`
+}
+
 type fileConfig struct {
-	VaultDir          string        `yaml:"vault_dir"`
-	DBPath            string        `yaml:"db_path"`
-	CacheDir          string        `yaml:"cache_dir"`
-	Extensions        []string      `yaml:"extensions"`
-	DateFormat        string        `yaml:"date_format"`
-	JournalDateFormat string        `yaml:"journal_date_format"`
-	DefaultTemplate   string        `yaml:"default_template"`
-	JournalTemplate   string        `yaml:"journal_template"`
-	GenKeep           int           `yaml:"gen_keep"`
-	CaptureInbox      string        `yaml:"capture_inbox"`
-	ArchiveNote       string        `yaml:"archive_note"`
-	Web               webFileConfig `yaml:"web"`
+	VaultDir          string              `yaml:"vault_dir"`
+	DBPath            string              `yaml:"db_path"`
+	CacheDir          string              `yaml:"cache_dir"`
+	Extensions        []string            `yaml:"extensions"`
+	DateFormat        string              `yaml:"date_format"`
+	JournalDateFormat string              `yaml:"journal_date_format"`
+	DefaultTemplate   string              `yaml:"default_template"`
+	JournalTemplate   string              `yaml:"journal_template"`
+	GenKeep           int                 `yaml:"gen_keep"`
+	Properties        map[string]PropSpec `yaml:"properties"`
+	CaptureInbox      string              `yaml:"capture_inbox"`
+	ArchiveNote       string              `yaml:"archive_note"`
+	Web               webFileConfig       `yaml:"web"`
 }
 
 // webFileConfig holds web-only settings read from config.yml. The colorscheme is kept out of this file:
@@ -183,6 +195,10 @@ func Load() (*Config, error) {
 		genKeep = 10
 	}
 
+	if err := validateProperties(fc.Properties); err != nil {
+		return nil, err
+	}
+
 	captureInbox := fc.CaptureInbox
 	if env := os.Getenv("TRACK_CAPTURE_INBOX"); env != "" {
 		captureInbox = env
@@ -211,9 +227,23 @@ func Load() (*Config, error) {
 		DefaultTemplate:   defaultTemplate,
 		JournalTemplate:   journalTemplate,
 		GenKeep:           genKeep,
+		Properties:        fc.Properties,
 		CaptureInbox:      captureInbox,
 		ArchiveNote:       archiveNote,
 	}, nil
+}
+
+// validateProperties rejects a schema entry whose declared type is not a property value type, so a
+// config typo fails loudly at load instead of silently never matching any value.
+func validateProperties(props map[string]PropSpec) error {
+	for key, spec := range props {
+		switch spec.Type {
+		case "", "string", "number", "boolean", "date", "link":
+		default:
+			return fmt.Errorf("properties.%s: unknown type %q (want string, number, boolean, date, or link)", key, spec.Type)
+		}
+	}
+	return nil
 }
 
 // archiveYear matches the "{{year}}" placeholder (with optional inner whitespace) in ArchiveNote.

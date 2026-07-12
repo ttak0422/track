@@ -74,11 +74,22 @@ export interface NoteInclude {
   error?: string;
 }
 
+// NoteProp is one flattened typed note property, as the engine indexes it: a sidecar props entry
+// (line 0) or an inline "key:: value" body field (1-based body line). A list value arrives as one
+// entry per item under the same key. Link values carry the resolution key ([[...]] inner text).
+export interface NoteProp {
+  key: string;
+  value: string;
+  type: "string" | "number" | "boolean" | "date" | "link" | string;
+  line: number;
+}
+
 export interface NoteDetail extends SearchResult {
   copy_path: string;
   body: string;
   etag: string;
   includes?: NoteInclude[];
+  props?: NoteProp[];
 }
 
 export interface NoteResponse {
@@ -102,17 +113,34 @@ export interface DeleteNoteResponse {
   deleted: boolean;
 }
 
-// A note's page metadata (sidecar description / cover image), edited via the meta dialog and
-// published as og:description / og:image by the static export.
+// A note's editable sidecar metadata as the dialog's typed fields: title, tags, description, cover
+// image (an assets/<file> reference), and typed props. Built-in fields get dedicated controls; props
+// stays free-form — a YAML "key: value" block the engine parses and validates. The frontend never
+// assembles YAML: it sends these fields and the engine composes/validates the document.
 export interface NoteMetaResponse {
+  title: string;
+  // The note's file kind ("note" | "journal"). Journal titles are date-derived, so the editor
+  // disables title editing for them.
+  kind: string;
+  tags: string[];
   description: string;
   image: string;
+  props: string;
 }
 
-// A save request leaves an omitted field untouched; an empty string clears it (engine semantics).
+// A save request replaces the whole editable metadata; a rejected edit changes nothing. tags is the
+// comma-split list (the engine dedups/normalizes); props is the free-form block, parsed server-side.
 export interface SaveNoteMetaRequest {
-  description?: string;
-  image?: string;
+  title: string;
+  tags: string[];
+  description: string;
+  image: string;
+  props: string;
+}
+
+// The vault reference returned after uploading a cover image, e.g. "assets/cover.png".
+export interface AssetUploadResponse {
+  ref: string;
 }
 
 export interface FollowState {

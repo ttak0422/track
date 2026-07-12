@@ -78,7 +78,39 @@ func (s *Store) UpsertNote(n *note.Note) error {
 		}
 	}
 
+	if _, err := tx.Exec(`DELETE FROM props WHERE note_id = ?`, n.ID); err != nil {
+		return err
+	}
+	// note.CollectProps owns property flattening and typing (sidecar props plus inline body fields), so
+	// the index, the web note view, and doctor all see the same values.
+	for i, p := range note.CollectProps(n.Meta, n.Body) {
+		if _, err := tx.Exec(`INSERT INTO props (note_id, key, value, type, line, ord) VALUES (?, ?, ?, ?, ?, ?)`,
+			n.ID, p.Key, p.Value, p.Type, p.Line, i); err != nil {
+			return err
+		}
+	}
+
 	return tx.Commit()
+}
+
+// NoteProps returns a note's flattened properties as indexed: sidecar props first (line 0, sorted by
+// key), then inline fields in body order, list items in written order.
+func (s *Store) NoteProps(id int64) ([]note.Prop, error) {
+	rows, err := s.db.Query(`SELECT key, value, type, line FROM props WHERE note_id = ? ORDER BY line, key, ord`, id)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var out []note.Prop
+	for rows.Next() {
+		var p note.Prop
+		if err := rows.Scan(&p.Key, &p.Value, &p.Type, &p.Line); err != nil {
+			return nil, err
+		}
+		out = append(out, p)
+	}
+	return out, rows.Err()
 }
 
 // DeleteNote removes a note; tags and links cascade. The FTS body row is not a foreign-key child of

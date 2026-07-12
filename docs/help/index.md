@@ -14,6 +14,8 @@ static-site export.
 - [[CLI]] — the command-line interface that owns parsing, indexing, and search.
 - [[Searching notes]] — title, tag, and full-text body search, with ranking and CJK support.
 - [[Linking notes]] — how `[[...]]` links, backlinks, and the note graph work.
+- [[Properties]] — typed key-value metadata on a note: sidecar props, inline `key:: value` fields,
+  and an optional schema.
 - [[Web workspace]] — the local browser UI for reading, previewing, and navigating notes.
 - [[Visualization]] — how notes render as visuals: [[Diagrams]] (Mermaid and Graphviz), [[Mindmaps]]
   of a note's structure, [[Charts]] from a View Spec, and [[Embeds]] for YouTube, PDFs, tweets, and
