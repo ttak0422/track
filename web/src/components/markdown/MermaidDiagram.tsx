@@ -7,7 +7,9 @@ interface MermaidDiagramProps {
   text: string;
 }
 
-type DiagramState =
+// DiagramState is the render lifecycle shared by every async diagram engine (Mermaid, Graphviz):
+// the engine turns source text into an SVG string, or fails with a message shown above the source.
+export type DiagramState =
   | { status: "loading" }
   | { status: "ready"; svg: string }
   | { status: "error"; message: string };
@@ -19,15 +21,6 @@ let renderSequence = 0;
 export function MermaidDiagram({ text }: MermaidDiagramProps) {
   const [state, setState] = useState<DiagramState>({ status: "loading" });
   const themeVersion = useThemeVersion();
-  const svg = state.status === "ready" ? state.svg : null;
-  const panZoom = usePanZoom(svg);
-  // A stable element per svg string: pan/zoom re-renders reuse it untouched, so react-dom never
-  // rewrites the innerHTML — which would both discard sizeSvgToViewBox's sizing and re-parse a large
-  // SVG on every drag frame.
-  const svgHost = useMemo(
-    () => (svg == null ? null : <div dangerouslySetInnerHTML={{ __html: svg }} />),
-    [svg],
-  );
 
   useEffect(() => {
     let cancelled = false;
@@ -51,17 +44,45 @@ export function MermaidDiagram({ text }: MermaidDiagramProps) {
     };
   }, [text, themeVersion]);
 
+  return <DiagramFrame state={state} source={text} sourceLang="mermaid" label="Mermaid diagram" />;
+}
+
+interface DiagramFrameProps {
+  state: DiagramState;
+  // The block's source text, for the copy button and the error fallback code block.
+  source: string;
+  sourceLang: string;
+  // Accessible name of the rendered figure, e.g. "Mermaid diagram".
+  label: string;
+  // Extra class on the root, so engine-specific CSS (e.g. Graphviz dark-mode inversion) can hook in.
+  className?: string;
+}
+
+// DiagramFrame is the presentation shell shared by the diagram engines: loading placeholder, error
+// fallback (message + source), and the fitted pan/zoom viewport with fold/copy/zoom controls.
+export function DiagramFrame({ state, source, sourceLang, label, className }: DiagramFrameProps) {
+  const svg = state.status === "ready" ? state.svg : null;
+  const panZoom = usePanZoom(svg);
+  // A stable element per svg string: pan/zoom re-renders reuse it untouched, so react-dom never
+  // rewrites the innerHTML — which would both discard sizeSvgToViewBox's sizing and re-parse a large
+  // SVG on every drag frame.
+  const svgHost = useMemo(
+    () => (svg == null ? null : <div dangerouslySetInnerHTML={{ __html: svg }} />),
+    [svg],
+  );
+  const rootClass = className ? `mermaid-diagram ${className}` : "mermaid-diagram";
+
   if (state.status === "error") {
     return (
-      <div className="mermaid-diagram mermaid-diagram-error">
+      <div className={`${rootClass} mermaid-diagram-error`}>
         <p>{state.message}</p>
-        <CodeBlock lang="mermaid" text={text} />
+        <CodeBlock lang={sourceLang} text={source} />
       </div>
     );
   }
 
   if (state.status === "loading") {
-    return <div className="mermaid-diagram mermaid-diagram-loading">Rendering diagram...</div>;
+    return <div className={`${rootClass} mermaid-diagram-loading`}>Rendering diagram...</div>;
   }
 
   const {
@@ -76,7 +97,7 @@ export function MermaidDiagram({ text }: MermaidDiagramProps) {
     toggleCollapsed,
   } = panZoom;
   return (
-    <div className="mermaid-diagram">
+    <div className={rootClass}>
       <div
         className="mermaid-viewport"
         ref={viewportRef}
@@ -92,7 +113,7 @@ export function MermaidDiagram({ text }: MermaidDiagramProps) {
             transformOrigin: "0 0",
           }}
           role="img"
-          aria-label="Mermaid diagram"
+          aria-label={label}
         >
           {svgHost}
         </div>
@@ -108,7 +129,7 @@ export function MermaidDiagram({ text }: MermaidDiagramProps) {
       </button>
       {!collapsed && (
         <div className="mermaid-controls">
-          <CopySource text={text} />
+          <CopySource text={source} />
           <button
             className="mermaid-control"
             type="button"
