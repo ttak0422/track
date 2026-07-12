@@ -6,9 +6,8 @@ Status: Accepted
 
 `track export-site` has two input modes. In **vault mode** it publishes notes from the user's vault and
 already holds that user's ambient config (`~/.config/track/config.yml`), so it can resolve icons
-(`config.NoteIcon`) and everything else from it. In **directory mode**
-(`site.BuildDir(srcDir, rootName, baseURL, frontendDir, outDir)`) it publishes a plain Markdown directory
-that belongs to no vault — this repository's `docs/help` is published exactly that way — and it
+(`config.NoteIcon`) and everything else from it. In **directory mode** (`site.BuildDir`) it publishes a
+plain Markdown directory that belongs to no vault — this repository's `docs/help` is published exactly that way — and it
 deliberately takes no config at all: no vault, no sidecars, nothing from the machine it happens to run on.
 
 That left a published directory site unable to state anything about *itself*. Two names for one concept

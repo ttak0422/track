@@ -82,19 +82,32 @@ func TestExportSiteRequiresRoot(t *testing.T) {
 	}
 }
 
-// --root is vault-mode only. In directory mode the entry page comes from the site's own config, so the
-// flag is rejected outright, naming its replacement — silently ignoring it would publish a front door
-// the caller did not ask for.
-func TestExportSiteDirRejectsRoot(t *testing.T) {
-	vault := t.TempDir()
-	src := t.TempDir()
-	if err := os.WriteFile(filepath.Join(src, "index.md"), []byte("# Index\n"), 0o644); err != nil {
-		t.Fatal(err)
-	}
-	out, code := runIn(t, vault, "export-site", "--src", src, "--root", "index",
-		"--frontend", fakeFrontend(t), "--out", filepath.Join(vault, "site"))
-	msg, _ := out["error"].(string)
-	if code != 1 || !strings.Contains(msg, "vault-mode") || !strings.Contains(msg, "site.yml") {
-		t.Fatalf("expected --root rejected with site.yml named, got code=%d out=%v", code, out)
+// Every vault-mode flag is rejected outright in directory mode, never silently ignored: a directory
+// publishes every .md file in it and lands on the page its own site.yml names, so --root, --id and
+// --calendar can only mean the caller expected a site they are not going to get.
+func TestExportSiteDirRejectsVaultFlags(t *testing.T) {
+	for _, tc := range []struct {
+		name  string
+		flags []string
+		want  string // a word the error must name, so the message points at the real mechanism
+	}{
+		{"root", []string{"--root", "index"}, "site.yml"},
+		{"id", []string{"--id", "1"}, "every .md file"},
+		{"calendar", []string{"--calendar"}, "activity days"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			vault := t.TempDir()
+			src := t.TempDir()
+			if err := os.WriteFile(filepath.Join(src, "index.md"), []byte("# Index\n"), 0o644); err != nil {
+				t.Fatal(err)
+			}
+			args := append([]string{"export-site", "--src", src}, tc.flags...)
+			args = append(args, "--frontend", fakeFrontend(t), "--out", filepath.Join(vault, "site"))
+			out, code := runIn(t, vault, args...)
+			msg, _ := out["error"].(string)
+			if code != 1 || !strings.Contains(msg, tc.want) {
+				t.Fatalf("expected rejection naming %q, got code=%d out=%v", tc.want, code, out)
+			}
+		})
 	}
 }

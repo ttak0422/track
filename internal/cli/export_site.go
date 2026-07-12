@@ -15,10 +15,11 @@ import (
 // --frontend points at the static-mode frontend build (Vite output) to copy into the site. Two input
 // modes:
 //   - Vault:     --root <id> [--id <id> ...]  publishes vault notes; --root is the landing note's id.
-//   - Directory: --src <dir>  publishes a directory of plain Markdown files outside any vault. Its entry
-//     page is the site's own "home" (<src>/site.yml); without one, a page named "index". A site's front
-//     door does not change per deployment, so it lives with the content, not on the command line —
-//     --root is a vault-mode flag and passing it with --src is an error, never a silent no-op.
+//   - Directory: --src <dir>  publishes every .md file in a directory of plain Markdown outside any vault.
+//     Its entry page is the site's own "home" (<src>/site.yml); unset, or with no such file, a page named
+//     "index". A site's front door does not change per deployment, so it lives with the content, not on
+//     the command line — --root, like --id and --calendar, is a vault-mode flag, and passing one with
+//     --src is an error, never a silent no-op.
 func cmdExportSite(args []string) int {
 	fs := flag.NewFlagSet("export-site", flag.ContinueOnError)
 	src := fs.String("src", "", "build from a directory of Markdown files instead of vault notes")
@@ -46,6 +47,9 @@ func cmdExportSite(args []string) int {
 		}
 		if *root != "" {
 			return fail("--root is a vault-mode flag; a directory's entry page comes from its site.yml \"home\" (or the index convention)")
+		}
+		if len(ids) > 0 {
+			return fail("--id is a vault-mode flag; a --src directory publishes every .md file in it")
 		}
 		res, err := site.BuildDir(*src, *baseURL, *frontend, *out)
 		if err != nil {

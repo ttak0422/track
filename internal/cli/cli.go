@@ -192,7 +192,8 @@ Usage:
                                         publish selected vault notes as a static site (React frontend + JSON bundle) (JSON)
   track export-site --src <dir> --frontend <dist> --out <dir>
                                         publish a directory of Markdown files as a static site; its
-                                        entry page comes from <dir>/site.yml (JSON)
+                                        entry page comes from <dir>/site.yml "home", else a page
+                                        named index (JSON)
   track render --spec <spec.json> --out <file> [--renderer echarts]
                                         render a View Spec chart, or a composed article (a spec with
                                         "blocks"), to an HTML file (JSON path);
