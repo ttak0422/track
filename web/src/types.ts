@@ -131,6 +131,8 @@ export interface NoteMetaResponse {
   tags: string[];
   description: string;
   image: string;
+  // Per-note icon (an emoji) shown beside the title; empty falls back to the config tag/kind mapping.
+  icon: string;
   props: string;
 }
 
@@ -141,6 +143,7 @@ export interface SaveNoteMetaRequest {
   tags: string[];
   description: string;
   image: string;
+  icon: string;
   props: string;
 }
 

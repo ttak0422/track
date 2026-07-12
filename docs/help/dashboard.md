@@ -73,7 +73,8 @@ icons:
 ```
 
 The first of a note's tags that has a mapping wins; otherwise its kind's mapping applies. A single note
-can override both from the command line (or the note's sidecar metadata):
+can override both from the command line — or in the metadata editor (the web Meta dialog's icon field,
+the `icon:` line in the Neovim `:Track meta` popup), which edits the same sidecar value:
 
 ```sh
 track meta --title "Reading list" --icon 📚

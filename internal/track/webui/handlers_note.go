@@ -176,7 +176,7 @@ func (s *Server) putNote(w http.ResponseWriter, r *http.Request) {
 }
 
 // handleNoteMeta reads or edits a note's editable sidecar metadata — title, tags, description,
-// cover image, and typed props — as structured fields. GET seeds the dialog's typed controls
+// cover image, icon, and typed props — as structured fields. GET seeds the dialog's typed controls
 // (props as a free-form YAML "key: value" block); POST takes those fields back, composes a
 // document, and applies it through the same validated engine path as `track meta --edit`
 // (note.ApplyMetaDocValue; a changed title through rename.Do). Every rule — tag normalization, an
@@ -208,6 +208,7 @@ func (s *Server) handleNoteMeta(w http.ResponseWriter, r *http.Request) {
 			Tags        []string `json:"tags"`
 			Description string   `json:"description"`
 			Image       string   `json:"image"`
+			Icon        string   `json:"icon"`
 			Props       string   `json:"props"`
 		}
 		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
@@ -224,6 +225,7 @@ func (s *Server) handleNoteMeta(w http.ResponseWriter, r *http.Request) {
 			Tags:        req.Tags,
 			Description: req.Description,
 			Image:       req.Image,
+			Icon:        req.Icon,
 			Props:       props,
 		}
 		// Pre-validate a title change so a conflicting title rejects the whole edit before any
@@ -281,6 +283,7 @@ func writeMetaFields(w http.ResponseWriter, meta note.Metadata, kind string) {
 		"tags":        tags,
 		"description": meta.Description,
 		"image":       meta.Image,
+		"icon":        meta.Icon,
 		"props":       propsText,
 	})
 }
