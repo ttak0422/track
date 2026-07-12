@@ -20,10 +20,12 @@ const (
 	MetadataVersionV3 = 3
 	// MetadataVersionV4 adds the page metadata fields description and image.
 	MetadataVersionV4 = 4
-	// MetadataVersionV5 adds the per-note icon override.
+	// MetadataVersionV5 adds typed note properties under props.
 	MetadataVersionV5 = 5
+	// MetadataVersionV6 adds the per-note icon override.
+	MetadataVersionV6 = 6
 	// MaxMetadataVersion is the newest schema this build can read and write.
-	MaxMetadataVersion = MetadataVersionV5
+	MaxMetadataVersion = MetadataVersionV6
 )
 
 func supportedVersion(v int) bool {
@@ -63,8 +65,11 @@ func WriteMetadata(path string, meta Metadata) error {
 	if (meta.Description != "" || meta.Image != "") && meta.Version < MetadataVersionV4 {
 		meta.Version = MetadataVersionV4
 	}
-	if meta.Icon != "" && meta.Version < MetadataVersionV5 {
+	if len(meta.Props) > 0 && meta.Version < MetadataVersionV5 {
 		meta.Version = MetadataVersionV5
+	}
+	if meta.Icon != "" && meta.Version < MetadataVersionV6 {
+		meta.Version = MetadataVersionV6
 	}
 	if !supportedVersion(meta.Version) {
 		return fmt.Errorf("unsupported metadata version %d", meta.Version)

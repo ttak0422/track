@@ -85,6 +85,7 @@ func Build(cfg *config.Config, st *store.Store, opts Options, frontendDir, outDi
 			icon:     cfg.NoteIcon(n.Kind, n.Meta.Tags, n.Meta.Icon),
 			assetSrc: assetSrc,
 			dataDir:  cfg.DataDir(),
+			props:    note.CollectProps(n.Meta, n.Body),
 		})
 	}
 

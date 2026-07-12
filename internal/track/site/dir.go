@@ -88,6 +88,8 @@ func BuildDir(srcDir, rootName, baseURL, frontendDir, outDir string) (Result, er
 			assetSrc: assetSrc,
 			// A docs directory may keep canonical JSONL next to its assets, mirroring the vault's data/.
 			dataDir: filepath.Join(srcDir, "data"),
+			// Plain Markdown files have no sidecar, so inline "key:: value" fields are their only properties.
+			props: note.InlineFields(f.body),
 		})
 		for _, ref := range link.Refs(f.body) {
 			if dst, ok := keyToID[ref.Text]; ok {

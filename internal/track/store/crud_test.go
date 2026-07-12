@@ -182,3 +182,54 @@ func TestNoteMtimes(t *testing.T) {
 		t.Fatalf("mtime[9] = %d, want 1234", m[9])
 	}
 }
+
+func TestUpsertNoteIndexesProps(t *testing.T) {
+	s := newTestStore(t)
+
+	n := &note.Note{
+		ID:   100,
+		Path: "/vault/100.md",
+		Body: "intro\nstatus:: draft\n- rating:: 8\n",
+		Meta: note.Metadata{
+			Title: "Props",
+			Props: map[string]any{"owner": "[[Ada]]", "aliases": []any{"a", "b"}},
+		},
+	}
+	if err := s.UpsertNote(n); err != nil {
+		t.Fatalf("upsert: %v", err)
+	}
+
+	props, err := s.NoteProps(100)
+	if err != nil {
+		t.Fatalf("note props: %v", err)
+	}
+	want := []note.Prop{
+		{Key: "aliases", Value: "a", Type: "string", Line: 0},
+		{Key: "aliases", Value: "b", Type: "string", Line: 0},
+		{Key: "owner", Value: "Ada", Type: "link", Line: 0},
+		{Key: "status", Value: "draft", Type: "string", Line: 2},
+		{Key: "rating", Value: "8", Type: "number", Line: 3},
+	}
+	if len(props) != len(want) {
+		t.Fatalf("props = %+v, want %+v", props, want)
+	}
+	for i := range want {
+		if props[i] != want[i] {
+			t.Fatalf("props[%d] = %+v, want %+v", i, props[i], want[i])
+		}
+	}
+
+	// Re-upserting without props replaces the rows instead of accumulating them.
+	n.Body = "plain body"
+	n.Meta.Props = nil
+	if err := s.UpsertNote(n); err != nil {
+		t.Fatalf("re-upsert: %v", err)
+	}
+	props, err = s.NoteProps(100)
+	if err != nil {
+		t.Fatalf("note props after re-upsert: %v", err)
+	}
+	if len(props) != 0 {
+		t.Fatalf("props after re-upsert = %+v, want none", props)
+	}
+}

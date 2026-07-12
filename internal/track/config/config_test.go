@@ -317,6 +317,53 @@ func TestEnsureVaultSkeleton(t *testing.T) {
 	}
 }
 
+func TestLoadPropertySchema(t *testing.T) {
+	configPath := filepath.Join(t.TempDir(), "config.yml")
+	body := "vault_dir: " + t.TempDir() + "\ncache_dir: " + t.TempDir() + `
+properties:
+  status:
+    type: string
+    values: [draft, done]
+  rating:
+    type: number
+`
+	if err := os.WriteFile(configPath, []byte(body), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("TRACK_CONFIG", configPath)
+	t.Setenv("TRACK_VAULT", "")
+	t.Setenv("TRACK_DB", "")
+	t.Setenv("TRACK_CACHE_DIR", "")
+
+	cfg, err := Load()
+	if err != nil {
+		t.Fatalf("load: %v", err)
+	}
+	status := cfg.Properties["status"]
+	if status.Type != "string" || len(status.Values) != 2 || status.Values[0] != "draft" {
+		t.Fatalf("status spec = %+v", status)
+	}
+	if cfg.Properties["rating"].Type != "number" {
+		t.Fatalf("rating spec = %+v", cfg.Properties["rating"])
+	}
+}
+
+func TestLoadRejectsUnknownPropertyType(t *testing.T) {
+	configPath := filepath.Join(t.TempDir(), "config.yml")
+	body := "vault_dir: " + t.TempDir() + "\nproperties:\n  status:\n    type: enum\n"
+	if err := os.WriteFile(configPath, []byte(body), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("TRACK_CONFIG", configPath)
+	t.Setenv("TRACK_VAULT", "")
+	t.Setenv("TRACK_DB", "")
+	t.Setenv("TRACK_CACHE_DIR", t.TempDir())
+
+	if _, err := Load(); err == nil {
+		t.Fatal("expected an error for properties.status type enum")
+	}
+}
+
 func TestCaptureAndArchiveDefaults(t *testing.T) {
 	t.Setenv("HOME", t.TempDir())
 	t.Setenv("TRACK_CONFIG", filepath.Join(t.TempDir(), "missing.yml"))

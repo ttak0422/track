@@ -1312,17 +1312,83 @@ a.calendar-title:focus-visible {
 }
 
 .modal-input {
-  border: 1px solid var(--line);
-  border-radius: 6px;
-  padding: 8px 10px;
   color: var(--text);
-  background: var(--bg);
+  background: transparent;
   font: inherit;
 }
 
-.modal-input:focus-visible {
+/* Single-line fields are nano underline inputs — no box, no fill — like the home/search fields. The
+   editable state is carried by the line, not a background colour a colour-blind reader may miss. */
+input.modal-input {
+  border: 0;
+  border-bottom: 1px solid var(--line);
+  border-radius: 0;
+  padding: 8px 2px;
+  transition: border-color 0.12s ease;
+}
+
+input.modal-input:focus-visible {
+  outline: none;
+  border-bottom-color: var(--accent);
+}
+
+/* A text region keeps a thin outline (an underline alone reads poorly for multi-line) but no fill. */
+textarea.modal-input {
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  padding: 8px 10px;
+}
+
+textarea.modal-input:focus-visible {
   outline: none;
   border-color: var(--accent);
+}
+
+/* A disabled field (e.g. a journal's date-derived title) drops its line entirely and mutes its ink,
+   so it reads as plain static text rather than an editable field. The distinction is the presence or
+   absence of the line — not a background colour, which a colour-blind reader may not perceive. */
+.modal-input:disabled {
+  border-color: transparent;
+  color: var(--muted);
+  cursor: not-allowed;
+}
+
+/* Free-form props editor in the note meta dialog. */
+.modal-input--code {
+  font-family: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, monospace;
+  font-size: calc(13px * var(--font-scale, 1));
+  line-height: 1.5;
+  white-space: pre;
+  resize: vertical;
+}
+
+/* Cover-image field: the assets/<file> text input beside the native "Choose image..." picker. */
+.modal-image-row {
+  display: flex;
+  gap: 8px;
+  align-items: stretch;
+}
+
+.modal-image-row .modal-input {
+  flex: 1;
+  min-width: 0;
+}
+
+.modal-image-row button {
+  flex: none;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  padding: 6px 12px;
+  color: var(--text);
+  background: transparent;
+  font-size: calc(13px * var(--font-scale, 1));
+  cursor: pointer;
+  white-space: nowrap;
+}
+
+.modal-image-row button:disabled {
+  cursor: default;
+  opacity: 0.6;
 }
 
 .modal-actions {
@@ -1371,6 +1437,40 @@ a.calendar-title:focus-visible {
 .note-tags button:hover,
 .note-tags button:focus-visible {
   color: var(--accent);
+}
+
+/* Note properties: a quiet key/value strip between the tags and the body. Keys read muted like tags;
+   values sit in soft chips so a row of them still scans as discrete items. */
+.note-props {
+  flex-shrink: 0; /* like .note-tags: never squeezed by .note-reader's height bound */
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 16px;
+  margin: 0;
+  font-size: calc(12px * var(--font-scale, 1));
+}
+
+.note-prop {
+  display: flex;
+  align-items: baseline;
+  gap: 6px;
+}
+
+.note-prop dt {
+  color: var(--muted);
+}
+
+.note-prop dd {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  margin: 0;
+}
+
+.note-prop-value {
+  padding: 1px 6px;
+  border-radius: 4px;
+  background: var(--panel-soft);
 }
 
 .note-editor {

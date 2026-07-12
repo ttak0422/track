@@ -12,7 +12,14 @@ import (
 	"path/filepath"
 	"strconv"
 	"strings"
+
+	"github.com/ttak0422/track/internal/track/asset"
+	"github.com/ttak0422/track/internal/track/note"
 )
+
+// maxAssetUploadBytes caps a cover-image upload. Cover images are small; the limit only guards the
+// server against an unbounded multipart body. ponytail: fixed ceiling, raise if real covers exceed it.
+const maxAssetUploadBytes = 25 << 20
 
 // handleApp serves the embedded React frontend: a request that maps to a real built file (the hashed
 // JS/CSS bundles, icons, etc.) returns that file, and anything else falls back to index.html so the
@@ -111,10 +118,48 @@ func (s *Server) serveIndex(w http.ResponseWriter, r *http.Request) {
 // is ignored. name is constrained to the assets directory so a note cannot read arbitrary files via
 // "../" traversal.
 func (s *Server) handleAsset(w http.ResponseWriter, r *http.Request) {
-	if r.Method != http.MethodGet && r.Method != http.MethodHead {
+	switch r.Method {
+	case http.MethodGet, http.MethodHead:
+		s.serveAsset(w, r)
+	case http.MethodPost:
+		s.uploadAsset(w, r)
+	default:
 		writeError(w, fmt.Errorf("method %s not allowed", r.Method), http.StatusMethodNotAllowed)
+	}
+}
+
+// uploadAsset imports an uploaded image (multipart form field "file") into the vault's assets
+// directory and returns its "assets/<name>" reference for the cover-image field. Storage reuses the
+// engine asset primitive (asset.Store — filesystem-safe name, collision suffix, no traversal), and
+// the stored file must pass the same cover-image gate as ApplyMetaDoc (note.ValidateImageRef), so
+// only vault-legal cover images survive; anything else is removed again and rejected with a 400.
+func (s *Server) uploadAsset(w http.ResponseWriter, r *http.Request) {
+	r.Body = http.MaxBytesReader(w, r.Body, maxAssetUploadBytes)
+	file, header, err := r.FormFile("file")
+	if err != nil {
+		writeError(w, fmt.Errorf("read upload: %w", err), http.StatusBadRequest)
 		return
 	}
+	defer file.Close()
+	data, err := io.ReadAll(file)
+	if err != nil {
+		writeError(w, fmt.Errorf("read upload: %w", err), http.StatusBadRequest)
+		return
+	}
+	stored, err := asset.Store(s.cfg, header.Filename, data)
+	if err != nil {
+		writeError(w, err, http.StatusInternalServerError)
+		return
+	}
+	if err := note.ValidateImageRef(s.cfg, stored.Ref); err != nil {
+		_ = os.Remove(stored.Path)
+		writeError(w, err, http.StatusBadRequest)
+		return
+	}
+	writeJSON(w, map[string]any{"ref": stored.Ref})
+}
+
+func (s *Server) serveAsset(w http.ResponseWriter, r *http.Request) {
 	name := strings.TrimSpace(r.URL.Query().Get("name"))
 	if name == "" {
 		writeError(w, errors.New("name is required"), http.StatusBadRequest)
