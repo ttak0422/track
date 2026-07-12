@@ -14,6 +14,7 @@ import (
 	"gopkg.in/yaml.v3"
 
 	"github.com/ttak0422/track/internal/track/config"
+	"github.com/ttak0422/track/internal/track/export"
 	"github.com/ttak0422/track/internal/track/link"
 	"github.com/ttak0422/track/internal/track/note"
 )
@@ -106,7 +107,7 @@ func BuildDir(srcDir, rootName, baseURL, frontendDir, outDir string) (Result, er
 	seenEdge := map[edge]bool{}
 	for _, f := range files {
 		id := idForSlug[f.slug]
-		body, err := sanitize(&note.Note{ID: id, Kind: "note", Body: f.body, Meta: note.Metadata{Title: f.title}})
+		body, err := export.WebBody(f.body)
 		if err != nil {
 			return Result{}, fmt.Errorf("render %s: %w", f.slug, err)
 		}
@@ -213,8 +214,10 @@ func loadSiteConfig(srcDir string) (siteConfig, error) {
 // inlineIcon returns a page's own icon override: the value of its first "icon::" inline field (a page
 // has one icon; a later field is a duplicate, not an override), or "" when it has none or the value is
 // empty. It plays the part a vault note's sidecar icon plays in config.NoteIcon — the per-page override
-// that beats the site's tag and kind maps. The field stays in the published props: it is an ordinary
-// property, and hiding it would be a special case that buys nothing.
+// that beats the site config's tag and kind maps. The field stays in the published props — it is an
+// ordinary property, and hiding it there would be a special case that buys nothing — while its source
+// line, being metadata, is kept out of the published prose like any other whole-line field
+// (export.WebBody).
 func inlineIcon(props []note.Prop) string {
 	for _, p := range props {
 		if p.Key == "icon" {

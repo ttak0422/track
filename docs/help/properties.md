@@ -6,8 +6,9 @@ engine indexes them with the rest of the vault, so they are queryable and visibl
 is shown. When a data point belongs *in* the prose, a small inline `key:: value` field embeds it
 there. If you know Obsidian's properties or org-mode's property drawers, this is the same idea.
 
-This page is its own demo: it carries the inline fields below, so the property strip at the top of
-this page is rendered from them.
+This page is its own demo: its source carries the inline fields below — you cannot read them here,
+because a whole-line field is lifted out of the prose — and the property strip at the top of this page
+is rendered from them.
 
 icon:: 🏷️
 status:: example
@@ -61,9 +62,12 @@ Three placements work:
 - **Bracketed, mid-sentence** — `[owner:: [[Ada Lovelace]]]` inside a paragraph.
 
 Inline fields are scanned at index time into the same property index as sidecar values, each with
-the body line it came from. The text itself still renders as ordinary Markdown — a field is data
-*and* prose at once. Code is never scanned: `std::vector` in a fenced block stays code, and a
-`[key:: value]` example in inline code (like the ones on this page) never becomes data.
+the body line it came from. How a field reads depends on where you put it: a whole line (a list item
+included) is metadata and nothing else, so the rendered note lifts it out of the prose and shows it in
+the property strip; a bracketed field stays in its sentence — data *and* prose at once. Either way the
+Markdown source keeps exactly what you typed. Code is never scanned: `std::vector` in a fenced block
+stays code, and a `[key:: value]` example in inline code (like the ones on this page) never becomes
+data.
 
 For example, this very sentence carries a live bracketed field, [demo:: [[CLI]]], and that is why
 `demo` appears in this page's property strip above — as a link, because its value is a wiki link.

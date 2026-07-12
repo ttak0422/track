@@ -27,3 +27,17 @@ func (webRenderer) CodeBlock(b babel.Block, _ string, _ *babel.RunResult) string
 }
 
 func (webRenderer) Frontmatter(note.Metadata) string { return "" }
+
+// WebBody renders a note body into the Markdown a web frontend draws: the webRenderer transform above,
+// plus whole-line inline fields blanked out (note.BlankFieldLines). Those fields are metadata the
+// frontend already shows in the note's property strip, so leaving their "key:: value" source in the
+// prose would print the same fact twice — once as data, once as raw syntax. Every web surface goes
+// through here (the live /api/render, the vault export, the directory export), so a note reads the same
+// wherever it is published. The Markdown export keeps the field lines: there the body is the note.
+func WebBody(body string) (string, error) {
+	res, err := Export(&note.Note{Body: note.BlankFieldLines(body)}, NewWebRenderer(), Options{})
+	if err != nil {
+		return "", err
+	}
+	return res.Markdown, nil
+}
