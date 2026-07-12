@@ -130,10 +130,10 @@ icons:
 ```
 
 - **`home`** is the site's landing page — the published counterpart of the workspace's `web.home`. It
-  names a page the way a `[[wiki link]]` does, by file base name first and page title second. The
-  `--root` flag still wins when you pass it, so a one-off build can land somewhere else; with neither, a
-  page named `index` is the fallback. If none of them names a real page, the build fails loudly rather
-  than quietly publishing a different front door.
+  names a page the way a `[[wiki link]]` does, by file base name first and page title second. Without a
+  `site.yml`, a page named `index` is the fallback. If neither names a real page, the build fails loudly
+  rather than quietly publishing a different front door. There is no flag for it: a site's front door is
+  the same wherever it is deployed, so it belongs with the content.
 - **`icons`** is the same map, with the same meaning and precedence, as the ambient config's `icons:` —
   a page's `icon::` field, then the first of its `tags::` with a mapping, then its kind (a published page
   is always kind `note`). Every page of this help site states its own `icon::`, so the maps here are the

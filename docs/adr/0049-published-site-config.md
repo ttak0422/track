@@ -47,12 +47,18 @@ identically from a contributor's laptop and from CI, and CI has no `~/.config/tr
   keys a `[[wiki link]]` resolves by, so it is named the way everything else in a directory site is named.
   `icons: {tags: {...}, kinds: {...}}` is the same shape and meaning as the ambient config's `icons:`;
   knowledge carries over from a vault unchanged. No `title`, no `base_url`, nothing speculative.
-- **Entry-page precedence: `--root` > `site.yml` `home` > the `index` convention.** This unifies the
-  concept — the site's home is now a config value, like the workspace's — while keeping `--root` as an
-  override for a one-off build. The name resolves against file base names first and page titles only then:
-  the two share one namespace in the link map, and a page whose H1 happens to spell another page's file
-  name must not inherit the front door. Resolving to nothing stays a loud error; a site that silently
-  publishes a different front door is worse than one that fails to build.
+- **Entry page: `site.yml` `home`, else the `index` convention — and `--root` is gone from directory
+  mode.** The site's home is now a config value, like the workspace's, and it is the *only* way to name it:
+  by the ownership rule above, a site's front door does not change when the same content is deployed
+  somewhere else, so it belongs with the content and not on the command line. Keeping `--root` as a
+  one-off override would also have kept it mode-overloaded — "a note id (vault mode) or file base name
+  (with `--src`)", one flag with two meanings — and nothing ever passed it anything but the convention
+  default anyway. So directory mode rejects `--root` loudly, naming `site.yml` `home` as its replacement
+  (silently ignoring it would publish a front door the caller did not ask for), and in vault mode `--root`
+  now means one thing: the landing note's id, still required. The name resolves against file base names
+  first and page titles only then: the two share one namespace in the link map, and a page whose H1 happens
+  to spell another page's file name must not inherit the front door. Resolving to nothing stays a loud
+  error; a site that silently publishes a different front door is worse than one that fails to build.
 - **Icon precedence is `config.NoteIcon`'s, literally.** `BuildDir` calls the single resolver with the
   site's maps, so a page's own `icon::` field beats the `tags` map, which beats the `kinds` map (a
   directory page is always kind `note`) — the same order a vault note's sidecar override, tags and kind
@@ -74,8 +80,9 @@ identically from a contributor's laptop and from CI, and CI has no `~/.config/tr
 - Until help pages carry `tags::` fields, the help site's icons still come only from `icon::` overrides and
   the `icons.tags` map matches nothing there. That is correct, not a gap: the mechanism is in place and the
   tags arrive with the pages that want them.
-- `make site` and both site workflows keep working with no change: they pass `--root index`, which still
-  wins over the config, and everything else they pass is a build flag.
+- `make site` and both site workflows keep working: their `--root index` was exactly the convention default,
+  so dropping it (and the `SITE_ROOT` variable) leaves the published site byte-for-byte identical, and
+  everything else they pass is a build flag.
 - Vault mode is untouched. A vault note's icons and the workspace's home still come from the ambient
   config; a vault export has no `site.yml` to read (its content is not a directory).
 - The cost is a second config surface. It is bounded by the ownership rule above: a key belongs in

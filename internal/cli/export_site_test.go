@@ -81,3 +81,20 @@ func TestExportSiteRequiresRoot(t *testing.T) {
 		t.Fatalf("expected --root required error, got code=%d out=%v", code, out)
 	}
 }
+
+// --root is vault-mode only. In directory mode the entry page comes from the site's own config, so the
+// flag is rejected outright, naming its replacement — silently ignoring it would publish a front door
+// the caller did not ask for.
+func TestExportSiteDirRejectsRoot(t *testing.T) {
+	vault := t.TempDir()
+	src := t.TempDir()
+	if err := os.WriteFile(filepath.Join(src, "index.md"), []byte("# Index\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	out, code := runIn(t, vault, "export-site", "--src", src, "--root", "index",
+		"--frontend", fakeFrontend(t), "--out", filepath.Join(vault, "site"))
+	msg, _ := out["error"].(string)
+	if code != 1 || !strings.Contains(msg, "vault-mode") || !strings.Contains(msg, "site.yml") {
+		t.Fatalf("expected --root rejected with site.yml named, got code=%d out=%v", code, out)
+	}
+}

@@ -6,7 +6,8 @@
 # per-PR preview URL.
 
 # The site's entry page: a file base name (docs/help/index.md) or a page title, base name first.
-# `--root` overrides it.
+# Unset, a page named `index` is the fallback. There is no flag for it — the front door is the same
+# wherever this site is deployed.
 home: index
 
 # Tag and kind icon maps, the same shape and precedence as the ambient config's `icons:` (a page's own

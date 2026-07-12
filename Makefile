@@ -6,7 +6,6 @@
 
 SITE_OUT   ?= _site
 SITE_SRC   ?= docs/help
-SITE_ROOT  ?= index
 SITE_PORT  ?= 8000
 WEB_ADDR   ?= 127.0.0.1:8765
 TRACK_BIN  := bin/track
@@ -31,7 +30,7 @@ site: web/node_modules ## Build + prerender the static help site into $(SITE_OUT
 	cd web && VITE_TRACK_STATIC=1 SITE_BASE=$(SITE_BASE) npx vite build --outDir dist-static
 	cd web && VITE_TRACK_STATIC=1 SITE_BASE=$(SITE_BASE) npx vite build --ssr src/entry-server.tsx --outDir dist-server
 	go build -o $(TRACK_BIN) ./cmd/track
-	./$(TRACK_BIN) export-site --src $(SITE_SRC) --root $(SITE_ROOT) --frontend $(WEB_DIST) --out $(SITE_OUT)
+	./$(TRACK_BIN) export-site --src $(SITE_SRC) --frontend $(WEB_DIST) --out $(SITE_OUT)
 	node web/scripts/prerender.mjs $(SITE_OUT) web/dist-server/entry-server.js
 	@echo "Built + prerendered $(SITE_OUT)/ — run 'make site-serve' to preview"
 
@@ -46,7 +45,7 @@ lighthouse: site ## Run Lighthouse on the built site and print the scores (needs
 site-data:
 	go build -o $(TRACK_BIN) ./cmd/track
 	mkdir -p .site-stub && printf '<!doctype html><div id="root"></div>' > .site-stub/index.html
-	./$(TRACK_BIN) export-site --src $(SITE_SRC) --root $(SITE_ROOT) --frontend .site-stub --out $(SITE_OUT)
+	./$(TRACK_BIN) export-site --src $(SITE_SRC) --frontend .site-stub --out $(SITE_OUT)
 
 site-dev: web/node_modules site-data ## Dev preview: Vite dev server (HMR) over the exported data — fast iteration
 	@echo "Vite dev server (static mode, HMR). Edit web/src for instant reload; re-run 'make site-data' after docs/help edits."
@@ -67,7 +66,7 @@ site-serve: site ## Serve at http://localhost:$(SITE_PORT), open a browser, and 
 			$(MAKE) --no-print-directory site; \
 		elif [ -n "$$(find $(SITE_SRC) -type f -newer $(SITE_OUT)/index.html 2>/dev/null)" ]; then \
 			echo "== docs changed — rebuilding content =="; \
-			./$(TRACK_BIN) export-site --src $(SITE_SRC) --root $(SITE_ROOT) --frontend $(WEB_DIST) --out $(SITE_OUT); \
+			./$(TRACK_BIN) export-site --src $(SITE_SRC) --frontend $(WEB_DIST) --out $(SITE_OUT); \
 		fi; \
 		sleep 1; \
 	done

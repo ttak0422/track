@@ -249,13 +249,13 @@ A crontab line that refreshes every 15 minutes:
 site — see [[Web workspace]] for the rendered reading experience it mirrors.
 
 ```sh
-track export-site --src docs/help --root index --out ./site
+track export-site --src docs/help --out ./site
 ```
 
 `--src` publishes a plain Markdown directory (this help site is built that way); without it, the site is
-built from vault notes and `--root` is a note id. The directory can carry a `site.yml` naming its entry
-page and its icons — see [[Home dashboard]]. `--base-url`, `--out`, and `--frontend` are per-deployment
-build flags, not part of that config.
+built from vault notes and `--root <id>` is the landing note. The directory names its entry page and its
+icons in a `site.yml` of its own — see [[Home dashboard]]. `--base-url`, `--out`, and `--frontend` are
+per-deployment build flags, not part of that config.
 
 `track render` turns a declarative View Spec into a chart or article — see [[Visualization]].
 

@@ -29,9 +29,8 @@ import (
 // page's metadata — its properties, its tags, its icon — comes only from its own inline "key:: value"
 // fields. The site's own settings (its entry page, its icon maps) come from an optional
 // "<srcDir>/site.yml" that travels with the content (see siteConfig); with no such file this is a plain,
-// config-free directory export. rootName is the --root flag: a one-off override of the entry page (with
-// or without ".md") that beats site.yml, which beats the "index" convention.
-func BuildDir(srcDir, rootName, baseURL, frontendDir, outDir string) (Result, error) {
+// config-free directory export whose entry page is the "index" convention.
+func BuildDir(srcDir, baseURL, frontendDir, outDir string) (Result, error) {
 	sc, err := loadSiteConfig(srcDir)
 	if err != nil {
 		return Result{}, err
@@ -77,16 +76,13 @@ func BuildDir(srcDir, rootName, baseURL, frontendDir, outDir string) (Result, er
 		keyToID[f.title] = id
 	}
 
-	// The entry page, named the same way a wiki link is: by file base name or by page title. --root (a
-	// one-off build) beats the site's own "home", which beats the "index" convention. Nothing found is a
-	// loud error — a site whose landing page silently moved is worse than one that fails to build. File
-	// base names are matched first, and never through the merged link map: titles and base names share
-	// that namespace, so a page whose H1 happens to spell another page's file name would otherwise steal
-	// the front door — the same silent move, dressed as a link.
-	entry := rootName
-	if entry == "" {
-		entry = sc.Home
-	}
+	// The entry page, named the same way a wiki link is: by file base name or by page title. The site's
+	// own "home" names it; with no config, the "index" convention does. Nothing found is a loud error —
+	// a site whose landing page silently moved is worse than one that fails to build. File base names
+	// are matched first, and never through the merged link map: titles and base names share that
+	// namespace, so a page whose H1 happens to spell another page's file name would otherwise steal the
+	// front door — the same silent move, dressed as a link.
+	entry := sc.Home
 	if entry == "" {
 		entry = "index"
 	}
@@ -163,7 +159,7 @@ var siteConfigNames = []string{"site.yml", "site.yaml"}
 // Anything that changes per deployment of the same content (--base-url, --out, --frontend) stays a
 // build flag, not site config. Absent file = zero value = a plain directory export, unchanged.
 type siteConfig struct {
-	// Home is the site's entry page, by file base name or page title. The --root flag overrides it.
+	// Home is the site's entry page, by file base name or page title. Unset, the "index" convention.
 	Home string `yaml:"home"`
 	// Icons maps a tag or a page kind to an emoji, exactly like the ambient config's icons: same shape,
 	// same meaning, same precedence (see config.NoteIcon), so what you know from a vault carries over.

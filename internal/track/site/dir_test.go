@@ -25,7 +25,7 @@ func TestBuildDirBundle(t *testing.T) {
 	}
 
 	out := t.TempDir()
-	res, err := BuildDir(src, "index", "", fakeFrontend(t), out)
+	res, err := BuildDir(src, "", fakeFrontend(t), out)
 	if err != nil {
 		t.Fatalf("BuildDir: %v", err)
 	}
@@ -103,7 +103,7 @@ func TestBuildDirResolvesSpecAssetToEChartsOption(t *testing.T) {
 	write(filepath.Join("assets", "c.viewspec.json"), spec)
 
 	out := t.TempDir()
-	if _, err := BuildDir(src, "index", "", fakeFrontend(t), out); err != nil {
+	if _, err := BuildDir(src, "", fakeFrontend(t), out); err != nil {
 		t.Fatalf("BuildDir: %v", err)
 	}
 
@@ -128,13 +128,13 @@ func TestBuildDirResolvesSpecAssetToEChartsOption(t *testing.T) {
 	}
 }
 
-func TestBuildDirRejectsMissingRoot(t *testing.T) {
+func TestBuildDirRejectsMissingEntry(t *testing.T) {
 	src := t.TempDir()
 	if err := os.WriteFile(filepath.Join(src, "a.md"), []byte("# A\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := BuildDir(src, "index", "", fakeFrontend(t), t.TempDir()); err == nil {
-		t.Fatalf("expected error when root file is absent")
+	if _, err := BuildDir(src, "", fakeFrontend(t), t.TempDir()); err == nil {
+		t.Fatalf("expected error when the entry page is absent")
 	}
 }
 
@@ -151,7 +151,7 @@ func TestBuildDirIconFromInlineField(t *testing.T) {
 	write("blank.md", "# Blank\n\nicon:: \n") // empty value: no icon
 
 	out := t.TempDir()
-	if _, err := BuildDir(src, "index", "", fakeFrontend(t), out); err != nil {
+	if _, err := BuildDir(src, "", fakeFrontend(t), out); err != nil {
 		t.Fatalf("BuildDir: %v", err)
 	}
 
@@ -189,7 +189,7 @@ func TestBuildDirPublishesInlineFieldProps(t *testing.T) {
 	}
 
 	out := t.TempDir()
-	if _, err := BuildDir(src, "index", "", fakeFrontend(t), out); err != nil {
+	if _, err := BuildDir(src, "", fakeFrontend(t), out); err != nil {
 		t.Fatalf("BuildDir: %v", err)
 	}
 
@@ -215,10 +215,10 @@ func writeDir(t *testing.T, files map[string]string) string {
 }
 
 // rootTitle builds the site and returns the title of its entry page.
-func rootTitle(t *testing.T, src, rootName string) string {
+func rootTitle(t *testing.T, src string) string {
 	t.Helper()
 	out := t.TempDir()
-	if _, err := BuildDir(src, rootName, "", fakeFrontend(t), out); err != nil {
+	if _, err := BuildDir(src, "", fakeFrontend(t), out); err != nil {
 		t.Fatalf("BuildDir: %v", err)
 	}
 	site := readJSON[jsonSite](t, filepath.Join(out, "data", "site.json"))
@@ -232,26 +232,22 @@ func TestBuildDirSiteConfigHome(t *testing.T) {
 	}
 
 	// No site.yml: the "index" convention.
-	if got := rootTitle(t, writeDir(t, files), ""); got != "Index" {
+	if got := rootTitle(t, writeDir(t, files)); got != "Index" {
 		t.Errorf("without site.yml, entry = %q, want Index", got)
 	}
 
-	// home by file base name, and by page title.
+	// home by file base name, and by page title. It is the only way to name the entry page: there is no
+	// flag to override it with.
 	for _, home := range []string{"start", "Start here"} {
 		files["site.yml"] = "home: " + home + "\n"
-		src := writeDir(t, files)
-		if got := rootTitle(t, src, ""); got != "Start here" {
+		if got := rootTitle(t, writeDir(t, files)); got != "Start here" {
 			t.Errorf("home %q: entry = %q, want Start here", home, got)
-		}
-		// --root is a one-off override and beats the site's home.
-		if got := rootTitle(t, src, "index"); got != "Index" {
-			t.Errorf("home %q: --root index gave entry %q, want Index", home, got)
 		}
 	}
 
-	// A home naming no page is as loud as a missing --root.
+	// A home naming no page fails loudly rather than publishing a different front door.
 	src := writeDir(t, map[string]string{"index.md": "# Index\n", "site.yml": "home: ghost\n"})
-	if _, err := BuildDir(src, "", "", fakeFrontend(t), t.TempDir()); err == nil || !strings.Contains(err.Error(), "ghost") {
+	if _, err := BuildDir(src, "", fakeFrontend(t), t.TempDir()); err == nil || !strings.Contains(err.Error(), "ghost") {
 		t.Fatalf("expected a loud error naming the missing entry page, got %v", err)
 	}
 }
@@ -263,10 +259,9 @@ func TestBuildDirEntryPrefersFileNameOverTitle(t *testing.T) {
 		"index.md":    "# Track help\n", // the real landing page
 		"synonyms.md": "# index\n",      // its title happens to spell the other page's file name
 	}
-	for _, c := range []struct{ name, root, config string }{
-		{"convention", "", ""},
-		{"--root", "index", ""},
-		{"site home", "", "home: index\n"},
+	for _, c := range []struct{ name, config string }{
+		{"convention", ""},
+		{"site home", "home: index\n"},
 	} {
 		t.Run(c.name, func(t *testing.T) {
 			if c.config != "" {
@@ -274,7 +269,7 @@ func TestBuildDirEntryPrefersFileNameOverTitle(t *testing.T) {
 			} else {
 				delete(files, "site.yml")
 			}
-			if got := rootTitle(t, writeDir(t, files), c.root); got != "Track help" {
+			if got := rootTitle(t, writeDir(t, files)); got != "Track help" {
 				t.Errorf("entry = %q, want Track help (index.md)", got)
 			}
 		})
@@ -290,7 +285,7 @@ func TestBuildDirSiteConfigFileName(t *testing.T) {
 		for k, v := range pages {
 			files[k] = v
 		}
-		if got := rootTitle(t, writeDir(t, files), ""); got != "Start here" {
+		if got := rootTitle(t, writeDir(t, files)); got != "Start here" {
 			t.Errorf("%s: entry = %q, want Start here", name, got)
 		}
 	}
@@ -299,7 +294,7 @@ func TestBuildDirSiteConfigFileName(t *testing.T) {
 	for k, v := range pages {
 		files[k] = v
 	}
-	_, err := BuildDir(writeDir(t, files), "", "", fakeFrontend(t), t.TempDir())
+	_, err := BuildDir(writeDir(t, files), "", fakeFrontend(t), t.TempDir())
 	if err == nil || !strings.Contains(err.Error(), "site.yaml") || !strings.Contains(err.Error(), "site.yml") {
 		t.Fatalf("two site configs should be a loud error naming both, got %v", err)
 	}
@@ -319,7 +314,7 @@ func TestBuildDirSiteConfigRejectsBadFile(t *testing.T) {
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {
 			src := writeDir(t, map[string]string{"index.md": "# Index\n", "site.yml": c.yaml})
-			_, err := BuildDir(src, "", "", fakeFrontend(t), t.TempDir())
+			_, err := BuildDir(src, "", fakeFrontend(t), t.TempDir())
 			if err == nil {
 				t.Fatalf("expected an error, got none")
 			}
@@ -342,7 +337,7 @@ func TestBuildDirSiteConfigIcons(t *testing.T) {
 	})
 
 	out := t.TempDir()
-	if _, err := BuildDir(src, "index", "", fakeFrontend(t), out); err != nil {
+	if _, err := BuildDir(src, "", fakeFrontend(t), out); err != nil {
 		t.Fatalf("BuildDir: %v", err)
 	}
 
