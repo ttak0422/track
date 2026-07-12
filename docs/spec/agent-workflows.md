@@ -63,6 +63,16 @@ track search --query "graph OR chart"          # either word
 track search --query "#zettel graph"           # tagged #zettel and titled …graph…
 ```
 
+List notes without a query — `{"notes":[{"note_id":…,"title":…,"tags":…}, …]}`, newest first, journals
+excluded. `--untagged` is the pull side of a tag-curation pass: it returns exactly the notes that still
+carry no tags, so a sweep can fetch them and add tags with `track append --tag`:
+
+```sh
+track notes                                    # every note, newest first
+track notes --untagged --limit 20              # the next 20 notes that need tags
+track append --title "Draft" --tag zettel      # merge a tag into an existing note
+```
+
 Read a full portable Markdown rendering:
 
 ```sh
@@ -133,3 +143,35 @@ excluded, so an undo never restores or removes attachments.
 `track doctor` is a read-only health check that never changes files. It reports vault/sidecar divergence — the kind a cloud sync (e.g. OneDrive) can introduce — as a JSON `issues` array, with `ok: true` when clean. Issue kinds: `missing_sidecar`, `orphan_sidecar`, `stray_file` (e.g. a conflict copy that breaks the `<id>.md` naming rule), `unreadable_sidecar`, and `duplicate_title`. Finding issues is not an error, so it still exits 0; only real failures use the `{"error":...}`/exit 1 contract. Run it before a `reindex --full` if you suspect a partially synced vault, so an orphan sidecar is not mistaken for a delete.
 
 `track doctor --fix` repairs that divergence by auto-numbered restore, then reindexes: it writes a fresh `Untitled N` sidecar for a `missing_sidecar`, recreates an empty markdown for an `orphan_sidecar`, keeps the lowest id and renumbers the rest for a `duplicate_title`, and imports a `stray_file` as a new note with a fresh id and title. An `unreadable_sidecar` is reported under `skipped` rather than guessed at. The response carries `changed`, `fixed`, and `skipped`.
+
+`track refresh-all` runs this maintenance pipeline in one idempotent pass — a full `reindex --full` followed by a read-only `doctor` report — for unattended scheduling (cron/launchd). It edits no notes, so repeated runs converge and a `doctor` finding is not a failure; only real errors use the `{"error":...}`/exit 1 contract. The response nests both stages:
+
+```json
+{"reindex":{"indexed":42,"deleted":0,"links":17},"doctor":{"scanned":42,"issues":[],"ok":true},"took_ms":12}
+```
+
+Schedule it to keep the index in step with a vault a cloud sync edits behind track's back. A crontab line every 15 minutes:
+
+```cron
+*/15 * * * * /usr/local/bin/track refresh-all >/dev/null 2>&1
+```
+
+Or a launchd agent at `~/Library/LaunchAgents/dev.track.refresh.plist` (`launchctl load` it once):
+
+```xml
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+  <key>Label</key>            <string>dev.track.refresh</string>
+  <key>ProgramArguments</key> <array>
+    <string>/usr/local/bin/track</string>
+    <string>refresh-all</string>
+  </array>
+  <key>StartInterval</key>    <integer>900</integer>
+  <key>RunAtLoad</key>        <true/>
+</dict>
+</plist>
+```
+
+Point the schedule at the right vault with `TRACK_VAULT` (or a `TRACK_CONFIG` file) in the job's environment, since cron and launchd run with a bare environment.

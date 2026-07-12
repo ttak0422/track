@@ -14,6 +14,7 @@ import (
 	"slices"
 	"strings"
 	"testing"
+	"testing/fstest"
 	"time"
 
 	"github.com/ttak0422/track/internal/track/config"
@@ -124,22 +125,17 @@ func TestAPIHandlers(t *testing.T) {
 	}
 }
 
-func TestAppServesLocalWebDistWhenPresent(t *testing.T) {
-	cwd := t.TempDir()
-	t.Chdir(cwd)
-	if err := os.MkdirAll(filepath.Join(cwd, "web", "dist", "assets"), 0o755); err != nil {
-		t.Fatal(err)
+func TestServesFrontendWithThemeInjectionAndAssets(t *testing.T) {
+	// Inject a controllable frontend as the served webRoot (the handlers read s.webRoot at request
+	// time), so this exercises theme-placeholder injection, immutable asset caching, and the JSON 404
+	// for a missing asset without depending on any on-disk build.
+	index := `<!doctype html><html><head><script>window.theme="__TRACK_DEFAULT_THEME__"</script>__TRACK_COLOR_OVERRIDES__<script type="module" src="/assets/app.js"></script></head><body><div id="root">local app</div></body></html>`
+	srv := New(&config.Config{WebTheme: "dark"}, nil)
+	srv.webRoot = fstest.MapFS{
+		"index.html":    {Data: []byte(index)},
+		"assets/app.js": {Data: []byte(`console.log("local app")`)},
 	}
-	index := `<!doctype html><html><head><script>// __TRACK_DEFAULT_THEME__ appears in the Vite source comment too.
-window.theme="__TRACK_DEFAULT_THEME__"</script>__TRACK_COLOR_OVERRIDES__<script type="module" src="/assets/app.js"></script></head><body><div id="root">local app</div></body></html>`
-	if err := os.WriteFile(filepath.Join(cwd, "web", "dist", "index.html"), []byte(index), 0o644); err != nil {
-		t.Fatal(err)
-	}
-	if err := os.WriteFile(filepath.Join(cwd, "web", "dist", "assets", "app.js"), []byte(`console.log("local app")`), 0o644); err != nil {
-		t.Fatal(err)
-	}
-
-	server := httptest.NewServer(New(&config.Config{WebTheme: "dark"}, nil).Handler())
+	server := httptest.NewServer(srv.Handler())
 	t.Cleanup(server.Close)
 
 	resp, err := http.Get(server.URL + "/")
@@ -185,39 +181,23 @@ window.theme="__TRACK_DEFAULT_THEME__"</script>__TRACK_COLOR_OVERRIDES__<script 
 	}
 }
 
-func TestAppIgnoresPlaceholderLocalWebDist(t *testing.T) {
-	cwd := t.TempDir()
-	t.Chdir(cwd)
-	if err := os.MkdirAll(filepath.Join(cwd, "web", "dist"), 0o755); err != nil {
-		t.Fatal(err)
-	}
-	if err := os.WriteFile(filepath.Join(cwd, "web", "dist", "index.html"), []byte("LOCAL PLACEHOLDER"), 0o644); err != nil {
-		t.Fatal(err)
-	}
-
-	srv := New(&config.Config{}, nil)
-	raw, err := fs.ReadFile(srv.webRoot, "index.html")
-	if err != nil {
-		t.Fatal(err)
-	}
-	if strings.Contains(string(raw), "LOCAL PLACEHOLDER") {
-		t.Fatalf("placeholder web/dist should not replace embedded frontend")
-	}
-}
-
-func TestAppIgnoresIncompleteLocalWebDist(t *testing.T) {
+// track serves only the embedded frontend. A web/dist in the working directory must never shadow it —
+// so a Nix binary run from the repo root can't silently serve a stale hand-built dist. (Frontend
+// iteration goes through the Vite dev server, which proxies /api instead.)
+func TestServesEmbeddedFrontendIgnoringLocalWebDist(t *testing.T) {
 	cwd := t.TempDir()
 	t.Chdir(cwd)
 	dist := filepath.Join(cwd, "web", "dist")
-	if err := os.MkdirAll(dist, 0o755); err != nil {
+	if err := os.MkdirAll(filepath.Join(dist, "assets"), 0o755); err != nil {
 		t.Fatal(err)
 	}
+	// A complete-looking local build: index.html plus the asset it references.
 	index := `<!doctype html><script type="module" src="/assets/app.js"></script>`
 	if err := os.WriteFile(filepath.Join(dist, "index.html"), []byte(index), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	if isBuiltFrontendDist(dist) {
-		t.Fatalf("web/dist without referenced assets must not be treated as built")
+	if err := os.WriteFile(filepath.Join(dist, "assets", "app.js"), []byte("// local"), 0o644); err != nil {
+		t.Fatal(err)
 	}
 
 	srv := New(&config.Config{}, nil)
@@ -226,7 +206,7 @@ func TestAppIgnoresIncompleteLocalWebDist(t *testing.T) {
 		t.Fatal(err)
 	}
 	if strings.Contains(string(raw), "/assets/app.js") {
-		t.Fatalf("incomplete web/dist should not replace embedded frontend")
+		t.Fatalf("a local web/dist must not replace the embedded frontend")
 	}
 }
 
