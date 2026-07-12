@@ -13,6 +13,7 @@ import (
 	"github.com/ttak0422/track/internal/track/config"
 	"github.com/ttak0422/track/internal/track/index"
 	"github.com/ttak0422/track/internal/track/note"
+	"github.com/ttak0422/track/internal/track/similar"
 	"github.com/ttak0422/track/internal/track/store"
 )
 
@@ -99,6 +100,63 @@ func cmdSearch(args []string) int {
 		results = []store.SearchResult{}
 	}
 	return emit(map[string]any{"results": results})
+}
+
+// cmdSimilar lists the notes semantically closest to a note by cosine similarity of their embedding
+// vectors. Vectors come from the configured embedder command (heavy lifting outside the engine) and are
+// cached by content hash, so only new or changed notes are re-embedded. With no embedder configured it
+// prints how to set one up and exits 0, so callers never see this optional feature as a hard failure.
+func cmdSimilar(args []string) int {
+	fs := flag.NewFlagSet("similar", flag.ContinueOnError)
+	id := fs.Int64("id", 0, "note id to find related notes for")
+	limit := fs.Int("limit", 10, "max related notes")
+	if err := fs.Parse(args); err != nil {
+		return fail("parse args: %v", err)
+	}
+	if *id == 0 {
+		return fail("--id is required")
+	}
+
+	cfg, s, err := open()
+	if err != nil {
+		return fail("%v", err)
+	}
+	defer s.Close()
+
+	embed, ok := similar.CommandEmbedder(cfg)
+	if !ok {
+		return emit(map[string]any{
+			"embedder": false,
+			"message": "no embedder configured. Set `embedder` in config.yml (or the TRACK_EMBEDDER env) to a " +
+				"command that reads a note's text on stdin and prints a JSON array of floats on stdout, e.g. " +
+				"`embedder: track-embed --model all-minilm`. See the CLI help page for details.",
+		})
+	}
+
+	// Self-heal the index, then embed any note whose text changed since it was last embedded. Unchanged
+	// notes are skipped by content hash, so repeated calls stay cheap.
+	if _, err := index.New(cfg, s).RefreshIfStale(); err != nil {
+		return fail("refresh index: %v", err)
+	}
+	if _, err := similar.Ensure(cfg, s, embed); err != nil {
+		return fail("embed: %v", err)
+	}
+
+	all, err := s.AllEmbeddings()
+	if err != nil {
+		return fail("load embeddings: %v", err)
+	}
+	results, err := similar.Nearest(all, *id, *limit)
+	if err != nil {
+		return fail("similar: %v", err)
+	}
+	for i := range results {
+		results[i].Path = cfg.PathForKind(results[i].FileKind, results[i].NoteID)
+	}
+	if results == nil {
+		results = []similar.Result{}
+	}
+	return emit(map[string]any{"embedder": true, "id": *id, "results": results})
 }
 
 // cmdNotes lists indexed notes as JSON, most recently updated first — the CLI counterpart of the web
