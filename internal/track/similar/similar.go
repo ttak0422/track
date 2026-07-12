@@ -97,7 +97,9 @@ func Ensure(cfg *config.Config, s *store.Store, embed EmbedFunc) (int, error) {
 	if err != nil {
 		return 0, err
 	}
-	sig := strings.Join(cfg.EmbedderCommand, " ")
+	// NUL-joined so the signature stays injective: sequence-form argv elements may contain spaces, and
+	// a space join would let two different commands share a signature and never trigger a re-embed.
+	sig := strings.Join(cfg.EmbedderCommand, "\x00")
 
 	embedded := 0
 	for _, n := range notes {
@@ -191,7 +193,7 @@ func hashText(sig, text string) string {
 }
 
 // cosine returns the cosine similarity of two vectors, 0 when either is zero-length or a zero vector, or
-// when their dimensions disagree (a corrupt cache entry ranks last rather than crashing the scan).
+// when their dimensions disagree (a corrupt cache entry scores 0 rather than crashing the scan).
 func cosine(a, b []float32) float64 {
 	if len(a) != len(b) {
 		return 0

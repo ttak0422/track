@@ -274,6 +274,13 @@ func TestLoadEmbedderRejectsBadValues(t *testing.T) {
 	if _, err := loadWithEmbedder(t, "embedder: [\"\", --model, mini]\n"); err == nil || !strings.Contains(err.Error(), "embedder") {
 		t.Fatalf("empty argv[0] must error naming the key, got %v", err)
 	}
+	// A null sequence element must fail loudly, not be silently dropped from argv (yaml.v3 skips
+	// nulls when decoding into []string, which would make a flag vanish or shift argv[0]).
+	for _, line := range []string{"embedder: [track-embed, ~]\n", "embedder: [~, --model]\n", "embedder: [~]\n"} {
+		if _, err := loadWithEmbedder(t, line); err == nil || !strings.Contains(err.Error(), "embedder") {
+			t.Fatalf("%q must error naming the key, got %v", line, err)
+		}
+	}
 }
 
 func equalStrings(a, b []string) bool {

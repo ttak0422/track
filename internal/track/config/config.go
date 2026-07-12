@@ -101,9 +101,18 @@ func (a *argvList) UnmarshalYAML(value *yaml.Node) error {
 		*a = strings.Fields(value.Value)
 		return nil
 	case yaml.SequenceNode:
-		var argv []string
-		if err := value.Decode(&argv); err != nil {
-			return fmt.Errorf("embedder: %w", err)
+		// Decode element by element: yaml.v3 silently drops null items when decoding into []string,
+		// which would make a flag vanish (or shift argv[0]) instead of failing loudly at load.
+		argv := make([]string, len(value.Content))
+		for i, item := range value.Content {
+			var s *string
+			if err := item.Decode(&s); err != nil {
+				return fmt.Errorf("embedder: %w", err)
+			}
+			if s == nil {
+				return fmt.Errorf("embedder: list element %d is null, want a string", i+1)
+			}
+			argv[i] = *s
 		}
 		*a = argv
 		return nil

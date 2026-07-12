@@ -187,6 +187,18 @@ func TestEnsureSkipsUnchanged(t *testing.T) {
 	if n != 2 || calls != 2 {
 		t.Fatalf("embedder-swap ensure: embedded %d, %d calls; want 2 and 2", n, calls)
 	}
+
+	// A different split of the same words is a different command and must also re-embed: argv
+	// elements may contain spaces, so a space-joined signature would collide here.
+	cfg.EmbedderCommand = []string{"other", "model"}
+	calls = 0
+	n, err = Ensure(cfg, s, counting)
+	if err != nil {
+		t.Fatalf("ensure after argv resplit: %v", err)
+	}
+	if n != 2 || calls != 2 {
+		t.Fatalf("argv-resplit ensure: embedded %d, %d calls; want 2 and 2", n, calls)
+	}
 }
 
 func writeNote(t *testing.T, cfg *config.Config, id int64, title, body string) {

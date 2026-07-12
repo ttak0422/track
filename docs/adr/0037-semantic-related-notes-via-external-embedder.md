@@ -50,6 +50,6 @@ executables the engine invokes, and their output files are the authoritative art
 - Cosine on raw model output assumes the embedder emits comparable vectors; normalisation and model
   choice are the user's responsibility, matching the "heavy lifting outside the engine" split.
 - An embedder switch is not cache-atomic — a mid-run failure leaves rows whose hashes no longer match —
-  but ranking only runs after a fully successful Ensure, cosine ranks any dimension mismatch last, and
+  but ranking only runs after a fully successful Ensure, cosine scores any dimension mismatch 0, and
   the stale rows self-heal on the next successful run, so no transactional staging is needed for a
   rebuildable cache.
