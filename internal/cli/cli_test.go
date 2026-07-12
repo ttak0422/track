@@ -7,9 +7,11 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"slices"
 	"strconv"
 	"strings"
 	"testing"
+	"time"
 
 	_ "modernc.org/sqlite"
 )
@@ -716,6 +718,78 @@ func TestSearch(t *testing.T) {
 	bad, code := runIn(t, vault, "search", "--scope", "bogus", "--query", "needle")
 	if code != 1 || !strings.Contains(bad["error"].(string), "unknown search scope") {
 		t.Fatalf("expected invalid scope error, code=%d out=%v", code, bad)
+	}
+}
+
+// TestSearchBodyFTSReindexAndFallback exercises the FTS body search end to end: text inside a code
+// fence is searchable, an edit picked up only by the self-heal reindex changes results, and CJK works
+// on both the trigram-indexed path (3+ chars) and the short-term scan fallback (2 chars).
+func TestSearchBodyFTSReindexAndFallback(t *testing.T) {
+	vault := t.TempDir()
+
+	runIn(t, vault, "new", "--title", "Deploy runbook", "--id", "800")
+	notePath := filepath.Join(vault, "note", "800.md")
+	writeBody := func(body string, mtime time.Time) {
+		t.Helper()
+		if err := os.WriteFile(notePath, []byte(body), 0o644); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.Chtimes(notePath, mtime, mtime); err != nil {
+			t.Fatal(err)
+		}
+	}
+	bodyHitIDs := func(query string) []int64 {
+		t.Helper()
+		res, code := runIn(t, vault, "search", "--scope", "body", "--query", query)
+		if code != 0 {
+			t.Fatalf("body search %q failed: %v", query, res)
+		}
+		var ids []int64
+		for _, r := range res["results"].([]any) {
+			ids = append(ids, int64(r.(map[string]any)["note_id"].(float64)))
+		}
+		return ids
+	}
+
+	// A term that only appears inside a fenced code block is still indexed and searchable.
+	writeBody("# Deploy\n\n```yaml\nruntime: containerd\n```\n", time.Now())
+	if rep, code := runIn(t, vault, "reindex", "--full"); code != 0 {
+		t.Fatalf("reindex failed: %v", rep)
+	}
+	if got := bodyHitIDs("containerd"); !slices.Equal(got, []int64{800}) {
+		t.Fatalf("code-block term should be searchable, got %v", got)
+	}
+
+	// Edit the file directly and bump its mtime so only the pre-read self-heal reindex (not an explicit
+	// reindex) refreshes the FTS index. The old term must disappear and the new one appear.
+	writeBody("# Deploy\n\nmigrated to servicemesh routing\n", time.Now().Add(10*time.Second))
+	if got := bodyHitIDs("containerd"); len(got) != 0 {
+		t.Fatalf("stale term should be gone after self-heal reindex, got %v", got)
+	}
+	if got := bodyHitIDs("servicemesh"); !slices.Equal(got, []int64{800}) {
+		t.Fatalf("edited-in term should be searchable after self-heal reindex, got %v", got)
+	}
+
+	// CJK: 3-character テスト uses the trigram index; 2-character 世界 uses the scan fallback. Both find it.
+	runIn(t, vault, "new", "--title", "日本語メモ", "--id", "801")
+	cjkPath := filepath.Join(vault, "note", "801.md")
+	if err := os.WriteFile(cjkPath, []byte("# メモ\n\nこれは世界についてのテスト本文です\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if rep, code := runIn(t, vault, "reindex", "--full"); code != 0 {
+		t.Fatalf("reindex failed: %v", rep)
+	}
+	if got := bodyHitIDs("テスト"); !slices.Equal(got, []int64{801}) {
+		t.Fatalf("3-char CJK query (FTS path) should match, got %v", got)
+	}
+	if got := bodyHitIDs("世界"); !slices.Equal(got, []int64{801}) {
+		t.Fatalf("2-char CJK query (scan fallback) should match, got %v", got)
+	}
+
+	// OR spans notes served by different paths: servicemesh (800) and the 2-char 世界 (801). A short
+	// term routes the whole query through the scan fallback, which honours the same OR grouping.
+	if got := bodyHitIDs("世界 OR servicemesh"); func() bool { slices.Sort(got); return !slices.Equal(got, []int64{800, 801}) }() {
+		t.Fatalf("OR across both notes should match both, got %v", got)
 	}
 }
 
