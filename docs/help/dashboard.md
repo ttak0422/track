@@ -25,13 +25,15 @@ with `track export-site --root` plays the same role.
 Fence a block with `dashboard` — the same way a `mermaid` fence draws a diagram — and fill it with a
 small YAML config:
 
-```yaml
+````markdown
+```dashboard
 recent: 5          # a list of the 5 most-recently-updated notes
 journal: true      # a shortcut to today's journal
 pinned:            # notes you want one click away
   - Syntax
   - Web workspace
 ```
+````
 
 Every field is optional. The engine resolves the block to ordinary Markdown — bulleted `[[wiki links]]`
 under a heading per widget — so it renders identically in the live workspace (resolved on each view, so
