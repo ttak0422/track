@@ -209,21 +209,6 @@ func InlineFields(body string) []Prop {
 	return out
 }
 
-// BlankFieldLines empties every whole-line "key:: value" field in body. Such a line is pure metadata —
-// a frontend shows it in the note's property strip (InlineFields indexes it from the source), so
-// rendering its text as prose too would print the same fact twice, as raw syntax. The line is emptied
-// rather than dropped so every later line keeps its number, which include resolution splices against.
-// A bracketed [key:: value] stays: it is a sentence's own words, data and prose at once.
-func BlankFieldLines(body string) string {
-	lines := strings.Split(body, "\n")
-	scanProse(body, func(line string, num int) {
-		if inlineLineRe.MatchString(line) {
-			lines[num-1] = ""
-		}
-	})
-	return strings.Join(lines, "\n")
-}
-
 func fieldProps(key, value string, line int) []Prop {
 	var out []Prop
 	for _, item := range splitList(value) {

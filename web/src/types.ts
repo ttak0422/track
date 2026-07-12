@@ -18,9 +18,9 @@ export interface SearchResult extends NoteRef {
   // static), which the calendar derives its per-day note lists from. Journals carry none.
   days?: string[];
   // Icon shown beside the title in search results (SearchPanel — the only surface that draws it).
-  // Resolved by the engine: from the config tag/kind mapping plus the per-note sidecar override
-  // (config.NoteIcon) in a vault, or from the page's "icon::" inline field in a directory export.
-  // Empty means no icon.
+  // Resolved by the engine (config.NoteIcon): the note's own sidecar override, then a tag mapping, then a
+  // kind mapping — from the user's config in a vault, from the published site's site.yml in a directory
+  // export. Empty means no icon.
   icon?: string;
   line?: number;
   snippet?: string;

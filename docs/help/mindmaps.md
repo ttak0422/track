@@ -5,8 +5,6 @@ an idea, or of the note itself. The tree is laid out by a small built-in SVG ren
 no external engine, follow the light/dark theme, and are already drawn in the published static export
 before any script runs.
 
-icon:: 🧠
-
 Part of [[Visualization]] (see also [[Diagrams]] and [[Charts]]). Back to [[track]].
 
 ## A note's own structure

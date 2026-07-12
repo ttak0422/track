@@ -138,55 +138,68 @@ func TestBuildDirRejectsMissingEntry(t *testing.T) {
 	}
 }
 
-func TestBuildDirIconFromInlineField(t *testing.T) {
-	src := t.TempDir()
-	write := func(name, body string) {
-		if err := os.WriteFile(filepath.Join(src, name), []byte(body), 0o644); err != nil {
-			t.Fatal(err)
-		}
-	}
-	write("index.md", "# Home\n\nicon:: 📓\n\nsee [[cli]], [[plain]] and [[blank]]\n")
-	write("cli.md", "# CLI\n\nicon:: 🛠\nicon:: 🔥\n") // more than one field: the first wins
-	write("plain.md", "# Plain\n\nno fields here\n")
-	write("blank.md", "# Blank\n\nicon:: \n") // empty value: no icon
+// A page's metadata comes from its sidecar at .track/<name>.yml — the same body/metadata split a vault
+// note has. A page without one is exactly a plain Markdown file, as it was before sidecars existed.
+func TestBuildDirPageSidecar(t *testing.T) {
+	src := writeDir(t, map[string]string{
+		"index.md":         "# Home\n\nsee [[cli]] and [[plain]]\n",
+		".track/index.yml": "icon: 📓\ndescription: The front door\ntags: [guide]\n",
+		"cli.md":           "# CLI heading\n\nno sidecar title here\n",
+		".track/cli.yml":   "title: Command line\nprops:\n  status: draft\n",
+		"plain.md":         "# Plain\n\nweight:: 68.2\n", // no sidecar at all
+		"site.yml":         "icons:\n  tags:\n    guide: 🧭\n  kinds:\n    note: 📄\n",
+	})
 
 	out := t.TempDir()
 	if _, err := BuildDir(src, "", fakeFrontend(t), out); err != nil {
 		t.Fatalf("BuildDir: %v", err)
 	}
 
-	icons := map[string]string{}
+	byTitle := map[string]jsonSearchResult{}
 	list := readJSON[struct {
 		Notes []jsonSearchResult `json:"notes"`
 	}](t, filepath.Join(out, "data", "notes.json"))
 	for _, n := range list.Notes {
-		icons[n.Title] = n.Icon
-	}
-	want := map[string]string{"Home": "📓", "CLI": "🛠", "Plain": "", "Blank": ""}
-	for title, icon := range want {
-		if icons[title] != icon {
-			t.Errorf("%s icon = %q, want %q", title, icons[title], icon)
-		}
+		byTitle[n.Title] = n
 	}
 
-	// The icon:: field is an ordinary property and stays in the page's published props — but only
-	// there: the published body drops the field line, so the page does not also print it as prose.
-	site := readJSON[jsonSite](t, filepath.Join(out, "data", "site.json"))
-	root := readJSON[jsonNoteResponse](t, filepath.Join(out, "data", "note", site.Root+".json"))
-	if len(root.Note.Props) != 1 || root.Note.Props[0].Key != "icon" || root.Note.Props[0].Value != "📓" {
-		t.Fatalf("props = %+v", root.Note.Props)
+	// The sidecar's icon, description and tags are published; a page with no sidecar and no mapped tag
+	// falls through to the kinds map (a directory page is always kind "note").
+	home := byTitle["Home"]
+	if home.Icon != "📓" || home.Description != "The front door" {
+		t.Errorf("home = %+v, want icon 📓 and its description", home)
 	}
-	if strings.Contains(root.Note.Body, "icon::") {
-		t.Errorf("published body still carries the field line:\n%s", root.Note.Body)
+	if len(home.Tags) != 1 || home.Tags[0] != "guide" {
+		t.Errorf("home tags = %v, want [guide]", home.Tags)
+	}
+	if got := byTitle["Plain"].Icon; got != "📄" {
+		t.Errorf("a page with no sidecar should fall back to the kinds map, got %q", got)
+	}
+
+	// The sidecar's title beats the first-H1 convention (explicit over convention, as in a vault), and it
+	// is the key the page resolves by: [[Command line]] points at it, its H1 does not.
+	if _, ok := byTitle["Command line"]; !ok {
+		t.Fatalf("sidecar title should win over the H1, got %v", byTitle)
+	}
+	resolve := readJSON[map[string]jsonRef](t, filepath.Join(out, "data", "resolve.json"))
+	if resolve["Command line"].Title != "Command line" {
+		t.Errorf("sidecar title should be a link key, resolve = %v", resolve)
+	}
+	if _, ok := resolve["CLI heading"]; ok {
+		t.Errorf("the H1 a sidecar title replaced should not be a link key")
+	}
+
+	// Sidecar props flatten exactly as a vault note's do.
+	cli := readJSON[jsonNoteResponse](t, filepath.Join(out, "data", "note", resolve["cli"].NoteID+".json"))
+	if len(cli.Note.Props) != 1 || cli.Note.Props[0].Key != "status" || cli.Note.Props[0].Value != "draft" {
+		t.Fatalf("props = %+v", cli.Note.Props)
 	}
 }
 
+// A whole-line inline field is data that belongs in the prose (ADR 0032): it is indexed as a property
+// *and* rendered as the line it is. Note-level metadata is not written in a body at all.
 func TestBuildDirPublishesInlineFieldProps(t *testing.T) {
-	src := t.TempDir()
-	body := "# Fields\n\nstatus:: draft\n- rating:: 8\n"
-	if err := os.WriteFile(filepath.Join(src, "index.md"), []byte(body), 0o644); err != nil {
-		t.Fatal(err)
-	}
+	src := writeDir(t, map[string]string{"index.md": "# Fields\n\nweight:: 68.2\n- rating:: 8\n"})
 
 	out := t.TempDir()
 	if _, err := BuildDir(src, "", fakeFrontend(t), out); err != nil {
@@ -196,18 +209,61 @@ func TestBuildDirPublishesInlineFieldProps(t *testing.T) {
 	site := readJSON[jsonSite](t, filepath.Join(out, "data", "site.json"))
 	root := readJSON[jsonNoteResponse](t, filepath.Join(out, "data", "note", site.Root+".json"))
 	props := root.Note.Props
-	if len(props) != 2 || props[0].Key != "status" || props[0].Value != "draft" ||
+	if len(props) != 2 || props[0].Key != "weight" || props[0].Type != "number" ||
 		props[1].Key != "rating" || props[1].Type != "number" {
 		t.Fatalf("props = %+v", props)
 	}
+	if !strings.Contains(root.Note.Body, "weight:: 68.2") {
+		t.Errorf("the field line is prose and must still render:\n%s", root.Note.Body)
+	}
 }
 
-// writeDir writes a directory-mode source tree: name -> content.
+// Every way a page sidecar can be wrong is loud: silently publishing a page without the metadata its
+// author wrote is the failure this strictness exists to prevent.
+func TestBuildDirPageSidecarRejectsBadFile(t *testing.T) {
+	cases := []struct {
+		name  string
+		files map[string]string
+		want  []string
+	}{
+		{"orphan sidecar", map[string]string{".track/ghost.yml": "icon: 👻\n"}, []string{"ghost.yml", "ghost.md"}},
+		{"unknown key", map[string]string{".track/index.yml": "iconn: 📓\n"}, []string{"index.yml", "iconn"}},
+		// The vault sidecar's runtime-only fields are not a page's metadata.
+		{"vault-only key", map[string]string{".track/index.yml": "version: 6\n"}, []string{"index.yml", "version"}},
+		{"both spellings", map[string]string{".track/index.yml": "icon: 📓\n", ".track/index.yaml": "icon: 🔥\n"},
+			[]string{"index.yml", "index.yaml"}},
+		{"malformed yaml", map[string]string{".track/index.yml": "icon: [📓\n"}, []string{"index.yml"}},
+		{"second document", map[string]string{".track/index.yml": "icon: 📓\n---\nicon: 🔥\n"}, []string{"index.yml", "document"}},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			files := map[string]string{"index.md": "# Index\n"}
+			for k, v := range c.files {
+				files[k] = v
+			}
+			_, err := BuildDir(writeDir(t, files), "", fakeFrontend(t), t.TempDir())
+			if err == nil {
+				t.Fatalf("expected an error, got none")
+			}
+			for _, want := range c.want {
+				if !strings.Contains(err.Error(), want) {
+					t.Errorf("error %q should name %q", err, want)
+				}
+			}
+		})
+	}
+}
+
+// writeDir writes a directory-mode source tree: name (possibly under a subdirectory) -> content.
 func writeDir(t *testing.T, files map[string]string) string {
 	t.Helper()
 	src := t.TempDir()
 	for name, body := range files {
-		if err := os.WriteFile(filepath.Join(src, name), []byte(body), 0o644); err != nil {
+		path := filepath.Join(src, filepath.FromSlash(name))
+		if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(path, []byte(body), 0o644); err != nil {
 			t.Fatal(err)
 		}
 	}
@@ -329,11 +385,14 @@ func TestBuildDirSiteConfigRejectsBadFile(t *testing.T) {
 
 func TestBuildDirSiteConfigIcons(t *testing.T) {
 	src := writeDir(t, map[string]string{
-		"index.md": "# Index\n\ntags:: idea, book\n",    // first mapped tag wins
-		"kind.md":  "# Kind\n\nno fields here\n",        // falls through to the kinds map
-		"over.md":  "# Over\n\ntags:: idea\nicon:: 🔥\n", // the page's own icon beats both maps
-		"other.md": "# Other\n\ntags:: unmapped\n",      // no mapping anywhere: no icon
-		"site.yml": "icons:\n  tags:\n    idea: 💡\n    book: 📚\n  kinds:\n    note: 📄\n",
+		"index.md":         "# Index\n",
+		".track/index.yml": "tags: [idea, book]\n", // first mapped tag wins
+		"kind.md":          "# Kind\n",             // no sidecar: falls through to the kinds map
+		"over.md":          "# Over\n",
+		".track/over.yml":  "tags: [idea]\nicon: 🔥\n", // the page's own icon beats both maps
+		"other.md":         "# Other\n",
+		".track/other.yml": "tags: [unmapped]\n", // no mapping for that tag: the kind map still applies
+		"site.yml":         "icons:\n  tags:\n    idea: 💡\n    book: 📚\n  kinds:\n    note: 📄\n",
 	})
 
 	out := t.TempDir()
@@ -359,7 +418,7 @@ func TestBuildDirSiteConfigIcons(t *testing.T) {
 		}
 	}
 
-	// "tags::" is lifted into the page's tags and published with it.
+	// The sidecar's tags are published with the page; they are what the icons.tags map matches against.
 	if got := tags["Index"]; len(got) != 2 || got[0] != "idea" || got[1] != "book" {
 		t.Errorf("Index tags = %v, want [idea book]", got)
 	}

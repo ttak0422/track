@@ -14,8 +14,13 @@ That left a published directory site unable to state anything about *itself*. Tw
 had already appeared: the live workspace's landing note is the config key `web.home` (ADR 0046), while
 the published site's entry page is the `--root` flag; the help text says outright that they "play the same
 role". And `--root` is mode-overloaded ("a note id (vault mode) or file base name (with `--src`)").
-Directory pages had no tags and no icon maps either, so icons could only come from a page's own `icon::`
-inline field.
+
+Directory *pages* could say nothing about themselves either — no tags, no icon. The first attempt gave
+them an `icon::` **inline field**, which was a mistake: it put note-level metadata back inside the body
+file, the very thing ADR 0002 and ADR 0032 exist to prevent, and then forced the web render to blank
+every whole-line inline field to hide it — which blanked users' real prose (`weight:: 68.2` in a journal)
+in the live workspace. ADR 0032 now records the correction and its rule. What a page needs is what a
+vault note has: a sidecar.
 
 The obvious fix — read the ambient user config in directory mode — is wrong: `docs/help` must publish
 identically from a contributor's laptop and from CI, and CI has no `~/.config/track/config.yml` at all.
@@ -27,9 +32,13 @@ identically from a contributor's laptop and from CI, and CI has no `~/.config/tr
   filename typo that silently publishes a different site is the failure this config's strictness exists to
   prevent). **Absent file = no site-level config at all** — the `index` convention, no icon maps — so a
   plain Markdown directory still publishes with no config, which is what makes the mode safe to point at
-  any directory. (`BuildDir` only ever scanned `*.md`, so a config file sits harmlessly among the pages it
-  configures.) What a *page* says about itself is not site config and is read either way: its inline
-  `icon::` and `tags::` fields publish with it whether or not the directory has a `site.yml`.
+  any directory. (`BuildDir` only ever scanned top-level `*.md` and skipped directories, so both the
+  config file and the `.track/` sidecars sit harmlessly among the pages they describe.)
+- **Site-level and page-level are separated by location, not by name.** What a *page* says about itself
+  is not site config: it lives in that page's own sidecar at `<srcDir>/.track/<name>.yml` — the same
+  body/metadata split a vault note has, keyed by file base name (ADR 0032 carries the decision). Each is
+  read whether or not the other exists. `site.yml` stays at the directory root and does not move under
+  `.track/`; there is no name to collide over.
 - **An ownership split.** The **ambient user config owns the machine and the user**: `vault_dir`,
   `cache_dir`, templates, babel, embedder, capture inbox, web theme, `web.home`. It is unchanged, and
   directory mode still never reads it. The **site config owns the published site**: what its entry page is
@@ -59,26 +68,27 @@ identically from a contributor's laptop and from CI, and CI has no `~/.config/tr
   to spell another page's file name must not inherit the front door. Resolving to nothing stays a loud
   error; a site that silently publishes a different front door is worse than one that fails to build.
 - **Icon precedence is `config.NoteIcon`'s, literally.** `BuildDir` calls the single resolver with the
-  site's maps, so a page's own `icon::` field beats the `tags` map, which beats the `kinds` map (a
-  directory page is always kind `note`) — the same order a vault note's sidecar override, tags and kind
-  resolve in. One resolver, no second precedence rule to drift.
-- **A page's tags come from its own `tags::` inline field**, like its props and its icon: a directory page
-  has no sidecar, so its body is the only place a tag can come from. This is what gives the `icons.tags`
-  map something to match.
-- **Strict decoding.** `site.yml` is decoded with `yaml.Decoder` + `KnownFields(true)` (the idiom
-  `note.ParseMetaDoc` already uses), and an unknown key is an error naming the file and the key — as is a
-  second `---` document, whose keys one `Decode` would never even read. A config exercised only at publish
-  time is exactly the place a silently-dropped typo ships a wrong site.
+  site's maps, so a page sidecar's `icon` beats the `tags` map, which beats the `kinds` map (a directory
+  page is always kind `note`) — the same order a vault note's sidecar override, tags and kind resolve in.
+  One resolver, no second precedence rule to drift.
+- **A page's tags come from its sidecar's `tags` key**, like its icon and its props. This is what gives
+  the `icons.tags` map something to match.
+- **Strict decoding, loud failures — for both files.** `site.yml` and every page sidecar are decoded with
+  `yaml.Decoder` + `KnownFields(true)` (the idiom `note.ParseMetaDoc` already uses): an unknown key is an
+  error naming the file and the key, as is a second `---` document, whose keys one `Decode` would never
+  even read. A page sidecar naming no page (`.track/ghost.yml` with no `ghost.md`) and one page spelled
+  both `.yml` and `.yaml` are errors too. Files exercised only at publish time are exactly where a
+  silently-dropped typo ships a wrong site — or a page missing the metadata its author wrote.
 
 ## Consequences
 
-- `docs/help/site.yml` ships with this ADR and exercises the mechanism (an explicit `home: index` plus both
-  icon maps). It changes nothing in the published output: every help page already states its own `icon::`,
-  which outranks both maps, and its entry page is still `index`. That is the intended state — the maps are
-  the fallback for pages that do not state an icon.
-- Until help pages carry `tags::` fields, the help site's icons still come only from `icon::` overrides and
-  the `icons.tags` map matches nothing there. That is correct, not a gap: the mechanism is in place and the
-  tags arrive with the pages that want them.
+- `docs/help/site.yml` ships with this ADR (an explicit `home: index` plus both icon maps), and
+  `docs/help/.track/*.yml` carries the pages' own metadata. All three icon paths are live on that site:
+  twelve pages set their own `icon`, `cli.md` sets none and takes 📖 from its `reference` tag, and
+  `syntax.md` has no sidecar at all and takes 📄 from `kinds`. The maps are no longer dead config.
+- Follow-up for PR #15 (`feat/query`), which adds `tags::` inline fields to a dozen `docs/help` pages to
+  drive directory-mode tag pages: under this decision a `tags::` field is an ordinary prop, not the page's
+  tags. Those must move into the page sidecars' `tags` key when that branch lands.
 - `make site` and both site workflows keep working: their `--root index` was exactly the convention default,
   so dropping it (and the `SITE_ROOT` variable) leaves the published site byte-for-byte identical, and
   everything else they pass is a build flag.

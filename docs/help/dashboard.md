@@ -4,8 +4,6 @@ The [[Web workspace]] can open a **home note** as its landing view instead of th
 note can embed **dashboard widgets** — a recent-notes list, today's journal shortcut, and pinned links —
 that render both in the live workspace and on this published site.
 
-icon:: 🏠
-
 Back to [[track]].
 
 ## A home note
@@ -55,9 +53,10 @@ pinned:
 ## Note icons
 
 An icon can sit beside a note's title in search results — in the live workspace and on a published site
-alike; that is the one surface that draws it today. Where it comes from depends on what is being shown:
-a **vault** has a config and per-note metadata, while a **published site built from a plain Markdown
-directory** — like this help site — has neither, so each page states its own.
+alike; that is the one surface that draws it today. It is metadata, so it lives where all of a note's
+metadata lives: in a sidecar file next to the body, never in the body itself. A **vault** has one per
+note; a **published site built from a plain Markdown directory** — like this help site — has one per
+page.
 
 ### In a vault
 
@@ -86,37 +85,40 @@ change a note's title, id, or how `[[links]]` resolve.
 
 ### On a published directory site
 
-`track export-site --src <dir>` publishes plain Markdown files that belong to no vault: there is no
-sidecar to override a page's icon, and inline `key:: value` fields (see [[Properties]]) are a page's only
-metadata. So a page sets its own icon — and its own tags — with inline fields:
+`track export-site --src <dir>` publishes plain Markdown files that belong to no vault. They still keep
+the body and its metadata apart: a page gets a **page sidecar** at `.track/<name>.yml`, beside — not
+inside — `<name>.md`. This page's own sidecar is `docs/help/.track/dashboard.yml`:
 
-```markdown
-# Home dashboard
-
-icon:: 🏠
-tags:: guide
-
-The Web workspace can open a home note as its landing view.
+```yaml
+# docs/help/.track/dashboard.yml
+icon: 🏠
+tags: [guide]
 ```
 
-The first `icon::` field on a page wins, and an empty value means no icon — the same as having no field
-at all. It stays an ordinary property, so it also shows up in the page's property strip — but not in the
-prose: a whole-line field is metadata, and the rendered page lifts it out of the body (see
-[[Properties]]). Every page of this help site carries one: search for a page here and its icon is beside
-the title in the results.
+It carries the same keys a vault note's metadata does — `title`, `tags`, `description`, `image`, `icon`,
+`props` — and it is keyed by file name because a published directory has no note ids. Every key is
+optional, and so is the whole file: a page without one is a plain Markdown file, exactly as before (the
+[[Syntax]] page has no sidecar, and takes its icon from the kind map below). A sidecar naming no page, a
+key that is not one of the six, or the same page spelled both `.yml` and `.yaml` is a **build error**, not
+a shrug — a typo in a file you only exercise at publish time would otherwise publish a page missing the
+metadata you wrote.
 
-A page with no `icon::` field can still get one from the site's own tag and kind maps, below — the same
-precedence as in a vault, with the page's field playing the part the sidecar override plays there.
+A `title` here wins over the page's first `# H1`, and becomes the key `[[links]]` resolve by. A page with
+no `icon` falls through to the site's tag and kind maps, below — the same precedence as in a vault, with
+the page sidecar playing the part the note sidecar plays there.
+
+Note what does *not* set a page's icon: an inline `key:: value` field (see [[Properties]]). Those are for
+data that belongs in your prose; an icon is not prose.
 
 ## The published site's config
 
-A directory of Markdown files publishes with no config at all by default: no vault, no sidecars, and
-never your machine's `~/.config/track/config.yml` — the same directory has to publish the same way on
-your laptop and in CI. What the *site* is, though, belongs with the content, so `export-site --src <dir>`
-picks up an optional `site.yml` — or `site.yaml`, either spelling — sitting in that directory (this help
-site has one, at `docs/help/site.yml`). No file means exactly the plain export above: the `index`
-convention and no icon maps. The file is opt-in; what a *page* says about itself with its own `icon::` and
-`tags::` fields publishes either way.
+A directory of Markdown files publishes with no config at all by default: no vault, and never your
+machine's `~/.config/track/config.yml` — the same directory has to publish the same way on your laptop and
+in CI. What the *site* is, though, belongs with the content, so `export-site --src <dir>` picks up an
+optional `site.yml` — or `site.yaml`, either spelling — sitting in that directory (this help site has one,
+at `docs/help/site.yml`). No file means exactly the plain export above: the `index` convention and no icon
+maps. The file is opt-in, and it is the *site's*: what a single *page* says about itself lives in that
+page's own sidecar, under `.track/`, so the two never collide.
 
 ```yaml
 # docs/help/site.yml
@@ -136,9 +138,10 @@ icons:
   rather than quietly publishing a different front door. There is no flag for it: a site's front door is
   the same wherever it is deployed, so it belongs with the content.
 - **`icons`** is the same map, with the same meaning and precedence, as the ambient config's `icons:` —
-  a page's `icon::` field, then the first of its `tags::` with a mapping, then its kind (a published page
-  is always kind `note`). Every page of this help site states its own `icon::`, so the maps here are the
-  fallback for pages that do not.
+  a page sidecar's `icon`, then the first of the page's `tags` with a mapping, then its kind (a published
+  page is always kind `note`). All three paths are live on this site: most pages set their own `icon`, the
+  [[CLI]] page has none and takes 📖 from the `reference` tag, and [[Syntax]] has no sidecar at all and
+  takes 📄 from the kind map.
 
 Unknown keys are a **build error** naming the file and the key — as is a second `---` document, which a
 single decode would never read — not a silent drop: a mistyped key in a config you only exercise at

@@ -4,15 +4,20 @@
 # written (--out), which frontend build goes into it (--frontend), which origin it is served from
 # (--base-url) — stays a build flag: this same directory is published both to GitHub Pages and to a
 # per-PR preview URL.
+#
+# This file is the *site's*. What a single *page* says about itself — its title, tags, description,
+# image, icon, props — is that page's own metadata and lives in its sidecar, `.track/<name>.yml`,
+# beside (never inside) `<name>.md`.
 
 # The site's entry page: a file base name (docs/help/index.md) or a page title, base name first.
 # Unset, a page named `index` is the fallback. There is no flag for it — the front door is the same
 # wherever this site is deployed.
 home: index
 
-# Tag and kind icon maps, the same shape and precedence as the ambient config's `icons:` (a page's own
-# `icon::` field wins, then the first of its tags with a mapping, then its kind — a page is kind "note").
-# Every page here states its own `icon::`, so these maps are the fallback for pages that do not.
+# Tag and kind icon maps, the same shape and precedence as the ambient config's `icons:` (a page
+# sidecar's `icon` wins, then the first of the page's `tags` with a mapping, then its kind — a page is
+# kind "note"). All three paths are live here: most pages set their own `icon`, `cli.md` sets none and
+# takes 📖 from its `reference` tag, and `syntax.md` has no sidecar at all and takes 📄 from `kinds`.
 icons:
   tags:
     reference: 📖
