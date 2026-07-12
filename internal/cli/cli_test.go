@@ -1619,6 +1619,52 @@ func TestMetaSetAndUnsetProperties(t *testing.T) {
 	}
 }
 
+// TestMetaEditAppliesDocumentAndRenames drives the full editor round-trip through the CLI: the doc
+// from `track meta` applies via --edit -, and a changed title goes through the rename path so
+// backlinks are rewritten. A conflicting title rejects the whole document, changing nothing.
+func TestMetaEditAppliesDocumentAndRenames(t *testing.T) {
+	vault := t.TempDir()
+	runIn(t, vault, "new", "--title", "Doc", "--id", "100", "--body", "body")
+	runIn(t, vault, "new", "--title", "Source", "--id", "200", "--body", "see [[Doc]]\n")
+	if rep, code := runIn(t, vault, "reindex", "--full"); code != 0 {
+		t.Fatalf("reindex failed: %v", rep)
+	}
+
+	doc := "title: Doc v2\ntags:\n  - go\ndescription: from the editor\nprops:\n  status: draft\n"
+	out, code := runInWithStdin(t, vault, doc, "meta", "--id", "100", "--edit", "-")
+	if code != 0 {
+		t.Fatalf("meta --edit failed: %v", out)
+	}
+	if out["title"] != "Doc v2" || out["description"] != "from the editor" {
+		t.Fatalf("unexpected meta output: %v", out)
+	}
+	body, err := os.ReadFile(filepath.Join(vault, "note", "200.md"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(body), "[[Doc v2]]") {
+		t.Fatalf("backlink not rewritten: %q", body)
+	}
+
+	// A title already owned by another note rejects the document before anything is written.
+	out, code = runInWithStdin(t, vault, "title: Source\ntags:\n  - later\n", "meta", "--id", "100", "--edit", "-")
+	if code == 0 || !strings.Contains(out["error"].(string), "already in use") {
+		t.Fatalf("expected title conflict, got code=%d out=%v", code, out)
+	}
+	out, code = runIn(t, vault, "meta", "--id", "100")
+	if code != 0 || out["title"] != "Doc v2" {
+		t.Fatalf("state after rejection: %v", out)
+	}
+	if tags, _ := out["tags"].([]any); len(tags) != 1 || tags[0] != "go" {
+		t.Fatalf("tags must be untouched by the rejected doc: %v", out["tags"])
+	}
+
+	// --edit is whole-document: it cannot be combined with the point-edit flags.
+	if out, code := runInWithStdin(t, vault, doc, "meta", "--id", "100", "--edit", "-", "--set", "x=1"); code == 0 {
+		t.Fatalf("--edit with --set should fail: %v", out)
+	}
+}
+
 // openDB opens the index database runIn's TRACK_CACHE_DIR produced for this vault.
 func openDB(t *testing.T, vault string) *sql.DB {
 	t.Helper()
