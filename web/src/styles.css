@@ -1320,6 +1320,15 @@ a.calendar-title:focus-visible {
   border-color: var(--accent);
 }
 
+/* A disabled field (e.g. a journal's date-derived title) must read as not-editable. Use the sunk
+   panel-soft surface + muted ink from the shade hierarchy, not a flat grey, and the not-allowed
+   cursor, so the locked field is unmistakable without shouting. */
+.modal-input:disabled {
+  background: var(--panel-soft);
+  color: var(--muted);
+  cursor: not-allowed;
+}
+
 /* Free-form props editor in the note meta dialog. */
 .modal-input--code {
   font-family: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, monospace;
