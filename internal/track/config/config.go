@@ -8,8 +8,10 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"regexp"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/ttak0422/track/internal/track/babel"
 	"gopkg.in/yaml.v3"
@@ -50,6 +52,13 @@ type Config struct {
 	// static-site navigation. A per-note sidecar override (Metadata.Icon) wins over both maps; see
 	// NoteIcon.
 	Icons IconMap
+	// CaptureInbox is the default target for `track capture` when --target is omitted: a note title,
+	// optionally with a "#heading" anchor (e.g. "Inbox#Tasks"). The note is created on first capture
+	// when missing; a named heading must already exist.
+	CaptureInbox string
+	// ArchiveNote is the title of the note `track archive` moves subtrees into, with "{{year}}"
+	// substituted for the current year so archives partition per year (e.g. "Archive 2026").
+	ArchiveNote string
 }
 
 // IconMap holds the tag→icon and kind→icon lookups resolved from config. Both are optional; an unset map
@@ -88,6 +97,8 @@ type fileConfig struct {
 	DefaultTemplate   string          `yaml:"default_template"`
 	JournalTemplate   string          `yaml:"journal_template"`
 	GenKeep           int             `yaml:"gen_keep"`
+	CaptureInbox      string          `yaml:"capture_inbox"`
+	ArchiveNote       string          `yaml:"archive_note"`
 	Web               webFileConfig   `yaml:"web"`
 	Icons             iconsFileConfig `yaml:"icons"`
 }
@@ -215,6 +226,21 @@ func Load() (*Config, error) {
 		genKeep = 10
 	}
 
+	captureInbox := fc.CaptureInbox
+	if env := os.Getenv("TRACK_CAPTURE_INBOX"); env != "" {
+		captureInbox = env
+	}
+	if strings.TrimSpace(captureInbox) == "" {
+		captureInbox = "Inbox"
+	}
+	archiveNote := fc.ArchiveNote
+	if env := os.Getenv("TRACK_ARCHIVE_NOTE"); env != "" {
+		archiveNote = env
+	}
+	if strings.TrimSpace(archiveNote) == "" {
+		archiveNote = "Archive {{year}}"
+	}
+
 	return &Config{
 		VaultDir:          vault,
 		DBPath:            db,
@@ -230,7 +256,19 @@ func Load() (*Config, error) {
 		GenKeep:           genKeep,
 		WebHome:           strings.TrimSpace(fc.Web.Home),
 		Icons:             IconMap{Tags: fc.Icons.Tags, Kinds: fc.Icons.Kinds},
+		CaptureInbox:      captureInbox,
+		ArchiveNote:       archiveNote,
 	}, nil
+}
+
+// archiveYear matches the "{{year}}" placeholder (with optional inner whitespace) in ArchiveNote.
+var archiveYear = regexp.MustCompile(`\{\{\s*year\s*\}\}`)
+
+// ArchiveNoteTitle resolves ArchiveNote for a given time, substituting "{{year}}" with now's year so
+// `track archive` targets a per-year note (e.g. "Archive 2026"). A configured title without the
+// placeholder is used verbatim, giving a single archive note.
+func (c *Config) ArchiveNoteTitle(now time.Time) string {
+	return archiveYear.ReplaceAllString(c.ArchiveNote, strconv.Itoa(now.Year()))
 }
 
 // resolveColorsPath expands and absolutizes an optional palette path; empty stays empty.
