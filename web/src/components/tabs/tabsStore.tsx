@@ -114,6 +114,8 @@ export function TabsProvider({ children }: { children: ReactNode }) {
   // Skip the first persist (of the empty initial strip) so it does not clobber the saved tabs before the
   // restore effect reads them.
   const persistArmed = useRef(false);
+  // Titles reported via setTitle for tabs that do not exist yet (see the append effect below).
+  const knownTitles = useRef(new Map<NoteID, string>());
 
   // Restore the persisted strip once, after mount.
   useEffect(() => {
@@ -127,8 +129,13 @@ export function TabsProvider({ children }: { children: ReactNode }) {
     setTabs((current) =>
       current.some((tab) => tab.id === activeID)
         ? current
-        : // View tabs carry a fixed label; note tabs get theirs once the note resolves.
-          [...current, { id: activeID, title: VIEW_TABS[activeID]?.label ?? "" }],
+        : // View tabs carry a fixed label; note tabs get theirs once the note resolves — or from a
+          // setTitle that already arrived (child effects run before this parent effect, so a note
+          // hydrated from prerendered state reports its title before its tab exists).
+          [
+            ...current,
+            { id: activeID, title: VIEW_TABS[activeID]?.label ?? knownTitles.current.get(activeID) ?? "" },
+          ],
     );
   }, [activeID]);
 
@@ -147,6 +154,7 @@ export function TabsProvider({ children }: { children: ReactNode }) {
   }, [tabs]);
 
   const setTitle = useCallback<TabsApi["setTitle"]>((id, title) => {
+    knownTitles.current.set(id, title);
     setTabs((current) =>
       current.map((tab) => (tab.id === id && tab.title !== title ? { ...tab, title } : tab)),
     );

@@ -91,14 +91,56 @@ func TestParseBlocksFenceLengthRule(t *testing.T) {
 	if len(blocks) != 2 {
 		t.Fatalf("expected 2 blocks, got %+v", blocks)
 	}
-	if blocks[0].Language != "markdown" || blocks[0].Fence != "````" || blocks[0].EndLine != 4 {
+	if blocks[0].Language != "markdown" || blocks[0].Fence != 4 || blocks[0].EndLine != 4 {
 		t.Fatalf("outer block: %+v", blocks[0])
 	}
 	if blocks[0].Body != "```sh :name inner\necho hi\n```" {
 		t.Fatalf("outer body should keep the quoted fence verbatim: %q", blocks[0].Body)
 	}
-	if blocks[1].Language != "lua" || blocks[1].Fence != "```" {
+	if blocks[1].Language != "lua" || blocks[1].Fence != 3 {
 		t.Fatalf("following block: %+v", blocks[1])
+	}
+}
+
+func TestParseBlocksFenceLength(t *testing.T) {
+	// A 4-backtick wrapper holds a 3-backtick sample as literal content: the inner ```go must not open
+	// or close a block, and only the closing ```` (>= 4 backticks) ends the outer block.
+	body := strings.Join([]string{
+		"````markdown",
+		"```go",
+		"func F() {}",
+		"```",
+		"````",
+	}, "\n")
+
+	blocks := ParseBlocks(body)
+	if len(blocks) != 1 {
+		t.Fatalf("expected 1 block, got %d: %+v", len(blocks), blocks)
+	}
+	b := blocks[0]
+	if b.Language != "markdown" {
+		t.Fatalf("language: %q", b.Language)
+	}
+	if b.Fence != 4 {
+		t.Fatalf("fence length: %d", b.Fence)
+	}
+	if b.StartLine != 0 || b.EndLine != 4 {
+		t.Fatalf("lines: start=%d end=%d", b.StartLine, b.EndLine)
+	}
+	if b.Body != "```go\nfunc F() {}\n```" {
+		t.Fatalf("body: %q", b.Body)
+	}
+}
+
+func TestParseBlocksUnterminatedLongerFence(t *testing.T) {
+	// A 3-backtick line inside a 4-backtick fence is content, so the fence is unterminated: ignored.
+	body := strings.Join([]string{
+		"````go",
+		"code",
+		"```",
+	}, "\n")
+	if blocks := ParseBlocks(body); len(blocks) != 0 {
+		t.Fatalf("expected no blocks (unterminated), got %+v", blocks)
 	}
 }
 

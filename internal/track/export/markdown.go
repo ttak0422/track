@@ -70,10 +70,11 @@ func renderSource(b babel.Block) string {
 	// Reproduce the source's fence length: a ````markdown block quoting ``` fences must not be
 	// re-emitted with a fence its own body would close early.
 	fence := b.Fence
-	if fence == "" {
-		fence = "```"
+	if fence < 3 {
+		fence = 3
 	}
-	return fence + b.Language + "\n" + b.Body + "\n" + fence
+	f := strings.Repeat("`", fence)
+	return f + b.Language + "\n" + b.Body + "\n" + f
 }
 
 func renderResults(b babel.Block, result *babel.RunResult) string {

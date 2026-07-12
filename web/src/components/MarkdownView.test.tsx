@@ -19,6 +19,11 @@ vi.mock("echarts", () => ({
   getInstanceByDom: vi.fn(() => undefined),
 }));
 
+// GraphvizDiagram lazy-imports the Graphviz WASM engine; stub it for the same reason.
+vi.mock("@hpcc-js/wasm-graphviz", () => ({
+  Graphviz: { load: async () => ({ dot: () => '<svg viewBox="0 0 10 10"><text>G</text></svg>' }) },
+}));
+
 // A QueryClient is only needed for markdown that produces links (ExternalLink/WikiLink) or viewspec
 // charts (ViewSpecChart), which call useQuery. Pure block content (tables, task lists, code) renders
 // without it.
@@ -60,6 +65,65 @@ describe("MarkdownView", () => {
     const { container } = render(<MarkdownView markdown={"```mermaid\ngraph TD\nA-->B\n```"} />);
     expect(container.querySelector(".mermaid-diagram")).toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "Copy code" })).not.toBeInTheDocument();
+  });
+
+  it("renders dot fences through the Graphviz diagram component", async () => {
+    const { container } = render(<MarkdownView markdown={"```dot\ndigraph { a -> b }\n```"} />);
+    expect(container.querySelector(".graphviz-diagram")).toBeInTheDocument();
+    await waitFor(() => expect(container.querySelector("svg")).toBeInTheDocument());
+    expect(screen.getByRole("img", { name: "Graphviz diagram" })).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Copy code" })).not.toBeInTheDocument();
+  });
+
+  it("renders a heading-based mindmap fence as an SVG tree", () => {
+    const { container } = render(<MarkdownView markdown={"```mindmap\n# Root\n## Leaf\n```"} />);
+    const svg = container.querySelector(".mindmap-diagram svg");
+    expect(svg).toBeInTheDocument();
+    expect(svg?.textContent).toContain("Root");
+    expect(svg?.textContent).toContain("Leaf");
+  });
+
+  it("maps the note's heading tree for an empty mindmap fence", () => {
+    const markdown = "# Note\n\n## Alpha\n\n## Beta\n\n```mindmap\n```";
+    const { container } = render(<MarkdownView markdown={markdown} />);
+    const svg = container.querySelector(".mindmap-diagram svg");
+    expect(svg?.textContent).toContain("Note");
+    expect(svg?.textContent).toContain("Alpha");
+    expect(svg?.textContent).toContain("Beta");
+  });
+
+  it("renders GFM footnotes with linked reference and back-link", () => {
+    const { container } = render(
+      <MarkdownView markdown={"A claim.[^1]\n\n[^1]: The source of the claim."} />,
+    );
+    const ref = container.querySelector("sup a.footnote-ref") as HTMLAnchorElement;
+    expect(ref).toBeInTheDocument();
+    expect(ref.getAttribute("href")).toBe("#user-content-fn-1");
+    expect(ref.id).toBe("user-content-fnref-1");
+
+    const section = container.querySelector("section.footnotes");
+    expect(section).toBeInTheDocument();
+    expect(section?.textContent).toContain("The source of the claim.");
+    const backref = section?.querySelector("a.footnote-backref") as HTMLAnchorElement;
+    expect(backref.getAttribute("href")).toBe("#user-content-fnref-1");
+    expect(backref).toHaveAttribute("title", "Back to reference 1");
+    expect(container.querySelector("#user-content-fn-1")).toBeInTheDocument();
+  });
+
+  it("renders one back-link for each reference to the same footnote", () => {
+    const { container } = render(
+      <MarkdownView markdown={"First claim.[^source] Second claim.[^source]\n\n[^source]: Shared source."} />,
+    );
+
+    const refs = container.querySelectorAll("a.footnote-ref");
+    const backrefs = container.querySelectorAll("a.footnote-backref");
+    expect(refs).toHaveLength(2);
+    expect(backrefs).toHaveLength(2);
+    for (const backref of backrefs) {
+      const target = backref.getAttribute("href")?.slice(1);
+      expect(target).toBeTruthy();
+      expect(container.querySelector(`#${target}`)).toBeInTheDocument();
+    }
   });
 
   it("renders viewspec fences through the chart component", () => {

@@ -21,10 +21,10 @@ type Block struct {
 	HeaderArgs map[string][]string // ":key v1 v2" -> {"key": ["v1","v2"]}; repeated keys (e.g. :var) accumulate
 	Body       string              // code between the fences, without the fence lines
 	BodyHash   string              // "sha256:<hex>" of Body, for cache keys and result identity
-	Fence      string              // the opening backtick run (e.g. "```" or "````"), so renderers reproduce it
 	StartLine  int                 // 0-based line of the opening fence
 	EndLine    int                 // 0-based line of the closing fence
 	Ordinal    int                 // 0-based index among the note's language blocks
+	Fence      int                 // opening fence length (backtick count); 0 on Blocks built without it
 }
 
 // ParseBlocks extracts every language-tagged fenced code block from a note body, in document order.
@@ -37,7 +37,7 @@ func ParseBlocks(body string) []Block {
 	ordinal := 0
 	i := 0
 	for i < len(lines) {
-		marker, info, ok := openFence(lines[i])
+		n, info, ok := OpenFence(lines[i])
 		if !ok {
 			i++
 			continue
@@ -46,7 +46,7 @@ func ParseBlocks(body string) []Block {
 		j := i + 1
 		closed := false
 		for j < len(lines) {
-			if closesFence(lines[j], marker) {
+			if CloseFence(lines[j], n) {
 				closed = true
 				break
 			}
@@ -64,10 +64,10 @@ func ParseBlocks(body string) []Block {
 				HeaderArgs: args,
 				Body:       blockBody,
 				BodyHash:   hashBody(blockBody),
-				Fence:      marker,
 				StartLine:  start,
 				EndLine:    j,
 				Ordinal:    ordinal,
+				Fence:      n,
 			})
 			ordinal++
 		}
@@ -148,27 +148,31 @@ func shortHash(bodyHash string) string {
 	return hexPart
 }
 
-// openFence reports whether line opens a fence: a run of at least three backticks, returned as
-// marker, followed by the info string.
-func openFence(line string) (marker, info string, ok bool) {
-	t := strings.TrimSpace(line)
-	n := 0
+// OpenFence reports whether line opens a fenced code block: after trimming leading spaces it begins with
+// a run of n >= 3 backticks. n is the fence length and info is the trimmed remainder (the info string).
+// Backtick fences only; track does not use tilde fences.
+func OpenFence(line string) (n int, info string, ok bool) {
+	t := strings.TrimLeft(line, " ")
 	for n < len(t) && t[n] == '`' {
 		n++
 	}
 	if n < 3 {
-		return "", "", false
+		return 0, "", false
 	}
-	return t[:n], strings.TrimSpace(t[n:]), true
+	return n, strings.TrimSpace(t[n:]), true
 }
 
-// closesFence reports whether line closes a fence opened with marker: at least as many backticks
-// and nothing but whitespace after them.
-func closesFence(line, marker string) bool {
+// CloseFence reports whether line closes an open fence of length n: after trimming spaces it is made up
+// only of backticks, at least n of them, with no info string.
+func CloseFence(line string, n int) bool {
 	t := strings.TrimSpace(line)
-	n := 0
-	for n < len(t) && t[n] == '`' {
-		n++
+	if len(t) < n {
+		return false
 	}
-	return n >= len(marker) && strings.TrimSpace(t[n:]) == ""
+	for i := 0; i < len(t); i++ {
+		if t[i] != '`' {
+			return false
+		}
+	}
+	return true
 }
