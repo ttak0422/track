@@ -74,6 +74,48 @@ func TestParseBlocksSkipsPlainAndUnterminated(t *testing.T) {
 	}
 }
 
+func TestParseBlocksFenceLength(t *testing.T) {
+	// A 4-backtick wrapper holds a 3-backtick sample as literal content: the inner ```go must not open
+	// or close a block, and only the closing ```` (>= 4 backticks) ends the outer block.
+	body := strings.Join([]string{
+		"````markdown",
+		"```go",
+		"func F() {}",
+		"```",
+		"````",
+	}, "\n")
+
+	blocks := ParseBlocks(body)
+	if len(blocks) != 1 {
+		t.Fatalf("expected 1 block, got %d: %+v", len(blocks), blocks)
+	}
+	b := blocks[0]
+	if b.Language != "markdown" {
+		t.Fatalf("language: %q", b.Language)
+	}
+	if b.Fence != 4 {
+		t.Fatalf("fence length: %d", b.Fence)
+	}
+	if b.StartLine != 0 || b.EndLine != 4 {
+		t.Fatalf("lines: start=%d end=%d", b.StartLine, b.EndLine)
+	}
+	if b.Body != "```go\nfunc F() {}\n```" {
+		t.Fatalf("body: %q", b.Body)
+	}
+}
+
+func TestParseBlocksUnterminatedLongerFence(t *testing.T) {
+	// A 3-backtick line inside a 4-backtick fence is content, so the fence is unterminated: ignored.
+	body := strings.Join([]string{
+		"````go",
+		"code",
+		"```",
+	}, "\n")
+	if blocks := ParseBlocks(body); len(blocks) != 0 {
+		t.Fatalf("expected no blocks (unterminated), got %+v", blocks)
+	}
+}
+
 func TestParseInfoStringVarAccumulates(t *testing.T) {
 	_, args := parseInfoString("lua :var x=1 :var y=2 :eval no")
 	if !reflect.DeepEqual(args["var"], []string{"x=1", "y=2"}) {

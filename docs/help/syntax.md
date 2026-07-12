@@ -38,38 +38,6 @@ Standard Markdown blocks work as expected:
 
 Task lists (`- [ ]` / `- [x]`) render as real checkboxes.
 
-## Alerts
-
-A blockquote whose first line is a `[!TYPE]` marker becomes a colored callout, matching GitHub's alert
-syntax. Five types are recognized — `NOTE`, `TIP`, `IMPORTANT`, `WARNING`, `CAUTION`:
-
-```markdown
-> [!NOTE]
-> Useful context the reader should notice.
-
-> [!WARNING]
-> Something that needs care.
-```
-
-They render as:
-
-> [!NOTE]
-> Useful context the reader should notice.
-
-> [!TIP]
-> A helpful suggestion.
-
-> [!IMPORTANT]
-> Key information the reader must not miss.
-
-> [!WARNING]
-> Something that needs care.
-
-> [!CAUTION]
-> A risky action to think twice about.
-
-A blockquote without a `[!TYPE]` marker stays an ordinary quote.
-
 ## Code blocks
 
 A fenced block is syntax-highlighted when you name the language after the opening fence, and the web
@@ -109,6 +77,60 @@ Pipe tables from GitHub-Flavored Markdown, with `:` in the divider row to set co
 | --- | :---: |
 | Tables | yes |
 | Math | yes |
+
+## Footnotes
+
+GitHub-Flavored footnotes work as written: mark a spot with `[^label]` and define it anywhere in the
+note with `[^label]: …`. The definitions collect at the end of the rendered note, numbered in the order
+they are first referenced, and the two ends link to each other — click a marker to jump to the
+definition, click ↩ to jump back:
+
+```markdown
+Zettelkasten favors many small notes.[^atomic] Links do the organizing.[^links]
+
+[^atomic]: One idea per note keeps every note quotable and linkable.
+[^links]: See Ahrens, *How to Take Smart Notes*, for the argument in full.
+```
+
+The paragraph above the definitions renders like this — the definitions themselves appear at the very
+bottom of this page:
+
+Zettelkasten favors many small notes.[^atomic] Links do the organizing.[^links]
+
+[^atomic]: One idea per note keeps every note quotable and linkable.
+[^links]: See Ahrens, *How to Take Smart Notes*, for the argument in full.
+
+## Alerts
+
+A blockquote whose first line is a `[!TYPE]` marker becomes a colored callout, matching GitHub's alert
+syntax. Five types are recognized — `NOTE`, `TIP`, `IMPORTANT`, `WARNING`, `CAUTION`:
+
+```markdown
+> [!NOTE]
+> Useful context the reader should notice.
+
+> [!WARNING]
+> Something that needs care.
+```
+
+They render as:
+
+> [!NOTE]
+> Useful context the reader should notice.
+
+> [!TIP]
+> A helpful suggestion.
+
+> [!IMPORTANT]
+> Key information the reader must not miss.
+
+> [!WARNING]
+> Something that needs care.
+
+> [!CAUTION]
+> A risky action to think twice about.
+
+A blockquote without a `[!TYPE]` marker stays an ordinary quote.
 
 ## Math
 
