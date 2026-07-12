@@ -27,9 +27,9 @@ import (
 // There is no vault and no sidecar here, and the machine's ambient user config is never read, so a
 // page's metadata — its properties, its tags, its icon — comes only from its own inline "key:: value"
 // fields. The site's own settings (its entry page, its icon maps) come from an optional
-// "<srcDir>/site.yml" that travels with the content (see siteConfig); with no such file this is a
-// plain, config-free directory export. rootName is the --root flag: a one-off override of the entry
-// page (with or without ".md") that beats site.yml, which beats the "index" convention.
+// "<srcDir>/site.yml" that travels with the content (see siteConfig); with no such file this is a plain,
+// config-free directory export. rootName is the --root flag: a one-off override of the entry page (with
+// or without ".md") that beats site.yml, which beats the "index" convention.
 func BuildDir(srcDir, rootName, baseURL, frontendDir, outDir string) (Result, error) {
 	sc, err := loadSiteConfig(srcDir)
 	if err != nil {
@@ -78,7 +78,10 @@ func BuildDir(srcDir, rootName, baseURL, frontendDir, outDir string) (Result, er
 
 	// The entry page, named the same way a wiki link is: by file base name or by page title. --root (a
 	// one-off build) beats the site's own "home", which beats the "index" convention. Nothing found is a
-	// loud error — a site whose landing page silently moved is worse than one that fails to build.
+	// loud error — a site whose landing page silently moved is worse than one that fails to build. File
+	// base names are matched first, and never through the merged link map: titles and base names share
+	// that namespace, so a page whose H1 happens to spell another page's file name would otherwise steal
+	// the front door — the same silent move, dressed as a link.
 	entry := rootName
 	if entry == "" {
 		entry = sc.Home
@@ -86,9 +89,12 @@ func BuildDir(srcDir, rootName, baseURL, frontendDir, outDir string) (Result, er
 	if entry == "" {
 		entry = "index"
 	}
-	root, ok := keyToID[entry]
+	root, ok := idForSlug[entry]
 	if !ok {
-		root, ok = keyToID[strings.TrimSuffix(entry, filepath.Ext(entry))]
+		root, ok = idForSlug[strings.TrimSuffix(entry, filepath.Ext(entry))]
+	}
+	if !ok {
+		root, ok = keyToID[entry] // no file is named that: a page title, then.
 	}
 	if !ok {
 		return Result{}, fmt.Errorf("entry page %q not found among .md files in %s", entry, srcDir)
@@ -141,8 +147,12 @@ func BuildDir(srcDir, rootName, baseURL, frontendDir, outDir string) (Result, er
 	return writeBundle(docs, edges, root, false, baseURL, frontendDir, outDir)
 }
 
-// siteConfigName is the per-site config file, discovered inside the published directory itself.
-const siteConfigName = "site.yml"
+// siteConfigNames are the per-site config file, discovered inside the published directory itself. Both
+// spellings are accepted: ".yml" and ".yaml" are a coin flip (this repo writes config.yml but also
+// renames.yaml, gen.yaml and note sidecars), and a config that is only exercised at publish time must not
+// be skipped over a filename typo — that is the same wrong site shipped quietly that strict key decoding
+// exists to prevent. Finding both is a loud error, not a guess.
+var siteConfigNames = []string{"site.yml", "site.yaml"}
 
 // siteConfig is the optional config of a *published site*, living with the content it publishes at
 // "<srcDir>/site.yml". It is deliberately not the machine's ambient user config (~/.config/track):
@@ -163,24 +173,39 @@ type siteConfig struct {
 // and a vault note can never drift into two different precedence rules.
 func (sc siteConfig) icons() *config.Config { return &config.Config{Icons: sc.Icons} }
 
-// loadSiteConfig reads "<srcDir>/site.yml" if it is there; a directory without one publishes exactly as
-// it did before the file existed. Decoding is strict: an unknown key is a loud error naming the file and
-// the key, never a silent drop, because a typo'd key in a config that only shows up at publish time
-// would otherwise ship a wrong site quietly (the same reason note.ParseMetaDoc is strict).
+// loadSiteConfig reads the site config out of srcDir if it is there; a directory without one publishes
+// exactly as it did before the file existed. Decoding is strict: an unknown key — or a second YAML
+// document, whose keys a single Decode would never even look at — is a loud error naming the file, never
+// a silent drop, because a typo'd key in a config that only shows up at publish time would otherwise ship
+// a wrong site quietly (the same reason note.ParseMetaDoc is strict).
 func loadSiteConfig(srcDir string) (siteConfig, error) {
-	path := filepath.Join(srcDir, siteConfigName)
-	raw, err := os.ReadFile(path)
-	if errors.Is(err, fs.ErrNotExist) {
-		return siteConfig{}, nil
+	var path string
+	var raw []byte
+	for _, name := range siteConfigNames {
+		p := filepath.Join(srcDir, name)
+		b, err := os.ReadFile(p)
+		if errors.Is(err, fs.ErrNotExist) {
+			continue
+		}
+		if err != nil {
+			return siteConfig{}, fmt.Errorf("read site config: %w", err)
+		}
+		if path != "" {
+			return siteConfig{}, fmt.Errorf("%s: a site config already exists as %s; keep one", p, path)
+		}
+		path, raw = p, b
 	}
-	if err != nil {
-		return siteConfig{}, fmt.Errorf("read site config: %w", err)
+	if path == "" {
+		return siteConfig{}, nil
 	}
 	var sc siteConfig
 	dec := yaml.NewDecoder(bytes.NewReader(raw))
 	dec.KnownFields(true)
 	if err := dec.Decode(&sc); err != nil && !errors.Is(err, io.EOF) {
 		return siteConfig{}, fmt.Errorf("%s: %w", path, err)
+	}
+	if err := dec.Decode(new(siteConfig)); !errors.Is(err, io.EOF) {
+		return siteConfig{}, fmt.Errorf("%s: want a single YAML document, found more than one", path)
 	}
 	return sc, nil
 }

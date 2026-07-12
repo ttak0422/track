@@ -16,7 +16,8 @@ import (
 // modes:
 //   - Vault:     --root <id> [--id <id> ...]  publishes vault notes; --root is the landing page.
 //   - Directory: --src <dir> [--root <name>]  publishes a directory of plain Markdown files outside any
-//     vault. --root names the entry file (default index).
+//     vault. --root names the entry page and overrides the site's own "home" (<src>/site.yml); with
+//     neither, a page named "index" is the entry.
 func cmdExportSite(args []string) int {
 	fs := flag.NewFlagSet("export-site", flag.ContinueOnError)
 	src := fs.String("src", "", "build from a directory of Markdown files instead of vault notes")

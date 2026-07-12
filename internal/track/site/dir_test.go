@@ -252,6 +252,55 @@ func TestBuildDirSiteConfigHome(t *testing.T) {
 	}
 }
 
+// A page whose H1 spells another page's file base name must not steal the front door: the entry page is
+// resolved by file base name first, by title only when no file is named that.
+func TestBuildDirEntryPrefersFileNameOverTitle(t *testing.T) {
+	files := map[string]string{
+		"index.md":    "# Track help\n", // the real landing page
+		"synonyms.md": "# index\n",      // its title happens to spell the other page's file name
+	}
+	for _, c := range []struct{ name, root, config string }{
+		{"convention", "", ""},
+		{"--root", "index", ""},
+		{"site home", "", "home: index\n"},
+	} {
+		t.Run(c.name, func(t *testing.T) {
+			if c.config != "" {
+				files["site.yml"] = c.config
+			} else {
+				delete(files, "site.yml")
+			}
+			if got := rootTitle(t, writeDir(t, files), c.root); got != "Track help" {
+				t.Errorf("entry = %q, want Track help (index.md)", got)
+			}
+		})
+	}
+}
+
+// The config is found under either spelling; two of them is a loud error, not a coin flip.
+func TestBuildDirSiteConfigFileName(t *testing.T) {
+	pages := map[string]string{"index.md": "# Index\n", "start.md": "# Start here\n"}
+
+	for _, name := range []string{"site.yml", "site.yaml"} {
+		files := map[string]string{name: "home: start\n"}
+		for k, v := range pages {
+			files[k] = v
+		}
+		if got := rootTitle(t, writeDir(t, files), ""); got != "Start here" {
+			t.Errorf("%s: entry = %q, want Start here", name, got)
+		}
+	}
+
+	files := map[string]string{"site.yml": "home: start\n", "site.yaml": "home: index\n"}
+	for k, v := range pages {
+		files[k] = v
+	}
+	_, err := BuildDir(writeDir(t, files), "", "", fakeFrontend(t), t.TempDir())
+	if err == nil || !strings.Contains(err.Error(), "site.yaml") || !strings.Contains(err.Error(), "site.yml") {
+		t.Fatalf("two site configs should be a loud error naming both, got %v", err)
+	}
+}
+
 func TestBuildDirSiteConfigRejectsBadFile(t *testing.T) {
 	cases := []struct {
 		name, yaml string
@@ -260,6 +309,8 @@ func TestBuildDirSiteConfigRejectsBadFile(t *testing.T) {
 		{"unknown key", "home: index\nbase_url: https://example.com\n", []string{"site.yml", "base_url"}},
 		{"unknown nested key", "icons:\n  colors:\n    idea: blue\n", []string{"site.yml", "colors"}},
 		{"malformed yaml", "home: [index\n", []string{"site.yml"}},
+		// A second document is never read by a single Decode: its keys would be dropped unchecked.
+		{"second document", "home: index\n---\nhome: ghost\nbase_url: https://oops\n", []string{"site.yml", "document"}},
 	}
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {

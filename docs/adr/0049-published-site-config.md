@@ -24,27 +24,35 @@ identically from a contributor's laptop and from CI, and CI has no `~/.config/tr
 ## Decision
 
 - **A per-site config file, opt-in, living with the content.** Directory mode auto-discovers
-  `<srcDir>/site.yml`. **Absent file = the previous behaviour, byte for byte** — a plain Markdown
-  directory still publishes with no config, which is what makes the mode safe to point at any directory.
-  (`BuildDir` only ever scanned `*.md`, so a config file sits harmlessly among the pages it configures.)
+  `<srcDir>/site.yml` (or `site.yaml` — both spellings are read, and finding both is an error, because a
+  filename typo that silently publishes a different site is the failure this config's strictness exists to
+  prevent). **Absent file = no site-level config at all** — the `index` convention, no icon maps — so a
+  plain Markdown directory still publishes with no config, which is what makes the mode safe to point at
+  any directory. (`BuildDir` only ever scanned `*.md`, so a config file sits harmlessly among the pages it
+  configures.) What a *page* says about itself is not site config and is read either way: its inline
+  `icon::` and `tags::` fields publish with it whether or not the directory has a `site.yml`.
 - **An ownership split.** The **ambient user config owns the machine and the user**: `vault_dir`,
   `cache_dir`, templates, babel, embedder, capture inbox, web theme, `web.home`. It is unchanged, and
   directory mode still never reads it. The **site config owns the published site**: what its entry page is
   and what its icons are. The test for which side a value falls on: *does it change when the same content
   is deployed somewhere else?* If yes, it is not site config.
-- **`--base-url`, `--out` and `--frontend` stay CLI flags.** They fail that test. This repo publishes the
-  one `docs/help` directory to two places with different bases: `.github/workflows/pages.yml` builds with
-  `SITE_BASE: ${{ steps.pages.outputs.base_path }}`, and `.github/workflows/preview.yml` builds the same
-  content with `SITE_BASE: /track-previews/pr-<n>/`. A `base_url` key in `site.yml` would be wrong for at
-  least one of them on every PR.
+- **`--base-url`, `--out` and `--frontend` stay CLI flags.** They fail that test: none of them says
+  anything about the content, each describes one *build* of it. `--out` is a directory on the machine
+  running the build, `--frontend` a path into that machine's frontend build tree, and `--base-url` the
+  absolute origin one deployment is served from. This repo publishes the one `docs/help` directory twice —
+  to GitHub Pages and, on every pull request, to a preview URL — so an origin baked into `site.yml` would
+  be wrong for at least one of them. (The deploy base path those two workflows *do* vary, `SITE_BASE`, is a
+  Vite build variable; it is baked into the frontend bundle and never reaches the CLI at all.)
 - **Keys: `home` and `icons`.** `home` names the entry page by file base name or page title — the same two
   keys a `[[wiki link]]` resolves by, so it is named the way everything else in a directory site is named.
   `icons: {tags: {...}, kinds: {...}}` is the same shape and meaning as the ambient config's `icons:`;
   knowledge carries over from a vault unchanged. No `title`, no `base_url`, nothing speculative.
 - **Entry-page precedence: `--root` > `site.yml` `home` > the `index` convention.** This unifies the
   concept — the site's home is now a config value, like the workspace's — while keeping `--root` as an
-  override for a one-off build. Resolving to nothing stays a loud error; a site that silently publishes a
-  different front door is worse than one that fails to build.
+  override for a one-off build. The name resolves against file base names first and page titles only then:
+  the two share one namespace in the link map, and a page whose H1 happens to spell another page's file
+  name must not inherit the front door. Resolving to nothing stays a loud error; a site that silently
+  publishes a different front door is worse than one that fails to build.
 - **Icon precedence is `config.NoteIcon`'s, literally.** `BuildDir` calls the single resolver with the
   site's maps, so a page's own `icon::` field beats the `tags` map, which beats the `kinds` map (a
   directory page is always kind `note`) — the same order a vault note's sidecar override, tags and kind
@@ -53,8 +61,9 @@ identically from a contributor's laptop and from CI, and CI has no `~/.config/tr
   has no sidecar, so its body is the only place a tag can come from. This is what gives the `icons.tags`
   map something to match.
 - **Strict decoding.** `site.yml` is decoded with `yaml.Decoder` + `KnownFields(true)` (the idiom
-  `note.ParseMetaDoc` already uses), and an unknown key is an error naming the file and the key. A config
-  exercised only at publish time is exactly the place a silently-dropped typo ships a wrong site.
+  `note.ParseMetaDoc` already uses), and an unknown key is an error naming the file and the key — as is a
+  second `---` document, whose keys one `Decode` would never even read. A config exercised only at publish
+  time is exactly the place a silently-dropped typo ships a wrong site.
 
 ## Consequences
 

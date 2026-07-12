@@ -110,8 +110,10 @@ precedence as in a vault, with the page's field playing the part the sidecar ove
 A directory of Markdown files publishes with no config at all by default: no vault, no sidecars, and
 never your machine's `~/.config/track/config.yml` — the same directory has to publish the same way on
 your laptop and in CI. What the *site* is, though, belongs with the content, so `export-site --src <dir>`
-picks up an optional `site.yml` sitting in that directory (this help site has one, at
-`docs/help/site.yml`). No file means exactly the plain export above; the file is opt-in.
+picks up an optional `site.yml` — or `site.yaml`, either spelling — sitting in that directory (this help
+site has one, at `docs/help/site.yml`). No file means exactly the plain export above: the `index`
+convention and no icon maps. The file is opt-in; what a *page* says about itself with its own `icon::` and
+`tags::` fields publishes either way.
 
 ```yaml
 # docs/help/site.yml
@@ -124,7 +126,8 @@ icons:
     note: 📄
 ```
 
-- **`home`** is the site's landing page — the published counterpart of the workspace's `web.home`. The
+- **`home`** is the site's landing page — the published counterpart of the workspace's `web.home`. It
+  names a page the way a `[[wiki link]]` does, by file base name first and page title second. The
   `--root` flag still wins when you pass it, so a one-off build can land somewhere else; with neither, a
   page named `index` is the fallback. If none of them names a real page, the build fails loudly rather
   than quietly publishing a different front door.
@@ -133,9 +136,11 @@ icons:
   is always kind `note`). Every page of this help site states its own `icon::`, so the maps here are the
   fallback for pages that do not.
 
-Unknown keys are a **build error** naming the file and the key, not a silent drop: a mistyped key in a
-config you only exercise at publish time would otherwise ship the wrong site without a word.
+Unknown keys are a **build error** naming the file and the key — as is a second `---` document, which a
+single decode would never read — not a silent drop: a mistyped key in a config you only exercise at
+publish time would otherwise ship the wrong site without a word.
 
-What is *not* site config: `--base-url`, `--out`, and `--frontend`. Those change per deployment of the
-same content — this site is published to GitHub Pages and, for every pull request, to a preview URL, from
-the same `docs/help` directory with a different base URL — so they stay build flags.
+What is *not* site config: `--base-url`, `--out`, and `--frontend`. They describe one *build* of the
+content, not the site — where the output is written, which frontend build goes into it, which origin it is
+served from — and this one `docs/help` directory is published twice, to GitHub Pages and, for every pull
+request, to a preview URL. So they stay build flags.

@@ -1,10 +1,12 @@
 # Published-site config for this help site: `track export-site --src docs/help`.
 # It travels with the content it publishes, so this site lands on the same page and draws the same
-# icons on anyone's machine and in CI. Deployment-specific values (--base-url, --out, --frontend) are
-# build flags, not site config — the Pages and PR-preview workflows publish this same directory under
-# different base URLs.
+# icons on anyone's machine and in CI. What describes one *build* of it instead — where the output is
+# written (--out), which frontend build goes into it (--frontend), which origin it is served from
+# (--base-url) — stays a build flag: this same directory is published both to GitHub Pages and to a
+# per-PR preview URL.
 
-# The site's entry page: a file base name (docs/help/index.md) or a page title. `--root` overrides it.
+# The site's entry page: a file base name (docs/help/index.md) or a page title, base name first.
+# `--root` overrides it.
 home: index
 
 # Tag and kind icon maps, the same shape and precedence as the ambient config's `icons:` (a page's own
