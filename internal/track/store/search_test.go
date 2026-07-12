@@ -101,10 +101,29 @@ func TestBodyQueryUsesFTS(t *testing.T) {
 		"":           false, // no terms
 		"AND":        false, // the join keyword is dropped, leaving no terms
 		"foo AND ba": false, // dropped AND leaves a short term
+		"foo OR bar": true,  // OR groups of long terms still index
+		"foo OR ab":  false, // a short term in any OR group forces the fallback
+		"OR":         false, // the separator alone leaves no terms
 	}
 	for query, want := range cases {
 		if got := BodyQueryUsesFTS(query); got != want {
 			t.Errorf("BodyQueryUsesFTS(%q) = %v, want %v", query, got, want)
+		}
+	}
+}
+
+func TestFTSMatchExprGroups(t *testing.T) {
+	cases := map[string]string{
+		"foo":         `("foo")`,
+		"foo bar":     `("foo" AND "bar")`,
+		"foo OR bar":  `("foo") OR ("bar")`,
+		"a b OR c":    `("a" AND "b") OR ("c")`,
+		`quo"te`:      `("quo""te")`, // an embedded quote is doubled, never parsed as syntax
+		"foo AND bar": `("foo" AND "bar")`,
+	}
+	for query, want := range cases {
+		if got := ftsMatchExprGroups(BodyGroups(query)); got != want {
+			t.Errorf("ftsMatchExprGroups(%q) = %q, want %q", query, got, want)
 		}
 	}
 }
@@ -144,6 +163,14 @@ func TestSearchBodyFTS(t *testing.T) {
 	}
 	if got := ids("alpha"); !slices.Equal(got, []int64{100, 200}) {
 		t.Errorf("shared term = %v, want [100 200]", got)
+	}
+	// OR matches a note satisfying either group; "partner" is only in 200, "together" only in 100.
+	if got := ids("partner OR together"); !slices.Equal(got, []int64{100, 200}) {
+		t.Errorf("OR of two single-term groups = %v, want [100 200]", got)
+	}
+	// A group is AND'd internally: "beta OR partner" = (has beta) or (has partner).
+	if got := ids("beta OR partner"); !slices.Equal(got, []int64{100, 200}) {
+		t.Errorf("OR mixing groups = %v, want [100 200]", got)
 	}
 	if got := ids("searchInsideCode"); !slices.Equal(got, []int64{300}) {
 		t.Errorf("code-block text is indexed: got %v, want [300]", got)

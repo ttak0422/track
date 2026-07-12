@@ -785,6 +785,12 @@ func TestSearchBodyFTSReindexAndFallback(t *testing.T) {
 	if got := bodyHitIDs("世界"); !slices.Equal(got, []int64{801}) {
 		t.Fatalf("2-char CJK query (scan fallback) should match, got %v", got)
 	}
+
+	// OR spans notes served by different paths: servicemesh (800) and the 2-char 世界 (801). A short
+	// term routes the whole query through the scan fallback, which honours the same OR grouping.
+	if got := bodyHitIDs("世界 OR servicemesh"); func() bool { slices.Sort(got); return !slices.Equal(got, []int64{800, 801}) }() {
+		t.Fatalf("OR across both notes should match both, got %v", got)
+	}
 }
 
 func TestBabelExecRunsAndStores(t *testing.T) {

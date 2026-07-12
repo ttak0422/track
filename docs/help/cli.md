@@ -159,6 +159,11 @@ so these blank lines survive
 uses a full-text index that stays in step with the vault automatically — see [[Searching notes]] for
 ranking, code-block matches, and CJK behavior.
 
+Terms combine the same way in title and body search: space-separated terms are an implicit **AND**,
+and an uppercase **OR** separates alternatives — `kubernetes OR postgres` returns notes matching
+either, and `deploy staging OR rollback` reads as `(deploy AND staging) OR rollback`. A lowercase
+`or` stays an ordinary search word.
+
 ## Curating tags
 
 `track notes --untagged` is the pull side of a tagging pass: it returns exactly the notes that still

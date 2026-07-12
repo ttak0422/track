@@ -23,13 +23,16 @@ track search --query "#zettel workspace"
 ## Full-text body search
 
 `--scope body` runs against a full-text index kept in the SQLite cache, so it
-does not re-read every file on each query. Terms are combined with AND — a note
-matches only when its body contains all of them — and results are ranked by
-relevance (denser, more focused matches first). Each hit still reports the first
-matching line and a snippet, so a picker can jump straight to it:
+does not re-read every file on each query. Terms combine like they do for
+titles: space-separated terms are an implicit AND — a note matches only when its
+body contains all of them — and an uppercase `OR` separates alternatives, so
+`containerd OR podman` matches either. Results are ranked by relevance (denser,
+more focused matches first). Each hit still reports the first matching line and a
+snippet, so a picker can jump straight to it:
 
 ```sh
 track search --scope body --query "containerd runtime"
+track search --scope body --query "containerd OR podman"
 ```
 
 ```json

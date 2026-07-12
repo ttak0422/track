@@ -232,45 +232,43 @@ func searchTagged(parsed parsedTaggedQuery, limit int) (string, []any) {
 	return sql, args
 }
 
-// BodyTerms splits a body query into implicit-AND terms. A standalone uppercase AND is the default
-// join and is dropped; every other whitespace field is a literal substring to require.
-func BodyTerms(query string) []string {
-	var terms []string
-	for _, field := range strings.Fields(query) {
-		if field == "AND" {
-			continue
-		}
-		terms = append(terms, field)
-	}
-	return terms
+// BodyGroups parses a body query into OR-separated groups of AND terms — the same grammar as title
+// search: an uppercase OR separates alternatives, an uppercase AND is the implicit default between
+// terms. A note matches when any one group's terms are all present. "a b OR c" yields [[a b] [c]].
+func BodyGroups(query string) [][]string {
+	return splitOrGroups(query)
 }
 
 // BodyQueryUsesFTS reports whether a body query can be served by the trigram FTS index: it needs at
-// least one term and every term must be long enough to form a trigram. Shorter terms (e.g. a two-letter
-// word or a two-character CJK word like 世界) have no trigram and are left to the per-file fallback.
+// least one term and every term (across all OR groups) must be long enough to form a trigram. Shorter
+// terms (a two-letter word or a two-character CJK word like 世界) have no trigram and are left to the
+// per-file fallback.
 func BodyQueryUsesFTS(query string) bool {
-	terms := BodyTerms(query)
-	if len(terms) == 0 {
+	groups := BodyGroups(query)
+	if len(groups) == 0 {
 		return false
 	}
-	for _, term := range terms {
-		if utf8.RuneCountInString(term) < minTrigram {
-			return false
+	for _, terms := range groups {
+		for _, term := range terms {
+			if utf8.RuneCountInString(term) < minTrigram {
+				return false
+			}
 		}
 	}
 	return true
 }
 
-// SearchBodyFTS returns notes whose body matches every term of query, ranked by FTS5 bm25 relevance
-// then recency. Caller must ensure BodyQueryUsesFTS(query); a short-term query is handled by a scan.
-// Results carry note metadata but no Line/Snippet — the caller locates those in the file, preserving
-// the line-number contract while FTS does the matching and ranking.
+// SearchBodyFTS returns notes whose body matches the query's OR-groups (a note matches when any one
+// group's terms are all present), ranked by FTS5 bm25 relevance then recency. Caller must ensure
+// BodyQueryUsesFTS(query); a short-term query is handled by a scan. Results carry note metadata but no
+// Line/Snippet — the caller locates those in the file, preserving the line-number contract while FTS
+// does the matching and ranking.
 func (s *Store) SearchBodyFTS(query string, limit int) ([]SearchResult, error) {
 	if limit <= 0 {
 		limit = 50
 	}
-	terms := BodyTerms(query)
-	if len(terms) == 0 {
+	groups := BodyGroups(query)
+	if len(groups) == 0 {
 		return nil, nil
 	}
 	rows, err := s.db.Query(
@@ -284,7 +282,7 @@ func (s *Store) SearchBodyFTS(query string, limit int) ([]SearchResult, error) {
 		 WHERE notes_fts MATCH ? AND n.kind IN ('note', 'journal')
 		 ORDER BY bm25(notes_fts), n.mtime DESC, n.id DESC
 		 LIMIT ?`,
-		ftsMatchExpr(terms), limit,
+		ftsMatchExprGroups(groups), limit,
 	)
 	if err != nil {
 		return nil, err
@@ -304,15 +302,20 @@ func (s *Store) SearchBodyFTS(query string, limit int) ([]SearchResult, error) {
 	return out, rows.Err()
 }
 
-// ftsMatchExpr builds an FTS5 MATCH expression that requires every term as a literal substring. Each
-// term is wrapped as a quoted string (doubling any embedded quote) so user punctuation is never parsed
-// as FTS5 query syntax, and terms are joined with AND.
-func ftsMatchExpr(terms []string) string {
-	quoted := make([]string, len(terms))
-	for i, term := range terms {
-		quoted[i] = `"` + strings.ReplaceAll(term, `"`, `""`) + `"`
+// ftsMatchExprGroups builds an FTS5 MATCH expression from OR-separated groups of AND terms:
+// ("a" AND "b") OR ("c"). Each term is wrapped as a quoted string (doubling any embedded quote) so
+// user punctuation is never parsed as FTS5 query syntax; terms within a group join with AND and the
+// groups join with OR.
+func ftsMatchExprGroups(groups [][]string) string {
+	ors := make([]string, 0, len(groups))
+	for _, terms := range groups {
+		quoted := make([]string, len(terms))
+		for i, term := range terms {
+			quoted[i] = `"` + strings.ReplaceAll(term, `"`, `""`) + `"`
+		}
+		ors = append(ors, "("+strings.Join(quoted, " AND ")+")")
 	}
-	return strings.Join(quoted, " AND ")
+	return strings.Join(ors, " OR ")
 }
 
 // SearchRefs returns indexed notes with search-only ranking/display metadata.

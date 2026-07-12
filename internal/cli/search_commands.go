@@ -324,13 +324,14 @@ func bodySearchResults(cfg *config.Config, s *store.Store, query string, limit i
 	if limit <= 0 {
 		return []store.SearchResult{}, nil
 	}
-	if len(store.BodyTerms(query)) == 0 {
+	groups := store.BodyGroups(query)
+	if len(groups) == 0 {
 		return []store.SearchResult{}, nil
 	}
 	if store.BodyQueryUsesFTS(query) {
 		return bodySearchFTS(cfg, s, query, limit, skip)
 	}
-	return bodySearchScan(cfg, s, store.BodyTerms(query), limit, skip)
+	return bodySearchScan(cfg, s, groups, limit, skip)
 }
 
 // bodySearchFTS serves a body query from the FTS index, keeping its relevance order and reading only
@@ -341,14 +342,14 @@ func bodySearchFTS(cfg *config.Config, s *store.Store, query string, limit int, 
 	if err != nil {
 		return nil, err
 	}
-	terms := store.BodyTerms(query)
+	groups := store.BodyGroups(query)
 	out := make([]store.SearchResult, 0, len(hits))
 	for _, hit := range hits {
 		if skip[hit.NoteID] {
 			continue
 		}
 		hit.Path = cfg.PathForKind(hit.FileKind, hit.NoteID)
-		hit.Line, hit.Snippet = fileLineMatch(hit.Path, terms)
+		hit.Line, hit.Snippet = fileLineMatchGroups(hit.Path, groups)
 		out = append(out, hit)
 		if len(out) >= limit {
 			break
@@ -360,7 +361,7 @@ func bodySearchFTS(cfg *config.Config, s *store.Store, query string, limit int, 
 // bodySearchScan is the short-term fallback: it scans note files for one containing every term, then
 // sorts by recency (bm25 is unavailable off the index). It is only reached for queries the trigram
 // index cannot serve, so full scans stay off the common path.
-func bodySearchScan(cfg *config.Config, s *store.Store, terms []string, limit int, skip map[int64]bool) ([]store.SearchResult, error) {
+func bodySearchScan(cfg *config.Config, s *store.Store, groups [][]string, limit int, skip map[int64]bool) ([]store.SearchResult, error) {
 	notes, err := s.SearchRefs()
 	if err != nil {
 		return nil, err
@@ -385,11 +386,11 @@ func bodySearchScan(cfg *config.Config, s *store.Store, terms []string, limit in
 			return nil, err
 		}
 		body, _, _ := note.SplitLegacyFootmatter(string(raw))
-		if !bodyContainsAll(body, terms) {
+		if !bodyMatchesAnyGroup(body, groups) {
 			continue
 		}
 		ref.Path = cfg.PathForKind(ref.FileKind, id)
-		ref.Line, ref.Snippet = bodyLineMatch(body, terms)
+		ref.Line, ref.Snippet = bodyLineMatchGroups(body, groups)
 		out = append(out, ref)
 	}
 	sortSearchResults(out)
@@ -460,44 +461,54 @@ func bodyContainsAll(body string, terms []string) bool {
 	return true
 }
 
-// bodyLineMatch returns the 1-based line and snippet best representing the match: the first line that
-// contains every term if there is one, else the first line containing any term. It returns (0, "") when
-// no line holds a term — the title-only sentinel, reached only when terms straddle line breaks.
-func bodyLineMatch(body string, terms []string) (int, string) {
-	lowered := make([]string, len(terms))
-	for i, term := range terms {
-		lowered[i] = strings.ToLower(term)
+// bodyMatchesAnyGroup reports whether body satisfies any one OR group (all of that group's terms
+// present), mirroring the FTS "(a AND b) OR (c)" semantics for the scan fallback.
+func bodyMatchesAnyGroup(body string, groups [][]string) bool {
+	for _, terms := range groups {
+		if bodyContainsAll(body, terms) {
+			return true
+		}
 	}
+	return false
+}
+
+// bodyLineMatchGroups returns the 1-based line and snippet best representing the match: the first line
+// that contains every term of some satisfied OR group (the tightest match), else the first line
+// containing any query term. It returns (0, "") when no line holds a term — the title-only sentinel,
+// reached only when a group's terms straddle line breaks.
+func bodyLineMatchGroups(body string, groups [][]string) (int, string) {
 	anyLine, anyText := 0, ""
 	for i, line := range strings.Split(body, "\n") {
 		lowerLine := strings.ToLower(line)
-		all, any := true, false
-		for _, term := range lowered {
-			if strings.Contains(lowerLine, term) {
-				any = true
-			} else {
-				all = false
+		for _, terms := range groups {
+			all, any := len(terms) > 0, false
+			for _, term := range terms {
+				if strings.Contains(lowerLine, strings.ToLower(term)) {
+					any = true
+				} else {
+					all = false
+				}
 			}
-		}
-		if all {
-			return i + 1, truncateSearchSnippet(strings.TrimSpace(line), 120)
-		}
-		if any && anyLine == 0 {
-			anyLine, anyText = i+1, truncateSearchSnippet(strings.TrimSpace(line), 120)
+			if all {
+				return i + 1, truncateSearchSnippet(strings.TrimSpace(line), 120)
+			}
+			if any && anyLine == 0 {
+				anyLine, anyText = i+1, truncateSearchSnippet(strings.TrimSpace(line), 120)
+			}
 		}
 	}
 	return anyLine, anyText
 }
 
-// fileLineMatch reads path and locates the first line matching any term. A read error yields the
-// title-only sentinel rather than failing the search: the FTS hit itself is authoritative.
-func fileLineMatch(path string, terms []string) (int, string) {
+// fileLineMatchGroups reads path and locates the best matching line for the query's OR groups. A read
+// error yields the title-only sentinel rather than failing the search: the FTS hit is authoritative.
+func fileLineMatchGroups(path string, groups [][]string) (int, string) {
 	raw, err := os.ReadFile(path)
 	if err != nil {
 		return 0, ""
 	}
 	body, _, _ := note.SplitLegacyFootmatter(string(raw))
-	return bodyLineMatch(body, terms)
+	return bodyLineMatchGroups(body, groups)
 }
 
 func truncateSearchSnippet(s string, max int) string {
