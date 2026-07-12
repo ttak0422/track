@@ -500,3 +500,30 @@ func TestBuildRendersViewSpecFences(t *testing.T) {
 		t.Fatalf("content after the fences should survive:\n%s", note.Note.Body)
 	}
 }
+
+// TestBuildPublishesProps covers the vault front-end's property flattening: sidecar props (via the
+// metadata) and inline body fields both land in the published note JSON.
+func TestBuildPublishesProps(t *testing.T) {
+	cfg, s := vaultStore(t)
+	writeVaultNote(t, cfg, 100, "Home", "# Home\n\nstatus:: draft\n")
+	if err := note.WriteMetadata(cfg.MetadataPath(100), note.Metadata{
+		Title: "Home",
+		Props: map[string]any{"rating": 8},
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := index.New(cfg, s).Full(); err != nil {
+		t.Fatalf("index: %v", err)
+	}
+
+	out := t.TempDir()
+	if _, err := Build(cfg, s, Options{Root: 100}, fakeFrontend(t), out); err != nil {
+		t.Fatalf("build: %v", err)
+	}
+	root := readJSON[jsonNoteResponse](t, filepath.Join(out, "data", "note", PublishID(100)+".json"))
+	props := root.Note.Props
+	if len(props) != 2 || props[0].Key != "rating" || props[0].Type != "number" ||
+		props[1].Key != "status" || props[1].Value != "draft" {
+		t.Fatalf("props = %+v", props)
+	}
+}

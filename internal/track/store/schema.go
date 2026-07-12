@@ -2,7 +2,7 @@ package store
 
 // schemaVersion is bumped whenever the DDL below changes in a way that requires a rebuild.
 // The schema is applied once when the database is fresh.
-const schemaVersion = 3
+const schemaVersion = 4
 
 // schemaSQL defines a rebuildable SQLite index, not the primary source of truth.
 // Notes and sidecar metadata on disk are authoritative; this database caches keyword rows and computed links for fast lookup.
@@ -53,6 +53,27 @@ CREATE TABLE tasks (
 CREATE INDEX idx_tasks_state ON tasks(state);
 CREATE INDEX idx_tasks_due ON tasks(due);
 
+-- props holds a note's flattened typed properties: sidecar props (line = 0) and inline "key:: value"
+-- body fields (line = 1-based). A list value is one row per item; ord preserves flattened order so a
+-- list reads back in the order it was written.
+CREATE TABLE props (
+  note_id INTEGER NOT NULL REFERENCES notes(id) ON DELETE CASCADE,
+  key     TEXT NOT NULL,
+  value   TEXT NOT NULL,
+  type    TEXT NOT NULL,
+  line    INTEGER NOT NULL DEFAULT 0,
+  ord     INTEGER NOT NULL DEFAULT 0
+);
+CREATE INDEX idx_props_note ON props(note_id);
+CREATE INDEX idx_props_key ON props(key, value);
+
 CREATE VIEW keywords AS
   SELECT title AS term, id AS note_id, 'title' AS kind FROM notes WHERE title <> '';
+
+-- Full-text body index. rowid is the note id; body is the same text the indexer parses
+-- (legacy footmatter stripped, code fences kept). The trigram tokenizer gives case-insensitive
+-- substring matching that also works for CJK, matching the old per-file grep semantics while
+-- adding bm25 ranking. Terms shorter than 3 characters cannot form a trigram, so callers fall
+-- back to a per-file scan for those (see the CLI body search).
+CREATE VIRTUAL TABLE notes_fts USING fts5(body, tokenize='trigram');
 `

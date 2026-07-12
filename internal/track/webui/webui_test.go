@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"io"
 	"io/fs"
+	"mime/multipart"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
@@ -980,9 +981,10 @@ func TestNoteMetaEndpoint(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	post := func(body string) (*http.Response, map[string]any) {
+	post := func(payload map[string]any) (*http.Response, map[string]any) {
 		t.Helper()
-		resp, err := http.Post(server.URL+"/api/note/meta?id=100", "application/json", strings.NewReader(body))
+		body, _ := json.Marshal(payload)
+		resp, err := http.Post(server.URL+"/api/note/meta?id=100", "application/json", bytes.NewReader(body))
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -992,26 +994,140 @@ func TestNoteMetaEndpoint(t *testing.T) {
 		return resp, decoded
 	}
 
-	// Edits go through the engine's validated write path; the response echoes the stored values.
-	resp, res := post(`{"description":"  a summary  ","image":"assets/cover.png"}`)
-	if resp.StatusCode != http.StatusOK || res["description"] != "a summary" || res["image"] != "assets/cover.png" || res["updated"] != true {
-		t.Fatalf("unexpected meta response: %d %v", resp.StatusCode, res)
+	// GET seeds every typed field; the note has a title, so it comes back verbatim.
+	seed := getJSON(t, server.URL+"/api/note/meta?id=100")
+	if seed["title"] != "Alpha" {
+		t.Fatalf("seed title = %v", seed["title"])
 	}
-	got := getJSON(t, server.URL+"/api/note/meta?id=100")
-	if got["description"] != "a summary" || got["image"] != "assets/cover.png" {
-		t.Fatalf("unexpected meta read: %v", got)
+	for _, key := range []string{"title", "kind", "tags", "description", "image", "props"} {
+		if _, ok := seed[key]; !ok {
+			t.Fatalf("seed missing field %q: %v", key, seed)
+		}
+	}
+	// The kind lets the dialog disable title editing for journals; a plain note reports "note".
+	if seed["kind"] != "note" {
+		t.Fatalf("seed kind = %v, want note", seed["kind"])
 	}
 
-	// A null field is untouched; an empty string clears.
-	resp, res = post(`{"image":""}`)
-	if resp.StatusCode != http.StatusOK || res["description"] != "a summary" || res["image"] != "" {
-		t.Fatalf("clear image failed: %d %v", resp.StatusCode, res)
+	// A structured edit applies through the engine's validated write path; the response echoes the
+	// stored fields, props rendered back as a YAML block, tags deduped.
+	resp, res := post(map[string]any{
+		"title":       "Alpha",
+		"tags":        []string{"go", "go"},
+		"description": "a summary",
+		"image":       "assets/cover.png",
+		"props":       "status: draft\n",
+	})
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("meta save status = %d: %v", resp.StatusCode, res)
+	}
+	stored := getJSON(t, server.URL+"/api/note/meta?id=100")
+	if stored["description"] != "a summary" || stored["image"] != "assets/cover.png" {
+		t.Fatalf("stored description/image = %v / %v", stored["description"], stored["image"])
+	}
+	if tags, _ := stored["tags"].([]any); len(tags) != 1 || tags[0] != "go" {
+		t.Fatalf("tags should dedup to [go]: %v", stored["tags"])
+	}
+	if props, _ := stored["props"].(string); !strings.Contains(props, "status: draft") {
+		t.Fatalf("stored props missing status: %q", props)
 	}
 
-	// A bad image is a 400 carrying the engine's message.
-	resp, _ = post(`{"image":"assets/nope.png"}`)
+	// A bad image is a 400 carrying the engine's message, and changes nothing.
+	resp, _ = post(map[string]any{"image": "assets/nope.png"})
 	if resp.StatusCode != http.StatusBadRequest {
 		t.Fatalf("bad image should be a 400, got %d", resp.StatusCode)
+	}
+	unchanged := getJSON(t, server.URL+"/api/note/meta?id=100")
+	if unchanged["description"] != "a summary" {
+		t.Fatalf("rejected edit must change nothing: %v", unchanged)
+	}
+
+	// A props block that is not a map (a bare list) is rejected server-side.
+	resp, _ = post(map[string]any{"props": "- just\n- a list\n"})
+	if resp.StatusCode != http.StatusBadRequest {
+		t.Fatalf("non-map props should be a 400, got %d", resp.StatusCode)
+	}
+
+	// A changed title routes through the rename path.
+	resp, res = post(map[string]any{"title": "Alpha v2", "tags": []string{"go"}})
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("title change failed: %d %v", resp.StatusCode, res)
+	}
+	noteRes := getJSON(t, server.URL+"/api/note?id=100")["note"].(map[string]any)
+	if noteRes["title"] != "Alpha v2" {
+		t.Fatalf("note title after rename = %v", noteRes["title"])
+	}
+}
+
+func TestAssetUploadImportsImage(t *testing.T) {
+	cfg := &config.Config{VaultDir: t.TempDir(), DBPath: filepath.Join(t.TempDir(), "index.db"), Extensions: []string{".md"}}
+	s, err := store.Open(cfg.DBPath)
+	if err != nil {
+		t.Fatalf("open store: %v", err)
+	}
+	t.Cleanup(func() { s.Close() })
+	server := httptest.NewServer(New(cfg, s).Handler())
+	t.Cleanup(server.Close)
+
+	upload := func(filename string, data []byte) (*http.Response, map[string]any) {
+		t.Helper()
+		var buf bytes.Buffer
+		mw := multipart.NewWriter(&buf)
+		fw, err := mw.CreateFormFile("file", filename)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if _, err := fw.Write(data); err != nil {
+			t.Fatal(err)
+		}
+		mw.Close()
+		resp, err := http.Post(server.URL+"/api/asset", mw.FormDataContentType(), &buf)
+		if err != nil {
+			t.Fatal(err)
+		}
+		defer resp.Body.Close()
+		var decoded map[string]any
+		_ = json.NewDecoder(resp.Body).Decode(&decoded)
+		return resp, decoded
+	}
+
+	// A valid image import lands under assets/ and returns its assets/<name> reference.
+	resp, res := upload("cover.png", []byte("\x89PNG fake image bytes"))
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("upload status = %d: %v", resp.StatusCode, res)
+	}
+	if res["ref"] != "assets/cover.png" {
+		t.Fatalf("ref = %v, want assets/cover.png", res["ref"])
+	}
+	if _, err := os.Stat(filepath.Join(cfg.AssetsDir(), "cover.png")); err != nil {
+		t.Fatalf("uploaded file missing from assets: %v", err)
+	}
+
+	// A non-image is rejected and leaves nothing behind (the cover-image gate, reused).
+	resp, _ = upload("notes.txt", []byte("hello"))
+	if resp.StatusCode != http.StatusBadRequest {
+		t.Fatalf("non-image should be a 400, got %d", resp.StatusCode)
+	}
+	if entries, _ := os.ReadDir(cfg.AssetsDir()); len(entries) != 1 {
+		t.Fatalf("non-image upload must not persist; assets = %v", entries)
+	}
+
+	// A path-escaping filename cannot write outside assets/: it is reduced to its base name.
+	resp, res = upload("../../escape.png", []byte("png"))
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("sanitized upload status = %d: %v", resp.StatusCode, res)
+	}
+	if res["ref"] != "assets/escape.png" {
+		t.Fatalf("escape ref = %v, want assets/escape.png (base name)", res["ref"])
+	}
+	if _, err := os.Stat(filepath.Join(filepath.Dir(cfg.AssetsDir()), "escape.png")); !os.IsNotExist(err) {
+		t.Fatalf("escape upload must not write outside assets/ (stat err=%v)", err)
+	}
+
+	// An oversized upload is rejected by the body cap.
+	resp, _ = upload("big.png", make([]byte, maxAssetUploadBytes+1))
+	if resp.StatusCode == http.StatusOK {
+		t.Fatalf("oversized upload should be rejected, got 200")
 	}
 }
 

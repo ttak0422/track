@@ -22,8 +22,10 @@ const (
 	MetadataVersionV4 = 4
 	// MetadataVersionV5 adds the task state transition log under task_log.
 	MetadataVersionV5 = 5
+	// MetadataVersionV6 adds typed note properties under props.
+	MetadataVersionV6 = 6
 	// MaxMetadataVersion is the newest schema this build can read and write.
-	MaxMetadataVersion = MetadataVersionV5
+	MaxMetadataVersion = MetadataVersionV6
 )
 
 func supportedVersion(v int) bool {
@@ -65,6 +67,9 @@ func WriteMetadata(path string, meta Metadata) error {
 	}
 	if len(meta.TaskLog) > 0 && meta.Version < MetadataVersionV5 {
 		meta.Version = MetadataVersionV5
+	}
+	if len(meta.Props) > 0 && meta.Version < MetadataVersionV6 {
+		meta.Version = MetadataVersionV6
 	}
 	if !supportedVersion(meta.Version) {
 		return fmt.Errorf("unsupported metadata version %d", meta.Version)

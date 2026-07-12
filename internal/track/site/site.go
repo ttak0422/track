@@ -86,6 +86,7 @@ func Build(cfg *config.Config, st *store.Store, opts Options, frontendDir, outDi
 			assetSrc: assetSrc,
 			dataDir:  cfg.DataDir(),
 			tasks:    docTasks(n.Body, cfg.TaskStates),
+			props:    note.CollectProps(n.Meta, n.Body),
 		})
 	}
 

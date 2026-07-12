@@ -2,7 +2,7 @@ import { useBlocker, useNavigate } from "@tanstack/react-router";
 import { FormEvent, useEffect, useRef, useState } from "react";
 import { MarkdownView } from "./MarkdownView";
 import { TaskBoardContext } from "./markdown/context";
-import { LoadingIndicator, NoteAside, NoteTags, journalDateFromNote } from "./noteShared";
+import { LoadingIndicator, NoteAside, NoteProperties, NoteTags, journalDateFromNote } from "./noteShared";
 import { getFollowState } from "../api";
 import { NoteMetaDialog } from "./NoteMetaDialog";
 import { NoteActionsMenu } from "./NoteActionsMenu";
@@ -332,6 +332,9 @@ export function NoteEditor({ noteID }: NoteEditorProps) {
         </div>
       ) : null}
       <NoteTags tags={tags} onTag={setQuery} />
+      {/* Properties are read-only here: sidecar values are edited via `track meta --set`, inline
+          fields by editing the body itself. */}
+      <NoteProperties props={data.note.props ?? []} />
 
       <form className="note-editor" onSubmit={submit}>
         <div className={`editor-grid editor-grid-${editorMode}`}>

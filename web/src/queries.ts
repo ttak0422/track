@@ -18,6 +18,7 @@ import {
   saveNoteMeta,
   searchNotes,
   setTaskState,
+  uploadAsset,
 } from "./api";
 import { STATIC_MODE } from "./runtime";
 import { useDebouncedValue } from "./hooks/useDebouncedValue";
@@ -222,8 +223,8 @@ export function useSaveNoteMutation(noteID: NoteID) {
   });
 }
 
-// useNoteMetaQuery loads a note's page metadata for the meta dialog; fetched only while the dialog
-// is open (live server only — the static site has no editor).
+// useNoteMetaQuery loads a note's editable metadata document for the meta dialog; fetched only
+// while the dialog is open (live server only — the static site has no editor).
 export function useNoteMetaQuery(noteID: NoteID, opts: { enabled: boolean }) {
   return useQuery({
     queryKey: queryKeys.noteMeta(noteID),
@@ -254,6 +255,20 @@ export function useSaveNoteMetaMutation(noteID: NoteID) {
     mutationFn: (request: SaveNoteMetaRequest) => saveNoteMeta(noteID, request),
     onSuccess: (response) => {
       queryClient.setQueryData<NoteMetaResponse>(queryKeys.noteMeta(noteID), response);
+      // The edit carries the title, tags, and props, which the note view, lists, and graph render;
+      // a title change also rewrites backlinks in other notes.
+      void queryClient.invalidateQueries({ queryKey: queryKeys.note(noteID) });
+      void queryClient.invalidateQueries({ queryKey: queryKeys.notes() });
+      void queryClient.invalidateQueries({ queryKey: ["search"] });
+      void queryClient.invalidateQueries({ queryKey: ["graph"] });
     },
+  });
+}
+
+// useUploadAssetMutation imports a picked cover image into the vault assets and yields its
+// assets/<name> reference; the dialog sets its image field to the result. Live server only.
+export function useUploadAssetMutation() {
+  return useMutation({
+    mutationFn: (file: File) => uploadAsset(file),
   });
 }

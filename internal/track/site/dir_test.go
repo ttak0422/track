@@ -149,3 +149,24 @@ func TestBuildDirRejectsMissingRoot(t *testing.T) {
 		t.Fatalf("expected error when root file is absent")
 	}
 }
+
+func TestBuildDirPublishesInlineFieldProps(t *testing.T) {
+	src := t.TempDir()
+	body := "# Fields\n\nstatus:: draft\n- rating:: 8\n"
+	if err := os.WriteFile(filepath.Join(src, "index.md"), []byte(body), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	out := t.TempDir()
+	if _, err := BuildDir(src, "index", "", fakeFrontend(t), out); err != nil {
+		t.Fatalf("BuildDir: %v", err)
+	}
+
+	site := readJSON[jsonSite](t, filepath.Join(out, "data", "site.json"))
+	root := readJSON[jsonNoteResponse](t, filepath.Join(out, "data", "note", site.Root+".json"))
+	props := root.Note.Props
+	if len(props) != 2 || props[0].Key != "status" || props[0].Value != "draft" ||
+		props[1].Key != "rating" || props[1].Type != "number" {
+		t.Fatalf("props = %+v", props)
+	}
+}

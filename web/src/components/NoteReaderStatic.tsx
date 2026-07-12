@@ -1,6 +1,6 @@
 import { MarkdownView } from "./MarkdownView";
 import { TaskBoardContext } from "./markdown/context";
-import { LoadingIndicator, NoteAside, NoteTags, journalDateFromNote } from "./noteShared";
+import { LoadingIndicator, NoteAside, NoteProperties, NoteTags, journalDateFromNote } from "./noteShared";
 import { useNoteQuery, useRenderQuery } from "../queries";
 import { useSearchState } from "../searchState";
 import { useTabs } from "./tabs/tabsStore";
@@ -38,6 +38,7 @@ export function NoteReaderStatic({ noteID }: { noteID: NoteID }) {
   return (
     <article className="note-reader">
       <NoteTags tags={data.note.tags ?? []} onTag={setQuery} />
+      <NoteProperties props={data.note.props ?? []} />
 
       <section className="note-preview" aria-label="Rendered note">
         {body.trim() !== "" && rendered.data?.markdown === undefined ? (

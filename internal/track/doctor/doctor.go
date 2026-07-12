@@ -34,6 +34,10 @@ const (
 	// IssueDuplicateTitle is a title shared by more than one note. Creation prevents this, but a sync
 	// merge can reintroduce it, leaving [[title]] links ambiguous.
 	IssueDuplicateTitle IssueKind = "duplicate_title"
+	// IssuePropertyViolation is a note property (sidecar or inline field) that breaks the property
+	// schema configured under `properties:` — wrong value type, or a value outside the declared enum.
+	// Only reported when a schema is configured; not auto-fixable (the intended value is unknown).
+	IssuePropertyViolation IssueKind = "property_violation"
 )
 
 // Issue is one divergence between the on-disk files and their metadata.
@@ -61,6 +65,7 @@ type scanResult struct {
 	unreadablePath map[int64]string // id -> sidecar path for unreadable sidecars
 	strays         []string         // file paths that break the id naming rule
 	orphans        []int64          // sidecar ids with no markdown file
+	propIssues     []Issue          // schema violations, only gathered when a property schema is configured
 }
 
 // scan walks the vault once and gathers every consistency signal Diagnose and Fix need.
@@ -109,6 +114,10 @@ func scan(cfg *config.Config) (scanResult, error) {
 			case meta.Title != "":
 				res.titles[id] = meta.Title
 			}
+			// Property checks read the body, so only pay for that when a schema is configured.
+			if len(cfg.Properties) > 0 && err == nil {
+				res.propIssues = append(res.propIssues, propertyIssues(cfg, id, path, meta)...)
+			}
 		}
 	}
 
@@ -129,6 +138,27 @@ func scan(cfg *config.Config) (scanResult, error) {
 		}
 	}
 	return res, nil
+}
+
+// propertyIssues checks one note's flattened properties (sidecar props plus inline body fields)
+// against the configured schema, reusing the same flattening the indexer stores. An unreadable body
+// contributes nothing — the file-level problem is what needs surfacing, and scan handles those.
+func propertyIssues(cfg *config.Config, id int64, path string, meta note.Metadata) []Issue {
+	raw, err := os.ReadFile(path)
+	if err != nil {
+		return nil
+	}
+	body, _, _ := note.SplitLegacyFootmatter(string(raw))
+	var issues []Issue
+	for _, v := range note.CheckProps(note.CollectProps(meta, body), cfg.Properties) {
+		where := "sidecar props"
+		if v.Line > 0 {
+			where = fmt.Sprintf("line %d", v.Line)
+		}
+		issues = append(issues, Issue{Kind: IssuePropertyViolation, ID: id, Path: path,
+			Detail: fmt.Sprintf("property %q (%s): %s", v.Key, where, v.Message)})
+	}
+	return issues
 }
 
 // duplicateTitleGroups returns, per shared title, the sorted ids that carry it (only titles with >1 id).
@@ -180,6 +210,7 @@ func Diagnose(cfg *config.Config) (Report, error) {
 		rep.Issues = append(rep.Issues, Issue{Kind: IssueDuplicateTitle,
 			Detail: "title " + strconv.Quote(title) + " is shared by ids " + strings.Join(strs, ", ")})
 	}
+	rep.Issues = append(rep.Issues, res.propIssues...)
 
 	sortIssues(rep.Issues)
 	if rep.Issues == nil {
@@ -288,6 +319,8 @@ func Fix(cfg *config.Config, startID int64) (FixReport, error) {
 		rep.Skipped = append(rep.Skipped, Issue{Kind: IssueUnreadableSidecar, ID: id, Path: res.unreadablePath[id],
 			Detail: "cannot auto-repair an unreadable sidecar; fix or remove it by hand"})
 	}
+	// Property violations are not auto-fixable either: the intended value is unknown, so edit by hand.
+	rep.Skipped = append(rep.Skipped, res.propIssues...)
 
 	rep.Changed = len(rep.Fixed) > 0
 	if rep.Fixed == nil {

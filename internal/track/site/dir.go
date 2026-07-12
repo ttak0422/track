@@ -90,6 +90,8 @@ func BuildDir(srcDir, rootName, baseURL, frontendDir, outDir string) (Result, er
 			dataDir: filepath.Join(srcDir, "data"),
 			// Directory sources have no vault config, so tasks parse with the default state set.
 			tasks: docTasks(f.body, nil),
+			// Plain Markdown files have no sidecar, so inline "key:: value" fields are their only properties.
+			props: note.InlineFields(f.body),
 		})
 		for _, ref := range link.Refs(f.body) {
 			if dst, ok := keyToID[ref.Text]; ok {

@@ -13,6 +13,7 @@ import (
 	"strings"
 
 	"github.com/ttak0422/track/internal/track/link"
+	"github.com/ttak0422/track/internal/track/note"
 	"github.com/ttak0422/track/internal/track/task"
 )
 
@@ -28,17 +29,18 @@ type doc struct {
 	title    string
 	kind     string // "note" or "journal"
 	tags     []string
-	days     []string  // activity days (YYYY-MM-DD) from the sidecar; journals carry none
-	mtime    int64     // file mtime, for the shared recently-updated-first listing order (0 in dir mode)
-	path     string    // source/display path (informational in the static site)
-	body     string    // web-sanitized Markdown the frontend renders
-	keys     []string  // resolution keys ([[key]]) that point at this doc (title, file name, …)
-	assets   []string  // "assets/<rel>" references in the body
-	assetSrc string    // directory those assets are copied from
-	desc     string    // page summary (sidecar description), published as og:description
-	image    string    // cover image, relative under assets/ ("" = none), published as og:image
-	dataDir  string    // canonical-data directory for embedded ```viewspec charts ("" = inline data only)
-	tasks    *task.Set // parsed task lines + state set, for the read-only board (nil = none)
+	days     []string    // activity days (YYYY-MM-DD) from the sidecar; journals carry none
+	mtime    int64       // file mtime, for the shared recently-updated-first listing order (0 in dir mode)
+	path     string      // source/display path (informational in the static site)
+	body     string      // web-sanitized Markdown the frontend renders
+	keys     []string    // resolution keys ([[key]]) that point at this doc (title, file name, …)
+	assets   []string    // "assets/<rel>" references in the body
+	assetSrc string      // directory those assets are copied from
+	desc     string      // page summary (sidecar description), published as og:description
+	image    string      // cover image, relative under assets/ ("" = none), published as og:image
+	dataDir  string      // canonical-data directory for embedded ```viewspec charts ("" = inline data only)
+	tasks    *task.Set   // parsed task lines + state set, for the read-only board (nil = none)
+	props    []note.Prop // flattened typed properties (sidecar props + inline fields), shown read-only
 }
 
 // edge is a directed [[link]] between two in-set docs.
@@ -73,8 +75,11 @@ type jsonNoteDetail struct {
 	Includes []link.ResolvedInclude `json:"includes,omitempty"`
 	jsonSearchResult
 	CopyPath string `json:"copy_path"`
-	Body     string `json:"body"`
-	ETag     string `json:"etag"`
+	// Props mirrors the live server's flattened note properties; link values stay resolution keys,
+	// which the frontend resolves through resolve.json like any other wiki link.
+	Props []note.Prop `json:"props,omitempty"`
+	Body  string      `json:"body"`
+	ETag  string      `json:"etag"`
 	// Tasks feeds the read-only task board (```taskboard) on the published site.
 	Tasks *task.Set `json:"tasks,omitempty"`
 }
@@ -204,6 +209,7 @@ func writeBundle(docs []doc, edges []edge, root int64, calendar bool, baseURL, f
 				}),
 				jsonSearchResult: searchResultOf(d),
 				CopyPath:         "", // see searchResultOf: the source path is intentionally not published.
+				Props:            d.props,
 				Body:             body,
 				ETag:             etag(body),
 				Tasks:            d.tasks,

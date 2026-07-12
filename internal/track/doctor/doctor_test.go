@@ -262,3 +262,47 @@ func TestFixSkipsUnreadableSidecar(t *testing.T) {
 		t.Fatalf("unreadable sidecar should be skipped, not fixed: %+v", rep)
 	}
 }
+
+func TestDiagnosePropertyViolations(t *testing.T) {
+	cfg := newVault(t)
+	cfg.Properties = map[string]config.PropSpec{
+		"status": {Values: []string{"draft", "done"}},
+		"rating": {Type: "number"},
+	}
+	writeNote(t, cfg, 100, "Alpha")
+	body := "status:: waiting\n- rating:: high\nstatus:: draft\n"
+	if err := os.WriteFile(cfg.NotePath(100), []byte(body), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	// Sidecar props are checked too.
+	if err := note.WriteMetadata(cfg.MetadataPath(100), note.Metadata{
+		Title: "Alpha",
+		Props: map[string]any{"status": "maybe"},
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	rep, err := Diagnose(cfg)
+	if err != nil {
+		t.Fatalf("diagnose: %v", err)
+	}
+	got := issuesByKind(rep)[IssuePropertyViolation]
+	if len(got) != 3 {
+		t.Fatalf("property violations = %+v, want 3", got)
+	}
+	for _, issue := range got {
+		if issue.ID != 100 || issue.Detail == "" {
+			t.Fatalf("unexpected issue %+v", issue)
+		}
+	}
+
+	// Without a schema the same vault diagnoses clean.
+	cfg.Properties = nil
+	rep, err = Diagnose(cfg)
+	if err != nil {
+		t.Fatalf("diagnose without schema: %v", err)
+	}
+	if len(rep.Issues) != 0 {
+		t.Fatalf("expected no issues without schema, got %+v", rep.Issues)
+	}
+}

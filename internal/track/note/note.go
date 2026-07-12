@@ -24,6 +24,8 @@ import (
 // assets-relative cover image, surfaced as og:description / og:image by the static export.
 // TaskLog is the append-only history of task state transitions (version 5 sidecars); it keeps
 // transition timestamps out of the note body.
+// Props (version 6 sidecars) is the note's typed key-value properties: YAML scalars or lists of
+// scalars, flattened and typed by SidecarProps and indexed alongside inline "key:: value" fields.
 type Metadata struct {
 	Version     int                        `yaml:"version"`
 	Title       string                     `yaml:"title,omitempty"`
@@ -32,6 +34,7 @@ type Metadata struct {
 	Days        []string                   `yaml:"days,omitempty"`
 	Description string                     `yaml:"description,omitempty"`
 	Image       string                     `yaml:"image,omitempty"`
+	Props       map[string]any             `yaml:"props,omitempty"`
 	Blocks      map[string]babel.BlockMeta `yaml:"blocks,omitempty"`
 	TaskLog     []task.LogEntry            `yaml:"task_log,omitempty"`
 }
