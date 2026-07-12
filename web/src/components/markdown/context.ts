@@ -22,3 +22,8 @@ export interface TaskBoardData {
 }
 
 export const TaskBoardContext = createContext<TaskBoardData>({ noteID: "" });
+
+// Raw markdown source of the note being rendered, for blocks that reflect over the whole note (an
+// empty ```mindmap fence maps the note's heading tree). Same reason as IncludesContext: module-level
+// markdownComponents cannot close over per-render data.
+export const MarkdownSourceContext = createContext<string>("");

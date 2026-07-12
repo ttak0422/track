@@ -5,12 +5,14 @@ import remarkGfm from "remark-gfm";
 import type { NoteInclude } from "../types";
 import { rehypeBudoux } from "./markdown/budouxEager";
 import { CodeBlock } from "./markdown/CodeBlock";
-import { IncludesContext, NoteKindContext, TaskBoardContext } from "./markdown/context";
+import { IncludesContext, MarkdownSourceContext, NoteKindContext, TaskBoardContext } from "./markdown/context";
 import { TaskBoard } from "./markdown/TaskBoard";
 import { Embed } from "./markdown/Embed";
 import { ExternalLink } from "./markdown/ExternalLink";
+import { GraphvizDiagram } from "./markdown/GraphvizDiagram";
 import { loadMathPlugins, looksLikeMath, type MathPlugins, mathPluginsIfLoaded } from "./markdown/math";
 import { MermaidDiagram } from "./markdown/MermaidDiagram";
+import { MindmapDiagram } from "./markdown/MindmapDiagram";
 import {
   remarkAlert,
   remarkEmbedOptions,
@@ -77,11 +79,13 @@ export function MarkdownView({ markdown, kind = "note", includes }: MarkdownView
   return (
     <NoteKindContext.Provider value={kind}>
       <IncludesContext.Provider value={includes ?? []}>
-        <div className="markdown-view">
-          <Markdown remarkPlugins={remarkPlugins} rehypePlugins={rehypePlugins} components={markdownComponents}>
-            {source}
-          </Markdown>
-        </div>
+        <MarkdownSourceContext.Provider value={markdown}>
+          <div className="markdown-view">
+            <Markdown remarkPlugins={remarkPlugins} rehypePlugins={rehypePlugins} components={markdownComponents}>
+              {source}
+            </Markdown>
+          </div>
+        </MarkdownSourceContext.Provider>
       </IncludesContext.Provider>
     </NoteKindContext.Provider>
   );
@@ -138,9 +142,27 @@ interface ElementProps {
 }
 
 const markdownComponents = {
-  a: ({ href, children }: { href?: string; children?: ReactNode }) => (
-    <ExternalLink href={href ?? ""}>{children}</ExternalLink>
-  ),
+  a: ({ node, href, children }: ElementProps & { href?: string; children?: ReactNode }) => {
+    // GFM footnote anchors (reference ↔ back-link) must keep their generated ids so the jumps land;
+    // ExternalLink would drop them, and a footnote href is a pure in-page hash anyway.
+    const props = (node?.properties ?? {}) as Record<string, unknown>;
+    if (props.dataFootnoteRef !== undefined || props.dataFootnoteBackref !== undefined) {
+      const isRef = props.dataFootnoteRef !== undefined;
+      const label = typeof props.ariaLabel === "string" ? props.ariaLabel : undefined;
+      return (
+        <a
+          id={typeof props.id === "string" ? props.id : undefined}
+          href={href}
+          className={isRef ? "footnote-ref" : "footnote-backref"}
+          aria-label={label}
+          title={label}
+        >
+          {children}
+        </a>
+      );
+    }
+    return <ExternalLink href={href ?? ""}>{children}</ExternalLink>;
+  },
   img: ({ node, src, alt }: ElementProps & { src?: string; alt?: string }) => {
     const height = (node?.properties as { embedHeight?: unknown } | undefined)?.embedHeight;
     return (
@@ -162,6 +184,12 @@ const markdownComponents = {
       const normalized = normalizeCodeLanguage(lang);
       if (normalized === "mermaid") {
         return <MermaidDiagram text={text} />;
+      }
+      if (normalized === "dot" || normalized === "graphviz") {
+        return <GraphvizDiagram text={text} />;
+      }
+      if (normalized === "mindmap") {
+        return <MindmapDiagram text={text} />;
       }
       if (normalized === "viewspec") {
         return <ViewSpecChart text={text} />;

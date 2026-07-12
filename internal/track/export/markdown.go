@@ -67,7 +67,12 @@ type frontmatter struct {
 }
 
 func renderSource(b babel.Block) string {
-	return "```" + b.Language + "\n" + b.Body + "\n```"
+	fence := b.Fence
+	if fence < 3 {
+		fence = 3
+	}
+	f := strings.Repeat("`", fence)
+	return f + b.Language + "\n" + b.Body + "\n" + f
 }
 
 func renderResults(b babel.Block, result *babel.RunResult) string {

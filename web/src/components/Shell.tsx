@@ -108,7 +108,9 @@ export function Shell() {
             <Outlet />
           </section>
         </div>
-        {isHome || isGraph || isCalendar ? null : <GraphPanel />}
+        {/* The live home is a hero screen with no note; the static "/" renders the start note, so it
+            keeps the graph launcher like any other note page. */}
+        {isLiveHome || isGraph || isCalendar ? null : <GraphPanel />}
         <FloatingLayer />
       </main>
       </TabsProvider>

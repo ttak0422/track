@@ -1,20 +1,21 @@
 # Local build & preview of the static help site (SSG), so you can check the published output without
 # cutting a release. Run these inside `nix develop` (or with Go + Node + Python on PATH).
 #
-# The static frontend is built into web/dist-static (not web/dist) so it never shadows the live
-# `track web` dev build, which is picked up from web/dist when running from the repo.
+# The static help site is built into web/dist-static, kept separate from web/dist (the Vite build of
+# the live workspace) so the two never clobber each other.
 
 SITE_OUT   ?= _site
 SITE_SRC   ?= docs/help
 SITE_ROOT  ?= index
 SITE_PORT  ?= 8000
+WEB_ADDR   ?= 127.0.0.1:8765
 TRACK_BIN  := bin/track
 WEB_DIST   := web/dist-static
 
 # Open a URL in the browser: xdg-open on Linux, open on macOS. Empty if neither is on PATH.
 OPEN := $(shell command -v xdg-open 2>/dev/null || command -v open 2>/dev/null)
 
-.PHONY: help site site-serve site-dev site-data site-clean lighthouse
+.PHONY: help site site-serve site-dev site-data site-clean lighthouse web-nvim
 
 help: ## List the available targets
 	@grep -E '^[a-zA-Z0-9_-]+:.*?## ' $(MAKEFILE_LIST) \
@@ -73,6 +74,17 @@ site-serve: site ## Serve at http://localhost:$(SITE_PORT), open a browser, and 
 
 site-clean: ## Remove the built site, static frontend, and CLI binary
 	rm -rf $(SITE_OUT) $(WEB_DIST) $(TRACK_BIN)
+
+# Run the live web workspace the way the Neovim plugin does: headless nvim launches `:Track web`
+# (using the Nix-built track, which embeds the real frontend), then blocks so the server stays up.
+# Ctrl-C interrupts the wait; nvim exits and takes the web-server job down with it. Point at a vault
+# with `TRACK_VAULT=<path> make web-nvim` (defaults to the plugin's configured vault).
+web-nvim: ## Launch the live web workspace via headless Neovim (Ctrl-C to stop)
+	@echo "track web via headless Neovim at http://$(WEB_ADDR)/ — Ctrl-C to stop"
+	nix run .#test-nvim -- --headless \
+		-c 'Track web --addr $(WEB_ADDR)' \
+		-c 'lua vim.wait(2147483647, function() return false end)' \
+		-c 'qa!'
 
 # Install frontend dependencies once; re-run only when the lockfile changes.
 web/node_modules: web/package-lock.json
