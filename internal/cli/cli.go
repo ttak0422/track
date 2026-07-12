@@ -75,6 +75,8 @@ func Run(args []string) int {
 		return cmdSearch(rest)
 	case "query":
 		return cmdQuery(rest)
+	case "similar":
+		return cmdSimilar(rest)
 	case "notes":
 		return cmdNotes(rest)
 	case "backlinks":
@@ -127,11 +129,15 @@ Usage:
   track update (--id N | --title S | --path P) [--body <s>] [--tag <s>] [--clear-tags]
                                         replace body text and/or update tags on an existing note
   track meta (--id N | --title S | --path P) [--description S] [--image assets/F]
-             [--set key=value ...] [--unset key ...]
-                                        print a note's metadata, or set it: description (og:description),
-                                        cover image (og:image; an existing vault asset), and typed
+             [--set key=value ...] [--unset key ...] [--edit (FILE|-)]
+                                        print a note's metadata (incl. its editable YAML document
+                                        under "doc"), or set it: description (og:description), cover
+                                        image (og:image; an existing vault asset), and typed
                                         properties (--set/--unset; comma-separated value makes a list).
-                                        An empty description/image clears the field (JSON)
+                                        An empty description/image clears the field. --edit applies a
+                                        full document (title/tags/description/image/props) from a file
+                                        or stdin, validated as a whole before anything is written; a
+                                        changed title renames the note, backlinks included (JSON)
   track toggle (--id N | --title S | --path P) --line N [--state toggle|check|uncheck]
                                         flip (or set) a task checkbox on one line of a note (JSON)
   track asset import <file>             copy a file into the vault's assets/ dir; prints the assets/<file> ref (JSON)
@@ -166,6 +172,8 @@ Usage:
                                         search notes (JSON)
   track query (<expr> | --saved <name>)  run a table query over notes, e.g.
                                         'TABLE title, status FROM #project WHERE status != done SORT due LIMIT 10' (JSON)
+  track similar --id N [--limit K]      list notes semantically closest to a note, using the configured
+                                        embedder command; explains setup and exits cleanly if none (JSON)
   track notes [--untagged] [--limit N]  list notes, newest first; --untagged keeps only notes with no
                                         tags, for a curation pass that adds tags via track append --tag (JSON)
   track backlinks (--id N | --path P)   list backlinks (JSON)
