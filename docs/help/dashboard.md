@@ -53,9 +53,10 @@ pinned:
 
 ## Note icons
 
-An icon can sit beside a note's title in lists, search results, and navigation. Where it comes from
-depends on what is being shown: a **vault** has a config and per-note metadata, while a **published site
-built from a plain Markdown directory** — like this help site — has neither, so each page states its own.
+An icon can sit beside a note's title in search results — in the live workspace and on a published site
+alike; that is the one surface that draws it today. Where it comes from depends on what is being shown:
+a **vault** has a config and per-note metadata, while a **published site built from a plain Markdown
+directory** — like this help site — has neither, so each page states its own.
 
 ### In a vault
 
@@ -97,5 +98,7 @@ The Web workspace can open a home note as its landing view.
 ```
 
 The first `icon::` field on a page wins, and an empty value means no icon — the same as having no field
-at all. It stays an ordinary property, so it also shows up in the page's property strip. Every page of
-this help site carries one: search for a page here and its icon is beside the title in the results.
+at all. It stays an ordinary property, so it also shows up in the page's property strip — but not in the
+prose: a whole-line field is metadata, and the rendered page lifts it out of the body (see
+[[Properties]]). Every page of this help site carries one: search for a page here and its icon is beside
+the title in the results.

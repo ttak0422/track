@@ -65,7 +65,7 @@ func Build(cfg *config.Config, st *store.Store, opts Options, frontendDir, outDi
 		if err != nil {
 			return Result{}, fmt.Errorf("load note %d: %w", id, err)
 		}
-		body, err := sanitize(n)
+		body, err := export.WebBody(n.Body)
 		if err != nil {
 			return Result{}, fmt.Errorf("render note %d: %w", id, err)
 		}
@@ -109,17 +109,6 @@ func vaultEdges(st *store.Store, inSet map[int64]bool) ([]edge, error) {
 		}
 	}
 	return edges, nil
-}
-
-// sanitize renders a note body into the Markdown the frontend expects: wiki links are kept for the
-// frontend to resolve, action links are flattened, and code blocks become plain fences. This is the
-// same transform the live server applies in /api/render, so a published note reads identically.
-func sanitize(n *note.Note) (string, error) {
-	res, err := export.Export(n, export.NewWebRenderer(), export.Options{})
-	if err != nil {
-		return "", err
-	}
-	return res.Markdown, nil
 }
 
 func noteTitle(n *note.Note) string {

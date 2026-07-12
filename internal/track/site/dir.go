@@ -7,6 +7,7 @@ import (
 	"sort"
 	"strings"
 
+	"github.com/ttak0422/track/internal/track/export"
 	"github.com/ttak0422/track/internal/track/link"
 	"github.com/ttak0422/track/internal/track/note"
 )
@@ -75,7 +76,7 @@ func BuildDir(srcDir, rootName, baseURL, frontendDir, outDir string) (Result, er
 	seenEdge := map[edge]bool{}
 	for _, f := range files {
 		id := idForSlug[f.slug]
-		body, err := sanitize(&note.Note{ID: id, Kind: "note", Body: f.body, Meta: note.Metadata{Title: f.title}})
+		body, err := export.WebBody(f.body)
 		if err != nil {
 			return Result{}, fmt.Errorf("render %s: %w", f.slug, err)
 		}
@@ -116,8 +117,9 @@ func BuildDir(srcDir, rootName, baseURL, frontendDir, outDir string) (Result, er
 // sidecars, so a page states its own with an "icon:: 📓" inline field — the same fields that are
 // already its only properties. The first icon field wins (a page has one icon; a later one is a
 // duplicate, not an override) and an empty value means no icon, as does having no field at all. The
-// field stays in the published props: it is an ordinary property, and hiding it would be a special case
-// that buys nothing.
+// field stays in the published props — it is an ordinary property, and hiding it there would be a
+// special case that buys nothing — while its source line, being metadata, is kept out of the published
+// prose like any other whole-line field (export.WebBody).
 func inlineIcon(props []note.Prop) string {
 	for _, p := range props {
 		if p.Key == "icon" {

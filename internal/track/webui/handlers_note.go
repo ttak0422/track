@@ -311,7 +311,7 @@ func (s *Server) handleRender(w http.ResponseWriter, r *http.Request) {
 	if strings.Contains(body, "```"+dashboard.Lang) {
 		body = dashboard.Resolve(body, s.dashboardData())
 	}
-	res, err := export.Export(&note.Note{Body: body}, export.NewWebRenderer(), export.Options{})
+	markdown, err := export.WebBody(body)
 	if err != nil {
 		writeError(w, err, http.StatusInternalServerError)
 		return
@@ -320,8 +320,8 @@ func (s *Server) handleRender(w http.ResponseWriter, r *http.Request) {
 	// numbers align with the text the client splices them into; target bodies render through the
 	// same web renderer so embedded content arrives as sanitized as the note's own.
 	writeJSON(w, map[string]any{
-		"markdown": res.Markdown,
-		"includes": link.ResolveIncludes(res.Markdown, s.loadRenderedNote),
+		"markdown": markdown,
+		"includes": link.ResolveIncludes(markdown, s.loadRenderedNote),
 	})
 }
 
@@ -338,11 +338,11 @@ func (s *Server) loadRenderedNote(key string) (int64, string, string, bool) {
 		return 0, "", "", false
 	}
 	body, _, _ := note.SplitLegacyFootmatter(string(raw))
-	res, err := export.Export(&note.Note{Body: body}, export.NewWebRenderer(), export.Options{})
+	markdown, err := export.WebBody(body)
 	if err != nil {
 		return 0, "", "", false
 	}
-	return ref.NoteID, ref.FileKind, res.Markdown, true
+	return ref.NoteID, ref.FileKind, markdown, true
 }
 
 // handleViewSpec resolves a fenced ```viewspec block (a View Spec JSON) to its ECharts option JSON,

@@ -169,11 +169,15 @@ func TestBuildDirIconFromInlineField(t *testing.T) {
 		}
 	}
 
-	// The icon:: field is an ordinary property and stays in the page's published props.
+	// The icon:: field is an ordinary property and stays in the page's published props — but only
+	// there: the published body drops the field line, so the page does not also print it as prose.
 	site := readJSON[jsonSite](t, filepath.Join(out, "data", "site.json"))
 	root := readJSON[jsonNoteResponse](t, filepath.Join(out, "data", "note", site.Root+".json"))
 	if len(root.Note.Props) != 1 || root.Note.Props[0].Key != "icon" || root.Note.Props[0].Value != "📓" {
 		t.Fatalf("props = %+v", root.Note.Props)
+	}
+	if strings.Contains(root.Note.Body, "icon::") {
+		t.Errorf("published body still carries the field line:\n%s", root.Note.Body)
 	}
 }
 
