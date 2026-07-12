@@ -16,6 +16,23 @@ Part of [[Visualization]] (see also [[Charts]], [[Mindmaps]], and [[Embeds]]). B
 Fence a block with `mermaid` and write Mermaid syntax. It renders inline; if the syntax is wrong, the
 original source is shown instead of a broken image, so a typo never hides your text.
 
+````markdown
+```mermaid
+flowchart TD
+  idea([New idea or source]) --> capture["Capture a note"]
+  capture --> link["Link related notes with wiki links"]
+  link --> explore{"Explore the local graph"}
+  explore -->|gap found| capture
+  explore -->|ready| write["Synthesize a write-up"]
+  write --> embed["Embed charts, media, and diagrams"]
+  embed --> publish["Publish with track export-site"]
+  publish --> review([Review and revisit])
+  review --> idea
+```
+````
+
+It renders as:
+
 ```mermaid
 flowchart TD
   idea([New idea or source]) --> capture["Capture a note"]
@@ -34,6 +51,28 @@ flowchart TD
 Fence a block with `dot` (or `graphviz`) and write plain [DOT](https://graphviz.org/doc/info/lang.html).
 Graphviz runs compiled to WebAssembly, right in the browser — nothing to install — and a syntax error
 falls back to the message plus your source, the same as Mermaid:
+
+````markdown
+```dot
+digraph publish_workflow {
+  rankdir=TB;
+  node [shape=box, style=rounded];
+  capture [label="Capture a note"];
+  clarify [label="Clarify the idea"];
+  link [label="Link related notes"];
+  draft [label="Draft a write-up"];
+  review [label="Review and revise"];
+  publish [label="Publish"];
+  archive [label="Archive source material"];
+
+  capture -> clarify -> link -> draft -> review -> publish;
+  review -> draft [label="revise"];
+  publish -> archive;
+}
+```
+````
+
+It renders as:
 
 ```dot
 digraph publish_workflow {

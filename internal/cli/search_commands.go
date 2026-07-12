@@ -101,6 +101,53 @@ func cmdSearch(args []string) int {
 	return emit(map[string]any{"results": results})
 }
 
+// cmdNotes lists indexed notes as JSON, most recently updated first — the CLI counterpart of the web
+// workspace's note listing. --untagged narrows it to notes that carry no tags, so a curation pass (human
+// or agent) can pull exactly the notes that still need tagging and add them with `track append --tag`.
+// Journals are date-titled aggregation hubs with their own surfaces (agenda/journal) and are expected to
+// be untagged, so they are omitted from this note-curation listing.
+func cmdNotes(args []string) int {
+	fs := flag.NewFlagSet("notes", flag.ContinueOnError)
+	untagged := fs.Bool("untagged", false, "only notes that carry no tags")
+	limit := fs.Int("limit", 0, "max results (0 = no limit)")
+	if err := fs.Parse(args); err != nil {
+		return fail("parse args: %v", err)
+	}
+
+	cfg, s, err := open()
+	if err != nil {
+		return fail("%v", err)
+	}
+	defer s.Close()
+
+	// Self-heal before reading so the listing — and its untagged filter — reflects tags on disk, including
+	// ones an editor wrote directly since this process last indexed.
+	if _, err := index.New(cfg, s).RefreshIfStale(); err != nil {
+		return fail("refresh index: %v", err)
+	}
+
+	refs, err := s.SearchRefs()
+	if err != nil {
+		return fail("notes: %v", err)
+	}
+	notes := make([]store.SearchResult, 0, len(refs))
+	for _, r := range refs {
+		if r.FileKind != "note" {
+			continue
+		}
+		if *untagged && len(r.Tags) > 0 {
+			continue
+		}
+		notes = append(notes, r)
+	}
+	addSearchPaths(cfg, notes)
+	sortSearchResults(notes)
+	if *limit > 0 && len(notes) > *limit {
+		notes = notes[:*limit]
+	}
+	return emit(map[string]any{"notes": notes})
+}
+
 func cmdBacklinks(args []string) int {
 	fs := flag.NewFlagSet("backlinks", flag.ContinueOnError)
 	id := fs.Int64("id", 0, "note id")
