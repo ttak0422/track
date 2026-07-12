@@ -7,6 +7,8 @@ import (
 	"os"
 	"strconv"
 	"strings"
+
+	"github.com/ttak0422/track/internal/track/note"
 )
 
 // tagsFlag collects repeatable --tag values; each value may itself be comma-separated.
@@ -49,22 +51,32 @@ func (f *idsFlag) Set(v string) error {
 	return nil
 }
 
-// dedupTags trims and de-duplicates tags, preserving first-seen order. It returns nil for an empty set.
+// kvFlag collects repeatable key=value pairs (e.g. --set status=draft). The value may contain "=".
+type kvFlag []struct{ Key, Value string }
+
+func (f *kvFlag) String() string {
+	parts := make([]string, len(*f))
+	for i, kv := range *f {
+		parts[i] = kv.Key + "=" + kv.Value
+	}
+	return strings.Join(parts, " ")
+}
+
+func (f *kvFlag) Set(v string) error {
+	key, value, ok := strings.Cut(v, "=")
+	key = strings.TrimSpace(key)
+	if !ok || key == "" {
+		return fmt.Errorf("expected key=value, got %q", v)
+	}
+	*f = append(*f, struct{ Key, Value string }{key, strings.TrimSpace(value)})
+	return nil
+}
+
+// dedupTags trims and de-duplicates tags, preserving first-seen order. It returns nil for an empty
+// set. The rule itself lives in the engine (note.DedupTags) so the metadata-document editor
+// normalizes tags identically.
 func dedupTags(tags []string) []string {
-	if len(tags) == 0 {
-		return nil
-	}
-	seen := make(map[string]bool, len(tags))
-	var out []string
-	for _, tg := range tags {
-		tg = strings.TrimSpace(tg)
-		if tg == "" || seen[tg] {
-			continue
-		}
-		seen[tg] = true
-		out = append(out, tg)
-	}
-	return out
+	return note.DedupTags(tags)
 }
 
 // readBody returns body text from the --body flag when it was set, otherwise from piped stdin.

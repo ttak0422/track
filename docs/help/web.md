@@ -12,6 +12,12 @@ Back to [[track]].
 - Hover previews and persistent floating windows for linked notes and media.
 - A local link graph you can open per-note or full-screen.
 - Follow mode, so the web view tracks the note you are editing in Neovim.
+- A metadata editor (the Meta dialog in the note actions menu): dedicated fields for the note's
+  title, tags, description, and cover image, plus a free-form block for [[Properties]]. Built-in
+  fields get typed controls — the cover image can be uploaded straight from the browser into the
+  vault assets — while props stays free-form YAML. The engine composes and validates the whole edit
+  (the same rules as `track meta --edit`); the frontend never assembles YAML. Changing the title
+  renames the note and rewrites its backlinks. The published static site has no editor.
 
 ## Media embeds and diagrams
 
@@ -26,3 +32,9 @@ The static site produced by `track export-site` is the *published* counterpart o
 rendered content only, with no editor, search index, or heatmap top page. It reuses the same Markdown
 and Mermaid rendering so a published note reads the way it does here, while [[Linking notes]] explains
 how cross-note links are resolved against the published set.
+
+## Searching from the workspace
+
+The workspace search box matches note titles and `#tags` through the [[CLI]] as you type. Full-text
+search across note *bodies* — ranked by relevance, with code-block and CJK matches — is a CLI
+capability: run `track search --scope body`. See [[Searching notes]] for the query rules it shares.

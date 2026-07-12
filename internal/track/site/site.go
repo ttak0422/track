@@ -84,6 +84,7 @@ func Build(cfg *config.Config, st *store.Store, opts Options, frontendDir, outDi
 			image:    strings.TrimPrefix(n.Meta.Image, "assets/"),
 			assetSrc: assetSrc,
 			dataDir:  cfg.DataDir(),
+			props:    note.CollectProps(n.Meta, n.Body),
 		})
 	}
 

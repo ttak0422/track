@@ -24,6 +24,11 @@ func (s *Server) completion(uri string, pos position) ([]completionItem, error) 
 	}
 	ctx, ok := openLinkCompletionContext(text, pos)
 	if !ok {
+		// Property fields sit outside [[links]]; inside an open [[ the link dictionary wins, so a
+		// link-typed property value still completes note titles.
+		if items, ok := s.propertyCompletion(text, pos); ok {
+			return items, nil
+		}
 		return s.babelCompletion(text, pos), nil
 	}
 	if strings.Contains(ctx.Target, "#") {
