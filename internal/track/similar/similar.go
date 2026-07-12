@@ -8,6 +8,7 @@ package similar
 
 import (
 	"bytes"
+	"context"
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
@@ -16,11 +17,18 @@ import (
 	"os/exec"
 	"slices"
 	"strings"
+	"time"
 
 	"github.com/ttak0422/track/internal/track/config"
 	"github.com/ttak0422/track/internal/track/note"
 	"github.com/ttak0422/track/internal/track/store"
 )
+
+// embedTimeout bounds one embedder invocation so a hung command cannot hang `track similar` forever.
+// 120s is deliberately generous: a local model's first call may spend tens of seconds just loading
+// weights. A var (not a const) so tests can shrink it.
+// ponytail: fixed timeout; make it a config knob if real embedders need more.
+var embedTimeout = 120 * time.Second
 
 // EmbedFunc turns a note's text into a vector. It is the seam that keeps the model out of the engine:
 // tests inject a deterministic fake, production wires CommandEmbedder to the configured command.
@@ -45,12 +53,21 @@ func CommandEmbedder(cfg *config.Config) (EmbedFunc, bool) {
 		return nil, false
 	}
 	return func(text string) ([]float32, error) {
-		cmd := exec.Command(argv[0], argv[1:]...)
+		ctx, cancel := context.WithTimeout(context.Background(), embedTimeout)
+		defer cancel()
+		cmd := exec.CommandContext(ctx, argv[0], argv[1:]...)
 		cmd.Stdin = strings.NewReader(text)
 		var stdout, stderr bytes.Buffer
 		cmd.Stdout = &stdout
 		cmd.Stderr = &stderr
+		// On deadline the embedder process is SIGKILLed, which unblocks the stdin-writing goroutine
+		// with EPIPE. WaitDelay covers the remaining wedge: a grandchild that inherited the stdout/
+		// stderr pipes and outlives the kill would otherwise block Wait indefinitely.
+		cmd.WaitDelay = 5 * time.Second
 		if err := cmd.Run(); err != nil {
+			if ctx.Err() == context.DeadlineExceeded {
+				return nil, fmt.Errorf("%s: timed out after %s: %w", argv[0], embedTimeout, context.DeadlineExceeded)
+			}
 			if stderr.Len() > 0 {
 				return nil, fmt.Errorf("%s: %w: %s", argv[0], err, strings.TrimSpace(stderr.String()))
 			}

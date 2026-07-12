@@ -51,12 +51,13 @@ func (s *Store) EmbeddingHashes() (map[int64]string, error) {
 }
 
 // AllEmbeddings returns every cached vector joined with its note's kind and title, for a nearest-neighbour
-// scan. Journals are excluded from the keyword surface elsewhere but kept here: similarity across any
-// indexed note is meaningful.
+// scan. Only kind == note rows are returned (ADR 0037): journals are date buckets and are never embedded
+// by Ensure, so a journal row that reaches the table anyway (older cache, direct write) must not rank.
 func (s *Store) AllEmbeddings() ([]Embedding, error) {
 	rows, err := s.db.Query(
 		`SELECT e.note_id, n.kind, n.title, e.vector
-		 FROM embeddings e JOIN notes n ON n.id = e.note_id`,
+		 FROM embeddings e JOIN notes n ON n.id = e.note_id
+		 WHERE n.kind = 'note'`,
 	)
 	if err != nil {
 		return nil, err

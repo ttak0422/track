@@ -3,6 +3,7 @@ package config
 import (
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 )
@@ -205,11 +206,12 @@ func TestLoadWebTheme(t *testing.T) {
 	}
 }
 
-func TestLoadEmbedder(t *testing.T) {
-	// From config.yml: the command string is split into command + args.
-	vault := t.TempDir()
+// loadWithEmbedder writes a config.yml containing the given embedder line (empty = key absent), points
+// Load at it with env overrides cleared, and returns the result.
+func loadWithEmbedder(t *testing.T, embedderLine string) (*Config, error) {
+	t.Helper()
 	configPath := filepath.Join(t.TempDir(), "config.yml")
-	contents := "vault_dir: " + vault + "\ncache_dir: " + t.TempDir() + "\nembedder: track-embed --model mini\n"
+	contents := "vault_dir: " + t.TempDir() + "\ncache_dir: " + t.TempDir() + "\n" + embedderLine
 	if err := os.WriteFile(configPath, []byte(contents), 0o644); err != nil {
 		t.Fatal(err)
 	}
@@ -218,23 +220,59 @@ func TestLoadEmbedder(t *testing.T) {
 	t.Setenv("TRACK_DB", "")
 	t.Setenv("TRACK_CACHE_DIR", "")
 	t.Setenv("TRACK_EMBEDDER", "")
+	return Load()
+}
 
-	cfg, err := Load()
+func TestLoadEmbedder(t *testing.T) {
+	// Scalar form: split on whitespace (no shell quoting).
+	cfg, err := loadWithEmbedder(t, "embedder: track-embed --model mini\n")
 	if err != nil {
-		t.Fatalf("load: %v", err)
+		t.Fatalf("load scalar: %v", err)
 	}
 	if want := []string{"track-embed", "--model", "mini"}; !equalStrings(cfg.EmbedderCommand, want) {
-		t.Fatalf("EmbedderCommand = %v, want %v", cfg.EmbedderCommand, want)
+		t.Fatalf("scalar EmbedderCommand = %v, want %v", cfg.EmbedderCommand, want)
 	}
 
-	// TRACK_EMBEDDER overrides the file value; unset leaves an empty (disabled) command.
-	t.Setenv("TRACK_EMBEDDER", "other-embed")
+	// Sequence form: verbatim argv, so an argument may contain a space.
+	cfg, err = loadWithEmbedder(t, "embedder: [track-embed, --model, \"mini lm\"]\n")
+	if err != nil {
+		t.Fatalf("load sequence: %v", err)
+	}
+	if want := []string{"track-embed", "--model", "mini lm"}; !equalStrings(cfg.EmbedderCommand, want) {
+		t.Fatalf("sequence EmbedderCommand = %v, want %v", cfg.EmbedderCommand, want)
+	}
+
+	// TRACK_EMBEDDER overrides either form entirely (and is always whitespace-split).
+	t.Setenv("TRACK_EMBEDDER", "other-embed --fast")
 	cfg, err = Load()
 	if err != nil {
 		t.Fatalf("load with env: %v", err)
 	}
-	if want := []string{"other-embed"}; !equalStrings(cfg.EmbedderCommand, want) {
+	if want := []string{"other-embed", "--fast"}; !equalStrings(cfg.EmbedderCommand, want) {
 		t.Fatalf("env override EmbedderCommand = %v, want %v", cfg.EmbedderCommand, want)
+	}
+}
+
+func TestLoadEmbedderEmptyFormsDisable(t *testing.T) {
+	for _, line := range []string{"", "embedder:\n", "embedder: \"\"\n", "embedder: []\n"} {
+		cfg, err := loadWithEmbedder(t, line)
+		if err != nil {
+			t.Fatalf("load %q: %v", line, err)
+		}
+		if len(cfg.EmbedderCommand) != 0 {
+			t.Fatalf("%q must leave no embedder configured, got %v", line, cfg.EmbedderCommand)
+		}
+	}
+}
+
+func TestLoadEmbedderRejectsBadValues(t *testing.T) {
+	// A mapping is neither accepted form; it must fail loudly, naming the key.
+	if _, err := loadWithEmbedder(t, "embedder:\n  cmd: track-embed\n"); err == nil || !strings.Contains(err.Error(), "embedder") {
+		t.Fatalf("mapping embedder must error naming the key, got %v", err)
+	}
+	// An empty argv[0] would fail confusingly at exec time; reject it at load instead.
+	if _, err := loadWithEmbedder(t, "embedder: [\"\", --model, mini]\n"); err == nil || !strings.Contains(err.Error(), "embedder") {
+		t.Fatalf("empty argv[0] must error naming the key, got %v", err)
 	}
 }
 

@@ -79,11 +79,51 @@ type fileConfig struct {
 	DefaultTemplate   string              `yaml:"default_template"`
 	JournalTemplate   string              `yaml:"journal_template"`
 	GenKeep           int                 `yaml:"gen_keep"`
-	Embedder          string              `yaml:"embedder"`
+	Embedder          argvList            `yaml:"embedder"`
 	Properties        map[string]PropSpec `yaml:"properties"`
 	CaptureInbox      string              `yaml:"capture_inbox"`
 	ArchiveNote       string              `yaml:"archive_note"`
 	Web               webFileConfig       `yaml:"web"`
+}
+
+// argvList is a command in config.yml that accepts two YAML shapes: a scalar string, split on
+// whitespace (no shell quoting, so no argument can contain a space in this form), or a sequence used
+// verbatim as argv, where arguments may contain spaces. Any other node kind is a config error.
+type argvList []string
+
+func (a *argvList) UnmarshalYAML(value *yaml.Node) error {
+	switch value.Kind {
+	case yaml.ScalarNode:
+		if value.Tag == "!!null" { // `embedder:` with no value, or an explicit null
+			*a = nil
+			return nil
+		}
+		*a = strings.Fields(value.Value)
+		return nil
+	case yaml.SequenceNode:
+		var argv []string
+		if err := value.Decode(&argv); err != nil {
+			return fmt.Errorf("embedder: %w", err)
+		}
+		*a = argv
+		return nil
+	default:
+		return fmt.Errorf("embedder: must be a string (\"cmd --arg\") or a list of strings ([cmd, --arg]), got a %s", nodeKindName(value.Kind))
+	}
+}
+
+// nodeKindName names a YAML node kind for error messages.
+func nodeKindName(k yaml.Kind) string {
+	switch k {
+	case yaml.MappingNode:
+		return "mapping"
+	case yaml.SequenceNode:
+		return "sequence"
+	case yaml.ScalarNode:
+		return "scalar"
+	default:
+		return "unsupported node"
+	}
 }
 
 // webFileConfig holds web-only settings read from config.yml. The colorscheme is kept out of this file:
@@ -201,9 +241,14 @@ func Load() (*Config, error) {
 		genKeep = 10
 	}
 
-	embedder := fc.Embedder
+	// TRACK_EMBEDDER replaces the config value entirely; an env var cannot carry an array, so it is
+	// always whitespace-split — arguments containing spaces need the config sequence form.
+	embedder := []string(fc.Embedder)
 	if env := os.Getenv("TRACK_EMBEDDER"); env != "" {
-		embedder = env
+		embedder = strings.Fields(env)
+	}
+	if len(embedder) > 0 && strings.TrimSpace(embedder[0]) == "" {
+		return nil, fmt.Errorf("embedder: the first element must be the command, got an empty string")
 	}
 
 	if err := validateProperties(fc.Properties); err != nil {
@@ -238,7 +283,7 @@ func Load() (*Config, error) {
 		DefaultTemplate:   defaultTemplate,
 		JournalTemplate:   journalTemplate,
 		GenKeep:           genKeep,
-		EmbedderCommand:   strings.Fields(embedder),
+		EmbedderCommand:   embedder,
 		Properties:        fc.Properties,
 		CaptureInbox:      captureInbox,
 		ArchiveNote:       archiveNote,

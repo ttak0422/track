@@ -21,6 +21,10 @@ executables the engine invokes, and their output files are the authoritative art
   JSON array of floats on stdout — the same stdin/stdout split as the fetch tools. The model, its size,
   and its licence are entirely the user's choice, and no note text leaves the machine unless their
   command sends it.
+- **`embedder` accepts a scalar or a YAML sequence.** The scalar form is split on whitespace with no
+  shell quoting, so no argument can contain a space; the sequence form is used verbatim as argv and is
+  the way to pass space-containing arguments. `TRACK_EMBEDDER` stays a whitespace-split string (an env
+  var cannot carry an array) and overrides the config value entirely.
 - **Vectors are a cache in the index DB, keyed by note + content hash.** A new `embeddings` table stores
   one vector per note alongside the hash of the text it was computed from. The hash folds in the embedder
   command signature, so a note is embedded once and only re-embedded when its text or the embedder
@@ -45,3 +49,7 @@ executables the engine invokes, and their output files are the authoritative art
   ceiling above.
 - Cosine on raw model output assumes the embedder emits comparable vectors; normalisation and model
   choice are the user's responsibility, matching the "heavy lifting outside the engine" split.
+- An embedder switch is not cache-atomic — a mid-run failure leaves rows whose hashes no longer match —
+  but ranking only runs after a fully successful Ensure, cosine ranks any dimension mismatch last, and
+  the stale rows self-heal on the next successful run, so no transactional staging is needed for a
+  rebuildable cache.

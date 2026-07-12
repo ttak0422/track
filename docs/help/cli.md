@@ -171,12 +171,18 @@ $ printf 'my note text' | my-embedder
 [0.0123, -0.0456, 0.0789, ...]
 ```
 
-Point `track` at it with the `embedder` key in `config.yml` (or the `TRACK_EMBEDDER` environment
-variable, which wins):
+Point `track` at it with the `embedder` key in `config.yml`, in either of two forms:
 
 ```yaml
+# Scalar: split on whitespace. There is no shell quoting, so no argument may contain a space.
 embedder: my-embedder --model all-minilm
+
+# Sequence: used verbatim as argv — the way to pass an argument that contains spaces.
+embedder: [my-embedder, --model, "mini lm"]
 ```
+
+The `TRACK_EMBEDDER` environment variable overrides the config value entirely; an environment variable
+cannot carry an array, so it is always whitespace-split like the scalar form.
 
 Any local embedding tool works. A minimal `my-embedder` can be a few lines of Python around a
 sentence-transformers model, or a shell wrapper around `llama.cpp`'s embedding output — whatever emits a

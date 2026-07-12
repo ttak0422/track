@@ -1,15 +1,49 @@
 package similar
 
 import (
+	"context"
+	"errors"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
+	"time"
 
 	"github.com/ttak0422/track/internal/track/config"
 	"github.com/ttak0422/track/internal/track/index"
 	"github.com/ttak0422/track/internal/track/note"
 	"github.com/ttak0422/track/internal/track/store"
 )
+
+// TestCommandEmbedderTimesOut proves a hung embedder cannot hang the caller: the command is killed at
+// embedTimeout and the error says so.
+func TestCommandEmbedderTimesOut(t *testing.T) {
+	old := embedTimeout
+	embedTimeout = 200 * time.Millisecond
+	t.Cleanup(func() { embedTimeout = old })
+
+	script := filepath.Join(t.TempDir(), "slow-embed.sh")
+	if err := os.WriteFile(script, []byte("#!/bin/sh\nexec sleep 5\n"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	embed, ok := CommandEmbedder(&config.Config{EmbedderCommand: []string{script}})
+	if !ok {
+		t.Fatal("expected an embedder")
+	}
+
+	start := time.Now()
+	_, err := embed("some text")
+	elapsed := time.Since(start)
+	if err == nil || !strings.Contains(err.Error(), "timed out") {
+		t.Fatalf("want a timeout error, got %v", err)
+	}
+	if !errors.Is(err, context.DeadlineExceeded) {
+		t.Fatalf("timeout error must wrap context.DeadlineExceeded, got %v", err)
+	}
+	if elapsed > 3*time.Second {
+		t.Fatalf("embed returned after %s; the timeout did not bound the call", elapsed)
+	}
+}
 
 // fakeEmbed is a deterministic stand-in for a real model: it never shells out. It maps text to a tiny
 // 4-dim vector by counting a few marker letters, so notes with similar letter mixes score close. Enough
