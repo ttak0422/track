@@ -412,11 +412,11 @@ func cmdUpdate(args []string) int {
 }
 
 // cmdMeta prints or edits a note's metadata. With no edit flags it reports the current metadata
-// (including its editable YAML document under "doc"); --description / --image set page metadata and
-// --set / --unset edit typed note properties. --edit applies a full metadata document (tags,
-// description, image, props) read from a file or stdin. All writes go through the engine's single
-// validated path (note.ApplyMetaEdit / note.ApplyMetaDoc). An explicitly empty --description /
-// --image clears the field.
+// (including its editable YAML document under "doc"); --description / --image / --icon set page
+// metadata and --set / --unset edit typed note properties. --edit applies a full metadata document
+// (tags, description, image, props) read from a file or stdin. All writes go through the engine's
+// single validated path (note.ApplyMetaEdit / note.ApplyMetaDoc). An explicitly empty
+// --description / --image / --icon clears the field.
 func cmdMeta(args []string) int {
 	fs := flag.NewFlagSet("meta", flag.ContinueOnError)
 	id := fs.Int64("id", 0, "note id")
@@ -424,6 +424,7 @@ func cmdMeta(args []string) int {
 	path := fs.String("path", "", "note path (alternative to --id)")
 	description := fs.String("description", "", "page summary (og:description); empty clears")
 	image := fs.String("image", "", "cover image as assets/<file> (og:image); empty clears")
+	icon := fs.String("icon", "", "per-note icon shown beside the title (emoji); empty clears")
 	editDoc := fs.String("edit", "", "apply a full metadata YAML document (tags/description/image/props) from this file, or stdin when \"-\"")
 	var sets kvFlag
 	var unsets tagsFlag
@@ -455,6 +456,9 @@ func cmdMeta(args []string) int {
 	if flagWasSet(fs, "image") {
 		edit.Image = image
 	}
+	if flagWasSet(fs, "icon") {
+		edit.Icon = icon
+	}
 	if len(sets) > 0 {
 		edit.Set = map[string]string{}
 		for _, kv := range sets {
@@ -462,10 +466,10 @@ func cmdMeta(args []string) int {
 		}
 	}
 	edit.Unset = []string(unsets)
-	edited := edit.Description != nil || edit.Image != nil || len(edit.Set) > 0 || len(edit.Unset) > 0
+	edited := edit.Description != nil || edit.Image != nil || edit.Icon != nil || len(edit.Set) > 0 || len(edit.Unset) > 0
 	docSource := strings.TrimSpace(*editDoc)
 	if docSource != "" && edited {
-		return fail("--edit cannot be combined with --description/--image/--set/--unset")
+		return fail("--edit cannot be combined with --description/--image/--icon/--set/--unset")
 	}
 
 	var meta note.Metadata
@@ -528,6 +532,7 @@ func cmdMeta(args []string) int {
 		"created":     meta.Created,
 		"description": meta.Description,
 		"image":       meta.Image,
+		"icon":        meta.Icon,
 		"props":       meta.Props,
 		"doc":         doc,
 		"updated":     edited,

@@ -1,5 +1,5 @@
 -- Metadata editor: a floating YAML buffer over the current note's editable sidecar metadata —
--- title, tags, description, cover image, and typed props — saved through `track meta --edit -` so
+-- title, tags, description, cover image, icon, and typed props — saved through `track meta --edit -` so
 -- parsing and validation live in the CLI (a changed title renames the note, backlinks included).
 -- Saving (:w) applies the whole document atomically; a rejected document (e.g. an image that is
 -- not a vault asset, or a prop breaking the configured schema) surfaces the CLI error and keeps

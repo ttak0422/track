@@ -23,6 +23,8 @@ import (
 // assets-relative cover image, surfaced as og:description / og:image by the static export.
 // Props (version 5 sidecars) is the note's typed key-value properties: YAML scalars or lists of
 // scalars, flattened and typed by SidecarProps and indexed alongside inline "key:: value" fields.
+// Icon is a per-note override (version 6 sidecars): an emoji shown beside the note's title in search
+// results, the one surface that draws it. When empty, the config tag/kind mapping applies (config.NoteIcon).
 type Metadata struct {
 	Version     int                        `yaml:"version"`
 	Title       string                     `yaml:"title,omitempty"`
@@ -32,6 +34,7 @@ type Metadata struct {
 	Description string                     `yaml:"description,omitempty"`
 	Image       string                     `yaml:"image,omitempty"`
 	Props       map[string]any             `yaml:"props,omitempty"`
+	Icon        string                     `yaml:"icon,omitempty"`
 	Blocks      map[string]babel.BlockMeta `yaml:"blocks,omitempty"`
 }
 

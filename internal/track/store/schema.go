@@ -13,7 +13,8 @@ CREATE TABLE notes (
   kind    TEXT NOT NULL DEFAULT 'note',
   title   TEXT NOT NULL DEFAULT '',
   created TEXT,
-  mtime   INTEGER NOT NULL DEFAULT 0
+  mtime   INTEGER NOT NULL DEFAULT 0,
+  icon    TEXT NOT NULL DEFAULT ''
 );
 CREATE INDEX IF NOT EXISTS idx_notes_kind_mtime ON notes(kind, mtime);
 

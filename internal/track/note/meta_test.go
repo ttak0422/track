@@ -47,7 +47,7 @@ func TestMetaDocRoundTrip(t *testing.T) {
 	if err != nil {
 		t.Fatalf("render doc: %v", err)
 	}
-	for _, key := range []string{"title: Alpha", "tags:", "description:", "image:", "props:"} {
+	for _, key := range []string{"title: Alpha", "tags:", "description:", "image:", "icon:", "props:"} {
 		if !strings.Contains(doc, key) {
 			t.Fatalf("doc missing %q:\n%s", key, doc)
 		}
@@ -70,6 +70,7 @@ func TestMetaDocRoundTrip(t *testing.T) {
 		"tags:\n  - go\n  - go\n  - \" lua \"\n" +
 		"description: '  a summary  '\n" +
 		"image: assets/cover.png\n" +
+		"icon: \" 📚 \"\n" +
 		"props:\n  status: draft\n  rating: 8\n  authors: [\"[[Ada]]\", \"[[Alan]]\"]\n"
 	got, err := ApplyMetaDoc(cfg, 100, []byte(edited))
 	if err != nil {
@@ -80,6 +81,9 @@ func TestMetaDocRoundTrip(t *testing.T) {
 	}
 	if got.Description != "a summary" || got.Image != "assets/cover.png" {
 		t.Fatalf("description/image = %q / %q", got.Description, got.Image)
+	}
+	if got.Icon != "📚" {
+		t.Fatalf("icon = %q (want trimmed)", got.Icon)
 	}
 	if got.Props["status"] != "draft" || got.Props["rating"] != 8 {
 		t.Fatalf("props = %#v", got.Props)
@@ -104,7 +108,7 @@ func TestMetaDocRoundTrip(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	for _, want := range []string{"- go", "- lua", "a summary", "assets/cover.png", "status: draft", "rating: 8"} {
+	for _, want := range []string{"- go", "- lua", "a summary", "assets/cover.png", "icon: \"📚\"", "status: draft", "rating: 8"} {
 		if !strings.Contains(doc2, want) {
 			t.Fatalf("round-tripped doc missing %q:\n%s", want, doc2)
 		}
@@ -133,6 +137,10 @@ func TestApplyMetaDocRejectsInvalid(t *testing.T) {
 		"non-raster image":        "image: assets/cover.svg\n",
 		"unknown top-level field": "created: 2020-01-01\n",
 		"malformed yaml":          "tags: [unclosed\n",
+		// Control characters (and U+0085/U+2028/U+2029 line separators) inside an icon would corrupt
+		// the one-line "icon:" entry MetaDocYAML re-quotes verbatim. See cleanIcon.
+		"control character in icon": "icon: \"a\\ab\"\n",
+		"NEL in icon":               "icon: \"a\\Nb\"\n",
 		// A second "---" document must be rejected, not dropped — otherwise a forbidden title (or
 		// any field) rides along past validation. See ParseMetaDoc.
 		"trailing second document": "tags:\n  - keep\n---\ntitle: forbidden\n",
@@ -156,7 +164,30 @@ func TestApplyMetaDocRejectsInvalid(t *testing.T) {
 	if err != nil {
 		t.Fatalf("apply empty doc: %v", err)
 	}
-	if got.Tags != nil || got.Props != nil || got.Description != "" || got.Image != "" {
+	if got.Tags != nil || got.Props != nil || got.Description != "" || got.Image != "" || got.Icon != "" {
 		t.Fatalf("empty doc should clear editable fields: %#v", got)
+	}
+}
+
+// TestMetaDocYAMLLegacyIcon: a stored icon that would not pass cleanIcon today (written before the
+// gate, or a hand-edited sidecar) must still render to a document ParseMetaDoc accepts — the
+// readable verbatim re-quoting is skipped, not spliced into a corrupt line — so the note is never
+// locked out of the editors.
+func TestMetaDocYAMLLegacyIcon(t *testing.T) {
+	for name, icon := range map[string]string{
+		"embedded newline":  "a\nb",
+		"control character": "a\x1bb",
+	} {
+		doc, err := MetaDocYAML(Metadata{Title: "Alpha", Icon: icon})
+		if err != nil {
+			t.Fatalf("%s: render: %v", name, err)
+		}
+		parsed, err := ParseMetaDoc([]byte(doc))
+		if err != nil {
+			t.Fatalf("%s: rendered doc must stay parseable, got %v:\n%s", name, err, doc)
+		}
+		if parsed.Icon != icon {
+			t.Fatalf("%s: icon = %q (want %q)", name, parsed.Icon, icon)
+		}
 	}
 }

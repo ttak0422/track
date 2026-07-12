@@ -10,6 +10,7 @@ import (
 	"slices"
 	"strings"
 	"time"
+	"unicode"
 
 	"gopkg.in/yaml.v3"
 
@@ -17,12 +18,13 @@ import (
 )
 
 // MetaEdit is one metadata change: a nil field is left untouched, a pointer to "" clears the
-// field. It is the single write path for description/image and note properties, shared by the CLI
-// meta command and the web editor, so validation lives here once. Set assigns properties (value
+// field. It is the single write path for description/image/icon and note properties, shared by the
+// CLI meta command and the web editor, so validation lives here once. Set assigns properties (value
 // text parsed by ParsePropValue and checked against the configured schema); Unset removes keys.
 type MetaEdit struct {
 	Description *string
 	Image       *string
+	Icon        *string
 	Set         map[string]string
 	Unset       []string
 }
@@ -56,6 +58,13 @@ func ApplyMetaEdit(cfg *config.Config, noteID int64, edit MetaEdit) (Metadata, e
 		}
 		meta.Image = img
 	}
+	if edit.Icon != nil {
+		icon, err := cleanIcon(*edit.Icon)
+		if err != nil {
+			return Metadata{}, err
+		}
+		meta.Icon = icon
+	}
 	if len(edit.Set) > 0 && meta.Props == nil {
 		meta.Props = map[string]any{}
 	}
@@ -82,7 +91,7 @@ func ApplyMetaEdit(cfg *config.Config, noteID int64, edit MetaEdit) (Metadata, e
 }
 
 // MetaDoc is the canonical user-editable slice of a note's sidecar metadata as one YAML document:
-// title, tags, page description/image, and typed props. Both frontends (the web meta dialog and
+// title, tags, page description/image, icon, and typed props. Both frontends (the web meta dialog and
 // the Neovim popup) show this document verbatim and apply it through ApplyMetaDoc, so parsing and
 // validation live here once. The title travels in the document but is applied by the callers
 // through the engine rename path (rename.Do — backlink rewrite, uniqueness, history), which needs
@@ -92,6 +101,7 @@ type MetaDoc struct {
 	Tags        []string       `yaml:"tags"`
 	Description string         `yaml:"description"`
 	Image       string         `yaml:"image"`
+	Icon        string         `yaml:"icon"`
 	Props       map[string]any `yaml:"props"`
 }
 
@@ -99,18 +109,45 @@ type MetaDoc struct {
 // seeded from it always shows every editable key — as bare "key:" lines rather than the flow-style
 // "[]" / "{}" / '""', which are hostile to hand-editing (ParseMetaDoc reads both forms).
 func MetaDocYAML(meta Metadata) (string, error) {
-	doc := MetaDoc{Title: meta.Title, Tags: meta.Tags, Description: meta.Description, Image: meta.Image, Props: meta.Props}
+	doc := MetaDoc{Title: meta.Title, Tags: meta.Tags, Description: meta.Description, Image: meta.Image, Icon: meta.Icon, Props: meta.Props}
 	out, err := yaml.Marshal(doc)
 	if err != nil {
 		return "", err
 	}
 	s := "\n" + string(out)
-	for _, key := range []string{"title", "tags", "description", "image", "props"} {
+	for _, key := range []string{"title", "tags", "description", "image", "icon", "props"} {
 		for _, empty := range []string{` ""`, " []", " {}"} {
 			s = strings.Replace(s, "\n"+key+":"+empty+"\n", "\n"+key+":\n", 1)
 		}
 	}
+	if clean, err := cleanIcon(meta.Icon); err == nil && clean == meta.Icon && meta.Icon != "" {
+		// yaml.Marshal escapes non-ASCII scalars ("\U0001F4DA") — unreadable in a document meant for
+		// hand editing. A cleanIcon-valid value is safe verbatim inside plain double quotes, so
+		// re-render its line that way. A stored icon that would not pass cleanIcon today (written
+		// before the gate existed, or a hand-edited sidecar) keeps the marshalled escaped form —
+		// ugly but parseable, where a verbatim splice would corrupt the document.
+		quoted := `"` + strings.NewReplacer(`\`, `\\`, `"`, `\"`).Replace(meta.Icon) + `"`
+		if i := strings.Index(s, "\nicon: "); i >= 0 {
+			end := i + 1 + strings.IndexByte(s[i+1:], '\n')
+			s = s[:i] + "\nicon: " + quoted + s[end:]
+		}
+	}
 	return s[1:], nil
+}
+
+// cleanIcon normalizes a per-note icon value: trimmed, with no control characters or Unicode line
+// separators. The sidecar and the editable document both render the icon as a one-line "icon:"
+// entry — and MetaDocYAML re-quotes the value verbatim — so any such character would corrupt the
+// document (YAML treats U+0085/U+2028/U+2029 as breaks and forbids raw control characters). It is
+// the shared gate for both write paths (MetaEdit and MetaDoc).
+func cleanIcon(s string) (string, error) {
+	s = strings.TrimSpace(s)
+	if strings.ContainsFunc(s, func(r rune) bool {
+		return unicode.IsControl(r) || r == '\u2028' || r == '\u2029'
+	}) {
+		return "", fmt.Errorf("icon must be a single line without control characters")
+	}
+	return s, nil
 }
 
 // ParseMetaDoc parses an editable metadata document strictly: unknown top-level keys (created,
@@ -135,7 +172,7 @@ func ParseMetaDoc(docYAML []byte) (MetaDoc, error) {
 	return doc, nil
 }
 
-// ApplyMetaDoc replaces a note's editable sidecar fields (tags, description, image, props) with the
+// ApplyMetaDoc replaces a note's editable sidecar fields (tags, description, image, icon, props) with the
 // given YAML document, validating everything before the single sidecar write — a rejected document
 // changes nothing on disk. The image must pass the same vault-asset check as ApplyMetaEdit, tags
 // are trimmed and de-duplicated like every CLI tag flag, and props are typed against the configured
@@ -188,9 +225,14 @@ func ApplyMetaDocValue(cfg *config.Config, noteID int64, doc MetaDoc) (Metadata,
 	if !found {
 		meta = Metadata{Created: time.Now().Format(cfg.DateFormat)}
 	}
+	icon, err := cleanIcon(doc.Icon)
+	if err != nil {
+		return Metadata{}, err
+	}
 	meta.Tags = DedupTags(doc.Tags)
 	meta.Description = doc.Description
 	meta.Image = doc.Image
+	meta.Icon = icon
 	meta.Props = doc.Props
 	if err := WriteMetadata(metaPath, meta); err != nil {
 		return Metadata{}, fmt.Errorf("write metadata: %w", err)

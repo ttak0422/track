@@ -10,6 +10,7 @@ import (
 	"os"
 	"path"
 	"path/filepath"
+	"strconv"
 	"strings"
 
 	"github.com/ttak0422/track/internal/track/asset"
@@ -99,9 +100,13 @@ func (s *Server) serveIndex(w http.ResponseWriter, r *http.Request) {
 	// (new token) and drop the restored tab strip on the latter. The token is generated server-side,
 	// never user text.
 	html = strings.ReplaceAll(html, "__TRACK_SESSION__", s.session)
-	// The start-page redirect is a static-site concern (see internal/track/site/bundle.go); the live UI
-	// uses the heatmap home, so this is emptied here.
-	html = strings.ReplaceAll(html, "__TRACK_START_PAGE__", "")
+	// The configured web.home note becomes the workspace landing view (the same start-page mechanism the
+	// static export uses). Unset — the common case — leaves this empty, so "/" shows the search hero.
+	startPage := ""
+	if id := s.homeNoteID(); id != 0 {
+		startPage = strconv.FormatInt(id, 10)
+	}
+	html = strings.ReplaceAll(html, "__TRACK_START_PAGE__", startPage)
 	_, _ = w.Write([]byte(html))
 }
 

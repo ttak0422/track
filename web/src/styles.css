@@ -534,6 +534,11 @@ button {
   white-space: nowrap;
 }
 
+.note-icon {
+  margin-right: 0.4em;
+  font-weight: 400;
+}
+
 .result-snippet {
   grid-column: 1 / -1;
   margin: 0;

@@ -437,6 +437,31 @@ func TestBuildRequiresRoot(t *testing.T) {
 	}
 }
 
+// A whole-line inline field is data that belongs in the prose (ADR 0032): a journal's "weight:: 68.2" is
+// a line of the journal. It is indexed as a property AND published as the line the author wrote — the
+// body is never edited on its way to a reader.
+func TestBuildKeepsInlineFieldLinesInProse(t *testing.T) {
+	cfg, s := vaultStore(t)
+	body := "# Weight log\n\nMorning check-in.\n\nweight:: 68.2\n\nMet with [owner:: [[Ada]]] later.\n"
+	writeVaultNote(t, cfg, 100, "Weight log", body)
+	if _, err := index.New(cfg, s).Full(); err != nil {
+		t.Fatalf("index: %v", err)
+	}
+
+	out := t.TempDir()
+	if _, err := Build(cfg, s, Options{Root: 100}, fakeFrontend(t), out); err != nil {
+		t.Fatalf("build: %v", err)
+	}
+
+	root := readJSON[jsonNoteResponse](t, filepath.Join(out, "data", "note", PublishID(100)+".json"))
+	if !strings.Contains(root.Note.Body, "weight:: 68.2") {
+		t.Errorf("the field line must render as the prose it is:\n%s", root.Note.Body)
+	}
+	if props := root.Note.Props; len(props) != 2 || props[0].Key != "weight" || props[1].Key != "owner" {
+		t.Errorf("and still be indexed as properties: %+v", props)
+	}
+}
+
 func hasEdge(edges []jsonGraphEdge, src, dst int64) bool {
 	return hasSlugEdge(edges, PublishID(src), PublishID(dst))
 }
