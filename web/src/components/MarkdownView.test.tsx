@@ -24,6 +24,13 @@ vi.mock("@hpcc-js/wasm-graphviz", () => ({
   Graphviz: { load: async () => ({ dot: () => '<svg viewBox="0 0 10 10"><text>G</text></svg>' }) },
 }));
 
+vi.mock("@terrastruct/d2", () => ({
+  D2: class {
+    compile = async () => ({ diagram: {}, renderOptions: {} });
+    render = async () => '<svg viewBox="0 0 10 10"><text>D</text></svg>';
+  },
+}));
+
 // A QueryClient is only needed for markdown that produces links (ExternalLink/WikiLink) or viewspec
 // charts (ViewSpecChart), which call useQuery. Pure block content (tables, task lists, code) renders
 // without it.
@@ -72,6 +79,13 @@ describe("MarkdownView", () => {
     expect(container.querySelector(".graphviz-diagram")).toBeInTheDocument();
     await waitFor(() => expect(container.querySelector("svg")).toBeInTheDocument());
     expect(screen.getByRole("img", { name: "Graphviz diagram" })).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Copy code" })).not.toBeInTheDocument();
+  });
+
+  it("renders d2 fences through the D2 diagram component", async () => {
+    const { container } = render(<MarkdownView markdown={"```d2\na -> b\n```"} />);
+    await waitFor(() => expect(container.querySelector("svg")).toBeInTheDocument());
+    expect(screen.getByRole("img", { name: "D2 diagram" })).toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "Copy code" })).not.toBeInTheDocument();
   });
 

@@ -8,6 +8,7 @@ import { CodeBlock } from "./markdown/CodeBlock";
 import { IncludesContext, MarkdownSourceContext, NoteKindContext } from "./markdown/context";
 import { Embed } from "./markdown/Embed";
 import { ExternalLink } from "./markdown/ExternalLink";
+import { D2Diagram } from "./markdown/D2Diagram";
 import { GraphvizDiagram } from "./markdown/GraphvizDiagram";
 import { loadMathPlugins, looksLikeMath, type MathPlugins, mathPluginsIfLoaded } from "./markdown/math";
 import { MermaidDiagram } from "./markdown/MermaidDiagram";
@@ -180,6 +181,9 @@ const markdownComponents = {
       }
       if (normalized === "dot" || normalized === "graphviz") {
         return <GraphvizDiagram text={text} />;
+      }
+      if (normalized === "d2") {
+        return <D2Diagram text={text} />;
       }
       if (normalized === "mindmap") {
         return <MindmapDiagram text={text} />;
