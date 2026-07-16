@@ -1666,7 +1666,7 @@ textarea.modal-input:focus-visible {
   --alert-color: var(--danger);
 }
 
-/* GFM tables: horizontal rules only (no column separators), zebra-striped, scrolling horizontally
+/* GFM tables: horizontal rules only (no column separators, no row striping), scrolling horizontally
    when wider than the column. */
 .markdown-view table {
   display: block;
@@ -1687,10 +1687,6 @@ textarea.modal-input:focus-visible {
 .markdown-view th {
   background: var(--panel-soft);
   font-weight: 700;
-}
-
-.markdown-view tbody tr:nth-child(even) {
-  background: color-mix(in srgb, var(--panel-soft) 45%, transparent);
 }
 
 .embed {
