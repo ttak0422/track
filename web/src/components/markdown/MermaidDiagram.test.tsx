@@ -1,6 +1,12 @@
 import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { afterEach, beforeAll, describe, expect, it, vi } from "vitest";
-import { computeCollapsedFit, computeFit, MermaidDiagram } from "./MermaidDiagram";
+import {
+  computeCollapsedFit,
+  computeFit,
+  isDarkColor,
+  MermaidDiagram,
+  mermaidConfig,
+} from "./MermaidDiagram";
 
 // jsdom does not implement pointer capture; drag relies on it, so stub it to a no-op.
 beforeAll(() => {
@@ -96,6 +102,20 @@ describe("MermaidDiagram", () => {
 
     fireEvent.click(screen.getByRole("button", { name: "Zoom out" }));
     expect(scaleOf()).toBeCloseTo(1);
+  });
+});
+
+describe("mermaidConfig dark mode", () => {
+  it("classifies theme surfaces by luminance", () => {
+    expect(isDarkColor("#161814")).toBe(true); // dark theme --bg
+    expect(isDarkColor("#f7f7f4")).toBe(false); // light theme --bg
+    expect(isDarkColor("not-a-color")).toBe(false); // unparseable: keep light derivations
+  });
+
+  it("passes darkMode and textColor to the base theme", () => {
+    const variables = mermaidConfig().themeVariables as Record<string, unknown>;
+    expect(variables.darkMode).toBe(false); // jsdom resolves no tokens: light fallbacks
+    expect(variables.textColor).toBe("#20231f");
   });
 });
 
