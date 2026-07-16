@@ -225,6 +225,7 @@ const textAssetLangs: Record<string, string> = {
   zsh: "bash",
   dot: "dot",
   gv: "dot",
+  d2: "d2",
   puml: "plantuml",
   plantuml: "plantuml",
 };
