@@ -30,7 +30,7 @@ pinned:
   and an optional schema.
 - [[Web workspace]] — the local browser UI for reading, previewing, and navigating notes.
 - [[Home dashboard]] — a configurable landing note, embeddable dashboard widgets, and per-note icons.
-- [[Visualization]] — how notes render as visuals: [[Diagrams]] (Mermaid and Graphviz), [[Mindmaps]]
+- [[Visualization]] — how notes render as visuals: [[Diagrams]] (Mermaid, Graphviz, and D2), [[Mindmaps]]
   of a note's structure, [[Charts]] from a View Spec, and [[Embeds]] for YouTube, PDFs, tweets, and
   other rich media.
 - [[Babel]] — run a note's fenced code blocks and keep their results in the sidecar.
