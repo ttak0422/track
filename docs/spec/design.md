@@ -37,6 +37,7 @@ none fits, extend this document first — do not invent a one-off treatment.
 | `--danger` | Destructive intent |
 | `--graph-active`(`-strong`) | Graph highlight |
 | `--chart-1..6`, `--chart-ramp-*` | Chart series and heatmap ramp |
+| `--font-mono` | The one mono stack: code, the editor, section labels |
 
 Light and dark values are defined together at the top of `styles.css`; using
 tokens makes a component theme-correct with no extra work.
@@ -93,6 +94,18 @@ Single-line fields carry editability with a bottom hairline, not a box.
   focus moves the line to `--accent`.
 - Canonical: `.home-hero .searchbox input`, `input.modal-input`.
 - Exception: the multi-line editor textarea keeps a boxed `--panel-soft` field.
+
+### 6. Section label — the caption naming a region
+
+Small caps that title a chrome region or annotate content (ACTIVITY,
+BACKLINKS, a code block's language, an OGP card's site name).
+
+- `font-family: var(--font-mono)`, `calc(11px * var(--font-scale, 1))`,
+  `font-weight: 500`, `letter-spacing: 0.06em`, `text-transform: uppercase`,
+  `color: var(--muted)`.
+- One shared rule near the top of `styles.css` carries the typography; each
+  site keeps only its own margins. Add new labels to that rule rather than
+  restating the recipe.
 
 ## Adding new UI
 
