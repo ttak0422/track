@@ -94,6 +94,10 @@ Write endpoint:
 
 ## Frontend implementation
 
+Visual styling follows the design master in [design.md](design.md): a fixed set
+of control variants (text control, quiet chip, floating layer, filled action,
+underline input) over the shared color tokens. Consult it before adding UI.
+
 The current production UI is still served by the Go `internal/track/webui`
 package. The React migration lives under `web/` and is built with Vite,
 TypeScript, TanStack Query, and TanStack Router while it is brought up to parity.

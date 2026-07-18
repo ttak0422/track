@@ -1,3 +1,5 @@
+/* Design master: docs/spec/design.md — pick a variant there (text control, quiet chip, floating
+   layer, filled action, underline input) before styling any new control. */
 :root {
   color-scheme: light dark;
   --bg: #f7f7f4;
