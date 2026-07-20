@@ -90,8 +90,9 @@ component: both frontends already render tables and resolve wiki links.
   This replaces the old substring tag match.
 - `/tags/<tag>` pages list a tag's (and descendants') notes, derived client-side from the existing
   notes listing in both deployments; the export writes a real file per used tag and ancestor.
-- Directory sites (help/docs) lift a `tags:: a, b` inline field into page tags, since plain
-  Markdown files have no sidecar.
+- Directory sites (help/docs) take page tags from the site config's `pages` entry (`site.yml`,
+  ADR 0049), since plain Markdown files have no sidecar and note-level metadata never goes in a
+  body (ADR 0032).
 
 ## Consequences
 

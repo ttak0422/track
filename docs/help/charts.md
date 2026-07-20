@@ -290,5 +290,3 @@ The full notation (every field, all marks, examples) is always available with:
 ```sh
 track render --help
 ```
-
-tags:: help/visualization/charts

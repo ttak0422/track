@@ -88,25 +88,25 @@ change a note's title, id, or how `[[links]]` resolve.
 
 `track export-site --src <dir>` publishes plain Markdown files that belong to no vault — no note ids and
 no note sidecars, just files in a repository. Their bodies stay pure Markdown all the same, so a page's
-icon is not written inside it. It is declared once, in the site's own `site.yml`, under `icons.pages` —
-a map from a page's **file base name** to its icon:
+icon is not written inside it. It is declared once, in the site's own `site.yml`, in the page's `pages:`
+entry — a map from a page's **file base name** to its note-level metadata, its icon and its tags:
 
 ```yaml
 # docs/help/site.yml
+pages:
+  dashboard: {icon: 🏠}                       # this page
+  cli: {icon: ⌨️, tags: [help/reference]}
 icons:
-  pages:
-    dashboard: 🏠      # this page
-    index: 🧭
   kinds:
     note: 📄
 ```
 
-`icons.pages` is the *page's own icon*: it takes the slot a vault note's sidecar `icon` takes, so the
-precedence is the one you already know — the page's own icon, then (for a vault note) its tags, then the
-kind mapping. A page with no entry simply falls through, which is why [[Syntax]] shows 📄 from the `kinds`
-map: a published page is always kind `note`.
+A `pages` entry's `icon` is the *page's own icon*: it takes the slot a vault note's sidecar `icon` takes,
+so the precedence is the one you already know — the page's own icon, then its tags through the `icons.tags`
+mapping, then the kind mapping. A page with no icon of its own simply falls through, which is why
+[[Syntax]] shows 📄 from the `kinds` map: a published page is always kind `note`.
 
-An `icons.pages` entry naming a page that does not exist — no `<name>.md` in the directory — is a **build
+A `pages` entry naming a page that does not exist — no `<name>.md` in the directory — is a **build
 error** naming the entry and the file it looked for. It is a typo, or a page you renamed and forgot; it is
 never a silent no-op.
 
@@ -130,27 +130,28 @@ at `docs/help/site.yml`). No file means exactly the plain export above: the `ind
 ```yaml
 # docs/help/site.yml
 home: index          # the entry page: a file base name or a page title
+pages:               # file base name -> the page's note-level metadata
+  index: {icon: 🧭}
+  dashboard: {icon: 🏠}
+  cli: {icon: ⌨️, tags: [help/reference]}
 icons:
-  pages:             # file base name -> the page's own icon
-    index: 🧭
-    dashboard: 🏠
   kinds:             # a published page is always kind `note`
     note: 📄
 ```
 
 - **`home`** is the site's landing page — the published counterpart of the workspace's `web.home`. It
   names a page the way a `[[wiki link]]` does, by file base name first and page title second. Unset — a
-  `site.yml` that only maps icons, or no `site.yml` at all — a page named `index` is the fallback. If
+  `site.yml` that says nothing about it, or no `site.yml` at all — a page named `index` is the fallback. If
   neither names a real page, the build fails loudly
   rather than quietly publishing a different front door. There is no flag for it: a site's front door is
   the same wherever it is deployed, so it belongs with the content.
-- **`icons`** takes `kinds` — the ambient config's map, same meaning — plus `pages`, the one thing a
-  directory has and a vault does not: a per-page icon keyed by file base name, filling the slot a note's
-  sidecar `icon` fills. There is no `tags` map here, though the ambient config has one and the resolver
-  consults it: a directory page carries no tags, so a tag mapping could never match one, and a mapping that
-  can never match is not config — it is a line that does nothing. Writing `icons.tags` in a `site.yml` is an
-  unknown key, and so a build error, like any other. An `icons.pages` entry with no icon (the emoji
-  deleted, or a bare `dashboard:`) is one too — it is the same silent no-op wearing a different hat.
+- **`pages`** is the one thing a directory has and a vault does not: each page's note-level metadata —
+  its `icon` and its `tags` — keyed by file base name, filling the slot a note's sidecar fills. Tags
+  drive tag pages, `#tag` search, and query `FROM` filters, exactly as sidecar tags do on a vault site
+  (see [[Query]]). An entry naming no `<name>.md`, or one that says nothing (no icon, no tags — a
+  bare `dashboard:`), is a build error: an entry that does nothing is never a silent no-op.
+- **`icons`** takes `tags` and `kinds` — the ambient config's maps, same shape and meaning — consulted by
+  the one resolver in the precedence above.
 
 Everything a page says about itself, then, is said in one file. A page's *title* is the exception that
 needs no config at all: it is the page's first `# H1`, or its file name when it has none.

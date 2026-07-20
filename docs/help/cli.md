@@ -268,5 +268,3 @@ per-deployment build flags, not part of that config.
 ```sh
 track render --spec chart.json --out chart.svg --renderer svg
 ```
-
-tags:: help/reference

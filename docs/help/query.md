@@ -114,8 +114,7 @@ descendants by prefix.
 
 Every rendered tag links to its **tag page**, `/tags/<tag>`, which lists the notes carrying that
 tag or a descendant. The [[Web workspace]] serves tag pages live; the static export publishes a
-real page per used tag (ancestors included) — the tag under this paragraph is a working example.
+real page per used tag (ancestors included) — the tag beside this page's title is a working example.
 On a vault, tags come from note metadata (`track new --tag`, `track append --tag`); on a directory
-export like this site, a `tags:: a, b` inline field supplies the page's tags.
-
-tags:: help/reference
+export like this site, the site's own `site.yml` supplies them, in the page's `pages:` entry — a
+page's tags are note-level metadata and are never written in its body.

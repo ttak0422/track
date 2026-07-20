@@ -39,5 +39,3 @@ how cross-note links are resolved against the published set.
 The workspace search box matches note titles and `#tags` through the [[CLI]] as you type. Full-text
 search across note *bodies* — ranked by relevance, with code-block and CJK matches — is a CLI
 capability: run `track search --scope body`. See [[Searching notes]] for the query rules it shares.
-
-tags:: help/reference
