@@ -1,4 +1,5 @@
 import { MarkdownView } from "./MarkdownView";
+import { TaskBoardContext } from "./markdown/context";
 import { LoadingIndicator, NoteAside, NoteProperties, NoteTags, journalDateFromNote } from "./noteShared";
 import { useNoteQuery, useRenderQuery } from "../queries";
 import { useTabs } from "./tabs/tabsStore";
@@ -41,11 +42,13 @@ export function NoteReaderStatic({ noteID }: { noteID: NoteID }) {
         {body.trim() !== "" && rendered.data?.markdown === undefined ? (
           <LoadingIndicator label="Loading note" />
         ) : (
-          <MarkdownView
-            markdown={rendered.data?.markdown ?? ""}
-            kind={data.note.file_kind}
-            includes={data.note.includes}
-          />
+          <TaskBoardContext.Provider value={{ noteID, tasks: data.note.tasks }}>
+            <MarkdownView
+              markdown={rendered.data?.markdown ?? ""}
+              kind={data.note.file_kind}
+              includes={data.note.includes}
+            />
+          </TaskBoardContext.Provider>
         )}
       </section>
 

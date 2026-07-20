@@ -837,6 +837,77 @@ func TestRenderExpandsQueryBlocks(t *testing.T) {
 	}
 }
 
+// A whole-line inline field is prose data (ADR 0032) — "weight:: 68.2" is a line of the journal — so the
+// live render returns the line the user typed. It is a property too, from the same line; it is not a
+// place to hide note-level metadata, so nothing lifts it out of the body.
+func TestRenderKeepsInlineFieldLines(t *testing.T) {
+	server, _ := putNoteSetup(t, 100, "Alpha", "old body\n")
+
+	resp, err := http.Post(server.URL+"/api/render", "application/json",
+		strings.NewReader(`{"body":"Morning check-in.\n\nweight:: 68.2\n"}`))
+	if err != nil {
+		t.Fatalf("post render: %v", err)
+	}
+	defer resp.Body.Close()
+	var decoded map[string]any
+	if err := json.NewDecoder(resp.Body).Decode(&decoded); err != nil {
+		t.Fatalf("decode render: %v", err)
+	}
+	if got, want := decoded["markdown"], "Morning check-in.\n\nweight:: 68.2\n"; got != want {
+		t.Fatalf("render markdown = %q, want %q", got, want)
+	}
+}
+
+func TestRenderResolvesDashboardWidget(t *testing.T) {
+	server, _ := putNoteSetup(t, 100, "Alpha", "old body\n")
+
+	resp, err := http.Post(server.URL+"/api/render", "application/json",
+		strings.NewReader("{\"body\":\"```dashboard\\nrecent: 3\\n```\\n\"}"))
+	if err != nil {
+		t.Fatalf("post render: %v", err)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("render status = %d", resp.StatusCode)
+	}
+	var decoded map[string]any
+	if err := json.NewDecoder(resp.Body).Decode(&decoded); err != nil {
+		t.Fatalf("decode render: %v", err)
+	}
+	md, _ := decoded["markdown"].(string)
+	if !strings.Contains(md, "**Recent notes**") || !strings.Contains(md, "[[Alpha]]") {
+		t.Fatalf("dashboard fence should resolve to a recent-notes list linking Alpha, got:\n%s", md)
+	}
+	if strings.Contains(md, "```dashboard") {
+		t.Fatalf("the dashboard fence should be consumed, got:\n%s", md)
+	}
+}
+
+func TestHomeNoteIDResolvesConfiguredTitle(t *testing.T) {
+	cfg := &config.Config{
+		VaultDir:   t.TempDir(),
+		DBPath:     filepath.Join(t.TempDir(), "index.db"),
+		Extensions: []string{".md"},
+		WebHome:    "Alpha",
+	}
+	s, err := store.Open(cfg.DBPath)
+	if err != nil {
+		t.Fatalf("open store: %v", err)
+	}
+	t.Cleanup(func() { s.Close() })
+	if err := s.UpsertNote(&note.Note{ID: 100, Meta: note.Metadata{Title: "Alpha"}}); err != nil {
+		t.Fatal(err)
+	}
+	srv := New(cfg, s)
+	if got := srv.homeNoteID(); got != 100 {
+		t.Fatalf("homeNoteID = %d, want 100", got)
+	}
+	cfg.WebHome = ""
+	if got := srv.homeNoteID(); got != 0 {
+		t.Fatalf("unset home should resolve to 0, got %d", got)
+	}
+}
+
 func TestIndexInjectsConfiguredTheme(t *testing.T) {
 	cfg := &config.Config{
 		VaultDir:   t.TempDir(),
@@ -1150,5 +1221,79 @@ func TestAssetUploadImportsImage(t *testing.T) {
 	resp, _ = upload("big.png", make([]byte, maxAssetUploadBytes+1))
 	if resp.StatusCode == http.StatusOK {
 		t.Fatalf("oversized upload should be rejected, got 200")
+	}
+}
+
+func TestTaskEndpoints(t *testing.T) {
+	body := "# Board [0/2]\n\n- [ ] alpha [#A]\n- [ ] beta [due:2000-01-02]\n"
+	server, cfg := putNoteSetup(t, 900, "Board", body)
+
+	// GET /api/tasks returns the state set and parsed items.
+	tasks := getJSON(t, server.URL+"/api/tasks?id=900")["tasks"].(map[string]any)
+	if states := tasks["states"].([]any); len(states) != 5 {
+		t.Fatalf("expected default 5 states, got %v", states)
+	}
+	items := tasks["items"].([]any)
+	if len(items) != 2 || items[0].(map[string]any)["priority"] != "A" {
+		t.Fatalf("unexpected items: %v", items)
+	}
+
+	// POST /api/task moves a line into a named state through the shared engine path.
+	req, err := http.NewRequest(http.MethodPost, server.URL+"/api/task?id=900", strings.NewReader(`{"line":3,"state":"DONE"}`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("task set status = %d", resp.StatusCode)
+	}
+	var decoded map[string]any
+	if err := json.NewDecoder(resp.Body).Decode(&decoded); err != nil {
+		t.Fatal(err)
+	}
+	tr := decoded["transition"].(map[string]any)
+	if tr["to"] != "DONE" || tr["changed"] != true {
+		t.Fatalf("unexpected transition: %v", tr)
+	}
+	refreshed := decoded["tasks"].(map[string]any)["items"].([]any)
+	if refreshed[0].(map[string]any)["state"] != "DONE" {
+		t.Fatalf("response should carry refreshed tasks: %v", refreshed)
+	}
+
+	// The file was rewritten (stamp + cookie) and the sidecar logged the transition.
+	raw, err := os.ReadFile(cfg.NotePath(900))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(raw), "[done:") || !strings.Contains(string(raw), "# Board [1/2]") {
+		t.Fatalf("file not rewritten: %q", raw)
+	}
+	meta, _, err := note.ReadMetadata(cfg.MetadataPath(900))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(meta.TaskLog) != 1 || meta.TaskLog[0].To != "DONE" {
+		t.Fatalf("sidecar log missing: %+v", meta.TaskLog)
+	}
+
+	// The note response carries the tasks payload for the board fence.
+	noteJSON := getJSON(t, server.URL+"/api/note?id=900")["note"].(map[string]any)
+	if _, ok := noteJSON["tasks"]; !ok {
+		t.Fatalf("note response should include tasks: %v", noteJSON)
+	}
+
+	// A bad state is a client error.
+	req, _ = http.NewRequest(http.MethodPost, server.URL+"/api/task?id=900", strings.NewReader(`{"line":3,"state":"bogus"}`))
+	resp2, err := http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer resp2.Body.Close()
+	if resp2.StatusCode != http.StatusBadRequest {
+		t.Fatalf("bogus state should be 400, got %d", resp2.StatusCode)
 	}
 }

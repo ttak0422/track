@@ -946,6 +946,119 @@ func TestBabelExecRefusesEvalNo(t *testing.T) {
 	}
 }
 
+func TestBabelRunVarsAndBlockReferences(t *testing.T) {
+	if _, err := exec.LookPath("sh"); err != nil {
+		t.Skip("sh not available")
+	}
+	vault := t.TempDir()
+	t.Setenv("TRACK_BABEL_SH", "sh {{file}}")
+
+	runIn(t, vault, "new", "--title", "Vars", "--id", "510")
+	body := "# Vars\n\n" +
+		"```sh :name base\necho 21\n```\n\n" +
+		"```sh :name double :var n=base\necho $((n * 2))\n```\n\n" +
+		"```sh :name greet :var who=note\necho \"hello $who\"\n```\n"
+	if err := os.WriteFile(filepath.Join(vault, "note", "510.md"), []byte(body), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	// :var greeting literal, overridable from the CLI.
+	out, code := runIn(t, vault, "babel", "run", "--id", "510", "--name", "greet")
+	if code != 0 || out["stdout"] != "hello note\n" {
+		t.Fatalf("literal :var run: %v", out)
+	}
+	out, code = runIn(t, vault, "babel", "run", "--id", "510", "--name", "greet", "--var", "who=cli")
+	if code != 0 || out["stdout"] != "hello cli\n" {
+		t.Fatalf("--var override: %v", out)
+	}
+
+	// A block-reference var needs a stored result first.
+	out, code = runIn(t, vault, "babel", "run", "--id", "510", "--name", "double")
+	if code != 1 || !strings.Contains(out["error"].(string), "no stored result") {
+		t.Fatalf("expected missing-result error, got code=%d out=%v", code, out)
+	}
+	if out, code = runIn(t, vault, "babel", "exec", "--id", "510", "--name", "base"); code != 0 {
+		t.Fatalf("exec base: %v", out)
+	}
+	out, code = runIn(t, vault, "babel", "run", "--id", "510", "--name", "double")
+	if code != 0 || out["stdout"] != "42\n" {
+		t.Fatalf("block-reference var: %v", out)
+	}
+}
+
+func TestBabelExecExpandsNoweb(t *testing.T) {
+	if _, err := exec.LookPath("sh"); err != nil {
+		t.Skip("sh not available")
+	}
+	vault := t.TempDir()
+	t.Setenv("TRACK_BABEL_SH", "sh {{file}}")
+
+	runIn(t, vault, "new", "--title", "Noweb", "--id", "511")
+	body := "# Noweb\n\n" +
+		"```sh :name lib\necho from-lib\n```\n\n" +
+		"```sh :name main :noweb yes\n<<lib>>\necho from-main\n```\n"
+	if err := os.WriteFile(filepath.Join(vault, "note", "511.md"), []byte(body), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	out, code := runIn(t, vault, "babel", "exec", "--id", "511", "--name", "main")
+	if code != 0 || out["stdout"] != "from-lib\nfrom-main\n" {
+		t.Fatalf("noweb exec: %v", out)
+	}
+}
+
+func TestBabelTangleWritesPlansAndRefusesEscapes(t *testing.T) {
+	vault := t.TempDir()
+
+	runIn(t, vault, "new", "--title", "Tangle", "--id", "512")
+	body := "# Tangle\n\n" +
+		"```sh :name head :tangle scripts/build.sh\necho one\n```\n\n" +
+		"```sh :tangle scripts/build.sh\necho two\n```\n"
+	if err := os.WriteFile(filepath.Join(vault, "note", "512.md"), []byte(body), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	// Dry run: plan only, nothing on disk.
+	out, code := runIn(t, vault, "babel", "tangle", "--id", "512", "--dry-run")
+	if code != 0 || out["dry_run"] != true {
+		t.Fatalf("tangle dry-run: %v", out)
+	}
+	targets := out["targets"].([]any)
+	if len(targets) != 1 {
+		t.Fatalf("expected one target, got %v", targets)
+	}
+	target := targets[0].(map[string]any)
+	if int(target["blocks"].(float64)) != 2 {
+		t.Fatalf("expected 2 contributing blocks, got %v", target)
+	}
+	outFile := filepath.Join(vault, "note", "scripts", "build.sh")
+	if _, err := os.Stat(outFile); !os.IsNotExist(err) {
+		t.Fatalf("dry-run must not write files: %v", err)
+	}
+
+	// Real run writes the concatenated file inside the vault.
+	if out, code = runIn(t, vault, "babel", "tangle", "--id", "512"); code != 0 {
+		t.Fatalf("tangle: %v", out)
+	}
+	content, err := os.ReadFile(outFile)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(content) != "echo one\n\necho two\n" {
+		t.Fatalf("tangled content: %q", content)
+	}
+
+	// A target escaping the vault is refused before anything is written.
+	escape := "# T\n\n```sh :tangle ../../outside.sh\necho x\n```\n"
+	if err := os.WriteFile(filepath.Join(vault, "note", "512.md"), []byte(escape), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	out, code = runIn(t, vault, "babel", "tangle", "--id", "512")
+	if code != 1 || !strings.Contains(out["error"].(string), "outside the vault") {
+		t.Fatalf("expected escape refusal, got code=%d out=%v", code, out)
+	}
+}
+
 func TestNewWithBodyAndTags(t *testing.T) {
 	vault := t.TempDir()
 
@@ -1516,6 +1629,113 @@ func TestToggleCheckbox(t *testing.T) {
 	}
 	if out, code := runIn(t, vault, "toggle", "--id", "500", "--line", "99"); code == 0 || out["error"] == nil {
 		t.Fatalf("expected error for out-of-range line, got %v", out)
+	}
+}
+
+func TestTaskSetAndTasks(t *testing.T) {
+	vault := t.TempDir()
+	body := "# Sprint [0/3]\n\n- [ ] alpha [#B] [due:2000-01-02]\n- [ ] beta [#A] [due:2999-12-31]\n- [ ] gamma\n"
+	if _, code := runInWithStdin(t, vault, body, "new", "--title", "Board", "--id", "700"); code != 0 {
+		t.Fatalf("new failed")
+	}
+	path := filepath.Join(vault, "note", "700.md")
+
+	// Move alpha into DOING: no completion stamp, but the transition is logged in the sidecar.
+	res, code := runIn(t, vault, "task", "set", "--id", "700", "--line", "3", "--state", "doing")
+	if code != 0 {
+		t.Fatalf("task set failed: %v", res)
+	}
+	if res["state"] != "DOING" || res["from"] != "TODO" || res["changed"] != true || res["done"] != false {
+		t.Fatalf("unexpected task set result: %v", res)
+	}
+	if got := readFileString(t, path); !strings.Contains(got, "- [/] alpha [#B] [due:2000-01-02]") {
+		t.Fatalf("state marker not rewritten: %q", got)
+	}
+
+	// Completing beta stamps [done:...] and recomputes the heading cookie.
+	if res, code := runIn(t, vault, "task", "set", "--id", "700", "--line", "4", "--state", "DONE"); code != 0 || res["done"] != true {
+		t.Fatalf("task set done failed: %v", res)
+	}
+	got := readFileString(t, path)
+	if !strings.Contains(got, "- [x] beta [#A] [due:2999-12-31] [done:") {
+		t.Fatalf("completion stamp missing: %q", got)
+	}
+	if !strings.Contains(got, "# Sprint [1/3]") {
+		t.Fatalf("progress cookie not recomputed: %q", got)
+	}
+	sidecar := readFileString(t, filepath.Join(vault, ".track", "notes", "700.yaml"))
+	if !strings.Contains(sidecar, "task_log:") || !strings.Contains(sidecar, "to: DONE") || !strings.Contains(sidecar, "to: DOING") {
+		t.Fatalf("sidecar should log both transitions: %q", sidecar)
+	}
+
+	// An unknown state is rejected without touching the file.
+	if out, code := runIn(t, vault, "task", "set", "--id", "700", "--line", "3", "--state", "bogus"); code == 0 || out["error"] == nil {
+		t.Fatalf("expected unknown-state error, got %v", out)
+	}
+
+	// tasks lists everything; --state filters; --overdue keeps only the past-due open task; --sort
+	// priority puts open [#B] alpha before unprioritized gamma and done beta last.
+	list, code := runIn(t, vault, "tasks")
+	if code != 0 {
+		t.Fatalf("tasks failed: %v", list)
+	}
+	if all := list["tasks"].([]any); len(all) != 3 {
+		t.Fatalf("expected 3 tasks, got %v", list)
+	}
+	list, _ = runIn(t, vault, "tasks", "--state", "DOING")
+	if rows := list["tasks"].([]any); len(rows) != 1 || rows[0].(map[string]any)["text"] != "alpha" {
+		t.Fatalf("state filter failed: %v", list)
+	}
+	list, _ = runIn(t, vault, "tasks", "--overdue")
+	if rows := list["tasks"].([]any); len(rows) != 1 || rows[0].(map[string]any)["due"] != "2000-01-02" {
+		t.Fatalf("overdue filter failed: %v", list)
+	}
+	list, _ = runIn(t, vault, "tasks", "--due", "2999-12-31")
+	if rows := list["tasks"].([]any); len(rows) != 1 || rows[0].(map[string]any)["text"] != "alpha" {
+		t.Fatalf("due filter should keep open tasks due by the date: %v", list)
+	}
+	list, _ = runIn(t, vault, "tasks", "--sort", "priority")
+	rows := list["tasks"].([]any)
+	if len(rows) != 3 || rows[0].(map[string]any)["text"] != "alpha" || rows[2].(map[string]any)["text"] != "beta" {
+		t.Fatalf("priority sort failed: %v", list)
+	}
+
+	// Reopening beta clears the stamp.
+	if res, code := runIn(t, vault, "task", "set", "--id", "700", "--line", "4", "--state", "TODO"); code != 0 || res["completed"] != "" {
+		t.Fatalf("reopen should clear completion: %v", res)
+	}
+	if got := readFileString(t, path); strings.Contains(got, "[done:") || !strings.Contains(got, "# Sprint [0/3]") {
+		t.Fatalf("stamp/cookie not reverted: %q", got)
+	}
+}
+
+func TestTaskCycle(t *testing.T) {
+	vault := t.TempDir()
+	body := "# T\n\n- [ ] alpha\n\nprose\n"
+	if _, code := runInWithStdin(t, vault, body, "new", "--title", "Cycle", "--id", "710"); code != 0 {
+		t.Fatalf("new failed")
+	}
+
+	steps := []struct{ from, to string }{
+		{"TODO", "DOING"},
+		{"DOING", "WAITING"},
+		{"WAITING", "DONE"},
+		{"DONE", "CANCELLED"},
+		{"CANCELLED", "TODO"},
+	}
+	for _, step := range steps {
+		res, code := runIn(t, vault, "task", "cycle", "--id", "710", "--line", "3")
+		if code != 0 || res["from"] != step.from || res["state"] != step.to {
+			t.Fatalf("cycle %s→%s failed: %v", step.from, step.to, res)
+		}
+	}
+	// Wrapping past the last state lands back on a clean open line, stamp removed.
+	if got := readFileString(t, filepath.Join(vault, "note", "710.md")); !strings.Contains(got, "- [ ] alpha") || strings.Contains(got, "[done:") {
+		t.Fatalf("wrap should return to a clean TODO line: %q", got)
+	}
+
+	if out, code := runIn(t, vault, "task", "cycle", "--id", "710", "--line", "5"); code == 0 || out["error"] == nil {
+		t.Fatalf("expected error cycling a non-task line, got %v", out)
 	}
 }
 

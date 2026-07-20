@@ -14,6 +14,7 @@ import (
 	"time"
 
 	"github.com/ttak0422/track/internal/track/babel"
+	"github.com/ttak0422/track/internal/track/task"
 	"gopkg.in/yaml.v3"
 )
 
@@ -44,6 +45,17 @@ type Config struct {
 	JournalTemplate string
 	// GenKeep is how many generation snapshots `gen increment` retains (count-based pruning).
 	GenKeep int
+	// TaskStates is the vault's task state set (config task_states), defaulting to task.DefaultStates.
+	// Each state names a single checkbox marker character; done-family states stamp a completion date.
+	TaskStates []task.State
+	// WebHome names the note (by title or numeric id) that the web workspace opens as its landing view
+	// instead of the search hero. Empty keeps the search home. A dashboard note (one with ```dashboard
+	// widget blocks) is the intended target. Resolved to a note id by the web layer, not here.
+	WebHome string
+	// Icons maps a tag or note kind to an emoji/icon shown beside note titles in lists, search, and the
+	// static-site navigation. A per-note sidecar override (Metadata.Icon) wins over both maps; see
+	// NoteIcon.
+	Icons IconMap
 	// EmbedderCommand is the optional command that turns a note's text into an embedding vector, split
 	// into command and arguments. The engine feeds a note's text on stdin and reads a JSON array of
 	// floats from stdout (see the similar package). Empty means no embedder is configured, so semantic
@@ -65,6 +77,34 @@ type Config struct {
 	ArchiveNote string
 }
 
+// IconMap holds the tag→icon and kind→icon lookups resolved from config. Both are optional; an unset map
+// simply never matches.
+type IconMap struct {
+	Tags  map[string]string
+	Kinds map[string]string
+}
+
+// NoteIcon resolves the icon shown beside a note title. A non-empty per-note override (the sidecar's
+// Metadata.Icon) always wins; otherwise the first tag with a mapping (tags are checked in the order they
+// are stored) is used, then the note kind's mapping, then "" for no icon. Keeping this on Config means
+// every surface resolves an icon the same way: the live workspace's search, the vault export, and the
+// directory export, which calls it with a published site's own icon maps and, as the override, that
+// site's icons.pages entry for the page (see site.BuildDir).
+func (c *Config) NoteIcon(kind string, tags []string, override string) string {
+	if override != "" {
+		return override
+	}
+	for _, t := range tags {
+		if ic, ok := c.Icons.Tags[t]; ok && ic != "" {
+			return ic
+		}
+	}
+	if ic, ok := c.Icons.Kinds[kind]; ok && ic != "" {
+		return ic
+	}
+	return ""
+}
+
 // PropSpec constrains one property key: Type is a value type ("string", "number", "boolean",
 // "date", "link"; empty means unconstrained) applied to each item of a list value, and Values is an
 // optional enum of accepted value texts. Doctor reports violations; the LSP completes Values.
@@ -83,12 +123,14 @@ type fileConfig struct {
 	DefaultTemplate   string              `yaml:"default_template"`
 	JournalTemplate   string              `yaml:"journal_template"`
 	GenKeep           int                 `yaml:"gen_keep"`
+	TaskStates        []task.State        `yaml:"task_states"`
 	Embedder          argvList            `yaml:"embedder"`
 	Properties        map[string]PropSpec `yaml:"properties"`
 	Queries           map[string]string   `yaml:"queries"`
 	CaptureInbox      string              `yaml:"capture_inbox"`
 	ArchiveNote       string              `yaml:"archive_note"`
 	Web               webFileConfig       `yaml:"web"`
+	Icons             iconsFileConfig     `yaml:"icons"`
 }
 
 // argvList is a command in config.yml that accepts two YAML shapes: a scalar string, split on
@@ -146,6 +188,14 @@ func nodeKindName(k yaml.Kind) string {
 type webFileConfig struct {
 	Theme      string `yaml:"theme"`
 	ColorsPath string `yaml:"colors_path"`
+	// Home names the landing note (title or numeric id) the workspace opens instead of the search hero.
+	Home string `yaml:"home"`
+}
+
+// iconsFileConfig is the config.yml `icons:` block: two optional maps from tag/kind to an emoji.
+type iconsFileConfig struct {
+	Tags  map[string]string `yaml:"tags"`
+	Kinds map[string]string `yaml:"kinds"`
 }
 
 const (
@@ -255,6 +305,11 @@ func Load() (*Config, error) {
 		genKeep = 10
 	}
 
+	if err := task.ValidateStates(fc.TaskStates); err != nil {
+		return nil, fmt.Errorf("config task_states: %w", err)
+	}
+	taskStates := task.StatesOrDefault(fc.TaskStates)
+
 	// TRACK_EMBEDDER replaces the config value entirely; an env var cannot carry an array, so it is
 	// always whitespace-split — arguments containing spaces need the config sequence form.
 	embedder := []string(fc.Embedder)
@@ -297,6 +352,9 @@ func Load() (*Config, error) {
 		DefaultTemplate:   defaultTemplate,
 		JournalTemplate:   journalTemplate,
 		GenKeep:           genKeep,
+		TaskStates:        taskStates,
+		WebHome:           strings.TrimSpace(fc.Web.Home),
+		Icons:             IconMap{Tags: fc.Icons.Tags, Kinds: fc.Icons.Kinds},
 		EmbedderCommand:   embedder,
 		Properties:        fc.Properties,
 		Queries:           fc.Queries,

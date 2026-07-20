@@ -28,6 +28,8 @@ type Block struct {
 }
 
 // ParseBlocks extracts every language-tagged fenced code block from a note body, in document order.
+// Fences follow the CommonMark length rule: a block opened with N backticks is closed only by a bare
+// run of at least N, so a ````markdown block can quote ``` fences without ending early.
 // Unterminated fences end the scan. Body offsets are 0-based line numbers within body.
 func ParseBlocks(body string) []Block {
 	lines := strings.Split(body, "\n")

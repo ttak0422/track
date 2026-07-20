@@ -59,6 +59,10 @@ func Run(args []string) int {
 		return cmdMeta(rest)
 	case "toggle":
 		return cmdToggle(rest)
+	case "task":
+		return cmdTask(rest)
+	case "tasks":
+		return cmdTasks(rest)
 	case "asset":
 		return cmdAsset(rest)
 	case "rename":
@@ -140,6 +144,13 @@ Usage:
                                         changed title renames the note, backlinks included (JSON)
   track toggle (--id N | --title S | --path P) --line N [--state toggle|check|uncheck]
                                         flip (or set) a task checkbox on one line of a note (JSON)
+  track task set (--id N | --title S | --path P) --line N --state NAME
+                                        move a task line into a named state (default set: TODO, DOING,
+                                        WAITING, DONE, CANCELLED); done-family states stamp [done:date],
+                                        transitions are logged in the sidecar, and parent [n/m]/[p%]
+                                        progress cookies are recomputed (JSON)
+  track tasks [--id N | --title S | --path P] [--state A,B] [--due YYYY-MM-DD] [--overdue]
+              [--sort priority]         list indexed tasks with state/deadline filters (JSON)
   track asset import <file>             copy a file into the vault's assets/ dir; prints the assets/<file> ref (JSON)
   track asset dir [--ensure]            print (and optionally create) the vault's assets directory (JSON)
   track rename (--id N | --title S | --path P) --to S
@@ -185,17 +196,25 @@ Usage:
   track template open --name <s>         open or create a template (JSON)
   track template list                    list templates (JSON)
   track babel exec (--id N | --path P) [--name S | --ordinal N | --line N] [--yes]
-                                        [--body-stdin] [--timeout D]
+                                        [--var k=v ...] [--body-stdin] [--timeout D]
                                         run a source block, selected by name, ordinal, or a line
-                                        inside it (JSON)
+                                        inside it; --var feeds the block's environment and a value
+                                        naming another block uses its stored result (JSON)
+  track babel run --name S (--id N | --path P) [--var k=v ...]
+                                        call a named block with parameters (same as exec)
+  track babel tangle (--id N | --path P) [--dry-run]
+                                        write blocks carrying :tangle <file> out to files inside the
+                                        vault; same-target blocks concatenate in note order (JSON)
   track babel restore (--id N | --path P)
                                         list stored source block results (JSON)
   track export (--id N | --title S | --path P) [--out F] [--frontmatter] [--exports-default M]
                                         write a note out as Markdown (stdout, or JSON path with --out)
   track export-site --root N [--id N ...] --frontend <dist> --out <dir>
                                         publish selected vault notes as a static site (React frontend + JSON bundle) (JSON)
-  track export-site --src <dir> [--root <name>] --frontend <dist> --out <dir>
-                                        publish a directory of Markdown files as a static site (JSON)
+  track export-site --src <dir> --frontend <dist> --out <dir>
+                                        publish a directory of Markdown files as a static site; its
+                                        entry page comes from <dir>/site.yml "home", else a page
+                                        named index (JSON)
   track render --spec <spec.json> --out <file> [--renderer echarts]
                                         render a View Spec chart, or a composed article (a spec with
                                         "blocks"), to an HTML file (JSON path);

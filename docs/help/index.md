@@ -7,6 +7,18 @@ local web workspace.
 This help site is itself produced by `track export-site`, so it doubles as a working example of the
 static-site export.
 
+## Your workspace at a glance
+
+The block below is a live [[Home dashboard]] widget — a `dashboard` fence the engine resolved into
+recent notes and pinned links, the same way it renders in the local web workspace:
+
+```dashboard
+recent: 4
+pinned:
+  - Syntax
+  - Web workspace
+```
+
 ## Where to go next
 
 - [[Syntax]] — the Markdown a note is written in: bold, math, tables, footnotes, and the Obsidian-style
@@ -14,15 +26,20 @@ static-site export.
 - [[CLI]] — the command-line interface that owns parsing, indexing, and search.
 - [[Searching notes]] — title, tag, and full-text body search, with ranking and CJK support.
 - [[Linking notes]] — how `[[...]]` links, backlinks, and the note graph work.
+- [[Tasks]] — checkbox lines with named states, priorities, deadlines, progress cookies, and a
+  kanban board.
 - [[Properties]] — typed key-value metadata on a note: sidecar props, inline `key:: value` fields,
   and an optional schema.
 - [[Query]] — table queries over notes by tag and property, embeddable in a note as a live
   `track-query` block; plus hierarchical tags and per-tag pages.
 - [[Web workspace]] — the local browser UI for reading, previewing, and navigating notes.
-- [[Visualization]] — how notes render as visuals: [[Diagrams]] (Mermaid and Graphviz), [[Mindmaps]]
+- [[Home dashboard]] — a configurable landing note, embeddable dashboard widgets, and per-note icons.
+- [[Visualization]] — how notes render as visuals: [[Diagrams]] (Mermaid, Graphviz, and D2), [[Mindmaps]]
   of a note's structure, [[Charts]] from a View Spec, and [[Embeds]] for YouTube, PDFs, tweets, and
   other rich media.
-- [[Babel]] — run a note's fenced code blocks and keep their results in the sidecar.
+- [[Babel]] — run a note's fenced code blocks and keep their results in the sidecar; compose blocks
+  with noweb references, call them with variables, and tangle them out to files.
+- [[Web clipper]] — clip a web page's readable content into a note with `track-fetch-web`.
 
 ## How the pieces fit
 

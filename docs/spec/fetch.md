@@ -49,3 +49,17 @@ The repository is a monorepo for these tools: each is a `cmd/track-fetch-<source
 own Nix package (`nix build .#track-fetch-<source>`), sharing the module's dependencies and the
 `dataset` contract. The first tool is `track-fetch-rss` (RSS 2.0 / Atom → `event` records:
 `time` from the entry's published/updated date, `title`, `url`, optional `--entity`).
+
+## Web clipper
+
+`track-fetch-web <url>` clips one web page into a single `event` record: `time` from the page's
+declared publication time (fetch time otherwise), `title`, `url`, plus the extra fields the
+contract allows — `markdown` (the readable main content, extracted with a compact readability
+heuristic and converted to Markdown; see ADR 0040) and `image` (the lead image URL). The fetch is
+SSRF-guarded: private, loopback, and link-local addresses are refused, mirroring the engine's
+web-workspace link-preview fetcher; a local file path replaces the URL for testing and for pages
+saved from the local network.
+
+Because a clip is note-shaped as much as chart-shaped, the tool also has a convenience output mode
+outside the JSONL contract: `--note` prints a ready-to-pipe Markdown note body (provenance line,
+lead image, content) for `track new --title`.

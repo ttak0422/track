@@ -6,6 +6,7 @@ import (
 	"errors"
 	"os"
 	"os/exec"
+	"sort"
 	"strings"
 	"time"
 )
@@ -41,9 +42,10 @@ func NewRunner(languages map[string]Executor) *Runner {
 
 // RunOptions controls a single execution.
 type RunOptions struct {
-	Dir       string        // working directory for the process; caller resolves and validates :dir
-	Confirmed bool          // set when the user explicitly confirmed; required for :eval query
-	Timeout   time.Duration // hard limit on the process; 0 means no limit
+	Dir       string            // working directory for the process; caller resolves and validates :dir
+	Confirmed bool              // set when the user explicitly confirmed; required for :eval query
+	Timeout   time.Duration     // hard limit on the process; 0 means no limit
+	Vars      map[string]string // resolved :var / --var inputs, exported to the process environment
 }
 
 // Run evaluates a block subject to its :eval policy and returns the captured result.
@@ -88,6 +90,15 @@ func (r *Runner) Run(b Block, opts RunOptions) (RunResult, error) {
 
 	cmd := exec.CommandContext(ctx, ex.Command, args...)
 	cmd.Dir = opts.Dir
+	if len(opts.Vars) > 0 {
+		// Variables reach the block as environment entries: the one mechanism every configured
+		// executor shares, since track never generates language-specific assignment code.
+		env := os.Environ()
+		for _, k := range sortedVarKeys(opts.Vars) {
+			env = append(env, k+"="+opts.Vars[k])
+		}
+		cmd.Env = env
+	}
 	if !usesFile {
 		cmd.Stdin = strings.NewReader(b.Body)
 	}
@@ -122,6 +133,16 @@ func (r *Runner) Run(b Block, opts RunOptions) (RunResult, error) {
 		}
 	}
 	return res, nil
+}
+
+// sortedVarKeys returns the map's keys in a stable order so the injected environment is deterministic.
+func sortedVarKeys(vars map[string]string) []string {
+	keys := make([]string, 0, len(vars))
+	for k := range vars {
+		keys = append(keys, k)
+	}
+	sort.Strings(keys)
+	return keys
 }
 
 // writeTempScript writes the block body to a temp file and returns its path and a cleanup func.

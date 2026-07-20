@@ -34,11 +34,11 @@ func (s *Store) UpsertNote(n *note.Note) error {
 		kind = "note"
 	}
 	if _, err := tx.Exec(
-		`INSERT INTO notes (id, kind, title, created, mtime)
-		 VALUES (?, ?, ?, ?, ?)
+		`INSERT INTO notes (id, kind, title, created, mtime, icon)
+		 VALUES (?, ?, ?, ?, ?, ?)
 		 ON CONFLICT(id) DO UPDATE SET
-		   kind=excluded.kind, title=excluded.title, created=excluded.created, mtime=excluded.mtime`,
-		n.ID, kind, n.Meta.Title, n.Meta.Created, n.Mtime,
+		   kind=excluded.kind, title=excluded.title, created=excluded.created, mtime=excluded.mtime, icon=excluded.icon`,
+		n.ID, kind, n.Meta.Title, n.Meta.Created, n.Mtime, n.Meta.Icon,
 	); err != nil {
 		return err
 	}
@@ -60,6 +60,19 @@ func (s *Store) UpsertNote(n *note.Note) error {
 			continue
 		}
 		if _, err := tx.Exec(`INSERT OR IGNORE INTO tags (note_id, tag) VALUES (?, ?)`, n.ID, tg); err != nil {
+			return err
+		}
+	}
+
+	if _, err := tx.Exec(`DELETE FROM tasks WHERE note_id = ?`, n.ID); err != nil {
+		return err
+	}
+	for _, t := range n.Tasks {
+		if _, err := tx.Exec(
+			`INSERT INTO tasks (note_id, line, state, done, priority, scheduled, due, completed, text)
+			 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+			n.ID, t.Line, t.State, t.Done, t.Priority, t.Scheduled, t.Due, t.Completed, t.Text,
+		); err != nil {
 			return err
 		}
 	}

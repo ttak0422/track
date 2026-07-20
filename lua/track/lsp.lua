@@ -150,9 +150,8 @@ end
 -- "target|" of a display alias) so only the link text shows. The server reports document-link ranges
 -- over the inner text (between the brackets); we mirror that span as the key so resolved vs. unresolved
 -- can be told apart, and color each link accordingly.
-local function highlight_links(buf, resolved, cursor)
+local function highlight_links(buf, resolved, cursor, fences, lines)
    local conceal = config.options.conceal
-   local fences, lines = fenced_rows(buf)
    for i, text in ipairs(lines) do
       local row = i - 1
       if not fences[row] then
@@ -204,6 +203,69 @@ local function highlight_links(buf, resolved, cursor)
                })
             end
             init = e + 1
+         end
+      end
+   end
+end
+
+-- Bracket tokens of a task line (docs/help/tasks.md), highlighted as written — the raw notation is
+-- compact enough that only the state marker itself conceals (to its task_glyphs glyph).
+local task_tokens = {
+   { pat = "%[#%a%]", hl = "TrackTaskPriority" },
+   { pat = "%[sched:%d%d%d%d%-%d%d%-%d%d%]", hl = "TrackTaskDate" },
+   { pat = "%[due:%d%d%d%d%-%d%d%-%d%d%]", hl = "TrackTaskDue" },
+   { pat = "%[done:%d%d%d%d%-%d%d%-%d%d%]", hl = "TrackTaskDate" },
+   { pat = "%[%d+/%d+%]", hl = "TrackTaskDate" },
+   { pat = "%[%d+%%%]", hl = "TrackTaskDate" },
+}
+
+-- highlight_tasks decorates task notation the way the web workspace renders it inline: on a list
+-- item whose marker character is in task_chars, the bracket tokens become concealed chips and a
+-- done-family line is struck through. A marker outside the set is not a task and the line is left
+-- alone. The cursor line stays raw (same anti-conceal rule as links); highlights always apply.
+local function highlight_tasks(buf, cursor, fences, lines)
+   local chars = config.options.task_chars
+   if chars == "" then
+      return
+   end
+   local conceal = config.options.conceal
+   for i, text in ipairs(lines) do
+      local row = i - 1
+      if not fences[row] then
+         local marker_start, char, marker_end = text:match("^%s*[-*+]%s+()%[(.)%]()")
+         local following = marker_end and text:sub(marker_end, marker_end)
+         if char and (following == "" or following == " " or following == "\t") and chars:find(char, 1, true) then
+            local revealed = cursor ~= nil and cursor.row == row
+            local glyph = config.options.task_glyphs[char]
+            if conceal and not revealed and glyph then
+               vim.api.nvim_buf_set_extmark(buf, ns, row, marker_start - 1, {
+                  end_col = marker_end - 1,
+                  conceal = glyph,
+                  priority = 120,
+               })
+            end
+            if config.options.task_done_chars:find(char, 1, true) and #text > marker_end then
+               vim.api.nvim_buf_set_extmark(buf, ns, row, marker_end, {
+                  end_col = #text,
+                  hl_group = "TrackTaskDone",
+                  priority = 110,
+               })
+            end
+            for _, token in ipairs(task_tokens) do
+               local init = marker_end
+               while true do
+                  local s, e = text:find(token.pat, init)
+                  if not s then
+                     break
+                  end
+                  vim.api.nvim_buf_set_extmark(buf, ns, row, s - 1, {
+                     end_col = e,
+                     hl_group = token.hl,
+                     priority = 120,
+                  })
+                  init = e + 1
+               end
+            end
          end
       end
    end
@@ -264,7 +326,10 @@ local function render(buf)
       return
    end
    vim.api.nvim_buf_clear_namespace(buf, ns, 0, -1)
-   highlight_links(buf, resolved_cache[buf] or {}, current_cursor(buf))
+   local fences, lines = fenced_rows(buf)
+   local cursor = current_cursor(buf)
+   highlight_links(buf, resolved_cache[buf] or {}, cursor, fences, lines)
+   highlight_tasks(buf, cursor, fences, lines)
 end
 
 -- refresh re-fetches document links, caches which [[...]] resolve, then renders.
@@ -542,6 +607,10 @@ end
 
 function M.setup()
    vim.api.nvim_set_hl(0, config.options.hl_group, { default = true, link = "Underlined" })
+   vim.api.nvim_set_hl(0, "TrackTaskPriority", { default = true, link = "Special" })
+   vim.api.nvim_set_hl(0, "TrackTaskDue", { default = true, link = "DiagnosticError" })
+   vim.api.nvim_set_hl(0, "TrackTaskDate", { default = true, link = "Comment" })
+   vim.api.nvim_set_hl(0, "TrackTaskDone", { default = true, strikethrough = true })
    register_create_note_command()
    register_rename_note_command()
    if config.options.conceal and config.options.reveal_code_fences then

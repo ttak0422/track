@@ -56,7 +56,7 @@
               root = ./web;
               fileset = webFiles;
             };
-            npmDepsHash = "sha256-mHUPASEno/feH7u8rRZGP5tWzKFZ6CHCvGdOCELvH0s=";
+            npmDepsHash = "sha256-XI12TL7V9EluVRJvG1SP2YJRF3jyfxXxePkVbid8nas=";
             installPhase = ''
               runHook preInstall
               cp -r dist $out
@@ -71,7 +71,7 @@
               root = ./.;
               fileset = goFiles;
             };
-            vendorHash = "sha256-RVRG4u1UhQ04w1qGRii9Xl+P/ISUKIw3VhFjqd7DT+Y=";
+            vendorHash = "sha256-bdlVtenoN7ZKX5dO5gZ2x9XlD6YGWgNHwMwdgtn87+c=";
             subPackages = [
               "cmd/track"
               "cmd/track-lsp"
@@ -93,8 +93,19 @@
               root = ./.;
               fileset = goFiles;
             };
-            vendorHash = "sha256-RVRG4u1UhQ04w1qGRii9Xl+P/ISUKIw3VhFjqd7DT+Y=";
+            vendorHash = "sha256-bdlVtenoN7ZKX5dO5gZ2x9XlD6YGWgNHwMwdgtn87+c=";
             subPackages = [ "cmd/track-fetch-rss" ];
+          };
+
+          track-fetch-web = pkgs.buildGoModule {
+            pname = "track-fetch-web";
+            version = "0.1.0";
+            src = fileset.toSource {
+              root = ./.;
+              fileset = goFiles;
+            };
+            vendorHash = "sha256-bdlVtenoN7ZKX5dO5gZ2x9XlD6YGWgNHwMwdgtn87+c=";
+            subPackages = [ "cmd/track-fetch-web" ];
           };
 
           track = pkgs.vimUtils.buildVimPlugin {
@@ -135,7 +146,12 @@
 
           packages = {
             default = track;
-            inherit track track-cli track-fetch-rss;
+            inherit
+              track
+              track-cli
+              track-fetch-rss
+              track-fetch-web
+              ;
           };
 
           devShells.default = pkgs.mkShell {

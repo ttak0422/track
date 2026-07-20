@@ -7,26 +7,40 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"regexp"
 	"strings"
 	"time"
 
 	"github.com/ttak0422/track/internal/track/babel"
+	"github.com/ttak0422/track/internal/track/config"
 	"github.com/ttak0422/track/internal/track/note"
+	"github.com/ttak0422/track/internal/track/store"
 )
 
 func cmdBabel(args []string) int {
 	if len(args) == 0 {
-		return fail("babel: expected a subcommand (exec, restore)")
+		return fail("babel: expected a subcommand (exec, run, tangle, restore)")
 	}
 	switch args[0] {
-	case "exec":
+	// "run" is "exec" under the name the calls surface documents: run a named block, optionally
+	// with --var inputs. One code path keeps the two exactly equivalent.
+	case "exec", "run":
 		return cmdBabelExec(args[1:])
+	case "tangle":
+		return cmdBabelTangle(args[1:])
 	case "restore":
 		return cmdBabelRestore(args[1:])
 	default:
 		return fail("babel: unknown subcommand %q", args[0])
 	}
 }
+
+// varsFlag collects repeatable --var key=value assignments. Values may contain "=" and ",".
+type varsFlag []string
+
+func (v *varsFlag) String() string { return strings.Join(*v, ",") }
+
+func (v *varsFlag) Set(s string) error { *v = append(*v, s); return nil }
 
 func cmdBabelExec(args []string) int {
 	fs := flag.NewFlagSet("babel exec", flag.ContinueOnError)
@@ -38,6 +52,8 @@ func cmdBabelExec(args []string) int {
 	bodyStdin := fs.Bool("body-stdin", false, "read note body from stdin instead of disk")
 	yes := fs.Bool("yes", false, "confirm execution for blocks with :eval query")
 	timeout := fs.Duration("timeout", 30*time.Second, "max run time per block (0 = no limit)")
+	var cliVars varsFlag
+	fs.Var(&cliVars, "var", "k=v passed to the block's environment (repeatable); overrides the block's :var")
 	if err := fs.Parse(args); err != nil {
 		return fail("parse args: %v", err)
 	}
@@ -48,21 +64,9 @@ func cmdBabelExec(args []string) int {
 	}
 	defer s.Close()
 
-	notePath := *path
-	if notePath == "" {
-		if *id == 0 {
-			return fail("--path or --id is required")
-		}
-		var err error
-		notePath, err = resolveNotePath(cfg, s, *id, "", "")
-		if err != nil {
-			return fail("%v", err)
-		}
-	}
-
-	n, err := note.ParseFile(notePath, cfg)
+	n, err := loadNoteArg(cfg, s, *path, *id)
 	if err != nil {
-		return fail("read note: %v", err)
+		return fail("%v", err)
 	}
 	if *bodyStdin {
 		body, err := io.ReadAll(os.Stdin)
@@ -82,15 +86,32 @@ func cmdBabelExec(args []string) int {
 		return fail("%v", err)
 	}
 
-	workDir, err := resolveDir(filepath.Dir(notePath), cfg.VaultDir, firstHeader(block, "dir"))
+	workDir, err := resolveDir(filepath.Dir(n.Path), cfg.VaultDir, firstHeader(block, "dir"))
 	if err != nil {
 		return fail("%v", err)
 	}
 
-	res, err := babel.NewRunner(cfg.BabelLanguages).Run(block, babel.RunOptions{
+	// The runnable copy may differ from the parsed block (noweb expansion); identity, stored header
+	// args, and the body hash always come from the block as written, so restore keeps matching the file.
+	runBlock := block
+	if babel.NowebExpands(block, "eval") {
+		expanded, err := babel.ExpandNoweb(block.Body, blocks)
+		if err != nil {
+			return fail("%v", err)
+		}
+		runBlock.Body = expanded
+	}
+
+	vars, err := resolveVars(block, cliVars, blocks, n)
+	if err != nil {
+		return fail("%v", err)
+	}
+
+	res, err := babel.NewRunner(cfg.BabelLanguages).Run(runBlock, babel.RunOptions{
 		Dir:       workDir,
 		Confirmed: *yes,
 		Timeout:   *timeout,
+		Vars:      vars,
 	})
 	if err != nil {
 		switch {
@@ -138,21 +159,9 @@ func cmdBabelRestore(args []string) int {
 	}
 	defer s.Close()
 
-	notePath := *path
-	if notePath == "" {
-		if *id == 0 {
-			return fail("--path or --id is required")
-		}
-		var err error
-		notePath, err = resolveNotePath(cfg, s, *id, "", "")
-		if err != nil {
-			return fail("%v", err)
-		}
-	}
-
-	n, err := note.ParseFile(notePath, cfg)
+	n, err := loadNoteArg(cfg, s, *path, *id)
 	if err != nil {
-		return fail("read note: %v", err)
+		return fail("%v", err)
 	}
 
 	blocks := babel.ParseBlocks(n.Body)
@@ -177,6 +186,132 @@ func cmdBabelRestore(args []string) int {
 	}
 
 	return emit(map[string]any{"blocks": restored})
+}
+
+func cmdBabelTangle(args []string) int {
+	fs := flag.NewFlagSet("babel tangle", flag.ContinueOnError)
+	path := fs.String("path", "", "note path")
+	id := fs.Int64("id", 0, "note id (alternative to --path)")
+	dryRun := fs.Bool("dry-run", false, "print the tangle plan without writing files")
+	if err := fs.Parse(args); err != nil {
+		return fail("parse args: %v", err)
+	}
+
+	cfg, s, err := open()
+	if err != nil {
+		return fail("%v", err)
+	}
+	defer s.Close()
+
+	n, err := loadNoteArg(cfg, s, *path, *id)
+	if err != nil {
+		return fail("%v", err)
+	}
+
+	blocks := babel.ParseBlocks(n.Body)
+	if err := babel.Validate(blocks); err != nil {
+		return fail("%v", err)
+	}
+
+	plan, err := babel.TanglePlan(blocks)
+	if err != nil {
+		return fail("%v", err)
+	}
+
+	noteDir := filepath.Dir(n.Path)
+	targets := make([]map[string]any, 0, len(plan))
+	for _, t := range plan {
+		abs, err := babel.ResolveTanglePath(noteDir, cfg.VaultDir, t.Path)
+		if err != nil {
+			return fail("%v", err)
+		}
+		if !*dryRun {
+			if err := os.MkdirAll(filepath.Dir(abs), 0o755); err != nil {
+				return fail("tangle %s: %v", t.Path, err)
+			}
+			if err := os.WriteFile(abs, []byte(t.Content), 0o644); err != nil {
+				return fail("tangle %s: %v", t.Path, err)
+			}
+		}
+		targets = append(targets, map[string]any{
+			"path":   abs,
+			"blocks": t.Blocks,
+			"bytes":  len(t.Content),
+		})
+	}
+
+	return emit(map[string]any{"targets": targets, "dry_run": *dryRun})
+}
+
+// loadNoteArg resolves the shared --path / --id note selection of the babel subcommands.
+func loadNoteArg(cfg *config.Config, s *store.Store, path string, id int64) (*note.Note, error) {
+	if path == "" {
+		if id == 0 {
+			return nil, fmt.Errorf("--path or --id is required")
+		}
+		var err error
+		path, err = resolveNotePath(cfg, s, id, "", "")
+		if err != nil {
+			return nil, err
+		}
+	}
+	n, err := note.ParseFile(path, cfg)
+	if err != nil {
+		return nil, fmt.Errorf("read note: %v", err)
+	}
+	return n, nil
+}
+
+// envName is what a variable key must look like, since variables reach the block as environment entries.
+var envName = regexp.MustCompile(`^[A-Za-z_][A-Za-z0-9_]*$`)
+
+// resolveVars merges a block's :var headers with CLI --var overrides into the environment map the
+// runner injects (CLI wins on the same key). A value that names another named block resolves to that
+// block's stored result; any other value is a literal, with one pair of surrounding double quotes
+// stripped so ':var greeting="hello world"' keeps its spaces without inventing a quoting language.
+func resolveVars(block babel.Block, cliVars []string, blocks []babel.Block, n *note.Note) (map[string]string, error) {
+	specs := append(append([]string{}, block.HeaderArgs["var"]...), cliVars...)
+	if len(specs) == 0 {
+		return nil, nil
+	}
+	named := make(map[string]bool)
+	for _, b := range blocks {
+		if b.Name != "" {
+			named[b.Name] = true
+		}
+	}
+	vars := make(map[string]string, len(specs))
+	for _, spec := range specs {
+		k, v, ok := strings.Cut(spec, "=")
+		if !ok || k == "" {
+			return nil, fmt.Errorf("var %q: want key=value", spec)
+		}
+		if !envName.MatchString(k) {
+			return nil, fmt.Errorf("var %q: key must be a valid environment variable name", spec)
+		}
+		if named[v] && v != block.Name {
+			meta, ok := n.Meta.Blocks[v]
+			if !ok || meta.LastRun == nil {
+				return nil, fmt.Errorf("var %s references block %q, which has no stored result; run 'track babel exec --name %s' first", k, v, v)
+			}
+			vars[k] = storedResultText(meta.LastRun)
+			continue
+		}
+		if len(v) >= 2 && v[0] == '"' && v[len(v)-1] == '"' {
+			v = v[1 : len(v)-1]
+		}
+		vars[k] = v
+	}
+	return vars, nil
+}
+
+// storedResultText is the text a stored run feeds into a variable: the captured value when the run
+// has one, otherwise stdout, without the trailing newline.
+func storedResultText(r *babel.RunResult) string {
+	if r.Value != "" {
+		return strings.TrimRight(r.Value, "\n")
+	}
+	return strings.TrimRight(r.Stdout, "\n")
 }
 
 // selectBlock picks the block to run: by :name, by ordinal, by a line inside it, or the sole block.

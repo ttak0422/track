@@ -74,6 +74,34 @@ func TestParseBlocksSkipsPlainAndUnterminated(t *testing.T) {
 	}
 }
 
+func TestParseBlocksFenceLengthRule(t *testing.T) {
+	// A ````-fenced block quoting ``` fences ends only at a bare run of >= 4 backticks.
+	body := strings.Join([]string{
+		"````markdown",
+		"```sh :name inner",
+		"echo hi",
+		"```",
+		"````",
+		"```lua",
+		"print(1)",
+		"```",
+	}, "\n")
+
+	blocks := ParseBlocks(body)
+	if len(blocks) != 2 {
+		t.Fatalf("expected 2 blocks, got %+v", blocks)
+	}
+	if blocks[0].Language != "markdown" || blocks[0].Fence != 4 || blocks[0].EndLine != 4 {
+		t.Fatalf("outer block: %+v", blocks[0])
+	}
+	if blocks[0].Body != "```sh :name inner\necho hi\n```" {
+		t.Fatalf("outer body should keep the quoted fence verbatim: %q", blocks[0].Body)
+	}
+	if blocks[1].Language != "lua" || blocks[1].Fence != 3 {
+		t.Fatalf("following block: %+v", blocks[1])
+	}
+}
+
 func TestParseBlocksFenceLength(t *testing.T) {
 	// A 4-backtick wrapper holds a 3-backtick sample as literal content: the inner ```go must not open
 	// or close a block, and only the closing ```` (>= 4 backticks) ends the outer block.
