@@ -534,6 +534,11 @@ button {
   white-space: nowrap;
 }
 
+.note-icon {
+  margin-right: 0.4em;
+  font-weight: 400;
+}
+
 .result-snippet {
   grid-column: 1 / -1;
   margin: 0;
@@ -1307,17 +1312,83 @@ a.calendar-title:focus-visible {
 }
 
 .modal-input {
-  border: 1px solid var(--line);
-  border-radius: 6px;
-  padding: 8px 10px;
   color: var(--text);
-  background: var(--bg);
+  background: transparent;
   font: inherit;
 }
 
-.modal-input:focus-visible {
+/* Single-line fields are nano underline inputs — no box, no fill — like the home/search fields. The
+   editable state is carried by the line, not a background colour a colour-blind reader may miss. */
+input.modal-input {
+  border: 0;
+  border-bottom: 1px solid var(--line);
+  border-radius: 0;
+  padding: 8px 2px;
+  transition: border-color 0.12s ease;
+}
+
+input.modal-input:focus-visible {
+  outline: none;
+  border-bottom-color: var(--accent);
+}
+
+/* A text region keeps a thin outline (an underline alone reads poorly for multi-line) but no fill. */
+textarea.modal-input {
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  padding: 8px 10px;
+}
+
+textarea.modal-input:focus-visible {
   outline: none;
   border-color: var(--accent);
+}
+
+/* A disabled field (e.g. a journal's date-derived title) drops its line entirely and mutes its ink,
+   so it reads as plain static text rather than an editable field. The distinction is the presence or
+   absence of the line — not a background colour, which a colour-blind reader may not perceive. */
+.modal-input:disabled {
+  border-color: transparent;
+  color: var(--muted);
+  cursor: not-allowed;
+}
+
+/* Free-form props editor in the note meta dialog. */
+.modal-input--code {
+  font-family: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, monospace;
+  font-size: calc(13px * var(--font-scale, 1));
+  line-height: 1.5;
+  white-space: pre;
+  resize: vertical;
+}
+
+/* Cover-image field: the assets/<file> text input beside the native "Choose image..." picker. */
+.modal-image-row {
+  display: flex;
+  gap: 8px;
+  align-items: stretch;
+}
+
+.modal-image-row .modal-input {
+  flex: 1;
+  min-width: 0;
+}
+
+.modal-image-row button {
+  flex: none;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  padding: 6px 12px;
+  color: var(--text);
+  background: transparent;
+  font-size: calc(13px * var(--font-scale, 1));
+  cursor: pointer;
+  white-space: nowrap;
+}
+
+.modal-image-row button:disabled {
+  cursor: default;
+  opacity: 0.6;
 }
 
 .modal-actions {
@@ -1352,19 +1423,16 @@ a.calendar-title:focus-visible {
   flex-shrink: 0;
 }
 
-/* A note's tags seed a #tag search on click, but they're still text — no pill. Muted at rest, accent
+/* A note's tags link to their tag pages, but they're still text — no pill. Muted at rest, accent
    on hover, the way a link would answer to the pointer. */
-.note-tags button {
-  border: 0;
-  padding: 0;
+.note-tags a {
   color: var(--muted);
-  background: transparent;
+  text-decoration: none;
   font-size: calc(12px * var(--font-scale, 1));
-  cursor: pointer;
 }
 
-.note-tags button:hover,
-.note-tags button:focus-visible {
+.note-tags a:hover,
+.note-tags a:focus-visible {
   color: var(--accent);
 }
 
@@ -1638,7 +1706,8 @@ a.calendar-title:focus-visible {
   --alert-color: var(--danger);
 }
 
-/* GFM tables: a bordered, zebra-striped grid that scrolls horizontally when wider than the column. */
+/* GFM tables: horizontal rules only (no column separators, no row striping), scrolling horizontally
+   when wider than the column. */
 .markdown-view table {
   display: block;
   width: max-content;
@@ -1651,17 +1720,13 @@ a.calendar-title:focus-visible {
 .markdown-view th,
 .markdown-view td {
   padding: 6px 12px;
-  border: 1px solid var(--line);
+  border-block: 1px solid var(--line);
   text-align: left;
 }
 
 .markdown-view th {
   background: var(--panel-soft);
   font-weight: 700;
-}
-
-.markdown-view tbody tr:nth-child(even) {
-  background: color-mix(in srgb, var(--panel-soft) 45%, transparent);
 }
 
 .embed {
@@ -2403,6 +2468,85 @@ a.calendar-title:focus-visible {
   vertical-align: middle;
 }
 
+/* Task table (remarkTaskLine): a checklist that uses task notation renders as one sortable table —
+   state cell, task text with chips, and scheduled/due columns. */
+.markdown-view table.task-table {
+  display: table;
+  width: 100%;
+  border-collapse: collapse;
+}
+
+.markdown-view .task-table th {
+  background: transparent;
+  border-block: none;
+  border-bottom: 1px solid var(--line);
+  padding: 4px 10px;
+  font-family: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, monospace;
+  font-size: 11px;
+  font-weight: 500;
+  letter-spacing: 0.06em;
+  color: var(--muted);
+}
+
+.task-table-sort {
+  border: none;
+  background: none;
+  padding: 0;
+  font: inherit;
+  letter-spacing: inherit;
+  color: inherit;
+  cursor: pointer;
+}
+
+.task-table-sort:hover {
+  color: var(--text);
+}
+
+.markdown-view .task-table td {
+  padding: 5px 10px;
+  border-block: none;
+  border-bottom: 1px solid var(--line);
+  vertical-align: baseline;
+}
+
+.markdown-view .task-table td.task-row-date {
+  white-space: nowrap;
+  font-variant-numeric: tabular-nums;
+  font-size: 0.85em;
+  color: var(--muted);
+}
+
+.markdown-view .task-table td.task-row-due {
+  color: var(--danger);
+}
+
+.markdown-view .task-row-state {
+  display: inline-block;
+  font-family: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, monospace;
+  font-size: 11px;
+  letter-spacing: 0.06em;
+  color: var(--muted);
+}
+
+/* The state cell doubles as the control: a native select stripped to the badge's text look. */
+.markdown-view select.task-row-state {
+  appearance: none;
+  -webkit-appearance: none;
+  border: none;
+  background: transparent;
+  padding: 0;
+  cursor: pointer;
+}
+
+.markdown-view select.task-row-state:hover {
+  color: var(--text);
+}
+
+.markdown-view tr.task-row-done td.task-row-text {
+  color: var(--muted);
+  text-decoration: line-through;
+}
+
 .wiki-link-wrap {
   position: relative;
   display: inline-block;
@@ -2787,6 +2931,124 @@ a.calendar-title:focus-visible {
   clip: rect(0, 0, 0, 0);
   white-space: nowrap;
   border: 0;
+}
+
+/* ```taskboard fence: a kanban board of the note's task lines, one column per configured state.
+   Columns scroll horizontally inside the board so a wide state set never widens the page. */
+.task-board {
+  margin: 12px 0;
+}
+
+.task-board-columns {
+  display: flex;
+  gap: 10px;
+  align-items: flex-start;
+  overflow-x: auto;
+  padding-bottom: 4px;
+}
+
+.task-column {
+  flex: 1 0 170px;
+  min-width: 170px;
+  padding: 8px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--panel-soft);
+}
+
+.task-column-dragover {
+  outline: 2px solid var(--accent);
+  outline-offset: -2px;
+}
+
+.task-column-header {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  margin-bottom: 8px;
+}
+
+.task-column-name {
+  font-size: 0.8em;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  color: var(--muted);
+}
+
+.task-column-count {
+  font-size: 0.8em;
+  color: var(--muted);
+  font-variant-numeric: tabular-nums;
+}
+
+.task-card {
+  margin: 0 0 8px;
+  padding: 8px 10px;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  background: var(--panel);
+}
+
+.task-card:last-child {
+  margin-bottom: 0;
+}
+
+.task-card[draggable="true"] {
+  cursor: grab;
+}
+
+.task-card-done .task-card-text {
+  color: var(--muted);
+  text-decoration: line-through;
+}
+
+.task-card-text {
+  font-size: 0.9em;
+  overflow-wrap: anywhere;
+}
+
+.task-card-meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  align-items: center;
+  margin-top: 6px;
+}
+
+.task-card-meta:empty {
+  display: none;
+}
+
+.task-chip {
+  /* inline-block also keeps a done line's strikethrough from running through the chips */
+  display: inline-block;
+  font-size: 0.75em;
+  padding: 1px 6px;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  color: var(--muted);
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+
+.task-chip-priority {
+  color: var(--accent-strong);
+  border-color: var(--accent);
+}
+
+.task-chip-due {
+  color: var(--danger);
+  border-color: var(--danger);
+}
+
+.task-card-state {
+  margin-left: auto;
+  font-size: 0.75em;
+  padding: 1px 4px;
+  border: 1px solid var(--line);
+  border-radius: 4px;
+  background: var(--panel-soft);
+  color: var(--text);
 }
 
 /* GFM footnotes: remark-gfm renders the definitions as a trailing <section class="footnotes"> with

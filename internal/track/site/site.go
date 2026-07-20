@@ -17,6 +17,7 @@ import (
 	"github.com/ttak0422/track/internal/track/export"
 	"github.com/ttak0422/track/internal/track/note"
 	"github.com/ttak0422/track/internal/track/store"
+	"github.com/ttak0422/track/internal/track/task"
 )
 
 // Options selects which notes go into the static site and which one is the entry page.
@@ -65,7 +66,7 @@ func Build(cfg *config.Config, st *store.Store, opts Options, frontendDir, outDi
 		if err != nil {
 			return Result{}, fmt.Errorf("load note %d: %w", id, err)
 		}
-		body, err := sanitize(n)
+		body, err := export.WebBody(n.Body)
 		if err != nil {
 			return Result{}, fmt.Errorf("render note %d: %w", id, err)
 		}
@@ -82,8 +83,10 @@ func Build(cfg *config.Config, st *store.Store, opts Options, frontendDir, outDi
 			assets:   collectAssets(n.Body),
 			desc:     n.Meta.Description,
 			image:    strings.TrimPrefix(n.Meta.Image, "assets/"),
+			icon:     cfg.NoteIcon(n.Kind, n.Meta.Tags, n.Meta.Icon),
 			assetSrc: assetSrc,
 			dataDir:  cfg.DataDir(),
+			tasks:    docTasks(n.Body, cfg.TaskStates),
 			props:    note.CollectProps(n.Meta, n.Body),
 		})
 	}
@@ -92,7 +95,7 @@ func Build(cfg *config.Config, st *store.Store, opts Options, frontendDir, outDi
 	if err != nil {
 		return Result{}, err
 	}
-	return writeBundle(docs, edges, opts.Root, opts.Calendar, opts.BaseURL, frontendDir, outDir)
+	return writeBundle(docs, edges, opts.Root, opts.Calendar, opts.BaseURL, cfg.Queries, frontendDir, outDir)
 }
 
 // vaultEdges returns the [[link]] edges of the index whose endpoints are both in the published set.
@@ -110,15 +113,14 @@ func vaultEdges(st *store.Store, inSet map[int64]bool) ([]edge, error) {
 	return edges, nil
 }
 
-// sanitize renders a note body into the Markdown the frontend expects: wiki links are kept for the
-// frontend to resolve, action links are flattened, and code blocks become plain fences. This is the
-// same transform the live server applies in /api/render, so a published note reads identically.
-func sanitize(n *note.Note) (string, error) {
-	res, err := export.Export(n, export.NewWebRenderer(), export.Options{})
-	if err != nil {
-		return "", err
+// docTasks parses a source body's task lines for the published bundle, or nil when it has none.
+// Tasks parse from the raw body (not the sanitized one) so token extraction matches the live server.
+func docTasks(body string, states []task.State) *task.Set {
+	set := task.NewSet(body, states)
+	if len(set.Items) == 0 {
+		return nil
 	}
-	return res.Markdown, nil
+	return &set
 }
 
 func noteTitle(n *note.Note) string {

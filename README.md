@@ -94,7 +94,7 @@ track export (--id N | --title S | --path P) [--out F] [--frontmatter]
                                       # render a note as Markdown
 track render --spec <s> --out <f> [--renderer chartjs|svg]
                                       # render a chart/article from a View Spec (see docs/spec/visualization.md)
-track export-site --src <d> --root <s> --out <d>
+track export-site --src <d> --out <d>
                                       # build a static HTML site from notes
 track dump                            # placeholder state
 track version                         # print the version
@@ -209,6 +209,10 @@ The picker uses Telescope's prompt for live searching. `query` seeds the initial
 In a vault buffer, resolved `[[...]]` links are underlined (`TrackLink` highlight group); unresolved ones are flagged by an `unresolved-link` warning diagnostic. Press `<CR>` on a link to jump to its note. By default the `[[ ]]` brackets are concealed so links read as plain text (`[[Go|ゴー]]` shows `ゴー`); in normal mode the link under the cursor is shown raw (anti-conceal) while other links stay concealed, and while typing the whole cursor line is shown raw so the completion popup stays aligned. `conceal = false` keeps brackets visible. Raising conceallevel would otherwise let Neovim's treesitter markdown query hide code-fence delimiters, so track reveals them by default (toggle with `reveal_code_fences`). This is backed by `track-lsp`.
 
 Press `K` on a resolved link to show the linked note preview in Neovim's hover window.
+
+Task notation gets the same treatment: on a task line (a list item whose `[c]` marker is in `task_chars`, default ` /?x-`), the marker conceals to a glyph via `task_glyphs` (`- [ ]` shows `- ☐`, `- [x]` shows `- ☑`; a char without an entry keeps its raw `[c]` form), the bracket tokens stay as written but are highlighted (`[#A]` → `TrackTaskPriority`, `[due:…]` → `TrackTaskDue`, `[sched:…]`/`[done:…]`/cookies → `TrackTaskDate`), and a done-family line (`task_done_chars`, default `x-`) is struck through (`TrackTaskDone`). The cursor line stays raw for editing, concealing follows the same `conceal` option, and `task_chars = ""` turns the decoration off. Align the char lists with the vault's `task_states` when customized.
+
+`:Track task_cycle` advances the task on the cursor line to the next state in the state-set order, wrapping at the end. It runs `track task cycle`, so completion stamps, the sidecar transition log, and progress cookies all apply; bind it to a key (e.g. in `on_attach`) for one-press state loops.
 
 Use `:checkhealth track` to verify the resolved CLI/LSP binaries, vault/cache configuration, and current-buffer LSP attachment.
 

@@ -442,7 +442,7 @@ function clamp(value: number, min: number, max: number): number {
   return Math.min(max, Math.max(min, value));
 }
 
-function mermaidConfig(): MermaidConfig {
+export function mermaidConfig(): MermaidConfig {
   const css = getComputedStyle(document.documentElement);
   const color = (name: string, fallback: string) => css.getPropertyValue(name).trim() || fallback;
 
@@ -451,6 +451,11 @@ function mermaidConfig(): MermaidConfig {
     securityLevel: "strict",
     theme: "base",
     themeVariables: {
+      // The base theme derives every color we don't pin (edge labels, section fills, cluster
+      // titles, …) for a light surface unless told otherwise; on the dark theme that left #333-ish
+      // text on dark panels. darkMode flips those derivations, textColor pins the biggest offender.
+      darkMode: isDarkColor(color("--bg", "#f7f7f4")),
+      textColor: color("--text", "#20231f"),
       // Pinned (mermaid's default, but relied on by measureIdealScale) so display scale can map
       // diagram text onto the article's font size.
       fontSize: `${mermaidFontPx}px`,
@@ -467,6 +472,16 @@ function mermaidConfig(): MermaidConfig {
     },
     fontFamily: 'Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif',
   };
+}
+
+// isDarkColor reads a #rrggbb theme token's perceived luminance, so dark detection follows whatever
+// theme resolved the tokens instead of duplicating the data-theme / prefers-color-scheme cascade.
+export function isDarkColor(hex: string): boolean {
+  const m = /^#([0-9a-f]{6})$/i.exec(hex);
+  if (!m) return false;
+  const v = Number.parseInt(m[1], 16);
+  const luminance = (0.2126 * ((v >> 16) & 0xff) + 0.7152 * ((v >> 8) & 0xff) + 0.0722 * (v & 0xff)) / 255;
+  return luminance < 0.5;
 }
 
 function errorMessage(error: unknown): string {

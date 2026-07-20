@@ -4,7 +4,12 @@ import (
 	"fmt"
 	"slices"
 	"strings"
+	"unicode/utf8"
 )
+
+// minTrigram is the shortest term the FTS5 trigram tokenizer can match: a term of one or two
+// characters forms no trigram, so a body query containing such a term must fall back to a scan.
+const minTrigram = 3
 
 type SearchScope string
 
@@ -24,9 +29,13 @@ type SearchResult struct {
 	Title    string   `json:"title"`
 	Tags     []string `json:"tags,omitempty"`
 	Days     []string `json:"days,omitempty"` // activity days (YYYY-MM-DD); only the notes listing fills this
-	Line     int      `json:"line,omitempty"`
-	Snippet  string   `json:"snippet,omitempty"`
-	Mtime    int64    `json:"-"`
+	// Icon is the note's icon shown beside its title. The store fills it with the per-note sidecar
+	// override; the serving layer (webui addSearchPaths / the static export) resolves it against the
+	// config tag/kind mapping via config.NoteIcon, so an empty override falls back to the mapping.
+	Icon    string `json:"icon,omitempty"`
+	Line    int    `json:"line,omitempty"`
+	Snippet string `json:"snippet,omitempty"`
+	Mtime   int64  `json:"-"`
 }
 
 // Search returns notes whose title contains query (case-insensitive substring).
@@ -53,7 +62,7 @@ func (s *Store) SearchScoped(query string, limit int, scope SearchScope) ([]Sear
 	for rows.Next() {
 		var r SearchResult
 		var tags string
-		if err := rows.Scan(&r.NoteID, &r.FileKind, &r.Title, &r.Mtime, &tags); err != nil {
+		if err := rows.Scan(&r.NoteID, &r.FileKind, &r.Title, &r.Mtime, &r.Icon, &tags); err != nil {
 			return nil, err
 		}
 		r.Tags = splitTags(tags)
@@ -67,7 +76,8 @@ func searchQuery(scope SearchScope, query string, limit int) (string, []any, err
 	case SearchAll, SearchTitle:
 		// title search runs against the SQLite cache; body search does not (see below).
 	case SearchBody:
-		return "", nil, fmt.Errorf("body search is not stored in the SQLite cache")
+		// Body search runs through the FTS5 index, not this title query — see SearchBodyFTS.
+		return "", nil, fmt.Errorf("use SearchBodyFTS for body scope")
 	default:
 		return "", nil, fmt.Errorf("unknown search scope %q", scope)
 	}
@@ -82,7 +92,7 @@ func searchQuery(scope SearchScope, query string, limit int) (string, []any, err
 	if titleClause != "" {
 		where += " AND (" + titleClause + ")"
 	}
-	sql := `SELECT n.id, n.kind, n.title, n.mtime,
+	sql := `SELECT n.id, n.kind, n.title, n.mtime, n.icon,
 	   COALESCE((
 	     SELECT group_concat(tag, char(31))
 	     FROM (SELECT tag FROM tags WHERE note_id = n.id ORDER BY tag)
@@ -173,19 +183,22 @@ func parseTaggedQuery(query string) (parsedTaggedQuery, bool) {
 }
 
 // searchTagged builds the SQL and args for a query that carries one or more #tags, combining the tag
-// filters (AND) with the same AND/OR title matching used for a plain query.
+// filters (AND) with the same AND/OR title matching used for a plain query. Tags are hierarchical:
+// #a matches a note tagged "a" or any descendant like "a/b", but never "ab" — the same rule the query
+// evaluator applies (see query.TagMatches).
 func searchTagged(parsed parsedTaggedQuery, limit int) (string, []any) {
 	where := []string{"n.kind IN ('note', 'journal')"}
 	var whereArgs []any
 	for _, tag := range parsed.Tags {
-		where = append(where, "EXISTS (SELECT 1 FROM tags t WHERE t.note_id = n.id AND t.tag LIKE ?)")
-		whereArgs = append(whereArgs, "%"+tag+"%")
+		where = append(where, "EXISTS (SELECT 1 FROM tags t WHERE t.note_id = n.id AND (t.tag = ? COLLATE NOCASE OR t.tag LIKE ? || '/%'))")
+		whereArgs = append(whereArgs, tag, tag)
 	}
 	if titleClause, titleArgs := titleMatchClause(parsed.Text); titleClause != "" {
 		where = append(where, "("+titleClause+")")
 		whereArgs = append(whereArgs, titleArgs...)
 	}
 
+	// Exact tag matches rank before descendant (prefix) matches.
 	var order []string
 	var orderArgs []any
 	for _, tag := range parsed.Tags {
@@ -193,12 +206,6 @@ func searchTagged(parsed parsedTaggedQuery, limit int) (string, []any) {
 	     SELECT 1 FROM tags t WHERE t.note_id = n.id AND t.tag = ? COLLATE NOCASE
 	   ) THEN 0 ELSE 1 END`)
 		orderArgs = append(orderArgs, tag)
-	}
-	for _, tag := range parsed.Tags {
-		order = append(order, `CASE WHEN EXISTS (
-	     SELECT 1 FROM tags t WHERE t.note_id = n.id AND t.tag LIKE ?
-	   ) THEN 0 ELSE 1 END`)
-		orderArgs = append(orderArgs, tag+"%")
 	}
 	if parsed.Text != "" {
 		order = append(order,
@@ -212,7 +219,7 @@ func searchTagged(parsed parsedTaggedQuery, limit int) (string, []any) {
 		"n.id DESC",
 	)
 
-	sql := `SELECT n.id, n.kind, n.title, n.mtime,
+	sql := `SELECT n.id, n.kind, n.title, n.mtime, n.icon,
 	   COALESCE((
 	     SELECT group_concat(tag, char(31))
 	     FROM (SELECT tag FROM tags WHERE note_id = n.id ORDER BY tag)
@@ -226,10 +233,96 @@ func searchTagged(parsed parsedTaggedQuery, limit int) (string, []any) {
 	return sql, args
 }
 
+// BodyGroups parses a body query into OR-separated groups of AND terms — the same grammar as title
+// search: an uppercase OR separates alternatives, an uppercase AND is the implicit default between
+// terms. A note matches when any one group's terms are all present. "a b OR c" yields [[a b] [c]].
+func BodyGroups(query string) [][]string {
+	return splitOrGroups(query)
+}
+
+// BodyQueryUsesFTS reports whether a body query can be served by the trigram FTS index: it needs at
+// least one term and every term (across all OR groups) must be long enough to form a trigram. Shorter
+// terms (a two-letter word or a two-character CJK word like 世界) have no trigram and are left to the
+// per-file fallback.
+func BodyQueryUsesFTS(query string) bool {
+	groups := BodyGroups(query)
+	if len(groups) == 0 {
+		return false
+	}
+	for _, terms := range groups {
+		for _, term := range terms {
+			if utf8.RuneCountInString(term) < minTrigram {
+				return false
+			}
+		}
+	}
+	return true
+}
+
+// SearchBodyFTS returns notes whose body matches the query's OR-groups (a note matches when any one
+// group's terms are all present), ranked by FTS5 bm25 relevance then recency. Caller must ensure
+// BodyQueryUsesFTS(query); a short-term query is handled by a scan. Results carry note metadata but no
+// Line/Snippet — the caller locates those in the file, preserving the line-number contract while FTS
+// does the matching and ranking.
+func (s *Store) SearchBodyFTS(query string, limit int) ([]SearchResult, error) {
+	if limit <= 0 {
+		limit = 50
+	}
+	groups := BodyGroups(query)
+	if len(groups) == 0 {
+		return nil, nil
+	}
+	rows, err := s.db.Query(
+		`SELECT n.id, n.kind, n.title, n.mtime,
+		   COALESCE((
+		     SELECT group_concat(tag, char(31))
+		     FROM (SELECT tag FROM tags WHERE note_id = n.id ORDER BY tag)
+		   ), '') AS tags
+		 FROM notes_fts f
+		 JOIN notes n ON n.id = f.rowid
+		 WHERE notes_fts MATCH ? AND n.kind IN ('note', 'journal')
+		 ORDER BY bm25(notes_fts), n.mtime DESC, n.id DESC
+		 LIMIT ?`,
+		ftsMatchExprGroups(groups), limit,
+	)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var out []SearchResult
+	for rows.Next() {
+		var r SearchResult
+		var tags string
+		if err := rows.Scan(&r.NoteID, &r.FileKind, &r.Title, &r.Mtime, &tags); err != nil {
+			return nil, err
+		}
+		r.Tags = splitTags(tags)
+		out = append(out, r)
+	}
+	return out, rows.Err()
+}
+
+// ftsMatchExprGroups builds an FTS5 MATCH expression from OR-separated groups of AND terms:
+// ("a" AND "b") OR ("c"). Each term is wrapped as a quoted string (doubling any embedded quote) so
+// user punctuation is never parsed as FTS5 query syntax; terms within a group join with AND and the
+// groups join with OR.
+func ftsMatchExprGroups(groups [][]string) string {
+	ors := make([]string, 0, len(groups))
+	for _, terms := range groups {
+		quoted := make([]string, len(terms))
+		for i, term := range terms {
+			quoted[i] = `"` + strings.ReplaceAll(term, `"`, `""`) + `"`
+		}
+		ors = append(ors, "("+strings.Join(quoted, " AND ")+")")
+	}
+	return strings.Join(ors, " OR ")
+}
+
 // SearchRefs returns indexed notes with search-only ranking/display metadata.
 func (s *Store) SearchRefs() ([]SearchResult, error) {
 	rows, err := s.db.Query(
-		`SELECT n.id, n.kind, n.title, n.mtime,
+		`SELECT n.id, n.kind, n.title, n.mtime, n.icon,
 		   COALESCE((
 		     SELECT group_concat(tag, char(31))
 		     FROM (SELECT tag FROM tags WHERE note_id = n.id ORDER BY tag)
@@ -246,7 +339,7 @@ func (s *Store) SearchRefs() ([]SearchResult, error) {
 	for rows.Next() {
 		var r SearchResult
 		var tags string
-		if err := rows.Scan(&r.NoteID, &r.FileKind, &r.Title, &r.Mtime, &tags); err != nil {
+		if err := rows.Scan(&r.NoteID, &r.FileKind, &r.Title, &r.Mtime, &r.Icon, &tags); err != nil {
 			return nil, err
 		}
 		r.Tags = splitTags(tags)

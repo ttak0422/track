@@ -7,8 +7,11 @@ import (
 	"fmt"
 	"io/fs"
 	"mime"
+	"net"
 	"net/http"
+	"net/url"
 	"os"
+	"strings"
 	"sync"
 	"time"
 
@@ -25,7 +28,10 @@ type Server struct {
 	colorCSS string
 	// session is a token unique to this server process, injected into index.html so the frontend can
 	// tell a fresh launch (new token → discard restored tab strip) from a reload (same token → keep it).
-	session   string
+	session string
+	// bindHost is the non-loopback host the server was asked to listen on (empty for the default
+	// loopback bind); guard admits it alongside the loopback names.
+	bindHost  string
 	events    *eventHub
 	reindexMu sync.Mutex
 	lastStale time.Time
@@ -108,11 +114,45 @@ func newSessionToken() string {
 }
 
 func (s *Server) Handler() http.Handler {
-	return s.mux
+	return s.guard(s.mux)
+}
+
+// guard rejects the requests a browser could aim at this local server from a foreign page: any Host
+// that is not this server (DNS rebinding would otherwise expose every read API), and mutating
+// requests bearing a foreign Origin (CSRF against the write APIs — a cross-site fetch POST is a
+// "simple request", so no preflight protects them). Non-browser clients (curl, the Neovim plugin)
+// send no Origin header and are unaffected.
+// ponytail: a non-loopback --addr allowlists that exact bind host only; binding 0.0.0.0 still
+// admits loopback names alone — make the allowlist configurable if remote use ever matters.
+func (s *Server) guard(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		host := r.Host
+		if h, _, err := net.SplitHostPort(host); err == nil {
+			host = h
+		}
+		host = strings.Trim(host, "[]")
+		if host != "127.0.0.1" && host != "localhost" && host != "::1" && (s.bindHost == "" || host != s.bindHost) {
+			writeError(w, fmt.Errorf("host %q not served", r.Host), http.StatusForbidden)
+			return
+		}
+		if r.Method != http.MethodGet && r.Method != http.MethodHead && r.Method != http.MethodOptions {
+			if o := r.Header.Get("Origin"); o != "" {
+				u, err := url.Parse(o)
+				if err != nil || u.Host != r.Host {
+					writeError(w, fmt.Errorf("cross-origin write from %q refused", o), http.StatusForbidden)
+					return
+				}
+			}
+		}
+		next.ServeHTTP(w, r)
+	})
 }
 
 func Serve(cfg *config.Config, st *store.Store, addr string) error {
 	srv := New(cfg, st)
+	if h, _, err := net.SplitHostPort(addr); err == nil {
+		srv.bindHost = h
+	}
 	srv.startWatch()
 	return http.ListenAndServe(addr, srv.Handler())
 }
@@ -126,6 +166,8 @@ func (s *Server) routes() {
 	s.mux.HandleFunc("/api/resolve", s.handleResolve)
 	s.mux.HandleFunc("/api/note", s.handleNote)
 	s.mux.HandleFunc("/api/note/meta", s.handleNoteMeta)
+	s.mux.HandleFunc("/api/tasks", s.handleTasks)
+	s.mux.HandleFunc("/api/task", s.handleTaskSet)
 	s.mux.HandleFunc("/api/render", s.handleRender)
 	s.mux.HandleFunc("/api/viewspec", s.handleViewSpec)
 	s.mux.HandleFunc("/api/asset", s.handleAsset)

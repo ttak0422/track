@@ -21,7 +21,7 @@ func TestBuildDirPublishesHierarchy(t *testing.T) {
 	write("stray.md", "# Stray\n\nup:: [[Nowhere]]\n")
 
 	out := t.TempDir()
-	if _, err := BuildDir(src, "index", "", fakeFrontend(t), out); err != nil {
+	if _, err := BuildDir(src, "", fakeFrontend(t), out); err != nil {
 		t.Fatalf("BuildDir: %v", err)
 	}
 

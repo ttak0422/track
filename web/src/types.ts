@@ -17,6 +17,12 @@ export interface SearchResult extends NoteRef {
   // Activity days (YYYY-MM-DD) the note was created/updated on; filled by the notes listing (live and
   // static), which the calendar derives its per-day note lists from. Journals carry none.
   days?: string[];
+  // Icon shown beside the title in search results (SearchPanel — the only surface that draws it).
+  // Resolved by the engine (config.NoteIcon): a per-note override, then a tag mapping, then a kind
+  // mapping. In a vault the override is the note's sidecar icon and the maps come from the user's config;
+  // in a directory export both come from the published site's site.yml (icons.pages is the override, keyed
+  // by the page's file base name). Empty means no icon.
+  icon?: string;
   line?: number;
   snippet?: string;
 }
@@ -74,6 +80,38 @@ export interface NoteInclude {
   error?: string;
 }
 
+// One named task state of the vault's configured set: the checkbox marker character and whether the
+// state is done-family (completion). The set defines the task board's columns.
+export interface TaskState {
+  name: string;
+  char: string;
+  done: boolean;
+}
+
+// One parsed task line of a note. line is 1-based over the note file — the coordinate the state-set
+// API takes. The date fields are plain YYYY-MM-DD strings from the inline bracket tokens.
+export interface TaskItem {
+  line: number;
+  state: string;
+  done: boolean;
+  priority?: string;
+  scheduled?: string;
+  due?: string;
+  completed?: string;
+  text: string;
+}
+
+// A note's tasks plus the state set, as served by /api/tasks, embedded in the note response, and
+// baked into the static bundle's note JSON.
+export interface NoteTasks {
+  states: TaskState[];
+  items: TaskItem[];
+}
+
+export interface TasksResponse {
+  tasks: NoteTasks;
+}
+
 // NoteProp is one flattened typed note property, as the engine indexes it: a sidecar props entry
 // (line 0) or an inline "key:: value" body field (1-based body line). A list value arrives as one
 // entry per item under the same key. Link values carry the resolution key ([[...]] inner text).
@@ -89,6 +127,7 @@ export interface NoteDetail extends SearchResult {
   body: string;
   etag: string;
   includes?: NoteInclude[];
+  tasks?: NoteTasks;
   props?: NoteProp[];
 }
 
@@ -117,17 +156,37 @@ export interface DeleteNoteResponse {
   deleted: boolean;
 }
 
-// A note's page metadata (sidecar description / cover image), edited via the meta dialog and
-// published as og:description / og:image by the static export.
+// A note's editable sidecar metadata as the dialog's typed fields: title, tags, description, cover
+// image (an assets/<file> reference), and typed props. Built-in fields get dedicated controls; props
+// stays free-form — a YAML "key: value" block the engine parses and validates. The frontend never
+// assembles YAML: it sends these fields and the engine composes/validates the document.
 export interface NoteMetaResponse {
+  title: string;
+  // The note's file kind ("note" | "journal"). Journal titles are date-derived, so the editor
+  // disables title editing for them.
+  kind: string;
+  tags: string[];
   description: string;
   image: string;
+  // Per-note icon (an emoji) shown beside the title; empty falls back to the config tag/kind mapping.
+  icon: string;
+  props: string;
 }
 
-// A save request leaves an omitted field untouched; an empty string clears it (engine semantics).
+// A save request replaces the whole editable metadata; a rejected edit changes nothing. tags is the
+// comma-split list (the engine dedups/normalizes); props is the free-form block, parsed server-side.
 export interface SaveNoteMetaRequest {
-  description?: string;
-  image?: string;
+  title: string;
+  tags: string[];
+  description: string;
+  image: string;
+  icon: string;
+  props: string;
+}
+
+// The vault reference returned after uploading a cover image, e.g. "assets/cover.png".
+export interface AssetUploadResponse {
+  ref: string;
 }
 
 export interface FollowState {

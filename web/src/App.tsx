@@ -16,6 +16,7 @@ import { GraphFullView } from "./components/GraphFullView";
 import { NoteReader } from "./components/NoteReader";
 import { SearchHome } from "./components/SearchHome";
 import { Shell } from "./components/Shell";
+import { TagView } from "./components/TagView";
 import "./styles.css";
 
 const rootRoute = createRootRoute({
@@ -52,6 +53,14 @@ const dayRoute = createRoute({
   component: DayRoute,
 });
 
+// Tags are hierarchical (#a/b/c), so the tag page uses a splat param — the whole rest of the path is
+// the tag, slashes included.
+const tagRoute = createRoute({
+  getParentRoute: () => rootRoute,
+  path: "/tags/$",
+  component: TagRoute,
+});
+
 // The static site's empty state (reached by closing every tab) has its own route so it is a real
 // prerendered file, rather than sharing "/" — which is the start page.
 const emptyRoute = createRoute({
@@ -66,6 +75,7 @@ const routeTree = rootRoute.addChildren([
   graphRoute,
   calendarRoute,
   dayRoute,
+  tagRoute,
   emptyRoute,
 ]);
 
@@ -135,10 +145,15 @@ export function App() {
 function HomeRoute() {
   // The published site's "/" is the start page: it renders the configured root note directly, so the
   // prerendered index.html carries real content (fast FCP/LCP) instead of an empty shell that redirects.
-  // The empty state lives at /empty (reached by closing every tab). The live workspace shows the heatmap
-  // home here instead.
+  // The empty state lives at /empty (reached by closing every tab).
   if (STATIC_MODE) {
     return START_PAGE_ID ? <NoteReader noteID={START_PAGE_ID} /> : <EmptyState />;
+  }
+  // The live workspace opens the configured home note (config web.home, injected as START_PAGE_ID) as its
+  // landing view — a dashboard note with ```dashboard widgets is the intended target. With no home note
+  // configured it falls back to the search hero.
+  if (START_PAGE_ID) {
+    return <NoteReader noteID={START_PAGE_ID} />;
   }
   return (
     <section className="home-hero">
@@ -166,4 +181,9 @@ function GraphRoute() {
 function DayRoute() {
   const { date } = dayRoute.useParams();
   return <DayView date={date} />;
+}
+
+function TagRoute() {
+  const { _splat } = tagRoute.useParams();
+  return <TagView tag={_splat ?? ""} />;
 }

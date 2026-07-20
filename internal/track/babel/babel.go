@@ -28,6 +28,8 @@ type Block struct {
 }
 
 // ParseBlocks extracts every language-tagged fenced code block from a note body, in document order.
+// Fences follow the CommonMark length rule: a block opened with N backticks is closed only by a bare
+// run of at least N, so a ````markdown block can quote ``` fences without ending early.
 // Unterminated fences end the scan. Body offsets are 0-based line numbers within body.
 func ParseBlocks(body string) []Block {
 	lines := strings.Split(body, "\n")
@@ -72,6 +74,30 @@ func ParseBlocks(body string) []Block {
 		i = j + 1
 	}
 	return blocks
+}
+
+// ReplaceBlocks replaces every fenced block whose language matches lang (case-insensitive) with the
+// lines replace returns, leaving everything else — including the line count outside replaced regions —
+// untouched. It is the shared expansion step for generated blocks: a fence whose language marks it as
+// "resolve me at render time" (```viewspec charts, ```track-query tables) is swapped for its resolved
+// content wherever notes render. A body without a matching fence is returned unchanged.
+func ReplaceBlocks(body, lang string, replace func(Block) []string) string {
+	lines := strings.Split(body, "\n")
+	var out []string
+	next := 0
+	for _, b := range ParseBlocks(body) {
+		if !strings.EqualFold(b.Language, lang) {
+			continue
+		}
+		out = append(out, lines[next:b.StartLine]...)
+		out = append(out, replace(b)...)
+		next = b.EndLine + 1
+	}
+	if next == 0 {
+		return body // no matching fences: the common case, untouched
+	}
+	out = append(out, lines[next:]...)
+	return strings.Join(out, "\n")
 }
 
 // ID returns the stable result key for a block within a note.

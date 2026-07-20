@@ -22,6 +22,13 @@ up:: [[track]]
 printf '本文 [[他ノート]]\n' | track open --title "メモ"
 ```
 
+Anything that prints Markdown can therefore create notes — the [[Web clipper]] uses this to turn a
+web page into a note in one pipeline:
+
+```sh
+track-fetch-web --note https://example.com/essay | track new --title "An essay"
+```
+
 ## Capture, refile, archive
 
 These three commands move text around by heading anchor. A target is written as `Note#Heading`, the
@@ -146,13 +153,69 @@ so these blank lines survive
 
 | Command | Purpose |
 | --- | --- |
-| `track search --query <s>` | Search notes; `--query '#tag'` filters by tag. |
+| `track search --query <s>` | Search notes; `--query '#tag'` filters by tag (hierarchical: `#a` matches `#a/b`). |
+| `track search --scope body --query <s>` | Full-text search of note bodies, ranked by relevance. |
+| `track query '<expr>'` | Run a table [[Query]] over notes; `--saved <name>` runs a named one. |
 | `track notes` | List every note, newest first. |
 | `track notes --untagged` | List only the notes that still carry no tags. |
 | `track resolve --term <s>` | Resolve a keyword to a note. |
 | `track backlinks --id N` | List notes that link to a note. |
 | `track graph --id N` | Show a local link graph. |
 | `track graph --orphans` | List notes with no inbound link and notes whose title names a missing parent scope. |
+| `track similar --id N [--limit K]` | List notes semantically closest to a note (needs an embedder — see Related notes below). |
+
+## Related notes
+
+`track similar --id N` ranks the notes whose meaning is closest to note `N`, most similar first. Unlike
+[[Linking notes]], nothing has to be linked by hand: the ranking comes from an embedding of each note's
+text. `--limit K` caps the result count (default 10).
+
+The engine never runs a model itself. Instead it shells out to an **embedder command** you configure —
+the same split as the `track-fetch-*` tools. Your command reads a note's text on stdin and prints a JSON
+array of floats on stdout:
+
+```sh
+$ printf 'my note text' | my-embedder
+[0.0123, -0.0456, 0.0789, ...]
+```
+
+Point `track` at it with the `embedder` key in `config.yml`, in either of two forms:
+
+```yaml
+# Scalar: split on whitespace. There is no shell quoting, so no argument may contain a space.
+embedder: my-embedder --model all-minilm
+
+# Sequence: used verbatim as argv — the way to pass an argument that contains spaces.
+embedder: [my-embedder, --model, "mini lm"]
+```
+
+The `TRACK_EMBEDDER` environment variable overrides the config value entirely; an environment variable
+cannot carry an array, so it is always whitespace-split like the scalar form.
+
+Any local embedding tool works. A minimal `my-embedder` can be a few lines of Python around a
+sentence-transformers model, or a shell wrapper around `llama.cpp`'s embedding output — whatever emits a
+float array. Because the heavy lifting lives in your command, the model, its size, and its licence are
+entirely your choice, and no note text leaves your machine unless your embedder sends it.
+
+Vectors are cached in the index database, keyed by note plus a content hash, so a note is embedded once
+and only re-embedded when its text (or the embedder command) changes. The first `track similar` after a
+lot of edits pays to embed the changed notes; later calls are just a cosine scan.
+
+With no embedder configured, `track similar` does not fail — it returns a short message explaining how to
+set one up and exits cleanly, and nothing else in `track` is affected:
+
+```json
+{"embedder": false, "message": "no embedder configured. Set `embedder` in config.yml ..."}
+```
+
+`--scope` selects `title`, `body`, or `all` (the default: titles first, then bodies). Body search
+uses a full-text index that stays in step with the vault automatically — see [[Searching notes]] for
+ranking, code-block matches, and CJK behavior.
+
+Terms combine the same way in title and body search: space-separated terms are an implicit **AND**,
+and an uppercase **OR** separates alternatives — `kubernetes OR postgres` returns notes matching
+either, and `deploy staging OR rollback` reads as `(deploy AND staging) OR rollback`. A lowercase
+`or` stays an ordinary search word.
 
 ## Curating tags
 
@@ -192,8 +255,13 @@ A crontab line that refreshes every 15 minutes:
 site — see [[Web workspace]] for the rendered reading experience it mirrors.
 
 ```sh
-track export-site --src docs/help --root index --out ./site
+track export-site --src docs/help --out ./site
 ```
+
+`--src` publishes a plain Markdown directory (this help site is built that way); without it, the site is
+built from vault notes and `--root <id>` is the landing note. The directory names its entry page and its
+icons in a `site.yml` of its own — see [[Home dashboard]]. `--base-url`, `--out`, and `--frontend` are
+per-deployment build flags, not part of that config.
 
 `track render` turns a declarative View Spec into a chart or article — see [[Visualization]].
 

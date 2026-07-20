@@ -10,12 +10,16 @@ import (
 	"os"
 	"strings"
 
+	"github.com/ttak0422/track/internal/track/dashboard"
 	"github.com/ttak0422/track/internal/track/export"
 	"github.com/ttak0422/track/internal/track/index"
 	"github.com/ttak0422/track/internal/track/link"
 	"github.com/ttak0422/track/internal/track/note"
+	"github.com/ttak0422/track/internal/track/query"
+	"github.com/ttak0422/track/internal/track/rename"
 	"github.com/ttak0422/track/internal/track/render"
 	"github.com/ttak0422/track/internal/track/store"
+	"github.com/ttak0422/track/internal/track/task"
 )
 
 func (s *Server) handleNote(w http.ResponseWriter, r *http.Request) {
@@ -125,20 +129,26 @@ func (s *Server) getNote(w http.ResponseWriter, r *http.Request) {
 			refs[i].Path = s.cfg.PathForKind(refs[i].FileKind, refs[i].NoteID)
 		}
 	}
+	noteJSON := map[string]any{
+		"note_id":   ref.NoteID,
+		"file_kind": ref.FileKind,
+		"path":      path,
+		"copy_path": s.cfg.DisplayPathForKind(ref.FileKind, ref.NoteID),
+		"title":     ref.Title,
+		"tags":      ref.Tags,
+		"props":     props,
+		"body":      body,
+		// etag is a content hash of the file as read; clients echo it back on PUT so a save can be
+		// rejected when the file changed underneath (e.g. an OneDrive sync) since this read.
+		"etag": etagFor(raw),
+	}
+	// Task lines ride along so a ```taskboard fence renders without a second request, mirroring the
+	// static bundle's note JSON.
+	if set := task.NewSet(body, s.cfg.TaskStates); len(set.Items) > 0 {
+		noteJSON["tasks"] = set
+	}
 	writeJSON(w, map[string]any{
-		"note": map[string]any{
-			"note_id":   ref.NoteID,
-			"file_kind": ref.FileKind,
-			"path":      path,
-			"copy_path": s.cfg.DisplayPathForKind(ref.FileKind, ref.NoteID),
-			"title":     ref.Title,
-			"tags":      ref.Tags,
-			"props":     props,
-			"body":      body,
-			// etag is a content hash of the file as read; clients echo it back on PUT so a save can be
-			// rejected when the file changed underneath (e.g. an OneDrive sync) since this read.
-			"etag": etagFor(raw),
-		},
+		"note":      noteJSON,
 		"backlinks": backlinks,
 		"trail":     trail,
 		"children":  children,
@@ -198,10 +208,14 @@ func (s *Server) putNote(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, map[string]any{"note_id": ref.NoteID, "etag": etagFor(out), "saved": true})
 }
 
-// handleNoteMeta reads or edits a note's page metadata (description, cover image). Edits go through
-// the same validated engine write path as the CLI meta command (note.ApplyMetaEdit), so the rules —
-// an existing vault asset, raster format, no traversal — live in one place; a violation is a 400
-// whose message the editor shows inline. A JSON field left null is untouched, "" clears it.
+// handleNoteMeta reads or edits a note's editable sidecar metadata — title, tags, description,
+// cover image, icon, and typed props — as structured fields. GET seeds the dialog's typed controls
+// (props as a free-form YAML "key: value" block); POST takes those fields back, composes a
+// document, and applies it through the same validated engine path as `track meta --edit`
+// (note.ApplyMetaDocValue; a changed title through rename.Do). Every rule — tag normalization, an
+// existing vault asset in a raster format, props typed against the configured schema, title
+// uniqueness — lives in the engine, so the frontend never assembles YAML: a violation is a 400
+// whose message the editor shows inline, and a rejected edit changes nothing.
 func (s *Server) handleNoteMeta(w http.ResponseWriter, r *http.Request) {
 	id, err := parseID(r)
 	if err != nil {
@@ -220,29 +234,91 @@ func (s *Server) handleNoteMeta(w http.ResponseWriter, r *http.Request) {
 			writeError(w, err, http.StatusInternalServerError)
 			return
 		}
-		writeJSON(w, map[string]any{"description": meta.Description, "image": meta.Image})
+		writeMetaFields(w, meta, ref.FileKind)
 	case http.MethodPost:
 		var req struct {
-			Description *string `json:"description"`
-			Image       *string `json:"image"`
+			Title       string   `json:"title"`
+			Tags        []string `json:"tags"`
+			Description string   `json:"description"`
+			Image       string   `json:"image"`
+			Icon        string   `json:"icon"`
+			Props       string   `json:"props"`
 		}
 		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 			writeError(w, fmt.Errorf("decode request: %w", err), http.StatusBadRequest)
 			return
 		}
-		meta, err := note.ApplyMetaEdit(s.cfg, id, note.MetaEdit{Description: req.Description, Image: req.Image})
+		props, err := note.ParsePropsText(req.Props)
 		if err != nil {
 			writeError(w, err, http.StatusBadRequest)
 			return
 		}
-		if err := index.New(s.cfg, s.store).One(s.cfg.PathForKind(ref.FileKind, ref.NoteID)); err != nil {
+		doc := note.MetaDoc{
+			Title:       req.Title,
+			Tags:        req.Tags,
+			Description: req.Description,
+			Image:       req.Image,
+			Icon:        req.Icon,
+			Props:       props,
+		}
+		// Pre-validate a title change so a conflicting title rejects the whole edit before any
+		// write; an empty title means "leave the title unchanged".
+		newTitle := strings.TrimSpace(doc.Title)
+		if newTitle != "" {
+			if other, ok, err := s.store.ResolveTerm(newTitle); err != nil {
+				writeError(w, err, http.StatusInternalServerError)
+				return
+			} else if ok && other.NoteID != id {
+				writeError(w, fmt.Errorf("title %q already in use by note %d", newTitle, other.NoteID), http.StatusBadRequest)
+				return
+			}
+		}
+		meta, err := note.ApplyMetaDocValue(s.cfg, id, doc)
+		if err != nil {
+			writeError(w, err, http.StatusBadRequest)
+			return
+		}
+		if newTitle != "" && newTitle != meta.Title {
+			// A title change is a rename: backlink rewrite, history, full reindex — the same engine
+			// path as `track rename`.
+			if _, err := rename.Do(s.cfg, s.store, id, newTitle); err != nil {
+				writeError(w, err, http.StatusInternalServerError)
+				return
+			}
+			meta.Title = newTitle
+		} else if err := index.New(s.cfg, s.store).One(s.cfg.PathForKind(ref.FileKind, ref.NoteID)); err != nil {
 			writeError(w, fmt.Errorf("reindex: %w", err), http.StatusInternalServerError)
 			return
 		}
-		writeJSON(w, map[string]any{"description": meta.Description, "image": meta.Image, "updated": true})
+		writeMetaFields(w, meta, ref.FileKind)
 	default:
 		writeError(w, fmt.Errorf("method %s not allowed", r.Method), http.StatusMethodNotAllowed)
 	}
+}
+
+// writeMetaFields serializes a note's editable metadata as the dialog's typed fields, rendering the
+// props map back to the free-form YAML block the props textarea seeds from. kind is the note's file
+// kind (config.KindNote / KindJournal); the dialog disables title editing for journals, whose titles
+// are derived from their date.
+func writeMetaFields(w http.ResponseWriter, meta note.Metadata, kind string) {
+	propsText, err := note.PropsText(meta.Props)
+	if err != nil {
+		writeError(w, err, http.StatusInternalServerError)
+		return
+	}
+	tags := meta.Tags
+	if tags == nil {
+		tags = []string{}
+	}
+	writeJSON(w, map[string]any{
+		"title":       meta.Title,
+		"kind":        kind,
+		"tags":        tags,
+		"description": meta.Description,
+		"image":       meta.Image,
+		"icon":        meta.Icon,
+		"props":       propsText,
+	})
 }
 
 // handleRender sanitizes a raw note body into the Markdown the frontend renders: track action links
@@ -262,18 +338,33 @@ func (s *Server) handleRender(w http.ResponseWriter, r *http.Request) {
 		writeError(w, err, http.StatusBadRequest)
 		return
 	}
-	res, err := export.Export(&note.Note{Body: req.Body}, export.NewWebRenderer(), export.Options{})
+	// Resolve any ```dashboard widget blocks to Markdown before sanitizing, so a home/dashboard note's
+	// recent-notes, journal, and pinned widgets render live. The static export resolves the same blocks
+	// at build time (see site.writeBundle), keeping the two deployments identical. The store scan for
+	// widget data is skipped unless the body actually carries a dashboard fence (the common case).
+	s.refreshIfStale()
+	body := req.Body
+	if strings.Contains(body, "```"+dashboard.Lang) {
+		body = dashboard.Resolve(body, s.dashboardData())
+	}
+	markdown, err := export.WebBody(body)
 	if err != nil {
 		writeError(w, err, http.StatusInternalServerError)
 		return
 	}
+	// Embedded ```track-query fences resolve here into Markdown result tables over the freshly
+	// reconciled index, so the workspace draws them with its ordinary table rendering — the same
+	// expansion the static export bakes in at build time. A row-load failure leaves the fences as
+	// source rather than failing the whole render.
+	if rows, err := query.RowsFromStore(s.store); err == nil {
+		markdown = query.ExpandBlocks(markdown, s.cfg.Queries, rows)
+	}
 	// Includes resolve against the rendered markdown (what the frontend draws), so their line
 	// numbers align with the text the client splices them into; target bodies render through the
 	// same web renderer so embedded content arrives as sanitized as the note's own.
-	s.refreshIfStale()
 	writeJSON(w, map[string]any{
-		"markdown": res.Markdown,
-		"includes": link.ResolveIncludes(res.Markdown, s.loadRenderedNote),
+		"markdown": markdown,
+		"includes": link.ResolveIncludes(markdown, s.loadRenderedNote),
 	})
 }
 
@@ -290,11 +381,11 @@ func (s *Server) loadRenderedNote(key string) (int64, string, string, bool) {
 		return 0, "", "", false
 	}
 	body, _, _ := note.SplitLegacyFootmatter(string(raw))
-	res, err := export.Export(&note.Note{Body: body}, export.NewWebRenderer(), export.Options{})
+	markdown, err := export.WebBody(body)
 	if err != nil {
 		return 0, "", "", false
 	}
-	return ref.NoteID, ref.FileKind, res.Markdown, true
+	return ref.NoteID, ref.FileKind, markdown, true
 }
 
 // handleViewSpec resolves a fenced ```viewspec block (a View Spec JSON) to its ECharts option JSON,

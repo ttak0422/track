@@ -72,6 +72,19 @@ func TestRunStdinFallbackWithoutPlaceholder(t *testing.T) {
 	}
 }
 
+func TestRunInjectsVarsAsEnvironment(t *testing.T) {
+	res, err := shRunner(t).Run(
+		Block{Language: "sh", Body: `echo "$who:$n"`},
+		RunOptions{Vars: map[string]string{"who": "world", "n": "42"}},
+	)
+	if err != nil {
+		t.Fatalf("run: %v", err)
+	}
+	if res.Stdout != "world:42\n" {
+		t.Fatalf("vars should reach the process environment, got %+v", res)
+	}
+}
+
 func TestRunTimeout(t *testing.T) {
 	res, err := shRunner(t).Run(Block{Language: "sh", Body: "sleep 5"}, RunOptions{Timeout: 100 * time.Millisecond})
 	if err != nil {

@@ -190,15 +190,16 @@ export function NoteProperties({ props: noteProps }: { props: NoteProp[] }) {
   );
 }
 
-// NoteTags renders a note's tags as buttons that seed a #tag search.
-export function NoteTags({ tags, onTag }: { tags: string[]; onTag: (tag: string) => void }) {
+// NoteTags renders a note's tags as links to their tag pages (/tags/<tag>), which list every note
+// carrying the tag or one of its descendants (#a/b files under #a).
+export function NoteTags({ tags }: { tags: string[] }) {
   if (tags.length === 0) return null;
   return (
     <div className="tag-list note-tags" aria-label="Note tags">
       {tags.map((tag) => (
-        <button key={tag} type="button" onClick={() => onTag(`#${tag}`)}>
+        <Link key={tag} to="/tags/$" params={{ _splat: tag }}>
           #{tag}
-        </button>
+        </Link>
       ))}
     </div>
   );

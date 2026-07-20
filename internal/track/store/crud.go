@@ -34,12 +34,21 @@ func (s *Store) UpsertNote(n *note.Note) error {
 		kind = "note"
 	}
 	if _, err := tx.Exec(
-		`INSERT INTO notes (id, kind, title, created, mtime)
-		 VALUES (?, ?, ?, ?, ?)
+		`INSERT INTO notes (id, kind, title, created, mtime, icon)
+		 VALUES (?, ?, ?, ?, ?, ?)
 		 ON CONFLICT(id) DO UPDATE SET
-		   kind=excluded.kind, title=excluded.title, created=excluded.created, mtime=excluded.mtime`,
-		n.ID, kind, n.Meta.Title, n.Meta.Created, n.Mtime,
+		   kind=excluded.kind, title=excluded.title, created=excluded.created, mtime=excluded.mtime, icon=excluded.icon`,
+		n.ID, kind, n.Meta.Title, n.Meta.Created, n.Mtime, n.Meta.Icon,
 	); err != nil {
+		return err
+	}
+
+	// Keep the FTS body index in step with the note row so --scope body search stays consistent
+	// with the vault after every reindex. Delete-then-insert covers both new and updated notes.
+	if _, err := tx.Exec(`DELETE FROM notes_fts WHERE rowid = ?`, n.ID); err != nil {
+		return err
+	}
+	if _, err := tx.Exec(`INSERT INTO notes_fts (rowid, body) VALUES (?, ?)`, n.ID, n.Body); err != nil {
 		return err
 	}
 
@@ -51,6 +60,19 @@ func (s *Store) UpsertNote(n *note.Note) error {
 			continue
 		}
 		if _, err := tx.Exec(`INSERT OR IGNORE INTO tags (note_id, tag) VALUES (?, ?)`, n.ID, tg); err != nil {
+			return err
+		}
+	}
+
+	if _, err := tx.Exec(`DELETE FROM tasks WHERE note_id = ?`, n.ID); err != nil {
+		return err
+	}
+	for _, t := range n.Tasks {
+		if _, err := tx.Exec(
+			`INSERT INTO tasks (note_id, line, state, done, priority, scheduled, due, completed, text)
+			 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+			n.ID, t.Line, t.State, t.Done, t.Priority, t.Scheduled, t.Due, t.Completed, t.Text,
+		); err != nil {
 			return err
 		}
 	}
@@ -104,8 +126,33 @@ func (s *Store) NoteProps(id int64) ([]note.Prop, error) {
 	return out, rows.Err()
 }
 
-// DeleteNote removes a note; tags and links cascade.
+// AllProps returns every note's flattened properties keyed by note id, each list in the same order
+// NoteProps reads a single note's. One scan instead of a query per note, for the query evaluator.
+func (s *Store) AllProps() (map[int64][]note.Prop, error) {
+	rows, err := s.db.Query(`SELECT note_id, key, value, type, line FROM props ORDER BY note_id, line, key, ord`)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	out := map[int64][]note.Prop{}
+	for rows.Next() {
+		var id int64
+		var p note.Prop
+		if err := rows.Scan(&id, &p.Key, &p.Value, &p.Type, &p.Line); err != nil {
+			return nil, err
+		}
+		out[id] = append(out[id], p)
+	}
+	return out, rows.Err()
+}
+
+// DeleteNote removes a note; tags and links cascade. The FTS body row is not a foreign-key child of
+// notes (virtual tables can't cascade), so it is deleted explicitly.
 func (s *Store) DeleteNote(id int64) error {
+	if _, err := s.db.Exec(`DELETE FROM notes_fts WHERE rowid = ?`, id); err != nil {
+		return err
+	}
 	_, err := s.db.Exec(`DELETE FROM notes WHERE id = ?`, id)
 	return err
 }

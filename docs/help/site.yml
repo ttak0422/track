@@ -1,0 +1,42 @@
+# Published-site config for this help site: `track export-site --src docs/help`.
+# It travels with the content it publishes, so this site lands on the same page and draws the same
+# icons on anyone's machine and in CI. What describes one *build* of it instead — where the output is
+# written (--out), which frontend build goes into it (--frontend), which origin it is served from
+# (--base-url) — stays a build flag: this same directory is published both to GitHub Pages and to a
+# per-PR preview URL.
+#
+# The pages themselves stay pure Markdown: what a page says *about itself* is never written in its
+# body. It is said here, once, in the site's own config.
+
+# The site's entry page: a file base name (docs/help/index.md) or a page title, base name first.
+# Unset, a page named `index` is the fallback. There is no flag for it — the front door is the same
+# wherever this site is deployed.
+home: index
+
+# Per-page note-level metadata, keyed by file base name — the directory's stand-in for a vault note's
+# sidecar: the page's own icon, and its tags (which drive tag pages, #tag search, and query FROM
+# filters). An entry naming no `<name>.md`, or saying nothing at all, is a build error, never a
+# silent no-op.
+pages:
+  babel: {icon: 🧪, tags: [help/authoring]}
+  charts: {icon: 📊, tags: [help/visualization/charts]}
+  cli: {icon: ⌨️, tags: [help/reference]}
+  dashboard: {icon: 🏠}
+  diagrams: {icon: 📐, tags: [help/visualization/diagrams]}
+  embeds: {icon: 🧩, tags: [help/visualization/embeds]}
+  index: {icon: 🧭}
+  linking: {icon: 🔗, tags: [help/concepts]}
+  mindmaps: {icon: 🧠}
+  properties: {icon: 🏷️, tags: [help/authoring]}
+  query: {tags: [help/reference]}
+  search: {icon: 🔍}
+  syntax: {tags: [help/authoring]}
+  visualization: {icon: 📈, tags: [help/visualization]}
+  web: {icon: 🌐, tags: [help/reference]}
+
+# Icon mappings, resolved by config.NoteIcon — the same precedence a vault note's icon resolves by: a
+# page's own icon (pages above), then its tags, then its kind. syntax.md and query.md carry no icon of
+# their own and land here in `kinds`: the fallback, live on this site.
+icons:
+  kinds:
+    note: 📄

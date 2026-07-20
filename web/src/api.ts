@@ -2,6 +2,7 @@ import { dataURL, STATIC_MODE } from "./runtime";
 import type {
   ActivityResponse,
   AgendaResponse,
+  AssetUploadResponse,
   DeleteNoteResponse,
   FollowResponse,
   Graph,
@@ -20,6 +21,7 @@ import type {
   SearchResponse,
   SearchResult,
   SiteResponse,
+  TasksResponse,
   ViewSpecResponse,
 } from "./types";
 
@@ -41,16 +43,18 @@ export async function api<T>(path: string, options: APIOptions = {}): Promise<T>
   }
 
   const response = await fetch(path, init);
-  const body = await response.json().catch(() => ({}));
+  return handleResponse<T>(response);
+}
 
+async function handleResponse<T>(response: Response): Promise<T> {
+  const body = await response.json().catch(() => ({}));
   if (!response.ok) {
     const message =
       typeof body === "object" && body !== null && "error" in body
-        ? String(body.error)
+        ? String((body as { error: unknown }).error)
         : `${response.status} ${response.statusText}`;
     throw new Error(message);
   }
-
   return stringifyIDs(body) as T;
 }
 
@@ -159,8 +163,9 @@ export function saveNote(noteID: NoteID, request: SaveNoteRequest): Promise<Save
   });
 }
 
-// getNoteMeta / saveNoteMeta read and edit a note's page metadata (description, cover image). The
-// static site has no meta editor, so both are live-server only.
+// getNoteMeta / saveNoteMeta read and edit a note's editable sidecar metadata (tags, description,
+// cover image, props) as one YAML document. The static site has no meta editor, so both are
+// live-server only.
 export function getNoteMeta(noteID: NoteID): Promise<NoteMetaResponse> {
   if (STATIC_MODE) {
     return readOnly();
@@ -176,6 +181,34 @@ export function saveNoteMeta(noteID: NoteID, request: SaveNoteMetaRequest): Prom
     method: "POST",
     body: request,
   });
+}
+
+// setTaskState moves one task line of a note into a named state through the engine's shared write
+// path (completion stamp, sidecar transition log, progress-cookie recompute). The response carries
+// the note's refreshed tasks so the board can redraw without a second request. Live server only —
+// the published static board is read-only.
+export function setTaskState(noteID: NoteID, line: number, state: string): Promise<TasksResponse> {
+  if (STATIC_MODE) {
+    return readOnly();
+  }
+  return api<TasksResponse>(`/api/task?id=${encodeURIComponent(noteID)}`, {
+    method: "POST",
+    body: { line, state },
+  });
+}
+
+// uploadAsset imports a picked image into the vault's assets directory and returns its assets/<name>
+// reference for the cover-image field. The browser sets the multipart boundary, so this bypasses the
+// JSON api() helper. Live server only — the static site has no editor.
+export function uploadAsset(file: File): Promise<AssetUploadResponse> {
+  if (STATIC_MODE) {
+    return readOnly();
+  }
+  const form = new FormData();
+  form.append("file", file);
+  return fetch("/api/asset", { method: "POST", body: form }).then((response) =>
+    handleResponse<AssetUploadResponse>(response),
+  );
 }
 
 // deleteNote permanently removes a note (file + sidecar + index row). The destructive confirmation is in
@@ -255,7 +288,7 @@ export async function fetchAssetText(href: string): Promise<string> {
 }
 
 // filterNotes is the static-mode search: a case-insensitive match on title, or a "#tag" filter on the
-// note's tags. It mirrors the server search closely enough for navigating a published set.
+// note's tags. Tags match hierarchically like the server search: #a matches #a and #a/b, never #ab.
 function filterNotes(notes: SearchResult[], query: string): SearchResult[] {
   const q = query.trim().toLowerCase();
   if (q === "") {
@@ -263,7 +296,12 @@ function filterNotes(notes: SearchResult[], query: string): SearchResult[] {
   }
   if (q.startsWith("#")) {
     const tag = q.slice(1);
-    return notes.filter((n) => (n.tags ?? []).some((t) => t.toLowerCase() === tag));
+    return notes.filter((n) =>
+      (n.tags ?? []).some((t) => {
+        const lower = t.toLowerCase();
+        return lower === tag || lower.startsWith(`${tag}/`);
+      }),
+    );
   }
   return notes.filter((n) => n.title.toLowerCase().includes(q));
 }

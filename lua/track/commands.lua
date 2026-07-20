@@ -204,6 +204,10 @@ function M.setup()
       require("track.include").toggle()
    end, { desc = "Expand or truncate the ![[...]] include under the cursor" })
 
+   register("task_cycle", function()
+      require("track.tasks").cycle()
+   end, { desc = "Cycle the task on the cursor line to the next state (wraps)" })
+
    register("today", function()
       require("track.journal").open(0)
    end, { desc = "Open today's journal note" })

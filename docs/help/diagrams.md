@@ -1,13 +1,15 @@
 # Diagrams
 
 track renders diagrams as a first-class part of [[Visualization]] — not only statistical [[Charts]].
-Two engines are built in, each triggered by its fence language:
+Three engines are built in, each triggered by its fence language:
 
 - **[Mermaid](https://mermaid.js.org/)** (` ```mermaid `) — **every diagram type Mermaid supports
   works**, because track hands the block straight to the Mermaid library: flowcharts, sequence, class,
   state, entity-relationship, Gantt, pie, user-journey, gitgraph, and the rest.
 - **[Graphviz](https://graphviz.org/)** (` ```dot `) — the DOT language with Graphviz's own layout
   engine, for arbitrary graphs where you say *what connects to what* and let the layout be computed.
+- **[D2](https://d2lang.com/)** (` ```d2 `) — a modern diagram language with its own themes and
+  layout, when you prefer D2's syntax or aesthetics over Mermaid's for the same kind of diagram.
 
 up:: [[Visualization]]
 
@@ -97,12 +99,43 @@ digraph publish_workflow {
 The graph background defaults to transparent so it sits on the page in both themes; set `bgcolor`
 yourself to override it.
 
+## D2
+
+Fence a block with `d2` and write [D2](https://d2lang.com/tour/intro). Like Graphviz, D2 runs
+compiled to WebAssembly in the browser, and a syntax error falls back to the message plus your
+source. D2 brings its own themes: track picks a light or dark one to match the app theme, and a
+theme set inside the diagram (`vars.d2-config`) still wins:
+
+````markdown
+```d2
+capture: Capture a note
+relate: Link related notes
+draft: Draft a write-up
+publish: Publish
+
+capture -> relate -> draft -> publish
+draft -> capture: gap found
+```
+````
+
+It renders as:
+
+```d2
+capture: Capture a note
+relate: Link related notes
+draft: Draft a write-up
+publish: Publish
+
+capture -> relate -> draft -> publish
+draft -> capture: gap found
+```
+
 ## Diagrams as attachments
 
 Prefer to keep a diagram in its own file? A `.mmd` / `.mermaid` attachment renders with the Mermaid
-engine and a `.dot` / `.gv` attachment with Graphviz — see [[Embeds]] for the standalone
-`![](assets/diagram.mmd)` syntax. A diagram kept as a separate file looks identical to one written
-inline.
+engine, a `.dot` / `.gv` attachment with Graphviz, and a `.d2` attachment with D2 — see [[Embeds]]
+for the standalone `![](assets/diagram.mmd)` syntax. A diagram kept as a separate file looks
+identical to one written inline.
 
 ## Viewing
 

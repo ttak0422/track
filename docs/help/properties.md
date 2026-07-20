@@ -1,13 +1,17 @@
 # Properties
 
-Properties are typed key-value metadata on a note: a status, a rating, a due date, an owner. They
-stay out of your prose — either in the note's metadata sidecar or as small `key:: value` fields —
-and the engine indexes them with the rest of the vault, so they are queryable and visible wherever
-the note is shown. If you know Obsidian's properties or org-mode's property drawers, this is the
-same idea.
+Properties are typed key-value metadata on a note: a status, a rating, a due date, an owner. Their
+home is the note's metadata sidecar, next to its tags and description — out of your prose — and the
+engine indexes them with the rest of the vault, so they are queryable and visible wherever the note
+is shown. When a data point belongs *in* the prose, a small inline `key:: value` field embeds it
+there. If you know Obsidian's properties or org-mode's property drawers, this is the same idea.
 
-This page is its own demo: it carries the inline fields below, so the property strip at the top of
-this page is rendered from them.
+This page is its own demo: the four lines below are inline fields in its source, and the property strip
+at the top of this page is rendered from them. They stay in the prose, because that is what an inline
+field is *for* — a `weight:: 68.2` line in a journal is a line of the journal, not a hidden attribute.
+What is *not* here is this page's icon: that is note-level metadata, and it lives outside the body — in a
+vault note's sidecar, and for a published page like this one in the site's own config (see
+[[Home dashboard]]).
 
 status:: example
 rating:: 8
@@ -19,14 +23,25 @@ up:: [[track]]
 ## Where properties live
 
 track keeps note metadata (title, tags, description) in a per-note sidecar file, not in YAML
-frontmatter — the body stays plain Markdown. Properties follow the same rule: they are stored under
-`props` in the sidecar and edited through the CLI:
+frontmatter — the body stays plain Markdown. Properties follow the same rule: note-level properties
+live under `props` in the sidecar, and every frontend edits them there through the same validated
+engine path:
+
+- **The metadata editor** edits the note's whole editable metadata: title, tags, description, cover
+  image, icon, and props. The [[Web workspace]] Meta dialog gives each built-in field a dedicated
+  control — a title box (a rename on change), a tags box, a description box, a cover image you can
+  upload straight from the browser into the vault assets, and an icon box — and keeps props as the
+  one free-form YAML block.
+  The Neovim `:Track meta` popup edits the same metadata as one YAML document. Either way the engine
+  validates and applies the edit atomically, and a changed title renames the note.
+- **The CLI**, for scripts and point edits:
 
 ```sh
 track meta --title "My note" --set status=draft --set rating=8
 track meta --title "My note" --set "authors=[[Ada Lovelace]], [[Alan Turing]]"
 track meta --title "My note" --unset rating
-track meta --title "My note"          # prints metadata incl. props (JSON)
+track meta --title "My note"          # prints metadata incl. props and the editable doc (JSON)
+track meta --title "My note" --edit - # apply a full metadata document from stdin
 ```
 
 A comma-separated value becomes a list. `--unset` removes a key, and a plain `track meta` call
@@ -34,7 +49,8 @@ prints the current properties along with the rest of the note's metadata.
 
 ## Inline fields
 
-You can also write a property directly in the body, anywhere prose flows, as `key:: value`:
+The sidecar is the home for note-level facts; when a data point belongs in the prose itself, write
+it directly in the body, anywhere prose flows, as `key:: value`:
 
 ```text
 status:: draft
@@ -49,9 +65,13 @@ Three placements work:
 - **Bracketed, mid-sentence** — `[owner:: [[Ada Lovelace]]]` inside a paragraph.
 
 Inline fields are scanned at index time into the same property index as sidecar values, each with
-the body line it came from. The text itself still renders as ordinary Markdown — a field is data
-*and* prose at once. Code is never scanned: `std::vector` in a fenced block stays code, and a
-`[key:: value]` example in inline code (like the ones on this page) never becomes data.
+the body line it came from — and they keep rendering as the text you wrote, wherever you put them: a
+whole line reads as its own line, a bracketed field stays inside its sentence. They are data *and* prose
+at once, which is the whole point of them; a fact that is not prose (a title, a tag, an icon) is not an
+inline field at all — it belongs outside the body, in the note's sidecar or, on a published directory
+site, in its `site.yml`. Code is never scanned: `std::vector` in a fenced block
+stays code, and a `[key:: value]` example in inline code (like the ones on this page) never becomes
+data.
 
 For example, this very sentence carries a live bracketed field, [demo:: [[CLI]]], and that is why
 `demo` appears in this page's property strip above — as a link, because its value is a wiki link.
@@ -97,8 +117,9 @@ properties:
 
 ## Where properties show up
 
-- The [[Web workspace]] note view (and this published site) shows a note's properties read-only
-  above the body — sidecar values first, then inline fields in body order.
+- The [[Web workspace]] note view (and this published site) shows a note's properties above the
+  body — sidecar values first, then inline fields in body order. In the live workspace the Meta
+  dialog edits the sidecar values; the published site stays read-only.
 - `track meta` prints them as JSON for scripts.
-- The index stores every value typed and with line provenance, ready for filtering and sorting in
-  future queries.
+- The index stores every value typed and with line provenance, and [[Query]] filters, sorts, and
+  tabulates notes by these values — from the CLI or an embedded `track-query` block.

@@ -138,6 +138,7 @@ describe("text-file asset embeds", () => {
   });
   it("maps text extensions to a render language, mermaid included", () => {
     expect(textAssetLang("assets/chart.mmd")).toBe("mermaid");
+    expect(textAssetLang("assets/flow.d2")).toBe("d2");
     expect(textAssetLang("assets/notes.txt")).toBe("");
     expect(textAssetLang("assets/data.json")).toBe("json");
     expect(textAssetLang("assets/run.sh")).toBe("bash");
