@@ -1,6 +1,7 @@
 import { useBlocker, useNavigate } from "@tanstack/react-router";
 import { FormEvent, useEffect, useRef, useState } from "react";
 import { MarkdownView } from "./MarkdownView";
+import { TaskBoardContext } from "./markdown/context";
 import { LoadingIndicator, NoteAside, NoteProperties, NoteTags, journalDateFromNote } from "./noteShared";
 import { getFollowState } from "../api";
 import { NoteMetaDialog } from "./NoteMetaDialog";
@@ -358,11 +359,15 @@ export function NoteEditor({ noteID }: NoteEditorProps) {
               {body.trim() !== "" && renderQuery.data?.markdown === undefined ? (
                 <LoadingIndicator label="Loading note" />
               ) : (
-                <MarkdownView
-                  markdown={renderQuery.data?.markdown ?? ""}
-                  kind={note.file_kind}
-                  includes={renderQuery.data?.includes}
-                />
+                // The board reads the saved note's tasks (line numbers must match the file on disk
+                // for the state-set API), not the live textarea buffer.
+                <TaskBoardContext.Provider value={{ noteID, tasks: note.tasks }}>
+                  <MarkdownView
+                    markdown={renderQuery.data?.markdown ?? ""}
+                    kind={note.file_kind}
+                    includes={renderQuery.data?.includes}
+                  />
+                </TaskBoardContext.Provider>
               )}
             </section>
           ) : null}

@@ -64,6 +64,19 @@ func (s *Store) UpsertNote(n *note.Note) error {
 		}
 	}
 
+	if _, err := tx.Exec(`DELETE FROM tasks WHERE note_id = ?`, n.ID); err != nil {
+		return err
+	}
+	for _, t := range n.Tasks {
+		if _, err := tx.Exec(
+			`INSERT INTO tasks (note_id, line, state, done, priority, scheduled, due, completed, text)
+			 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+			n.ID, t.Line, t.State, t.Done, t.Priority, t.Scheduled, t.Due, t.Completed, t.Text,
+		); err != nil {
+			return err
+		}
+	}
+
 	if _, err := tx.Exec(`DELETE FROM note_days WHERE note_id = ?`, n.ID); err != nil {
 		return err
 	}

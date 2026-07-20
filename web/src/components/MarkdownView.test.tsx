@@ -1,8 +1,9 @@
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { render, screen, waitFor, within } from "@testing-library/react";
+import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import type { ReactElement } from "react";
 import { describe, expect, it, vi } from "vitest";
 import { MarkdownView } from "./MarkdownView";
+import { TaskBoardContext } from "./markdown/context";
 import { FloatingProvider } from "./preview/floatingStore";
 
 // FloatingProvider (needed by the include embed's WikiLink header) reads the current route, so stub
@@ -52,14 +53,90 @@ describe("MarkdownView", () => {
     expect(within(table).getByText("2")).toBeInTheDocument();
   });
 
-  it("renders a GFM task list with checkbox state", () => {
+  it("keeps a plain GFM checklist as native checkboxes", () => {
     const { container } = render(<MarkdownView markdown={"- [ ] todo\n- [x] done"} />);
-    const items = container.querySelectorAll(".task-list-item");
-    expect(items).toHaveLength(2);
+    expect(container.querySelectorAll("li.task-row")).toHaveLength(0);
     const boxes = container.querySelectorAll<HTMLInputElement>("input[type='checkbox']");
     expect(boxes).toHaveLength(2);
     expect(boxes[0]).not.toBeChecked();
     expect(boxes[1]).toBeChecked();
+  });
+
+  it("upgrades a checklist with task notation to one task table", () => {
+    const { container } = renderWithQuery(
+      <MarkdownView
+        markdown={"- [/] Draft the post [#A] [due:2026-07-24] [1/2]\n- [x] plain done line\n- [?] Wait for sync [sched:2026-07-18]"}
+      />,
+    );
+    // The [x] line has no notation of its own, but its block does — the whole list becomes a table.
+    expect(container.querySelectorAll("table.task-table")).toHaveLength(1);
+    const rows = container.querySelectorAll("tr.task-row");
+    expect(rows).toHaveLength(3);
+    expect(container.querySelectorAll("input[type='checkbox']")).toHaveLength(0);
+    const badges = container.querySelectorAll(".task-row-state");
+    expect(badges[0].textContent).toBe("DOING");
+    expect(badges[1].textContent).toBe("DONE");
+    expect(badges[2].textContent).toBe("WAITING");
+    expect(rows[1]).toHaveClass("task-row-done");
+    // The raw notation is gone from the text; priority and cookies become chips, dates move to
+    // their own columns.
+    expect(rows[0].textContent).not.toContain("[/]");
+    expect(rows[0].textContent).not.toContain("[#A]");
+    expect(within(rows[0] as HTMLElement).getByText("#A")).toHaveClass("task-chip-priority");
+    expect(within(rows[0] as HTMLElement).getByText("1/2")).toHaveClass("task-chip");
+    expect(within(rows[0] as HTMLElement).getByText("! 2026-07-24")).toHaveClass("task-row-due");
+    expect(within(rows[2] as HTMLElement).getByText("▷ 2026-07-18")).toHaveClass("task-row-date");
+  });
+
+  it("sorts the task table by a date column, empties last, and restores source order", () => {
+    const { container } = renderWithQuery(
+      <MarkdownView
+        markdown={"- [ ] late [due:2026-09-01]\n- [ ] none\n- [/] early [due:2026-08-01]"}
+      />,
+    );
+    const firstTask = () => container.querySelector("tr.task-row td.task-row-text")?.textContent;
+    expect(firstTask()).toBe("late ");
+    const due = screen.getByRole("button", { name: "DUE" });
+    fireEvent.click(due); // ascending
+    expect(firstTask()).toBe("early ");
+    fireEvent.click(screen.getByRole("button", { name: /DUE/ })); // descending
+    expect(firstTask()).toBe("late ");
+    // The date-less row stays last in both directions.
+    const rows = container.querySelectorAll("tr.task-row td.task-row-text");
+    expect(rows[rows.length - 1].textContent).toBe("none");
+    fireEvent.click(screen.getByRole("button", { name: /DUE/ })); // back to source order
+    expect(firstTask()).toBe("late ");
+  });
+
+  it("keeps a list that mixes tasks and plain bullets untouched", () => {
+    const { container } = render(<MarkdownView markdown={"- [/] a task\n- just a note"} />);
+    expect(container.querySelectorAll("table.task-table")).toHaveLength(0);
+    expect(screen.getByText("[/] a task")).toBeInTheDocument();
+  });
+
+  it("leaves list items whose marker is outside the state set untouched", () => {
+    const { container } = render(<MarkdownView markdown={"- [z] not a task\n- plain item"} />);
+    expect(container.querySelectorAll("li.task-row")).toHaveLength(0);
+    expect(screen.getByText("[z] not a task")).toBeInTheDocument();
+  });
+
+  it("wires the badge select by source line, so inline markup does not break it", () => {
+    const tasks = {
+      states: [
+        { name: "TODO", char: " ", done: false },
+        { name: "DOING", char: "/", done: false },
+        { name: "DONE", char: "x", done: true },
+      ],
+      items: [{ line: 1, state: "DOING", done: false, text: "a bold task" }],
+    };
+    const { container } = renderWithQuery(
+      <TaskBoardContext.Provider value={{ noteID: "100", tasks }}>
+        <MarkdownView markdown={"- [/] a **bold** task [#A]"} />
+      </TaskBoardContext.Provider>,
+    );
+    const select = container.querySelector<HTMLSelectElement>("select.task-row-state");
+    expect(select).not.toBeNull();
+    expect(select!.value).toBe("DOING");
   });
 
   it("renders a fenced code block through CodeBlock", () => {

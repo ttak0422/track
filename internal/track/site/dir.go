@@ -129,6 +129,8 @@ func BuildDir(srcDir, baseURL, frontendDir, outDir string) (Result, error) {
 			assetSrc: assetSrc,
 			// A docs directory may keep canonical JSONL next to its assets, mirroring the vault's data/.
 			dataDir: filepath.Join(srcDir, "data"),
+			// Directory sources have no vault config, so tasks parse with the default state set.
+			tasks: docTasks(f.body, nil),
 			// Inline "key:: value" fields are the page's properties, and only ever data that belongs in the
 			// prose (ADR 0032): they are indexed from the line they are written on, and that line publishes
 			// as the prose it is.

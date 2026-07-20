@@ -5,7 +5,8 @@ import remarkGfm from "remark-gfm";
 import type { NoteInclude } from "../types";
 import { rehypeBudoux } from "./markdown/budouxEager";
 import { CodeBlock } from "./markdown/CodeBlock";
-import { IncludesContext, MarkdownSourceContext, NoteKindContext } from "./markdown/context";
+import { IncludesContext, MarkdownSourceContext, NoteKindContext, TaskBoardContext } from "./markdown/context";
+import { TaskBoard } from "./markdown/TaskBoard";
 import { Embed } from "./markdown/Embed";
 import { ExternalLink } from "./markdown/ExternalLink";
 import { D2Diagram } from "./markdown/D2Diagram";
@@ -17,12 +18,16 @@ import {
   remarkAlert,
   remarkEmbedOptions,
   remarkInclude,
+  remarkTaskLine,
   remarkWikiLink,
   spliceIncludeTokens,
 } from "./markdown/plugins";
+import type { TaskState } from "../types";
 import { EChartsFence } from "./markdown/EChartsBlock";
 import { ViewSpecChart } from "./markdown/ViewSpecChart";
 import { WikiLink } from "./preview/WikiLink";
+import { useSetTaskStateMutation } from "../queries";
+import { STATIC_MODE } from "../runtime";
 
 interface MarkdownViewProps {
   markdown: string;
@@ -37,7 +42,19 @@ interface MarkdownViewProps {
 // /api/render (action links flattened); the track-specific construct is [[...]] wiki links (remarkWikiLink).
 // KaTeX is loaded lazily (see ./markdown/math), so a note without math never pulls in its bundle; while a
 // math note's first render waits for that chunk, the "$…$" briefly shows as source, then typesets.
+// defaultTaskStates mirrors the engine's task.DefaultStates, so task notation renders styled even
+// where no note context supplies the vault's state set (previews, include embeds).
+const defaultTaskStates: TaskState[] = [
+  { name: "TODO", char: " ", done: false },
+  { name: "DOING", char: "/", done: false },
+  { name: "WAITING", char: "?", done: false },
+  { name: "DONE", char: "x", done: true },
+  { name: "CANCELLED", char: "-", done: true },
+];
+
 export function MarkdownView({ markdown, kind = "note", includes }: MarkdownViewProps) {
+  const { tasks } = useContext(TaskBoardContext);
+  const taskStates = tasks && tasks.states.length > 0 ? tasks.states : defaultTaskStates;
   const hasMath = looksLikeMath(markdown);
   const [math, setMath] = useState<MathPlugins | null>(() => (hasMath ? mathPluginsIfLoaded() : null));
 
@@ -70,6 +87,8 @@ export function MarkdownView({ markdown, kind = "note", includes }: MarkdownView
     ...(math ? [math.remark] : []),
     remarkWikiLink,
     ...(hasIncludes ? [remarkInclude] : []),
+    // After remarkWikiLink, so a [[link]] in task text is consumed before token extraction.
+    [remarkTaskLine, { states: taskStates }] as [typeof remarkTaskLine, { states: TaskState[] }],
   ];
   // BudouX (Japanese word-break) is gated behind __TRACK_STATIC__, a build-time literal, so the static
   // help site tree-shakes its ~190KB model away (English content is never segmented) while the live
@@ -108,13 +127,131 @@ function IncludeEmbed({ include }: { include: NoteInclude }) {
           include.caption
         )}
       </div>
-      <MarkdownView markdown={include.lines.join("\n")} kind={include.kind ?? "note"} />
+      {/* Reset the task-board context: a ```taskboard fence inside embedded content must not show
+          the host note's board. */}
+      <TaskBoardContext.Provider value={emptyTaskBoard}>
+        <MarkdownView markdown={include.lines.join("\n")} kind={include.kind ?? "note"} />
+      </TaskBoardContext.Provider>
       {(include.bad_options ?? []).map((bad) => (
         <div key={bad} className="note-include-warning">
           ⚠ unknown option: {bad}
         </div>
       ))}
     </section>
+  );
+}
+
+const emptyTaskBoard = { noteID: "" };
+
+// TaskRowState is the state cell of a task-table row, and doubles as the state control: in the
+// live workspace it renders as a select stripped down to the badge's text look, writing through
+// the same engine path as the board's cards. Its source line resolves the row to the engine-parsed
+// task (rendered bodies are line-aligned with the note file — the invariant includes rely on); on
+// static sites and hover previews (no note id) it stays a plain badge.
+function TaskRowState({ name, done, line }: { name: string; done: boolean; line: number }) {
+  const { noteID, tasks } = useContext(TaskBoardContext);
+  const mutation = useSetTaskStateMutation(noteID);
+  const className = `task-row-state${done ? " task-row-state-done" : ""}`;
+  const item =
+    !STATIC_MODE && noteID !== "" && tasks && line > 0
+      ? tasks.items.find((t) => t.line === line)
+      : undefined;
+  if (!item || !tasks) {
+    return <span className={className}>{name}</span>;
+  }
+  return (
+    <select
+      className={className}
+      aria-label="Task state"
+      value={item.state}
+      disabled={mutation.isPending}
+      onChange={(event) => mutation.mutate({ line: item.line, state: event.currentTarget.value })}
+    >
+      {tasks.states.map((state) => (
+        <option key={state.name} value={state.name}>
+          {state.name}
+        </option>
+      ))}
+    </select>
+  );
+}
+
+type TaskRowProps = { line?: unknown; state?: unknown; done?: unknown; sched?: unknown; due?: unknown };
+
+// TaskTable renders a notation-bearing checklist as one sortable table. Sorting is view-only (the
+// note keeps its order); STATE sorts by the vault's state-set order, the date columns sort empties
+// last, and a third click on a header returns to the source order.
+function TaskTable({ node, children }: ElementProps) {
+  const { tasks } = useContext(TaskBoardContext);
+  const [sort, setSort] = useState<{ key: "state" | "sched" | "due"; asc: boolean } | null>(null);
+  const states = tasks && tasks.states.length > 0 ? tasks.states : defaultTaskStates;
+  const rowNodes = (node?.children ?? []).filter((c): c is Element => c.type === "element");
+  const rowEls = (Array.isArray(children) ? children : [children]).filter((c) => typeof c !== "string");
+  let order = rowNodes.map((_, i) => i);
+  if (sort) {
+    const { key, asc } = sort;
+    const valueOf = (i: number): number | string => {
+      const p = (rowNodes[i].properties ?? {}) as TaskRowProps;
+      if (key === "state") {
+        return states.findIndex((s) => s.name === String(p.state ?? ""));
+      }
+      return String(p[key] ?? "");
+    };
+    order = [...order].sort((a, b) => {
+      const va = valueOf(a);
+      const vb = valueOf(b);
+      const emptyA = va === "";
+      const emptyB = vb === "";
+      if (emptyA !== emptyB) {
+        return emptyA ? 1 : -1; // rows without the date always sink to the bottom
+      }
+      const cmp = va < vb ? -1 : va > vb ? 1 : a - b;
+      return asc ? cmp : -cmp;
+    });
+  }
+  const header = (key: "state" | "sched" | "due", label: string) => (
+    <th>
+      <button
+        type="button"
+        className="task-table-sort"
+        onClick={() =>
+          setSort(sort?.key !== key ? { key, asc: true } : sort.asc ? { key, asc: false } : null)
+        }
+      >
+        {label}
+        {sort?.key === key ? (sort.asc ? " ▲" : " ▼") : ""}
+      </button>
+    </th>
+  );
+  return (
+    <table className="task-table">
+      <thead>
+        <tr>
+          {header("state", "STATE")}
+          <th className="task-table-label">TASK</th>
+          {header("sched", "SCHED")}
+          {header("due", "DUE")}
+        </tr>
+      </thead>
+      <tbody>{order.map((i) => rowEls[i])}</tbody>
+    </table>
+  );
+}
+
+// TaskRow is one table row: the state cell (select where editable), the task text with its chips,
+// and the date columns.
+function TaskRow({ node, children }: ElementProps) {
+  const props = (node?.properties ?? {}) as TaskRowProps;
+  const done = Boolean(props.done);
+  return (
+    <tr className={`task-row${done ? " task-row-done" : ""}`}>
+      <td className="task-row-state-cell">
+        <TaskRowState name={String(props.state ?? "")} done={done} line={Number(props.line ?? 0)} />
+      </td>
+      <td className="task-row-text">{children}</td>
+      <td className="task-row-date">{props.sched ? `▷ ${props.sched}` : ""}</td>
+      <td className="task-row-date task-row-due">{props.due ? `! ${props.due}` : ""}</td>
+    </tr>
   );
 }
 
@@ -191,6 +328,9 @@ const markdownComponents = {
       if (normalized === "viewspec") {
         return <ViewSpecChart text={text} />;
       }
+      if (normalized === "taskboard") {
+        return <TaskBoard />;
+      }
       if (normalized === "echarts") {
         return <EChartsFence text={text} />;
       }
@@ -202,6 +342,24 @@ const markdownComponents = {
   wikilink: ({ node }: ElementProps) => {
     const props = (node?.properties ?? {}) as { target?: unknown; display?: unknown };
     return <WikiLink target={String(props.target ?? "")} display={String(props.display ?? "")} />;
+  },
+  tasktable: TaskTable,
+  taskrow: TaskRow,
+  taskchip: ({ node }: ElementProps) => {
+    const props = (node?.properties ?? {}) as { kind?: unknown; value?: unknown };
+    const value = String(props.value ?? "");
+    switch (String(props.kind ?? "")) {
+      case "priority":
+        return <span className="task-chip task-chip-priority">#{value}</span>;
+      case "sched":
+        return <span className="task-chip">▷ {value}</span>;
+      case "due":
+        return <span className="task-chip task-chip-due">! {value}</span>;
+      case "done":
+        return <span className="task-chip">✓ {value}</span>;
+      default:
+        return <span className="task-chip">{value}</span>;
+    }
   },
   trackinclude: TrackInclude,
 } as Components;

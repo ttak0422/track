@@ -16,6 +16,7 @@ import (
 	"github.com/ttak0422/track/internal/track/dashboard"
 	"github.com/ttak0422/track/internal/track/link"
 	"github.com/ttak0422/track/internal/track/note"
+	"github.com/ttak0422/track/internal/track/task"
 )
 
 // The static site is the React web frontend running against a pre-generated JSON bundle instead of the
@@ -41,6 +42,7 @@ type doc struct {
 	image    string      // cover image, relative under assets/ ("" = none), published as og:image
 	icon     string      // resolved icon shown beside the title in lists/nav ("" = none)
 	dataDir  string      // canonical-data directory for embedded ```viewspec charts ("" = inline data only)
+	tasks    *task.Set   // parsed task lines + state set, for the read-only board (nil = none)
 	props    []note.Prop // flattened typed properties (sidecar props + inline fields), shown read-only
 }
 
@@ -82,6 +84,8 @@ type jsonNoteDetail struct {
 	Props []note.Prop `json:"props,omitempty"`
 	Body  string      `json:"body"`
 	ETag  string      `json:"etag"`
+	// Tasks feeds the read-only task board (```taskboard) on the published site.
+	Tasks *task.Set `json:"tasks,omitempty"`
 }
 
 type jsonNoteResponse struct {
@@ -225,6 +229,7 @@ func writeBundle(docs []doc, edges []edge, root int64, calendar bool, baseURL, f
 				Props:            d.props,
 				Body:             body,
 				ETag:             etag(body),
+				Tasks:            d.tasks,
 			},
 			Backlinks: bl,
 		}

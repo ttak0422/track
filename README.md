@@ -210,6 +210,10 @@ In a vault buffer, resolved `[[...]]` links are underlined (`TrackLink` highligh
 
 Press `K` on a resolved link to show the linked note preview in Neovim's hover window.
 
+Task notation gets the same treatment: on a task line (a list item whose `[c]` marker is in `task_chars`, default ` /?x-`), the marker conceals to a glyph via `task_glyphs` (`- [ ]` shows `- ☐`, `- [x]` shows `- ☑`; a char without an entry keeps its raw `[c]` form), the bracket tokens stay as written but are highlighted (`[#A]` → `TrackTaskPriority`, `[due:…]` → `TrackTaskDue`, `[sched:…]`/`[done:…]`/cookies → `TrackTaskDate`), and a done-family line (`task_done_chars`, default `x-`) is struck through (`TrackTaskDone`). The cursor line stays raw for editing, concealing follows the same `conceal` option, and `task_chars = ""` turns the decoration off. Align the char lists with the vault's `task_states` when customized.
+
+`:Track task_cycle` advances the task on the cursor line to the next state in the state-set order, wrapping at the end. It runs `track task cycle`, so completion stamps, the sidecar transition log, and progress cookies all apply; bind it to a key (e.g. in `on_attach`) for one-press state loops.
+
 Use `:checkhealth track` to verify the resolved CLI/LSP binaries, vault/cache configuration, and current-buffer LSP attachment.
 
 Completion of titles inside `[[` is served over LSP. The plugin merges [`cmp-nvim-lsp`](https://github.com/hrsh7th/cmp-nvim-lsp) capabilities when nvim-cmp is installed, so candidates surface through your existing nvim-cmp setup (add `{ name = "nvim_lsp" }` to its sources). The completion source is UI-independent, so other clients work too.

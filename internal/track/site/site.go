@@ -17,6 +17,7 @@ import (
 	"github.com/ttak0422/track/internal/track/export"
 	"github.com/ttak0422/track/internal/track/note"
 	"github.com/ttak0422/track/internal/track/store"
+	"github.com/ttak0422/track/internal/track/task"
 )
 
 // Options selects which notes go into the static site and which one is the entry page.
@@ -85,6 +86,7 @@ func Build(cfg *config.Config, st *store.Store, opts Options, frontendDir, outDi
 			icon:     cfg.NoteIcon(n.Kind, n.Meta.Tags, n.Meta.Icon),
 			assetSrc: assetSrc,
 			dataDir:  cfg.DataDir(),
+			tasks:    docTasks(n.Body, cfg.TaskStates),
 			props:    note.CollectProps(n.Meta, n.Body),
 		})
 	}
@@ -109,6 +111,16 @@ func vaultEdges(st *store.Store, inSet map[int64]bool) ([]edge, error) {
 		}
 	}
 	return edges, nil
+}
+
+// docTasks parses a source body's task lines for the published bundle, or nil when it has none.
+// Tasks parse from the raw body (not the sanitized one) so token extraction matches the live server.
+func docTasks(body string, states []task.State) *task.Set {
+	set := task.NewSet(body, states)
+	if len(set.Items) == 0 {
+		return nil
+	}
+	return &set
 }
 
 func noteTitle(n *note.Note) string {
