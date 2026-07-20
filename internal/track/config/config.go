@@ -14,6 +14,7 @@ import (
 	"time"
 
 	"github.com/ttak0422/track/internal/track/babel"
+	"github.com/ttak0422/track/internal/track/task"
 	"gopkg.in/yaml.v3"
 )
 
@@ -44,6 +45,25 @@ type Config struct {
 	JournalTemplate string
 	// GenKeep is how many generation snapshots `gen increment` retains (count-based pruning).
 	GenKeep int
+	// TaskStates is the vault's task state set (config task_states), defaulting to task.DefaultStates.
+	// Each state names a single checkbox marker character; done-family states stamp a completion date.
+	TaskStates []task.State
+	// WebHome names the note (by title or numeric id) that the web workspace opens as its landing view
+	// instead of the search hero. Empty keeps the search home. A dashboard note (one with ```dashboard
+	// widget blocks) is the intended target. Resolved to a note id by the web layer, not here.
+	WebHome string
+	// Icons maps a tag or note kind to an emoji/icon shown beside note titles in lists, search, and the
+	// static-site navigation. A per-note sidecar override (Metadata.Icon) wins over both maps; see
+	// NoteIcon.
+	Icons IconMap
+	// EmbedderCommand is the optional command that turns a note's text into an embedding vector, split
+	// into command and arguments. The engine feeds a note's text on stdin and reads a JSON array of
+	// floats from stdout (see the similar package). Empty means no embedder is configured, so semantic
+	// related-notes is unavailable and every other command is unaffected.
+	EmbedderCommand []string
+	// Properties is the optional per-key note-property schema (config `properties:`): a declared
+	// value type and/or enum candidates. Keys not listed here are unconstrained.
+	Properties map[string]PropSpec
 	// CaptureInbox is the default target for `track capture` when --target is omitted: a note title,
 	// optionally with a "#heading" anchor (e.g. "Inbox#Tasks"). The note is created on first capture
 	// when missing; a named heading must already exist.
@@ -53,19 +73,108 @@ type Config struct {
 	ArchiveNote string
 }
 
+// IconMap holds the tag→icon and kind→icon lookups resolved from config. Both are optional; an unset map
+// simply never matches.
+type IconMap struct {
+	Tags  map[string]string
+	Kinds map[string]string
+}
+
+// NoteIcon resolves the icon shown beside a note title. A non-empty per-note override (the sidecar's
+// Metadata.Icon) always wins; otherwise the first tag with a mapping (tags are checked in the order they
+// are stored) is used, then the note kind's mapping, then "" for no icon. Keeping this on Config means
+// every surface resolves an icon the same way: the live workspace's search, the vault export, and the
+// directory export, which calls it with a published site's own icon maps and, as the override, that
+// site's icons.pages entry for the page (see site.BuildDir).
+func (c *Config) NoteIcon(kind string, tags []string, override string) string {
+	if override != "" {
+		return override
+	}
+	for _, t := range tags {
+		if ic, ok := c.Icons.Tags[t]; ok && ic != "" {
+			return ic
+		}
+	}
+	if ic, ok := c.Icons.Kinds[kind]; ok && ic != "" {
+		return ic
+	}
+	return ""
+}
+
+// PropSpec constrains one property key: Type is a value type ("string", "number", "boolean",
+// "date", "link"; empty means unconstrained) applied to each item of a list value, and Values is an
+// optional enum of accepted value texts. Doctor reports violations; the LSP completes Values.
+type PropSpec struct {
+	Type   string   `yaml:"type"`
+	Values []string `yaml:"values"`
+}
+
 type fileConfig struct {
-	VaultDir          string        `yaml:"vault_dir"`
-	DBPath            string        `yaml:"db_path"`
-	CacheDir          string        `yaml:"cache_dir"`
-	Extensions        []string      `yaml:"extensions"`
-	DateFormat        string        `yaml:"date_format"`
-	JournalDateFormat string        `yaml:"journal_date_format"`
-	DefaultTemplate   string        `yaml:"default_template"`
-	JournalTemplate   string        `yaml:"journal_template"`
-	GenKeep           int           `yaml:"gen_keep"`
-	CaptureInbox      string        `yaml:"capture_inbox"`
-	ArchiveNote       string        `yaml:"archive_note"`
-	Web               webFileConfig `yaml:"web"`
+	VaultDir          string              `yaml:"vault_dir"`
+	DBPath            string              `yaml:"db_path"`
+	CacheDir          string              `yaml:"cache_dir"`
+	Extensions        []string            `yaml:"extensions"`
+	DateFormat        string              `yaml:"date_format"`
+	JournalDateFormat string              `yaml:"journal_date_format"`
+	DefaultTemplate   string              `yaml:"default_template"`
+	JournalTemplate   string              `yaml:"journal_template"`
+	GenKeep           int                 `yaml:"gen_keep"`
+	TaskStates        []task.State        `yaml:"task_states"`
+	Embedder          argvList            `yaml:"embedder"`
+	Properties        map[string]PropSpec `yaml:"properties"`
+	CaptureInbox      string              `yaml:"capture_inbox"`
+	ArchiveNote       string              `yaml:"archive_note"`
+	Web               webFileConfig       `yaml:"web"`
+	Icons             iconsFileConfig     `yaml:"icons"`
+}
+
+// argvList is a command in config.yml that accepts two YAML shapes: a scalar string, split on
+// whitespace (no shell quoting, so no argument can contain a space in this form), or a sequence used
+// verbatim as argv, where arguments may contain spaces. Any other node kind is a config error.
+type argvList []string
+
+func (a *argvList) UnmarshalYAML(value *yaml.Node) error {
+	switch value.Kind {
+	case yaml.ScalarNode:
+		if value.Tag == "!!null" { // `embedder:` with no value, or an explicit null
+			*a = nil
+			return nil
+		}
+		*a = strings.Fields(value.Value)
+		return nil
+	case yaml.SequenceNode:
+		// Decode element by element: yaml.v3 silently drops null items when decoding into []string,
+		// which would make a flag vanish (or shift argv[0]) instead of failing loudly at load.
+		argv := make([]string, len(value.Content))
+		for i, item := range value.Content {
+			var s *string
+			if err := item.Decode(&s); err != nil {
+				return fmt.Errorf("embedder: %w", err)
+			}
+			if s == nil {
+				return fmt.Errorf("embedder: list element %d is null, want a string", i+1)
+			}
+			argv[i] = *s
+		}
+		*a = argv
+		return nil
+	default:
+		return fmt.Errorf("embedder: must be a string (\"cmd --arg\") or a list of strings ([cmd, --arg]), got a %s", nodeKindName(value.Kind))
+	}
+}
+
+// nodeKindName names a YAML node kind for error messages.
+func nodeKindName(k yaml.Kind) string {
+	switch k {
+	case yaml.MappingNode:
+		return "mapping"
+	case yaml.SequenceNode:
+		return "sequence"
+	case yaml.ScalarNode:
+		return "scalar"
+	default:
+		return "unsupported node"
+	}
 }
 
 // webFileConfig holds web-only settings read from config.yml. The colorscheme is kept out of this file:
@@ -74,6 +183,14 @@ type fileConfig struct {
 type webFileConfig struct {
 	Theme      string `yaml:"theme"`
 	ColorsPath string `yaml:"colors_path"`
+	// Home names the landing note (title or numeric id) the workspace opens instead of the search hero.
+	Home string `yaml:"home"`
+}
+
+// iconsFileConfig is the config.yml `icons:` block: two optional maps from tag/kind to an emoji.
+type iconsFileConfig struct {
+	Tags  map[string]string `yaml:"tags"`
+	Kinds map[string]string `yaml:"kinds"`
 }
 
 const (
@@ -183,6 +300,25 @@ func Load() (*Config, error) {
 		genKeep = 10
 	}
 
+	if err := task.ValidateStates(fc.TaskStates); err != nil {
+		return nil, fmt.Errorf("config task_states: %w", err)
+	}
+	taskStates := task.StatesOrDefault(fc.TaskStates)
+
+	// TRACK_EMBEDDER replaces the config value entirely; an env var cannot carry an array, so it is
+	// always whitespace-split — arguments containing spaces need the config sequence form.
+	embedder := []string(fc.Embedder)
+	if env := os.Getenv("TRACK_EMBEDDER"); env != "" {
+		embedder = strings.Fields(env)
+	}
+	if len(embedder) > 0 && strings.TrimSpace(embedder[0]) == "" {
+		return nil, fmt.Errorf("embedder: the first element must be the command, got an empty string")
+	}
+
+	if err := validateProperties(fc.Properties); err != nil {
+		return nil, err
+	}
+
 	captureInbox := fc.CaptureInbox
 	if env := os.Getenv("TRACK_CAPTURE_INBOX"); env != "" {
 		captureInbox = env
@@ -211,9 +347,27 @@ func Load() (*Config, error) {
 		DefaultTemplate:   defaultTemplate,
 		JournalTemplate:   journalTemplate,
 		GenKeep:           genKeep,
+		TaskStates:        taskStates,
+		WebHome:           strings.TrimSpace(fc.Web.Home),
+		Icons:             IconMap{Tags: fc.Icons.Tags, Kinds: fc.Icons.Kinds},
+		EmbedderCommand:   embedder,
+		Properties:        fc.Properties,
 		CaptureInbox:      captureInbox,
 		ArchiveNote:       archiveNote,
 	}, nil
+}
+
+// validateProperties rejects a schema entry whose declared type is not a property value type, so a
+// config typo fails loudly at load instead of silently never matching any value.
+func validateProperties(props map[string]PropSpec) error {
+	for key, spec := range props {
+		switch spec.Type {
+		case "", "string", "number", "boolean", "date", "link":
+		default:
+			return fmt.Errorf("properties.%s: unknown type %q (want string, number, boolean, date, or link)", key, spec.Type)
+		}
+	}
+	return nil
 }
 
 // archiveYear matches the "{{year}}" placeholder (with optional inner whitespace) in ArchiveNote.

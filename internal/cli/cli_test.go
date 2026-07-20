@@ -7,9 +7,11 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"slices"
 	"strconv"
 	"strings"
 	"testing"
+	"time"
 
 	_ "modernc.org/sqlite"
 )
@@ -716,6 +718,78 @@ func TestSearch(t *testing.T) {
 	bad, code := runIn(t, vault, "search", "--scope", "bogus", "--query", "needle")
 	if code != 1 || !strings.Contains(bad["error"].(string), "unknown search scope") {
 		t.Fatalf("expected invalid scope error, code=%d out=%v", code, bad)
+	}
+}
+
+// TestSearchBodyFTSReindexAndFallback exercises the FTS body search end to end: text inside a code
+// fence is searchable, an edit picked up only by the self-heal reindex changes results, and CJK works
+// on both the trigram-indexed path (3+ chars) and the short-term scan fallback (2 chars).
+func TestSearchBodyFTSReindexAndFallback(t *testing.T) {
+	vault := t.TempDir()
+
+	runIn(t, vault, "new", "--title", "Deploy runbook", "--id", "800")
+	notePath := filepath.Join(vault, "note", "800.md")
+	writeBody := func(body string, mtime time.Time) {
+		t.Helper()
+		if err := os.WriteFile(notePath, []byte(body), 0o644); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.Chtimes(notePath, mtime, mtime); err != nil {
+			t.Fatal(err)
+		}
+	}
+	bodyHitIDs := func(query string) []int64 {
+		t.Helper()
+		res, code := runIn(t, vault, "search", "--scope", "body", "--query", query)
+		if code != 0 {
+			t.Fatalf("body search %q failed: %v", query, res)
+		}
+		var ids []int64
+		for _, r := range res["results"].([]any) {
+			ids = append(ids, int64(r.(map[string]any)["note_id"].(float64)))
+		}
+		return ids
+	}
+
+	// A term that only appears inside a fenced code block is still indexed and searchable.
+	writeBody("# Deploy\n\n```yaml\nruntime: containerd\n```\n", time.Now())
+	if rep, code := runIn(t, vault, "reindex", "--full"); code != 0 {
+		t.Fatalf("reindex failed: %v", rep)
+	}
+	if got := bodyHitIDs("containerd"); !slices.Equal(got, []int64{800}) {
+		t.Fatalf("code-block term should be searchable, got %v", got)
+	}
+
+	// Edit the file directly and bump its mtime so only the pre-read self-heal reindex (not an explicit
+	// reindex) refreshes the FTS index. The old term must disappear and the new one appear.
+	writeBody("# Deploy\n\nmigrated to servicemesh routing\n", time.Now().Add(10*time.Second))
+	if got := bodyHitIDs("containerd"); len(got) != 0 {
+		t.Fatalf("stale term should be gone after self-heal reindex, got %v", got)
+	}
+	if got := bodyHitIDs("servicemesh"); !slices.Equal(got, []int64{800}) {
+		t.Fatalf("edited-in term should be searchable after self-heal reindex, got %v", got)
+	}
+
+	// CJK: 3-character テスト uses the trigram index; 2-character 世界 uses the scan fallback. Both find it.
+	runIn(t, vault, "new", "--title", "日本語メモ", "--id", "801")
+	cjkPath := filepath.Join(vault, "note", "801.md")
+	if err := os.WriteFile(cjkPath, []byte("# メモ\n\nこれは世界についてのテスト本文です\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if rep, code := runIn(t, vault, "reindex", "--full"); code != 0 {
+		t.Fatalf("reindex failed: %v", rep)
+	}
+	if got := bodyHitIDs("テスト"); !slices.Equal(got, []int64{801}) {
+		t.Fatalf("3-char CJK query (FTS path) should match, got %v", got)
+	}
+	if got := bodyHitIDs("世界"); !slices.Equal(got, []int64{801}) {
+		t.Fatalf("2-char CJK query (scan fallback) should match, got %v", got)
+	}
+
+	// OR spans notes served by different paths: servicemesh (800) and the 2-char 世界 (801). A short
+	// term routes the whole query through the scan fallback, which honours the same OR grouping.
+	if got := bodyHitIDs("世界 OR servicemesh"); func() bool { slices.Sort(got); return !slices.Equal(got, []int64{800, 801}) }() {
+		t.Fatalf("OR across both notes should match both, got %v", got)
 	}
 }
 
@@ -1558,6 +1632,113 @@ func TestToggleCheckbox(t *testing.T) {
 	}
 }
 
+func TestTaskSetAndTasks(t *testing.T) {
+	vault := t.TempDir()
+	body := "# Sprint [0/3]\n\n- [ ] alpha [#B] [due:2000-01-02]\n- [ ] beta [#A] [due:2999-12-31]\n- [ ] gamma\n"
+	if _, code := runInWithStdin(t, vault, body, "new", "--title", "Board", "--id", "700"); code != 0 {
+		t.Fatalf("new failed")
+	}
+	path := filepath.Join(vault, "note", "700.md")
+
+	// Move alpha into DOING: no completion stamp, but the transition is logged in the sidecar.
+	res, code := runIn(t, vault, "task", "set", "--id", "700", "--line", "3", "--state", "doing")
+	if code != 0 {
+		t.Fatalf("task set failed: %v", res)
+	}
+	if res["state"] != "DOING" || res["from"] != "TODO" || res["changed"] != true || res["done"] != false {
+		t.Fatalf("unexpected task set result: %v", res)
+	}
+	if got := readFileString(t, path); !strings.Contains(got, "- [/] alpha [#B] [due:2000-01-02]") {
+		t.Fatalf("state marker not rewritten: %q", got)
+	}
+
+	// Completing beta stamps [done:...] and recomputes the heading cookie.
+	if res, code := runIn(t, vault, "task", "set", "--id", "700", "--line", "4", "--state", "DONE"); code != 0 || res["done"] != true {
+		t.Fatalf("task set done failed: %v", res)
+	}
+	got := readFileString(t, path)
+	if !strings.Contains(got, "- [x] beta [#A] [due:2999-12-31] [done:") {
+		t.Fatalf("completion stamp missing: %q", got)
+	}
+	if !strings.Contains(got, "# Sprint [1/3]") {
+		t.Fatalf("progress cookie not recomputed: %q", got)
+	}
+	sidecar := readFileString(t, filepath.Join(vault, ".track", "notes", "700.yaml"))
+	if !strings.Contains(sidecar, "task_log:") || !strings.Contains(sidecar, "to: DONE") || !strings.Contains(sidecar, "to: DOING") {
+		t.Fatalf("sidecar should log both transitions: %q", sidecar)
+	}
+
+	// An unknown state is rejected without touching the file.
+	if out, code := runIn(t, vault, "task", "set", "--id", "700", "--line", "3", "--state", "bogus"); code == 0 || out["error"] == nil {
+		t.Fatalf("expected unknown-state error, got %v", out)
+	}
+
+	// tasks lists everything; --state filters; --overdue keeps only the past-due open task; --sort
+	// priority puts open [#B] alpha before unprioritized gamma and done beta last.
+	list, code := runIn(t, vault, "tasks")
+	if code != 0 {
+		t.Fatalf("tasks failed: %v", list)
+	}
+	if all := list["tasks"].([]any); len(all) != 3 {
+		t.Fatalf("expected 3 tasks, got %v", list)
+	}
+	list, _ = runIn(t, vault, "tasks", "--state", "DOING")
+	if rows := list["tasks"].([]any); len(rows) != 1 || rows[0].(map[string]any)["text"] != "alpha" {
+		t.Fatalf("state filter failed: %v", list)
+	}
+	list, _ = runIn(t, vault, "tasks", "--overdue")
+	if rows := list["tasks"].([]any); len(rows) != 1 || rows[0].(map[string]any)["due"] != "2000-01-02" {
+		t.Fatalf("overdue filter failed: %v", list)
+	}
+	list, _ = runIn(t, vault, "tasks", "--due", "2999-12-31")
+	if rows := list["tasks"].([]any); len(rows) != 1 || rows[0].(map[string]any)["text"] != "alpha" {
+		t.Fatalf("due filter should keep open tasks due by the date: %v", list)
+	}
+	list, _ = runIn(t, vault, "tasks", "--sort", "priority")
+	rows := list["tasks"].([]any)
+	if len(rows) != 3 || rows[0].(map[string]any)["text"] != "alpha" || rows[2].(map[string]any)["text"] != "beta" {
+		t.Fatalf("priority sort failed: %v", list)
+	}
+
+	// Reopening beta clears the stamp.
+	if res, code := runIn(t, vault, "task", "set", "--id", "700", "--line", "4", "--state", "TODO"); code != 0 || res["completed"] != "" {
+		t.Fatalf("reopen should clear completion: %v", res)
+	}
+	if got := readFileString(t, path); strings.Contains(got, "[done:") || !strings.Contains(got, "# Sprint [0/3]") {
+		t.Fatalf("stamp/cookie not reverted: %q", got)
+	}
+}
+
+func TestTaskCycle(t *testing.T) {
+	vault := t.TempDir()
+	body := "# T\n\n- [ ] alpha\n\nprose\n"
+	if _, code := runInWithStdin(t, vault, body, "new", "--title", "Cycle", "--id", "710"); code != 0 {
+		t.Fatalf("new failed")
+	}
+
+	steps := []struct{ from, to string }{
+		{"TODO", "DOING"},
+		{"DOING", "WAITING"},
+		{"WAITING", "DONE"},
+		{"DONE", "CANCELLED"},
+		{"CANCELLED", "TODO"},
+	}
+	for _, step := range steps {
+		res, code := runIn(t, vault, "task", "cycle", "--id", "710", "--line", "3")
+		if code != 0 || res["from"] != step.from || res["state"] != step.to {
+			t.Fatalf("cycle %s→%s failed: %v", step.from, step.to, res)
+		}
+	}
+	// Wrapping past the last state lands back on a clean open line, stamp removed.
+	if got := readFileString(t, filepath.Join(vault, "note", "710.md")); !strings.Contains(got, "- [ ] alpha") || strings.Contains(got, "[done:") {
+		t.Fatalf("wrap should return to a clean TODO line: %q", got)
+	}
+
+	if out, code := runIn(t, vault, "task", "cycle", "--id", "710", "--line", "5"); code == 0 || out["error"] == nil {
+		t.Fatalf("expected error cycling a non-task line, got %v", out)
+	}
+}
+
 func TestInitScaffoldsVault(t *testing.T) {
 	vault := t.TempDir()
 	res, code := runIn(t, vault, "init")
@@ -1683,4 +1864,112 @@ func TestMetaRejectsBadImages(t *testing.T) {
 			t.Errorf("%s: image %q should be rejected", name, image)
 		}
 	}
+}
+
+func TestMetaSetAndUnsetProperties(t *testing.T) {
+	vault := t.TempDir()
+	runIn(t, vault, "new", "--title", "Props", "--id", "100", "--body", "body")
+
+	out, code := runIn(t, vault, "meta", "--id", "100", "--set", "status=draft", "--set", "rating=8")
+	if code != 0 || out["updated"] != true {
+		t.Fatalf("meta set failed: %v (code %d)", out, code)
+	}
+	props, ok := out["props"].(map[string]any)
+	if !ok || props["status"] != "draft" || props["rating"] != float64(8) {
+		t.Fatalf("unexpected props: %v", out["props"])
+	}
+
+	// A read-only invocation reports the stored properties.
+	out, code = runIn(t, vault, "meta", "--id", "100")
+	if code != 0 {
+		t.Fatalf("meta read failed: %v", out)
+	}
+	props, _ = out["props"].(map[string]any)
+	if props["status"] != "draft" {
+		t.Fatalf("props after read: %v", out["props"])
+	}
+
+	// The properties are indexed: the sidecar rows land in the props table.
+	var count int
+	db := openDB(t, vault)
+	if err := db.QueryRow(`SELECT COUNT(*) FROM props WHERE note_id = 100`).Scan(&count); err != nil {
+		t.Fatal(err)
+	}
+	if count != 2 {
+		t.Fatalf("props rows = %d, want 2", count)
+	}
+
+	out, code = runIn(t, vault, "meta", "--id", "100", "--unset", "rating")
+	if code != 0 {
+		t.Fatalf("meta unset failed: %v", out)
+	}
+	props, _ = out["props"].(map[string]any)
+	if _, still := props["rating"]; still {
+		t.Fatalf("rating should be unset: %v", out["props"])
+	}
+
+	if out, code := runIn(t, vault, "meta", "--id", "100", "--set", "bad key=x"); code == 0 {
+		t.Fatalf("invalid key should fail: %v", out)
+	}
+}
+
+// TestMetaEditAppliesDocumentAndRenames drives the full editor round-trip through the CLI: the doc
+// from `track meta` applies via --edit -, and a changed title goes through the rename path so
+// backlinks are rewritten. A conflicting title rejects the whole document, changing nothing.
+func TestMetaEditAppliesDocumentAndRenames(t *testing.T) {
+	vault := t.TempDir()
+	runIn(t, vault, "new", "--title", "Doc", "--id", "100", "--body", "body")
+	runIn(t, vault, "new", "--title", "Source", "--id", "200", "--body", "see [[Doc]]\n")
+	if rep, code := runIn(t, vault, "reindex", "--full"); code != 0 {
+		t.Fatalf("reindex failed: %v", rep)
+	}
+
+	doc := "title: Doc v2\ntags:\n  - go\ndescription: from the editor\nprops:\n  status: draft\n"
+	out, code := runInWithStdin(t, vault, doc, "meta", "--id", "100", "--edit", "-")
+	if code != 0 {
+		t.Fatalf("meta --edit failed: %v", out)
+	}
+	if out["title"] != "Doc v2" || out["description"] != "from the editor" {
+		t.Fatalf("unexpected meta output: %v", out)
+	}
+	body, err := os.ReadFile(filepath.Join(vault, "note", "200.md"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(body), "[[Doc v2]]") {
+		t.Fatalf("backlink not rewritten: %q", body)
+	}
+
+	// A title already owned by another note rejects the document before anything is written.
+	out, code = runInWithStdin(t, vault, "title: Source\ntags:\n  - later\n", "meta", "--id", "100", "--edit", "-")
+	if code == 0 || !strings.Contains(out["error"].(string), "already in use") {
+		t.Fatalf("expected title conflict, got code=%d out=%v", code, out)
+	}
+	out, code = runIn(t, vault, "meta", "--id", "100")
+	if code != 0 || out["title"] != "Doc v2" {
+		t.Fatalf("state after rejection: %v", out)
+	}
+	if tags, _ := out["tags"].([]any); len(tags) != 1 || tags[0] != "go" {
+		t.Fatalf("tags must be untouched by the rejected doc: %v", out["tags"])
+	}
+
+	// --edit is whole-document: it cannot be combined with the point-edit flags.
+	if out, code := runInWithStdin(t, vault, doc, "meta", "--id", "100", "--edit", "-", "--set", "x=1"); code == 0 {
+		t.Fatalf("--edit with --set should fail: %v", out)
+	}
+}
+
+// openDB opens the index database runIn's TRACK_CACHE_DIR produced for this vault.
+func openDB(t *testing.T, vault string) *sql.DB {
+	t.Helper()
+	matches, err := filepath.Glob(filepath.Join(vault, ".test-cache", "*", "index.db"))
+	if err != nil || len(matches) != 1 {
+		t.Fatalf("locate index.db: matches=%v err=%v", matches, err)
+	}
+	db, err := sql.Open("sqlite", matches[0])
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { db.Close() })
+	return db
 }

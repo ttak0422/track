@@ -3,6 +3,7 @@ package cli
 import (
 	"flag"
 	"fmt"
+	"io"
 	"os"
 	"path/filepath"
 	"strconv"
@@ -12,7 +13,6 @@ import (
 	"github.com/ttak0422/track/internal/track/config"
 	"github.com/ttak0422/track/internal/track/index"
 	"github.com/ttak0422/track/internal/track/journal"
-	"github.com/ttak0422/track/internal/track/link"
 	"github.com/ttak0422/track/internal/track/note"
 	trackrename "github.com/ttak0422/track/internal/track/rename"
 	"github.com/ttak0422/track/internal/track/store"
@@ -411,9 +411,12 @@ func cmdUpdate(args []string) int {
 	})
 }
 
-// cmdMeta prints or edits a note's page metadata. With no edit flags it reports the current
-// metadata; --description / --image set fields through the engine's single validated write path
-// (note.ApplyMetaEdit), and an explicitly empty value clears the field.
+// cmdMeta prints or edits a note's metadata. With no edit flags it reports the current metadata
+// (including its editable YAML document under "doc"); --description / --image / --icon set page
+// metadata and --set / --unset edit typed note properties. --edit applies a full metadata document
+// (tags, description, image, props) read from a file or stdin. All writes go through the engine's
+// single validated path (note.ApplyMetaEdit / note.ApplyMetaDoc). An explicitly empty
+// --description / --image / --icon clears the field.
 func cmdMeta(args []string) int {
 	fs := flag.NewFlagSet("meta", flag.ContinueOnError)
 	id := fs.Int64("id", 0, "note id")
@@ -421,6 +424,12 @@ func cmdMeta(args []string) int {
 	path := fs.String("path", "", "note path (alternative to --id)")
 	description := fs.String("description", "", "page summary (og:description); empty clears")
 	image := fs.String("image", "", "cover image as assets/<file> (og:image); empty clears")
+	icon := fs.String("icon", "", "per-note icon shown beside the title (emoji); empty clears")
+	editDoc := fs.String("edit", "", "apply a full metadata YAML document (tags/description/image/props) from this file, or stdin when \"-\"")
+	var sets kvFlag
+	var unsets tagsFlag
+	fs.Var(&sets, "set", "set a property as key=value (repeatable; comma-separated value makes a list)")
+	fs.Var(&unsets, "unset", "remove a property key (repeatable)")
 	if err := fs.Parse(args); err != nil {
 		return fail("parse args: %v", err)
 	}
@@ -447,10 +456,57 @@ func cmdMeta(args []string) int {
 	if flagWasSet(fs, "image") {
 		edit.Image = image
 	}
-	edited := edit.Description != nil || edit.Image != nil
+	if flagWasSet(fs, "icon") {
+		edit.Icon = icon
+	}
+	if len(sets) > 0 {
+		edit.Set = map[string]string{}
+		for _, kv := range sets {
+			edit.Set[kv.Key] = kv.Value
+		}
+	}
+	edit.Unset = []string(unsets)
+	edited := edit.Description != nil || edit.Image != nil || edit.Icon != nil || len(edit.Set) > 0 || len(edit.Unset) > 0
+	docSource := strings.TrimSpace(*editDoc)
+	if docSource != "" && edited {
+		return fail("--edit cannot be combined with --description/--image/--icon/--set/--unset")
+	}
 
 	var meta note.Metadata
-	if edited {
+	switch {
+	case docSource != "":
+		raw, err := readMetaDoc(docSource)
+		if err != nil {
+			return fail("read metadata document: %v", err)
+		}
+		doc, err := note.ParseMetaDoc(raw)
+		if err != nil {
+			return fail("%v", err)
+		}
+		// Pre-validate a title change so a conflicting title rejects the whole document before any
+		// write; an empty title in the document means "leave the title unchanged".
+		newTitle := strings.TrimSpace(doc.Title)
+		if newTitle != "" {
+			if ref, ok, err := s.ResolveTerm(newTitle); err != nil {
+				return fail("resolve: %v", err)
+			} else if ok && ref.NoteID != noteID {
+				return fail("title %q already in use by note %d", newTitle, ref.NoteID)
+			}
+		}
+		meta, err = note.ApplyMetaDoc(cfg, noteID, raw)
+		if err != nil {
+			return fail("%v", err)
+		}
+		edited = true
+		if newTitle != "" && newTitle != meta.Title {
+			if _, err := trackrename.Do(cfg, s, noteID, newTitle); err != nil {
+				return fail("%v", err)
+			}
+			meta.Title = newTitle
+		} else if err := index.New(cfg, s).One(notePath); err != nil {
+			return fail("index note: %v", err)
+		}
+	case edited:
 		meta, err = note.ApplyMetaEdit(cfg, noteID, edit)
 		if err != nil {
 			return fail("%v", err)
@@ -458,11 +514,15 @@ func cmdMeta(args []string) int {
 		if err := index.New(cfg, s).One(notePath); err != nil {
 			return fail("index note: %v", err)
 		}
-	} else {
+	default:
 		meta, _, err = note.ReadMetadata(cfg.MetadataPath(noteID))
 		if err != nil {
 			return fail("read metadata: %v", err)
 		}
+	}
+	doc, err := note.MetaDocYAML(meta)
+	if err != nil {
+		return fail("render metadata document: %v", err)
 	}
 	return emit(map[string]any{
 		"id":          noteID,
@@ -472,8 +532,20 @@ func cmdMeta(args []string) int {
 		"created":     meta.Created,
 		"description": meta.Description,
 		"image":       meta.Image,
+		"icon":        meta.Icon,
+		"props":       meta.Props,
+		"doc":         doc,
 		"updated":     edited,
 	})
+}
+
+// readMetaDoc reads the metadata document for `meta --edit`: from stdin when the source is "-",
+// otherwise from the named file.
+func readMetaDoc(source string) ([]byte, error) {
+	if source == "-" {
+		return io.ReadAll(os.Stdin)
+	}
+	return os.ReadFile(source)
 }
 
 func cmdRename(args []string) int {
@@ -505,55 +577,11 @@ func cmdRename(args []string) int {
 		return fail("invalid note path: %v", err)
 	}
 
-	meta, found, err := note.ReadMetadata(cfg.MetadataPath(noteID))
+	res, err := trackrename.Do(cfg, s, noteID, to)
 	if err != nil {
-		return fail("read metadata: %v", err)
+		return fail("%v", err)
 	}
-	if !found {
-		return fail("no metadata for note %d", noteID)
-	}
-	oldTitle := meta.Title
-	if oldTitle == to {
-		return emit(map[string]any{"id": noteID, "path": notePath, "old_title": oldTitle, "new_title": to, "backlinks_updated": 0})
-	}
-	if ref, ok, err := s.ResolveTerm(to); err != nil {
-		return fail("resolve: %v", err)
-	} else if ok && ref.NoteID != noteID {
-		return fail("title %q already in use by note %d", to, ref.NoteID)
-	}
-
-	backlinks, err := s.Backlinks(noteID)
-	if err != nil {
-		return fail("backlinks: %v", err)
-	}
-	updated := 0
-	for _, src := range backlinks {
-		srcPath := cfg.PathForKind(src.FileKind, src.NoteID)
-		raw, err := os.ReadFile(srcPath)
-		if err != nil {
-			return fail("read backlink %d: %v", src.NoteID, err)
-		}
-		rewritten, n := link.ReplaceRefKey(string(raw), oldTitle, to)
-		if n == 0 {
-			continue
-		}
-		if err := os.WriteFile(srcPath, []byte(rewritten), 0o644); err != nil {
-			return fail("write backlink %d: %v", src.NoteID, err)
-		}
-		updated += n
-	}
-
-	meta.Title = to
-	if err := note.WriteMetadata(cfg.MetadataPath(noteID), meta); err != nil {
-		return fail("write metadata: %v", err)
-	}
-	if err := trackrename.Append(cfg.RenamesPath(), trackrename.Entry{From: oldTitle, To: to, NoteID: noteID}); err != nil {
-		return fail("write rename history: %v", err)
-	}
-	if _, err := index.New(cfg, s).Full(); err != nil {
-		return fail("reindex: %v", err)
-	}
-	return emit(map[string]any{"id": noteID, "path": notePath, "old_title": oldTitle, "new_title": to, "backlinks_updated": updated})
+	return emit(map[string]any{"id": noteID, "path": notePath, "old_title": res.OldTitle, "new_title": res.NewTitle, "backlinks_updated": res.BacklinksUpdated})
 }
 
 // cmdRm soft-deletes a note: the note file and its sidecar move into .track/trash (never removed

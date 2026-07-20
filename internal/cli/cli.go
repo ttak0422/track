@@ -59,6 +59,10 @@ func Run(args []string) int {
 		return cmdMeta(rest)
 	case "toggle":
 		return cmdToggle(rest)
+	case "task":
+		return cmdTask(rest)
+	case "tasks":
+		return cmdTasks(rest)
 	case "asset":
 		return cmdAsset(rest)
 	case "rename":
@@ -73,6 +77,8 @@ func Run(args []string) int {
 		return cmdResolve(rest)
 	case "search":
 		return cmdSearch(rest)
+	case "similar":
+		return cmdSimilar(rest)
 	case "notes":
 		return cmdNotes(rest)
 	case "backlinks":
@@ -125,11 +131,24 @@ Usage:
   track update (--id N | --title S | --path P) [--body <s>] [--tag <s>] [--clear-tags]
                                         replace body text and/or update tags on an existing note
   track meta (--id N | --title S | --path P) [--description S] [--image assets/F]
-                                        print a note's page metadata, or set it: description (og:description)
-                                        and cover image (og:image; an existing vault asset). An empty
-                                        value clears the field (JSON)
+             [--set key=value ...] [--unset key ...] [--edit (FILE|-)]
+                                        print a note's metadata (incl. its editable YAML document
+                                        under "doc"), or set it: description (og:description), cover
+                                        image (og:image; an existing vault asset), and typed
+                                        properties (--set/--unset; comma-separated value makes a list).
+                                        An empty description/image clears the field. --edit applies a
+                                        full document (title/tags/description/image/props) from a file
+                                        or stdin, validated as a whole before anything is written; a
+                                        changed title renames the note, backlinks included (JSON)
   track toggle (--id N | --title S | --path P) --line N [--state toggle|check|uncheck]
                                         flip (or set) a task checkbox on one line of a note (JSON)
+  track task set (--id N | --title S | --path P) --line N --state NAME
+                                        move a task line into a named state (default set: TODO, DOING,
+                                        WAITING, DONE, CANCELLED); done-family states stamp [done:date],
+                                        transitions are logged in the sidecar, and parent [n/m]/[p%]
+                                        progress cookies are recomputed (JSON)
+  track tasks [--id N | --title S | --path P] [--state A,B] [--due YYYY-MM-DD] [--overdue]
+              [--sort priority]         list indexed tasks with state/deadline filters (JSON)
   track asset import <file>             copy a file into the vault's assets/ dir; prints the assets/<file> ref (JSON)
   track asset dir [--ensure]            print (and optionally create) the vault's assets directory (JSON)
   track rename (--id N | --title S | --path P) --to S
@@ -160,6 +179,8 @@ Usage:
   track resolve (--term <s> | <s>)      resolve a keyword to a note (JSON)
   track search --query <s> [--scope all|title|body] [--limit N]
                                         search notes (JSON)
+  track similar --id N [--limit K]      list notes semantically closest to a note, using the configured
+                                        embedder command; explains setup and exits cleanly if none (JSON)
   track notes [--untagged] [--limit N]  list notes, newest first; --untagged keeps only notes with no
                                         tags, for a curation pass that adds tags via track append --tag (JSON)
   track backlinks (--id N | --path P)   list backlinks (JSON)
@@ -186,8 +207,10 @@ Usage:
                                         write a note out as Markdown (stdout, or JSON path with --out)
   track export-site --root N [--id N ...] --frontend <dist> --out <dir>
                                         publish selected vault notes as a static site (React frontend + JSON bundle) (JSON)
-  track export-site --src <dir> [--root <name>] --frontend <dist> --out <dir>
-                                        publish a directory of Markdown files as a static site (JSON)
+  track export-site --src <dir> --frontend <dist> --out <dir>
+                                        publish a directory of Markdown files as a static site; its
+                                        entry page comes from <dir>/site.yml "home", else a page
+                                        named index (JSON)
   track render --spec <spec.json> --out <file> [--renderer echarts]
                                         render a View Spec chart, or a composed article (a spec with
                                         "blocks"), to an HTML file (JSON path);

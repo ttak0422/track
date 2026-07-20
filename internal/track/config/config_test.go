@@ -3,6 +3,7 @@ package config
 import (
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 )
@@ -205,6 +206,150 @@ func TestLoadWebTheme(t *testing.T) {
 	}
 }
 
+func TestNoteIconPrecedence(t *testing.T) {
+	cfg := &Config{Icons: IconMap{
+		Tags:  map[string]string{"idea": "💡", "book": "📚"},
+		Kinds: map[string]string{"journal": "📓", "note": "📝"},
+	}}
+	cases := []struct {
+		name     string
+		kind     string
+		tags     []string
+		override string
+		want     string
+	}{
+		{"override wins over everything", "note", []string{"idea"}, "🔥", "🔥"},
+		{"first matching tag wins over kind", "note", []string{"idea", "book"}, "", "💡"},
+		{"unmapped tag falls through to kind", "note", []string{"misc"}, "", "📝"},
+		{"kind mapping when no tags", "journal", nil, "", "📓"},
+		{"no mapping yields empty", "note", []string{"misc"}, "", "📝"},
+		{"nothing at all", "widget", nil, "", ""},
+	}
+	for _, c := range cases {
+		if got := cfg.NoteIcon(c.kind, c.tags, c.override); got != c.want {
+			t.Errorf("%s: NoteIcon(%q, %v, %q) = %q, want %q", c.name, c.kind, c.tags, c.override, got, c.want)
+		}
+	}
+}
+
+func TestLoadIconsAndHome(t *testing.T) {
+	vault := t.TempDir()
+	configPath := filepath.Join(t.TempDir(), "config.yml")
+	contents := "vault_dir: " + vault + "\ncache_dir: " + t.TempDir() + "\n" +
+		"web:\n  home: Home\n" +
+		"icons:\n  tags:\n    idea: \"💡\"\n  kinds:\n    journal: \"📓\"\n"
+	if err := os.WriteFile(configPath, []byte(contents), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("TRACK_CONFIG", configPath)
+	t.Setenv("TRACK_VAULT", "")
+	t.Setenv("TRACK_DB", "")
+	t.Setenv("TRACK_CACHE_DIR", "")
+
+	cfg, err := Load()
+	if err != nil {
+		t.Fatalf("load: %v", err)
+	}
+	if cfg.WebHome != "Home" {
+		t.Fatalf("WebHome = %q, want %q", cfg.WebHome, "Home")
+	}
+	if got := cfg.NoteIcon("note", []string{"idea"}, ""); got != "💡" {
+		t.Fatalf("tag icon = %q, want 💡", got)
+	}
+	if got := cfg.NoteIcon("journal", nil, ""); got != "📓" {
+		t.Fatalf("kind icon = %q, want 📓", got)
+	}
+}
+
+// loadWithEmbedder writes a config.yml containing the given embedder line (empty = key absent), points
+// Load at it with env overrides cleared, and returns the result.
+func loadWithEmbedder(t *testing.T, embedderLine string) (*Config, error) {
+	t.Helper()
+	configPath := filepath.Join(t.TempDir(), "config.yml")
+	contents := "vault_dir: " + t.TempDir() + "\ncache_dir: " + t.TempDir() + "\n" + embedderLine
+	if err := os.WriteFile(configPath, []byte(contents), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("TRACK_CONFIG", configPath)
+	t.Setenv("TRACK_VAULT", "")
+	t.Setenv("TRACK_DB", "")
+	t.Setenv("TRACK_CACHE_DIR", "")
+	t.Setenv("TRACK_EMBEDDER", "")
+	return Load()
+}
+
+func TestLoadEmbedder(t *testing.T) {
+	// Scalar form: split on whitespace (no shell quoting).
+	cfg, err := loadWithEmbedder(t, "embedder: track-embed --model mini\n")
+	if err != nil {
+		t.Fatalf("load scalar: %v", err)
+	}
+	if want := []string{"track-embed", "--model", "mini"}; !equalStrings(cfg.EmbedderCommand, want) {
+		t.Fatalf("scalar EmbedderCommand = %v, want %v", cfg.EmbedderCommand, want)
+	}
+
+	// Sequence form: verbatim argv, so an argument may contain a space.
+	cfg, err = loadWithEmbedder(t, "embedder: [track-embed, --model, \"mini lm\"]\n")
+	if err != nil {
+		t.Fatalf("load sequence: %v", err)
+	}
+	if want := []string{"track-embed", "--model", "mini lm"}; !equalStrings(cfg.EmbedderCommand, want) {
+		t.Fatalf("sequence EmbedderCommand = %v, want %v", cfg.EmbedderCommand, want)
+	}
+
+	// TRACK_EMBEDDER overrides either form entirely (and is always whitespace-split).
+	t.Setenv("TRACK_EMBEDDER", "other-embed --fast")
+	cfg, err = Load()
+	if err != nil {
+		t.Fatalf("load with env: %v", err)
+	}
+	if want := []string{"other-embed", "--fast"}; !equalStrings(cfg.EmbedderCommand, want) {
+		t.Fatalf("env override EmbedderCommand = %v, want %v", cfg.EmbedderCommand, want)
+	}
+}
+
+func TestLoadEmbedderEmptyFormsDisable(t *testing.T) {
+	for _, line := range []string{"", "embedder:\n", "embedder: \"\"\n", "embedder: []\n"} {
+		cfg, err := loadWithEmbedder(t, line)
+		if err != nil {
+			t.Fatalf("load %q: %v", line, err)
+		}
+		if len(cfg.EmbedderCommand) != 0 {
+			t.Fatalf("%q must leave no embedder configured, got %v", line, cfg.EmbedderCommand)
+		}
+	}
+}
+
+func TestLoadEmbedderRejectsBadValues(t *testing.T) {
+	// A mapping is neither accepted form; it must fail loudly, naming the key.
+	if _, err := loadWithEmbedder(t, "embedder:\n  cmd: track-embed\n"); err == nil || !strings.Contains(err.Error(), "embedder") {
+		t.Fatalf("mapping embedder must error naming the key, got %v", err)
+	}
+	// An empty argv[0] would fail confusingly at exec time; reject it at load instead.
+	if _, err := loadWithEmbedder(t, "embedder: [\"\", --model, mini]\n"); err == nil || !strings.Contains(err.Error(), "embedder") {
+		t.Fatalf("empty argv[0] must error naming the key, got %v", err)
+	}
+	// A null sequence element must fail loudly, not be silently dropped from argv (yaml.v3 skips
+	// nulls when decoding into []string, which would make a flag vanish or shift argv[0]).
+	for _, line := range []string{"embedder: [track-embed, ~]\n", "embedder: [~, --model]\n", "embedder: [~]\n"} {
+		if _, err := loadWithEmbedder(t, line); err == nil || !strings.Contains(err.Error(), "embedder") {
+			t.Fatalf("%q must error naming the key, got %v", line, err)
+		}
+	}
+}
+
+func equalStrings(a, b []string) bool {
+	if len(a) != len(b) {
+		return false
+	}
+	for i := range a {
+		if a[i] != b[i] {
+			return false
+		}
+	}
+	return true
+}
+
 func TestDisplayPathForKindKeepsSymlink(t *testing.T) {
 	realVault := t.TempDir()
 	linkParent := t.TempDir()
@@ -259,6 +404,53 @@ func TestEnsureVaultSkeleton(t *testing.T) {
 	}
 	if len(again) != 0 {
 		t.Fatalf("second ensure should create nothing, got %v", again)
+	}
+}
+
+func TestLoadPropertySchema(t *testing.T) {
+	configPath := filepath.Join(t.TempDir(), "config.yml")
+	body := "vault_dir: " + t.TempDir() + "\ncache_dir: " + t.TempDir() + `
+properties:
+  status:
+    type: string
+    values: [draft, done]
+  rating:
+    type: number
+`
+	if err := os.WriteFile(configPath, []byte(body), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("TRACK_CONFIG", configPath)
+	t.Setenv("TRACK_VAULT", "")
+	t.Setenv("TRACK_DB", "")
+	t.Setenv("TRACK_CACHE_DIR", "")
+
+	cfg, err := Load()
+	if err != nil {
+		t.Fatalf("load: %v", err)
+	}
+	status := cfg.Properties["status"]
+	if status.Type != "string" || len(status.Values) != 2 || status.Values[0] != "draft" {
+		t.Fatalf("status spec = %+v", status)
+	}
+	if cfg.Properties["rating"].Type != "number" {
+		t.Fatalf("rating spec = %+v", cfg.Properties["rating"])
+	}
+}
+
+func TestLoadRejectsUnknownPropertyType(t *testing.T) {
+	configPath := filepath.Join(t.TempDir(), "config.yml")
+	body := "vault_dir: " + t.TempDir() + "\nproperties:\n  status:\n    type: enum\n"
+	if err := os.WriteFile(configPath, []byte(body), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("TRACK_CONFIG", configPath)
+	t.Setenv("TRACK_VAULT", "")
+	t.Setenv("TRACK_DB", "")
+	t.Setenv("TRACK_CACHE_DIR", t.TempDir())
+
+	if _, err := Load(); err == nil {
+		t.Fatal("expected an error for properties.status type enum")
 	}
 }
 

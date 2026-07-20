@@ -437,6 +437,31 @@ func TestBuildRequiresRoot(t *testing.T) {
 	}
 }
 
+// A whole-line inline field is data that belongs in the prose (ADR 0032): a journal's "weight:: 68.2" is
+// a line of the journal. It is indexed as a property AND published as the line the author wrote — the
+// body is never edited on its way to a reader.
+func TestBuildKeepsInlineFieldLinesInProse(t *testing.T) {
+	cfg, s := vaultStore(t)
+	body := "# Weight log\n\nMorning check-in.\n\nweight:: 68.2\n\nMet with [owner:: [[Ada]]] later.\n"
+	writeVaultNote(t, cfg, 100, "Weight log", body)
+	if _, err := index.New(cfg, s).Full(); err != nil {
+		t.Fatalf("index: %v", err)
+	}
+
+	out := t.TempDir()
+	if _, err := Build(cfg, s, Options{Root: 100}, fakeFrontend(t), out); err != nil {
+		t.Fatalf("build: %v", err)
+	}
+
+	root := readJSON[jsonNoteResponse](t, filepath.Join(out, "data", "note", PublishID(100)+".json"))
+	if !strings.Contains(root.Note.Body, "weight:: 68.2") {
+		t.Errorf("the field line must render as the prose it is:\n%s", root.Note.Body)
+	}
+	if props := root.Note.Props; len(props) != 2 || props[0].Key != "weight" || props[1].Key != "owner" {
+		t.Errorf("and still be indexed as properties: %+v", props)
+	}
+}
+
 func hasEdge(edges []jsonGraphEdge, src, dst int64) bool {
 	return hasSlugEdge(edges, PublishID(src), PublishID(dst))
 }
@@ -498,5 +523,32 @@ func TestBuildRendersViewSpecFences(t *testing.T) {
 	}
 	if !strings.Contains(note.Note.Body, "after") {
 		t.Fatalf("content after the fences should survive:\n%s", note.Note.Body)
+	}
+}
+
+// TestBuildPublishesProps covers the vault front-end's property flattening: sidecar props (via the
+// metadata) and inline body fields both land in the published note JSON.
+func TestBuildPublishesProps(t *testing.T) {
+	cfg, s := vaultStore(t)
+	writeVaultNote(t, cfg, 100, "Home", "# Home\n\nstatus:: draft\n")
+	if err := note.WriteMetadata(cfg.MetadataPath(100), note.Metadata{
+		Title: "Home",
+		Props: map[string]any{"rating": 8},
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := index.New(cfg, s).Full(); err != nil {
+		t.Fatalf("index: %v", err)
+	}
+
+	out := t.TempDir()
+	if _, err := Build(cfg, s, Options{Root: 100}, fakeFrontend(t), out); err != nil {
+		t.Fatalf("build: %v", err)
+	}
+	root := readJSON[jsonNoteResponse](t, filepath.Join(out, "data", "note", PublishID(100)+".json"))
+	props := root.Note.Props
+	if len(props) != 2 || props[0].Key != "rating" || props[0].Type != "number" ||
+		props[1].Key != "status" || props[1].Value != "draft" {
+		t.Fatalf("props = %+v", props)
 	}
 }

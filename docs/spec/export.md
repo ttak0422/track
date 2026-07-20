@@ -112,8 +112,8 @@ Two input modes (both require `--frontend <dir>`, the static-mode frontend build
 
 | Mode | Invocation | Source |
 | --- | --- | --- |
-| Vault | `track export-site --root <id> [--id <id> ...] [--calendar] --frontend <dist> --out <dir>` | Vault notes by id; `--root` is the landing page. A full reindex runs first so the published graph is complete. |
-| Directory | `track export-site --src <dir> [--root <name>] --frontend <dist> --out <dir>` | A directory of plain Markdown files (e.g. repo-mounted help) outside any vault; wiki links resolve by file base name or first H1 title. |
+| Vault | `track export-site --root <id> [--id <id> ...] [--calendar] --frontend <dist> --out <dir>` | Vault notes by id; `--root` is the landing note's id. A full reindex runs first so the published graph is complete. |
+| Directory | `track export-site --src <dir> --frontend <dist> --out <dir>` | A directory of plain Markdown files (e.g. repo-mounted help) outside any vault; wiki links resolve by file base name or first H1 title. Its entry page comes from `<dir>/site.yml`'s `home`, or the `index` convention; `--root` is vault-only and rejected here. |
 
 `--calendar` opts the published site into the calendar view and its per-day pages (see the web spec's
 "Calendar view"): off suits reference sites like help docs, on suits activity-shaped ones like a blog

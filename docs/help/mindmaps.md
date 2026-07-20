@@ -53,5 +53,5 @@ It renders as:
 ## When to use which
 
 - **Mindmap** — hierarchy and links expressed with ordinary Markdown headings and lists.
-- **[[Diagrams]]** (Mermaid, Graphviz) — anything with cross-links, cycles, or labeled edges.
+- **[[Diagrams]]** (Mermaid, Graphviz, D2) — anything with cross-links, cycles, or labeled edges.
 - **[[Charts]]** — numbers.

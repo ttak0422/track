@@ -1,5 +1,6 @@
 import { MarkdownView } from "./MarkdownView";
-import { LoadingIndicator, NoteAside, NoteTags, journalDateFromNote } from "./noteShared";
+import { TaskBoardContext } from "./markdown/context";
+import { LoadingIndicator, NoteAside, NoteProperties, NoteTags, journalDateFromNote } from "./noteShared";
 import { useNoteQuery, useRenderQuery } from "../queries";
 import { useSearchState } from "../searchState";
 import { useTabs } from "./tabs/tabsStore";
@@ -37,16 +38,19 @@ export function NoteReaderStatic({ noteID }: { noteID: NoteID }) {
   return (
     <article className="note-reader">
       <NoteTags tags={data.note.tags ?? []} onTag={setQuery} />
+      <NoteProperties props={data.note.props ?? []} />
 
       <section className="note-preview" aria-label="Rendered note">
         {body.trim() !== "" && rendered.data?.markdown === undefined ? (
           <LoadingIndicator label="Loading note" />
         ) : (
-          <MarkdownView
-            markdown={rendered.data?.markdown ?? ""}
-            kind={data.note.file_kind}
-            includes={data.note.includes}
-          />
+          <TaskBoardContext.Provider value={{ noteID, tasks: data.note.tasks }}>
+            <MarkdownView
+              markdown={rendered.data?.markdown ?? ""}
+              kind={data.note.file_kind}
+              includes={data.note.includes}
+            />
+          </TaskBoardContext.Provider>
         )}
       </section>
 

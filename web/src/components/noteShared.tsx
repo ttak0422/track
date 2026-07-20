@@ -1,6 +1,7 @@
 import { Link } from "@tanstack/react-router";
 import { useAgendaQuery } from "../queries";
-import type { FileKind, NoteID, NoteRef } from "../types";
+import { WikiLink } from "./preview/WikiLink";
+import type { FileKind, NoteID, NoteProp, NoteRef } from "../types";
 
 // Shared read-only note UI, used by both the static reader (NoteReaderStatic) and the live editor
 // (NoteEditor), so the two stay consistent and the editor-only code is the only thing that differs.
@@ -94,6 +95,40 @@ export function NoteAside({
         </section>
       ) : null}
     </div>
+  );
+}
+
+// NoteProperties renders a note's flattened properties (sidecar props and inline "key:: value"
+// fields) as a read-only key/value strip above the body. Values group per key in first-seen order,
+// so a list value reads as one row; link values navigate like any body wiki link.
+export function NoteProperties({ props: noteProps }: { props: NoteProp[] }) {
+  if (noteProps.length === 0) return null;
+  const keys: string[] = [];
+  const byKey = new Map<string, NoteProp[]>();
+  for (const prop of noteProps) {
+    const group = byKey.get(prop.key);
+    if (group) {
+      group.push(prop);
+    } else {
+      byKey.set(prop.key, [prop]);
+      keys.push(prop.key);
+    }
+  }
+  return (
+    <dl className="note-props" aria-label="Note properties">
+      {keys.map((key) => (
+        <div className="note-prop" key={key}>
+          <dt>{key}</dt>
+          <dd>
+            {(byKey.get(key) ?? []).map((prop, i) => (
+              <span className={`note-prop-value note-prop-${prop.type}`} key={i}>
+                {prop.type === "link" ? <WikiLink target={prop.value} display={prop.value} /> : prop.value}
+              </span>
+            ))}
+          </dd>
+        </div>
+      ))}
+    </dl>
   );
 }
 

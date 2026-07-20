@@ -101,6 +101,18 @@ M.defaults = {
    -- Raising conceallevel for links also lets Neovim's bundled treesitter markdown query conceal
    -- code-fence delimiters (```lua disappears). When true, track reveals those fences again.
    reveal_code_fences = true,
+   -- Task-notation decoration (docs/help/tasks.md), mirroring the web workspace's inline rendering:
+   -- on a task line, bracket tokens conceal down to chips ("[#A]" → "#A", "[sched:d]" → "▷ d",
+   -- "[due:d]" → "! d", "[done:d]" → "✓ d", cookies lose their brackets) and a done-family line is
+   -- struck through (TrackTaskDone). Concealing follows the conceal option above; the cursor line
+   -- stays raw. task_chars lists the state markers, task_done_chars the done-family subset — they
+   -- mirror the engine's default task_states, so align them with the vault's config.yml when
+   -- customized. Set task_chars = "" to disable the decoration entirely.
+   task_chars = " /?x-",
+   task_done_chars = "x-",
+   -- Conceal the "[c]" state marker itself to a glyph ("- [ ]" shows "- ☐", "- [x]" shows "- ☑").
+   -- Keyed by marker character; a char without an entry keeps its raw [c] form. {} shows all raw.
+   task_glyphs = { [" "] = "☐", ["/"] = "◐", ["?"] = "⧖", ["x"] = "☑", ["-"] = "☒" },
    -- Debounce for re-highlighting, in milliseconds.
    debounce_ms = 150,
    -- ![[...]] includes (ADR 0031) render as virtual lines below the directive. include_max_lines

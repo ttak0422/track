@@ -93,8 +93,9 @@ broken image. A config file, script, or data snippet you want to keep beside a n
 
 ![](assets/pod.yaml)
 
-Two text kinds render as something richer instead: a Mermaid source (`.mmd` / `.mermaid`) becomes a
-diagram — see [[Diagrams]] — and a `.viewspec.json` becomes a **chart** — see [[Charts]].
+Two text kinds render as something richer instead: a diagram source (`.mmd` / `.mermaid` for
+Mermaid, `.dot` / `.gv` for Graphviz, `.d2` for D2) becomes a **diagram** — see [[Diagrams]] — and a
+`.viewspec.json` becomes a **chart** — see [[Charts]].
 
 ## HTML pages
 
