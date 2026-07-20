@@ -145,24 +145,23 @@ const emptyTaskBoard = { noteID: "" };
 
 // TaskRowState is the badge at the head of a rich task row, and doubles as the state control: in
 // the live workspace it renders as a select stripped down to the badge's text look, writing through
-// the same engine path as the board's cards. It resolves its row to the engine-parsed task by
-// state + stripped text; without a unique match (duplicate lines, inline markup in the text), and
-// on static sites or hover previews (no note id), it stays a plain badge and the board remains the
-// editor.
+// the same engine path as the board's cards. Its source line resolves the row to the engine-parsed
+// task (rendered bodies are line-aligned with the note file — the invariant includes rely on); on
+// static sites and hover previews (no note id) it stays a plain badge.
 function TaskRowState({ node }: ElementProps) {
   const { noteID, tasks } = useContext(TaskBoardContext);
   const mutation = useSetTaskStateMutation(noteID);
-  const props = (node?.properties ?? {}) as { name?: unknown; done?: unknown; text?: unknown };
+  const props = (node?.properties ?? {}) as { name?: unknown; done?: unknown; line?: unknown };
   const name = String(props.name ?? "");
   const className = `task-row-state${props.done ? " task-row-state-done" : ""}`;
-  const matches =
-    !STATIC_MODE && noteID !== "" && tasks
-      ? tasks.items.filter((t) => t.state === name && t.text === String(props.text ?? ""))
-      : [];
-  if (matches.length !== 1 || !tasks) {
+  const line = Number(props.line ?? 0);
+  const item =
+    !STATIC_MODE && noteID !== "" && tasks && line > 0
+      ? tasks.items.find((t) => t.line === line)
+      : undefined;
+  if (!item || !tasks) {
     return <span className={className}>{name}</span>;
   }
-  const item = matches[0];
   return (
     <select
       className={className}

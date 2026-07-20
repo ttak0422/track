@@ -164,22 +164,14 @@ function upgradeTaskItem(item: any, p: TaskItemParse) {
     i += parts.length - 1;
   }
 
-  // The row's plain text after marker and tokens — the key the state select uses to find the
-  // engine-parsed task (and its line number) in the note context. Rows whose text carries inline
-  // markup (links, emphasis) may not match and simply render without the select; the board remains
-  // the full editor.
-  const text = para.children
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    .filter((c: any) => c.type === "text")
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    .map((c: any) => c.value)
-    .join("")
-    .replace(/\s+/g, " ")
-    .trim();
+  // The item's source line resolves the row to the engine-parsed task. Rendered bodies are
+  // line-aligned with the note file — BlankFieldLines blanks rather than removes, and the include
+  // splice swaps lines 1:1 — the same invariant the includes feature already relies on.
+  const line = item.position?.start?.line ?? 0;
 
   para.children.unshift({
     type: "taskstate",
-    data: { hName: "taskstate", hProperties: { name: p.state.name, done: p.state.done, text } },
+    data: { hName: "taskstate", hProperties: { name: p.state.name, done: p.state.done, line } },
     children: [],
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
   } as any);

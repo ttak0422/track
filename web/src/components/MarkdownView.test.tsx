@@ -3,6 +3,7 @@ import { render, screen, waitFor, within } from "@testing-library/react";
 import type { ReactElement } from "react";
 import { describe, expect, it, vi } from "vitest";
 import { MarkdownView } from "./MarkdownView";
+import { TaskBoardContext } from "./markdown/context";
 import { FloatingProvider } from "./preview/floatingStore";
 
 // FloatingProvider (needed by the include embed's WikiLink header) reads the current route, so stub
@@ -89,6 +90,25 @@ describe("MarkdownView", () => {
     const { container } = render(<MarkdownView markdown={"- [z] not a task\n- plain item"} />);
     expect(container.querySelectorAll("li.task-row")).toHaveLength(0);
     expect(screen.getByText("[z] not a task")).toBeInTheDocument();
+  });
+
+  it("wires the badge select by source line, so inline markup does not break it", () => {
+    const tasks = {
+      states: [
+        { name: "TODO", char: " ", done: false },
+        { name: "DOING", char: "/", done: false },
+        { name: "DONE", char: "x", done: true },
+      ],
+      items: [{ line: 1, state: "DOING", done: false, text: "a bold task" }],
+    };
+    const { container } = renderWithQuery(
+      <TaskBoardContext.Provider value={{ noteID: "100", tasks }}>
+        <MarkdownView markdown={"- [/] a **bold** task [#A]"} />
+      </TaskBoardContext.Provider>,
+    );
+    const select = container.querySelector<HTMLSelectElement>("select.task-row-state");
+    expect(select).not.toBeNull();
+    expect(select!.value).toBe("DOING");
   });
 
   it("renders a fenced code block through CodeBlock", () => {
