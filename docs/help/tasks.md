@@ -107,9 +107,10 @@ track tasks --overdue --sort priority
 
 Task lines render styled wherever they appear; the board is the opt-in note-wide view for *working*
 them. A ` ```taskboard ` fence renders the note's tasks as a kanban board — one column per state,
-one card per task. In the live [[Web workspace]] a card drags between columns (or moves via its
-state select), which runs the same engine write path as `track task set`. On a published static
-site the board renders read-only.
+one card per task. The fence body stays empty: the board reads the note's task lines, not the fence
+content, so the two lines of the fence are the entire syntax. In the live [[Web workspace]] a card
+drags between columns (or moves via its state select), which runs the same engine write path as
+`track task set`. On a published static site the board renders read-only.
 
 ## Example
 
