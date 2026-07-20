@@ -13,28 +13,30 @@
 # wherever this site is deployed.
 home: index
 
-# Icons, resolved by config.NoteIcon — the same precedence a vault note's icon resolves by, with `pages`
-# standing where a vault note's sidecar `icon` stands: a page's own icon, then its kind (a published page
-# is always kind `note`). The tag rung in between takes no config here: a directory page carries no tags,
-# so a tag map could never match one, and this config does not accept a key that can only do nothing — an
-# `icons.tags` here is an unknown key, and so a build error.
+# Per-page note-level metadata, keyed by file base name — the directory's stand-in for a vault note's
+# sidecar: the page's own icon, and its tags (which drive tag pages, #tag search, and query FROM
+# filters). An entry naming no `<name>.md`, or saying nothing at all, is a build error, never a
+# silent no-op.
+pages:
+  babel: {icon: 🧪, tags: [help/authoring]}
+  charts: {icon: 📊, tags: [help/visualization/charts]}
+  cli: {icon: ⌨️, tags: [help/reference]}
+  dashboard: {icon: 🏠}
+  diagrams: {icon: 📐, tags: [help/visualization/diagrams]}
+  embeds: {icon: 🧩, tags: [help/visualization/embeds]}
+  index: {icon: 🧭}
+  linking: {icon: 🔗, tags: [help/concepts]}
+  mindmaps: {icon: 🧠}
+  properties: {icon: 🏷️, tags: [help/authoring]}
+  query: {tags: [help/reference]}
+  search: {icon: 🔍}
+  syntax: {tags: [help/authoring]}
+  visualization: {icon: 📈, tags: [help/visualization]}
+  web: {icon: 🌐, tags: [help/reference]}
+
+# Icon mappings, resolved by config.NoteIcon — the same precedence a vault note's icon resolves by: a
+# page's own icon (pages above), then its tags, then its kind. syntax.md and query.md carry no icon of
+# their own and land here in `kinds`: the fallback, live on this site.
 icons:
-  # File base name -> icon. An entry naming no `<name>.md`, or naming no icon, is a build error, never a
-  # silent no-op.
-  pages:
-    babel: 🧪
-    charts: 📊
-    cli: ⌨️
-    dashboard: 🏠
-    diagrams: 📐
-    embeds: 🧩
-    index: 🧭
-    linking: 🔗
-    mindmaps: 🧠
-    properties: 🏷️
-    search: 🔍
-    visualization: 📈
-    web: 🌐
-  # syntax.md has no `pages` entry and lands here: the fallback, live on this site.
   kinds:
     note: 📄

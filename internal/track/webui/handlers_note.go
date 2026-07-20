@@ -15,6 +15,7 @@ import (
 	"github.com/ttak0422/track/internal/track/index"
 	"github.com/ttak0422/track/internal/track/link"
 	"github.com/ttak0422/track/internal/track/note"
+	"github.com/ttak0422/track/internal/track/query"
 	"github.com/ttak0422/track/internal/track/rename"
 	"github.com/ttak0422/track/internal/track/render"
 	"github.com/ttak0422/track/internal/track/store"
@@ -325,6 +326,13 @@ func (s *Server) handleRender(w http.ResponseWriter, r *http.Request) {
 	if err != nil {
 		writeError(w, err, http.StatusInternalServerError)
 		return
+	}
+	// Embedded ```track-query fences resolve here into Markdown result tables over the freshly
+	// reconciled index, so the workspace draws them with its ordinary table rendering — the same
+	// expansion the static export bakes in at build time. A row-load failure leaves the fences as
+	// source rather than failing the whole render.
+	if rows, err := query.RowsFromStore(s.store); err == nil {
+		markdown = query.ExpandBlocks(markdown, s.cfg.Queries, rows)
 	}
 	// Includes resolve against the rendered markdown (what the frontend draws), so their line
 	// numbers align with the text the client splices them into; target bodies render through the

@@ -126,6 +126,27 @@ func (s *Store) NoteProps(id int64) ([]note.Prop, error) {
 	return out, rows.Err()
 }
 
+// AllProps returns every note's flattened properties keyed by note id, each list in the same order
+// NoteProps reads a single note's. One scan instead of a query per note, for the query evaluator.
+func (s *Store) AllProps() (map[int64][]note.Prop, error) {
+	rows, err := s.db.Query(`SELECT note_id, key, value, type, line FROM props ORDER BY note_id, line, key, ord`)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	out := map[int64][]note.Prop{}
+	for rows.Next() {
+		var id int64
+		var p note.Prop
+		if err := rows.Scan(&id, &p.Key, &p.Value, &p.Type, &p.Line); err != nil {
+			return nil, err
+		}
+		out[id] = append(out[id], p)
+	}
+	return out, rows.Err()
+}
+
 // DeleteNote removes a note; tags and links cascade. The FTS body row is not a foreign-key child of
 // notes (virtual tables can't cascade), so it is deleted explicitly.
 func (s *Store) DeleteNote(id int64) error {

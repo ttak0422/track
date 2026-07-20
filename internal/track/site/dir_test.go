@@ -150,6 +150,58 @@ func TestBuildDirRejectsMissingEntry(t *testing.T) {
 	}
 }
 
+func TestBuildDirTagsAndQueryBlocks(t *testing.T) {
+	src := t.TempDir()
+	write := func(name, body string) {
+		if err := os.WriteFile(filepath.Join(src, name), []byte(body), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	write("index.md", "# Home\n\n```track-query\nTABLE title, tags FROM #docs SORT title\n```\n")
+	write("a.md", "# Alpha\n")
+	write("b.md", "# Beta\n\nno tags here\n")
+	write("site.yml", "pages:\n  index:\n    tags: [docs]\n  a:\n    tags: [docs/guide]\n")
+
+	out := t.TempDir()
+	if _, err := BuildDir(src, "", fakeFrontend(t), out); err != nil {
+		t.Fatalf("BuildDir: %v", err)
+	}
+
+	// The site.yml pages entry becomes the page's tags in notes.json.
+	notes := readJSON[struct {
+		Notes []jsonSearchResult `json:"notes"`
+	}](t, filepath.Join(out, "data", "notes.json"))
+	tagsByTitle := map[string][]string{}
+	for _, n := range notes.Notes {
+		tagsByTitle[n.Title] = n.Tags
+	}
+	if len(tagsByTitle["Alpha"]) != 1 || tagsByTitle["Alpha"][0] != "docs/guide" {
+		t.Fatalf("Alpha tags = %v", tagsByTitle["Alpha"])
+	}
+
+	// The track-query fence is expanded to a Markdown result table at build time; #docs matches the
+	// nested docs/guide tag too.
+	site := readJSON[jsonSite](t, filepath.Join(out, "data", "site.json"))
+	root := readJSON[jsonNoteResponse](t, filepath.Join(out, "data", "note", site.Root+".json"))
+	if strings.Contains(root.Note.Body, "```track-query") {
+		t.Fatalf("query fence should be expanded: %q", root.Note.Body)
+	}
+	if !strings.Contains(root.Note.Body, "| [[Alpha]] | docs/guide |") ||
+		!strings.Contains(root.Note.Body, "| [[Home]] | docs |") {
+		t.Fatalf("expanded table missing rows: %q", root.Note.Body)
+	}
+	if strings.Contains(root.Note.Body, "[[Beta]]") {
+		t.Fatalf("untagged note must not match #docs: %q", root.Note.Body)
+	}
+
+	// Every used tag and its ancestors get a real page file.
+	for _, rel := range []string{"tags/docs/index.html", "tags/docs/guide/index.html"} {
+		if !fileExists(filepath.Join(out, rel)) {
+			t.Fatalf("missing tag page %s", rel)
+		}
+	}
+}
+
 // A whole-line inline field is data that belongs in the prose (ADR 0032): it is indexed as a property
 // *and* rendered as the line it is. Note-level metadata is not written in a body at all.
 func TestBuildDirPublishesInlineFieldProps(t *testing.T) {
@@ -306,9 +358,6 @@ func TestBuildDirSiteConfigRejectsBadFile(t *testing.T) {
 		{"unknown key", "home: index\nbase_url: https://example.com\n", []string{"site.yml", "base_url"}},
 		{"unknown nested key", "icons:\n  colors:\n    idea: blue\n", []string{"site.yml", "colors"}},
 		{"malformed yaml", "home: [index\n", []string{"site.yml"}},
-		// A directory page has no tags, so a tag map could never match one: the site config does not take
-		// the key, rather than accept a mapping that silently does nothing.
-		{"tag map", "icons:\n  tags:\n    reference: 📖\n", []string{"site.yml", "tags"}},
 		// A second document is never read by a single Decode: its keys would be dropped unchecked.
 		{"second document", "home: index\n---\nhome: ghost\nbase_url: https://oops\n", []string{"site.yml", "document"}},
 	}
@@ -328,14 +377,18 @@ func TestBuildDirSiteConfigRejectsBadFile(t *testing.T) {
 	}
 }
 
-// A page's icon comes from the site config's icons.pages, keyed by file base name — the per-page override
-// slot of config.NoteIcon, the one resolver. A page with no entry falls through to the kinds map.
+// A page's icon comes from the site config's pages entry, keyed by file base name — the per-page override
+// slot of config.NoteIcon, the one resolver. A page whose entry carries only tags takes the icons.tags
+// mapping, and a page with neither falls through to the kinds map: override → tags → kinds, the same
+// precedence a vault note resolves in.
 func TestBuildDirSiteConfigIcons(t *testing.T) {
 	src := writeDir(t, map[string]string{
-		"index.md": "# Index\n",
-		"over.md":  "# Over\n",
-		"kind.md":  "# Kind\n", // no icons.pages entry: falls through to the kinds map
-		"site.yml": "icons:\n  pages:\n    index: 💡\n    over: 🔥\n  kinds:\n    note: 📄\n",
+		"index.md":  "# Index\n",
+		"over.md":   "# Over\n",
+		"tagged.md": "# Tagged\n", // no icon of its own: the icons.tags mapping supplies it
+		"kind.md":   "# Kind\n",   // no pages entry at all: falls through to the kinds map
+		"site.yml": "pages:\n  index:\n    icon: 💡\n  over:\n    icon: 🔥\n  tagged:\n    tags: [guide]\n" +
+			"icons:\n  tags:\n    guide: 📚\n  kinds:\n    note: 📄\n",
 	})
 
 	out := t.TempDir()
@@ -352,7 +405,7 @@ func TestBuildDirSiteConfigIcons(t *testing.T) {
 	}
 
 	// "note" is the only kind a directory page has, so the kinds map is what every unlisted page gets.
-	want := map[string]string{"Index": "💡", "Over": "🔥", "Kind": "📄"}
+	want := map[string]string{"Index": "💡", "Over": "🔥", "Tagged": "📚", "Kind": "📄"}
 	for title, icon := range want {
 		if icons[title] != icon {
 			t.Errorf("%s icon = %q, want %q", title, icons[title], icon)
@@ -360,39 +413,38 @@ func TestBuildDirSiteConfigIcons(t *testing.T) {
 	}
 }
 
-// An icons.pages entry naming no page is a typo — a page renamed, or its name misspelled — and the page
-// it meant to decorate would otherwise publish with the wrong icon, silently. It is a build error naming
-// both the entry and the file it looked for.
-func TestBuildDirSiteConfigRejectsOrphanIconPage(t *testing.T) {
+// A pages entry naming no page is a typo — a page renamed, or its name misspelled — and the page it
+// meant to describe would otherwise publish with the wrong icon and no tags, silently. It is a build
+// error naming both the entry and the file it looked for.
+func TestBuildDirSiteConfigRejectsOrphanPage(t *testing.T) {
 	src := writeDir(t, map[string]string{
 		"index.md": "# Index\n",
-		"site.yml": "icons:\n  pages:\n    index: 🧭\n    ghost: 👻\n",
+		"site.yml": "pages:\n  index:\n    icon: 🧭\n  ghost:\n    icon: 👻\n",
 	})
 	_, err := BuildDir(src, "", fakeFrontend(t), t.TempDir())
 	if err == nil {
-		t.Fatalf("an icons.pages entry with no page must fail the build")
+		t.Fatalf("a pages entry with no page must fail the build")
 	}
-	for _, want := range []string{"icons.pages", "ghost", "ghost.md"} {
+	for _, want := range []string{"pages", "ghost", "ghost.md"} {
 		if !strings.Contains(err.Error(), want) {
 			t.Errorf("error %q should name %q", err, want)
 		}
 	}
 }
 
-// An icons.pages entry with no icon is the orphan entry's sibling: the emoji deleted by hand, or a bare
-// "index:" that YAML decodes to null, and the page falls through to the kind map without a word. Both are
-// entries that do nothing, and neither is what its author meant.
-func TestBuildDirSiteConfigRejectsEmptyIconPage(t *testing.T) {
+// A pages entry that says nothing — no icon, no tags, an entry YAML decodes to its zero value — is the
+// orphan entry's sibling: it does nothing, and an entry that does nothing is never what its author meant.
+func TestBuildDirSiteConfigRejectsEmptyPage(t *testing.T) {
 	for _, yml := range []string{
-		"icons:\n  pages:\n    index: \"\"\n",
-		"icons:\n  pages:\n    index:\n", // YAML null
+		"pages:\n  index: {}\n",
+		"pages:\n  index:\n", // YAML null
 	} {
 		src := writeDir(t, map[string]string{"index.md": "# Index\n", "site.yml": yml})
 		_, err := BuildDir(src, "", fakeFrontend(t), t.TempDir())
 		if err == nil {
-			t.Fatalf("%q: an icons.pages entry with no icon must fail the build", yml)
+			t.Fatalf("%q: a pages entry that says nothing must fail the build", yml)
 		}
-		for _, want := range []string{"icons.pages", "index"} {
+		for _, want := range []string{"pages", "index"} {
 			if !strings.Contains(err.Error(), want) {
 				t.Errorf("error %q should name %q", err, want)
 			}

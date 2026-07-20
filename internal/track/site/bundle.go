@@ -16,6 +16,7 @@ import (
 	"github.com/ttak0422/track/internal/track/dashboard"
 	"github.com/ttak0422/track/internal/track/link"
 	"github.com/ttak0422/track/internal/track/note"
+	"github.com/ttak0422/track/internal/track/query"
 	"github.com/ttak0422/track/internal/track/task"
 )
 
@@ -123,8 +124,9 @@ type jsonSite struct {
 }
 
 // writeBundle emits the data bundle, copies the static frontend over it, and copies assets. frontendDir
-// is the static-mode Vite build (index.html + assets/...). root is the entry note's id.
-func writeBundle(docs []doc, edges []edge, root int64, calendar bool, baseURL, frontendDir, outDir string) (Result, error) {
+// is the static-mode Vite build (index.html + assets/...). root is the entry note's id. saved supplies
+// the named queries a ```track-query fence may reference (nil on a directory site, which has no config).
+func writeBundle(docs []doc, edges []edge, root int64, calendar bool, baseURL string, saved map[string]string, frontendDir, outDir string) (Result, error) {
 	if len(docs) == 0 {
 		return Result{}, fmt.Errorf("no notes to publish")
 	}
@@ -196,6 +198,13 @@ func writeBundle(docs []doc, edges []edge, root int64, calendar bool, baseURL, f
 		}
 		linkers[e.dst] = append(linkers[e.dst], src)
 	}
+	// The query domain for embedded ```track-query fences is the published set (in the shared
+	// recently-updated-first order), so a published table never links to — or leaks — an unpublished
+	// note; its [[Title]] cells resolve through resolve.json like any other wiki link.
+	queryRows := make([]query.NoteRow, 0, len(listed))
+	for _, d := range listed {
+		queryRows = append(queryRows, query.NoteRow{ID: d.id, Title: d.title, Tags: d.tags, Props: d.props, Mtime: d.mtime})
+	}
 	for _, d := range docs {
 		srcs := linkers[d.id]
 		byRecency(srcs)
@@ -208,15 +217,18 @@ func writeBundle(docs []doc, edges []edge, root int64, calendar bool, baseURL, f
 		// Resolve ```dashboard widget blocks to Markdown (recent/journal/pinned lists) at build time, so
 		// a published home note shows the same landing view the live workspace does.
 		body = dashboard.Resolve(body, dashData)
-		// Then resolve ```viewspec fences to ready-to-draw ```echarts option blocks at build time.
+		// Then resolve ```viewspec fences to ready-to-draw ```echarts option blocks, and
+		// ```track-query fences to their Markdown result tables, at build time.
 		body = resolveViewSpecBlocks(body, d.dataDir, noteSlug)
+		body = query.ExpandBlocks(body, saved, queryRows)
 		resp := jsonNoteResponse{
 			Note: jsonNoteDetail{
 				// Includes resolve against the published body so their line numbers match what the
 				// frontend renders. Target ids stay unpublished (0): the embed header navigates by
 				// key through resolve.json, like every other link on the static site.
-				// ponytail: a viewspec fence inside an embedded region shows as source in static
-				// mode (targets skip resolveViewSpecBlocks); resolve per-target if that ever matters.
+				// ponytail: a viewspec or track-query fence inside an embedded region shows as
+				// source in static mode (targets skip the fence resolvers); resolve per-target if
+				// that ever matters.
 				Includes: link.ResolveIncludes(body, func(key string) (int64, string, string, bool) {
 					t, ok := keyDocs[key]
 					if !ok {

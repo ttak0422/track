@@ -121,5 +121,5 @@ properties:
   body — sidecar values first, then inline fields in body order. In the live workspace the Meta
   dialog edits the sidecar values; the published site stays read-only.
 - `track meta` prints them as JSON for scripts.
-- The index stores every value typed and with line provenance, ready for filtering and sorting in
-  future queries.
+- The index stores every value typed and with line provenance, and [[Query]] filters, sorts, and
+  tabulates notes by these values — from the CLI or an embedded `track-query` block.

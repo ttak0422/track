@@ -2,7 +2,6 @@ import { MarkdownView } from "./MarkdownView";
 import { TaskBoardContext } from "./markdown/context";
 import { LoadingIndicator, NoteAside, NoteProperties, NoteTags, journalDateFromNote } from "./noteShared";
 import { useNoteQuery, useRenderQuery } from "../queries";
-import { useSearchState } from "../searchState";
 import { useTabs } from "./tabs/tabsStore";
 import { useEffect } from "react";
 import type { NoteID } from "../types";
@@ -13,7 +12,6 @@ import type { NoteID } from "../types";
 // static bundle.
 export function NoteReaderStatic({ noteID }: { noteID: NoteID }) {
   const noteQuery = useNoteQuery(noteID);
-  const { setQuery } = useSearchState();
   const { setTitle: setTabTitle } = useTabs();
   const note = noteQuery.data?.note;
   const rendered = useRenderQuery(note?.body ?? "");
@@ -37,7 +35,7 @@ export function NoteReaderStatic({ noteID }: { noteID: NoteID }) {
 
   return (
     <article className="note-reader">
-      <NoteTags tags={data.note.tags ?? []} onTag={setQuery} />
+      <NoteTags tags={data.note.tags ?? []} />
       <NoteProperties props={data.note.props ?? []} />
 
       <section className="note-preview" aria-label="Rendered note">

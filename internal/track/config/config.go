@@ -64,6 +64,10 @@ type Config struct {
 	// Properties is the optional per-key note-property schema (config `properties:`): a declared
 	// value type and/or enum candidates. Keys not listed here are unconstrained.
 	Properties map[string]PropSpec
+	// Queries names saved query expressions (config `queries:`), runnable as `track query --saved
+	// <name>` and referenced from a ```track-query fence as "saved: <name>". A bad expression fails
+	// when run, not at load, so a typo never blocks unrelated commands.
+	Queries map[string]string
 	// CaptureInbox is the default target for `track capture` when --target is omitted: a note title,
 	// optionally with a "#heading" anchor (e.g. "Inbox#Tasks"). The note is created on first capture
 	// when missing; a named heading must already exist.
@@ -85,7 +89,7 @@ type IconMap struct {
 // are stored) is used, then the note kind's mapping, then "" for no icon. Keeping this on Config means
 // every surface resolves an icon the same way: the live workspace's search, the vault export, and the
 // directory export, which calls it with a published site's own icon maps and, as the override, that
-// site's icons.pages entry for the page (see site.BuildDir).
+// site's pages entry for the page (see site.BuildDir).
 func (c *Config) NoteIcon(kind string, tags []string, override string) string {
 	if override != "" {
 		return override
@@ -122,6 +126,7 @@ type fileConfig struct {
 	TaskStates        []task.State        `yaml:"task_states"`
 	Embedder          argvList            `yaml:"embedder"`
 	Properties        map[string]PropSpec `yaml:"properties"`
+	Queries           map[string]string   `yaml:"queries"`
 	CaptureInbox      string              `yaml:"capture_inbox"`
 	ArchiveNote       string              `yaml:"archive_note"`
 	Web               webFileConfig       `yaml:"web"`
@@ -352,6 +357,7 @@ func Load() (*Config, error) {
 		Icons:             IconMap{Tags: fc.Icons.Tags, Kinds: fc.Icons.Kinds},
 		EmbedderCommand:   embedder,
 		Properties:        fc.Properties,
+		Queries:           fc.Queries,
 		CaptureInbox:      captureInbox,
 		ArchiveNote:       archiveNote,
 	}, nil

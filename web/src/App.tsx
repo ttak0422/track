@@ -16,6 +16,7 @@ import { GraphFullView } from "./components/GraphFullView";
 import { NoteReader } from "./components/NoteReader";
 import { SearchHome } from "./components/SearchHome";
 import { Shell } from "./components/Shell";
+import { TagView } from "./components/TagView";
 import "./styles.css";
 
 const rootRoute = createRootRoute({
@@ -52,6 +53,14 @@ const dayRoute = createRoute({
   component: DayRoute,
 });
 
+// Tags are hierarchical (#a/b/c), so the tag page uses a splat param — the whole rest of the path is
+// the tag, slashes included.
+const tagRoute = createRoute({
+  getParentRoute: () => rootRoute,
+  path: "/tags/$",
+  component: TagRoute,
+});
+
 // The static site's empty state (reached by closing every tab) has its own route so it is a real
 // prerendered file, rather than sharing "/" — which is the start page.
 const emptyRoute = createRoute({
@@ -66,6 +75,7 @@ const routeTree = rootRoute.addChildren([
   graphRoute,
   calendarRoute,
   dayRoute,
+  tagRoute,
   emptyRoute,
 ]);
 
@@ -171,4 +181,9 @@ function GraphRoute() {
 function DayRoute() {
   const { date } = dayRoute.useParams();
   return <DayView date={date} />;
+}
+
+function TagRoute() {
+  const { _splat } = tagRoute.useParams();
+  return <TagView tag={_splat ?? ""} />;
 }

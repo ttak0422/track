@@ -119,3 +119,12 @@ identically from a contributor's laptop and from CI, and CI has no `~/.config/tr
 - The cost is a second config surface. It is bounded by the ownership rule above: a key belongs in
   `site.yml` only if it describes the published site itself, and in the CLI only if it describes one
   deployment of it.
+
+## Amendment (PR #15, `feat/query`)
+
+The anticipated follow-up above landed with that branch, one shape refinement included: with tags joining
+icons as per-page metadata, the per-page map is no longer icon-specific, so it moved from `icons.pages` to
+a top-level `pages` map whose entries hold the page's metadata (`cli: {icon: ⌨️, tags: [help/reference]}`)
+— the "one map keyed by file base name" of the decision above, under its own name. `icons` keeps the pure
+mappings (`tags`, now accepted since pages carry tags to match, and `kinds`), and the resolver precedence
+is unchanged: the page's own icon, then its tags, then its kind.

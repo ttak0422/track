@@ -153,8 +153,9 @@ so these blank lines survive
 
 | Command | Purpose |
 | --- | --- |
-| `track search --query <s>` | Search notes; `--query '#tag'` filters by tag. |
+| `track search --query <s>` | Search notes; `--query '#tag'` filters by tag (hierarchical: `#a` matches `#a/b`). |
 | `track search --scope body --query <s>` | Full-text search of note bodies, ranked by relevance. |
+| `track query '<expr>'` | Run a table [[Query]] over notes; `--saved <name>` runs a named one. |
 | `track notes` | List every note, newest first. |
 | `track notes --untagged` | List only the notes that still carry no tags. |
 | `track resolve --term <s>` | Resolve a keyword to a note. |

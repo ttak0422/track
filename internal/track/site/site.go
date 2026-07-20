@@ -95,7 +95,7 @@ func Build(cfg *config.Config, st *store.Store, opts Options, frontendDir, outDi
 	if err != nil {
 		return Result{}, err
 	}
-	return writeBundle(docs, edges, opts.Root, opts.Calendar, opts.BaseURL, frontendDir, outDir)
+	return writeBundle(docs, edges, opts.Root, opts.Calendar, opts.BaseURL, cfg.Queries, frontendDir, outDir)
 }
 
 // vaultEdges returns the [[link]] edges of the index whose endpoints are both in the published set.

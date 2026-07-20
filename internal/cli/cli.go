@@ -77,6 +77,8 @@ func Run(args []string) int {
 		return cmdResolve(rest)
 	case "search":
 		return cmdSearch(rest)
+	case "query":
+		return cmdQuery(rest)
 	case "similar":
 		return cmdSimilar(rest)
 	case "notes":
@@ -179,6 +181,8 @@ Usage:
   track resolve (--term <s> | <s>)      resolve a keyword to a note (JSON)
   track search --query <s> [--scope all|title|body] [--limit N]
                                         search notes (JSON)
+  track query (<expr> | --saved <name>)  run a table query over notes, e.g.
+                                        'TABLE title, status FROM #project WHERE status != done SORT due LIMIT 10' (JSON)
   track similar --id N [--limit K]      list notes semantically closest to a note, using the configured
                                         embedder command; explains setup and exits cleanly if none (JSON)
   track notes [--untagged] [--limit N]  list notes, newest first; --untagged keeps only notes with no

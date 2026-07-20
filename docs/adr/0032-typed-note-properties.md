@@ -30,8 +30,8 @@ Prior art: Obsidian stores properties as YAML frontmatter in the body file; Data
   regression.
 - **A published directory's pages keep the split too — in the site config.** `track export-site --src
   <dir>` publishes plain Markdown files that belong to no vault. The body/metadata split holds: the
-  page body stays pure Markdown at `<dir>/<name>.md`, and what the page says about itself (today, its
-  icon) goes outside it, into the directory's `site.yml` under `icons.pages`, keyed by file base name
+  page body stays pure Markdown at `<dir>/<name>.md`, and what the page says about itself (its icon,
+  its tags) goes outside it, into the directory's `site.yml` under `pages`, keyed by file base name
   (ADR 0049). *Where* outside the body differs from a vault on purpose. A vault note's sidecar is
   tool-created — `track new` and `track open` write it, `track meta` and `track rename` maintain it —
   so it costs a human nothing; a published directory has no such tool between the author and the
@@ -75,15 +75,14 @@ forced a second wrong: to keep those lines out of the published prose, the web r
 whole-line inline field, so a journal's own `weight:: 68.2` line rendered as a blank line in the live
 workspace. One misplaced fact cost every user their prose.
 
-The fix is `icons.pages` above: metadata out of the body, and the body renders whole again — a whole-line
-field is published as the line the author wrote, and indexed from that same line. The rule this ADR now
-states plainly — inline fields are for data that belongs in the prose, never for note-level metadata — is
-what would have caught it.
+The fix is the site config's `pages` map above: metadata out of the body, and the body renders whole
+again — a whole-line field is published as the line the author wrote, and indexed from that same line. The
+rule this ADR now states plainly — inline fields are for data that belongs in the prose, never for
+note-level metadata — is what would have caught it.
 
-Follow-up (not yet done): PR #15 (`feat/query`) adds `tags::` inline fields to a dozen `docs/help` pages
-to drive directory-mode tag pages. A page's tags are note-level metadata, so a `tags::` field in a body is
-the same mistake `icon::` was, in the same place. When that branch lands its tags belong in the site config
-beside the icons — an `icons.pages` entry growing from `cli: ⌨️` to `cli: {icon: ⌨️, tags: [reference]}` —
-and that is also the change that would bring an `icons.tags` map into a site config, which today takes no
-such key precisely because no directory page has tags to match (ADR 0049). Nothing is implemented for it
-here.
+Follow-up (done with PR #15, `feat/query`): that branch first drove directory-mode tag pages with `tags::`
+inline fields in a dozen `docs/help` pages. A page's tags are note-level metadata, so a `tags::` field in a
+body is the same mistake `icon::` was, in the same place. The branch now records them in the site config
+beside the icons — a `pages` entry grown from `cli: ⌨️` to `cli: {icon: ⌨️, tags: [help/reference]}` — and
+that is also the change that brought an `icons.tags` map into the site config, which until then took no
+such key precisely because no directory page had tags to match (ADR 0049).
