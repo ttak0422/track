@@ -2428,35 +2428,39 @@ textarea.modal-input:focus-visible {
   vertical-align: middle;
 }
 
-/* Task-notation list items (remarkTaskLine): the marker chip hangs in the bullet slot the same way
-   a GFM checkbox does, sized in its own 0.8em so the offsets below equal 1em/0.4em/-1.3em of text. */
-.markdown-view li.task-line {
+/* Rich task rows (remarkTaskLine): a checklist that uses task notation renders each task line as a
+   card-like row — state badge, text, metadata chips, and (live) a state select. */
+.markdown-view li.task-row {
   list-style: none;
-}
-
-.markdown-view .task-marker {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  box-sizing: border-box;
-  width: 1.25em;
-  height: 1.25em;
-  margin: 0 0.5em 0 -1.625em;
+  margin: 4px 0;
+  padding: 5px 10px;
   border: 1px solid var(--line);
-  border-radius: 3px;
+  border-radius: 6px;
+}
+
+.markdown-view .task-row-state {
+  display: inline-block;
+  margin-right: 8px;
+  font-family: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, monospace;
+  font-size: 11px;
+  letter-spacing: 0.06em;
   color: var(--muted);
-  font-size: 0.8em;
-  line-height: 1;
-  vertical-align: middle;
 }
 
-.markdown-view .task-marker-done {
-  background: var(--panel-soft);
-}
-
-.markdown-view li.task-line-done {
+.markdown-view li.task-row-done {
   color: var(--muted);
   text-decoration: line-through;
+}
+
+.task-row-select {
+  float: right;
+  margin-left: 8px;
+  font-size: 0.75em;
+  padding: 1px 4px;
+  border: 1px solid var(--line);
+  border-radius: 4px;
+  background: var(--panel-soft);
+  color: var(--text);
 }
 
 .wiki-link-wrap {

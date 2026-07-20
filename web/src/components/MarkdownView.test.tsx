@@ -52,40 +52,42 @@ describe("MarkdownView", () => {
     expect(within(table).getByText("2")).toBeInTheDocument();
   });
 
-  it("renders GFM checkbox lines as styled task lines", () => {
+  it("keeps a plain GFM checklist as native checkboxes", () => {
     const { container } = render(<MarkdownView markdown={"- [ ] todo\n- [x] done"} />);
-    const items = container.querySelectorAll("li.task-line");
-    expect(items).toHaveLength(2);
-    // The raw GFM checkboxes are replaced by state marker chips.
-    expect(container.querySelectorAll("input[type='checkbox']")).toHaveLength(0);
-    const markers = container.querySelectorAll(".task-marker");
-    expect(markers).toHaveLength(2);
-    expect(markers[0]).toHaveAccessibleName("TODO");
-    expect(markers[1]).toHaveAccessibleName("DONE");
-    expect(items[1]).toHaveClass("task-line-done");
+    expect(container.querySelectorAll("li.task-row")).toHaveLength(0);
+    const boxes = container.querySelectorAll<HTMLInputElement>("input[type='checkbox']");
+    expect(boxes).toHaveLength(2);
+    expect(boxes[0]).not.toBeChecked();
+    expect(boxes[1]).toBeChecked();
   });
 
-  it("renders custom state markers and bracket tokens as chips", () => {
-    const { container } = render(
-      <MarkdownView markdown={"- [/] Draft the post [#A] [due:2026-07-24] [1/2]\n- [?] Wait for sync [sched:2026-07-18]"} />,
+  it("upgrades a checklist with task notation to rich rows, whole block at once", () => {
+    const { container } = renderWithQuery(
+      <MarkdownView
+        markdown={"- [/] Draft the post [#A] [due:2026-07-24] [1/2]\n- [x] plain done line\n- [?] Wait for sync [sched:2026-07-18]"}
+      />,
     );
-    const items = container.querySelectorAll("li.task-line");
-    expect(items).toHaveLength(2);
-    expect(within(items[0] as HTMLElement).getByText("Draft the post", { exact: false })).toBeInTheDocument();
-    // The raw notation is gone from the text...
+    // The [x] line has no notation of its own, but its block does — every line becomes a row.
+    const items = container.querySelectorAll("li.task-row");
+    expect(items).toHaveLength(3);
+    expect(container.querySelectorAll("input[type='checkbox']")).toHaveLength(0);
+    const badges = container.querySelectorAll(".task-row-state");
+    expect(badges[0].textContent).toBe("DOING");
+    expect(badges[1].textContent).toBe("DONE");
+    expect(badges[2].textContent).toBe("WAITING");
+    expect(items[1]).toHaveClass("task-row-done");
+    // The raw notation is gone from the text and reappears as chips.
     expect(items[0].textContent).not.toContain("[/]");
     expect(items[0].textContent).not.toContain("[#A]");
-    // ...and reappears as chips, in the board cards' vocabulary.
     expect(within(items[0] as HTMLElement).getByText("#A")).toHaveClass("task-chip-priority");
     expect(within(items[0] as HTMLElement).getByText("! 2026-07-24")).toHaveClass("task-chip-due");
     expect(within(items[0] as HTMLElement).getByText("1/2")).toHaveClass("task-chip");
-    expect(within(items[1] as HTMLElement).getByText("▷ 2026-07-18")).toHaveClass("task-chip");
-    expect(container.querySelectorAll(".task-marker")[1]).toHaveAccessibleName("WAITING");
+    expect(within(items[2] as HTMLElement).getByText("▷ 2026-07-18")).toHaveClass("task-chip");
   });
 
   it("leaves list items whose marker is outside the state set untouched", () => {
     const { container } = render(<MarkdownView markdown={"- [z] not a task\n- plain item"} />);
-    expect(container.querySelectorAll("li.task-line")).toHaveLength(0);
+    expect(container.querySelectorAll("li.task-row")).toHaveLength(0);
     expect(screen.getByText("[z] not a task")).toBeInTheDocument();
   });
 

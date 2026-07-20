@@ -26,6 +26,8 @@ import type { TaskState } from "../types";
 import { EChartsFence } from "./markdown/EChartsBlock";
 import { ViewSpecChart } from "./markdown/ViewSpecChart";
 import { WikiLink } from "./preview/WikiLink";
+import { useSetTaskStateMutation } from "../queries";
+import { STATIC_MODE } from "../runtime";
 
 interface MarkdownViewProps {
   markdown: string;
@@ -141,6 +143,41 @@ function IncludeEmbed({ include }: { include: NoteInclude }) {
 
 const emptyTaskBoard = { noteID: "" };
 
+// TaskRowSelect is the state select on a rich task row — the same write path as the board's cards.
+// It resolves its row to the engine-parsed task by state + stripped text; without a unique match
+// (duplicate lines, inline markup in the text) the row renders without a select and the board
+// remains the editor. Static sites and hover previews (no note id) get no select either.
+function TaskRowSelect({ node }: ElementProps) {
+  const { noteID, tasks } = useContext(TaskBoardContext);
+  const mutation = useSetTaskStateMutation(noteID);
+  if (STATIC_MODE || noteID === "" || !tasks) {
+    return null;
+  }
+  const props = (node?.properties ?? {}) as { state?: unknown; text?: unknown };
+  const matches = tasks.items.filter(
+    (t) => t.state === String(props.state ?? "") && t.text === String(props.text ?? ""),
+  );
+  if (matches.length !== 1) {
+    return null;
+  }
+  const item = matches[0];
+  return (
+    <select
+      className="task-row-select"
+      aria-label="Task state"
+      value={item.state}
+      disabled={mutation.isPending}
+      onChange={(event) => mutation.mutate({ line: item.line, state: event.currentTarget.value })}
+    >
+      {tasks.states.map((state) => (
+        <option key={state.name} value={state.name}>
+          {state.name}
+        </option>
+      ))}
+    </select>
+  );
+}
+
 // TrackInclude resolves the placeholder's index against the includes of the note being rendered.
 function TrackInclude({ node }: ElementProps) {
   const includes = useContext(IncludesContext);
@@ -229,19 +266,15 @@ const markdownComponents = {
     const props = (node?.properties ?? {}) as { target?: unknown; display?: unknown };
     return <WikiLink target={String(props.target ?? "")} display={String(props.display ?? "")} />;
   },
-  taskmarker: ({ node }: ElementProps) => {
-    const props = (node?.properties ?? {}) as { name?: unknown; char?: unknown; done?: unknown };
-    const char = String(props.char ?? " ");
+  taskbadge: ({ node }: ElementProps) => {
+    const props = (node?.properties ?? {}) as { name?: unknown; done?: unknown };
     return (
-      <span
-        className={`task-marker${props.done ? " task-marker-done" : ""}`}
-        title={String(props.name ?? "")}
-        aria-label={String(props.name ?? "")}
-      >
-        {char === " " ? "" : char}
+      <span className={`task-row-state${props.done ? " task-row-state-done" : ""}`}>
+        {String(props.name ?? "")}
       </span>
     );
   },
+  taskselect: TaskRowSelect,
   taskchip: ({ node }: ElementProps) => {
     const props = (node?.properties ?? {}) as { kind?: unknown; value?: unknown };
     const value = String(props.value ?? "");

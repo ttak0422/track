@@ -82,70 +82,133 @@ export function remarkWikiLink() {
   };
 }
 
-// remarkTaskLine renders task notation in place, without a dedicated fence: a list item whose text
-// starts with a state marker from the vault's state set drops the raw "[/]" for a styled marker chip,
-// and the line's bracket tokens ([#A], [sched:...], [due:...], [done:...], [n/m], [p%]) become the
-// same metadata chips the board's cards wear. A marker character outside the state set is left
-// exactly as written — the notation only switches presentation where it means a task.
+// remarkTaskLine upgrades checklists that use task notation (docs/help/tasks.md) into rich task
+// rows, deciding per list block: when any item of a list carries notation beyond a bare GFM
+// checkbox — a custom state marker, or a [#A]/[sched:]/[due:]/[done:]/cookie token — every task
+// line in that list renders as a row with a state badge, the text, metadata chips, and (live) the
+// same state select the board's cards carry. A checklist of plain "- [ ]"/"- [x]" lines keeps its
+// native checkboxes. A marker outside the state set is not a task and stays exactly as written.
 const taskTokenPattern = /\[(?:#([A-Za-z])|(sched|due|done):(\d{4}-\d{2}-\d{2})|(\d+\/\d+|\d+%))\]/g;
+
+interface TaskItemParse {
+  state: TaskState;
+  // custom is true when the marker was a literal "[c]" in the text, not a GFM-parsed checkbox.
+  custom: boolean;
+  hasTokens: boolean;
+  prefixLen: number;
+}
+
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+function parseTaskItem(item: any, byChar: Map<string, TaskState>): TaskItemParse | null {
+  const para = item.children?.[0];
+  if (!para || para.type !== "paragraph") return null;
+  let state: TaskState | undefined;
+  let custom = false;
+  let prefixLen = 0;
+  if (typeof item.checked === "boolean") {
+    state = byChar.get(item.checked ? "x" : " ");
+    if (!state) return null; // this vault gives those markers no meaning — keep the GFM checkbox
+  } else {
+    const first = para.children?.[0];
+    if (!first || first.type !== "text") return null;
+    const m = /^\[(.)\][ \t]+/.exec(first.value);
+    if (!m) return null;
+    state = byChar.get(m[1]);
+    if (!state) return null;
+    custom = true;
+    prefixLen = m[0].length;
+  }
+  let hasTokens = false;
+  for (const child of para.children) {
+    if (child.type !== "text") continue;
+    taskTokenPattern.lastIndex = 0;
+    if (taskTokenPattern.test(child.value)) {
+      hasTokens = true;
+      break;
+    }
+  }
+  return { state, custom, hasTokens, prefixLen };
+}
+
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+function upgradeTaskItem(item: any, p: TaskItemParse) {
+  const para = item.children[0];
+  if (p.custom) {
+    para.children[0].value = para.children[0].value.slice(p.prefixLen);
+  }
+  item.checked = null; // drop the GFM checkbox; the state badge takes its place
+
+  for (let i = 0; i < para.children.length; i++) {
+    const child = para.children[i];
+    if (child.type !== "text") continue;
+    taskTokenPattern.lastIndex = 0;
+    if (!taskTokenPattern.test(child.value)) continue;
+    taskTokenPattern.lastIndex = 0;
+    const parts: unknown[] = [];
+    let last = 0;
+    let match: RegExpExecArray | null;
+    while ((match = taskTokenPattern.exec(child.value)) !== null) {
+      if (match.index > last) {
+        parts.push({ type: "text", value: child.value.slice(last, match.index) });
+      }
+      const kind = match[1] ? "priority" : (match[2] ?? "cookie");
+      const value = match[1] ?? match[3] ?? match[4];
+      parts.push({ type: "taskchip", data: { hName: "taskchip", hProperties: { kind, value } }, children: [] });
+      last = taskTokenPattern.lastIndex;
+    }
+    if (last < child.value.length) {
+      parts.push({ type: "text", value: child.value.slice(last) });
+    }
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    para.children.splice(i, 1, ...(parts as any[]));
+    i += parts.length - 1;
+  }
+
+  // The row's plain text after marker and tokens — the key the state select uses to find the
+  // engine-parsed task (and its line number) in the note context. Rows whose text carries inline
+  // markup (links, emphasis) may not match and simply render without the select; the board remains
+  // the full editor.
+  const text = para.children
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    .filter((c: any) => c.type === "text")
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    .map((c: any) => c.value)
+    .join("")
+    .replace(/\s+/g, " ")
+    .trim();
+
+  para.children.unshift({
+    type: "taskbadge",
+    data: { hName: "taskbadge", hProperties: { name: p.state.name, done: p.state.done } },
+    children: [],
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  } as any);
+  para.children.push({
+    type: "taskselect",
+    data: { hName: "taskselect", hProperties: { state: p.state.name, text } },
+    children: [],
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  } as any);
+  const data = (item.data ??= {});
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  (data as any).hProperties = { className: p.state.done ? "task-row task-row-done" : "task-row" };
+}
 
 export function remarkTaskLine(options: { states: TaskState[] }) {
   const byChar = new Map(options.states.map((s) => [s.char, s]));
   return (tree: MdastRoot) => {
-    visit(tree, "listItem", (item) => {
-      const para = item.children[0];
-      if (!para || para.type !== "paragraph") return;
-      let state: TaskState | undefined;
-      if (typeof item.checked === "boolean") {
-        // GFM already consumed a "[ ]"/"[x]" marker; map it back through the state set.
-        state = byChar.get(item.checked ? "x" : " ");
-        if (!state) return; // this vault gives those markers no meaning — keep the GFM checkbox
-      } else {
-        const first = para.children[0];
-        if (!first || first.type !== "text") return;
-        const m = /^\[(.)\][ \t]+/.exec(first.value);
-        if (!m) return;
-        state = byChar.get(m[1]);
-        if (!state) return;
-        first.value = first.value.slice(m[0].length);
-      }
-      item.checked = null; // drop the GFM checkbox; the marker chip takes its place
-
-      for (let i = 0; i < para.children.length; i++) {
-        const child = para.children[i];
-        if (child.type !== "text") continue;
-        taskTokenPattern.lastIndex = 0;
-        if (!taskTokenPattern.test(child.value)) continue;
-        taskTokenPattern.lastIndex = 0;
-        const parts: unknown[] = [];
-        let last = 0;
-        let match: RegExpExecArray | null;
-        while ((match = taskTokenPattern.exec(child.value)) !== null) {
-          if (match.index > last) {
-            parts.push({ type: "text", value: child.value.slice(last, match.index) });
-          }
-          const kind = match[1] ? "priority" : (match[2] ?? "cookie");
-          const value = match[1] ?? match[3] ?? match[4];
-          parts.push({ type: "taskchip", data: { hName: "taskchip", hProperties: { kind, value } }, children: [] });
-          last = taskTokenPattern.lastIndex;
-        }
-        if (last < child.value.length) {
-          parts.push({ type: "text", value: child.value.slice(last) });
-        }
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any
-        para.children.splice(i, 1, ...(parts as any[]));
-        i += parts.length - 1;
-      }
-
-      para.children.unshift({
-        type: "taskmarker",
-        data: { hName: "taskmarker", hProperties: { name: state.name, char: state.char, done: state.done } },
-        children: [],
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      } as any);
-      const data = (item.data ??= {});
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    visit(tree, "list", (list: any) => {
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      (data as any).hProperties = { className: state.done ? "task-line task-line-done" : "task-line" };
+      const parsed = list.children.map((item: any) => parseTaskItem(item, byChar));
+      if (!parsed.some((p: TaskItemParse | null) => p && (p.custom || p.hasTokens))) {
+        return; // plain GFM checklist (or no tasks at all): leave it alone
+      }
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      list.children.forEach((item: any, i: number) => {
+        const p = parsed[i];
+        if (p) upgradeTaskItem(item, p);
+      });
     });
   };
 }
