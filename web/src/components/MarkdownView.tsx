@@ -18,9 +18,11 @@ import {
   remarkAlert,
   remarkEmbedOptions,
   remarkInclude,
+  remarkTaskLine,
   remarkWikiLink,
   spliceIncludeTokens,
 } from "./markdown/plugins";
+import type { TaskState } from "../types";
 import { EChartsFence } from "./markdown/EChartsBlock";
 import { ViewSpecChart } from "./markdown/ViewSpecChart";
 import { WikiLink } from "./preview/WikiLink";
@@ -38,7 +40,19 @@ interface MarkdownViewProps {
 // /api/render (action links flattened); the track-specific construct is [[...]] wiki links (remarkWikiLink).
 // KaTeX is loaded lazily (see ./markdown/math), so a note without math never pulls in its bundle; while a
 // math note's first render waits for that chunk, the "$…$" briefly shows as source, then typesets.
+// defaultTaskStates mirrors the engine's task.DefaultStates, so task notation renders styled even
+// where no note context supplies the vault's state set (previews, include embeds).
+const defaultTaskStates: TaskState[] = [
+  { name: "TODO", char: " ", done: false },
+  { name: "DOING", char: "/", done: false },
+  { name: "WAITING", char: "?", done: false },
+  { name: "DONE", char: "x", done: true },
+  { name: "CANCELLED", char: "-", done: true },
+];
+
 export function MarkdownView({ markdown, kind = "note", includes }: MarkdownViewProps) {
+  const { tasks } = useContext(TaskBoardContext);
+  const taskStates = tasks && tasks.states.length > 0 ? tasks.states : defaultTaskStates;
   const hasMath = looksLikeMath(markdown);
   const [math, setMath] = useState<MathPlugins | null>(() => (hasMath ? mathPluginsIfLoaded() : null));
 
@@ -71,6 +85,8 @@ export function MarkdownView({ markdown, kind = "note", includes }: MarkdownView
     ...(math ? [math.remark] : []),
     remarkWikiLink,
     ...(hasIncludes ? [remarkInclude] : []),
+    // After remarkWikiLink, so a [[link]] in task text is consumed before token extraction.
+    [remarkTaskLine, { states: taskStates }] as [typeof remarkTaskLine, { states: TaskState[] }],
   ];
   // BudouX (Japanese word-break) is gated behind __TRACK_STATIC__, a build-time literal, so the static
   // help site tree-shakes its ~190KB model away (English content is never segmented) while the live
@@ -212,6 +228,35 @@ const markdownComponents = {
   wikilink: ({ node }: ElementProps) => {
     const props = (node?.properties ?? {}) as { target?: unknown; display?: unknown };
     return <WikiLink target={String(props.target ?? "")} display={String(props.display ?? "")} />;
+  },
+  taskmarker: ({ node }: ElementProps) => {
+    const props = (node?.properties ?? {}) as { name?: unknown; char?: unknown; done?: unknown };
+    const char = String(props.char ?? " ");
+    return (
+      <span
+        className={`task-marker${props.done ? " task-marker-done" : ""}`}
+        title={String(props.name ?? "")}
+        aria-label={String(props.name ?? "")}
+      >
+        {char === " " ? "" : char}
+      </span>
+    );
+  },
+  taskchip: ({ node }: ElementProps) => {
+    const props = (node?.properties ?? {}) as { kind?: unknown; value?: unknown };
+    const value = String(props.value ?? "");
+    switch (String(props.kind ?? "")) {
+      case "priority":
+        return <span className="task-chip task-chip-priority">#{value}</span>;
+      case "sched":
+        return <span className="task-chip">▷ {value}</span>;
+      case "due":
+        return <span className="task-chip task-chip-due">! {value}</span>;
+      case "done":
+        return <span className="task-chip">✓ {value}</span>;
+      default:
+        return <span className="task-chip">{value}</span>;
+    }
   },
   trackinclude: TrackInclude,
 } as Components;

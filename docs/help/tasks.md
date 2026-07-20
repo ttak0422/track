@@ -21,6 +21,10 @@ The character inside the brackets names the state (the Obsidian-style custom-che
 DONE and CANCELLED are *done-family* states: moving a task into one stamps a completion date on the
 line, and moving it back out removes the stamp again.
 
+The notation is also all the renderer needs: in the live [[Web workspace]] and on a published site,
+any list item starting with a state marker renders styled in place — the marker becomes a state chip
+and the bracket tokens below become metadata chips — while the note file keeps the plain text.
+
 The state set is configurable per vault in `config.yml`; the set above is the default. Each state
 needs a unique name and a unique single-character marker, and `done: true` marks it as
 completion-family:

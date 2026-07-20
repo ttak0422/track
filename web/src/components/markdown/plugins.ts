@@ -1,6 +1,7 @@
 import type { Element, Root as HastRoot, Text as HastText } from "hast";
 import type { Root as MdastRoot } from "mdast";
 import { visit } from "unist-util-visit";
+import type { TaskState } from "../../types";
 
 // The [[target|display]] wiki-link grammar (target, optional |display alias). Shared with the portable
 // export so both flatten the same construct. It carries the /g flag; reset lastIndex before manual exec.
@@ -77,6 +78,74 @@ export function remarkWikiLink() {
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       parent.children.splice(index, 1, ...(replacement as any[]));
       return index + replacement.length;
+    });
+  };
+}
+
+// remarkTaskLine renders task notation in place, without a dedicated fence: a list item whose text
+// starts with a state marker from the vault's state set drops the raw "[/]" for a styled marker chip,
+// and the line's bracket tokens ([#A], [sched:...], [due:...], [done:...], [n/m], [p%]) become the
+// same metadata chips the board's cards wear. A marker character outside the state set is left
+// exactly as written — the notation only switches presentation where it means a task.
+const taskTokenPattern = /\[(?:#([A-Za-z])|(sched|due|done):(\d{4}-\d{2}-\d{2})|(\d+\/\d+|\d+%))\]/g;
+
+export function remarkTaskLine(options: { states: TaskState[] }) {
+  const byChar = new Map(options.states.map((s) => [s.char, s]));
+  return (tree: MdastRoot) => {
+    visit(tree, "listItem", (item) => {
+      const para = item.children[0];
+      if (!para || para.type !== "paragraph") return;
+      let state: TaskState | undefined;
+      if (typeof item.checked === "boolean") {
+        // GFM already consumed a "[ ]"/"[x]" marker; map it back through the state set.
+        state = byChar.get(item.checked ? "x" : " ");
+        if (!state) return; // this vault gives those markers no meaning — keep the GFM checkbox
+      } else {
+        const first = para.children[0];
+        if (!first || first.type !== "text") return;
+        const m = /^\[(.)\][ \t]+/.exec(first.value);
+        if (!m) return;
+        state = byChar.get(m[1]);
+        if (!state) return;
+        first.value = first.value.slice(m[0].length);
+      }
+      item.checked = null; // drop the GFM checkbox; the marker chip takes its place
+
+      for (let i = 0; i < para.children.length; i++) {
+        const child = para.children[i];
+        if (child.type !== "text") continue;
+        taskTokenPattern.lastIndex = 0;
+        if (!taskTokenPattern.test(child.value)) continue;
+        taskTokenPattern.lastIndex = 0;
+        const parts: unknown[] = [];
+        let last = 0;
+        let match: RegExpExecArray | null;
+        while ((match = taskTokenPattern.exec(child.value)) !== null) {
+          if (match.index > last) {
+            parts.push({ type: "text", value: child.value.slice(last, match.index) });
+          }
+          const kind = match[1] ? "priority" : (match[2] ?? "cookie");
+          const value = match[1] ?? match[3] ?? match[4];
+          parts.push({ type: "taskchip", data: { hName: "taskchip", hProperties: { kind, value } }, children: [] });
+          last = taskTokenPattern.lastIndex;
+        }
+        if (last < child.value.length) {
+          parts.push({ type: "text", value: child.value.slice(last) });
+        }
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        para.children.splice(i, 1, ...(parts as any[]));
+        i += parts.length - 1;
+      }
+
+      para.children.unshift({
+        type: "taskmarker",
+        data: { hName: "taskmarker", hProperties: { name: state.name, char: state.char, done: state.done } },
+        children: [],
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      } as any);
+      const data = (item.data ??= {});
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      (data as any).hProperties = { className: state.done ? "task-line task-line-done" : "task-line" };
     });
   };
 }

@@ -2428,6 +2428,37 @@ textarea.modal-input:focus-visible {
   vertical-align: middle;
 }
 
+/* Task-notation list items (remarkTaskLine): the marker chip hangs in the bullet slot the same way
+   a GFM checkbox does, sized in its own 0.8em so the offsets below equal 1em/0.4em/-1.3em of text. */
+.markdown-view li.task-line {
+  list-style: none;
+}
+
+.markdown-view .task-marker {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  box-sizing: border-box;
+  width: 1.25em;
+  height: 1.25em;
+  margin: 0 0.5em 0 -1.625em;
+  border: 1px solid var(--line);
+  border-radius: 3px;
+  color: var(--muted);
+  font-size: 0.8em;
+  line-height: 1;
+  vertical-align: middle;
+}
+
+.markdown-view .task-marker-done {
+  background: var(--panel-soft);
+}
+
+.markdown-view li.task-line-done {
+  color: var(--muted);
+  text-decoration: line-through;
+}
+
 .wiki-link-wrap {
   position: relative;
   display: inline-block;
@@ -2901,6 +2932,8 @@ textarea.modal-input:focus-visible {
 }
 
 .task-chip {
+  /* inline-block also keeps a done line's strikethrough from running through the chips */
+  display: inline-block;
   font-size: 0.75em;
   padding: 1px 6px;
   border: 1px solid var(--line);

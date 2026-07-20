@@ -52,14 +52,41 @@ describe("MarkdownView", () => {
     expect(within(table).getByText("2")).toBeInTheDocument();
   });
 
-  it("renders a GFM task list with checkbox state", () => {
+  it("renders GFM checkbox lines as styled task lines", () => {
     const { container } = render(<MarkdownView markdown={"- [ ] todo\n- [x] done"} />);
-    const items = container.querySelectorAll(".task-list-item");
+    const items = container.querySelectorAll("li.task-line");
     expect(items).toHaveLength(2);
-    const boxes = container.querySelectorAll<HTMLInputElement>("input[type='checkbox']");
-    expect(boxes).toHaveLength(2);
-    expect(boxes[0]).not.toBeChecked();
-    expect(boxes[1]).toBeChecked();
+    // The raw GFM checkboxes are replaced by state marker chips.
+    expect(container.querySelectorAll("input[type='checkbox']")).toHaveLength(0);
+    const markers = container.querySelectorAll(".task-marker");
+    expect(markers).toHaveLength(2);
+    expect(markers[0]).toHaveAccessibleName("TODO");
+    expect(markers[1]).toHaveAccessibleName("DONE");
+    expect(items[1]).toHaveClass("task-line-done");
+  });
+
+  it("renders custom state markers and bracket tokens as chips", () => {
+    const { container } = render(
+      <MarkdownView markdown={"- [/] Draft the post [#A] [due:2026-07-24] [1/2]\n- [?] Wait for sync [sched:2026-07-18]"} />,
+    );
+    const items = container.querySelectorAll("li.task-line");
+    expect(items).toHaveLength(2);
+    expect(within(items[0] as HTMLElement).getByText("Draft the post", { exact: false })).toBeInTheDocument();
+    // The raw notation is gone from the text...
+    expect(items[0].textContent).not.toContain("[/]");
+    expect(items[0].textContent).not.toContain("[#A]");
+    // ...and reappears as chips, in the board cards' vocabulary.
+    expect(within(items[0] as HTMLElement).getByText("#A")).toHaveClass("task-chip-priority");
+    expect(within(items[0] as HTMLElement).getByText("! 2026-07-24")).toHaveClass("task-chip-due");
+    expect(within(items[0] as HTMLElement).getByText("1/2")).toHaveClass("task-chip");
+    expect(within(items[1] as HTMLElement).getByText("▷ 2026-07-18")).toHaveClass("task-chip");
+    expect(container.querySelectorAll(".task-marker")[1]).toHaveAccessibleName("WAITING");
+  });
+
+  it("leaves list items whose marker is outside the state set untouched", () => {
+    const { container } = render(<MarkdownView markdown={"- [z] not a task\n- plain item"} />);
+    expect(container.querySelectorAll("li.task-line")).toHaveLength(0);
+    expect(screen.getByText("[z] not a task")).toBeInTheDocument();
   });
 
   it("renders a fenced code block through CodeBlock", () => {
