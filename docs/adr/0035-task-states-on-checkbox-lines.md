@@ -33,7 +33,7 @@ emoji tokens.
 - **Completion stamps are dates in the body; the full history lives in the sidecar.** Entering a
   done-family state writes `[done:date]` on the line (visible where the reader is); leaving removes
   it. Every transition appends `{at, line, from, to, text}` to the note's sidecar metadata
-  (`task_log`, metadata v5) — the existing per-note sidecar already carries babel results and page
+  (`task_log`, metadata v7) — the existing per-note sidecar already carries babel results and page
   metadata, so history survives without an Org-style LOGBOOK drawer polluting the body.
 - **Progress cookies recompute on engine writes only.** `[n/m]`/`[p%]` on a heading counts tasks to
   the next same-or-shallower heading; on a list item, its deeper-indented children. Recompute

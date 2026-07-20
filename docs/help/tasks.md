@@ -21,10 +21,6 @@ The character inside the brackets names the state (the Obsidian-style custom-che
 DONE and CANCELLED are *done-family* states: moving a task into one stamps a completion date on the
 line, and moving it back out removes the stamp again.
 
-The notation is also all the renderer needs: in the live [[Web workspace]] and on a published site,
-any list item starting with a state marker renders styled in place — the marker becomes a state chip
-and the bracket tokens below become metadata chips — while the note file keeps the plain text.
-
 The state set is configurable per vault in `config.yml`; the set above is the default. Each state
 needs a unique name and a unique single-character marker, and `done: true` marks it as
 completion-family:
@@ -75,6 +71,15 @@ state, so the numbers never go stale.
   - [x] Review the post
 ```
 
+## Rendering
+
+The notation is all the renderer needs — there is no dedicated fence to wrap a checklist in. In the
+live [[Web workspace]] and on a published site, any list item starting with a marker from the state
+set renders styled in place: the marker becomes a state chip, the bracket tokens become metadata
+chips, and a done-family line is muted and struck through. A list item whose marker is outside the
+state set is not a task and stays exactly as written. The note file keeps the plain notation, so a
+task line remains readable anywhere else Markdown renders.
+
 ## CLI
 
 | Command | Purpose |
@@ -100,15 +105,16 @@ track tasks --overdue --sort priority
 
 ## Task board
 
-A ` ```taskboard ` fence in a note renders the note's tasks as a kanban board — one column per
-state, one card per task. In the live [[Web workspace]] a card drags between columns (or moves via
-its state select), which runs the same engine write path as `track task set`. On a published static
+Task lines render styled wherever they appear; the board is the opt-in note-wide view for *working*
+them. A ` ```taskboard ` fence renders the note's tasks as a kanban board — one column per state,
+one card per task. In the live [[Web workspace]] a card drags between columns (or moves via its
+state select), which runs the same engine write path as `track task set`. On a published static
 site the board renders read-only.
 
 ## Example
 
-A full task section as it is written in a note — the heading cookie counts the tasks below it, and
-the `taskboard` fence renders them as a board:
+A full task section as it is written in a note. The checklist renders styled on its own; the
+`taskboard` fence below it adds the board:
 
 ````md
 ### Release checklist [2/5]
