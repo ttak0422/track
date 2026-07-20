@@ -2447,20 +2447,23 @@ textarea.modal-input:focus-visible {
   color: var(--muted);
 }
 
+/* The badge doubles as the state control: a native select stripped to the badge's text look. */
+.markdown-view select.task-row-state {
+  appearance: none;
+  -webkit-appearance: none;
+  border: none;
+  background: transparent;
+  padding: 0;
+  cursor: pointer;
+}
+
+.markdown-view select.task-row-state:hover {
+  color: var(--text);
+}
+
 .markdown-view li.task-row-done {
   color: var(--muted);
   text-decoration: line-through;
-}
-
-.task-row-select {
-  float: right;
-  margin-left: 8px;
-  font-size: 0.75em;
-  padding: 1px 4px;
-  border: 1px solid var(--line);
-  border-radius: 4px;
-  background: var(--panel-soft);
-  color: var(--text);
 }
 
 .wiki-link-wrap {

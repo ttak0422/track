@@ -143,27 +143,29 @@ function IncludeEmbed({ include }: { include: NoteInclude }) {
 
 const emptyTaskBoard = { noteID: "" };
 
-// TaskRowSelect is the state select on a rich task row — the same write path as the board's cards.
-// It resolves its row to the engine-parsed task by state + stripped text; without a unique match
-// (duplicate lines, inline markup in the text) the row renders without a select and the board
-// remains the editor. Static sites and hover previews (no note id) get no select either.
-function TaskRowSelect({ node }: ElementProps) {
+// TaskRowState is the badge at the head of a rich task row, and doubles as the state control: in
+// the live workspace it renders as a select stripped down to the badge's text look, writing through
+// the same engine path as the board's cards. It resolves its row to the engine-parsed task by
+// state + stripped text; without a unique match (duplicate lines, inline markup in the text), and
+// on static sites or hover previews (no note id), it stays a plain badge and the board remains the
+// editor.
+function TaskRowState({ node }: ElementProps) {
   const { noteID, tasks } = useContext(TaskBoardContext);
   const mutation = useSetTaskStateMutation(noteID);
-  if (STATIC_MODE || noteID === "" || !tasks) {
-    return null;
-  }
-  const props = (node?.properties ?? {}) as { state?: unknown; text?: unknown };
-  const matches = tasks.items.filter(
-    (t) => t.state === String(props.state ?? "") && t.text === String(props.text ?? ""),
-  );
-  if (matches.length !== 1) {
-    return null;
+  const props = (node?.properties ?? {}) as { name?: unknown; done?: unknown; text?: unknown };
+  const name = String(props.name ?? "");
+  const className = `task-row-state${props.done ? " task-row-state-done" : ""}`;
+  const matches =
+    !STATIC_MODE && noteID !== "" && tasks
+      ? tasks.items.filter((t) => t.state === name && t.text === String(props.text ?? ""))
+      : [];
+  if (matches.length !== 1 || !tasks) {
+    return <span className={className}>{name}</span>;
   }
   const item = matches[0];
   return (
     <select
-      className="task-row-select"
+      className={className}
       aria-label="Task state"
       value={item.state}
       disabled={mutation.isPending}
@@ -266,15 +268,7 @@ const markdownComponents = {
     const props = (node?.properties ?? {}) as { target?: unknown; display?: unknown };
     return <WikiLink target={String(props.target ?? "")} display={String(props.display ?? "")} />;
   },
-  taskbadge: ({ node }: ElementProps) => {
-    const props = (node?.properties ?? {}) as { name?: unknown; done?: unknown };
-    return (
-      <span className={`task-row-state${props.done ? " task-row-state-done" : ""}`}>
-        {String(props.name ?? "")}
-      </span>
-    );
-  },
-  taskselect: TaskRowSelect,
+  taskstate: TaskRowState,
   taskchip: ({ node }: ElementProps) => {
     const props = (node?.properties ?? {}) as { kind?: unknown; value?: unknown };
     const value = String(props.value ?? "");

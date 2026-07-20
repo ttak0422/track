@@ -178,14 +178,8 @@ function upgradeTaskItem(item: any, p: TaskItemParse) {
     .trim();
 
   para.children.unshift({
-    type: "taskbadge",
-    data: { hName: "taskbadge", hProperties: { name: p.state.name, done: p.state.done } },
-    children: [],
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  } as any);
-  para.children.push({
-    type: "taskselect",
-    data: { hName: "taskselect", hProperties: { state: p.state.name, text } },
+    type: "taskstate",
+    data: { hName: "taskstate", hProperties: { name: p.state.name, done: p.state.done, text } },
     children: [],
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
   } as any);
