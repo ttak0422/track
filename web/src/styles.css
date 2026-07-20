@@ -2428,26 +2428,67 @@ textarea.modal-input:focus-visible {
   vertical-align: middle;
 }
 
-/* Rich task rows (remarkTaskLine): a checklist that uses task notation renders each task line as a
-   card-like row — state badge, text, metadata chips, and (live) a state select. */
-.markdown-view li.task-row {
-  list-style: none;
-  margin: 4px 0;
+/* Task table (remarkTaskLine): a checklist that uses task notation renders as one sortable table —
+   state cell, task text with chips, and scheduled/due columns. */
+.markdown-view table.task-table {
+  display: table;
+  width: 100%;
+  border-collapse: collapse;
+}
+
+.markdown-view .task-table th {
+  background: transparent;
+  border-block: none;
+  border-bottom: 1px solid var(--line);
+  padding: 4px 10px;
+  font-family: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, monospace;
+  font-size: 11px;
+  font-weight: 500;
+  letter-spacing: 0.06em;
+  color: var(--muted);
+}
+
+.task-table-sort {
+  border: none;
+  background: none;
+  padding: 0;
+  font: inherit;
+  letter-spacing: inherit;
+  color: inherit;
+  cursor: pointer;
+}
+
+.task-table-sort:hover {
+  color: var(--text);
+}
+
+.markdown-view .task-table td {
   padding: 5px 10px;
-  border: 1px solid var(--line);
-  border-radius: 6px;
+  border-block: none;
+  border-bottom: 1px solid var(--line);
+  vertical-align: baseline;
+}
+
+.markdown-view .task-table td.task-row-date {
+  white-space: nowrap;
+  font-variant-numeric: tabular-nums;
+  font-size: 0.85em;
+  color: var(--muted);
+}
+
+.markdown-view .task-table td.task-row-due {
+  color: var(--danger);
 }
 
 .markdown-view .task-row-state {
   display: inline-block;
-  margin-right: 8px;
   font-family: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, monospace;
   font-size: 11px;
   letter-spacing: 0.06em;
   color: var(--muted);
 }
 
-/* The badge doubles as the state control: a native select stripped to the badge's text look. */
+/* The state cell doubles as the control: a native select stripped to the badge's text look. */
 .markdown-view select.task-row-state {
   appearance: none;
   -webkit-appearance: none;
@@ -2461,7 +2502,7 @@ textarea.modal-input:focus-visible {
   color: var(--text);
 }
 
-.markdown-view li.task-row-done {
+.markdown-view tr.task-row-done td.task-row-text {
   color: var(--muted);
   text-decoration: line-through;
 }

@@ -75,14 +75,15 @@ state, so the numbers never go stale.
 
 The notation is all the renderer needs — there is no dedicated fence to wrap a checklist in. In the
 live [[Web workspace]] and on a published site, a checklist that uses task notation (a custom state
-marker, or any bracket token) renders as rich task rows: each line becomes a card-like row with its
-state badge, text, and metadata chips — and, live, the badge itself is the state control, writing
-through the same engine path as the board's cards.
-The whole list switches together, while a checklist of plain `- [ ]`/`- [x]` lines keeps its native
-checkboxes. A list item whose marker is outside the state set is not a task and stays exactly as
-written. The note file keeps the plain notation, so a task line remains readable anywhere else
-Markdown renders. In a Neovim vault buffer the state marker conceals to a glyph and the tokens are
-highlighted as written; the cursor line stays raw for editing.
+marker, or any bracket token) renders as one task table: a row per line with its state, text,
+priority/cookie chips, and scheduled/due columns. The STATE, SCHED, and DUE headers sort the table
+(view-only — the note keeps its order), and, live, the state cell is the state control, writing
+through the same engine path as the board's cards. The whole list switches together, while a
+checklist of plain `- [ ]`/`- [x]` lines — or one that mixes tasks with plain bullets — keeps its
+native checkboxes. A list item whose marker is outside the state set is not a task and stays
+exactly as written. The note file keeps the plain notation, so a task line remains readable
+anywhere else Markdown renders. In a Neovim vault buffer the state marker conceals to a glyph and
+the tokens are highlighted as written; the cursor line stays raw for editing.
 
 ## CLI
 

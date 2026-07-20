@@ -136,8 +136,12 @@ function upgradeTaskItem(item: any, p: TaskItemParse) {
   if (p.custom) {
     para.children[0].value = para.children[0].value.slice(p.prefixLen);
   }
-  item.checked = null; // drop the GFM checkbox; the state badge takes its place
+  item.checked = null; // drop the GFM checkbox; the state cell takes its place
 
+  // Scheduled and due move into their own (sortable) table columns; priority, cookies, and the
+  // completion stamp stay in the task cell as chips.
+  let sched = "";
+  let due = "";
   for (let i = 0; i < para.children.length; i++) {
     const child = para.children[i];
     if (child.type !== "text") continue;
@@ -151,9 +155,15 @@ function upgradeTaskItem(item: any, p: TaskItemParse) {
       if (match.index > last) {
         parts.push({ type: "text", value: child.value.slice(last, match.index) });
       }
-      const kind = match[1] ? "priority" : (match[2] ?? "cookie");
-      const value = match[1] ?? match[3] ?? match[4];
-      parts.push({ type: "taskchip", data: { hName: "taskchip", hProperties: { kind, value } }, children: [] });
+      if (match[2] === "sched") {
+        sched = match[3];
+      } else if (match[2] === "due") {
+        due = match[3];
+      } else {
+        const kind = match[1] ? "priority" : (match[2] ?? "cookie");
+        const value = match[1] ?? match[3] ?? match[4];
+        parts.push({ type: "taskchip", data: { hName: "taskchip", hProperties: { kind, value } }, children: [] });
+      }
       last = taskTokenPattern.lastIndex;
     }
     if (last < child.value.length) {
@@ -169,15 +179,11 @@ function upgradeTaskItem(item: any, p: TaskItemParse) {
   // splice swaps lines 1:1 — the same invariant the includes feature already relies on.
   const line = item.position?.start?.line ?? 0;
 
-  para.children.unshift({
-    type: "taskstate",
-    data: { hName: "taskstate", hProperties: { name: p.state.name, done: p.state.done, line } },
-    children: [],
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  } as any);
   const data = (item.data ??= {});
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  (data as any).hProperties = { className: p.state.done ? "task-row task-row-done" : "task-row" };
+  (data as any).hName = "taskrow";
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  (data as any).hProperties = { line, state: p.state.name, done: p.state.done, sched, due };
 }
 
 export function remarkTaskLine(options: { states: TaskState[] }) {
@@ -190,11 +196,16 @@ export function remarkTaskLine(options: { states: TaskState[] }) {
       if (!parsed.some((p: TaskItemParse | null) => p && (p.custom || p.hasTokens))) {
         return; // plain GFM checklist (or no tasks at all): leave it alone
       }
+      if (parsed.some((p: TaskItemParse | null) => !p)) {
+        return; // a plain bullet mixed into the block: an <li> cannot live in a <table>, stay plain
+      }
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       list.children.forEach((item: any, i: number) => {
-        const p = parsed[i];
-        if (p) upgradeTaskItem(item, p);
+        upgradeTaskItem(item, parsed[i] as TaskItemParse);
       });
+      const data = (list.data ??= {});
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      (data as any).hName = "tasktable";
     });
   };
 }

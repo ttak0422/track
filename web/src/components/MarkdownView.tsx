@@ -143,18 +143,15 @@ function IncludeEmbed({ include }: { include: NoteInclude }) {
 
 const emptyTaskBoard = { noteID: "" };
 
-// TaskRowState is the badge at the head of a rich task row, and doubles as the state control: in
-// the live workspace it renders as a select stripped down to the badge's text look, writing through
+// TaskRowState is the state cell of a task-table row, and doubles as the state control: in the
+// live workspace it renders as a select stripped down to the badge's text look, writing through
 // the same engine path as the board's cards. Its source line resolves the row to the engine-parsed
 // task (rendered bodies are line-aligned with the note file — the invariant includes rely on); on
 // static sites and hover previews (no note id) it stays a plain badge.
-function TaskRowState({ node }: ElementProps) {
+function TaskRowState({ name, done, line }: { name: string; done: boolean; line: number }) {
   const { noteID, tasks } = useContext(TaskBoardContext);
   const mutation = useSetTaskStateMutation(noteID);
-  const props = (node?.properties ?? {}) as { name?: unknown; done?: unknown; line?: unknown };
-  const name = String(props.name ?? "");
-  const className = `task-row-state${props.done ? " task-row-state-done" : ""}`;
-  const line = Number(props.line ?? 0);
+  const className = `task-row-state${done ? " task-row-state-done" : ""}`;
   const item =
     !STATIC_MODE && noteID !== "" && tasks && line > 0
       ? tasks.items.find((t) => t.line === line)
@@ -176,6 +173,85 @@ function TaskRowState({ node }: ElementProps) {
         </option>
       ))}
     </select>
+  );
+}
+
+type TaskRowProps = { line?: unknown; state?: unknown; done?: unknown; sched?: unknown; due?: unknown };
+
+// TaskTable renders a notation-bearing checklist as one sortable table. Sorting is view-only (the
+// note keeps its order); STATE sorts by the vault's state-set order, the date columns sort empties
+// last, and a third click on a header returns to the source order.
+function TaskTable({ node, children }: ElementProps) {
+  const { tasks } = useContext(TaskBoardContext);
+  const [sort, setSort] = useState<{ key: "state" | "sched" | "due"; asc: boolean } | null>(null);
+  const states = tasks && tasks.states.length > 0 ? tasks.states : defaultTaskStates;
+  const rowNodes = (node?.children ?? []).filter((c): c is Element => c.type === "element");
+  const rowEls = (Array.isArray(children) ? children : [children]).filter((c) => typeof c !== "string");
+  let order = rowNodes.map((_, i) => i);
+  if (sort) {
+    const { key, asc } = sort;
+    const valueOf = (i: number): number | string => {
+      const p = (rowNodes[i].properties ?? {}) as TaskRowProps;
+      if (key === "state") {
+        return states.findIndex((s) => s.name === String(p.state ?? ""));
+      }
+      return String(p[key] ?? "");
+    };
+    order = [...order].sort((a, b) => {
+      const va = valueOf(a);
+      const vb = valueOf(b);
+      const emptyA = va === "";
+      const emptyB = vb === "";
+      if (emptyA !== emptyB) {
+        return emptyA ? 1 : -1; // rows without the date always sink to the bottom
+      }
+      const cmp = va < vb ? -1 : va > vb ? 1 : a - b;
+      return asc ? cmp : -cmp;
+    });
+  }
+  const header = (key: "state" | "sched" | "due", label: string) => (
+    <th>
+      <button
+        type="button"
+        className="task-table-sort"
+        onClick={() =>
+          setSort(sort?.key !== key ? { key, asc: true } : sort.asc ? { key, asc: false } : null)
+        }
+      >
+        {label}
+        {sort?.key === key ? (sort.asc ? " ▲" : " ▼") : ""}
+      </button>
+    </th>
+  );
+  return (
+    <table className="task-table">
+      <thead>
+        <tr>
+          {header("state", "STATE")}
+          <th className="task-table-label">TASK</th>
+          {header("sched", "SCHED")}
+          {header("due", "DUE")}
+        </tr>
+      </thead>
+      <tbody>{order.map((i) => rowEls[i])}</tbody>
+    </table>
+  );
+}
+
+// TaskRow is one table row: the state cell (select where editable), the task text with its chips,
+// and the date columns.
+function TaskRow({ node, children }: ElementProps) {
+  const props = (node?.properties ?? {}) as TaskRowProps;
+  const done = Boolean(props.done);
+  return (
+    <tr className={`task-row${done ? " task-row-done" : ""}`}>
+      <td className="task-row-state-cell">
+        <TaskRowState name={String(props.state ?? "")} done={done} line={Number(props.line ?? 0)} />
+      </td>
+      <td className="task-row-text">{children}</td>
+      <td className="task-row-date">{props.sched ? `▷ ${props.sched}` : ""}</td>
+      <td className="task-row-date task-row-due">{props.due ? `! ${props.due}` : ""}</td>
+    </tr>
   );
 }
 
@@ -267,7 +343,8 @@ const markdownComponents = {
     const props = (node?.properties ?? {}) as { target?: unknown; display?: unknown };
     return <WikiLink target={String(props.target ?? "")} display={String(props.display ?? "")} />;
   },
-  taskstate: TaskRowState,
+  tasktable: TaskTable,
+  taskrow: TaskRow,
   taskchip: ({ node }: ElementProps) => {
     const props = (node?.properties ?? {}) as { kind?: unknown; value?: unknown };
     const value = String(props.value ?? "");
