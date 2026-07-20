@@ -101,11 +101,12 @@ state, one card per task. In the live [[Web workspace]] a card drags between col
 its state select), which runs the same engine write path as `track task set`. On a published static
 site the board renders read-only.
 
-## Live sample
+## Example
 
-The checklist below is real task notation — the heading cookie and the board underneath are rendered
-from it.
+A full task section as it is written in a note — the heading cookie counts the tasks below it, and
+the `taskboard` fence renders them as a board:
 
+````md
 ### Release checklist [2/5]
 
 - [/] Write the announcement post [#A] [due:2026-07-24]
@@ -116,3 +117,4 @@ from it.
 
 ```taskboard
 ```
+````
