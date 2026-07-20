@@ -35,7 +35,8 @@ pinned:
 - [[Visualization]] — how notes render as visuals: [[Diagrams]] (Mermaid, Graphviz, and D2), [[Mindmaps]]
   of a note's structure, [[Charts]] from a View Spec, and [[Embeds]] for YouTube, PDFs, tweets, and
   other rich media.
-- [[Babel]] — run a note's fenced code blocks and keep their results in the sidecar.
+- [[Babel]] — run a note's fenced code blocks and keep their results in the sidecar; compose blocks
+  with noweb references, call them with variables, and tangle them out to files.
 - [[Web clipper]] — clip a web page's readable content into a note with `track-fetch-web`.
 
 ## How the pieces fit

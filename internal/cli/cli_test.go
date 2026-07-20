@@ -946,6 +946,119 @@ func TestBabelExecRefusesEvalNo(t *testing.T) {
 	}
 }
 
+func TestBabelRunVarsAndBlockReferences(t *testing.T) {
+	if _, err := exec.LookPath("sh"); err != nil {
+		t.Skip("sh not available")
+	}
+	vault := t.TempDir()
+	t.Setenv("TRACK_BABEL_SH", "sh {{file}}")
+
+	runIn(t, vault, "new", "--title", "Vars", "--id", "510")
+	body := "# Vars\n\n" +
+		"```sh :name base\necho 21\n```\n\n" +
+		"```sh :name double :var n=base\necho $((n * 2))\n```\n\n" +
+		"```sh :name greet :var who=note\necho \"hello $who\"\n```\n"
+	if err := os.WriteFile(filepath.Join(vault, "note", "510.md"), []byte(body), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	// :var greeting literal, overridable from the CLI.
+	out, code := runIn(t, vault, "babel", "run", "--id", "510", "--name", "greet")
+	if code != 0 || out["stdout"] != "hello note\n" {
+		t.Fatalf("literal :var run: %v", out)
+	}
+	out, code = runIn(t, vault, "babel", "run", "--id", "510", "--name", "greet", "--var", "who=cli")
+	if code != 0 || out["stdout"] != "hello cli\n" {
+		t.Fatalf("--var override: %v", out)
+	}
+
+	// A block-reference var needs a stored result first.
+	out, code = runIn(t, vault, "babel", "run", "--id", "510", "--name", "double")
+	if code != 1 || !strings.Contains(out["error"].(string), "no stored result") {
+		t.Fatalf("expected missing-result error, got code=%d out=%v", code, out)
+	}
+	if out, code = runIn(t, vault, "babel", "exec", "--id", "510", "--name", "base"); code != 0 {
+		t.Fatalf("exec base: %v", out)
+	}
+	out, code = runIn(t, vault, "babel", "run", "--id", "510", "--name", "double")
+	if code != 0 || out["stdout"] != "42\n" {
+		t.Fatalf("block-reference var: %v", out)
+	}
+}
+
+func TestBabelExecExpandsNoweb(t *testing.T) {
+	if _, err := exec.LookPath("sh"); err != nil {
+		t.Skip("sh not available")
+	}
+	vault := t.TempDir()
+	t.Setenv("TRACK_BABEL_SH", "sh {{file}}")
+
+	runIn(t, vault, "new", "--title", "Noweb", "--id", "511")
+	body := "# Noweb\n\n" +
+		"```sh :name lib\necho from-lib\n```\n\n" +
+		"```sh :name main :noweb yes\n<<lib>>\necho from-main\n```\n"
+	if err := os.WriteFile(filepath.Join(vault, "note", "511.md"), []byte(body), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	out, code := runIn(t, vault, "babel", "exec", "--id", "511", "--name", "main")
+	if code != 0 || out["stdout"] != "from-lib\nfrom-main\n" {
+		t.Fatalf("noweb exec: %v", out)
+	}
+}
+
+func TestBabelTangleWritesPlansAndRefusesEscapes(t *testing.T) {
+	vault := t.TempDir()
+
+	runIn(t, vault, "new", "--title", "Tangle", "--id", "512")
+	body := "# Tangle\n\n" +
+		"```sh :name head :tangle scripts/build.sh\necho one\n```\n\n" +
+		"```sh :tangle scripts/build.sh\necho two\n```\n"
+	if err := os.WriteFile(filepath.Join(vault, "note", "512.md"), []byte(body), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	// Dry run: plan only, nothing on disk.
+	out, code := runIn(t, vault, "babel", "tangle", "--id", "512", "--dry-run")
+	if code != 0 || out["dry_run"] != true {
+		t.Fatalf("tangle dry-run: %v", out)
+	}
+	targets := out["targets"].([]any)
+	if len(targets) != 1 {
+		t.Fatalf("expected one target, got %v", targets)
+	}
+	target := targets[0].(map[string]any)
+	if int(target["blocks"].(float64)) != 2 {
+		t.Fatalf("expected 2 contributing blocks, got %v", target)
+	}
+	outFile := filepath.Join(vault, "note", "scripts", "build.sh")
+	if _, err := os.Stat(outFile); !os.IsNotExist(err) {
+		t.Fatalf("dry-run must not write files: %v", err)
+	}
+
+	// Real run writes the concatenated file inside the vault.
+	if out, code = runIn(t, vault, "babel", "tangle", "--id", "512"); code != 0 {
+		t.Fatalf("tangle: %v", out)
+	}
+	content, err := os.ReadFile(outFile)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(content) != "echo one\n\necho two\n" {
+		t.Fatalf("tangled content: %q", content)
+	}
+
+	// A target escaping the vault is refused before anything is written.
+	escape := "# T\n\n```sh :tangle ../../outside.sh\necho x\n```\n"
+	if err := os.WriteFile(filepath.Join(vault, "note", "512.md"), []byte(escape), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	out, code = runIn(t, vault, "babel", "tangle", "--id", "512")
+	if code != 1 || !strings.Contains(out["error"].(string), "outside the vault") {
+		t.Fatalf("expected escape refusal, got code=%d out=%v", code, out)
+	}
+}
+
 func TestNewWithBodyAndTags(t *testing.T) {
 	vault := t.TempDir()
 

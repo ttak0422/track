@@ -28,7 +28,7 @@ var babelHeaderValues = map[string][]string{
 	"cache":   {"yes", "no"},
 	"session": {"none"},
 	"exports": {"code", "results", "both", "none"},
-	"noweb":   {"no"},
+	"noweb":   {"no", "yes", "eval", "tangle"},
 	"tangle":  {"no"},
 }
 
@@ -37,12 +37,12 @@ var babelHeaderDocs = map[string]string{
 	":results":       "Controls how execution results are captured and stored in sidecar metadata instead of mutating the Markdown body.",
 	":eval":          "Controls whether the block may execute: `yes` allows execution, `no` prevents execution, and `query` asks before running.",
 	":cache":         "Controls result reuse with a cache key based on the block body, normalized header arguments, and variable references.",
-	":var":           "Defines literal input variables such as `x=1`; values are normalized into block metadata.",
+	":var":           "Defines input variables such as `x=1`, injected into the block's process environment; a value naming another named block feeds that block's stored result.",
 	":session":       "Controls interpreter session behavior. `none` runs without a long-lived session; named sessions are reserved for later support.",
 	":dir":           "Sets the execution working directory. Relative paths resolve from the note directory or vault and are restricted to allowed roots.",
 	":exports":       "Records export intent for future compatibility. Track does not currently provide an exporter.",
-	":noweb":         "Controls expansion of `<<name>>` references. Initial support keeps expansion disabled with `no`.",
-	":tangle":        "Controls writing source blocks to files. Initial support keeps file output disabled with `no`.",
+	":noweb":         "Controls expansion of `<<name>>` references: `yes` expands before execution and tangling, `eval`/`tangle` only in that phase, `no` never.",
+	":tangle":        "Names the file `track babel tangle` writes this block to, resolved against the note directory and confined to the vault; `no` disables output.",
 	":visible-lines": "Controls editor-only source display. Use 1-based block-body lines such as `4-5` or `4-5,8`; execution still uses the full source block.",
 }
 
@@ -76,7 +76,10 @@ var babelHeaderValueDocs = map[string]map[string]string{
 		"none":    "Record that neither code nor results should be exported when exporter support exists.",
 	},
 	"noweb": {
-		"no": "Do not expand `<<name>>` references.",
+		"no":     "Do not expand `<<name>>` references.",
+		"yes":    "Expand `<<name>>` references before execution and before tangling.",
+		"eval":   "Expand `<<name>>` references only before execution.",
+		"tangle": "Expand `<<name>>` references only before tangling.",
 	},
 	"tangle": {
 		"no": "Do not write this block to an output file.",
