@@ -1596,6 +1596,36 @@ func TestTaskSetAndTasks(t *testing.T) {
 	}
 }
 
+func TestTaskCycle(t *testing.T) {
+	vault := t.TempDir()
+	body := "# T\n\n- [ ] alpha\n\nprose\n"
+	if _, code := runInWithStdin(t, vault, body, "new", "--title", "Cycle", "--id", "710"); code != 0 {
+		t.Fatalf("new failed")
+	}
+
+	steps := []struct{ from, to string }{
+		{"TODO", "DOING"},
+		{"DOING", "WAITING"},
+		{"WAITING", "DONE"},
+		{"DONE", "CANCELLED"},
+		{"CANCELLED", "TODO"},
+	}
+	for _, step := range steps {
+		res, code := runIn(t, vault, "task", "cycle", "--id", "710", "--line", "3")
+		if code != 0 || res["from"] != step.from || res["state"] != step.to {
+			t.Fatalf("cycle %s→%s failed: %v", step.from, step.to, res)
+		}
+	}
+	// Wrapping past the last state lands back on a clean open line, stamp removed.
+	if got := readFileString(t, filepath.Join(vault, "note", "710.md")); !strings.Contains(got, "- [ ] alpha") || strings.Contains(got, "[done:") {
+		t.Fatalf("wrap should return to a clean TODO line: %q", got)
+	}
+
+	if out, code := runIn(t, vault, "task", "cycle", "--id", "710", "--line", "5"); code == 0 || out["error"] == nil {
+		t.Fatalf("expected error cycling a non-task line, got %v", out)
+	}
+}
+
 func TestInitScaffoldsVault(t *testing.T) {
 	vault := t.TempDir()
 	res, code := runIn(t, vault, "init")

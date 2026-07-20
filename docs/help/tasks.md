@@ -87,6 +87,7 @@ editing.
 | Command | Purpose |
 | --- | --- |
 | `track task set (--id N \| --title S \| --path P) --line N --state NAME` | Move the task on line `N` into a named state. |
+| `track task cycle (--id N \| --title S \| --path P) --line N` | Advance the task to the next state in set order, wrapping at the end. |
 | `track tasks [--state A,B] [--due YYYY-MM-DD] [--overdue] [--sort priority]` | List indexed tasks as JSON, across the vault or one note. |
 | `track toggle (--id N \| --title S \| --path P) --line N` | Two-state shorthand: flip between the first open and first done state. |
 

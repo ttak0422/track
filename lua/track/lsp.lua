@@ -234,10 +234,18 @@ local function highlight_tasks(buf, cursor, fences, lines)
    for i, text in ipairs(lines) do
       local row = i - 1
       if not fences[row] then
-         local char, marker_end = text:match("^%s*[-*+]%s+%[(.)%]()")
+         local marker_start, char, marker_end = text:match("^%s*[-*+]%s+()%[(.)%]()")
          local following = marker_end and text:sub(marker_end, marker_end)
          if char and (following == "" or following == " " or following == "\t") and chars:find(char, 1, true) then
             local revealed = cursor ~= nil and cursor.row == row
+            local glyph = config.options.task_glyphs[char]
+            if conceal and not revealed and glyph then
+               vim.api.nvim_buf_set_extmark(buf, ns, row, marker_start - 1, {
+                  end_col = marker_end - 1,
+                  conceal = glyph,
+                  priority = 120,
+               })
+            end
             if config.options.task_done_chars:find(char, 1, true) and #text > marker_end then
                vim.api.nvim_buf_set_extmark(buf, ns, row, marker_end, {
                   end_col = #text,

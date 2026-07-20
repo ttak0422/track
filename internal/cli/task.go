@@ -2,6 +2,7 @@ package cli
 
 import (
 	"flag"
+	"os"
 	"strings"
 	"time"
 
@@ -11,17 +12,91 @@ import (
 	"github.com/ttak0422/track/internal/track/task"
 )
 
-// cmdTask routes `track task <sub>`; set is the only subcommand today.
+// cmdTask routes `track task <sub>`.
 func cmdTask(args []string) int {
 	if len(args) == 0 {
-		return fail("usage: track task set (--id N | --title S | --path P) --line N --state NAME")
+		return fail("usage: track task set (--id N | --title S | --path P) --line N --state NAME | track task cycle (--id N | --title S | --path P) --line N")
 	}
 	switch args[0] {
 	case "set":
 		return cmdTaskSet(args[1:])
+	case "cycle":
+		return cmdTaskCycle(args[1:])
 	default:
-		return fail("unknown task subcommand %q (expected: set)", args[0])
+		return fail("unknown task subcommand %q (expected: set, cycle)", args[0])
 	}
+}
+
+// cmdTaskCycle advances the task on one line to the next state in the vault's state-set order,
+// wrapping at the end — the single-key "loop" over states that frontends bind. It goes through the
+// same write path as `task set`, so completion stamps, the sidecar log, and progress cookies all
+// apply.
+func cmdTaskCycle(args []string) int {
+	fs := flag.NewFlagSet("task cycle", flag.ContinueOnError)
+	id := fs.Int64("id", 0, "note id")
+	title := fs.String("title", "", "note title (alternative to --id)")
+	path := fs.String("path", "", "note path (alternative to --id)")
+	line := fs.Int("line", 0, "1-based line number of the task")
+	if err := fs.Parse(args); err != nil {
+		return fail("parse args: %v", err)
+	}
+	if *line <= 0 {
+		return fail("--line is required and must be positive")
+	}
+
+	cfg, s, err := open()
+	if err != nil {
+		return fail("%v", err)
+	}
+	defer s.Close()
+
+	notePath, err := resolveNotePath(cfg, s, *id, strings.TrimSpace(*title), strings.TrimSpace(*path))
+	if err != nil {
+		return fail("%v", err)
+	}
+	noteID, err := note.IDFromPath(notePath)
+	if err != nil {
+		return fail("invalid note path: %v", err)
+	}
+
+	raw, err := os.ReadFile(notePath)
+	if err != nil {
+		return fail("read note: %v", err)
+	}
+	states := task.StatesOrDefault(cfg.TaskStates)
+	cur, ok := task.At(string(raw), *line, states)
+	if !ok {
+		return fail("line %d is not a task checkbox", *line)
+	}
+	target := ""
+	for i, st := range states {
+		if st.Name == cur.State {
+			target = states[(i+1)%len(states)].Name
+			break
+		}
+	}
+	if target == "" {
+		return fail("state %q is not in the vault's state set", cur.State)
+	}
+
+	tr, err := note.ApplyTaskState(cfg, notePath, *line, target, time.Now())
+	if err != nil {
+		return fail("%v", err)
+	}
+	if err := index.New(cfg, s).One(notePath); err != nil {
+		return fail("index note: %v", err)
+	}
+	return emit(map[string]any{
+		"id":        noteID,
+		"path":      notePath,
+		"line":      tr.Line,
+		"from":      tr.From,
+		"state":     tr.To,
+		"done":      tr.Done,
+		"completed": tr.Completed,
+		"changed":   tr.Changed,
+		"text":      tr.Text,
+	})
 }
 
 // cmdTaskSet moves the task on one line of a note into a named state. Entering a done-family state

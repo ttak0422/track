@@ -110,6 +110,9 @@ M.defaults = {
    -- customized. Set task_chars = "" to disable the decoration entirely.
    task_chars = " /?x-",
    task_done_chars = "x-",
+   -- Conceal the "[c]" state marker itself to a glyph ("- [ ]" shows "- ☐", "- [x]" shows "- ☑").
+   -- Keyed by marker character; a char without an entry keeps its raw [c] form. {} shows all raw.
+   task_glyphs = { [" "] = "☐", ["/"] = "◐", ["?"] = "⧖", ["x"] = "☑", ["-"] = "☒" },
    -- Debounce for re-highlighting, in milliseconds.
    debounce_ms = 150,
    -- ![[...]] includes (ADR 0031) render as virtual lines below the directive. include_max_lines
