@@ -117,9 +117,10 @@ drags between columns (or moves via its state select), which runs the same engin
 
 ## Example
 
-A full task section as it is written in a note — the heading cookie counts the tasks below it:
+A full task section as it is written in a note — the heading cookie counts the tasks below it, and
+the empty `taskboard` fence (see the Task board section above) adds the kanban view:
 
-```md
+````md
 ### Release checklist [2/5]
 
 - [/] Write the announcement post [#A] [due:2026-07-24]
@@ -127,7 +128,10 @@ A full task section as it is written in a note — the heading cookie counts the
 - [?] Wait for the mirror to sync
 - [x] Tag the release candidate [done:2026-07-09]
 - [-] Rewrite the changelog generator
+
+```taskboard
 ```
+````
 
 It renders as:
 
@@ -138,3 +142,6 @@ It renders as:
 - [?] Wait for the mirror to sync
 - [x] Tag the release candidate [done:2026-07-09]
 - [-] Rewrite the changelog generator
+
+```taskboard
+```
