@@ -118,3 +118,16 @@ the `taskboard` fence renders them as a board:
 ```taskboard
 ```
 ````
+
+It renders as:
+
+### Release checklist [2/5]
+
+- [/] Write the announcement post [#A] [due:2026-07-24]
+- [ ] Refresh the screenshots [#B] [sched:2026-07-18]
+- [?] Wait for the mirror to sync
+- [x] Tag the release candidate [done:2026-07-09]
+- [-] Rewrite the changelog generator
+
+```taskboard
+```
