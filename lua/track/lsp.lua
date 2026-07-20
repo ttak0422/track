@@ -208,17 +208,15 @@ local function highlight_links(buf, resolved, cursor, fences, lines)
    end
 end
 
--- Bracket tokens of a task line and their chip forms (docs/help/tasks.md): open bytes conceal to a
--- single symbol, a date token's ":" becomes a space, and the closing "]" conceals away, so
--- "[due:2026-07-24]" reads "! 2026-07-24" — the same vocabulary as the web board's chips. A cookie
--- just loses its brackets.
+-- Bracket tokens of a task line (docs/help/tasks.md), highlighted as written — the raw notation is
+-- compact enough that only the state marker itself conceals (to its task_glyphs glyph).
 local task_tokens = {
-   { pat = "%[#%a%]", open = 2, sym = "#", hl = "TrackTaskPriority" },
-   { pat = "%[sched:%d%d%d%d%-%d%d%-%d%d%]", open = 6, sym = "▷", sep = true, hl = "TrackTaskDate" },
-   { pat = "%[due:%d%d%d%d%-%d%d%-%d%d%]", open = 4, sym = "!", sep = true, hl = "TrackTaskDue" },
-   { pat = "%[done:%d%d%d%d%-%d%d%-%d%d%]", open = 5, sym = "✓", sep = true, hl = "TrackTaskDate" },
-   { pat = "%[%d+/%d+%]", open = 1, sym = nil, hl = "TrackTaskDate" },
-   { pat = "%[%d+%%%]", open = 1, sym = nil, hl = "TrackTaskDate" },
+   { pat = "%[#%a%]", hl = "TrackTaskPriority" },
+   { pat = "%[sched:%d%d%d%d%-%d%d%-%d%d%]", hl = "TrackTaskDate" },
+   { pat = "%[due:%d%d%d%d%-%d%d%-%d%d%]", hl = "TrackTaskDue" },
+   { pat = "%[done:%d%d%d%d%-%d%d%-%d%d%]", hl = "TrackTaskDate" },
+   { pat = "%[%d+/%d+%]", hl = "TrackTaskDate" },
+   { pat = "%[%d+%%%]", hl = "TrackTaskDate" },
 }
 
 -- highlight_tasks decorates task notation the way the web workspace renders it inline: on a list
@@ -265,25 +263,6 @@ local function highlight_tasks(buf, cursor, fences, lines)
                      hl_group = token.hl,
                      priority = 120,
                   })
-                  if conceal and not revealed then
-                     vim.api.nvim_buf_set_extmark(buf, ns, row, s - 1, {
-                        end_col = s - 1 + token.open,
-                        conceal = token.sym or "",
-                        priority = 120,
-                     })
-                     if token.sep then
-                        vim.api.nvim_buf_set_extmark(buf, ns, row, s - 1 + token.open, {
-                           end_col = s + token.open,
-                           conceal = " ",
-                           priority = 120,
-                        })
-                     end
-                     vim.api.nvim_buf_set_extmark(buf, ns, row, e - 1, {
-                        end_col = e,
-                        conceal = "",
-                        priority = 120,
-                     })
-                  end
                   init = e + 1
                end
             end

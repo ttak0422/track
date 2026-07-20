@@ -78,8 +78,8 @@ live [[Web workspace]] and on a published site, any list item starting with a ma
 set renders styled in place: the marker becomes a state chip, the bracket tokens become metadata
 chips, and a done-family line is muted and struck through. A list item whose marker is outside the
 state set is not a task and stays exactly as written. The note file keeps the plain notation, so a
-task line remains readable anywhere else Markdown renders. The Neovim plugin mirrors this with
-conceal: the same tokens display as chips in a vault buffer, and the cursor line stays raw for
+task line remains readable anywhere else Markdown renders. In a Neovim vault buffer the state
+marker conceals to a glyph and the tokens are highlighted as written; the cursor line stays raw for
 editing.
 
 ## CLI
