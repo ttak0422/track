@@ -22,6 +22,13 @@ Back to [[track]].
 printf '本文 [[他ノート]]\n' | track open --title "メモ"
 ```
 
+Anything that prints Markdown can therefore create notes — the [[Web clipper]] uses this to turn a
+web page into a note in one pipeline:
+
+```sh
+track-fetch-web --note https://example.com/essay | track new --title "An essay"
+```
+
 ## Capture, refile, archive
 
 These three commands move text around by heading anchor. A target is written as `Note#Heading`, the

@@ -34,6 +34,7 @@ pinned:
   of a note's structure, [[Charts]] from a View Spec, and [[Embeds]] for YouTube, PDFs, tweets, and
   other rich media.
 - [[Babel]] — run a note's fenced code blocks and keep their results in the sidecar.
+- [[Web clipper]] — clip a web page's readable content into a note with `track-fetch-web`.
 
 ## How the pieces fit
 
