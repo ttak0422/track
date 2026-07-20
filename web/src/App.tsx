@@ -135,10 +135,15 @@ export function App() {
 function HomeRoute() {
   // The published site's "/" is the start page: it renders the configured root note directly, so the
   // prerendered index.html carries real content (fast FCP/LCP) instead of an empty shell that redirects.
-  // The empty state lives at /empty (reached by closing every tab). The live workspace shows the heatmap
-  // home here instead.
+  // The empty state lives at /empty (reached by closing every tab).
   if (STATIC_MODE) {
     return START_PAGE_ID ? <NoteReader noteID={START_PAGE_ID} /> : <EmptyState />;
+  }
+  // The live workspace opens the configured home note (config web.home, injected as START_PAGE_ID) as its
+  // landing view — a dashboard note with ```dashboard widgets is the intended target. With no home note
+  // configured it falls back to the search hero.
+  if (START_PAGE_ID) {
+    return <NoteReader noteID={START_PAGE_ID} />;
   }
   return (
     <section className="home-hero">

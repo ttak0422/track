@@ -20,6 +20,7 @@ const seedMeta = {
   tags: ["project", "draft"],
   description: "A summary.",
   image: "assets/old.png",
+  icon: "\u{1F4DA}",
   props: "status: draft\n",
 };
 
@@ -48,6 +49,7 @@ describe("NoteMetaDialog", () => {
     expect(screen.getByLabelText("Tags")).toHaveValue("project, draft");
     expect(screen.getByLabelText("Description")).toHaveValue("A summary.");
     expect(screen.getByLabelText("Cover image")).toHaveValue("assets/old.png");
+    expect(screen.getByLabelText("Icon")).toHaveValue("\u{1F4DA}");
     expect(screen.getByLabelText("Properties")).toHaveValue("status: draft\n");
   });
 
@@ -61,6 +63,7 @@ describe("NoteMetaDialog", () => {
     // The client only comma-splits and trims; blank entries drop out and the engine dedups.
     fireEvent.change(screen.getByLabelText("Tags"), { target: { value: "go,  lua ," } });
     fireEvent.change(screen.getByLabelText("Description"), { target: { value: "New." } });
+    fireEvent.change(screen.getByLabelText("Icon"), { target: { value: "\u{1F525}" } });
     fireEvent.change(screen.getByLabelText("Properties"), { target: { value: "rating: 8\n" } });
     fireEvent.click(screen.getByRole("button", { name: "Save" }));
 
@@ -70,6 +73,7 @@ describe("NoteMetaDialog", () => {
         tags: ["go", "lua"],
         description: "New.",
         image: "assets/old.png",
+        icon: "\u{1F525}",
         props: "rating: 8\n",
       }),
     );

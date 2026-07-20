@@ -3,9 +3,9 @@ import { useNoteMetaQuery, useSaveNoteMetaMutation, useUploadAssetMutation } fro
 import type { NoteID } from "../types";
 
 // NoteMetaDialog edits a note's editable sidecar metadata. The built-in fields get dedicated typed
-// controls — title (a rename on change: backlinks rewritten by the engine), tags, description, and a
-// cover image picked from the browser and uploaded into the vault assets — while props stays the one
-// free-form control (a YAML "key: value" block). The engine composes and validates the whole edit
+// controls — title (a rename on change: backlinks rewritten by the engine), tags, description, a
+// cover image picked from the browser and uploaded into the vault assets, and an icon — while props
+// stays the one free-form control (a YAML "key: value" block). The engine composes and validates the whole edit
 // (the same rules as `track meta --edit`), so the frontend never assembles YAML: a rejected edit
 // surfaces the server's message inline and keeps the dialog open, changing nothing.
 export function NoteMetaDialog({ noteID, onClose }: { noteID: NoteID; onClose: () => void }) {
@@ -16,6 +16,7 @@ export function NoteMetaDialog({ noteID, onClose }: { noteID: NoteID; onClose: (
   const [tags, setTags] = useState("");
   const [description, setDescription] = useState("");
   const [image, setImage] = useState("");
+  const [icon, setIcon] = useState("");
   const [props, setProps] = useState("");
   const [loadedFor, setLoadedFor] = useState<NoteID | null>(null);
   const fileInput = useRef<HTMLInputElement>(null);
@@ -30,6 +31,7 @@ export function NoteMetaDialog({ noteID, onClose }: { noteID: NoteID; onClose: (
       setTags(meta.data.tags.join(", "));
       setDescription(meta.data.description);
       setImage(meta.data.image);
+      setIcon(meta.data.icon);
       setProps(meta.data.props);
       setLoadedFor(noteID);
     }
@@ -46,6 +48,7 @@ export function NoteMetaDialog({ noteID, onClose }: { noteID: NoteID; onClose: (
           .filter((tag) => tag.length > 0),
         description,
         image: image.trim(),
+        icon: icon.trim(),
         props,
       });
       onClose();
@@ -152,6 +155,20 @@ export function NoteMetaDialog({ noteID, onClose }: { noteID: NoteID; onClose: (
           </div>
           <input ref={fileInput} type="file" accept="image/*" hidden onChange={pickImage} />
         </div>
+        <label className="modal-field">
+          <span className="muted">
+            Icon — an emoji shown beside the title; empty falls back to the tag/kind mapping
+          </span>
+          <input
+            className="modal-input"
+            aria-label="Icon"
+            value={icon}
+            placeholder="📚"
+            disabled={meta.isPending}
+            onChange={(event) => setIcon(event.currentTarget.value)}
+            onKeyDown={enterSubmits}
+          />
+        </label>
         <label className="modal-field">
           <span className="muted">Properties — free-form YAML, one “key: value” per line</span>
           <textarea

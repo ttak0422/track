@@ -94,7 +94,7 @@ track export (--id N | --title S | --path P) [--out F] [--frontmatter]
                                       # render a note as Markdown
 track render --spec <s> --out <f> [--renderer chartjs|svg]
                                       # render a chart/article from a View Spec (see docs/spec/visualization.md)
-track export-site --src <d> --root <s> --out <d>
+track export-site --src <d> --out <d>
                                       # build a static HTML site from notes
 track dump                            # placeholder state
 track version                         # print the version

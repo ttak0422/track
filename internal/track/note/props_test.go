@@ -57,6 +57,25 @@ func TestInlineFields(t *testing.T) {
 	}
 }
 
+// A Markdown example is shown as a longer fence wrapping a shorter one (the docs do this); the fields
+// inside it are sample syntax, not the note's own data.
+func TestInlineFieldsSkipsNestedFence(t *testing.T) {
+	body := "# X\n" + // 1
+		"````markdown\n" + // 2
+		"```text\n" + // 3
+		"weight:: 99.9\n" + // 4
+		"status:: leaked\n" + // 5
+		"```\n" + // 6
+		"````\n" + // 7
+		"weight:: 68.2\n" // 8
+
+	got := InlineFields(body)
+	want := []Prop{{Key: "weight", Value: "68.2", Type: TypeNumber, Line: 8}}
+	if !reflect.DeepEqual(got, want) {
+		t.Fatalf("InlineFields = %+v\nwant %+v", got, want)
+	}
+}
+
 func TestSplitListKeepsLinkCommas(t *testing.T) {
 	got := splitList("[[Ada, Countess]], [[Go]], plain")
 	want := []string{"[[Ada, Countess]]", "[[Go]]", "plain"}

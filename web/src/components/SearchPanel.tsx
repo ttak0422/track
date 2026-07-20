@@ -68,6 +68,11 @@ function SearchResultItem({ note, onNavigate }: SearchResultItemProps) {
       onClick={() => onNavigate?.()}
     >
       <span className="result-title">
+        {note.icon ? (
+          <span className="note-icon" aria-hidden="true">
+            {note.icon}
+          </span>
+        ) : null}
         {note.title}
       </span>
       {note.snippet ? <p className="result-snippet">{note.snippet}</p> : null}

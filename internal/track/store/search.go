@@ -29,9 +29,13 @@ type SearchResult struct {
 	Title    string   `json:"title"`
 	Tags     []string `json:"tags,omitempty"`
 	Days     []string `json:"days,omitempty"` // activity days (YYYY-MM-DD); only the notes listing fills this
-	Line     int      `json:"line,omitempty"`
-	Snippet  string   `json:"snippet,omitempty"`
-	Mtime    int64    `json:"-"`
+	// Icon is the note's icon shown beside its title. The store fills it with the per-note sidecar
+	// override; the serving layer (webui addSearchPaths / the static export) resolves it against the
+	// config tag/kind mapping via config.NoteIcon, so an empty override falls back to the mapping.
+	Icon    string `json:"icon,omitempty"`
+	Line    int    `json:"line,omitempty"`
+	Snippet string `json:"snippet,omitempty"`
+	Mtime   int64  `json:"-"`
 }
 
 // Search returns notes whose title contains query (case-insensitive substring).
@@ -58,7 +62,7 @@ func (s *Store) SearchScoped(query string, limit int, scope SearchScope) ([]Sear
 	for rows.Next() {
 		var r SearchResult
 		var tags string
-		if err := rows.Scan(&r.NoteID, &r.FileKind, &r.Title, &r.Mtime, &tags); err != nil {
+		if err := rows.Scan(&r.NoteID, &r.FileKind, &r.Title, &r.Mtime, &r.Icon, &tags); err != nil {
 			return nil, err
 		}
 		r.Tags = splitTags(tags)
@@ -88,7 +92,7 @@ func searchQuery(scope SearchScope, query string, limit int) (string, []any, err
 	if titleClause != "" {
 		where += " AND (" + titleClause + ")"
 	}
-	sql := `SELECT n.id, n.kind, n.title, n.mtime,
+	sql := `SELECT n.id, n.kind, n.title, n.mtime, n.icon,
 	   COALESCE((
 	     SELECT group_concat(tag, char(31))
 	     FROM (SELECT tag FROM tags WHERE note_id = n.id ORDER BY tag)
@@ -218,7 +222,7 @@ func searchTagged(parsed parsedTaggedQuery, limit int) (string, []any) {
 		"n.id DESC",
 	)
 
-	sql := `SELECT n.id, n.kind, n.title, n.mtime,
+	sql := `SELECT n.id, n.kind, n.title, n.mtime, n.icon,
 	   COALESCE((
 	     SELECT group_concat(tag, char(31))
 	     FROM (SELECT tag FROM tags WHERE note_id = n.id ORDER BY tag)
@@ -321,7 +325,7 @@ func ftsMatchExprGroups(groups [][]string) string {
 // SearchRefs returns indexed notes with search-only ranking/display metadata.
 func (s *Store) SearchRefs() ([]SearchResult, error) {
 	rows, err := s.db.Query(
-		`SELECT n.id, n.kind, n.title, n.mtime,
+		`SELECT n.id, n.kind, n.title, n.mtime, n.icon,
 		   COALESCE((
 		     SELECT group_concat(tag, char(31))
 		     FROM (SELECT tag FROM tags WHERE note_id = n.id ORDER BY tag)
@@ -338,7 +342,7 @@ func (s *Store) SearchRefs() ([]SearchResult, error) {
 	for rows.Next() {
 		var r SearchResult
 		var tags string
-		if err := rows.Scan(&r.NoteID, &r.FileKind, &r.Title, &r.Mtime, &tags); err != nil {
+		if err := rows.Scan(&r.NoteID, &r.FileKind, &r.Title, &r.Mtime, &r.Icon, &tags); err != nil {
 			return nil, err
 		}
 		r.Tags = splitTags(tags)

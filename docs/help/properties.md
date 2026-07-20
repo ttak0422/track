@@ -6,8 +6,12 @@ engine indexes them with the rest of the vault, so they are queryable and visibl
 is shown. When a data point belongs *in* the prose, a small inline `key:: value` field embeds it
 there. If you know Obsidian's properties or org-mode's property drawers, this is the same idea.
 
-This page is its own demo: it carries the inline fields below, so the property strip at the top of
-this page is rendered from them.
+This page is its own demo: the four lines below are inline fields in its source, and the property strip
+at the top of this page is rendered from them. They stay in the prose, because that is what an inline
+field is *for* — a `weight:: 68.2` line in a journal is a line of the journal, not a hidden attribute.
+What is *not* here is this page's icon: that is note-level metadata, and it lives outside the body — in a
+vault note's sidecar, and for a published page like this one in the site's own config (see
+[[Home dashboard]]).
 
 status:: example
 rating:: 8
@@ -24,9 +28,10 @@ live under `props` in the sidecar, and every frontend edits them there through t
 engine path:
 
 - **The metadata editor** edits the note's whole editable metadata: title, tags, description, cover
-  image, and props. The [[Web workspace]] Meta dialog gives each built-in field a dedicated control
-  — a title box (a rename on change), a tags box, a description box, and a cover image you can upload
-  straight from the browser into the vault assets — and keeps props as the one free-form YAML block.
+  image, icon, and props. The [[Web workspace]] Meta dialog gives each built-in field a dedicated
+  control — a title box (a rename on change), a tags box, a description box, a cover image you can
+  upload straight from the browser into the vault assets, and an icon box — and keeps props as the
+  one free-form YAML block.
   The Neovim `:Track meta` popup edits the same metadata as one YAML document. Either way the engine
   validates and applies the edit atomically, and a changed title renames the note.
 - **The CLI**, for scripts and point edits:
@@ -60,9 +65,13 @@ Three placements work:
 - **Bracketed, mid-sentence** — `[owner:: [[Ada Lovelace]]]` inside a paragraph.
 
 Inline fields are scanned at index time into the same property index as sidecar values, each with
-the body line it came from. The text itself still renders as ordinary Markdown — a field is data
-*and* prose at once. Code is never scanned: `std::vector` in a fenced block stays code, and a
-`[key:: value]` example in inline code (like the ones on this page) never becomes data.
+the body line it came from — and they keep rendering as the text you wrote, wherever you put them: a
+whole line reads as its own line, a bracketed field stays inside its sentence. They are data *and* prose
+at once, which is the whole point of them; a fact that is not prose (a title, a tag, an icon) is not an
+inline field at all — it belongs outside the body, in the note's sidecar or, on a published directory
+site, in its `site.yml`. Code is never scanned: `std::vector` in a fenced block
+stays code, and a `[key:: value]` example in inline code (like the ones on this page) never becomes
+data.
 
 For example, this very sentence carries a live bracketed field, [demo:: [[CLI]]], and that is why
 `demo` appears in this page's property strip above — as a link, because its value is a wiki link.

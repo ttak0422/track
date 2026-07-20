@@ -10,6 +10,7 @@ import (
 	"os"
 	"strings"
 
+	"github.com/ttak0422/track/internal/track/dashboard"
 	"github.com/ttak0422/track/internal/track/export"
 	"github.com/ttak0422/track/internal/track/index"
 	"github.com/ttak0422/track/internal/track/link"
@@ -182,7 +183,7 @@ func (s *Server) putNote(w http.ResponseWriter, r *http.Request) {
 }
 
 // handleNoteMeta reads or edits a note's editable sidecar metadata — title, tags, description,
-// cover image, and typed props — as structured fields. GET seeds the dialog's typed controls
+// cover image, icon, and typed props — as structured fields. GET seeds the dialog's typed controls
 // (props as a free-form YAML "key: value" block); POST takes those fields back, composes a
 // document, and applies it through the same validated engine path as `track meta --edit`
 // (note.ApplyMetaDocValue; a changed title through rename.Do). Every rule — tag normalization, an
@@ -214,6 +215,7 @@ func (s *Server) handleNoteMeta(w http.ResponseWriter, r *http.Request) {
 			Tags        []string `json:"tags"`
 			Description string   `json:"description"`
 			Image       string   `json:"image"`
+			Icon        string   `json:"icon"`
 			Props       string   `json:"props"`
 		}
 		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
@@ -230,6 +232,7 @@ func (s *Server) handleNoteMeta(w http.ResponseWriter, r *http.Request) {
 			Tags:        req.Tags,
 			Description: req.Description,
 			Image:       req.Image,
+			Icon:        req.Icon,
 			Props:       props,
 		}
 		// Pre-validate a title change so a conflicting title rejects the whole edit before any
@@ -287,6 +290,7 @@ func writeMetaFields(w http.ResponseWriter, meta note.Metadata, kind string) {
 		"tags":        tags,
 		"description": meta.Description,
 		"image":       meta.Image,
+		"icon":        meta.Icon,
 		"props":       propsText,
 	})
 }
@@ -308,7 +312,16 @@ func (s *Server) handleRender(w http.ResponseWriter, r *http.Request) {
 		writeError(w, err, http.StatusBadRequest)
 		return
 	}
-	res, err := export.Export(&note.Note{Body: req.Body}, export.NewWebRenderer(), export.Options{})
+	// Resolve any ```dashboard widget blocks to Markdown before sanitizing, so a home/dashboard note's
+	// recent-notes, journal, and pinned widgets render live. The static export resolves the same blocks
+	// at build time (see site.writeBundle), keeping the two deployments identical. The store scan for
+	// widget data is skipped unless the body actually carries a dashboard fence (the common case).
+	s.refreshIfStale()
+	body := req.Body
+	if strings.Contains(body, "```"+dashboard.Lang) {
+		body = dashboard.Resolve(body, s.dashboardData())
+	}
+	markdown, err := export.WebBody(body)
 	if err != nil {
 		writeError(w, err, http.StatusInternalServerError)
 		return
@@ -316,10 +329,9 @@ func (s *Server) handleRender(w http.ResponseWriter, r *http.Request) {
 	// Includes resolve against the rendered markdown (what the frontend draws), so their line
 	// numbers align with the text the client splices them into; target bodies render through the
 	// same web renderer so embedded content arrives as sanitized as the note's own.
-	s.refreshIfStale()
 	writeJSON(w, map[string]any{
-		"markdown": res.Markdown,
-		"includes": link.ResolveIncludes(res.Markdown, s.loadRenderedNote),
+		"markdown": markdown,
+		"includes": link.ResolveIncludes(markdown, s.loadRenderedNote),
 	})
 }
 
@@ -336,11 +348,11 @@ func (s *Server) loadRenderedNote(key string) (int64, string, string, bool) {
 		return 0, "", "", false
 	}
 	body, _, _ := note.SplitLegacyFootmatter(string(raw))
-	res, err := export.Export(&note.Note{Body: body}, export.NewWebRenderer(), export.Options{})
+	markdown, err := export.WebBody(body)
 	if err != nil {
 		return 0, "", "", false
 	}
-	return ref.NoteID, ref.FileKind, res.Markdown, true
+	return ref.NoteID, ref.FileKind, markdown, true
 }
 
 // handleViewSpec resolves a fenced ```viewspec block (a View Spec JSON) to its ECharts option JSON,

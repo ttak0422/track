@@ -534,6 +534,11 @@ button {
   white-space: nowrap;
 }
 
+.note-icon {
+  margin-right: 0.4em;
+  font-weight: 400;
+}
+
 .result-snippet {
   grid-column: 1 / -1;
   margin: 0;
@@ -1661,7 +1666,8 @@ textarea.modal-input:focus-visible {
   --alert-color: var(--danger);
 }
 
-/* GFM tables: a bordered, zebra-striped grid that scrolls horizontally when wider than the column. */
+/* GFM tables: horizontal rules only (no column separators, no row striping), scrolling horizontally
+   when wider than the column. */
 .markdown-view table {
   display: block;
   width: max-content;
@@ -1674,17 +1680,13 @@ textarea.modal-input:focus-visible {
 .markdown-view th,
 .markdown-view td {
   padding: 6px 12px;
-  border: 1px solid var(--line);
+  border-block: 1px solid var(--line);
   text-align: left;
 }
 
 .markdown-view th {
   background: var(--panel-soft);
   font-weight: 700;
-}
-
-.markdown-view tbody tr:nth-child(even) {
-  background: color-mix(in srgb, var(--panel-soft) 45%, transparent);
 }
 
 .embed {
