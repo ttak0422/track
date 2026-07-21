@@ -4,8 +4,6 @@ Sometimes the thing worth linking to is not a whole note or a heading section bu
 paragraph or list item. Mark the block with an id, and it becomes a link target — the same idea as
 Obsidian's block references.
 
-up:: [[Linking notes]]
-
 ## Marking a block
 
 End a paragraph or list item with `^id` — a caret, then letters, digits, `-` or `_`:

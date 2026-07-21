@@ -18,8 +18,6 @@ rating:: 8
 updated:: 2026-07-11
 related:: [[Linking notes]]
 
-up:: [[track]]
-
 ## Where properties live
 
 track keeps note metadata (title, tags, description) in a per-note sidecar file, not in YAML

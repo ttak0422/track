@@ -4,8 +4,6 @@
 frontend over the [[CLI]]: it renders note bodies, resolves `[[...]]` links into navigable,
 hover-previewable anchors, and draws the note graph.
 
-up:: [[track]]
-
 ## What it offers
 
 - Rendered Markdown reading with GFM tables, task lists, and Mermaid diagrams.

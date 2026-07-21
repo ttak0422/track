@@ -16,5 +16,3 @@ It splits into four families, each with its own page:
 All are driven by ordinary Markdown — a fenced block or an image link on its own line — so a note stays
 plain text and portable, while the [[Web workspace]] and the static export ([[CLI]] `export-site`)
 render the visuals identically.
-
-up:: [[track]]

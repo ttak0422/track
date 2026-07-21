@@ -89,13 +89,14 @@ change a note's title, id, or how `[[links]]` resolve.
 `track export-site --src <dir>` publishes plain Markdown files that belong to no vault — no note ids and
 no note sidecars, just files in a repository. Their bodies stay pure Markdown all the same, so a page's
 icon is not written inside it. It is declared once, in the site's own `site.yml`, in the page's `pages:`
-entry — a map from a page's **file base name** to its note-level metadata, its icon and its tags:
+entry — a map from a page's **file base name** to its note-level metadata: its icon, its tags, and its
+place in the hierarchy (`up`, the parent page behind the breadcrumb trail — see [[Hierarchy]]):
 
 ```yaml
 # docs/help/site.yml
 pages:
   dashboard: {icon: 🏠}                       # this page
-  cli: {icon: ⌨️, tags: [help/reference]}
+  cli: {icon: ⌨️, tags: [help/reference], up: index}
 icons:
   kinds:
     note: 📄
@@ -146,10 +147,12 @@ icons:
   rather than quietly publishing a different front door. There is no flag for it: a site's front door is
   the same wherever it is deployed, so it belongs with the content.
 - **`pages`** is the one thing a directory has and a vault does not: each page's note-level metadata —
-  its `icon` and its `tags` — keyed by file base name, filling the slot a note's sidecar fills. Tags
-  drive tag pages, `#tag` search, and query `FROM` filters, exactly as sidecar tags do on a vault site
-  (see [[Query]]). An entry naming no `<name>.md`, or one that says nothing (no icon, no tags — a
-  bare `dashboard:`), is a build error: an entry that does nothing is never a silent no-op.
+  its `icon`, its `tags`, and its parent (`up`) — keyed by file base name, filling the slot a note's
+  sidecar fills. Tags drive tag pages, `#tag` search, and query `FROM` filters, exactly as sidecar tags
+  do on a vault site (see [[Query]]); `up` drives the breadcrumb trail and children list (see
+  [[Hierarchy]]). An entry naming no `<name>.md`, one that says nothing (no icon, no tags, no up — a
+  bare `dashboard:`), or an `up` resolving to no page (or the page itself) is a build error: an entry
+  that does nothing is never a silent no-op.
 - **`icons`** takes `tags` and `kinds` — the ambient config's maps, same shape and meaning — consulted by
   the one resolver in the precedence above.
 

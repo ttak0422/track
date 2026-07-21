@@ -31,7 +31,8 @@ Prior art: Obsidian stores properties as YAML frontmatter in the body file; Data
 - **A published directory's pages keep the split too — in the site config.** `track export-site --src
   <dir>` publishes plain Markdown files that belong to no vault. The body/metadata split holds: the
   page body stays pure Markdown at `<dir>/<name>.md`, and what the page says about itself (its icon,
-  its tags) goes outside it, into the directory's `site.yml` under `pages`, keyed by file base name
+  its tags, its parent in the hierarchy) goes outside it, into the directory's `site.yml` under
+  `pages`, keyed by file base name
   (ADR 0049). *Where* outside the body differs from a vault on purpose. A vault note's sidecar is
   tool-created — `track new` and `track open` write it, `track meta` and `track rename` maintain it —
   so it costs a human nothing; a published directory has no such tool between the author and the

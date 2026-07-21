@@ -34,6 +34,12 @@ hierarchy relation can be plain note data rather than a second metadata mechanis
   ancestor trail (first parent wins, cycle-safe) and the children list — `store.Trail`/`ChildNotes`
   live, an equivalent walk in the static bundle — served with the note API, printed by `track nav`,
   and rendered as breadcrumbs plus a children section in the note view.
+- **On a published directory site the parent is site config, not body text.** A page's place in the
+  hierarchy is note-level metadata like its icon and tags, so it lives in the `site.yml` `pages` map
+  (`up: <page>`, by file base name or page title — ADR 0049), and an inline `up::` field in a
+  directory page stays a plain prose property with no special lifting (ADR 0032). An `up` resolving
+  to no page in the set, or to the page itself, is a build error like every other silent no-op in
+  that config.
 
 ## Consequences
 

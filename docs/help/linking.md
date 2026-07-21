@@ -3,8 +3,6 @@
 Links in track are explicit: you write `[[Title]]` in a note body to point at another note. There is
 no implicit auto-linking of bare words — a link exists only where you wrote one. ^explicit-links
 
-up:: [[track]]
-
 ## Link syntax
 
 | Form | Meaning |
