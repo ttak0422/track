@@ -121,6 +121,3 @@ properties:
 - `track meta` prints them as JSON for scripts.
 - The index stores every value typed and with line provenance, and [[Query]] filters, sorts, and
   tabulates notes by these values — from the CLI or an embedded `track-query` block.
-
-section:: authoring
-reviewed:: 2026-07-02

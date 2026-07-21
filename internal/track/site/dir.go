@@ -27,7 +27,7 @@ import (
 //
 // The bodies are pure Markdown and stay that way: no frontmatter, and no note-level fact smuggled into
 // the prose as an "icon::", "tags::" or "up::" inline field (ADR 0002/0032). What a page needs said
-// about it — its icon, its tags, its cover image, its place in the hierarchy — is said once, in the site's own config at
+// about it — its icon, its tags, its cover image, its typed props, its place in the hierarchy — is said once, in the site's own config at
 // "<srcDir>/site.yml" (see siteConfig), which travels with the content it publishes. The machine's ambient user config is never read. With no site.yml at
 // all this is a plain, config-free directory export whose entry page is the "index" convention.
 func BuildDir(srcDir, baseURL, frontendDir, outDir string) (Result, error) {
@@ -144,9 +144,10 @@ func BuildDir(srcDir, baseURL, frontendDir, outDir string) (Result, error) {
 			dataDir: filepath.Join(srcDir, "data"),
 			// Directory sources have no vault config, so tasks parse with the default state set.
 			tasks: docTasks(f.body, nil),
-			// Plain Markdown files have no sidecar, so inline "key:: value" fields are their only
-			// properties: prose data, indexed from the line it is written on (ADR 0032).
-			props: note.InlineFields(f.body),
+			// The page's properties assemble the way a vault note's do (note.CollectProps): the
+			// pages entry's props stand where the sidecar's stand, then inline "key:: value"
+			// fields — prose data, indexed from the line it is written on (ADR 0032).
+			props: note.CollectProps(note.Metadata{Props: page.Props}, f.body),
 			up:    up,
 		})
 		for _, ref := range link.Refs(f.body) {
@@ -192,8 +193,8 @@ func checkPages(pages map[string]sitePage, idForSlug, keyToID map[string]int64, 
 				name, name, srcDir)
 		}
 		p := pages[name]
-		if p.Icon == "" && len(p.Tags) == 0 && p.Up == "" && p.Image == "" {
-			return nil, fmt.Errorf("site config: pages entry %q says nothing: give %s.md an icon, tags, an image or up, or drop the entry",
+		if p.Icon == "" && len(p.Tags) == 0 && p.Up == "" && p.Image == "" && len(p.Props) == 0 {
+			return nil, fmt.Errorf("site config: pages entry %q says nothing: give %s.md an icon, tags, an image, props or up, or drop the entry",
 				name, name)
 		}
 		if p.Image != "" {
@@ -269,6 +270,10 @@ type sitePage struct {
 	// Up names the page's parent by file base name or page title — the same two keys home resolves
 	// by — and drives the breadcrumb trail and children list (ADR 0038).
 	Up string `yaml:"up"`
+	// Props is the page's typed properties, the sidecar's props map spelled the sidecar's way
+	// (quote a date so it stays a scalar, not a YAML timestamp). They join the page's inline
+	// fields exactly as sidecar props join a vault note's (note.CollectProps).
+	Props map[string]any `yaml:"props"`
 }
 
 // siteIcons is what a published directory can say about its icon *mappings*: tags and kinds, the

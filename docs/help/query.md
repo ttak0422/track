@@ -115,9 +115,9 @@ All three samples below are live, computed from this help site's pages.
 
 ### Board
 
-Several pages of this site carry a `section::` inline field; the board lanes them by it. Because
-`section` is a user property, it is written `props.section` — bare `section` would be an unknown-key
-error. This block is `TABLE title, props.section, props.rating WHERE props.section SORT title` with
+Several pages of this site carry a `section` property, given in the site's `site.yml` (the sidecar's
+props on a vault); the board lanes them by it. Because `section` is a user property, it is written
+`props.section` — bare `section` would be an unknown-key error. This block is `TABLE title, props.section, props.rating WHERE props.section SORT title` with
 `:layout board :by props.section` (the board lane header still reads `section`):
 
 ```track-query :layout board :by props.section
@@ -135,8 +135,8 @@ TABLE title FROM #help/visualization SORT title
 
 ### Calendar
 
-Some pages carry a `reviewed::` date; the calendar places them on their day, one grid per month.
-`reviewed` is a user property, so it is written `props.reviewed`. This block is
+Some pages carry a `reviewed` date property; the calendar places them on their day, one grid per
+month. `reviewed` is a user property, so it is written `props.reviewed`. This block is
 `TABLE title, props.reviewed WHERE props.reviewed` with `:layout calendar :by props.reviewed`:
 
 ```track-query :layout calendar :by props.reviewed
@@ -172,6 +172,3 @@ real page per used tag (ancestors included) — the tag beside this page's title
 On a vault, tags come from note metadata (`track new --tag`, `track append --tag`); on a directory
 export like this site, the site's own `site.yml` supplies them, in the page's `pages:` entry — a
 page's tags are note-level metadata and are never written in its body.
-
-section:: reference
-reviewed:: 2026-07-10

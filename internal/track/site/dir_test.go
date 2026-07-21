@@ -224,6 +224,29 @@ func TestBuildDirPublishesInlineFieldProps(t *testing.T) {
 	}
 }
 
+// A pages entry's props are the sidecar's props map: published before the body's inline fields, in
+// the order a vault note's properties assemble (note.CollectProps), and typed like sidecar values —
+// a quoted date classifies as a date.
+func TestBuildDirSiteConfigProps(t *testing.T) {
+	src := writeDir(t, map[string]string{
+		"index.md": "# Fields\n\nweight:: 68.2\n",
+		"site.yml": "pages:\n  index:\n    props: {section: guide, reviewed: \"2026-07-02\"}\n",
+	})
+
+	out := t.TempDir()
+	if _, err := BuildDir(src, "", fakeFrontend(t), out); err != nil {
+		t.Fatalf("BuildDir: %v", err)
+	}
+
+	site := readJSON[jsonSite](t, filepath.Join(out, "data", "site.json"))
+	root := readJSON[jsonNoteResponse](t, filepath.Join(out, "data", "note", site.Root+".json"))
+	props := root.Note.Props
+	if len(props) != 3 || props[0].Key != "reviewed" || props[0].Type != "date" ||
+		props[1].Key != "section" || props[1].Value != "guide" || props[2].Key != "weight" {
+		t.Fatalf("props = %+v", props)
+	}
+}
+
 // writeDir writes a directory-mode source tree: name (possibly under a subdirectory) -> content.
 func writeDir(t *testing.T, files map[string]string) string {
 	t.Helper()

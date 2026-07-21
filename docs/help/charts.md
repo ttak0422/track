@@ -290,6 +290,3 @@ The full notation (every field, all marks, examples) is always available with:
 ```sh
 track render --help
 ```
-
-section:: visualization
-reviewed:: 2026-06-24
