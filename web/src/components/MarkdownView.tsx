@@ -16,6 +16,7 @@ import { MermaidDiagram } from "./markdown/MermaidDiagram";
 import { MindmapDiagram } from "./markdown/MindmapDiagram";
 import {
   remarkAlert,
+  remarkBlockID,
   remarkEmbedOptions,
   remarkInclude,
   remarkTaskLine,
@@ -83,6 +84,7 @@ export function MarkdownView({ markdown, kind = "note", includes }: MarkdownView
   const remarkPlugins = [
     remarkGfm,
     remarkAlert,
+    remarkBlockID,
     remarkEmbedOptions,
     ...(math ? [math.remark] : []),
     remarkWikiLink,
@@ -305,8 +307,10 @@ const markdownComponents = {
     );
   },
   // A standalone image is a block embed (player/PDF/OGP card), so unwrap the paragraph that would
-  // otherwise nest a block element inside a <p>.
-  p: ({ node, children }: ElementProps) => (isSoleImage(node) ? <>{children}</> : <p>{children}</p>),
+  // otherwise nest a block element inside a <p>. The id (a ^block anchor, see remarkBlockID) is
+  // forwarded so hash navigation still finds the paragraph.
+  p: ({ node, children, id }: ElementProps & { id?: string }) =>
+    isSoleImage(node) ? <>{children}</> : <p id={id}>{children}</p>,
   pre: ({ node, children }: ElementProps) => {
     const code = node?.children?.[0];
     if (code && code.type === "element" && code.tagName === "code") {

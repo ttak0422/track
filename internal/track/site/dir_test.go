@@ -432,8 +432,31 @@ func TestBuildDirSiteConfigRejectsOrphanPage(t *testing.T) {
 	}
 }
 
-// A pages entry that says nothing — no icon, no tags, an entry YAML decodes to its zero value — is the
-// orphan entry's sibling: it does nothing, and an entry that does nothing is never what its author meant.
+// An up that resolves to no page in the set is the orphan pages entry's sibling: the page it places
+// would publish with no breadcrumb, silently. So is a page named as its own parent — a trail that
+// could never appear.
+func TestBuildDirSiteConfigRejectsBadUp(t *testing.T) {
+	for _, tc := range []struct{ yml, want string }{
+		{"pages:\n  index: {up: ghost}\n", "ghost"},
+		{"pages:\n  index: {up: index}\n", "the page itself"},
+		{"pages:\n  index: {up: Index}\n", "the page itself"}, // by page title, not just base name
+	} {
+		src := writeDir(t, map[string]string{"index.md": "# Index\n", "site.yml": tc.yml})
+		_, err := BuildDir(src, "", fakeFrontend(t), t.TempDir())
+		if err == nil {
+			t.Fatalf("%q: a bad up must fail the build", tc.yml)
+		}
+		for _, want := range []string{"index", "up", tc.want} {
+			if !strings.Contains(err.Error(), want) {
+				t.Errorf("error %q should name %q", err, want)
+			}
+		}
+	}
+}
+
+// A pages entry that says nothing — no icon, no tags, no up, an entry YAML decodes to its zero value —
+// is the orphan entry's sibling: it does nothing, and an entry that does nothing is never what its
+// author meant.
 func TestBuildDirSiteConfigRejectsEmptyPage(t *testing.T) {
 	for _, yml := range []string{
 		"pages:\n  index: {}\n",

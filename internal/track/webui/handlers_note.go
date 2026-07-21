@@ -106,6 +106,29 @@ func (s *Server) getNote(w http.ResponseWriter, r *http.Request) {
 	if props == nil {
 		props = []note.Prop{}
 	}
+	// Hierarchy navigation from the "up" relation property: the ancestor trail (root first) and the
+	// notes whose "up" points here.
+	trail, err := s.store.Trail(id)
+	if err != nil {
+		writeError(w, err, http.StatusInternalServerError)
+		return
+	}
+	children, err := s.store.ChildNotes(id)
+	if err != nil {
+		writeError(w, err, http.StatusInternalServerError)
+		return
+	}
+	if trail == nil {
+		trail = []store.NoteRef{}
+	}
+	if children == nil {
+		children = []store.NoteRef{}
+	}
+	for _, refs := range [][]store.NoteRef{trail, children} {
+		for i := range refs {
+			refs[i].Path = s.cfg.PathForKind(refs[i].FileKind, refs[i].NoteID)
+		}
+	}
 	noteJSON := map[string]any{
 		"note_id":   ref.NoteID,
 		"file_kind": ref.FileKind,
@@ -127,6 +150,8 @@ func (s *Server) getNote(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, map[string]any{
 		"note":      noteJSON,
 		"backlinks": backlinks,
+		"trail":     trail,
+		"children":  children,
 	})
 }
 

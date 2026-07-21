@@ -2,7 +2,15 @@ import { useBlocker, useNavigate } from "@tanstack/react-router";
 import { FormEvent, useEffect, useRef, useState } from "react";
 import { MarkdownView } from "./MarkdownView";
 import { TaskBoardContext } from "./markdown/context";
-import { LoadingIndicator, NoteAside, NoteProperties, NoteTags, journalDateFromNote } from "./noteShared";
+import {
+  LoadingIndicator,
+  NoteAside,
+  NoteBreadcrumbs,
+  NoteProperties,
+  NoteTags,
+  journalDateFromNote,
+  useScrollToHash,
+} from "./noteShared";
 import { getFollowState } from "../api";
 import { NoteMetaDialog } from "./NoteMetaDialog";
 import { NoteActionsMenu } from "./NoteActionsMenu";
@@ -110,6 +118,10 @@ export function NoteEditor({ noteID }: NoteEditorProps) {
 
   // Leaving the reader entirely (home/graph) drops the dirty marker; a closed tab discards its edits.
   useEffect(() => () => setTabDirty(null), [setTabDirty]);
+
+  // A [[Note#^block]] link arrives with the block's element id as the URL hash; scroll the preview
+  // to it once the rendered body is in the DOM.
+  useScrollToHash(!noteQuery.isPending && renderQuery.data?.markdown !== undefined);
 
   useEffect(() => {
     if (!followEnabled || typeof EventSource === "undefined") return;
@@ -329,6 +341,7 @@ export function NoteEditor({ noteID }: NoteEditorProps) {
           </div>
         </div>
       ) : null}
+      <NoteBreadcrumbs trail={data.trail ?? []} />
       <NoteTags tags={tags} />
       {/* Properties are read-only here: sidecar values are edited via `track meta --set`, inline
           fields by editing the body itself. */}
@@ -384,7 +397,12 @@ export function NoteEditor({ noteID }: NoteEditorProps) {
         ) : null}
       </form>
 
-      <NoteAside backlinks={data.backlinks} noteID={noteID} journalDate={journalDate} />
+      <NoteAside
+        backlinks={data.backlinks}
+        childNotes={data.children ?? []}
+        noteID={noteID}
+        journalDate={journalDate}
+      />
     </article>
   );
 }

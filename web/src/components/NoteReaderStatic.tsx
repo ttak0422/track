@@ -1,6 +1,14 @@
 import { MarkdownView } from "./MarkdownView";
 import { TaskBoardContext } from "./markdown/context";
-import { LoadingIndicator, NoteAside, NoteProperties, NoteTags, journalDateFromNote } from "./noteShared";
+import {
+  LoadingIndicator,
+  NoteAside,
+  NoteBreadcrumbs,
+  NoteProperties,
+  NoteTags,
+  journalDateFromNote,
+  useScrollToHash,
+} from "./noteShared";
 import { useNoteQuery, useRenderQuery } from "../queries";
 import { useTabs } from "./tabs/tabsStore";
 import { useEffect } from "react";
@@ -22,6 +30,10 @@ export function NoteReaderStatic({ noteID }: { noteID: NoteID }) {
     if (noteTitle) setTabTitle(noteID, noteTitle);
   }, [noteID, noteTitle, setTabTitle]);
 
+  // A [[Note#^block]] link arrives with the block's element id as the URL hash; scroll to it once
+  // the body has rendered.
+  useScrollToHash(!noteQuery.isPending && rendered.data?.markdown !== undefined);
+
   if (noteQuery.isPending) {
     return <LoadingIndicator label="Loading note" />;
   }
@@ -35,6 +47,7 @@ export function NoteReaderStatic({ noteID }: { noteID: NoteID }) {
 
   return (
     <article className="note-reader">
+      <NoteBreadcrumbs trail={data.trail ?? []} />
       <NoteTags tags={data.note.tags ?? []} />
       <NoteProperties props={data.note.props ?? []} />
 
@@ -52,7 +65,12 @@ export function NoteReaderStatic({ noteID }: { noteID: NoteID }) {
         )}
       </section>
 
-      <NoteAside backlinks={data.backlinks} noteID={noteID} journalDate={journalDate} />
+      <NoteAside
+        backlinks={data.backlinks}
+        childNotes={data.children ?? []}
+        noteID={noteID}
+        journalDate={journalDate}
+      />
     </article>
   );
 }

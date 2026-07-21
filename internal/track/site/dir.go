@@ -26,9 +26,9 @@ import (
 // build.
 //
 // The bodies are pure Markdown and stay that way: no frontmatter, and no note-level fact smuggled into
-// the prose as an "icon::" or "tags::" inline field (ADR 0002/0032). What a page needs said about it —
-// its icon, its tags — is said once, in the site's own config at "<srcDir>/site.yml" (see siteConfig), which travels
-// with the content it publishes. The machine's ambient user config is never read. With no site.yml at
+// the prose as an "icon::", "tags::" or "up::" inline field (ADR 0002/0032). What a page needs said
+// about it — its icon, its tags, its place in the hierarchy — is said once, in the site's own config at
+// "<srcDir>/site.yml" (see siteConfig), which travels with the content it publishes. The machine's ambient user config is never read. With no site.yml at
 // all this is a plain, config-free directory export whose entry page is the "index" convention.
 func BuildDir(srcDir, baseURL, frontendDir, outDir string) (Result, error) {
 	sc, err := loadSiteConfig(srcDir)
@@ -75,7 +75,8 @@ func BuildDir(srcDir, baseURL, frontendDir, outDir string) (Result, error) {
 		keyToID[f.slug] = id
 		keyToID[f.title] = id
 	}
-	if err := checkPages(sc.Pages, idForSlug, srcDir); err != nil {
+	upFor, err := checkPages(sc.Pages, idForSlug, keyToID, srcDir)
+	if err != nil {
 		return Result{}, err
 	}
 
@@ -112,10 +113,16 @@ func BuildDir(srcDir, baseURL, frontendDir, outDir string) (Result, error) {
 		if err != nil {
 			return Result{}, fmt.Errorf("render %s: %w", f.slug, err)
 		}
-		// A page's note-level metadata — its icon and its tags — comes from the site config's pages
-		// map, the directory's stand-in for a vault note's sidecar (ADR 0049). Tags drive tag pages,
-		// #tag search, and query FROM filters, exactly as sidecar tags do on a vault site.
+		// A page's note-level metadata — its icon, its tags, its place in the hierarchy — comes from
+		// the site config's pages map, the directory's stand-in for a vault note's sidecar (ADR 0049).
+		// Tags drive tag pages, #tag search, and query FROM filters, exactly as sidecar tags do on a
+		// vault site; up drives the breadcrumb trail and children list. An inline "up::" field stays a
+		// plain prose property here, like "tags::" (ADR 0032).
 		page := sc.Pages[f.slug]
+		var up []int64
+		if pid, ok := upFor[f.slug]; ok {
+			up = []int64{pid}
+		}
 		docs = append(docs, doc{
 			id:    id,
 			title: f.title,
@@ -137,6 +144,7 @@ func BuildDir(srcDir, baseURL, frontendDir, outDir string) (Result, error) {
 			// Plain Markdown files have no sidecar, so inline "key:: value" fields are their only
 			// properties: prose data, indexed from the line it is written on (ADR 0032).
 			props: note.InlineFields(f.body),
+			up:    up,
 		})
 		for _, ref := range link.Refs(f.body) {
 			if dst, ok := keyToID[ref.Text]; ok {
@@ -155,30 +163,52 @@ func BuildDir(srcDir, baseURL, frontendDir, outDir string) (Result, error) {
 	return writeBundle(docs, edges, root, false, baseURL, nil, frontendDir, outDir)
 }
 
-// checkPages rejects a pages entry that names no page, and one that says nothing. The first is a typo —
-// a page renamed, or its name misspelled — and the page it meant to describe would otherwise publish
-// with the wrong icon and no tags, without a word. The second — no icon, no tags, an entry YAML decodes
-// to its zero value — is its sibling. Both are no-ops in a file that is only exercised at publish time,
-// and an entry that does nothing is never what its author meant. Pages are checked in name order so the
-// same directory always fails on the same entry.
-func checkPages(pages map[string]sitePage, idForSlug map[string]int64, srcDir string) error {
+// checkPages rejects a pages entry that names no page, one that says nothing, and an up that resolves
+// to no page (or the page itself). The first is a typo — a page renamed, or its name misspelled — and
+// the page it meant to describe would otherwise publish with the wrong icon, no tags, and no place in
+// the hierarchy, without a word. The others are its siblings: an entry YAML decodes to its zero value,
+// or an up whose trail would silently never appear. All are no-ops in a file that is only exercised at
+// publish time, and an entry that does nothing is never what its author meant. Pages are checked in
+// name order so the same directory always fails on the same entry.
+//
+// It returns each page's resolved parent id (slug keyed), so the bundle publishes exactly what was
+// validated: the parent resolves the way the entry page does — file base name first, page title then,
+// never through the merged link map, where a page whose H1 spells another page's file name would
+// shadow it (see the entry-page comment in BuildDir).
+func checkPages(pages map[string]sitePage, idForSlug, keyToID map[string]int64, srcDir string) (map[string]int64, error) {
 	names := make([]string, 0, len(pages))
 	for name := range pages {
 		names = append(names, name)
 	}
 	sort.Strings(names)
+	upFor := map[string]int64{}
 	for _, name := range names {
 		if _, ok := idForSlug[name]; !ok {
-			return fmt.Errorf("site config: pages entry %q names no page: there is no %s.md in %s",
+			return nil, fmt.Errorf("site config: pages entry %q names no page: there is no %s.md in %s",
 				name, name, srcDir)
 		}
 		p := pages[name]
-		if p.Icon == "" && len(p.Tags) == 0 {
-			return fmt.Errorf("site config: pages entry %q says nothing: give %s.md an icon or tags, or drop the entry",
+		if p.Icon == "" && len(p.Tags) == 0 && p.Up == "" {
+			return nil, fmt.Errorf("site config: pages entry %q says nothing: give %s.md an icon, tags or up, or drop the entry",
 				name, name)
 		}
+		if p.Up == "" {
+			continue
+		}
+		parent, ok := idForSlug[p.Up]
+		if !ok {
+			parent, ok = keyToID[p.Up]
+		}
+		if !ok {
+			return nil, fmt.Errorf("site config: pages entry %q: up %q names no page among the .md files in %s",
+				name, p.Up, srcDir)
+		}
+		if parent == idForSlug[name] {
+			return nil, fmt.Errorf("site config: pages entry %q: up %q is the page itself", name, p.Up)
+		}
+		upFor[name] = parent
 	}
-	return nil
+	return upFor, nil
 }
 
 // siteConfigNames are the per-site config file, discovered inside the published directory itself. Both
@@ -212,12 +242,15 @@ type siteConfig struct {
 	Icons siteIcons `yaml:"icons"`
 }
 
-// sitePage is what one published page says about itself: the same two facts a vault note's sidecar
-// feeds the icon resolver and the index — its override icon and its tags — because it fills the same
-// slot. Never written in the page's body (ADR 0002/0032).
+// sitePage is what one published page says about itself: the same facts a vault note's sidecar feeds
+// the icon resolver and the index — its override icon, its tags, and its parent in the hierarchy —
+// because it fills the same slot. Never written in the page's body (ADR 0002/0032).
 type sitePage struct {
 	Icon string   `yaml:"icon"`
 	Tags []string `yaml:"tags"`
+	// Up names the page's parent by file base name or page title — the same two keys home resolves
+	// by — and drives the breadcrumb trail and children list (ADR 0038).
+	Up string `yaml:"up"`
 }
 
 // siteIcons is what a published directory can say about its icon *mappings*: tags and kinds, the

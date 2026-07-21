@@ -45,6 +45,7 @@ type doc struct {
 	dataDir  string      // canonical-data directory for embedded ```viewspec charts ("" = inline data only)
 	tasks    *task.Set   // parsed task lines + state set, for the read-only board (nil = none)
 	props    []note.Prop // flattened typed properties (sidecar props + inline fields), shown read-only
+	up       []int64     // ids of the doc's parents ("up" relation), resolved by the input front-end; out-of-set ids are skipped
 }
 
 // edge is a directed [[link]] between two in-set docs.
@@ -92,6 +93,10 @@ type jsonNoteDetail struct {
 type jsonNoteResponse struct {
 	Note      jsonNoteDetail `json:"note"`
 	Backlinks []jsonRef      `json:"backlinks"`
+	// Trail and Children mirror the live server's hierarchy navigation, derived from each doc's "up"
+	// relation property resolved within the published set.
+	Trail    []jsonRef `json:"trail"`
+	Children []jsonRef `json:"children"`
 }
 
 type jsonGraphNode struct {
@@ -198,6 +203,41 @@ func writeBundle(docs []doc, edges []edge, root int64, calendar bool, baseURL st
 		}
 		linkers[e.dst] = append(linkers[e.dst], src)
 	}
+	// Hierarchy from each doc's up-targets: parentOf follows a doc's first in-set up-target
+	// (single-path trail, like the live server's Trail), and childrenOf collects the reverse for
+	// the children list.
+	parentOf := map[int64]int64{}
+	childrenOf := map[int64][]doc{}
+	childSeen := map[edge]bool{}
+	for _, d := range docs {
+		for _, pid := range d.up {
+			t, ok := byID[pid]
+			if !ok || t.id == d.id {
+				continue
+			}
+			if _, have := parentOf[d.id]; !have {
+				parentOf[d.id] = t.id
+			}
+			if e := (edge{src: d.id, dst: t.id}); !childSeen[e] {
+				childSeen[e] = true
+				childrenOf[t.id] = append(childrenOf[t.id], d)
+			}
+		}
+	}
+	// trailOf walks parentOf to the root, cycle-safe, returning ancestors root first.
+	trailOf := func(id int64) []jsonRef {
+		trail := []jsonRef{}
+		seen := map[int64]bool{id: true}
+		for cur := id; ; {
+			p, ok := parentOf[cur]
+			if !ok || seen[p] {
+				return trail
+			}
+			seen[p] = true
+			trail = append([]jsonRef{refOf(byID[p])}, trail...)
+			cur = p
+		}
+	}
 	// The query domain for embedded ```track-query fences is the published set (in the shared
 	// recently-updated-first order), so a published table never links to — or leaks — an unpublished
 	// note; its [[Title]] cells resolve through resolve.json like any other wiki link.
@@ -211,6 +251,12 @@ func writeBundle(docs []doc, edges []edge, root int64, calendar bool, baseURL st
 		bl := make([]jsonRef, 0, len(srcs))
 		for _, src := range srcs {
 			bl = append(bl, refOf(src))
+		}
+		kids := childrenOf[d.id]
+		byRecency(kids)
+		children := make([]jsonRef, 0, len(kids))
+		for _, kid := range kids {
+			children = append(children, refOf(kid))
 		}
 		// Rewrite asset references to their published (slugged) names, matching the copied files.
 		body := rewriteAssetRefs(d.body)
@@ -244,6 +290,8 @@ func writeBundle(docs []doc, edges []edge, root int64, calendar bool, baseURL st
 				Tasks:            d.tasks,
 			},
 			Backlinks: bl,
+			Trail:     trailOf(d.id),
+			Children:  children,
 		}
 		if err := writeJSONFile(filepath.Join(outDir, "data", "note", fmt.Sprintf("%s.json", PublishID(d.id))), resp); err != nil {
 			return Result{}, err

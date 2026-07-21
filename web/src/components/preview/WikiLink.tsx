@@ -2,6 +2,7 @@ import { Link } from "@tanstack/react-router";
 import { useContext, useEffect, useRef, useState } from "react";
 import { useResolveQuery } from "../../queries";
 import { PreviewDepthContext } from "../markdown/context";
+import { blockElementID, splitWikiTarget } from "../markdown/plugins";
 import { type PreviewAnchor, type PreviewBounds, initialPreviewBounds } from "./bounds";
 import { useFloating } from "./floatingStore";
 import { NoteWindow } from "./NoteWindow";
@@ -22,7 +23,10 @@ export function WikiLink({ target, display }: WikiLinkProps) {
   const openTimer = useRef<number | undefined>(undefined);
   const depth = useContext(PreviewDepthContext);
   const floating = useFloating();
-  const resolved = useResolveQuery(target);
+  // The target may carry a "#..." anchor (heading or ^block); the note resolves by its key, and a
+  // block anchor becomes the URL hash so the reader scrolls to and highlights the marked block.
+  const { key, blockID } = splitWikiTarget(target);
+  const resolved = useResolveQuery(key);
   const noteID = resolved.data?.found ? resolved.data.note.note_id : undefined;
 
   useEffect(() => {
@@ -111,7 +115,13 @@ export function WikiLink({ target, display }: WikiLinkProps) {
       onMouseEnter={scheduleOpen}
       onMouseLeave={scheduleClose}
     >
-      <Link className="wiki-link" ref={linkRef} to="/notes/$noteId" params={{ noteId: String(noteID) }}>
+      <Link
+        className="wiki-link"
+        ref={linkRef}
+        to="/notes/$noteId"
+        params={{ noteId: String(noteID) }}
+        hash={blockID ? blockElementID(blockID) : undefined}
+      >
         {display}
       </Link>
       {open && anchor ? (

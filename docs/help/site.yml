@@ -14,25 +14,29 @@
 home: index
 
 # Per-page note-level metadata, keyed by file base name — the directory's stand-in for a vault note's
-# sidecar: the page's own icon, and its tags (which drive tag pages, #tag search, and query FROM
-# filters). An entry naming no `<name>.md`, or saying nothing at all, is a build error, never a
-# silent no-op.
+# sidecar: the page's own icon, its tags (which drive tag pages, #tag search, and query FROM
+# filters), and its place in the hierarchy (up: the parent page, by file base name or title — the
+# breadcrumb trail above the page and the parent's children list). An entry naming no `<name>.md`,
+# saying nothing at all, or an up resolving to no page (or the page itself) is a build error, never
+# a silent no-op.
 pages:
-  babel: {icon: 🧪, tags: [help/authoring]}
-  charts: {icon: 📊, tags: [help/visualization/charts]}
-  cli: {icon: ⌨️, tags: [help/reference]}
+  babel: {icon: 🧪, tags: [help/authoring], up: cli}
+  blocks: {up: linking}
+  charts: {icon: 📊, tags: [help/visualization/charts], up: visualization}
+  cli: {icon: ⌨️, tags: [help/reference], up: index}
   dashboard: {icon: 🏠}
-  diagrams: {icon: 📐, tags: [help/visualization/diagrams]}
-  embeds: {icon: 🧩, tags: [help/visualization/embeds]}
+  diagrams: {icon: 📐, tags: [help/visualization/diagrams], up: visualization}
+  embeds: {icon: 🧩, tags: [help/visualization/embeds], up: visualization}
+  hierarchy: {up: index}
   index: {icon: 🧭}
-  linking: {icon: 🔗, tags: [help/concepts]}
+  linking: {icon: 🔗, tags: [help/concepts], up: index}
   mindmaps: {icon: 🧠}
-  properties: {icon: 🏷️, tags: [help/authoring]}
+  properties: {icon: 🏷️, tags: [help/authoring], up: index}
   query: {tags: [help/reference]}
   search: {icon: 🔍}
-  syntax: {tags: [help/authoring]}
-  visualization: {icon: 📈, tags: [help/visualization]}
-  web: {icon: 🌐, tags: [help/reference]}
+  syntax: {tags: [help/authoring], up: index}
+  visualization: {icon: 📈, tags: [help/visualization], up: index}
+  web: {icon: 🌐, tags: [help/reference], up: index}
 
 # Icon mappings, resolved by config.NoteIcon — the same precedence a vault note's icon resolves by: a
 # page's own icon (pages above), then its tags, then its kind. syntax.md and query.md carry no icon of

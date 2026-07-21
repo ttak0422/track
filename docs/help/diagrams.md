@@ -11,7 +11,7 @@ Three engines are built in, each triggered by its fence language:
 - **[D2](https://d2lang.com/)** (` ```d2 `) — a modern diagram language with its own themes and
   layout, when you prefer D2's syntax or aesthetics over Mermaid's for the same kind of diagram.
 
-Part of [[Visualization]] (see also [[Charts]], [[Mindmaps]], and [[Embeds]]). Back to [[track]].
+See also [[Charts]], [[Mindmaps]], and [[Embeds]].
 
 ## Writing a diagram
 

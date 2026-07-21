@@ -26,10 +26,12 @@ pinned:
 - [[CLI]] — the command-line interface that owns parsing, indexing, and search.
 - [[Searching notes]] — title, tag, and full-text body search, with ranking and CJK support.
 - [[Linking notes]] — how `[[...]]` links, backlinks, and the note graph work.
+- [[Block links]] — mark a paragraph or list item with `^id`, then link to it or transclude it.
 - [[Tasks]] — checkbox lines with named states, priorities, deadlines, progress cookies, and a
   kanban board.
 - [[Properties]] — typed key-value metadata on a note: sidecar props, inline `key:: value` fields,
   and an optional schema.
+- [[Hierarchy]] — breadcrumbs and children from the `up:: [[Parent]]` relation property.
 - [[Query]] — table queries over notes by tag and property, embeddable in a note as a live
   `track-query` block; plus hierarchical tags and per-tag pages.
 - [[Web workspace]] — the local browser UI for reading, previewing, and navigating notes.

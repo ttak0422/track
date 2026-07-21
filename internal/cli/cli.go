@@ -85,6 +85,8 @@ func Run(args []string) int {
 		return cmdNotes(rest)
 	case "backlinks":
 		return cmdBacklinks(rest)
+	case "nav":
+		return cmdNav(rest)
 	case "agenda":
 		return cmdAgenda(rest)
 	case "graph":
@@ -188,6 +190,8 @@ Usage:
   track notes [--untagged] [--limit N]  list notes, newest first; --untagged keeps only notes with no
                                         tags, for a curation pass that adds tags via track append --tag (JSON)
   track backlinks (--id N | --path P)   list backlinks (JSON)
+  track nav (--id N | --path P)         print hierarchy navigation from the "up" property:
+                                        the ancestor trail and the child notes (JSON)
   track agenda [--date YYYY-MM-DD]       list notes active on a day (JSON)
   track graph (--id N | --path P)       show a local link graph (JSON)
   track web [--addr 127.0.0.1:8765]      serve the local web workspace

@@ -61,6 +61,8 @@ func Build(cfg *config.Config, st *store.Store, opts Options, frontendDir, outDi
 
 	assetSrc := cfg.AssetsDir()
 	docs := make([]doc, 0, len(ids))
+	upKeys := make([][]string, 0, len(ids))
+	titleID := make(map[string]int64, len(ids))
 	for _, id := range ids {
 		n, err := note.ParseFile(cfg.PathForKind(kinds[id], id), cfg)
 		if err != nil {
@@ -70,6 +72,7 @@ func Build(cfg *config.Config, st *store.Store, opts Options, frontendDir, outDi
 		if err != nil {
 			return Result{}, fmt.Errorf("render note %d: %w", id, err)
 		}
+		props := note.CollectProps(n.Meta, n.Body)
 		docs = append(docs, doc{
 			id:       id,
 			title:    noteTitle(n),
@@ -87,8 +90,19 @@ func Build(cfg *config.Config, st *store.Store, opts Options, frontendDir, outDi
 			assetSrc: assetSrc,
 			dataDir:  cfg.DataDir(),
 			tasks:    docTasks(n.Body, cfg.TaskStates),
-			props:    note.CollectProps(n.Meta, n.Body),
+			props:    props,
 		})
+		upKeys = append(upKeys, note.UpTargets(props))
+		titleID[noteTitle(n)] = id
+	}
+	// The "up" relation property resolves by title within the published set (titles are unique in a
+	// vault); a parent outside the set is skipped, like every other out-of-set link.
+	for i := range docs {
+		for _, key := range upKeys[i] {
+			if pid, ok := titleID[key]; ok {
+				docs[i].up = append(docs[i].up, pid)
+			}
+		}
 	}
 
 	edges, err := vaultEdges(st, inSet)

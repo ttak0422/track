@@ -1,9 +1,7 @@
 # Linking notes
 
 Links in track are explicit: you write `[[Title]]` in a note body to point at another note. There is
-no implicit auto-linking of bare words — a link exists only where you wrote one.
-
-Back to [[track]].
+no implicit auto-linking of bare words — a link exists only where you wrote one. ^explicit-links
 
 ## Link syntax
 
@@ -12,6 +10,7 @@ Back to [[track]].
 | `[[Title]]` | Link to the note whose title is `Title`. |
 | `[[Title\|display]]` | Same target, shown as `display`. |
 | `[[Title#heading]]` | Link to a heading within the target note. |
+| `[[Title#^block-id]]` | Link to a marked block within the target note — see [[Block links]]. |
 
 A title is the resolution key, and titles come from each note's metadata — editing a body heading does
 not rename a note. Use `track rename` to change a title and rewrite the backlinks that point to it.

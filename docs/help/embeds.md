@@ -6,7 +6,7 @@ embedding is always opt-in and ordinary `[text](url)` links are never turned int
 routes each embed by the kind of target (below); only `http(s)` and relative URLs feed an iframe, so a
 note cannot smuggle a `javascript:` document into an embed.
 
-Part of [[Visualization]] (see also [[Diagrams]] and [[Charts]]). Back to [[track]].
+See also [[Diagrams]] and [[Charts]].
 
 ## Local files
 

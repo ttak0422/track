@@ -35,6 +35,7 @@ Use titles for user-facing workflows and ids/paths for exact targets:
 - `track meta ... --edit (FILE|-)`: apply a full metadata document — the `doc` YAML with keys `title`, `tags`, `description`, `image`, `icon`, `props` — from a file or stdin, validated as a whole before anything is written (a rejected document changes nothing). The document is whole-state: omitting `icon` (or any non-title key) clears the stored value, so always start from the current `doc`. A changed title is a rename with `track rename` semantics: uniqueness against the index, backlink rewrite, rename history; an empty `title:` leaves the title unchanged. Empty fields render as bare `key:` lines (both bare and `[]`/`{}` forms parse). `--edit` cannot be combined with the field flags. This is the round-trip the editor frontends use: read `doc`, edit it, pipe it back.
 - `track query '<expr>'` (or `--saved <name>` for a query named under `queries:` in `config.yml`): run a table query over notes and print `{"columns":[...],"rows":[{"note_id","title","cells"}],"count"}`. The expression is `TABLE <cols> [FROM #tag] [WHERE <cond> AND ...] [SORT key [DESC]] [LIMIT n]`; a key is either a note attribute (bare `title` or `tags`) or a user property written `props.<key>` (the only way to reach a property) — an unknown bare key is a loud error, not an empty column; conditions are `#tag` filters, typed comparisons (`=`, `!=`, `<`, `>`), or a bare key as a presence check. Tags are hierarchical everywhere (`#a` matches `#a/b`, not `#ab`).
 - `track backlinks` and `track graph`: inspect incoming links and local graph around a target.
+- `track nav (--id N | --path P)`: print hierarchy navigation derived from the `up` relation property (`up:: [[Parent]]`): the ancestor `trail` (root first) and the `children` whose `up` points at the target.
 - `track agenda [--date YYYY-MM-DD]`: list the notes created or updated on a calendar day (default today), for "what was worked on that day" lookups. Activity days are recorded per note in the sidecar and cover both CLI mutations and direct editor edits.
 
 Creating or editing a note also ensures that day's journal exists (it is the day's aggregation hub); the journal itself is excluded from activity. An explicit `track journal --body/--template` therefore only applies before the day's first note edit — afterward the journal already exists, so add to it with `track append --id <yyyyMMdd>`.
@@ -46,6 +47,7 @@ Use explicit wiki links:
 - `[[title]]`: link to the note titled `title`.
 - `[[title|display]]`: link to `title` while displaying `display`.
 - `[[note#heading]]`, `[[note##heading]]`: link to the first matching H1/H2 heading in `note`.
+- `[[note#^id]]`: link to the block (paragraph or list item) marked with a trailing `^id` in `note`. Ids are manual; the first matching marker wins.
 
 Use `track resolve --term X` to check whether a title exists before relying on a link.
 
