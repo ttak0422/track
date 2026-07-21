@@ -206,6 +206,61 @@ func TestLoadWebTheme(t *testing.T) {
 	}
 }
 
+func TestNoteIconPrecedence(t *testing.T) {
+	cfg := &Config{Icons: IconMap{
+		Tags:  map[string]string{"idea": "💡", "book": "📚"},
+		Kinds: map[string]string{"journal": "📓", "note": "📝"},
+	}}
+	cases := []struct {
+		name     string
+		kind     string
+		tags     []string
+		override string
+		want     string
+	}{
+		{"override wins over everything", "note", []string{"idea"}, "🔥", "🔥"},
+		{"first matching tag wins over kind", "note", []string{"idea", "book"}, "", "💡"},
+		{"unmapped tag falls through to kind", "note", []string{"misc"}, "", "📝"},
+		{"kind mapping when no tags", "journal", nil, "", "📓"},
+		{"no mapping yields empty", "note", []string{"misc"}, "", "📝"},
+		{"nothing at all", "widget", nil, "", ""},
+	}
+	for _, c := range cases {
+		if got := cfg.NoteIcon(c.kind, c.tags, c.override); got != c.want {
+			t.Errorf("%s: NoteIcon(%q, %v, %q) = %q, want %q", c.name, c.kind, c.tags, c.override, got, c.want)
+		}
+	}
+}
+
+func TestLoadIconsAndHome(t *testing.T) {
+	vault := t.TempDir()
+	configPath := filepath.Join(t.TempDir(), "config.yml")
+	contents := "vault_dir: " + vault + "\ncache_dir: " + t.TempDir() + "\n" +
+		"web:\n  home: Home\n" +
+		"icons:\n  tags:\n    idea: \"💡\"\n  kinds:\n    journal: \"📓\"\n"
+	if err := os.WriteFile(configPath, []byte(contents), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("TRACK_CONFIG", configPath)
+	t.Setenv("TRACK_VAULT", "")
+	t.Setenv("TRACK_DB", "")
+	t.Setenv("TRACK_CACHE_DIR", "")
+
+	cfg, err := Load()
+	if err != nil {
+		t.Fatalf("load: %v", err)
+	}
+	if cfg.WebHome != "Home" {
+		t.Fatalf("WebHome = %q, want %q", cfg.WebHome, "Home")
+	}
+	if got := cfg.NoteIcon("note", []string{"idea"}, ""); got != "💡" {
+		t.Fatalf("tag icon = %q, want 💡", got)
+	}
+	if got := cfg.NoteIcon("journal", nil, ""); got != "📓" {
+		t.Fatalf("kind icon = %q, want 📓", got)
+	}
+}
+
 // loadWithEmbedder writes a config.yml containing the given embedder line (empty = key absent), points
 // Load at it with env overrides cleared, and returns the result.
 func loadWithEmbedder(t *testing.T, embedderLine string) (*Config, error) {

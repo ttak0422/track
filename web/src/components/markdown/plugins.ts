@@ -1,10 +1,70 @@
 import type { Element, Root as HastRoot, Text as HastText } from "hast";
-import type { Root as MdastRoot } from "mdast";
+import type { Paragraph, Root as MdastRoot } from "mdast";
 import { visit } from "unist-util-visit";
+import type { TaskState } from "../../types";
 
 // The [[target|display]] wiki-link grammar (target, optional |display alias). Shared with the portable
 // export so both flatten the same construct. It carries the /g flag; reset lastIndex before manual exec.
 export const wikiPattern = /\[\[([^\]|]+)(?:\|([^\]]+))?\]\]/g;
+
+// Block anchors: a trailing " ^id" marks a paragraph or list item as a link target the engine
+// resolves for [[Note#^id]] links and ![[Note#^id]] transclusions. The id grammar mirrors the
+// engine's (a letter/digit then letters, digits, "-", "_").
+const blockIDPattern = /^\^([A-Za-z0-9][A-Za-z0-9_-]*)$/;
+const trailingMarkerPattern = /(?:^|[ \t])\^([A-Za-z0-9][A-Za-z0-9_-]*)\s*$/;
+
+// blockElementID is the DOM id a marked block renders with, shared by remarkBlockID (which sets it)
+// and WikiLink (which navigates to it via the URL hash).
+export function blockElementID(blockID: string): string {
+  return `block-${blockID}`;
+}
+
+// splitWikiTarget separates a wiki-link target into its resolution key and an optional block anchor,
+// mirroring the engine's anchor parsing: "Note#^id" resolves by "Note" and navigates to the block,
+// "Note#Heading" also resolves by "Note" (navigation lands at the note), and a "#" with nothing
+// after it stays part of the key (e.g. "C#").
+export function splitWikiTarget(target: string): { key: string; blockID: string } {
+  const i = target.indexOf("#");
+  if (i < 0) return { key: target, blockID: "" };
+  const rest = target.slice(i + 1).trim();
+  const block = blockIDPattern.exec(rest);
+  if (block) return { key: target.slice(0, i).trim(), blockID: block[1] };
+  if (rest.replace(/^#+/, "").trim() === "") return { key: target, blockID: "" };
+  return { key: target.slice(0, i).trim(), blockID: "" };
+}
+
+// remarkBlockID strips a trailing "^id" block marker from a paragraph or list item and gives the
+// block a DOM id, so [[Note#^id]] hash navigation can scroll to and highlight it. The marker on a
+// list item's own line attaches to the <li> (a tight list unwraps its paragraph, which would drop
+// the id); a plain paragraph carries the id itself.
+export function remarkBlockID() {
+  return (tree: MdastRoot) => {
+    visit(tree, "paragraph", (node, index, parent) => {
+      if (!parent) return;
+      const id = takeTrailingBlockID(node);
+      if (!id) return;
+      const owner = parent.type === "listItem" ? parent : node;
+      const data = (owner.data ??= {});
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any -- hProperties is untyped mdast data
+      const props = ((data as any).hProperties ??= {});
+      props.id = blockElementID(id);
+    });
+  };
+}
+
+// takeTrailingBlockID removes a trailing block marker from a paragraph's last text node and returns
+// its id, or null when the paragraph does not end with one. A marker alone in a paragraph (no other
+// content) is left as prose, matching the engine: a marker needs content on its line.
+function takeTrailingBlockID(node: Paragraph): string | null {
+  const last = node.children[node.children.length - 1];
+  if (!last || last.type !== "text") return null;
+  const match = trailingMarkerPattern.exec(last.value);
+  if (!match) return null;
+  const stripped = last.value.slice(0, match.index).replace(/[ \t]+$/, "");
+  if (stripped === "" && node.children.length === 1) return null;
+  last.value = stripped;
+  return match[1];
+}
 
 // Include directives (ADR 0031) reach the renderer as data, not syntax: the server resolves each
 // ![[...]] line and reports its 0-based line number, so the client never re-implements the
@@ -77,6 +137,134 @@ export function remarkWikiLink() {
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       parent.children.splice(index, 1, ...(replacement as any[]));
       return index + replacement.length;
+    });
+  };
+}
+
+// remarkTaskLine upgrades checklists that use task notation (docs/help/tasks.md) into rich task
+// rows, deciding per list block: when any item of a list carries notation beyond a bare GFM
+// checkbox — a custom state marker, or a [#A]/[sched:]/[due:]/[done:]/cookie token — every task
+// line in that list renders as a row with a state badge, the text, metadata chips, and (live) the
+// same state select the board's cards carry. A checklist of plain "- [ ]"/"- [x]" lines keeps its
+// native checkboxes. A marker outside the state set is not a task and stays exactly as written.
+const taskTokenPattern = /\[(?:#([A-Za-z])|(sched|due|done):(\d{4}-\d{2}-\d{2})|(\d+\/\d+|\d+%))\]/g;
+
+interface TaskItemParse {
+  state: TaskState;
+  // custom is true when the marker was a literal "[c]" in the text, not a GFM-parsed checkbox.
+  custom: boolean;
+  hasTokens: boolean;
+  prefixLen: number;
+}
+
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+function parseTaskItem(item: any, byChar: Map<string, TaskState>): TaskItemParse | null {
+  const para = item.children?.[0];
+  if (!para || para.type !== "paragraph") return null;
+  let state: TaskState | undefined;
+  let custom = false;
+  let prefixLen = 0;
+  if (typeof item.checked === "boolean") {
+    state = byChar.get(item.checked ? "x" : " ");
+    if (!state) return null; // this vault gives those markers no meaning — keep the GFM checkbox
+  } else {
+    const first = para.children?.[0];
+    if (!first || first.type !== "text") return null;
+    const m = /^\[(.)\][ \t]+/.exec(first.value);
+    if (!m) return null;
+    state = byChar.get(m[1]);
+    if (!state) return null;
+    custom = true;
+    prefixLen = m[0].length;
+  }
+  let hasTokens = false;
+  for (const child of para.children) {
+    if (child.type !== "text") continue;
+    taskTokenPattern.lastIndex = 0;
+    if (taskTokenPattern.test(child.value)) {
+      hasTokens = true;
+      break;
+    }
+  }
+  return { state, custom, hasTokens, prefixLen };
+}
+
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+function upgradeTaskItem(item: any, p: TaskItemParse) {
+  const para = item.children[0];
+  if (p.custom) {
+    para.children[0].value = para.children[0].value.slice(p.prefixLen);
+  }
+  item.checked = null; // drop the GFM checkbox; the state cell takes its place
+
+  // Scheduled and due move into their own (sortable) table columns; priority, cookies, and the
+  // completion stamp stay in the task cell as chips.
+  let sched = "";
+  let due = "";
+  for (let i = 0; i < para.children.length; i++) {
+    const child = para.children[i];
+    if (child.type !== "text") continue;
+    taskTokenPattern.lastIndex = 0;
+    if (!taskTokenPattern.test(child.value)) continue;
+    taskTokenPattern.lastIndex = 0;
+    const parts: unknown[] = [];
+    let last = 0;
+    let match: RegExpExecArray | null;
+    while ((match = taskTokenPattern.exec(child.value)) !== null) {
+      if (match.index > last) {
+        parts.push({ type: "text", value: child.value.slice(last, match.index) });
+      }
+      if (match[2] === "sched") {
+        sched = match[3];
+      } else if (match[2] === "due") {
+        due = match[3];
+      } else {
+        const kind = match[1] ? "priority" : (match[2] ?? "cookie");
+        const value = match[1] ?? match[3] ?? match[4];
+        parts.push({ type: "taskchip", data: { hName: "taskchip", hProperties: { kind, value } }, children: [] });
+      }
+      last = taskTokenPattern.lastIndex;
+    }
+    if (last < child.value.length) {
+      parts.push({ type: "text", value: child.value.slice(last) });
+    }
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    para.children.splice(i, 1, ...(parts as any[]));
+    i += parts.length - 1;
+  }
+
+  // The item's source line resolves the row to the engine-parsed task. Rendered bodies are
+  // line-aligned with the note file — BlankFieldLines blanks rather than removes, and the include
+  // splice swaps lines 1:1 — the same invariant the includes feature already relies on.
+  const line = item.position?.start?.line ?? 0;
+
+  const data = (item.data ??= {});
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  (data as any).hName = "taskrow";
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  (data as any).hProperties = { line, state: p.state.name, done: p.state.done, sched, due };
+}
+
+export function remarkTaskLine(options: { states: TaskState[] }) {
+  const byChar = new Map(options.states.map((s) => [s.char, s]));
+  return (tree: MdastRoot) => {
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    visit(tree, "list", (list: any) => {
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const parsed = list.children.map((item: any) => parseTaskItem(item, byChar));
+      if (!parsed.some((p: TaskItemParse | null) => p && (p.custom || p.hasTokens))) {
+        return; // plain GFM checklist (or no tasks at all): leave it alone
+      }
+      if (parsed.some((p: TaskItemParse | null) => !p)) {
+        return; // a plain bullet mixed into the block: an <li> cannot live in a <table>, stay plain
+      }
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      list.children.forEach((item: any, i: number) => {
+        upgradeTaskItem(item, parsed[i] as TaskItemParse);
+      });
+      const data = (list.data ??= {});
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      (data as any).hName = "tasktable";
     });
   };
 }

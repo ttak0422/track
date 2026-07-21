@@ -17,6 +17,7 @@ import (
 	"github.com/ttak0422/track/internal/track/export"
 	"github.com/ttak0422/track/internal/track/note"
 	"github.com/ttak0422/track/internal/track/store"
+	"github.com/ttak0422/track/internal/track/task"
 )
 
 // Options selects which notes go into the static site and which one is the entry page.
@@ -60,15 +61,18 @@ func Build(cfg *config.Config, st *store.Store, opts Options, frontendDir, outDi
 
 	assetSrc := cfg.AssetsDir()
 	docs := make([]doc, 0, len(ids))
+	upKeys := make([][]string, 0, len(ids))
+	titleID := make(map[string]int64, len(ids))
 	for _, id := range ids {
 		n, err := note.ParseFile(cfg.PathForKind(kinds[id], id), cfg)
 		if err != nil {
 			return Result{}, fmt.Errorf("load note %d: %w", id, err)
 		}
-		body, err := sanitize(n)
+		body, err := export.WebBody(n.Body)
 		if err != nil {
 			return Result{}, fmt.Errorf("render note %d: %w", id, err)
 		}
+		props := note.CollectProps(n.Meta, n.Body)
 		docs = append(docs, doc{
 			id:       id,
 			title:    noteTitle(n),
@@ -82,10 +86,23 @@ func Build(cfg *config.Config, st *store.Store, opts Options, frontendDir, outDi
 			assets:   collectAssets(n.Body),
 			desc:     n.Meta.Description,
 			image:    strings.TrimPrefix(n.Meta.Image, "assets/"),
+			icon:     cfg.NoteIcon(n.Kind, n.Meta.Tags, n.Meta.Icon),
 			assetSrc: assetSrc,
 			dataDir:  cfg.DataDir(),
-			props:    note.CollectProps(n.Meta, n.Body),
+			tasks:    docTasks(n.Body, cfg.TaskStates),
+			props:    props,
 		})
+		upKeys = append(upKeys, note.UpTargets(props))
+		titleID[noteTitle(n)] = id
+	}
+	// The "up" relation property resolves by title within the published set (titles are unique in a
+	// vault); a parent outside the set is skipped, like every other out-of-set link.
+	for i := range docs {
+		for _, key := range upKeys[i] {
+			if pid, ok := titleID[key]; ok {
+				docs[i].up = append(docs[i].up, pid)
+			}
+		}
 	}
 
 	edges, err := vaultEdges(st, inSet)
@@ -110,15 +127,14 @@ func vaultEdges(st *store.Store, inSet map[int64]bool) ([]edge, error) {
 	return edges, nil
 }
 
-// sanitize renders a note body into the Markdown the frontend expects: wiki links are kept for the
-// frontend to resolve, action links are flattened, and code blocks become plain fences. This is the
-// same transform the live server applies in /api/render, so a published note reads identically.
-func sanitize(n *note.Note) (string, error) {
-	res, err := export.Export(n, export.NewWebRenderer(), export.Options{})
-	if err != nil {
-		return "", err
+// docTasks parses a source body's task lines for the published bundle, or nil when it has none.
+// Tasks parse from the raw body (not the sanitized one) so token extraction matches the live server.
+func docTasks(body string, states []task.State) *task.Set {
+	set := task.NewSet(body, states)
+	if len(set.Items) == 0 {
+		return nil
 	}
-	return res.Markdown, nil
+	return &set
 }
 
 func noteTitle(n *note.Note) string {

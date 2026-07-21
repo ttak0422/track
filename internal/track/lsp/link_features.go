@@ -239,14 +239,19 @@ func (s *Server) definition(uri string, pos position) (*location, error) {
 		if !ok {
 			return nil, nil
 		}
-		// A heading anchor ([[note#heading]]) navigates within the note, so same-note links
-		// are still worth following; a plain self-link has nowhere to jump.
-		if hasCurrentID && kw.NoteID == currentID && ref.Heading == "" {
+		// A heading or block anchor ([[note#heading]], [[note#^id]]) navigates within the note,
+		// so same-note links are still worth following; a plain self-link has nowhere to jump.
+		if hasCurrentID && kw.NoteID == currentID && ref.Heading == "" && ref.BlockID == "" {
 			return nil, nil
 		}
 		line := 0
 		if ref.Heading != "" {
 			if l, found := s.headingLine(s.notePath(kw.FileKind, kw.NoteID), ref.HeadingLevel, ref.Heading); found {
+				line = l
+			}
+		}
+		if ref.BlockID != "" {
+			if l, found := s.blockLine(s.notePath(kw.FileKind, kw.NoteID), ref.BlockID); found {
 				line = l
 			}
 		}
@@ -267,6 +272,16 @@ func (s *Server) headingLine(path string, level int, heading string) (int, bool)
 		return 0, false
 	}
 	return link.FindHeading(text, level, heading)
+}
+
+// blockLine resolves a [[note#^id]] block anchor to the marked block's first line in the target note.
+func (s *Server) blockLine(path, id string) (int, bool) {
+	text, err := s.documentText(uriFromPath(path))
+	if err != nil {
+		return 0, false
+	}
+	from, _, found := link.FindBlock(text, id)
+	return from, found
 }
 
 func refContainsPosition(ref link.Ref, pos position) bool {

@@ -33,6 +33,23 @@ When the note resolves but the heading is not found, navigation falls back to th
 
 Fenced code blocks delimited by lines starting with ` ``` ` are excluded.
 
+### Block anchors
+
+A target may instead carry a block anchor: `[[note#^id]]` links to the block marked `^id` inside
+`note`. A block marker is a trailing `^id` — whitespace-separated, so `foo^2` stays prose — at the
+end of a non-blank content line outside fenced code; a marker alone on a line is not a marker
+(track has no detached "marker under the block" form). Ids are a letter or digit followed by
+letters, digits, `-`, or `_`, and are **manual only**: track never generates one (explicit-link
+philosophy). Text after `#` that starts with `^` but does not fit the id grammar parses as an
+ordinary heading anchor.
+
+The marked block is, for a list item line, the item plus its more-indented continuation lines;
+otherwise the contiguous run of non-blank lines around the marker line. The first matching marker
+wins when an id repeats, mirroring heading resolution. Like a heading anchor, a block anchor
+refines where navigation lands but not which note the link points to, and navigation falls back to
+the note top when the id is not found. Renderers hide the marker and anchor the block
+(`id="block-<id>"` on the web), so a published page deep-links to it.
+
 ### Includes (transclusion)
 
 A line that is **exactly** a link prefixed with `!`, plus optional trailing options, embeds the
@@ -53,7 +70,8 @@ target note's content at that position (ADR 0031):
   match. The display alias serves as the embed's caption.
 - Without an anchor the whole note body is embedded. With `##heading` the embedded region runs from
   the matched heading line through the line before the next heading of the same or a shallower
-  level (headings inside fenced code blocks neither match nor terminate, as above). A non-matching
+  level (headings inside fenced code blocks neither match nor terminate, as above). With `#^id` the
+  embedded region is the marked block, its `^id` marker stripped. A non-matching
   anchor is an error surface — the include must render as unresolved, **not** fall back to the
   whole note (unlike navigation).
 - Options after the closing `]]` use Org-style `:key value` header arguments, the same shape as

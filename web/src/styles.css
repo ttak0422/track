@@ -534,6 +534,11 @@ button {
   white-space: nowrap;
 }
 
+.note-icon {
+  margin-right: 0.4em;
+  font-weight: 400;
+}
+
 .result-snippet {
   grid-column: 1 / -1;
   margin: 0;
@@ -1431,6 +1436,49 @@ textarea.modal-input:focus-visible {
   color: var(--accent);
 }
 
+/* Breadcrumbs: the ancestor trail from the "up" relation property, above the tags. Quiet like the
+   tag strip — muted links, accent on hover — so it reads as orientation, not content. */
+.note-breadcrumbs {
+  flex-shrink: 0; /* like .note-tags: never squeezed by .note-reader's height bound */
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 2px;
+  font-size: calc(12px * var(--font-scale, 1));
+  color: var(--muted);
+}
+
+.note-breadcrumbs a {
+  color: var(--muted);
+  text-decoration: none;
+}
+
+.note-breadcrumbs a:hover,
+.note-breadcrumbs a:focus-visible {
+  color: var(--accent);
+}
+
+.note-crumb-sep {
+  margin: 0 4px;
+}
+
+/* Block-anchor arrival: the block a [[Note#^id]] link landed on flashes, then settles to a faint
+   tint so the eye keeps its place. Colors derive from --accent, so both themes are covered. */
+.block-target {
+  border-radius: 4px;
+  animation: block-flash 1.6s ease-out;
+  background: color-mix(in srgb, var(--accent) 10%, transparent);
+}
+
+@keyframes block-flash {
+  0% {
+    background: color-mix(in srgb, var(--accent) 30%, transparent);
+  }
+  100% {
+    background: color-mix(in srgb, var(--accent) 10%, transparent);
+  }
+}
+
 /* Note properties: a quiet key/value strip between the tags and the body. Keys read muted like tags;
    values sit in soft chips so a row of them still scans as discrete items. */
 .note-props {
@@ -1658,7 +1706,8 @@ textarea.modal-input:focus-visible {
   --alert-color: var(--danger);
 }
 
-/* GFM tables: a bordered, zebra-striped grid that scrolls horizontally when wider than the column. */
+/* GFM tables: horizontal rules only (no column separators, no row striping), scrolling horizontally
+   when wider than the column. */
 .markdown-view table {
   display: block;
   width: max-content;
@@ -1671,17 +1720,13 @@ textarea.modal-input:focus-visible {
 .markdown-view th,
 .markdown-view td {
   padding: 6px 12px;
-  border: 1px solid var(--line);
+  border-block: 1px solid var(--line);
   text-align: left;
 }
 
 .markdown-view th {
   background: var(--panel-soft);
   font-weight: 700;
-}
-
-.markdown-view tbody tr:nth-child(even) {
-  background: color-mix(in srgb, var(--panel-soft) 45%, transparent);
 }
 
 .embed {
@@ -2423,6 +2468,85 @@ textarea.modal-input:focus-visible {
   vertical-align: middle;
 }
 
+/* Task table (remarkTaskLine): a checklist that uses task notation renders as one sortable table —
+   state cell, task text with chips, and scheduled/due columns. */
+.markdown-view table.task-table {
+  display: table;
+  width: 100%;
+  border-collapse: collapse;
+}
+
+.markdown-view .task-table th {
+  background: transparent;
+  border-block: none;
+  border-bottom: 1px solid var(--line);
+  padding: 4px 10px;
+  font-family: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, monospace;
+  font-size: 11px;
+  font-weight: 500;
+  letter-spacing: 0.06em;
+  color: var(--muted);
+}
+
+.task-table-sort {
+  border: none;
+  background: none;
+  padding: 0;
+  font: inherit;
+  letter-spacing: inherit;
+  color: inherit;
+  cursor: pointer;
+}
+
+.task-table-sort:hover {
+  color: var(--text);
+}
+
+.markdown-view .task-table td {
+  padding: 5px 10px;
+  border-block: none;
+  border-bottom: 1px solid var(--line);
+  vertical-align: baseline;
+}
+
+.markdown-view .task-table td.task-row-date {
+  white-space: nowrap;
+  font-variant-numeric: tabular-nums;
+  font-size: 0.85em;
+  color: var(--muted);
+}
+
+.markdown-view .task-table td.task-row-due {
+  color: var(--danger);
+}
+
+.markdown-view .task-row-state {
+  display: inline-block;
+  font-family: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, monospace;
+  font-size: 11px;
+  letter-spacing: 0.06em;
+  color: var(--muted);
+}
+
+/* The state cell doubles as the control: a native select stripped to the badge's text look. */
+.markdown-view select.task-row-state {
+  appearance: none;
+  -webkit-appearance: none;
+  border: none;
+  background: transparent;
+  padding: 0;
+  cursor: pointer;
+}
+
+.markdown-view select.task-row-state:hover {
+  color: var(--text);
+}
+
+.markdown-view tr.task-row-done td.task-row-text {
+  color: var(--muted);
+  text-decoration: line-through;
+}
+
 .wiki-link-wrap {
   position: relative;
   display: inline-block;
@@ -2940,6 +3064,124 @@ textarea.modal-input:focus-visible {
 
 .query-calendar .calendar-day-note .wiki-link {
   color: inherit;
+}
+
+/* ```taskboard fence: a kanban board of the note's task lines, one column per configured state.
+   Columns scroll horizontally inside the board so a wide state set never widens the page. */
+.task-board {
+  margin: 12px 0;
+}
+
+.task-board-columns {
+  display: flex;
+  gap: 10px;
+  align-items: flex-start;
+  overflow-x: auto;
+  padding-bottom: 4px;
+}
+
+.task-column {
+  flex: 1 0 170px;
+  min-width: 170px;
+  padding: 8px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--panel-soft);
+}
+
+.task-column-dragover {
+  outline: 2px solid var(--accent);
+  outline-offset: -2px;
+}
+
+.task-column-header {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  margin-bottom: 8px;
+}
+
+.task-column-name {
+  font-size: 0.8em;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  color: var(--muted);
+}
+
+.task-column-count {
+  font-size: 0.8em;
+  color: var(--muted);
+  font-variant-numeric: tabular-nums;
+}
+
+.task-card {
+  margin: 0 0 8px;
+  padding: 8px 10px;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  background: var(--panel);
+}
+
+.task-card:last-child {
+  margin-bottom: 0;
+}
+
+.task-card[draggable="true"] {
+  cursor: grab;
+}
+
+.task-card-done .task-card-text {
+  color: var(--muted);
+  text-decoration: line-through;
+}
+
+.task-card-text {
+  font-size: 0.9em;
+  overflow-wrap: anywhere;
+}
+
+.task-card-meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  align-items: center;
+  margin-top: 6px;
+}
+
+.task-card-meta:empty {
+  display: none;
+}
+
+.task-chip {
+  /* inline-block also keeps a done line's strikethrough from running through the chips */
+  display: inline-block;
+  font-size: 0.75em;
+  padding: 1px 6px;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  color: var(--muted);
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+
+.task-chip-priority {
+  color: var(--accent-strong);
+  border-color: var(--accent);
+}
+
+.task-chip-due {
+  color: var(--danger);
+  border-color: var(--danger);
+}
+
+.task-card-state {
+  margin-left: auto;
+  font-size: 0.75em;
+  padding: 1px 4px;
+  border: 1px solid var(--line);
+  border-radius: 4px;
+  background: var(--panel-soft);
+  color: var(--text);
 }
 
 /* GFM footnotes: remark-gfm renders the definitions as a trailing <section class="footnotes"> with

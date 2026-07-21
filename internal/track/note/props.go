@@ -162,34 +162,50 @@ var (
 	// The bracketed value is any run of [[...]] links and non-bracket text, so "[owner:: [[Ada]]]"
 	// keeps the link's own closing brackets inside the field.
 	inlineBracketRe = regexp.MustCompile(`\[([A-Za-z][A-Za-z0-9_-]*)::\s+((?:\[\[[^\[\]]+\]\]|[^\[\]])+)\]`)
-	fenceRe         = regexp.MustCompile("^\\s*(```|~~~)")
+	// fenceRe matches a code-fence line, capturing its run of marks and the info string after it. A
+	// block is closed only by a bare run of the same mark at least as long (CommonMark), so the shorter
+	// fences nested inside a ````-wrapped Markdown example stay code instead of ending the block early
+	// and turning the example's fields into real data.
+	fenceRe = regexp.MustCompile("^\\s*(`{3,}|~{3,})\\s*(.*)$")
 	// codeSpanRe finds `inline code`; a bracketed field inside one is prose about the syntax, not data.
 	codeSpanRe = regexp.MustCompile("`[^`]*`")
 )
+
+// scanProse calls fn for every body line outside a fenced code block, with its 1-based line number.
+// Fields only ever come from prose, so this fence walk is the one gate every field scan passes.
+func scanProse(body string, fn func(line string, num int)) {
+	fence := ""
+	for i, line := range strings.Split(body, "\n") {
+		if m := fenceRe.FindStringSubmatch(line); m != nil {
+			switch {
+			case fence == "":
+				fence = m[1]
+			case m[1][0] == fence[0] && len(m[1]) >= len(fence) && m[2] == "":
+				fence = ""
+			}
+			continue
+		}
+		if fence == "" {
+			fn(line, i+1)
+		}
+	}
+}
 
 // InlineFields scans a note body for "key:: value" fields — a whole line (list items included) or a
 // bracketed [key:: value] inside prose — and returns them typed with their 1-based line. Fenced code
 // blocks are skipped, and a comma-separated value becomes one Prop per item.
 func InlineFields(body string) []Prop {
 	var out []Prop
-	inFence := false
-	for i, line := range strings.Split(body, "\n") {
-		if fenceRe.MatchString(line) {
-			inFence = !inFence
-			continue
-		}
-		if inFence {
-			continue
-		}
+	scanProse(body, func(line string, num int) {
 		if m := inlineLineRe.FindStringSubmatch(line); m != nil {
-			out = append(out, fieldProps(m[1], m[2], i+1)...)
-			continue
+			out = append(out, fieldProps(m[1], m[2], num)...)
+			return
 		}
 		// Mask `inline code` first so a documented "[key:: value]" example never becomes data.
 		for _, m := range inlineBracketRe.FindAllStringSubmatch(codeSpanRe.ReplaceAllString(line, "``"), -1) {
-			out = append(out, fieldProps(m[1], m[2], i+1)...)
+			out = append(out, fieldProps(m[1], m[2], num)...)
 		}
-	}
+	})
 	return out
 }
 

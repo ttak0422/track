@@ -4,8 +4,6 @@ The `track` command is the source of truth for the vault. Every subcommand that 
 reindexes immediately, so search and links stay current without a separate build step. Commands that
 return data print single-line JSON.
 
-Back to [[track]].
-
 ## Creating and editing notes
 
 | Command | Purpose |
@@ -20,6 +18,13 @@ Back to [[track]].
 
 ```sh
 printf '本文 [[他ノート]]\n' | track open --title "メモ"
+```
+
+Anything that prints Markdown can therefore create notes — the [[Web clipper]] uses this to turn a
+web page into a note in one pipeline:
+
+```sh
+track-fetch-web --note https://example.com/essay | track new --title "An essay"
 ```
 
 ## Capture, refile, archive
@@ -248,8 +253,13 @@ A crontab line that refreshes every 15 minutes:
 site — see [[Web workspace]] for the rendered reading experience it mirrors.
 
 ```sh
-track export-site --src docs/help --root index --out ./site
+track export-site --src docs/help --out ./site
 ```
+
+`--src` publishes a plain Markdown directory (this help site is built that way); without it, the site is
+built from vault notes and `--root <id>` is the landing note. The directory names its entry page and its
+icons in a `site.yml` of its own — see [[Home dashboard]]. `--base-url`, `--out`, and `--frontend` are
+per-deployment build flags, not part of that config.
 
 `track render` turns a declarative View Spec into a chart or article — see [[Visualization]].
 
@@ -257,5 +267,4 @@ track export-site --src docs/help --root index --out ./site
 track render --spec chart.json --out chart.svg --renderer svg
 ```
 
-tags:: help/reference
 section:: reference

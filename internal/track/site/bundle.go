@@ -11,10 +11,13 @@ import (
 	"sort"
 	"strconv"
 	"strings"
+	"time"
 
+	"github.com/ttak0422/track/internal/track/dashboard"
 	"github.com/ttak0422/track/internal/track/link"
 	"github.com/ttak0422/track/internal/track/note"
 	"github.com/ttak0422/track/internal/track/query"
+	"github.com/ttak0422/track/internal/track/task"
 )
 
 // The static site is the React web frontend running against a pre-generated JSON bundle instead of the
@@ -38,8 +41,11 @@ type doc struct {
 	assetSrc string      // directory those assets are copied from
 	desc     string      // page summary (sidecar description), published as og:description
 	image    string      // cover image, relative under assets/ ("" = none), published as og:image
+	icon     string      // resolved icon shown beside the title in lists/nav ("" = none)
 	dataDir  string      // canonical-data directory for embedded ```viewspec charts ("" = inline data only)
+	tasks    *task.Set   // parsed task lines + state set, for the read-only board (nil = none)
 	props    []note.Prop // flattened typed properties (sidecar props + inline fields), shown read-only
+	up       []int64     // ids of the doc's parents ("up" relation), resolved by the input front-end; out-of-set ids are skipped
 }
 
 // edge is a directed [[link]] between two in-set docs.
@@ -64,6 +70,7 @@ type jsonSearchResult struct {
 	Title    string   `json:"title"`
 	Tags     []string `json:"tags,omitempty"`
 	Days     []string `json:"days,omitempty"`
+	Icon     string   `json:"icon,omitempty"`
 	// Description and Image feed the prerender's og: tags; Image is the published asset path
 	// (assets/<slug><ext>), so the consumer never sees the source file name.
 	Description string `json:"description,omitempty"`
@@ -79,11 +86,17 @@ type jsonNoteDetail struct {
 	Props []note.Prop `json:"props,omitempty"`
 	Body  string      `json:"body"`
 	ETag  string      `json:"etag"`
+	// Tasks feeds the read-only task board (```taskboard) on the published site.
+	Tasks *task.Set `json:"tasks,omitempty"`
 }
 
 type jsonNoteResponse struct {
 	Note      jsonNoteDetail `json:"note"`
 	Backlinks []jsonRef      `json:"backlinks"`
+	// Trail and Children mirror the live server's hierarchy navigation, derived from each doc's "up"
+	// relation property resolved within the published set.
+	Trail    []jsonRef `json:"trail"`
+	Children []jsonRef `json:"children"`
 }
 
 type jsonGraphNode struct {
@@ -142,6 +155,16 @@ func writeBundle(docs []doc, edges []edge, root int64, calendar bool, baseURL st
 	for _, d := range listed {
 		notes = append(notes, searchResultOf(d))
 	}
+
+	// Dashboard widget data for any ```dashboard blocks in the published bodies: recent-notes titles in
+	// the shared recently-updated-first order, and today's journal name. A static site rarely has a
+	// journal, so the shortcut link may be unresolved — harmless, it just renders as plain text.
+	dashData := dashboard.Data{JournalTitle: time.Now().Format("20060102")}
+	for _, d := range listed {
+		if kindOf(d) != "journal" && d.title != "" {
+			dashData.RecentTitles = append(dashData.RecentTitles, d.title)
+		}
+	}
 	if err := writeJSONFile(filepath.Join(outDir, "data", "notes.json"), map[string]any{"notes": notes}); err != nil {
 		return Result{}, err
 	}
@@ -180,6 +203,41 @@ func writeBundle(docs []doc, edges []edge, root int64, calendar bool, baseURL st
 		}
 		linkers[e.dst] = append(linkers[e.dst], src)
 	}
+	// Hierarchy from each doc's up-targets: parentOf follows a doc's first in-set up-target
+	// (single-path trail, like the live server's Trail), and childrenOf collects the reverse for
+	// the children list.
+	parentOf := map[int64]int64{}
+	childrenOf := map[int64][]doc{}
+	childSeen := map[edge]bool{}
+	for _, d := range docs {
+		for _, pid := range d.up {
+			t, ok := byID[pid]
+			if !ok || t.id == d.id {
+				continue
+			}
+			if _, have := parentOf[d.id]; !have {
+				parentOf[d.id] = t.id
+			}
+			if e := (edge{src: d.id, dst: t.id}); !childSeen[e] {
+				childSeen[e] = true
+				childrenOf[t.id] = append(childrenOf[t.id], d)
+			}
+		}
+	}
+	// trailOf walks parentOf to the root, cycle-safe, returning ancestors root first.
+	trailOf := func(id int64) []jsonRef {
+		trail := []jsonRef{}
+		seen := map[int64]bool{id: true}
+		for cur := id; ; {
+			p, ok := parentOf[cur]
+			if !ok || seen[p] {
+				return trail
+			}
+			seen[p] = true
+			trail = append([]jsonRef{refOf(byID[p])}, trail...)
+			cur = p
+		}
+	}
 	// The query domain for embedded ```track-query fences is the published set (in the shared
 	// recently-updated-first order), so a published table never links to — or leaks — an unpublished
 	// note; its [[Title]] cells resolve through resolve.json like any other wiki link.
@@ -200,8 +258,17 @@ func writeBundle(docs []doc, edges []edge, root int64, calendar bool, baseURL st
 		for _, src := range srcs {
 			bl = append(bl, refOf(src))
 		}
+		kids := childrenOf[d.id]
+		byRecency(kids)
+		children := make([]jsonRef, 0, len(kids))
+		for _, kid := range kids {
+			children = append(children, refOf(kid))
+		}
 		// Rewrite asset references to their published (slugged) names, matching the copied files.
 		body := rewriteAssetRefs(d.body)
+		// Resolve ```dashboard widget blocks to Markdown (recent/journal/pinned lists) at build time, so
+		// a published home note shows the same landing view the live workspace does.
+		body = dashboard.Resolve(body, dashData)
 		// Then resolve ```viewspec fences to ready-to-draw ```echarts option blocks, and
 		// ```track-query fences to their Markdown result tables, at build time.
 		body = resolveViewSpecBlocks(body, d.dataDir, noteSlug)
@@ -226,8 +293,11 @@ func writeBundle(docs []doc, edges []edge, root int64, calendar bool, baseURL st
 				Props:            d.props,
 				Body:             body,
 				ETag:             etag(body),
+				Tasks:            d.tasks,
 			},
 			Backlinks: bl,
+			Trail:     trailOf(d.id),
+			Children:  children,
 		}
 		if err := writeJSONFile(filepath.Join(outDir, "data", "note", fmt.Sprintf("%s.json", PublishID(d.id))), resp); err != nil {
 			return Result{}, err
@@ -318,7 +388,7 @@ func writeBundle(docs []doc, edges []edge, root int64, calendar bool, baseURL st
 // The source path is dropped from the bundle: like the id, the file name is timestamp-based, so emitting
 // it would re-expose what the slug is meant to hide. It was only informational in the static site.
 func searchResultOf(d doc) jsonSearchResult {
-	out := jsonSearchResult{NoteID: PublishID(d.id), FileKind: kindOf(d), Path: "", Title: d.title, Tags: d.tags, Days: d.days, Description: d.desc}
+	out := jsonSearchResult{NoteID: PublishID(d.id), FileKind: kindOf(d), Path: "", Title: d.title, Tags: d.tags, Days: d.days, Icon: d.icon, Description: d.desc}
 	if d.image != "" {
 		out.Image = "assets/" + publishAssetName(d.image)
 	}

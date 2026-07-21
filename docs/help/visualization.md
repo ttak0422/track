@@ -3,8 +3,8 @@
 Visualization is how track turns note content into something you *see* — not just prose and links.
 It splits into four families, each with its own page:
 
-- [[Diagrams]] — Mermaid (flowcharts, sequence, class, state, Gantt, and every other type it knows)
-  and Graphviz DOT graphs, written inline or kept as a `.mmd` / `.dot` attachment.
+- [[Diagrams]] — Mermaid (flowcharts, sequence, class, state, Gantt, and every other type it knows),
+  Graphviz DOT graphs, and D2 diagrams, written inline or kept as a `.mmd` / `.dot` / `.d2` attachment.
 - [[Mindmaps]] — a note's heading tree, or an indented outline, drawn as a tree by a small built-in
   renderer.
 - [[Charts]] — statistical charts (line, bar, scatter, heatmap, timeline, …) rendered by `track render`
@@ -17,8 +17,4 @@ All are driven by ordinary Markdown — a fenced block or an image link on its o
 plain text and portable, while the [[Web workspace]] and the static export ([[CLI]] `export-site`)
 render the visuals identically.
 
-Back to [[track]].
-
-tags:: help/visualization
 section:: visualization
-cover:: assets/cover-visualization.svg

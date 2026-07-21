@@ -40,7 +40,11 @@ func ResolveIncludes(body string, load func(key string) (id int64, kind, text st
 		res.Title = inc.Text
 		lines, ok := Extract(text, inc)
 		if !ok {
-			res.Error = fmt.Sprintf("heading not found: %s", inc.Heading)
+			if inc.BlockID != "" {
+				res.Error = fmt.Sprintf("block not found: ^%s", inc.BlockID)
+			} else {
+				res.Error = fmt.Sprintf("heading not found: %s", inc.Heading)
+			}
 			out = append(out, res)
 			continue
 		}

@@ -40,8 +40,8 @@ func Includes(text string) []Include {
 		}
 		indent := len(line.Text) - len(trimmed)
 		target, display := splitDisplay(m[1])
-		key, heading, level := splitHeading(target)
-		if key == "" {
+		anchor := splitAnchor(target)
+		if anchor.Key == "" {
 			continue
 		}
 		inc := Include{Ref: Ref{
@@ -50,10 +50,11 @@ func Includes(text string) []Include {
 			StartByte:    indent + 3,
 			EndByte:      indent + 3 + len(m[1]),
 			CloseByte:    indent + 3 + len(m[1]) + 2,
-			Text:         key,
+			Text:         anchor.Key,
 			Display:      display,
-			Heading:      heading,
-			HeadingLevel: level,
+			Heading:      anchor.Heading,
+			HeadingLevel: anchor.HeadingLevel,
+			BlockID:      anchor.BlockID,
 		}}
 		parseIncludeOptions(&inc, m[2])
 		out = append(out, inc)
@@ -110,17 +111,28 @@ func parseLineRanges(s string) ([]LineRange, bool) {
 	return out, len(out) > 0
 }
 
-// Extract returns the lines of body that inc selects: the whole note, or — with a heading anchor —
-// the section from the matched heading through the line before the next heading of the same or a
-// shallower level (headings inside fenced code blocks do not terminate a section, mirroring how
-// they are not anchor targets). :only-contents drops the matched heading line; :lines then selects
-// 1-based ranges over what remains, concatenated in the order written, out-of-range parts clipped.
+// Extract returns the lines of body that inc selects: the whole note, with a block anchor the
+// marked block (its "^id" marker stripped), or — with a heading anchor — the section from the
+// matched heading through the line before the next heading of the same or a shallower level
+// (headings inside fenced code blocks do not terminate a section, mirroring how they are not
+// anchor targets). :only-contents drops the matched heading line; :lines then selects 1-based
+// ranges over what remains, concatenated in the order written, out-of-range parts clipped.
 // Leading and trailing blank lines are trimmed so the embed sits tight. ok is false when the anchor
-// does not match any heading — unlike navigation (which falls back to the note top), an include
-// must not silently embed the whole note.
+// does not match any heading or block marker — unlike navigation (which falls back to the note
+// top), an include must not silently embed the whole note.
 func Extract(body string, inc Include) (lines []string, ok bool) {
 	all := strings.Split(body, "\n")
 	region := all
+	if inc.BlockID != "" {
+		from, to, found := FindBlock(body, inc.BlockID)
+		if !found {
+			return nil, false
+		}
+		region = append([]string(nil), all[from:to]...)
+		for i := range region {
+			region[i] = StripBlockMarker(region[i])
+		}
+	}
 	if inc.Heading != "" {
 		start, found := FindHeading(body, inc.HeadingLevel, inc.Heading)
 		if !found {

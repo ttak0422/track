@@ -4,16 +4,15 @@
 frontend over the [[CLI]]: it renders note bodies, resolves `[[...]]` links into navigable,
 hover-previewable anchors, and draws the note graph.
 
-Back to [[track]].
-
 ## What it offers
 
 - Rendered Markdown reading with GFM tables, task lists, and Mermaid diagrams.
 - Hover previews and persistent floating windows for linked notes and media.
 - A local link graph you can open per-note or full-screen.
 - Follow mode, so the web view tracks the note you are editing in Neovim.
+- A configurable [[Home dashboard]] landing note, with recent-notes, journal, and pinned widgets.
 - A metadata editor (the Meta dialog in the note actions menu): dedicated fields for the note's
-  title, tags, description, and cover image, plus a free-form block for [[Properties]]. Built-in
+  title, tags, description, cover image, and icon, plus a free-form block for [[Properties]]. Built-in
   fields get typed controls — the cover image can be uploaded straight from the browser into the
   vault assets — while props stays free-form YAML. The engine composes and validates the whole edit
   (the same rules as `track meta --edit`); the frontend never assembles YAML. Changing the title
@@ -39,6 +38,5 @@ The workspace search box matches note titles and `#tags` through the [[CLI]] as 
 search across note *bodies* — ranked by relevance, with code-block and CJK matches — is a CLI
 capability: run `track search --scope body`. See [[Searching notes]] for the query rules it shares.
 
-tags:: help/reference
 section:: reference
 reviewed:: 2026-06-18

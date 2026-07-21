@@ -37,3 +37,19 @@ func (webRenderer) CodeBlock(b babel.Block, _ string, _ *babel.RunResult) string
 }
 
 func (webRenderer) Frontmatter(note.Metadata) string { return "" }
+
+// WebBody renders a note body into the Markdown a web frontend draws: the webRenderer transform above,
+// and nothing else. Every web surface goes through here (the live /api/render, the vault export, the
+// directory export), so a note reads the same wherever it is published.
+//
+// The body is rendered whole. An inline "key:: value" field is data that belongs *in* the prose (ADR
+// 0032) — a journal's "weight:: 68.2" is a line of the journal — so it renders as the text it is, and
+// also appears in the property strip because the indexer reads it from the same line. Note-level
+// metadata (a title, an icon) is not written in the body at all: it lives in the note's sidecar.
+func WebBody(body string) (string, error) {
+	res, err := Export(&note.Note{Body: body}, NewWebRenderer(), Options{})
+	if err != nil {
+		return "", err
+	}
+	return res.Markdown, nil
+}

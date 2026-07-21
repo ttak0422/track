@@ -17,6 +17,7 @@ import {
   saveNote,
   saveNoteMeta,
   searchNotes,
+  setTaskState,
   uploadAsset,
 } from "./api";
 import { STATIC_MODE } from "./runtime";
@@ -229,6 +230,21 @@ export function useNoteMetaQuery(noteID: NoteID, opts: { enabled: boolean }) {
     queryKey: queryKeys.noteMeta(noteID),
     queryFn: () => getNoteMeta(noteID),
     enabled: opts.enabled,
+  });
+}
+
+// useSetTaskStateMutation moves one task line into a named state (board drag / card select). The
+// note's body changed on disk (state marker, completion stamp, progress cookies), so the note query
+// is invalidated to refresh both the rendered body and the embedded tasks payload.
+export function useSetTaskStateMutation(noteID: NoteID) {
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: ({ line, state }: { line: number; state: string }) => setTaskState(noteID, line, state),
+    onSuccess: () => {
+      void queryClient.invalidateQueries({ queryKey: queryKeys.note(noteID) });
+      void queryClient.invalidateQueries({ queryKey: queryKeys.notes() });
+    },
   });
 }
 

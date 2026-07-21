@@ -5,8 +5,6 @@ A note is plain **Markdown** — CommonMark plus [GitHub-Flavored Markdown](http
 and borrows its conventions where they fit — `[[wiki links]]`, standalone-image embeds, and `$…$` / `$$…$$`
 math — so a note written for Obsidian mostly reads the same here.
 
-Back to [[track]].
-
 ## Text formatting
 
 Wrap text in `**` for **bold**, a single `*` or `_` for *italic*, `~~` for ~~strikethrough~~, and
@@ -158,6 +156,5 @@ These are the track-specific constructs, each with its own page:
 
 Everything renders the same in the [[Web workspace]] and in the published static export.
 
-tags:: help/authoring
 section:: authoring
 reviewed:: 2026-06-05

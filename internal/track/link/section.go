@@ -12,9 +12,12 @@ import (
 )
 
 // SplitAnchor parses a "<note>[#heading]" target — the same grammar as a [[...]] link target —
-// into its note key and optional heading anchor. The number of "#" gives the heading level.
+// into its note key and optional heading anchor. The number of "#" gives the heading level. It
+// shares the link package's anchor grammar, so a "#^id" block anchor yields no heading (block ids
+// are not heading surgery targets), the same way link resolution treats them.
 func SplitAnchor(target string) (key, heading string, level int) {
-	return splitHeading(strings.TrimSpace(target))
+	a := splitAnchor(strings.TrimSpace(target))
+	return a.Key, a.Heading, a.HeadingLevel
 }
 
 // ResolveAnchor resolves a heading anchor to a single heading, for edit operations that must not

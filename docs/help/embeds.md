@@ -6,7 +6,7 @@ embedding is always opt-in and ordinary `[text](url)` links are never turned int
 routes each embed by the kind of target (below); only `http(s)` and relative URLs feed an iframe, so a
 note cannot smuggle a `javascript:` document into an embed.
 
-Part of [[Visualization]] (see also [[Diagrams]] and [[Charts]]). Back to [[track]].
+See also [[Diagrams]] and [[Charts]].
 
 ## Local files
 
@@ -93,8 +93,9 @@ broken image. A config file, script, or data snippet you want to keep beside a n
 
 ![](assets/pod.yaml)
 
-Two text kinds render as something richer instead: a Mermaid source (`.mmd` / `.mermaid`) becomes a
-diagram — see [[Diagrams]] — and a `.viewspec.json` becomes a **chart** — see [[Charts]].
+Two text kinds render as something richer instead: a diagram source (`.mmd` / `.mermaid` for
+Mermaid, `.dot` / `.gv` for Graphviz, `.d2` for D2) becomes a **diagram** — see [[Diagrams]] — and a
+`.viewspec.json` becomes a **chart** — see [[Charts]].
 
 ## HTML pages
 
@@ -122,6 +123,4 @@ A bare number is pixels; a `%` or `vh` value is a share of the viewport height.
 The [[Web workspace]] renders every embed live; the static export ([[CLI]] `export-site`) renders the
 same output for a published note.
 
-tags:: help/visualization/embeds
 section:: visualization
-cover:: assets/cover-embeds.svg

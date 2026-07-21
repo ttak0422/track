@@ -35,8 +35,9 @@ both deployments; the calendar reuses the workspace calendar's grid styles. Rows
 a published view exposes exactly what a published table does.
 
 Covers come from the surface that runs the query: the live server reads the note sidecar's `image`,
-the exporter maps published cover assets, and directory sites (help/docs) lift a
-`cover:: assets/<file>` inline field — the same pattern as `tags::` there.
+the exporter maps published cover assets, and directory sites (help/docs) say it in the site
+config's pages map (`image: assets/<file>`, spelled like the sidecar's field) — the same place a
+page's tags live, since a cover is note-level metadata and never written in the body (ADR 0049).
 
 ### The web renderer preserves fence info strings
 
