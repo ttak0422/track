@@ -49,5 +49,6 @@ published bundle, so all three surfaces agree.
 ## Notes
 
 - A cycle (`A → B → A`) is harmless: the trail stops where it would repeat a note.
-- In a vault the relation is data in your notes, so it renders in the property strip too — one
-  declaration, visible everywhere.
+- In a vault the relation is data in your notes — `track props` and queries see it like any
+  property — but the note view keeps it out of the property strip: the breadcrumbs and children
+  *are* its display, and one relation should not render twice.

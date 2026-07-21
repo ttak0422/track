@@ -159,11 +159,14 @@ export function NoteAside({
 // NoteProperties renders a note's flattened properties (sidecar props and inline "key:: value"
 // fields) as a read-only key/value strip above the body. Values group per key in first-seen order,
 // so a list value reads as one row; link values navigate like any body wiki link.
+// The "up" relation has its own display — the breadcrumb trail and children list — so its link
+// values stay out of the strip; a string-typed up is not hierarchy and shows like any property.
 export function NoteProperties({ props: noteProps }: { props: NoteProp[] }) {
-  if (noteProps.length === 0) return null;
+  const shown = noteProps.filter((p) => !(p.key === "up" && p.type === "link"));
+  if (shown.length === 0) return null;
   const keys: string[] = [];
   const byKey = new Map<string, NoteProp[]>();
-  for (const prop of noteProps) {
+  for (const prop of shown) {
     const group = byKey.get(prop.key);
     if (group) {
       group.push(prop);
