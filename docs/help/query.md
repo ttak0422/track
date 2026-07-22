@@ -87,18 +87,19 @@ TABLE title, tags FROM #help/visualization SORT title
 
 Property comparisons work the same way, written under `props.`. Two pages of this site carry a
 `rating` inline field (this page is one of them — see the strip at the top), so this block finds
-them — note the header still reads `rating`, not `props.rating`:
+the pages rated between 5 and 10 — the range reads in number-line order, and the header still
+reads `rating`, not `props.rating`:
 
 ````markdown
 ```track-query
-TABLE title, props.rating WHERE props.rating > 5 SORT props.rating DESC
+TABLE title, props.rating WHERE 5 < props.rating AND props.rating < 10 SORT props.rating DESC
 ```
 ````
 
 It renders as (live):
 
 ```track-query
-TABLE title, props.rating WHERE props.rating > 5 SORT props.rating DESC
+TABLE title, props.rating WHERE 5 < props.rating AND props.rating < 10 SORT props.rating DESC
 ```
 
 In the live workspace the table recomputes as the vault changes; the static export bakes the result
