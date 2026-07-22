@@ -52,6 +52,23 @@ func TestParseOperatorsWithoutSpaces(t *testing.T) {
 	}
 }
 
+// A comparison may put its value first ("2026-05-31 < props.reviewed" — the order a date range
+// reads in); the parser flips it, so the evaluator only ever sees key-first conds.
+func TestParseValueFirstComparison(t *testing.T) {
+	q, err := Parse("TABLE title WHERE 2026-05-31 < props.due AND props.due < 2026-07-01 AND 3 = props.n")
+	if err != nil {
+		t.Fatalf("parse: %v", err)
+	}
+	want := []Cond{
+		{Key: "props.due", Op: ">", Value: "2026-05-31"},
+		{Key: "props.due", Op: "<", Value: "2026-07-01"},
+		{Key: "props.n", Op: "=", Value: "3"},
+	}
+	if !reflect.DeepEqual(q.Where, want) {
+		t.Fatalf("where = %+v, want %+v", q.Where, want)
+	}
+}
+
 func TestParseErrors(t *testing.T) {
 	for _, bad := range []string{
 		"",
@@ -69,6 +86,8 @@ func TestParseErrors(t *testing.T) {
 		"TABLE title WHERE status = open", // unknown bare key in a condition
 		"TABLE props.",                    // props. with no property name
 		"TABLE title SORT mtime",          // mtime is not a note attribute
+		"TABLE title WHERE 3 < 5",         // a comparison needs a key on one side
+		"TABLE title WHERE 3 <",           // value-first with nothing after the op
 	} {
 		if _, err := Parse(bad); err == nil {
 			t.Errorf("Parse(%q) succeeded, want error", bad)
@@ -183,6 +202,10 @@ func TestRunWhereComparisons(t *testing.T) {
 	}
 	if got := ids(run(t, "TABLE title WHERE props.due < 2026-02-01")); !reflect.DeepEqual(got, []int64{2}) {
 		t.Fatalf("< date: %v", got)
+	}
+	// Value-first spells the same comparison: both orders select the same notes.
+	if got := ids(run(t, "TABLE title WHERE 2026-02-01 > props.due")); !reflect.DeepEqual(got, []int64{2}) {
+		t.Fatalf("value-first > date: %v", got)
 	}
 	// Numbers compare numerically, not lexically (9 < 10).
 	if got := ids(run(t, "TABLE title WHERE props.points > 9")); !reflect.DeepEqual(got, []int64{2}) {

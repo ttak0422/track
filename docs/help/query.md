@@ -39,8 +39,10 @@ TABLE <column>[, <column>...]
   hierarchical: `#a` matches `#a` and `#a/b`, never `#ab`.
 - **`WHERE`** conditions are `AND`-combined. Each one is a `#tag` filter, a comparison
   (`key = value`, `key != value`, `key < value`, `key > value`), or a bare `key` (the note has the
-  property). Values compare by type: numbers numerically, everything else as text — which orders
-  `YYYY-MM-DD` dates chronologically. Quote a value with spaces: `owner = "Ada Lovelace"`.
+  property). A comparison may also put the value first — `2026-05-31 < props.reviewed` — so a date
+  range reads in number-line order. Values compare by type: numbers numerically, everything else as
+  text — which orders `YYYY-MM-DD` dates chronologically. Quote a value with spaces:
+  `owner = "Ada Lovelace"`.
 - **`SORT key [DESC]`** orders by a key's first value; notes without the key sort last. Without
   `SORT`, notes come most recently updated first.
 - **`LIMIT n`** caps the row count.
@@ -178,14 +180,14 @@ property, so it is written `props.reviewed`):
 
 ````markdown
 ```track-query :layout calendar :by props.reviewed
-TABLE title, props.reviewed WHERE props.reviewed > 2026-05-31 AND props.reviewed < 2026-07-01
+TABLE title, props.reviewed WHERE 2026-05-31 < props.reviewed AND props.reviewed < 2026-07-01
 ```
 ````
 
 It renders as (live):
 
 ```track-query :layout calendar :by props.reviewed
-TABLE title, props.reviewed WHERE props.reviewed > 2026-05-31 AND props.reviewed < 2026-07-01
+TABLE title, props.reviewed WHERE 2026-05-31 < props.reviewed AND props.reviewed < 2026-07-01
 ```
 
 ## Saved queries
