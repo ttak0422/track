@@ -2,7 +2,7 @@
 /bin/
 
 # Web frontend
-web/node_modules/
+node_modules/
 web/dist/
 web/dist-static/
 web/dist-server/
