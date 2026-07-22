@@ -63,7 +63,7 @@ describe("QueryView", () => {
             {
               rows: [
                 { title: "Alpha", cells: ["Alpha"], cover: "assets/a.png" },
-                { title: "Beta", cells: ["Beta"] },
+                { title: "Beta", cells: ["Beta"], icon: "📄" },
               ],
             },
           ],
@@ -75,9 +75,9 @@ describe("QueryView", () => {
     const img = cards[0].querySelector("img");
     expect(img?.getAttribute("src")).toContain("/api/asset?");
     expect(img?.getAttribute("src")).toContain("a.png");
-    // A coverless note keeps its card with a placeholder instead of a broken image.
+    // A coverless note keeps its card, with its icon as the default card face.
     expect(cards[1].querySelector("img")).toBeNull();
-    expect(cards[1].querySelector(".query-card-cover-empty")).not.toBeNull();
+    expect(cards[1].querySelector(".query-card-cover-empty")?.textContent).toBe("📄");
   });
 
   it("renders a calendar payload as month grids with rows on their days", () => {

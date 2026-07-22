@@ -243,13 +243,16 @@ func writeBundle(docs []doc, edges []edge, root int64, calendar bool, baseURL st
 	// note; its [[Title]] cells resolve through resolve.json like any other wiki link.
 	queryRows := make([]query.NoteRow, 0, len(listed))
 	// Gallery covers publish under their opaque asset names, matching the copied files (covers are
-	// always copied, referenced or not — see the asset loop below).
+	// always copied, referenced or not — see the asset loop below). Icons stand in on cards without
+	// a cover; docs carry them already resolved.
 	queryCovers := map[int64]string{}
+	queryIcons := map[int64]string{}
 	for _, d := range listed {
 		queryRows = append(queryRows, query.NoteRow{ID: d.id, Title: d.title, Tags: d.tags, Props: d.props, Mtime: d.mtime})
 		if d.image != "" {
 			queryCovers[d.id] = "assets/" + publishAssetName(d.image)
 		}
+		queryIcons[d.id] = d.icon
 	}
 	for _, d := range docs {
 		srcs := linkers[d.id]
@@ -272,7 +275,7 @@ func writeBundle(docs []doc, edges []edge, root int64, calendar bool, baseURL st
 		// Then resolve ```viewspec fences to ready-to-draw ```echarts option blocks, and
 		// ```track-query fences to their Markdown result tables, at build time.
 		body = resolveViewSpecBlocks(body, d.dataDir, noteSlug)
-		body = query.ExpandBlocks(body, saved, queryRows, func(id int64) string { return queryCovers[id] })
+		body = query.ExpandBlocks(body, saved, queryRows, func(id int64) (string, string) { return queryCovers[id], queryIcons[id] })
 		resp := jsonNoteResponse{
 			Note: jsonNoteDetail{
 				// Includes resolve against the published body so their line numbers match what the

@@ -32,11 +32,14 @@ type ViewGroup struct {
 }
 
 // ViewRow is one note on a card: its title (the link target), the query's cells, and — in a gallery —
-// its cover image reference ("assets/<file>", already in the form the rendering surface serves).
+// its cover image reference ("assets/<file>", already in the form the rendering surface serves) plus
+// its resolved icon, the cover's stand-in: most notes never set an image, so a card without one
+// shows the note's icon instead of a blank placeholder.
 type ViewRow struct {
 	Title string   `json:"title"`
 	Cells []string `json:"cells"`
 	Cover string   `json:"cover,omitempty"`
+	Icon  string   `json:"icon,omitempty"`
 }
 
 // dayPrefix matches the YYYY-MM-DD day a calendar cell is placed on; a datetime value places on its
@@ -44,9 +47,9 @@ type ViewRow struct {
 var dayPrefix = regexp.MustCompile(`^\d{4}-\d{2}-\d{2}`)
 
 // BuildView distributes a query result into the groups of a layout. by names the grouping column
-// (board) or the date-valued column (calendar); empty defaults to the first non-title column. cover
-// supplies a note's cover image for gallery cards (nil = no covers).
-func BuildView(layout, by string, res Result, cover func(noteID int64) string) (View, error) {
+// (board) or the date-valued column (calendar); empty defaults to the first non-title column. meta
+// supplies a note's cover image and icon for gallery cards (nil = neither).
+func BuildView(layout, by string, res Result, meta func(noteID int64) (cover, icon string)) (View, error) {
 	// The View is a rendering payload, so its column/key labels are display form (props.status →
 	// status), matching the Markdown table header; :by still matches the raw query columns below.
 	display := make([]string, len(res.Columns))
@@ -58,8 +61,8 @@ func BuildView(layout, by string, res Result, cover func(noteID int64) string) (
 		rows := make([]ViewRow, 0, len(res.Rows))
 		for _, r := range res.Rows {
 			row := ViewRow{Title: r.Title, Cells: r.Cells}
-			if cover != nil {
-				row.Cover = cover(r.NoteID)
+			if meta != nil {
+				row.Cover, row.Icon = meta(r.NoteID)
 			}
 			rows = append(rows, row)
 		}

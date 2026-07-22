@@ -27,13 +27,13 @@ func viewRows() []NoteRow {
 	}
 }
 
-func buildView(t *testing.T, layout, by, expr string, cover func(int64) string) View {
+func buildView(t *testing.T, layout, by, expr string, meta func(int64) (string, string)) View {
 	t.Helper()
 	q, err := Parse(expr)
 	if err != nil {
 		t.Fatalf("parse %q: %v", expr, err)
 	}
-	v, err := BuildView(layout, by, Run(q, viewRows()), cover)
+	v, err := BuildView(layout, by, Run(q, viewRows()), meta)
 	if err != nil {
 		t.Fatalf("BuildView(%s): %v", layout, err)
 	}
@@ -87,19 +87,27 @@ func TestBoardDefaultsToFirstNonTitleColumn(t *testing.T) {
 	}
 }
 
-func TestGalleryCarriesCovers(t *testing.T) {
+func TestGalleryCarriesCoversAndIcons(t *testing.T) {
 	covers := map[int64]string{1: "assets/a.png", 3: "assets/g.png"}
-	v := buildView(t, "gallery", "", "TABLE title", func(id int64) string { return covers[id] })
+	icons := map[int64]string{2: "📄", 4: "📄"}
+	v := buildView(t, "gallery", "", "TABLE title", func(id int64) (string, string) { return covers[id], icons[id] })
 	if len(v.Groups) != 1 || v.Key != "" {
 		t.Fatalf("gallery view = %+v", v)
 	}
-	got := map[string]string{}
+	gotCovers := map[string]string{}
+	gotIcons := map[string]string{}
 	for _, r := range v.Groups[0].Rows {
-		got[r.Title] = r.Cover
+		gotCovers[r.Title] = r.Cover
+		gotIcons[r.Title] = r.Icon
 	}
-	want := map[string]string{"Alpha": "assets/a.png", "Beta": "", "Gamma": "assets/g.png", "Delta": ""}
-	if !reflect.DeepEqual(got, want) {
-		t.Fatalf("covers = %v, want %v", got, want)
+	wantCovers := map[string]string{"Alpha": "assets/a.png", "Beta": "", "Gamma": "assets/g.png", "Delta": ""}
+	if !reflect.DeepEqual(gotCovers, wantCovers) {
+		t.Fatalf("covers = %v, want %v", gotCovers, wantCovers)
+	}
+	// The icon rides along for cover-less cards — the frontend's default card face.
+	wantIcons := map[string]string{"Alpha": "", "Beta": "📄", "Gamma": "", "Delta": "📄"}
+	if !reflect.DeepEqual(gotIcons, wantIcons) {
+		t.Fatalf("icons = %v, want %v", gotIcons, wantIcons)
 	}
 }
 

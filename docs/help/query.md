@@ -116,7 +116,7 @@ renders as a board instead of a table.
   the query's order.
 - **`:layout gallery`** — a grid of cards showing each note's cover image (the note metadata's
   image on a vault; the page's `image:` entry in the site's `site.yml` on a directory site like
-  this one).
+  this one). A note without one shows its icon as the card face instead.
 - **`:layout calendar`** — rows placed on a month grid by a date-valued column; one grid per month
   that has rows.
 

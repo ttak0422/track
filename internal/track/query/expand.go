@@ -19,16 +19,16 @@ const FenceLang = "track-query"
 // Markdown table by default, or — for a board/gallery/calendar :layout — a ```track-view fence whose
 // body is the laid-out View JSON the frontend draws. A bad query is replaced by an inline error plus
 // the original expression, so the note still renders and the typo is visible at the block position.
-// saved supplies named queries for "saved: <name>" bodies; rows is the query domain; cover supplies
-// note cover images for gallery cards (nil = no covers).
-func ExpandBlocks(body string, saved map[string]string, rows []NoteRow, cover func(noteID int64) string) string {
+// saved supplies named queries for "saved: <name>" bodies; rows is the query domain; meta supplies a
+// note's cover image and icon for gallery cards (nil = neither).
+func ExpandBlocks(body string, saved map[string]string, rows []NoteRow, meta func(noteID int64) (cover, icon string)) string {
 	return babel.ReplaceBlocks(body, FenceLang, func(b babel.Block) []string {
 		expr, err := ResolveSaved(b.Body, saved)
 		if err == nil {
 			var q Query
 			if q, err = Parse(expr); err == nil {
 				var lines []string
-				if lines, err = resultLines(b, Run(q, rows), cover); err == nil {
+				if lines, err = resultLines(b, Run(q, rows), meta); err == nil {
 					return lines
 				}
 			}
@@ -40,12 +40,12 @@ func ExpandBlocks(body string, saved map[string]string, rows []NoteRow, cover fu
 // resultLines renders one evaluated block per its :layout header argument. An empty result renders
 // as the table path's "no results" text in every layout — an empty board or month grid would just
 // look broken.
-func resultLines(b babel.Block, res Result, cover func(int64) string) ([]string, error) {
+func resultLines(b babel.Block, res Result, meta func(int64) (string, string)) ([]string, error) {
 	layout := headerArg(b, "layout")
 	if layout == "" || layout == "table" || len(res.Rows) == 0 {
 		return strings.Split(Markdown(res), "\n"), nil
 	}
-	v, err := BuildView(layout, headerArg(b, "by"), res, cover)
+	v, err := BuildView(layout, headerArg(b, "by"), res, meta)
 	if err != nil {
 		return nil, err
 	}

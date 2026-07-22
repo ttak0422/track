@@ -14,6 +14,7 @@ interface ViewRow {
   title: string;
   cells: string[];
   cover?: string;
+  icon?: string;
 }
 
 interface ViewGroup {
@@ -102,7 +103,11 @@ function Gallery({ view }: { view: ViewPayload }) {
                 loading="lazy"
               />
             ) : (
-              <div className="query-card-cover query-card-cover-empty" aria-hidden="true" />
+              // Most notes never set a cover image; the note's icon is the default card face, so a
+              // cover-less gallery still tells its cards apart.
+              <div className="query-card-cover query-card-cover-empty" aria-hidden="true">
+                {row.icon}
+              </div>
             )}
             <CardBody row={row} view={view} />
           </article>
