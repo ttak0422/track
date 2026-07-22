@@ -191,12 +191,19 @@ queries:
   open-projects: "TABLE title, props.status, props.due FROM #project WHERE props.status != done SORT props.due"
 ```
 
-Run one by name with `track query --saved open-projects`, or reference it from a block: a
-`track-query` fence whose body is the single line `saved: open-projects` renders that saved query's
-table.
+Run one by name with `track query --saved open-projects`, or reference it from a block whose body
+is a single `saved:` line — it renders that saved query's table, and takes `:layout` header
+arguments like any other block:
+
+````markdown
+```track-query :layout board :by props.status
+saved: open-projects
+```
+````
 
 Saved queries come from the vault config, so they are not available to a directory export
-(`track export-site --src`, like this help site) — write the expression in the fence there.
+(`track export-site --src`, like this help site) — the sample above stays source-only here; write
+the expression in the fence there.
 
 ## Tags: hierarchy and tag pages
 
