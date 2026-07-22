@@ -171,18 +171,21 @@ TABLE title FROM #help SORT title
 ### Calendar
 
 Some pages carry a `reviewed` date property; the calendar places them on their day, one grid per
-month. `reviewed` is a user property, so it is written `props.reviewed`:
+month that has rows. Left unbounded, that stacks a grid for every month your dates span — so bound
+the range in `WHERE`, where date values compare chronologically. This block keeps June 2026 only:
+two of this site's five reviews fall outside it and stay off the grid (`reviewed` is a user
+property, so it is written `props.reviewed`):
 
 ````markdown
 ```track-query :layout calendar :by props.reviewed
-TABLE title, props.reviewed WHERE props.reviewed
+TABLE title, props.reviewed WHERE props.reviewed > 2026-05-31 AND props.reviewed < 2026-07-01
 ```
 ````
 
 It renders as (live):
 
 ```track-query :layout calendar :by props.reviewed
-TABLE title, props.reviewed WHERE props.reviewed
+TABLE title, props.reviewed WHERE props.reviewed > 2026-05-31 AND props.reviewed < 2026-07-01
 ```
 
 ## Saved queries
