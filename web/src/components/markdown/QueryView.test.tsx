@@ -64,6 +64,7 @@ describe("QueryView", () => {
               rows: [
                 { title: "Alpha", cells: ["Alpha"], cover: "assets/a.png" },
                 { title: "Beta", cells: ["Beta"], icon: "📄" },
+                { title: "Gamma", cells: ["Gamma"] },
               ],
             },
           ],
@@ -71,13 +72,15 @@ describe("QueryView", () => {
       />,
     );
     const cards = container.querySelectorAll(".query-gallery-card");
-    expect(cards).toHaveLength(2);
+    expect(cards).toHaveLength(3);
     const img = cards[0].querySelector("img");
     expect(img?.getAttribute("src")).toContain("/api/asset?");
     expect(img?.getAttribute("src")).toContain("a.png");
     // A coverless note keeps its card, with its icon as the default card face.
     expect(cards[1].querySelector("img")).toBeNull();
     expect(cards[1].querySelector(".query-card-cover-empty")?.textContent).toBe("📄");
+    // With neither cover nor icon, track's built-in no-image face fills the slot.
+    expect(cards[2].querySelector(".query-card-noimage")).not.toBeNull();
   });
 
   it("renders a calendar payload as month grids with rows on their days", () => {

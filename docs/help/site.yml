@@ -40,9 +40,7 @@ pages:
   visualization: {icon: 📈, tags: [help/visualization], up: index, image: assets/cover-visualization.svg, props: {section: visualization}}
   web: {icon: 🌐, tags: [help/reference], up: index, props: {section: reference, reviewed: "2026-06-18"}}
 
-# Icon mappings, resolved by config.NoteIcon — the same precedence a vault note's icon resolves by: a
-# page's own icon (pages above), then its tags, then its kind. syntax.md and query.md carry no icon of
-# their own and land here in `kinds`: the fallback, live on this site.
-icons:
-  kinds:
-    note: 📄
+# No icon mappings (icons: tags/kinds — config.NoteIcon's fallback rungs) — deliberately. syntax.md
+# and query.md set no icon of their own, and with no mapping to land in they have none at all: the
+# default state of most notes in a fresh vault, kept visible on this site so the gallery demo on the
+# query page shows track's built-in no-image card face.

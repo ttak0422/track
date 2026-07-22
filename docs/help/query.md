@@ -116,7 +116,8 @@ renders as a board instead of a table.
   the query's order.
 - **`:layout gallery`** — a grid of cards showing each note's cover image (the note metadata's
   image on a vault; the page's `image:` entry in the site's `site.yml` on a directory site like
-  this one). A note without one shows its icon as the card face instead.
+  this one). A note without one shows its icon as the card face; with no icon either, track's
+  built-in no-image face.
 - **`:layout calendar`** — rows placed on a month grid by a date-valued column; one grid per month
   that has rows.
 
@@ -151,7 +152,9 @@ TABLE title, props.section, props.rating WHERE props.section SORT title
 ### Gallery
 
 The visualization pages each carry a cover image and draw it as the card face; the other pages —
-like most notes in a real vault — set none, and fall back to their icon:
+like most notes in a real vault — set none, and fall back to their icon. [[Syntax]] and [[Query]]
+set no icon either, so their cards show all three states side by side: cover, icon, and track's
+built-in no-image face:
 
 ````markdown
 ```track-query :layout gallery
