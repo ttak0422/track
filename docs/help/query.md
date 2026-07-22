@@ -150,18 +150,19 @@ TABLE title, props.section, props.rating WHERE props.section SORT title
 
 ### Gallery
 
-The visualization pages each carry a cover image; the gallery shows them as cards:
+The visualization pages each carry a cover image and draw it as the card face; the other pages —
+like most notes in a real vault — set none, and fall back to their icon:
 
 ````markdown
 ```track-query :layout gallery
-TABLE title FROM #help/visualization SORT title
+TABLE title FROM #help SORT title
 ```
 ````
 
 It renders as (live):
 
 ```track-query :layout gallery
-TABLE title FROM #help/visualization SORT title
+TABLE title FROM #help SORT title
 ```
 
 ### Calendar
