@@ -2941,12 +2941,26 @@ textarea.modal-input:focus-visible {
 }
 
 .query-card {
+  position: relative;
   display: flex;
   flex-direction: column;
   border: 1px solid var(--line);
   border-radius: 8px;
   background: var(--panel-soft);
   overflow: hidden;
+}
+
+/* The title link stretches over its whole card — a card holds no other interactive element, so the
+   cover image and the padding open the note too, instead of only the title text. The border echoes
+   on hover so the enlarged click target is visible. */
+.query-card-title a::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+}
+
+.query-card:hover {
+  border-color: var(--accent);
 }
 
 .query-card-body {
