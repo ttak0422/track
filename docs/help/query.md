@@ -67,10 +67,17 @@ track query 'TABLE title, props.status FROM #project WHERE props.status = open S
 
 Fence a block with `track-query` and write the expression inside — the same way a `mermaid` fence
 embeds a [[Diagrams|diagram]]. The block renders as a live result table wherever the note renders:
-the web workspace and the published static site alike. This block contains exactly
-`TABLE title, tags FROM #help/visualization SORT title`, and its rows are this site's own
+the web workspace and the published static site alike. This block's rows are this site's own
 visualization pages — note how `#help/visualization` also matches the nested
 `#help/visualization/charts` tag, because tags are hierarchical:
+
+````markdown
+```track-query
+TABLE title, tags FROM #help/visualization SORT title
+```
+````
+
+It renders as (live):
 
 ```track-query
 TABLE title, tags FROM #help/visualization SORT title
@@ -79,6 +86,14 @@ TABLE title, tags FROM #help/visualization SORT title
 Property comparisons work the same way, written under `props.`. Two pages of this site carry a
 `rating` inline field (this page is one of them — see the strip at the top), so this block finds
 them — note the header still reads `rating`, not `props.rating`:
+
+````markdown
+```track-query
+TABLE title, props.rating WHERE props.rating > 5 SORT props.rating DESC
+```
+````
+
+It renders as (live):
 
 ```track-query
 TABLE title, props.rating WHERE props.rating > 5 SORT props.rating DESC
@@ -111,14 +126,23 @@ the `TABLE` columns, written exactly as in `TABLE` — so a property column is `
 entries link to their notes, like a table's title cells. If you know Obsidian's Bases views or
 org-mode's agenda, this is the same shape of idea.
 
-All three samples below are live, computed from this help site's pages.
+Each sample below shows the block's source, then its live result, computed from this help site's
+pages.
 
 ### Board
 
 Several pages of this site carry a `section` property, given in the site's `site.yml` (the sidecar's
 props on a vault); the board lanes them by it. Because `section` is a user property, it is written
-`props.section` — bare `section` would be an unknown-key error. This block is `TABLE title, props.section, props.rating WHERE props.section SORT title` with
-`:layout board :by props.section` (the board lane header still reads `section`):
+`props.section` — bare `section` would be an unknown-key error (the board lane header still reads
+`section`):
+
+````markdown
+```track-query :layout board :by props.section
+TABLE title, props.section, props.rating WHERE props.section SORT title
+```
+````
+
+It renders as (live):
 
 ```track-query :layout board :by props.section
 TABLE title, props.section, props.rating WHERE props.section SORT title
@@ -126,8 +150,15 @@ TABLE title, props.section, props.rating WHERE props.section SORT title
 
 ### Gallery
 
-The visualization pages each carry a cover image; the gallery shows them as cards. This block is
-`TABLE title FROM #help/visualization SORT title` with `:layout gallery`:
+The visualization pages each carry a cover image; the gallery shows them as cards:
+
+````markdown
+```track-query :layout gallery
+TABLE title FROM #help/visualization SORT title
+```
+````
+
+It renders as (live):
 
 ```track-query :layout gallery
 TABLE title FROM #help/visualization SORT title
@@ -136,8 +167,15 @@ TABLE title FROM #help/visualization SORT title
 ### Calendar
 
 Some pages carry a `reviewed` date property; the calendar places them on their day, one grid per
-month. `reviewed` is a user property, so it is written `props.reviewed`. This block is
-`TABLE title, props.reviewed WHERE props.reviewed` with `:layout calendar :by props.reviewed`:
+month. `reviewed` is a user property, so it is written `props.reviewed`:
+
+````markdown
+```track-query :layout calendar :by props.reviewed
+TABLE title, props.reviewed WHERE props.reviewed
+```
+````
+
+It renders as (live):
 
 ```track-query :layout calendar :by props.reviewed
 TABLE title, props.reviewed WHERE props.reviewed
