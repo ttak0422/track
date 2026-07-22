@@ -36,7 +36,7 @@ query = "TABLE" key ("," key)*
         [ "WHERE" cond ("AND" cond)* ]
         [ "SORT" key ["DESC"] ]
         [ "LIMIT" n ]
-cond  = "#"tag | key op value | key      (bare key = presence check)
+cond  = "#"tag | key op value | value op key | key      (bare key = presence check)
 key   = attr | "props." name             (attr ∈ {title, tags})
 op    = "=" | "!=" | "<" | ">"
 value = "quoted string" | bareword

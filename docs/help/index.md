@@ -33,7 +33,8 @@ pinned:
   and an optional schema.
 - [[Hierarchy]] — breadcrumbs and children from the `up:: [[Parent]]` relation property.
 - [[Query]] — table queries over notes by tag and property, embeddable in a note as a live
-  `track-query` block; plus hierarchical tags and per-tag pages.
+  `track-query` block with a table, board, gallery, or calendar layout; plus hierarchical tags and
+  per-tag pages.
 - [[Web workspace]] — the local browser UI for reading, previewing, and navigating notes.
 - [[Home dashboard]] — a configurable landing note, embeddable dashboard widgets, and per-note icons.
 - [[Visualization]] — how notes render as visuals: [[Diagrams]] (Mermaid, Graphviz, and D2), [[Mindmaps]]

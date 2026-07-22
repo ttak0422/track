@@ -25,6 +25,7 @@ import {
 } from "./markdown/plugins";
 import type { TaskState } from "../types";
 import { EChartsFence } from "./markdown/EChartsBlock";
+import { QueryView } from "./markdown/QueryView";
 import { ViewSpecChart } from "./markdown/ViewSpecChart";
 import { WikiLink } from "./preview/WikiLink";
 import { useSetTaskStateMutation } from "../queries";
@@ -337,6 +338,9 @@ const markdownComponents = {
       }
       if (normalized === "echarts") {
         return <EChartsFence text={text} />;
+      }
+      if (normalized === "track-view") {
+        return <QueryView text={text} />;
       }
       return <CodeBlock lang={lang} text={text} />;
     }

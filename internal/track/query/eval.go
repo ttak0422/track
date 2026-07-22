@@ -15,6 +15,9 @@ import (
 type NoteRow struct {
 	ID    int64
 	Title string
+	// Kind is the note's file kind ("note", "journal") — not queryable, but it feeds icon
+	// resolution for gallery cards, which is per-kind.
+	Kind  string
 	Tags  []string
 	Props []note.Prop
 	Mtime int64
@@ -47,7 +50,7 @@ func RowsFromStore(s *store.Store) ([]NoteRow, error) {
 	}
 	rows := make([]NoteRow, 0, len(refs))
 	for _, r := range refs {
-		rows = append(rows, NoteRow{ID: r.NoteID, Title: r.Title, Tags: r.Tags, Props: props[r.NoteID], Mtime: r.Mtime})
+		rows = append(rows, NoteRow{ID: r.NoteID, Title: r.Title, Kind: r.FileKind, Tags: r.Tags, Props: props[r.NoteID], Mtime: r.Mtime})
 	}
 	sort.Slice(rows, func(i, j int) bool {
 		if rows[i].Mtime != rows[j].Mtime {

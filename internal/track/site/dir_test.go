@@ -224,6 +224,29 @@ func TestBuildDirPublishesInlineFieldProps(t *testing.T) {
 	}
 }
 
+// A pages entry's props are the sidecar's props map: published before the body's inline fields, in
+// the order a vault note's properties assemble (note.CollectProps), and typed like sidecar values —
+// a quoted date classifies as a date.
+func TestBuildDirSiteConfigProps(t *testing.T) {
+	src := writeDir(t, map[string]string{
+		"index.md": "# Fields\n\nweight:: 68.2\n",
+		"site.yml": "pages:\n  index:\n    props: {section: guide, reviewed: \"2026-07-02\"}\n",
+	})
+
+	out := t.TempDir()
+	if _, err := BuildDir(src, "", fakeFrontend(t), out); err != nil {
+		t.Fatalf("BuildDir: %v", err)
+	}
+
+	site := readJSON[jsonSite](t, filepath.Join(out, "data", "site.json"))
+	root := readJSON[jsonNoteResponse](t, filepath.Join(out, "data", "note", site.Root+".json"))
+	props := root.Note.Props
+	if len(props) != 3 || props[0].Key != "reviewed" || props[0].Type != "date" ||
+		props[1].Key != "section" || props[1].Value != "guide" || props[2].Key != "weight" {
+		t.Fatalf("props = %+v", props)
+	}
+}
+
 // writeDir writes a directory-mode source tree: name (possibly under a subdirectory) -> content.
 func writeDir(t *testing.T, files map[string]string) string {
 	t.Helper()
@@ -468,6 +491,48 @@ func TestBuildDirSiteConfigRejectsEmptyPage(t *testing.T) {
 			t.Fatalf("%q: a pages entry that says nothing must fail the build", yml)
 		}
 		for _, want := range []string{"pages", "index"} {
+			if !strings.Contains(err.Error(), want) {
+				t.Errorf("error %q should name %q", err, want)
+			}
+		}
+	}
+}
+
+// A page's cover image comes from its pages entry, spelled like the sidecar's field: an
+// "assets/<file>" reference. It publishes with the page (feeding gallery layouts and og:image); a
+// value in any other form, or one naming no asset, is the orphan entry's sibling — a cover that
+// would silently never appear.
+func TestBuildDirSiteConfigImage(t *testing.T) {
+	src := writeDir(t, map[string]string{
+		"index.md":         "# Index\n",
+		"assets/cover.png": "png",
+		"site.yml":         "pages:\n  index: {image: assets/cover.png}\n",
+	})
+	out := t.TempDir()
+	if _, err := BuildDir(src, "", fakeFrontend(t), out); err != nil {
+		t.Fatalf("BuildDir: %v", err)
+	}
+	list := readJSON[struct {
+		Notes []jsonSearchResult `json:"notes"`
+	}](t, filepath.Join(out, "data", "notes.json"))
+	if len(list.Notes) != 1 || list.Notes[0].Image == "" {
+		t.Fatalf("the page should publish its site-config cover image, got %+v", list.Notes)
+	}
+
+	for _, tc := range []struct{ yml, want string }{
+		{"pages:\n  index: {image: cover.png}\n", "assets/<file>"},
+		{"pages:\n  index: {image: assets/ghost.png}\n", "ghost.png"},
+	} {
+		src := writeDir(t, map[string]string{
+			"index.md":         "# Index\n",
+			"assets/cover.png": "png",
+			"site.yml":         tc.yml,
+		})
+		_, err := BuildDir(src, "", fakeFrontend(t), t.TempDir())
+		if err == nil {
+			t.Fatalf("%q: a bad image must fail the build", tc.yml)
+		}
+		for _, want := range []string{"image", tc.want} {
 			if !strings.Contains(err.Error(), want) {
 				t.Errorf("error %q should name %q", err, want)
 			}

@@ -357,7 +357,17 @@ func (s *Server) handleRender(w http.ResponseWriter, r *http.Request) {
 	// expansion the static export bakes in at build time. A row-load failure leaves the fences as
 	// source rather than failing the whole render.
 	if rows, err := query.RowsFromStore(s.store); err == nil {
-		markdown = query.ExpandBlocks(markdown, s.cfg.Queries, rows)
+		kinds := make(map[int64]string, len(rows))
+		for _, r := range rows {
+			kinds[r.ID] = r.Kind
+		}
+		// Gallery covers come from the sidecar metadata, read lazily per matched note; the value is
+		// the note-relative "assets/<file>" the frontend already maps to /api/asset. The icon is the
+		// cover's stand-in on cards without one, resolved by the one resolver every surface uses.
+		markdown = query.ExpandBlocks(markdown, s.cfg.Queries, rows, func(id int64) (string, string) {
+			meta, _, _ := note.ReadMetadata(s.cfg.MetadataPath(id))
+			return meta.Image, s.cfg.NoteIcon(kinds[id], meta.Tags, meta.Icon)
+		})
 	}
 	// Includes resolve against the rendered markdown (what the frontend draws), so their line
 	// numbers align with the text the client splices them into; target bodies render through the

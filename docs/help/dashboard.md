@@ -97,15 +97,14 @@ place in the hierarchy (`up`, the parent page behind the breadcrumb trail — se
 pages:
   dashboard: {icon: 🏠}                       # this page
   cli: {icon: ⌨️, tags: [help/reference], up: index}
-icons:
-  kinds:
-    note: 📄
 ```
 
 A `pages` entry's `icon` is the *page's own icon*: it takes the slot a vault note's sidecar `icon` takes,
 so the precedence is the one you already know — the page's own icon, then its tags through the `icons.tags`
-mapping, then the kind mapping. A page with no icon of its own simply falls through, which is why
-[[Syntax]] shows 📄 from the `kinds` map: a published page is always kind `note`.
+mapping, then the `icons.kinds` mapping (a published page is always kind `note`). A page with no icon
+anywhere simply has none — [[Syntax]] and [[Query]] on this site set no icon and this site maps none,
+the default state of most notes in a fresh vault. A surface that needs a face regardless, like a
+[[Query|gallery]] card, draws track's built-in neutral placeholder instead.
 
 A `pages` entry naming a page that does not exist — no `<name>.md` in the directory — is a **build
 error** naming the entry and the file it looked for. It is a typo, or a page you renamed and forgot; it is

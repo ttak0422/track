@@ -2933,6 +2933,159 @@ textarea.modal-input:focus-visible {
   border: 0;
 }
 
+/* Query layouts (```track-query :layout ...): the engine lays the result out into a ```track-view
+   payload; these style its three shapes. Cards share one quiet panel look; the calendar layout
+   reuses the workspace calendar's grid styles above. */
+.query-view {
+  margin: 12px 0;
+}
+
+.query-card {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--panel-soft);
+  overflow: hidden;
+}
+
+/* The title link stretches over its whole card — a card holds no other interactive element, so the
+   cover image and the padding open the note too, instead of only the title text. The border echoes
+   on hover so the enlarged click target is visible. */
+.query-card-title a::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+}
+
+.query-card:hover {
+  border-color: var(--accent);
+}
+
+.query-card-body {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: 8px 10px;
+  min-width: 0;
+}
+
+.query-card-title {
+  font-weight: 600;
+  line-height: 1.35;
+}
+
+.query-card-meta {
+  font-size: calc(12px * var(--font-scale, 1));
+  color: var(--muted);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.query-card-meta-key {
+  opacity: 0.75;
+}
+
+.query-card-meta-key::after {
+  content: ":";
+}
+
+/* Board: one lane per grouping value, laid side by side and scrolling horizontally when they
+   overflow — the reading column stays put. */
+.query-board {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  overflow-x: auto;
+  padding-bottom: 6px;
+}
+
+.query-lane {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  flex: 0 0 220px;
+  min-width: 0;
+}
+
+.query-lane-head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 0 2px;
+  font-size: calc(12px * var(--font-scale, 1));
+  font-weight: 600;
+}
+
+.query-lane-name {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.query-lane-count {
+  color: var(--muted);
+  font-weight: 400;
+}
+
+/* Gallery: a responsive grid of cover cards. */
+.query-gallery {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(180px, 1fr));
+  gap: 10px;
+}
+
+.query-card-cover {
+  display: block;
+  width: 100%;
+  aspect-ratio: 16 / 9;
+  object-fit: cover;
+  background: var(--panel);
+  border-bottom: 1px solid var(--line);
+}
+
+/* No cover: a flat panel face with the icon (or the no-image glyph) centered — the content is the
+   signal, so the surface stays quiet. */
+.query-card-cover-empty {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 40px;
+  color: var(--muted);
+}
+
+.query-card-noimage {
+  width: 40px;
+  height: 40px;
+  opacity: 0.55;
+}
+
+/* Calendar: stacked read-only month grids, each reusing the calendar-* grid styles. */
+.query-calendar {
+  display: flex;
+  flex-direction: column;
+  gap: 20px;
+}
+
+.query-calendar .calendar-head {
+  margin-bottom: 8px;
+}
+
+.query-calendar .calendar-title {
+  font-size: calc(16px * var(--font-scale, 1));
+}
+
+.query-calendar .calendar-day {
+  min-height: 64px;
+}
+
+.query-calendar .calendar-day-note .wiki-link {
+  color: inherit;
+}
+
 /* ```taskboard fence: a kanban board of the note's task lines, one column per configured state.
    Columns scroll horizontally inside the board so a wide state set never widens the page. */
 .task-board {

@@ -48,6 +48,16 @@ func TestWebRendererKeepsCodeBlock(t *testing.T) {
 	}
 }
 
+func TestWebRendererKeepsFenceHeaderArguments(t *testing.T) {
+	// Header arguments carry rendering options resolved after sanitization (e.g. a track-query
+	// fence's :layout), so the web renderer must round-trip the full info string.
+	got := renderWeb(t, "```track-query :layout board :by state\nTABLE title, state\n```\n")
+	want := "```track-query :layout board :by state\nTABLE title, state\n```\n"
+	if got != want {
+		t.Fatalf("fence header arguments should pass through:\n got: %q\nwant: %q", got, want)
+	}
+}
+
 func TestWebRendererPreservesNestedFence(t *testing.T) {
 	// A 4-backtick wrapper around a ```go sample must round-trip: the inner ```go stays verbatim (with
 	// its language) rather than collapsing to a bare ``` on the static export path.

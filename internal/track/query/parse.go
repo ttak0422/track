@@ -8,7 +8,7 @@
 //	        [ "WHERE" cond ("AND" cond)* ]
 //	        [ "SORT" key ["DESC"] ]
 //	        [ "LIMIT" n ]
-//	cond  = "#"tag | key op value | key        (bare key = presence check)
+//	cond  = "#"tag | key op value | value op key | key        (bare key = presence check)
 //	key   = attr | "props." name               (attr = a note attribute: title, tags)
 //	op    = "=" | "!=" | "<" | ">"
 //	value = "quoted string" | bareword
@@ -211,6 +211,16 @@ func propName(raw string) (name string, ok bool) {
 	return strings.CutPrefix(raw, "props.")
 }
 
+// displayKey is a key as shown to a reader: a property drops its props. scope (props.status →
+// status), since the prefix disambiguates the query, not the rendered header or lane label. A note
+// attribute is already its own display name.
+func displayKey(key string) string {
+	if name, ok := propName(key); ok {
+		return name
+	}
+	return key
+}
+
 // checkKey validates a column/sort/condition key. props.<name> names a user property; a bare word
 // must be a note attribute. Anything else is a loud error rather than a silent empty result.
 func checkKey(raw string) error {
@@ -242,7 +252,7 @@ func (p *parser) tag() (string, error) {
 	return name, nil
 }
 
-// cond reads one WHERE condition: #tag, key op value, or a bare key (presence).
+// cond reads one WHERE condition: #tag, key op value, value op key, or a bare key (presence).
 func (p *parser) cond() (Cond, error) {
 	if p.done() {
 		return Cond{}, fmt.Errorf("missing condition after WHERE/AND")
@@ -253,6 +263,20 @@ func (p *parser) cond() (Cond, error) {
 			return Cond{}, err
 		}
 		return Cond{Tag: tag}, nil
+	}
+	// A comparison may put its value first — "2026-05-31 < props.reviewed" — the order a date range
+	// reads in. The key sits on exactly one side (the token that checkKey accepts), and the operator
+	// flips here, so the evaluator only ever sees key-first conds. Anything that matches neither
+	// order falls through to the key path for the loud unknown-key error.
+	if p.pos+2 < len(p.toks) && checkKey(p.toks[p.pos].text) != nil && !isKeyword(p.toks[p.pos].text) &&
+		isOp(p.toks[p.pos+1].text) && checkKey(p.toks[p.pos+2].text) == nil {
+		val := p.next()
+		op := p.next().text
+		key, err := p.key("condition key")
+		if err != nil {
+			return Cond{}, err
+		}
+		return Cond{Key: key, Op: flipOp(op), Value: val.text}, nil
 	}
 	key, err := p.key("condition key")
 	if err != nil {
@@ -281,4 +305,24 @@ func isKeyword(s string) bool {
 		return true
 	}
 	return false
+}
+
+func isOp(s string) bool {
+	switch s {
+	case "=", "!=", "<", ">":
+		return true
+	}
+	return false
+}
+
+// flipOp mirrors a comparison operator so "value op key" means the same once the key is first;
+// = and != are symmetric.
+func flipOp(op string) string {
+	switch op {
+	case "<":
+		return ">"
+	case ">":
+		return "<"
+	}
+	return op
 }

@@ -837,6 +837,30 @@ func TestRenderExpandsQueryBlocks(t *testing.T) {
 	}
 }
 
+func TestRenderExpandsQueryLayouts(t *testing.T) {
+	server, _ := putNoteSetup(t, 100, "Alpha", "status:: open\n")
+
+	// The fence's :layout header argument must survive the whole render pipeline (sanitize, then
+	// query expansion) and come back as a track-view payload, not the default table.
+	resp, err := http.Post(server.URL+"/api/render", "application/json",
+		strings.NewReader(`{"body":"`+"```track-query :layout board :by props.status\\nTABLE title, props.status WHERE props.status = open\\n```"+`\n"}`))
+	if err != nil {
+		t.Fatalf("post render: %v", err)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("render status = %d", resp.StatusCode)
+	}
+	var decoded map[string]any
+	if err := json.NewDecoder(resp.Body).Decode(&decoded); err != nil {
+		t.Fatalf("decode render: %v", err)
+	}
+	markdown, _ := decoded["markdown"].(string)
+	if !strings.Contains(markdown, "```track-view") || !strings.Contains(markdown, `"layout":"board"`) {
+		t.Fatalf("board fence should expand to a track-view payload, got %q", markdown)
+	}
+}
+
 // A whole-line inline field is prose data (ADR 0032) — "weight:: 68.2" is a line of the journal — so the
 // live render returns the line the user typed. It is a property too, from the same line; it is not a
 // place to hide note-level metadata, so nothing lifts it out of the body.
