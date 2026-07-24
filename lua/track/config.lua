@@ -69,14 +69,6 @@ local function default_vault()
    return nil
 end
 
-local function default_cache_dir()
-   local env = vim.env.TRACK_CACHE_DIR
-   if env and env ~= "" then
-      return env
-   end
-   return file_config.cache_dir or (vim.fn.stdpath("cache") .. "/track")
-end
-
 M.defaults = {
    -- Binary name used when falling back to $PATH lookup.
    bin = "track",
@@ -84,8 +76,6 @@ M.defaults = {
    lsp_bin = "track-lsp",
    -- Vault directory; link highlighting only attaches to files here.
    vault_dir = default_vault(),
-   -- Rebuildable SQLite cache directory. Kept outside the vault so synced folders do not sync DB locks.
-   cache_dir = default_cache_dir(),
    -- Address used by `:Track web` when no address argument is supplied.
    web_addr = "127.0.0.1:8765",
    -- Note file extensions (without dot).
@@ -106,7 +96,7 @@ M.defaults = {
    -- "[due:d]" → "! d", "[done:d]" → "✓ d", cookies lose their brackets) and a done-family line is
    -- struck through (TrackTaskDone). Concealing follows the conceal option above; the cursor line
    -- stays raw. task_chars lists the state markers, task_done_chars the done-family subset — they
-   -- mirror the engine's default task_states, so align them with the vault's config.yml when
+   -- mirror the engine's default task_states, so align them with the vault's .track/config.yml when
    -- customized. Set task_chars = "" to disable the decoration entirely.
    task_chars = " /?x-",
    task_done_chars = "x-",
@@ -133,12 +123,18 @@ M.defaults = {
 M.options = vim.deepcopy(M.defaults)
 
 function M.setup(opts)
+   if opts and opts.cache_dir then
+      vim.notify(
+         "track: the cache_dir option was removed; the CLI resolves the cache itself (set cache_dir in the machine config.yml if needed)",
+         vim.log.levels.WARN
+      )
+      opts.cache_dir = nil
+   end
    M.options = vim.tbl_deep_extend("force", M.options, opts or {})
    if not M.options.vault_dir or M.options.vault_dir == "" then
       error("track: vault_dir is required in config.yml or require('track').setup({ vault_dir = ... }).")
    end
    vim.env.TRACK_VAULT = M.options.vault_dir
-   vim.env.TRACK_CACHE_DIR = M.options.cache_dir
    return M.options
 end
 

@@ -489,7 +489,6 @@ local function ensure_client(buf)
       root_dir = vim.fn.fnamemodify(config.options.vault_dir, ":p"),
       cmd_env = {
          TRACK_VAULT = config.options.vault_dir,
-         TRACK_CACHE_DIR = config.options.cache_dir,
       },
       capabilities = make_capabilities(),
    }, { bufnr = buf })

@@ -252,7 +252,6 @@ function M.open(args)
    local cmd = { client.bin(), "web", "--addr", addr }
    local env = {
       TRACK_VAULT = config.options.vault_dir,
-      TRACK_CACHE_DIR = config.options.cache_dir,
    }
    stopping = false
    job_id = vim.fn.jobstart(cmd, {

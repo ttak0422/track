@@ -47,13 +47,6 @@ function M.check()
       h.error("vault_dir is not configured")
    end
 
-   local cache = config.options.cache_dir
-   if cache and cache ~= "" then
-      h.info("cache_dir: " .. cache)
-   else
-      h.warn("cache_dir is not configured")
-   end
-
    local running = vim.tbl_filter(function(c)
       return c.name == "track-lsp"
    end, (vim.lsp.get_clients or vim.lsp.get_active_clients)())

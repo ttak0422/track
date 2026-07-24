@@ -86,11 +86,7 @@ The rebuildable SQLite index is a cache outside the vault. By default it lives u
 <user-cache>/track/<vault-key>/index.db
 ```
 
-`TRACK_CACHE_DIR` overrides the `track` cache directory for tests and one-off runs. The Neovim frontend sets it to:
-
-```text
-vim.fn.stdpath("cache") .. "/track"
-```
+`TRACK_CACHE_DIR` overrides the `track` cache directory for tests and one-off runs. The CLI is the only resolver of the cache location: frontends (the Neovim plugin, the web workspace) never compute or export their own cache directory, so every process that opens a vault lands on the same physical `index.db`.
 
 `TRACK_DB` can still point at an explicit database path for debugging or tests.
 
