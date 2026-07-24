@@ -26,6 +26,11 @@ func New(cfg *config.Config, s *store.Store) *Indexer {
 	return &Indexer{cfg: cfg, store: s}
 }
 
+// emptyScanGuardMin is how many indexed notes an empty scan must strand before Full refuses to
+// reconcile: a real vault outage strands the whole DB, while an intentionally emptied tiny vault
+// (e.g. `track rm` of the last file) stays under it and reconciles normally.
+const emptyScanGuardMin = 5
+
 // Report summarizes a reindex run.
 type Report struct {
 	Indexed int `json:"indexed"`
@@ -53,9 +58,11 @@ func (ix *Indexer) Full() (Report, error) {
 	// cloud storage, EPERM, a half-finished checkout — not that every note was deleted. Reconciling
 	// would empty the index and set aside every sidecar, and a read command must never do that silently.
 	// If the notes really are gone, `track reindex` resets the index first and rebuilds from disk.
+	// The floor keeps legitimate small cases reconciling: `track rm` of a vault's last file leaves a
+	// zero scan over a rowful DB, and sidecars go to trash either way.
 	// ponytail: zero-scan guard only; a partial sync gap still reconciles (rows self-heal on the next
 	// refresh, sidecars land in trash) — add a fractional threshold if that ever bites.
-	if len(paths) == 0 && len(existing) > 0 {
+	if len(paths) == 0 && len(existing) >= emptyScanGuardMin {
 		return rep, fmt.Errorf("no note files found under %s but the index lists %d notes; refusing to reconcile deletions (vault unmounted or unreadable?) — if the notes really are gone, run 'track reindex'", ix.cfg.VaultDir, len(existing))
 	}
 

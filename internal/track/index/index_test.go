@@ -1,6 +1,7 @@
 package index
 
 import (
+	"fmt"
 	"os"
 	"path/filepath"
 	"slices"
@@ -150,8 +151,10 @@ func TestFullReconcilesDeletions(t *testing.T) {
 
 func TestFullRefusesEmptyScanWithPopulatedIndex(t *testing.T) {
 	cfg, s := setup(t)
-	writeNote(t, cfg, 1, "a", note.Metadata{Title: "A"})
-	writeNote(t, cfg, 2, "b", note.Metadata{Title: "B"})
+	ids := []int64{1, 2, 3, 4, 5}
+	for _, id := range ids {
+		writeNote(t, cfg, id, "body", note.Metadata{Title: fmt.Sprintf("Note %d", id)})
+	}
 	ix := New(cfg, s)
 	if _, err := ix.Full(); err != nil {
 		t.Fatal(err)
@@ -167,14 +170,39 @@ func TestFullRefusesEmptyScanWithPopulatedIndex(t *testing.T) {
 	if _, err := ix.RefreshIfStale(); err == nil {
 		t.Fatal("RefreshIfStale should propagate the refusal")
 	}
-	for _, id := range []int64{1, 2} {
+	for _, id := range ids {
 		if _, err := os.Stat(cfg.MetadataPath(id)); err != nil {
 			t.Fatalf("sidecar %d must survive the refused reconcile: %v", id, err)
 		}
 	}
 	notes, err := s.AllNotes()
-	if err != nil || len(notes) != 2 {
+	if err != nil || len(notes) != len(ids) {
 		t.Fatalf("index rows must survive the refused reconcile, got %+v err=%v", notes, err)
+	}
+}
+
+func TestFullReconcilesEmptyScanBelowGuardFloor(t *testing.T) {
+	// `track rm` of a vault's last file leaves a zero scan over a small DB; that must reconcile, not
+	// strand a phantom row behind the guard.
+	cfg, s := setup(t)
+	writeNote(t, cfg, 1, "only", note.Metadata{Title: "Only"})
+	ix := New(cfg, s)
+	if _, err := ix.Full(); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Remove(cfg.NotePath(1)); err != nil {
+		t.Fatal(err)
+	}
+	rep, err := ix.Full()
+	if err != nil {
+		t.Fatalf("full below guard floor: %v", err)
+	}
+	if rep.Deleted != 1 {
+		t.Fatalf("deleted = %d, want 1", rep.Deleted)
+	}
+	notes, _ := s.AllNotes()
+	if len(notes) != 0 {
+		t.Fatalf("expected empty index, got %+v", notes)
 	}
 }
 
