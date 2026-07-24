@@ -2,6 +2,7 @@
 package index
 
 import (
+	"fmt"
 	"io/fs"
 	"os"
 	"path/filepath"
@@ -48,6 +49,16 @@ func (ix *Indexer) Full() (Report, error) {
 		return rep, err
 	}
 
+	// A scan that finds nothing while the index holds notes means the vault is unreadable — unmounted
+	// cloud storage, EPERM, a half-finished checkout — not that every note was deleted. Reconciling
+	// would empty the index and set aside every sidecar, and a read command must never do that silently.
+	// If the notes really are gone, `track reindex` resets the index first and rebuilds from disk.
+	// ponytail: zero-scan guard only; a partial sync gap still reconciles (rows self-heal on the next
+	// refresh, sidecars land in trash) — add a fractional threshold if that ever bites.
+	if len(paths) == 0 && len(existing) > 0 {
+		return rep, fmt.Errorf("no note files found under %s but the index lists %d notes; refusing to reconcile deletions (vault unmounted or unreadable?) — if the notes really are gone, run 'track reindex'", ix.cfg.VaultDir, len(existing))
+	}
+
 	notes := make([]*note.Note, 0, len(paths))
 	seen := make(map[int64]bool, len(paths))
 	for _, p := range paths {
@@ -63,12 +74,13 @@ func (ix *Indexer) Full() (Report, error) {
 		rep.Indexed++
 	}
 
+	stamp := time.Now().UnixMilli()
 	for id := range existing {
 		if !seen[id] {
 			if err := ix.store.DeleteNote(id); err != nil {
 				return rep, err
 			}
-			if err := os.Remove(ix.cfg.MetadataPath(id)); err != nil && !os.IsNotExist(err) {
+			if err := ix.trashSidecar(id, stamp); err != nil {
 				return rep, err
 			}
 			rep.Deleted++
@@ -88,6 +100,21 @@ func (ix *Indexer) Full() (Report, error) {
 	}
 
 	return rep, nil
+}
+
+// trashSidecar moves the sidecar of a note that vanished from disk into the vault trash, using the same
+// "<stamp>-<basename>" naming as `track rm`. The markdown may be gone because of a sync gap or a
+// mid-checkout read rather than a real delete, and the sidecar is authoritative data (title, tags,
+// activity days) that no rebuild can restore — so the index never destroys it, it only sets it aside.
+func (ix *Indexer) trashSidecar(id int64, stamp int64) error {
+	src := ix.cfg.MetadataPath(id)
+	if _, err := os.Stat(src); os.IsNotExist(err) {
+		return nil // already cleaned up, e.g. `track rm` trashed it before reindexing
+	}
+	if err := os.MkdirAll(ix.cfg.TrashDir(), 0o755); err != nil {
+		return err
+	}
+	return os.Rename(src, filepath.Join(ix.cfg.TrashDir(), fmt.Sprintf("%d-%s", stamp, filepath.Base(src))))
 }
 
 // RefreshIfStale compares the note and journal files on disk against the indexed mtimes and, when they

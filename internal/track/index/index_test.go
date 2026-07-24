@@ -136,11 +136,45 @@ func TestFullReconcilesDeletions(t *testing.T) {
 		t.Fatalf("deleted = %d, want 1", rep.Deleted)
 	}
 	if _, err := os.Stat(cfg.MetadataPath(2)); !os.IsNotExist(err) {
-		t.Fatalf("metadata for deleted note should be removed, stat err=%v", err)
+		t.Fatalf("metadata for deleted note should be moved out of the sidecar dir, stat err=%v", err)
+	}
+	trashed, err := filepath.Glob(filepath.Join(cfg.TrashDir(), "*-2.yaml"))
+	if err != nil || len(trashed) != 1 {
+		t.Fatalf("sidecar of deleted note should be in trash, glob=%v err=%v", trashed, err)
 	}
 	notes, _ := s.AllNotes()
 	if len(notes) != 1 || notes[0].NoteID != 1 {
 		t.Fatalf("expected only note 1 to remain, got %+v", notes)
+	}
+}
+
+func TestFullRefusesEmptyScanWithPopulatedIndex(t *testing.T) {
+	cfg, s := setup(t)
+	writeNote(t, cfg, 1, "a", note.Metadata{Title: "A"})
+	writeNote(t, cfg, 2, "b", note.Metadata{Title: "B"})
+	ix := New(cfg, s)
+	if _, err := ix.Full(); err != nil {
+		t.Fatal(err)
+	}
+
+	// An unmounted or unreadable vault scans as empty; that must refuse, not wipe the index.
+	if err := os.RemoveAll(cfg.NoteDir()); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := ix.Full(); err == nil {
+		t.Fatal("Full on an empty scan with a populated index should refuse")
+	}
+	if _, err := ix.RefreshIfStale(); err == nil {
+		t.Fatal("RefreshIfStale should propagate the refusal")
+	}
+	for _, id := range []int64{1, 2} {
+		if _, err := os.Stat(cfg.MetadataPath(id)); err != nil {
+			t.Fatalf("sidecar %d must survive the refused reconcile: %v", id, err)
+		}
+	}
+	notes, err := s.AllNotes()
+	if err != nil || len(notes) != 2 {
+		t.Fatalf("index rows must survive the refused reconcile, got %+v err=%v", notes, err)
 	}
 }
 
