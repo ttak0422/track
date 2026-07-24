@@ -288,6 +288,45 @@ func TestLoadRejectsVaultScopeKeysInMachineConfig(t *testing.T) {
 	}
 }
 
+func TestLoadRejectsNestedWebKeysInWrongFile(t *testing.T) {
+	// The split must also hold inside the nested web: block — web.home moved from the machine config
+	// to the vault config while both blocks kept the name, so every pre-split machine config with
+	// web.home hits exactly this path. Strict decoding must recurse, not stop at top-level keys.
+	t.Run("machine config rejects web.home", func(t *testing.T) {
+		configPath := filepath.Join(t.TempDir(), "config.yml")
+		body := "vault_dir: " + t.TempDir() + "\nweb:\n  home: Home\n"
+		if err := os.WriteFile(configPath, []byte(body), 0o644); err != nil {
+			t.Fatal(err)
+		}
+		t.Setenv("TRACK_CONFIG", configPath)
+		t.Setenv("TRACK_VAULT", "")
+		t.Setenv("TRACK_DB", "")
+		t.Setenv("TRACK_CACHE_DIR", t.TempDir())
+
+		_, err := Load()
+		if err == nil || !strings.Contains(err.Error(), ".track/config.yml") {
+			t.Fatalf("web.home in the machine config must error pointing at the vault config, got %v", err)
+		}
+	})
+	t.Run("vault config rejects web.theme", func(t *testing.T) {
+		vault := t.TempDir()
+		configPath := filepath.Join(t.TempDir(), "config.yml")
+		if err := os.WriteFile(configPath, []byte("vault_dir: "+vault+"\n"), 0o644); err != nil {
+			t.Fatal(err)
+		}
+		writeVaultConfig(t, vault, "web:\n  theme: dark\n")
+		t.Setenv("TRACK_CONFIG", configPath)
+		t.Setenv("TRACK_VAULT", "")
+		t.Setenv("TRACK_DB", "")
+		t.Setenv("TRACK_CACHE_DIR", t.TempDir())
+
+		_, err := Load()
+		if err == nil || !strings.Contains(err.Error(), "theme") {
+			t.Fatalf("web.theme in the vault config must error naming the key, got %v", err)
+		}
+	})
+}
+
 func TestLoadRejectsMachineScopeKeysInVaultConfig(t *testing.T) {
 	// The security half of the ownership split: a cloned/synced vault must never configure a command
 	// (embedder) or redirect paths on this machine.
