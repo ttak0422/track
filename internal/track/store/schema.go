@@ -8,7 +8,7 @@ const schemaVersion = 5
 
 // schemaSQL defines a rebuildable SQLite index, not the primary source of truth.
 // Notes and sidecar metadata on disk are authoritative; this database caches keyword rows and computed links for fast lookup.
-// notes.mtime stores the note file's last modification time as a Unix timestamp and is reserved for change detection and incremental reindexing.
+// notes.mtime stores the note file's last modification time as a Unix timestamp; RefreshIfStale compares it against disk to detect external changes.
 const schemaSQL = `
 CREATE TABLE notes (
   id      INTEGER PRIMARY KEY,

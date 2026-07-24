@@ -144,22 +144,26 @@ Title changes are also recorded in `.track/renames.yaml` as repair history. Rena
 
 The SQLite index is derived state.
 It can be rebuilt from markdown note files and sidecar metadata.
-The indexer scans supported note files recursively under the vault, excluding hidden directories such as `.track`.
+The indexer scans the top-level `note/` and `journal/` directories only, matching the file-kind rules above.
 SQLite `PRAGMA user_version` stores the database schema version and is independent from sidecar metadata versions.
 
-Schema version 2 contains:
+Schema version 5 contains:
 
-- `notes`: note id, file kind, title, created date, and mtime.
+- `notes`: note id, file kind, title, created date, mtime, and icon override.
 - `tags`: tags for each note.
 - `links`: computed directed links between notes.
 - `note_days`: the activity days each note was created or updated on.
+- `tasks`: one row per checkbox line with its state, priority, and scheduling fields.
+- `props`: flattened typed note properties (sidecar props and inline `key::` body fields).
+- `embeddings`: cached per-note vectors for `track similar`.
+- `notes_fts`: an FTS5 trigram index over note bodies (ADR 0045).
 - `keywords`: a view over note titles.
 
-The index uses WAL mode and foreign keys. It intentionally does not cache note paths or bodies: paths are derived from file kind plus note id, and body search reads markdown files directly.
+The index uses WAL mode and foreign keys, and sets no busy timeout: a database locked by another process fails fast instead of queueing. Note paths are never cached — they are derived from file kind plus note id — but note bodies are cached in `notes_fts` for body search; terms too short to form a trigram fall back to a per-file scan.
 
 Because the index is a rebuildable cache, a schema bump needs no migration: when `Open` finds an older `user_version`, it drops the existing tables and views and re-applies the schema in place. The emptied store is repopulated by the next `RefreshIfStale` → full reindex, which reparses every note and sidecar.
 
-### Schema Version 2
+### Schema Version 5
 
 ```sql
 CREATE TABLE notes (
@@ -167,8 +171,10 @@ CREATE TABLE notes (
   kind    TEXT NOT NULL DEFAULT 'note',
   title   TEXT NOT NULL DEFAULT '',
   created TEXT,
-  mtime   INTEGER NOT NULL DEFAULT 0
+  mtime   INTEGER NOT NULL DEFAULT 0,
+  icon    TEXT NOT NULL DEFAULT ''
 );
+CREATE INDEX IF NOT EXISTS idx_notes_kind_mtime ON notes(kind, mtime);
 
 CREATE TABLE tags (
   note_id INTEGER NOT NULL REFERENCES notes(id) ON DELETE CASCADE,
@@ -191,8 +197,42 @@ CREATE TABLE note_days (
 );
 CREATE INDEX idx_note_days_day ON note_days(day);
 
+CREATE TABLE tasks (
+  note_id   INTEGER NOT NULL REFERENCES notes(id) ON DELETE CASCADE,
+  line      INTEGER NOT NULL,
+  state     TEXT NOT NULL,
+  done      INTEGER NOT NULL DEFAULT 0,
+  priority  TEXT NOT NULL DEFAULT '',
+  scheduled TEXT NOT NULL DEFAULT '',
+  due       TEXT NOT NULL DEFAULT '',
+  completed TEXT NOT NULL DEFAULT '',
+  text      TEXT NOT NULL DEFAULT '',
+  PRIMARY KEY (note_id, line)
+);
+CREATE INDEX idx_tasks_state ON tasks(state);
+CREATE INDEX idx_tasks_due ON tasks(due);
+
+CREATE TABLE props (
+  note_id INTEGER NOT NULL REFERENCES notes(id) ON DELETE CASCADE,
+  key     TEXT NOT NULL,
+  value   TEXT NOT NULL,
+  type    TEXT NOT NULL,
+  line    INTEGER NOT NULL DEFAULT 0,
+  ord     INTEGER NOT NULL DEFAULT 0
+);
+CREATE INDEX idx_props_note ON props(note_id);
+CREATE INDEX idx_props_key ON props(key, value);
+
 CREATE VIEW keywords AS
   SELECT title AS term, id AS note_id, 'title' AS kind FROM notes WHERE title <> '';
+
+CREATE TABLE embeddings (
+  note_id INTEGER PRIMARY KEY REFERENCES notes(id) ON DELETE CASCADE,
+  hash    TEXT NOT NULL,
+  vector  TEXT NOT NULL
+);
+
+CREATE VIRTUAL TABLE notes_fts USING fts5(body, tokenize='trigram');
 ```
 
 Column notes:
@@ -201,18 +241,24 @@ Column notes:
 - `notes.kind`: file kind used with `id` to derive the path. Current values are `note` and `journal` for indexed notes; `template` is reserved for template files.
 - `notes.title`: cached sidecar title used as the primary keyword.
 - `notes.created`: cached metadata creation date string.
-- `notes.mtime`: note file modification time as a Unix timestamp. It is kept for future change detection and incremental reindexing.
+- `notes.mtime`: note file modification time as a Unix timestamp. `RefreshIfStale` compares it against the files on disk to detect notes added, edited, or removed outside track.
+- `notes.icon`: cached sidecar icon override; display resolution is sidecar icon > tag icon > kind icon.
 - `tags.note_id`: metadata rows attached to a note. They are replaced on note upsert.
 - `links.src_id` and `links.dst_id`: computed directed note links. Self-links are ignored by the writer.
 - `note_days.day`: one local calendar day the note was active, mirrored from the sidecar `days` field and replaced on note upsert. When a sidecar has no `days` yet, the upsert falls back to its `created` day so the note still surfaces on the day it was made. Journals (the daily note and the month/year summary journals) contribute no rows: activity tracks real notes worked on, so a day's journal does not count as activity on the days it is opened. The `agenda` query and the web activity heatmap read from this table and so exclude journals.
+- `tasks`: one row per checkbox line of a note, replaced on upsert; `state` is the configured task state, `done` its terminal flag, and `priority`/`scheduled`/`due`/`completed` the parsed task fields (ADR 0035).
+- `props`: a note's flattened typed properties — sidecar props at `line = 0`, inline `key:: value` body fields at their 1-based line; a list value is one row per item with `ord` preserving order (ADR 0032).
+- `embeddings`: one cached vector per note for `track similar`; `hash` is the content hash the vector was computed from, so unchanged notes are never re-embedded (ADR 0037).
+- `notes_fts`: FTS5 trigram table whose rowid is the note id and whose `body` is the parsed note text, giving case-insensitive substring body search with bm25 ranking (ADR 0045).
 - `keywords`: convenience view used by keyword dumping, resolution, and `[[...]]` link highlighting.
 
 ## Deletion
 
-During a full reindex, notes missing from the filesystem are removed from the SQLite index.
-Their sidecar metadata files are also removed.
+During a full reindex, notes missing from the filesystem are removed from the SQLite index, and their sidecar metadata files are moved into `.track/trash/` with the same `<stamp>-<basename>` naming `track rm` uses. The sidecar is authoritative data and a sync gap looks identical to a deletion, so the indexer sets sidecars aside instead of destroying them.
 
-Because a full reindex deletes the sidecars of notes whose markdown is gone, run `track doctor` first when a vault may be only partially synced: it reports orphan sidecars (and other divergence) read-only, so a sync gap is not silently treated as a deletion. See [agent-workflows.md](agent-workflows.md) and ADR 0014.
+When the scan finds no note files at all while the index still lists notes, the reindex refuses to reconcile: an unmounted or unreadable vault must fail loudly rather than silently empty the index. If the notes really are gone, `track reindex` resets the database and rebuilds from what is on disk.
+
+Run `track doctor` when a vault may be only partially synced: it reports orphan sidecars (and other divergence) read-only, so a sync gap is not silently treated as a deletion. See [agent-workflows.md](agent-workflows.md) and ADR 0014.
 
 ## Durability: do not delete `.track/notes/`
 
