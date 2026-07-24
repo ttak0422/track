@@ -3,9 +3,12 @@
 package config
 
 import (
+	"bytes"
 	"crypto/sha256"
 	"encoding/hex"
+	"errors"
 	"fmt"
+	"io"
 	"os"
 	"path/filepath"
 	"regexp"
@@ -113,10 +116,23 @@ type PropSpec struct {
 	Values []string `yaml:"values"`
 }
 
-type fileConfig struct {
-	VaultDir          string              `yaml:"vault_dir"`
-	DBPath            string              `yaml:"db_path"`
-	CacheDir          string              `yaml:"cache_dir"`
+// machineFileConfig is the user config file (~/.config/track/config.yml or TRACK_CONFIG): it owns the
+// machine and the user — where the vault, cache, and database live, which local commands track may run
+// (embedder; babel is env-only), and how the local web UI looks. Note semantics belong to the vault
+// config instead (see vaultFileConfig); a vault-scope key here is a hard error so the split stays real.
+type machineFileConfig struct {
+	VaultDir string           `yaml:"vault_dir"`
+	DBPath   string           `yaml:"db_path"`
+	CacheDir string           `yaml:"cache_dir"`
+	Embedder argvList         `yaml:"embedder"`
+	Web      machineWebConfig `yaml:"web"`
+}
+
+// vaultFileConfig is <vault>/.track/config.yml: the note semantics a vault carries with it — id/date
+// formats, task states, property schema, saved queries, icons, templates, capture targets. Path and
+// command values are deliberately excluded: a cloned or synced vault must never decide which commands
+// run on this machine or where its index lives, so those keys are a hard error here.
+type vaultFileConfig struct {
 	Extensions        []string            `yaml:"extensions"`
 	DateFormat        string              `yaml:"date_format"`
 	JournalDateFormat string              `yaml:"journal_date_format"`
@@ -124,12 +140,11 @@ type fileConfig struct {
 	JournalTemplate   string              `yaml:"journal_template"`
 	GenKeep           int                 `yaml:"gen_keep"`
 	TaskStates        []task.State        `yaml:"task_states"`
-	Embedder          argvList            `yaml:"embedder"`
 	Properties        map[string]PropSpec `yaml:"properties"`
 	Queries           map[string]string   `yaml:"queries"`
 	CaptureInbox      string              `yaml:"capture_inbox"`
 	ArchiveNote       string              `yaml:"archive_note"`
-	Web               webFileConfig       `yaml:"web"`
+	Web               vaultWebConfig      `yaml:"web"`
 	Icons             iconsFileConfig     `yaml:"icons"`
 }
 
@@ -182,12 +197,16 @@ func nodeKindName(k yaml.Kind) string {
 	}
 }
 
-// webFileConfig holds web-only settings read from config.yml. The colorscheme is kept out of this file:
-// colors_path points to a separate palette file (see webui.LoadPalette) so the palette can be edited
-// and shared independently of the main config.
-type webFileConfig struct {
+// machineWebConfig is the machine config's `web:` block: how the web UI looks on this machine. The
+// colorscheme is kept out of the config file itself: colors_path points to a separate palette file
+// (see webui.LoadPalette) so the palette can be edited and shared independently of the main config.
+type machineWebConfig struct {
 	Theme      string `yaml:"theme"`
 	ColorsPath string `yaml:"colors_path"`
+}
+
+// vaultWebConfig is the vault config's `web:` block: what the workspace shows for this vault.
+type vaultWebConfig struct {
 	// Home names the landing note (title or numeric id) the workspace opens instead of the search hero.
 	Home string `yaml:"home"`
 }
@@ -215,20 +234,22 @@ const AssetsDirName = "assets"
 // source of truth (track keeps no separate data store). A View Spec references them by path.
 const DataDirName = "data"
 
-// Load resolves configuration from the fixed user config file, with environment overrides for tests
-// and one-off debugging. The default file is ~/.config/track/config.yml on XDG-style systems, or the
-// platform user config equivalent.
+// Load resolves configuration from two files with disjoint key ownership: the machine config (the
+// fixed user config file, ~/.config/track/config.yml or the platform equivalent) owns machine and
+// user values — vault_dir, db_path, cache_dir, embedder, web.theme, web.colors_path — and the vault
+// config (<vault>/.track/config.yml) owns the note semantics that travel with the vault. Both files
+// are decoded strictly: a key in the wrong file is a hard error, never a silent fallback.
 //
-// TRACK_CONFIG overrides the config file path. TRACK_VAULT, TRACK_DB, and TRACK_CACHE_DIR override
-// the matching resolved values. When neither the config file nor TRACK_VAULT sets a vault, it
-// defaults to $HOME/track (ADR 0015).
+// TRACK_CONFIG overrides the machine config path. TRACK_VAULT, TRACK_DB, and TRACK_CACHE_DIR override
+// the matching resolved values for tests and one-off debugging. When neither the machine config nor
+// TRACK_VAULT sets a vault, it defaults to $HOME/track (ADR 0015).
 func Load() (*Config, error) {
-	fc, err := loadFileConfig()
+	mc, err := loadMachineConfig()
 	if err != nil {
 		return nil, err
 	}
 
-	rawVault := fc.VaultDir
+	rawVault := mc.VaultDir
 	if env := os.Getenv("TRACK_VAULT"); env != "" {
 		rawVault = env
 	}
@@ -251,12 +272,17 @@ func Load() (*Config, error) {
 		return nil, err
 	}
 
-	db := fc.DBPath
+	vc, err := loadVaultConfig(vault)
+	if err != nil {
+		return nil, err
+	}
+
+	db := mc.DBPath
 	if env := os.Getenv("TRACK_DB"); env != "" {
 		db = env
 	}
 	if db == "" {
-		cacheDir := fc.CacheDir
+		cacheDir := mc.CacheDir
 		if env := os.Getenv("TRACK_CACHE_DIR"); env != "" {
 			cacheDir = env
 		}
@@ -273,29 +299,29 @@ func Load() (*Config, error) {
 		db = expandHome(db)
 	}
 
-	extensions := fc.Extensions
+	extensions := vc.Extensions
 	if len(extensions) == 0 {
 		extensions = []string{".md"}
 	}
-	dateFormat := fc.DateFormat
+	dateFormat := vc.DateFormat
 	if dateFormat == "" {
 		dateFormat = "2006-01-02"
 	}
-	journalDateFormat := fc.JournalDateFormat
+	journalDateFormat := vc.JournalDateFormat
 	if journalDateFormat == "" {
 		journalDateFormat = "20060102"
 	}
 
-	defaultTemplate := fc.DefaultTemplate
+	defaultTemplate := vc.DefaultTemplate
 	if env := os.Getenv("TRACK_DEFAULT_TEMPLATE"); env != "" {
 		defaultTemplate = env
 	}
-	journalTemplate := fc.JournalTemplate
+	journalTemplate := vc.JournalTemplate
 	if env := os.Getenv("TRACK_JOURNAL_TEMPLATE"); env != "" {
 		journalTemplate = env
 	}
 
-	genKeep := fc.GenKeep
+	genKeep := vc.GenKeep
 	if env := os.Getenv("TRACK_GEN_KEEP"); env != "" {
 		if n, err := strconv.Atoi(env); err == nil {
 			genKeep = n
@@ -305,14 +331,14 @@ func Load() (*Config, error) {
 		genKeep = 10
 	}
 
-	if err := task.ValidateStates(fc.TaskStates); err != nil {
-		return nil, fmt.Errorf("config task_states: %w", err)
+	if err := task.ValidateStates(vc.TaskStates); err != nil {
+		return nil, fmt.Errorf("vault config task_states: %w", err)
 	}
-	taskStates := task.StatesOrDefault(fc.TaskStates)
+	taskStates := task.StatesOrDefault(vc.TaskStates)
 
 	// TRACK_EMBEDDER replaces the config value entirely; an env var cannot carry an array, so it is
 	// always whitespace-split — arguments containing spaces need the config sequence form.
-	embedder := []string(fc.Embedder)
+	embedder := []string(mc.Embedder)
 	if env := os.Getenv("TRACK_EMBEDDER"); env != "" {
 		embedder = strings.Fields(env)
 	}
@@ -320,18 +346,18 @@ func Load() (*Config, error) {
 		return nil, fmt.Errorf("embedder: the first element must be the command, got an empty string")
 	}
 
-	if err := validateProperties(fc.Properties); err != nil {
+	if err := validateProperties(vc.Properties); err != nil {
 		return nil, err
 	}
 
-	captureInbox := fc.CaptureInbox
+	captureInbox := vc.CaptureInbox
 	if env := os.Getenv("TRACK_CAPTURE_INBOX"); env != "" {
 		captureInbox = env
 	}
 	if strings.TrimSpace(captureInbox) == "" {
 		captureInbox = "Inbox"
 	}
-	archiveNote := fc.ArchiveNote
+	archiveNote := vc.ArchiveNote
 	if env := os.Getenv("TRACK_ARCHIVE_NOTE"); env != "" {
 		archiveNote = env
 	}
@@ -346,18 +372,18 @@ func Load() (*Config, error) {
 		DateFormat:        dateFormat,
 		JournalDateFormat: journalDateFormat,
 		BabelLanguages:    loadBabelLanguages(),
-		WebTheme:          normalizeWebTheme(fc.Web.Theme),
-		WebColorsPath:     resolveColorsPath(fc.Web.ColorsPath),
+		WebTheme:          normalizeWebTheme(mc.Web.Theme),
+		WebColorsPath:     resolveColorsPath(mc.Web.ColorsPath),
 		VaultDirDisplay:   displayVault,
 		DefaultTemplate:   defaultTemplate,
 		JournalTemplate:   journalTemplate,
 		GenKeep:           genKeep,
 		TaskStates:        taskStates,
-		WebHome:           strings.TrimSpace(fc.Web.Home),
-		Icons:             IconMap{Tags: fc.Icons.Tags, Kinds: fc.Icons.Kinds},
+		WebHome:           strings.TrimSpace(vc.Web.Home),
+		Icons:             IconMap{Tags: vc.Icons.Tags, Kinds: vc.Icons.Kinds},
 		EmbedderCommand:   embedder,
-		Properties:        fc.Properties,
-		Queries:           fc.Queries,
+		Properties:        vc.Properties,
+		Queries:           vc.Queries,
 		CaptureInbox:      captureInbox,
 		ArchiveNote:       archiveNote,
 	}, nil
@@ -408,7 +434,7 @@ func normalizeWebTheme(theme string) string {
 	}
 }
 
-// ConfigPath returns the fixed user config path, or TRACK_CONFIG when set for tests and one-off runs.
+// ConfigPath returns the fixed machine config path, or TRACK_CONFIG when set for tests and one-off runs.
 func ConfigPath() string {
 	if path := os.Getenv("TRACK_CONFIG"); path != "" {
 		return expandHome(path)
@@ -420,20 +446,47 @@ func ConfigPath() string {
 	return filepath.Join(userConfig, "track", "config.yml")
 }
 
-func loadFileConfig() (fileConfig, error) {
+// VaultConfigPath returns the vault config path for a vault directory. It is derived from the vault
+// path alone so Load can read it before a Config exists.
+func VaultConfigPath(vaultDir string) string {
+	return filepath.Join(vaultDir, ".track", "config.yml")
+}
+
+func loadMachineConfig() (machineFileConfig, error) {
+	var cfg machineFileConfig
 	path := ConfigPath()
+	if err := strictDecodeFile(path, &cfg); err != nil {
+		return machineFileConfig{}, fmt.Errorf("%w (vault-scope keys such as task_states, properties, queries, and icons now live in <vault>/.track/config.yml)", err)
+	}
+	return cfg, nil
+}
+
+func loadVaultConfig(vaultDir string) (vaultFileConfig, error) {
+	var cfg vaultFileConfig
+	path := VaultConfigPath(vaultDir)
+	if err := strictDecodeFile(path, &cfg); err != nil {
+		return vaultFileConfig{}, fmt.Errorf("%w (machine-scope keys — vault_dir, db_path, cache_dir, embedder, web.theme, web.colors_path — belong in the user config file, never in a vault)", err)
+	}
+	return cfg, nil
+}
+
+// strictDecodeFile reads a YAML config file into out, rejecting unknown keys so a value placed in the
+// wrong file (or a typo) fails loudly instead of being silently ignored. A missing or empty file is a
+// zero value, not an error.
+func strictDecodeFile(path string, out any) error {
 	raw, err := os.ReadFile(path)
 	if err != nil {
 		if os.IsNotExist(err) {
-			return fileConfig{}, nil
+			return nil
 		}
-		return fileConfig{}, fmt.Errorf("read config %s: %w", path, err)
+		return fmt.Errorf("read config %s: %w", path, err)
 	}
-	var cfg fileConfig
-	if err := yaml.Unmarshal(raw, &cfg); err != nil {
-		return fileConfig{}, fmt.Errorf("parse config %s: %w", path, err)
+	dec := yaml.NewDecoder(bytes.NewReader(raw))
+	dec.KnownFields(true)
+	if err := dec.Decode(out); err != nil && !errors.Is(err, io.EOF) {
+		return fmt.Errorf("parse config %s: %w", path, err)
 	}
-	return cfg, nil
+	return nil
 }
 
 func expandHome(path string) string {

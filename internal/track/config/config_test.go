@@ -232,15 +232,25 @@ func TestNoteIconPrecedence(t *testing.T) {
 	}
 }
 
+// writeVaultConfig writes <vault>/.track/config.yml for tests exercising vault-scope keys.
+func writeVaultConfig(t *testing.T, vault, contents string) {
+	t.Helper()
+	if err := os.MkdirAll(filepath.Join(vault, ".track"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(VaultConfigPath(vault), []byte(contents), 0o644); err != nil {
+		t.Fatal(err)
+	}
+}
+
 func TestLoadIconsAndHome(t *testing.T) {
 	vault := t.TempDir()
 	configPath := filepath.Join(t.TempDir(), "config.yml")
-	contents := "vault_dir: " + vault + "\ncache_dir: " + t.TempDir() + "\n" +
-		"web:\n  home: Home\n" +
-		"icons:\n  tags:\n    idea: \"💡\"\n  kinds:\n    journal: \"📓\"\n"
-	if err := os.WriteFile(configPath, []byte(contents), 0o644); err != nil {
+	if err := os.WriteFile(configPath, []byte("vault_dir: "+vault+"\ncache_dir: "+t.TempDir()+"\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
+	writeVaultConfig(t, vault, "web:\n  home: Home\n"+
+		"icons:\n  tags:\n    idea: \"💡\"\n  kinds:\n    journal: \"📓\"\n")
 	t.Setenv("TRACK_CONFIG", configPath)
 	t.Setenv("TRACK_VAULT", "")
 	t.Setenv("TRACK_DB", "")
@@ -258,6 +268,72 @@ func TestLoadIconsAndHome(t *testing.T) {
 	}
 	if got := cfg.NoteIcon("journal", nil, ""); got != "📓" {
 		t.Fatalf("kind icon = %q, want 📓", got)
+	}
+}
+
+func TestLoadRejectsVaultScopeKeysInMachineConfig(t *testing.T) {
+	configPath := filepath.Join(t.TempDir(), "config.yml")
+	body := "vault_dir: " + t.TempDir() + "\ntask_states:\n  - name: todo\n    marker: \" \"\n"
+	if err := os.WriteFile(configPath, []byte(body), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("TRACK_CONFIG", configPath)
+	t.Setenv("TRACK_VAULT", "")
+	t.Setenv("TRACK_DB", "")
+	t.Setenv("TRACK_CACHE_DIR", t.TempDir())
+
+	_, err := Load()
+	if err == nil || !strings.Contains(err.Error(), ".track/config.yml") {
+		t.Fatalf("a vault-scope key in the machine config must error pointing at the vault config, got %v", err)
+	}
+}
+
+func TestLoadRejectsMachineScopeKeysInVaultConfig(t *testing.T) {
+	// The security half of the ownership split: a cloned/synced vault must never configure a command
+	// (embedder) or redirect paths on this machine.
+	vault := t.TempDir()
+	configPath := filepath.Join(t.TempDir(), "config.yml")
+	if err := os.WriteFile(configPath, []byte("vault_dir: "+vault+"\ncache_dir: "+t.TempDir()+"\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	writeVaultConfig(t, vault, "embedder: evil-cmd --exfiltrate\n")
+	t.Setenv("TRACK_CONFIG", configPath)
+	t.Setenv("TRACK_VAULT", "")
+	t.Setenv("TRACK_DB", "")
+	t.Setenv("TRACK_CACHE_DIR", "")
+
+	_, err := Load()
+	if err == nil || !strings.Contains(err.Error(), "embedder") {
+		t.Fatalf("a machine-scope key in the vault config must error naming the key, got %v", err)
+	}
+}
+
+func TestLoadVaultConfigOwnsNoteSemantics(t *testing.T) {
+	vault := t.TempDir()
+	configPath := filepath.Join(t.TempDir(), "config.yml")
+	if err := os.WriteFile(configPath, []byte("vault_dir: "+vault+"\ncache_dir: "+t.TempDir()+"\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	writeVaultConfig(t, vault, "capture_inbox: Intake\ngen_keep: 3\nqueries:\n  open: 'task:open'\n")
+	t.Setenv("TRACK_CONFIG", configPath)
+	t.Setenv("TRACK_VAULT", "")
+	t.Setenv("TRACK_DB", "")
+	t.Setenv("TRACK_CACHE_DIR", "")
+	t.Setenv("TRACK_CAPTURE_INBOX", "")
+	t.Setenv("TRACK_GEN_KEEP", "")
+
+	cfg, err := Load()
+	if err != nil {
+		t.Fatalf("load: %v", err)
+	}
+	if cfg.CaptureInbox != "Intake" {
+		t.Fatalf("CaptureInbox = %q, want Intake", cfg.CaptureInbox)
+	}
+	if cfg.GenKeep != 3 {
+		t.Fatalf("GenKeep = %d, want 3", cfg.GenKeep)
+	}
+	if cfg.Queries["open"] != "task:open" {
+		t.Fatalf("Queries = %v, want open -> task:open", cfg.Queries)
 	}
 }
 
@@ -408,18 +484,18 @@ func TestEnsureVaultSkeleton(t *testing.T) {
 }
 
 func TestLoadPropertySchema(t *testing.T) {
+	vault := t.TempDir()
 	configPath := filepath.Join(t.TempDir(), "config.yml")
-	body := "vault_dir: " + t.TempDir() + "\ncache_dir: " + t.TempDir() + `
-properties:
+	if err := os.WriteFile(configPath, []byte("vault_dir: "+vault+"\ncache_dir: "+t.TempDir()+"\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	writeVaultConfig(t, vault, `properties:
   status:
     type: string
     values: [draft, done]
   rating:
     type: number
-`
-	if err := os.WriteFile(configPath, []byte(body), 0o644); err != nil {
-		t.Fatal(err)
-	}
+`)
 	t.Setenv("TRACK_CONFIG", configPath)
 	t.Setenv("TRACK_VAULT", "")
 	t.Setenv("TRACK_DB", "")
@@ -439,11 +515,12 @@ properties:
 }
 
 func TestLoadRejectsUnknownPropertyType(t *testing.T) {
+	vault := t.TempDir()
 	configPath := filepath.Join(t.TempDir(), "config.yml")
-	body := "vault_dir: " + t.TempDir() + "\nproperties:\n  status:\n    type: enum\n"
-	if err := os.WriteFile(configPath, []byte(body), 0o644); err != nil {
+	if err := os.WriteFile(configPath, []byte("vault_dir: "+vault+"\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
+	writeVaultConfig(t, vault, "properties:\n  status:\n    type: enum\n")
 	t.Setenv("TRACK_CONFIG", configPath)
 	t.Setenv("TRACK_VAULT", "")
 	t.Setenv("TRACK_DB", "")

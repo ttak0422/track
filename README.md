@@ -48,15 +48,26 @@ flake.nix                # Go CLI + Vim plugin packaging
 All commands except `version` print a single line of JSON; errors are `{"error":...}` with exit code 1.
 The vault is read from the platform user config file (`config.yml` under the track config directory) and defaults to `$HOME/track` when unset (ADR 0015); precedence is `TRACK_VAULT` > config `vault_dir` > `$HOME/track`. Environment variables are intended for tests and one-off overrides.
 The rebuildable index db defaults to the user cache directory under `track/`.
-The Neovim frontend sets `TRACK_CACHE_DIR` to `vim.fn.stdpath("cache") .. "/track"`.
+
+Configuration is split by ownership (ADR 0050). The machine config owns machine and user values:
 
 ```yaml
+# ~/.config/track/config.yml (or the platform equivalent)
 vault_dir: ~/track
-# Optional: pick a different template as the default for new notes/journals (created without
-# --template or a body). Defaults to the shipped builtin "default" / "journal" templates.
+# cache_dir / db_path / embedder / web.theme / web.colors_path also live here.
+```
+
+Note semantics live in the vault config and travel with the vault:
+
+```yaml
+# <vault>/.track/config.yml (optional; defaults apply without it)
+# task_states / properties / queries / icons / date formats / capture_inbox /
+# archive_note / web.home / gen_keep / extensions, and the default templates:
 # default_template: my-note
 # journal_template: my-journal
 ```
+
+Both files are decoded strictly: a key in the wrong file is an error, so a cloned or synced vault can never configure which commands run on your machine.
 
 Typical config locations are `~/.config/track/config.yml` on XDG-style systems and `~/Library/Application Support/track/config.yml` on macOS.
 

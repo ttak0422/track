@@ -74,10 +74,11 @@ Authoritative track-owned vault data lives under:
 Current contents:
 
 ```text
+<vault>/.track/config.yml
 <vault>/.track/notes/<id>.yaml
 ```
 
-`.track/notes/` contains versioned sidecar metadata files for notes.
+`.track/config.yml` is the vault config: the note semantics that travel with the vault (`task_states`, `properties`, `queries`, `icons`, date formats, default templates, `capture_inbox`, `archive_note`, `web.home`, `gen_keep`, `extensions`). It is optional — a vault without one uses the defaults. `.track/notes/` contains versioned sidecar metadata files for notes.
 
 The rebuildable SQLite index is a cache outside the vault. By default it lives under the platform user cache directory:
 
@@ -93,7 +94,7 @@ vim.fn.stdpath("cache") .. "/track"
 
 `TRACK_DB` can still point at an explicit database path for debugging or tests.
 
-The config file can also set `cache_dir`, `db_path`, `extensions`, `date_format`, and `journal_date_format`. A `web:` section configures the local web workspace (`web.theme` and `web.colors_path`); see [web.md](web.md). Environment values override the matching file values, but normal user configuration should live in `config.yml`.
+Configuration ownership is split (ADR 0050): the machine config file can also set `cache_dir`, `db_path`, `embedder`, and the local web workspace's `web.theme`/`web.colors_path` (see [web.md](web.md)); everything about note semantics — `extensions`, `date_format`, `journal_date_format`, and the rest — lives in the vault config `<vault>/.track/config.yml`. Both files reject keys that belong to the other, so a synced vault can never configure which commands run on a machine. Environment values override the matching file values, but normal configuration should live in the files.
 
 The vault path is canonicalized (symlinks resolved, made absolute) before use. A symlinked vault — for example `~/track` pointing at a cloud-synced `~/OneDrive/track` — therefore resolves to one stable path, so the `<vault-key>` cache key stays the same no matter which path the CLI is invoked through.
 
