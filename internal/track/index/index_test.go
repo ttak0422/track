@@ -136,12 +136,13 @@ func TestFullReconcilesDeletions(t *testing.T) {
 	if rep.Deleted != 1 {
 		t.Fatalf("deleted = %d, want 1", rep.Deleted)
 	}
-	if _, err := os.Stat(cfg.MetadataPath(2)); !os.IsNotExist(err) {
-		t.Fatalf("metadata for deleted note should be moved out of the sidecar dir, stat err=%v", err)
+	// Reconciling only removes index rows: the sidecar stays on disk as an orphan (doctor reports
+	// it), and only explicit commands (track rm, doctor --fix) move files.
+	if _, err := os.Stat(cfg.MetadataPath(2)); err != nil {
+		t.Fatalf("sidecar of deleted note must stay in place: %v", err)
 	}
-	trashed, err := filepath.Glob(filepath.Join(cfg.TrashDir(), "*-2.yaml"))
-	if err != nil || len(trashed) != 1 {
-		t.Fatalf("sidecar of deleted note should be in trash, glob=%v err=%v", trashed, err)
+	if trashed, err := filepath.Glob(filepath.Join(cfg.TrashDir(), "*")); err != nil || len(trashed) != 0 {
+		t.Fatalf("a read-path reconcile must not move files into trash, glob=%v err=%v", trashed, err)
 	}
 	notes, _ := s.AllNotes()
 	if len(notes) != 1 || notes[0].NoteID != 1 {

@@ -4,7 +4,6 @@ package index
 import (
 	"fmt"
 	"io/fs"
-	"os"
 	"path/filepath"
 	"slices"
 	"time"
@@ -41,6 +40,10 @@ type Report struct {
 // Full re-parses every note in the vault, reconciles deletions, and recomputes the entire link graph.
 // It is the authoritative rebuild; single-file updates can't see new inbound links, so use Full for
 // bulk repair or when previously unresolved links should become backlinks after creating a title.
+//
+// Reconciling touches only index rows, never vault files: the sidecar of a vanished note stays on
+// disk as an orphan for doctor to report. Full runs as a side effect of read commands (via
+// RefreshIfStale), and only explicit commands (track rm, doctor --fix) may move or delete files.
 func (ix *Indexer) Full() (Report, error) {
 	var rep Report
 
@@ -56,12 +59,11 @@ func (ix *Indexer) Full() (Report, error) {
 
 	// A scan that finds nothing while the index holds notes means the vault is unreadable — unmounted
 	// cloud storage, EPERM, a half-finished checkout — not that every note was deleted. Reconciling
-	// would empty the index and set aside every sidecar, and a read command must never do that silently.
-	// If the notes really are gone, `track reindex` resets the index first and rebuilds from disk.
-	// The floor keeps legitimate small cases reconciling: `track rm` of a vault's last file leaves a
-	// zero scan over a rowful DB, and sidecars go to trash either way.
+	// would empty the index, and a read command must never do that silently. If the notes really are
+	// gone, `track reindex` resets the index first and rebuilds from disk. The floor keeps legitimate
+	// small cases reconciling: `track rm` of a vault's last file leaves a zero scan over a rowful DB.
 	// ponytail: zero-scan guard only; a partial sync gap still reconciles (rows self-heal on the next
-	// refresh, sidecars land in trash) — add a fractional threshold if that ever bites.
+	// refresh) — add a fractional threshold if that ever bites.
 	if len(paths) == 0 && len(existing) >= emptyScanGuardMin {
 		return rep, fmt.Errorf("no note files found under %s but the index lists %d notes; refusing to reconcile deletions (vault unmounted or unreadable?) — if the notes really are gone, run 'track reindex'", ix.cfg.VaultDir, len(existing))
 	}
@@ -81,13 +83,9 @@ func (ix *Indexer) Full() (Report, error) {
 		rep.Indexed++
 	}
 
-	stamp := time.Now().UnixMilli()
 	for id := range existing {
 		if !seen[id] {
 			if err := ix.store.DeleteNote(id); err != nil {
-				return rep, err
-			}
-			if err := ix.trashSidecar(id, stamp); err != nil {
 				return rep, err
 			}
 			rep.Deleted++
@@ -107,25 +105,6 @@ func (ix *Indexer) Full() (Report, error) {
 	}
 
 	return rep, nil
-}
-
-// trashSidecar moves the sidecar of a note that vanished from disk into the vault trash, using the same
-// "<stamp>-<basename>" naming as `track rm`. The markdown may be gone because of a sync gap or a
-// mid-checkout read rather than a real delete, and the sidecar is authoritative data (title, tags,
-// activity days) that no rebuild can restore — so the index never destroys it, it only sets it aside.
-func (ix *Indexer) trashSidecar(id int64, stamp int64) error {
-	src := ix.cfg.MetadataPath(id)
-	if _, err := os.Stat(src); os.IsNotExist(err) {
-		return nil // already cleaned up, e.g. `track rm` trashed it before reindexing
-	}
-	if err := os.MkdirAll(ix.cfg.TrashDir(), 0o755); err != nil {
-		return err
-	}
-	err := os.Rename(src, filepath.Join(ix.cfg.TrashDir(), fmt.Sprintf("%d-%s", stamp, filepath.Base(src))))
-	if os.IsNotExist(err) {
-		return nil // a concurrent reindex trashed it between the Stat and the Rename
-	}
-	return err
 }
 
 // RefreshIfStale compares the note and journal files on disk against the indexed mtimes and, when they
