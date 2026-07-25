@@ -54,10 +54,18 @@ names its vault.**
 - Follow carries the editor's vault. The plugin knows its buffer by directory,
   so it sends `vault_path`; the server maps it to a served vault, refuses one it
   does not serve, and broadcasts the position labelled with the registry name.
-- In the frontend an id from a named vault is the string `<vault>:<id>`. That
+- In the frontend an id from a named vault is the string `<vault>~<id>`. That
   keeps `NoteID` a single opaque string — routes, tabs, the query cache, and the
   graph's node map all keep working unchanged — while making collisions
-  impossible. An unnamed vault keeps bare ids.
+  impossible. The launch vault keeps bare ids.
+- A note's body also makes requests that name no note — its attachments, its
+  `[[links]]`, the notes its includes and query blocks resolve, its viewspec data
+  sources, and an uploaded cover. Those carry the vault of the body being
+  rendered, provided as React context beside the note kind that was already
+  threaded that way.
+- A vault that cannot join a cross-vault read is reported, never silently
+  dropped: an unreadable index, or one past SQLite's limit of ten attached
+  databases, drops out of the federated query and is listed as a gap.
 
 ## Why the frontend composes rather than carrying a pair
 
@@ -72,6 +80,14 @@ are parsed.
 The unqualified form meaning "the vault you are already in" is the same
 asymmetry as `[[title]]` versus `[[vault:title]]`, and it keeps a single-vault
 workspace's URLs and stored tabs byte-identical to before.
+
+The separator is `~` rather than the `:` link syntax uses, because this id
+travels through the URL. `:` is URI-reserved: a route param interpolates it to
+`%3A`, and a router decodes a pathname with `decodeURI` (which keeps `%3A`) but
+a param with `decodeURIComponent` (which restores `:`) — so the tab strip, which
+reads the pathname, and the reader, which reads the param, would disagree on
+every qualified id. `~` is unreserved and can appear in neither half: vault names
+are `[a-z0-9-]` and ids are digits or a base62 slug.
 
 ## Consequences
 

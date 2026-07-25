@@ -44,10 +44,15 @@ Only the launch vault is watched for filesystem changes; every other served
 vault is reconciled on read, the same freshness path a cloud sync already
 relies on. Change events name the vault they came from.
 
-In the frontend an id from a named vault is written `<vault>:<id>` — in routes,
+In the frontend an id from a named vault is written `<vault>~<id>` — in routes,
 in the tab strip, and in the query cache — so two vaults' notes never collide.
-An unnamed vault keeps bare ids, the same asymmetry as `[[title]]` versus
-`[[vault:title]]`.
+The launch vault keeps bare ids, the same asymmetry as `[[title]]` versus
+`[[vault:title]]`. The separator is `~`, not the `:` link syntax uses, because
+the id travels through the URL: `:` is URI-reserved, so a route param would
+interpolate to `%3A` and the pathname and the param would decode differently.
+
+A vault registered under several names is one vault: views resolve by directory,
+so aliases neither relabel its notes nor attach its index twice.
 
 ## HTTP API
 
