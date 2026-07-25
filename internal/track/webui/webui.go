@@ -47,6 +47,11 @@ type Server struct {
 }
 
 type followState struct {
+	// Vault names the vault the editor's cursor is in, so the workspace scrolls the note the editor
+	// actually has open. It is the registry name on the way out; the editor knows its buffer by
+	// directory, so VaultPath is what it sends in and the server maps it to a name.
+	Vault     string `json:"vault,omitempty"`
+	VaultPath string `json:"vault_path,omitempty"`
 	NoteID    int64  `json:"note_id"`
 	FileKind  string `json:"file_kind"`
 	Path      string `json:"path,omitempty"`

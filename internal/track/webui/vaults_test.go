@@ -1,11 +1,13 @@
 package webui
 
 import (
+	"bytes"
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/ttak0422/track/internal/track/config"
@@ -177,5 +179,72 @@ func TestSearchLabelsResultsWithTheirVault(t *testing.T) {
 	hit := hits[0].(map[string]any)
 	if hit["vault"] != "work" || hit["title"] != "Alpha in work" {
 		t.Fatalf("hit should be labeled with the vault it came from, got %v", hit)
+	}
+}
+
+func postBody(t *testing.T, url string, body any) *http.Response {
+	t.Helper()
+	raw, err := json.Marshal(body)
+	if err != nil {
+		t.Fatal(err)
+	}
+	resp, err := http.Post(url, "application/json", bytes.NewReader(raw))
+	if err != nil {
+		t.Fatalf("POST %s: %v", url, err)
+	}
+	return resp
+}
+
+func TestFollowCarriesTheEditorsVault(t *testing.T) {
+	server, _, work := twoVaultServer(t)
+	// Build both indexes so either vault can answer for note 100.
+	getVaultJSON(t, server.URL+"/api/note?id=100")
+	getVaultJSON(t, server.URL+"/api/note?id=100&vault=work")
+
+	// The editor reports the vault its buffer lives in, so the workspace follows the right note of
+	// two that share an id.
+	resp := postBody(t, server.URL+"/api/follow", map[string]any{
+		"vault_path": work,
+		"note_id":    100,
+		"file_kind":  "note",
+		"line":       1,
+	})
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("follow from a served vault should be accepted, got %d", resp.StatusCode)
+	}
+	var out map[string]any
+	if err := json.NewDecoder(resp.Body).Decode(&out); err != nil {
+		t.Fatal(err)
+	}
+	state := out["state"].(map[string]any)
+	if state["vault"] != "work" {
+		t.Fatalf("follow state must name the editor's vault, got %v", state["vault"])
+	}
+	// Compare against the canonical vault path: the server resolves symlinks (on macOS /var is one).
+	canonicalWork, err := config.CanonicalPath(work)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if path, _ := state["path"].(string); !strings.HasPrefix(path, canonicalWork) {
+		t.Fatalf("follow path must point inside the editor's vault, got %q", path)
+	}
+}
+
+func TestFollowRefusesAnUnservedVault(t *testing.T) {
+	server, _, _ := twoVaultServer(t)
+	getVaultJSON(t, server.URL+"/api/note?id=100")
+
+	// A buffer in some other vault must not be reported as a position in this workspace: with a
+	// journal id the note would always exist here, so the mismatch has to be refused explicitly.
+	resp := postBody(t, server.URL+"/api/follow", map[string]any{
+		"vault_path": t.TempDir(),
+		"note_id":    100,
+		"file_kind":  "note",
+		"line":       1,
+	})
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusBadRequest {
+		t.Fatalf("follow from an unserved vault should be refused, got %d", resp.StatusCode)
 	}
 }

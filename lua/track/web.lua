@@ -32,13 +32,16 @@ local function follow_state(buf)
       return nil
    end
 
-   local vault = uv.fs_realpath(config.options.vault_dir) or normalize_path(config.options.vault_dir)
+   -- The buffer may belong to any vault the editor knows, not just the active one, so resolve its
+   -- vault the same way the per-vault LSP does and report it: ids are vault-local, and a journal id
+   -- names a note in every vault at once, so a bare id would scroll the workspace to the wrong note.
+   local vault = require("track.util").vault_of(buf)
+   if not vault then
+      return nil
+   end
    local path = uv.fs_realpath(name) or normalize_path(name)
    vault = normalize_path(vault)
    path = normalize_path(path)
-   if path ~= vault and path:sub(1, #vault + 1) ~= vault .. "/" then
-      return nil
-   end
 
    local rel = path:sub(#vault + 2)
    local kind, raw_id = rel:match("^(note)/(%d+)%.md$")
@@ -63,6 +66,7 @@ local function follow_state(buf)
       return vim.fn.line("w0")
    end)
    return {
+      vault_path = vault,
       note_id = tonumber(raw_id),
       file_kind = kind,
       line = cursor[1],
