@@ -10,6 +10,7 @@ import (
 	"os"
 	"strings"
 
+	"github.com/ttak0422/track/internal/track/config"
 	"github.com/ttak0422/track/internal/track/dashboard"
 	"github.com/ttak0422/track/internal/track/export"
 	"github.com/ttak0422/track/internal/track/index"
@@ -154,27 +155,56 @@ func (s *Server) getNote(v *vaultView, w http.ResponseWriter, r *http.Request) {
 	// edges keyed by this note's title (ADR 0053). They are in those vaults' indexes, so they are a
 	// separate lookup; a vault that cannot be consulted is reported, because a missing backlink must
 	// stay distinguishable from a missing vault. The CLI's `track backlinks` answers the same way.
-	if external, unavailable, ok := v.externalBacklinks(ref.Title); ok {
+	if external, unavailable, ok := s.externalBacklinks(v, ref.Title); ok {
 		out["external"] = external
 		out["unavailable"] = unavailable
 	}
 	writeJSON(w, out)
 }
 
-// externalBacklinks lists the cross-vault references to a title, or reports ok=false when the
-// workspace serves no registry and the question cannot arise.
-func (v *vaultView) externalBacklinks(title string) ([]vaultref.ExternalRef, []vaultref.Unavailable, bool) {
+// externalBacklinks lists the [[vault:title]] references other vaults make to a title, or reports
+// ok=false when the workspace serves no registry and the question cannot arise. It reads through the
+// server's own views rather than opening each vault per request the way the one-shot CLI does: this
+// runs on every note open, and the handles are already here.
+func (s *Server) externalBacklinks(v *vaultView, title string) ([]vaultref.ExternalRef, []vaultInfo, bool) {
 	if len(v.cfg.Vaults) == 0 || title == "" {
 		return nil, nil, false
 	}
-	r := vaultref.New(v.cfg)
-	defer r.Close()
-	external, unavailable := r.Inbound(title)
-	if external == nil {
-		external = []vaultref.ExternalRef{}
+	// A vault may be registered under several names and an inbound reference may use any of them,
+	// so the query matches every name pointing at this vault.
+	var selfNames []string
+	for _, name := range sortedVaultNames(v.cfg.Vaults) {
+		if canonical, err := config.CanonicalPath(v.cfg.Vaults[name]); err == nil && canonical == v.cfg.VaultDir {
+			selfNames = append(selfNames, name)
+		}
 	}
+	external := []vaultref.ExternalRef{}
+	if len(selfNames) == 0 {
+		// Unregistered: no other vault has a name to refer to this one by.
+		return external, []vaultInfo{}, true
+	}
+	views, unavailable := s.servedViews()
 	if unavailable == nil {
-		unavailable = []vaultref.Unavailable{}
+		unavailable = []vaultInfo{}
+	}
+	for _, other := range views {
+		if other == v {
+			continue // its own references are the ordinary backlinks
+		}
+		backs, err := other.store.ExtBacklinks(selfNames, title)
+		if err != nil {
+			unavailable = append(unavailable, vaultInfo{Name: other.name, Path: other.cfg.VaultDirDisplay, Error: err.Error()})
+			continue
+		}
+		for _, b := range backs {
+			external = append(external, vaultref.ExternalRef{
+				Vault:    other.name,
+				NoteID:   b.NoteID,
+				FileKind: b.FileKind,
+				Title:    b.Title,
+				Path:     other.cfg.PathForKind(b.FileKind, b.NoteID),
+			})
+		}
 	}
 	return external, unavailable, true
 }
