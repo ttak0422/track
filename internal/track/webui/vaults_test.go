@@ -413,3 +413,49 @@ func TestASearchReportsAVaultThatWentAway(t *testing.T) {
 		t.Fatalf("the vault that went away must be reported, got %v", gaps)
 	}
 }
+
+func TestNoteShowsInboundReferencesFromOtherVaults(t *testing.T) {
+	// A [[main:Alpha in main]] written in another vault is an edge in THAT vault's index, keyed by
+	// title. The workspace has to go look for it, or the reference the CLI reports would simply be
+	// absent here.
+	main, work := t.TempDir(), t.TempDir()
+	writeVaultNote(t, main, 100, "Alpha in main", "# Alpha in main\n")
+	writeVaultNote(t, work, 300, "Refers across", "See [[main:Alpha in main]].\n")
+
+	configPath := filepath.Join(t.TempDir(), "config.yml")
+	body := "cache_dir: " + t.TempDir() + "\nvaults:\n  main: " + main + "\n  work: " + work + "\n"
+	if err := os.WriteFile(configPath, []byte(body), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("TRACK_CONFIG", configPath)
+	t.Setenv("TRACK_VAULT", main)
+	t.Setenv("TRACK_DB", "")
+	t.Setenv("TRACK_CACHE_DIR", "")
+
+	cfg, err := config.Load()
+	if err != nil {
+		t.Fatalf("load config: %v", err)
+	}
+	st, err := store.Open(cfg.DBPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { st.Close() })
+	srv := New(cfg, st)
+	t.Cleanup(srv.closeViews)
+	server := httptest.NewServer(srv.Handler())
+	t.Cleanup(server.Close)
+
+	// Reading the other vault builds its index, which is where the reference lives.
+	getVaultJSON(t, server.URL+"/api/note?id=300&vault=work")
+
+	out := getVaultJSON(t, server.URL+"/api/note?id=100")
+	external, ok := out["external"].([]any)
+	if !ok || len(external) != 1 {
+		t.Fatalf("expected one inbound reference from another vault, got %v", out["external"])
+	}
+	ref := external[0].(map[string]any)
+	if ref["vault"] != "work" || ref["title"] != "Refers across" {
+		t.Fatalf("the reference must name its vault and note, got %v", ref)
+	}
+}

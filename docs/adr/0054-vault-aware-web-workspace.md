@@ -63,6 +63,11 @@ names its vault.**
   sources, and an uploaded cover. Those carry the vault of the body being
   rendered, provided as React context beside the note kind that was already
   threaded that way.
+- A note's inbound `[[vault:title]]` references from other vaults ride along with
+  its response, listed apart from its same-vault backlinks: those edges live in
+  the referring vaults' indexes and are keyed by title, not by an id this vault
+  knows. Without them the workspace would show fewer references than `track
+  backlinks` does for the same note.
 - A vault that cannot join a cross-vault read is reported, never silently
   dropped: an unreadable index, or one past SQLite's limit of ten attached
   databases, drops out of the federated query and is listed as a gap.

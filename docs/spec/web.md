@@ -37,6 +37,10 @@ registered.
   `?vault=<name>` narrows it to one. Vaults that could not be read are reported
   under `unavailable` so "no matches there" stays distinguishable from "could
   not read that vault".
+- `GET /api/note` also carries `external`: the inbound `[[vault:title]]`
+  references other vaults make to this note (ADR 0053), with `unavailable` for
+  vaults that could not be consulted. Those edges live in the referring vaults'
+  indexes, so they are a separate list from the same-vault `backlinks`.
 - Every other note endpoint is single-vault: it acts on `?vault=` or the launch
   vault.
 

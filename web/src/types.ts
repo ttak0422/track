@@ -140,9 +140,23 @@ export interface NoteDetail extends SearchResult {
   props?: NoteProp[];
 }
 
+// One inbound reference from another vault, written [[vault:title]] there (ADR 0053). It is a
+// separate list because those edges live in the other vaults' indexes, keyed by title rather than id.
+export interface ExternalRef {
+  vault: string;
+  note_id: NoteID;
+  file_kind: FileKind;
+  title: string;
+  path?: string;
+}
+
 export interface NoteResponse {
   note: NoteDetail;
   backlinks: NoteRef[];
+  // Inbound [[vault:title]] references from other vaults, and the vaults that could not be
+  // consulted — a missing backlink must stay distinguishable from a missing vault.
+  external?: ExternalRef[];
+  unavailable?: UnavailableVault[];
   // Hierarchy navigation from the "up" relation property: the ancestor trail (root first) and the
   // notes whose "up" points here. Both live and static responses carry them.
   trail?: NoteRef[];

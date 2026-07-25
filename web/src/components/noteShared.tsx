@@ -2,7 +2,7 @@ import { Link, useLocation } from "@tanstack/react-router";
 import { useEffect } from "react";
 import { useAgendaQuery } from "../queries";
 import { WikiLink } from "./preview/WikiLink";
-import type { FileKind, NoteID, NoteProp, NoteRef } from "../types";
+import type { ExternalRef, FileKind, NoteID, NoteProp, NoteRef, UnavailableVault } from "../types";
 import { split } from "../vaultId";
 
 // Shared read-only note UI, used by both the static reader (NoteReaderStatic) and the live editor
@@ -72,11 +72,17 @@ export function useScrollToHash(ready: boolean) {
 // width and wrap to a stack when narrow.
 export function NoteAside({
   backlinks,
+  external = [],
+  unavailable = [],
   childNotes = [],
   noteID,
   journalDate,
 }: {
   backlinks: NoteRef[];
+  // Inbound references from other vaults, listed apart from same-vault backlinks because they are
+  // reached by title across a vault boundary rather than by an indexed id.
+  external?: ExternalRef[];
+  unavailable?: UnavailableVault[];
   childNotes?: NoteRef[];
   noteID: NoteID;
   journalDate: string;
@@ -124,6 +130,30 @@ export function NoteAside({
           </div>
         )}
       </section>
+
+      {external.length > 0 || unavailable.length > 0 ? (
+        <section className="backlinks" aria-labelledby="external-backlinks-heading">
+          <h3 id="external-backlinks-heading">From other vaults</h3>
+          <div className="backlink-list">
+            {external.map((ref) => (
+              <Link
+                className="backlink"
+                key={`${ref.vault}/${ref.note_id}`}
+                to="/notes/$noteId"
+                params={{ noteId: String(ref.note_id) }}
+              >
+                <span className="tab-vault">{ref.vault}</span>
+                {ref.title}
+              </Link>
+            ))}
+          </div>
+          {unavailable.map((vault) => (
+            <p key={vault.name} className="muted">
+              ⚠ vault “{vault.name}” could not be checked{vault.error ? `: ${vault.error}` : ""}
+            </p>
+          ))}
+        </section>
+      ) : null}
 
       {journalDate !== "" ? (
         <section className="backlinks" aria-labelledby="on-this-day-heading">

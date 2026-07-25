@@ -405,6 +405,8 @@ export function NoteEditor({ noteID }: NoteEditorProps) {
 
       <NoteAside
         backlinks={data.backlinks}
+        external={data.external}
+        unavailable={data.unavailable}
         childNotes={data.children ?? []}
         noteID={noteID}
         journalDate={journalDate}

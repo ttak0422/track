@@ -20,6 +20,7 @@ import (
 	"github.com/ttak0422/track/internal/track/render"
 	"github.com/ttak0422/track/internal/track/store"
 	"github.com/ttak0422/track/internal/track/task"
+	"github.com/ttak0422/track/internal/track/vaultref"
 )
 
 func (s *Server) handleNote(v *vaultView, w http.ResponseWriter, r *http.Request) {
@@ -143,12 +144,39 @@ func (s *Server) getNote(v *vaultView, w http.ResponseWriter, r *http.Request) {
 	if set := task.NewSet(body, v.cfg.TaskStates); len(set.Items) > 0 {
 		noteJSON["tasks"] = set
 	}
-	writeJSON(w, map[string]any{
+	out := map[string]any{
 		"note":      noteJSON,
 		"backlinks": backlinks,
 		"trail":     trail,
 		"children":  children,
-	})
+	}
+	// Inbound references can also live in other vaults, written [[name:title]] and stored as string
+	// edges keyed by this note's title (ADR 0053). They are in those vaults' indexes, so they are a
+	// separate lookup; a vault that cannot be consulted is reported, because a missing backlink must
+	// stay distinguishable from a missing vault. The CLI's `track backlinks` answers the same way.
+	if external, unavailable, ok := v.externalBacklinks(ref.Title); ok {
+		out["external"] = external
+		out["unavailable"] = unavailable
+	}
+	writeJSON(w, out)
+}
+
+// externalBacklinks lists the cross-vault references to a title, or reports ok=false when the
+// workspace serves no registry and the question cannot arise.
+func (v *vaultView) externalBacklinks(title string) ([]vaultref.ExternalRef, []vaultref.Unavailable, bool) {
+	if len(v.cfg.Vaults) == 0 || title == "" {
+		return nil, nil, false
+	}
+	r := vaultref.New(v.cfg)
+	defer r.Close()
+	external, unavailable := r.Inbound(title)
+	if external == nil {
+		external = []vaultref.ExternalRef{}
+	}
+	if unavailable == nil {
+		unavailable = []vaultref.Unavailable{}
+	}
+	return external, unavailable, true
 }
 
 // putNote saves the body of an existing note. The request JSON carries the new body and the etag the
