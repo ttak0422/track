@@ -135,6 +135,9 @@ function M.setup(opts)
       error("track: vault_dir is required in config.yml or require('track').setup({ vault_dir = ... }).")
    end
    vim.env.TRACK_VAULT = M.options.vault_dir
+   -- Clear any TRACK_CACHE_DIR a previous plugin version exported: the CLI resolves the cache now, and
+   -- a stale export would keep steering spawned processes to the old nvim-private cache until restart.
+   vim.env.TRACK_CACHE_DIR = nil
    return M.options
 end
 
