@@ -50,7 +50,7 @@ func writePages(outDir, startPage string, root int64, docs, listed []doc, site j
 	// Per-note pages: notes/<slug>/index.html resolves /notes/<slug>.
 	for i := range docs {
 		d := &docs[i]
-		slug := PublishID(d.id)
+		slug := slugOf(d)
 		if err := write(filepath.Join("notes", slug, "index.html"), pageHead(site, d, "/notes/"+slug)); err != nil {
 			return err
 		}

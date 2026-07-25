@@ -74,7 +74,9 @@ func Build(cfg *config.Config, st *store.Store, opts Options, frontendDir, outDi
 		}
 		props := note.CollectProps(n.Meta, n.Body)
 		docs = append(docs, doc{
-			id:       id,
+			id: id,
+			// A note may pin the URL it is already published at (see slugOf).
+			slug:     n.Meta.Slug,
 			title:    noteTitle(n),
 			kind:     n.Kind,
 			tags:     n.Meta.Tags,

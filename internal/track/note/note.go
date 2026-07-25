@@ -40,6 +40,11 @@ type Metadata struct {
 	Icon        string                     `yaml:"icon,omitempty"`
 	Blocks      map[string]babel.BlockMeta `yaml:"blocks,omitempty"`
 	TaskLog     []task.LogEntry            `yaml:"task_log,omitempty"`
+	// Slug pins this note's published URL. The static export normally derives a slug from the note
+	// id, so a note that already has a public URL under some other id — one imported from a
+	// published directory — would move. Setting it here freezes the address the note is already
+	// reachable at; empty means derive it as usual.
+	Slug string `yaml:"slug,omitempty"`
 }
 
 type Note struct {

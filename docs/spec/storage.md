@@ -144,6 +144,7 @@ Fields:
 - `title`: note title and the link keyword. This sidecar field is authoritative.
 - `tags`: note tags.
 - `created`: creation date string. The current format is `YYYY-MM-DD`.
+- `slug`: pins this note's published address. The static export normally derives a slug from the note id, so a note that already has a public URL under a different id — one imported from a published directory — would move; setting `slug` freezes the address it is already reachable at. Empty (the usual case) derives it as before.
 - `days`: sorted, deduplicated set of local calendar days the note was created or updated on (`YYYY-MM-DD`). A day is stamped whenever the note is touched: a track mutation command stamps it via single-note reindex, and a direct editor/external edit is stamped during the mtime-divergence scan in `RefreshIfStale`. This is the authoritative activity record used by `track agenda` to answer "which notes were worked on that day". Sidecars predating the field have no `days`; the index then falls back to `created` so the note still appears on the day it was made.
 
 Readers reject unsupported metadata versions.

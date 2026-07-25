@@ -28,7 +28,9 @@ import (
 
 // doc is one published note in the bundle.
 type doc struct {
-	id       int64
+	id int64
+	// slug pins the published address; empty derives it from the id (see slugOf).
+	slug     string
 	title    string
 	kind     string // "note" or "journal"
 	tags     []string
@@ -191,10 +193,11 @@ func writeBundle(docs []doc, edges []edge, root int64, calendar bool, baseURL st
 		if err != nil {
 			return "", false
 		}
-		if _, ok := byID[id]; !ok {
+		d, ok := byID[id]
+		if !ok {
 			return "", false
 		}
-		return PublishID(id), true
+		return slugOf(&d), true
 	}
 	for _, e := range edges {
 		src, ok := byID[e.src]
@@ -302,7 +305,7 @@ func writeBundle(docs []doc, edges []edge, root int64, calendar bool, baseURL st
 			Trail:     trailOf(d.id),
 			Children:  children,
 		}
-		if err := writeJSONFile(filepath.Join(outDir, "data", "note", fmt.Sprintf("%s.json", PublishID(d.id))), resp); err != nil {
+		if err := writeJSONFile(filepath.Join(outDir, "data", "note", fmt.Sprintf("%s.json", slugOf(&d))), resp); err != nil {
 			return Result{}, err
 		}
 	}
@@ -310,11 +313,11 @@ func writeBundle(docs []doc, edges []edge, root int64, calendar bool, baseURL st
 	// graph.json (whole published set).
 	nodes := make([]jsonGraphNode, 0, len(docs))
 	for _, d := range docs {
-		nodes = append(nodes, jsonGraphNode{NoteID: PublishID(d.id), FileKind: kindOf(d), Title: d.title})
+		nodes = append(nodes, jsonGraphNode{NoteID: slugOf(&d), FileKind: kindOf(d), Title: d.title})
 	}
 	gEdges := make([]jsonGraphEdge, 0, len(edges))
 	for _, e := range edges {
-		gEdges = append(gEdges, jsonGraphEdge{SourceID: PublishID(e.src), TargetID: PublishID(e.dst)})
+		gEdges = append(gEdges, jsonGraphEdge{SourceID: slugOf(docPtr(byID, e.src)), TargetID: slugOf(docPtr(byID, e.dst))})
 	}
 	// CenterID is empty for the whole-set graph: there is no centered node, and no slug ever equals "".
 	if err := writeJSONFile(filepath.Join(outDir, "data", "graph.json"),
@@ -337,7 +340,7 @@ func writeBundle(docs []doc, edges []edge, root int64, calendar bool, baseURL st
 	}
 
 	// site.json: the entry note and site-level toggles.
-	siteMeta := jsonSite{Root: PublishID(root), Title: rootTitle, Calendar: calendar, BaseURL: strings.TrimRight(baseURL, "/")}
+	siteMeta := jsonSite{Root: slugOf(docPtr(byID, root)), Title: rootTitle, Calendar: calendar, BaseURL: strings.TrimRight(baseURL, "/")}
 	if err := writeJSONFile(filepath.Join(outDir, "data", "site.json"), siteMeta); err != nil {
 		return Result{}, err
 	}
@@ -349,7 +352,7 @@ func writeBundle(docs []doc, edges []edge, root int64, calendar bool, baseURL st
 	// Emit a real HTML file per route (start page, per note, and the site-level pages) with that page's
 	// OGP meta injected into the copied shell, so crawlers/social shares see per-note metadata and deep
 	// links resolve without a host fallback.
-	if err := writePages(outDir, PublishID(root), root, docs, listed, siteMeta); err != nil {
+	if err := writePages(outDir, slugOf(docPtr(byID, root)), root, docs, listed, siteMeta); err != nil {
 		return Result{}, fmt.Errorf("write pages: %w", err)
 	}
 
@@ -391,7 +394,7 @@ func writeBundle(docs []doc, edges []edge, root int64, calendar bool, baseURL st
 // The source path is dropped from the bundle: like the id, the file name is timestamp-based, so emitting
 // it would re-expose what the slug is meant to hide. It was only informational in the static site.
 func searchResultOf(d doc) jsonSearchResult {
-	out := jsonSearchResult{NoteID: PublishID(d.id), FileKind: kindOf(d), Path: "", Title: d.title, Tags: d.tags, Days: d.days, Icon: d.icon, Description: d.desc}
+	out := jsonSearchResult{NoteID: slugOf(&d), FileKind: kindOf(d), Path: "", Title: d.title, Tags: d.tags, Days: d.days, Icon: d.icon, Description: d.desc}
 	if d.image != "" {
 		out.Image = "assets/" + publishAssetName(d.image)
 	}
@@ -399,7 +402,7 @@ func searchResultOf(d doc) jsonSearchResult {
 }
 
 func refOf(d doc) jsonRef {
-	return jsonRef{NoteID: PublishID(d.id), FileKind: kindOf(d), Title: d.title}
+	return jsonRef{NoteID: slugOf(&d), FileKind: kindOf(d), Title: d.title}
 }
 
 // byRecency sorts docs into the one note-list order every surface shares (see webui's sortRefs):
