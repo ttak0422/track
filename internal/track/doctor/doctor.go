@@ -13,6 +13,7 @@ import (
 	"strings"
 
 	"github.com/ttak0422/track/internal/track/config"
+	"github.com/ttak0422/track/internal/track/link"
 	"github.com/ttak0422/track/internal/track/note"
 )
 
@@ -39,6 +40,11 @@ const (
 	// schema configured under `properties:` — wrong value type, or a value outside the declared enum.
 	// Only reported when a schema is configured; not auto-fixable (the intended value is unknown).
 	IssuePropertyViolation IssueKind = "property_violation"
+	// IssueShadowedTitle is a note title of the form "name:rest" where name is a registered vault:
+	// the cross-vault qualifier now wins, so [[title]] resolves into that vault instead of to this
+	// note. Registering a vault can create these retroactively, which is why doctor lints them.
+	// Not auto-fixable — renaming the note or the vault are both user decisions.
+	IssueShadowedTitle IssueKind = "shadowed_title"
 )
 
 // Issue is one divergence between the on-disk files and their metadata.
@@ -67,6 +73,7 @@ type scanResult struct {
 	strays         []string         // file paths that break the id naming rule
 	orphans        []int64          // sidecar ids with no markdown file
 	propIssues     []Issue          // schema violations, only gathered when a property schema is configured
+	shadowed       []Issue          // titles a registered vault name shadows as a cross-vault qualifier
 }
 
 // scan walks the vault once and gathers every consistency signal Diagnose and Fix need.
@@ -114,6 +121,10 @@ func scan(cfg *config.Config) (scanResult, error) {
 				res.missingSidecar = append(res.missingSidecar, id)
 			case meta.Title != "":
 				res.titles[id] = meta.Title
+				if vault, _, ok := link.SplitVaultRef(meta.Title, func(name string) bool { _, ok := cfg.Vaults[name]; return ok }); ok {
+					res.shadowed = append(res.shadowed, Issue{Kind: IssueShadowedTitle, ID: id, Path: path,
+						Detail: fmt.Sprintf("title %q is shadowed by the %q vault qualifier: [[%s]] now resolves into that vault, not to this note; rename the note or the vault", meta.Title, vault, meta.Title)})
+				}
 			}
 			// Property checks read the body, so only pay for that when a schema is configured.
 			if len(cfg.Properties) > 0 && err == nil {
@@ -212,6 +223,7 @@ func Diagnose(cfg *config.Config) (Report, error) {
 			Detail: "title " + strconv.Quote(title) + " is shared by ids " + strings.Join(strs, ", ")})
 	}
 	rep.Issues = append(rep.Issues, res.propIssues...)
+	rep.Issues = append(rep.Issues, res.shadowed...)
 
 	sortIssues(rep.Issues)
 	if rep.Issues == nil {
@@ -322,6 +334,8 @@ func Fix(cfg *config.Config, startID int64) (FixReport, error) {
 	}
 	// Property violations are not auto-fixable either: the intended value is unknown, so edit by hand.
 	rep.Skipped = append(rep.Skipped, res.propIssues...)
+	// Shadowed titles need a human choice between renaming the note and renaming the vault.
+	rep.Skipped = append(rep.Skipped, res.shadowed...)
 
 	rep.Changed = len(rep.Fixed) > 0
 	if rep.Fixed == nil {

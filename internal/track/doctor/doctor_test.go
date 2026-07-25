@@ -306,3 +306,40 @@ func TestDiagnosePropertyViolations(t *testing.T) {
 		t.Fatalf("expected no issues without schema, got %+v", rep.Issues)
 	}
 }
+
+func TestDiagnoseReportsShadowedTitles(t *testing.T) {
+	cfg := newVault(t)
+	cfg.Vaults = map[string]string{"work": "/elsewhere/work"}
+	writeNote(t, cfg, 1, "work:Meeting notes") // shadowed by the work qualifier
+	writeNote(t, cfg, 2, "Work:Meeting notes") // uppercase prefix: not a vault name
+	writeNote(t, cfg, 3, "plain title")
+
+	rep, err := Diagnose(cfg)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var shadowed []Issue
+	for _, issue := range rep.Issues {
+		if issue.Kind == IssueShadowedTitle {
+			shadowed = append(shadowed, issue)
+		}
+	}
+	if len(shadowed) != 1 || shadowed[0].ID != 1 {
+		t.Fatalf("want exactly note 1 shadowed, got %+v", rep.Issues)
+	}
+
+	// Fix must not touch it — only report it under skipped.
+	fix, err := Fix(cfg, 9000000000000)
+	if err != nil {
+		t.Fatal(err)
+	}
+	found := false
+	for _, issue := range fix.Skipped {
+		if issue.Kind == IssueShadowedTitle && issue.ID == 1 {
+			found = true
+		}
+	}
+	if !found {
+		t.Fatalf("shadowed title should be skipped by Fix, got %+v", fix.Skipped)
+	}
+}
