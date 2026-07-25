@@ -77,6 +77,15 @@ track search --query "graph OR chart"          # either word
 track search --query "#zettel graph"           # tagged #zettel and titled …graph…
 ```
 
+With a `vaults:` registry (and no `--vault` selection), `track search` crosses the active vault and
+every registered one: each vault's index self-heals, all reachable index DBs join one federated
+connection, and the merged ranking labels each hit with `"vault"` (`""` for the unregistered active
+vault) — the vault half of the (vault, id) identity, since a bare id can name different notes in
+different vaults. Target a hit's vault in follow-up commands with `--vault <name>`. The response
+adds `"unavailable": [{"name","path","error"}]` for vaults that could not be searched (unmounted,
+permission denied) instead of failing the whole search. `--vault NAME` scopes search back to one
+vault with the single-vault output shape.
+
 List notes without a query — `{"notes":[{"note_id":…,"title":…,"tags":…}, …]}`, newest first, journals
 excluded. `--untagged` is the pull side of a tag-curation pass: it returns exactly the notes that still
 carry no tags, so a sweep can fetch them and add tags with `track append --tag`:
