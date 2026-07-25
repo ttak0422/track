@@ -6,7 +6,15 @@ This document is a tool-neutral guide for agents that use track through the CLI.
 
 All commands except `version` print one compact JSON object on stdout. Failures print `{"error":"..."}` and exit 1. Agents should parse JSON instead of scraping human text.
 
-Configuration is split by ownership (ADR 0050). The machine config — the platform user config file, typically `~/.config/track/config.yml` on XDG-style systems and `~/Library/Application Support/track/config.yml` on macOS — owns machine and user values: `vault_dir` (defaulting to `$HOME/track` when unset, ADR 0015), `db_path`, `cache_dir`, `embedder`, and `web.theme`/`web.colors_path`. The vault config `<vault>/.track/config.yml` owns the note semantics that travel with the vault: `task_states`, `properties`, `queries`, `icons`, date formats, default templates, `capture_inbox`, `archive_note`, `web.home`, `gen_keep`, and `extensions`. Both files are decoded strictly — a key in the wrong file is a hard error. Environment overrides such as `TRACK_VAULT` and `TRACK_CACHE_DIR` are for tests and one-off commands. The SQLite index is a rebuildable cache; authoritative per-note metadata lives under `.track/notes/` and must be backed up with note bodies.
+Configuration is split by ownership (ADR 0050). The machine config — the platform user config file, typically `~/.config/track/config.yml` on XDG-style systems and `~/Library/Application Support/track/config.yml` on macOS — owns machine and user values: `vault_dir` (defaulting to `$HOME/track` when unset, ADR 0015), `db_path`, `cache_dir`, `embedder`, `web.theme`/`web.colors_path`, and the `vaults:` registry. The vault config `<vault>/.track/config.yml` owns the note semantics that travel with the vault: `task_states`, `properties`, `queries`, `icons`, date formats, default templates, `capture_inbox`, `archive_note`, `web.home`, `gen_keep`, and `extensions`. Both files are decoded strictly — a key in the wrong file is a hard error. Environment overrides such as `TRACK_VAULT` and `TRACK_CACHE_DIR` are for tests and one-off commands. The SQLite index is a rebuildable cache; authoritative per-note metadata lives under `.track/notes/` and must be backed up with note bodies.
+
+## Vault Selection
+
+The machine config may register named vaults as a `vaults:` map (name → absolute path; names are lowercase letters, digits, and dashes). Every command accepts a global `--vault NAME` flag that selects a registered vault for that one invocation; without it, commands use the default vault (`TRACK_VAULT`, else `vault_dir`, else `$HOME/track`). An unknown name is a hard error listing the registered names — a typo can never create a vault — and an ordinary command refuses a registered vault whose directory is missing (an unmounted drive must not be silently re-created; `track init --vault NAME` lays the skeleton down explicitly). A fixed `db_path`/`TRACK_DB` is refused when a registry exists, so two vaults can never share one index database.
+
+- `track vault list`: `{"active":{"name","path"},"vaults":[{"name","path","active"},...]}` — the registry with the active vault marked. `active.name` is `""` when the active vault is not a registered one.
+- `track vault current`: `{"name","path"}` for the active vault (name resolves through the registry even when the vault was selected via `TRACK_VAULT`).
+- `track vault which <name>`: resolve a registered name to its path without touching the vault, so it works while the vault is unmounted.
 
 ## Title Model
 
@@ -144,7 +152,7 @@ excluded, so an undo never restores or removes attachments.
 
 `track graph --orphans` reports vault-wide link-graph hygiene in one call (self-healing the index first): `orphans` are notes (journals excluded) with no inbound `[[link]]`, hence undiscoverable by navigation; `dangling_prefixes` are notes whose title `foo / bar` names a parent scope `foo` that no note owns. It replaces per-note `backlinks` probing when a dream/consolidation pass sweeps the whole vault for reconnection candidates.
 
-`track reindex --full` rebuilds the cache index from the on-disk notes and sidecars; it reconciles deletions silently.
+`track reindex --full` rebuilds the cache index from the on-disk notes and sidecars; it reconciles deletions silently. Reconciling — here and when a read command self-heals a stale index — touches only index rows: the sidecar of a note missing from disk stays in place as an `orphan_sidecar` for doctor to report. Only explicit commands move files (`track rm` to trash, `doctor --fix` to restore).
 
 `track doctor` is a read-only health check that never changes files. It reports vault/sidecar divergence — the kind a cloud sync (e.g. OneDrive) can introduce — as a JSON `issues` array, with `ok: true` when clean. Issue kinds: `missing_sidecar`, `orphan_sidecar`, `stray_file` (e.g. a conflict copy that breaks the `<id>.md` naming rule), `unreadable_sidecar`, and `duplicate_title`. Finding issues is not an error, so it still exits 0; only real failures use the `{"error":...}`/exit 1 contract. Run it before a `reindex --full` if you suspect a partially synced vault, so an orphan sidecar is not mistaken for a delete.
 
@@ -154,6 +162,12 @@ excluded, so an undo never restores or removes attachments.
 
 ```json
 {"reindex":{"indexed":42,"deleted":0,"links":17},"doctor":{"scanned":42,"issues":[],"ok":true},"took_ms":12}
+```
+
+With a `vaults:` registry (and no `--vault` selection), `reindex`, `doctor`, and `refresh-all` become the cross-vault maintenance entry: they sweep the active vault plus every registered vault and report one row each under `vaults`, with a top-level aggregate `ok`. An unreachable vault (unmounted, permission-denied) becomes an error row instead of aborting the sweep — and is never created or cache-reset as a side effect. `--vault NAME` scopes them back to one vault with the single-vault output above, and `doctor --fix` always demands that explicit choice before mutating anything:
+
+```json
+{"vaults":[{"name":"","path":"/Users/me/track","reindex":{...},"doctor":{...},"ok":true},{"name":"blog","path":"/Users/me/blog","error":"vault directory unavailable: ..."}],"ok":false,"took_ms":30}
 ```
 
 Schedule it to keep the index in step with a vault a cloud sync edits behind track's back. A crontab line every 15 minutes:
@@ -180,4 +194,4 @@ Or a launchd agent at `~/Library/LaunchAgents/dev.track.refresh.plist` (`launchc
 </plist>
 ```
 
-Point the schedule at the right vault with `TRACK_VAULT` (or a `TRACK_CONFIG` file) in the job's environment, since cron and launchd run with a bare environment.
+Point the schedule at the right vault with `TRACK_VAULT` (or a `TRACK_CONFIG` file) in the job's environment, since cron and launchd run with a bare environment. With a `vaults:` registry, the one entry maintains every registered vault.

@@ -32,6 +32,7 @@ Use the narrower skills when they fit:
 - `track backlinks (--id N | --path P)` / `track graph (--id N | --path P)` — inbound links / local graph.
 - `track doctor [--fix]` — diagnose or repair vault/index drift when available in the current build.
 - `track reindex [--full]` — rebuild the SQLite index.
+- `track vault list|current|which <name>` — inspect the named vault registry (machine config `vaults:`); a global `--vault NAME` on any command targets that vault for one invocation. With a registry and no `--vault`, doctor/reindex/refresh-all sweep every registered vault and report per-vault rows.
 - `track export (--id N | --title S | --path P)` — full note Markdown to stdout.
 - `track toggle (--id N | --title S | --path P) --line N [--state toggle|check|uncheck]` — flip or set a task checkbox.
 - `track rm (--id N | --title S | --path P)` — soft-delete a note into `.track/trash` (track never empties it) and reindex.
