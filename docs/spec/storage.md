@@ -30,7 +30,7 @@ Regular note ids are `Unix seconds * 1000 + same-second sequence`, preserving ch
 <vault>/journal/yyyyMMdd.md
 ```
 
-A day with note activity always has a journal: indexing a note (creating or editing it through the CLI, the editor LSP, or the web workspace) ensures that day's journal exists, so the journal is the day's aggregation hub. The auto-created journal uses the configured journal template (`journal_template`, builtin `journal` when unset). Journals roll up into `journal/<yyyyMM>.md` and `journal/<yyyy>.md` summaries, and are excluded from activity tracking (see `note_days` below).
+A day with note activity always has a journal, unless the vault turns journals off (`journal: false`, see below): indexing a note (creating or editing it through the CLI, the editor LSP, or the web workspace) ensures that day's journal exists, so the journal is the day's aggregation hub. The auto-created journal uses the configured journal template (`journal_template`, builtin `journal` when unset). Journals roll up into `journal/<yyyyMM>.md` and `journal/<yyyy>.md` summaries, and are excluded from activity tracking (see `note_days` below).
 
 Template files live under `template/` and use a template-specific extension:
 
@@ -90,7 +90,9 @@ journal: false   # this vault keeps no daily journals
 gen: false       # this vault keeps no generation snapshots
 ```
 
-A vault checked into a repository or published wants both off. Journals are created automatically by indexing, so the journal tree is a record of which days its author worked; `.track/gen/` keeps a full copy of every past state, so a history the author meant to rewrite would be committed alongside the notes. With `journal: false` indexing simply creates no day hub, and `track journal` says so; with `gen: false` every `track gen` subcommand refuses. `.track/notes/` contains versioned sidecar metadata files for notes. `.track/renames.yaml` is title rename history (repair only, not a link source). `.track/gen/` holds generation snapshots (ADR 0025). `.track/trash/` holds what `track rm` soft-deletes: only explicit commands move files into it (ADR 0051) — index reconciliation leaves the sidecar of a vanished note in place for `track doctor` to report as an orphan.
+A vault checked into a repository or published wants both off. Journals are created automatically by indexing, so the journal tree is a record of which days its author worked; `.track/gen/` keeps a full copy of every past state, so a history the author meant to rewrite would be committed alongside the notes. With `journal: false` indexing simply creates no day hub, and `track journal` says so; with `gen: false` every `track gen` subcommand refuses.
+
+`.track/notes/` contains versioned sidecar metadata files for notes. `.track/renames.yaml` is title rename history (repair only, not a link source). `.track/gen/` holds generation snapshots (ADR 0025). `.track/trash/` holds what `track rm` soft-deletes: only explicit commands move files into it (ADR 0051) — index reconciliation leaves the sidecar of a vanished note in place for `track doctor` to report as an orphan.
 
 The rebuildable SQLite index is a cache outside the vault. By default it lives under the platform user cache directory:
 
