@@ -81,7 +81,16 @@ Current contents:
 <vault>/.track/trash/
 ```
 
-`.track/config.yml` is the vault config: the note semantics that travel with the vault (`task_states`, `properties`, `queries`, `icons`, date formats, default templates, `capture_inbox`, `archive_note`, `web.home`, `gen_keep`, `extensions`). It is optional — a vault without one uses the defaults. `.track/notes/` contains versioned sidecar metadata files for notes. `.track/renames.yaml` is title rename history (repair only, not a link source). `.track/gen/` holds generation snapshots (ADR 0025). `.track/trash/` holds what `track rm` soft-deletes: only explicit commands move files into it (ADR 0051) — index reconciliation leaves the sidecar of a vanished note in place for `track doctor` to report as an orphan.
+`.track/config.yml` is the vault config: the note semantics that travel with the vault (`task_states`, `properties`, `queries`, `icons`, date formats, default templates, `capture_inbox`, `archive_note`, `web.home`, `gen_keep`, `extensions`). It is optional — a vault without one uses the defaults.
+
+Two switches turn off whole features for a vault, both on by default:
+
+```yaml
+journal: false   # this vault keeps no daily journals
+gen: false       # this vault keeps no generation snapshots
+```
+
+A vault checked into a repository or published wants both off. Journals are created automatically by indexing, so the journal tree is a record of which days its author worked; `.track/gen/` keeps a full copy of every past state, so a history the author meant to rewrite would be committed alongside the notes. With `journal: false` indexing simply creates no day hub, and `track journal` says so; with `gen: false` every `track gen` subcommand refuses. `.track/notes/` contains versioned sidecar metadata files for notes. `.track/renames.yaml` is title rename history (repair only, not a link source). `.track/gen/` holds generation snapshots (ADR 0025). `.track/trash/` holds what `track rm` soft-deletes: only explicit commands move files into it (ADR 0051) — index reconciliation leaves the sidecar of a vanished note in place for `track doctor` to report as an orphan.
 
 The rebuildable SQLite index is a cache outside the vault. By default it lives under the platform user cache directory:
 

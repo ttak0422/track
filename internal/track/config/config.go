@@ -48,6 +48,14 @@ type Config struct {
 	JournalTemplate string
 	// GenKeep is how many generation snapshots `gen increment` retains (count-based pruning).
 	GenKeep int
+	// JournalOff and GenOff turn off this vault's daily journals and generation snapshots. They are
+	// named for the disabled state so a zero-value Config keeps the default behaviour, while the
+	// config file reads positively (`journal: false`). A vault that is checked into a repository or
+	// published wants both off: the journal tree records when its author worked, and .track/gen/
+	// carries a full copy of every past state — neither belongs in a public history, and both are
+	// written without anyone asking for them.
+	JournalOff bool
+	GenOff     bool
 	// TaskStates is the vault's task state set (config task_states), defaulting to task.DefaultStates.
 	// Each state names a single checkbox marker character; done-family states stamp a completion date.
 	TaskStates []task.State
@@ -147,6 +155,8 @@ type vaultFileConfig struct {
 	DefaultTemplate   string              `yaml:"default_template"`
 	JournalTemplate   string              `yaml:"journal_template"`
 	GenKeep           int                 `yaml:"gen_keep"`
+	Journal           *bool               `yaml:"journal"`
+	Gen               *bool               `yaml:"gen"`
 	TaskStates        []task.State        `yaml:"task_states"`
 	Properties        map[string]PropSpec `yaml:"properties"`
 	Queries           map[string]string   `yaml:"queries"`
@@ -418,6 +428,8 @@ func load(fixedVault string) (*Config, error) {
 		DefaultTemplate:   defaultTemplate,
 		JournalTemplate:   journalTemplate,
 		GenKeep:           genKeep,
+		JournalOff:        vc.Journal != nil && !*vc.Journal,
+		GenOff:            vc.Gen != nil && !*vc.Gen,
 		TaskStates:        taskStates,
 		WebHome:           strings.TrimSpace(vc.Web.Home),
 		Icons:             IconMap{Tags: vc.Icons.Tags, Kinds: vc.Icons.Kinds},
