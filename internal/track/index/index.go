@@ -98,8 +98,11 @@ func (ix *Indexer) Full() (Report, error) {
 		return rep, err
 	}
 	for _, n := range notes {
-		targets := resolveLinks(n.Body, dict)
+		targets, ext := ix.resolveLinks(n.Body, dict)
 		if err := ix.store.ReplaceLinks(n.ID, targets); err != nil {
+			return rep, err
+		}
+		if err := ix.store.ReplaceExtLinks(n.ID, ext); err != nil {
 			return rep, err
 		}
 		rep.Links += countExcludingSelf(targets, n.ID)
@@ -291,7 +294,11 @@ func (ix *Indexer) One(path string) error {
 	if err != nil {
 		return err
 	}
-	if err := ix.store.ReplaceLinks(n.ID, resolveLinks(n.Body, dict)); err != nil {
+	targets, ext := ix.resolveLinks(n.Body, dict)
+	if err := ix.store.ReplaceLinks(n.ID, targets); err != nil {
+		return err
+	}
+	if err := ix.store.ReplaceExtLinks(n.ID, ext); err != nil {
 		return err
 	}
 	// A note's activity day implies its journal exists: editing or creating a note (via any path that
@@ -345,12 +352,26 @@ func (ix *Indexer) keywordDict() (map[string]int64, error) {
 	return dict, nil
 }
 
-// resolveLinks returns the deduplicated note ids referenced by body's [[...]] links, in first-seen order.
-// Unresolved references (no matching title) are skipped.
-func resolveLinks(body string, dict map[string]int64) []int64 {
+// resolveLinks returns the deduplicated note ids referenced by body's [[...]] links, in first-seen
+// order, plus the cross-vault references ([[vault:title]], gated on the registered vault names).
+// The qualifier gate runs before the local dictionary so a registered name always reads as a
+// qualifier — doctor lints local titles that shadowing affects. Unresolved local references (no
+// matching title) are skipped.
+func (ix *Indexer) resolveLinks(body string, dict map[string]int64) ([]int64, []store.ExtRef) {
+	isVault := func(name string) bool { _, ok := ix.cfg.Vaults[name]; return ok }
 	var ids []int64
+	var ext []store.ExtRef
 	seen := make(map[int64]bool)
+	seenExt := make(map[store.ExtRef]bool)
 	for _, ref := range link.Refs(body) {
+		if vault, title, ok := link.SplitVaultRef(ref.Text, isVault); ok {
+			key := store.ExtRef{Vault: vault, Title: title}
+			if !seenExt[key] {
+				seenExt[key] = true
+				ext = append(ext, key)
+			}
+			continue
+		}
 		id, ok := dict[ref.Text]
 		if !ok || seen[id] {
 			continue
@@ -358,7 +379,7 @@ func resolveLinks(body string, dict map[string]int64) []int64 {
 		seen[id] = true
 		ids = append(ids, id)
 	}
-	return ids
+	return ids, ext
 }
 
 func (ix *Indexer) scanFiles() ([]string, error) {

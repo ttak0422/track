@@ -78,6 +78,10 @@ type Config struct {
 	// ArchiveNote is the title of the note `track archive` moves subtrees into, with "{{year}}"
 	// substituted for the current year so archives partition per year (e.g. "Archive 2026").
 	ArchiveNote string
+	// Vaults is the machine config's named vault registry (name -> absolute path, symlinks intact).
+	// Engine layers use the names as the cross-vault reference gate: a [[name:title]] prefix is a
+	// vault qualifier only when name is registered here. Empty when no registry is configured.
+	Vaults map[string]string
 }
 
 // IconMap holds the tag→icon and kind→icon lookups resolved from config. Both are optional; an unset map
@@ -256,7 +260,8 @@ func Load() (*Config, error) {
 	// --vault. A fixed DB path serves exactly one vault, but with a registry the selected vault
 	// changes per invocation — one shared DB would let two vaults silently overwrite each other's
 	// index — so the combination is refused outright.
-	if _, err := resolveVaults(mc); err != nil {
+	registry, err := resolveVaults(mc)
+	if err != nil {
 		return nil, err
 	}
 	if len(mc.Vaults) > 0 && (mc.DBPath != "" || os.Getenv("TRACK_DB") != "") {
@@ -403,6 +408,7 @@ func Load() (*Config, error) {
 		Queries:           vc.Queries,
 		CaptureInbox:      captureInbox,
 		ArchiveNote:       archiveNote,
+		Vaults:            registry,
 	}, nil
 }
 

@@ -394,3 +394,28 @@ func TestRefreshIfStaleDetectsSidecarOnlyChange(t *testing.T) {
 		t.Fatalf("orphan sidecar must not trigger a refresh, stale=%v err=%v", stale, err)
 	}
 }
+
+func TestFullIndexesCrossVaultRefs(t *testing.T) {
+	cfg, s := setup(t)
+	cfg.Vaults = map[string]string{"work": "/elsewhere/work"}
+	// A local note titled "Local", a qualified ref to work, and an unregistered colon title.
+	writeNote(t, cfg, 1, "see [[Local]] and [[work:Remote note]] and [[nobody:Nope]]", note.Metadata{Title: "Source"})
+	writeNote(t, cfg, 2, "target", note.Metadata{Title: "Local"})
+
+	ix := New(cfg, s)
+	rep, err := ix.Full()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if rep.Links != 1 {
+		t.Fatalf("local links = %d, want 1 (qualified and unregistered refs are not local edges)", rep.Links)
+	}
+	ext, err := s.ExtBacklinks([]string{"work"}, "Remote note")
+	if err != nil || len(ext) != 1 || ext[0].NoteID != 1 {
+		t.Fatalf("expected note 1 to carry an ext edge to work:Remote note, got %+v err=%v", ext, err)
+	}
+	// The unregistered prefix is a plain (unresolved) local title: no ext edge under any name.
+	if ext, _ := s.ExtBacklinks([]string{"nobody"}, "Nope"); len(ext) != 0 {
+		t.Fatalf("unregistered prefix must not produce ext edges, got %+v", ext)
+	}
+}

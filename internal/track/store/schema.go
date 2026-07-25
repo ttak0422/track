@@ -6,7 +6,9 @@ package store
 // landed independently as "4", so any existing v4 database is missing one of them.
 // 6: notes.meta_mtime records the sidecar file's mtime so RefreshIfStale also detects sidecar-only
 // changes (a tag or title edit synced from another machine never touches the note body's mtime).
-const schemaVersion = 6
+// 7: ext_links records outgoing cross-vault references ([[vault:title]]) as (vault, title) string
+// keys — never the target's numeric id, which belongs to the other vault's namespace.
+const schemaVersion = 7
 
 // schemaSQL defines a rebuildable SQLite index, not the primary source of truth.
 // Notes and sidecar metadata on disk are authoritative; this database caches keyword rows and computed links for fast lookup.
@@ -36,6 +38,18 @@ CREATE TABLE links (
   PRIMARY KEY (src_id, dst_id)
 );
 CREATE INDEX idx_links_dst ON links(dst_id);
+
+-- ext_links holds outgoing cross-vault references ([[vault:title]]) by (vault name, title) string
+-- key. The target's numeric id is deliberately absent: ids are vault-local, so a cross-vault edge
+-- must never carry one. Inbound cross-vault backlinks are found by scanning other vaults' DBs for
+-- rows naming this vault.
+CREATE TABLE ext_links (
+  src_id INTEGER NOT NULL REFERENCES notes(id) ON DELETE CASCADE,
+  vault  TEXT NOT NULL,
+  title  TEXT NOT NULL,
+  PRIMARY KEY (src_id, vault, title)
+);
+CREATE INDEX idx_ext_links_target ON ext_links(vault, title);
 
 CREATE TABLE note_days (
   note_id INTEGER NOT NULL REFERENCES notes(id) ON DELETE CASCADE,

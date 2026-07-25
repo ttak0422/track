@@ -1,6 +1,8 @@
 package store
 
 import (
+	"strings"
+
 	"github.com/ttak0422/track/internal/track/note"
 )
 
@@ -177,6 +179,59 @@ func (s *Store) ReplaceLinks(srcID int64, dstIDs []int64) error {
 		}
 	}
 	return tx.Commit()
+}
+
+// ExtRef is one outgoing cross-vault reference: the registered name of the target vault and the
+// title as written after the colon. The target's numeric id is never stored — ids are vault-local.
+type ExtRef struct {
+	Vault string `json:"vault"`
+	Title string `json:"title"`
+}
+
+// ReplaceExtLinks sets the outgoing cross-vault references for srcID.
+func (s *Store) ReplaceExtLinks(srcID int64, refs []ExtRef) error {
+	tx, err := s.db.Begin()
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
+
+	if _, err := tx.Exec(`DELETE FROM ext_links WHERE src_id = ?`, srcID); err != nil {
+		return err
+	}
+	for _, ref := range refs {
+		if _, err := tx.Exec(`INSERT OR IGNORE INTO ext_links (src_id, vault, title) VALUES (?, ?, ?)`, srcID, ref.Vault, ref.Title); err != nil {
+			return err
+		}
+	}
+	return tx.Commit()
+}
+
+// ExtBacklinks returns the notes in THIS store that reference (one of vaultNames, title) across
+// vaults, most recently updated first — the same ordering as Backlinks. A vault may be registered
+// under several names, so the caller passes every name whose path is the target vault.
+func (s *Store) ExtBacklinks(vaultNames []string, title string) ([]NoteRef, error) {
+	if len(vaultNames) == 0 {
+		return nil, nil
+	}
+	placeholders := strings.Repeat("?,", len(vaultNames))
+	args := make([]any, 0, len(vaultNames)+1)
+	for _, name := range vaultNames {
+		args = append(args, name)
+	}
+	args = append(args, title)
+	rows, err := s.db.Query(
+		`SELECT DISTINCT n.id, n.kind, n.title
+		 FROM ext_links e JOIN notes n ON n.id = e.src_id
+		 WHERE e.vault IN (`+placeholders[:len(placeholders)-1]+`) AND e.title = ?
+		 ORDER BY n.mtime DESC, n.id`,
+		args...,
+	)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	return scanNoteRefs(rows)
 }
 
 // Keywords returns the full auto-link dictionary (note titles).
