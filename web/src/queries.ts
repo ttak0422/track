@@ -33,12 +33,12 @@ export const queryKeys = {
   note: (noteID: NoteID) => ["note", noteID] as const,
   noteMeta: (noteID: NoteID) => ["note-meta", noteID] as const,
   notes: () => ["notes"] as const,
-  resolve: (term: string) => ["resolve", term] as const,
+  resolve: (term: string, vault = "") => ["resolve", vault, term] as const,
   search: (query: string, limit: number) => ["search", query, limit] as const,
   ogp: (url: string) => ["ogp", url] as const,
-  render: (body: string) => ["render", body] as const,
+  render: (body: string, vault = "") => ["render", vault, body] as const,
   assetText: (href: string) => ["assetText", href] as const,
-  viewspec: (spec: string) => ["viewspec", spec] as const,
+  viewspec: (spec: string, vault = "") => ["viewspec", vault, spec] as const,
 };
 
 export function useActivityQuery(since: string, until: string) {
@@ -107,10 +107,10 @@ export function useSiteQuery() {
   });
 }
 
-export function useResolveQuery(term: string) {
+export function useResolveQuery(term: string, vault = "") {
   return useQuery({
-    queryKey: queryKeys.resolve(term),
-    queryFn: () => resolveTerm(term),
+    queryKey: queryKeys.resolve(term, vault),
+    queryFn: () => resolveTerm(term, vault),
     enabled: term.trim() !== "",
   });
 }
@@ -130,11 +130,11 @@ export function useNoteQuery(noteID: NoteID, options: { live?: boolean } = {}) {
 // useRenderQuery turns a raw note body into the sanitized Markdown the preview renders, via the server's
 // /api/render endpoint. The body is debounced so typing in the editor does not post on every keystroke,
 // and the previous render is kept while the next one loads so the preview never flashes empty mid-edit.
-export function useRenderQuery(body: string) {
+export function useRenderQuery(body: string, vault = "") {
   const debounced = useDebouncedValue(body, 200);
   return useQuery({
-    queryKey: queryKeys.render(debounced),
-    queryFn: () => renderMarkdown(debounced),
+    queryKey: queryKeys.render(debounced, vault),
+    queryFn: () => renderMarkdown(debounced, vault),
     enabled: debounced.trim() !== "",
     // Sanitization is a pure function of the body and the server caches nothing per-note, so an identical
     // body never needs re-posting within a session.
@@ -148,10 +148,10 @@ export function useRenderQuery(body: string) {
 // ["viewspec"] prefix when the vault's data/ directory changes, re-rendering charts whose data.source /
 // overlays[].source files changed without the note body changing. The previous chart is kept while the
 // refetch is in flight so a live update never flashes the loading state.
-export function useViewSpecQuery(spec: string) {
+export function useViewSpecQuery(spec: string, vault = "") {
   return useQuery({
-    queryKey: queryKeys.viewspec(spec),
-    queryFn: () => renderViewSpec(spec),
+    queryKey: queryKeys.viewspec(spec, vault),
+    queryFn: () => renderViewSpec(spec, vault),
     // The static export replaces viewspec fences at build time; a leftover block shows its source.
     enabled: !STATIC_MODE,
     // A bad spec is a deterministic client error the user should see immediately, not retry through.
@@ -267,8 +267,10 @@ export function useSaveNoteMetaMutation(noteID: NoteID) {
 
 // useUploadAssetMutation imports a picked cover image into the vault assets and yields its
 // assets/<name> reference; the dialog sets its image field to the result. Live server only.
-export function useUploadAssetMutation() {
+// The upload lands in the vault of the note the asset is for: an "assets/<file>" ref is relative to
+// its own vault, so a cover stored anywhere else would resolve to nothing.
+export function useUploadAssetMutation(vault = "") {
   return useMutation({
-    mutationFn: (file: File) => uploadAsset(file),
+    mutationFn: (file: File) => uploadAsset(file, vault),
   });
 }

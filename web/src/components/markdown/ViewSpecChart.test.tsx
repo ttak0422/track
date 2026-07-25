@@ -42,7 +42,8 @@ describe("ViewSpecChart", () => {
     renderWithQuery(<ViewSpecChart text={spec} />);
     expect(screen.getByText("Rendering chart...")).toBeInTheDocument();
     await waitFor(() => expect(screen.getByRole("img", { name: "Chart" })).toBeInTheDocument());
-    expect(mockRender).toHaveBeenCalledWith(spec);
+    // The spec resolves against the vault the note came from; a body rendered outside one passes "".
+    expect(mockRender).toHaveBeenCalledWith(spec, "");
     // The option arrives themed (applyChartTheme), so match on the semantic core.
     await waitFor(() =>
       expect(setOption).toHaveBeenCalledWith(

@@ -2,7 +2,7 @@ import { useContext, useEffect, useRef, useState } from "react";
 import { useAssetTextQuery, useOgpQuery } from "../../queries";
 import { PdfDeck } from "../PdfDeck";
 import { CodeBlock } from "./CodeBlock";
-import { NoteKindContext } from "./context";
+import { NoteKindContext, NoteVaultContext } from "./context";
 import { D2Diagram } from "./D2Diagram";
 import { GraphvizDiagram } from "./GraphvizDiagram";
 import { MediaFrame } from "./MediaFrame";
@@ -40,10 +40,11 @@ interface EmbedProps {
 // http(s)/relative URLs feed an iframe so a note cannot smuggle a javascript: document into the frame.
 export function Embed({ src, alt, height }: EmbedProps) {
   const kind = useContext(NoteKindContext);
+  const vault = useContext(NoteVaultContext);
   // A relative "assets/<file>" reference is served from the vault by the local server. Resolving it here
   // means it is never treated as a YouTube/tweet/OGP URL and never resolved against the /notes/<id>
   // route (which the SPA fallback would answer with index.html, rendering the app inside the embed).
-  const asset = assetHref(src, kind);
+  const asset = assetHref(src, kind, vault);
 
   const youtube = asset ? null : youtubeEmbedUrl(src);
   if (youtube) {

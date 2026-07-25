@@ -1,5 +1,5 @@
 import { dataURL, STATIC_MODE } from "./runtime";
-import { idParams, qualify } from "./vaultId";
+import { idParams, qualify, vaultParams } from "./vaultId";
 import type {
   ActivityResponse,
   AgendaResponse,
@@ -67,9 +67,18 @@ async function handleResponse<T>(response: Response): Promise<T> {
 // numeric id or a loose vault field.
 const ID_KEYS = new Set(["note_id", "source_id", "target_id", "center_id", "root"]);
 
+// normalizeIDs applies the same id normalization to a payload that did not arrive through api() —
+// an SSE event body. Server-sent state carries the same (vault, note_id) pair as a response, and a
+// consumer that parsed it itself would otherwise navigate with a bare id, i.e. to the launch
+// vault's same-numbered note.
+
 // A response labels its vault once at the level the label applies to: per hit for a cross-vault
 // search, once at the top for a single vault's note or graph. Child objects inherit the nearest
 // enclosing label, so graph edges are qualified by the graph's own vault.
+export function normalizeIDs<T>(value: T, vault = ""): T {
+  return stringifyIDs(value, vault);
+}
+
 function stringifyIDs<T>(value: T, vault = ""): T {
   if (Array.isArray(value)) {
     return value.map((item) => stringifyIDs(item, vault)) as T;
@@ -127,14 +136,14 @@ export function getActivity(since: string, until: string): Promise<ActivityRespo
   return api<ActivityResponse>(`/api/activity?${params}`);
 }
 
-export function resolveTerm(term: string): Promise<ResolveResponse> {
+export function resolveTerm(term: string, vault = ""): Promise<ResolveResponse> {
   if (STATIC_MODE) {
     return staticData<Record<string, ResolveResponse["note"]>>("resolve.json").then((map) => {
       const note = map[term];
       return note ? { found: true, note } : { found: false, note: { note_id: "", file_kind: "note", title: term } };
     });
   }
-  return api<ResolveResponse>(`/api/resolve?term=${encodeURIComponent(term)}`);
+  return api<ResolveResponse>(`/api/resolve?term=${encodeURIComponent(term)}${vaultParams(vault)}`);
 }
 
 export function getAgenda(date: string): Promise<AgendaResponse> {
@@ -212,13 +221,13 @@ export function setTaskState(noteID: NoteID, line: number, state: string): Promi
 // uploadAsset imports a picked image into the vault's assets directory and returns its assets/<name>
 // reference for the cover-image field. The browser sets the multipart boundary, so this bypasses the
 // JSON api() helper. Live server only — the static site has no editor.
-export function uploadAsset(file: File): Promise<AssetUploadResponse> {
+export function uploadAsset(file: File, vault = ""): Promise<AssetUploadResponse> {
   if (STATIC_MODE) {
     return readOnly();
   }
   const form = new FormData();
   form.append("file", file);
-  return fetch("/api/asset", { method: "POST", body: form }).then((response) =>
+  return fetch(`/api/asset${vaultParams(vault, "?")}`, { method: "POST", body: form }).then((response) =>
     handleResponse<AssetUploadResponse>(response),
   );
 }
@@ -244,18 +253,18 @@ export function getFollowState(): Promise<FollowResponse> {
 // Posting the live (possibly unsaved) body keeps the engine the single source of truth for track-specific
 // Markdown rules instead of duplicating them in the frontend. In static mode the exported note body is
 // already sanitized, so this is the identity.
-export function renderMarkdown(body: string): Promise<RenderResponse> {
+export function renderMarkdown(body: string, vault = ""): Promise<RenderResponse> {
   if (STATIC_MODE) {
     return Promise.resolve({ markdown: body });
   }
-  return api<RenderResponse>("/api/render", { method: "POST", body: { body } });
+  return api<RenderResponse>(`/api/render${vaultParams(vault, "?")}`, { method: "POST", body: { body } });
 }
 
 // renderViewSpec asks the server to resolve a fenced ```viewspec block (View Spec JSON) to its
 // ECharts option, keeping the engine the single source of truth for chart semantics. The static export
 // replaces these blocks with pre-rendered images at build time, so this is never called in static mode.
-export function renderViewSpec(spec: string): Promise<ViewSpecResponse> {
-  return api<ViewSpecResponse>("/api/viewspec", { method: "POST", body: { spec } });
+export function renderViewSpec(spec: string, vault = ""): Promise<ViewSpecResponse> {
+  return api<ViewSpecResponse>(`/api/viewspec${vaultParams(vault, "?")}`, { method: "POST", body: { spec } });
 }
 
 export function getLocalGraph(noteID: NoteID): Promise<GraphResponse> {

@@ -37,7 +37,7 @@ export function webHref(href: string): string {
 // to the local server endpoint that serves it from the vault's per-kind assets directory. It returns
 // null for anything that is not such a reference (absolute URLs, schemes, anchors, root-absolute paths),
 // leaving those to the normal link/embed handling.
-export function assetHref(src: string, kind: string): string | null {
+export function assetHref(src: string, kind: string, vault = ""): string | null {
   const trimmed = src.trim();
   if (
     trimmed === "" ||
@@ -61,6 +61,9 @@ export function assetHref(src: string, kind: string): string | null {
     return `${import.meta.env.BASE_URL}assets/${name}`;
   }
   const params = new URLSearchParams({ kind: kind || "note", name });
+  // The attachment lives in the note's own vault: two vaults can hold different files under the
+  // same "assets/<file>" name, so serving it from the launch vault would show the wrong one.
+  if (vault) params.set("vault", vault);
   return `/api/asset?${params}`;
 }
 

@@ -3,6 +3,7 @@ import { useEffect } from "react";
 import { useAgendaQuery } from "../queries";
 import { WikiLink } from "./preview/WikiLink";
 import type { FileKind, NoteID, NoteProp, NoteRef } from "../types";
+import { split } from "../vaultId";
 
 // Shared read-only note UI, used by both the static reader (NoteReaderStatic) and the live editor
 // (NoteEditor), so the two stay consistent and the editor-only code is the only thing that differs.
@@ -22,7 +23,9 @@ export function LoadingIndicator({ label }: { label: string }) {
 // needed to know which day's activity to show.
 export function journalDateFromNote(note?: { file_kind: FileKind; note_id: NoteID }): string {
   if (!note || note.file_kind !== "journal") return "";
-  const id = String(note.note_id);
+  // A note from a named vault carries it in the id, so read the id half — a journal in vault "work"
+  // is "work~20260725", and matching the whole string would drop its "on this day" section.
+  const id = split(String(note.note_id)).id;
   if (!/^\d{8}$/.test(id)) return "";
   return `${id.slice(0, 4)}-${id.slice(4, 6)}-${id.slice(6, 8)}`;
 }
