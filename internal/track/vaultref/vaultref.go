@@ -117,6 +117,15 @@ func (r *Resolver) Resolve(vault, title string) (Resolved, bool, error) {
 	}, true, nil
 }
 
+// Keywords returns the target vault's auto-link dictionary, for cross-vault link completion.
+func (r *Resolver) Keywords(vault string) ([]store.Keyword, error) {
+	_, s, err := r.vaultHandles(vault)
+	if err != nil {
+		return nil, err
+	}
+	return s.Keywords()
+}
+
 // SelfNames returns every registry name whose path is the active vault — a vault may be registered
 // under several names, and inbound references may use any of them.
 func (r *Resolver) SelfNames() []string {

@@ -34,6 +34,11 @@ func (s *Server) completion(uri string, pos position) ([]completionItem, error) 
 	if strings.Contains(ctx.Target, "#") {
 		return s.headingCompletion(ctx)
 	}
+	// A typed registered-vault prefix opts into that vault's dictionary; other vaults' titles
+	// never appear in the default list.
+	if vault, _, ok := splitVaultPrefix(ctx.Target, s.xv.IsVault); ok {
+		return s.crossVaultCompletion(ctx, vault), nil
+	}
 	currentID, hasCurrentID := noteIDFromURI(uri)
 	kws, err := s.store.Keywords()
 	if err != nil {

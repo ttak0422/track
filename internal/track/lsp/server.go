@@ -17,6 +17,7 @@ import (
 	"github.com/ttak0422/track/internal/track/config"
 	"github.com/ttak0422/track/internal/track/index"
 	"github.com/ttak0422/track/internal/track/store"
+	"github.com/ttak0422/track/internal/track/vaultref"
 	protocol "typefox.dev/lsp"
 )
 
@@ -24,6 +25,9 @@ type Server struct {
 	cfg   *config.Config
 	store *store.Store
 	docs  map[string]string
+	// xv resolves cross-vault [[vault:title]] references, lazily opening and caching the other
+	// registered vaults' configs and stores for the server's lifetime.
+	xv *vaultref.Resolver
 }
 
 func Run(in io.Reader, out io.Writer) error {
@@ -41,7 +45,7 @@ func Run(in io.Reader, out io.Writer) error {
 }
 
 func NewServer(cfg *config.Config, s *store.Store) *Server {
-	return &Server{cfg: cfg, store: s, docs: map[string]string{}}
+	return &Server{cfg: cfg, store: s, docs: map[string]string{}, xv: vaultref.New(cfg)}
 }
 
 func (s *Server) Serve(in io.Reader, out io.Writer) error {
