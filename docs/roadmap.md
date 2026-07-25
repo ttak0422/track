@@ -16,8 +16,9 @@ Each item starts as undecided. Before implementation, decide whether track shoul
 The following directions are intentionally out of scope. The matching table rows are
 marked `Reject`.
 
-- Workspaces: no multi-workspace or dynamic-workspace concept. track uses a single
-  explicit vault only.
+- Workspaces: no merged-index workspace and no dynamic-workspace concept. A named vault
+  registry with one active vault at a time is the accepted multi-vault direction (ADR 0050),
+  but track never loads several vaults into one index or process at once.
 - Obsidian app integration / sync / bookmarks: track does not aim for Obsidian
   compatibility, so there is no app linking, sync, or `.obsidian/bookmarks.json` support.
 - Frontmatter / property compatibility: track does not adopt YAML frontmatter, so there
@@ -69,8 +70,8 @@ For each item, answer:
 
 | Area | Candidate | State | Notes / likely implementation |
 | --- | --- | --- | --- |
-| Workspace | Multiple workspaces and workspace-specific overrides | Reject | Decided out of scope. Single explicit configured vault only; no multi-workspace support. |
-| Workspace | Dynamic workspace for markdown outside a vault | Reject | Decided out of scope. No workspace concept beyond the single explicit vault. |
+| Workspace | Merged index across several vaults at once | Reject | Decided out of scope. A named vault registry keeps one active vault at a time (ADR 0050); vaults are never co-loaded into one index/process. |
+| Workspace | Dynamic workspace for markdown outside a vault | Reject | Decided out of scope. No workspace concept beyond configured vaults. |
 | Picker UX | Quick switch note picker | TBD | Engine already has notes/search primitives. Neovim can use quickfix first, picker adapters later. |
 | Picker UX | Dailies picker | TBD | CLI has journal open by offset, but no list/range command. Add store/query or filesystem scan. |
 | Picker UX | Search picker with preview and create-on-empty | Done | Shipped: Telescope `search_title`/`search_body` pickers with file preview; body search jumps to the matched line via `search --scope`. Remaining: create-on-empty, optional ripgrep-backed body search. |
@@ -104,7 +105,7 @@ For each item, answer:
 | Attachments | Paste image from clipboard | TBD | Neovim-only command plus attachment storage policy. |
 | Attachments | Attachment file management/opening | TBD | Requires attachment path policy and link/open behavior. |
 | Status | Footer/statusline data | TBD | Backlink count, word count, metadata count. Could expose Lua helper and no UI opinion. |
-| Health | `:checkhealth track` | Done | Shipped: reports resolved CLI/LSP binaries, vault/cache configuration, and current-buffer LSP attachment. |
+| Health | `:checkhealth track` | Done | Shipped: reports resolved CLI/LSP binaries, vault configuration, and current-buffer LSP attachment. |
 | Help | In-plugin help/search | TBD | Lower priority. README/docs may be enough for now. |
 | Smart action | Context-aware `<CR>` action | TBD | Current `<CR>` follows links only. Decide whether to include checkboxes/tags/headings. |
 | LSP | Hover | Done | Shipped: previews the linked note under the cursor, including tags and leading body content. |

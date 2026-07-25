@@ -193,7 +193,7 @@ TABLE title, props.reviewed WHERE 2026-05-31 < props.reviewed AND props.reviewed
 
 ## Saved queries
 
-Name queries you reuse in `config.yml`. Quote the expression — an unquoted `#` starts a YAML
+Name queries you reuse in the vault config (`<vault>/.track/config.yml`). Quote the expression — an unquoted `#` starts a YAML
 comment and would silently truncate it:
 
 ```yaml

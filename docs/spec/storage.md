@@ -76,9 +76,12 @@ Current contents:
 ```text
 <vault>/.track/config.yml
 <vault>/.track/notes/<id>.yaml
+<vault>/.track/renames.yaml
+<vault>/.track/gen/
+<vault>/.track/trash/
 ```
 
-`.track/config.yml` is the vault config: the note semantics that travel with the vault (`task_states`, `properties`, `queries`, `icons`, date formats, default templates, `capture_inbox`, `archive_note`, `web.home`, `gen_keep`, `extensions`). It is optional — a vault without one uses the defaults. `.track/notes/` contains versioned sidecar metadata files for notes.
+`.track/config.yml` is the vault config: the note semantics that travel with the vault (`task_states`, `properties`, `queries`, `icons`, date formats, default templates, `capture_inbox`, `archive_note`, `web.home`, `gen_keep`, `extensions`). It is optional — a vault without one uses the defaults. `.track/notes/` contains versioned sidecar metadata files for notes. `.track/renames.yaml` is title rename history (repair only, not a link source). `.track/gen/` holds generation snapshots (ADR 0025). `.track/trash/` holds soft-deleted note files and the sidecars a reindex sets aside when their markdown vanishes.
 
 The rebuildable SQLite index is a cache outside the vault. By default it lives under the platform user cache directory:
 
@@ -253,7 +256,7 @@ Column notes:
 
 During a full reindex, notes missing from the filesystem are removed from the SQLite index, and their sidecar metadata files are moved into `.track/trash/` with the same `<stamp>-<basename>` naming `track rm` uses. The sidecar is authoritative data and a sync gap looks identical to a deletion, so the indexer sets sidecars aside instead of destroying them.
 
-When the scan finds no note files at all while the index still lists notes, the reindex refuses to reconcile: an unmounted or unreadable vault must fail loudly rather than silently empty the index. If the notes really are gone, `track reindex` resets the database and rebuilds from what is on disk.
+When the scan finds no note files at all while the index still lists several notes, the reindex refuses to reconcile: an unmounted or unreadable vault must fail loudly rather than silently empty the index. A small floor keeps legitimate cases working — emptying a tiny vault (down to `track rm` of its last file) still reconciles — so the refusal fires only when a populated index would be wiped wholesale. If the notes really are gone, `track reindex` resets the database and rebuilds from what is on disk.
 
 Run `track doctor` when a vault may be only partially synced: it reports orphan sidecars (and other divergence) read-only, so a sync gap is not silently treated as a deletion. See [agent-workflows.md](agent-workflows.md) and ADR 0014.
 

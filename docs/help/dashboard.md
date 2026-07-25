@@ -8,18 +8,18 @@ Back to [[track]].
 
 ## A home note
 
-Point the workspace at a landing note in your config:
+Point the workspace at a landing note in your vault config:
 
 ```yaml
-# ~/.config/track/config.yml
+# <vault>/.track/config.yml
 web:
   home: Home
 ```
 
 `home` takes a note title or a numeric id. When set, `track web` opens that note at `/` instead of the
-search hero. Leave it unset to keep the search home. This is the *workspace's* home: it lives in your
-machine's config, so it follows you, not the notes. A published site has a home of its own, in a config
-that travels with the content — see "The published site's config" below.
+search hero. Leave it unset to keep the search home. `web.home` is a *vault* setting: it lives in the
+vault config, so the landing note travels with the notes it points at. A published site has a home of
+its own — see "The published site's config" below.
 
 ## Dashboard widgets
 
@@ -60,7 +60,7 @@ rule.
 
 ### In a vault
 
-Map an emoji to a tag or a note kind in your config:
+Map an emoji to a tag or a note kind in your vault config (`<vault>/.track/config.yml`):
 
 ```yaml
 icons:

@@ -57,5 +57,6 @@ structurally by the strict schemas, not by validation of individual values.
 - Existing machine configs carrying vault-scope keys fail loudly on upgrade and must move those keys
   into `<vault>/.track/config.yml`. This is a deliberate breaking change; a silent fallback would
   leave the ownership split fictional.
-- The Neovim plugin's flat YAML reader is unaffected: the only keys it reads (`vault_dir`,
-  `cache_dir`) remain machine scope and top-level.
+- The Neovim plugin's flat YAML reader is unaffected: the only machine-config key it still reads
+  (`vault_dir`) is machine scope and top-level. (ADR 0050's sibling change hands cache resolution
+  entirely to the CLI, so the plugin no longer reads `cache_dir` at all.)

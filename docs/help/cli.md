@@ -43,7 +43,7 @@ writes and verifies the destination before it touches the source, so a failed wr
 **Capture** appends to a heading of a target note, creating the note when it is the configured inbox
 and does not exist yet. With `--template`, the captured text fills the template's `{{ title }}`
 placeholder, so a one-line note becomes a framed entry. Set the default inbox with `capture_inbox` in
-`config.yml` (it defaults to `Inbox`).
+the vault config (`<vault>/.track/config.yml`; it defaults to `Inbox`).
 
 ```sh
 # with a template like:  - [ ] {{ title }}
@@ -78,7 +78,7 @@ track refile --from "Notes" --line 4 --to "Notes#Done"       # one list item
 ```
 
 **Archive** moves a subtree into a dedicated archive note — per year by default (`archive_note:
-"Archive {{year}}"` in `config.yml`) — and records where it came from, so provenance survives the move:
+"Archive {{year}}"` in the vault config `<vault>/.track/config.yml`) — and records where it came from, so provenance survives the move:
 
 ```markdown
 ## Done
@@ -177,7 +177,7 @@ $ printf 'my note text' | my-embedder
 [0.0123, -0.0456, 0.0789, ...]
 ```
 
-Point `track` at it with the `embedder` key in `config.yml`, in either of two forms:
+Point `track` at it with the `embedder` key in the machine config (`~/.config/track/config.yml`) — it runs a local command, so it stays machine scope, never in a synced vault — in either of two forms:
 
 ```yaml
 # Scalar: split on whitespace. There is no shell quoting, so no argument may contain a space.
@@ -203,7 +203,7 @@ With no embedder configured, `track similar` does not fail — it returns a shor
 set one up and exits cleanly, and nothing else in `track` is affected:
 
 ```json
-{"embedder": false, "message": "no embedder configured. Set `embedder` in config.yml ..."}
+{"embedder": false, "message": "no embedder configured. Set `embedder` in the machine config.yml ..."}
 ```
 
 `--scope` selects `title`, `body`, or `all` (the default: titles first, then bodies). Body search

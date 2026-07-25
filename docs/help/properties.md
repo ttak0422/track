@@ -93,7 +93,7 @@ strip. Commas inside `[[...]]` do not split a list.
 
 ## Schema and completion
 
-Optionally, declare a schema for the keys you care about in `config.yml`:
+Optionally, declare a schema for the keys you care about in the vault config (`<vault>/.track/config.yml`):
 
 ```yaml
 properties:

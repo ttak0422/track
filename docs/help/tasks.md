@@ -21,7 +21,7 @@ The character inside the brackets names the state (the Obsidian-style custom-che
 DONE and CANCELLED are *done-family* states: moving a task into one stamps a completion date on the
 line, and moving it back out removes the stamp again.
 
-The state set is configurable per vault in `config.yml`; the set above is the default. Each state
+The state set is configurable per vault in `<vault>/.track/config.yml`; the set above is the default. Each state
 needs a unique name and a unique single-character marker, and `done: true` marks it as
 completion-family:
 
