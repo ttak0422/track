@@ -226,6 +226,15 @@ func (s *Server) servedViews() (views []*vaultView, unavailable []vaultInfo) {
 	seen := map[*vaultView]bool{s.active: true}
 	for _, name := range sortedVaultNames(s.active.cfg.Vaults) {
 		v, err := s.viewByName(name)
+		if err == nil {
+			// A view is cached for the server's lifetime, but the vault behind it can go away while
+			// the workspace runs — an unmounted drive, a cloud folder that stopped syncing. Its index
+			// lives in the cache directory and would keep answering, so re-check that the vault is
+			// still there and report it as a gap rather than serving notes from a vault that is gone.
+			if _, statErr := os.Stat(v.cfg.VaultDir); statErr != nil {
+				err = fmt.Errorf("vault %q is unavailable: %v", name, statErr)
+			}
+		}
 		if err != nil {
 			unavailable = append(unavailable, vaultInfo{Name: name, Path: s.active.cfg.Vaults[name], Error: err.Error()})
 			continue

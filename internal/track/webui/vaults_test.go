@@ -392,3 +392,24 @@ func TestAliasOfTheLaunchVaultIsTheLaunchVault(t *testing.T) {
 		t.Fatalf("reaching the launch vault by name must still leave it unlabeled, got %q", v)
 	}
 }
+
+func TestASearchReportsAVaultThatWentAway(t *testing.T) {
+	// The index lives in the cache directory, not inside the vault, so a vault that is unmounted
+	// mid-session would keep answering from a stale index. That has to read as a gap, not as results.
+	server, _, work := twoVaultServer(t)
+	if hits := getVaultJSON(t, server.URL+"/api/search?q=Alpha")["results"].([]any); len(hits) != 2 {
+		t.Fatalf("both vaults should answer while both are present, got %v", hits)
+	}
+	if err := os.RemoveAll(work); err != nil {
+		t.Fatal(err)
+	}
+
+	out := getVaultJSON(t, server.URL+"/api/search?q=Alpha")
+	if hits := out["results"].([]any); len(hits) != 1 {
+		t.Fatalf("only the reachable vault should answer, got %v", hits)
+	}
+	gaps := out["unavailable"].([]any)
+	if len(gaps) != 1 || gaps[0].(map[string]any)["name"] != "work" {
+		t.Fatalf("the vault that went away must be reported, got %v", gaps)
+	}
+}
