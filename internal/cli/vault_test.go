@@ -128,3 +128,63 @@ func TestVaultListCurrentWhich(t *testing.T) {
 		t.Fatalf("which on an unknown name must fail, got %v", decoded)
 	}
 }
+
+func TestMaintenanceSweepsRegistry(t *testing.T) {
+	defaultVault := t.TempDir()
+	work := t.TempDir()
+	missing := filepath.Join(t.TempDir(), "unmounted")
+	registry := map[string]string{"work": work, "gone": missing}
+
+	// Seed one note per reachable vault so the sweep has something to index.
+	if _, code := runWithRegistry(t, defaultVault, nil, "new", "--title", "Default note", "--body", "d"); code != 0 {
+		t.Fatal("seed default vault")
+	}
+	if _, code := runWithRegistry(t, work, nil, "new", "--title", "Work note", "--body", "w"); code != 0 {
+		t.Fatal("seed work vault")
+	}
+
+	decoded, code := runWithRegistry(t, defaultVault, registry, "refresh-all")
+	if code != 0 {
+		t.Fatalf("refresh-all sweep failed: %v", decoded)
+	}
+	if decoded["ok"] != false {
+		t.Fatalf("aggregate ok must drop for the unreachable vault, got %v", decoded)
+	}
+	rows := decoded["vaults"].([]any)
+	// Unregistered active vault first, then registered names sorted: gone, work.
+	if len(rows) != 3 {
+		t.Fatalf("want 3 rows (default + 2 registered), got %v", rows)
+	}
+	byName := map[string]map[string]any{}
+	for _, r := range rows {
+		row := r.(map[string]any)
+		byName[row["name"].(string)] = row
+	}
+	if byName[""]["reindex"].(map[string]any)["indexed"].(float64) < 1 {
+		t.Fatalf("default vault row should have indexed notes: %v", byName[""])
+	}
+	if byName["work"]["ok"] != true {
+		t.Fatalf("work vault should be healthy: %v", byName["work"])
+	}
+	if byName["gone"]["error"] == nil {
+		t.Fatalf("unreachable vault must carry an error: %v", byName["gone"])
+	}
+	if _, err := os.Stat(missing); !os.IsNotExist(err) {
+		t.Fatalf("sweep must not create the unreachable vault, stat err=%v", err)
+	}
+
+	// --vault scopes maintenance back to one vault with the single-vault output shape.
+	decoded, code = runWithRegistry(t, defaultVault, registry, "--vault", "work", "reindex")
+	if code != 0 || decoded["vaults"] != nil || decoded["indexed"].(float64) < 1 {
+		t.Fatalf("scoped reindex should use the single-vault contract, got %v", decoded)
+	}
+
+	// doctor sweeps read-only, but --fix must not fan out over every vault.
+	if decoded, code := runWithRegistry(t, defaultVault, registry, "doctor", "--fix"); code == 0 || decoded["error"] == nil {
+		t.Fatalf("doctor --fix without --vault must fail under a registry, got %v", decoded)
+	}
+	decoded, code = runWithRegistry(t, defaultVault, registry, "doctor")
+	if code != 0 || len(decoded["vaults"].([]any)) != 3 {
+		t.Fatalf("doctor sweep should report every vault, got %v", decoded)
+	}
+}
