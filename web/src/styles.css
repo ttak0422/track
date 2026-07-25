@@ -1082,6 +1082,20 @@ a.calendar-title:focus-visible {
   white-space: nowrap;
 }
 
+/* The vault a tab's note comes from, shown only when the workspace serves named vaults: two of them
+   can hold notes with the same title, so the badge is what tells the tabs apart. */
+.tab-vault {
+  flex: none;
+  margin-right: 6px;
+  padding: 1px 5px;
+  border-radius: 4px;
+  background: var(--panel-soft);
+  color: var(--muted);
+  font-size: calc(11px * var(--font-scale, 1));
+  letter-spacing: 0.02em;
+  white-space: nowrap;
+}
+
 .tab-close {
   position: absolute;
   top: 50%;

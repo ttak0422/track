@@ -1,4 +1,5 @@
 import { dataURL, STATIC_MODE } from "./runtime";
+import { idParams, qualify } from "./vaultId";
 import type {
   ActivityResponse,
   AgendaResponse,
@@ -58,19 +59,30 @@ async function handleResponse<T>(response: Response): Promise<T> {
   return stringifyIDs(body) as T;
 }
 
-// The live server marshals note ids as JSON numbers, but the frontend treats ids as opaque strings (so
-// they line up with route params and with the static site's slug ids). stringifyIDs normalizes every id
-// field in a response to a string at the boundary, so the rest of the app never sees a numeric id.
+// The live server marshals note ids as JSON numbers plus a separate "vault" label, but the frontend
+// treats ids as opaque strings (so they line up with route params and with the static site's slug
+// ids). stringifyIDs normalizes every id field in a response at the boundary: numbers become
+// strings, and an id belonging to a named vault becomes "<vault>:<id>" so two vaults' notes can
+// never collide in a route, a tab, or the query cache. The rest of the app never sees a bare
+// numeric id or a loose vault field.
 const ID_KEYS = new Set(["note_id", "source_id", "target_id", "center_id", "root"]);
 
-function stringifyIDs<T>(value: T): T {
+// A response labels its vault once at the level the label applies to: per hit for a cross-vault
+// search, once at the top for a single vault's note or graph. Child objects inherit the nearest
+// enclosing label, so graph edges are qualified by the graph's own vault.
+function stringifyIDs<T>(value: T, vault = ""): T {
   if (Array.isArray(value)) {
-    return value.map(stringifyIDs) as T;
+    return value.map((item) => stringifyIDs(item, vault)) as T;
   }
   if (value !== null && typeof value === "object") {
+    const own = (value as { vault?: unknown }).vault;
+    const scope = typeof own === "string" ? own : vault;
     const out: Record<string, unknown> = {};
     for (const [key, child] of Object.entries(value)) {
-      out[key] = ID_KEYS.has(key) && typeof child === "number" ? String(child) : stringifyIDs(child);
+      out[key] =
+        ID_KEYS.has(key) && (typeof child === "number" || typeof child === "string")
+          ? qualify(scope, child)
+          : stringifyIDs(child, scope);
     }
     return out as T;
   }
@@ -150,14 +162,14 @@ export function getNote(noteID: NoteID): Promise<NoteResponse> {
   if (STATIC_MODE) {
     return staticData<NoteResponse>(`note/${noteID}.json`);
   }
-  return api<NoteResponse>(`/api/note?id=${encodeURIComponent(noteID)}`);
+  return api<NoteResponse>(`/api/note?${idParams(noteID)}`);
 }
 
 export function saveNote(noteID: NoteID, request: SaveNoteRequest): Promise<SaveNoteResponse> {
   if (STATIC_MODE) {
     return readOnly();
   }
-  return api<SaveNoteResponse>(`/api/note?id=${encodeURIComponent(noteID)}`, {
+  return api<SaveNoteResponse>(`/api/note?${idParams(noteID)}`, {
     method: "PUT",
     body: request,
   });
@@ -170,14 +182,14 @@ export function getNoteMeta(noteID: NoteID): Promise<NoteMetaResponse> {
   if (STATIC_MODE) {
     return readOnly();
   }
-  return api<NoteMetaResponse>(`/api/note/meta?id=${encodeURIComponent(noteID)}`);
+  return api<NoteMetaResponse>(`/api/note/meta?${idParams(noteID)}`);
 }
 
 export function saveNoteMeta(noteID: NoteID, request: SaveNoteMetaRequest): Promise<NoteMetaResponse> {
   if (STATIC_MODE) {
     return readOnly();
   }
-  return api<NoteMetaResponse>(`/api/note/meta?id=${encodeURIComponent(noteID)}`, {
+  return api<NoteMetaResponse>(`/api/note/meta?${idParams(noteID)}`, {
     method: "POST",
     body: request,
   });
@@ -191,7 +203,7 @@ export function setTaskState(noteID: NoteID, line: number, state: string): Promi
   if (STATIC_MODE) {
     return readOnly();
   }
-  return api<TasksResponse>(`/api/task?id=${encodeURIComponent(noteID)}`, {
+  return api<TasksResponse>(`/api/task?${idParams(noteID)}`, {
     method: "POST",
     body: { line, state },
   });
@@ -217,7 +229,7 @@ export function deleteNote(noteID: NoteID): Promise<DeleteNoteResponse> {
   if (STATIC_MODE) {
     return readOnly();
   }
-  return api<DeleteNoteResponse>(`/api/note?id=${encodeURIComponent(noteID)}`, { method: "DELETE" });
+  return api<DeleteNoteResponse>(`/api/note?${idParams(noteID)}`, { method: "DELETE" });
 }
 
 export function getFollowState(): Promise<FollowResponse> {
@@ -252,7 +264,7 @@ export function getLocalGraph(noteID: NoteID): Promise<GraphResponse> {
       graph: localGraph(data.graph, noteID),
     }));
   }
-  return api<GraphResponse>(`/api/graph/local?id=${encodeURIComponent(noteID)}`);
+  return api<GraphResponse>(`/api/graph/local?${idParams(noteID)}`);
 }
 
 export function getGraph(): Promise<GraphResponse> {
