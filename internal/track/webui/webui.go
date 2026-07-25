@@ -26,10 +26,13 @@ type Server struct {
 	active *vaultView
 	cfg    *config.Config
 	store  *store.Store
-	// views caches the other registered vaults, opened on first use. The workspace reads and writes
-	// across them, so a request names its vault and never inherits the active one by accident.
+	// views caches the other registered vaults by the name used to reach them, byPath by the
+	// directory they live in — a vault registered under several names is one view, opened once. The
+	// workspace reads and writes across them, so a request names its vault and never inherits the
+	// active one by accident.
 	viewsMu  sync.Mutex
 	views    map[string]*vaultView
+	byPath   map[string]*vaultView
 	mux      *http.ServeMux
 	webRoot  fs.FS
 	colorCSS string
@@ -87,6 +90,7 @@ func New(cfg *config.Config, s *store.Store) *Server {
 		cfg:     cfg,
 		store:   s,
 		views:   map[string]*vaultView{},
+		byPath:  map[string]*vaultView{},
 		mux:     http.NewServeMux(),
 		webRoot: embeddedWebRoot,
 		session: newSessionToken(),

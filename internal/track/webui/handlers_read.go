@@ -55,12 +55,12 @@ func (s *Server) handleSearch(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	results, err := s.searchAcross(views, query, limit)
+	results, skipped, err := s.searchAcross(views, query, limit)
 	if err != nil {
 		writeError(w, err, http.StatusInternalServerError)
 		return
 	}
-	writeJSON(w, map[string]any{"results": results, "unavailable": unavailable})
+	writeJSON(w, map[string]any{"results": results, "unavailable": append(unavailable, skipped...)})
 }
 
 // searchOne is the single-vault search: an empty query lists the most recently updated notes, the
@@ -95,7 +95,7 @@ func (s *Server) searchOne(v *vaultView, query string, limit int) ([]store.Searc
 // vault-local, so they cannot be filled by the shared query. The federated query labels rows by
 // registry name; hits from the launch vault are relabelled to empty so an unqualified id keeps
 // meaning "the vault you are in" no matter which endpoint produced it.
-func (s *Server) searchAcross(views []*vaultView, query string, limit int) ([]store.SearchResult, error) {
+func (s *Server) searchAcross(views []*vaultView, query string, limit int) ([]store.SearchResult, []vaultInfo, error) {
 	byName := make(map[string]*vaultView, len(views))
 	vaults := make([]store.FederatedVault, len(views))
 	for i, v := range views {
@@ -104,9 +104,15 @@ func (s *Server) searchAcross(views []*vaultView, query string, limit int) ([]st
 	}
 	fed, err := store.OpenFederated(vaults)
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 	defer fed.Close()
+	// A vault whose index could not be attached — unreadable, or past SQLite's limit of 10 — drops
+	// out of the query; report it as a gap rather than letting it shrink the results silently.
+	var skipped []vaultInfo
+	for _, sk := range fed.Skipped() {
+		skipped = append(skipped, vaultInfo{Name: sk.Name, Path: byName[sk.Name].cfg.VaultDirDisplay, Error: sk.Error})
+	}
 
 	var results []store.SearchResult
 	if query == "" {
@@ -115,7 +121,7 @@ func (s *Server) searchAcross(views []*vaultView, query string, limit int) ([]st
 		results, err = fed.Search(query, limit)
 	}
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 	for i := range results {
 		v, ok := byName[results[i].Vault]
@@ -129,7 +135,7 @@ func (s *Server) searchAcross(views []*vaultView, query string, limit int) ([]st
 	if results == nil {
 		results = []store.SearchResult{}
 	}
-	return results, nil
+	return results, skipped, nil
 }
 
 func (s *Server) handleNotes(v *vaultView, w http.ResponseWriter, r *http.Request) {

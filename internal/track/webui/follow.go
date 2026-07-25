@@ -45,6 +45,9 @@ func (s *Server) handleFollow(w http.ResponseWriter, r *http.Request) {
 			}
 			v = resolved
 		}
+		// Only the launch vault is watched, so another vault's index may not have seen a note the
+		// editor just opened; refresh before deciding the position names nothing.
+		s.refresh(v)
 		ref, err := v.noteByID(state.NoteID)
 		if err != nil {
 			writeError(w, err, http.StatusNotFound)

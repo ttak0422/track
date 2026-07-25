@@ -123,18 +123,30 @@ func (s *Server) viewByName(name string) (*vaultView, error) {
 	if name == "" || name == s.active.name {
 		return s.active, nil
 	}
+	path, ok := s.active.cfg.Vaults[name]
+	if !ok {
+		return nil, fmt.Errorf("vault %q is not registered", name)
+	}
 	s.viewsMu.Lock()
 	defer s.viewsMu.Unlock()
 	if v, ok := s.views[name]; ok {
 		return v, nil
 	}
-	path, ok := s.active.cfg.Vaults[name]
-	if !ok {
-		return nil, fmt.Errorf("vault %q is not registered", name)
-	}
 	cfg, err := config.LoadAt(path)
 	if err != nil {
 		return nil, err
+	}
+	// A vault may be registered under several names, so a view belongs to a directory, not to a
+	// name: an alias of the launch vault is the launch vault, and two aliases of another vault are
+	// one view. Otherwise the same notes would answer under two labels — and therefore two ids —
+	// and a federated query would attach one index twice and return every note twice.
+	if cfg.VaultDir == s.active.cfg.VaultDir {
+		s.views[name] = s.active
+		return s.active, nil
+	}
+	if v, ok := s.byPath[cfg.VaultDir]; ok {
+		s.views[name] = v
+		return v, nil
 	}
 	// A registered vault that is merely unmounted must be reported, not indexed: laying down an
 	// index for an unreachable vault would record it as empty.
@@ -147,6 +159,7 @@ func (s *Server) viewByName(name string) (*vaultView, error) {
 	}
 	v := &vaultView{name: name, label: name, cfg: cfg, store: st}
 	s.views[name] = v
+	s.byPath[cfg.VaultDir] = v
 	return v, nil
 }
 
@@ -208,15 +221,19 @@ func (s *Server) handleVaults(w http.ResponseWriter, r *http.Request) {
 // that cannot be opened. Cross-vault reads use it; each caller decides how to report the gaps.
 func (s *Server) servedViews() (views []*vaultView, unavailable []vaultInfo) {
 	views = append(views, s.active)
+	// One vault, one view — a vault registered under two names would otherwise be read twice, and a
+	// federated query would attach its index twice and return each of its notes twice.
+	seen := map[*vaultView]bool{s.active: true}
 	for _, name := range sortedVaultNames(s.active.cfg.Vaults) {
-		if name == s.active.name {
-			continue
-		}
 		v, err := s.viewByName(name)
 		if err != nil {
 			unavailable = append(unavailable, vaultInfo{Name: name, Path: s.active.cfg.Vaults[name], Error: err.Error()})
 			continue
 		}
+		if seen[v] {
+			continue
+		}
+		seen[v] = true
 		views = append(views, v)
 	}
 	return views, unavailable
@@ -227,8 +244,9 @@ func (s *Server) servedViews() (views []*vaultView, unavailable []vaultInfo) {
 func (s *Server) closeViews() {
 	s.viewsMu.Lock()
 	defer s.viewsMu.Unlock()
-	for name, v := range s.views {
+	for _, v := range s.byPath {
 		v.store.Close()
-		delete(s.views, name)
 	}
+	clear(s.views)
+	clear(s.byPath)
 }

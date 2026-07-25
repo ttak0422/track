@@ -321,3 +321,74 @@ func TestSearchReportsAnUnreachableVault(t *testing.T) {
 		t.Fatalf("the gap must name the vault and say why, got %v", gap)
 	}
 }
+
+func TestAliasesOfOneVaultAreOneView(t *testing.T) {
+	// A vault registered under two names must be read once. Two views would label the same notes two
+	// ways — two ids for one note — and a federated query would attach its index twice and return
+	// every note twice.
+	main, work := t.TempDir(), t.TempDir()
+	writeVaultNote(t, main, 100, "Alpha in main", "# Alpha in main\n")
+	writeVaultNote(t, work, 200, "Beta in work", "# Beta in work\n")
+
+	configPath := filepath.Join(t.TempDir(), "config.yml")
+	body := "cache_dir: " + t.TempDir() + "\nvaults:\n  main: " + main +
+		"\n  work: " + work + "\n  w: " + work + "\n"
+	if err := os.WriteFile(configPath, []byte(body), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("TRACK_CONFIG", configPath)
+	t.Setenv("TRACK_VAULT", main)
+	t.Setenv("TRACK_DB", "")
+	t.Setenv("TRACK_CACHE_DIR", "")
+
+	cfg, err := config.Load()
+	if err != nil {
+		t.Fatalf("load config: %v", err)
+	}
+	st, err := store.Open(cfg.DBPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { st.Close() })
+	srv := New(cfg, st)
+	t.Cleanup(srv.closeViews)
+	server := httptest.NewServer(srv.Handler())
+	t.Cleanup(server.Close)
+
+	views, _ := srv.servedViews()
+	if len(views) != 2 {
+		t.Fatalf("two vaults under three names should give two views, got %d", len(views))
+	}
+	if a, b := mustView(t, srv, "work"), mustView(t, srv, "w"); a != b {
+		t.Fatal("both aliases must resolve to the same view")
+	}
+
+	hits := getVaultJSON(t, server.URL+"/api/search?q=Beta")["results"].([]any)
+	if len(hits) != 1 {
+		t.Fatalf("an aliased vault must contribute its note once, got %v", hits)
+	}
+}
+
+func mustView(t *testing.T, srv *Server, name string) *vaultView {
+	t.Helper()
+	v, err := srv.viewByName(name)
+	if err != nil {
+		t.Fatalf("view %q: %v", name, err)
+	}
+	return v
+}
+
+func TestAliasOfTheLaunchVaultIsTheLaunchVault(t *testing.T) {
+	// Addressing the launch vault through a second registered name must not produce a second view:
+	// its notes would then answer under a label, i.e. under different ids than the same notes reached
+	// without one.
+	server, _, _ := twoVaultServer(t)
+	unqualified := getVaultJSON(t, server.URL+"/api/note?id=100")["note"].(map[string]any)
+	viaName := getVaultJSON(t, server.URL+"/api/note?id=100&vault=main")["note"].(map[string]any)
+	if unqualified["title"] != viaName["title"] {
+		t.Fatalf("the launch vault must answer the same either way: %v vs %v", unqualified, viaName)
+	}
+	if v, _ := viaName["vault"].(string); v != "" {
+		t.Fatalf("reaching the launch vault by name must still leave it unlabeled, got %q", v)
+	}
+}

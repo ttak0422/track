@@ -27,8 +27,17 @@ export interface SearchResult extends NoteRef {
   snippet?: string;
 }
 
+// One vault a cross-vault search could not read. Without it a short result list is
+// indistinguishable from "nothing matched there".
+export interface UnavailableVault {
+  name: string;
+  path: string;
+  error?: string;
+}
+
 export interface SearchResponse {
   results: SearchResult[];
+  unavailable?: UnavailableVault[];
 }
 
 export interface NotesResponse {

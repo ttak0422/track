@@ -1,6 +1,7 @@
 package store
 
 import (
+	"fmt"
 	"path/filepath"
 	"testing"
 
@@ -92,5 +93,33 @@ func TestFederatedSearchBodyFTS(t *testing.T) {
 	}
 	if vaults[""] != 10 || vaults["work"] != 20 {
 		t.Fatalf("unexpected vault labels: %+v", results)
+	}
+}
+
+func TestOpenFederatedSkipsWhatItCannotAttach(t *testing.T) {
+	// SQLite attaches at most 10 databases. Past that — or with an unreadable index — the vault must
+	// drop out of the query and be reported, not take the whole cross-vault search down with it.
+	dir := t.TempDir()
+	var vaults []FederatedVault
+	for i := range 14 {
+		path := filepath.Join(dir, fmt.Sprintf("v%d.db", i))
+		s, err := Open(path)
+		if err != nil {
+			t.Fatal(err)
+		}
+		s.Close()
+		vaults = append(vaults, FederatedVault{Name: fmt.Sprintf("v%d", i), DBPath: path})
+	}
+
+	fed, err := OpenFederated(vaults)
+	if err != nil {
+		t.Fatalf("attaching past the limit must degrade, not fail: %v", err)
+	}
+	defer fed.Close()
+	if len(fed.Skipped()) == 0 {
+		t.Fatal("the vaults that could not be attached must be reported")
+	}
+	if _, err := fed.Recent(10); err != nil {
+		t.Fatalf("the attached vaults must still answer: %v", err)
 	}
 }

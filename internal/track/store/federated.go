@@ -17,8 +17,17 @@ type FederatedVault struct {
 // (multi-vault phase 2). Physical DBs stay one-per-vault; only the query crosses them, labeling
 // each row with its vault so (vault, id) stays unambiguous even when ids collide across vaults.
 type Federated struct {
-	db     *sql.DB
-	vaults []fedVault
+	db      *sql.DB
+	vaults  []fedVault
+	skipped []FederatedSkip
+}
+
+// FederatedSkip is a vault left out of the connection because its index could not be attached — an
+// unreadable file, or SQLite's limit of 10 attached databases. One unreadable vault must not fail a
+// search across all of them, so callers report these as gaps instead.
+type FederatedSkip struct {
+	Name  string
+	Error string
 }
 
 // fedVault pairs a generated schema alias with the vault name it labels rows with. Aliases are
@@ -46,12 +55,20 @@ func OpenFederated(vaults []FederatedVault) (*Federated, error) {
 	for i, v := range vaults {
 		alias := fmt.Sprintf("v%d", i)
 		if _, err := db.Exec(fmt.Sprintf("ATTACH DATABASE ? AS %s", alias), v.DBPath); err != nil {
-			db.Close()
-			return nil, fmt.Errorf("attach vault %q index: %w", v.Name, err)
+			// Past the attach limit, or with an unreadable index, this vault drops out of the query
+			// rather than taking the whole search down. Skipped is what the caller shows as a gap.
+			f.skipped = append(f.skipped, FederatedSkip{Name: v.Name, Error: err.Error()})
+			continue
 		}
 		f.vaults = append(f.vaults, fedVault{alias: alias, name: v.Name})
 	}
 	return f, nil
+}
+
+// Skipped lists the vaults that could not be attached, so a caller can report them as unreachable
+// alongside the results it did get.
+func (f *Federated) Skipped() []FederatedSkip {
+	return f.skipped
 }
 
 func (f *Federated) Close() error {
@@ -63,6 +80,9 @@ func (f *Federated) Close() error {
 // vault. The trailing vault tiebreak keeps cross-vault ordering deterministic when mtime and id
 // collide.
 func (f *Federated) Search(query string, limit int) ([]SearchResult, error) {
+	if len(f.vaults) == 0 {
+		return nil, nil // every vault was skipped; the caller reports them as gaps
+	}
 	if limit <= 0 {
 		limit = 50
 	}
@@ -134,6 +154,9 @@ func (f *Federated) Search(query string, limit int) ([]SearchResult, error) {
 // into one most-recently-updated-first listing, each row labelled with its vault. The trailing vault
 // tiebreak keeps the order deterministic when mtime and id collide across vaults.
 func (f *Federated) Recent(limit int) ([]SearchResult, error) {
+	if len(f.vaults) == 0 {
+		return nil, nil // every vault was skipped; the caller reports them as gaps
+	}
 	if limit <= 0 {
 		limit = 50
 	}
@@ -153,7 +176,7 @@ func (f *Federated) Recent(limit int) ([]SearchResult, error) {
 	}
 	query := "SELECT vault, id, kind, title, mtime, icon, tags FROM (\n" +
 		strings.Join(subs, "\nUNION ALL\n") +
-		"\n) ORDER BY mtime DESC, id DESC, vault LIMIT ?"
+		"\n) ORDER BY mtime DESC, id ASC, vault LIMIT ?"
 	args = append(args, limit)
 
 	return f.scanResults(query, args, true)
@@ -164,6 +187,9 @@ func (f *Federated) Recent(limit int) ([]SearchResult, error) {
 // indexes are only approximately comparable (same tokenizer and weights), which is accepted for the
 // merged ranking. Caller must ensure BodyQueryUsesFTS(query).
 func (f *Federated) SearchBodyFTS(query string, limit int) ([]SearchResult, error) {
+	if len(f.vaults) == 0 {
+		return nil, nil // every vault was skipped; the caller reports them as gaps
+	}
 	if limit <= 0 {
 		limit = 50
 	}

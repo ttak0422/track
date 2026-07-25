@@ -12,15 +12,20 @@ local function registered_vaults()
    if registry_paths then
       return registry_paths
    end
-   registry_paths = {}
    local ok, data = pcall(require("track.client").run_json, { "vault", "list" })
-   if ok and type(data) == "table" and type(data.vaults) == "table" then
-      for _, row in ipairs(data.vaults) do
-         if type(row.path) == "string" and row.path ~= "" then
-            table.insert(registry_paths, row.path)
-         end
+   if not (ok and type(data) == "table" and type(data.vaults) == "table") then
+      -- Do not cache a failure: the CLI may simply not be on $PATH yet (a plugin manager still
+      -- building it). Caching {} here would disable per-vault LSP and cross-vault follow for the
+      -- rest of the session, silently and unrecoverably.
+      return {}
+   end
+   local paths = {}
+   for _, row in ipairs(data.vaults) do
+      if type(row.path) == "string" and row.path ~= "" then
+         table.insert(paths, row.path)
       end
    end
+   registry_paths = paths
    return registry_paths
 end
 
