@@ -16,6 +16,8 @@ The machine config may register named vaults as a `vaults:` map (name → absolu
 - `track vault current`: `{"name","path"}` for the active vault (name resolves through the registry even when the vault was selected via `TRACK_VAULT`).
 - `track vault which <name>`: resolve a registered name to its path without touching the vault, so it works while the vault is unmounted.
 
+Cross-vault references (ADR 0053): `[[vault:title]]` links a note in a registered vault — explicit prefix only, no implicit fallback, and the prefix counts as a qualifier only when it is a registered vault name (any other colon-containing key stays an ordinary local title; `track doctor` reports local titles a registration shadows as `shadowed_title`). Anchors and aliases compose as usual (`[[vault:title#Heading|alias]]`). `track resolve --term "vault:title"` resolves in the named vault and adds `"vault"` to its response. `track backlinks` adds `"external"` (notes in other vaults referencing this one, each with its `vault`) and `"unavailable"` (vaults that could not be consulted) when a registry exists. Cross-vault edges are stored as (vault, title) strings, so renaming a note breaks inbound qualified references from other vaults — expect and repair those via the unresolved-link diagnostics.
+
 ## Title Model
 
 The sidecar `metadata.title` is authoritative. A note body's H1 headings are ordinary Markdown content. Creating a note writes the title to the sidecar, and renaming a note must use `track rename` or LSP rename so backlinks and rename history are updated.
