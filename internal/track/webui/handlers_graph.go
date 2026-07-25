@@ -19,7 +19,7 @@ func (s *Server) handleLocalGraph(v *vaultView, w http.ResponseWriter, r *http.R
 		return
 	}
 	addGraphPaths(v, graph.Nodes)
-	writeJSON(w, map[string]any{"vault": v.name, "graph": graph})
+	writeJSON(w, map[string]any{"vault": v.label, "graph": graph})
 }
 
 func (s *Server) handleGraph(v *vaultView, w http.ResponseWriter, r *http.Request) {
@@ -30,14 +30,14 @@ func (s *Server) handleGraph(v *vaultView, w http.ResponseWriter, r *http.Reques
 		return
 	}
 	addGraphPaths(v, graph.Nodes)
-	writeJSON(w, map[string]any{"vault": v.name, "graph": graph})
+	writeJSON(w, map[string]any{"vault": v.label, "graph": graph})
 }
 
 // addGraphPaths labels each node with its path and the vault it lives in, so a graph drawn over
 // several vaults can tell two same-numbered notes apart.
 func addGraphPaths(v *vaultView, nodes []store.GraphNode) {
 	for i := range nodes {
-		nodes[i].Vault = v.name
+		nodes[i].Vault = v.label
 		nodes[i].Path = v.cfg.PathForKind(nodes[i].FileKind, nodes[i].NoteID)
 	}
 }

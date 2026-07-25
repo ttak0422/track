@@ -91,8 +91,10 @@ func TestVaultParamSelectsTheAddressedVault(t *testing.T) {
 	if active["title"] != "Alpha in main" {
 		t.Fatalf("unqualified request must read the launch vault, got %v", active["title"])
 	}
-	if active["vault"] != "main" {
-		t.Fatalf("response must name its vault, got %v", active["vault"])
+	// The launch vault carries no label: an unqualified id means "the vault you are in", so a
+	// workspace serving one vault answers exactly as it did before it could serve several.
+	if vault, _ := active["vault"].(string); vault != "" {
+		t.Fatalf("the launch vault must not be labeled, got %q", vault)
 	}
 	other := getVaultJSON(t, server.URL+"/api/note?id=100&vault=work")["note"].(map[string]any)
 	if other["title"] != "Alpha in work" {
@@ -261,10 +263,13 @@ func TestSearchSpansEveryServedVault(t *testing.T) {
 	seen := map[string]string{}
 	for _, raw := range hits {
 		hit := raw.(map[string]any)
-		seen[hit["vault"].(string)] = hit["title"].(string)
+		vault, _ := hit["vault"].(string) // absent for the launch vault
+		seen[vault] = hit["title"].(string)
 	}
-	if seen["main"] != "Alpha in main" || seen["work"] != "Alpha in work" {
-		t.Fatalf("each hit must be labeled with its own vault, got %v", seen)
+	// The launch vault's hit stays unlabeled and the other vault's carries its name, so the two are
+	// told apart the same way [[title]] and [[vault:title]] are.
+	if seen[""] != "Alpha in main" || seen["work"] != "Alpha in work" {
+		t.Fatalf("hits must be labeled by vault, unlabeled for the launch vault, got %v", seen)
 	}
 	if _, ok := out["unavailable"].([]any); !ok {
 		t.Fatalf("cross-vault search must report unreachable vaults, got %v", out["unavailable"])

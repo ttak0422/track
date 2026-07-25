@@ -21,7 +21,7 @@ import (
 // mirroring how an unqualified [[link]] means "this vault".
 func addSearchPaths(v *vaultView, results []store.SearchResult) {
 	for i := range results {
-		results[i].Vault = v.name
+		results[i].Vault = v.label
 		results[i].Path = v.cfg.PathForKind(results[i].FileKind, results[i].NoteID)
 		// The store fills Icon with the per-note sidecar override; resolve it against the config
 		// tag/kind mapping here so an empty override falls back to the mapping (config.NoteIcon).
@@ -32,7 +32,7 @@ func addSearchPaths(v *vaultView, results []store.SearchResult) {
 // addRefPaths is addSearchPaths for the plain references (backlinks, hierarchy, agenda listings).
 func addRefPaths(v *vaultView, refs []store.NoteRef) {
 	for i := range refs {
-		refs[i].Vault = v.name
+		refs[i].Vault = v.label
 		refs[i].Path = v.cfg.PathForKind(refs[i].FileKind, refs[i].NoteID)
 	}
 }

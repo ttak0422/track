@@ -91,8 +91,10 @@ func (s *Server) searchOne(v *vaultView, query string, limit int) ([]store.Searc
 }
 
 // searchAcross merges every served vault's hits through one federated connection (ADR 0052), then
-// resolves each hit's path and icon against the vault it came from — those are vault-local, so they
-// cannot be filled by the shared query.
+// resolves each hit's path, icon, and wire label against the vault it came from — those are
+// vault-local, so they cannot be filled by the shared query. The federated query labels rows by
+// registry name; hits from the launch vault are relabelled to empty so an unqualified id keeps
+// meaning "the vault you are in" no matter which endpoint produced it.
 func (s *Server) searchAcross(views []*vaultView, query string, limit int) ([]store.SearchResult, error) {
 	byName := make(map[string]*vaultView, len(views))
 	vaults := make([]store.FederatedVault, len(views))
@@ -120,6 +122,7 @@ func (s *Server) searchAcross(views []*vaultView, query string, limit int) ([]st
 		if !ok {
 			continue
 		}
+		results[i].Vault = v.label
 		results[i].Path = v.cfg.PathForKind(results[i].FileKind, results[i].NoteID)
 		results[i].Icon = v.cfg.NoteIcon(results[i].FileKind, results[i].Tags, results[i].Icon)
 	}
@@ -250,7 +253,7 @@ func (s *Server) handleJournal(v *vaultView, w http.ResponseWriter, r *http.Requ
 			return
 		}
 	}
-	writeJSON(w, map[string]any{"vault": v.name, "note_id": res.NoteID, "created": res.Created})
+	writeJSON(w, map[string]any{"vault": v.label, "note_id": res.NoteID, "created": res.Created})
 }
 
 func (s *Server) handleResolve(v *vaultView, w http.ResponseWriter, r *http.Request) {
@@ -266,7 +269,7 @@ func (s *Server) handleResolve(v *vaultView, w http.ResponseWriter, r *http.Requ
 		return
 	}
 	if found {
-		ref.Vault = v.name
+		ref.Vault = v.label
 		ref.Path = v.cfg.PathForKind(ref.FileKind, ref.NoteID)
 	}
 	writeJSON(w, map[string]any{"found": found, "note": ref})

@@ -80,6 +80,7 @@ func init() {
 }
 
 func New(cfg *config.Config, s *store.Store) *Server {
+	// The launch vault carries no wire label: unqualified means "the vault you are in".
 	active := &vaultView{name: activeName(cfg), cfg: cfg, store: s}
 	srv := &Server{
 		active:  active,

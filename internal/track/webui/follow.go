@@ -63,7 +63,7 @@ func (s *Server) handleFollow(w http.ResponseWriter, r *http.Request) {
 		if state.LineCount < 1 {
 			state.LineCount = state.TopLine
 		}
-		state.Vault = v.name
+		state.Vault = v.label
 		state.VaultPath = ""
 		state.Path = v.cfg.PathForKind(state.FileKind, state.NoteID)
 		state.UpdatedAt = time.Now().Format(time.RFC3339Nano)

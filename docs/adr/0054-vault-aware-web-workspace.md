@@ -42,8 +42,12 @@ names its vault.**
 - An unknown or unreachable vault fails the request. It never falls back to the
   launch vault — the rule ADR 0051 set for `--vault`, for the same reason: a typo
   must not land a write somewhere else.
-- Responses carry the `vault` their ids belong to, omitted for an unregistered
-  launch vault.
+- Responses label ids with the vault they belong to, and the launch vault has no
+  label. An unlabelled id means "the vault you are already in" — the same
+  asymmetry as `[[title]]` versus `[[vault:title]]` — so a workspace serving one
+  vault answers exactly as it did before, registered or not. The federated
+  search relabels its own launch-vault rows to keep that rule uniform across
+  endpoints.
 - `GET /api/search` spans every served vault by default (ADR 0052's federated
   connection) and reports vaults it could not read under `unavailable`.
   `?vault=` narrows it. Every other endpoint stays single-vault.

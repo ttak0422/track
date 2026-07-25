@@ -63,7 +63,7 @@ func (s *Server) deleteNote(v *vaultView, w http.ResponseWriter, r *http.Request
 		writeError(w, fmt.Errorf("delete from index: %w", err), http.StatusInternalServerError)
 		return
 	}
-	writeJSON(w, map[string]any{"vault": v.name, "note_id": ref.NoteID, "deleted": true})
+	writeJSON(w, map[string]any{"vault": v.label, "note_id": ref.NoteID, "deleted": true})
 }
 
 func (s *Server) getNote(v *vaultView, w http.ResponseWriter, r *http.Request) {
@@ -125,7 +125,7 @@ func (s *Server) getNote(v *vaultView, w http.ResponseWriter, r *http.Request) {
 	addRefPaths(v, trail)
 	addRefPaths(v, children)
 	noteJSON := map[string]any{
-		"vault":     v.name,
+		"vault":     v.label,
 		"note_id":   ref.NoteID,
 		"file_kind": ref.FileKind,
 		"path":      path,
@@ -201,7 +201,7 @@ func (s *Server) putNote(v *vaultView, w http.ResponseWriter, r *http.Request) {
 		writeError(w, fmt.Errorf("reindex: %w", err), http.StatusInternalServerError)
 		return
 	}
-	writeJSON(w, map[string]any{"vault": v.name, "note_id": ref.NoteID, "etag": etagFor(out), "saved": true})
+	writeJSON(w, map[string]any{"vault": v.label, "note_id": ref.NoteID, "etag": etagFor(out), "saved": true})
 }
 
 // handleNoteMeta reads or edits a note's editable sidecar metadata — title, tags, description,

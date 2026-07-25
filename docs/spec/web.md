@@ -21,8 +21,13 @@ which note it means.
 
 Every endpoint that addresses a note therefore takes `?vault=<registry name>`.
 Omitting it means the launch vault; naming a vault that is not served is an
-error, never a silent fallback to the launch vault. Responses carry the `vault`
-their ids belong to (omitted when the launch vault is unregistered).
+error, never a silent fallback to the launch vault.
+
+Responses label ids with the vault they belong to, and **the launch vault has no
+label**: an unlabelled id means "the vault you are already in", exactly as an
+unqualified `[[title]]` does. A workspace serving one vault therefore answers
+exactly as it did before it could serve several, whether or not that vault is
+registered.
 
 - `GET /api/vaults`: the served vaults — `{"active": "<name>", "vaults":
   [{"name","path","active","available","error"}]}`. A registered vault that

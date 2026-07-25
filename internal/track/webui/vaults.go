@@ -19,7 +19,13 @@ import (
 // vault-local and journal ids collide across vaults by construction, so a view — never a bare id —
 // is what decides which files a request touches.
 type vaultView struct {
-	name  string
+	// name is the vault's registry identity, used to address it (?vault=) and to list it.
+	name string
+	// label is what the vault is called on the wire: empty for the launch vault, the registry name
+	// for every other. An unlabelled id therefore means "the vault you are already in", exactly as
+	// an unqualified [[title]] does — which is what keeps a single-vault workspace's URLs, stored
+	// tabs, and responses byte-identical to before it could serve several.
+	label string
 	cfg   *config.Config
 	store *store.Store
 	// reindexMu serializes this vault's reindexes and lastStale throttles its read-path freshness
@@ -139,7 +145,7 @@ func (s *Server) viewByName(name string) (*vaultView, error) {
 	if err != nil {
 		return nil, fmt.Errorf("open vault %q index: %w", name, err)
 	}
-	v := &vaultView{name: name, cfg: cfg, store: st}
+	v := &vaultView{name: name, label: name, cfg: cfg, store: st}
 	s.views[name] = v
 	return v, nil
 }
