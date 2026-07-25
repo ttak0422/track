@@ -53,16 +53,19 @@ func (s *Server) deleteNote(v *vaultView, w http.ResponseWriter, r *http.Request
 		return
 	}
 	path := v.cfg.PathForKind(ref.FileKind, ref.NoteID)
-	if err := os.Remove(path); err != nil && !os.IsNotExist(err) {
-		writeError(w, fmt.Errorf("remove note file: %w", err), http.StatusInternalServerError)
-		return
-	}
-	if err := os.Remove(v.cfg.MetadataPath(id)); err != nil && !os.IsNotExist(err) {
-		writeError(w, fmt.Errorf("remove note metadata: %w", err), http.StatusInternalServerError)
-		return
-	}
-	if err := v.store.DeleteNote(id); err != nil {
-		writeError(w, fmt.Errorf("delete from index: %w", err), http.StatusInternalServerError)
+	if err := v.write(func() error {
+		if err := os.Remove(path); err != nil && !os.IsNotExist(err) {
+			return fmt.Errorf("remove note file: %w", err)
+		}
+		if err := os.Remove(v.cfg.MetadataPath(id)); err != nil && !os.IsNotExist(err) {
+			return fmt.Errorf("remove note metadata: %w", err)
+		}
+		if err := v.store.DeleteNote(id); err != nil {
+			return fmt.Errorf("delete from index: %w", err)
+		}
+		return nil
+	}); err != nil {
+		writeError(w, err, http.StatusInternalServerError)
 		return
 	}
 	writeJSON(w, map[string]any{"vault": v.label, "note_id": ref.NoteID, "deleted": true})
@@ -251,12 +254,13 @@ func (s *Server) putNote(v *vaultView, w http.ResponseWriter, r *http.Request) {
 	}
 
 	out := []byte(ensureTrailingNewline(req.Body))
-	if err := os.WriteFile(path, out, 0o644); err != nil {
-		writeError(w, err, http.StatusInternalServerError)
-		return
-	}
-	if err := index.New(v.cfg, v.store).One(path); err != nil {
-		writeError(w, fmt.Errorf("reindex: %w", err), http.StatusInternalServerError)
+	if err := v.write(func() error {
+		if err := os.WriteFile(path, out, 0o644); err != nil {
+			return err
+		}
+		return index.New(v.cfg, v.store).One(path)
+	}); err != nil {
+		writeError(w, fmt.Errorf("save note: %w", err), http.StatusInternalServerError)
 		return
 	}
 	writeJSON(w, map[string]any{"vault": v.label, "note_id": ref.NoteID, "etag": etagFor(out), "saved": true})

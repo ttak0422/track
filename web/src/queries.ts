@@ -27,7 +27,7 @@ import type { NoteID, NoteMetaResponse, NoteResponse, SaveNoteMetaRequest, SaveN
 export const queryKeys = {
   site: () => ["site"] as const,
   activity: (since: string, until: string) => ["activity", since, until] as const,
-  agenda: (date: string) => ["agenda", date] as const,
+  agenda: (date: string, vault = "") => ["agenda", vault, date] as const,
   graph: () => ["graph"] as const,
   localGraph: (noteID: NoteID) => ["graph", "local", noteID] as const,
   note: (noteID: NoteID) => ["note", noteID] as const,
@@ -49,10 +49,12 @@ export function useActivityQuery(since: string, until: string) {
   });
 }
 
-export function useAgendaQuery(date: string, options?: { enabled?: boolean }) {
+// The day's notes come from the same vault as the journal being read: a journal id is the date, so
+// every vault has one for that day and an unscoped lookup would list another vault's notes.
+export function useAgendaQuery(date: string, vault = "", options?: { enabled?: boolean }) {
   return useQuery({
-    queryKey: queryKeys.agenda(date),
-    queryFn: () => getAgenda(date),
+    queryKey: queryKeys.agenda(date, vault),
+    queryFn: () => getAgenda(date, vault),
     enabled: (options?.enabled ?? true) && date !== "",
   });
 }

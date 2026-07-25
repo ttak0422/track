@@ -56,7 +56,7 @@ describe("FloatingProvider", () => {
     const { result } = renderHook(() => useFloating(), { wrapper });
     act(() => result.current.open({ kind: "note", noteID: "1" }, bounds, false, false));
     act(() =>
-      result.current.open({ kind: "media", src: "a.png", alt: "", noteKind: "note" }, bounds, false, false),
+      result.current.open({ kind: "media", src: "a.png", alt: "", noteKind: "note", vault: "" }, bounds, false, false),
     );
     expect(result.current.windows).toHaveLength(2);
   });

@@ -55,6 +55,16 @@ func (s *Server) refresh(v *vaultView) {
 	}
 }
 
+// write runs fn while holding this vault's reindex lock, so a note's rewrite and the reindex that
+// follows cannot interleave with a read-path refresh. Without it, Full could read a file mid-write
+// and still stamp it with the post-write mtime — after which staleness detection sees nothing to do
+// and the torn content stays indexed until the note is edited again.
+func (v *vaultView) write(fn func() error) error {
+	v.reindexMu.Lock()
+	defer v.reindexMu.Unlock()
+	return fn()
+}
+
 // noteByID finds a note in this vault's index. It is also the gate that keeps a foreign id from
 // acting on a same-numbered note here: an id is only ever looked up in the vault the request named.
 func (v *vaultView) noteByID(id int64) (store.SearchResult, error) {
@@ -127,11 +137,13 @@ func (s *Server) viewByName(name string) (*vaultView, error) {
 	if !ok {
 		return nil, fmt.Errorf("vault %q is not registered", name)
 	}
-	s.viewsMu.Lock()
-	defer s.viewsMu.Unlock()
-	if v, ok := s.views[name]; ok {
+	if v, ok := s.cachedView(name); ok {
 		return v, nil
 	}
+	// Opening reads config files, stats the vault directory, and opens its index — all filesystem
+	// work, and on a vault that lives on an unreachable mount it blocks for as long as that mount
+	// takes to fail. None of it happens under the lock: a dead vault would otherwise stall every
+	// request for the healthy ones, including cache hits that need no I/O at all.
 	cfg, err := config.LoadAt(path)
 	if err != nil {
 		return nil, err
@@ -141,12 +153,10 @@ func (s *Server) viewByName(name string) (*vaultView, error) {
 	// one view. Otherwise the same notes would answer under two labels — and therefore two ids —
 	// and a federated query would attach one index twice and return every note twice.
 	if cfg.VaultDir == s.active.cfg.VaultDir {
-		s.views[name] = s.active
-		return s.active, nil
+		return s.adopt(name, s.active), nil
 	}
-	if v, ok := s.byPath[cfg.VaultDir]; ok {
-		s.views[name] = v
-		return v, nil
+	if v, ok := s.viewForPath(cfg.VaultDir); ok {
+		return s.adopt(name, v), nil
 	}
 	// A registered vault that is merely unmounted must be reported, not indexed: laying down an
 	// index for an unreachable vault would record it as empty.
@@ -157,10 +167,43 @@ func (s *Server) viewByName(name string) (*vaultView, error) {
 	if err != nil {
 		return nil, fmt.Errorf("open vault %q index: %w", name, err)
 	}
+
+	s.viewsMu.Lock()
+	defer s.viewsMu.Unlock()
+	// Another request may have opened the same vault while this one was doing its filesystem work;
+	// keep the view that got there first and discard this one's handle rather than leaking it.
+	if existing, ok := s.byPath[cfg.VaultDir]; ok {
+		st.Close()
+		s.views[name] = existing
+		return existing, nil
+	}
 	v := &vaultView{name: name, label: name, cfg: cfg, store: st}
 	s.views[name] = v
 	s.byPath[cfg.VaultDir] = v
 	return v, nil
+}
+
+func (s *Server) cachedView(name string) (*vaultView, bool) {
+	s.viewsMu.Lock()
+	defer s.viewsMu.Unlock()
+	v, ok := s.views[name]
+	return v, ok
+}
+
+func (s *Server) viewForPath(dir string) (*vaultView, bool) {
+	s.viewsMu.Lock()
+	defer s.viewsMu.Unlock()
+	v, ok := s.byPath[dir]
+	return v, ok
+}
+
+// adopt records that a registry name reaches an already-open view, so the next request for that
+// name is a cache hit rather than another round of filesystem work.
+func (s *Server) adopt(name string, v *vaultView) *vaultView {
+	s.viewsMu.Lock()
+	defer s.viewsMu.Unlock()
+	s.views[name] = v
+	return v
 }
 
 // viewByPath returns the view whose vault directory is path, for callers that know a vault by where
@@ -226,6 +269,12 @@ func (s *Server) servedViews() (views []*vaultView, unavailable []vaultInfo) {
 	seen := map[*vaultView]bool{s.active: true}
 	for _, name := range sortedVaultNames(s.active.cfg.Vaults) {
 		v, err := s.viewByName(name)
+		// A name that reaches a vault already in the set adds nothing — including a name for the
+		// launch vault, which is always served. Skipping before the reachability check also keeps
+		// the workspace from warning that the vault whose results are on screen is unavailable.
+		if err == nil && seen[v] {
+			continue
+		}
 		if err == nil {
 			// A view is cached for the server's lifetime, but the vault behind it can go away while
 			// the workspace runs — an unmounted drive, a cloud folder that stopped syncing. Its index
@@ -237,9 +286,6 @@ func (s *Server) servedViews() (views []*vaultView, unavailable []vaultInfo) {
 		}
 		if err != nil {
 			unavailable = append(unavailable, vaultInfo{Name: name, Path: s.active.cfg.Vaults[name], Error: err.Error()})
-			continue
-		}
-		if seen[v] {
 			continue
 		}
 		seen[v] = true

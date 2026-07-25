@@ -67,13 +67,16 @@ func (s *Server) handleTaskSet(v *vaultView, w http.ResponseWriter, r *http.Requ
 	}
 
 	path := v.cfg.PathForKind(ref.FileKind, ref.NoteID)
-	tr, err := note.ApplyTaskState(v.cfg, path, req.Line, req.State, time.Now())
-	if err != nil {
+	var tr task.Transition
+	if err := v.write(func() error {
+		var err error
+		tr, err = note.ApplyTaskState(v.cfg, path, req.Line, req.State, time.Now())
+		if err != nil {
+			return err
+		}
+		return index.New(v.cfg, v.store).One(path)
+	}); err != nil {
 		writeError(w, err, http.StatusBadRequest)
-		return
-	}
-	if err := index.New(v.cfg, v.store).One(path); err != nil {
-		writeError(w, fmt.Errorf("reindex: %w", err), http.StatusInternalServerError)
 		return
 	}
 	set, err := v.noteTasks(ref.FileKind, ref.NoteID)

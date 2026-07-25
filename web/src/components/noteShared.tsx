@@ -3,7 +3,7 @@ import { useEffect } from "react";
 import { useAgendaQuery } from "../queries";
 import { WikiLink } from "./preview/WikiLink";
 import type { ExternalRef, FileKind, NoteID, NoteProp, NoteRef, UnavailableVault } from "../types";
-import { split } from "../vaultId";
+import { split, vaultOf } from "../vaultId";
 
 // Shared read-only note UI, used by both the static reader (NoteReaderStatic) and the live editor
 // (NoteEditor), so the two stay consistent and the editor-only code is the only thing that differs.
@@ -87,7 +87,7 @@ export function NoteAside({
   noteID: NoteID;
   journalDate: string;
 }) {
-  const agendaQuery = useAgendaQuery(journalDate, { enabled: journalDate !== "" });
+  const agendaQuery = useAgendaQuery(journalDate, vaultOf(noteID), { enabled: journalDate !== "" });
 
   return (
     <div className="note-aside">

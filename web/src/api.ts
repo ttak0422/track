@@ -146,7 +146,7 @@ export function resolveTerm(term: string, vault = ""): Promise<ResolveResponse> 
   return api<ResolveResponse>(`/api/resolve?term=${encodeURIComponent(term)}${vaultParams(vault)}`);
 }
 
-export function getAgenda(date: string): Promise<AgendaResponse> {
+export function getAgenda(date: string, vault = ""): Promise<AgendaResponse> {
   if (STATIC_MODE) {
     // Derived from the notes list's activity days, mirroring the live /api/agenda (which also lists only
     // real notes — journals carry no activity days).
@@ -155,7 +155,7 @@ export function getAgenda(date: string): Promise<AgendaResponse> {
       notes: data.notes.filter((note) => (note.days ?? []).includes(date)),
     }));
   }
-  return api<AgendaResponse>(`/api/agenda?date=${encodeURIComponent(date)}`);
+  return api<AgendaResponse>(`/api/agenda?date=${encodeURIComponent(date)}${vaultParams(vault)}`);
 }
 
 // openJournal opens or creates the journal for a day and returns its note id, so the activity heatmap
