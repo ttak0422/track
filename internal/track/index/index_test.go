@@ -357,3 +357,40 @@ func TestActivityDaysRecorded(t *testing.T) {
 		t.Fatalf("NotesOnDay(%q) = %+v, want note 1", want, notes)
 	}
 }
+
+func TestRefreshIfStaleDetectsSidecarOnlyChange(t *testing.T) {
+	cfg, s := setup(t)
+	writeNote(t, cfg, 1, "body", note.Metadata{Title: "One"})
+	ix := New(cfg, s)
+	if _, err := ix.Full(); err != nil {
+		t.Fatal(err)
+	}
+	if stale, err := ix.RefreshIfStale(); err != nil || stale {
+		t.Fatalf("fresh index should not refresh, stale=%v err=%v", stale, err)
+	}
+
+	// A sidecar-only edit (synced tag change) never moves the body mtime; it must still be detected.
+	if err := note.WriteMetadata(cfg.MetadataPath(1), note.Metadata{Title: "One", Tags: []string{"synced"}}); err != nil {
+		t.Fatal(err)
+	}
+	future := time.Now().Add(2 * time.Second)
+	if err := os.Chtimes(cfg.MetadataPath(1), future, future); err != nil {
+		t.Fatal(err)
+	}
+	stale, err := ix.RefreshIfStale()
+	if err != nil || !stale {
+		t.Fatalf("sidecar change should trigger a refresh, stale=%v err=%v", stale, err)
+	}
+	refs, err := s.SearchRefs()
+	if err != nil || len(refs) != 1 || len(refs[0].Tags) != 1 || refs[0].Tags[0] != "synced" {
+		t.Fatalf("refreshed index should carry the synced tag, got %+v err=%v", refs, err)
+	}
+
+	// An orphan sidecar (its note file gone; reads never move it) must not re-trigger refreshes.
+	if err := note.WriteMetadata(cfg.MetadataPath(99), note.Metadata{Title: "Orphan"}); err != nil {
+		t.Fatal(err)
+	}
+	if stale, err := ix.RefreshIfStale(); err != nil || stale {
+		t.Fatalf("orphan sidecar must not trigger a refresh, stale=%v err=%v", stale, err)
+	}
+}

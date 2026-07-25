@@ -28,7 +28,10 @@ func Open(dbPath string) (*Store, error) {
 	if err != nil {
 		return nil, err
 	}
-	if _, err := db.Exec("PRAGMA journal_mode = WAL; PRAGMA foreign_keys = ON;"); err != nil {
+	// busy_timeout makes concurrent openers wait out a writer instead of failing with SQLITE_BUSY —
+	// several track processes (CLI, web, LSP) share one DB per vault, and a federated connection
+	// holds several vaults' DBs at once.
+	if _, err := db.Exec("PRAGMA journal_mode = WAL; PRAGMA foreign_keys = ON; PRAGMA busy_timeout = 5000;"); err != nil {
 		db.Close()
 		return nil, err
 	}

@@ -4,19 +4,22 @@ package store
 // The schema is applied once when the database is fresh.
 // 5: both the tasks table (task states) and the embeddings table (similar-notes) are present; each
 // landed independently as "4", so any existing v4 database is missing one of them.
-const schemaVersion = 5
+// 6: notes.meta_mtime records the sidecar file's mtime so RefreshIfStale also detects sidecar-only
+// changes (a tag or title edit synced from another machine never touches the note body's mtime).
+const schemaVersion = 6
 
 // schemaSQL defines a rebuildable SQLite index, not the primary source of truth.
 // Notes and sidecar metadata on disk are authoritative; this database caches keyword rows and computed links for fast lookup.
 // notes.mtime stores the note file's last modification time as a Unix timestamp; RefreshIfStale compares it against disk to detect external changes.
 const schemaSQL = `
 CREATE TABLE notes (
-  id      INTEGER PRIMARY KEY,
-  kind    TEXT NOT NULL DEFAULT 'note',
-  title   TEXT NOT NULL DEFAULT '',
-  created TEXT,
-  mtime   INTEGER NOT NULL DEFAULT 0,
-  icon    TEXT NOT NULL DEFAULT ''
+  id         INTEGER PRIMARY KEY,
+  kind       TEXT NOT NULL DEFAULT 'note',
+  title      TEXT NOT NULL DEFAULT '',
+  created    TEXT,
+  mtime      INTEGER NOT NULL DEFAULT 0,
+  meta_mtime INTEGER NOT NULL DEFAULT 0,
+  icon       TEXT NOT NULL DEFAULT ''
 );
 CREATE INDEX IF NOT EXISTS idx_notes_kind_mtime ON notes(kind, mtime);
 

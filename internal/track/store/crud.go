@@ -34,11 +34,11 @@ func (s *Store) UpsertNote(n *note.Note) error {
 		kind = "note"
 	}
 	if _, err := tx.Exec(
-		`INSERT INTO notes (id, kind, title, created, mtime, icon)
-		 VALUES (?, ?, ?, ?, ?, ?)
+		`INSERT INTO notes (id, kind, title, created, mtime, meta_mtime, icon)
+		 VALUES (?, ?, ?, ?, ?, ?, ?)
 		 ON CONFLICT(id) DO UPDATE SET
-		   kind=excluded.kind, title=excluded.title, created=excluded.created, mtime=excluded.mtime, icon=excluded.icon`,
-		n.ID, kind, n.Meta.Title, n.Meta.Created, n.Mtime, n.Meta.Icon,
+		   kind=excluded.kind, title=excluded.title, created=excluded.created, mtime=excluded.mtime, meta_mtime=excluded.meta_mtime, icon=excluded.icon`,
+		n.ID, kind, n.Meta.Title, n.Meta.Created, n.Mtime, n.MetaMtime, n.Meta.Icon,
 	); err != nil {
 		return err
 	}
@@ -202,13 +202,16 @@ func (s *Store) Keywords() ([]Keyword, error) {
 	return out, rows.Err()
 }
 
-// ResolveTerm finds the note a title points to.
+// ResolveTerm finds the note a title points to. Duplicate titles resolve to the lowest id — the one
+// doctor's duplicate-title repair keeps — so resolution is deterministic across rebuilds instead of
+// riding on SQLite's unordered LIMIT 1.
 func (s *Store) ResolveTerm(term string) (NoteRef, bool, error) {
 	var ref NoteRef
 	err := s.db.QueryRow(
 		`SELECT k.note_id, n.kind, n.title
 		 FROM keywords k JOIN notes n ON n.id = k.note_id
-		 WHERE k.term = ? AND n.kind IN ('note', 'journal') LIMIT 1`,
+		 WHERE k.term = ? AND n.kind IN ('note', 'journal')
+		 ORDER BY n.id LIMIT 1`,
 		term,
 	).Scan(&ref.NoteID, &ref.FileKind, &ref.Title)
 	if err != nil {
@@ -265,7 +268,17 @@ func (s *Store) AllNotes() ([]NoteRef, error) {
 
 // NoteMtimes maps note id to stored mtime, used by the indexer to detect changed and deleted files.
 func (s *Store) NoteMtimes() (map[int64]int64, error) {
-	rows, err := s.db.Query(`SELECT id, mtime FROM notes`)
+	return s.mtimeColumn("mtime")
+}
+
+// NoteMetaMtimes maps note id to the stored sidecar mtime (0 when the note had no sidecar), used by
+// the indexer to detect sidecar-only changes such as a synced tag edit.
+func (s *Store) NoteMetaMtimes() (map[int64]int64, error) {
+	return s.mtimeColumn("meta_mtime")
+}
+
+func (s *Store) mtimeColumn(column string) (map[int64]int64, error) {
+	rows, err := s.db.Query(`SELECT id, ` + column + ` FROM notes`)
 	if err != nil {
 		return nil, err
 	}

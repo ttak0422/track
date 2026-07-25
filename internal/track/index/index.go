@@ -4,6 +4,7 @@ package index
 import (
 	"fmt"
 	"io/fs"
+	"os"
 	"path/filepath"
 	"slices"
 	"time"
@@ -107,12 +108,14 @@ func (ix *Indexer) Full() (Report, error) {
 	return rep, nil
 }
 
-// RefreshIfStale compares the note and journal files on disk against the indexed mtimes and, when they
-// diverge (a note added, changed, or removed), runs Full to bring the index back in sync. It reports
-// whether a reindex happened. The common "nothing changed" path only reads directory entries and their
-// mtimes, so it is cheap enough to call before serving a query. This is how a long-lived process (the
-// web server, a second editor's CLI) picks up edits it never observed as an event — a write by another
-// process, or an external/cloud-sync change that raised no filesystem notification.
+// RefreshIfStale compares the note and journal files on disk — and their sidecars — against the
+// indexed mtimes and, when they diverge (a note added, changed, or removed, or a sidecar edited),
+// runs Full to bring the index back in sync. It reports whether a reindex happened. The common
+// "nothing changed" path only reads directory entries and file mtimes, so it is cheap enough to call
+// before serving a query. This is how a long-lived process (the web server, a second editor's CLI)
+// picks up edits it never observed as an event — a write by another process, or an external/cloud-sync
+// change that raised no filesystem notification. Sidecar mtimes are compared only for notes present
+// on disk, so an orphan sidecar (reported by doctor, never moved by a read) cannot re-trigger this.
 func (ix *Indexer) RefreshIfStale() (bool, error) {
 	disk, journals, err := ix.scanMtimes()
 	if err != nil {
@@ -123,7 +126,17 @@ func (ix *Indexer) RefreshIfStale() (bool, error) {
 		return false, err
 	}
 	if sameMtimes(disk, indexed) {
-		return false, nil
+		// Bodies agree; a sidecar-only change (a tag or title edit synced from another machine)
+		// still needs a rebuild. The body check passing means disk and DB hold the same ids, so the
+		// two sidecar maps cover the same keys.
+		metaDisk := ix.scanMetaMtimes(disk)
+		metaIndexed, err := ix.store.NoteMetaMtimes()
+		if err != nil {
+			return false, err
+		}
+		if sameMtimes(metaDisk, metaIndexed) {
+			return false, nil
+		}
 	}
 	// Record the activity day on each note that was added or changed (mtime diverged) before the rebuild,
 	// so Full picks the new days into note_days. Removed ids are skipped. This is how an editor's direct
@@ -175,6 +188,20 @@ func (ix *Indexer) recordActivity(ids map[int64]int64) error {
 		}
 	}
 	return nil
+}
+
+// scanMetaMtimes maps note id -> sidecar mtime (0 when absent) for exactly the notes present on
+// disk, mirroring how ParseFile records Note.MetaMtime. Restricting to disk ids keeps orphan
+// sidecars out of the staleness comparison.
+func (ix *Indexer) scanMetaMtimes(disk map[int64]int64) map[int64]int64 {
+	out := make(map[int64]int64, len(disk))
+	for id := range disk {
+		out[id] = 0
+		if fi, err := os.Stat(ix.cfg.MetadataPath(id)); err == nil {
+			out[id] = fi.ModTime().Unix()
+		}
+	}
+	return out
 }
 
 // scanMtimes maps note id -> file mtime (Unix seconds) for every note/journal file, mirroring how
@@ -245,10 +272,16 @@ func (ix *Indexer) One(path string) error {
 	// activity day (see note.ActivityDays), so stamping would only write dead metadata.
 	if n.Kind != "journal" {
 		if meta, changed := note.EnsureDay(n.Meta, ix.activityDay(n.Mtime)); changed {
-			if err := note.WriteMetadata(ix.cfg.MetadataPath(n.ID), meta); err != nil {
+			metaPath := ix.cfg.MetadataPath(n.ID)
+			if err := note.WriteMetadata(metaPath, meta); err != nil {
 				return err
 			}
 			n.Meta = meta
+			// Re-stat so the stored sidecar mtime matches the write above; a stale value would make
+			// the next RefreshIfStale see a phantom sidecar change and rebuild for nothing.
+			if fi, err := os.Stat(metaPath); err == nil {
+				n.MetaMtime = fi.ModTime().Unix()
+			}
 		}
 	}
 	if err := ix.store.UpsertNote(n); err != nil {

@@ -48,7 +48,11 @@ type Note struct {
 	Path  string
 	Body  string
 	Mtime int64
-	Meta  Metadata
+	// MetaMtime is the sidecar file's mtime (0 when the note has no sidecar). The index stores it so
+	// a sidecar-only change — a tag or title edit synced from another machine — is detected as
+	// staleness even though the note body's mtime never moved.
+	MetaMtime int64
+	Meta      Metadata
 	// Tasks are the body's parsed task lines (checkbox items whose marker matches the configured
 	// state set), filled by ParseFile so the indexer can store them without reparsing.
 	Tasks []task.Task
@@ -103,8 +107,13 @@ func ParseFile(path string, c *config.Config) (*Note, error) {
 			return nil, err
 		}
 	}
+	// Stat after the possible legacy write so the recorded mtime matches the sidecar now on disk.
+	metaMtime := int64(0)
+	if fi, err := os.Stat(metaPath); err == nil {
+		metaMtime = fi.ModTime().Unix()
+	}
 	return &Note{
-		ID: id, Kind: kind, Path: path, Body: body, Mtime: info.ModTime().Unix(), Meta: meta,
+		ID: id, Kind: kind, Path: path, Body: body, Mtime: info.ModTime().Unix(), MetaMtime: metaMtime, Meta: meta,
 		Tasks: task.Parse(body, c.TaskStates),
 	}, nil
 }
