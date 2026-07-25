@@ -682,3 +682,77 @@ func TestCaptureAndArchiveDefaults(t *testing.T) {
 		t.Fatalf("ArchiveNoteTitle verbatim = %q, want Attic", got)
 	}
 }
+
+func TestVaultsRegistry(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	configPath := filepath.Join(t.TempDir(), "config.yml")
+	if err := os.WriteFile(configPath, []byte("vaults:\n  work: "+filepath.Join(home, "work")+"\n  blog: ~/blog\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("TRACK_CONFIG", configPath)
+
+	vaults, err := Vaults()
+	if err != nil {
+		t.Fatalf("vaults: %v", err)
+	}
+	if len(vaults) != 2 || vaults["work"] != filepath.Join(home, "work") || vaults["blog"] != filepath.Join(home, "blog") {
+		t.Fatalf("unexpected registry: %v", vaults)
+	}
+
+	// An unset registry is an empty map, never an error.
+	t.Setenv("TRACK_CONFIG", filepath.Join(t.TempDir(), "missing.yml"))
+	vaults, err = Vaults()
+	if err != nil || len(vaults) != 0 {
+		t.Fatalf("empty registry: got %v, %v", vaults, err)
+	}
+}
+
+func TestVaultsRegistryRejectsBadEntries(t *testing.T) {
+	for name, body := range map[string]string{
+		"uppercase name": "vaults:\n  Work: /tmp/work\n",
+		"space in name":  "vaults:\n  \"my vault\": /tmp/work\n",
+		"colon in name":  "vaults:\n  \"a:b\": /tmp/work\n",
+		"relative path":  "vaults:\n  work: notes/work\n",
+		"empty path":     "vaults:\n  work: \"\"\n",
+	} {
+		configPath := filepath.Join(t.TempDir(), "config.yml")
+		if err := os.WriteFile(configPath, []byte(body), 0o644); err != nil {
+			t.Fatal(err)
+		}
+		t.Setenv("TRACK_CONFIG", configPath)
+		if _, err := Vaults(); err == nil {
+			t.Fatalf("%s: want error, got none", name)
+		}
+		// Load validates the registry too, so a malformed entry fails every command loudly.
+		t.Setenv("TRACK_VAULT", t.TempDir())
+		t.Setenv("TRACK_DB", "")
+		t.Setenv("TRACK_CACHE_DIR", t.TempDir())
+		if _, err := Load(); err == nil {
+			t.Fatalf("%s: Load should reject the registry, got no error", name)
+		}
+	}
+}
+
+func TestLoadRejectsFixedDBWithRegistry(t *testing.T) {
+	configPath := filepath.Join(t.TempDir(), "config.yml")
+	if err := os.WriteFile(configPath, []byte("vaults:\n  work: /tmp/work\ndb_path: /tmp/index.db\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("TRACK_CONFIG", configPath)
+	t.Setenv("TRACK_VAULT", t.TempDir())
+	t.Setenv("TRACK_DB", "")
+	t.Setenv("TRACK_CACHE_DIR", t.TempDir())
+	if _, err := Load(); err == nil || !strings.Contains(err.Error(), "registry") {
+		t.Fatalf("db_path with a registry must be a hard error, got %v", err)
+	}
+
+	// TRACK_DB is the same fixed-DB hazard as db_path.
+	if err := os.WriteFile(configPath, []byte("vaults:\n  work: /tmp/work\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("TRACK_DB", "/tmp/index.db")
+	if _, err := Load(); err == nil || !strings.Contains(err.Error(), "registry") {
+		t.Fatalf("TRACK_DB with a registry must be a hard error, got %v", err)
+	}
+}

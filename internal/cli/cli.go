@@ -16,6 +16,10 @@ const Version = "0.1.0"
 
 // Run dispatches a subcommand and returns a process exit code.
 func Run(args []string) int {
+	args, ok := applyVaultFlag(args)
+	if !ok {
+		return 1
+	}
 	if len(args) == 0 {
 		usage()
 		return 1
@@ -93,6 +97,8 @@ func Run(args []string) int {
 		return cmdGraph(rest)
 	case "web":
 		return cmdWeb(rest)
+	case "vault":
+		return cmdVault(rest)
 	case "template":
 		return cmdTemplate(rest)
 	case "babel":
@@ -117,7 +123,14 @@ Notes carry content through these commands; titles are link keywords. Write [[Ti
 link notes. --body is read from stdin when omitted and stdin is piped. Creating or appending indexes
 the note immediately, so reindex is for bulk repair.
 
+Every command accepts a global --vault NAME flag selecting a named vault from the machine config's
+vaults: registry (a name -> path map) for this invocation; without it the default vault is used.
+An unknown name is an error, never a new vault.
+
 Usage:
+  track vault list                      list registered vaults, marking the active one (JSON)
+  track vault current                   print the active vault's name (empty when unregistered) and path (JSON)
+  track vault which <name>              resolve a registered vault name to its path (JSON)
   track new --title <t> [--id <id>] [--template <s>] [--body <s>] [--tag <s>]
                                         create a note (fails if the title exists); --body is saved verbatim
   track open --title <t> [--template <s>] [--body <s>] [--tag <s>]
@@ -262,8 +275,12 @@ func open() (*config.Config, *store.Store, error) {
 	if err != nil {
 		return nil, nil, err
 	}
+	if err := requireVaultDir(cfg); err != nil {
+		return nil, nil, err
+	}
 	// First launch: lay down the vault skeleton when the vault directory does not exist yet. An existing
 	// vault is left to lazy per-kind creation, so this never resurrects directories a user removed.
+	// A --vault selection never reaches this branch: requireVaultDir already refused a missing directory.
 	if _, statErr := os.Stat(cfg.VaultDir); os.IsNotExist(statErr) {
 		if _, err := cfg.EnsureVaultSkeleton(); err != nil {
 			return nil, nil, err

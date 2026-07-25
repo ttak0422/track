@@ -126,6 +126,10 @@ type machineFileConfig struct {
 	CacheDir string           `yaml:"cache_dir"`
 	Embedder argvList         `yaml:"embedder"`
 	Web      machineWebConfig `yaml:"web"`
+	// Vaults is the named vault registry (name -> path) behind the global --vault flag and the
+	// `track vault` subcommands. It lives in the machine config only: which vaults exist on this
+	// machine is machine state, and a synced vault must never introduce new vault paths.
+	Vaults map[string]string `yaml:"vaults"`
 }
 
 // vaultFileConfig is <vault>/.track/config.yml: the note semantics a vault carries with it — id/date
@@ -247,6 +251,16 @@ func Load() (*Config, error) {
 	mc, err := loadMachineConfig()
 	if err != nil {
 		return nil, err
+	}
+	// Validate the registry on every load so a malformed entry fails loudly now, not on the first
+	// --vault. A fixed DB path serves exactly one vault, but with a registry the selected vault
+	// changes per invocation — one shared DB would let two vaults silently overwrite each other's
+	// index — so the combination is refused outright.
+	if _, err := resolveVaults(mc); err != nil {
+		return nil, err
+	}
+	if len(mc.Vaults) > 0 && (mc.DBPath != "" || os.Getenv("TRACK_DB") != "") {
+		return nil, fmt.Errorf("db_path/TRACK_DB cannot be combined with a vaults: registry (one fixed DB would be shared across vaults); remove it so each vault keeps its own cache index")
 	}
 
 	rawVault := mc.VaultDir
@@ -390,6 +404,44 @@ func Load() (*Config, error) {
 		CaptureInbox:      captureInbox,
 		ArchiveNote:       archiveNote,
 	}, nil
+}
+
+// vaultNamePattern constrains registry names: lowercase ASCII letters, digits, and dashes, so a name
+// can later prefix a cross-vault link (vault:title) and never needs quoting or escaping.
+var vaultNamePattern = regexp.MustCompile(`^[a-z0-9-]+$`)
+
+// Vaults returns the named vault registry from the machine config (name -> absolute path, symlinks
+// intact). An unset registry is an empty map, never an error.
+func Vaults() (map[string]string, error) {
+	mc, err := loadMachineConfig()
+	if err != nil {
+		return nil, err
+	}
+	return resolveVaults(mc)
+}
+
+// resolveVaults validates registry names and expands each path. Paths must be absolute (after ~
+// expansion): resolving a vault relative to the current directory would make the same name mean a
+// different vault per invocation.
+func resolveVaults(mc machineFileConfig) (map[string]string, error) {
+	out := make(map[string]string, len(mc.Vaults))
+	for name, path := range mc.Vaults {
+		if !vaultNamePattern.MatchString(name) {
+			return nil, fmt.Errorf("vaults: name %q must be lowercase letters, digits, and dashes", name)
+		}
+		expanded := expandHome(strings.TrimSpace(path))
+		if !filepath.IsAbs(expanded) {
+			return nil, fmt.Errorf("vaults: %s: %q must be an absolute path (or start with ~/)", name, path)
+		}
+		out[name] = filepath.Clean(expanded)
+	}
+	return out, nil
+}
+
+// CanonicalPath makes a path absolute with symlinks resolved, tolerating missing trailing
+// components — the same normalization VaultDir gets, so a registry path compares against it reliably.
+func CanonicalPath(path string) (string, error) {
+	return canonicalPath(path)
 }
 
 // validateVaultConfig rejects vault-config values that could steer a filesystem path outside the
