@@ -3,11 +3,13 @@ package webui
 import (
 	"bytes"
 	"encoding/json"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 	"testing"
 
 	"github.com/ttak0422/track/internal/track/config"
@@ -457,5 +459,94 @@ func TestNoteShowsInboundReferencesFromOtherVaults(t *testing.T) {
 	ref := external[0].(map[string]any)
 	if ref["vault"] != "work" || ref["title"] != "Refers across" {
 		t.Fatalf("the reference must name its vault and note, got %v", ref)
+	}
+}
+
+func TestConcurrentRequestsShareOneViewPerVault(t *testing.T) {
+	// Views open lazily under a mutex while the server handles requests in parallel. Drive both
+	// vaults' endpoints at once so the race detector sees the cache being filled and read together,
+	// and check every request still got the vault it asked for.
+	main, work := t.TempDir(), t.TempDir()
+	writeVaultNote(t, main, 100, "Alpha in main", "# Alpha in main\n")
+	writeVaultNote(t, work, 100, "Alpha in work", "# Alpha in work\n")
+
+	configPath := filepath.Join(t.TempDir(), "config.yml")
+	body := "cache_dir: " + t.TempDir() + "\nvaults:\n  main: " + main + "\n  work: " + work + "\n"
+	if err := os.WriteFile(configPath, []byte(body), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("TRACK_CONFIG", configPath)
+	t.Setenv("TRACK_VAULT", main)
+	t.Setenv("TRACK_DB", "")
+	t.Setenv("TRACK_CACHE_DIR", "")
+
+	cfg, err := config.Load()
+	if err != nil {
+		t.Fatalf("load config: %v", err)
+	}
+	st, err := store.Open(cfg.DBPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { st.Close() })
+	srv := New(cfg, st)
+	t.Cleanup(srv.closeViews)
+	server := httptest.NewServer(srv.Handler())
+	t.Cleanup(server.Close)
+
+	var wg sync.WaitGroup
+	errs := make(chan error, 64)
+	for i := range 16 {
+		wg.Add(1)
+		go func(i int) {
+			defer wg.Done()
+			url := server.URL + "/api/note?id=100"
+			want := "Alpha in main"
+			if i%2 == 1 {
+				url += "&vault=work"
+				want = "Alpha in work"
+			}
+			resp, err := http.Get(url)
+			if err != nil {
+				errs <- err
+				return
+			}
+			defer resp.Body.Close()
+			var out map[string]any
+			if err := json.NewDecoder(resp.Body).Decode(&out); err != nil {
+				errs <- err
+				return
+			}
+			note, ok := out["note"].(map[string]any)
+			if !ok || note["title"] != want {
+				errs <- fmt.Errorf("concurrent request for %s got %v", url, out)
+			}
+		}(i)
+	}
+	// Cross-vault search runs alongside, reaching every served vault through the same cache.
+	for range 4 {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			resp, err := http.Get(server.URL + "/api/search?q=Alpha")
+			if err != nil {
+				errs <- err
+				return
+			}
+			resp.Body.Close()
+		}()
+	}
+	wg.Wait()
+	close(errs)
+	for err := range errs {
+		t.Fatal(err)
+	}
+
+	// One vault, one open index: a racing cache would have left duplicate handles behind.
+	srv.viewsMu.Lock()
+	opened := len(srv.byPath)
+	srv.viewsMu.Unlock()
+	if opened != 1 {
+		t.Fatalf("the second vault must be opened exactly once, got %d", opened)
 	}
 }
