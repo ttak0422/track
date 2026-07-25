@@ -163,7 +163,7 @@ func Serve(cfg *config.Config, st *store.Store, addr string) error {
 // collide across vaults outright, so that default would silently read (and write) the wrong file.
 func (s *Server) routes() {
 	s.mux.HandleFunc("/api/vaults", s.handleVaults)
-	s.mux.HandleFunc("/api/search", s.withVault(s.handleSearch))
+	s.mux.HandleFunc("/api/search", s.handleSearch)
 	s.mux.HandleFunc("/api/notes", s.withVault(s.handleNotes))
 	s.mux.HandleFunc("/api/activity", s.withVault(s.handleActivity))
 	s.mux.HandleFunc("/api/agenda", s.withVault(s.handleAgenda))

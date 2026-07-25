@@ -248,3 +248,71 @@ func TestFollowRefusesAnUnservedVault(t *testing.T) {
 		t.Fatalf("follow from an unserved vault should be refused, got %d", resp.StatusCode)
 	}
 }
+
+func TestSearchSpansEveryServedVault(t *testing.T) {
+	server, _, _ := twoVaultServer(t)
+
+	// One search box, both vaults: without a ?vault= the workspace searches everything it serves.
+	out := getVaultJSON(t, server.URL+"/api/search?q=Alpha")
+	hits := out["results"].([]any)
+	if len(hits) != 2 {
+		t.Fatalf("expected a hit from each vault, got %v", hits)
+	}
+	seen := map[string]string{}
+	for _, raw := range hits {
+		hit := raw.(map[string]any)
+		seen[hit["vault"].(string)] = hit["title"].(string)
+	}
+	if seen["main"] != "Alpha in main" || seen["work"] != "Alpha in work" {
+		t.Fatalf("each hit must be labeled with its own vault, got %v", seen)
+	}
+	if _, ok := out["unavailable"].([]any); !ok {
+		t.Fatalf("cross-vault search must report unreachable vaults, got %v", out["unavailable"])
+	}
+}
+
+func TestSearchReportsAnUnreachableVault(t *testing.T) {
+	// A registry entry pointing at a vault that is not there — an unmounted drive, a cloud folder
+	// that has not synced — must be named in the response. Silently omitting it would read as
+	// "nothing matched there", which is a different and misleading answer.
+	main := t.TempDir()
+	writeVaultNote(t, main, 100, "Alpha in main", "# Alpha in main\n")
+	missing := filepath.Join(t.TempDir(), "not-mounted")
+
+	configPath := filepath.Join(t.TempDir(), "config.yml")
+	body := "cache_dir: " + t.TempDir() + "\nvaults:\n  main: " + main + "\n  offline: " + missing + "\n"
+	if err := os.WriteFile(configPath, []byte(body), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("TRACK_CONFIG", configPath)
+	t.Setenv("TRACK_VAULT", main)
+	t.Setenv("TRACK_DB", "")
+	t.Setenv("TRACK_CACHE_DIR", "")
+
+	cfg, err := config.Load()
+	if err != nil {
+		t.Fatalf("load config: %v", err)
+	}
+	st, err := store.Open(cfg.DBPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { st.Close() })
+	srv := New(cfg, st)
+	t.Cleanup(srv.closeViews)
+	server := httptest.NewServer(srv.Handler())
+	t.Cleanup(server.Close)
+
+	out := getVaultJSON(t, server.URL+"/api/search?q=Alpha")
+	if hits := out["results"].([]any); len(hits) != 1 {
+		t.Fatalf("the reachable vault must still answer, got %v", hits)
+	}
+	gaps := out["unavailable"].([]any)
+	if len(gaps) != 1 {
+		t.Fatalf("the unreachable vault must be reported, got %v", gaps)
+	}
+	gap := gaps[0].(map[string]any)
+	if gap["name"] != "offline" || gap["error"] == "" {
+		t.Fatalf("the gap must name the vault and say why, got %v", gap)
+	}
+}

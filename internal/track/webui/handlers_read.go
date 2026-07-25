@@ -14,10 +14,59 @@ import (
 	tmpl "github.com/ttak0422/track/internal/track/template"
 )
 
-func (s *Server) handleSearch(v *vaultView, w http.ResponseWriter, r *http.Request) {
-	s.refresh(v)
+// handleSearch searches every vault the workspace serves, so one search box reaches a whole set of
+// vaults rather than only the one track web was launched in. ?vault=<name> narrows it back to a
+// single vault. Each hit is labelled with the vault it came from, and vaults that could not be
+// opened are listed under "unavailable" instead of quietly shrinking the result set.
+func (s *Server) handleSearch(w http.ResponseWriter, r *http.Request) {
 	query := strings.TrimSpace(r.URL.Query().Get("q"))
 	limit := parseLimit(r.URL.Query().Get("limit"), 50)
+
+	if name := strings.TrimSpace(r.URL.Query().Get("vault")); name != "" {
+		v, err := s.viewByName(name)
+		if err != nil {
+			writeError(w, err, http.StatusBadRequest)
+			return
+		}
+		results, err := s.searchOne(v, query, limit)
+		if err != nil {
+			writeError(w, err, http.StatusInternalServerError)
+			return
+		}
+		writeJSON(w, map[string]any{"results": results, "unavailable": []vaultInfo{}})
+		return
+	}
+
+	views, unavailable := s.servedViews()
+	if unavailable == nil {
+		unavailable = []vaultInfo{}
+	}
+	for _, v := range views {
+		s.refresh(v)
+	}
+	// One vault needs no federated connection, and this is also the single-vault workspace's path.
+	if len(views) == 1 {
+		results, err := s.searchOne(views[0], query, limit)
+		if err != nil {
+			writeError(w, err, http.StatusInternalServerError)
+			return
+		}
+		writeJSON(w, map[string]any{"results": results, "unavailable": unavailable})
+		return
+	}
+
+	results, err := s.searchAcross(views, query, limit)
+	if err != nil {
+		writeError(w, err, http.StatusInternalServerError)
+		return
+	}
+	writeJSON(w, map[string]any{"results": results, "unavailable": unavailable})
+}
+
+// searchOne is the single-vault search: an empty query lists the most recently updated notes, the
+// same listing the workspace opens with.
+func (s *Server) searchOne(v *vaultView, query string, limit int) ([]store.SearchResult, error) {
+	s.refresh(v)
 	var (
 		results []store.SearchResult
 		err     error
@@ -32,14 +81,52 @@ func (s *Server) handleSearch(v *vaultView, w http.ResponseWriter, r *http.Reque
 		results, err = v.store.SearchScoped(query, limit, store.SearchAll)
 	}
 	if err != nil {
-		writeError(w, err, http.StatusInternalServerError)
-		return
+		return nil, err
+	}
+	addSearchPaths(v, results)
+	if results == nil {
+		results = []store.SearchResult{}
+	}
+	return results, nil
+}
+
+// searchAcross merges every served vault's hits through one federated connection (ADR 0052), then
+// resolves each hit's path and icon against the vault it came from — those are vault-local, so they
+// cannot be filled by the shared query.
+func (s *Server) searchAcross(views []*vaultView, query string, limit int) ([]store.SearchResult, error) {
+	byName := make(map[string]*vaultView, len(views))
+	vaults := make([]store.FederatedVault, len(views))
+	for i, v := range views {
+		vaults[i] = store.FederatedVault{Name: v.name, DBPath: v.cfg.DBPath}
+		byName[v.name] = v
+	}
+	fed, err := store.OpenFederated(vaults)
+	if err != nil {
+		return nil, err
+	}
+	defer fed.Close()
+
+	var results []store.SearchResult
+	if query == "" {
+		results, err = fed.Recent(limit)
+	} else {
+		results, err = fed.Search(query, limit)
+	}
+	if err != nil {
+		return nil, err
+	}
+	for i := range results {
+		v, ok := byName[results[i].Vault]
+		if !ok {
+			continue
+		}
+		results[i].Path = v.cfg.PathForKind(results[i].FileKind, results[i].NoteID)
+		results[i].Icon = v.cfg.NoteIcon(results[i].FileKind, results[i].Tags, results[i].Icon)
 	}
 	if results == nil {
 		results = []store.SearchResult{}
 	}
-	addSearchPaths(v, results)
-	writeJSON(w, map[string]any{"results": results})
+	return results, nil
 }
 
 func (s *Server) handleNotes(v *vaultView, w http.ResponseWriter, r *http.Request) {

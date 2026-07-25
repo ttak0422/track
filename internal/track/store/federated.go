@@ -130,6 +130,35 @@ func (f *Federated) Search(query string, limit int) ([]SearchResult, error) {
 	return f.scanResults(query, args, true)
 }
 
+// Recent is the federated counterpart of SearchRefs for an empty query: every vault's notes merged
+// into one most-recently-updated-first listing, each row labelled with its vault. The trailing vault
+// tiebreak keeps the order deterministic when mtime and id collide across vaults.
+func (f *Federated) Recent(limit int) ([]SearchResult, error) {
+	if limit <= 0 {
+		limit = 50
+	}
+	sub := `SELECT ? AS vault, n.id AS id, n.kind AS kind, n.title AS title, n.mtime AS mtime, n.icon AS icon,
+	   COALESCE((
+	     SELECT group_concat(tag, char(31))
+	     FROM (SELECT tag FROM {p}tags WHERE note_id = n.id ORDER BY tag)
+	   ), '') AS tags
+	 FROM {p}notes n
+	 WHERE n.kind IN ('note', 'journal')`
+
+	var subs []string
+	var args []any
+	for _, v := range f.vaults {
+		subs = append(subs, strings.ReplaceAll(sub, "{p}", v.alias+"."))
+		args = append(args, v.name)
+	}
+	query := "SELECT vault, id, kind, title, mtime, icon, tags FROM (\n" +
+		strings.Join(subs, "\nUNION ALL\n") +
+		"\n) ORDER BY mtime DESC, id DESC, vault LIMIT ?"
+	args = append(args, limit)
+
+	return f.scanResults(query, args, true)
+}
+
 // SearchBodyFTS is the federated counterpart of Store.SearchBodyFTS: each vault's trigram FTS index
 // matches independently and the union orders by bm25 then recency. bm25 scores from different
 // indexes are only approximately comparable (same tokenizer and weights), which is accepted for the
