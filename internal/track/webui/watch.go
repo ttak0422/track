@@ -58,15 +58,25 @@ func (h *eventHub) broadcast(ev serverEvent) {
 	h.mu.Unlock()
 }
 
-func (h *eventHub) broadcastChange() {
-	h.broadcast(serverEvent{name: "change", data: []byte("{}")})
+func (h *eventHub) broadcastChange(vault string) {
+	h.broadcast(serverEvent{name: "change", data: vaultPayload(vault)})
 }
 
-// broadcastData signals that a file under the vault's data/ directory changed. Charts rendered from
+// broadcastData signals that a file under a vault's data/ directory changed. Charts rendered from
 // data.source / overlays[].source depend on those files without the note body changing, so this is a
 // separate event from "change": no reindex happens and the frontend only refreshes rendered charts.
-func (h *eventHub) broadcastData() {
-	h.broadcast(serverEvent{name: "data", data: []byte("{}")})
+func (h *eventHub) broadcastData(vault string) {
+	h.broadcast(serverEvent{name: "data", data: vaultPayload(vault)})
+}
+
+// vaultPayload labels an event with the vault it came from, so a workspace showing several vaults
+// can refresh the one that changed instead of every view it holds.
+func vaultPayload(vault string) []byte {
+	data, err := json.Marshal(map[string]string{"vault": vault})
+	if err != nil {
+		return []byte("{}")
+	}
+	return data
 }
 
 func (h *eventHub) broadcastFollow(state followState) {
@@ -119,10 +129,14 @@ func (s *Server) handleEvents(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
-// startWatch watches the note, journal, and data directories and, on any
-// change, notifies connected clients (reindexing first for note changes). It
-// runs for the life of the process; failures are logged and degrade to no
-// live updates.
+// startWatch watches the active vault's note, journal, and data directories and, on any change,
+// notifies connected clients (reindexing first for note changes). It runs for the life of the
+// process; failures are logged and degrade to no live updates.
+//
+// Only the launch vault is watched. Every other served vault self-heals on read (Server.refresh),
+// which is the same freshness path a cloud sync already relies on.
+// ponytail: one watcher for the launch vault; add per-vault watchers if a second vault ever needs
+// sub-second liveness rather than refresh-on-read.
 func (s *Server) startWatch() {
 	watcher, err := fsnotify.NewWatcher()
 	if err != nil {
@@ -159,13 +173,14 @@ func (s *Server) startWatch() {
 // note under "on this day" for the day it was edited. A bare Full() would only sync mtimes, silently
 // swallowing the staleness so the read-time refresh later sees nothing left to stamp.
 func (s *Server) reconcileAfterChange() {
-	s.reindexMu.Lock()
-	defer s.reindexMu.Unlock()
-	if _, err := index.New(s.cfg, s.store).RefreshIfStale(); err != nil {
+	v := s.active
+	v.reindexMu.Lock()
+	defer v.reindexMu.Unlock()
+	if _, err := index.New(v.cfg, v.store).RefreshIfStale(); err != nil {
 		fmt.Fprintf(os.Stderr, "track web: reindex after change failed: %v\n", err)
 		return
 	}
-	s.events.broadcastChange()
+	s.events.broadcastChange(v.name)
 }
 
 func (s *Server) watchLoop(watcher *fsnotify.Watcher) {
@@ -177,7 +192,7 @@ func (s *Server) watchLoop(watcher *fsnotify.Watcher) {
 	// Each timer coalesces a burst of events into a single broadcast (with a
 	// reconcile first for note changes; data files are not indexed).
 	reindex := func() { s.reconcileAfterChange() }
-	notifyData := func() { s.events.broadcastData() }
+	notifyData := func() { s.events.broadcastData(s.active.name) }
 
 	for {
 		select {

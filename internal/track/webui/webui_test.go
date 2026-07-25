@@ -932,11 +932,11 @@ func TestHomeNoteIDResolvesConfiguredTitle(t *testing.T) {
 		t.Fatal(err)
 	}
 	srv := New(cfg, s)
-	if got := srv.homeNoteID(); got != 100 {
+	if got := srv.active.homeNoteID(); got != 100 {
 		t.Fatalf("homeNoteID = %d, want 100", got)
 	}
 	cfg.WebHome = ""
-	if got := srv.homeNoteID(); got != 0 {
+	if got := srv.active.homeNoteID(); got != 0 {
 		t.Fatalf("unset home should resolve to 0, got %d", got)
 	}
 }

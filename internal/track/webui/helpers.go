@@ -15,25 +15,25 @@ import (
 	"github.com/ttak0422/track/internal/track/store"
 )
 
-func (s *Server) noteByID(id int64) (store.SearchResult, error) {
-	notes, err := s.store.SearchRefs()
-	if err != nil {
-		return store.SearchResult{}, err
-	}
-	for _, n := range notes {
-		if n.NoteID == id {
-			return n, nil
-		}
-	}
-	return store.SearchResult{}, fmt.Errorf("note %d is not indexed", id)
-}
-
-func addSearchPaths(cfg *config.Config, results []store.SearchResult) {
+// addSearchPaths fills the fields a hit needs on the wire: its path inside its own vault, its
+// resolved icon, and the vault label that keeps (vault, id) unambiguous once several vaults are
+// served. The label is the vault's registry name and is omitted for an unregistered active vault,
+// mirroring how an unqualified [[link]] means "this vault".
+func addSearchPaths(v *vaultView, results []store.SearchResult) {
 	for i := range results {
-		results[i].Path = cfg.PathForKind(results[i].FileKind, results[i].NoteID)
+		results[i].Vault = v.name
+		results[i].Path = v.cfg.PathForKind(results[i].FileKind, results[i].NoteID)
 		// The store fills Icon with the per-note sidecar override; resolve it against the config
 		// tag/kind mapping here so an empty override falls back to the mapping (config.NoteIcon).
-		results[i].Icon = cfg.NoteIcon(results[i].FileKind, results[i].Tags, results[i].Icon)
+		results[i].Icon = v.cfg.NoteIcon(results[i].FileKind, results[i].Tags, results[i].Icon)
+	}
+}
+
+// addRefPaths is addSearchPaths for the plain references (backlinks, hierarchy, agenda listings).
+func addRefPaths(v *vaultView, refs []store.NoteRef) {
+	for i := range refs {
+		refs[i].Vault = v.name
+		refs[i].Path = v.cfg.PathForKind(refs[i].FileKind, refs[i].NoteID)
 	}
 }
 
@@ -63,8 +63,8 @@ func desc(a, b int64) int {
 // dashboardData gathers the vault values a ```dashboard block renders from: note titles in the shared
 // recently-updated-first order for the recent widget, and today's journal name for the journal shortcut.
 // Errors are non-fatal — a widget just renders empty — so a dashboard note never fails to load.
-func (s *Server) dashboardData() dashboard.Data {
-	refs, err := s.store.SearchRefs()
+func (v *vaultView) dashboardData() dashboard.Data {
+	refs, err := v.store.SearchRefs()
 	if err != nil {
 		return dashboard.Data{}
 	}
@@ -80,18 +80,18 @@ func (s *Server) dashboardData() dashboard.Data {
 	}
 	return dashboard.Data{
 		RecentTitles: titles,
-		JournalTitle: localDate(time.Now()).Format(s.cfg.JournalDateFormat),
+		JournalTitle: localDate(time.Now()).Format(v.cfg.JournalDateFormat),
 	}
 }
 
 // homeNoteID resolves the configured web.home (a note title or numeric id) to a note id, or 0 when unset
 // or unresolvable. It lets the workspace open a landing note instead of the search hero.
-func (s *Server) homeNoteID() int64 {
-	home := strings.TrimSpace(s.cfg.WebHome)
+func (v *vaultView) homeNoteID() int64 {
+	home := strings.TrimSpace(v.cfg.WebHome)
 	if home == "" {
 		return 0
 	}
-	if ref, found, err := s.store.ResolveTerm(home); err == nil && found {
+	if ref, found, err := v.store.ResolveTerm(home); err == nil && found {
 		return ref.NoteID
 	}
 	if id, err := strconv.ParseInt(home, 10, 64); err == nil {

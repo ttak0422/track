@@ -16,13 +16,20 @@ import (
 	"time"
 
 	"github.com/ttak0422/track/internal/track/config"
-	"github.com/ttak0422/track/internal/track/index"
 	"github.com/ttak0422/track/internal/track/store"
 )
 
 type Server struct {
-	cfg      *config.Config
-	store    *store.Store
+	// active is the vault track web was launched in: the default target of every request and the
+	// only vault the file watcher follows. cfg and store are its config and index, kept as fields
+	// because the shell, palette, and watcher are properties of the launch vault, not of a request.
+	active *vaultView
+	cfg    *config.Config
+	store  *store.Store
+	// views caches the other registered vaults, opened on first use. The workspace reads and writes
+	// across them, so a request names its vault and never inherits the active one by accident.
+	viewsMu  sync.Mutex
+	views    map[string]*vaultView
 	mux      *http.ServeMux
 	webRoot  fs.FS
 	colorCSS string
@@ -31,14 +38,12 @@ type Server struct {
 	session string
 	// bindHost is the non-loopback host the server was asked to listen on (empty for the default
 	// loopback bind); guard admits it alongside the loopback names.
-	bindHost  string
-	events    *eventHub
-	reindexMu sync.Mutex
-	lastStale time.Time
-	ogpMu     sync.Mutex
-	ogpCache  map[string]ogpCacheEntry
-	followMu  sync.Mutex
-	follow    *followState
+	bindHost string
+	events   *eventHub
+	ogpMu    sync.Mutex
+	ogpCache map[string]ogpCacheEntry
+	followMu sync.Mutex
+	follow   *followState
 }
 
 type followState struct {
@@ -61,27 +66,6 @@ const staleCheckInterval = 250 * time.Millisecond
 // immediately instead of waiting for the next cursor event.
 const followStateTTL = 10 * time.Second
 
-// refreshIfStale reconciles the index with the notes on disk before a read, so the web workspace
-// reflects edits made by another process or an external/cloud sync even when no filesystem event
-// arrived. It shares reindexMu with the watcher so the two never reindex concurrently, and notifies
-// connected clients when a reconcile actually changed something.
-func (s *Server) refreshIfStale() {
-	s.reindexMu.Lock()
-	defer s.reindexMu.Unlock()
-	if time.Since(s.lastStale) < staleCheckInterval {
-		return
-	}
-	s.lastStale = time.Now()
-	changed, err := index.New(s.cfg, s.store).RefreshIfStale()
-	if err != nil {
-		fmt.Fprintf(os.Stderr, "track web: refresh-if-stale failed: %v\n", err)
-		return
-	}
-	if changed {
-		s.events.broadcastChange()
-	}
-}
-
 // The frontend ships an ES-module web worker (pdf.js) as a .mjs asset. Browsers only run a module
 // worker when it is served with a JavaScript MIME type, but Go's mime table lacks a .mjs entry on some
 // platforms (e.g. a Linux host with no /etc/mime.types), where it would default to no Content-Type and
@@ -91,7 +75,17 @@ func init() {
 }
 
 func New(cfg *config.Config, s *store.Store) *Server {
-	srv := &Server{cfg: cfg, store: s, mux: http.NewServeMux(), webRoot: embeddedWebRoot, session: newSessionToken(), events: newEventHub()}
+	active := &vaultView{name: activeName(cfg), cfg: cfg, store: s}
+	srv := &Server{
+		active:  active,
+		cfg:     cfg,
+		store:   s,
+		views:   map[string]*vaultView{},
+		mux:     http.NewServeMux(),
+		webRoot: embeddedWebRoot,
+		session: newSessionToken(),
+		events:  newEventHub(),
+	}
 	// A palette is a best-effort cosmetic override; a bad file must not take the workspace down, so we
 	// warn and fall back to the built-in colors rather than failing to start.
 	if css, err := LoadPalette(cfg.WebColorsPath); err != nil {
@@ -150,6 +144,7 @@ func (s *Server) guard(next http.Handler) http.Handler {
 
 func Serve(cfg *config.Config, st *store.Store, addr string) error {
 	srv := New(cfg, st)
+	defer srv.closeViews()
 	if h, _, err := net.SplitHostPort(addr); err == nil {
 		srv.bindHost = h
 	}
@@ -157,23 +152,28 @@ func Serve(cfg *config.Config, st *store.Store, addr string) error {
 	return http.ListenAndServe(addr, srv.Handler())
 }
 
+// routes registers the API. Every endpoint that names a note — by id, by date, or by term — goes
+// through withVault, so the vault it acts on is resolved once at that seam instead of each handler
+// defaulting to the vault the server was launched in. Note ids are vault-local and journal ids
+// collide across vaults outright, so that default would silently read (and write) the wrong file.
 func (s *Server) routes() {
-	s.mux.HandleFunc("/api/search", s.handleSearch)
-	s.mux.HandleFunc("/api/notes", s.handleNotes)
-	s.mux.HandleFunc("/api/activity", s.handleActivity)
-	s.mux.HandleFunc("/api/agenda", s.handleAgenda)
-	s.mux.HandleFunc("/api/journal", s.handleJournal)
-	s.mux.HandleFunc("/api/resolve", s.handleResolve)
-	s.mux.HandleFunc("/api/note", s.handleNote)
-	s.mux.HandleFunc("/api/note/meta", s.handleNoteMeta)
-	s.mux.HandleFunc("/api/tasks", s.handleTasks)
-	s.mux.HandleFunc("/api/task", s.handleTaskSet)
-	s.mux.HandleFunc("/api/render", s.handleRender)
-	s.mux.HandleFunc("/api/viewspec", s.handleViewSpec)
-	s.mux.HandleFunc("/api/asset", s.handleAsset)
+	s.mux.HandleFunc("/api/vaults", s.handleVaults)
+	s.mux.HandleFunc("/api/search", s.withVault(s.handleSearch))
+	s.mux.HandleFunc("/api/notes", s.withVault(s.handleNotes))
+	s.mux.HandleFunc("/api/activity", s.withVault(s.handleActivity))
+	s.mux.HandleFunc("/api/agenda", s.withVault(s.handleAgenda))
+	s.mux.HandleFunc("/api/journal", s.withVault(s.handleJournal))
+	s.mux.HandleFunc("/api/resolve", s.withVault(s.handleResolve))
+	s.mux.HandleFunc("/api/note", s.withVault(s.handleNote))
+	s.mux.HandleFunc("/api/note/meta", s.withVault(s.handleNoteMeta))
+	s.mux.HandleFunc("/api/tasks", s.withVault(s.handleTasks))
+	s.mux.HandleFunc("/api/task", s.withVault(s.handleTaskSet))
+	s.mux.HandleFunc("/api/render", s.withVault(s.handleRender))
+	s.mux.HandleFunc("/api/viewspec", s.withVault(s.handleViewSpec))
+	s.mux.HandleFunc("/api/asset", s.withVault(s.handleAsset))
 	s.mux.HandleFunc("/api/ogp", s.handleOGP)
-	s.mux.HandleFunc("/api/graph/local", s.handleLocalGraph)
-	s.mux.HandleFunc("/api/graph", s.handleGraph)
+	s.mux.HandleFunc("/api/graph/local", s.withVault(s.handleLocalGraph))
+	s.mux.HandleFunc("/api/graph", s.withVault(s.handleGraph))
 	s.mux.HandleFunc("/api/follow", s.handleFollow)
 	s.mux.HandleFunc("/api/events", s.handleEvents)
 	// Everything that is not an API route is served from the embedded frontend build.

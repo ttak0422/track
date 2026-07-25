@@ -33,7 +33,7 @@ func (s *Server) handleFollow(w http.ResponseWriter, r *http.Request) {
 			writeError(w, errors.New("file_kind must be note or journal"), http.StatusBadRequest)
 			return
 		}
-		ref, err := s.noteByID(state.NoteID)
+		ref, err := s.active.noteByID(state.NoteID)
 		if err != nil {
 			writeError(w, err, http.StatusNotFound)
 			return

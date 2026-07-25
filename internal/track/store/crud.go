@@ -19,8 +19,13 @@ type Keyword struct {
 type NoteRef struct {
 	NoteID   int64  `json:"note_id"`
 	FileKind string `json:"file_kind"`
-	Path     string `json:"path,omitempty"`
-	Title    string `json:"title"`
+	// Vault is the registry name of the vault this reference lives in, filled by the serving layer
+	// when it addresses more than one vault (empty for a single vault and for the unregistered
+	// active one). It is the vault half of the (vault, id) identity a reference needs once ids can
+	// repeat across vaults.
+	Vault string `json:"vault,omitempty"`
+	Path  string `json:"path,omitempty"`
+	Title string `json:"title"`
 }
 
 // UpsertNote inserts or updates a note row and replaces its tags in a single transaction.
