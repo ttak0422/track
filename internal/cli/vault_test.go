@@ -4,13 +4,21 @@ import (
 	"encoding/json"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"testing"
 )
 
 // runWithRegistry runs one Run invocation against a machine config whose vaults: registry maps the
-// given names to paths, with the default vault pointed at defaultVault.
+// given names to paths, with the default vault pointed at defaultVault. Each call gets a fresh
+// cache dir; use runWithRegistryCache when a test needs index state to persist across calls the
+// way a real machine's stable cache does.
 func runWithRegistry(t *testing.T, defaultVault string, registry map[string]string, args ...string) (map[string]any, int) {
+	t.Helper()
+	return runWithRegistryCache(t, filepath.Join(t.TempDir(), "cache"), defaultVault, registry, args...)
+}
+
+func runWithRegistryCache(t *testing.T, cacheDir, defaultVault string, registry map[string]string, args ...string) (map[string]any, int) {
 	t.Helper()
 	body := "vaults:\n"
 	for name, path := range registry {
@@ -23,7 +31,7 @@ func runWithRegistry(t *testing.T, defaultVault string, registry map[string]stri
 	t.Setenv("TRACK_CONFIG", configPath)
 	t.Setenv("TRACK_VAULT", defaultVault)
 	t.Setenv("TRACK_DB", "")
-	t.Setenv("TRACK_CACHE_DIR", filepath.Join(t.TempDir(), "cache"))
+	t.Setenv("TRACK_CACHE_DIR", cacheDir)
 	out, code := capture(t, func() int { return Run(args) })
 	decoded := decodeJSON(t, out)
 	return decoded, code
@@ -254,4 +262,62 @@ func TestFederatedSearchAcrossVaults(t *testing.T) {
 	if decoded["unavailable"] != nil {
 		t.Fatalf("scoped search must keep the single-vault shape, got %v", decoded)
 	}
+}
+
+func TestCrossVaultRefsResolveAndBacklinks(t *testing.T) {
+	home := t.TempDir()
+	work := t.TempDir()
+	cache := filepath.Join(t.TempDir(), "cache") // stable across calls, like a real machine
+	registry := map[string]string{"home": home, "work": work}
+
+	// work has the target; home references it as [[work:Target note]].
+	decoded, code := runWithRegistryCache(t, cache, work, registry, "new", "--title", "Target note", "--body", "the target")
+	if code != 0 {
+		t.Fatalf("seed work: %v", decoded)
+	}
+	targetID := int64(decoded["id"].(float64))
+	if _, code := runWithRegistryCache(t, cache, home, registry, "new", "--title", "Pointer", "--body", "see [[work:Target note]]"); code != 0 {
+		t.Fatal("seed home")
+	}
+
+	// resolve crosses: the qualified term resolves to the work vault's note and path.
+	decoded, code = runWithRegistryCache(t, cache, home, registry, "resolve", "--term", "work:Target note")
+	if code != 0 || decoded["found"] != true || decoded["vault"] != "work" {
+		t.Fatalf("qualified resolve failed: %v", decoded)
+	}
+	if int64(decoded["note_id"].(float64)) != targetID {
+		t.Fatalf("resolved wrong note: %v", decoded)
+	}
+	if p := decoded["path"].(string); !strings.HasPrefix(p, canonicalTestPath(t, work)) {
+		t.Fatalf("resolved path should live in work, got %q", p)
+	}
+
+	// A reachable vault without the title is found=false, not an error.
+	decoded, code = runWithRegistryCache(t, cache, home, registry, "resolve", "--term", "work:No such note")
+	if code != 0 || decoded["found"] != false {
+		t.Fatalf("missing title should be found=false: %v", decoded)
+	}
+
+	// backlinks on the target (in work) reports the home note as an external inbound ref.
+	decoded, code = runWithRegistryCache(t, cache, work, registry, "--vault", "work", "backlinks", "--id", decodeID(t, targetID))
+	if code != 0 {
+		t.Fatalf("backlinks failed: %v", decoded)
+	}
+	external := decoded["external"].([]any)
+	if len(external) != 1 {
+		t.Fatalf("want 1 external backlink, got %v", decoded)
+	}
+	ext := external[0].(map[string]any)
+	if ext["vault"] != "home" || ext["title"] != "Pointer" {
+		t.Fatalf("unexpected external backlink: %v", ext)
+	}
+	if len(decoded["unavailable"].([]any)) != 0 {
+		t.Fatalf("both vaults reachable, got unavailable: %v", decoded["unavailable"])
+	}
+}
+
+// decodeID formats an id for CLI args.
+func decodeID(t *testing.T, id int64) string {
+	t.Helper()
+	return strconv.FormatInt(id, 10)
 }

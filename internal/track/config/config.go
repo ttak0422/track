@@ -252,6 +252,21 @@ const DataDirName = "data"
 // the matching resolved values for tests and one-off debugging. When neither the machine config nor
 // TRACK_VAULT sets a vault, it defaults to $HOME/track (ADR 0015).
 func Load() (*Config, error) {
+	return load("")
+}
+
+// LoadAt resolves configuration for a specific vault directory, ignoring the TRACK_VAULT override.
+// Long-lived processes (the LSP server) use it to address another registered vault — reading its
+// vault config and deriving its cache DB — without mutating their own environment the way the CLI's
+// one-shot setenv selection does.
+func LoadAt(vaultPath string) (*Config, error) {
+	if strings.TrimSpace(vaultPath) == "" {
+		return nil, fmt.Errorf("LoadAt: vault path is empty")
+	}
+	return load(vaultPath)
+}
+
+func load(fixedVault string) (*Config, error) {
 	mc, err := loadMachineConfig()
 	if err != nil {
 		return nil, err
@@ -268,9 +283,12 @@ func Load() (*Config, error) {
 		return nil, fmt.Errorf("db_path/TRACK_DB cannot be combined with a vaults: registry (one fixed DB would be shared across vaults); remove it so each vault keeps its own cache index")
 	}
 
-	rawVault := mc.VaultDir
-	if env := os.Getenv("TRACK_VAULT"); env != "" {
-		rawVault = env
+	rawVault := fixedVault
+	if rawVault == "" {
+		rawVault = mc.VaultDir
+		if env := os.Getenv("TRACK_VAULT"); env != "" {
+			rawVault = env
+		}
 	}
 	if rawVault == "" {
 		// With no config_file vault_dir and no TRACK_VAULT, default to $HOME/track (ADR 0015).
