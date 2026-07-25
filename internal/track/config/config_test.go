@@ -347,6 +347,92 @@ func TestLoadRejectsMachineScopeKeysInVaultConfig(t *testing.T) {
 	}
 }
 
+func TestLoadRejectsPathShapedVaultValues(t *testing.T) {
+	// The vault config syncs with the vault and is untrusted: values that feed derived paths must
+	// never escape the vault (extensions -> note paths, journal_date_format -> journal file names,
+	// template specs -> vault-relative reads).
+	cases := map[string]string{
+		"extensions abs":       "extensions: [\"/../evil\"]\n",
+		"extensions no dot":    "extensions: [md]\n",
+		"extensions traversal": "extensions: [\"..md\"]\n",
+		"journal format slash": "journal_date_format: \"../pwn-20060102\"\n",
+		"template abs":         "default_template: /etc/passwd\n",
+		"template traversal":   "journal_template: ../../secrets.txt\n",
+	}
+	for name, vaultCfg := range cases {
+		vault := t.TempDir()
+		configPath := filepath.Join(t.TempDir(), "config.yml")
+		if err := os.WriteFile(configPath, []byte("vault_dir: "+vault+"\n"), 0o644); err != nil {
+			t.Fatal(err)
+		}
+		writeVaultConfig(t, vault, vaultCfg)
+		t.Setenv("TRACK_CONFIG", configPath)
+		t.Setenv("TRACK_VAULT", "")
+		t.Setenv("TRACK_DB", "")
+		t.Setenv("TRACK_CACHE_DIR", t.TempDir())
+
+		if _, err := Load(); err == nil {
+			t.Fatalf("%s: %q must be rejected", name, vaultCfg)
+		}
+	}
+
+	// An in-vault relative template path stays allowed — it cannot leave the vault without "..".
+	vault := t.TempDir()
+	configPath := filepath.Join(t.TempDir(), "config.yml")
+	if err := os.WriteFile(configPath, []byte("vault_dir: "+vault+"\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	writeVaultConfig(t, vault, "default_template: template/10.template.md\n")
+	t.Setenv("TRACK_CONFIG", configPath)
+	t.Setenv("TRACK_VAULT", "")
+	t.Setenv("TRACK_DB", "")
+	t.Setenv("TRACK_CACHE_DIR", t.TempDir())
+	t.Setenv("TRACK_DEFAULT_TEMPLATE", "")
+	cfg, err := Load()
+	if err != nil {
+		t.Fatalf("in-vault relative template must load: %v", err)
+	}
+	if cfg.DefaultTemplate != "template/10.template.md" {
+		t.Fatalf("DefaultTemplate = %q", cfg.DefaultTemplate)
+	}
+}
+
+func TestLoadRejectsSecondYAMLDocument(t *testing.T) {
+	// A second document would otherwise be dropped silently, defeating strict decoding.
+	vault := t.TempDir()
+	configPath := filepath.Join(t.TempDir(), "config.yml")
+	if err := os.WriteFile(configPath, []byte("vault_dir: "+vault+"\n---\ntask_states: []\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("TRACK_CONFIG", configPath)
+	t.Setenv("TRACK_VAULT", "")
+	t.Setenv("TRACK_DB", "")
+	t.Setenv("TRACK_CACHE_DIR", t.TempDir())
+
+	if _, err := Load(); err == nil || !strings.Contains(err.Error(), "single YAML document") {
+		t.Fatalf("multi-document config must be rejected, got %v", err)
+	}
+}
+
+func TestLoadReadsVaultConfigUnderTrackVault(t *testing.T) {
+	// TRACK_VAULT (the Neovim plugin's vault mechanism) must reach the same vault config file.
+	vault := t.TempDir()
+	writeVaultConfig(t, vault, "capture_inbox: EnvVaultInbox\n")
+	t.Setenv("TRACK_CONFIG", filepath.Join(t.TempDir(), "missing.yml"))
+	t.Setenv("TRACK_VAULT", vault)
+	t.Setenv("TRACK_DB", "")
+	t.Setenv("TRACK_CACHE_DIR", t.TempDir())
+	t.Setenv("TRACK_CAPTURE_INBOX", "")
+
+	cfg, err := Load()
+	if err != nil {
+		t.Fatalf("load: %v", err)
+	}
+	if cfg.CaptureInbox != "EnvVaultInbox" {
+		t.Fatalf("CaptureInbox = %q, want EnvVaultInbox", cfg.CaptureInbox)
+	}
+}
+
 func TestLoadVaultConfigOwnsNoteSemantics(t *testing.T) {
 	vault := t.TempDir()
 	configPath := filepath.Join(t.TempDir(), "config.yml")

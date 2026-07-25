@@ -121,7 +121,11 @@ func (ix *Indexer) trashSidecar(id int64, stamp int64) error {
 	if err := os.MkdirAll(ix.cfg.TrashDir(), 0o755); err != nil {
 		return err
 	}
-	return os.Rename(src, filepath.Join(ix.cfg.TrashDir(), fmt.Sprintf("%d-%s", stamp, filepath.Base(src))))
+	err := os.Rename(src, filepath.Join(ix.cfg.TrashDir(), fmt.Sprintf("%d-%s", stamp, filepath.Base(src))))
+	if os.IsNotExist(err) {
+		return nil // a concurrent reindex trashed it between the Stat and the Rename
+	}
+	return err
 }
 
 // RefreshIfStale compares the note and journal files on disk against the indexed mtimes and, when they

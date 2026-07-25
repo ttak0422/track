@@ -23,9 +23,9 @@ const (
 	// IssueMissingSidecar is a note/journal markdown file with no readable sidecar metadata. The normal
 	// create path always writes a sidecar, so a missing one usually means a partially synced vault.
 	IssueMissingSidecar IssueKind = "missing_sidecar"
-	// IssueOrphanSidecar is a sidecar with no matching markdown file in note/ or journal/. A full
-	// reindex moves these into .track/trash; doctor surfaces them first so a sync gap is not mistaken
-	// for a delete.
+	// IssueOrphanSidecar is a sidecar with no matching markdown file in note/ or journal/. When the
+	// note was indexed before its markdown vanished, the next full reindex moves the sidecar into
+	// .track/trash; doctor surfaces orphans first so a sync gap is not mistaken for a delete.
 	IssueOrphanSidecar IssueKind = "orphan_sidecar"
 	// IssueStrayFile is a file under note/ or journal/ that carries a note extension but does not match
 	// the numeric id naming rule, e.g. an OneDrive conflict copy "1781359469000 (conflicted copy).md".

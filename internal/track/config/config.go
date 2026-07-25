@@ -276,6 +276,9 @@ func Load() (*Config, error) {
 	if err != nil {
 		return nil, err
 	}
+	if err := validateVaultConfig(vc); err != nil {
+		return nil, err
+	}
 
 	db := mc.DBPath
 	if env := os.Getenv("TRACK_DB"); env != "" {
@@ -389,6 +392,32 @@ func Load() (*Config, error) {
 	}, nil
 }
 
+// validateVaultConfig rejects vault-config values that could steer a filesystem path outside the
+// vault. The vault config syncs with the vault, so it is untrusted input (ADR 0050): extensions
+// become part of every derived note path, the journal date format becomes the journal's file name,
+// and a template spec may be a vault-relative path — none of them may carry separators upward, "..",
+// or an absolute root. Environment overrides are machine-local and stay unrestricted.
+func validateVaultConfig(vc vaultFileConfig) error {
+	for _, ext := range vc.Extensions {
+		if len(ext) < 2 || !strings.HasPrefix(ext, ".") || strings.ContainsAny(ext, `/\`) || strings.Contains(ext, "..") {
+			return fmt.Errorf("vault config extensions: %q is not a plain %q-style extension", ext, ".md")
+		}
+	}
+	if f := vc.JournalDateFormat; strings.ContainsAny(f, `/\`) || strings.Contains(f, "..") {
+		return fmt.Errorf("vault config journal_date_format: %q must not contain path separators or \"..\" (it becomes the journal file name)", f)
+	}
+	for key, spec := range map[string]string{"default_template": vc.DefaultTemplate, "journal_template": vc.JournalTemplate} {
+		spec = strings.TrimSpace(spec)
+		if spec == "" {
+			continue
+		}
+		if filepath.IsAbs(spec) || strings.Contains(spec, "..") {
+			return fmt.Errorf("vault config %s: %q must be a template name or a vault-relative path without \"..\"", key, spec)
+		}
+	}
+	return nil
+}
+
 // validateProperties rejects a schema entry whose declared type is not a property value type, so a
 // config typo fails loudly at load instead of silently never matching any value.
 func validateProperties(props map[string]PropSpec) error {
@@ -456,7 +485,10 @@ func loadMachineConfig() (machineFileConfig, error) {
 	var cfg machineFileConfig
 	path := ConfigPath()
 	if err := strictDecodeFile(path, &cfg); err != nil {
-		return machineFileConfig{}, fmt.Errorf("%w (vault-scope keys such as task_states, properties, queries, and icons now live in <vault>/.track/config.yml)", err)
+		if isUnknownFieldError(err) {
+			return machineFileConfig{}, fmt.Errorf("%w (vault-scope keys such as task_states, properties, queries, and icons now live in <vault>/.track/config.yml)", err)
+		}
+		return machineFileConfig{}, err
 	}
 	return cfg, nil
 }
@@ -465,14 +497,24 @@ func loadVaultConfig(vaultDir string) (vaultFileConfig, error) {
 	var cfg vaultFileConfig
 	path := VaultConfigPath(vaultDir)
 	if err := strictDecodeFile(path, &cfg); err != nil {
-		return vaultFileConfig{}, fmt.Errorf("%w (machine-scope keys — vault_dir, db_path, cache_dir, embedder, web.theme, web.colors_path — belong in the user config file, never in a vault)", err)
+		if isUnknownFieldError(err) {
+			return vaultFileConfig{}, fmt.Errorf("%w (machine-scope keys — vault_dir, db_path, cache_dir, embedder, web.theme, web.colors_path — belong in the user config file, never in a vault)", err)
+		}
+		return vaultFileConfig{}, err
 	}
 	return cfg, nil
 }
 
+// isUnknownFieldError reports whether a strict-decode error is about an unrecognized key, so the
+// which-file-owns-this-key hint is attached only where it applies — not to read failures or plain
+// YAML syntax errors.
+func isUnknownFieldError(err error) bool {
+	return strings.Contains(err.Error(), "not found in type")
+}
+
 // strictDecodeFile reads a YAML config file into out, rejecting unknown keys so a value placed in the
 // wrong file (or a typo) fails loudly instead of being silently ignored. A missing or empty file is a
-// zero value, not an error.
+// zero value, not an error; a second YAML document is an error, never silently dropped.
 func strictDecodeFile(path string, out any) error {
 	raw, err := os.ReadFile(path)
 	if err != nil {
@@ -485,6 +527,10 @@ func strictDecodeFile(path string, out any) error {
 	dec.KnownFields(true)
 	if err := dec.Decode(out); err != nil && !errors.Is(err, io.EOF) {
 		return fmt.Errorf("parse config %s: %w", path, err)
+	}
+	var extra any
+	if err := dec.Decode(&extra); !errors.Is(err, io.EOF) {
+		return fmt.Errorf("parse config %s: a config file must be a single YAML document", path)
 	}
 	return nil
 }

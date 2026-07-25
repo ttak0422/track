@@ -183,22 +183,24 @@ func TestFullRefusesEmptyScanWithPopulatedIndex(t *testing.T) {
 
 func TestFullReconcilesEmptyScanBelowGuardFloor(t *testing.T) {
 	// `track rm` of a vault's last file leaves a zero scan over a small DB; that must reconcile, not
-	// strand a phantom row behind the guard.
+	// strand phantom rows behind the guard. Uses exactly floor-1 notes to pin the floor from below.
 	cfg, s := setup(t)
-	writeNote(t, cfg, 1, "only", note.Metadata{Title: "Only"})
+	for id := int64(1); id <= emptyScanGuardMin-1; id++ {
+		writeNote(t, cfg, id, "body", note.Metadata{Title: fmt.Sprintf("Note %d", id)})
+	}
 	ix := New(cfg, s)
 	if _, err := ix.Full(); err != nil {
 		t.Fatal(err)
 	}
-	if err := os.Remove(cfg.NotePath(1)); err != nil {
+	if err := os.RemoveAll(cfg.NoteDir()); err != nil {
 		t.Fatal(err)
 	}
 	rep, err := ix.Full()
 	if err != nil {
 		t.Fatalf("full below guard floor: %v", err)
 	}
-	if rep.Deleted != 1 {
-		t.Fatalf("deleted = %d, want 1", rep.Deleted)
+	if rep.Deleted != emptyScanGuardMin-1 {
+		t.Fatalf("deleted = %d, want %d", rep.Deleted, emptyScanGuardMin-1)
 	}
 	notes, _ := s.AllNotes()
 	if len(notes) != 0 {

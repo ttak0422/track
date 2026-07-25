@@ -127,7 +127,7 @@ func cmdSimilar(args []string) int {
 	if !ok {
 		return emit(map[string]any{
 			"embedder": false,
-			"message": "no embedder configured. Set `embedder` in config.yml (or the TRACK_EMBEDDER env) to a " +
+			"message": "no embedder configured. Set `embedder` in the machine config.yml (or the TRACK_EMBEDDER env) to a " +
 				"command that reads a note's text on stdin and prints a JSON array of floats on stdout, e.g. " +
 				"`embedder: track-embed --model all-minilm`. See the CLI help page for details.",
 		})
