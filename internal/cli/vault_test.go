@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 )
 
@@ -186,5 +187,71 @@ func TestMaintenanceSweepsRegistry(t *testing.T) {
 	decoded, code = runWithRegistry(t, defaultVault, registry, "doctor")
 	if code != 0 || len(decoded["vaults"].([]any)) != 3 {
 		t.Fatalf("doctor sweep should report every vault, got %v", decoded)
+	}
+}
+
+func TestFederatedSearchAcrossVaults(t *testing.T) {
+	defaultVault := t.TempDir()
+	work := t.TempDir()
+	missing := filepath.Join(t.TempDir(), "unmounted")
+	registry := map[string]string{"work": work, "gone": missing}
+
+	if _, code := runWithRegistry(t, defaultVault, nil, "new", "--title", "Shared topic home", "--body", "the needle lives here"); code != 0 {
+		t.Fatal("seed default vault")
+	}
+	if _, code := runWithRegistry(t, work, nil, "new", "--title", "Shared topic work", "--body", "another needle body"); code != 0 {
+		t.Fatal("seed work vault")
+	}
+
+	// Title search crosses vaults and labels each hit with its vault name.
+	decoded, code := runWithRegistry(t, defaultVault, registry, "search", "--query", "Shared topic")
+	if code != 0 {
+		t.Fatalf("federated search failed: %v", decoded)
+	}
+	results := decoded["results"].([]any)
+	if len(results) != 2 {
+		t.Fatalf("want hits from both vaults, got %v", results)
+	}
+	byVault := map[string]map[string]any{}
+	for _, r := range results {
+		row := r.(map[string]any)
+		vault, _ := row["vault"].(string)
+		byVault[vault] = row
+	}
+	if byVault[""] == nil || byVault[""]["title"] != "Shared topic home" {
+		t.Fatalf("active vault hit missing or unlabeled: %v", results)
+	}
+	if byVault["work"] == nil || byVault["work"]["title"] != "Shared topic work" {
+		t.Fatalf("work vault hit missing: %v", results)
+	}
+	if p, _ := byVault["work"]["path"].(string); !strings.HasPrefix(p, canonicalTestPath(t, work)) {
+		t.Fatalf("work hit path should resolve inside the work vault, got %q", p)
+	}
+	unavailable := decoded["unavailable"].([]any)
+	if len(unavailable) != 1 || unavailable[0].(map[string]any)["name"] != "gone" {
+		t.Fatalf("unreachable vault should be reported: %v", decoded["unavailable"])
+	}
+
+	// Body search (FTS) crosses too and carries line/snippet from each vault's own files.
+	decoded, _ = runWithRegistry(t, defaultVault, registry, "search", "--query", "needle", "--scope", "body")
+	results = decoded["results"].([]any)
+	if len(results) != 2 {
+		t.Fatalf("want body hits from both vaults, got %v", results)
+	}
+	for _, r := range results {
+		row := r.(map[string]any)
+		if row["line"].(float64) < 1 || row["snippet"] == "" {
+			t.Fatalf("body hit should carry line and snippet: %v", row)
+		}
+	}
+
+	// --vault scopes search back to one vault: single-vault contract, no vault labels.
+	decoded, _ = runWithRegistry(t, defaultVault, registry, "--vault", "work", "search", "--query", "Shared topic")
+	results = decoded["results"].([]any)
+	if len(results) != 1 || results[0].(map[string]any)["vault"] != nil {
+		t.Fatalf("scoped search should be single-vault and unlabeled, got %v", results)
+	}
+	if decoded["unavailable"] != nil {
+		t.Fatalf("scoped search must keep the single-vault shape, got %v", decoded)
 	}
 }

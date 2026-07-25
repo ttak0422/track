@@ -43,11 +43,11 @@ type vaultTarget struct {
 	Path string
 }
 
-// maintenanceTargets decides what a maintenance command (reindex, doctor, refresh-all) operates on.
+// crossVaultTargets decides what a maintenance command (reindex, doctor, refresh-all) operates on.
 // With a --vault selection or no registry it reports single-vault mode (nil targets), keeping the
 // established output contract. Otherwise the registry makes these commands the cross-vault
 // maintenance entry: the active vault (when unregistered) plus every registered vault.
-func maintenanceTargets() ([]vaultTarget, bool, error) {
+func crossVaultTargets() ([]vaultTarget, bool, error) {
 	vaults, err := config.Vaults()
 	if err != nil {
 		return nil, false, err
@@ -151,7 +151,7 @@ func cmdReindex(args []string) int {
 		return fail("parse args: %v", err)
 	}
 
-	targets, cross, err := maintenanceTargets()
+	targets, cross, err := crossVaultTargets()
 	if err != nil {
 		return fail("%v", err)
 	}
@@ -190,7 +190,7 @@ func cmdDoctor(args []string) int {
 		return fail("parse args: %v", err)
 	}
 
-	targets, cross, err := maintenanceTargets()
+	targets, cross, err := crossVaultTargets()
 	if err != nil {
 		return fail("%v", err)
 	}
@@ -259,7 +259,7 @@ func cmdRefreshAll(args []string) int {
 	}
 
 	start := time.Now()
-	targets, cross, err := maintenanceTargets()
+	targets, cross, err := crossVaultTargets()
 	if err != nil {
 		return fail("%v", err)
 	}

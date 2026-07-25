@@ -79,6 +79,20 @@ func cmdSearch(args []string) int {
 		return fail("--query is required")
 	}
 
+	// With a vault registry (and no --vault selection), search crosses the active and every
+	// registered vault: one federated connection, results labeled with their vault.
+	targets, cross, err := crossVaultTargets()
+	if err != nil {
+		return fail("%v", err)
+	}
+	if cross {
+		out, err := federatedSearchResults(targets, *query, *limit, store.SearchScope(*scope))
+		if err != nil {
+			return fail("search: %v", err)
+		}
+		return emit(out)
+	}
+
 	cfg, s, err := open()
 	if err != nil {
 		return fail("%v", err)
