@@ -43,6 +43,22 @@ track append --title "Title" --body "Additional Markdown"
 track append --id 123 --tag project
 ```
 
+## Rich Content in Bodies
+
+Note bodies are more than prose. When the content is structural, prefer the matching construct over a paragraph or an ASCII sketch:
+
+| Construct | Fence / syntax | Use for |
+| --- | --- | --- |
+| Diagrams | ` ```mermaid `, ` ```dot `, ` ```d2 ` | flows, sequences, ER, state machines |
+| Mindmaps | ` ```mindmap ` | indented outline rendered as a mindmap |
+| Charts | ` ```viewspec ` | plots over JSONL data in the vault |
+| Query | ` ```track-query ` | live table/board/gallery/calendar over notes |
+| Dashboard | ` ```dashboard ` | recent/pinned widgets |
+| Babel | ` ```lua :name hello :results output ` | runnable code blocks; results kept in the sidecar, composable via noweb, tangled to files |
+| Embeds | `![alt](url)` alone on a line | YouTube, Google Maps, tweets, PDFs, `assets/` media |
+
+Full syntax lives in `docs/help/{diagrams,mindmaps,charts,query,dashboard,babel,embeds}.md`, also published on the help site.
+
 ## Template-Backed Creation
 
 Create or open templates before using them:
