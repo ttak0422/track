@@ -352,9 +352,6 @@ func TestReindexKeepsMetadataTitleIgnoringBodyH1(t *testing.T) {
 	if !strings.Contains(string(metaContent), "title: Old") {
 		t.Fatalf("expected metadata title to stay Old, got %q", metaContent)
 	}
-	if _, err := os.Stat(vault + "/.track/renames.yaml"); !os.IsNotExist(err) {
-		t.Fatalf("expected no rename history from a body edit, stat err=%v", err)
-	}
 }
 
 func TestReindexResetsLegacyCacheDB(t *testing.T) {
@@ -1355,13 +1352,6 @@ func TestRenameUpdatesTitleAndBacklinks(t *testing.T) {
 	res, code := runIn(t, vault, "resolve", "--term", "New")
 	if code != 0 || res["found"] != true || res["note_id"].(float64) != 100 {
 		t.Fatalf("resolve New failed: %v", res)
-	}
-	renames, err := os.ReadFile(vault + "/.track/renames.yaml")
-	if err != nil {
-		t.Fatal(err)
-	}
-	if !strings.Contains(string(renames), "from: Old") || !strings.Contains(string(renames), "to: New") || !strings.Contains(string(renames), "note_id: 100") {
-		t.Fatalf("expected rename history, got %q", renames)
 	}
 }
 
