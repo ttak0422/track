@@ -8,6 +8,12 @@ Supersedes the no-implicit-vault decision in ADR 0004. The config-file
 resolution from ADR 0004 still stands; only the "fail when unconfigured" part
 is reversed.
 
+The *default* still holds — an unconfigured track means `$HOME/track` — but the
+implicit creation half is superseded by
+[ADR 0063](0063-only-init-creates-a-vault.md): that directory is no longer laid
+down by the first write, because the same branch scaffolded typos and unmounted
+drives. `track init` creates it.
+
 ## Context
 
 ADR 0004 required an explicit vault and made track fail early when neither the

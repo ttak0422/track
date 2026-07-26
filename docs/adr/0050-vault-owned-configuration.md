@@ -1,6 +1,8 @@
 # 0050. Note semantics are vault config; machines keep paths and commands
 
-Status: Accepted
+Status: Accepted. The split stands; only its inventory has shrunk — `db_path` was removed from the
+machine-scope list by [0064](0064-the-index-location-is-always-derived.md), which leaves `cache_dir`
+as the one key naming where the index lands.
 
 ## Context
 
