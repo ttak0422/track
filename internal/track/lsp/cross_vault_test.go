@@ -18,7 +18,7 @@ func setupCrossVault(t *testing.T) (*Server, string) {
 	srv, _ := setupServer(t)
 	t.Setenv("TRACK_CONFIG", filepath.Join(t.TempDir(), "missing.yml"))
 	t.Setenv("TRACK_VAULT", "")
-	t.Setenv("TRACK_DB", "")
+	t.Setenv("TRACK_DB_PATH", "")
 	t.Setenv("TRACK_CACHE_DIR", filepath.Join(t.TempDir(), "cache"))
 
 	work := t.TempDir()

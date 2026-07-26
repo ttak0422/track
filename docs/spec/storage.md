@@ -101,7 +101,7 @@ The rebuildable SQLite index is a cache outside the vault. By default it lives u
 
 `TRACK_CACHE_DIR` overrides the `track` cache directory for tests and one-off runs. The CLI is the only resolver of the cache location: frontends (the Neovim plugin, the web workspace) never compute or export their own cache directory, so every process that opens a vault lands on the same physical `index.db`.
 
-`TRACK_DB` can still point at an explicit database path for debugging or tests. When the machine config registers named vaults (`vaults:`, ADR 0051), `db_path`/`TRACK_DB` is refused: a fixed path would pin every selected vault to the same database file.
+`TRACK_DB_PATH` can still point at an explicit database path for debugging or tests. When the machine config registers named vaults (`vaults:`, ADR 0051), `db_path`/`TRACK_DB_PATH` is refused: a fixed path would pin every selected vault to the same database file.
 
 Cross-vault references (`[[vault:title]]`, ADR 0053) live in each vault's own index as `ext_links` rows keyed by `(vault name, title)` — the target's numeric id is never stored, because ids are vault-local. Inbound cross-vault backlinks are answered by scanning the other registered vaults' databases for rows naming this vault.
 

@@ -199,7 +199,7 @@ const DataDirName = "data"
 // config (<vault>/.track/config.yml) owns the note semantics that travel with the vault. Both files
 // are decoded strictly: a key in the wrong file is a hard error, never a silent fallback.
 //
-// TRACK_CONFIG overrides the machine config path. TRACK_VAULT, TRACK_DB, and TRACK_CACHE_DIR override
+// TRACK_CONFIG overrides the machine config path. TRACK_VAULT, TRACK_DB_PATH, and TRACK_CACHE_DIR override
 // the matching resolved values for tests and one-off debugging. When neither the machine config nor
 // TRACK_VAULT sets a vault, it defaults to $HOME/track (ADR 0015).
 func Load() (*Config, error) {
@@ -230,8 +230,8 @@ func load(fixedVault string) (*Config, error) {
 	if err != nil {
 		return nil, err
 	}
-	if len(mc.Vaults) > 0 && (mc.DBPath != "" || os.Getenv("TRACK_DB") != "") {
-		return nil, fmt.Errorf("db_path/TRACK_DB cannot be combined with a vaults: registry (one fixed DB would be shared across vaults); remove it so each vault keeps its own cache index")
+	if len(mc.Vaults) > 0 && (mc.DBPath != "" || os.Getenv("TRACK_DB_PATH") != "") {
+		return nil, fmt.Errorf("db_path/TRACK_DB_PATH cannot be combined with a vaults: registry (one fixed DB would be shared across vaults); remove it so each vault keeps its own cache index")
 	}
 
 	configured, err := configuredVault(mc, registry)
@@ -273,7 +273,7 @@ func load(fixedVault string) (*Config, error) {
 	}
 
 	db := mc.DBPath
-	if env := os.Getenv("TRACK_DB"); env != "" {
+	if env := os.Getenv("TRACK_DB_PATH"); env != "" {
 		db = env
 	}
 	if db == "" {

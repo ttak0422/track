@@ -30,7 +30,7 @@ func runWithRegistryCache(t *testing.T, cacheDir, defaultVault string, registry 
 	}
 	t.Setenv("TRACK_CONFIG", configPath)
 	t.Setenv("TRACK_VAULT", defaultVault)
-	t.Setenv("TRACK_DB", "")
+	t.Setenv("TRACK_DB_PATH", "")
 	t.Setenv("TRACK_CACHE_DIR", cacheDir)
 	out, code := capture(t, func() int { return Run(args) })
 	decoded := decodeJSON(t, out)
