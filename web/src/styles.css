@@ -90,6 +90,7 @@
 .activity-panel h2,
 .backlinks h3,
 .code-block[data-language]::before,
+.markdown-view .task-table th,
 .ogp-card-site {
   color: var(--muted);
   font-family: var(--font-mono);
@@ -2500,11 +2501,6 @@ textarea.modal-input:focus-visible {
   border-block: none;
   border-bottom: 1px solid var(--line);
   padding: 4px 10px;
-  font-family: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, monospace;
-  font-size: 11px;
-  font-weight: 500;
-  letter-spacing: 0.06em;
-  color: var(--muted);
 }
 
 .task-table-sort {
@@ -2541,7 +2537,7 @@ textarea.modal-input:focus-visible {
 
 .markdown-view .task-row-state {
   display: inline-block;
-  font-family: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, monospace;
+  font-family: var(--font-mono);
   font-size: 11px;
   letter-spacing: 0.06em;
   color: var(--muted);
