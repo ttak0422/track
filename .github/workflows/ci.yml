@@ -10,6 +10,9 @@ jobs:
   test:
     runs-on: ubuntu-latest
     timeout-minutes: 30
+    permissions:
+      contents: read
+      pull-requests: write
 
     steps:
       - name: Checkout
@@ -39,6 +42,7 @@ jobs:
       - name: Go coverage
         run: |
           nix develop --command go tool cover -func=coverage.out >coverage.txt
+          echo "COVERAGE_TOTAL=$(awk 'END { print $3 }' coverage.txt)" >>"$GITHUB_ENV"
           {
             awk 'END { print "**" $3 "** of statements covered" }' coverage.txt
             echo
@@ -50,6 +54,21 @@ jobs:
             echo
             echo "</details>"
           } >>"$GITHUB_STEP_SUMMARY"
+
+      # The per-function table is too big for a comment, so the comment carries the total and links to
+      # the summary that holds the table. Skipped for forks and Dependabot, whose token cannot comment.
+      - name: Comment coverage on the PR
+        if: >-
+          github.event_name == 'pull_request'
+          && github.event.pull_request.head.repo.full_name == github.repository
+          && github.actor != 'dependabot[bot]'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PR: ${{ github.event.pull_request.number }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        run: |
+          gh pr comment "$PR" --edit-last --create-if-none \
+            --body "Go coverage: **$COVERAGE_TOTAL** of statements — [per-function breakdown]($RUN_URL)"
 
       - name: Neovim action-link E2E
         run: |
