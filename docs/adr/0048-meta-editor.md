@@ -20,7 +20,7 @@ engine.
 - **A changed title is a rename, through the existing rename path.** The title is a link keyword,
   so applying a document whose title differs routes through `rename.Do` — the engine rename
   extracted from `track rename` (uniqueness against the index, backlink rewrite in referencing
-  notes, rename history, full reindex) — never a bare sidecar write. An empty `title:` in the
+  notes, full reindex) — never a bare sidecar write. An empty `title:` in the
   document means "leave the title unchanged", so older documents stay valid.
 - **Apply order and atomicity.** Everything validates before anything writes: document syntax and
   unknown keys, sidecar-field rules, and the title-uniqueness pre-check. Then the sidecar fields

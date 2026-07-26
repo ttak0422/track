@@ -5,8 +5,6 @@ import (
 	"strings"
 
 	"github.com/ttak0422/track/internal/track/link"
-	trackrename "github.com/ttak0422/track/internal/track/rename"
-	"github.com/ttak0422/track/internal/track/store"
 	protocol "typefox.dev/lsp"
 )
 
@@ -31,9 +29,6 @@ func (s *Server) codeActions(uri string, rng rangeValue) ([]codeAction, error) {
 			continue
 		}
 		title := ref.Text
-		if action, ok := s.renameRepairAction(uri, text, ref, dict); ok {
-			actions = append(actions, action)
-		}
 		actions = append(actions, codeAction{
 			Title:   fmt.Sprintf("Create note %q", title),
 			Kind:    protocol.QuickFix,
@@ -62,34 +57,6 @@ func (s *Server) renameNoteAction(uri string, rng rangeValue) (codeAction, bool)
 		Title:   fmt.Sprintf("Rename note %q", oldTitle),
 		Kind:    protocol.Refactor,
 		Command: renameNoteLSPCommand(uri, rng.Start, oldTitle),
-	}, true
-}
-
-func (s *Server) renameRepairAction(uri string, text string, ref link.Ref, dict map[string]store.Keyword) (codeAction, bool) {
-	entry, ok, err := trackrename.LatestReachable(s.cfg.RenamesPath(), ref.Text, func(title string) bool {
-		_, ok := dict[title]
-		return ok
-	})
-	if err != nil || !ok {
-		return codeAction{}, false
-	}
-	rng, ok := refKeyRange(text, ref)
-	if !ok {
-		return codeAction{}, false
-	}
-	edit := textEdit{
-		Range:   rng,
-		NewText: entry.To,
-	}
-	return codeAction{
-		Title:       fmt.Sprintf("Rewrite link %q to renamed note %q", ref.Text, entry.To),
-		Kind:        protocol.QuickFix,
-		IsPreferred: true,
-		Edit: &workspaceEdit{
-			Changes: map[documentURI][]textEdit{
-				documentURI(uri): {edit},
-			},
-		},
 	}, true
 }
 

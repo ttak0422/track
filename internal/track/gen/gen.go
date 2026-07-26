@@ -36,11 +36,6 @@ func snapshotDirs() []string {
 	return []string{config.KindNote, config.KindJournal, filepath.Join(".track", "notes")}
 }
 
-// snapshotFiles are the vault-relative single files captured in every generation.
-func snapshotFiles() []string {
-	return []string{filepath.Join(".track", "renames.yaml")}
-}
-
 type state struct {
 	Cursor int `yaml:"cursor"`
 }
@@ -424,11 +419,6 @@ func (m *Manager) snapshot(n int, label string) error {
 			return err
 		}
 	}
-	for _, f := range snapshotFiles() {
-		if err := copyFileIfExists(filepath.Join(m.cfg.VaultDir, f), filepath.Join(dst, f)); err != nil {
-			return err
-		}
-	}
 	raw, err := yaml.Marshal(genMeta{Created: time.Now().Format(time.RFC3339), Label: label})
 	if err != nil {
 		return err
@@ -447,15 +437,6 @@ func (m *Manager) restore(n int) error {
 			return err
 		}
 		if err := copyTree(filepath.Join(src, d), vaultDir); err != nil {
-			return err
-		}
-	}
-	for _, f := range snapshotFiles() {
-		vaultFile := filepath.Join(m.cfg.VaultDir, f)
-		if err := os.Remove(vaultFile); err != nil && !os.IsNotExist(err) {
-			return err
-		}
-		if err := copyFileIfExists(filepath.Join(src, f), vaultFile); err != nil {
 			return err
 		}
 	}
@@ -513,17 +494,6 @@ func treeSums(base string) (map[string]string, error) {
 		if err != nil {
 			return nil, err
 		}
-	}
-	for _, f := range snapshotFiles() {
-		p := filepath.Join(base, f)
-		if _, err := os.Stat(p); err != nil {
-			continue
-		}
-		sum, err := fileSum(p)
-		if err != nil {
-			return nil, err
-		}
-		out[filepath.ToSlash(f)] = sum
 	}
 	return out, nil
 }

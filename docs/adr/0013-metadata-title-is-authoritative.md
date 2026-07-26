@@ -26,4 +26,4 @@ The sidecar `metadata.title` is the only source of a note's title.
 
 Editing a body H1 no longer renames the note or changes the `[[title]]` keyword. Users and agents can save complete Markdown bodies verbatim.
 
-The supported rename path is explicit: `track rename` or LSP rename updates the sidecar title, records `.track/renames.yaml` history, and rewrites backlinks. If a sidecar is missing, track does not reconstruct the title from the body; normal creation paths must create sidecars and backups should include `.track/notes/`.
+The supported rename path is explicit: `track rename` or LSP rename updates the sidecar title and rewrites backlinks (the rename history this once recorded was dropped; see ADR 0057). If a sidecar is missing, track does not reconstruct the title from the body; normal creation paths must create sidecars and backups should include `.track/notes/`.

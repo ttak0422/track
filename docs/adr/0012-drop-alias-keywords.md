@@ -24,4 +24,4 @@ Remove alias keywords. Link resolution keys on note titles only.
 
 The keyword dictionary becomes one-to-one with titles, which removes the title/alias ambiguity and simplifies the store, metadata, index, LSP, and CLI.
 
-Existing `[[alias]]` links stop resolving and show as unresolved. Unlike a title rename, an alias is not recorded in the rename history, so there is no automatic repair suggestion for it. Name variants are now expressed with a display alias (`[[Title|variant]]`) or by standardizing on the title. This is a breaking change, accepted because track is pre-release and aliases were unused in practice.
+Existing `[[alias]]` links stop resolving and show as unresolved. Unlike a title rename, an alias has no backlinks to rewrite, so nothing repairs it automatically. Name variants are now expressed with a display alias (`[[Title|variant]]`) or by standardizing on the title. This is a breaking change, accepted because track is pre-release and aliases were unused in practice.
