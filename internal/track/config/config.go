@@ -199,9 +199,15 @@ const DataDirName = "data"
 // config (<vault>/.track/config.yml) owns the note semantics that travel with the vault. Both files
 // are decoded strictly: a key in the wrong file is a hard error, never a silent fallback.
 //
-// TRACK_CONFIG overrides the machine config path. TRACK_VAULT, TRACK_DB_PATH, and TRACK_CACHE_DIR override
-// the matching resolved values for tests and one-off debugging. When neither the machine config nor
-// TRACK_VAULT sets a vault, it defaults to $HOME/track (ADR 0015).
+// Every configuration key can be overridden from the environment by one rule: TRACK_ plus the key,
+// upper-snake — TRACK_CACHE_DIR sets cache_dir, TRACK_GEN_KEEP sets gen_keep, and TRACK_VAULTS_<NAME>
+// sets one entry of vaults:. Each variable sets exactly the thing it names, so a TRACK_VAULTS_ entry
+// adds (or replaces) one vault and leaves the rest of the registry alone.
+//
+// Two variables sit outside that rule because neither names a key: TRACK_CONFIG is the machine config
+// file itself, and TRACK_VAULT selects the active vault by path — which vault_dir cannot express once
+// a registry exists, since it is refused there. When neither the machine config nor TRACK_VAULT sets a
+// vault, it defaults to $HOME/track (ADR 0015).
 func Load() (*Config, error) {
 	return load("")
 }
@@ -226,11 +232,11 @@ func load(fixedVault string) (*Config, error) {
 	// --vault. A fixed DB path serves exactly one vault, but with a registry the selected vault
 	// changes per invocation — one shared DB would let two vaults silently overwrite each other's
 	// index — so the combination is refused outright.
-	registry, err := resolveVaults(mc)
+	registry, err := resolveVaults(vaultEntries(mc))
 	if err != nil {
 		return nil, err
 	}
-	if len(mc.Vaults) > 0 && (mc.DBPath != "" || os.Getenv("TRACK_DB_PATH") != "") {
+	if len(registry) > 0 && (mc.DBPath != "" || os.Getenv("TRACK_DB_PATH") != "") {
 		return nil, fmt.Errorf("db_path/TRACK_DB_PATH cannot be combined with a vaults: registry (one fixed DB would be shared across vaults); remove it so each vault keeps its own cache index")
 	}
 
@@ -381,7 +387,7 @@ func Vaults() (map[string]string, error) {
 	if err != nil {
 		return nil, err
 	}
-	return resolveVaults(mc)
+	return resolveVaults(vaultEntries(mc))
 }
 
 // resolveVaults validates registry names and expands each path. Paths must be absolute (after ~
@@ -420,15 +426,50 @@ func configuredVault(mc machineFileConfig, registry map[string]string) (string, 
 	return dir, nil
 }
 
-func resolveVaults(mc machineFileConfig) (map[string]string, error) {
-	out := make(map[string]string, len(mc.Vaults))
+// vaultEntries is the registry before validation: the machine config's vaults: map, overlaid with the
+// TRACK_VAULTS_<NAME> environment entries. Each variable sets one entry, the way TRACK_CACHE_DIR sets
+// one key — so an environment entry adds a vault (or replaces the same-named one) and never displaces
+// the rest of the registry.
+//
+// This is what lets a checkout carry a vault. A repository cannot register itself: the registry is
+// machine state, and a synced or cloned vault must never introduce vault paths (ADR 0051). But the
+// shell entering that checkout can say so on the user's behalf — a devshell hook, a Makefile, a
+// direnv .envrc the user allowed — which keeps the naming where consent already lives.
+func vaultEntries(mc machineFileConfig) map[string]string {
+	const prefix = "TRACK_VAULTS_"
+	entries := make(map[string]string, len(mc.Vaults))
+	for name, path := range mc.Vaults {
+		entries[name] = path
+	}
+	for _, kv := range os.Environ() {
+		if !strings.HasPrefix(kv, prefix) {
+			continue
+		}
+		eq := strings.IndexByte(kv, '=')
+		if eq < 0 {
+			continue
+		}
+		// An environment name cannot hold the dash a vault name uses, and a vault name cannot hold an
+		// underscore, so lowercasing and mapping _ to - round-trips without ambiguity.
+		name := strings.ReplaceAll(strings.ToLower(kv[len(prefix):eq]), "_", "-")
+		value := strings.TrimSpace(kv[eq+1:])
+		if name == "" || value == "" {
+			continue
+		}
+		entries[name] = value
+	}
+	return entries
+}
+
+func resolveVaults(vaults map[string]string) (map[string]string, error) {
+	out := make(map[string]string, len(vaults))
 	// One vault, one name. Two names for the same directory would make the vault's identity
 	// ambiguous everywhere a name is reported rather than accepted — which of them labels a search
 	// hit, which one a qualified id carries, which one a cross-vault link is written with — so the
 	// registry refuses it outright instead of every reader having to pick a winner.
-	byPath := make(map[string]string, len(mc.Vaults))
-	for _, name := range sortedNames(mc.Vaults) {
-		path := mc.Vaults[name]
+	byPath := make(map[string]string, len(vaults))
+	for _, name := range sortedNames(vaults) {
+		path := vaults[name]
 		if !vaultNamePattern.MatchString(name) {
 			return nil, fmt.Errorf("vaults: name %q must be lowercase letters, digits, and dashes", name)
 		}
