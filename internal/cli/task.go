@@ -63,8 +63,8 @@ func cmdTaskCycle(args []string) int {
 	if err != nil {
 		return fail("read note: %v", err)
 	}
-	states := task.StatesOrDefault(cfg.TaskStates)
-	cur, ok := task.At(string(raw), *line, states)
+	states := task.States()
+	cur, ok := task.At(string(raw), *line)
 	if !ok {
 		return fail("line %d is not a task checkbox", *line)
 	}
@@ -76,7 +76,7 @@ func cmdTaskCycle(args []string) int {
 		}
 	}
 	if target == "" {
-		return fail("state %q is not in the vault's state set", cur.State)
+		return fail("state %q is not a task state", cur.State)
 	}
 
 	tr, err := note.ApplyTaskState(cfg, notePath, *line, target, time.Now())
@@ -204,7 +204,7 @@ func cmdTasks(args []string) int {
 		if st == "" {
 			continue
 		}
-		if _, ok := task.StateNamed(cfg.TaskStates, st); !ok {
+		if _, ok := task.StateNamed(st); !ok {
 			return fail("unknown task state %q", st)
 		}
 		filter.States = append(filter.States, st)

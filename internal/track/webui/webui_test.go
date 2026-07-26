@@ -1252,10 +1252,11 @@ func TestTaskEndpoints(t *testing.T) {
 	body := "# Board [0/2]\n\n- [ ] alpha [#A]\n- [ ] beta [due:2000-01-02]\n"
 	server, cfg := putNoteSetup(t, 900, "Board", body)
 
-	// GET /api/tasks returns the state set and parsed items.
+	// GET /api/tasks returns the parsed items. The state set is fixed, so it is not on the wire: the
+	// client holds its own copy.
 	tasks := getJSON(t, server.URL+"/api/tasks?id=900")["tasks"].(map[string]any)
-	if states := tasks["states"].([]any); len(states) != 5 {
-		t.Fatalf("expected default 5 states, got %v", states)
+	if _, ok := tasks["states"]; ok {
+		t.Fatalf("the state set must not be served per note: %v", tasks)
 	}
 	items := tasks["items"].([]any)
 	if len(items) != 2 || items[0].(map[string]any)["priority"] != "A" {

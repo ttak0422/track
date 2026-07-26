@@ -18,12 +18,12 @@ emoji tokens.
 ## Decision
 
 - **The box character is the state.** A task is a GFM checkbox item whose bracket character names a
-  state: default set `TODO [ ]`, `DOING [/]`, `WAITING [?]`, `DONE [x]`, `CANCELLED [-]`. This is
+  state: `TODO [ ]`, `DOING [/]`, `WAITING [?]`, `DONE [x]`, `CANCELLED [-]`. This is
   the Obsidian custom-checkbox convention, chosen over Org-style keyword words because it degrades
   gracefully: `- [ ]`/`- [x]` remain standard GFM, other states still render as list items, and no
-  extra token competes with the task text. States are configurable per vault (`task_states`:
-  unique name, unique single-character marker, done-family flag); done-family membership — not a
-  hardcoded state name — drives completion behavior, so custom sets get stamps for free.
+  extra token competes with the task text. The set was configurable per vault (`task_states`) until
+  ADR 0058 fixed it; done-family membership — not a hardcoded state name — drives completion
+  behavior, which is what made the configurable set cheap to support and its removal cheap to make.
 - **Metadata is inline bracket tokens.** `[#A]` priority (Org's syntax verbatim), `[sched:YYYY-MM-DD]`
   and `[due:YYYY-MM-DD]` dates, `[done:YYYY-MM-DD]` completion stamp. One shared token shape
   (`[key:value]`-ish, short, ASCII) rather than Org planning lines (a second line per task does not

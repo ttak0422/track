@@ -91,5 +91,5 @@ func (s *Server) noteTasks(fileKind string, id int64) (task.Set, error) {
 		return task.Set{}, err
 	}
 	body, _, _ := note.SplitLegacyFootmatter(string(raw))
-	return task.NewSet(body, s.cfg.TaskStates), nil
+	return task.NewSet(body), nil
 }

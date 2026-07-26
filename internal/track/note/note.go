@@ -105,7 +105,7 @@ func ParseFile(path string, c *config.Config) (*Note, error) {
 	}
 	return &Note{
 		ID: id, Kind: kind, Path: path, Body: body, Mtime: info.ModTime().Unix(), Meta: meta,
-		Tasks: task.Parse(body, c.TaskStates),
+		Tasks: task.Parse(body),
 	}, nil
 }
 

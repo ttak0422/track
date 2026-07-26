@@ -121,14 +121,7 @@ describe("MarkdownView", () => {
   });
 
   it("wires the badge select by source line, so inline markup does not break it", () => {
-    const tasks = {
-      states: [
-        { name: "TODO", char: " ", done: false },
-        { name: "DOING", char: "/", done: false },
-        { name: "DONE", char: "x", done: true },
-      ],
-      items: [{ line: 1, state: "DOING", done: false, text: "a bold task" }],
-    };
+    const tasks = { items: [{ line: 1, state: "DOING", done: false, text: "a bold task" }] };
     const { container } = renderWithQuery(
       <TaskBoardContext.Provider value={{ noteID: "100", tasks }}>
         <MarkdownView markdown={"- [/] a **bold** task [#A]"} />
