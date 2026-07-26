@@ -9,7 +9,7 @@ import { STATIC_MODE } from "../runtime";
 // when the journal is published.
 export function DayView({ date }: { date: string }) {
   const valid = /^\d{4}-\d{2}-\d{2}$/.test(date);
-  const agendaQuery = useAgendaQuery(date, { enabled: valid });
+  const agendaQuery = useAgendaQuery(date, "", { enabled: valid });
   // Journal titles are the day's yyyyMMdd, so resolving that term finds the published journal.
   const journalQuery = useResolveQuery(STATIC_MODE && valid ? date.replaceAll("-", "") : "");
   const navigate = useNavigate();

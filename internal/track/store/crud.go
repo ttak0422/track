@@ -1,6 +1,8 @@
 package store
 
 import (
+	"strings"
+
 	"github.com/ttak0422/track/internal/track/note"
 )
 
@@ -17,8 +19,13 @@ type Keyword struct {
 type NoteRef struct {
 	NoteID   int64  `json:"note_id"`
 	FileKind string `json:"file_kind"`
-	Path     string `json:"path,omitempty"`
-	Title    string `json:"title"`
+	// Vault is the registry name of the vault this reference lives in, filled by the serving layer
+	// when it addresses more than one vault (empty for a single vault and for the unregistered
+	// active one). It is the vault half of the (vault, id) identity a reference needs once ids can
+	// repeat across vaults.
+	Vault string `json:"vault,omitempty"`
+	Path  string `json:"path,omitempty"`
+	Title string `json:"title"`
 }
 
 // UpsertNote inserts or updates a note row and replaces its tags in a single transaction.
@@ -34,11 +41,11 @@ func (s *Store) UpsertNote(n *note.Note) error {
 		kind = "note"
 	}
 	if _, err := tx.Exec(
-		`INSERT INTO notes (id, kind, title, created, mtime, icon)
-		 VALUES (?, ?, ?, ?, ?, ?)
+		`INSERT INTO notes (id, kind, title, created, mtime, meta_mtime, icon)
+		 VALUES (?, ?, ?, ?, ?, ?, ?)
 		 ON CONFLICT(id) DO UPDATE SET
-		   kind=excluded.kind, title=excluded.title, created=excluded.created, mtime=excluded.mtime, icon=excluded.icon`,
-		n.ID, kind, n.Meta.Title, n.Meta.Created, n.Mtime, n.Meta.Icon,
+		   kind=excluded.kind, title=excluded.title, created=excluded.created, mtime=excluded.mtime, meta_mtime=excluded.meta_mtime, icon=excluded.icon`,
+		n.ID, kind, n.Meta.Title, n.Meta.Created, n.Mtime, n.MetaMtime, n.Meta.Icon,
 	); err != nil {
 		return err
 	}
@@ -179,6 +186,59 @@ func (s *Store) ReplaceLinks(srcID int64, dstIDs []int64) error {
 	return tx.Commit()
 }
 
+// ExtRef is one outgoing cross-vault reference: the registered name of the target vault and the
+// title as written after the colon. The target's numeric id is never stored — ids are vault-local.
+type ExtRef struct {
+	Vault string `json:"vault"`
+	Title string `json:"title"`
+}
+
+// ReplaceExtLinks sets the outgoing cross-vault references for srcID.
+func (s *Store) ReplaceExtLinks(srcID int64, refs []ExtRef) error {
+	tx, err := s.db.Begin()
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
+
+	if _, err := tx.Exec(`DELETE FROM ext_links WHERE src_id = ?`, srcID); err != nil {
+		return err
+	}
+	for _, ref := range refs {
+		if _, err := tx.Exec(`INSERT OR IGNORE INTO ext_links (src_id, vault, title) VALUES (?, ?, ?)`, srcID, ref.Vault, ref.Title); err != nil {
+			return err
+		}
+	}
+	return tx.Commit()
+}
+
+// ExtBacklinks returns the notes in THIS store that reference (one of vaultNames, title) across
+// vaults, most recently updated first — the same ordering as Backlinks. A vault may be registered
+// under exactly one name; the slice shape lets a caller pass none (no registration, no matches).
+func (s *Store) ExtBacklinks(vaultNames []string, title string) ([]NoteRef, error) {
+	if len(vaultNames) == 0 {
+		return nil, nil
+	}
+	placeholders := strings.Repeat("?,", len(vaultNames))
+	args := make([]any, 0, len(vaultNames)+1)
+	for _, name := range vaultNames {
+		args = append(args, name)
+	}
+	args = append(args, title)
+	rows, err := s.db.Query(
+		`SELECT DISTINCT n.id, n.kind, n.title
+		 FROM ext_links e JOIN notes n ON n.id = e.src_id
+		 WHERE e.vault IN (`+placeholders[:len(placeholders)-1]+`) AND e.title = ?
+		 ORDER BY n.mtime DESC, n.id`,
+		args...,
+	)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	return scanNoteRefs(rows)
+}
+
 // Keywords returns the full auto-link dictionary (note titles).
 func (s *Store) Keywords() ([]Keyword, error) {
 	rows, err := s.db.Query(
@@ -202,13 +262,16 @@ func (s *Store) Keywords() ([]Keyword, error) {
 	return out, rows.Err()
 }
 
-// ResolveTerm finds the note a title points to.
+// ResolveTerm finds the note a title points to. Duplicate titles resolve to the lowest id — the one
+// doctor's duplicate-title repair keeps — so resolution is deterministic across rebuilds instead of
+// riding on SQLite's unordered LIMIT 1.
 func (s *Store) ResolveTerm(term string) (NoteRef, bool, error) {
 	var ref NoteRef
 	err := s.db.QueryRow(
 		`SELECT k.note_id, n.kind, n.title
 		 FROM keywords k JOIN notes n ON n.id = k.note_id
-		 WHERE k.term = ? AND n.kind IN ('note', 'journal') LIMIT 1`,
+		 WHERE k.term = ? AND n.kind IN ('note', 'journal')
+		 ORDER BY n.id LIMIT 1`,
 		term,
 	).Scan(&ref.NoteID, &ref.FileKind, &ref.Title)
 	if err != nil {
@@ -265,7 +328,17 @@ func (s *Store) AllNotes() ([]NoteRef, error) {
 
 // NoteMtimes maps note id to stored mtime, used by the indexer to detect changed and deleted files.
 func (s *Store) NoteMtimes() (map[int64]int64, error) {
-	rows, err := s.db.Query(`SELECT id, mtime FROM notes`)
+	return s.mtimeColumn("mtime")
+}
+
+// NoteMetaMtimes maps note id to the stored sidecar mtime (0 when the note had no sidecar), used by
+// the indexer to detect sidecar-only changes such as a synced tag edit.
+func (s *Store) NoteMetaMtimes() (map[int64]int64, error) {
+	return s.mtimeColumn("meta_mtime")
+}
+
+func (s *Store) mtimeColumn(column string) (map[int64]int64, error) {
+	rows, err := s.db.Query(`SELECT id, ` + column + ` FROM notes`)
 	if err != nil {
 		return nil, err
 	}

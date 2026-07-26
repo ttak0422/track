@@ -37,6 +37,10 @@ track search --query "#graph #web Workspace"
 
 Results include note IDs, titles, file kind, paths when available, tags, and body snippets/line numbers for body hits. Search misses return an empty `results` array.
 
+When the machine config registers named vaults (`vaults:`), search crosses the active vault and every registered one; each hit then carries a `vault` name (`""` = the active unregistered vault) and the response adds an `unavailable` array for unreachable vaults. A note id is only unique within its vault, so pass `--vault <name>` (a global flag, any command) when following up on a hit from another vault. `--vault NAME` also scopes the search itself to that one vault.
+
+Notes may reference other vaults as `[[vault:title]]` (the prefix must be a registered vault name). `track resolve --term "vault:title"` resolves such a reference, and `track backlinks` lists inbound cross-vault references under `external` plus unreachable vaults under `unavailable`.
+
 ## Resolve and Read
 
 Resolve an exact title/link term to a note:

@@ -5,7 +5,13 @@ import remarkGfm from "remark-gfm";
 import type { NoteInclude } from "../types";
 import { rehypeBudoux } from "./markdown/budouxEager";
 import { CodeBlock } from "./markdown/CodeBlock";
-import { IncludesContext, MarkdownSourceContext, NoteKindContext, TaskBoardContext } from "./markdown/context";
+import {
+  IncludesContext,
+  MarkdownSourceContext,
+  NoteKindContext,
+  NoteVaultContext,
+  TaskBoardContext,
+} from "./markdown/context";
 import { TaskBoard } from "./markdown/TaskBoard";
 import { Embed } from "./markdown/Embed";
 import { ExternalLink } from "./markdown/ExternalLink";
@@ -34,6 +40,10 @@ import { STATIC_MODE } from "../runtime";
 interface MarkdownViewProps {
   markdown: string;
   kind?: string;
+  // Vault of the note this body belongs to (registry name; "" for the launch vault). Everything the
+  // body refers to lives in that vault, so it is what attachments, links, includes, and chart data
+  // sources resolve against.
+  vault?: string;
   // Resolved ![[...]] includes for this body (ADR 0031), from /api/render live or the static
   // bundle. Absent or empty, include lines render as ordinary text (their [[...]] stays a link).
   includes?: NoteInclude[];
@@ -44,7 +54,7 @@ interface MarkdownViewProps {
 // /api/render (action links flattened); the track-specific construct is [[...]] wiki links (remarkWikiLink).
 // KaTeX is loaded lazily (see ./markdown/math), so a note without math never pulls in its bundle; while a
 // math note's first render waits for that chunk, the "$…$" briefly shows as source, then typesets.
-export function MarkdownView({ markdown, kind = "note", includes }: MarkdownViewProps) {
+export function MarkdownView({ markdown, kind = "note", vault = "", includes }: MarkdownViewProps) {
   const hasMath = looksLikeMath(markdown);
   const [math, setMath] = useState<MathPlugins | null>(() => (hasMath ? mathPluginsIfLoaded() : null));
 
@@ -88,7 +98,8 @@ export function MarkdownView({ markdown, kind = "note", includes }: MarkdownView
 
   return (
     <NoteKindContext.Provider value={kind}>
-      <IncludesContext.Provider value={includes ?? []}>
+      <NoteVaultContext.Provider value={vault}>
+        <IncludesContext.Provider value={includes ?? []}>
         <MarkdownSourceContext.Provider value={markdown}>
           <div className="markdown-view">
             <Markdown remarkPlugins={remarkPlugins} rehypePlugins={rehypePlugins} components={markdownComponents}>
@@ -96,7 +107,8 @@ export function MarkdownView({ markdown, kind = "note", includes }: MarkdownView
             </Markdown>
           </div>
         </MarkdownSourceContext.Provider>
-      </IncludesContext.Provider>
+        </IncludesContext.Provider>
+      </NoteVaultContext.Provider>
     </NoteKindContext.Provider>
   );
 }
@@ -106,6 +118,7 @@ export function MarkdownView({ markdown, kind = "note", includes }: MarkdownView
 // because it renders through MarkdownView recursively — the nested render gets no includes, so an
 // include inside embedded content shows as text, matching the spec's no-recursion rule.
 function IncludeEmbed({ include }: { include: NoteInclude }) {
+  const vault = useContext(NoteVaultContext);
   if (include.error) {
     return <div className="note-include note-include-error">⚠ {include.error}</div>;
   }
@@ -121,7 +134,7 @@ function IncludeEmbed({ include }: { include: NoteInclude }) {
       {/* Reset the task-board context: a ```taskboard fence inside embedded content must not show
           the host note's board. */}
       <TaskBoardContext.Provider value={emptyTaskBoard}>
-        <MarkdownView markdown={include.lines.join("\n")} kind={include.kind ?? "note"} />
+        <MarkdownView markdown={include.lines.join("\n")} kind={include.kind ?? "note"} vault={vault} />
       </TaskBoardContext.Provider>
       {(include.bad_options ?? []).map((bad) => (
         <div key={bad} className="note-include-warning">

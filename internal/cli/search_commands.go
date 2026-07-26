@@ -12,8 +12,10 @@ import (
 
 	"github.com/ttak0422/track/internal/track/config"
 	"github.com/ttak0422/track/internal/track/index"
+	"github.com/ttak0422/track/internal/track/link"
 	"github.com/ttak0422/track/internal/track/note"
 	"github.com/ttak0422/track/internal/track/store"
+	"github.com/ttak0422/track/internal/track/vaultref"
 )
 
 func cmdKeywords(args []string) int {
@@ -56,6 +58,20 @@ func cmdResolve(args []string) int {
 	}
 	defer s.Close()
 
+	// A "vault:title" keyword whose prefix is a registered vault name resolves in that vault.
+	r := vaultref.New(cfg)
+	defer r.Close()
+	if vault, title, ok := link.SplitVaultRef(keyword, r.IsVault); ok {
+		resolved, found, err := r.Resolve(vault, title)
+		if err != nil {
+			return fail("resolve %s:%s: %v", vault, title, err)
+		}
+		if !found {
+			return emit(map[string]any{"found": false, "vault": vault})
+		}
+		return emit(map[string]any{"found": true, "vault": vault, "note_id": resolved.NoteID, "path": resolved.Path})
+	}
+
 	ref, found, err := s.ResolveTerm(keyword)
 	if err != nil {
 		return fail("resolve: %v", err)
@@ -76,6 +92,20 @@ func cmdSearch(args []string) int {
 	}
 	if *query == "" {
 		return fail("--query is required")
+	}
+
+	// With a vault registry (and no --vault selection), search crosses the active and every
+	// registered vault: one federated connection, results labeled with their vault.
+	targets, cross, err := crossVaultTargets()
+	if err != nil {
+		return fail("%v", err)
+	}
+	if cross {
+		out, err := federatedSearchResults(targets, *query, *limit, store.SearchScope(*scope))
+		if err != nil {
+			return fail("search: %v", err)
+		}
+		return emit(out)
 	}
 
 	cfg, s, err := open()
@@ -184,7 +214,28 @@ func cmdBacklinks(args []string) int {
 	for i := range back {
 		back[i].Path = cfg.PathForKind(back[i].FileKind, back[i].NoteID)
 	}
-	return emit(map[string]any{"backlinks": back})
+	out := map[string]any{"backlinks": back}
+
+	// With a registry, inbound references may also live in other vaults as [[name:title]] edges.
+	// They are keyed by this note's title, and a vault that cannot be consulted is reported —
+	// a missing backlink must be distinguishable from a missing vault.
+	if len(cfg.Vaults) > 0 {
+		meta, found, err := note.ReadMetadata(cfg.MetadataPath(noteID))
+		if err == nil && found && meta.Title != "" {
+			r := vaultref.New(cfg)
+			defer r.Close()
+			external, unavailable := r.Inbound(meta.Title)
+			if external == nil {
+				external = []vaultref.ExternalRef{}
+			}
+			if unavailable == nil {
+				unavailable = []vaultref.Unavailable{}
+			}
+			out["external"] = external
+			out["unavailable"] = unavailable
+		}
+	}
+	return emit(out)
 }
 
 // cmdNav prints a note's hierarchy navigation, built from the "up" relation property: the ancestor

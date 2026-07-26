@@ -1,7 +1,7 @@
 import { type ReactNode, useContext } from "react";
 import { Link } from "@tanstack/react-router";
 import { useResolveQuery } from "../../queries";
-import { MarkdownSourceContext } from "./context";
+import { MarkdownSourceContext, NoteVaultContext } from "./context";
 import { headingTree, layoutMindmap, markdownTree, mindmapNodeHeight, type MindmapPlacedNode } from "./mindmap";
 
 interface MindmapDiagramProps {
@@ -66,7 +66,8 @@ function MindmapNode({ node, root }: { node: MindmapPlacedNode; root: boolean })
 }
 
 function WikiMindmapNode({ target, children }: { target: string; children: ReactNode }) {
-  const resolved = useResolveQuery(target);
+  const vault = useContext(NoteVaultContext);
+  const resolved = useResolveQuery(target, vault);
   if (!resolved.data?.found) return children;
   return <Link className="mindmap-link mindmap-wiki-link" to="/notes/$noteId" params={{ noteId: String(resolved.data.note.note_id) }}>{children}</Link>;
 }

@@ -19,16 +19,24 @@ export interface SearchResult extends NoteRef {
   days?: string[];
   // Icon shown beside the title in search results (SearchPanel — the only surface that draws it).
   // Resolved by the engine (config.NoteIcon): a per-note override, then a tag mapping, then a kind
-  // mapping. In a vault the override is the note's sidecar icon and the maps come from the user's config;
-  // in a directory export both come from the published site's site.yml (icons.pages is the override, keyed
-  // by the page's file base name). Empty means no icon.
+  // mapping. The override is the note's sidecar icon; the maps come from the vault config. Empty means
+  // no icon.
   icon?: string;
   line?: number;
   snippet?: string;
 }
 
+// One vault a cross-vault search could not read. Without it a short result list is
+// indistinguishable from "nothing matched there".
+export interface UnavailableVault {
+  name: string;
+  path: string;
+  error?: string;
+}
+
 export interface SearchResponse {
   results: SearchResult[];
+  unavailable?: UnavailableVault[];
 }
 
 export interface NotesResponse {
@@ -130,9 +138,23 @@ export interface NoteDetail extends SearchResult {
   props?: NoteProp[];
 }
 
+// One inbound reference from another vault, written [[vault:title]] there (ADR 0053). It is a
+// separate list because those edges live in the other vaults' indexes, keyed by title rather than id.
+export interface ExternalRef {
+  vault: string;
+  note_id: NoteID;
+  file_kind: FileKind;
+  title: string;
+  path?: string;
+}
+
 export interface NoteResponse {
   note: NoteDetail;
   backlinks: NoteRef[];
+  // Inbound [[vault:title]] references from other vaults, and the vaults that could not be
+  // consulted — a missing backlink must stay distinguishable from a missing vault.
+  external?: ExternalRef[];
+  unavailable?: UnavailableVault[];
   // Hierarchy navigation from the "up" relation property: the ancestor trail (root first) and the
   // notes whose "up" points here. Both live and static responses carry them.
   trail?: NoteRef[];

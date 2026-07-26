@@ -82,32 +82,69 @@ func TestExportSiteRequiresRoot(t *testing.T) {
 	}
 }
 
-// Every vault-mode flag is rejected outright in directory mode, never silently ignored: a directory
-// publishes every .md file in it and lands on the page its own site.yml names, so --root, --id and
-// --calendar can only mean the caller expected a site they are not going to get.
-func TestExportSiteDirRejectsVaultFlags(t *testing.T) {
-	for _, tc := range []struct {
-		name  string
-		flags []string
-		want  string // a word the error must name, so the message points at the real mechanism
-	}{
-		{"root", []string{"--root", "index"}, "site.yml"},
-		{"id", []string{"--id", "1"}, "every .md file"},
-		{"calendar", []string{"--calendar"}, "activity days"},
-	} {
-		t.Run(tc.name, func(t *testing.T) {
-			vault := t.TempDir()
-			src := t.TempDir()
-			if err := os.WriteFile(filepath.Join(src, "index.md"), []byte("# Index\n"), 0o644); err != nil {
-				t.Fatal(err)
-			}
-			args := append([]string{"export-site", "--src", src}, tc.flags...)
-			args = append(args, "--frontend", fakeFrontend(t), "--out", filepath.Join(vault, "site"))
-			out, code := runIn(t, vault, args...)
-			msg, _ := out["error"].(string)
-			if code != 1 || !strings.Contains(msg, tc.want) {
-				t.Fatalf("expected rejection naming %q, got code=%d out=%v", tc.want, code, out)
-			}
-		})
+// A vault that names its landing note needs no --root: a site's front door does not change per
+// deployment, so it belongs with the content (ADR 0049's rule, now applied to vault mode too).
+func TestExportSiteRootDefaultsToVaultHome(t *testing.T) {
+	vault := t.TempDir()
+	if _, code := runIn(t, vault, "new", "--title", "Home", "--id", "100", "--body", "# Home\n"); code != 0 {
+		t.Fatalf("new Home failed")
+	}
+	writeVaultConfig(t, vault, "web:\n  home: Home\n")
+
+	out := filepath.Join(vault, "site")
+	res, code := runIn(t, vault, "export-site", "--frontend", fakeFrontend(t), "--out", out)
+	if code != 0 {
+		t.Fatalf("export-site failed: %v", res)
+	}
+	raw, err := os.ReadFile(filepath.Join(out, "data", "site.json"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	var meta struct {
+		Root string `json:"root"`
+	}
+	if err := json.Unmarshal(raw, &meta); err != nil {
+		t.Fatal(err)
+	}
+	if meta.Root != site.PublishID(100) {
+		t.Fatalf("web.home should have become the site root, got %q", meta.Root)
+	}
+}
+
+// --all is how a vault publishes what a directory published: every note in it, with no id list to
+// keep in step with the vault.
+func TestExportSiteAllPublishesEveryNote(t *testing.T) {
+	vault := t.TempDir()
+	for _, n := range []struct{ id, title string }{{"100", "Home"}, {"200", "Second"}, {"300", "Third"}} {
+		if _, code := runIn(t, vault, "new", "--title", n.title, "--id", n.id, "--body", "# "+n.title+"\n"); code != 0 {
+			t.Fatalf("new %s failed", n.title)
+		}
+	}
+
+	out := filepath.Join(vault, "site")
+	res, code := runIn(t, vault, "export-site", "--all", "--root", "100", "--frontend", fakeFrontend(t), "--out", out)
+	if code != 0 {
+		t.Fatalf("export-site failed: %v", res)
+	}
+	if got := len(res["notes"].([]any)); got != 3 {
+		t.Fatalf("--all should publish the three notes and no journal hub, got %d: %v", got, res)
+	}
+
+	// Saying both "all of them" and "these two" means one of the two was a mistake.
+	res, code = runIn(t, vault, "export-site", "--all", "--id", "200", "--root", "100", "--frontend", fakeFrontend(t), "--out", filepath.Join(vault, "site2"))
+	if code != 1 || !strings.Contains(res["error"].(string), "--all publishes every note") {
+		t.Fatalf("expected --all with --id to be refused, got code=%d out=%v", code, res)
+	}
+}
+
+// writeVaultConfig writes <vault>/.track/config.yml, the vault-scope config (ADR 0050).
+func writeVaultConfig(t *testing.T, vault, body string) {
+	t.Helper()
+	dir := filepath.Join(vault, ".track")
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "config.yml"), []byte(body), 0o644); err != nil {
+		t.Fatal(err)
 	}
 }

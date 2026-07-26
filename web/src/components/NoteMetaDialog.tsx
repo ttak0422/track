@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import { useNoteMetaQuery, useSaveNoteMetaMutation, useUploadAssetMutation } from "../queries";
 import type { NoteID } from "../types";
+import { vaultOf } from "../vaultId";
 
 // NoteMetaDialog edits a note's editable sidecar metadata. The built-in fields get dedicated typed
 // controls — title (a rename on change: backlinks rewritten by the engine), tags, description, a
@@ -11,7 +12,8 @@ import type { NoteID } from "../types";
 export function NoteMetaDialog({ noteID, onClose }: { noteID: NoteID; onClose: () => void }) {
   const meta = useNoteMetaQuery(noteID, { enabled: true });
   const save = useSaveNoteMetaMutation(noteID);
-  const upload = useUploadAssetMutation();
+  // A cover is stored as a vault-relative "assets/<file>" ref, so it must land in the note's vault.
+  const upload = useUploadAssetMutation(vaultOf(noteID));
   const [title, setTitle] = useState("");
   const [tags, setTags] = useState("");
   const [description, setDescription] = useState("");

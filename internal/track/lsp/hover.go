@@ -6,6 +6,7 @@ import (
 
 	"github.com/ttak0422/track/internal/track/link"
 	"github.com/ttak0422/track/internal/track/note"
+	"github.com/ttak0422/track/internal/track/vaultref"
 	protocol "typefox.dev/lsp"
 )
 
@@ -24,6 +25,12 @@ func (s *Server) hover(uri string, pos position) (*hover, error) {
 	for _, ref := range link.Refs(text) {
 		if !refContainsPosition(ref, pos) {
 			continue
+		}
+		if res, vault, detail, state := s.resolveQualified(ref.Text); state != notQualified {
+			return &hover{
+				Contents: markupContent{Kind: protocol.Markdown, Value: s.crossVaultHoverMarkdown(res, vault, detail, state, ref)},
+				Range:    newRange(ref.Line, ref.OpenByte, ref.Line, ref.CloseByte),
+			}, nil
 		}
 		kw, ok := dict[ref.Text]
 		if !ok {
@@ -68,6 +75,26 @@ func (s *Server) noteHoverMarkdown(kind string, id int64, ref link.Ref) (string,
 		out = append(out, "", preview)
 	}
 	return strings.Join(out, "\n"), nil
+}
+
+// crossVaultHoverMarkdown renders the hover for a [[vault:title]] reference: the target's title
+// and vault plus a body preview for a resolved ref, or the reason nothing can be shown. Tags are
+// omitted — they live in the target vault's index and a hover is not worth a second lookup path.
+func (s *Server) crossVaultHoverMarkdown(res vaultref.Resolved, vault, detail string, state crossVaultState, ref link.Ref) string {
+	switch state {
+	case crossMissing:
+		return fmt.Sprintf("Unresolved link: no note titled `%s` in vault `%s`", ref.Text, vault)
+	case crossUnavailable:
+		return fmt.Sprintf("Vault `%s` is unavailable: %s", vault, detail)
+	}
+	out := []string{"### " + res.Title, fmt.Sprintf("`vault: %s`", vault)}
+	if raw, err := s.documentText(uriFromPath(res.Path)); err == nil {
+		body, _, _ := note.SplitLegacyFootmatter(raw)
+		if preview := hoverPreviewMarkdown(body, ref); preview != "" {
+			out = append(out, "", preview)
+		}
+	}
+	return strings.Join(out, "\n")
 }
 
 func (s *Server) tagsForNote(id int64) []string {

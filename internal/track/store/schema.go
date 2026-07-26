@@ -2,21 +2,28 @@ package store
 
 // schemaVersion is bumped whenever the DDL below changes in a way that requires a rebuild.
 // The schema is applied once when the database is fresh.
-// 6: the embeddings table is gone with the semantic related-notes feature; a v5 database still has
-// it, and since the schema is rebuilt rather than migrated the bump is what drops it.
-const schemaVersion = 6
+// 5: both the tasks table (task states) and the embeddings table (similar-notes) are present; each
+// landed independently as "4", so any existing v4 database is missing one of them.
+// 6: notes.meta_mtime records the sidecar file's mtime so RefreshIfStale also detects sidecar-only
+// changes (a tag or title edit synced from another machine never touches the note body's mtime).
+// 7: ext_links records outgoing cross-vault references ([[vault:title]]) as (vault, title) string
+// keys — never the target's numeric id, which belongs to the other vault's namespace.
+// 8: the embeddings table is gone with the semantic related-notes feature (ADR 0056); the schema is
+// rebuilt rather than migrated, so the bump is what drops it from an existing database.
+const schemaVersion = 8
 
 // schemaSQL defines a rebuildable SQLite index, not the primary source of truth.
 // Notes and sidecar metadata on disk are authoritative; this database caches keyword rows and computed links for fast lookup.
-// notes.mtime stores the note file's last modification time as a Unix timestamp and is reserved for change detection and incremental reindexing.
+// notes.mtime stores the note file's last modification time as a Unix timestamp; RefreshIfStale compares it against disk to detect external changes.
 const schemaSQL = `
 CREATE TABLE notes (
-  id      INTEGER PRIMARY KEY,
-  kind    TEXT NOT NULL DEFAULT 'note',
-  title   TEXT NOT NULL DEFAULT '',
-  created TEXT,
-  mtime   INTEGER NOT NULL DEFAULT 0,
-  icon    TEXT NOT NULL DEFAULT ''
+  id         INTEGER PRIMARY KEY,
+  kind       TEXT NOT NULL DEFAULT 'note',
+  title      TEXT NOT NULL DEFAULT '',
+  created    TEXT,
+  mtime      INTEGER NOT NULL DEFAULT 0,
+  meta_mtime INTEGER NOT NULL DEFAULT 0,
+  icon       TEXT NOT NULL DEFAULT ''
 );
 CREATE INDEX IF NOT EXISTS idx_notes_kind_mtime ON notes(kind, mtime);
 
@@ -33,6 +40,18 @@ CREATE TABLE links (
   PRIMARY KEY (src_id, dst_id)
 );
 CREATE INDEX idx_links_dst ON links(dst_id);
+
+-- ext_links holds outgoing cross-vault references ([[vault:title]]) by (vault name, title) string
+-- key. The target's numeric id is deliberately absent: ids are vault-local, so a cross-vault edge
+-- must never carry one. Inbound cross-vault backlinks are found by scanning other vaults' DBs for
+-- rows naming this vault.
+CREATE TABLE ext_links (
+  src_id INTEGER NOT NULL REFERENCES notes(id) ON DELETE CASCADE,
+  vault  TEXT NOT NULL,
+  title  TEXT NOT NULL,
+  PRIMARY KEY (src_id, vault, title)
+);
+CREATE INDEX idx_ext_links_target ON ext_links(vault, title);
 
 CREATE TABLE note_days (
   note_id INTEGER NOT NULL REFERENCES notes(id) ON DELETE CASCADE,

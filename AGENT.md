@@ -16,6 +16,16 @@ Keep this file focused on durable collaboration rules and pointers to shared pro
 - Use `docs/spec/agent-workflows.md` for the stable CLI contract expected by agents and automation.
 - Do not put daily scratch notes, rough ideas, or private agent transcripts in `docs/`; they are not project assets.
 
+## The help vault
+
+`docs/help` is a track vault, not a directory of Markdown (ADR 0059) — it is what `make site`
+publishes. Its pages are `docs/help/note/<id>.md`, with the title in `docs/help/.track/notes/<id>.yaml`
+beside each one, so a page is found by title or id rather than by file name.
+
+Address it without registering it: pass `--path docs/help/note/<id>.md`, which names the vault by
+itself, or prefix anything else with `TRACK_VAULT=docs/help`. Without one of those a command uses the
+default vault — a read comes back empty, and a **write lands in another vault silently**.
+
 ## Development
 
 - This project is under active development: prioritize the best design over backward compatibility, and do not hesitate to make breaking changes when they lead to a better result.

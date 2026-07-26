@@ -6,6 +6,7 @@
 package journal
 
 import (
+	"fmt"
 	"os"
 	"strings"
 	"time"
@@ -37,6 +38,12 @@ type Result struct {
 // sidecar. Whether created or reopened, it self-heals the month and year summary journals that link the
 // day. It indexes nothing; the caller indexes Result.Reindex. day is normalized to the local start of day.
 func Open(cfg *config.Config, day time.Time, opts Options) (Result, error) {
+	// A vault can turn journals off entirely (`journal: false`). One that is checked into a
+	// repository wants that: the journal tree is a record of which days its author worked, written
+	// automatically by indexing rather than by anyone asking for it.
+	if cfg.JournalOff {
+		return Result{}, fmt.Errorf("this vault keeps no journals (journal: false in %s)", config.VaultConfigPath(cfg.VaultDirDisplay))
+	}
 	day = startOfDay(day)
 	name := day.Format(cfg.JournalDateFormat)
 	noteID, err := note.IDFromName(name)

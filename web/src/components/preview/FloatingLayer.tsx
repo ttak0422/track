@@ -29,6 +29,7 @@ export function FloatingLayer() {
             src={win.content.src}
             alt={win.content.alt}
             kind={win.content.noteKind}
+            vault={win.content.vault}
             {...controls}
           />
         );

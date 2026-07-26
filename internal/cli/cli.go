@@ -16,6 +16,11 @@ const Version = "0.1.0"
 
 // Run dispatches a subcommand and returns a process exit code.
 func Run(args []string) int {
+	args, ok := applyVaultFlag(args)
+	if !ok {
+		return 1
+	}
+	applyPathVault(args)
 	if len(args) == 0 {
 		usage()
 		return 1
@@ -91,6 +96,8 @@ func Run(args []string) int {
 		return cmdGraph(rest)
 	case "web":
 		return cmdWeb(rest)
+	case "vault":
+		return cmdVault(rest)
 	case "template":
 		return cmdTemplate(rest)
 	case "babel":
@@ -115,7 +122,14 @@ Notes carry content through these commands; titles are link keywords. Write [[Ti
 link notes. --body is read from stdin when omitted and stdin is piped. Creating or appending indexes
 the note immediately, so reindex is for bulk repair.
 
+Every command accepts a global --vault NAME flag selecting a named vault from the machine config's
+vaults: registry (a name -> path map) for this invocation; without it the default vault is used.
+An unknown name is an error, never a new vault.
+
 Usage:
+  track vault list                      list registered vaults, marking the active one (JSON)
+  track vault current                   print the active vault's name (empty when unregistered) and path (JSON)
+  track vault which <name>              resolve a registered vault name to its path (JSON)
   track new --title <t> [--id <id>] [--template <s>] [--body <s>] [--tag <s>]
                                         create a note (fails if the title exists); --body is saved verbatim
   track open --title <t> [--template <s>] [--body <s>] [--tag <s>]
@@ -211,12 +225,10 @@ Usage:
                                         list stored source block results (JSON)
   track export (--id N | --title S | --path P) [--out F] [--frontmatter] [--exports-default M]
                                         write a note out as Markdown (stdout, or JSON path with --out)
-  track export-site --root N [--id N ...] --frontend <dist> --out <dir>
-                                        publish selected vault notes as a static site (React frontend + JSON bundle) (JSON)
-  track export-site --src <dir> --frontend <dist> --out <dir>
-                                        publish a directory of Markdown files as a static site; its
-                                        entry page comes from <dir>/site.yml "home", else a page
-                                        named index (JSON)
+  track export-site (--all | --id N ...) [--root N] --frontend <dist> --out <dir>
+                                        publish vault notes as a static site (React frontend + JSON
+                                        bundle); --all takes every note, --root defaults to the vault
+                                        config's web.home (JSON)
   track render --spec <spec.json> --out <file> [--renderer echarts]
                                         render a View Spec chart, or a composed article (a spec with
                                         "blocks"), to an HTML file (JSON path);
@@ -260,8 +272,12 @@ func open() (*config.Config, *store.Store, error) {
 	if err != nil {
 		return nil, nil, err
 	}
+	if err := requireVaultDir(cfg); err != nil {
+		return nil, nil, err
+	}
 	// First launch: lay down the vault skeleton when the vault directory does not exist yet. An existing
 	// vault is left to lazy per-kind creation, so this never resurrects directories a user removed.
+	// A --vault selection never reaches this branch: requireVaultDir already refused a missing directory.
 	if _, statErr := os.Stat(cfg.VaultDir); os.IsNotExist(statErr) {
 		if _, err := cfg.EnsureVaultSkeleton(); err != nil {
 			return nil, nil, err

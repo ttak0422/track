@@ -3,7 +3,7 @@ import { initialPreviewBounds, type PreviewAnchor, type PreviewBounds } from "..
 import { InFloatingWindowContext, useFloating } from "../preview/floatingStore";
 import { MediaWindow } from "../preview/MediaWindow";
 import { nextPreviewStackOrder } from "../preview/stack";
-import { NoteKindContext } from "./context";
+import { NoteKindContext, NoteVaultContext } from "./context";
 
 // MediaFrame wraps a media embed (image, PDF) with hover-revealed controls: preview (an enlarged
 // copy floating beside the media, the same FloatingWindow chrome a WikiLink note preview uses via
@@ -21,6 +21,7 @@ export const InLightboxContext = createContext(false);
 export function MediaFrame({ src, alt, children }: { src: string; alt: string; children: ReactNode }) {
   const inFloating = useContext(InFloatingWindowContext);
   const kind = useContext(NoteKindContext);
+  const vault = useContext(NoteVaultContext);
   const floating = useFloating();
   const ref = useRef<HTMLDivElement>(null);
 
@@ -62,7 +63,7 @@ export function MediaFrame({ src, alt, children }: { src: string; alt: string; c
   // Pin promotes the preview popup into the persistent floating layer at its current position/size,
   // same as WikiLink promoting a note preview.
   function promote(bounds: PreviewBounds, collapsed: boolean) {
-    floating.open({ kind: "media", src, alt, noteKind: kind }, bounds, collapsed, true);
+    floating.open({ kind: "media", src, alt, noteKind: kind, vault }, bounds, collapsed, true);
     setOpen(false);
   }
 
@@ -144,6 +145,7 @@ export function MediaFrame({ src, alt, children }: { src: string; alt: string; c
           src={src}
           alt={alt}
           kind={kind}
+          vault={vault}
           initialBounds={initialPreviewBounds(anchor)}
           pinned={false}
           depth={0}

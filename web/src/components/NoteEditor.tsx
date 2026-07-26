@@ -11,12 +11,13 @@ import {
   journalDateFromNote,
   useScrollToHash,
 } from "./noteShared";
-import { getFollowState } from "../api";
+import { getFollowState, normalizeIDs } from "../api";
 import { NoteMetaDialog } from "./NoteMetaDialog";
 import { NoteActionsMenu } from "./NoteActionsMenu";
 import { useDeleteNoteMutation, useNoteQuery, useRenderQuery, useSaveNoteMutation } from "../queries";
 import { useTabs } from "./tabs/tabsStore";
 import type { FollowState, NoteID } from "../types";
+import { vaultOf } from "../vaultId";
 
 interface NoteEditorProps {
   noteID: NoteID;
@@ -57,7 +58,9 @@ export function NoteEditor({ noteID }: NoteEditorProps) {
   const deletedRef = useRef(false);
   // The preview renders server-sanitized Markdown (action links flattened, wiki links kept) rather than
   // the raw body, so track-specific rules live only in the engine. The body is posted as you type.
-  const renderQuery = useRenderQuery(body);
+  // Everything this body refers to lives in the note's own vault.
+  const noteVault = vaultOf(noteID);
+  const renderQuery = useRenderQuery(body, noteVault);
   // The note/body/etag last adopted from disk. Edits are "dirty" relative to this, and
   // saves use this etag so a background reload cannot mask a conflicting change. noteID is
   // tracked so switching notes always reloads, even with unsaved edits to the previous note.
@@ -140,7 +143,9 @@ export function NoteEditor({ noteID }: NoteEditorProps) {
     const source = new EventSource("/api/events");
     source.addEventListener("follow", (event) => {
       try {
-        applyFollowState(JSON.parse(event.data) as FollowState);
+        // Normalize like a fetched response: the event carries (vault, note_id), and a raw parse
+        // would leave a bare id that resolves against the launch vault.
+        applyFollowState(normalizeIDs(JSON.parse(event.data)) as FollowState);
       } catch {
         // Ignore malformed events from an older or interrupted server.
       }
@@ -376,6 +381,7 @@ export function NoteEditor({ noteID }: NoteEditorProps) {
                   <MarkdownView
                     markdown={renderQuery.data?.markdown ?? ""}
                     kind={note.file_kind}
+                    vault={noteVault}
                     includes={renderQuery.data?.includes}
                   />
                 </TaskBoardContext.Provider>
@@ -399,6 +405,8 @@ export function NoteEditor({ noteID }: NoteEditorProps) {
 
       <NoteAside
         backlinks={data.backlinks}
+        external={data.external}
+        unavailable={data.unavailable}
         childNotes={data.children ?? []}
         noteID={noteID}
         journalDate={journalDate}

@@ -20,6 +20,9 @@ export function SearchPanel({ onNavigate, autoFocus }: SearchPanelProps = {}) {
   const search = useSearchQuery(trimmedQuery, 100, { enabled: hasQuery });
   const navigate = useNavigate();
   const results = hasQuery ? (search.data?.results ?? []) : [];
+  // Vaults the server could not read. Saying so is the point: otherwise a search that reached only
+  // half the vaults looks exactly like one that found nothing in the other half.
+  const unavailable = hasQuery ? (search.data?.unavailable ?? []) : [];
   const topResult = results[0];
 
   function onKeyDown(event: React.KeyboardEvent<HTMLInputElement>) {
@@ -48,6 +51,11 @@ export function SearchPanel({ onNavigate, autoFocus }: SearchPanelProps = {}) {
         {hasQuery && search.isError ? <p className="error">{search.error.message}</p> : null}
         {results.map((note) => (
           <SearchResultItem key={note.note_id} note={note} onNavigate={onNavigate} />
+        ))}
+        {unavailable.map((vault) => (
+          <p key={vault.name} className="muted search-unavailable">
+            ⚠ vault “{vault.name}” could not be searched{vault.error ? `: ${vault.error}` : ""}
+          </p>
         ))}
       </div>
     </section>

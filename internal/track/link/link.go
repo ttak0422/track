@@ -111,6 +111,25 @@ func splitAnchor(target string) anchor {
 	return anchor{Key: strings.TrimSpace(target[:i]), Heading: heading, HeadingLevel: level}
 }
 
+// SplitVaultRef splits a resolution key of the form "vault:title" into its cross-vault parts,
+// gated on the registered vault names: the prefix is a qualifier only when isVault reports it as a
+// registered name, so an ordinary title containing a colon keeps resolving locally (doctor lints
+// titles a registered name shadows). The registered-name check keeps this package store-free —
+// callers pass the gate, extraction stays pure. Note that rename's ReplaceRefKey matches the full
+// key text, so renaming a local "title" never rewrites a qualified "vault:title" and vice versa.
+func SplitVaultRef(key string, isVault func(string) bool) (vault, title string, ok bool) {
+	i := strings.IndexByte(key, ':')
+	if i <= 0 || isVault == nil {
+		return "", "", false
+	}
+	name := key[:i]
+	title = strings.TrimSpace(key[i+1:])
+	if title == "" || !isVault(name) {
+		return "", "", false
+	}
+	return name, title, true
+}
+
 // ReplaceRefKey rewrites the resolution key of every [[key]] reference whose key equals oldKey,
 // replacing just the key span with newKey. Heading anchors and "|display" aliases are preserved
 // because only the key portion is touched. It returns the rewritten text and the number of

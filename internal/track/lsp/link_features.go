@@ -24,6 +24,18 @@ func (s *Server) documentLinks(uri string) ([]documentLink, error) {
 	}
 	var links []documentLink
 	for _, ref := range link.Refs(text) {
+		// The qualifier gate runs before the local dictionary, mirroring the indexer.
+		if res, _, _, state := s.resolveQualified(ref.Text); state != notQualified {
+			if state == crossResolved {
+				target := protocol.URI(uriFromPath(res.Path))
+				links = append(links, documentLink{
+					Range:   newRange(ref.Line, ref.StartByte, ref.Line, ref.EndByte),
+					Target:  &target,
+					Tooltip: ref.Text,
+				})
+			}
+			continue
+		}
 		kw, ok := dict[ref.Text]
 		if !ok {
 			continue // unresolved [[...]]: the Lua side highlights these separately
@@ -206,8 +218,19 @@ func (s *Server) refreshDocumentLinks(uri string) error {
 		return err
 	}
 	var dstIDs []int64
+	var ext []store.ExtRef
 	seen := map[int64]bool{}
+	seenExt := map[store.ExtRef]bool{}
 	for _, ref := range link.Refs(text) {
+		// Mirror the indexer: qualified refs become (vault, title) ext edges, never local links.
+		if vault, title, ok := link.SplitVaultRef(ref.Text, s.xv.IsVault); ok {
+			key := store.ExtRef{Vault: vault, Title: title}
+			if !seenExt[key] {
+				seenExt[key] = true
+				ext = append(ext, key)
+			}
+			continue
+		}
 		kw, ok := dict[ref.Text]
 		if !ok || seen[kw.NoteID] {
 			continue
@@ -215,7 +238,10 @@ func (s *Server) refreshDocumentLinks(uri string) error {
 		seen[kw.NoteID] = true
 		dstIDs = append(dstIDs, kw.NoteID)
 	}
-	return s.store.ReplaceLinks(srcID, dstIDs)
+	if err := s.store.ReplaceLinks(srcID, dstIDs); err != nil {
+		return err
+	}
+	return s.store.ReplaceExtLinks(srcID, ext)
 }
 
 func (s *Server) definition(uri string, pos position) (*location, error) {
@@ -234,6 +260,27 @@ func (s *Server) definition(uri string, pos position) (*location, error) {
 	for _, ref := range link.Refs(text) {
 		if !refContainsPosition(ref, pos) {
 			continue
+		}
+		// A qualified ref jumps into its target vault; anchors resolve against that file.
+		if res, _, _, state := s.resolveQualified(ref.Text); state != notQualified {
+			if state != crossResolved {
+				return nil, nil
+			}
+			line := 0
+			if ref.Heading != "" {
+				if l, found := s.headingLine(res.Path, ref.HeadingLevel, ref.Heading); found {
+					line = l
+				}
+			}
+			if ref.BlockID != "" {
+				if l, found := s.blockLine(res.Path, ref.BlockID); found {
+					line = l
+				}
+			}
+			return &location{
+				URI:   protocol.DocumentURI(uriFromPath(res.Path)),
+				Range: newRange(line, 0, line, 0),
+			}, nil
 		}
 		kw, ok := dict[ref.Text]
 		if !ok {

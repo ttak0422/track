@@ -552,3 +552,51 @@ func TestBuildPublishesProps(t *testing.T) {
 		t.Fatalf("props = %+v", props)
 	}
 }
+
+func TestPinnedSlugKeepsAPublishedURL(t *testing.T) {
+	// A note imported from an already-published directory keeps whatever address it is reachable at;
+	// without pinning, its new note id would derive a different slug and every existing link to it
+	// would 404.
+	cfg, s := vaultStore(t)
+	writeVaultNote(t, cfg, 100, "Home", "# Home\n\nsee [[Guide]]\n")
+	writeVaultNote(t, cfg, 200, "Guide", "# Guide\n")
+	const pinned = "LegacyGuideSlug0000000"
+	meta, _, err := note.ReadMetadata(cfg.MetadataPath(200))
+	if err != nil {
+		t.Fatal(err)
+	}
+	meta.Slug = pinned
+	if err := note.WriteMetadata(cfg.MetadataPath(200), meta); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := index.New(cfg, s).Full(); err != nil {
+		t.Fatalf("index: %v", err)
+	}
+
+	out := t.TempDir()
+	if _, err := Build(cfg, s, Options{Root: 100, IDs: []int64{200}}, fakeFrontend(t), out); err != nil {
+		t.Fatalf("build: %v", err)
+	}
+
+	// The page, its data file, and the link pointing at it all use the pinned address.
+	if !fileExists(filepath.Join(out, "data", "note", pinned+".json")) {
+		t.Fatalf("pinned slug should name the note's data file")
+	}
+	if fileExists(filepath.Join(out, "data", "note", PublishID(200)+".json")) {
+		t.Fatalf("the id-derived slug must not be published alongside the pinned one")
+	}
+	// The listing and the link-resolution map — the two places a reader reaches the note through —
+	// both address it by the pinned slug.
+	for _, name := range []string{"notes.json", "resolve.json"} {
+		raw, err := os.ReadFile(filepath.Join(out, "data", name))
+		if err != nil {
+			t.Fatal(err)
+		}
+		if !strings.Contains(string(raw), pinned) {
+			t.Fatalf("%s should address the pinned note by its pinned slug:\n%s", name, raw)
+		}
+		if strings.Contains(string(raw), PublishID(200)) {
+			t.Fatalf("%s still carries the id-derived slug:\n%s", name, raw)
+		}
+	}
+}

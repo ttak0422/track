@@ -103,7 +103,7 @@ func (s *Server) serveIndex(w http.ResponseWriter, r *http.Request) {
 	// The configured web.home note becomes the workspace landing view (the same start-page mechanism the
 	// static export uses). Unset — the common case — leaves this empty, so "/" shows the search hero.
 	startPage := ""
-	if id := s.homeNoteID(); id != 0 {
+	if id := s.active.homeNoteID(); id != 0 {
 		startPage = strconv.FormatInt(id, 10)
 	}
 	html = strings.ReplaceAll(html, "__TRACK_START_PAGE__", startPage)
@@ -117,12 +117,12 @@ func (s *Server) serveIndex(w http.ResponseWriter, r *http.Request) {
 // image/PDF would otherwise render the app inside itself). A legacy "kind" query parameter, if present,
 // is ignored. name is constrained to the assets directory so a note cannot read arbitrary files via
 // "../" traversal.
-func (s *Server) handleAsset(w http.ResponseWriter, r *http.Request) {
+func (s *Server) handleAsset(v *vaultView, w http.ResponseWriter, r *http.Request) {
 	switch r.Method {
 	case http.MethodGet, http.MethodHead:
-		s.serveAsset(w, r)
+		s.serveAsset(v, w, r)
 	case http.MethodPost:
-		s.uploadAsset(w, r)
+		s.uploadAsset(v, w, r)
 	default:
 		writeError(w, fmt.Errorf("method %s not allowed", r.Method), http.StatusMethodNotAllowed)
 	}
@@ -133,7 +133,7 @@ func (s *Server) handleAsset(w http.ResponseWriter, r *http.Request) {
 // engine asset primitive (asset.Store — filesystem-safe name, collision suffix, no traversal), and
 // the stored file must pass the same cover-image gate as ApplyMetaDoc (note.ValidateImageRef), so
 // only vault-legal cover images survive; anything else is removed again and rejected with a 400.
-func (s *Server) uploadAsset(w http.ResponseWriter, r *http.Request) {
+func (s *Server) uploadAsset(v *vaultView, w http.ResponseWriter, r *http.Request) {
 	r.Body = http.MaxBytesReader(w, r.Body, maxAssetUploadBytes)
 	file, header, err := r.FormFile("file")
 	if err != nil {
@@ -146,12 +146,12 @@ func (s *Server) uploadAsset(w http.ResponseWriter, r *http.Request) {
 		writeError(w, fmt.Errorf("read upload: %w", err), http.StatusBadRequest)
 		return
 	}
-	stored, err := asset.Store(s.cfg, header.Filename, data)
+	stored, err := asset.Store(v.cfg, header.Filename, data)
 	if err != nil {
 		writeError(w, err, http.StatusInternalServerError)
 		return
 	}
-	if err := note.ValidateImageRef(s.cfg, stored.Ref); err != nil {
+	if err := note.ValidateImageRef(v.cfg, stored.Ref); err != nil {
 		_ = os.Remove(stored.Path)
 		writeError(w, err, http.StatusBadRequest)
 		return
@@ -159,13 +159,13 @@ func (s *Server) uploadAsset(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, map[string]any{"ref": stored.Ref})
 }
 
-func (s *Server) serveAsset(w http.ResponseWriter, r *http.Request) {
+func (s *Server) serveAsset(v *vaultView, w http.ResponseWriter, r *http.Request) {
 	name := strings.TrimSpace(r.URL.Query().Get("name"))
 	if name == "" {
 		writeError(w, errors.New("name is required"), http.StatusBadRequest)
 		return
 	}
-	dir := s.cfg.AssetsDir()
+	dir := v.cfg.AssetsDir()
 	// Clean the slash path, drop any leading separator, then confirm the result stays inside the assets
 	// directory before touching the filesystem.
 	clean := strings.TrimPrefix(path.Clean("/"+name), "/")

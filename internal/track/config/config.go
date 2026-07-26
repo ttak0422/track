@@ -3,12 +3,16 @@
 package config
 
 import (
+	"bytes"
 	"crypto/sha256"
 	"encoding/hex"
+	"errors"
 	"fmt"
+	"io"
 	"os"
 	"path/filepath"
 	"regexp"
+	"sort"
 	"strconv"
 	"strings"
 	"time"
@@ -44,6 +48,14 @@ type Config struct {
 	JournalTemplate string
 	// GenKeep is how many generation snapshots `gen increment` retains (count-based pruning).
 	GenKeep int
+	// JournalOff and GenOff turn off this vault's daily journals and generation snapshots. They are
+	// named for the disabled state so a zero-value Config keeps the default behaviour, while the
+	// config file reads positively (`journal: false`). A vault that is checked into a repository or
+	// published wants both off: the journal tree records when its author worked, and .track/gen/
+	// carries a full copy of every past state — neither belongs in a public history, and both are
+	// written without anyone asking for them.
+	JournalOff bool
+	GenOff     bool
 	// WebHome names the note (by title or numeric id) that the web workspace opens as its landing view
 	// instead of the search hero. Empty keeps the search home. A dashboard note (one with ```dashboard
 	// widget blocks) is the intended target. Resolved to a note id by the web layer, not here.
@@ -66,6 +78,10 @@ type Config struct {
 	// ArchiveNote is the title of the note `track archive` moves subtrees into, with "{{year}}"
 	// substituted for the current year so archives partition per year (e.g. "Archive 2026").
 	ArchiveNote string
+	// Vaults is the machine config's named vault registry (name -> absolute path, symlinks intact).
+	// Engine layers use the names as the cross-vault reference gate: a [[name:title]] prefix is a
+	// vault qualifier only when name is registered here. Empty when no registry is configured.
+	Vaults map[string]string
 }
 
 // IconMap holds the tag→icon and kind→icon lookups resolved from config. Both are optional; an unset map
@@ -78,9 +94,7 @@ type IconMap struct {
 // NoteIcon resolves the icon shown beside a note title. A non-empty per-note override (the sidecar's
 // Metadata.Icon) always wins; otherwise the first tag with a mapping (tags are checked in the order they
 // are stored) is used, then the note kind's mapping, then "" for no icon. Keeping this on Config means
-// every surface resolves an icon the same way: the live workspace's search, the vault export, and the
-// directory export, which calls it with a published site's own icon maps and, as the override, that
-// site's pages entry for the page (see site.BuildDir).
+// every surface resolves an icon the same way: the live workspace's search and the static export.
 func (c *Config) NoteIcon(kind string, tags []string, override string) string {
 	if override != "" {
 		return override
@@ -104,30 +118,52 @@ type PropSpec struct {
 	Values []string `yaml:"values"`
 }
 
-type fileConfig struct {
-	VaultDir          string              `yaml:"vault_dir"`
-	DBPath            string              `yaml:"db_path"`
-	CacheDir          string              `yaml:"cache_dir"`
+// machineFileConfig is the user config file (~/.config/track/config.yml or TRACK_CONFIG): it owns the
+// machine and the user — where the vault, cache, and database live, and how the local web UI looks. Note semantics belong to the vault
+// config instead (see vaultFileConfig); a vault-scope key here is a hard error so the split stays real.
+type machineFileConfig struct {
+	VaultDir     string           `yaml:"vault_dir"`
+	DefaultVault string           `yaml:"default_vault"`
+	DBPath       string           `yaml:"db_path"`
+	CacheDir     string           `yaml:"cache_dir"`
+	Web          machineWebConfig `yaml:"web"`
+	// Vaults is the named vault registry (name -> path) behind the global --vault flag and the
+	// `track vault` subcommands. It lives in the machine config only: which vaults exist on this
+	// machine is machine state, and a synced vault must never introduce new vault paths.
+	Vaults map[string]string `yaml:"vaults"`
+}
+
+// vaultFileConfig is <vault>/.track/config.yml: the note semantics a vault carries with it — id/date
+// formats, task states, property schema, saved queries, icons, templates, capture targets. Path and
+// command values are deliberately excluded: a cloned or synced vault must never decide which commands
+// run on this machine or where its index lives, so those keys are a hard error here.
+type vaultFileConfig struct {
 	Extensions        []string            `yaml:"extensions"`
 	DateFormat        string              `yaml:"date_format"`
 	JournalDateFormat string              `yaml:"journal_date_format"`
 	DefaultTemplate   string              `yaml:"default_template"`
 	JournalTemplate   string              `yaml:"journal_template"`
 	GenKeep           int                 `yaml:"gen_keep"`
+	Journal           *bool               `yaml:"journal"`
+	Gen               *bool               `yaml:"gen"`
 	Properties        map[string]PropSpec `yaml:"properties"`
 	Queries           map[string]string   `yaml:"queries"`
 	CaptureInbox      string              `yaml:"capture_inbox"`
 	ArchiveNote       string              `yaml:"archive_note"`
-	Web               webFileConfig       `yaml:"web"`
+	Web               vaultWebConfig      `yaml:"web"`
 	Icons             iconsFileConfig     `yaml:"icons"`
 }
 
-// webFileConfig holds web-only settings read from config.yml. The colorscheme is kept out of this file:
-// colors_path points to a separate palette file (see webui.LoadPalette) so the palette can be edited
-// and shared independently of the main config.
-type webFileConfig struct {
+// machineWebConfig is the machine config's `web:` block: how the web UI looks on this machine. The
+// colorscheme is kept out of the config file itself: colors_path points to a separate palette file
+// (see webui.LoadPalette) so the palette can be edited and shared independently of the main config.
+type machineWebConfig struct {
 	Theme      string `yaml:"theme"`
 	ColorsPath string `yaml:"colors_path"`
+}
+
+// vaultWebConfig is the vault config's `web:` block: what the workspace shows for this vault.
+type vaultWebConfig struct {
 	// Home names the landing note (title or numeric id) the workspace opens instead of the search hero.
 	Home string `yaml:"home"`
 }
@@ -155,28 +191,69 @@ const AssetsDirName = "assets"
 // source of truth (track keeps no separate data store). A View Spec references them by path.
 const DataDirName = "data"
 
-// Load resolves configuration from the fixed user config file, with environment overrides for tests
-// and one-off debugging. The default file is ~/.config/track/config.yml on XDG-style systems, or the
-// platform user config equivalent.
+// Load resolves configuration from two files with disjoint key ownership: the machine config (the
+// fixed user config file, ~/.config/track/config.yml or the platform equivalent) owns machine and
+// user values — vault_dir, db_path, cache_dir, web.theme, web.colors_path — and the vault
+// config (<vault>/.track/config.yml) owns the note semantics that travel with the vault. Both files
+// are decoded strictly: a key in the wrong file is a hard error, never a silent fallback.
 //
-// TRACK_CONFIG overrides the config file path. TRACK_VAULT, TRACK_DB, and TRACK_CACHE_DIR override
-// the matching resolved values. When neither the config file nor TRACK_VAULT sets a vault, it
-// defaults to $HOME/track (ADR 0015).
+// Every configuration key can be overridden from the environment by one rule: TRACK_ plus the key,
+// upper-snake — TRACK_CACHE_DIR sets cache_dir, TRACK_GEN_KEEP sets gen_keep, and TRACK_VAULTS_<NAME>
+// sets one entry of vaults:. Each variable sets exactly the thing it names, so a TRACK_VAULTS_ entry
+// adds (or replaces) one vault and leaves the rest of the registry alone.
+//
+// Two variables sit outside that rule because neither names a key: TRACK_CONFIG is the machine config
+// file itself, and TRACK_VAULT selects the active vault by path — which vault_dir cannot express once
+// a registry exists, since it is refused there. When neither the machine config nor TRACK_VAULT sets a
+// vault, it defaults to $HOME/track (ADR 0015).
 func Load() (*Config, error) {
-	fc, err := loadFileConfig()
+	return load("")
+}
+
+// LoadAt resolves configuration for a specific vault directory, ignoring the TRACK_VAULT override.
+// Long-lived processes (the LSP server) use it to address another registered vault — reading its
+// vault config and deriving its cache DB — without mutating their own environment the way the CLI's
+// one-shot setenv selection does.
+func LoadAt(vaultPath string) (*Config, error) {
+	if strings.TrimSpace(vaultPath) == "" {
+		return nil, fmt.Errorf("LoadAt: vault path is empty")
+	}
+	return load(vaultPath)
+}
+
+func load(fixedVault string) (*Config, error) {
+	mc, err := loadMachineConfig()
 	if err != nil {
 		return nil, err
 	}
+	// Validate the registry on every load so a malformed entry fails loudly now, not on the first
+	// --vault. A fixed DB path serves exactly one vault, but with a registry the selected vault
+	// changes per invocation — one shared DB would let two vaults silently overwrite each other's
+	// index — so the combination is refused outright.
+	registry, err := resolveVaults(vaultEntries(mc))
+	if err != nil {
+		return nil, err
+	}
+	if len(registry) > 0 && (mc.DBPath != "" || os.Getenv("TRACK_DB_PATH") != "") {
+		return nil, fmt.Errorf("db_path/TRACK_DB_PATH cannot be combined with a vaults: registry (one fixed DB would be shared across vaults); remove it so each vault keeps its own cache index")
+	}
 
-	rawVault := fc.VaultDir
-	if env := os.Getenv("TRACK_VAULT"); env != "" {
-		rawVault = env
+	configured, err := configuredVault(mc, registry)
+	if err != nil {
+		return nil, err
+	}
+	rawVault := fixedVault
+	if rawVault == "" {
+		rawVault = configured
+		if env := os.Getenv("TRACK_VAULT"); env != "" {
+			rawVault = env
+		}
 	}
 	if rawVault == "" {
-		// With no config_file vault_dir and no TRACK_VAULT, default to $HOME/track (ADR 0015).
+		// With nothing configured and no TRACK_VAULT, default to $HOME/track (ADR 0015).
 		home, err := os.UserHomeDir()
 		if err != nil {
-			return nil, fmt.Errorf("vault_dir is unset and the home directory is unavailable: %w", err)
+			return nil, fmt.Errorf("no vault is configured and the home directory is unavailable: %w", err)
 		}
 		rawVault = filepath.Join(home, "track")
 	}
@@ -191,12 +268,20 @@ func Load() (*Config, error) {
 		return nil, err
 	}
 
-	db := fc.DBPath
-	if env := os.Getenv("TRACK_DB"); env != "" {
+	vc, err := loadVaultConfig(vault)
+	if err != nil {
+		return nil, err
+	}
+	if err := validateVaultConfig(vc); err != nil {
+		return nil, err
+	}
+
+	db := mc.DBPath
+	if env := os.Getenv("TRACK_DB_PATH"); env != "" {
 		db = env
 	}
 	if db == "" {
-		cacheDir := fc.CacheDir
+		cacheDir := mc.CacheDir
 		if env := os.Getenv("TRACK_CACHE_DIR"); env != "" {
 			cacheDir = env
 		}
@@ -213,29 +298,29 @@ func Load() (*Config, error) {
 		db = expandHome(db)
 	}
 
-	extensions := fc.Extensions
+	extensions := vc.Extensions
 	if len(extensions) == 0 {
 		extensions = []string{".md"}
 	}
-	dateFormat := fc.DateFormat
+	dateFormat := vc.DateFormat
 	if dateFormat == "" {
 		dateFormat = "2006-01-02"
 	}
-	journalDateFormat := fc.JournalDateFormat
+	journalDateFormat := vc.JournalDateFormat
 	if journalDateFormat == "" {
 		journalDateFormat = "20060102"
 	}
 
-	defaultTemplate := fc.DefaultTemplate
+	defaultTemplate := vc.DefaultTemplate
 	if env := os.Getenv("TRACK_DEFAULT_TEMPLATE"); env != "" {
 		defaultTemplate = env
 	}
-	journalTemplate := fc.JournalTemplate
+	journalTemplate := vc.JournalTemplate
 	if env := os.Getenv("TRACK_JOURNAL_TEMPLATE"); env != "" {
 		journalTemplate = env
 	}
 
-	genKeep := fc.GenKeep
+	genKeep := vc.GenKeep
 	if env := os.Getenv("TRACK_GEN_KEEP"); env != "" {
 		if n, err := strconv.Atoi(env); err == nil {
 			genKeep = n
@@ -245,18 +330,18 @@ func Load() (*Config, error) {
 		genKeep = 10
 	}
 
-	if err := validateProperties(fc.Properties); err != nil {
+	if err := validateProperties(vc.Properties); err != nil {
 		return nil, err
 	}
 
-	captureInbox := fc.CaptureInbox
+	captureInbox := vc.CaptureInbox
 	if env := os.Getenv("TRACK_CAPTURE_INBOX"); env != "" {
 		captureInbox = env
 	}
 	if strings.TrimSpace(captureInbox) == "" {
 		captureInbox = "Inbox"
 	}
-	archiveNote := fc.ArchiveNote
+	archiveNote := vc.ArchiveNote
 	if env := os.Getenv("TRACK_ARCHIVE_NOTE"); env != "" {
 		archiveNote = env
 	}
@@ -271,19 +356,182 @@ func Load() (*Config, error) {
 		DateFormat:        dateFormat,
 		JournalDateFormat: journalDateFormat,
 		BabelLanguages:    loadBabelLanguages(),
-		WebTheme:          normalizeWebTheme(fc.Web.Theme),
-		WebColorsPath:     resolveColorsPath(fc.Web.ColorsPath),
+		WebTheme:          normalizeWebTheme(mc.Web.Theme),
+		WebColorsPath:     resolveColorsPath(mc.Web.ColorsPath),
 		VaultDirDisplay:   displayVault,
 		DefaultTemplate:   defaultTemplate,
 		JournalTemplate:   journalTemplate,
 		GenKeep:           genKeep,
-		WebHome:           strings.TrimSpace(fc.Web.Home),
-		Icons:             IconMap{Tags: fc.Icons.Tags, Kinds: fc.Icons.Kinds},
-		Properties:        fc.Properties,
-		Queries:           fc.Queries,
+		JournalOff:        vc.Journal != nil && !*vc.Journal,
+		GenOff:            vc.Gen != nil && !*vc.Gen,
+		WebHome:           strings.TrimSpace(vc.Web.Home),
+		Icons:             IconMap{Tags: vc.Icons.Tags, Kinds: vc.Icons.Kinds},
+		Properties:        vc.Properties,
+		Queries:           vc.Queries,
 		CaptureInbox:      captureInbox,
 		ArchiveNote:       archiveNote,
+		Vaults:            registry,
 	}, nil
+}
+
+// vaultNamePattern constrains registry names: lowercase ASCII letters, digits, and dashes, so a name
+// can later prefix a cross-vault link (vault:title) and never needs quoting or escaping.
+var vaultNamePattern = regexp.MustCompile(`^[a-z0-9-]+$`)
+
+// Vaults returns the named vault registry from the machine config (name -> absolute path, symlinks
+// intact). An unset registry is an empty map, never an error.
+func Vaults() (map[string]string, error) {
+	mc, err := loadMachineConfig()
+	if err != nil {
+		return nil, err
+	}
+	return resolveVaults(vaultEntries(mc))
+}
+
+// resolveVaults validates registry names and expands each path. Paths must be absolute (after ~
+// expansion): resolving a vault relative to the current directory would make the same name mean a
+// different vault per invocation.
+// configuredVault returns the vault path the machine config selects, or "" when it selects none.
+//
+// A vault is designated one way at a time. Without a registry there are no names, so `vault_dir`
+// gives a path. With a registry every vault already has a name and a path, so `default_vault` picks
+// one by name and the path is written once, under `vaults:`. Allowing both would mean writing the
+// same vault twice — and, because a bare word is a valid relative path, a name typed into
+// `vault_dir` would silently resolve under the working directory and get a vault skeleton laid down
+// there (the typo-creates-a-vault failure ADR 0004 exists to prevent).
+func configuredVault(mc machineFileConfig, registry map[string]string) (string, error) {
+	name := strings.TrimSpace(mc.DefaultVault)
+	dir := strings.TrimSpace(mc.VaultDir)
+	if len(registry) > 0 {
+		if dir != "" {
+			return "", fmt.Errorf("vault_dir cannot be combined with a vaults: registry; name the active vault with default_vault instead")
+		}
+		if name == "" {
+			return "", nil
+		}
+		path, ok := registry[name]
+		if !ok {
+			return "", fmt.Errorf("default_vault: %q is not in vaults: (have %s)", name, strings.Join(sortedNames(registry), ", "))
+		}
+		return path, nil
+	}
+	if name != "" {
+		return "", fmt.Errorf("default_vault: %q names a vault, but no vaults: registry is configured", name)
+	}
+	if dir != "" && !filepath.IsAbs(expandHome(dir)) {
+		return "", fmt.Errorf("vault_dir: %q must be an absolute path (or start with ~/)", dir)
+	}
+	return dir, nil
+}
+
+// vaultEntries is the registry before validation: the machine config's vaults: map, overlaid with the
+// TRACK_VAULTS_<NAME> environment entries. Each variable sets one entry, the way TRACK_CACHE_DIR sets
+// one key — so an environment entry adds a vault (or replaces the same-named one) and never displaces
+// the rest of the registry.
+//
+// This is what lets a checkout carry a vault. A repository cannot register itself: the registry is
+// machine state, and a synced or cloned vault must never introduce vault paths (ADR 0051). But the
+// shell entering that checkout can say so on the user's behalf — a devshell hook, a Makefile, a
+// direnv .envrc the user allowed — which keeps the naming where consent already lives.
+func vaultEntries(mc machineFileConfig) map[string]string {
+	const prefix = "TRACK_VAULTS_"
+	entries := make(map[string]string, len(mc.Vaults))
+	for name, path := range mc.Vaults {
+		entries[name] = path
+	}
+	for _, kv := range os.Environ() {
+		if !strings.HasPrefix(kv, prefix) {
+			continue
+		}
+		eq := strings.IndexByte(kv, '=')
+		if eq < 0 {
+			continue
+		}
+		// An environment name cannot hold the dash a vault name uses, and a vault name cannot hold an
+		// underscore, so lowercasing and mapping _ to - round-trips without ambiguity.
+		name := strings.ReplaceAll(strings.ToLower(kv[len(prefix):eq]), "_", "-")
+		value := strings.TrimSpace(kv[eq+1:])
+		if name == "" || value == "" {
+			continue
+		}
+		entries[name] = value
+	}
+	return entries
+}
+
+func resolveVaults(vaults map[string]string) (map[string]string, error) {
+	out := make(map[string]string, len(vaults))
+	// One vault, one name. Two names for the same directory would make the vault's identity
+	// ambiguous everywhere a name is reported rather than accepted — which of them labels a search
+	// hit, which one a qualified id carries, which one a cross-vault link is written with — so the
+	// registry refuses it outright instead of every reader having to pick a winner.
+	byPath := make(map[string]string, len(vaults))
+	for _, name := range sortedNames(vaults) {
+		path := vaults[name]
+		if !vaultNamePattern.MatchString(name) {
+			return nil, fmt.Errorf("vaults: name %q must be lowercase letters, digits, and dashes", name)
+		}
+		expanded := expandHome(strings.TrimSpace(path))
+		if !filepath.IsAbs(expanded) {
+			return nil, fmt.Errorf("vaults: %s: %q must be an absolute path (or start with ~/)", name, path)
+		}
+		clean := filepath.Clean(expanded)
+		// Compare canonically so two spellings of one directory (a symlink, a trailing slash) are
+		// caught too, not just literally equal strings.
+		key := clean
+		if canonical, err := canonicalPath(clean); err == nil {
+			key = canonical
+		}
+		if first, dup := byPath[key]; dup {
+			return nil, fmt.Errorf("vaults: %s and %s name the same vault (%s); give a vault exactly one name", first, name, clean)
+		}
+		byPath[key] = name
+		out[name] = clean
+	}
+	return out, nil
+}
+
+// sortedNames returns map keys in a deterministic order, so a duplicate-path error always names the
+// same pair regardless of map iteration order.
+func sortedNames(vaults map[string]string) []string {
+	names := make([]string, 0, len(vaults))
+	for name := range vaults {
+		names = append(names, name)
+	}
+	sort.Strings(names)
+	return names
+}
+
+// CanonicalPath makes a path absolute with symlinks resolved, tolerating missing trailing
+// components — the same normalization VaultDir gets, so a registry path compares against it reliably.
+func CanonicalPath(path string) (string, error) {
+	return canonicalPath(path)
+}
+
+// validateVaultConfig rejects vault-config values that could steer a filesystem path outside the
+// vault. The vault config syncs with the vault, so it is untrusted input (ADR 0050): extensions
+// become part of every derived note path, the journal date format becomes the journal's file name,
+// and a template spec may be a vault-relative path — none of them may carry separators upward, "..",
+// or an absolute root. Environment overrides are machine-local and stay unrestricted.
+func validateVaultConfig(vc vaultFileConfig) error {
+	for _, ext := range vc.Extensions {
+		if len(ext) < 2 || !strings.HasPrefix(ext, ".") || strings.ContainsAny(ext, `/\`) || strings.Contains(ext, "..") {
+			return fmt.Errorf("vault config extensions: %q is not a plain %q-style extension", ext, ".md")
+		}
+	}
+	if f := vc.JournalDateFormat; strings.ContainsAny(f, `/\`) || strings.Contains(f, "..") {
+		return fmt.Errorf("vault config journal_date_format: %q must not contain path separators or \"..\" (it becomes the journal file name)", f)
+	}
+	for key, spec := range map[string]string{"default_template": vc.DefaultTemplate, "journal_template": vc.JournalTemplate} {
+		spec = strings.TrimSpace(spec)
+		if spec == "" {
+			continue
+		}
+		if filepath.IsAbs(spec) || strings.Contains(spec, "..") {
+			return fmt.Errorf("vault config %s: %q must be a template name or a vault-relative path without \"..\"", key, spec)
+		}
+	}
+	return nil
 }
 
 // validateProperties rejects a schema entry whose declared type is not a property value type, so a
@@ -331,7 +579,7 @@ func normalizeWebTheme(theme string) string {
 	}
 }
 
-// ConfigPath returns the fixed user config path, or TRACK_CONFIG when set for tests and one-off runs.
+// ConfigPath returns the fixed machine config path, or TRACK_CONFIG when set for tests and one-off runs.
 func ConfigPath() string {
 	if path := os.Getenv("TRACK_CONFIG"); path != "" {
 		return expandHome(path)
@@ -343,20 +591,64 @@ func ConfigPath() string {
 	return filepath.Join(userConfig, "track", "config.yml")
 }
 
-func loadFileConfig() (fileConfig, error) {
+// VaultConfigPath returns the vault config path for a vault directory. It is derived from the vault
+// path alone so Load can read it before a Config exists.
+func VaultConfigPath(vaultDir string) string {
+	return filepath.Join(vaultDir, ".track", "config.yml")
+}
+
+func loadMachineConfig() (machineFileConfig, error) {
+	var cfg machineFileConfig
 	path := ConfigPath()
+	if err := strictDecodeFile(path, &cfg); err != nil {
+		if isUnknownFieldError(err) {
+			return machineFileConfig{}, fmt.Errorf("%w (vault-scope keys such as properties, queries, and icons now live in <vault>/.track/config.yml)", err)
+		}
+		return machineFileConfig{}, err
+	}
+	return cfg, nil
+}
+
+func loadVaultConfig(vaultDir string) (vaultFileConfig, error) {
+	var cfg vaultFileConfig
+	path := VaultConfigPath(vaultDir)
+	if err := strictDecodeFile(path, &cfg); err != nil {
+		if isUnknownFieldError(err) {
+			return vaultFileConfig{}, fmt.Errorf("%w (machine-scope keys — vault_dir, db_path, cache_dir, web.theme, web.colors_path — belong in the user config file, never in a vault)", err)
+		}
+		return vaultFileConfig{}, err
+	}
+	return cfg, nil
+}
+
+// isUnknownFieldError reports whether a strict-decode error is about an unrecognized key, so the
+// which-file-owns-this-key hint is attached only where it applies — not to read failures or plain
+// YAML syntax errors.
+func isUnknownFieldError(err error) bool {
+	return strings.Contains(err.Error(), "not found in type")
+}
+
+// strictDecodeFile reads a YAML config file into out, rejecting unknown keys so a value placed in the
+// wrong file (or a typo) fails loudly instead of being silently ignored. A missing or empty file is a
+// zero value, not an error; a second YAML document is an error, never silently dropped.
+func strictDecodeFile(path string, out any) error {
 	raw, err := os.ReadFile(path)
 	if err != nil {
 		if os.IsNotExist(err) {
-			return fileConfig{}, nil
+			return nil
 		}
-		return fileConfig{}, fmt.Errorf("read config %s: %w", path, err)
+		return fmt.Errorf("read config %s: %w", path, err)
 	}
-	var cfg fileConfig
-	if err := yaml.Unmarshal(raw, &cfg); err != nil {
-		return fileConfig{}, fmt.Errorf("parse config %s: %w", path, err)
+	dec := yaml.NewDecoder(bytes.NewReader(raw))
+	dec.KnownFields(true)
+	if err := dec.Decode(out); err != nil && !errors.Is(err, io.EOF) {
+		return fmt.Errorf("parse config %s: %w", path, err)
 	}
-	return cfg, nil
+	var extra any
+	if err := dec.Decode(&extra); !errors.Is(err, io.EOF) {
+		return fmt.Errorf("parse config %s: a config file must be a single YAML document", path)
+	}
+	return nil
 }
 
 func expandHome(path string) string {

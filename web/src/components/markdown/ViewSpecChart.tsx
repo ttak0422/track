@@ -1,6 +1,8 @@
+import { useContext } from "react";
 import { useViewSpecQuery } from "../../queries";
 import { STATIC_MODE } from "../../runtime";
 import { CodeBlock } from "./CodeBlock";
+import { NoteVaultContext } from "./context";
 import { EChartsBlock } from "./EChartsBlock";
 
 interface ViewSpecChartProps {
@@ -17,7 +19,8 @@ interface ViewSpecChartProps {
 // MermaidDiagram's error state. The static export resolves these blocks to ```echarts fences at build
 // time, so in static mode a leftover block (e.g. inside a quoted example) just shows its source.
 export function ViewSpecChart({ text }: ViewSpecChartProps) {
-  const query = useViewSpecQuery(text);
+  const vault = useContext(NoteVaultContext);
+  const query = useViewSpecQuery(text, vault);
 
   if (STATIC_MODE) {
     return <CodeBlock lang="json" text={text} />;

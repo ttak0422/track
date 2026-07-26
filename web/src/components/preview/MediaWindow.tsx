@@ -1,20 +1,24 @@
 import { STATIC_MODE } from "../../runtime";
 import { Embed } from "../markdown/Embed";
-import { NoteKindContext } from "../markdown/context";
+import { NoteKindContext, NoteVaultContext } from "../markdown/context";
 import { FloatingWindow, type FloatingWindowControls } from "./FloatingWindow";
 
 interface MediaWindowProps extends FloatingWindowControls {
   src: string;
   alt: string;
   kind: string;
+  // Vault of the note the embed came from; the window renders outside that note's context.
+  vault: string;
 }
 
 // MediaWindow frames an image/PDF/embed in a FloatingWindow so it can float and be pinned like a note.
-export function MediaWindow({ src, alt, kind, ...controls }: MediaWindowProps) {
+export function MediaWindow({ src, alt, kind, vault, ...controls }: MediaWindowProps) {
   return (
     <FloatingWindow title={mediaTitle(alt, src)} {...controls}>
       <NoteKindContext.Provider value={kind}>
-        <Embed src={src} alt={alt} />
+        <NoteVaultContext.Provider value={vault}>
+          <Embed src={src} alt={alt} />
+        </NoteVaultContext.Provider>
       </NoteKindContext.Provider>
     </FloatingWindow>
   );

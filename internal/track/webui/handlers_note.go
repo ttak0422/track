@@ -10,6 +10,7 @@ import (
 	"os"
 	"strings"
 
+	"github.com/ttak0422/track/internal/track/config"
 	"github.com/ttak0422/track/internal/track/dashboard"
 	"github.com/ttak0422/track/internal/track/export"
 	"github.com/ttak0422/track/internal/track/index"
@@ -20,16 +21,17 @@ import (
 	"github.com/ttak0422/track/internal/track/render"
 	"github.com/ttak0422/track/internal/track/store"
 	"github.com/ttak0422/track/internal/track/task"
+	"github.com/ttak0422/track/internal/track/vaultref"
 )
 
-func (s *Server) handleNote(w http.ResponseWriter, r *http.Request) {
+func (s *Server) handleNote(v *vaultView, w http.ResponseWriter, r *http.Request) {
 	switch r.Method {
 	case http.MethodGet, "":
-		s.getNote(w, r)
+		s.getNote(v, w, r)
 	case http.MethodPut:
-		s.putNote(w, r)
+		s.putNote(v, w, r)
 	case http.MethodDelete:
-		s.deleteNote(w, r)
+		s.deleteNote(v, w, r)
 	default:
 		writeError(w, fmt.Errorf("method %s not allowed", r.Method), http.StatusMethodNotAllowed)
 	}
@@ -39,53 +41,56 @@ func (s *Server) handleNote(w http.ResponseWriter, r *http.Request) {
 // cascade). Other notes' bodies keep their now-dangling [[links]]; the link rows pointing here are
 // dropped with the note, so the graph and backlinks stay consistent. The destructive confirmation
 // (typing the title) is enforced in the web UI; this endpoint deletes by id.
-func (s *Server) deleteNote(w http.ResponseWriter, r *http.Request) {
+func (s *Server) deleteNote(v *vaultView, w http.ResponseWriter, r *http.Request) {
 	id, err := parseID(r)
 	if err != nil {
 		writeError(w, err, http.StatusBadRequest)
 		return
 	}
-	ref, err := s.noteByID(id)
+	ref, err := v.noteByID(id)
 	if err != nil {
 		writeError(w, err, http.StatusNotFound)
 		return
 	}
-	path := s.cfg.PathForKind(ref.FileKind, ref.NoteID)
-	if err := os.Remove(path); err != nil && !os.IsNotExist(err) {
-		writeError(w, fmt.Errorf("remove note file: %w", err), http.StatusInternalServerError)
+	path := v.cfg.PathForKind(ref.FileKind, ref.NoteID)
+	if err := v.write(func() error {
+		if err := os.Remove(path); err != nil && !os.IsNotExist(err) {
+			return fmt.Errorf("remove note file: %w", err)
+		}
+		if err := os.Remove(v.cfg.MetadataPath(id)); err != nil && !os.IsNotExist(err) {
+			return fmt.Errorf("remove note metadata: %w", err)
+		}
+		if err := v.store.DeleteNote(id); err != nil {
+			return fmt.Errorf("delete from index: %w", err)
+		}
+		return nil
+	}); err != nil {
+		writeError(w, err, http.StatusInternalServerError)
 		return
 	}
-	if err := os.Remove(s.cfg.MetadataPath(id)); err != nil && !os.IsNotExist(err) {
-		writeError(w, fmt.Errorf("remove note metadata: %w", err), http.StatusInternalServerError)
-		return
-	}
-	if err := s.store.DeleteNote(id); err != nil {
-		writeError(w, fmt.Errorf("delete from index: %w", err), http.StatusInternalServerError)
-		return
-	}
-	writeJSON(w, map[string]any{"note_id": ref.NoteID, "deleted": true})
+	writeJSON(w, map[string]any{"vault": v.label, "note_id": ref.NoteID, "deleted": true})
 }
 
-func (s *Server) getNote(w http.ResponseWriter, r *http.Request) {
-	s.refreshIfStale()
+func (s *Server) getNote(v *vaultView, w http.ResponseWriter, r *http.Request) {
+	s.refresh(v)
 	id, err := parseID(r)
 	if err != nil {
 		writeError(w, err, http.StatusBadRequest)
 		return
 	}
-	ref, err := s.noteByID(id)
+	ref, err := v.noteByID(id)
 	if err != nil {
 		writeError(w, err, http.StatusNotFound)
 		return
 	}
-	path := s.cfg.PathForKind(ref.FileKind, ref.NoteID)
+	path := v.cfg.PathForKind(ref.FileKind, ref.NoteID)
 	raw, err := os.ReadFile(path)
 	if err != nil {
 		writeError(w, err, http.StatusInternalServerError)
 		return
 	}
 	body, _, _ := note.SplitLegacyFootmatter(string(raw))
-	backlinks, err := s.store.Backlinks(id)
+	backlinks, err := v.store.Backlinks(id)
 	if err != nil {
 		writeError(w, err, http.StatusInternalServerError)
 		return
@@ -93,12 +98,10 @@ func (s *Server) getNote(w http.ResponseWriter, r *http.Request) {
 	if backlinks == nil {
 		backlinks = []store.NoteRef{}
 	}
-	for i := range backlinks {
-		backlinks[i].Path = s.cfg.PathForKind(backlinks[i].FileKind, backlinks[i].NoteID)
-	}
+	addRefPaths(v, backlinks)
 	// Properties come from the index (refreshed above), which flattens sidecar props and inline
 	// "key:: value" fields through the same engine path everything else uses.
-	props, err := s.store.NoteProps(id)
+	props, err := v.store.NoteProps(id)
 	if err != nil {
 		writeError(w, err, http.StatusInternalServerError)
 		return
@@ -108,12 +111,12 @@ func (s *Server) getNote(w http.ResponseWriter, r *http.Request) {
 	}
 	// Hierarchy navigation from the "up" relation property: the ancestor trail (root first) and the
 	// notes whose "up" points here.
-	trail, err := s.store.Trail(id)
+	trail, err := v.store.Trail(id)
 	if err != nil {
 		writeError(w, err, http.StatusInternalServerError)
 		return
 	}
-	children, err := s.store.ChildNotes(id)
+	children, err := v.store.ChildNotes(id)
 	if err != nil {
 		writeError(w, err, http.StatusInternalServerError)
 		return
@@ -124,16 +127,14 @@ func (s *Server) getNote(w http.ResponseWriter, r *http.Request) {
 	if children == nil {
 		children = []store.NoteRef{}
 	}
-	for _, refs := range [][]store.NoteRef{trail, children} {
-		for i := range refs {
-			refs[i].Path = s.cfg.PathForKind(refs[i].FileKind, refs[i].NoteID)
-		}
-	}
+	addRefPaths(v, trail)
+	addRefPaths(v, children)
 	noteJSON := map[string]any{
+		"vault":     v.label,
 		"note_id":   ref.NoteID,
 		"file_kind": ref.FileKind,
 		"path":      path,
-		"copy_path": s.cfg.DisplayPathForKind(ref.FileKind, ref.NoteID),
+		"copy_path": v.cfg.DisplayPathForKind(ref.FileKind, ref.NoteID),
 		"title":     ref.Title,
 		"tags":      ref.Tags,
 		"props":     props,
@@ -147,12 +148,69 @@ func (s *Server) getNote(w http.ResponseWriter, r *http.Request) {
 	if set := task.NewSet(body); len(set.Items) > 0 {
 		noteJSON["tasks"] = set
 	}
-	writeJSON(w, map[string]any{
+	out := map[string]any{
 		"note":      noteJSON,
 		"backlinks": backlinks,
 		"trail":     trail,
 		"children":  children,
-	})
+	}
+	// Inbound references can also live in other vaults, written [[name:title]] and stored as string
+	// edges keyed by this note's title (ADR 0053). They are in those vaults' indexes, so they are a
+	// separate lookup; a vault that cannot be consulted is reported, because a missing backlink must
+	// stay distinguishable from a missing vault. The CLI's `track backlinks` answers the same way.
+	if external, unavailable, ok := s.externalBacklinks(v, ref.Title); ok {
+		out["external"] = external
+		out["unavailable"] = unavailable
+	}
+	writeJSON(w, out)
+}
+
+// externalBacklinks lists the [[vault:title]] references other vaults make to a title, or reports
+// ok=false when the workspace serves no registry and the question cannot arise. It reads through the
+// server's own views rather than opening each vault per request the way the one-shot CLI does: this
+// runs on every note open, and the handles are already here.
+func (s *Server) externalBacklinks(v *vaultView, title string) ([]vaultref.ExternalRef, []vaultInfo, bool) {
+	if len(v.cfg.Vaults) == 0 || title == "" {
+		return nil, nil, false
+	}
+	// References name this vault by its registry name, of which it has exactly one
+	// (config.resolveVaults refuses a second).
+	self := ""
+	for _, name := range sortedVaultNames(v.cfg.Vaults) {
+		if canonical, err := config.CanonicalPath(v.cfg.Vaults[name]); err == nil && canonical == v.cfg.VaultDir {
+			self = name
+			break
+		}
+	}
+	external := []vaultref.ExternalRef{}
+	if self == "" {
+		// Unregistered: no other vault has a name to refer to this one by.
+		return external, []vaultInfo{}, true
+	}
+	views, unavailable := s.servedViews()
+	if unavailable == nil {
+		unavailable = []vaultInfo{}
+	}
+	for _, other := range views {
+		if other == v {
+			continue // its own references are the ordinary backlinks
+		}
+		backs, err := other.store.ExtBacklinks([]string{self}, title)
+		if err != nil {
+			unavailable = append(unavailable, vaultInfo{Name: other.name, Path: other.cfg.VaultDirDisplay, Error: err.Error()})
+			continue
+		}
+		for _, b := range backs {
+			external = append(external, vaultref.ExternalRef{
+				Vault:    other.name,
+				NoteID:   b.NoteID,
+				FileKind: b.FileKind,
+				Title:    b.Title,
+				Path:     other.cfg.PathForKind(b.FileKind, b.NoteID),
+			})
+		}
+	}
+	return external, unavailable, true
 }
 
 // putNote saves the body of an existing note. The request JSON carries the new body and the etag the
@@ -161,13 +219,13 @@ func (s *Server) getNote(w http.ResponseWriter, r *http.Request) {
 //
 // TODO(track): the web frontend has no editor UI yet (textarea/keymap/save affordance) and PUT cannot
 // create new notes. Both are deferred follow-ups; this is the save+conflict-detection backend slice only.
-func (s *Server) putNote(w http.ResponseWriter, r *http.Request) {
+func (s *Server) putNote(v *vaultView, w http.ResponseWriter, r *http.Request) {
 	id, err := parseID(r)
 	if err != nil {
 		writeError(w, err, http.StatusBadRequest)
 		return
 	}
-	ref, err := s.noteByID(id)
+	ref, err := v.noteByID(id)
 	if err != nil {
 		writeError(w, err, http.StatusNotFound)
 		return
@@ -181,7 +239,7 @@ func (s *Server) putNote(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	path := s.cfg.PathForKind(ref.FileKind, ref.NoteID)
+	path := v.cfg.PathForKind(ref.FileKind, ref.NoteID)
 	current, err := os.ReadFile(path)
 	if err != nil {
 		writeError(w, err, http.StatusInternalServerError)
@@ -197,15 +255,16 @@ func (s *Server) putNote(w http.ResponseWriter, r *http.Request) {
 	}
 
 	out := []byte(ensureTrailingNewline(req.Body))
-	if err := os.WriteFile(path, out, 0o644); err != nil {
-		writeError(w, err, http.StatusInternalServerError)
+	if err := v.write(func() error {
+		if err := os.WriteFile(path, out, 0o644); err != nil {
+			return err
+		}
+		return index.New(v.cfg, v.store).One(path)
+	}); err != nil {
+		writeError(w, fmt.Errorf("save note: %w", err), http.StatusInternalServerError)
 		return
 	}
-	if err := index.New(s.cfg, s.store).One(path); err != nil {
-		writeError(w, fmt.Errorf("reindex: %w", err), http.StatusInternalServerError)
-		return
-	}
-	writeJSON(w, map[string]any{"note_id": ref.NoteID, "etag": etagFor(out), "saved": true})
+	writeJSON(w, map[string]any{"vault": v.label, "note_id": ref.NoteID, "etag": etagFor(out), "saved": true})
 }
 
 // handleNoteMeta reads or edits a note's editable sidecar metadata — title, tags, description,
@@ -216,20 +275,20 @@ func (s *Server) putNote(w http.ResponseWriter, r *http.Request) {
 // existing vault asset in a raster format, props typed against the configured schema, title
 // uniqueness — lives in the engine, so the frontend never assembles YAML: a violation is a 400
 // whose message the editor shows inline, and a rejected edit changes nothing.
-func (s *Server) handleNoteMeta(w http.ResponseWriter, r *http.Request) {
+func (s *Server) handleNoteMeta(v *vaultView, w http.ResponseWriter, r *http.Request) {
 	id, err := parseID(r)
 	if err != nil {
 		writeError(w, err, http.StatusBadRequest)
 		return
 	}
-	ref, err := s.noteByID(id)
+	ref, err := v.noteByID(id)
 	if err != nil {
 		writeError(w, err, http.StatusNotFound)
 		return
 	}
 	switch r.Method {
 	case http.MethodGet, "":
-		meta, _, err := note.ReadMetadata(s.cfg.MetadataPath(id))
+		meta, _, err := note.ReadMetadata(v.cfg.MetadataPath(id))
 		if err != nil {
 			writeError(w, err, http.StatusInternalServerError)
 			return
@@ -265,7 +324,7 @@ func (s *Server) handleNoteMeta(w http.ResponseWriter, r *http.Request) {
 		// write; an empty title means "leave the title unchanged".
 		newTitle := strings.TrimSpace(doc.Title)
 		if newTitle != "" {
-			if other, ok, err := s.store.ResolveTerm(newTitle); err != nil {
+			if other, ok, err := v.store.ResolveTerm(newTitle); err != nil {
 				writeError(w, err, http.StatusInternalServerError)
 				return
 			} else if ok && other.NoteID != id {
@@ -273,7 +332,7 @@ func (s *Server) handleNoteMeta(w http.ResponseWriter, r *http.Request) {
 				return
 			}
 		}
-		meta, err := note.ApplyMetaDocValue(s.cfg, id, doc)
+		meta, err := note.ApplyMetaDocValue(v.cfg, id, doc)
 		if err != nil {
 			writeError(w, err, http.StatusBadRequest)
 			return
@@ -281,12 +340,12 @@ func (s *Server) handleNoteMeta(w http.ResponseWriter, r *http.Request) {
 		if newTitle != "" && newTitle != meta.Title {
 			// A title change is a rename: backlink rewrite, history, full reindex — the same engine
 			// path as `track rename`.
-			if _, err := rename.Do(s.cfg, s.store, id, newTitle); err != nil {
+			if _, err := rename.Do(v.cfg, v.store, id, newTitle); err != nil {
 				writeError(w, err, http.StatusInternalServerError)
 				return
 			}
 			meta.Title = newTitle
-		} else if err := index.New(s.cfg, s.store).One(s.cfg.PathForKind(ref.FileKind, ref.NoteID)); err != nil {
+		} else if err := index.New(v.cfg, v.store).One(v.cfg.PathForKind(ref.FileKind, ref.NoteID)); err != nil {
 			writeError(w, fmt.Errorf("reindex: %w", err), http.StatusInternalServerError)
 			return
 		}
@@ -326,7 +385,7 @@ func writeMetaFields(w http.ResponseWriter, meta note.Metadata, kind string) {
 // Markdown pass through. Keeping this on the server makes the engine the single source of truth for
 // track-specific Markdown semantics, and lets the editor preview the live (unsaved) body by posting it
 // here rather than re-implementing the rules in the frontend.
-func (s *Server) handleRender(w http.ResponseWriter, r *http.Request) {
+func (s *Server) handleRender(v *vaultView, w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodPost {
 		writeError(w, fmt.Errorf("method %s not allowed", r.Method), http.StatusMethodNotAllowed)
 		return
@@ -342,10 +401,10 @@ func (s *Server) handleRender(w http.ResponseWriter, r *http.Request) {
 	// recent-notes, journal, and pinned widgets render live. The static export resolves the same blocks
 	// at build time (see site.writeBundle), keeping the two deployments identical. The store scan for
 	// widget data is skipped unless the body actually carries a dashboard fence (the common case).
-	s.refreshIfStale()
+	s.refresh(v)
 	body := req.Body
 	if strings.Contains(body, "```"+dashboard.Lang) {
-		body = dashboard.Resolve(body, s.dashboardData())
+		body = dashboard.Resolve(body, v.dashboardData())
 	}
 	markdown, err := export.WebBody(body)
 	if err != nil {
@@ -356,7 +415,7 @@ func (s *Server) handleRender(w http.ResponseWriter, r *http.Request) {
 	// reconciled index, so the workspace draws them with its ordinary table rendering — the same
 	// expansion the static export bakes in at build time. A row-load failure leaves the fences as
 	// source rather than failing the whole render.
-	if rows, err := query.RowsFromStore(s.store); err == nil {
+	if rows, err := query.RowsFromStore(v.store); err == nil {
 		kinds := make(map[int64]string, len(rows))
 		for _, r := range rows {
 			kinds[r.ID] = r.Kind
@@ -364,9 +423,9 @@ func (s *Server) handleRender(w http.ResponseWriter, r *http.Request) {
 		// Gallery covers come from the sidecar metadata, read lazily per matched note; the value is
 		// the note-relative "assets/<file>" the frontend already maps to /api/asset. The icon is the
 		// cover's stand-in on cards without one, resolved by the one resolver every surface uses.
-		markdown = query.ExpandBlocks(markdown, s.cfg.Queries, rows, func(id int64) (string, string) {
-			meta, _, _ := note.ReadMetadata(s.cfg.MetadataPath(id))
-			return meta.Image, s.cfg.NoteIcon(kinds[id], meta.Tags, meta.Icon)
+		markdown = query.ExpandBlocks(markdown, v.cfg.Queries, rows, func(id int64) (string, string) {
+			meta, _, _ := note.ReadMetadata(v.cfg.MetadataPath(id))
+			return meta.Image, v.cfg.NoteIcon(kinds[id], meta.Tags, meta.Icon)
 		})
 	}
 	// Includes resolve against the rendered markdown (what the frontend draws), so their line
@@ -374,19 +433,19 @@ func (s *Server) handleRender(w http.ResponseWriter, r *http.Request) {
 	// same web renderer so embedded content arrives as sanitized as the note's own.
 	writeJSON(w, map[string]any{
 		"markdown": markdown,
-		"includes": link.ResolveIncludes(markdown, s.loadRenderedNote),
+		"includes": link.ResolveIncludes(markdown, v.loadRenderedNote),
 	})
 }
 
 // loadRenderedNote resolves a link key to a note and returns its web-rendered body, for include
 // resolution. Any failure (unknown key, unreadable file, render error) reads as "not found" — the
 // include renders as unresolved rather than surfacing a partial embed.
-func (s *Server) loadRenderedNote(key string) (int64, string, string, bool) {
-	ref, found, err := s.store.ResolveTerm(key)
+func (v *vaultView) loadRenderedNote(key string) (int64, string, string, bool) {
+	ref, found, err := v.store.ResolveTerm(key)
 	if err != nil || !found {
 		return 0, "", "", false
 	}
-	raw, err := os.ReadFile(s.cfg.PathForKind(ref.FileKind, ref.NoteID))
+	raw, err := os.ReadFile(v.cfg.PathForKind(ref.FileKind, ref.NoteID))
 	if err != nil {
 		return 0, "", "", false
 	}
@@ -403,7 +462,7 @@ func (s *Server) loadRenderedNote(key string) (int64, string, string, bool) {
 // for chart semantics while the embedded chart is interactive. data.source references resolve inside
 // the vault's data/ directory (render.EChartsOptionFromSpecDir confines them there). A bad spec is a
 // client error: the frontend shows the message at the block position instead of a chart.
-func (s *Server) handleViewSpec(w http.ResponseWriter, r *http.Request) {
+func (s *Server) handleViewSpec(v *vaultView, w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodPost {
 		writeError(w, fmt.Errorf("method %s not allowed", r.Method), http.StatusMethodNotAllowed)
 		return
@@ -415,7 +474,7 @@ func (s *Server) handleViewSpec(w http.ResponseWriter, r *http.Request) {
 		writeError(w, err, http.StatusBadRequest)
 		return
 	}
-	opt, err := render.EChartsOptionFromSpecDir([]byte(req.Spec), s.cfg.DataDir())
+	opt, err := render.EChartsOptionFromSpecDir([]byte(req.Spec), v.cfg.DataDir())
 	if err != nil {
 		writeError(w, err, http.StatusBadRequest)
 		return

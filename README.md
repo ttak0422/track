@@ -46,17 +46,42 @@ flake.nix                # Go CLI + Vim plugin packaging
 ## CLI
 
 All commands except `version` print a single line of JSON; errors are `{"error":...}` with exit code 1.
-The vault is read from the platform user config file (`config.yml` under the track config directory) and defaults to `$HOME/track` when unset (ADR 0015); precedence is `TRACK_VAULT` > config `vault_dir` > `$HOME/track`. Environment variables are intended for tests and one-off overrides.
+The vault is read from the platform user config file (`config.yml` under the track config directory) and defaults to `$HOME/track` when unset (ADR 0015); precedence is `TRACK_VAULT` > `default_vault`/`vault_dir` > `$HOME/track`. Environment variables are intended for tests and one-off overrides.
 The rebuildable index db defaults to the user cache directory under `track/`.
-The Neovim frontend sets `TRACK_CACHE_DIR` to `vim.fn.stdpath("cache") .. "/track"`.
+
+Configuration is split by ownership (ADR 0050). The machine config owns machine and user values:
 
 ```yaml
+# ~/.config/track/config.yml (or the platform equivalent)
 vault_dir: ~/track
-# Optional: pick a different template as the default for new notes/journals (created without
-# --template or a body). Defaults to the shipped builtin "default" / "journal" templates.
+# cache_dir / db_path / web.theme / web.colors_path also live here.
+```
+
+With more than one vault, register them by name and pick the active one by name.
+Every command then accepts a global `--vault NAME` selector, `track vault
+list|current|which` inspects the registry, and `reindex`/`doctor`/`refresh-all`
+sweep every registered vault. A vault gets exactly one name, `vault_dir` is
+refused alongside a registry (the path is written once, under `vaults:`), and so
+is `db_path` (one fixed database cannot serve several vaults).
+
+```yaml
+vaults:
+  main: ~/track
+  blog: ~/vaults/blog
+default_vault: main
+```
+
+Note semantics live in the vault config and travel with the vault:
+
+```yaml
+# <vault>/.track/config.yml (optional; defaults apply without it)
+# task_states / properties / queries / icons / date formats / capture_inbox /
+# archive_note / web.home / gen_keep / extensions, and the default templates:
 # default_template: my-note
 # journal_template: my-journal
 ```
+
+Both files are decoded strictly: a key in the wrong file is an error, so a cloned or synced vault can never configure which commands run on your machine.
 
 Typical config locations are `~/.config/track/config.yml` on XDG-style systems and `~/Library/Application Support/track/config.yml` on macOS.
 
@@ -94,8 +119,7 @@ track export (--id N | --title S | --path P) [--out F] [--frontmatter]
                                       # render a note as Markdown
 track render --spec <s> --out <f> [--renderer chartjs|svg]
                                       # render a chart/article from a View Spec (see docs/spec/visualization.md)
-track export-site --src <d> --out <d>
-                                      # build a static HTML site from notes
+track export-site --all --out <d>     # build a static HTML site from the vault's notes
 track dump                            # placeholder state
 track version                         # print the version
 ```
@@ -214,7 +238,7 @@ Task notation gets the same treatment: on a task line (a list item whose `[c]` m
 
 `:Track task_cycle` advances the task on the cursor line to the next state in the state-set order, wrapping at the end. It runs `track task cycle`, so completion stamps, the sidecar transition log, and progress cookies all apply; bind it to a key (e.g. in `on_attach`) for one-press state loops.
 
-Use `:checkhealth track` to verify the resolved CLI/LSP binaries, vault/cache configuration, and current-buffer LSP attachment.
+Use `:checkhealth track` to verify the resolved CLI/LSP binaries, vault configuration, and current-buffer LSP attachment.
 
 Completion of titles inside `[[` is served over LSP. The plugin merges [`cmp-nvim-lsp`](https://github.com/hrsh7th/cmp-nvim-lsp) capabilities when nvim-cmp is installed, so candidates surface through your existing nvim-cmp setup (add `{ name = "nvim_lsp" }` to its sources). The completion source is UI-independent, so other clients work too.
 

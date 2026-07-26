@@ -53,21 +53,12 @@ local function find_binary()
    error("track-lsp binary not found. Install track with Nix or add track-lsp to $PATH.")
 end
 
+local function vault_of(buf)
+   return require("track.util").vault_of(buf)
+end
+
 local function under_vault(buf)
-   local name = vim.api.nvim_buf_get_name(buf)
-   if name == "" then
-      return false
-   end
-   local vault = uv.fs_realpath(config.options.vault_dir) or vim.fn.fnamemodify(config.options.vault_dir, ":p")
-   local path = uv.fs_realpath(name) or vim.fn.fnamemodify(name, ":p")
-   vault = vim.fn.fnamemodify(vault, ":p")
-   path = vim.fn.fnamemodify(path, ":p")
-   if path:sub(1, #vault) ~= vault then
-      return false
-   end
-   local rel = path:sub(#vault + 1)
-   local dir = rel:match("^([^/]+)/")
-   return dir == "note" or dir == "journal"
+   return vault_of(buf) ~= nil
 end
 
 local function text_document_params(buf)
@@ -208,7 +199,7 @@ local function highlight_links(buf, resolved, cursor, fences, lines)
    end
 end
 
--- Bracket tokens of a task line (docs/help/tasks.md), highlighted as written — the raw notation is
+-- Bracket tokens of a task line (the "Tasks" help note), highlighted as written — the raw notation is
 -- compact enough that only the state marker itself conceals (to its task_glyphs glyph).
 local task_tokens = {
    { pat = "%[#%a%]", hl = "TrackTaskPriority" },
@@ -478,18 +469,22 @@ local function make_capabilities()
    return caps
 end
 
--- ensure_client starts (or re-binds to) the track-lsp client for buf. vim.lsp.start reuses a client
--- whose name and root_dir match, so this is idempotent and cheap to call on every BufEnter. That call
--- pattern is the self-heal: if the server crashed, the next time the note is entered a fresh client is
--- started, so links recover without any manual command. Returns the client id, or nil on failure.
+-- ensure_client starts (or re-binds to) the track-lsp client for buf's vault. vim.lsp.start reuses
+-- a client whose name and root_dir match, so this is idempotent and cheap to call on every BufEnter
+-- — and per-vault for free: a sub-vault buffer roots its own client at its own vault, with
+-- TRACK_VAULT scoping that server process to it. That call pattern is also the self-heal: if the
+-- server crashed, the next entry starts a fresh client. Returns the client id, or nil on failure.
 local function ensure_client(buf)
+   local vault = vault_of(buf)
+   if not vault then
+      return nil
+   end
    local ok, id = pcall(vim.lsp.start, {
       name = "track-lsp",
       cmd = { find_binary() },
-      root_dir = vim.fn.fnamemodify(config.options.vault_dir, ":p"),
+      root_dir = vault,
       cmd_env = {
-         TRACK_VAULT = config.options.vault_dir,
-         TRACK_CACHE_DIR = config.options.cache_dir,
+         TRACK_VAULT = vault,
       },
       capabilities = make_capabilities(),
    }, { bufnr = buf })

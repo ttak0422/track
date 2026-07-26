@@ -1,0 +1,13 @@
+# Vault config for the published help site. Only note semantics live here: where this vault sits
+# and where its index goes are the machine's business, never the vault's (ADR 0050).
+
+# No journals and no generation snapshots: this vault is committed to a repository, and both are
+# written without anyone asking — the journal tree would record which days its authors worked, and
+# .track/gen/ would carry a copy of every past state (ADR 0055).
+journal: false
+gen: false
+
+web:
+  # The landing note, for the workspace and for the published site's front door alike. It travels
+  # with the content, so this site opens on the same page wherever it is deployed.
+  home: track

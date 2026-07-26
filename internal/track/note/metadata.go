@@ -26,8 +26,10 @@ const (
 	MetadataVersionV6 = 6
 	// MetadataVersionV7 adds the task state transition log under task_log.
 	MetadataVersionV7 = 7
+	// MetadataVersionV8 adds the pinned published slug under slug.
+	MetadataVersionV8 = 8
 	// MaxMetadataVersion is the newest schema this build can read and write.
-	MaxMetadataVersion = MetadataVersionV7
+	MaxMetadataVersion = MetadataVersionV8
 )
 
 func supportedVersion(v int) bool {
@@ -75,6 +77,9 @@ func WriteMetadata(path string, meta Metadata) error {
 	}
 	if len(meta.TaskLog) > 0 && meta.Version < MetadataVersionV7 {
 		meta.Version = MetadataVersionV7
+	}
+	if meta.Slug != "" && meta.Version < MetadataVersionV8 {
+		meta.Version = MetadataVersionV8
 	}
 	if !supportedVersion(meta.Version) {
 		return fmt.Errorf("unsupported metadata version %d", meta.Version)
