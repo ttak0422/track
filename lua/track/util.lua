@@ -29,8 +29,16 @@ local function registered_vaults()
    return registry_paths
 end
 
--- vault_of returns the vault directory buf belongs to: the configured active vault or any
--- registered one. A buffer is a vault note when it sits directly under <vault>/note/ or /journal/.
+-- vault_of returns the vault directory buf belongs to. A note sits directly under <vault>/note/ or
+-- <vault>/journal/, so the buffer's own path names its vault: the root is two directories up, and a
+-- .track/ there confirms it. The marker is the directory, not its config.yml — a vault's config is
+-- optional (the engine applies the same rule to a --path argument, ADR 0061).
+--
+-- That means a vault needs no registry entry to be edited: opening a note in a fresh checkout starts
+-- an LSP client rooted at it. The registry is still what gives a vault a *name*, which is what every
+-- surface that reports or accepts one needs — cross-vault links, --vault, the workspace's tabs — so
+-- an unregistered vault gets the whole per-vault experience and none of the cross-vault one.
+--
 -- Both the per-vault LSP (one client per vault, rooted at its own directory) and the web follow
 -- publisher (which must name the vault its cursor is in) resolve a buffer's vault through this, so
 -- they can never disagree about which vault a buffer belongs to.
@@ -41,6 +49,8 @@ function M.vault_of(buf)
    end
    local path = uv.fs_realpath(name) or vim.fn.fnamemodify(name, ":p")
    path = vim.fn.fnamemodify(path, ":p")
+
+   -- A configured or registered vault answers first, so its path keeps the spelling the config used.
    local candidates = { require("track.config").options.vault_dir }
    vim.list_extend(candidates, registered_vaults())
    for _, dir in ipairs(candidates) do
@@ -52,6 +62,15 @@ function M.vault_of(buf)
          if sub == "note" or sub == "journal" then
             return vault
          end
+      end
+   end
+
+   -- Otherwise the path itself says so: <root>/<note|journal>/<file>.
+   local root, sub = path:match("^(.*)/([^/]+)/[^/]+$")
+   if root and (sub == "note" or sub == "journal") then
+      local stat = uv.fs_stat(root .. "/.track")
+      if stat and stat.type == "directory" then
+         return root .. "/"
       end
    end
    return nil
