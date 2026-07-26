@@ -1,6 +1,7 @@
 package store
 
 import (
+	"fmt"
 	"slices"
 	"testing"
 
@@ -358,5 +359,123 @@ func TestSearchHashPrefixCombinesMultipleTagsAndTitleText(t *testing.T) {
 	}
 	if len(results) != 1 || results[0].NoteID != 100 {
 		t.Fatalf("tag plus text results = %+v, want only note 100", results)
+	}
+}
+
+// seedStore opens a fresh index and fills it with notes, standing in for one vault.
+func seedStore(t *testing.T, notes ...*note.Note) *Store {
+	t.Helper()
+	s := newTestStore(t)
+	for _, n := range notes {
+		if err := s.UpsertNote(n); err != nil {
+			t.Fatalf("upsert %d: %v", n.ID, err)
+		}
+	}
+	return s
+}
+
+func TestMergeSearchResultsMatchesOneVaultsOrdering(t *testing.T) {
+	// Cross-vault search is per-vault queries merged in Go, so the merge has to reproduce the order
+	// one query over all the notes would have produced — the rank the SQL assigned included, not a
+	// recomputed one. Ids are distinct here so the combined store is a fair reference.
+	all := []*note.Note{
+		{ID: 100, Mtime: 100, Meta: note.Metadata{Title: "Topic"}},              // exact title
+		{ID: 200, Mtime: 500, Meta: note.Metadata{Title: "About the Topic"}},    // substring only
+		{ID: 300, Mtime: 400, Meta: note.Metadata{Title: "Topic of the day"}},   // title prefix
+		{ID: 400, Mtime: 400, Meta: note.Metadata{Title: "Topic, second"}},      // prefix, mtime tie
+		{ID: 500, Mtime: 900, Meta: note.Metadata{Title: "Untitled Topic pad"}}, // substring, newest
+		{ID: 600, Mtime: 200, Meta: note.Metadata{Title: "Nothing here"}},       // no match at all
+	}
+	combined := seedStore(t, all...)
+	// The same notes split over three vaults, one of which holds nothing that matches.
+	vaults := []*Store{
+		seedStore(t, all[0], all[4]),
+		seedStore(t, all[1], all[2], all[3]),
+		seedStore(t, all[5]),
+	}
+
+	for _, limit := range []int{10, 3, 1} {
+		want, err := combined.SearchScoped("Topic", limit, SearchTitle)
+		if err != nil {
+			t.Fatalf("combined search: %v", err)
+		}
+		pages := make([][]SearchResult, 0, len(vaults))
+		for i, v := range vaults {
+			page, err := v.SearchScoped("Topic", limit, SearchTitle)
+			if err != nil {
+				t.Fatalf("vault %d search: %v", i, err)
+			}
+			for j := range page {
+				page[j].Vault = fmt.Sprintf("v%d", i)
+			}
+			pages = append(pages, page)
+		}
+		got := MergeSearchResults(pages, limit)
+		if len(got) != len(want) {
+			t.Fatalf("limit %d: merged %d hits, one vault holding the same notes gives %d", limit, len(got), len(want))
+		}
+		for i := range want {
+			if got[i].NoteID != want[i].NoteID {
+				t.Fatalf("limit %d: merged order %s, want %s", limit, resultIDs(got), resultIDs(want))
+			}
+		}
+	}
+}
+
+// resultIDs renders a result page's ids for failure messages.
+func resultIDs(results []SearchResult) string {
+	ids := make([]int64, len(results))
+	for i, r := range results {
+		ids[i] = r.NoteID
+	}
+	return fmt.Sprint(ids)
+}
+
+func TestMergeSearchResultsHasNoVaultCeiling(t *testing.T) {
+	// The ATTACH-based cross-vault query it replaced could only reach SQLite's 10 attached databases
+	// and silently answered for the first ten. A Go-side merge has no such limit.
+	pages := make([][]SearchResult, 0, 14)
+	for i := range 14 {
+		s := seedStore(t, &note.Note{ID: 100, Mtime: int64(i), Meta: note.Metadata{Title: "Topic"}})
+		page, err := s.SearchScoped("Topic", 50, SearchTitle)
+		if err != nil {
+			t.Fatalf("vault %d search: %v", i, err)
+		}
+		for j := range page {
+			page[j].Vault = fmt.Sprintf("v%d", i)
+		}
+		pages = append(pages, page)
+	}
+	merged := MergeSearchResults(pages, 50)
+	if len(merged) != 14 {
+		t.Fatalf("every vault must contribute, got %d hits", len(merged))
+	}
+	// Same rank and same id in every vault: recency decides, and the newest comes first.
+	if merged[0].Vault != "v13" || merged[13].Vault != "v0" {
+		t.Fatalf("merged order should be by recency across vaults, got %+v", merged)
+	}
+}
+
+func TestBodyFTSCarriesItsRankForMerging(t *testing.T) {
+	// A body hit merges on bm25, so the score has to survive the scan out of SQLite: without it every
+	// hit would rank 0 and cross-vault body search would degrade to plain recency.
+	dense := seedStore(t, &note.Note{ID: 100, Mtime: 100, Body: "needle needle needle", Meta: note.Metadata{Title: "Dense"}})
+	sparse := seedStore(t, &note.Note{ID: 200, Mtime: 900, Body: "one needle in a much longer body of other words", Meta: note.Metadata{Title: "Sparse"}})
+
+	var pages [][]SearchResult
+	for _, s := range []*Store{sparse, dense} {
+		page, err := s.SearchBodyFTS("needle", 10)
+		if err != nil {
+			t.Fatalf("body fts: %v", err)
+		}
+		if len(page) != 1 || page[0].Rank == 0 {
+			t.Fatalf("body hit must carry its bm25 rank, got %+v", page)
+		}
+		pages = append(pages, page)
+	}
+	// bm25 is negative and lower is better, so the denser note wins despite being the older one.
+	merged := MergeSearchResults(pages, 10)
+	if len(merged) != 2 || merged[0].NoteID != 100 {
+		t.Fatalf("merged body hits should be bm25-ordered, got %+v", merged)
 	}
 }

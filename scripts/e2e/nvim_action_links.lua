@@ -73,6 +73,10 @@ assert_true(date_value:match("^%d%d%d%d%d%d%d%d$") ~= nil, "date placeholder sho
 
 local action_vault = vim.fn.tempname()
 local action_cache = vim.fn.tempname()
+-- tempname() only reserves a name, and no command creates a vault root any more: a path that does not
+-- exist is a typo or an unmounted drive far more often than a first launch, so only `track init` makes
+-- one. An empty directory is accepted, which is what handing over a freshly made path means.
+vim.fn.mkdir(action_vault, "p")
 local config = require("track.config")
 config.options.vault_dir = action_vault
 config.options.cache_dir = action_cache
@@ -100,9 +104,11 @@ assert_true(
 local note_resolved = run_json({ "resolve", "--term", today .. " E2E" })
 assert_true(note_resolved.found == true, "note action should write sidecar title: " .. vim.inspect(note_resolved))
 
--- The first track command (the note action above) scaffolds the whole vault skeleton, so the journal dir
--- already exists here; the journal action then opens today's journal inside it.
-assert_true(vim.fn.isdirectory(action_vault .. "/journal") == 1, "first command should scaffold the journal dir")
+-- Kind directories arrive as something writes into them; nothing scaffolds the layout, which is
+-- `track init`'s job and nobody ran it. journal/ is here because creating a note links it into that
+-- day's journal hub, not because the vault was laid out in advance. The journal action then opens the
+-- hub the note action already made.
+assert_true(vim.fn.isdirectory(action_vault .. "/journal") == 1, "the note action's day hub should create the journal dir")
 require("track.action").run("journal?offset=0")
 assert_true(vim.fn.isdirectory(action_vault .. "/journal") == 1, "journal dir should still exist after journal action")
 assert_true(vim.api.nvim_buf_get_name(0):sub(-#("/journal/" .. today .. ".md")) == "/journal/" .. today .. ".md", "journal action did not open today's journal")

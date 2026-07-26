@@ -58,25 +58,18 @@ func (h *eventHub) broadcast(ev serverEvent) {
 	h.mu.Unlock()
 }
 
-func (h *eventHub) broadcastChange(vault string) {
-	h.broadcast(serverEvent{name: "change", data: vaultPayload(vault)})
+// broadcastChange signals that some served vault was reindexed. It carries no payload: clients
+// invalidate everything they hold, so naming the vault that changed would only be read and thrown
+// away. Add it back the day a client can refresh one vault's views without touching the others.
+func (h *eventHub) broadcastChange() {
+	h.broadcast(serverEvent{name: "change", data: []byte("{}")})
 }
 
 // broadcastData signals that a file under a vault's data/ directory changed. Charts rendered from
 // data.source / overlays[].source depend on those files without the note body changing, so this is a
 // separate event from "change": no reindex happens and the frontend only refreshes rendered charts.
-func (h *eventHub) broadcastData(vault string) {
-	h.broadcast(serverEvent{name: "data", data: vaultPayload(vault)})
-}
-
-// vaultPayload labels an event with the vault it came from, so a workspace showing several vaults
-// can refresh the one that changed instead of every view it holds.
-func vaultPayload(vault string) []byte {
-	data, err := json.Marshal(map[string]string{"vault": vault})
-	if err != nil {
-		return []byte("{}")
-	}
-	return data
+func (h *eventHub) broadcastData() {
+	h.broadcast(serverEvent{name: "data", data: []byte("{}")})
 }
 
 func (h *eventHub) broadcastFollow(state followState) {
@@ -180,7 +173,7 @@ func (s *Server) reconcileAfterChange() {
 		fmt.Fprintf(os.Stderr, "track web: reindex after change failed: %v\n", err)
 		return
 	}
-	s.events.broadcastChange(v.name)
+	s.events.broadcastChange()
 }
 
 func (s *Server) watchLoop(watcher *fsnotify.Watcher) {
@@ -192,7 +185,7 @@ func (s *Server) watchLoop(watcher *fsnotify.Watcher) {
 	// Each timer coalesces a burst of events into a single broadcast (with a
 	// reconcile first for note changes; data files are not indexed).
 	reindex := func() { s.reconcileAfterChange() }
-	notifyData := func() { s.events.broadcastData(s.active.name) }
+	notifyData := func() { s.events.broadcastData() }
 
 	for {
 		select {

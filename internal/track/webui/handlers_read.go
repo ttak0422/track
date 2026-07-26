@@ -55,12 +55,12 @@ func (s *Server) handleSearch(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	results, skipped, err := s.searchAcross(views, query, limit)
+	results, err := s.searchAcross(views, query, limit)
 	if err != nil {
 		writeError(w, err, http.StatusInternalServerError)
 		return
 	}
-	writeJSON(w, map[string]any{"results": results, "unavailable": append(unavailable, skipped...)})
+	writeJSON(w, map[string]any{"results": results, "unavailable": unavailable})
 }
 
 // searchOne is the single-vault search: an empty query lists the most recently updated notes, the
@@ -90,52 +90,35 @@ func (s *Server) searchOne(v *vaultView, query string, limit int) ([]store.Searc
 	return results, nil
 }
 
-// searchAcross merges every served vault's hits through one federated connection (ADR 0052), then
-// resolves each hit's path, icon, and wire label against the vault it came from — those are
-// vault-local, so they cannot be filled by the shared query. The federated query labels rows by
-// registry name; hits from the launch vault are relabelled to empty so an unqualified id keeps
-// meaning "the vault you are in" no matter which endpoint produced it.
-func (s *Server) searchAcross(views []*vaultView, query string, limit int) ([]store.SearchResult, []vaultInfo, error) {
-	byName := make(map[string]*vaultView, len(views))
-	vaults := make([]store.FederatedVault, len(views))
-	for i, v := range views {
-		vaults[i] = store.FederatedVault{Name: v.name, DBPath: v.cfg.DBPath}
-		byName[v.name] = v
-	}
-	fed, err := store.OpenFederated(vaults)
-	if err != nil {
-		return nil, nil, err
-	}
-	defer fed.Close()
-	// A vault whose index could not be attached — unreadable, or past SQLite's limit of 10 — drops
-	// out of the query; report it as a gap rather than letting it shrink the results silently.
-	var skipped []vaultInfo
-	for _, sk := range fed.Skipped() {
-		skipped = append(skipped, vaultInfo{Name: sk.Name, Path: byName[sk.Name].cfg.VaultDirDisplay, Error: sk.Error})
-	}
-
-	var results []store.SearchResult
-	if query == "" {
-		results, err = fed.Recent(limit)
-	} else {
-		results, err = fed.Search(query, limit)
-	}
-	if err != nil {
-		return nil, nil, err
-	}
-	for i := range results {
-		v, ok := byName[results[i].Vault]
-		if !ok {
-			continue
+// searchAcross searches every served vault and merges the pages into one ranked list. It is the
+// single-vault search run once per vault: searchOne already resolves each hit's path, icon, and wire
+// label against the vault it came from — all vault-local, so no shared query could fill them anyway —
+// and each vault's page is its own top-k under the order every vault shares, so merging them yields
+// the same list a single query over all of them would (store.MergeSearchResults). A vault that could
+// not be opened never reaches here; servedViews already reported it as a gap.
+func (s *Server) searchAcross(views []*vaultView, query string, limit int) ([]store.SearchResult, error) {
+	pages := make([][]store.SearchResult, 0, len(views))
+	for _, v := range views {
+		page, err := s.searchOne(v, query, limit)
+		if err != nil {
+			return nil, err
 		}
-		results[i].Vault = v.label
-		results[i].Path = v.cfg.PathForKind(results[i].FileKind, results[i].NoteID)
-		results[i].Icon = v.cfg.NoteIcon(results[i].FileKind, results[i].Tags, results[i].Icon)
+		pages = append(pages, page)
 	}
-	if results == nil {
-		results = []store.SearchResult{}
+	if query != "" {
+		return store.MergeSearchResults(pages, limit), nil
 	}
-	return results, skipped, nil
+	// An empty query is the recent-notes listing, not a search: it carries no rank and every listing
+	// surface breaks an mtime tie by ascending id (sortRefs), the opposite of the search order.
+	results := []store.SearchResult{}
+	for _, page := range pages {
+		results = append(results, page...)
+	}
+	sortRefs(results)
+	if len(results) > limit {
+		results = results[:limit]
+	}
+	return results, nil
 }
 
 func (s *Server) handleNotes(v *vaultView, w http.ResponseWriter, r *http.Request) {

@@ -1,6 +1,7 @@
 -- track.nvim configuration.
 -- The vault is resolved from config.yml or setup({ vault_dir = ... }); when neither is set it defaults
--- to $HOME/track (ADR 0015). TRACK_VAULT remains a test/one-off override.
+-- to $HOME/track (ADR 0015). TRACK_VAULT=<path> selects the active vault by path, which is how an
+-- unregistered vault is addressed (ADR 0061), so it wins over the resolved config.
 
 local M = {}
 

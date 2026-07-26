@@ -51,7 +51,7 @@ func (s *Server) refresh(v *vaultView) {
 		return
 	}
 	if changed {
-		s.events.broadcastChange(v.name)
+		s.events.broadcastChange()
 	}
 }
 
@@ -82,14 +82,10 @@ func (v *vaultView) noteByID(id int64) (store.SearchResult, error) {
 
 // activeName is the wire label for the vault track web was launched in: its registry name when it
 // is registered, otherwise "" — the same convention the CLI's cross-vault output uses for an
-// unregistered active vault.
+// unregistered active vault. The config resolves that name at load; this only spells out which
+// question New is asking of it.
 func activeName(cfg *config.Config) string {
-	for _, name := range sortedVaultNames(cfg.Vaults) {
-		if canonical, err := config.CanonicalPath(cfg.Vaults[name]); err == nil && canonical == cfg.VaultDir {
-			return name
-		}
-	}
-	return ""
+	return cfg.VaultName
 }
 
 func sortedVaultNames(vaults map[string]string) []string {
@@ -130,6 +126,11 @@ func (s *Server) requestVault(r *http.Request) (*vaultView, error) {
 // empty name is the active vault. Views are cached for the server's lifetime because a vault's
 // config and index handle are process-scoped, not request-scoped.
 func (s *Server) viewByName(name string) (*vaultView, error) {
+	// The launch vault is addressable both as the default and by its registry name, and must be the
+	// same view either way: two views would mean two labels for the same notes, two ids, and two
+	// reindex locks over one directory. That is the only name that can reach an already-open vault —
+	// the registry gives a vault exactly one name (config.resolveVaults refuses a second), and
+	// s.active.name is the one it gave this vault.
 	if name == "" || name == s.active.name {
 		return s.active, nil
 	}
@@ -147,13 +148,6 @@ func (s *Server) viewByName(name string) (*vaultView, error) {
 	cfg, err := config.LoadAt(path)
 	if err != nil {
 		return nil, err
-	}
-	// The registry gives a vault exactly one name (config.resolveVaults refuses a second), so the
-	// only way two names reach one vault is the launch vault being registered — it is addressable
-	// both as the default and by its name, and must be the same view either way. Two views would
-	// mean two labels for the same notes, two ids, and two reindex locks over one directory.
-	if cfg.VaultDir == s.active.cfg.VaultDir {
-		return s.adopt(name, s.active), nil
 	}
 	// A registered vault that is merely unmounted must be reported, not indexed: laying down an
 	// index for an unreachable vault would record it as empty.
@@ -185,15 +179,6 @@ func (s *Server) cachedView(name string) (*vaultView, bool) {
 	return v, ok
 }
 
-// adopt records that a registry name reaches an already-open view, so the next request for that
-// name is a cache hit rather than another round of filesystem work.
-func (s *Server) adopt(name string, v *vaultView) *vaultView {
-	s.viewsMu.Lock()
-	defer s.viewsMu.Unlock()
-	s.views[name] = v
-	return v
-}
-
 // viewByPath returns the view whose vault directory is path, for callers that know a vault by where
 // it lives rather than by name — the Neovim plugin reports the buffer's vault that way. An
 // unregistered path that is not the active vault is refused: the workspace serves the vault it was
@@ -216,53 +201,28 @@ func (s *Server) viewByPath(path string) (*vaultView, error) {
 	return nil, fmt.Errorf("vault %s is not served by this workspace", path)
 }
 
-// vaultInfo is one entry of the served vault list: the wire name, the path to show, whether it is
-// the launch vault, and whether it could be opened. An unavailable vault stays listed with its
-// error so the workspace can show the gap instead of silently omitting the vault.
+// vaultInfo is one vault a cross-vault read could not reach: its wire name, the path it was
+// registered under, and why it failed. Reporting the gap is what keeps "no matches there"
+// distinguishable from "could not read that vault".
 type vaultInfo struct {
-	Name      string `json:"name"`
-	Path      string `json:"path"`
-	Active    bool   `json:"active"`
-	Available bool   `json:"available"`
-	Error     string `json:"error,omitempty"`
-}
-
-// handleVaults lists every vault this workspace serves, so the frontend can label notes by vault
-// and offer the others as search and navigation targets.
-func (s *Server) handleVaults(w http.ResponseWriter, r *http.Request) {
-	active := s.active
-	out := []vaultInfo{{Name: active.name, Path: active.cfg.VaultDirDisplay, Active: true, Available: true}}
-	for _, name := range sortedVaultNames(active.cfg.Vaults) {
-		if name == active.name {
-			continue
-		}
-		info := vaultInfo{Name: name, Path: active.cfg.Vaults[name]}
-		if v, err := s.viewByName(name); err != nil {
-			info.Error = err.Error()
-		} else {
-			info.Available = true
-			info.Path = v.cfg.VaultDirDisplay
-		}
-		out = append(out, info)
-	}
-	writeJSON(w, map[string]any{"active": active.name, "vaults": out})
+	Name  string `json:"name"`
+	Path  string `json:"path"`
+	Error string `json:"error,omitempty"`
 }
 
 // servedViews returns every vault the workspace can currently read, active first, skipping the ones
 // that cannot be opened. Cross-vault reads use it; each caller decides how to report the gaps.
 func (s *Server) servedViews() (views []*vaultView, unavailable []vaultInfo) {
 	views = append(views, s.active)
-	// One vault, one view — a vault registered under two names would otherwise be read twice, and a
-	// federated query would attach its index twice and return each of its notes twice.
-	seen := map[*vaultView]bool{s.active: true}
 	for _, name := range sortedVaultNames(s.active.cfg.Vaults) {
-		v, err := s.viewByName(name)
-		// A name that reaches a vault already in the set adds nothing — including a name for the
-		// launch vault, which is always served. Skipping before the reachability check also keeps
-		// the workspace from warning that the vault whose results are on screen is unavailable.
-		if err == nil && seen[v] {
+		// The launch vault is already in the set, under its own name. Skipping it before the
+		// reachability check below also keeps the workspace from warning that the vault whose results
+		// are on screen is unavailable. Every other name is a distinct vault: the registry gives a
+		// vault exactly one name, so no two names can add the same one twice.
+		if name == s.active.name {
 			continue
 		}
+		v, err := s.viewByName(name)
 		if err == nil {
 			// A view is cached for the server's lifetime, but the vault behind it can go away while
 			// the workspace runs — an unmounted drive, a cloud folder that stopped syncing. Its index
@@ -276,7 +236,6 @@ func (s *Server) servedViews() (views []*vaultView, unavailable []vaultInfo) {
 			unavailable = append(unavailable, vaultInfo{Name: name, Path: s.active.cfg.Vaults[name], Error: err.Error()})
 			continue
 		}
-		seen[v] = true
 		views = append(views, v)
 	}
 	return views, unavailable

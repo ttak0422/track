@@ -121,3 +121,50 @@ func TestCrossVaultCompletionOptIn(t *testing.T) {
 		t.Fatalf("expected work:Remote note completion, got %+v", items)
 	}
 }
+
+// The launch vault is reachable by its own registered name (ADR 0051), so a note may write
+// [[me:Local]] for a note sitting next to it. That is an ordinary local link everywhere — an ext
+// edge there would be invisible to backlinks and the graph.
+func TestSelfQualifiedRefIsAnOrdinaryLocalLink(t *testing.T) {
+	srv, _ := setupServer(t)
+	srv.cfg.Vaults = map[string]string{"me": srv.cfg.VaultDir}
+	srv.cfg.VaultName = "me"
+	if err := srv.store.UpsertNote(&note.Note{
+		ID:   101,
+		Path: srv.cfg.NotePath(101),
+		Meta: note.Metadata{Title: "Local"},
+	}); err != nil {
+		t.Fatalf("upsert note: %v", err)
+	}
+	uri := uriFromPath(srv.cfg.NotePath(100))
+	srv.docs[uri] = "see [[me:Local]]\n"
+
+	links, err := srv.documentLinks(uri)
+	if err != nil {
+		t.Fatalf("document links: %v", err)
+	}
+	if len(links) != 1 || links[0].Target == nil || string(*links[0].Target) != uriFromPath(srv.cfg.NotePath(101)) {
+		t.Fatalf("self-qualified ref should link to the local note, got %+v", links)
+	}
+	diags, err := srv.diagnostics(uri)
+	if err != nil {
+		t.Fatalf("diagnostics: %v", err)
+	}
+	if len(diags) != 0 {
+		t.Fatalf("a resolvable self-qualified ref must not be diagnosed, got %+v", diags)
+	}
+
+	if err := srv.refreshDocumentLinks(uri); err != nil {
+		t.Fatalf("refresh document links: %v", err)
+	}
+	backs, err := srv.store.Backlinks(101)
+	if err != nil {
+		t.Fatalf("backlinks: %v", err)
+	}
+	if len(backs) != 1 || backs[0].NoteID != 100 {
+		t.Fatalf("the refresh should write a plain links row, got %+v", backs)
+	}
+	if ext, _ := srv.store.ExtBacklinks([]string{"me"}, "Local"); len(ext) != 0 {
+		t.Fatalf("the vault's own name must not produce ext edges, got %+v", ext)
+	}
+}

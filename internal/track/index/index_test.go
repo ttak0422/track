@@ -419,3 +419,30 @@ func TestFullIndexesCrossVaultRefs(t *testing.T) {
 		t.Fatalf("unregistered prefix must not produce ext edges, got %+v", ext)
 	}
 }
+
+// A vault is reachable by its own registered name, so a note may write [[self:Title]] for a note
+// next to it. That is an ordinary local link — an ext edge there would be invisible to backlinks
+// and the graph.
+func TestFullTreatsTheVaultsOwnNameAsALocalLink(t *testing.T) {
+	cfg, s := setup(t)
+	cfg.Vaults = map[string]string{"personal": cfg.VaultDir, "work": "/elsewhere/work"}
+	cfg.VaultName = "personal"
+	writeNote(t, cfg, 1, "see [[personal:Local]]", note.Metadata{Title: "Source"})
+	writeNote(t, cfg, 2, "target", note.Metadata{Title: "Local"})
+
+	ix := New(cfg, s)
+	rep, err := ix.Full()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if rep.Links != 1 {
+		t.Fatalf("self-qualified ref should be a local edge, links = %d, want 1", rep.Links)
+	}
+	backs, err := s.Backlinks(2)
+	if err != nil || len(backs) != 1 || backs[0].NoteID != 1 {
+		t.Fatalf("the local note must have note 1 as a backlink, got %+v err=%v", backs, err)
+	}
+	if ext, _ := s.ExtBacklinks([]string{"personal"}, "Local"); len(ext) != 0 {
+		t.Fatalf("the vault's own name must not produce ext edges, got %+v", ext)
+	}
+}

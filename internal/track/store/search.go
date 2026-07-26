@@ -1,6 +1,7 @@
 package store
 
 import (
+	"cmp"
 	"fmt"
 	"slices"
 	"strings"
@@ -41,6 +42,72 @@ type SearchResult struct {
 	Line    int    `json:"line,omitempty"`
 	Snippet string `json:"snippet,omitempty"`
 	Mtime   int64  `json:"-"`
+	// Rank is the sort key the vault's own query gave this hit: the packed title/tag rank vector for a
+	// title search, bm25 for a body search, 0 for an unranked listing. It exists so results from
+	// several vaults can be merged (MergeSearchResults) on exactly the key SQLite ranked them by —
+	// recomputing it in Go would diverge from SQLite's LIKE and COLLATE NOCASE on non-ASCII titles and
+	// on a query containing % or _. It never goes on the wire.
+	Rank float64 `json:"-"`
+}
+
+// MergeSearchResults merges per-vault result pages into the global top-k. Every vault ran the same
+// query under the same total order and each page is already that vault's top-k, so any row that
+// places in the global first `limit` is in one of the pages: concatenating and re-applying the order
+// gives exactly what one query spanning every vault would have returned. Ranks come from each vault's
+// own SQL (SearchResult.Rank); bm25 scores from different FTS indexes are only approximately
+// comparable, the same accepted imprecision cross-vault body search has always had.
+func MergeSearchResults(pages [][]SearchResult, limit int) []SearchResult {
+	total := 0
+	for _, page := range pages {
+		total += len(page)
+	}
+	out := make([]SearchResult, 0, total) // never nil: callers put this straight on the wire
+	for _, page := range pages {
+		out = append(out, page...)
+	}
+	slices.SortFunc(out, compareSearchResults)
+	if limit > 0 && len(out) > limit {
+		out = out[:limit]
+	}
+	return out
+}
+
+// compareSearchResults is the ORDER BY of the single-vault queries expressed in Go: rank, then most
+// recently modified, then highest id. The trailing vault comparison is the cross-vault tiebreak that
+// keeps a merge deterministic when everything else collides — ids are vault-local, so two vaults can
+// legitimately hold the same one (journal ids collide by construction).
+func compareSearchResults(a, b SearchResult) int {
+	if a.Rank != b.Rank {
+		return cmp.Compare(a.Rank, b.Rank)
+	}
+	if a.Mtime != b.Mtime {
+		return cmp.Compare(b.Mtime, a.Mtime)
+	}
+	if a.NoteID != b.NoteID {
+		return cmp.Compare(b.NoteID, a.NoteID)
+	}
+	return cmp.Compare(a.Vault, b.Vault)
+}
+
+// rankExpr packs a rank vector of 0/1 CASE expressions — the ORDER BY of a title/tag search, most
+// significant term first — into one integer column. Selecting the key instead of only ordering by it
+// keeps SQL the single source of ranking semantics while letting a caller merge several vaults'
+// results on it.
+func rankExpr(cases []string) string {
+	if len(cases) == 0 {
+		return "0"
+	}
+	// One bit per term, so the key stays exact in the float64 it is scanned into up to 53 terms. Past
+	// that the surplus terms only break ties far down the ranking, so drop them rather than lose the
+	// key to rounding — it takes 52 #tags in one query to get there.
+	if len(cases) > 53 {
+		cases = cases[:53]
+	}
+	parts := make([]string, len(cases))
+	for i, expr := range cases {
+		parts[i] = fmt.Sprintf("(%s) * %d", expr, int64(1)<<(len(cases)-1-i))
+	}
+	return strings.Join(parts, " + ")
 }
 
 // Search returns notes whose title contains query (case-insensitive substring).
@@ -67,7 +134,7 @@ func (s *Store) SearchScoped(query string, limit int, scope SearchScope) ([]Sear
 	for rows.Next() {
 		var r SearchResult
 		var tags string
-		if err := rows.Scan(&r.NoteID, &r.FileKind, &r.Title, &r.Mtime, &r.Icon, &tags); err != nil {
+		if err := rows.Scan(&r.NoteID, &r.FileKind, &r.Title, &r.Mtime, &r.Icon, &tags, &r.Rank); err != nil {
 			return nil, err
 		}
 		r.Tags = splitTags(tags)
@@ -97,20 +164,28 @@ func searchQuery(scope SearchScope, query string, limit int) (string, []any, err
 	if titleClause != "" {
 		where += " AND (" + titleClause + ")"
 	}
+	// The rank vector is selected as one packed column and ordered by that alias, so a caller merging
+	// several vaults sorts on the very key SQLite ranked with. Its args come before the WHERE args.
+	rank := rankExpr([]string{
+		"CASE WHEN n.title = ? COLLATE NOCASE THEN 0 ELSE 1 END",
+		"CASE WHEN n.title LIKE ? THEN 0 ELSE 1 END",
+	})
 	sql := `SELECT n.id, n.kind, n.title, n.mtime, n.icon,
 	   COALESCE((
 	     SELECT group_concat(tag, char(31))
 	     FROM (SELECT tag FROM tags WHERE note_id = n.id ORDER BY tag)
-	   ), '') AS tags
+	   ), '') AS tags,
+	   ` + rank + ` AS rank_key
 	 FROM notes n
 	 WHERE ` + where + `
 	 ORDER BY
-	   CASE WHEN n.title = ? COLLATE NOCASE THEN 0 ELSE 1 END,
-	   CASE WHEN n.title LIKE ? THEN 0 ELSE 1 END,
+	   rank_key,
 	   n.mtime DESC,
 	   n.id DESC
 	 LIMIT ?`
-	args := append(titleArgs, query, query+"%", limit)
+	args := []any{query, query + "%"}
+	args = append(args, titleArgs...)
+	args = append(args, limit)
 	return sql, args, nil
 }
 
@@ -203,37 +278,38 @@ func searchTagged(parsed parsedTaggedQuery, limit int) (string, []any) {
 		whereArgs = append(whereArgs, titleArgs...)
 	}
 
-	// Exact tag matches rank before descendant (prefix) matches.
-	var order []string
-	var orderArgs []any
+	// Exact tag matches rank before descendant (prefix) matches. The whole vector is packed into one
+	// selected column (see rankExpr) so a cross-vault merge can order on it; its args come first.
+	var rankCases []string
+	var rankArgs []any
 	for _, tag := range parsed.Tags {
-		order = append(order, `CASE WHEN EXISTS (
+		rankCases = append(rankCases, `CASE WHEN EXISTS (
 	     SELECT 1 FROM tags t WHERE t.note_id = n.id AND t.tag = ? COLLATE NOCASE
 	   ) THEN 0 ELSE 1 END`)
-		orderArgs = append(orderArgs, tag)
+		rankArgs = append(rankArgs, tag)
 	}
 	if parsed.Text != "" {
-		order = append(order,
+		rankCases = append(rankCases,
 			"CASE WHEN n.title = ? COLLATE NOCASE THEN 0 ELSE 1 END",
 			"CASE WHEN n.title LIKE ? THEN 0 ELSE 1 END",
 		)
-		orderArgs = append(orderArgs, parsed.Text, parsed.Text+"%")
+		rankArgs = append(rankArgs, parsed.Text, parsed.Text+"%")
 	}
-	order = append(order,
-		"n.mtime DESC",
-		"n.id DESC",
-	)
 
 	sql := `SELECT n.id, n.kind, n.title, n.mtime, n.icon,
 	   COALESCE((
 	     SELECT group_concat(tag, char(31))
 	     FROM (SELECT tag FROM tags WHERE note_id = n.id ORDER BY tag)
-	   ), '') AS tags
+	   ), '') AS tags,
+	   ` + rankExpr(rankCases) + ` AS rank_key
 	 FROM notes n
 	 WHERE ` + strings.Join(where, " AND ") + `
-	 ORDER BY ` + strings.Join(order, ",\n	   ") + `
+	 ORDER BY
+	   rank_key,
+	   n.mtime DESC,
+	   n.id DESC
 	 LIMIT ?`
-	args := append(whereArgs, orderArgs...)
+	args := append(rankArgs, whereArgs...)
 	args = append(args, limit)
 	return sql, args
 }
@@ -278,11 +354,14 @@ func (s *Store) SearchBodyFTS(query string, limit int) ([]SearchResult, error) {
 		return nil, nil
 	}
 	rows, err := s.db.Query(
+		// bm25 is selected as well as ordered by, so a cross-vault merge (MergeSearchResults) orders on
+		// the score the index computed instead of trying to reproduce it.
 		`SELECT n.id, n.kind, n.title, n.mtime,
 		   COALESCE((
 		     SELECT group_concat(tag, char(31))
 		     FROM (SELECT tag FROM tags WHERE note_id = n.id ORDER BY tag)
-		   ), '') AS tags
+		   ), '') AS tags,
+		   bm25(notes_fts) AS bm25_rank
 		 FROM notes_fts f
 		 JOIN notes n ON n.id = f.rowid
 		 WHERE notes_fts MATCH ? AND n.kind IN ('note', 'journal')
@@ -299,7 +378,7 @@ func (s *Store) SearchBodyFTS(query string, limit int) ([]SearchResult, error) {
 	for rows.Next() {
 		var r SearchResult
 		var tags string
-		if err := rows.Scan(&r.NoteID, &r.FileKind, &r.Title, &r.Mtime, &tags); err != nil {
+		if err := rows.Scan(&r.NoteID, &r.FileKind, &r.Title, &r.Mtime, &tags, &r.Rank); err != nil {
 			return nil, err
 		}
 		r.Tags = splitTags(tags)

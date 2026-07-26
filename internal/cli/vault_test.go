@@ -2,6 +2,7 @@ package cli
 
 import (
 	"encoding/json"
+	"fmt"
 	"os"
 	"path/filepath"
 	"strconv"
@@ -138,6 +139,58 @@ func TestVaultListCurrentWhich(t *testing.T) {
 	}
 }
 
+// runWithMachineConfig runs one invocation against a machine config written verbatim, with no
+// TRACK_VAULT in the environment — the only way to exercise the config-selected vault sources.
+func runWithMachineConfig(t *testing.T, body string, args ...string) map[string]any {
+	t.Helper()
+	configPath := filepath.Join(t.TempDir(), "config.yml")
+	if err := os.WriteFile(configPath, []byte(body), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("TRACK_CONFIG", configPath)
+	t.Setenv("TRACK_VAULT", "")
+	t.Setenv("TRACK_DB_PATH", "")
+	t.Setenv("TRACK_CACHE_DIR", filepath.Join(t.TempDir(), "cache"))
+	out, _ := capture(t, func() int { return Run(args) })
+	return decodeJSON(t, out)
+}
+
+// `track vault current` reports what selected the vault. Name and path alone cannot show it: a
+// TRACK_VAULT exported once in a shell profile makes default_vault inert for every later command and
+// still reads as a perfectly ordinary configured vault.
+func TestVaultCurrentReportsSelectionSource(t *testing.T) {
+	defaultVault := t.TempDir()
+	work := t.TempDir()
+	registry := map[string]string{"work": work}
+
+	decoded, _ := runWithRegistry(t, defaultVault, registry, "--vault", "work", "vault", "current")
+	if decoded["source"] != "flag" {
+		t.Fatalf("--vault should report source=flag, got %v", decoded)
+	}
+	decoded, _ = runWithRegistry(t, defaultVault, registry, "vault", "current")
+	if decoded["source"] != "env" {
+		t.Fatalf("TRACK_VAULT should report source=env, got %v", decoded)
+	}
+
+	// The same vault, selected by the machine config instead of the environment.
+	decoded = runWithMachineConfig(t, "vaults:\n  work: "+work+"\ndefault_vault: work\n", "vault", "current")
+	if decoded["source"] != "default_vault" || decoded["name"] != "work" {
+		t.Fatalf("default_vault should report source=default_vault, got %v", decoded)
+	}
+
+	decoded = runWithMachineConfig(t, "vault_dir: "+work+"\n", "vault", "current")
+	if decoded["source"] != "vault_dir" {
+		t.Fatalf("a registry-less config should report source=vault_dir, got %v", decoded)
+	}
+
+	// Nothing configured and nothing in the environment: the $HOME/track fallback (ADR 0015).
+	t.Setenv("HOME", t.TempDir())
+	decoded = runWithMachineConfig(t, "", "vault", "current")
+	if decoded["source"] != "default" {
+		t.Fatalf("the $HOME/track fallback should report source=default, got %v", decoded)
+	}
+}
+
 func TestMaintenanceSweepsRegistry(t *testing.T) {
 	defaultVault := t.TempDir()
 	work := t.TempDir()
@@ -261,6 +314,36 @@ func TestFederatedSearchAcrossVaults(t *testing.T) {
 	}
 	if decoded["unavailable"] != nil {
 		t.Fatalf("scoped search must keep the single-vault shape, got %v", decoded)
+	}
+}
+
+func TestFederatedSearchCoversMoreVaultsThanSQLiteCanAttach(t *testing.T) {
+	// Cross-vault search used to be one query over every vault's index ATTACHed to a single
+	// connection, and SQLite attaches at most 10: past that, the surplus vaults dropped out and the
+	// command answered from the first ten without saying so. Per-vault queries merged in Go have no
+	// such ceiling, and a vault that is simply empty of hits is still a vault that was asked.
+	cache := filepath.Join(t.TempDir(), "cache") // stable across calls, like a real machine
+	registry := map[string]string{}
+	for i := range 12 {
+		name := fmt.Sprintf("v%02d", i)
+		registry[name] = t.TempDir()
+		if _, code := runWithRegistryCache(t, cache, registry[name], nil,
+			"new", "--title", "Shared topic "+name, "--body", "b"); code != 0 {
+			t.Fatalf("seed vault %s", name)
+		}
+	}
+
+	decoded, code := runWithRegistryCache(t, cache, registry["v00"], registry, "search", "--query", "Shared topic")
+	if code != 0 {
+		t.Fatalf("federated search failed: %v", decoded)
+	}
+	seen := map[string]bool{}
+	for _, r := range decoded["results"].([]any) {
+		vault, _ := r.(map[string]any)["vault"].(string)
+		seen[vault] = true
+	}
+	if len(seen) != len(registry) {
+		t.Fatalf("every registered vault must be searched, got hits from %d of %d: %v", len(seen), len(registry), seen)
 	}
 }
 
@@ -398,5 +481,46 @@ func TestPathInNoVaultIsLeftAlone(t *testing.T) {
 	out, code := runIn(t, home, "meta", "--path", loose)
 	if code != 1 || !strings.Contains(out["error"].(string), "not a vault note") {
 		t.Fatalf("a directory without .track/ is not a vault, got code=%d out=%v", code, out)
+	}
+}
+
+// A vault is registered under its own name too, so a note there can write [[home:Target]] for a
+// note sitting beside it. That is not a cross-vault reference: it resolves locally and its backlink
+// is a plain one, not an external edge that the graph would never see.
+func TestSelfQualifiedRefStaysLocal(t *testing.T) {
+	home := t.TempDir()
+	cache := filepath.Join(t.TempDir(), "cache") // stable across calls, like a real machine
+	registry := map[string]string{"home": home, "work": t.TempDir()}
+
+	decoded, code := runWithRegistryCache(t, cache, home, registry, "new", "--title", "Target note", "--body", "the target")
+	if code != 0 {
+		t.Fatalf("seed target: %v", decoded)
+	}
+	targetID := int64(decoded["id"].(float64))
+	if _, code := runWithRegistryCache(t, cache, home, registry, "new", "--title", "Pointer", "--body", "see [[home:Target note]]"); code != 0 {
+		t.Fatal("seed pointer")
+	}
+
+	decoded, code = runWithRegistryCache(t, cache, home, registry, "resolve", "--term", "home:Target note")
+	if code != 0 || decoded["found"] != true {
+		t.Fatalf("the vault's own name should resolve locally: %v", decoded)
+	}
+	if _, qualified := decoded["vault"]; qualified {
+		t.Fatalf("a self-qualified term is a local hit, not a cross-vault one: %v", decoded)
+	}
+	if int64(decoded["note_id"].(float64)) != targetID {
+		t.Fatalf("resolved wrong note: %v", decoded)
+	}
+
+	decoded, code = runWithRegistryCache(t, cache, home, registry, "backlinks", "--id", decodeID(t, targetID))
+	if code != 0 {
+		t.Fatalf("backlinks failed: %v", decoded)
+	}
+	backlinks := decoded["backlinks"].([]any)
+	if len(backlinks) != 1 || backlinks[0].(map[string]any)["title"] != "Pointer" {
+		t.Fatalf("want the pointer as a plain backlink, got %v", decoded)
+	}
+	if external := decoded["external"].([]any); len(external) != 0 {
+		t.Fatalf("the vault's own name must not produce an external backlink, got %v", external)
 	}
 }

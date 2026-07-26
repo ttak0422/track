@@ -222,7 +222,9 @@ func (s *Server) refreshDocumentLinks(uri string) error {
 	seen := map[int64]bool{}
 	seenExt := map[store.ExtRef]bool{}
 	for _, ref := range link.Refs(text) {
-		// Mirror the indexer: qualified refs become (vault, title) ext edges, never local links.
+		// Mirror the indexer: refs qualified with another vault's name become (vault, title) ext edges,
+		// never local links. The active vault's own name is not a qualifier (IsVault), so it falls
+		// through to the dictionary below and writes a plain links row.
 		if vault, title, ok := link.SplitVaultRef(ref.Text, s.xv.IsVault); ok {
 			key := store.ExtRef{Vault: vault, Title: title}
 			if !seenExt[key] {
@@ -345,6 +347,18 @@ func (s *Server) keywordDict() (map[string]store.Keyword, error) {
 	for _, kw := range kws {
 		if _, ok := dict[kw.Term]; !ok {
 			dict[kw.Term] = kw
+		}
+	}
+	// Mirror the indexer (index.keywordDict): a reference qualified with the active vault's own name
+	// is not a cross-vault reference, so "self:Term" is another spelling of the local title and every
+	// lookup through this dictionary — links, definition, hover, diagnostics, rename — sees it. A note
+	// literally titled that way keeps precedence, hence the second pass.
+	if self := s.xv.SelfName(); self != "" {
+		for _, kw := range kws {
+			key := self + ":" + kw.Term
+			if _, ok := dict[key]; !ok {
+				dict[key] = kw
+			}
 		}
 	}
 	return dict, nil

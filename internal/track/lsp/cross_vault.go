@@ -20,9 +20,11 @@ const (
 )
 
 // resolveQualified resolves a possible [[vault:title]] key through the registry gate. It must run
-// BEFORE the local keyword dictionary everywhere, mirroring the indexer: a registered name always
-// reads as a qualifier, even when a local title happens to carry the same prefix (doctor lints
-// those as shadowed). detail carries the error text for crossUnavailable.
+// BEFORE the local keyword dictionary everywhere, mirroring the indexer: another vault's registered
+// name always reads as a qualifier, even when a local title happens to carry the same prefix
+// (doctor lints those as shadowed). The active vault's own name is not a qualifier — IsVault
+// rejects it, so a self-qualified key comes back notQualified and resolves through the local
+// dictionary, which carries that spelling. detail carries the error text for crossUnavailable.
 func (s *Server) resolveQualified(key string) (res vaultref.Resolved, vault string, detail string, state crossVaultState) {
 	vault, title, ok := link.SplitVaultRef(key, s.xv.IsVault)
 	if !ok {

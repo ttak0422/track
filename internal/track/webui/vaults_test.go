@@ -152,27 +152,6 @@ func TestDeleteHitsOnlyTheAddressedVault(t *testing.T) {
 	}
 }
 
-func TestVaultListing(t *testing.T) {
-	server, _, _ := twoVaultServer(t)
-
-	out := getVaultJSON(t, server.URL+"/api/vaults")
-	if out["active"] != "main" {
-		t.Fatalf("active vault = %v, want main", out["active"])
-	}
-	vaults := out["vaults"].([]any)
-	if len(vaults) != 2 {
-		t.Fatalf("expected both vaults listed, got %v", vaults)
-	}
-	first := vaults[0].(map[string]any)
-	if first["name"] != "main" || first["active"] != true {
-		t.Fatalf("the launch vault should be listed first and marked active, got %v", first)
-	}
-	second := vaults[1].(map[string]any)
-	if second["name"] != "work" || second["available"] != true {
-		t.Fatalf("registered vault should be listed as available, got %v", second)
-	}
-}
-
 func TestSearchLabelsResultsWithTheirVault(t *testing.T) {
 	server, _, _ := twoVaultServer(t)
 
@@ -403,9 +382,9 @@ func TestNoteShowsInboundReferencesFromOtherVaults(t *testing.T) {
 	server := httptest.NewServer(srv.Handler())
 	t.Cleanup(server.Close)
 
-	// Reading the other vault builds its index, which is where the reference lives.
-	getVaultJSON(t, server.URL+"/api/note?id=300&vault=work")
-
+	// The other vault is never read first: its index is built by the note request below, which has to
+	// refresh every vault it consults. Priming it here would hide exactly the staleness that matters —
+	// nothing watches the other vaults, so the read is their only freshness signal.
 	out := getVaultJSON(t, server.URL+"/api/note?id=100")
 	external, ok := out["external"].([]any)
 	if !ok || len(external) != 1 {

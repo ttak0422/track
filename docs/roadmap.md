@@ -17,8 +17,11 @@ The following directions are intentionally out of scope. The matching table rows
 marked `Reject`.
 
 - Workspaces: no merged-index workspace and no dynamic-workspace concept. A named vault
-  registry with one active vault at a time is the accepted multi-vault direction (ADR 0050),
-  but track never loads several vaults into one index or process at once.
+  registry with one active vault at a time is the accepted multi-vault direction (ADR 0051).
+  Vaults are never merged into one physical index — each keeps its own — but a single
+  process may read across several of them: federated search opens each vault's index in
+  turn and merges the per-vault results (ADR 0052), and the web server holds one view per
+  vault. The rejected thing is the merged index, not cross-vault reads.
 - Obsidian app integration / sync / bookmarks: track does not aim for Obsidian
   compatibility, so there is no app linking, sync, or `.obsidian/bookmarks.json` support.
 - Frontmatter / property compatibility: track does not adopt YAML frontmatter, so there
@@ -70,7 +73,7 @@ For each item, answer:
 
 | Area | Candidate | State | Notes / likely implementation |
 | --- | --- | --- | --- |
-| Workspace | Merged index across several vaults at once | Reject | Decided out of scope. A named vault registry keeps one active vault at a time (ADR 0050); vaults are never co-loaded into one index/process. |
+| Workspace | Merged index across several vaults at once | Reject | Decided out of scope. A named vault registry keeps one active vault at a time (ADR 0051); each vault keeps its own index and they are never merged into one. Reading across vaults in one process is supported instead: federated search queries each index separately and merges the results (ADR 0052). |
 | Workspace | Dynamic workspace for markdown outside a vault | Reject | Decided out of scope. No workspace concept beyond configured vaults. |
 | Picker UX | Quick switch note picker | TBD | Engine already has notes/search primitives. Neovim can use quickfix first, picker adapters later. |
 | Picker UX | Dailies picker | TBD | CLI has journal open by offset, but no list/range command. Add store/query or filesystem scan. |

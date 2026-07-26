@@ -10,7 +10,6 @@ import (
 	"os"
 	"strings"
 
-	"github.com/ttak0422/track/internal/track/config"
 	"github.com/ttak0422/track/internal/track/dashboard"
 	"github.com/ttak0422/track/internal/track/export"
 	"github.com/ttak0422/track/internal/track/index"
@@ -173,18 +172,12 @@ func (s *Server) externalBacklinks(v *vaultView, title string) ([]vaultref.Exter
 	if len(v.cfg.Vaults) == 0 || title == "" {
 		return nil, nil, false
 	}
-	// References name this vault by its registry name, of which it has exactly one
-	// (config.resolveVaults refuses a second).
-	self := ""
-	for _, name := range sortedVaultNames(v.cfg.Vaults) {
-		if canonical, err := config.CanonicalPath(v.cfg.Vaults[name]); err == nil && canonical == v.cfg.VaultDir {
-			self = name
-			break
-		}
-	}
+	// References name this vault by its registry name, which the view already carries: for the launch
+	// vault it is what New labelled it with, and for every other view it is the name it was opened by.
 	external := []vaultref.ExternalRef{}
-	if self == "" {
-		// Unregistered: no other vault has a name to refer to this one by.
+	if v.name == "" {
+		// Unregistered: no other vault has a name to refer to this one by. Returning here also keeps a
+		// plain single-vault note open off servedViews, which stats every registered vault.
 		return external, []vaultInfo{}, true
 	}
 	views, unavailable := s.servedViews()
@@ -195,7 +188,12 @@ func (s *Server) externalBacklinks(v *vaultView, title string) ([]vaultref.Exter
 		if other == v {
 			continue // its own references are the ordinary backlinks
 		}
-		backs, err := other.store.ExtBacklinks([]string{self}, title)
+		// Only the launch vault is watched, so a read is the only thing that ever notices another
+		// vault's edits (vaults.go). Without this the reference a sibling vault just wrote would stay
+		// invisible here for as long as the workspace runs. refresh throttles per vault and takes that
+		// vault's reindex lock, so the extra call costs nothing on a warm index.
+		s.refresh(other)
+		backs, err := other.store.ExtBacklinks([]string{v.name}, title)
 		if err != nil {
 			unavailable = append(unavailable, vaultInfo{Name: other.name, Path: other.cfg.VaultDirDisplay, Error: err.Error()})
 			continue

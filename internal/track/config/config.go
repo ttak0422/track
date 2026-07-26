@@ -82,6 +82,12 @@ type Config struct {
 	// Engine layers use the names as the cross-vault reference gate: a [[name:title]] prefix is a
 	// vault qualifier only when name is registered here. Empty when no registry is configured.
 	Vaults map[string]string
+	// VaultName is this vault's own entry in that registry, or "" when it is not registered (the
+	// default vault, or a direnv-style TRACK_VAULT path). It is the label every surface reports the
+	// vault under and the name other vaults reference it by, so it is resolved once here rather than
+	// rediscovered by each caller walking Vaults and comparing canonical paths. The registry gives a
+	// vault exactly one name (resolveVaults refuses a second), so there is one answer or none.
+	VaultName string
 }
 
 // IconMap holds the tag→icon and kind→icon lookups resolved from config. Both are optional; an unset map
@@ -119,12 +125,11 @@ type PropSpec struct {
 }
 
 // machineFileConfig is the user config file (~/.config/track/config.yml or TRACK_CONFIG): it owns the
-// machine and the user — where the vault, cache, and database live, and how the local web UI looks. Note semantics belong to the vault
+// machine and the user — where the vault and cache live, and how the local web UI looks. Note semantics belong to the vault
 // config instead (see vaultFileConfig); a vault-scope key here is a hard error so the split stays real.
 type machineFileConfig struct {
 	VaultDir     string           `yaml:"vault_dir"`
 	DefaultVault string           `yaml:"default_vault"`
-	DBPath       string           `yaml:"db_path"`
 	CacheDir     string           `yaml:"cache_dir"`
 	Web          machineWebConfig `yaml:"web"`
 	// Vaults is the named vault registry (name -> path) behind the global --vault flag and the
@@ -193,7 +198,7 @@ const DataDirName = "data"
 
 // Load resolves configuration from two files with disjoint key ownership: the machine config (the
 // fixed user config file, ~/.config/track/config.yml or the platform equivalent) owns machine and
-// user values — vault_dir, db_path, cache_dir, web.theme, web.colors_path — and the vault
+// user values — vault_dir, cache_dir, web.theme, web.colors_path — and the vault
 // config (<vault>/.track/config.yml) owns the note semantics that travel with the vault. Both files
 // are decoded strictly: a key in the wrong file is a hard error, never a silent fallback.
 //
@@ -227,15 +232,10 @@ func load(fixedVault string) (*Config, error) {
 		return nil, err
 	}
 	// Validate the registry on every load so a malformed entry fails loudly now, not on the first
-	// --vault. A fixed DB path serves exactly one vault, but with a registry the selected vault
-	// changes per invocation — one shared DB would let two vaults silently overwrite each other's
-	// index — so the combination is refused outright.
-	registry, err := resolveVaults(vaultEntries(mc))
+	// --vault.
+	registry, namesByPath, err := resolveVaults(vaultEntries(mc))
 	if err != nil {
 		return nil, err
-	}
-	if len(registry) > 0 && (mc.DBPath != "" || os.Getenv("TRACK_DB_PATH") != "") {
-		return nil, fmt.Errorf("db_path/TRACK_DB_PATH cannot be combined with a vaults: registry (one fixed DB would be shared across vaults); remove it so each vault keeps its own cache index")
 	}
 
 	configured, err := configuredVault(mc, registry)
@@ -276,27 +276,20 @@ func load(fixedVault string) (*Config, error) {
 		return nil, err
 	}
 
-	db := mc.DBPath
-	if env := os.Getenv("TRACK_DB_PATH"); env != "" {
-		db = env
+	// The index is a derived cache, never a configured file: it lives under the cache dir keyed by the
+	// vault path, so every vault the registry names keeps its own index without anyone naming it.
+	cacheDir := mc.CacheDir
+	if env := os.Getenv("TRACK_CACHE_DIR"); env != "" {
+		cacheDir = env
 	}
-	if db == "" {
-		cacheDir := mc.CacheDir
-		if env := os.Getenv("TRACK_CACHE_DIR"); env != "" {
-			cacheDir = env
+	if cacheDir == "" {
+		userCache, err := os.UserCacheDir()
+		if err != nil {
+			return nil, fmt.Errorf("resolve cache dir: %w", err)
 		}
-		if cacheDir == "" {
-			userCache, err := os.UserCacheDir()
-			if err != nil {
-				return nil, fmt.Errorf("resolve cache dir: %w", err)
-			}
-			cacheDir = filepath.Join(userCache, "track")
-		}
-		cacheDir = expandHome(cacheDir)
-		db = filepath.Join(cacheDir, vaultCacheKey(vault), "index.db")
-	} else {
-		db = expandHome(db)
+		cacheDir = filepath.Join(userCache, "track")
 	}
+	db := filepath.Join(expandHome(cacheDir), vaultCacheKey(vault), "index.db")
 
 	extensions := vc.Extensions
 	if len(extensions) == 0 {
@@ -371,6 +364,10 @@ func load(fixedVault string) (*Config, error) {
 		CaptureInbox:      captureInbox,
 		ArchiveNote:       archiveNote,
 		Vaults:            registry,
+		// The registry is already indexed by canonical path (that is how it refuses two names for one
+		// vault), so this vault's name is a lookup on the path it resolved to — including under LoadAt,
+		// where the Config represents whichever vault was named rather than the configured one.
+		VaultName: namesByPath[vault],
 	}, nil
 }
 
@@ -385,12 +382,10 @@ func Vaults() (map[string]string, error) {
 	if err != nil {
 		return nil, err
 	}
-	return resolveVaults(vaultEntries(mc))
+	registry, _, err := resolveVaults(vaultEntries(mc))
+	return registry, err
 }
 
-// resolveVaults validates registry names and expands each path. Paths must be absolute (after ~
-// expansion): resolving a vault relative to the current directory would make the same name mean a
-// different vault per invocation.
 // configuredVault returns the vault path the machine config selects, or "" when it selects none.
 //
 // A vault is designated one way at a time. Without a registry there are no names, so `vault_dir`
@@ -459,7 +454,15 @@ func vaultEntries(mc machineFileConfig) map[string]string {
 	return entries
 }
 
-func resolveVaults(vaults map[string]string) (map[string]string, error) {
+// resolveVaults validates registry names and expands each path. Paths must be absolute (after ~
+// expansion): resolving a vault relative to the current directory would make the same name mean a
+// different vault per invocation.
+//
+// It returns the registry (name -> cleaned path) and its inverse keyed by canonical path. The inverse
+// is not an extra pass: it is the one-vault-one-name check's own bookkeeping, handed back so a caller
+// that knows a vault's path — Load, for its own vault — reads the name off it instead of scanning the
+// registry again.
+func resolveVaults(vaults map[string]string) (map[string]string, map[string]string, error) {
 	out := make(map[string]string, len(vaults))
 	// One vault, one name. Two names for the same directory would make the vault's identity
 	// ambiguous everywhere a name is reported rather than accepted — which of them labels a search
@@ -469,11 +472,11 @@ func resolveVaults(vaults map[string]string) (map[string]string, error) {
 	for _, name := range sortedNames(vaults) {
 		path := vaults[name]
 		if !vaultNamePattern.MatchString(name) {
-			return nil, fmt.Errorf("vaults: name %q must be lowercase letters, digits, and dashes", name)
+			return nil, nil, fmt.Errorf("vaults: name %q must be lowercase letters, digits, and dashes", name)
 		}
 		expanded := expandHome(strings.TrimSpace(path))
 		if !filepath.IsAbs(expanded) {
-			return nil, fmt.Errorf("vaults: %s: %q must be an absolute path (or start with ~/)", name, path)
+			return nil, nil, fmt.Errorf("vaults: %s: %q must be an absolute path (or start with ~/)", name, path)
 		}
 		clean := filepath.Clean(expanded)
 		// Compare canonically so two spellings of one directory (a symlink, a trailing slash) are
@@ -483,12 +486,12 @@ func resolveVaults(vaults map[string]string) (map[string]string, error) {
 			key = canonical
 		}
 		if first, dup := byPath[key]; dup {
-			return nil, fmt.Errorf("vaults: %s and %s name the same vault (%s); give a vault exactly one name", first, name, clean)
+			return nil, nil, fmt.Errorf("vaults: %s and %s name the same vault (%s); give a vault exactly one name", first, name, clean)
 		}
 		byPath[key] = name
 		out[name] = clean
 	}
-	return out, nil
+	return out, byPath, nil
 }
 
 // sortedNames returns map keys in a deterministic order, so a duplicate-path error always names the
@@ -602,6 +605,11 @@ func loadMachineConfig() (machineFileConfig, error) {
 	path := ConfigPath()
 	if err := strictDecodeFile(path, &cfg); err != nil {
 		if isUnknownFieldError(err) {
+			// db_path was removed rather than moved elsewhere: the index is a derived cache keyed by
+			// the vault path, so one fixed file could never serve the vaults a registry names.
+			if strings.Contains(err.Error(), "db_path") {
+				return machineFileConfig{}, fmt.Errorf("%w (db_path was removed; the index is a derived cache keyed by the vault path — use cache_dir to relocate it)", err)
+			}
 			return machineFileConfig{}, fmt.Errorf("%w (vault-scope keys such as properties, queries, and icons now live in <vault>/.track/config.yml)", err)
 		}
 		return machineFileConfig{}, err
@@ -614,7 +622,7 @@ func loadVaultConfig(vaultDir string) (vaultFileConfig, error) {
 	path := VaultConfigPath(vaultDir)
 	if err := strictDecodeFile(path, &cfg); err != nil {
 		if isUnknownFieldError(err) {
-			return vaultFileConfig{}, fmt.Errorf("%w (machine-scope keys — vault_dir, db_path, cache_dir, web.theme, web.colors_path — belong in the user config file, never in a vault)", err)
+			return vaultFileConfig{}, fmt.Errorf("%w (machine-scope keys — vault_dir, cache_dir, web.theme, web.colors_path — belong in the user config file, never in a vault)", err)
 		}
 		return vaultFileConfig{}, err
 	}

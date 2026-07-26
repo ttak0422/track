@@ -58,9 +58,14 @@ func cmdResolve(args []string) int {
 	}
 	defer s.Close()
 
-	// A "vault:title" keyword whose prefix is a registered vault name resolves in that vault.
+	// A "vault:title" keyword whose prefix is another registered vault's name resolves in that vault.
+	// The active vault's own name is not a qualifier (it is in its own registry, ADR 0051): fold it
+	// away so "self:Title" resolves locally, exactly like the plain title it names.
 	r := vaultref.New(cfg)
 	defer r.Close()
+	if _, title, ok := link.SplitVaultRef(keyword, func(name string) bool { return name == r.SelfName() }); ok {
+		keyword = title
+	}
 	if vault, title, ok := link.SplitVaultRef(keyword, r.IsVault); ok {
 		resolved, found, err := r.Resolve(vault, title)
 		if err != nil {

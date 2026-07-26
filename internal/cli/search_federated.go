@@ -15,155 +15,137 @@ type vaultKey struct {
 	id    int64
 }
 
-// federatedSearchResults runs one search across the active and every registered vault: self-heal
-// each vault's index, attach all reachable DBs to one connection (store.OpenFederated), and merge
-// ranked, vault-labeled results. An unreachable vault is reported under "unavailable" instead of
-// failing the search — the caller still gets everything the reachable vaults hold.
+// openVault is one reachable vault a cross-vault search reads: the registry name that labels its rows
+// ("" for the unregistered active vault), its config, and the index handle held open across both
+// search phases so a vault is opened and self-healed once per command.
+type openVault struct {
+	name  string
+	cfg   *config.Config
+	store *store.Store
+}
+
+// federatedSearchResults runs one search across the active and every registered vault: self-heal each
+// vault's index, run the ordinary single-vault query in each, and merge the per-vault pages on the
+// rank key their own SQL assigned (store.MergeSearchResults). Each page is that vault's top-k under
+// the one shared total order, so the merge is the exact global top-k rather than an approximation —
+// and unlike a query spanning attached databases it has no ceiling on how many vaults it covers. An
+// unreachable vault is reported under "unavailable" instead of failing the search.
 func federatedSearchResults(targets []vaultTarget, query string, limit int, scope store.SearchScope) (map[string]any, error) {
 	if limit <= 0 {
 		limit = 50
 	}
 
-	var healthy []vaultTarget
-	cfgs := map[string]*config.Config{}
+	var healthy []openVault
+	defer func() {
+		for _, v := range healthy {
+			v.store.Close()
+		}
+	}()
 	unavailable := []map[string]any{}
 	for _, tgt := range targets {
-		var cfg *config.Config
+		var opened openVault
 		_, err := runInVault(tgt, func(c *config.Config) (map[string]any, error) {
 			s, err := store.Open(c.DBPath)
 			if err != nil {
 				return nil, err
 			}
-			defer s.Close()
 			if _, err := index.New(c, s).RefreshIfStale(); err != nil {
+				s.Close()
 				return nil, err
 			}
-			cfg = c
+			opened = openVault{name: tgt.Name, cfg: c, store: s}
 			return nil, nil
 		})
 		if err != nil {
 			unavailable = append(unavailable, map[string]any{"name": tgt.Name, "path": tgt.Path, "error": err.Error()})
 			continue
 		}
-		healthy = append(healthy, tgt)
-		cfgs[tgt.Name] = cfg
+		healthy = append(healthy, opened)
 	}
 
-	results := []store.SearchResult{}
-	if len(healthy) > 0 {
-		vaults := make([]store.FederatedVault, len(healthy))
-		for i, tgt := range healthy {
-			vaults[i] = store.FederatedVault{Name: tgt.Name, DBPath: cfgs[tgt.Name].DBPath}
-		}
-		fed, err := store.OpenFederated(vaults)
-		if err != nil {
-			return nil, err
-		}
-		defer fed.Close()
-		results, err = federatedScoped(fed, cfgs, healthy, query, limit, scope)
-		if err != nil {
-			return nil, err
-		}
-		if results == nil {
-			results = []store.SearchResult{}
-		}
+	results, err := federatedScoped(healthy, query, limit, scope)
+	if err != nil {
+		return nil, err
+	}
+	if results == nil {
+		results = []store.SearchResult{}
 	}
 	return map[string]any{"results": results, "unavailable": unavailable}, nil
 }
 
-// federatedScoped mirrors searchResults for the federated connection: title hits first, then body
-// hits that were not already title hits, deduplicated by (vault, id).
-func federatedScoped(fed *store.Federated, cfgs map[string]*config.Config, healthy []vaultTarget, query string, limit int, scope store.SearchScope) ([]store.SearchResult, error) {
+// federatedScoped mirrors searchResults across vaults, but keeps its two phases apart: title hits from
+// every vault merge into one page, then body hits from every vault merge into another. Merging each
+// vault's already-composed title-then-body list instead would interleave bm25-ranked body hits with
+// title hits, which are ranked on a different scale. Hits are deduplicated by (vault, id).
+func federatedScoped(vaults []openVault, query string, limit int, scope store.SearchScope) ([]store.SearchResult, error) {
 	switch scope {
 	case store.SearchTitle:
-		results, err := fed.Search(query, limit)
-		addFederatedPaths(cfgs, results)
-		return results, err
+		return federatedTitleResults(vaults, query, limit)
 	case store.SearchAll:
-		results, err := fed.Search(query, limit)
+		results, err := federatedTitleResults(vaults, query, limit)
 		if err != nil {
 			return nil, err
 		}
-		addFederatedPaths(cfgs, results)
 		seen := make(map[vaultKey]bool, len(results))
 		for _, r := range results {
 			seen[vaultKey{r.Vault, r.NoteID}] = true
 		}
-		body, err := federatedBodyResults(fed, cfgs, healthy, query, limit-len(results), seen)
+		body, err := federatedBodyResults(vaults, query, limit-len(results), seen)
 		if err != nil {
 			return nil, err
 		}
 		return append(results, body...), nil
 	case store.SearchBody:
-		return federatedBodyResults(fed, cfgs, healthy, query, limit, nil)
+		return federatedBodyResults(vaults, query, limit, nil)
 	default:
 		return nil, fmt.Errorf("unknown search scope %q", scope)
 	}
 }
 
-// federatedBodyResults is the cross-vault counterpart of bodySearchResults: the federated FTS
-// union for indexable queries, or a per-vault file scan for terms too short to form a trigram.
-func federatedBodyResults(fed *store.Federated, cfgs map[string]*config.Config, healthy []vaultTarget, query string, limit int, seen map[vaultKey]bool) ([]store.SearchResult, error) {
+// federatedTitleResults runs the single-vault title query in every vault, labels and resolves each
+// hit against the vault it came from, and merges the pages into the global top-k.
+func federatedTitleResults(vaults []openVault, query string, limit int) ([]store.SearchResult, error) {
+	pages := make([][]store.SearchResult, 0, len(vaults))
+	for _, v := range vaults {
+		page, err := v.store.SearchScoped(query, limit, store.SearchTitle)
+		if err != nil {
+			return nil, err
+		}
+		for i := range page {
+			page[i].Vault = v.name
+			page[i].Path = v.cfg.PathForKind(page[i].FileKind, page[i].NoteID)
+		}
+		pages = append(pages, page)
+	}
+	return store.MergeSearchResults(pages, limit), nil
+}
+
+// federatedBodyResults is the cross-vault counterpart of bodySearchResults, and runs exactly that per
+// vault — so the FTS path, the short-term scan fallback, and the line/snippet lookup all stay in one
+// place. Already-returned title hits are skipped per vault, since ids only mean anything inside one.
+func federatedBodyResults(vaults []openVault, query string, limit int, seen map[vaultKey]bool) ([]store.SearchResult, error) {
 	if limit <= 0 {
 		return []store.SearchResult{}, nil
 	}
-	groups := store.BodyGroups(query)
-	if len(groups) == 0 {
+	if len(store.BodyGroups(query)) == 0 {
 		return []store.SearchResult{}, nil
 	}
-	if store.BodyQueryUsesFTS(query) {
-		hits, err := fed.SearchBodyFTS(query, limit+len(seen))
-		if err != nil {
-			return nil, err
-		}
-		out := make([]store.SearchResult, 0, len(hits))
-		for _, hit := range hits {
-			if seen[vaultKey{hit.Vault, hit.NoteID}] {
-				continue
-			}
-			hit.Path = cfgs[hit.Vault].PathForKind(hit.FileKind, hit.NoteID)
-			hit.Line, hit.Snippet = fileLineMatchGroups(hit.Path, groups)
-			out = append(out, hit)
-			if len(out) >= limit {
-				break
-			}
-		}
-		return out, nil
-	}
-
-	// Short terms fall back to the per-vault file scan, merged by the shared recency order.
-	var out []store.SearchResult
-	for _, tgt := range healthy {
-		cfg := cfgs[tgt.Name]
-		s, err := store.Open(cfg.DBPath)
-		if err != nil {
-			return nil, err
-		}
+	pages := make([][]store.SearchResult, 0, len(vaults))
+	for _, v := range vaults {
 		skip := map[int64]bool{}
 		for key := range seen {
-			if key.vault == tgt.Name {
+			if key.vault == v.name {
 				skip[key.id] = true
 			}
 		}
-		hits, err := bodySearchScan(cfg, s, groups, limit, skip)
-		s.Close()
+		page, err := bodySearchResults(v.cfg, v.store, query, limit, skip)
 		if err != nil {
 			return nil, err
 		}
-		for i := range hits {
-			hits[i].Vault = tgt.Name
+		for i := range page {
+			page[i].Vault = v.name
 		}
-		out = append(out, hits...)
+		pages = append(pages, page)
 	}
-	sortSearchResults(out)
-	if len(out) > limit {
-		out = out[:limit]
-	}
-	return out, nil
-}
-
-func addFederatedPaths(cfgs map[string]*config.Config, results []store.SearchResult) {
-	for i := range results {
-		results[i].Path = cfgs[results[i].Vault].PathForKind(results[i].FileKind, results[i].NoteID)
-	}
+	return store.MergeSearchResults(pages, limit), nil
 }
