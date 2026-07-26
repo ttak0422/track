@@ -48,7 +48,7 @@ func twoVaultServer(t *testing.T) (*httptest.Server, string, string) {
 	}
 	t.Setenv("TRACK_CONFIG", configPath)
 	t.Setenv("TRACK_VAULT", main)
-	t.Setenv("TRACK_DB", "")
+	t.Setenv("TRACK_DB_PATH", "")
 	t.Setenv("TRACK_CACHE_DIR", "")
 
 	cfg, err := config.Load()
@@ -293,7 +293,7 @@ func TestSearchReportsAnUnreachableVault(t *testing.T) {
 	}
 	t.Setenv("TRACK_CONFIG", configPath)
 	t.Setenv("TRACK_VAULT", main)
-	t.Setenv("TRACK_DB", "")
+	t.Setenv("TRACK_DB_PATH", "")
 	t.Setenv("TRACK_CACHE_DIR", "")
 
 	cfg, err := config.Load()
@@ -386,7 +386,7 @@ func TestNoteShowsInboundReferencesFromOtherVaults(t *testing.T) {
 	}
 	t.Setenv("TRACK_CONFIG", configPath)
 	t.Setenv("TRACK_VAULT", main)
-	t.Setenv("TRACK_DB", "")
+	t.Setenv("TRACK_DB_PATH", "")
 	t.Setenv("TRACK_CACHE_DIR", "")
 
 	cfg, err := config.Load()
@@ -432,7 +432,7 @@ func TestConcurrentRequestsShareOneViewPerVault(t *testing.T) {
 	}
 	t.Setenv("TRACK_CONFIG", configPath)
 	t.Setenv("TRACK_VAULT", main)
-	t.Setenv("TRACK_DB", "")
+	t.Setenv("TRACK_DB_PATH", "")
 	t.Setenv("TRACK_CACHE_DIR", "")
 
 	cfg, err := config.Load()

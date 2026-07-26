@@ -37,7 +37,7 @@ func runIn(t *testing.T, vault string, args ...string) (map[string]any, int) {
 	t.Helper()
 	t.Setenv("TRACK_CONFIG", filepath.Join(t.TempDir(), "missing.yml"))
 	t.Setenv("TRACK_VAULT", vault)
-	t.Setenv("TRACK_DB", "")
+	t.Setenv("TRACK_DB_PATH", "")
 	t.Setenv("TRACK_CACHE_DIR", filepath.Join(vault, ".test-cache"))
 	out, code := capture(t, func() int { return Run(args) })
 	var decoded map[string]any
@@ -225,7 +225,7 @@ func TestDefaultsToHomeTrackVault(t *testing.T) {
 	t.Setenv("HOME", home)
 	t.Setenv("TRACK_CONFIG", filepath.Join(t.TempDir(), "missing.yml"))
 	t.Setenv("TRACK_VAULT", "")
-	t.Setenv("TRACK_DB", "")
+	t.Setenv("TRACK_DB_PATH", "")
 	t.Setenv("TRACK_CACHE_DIR", t.TempDir())
 
 	// With nothing configured the vault defaults to $HOME/track (ADR 0015): the command succeeds and
@@ -357,7 +357,7 @@ func TestReindexKeepsMetadataTitleIgnoringBodyH1(t *testing.T) {
 func TestReindexResetsLegacyCacheDB(t *testing.T) {
 	vault := t.TempDir()
 	dbPath := filepath.Join(vault, "legacy-index.db")
-	t.Setenv("TRACK_DB", dbPath)
+	t.Setenv("TRACK_DB_PATH", dbPath)
 
 	if err := os.MkdirAll(filepath.Join(vault, "note"), 0o755); err != nil {
 		t.Fatal(err)

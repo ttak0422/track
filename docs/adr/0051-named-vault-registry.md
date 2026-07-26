@@ -12,7 +12,7 @@ machine and a way to address them that is safer than pasting paths.
 Two hazards shaped the design. First, ADR 0004's lesson: a mistyped vault path silently creates a
 fresh empty vault where the typo points. Names make this worse if unknown names auto-create.
 Second, the index cache: since the cache split was healed (Phase 0), each vault derives its own
-`index.db` from its canonical path — but a fixed `db_path`/`TRACK_DB` would pin *every* selected
+`index.db` from its canonical path — but a fixed `db_path`/`TRACK_DB_PATH` would pin *every* selected
 vault to the *same* database file, so two vaults would silently overwrite each other's index.
 
 Separately, the index's deletion reconciliation used to move the sidecar of a vanished note into
@@ -48,7 +48,7 @@ them unmounted cloud storage.
 - Auto-creation stays default-vault-only: an ordinary command refuses a `--vault` selection whose
   directory is missing (it may be an unmounted drive; laying a skeleton there would bury the real
   vault when it mounts). `track init --vault NAME` creates it explicitly.
-- A fixed `db_path`/`TRACK_DB` is a hard error whenever the registry is non-empty.
+- A fixed `db_path`/`TRACK_DB_PATH` is a hard error whenever the registry is non-empty.
 - `track vault list|current|which` inspect the registry; `which` never touches the vault, so it
   works while the vault is offline.
 - With a registry and no `--vault` selection, `reindex`, `doctor`, and `refresh-all` sweep the

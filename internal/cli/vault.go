@@ -3,6 +3,7 @@ package cli
 import (
 	"fmt"
 	"os"
+	"path/filepath"
 	"sort"
 	"strings"
 
@@ -167,4 +168,70 @@ func requireVaultDir(cfg *config.Config) error {
 		return fmt.Errorf("vault %q is registered at %s but the directory does not exist (unmounted? 'track init --vault %s' creates it)", selectedVault, cfg.VaultDirDisplay, selectedVault)
 	}
 	return nil
+}
+
+// applyPathVault points the active vault at the one a --path argument lives in. A note always sits
+// directly under <vault>/note/ or <vault>/journal/, so the path names its vault outright: the root is
+// two levels up, confirmed by a .track/ beside it. This is the same rule the Neovim plugin resolves a
+// buffer's vault by, so a command addressing a file and an editor editing it agree.
+//
+// It only ever turns a hard error into the right answer. A --path outside the active vault is refused
+// today (KindFromPath anchors the path against the vault, so it is "not a vault note"), so nothing
+// that works now changes meaning. An explicit --vault wins, and a path that names no vault is left
+// alone for the command to reject as before.
+//
+// Commands that name no file — search, new --title, notes, query — derive nothing and still take
+// --vault or TRACK_VAULT. That is deliberate: they are exactly the ones where a wrong guess would
+// write to the wrong vault.
+func applyPathVault(args []string) {
+	if selectedVault != "" {
+		return
+	}
+	path := ""
+	for i := 0; i < len(args); i++ {
+		switch {
+		case args[i] == "--path":
+			if i+1 < len(args) {
+				path = args[i+1]
+				i++
+			}
+		case strings.HasPrefix(args[i], "--path="):
+			path = strings.TrimPrefix(args[i], "--path=")
+		}
+	}
+	if strings.TrimSpace(path) == "" {
+		return
+	}
+	root, ok := vaultRootOf(path)
+	if !ok {
+		return
+	}
+	// Already the active vault: leave the selection as configured, so user-facing paths keep the
+	// spelling the config used rather than the one this argument happened to have.
+	if cfg, err := config.Load(); err == nil {
+		if same, err := config.CanonicalPath(root); err == nil && same == cfg.VaultDir {
+			return
+		}
+	}
+	os.Setenv("TRACK_VAULT", root)
+}
+
+// vaultRootOf returns the vault a note path belongs to: two directories up, if that directory holds a
+// .track/. The marker is the directory, not its config.yml — a vault's config is optional.
+func vaultRootOf(path string) (string, bool) {
+	abs, err := filepath.Abs(path)
+	if err != nil {
+		return "", false
+	}
+	parent := filepath.Dir(abs)
+	switch filepath.Base(parent) {
+	case config.KindNote, config.KindJournal:
+	default:
+		return "", false
+	}
+	root := filepath.Dir(parent)
+	if info, err := os.Stat(filepath.Join(root, ".track")); err != nil || !info.IsDir() {
+		return "", false
+	}
+	return root, true
 }

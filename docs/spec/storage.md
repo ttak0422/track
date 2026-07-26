@@ -101,7 +101,15 @@ The rebuildable SQLite index is a cache outside the vault. By default it lives u
 
 `TRACK_CACHE_DIR` overrides the `track` cache directory for tests and one-off runs. The CLI is the only resolver of the cache location: frontends (the Neovim plugin, the web workspace) never compute or export their own cache directory, so every process that opens a vault lands on the same physical `index.db`.
 
-`TRACK_DB` can still point at an explicit database path for debugging or tests. When the machine config registers named vaults (`vaults:`, ADR 0051), `db_path`/`TRACK_DB` is refused: a fixed path would pin every selected vault to the same database file.
+Every configuration key can be overridden from the environment by one rule: `TRACK_` plus the key in upper snake case. `TRACK_CACHE_DIR` sets `cache_dir`, `TRACK_GEN_KEEP` sets `gen_keep`, `TRACK_CAPTURE_INBOX` sets `capture_inbox`, and `TRACK_VAULTS_<NAME>` sets one entry of the `vaults:` registry. Each variable sets exactly the thing it names — a `TRACK_VAULTS_` entry adds one vault, or replaces the same-named one, and never displaces the rest of the registry. The rule spans both config files, which works because their key namespaces are disjoint by construction: a key in the wrong file is a hard error (ADR 0050).
+
+An environment vault name comes from the suffix, lowercased with `_` mapped to the dash a vault name uses — `TRACK_VAULTS_TRACK_HELP` registers `track-help`. The mapping round-trips because an environment variable name cannot hold a dash and a vault name cannot hold an underscore. Everything else about the entry is validated exactly as a configured one: the path must be absolute, and a vault still gets exactly one name.
+
+This is how a checkout carries a vault. The registry is machine state and a synced or cloned vault must never introduce vault paths (ADR 0051), so a repository cannot register itself — but the shell entering that checkout can, on the user's behalf: a devshell hook, a Makefile, or a direnv `.envrc` the user allowed. Registering is not selecting: the active vault is untouched, so commands still read and write the user's own vault while the checkout's is reachable by name (`--vault`, `[[name:title]]`, cross-vault search, and a per-vault LSP client).
+
+Two variables sit outside the rule because neither names a key: `TRACK_CONFIG` is the config file itself, and `TRACK_VAULT` selects the active vault by path.
+
+`TRACK_DB_PATH` can still point at an explicit database path for debugging or tests. When the machine config registers named vaults (`vaults:`, ADR 0051), `db_path`/`TRACK_DB_PATH` is refused: a fixed path would pin every selected vault to the same database file.
 
 Cross-vault references (`[[vault:title]]`, ADR 0053) live in each vault's own index as `ext_links` rows keyed by `(vault name, title)` — the target's numeric id is never stored, because ids are vault-local. Inbound cross-vault backlinks are answered by scanning the other registered vaults' databases for rows naming this vault.
 
