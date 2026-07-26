@@ -15,9 +15,9 @@ none fits, extend this document first — do not invent a one-off treatment.
 - **A box is earned.** A border or fill exists only to separate a control from
   content beneath it (quiet chip) or to lift a genuinely floating layer
   (floating layer). Shadows belong to floating layers alone.
-- **Tokens only.** Every color comes from the `:root` custom properties in
-  `web/src/styles.css`; components never hardcode hex values. Font sizes in
-  chrome scale via `calc(...px * var(--font-scale, 1))`.
+- **Tokens only.** Every color and corner radius comes from the `:root` custom
+  properties in `web/src/styles.css`; components never hardcode hex values or
+  raw radii. Font sizes in chrome scale via `calc(...px * var(--font-scale, 1))`.
 - **No hover-triggered popups on visible content.** Previews and expansions
   open from an explicit affordance (a button, a click), never from merely
   hovering something already readable. Hover may *reveal controls* (quiet
@@ -38,9 +38,17 @@ none fits, extend this document first — do not invent a one-off treatment.
 | `--graph-active`(`-strong`) | Graph highlight |
 | `--chart-1..6`, `--chart-ramp-*` | Chart series and heatmap ramp |
 | `--font-mono` | The one mono stack: code, the editor, section labels |
+| `--radius-sm` (4px) | Badges and inline chips |
+| `--radius` (6px) | Controls: quiet chips, inputs, list rows |
+| `--radius-lg` (8px) | Panels, cards, embeds, floating layers |
 
 Light and dark values are defined together at the top of `styles.css`; using
 tokens makes a component theme-correct with no extra work.
+
+Those three are the whole radius scale — a control that wants a corner takes
+one of them, not a new number. Drawn shapes are not on the scale and keep
+their own geometry: icon glyphs, heatmap cells, pills (`999px`), circles
+(`50%`).
 
 ## Variants
 
@@ -62,7 +70,7 @@ Controls that sit on top of media, diagrams, or canvases and need separation
 from what is beneath them.
 
 - `background: var(--panel-soft)` (or a translucent `--panel` mix over
-  images/video), `border: 1px solid var(--line)`, `border-radius: 6px`.
+  images/video), `border: 1px solid var(--line)`, `border-radius: var(--radius)`.
   No shadow.
 - Usually hover-revealed: `opacity: 0`, switched to `1` on the container's
   `:hover` / `:focus-within`.
