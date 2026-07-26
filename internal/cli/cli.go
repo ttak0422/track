@@ -79,8 +79,6 @@ func Run(args []string) int {
 		return cmdSearch(rest)
 	case "query":
 		return cmdQuery(rest)
-	case "similar":
-		return cmdSimilar(rest)
 	case "notes":
 		return cmdNotes(rest)
 	case "backlinks":
