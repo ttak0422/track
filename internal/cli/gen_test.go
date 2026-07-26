@@ -108,7 +108,6 @@ func TestGenPeekPrintsSnapshotContent(t *testing.T) {
 
 	t.Setenv("TRACK_CONFIG", filepath.Join(t.TempDir(), "missing.yml"))
 	t.Setenv("TRACK_VAULT", vault)
-	t.Setenv("TRACK_DB_PATH", "")
 	t.Setenv("TRACK_CACHE_DIR", filepath.Join(vault, ".test-cache"))
 	out, code := capture(t, func() int {
 		return Run([]string{"gen", "peek", "--gen", "1", "--title", "peekノート"})

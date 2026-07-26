@@ -31,7 +31,6 @@ func runWithRegistryCache(t *testing.T, cacheDir, defaultVault string, registry 
 	}
 	t.Setenv("TRACK_CONFIG", configPath)
 	t.Setenv("TRACK_VAULT", defaultVault)
-	t.Setenv("TRACK_DB_PATH", "")
 	t.Setenv("TRACK_CACHE_DIR", cacheDir)
 	out, code := capture(t, func() int { return Run(args) })
 	decoded := decodeJSON(t, out)
@@ -149,7 +148,6 @@ func runWithMachineConfig(t *testing.T, body string, args ...string) map[string]
 	}
 	t.Setenv("TRACK_CONFIG", configPath)
 	t.Setenv("TRACK_VAULT", "")
-	t.Setenv("TRACK_DB_PATH", "")
 	t.Setenv("TRACK_CACHE_DIR", filepath.Join(t.TempDir(), "cache"))
 	out, _ := capture(t, func() int { return Run(args) })
 	return decodeJSON(t, out)
@@ -457,7 +455,6 @@ func TestExplicitVaultFlagBeatsAPathDerivedOne(t *testing.T) {
 	}
 	t.Setenv("TRACK_CONFIG", configPath)
 	t.Setenv("TRACK_VAULT", "")
-	t.Setenv("TRACK_DB_PATH", "")
 	t.Setenv("TRACK_CACHE_DIR", "")
 
 	out, code := capture(t, func() int {
