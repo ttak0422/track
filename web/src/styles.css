@@ -152,7 +152,7 @@ button {
 }
 
 /* The rail sits on the same surface as the note itself — no slab, no divider. Chrome is the icons,
-   nothing else; a hover chip is the only fill it ever paints. */
+   nothing else; it never paints a fill. */
 .sidebar {
   display: flex;
   min-width: 0;
@@ -188,13 +188,13 @@ button {
   display: block;
 }
 
+/* text control */
 .rail-button {
   display: grid;
   place-items: center;
   width: 40px;
   height: 40px;
   border: 0;
-  border-radius: 6px;
   color: var(--muted);
   background: transparent;
   text-decoration: none;
@@ -203,7 +203,6 @@ button {
 .rail-button:hover,
 .rail-button:focus-visible {
   color: var(--text);
-  background: var(--panel-soft);
 }
 
 .rail-icon {
