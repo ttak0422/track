@@ -229,7 +229,7 @@ func checkPages(pages map[string]sitePage, idForSlug, keyToID map[string]int64, 
 
 // siteConfigNames are the per-site config file, discovered inside the published directory itself. Both
 // spellings are accepted: ".yml" and ".yaml" are a coin flip (this repo writes config.yml but also
-// renames.yaml, gen.yaml and note sidecars), and a config that is only exercised at publish time must not
+// gen.yaml and note sidecars), and a config that is only exercised at publish time must not
 // be skipped over a filename typo — that is the same wrong site shipped quietly that strict key decoding
 // exists to prevent. Finding both is a loud error, not a guess.
 var siteConfigNames = []string{"site.yml", "site.yaml"}

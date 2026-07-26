@@ -138,7 +138,7 @@ If a sidecar is missing, the current parser can still read the legacy trailing `
 
 The markdown body is plain content. It may be empty or contain any headings, including a leading H1. Parsing and reindexing never derive or reconcile the title from the body; title changes must go through create/open/journal/append metadata writes, `track rename`, or LSP rename.
 
-Title changes are also recorded in `.track/renames.yaml` as repair history. Rename history is not a link keyword source: an old title remains available for a new note, and `[[old title]]` does not resolve through the history. LSP code actions may use the history only when an old title is unresolved, offering to rewrite the link to the newest recorded title.
+A rename rewrites every `[[old title]]` in the vault as part of the operation, so no record of past titles is kept. A link the rewrite could not reach — one in another vault, or one written by hand afterwards — surfaces as an ordinary unresolved-link diagnostic; the old title is not stored anywhere, so it is also free for a new note immediately.
 
 ## SQLite Index
 
@@ -219,7 +219,6 @@ Because a full reindex deletes the sidecars of notes whose markdown is gone, run
 The vault and cache hold two very different kinds of data:
 
 - `.track/notes/<id>.yaml` are the **authoritative** per-note metadata sidecars. The markdown body is content only; `title`, `tags`, `created`, `days`, and Babel block results live in the sidecar and cannot be reconstructed from the `.md` file.
-- `.track/renames.yaml` is repair history for manual title edits. It can improve unresolved-link quickfixes, but it is not used for normal link resolution.
 - The SQLite index under the cache directory is **rebuildable**. The notes on disk are the source of truth; `track reindex --full` deletes the cache database and regenerates it from them. Deleting it is safe.
 
 Deleting `.track/notes/` is therefore irrecoverable data loss. Treat it like `.git`: keep it under version control and back it up alongside the note bodies.

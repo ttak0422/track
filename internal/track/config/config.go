@@ -616,11 +616,6 @@ func (c *Config) MetadataPath(id int64) string {
 	return filepath.Join(c.MetadataDir(), strconv.FormatInt(id, 10)+".yaml")
 }
 
-// RenamesPath returns the vault-local title rename history path.
-func (c *Config) RenamesPath() string {
-	return filepath.Join(c.TrackDir(), "renames.yaml")
-}
-
 // GenDir returns the generation snapshot store (<vault>/.track/gen). It lives under .track so note
 // scanning never indexes it, and generations never snapshot it; it stays inside the vault so cloud
 // sync carries undo history to every device.
