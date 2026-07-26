@@ -244,42 +244,35 @@ Completion of titles inside `[[` is served over LSP. The plugin merges [`cmp-nvi
 
 Babel fence info strings are completed over the same LSP source. On an opening fence such as ```` ```lua :results output ````, track completes configured Babel languages, supported header keys, and fixed values for headers such as `:results`, `:eval`, `:cache`, `:session`, `:exports`, `:noweb`, `:tangle`, and `:visible-lines`. Header-key candidates insert one trailing space, so accepting `:eval` leaves the cursor at `:eval ` where value candidates such as `yes`, `no`, and `query` are available. `:visible-lines 4-5,8` is an editor-only display hint that hides source block body lines outside the listed 1-based ranges without changing execution.
 
-## Claude Code plugin
+## Agent skills
 
-This repository doubles as a [Claude Code](https://docs.claude.com/en/docs/claude-code) plugin marketplace, so coding agents can drive the CLI through bundled skills. The skills carry the JSON output contract and focused command workflows:
+Skills that let a coding agent drive this CLI live in
+[ttak0422/track-lab](https://github.com/ttak0422/track-lab) as the `note` plugin: note creation with
+track's rich body constructs, search and graph inspection, project intake with plan notes, research
+reports, task worklogs, web clipping, and vault maintenance. They used to ship from this repository
+as the `track` plugin; they moved out so they can change on an agent-workflow cadence instead of the
+CLI's release cycle.
 
-- `track-create-note`: create/open notes and journals, append to notes, and create notes from templates.
-- `track-search-notes`: search, resolve, export/read notes, backlinks, and graph inspection.
-- `track-project-intake`: record an incoming project request (bug/TODO) into the project's note, creating the note if missing.
-- `track`: maintenance workflows such as rename/backlink repair, doctor, and reindex.
+Claude Code:
 
 ```text
-# add this repo as a marketplace, then install the track plugin
-/plugin marketplace add ttak0422/track
-/plugin install track@track
+/plugin marketplace add ttak0422/track-lab
+/plugin install note@track-lab
 ```
 
-The marketplace manifest is [`.claude-plugin/marketplace.json`](.claude-plugin/marketplace.json) and the plugin lives at [`plugins/track`](plugins/track) (manifest `plugins/track/.claude-plugin/plugin.json`, skills under `plugins/track/skills/`). After installing, configure `vault_dir` in `config.yml` so the agent's commands resolve against your vault. The tool-neutral contract the skills point to is [docs/spec/agent-workflows.md](docs/spec/agent-workflows.md).
-
-## Codex skill
-
-The bundled skills are also installable by Codex through this repository's marketplace. The marketplace manifest is [`.agents/plugins/marketplace.json`](.agents/plugins/marketplace.json), and the Codex plugin manifest is [`plugins/track/.codex-plugin/plugin.json`](plugins/track/.codex-plugin/plugin.json). It points at the same `plugins/track/skills/` directory.
-
-From a local checkout:
+Codex:
 
 ```sh
-codex plugin marketplace add .
-codex plugin add track@track
+codex plugin marketplace add ttak0422/track-lab
+codex plugin add note@track-lab
 ```
 
-From GitHub:
+Restart Codex or start a new thread after installing. Configure `vault_dir` in `config.yml` so the
+agent's `track` commands resolve against your vault.
 
-```sh
-codex plugin marketplace add ttak0422/track
-codex plugin add track@track
-```
-
-Restart Codex or start a new thread after installing. Configure `vault_dir` in `config.yml` so Codex-run `track` commands resolve against your vault.
+What stays here is the contract those skills build on: every command prints single-line JSON, errors
+are `{"error":...}` with exit code 1, and the tool-neutral workflow reference is
+[docs/spec/agent-workflows.md](docs/spec/agent-workflows.md).
 
 ## Data safety
 

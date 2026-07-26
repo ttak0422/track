@@ -1,4 +1,0 @@
-interface:
-  display_name: "Track"
-  short_description: "Maintain linked Markdown vaults"
-  default_prompt: "Use $track to maintain linked Markdown notes in my track vault."
