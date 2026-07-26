@@ -321,3 +321,82 @@ func decodeID(t *testing.T, id int64) string {
 	t.Helper()
 	return strconv.FormatInt(id, 10)
 }
+
+// A --path names its own vault: a note sits directly under <vault>/note/, so the path says which
+// vault it belongs to without any search. This is what makes a command addressing a file agree with
+// the editor editing it, and it only ever replaces a hard error — a path outside the active vault is
+// "not a vault note" today.
+func TestPathOutsideTheActiveVaultSelectsItsOwnVault(t *testing.T) {
+	home, other := t.TempDir(), t.TempDir()
+	if _, code := runIn(t, home, "new", "--title", "Mine", "--id", "100", "--body", "# Mine\n"); code != 0 {
+		t.Fatal("new in the home vault failed")
+	}
+	if _, code := runIn(t, other, "new", "--title", "Theirs", "--id", "200", "--body", "# Theirs\n"); code != 0 {
+		t.Fatal("new in the other vault failed")
+	}
+
+	// Active vault is `home`; the path points into `other`.
+	notePath := filepath.Join(other, "note", "200.md")
+	out, code := runIn(t, home, "meta", "--path", notePath)
+	if code != 0 {
+		t.Fatalf("meta on another vault's note should work, got code=%d out=%v", code, out)
+	}
+	if out["title"] != "Theirs" {
+		t.Fatalf("the path's own vault should have answered, got %v", out)
+	}
+
+	// The sidecar it wrote belongs to that vault, not the active one.
+	if _, code := runIn(t, home, "meta", "--path", notePath, "--description", "from outside"); code != 0 {
+		t.Fatalf("meta write failed")
+	}
+	raw, err := os.ReadFile(filepath.Join(other, ".track", "notes", "200.yaml"))
+	if err != nil {
+		t.Fatalf("read the other vault's sidecar: %v", err)
+	}
+	if !strings.Contains(string(raw), "from outside") {
+		t.Fatalf("the write landed elsewhere: %s", raw)
+	}
+	if _, err := os.Stat(filepath.Join(home, ".track", "notes", "200.yaml")); !os.IsNotExist(err) {
+		t.Fatalf("nothing may be written into the active vault (stat err=%v)", err)
+	}
+}
+
+// An explicit --vault is a decision; a derived one is an inference. The decision wins.
+func TestExplicitVaultFlagBeatsAPathDerivedOne(t *testing.T) {
+	home, other := t.TempDir(), t.TempDir()
+	if _, code := runIn(t, other, "new", "--title", "Theirs", "--id", "200", "--body", "# Theirs\n"); code != 0 {
+		t.Fatal("new in the other vault failed")
+	}
+	configPath := filepath.Join(t.TempDir(), "config.yml")
+	body := "cache_dir: " + t.TempDir() + "\nvaults:\n  home: " + home + "\n"
+	if err := os.WriteFile(configPath, []byte(body), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("TRACK_CONFIG", configPath)
+	t.Setenv("TRACK_VAULT", "")
+	t.Setenv("TRACK_DB_PATH", "")
+	t.Setenv("TRACK_CACHE_DIR", "")
+
+	out, code := capture(t, func() int {
+		return Run([]string{"--vault", "home", "meta", "--path", filepath.Join(other, "note", "200.md")})
+	})
+	if !strings.Contains(out, "not a vault note") {
+		t.Fatalf("--vault should have won and refused the foreign path, got %s (code %d)", out, code)
+	}
+}
+
+// A path that is not in any vault stays the command's error to report, unchanged.
+func TestPathInNoVaultIsLeftAlone(t *testing.T) {
+	home := t.TempDir()
+	loose := filepath.Join(t.TempDir(), "note", "300.md")
+	if err := os.MkdirAll(filepath.Dir(loose), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(loose, []byte("# Loose\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	out, code := runIn(t, home, "meta", "--path", loose)
+	if code != 1 || !strings.Contains(out["error"].(string), "not a vault note") {
+		t.Fatalf("a directory without .track/ is not a vault, got code=%d out=%v", code, out)
+	}
+}

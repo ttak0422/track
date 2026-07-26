@@ -20,6 +20,7 @@ func Run(args []string) int {
 	if !ok {
 		return 1
 	}
+	applyPathVault(args)
 	if len(args) == 0 {
 		usage()
 		return 1
