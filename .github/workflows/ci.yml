@@ -121,6 +121,10 @@ jobs:
   # Reads this run's coverage profile and the one from the last main run, and comments the per-package
   # table and the change against main. Forks and Dependabot get no token that can comment, so they are
   # left out rather than failed. Runs without Nix: the action ships its own binary.
+  #
+  # The report covers the packages whose Go files this PR changed, so a docs-only or workflow-only PR
+  # gets no comment at all — that is the action working, not a broken run. The job summary in `test`
+  # still carries the whole picture.
   coverage_report:
     name: Coverage report
     if: >-

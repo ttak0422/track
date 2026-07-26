@@ -91,7 +91,7 @@ func Build(cfg *config.Config, st *store.Store, opts Options, frontendDir, outDi
 			icon:     cfg.NoteIcon(n.Kind, n.Meta.Tags, n.Meta.Icon),
 			assetSrc: assetSrc,
 			dataDir:  cfg.DataDir(),
-			tasks:    docTasks(n.Body, cfg.TaskStates),
+			tasks:    docTasks(n.Body),
 			props:    props,
 		})
 		upKeys = append(upKeys, note.UpTargets(props))
@@ -131,8 +131,8 @@ func vaultEdges(st *store.Store, inSet map[int64]bool) ([]edge, error) {
 
 // docTasks parses a source body's task lines for the published bundle, or nil when it has none.
 // Tasks parse from the raw body (not the sanitized one) so token extraction matches the live server.
-func docTasks(body string, states []task.State) *task.Set {
-	set := task.NewSet(body, states)
+func docTasks(body string) *task.Set {
+	set := task.NewSet(body)
 	if len(set.Items) == 0 {
 		return nil
 	}

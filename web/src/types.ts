@@ -89,8 +89,8 @@ export interface NoteInclude {
   error?: string;
 }
 
-// One named task state of the vault's configured set: the checkbox marker character and whether the
-// state is done-family (completion). The set defines the task board's columns.
+// One named task state: the checkbox marker character and whether the state is done-family
+// (completion). The set is fixed and lives in ./taskStates; it defines the task board's columns.
 export interface TaskState {
   name: string;
   char: string;
@@ -110,10 +110,9 @@ export interface TaskItem {
   text: string;
 }
 
-// A note's tasks plus the state set, as served by /api/tasks, embedded in the note response, and
-// baked into the static bundle's note JSON.
+// A note's tasks, as served by /api/tasks, embedded in the note response, and baked into the static
+// bundle's note JSON.
 export interface NoteTasks {
-  states: TaskState[];
   items: TaskItem[];
 }
 

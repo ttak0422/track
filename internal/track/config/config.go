@@ -18,7 +18,6 @@ import (
 	"time"
 
 	"github.com/ttak0422/track/internal/track/babel"
-	"github.com/ttak0422/track/internal/track/task"
 	"gopkg.in/yaml.v3"
 )
 
@@ -57,9 +56,6 @@ type Config struct {
 	// written without anyone asking for them.
 	JournalOff bool
 	GenOff     bool
-	// TaskStates is the vault's task state set (config task_states), defaulting to task.DefaultStates.
-	// Each state names a single checkbox marker character; done-family states stamp a completion date.
-	TaskStates []task.State
 	// WebHome names the note (by title or numeric id) that the web workspace opens as its landing view
 	// instead of the search hero. Empty keeps the search home. A dashboard note (one with ```dashboard
 	// widget blocks) is the intended target. Resolved to a note id by the web layer, not here.
@@ -152,7 +148,6 @@ type vaultFileConfig struct {
 	GenKeep           int                 `yaml:"gen_keep"`
 	Journal           *bool               `yaml:"journal"`
 	Gen               *bool               `yaml:"gen"`
-	TaskStates        []task.State        `yaml:"task_states"`
 	Properties        map[string]PropSpec `yaml:"properties"`
 	Queries           map[string]string   `yaml:"queries"`
 	CaptureInbox      string              `yaml:"capture_inbox"`
@@ -331,11 +326,6 @@ func load(fixedVault string) (*Config, error) {
 		genKeep = 10
 	}
 
-	if err := task.ValidateStates(vc.TaskStates); err != nil {
-		return nil, fmt.Errorf("vault config task_states: %w", err)
-	}
-	taskStates := task.StatesOrDefault(vc.TaskStates)
-
 	if err := validateProperties(vc.Properties); err != nil {
 		return nil, err
 	}
@@ -370,7 +360,6 @@ func load(fixedVault string) (*Config, error) {
 		GenKeep:           genKeep,
 		JournalOff:        vc.Journal != nil && !*vc.Journal,
 		GenOff:            vc.Gen != nil && !*vc.Gen,
-		TaskStates:        taskStates,
 		WebHome:           strings.TrimSpace(vc.Web.Home),
 		Icons:             IconMap{Tags: vc.Icons.Tags, Kinds: vc.Icons.Kinds},
 		Properties:        vc.Properties,
@@ -574,7 +563,7 @@ func loadMachineConfig() (machineFileConfig, error) {
 	path := ConfigPath()
 	if err := strictDecodeFile(path, &cfg); err != nil {
 		if isUnknownFieldError(err) {
-			return machineFileConfig{}, fmt.Errorf("%w (vault-scope keys such as task_states, properties, queries, and icons now live in <vault>/.track/config.yml)", err)
+			return machineFileConfig{}, fmt.Errorf("%w (vault-scope keys such as properties, queries, and icons now live in <vault>/.track/config.yml)", err)
 		}
 		return machineFileConfig{}, err
 	}

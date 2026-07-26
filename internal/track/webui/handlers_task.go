@@ -94,5 +94,5 @@ func (v *vaultView) noteTasks(fileKind string, id int64) (task.Set, error) {
 		return task.Set{}, err
 	}
 	body, _, _ := note.SplitLegacyFootmatter(string(raw))
-	return task.NewSet(body, v.cfg.TaskStates), nil
+	return task.NewSet(body), nil
 }

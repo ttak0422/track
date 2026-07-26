@@ -273,7 +273,7 @@ func TestLoadIconsAndHome(t *testing.T) {
 
 func TestLoadRejectsVaultScopeKeysInMachineConfig(t *testing.T) {
 	configPath := filepath.Join(t.TempDir(), "config.yml")
-	body := "vault_dir: " + t.TempDir() + "\ntask_states:\n  - name: todo\n    marker: \" \"\n"
+	body := "vault_dir: " + t.TempDir() + "\ncapture_inbox: Inbox\n"
 	if err := os.WriteFile(configPath, []byte(body), 0o644); err != nil {
 		t.Fatal(err)
 	}
@@ -402,7 +402,7 @@ func TestLoadRejectsSecondYAMLDocument(t *testing.T) {
 	// A second document would otherwise be dropped silently, defeating strict decoding.
 	vault := t.TempDir()
 	configPath := filepath.Join(t.TempDir(), "config.yml")
-	if err := os.WriteFile(configPath, []byte("vault_dir: "+vault+"\n---\ntask_states: []\n"), 0o644); err != nil {
+	if err := os.WriteFile(configPath, []byte("vault_dir: "+vault+"\n---\ncache_dir: /tmp\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
 	t.Setenv("TRACK_CONFIG", configPath)

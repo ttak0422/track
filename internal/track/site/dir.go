@@ -143,7 +143,7 @@ func BuildDir(srcDir, baseURL, frontendDir, outDir string) (Result, error) {
 			// A docs directory may keep canonical JSONL next to its assets, mirroring the vault's data/.
 			dataDir: filepath.Join(srcDir, "data"),
 			// Directory sources have no vault config, so tasks parse with the default state set.
-			tasks: docTasks(f.body, nil),
+			tasks: docTasks(f.body),
 			// The page's properties assemble the way a vault note's do (note.CollectProps): the
 			// pages entry's props stand where the sidecar's stand, then inline "key:: value"
 			// fields — prose data, indexed from the line it is written on (ADR 0032).
