@@ -3,7 +3,7 @@
 
 # Go coverage profile (CI writes it; reproduce with the command in .github/workflows/ci.yml)
 /coverage.out
-/coverage.txt
+/coverage-func.txt
 
 # Web frontend
 node_modules/

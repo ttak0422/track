@@ -12,7 +12,6 @@ jobs:
     timeout-minutes: 30
     permissions:
       contents: read
-      pull-requests: write
 
     steps:
       - name: Checkout
@@ -39,36 +38,31 @@ jobs:
       - name: Go tests
         run: nix develop --command go test -coverpkg=./... -coverprofile=coverage.out ./...
 
+      # The comment on a PR reports per package; the per-function table has no other home, so it goes
+      # to the job summary.
       - name: Go coverage
         run: |
-          nix develop --command go tool cover -func=coverage.out >coverage.txt
-          echo "COVERAGE_TOTAL=$(awk 'END { print $3 }' coverage.txt)" >>"$GITHUB_ENV"
+          nix develop --command go tool cover -func=coverage.out >coverage-func.txt
           {
-            awk 'END { print "**" $3 "** of statements covered" }' coverage.txt
+            awk 'END { print "**" $3 "** of statements covered" }' coverage-func.txt
             echo
             echo "<details><summary>Per function</summary>"
             echo
             echo '```'
-            cat coverage.txt
+            cat coverage-func.txt
             echo '```'
             echo
             echo "</details>"
           } >>"$GITHUB_STEP_SUMMARY"
 
-      # The per-function table is too big for a comment, so the comment carries the total and links to
-      # the summary that holds the table. Skipped for forks and Dependabot, whose token cannot comment.
-      - name: Comment coverage on the PR
-        if: >-
-          github.event_name == 'pull_request'
-          && github.event.pull_request.head.repo.full_name == github.repository
-          && github.actor != 'dependabot[bot]'
-        env:
-          GH_TOKEN: ${{ github.token }}
-          PR: ${{ github.event.pull_request.number }}
-          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
-        run: |
-          scripts/pr-comment.sh go-coverage "$PR" \
-            "Go coverage: **$COVERAGE_TOTAL** of statements — [per-function breakdown]($RUN_URL)"
+      # The report job reads this back with `gh run download`, and reads the same artifact from the
+      # last main run to work out the delta — so the upload has to happen on push to main too.
+      - name: Upload coverage profile
+        uses: actions/upload-artifact@v4
+        with:
+          name: code-coverage
+          path: coverage.out
+          if-no-files-found: error
 
       - name: Neovim action-link E2E
         run: |
@@ -123,3 +117,27 @@ jobs:
           export TRACK_VAULT="$(mktemp -d)"
           export TRACK_CACHE_DIR="$(mktemp -d)"
           nix run .#test-nvim -- --headless '+luafile scripts/e2e/nvim_meta.lua'
+
+  # Reads this run's coverage profile and the one from the last main run, and comments the per-package
+  # table and the change against main. Forks and Dependabot get no token that can comment, so they are
+  # left out rather than failed. Runs without Nix: the action ships its own binary.
+  coverage_report:
+    name: Coverage report
+    if: >-
+      github.event_name == 'pull_request'
+      && github.event.pull_request.head.repo.full_name == github.repository
+      && github.actor != 'dependabot[bot]'
+    needs: test
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: read
+      actions: read
+      pull-requests: write
+
+    steps:
+      - name: Report coverage on the PR
+        uses: fgrosse/go-coverage-report@v1.3.1
+        with:
+          coverage-file-name: coverage.out
+          trim: github.com/ttak0422/track/
