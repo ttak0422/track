@@ -224,6 +224,26 @@ function M.setup()
       require("track.journal").open(tonumber(opts.args) or 0)
    end, { nargs = "?", desc = "Open the journal note at a day offset (default 0)" })
 
+   -- No command creates a vault root implicitly any more, so the editor needs a way to say "yes, here".
+   -- It reports the path it initialized: if the configured vault_dir holds a typo, seeing the wrong
+   -- directory named back is the moment to notice, before notes start landing in it.
+   register("init", function()
+      local data, err = client.run_json({ "init" })
+      if not data then
+         vim.notify("track: " .. tostring(err), vim.log.levels.ERROR)
+         return
+      end
+      local created = data.created or {}
+      if #created == 0 then
+         vim.notify("track: " .. tostring(data.vault) .. " is already a vault", vim.log.levels.INFO)
+         return
+      end
+      vim.notify(
+         string.format("track: initialized %s (%d directories)", tostring(data.vault), #created),
+         vim.log.levels.INFO
+      )
+   end, { desc = "Create the vault directory layout for the configured vault" })
+
    register("reindex", function()
       vim.ui.select({ "Delete and rebuild index", "Cancel" }, { prompt = "Delete and rebuild the track index cache?" }, function(choice)
          if choice ~= "Delete and rebuild index" then
