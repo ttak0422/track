@@ -109,11 +109,11 @@ This is how a checkout carries a vault. The registry is machine state and a sync
 
 Two variables sit outside the rule because neither names a key: `TRACK_CONFIG` is the config file itself, and `TRACK_VAULT` selects the active vault by path.
 
-`TRACK_DB_PATH` can still point at an explicit database path for debugging or tests. When the machine config registers named vaults (`vaults:`, ADR 0051), `db_path`/`TRACK_DB_PATH` is refused: a fixed path would pin every selected vault to the same database file.
+There is no key for the database path itself. The index is derived from the vault path (`<cache-dir>/<vault-key>/index.db`), so relocating it means moving the whole cache with `cache_dir`/`TRACK_CACHE_DIR` — a single named file could not serve the vaults a registry holds.
 
 Cross-vault references (`[[vault:title]]`, ADR 0053) live in each vault's own index as `ext_links` rows keyed by `(vault name, title)` — the target's numeric id is never stored, because ids are vault-local. Inbound cross-vault backlinks are answered by scanning the other registered vaults' databases for rows naming this vault.
 
-Configuration ownership is split (ADR 0050): the machine config file can also set `cache_dir`, `db_path`, and the local web workspace's `web.theme`/`web.colors_path` (see [web.md](web.md)); everything about note semantics — `extensions`, `date_format`, `journal_date_format`, and the rest — lives in the vault config `<vault>/.track/config.yml`. Both files reject keys that belong to the other, so a synced vault can never redirect where this machine reads and writes. Environment values override the matching file values, but normal configuration should live in the files.
+Configuration ownership is split (ADR 0050): the machine config file can also set `cache_dir` and the local web workspace's `web.theme`/`web.colors_path` (see [web.md](web.md)); everything about note semantics — `extensions`, `date_format`, `journal_date_format`, and the rest — lives in the vault config `<vault>/.track/config.yml`. Both files reject keys that belong to the other, so a synced vault can never redirect where this machine reads and writes. Environment values override the matching file values, but normal configuration should live in the files.
 
 The vault path is canonicalized (symlinks resolved, made absolute) before use. A symlinked vault — for example `~/track` pointing at a cloud-synced `~/OneDrive/track` — therefore resolves to one stable path, so the `<vault-key>` cache key stays the same no matter which path the CLI is invoked through.
 

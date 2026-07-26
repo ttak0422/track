@@ -54,15 +54,16 @@ Configuration is split by ownership (ADR 0050). The machine config owns machine 
 ```yaml
 # ~/.config/track/config.yml (or the platform equivalent)
 vault_dir: ~/track
-# cache_dir / db_path / web.theme / web.colors_path also live here.
+# cache_dir / web.theme / web.colors_path also live here.
 ```
 
 With more than one vault, register them by name and pick the active one by name.
 Every command then accepts a global `--vault NAME` selector, `track vault
 list|current|which` inspects the registry, and `reindex`/`doctor`/`refresh-all`
-sweep every registered vault. A vault gets exactly one name, `vault_dir` is
-refused alongside a registry (the path is written once, under `vaults:`), and so
-is `db_path` (one fixed database cannot serve several vaults).
+sweep every registered vault. A vault gets exactly one name, and `vault_dir` is
+refused alongside a registry (the path is written once, under `vaults:`). Each
+vault's index is derived from its path under `cache_dir`, so no vault needs its
+database named.
 
 ```yaml
 vaults:

@@ -29,14 +29,11 @@ unqualified `[[title]]` does. A workspace serving one vault therefore answers
 exactly as it did before it could serve several, whether or not that vault is
 registered.
 
-- `GET /api/vaults`: the served vaults — `{"active": "<name>", "vaults":
-  [{"name","path","active","available","error"}]}`. A registered vault that
-  cannot be opened stays listed with its error rather than disappearing.
 - `GET /api/search` searches **every** served vault by default and labels each
   hit with its vault, merging them through one federated connection (ADR 0052).
   `?vault=<name>` narrows it to one. Vaults that could not be read are reported
-  under `unavailable` so "no matches there" stays distinguishable from "could
-  not read that vault".
+  under `unavailable` — `[{"name","path","error"}]` — so "no matches there"
+  stays distinguishable from "could not read that vault".
 - `GET /api/note` also carries `external`: the inbound `[[vault:title]]`
   references other vaults make to this note (ADR 0053), with `unavailable` for
   vaults that could not be consulted. Those edges live in the referring vaults'
@@ -46,7 +43,8 @@ registered.
 
 Only the launch vault is watched for filesystem changes; every other served
 vault is reconciled on read, the same freshness path a cloud sync already
-relies on. Change events name the vault they came from.
+relies on. Change events carry no vault: a client refreshes everything it holds,
+so there is nothing to narrow.
 
 In the frontend an id from a named vault is written `<vault>~<id>` — in routes,
 in the tab strip, and in the query cache — so two vaults' notes never collide.
