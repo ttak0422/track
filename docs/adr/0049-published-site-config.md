@@ -1,6 +1,12 @@
 # 0049. A published site's config travels with its content
 
-Status: Accepted
+Status: Superseded by [0059](0059-help-site-is-a-vault-directory-mode-removed.md)
+
+The principle stands and is now applied to vaults: what a site says about itself
+lives with the content (each page's own metadata in its sidecar, the site's in
+the vault config), while `--base-url`, `--out` and `--frontend` describe one
+build and stay flags. What is gone is the mechanism — directory mode and the
+`site.yml` that stood in for the sidecars a directory did not have.
 
 ## Context
 
@@ -48,7 +54,7 @@ identically from a contributor's laptop and from CI, and CI has no `~/.config/tr
   only content is an emoji. A directory's page metadata therefore goes where the directory already speaks
   for itself, in one map in `site.yml`, keyed by file base name (a directory has no note ids).
 - **An ownership split.** The **ambient user config owns the machine and the user**: `vault_dir`,
-  `cache_dir`, templates, babel, embedder, capture inbox, web theme, `web.home`. It is unchanged, and
+  `cache_dir`, templates, babel, capture inbox, web theme, `web.home`. It is unchanged, and
   directory mode still never reads it. The **site config owns the published site**: what its entry page is
   and what its icons are. The test for which side a value falls on: *does it change when the same content
   is deployed somewhere else?* If yes, it is not site config.

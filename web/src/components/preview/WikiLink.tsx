@@ -1,7 +1,7 @@
 import { Link } from "@tanstack/react-router";
 import { useContext, useEffect, useRef, useState } from "react";
 import { useResolveQuery } from "../../queries";
-import { PreviewDepthContext } from "../markdown/context";
+import { NoteVaultContext, PreviewDepthContext } from "../markdown/context";
 import { blockElementID, splitWikiTarget } from "../markdown/plugins";
 import { type PreviewAnchor, type PreviewBounds, initialPreviewBounds } from "./bounds";
 import { useFloating } from "./floatingStore";
@@ -26,7 +26,8 @@ export function WikiLink({ target, display }: WikiLinkProps) {
   // The target may carry a "#..." anchor (heading or ^block); the note resolves by its key, and a
   // block anchor becomes the URL hash so the reader scrolls to and highlights the marked block.
   const { key, blockID } = splitWikiTarget(target);
-  const resolved = useResolveQuery(key);
+  const vault = useContext(NoteVaultContext);
+  const resolved = useResolveQuery(key, vault);
   const noteID = resolved.data?.found ? resolved.data.note.note_id : undefined;
 
   useEffect(() => {

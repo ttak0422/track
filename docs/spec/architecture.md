@@ -10,7 +10,7 @@ The Neovim plugin delegates persistent behavior to those Go frontends instead of
 
 Reusable engine code lives under `internal/track/*`:
 
-- `config`: vault, database, note, and metadata paths.
+- `config`: vault, database, note, and metadata paths; merges the machine config with the vault config `<vault>/.track/config.yml` (ADR 0050).
 - `note`: note file parsing and versioned sidecar metadata.
 - `store`: SQLite schema and queries.
 - `index`: filesystem scan, metadata ingestion, and link graph rebuilds.

@@ -2,7 +2,8 @@ import { Link, useLocation } from "@tanstack/react-router";
 import { useEffect } from "react";
 import { useAgendaQuery } from "../queries";
 import { WikiLink } from "./preview/WikiLink";
-import type { FileKind, NoteID, NoteProp, NoteRef } from "../types";
+import type { ExternalRef, FileKind, NoteID, NoteProp, NoteRef, UnavailableVault } from "../types";
+import { split, vaultOf } from "../vaultId";
 
 // Shared read-only note UI, used by both the static reader (NoteReaderStatic) and the live editor
 // (NoteEditor), so the two stay consistent and the editor-only code is the only thing that differs.
@@ -22,7 +23,9 @@ export function LoadingIndicator({ label }: { label: string }) {
 // needed to know which day's activity to show.
 export function journalDateFromNote(note?: { file_kind: FileKind; note_id: NoteID }): string {
   if (!note || note.file_kind !== "journal") return "";
-  const id = String(note.note_id);
+  // A note from a named vault carries it in the id, so read the id half — a journal in vault "work"
+  // is "work~20260725", and matching the whole string would drop its "on this day" section.
+  const id = split(String(note.note_id)).id;
   if (!/^\d{8}$/.test(id)) return "";
   return `${id.slice(0, 4)}-${id.slice(4, 6)}-${id.slice(6, 8)}`;
 }
@@ -69,16 +72,22 @@ export function useScrollToHash(ready: boolean) {
 // width and wrap to a stack when narrow.
 export function NoteAside({
   backlinks,
+  external = [],
+  unavailable = [],
   childNotes = [],
   noteID,
   journalDate,
 }: {
   backlinks: NoteRef[];
+  // Inbound references from other vaults, listed apart from same-vault backlinks because they are
+  // reached by title across a vault boundary rather than by an indexed id.
+  external?: ExternalRef[];
+  unavailable?: UnavailableVault[];
   childNotes?: NoteRef[];
   noteID: NoteID;
   journalDate: string;
 }) {
-  const agendaQuery = useAgendaQuery(journalDate, { enabled: journalDate !== "" });
+  const agendaQuery = useAgendaQuery(journalDate, vaultOf(noteID), { enabled: journalDate !== "" });
 
   return (
     <div className="note-aside">
@@ -121,6 +130,30 @@ export function NoteAside({
           </div>
         )}
       </section>
+
+      {external.length > 0 || unavailable.length > 0 ? (
+        <section className="backlinks" aria-labelledby="external-backlinks-heading">
+          <h3 id="external-backlinks-heading">From other vaults</h3>
+          <div className="backlink-list">
+            {external.map((ref) => (
+              <Link
+                className="backlink"
+                key={`${ref.vault}/${ref.note_id}`}
+                to="/notes/$noteId"
+                params={{ noteId: String(ref.note_id) }}
+              >
+                <span className="tab-vault">{ref.vault}</span>
+                {ref.title}
+              </Link>
+            ))}
+          </div>
+          {unavailable.map((vault) => (
+            <p key={vault.name} className="muted">
+              ⚠ vault “{vault.name}” could not be checked{vault.error ? `: ${vault.error}` : ""}
+            </p>
+          ))}
+        </section>
+      ) : null}
 
       {journalDate !== "" ? (
         <section className="backlinks" aria-labelledby="on-this-day-heading">

@@ -1,0 +1,11 @@
+version: 8
+title: Embeds
+tags:
+- help/visualization/embeds
+created: '2026-07-26'
+image: assets/cover-embeds.svg
+props:
+  section: visualization
+  up: '[[Visualization]]'
+icon: 🧩
+slug: 36ukB4V5MfAQePgJsUVhnS

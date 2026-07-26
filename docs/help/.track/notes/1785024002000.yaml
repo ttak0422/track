@@ -1,0 +1,12 @@
+version: 8
+title: Charts
+tags:
+- help/visualization/charts
+created: '2026-07-26'
+image: assets/cover-charts.svg
+props:
+  section: visualization
+  reviewed: '2026-06-24'
+  up: '[[Visualization]]'
+icon: 📊
+slug: 4cyRC8BKwFIIo92KY1wPvF

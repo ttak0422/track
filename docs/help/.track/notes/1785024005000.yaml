@@ -1,0 +1,11 @@
+version: 8
+title: Diagrams
+tags:
+- help/visualization/diagrams
+created: '2026-07-26'
+image: assets/cover-diagrams.svg
+props:
+  section: visualization
+  up: '[[Visualization]]'
+icon: 📐
+slug: 5bBoWd3NKXixIBj7useATQ

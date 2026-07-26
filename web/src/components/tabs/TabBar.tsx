@@ -1,6 +1,7 @@
 import { useNavigate } from "@tanstack/react-router";
 import { type MouseEvent, useEffect, useRef, type WheelEvent } from "react";
 import type { NoteID } from "../../types";
+import { vaultOf } from "../../vaultId";
 import { initialPreviewBounds } from "../preview/bounds";
 import { useFloating } from "../preview/floatingStore";
 import { isViewTab, tabRoute, useTabs } from "./tabsStore";
@@ -51,6 +52,9 @@ export function TabBar() {
       {tabs.map((tab) => {
         const active = tab.id === activeID;
         const label = tab.title || "Untitled";
+        // Two vaults can hold notes with the same title (and the same id), so a tab from a named
+        // vault says which one it is instead of leaving two identical-looking tabs side by side.
+        const vault = vaultOf(tab.id);
         return (
           <div
             key={tab.id}
@@ -62,10 +66,11 @@ export function TabBar() {
               type="button"
               aria-current={active ? "page" : undefined}
               className="tab-label"
-              title={label}
+              title={vault ? `${label} — ${vault}` : label}
               onClick={() => openTab(tab.id)}
               onAuxClick={(event) => onAuxClick(event, tab.id)}
             >
+              {vault ? <span className="tab-vault">{vault}</span> : null}
               <span className="tab-title">{label}</span>
             </button>
             {active && !isViewTab(tab.id) ? <FloatButton noteID={tab.id} /> : null}

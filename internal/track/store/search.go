@@ -23,12 +23,17 @@ const (
 // Line and Snippet locate the first matching body line (1-based); they are zero/empty
 // when the hit is title-only.
 type SearchResult struct {
-	NoteID   int64    `json:"note_id"`
-	FileKind string   `json:"file_kind"`
-	Path     string   `json:"path"`
-	Title    string   `json:"title"`
-	Tags     []string `json:"tags,omitempty"`
-	Days     []string `json:"days,omitempty"` // activity days (YYYY-MM-DD); only the notes listing fills this
+	NoteID   int64  `json:"note_id"`
+	FileKind string `json:"file_kind"`
+	// Vault is the registry name of the vault this hit came from, filled only by federated
+	// cross-vault search ("" both for single-vault search and for the unregistered active vault).
+	// It is the vault half of the (vault, id) identity a result needs once ids can repeat across
+	// vaults; follow-up commands target the hit with --vault <name>.
+	Vault string   `json:"vault,omitempty"`
+	Path  string   `json:"path"`
+	Title string   `json:"title"`
+	Tags  []string `json:"tags,omitempty"`
+	Days  []string `json:"days,omitempty"` // activity days (YYYY-MM-DD); only the notes listing fills this
 	// Icon is the note's icon shown beside its title. The store fills it with the per-note sidecar
 	// override; the serving layer (webui addSearchPaths / the static export) resolves it against the
 	// config tag/kind mapping via config.NoteIcon, so an empty override falls back to the mapping.

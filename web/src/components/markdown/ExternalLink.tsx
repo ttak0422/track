@@ -1,7 +1,7 @@
 import { Link } from "@tanstack/react-router";
 import { type ReactNode, useContext } from "react";
 import { useResolveQuery } from "../../queries";
-import { NoteKindContext } from "./context";
+import { NoteKindContext, NoteVaultContext } from "./context";
 import { assetHref, noteCandidateFromHref, webHref } from "./urls";
 
 interface ExternalLinkProps {
@@ -14,9 +14,10 @@ interface ExternalLinkProps {
 // resolve as a track note; otherwise http(s) and domain-like links open in a new tab.
 export function ExternalLink({ href, children }: ExternalLinkProps) {
   const kind = useContext(NoteKindContext);
-  const asset = assetHref(href, kind);
+  const vault = useContext(NoteVaultContext);
+  const asset = assetHref(href, kind, vault);
   const noteCandidate = asset ? "" : noteCandidateFromHref(href);
-  const resolved = useResolveQuery(noteCandidate);
+  const resolved = useResolveQuery(noteCandidate, vault);
 
   // A link into the vault's assets/ goes straight to the server endpoint that serves the file, rather
   // than being resolved against the current /notes/<id> route.

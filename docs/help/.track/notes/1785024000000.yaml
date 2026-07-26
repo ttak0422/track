@@ -1,0 +1,10 @@
+version: 8
+title: Babel
+tags:
+- help/authoring
+created: '2026-07-26'
+props:
+  section: authoring
+  up: '[[CLI]]'
+icon: 🧪
+slug: 1fBExGozUeXAXNB324DsDk

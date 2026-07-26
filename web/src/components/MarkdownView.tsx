@@ -5,7 +5,13 @@ import remarkGfm from "remark-gfm";
 import type { NoteInclude } from "../types";
 import { rehypeBudoux } from "./markdown/budouxEager";
 import { CodeBlock } from "./markdown/CodeBlock";
-import { IncludesContext, MarkdownSourceContext, NoteKindContext, TaskBoardContext } from "./markdown/context";
+import {
+  IncludesContext,
+  MarkdownSourceContext,
+  NoteKindContext,
+  NoteVaultContext,
+  TaskBoardContext,
+} from "./markdown/context";
 import { TaskBoard } from "./markdown/TaskBoard";
 import { Embed } from "./markdown/Embed";
 import { ExternalLink } from "./markdown/ExternalLink";
@@ -23,7 +29,7 @@ import {
   remarkWikiLink,
   spliceIncludeTokens,
 } from "./markdown/plugins";
-import type { TaskState } from "../types";
+import { taskStates } from "../taskStates";
 import { EChartsFence } from "./markdown/EChartsBlock";
 import { QueryView } from "./markdown/QueryView";
 import { ViewSpecChart } from "./markdown/ViewSpecChart";
@@ -34,6 +40,10 @@ import { STATIC_MODE } from "../runtime";
 interface MarkdownViewProps {
   markdown: string;
   kind?: string;
+  // Vault of the note this body belongs to (registry name; "" for the launch vault). Everything the
+  // body refers to lives in that vault, so it is what attachments, links, includes, and chart data
+  // sources resolve against.
+  vault?: string;
   // Resolved ![[...]] includes for this body (ADR 0031), from /api/render live or the static
   // bundle. Absent or empty, include lines render as ordinary text (their [[...]] stays a link).
   includes?: NoteInclude[];
@@ -44,19 +54,7 @@ interface MarkdownViewProps {
 // /api/render (action links flattened); the track-specific construct is [[...]] wiki links (remarkWikiLink).
 // KaTeX is loaded lazily (see ./markdown/math), so a note without math never pulls in its bundle; while a
 // math note's first render waits for that chunk, the "$…$" briefly shows as source, then typesets.
-// defaultTaskStates mirrors the engine's task.DefaultStates, so task notation renders styled even
-// where no note context supplies the vault's state set (previews, include embeds).
-const defaultTaskStates: TaskState[] = [
-  { name: "TODO", char: " ", done: false },
-  { name: "DOING", char: "/", done: false },
-  { name: "WAITING", char: "?", done: false },
-  { name: "DONE", char: "x", done: true },
-  { name: "CANCELLED", char: "-", done: true },
-];
-
-export function MarkdownView({ markdown, kind = "note", includes }: MarkdownViewProps) {
-  const { tasks } = useContext(TaskBoardContext);
-  const taskStates = tasks && tasks.states.length > 0 ? tasks.states : defaultTaskStates;
+export function MarkdownView({ markdown, kind = "note", vault = "", includes }: MarkdownViewProps) {
   const hasMath = looksLikeMath(markdown);
   const [math, setMath] = useState<MathPlugins | null>(() => (hasMath ? mathPluginsIfLoaded() : null));
 
@@ -91,7 +89,7 @@ export function MarkdownView({ markdown, kind = "note", includes }: MarkdownView
     remarkWikiLink,
     ...(hasIncludes ? [remarkInclude] : []),
     // After remarkWikiLink, so a [[link]] in task text is consumed before token extraction.
-    [remarkTaskLine, { states: taskStates }] as [typeof remarkTaskLine, { states: TaskState[] }],
+    remarkTaskLine,
   ];
   // BudouX (Japanese word-break) is gated behind __TRACK_STATIC__, a build-time literal, so the static
   // help site tree-shakes its ~190KB model away (English content is never segmented) while the live
@@ -100,7 +98,8 @@ export function MarkdownView({ markdown, kind = "note", includes }: MarkdownView
 
   return (
     <NoteKindContext.Provider value={kind}>
-      <IncludesContext.Provider value={includes ?? []}>
+      <NoteVaultContext.Provider value={vault}>
+        <IncludesContext.Provider value={includes ?? []}>
         <MarkdownSourceContext.Provider value={markdown}>
           <div className="markdown-view">
             <Markdown remarkPlugins={remarkPlugins} rehypePlugins={rehypePlugins} components={markdownComponents}>
@@ -108,7 +107,8 @@ export function MarkdownView({ markdown, kind = "note", includes }: MarkdownView
             </Markdown>
           </div>
         </MarkdownSourceContext.Provider>
-      </IncludesContext.Provider>
+        </IncludesContext.Provider>
+      </NoteVaultContext.Provider>
     </NoteKindContext.Provider>
   );
 }
@@ -118,6 +118,7 @@ export function MarkdownView({ markdown, kind = "note", includes }: MarkdownView
 // because it renders through MarkdownView recursively — the nested render gets no includes, so an
 // include inside embedded content shows as text, matching the spec's no-recursion rule.
 function IncludeEmbed({ include }: { include: NoteInclude }) {
+  const vault = useContext(NoteVaultContext);
   if (include.error) {
     return <div className="note-include note-include-error">⚠ {include.error}</div>;
   }
@@ -133,7 +134,7 @@ function IncludeEmbed({ include }: { include: NoteInclude }) {
       {/* Reset the task-board context: a ```taskboard fence inside embedded content must not show
           the host note's board. */}
       <TaskBoardContext.Provider value={emptyTaskBoard}>
-        <MarkdownView markdown={include.lines.join("\n")} kind={include.kind ?? "note"} />
+        <MarkdownView markdown={include.lines.join("\n")} kind={include.kind ?? "note"} vault={vault} />
       </TaskBoardContext.Provider>
       {(include.bad_options ?? []).map((bad) => (
         <div key={bad} className="note-include-warning">
@@ -170,7 +171,7 @@ function TaskRowState({ name, done, line }: { name: string; done: boolean; line:
       disabled={mutation.isPending}
       onChange={(event) => mutation.mutate({ line: item.line, state: event.currentTarget.value })}
     >
-      {tasks.states.map((state) => (
+      {taskStates.map((state) => (
         <option key={state.name} value={state.name}>
           {state.name}
         </option>
@@ -182,12 +183,10 @@ function TaskRowState({ name, done, line }: { name: string; done: boolean; line:
 type TaskRowProps = { line?: unknown; state?: unknown; done?: unknown; sched?: unknown; due?: unknown };
 
 // TaskTable renders a notation-bearing checklist as one sortable table. Sorting is view-only (the
-// note keeps its order); STATE sorts by the vault's state-set order, the date columns sort empties
-// last, and a third click on a header returns to the source order.
+// note keeps its order); STATE sorts by the state-set order, the date columns sort empties last, and
+// a third click on a header returns to the source order.
 function TaskTable({ node, children }: ElementProps) {
-  const { tasks } = useContext(TaskBoardContext);
   const [sort, setSort] = useState<{ key: "state" | "sched" | "due"; asc: boolean } | null>(null);
-  const states = tasks && tasks.states.length > 0 ? tasks.states : defaultTaskStates;
   const rowNodes = (node?.children ?? []).filter((c): c is Element => c.type === "element");
   const rowEls = (Array.isArray(children) ? children : [children]).filter((c) => typeof c !== "string");
   let order = rowNodes.map((_, i) => i);
@@ -196,7 +195,7 @@ function TaskTable({ node, children }: ElementProps) {
     const valueOf = (i: number): number | string => {
       const p = (rowNodes[i].properties ?? {}) as TaskRowProps;
       if (key === "state") {
-        return states.findIndex((s) => s.name === String(p.state ?? ""));
+        return taskStates.findIndex((s) => s.name === String(p.state ?? ""));
       }
       return String(p[key] ?? "");
     };

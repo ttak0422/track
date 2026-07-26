@@ -9,7 +9,7 @@ import (
 )
 
 // cmdQuery runs a query expression (or a saved query from config `queries:`) over the indexed notes
-// and prints the result table as JSON. See docs/help/query.md for the grammar.
+// and prints the result table as JSON. See the "Query" help note for the grammar.
 func cmdQuery(args []string) int {
 	fs := flag.NewFlagSet("query", flag.ContinueOnError)
 	saved := fs.String("saved", "", "run a saved query by name (config queries:)")

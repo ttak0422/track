@@ -46,17 +46,42 @@ flake.nix                # Go CLI + Vim plugin packaging
 ## CLI
 
 All commands except `version` print a single line of JSON; errors are `{"error":...}` with exit code 1.
-The vault is read from the platform user config file (`config.yml` under the track config directory) and defaults to `$HOME/track` when unset (ADR 0015); precedence is `TRACK_VAULT` > config `vault_dir` > `$HOME/track`. Environment variables are intended for tests and one-off overrides.
+The vault is read from the platform user config file (`config.yml` under the track config directory) and defaults to `$HOME/track` when unset (ADR 0015); precedence is `TRACK_VAULT` > `default_vault`/`vault_dir` > `$HOME/track`. Environment variables are intended for tests and one-off overrides.
 The rebuildable index db defaults to the user cache directory under `track/`.
-The Neovim frontend sets `TRACK_CACHE_DIR` to `vim.fn.stdpath("cache") .. "/track"`.
+
+Configuration is split by ownership (ADR 0050). The machine config owns machine and user values:
 
 ```yaml
+# ~/.config/track/config.yml (or the platform equivalent)
 vault_dir: ~/track
-# Optional: pick a different template as the default for new notes/journals (created without
-# --template or a body). Defaults to the shipped builtin "default" / "journal" templates.
+# cache_dir / db_path / web.theme / web.colors_path also live here.
+```
+
+With more than one vault, register them by name and pick the active one by name.
+Every command then accepts a global `--vault NAME` selector, `track vault
+list|current|which` inspects the registry, and `reindex`/`doctor`/`refresh-all`
+sweep every registered vault. A vault gets exactly one name, `vault_dir` is
+refused alongside a registry (the path is written once, under `vaults:`), and so
+is `db_path` (one fixed database cannot serve several vaults).
+
+```yaml
+vaults:
+  main: ~/track
+  blog: ~/vaults/blog
+default_vault: main
+```
+
+Note semantics live in the vault config and travel with the vault:
+
+```yaml
+# <vault>/.track/config.yml (optional; defaults apply without it)
+# task_states / properties / queries / icons / date formats / capture_inbox /
+# archive_note / web.home / gen_keep / extensions, and the default templates:
 # default_template: my-note
 # journal_template: my-journal
 ```
+
+Both files are decoded strictly: a key in the wrong file is an error, so a cloned or synced vault can never configure which commands run on your machine.
 
 Typical config locations are `~/.config/track/config.yml` on XDG-style systems and `~/Library/Application Support/track/config.yml` on macOS.
 
@@ -94,8 +119,7 @@ track export (--id N | --title S | --path P) [--out F] [--frontmatter]
                                       # render a note as Markdown
 track render --spec <s> --out <f> [--renderer chartjs|svg]
                                       # render a chart/article from a View Spec (see docs/spec/visualization.md)
-track export-site --src <d> --out <d>
-                                      # build a static HTML site from notes
+track export-site --all --out <d>     # build a static HTML site from the vault's notes
 track dump                            # placeholder state
 track version                         # print the version
 ```
@@ -137,7 +161,7 @@ It currently provides:
 - `textDocument/references`: lists backlinks to the current note or the link target under the cursor.
 - `textDocument/completion`: offers titles inside an open `[[` — with each matching note's headings offered alongside it as full `note##heading` anchors — plus narrowed heading candidates after a `[[note#` anchor (more `#` selects a deeper heading level), Markdown action link candidates inside `[label](<...>)`, and Babel fence info-string candidates.
 - `textDocument/codeAction`: creates a note from an unresolved `[[...]]` link, repairs a link to a renamed note, and offers "Rename note …" for the link target under the cursor (or the current note), which prompts for a new title and runs the rename below.
-- `textDocument/rename`: renaming the `[[link]]` under the cursor (or the current note when not on a link) updates the target's sidecar title, records rename history, and returns backlink edits; the target body is not edited.
+- `textDocument/rename`: renaming the `[[link]]` under the cursor (or the current note when not on a link) updates the target's sidecar title and returns backlink edits; the target body is not edited.
 - `track/backlinks`: returns notes and link locations that reference the current note.
 - `track/outgoingLinks`: returns resolved link locations inside the current note.
 
@@ -210,11 +234,11 @@ In a vault buffer, resolved `[[...]]` links are underlined (`TrackLink` highligh
 
 Press `K` on a resolved link to show the linked note preview in Neovim's hover window.
 
-Task notation gets the same treatment: on a task line (a list item whose `[c]` marker is in `task_chars`, default ` /?x-`), the marker conceals to a glyph via `task_glyphs` (`- [ ]` shows `- ☐`, `- [x]` shows `- ☑`; a char without an entry keeps its raw `[c]` form), the bracket tokens stay as written but are highlighted (`[#A]` → `TrackTaskPriority`, `[due:…]` → `TrackTaskDue`, `[sched:…]`/`[done:…]`/cookies → `TrackTaskDate`), and a done-family line (`task_done_chars`, default `x-`) is struck through (`TrackTaskDone`). The cursor line stays raw for editing, concealing follows the same `conceal` option, and `task_chars = ""` turns the decoration off. Align the char lists with the vault's `task_states` when customized.
+Task notation gets the same treatment: on a task line (a list item whose `[c]` marker is in `task_chars`, default ` /?x-`), the marker conceals to a glyph via `task_glyphs` (`- [ ]` shows `- ☐`, `- [x]` shows `- ☑`; a char without an entry keeps its raw `[c]` form), the bracket tokens stay as written but are highlighted (`[#A]` → `TrackTaskPriority`, `[due:…]` → `TrackTaskDue`, `[sched:…]`/`[done:…]`/cookies → `TrackTaskDate`), and a done-family line (`task_done_chars`, default `x-`) is struck through (`TrackTaskDone`). The cursor line stays raw for editing, concealing follows the same `conceal` option, and `task_chars = ""` turns the decoration off.
 
 `:Track task_cycle` advances the task on the cursor line to the next state in the state-set order, wrapping at the end. It runs `track task cycle`, so completion stamps, the sidecar transition log, and progress cookies all apply; bind it to a key (e.g. in `on_attach`) for one-press state loops.
 
-Use `:checkhealth track` to verify the resolved CLI/LSP binaries, vault/cache configuration, and current-buffer LSP attachment.
+Use `:checkhealth track` to verify the resolved CLI/LSP binaries, vault configuration, and current-buffer LSP attachment.
 
 Completion of titles inside `[[` is served over LSP. The plugin merges [`cmp-nvim-lsp`](https://github.com/hrsh7th/cmp-nvim-lsp) capabilities when nvim-cmp is installed, so candidates surface through your existing nvim-cmp setup (add `{ name = "nvim_lsp" }` to its sources). The completion source is UI-independent, so other clients work too.
 
@@ -259,7 +283,7 @@ Restart Codex or start a new thread after installing. Configure `vault_dir` in `
 
 ## Data safety
 
-Note bodies are plain `.md` files, but their metadata (title, tags, created date, Babel results) lives in sidecar files under `.track/notes/`. Manual title rename history lives in `.track/renames.yaml` for unresolved-link repair suggestions.
+Note bodies are plain `.md` files, but their metadata (title, tags, created date, Babel results) lives in sidecar files under `.track/notes/`.
 The `.track/` directory is **authoritative** and cannot be fully rebuilt from the note bodies, so back it up and keep it in version control, just as you would `.git`.
 The SQLite index is a disposable cache outside the vault. `track reindex --full` deletes the cache database and rebuilds it from note files and sidecar metadata.
 See [docs/spec/storage.md](docs/spec/storage.md) for details.

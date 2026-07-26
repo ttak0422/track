@@ -27,6 +27,23 @@ func PublishID(id int64) string {
 	return publishSlug(strconv.FormatInt(id, 10))
 }
 
+// slugOf is a doc's published address: the slug pinned in its sidecar when it has one, otherwise the
+// one derived from its id. Pinning exists so a note that already has a public URL keeps it — a page
+// imported from a published directory would otherwise move to whatever its new note id derives.
+func slugOf(d *doc) string {
+	if d.slug != "" {
+		return d.slug
+	}
+	return PublishID(d.id)
+}
+
+// docPtr looks a doc up by id for the slug resolver; a missing id yields the zero doc, whose slug is
+// derived from id 0 and never published (callers filter out-of-set ids before this).
+func docPtr(byID map[int64]doc, id int64) *doc {
+	d := byID[id]
+	return &d
+}
+
 // specAssetExt marks a View Spec asset: a self-contained chart spec (inline data) that the site
 // resolves to an ECharts option at build time, so embedding it shows the chart, not the JSON.
 const specAssetExt = ".viewspec.json"

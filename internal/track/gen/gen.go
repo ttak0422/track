@@ -13,6 +13,7 @@ package gen
 import (
 	"crypto/sha256"
 	"encoding/hex"
+	"errors"
 	"fmt"
 	"io/fs"
 	"os"
@@ -31,14 +32,22 @@ type Manager struct {
 
 func New(cfg *config.Config) *Manager { return &Manager{cfg: cfg} }
 
+// ErrDisabled reports a vault that keeps no generation snapshots (`gen: false`). A vault checked
+// into a repository wants that: .track/gen/ holds a full copy of every past state, so a history the
+// author meant to rewrite or delete would be committed alongside the notes.
+var ErrDisabled = errors.New("this vault keeps no generation snapshots (gen: false in its .track/config.yml)")
+
+// enabled reports the vault's snapshot switch, so every entry point refuses the same way.
+func (m *Manager) enabled() error {
+	if m.cfg.GenOff {
+		return ErrDisabled
+	}
+	return nil
+}
+
 // snapshotDirs are the vault-relative directories captured in every generation.
 func snapshotDirs() []string {
 	return []string{config.KindNote, config.KindJournal, filepath.Join(".track", "notes")}
-}
-
-// snapshotFiles are the vault-relative single files captured in every generation.
-func snapshotFiles() []string {
-	return []string{filepath.Join(".track", "renames.yaml")}
 }
 
 type state struct {
@@ -154,6 +163,9 @@ func (m *Manager) saveCursor(n int) error {
 // generation's metadata so dream save points can be told apart from manual ones; it is dropped when
 // no new generation is cut (nothing changed).
 func (m *Manager) Increment(label string) (IncrementResult, error) {
+	if err := m.enabled(); err != nil {
+		return IncrementResult{}, err
+	}
 	var res IncrementResult
 	gens, err := m.generations()
 	if err != nil {
@@ -211,6 +223,9 @@ func (m *Manager) Increment(label string) (IncrementResult, error) {
 // first auto-saves them as a new generation, so a later Redo can revisit them; anywhere else,
 // unsaved changes are discarded like a release checkout.
 func (m *Manager) Undo() (MoveResult, error) {
+	if err := m.enabled(); err != nil {
+		return MoveResult{}, err
+	}
 	var res MoveResult
 	gens, err := m.generations()
 	if err != nil {
@@ -261,6 +276,9 @@ func (m *Manager) Undo() (MoveResult, error) {
 
 // Redo moves the cursor forward one generation and restores it, discarding unsaved working changes.
 func (m *Manager) Redo() (MoveResult, error) {
+	if err := m.enabled(); err != nil {
+		return MoveResult{}, err
+	}
 	var res MoveResult
 	gens, err := m.generations()
 	if err != nil {
@@ -290,6 +308,9 @@ func (m *Manager) Redo() (MoveResult, error) {
 
 // List reports every generation, the cursor, and whether the working vault diverged from it.
 func (m *Manager) List() (ListResult, error) {
+	if err := m.enabled(); err != nil {
+		return ListResult{}, err
+	}
 	res := ListResult{Generations: []Info{}}
 	gens, err := m.generations()
 	if err != nil {
@@ -343,6 +364,9 @@ func (m *Manager) List() (ListResult, error) {
 // cursor generation — the machine-readable basis for a dream report, so the changed set no longer
 // depends on the agent's self-report. It is the file-level detail behind List's Dirty bool.
 func (m *Manager) Status() (StatusResult, error) {
+	if err := m.enabled(); err != nil {
+		return StatusResult{}, err
+	}
 	res := StatusResult{Added: []string{}, Changed: []string{}, Deleted: []string{}}
 	gens, err := m.generations()
 	if err != nil {
@@ -390,6 +414,9 @@ func (m *Manager) Status() (StatusResult, error) {
 // Peek returns a note's content as of generation n (0 means the cursor generation). rel is the
 // note's vault-relative path. The cursor does not move.
 func (m *Manager) Peek(n int, rel string) (string, error) {
+	if err := m.enabled(); err != nil {
+		return "", err
+	}
 	gens, err := m.generations()
 	if err != nil {
 		return "", err
@@ -424,11 +451,6 @@ func (m *Manager) snapshot(n int, label string) error {
 			return err
 		}
 	}
-	for _, f := range snapshotFiles() {
-		if err := copyFileIfExists(filepath.Join(m.cfg.VaultDir, f), filepath.Join(dst, f)); err != nil {
-			return err
-		}
-	}
 	raw, err := yaml.Marshal(genMeta{Created: time.Now().Format(time.RFC3339), Label: label})
 	if err != nil {
 		return err
@@ -447,15 +469,6 @@ func (m *Manager) restore(n int) error {
 			return err
 		}
 		if err := copyTree(filepath.Join(src, d), vaultDir); err != nil {
-			return err
-		}
-	}
-	for _, f := range snapshotFiles() {
-		vaultFile := filepath.Join(m.cfg.VaultDir, f)
-		if err := os.Remove(vaultFile); err != nil && !os.IsNotExist(err) {
-			return err
-		}
-		if err := copyFileIfExists(filepath.Join(src, f), vaultFile); err != nil {
 			return err
 		}
 	}
@@ -513,17 +526,6 @@ func treeSums(base string) (map[string]string, error) {
 		if err != nil {
 			return nil, err
 		}
-	}
-	for _, f := range snapshotFiles() {
-		p := filepath.Join(base, f)
-		if _, err := os.Stat(p); err != nil {
-			continue
-		}
-		sum, err := fileSum(p)
-		if err != nil {
-			return nil, err
-		}
-		out[filepath.ToSlash(f)] = sum
 	}
 	return out, nil
 }

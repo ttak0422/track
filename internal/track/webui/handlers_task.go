@@ -15,23 +15,23 @@ import (
 // handleTasks returns a note's parsed task lines plus the vault's state set — the data the board view
 // draws its columns and cards from. Line numbers are 1-based over the note file, the same coordinates
 // POST /api/task and the CLI use.
-func (s *Server) handleTasks(w http.ResponseWriter, r *http.Request) {
+func (s *Server) handleTasks(v *vaultView, w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodGet && r.Method != "" {
 		writeError(w, fmt.Errorf("method %s not allowed", r.Method), http.StatusMethodNotAllowed)
 		return
 	}
-	s.refreshIfStale()
+	s.refresh(v)
 	id, err := parseID(r)
 	if err != nil {
 		writeError(w, err, http.StatusBadRequest)
 		return
 	}
-	ref, err := s.noteByID(id)
+	ref, err := v.noteByID(id)
 	if err != nil {
 		writeError(w, err, http.StatusNotFound)
 		return
 	}
-	set, err := s.noteTasks(ref.FileKind, ref.NoteID)
+	set, err := v.noteTasks(ref.FileKind, ref.NoteID)
 	if err != nil {
 		writeError(w, err, http.StatusInternalServerError)
 		return
@@ -42,7 +42,7 @@ func (s *Server) handleTasks(w http.ResponseWriter, r *http.Request) {
 // handleTaskSet moves one task line into a named state through the same engine write path as the CLI
 // (note.ApplyTaskState): completion stamp, sidecar transition log, cookie recompute. It responds with
 // the note's refreshed tasks so the board can redraw without a second request.
-func (s *Server) handleTaskSet(w http.ResponseWriter, r *http.Request) {
+func (s *Server) handleTaskSet(v *vaultView, w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodPost {
 		writeError(w, fmt.Errorf("method %s not allowed", r.Method), http.StatusMethodNotAllowed)
 		return
@@ -52,7 +52,7 @@ func (s *Server) handleTaskSet(w http.ResponseWriter, r *http.Request) {
 		writeError(w, err, http.StatusBadRequest)
 		return
 	}
-	ref, err := s.noteByID(id)
+	ref, err := v.noteByID(id)
 	if err != nil {
 		writeError(w, err, http.StatusNotFound)
 		return
@@ -66,17 +66,20 @@ func (s *Server) handleTaskSet(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	path := s.cfg.PathForKind(ref.FileKind, ref.NoteID)
-	tr, err := note.ApplyTaskState(s.cfg, path, req.Line, req.State, time.Now())
-	if err != nil {
+	path := v.cfg.PathForKind(ref.FileKind, ref.NoteID)
+	var tr task.Transition
+	if err := v.write(func() error {
+		var err error
+		tr, err = note.ApplyTaskState(v.cfg, path, req.Line, req.State, time.Now())
+		if err != nil {
+			return err
+		}
+		return index.New(v.cfg, v.store).One(path)
+	}); err != nil {
 		writeError(w, err, http.StatusBadRequest)
 		return
 	}
-	if err := index.New(s.cfg, s.store).One(path); err != nil {
-		writeError(w, fmt.Errorf("reindex: %w", err), http.StatusInternalServerError)
-		return
-	}
-	set, err := s.noteTasks(ref.FileKind, ref.NoteID)
+	set, err := v.noteTasks(ref.FileKind, ref.NoteID)
 	if err != nil {
 		writeError(w, err, http.StatusInternalServerError)
 		return
@@ -85,11 +88,11 @@ func (s *Server) handleTaskSet(w http.ResponseWriter, r *http.Request) {
 }
 
 // noteTasks reads a note file and parses its task lines with the configured state set.
-func (s *Server) noteTasks(fileKind string, id int64) (task.Set, error) {
-	raw, err := os.ReadFile(s.cfg.PathForKind(fileKind, id))
+func (v *vaultView) noteTasks(fileKind string, id int64) (task.Set, error) {
+	raw, err := os.ReadFile(v.cfg.PathForKind(fileKind, id))
 	if err != nil {
 		return task.Set{}, err
 	}
 	body, _, _ := note.SplitLegacyFootmatter(string(raw))
-	return task.NewSet(body, s.cfg.TaskStates), nil
+	return task.NewSet(body), nil
 }

@@ -54,10 +54,19 @@ func TestAPIHandlers(t *testing.T) {
 	}
 	t.Cleanup(func() { s.Close() })
 	now := time.Now().Unix()
-	if err := s.UpsertNote(&note.Note{ID: 100, Mtime: now, Meta: note.Metadata{Title: "Alpha", Tags: []string{"project"}, Days: []string{"2026-06-15"}}}); err != nil {
+	// Pin the stored sidecar mtimes to the files written above, like the body mtimes below, so the
+	// read-time freshness check (which also compares sidecars) sees the index as in sync.
+	metaMtime := func(id int64) int64 {
+		fi, err := os.Stat(cfg.MetadataPath(id))
+		if err != nil {
+			t.Fatal(err)
+		}
+		return fi.ModTime().Unix()
+	}
+	if err := s.UpsertNote(&note.Note{ID: 100, Mtime: now, MetaMtime: metaMtime(100), Meta: note.Metadata{Title: "Alpha", Tags: []string{"project"}, Days: []string{"2026-06-15"}}}); err != nil {
 		t.Fatal(err)
 	}
-	if err := s.UpsertNote(&note.Note{ID: 200, Mtime: now - 86400, Meta: note.Metadata{Title: "Beta", Tags: []string{"draft"}, Days: []string{"2026-06-15"}}}); err != nil {
+	if err := s.UpsertNote(&note.Note{ID: 200, Mtime: now - 86400, MetaMtime: metaMtime(200), Meta: note.Metadata{Title: "Beta", Tags: []string{"draft"}, Days: []string{"2026-06-15"}}}); err != nil {
 		t.Fatal(err)
 	}
 	if err := os.Chtimes(cfg.NotePath(100), time.Unix(now, 0), time.Unix(now, 0)); err != nil {
@@ -923,11 +932,11 @@ func TestHomeNoteIDResolvesConfiguredTitle(t *testing.T) {
 		t.Fatal(err)
 	}
 	srv := New(cfg, s)
-	if got := srv.homeNoteID(); got != 100 {
+	if got := srv.active.homeNoteID(); got != 100 {
 		t.Fatalf("homeNoteID = %d, want 100", got)
 	}
 	cfg.WebHome = ""
-	if got := srv.homeNoteID(); got != 0 {
+	if got := srv.active.homeNoteID(); got != 0 {
 		t.Fatalf("unset home should resolve to 0, got %d", got)
 	}
 }
@@ -1252,10 +1261,11 @@ func TestTaskEndpoints(t *testing.T) {
 	body := "# Board [0/2]\n\n- [ ] alpha [#A]\n- [ ] beta [due:2000-01-02]\n"
 	server, cfg := putNoteSetup(t, 900, "Board", body)
 
-	// GET /api/tasks returns the state set and parsed items.
+	// GET /api/tasks returns the parsed items. The state set is fixed, so it is not on the wire: the
+	// client holds its own copy.
 	tasks := getJSON(t, server.URL+"/api/tasks?id=900")["tasks"].(map[string]any)
-	if states := tasks["states"].([]any); len(states) != 5 {
-		t.Fatalf("expected default 5 states, got %v", states)
+	if _, ok := tasks["states"]; ok {
+		t.Fatalf("the state set must not be served per note: %v", tasks)
 	}
 	items := tasks["items"].([]any)
 	if len(items) != 2 || items[0].(map[string]any)["priority"] != "A" {

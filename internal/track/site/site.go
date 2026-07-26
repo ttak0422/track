@@ -3,9 +3,8 @@
 // running against a pre-generated JSON bundle instead of the live `track web` server, so it keeps
 // track's real reading experience — sidebar, graph, hover previews — without a backend.
 //
-// Two input front-ends share one bundle writer (see bundle.go):
-//   - Build:    a selection of vault notes by id, read through the index/store.
-//   - BuildDir: a directory of plain Markdown files, for repo-mounted help/docs outside any vault.
+// Build takes a selection of vault notes by id, read through the index/store, and hands them to the
+// bundle writer (see bundle.go).
 package site
 
 import (
@@ -74,7 +73,9 @@ func Build(cfg *config.Config, st *store.Store, opts Options, frontendDir, outDi
 		}
 		props := note.CollectProps(n.Meta, n.Body)
 		docs = append(docs, doc{
-			id:       id,
+			id: id,
+			// A note may pin the URL it is already published at (see slugOf).
+			slug:     n.Meta.Slug,
 			title:    noteTitle(n),
 			kind:     n.Kind,
 			tags:     n.Meta.Tags,
@@ -89,7 +90,7 @@ func Build(cfg *config.Config, st *store.Store, opts Options, frontendDir, outDi
 			icon:     cfg.NoteIcon(n.Kind, n.Meta.Tags, n.Meta.Icon),
 			assetSrc: assetSrc,
 			dataDir:  cfg.DataDir(),
-			tasks:    docTasks(n.Body, cfg.TaskStates),
+			tasks:    docTasks(n.Body),
 			props:    props,
 		})
 		upKeys = append(upKeys, note.UpTargets(props))
@@ -129,8 +130,8 @@ func vaultEdges(st *store.Store, inSet map[int64]bool) ([]edge, error) {
 
 // docTasks parses a source body's task lines for the published bundle, or nil when it has none.
 // Tasks parse from the raw body (not the sanitized one) so token extraction matches the live server.
-func docTasks(body string, states []task.State) *task.Set {
-	set := task.NewSet(body, states)
+func docTasks(body string) *task.Set {
+	set := task.NewSet(body)
 	if len(set.Items) == 0 {
 		return nil
 	}

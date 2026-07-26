@@ -33,7 +33,22 @@ func (s *Server) handleFollow(w http.ResponseWriter, r *http.Request) {
 			writeError(w, errors.New("file_kind must be note or journal"), http.StatusBadRequest)
 			return
 		}
-		ref, err := s.noteByID(state.NoteID)
+		// The editor names the vault its buffer lives in. Refusing an unserved one is the whole point:
+		// a journal id names a note in every vault, so accepting a position without its vault would
+		// scroll the workspace to a same-numbered note it was never looking at.
+		v := s.active
+		if state.VaultPath != "" {
+			resolved, err := s.viewByPath(state.VaultPath)
+			if err != nil {
+				writeError(w, err, http.StatusBadRequest)
+				return
+			}
+			v = resolved
+		}
+		// Only the launch vault is watched, so another vault's index may not have seen a note the
+		// editor just opened; refresh before deciding the position names nothing.
+		s.refresh(v)
+		ref, err := v.noteByID(state.NoteID)
 		if err != nil {
 			writeError(w, err, http.StatusNotFound)
 			return
@@ -51,7 +66,9 @@ func (s *Server) handleFollow(w http.ResponseWriter, r *http.Request) {
 		if state.LineCount < 1 {
 			state.LineCount = state.TopLine
 		}
-		state.Path = s.cfg.PathForKind(state.FileKind, state.NoteID)
+		state.Vault = v.label
+		state.VaultPath = ""
+		state.Path = v.cfg.PathForKind(state.FileKind, state.NoteID)
 		state.UpdatedAt = time.Now().Format(time.RFC3339Nano)
 		s.followMu.Lock()
 		s.follow = &state

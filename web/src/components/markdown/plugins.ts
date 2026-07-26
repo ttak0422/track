@@ -1,6 +1,7 @@
 import type { Element, Root as HastRoot, Text as HastText } from "hast";
 import type { Paragraph, Root as MdastRoot } from "mdast";
 import { visit } from "unist-util-visit";
+import { taskStates } from "../../taskStates";
 import type { TaskState } from "../../types";
 
 // The [[target|display]] wiki-link grammar (target, optional |display alias). Shared with the portable
@@ -141,7 +142,7 @@ export function remarkWikiLink() {
   };
 }
 
-// remarkTaskLine upgrades checklists that use task notation (docs/help/tasks.md) into rich task
+// remarkTaskLine upgrades checklists that use task notation (the "Tasks" help note) into rich task
 // rows, deciding per list block: when any item of a list carries notation beyond a bare GFM
 // checkbox — a custom state marker, or a [#A]/[sched:]/[due:]/[done:]/cookie token — every task
 // line in that list renders as a row with a state badge, the text, metadata chips, and (live) the
@@ -245,8 +246,8 @@ function upgradeTaskItem(item: any, p: TaskItemParse) {
   (data as any).hProperties = { line, state: p.state.name, done: p.state.done, sched, due };
 }
 
-export function remarkTaskLine(options: { states: TaskState[] }) {
-  const byChar = new Map(options.states.map((s) => [s.char, s]));
+export function remarkTaskLine() {
+  const byChar = new Map(taskStates.map((s) => [s.char, s]));
   return (tree: MdastRoot) => {
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     visit(tree, "list", (list: any) => {

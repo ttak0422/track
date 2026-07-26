@@ -237,3 +237,30 @@ func TestReplaceRefKey(t *testing.T) {
 		})
 	}
 }
+
+func TestSplitVaultRef(t *testing.T) {
+	registered := func(name string) bool { return name == "work" || name == "blog" }
+	cases := []struct {
+		key          string
+		vault, title string
+		ok           bool
+	}{
+		{"work:Note", "work", "Note", true},
+		{"work: Padded title ", "work", "Padded title", true},
+		{"blog:C#", "blog", "C#", true},
+		{"Note without colon", "", "", false},
+		{"unregistered:Note", "", "", false}, // unknown prefix stays a literal title
+		{"Work:Note", "", "", false},         // names are lowercase; case must not match
+		{"work:", "", "", false},             // empty title
+		{":Note", "", "", false},             // empty prefix
+	}
+	for _, c := range cases {
+		vault, title, ok := SplitVaultRef(c.key, registered)
+		if vault != c.vault || title != c.title || ok != c.ok {
+			t.Fatalf("SplitVaultRef(%q) = (%q, %q, %v), want (%q, %q, %v)", c.key, vault, title, ok, c.vault, c.title, c.ok)
+		}
+	}
+	if _, _, ok := SplitVaultRef("work:Note", nil); ok {
+		t.Fatal("nil gate must never qualify")
+	}
+}

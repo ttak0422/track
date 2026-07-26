@@ -55,10 +55,7 @@ func cmdToggle(args []string) int {
 		return fail("invalid note path: %v", err)
 	}
 
-	todo, done, err := task.FirstStates(cfg.TaskStates)
-	if err != nil {
-		return fail("%v", err)
-	}
+	todo, done := task.FirstStates()
 	target := done.Name
 	if want == "uncheck" {
 		target = todo.Name
@@ -68,7 +65,7 @@ func cmdToggle(args []string) int {
 		if err != nil {
 			return fail("read note: %v", err)
 		}
-		cur, ok := task.At(string(raw), *line, cfg.TaskStates)
+		cur, ok := task.At(string(raw), *line)
 		if !ok {
 			return fail("line %d is not a task checkbox", *line)
 		}

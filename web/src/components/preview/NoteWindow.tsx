@@ -1,6 +1,7 @@
 import { useNavigate } from "@tanstack/react-router";
 import type { NoteID } from "../../types";
 import { useNoteQuery, useRenderQuery } from "../../queries";
+import { vaultOf } from "../../vaultId";
 import { PreviewDepthContext } from "../markdown/context";
 import { MarkdownView } from "../MarkdownView";
 import { LoadingIndicator } from "../noteShared";
@@ -16,7 +17,8 @@ export function NoteWindow({ noteID, ...controls }: NoteWindowProps) {
   const navigate = useNavigate();
   const note = useNoteQuery(noteID);
   // Sanitize the previewed body the same way as the main reader, so action links are flattened here too.
-  const rendered = useRenderQuery(note.data?.note.body ?? "");
+  const vault = vaultOf(noteID);
+  const rendered = useRenderQuery(note.data?.note.body ?? "", vault);
   const title = note.data?.note.title ?? "Preview";
 
   return (
@@ -32,6 +34,7 @@ export function NoteWindow({ noteID, ...controls }: NoteWindowProps) {
           <MarkdownView
             markdown={rendered.data?.markdown ?? ""}
             kind={note.data.note.file_kind}
+            vault={vault}
             includes={rendered.data?.includes}
           />
         </PreviewDepthContext.Provider>

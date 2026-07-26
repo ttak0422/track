@@ -1,6 +1,7 @@
 package store
 
 import (
+	"context"
 	"database/sql"
 	"path/filepath"
 	"testing"
@@ -132,4 +133,43 @@ func TestOpenIdempotent(t *testing.T) {
 		t.Fatalf("second open: %v", err)
 	}
 	s2.Close()
+}
+
+func TestPragmasApplyToEveryPooledConnection(t *testing.T) {
+	// The pragmas travel in the DSN, not as a one-off statement, because a long-lived server opens
+	// more than one connection: any that missed them would run with foreign_keys OFF, and deleting a
+	// note would strand its tags, links, days, tasks and props instead of cascading.
+	s, err := Open(filepath.Join(t.TempDir(), "index.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer s.Close()
+
+	// Hold one connection so the pool has to open a second for the other checks.
+	first, err := s.db.Conn(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer first.Close()
+	second, err := s.db.Conn(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer second.Close()
+	if got := s.db.Stats().OpenConnections; got < 2 {
+		t.Fatalf("expected the pool to hold at least two connections, got %d", got)
+	}
+
+	for i, conn := range []*sql.Conn{first, second} {
+		var fk, busy int
+		if err := conn.QueryRowContext(context.Background(), "PRAGMA foreign_keys").Scan(&fk); err != nil {
+			t.Fatal(err)
+		}
+		if err := conn.QueryRowContext(context.Background(), "PRAGMA busy_timeout").Scan(&busy); err != nil {
+			t.Fatal(err)
+		}
+		if fk != 1 || busy != 5000 {
+			t.Fatalf("connection %d: foreign_keys=%d busy_timeout=%d, want 1 and 5000", i, fk, busy)
+		}
+	}
 }

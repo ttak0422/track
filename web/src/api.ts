@@ -1,4 +1,5 @@
 import { dataURL, STATIC_MODE } from "./runtime";
+import { idParams, qualify, vaultParams } from "./vaultId";
 import type {
   ActivityResponse,
   AgendaResponse,
@@ -58,19 +59,39 @@ async function handleResponse<T>(response: Response): Promise<T> {
   return stringifyIDs(body) as T;
 }
 
-// The live server marshals note ids as JSON numbers, but the frontend treats ids as opaque strings (so
-// they line up with route params and with the static site's slug ids). stringifyIDs normalizes every id
-// field in a response to a string at the boundary, so the rest of the app never sees a numeric id.
+// The live server marshals note ids as JSON numbers plus a separate "vault" label, but the frontend
+// treats ids as opaque strings (so they line up with route params and with the static site's slug
+// ids). stringifyIDs normalizes every id field in a response at the boundary: numbers become
+// strings, and an id belonging to a named vault becomes "<vault>:<id>" so two vaults' notes can
+// never collide in a route, a tab, or the query cache. The rest of the app never sees a bare
+// numeric id or a loose vault field.
 const ID_KEYS = new Set(["note_id", "source_id", "target_id", "center_id", "root"]);
 
-function stringifyIDs<T>(value: T): T {
+// normalizeIDs applies the same id normalization to a payload that did not arrive through api() —
+// an SSE event body. Server-sent state carries the same (vault, note_id) pair as a response, and a
+// consumer that parsed it itself would otherwise navigate with a bare id, i.e. to the launch
+// vault's same-numbered note.
+
+// A response labels its vault once at the level the label applies to: per hit for a cross-vault
+// search, once at the top for a single vault's note or graph. Child objects inherit the nearest
+// enclosing label, so graph edges are qualified by the graph's own vault.
+export function normalizeIDs<T>(value: T, vault = ""): T {
+  return stringifyIDs(value, vault);
+}
+
+function stringifyIDs<T>(value: T, vault = ""): T {
   if (Array.isArray(value)) {
-    return value.map(stringifyIDs) as T;
+    return value.map((item) => stringifyIDs(item, vault)) as T;
   }
   if (value !== null && typeof value === "object") {
+    const own = (value as { vault?: unknown }).vault;
+    const scope = typeof own === "string" ? own : vault;
     const out: Record<string, unknown> = {};
     for (const [key, child] of Object.entries(value)) {
-      out[key] = ID_KEYS.has(key) && typeof child === "number" ? String(child) : stringifyIDs(child);
+      out[key] =
+        ID_KEYS.has(key) && (typeof child === "number" || typeof child === "string")
+          ? qualify(scope, child)
+          : stringifyIDs(child, scope);
     }
     return out as T;
   }
@@ -115,17 +136,17 @@ export function getActivity(since: string, until: string): Promise<ActivityRespo
   return api<ActivityResponse>(`/api/activity?${params}`);
 }
 
-export function resolveTerm(term: string): Promise<ResolveResponse> {
+export function resolveTerm(term: string, vault = ""): Promise<ResolveResponse> {
   if (STATIC_MODE) {
     return staticData<Record<string, ResolveResponse["note"]>>("resolve.json").then((map) => {
       const note = map[term];
       return note ? { found: true, note } : { found: false, note: { note_id: "", file_kind: "note", title: term } };
     });
   }
-  return api<ResolveResponse>(`/api/resolve?term=${encodeURIComponent(term)}`);
+  return api<ResolveResponse>(`/api/resolve?term=${encodeURIComponent(term)}${vaultParams(vault)}`);
 }
 
-export function getAgenda(date: string): Promise<AgendaResponse> {
+export function getAgenda(date: string, vault = ""): Promise<AgendaResponse> {
   if (STATIC_MODE) {
     // Derived from the notes list's activity days, mirroring the live /api/agenda (which also lists only
     // real notes — journals carry no activity days).
@@ -134,7 +155,7 @@ export function getAgenda(date: string): Promise<AgendaResponse> {
       notes: data.notes.filter((note) => (note.days ?? []).includes(date)),
     }));
   }
-  return api<AgendaResponse>(`/api/agenda?date=${encodeURIComponent(date)}`);
+  return api<AgendaResponse>(`/api/agenda?date=${encodeURIComponent(date)}${vaultParams(vault)}`);
 }
 
 // openJournal opens or creates the journal for a day and returns its note id, so the activity heatmap
@@ -150,14 +171,14 @@ export function getNote(noteID: NoteID): Promise<NoteResponse> {
   if (STATIC_MODE) {
     return staticData<NoteResponse>(`note/${noteID}.json`);
   }
-  return api<NoteResponse>(`/api/note?id=${encodeURIComponent(noteID)}`);
+  return api<NoteResponse>(`/api/note?${idParams(noteID)}`);
 }
 
 export function saveNote(noteID: NoteID, request: SaveNoteRequest): Promise<SaveNoteResponse> {
   if (STATIC_MODE) {
     return readOnly();
   }
-  return api<SaveNoteResponse>(`/api/note?id=${encodeURIComponent(noteID)}`, {
+  return api<SaveNoteResponse>(`/api/note?${idParams(noteID)}`, {
     method: "PUT",
     body: request,
   });
@@ -170,14 +191,14 @@ export function getNoteMeta(noteID: NoteID): Promise<NoteMetaResponse> {
   if (STATIC_MODE) {
     return readOnly();
   }
-  return api<NoteMetaResponse>(`/api/note/meta?id=${encodeURIComponent(noteID)}`);
+  return api<NoteMetaResponse>(`/api/note/meta?${idParams(noteID)}`);
 }
 
 export function saveNoteMeta(noteID: NoteID, request: SaveNoteMetaRequest): Promise<NoteMetaResponse> {
   if (STATIC_MODE) {
     return readOnly();
   }
-  return api<NoteMetaResponse>(`/api/note/meta?id=${encodeURIComponent(noteID)}`, {
+  return api<NoteMetaResponse>(`/api/note/meta?${idParams(noteID)}`, {
     method: "POST",
     body: request,
   });
@@ -191,7 +212,7 @@ export function setTaskState(noteID: NoteID, line: number, state: string): Promi
   if (STATIC_MODE) {
     return readOnly();
   }
-  return api<TasksResponse>(`/api/task?id=${encodeURIComponent(noteID)}`, {
+  return api<TasksResponse>(`/api/task?${idParams(noteID)}`, {
     method: "POST",
     body: { line, state },
   });
@@ -200,13 +221,13 @@ export function setTaskState(noteID: NoteID, line: number, state: string): Promi
 // uploadAsset imports a picked image into the vault's assets directory and returns its assets/<name>
 // reference for the cover-image field. The browser sets the multipart boundary, so this bypasses the
 // JSON api() helper. Live server only — the static site has no editor.
-export function uploadAsset(file: File): Promise<AssetUploadResponse> {
+export function uploadAsset(file: File, vault = ""): Promise<AssetUploadResponse> {
   if (STATIC_MODE) {
     return readOnly();
   }
   const form = new FormData();
   form.append("file", file);
-  return fetch("/api/asset", { method: "POST", body: form }).then((response) =>
+  return fetch(`/api/asset${vaultParams(vault, "?")}`, { method: "POST", body: form }).then((response) =>
     handleResponse<AssetUploadResponse>(response),
   );
 }
@@ -217,7 +238,7 @@ export function deleteNote(noteID: NoteID): Promise<DeleteNoteResponse> {
   if (STATIC_MODE) {
     return readOnly();
   }
-  return api<DeleteNoteResponse>(`/api/note?id=${encodeURIComponent(noteID)}`, { method: "DELETE" });
+  return api<DeleteNoteResponse>(`/api/note?${idParams(noteID)}`, { method: "DELETE" });
 }
 
 export function getFollowState(): Promise<FollowResponse> {
@@ -232,18 +253,18 @@ export function getFollowState(): Promise<FollowResponse> {
 // Posting the live (possibly unsaved) body keeps the engine the single source of truth for track-specific
 // Markdown rules instead of duplicating them in the frontend. In static mode the exported note body is
 // already sanitized, so this is the identity.
-export function renderMarkdown(body: string): Promise<RenderResponse> {
+export function renderMarkdown(body: string, vault = ""): Promise<RenderResponse> {
   if (STATIC_MODE) {
     return Promise.resolve({ markdown: body });
   }
-  return api<RenderResponse>("/api/render", { method: "POST", body: { body } });
+  return api<RenderResponse>(`/api/render${vaultParams(vault, "?")}`, { method: "POST", body: { body } });
 }
 
 // renderViewSpec asks the server to resolve a fenced ```viewspec block (View Spec JSON) to its
 // ECharts option, keeping the engine the single source of truth for chart semantics. The static export
 // replaces these blocks with pre-rendered images at build time, so this is never called in static mode.
-export function renderViewSpec(spec: string): Promise<ViewSpecResponse> {
-  return api<ViewSpecResponse>("/api/viewspec", { method: "POST", body: { spec } });
+export function renderViewSpec(spec: string, vault = ""): Promise<ViewSpecResponse> {
+  return api<ViewSpecResponse>(`/api/viewspec${vaultParams(vault, "?")}`, { method: "POST", body: { spec } });
 }
 
 export function getLocalGraph(noteID: NoteID): Promise<GraphResponse> {
@@ -252,7 +273,7 @@ export function getLocalGraph(noteID: NoteID): Promise<GraphResponse> {
       graph: localGraph(data.graph, noteID),
     }));
   }
-  return api<GraphResponse>(`/api/graph/local?id=${encodeURIComponent(noteID)}`);
+  return api<GraphResponse>(`/api/graph/local?${idParams(noteID)}`);
 }
 
 export function getGraph(): Promise<GraphResponse> {

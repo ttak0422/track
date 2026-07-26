@@ -1,7 +1,7 @@
 import { useContext } from "react";
 import { WikiLink } from "../preview/WikiLink";
 import { CodeBlock } from "./CodeBlock";
-import { NoteKindContext } from "./context";
+import { NoteKindContext, NoteVaultContext } from "./context";
 import { assetHref } from "./urls";
 
 // QueryView draws fenced ```track-view blocks: the laid-out result of a ```track-query fence whose
@@ -90,6 +90,7 @@ function Board({ view }: { view: ViewPayload }) {
 
 function Gallery({ view }: { view: ViewPayload }) {
   const kind = useContext(NoteKindContext);
+  const vault = useContext(NoteVaultContext);
   return (
     <div className="query-view query-gallery">
       {view.groups.flatMap((group) =>
@@ -98,7 +99,7 @@ function Gallery({ view }: { view: ViewPayload }) {
             {row.cover ? (
               <img
                 className="query-card-cover"
-                src={assetHref(row.cover, kind) ?? row.cover}
+                src={assetHref(row.cover, kind, vault) ?? row.cover}
                 alt=""
                 loading="lazy"
               />

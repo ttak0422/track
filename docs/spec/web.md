@@ -1,7 +1,7 @@
 # Web Workspace Specification
 
-`track web` serves a local-only HTTP workspace over the same SQLite index and
-vault as the CLI. It is for interactive exploration, not publication; public
+`track web` serves a local-only HTTP workspace over the same SQLite indexes and
+vaults as the CLI. It is for interactive exploration, not publication; public
 output belongs to `track export` plus a static-site generator.
 
 ```sh
@@ -11,22 +11,72 @@ track web --addr 127.0.0.1:8765
 The server is intended for a single local user. It performs no authentication
 and binds to a loopback address by default.
 
+## Vaults
+
+One workspace serves the vault it was launched in — the **launch vault**, the
+default target of every request — plus every vault in the machine config's
+`vaults:` registry (ADR 0051). Note ids are vault-local and journal ids are the
+date, so `20260725` names a note in every vault at once: an id alone cannot say
+which note it means.
+
+Every endpoint that addresses a note therefore takes `?vault=<registry name>`.
+Omitting it means the launch vault; naming a vault that is not served is an
+error, never a silent fallback to the launch vault.
+
+Responses label ids with the vault they belong to, and **the launch vault has no
+label**: an unlabelled id means "the vault you are already in", exactly as an
+unqualified `[[title]]` does. A workspace serving one vault therefore answers
+exactly as it did before it could serve several, whether or not that vault is
+registered.
+
+- `GET /api/vaults`: the served vaults — `{"active": "<name>", "vaults":
+  [{"name","path","active","available","error"}]}`. A registered vault that
+  cannot be opened stays listed with its error rather than disappearing.
+- `GET /api/search` searches **every** served vault by default and labels each
+  hit with its vault, merging them through one federated connection (ADR 0052).
+  `?vault=<name>` narrows it to one. Vaults that could not be read are reported
+  under `unavailable` so "no matches there" stays distinguishable from "could
+  not read that vault".
+- `GET /api/note` also carries `external`: the inbound `[[vault:title]]`
+  references other vaults make to this note (ADR 0053), with `unavailable` for
+  vaults that could not be consulted. Those edges live in the referring vaults'
+  indexes, so they are a separate list from the same-vault `backlinks`.
+- Every other note endpoint is single-vault: it acts on `?vault=` or the launch
+  vault.
+
+Only the launch vault is watched for filesystem changes; every other served
+vault is reconciled on read, the same freshness path a cloud sync already
+relies on. Change events name the vault they came from.
+
+In the frontend an id from a named vault is written `<vault>~<id>` — in routes,
+in the tab strip, and in the query cache — so two vaults' notes never collide.
+The launch vault keeps bare ids, the same asymmetry as `[[title]]` versus
+`[[vault:title]]`. The separator is `~`, not the `:` link syntax uses, because
+the id travels through the URL: `:` is URI-reserved, so a route param would
+interpolate to `%3A` and the pathname and the param would decode differently.
+
+A vault has exactly one registry name — registering a second name for the same
+directory is refused when the config loads (ADR 0051), so the name a hit is
+labelled with, the name a qualified id carries, and the name a cross-vault link
+is written with are always the same one.
+
 ## HTTP API
 
 All `/api/*` responses are JSON. Read endpoints:
 
-- `GET /api/search?q=<query>&limit=<n>`: search notes; an empty `q` lists recent
-  notes. `#tag` terms filter by sidecar tags.
+- `GET /api/search?q=<query>&limit=<n>[&vault=<name>]`: search notes across every
+  served vault; an empty `q` lists recent notes. `#tag` terms filter by sidecar tags.
 - `GET /api/notes`: list indexed notes; each entry carries its activity `days` (the local days the note
   was created or updated), which the calendar view derives its per-day note lists from.
 - `GET /api/activity?days=<n>`: return local-day update counts for the recent
   `n` days. The sidebar activity grid uses this instead of fetching every note.
-- `GET /api/resolve?term=<title>`: resolve a title to a note.
-- `GET /api/note?id=<id>`: the note's body, tags, paths, backlinks, and an `etag`
+- `GET /api/resolve?term=<title>[&vault=<name>]`: resolve a title to a note within
+  one vault, matching how an unqualified `[[title]]` resolves.
+- `GET /api/note?id=<id>[&vault=<name>]`: the note's body, tags, paths, backlinks, and an `etag`
   (a content hash of the file as read). It returns two paths: `path`, the canonical
   (symlink-resolved) location, and `copy_path`, the same note in the configured,
   symlink-intact form used for the copy-path button.
-- `GET /api/graph/local?id=<id>`: the one-hop local graph around a note.
+- `GET /api/graph/local?id=<id>[&vault=<name>]`: the one-hop local graph around a note.
 - `GET /api/graph`: the whole-vault graph — every indexed note as a node and every
   link between two known notes as an edge, with no center.
 - `GET /api/ogp?url=<url>`: Open Graph metadata for an embedded link, used to render
@@ -35,9 +85,9 @@ All `/api/*` responses are JSON. Read endpoints:
 
 Write endpoint:
 
-- `PUT /api/note?id=<id>`: save the body of an existing note. The request body is
-  `{"body": "...", "etag": "<etag-from-GET>"}`.
-- `DELETE /api/note?id=<id>`: permanently delete a note — its Markdown file, its
+- `PUT /api/note?id=<id>[&vault=<name>]`: save the body of an existing note. The request
+  body is `{"body": "...", "etag": "<etag-from-GET>"}`.
+- `DELETE /api/note?id=<id>[&vault=<name>]`: permanently delete a note — its Markdown file, its
   sidecar metadata, and its index row (tags and links cascade). Other notes keep
   their now-dangling `[[links]]`. The destructive title-retype confirmation is
   enforced in the web UI; the endpoint deletes by id.
@@ -162,8 +212,7 @@ notes listing, the calendar's cell titles, the day pages, the reader's "On this 
 backlinks all sort this way, live and published alike, so a cell's visible titles read identically on
 the page they open.
 
-A published site opts into the calendar with `track export-site --calendar` (vault mode only; a `--src`
-directory has no activity days and is rejected). The flag is carried as `calendar` in `site.json`: the
+A published site opts into the calendar with `track export-site --calendar`. The flag is carried as `calendar` in `site.json`: the
 frontend shows the rail button and the prerender emits `calendar/index.html` plus a real
 `day/<date>/index.html` for every active day. Without the flag — the default, suiting reference sites
 like the repo help docs — the calendar and day pages are absent from the output.

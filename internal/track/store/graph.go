@@ -84,9 +84,13 @@ func (s *Store) Orphans() (OrphanReport, error) {
 type GraphNode struct {
 	NoteID   int64  `json:"note_id"`
 	FileKind string `json:"file_kind"`
-	Path     string `json:"path,omitempty"`
-	Title    string `json:"title"`
-	Center   bool   `json:"center,omitempty"`
+	// Vault is the registry name of the vault the node lives in, filled by the serving layer when it
+	// addresses more than one vault. It is what lets a rendered graph tell two same-numbered notes
+	// apart and colour them by vault.
+	Vault  string `json:"vault,omitempty"`
+	Path   string `json:"path,omitempty"`
+	Title  string `json:"title"`
+	Center bool   `json:"center,omitempty"`
 }
 
 // GraphEdge is one directed link between graph nodes.
