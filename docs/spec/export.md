@@ -108,21 +108,21 @@ The target note is given by `--id`, by `--title` (resolved through the keyword d
 
 `track export-site` publishes a selected set of notes as a self-contained static site for GitHub Pages or any plain file server. The site is **the React web frontend in a static mode running against a pre-generated JSON bundle**, so it keeps track's real reading experience — sidebar, graph, hover previews, mermaid, media — without a server. The design is [ADR 0019](../adr/0019-static-site-export.md).
 
-Two input modes (both require `--frontend <dir>`, the static-mode frontend build, and `--out <dir>`):
+The input is a vault (`--frontend <dir>`, the static-mode frontend build, and `--out <dir>` are required):
 
-| Mode | Invocation | Source |
-| --- | --- | --- |
-| Vault | `track export-site --root <id> [--id <id> ...] [--calendar] --frontend <dist> --out <dir>` | Vault notes by id; `--root` is the landing note's id. A full reindex runs first so the published graph is complete. |
-| Directory (**deprecated**) | `track export-site --src <dir> --frontend <dist> --out <dir>` | A directory of plain Markdown files (e.g. repo-mounted help) outside any vault; wiki links resolve by file base name or first H1 title. Its entry page comes from `<dir>/site.yml`'s `home`, or the `index` convention; `--root` is vault-only and rejected here. |
+```
+track export-site (--all | --id <id> ...) [--root <id>] [--calendar] --frontend <dist> --out <dir>
+```
 
-Directory mode is deprecated and will be removed. It exists because a repository's Markdown had nowhere else to be published from, but a vault now does everything it does and more — sidecar metadata instead of a `site.yml` page map, stable ids instead of positions, the vault config — while keeping two publishing inputs means every export feature is written twice. Invoking it prints a deprecation warning on stderr.
+`--all` publishes every note in the vault; `--id` selects instead. Journals are excluded from `--all`: they are day hubs indexing creates as a side effect, and the set of them records which days their author worked, so publishing them stays something a caller asks for by id. `--root` is the landing note's id and defaults to the vault config's `web.home` — the same landing note the workspace opens, so the front door travels with the content instead of sitting in a build config. A full reindex runs first so the published graph is complete.
 
-To move a published directory into a vault without breaking its URLs, pin each page's current address in its sidecar (`slug:`, see [storage.md](storage.md)). The published slug is otherwise derived from the note id, which the move changes.
+There used to be a second input mode: `--src <dir>` published a directory of plain Markdown outside any vault, with a `site.yml` standing in for the sidecars it did not have. It is gone (ADR 0059). A vault does everything it did — and a directory can become one: pin each page's current address in its sidecar (`slug:`, see [storage.md](storage.md)) so no published URL moves, since the slug is otherwise derived from the note id. This repository's own help site made exactly that move.
+
+Two things the directory mode did that a vault does not. It resolved `[[links]]` by file base name as well as by title; a vault resolves by title, as everywhere else in track. And its link graph kept self-edges, which the index drops (`ReplaceLinks`) — so a page that links to itself does not appear in its own backlinks, matching the live workspace.
 
 `--calendar` opts the published site into the calendar view and its per-day pages (see the web spec's
 "Calendar view"): off suits reference sites like help docs, on suits activity-shaped ones like a blog
-over a vault. Vault mode only — a `--src` directory carries no activity days, so the flag is rejected
-there.
+over a vault.
 
 **OGP.** The prerender writes per-page `og:` tags into each page's head: `og:title` (the note title,
 also the page `<title>`), `og:description` (the note's sidecar description — `track meta
@@ -133,10 +133,11 @@ the note's cover (`track meta --image assets/<file>`, published under its conten
 every asset); a note without one falls back to the site-wide default `ogp-default.png` shipped with
 the frontend build.
 
-The exporter writes a JSON bundle under `<out>/data` mirroring the server's `/api/*` shapes — `notes.json`, `note/<id>.json` (web-sanitized body + backlinks), `graph.json`, `resolve.json`, `site.json` — then copies the static frontend build and referenced `assets/<path>` media into `<out>`. Wiki links to notes outside the published set are absent from `resolve.json`/`graph.json`, so the frontend leaves them inert. The live heatmap home is not published; the root note is the entry point. The bundled `docs/help/` set is a working example.
+The exporter writes a JSON bundle under `<out>/data` mirroring the server's `/api/*` shapes — `notes.json`, `note/<id>.json` (web-sanitized body + backlinks), `graph.json`, `resolve.json`, `site.json` — then copies the static frontend build and referenced `assets/<path>` media into `<out>`. Wiki links to notes outside the published set are absent from `resolve.json`/`graph.json`, so the frontend leaves them inert. The live heatmap home is not published; the root note is the entry point. The `docs/help` vault is a working example — this repository publishes it with `make site`.
 
 ## Future
 
-- **Batch export** of a whole vault, a tag, or a search result. With the export set known, wiki links can be rewritten as relative Markdown links (`[[a]]` → `[a](a.md)`) instead of being flattened — implemented as an alternative renderer rather than a change to the pipeline.
+- **Batch export** of a whole vault, a tag, or a search result. With the export set known, wiki links can be rewritten as relative Markdown links (`[[a]]` → `[a](a.md)`) instead of being flattened — implemented as an alternative renderer rather than a change to the pipeline. The selection vocabulary already exists on the site exporter (`--all`, `--id`) and should be the same one here rather than a second spelling of it.
 - **Additional renderers** (e.g. HTML). Formats that need paragraph or list structure would require extending the Scan stage, not just the renderer (see [ADR 0011](../adr/0011-markdown-export-pipeline.md)).
-- **Per-note export exclusion** (an `org`-style `:noexport:` equivalent) so a note can opt out of batch export.
+- **Per-note export exclusion** (an `org`-style `:noexport:` equivalent) so a note can opt out of batch export. This is no longer speculative: `export-site --all` already ships one exclusion, and it is hardcoded — journals, because indexing writes them without anyone asking and the set of them records which days their author worked. That is the right default and the wrong shape for a rule; a sidecar opt-out would state it once, per note, and let `--all` mean "every note that has not opted out" instead of "every note, except the kind we decided about in code".
+- **Directory import.** Publishing a directory of plain Markdown was directory mode's job, and removing it (ADR 0059) removed that path with no command in its place: turning a directory into a vault today means writing `note/<id>.md` files and sidecars by hand, which is how `docs/help` was migrated. A `track import-dir` would assign ids, take each file's first H1 as the title, and pin `slug:` so an already-published directory keeps its URLs — the three things that migration actually did.

@@ -1,0 +1,11 @@
+version: 8
+title: Visualization
+tags:
+- help/visualization
+created: '2026-07-26'
+image: assets/cover-visualization.svg
+props:
+  section: visualization
+  up: '[[track]]'
+icon: 📈
+slug: 6lkMYz6DB66BiNMLmXjG9e

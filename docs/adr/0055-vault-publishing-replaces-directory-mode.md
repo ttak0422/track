@@ -46,7 +46,8 @@ separately.
 - **Directory mode is deprecated, not yet removed.** `--src` prints a warning and
   the spec names its replacement. Removal waits until `docs/help` has moved and
   the shared-bundle tests that only run through directory mode — hierarchy pages,
-  tag pages, query blocks — have been ported to vault mode.
+  tag pages, query blocks — have been ported to vault mode. (Both happened in
+  ADR 0059; `--src` is gone.)
 
 ## Why the published slug keeps its current derivation
 

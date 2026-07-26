@@ -199,7 +199,7 @@ local function highlight_links(buf, resolved, cursor, fences, lines)
    end
 end
 
--- Bracket tokens of a task line (docs/help/tasks.md), highlighted as written — the raw notation is
+-- Bracket tokens of a task line (the "Tasks" help note), highlighted as written — the raw notation is
 -- compact enough that only the state marker itself conceals (to its task_glyphs glyph).
 local task_tokens = {
    { pat = "%[#%a%]", hl = "TrackTaskPriority" },
