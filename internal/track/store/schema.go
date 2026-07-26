@@ -8,7 +8,9 @@ package store
 // changes (a tag or title edit synced from another machine never touches the note body's mtime).
 // 7: ext_links records outgoing cross-vault references ([[vault:title]]) as (vault, title) string
 // keys — never the target's numeric id, which belongs to the other vault's namespace.
-const schemaVersion = 7
+// 8: the embeddings table is gone with the semantic related-notes feature (ADR 0056); the schema is
+// rebuilt rather than migrated, so the bump is what drops it from an existing database.
+const schemaVersion = 8
 
 // schemaSQL defines a rebuildable SQLite index, not the primary source of truth.
 // Notes and sidecar metadata on disk are authoritative; this database caches keyword rows and computed links for fast lookup.
@@ -89,16 +91,6 @@ CREATE INDEX idx_props_key ON props(key, value);
 
 CREATE VIEW keywords AS
   SELECT title AS term, id AS note_id, 'title' AS kind FROM notes WHERE title <> '';
-
--- embeddings caches one vector per note for semantic related-notes (track similar). hash is the content
--- hash the vector was computed from, so an unchanged note is never re-embedded; a stale hash triggers a
--- fresh shell-out to the configured embedder. vector is the JSON float array the embedder emitted. It is
--- a rebuildable cache like everything else here: dropping it only forces a re-embed on the next lookup.
-CREATE TABLE embeddings (
-  note_id INTEGER PRIMARY KEY REFERENCES notes(id) ON DELETE CASCADE,
-  hash    TEXT NOT NULL,
-  vector  TEXT NOT NULL
-);
 
 -- Full-text body index. rowid is the note id; body is the same text the indexer parses
 -- (legacy footmatter stripped, code fences kept). The trigram tokenizer gives case-insensitive

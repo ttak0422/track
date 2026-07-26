@@ -12,6 +12,7 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
+	"sort"
 	"strconv"
 	"strings"
 	"time"
@@ -67,11 +68,6 @@ type Config struct {
 	// static-site navigation. A per-note sidecar override (Metadata.Icon) wins over both maps; see
 	// NoteIcon.
 	Icons IconMap
-	// EmbedderCommand is the optional command that turns a note's text into an embedding vector, split
-	// into command and arguments. The engine feeds a note's text on stdin and reads a JSON array of
-	// floats from stdout (see the similar package). Empty means no embedder is configured, so semantic
-	// related-notes is unavailable and every other command is unaffected.
-	EmbedderCommand []string
 	// Properties is the optional per-key note-property schema (config `properties:`): a declared
 	// value type and/or enum candidates. Keys not listed here are unconstrained.
 	Properties map[string]PropSpec
@@ -129,15 +125,14 @@ type PropSpec struct {
 }
 
 // machineFileConfig is the user config file (~/.config/track/config.yml or TRACK_CONFIG): it owns the
-// machine and the user — where the vault, cache, and database live, which local commands track may run
-// (embedder; babel is env-only), and how the local web UI looks. Note semantics belong to the vault
+// machine and the user — where the vault, cache, and database live, and how the local web UI looks. Note semantics belong to the vault
 // config instead (see vaultFileConfig); a vault-scope key here is a hard error so the split stays real.
 type machineFileConfig struct {
-	VaultDir string           `yaml:"vault_dir"`
-	DBPath   string           `yaml:"db_path"`
-	CacheDir string           `yaml:"cache_dir"`
-	Embedder argvList         `yaml:"embedder"`
-	Web      machineWebConfig `yaml:"web"`
+	VaultDir     string           `yaml:"vault_dir"`
+	DefaultVault string           `yaml:"default_vault"`
+	DBPath       string           `yaml:"db_path"`
+	CacheDir     string           `yaml:"cache_dir"`
+	Web          machineWebConfig `yaml:"web"`
 	// Vaults is the named vault registry (name -> path) behind the global --vault flag and the
 	// `track vault` subcommands. It lives in the machine config only: which vaults exist on this
 	// machine is machine state, and a synced vault must never introduce new vault paths.
@@ -164,55 +159,6 @@ type vaultFileConfig struct {
 	ArchiveNote       string              `yaml:"archive_note"`
 	Web               vaultWebConfig      `yaml:"web"`
 	Icons             iconsFileConfig     `yaml:"icons"`
-}
-
-// argvList is a command in config.yml that accepts two YAML shapes: a scalar string, split on
-// whitespace (no shell quoting, so no argument can contain a space in this form), or a sequence used
-// verbatim as argv, where arguments may contain spaces. Any other node kind is a config error.
-type argvList []string
-
-func (a *argvList) UnmarshalYAML(value *yaml.Node) error {
-	switch value.Kind {
-	case yaml.ScalarNode:
-		if value.Tag == "!!null" { // `embedder:` with no value, or an explicit null
-			*a = nil
-			return nil
-		}
-		*a = strings.Fields(value.Value)
-		return nil
-	case yaml.SequenceNode:
-		// Decode element by element: yaml.v3 silently drops null items when decoding into []string,
-		// which would make a flag vanish (or shift argv[0]) instead of failing loudly at load.
-		argv := make([]string, len(value.Content))
-		for i, item := range value.Content {
-			var s *string
-			if err := item.Decode(&s); err != nil {
-				return fmt.Errorf("embedder: %w", err)
-			}
-			if s == nil {
-				return fmt.Errorf("embedder: list element %d is null, want a string", i+1)
-			}
-			argv[i] = *s
-		}
-		*a = argv
-		return nil
-	default:
-		return fmt.Errorf("embedder: must be a string (\"cmd --arg\") or a list of strings ([cmd, --arg]), got a %s", nodeKindName(value.Kind))
-	}
-}
-
-// nodeKindName names a YAML node kind for error messages.
-func nodeKindName(k yaml.Kind) string {
-	switch k {
-	case yaml.MappingNode:
-		return "mapping"
-	case yaml.SequenceNode:
-		return "sequence"
-	case yaml.ScalarNode:
-		return "scalar"
-	default:
-		return "unsupported node"
-	}
 }
 
 // machineWebConfig is the machine config's `web:` block: how the web UI looks on this machine. The
@@ -254,7 +200,7 @@ const DataDirName = "data"
 
 // Load resolves configuration from two files with disjoint key ownership: the machine config (the
 // fixed user config file, ~/.config/track/config.yml or the platform equivalent) owns machine and
-// user values — vault_dir, db_path, cache_dir, embedder, web.theme, web.colors_path — and the vault
+// user values — vault_dir, db_path, cache_dir, web.theme, web.colors_path — and the vault
 // config (<vault>/.track/config.yml) owns the note semantics that travel with the vault. Both files
 // are decoded strictly: a key in the wrong file is a hard error, never a silent fallback.
 //
@@ -293,18 +239,22 @@ func load(fixedVault string) (*Config, error) {
 		return nil, fmt.Errorf("db_path/TRACK_DB cannot be combined with a vaults: registry (one fixed DB would be shared across vaults); remove it so each vault keeps its own cache index")
 	}
 
+	configured, err := configuredVault(mc, registry)
+	if err != nil {
+		return nil, err
+	}
 	rawVault := fixedVault
 	if rawVault == "" {
-		rawVault = mc.VaultDir
+		rawVault = configured
 		if env := os.Getenv("TRACK_VAULT"); env != "" {
 			rawVault = env
 		}
 	}
 	if rawVault == "" {
-		// With no config_file vault_dir and no TRACK_VAULT, default to $HOME/track (ADR 0015).
+		// With nothing configured and no TRACK_VAULT, default to $HOME/track (ADR 0015).
 		home, err := os.UserHomeDir()
 		if err != nil {
-			return nil, fmt.Errorf("vault_dir is unset and the home directory is unavailable: %w", err)
+			return nil, fmt.Errorf("no vault is configured and the home directory is unavailable: %w", err)
 		}
 		rawVault = filepath.Join(home, "track")
 	}
@@ -386,16 +336,6 @@ func load(fixedVault string) (*Config, error) {
 	}
 	taskStates := task.StatesOrDefault(vc.TaskStates)
 
-	// TRACK_EMBEDDER replaces the config value entirely; an env var cannot carry an array, so it is
-	// always whitespace-split — arguments containing spaces need the config sequence form.
-	embedder := []string(mc.Embedder)
-	if env := os.Getenv("TRACK_EMBEDDER"); env != "" {
-		embedder = strings.Fields(env)
-	}
-	if len(embedder) > 0 && strings.TrimSpace(embedder[0]) == "" {
-		return nil, fmt.Errorf("embedder: the first element must be the command, got an empty string")
-	}
-
 	if err := validateProperties(vc.Properties); err != nil {
 		return nil, err
 	}
@@ -433,7 +373,6 @@ func load(fixedVault string) (*Config, error) {
 		TaskStates:        taskStates,
 		WebHome:           strings.TrimSpace(vc.Web.Home),
 		Icons:             IconMap{Tags: vc.Icons.Tags, Kinds: vc.Icons.Kinds},
-		EmbedderCommand:   embedder,
 		Properties:        vc.Properties,
 		Queries:           vc.Queries,
 		CaptureInbox:      captureInbox,
@@ -459,9 +398,48 @@ func Vaults() (map[string]string, error) {
 // resolveVaults validates registry names and expands each path. Paths must be absolute (after ~
 // expansion): resolving a vault relative to the current directory would make the same name mean a
 // different vault per invocation.
+// configuredVault returns the vault path the machine config selects, or "" when it selects none.
+//
+// A vault is designated one way at a time. Without a registry there are no names, so `vault_dir`
+// gives a path. With a registry every vault already has a name and a path, so `default_vault` picks
+// one by name and the path is written once, under `vaults:`. Allowing both would mean writing the
+// same vault twice — and, because a bare word is a valid relative path, a name typed into
+// `vault_dir` would silently resolve under the working directory and get a vault skeleton laid down
+// there (the typo-creates-a-vault failure ADR 0004 exists to prevent).
+func configuredVault(mc machineFileConfig, registry map[string]string) (string, error) {
+	name := strings.TrimSpace(mc.DefaultVault)
+	dir := strings.TrimSpace(mc.VaultDir)
+	if len(registry) > 0 {
+		if dir != "" {
+			return "", fmt.Errorf("vault_dir cannot be combined with a vaults: registry; name the active vault with default_vault instead")
+		}
+		if name == "" {
+			return "", nil
+		}
+		path, ok := registry[name]
+		if !ok {
+			return "", fmt.Errorf("default_vault: %q is not in vaults: (have %s)", name, strings.Join(sortedNames(registry), ", "))
+		}
+		return path, nil
+	}
+	if name != "" {
+		return "", fmt.Errorf("default_vault: %q names a vault, but no vaults: registry is configured", name)
+	}
+	if dir != "" && !filepath.IsAbs(expandHome(dir)) {
+		return "", fmt.Errorf("vault_dir: %q must be an absolute path (or start with ~/)", dir)
+	}
+	return dir, nil
+}
+
 func resolveVaults(mc machineFileConfig) (map[string]string, error) {
 	out := make(map[string]string, len(mc.Vaults))
-	for name, path := range mc.Vaults {
+	// One vault, one name. Two names for the same directory would make the vault's identity
+	// ambiguous everywhere a name is reported rather than accepted — which of them labels a search
+	// hit, which one a qualified id carries, which one a cross-vault link is written with — so the
+	// registry refuses it outright instead of every reader having to pick a winner.
+	byPath := make(map[string]string, len(mc.Vaults))
+	for _, name := range sortedNames(mc.Vaults) {
+		path := mc.Vaults[name]
 		if !vaultNamePattern.MatchString(name) {
 			return nil, fmt.Errorf("vaults: name %q must be lowercase letters, digits, and dashes", name)
 		}
@@ -469,9 +447,31 @@ func resolveVaults(mc machineFileConfig) (map[string]string, error) {
 		if !filepath.IsAbs(expanded) {
 			return nil, fmt.Errorf("vaults: %s: %q must be an absolute path (or start with ~/)", name, path)
 		}
-		out[name] = filepath.Clean(expanded)
+		clean := filepath.Clean(expanded)
+		// Compare canonically so two spellings of one directory (a symlink, a trailing slash) are
+		// caught too, not just literally equal strings.
+		key := clean
+		if canonical, err := canonicalPath(clean); err == nil {
+			key = canonical
+		}
+		if first, dup := byPath[key]; dup {
+			return nil, fmt.Errorf("vaults: %s and %s name the same vault (%s); give a vault exactly one name", first, name, clean)
+		}
+		byPath[key] = name
+		out[name] = clean
 	}
 	return out, nil
+}
+
+// sortedNames returns map keys in a deterministic order, so a duplicate-path error always names the
+// same pair regardless of map iteration order.
+func sortedNames(vaults map[string]string) []string {
+	names := make([]string, 0, len(vaults))
+	for name := range vaults {
+		names = append(names, name)
+	}
+	sort.Strings(names)
+	return names
 }
 
 // CanonicalPath makes a path absolute with symlinks resolved, tolerating missing trailing
@@ -586,7 +586,7 @@ func loadVaultConfig(vaultDir string) (vaultFileConfig, error) {
 	path := VaultConfigPath(vaultDir)
 	if err := strictDecodeFile(path, &cfg); err != nil {
 		if isUnknownFieldError(err) {
-			return vaultFileConfig{}, fmt.Errorf("%w (machine-scope keys — vault_dir, db_path, cache_dir, embedder, web.theme, web.colors_path — belong in the user config file, never in a vault)", err)
+			return vaultFileConfig{}, fmt.Errorf("%w (machine-scope keys — vault_dir, db_path, cache_dir, web.theme, web.colors_path — belong in the user config file, never in a vault)", err)
 		}
 		return vaultFileConfig{}, err
 	}
@@ -867,11 +867,6 @@ func (c *Config) MetadataDir() string {
 // MetadataPath returns the sidecar metadata path for a note id.
 func (c *Config) MetadataPath(id int64) string {
 	return filepath.Join(c.MetadataDir(), strconv.FormatInt(id, 10)+".yaml")
-}
-
-// RenamesPath returns the vault-local title rename history path.
-func (c *Config) RenamesPath() string {
-	return filepath.Join(c.TrackDir(), "renames.yaml")
 }
 
 // GenDir returns the generation snapshot store (<vault>/.track/gen). It lives under .track so note

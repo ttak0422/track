@@ -104,9 +104,11 @@ are `[a-z0-9-]` and ids are digits or a base62 slug.
   (`Server.refresh`), which is the same freshness path an external cloud sync
   already depends on. Sub-second liveness for a second vault would need its own
   watcher.
-- The federated search attaches every reachable vault's index per request;
-  SQLite's attach limit (10) bounds how large a registry this serves, the same
-  bound ADR 0052 accepted.
+- The federated search attaches every reachable vault's index per request, so
+  SQLite's attach limit (10) bounds how many vaults one query covers. It does not
+  bound the registry: an eleventh vault is still registered, addressable, and
+  served — it drops out of that query and is listed as a gap, the same degradation
+  an unreadable index gets.
 - The static export is unaffected: it publishes one vault, so its ids stay bare.
 - Cross-vault *graph* edges are not drawn. `ext_links` are (vault, title) string
   edges (ADR 0053) with no id on the far side, and the graph is a per-vault view;

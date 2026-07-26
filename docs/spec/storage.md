@@ -12,7 +12,7 @@ vault_dir: ~/track
 
 The default location is `~/.config/track/config.yml` on XDG-style systems, `~/Library/Application Support/track/config.yml` on macOS, or the platform user config equivalent. `TRACK_CONFIG` may point at another config file for tests and one-off runs. `TRACK_VAULT` overrides `vault_dir` only for tests and one-off commands.
 
-When neither the config file nor `TRACK_VAULT` sets a vault, track defaults to `$HOME/track` (ADR 0015). Precedence is `TRACK_VAULT` > config file `vault_dir` > `$HOME/track`. The fixed, conventional default is low-risk; tests must still set `TRACK_VAULT` (or `HOME`) to a temp path so they never write to a real `$HOME/track`.
+With a `vaults:` registry, the active vault is named rather than pathed: `default_vault: <name>` picks one of the registered vaults, and `vault_dir` is refused — the path is written once, under `vaults:`. Without a registry there are no names, so `vault_dir` gives the path directly and must be absolute (or start with `~/`). When neither sets a vault, track defaults to `$HOME/track` (ADR 0015). Precedence is `TRACK_VAULT` > `default_vault`/`vault_dir` > `$HOME/track`. The fixed, conventional default is low-risk; tests must still set `TRACK_VAULT` (or `HOME`) to a temp path so they never write to a real `$HOME/track`.
 
 On first launch — the first command that touches a vault whose directory does not exist yet (including `track web`) — track lays down the directory skeleton: `note/`, `journal/`, `assets/`, `template/`, and `.track/notes/`. An existing vault is left alone (directories are otherwise created lazily as notes are written), so this never resurrects a directory that was intentionally removed. `track init` creates the skeleton explicitly and is idempotent.
 
@@ -76,7 +76,6 @@ Current contents:
 ```text
 <vault>/.track/config.yml
 <vault>/.track/notes/<id>.yaml
-<vault>/.track/renames.yaml
 <vault>/.track/gen/
 <vault>/.track/trash/
 ```
@@ -92,7 +91,7 @@ gen: false       # this vault keeps no generation snapshots
 
 A vault checked into a repository or published wants both off. Journals are created automatically by indexing, so the journal tree is a record of which days its author worked; `.track/gen/` keeps a full copy of every past state, so a history the author meant to rewrite would be committed alongside the notes. With `journal: false` indexing simply creates no day hub, and `track journal` says so; with `gen: false` every `track gen` subcommand refuses.
 
-`.track/notes/` contains versioned sidecar metadata files for notes. `.track/renames.yaml` is title rename history (repair only, not a link source). `.track/gen/` holds generation snapshots (ADR 0025). `.track/trash/` holds what `track rm` soft-deletes: only explicit commands move files into it (ADR 0051) — index reconciliation leaves the sidecar of a vanished note in place for `track doctor` to report as an orphan.
+`.track/notes/` contains versioned sidecar metadata files for notes. `.track/gen/` holds generation snapshots (ADR 0025). `.track/trash/` holds what `track rm` soft-deletes: only explicit commands move files into it (ADR 0051) — index reconciliation leaves the sidecar of a vanished note in place for `track doctor` to report as an orphan.
 
 The rebuildable SQLite index is a cache outside the vault. By default it lives under the platform user cache directory:
 
@@ -106,7 +105,7 @@ The rebuildable SQLite index is a cache outside the vault. By default it lives u
 
 Cross-vault references (`[[vault:title]]`, ADR 0053) live in each vault's own index as `ext_links` rows keyed by `(vault name, title)` — the target's numeric id is never stored, because ids are vault-local. Inbound cross-vault backlinks are answered by scanning the other registered vaults' databases for rows naming this vault.
 
-Configuration ownership is split (ADR 0050): the machine config file can also set `cache_dir`, `db_path`, `embedder`, and the local web workspace's `web.theme`/`web.colors_path` (see [web.md](web.md)); everything about note semantics — `extensions`, `date_format`, `journal_date_format`, and the rest — lives in the vault config `<vault>/.track/config.yml`. Both files reject keys that belong to the other, so a synced vault can never configure which commands run on a machine. Environment values override the matching file values, but normal configuration should live in the files.
+Configuration ownership is split (ADR 0050): the machine config file can also set `cache_dir`, `db_path`, and the local web workspace's `web.theme`/`web.colors_path` (see [web.md](web.md)); everything about note semantics — `extensions`, `date_format`, `journal_date_format`, and the rest — lives in the vault config `<vault>/.track/config.yml`. Both files reject keys that belong to the other, so a synced vault can never redirect where this machine reads and writes. Environment values override the matching file values, but normal configuration should live in the files.
 
 The vault path is canonicalized (symlinks resolved, made absolute) before use. A symlinked vault — for example `~/track` pointing at a cloud-synced `~/OneDrive/track` — therefore resolves to one stable path, so the `<vault-key>` cache key stays the same no matter which path the CLI is invoked through.
 
@@ -152,7 +151,7 @@ If a sidecar is missing, the current parser can still read the legacy trailing `
 
 The markdown body is plain content. It may be empty or contain any headings, including a leading H1. Parsing and reindexing never derive or reconcile the title from the body; title changes must go through create/open/journal/append metadata writes, `track rename`, or LSP rename.
 
-Title changes are also recorded in `.track/renames.yaml` as repair history. Rename history is not a link keyword source: an old title remains available for a new note, and `[[old title]]` does not resolve through the history. LSP code actions may use the history only when an old title is unresolved, offering to rewrite the link to the newest recorded title.
+A rename rewrites every `[[old title]]` in the vault as part of the operation, so no record of past titles is kept. A link the rewrite could not reach — one in another vault, or one written by hand afterwards — surfaces as an ordinary unresolved-link diagnostic; the old title is not stored anywhere, so it is also free for a new note immediately.
 
 ## SQLite Index
 
@@ -279,7 +278,6 @@ Run `track doctor` when a vault may be only partially synced: it reports orphan 
 The vault and cache hold two very different kinds of data:
 
 - `.track/notes/<id>.yaml` are the **authoritative** per-note metadata sidecars. The markdown body is content only; `title`, `tags`, `created`, `days`, and Babel block results live in the sidecar and cannot be reconstructed from the `.md` file.
-- `.track/renames.yaml` is repair history for manual title edits. It can improve unresolved-link quickfixes, but it is not used for normal link resolution.
 - The SQLite index under the cache directory is **rebuildable**. The notes on disk are the source of truth; `track reindex --full` deletes the cache database and regenerates it from them. Deleting it is safe.
 
 Deleting `.track/notes/` is therefore irrecoverable data loss. Treat it like `.git`: keep it under version control and back it up alongside the note bodies.

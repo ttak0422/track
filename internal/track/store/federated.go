@@ -38,8 +38,9 @@ type fedVault struct {
 }
 
 // OpenFederated attaches every vault's index database to one in-memory connection. Callers
-// self-heal each vault (RefreshIfStale) first, so the attached DBs exist and are fresh; SQLite's
-// attach limit (10 by default) bounds the registry size this can serve.
+// self-heal each vault (RefreshIfStale) first, so the attached DBs exist and are fresh. SQLite's
+// attach limit (10 by default) bounds how many vaults one query covers, not how many may be
+// registered: past it, a vault lands in Skipped and the query answers for the rest.
 // ponytail: databases attach read-write and discipline keeps this SELECT-only; switch to mode=ro
 // URIs if a write ever sneaks in.
 func OpenFederated(vaults []FederatedVault) (*Federated, error) {

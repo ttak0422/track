@@ -214,7 +214,7 @@ func (s *Store) ReplaceExtLinks(srcID int64, refs []ExtRef) error {
 
 // ExtBacklinks returns the notes in THIS store that reference (one of vaultNames, title) across
 // vaults, most recently updated first — the same ordering as Backlinks. A vault may be registered
-// under several names, so the caller passes every name whose path is the target vault.
+// under exactly one name; the slice shape lets a caller pass none (no registration, no matches).
 func (s *Store) ExtBacklinks(vaultNames []string, title string) ([]NoteRef, error) {
 	if len(vaultNames) == 0 {
 		return nil, nil

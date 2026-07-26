@@ -27,6 +27,20 @@ them unmounted cloud storage.
   name can later prefix a cross-vault link (`vault:title`); paths must be absolute (after `~`
   expansion). The registry is machine scope by definition: which vaults exist on a machine is
   machine state, and a synced vault must never introduce vault paths.
+- **With a registry, the active vault is named, not pathed.** `default_vault: <name>` picks one of
+  the registered vaults and `vault_dir` is refused; without a registry there are no names, so
+  `vault_dir` gives the path directly (and must be absolute). One mechanism at a time: otherwise the
+  same vault is written twice, and — because a bare word is a valid relative path — a name typed into
+  `vault_dir` resolves under the working directory and gets a skeleton laid down there, the
+  typo-creates-a-vault failure ADR 0004 exists to prevent.
+- **A vault has exactly one name.** Two entries resolving to the same directory are refused when the
+  config loads, comparing canonically so a symlink or a trailing slash cannot slip a second name
+  past. A name is not only how a vault is *addressed* — it is how the vault is *reported*: it labels
+  a cross-vault search hit, it qualifies a note's id in the workspace, and it is what a
+  `[[name:title]]` link is written with. With two names, every one of those has to pick a winner,
+  and nothing makes one name more correct than the other. Refusing at load keeps that question from
+  existing. (The launch vault is still reachable both as the default and by its registered name;
+  that is one name, addressed two ways.)
 - A global `--vault NAME` flag, pre-parsed in the CLI router, resolves the name and exports the
   path as `TRACK_VAULT`, so `config.Load` and every engine package stay selection-agnostic. An
   unknown name is a hard error listing the registered names. `TRACK_VAULT` itself stays a path —

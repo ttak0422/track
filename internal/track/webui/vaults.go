@@ -148,15 +148,12 @@ func (s *Server) viewByName(name string) (*vaultView, error) {
 	if err != nil {
 		return nil, err
 	}
-	// A vault may be registered under several names, so a view belongs to a directory, not to a
-	// name: an alias of the launch vault is the launch vault, and two aliases of another vault are
-	// one view. Otherwise the same notes would answer under two labels — and therefore two ids —
-	// and a federated query would attach one index twice and return every note twice.
+	// The registry gives a vault exactly one name (config.resolveVaults refuses a second), so the
+	// only way two names reach one vault is the launch vault being registered — it is addressable
+	// both as the default and by its name, and must be the same view either way. Two views would
+	// mean two labels for the same notes, two ids, and two reindex locks over one directory.
 	if cfg.VaultDir == s.active.cfg.VaultDir {
 		return s.adopt(name, s.active), nil
-	}
-	if v, ok := s.viewForPath(cfg.VaultDir); ok {
-		return s.adopt(name, v), nil
 	}
 	// A registered vault that is merely unmounted must be reported, not indexed: laying down an
 	// index for an unreachable vault would record it as empty.
@@ -170,16 +167,14 @@ func (s *Server) viewByName(name string) (*vaultView, error) {
 
 	s.viewsMu.Lock()
 	defer s.viewsMu.Unlock()
-	// Another request may have opened the same vault while this one was doing its filesystem work;
-	// keep the view that got there first and discard this one's handle rather than leaking it.
-	if existing, ok := s.byPath[cfg.VaultDir]; ok {
+	// Another request may have opened this vault while this one was doing its filesystem work; keep
+	// the view that got there first and discard this one's handle rather than leaking it.
+	if existing, ok := s.views[name]; ok {
 		st.Close()
-		s.views[name] = existing
 		return existing, nil
 	}
 	v := &vaultView{name: name, label: name, cfg: cfg, store: st}
 	s.views[name] = v
-	s.byPath[cfg.VaultDir] = v
 	return v, nil
 }
 
@@ -187,13 +182,6 @@ func (s *Server) cachedView(name string) (*vaultView, bool) {
 	s.viewsMu.Lock()
 	defer s.viewsMu.Unlock()
 	v, ok := s.views[name]
-	return v, ok
-}
-
-func (s *Server) viewForPath(dir string) (*vaultView, bool) {
-	s.viewsMu.Lock()
-	defer s.viewsMu.Unlock()
-	v, ok := s.byPath[dir]
 	return v, ok
 }
 
@@ -299,9 +287,12 @@ func (s *Server) servedViews() (views []*vaultView, unavailable []vaultInfo) {
 func (s *Server) closeViews() {
 	s.viewsMu.Lock()
 	defer s.viewsMu.Unlock()
-	for _, v := range s.byPath {
-		v.store.Close()
+	for name, v := range s.views {
+		// The launch vault's store belongs to the caller that handed it to New; only the vaults this
+		// server opened are closed here.
+		if v != s.active {
+			v.store.Close()
+		}
+		delete(s.views, name)
 	}
-	clear(s.views)
-	clear(s.byPath)
 }

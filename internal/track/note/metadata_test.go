@@ -264,9 +264,6 @@ func TestParseFileKeepsSidecarTitleIgnoringBodyH1(t *testing.T) {
 	if !reflect.DeepEqual(got, want) {
 		t.Fatalf("sidecar metadata should be untouched by the body H1:\n got %+v\nwant %+v", got, want)
 	}
-	if _, err := os.Stat(cfg.RenamesPath()); !os.IsNotExist(err) {
-		t.Fatalf("expected no rename history to be recorded, stat err=%v", err)
-	}
 }
 
 func TestParseFileWithoutSidecarDerivesNoTitle(t *testing.T) {
