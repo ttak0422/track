@@ -1063,10 +1063,10 @@ a.calendar-title:focus-visible {
 .tab {
   position: relative;
   display: flex;
-  /* Tabs take their title's width (capped); they never shrink, so the strip scrolls horizontally
-     once they overflow. */
-  flex: 0 0 auto;
-  max-width: 220px;
+  /* Every tab is the same width, so the close button sits at the same place in every one: closing a
+     tab slides its neighbour's × under the pointer and a run of tabs can be dismissed by clicking in
+     place. Tabs never shrink either, so the strip scrolls horizontally once they overflow. */
+  flex: 0 0 220px;
   align-items: center;
   color: var(--muted);
 }
@@ -1088,8 +1088,10 @@ a.calendar-title:focus-visible {
   max-width: 100%;
   align-items: center;
   border: 0;
-  /* Leave room on the right for the absolutely-placed close button / dirty dot. */
-  padding: 8px 30px 8px 12px;
+  /* Leave room on the right for the absolutely-placed buttons: the close button / dirty dot, and the
+     float button beside it. Reserved on every tab, not just the one showing the float button, so a
+     title never reflows as tabs are activated. */
+  padding: 8px 54px 8px 12px;
   color: inherit;
   background: transparent;
   font: inherit;
@@ -1179,43 +1181,36 @@ a.calendar-title:focus-visible {
   opacity: 0;
 }
 
-/* Hover popup of actions under the active tab. Fixed (measured from the tab in JS) so the strip's
-   horizontal-scroll overflow does not clip it; flush under the tab so the hover carries into it. */
-.tab-actions {
-  position: fixed;
-  z-index: 30;
-  display: flex;
-  gap: 4px;
-  padding: 4px;
-  border: 1px solid var(--line);
-  border-top: none;
-  border-radius: 0 0 var(--radius) var(--radius);
-  background: var(--panel);
-  opacity: 0;
-  pointer-events: none;
-  transition: opacity 120ms ease;
-}
-
-.tab:hover .tab-actions,
-.tab-actions:focus-within {
-  opacity: 1;
-  pointer-events: auto;
-}
-
-.tab-action {
+/* The open note's float button, in the tab's own slot next to the close button and revealed by the same
+   hover. It used to hang under the tab as a fixed popup, which the strip's scrolling and reflow left
+   stranded and which the pointer had to cross a gap to reach. */
+.tab-float {
+  position: absolute;
+  top: 50%;
+  right: 30px;
   display: grid;
+  /* 24px hit target (WCAG 2.2), matching the close button beside it. */
+  width: 24px;
+  height: 24px;
+  translate: 0 -50%;
   place-items: center;
-  width: 26px;
-  height: 26px;
   border: 0;
-  color: var(--muted);
+  border-radius: var(--radius-sm);
+  padding: 0;
+  color: inherit;
   background: transparent;
+  opacity: 0;
   cursor: pointer;
 }
 
-.tab-action:hover,
-.tab-action:focus-visible {
+.tab-float:hover {
+  background: var(--line);
   color: var(--text);
+}
+
+.tab:hover .tab-float,
+.tab-float:focus-visible {
+  opacity: 1;
 }
 
 /* The note's controls sit over the reader, fixed to the top-right so they stay put while the note
