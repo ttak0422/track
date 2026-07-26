@@ -773,3 +773,37 @@ func TestRelativeVaultDirIsRefused(t *testing.T) {
 		t.Fatalf("a relative vault_dir must be refused, got %v", err)
 	}
 }
+
+func TestVaultCanTurnJournalsAndGenerationsOff(t *testing.T) {
+	// A vault checked into a repository wants neither: the journal tree records which days its
+	// author worked, and .track/gen/ keeps a full copy of every past state. Both are written without
+	// anyone asking, so the vault itself has to be able to say no.
+	vault := t.TempDir()
+	configPath := filepath.Join(t.TempDir(), "config.yml")
+	if err := os.WriteFile(configPath, []byte("vault_dir: "+vault+"\ncache_dir: "+t.TempDir()+"\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	writeVaultConfig(t, vault, "journal: false\ngen: false\n")
+	t.Setenv("TRACK_CONFIG", configPath)
+	t.Setenv("TRACK_VAULT", "")
+	t.Setenv("TRACK_DB", "")
+	t.Setenv("TRACK_CACHE_DIR", "")
+
+	cfg, err := Load()
+	if err != nil {
+		t.Fatalf("load: %v", err)
+	}
+	if !cfg.JournalOff || !cfg.GenOff {
+		t.Fatalf("journal/gen should be off, got JournalOff=%v GenOff=%v", cfg.JournalOff, cfg.GenOff)
+	}
+
+	// Both default on, so every existing vault keeps behaving as it did.
+	writeVaultConfig(t, vault, "capture_inbox: Inbox\n")
+	cfg, err = Load()
+	if err != nil {
+		t.Fatalf("load: %v", err)
+	}
+	if cfg.JournalOff || cfg.GenOff {
+		t.Fatalf("journal/gen must default on, got JournalOff=%v GenOff=%v", cfg.JournalOff, cfg.GenOff)
+	}
+}

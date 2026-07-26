@@ -314,6 +314,10 @@ func (ix *Indexer) One(path string) error {
 // configured journal template (builtin default when unset) and indexing whatever journal.Open reports as
 // changed. It is a no-op once the day's journal and summaries are in place.
 func (ix *Indexer) ensureDayJournal(mtime int64) error {
+	// A vault with journals turned off has no day hub to ensure; indexing carries on regardless.
+	if ix.cfg.JournalOff {
+		return nil
+	}
 	res, err := journal.Open(ix.cfg, time.Unix(mtime, 0), journal.Options{
 		CreateBody: func(name string, id int64, d time.Time) (string, error) {
 			spec, err := tmpl.DefaultSpec(ix.cfg, config.KindJournal)

@@ -30,7 +30,7 @@ Regular note ids are `Unix seconds * 1000 + same-second sequence`, preserving ch
 <vault>/journal/yyyyMMdd.md
 ```
 
-A day with note activity always has a journal: indexing a note (creating or editing it through the CLI, the editor LSP, or the web workspace) ensures that day's journal exists, so the journal is the day's aggregation hub. The auto-created journal uses the configured journal template (`journal_template`, builtin `journal` when unset). Journals roll up into `journal/<yyyyMM>.md` and `journal/<yyyy>.md` summaries, and are excluded from activity tracking (see `note_days` below).
+A day with note activity always has a journal, unless the vault turns journals off (`journal: false`, see below): indexing a note (creating or editing it through the CLI, the editor LSP, or the web workspace) ensures that day's journal exists, so the journal is the day's aggregation hub. The auto-created journal uses the configured journal template (`journal_template`, builtin `journal` when unset). Journals roll up into `journal/<yyyyMM>.md` and `journal/<yyyy>.md` summaries, and are excluded from activity tracking (see `note_days` below).
 
 Template files live under `template/` and use a template-specific extension:
 
@@ -80,7 +80,18 @@ Current contents:
 <vault>/.track/trash/
 ```
 
-`.track/config.yml` is the vault config: the note semantics that travel with the vault (`task_states`, `properties`, `queries`, `icons`, date formats, default templates, `capture_inbox`, `archive_note`, `web.home`, `gen_keep`, `extensions`). It is optional — a vault without one uses the defaults. `.track/notes/` contains versioned sidecar metadata files for notes. `.track/gen/` holds generation snapshots (ADR 0025). `.track/trash/` holds what `track rm` soft-deletes: only explicit commands move files into it (ADR 0051) — index reconciliation leaves the sidecar of a vanished note in place for `track doctor` to report as an orphan.
+`.track/config.yml` is the vault config: the note semantics that travel with the vault (`task_states`, `properties`, `queries`, `icons`, date formats, default templates, `capture_inbox`, `archive_note`, `web.home`, `gen_keep`, `extensions`). It is optional — a vault without one uses the defaults.
+
+Two switches turn off whole features for a vault, both on by default:
+
+```yaml
+journal: false   # this vault keeps no daily journals
+gen: false       # this vault keeps no generation snapshots
+```
+
+A vault checked into a repository or published wants both off. Journals are created automatically by indexing, so the journal tree is a record of which days its author worked; `.track/gen/` keeps a full copy of every past state, so a history the author meant to rewrite would be committed alongside the notes. With `journal: false` indexing simply creates no day hub, and `track journal` says so; with `gen: false` every `track gen` subcommand refuses.
+
+`.track/notes/` contains versioned sidecar metadata files for notes. `.track/gen/` holds generation snapshots (ADR 0025). `.track/trash/` holds what `track rm` soft-deletes: only explicit commands move files into it (ADR 0051) — index reconciliation leaves the sidecar of a vanished note in place for `track doctor` to report as an orphan.
 
 The rebuildable SQLite index is a cache outside the vault. By default it lives under the platform user cache directory:
 
@@ -132,6 +143,7 @@ Fields:
 - `title`: note title and the link keyword. This sidecar field is authoritative.
 - `tags`: note tags.
 - `created`: creation date string. The current format is `YYYY-MM-DD`.
+- `slug`: pins this note's published address. The static export normally derives a slug from the note id, so a note that already has a public URL under a different id — one imported from a published directory — would move; setting `slug` freezes the address it is already reachable at. Empty (the usual case) derives it as before.
 - `days`: sorted, deduplicated set of local calendar days the note was created or updated on (`YYYY-MM-DD`). A day is stamped whenever the note is touched: a track mutation command stamps it via single-note reindex, and a direct editor/external edit is stamped during the mtime-divergence scan in `RefreshIfStale`. This is the authoritative activity record used by `track agenda` to answer "which notes were worked on that day". Sidecars predating the field have no `days`; the index then falls back to `created` so the note still appears on the day it was made.
 
 Readers reject unsupported metadata versions.

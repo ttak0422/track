@@ -2,6 +2,8 @@ package cli
 
 import (
 	"flag"
+	"fmt"
+	"os"
 	"strconv"
 
 	"github.com/ttak0422/track/internal/track/index"
@@ -51,6 +53,10 @@ func cmdExportSite(args []string) int {
 		if len(ids) > 0 {
 			return fail("--id is a vault-mode flag; a --src directory publishes every .md file in it")
 		}
+		// Directory mode is on its way out: a vault publishes the same content with sidecar
+		// metadata, stable ids, and the vault config, and keeping two publishing inputs means every
+		// export feature is built twice. Warn on stderr so the JSON on stdout stays parseable.
+		fmt.Fprintln(os.Stderr, "track export-site: --src (directory mode) is deprecated and will be removed; publish a vault instead (a note can pin its current URL with sidecar `slug:`)")
 		res, err := site.BuildDir(*src, *baseURL, *frontend, *out)
 		if err != nil {
 			return fail("export-site: %v", err)
