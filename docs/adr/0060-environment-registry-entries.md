@@ -1,6 +1,7 @@
 # 0060. A checkout can carry a vault, through the registry
 
-Status: Accepted
+Status: Accepted. `TRACK_DB_PATH` no longer exists, so the fixed-`db_path` refusal this ADR extended
+to the resolved registry went with it ([0064](0064-the-index-location-is-always-derived.md)).
 
 ## Context
 

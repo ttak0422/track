@@ -21,6 +21,12 @@ edge must never record the target's numeric id.
   local titles a registration shadows (`shadowed_title`) since registering a vault can create
   these retroactively. Rename is naturally safe: backlink rewriting matches the full key text, so
   renaming a local "title" never touches a qualified "vault:title".
+- **A vault's own name is not a qualifier.** The gate is registry membership and the active vault is
+  in its own registry, so `[[own:Title]]` used to take the external branch: an `ext_links` row and no
+  `links` row, which made the edge invisible to backlinks, orphans and both graphs, while the CLI
+  reported it under `external` and the web reported it nowhere. A self-qualified key now folds back
+  into the ordinary local lookup at every gate site, which is what anyone writing it means. Databases
+  written before this keep their stale self `ext_links` rows until a full reindex.
 - Outgoing edges are stored in the source vault's own index as `(vault name, title)` strings
   (`ext_links`, schema v7) — never the target's id. Inbound backlinks are found by scanning the
   other registered vaults' databases for rows naming this vault (under any of its registered

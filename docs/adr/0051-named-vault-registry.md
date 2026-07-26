@@ -1,6 +1,10 @@
 # 0051. A named vault registry selects vaults; read commands never move files
 
-Status: Accepted
+Status: Accepted, with two rules below superseded. Auto-creation is no longer default-vault-only —
+[0063](0063-only-init-creates-a-vault.md) makes `track init` the only command that creates a vault,
+because gating on the `--vault` flag left `default_vault` and `TRACK_VAULT` scaffolding freely. And
+the fixed-`db_path` refusal is gone with the key itself
+([0064](0064-the-index-location-is-always-derived.md)).
 
 ## Context
 

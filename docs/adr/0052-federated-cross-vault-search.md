@@ -1,6 +1,9 @@
 # 0052. Cross-vault reads federate per-vault databases with ATTACH
 
-Status: Accepted
+Status: Accepted; the ATTACH mechanism below is superseded by
+[0062](0062-cross-vault-reads-merge-in-go.md), which merges per-vault queries in Go instead. The
+identity model this ADR decided — a `vault` field only where a read crosses, physical databases
+one-per-vault and schema-unchanged, per-vault degradation rather than a failed search — still holds.
 
 ## Context
 

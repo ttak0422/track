@@ -42,7 +42,9 @@ function M.check()
    if vault and vault ~= "" and vim.fn.isdirectory(vault) == 1 then
       h.ok("vault_dir: " .. vault)
    elseif vault and vault ~= "" then
-      h.warn("vault_dir does not exist: " .. vault)
+      -- Nothing creates a vault root on the way past any more, so this warning is now the whole
+      -- diagnosis: every command will refuse until the directory is a vault. Name the fix.
+      h.warn("vault_dir does not exist: " .. vault, { "Run :Track init to create it" })
    else
       h.error("vault_dir is not configured")
    end
