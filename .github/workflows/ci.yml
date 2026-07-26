@@ -67,8 +67,8 @@ jobs:
           PR: ${{ github.event.pull_request.number }}
           RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
         run: |
-          gh pr comment "$PR" --edit-last --create-if-none \
-            --body "Go coverage: **$COVERAGE_TOTAL** of statements — [per-function breakdown]($RUN_URL)"
+          scripts/pr-comment.sh go-coverage "$PR" \
+            "Go coverage: **$COVERAGE_TOTAL** of statements — [per-function breakdown]($RUN_URL)"
 
       - name: Neovim action-link E2E
         run: |
