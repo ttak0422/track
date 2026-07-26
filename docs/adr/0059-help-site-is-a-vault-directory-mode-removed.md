@@ -1,14 +1,17 @@
-# 0059. The help site is a vault
+# 0059. The help site is a vault, and directory mode is gone
 
 Status: Accepted
+
+Supersedes [0049](0049-published-site-config.md); completes the removal
+[0055](0055-vault-publishing-replaces-directory-mode.md) scheduled.
 
 ## Context
 
 ADR 0055 made a vault able to publish what a directory published — pinned
 slugs, `journal: false`, `gen: false` — and deprecated directory mode without
-removing it. Removal waits on two things: `docs/help` moving into a vault, and
-the shared-bundle tests that only run through directory mode being ported. This
-is the first.
+removing it. Removal waited on two things: `docs/help` moving into a vault, and
+the shared-bundle tests that only ran through directory mode being ported. Both
+happen here, so directory mode goes with them.
 
 `docs/help` was nineteen `.md` files plus a `site.yml` holding what each page
 said about itself: its icon, tags, cover image, typed props, and its `up`
@@ -77,6 +80,18 @@ gives every file the checkout's mtime) leaves all nineteen sidecars byte-identic
   rebuilds on change.
 - `make site` points `TRACK_VAULT` at `docs/help` and keeps that vault's index in
   `.site-cache`, out of the developer's own cache directory.
-- Directory mode still works and still warns. What is left before it can be
-  removed is the test port: hierarchy pages, tag pages, and query blocks are
-  exercised only through `BuildDir` today.
+- Directory mode is gone: `--src`, `site.yml` in all its parts, `site.BuildDir`
+  and its ~340 lines, and the flag rejections that existed only to keep the two
+  modes from being confused for each other. `export-site` has one input.
+- Its tests are ported, not deleted. Four behaviours ran only through `BuildDir`
+  — the hierarchy trail and children, tag pages with `#tag` matching the
+  descendants, `track-query` fence expansion, and icon precedence — and now run
+  against a vault in `publish_test.go`. The rest of `dir_test.go` tested
+  `site.yml` mechanics (both spellings, orphan entries, the `index` convention,
+  base-name-before-title resolution) and had nothing to port to: a vault has
+  sidecars.
+- Documentation that described the two modes now describes one. The help pages
+  that explained `site.yml` — the dashboard page's icon and site-config
+  sections, the hierarchy page's parent rule, the query page's tags and gallery
+  images — explain the sidecar instead, which is what they were always
+  describing on the vault side.

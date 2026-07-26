@@ -3,9 +3,8 @@
 // running against a pre-generated JSON bundle instead of the live `track web` server, so it keeps
 // track's real reading experience — sidebar, graph, hover previews — without a backend.
 //
-// Two input front-ends share one bundle writer (see bundle.go):
-//   - Build:    a selection of vault notes by id, read through the index/store.
-//   - BuildDir: a directory of plain Markdown files, for repo-mounted help/docs outside any vault.
+// Build takes a selection of vault notes by id, read through the index/store, and hands them to the
+// bundle writer (see bundle.go).
 package site
 
 import (

@@ -212,8 +212,7 @@ notes listing, the calendar's cell titles, the day pages, the reader's "On this 
 backlinks all sort this way, live and published alike, so a cell's visible titles read identically on
 the page they open.
 
-A published site opts into the calendar with `track export-site --calendar` (vault mode only; a `--src`
-directory has no activity days and is rejected). The flag is carried as `calendar` in `site.json`: the
+A published site opts into the calendar with `track export-site --calendar`. The flag is carried as `calendar` in `site.json`: the
 frontend shows the rail button and the prerender emits `calendar/index.html` plus a real
 `day/<date>/index.html` for every active day. Without the flag — the default, suiting reference sites
 like the repo help docs — the calendar and day pages are absent from the output.

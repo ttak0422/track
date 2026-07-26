@@ -1,6 +1,12 @@
 # 0049. A published site's config travels with its content
 
-Status: Accepted
+Status: Superseded by [0059](0059-help-site-is-a-vault-directory-mode-removed.md)
+
+The principle stands and is now applied to vaults: what a site says about itself
+lives with the content (each page's own metadata in its sidecar, the site's in
+the vault config), while `--base-url`, `--out` and `--frontend` describe one
+build and stay flags. What is gone is the mechanism — directory mode and the
+`site.yml` that stood in for the sidecars a directory did not have.
 
 ## Context
 

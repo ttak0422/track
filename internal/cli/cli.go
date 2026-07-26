@@ -224,12 +224,10 @@ Usage:
                                         list stored source block results (JSON)
   track export (--id N | --title S | --path P) [--out F] [--frontmatter] [--exports-default M]
                                         write a note out as Markdown (stdout, or JSON path with --out)
-  track export-site --root N [--id N ...] --frontend <dist> --out <dir>
-                                        publish selected vault notes as a static site (React frontend + JSON bundle) (JSON)
-  track export-site --src <dir> --frontend <dist> --out <dir>
-                                        publish a directory of Markdown files as a static site; its
-                                        entry page comes from <dir>/site.yml "home", else a page
-                                        named index (JSON)
+  track export-site (--all | --id N ...) [--root N] --frontend <dist> --out <dir>
+                                        publish vault notes as a static site (React frontend + JSON
+                                        bundle); --all takes every note, --root defaults to the vault
+                                        config's web.home (JSON)
   track render --spec <spec.json> --out <file> [--renderer echarts]
                                         render a View Spec chart, or a composed article (a spec with
                                         "blocks"), to an HTML file (JSON path);

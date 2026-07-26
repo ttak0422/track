@@ -137,36 +137,6 @@ func TestExportSiteAllPublishesEveryNote(t *testing.T) {
 	}
 }
 
-// Every vault-mode flag is rejected outright in directory mode, never silently ignored: a directory
-// publishes every .md file in it and lands on the page its own site.yml names, so --root, --id and
-// --calendar can only mean the caller expected a site they are not going to get.
-func TestExportSiteDirRejectsVaultFlags(t *testing.T) {
-	for _, tc := range []struct {
-		name  string
-		flags []string
-		want  string // a word the error must name, so the message points at the real mechanism
-	}{
-		{"root", []string{"--root", "index"}, "site.yml"},
-		{"id", []string{"--id", "1"}, "every .md file"},
-		{"calendar", []string{"--calendar"}, "activity days"},
-	} {
-		t.Run(tc.name, func(t *testing.T) {
-			vault := t.TempDir()
-			src := t.TempDir()
-			if err := os.WriteFile(filepath.Join(src, "index.md"), []byte("# Index\n"), 0o644); err != nil {
-				t.Fatal(err)
-			}
-			args := append([]string{"export-site", "--src", src}, tc.flags...)
-			args = append(args, "--frontend", fakeFrontend(t), "--out", filepath.Join(vault, "site"))
-			out, code := runIn(t, vault, args...)
-			msg, _ := out["error"].(string)
-			if code != 1 || !strings.Contains(msg, tc.want) {
-				t.Fatalf("expected rejection naming %q, got code=%d out=%v", tc.want, code, out)
-			}
-		})
-	}
-}
-
 // writeVaultConfig writes <vault>/.track/config.yml, the vault-scope config (ADR 0050).
 func writeVaultConfig(t *testing.T, vault, body string) {
 	t.Helper()
