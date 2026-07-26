@@ -19,7 +19,8 @@ change at all.
 ## Decision
 
 - Cross-vault search opens one in-memory SQLite connection and ATTACHes every reachable vault's
-  index database (generated schema aliases v0, v1, …; SQLite's attach limit bounds the registry).
+  index database (generated schema aliases v0, v1, …; SQLite's attach limit bounds how many join one
+  query, not how many the registry may hold — the rest are reported as skipped).
   Physical databases stay one-per-vault and schema-unchanged; only the query crosses.
 - The federated query is a UNION ALL of per-vault subqueries — each single-vault, schema-prefixed,
   labeling its rows with the vault name — under one global ORDER BY (rank columns selected
