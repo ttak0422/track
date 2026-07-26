@@ -14,6 +14,10 @@ HTMLDialogElement.prototype.close ??= function (this: HTMLDialogElement) {
   this.dispatchEvent(new Event("close"));
 };
 
+// jsdom does no layout and so ships no scrollIntoView; components that keep an element in view call it
+// unconditionally. There is nothing to assert about scrolling here, so a no-op is enough.
+Element.prototype.scrollIntoView ??= () => {};
+
 afterEach(() => {
   cleanup();
 });
