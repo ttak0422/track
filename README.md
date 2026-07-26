@@ -54,7 +54,7 @@ Configuration is split by ownership (ADR 0050). The machine config owns machine 
 ```yaml
 # ~/.config/track/config.yml (or the platform equivalent)
 vault_dir: ~/track
-# cache_dir / db_path / embedder / web.theme / web.colors_path also live here.
+# cache_dir / db_path / web.theme / web.colors_path also live here.
 # Optional named vault registry: every command then accepts a global --vault NAME
 # selector, `track vault list|current|which` inspects it, and reindex/doctor/
 # refresh-all sweep every registered vault. db_path is refused alongside it.

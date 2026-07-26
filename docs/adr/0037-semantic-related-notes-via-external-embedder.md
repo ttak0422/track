@@ -1,6 +1,11 @@
 # 0037. Semantic related-notes via an external embedder command
 
-Status: Accepted
+Status: Superseded by ADR 0056
+
+> Removed. The feature needed a local embedding model, which is not something a user who reaches
+> models through a subscription can supply, so it stayed unused while costing an exec path, a config
+> key, a schema table, and a package. ADR 0056 records the removal; what follows is the original
+> decision, kept for the reasoning.
 
 ## Context
 

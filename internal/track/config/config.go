@@ -59,11 +59,6 @@ type Config struct {
 	// static-site navigation. A per-note sidecar override (Metadata.Icon) wins over both maps; see
 	// NoteIcon.
 	Icons IconMap
-	// EmbedderCommand is the optional command that turns a note's text into an embedding vector, split
-	// into command and arguments. The engine feeds a note's text on stdin and reads a JSON array of
-	// floats from stdout (see the similar package). Empty means no embedder is configured, so semantic
-	// related-notes is unavailable and every other command is unaffected.
-	EmbedderCommand []string
 	// Properties is the optional per-key note-property schema (config `properties:`): a declared
 	// value type and/or enum candidates. Keys not listed here are unconstrained.
 	Properties map[string]PropSpec
@@ -121,14 +116,12 @@ type PropSpec struct {
 }
 
 // machineFileConfig is the user config file (~/.config/track/config.yml or TRACK_CONFIG): it owns the
-// machine and the user — where the vault, cache, and database live, which local commands track may run
-// (embedder; babel is env-only), and how the local web UI looks. Note semantics belong to the vault
+// machine and the user — where the vault, cache, and database live, and how the local web UI looks. Note semantics belong to the vault
 // config instead (see vaultFileConfig); a vault-scope key here is a hard error so the split stays real.
 type machineFileConfig struct {
 	VaultDir string           `yaml:"vault_dir"`
 	DBPath   string           `yaml:"db_path"`
 	CacheDir string           `yaml:"cache_dir"`
-	Embedder argvList         `yaml:"embedder"`
 	Web      machineWebConfig `yaml:"web"`
 	// Vaults is the named vault registry (name -> path) behind the global --vault flag and the
 	// `track vault` subcommands. It lives in the machine config only: which vaults exist on this
@@ -154,55 +147,6 @@ type vaultFileConfig struct {
 	ArchiveNote       string              `yaml:"archive_note"`
 	Web               vaultWebConfig      `yaml:"web"`
 	Icons             iconsFileConfig     `yaml:"icons"`
-}
-
-// argvList is a command in config.yml that accepts two YAML shapes: a scalar string, split on
-// whitespace (no shell quoting, so no argument can contain a space in this form), or a sequence used
-// verbatim as argv, where arguments may contain spaces. Any other node kind is a config error.
-type argvList []string
-
-func (a *argvList) UnmarshalYAML(value *yaml.Node) error {
-	switch value.Kind {
-	case yaml.ScalarNode:
-		if value.Tag == "!!null" { // `embedder:` with no value, or an explicit null
-			*a = nil
-			return nil
-		}
-		*a = strings.Fields(value.Value)
-		return nil
-	case yaml.SequenceNode:
-		// Decode element by element: yaml.v3 silently drops null items when decoding into []string,
-		// which would make a flag vanish (or shift argv[0]) instead of failing loudly at load.
-		argv := make([]string, len(value.Content))
-		for i, item := range value.Content {
-			var s *string
-			if err := item.Decode(&s); err != nil {
-				return fmt.Errorf("embedder: %w", err)
-			}
-			if s == nil {
-				return fmt.Errorf("embedder: list element %d is null, want a string", i+1)
-			}
-			argv[i] = *s
-		}
-		*a = argv
-		return nil
-	default:
-		return fmt.Errorf("embedder: must be a string (\"cmd --arg\") or a list of strings ([cmd, --arg]), got a %s", nodeKindName(value.Kind))
-	}
-}
-
-// nodeKindName names a YAML node kind for error messages.
-func nodeKindName(k yaml.Kind) string {
-	switch k {
-	case yaml.MappingNode:
-		return "mapping"
-	case yaml.SequenceNode:
-		return "sequence"
-	case yaml.ScalarNode:
-		return "scalar"
-	default:
-		return "unsupported node"
-	}
 }
 
 // machineWebConfig is the machine config's `web:` block: how the web UI looks on this machine. The
@@ -244,7 +188,7 @@ const DataDirName = "data"
 
 // Load resolves configuration from two files with disjoint key ownership: the machine config (the
 // fixed user config file, ~/.config/track/config.yml or the platform equivalent) owns machine and
-// user values — vault_dir, db_path, cache_dir, embedder, web.theme, web.colors_path — and the vault
+// user values — vault_dir, db_path, cache_dir, web.theme, web.colors_path — and the vault
 // config (<vault>/.track/config.yml) owns the note semantics that travel with the vault. Both files
 // are decoded strictly: a key in the wrong file is a hard error, never a silent fallback.
 //
@@ -376,16 +320,6 @@ func load(fixedVault string) (*Config, error) {
 	}
 	taskStates := task.StatesOrDefault(vc.TaskStates)
 
-	// TRACK_EMBEDDER replaces the config value entirely; an env var cannot carry an array, so it is
-	// always whitespace-split — arguments containing spaces need the config sequence form.
-	embedder := []string(mc.Embedder)
-	if env := os.Getenv("TRACK_EMBEDDER"); env != "" {
-		embedder = strings.Fields(env)
-	}
-	if len(embedder) > 0 && strings.TrimSpace(embedder[0]) == "" {
-		return nil, fmt.Errorf("embedder: the first element must be the command, got an empty string")
-	}
-
 	if err := validateProperties(vc.Properties); err != nil {
 		return nil, err
 	}
@@ -421,7 +355,6 @@ func load(fixedVault string) (*Config, error) {
 		TaskStates:        taskStates,
 		WebHome:           strings.TrimSpace(vc.Web.Home),
 		Icons:             IconMap{Tags: vc.Icons.Tags, Kinds: vc.Icons.Kinds},
-		EmbedderCommand:   embedder,
 		Properties:        vc.Properties,
 		Queries:           vc.Queries,
 		CaptureInbox:      captureInbox,
@@ -574,7 +507,7 @@ func loadVaultConfig(vaultDir string) (vaultFileConfig, error) {
 	path := VaultConfigPath(vaultDir)
 	if err := strictDecodeFile(path, &cfg); err != nil {
 		if isUnknownFieldError(err) {
-			return vaultFileConfig{}, fmt.Errorf("%w (machine-scope keys — vault_dir, db_path, cache_dir, embedder, web.theme, web.colors_path — belong in the user config file, never in a vault)", err)
+			return vaultFileConfig{}, fmt.Errorf("%w (machine-scope keys — vault_dir, db_path, cache_dir, web.theme, web.colors_path — belong in the user config file, never in a vault)", err)
 		}
 		return vaultFileConfig{}, err
 	}
