@@ -120,10 +120,11 @@ type PropSpec struct {
 // machine and the user — where the vault, cache, and database live, and how the local web UI looks. Note semantics belong to the vault
 // config instead (see vaultFileConfig); a vault-scope key here is a hard error so the split stays real.
 type machineFileConfig struct {
-	VaultDir string           `yaml:"vault_dir"`
-	DBPath   string           `yaml:"db_path"`
-	CacheDir string           `yaml:"cache_dir"`
-	Web      machineWebConfig `yaml:"web"`
+	VaultDir     string           `yaml:"vault_dir"`
+	DefaultVault string           `yaml:"default_vault"`
+	DBPath       string           `yaml:"db_path"`
+	CacheDir     string           `yaml:"cache_dir"`
+	Web          machineWebConfig `yaml:"web"`
 	// Vaults is the named vault registry (name -> path) behind the global --vault flag and the
 	// `track vault` subcommands. It lives in the machine config only: which vaults exist on this
 	// machine is machine state, and a synced vault must never introduce new vault paths.
@@ -228,18 +229,22 @@ func load(fixedVault string) (*Config, error) {
 		return nil, fmt.Errorf("db_path/TRACK_DB cannot be combined with a vaults: registry (one fixed DB would be shared across vaults); remove it so each vault keeps its own cache index")
 	}
 
+	configured, err := configuredVault(mc, registry)
+	if err != nil {
+		return nil, err
+	}
 	rawVault := fixedVault
 	if rawVault == "" {
-		rawVault = mc.VaultDir
+		rawVault = configured
 		if env := os.Getenv("TRACK_VAULT"); env != "" {
 			rawVault = env
 		}
 	}
 	if rawVault == "" {
-		// With no config_file vault_dir and no TRACK_VAULT, default to $HOME/track (ADR 0015).
+		// With nothing configured and no TRACK_VAULT, default to $HOME/track (ADR 0015).
 		home, err := os.UserHomeDir()
 		if err != nil {
-			return nil, fmt.Errorf("vault_dir is unset and the home directory is unavailable: %w", err)
+			return nil, fmt.Errorf("no vault is configured and the home directory is unavailable: %w", err)
 		}
 		rawVault = filepath.Join(home, "track")
 	}
@@ -381,6 +386,39 @@ func Vaults() (map[string]string, error) {
 // resolveVaults validates registry names and expands each path. Paths must be absolute (after ~
 // expansion): resolving a vault relative to the current directory would make the same name mean a
 // different vault per invocation.
+// configuredVault returns the vault path the machine config selects, or "" when it selects none.
+//
+// A vault is designated one way at a time. Without a registry there are no names, so `vault_dir`
+// gives a path. With a registry every vault already has a name and a path, so `default_vault` picks
+// one by name and the path is written once, under `vaults:`. Allowing both would mean writing the
+// same vault twice — and, because a bare word is a valid relative path, a name typed into
+// `vault_dir` would silently resolve under the working directory and get a vault skeleton laid down
+// there (the typo-creates-a-vault failure ADR 0004 exists to prevent).
+func configuredVault(mc machineFileConfig, registry map[string]string) (string, error) {
+	name := strings.TrimSpace(mc.DefaultVault)
+	dir := strings.TrimSpace(mc.VaultDir)
+	if len(registry) > 0 {
+		if dir != "" {
+			return "", fmt.Errorf("vault_dir cannot be combined with a vaults: registry; name the active vault with default_vault instead")
+		}
+		if name == "" {
+			return "", nil
+		}
+		path, ok := registry[name]
+		if !ok {
+			return "", fmt.Errorf("default_vault: %q is not in vaults: (have %s)", name, strings.Join(sortedNames(registry), ", "))
+		}
+		return path, nil
+	}
+	if name != "" {
+		return "", fmt.Errorf("default_vault: %q names a vault, but no vaults: registry is configured", name)
+	}
+	if dir != "" && !filepath.IsAbs(expandHome(dir)) {
+		return "", fmt.Errorf("vault_dir: %q must be an absolute path (or start with ~/)", dir)
+	}
+	return dir, nil
+}
+
 func resolveVaults(mc machineFileConfig) (map[string]string, error) {
 	out := make(map[string]string, len(mc.Vaults))
 	// One vault, one name. Two names for the same directory would make the vault's identity

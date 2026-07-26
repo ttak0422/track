@@ -693,3 +693,83 @@ func TestRegistryRefusesTwoNamesForOneVault(t *testing.T) {
 		t.Fatalf("the error should name both entries, got %v", err)
 	}
 }
+
+func TestRegistryNamesTheDefaultVault(t *testing.T) {
+	// With a registry every vault already has a name and a path, so the active one is picked by name
+	// and its path is written once, under vaults:.
+	main, blog := t.TempDir(), t.TempDir()
+	configPath := filepath.Join(t.TempDir(), "config.yml")
+	body := "cache_dir: " + t.TempDir() + "\ndefault_vault: blog\nvaults:\n  main: " + main + "\n  blog: " + blog + "\n"
+	if err := os.WriteFile(configPath, []byte(body), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("TRACK_CONFIG", configPath)
+	t.Setenv("TRACK_VAULT", "")
+	t.Setenv("TRACK_DB", "")
+	t.Setenv("TRACK_CACHE_DIR", "")
+
+	cfg, err := Load()
+	if err != nil {
+		t.Fatalf("load: %v", err)
+	}
+	want, err := canonicalPath(blog)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cfg.VaultDir != want {
+		t.Fatalf("default_vault should select the named vault, got %q want %q", cfg.VaultDir, want)
+	}
+}
+
+func TestVaultDirAndRegistryAreNotCombined(t *testing.T) {
+	// Two ways to designate one vault would mean writing its path twice — and a name typed into
+	// vault_dir is a valid relative path, so it would quietly resolve under the working directory.
+	vault := t.TempDir()
+	configPath := filepath.Join(t.TempDir(), "config.yml")
+	body := "vault_dir: " + vault + "\nvaults:\n  main: " + vault + "\n"
+	if err := os.WriteFile(configPath, []byte(body), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("TRACK_CONFIG", configPath)
+	t.Setenv("TRACK_VAULT", "")
+	t.Setenv("TRACK_DB", "")
+	t.Setenv("TRACK_CACHE_DIR", t.TempDir())
+
+	if _, err := Load(); err == nil || !strings.Contains(err.Error(), "default_vault") {
+		t.Fatalf("vault_dir with a registry must point at default_vault, got %v", err)
+	}
+}
+
+func TestUnknownDefaultVaultIsRefused(t *testing.T) {
+	vault := t.TempDir()
+	configPath := filepath.Join(t.TempDir(), "config.yml")
+	body := "default_vault: typo\nvaults:\n  main: " + vault + "\n"
+	if err := os.WriteFile(configPath, []byte(body), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("TRACK_CONFIG", configPath)
+	t.Setenv("TRACK_VAULT", "")
+	t.Setenv("TRACK_DB", "")
+	t.Setenv("TRACK_CACHE_DIR", t.TempDir())
+
+	if _, err := Load(); err == nil || !strings.Contains(err.Error(), "not in vaults") {
+		t.Fatalf("an unregistered default_vault must be refused, got %v", err)
+	}
+}
+
+func TestRelativeVaultDirIsRefused(t *testing.T) {
+	// A relative path would resolve under the working directory and get a vault skeleton laid down
+	// there on first use — the typo-creates-a-vault failure ADR 0004 exists to prevent.
+	configPath := filepath.Join(t.TempDir(), "config.yml")
+	if err := os.WriteFile(configPath, []byte("vault_dir: main\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("TRACK_CONFIG", configPath)
+	t.Setenv("TRACK_VAULT", "")
+	t.Setenv("TRACK_DB", "")
+	t.Setenv("TRACK_CACHE_DIR", t.TempDir())
+
+	if _, err := Load(); err == nil || !strings.Contains(err.Error(), "absolute path") {
+		t.Fatalf("a relative vault_dir must be refused, got %v", err)
+	}
+}

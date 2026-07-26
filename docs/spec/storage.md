@@ -12,7 +12,7 @@ vault_dir: ~/track
 
 The default location is `~/.config/track/config.yml` on XDG-style systems, `~/Library/Application Support/track/config.yml` on macOS, or the platform user config equivalent. `TRACK_CONFIG` may point at another config file for tests and one-off runs. `TRACK_VAULT` overrides `vault_dir` only for tests and one-off commands.
 
-When neither the config file nor `TRACK_VAULT` sets a vault, track defaults to `$HOME/track` (ADR 0015). Precedence is `TRACK_VAULT` > config file `vault_dir` > `$HOME/track`. The fixed, conventional default is low-risk; tests must still set `TRACK_VAULT` (or `HOME`) to a temp path so they never write to a real `$HOME/track`.
+With a `vaults:` registry, the active vault is named rather than pathed: `default_vault: <name>` picks one of the registered vaults, and `vault_dir` is refused — the path is written once, under `vaults:`. Without a registry there are no names, so `vault_dir` gives the path directly and must be absolute (or start with `~/`). When neither sets a vault, track defaults to `$HOME/track` (ADR 0015). Precedence is `TRACK_VAULT` > `default_vault`/`vault_dir` > `$HOME/track`. The fixed, conventional default is low-risk; tests must still set `TRACK_VAULT` (or `HOME`) to a temp path so they never write to a real `$HOME/track`.
 
 On first launch — the first command that touches a vault whose directory does not exist yet (including `track web`) — track lays down the directory skeleton: `note/`, `journal/`, `assets/`, `template/`, and `.track/notes/`. An existing vault is left alone (directories are otherwise created lazily as notes are written), so this never resurrects a directory that was intentionally removed. `track init` creates the skeleton explicitly and is idempotent.
 

@@ -46,7 +46,7 @@ flake.nix                # Go CLI + Vim plugin packaging
 ## CLI
 
 All commands except `version` print a single line of JSON; errors are `{"error":...}` with exit code 1.
-The vault is read from the platform user config file (`config.yml` under the track config directory) and defaults to `$HOME/track` when unset (ADR 0015); precedence is `TRACK_VAULT` > config `vault_dir` > `$HOME/track`. Environment variables are intended for tests and one-off overrides.
+The vault is read from the platform user config file (`config.yml` under the track config directory) and defaults to `$HOME/track` when unset (ADR 0015); precedence is `TRACK_VAULT` > `default_vault`/`vault_dir` > `$HOME/track`. Environment variables are intended for tests and one-off overrides.
 The rebuildable index db defaults to the user cache directory under `track/`.
 
 Configuration is split by ownership (ADR 0050). The machine config owns machine and user values:
@@ -55,11 +55,20 @@ Configuration is split by ownership (ADR 0050). The machine config owns machine 
 # ~/.config/track/config.yml (or the platform equivalent)
 vault_dir: ~/track
 # cache_dir / db_path / web.theme / web.colors_path also live here.
-# Optional named vault registry: every command then accepts a global --vault NAME
-# selector, `track vault list|current|which` inspects it, and reindex/doctor/
-# refresh-all sweep every registered vault. db_path is refused alongside it.
+```
+
+With more than one vault, register them by name and pick the active one by name.
+Every command then accepts a global `--vault NAME` selector, `track vault
+list|current|which` inspects the registry, and `reindex`/`doctor`/`refresh-all`
+sweep every registered vault. A vault gets exactly one name, `vault_dir` is
+refused alongside a registry (the path is written once, under `vaults:`), and so
+is `db_path` (one fixed database cannot serve several vaults).
+
+```yaml
 vaults:
+  main: ~/track
   blog: ~/vaults/blog
+default_vault: main
 ```
 
 Note semantics live in the vault config and travel with the vault:
