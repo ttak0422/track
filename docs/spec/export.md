@@ -112,12 +112,14 @@ Two input modes (both require `--frontend <dir>`, the static-mode frontend build
 
 | Mode | Invocation | Source |
 | --- | --- | --- |
-| Vault | `track export-site --root <id> [--id <id> ...] [--calendar] --frontend <dist> --out <dir>` | Vault notes by id; `--root` is the landing note's id. A full reindex runs first so the published graph is complete. |
+| Vault | `track export-site (--all \| --id <id> ...) [--root <id>] [--calendar] --frontend <dist> --out <dir>` | Vault notes: `--all` publishes every one of them (what a directory did), or `--id` selects. `--root` is the landing note's id, defaulting to the vault config's `web.home` — the same landing note the workspace opens, so the front door travels with the content. A full reindex runs first so the published graph is complete. |
 | Directory (**deprecated**) | `track export-site --src <dir> --frontend <dist> --out <dir>` | A directory of plain Markdown files (e.g. repo-mounted help) outside any vault; wiki links resolve by file base name or first H1 title. Its entry page comes from `<dir>/site.yml`'s `home`, or the `index` convention; `--root` is vault-only and rejected here. |
 
 Directory mode is deprecated and will be removed. It exists because a repository's Markdown had nowhere else to be published from, but a vault now does everything it does and more — sidecar metadata instead of a `site.yml` page map, stable ids instead of positions, the vault config — while keeping two publishing inputs means every export feature is written twice. Invoking it prints a deprecation warning on stderr.
 
-To move a published directory into a vault without breaking its URLs, pin each page's current address in its sidecar (`slug:`, see [storage.md](storage.md)). The published slug is otherwise derived from the note id, which the move changes.
+To move a published directory into a vault without breaking its URLs, pin each page's current address in its sidecar (`slug:`, see [storage.md](storage.md)). The published slug is otherwise derived from the note id, which the move changes. This repository's own help site made that move: `docs/help` is a vault, and every page still answers at the address the directory served it at.
+
+Two things a directory published that a vault does not. A directory resolved `[[links]]` by file base name as well as by title; a vault resolves by title, as everywhere else in track. And a directory's link graph kept self-edges, which the index drops (`ReplaceLinks`) — so a page that links to itself no longer appears in its own backlinks, matching the live workspace.
 
 `--calendar` opts the published site into the calendar view and its per-day pages (see the web spec's
 "Calendar view"): off suits reference sites like help docs, on suits activity-shaped ones like a blog

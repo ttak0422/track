@@ -15,6 +15,9 @@ web/*.tsbuildinfo
 # Local static-site preview (make site)
 /_site/
 
+# The help vault's index cache, kept out of the developer's own cache dir (make site)
+/.site-cache/
+
 # make site-dev artifact (export-site's throwaway stub frontend; the data is served from _site by a dev middleware)
 /.site-stub/
 

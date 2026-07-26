@@ -142,7 +142,7 @@ export function remarkWikiLink() {
   };
 }
 
-// remarkTaskLine upgrades checklists that use task notation (docs/help/tasks.md) into rich task
+// remarkTaskLine upgrades checklists that use task notation (the "Tasks" help note) into rich task
 // rows, deciding per list block: when any item of a list carries notation beyond a bare GFM
 // checkbox — a custom state marker, or a [#A]/[sched:]/[due:]/[done:]/cookie token — every task
 // line in that list renders as a row with a state badge, the text, metadata chips, and (live) the

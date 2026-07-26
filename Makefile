@@ -5,7 +5,11 @@
 # the live workspace) so the two never clobber each other.
 
 SITE_OUT   ?= _site
-SITE_SRC   ?= docs/help
+# The help site is a track vault (docs/help). export-site reads it through the ambient config, so the
+# build points TRACK_VAULT at it; the landing note comes from its own .track/config.yml (web.home),
+# not from a flag here. TRACK_CACHE_DIR keeps its index out of the developer's own cache.
+SITE_VAULT ?= docs/help
+SITE_CACHE ?= .site-cache
 SITE_PORT  ?= 8000
 WEB_ADDR   ?= 127.0.0.1:8765
 TRACK_BIN  := bin/track
@@ -30,7 +34,7 @@ site: web/node_modules ## Build + prerender the static help site into $(SITE_OUT
 	cd web && VITE_TRACK_STATIC=1 SITE_BASE=$(SITE_BASE) npx vite build --outDir dist-static
 	cd web && VITE_TRACK_STATIC=1 SITE_BASE=$(SITE_BASE) npx vite build --ssr src/entry-server.tsx --outDir dist-server
 	go build -o $(TRACK_BIN) ./cmd/track
-	./$(TRACK_BIN) export-site --src $(SITE_SRC) --frontend $(WEB_DIST) --out $(SITE_OUT)
+	TRACK_VAULT=$(SITE_VAULT) TRACK_CACHE_DIR=$(SITE_CACHE) ./$(TRACK_BIN) export-site --all --frontend $(WEB_DIST) --out $(SITE_OUT)
 	node web/scripts/prerender.mjs $(SITE_OUT) web/dist-server/entry-server.js
 	@echo "Built + prerendered $(SITE_OUT)/ — run 'make site-serve' to preview"
 
@@ -45,10 +49,10 @@ lighthouse: site ## Run Lighthouse on the built site and print the scores (needs
 site-data:
 	go build -o $(TRACK_BIN) ./cmd/track
 	mkdir -p .site-stub && printf '<!doctype html><div id="root"></div>' > .site-stub/index.html
-	./$(TRACK_BIN) export-site --src $(SITE_SRC) --frontend .site-stub --out $(SITE_OUT)
+	TRACK_VAULT=$(SITE_VAULT) TRACK_CACHE_DIR=$(SITE_CACHE) ./$(TRACK_BIN) export-site --all --frontend .site-stub --out $(SITE_OUT)
 
 site-dev: web/node_modules site-data ## Dev preview: Vite dev server (HMR) over the exported data — fast iteration
-	@echo "Vite dev server (static mode, HMR). Edit web/src for instant reload; re-run 'make site-data' after docs/help edits."
+	@echo "Vite dev server (static mode, HMR). Edit web/src for instant reload; re-run 'make site-data' after help vault edits."
 	cd web && VITE_TRACK_STATIC=1 npx vite
 
 site-serve: site ## Serve at http://localhost:$(SITE_PORT), open a browser, and rebuild on change
@@ -59,20 +63,20 @@ site-serve: site ## Serve at http://localhost:$(SITE_PORT), open a browser, and 
 	trap 'kill $$server 2>/dev/null; exit 0' INT TERM; \
 	sleep 1; \
 	[ -n "$(OPEN)" ] && $(OPEN) "http://localhost:$(SITE_PORT)/" >/dev/null 2>&1 || true; \
-	echo "Watching $(SITE_SRC), web/src, and the engine — edit and save to rebuild"; \
+	echo "Watching $(SITE_VAULT), web/src, and the engine — edit and save to rebuild"; \
 	while true; do \
 		if [ -n "$$(find web/src cmd internal go.mod go.sum -type f -newer $(WEB_DIST)/index.html 2>/dev/null)" ]; then \
 			echo "== frontend/engine changed — full rebuild =="; \
 			$(MAKE) --no-print-directory site; \
-		elif [ -n "$$(find $(SITE_SRC) -type f -newer $(SITE_OUT)/index.html 2>/dev/null)" ]; then \
+		elif [ -n "$$(find $(SITE_VAULT) -type f -newer $(SITE_OUT)/index.html 2>/dev/null)" ]; then \
 			echo "== docs changed — rebuilding content =="; \
-			./$(TRACK_BIN) export-site --src $(SITE_SRC) --frontend $(WEB_DIST) --out $(SITE_OUT); \
+			TRACK_VAULT=$(SITE_VAULT) TRACK_CACHE_DIR=$(SITE_CACHE) ./$(TRACK_BIN) export-site --all --frontend $(WEB_DIST) --out $(SITE_OUT); \
 		fi; \
 		sleep 1; \
 	done
 
 site-clean: ## Remove the built site, static frontend, and CLI binary
-	rm -rf $(SITE_OUT) $(WEB_DIST) $(TRACK_BIN)
+	rm -rf $(SITE_OUT) $(WEB_DIST) $(TRACK_BIN) $(SITE_CACHE)
 
 # Run the live web workspace the way the Neovim plugin does: headless nvim launches `:Track web`
 # (using the Nix-built track, which embeds the real frontend), then blocks so the server stays up.
