@@ -126,25 +126,24 @@ func (r *Resolver) Keywords(vault string) ([]store.Keyword, error) {
 	return s.Keywords()
 }
 
-// SelfNames returns every registry name whose path is the active vault — a vault may be registered
-// under several names, and inbound references may use any of them.
-func (r *Resolver) SelfNames() []string {
-	var names []string
+// SelfName returns the registry name of the active vault, or "" when it is not registered — in
+// which case no other vault can name it, so nothing can reference it. The registry gives a vault
+// exactly one name (config.resolveVaults refuses a second), so there is one answer or none.
+func (r *Resolver) SelfName() string {
 	for _, name := range sortedNames(r.cfg.Vaults) {
 		if canonical, err := config.CanonicalPath(r.cfg.Vaults[name]); err == nil && canonical == r.cfg.VaultDir {
-			names = append(names, name)
+			return name
 		}
 	}
-	return names
+	return ""
 }
 
 // Inbound lists the cross-vault backlinks to the active vault's note titled title: every
-// registered vault's index is scanned for ext_links rows naming this vault (under any of its
-// registered names). Vaults that cannot be consulted are listed under unavailable. When the active
+// registered vault's index is scanned for ext_links rows naming this vault. Vaults that cannot be consulted are listed under unavailable. When the active
 // vault is not registered under any name, no other vault can reference it, so the scan is empty.
 func (r *Resolver) Inbound(title string) (refs []ExternalRef, unavailable []Unavailable) {
-	selfNames := r.SelfNames()
-	if len(selfNames) == 0 {
+	self := r.SelfName()
+	if self == "" {
 		return nil, nil
 	}
 	for _, name := range sortedNames(r.cfg.Vaults) {
@@ -153,7 +152,7 @@ func (r *Resolver) Inbound(title string) (refs []ExternalRef, unavailable []Unav
 			unavailable = append(unavailable, Unavailable{Vault: name, Error: err.Error()})
 			continue
 		}
-		backs, err := s.ExtBacklinks(selfNames, title)
+		backs, err := s.ExtBacklinks([]string{self}, title)
 		if err != nil {
 			unavailable = append(unavailable, Unavailable{Vault: name, Error: err.Error()})
 			continue

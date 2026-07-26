@@ -27,6 +27,14 @@ them unmounted cloud storage.
   name can later prefix a cross-vault link (`vault:title`); paths must be absolute (after `~`
   expansion). The registry is machine scope by definition: which vaults exist on a machine is
   machine state, and a synced vault must never introduce vault paths.
+- **A vault has exactly one name.** Two entries resolving to the same directory are refused when the
+  config loads, comparing canonically so a symlink or a trailing slash cannot slip a second name
+  past. A name is not only how a vault is *addressed* — it is how the vault is *reported*: it labels
+  a cross-vault search hit, it qualifies a note's id in the workspace, and it is what a
+  `[[name:title]]` link is written with. With two names, every one of those has to pick a winner,
+  and nothing makes one name more correct than the other. Refusing at load keeps that question from
+  existing. (The launch vault is still reachable both as the default and by its registered name;
+  that is one name, addressed two ways.)
 - A global `--vault NAME` flag, pre-parsed in the CLI router, resolves the name and exports the
   path as `TRACK_VAULT`, so `config.Load` and every engine package stay selection-agnostic. An
   unknown name is a hard error listing the registered names. `TRACK_VAULT` itself stays a path —

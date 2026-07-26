@@ -668,3 +668,28 @@ func TestLoadRejectsFixedDBWithRegistry(t *testing.T) {
 		t.Fatalf("TRACK_DB with a registry must be a hard error, got %v", err)
 	}
 }
+
+func TestRegistryRefusesTwoNamesForOneVault(t *testing.T) {
+	// One vault, one name. Two names for the same directory would leave every surface that reports a
+	// vault — a search hit's label, a qualified id, a cross-vault link — picking a winner.
+	vault := t.TempDir()
+	configPath := filepath.Join(t.TempDir(), "config.yml")
+	body := "vault_dir: " + vault + "\ncache_dir: " + t.TempDir() +
+		"\nvaults:\n  work: " + vault + "\n  w: " + vault + "\n"
+	if err := os.WriteFile(configPath, []byte(body), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("TRACK_CONFIG", configPath)
+	t.Setenv("TRACK_VAULT", "")
+	t.Setenv("TRACK_DB", "")
+	t.Setenv("TRACK_CACHE_DIR", "")
+
+	_, err := Load()
+	if err == nil || !strings.Contains(err.Error(), "same vault") {
+		t.Fatalf("two names for one vault must be refused, got %v", err)
+	}
+	// Both names appear so the error says which pair to fix.
+	if !strings.Contains(err.Error(), "work") || !strings.Contains(err.Error(), "w ") {
+		t.Fatalf("the error should name both entries, got %v", err)
+	}
+}

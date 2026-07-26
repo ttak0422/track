@@ -55,8 +55,10 @@ The launch vault keeps bare ids, the same asymmetry as `[[title]]` versus
 the id travels through the URL: `:` is URI-reserved, so a route param would
 interpolate to `%3A` and the pathname and the param would decode differently.
 
-A vault registered under several names is one vault: views resolve by directory,
-so aliases neither relabel its notes nor attach its index twice.
+A vault has exactly one registry name — registering a second name for the same
+directory is refused when the config loads (ADR 0051), so the name a hit is
+labelled with, the name a qualified id carries, and the name a cross-vault link
+is written with are always the same one.
 
 ## HTTP API
 

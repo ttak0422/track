@@ -12,6 +12,7 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
+	"sort"
 	"strconv"
 	"strings"
 	"time"
@@ -382,7 +383,13 @@ func Vaults() (map[string]string, error) {
 // different vault per invocation.
 func resolveVaults(mc machineFileConfig) (map[string]string, error) {
 	out := make(map[string]string, len(mc.Vaults))
-	for name, path := range mc.Vaults {
+	// One vault, one name. Two names for the same directory would make the vault's identity
+	// ambiguous everywhere a name is reported rather than accepted — which of them labels a search
+	// hit, which one a qualified id carries, which one a cross-vault link is written with — so the
+	// registry refuses it outright instead of every reader having to pick a winner.
+	byPath := make(map[string]string, len(mc.Vaults))
+	for _, name := range sortedNames(mc.Vaults) {
+		path := mc.Vaults[name]
 		if !vaultNamePattern.MatchString(name) {
 			return nil, fmt.Errorf("vaults: name %q must be lowercase letters, digits, and dashes", name)
 		}
@@ -390,9 +397,31 @@ func resolveVaults(mc machineFileConfig) (map[string]string, error) {
 		if !filepath.IsAbs(expanded) {
 			return nil, fmt.Errorf("vaults: %s: %q must be an absolute path (or start with ~/)", name, path)
 		}
-		out[name] = filepath.Clean(expanded)
+		clean := filepath.Clean(expanded)
+		// Compare canonically so two spellings of one directory (a symlink, a trailing slash) are
+		// caught too, not just literally equal strings.
+		key := clean
+		if canonical, err := canonicalPath(clean); err == nil {
+			key = canonical
+		}
+		if first, dup := byPath[key]; dup {
+			return nil, fmt.Errorf("vaults: %s and %s name the same vault (%s); give a vault exactly one name", first, name, clean)
+		}
+		byPath[key] = name
+		out[name] = clean
 	}
 	return out, nil
+}
+
+// sortedNames returns map keys in a deterministic order, so a duplicate-path error always names the
+// same pair regardless of map iteration order.
+func sortedNames(vaults map[string]string) []string {
+	names := make([]string, 0, len(vaults))
+	for name := range vaults {
+		names = append(names, name)
+	}
+	sort.Strings(names)
+	return names
 }
 
 // CanonicalPath makes a path absolute with symlinks resolved, tolerating missing trailing

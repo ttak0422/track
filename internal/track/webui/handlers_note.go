@@ -173,16 +173,17 @@ func (s *Server) externalBacklinks(v *vaultView, title string) ([]vaultref.Exter
 	if len(v.cfg.Vaults) == 0 || title == "" {
 		return nil, nil, false
 	}
-	// A vault may be registered under several names and an inbound reference may use any of them,
-	// so the query matches every name pointing at this vault.
-	var selfNames []string
+	// References name this vault by its registry name, of which it has exactly one
+	// (config.resolveVaults refuses a second).
+	self := ""
 	for _, name := range sortedVaultNames(v.cfg.Vaults) {
 		if canonical, err := config.CanonicalPath(v.cfg.Vaults[name]); err == nil && canonical == v.cfg.VaultDir {
-			selfNames = append(selfNames, name)
+			self = name
+			break
 		}
 	}
 	external := []vaultref.ExternalRef{}
-	if len(selfNames) == 0 {
+	if self == "" {
 		// Unregistered: no other vault has a name to refer to this one by.
 		return external, []vaultInfo{}, true
 	}
@@ -194,7 +195,7 @@ func (s *Server) externalBacklinks(v *vaultView, title string) ([]vaultref.Exter
 		if other == v {
 			continue // its own references are the ordinary backlinks
 		}
-		backs, err := other.store.ExtBacklinks(selfNames, title)
+		backs, err := other.store.ExtBacklinks([]string{self}, title)
 		if err != nil {
 			unavailable = append(unavailable, vaultInfo{Name: other.name, Path: other.cfg.VaultDirDisplay, Error: err.Error()})
 			continue
