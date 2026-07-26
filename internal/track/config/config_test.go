@@ -13,7 +13,6 @@ func TestLoadDefaultsToHomeTrack(t *testing.T) {
 	t.Setenv("HOME", home)
 	t.Setenv("TRACK_CONFIG", filepath.Join(t.TempDir(), "missing.yml"))
 	t.Setenv("TRACK_VAULT", "")
-	t.Setenv("TRACK_DB_PATH", "")
 	t.Setenv("TRACK_CACHE_DIR", t.TempDir())
 
 	cfg, err := Load()
@@ -37,7 +36,6 @@ func TestLoadUsesConfigFileVault(t *testing.T) {
 	}
 	t.Setenv("TRACK_CONFIG", configPath)
 	t.Setenv("TRACK_VAULT", "")
-	t.Setenv("TRACK_DB_PATH", "")
 	t.Setenv("TRACK_CACHE_DIR", "")
 
 	cfg, err := Load()
@@ -71,7 +69,6 @@ func TestLoadCanonicalizesSymlinkVault(t *testing.T) {
 	}
 	t.Setenv("TRACK_CONFIG", configPath)
 	t.Setenv("TRACK_VAULT", "")
-	t.Setenv("TRACK_DB_PATH", "")
 	t.Setenv("TRACK_CACHE_DIR", "")
 
 	cfg, err := Load()
@@ -96,7 +93,6 @@ func TestLoadUsesExplicitTrackVault(t *testing.T) {
 	cache := t.TempDir()
 	t.Setenv("TRACK_CONFIG", filepath.Join(t.TempDir(), "missing.yml"))
 	t.Setenv("TRACK_VAULT", vault)
-	t.Setenv("TRACK_DB_PATH", "")
 	t.Setenv("TRACK_CACHE_DIR", cache)
 
 	cfg, err := Load()
@@ -113,23 +109,6 @@ func TestLoadUsesExplicitTrackVault(t *testing.T) {
 	wantDB := filepath.Join(cache, vaultCacheKey(wantVault), "index.db")
 	if cfg.DBPath != wantDB {
 		t.Fatalf("DBPath = %q, want %q", cfg.DBPath, wantDB)
-	}
-}
-
-func TestLoadHonorsExplicitTrackDB(t *testing.T) {
-	vault := t.TempDir()
-	db := filepath.Join(t.TempDir(), "custom.db")
-	t.Setenv("TRACK_CONFIG", filepath.Join(t.TempDir(), "missing.yml"))
-	t.Setenv("TRACK_VAULT", vault)
-	t.Setenv("TRACK_DB_PATH", db)
-	t.Setenv("TRACK_CACHE_DIR", t.TempDir())
-
-	cfg, err := Load()
-	if err != nil {
-		t.Fatalf("load: %v", err)
-	}
-	if cfg.DBPath != db {
-		t.Fatalf("DBPath = %q, want %q", cfg.DBPath, db)
 	}
 }
 
@@ -193,7 +172,6 @@ func TestLoadWebTheme(t *testing.T) {
 		}
 		t.Setenv("TRACK_CONFIG", configPath)
 		t.Setenv("TRACK_VAULT", "")
-		t.Setenv("TRACK_DB_PATH", "")
 		t.Setenv("TRACK_CACHE_DIR", "")
 
 		cfg, err := Load()
@@ -253,7 +231,6 @@ func TestLoadIconsAndHome(t *testing.T) {
 		"icons:\n  tags:\n    idea: \"💡\"\n  kinds:\n    journal: \"📓\"\n")
 	t.Setenv("TRACK_CONFIG", configPath)
 	t.Setenv("TRACK_VAULT", "")
-	t.Setenv("TRACK_DB_PATH", "")
 	t.Setenv("TRACK_CACHE_DIR", "")
 
 	cfg, err := Load()
@@ -279,7 +256,6 @@ func TestLoadRejectsVaultScopeKeysInMachineConfig(t *testing.T) {
 	}
 	t.Setenv("TRACK_CONFIG", configPath)
 	t.Setenv("TRACK_VAULT", "")
-	t.Setenv("TRACK_DB_PATH", "")
 	t.Setenv("TRACK_CACHE_DIR", t.TempDir())
 
 	_, err := Load()
@@ -300,7 +276,6 @@ func TestLoadRejectsNestedWebKeysInWrongFile(t *testing.T) {
 		}
 		t.Setenv("TRACK_CONFIG", configPath)
 		t.Setenv("TRACK_VAULT", "")
-		t.Setenv("TRACK_DB_PATH", "")
 		t.Setenv("TRACK_CACHE_DIR", t.TempDir())
 
 		_, err := Load()
@@ -317,7 +292,6 @@ func TestLoadRejectsNestedWebKeysInWrongFile(t *testing.T) {
 		writeVaultConfig(t, vault, "web:\n  theme: dark\n")
 		t.Setenv("TRACK_CONFIG", configPath)
 		t.Setenv("TRACK_VAULT", "")
-		t.Setenv("TRACK_DB_PATH", "")
 		t.Setenv("TRACK_CACHE_DIR", t.TempDir())
 
 		_, err := Load()
@@ -339,7 +313,6 @@ func TestLoadRejectsMachineScopeKeysInVaultConfig(t *testing.T) {
 	writeVaultConfig(t, vault, "cache_dir: /tmp/somewhere-else\n")
 	t.Setenv("TRACK_CONFIG", configPath)
 	t.Setenv("TRACK_VAULT", "")
-	t.Setenv("TRACK_DB_PATH", "")
 	t.Setenv("TRACK_CACHE_DIR", "")
 
 	_, err := Load()
@@ -369,7 +342,6 @@ func TestLoadRejectsPathShapedVaultValues(t *testing.T) {
 		writeVaultConfig(t, vault, vaultCfg)
 		t.Setenv("TRACK_CONFIG", configPath)
 		t.Setenv("TRACK_VAULT", "")
-		t.Setenv("TRACK_DB_PATH", "")
 		t.Setenv("TRACK_CACHE_DIR", t.TempDir())
 
 		if _, err := Load(); err == nil {
@@ -386,7 +358,6 @@ func TestLoadRejectsPathShapedVaultValues(t *testing.T) {
 	writeVaultConfig(t, vault, "default_template: template/10.template.md\n")
 	t.Setenv("TRACK_CONFIG", configPath)
 	t.Setenv("TRACK_VAULT", "")
-	t.Setenv("TRACK_DB_PATH", "")
 	t.Setenv("TRACK_CACHE_DIR", t.TempDir())
 	t.Setenv("TRACK_DEFAULT_TEMPLATE", "")
 	cfg, err := Load()
@@ -407,7 +378,6 @@ func TestLoadRejectsSecondYAMLDocument(t *testing.T) {
 	}
 	t.Setenv("TRACK_CONFIG", configPath)
 	t.Setenv("TRACK_VAULT", "")
-	t.Setenv("TRACK_DB_PATH", "")
 	t.Setenv("TRACK_CACHE_DIR", t.TempDir())
 
 	if _, err := Load(); err == nil || !strings.Contains(err.Error(), "single YAML document") {
@@ -421,7 +391,6 @@ func TestLoadReadsVaultConfigUnderTrackVault(t *testing.T) {
 	writeVaultConfig(t, vault, "capture_inbox: EnvVaultInbox\n")
 	t.Setenv("TRACK_CONFIG", filepath.Join(t.TempDir(), "missing.yml"))
 	t.Setenv("TRACK_VAULT", vault)
-	t.Setenv("TRACK_DB_PATH", "")
 	t.Setenv("TRACK_CACHE_DIR", t.TempDir())
 	t.Setenv("TRACK_CAPTURE_INBOX", "")
 
@@ -443,7 +412,6 @@ func TestLoadVaultConfigOwnsNoteSemantics(t *testing.T) {
 	writeVaultConfig(t, vault, "capture_inbox: Intake\ngen_keep: 3\nqueries:\n  open: 'task:open'\n")
 	t.Setenv("TRACK_CONFIG", configPath)
 	t.Setenv("TRACK_VAULT", "")
-	t.Setenv("TRACK_DB_PATH", "")
 	t.Setenv("TRACK_CACHE_DIR", "")
 	t.Setenv("TRACK_CAPTURE_INBOX", "")
 	t.Setenv("TRACK_GEN_KEEP", "")
@@ -477,7 +445,6 @@ func TestDisplayPathForKindKeepsSymlink(t *testing.T) {
 	}
 	t.Setenv("TRACK_CONFIG", configPath)
 	t.Setenv("TRACK_VAULT", "")
-	t.Setenv("TRACK_DB_PATH", "")
 	t.Setenv("TRACK_CACHE_DIR", "")
 
 	cfg, err := Load()
@@ -535,7 +502,6 @@ func TestLoadPropertySchema(t *testing.T) {
 `)
 	t.Setenv("TRACK_CONFIG", configPath)
 	t.Setenv("TRACK_VAULT", "")
-	t.Setenv("TRACK_DB_PATH", "")
 	t.Setenv("TRACK_CACHE_DIR", "")
 
 	cfg, err := Load()
@@ -560,7 +526,6 @@ func TestLoadRejectsUnknownPropertyType(t *testing.T) {
 	writeVaultConfig(t, vault, "properties:\n  status:\n    type: enum\n")
 	t.Setenv("TRACK_CONFIG", configPath)
 	t.Setenv("TRACK_VAULT", "")
-	t.Setenv("TRACK_DB_PATH", "")
 	t.Setenv("TRACK_CACHE_DIR", t.TempDir())
 
 	if _, err := Load(); err == nil {
@@ -572,7 +537,6 @@ func TestCaptureAndArchiveDefaults(t *testing.T) {
 	t.Setenv("HOME", t.TempDir())
 	t.Setenv("TRACK_CONFIG", filepath.Join(t.TempDir(), "missing.yml"))
 	t.Setenv("TRACK_VAULT", t.TempDir())
-	t.Setenv("TRACK_DB_PATH", "")
 	t.Setenv("TRACK_CACHE_DIR", t.TempDir())
 	t.Setenv("TRACK_CAPTURE_INBOX", "")
 	t.Setenv("TRACK_ARCHIVE_NOTE", "")
@@ -638,7 +602,6 @@ func TestVaultsRegistryRejectsBadEntries(t *testing.T) {
 		}
 		// Load validates the registry too, so a malformed entry fails every command loudly.
 		t.Setenv("TRACK_VAULT", t.TempDir())
-		t.Setenv("TRACK_DB_PATH", "")
 		t.Setenv("TRACK_CACHE_DIR", t.TempDir())
 		if _, err := Load(); err == nil {
 			t.Fatalf("%s: Load should reject the registry, got no error", name)
@@ -646,26 +609,19 @@ func TestVaultsRegistryRejectsBadEntries(t *testing.T) {
 	}
 }
 
-func TestLoadRejectsFixedDBWithRegistry(t *testing.T) {
+func TestLoadRejectsRemovedDBPathKey(t *testing.T) {
+	// A fixed DB cannot serve the vaults a registry names, so db_path is gone rather than refused in
+	// combination: strict decoding rejects it, and the hint names cache_dir as what replaced it.
 	configPath := filepath.Join(t.TempDir(), "config.yml")
 	if err := os.WriteFile(configPath, []byte("vaults:\n  work: /tmp/work\ndb_path: /tmp/index.db\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
 	t.Setenv("TRACK_CONFIG", configPath)
 	t.Setenv("TRACK_VAULT", t.TempDir())
-	t.Setenv("TRACK_DB_PATH", "")
 	t.Setenv("TRACK_CACHE_DIR", t.TempDir())
-	if _, err := Load(); err == nil || !strings.Contains(err.Error(), "registry") {
-		t.Fatalf("db_path with a registry must be a hard error, got %v", err)
-	}
-
-	// TRACK_DB_PATH is the same fixed-DB hazard as db_path.
-	if err := os.WriteFile(configPath, []byte("vaults:\n  work: /tmp/work\n"), 0o644); err != nil {
-		t.Fatal(err)
-	}
-	t.Setenv("TRACK_DB_PATH", "/tmp/index.db")
-	if _, err := Load(); err == nil || !strings.Contains(err.Error(), "registry") {
-		t.Fatalf("TRACK_DB_PATH with a registry must be a hard error, got %v", err)
+	_, err := Load()
+	if err == nil || !strings.Contains(err.Error(), "db_path was removed") || !strings.Contains(err.Error(), "cache_dir") {
+		t.Fatalf("db_path must be rejected with a hint pointing at cache_dir, got %v", err)
 	}
 }
 
@@ -681,7 +637,6 @@ func TestRegistryRefusesTwoNamesForOneVault(t *testing.T) {
 	}
 	t.Setenv("TRACK_CONFIG", configPath)
 	t.Setenv("TRACK_VAULT", "")
-	t.Setenv("TRACK_DB_PATH", "")
 	t.Setenv("TRACK_CACHE_DIR", "")
 
 	_, err := Load()
@@ -705,7 +660,6 @@ func TestRegistryNamesTheDefaultVault(t *testing.T) {
 	}
 	t.Setenv("TRACK_CONFIG", configPath)
 	t.Setenv("TRACK_VAULT", "")
-	t.Setenv("TRACK_DB_PATH", "")
 	t.Setenv("TRACK_CACHE_DIR", "")
 
 	cfg, err := Load()
@@ -732,7 +686,6 @@ func TestVaultDirAndRegistryAreNotCombined(t *testing.T) {
 	}
 	t.Setenv("TRACK_CONFIG", configPath)
 	t.Setenv("TRACK_VAULT", "")
-	t.Setenv("TRACK_DB_PATH", "")
 	t.Setenv("TRACK_CACHE_DIR", t.TempDir())
 
 	if _, err := Load(); err == nil || !strings.Contains(err.Error(), "default_vault") {
@@ -749,7 +702,6 @@ func TestUnknownDefaultVaultIsRefused(t *testing.T) {
 	}
 	t.Setenv("TRACK_CONFIG", configPath)
 	t.Setenv("TRACK_VAULT", "")
-	t.Setenv("TRACK_DB_PATH", "")
 	t.Setenv("TRACK_CACHE_DIR", t.TempDir())
 
 	if _, err := Load(); err == nil || !strings.Contains(err.Error(), "not in vaults") {
@@ -766,7 +718,6 @@ func TestRelativeVaultDirIsRefused(t *testing.T) {
 	}
 	t.Setenv("TRACK_CONFIG", configPath)
 	t.Setenv("TRACK_VAULT", "")
-	t.Setenv("TRACK_DB_PATH", "")
 	t.Setenv("TRACK_CACHE_DIR", t.TempDir())
 
 	if _, err := Load(); err == nil || !strings.Contains(err.Error(), "absolute path") {
@@ -786,7 +737,6 @@ func TestVaultCanTurnJournalsAndGenerationsOff(t *testing.T) {
 	writeVaultConfig(t, vault, "journal: false\ngen: false\n")
 	t.Setenv("TRACK_CONFIG", configPath)
 	t.Setenv("TRACK_VAULT", "")
-	t.Setenv("TRACK_DB_PATH", "")
 	t.Setenv("TRACK_CACHE_DIR", "")
 
 	cfg, err := Load()
@@ -820,7 +770,6 @@ func TestEnvironmentAddsVaultsToTheRegistry(t *testing.T) {
 	}
 	t.Setenv("TRACK_CONFIG", configPath)
 	t.Setenv("TRACK_VAULT", "")
-	t.Setenv("TRACK_DB_PATH", "")
 	t.Setenv("TRACK_CACHE_DIR", "")
 	// The suffix maps to a vault name by lowercasing and turning _ into the dash a vault name uses.
 	t.Setenv("TRACK_VAULTS_TRACK_HELP", help)
@@ -856,7 +805,6 @@ func TestEnvironmentVaultReplacesTheSameName(t *testing.T) {
 	}
 	t.Setenv("TRACK_CONFIG", configPath)
 	t.Setenv("TRACK_VAULT", "")
-	t.Setenv("TRACK_DB_PATH", "")
 	t.Setenv("TRACK_CACHE_DIR", "")
 	t.Setenv("TRACK_VAULTS_WORK", override)
 
@@ -880,30 +828,11 @@ func TestEnvironmentVaultKeepsTheOneNameRule(t *testing.T) {
 	}
 	t.Setenv("TRACK_CONFIG", configPath)
 	t.Setenv("TRACK_VAULT", "")
-	t.Setenv("TRACK_DB_PATH", "")
 	t.Setenv("TRACK_CACHE_DIR", "")
 	t.Setenv("TRACK_VAULTS_HELP", vault)
 
 	if _, err := Load(); err == nil || !strings.Contains(err.Error(), "same vault") {
 		t.Fatalf("two names for one vault must be refused, got %v", err)
-	}
-}
-
-func TestEnvironmentOnlyRegistryStillRefusesAFixedDB(t *testing.T) {
-	// The registry the fixed-DB rule guards against is the resolved one: a vault that arrived from the
-	// environment shares a pinned db_path just as badly as one written in the file.
-	configPath := filepath.Join(t.TempDir(), "config.yml")
-	if err := os.WriteFile(configPath, []byte("db_path: /tmp/index.db\n"), 0o644); err != nil {
-		t.Fatal(err)
-	}
-	t.Setenv("TRACK_CONFIG", configPath)
-	t.Setenv("TRACK_VAULT", "")
-	t.Setenv("TRACK_DB_PATH", "")
-	t.Setenv("TRACK_CACHE_DIR", "")
-	t.Setenv("TRACK_VAULTS_HELP", t.TempDir())
-
-	if _, err := Load(); err == nil || !strings.Contains(err.Error(), "registry") {
-		t.Fatalf("a fixed db_path with an environment registry must be refused, got %v", err)
 	}
 }
 
@@ -916,11 +845,77 @@ func TestEnvironmentVaultMustBeAbsolute(t *testing.T) {
 	}
 	t.Setenv("TRACK_CONFIG", configPath)
 	t.Setenv("TRACK_VAULT", "")
-	t.Setenv("TRACK_DB_PATH", "")
 	t.Setenv("TRACK_CACHE_DIR", "")
 	t.Setenv("TRACK_VAULTS_HELP", "docs/help")
 
 	if _, err := Load(); err == nil || !strings.Contains(err.Error(), "absolute path") {
 		t.Fatalf("a relative environment vault must be refused, got %v", err)
+	}
+}
+
+// VaultName is what every surface labels this vault with and what other vaults reference it by, so
+// each of the ways a vault can be selected has to arrive at the same name — and at no name when the
+// vault is not in the registry at all.
+func TestVaultNameIsTheRegistryNameOfTheSelectedVault(t *testing.T) {
+	work, blog, loose := t.TempDir(), t.TempDir(), t.TempDir()
+	configPath := filepath.Join(t.TempDir(), "config.yml")
+	body := "cache_dir: " + t.TempDir() + "\ndefault_vault: work\nvaults:\n  work: " + work + "\n  blog: " + blog + "\n"
+	if err := os.WriteFile(configPath, []byte(body), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("TRACK_CONFIG", configPath)
+	t.Setenv("TRACK_VAULT", "")
+	t.Setenv("TRACK_CACHE_DIR", "")
+
+	cfg, err := Load()
+	if err != nil {
+		t.Fatalf("load: %v", err)
+	}
+	if cfg.VaultName != "work" {
+		t.Fatalf("default_vault should name the active vault, got %q", cfg.VaultName)
+	}
+
+	// LoadAt addresses another vault, so the Config it returns represents THAT vault — including its
+	// name, or a caller would label its notes with the launch vault's.
+	other, err := LoadAt(blog)
+	if err != nil {
+		t.Fatalf("load at: %v", err)
+	}
+	if other.VaultName != "blog" {
+		t.Fatalf("LoadAt should carry the addressed vault's name, got %q", other.VaultName)
+	}
+
+	// A vault the registry does not list has no name for anything to refer to it by.
+	unregistered, err := LoadAt(loose)
+	if err != nil {
+		t.Fatalf("load at: %v", err)
+	}
+	if unregistered.VaultName != "" {
+		t.Fatalf("an unregistered vault must have no name, got %q", unregistered.VaultName)
+	}
+}
+
+// The name is resolved by canonical path, not by string equality, so selecting a registered vault
+// through a symlink (or any other spelling of the same directory) still finds its one name.
+func TestVaultNameSurvivesASymlinkedSelection(t *testing.T) {
+	real := t.TempDir()
+	link := filepath.Join(t.TempDir(), "vault-link")
+	if err := os.Symlink(real, link); err != nil {
+		t.Skipf("symlinks unavailable: %v", err)
+	}
+	configPath := filepath.Join(t.TempDir(), "config.yml")
+	if err := os.WriteFile(configPath, []byte("cache_dir: "+t.TempDir()+"\nvaults:\n  work: "+real+"\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("TRACK_CONFIG", configPath)
+	t.Setenv("TRACK_VAULT", link)
+	t.Setenv("TRACK_CACHE_DIR", "")
+
+	cfg, err := Load()
+	if err != nil {
+		t.Fatalf("load: %v", err)
+	}
+	if cfg.VaultName != "work" {
+		t.Fatalf("a symlinked spelling of a registered vault should still be that vault, got %q", cfg.VaultName)
 	}
 }

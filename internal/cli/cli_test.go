@@ -13,6 +13,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/ttak0422/track/internal/track/config"
 	_ "modernc.org/sqlite"
 )
 
@@ -37,7 +38,6 @@ func runIn(t *testing.T, vault string, args ...string) (map[string]any, int) {
 	t.Helper()
 	t.Setenv("TRACK_CONFIG", filepath.Join(t.TempDir(), "missing.yml"))
 	t.Setenv("TRACK_VAULT", vault)
-	t.Setenv("TRACK_DB_PATH", "")
 	t.Setenv("TRACK_CACHE_DIR", filepath.Join(vault, ".test-cache"))
 	out, code := capture(t, func() int { return Run(args) })
 	var decoded map[string]any
@@ -225,16 +225,35 @@ func TestDefaultsToHomeTrackVault(t *testing.T) {
 	t.Setenv("HOME", home)
 	t.Setenv("TRACK_CONFIG", filepath.Join(t.TempDir(), "missing.yml"))
 	t.Setenv("TRACK_VAULT", "")
-	t.Setenv("TRACK_DB_PATH", "")
 	t.Setenv("TRACK_CACHE_DIR", t.TempDir())
 
-	// With nothing configured the vault defaults to $HOME/track (ADR 0015): the command succeeds and
-	// creates the note under that vault rather than failing.
+	// With nothing configured the vault defaults to $HOME/track (ADR 0015), but a vault that does not
+	// exist yet is refused rather than created behind the user's back — the default vault gets no more
+	// leeway than a named one.
 	out, code := capture(t, func() int { return Run([]string{"new", "--title", "Solo", "--id", "100"}) })
-	if code != 0 {
-		t.Fatalf("expected default-vault success, got exit %d: %s", code, out)
+	if code != 1 {
+		t.Fatalf("expected a refusal for the missing default vault, got exit %d: %s", code, out)
 	}
 	var decoded map[string]any
+	if err := json.Unmarshal([]byte(out), &decoded); err != nil {
+		t.Fatalf("output is not JSON: %q", out)
+	}
+	msg, _ := decoded["error"].(string)
+	if !strings.Contains(msg, filepath.Join(home, "track")) || !strings.Contains(msg, "track init") {
+		t.Fatalf("error should name the default vault path and 'track init', got %q", msg)
+	}
+	if _, err := os.Stat(filepath.Join(home, "track")); !os.IsNotExist(err) {
+		t.Fatalf("the refused command must not have created the vault: err=%v", err)
+	}
+
+	// After an explicit init the same command lands in $HOME/track.
+	if out, code := capture(t, func() int { return Run([]string{"init"}) }); code != 0 {
+		t.Fatalf("init failed: %s", out)
+	}
+	out, code = capture(t, func() int { return Run([]string{"new", "--title", "Solo", "--id", "100"}) })
+	if code != 0 {
+		t.Fatalf("expected default-vault success after init, got exit %d: %s", code, out)
+	}
 	if err := json.Unmarshal([]byte(out), &decoded); err != nil {
 		t.Fatalf("output is not JSON: %q", out)
 	}
@@ -356,8 +375,20 @@ func TestReindexKeepsMetadataTitleIgnoringBodyH1(t *testing.T) {
 
 func TestReindexResetsLegacyCacheDB(t *testing.T) {
 	vault := t.TempDir()
-	dbPath := filepath.Join(vault, "legacy-index.db")
-	t.Setenv("TRACK_DB_PATH", dbPath)
+	// The index is a derived cache with no configurable path, so the legacy schema has to be planted
+	// in the file the reindex will actually open: mirror runIn's environment and ask config where
+	// that is.
+	t.Setenv("TRACK_CONFIG", filepath.Join(t.TempDir(), "missing.yml"))
+	t.Setenv("TRACK_VAULT", vault)
+	t.Setenv("TRACK_CACHE_DIR", filepath.Join(vault, ".test-cache"))
+	cfg, err := config.Load()
+	if err != nil {
+		t.Fatalf("load config: %v", err)
+	}
+	dbPath := cfg.DBPath
+	if err := os.MkdirAll(filepath.Dir(dbPath), 0o755); err != nil {
+		t.Fatal(err)
+	}
 
 	if err := os.MkdirAll(filepath.Join(vault, "note"), 0o755); err != nil {
 		t.Fatal(err)
@@ -409,6 +440,20 @@ PRAGMA user_version = 1;
 	list := kws["keywords"].([]any)
 	if len(list) != 1 || list[0].(map[string]any)["term"] != "Legacy" {
 		t.Fatalf("unexpected keywords after reset: %v", list)
+	}
+	// The reindex must have reset this very file, not quietly rebuilt a different one: the legacy
+	// user_version is gone from it.
+	db, err = sql.Open("sqlite", dbPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+	var version int
+	if err := db.QueryRow("PRAGMA user_version").Scan(&version); err != nil {
+		t.Fatal(err)
+	}
+	if version <= 1 {
+		t.Fatalf("legacy db at %s still reports user_version %d", dbPath, version)
 	}
 }
 
@@ -1745,16 +1790,90 @@ func TestInitScaffoldsVault(t *testing.T) {
 	}
 }
 
-func TestFirstLaunchAutoScaffolds(t *testing.T) {
-	// A vault that does not exist yet is scaffolded the first time a command touches it.
+func TestMissingVaultDirIsRefusedNotScaffolded(t *testing.T) {
+	// A vault directory that does not exist is a typo or an unmounted drive far more often than it is a
+	// first launch, so no command scaffolds one — only `track init` does. Writing commands matter most
+	// (the note writers all MkdirAll their own parents), so check one of each.
 	base := t.TempDir()
 	vault := filepath.Join(base, "fresh-vault")
-	if _, code := runIn(t, vault, "search", "--query", "anything"); code != 0 {
-		t.Fatalf("search on a fresh vault should succeed")
+	for _, args := range [][]string{
+		{"search", "--query", "anything"},
+		{"new", "--title", "Ghost", "--id", "100"},
+		{"journal"},
+	} {
+		out, code := runIn(t, vault, args...)
+		if code != 1 {
+			t.Fatalf("%v on a missing vault should be refused, got code=%d out=%v", args, code, out)
+		}
+		msg, _ := out["error"].(string)
+		if !strings.Contains(msg, vault) || !strings.Contains(msg, "track init") {
+			t.Fatalf("%v: error should name the path and 'track init', got %q", args, msg)
+		}
+		if _, err := os.Stat(vault); !os.IsNotExist(err) {
+			t.Fatalf("%v must not have created the vault: err=%v", args, err)
+		}
 	}
-	if info, err := os.Stat(filepath.Join(vault, "assets")); err != nil || !info.IsDir() {
-		t.Fatalf("first launch should have created the vault skeleton: err=%v", err)
+
+	// The escape hatch works, and afterwards the same command runs.
+	if res, code := runIn(t, vault, "init"); code != 0 {
+		t.Fatalf("init failed: %v", res)
 	}
+	if res, code := runIn(t, vault, "search", "--query", "anything"); code != 0 {
+		t.Fatalf("search should succeed once the vault exists: %v", res)
+	}
+}
+
+func TestExistingDirectoryIsAVaultOnlyWhenMarkedOrEmpty(t *testing.T) {
+	// The guard is about whether a directory is a vault, not whether it exists — a path that exists but
+	// belongs to something else is the same wrong answer as a typo, one step later. An empty directory
+	// is let through because handing over a freshly made path (CI's mktemp -d, an agent's scratch vault)
+	// is how an unregistered vault is addressed.
+	t.Run("empty directory is accepted", func(t *testing.T) {
+		vault := t.TempDir()
+		if res, code := runIn(t, vault, "new", "--title", "First", "--id", "100"); code != 0 {
+			t.Fatalf("an empty directory should be usable as a vault: %v", res)
+		}
+	})
+
+	t.Run("directory holding only .DS_Store is accepted", func(t *testing.T) {
+		vault := t.TempDir()
+		if err := os.WriteFile(filepath.Join(vault, ".DS_Store"), []byte("finder"), 0o644); err != nil {
+			t.Fatal(err)
+		}
+		if res, code := runIn(t, vault, "new", "--title", "First", "--id", "100"); code != 0 {
+			t.Fatalf("Finder's leftovers should not make a directory look occupied: %v", res)
+		}
+	})
+
+	t.Run("occupied directory is refused", func(t *testing.T) {
+		vault := t.TempDir()
+		if err := os.WriteFile(filepath.Join(vault, "taxes.pdf"), []byte("not a note"), 0o644); err != nil {
+			t.Fatal(err)
+		}
+		out, code := runIn(t, vault, "new", "--title", "Ghost", "--id", "100")
+		if code != 1 {
+			t.Fatalf("writing into somebody's existing directory should be refused, got code=%d out=%v", code, out)
+		}
+		if msg, _ := out["error"].(string); !strings.Contains(msg, "track init") {
+			t.Fatalf("error should point at 'track init', got %q", msg)
+		}
+		if _, err := os.Stat(filepath.Join(vault, "note")); !os.IsNotExist(err) {
+			t.Fatalf("nothing should have been scattered into it: err=%v", err)
+		}
+	})
+
+	t.Run("init makes an occupied directory a vault", func(t *testing.T) {
+		vault := t.TempDir()
+		if err := os.WriteFile(filepath.Join(vault, "taxes.pdf"), []byte("not a note"), 0o644); err != nil {
+			t.Fatal(err)
+		}
+		if res, code := runIn(t, vault, "init"); code != 0 {
+			t.Fatalf("init is the explicit escape hatch: %v", res)
+		}
+		if res, code := runIn(t, vault, "new", "--title", "First", "--id", "100"); code != 0 {
+			t.Fatalf("the marker init left behind should satisfy the guard: %v", res)
+		}
+	})
 }
 
 func TestAssetImportAndDir(t *testing.T) {

@@ -164,7 +164,6 @@ func Serve(cfg *config.Config, st *store.Store, addr string) error {
 // defaulting to the vault the server was launched in. Note ids are vault-local and journal ids
 // collide across vaults outright, so that default would silently read (and write) the wrong file.
 func (s *Server) routes() {
-	s.mux.HandleFunc("/api/vaults", s.handleVaults)
 	s.mux.HandleFunc("/api/search", s.handleSearch)
 	s.mux.HandleFunc("/api/notes", s.withVault(s.handleNotes))
 	s.mux.HandleFunc("/api/activity", s.withVault(s.handleActivity))

@@ -61,8 +61,14 @@ func (r *Resolver) Close() {
 	r.stores = map[string]*store.Store{}
 }
 
-// IsVault reports whether name is a registered vault name — the gate for link.SplitVaultRef.
+// IsVault reports whether name qualifies a reference to *another* vault — the gate for
+// link.SplitVaultRef. The active vault is in its own registry (ADR 0051), but its own name is not a
+// qualifier: [[personal:Foo]] written inside personal is the ordinary local link to Foo, not a
+// cross-vault edge that backlinks and the graph would never see.
 func (r *Resolver) IsVault(name string) bool {
+	if name == r.SelfName() {
+		return false
+	}
 	_, ok := r.cfg.Vaults[name]
 	return ok
 }
@@ -127,26 +133,28 @@ func (r *Resolver) Keywords(vault string) ([]store.Keyword, error) {
 }
 
 // SelfName returns the registry name of the active vault, or "" when it is not registered — in
-// which case no other vault can name it, so nothing can reference it. The registry gives a vault
-// exactly one name (config.resolveVaults refuses a second), so there is one answer or none.
+// which case no other vault can name it, so nothing can reference it.
 func (r *Resolver) SelfName() string {
-	for _, name := range sortedNames(r.cfg.Vaults) {
-		if canonical, err := config.CanonicalPath(r.cfg.Vaults[name]); err == nil && canonical == r.cfg.VaultDir {
-			return name
-		}
-	}
-	return ""
+	return r.cfg.VaultName
 }
 
-// Inbound lists the cross-vault backlinks to the active vault's note titled title: every
+// Inbound lists the cross-vault backlinks to the active vault's note titled title: every *other*
 // registered vault's index is scanned for ext_links rows naming this vault. Vaults that cannot be consulted are listed under unavailable. When the active
 // vault is not registered under any name, no other vault can reference it, so the scan is empty.
+//
+// The active vault is skipped: a note there naming its own vault writes an ordinary local link
+// (IsVault), so its references are already the plain backlinks — scanning it would only surface
+// stale self ext_links rows left by older indexes, and cost a second store.Open on our own DB. The
+// web UI answers the same way (webui.externalBacklinks).
 func (r *Resolver) Inbound(title string) (refs []ExternalRef, unavailable []Unavailable) {
 	self := r.SelfName()
 	if self == "" {
 		return nil, nil
 	}
 	for _, name := range sortedNames(r.cfg.Vaults) {
+		if name == self {
+			continue
+		}
 		cfg, s, err := r.vaultHandles(name)
 		if err != nil {
 			unavailable = append(unavailable, Unavailable{Vault: name, Error: err.Error()})

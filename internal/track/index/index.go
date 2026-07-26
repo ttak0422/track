@@ -353,16 +353,37 @@ func (ix *Indexer) keywordDict() (map[string]int64, error) {
 			dict[k.Term] = k.NoteID
 		}
 	}
+	// A note may qualify a reference with its own vault's name — the active vault is in its own
+	// registry (ADR 0051). That is not a cross-vault reference, so "self:Term" is registered as
+	// another spelling of the local title: it resolves through the ordinary link path and gets a real
+	// links row, visible to backlinks and the graph. A note literally titled that way keeps
+	// precedence, hence the second pass.
+	if self := ix.cfg.VaultName; self != "" {
+		for _, k := range kws {
+			key := self + ":" + k.Term
+			if _, ok := dict[key]; !ok {
+				dict[key] = k.NoteID
+			}
+		}
+	}
 	return dict, nil
 }
 
 // resolveLinks returns the deduplicated note ids referenced by body's [[...]] links, in first-seen
-// order, plus the cross-vault references ([[vault:title]], gated on the registered vault names).
-// The qualifier gate runs before the local dictionary so a registered name always reads as a
-// qualifier — doctor lints local titles that shadowing affects. Unresolved local references (no
-// matching title) are skipped.
+// order, plus the cross-vault references ([[vault:title]], gated on the *other* registered vault
+// names). The qualifier gate runs before the local dictionary so a registered name always reads as
+// a qualifier — doctor lints local titles that shadowing affects. The active vault's own name is
+// not a qualifier: it falls through to the dictionary, which carries the "self:Title" spelling
+// (keywordDict), so the edge is an ordinary local link. Unresolved local references (no matching
+// title) are skipped.
 func (ix *Indexer) resolveLinks(body string, dict map[string]int64) ([]int64, []store.ExtRef) {
-	isVault := func(name string) bool { _, ok := ix.cfg.Vaults[name]; return ok }
+	isVault := func(name string) bool {
+		if name == ix.cfg.VaultName {
+			return false
+		}
+		_, ok := ix.cfg.Vaults[name]
+		return ok
+	}
 	var ids []int64
 	var ext []store.ExtRef
 	seen := make(map[int64]bool)

@@ -272,16 +272,12 @@ func open() (*config.Config, *store.Store, error) {
 	if err != nil {
 		return nil, nil, err
 	}
+	// No vault is ever created implicitly: a missing directory is refused here rather than scaffolded,
+	// because the downstream writers (createTitledNote, the sidecar writer, the journal) all MkdirAll
+	// their own parents and would happily populate a typo'd or unmounted path. `track init` is the one
+	// command that creates a vault.
 	if err := requireVaultDir(cfg); err != nil {
 		return nil, nil, err
-	}
-	// First launch: lay down the vault skeleton when the vault directory does not exist yet. An existing
-	// vault is left to lazy per-kind creation, so this never resurrects directories a user removed.
-	// A --vault selection never reaches this branch: requireVaultDir already refused a missing directory.
-	if _, statErr := os.Stat(cfg.VaultDir); os.IsNotExist(statErr) {
-		if _, err := cfg.EnsureVaultSkeleton(); err != nil {
-			return nil, nil, err
-		}
 	}
 	s, err := store.Open(cfg.DBPath)
 	if err != nil {

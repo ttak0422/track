@@ -69,12 +69,13 @@ func crossVaultTargets() ([]vaultTarget, bool, error) {
 	return targets, true, nil
 }
 
-// runInVault points TRACK_VAULT at one target and runs fn with its loaded config. The vault
-// directory must be reachable first: maintenance must never lay down a skeleton for — or reset the
-// cache index of — a vault that is merely unmounted or unreadable, so the sweep reports it instead.
+// runInVault resolves one target's config and runs fn with it. It resolves through config.LoadAt so
+// selecting a vault stays local to this call: a sweep must not leave the process pointed at whichever
+// target happened to come last. The vault directory must be reachable first: maintenance must never
+// lay down a skeleton for — or reset the cache index of — a vault that is merely unmounted or
+// unreadable, so the sweep reports it instead.
 func runInVault(tgt vaultTarget, fn func(*config.Config) (map[string]any, error)) (map[string]any, error) {
-	os.Setenv("TRACK_VAULT", tgt.Path)
-	cfg, err := config.Load()
+	cfg, err := config.LoadAt(tgt.Path)
 	if err != nil {
 		return nil, err
 	}
