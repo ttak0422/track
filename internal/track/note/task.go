@@ -19,7 +19,7 @@ func ApplyTaskState(cfg *config.Config, notePath string, line int, state string,
 	if err != nil {
 		return task.Transition{}, fmt.Errorf("read note: %w", err)
 	}
-	updated, tr, err := task.SetState(string(raw), line, state, cfg.TaskStates, now)
+	updated, tr, err := task.SetState(string(raw), line, state, now)
 	if err != nil {
 		return task.Transition{}, err
 	}

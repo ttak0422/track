@@ -144,7 +144,7 @@ func (s *Server) getNote(w http.ResponseWriter, r *http.Request) {
 	}
 	// Task lines ride along so a ```taskboard fence renders without a second request, mirroring the
 	// static bundle's note JSON.
-	if set := task.NewSet(body, s.cfg.TaskStates); len(set.Items) > 0 {
+	if set := task.NewSet(body); len(set.Items) > 0 {
 		noteJSON["tasks"] = set
 	}
 	writeJSON(w, map[string]any{

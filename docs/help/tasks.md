@@ -21,16 +21,11 @@ The character inside the brackets names the state (the Obsidian-style custom-che
 DONE and CANCELLED are *done-family* states: moving a task into one stamps a completion date on the
 line, and moving it back out removes the stamp again.
 
-The state set is configurable per vault in `config.yml`; the set above is the default. Each state
-needs a unique name and a unique single-character marker, and `done: true` marks it as
-completion-family:
-
-```yaml
-task_states:
-  - { name: BACKLOG, char: " " }
-  - { name: ACTIVE, char: "/" }
-  - { name: SHIPPED, char: "x", done: true }
-```
+The set is fixed — these five states, these five markers, in every vault. A marker is a single
+character, so a vault that spelled them its own way would give the same pasted line a different
+meaning somewhere else, and every surface that draws a checkbox (the CLI, the web workspace, the
+published site, the Neovim plugin) has to know the set to render it. Fixing it is what lets them
+agree.
 
 Every transition is appended to the note's sidecar metadata (`task_log`), so the history of when a
 task moved between states survives without timestamps piling up in the note body.
