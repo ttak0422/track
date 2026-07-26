@@ -30,8 +30,26 @@ jobs:
       - name: Flake checks
         run: nix flake check
 
+      # -coverpkg=./... credits a package for the lines any test reaches, not just its own tests.
+      # The CLI tests drive the engine packages end to end, so per-package coverage reads far lower
+      # than the code is actually exercised.
       - name: Go tests
-        run: nix develop --command go test ./...
+        run: nix develop --command go test -coverpkg=./... -coverprofile=coverage.out ./...
+
+      - name: Go coverage
+        run: |
+          nix develop --command go tool cover -func=coverage.out >coverage.txt
+          {
+            awk 'END { print "**" $3 "** of statements covered" }' coverage.txt
+            echo
+            echo "<details><summary>Per function</summary>"
+            echo
+            echo '```'
+            cat coverage.txt
+            echo '```'
+            echo
+            echo "</details>"
+          } >>"$GITHUB_STEP_SUMMARY"
 
       - name: Neovim action-link E2E
         run: |
