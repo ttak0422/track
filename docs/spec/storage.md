@@ -76,12 +76,11 @@ Current contents:
 ```text
 <vault>/.track/config.yml
 <vault>/.track/notes/<id>.yaml
-<vault>/.track/renames.yaml
 <vault>/.track/gen/
 <vault>/.track/trash/
 ```
 
-`.track/config.yml` is the vault config: the note semantics that travel with the vault (`task_states`, `properties`, `queries`, `icons`, date formats, default templates, `capture_inbox`, `archive_note`, `web.home`, `gen_keep`, `extensions`). It is optional — a vault without one uses the defaults. `.track/notes/` contains versioned sidecar metadata files for notes. `.track/renames.yaml` is title rename history (repair only, not a link source). `.track/gen/` holds generation snapshots (ADR 0025). `.track/trash/` holds what `track rm` soft-deletes: only explicit commands move files into it (ADR 0051) — index reconciliation leaves the sidecar of a vanished note in place for `track doctor` to report as an orphan.
+`.track/config.yml` is the vault config: the note semantics that travel with the vault (`task_states`, `properties`, `queries`, `icons`, date formats, default templates, `capture_inbox`, `archive_note`, `web.home`, `gen_keep`, `extensions`). It is optional — a vault without one uses the defaults. `.track/notes/` contains versioned sidecar metadata files for notes. `.track/gen/` holds generation snapshots (ADR 0025). `.track/trash/` holds what `track rm` soft-deletes: only explicit commands move files into it (ADR 0051) — index reconciliation leaves the sidecar of a vanished note in place for `track doctor` to report as an orphan.
 
 The rebuildable SQLite index is a cache outside the vault. By default it lives under the platform user cache directory:
 
@@ -140,7 +139,7 @@ If a sidecar is missing, the current parser can still read the legacy trailing `
 
 The markdown body is plain content. It may be empty or contain any headings, including a leading H1. Parsing and reindexing never derive or reconcile the title from the body; title changes must go through create/open/journal/append metadata writes, `track rename`, or LSP rename.
 
-Title changes are also recorded in `.track/renames.yaml` as repair history. Rename history is not a link keyword source: an old title remains available for a new note, and `[[old title]]` does not resolve through the history. LSP code actions may use the history only when an old title is unresolved, offering to rewrite the link to the newest recorded title.
+A rename rewrites every `[[old title]]` in the vault as part of the operation, so no record of past titles is kept. A link the rewrite could not reach — one in another vault, or one written by hand afterwards — surfaces as an ordinary unresolved-link diagnostic; the old title is not stored anywhere, so it is also free for a new note immediately.
 
 ## SQLite Index
 
@@ -267,7 +266,6 @@ Run `track doctor` when a vault may be only partially synced: it reports orphan 
 The vault and cache hold two very different kinds of data:
 
 - `.track/notes/<id>.yaml` are the **authoritative** per-note metadata sidecars. The markdown body is content only; `title`, `tags`, `created`, `days`, and Babel block results live in the sidecar and cannot be reconstructed from the `.md` file.
-- `.track/renames.yaml` is repair history for manual title edits. It can improve unresolved-link quickfixes, but it is not used for normal link resolution.
 - The SQLite index under the cache directory is **rebuildable**. The notes on disk are the source of truth; `track reindex --full` deletes the cache database and regenerates it from them. Deleting it is safe.
 
 Deleting `.track/notes/` is therefore irrecoverable data loss. Treat it like `.git`: keep it under version control and back it up alongside the note bodies.

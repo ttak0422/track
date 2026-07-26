@@ -62,8 +62,8 @@ rather than by validating individual values.
   longer differs between CI and a laptop (the gap ADR 0049 closed for directory mode only).
 - Long-lived processes (LSP, `track web`) read config at startup, so editing a vault config requires
   a restart, same as the machine config before.
-- `gen` snapshots note trees and `renames.yaml` only; the vault config is deliberately not
-  snapshotted — undoing note edits must not revert configuration.
+- `gen` snapshots note trees only; the vault config is deliberately not snapshotted — undoing note
+  edits must not revert configuration.
 - Existing machine configs carrying vault-scope keys fail loudly on upgrade and must move those keys
   into `<vault>/.track/config.yml`. This is a deliberate breaking change; a silent fallback would
   leave the ownership split fictional.

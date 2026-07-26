@@ -19,8 +19,7 @@ type Result struct {
 }
 
 // Do renames a note's title through the engine's single rename path: uniqueness check against the
-// index, backlink rewrite in referencing note files, sidecar title write, history append, and a
-// full reindex. It is shared by `track rename` and the metadata-document apply path (`track meta
+// index, backlink rewrite in referencing note files, sidecar title write, and a full reindex. It is shared by `track rename` and the metadata-document apply path (`track meta
 // --edit`, the web meta editor). Renaming to the current title is a no-op.
 func Do(cfg *config.Config, s *store.Store, noteID int64, to string) (Result, error) {
 	meta, found, err := note.ReadMetadata(cfg.MetadataPath(noteID))
@@ -64,9 +63,6 @@ func Do(cfg *config.Config, s *store.Store, noteID int64, to string) (Result, er
 	meta.Title = to
 	if err := note.WriteMetadata(cfg.MetadataPath(noteID), meta); err != nil {
 		return Result{}, fmt.Errorf("write metadata: %w", err)
-	}
-	if err := Append(cfg.RenamesPath(), Entry{From: oldTitle, To: to, NoteID: noteID}); err != nil {
-		return Result{}, fmt.Errorf("write rename history: %w", err)
 	}
 	if _, err := index.New(cfg, s).Full(); err != nil {
 		return Result{}, fmt.Errorf("reindex: %w", err)

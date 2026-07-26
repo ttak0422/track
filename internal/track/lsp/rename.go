@@ -7,7 +7,6 @@ import (
 	"github.com/ttak0422/track/internal/track/index"
 	"github.com/ttak0422/track/internal/track/link"
 	"github.com/ttak0422/track/internal/track/note"
-	trackrename "github.com/ttak0422/track/internal/track/rename"
 )
 
 // rename renames the metadata title of the note targeted at pos and returns a workspace edit for
@@ -83,9 +82,6 @@ func (s *Server) rename(uri string, pos position, newName string) (*workspaceEdi
 	}
 	meta.Title = newName
 	if err := note.WriteMetadata(s.cfg.MetadataPath(targetID), meta); err != nil {
-		return nil, err
-	}
-	if err := trackrename.Append(s.cfg.RenamesPath(), trackrename.Entry{From: oldTitle, To: newName, NoteID: targetID}); err != nil {
 		return nil, err
 	}
 	if _, err := index.New(s.cfg, s.store).Full(); err != nil {

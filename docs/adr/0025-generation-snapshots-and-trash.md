@@ -46,8 +46,8 @@ working vault is a disposable working tree, `increment` cuts a release, and
   transaction machinery needed.
 
 Storage is a complete file copy per generation under `<vault>/.track/gen/<n>/`,
-covering `note/`, `journal/`, and the `.track` sidecars (`notes/`,
-`renames.yaml`). Delta or content-addressed storage is overkill for a note
+covering `note/`, `journal/`, and the `.track` sidecars (`notes/`).
+Delta or content-addressed storage is overkill for a note
 vault and would create pack-like blobs that sync poorly; full copies are
 trivial to implement, debug, and inspect. `assets/` and `data/` are excluded
 so binary bulk never multiplies into cloud storage; `undo` restores note text
