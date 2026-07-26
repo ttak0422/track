@@ -1,3 +1,5 @@
+/* Design master: docs/spec/design.md — pick a variant there (text control, quiet chip, floating
+   layer, filled action, underline input, section label) before styling any new control. */
 :root {
   color-scheme: light dark;
   --bg: #f7f7f4;
@@ -22,6 +24,13 @@
   --chart-ramp-hi: #174c40;
   font-family:
     Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+  /* The one mono stack — code, the editor, and section labels all read from here. */
+  --font-mono: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, monospace;
+  /* The whole radius scale: badges and inline chips, controls and quiet chips, panels and floating
+     layers. Drawn shapes (icon glyphs, heatmap cells, pills, circles) keep their own geometry. */
+  --radius-sm: 4px;
+  --radius: 6px;
+  --radius-lg: 8px;
 }
 
 :root[data-theme="dark"] {
@@ -79,6 +88,23 @@
   box-sizing: border-box;
 }
 
+/* Section labels — the small caps naming a region (ACTIVITY, BACKLINKS, a code block's language, an
+   OGP card's site). One recipe everywhere: quiet mono caps, muted like the rest of the chrome at
+   rest. Layout (margins) stays with each site; only the typography is shared here. */
+.activity-header h2,
+.activity-panel h2,
+.backlinks h3,
+.code-block[data-language]::before,
+.markdown-view .task-table th,
+.ogp-card-site {
+  color: var(--muted);
+  font-family: var(--font-mono);
+  font-size: calc(11px * var(--font-scale, 1));
+  font-weight: 500;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
+
 html,
 body,
 #root {
@@ -131,7 +157,7 @@ button {
 }
 
 /* The rail sits on the same surface as the note itself — no slab, no divider. Chrome is the icons,
-   nothing else; a hover chip is the only fill it ever paints. */
+   nothing else; it never paints a fill. */
 .sidebar {
   display: flex;
   min-width: 0;
@@ -167,13 +193,13 @@ button {
   display: block;
 }
 
+/* text control */
 .rail-button {
   display: grid;
   place-items: center;
   width: 40px;
   height: 40px;
   border: 0;
-  border-radius: 6px;
   color: var(--muted);
   background: transparent;
   text-decoration: none;
@@ -182,7 +208,6 @@ button {
 .rail-button:hover,
 .rail-button:focus-visible {
   color: var(--text);
-  background: var(--panel-soft);
 }
 
 .rail-icon {
@@ -392,7 +417,7 @@ button {
   right: 0;
   width: 214px;
   border: 1px solid var(--line);
-  border-radius: 6px;
+  border-radius: var(--radius);
   padding: 10px;
   background: var(--panel);
   box-shadow: 0 16px 38px color-mix(in srgb, #000 18%, transparent);
@@ -426,7 +451,7 @@ button {
   max-width: calc(100vw - 80px);
   max-height: calc(100vh - 80px);
   border: 1px solid var(--line);
-  border-radius: 8px;
+  border-radius: var(--radius-lg);
   background: var(--panel);
   box-shadow: 0 16px 38px color-mix(in srgb, #000 18%, transparent);
   overflow: hidden;
@@ -499,7 +524,7 @@ button {
 .searchbox input {
   width: 100%;
   border: 1px solid var(--line);
-  border-radius: 6px;
+  border-radius: var(--radius);
   padding: 10px 11px;
   color: var(--text);
   background: var(--panel-soft);
@@ -517,7 +542,7 @@ button {
   grid-template-columns: minmax(0, 1fr) auto;
   gap: 6px 8px;
   padding: 10px;
-  border-radius: 6px;
+  border-radius: var(--radius);
   text-decoration: none;
 }
 
@@ -592,9 +617,6 @@ button {
 .activity-header h2,
 .activity-panel h2 {
   margin: 0;
-  font-size: calc(13px * var(--font-scale, 1));
-  letter-spacing: 0.04em;
-  text-transform: uppercase;
 }
 
 .activity-header p {
@@ -733,7 +755,7 @@ button {
   flex-direction: column;
   overflow: hidden;
   border: 1px solid var(--line);
-  border-radius: 8px;
+  border-radius: var(--radius-lg);
   background: var(--panel);
   box-shadow: 0 18px 42px rgb(0 0 0 / 18%);
 }
@@ -918,7 +940,7 @@ a.calendar-title:focus-visible {
   min-height: 84px;
   min-width: 0;
   padding: 6px;
-  border-radius: 8px;
+  border-radius: var(--radius-lg);
   color: var(--muted);
   text-decoration: none;
   overflow: hidden;
@@ -1090,7 +1112,7 @@ a.calendar-title:focus-visible {
   flex: none;
   margin-right: 6px;
   padding: 1px 5px;
-  border-radius: 4px;
+  border-radius: var(--radius-sm);
   background: var(--panel-soft);
   color: var(--muted);
   font-size: calc(11px * var(--font-scale, 1));
@@ -1109,7 +1131,7 @@ a.calendar-title:focus-visible {
   translate: 0 -50%;
   place-items: center;
   border: 0;
-  border-radius: 4px;
+  border-radius: var(--radius-sm);
   padding: 0;
   color: inherit;
   background: transparent;
@@ -1173,7 +1195,7 @@ a.calendar-title:focus-visible {
   translate: 0 -50%;
   place-items: center;
   border: 0;
-  border-radius: 4px;
+  border-radius: var(--radius-sm);
   padding: 0;
   color: inherit;
   background: transparent;
@@ -1258,7 +1280,7 @@ a.calendar-title:focus-visible {
 
 .note-menu-panel button {
   border: 0;
-  border-radius: 5px;
+  border-radius: var(--radius);
   padding: 6px 10px;
   color: var(--muted);
   background: transparent;
@@ -1296,7 +1318,7 @@ a.calendar-title:focus-visible {
   flex-direction: column;
   gap: 12px;
   border: 1px solid var(--line);
-  border-radius: 10px;
+  border-radius: var(--radius-lg);
   padding: 20px;
   background: var(--panel);
   box-shadow: 0 24px 60px rgb(0 0 0 / 28%);
@@ -1344,7 +1366,7 @@ input.modal-input:focus-visible {
 /* A text region keeps a thin outline (an underline alone reads poorly for multi-line) but no fill. */
 textarea.modal-input {
   border: 1px solid var(--line);
-  border-radius: 6px;
+  border-radius: var(--radius);
   padding: 8px 10px;
 }
 
@@ -1364,7 +1386,7 @@ textarea.modal-input:focus-visible {
 
 /* Free-form props editor in the note meta dialog. */
 .modal-input--code {
-  font-family: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, monospace;
+  font-family: var(--font-mono);
   font-size: calc(13px * var(--font-scale, 1));
   line-height: 1.5;
   white-space: pre;
@@ -1386,7 +1408,7 @@ textarea.modal-input:focus-visible {
 .modal-image-row button {
   flex: none;
   border: 1px solid var(--line);
-  border-radius: 6px;
+  border-radius: var(--radius);
   padding: 6px 12px;
   color: var(--text);
   background: transparent;
@@ -1408,7 +1430,7 @@ textarea.modal-input:focus-visible {
 
 .modal-actions button {
   border: 1px solid var(--line);
-  border-radius: 6px;
+  border-radius: var(--radius);
   padding: 6px 14px;
   color: var(--text);
   background: transparent;
@@ -1474,7 +1496,7 @@ textarea.modal-input:focus-visible {
 /* Block-anchor arrival: the block a [[Note#^id]] link landed on flashes, then settles to a faint
    tint so the eye keeps its place. Colors derive from --accent, so both themes are covered. */
 .block-target {
-  border-radius: 4px;
+  border-radius: var(--radius-sm);
   animation: block-flash 1.6s ease-out;
   background: color-mix(in srgb, var(--accent) 10%, transparent);
 }
@@ -1518,7 +1540,7 @@ textarea.modal-input:focus-visible {
 
 .note-prop-value {
   padding: 1px 6px;
-  border-radius: 4px;
+  border-radius: var(--radius-sm);
   background: var(--panel-soft);
 }
 
@@ -1584,12 +1606,11 @@ textarea.modal-input:focus-visible {
   overflow: auto;
   resize: vertical;
   border: 1px solid var(--line);
-  border-radius: 6px;
+  border-radius: var(--radius);
   padding: 16px;
   color: var(--text);
   background: var(--panel-soft);
-  font:
-    14px/1.6 ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", monospace;
+  font: 14px/1.6 var(--font-mono);
 }
 
 .note-preview {
@@ -1678,7 +1699,7 @@ textarea.modal-input:focus-visible {
   margin: 0.8em 0;
   padding: 0.4em 1em;
   border-left: 3px solid var(--alert-color);
-  border-radius: 0 4px 4px 0;
+  border-radius: 0 var(--radius-sm) var(--radius-sm) 0;
   background: color-mix(in srgb, var(--alert-color) 8%, transparent);
 }
 
@@ -1763,7 +1784,7 @@ textarea.modal-input:focus-visible {
   width: 28px;
   height: 28px;
   border: 1px solid var(--line);
-  border-radius: 6px;
+  border-radius: var(--radius);
   color: var(--text);
   background: color-mix(in srgb, var(--panel) 82%, transparent);
   cursor: pointer;
@@ -1821,7 +1842,7 @@ textarea.modal-input:focus-visible {
      a wide chart export), so a fixed aspect-ratio would distort most of them; a modest min-height instead
      absorbs the common case without stretching anything once the image's true height is known. */
   min-height: 160px;
-  border-radius: 8px;
+  border-radius: var(--radius-lg);
 }
 
 .embed-video {
@@ -1829,7 +1850,7 @@ textarea.modal-input:focus-visible {
   width: 100%;
   /* Already reserves its box via aspect-ratio, so the YouTube iframe never causes CLS. */
   aspect-ratio: 16 / 9;
-  border-radius: 8px;
+  border-radius: var(--radius-lg);
   overflow: hidden;
   background: #000;
 }
@@ -1847,7 +1868,7 @@ textarea.modal-input:focus-visible {
   width: 100%;
   /* Reserves its box via aspect-ratio, so the map iframe never causes CLS. */
   aspect-ratio: 16 / 9;
-  border-radius: 8px;
+  border-radius: var(--radius-lg);
   overflow: hidden;
   background: #000;
 }
@@ -1865,7 +1886,7 @@ textarea.modal-input:focus-visible {
    a real note needs a taller or shorter frame. */
 .embed-html {
   width: 100%;
-  border-radius: 8px;
+  border-radius: var(--radius-lg);
   overflow: hidden;
 }
 
@@ -1873,7 +1894,7 @@ textarea.modal-input:focus-visible {
   width: 100%;
   min-height: 360px;
   border: 1px solid var(--line, #d9ddd5);
-  border-radius: 8px;
+  border-radius: var(--radius-lg);
 }
 
 .embed-pdf {
@@ -1885,7 +1906,7 @@ textarea.modal-input:focus-visible {
 .embed-pdf:focus-visible {
   outline: 2px solid var(--accent, #4c8bf5);
   outline-offset: 2px;
-  border-radius: 8px;
+  border-radius: var(--radius-lg);
 }
 
 .pdf-deck-stage {
@@ -1900,7 +1921,7 @@ textarea.modal-input:focus-visible {
   min-height: 320px;
   padding: 8px;
   border: 1px solid var(--line);
-  border-radius: 8px;
+  border-radius: var(--radius-lg);
   background: var(--panel-soft);
   cursor: pointer;
 }
@@ -1908,7 +1929,7 @@ textarea.modal-input:focus-visible {
 .pdf-deck-canvas {
   display: block;
   max-width: 100%;
-  border-radius: 4px;
+  border-radius: var(--radius-sm);
   box-shadow: 0 1px 6px rgba(0, 0, 0, 0.18);
 }
 
@@ -1934,7 +1955,7 @@ textarea.modal-input:focus-visible {
   font-size: 1.1em;
   line-height: 1;
   border: 1px solid var(--line);
-  border-radius: 6px;
+  border-radius: var(--radius);
   background: var(--panel-soft);
   color: inherit;
   cursor: pointer;
@@ -1967,7 +1988,7 @@ textarea.modal-input:focus-visible {
   margin: 12px 0;
   padding: 8px 12px;
   border: 1px solid var(--line);
-  border-radius: 6px;
+  border-radius: var(--radius);
 }
 
 .note-include-header {
@@ -2001,7 +2022,7 @@ textarea.modal-input:focus-visible {
      document background outside that card stays white regardless of the dark theme param we pass —
      it's cross-origin, so we cannot restyle its content directly. Clipping the iframe itself to a
      matching radius cuts away that white margin, exposing the page's own dark background instead. */
-  border-radius: 12px;
+  border-radius: var(--radius-lg);
   overflow: hidden;
   background: var(--bg);
 }
@@ -2012,7 +2033,7 @@ textarea.modal-input:focus-visible {
   gap: 0;
   max-width: 640px;
   border: 1px solid var(--line);
-  border-radius: 8px;
+  border-radius: var(--radius-lg);
   overflow: hidden;
   background: var(--panel-soft);
   text-decoration: none;
@@ -2036,13 +2057,6 @@ textarea.modal-input:focus-visible {
   gap: 4px;
   padding: 12px 14px;
   min-width: 0;
-}
-
-.ogp-card-site {
-  font-size: 0.78em;
-  color: var(--muted);
-  text-transform: uppercase;
-  letter-spacing: 0.03em;
 }
 
 .ogp-card-title {
@@ -2093,9 +2107,9 @@ textarea.modal-input:focus-visible {
 
 .inline-code {
   padding: 0.1em 0.35em;
-  border-radius: 4px;
+  border-radius: var(--radius-sm);
   background: var(--panel-soft);
-  font-family: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, monospace;
+  font-family: var(--font-mono);
   font-size: 0.9em;
 }
 
@@ -2103,7 +2117,7 @@ textarea.modal-input:focus-visible {
   position: relative;
   margin: 0.9em 0;
   border: 1px solid var(--line);
-  border-radius: 8px;
+  border-radius: var(--radius-lg);
   padding: 12px 14px;
   background: var(--panel-soft);
 }
@@ -2114,7 +2128,7 @@ textarea.modal-input:focus-visible {
 }
 
 .code-block code {
-  font-family: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, monospace;
+  font-family: var(--font-mono);
   font-size: 0.88em;
   line-height: 1.5;
   white-space: pre;
@@ -2187,7 +2201,7 @@ textarea.modal-input:focus-visible {
   z-index: 1;
   padding: 2px 8px;
   border: 1px solid var(--line);
-  border-radius: 5px;
+  border-radius: var(--radius);
   color: var(--muted);
   background: var(--panel);
   font-size: calc(11px * var(--font-scale, 1));
@@ -2211,17 +2225,13 @@ textarea.modal-input:focus-visible {
   content: attr(data-language);
   display: block;
   margin-bottom: 6px;
-  color: var(--muted);
-  font-size: calc(11px * var(--font-scale, 1));
-  text-transform: uppercase;
-  letter-spacing: 0.04em;
 }
 
 .mermaid-diagram {
   position: relative;
   margin: 1em 0;
   border: 1px solid var(--line);
-  border-radius: 8px;
+  border-radius: var(--radius-lg);
   padding: 14px;
   background: var(--panel);
 }
@@ -2263,7 +2273,7 @@ textarea.modal-input:focus-visible {
   display: grid;
   place-items: center;
   border: 1px solid var(--line);
-  border-radius: 6px;
+  border-radius: var(--radius);
   background: var(--panel-soft);
   color: var(--text);
   font-size: 15px;
@@ -2370,7 +2380,7 @@ textarea.modal-input:focus-visible {
   border: 1px solid var(--line);
   /* The left accent repeats the marker line's red, tying each box to its line in the plot. */
   border-left: 3px solid color-mix(in srgb, var(--danger) 80%, transparent);
-  border-radius: 4px;
+  border-radius: var(--radius-sm);
   font-size: 11px;
   line-height: 1.35;
 }
@@ -2418,13 +2428,14 @@ textarea.modal-input:focus-visible {
   text-decoration: underline;
 }
 
+/* quiet chip */
 .chart-annotation-links button {
   padding: 0 6px;
   font-size: 10px;
   color: var(--muted);
   background: var(--panel-soft);
   border: 1px solid var(--line);
-  border-radius: 3px;
+  border-radius: var(--radius);
   cursor: pointer;
 }
 
@@ -2490,11 +2501,6 @@ textarea.modal-input:focus-visible {
   border-block: none;
   border-bottom: 1px solid var(--line);
   padding: 4px 10px;
-  font-family: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, monospace;
-  font-size: 11px;
-  font-weight: 500;
-  letter-spacing: 0.06em;
-  color: var(--muted);
 }
 
 .task-table-sort {
@@ -2531,7 +2537,7 @@ textarea.modal-input:focus-visible {
 
 .markdown-view .task-row-state {
   display: inline-block;
-  font-family: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, monospace;
+  font-family: var(--font-mono);
   font-size: 11px;
   letter-spacing: 0.06em;
   color: var(--muted);
@@ -2587,7 +2593,7 @@ textarea.modal-input:focus-visible {
   display: flex;
   flex-direction: column;
   border: 1px solid var(--line);
-  border-radius: 6px;
+  border-radius: var(--radius);
   color: var(--text);
   background: var(--panel);
   box-shadow: 0 12px 28px rgb(0 0 0 / 18%);
@@ -2633,7 +2639,7 @@ textarea.modal-input:focus-visible {
   width: 20px;
   height: 20px;
   border: 0;
-  border-radius: 4px;
+  border-radius: var(--radius-sm);
   padding: 0;
   color: var(--muted);
   background: transparent;
@@ -2684,7 +2690,7 @@ textarea.modal-input:focus-visible {
   height: 24px;
   place-items: center;
   border: 1px solid transparent;
-  border-radius: 6px;
+  border-radius: var(--radius);
   padding: 0;
   line-height: 1;
   color: var(--muted);
@@ -2710,7 +2716,7 @@ textarea.modal-input:focus-visible {
   height: 24px;
   place-items: center;
   border: 1px solid transparent;
-  border-radius: 6px;
+  border-radius: var(--radius);
   padding: 0;
   color: var(--muted);
   background: transparent;
@@ -2739,7 +2745,7 @@ textarea.modal-input:focus-visible {
   height: 24px;
   place-items: center;
   border: 1px solid transparent;
-  border-radius: 6px;
+  border-radius: var(--radius);
   padding: 0;
   color: var(--muted);
   background: transparent;
@@ -2827,7 +2833,7 @@ textarea.modal-input:focus-visible {
 
 .primary-button,
 .secondary-button {
-  border-radius: 6px;
+  border-radius: var(--radius);
   padding: 8px 12px;
 }
 
@@ -2869,9 +2875,6 @@ textarea.modal-input:focus-visible {
 
 .backlinks h3 {
   margin: 0 0 10px;
-  font-size: calc(13px * var(--font-scale, 1));
-  letter-spacing: 0.04em;
-  text-transform: uppercase;
 }
 
 .backlink-list {
@@ -2894,7 +2897,7 @@ textarea.modal-input:focus-visible {
 .backlink {
   display: block;
   width: fit-content;
-  border-radius: 6px;
+  border-radius: var(--radius);
   padding: 6px 0;
   color: var(--accent);
   font-weight: 700;
@@ -2954,7 +2957,7 @@ textarea.modal-input:focus-visible {
   display: flex;
   flex-direction: column;
   border: 1px solid var(--line);
-  border-radius: 8px;
+  border-radius: var(--radius-lg);
   background: var(--panel-soft);
   overflow: hidden;
 }
@@ -3114,7 +3117,7 @@ textarea.modal-input:focus-visible {
   min-width: 170px;
   padding: 8px;
   border: 1px solid var(--line);
-  border-radius: 8px;
+  border-radius: var(--radius-lg);
   background: var(--panel-soft);
 }
 
@@ -3147,7 +3150,7 @@ textarea.modal-input:focus-visible {
   margin: 0 0 8px;
   padding: 8px 10px;
   border: 1px solid var(--line);
-  border-radius: 6px;
+  border-radius: var(--radius);
   background: var(--panel);
 }
 
@@ -3208,7 +3211,7 @@ textarea.modal-input:focus-visible {
   font-size: 0.75em;
   padding: 1px 4px;
   border: 1px solid var(--line);
-  border-radius: 4px;
+  border-radius: var(--radius-sm);
   background: var(--panel-soft);
   color: var(--text);
 }
@@ -3256,7 +3259,7 @@ textarea.modal-input:focus-visible {
 .mindmap-diagram {
   margin: 1em 0;
   border: 1px solid var(--line);
-  border-radius: 8px;
+  border-radius: var(--radius-lg);
   padding: 14px;
   background: var(--panel);
 }
