@@ -17,8 +17,9 @@ A fetch tool converts one external source into Canonical JSONL:
 - **Every record validates** against its kind (`dataset.Validate`): required fields present, numeric
   fields numeric, and a schema `version` on every record. A tool must not emit non-conformant
   records — rendering validates again at the boundary and will fail the whole file loudly.
-- **`time` is RFC 3339.** Source timestamps in other formats are normalized by the tool, so
-  downstream consumers never parse source-specific dates.
+- **`time` is RFC 3339** — except that a record whose whole identity is a day (a daily OHLCV bar)
+  carries a date-only `time` (`YYYY-MM-DD`), which category axes label directly. Source timestamps in
+  other formats are normalized by the tool, so downstream consumers never parse source-specific dates.
 - **Records are ordered by time, ascending**, so plain `tail`/diff work and appends stay coherent.
 - **Diagnostics go to stderr** (items skipped, parse warnings); data never mixes with logs.
 - Extra fields beyond the kind's schema are allowed (the render pipeline can chart them), but the
@@ -49,6 +50,16 @@ The repository is a monorepo for these tools: each is a `cmd/track-fetch-<source
 own Nix package (`nix build .#track-fetch-<source>`), sharing the module's dependencies and the
 `dataset` contract. The first tool is `track-fetch-rss` (RSS 2.0 / Atom → `event` records:
 `time` from the entry's published/updated date, `title`, `url`, optional `--entity`).
+
+## Market data
+
+`track-fetch-market` converts J-Quants daily quotes into `price` records — one daily OHLCV bar per
+line. `--code` selects the issue, `--from`/`--to` bound the range, and `--entity` names the series
+(defaulting to the code). The refresh token is read from `TRACK_JQUANTS_REFRESH_TOKEN` — an
+environment variable, never a flag, so it stays out of shell history — and the tool exchanges it for
+the short-lived ID token itself. Days without a full price set (halts) are skipped and counted on
+stderr; split-adjusted prices are preferred over raw ones so a chart survives a split. Daily bars
+carry the date-only `time` described above.
 
 ## Web clipper
 
