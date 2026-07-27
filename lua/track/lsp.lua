@@ -546,12 +546,22 @@ local function attach(buf)
          end
       end,
    })
-   -- Re-entering the buffer re-binds the client (self-heal after a crash) before repainting.
+   -- Re-entering the buffer re-binds the client (self-heal after a crash) before repainting. The
+   -- scheduled render undoes the BufLeave repaint below promptly — the debounced refresh needs a live
+   -- client and the first cursor move may be a while, and until then the cursor row would sit
+   -- concealed under the cursor. One tick out, not direct: BufEnter fires before the window's
+   -- remembered cursor is restored, and the reveal must follow the final position. apply_conceal_options
+   -- covers windows the buffer was first shown in with noautocmd (picker previews), which BufWinEnter
+   -- misses.
    vim.api.nvim_create_autocmd("BufEnter", {
       group = group,
       buffer = buf,
       callback = function()
          ensure_client(buf)
+         vim.schedule(function()
+            render(buf)
+         end)
+         apply_conceal_options(buf)
          schedule(buf)
          publish_web_follow(buf)
       end,
@@ -571,6 +581,20 @@ local function attach(buf)
       callback = function()
          render(buf)
          publish_web_follow(buf)
+      end,
+   })
+   -- Leaving the buffer must drop the cursor-row reveal: cursor moves only repaint the buffer they
+   -- happen in, so without this the task line under the cursor stays raw ("- [ ]" instead of its
+   -- glyph) in every window still showing the note. Scheduled so it runs after the switch, when
+   -- current_cursor(buf) returns nil. Two windows on the same buffer still share one reveal (extmarks
+   -- are per-buffer) and a same-buffer window switch fires no BufLeave; the next cursor move repaints.
+   vim.api.nvim_create_autocmd("BufLeave", {
+      group = group,
+      buffer = buf,
+      callback = function()
+         vim.schedule(function()
+            render(buf)
+         end)
       end,
    })
    apply_conceal_options(buf)
