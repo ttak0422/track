@@ -456,6 +456,54 @@ local function schedule(buf)
    end))
 end
 
+-- inside_open_link mirrors the server's openLinkCompletionContext: the line up to the cursor holds a
+-- "[[" with no "]]" after it and no "|" (past the alias pipe the server offers nothing). Byte columns
+-- from nvim_win_get_cursor match the server's negotiated utf-8 positions.
+local function inside_open_link()
+   local col = vim.api.nvim_win_get_cursor(0)[2]
+   local typed = vim.api.nvim_get_current_line():sub(1, col):match("^.*%[%[(.*)$")
+   return typed ~= nil and not typed:find("]]", 1, true) and not typed:find("|", 1, true)
+end
+
+-- Japanese titles defeat both completion clients' re-trigger rules: a multibyte byte is neither one of
+-- the server's (all-ASCII) trigger characters nor a match for nvim-cmp's ASCII keyword_pattern, so cmp
+-- resets the session on the first Japanese character and nothing re-opens the popup while a title is
+-- typed or deleted. Inside an unclosed [[ the intent is unambiguous, so re-open it manually: cmp on
+-- multibyte input only (its own gate handles ASCII, and a Manual complete bypasses the gate), built-in
+-- vim.lsp.completion whenever its popup is closed (it only ever re-opens on trigger characters). The
+-- built-in call is a no-op unless the user ran vim.lsp.completion.enable, so nobody gets popups they
+-- did not opt into; for the same reason cmp users with autocomplete disabled are left alone.
+local function retrigger_completion(buf)
+   if not inside_open_link() then
+      return
+   end
+   -- Scheduled so it runs after cmp's own TextChangedI handling has settled (its reset is synchronous).
+   vim.schedule(function()
+      if
+         not vim.api.nvim_buf_is_valid(buf)
+         or vim.api.nvim_get_current_buf() ~= buf
+         or vim.api.nvim_get_mode().mode:sub(1, 1) ~= "i"
+         or not inside_open_link()
+      then
+         return
+      end
+      local ok, cmp = pcall(require, "cmp")
+      if ok then
+         local auto = (cmp.get_config().completion or {}).autocomplete
+         local manual_only = auto == false or (type(auto) == "table" and #auto == 0)
+         local col = vim.api.nvim_win_get_cursor(0)[2]
+         local byte = col > 0 and vim.api.nvim_get_current_line():byte(col)
+         if byte and byte >= 0x80 and not manual_only then
+            cmp.complete({ config = { sources = { { name = "nvim_lsp" } } } })
+         end
+         return
+      end
+      if vim.lsp.completion and vim.fn.pumvisible() == 0 then
+         pcall(vim.lsp.completion.get)
+      end
+   end)
+end
+
 -- make_capabilities advertises completion to the server, merging cmp-nvim-lsp's capabilities when nvim-cmp is installed
 -- so `[[` completion flows through the user's nvim-cmp setup. The server stays on utf-8 byte positions either way.
 local function make_capabilities()
@@ -546,12 +594,22 @@ local function attach(buf)
          end
       end,
    })
-   -- Re-entering the buffer re-binds the client (self-heal after a crash) before repainting.
+   -- Re-entering the buffer re-binds the client (self-heal after a crash) before repainting. The
+   -- scheduled render undoes the BufLeave repaint below promptly — the debounced refresh needs a live
+   -- client and the first cursor move may be a while, and until then the cursor row would sit
+   -- concealed under the cursor. One tick out, not direct: BufEnter fires before the window's
+   -- remembered cursor is restored, and the reveal must follow the final position. apply_conceal_options
+   -- covers windows the buffer was first shown in with noautocmd (picker previews), which BufWinEnter
+   -- misses.
    vim.api.nvim_create_autocmd("BufEnter", {
       group = group,
       buffer = buf,
       callback = function()
          ensure_client(buf)
+         vim.schedule(function()
+            render(buf)
+         end)
+         apply_conceal_options(buf)
          schedule(buf)
          publish_web_follow(buf)
       end,
@@ -564,6 +622,13 @@ local function attach(buf)
          publish_web_follow(buf)
       end,
    })
+   vim.api.nvim_create_autocmd("TextChangedI", {
+      group = group,
+      buffer = buf,
+      callback = function()
+         retrigger_completion(buf)
+      end,
+   })
    -- Cursor moves only toggle anti-conceal, so repaint from cache without re-querying the server.
    vim.api.nvim_create_autocmd({ "CursorMoved", "CursorMovedI" }, {
       group = group,
@@ -571,6 +636,20 @@ local function attach(buf)
       callback = function()
          render(buf)
          publish_web_follow(buf)
+      end,
+   })
+   -- Leaving the buffer must drop the cursor-row reveal: cursor moves only repaint the buffer they
+   -- happen in, so without this the task line under the cursor stays raw ("- [ ]" instead of its
+   -- glyph) in every window still showing the note. Scheduled so it runs after the switch, when
+   -- current_cursor(buf) returns nil. Two windows on the same buffer still share one reveal (extmarks
+   -- are per-buffer) and a same-buffer window switch fires no BufLeave; the next cursor move repaints.
+   vim.api.nvim_create_autocmd("BufLeave", {
+      group = group,
+      buffer = buf,
+      callback = function()
+         vim.schedule(function()
+            render(buf)
+         end)
       end,
    })
    apply_conceal_options(buf)
