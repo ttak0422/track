@@ -1,11 +1,11 @@
-import { useNavigate, useRouterState } from "@tanstack/react-router";
+import { useNavigate } from "@tanstack/react-router";
 import { PointerEvent, useRef, useState } from "react";
-import { useGraphQuery, useLocalGraphQuery } from "../queries";
-import { START_PAGE_ID, STATIC_MODE } from "../runtime";
-import type { NoteID } from "../types";
+import { useGraphQuery } from "../queries";
 import { GraphCanvas } from "./GraphCanvasLazy";
 
-type GraphScope = "local" | "global";
+// The floating whole-vault graph, behind a corner launcher. It only mounts on views without a graph
+// of their own (day, tags, search, the empty state): note pages carry an always-on local graph in
+// their aside, and the full-graph and calendar routes have their own surfaces.
 
 interface PanelSize {
   width: number;
@@ -21,16 +21,12 @@ interface ResizeState {
   moved: boolean;
 }
 
-const scopes: GraphScope[] = ["local", "global"];
 const defaultWidth = 520;
 const defaultHeight = 380;
 const minWidth = 280;
 const minHeight = 220;
 
 export function GraphPanel() {
-  const pathname = useRouterState({ select: (state) => state.location.pathname });
-  const selectedNoteID = noteIDFromPath(pathname);
-  const [scope, setScope] = useState<GraphScope>("local");
   const [resetToken, setResetToken] = useState(0);
   const [visible, setVisible] = useState(false);
   const [panelSize, setPanelSize] = useState<PanelSize>(() => ({
@@ -38,15 +34,10 @@ export function GraphPanel() {
     height: Math.min(defaultHeight, window.innerHeight - 112),
   }));
   const resizeRef = useRef<ResizeState | null>(null);
-  const effectiveScope = selectedNoteID === undefined ? "global" : scope;
-  const localGraph = useLocalGraphQuery(
-    selectedNoteID,
-    effectiveScope === "local" && selectedNoteID !== undefined,
-  );
-  const globalGraph = useGraphQuery(effectiveScope === "global");
+  // The whole-vault graph is not cheap; fetch it only once the panel is opened.
+  const state = useGraphQuery(visible);
   const navigate = useNavigate();
 
-  const state = effectiveScope === "local" ? localGraph : globalGraph;
   const graph = state.data?.graph;
 
   function onHandleDown(event: PointerEvent<HTMLButtonElement>) {
@@ -120,26 +111,12 @@ export function GraphPanel() {
         <GraphCanvas
           graph={graph}
           resetToken={resetToken}
-          focusNodeID={effectiveScope === "global" ? selectedNoteID : undefined}
           onSelect={(noteID) =>
             void navigate({ to: "/notes/$noteId", params: { noteId: String(noteID) } })
           }
         />
       ) : null}
       <div className="graph-controls">
-        <div className="graph-scope" role="group" aria-label="Graph scope">
-          {scopes.map((option) => (
-            <button
-              aria-pressed={effectiveScope === option}
-              disabled={option === "local" && selectedNoteID === undefined}
-              key={option}
-              type="button"
-              onClick={() => setScope(option)}
-            >
-              {scopeLabel(option)}
-            </button>
-          ))}
-        </div>
         <button
           className="graph-reset"
           type="button"
@@ -161,19 +138,6 @@ export function GraphPanel() {
       </div>
     </aside>
   );
-}
-
-function noteIDFromPath(pathname: string): NoteID | undefined {
-  const match = /^\/notes\/([^/]+)$/.exec(pathname);
-  if (match) return match[1];
-  // The static "/" route renders the start note, so the local graph should center on it.
-  const path = pathname.replace(/\/$/, "") || "/";
-  if (STATIC_MODE && path === "/" && START_PAGE_ID) return START_PAGE_ID;
-  return undefined;
-}
-
-function scopeLabel(scope: GraphScope): string {
-  return scope[0].toUpperCase() + scope.slice(1);
 }
 
 function clamp(value: number, min: number, max: number): number {

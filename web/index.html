@@ -19,6 +19,14 @@
         if (theme === "light" || theme === "dark") {
           document.documentElement.dataset.theme = theme;
         }
+        // The saved content width is applied before first paint for the same reason: it moves the
+        // reading column AND gates the docked aside (html[data-content-width], see the .note-aside
+        // rail rules), so applying it only after React mounts would dock then undock the rail.
+        var contentWidth = localStorage.getItem("track.contentWidth");
+        if (contentWidth === "1280px" || contentWidth === "none") {
+          document.documentElement.style.setProperty("--content-width", contentWidth);
+          document.documentElement.dataset.contentWidth = contentWidth;
+        }
         // The Go server replaces __TRACK_SESSION__ with a token unique to its process. The tab strip
         // uses it to keep restored tabs across a reload (same token) but drop them on a fresh launch
         // (new token). Left as the literal placeholder in the static export, where it stays constant.

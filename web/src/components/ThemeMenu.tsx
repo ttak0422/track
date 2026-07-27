@@ -55,11 +55,15 @@ export function ThemeMenu() {
     if (contentWidth === defaultContentWidth) {
       localStorage.removeItem(contentWidthKey);
       document.documentElement.style.removeProperty("--content-width");
+      delete document.documentElement.dataset.contentWidth;
       return;
     }
 
     localStorage.setItem(contentWidthKey, contentWidth);
     document.documentElement.style.setProperty("--content-width", contentWidth);
+    // Media queries cannot read --content-width, so mirror non-default widths into an attribute
+    // the docked-aside breakpoints can match (see the .note-aside rail rules in styles.css).
+    document.documentElement.dataset.contentWidth = contentWidth;
   }, [contentWidth]);
 
   useEffect(() => {

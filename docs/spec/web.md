@@ -181,9 +181,12 @@ since that is the path the user recognizes and is usually shorter. This is the
 
 ## Graph view
 
-The graph panel has a **Local / Global** toggle. Local shows the one-hop graph
-around the open note; Global shows the whole vault (`GET /api/graph`). Both share
-the same force-directed layout, pan, and zoom.
+A note page always shows the one-hop graph around the open note in its aside,
+next to the backlinks (`GET /api/graph/local`); on a wide enough viewport the
+aside docks as a fixed right rail beside the reading column. Views without a
+graph of their own (day, tags, search) keep the floating graph panel behind the
+corner launcher, showing the whole vault (`GET /api/graph`). All graph surfaces
+share the same force-directed layout, pan, and zoom.
 
 For large graphs the rendering borrows Obsidian's approach rather than dropping
 nodes:

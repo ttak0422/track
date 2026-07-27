@@ -824,35 +824,6 @@ button {
   gap: 8px;
 }
 
-.graph-scope {
-  display: flex;
-  gap: 12px;
-}
-
-.graph-scope button {
-  border: 0;
-  padding: 0;
-  color: var(--muted);
-  background: transparent;
-  font-size: calc(12px * var(--font-scale, 1));
-  cursor: pointer;
-}
-
-.graph-scope button:hover:not(:disabled),
-.graph-scope button:focus-visible {
-  color: var(--text);
-}
-
-.graph-scope button[aria-pressed="true"] {
-  color: var(--text);
-  font-weight: 600;
-}
-
-.graph-scope button:disabled {
-  cursor: default;
-  opacity: 0.5;
-}
-
 .graph-reset {
   display: grid;
   place-items: center;
@@ -2923,6 +2894,81 @@ textarea.modal-input:focus-visible {
 .note-aside .backlink:hover {
   color: var(--accent-strong);
   text-decoration: underline;
+}
+
+/* The aside's local graph: a fixed-height flex box the canvas fills (GraphCanvas sizes itself to
+   its container via ResizeObserver). */
+.aside-graph {
+  display: flex;
+  height: 220px;
+}
+
+/* Unlike the opt-in floating panel, this canvas sits in the page's scroll flow, so a flick that
+   starts on it must still scroll the page on touch (the published site is the main mobile surface).
+   pan-y hands vertical gestures to the browser; the trade is that touch node-drags only work
+   sideways here — fine for a secondary surface. */
+.aside-graph .graph-canvas {
+  touch-action: pan-y;
+}
+
+.aside-graph-head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+}
+
+.note-aside::-webkit-scrollbar {
+  display: none;
+}
+
+/* Dock the aside as a fixed right rail when the centered note column's margin genuinely holds one,
+   so the backlinks and graph stay in view while the note scrolls; below the breakpoint the aside
+   keeps its stacked place under the note. The breakpoint depends on the Content width setting, and
+   a media query cannot read --content-width, so ThemeMenu mirrors non-default widths into
+   html[data-content-width] and each width gets its own gate ("Full" never docks). The live home
+   (.workspace.home) can render the configured home note without the sidebar and tab bar this
+   geometry assumes, so it never docks either. Keep the two blocks identical apart from their
+   gates. */
+@media (min-width: 1760px) {
+  html:not([data-content-width]) .workspace:not(.home) .note-reader:not(.note-reader-split) > .note-aside {
+    position: fixed;
+    /* The 48px sidebar shifts the reader's center to 50% + 24px; half the column plus a 32px
+       gutter lands the rail just right of the note. */
+    left: calc(50% + 24px + var(--content-width, 960px) / 2 + 32px);
+    top: 65px; /* tab bar (33px) + reader padding (32px) */
+    bottom: 0;
+    width: 300px;
+    flex-direction: column;
+    flex-wrap: nowrap;
+    overflow-y: auto;
+    padding-bottom: 18px;
+    scrollbar-width: none;
+  }
+
+  html:not([data-content-width]) .workspace:not(.home) .note-reader:not(.note-reader-split) > .note-aside > .backlinks {
+    flex: 0 0 auto;
+    width: 100%;
+  }
+}
+
+@media (min-width: 2080px) {
+  html[data-content-width="1280px"] .workspace:not(.home) .note-reader:not(.note-reader-split) > .note-aside {
+    position: fixed;
+    left: calc(50% + 24px + var(--content-width, 960px) / 2 + 32px);
+    top: 65px;
+    bottom: 0;
+    width: 300px;
+    flex-direction: column;
+    flex-wrap: nowrap;
+    overflow-y: auto;
+    padding-bottom: 18px;
+    scrollbar-width: none;
+  }
+
+  html[data-content-width="1280px"] .workspace:not(.home) .note-reader:not(.note-reader-split) > .note-aside > .backlinks {
+    flex: 0 0 auto;
+    width: 100%;
+  }
 }
 
 .error {
