@@ -1,5 +1,5 @@
 // Package jquants converts J-Quants daily quotes into Canonical Data Model price records — the
-// engine behind the track-fetch-market tool (see docs/spec/fetch.md). It depends only on the dataset
+// engine behind the track-fetch-jquants tool (see docs/spec/fetch.md). It depends only on the dataset
 // contract, not on the track CLI or store.
 package jquants
 

@@ -1,11 +1,11 @@
-// track-fetch-market converts J-Quants daily quotes into Canonical Data Model price JSONL — one
+// track-fetch-jquants converts J-Quants daily quotes into Canonical Data Model price JSONL — one
 // OHLCV bar per line (see docs/spec/fetch.md for the contract it implements). It is independent of
 // the track CLI: data goes to stdout (or --out), diagnostics to stderr, and every record is
 // validated against the price kind before anything is written.
 //
 // Usage:
 //
-//	TRACK_JQUANTS_REFRESH_TOKEN=... track-fetch-market --code <issue code>
+//	TRACK_JQUANTS_REFRESH_TOKEN=... track-fetch-jquants --code <issue code>
 //	  [--from YYYY-MM-DD] [--to YYYY-MM-DD] [--entity <s>] [--out <file>]
 //	  [--api-base <url>] [--timeout <dur>]
 //
@@ -37,7 +37,7 @@ func main() {
 }
 
 func run(args []string, stdout, stderr io.Writer) int {
-	fs := flag.NewFlagSet("track-fetch-market", flag.ContinueOnError)
+	fs := flag.NewFlagSet("track-fetch-jquants", flag.ContinueOnError)
 	fs.SetOutput(stderr)
 	code := fs.String("code", "", "issue code (as listed by the exchange, e.g. a 4- or 5-digit stock code)")
 	from := fs.String("from", "", "first day of the range, YYYY-MM-DD (open-ended when empty)")
@@ -50,7 +50,7 @@ func run(args []string, stdout, stderr io.Writer) int {
 		return 2
 	}
 	if *code == "" {
-		fmt.Fprintln(stderr, "track-fetch-market: --code is required")
+		fmt.Fprintln(stderr, "track-fetch-jquants: --code is required")
 		fs.Usage()
 		return 2
 	}
@@ -59,13 +59,13 @@ func run(args []string, stdout, stderr io.Writer) int {
 			continue
 		}
 		if _, err := time.Parse("2006-01-02", v); err != nil {
-			fmt.Fprintf(stderr, "track-fetch-market: %s must be YYYY-MM-DD, got %q\n", name, v)
+			fmt.Fprintf(stderr, "track-fetch-jquants: %s must be YYYY-MM-DD, got %q\n", name, v)
 			return 2
 		}
 	}
 	refresh := os.Getenv(tokenEnv)
 	if refresh == "" {
-		fmt.Fprintf(stderr, "track-fetch-market: set %s to your J-Quants refresh token\n", tokenEnv)
+		fmt.Fprintf(stderr, "track-fetch-jquants: set %s to your J-Quants refresh token\n", tokenEnv)
 		return 2
 	}
 
@@ -79,7 +79,7 @@ func run(args []string, stdout, stderr io.Writer) int {
 		return fail(stderr, err)
 	}
 	if skipped > 0 {
-		fmt.Fprintf(stderr, "track-fetch-market: skipped %d day(s) without a full price set\n", skipped)
+		fmt.Fprintf(stderr, "track-fetch-jquants: skipped %d day(s) without a full price set\n", skipped)
 	}
 	ent := *entity
 	if ent == "" {
@@ -115,6 +115,6 @@ func run(args []string, stdout, stderr io.Writer) int {
 }
 
 func fail(stderr io.Writer, err error) int {
-	fmt.Fprintf(stderr, "track-fetch-market: %v\n", err)
+	fmt.Fprintf(stderr, "track-fetch-jquants: %v\n", err)
 	return 1
 }

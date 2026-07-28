@@ -53,7 +53,7 @@ own Nix package (`nix build .#track-fetch-<source>`), sharing the module's depen
 
 ## Market data
 
-`track-fetch-market` converts J-Quants daily quotes into `price` records — one daily OHLCV bar per
+`track-fetch-jquants` converts J-Quants daily quotes into `price` records — one daily OHLCV bar per
 line. `--code` selects the issue, `--from`/`--to` bound the range, and `--entity` names the series
 (defaulting to the code). The refresh token is read from `TRACK_JQUANTS_REFRESH_TOKEN` — an
 environment variable, never a flag, so it stays out of shell history — and the tool exchanges it for
