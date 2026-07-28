@@ -11,7 +11,7 @@ import { ThemeMenu } from "./ThemeMenu";
 import { openJournal } from "../api";
 import { useLiveEvents } from "../hooks/useLiveEvents";
 import { useSiteQuery } from "../queries";
-import { STATIC_MODE } from "../runtime";
+import { START_PAGE_ID, STATIC_MODE } from "../runtime";
 import { SearchProvider } from "../searchState";
 
 export function Shell() {
@@ -21,6 +21,10 @@ export function Shell() {
   const isHome = path === "/";
   const isGraph = path === "/graph";
   const isCalendar = path === "/calendar";
+  // Note pages carry their own always-on local graph in the aside; the static "/" renders the
+  // start note, so it counts as one too — but only when a start page exists (without one, static
+  // "/" is the empty state, which should keep the floating graph launcher).
+  const isNote = /^\/notes\/[^/]+$/.test(path) || (STATIC_MODE && isHome && START_PAGE_ID !== "");
   // The live workspace has a heatmap home at "/"; the static site does not — there "/" is the empty state
   // (all tabs closed), so it keeps the normal chrome (sidebar, no home hero, no ambient graph).
   const isLiveHome = isHome && !STATIC_MODE;
@@ -108,9 +112,9 @@ export function Shell() {
             <Outlet />
           </section>
         </div>
-        {/* The live home is a hero screen with no note; the static "/" renders the start note, so it
-            keeps the graph launcher like any other note page. */}
-        {isLiveHome || isGraph || isCalendar ? null : <GraphPanel />}
+        {/* The floating launcher serves the views without a graph of their own (day, tags, search);
+            note pages show the local graph in their aside instead. */}
+        {isLiveHome || isGraph || isCalendar || isNote ? null : <GraphPanel />}
         <FloatingLayer />
       </main>
       </TabsProvider>

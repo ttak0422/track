@@ -824,35 +824,6 @@ button {
   gap: 8px;
 }
 
-.graph-scope {
-  display: flex;
-  gap: 12px;
-}
-
-.graph-scope button {
-  border: 0;
-  padding: 0;
-  color: var(--muted);
-  background: transparent;
-  font-size: calc(12px * var(--font-scale, 1));
-  cursor: pointer;
-}
-
-.graph-scope button:hover:not(:disabled),
-.graph-scope button:focus-visible {
-  color: var(--text);
-}
-
-.graph-scope button[aria-pressed="true"] {
-  color: var(--text);
-  font-weight: 600;
-}
-
-.graph-scope button:disabled {
-  cursor: default;
-  opacity: 0.5;
-}
-
 .graph-reset {
   display: grid;
   place-items: center;
@@ -1032,6 +1003,19 @@ a.calendar-title:focus-visible {
      A hard height (not min-height) lets .note-preview shrink and scroll internally before the whole
      article would otherwise grow past this box and force the outer .reader to scroll instead. */
   height: 100%;
+  flex-direction: column;
+  gap: 18px;
+}
+
+/* The note's own content (breadcrumbs, tags, props, body) as one flex item, so the aside can sit
+   beside it as a rail on a wide viewport (see the .note-aside rail rules). Reproduces what its
+   children saw as direct .note-reader children: the same 18px rhythm, and flex: 1 so the editor
+   form still fills the reader's bound height. */
+.note-main {
+  display: flex;
+  min-width: 0;
+  min-height: 0;
+  flex: 1;
   flex-direction: column;
   gap: 18px;
 }
@@ -2923,6 +2907,69 @@ textarea.modal-input:focus-visible {
 .note-aside .backlink:hover {
   color: var(--accent-strong);
   text-decoration: underline;
+}
+
+/* The aside's local graph: a fixed-height flex box the canvas fills (GraphCanvas sizes itself to
+   its container via ResizeObserver). */
+.aside-graph {
+  display: flex;
+  height: 220px;
+}
+
+/* Unlike the opt-in floating panel, this canvas sits in the page's scroll flow, so a flick that
+   starts on it must still scroll the page on touch (the published site is the main mobile surface).
+   pan-y hands vertical gestures to the browser; the trade is that touch node-drags only work
+   sideways here — fine for a secondary surface. */
+.aside-graph .graph-canvas {
+  touch-action: pan-y;
+}
+
+.aside-graph-head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+}
+
+.note-aside::-webkit-scrollbar {
+  display: none;
+}
+
+/* Put the aside beside the note instead of under it whenever the viewport holds both: the reader
+   becomes a row of note column + 300px rail, centered together, and the note column gives up width
+   before the rail does — so the rail shows on an ordinary laptop, not only when the centered
+   column's margin happens to hold one. Reading surfaces only: :has(.note-editor textarea) keeps
+   edit/split stacked (the meta dialog's textarea must not undock the rail), and the live home
+   renders the configured home note in hero chrome, so it stays stacked too. The rail sticks under
+   the tab bar and scrolls its own overflow. The "Full" content width stores none, which calc()
+   cannot digest, so ThemeMenu mirrors it into html[data-content-width] for the uncapped gate. */
+@media (min-width: 1100px) {
+  .workspace:not(.home) .note-reader:not(:has(.note-editor textarea)) {
+    max-width: calc(var(--content-width, 960px) + 332px);
+    flex-direction: row;
+    align-items: flex-start;
+    gap: 32px;
+  }
+
+  html[data-content-width="none"] .workspace:not(.home) .note-reader:not(:has(.note-editor textarea)) {
+    max-width: none;
+  }
+
+  .workspace:not(.home) .note-reader:not(:has(.note-editor textarea)) > .note-aside {
+    position: sticky;
+    top: 32px; /* keep the reader's 32px breathing room when stuck under the tab bar */
+    flex: 0 0 300px;
+    flex-direction: column;
+    flex-wrap: nowrap;
+    max-height: calc(100vh - 65px); /* tab bar (33px) + the 32px sticky offset */
+    overflow-y: auto;
+    padding-bottom: 18px;
+    scrollbar-width: none;
+  }
+
+  .workspace:not(.home) .note-reader:not(:has(.note-editor textarea)) > .note-aside > .backlinks {
+    flex: 0 0 auto;
+    width: 100%;
+  }
 }
 
 .error {

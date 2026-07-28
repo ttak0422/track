@@ -1,6 +1,7 @@
-import { Link, useLocation } from "@tanstack/react-router";
-import { useEffect } from "react";
-import { useAgendaQuery } from "../queries";
+import { Link, useLocation, useNavigate } from "@tanstack/react-router";
+import { useEffect, useState } from "react";
+import { useAgendaQuery, useLocalGraphQuery } from "../queries";
+import { GraphCanvas } from "./GraphCanvasLazy";
 import { WikiLink } from "./preview/WikiLink";
 import type { ExternalRef, FileKind, NoteID, NoteProp, NoteRef, UnavailableVault } from "../types";
 import { split, vaultOf } from "../vaultId";
@@ -68,8 +69,9 @@ export function useScrollToHash(ready: boolean) {
 }
 
 // NoteAside renders a note's backlinks, its hierarchy children (notes whose "up" property points
-// here), and, for a journal, the other notes touched that day. The sections share the reader's
-// width and wrap to a stack when narrow.
+// here), the note's local link graph, and, for a journal, the other notes touched that day. The
+// sections share the reader's width and wrap to a stack when narrow; on a wide viewport CSS lays
+// the whole aside beside the note column as a sticky right rail (see the .note-aside rail rules).
 export function NoteAside({
   backlinks,
   external = [],
@@ -88,6 +90,10 @@ export function NoteAside({
   journalDate: string;
 }) {
   const agendaQuery = useAgendaQuery(journalDate, vaultOf(noteID), { enabled: journalDate !== "" });
+  const graphQuery = useLocalGraphQuery(noteID);
+  const [graphResetToken, setGraphResetToken] = useState(0);
+  const navigate = useNavigate();
+  const graph = graphQuery.data?.graph;
 
   return (
     <div className="note-aside">
@@ -183,6 +189,34 @@ export function NoteAside({
               );
             })()
           )}
+        </section>
+      ) : null}
+
+      {/* The always-on local graph. A lone unlinked node says nothing the note itself doesn't, so
+          the section only appears once the note connects somewhere. */}
+      {graph && graph.nodes.length > 1 ? (
+        <section className="backlinks note-aside-graph" aria-labelledby="graph-heading">
+          <div className="aside-graph-head">
+            <h3 id="graph-heading">Graph</h3>
+            <button
+              className="graph-reset"
+              type="button"
+              aria-label="Reset graph view"
+              title="Reset graph view"
+              onClick={() => setGraphResetToken((token) => token + 1)}
+            >
+              ↺
+            </button>
+          </div>
+          <div className="aside-graph">
+            <GraphCanvas
+              graph={graph}
+              resetToken={graphResetToken}
+              onSelect={(selected) =>
+                void navigate({ to: "/notes/$noteId", params: { noteId: String(selected) } })
+              }
+            />
+          </div>
         </section>
       ) : null}
     </div>

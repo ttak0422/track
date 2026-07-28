@@ -55,11 +55,15 @@ export function ThemeMenu() {
     if (contentWidth === defaultContentWidth) {
       localStorage.removeItem(contentWidthKey);
       document.documentElement.style.removeProperty("--content-width");
+      delete document.documentElement.dataset.contentWidth;
       return;
     }
 
     localStorage.setItem(contentWidthKey, contentWidth);
     document.documentElement.style.setProperty("--content-width", contentWidth);
+    // The "Full" setting stores none, which the aside rail's calc() cap cannot digest, so mirror
+    // non-default widths into an attribute its rules can match (see .note-aside in styles.css).
+    document.documentElement.dataset.contentWidth = contentWidth;
   }, [contentWidth]);
 
   useEffect(() => {
