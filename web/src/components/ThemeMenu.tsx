@@ -61,8 +61,8 @@ export function ThemeMenu() {
 
     localStorage.setItem(contentWidthKey, contentWidth);
     document.documentElement.style.setProperty("--content-width", contentWidth);
-    // Media queries cannot read --content-width, so mirror non-default widths into an attribute
-    // the docked-aside breakpoints can match (see the .note-aside rail rules in styles.css).
+    // The "Full" setting stores none, which the aside rail's calc() cap cannot digest, so mirror
+    // non-default widths into an attribute its rules can match (see .note-aside in styles.css).
     document.documentElement.dataset.contentWidth = contentWidth;
   }, [contentWidth]);
 

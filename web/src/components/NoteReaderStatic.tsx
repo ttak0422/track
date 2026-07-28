@@ -32,7 +32,9 @@ export function NoteReaderStatic({ noteID }: { noteID: NoteID }) {
 
   // A [[Note#^block]] link arrives with the block's element id as the URL hash; scroll to it once
   // the body has rendered.
-  useScrollToHash(!noteQuery.isPending && rendered.data?.markdown !== undefined);
+  useScrollToHash(
+    !noteQuery.isPending && rendered.data?.markdown !== undefined,
+  );
 
   if (noteQuery.isPending) {
     return <LoadingIndicator label="Loading note" />;
@@ -47,23 +49,27 @@ export function NoteReaderStatic({ noteID }: { noteID: NoteID }) {
 
   return (
     <article className="note-reader">
-      <NoteBreadcrumbs trail={data.trail ?? []} />
-      <NoteTags tags={data.note.tags ?? []} />
-      <NoteProperties props={data.note.props ?? []} />
+      <div className="note-main">
+        <NoteBreadcrumbs trail={data.trail ?? []} />
+        <NoteTags tags={data.note.tags ?? []} />
+        <NoteProperties props={data.note.props ?? []} />
 
-      <section className="note-preview" aria-label="Rendered note">
-        {body.trim() !== "" && rendered.data?.markdown === undefined ? (
-          <LoadingIndicator label="Loading note" />
-        ) : (
-          <TaskBoardContext.Provider value={{ noteID, tasks: data.note.tasks }}>
-            <MarkdownView
-              markdown={rendered.data?.markdown ?? ""}
-              kind={data.note.file_kind}
-              includes={data.note.includes}
-            />
-          </TaskBoardContext.Provider>
-        )}
-      </section>
+        <section className="note-preview" aria-label="Rendered note">
+          {body.trim() !== "" && rendered.data?.markdown === undefined ? (
+            <LoadingIndicator label="Loading note" />
+          ) : (
+            <TaskBoardContext.Provider
+              value={{ noteID, tasks: data.note.tasks }}
+            >
+              <MarkdownView
+                markdown={rendered.data?.markdown ?? ""}
+                kind={data.note.file_kind}
+                includes={data.note.includes}
+              />
+            </TaskBoardContext.Provider>
+          )}
+        </section>
+      </div>
 
       <NoteAside
         backlinks={data.backlinks}

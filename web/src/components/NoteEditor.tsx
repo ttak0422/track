@@ -14,7 +14,12 @@ import {
 import { getFollowState, normalizeIDs } from "../api";
 import { NoteMetaDialog } from "./NoteMetaDialog";
 import { NoteActionsMenu } from "./NoteActionsMenu";
-import { useDeleteNoteMutation, useNoteQuery, useRenderQuery, useSaveNoteMutation } from "../queries";
+import {
+  useDeleteNoteMutation,
+  useNoteQuery,
+  useRenderQuery,
+  useSaveNoteMutation,
+} from "../queries";
 import { useTabs } from "./tabs/tabsStore";
 import type { FollowState, NoteID } from "../types";
 import { vaultOf } from "../vaultId";
@@ -36,7 +41,11 @@ export function NoteEditor({ noteID }: NoteEditorProps) {
   const noteQuery = useNoteQuery(noteID, { live: true });
   const saveNote = useSaveNoteMutation(noteID);
   const deleteNote = useDeleteNoteMutation(noteID);
-  const { setTitle: setTabTitle, setDirty: setTabDirty, close: closeTab } = useTabs();
+  const {
+    setTitle: setTabTitle,
+    setDirty: setTabDirty,
+    close: closeTab,
+  } = useTabs();
   const navigate = useNavigate();
   // For a journal, surface the notes worked on that day. The day comes from the journal id (yyyyMMdd).
   const journalDate = journalDateFromNote(noteQuery.data?.note);
@@ -65,7 +74,11 @@ export function NoteEditor({ noteID }: NoteEditorProps) {
   // saves use this etag so a background reload cannot mask a conflicting change. noteID is
   // tracked so switching notes always reloads, even with unsaved edits to the previous note.
   // Initialized to match the seeded body so a cache-warm first render is not falsely "dirty".
-  const loadedRef = useRef({ noteID, body: cachedNote?.body ?? "", etag: cachedNote?.etag ?? "" });
+  const loadedRef = useRef({
+    noteID,
+    body: cachedNote?.body ?? "",
+    etag: cachedNote?.etag ?? "",
+  });
   const noteIDRef = useRef(noteID);
   const editorModeRef = useRef(editorMode);
   const pendingFollowRef = useRef<FollowState | null>(null);
@@ -87,7 +100,8 @@ export function NoteEditor({ noteID }: NoteEditorProps) {
     // the previous one — otherwise the dirty guard below would block the switch entirely), or when
     // the current note changed on disk and the user has no unsaved edits.
     const switchedNote = noteID !== loadedRef.current.noteID;
-    const discardedUnsavedEdit = switchedNote && body !== loadedRef.current.body;
+    const discardedUnsavedEdit =
+      switchedNote && body !== loadedRef.current.body;
     if (switchedNote || body === loadedRef.current.body) {
       loadedRef.current = { noteID, body: incoming.body, etag: incoming.etag };
       setBody(incoming.body);
@@ -101,7 +115,8 @@ export function NoteEditor({ noteID }: NoteEditorProps) {
 
   useBlocker({
     shouldBlockFn: ({ current, next }) => {
-      if (deletedRef.current || !dirty || current.pathname === next.pathname) return false;
+      if (deletedRef.current || !dirty || current.pathname === next.pathname)
+        return false;
       return !window.confirm(unsavedChangesMessage);
     },
     enableBeforeUnload: () => dirty && !deletedRef.current,
@@ -124,7 +139,9 @@ export function NoteEditor({ noteID }: NoteEditorProps) {
 
   // A [[Note#^block]] link arrives with the block's element id as the URL hash; scroll the preview
   // to it once the rendered body is in the DOM.
-  useScrollToHash(!noteQuery.isPending && renderQuery.data?.markdown !== undefined);
+  useScrollToHash(
+    !noteQuery.isPending && renderQuery.data?.markdown !== undefined,
+  );
 
   useEffect(() => {
     if (!followEnabled || typeof EventSource === "undefined") return;
@@ -162,12 +179,22 @@ export function NoteEditor({ noteID }: NoteEditorProps) {
     if (state && state.note_id === noteID) {
       window.requestAnimationFrame(() => scrollToFollowState(state));
     }
-  }, [body, editorMode, followEnabled, noteID, noteQuery.isPending, renderQuery.data?.markdown]);
+  }, [
+    body,
+    editorMode,
+    followEnabled,
+    noteID,
+    noteQuery.isPending,
+    renderQuery.data?.markdown,
+  ]);
 
   function applyFollowState(state: FollowState) {
     pendingFollowRef.current = state;
     if (state.note_id !== noteIDRef.current) {
-      void navigate({ to: "/notes/$noteId", params: { noteId: String(state.note_id) } });
+      void navigate({
+        to: "/notes/$noteId",
+        params: { noteId: String(state.note_id) },
+      });
       return;
     }
     window.requestAnimationFrame(() => scrollToFollowState(state));
@@ -241,7 +268,10 @@ export function NoteEditor({ noteID }: NoteEditorProps) {
     event.preventDefault();
     if (!dirty || saveNote.isPending) return;
     try {
-      const response = await saveNote.mutateAsync({ body, etag: loadedRef.current.etag });
+      const response = await saveNote.mutateAsync({
+        body,
+        etag: loadedRef.current.etag,
+      });
       loadedRef.current = { noteID, body, etag: response.etag };
     } catch {
       // Conflict/errors surface via saveNote.isError below.
@@ -265,41 +295,49 @@ export function NoteEditor({ noteID }: NoteEditorProps) {
   }
 
   return (
-    <article className={`note-reader${editorMode === "split" ? " note-reader-split" : ""}`}>
+    <article
+      className={`note-reader${editorMode === "split" ? " note-reader-split" : ""}`}
+    >
       {/* Note controls float over the reader as a graph-style overlay, not in the header bar. */}
       <div className="note-float-controls">
-          <button
-            className={`follow-toggle${followEnabled ? " active" : ""}`}
-            type="button"
-            aria-pressed={followEnabled}
-            onClick={() => setFollowEnabled((value) => !value)}
-          >
-            Follow
-          </button>
-          <div className="mode-switch" role="group" aria-label="Markdown display mode">
-            {editorModes.map((mode) => (
-              <button
-                aria-pressed={editorMode === mode}
-                key={mode}
-                type="button"
-                onClick={() => setEditorMode(mode)}
-              >
-                {modeLabel(mode)}
-              </button>
-            ))}
-          </div>
-          <NoteActionsMenu
-            body={body}
-            onMeta={() => setMetaOpen(true)}
-            onDelete={() => {
-              setDeleteConfirmText("");
-              deleteNote.reset();
-              setConfirmDeleteOpen(true);
-            }}
-          />
+        <button
+          className={`follow-toggle${followEnabled ? " active" : ""}`}
+          type="button"
+          aria-pressed={followEnabled}
+          onClick={() => setFollowEnabled((value) => !value)}
+        >
+          Follow
+        </button>
+        <div
+          className="mode-switch"
+          role="group"
+          aria-label="Markdown display mode"
+        >
+          {editorModes.map((mode) => (
+            <button
+              aria-pressed={editorMode === mode}
+              key={mode}
+              type="button"
+              onClick={() => setEditorMode(mode)}
+            >
+              {modeLabel(mode)}
+            </button>
+          ))}
         </div>
+        <NoteActionsMenu
+          body={body}
+          onMeta={() => setMetaOpen(true)}
+          onDelete={() => {
+            setDeleteConfirmText("");
+            deleteNote.reset();
+            setConfirmDeleteOpen(true);
+          }}
+        />
+      </div>
 
-      {metaOpen ? <NoteMetaDialog noteID={noteID} onClose={() => setMetaOpen(false)} /> : null}
+      {metaOpen ? (
+        <NoteMetaDialog noteID={noteID} onClose={() => setMetaOpen(false)} />
+      ) : null}
 
       {confirmDeleteOpen ? (
         <div
@@ -310,10 +348,14 @@ export function NoteEditor({ noteID }: NoteEditorProps) {
           onClick={() => setConfirmDeleteOpen(false)}
         >
           {/* Stop backdrop clicks inside the card from dismissing the dialog. */}
-          <div className="modal-card" onClick={(event) => event.stopPropagation()}>
+          <div
+            className="modal-card"
+            onClick={(event) => event.stopPropagation()}
+          >
             <h3 id="delete-note-title">Delete note</h3>
             <p>
-              This permanently deletes <strong>{note.title}</strong> and cannot be undone.
+              This permanently deletes <strong>{note.title}</strong> and cannot
+              be undone.
             </p>
             <label className="modal-field">
               <span className="muted">Type the note title to confirm:</span>
@@ -322,14 +364,19 @@ export function NoteEditor({ noteID }: NoteEditorProps) {
                 value={deleteConfirmText}
                 /* eslint-disable-next-line jsx-a11y/no-autofocus */
                 autoFocus
-                onChange={(event) => setDeleteConfirmText(event.currentTarget.value)}
+                onChange={(event) =>
+                  setDeleteConfirmText(event.currentTarget.value)
+                }
                 onKeyDown={(event) => {
-                  if (event.key === "Enter" && deleteConfirmed) void confirmDelete();
+                  if (event.key === "Enter" && deleteConfirmed)
+                    void confirmDelete();
                   if (event.key === "Escape") setConfirmDeleteOpen(false);
                 }}
               />
             </label>
-            {deleteNote.isError ? <p className="error">{deleteNote.error.message}</p> : null}
+            {deleteNote.isError ? (
+              <p className="error">{deleteNote.error.message}</p>
+            ) : null}
             <div className="modal-actions">
               <button type="button" onClick={() => setConfirmDeleteOpen(false)}>
                 Cancel
@@ -346,62 +393,81 @@ export function NoteEditor({ noteID }: NoteEditorProps) {
           </div>
         </div>
       ) : null}
-      <NoteBreadcrumbs trail={data.trail ?? []} />
-      <NoteTags tags={tags} />
-      {/* Properties are read-only here: sidecar values are edited via `track meta --set`, inline
+      <div className="note-main">
+        <NoteBreadcrumbs trail={data.trail ?? []} />
+        <NoteTags tags={tags} />
+        {/* Properties are read-only here: sidecar values are edited via `track meta --set`, inline
           fields by editing the body itself. */}
-      <NoteProperties props={data.note.props ?? []} />
+        <NoteProperties props={data.note.props ?? []} />
 
-      <form className="note-editor" onSubmit={submit}>
-        <div className={`editor-grid editor-grid-${editorMode}`}>
-          {editorMode !== "preview" ? (
-            <textarea
-              aria-label="Note body"
-              ref={textareaRef}
-              value={body}
-              onChange={(event) => {
-                setBody(event.currentTarget.value);
-                revealTextareaCaret(event.currentTarget);
-              }}
-              onClick={(event) => revealTextareaCaret(event.currentTarget)}
-              onKeyUp={(event) => revealTextareaCaret(event.currentTarget)}
-              onSelect={(event) => revealTextareaCaret(event.currentTarget)}
-            />
-          ) : null}
-          {editorMode !== "edit" ? (
-            <section className="note-preview" ref={previewRef} aria-label="Rendered note preview">
-              {/* A non-empty body with no render yet is still loading — show a spinner rather than let
-                  MarkdownView flash "Empty note." for a body that is not actually empty. */}
-              {body.trim() !== "" && renderQuery.data?.markdown === undefined ? (
-                <LoadingIndicator label="Loading note" />
-              ) : (
-                // The board reads the saved note's tasks (line numbers must match the file on disk
-                // for the state-set API), not the live textarea buffer.
-                <TaskBoardContext.Provider value={{ noteID, tasks: note.tasks }}>
-                  <MarkdownView
-                    markdown={renderQuery.data?.markdown ?? ""}
-                    kind={note.file_kind}
-                    vault={noteVault}
-                    includes={renderQuery.data?.includes}
-                  />
-                </TaskBoardContext.Provider>
-              )}
-            </section>
-          ) : null}
-        </div>
-        {editorMode !== "preview" ? (
-          <div className="editor-actions">
-            {dirty && changedOnDisk ? (
-              <p className="error">This note changed on disk while you were editing.</p>
+        <form className="note-editor" onSubmit={submit}>
+          <div className={`editor-grid editor-grid-${editorMode}`}>
+            {editorMode !== "preview" ? (
+              <textarea
+                aria-label="Note body"
+                ref={textareaRef}
+                value={body}
+                onChange={(event) => {
+                  setBody(event.currentTarget.value);
+                  revealTextareaCaret(event.currentTarget);
+                }}
+                onClick={(event) => revealTextareaCaret(event.currentTarget)}
+                onKeyUp={(event) => revealTextareaCaret(event.currentTarget)}
+                onSelect={(event) => revealTextareaCaret(event.currentTarget)}
+              />
             ) : null}
-            {saveNote.isError ? <p className="error">{saveNote.error.message}</p> : null}
-            {saveNote.isSuccess && !dirty ? <p className="muted">Saved.</p> : null}
-            <button className="primary-button" type="submit" disabled={!dirty || saveNote.isPending}>
-              {saveNote.isPending ? "Saving..." : "Save"}
-            </button>
+            {editorMode !== "edit" ? (
+              <section
+                className="note-preview"
+                ref={previewRef}
+                aria-label="Rendered note preview"
+              >
+                {/* A non-empty body with no render yet is still loading — show a spinner rather than let
+                  MarkdownView flash "Empty note." for a body that is not actually empty. */}
+                {body.trim() !== "" &&
+                renderQuery.data?.markdown === undefined ? (
+                  <LoadingIndicator label="Loading note" />
+                ) : (
+                  // The board reads the saved note's tasks (line numbers must match the file on disk
+                  // for the state-set API), not the live textarea buffer.
+                  <TaskBoardContext.Provider
+                    value={{ noteID, tasks: note.tasks }}
+                  >
+                    <MarkdownView
+                      markdown={renderQuery.data?.markdown ?? ""}
+                      kind={note.file_kind}
+                      vault={noteVault}
+                      includes={renderQuery.data?.includes}
+                    />
+                  </TaskBoardContext.Provider>
+                )}
+              </section>
+            ) : null}
           </div>
-        ) : null}
-      </form>
+          {editorMode !== "preview" ? (
+            <div className="editor-actions">
+              {dirty && changedOnDisk ? (
+                <p className="error">
+                  This note changed on disk while you were editing.
+                </p>
+              ) : null}
+              {saveNote.isError ? (
+                <p className="error">{saveNote.error.message}</p>
+              ) : null}
+              {saveNote.isSuccess && !dirty ? (
+                <p className="muted">Saved.</p>
+              ) : null}
+              <button
+                className="primary-button"
+                type="submit"
+                disabled={!dirty || saveNote.isPending}
+              >
+                {saveNote.isPending ? "Saving..." : "Save"}
+              </button>
+            </div>
+          ) : null}
+        </form>
+      </div>
 
       <NoteAside
         backlinks={data.backlinks}

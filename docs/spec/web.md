@@ -182,8 +182,9 @@ since that is the path the user recognizes and is usually shorter. This is the
 ## Graph view
 
 A note page always shows the one-hop graph around the open note in its aside,
-next to the backlinks (`GET /api/graph/local`); on a wide enough viewport the
-aside docks as a fixed right rail beside the reading column. Views without a
+next to the backlinks (`GET /api/graph/local`); whenever the viewport holds
+both, the aside sits beside the reading column as a sticky right rail, the
+column giving up width before the rail does. Views without a
 graph of their own (day, tags, search) keep the floating graph panel behind the
 corner launcher, showing the whole vault (`GET /api/graph`). All graph surfaces
 share the same force-directed layout, pan, and zoom.

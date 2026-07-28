@@ -70,8 +70,8 @@ export function useScrollToHash(ready: boolean) {
 
 // NoteAside renders a note's backlinks, its hierarchy children (notes whose "up" property points
 // here), the note's local link graph, and, for a journal, the other notes touched that day. The
-// sections share the reader's width and wrap to a stack when narrow; on a wide viewport CSS docks
-// the whole aside as a fixed right rail beside the note column (see the .note-aside rail rules).
+// sections share the reader's width and wrap to a stack when narrow; on a wide viewport CSS lays
+// the whole aside beside the note column as a sticky right rail (see the .note-aside rail rules).
 export function NoteAside({
   backlinks,
   external = [],
