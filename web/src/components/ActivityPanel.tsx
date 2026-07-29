@@ -2,6 +2,7 @@ import { useNavigate } from "@tanstack/react-router";
 import { useEffect, useRef, useState } from "react";
 import { openJournal } from "../api";
 import { useActivityQuery } from "../queries";
+import { weekAlignedDates } from "./activityDates";
 
 const cellWidth = 9;
 const cellGap = 3;
@@ -12,11 +13,13 @@ interface ActivityPanelProps {
 
 export function ActivityPanel({ variant = "sidebar" }: ActivityPanelProps) {
   const panelRef = useRef<HTMLElement | null>(null);
-  const [visibleDays, setVisibleDays] = useState(28);
+  const [weeks, setWeeks] = useState(4);
   const [hovered, setHovered] = useState<{ date: string; count: number } | null>(null);
-  // Show a window of visibleDays ending today; the activity endpoint takes a generic [since, until] range.
-  const until = dateKey(new Date());
-  const since = dateKey(daysAgo(visibleDays - 1));
+  // The rendered window is week-aligned like GitHub's graph — see weekAlignedDates — and the
+  // activity endpoint takes the same [since, until] range.
+  const dates = weekAlignedDates(new Date(), weeks);
+  const since = dates[0];
+  const until = dates[dates.length - 1];
   const activity = useActivityQuery(since, until);
   const navigate = useNavigate();
   const className = `activity-panel activity-panel-${variant}`;
@@ -44,7 +47,7 @@ export function ActivityPanel({ variant = "sidebar" }: ActivityPanelProps) {
         Number.parseFloat(style.paddingLeft || "0") + Number.parseFloat(style.paddingRight || "0");
       const width = Math.max(1, observedPanel.clientWidth - padding);
       const columns = Math.max(1, Math.floor((width + cellGap) / (cellWidth + cellGap)));
-      setVisibleDays(columns * 7);
+      setWeeks(columns);
     }
 
     updateDays();
@@ -77,7 +80,6 @@ export function ActivityPanel({ variant = "sidebar" }: ActivityPanelProps) {
 
   const summary = activity.data.activity;
   const counts = new Map(summary.counts.map((day) => [day.date, day.count]));
-  const dates = recentDates(since, visibleDays);
 
   return (
     <section className={className} aria-labelledby="activity-heading" ref={panelRef}>
@@ -91,7 +93,7 @@ export function ActivityPanel({ variant = "sidebar" }: ActivityPanelProps) {
           <p>{summary.total} updates</p>
         </div>
       )}
-      <div className="activity-grid" aria-label={`Recent ${visibleDays} day activity`}>
+      <div className="activity-grid" aria-label={`Recent ${dates.length} day activity`}>
         {dates.map((date) => {
           const count = counts.get(date) ?? 0;
           // A day with activity has a journal (ensured when its notes were created/edited), so the cell
@@ -128,33 +130,6 @@ export function ActivityPanel({ variant = "sidebar" }: ActivityPanelProps) {
       ) : null}
     </section>
   );
-}
-
-function daysAgo(days: number): Date {
-  const date = new Date();
-  date.setDate(date.getDate() - days);
-  return date;
-}
-
-function recentDates(startDate: string, days: number): string[] {
-  const start = parseLocalDate(startDate);
-  return Array.from({ length: days }, (_, offset) => {
-    const date = new Date(start);
-    date.setDate(start.getDate() + offset);
-    return dateKey(date);
-  });
-}
-
-function parseLocalDate(value: string): Date {
-  const [year, month, day] = value.split("-").map(Number);
-  return new Date(year, month - 1, day);
-}
-
-function dateKey(date: Date): string {
-  const year = date.getFullYear();
-  const month = String(date.getMonth() + 1).padStart(2, "0");
-  const day = String(date.getDate()).padStart(2, "0");
-  return `${year}-${month}-${day}`;
 }
 
 function activityLevel(count: number): number {
