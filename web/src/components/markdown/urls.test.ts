@@ -3,11 +3,11 @@ import {
   assetHref,
   googleMapsEmbedUrl,
   hostOf,
+  isBinaryText,
   isHtmlHref,
   isImageHref,
   isMermaidHref,
   isPdfHref,
-  isTextAssetHref,
   noteCandidateFromHref,
   safeFrameUrl,
   textAssetLang,
@@ -136,13 +136,15 @@ describe("text-file asset embeds", () => {
     expect(isMermaidHref("assets/CHART.MERMAID?x=1")).toBe(true);
     expect(isMermaidHref("assets/chart.txt")).toBe(false);
   });
-  it("maps text extensions to a render language, mermaid included", () => {
+  it("maps every extension to a render language — aliases translated, the rest passed through", () => {
     expect(textAssetLang("assets/chart.mmd")).toBe("mermaid");
     expect(textAssetLang("assets/flow.d2")).toBe("d2");
     expect(textAssetLang("assets/notes.txt")).toBe("");
     expect(textAssetLang("assets/data.json")).toBe("json");
     expect(textAssetLang("assets/run.sh")).toBe("bash");
-    expect(textAssetLang("assets/photo.png")).toBeNull();
+    // No whitelist: an unmapped extension is its own language, no extension is plain text.
+    expect(textAssetLang("assets/main.go")).toBe("go");
+    expect(textAssetLang("assets/Makefile")).toBe("");
   });
   it("matches .html/.htm as HTML documents", () => {
     expect(isHtmlHref("assets/widget.html")).toBe(true);
@@ -152,11 +154,10 @@ describe("text-file asset embeds", () => {
     expect(isHtmlHref("assets/notes.txt")).toBe(false);
     expect(isHtmlHref("assets/htmlnotes.md")).toBe(false);
   });
-  it("treats only mapped text extensions as inline text assets", () => {
-    expect(isTextAssetHref("assets/chart.mmd")).toBe(true);
-    expect(isTextAssetHref("assets/notes.txt")).toBe(true);
-    expect(isTextAssetHref("assets/photo.png")).toBe(false);
-    expect(isTextAssetHref("assets/doc.pdf")).toBe(false);
+  it("sniffs binary content so a binary attachment degrades to a link", () => {
+    expect(isBinaryText("plain text\nwith lines\tand tabs\n")).toBe(false);
+    expect(isBinaryText("PK\u0003\u0004zip header")).toBe(true);
+    expect(isBinaryText("\u0000")).toBe(true);
   });
 });
 
