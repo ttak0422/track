@@ -10,7 +10,7 @@ import {
 } from "d3-force";
 import { PointerEvent, useEffect, useRef, useState } from "react";
 import type { Graph, GraphEdge, GraphNode, NoteID } from "../types";
-import { isZoomWheel } from "./graphWheel";
+import { isZoomWheel, zoomDelta } from "./graphWheel";
 
 export interface GraphCanvasProps {
   graph: Graph;
@@ -27,6 +27,9 @@ export interface GraphCanvasProps {
   highlightIds?: ReadonlySet<NoteID> | null;
   // When set, the automatic initial/reset view follows this node instead of fitting the whole graph.
   focusNodeID?: NoteID;
+  // The graph sits inside a scrollable page (the note aside): only ctrl+wheel (pinch) or shift+wheel
+  // zooms, and a plain wheel is left to scroll the page instead of being guessed at.
+  wheelZoomNeedsModifier?: boolean;
 }
 
 interface SimNode extends GraphNode, SimulationNodeDatum {
@@ -77,6 +80,7 @@ export function GraphCanvas({
   onHover,
   resetToken,
   decorative = false,
+  wheelZoomNeedsModifier = false,
   highlightIds = null,
   focusNodeID,
 }: GraphCanvasProps) {
@@ -607,12 +611,12 @@ export function GraphCanvas({
     const canvas = canvasRef.current;
     if (!canvas) return;
     const wheel = (event: globalThis.WheelEvent) => {
-      if (!isZoomWheel(event)) return;
+      if (!isZoomWheel(event, wheelZoomNeedsModifier)) return;
       event.preventDefault();
       const rect = canvas.getBoundingClientRect();
       const point = { x: event.clientX - rect.left, y: event.clientY - rect.top };
       const before = worldPoint(point);
-      const factor = Math.exp(-event.deltaY * 0.001);
+      const factor = Math.exp(-zoomDelta(event) * 0.001);
       const scale = clamp(viewRef.current.scale * factor, 0.015, 4);
       viewRef.current = {
         x: point.x - size.width / 2 - before.x * scale,

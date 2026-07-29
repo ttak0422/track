@@ -212,6 +212,7 @@ export function NoteAside({
             <GraphCanvas
               graph={graph}
               resetToken={graphResetToken}
+              wheelZoomNeedsModifier
               onSelect={(selected) =>
                 void navigate({ to: "/notes/$noteId", params: { noteId: String(selected) } })
               }
