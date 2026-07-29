@@ -2221,6 +2221,17 @@ textarea.modal-input:focus-visible {
   background: var(--panel);
 }
 
+/* draw.io renders through its own live viewer (no shared SVG frame), so it only borrows the
+   diagram card treatment; the viewer manages the diagram's size inside it. */
+.drawio-diagram {
+  margin: 1em 0;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-lg);
+  padding: 14px;
+  overflow-x: auto;
+  background: var(--panel);
+}
+
 .mermaid-viewport {
   overflow: hidden;
   cursor: grab;
