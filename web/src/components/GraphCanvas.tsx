@@ -27,9 +27,6 @@ export interface GraphCanvasProps {
   highlightIds?: ReadonlySet<NoteID> | null;
   // When set, the automatic initial/reset view follows this node instead of fitting the whole graph.
   focusNodeID?: NoteID;
-  // The graph sits inside a scrollable page (the note aside): only ctrl+wheel (pinch) or shift+wheel
-  // zooms, and a plain wheel is left to scroll the page instead of being guessed at.
-  wheelZoomNeedsModifier?: boolean;
 }
 
 interface SimNode extends GraphNode, SimulationNodeDatum {
@@ -80,7 +77,6 @@ export function GraphCanvas({
   onHover,
   resetToken,
   decorative = false,
-  wheelZoomNeedsModifier = false,
   highlightIds = null,
   focusNodeID,
 }: GraphCanvasProps) {
@@ -603,15 +599,15 @@ export function GraphCanvas({
     }
   }
 
-  // A mouse wheel and a trackpad pinch both zoom the graph; a trackpad two-finger scroll is left to
-  // scroll the page (see isZoomWheel for how the three are told apart). Registered natively because
-  // React attaches onWheel passively (React 17+), where preventDefault() is ignored — the zoom would
+  // The graph zooms only on ctrl+wheel (trackpad pinch) or shift+wheel; a bare wheel is left to
+  // scroll whatever is under the cursor (see graphWheel.ts). Registered natively because React
+  // attaches onWheel passively (React 17+), where preventDefault() is ignored — the zoom would
   // also scroll the note aside/page under the cursor, and a pinch would browser-zoom the whole page.
   useEffect(() => {
     const canvas = canvasRef.current;
     if (!canvas) return;
     const wheel = (event: globalThis.WheelEvent) => {
-      if (!isZoomWheel(event, wheelZoomNeedsModifier)) return;
+      if (!isZoomWheel(event)) return;
       event.preventDefault();
       const rect = canvas.getBoundingClientRect();
       const point = { x: event.clientX - rect.left, y: event.clientY - rect.top };
