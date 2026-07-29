@@ -34,6 +34,12 @@ func Do(cfg *config.Config, s *store.Store, noteID int64, to string) (Result, er
 	if oldTitle == to {
 		return res, nil
 	}
+	// A journal's title is its date, derived mechanically — that constraint is the point of
+	// journals, so the shared rename path refuses them for CLI and web alike. (The web meta form
+	// already disables the field; this is the enforcement behind it.)
+	if _, err := os.Stat(cfg.PathForKind(config.KindJournal, noteID)); err == nil {
+		return Result{}, fmt.Errorf("note %d is a journal; its title is its date and cannot be renamed", noteID)
+	}
 	if ref, ok, err := s.ResolveTerm(to); err != nil {
 		return Result{}, fmt.Errorf("resolve: %w", err)
 	} else if ok && ref.NoteID != noteID {

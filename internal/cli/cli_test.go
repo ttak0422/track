@@ -1411,6 +1411,20 @@ func TestRenameRejectsDuplicateTitle(t *testing.T) {
 	}
 }
 
+func TestRenameRejectsJournal(t *testing.T) {
+	vault := t.TempDir()
+	created, code := runIn(t, vault, "journal", "--offset", "0")
+	if code != 0 {
+		t.Fatalf("journal failed: %v", created)
+	}
+	id := strconv.FormatInt(int64(created["id"].(float64)), 10)
+
+	out, code := runIn(t, vault, "rename", "--id", id, "--to", "Renamed journal")
+	if code != 1 || !strings.Contains(out["error"].(string), "journal") {
+		t.Fatalf("expected journal rename refusal, code=%d out=%v", code, out)
+	}
+}
+
 func TestRenameNoOp(t *testing.T) {
 	vault := t.TempDir()
 	runIn(t, vault, "new", "--title", "Old", "--id", "100")

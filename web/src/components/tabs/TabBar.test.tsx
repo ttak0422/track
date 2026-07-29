@@ -18,15 +18,21 @@ function FloatingCount() {
   return <output data-testid="floating-count">{windows.length}</output>;
 }
 
-function renderStrip() {
-  return render(
+// A fresh element each call: rerendering an identical element reference lets React skip the
+// subtree, which would hide route changes from the strip.
+function strip() {
+  return (
     <FloatingProvider>
       <TabsProvider>
         <TabBar />
         <FloatingCount />
       </TabsProvider>
-    </FloatingProvider>,
+    </FloatingProvider>
   );
+}
+
+function renderStrip() {
+  return render(strip());
 }
 
 describe("TabBar", () => {
@@ -44,6 +50,14 @@ describe("TabBar", () => {
     expect(screen.getByTestId("floating-count")).toHaveTextContent("0");
     fireEvent.click(float);
     expect(screen.getByTestId("floating-count")).toHaveTextContent("1");
+  });
+
+  it("keeps the float button on every note tab, not just the active one", () => {
+    const view = renderStrip();
+    routerMock.pathname = "/notes/b2";
+    view.rerender(strip());
+    expect(screen.getAllByRole("listitem")).toHaveLength(2);
+    expect(screen.getAllByRole("button", { name: "Float this note" })).toHaveLength(2);
   });
 
   it("offers no float button on a view tab, which has no note to float", () => {

@@ -259,6 +259,20 @@ func TestMarkdownTable(t *testing.T) {
 	}
 }
 
+func TestMarkdownTableEscapesPipedTitle(t *testing.T) {
+	res := Result{
+		Columns: []string{"title"},
+		Rows:    []Row{{Title: "A | B", Cells: []string{"A | B"}}},
+	}
+	md := Markdown(res)
+	// The escaped plain cell stays: raw it would split the table, and a piped title cannot be a
+	// wiki link (the pipe reads as the alias separator).
+	want := "| title |\n| --- |\n| A \\| B |"
+	if md != want {
+		t.Fatalf("markdown = %q, want %q", md, want)
+	}
+}
+
 func TestExpandBlocks(t *testing.T) {
 	body := "before\n\n```track-query\nTABLE title WHERE #urgent\n```\n\nafter"
 	got := ExpandBlocks(body, nil, testRows(), nil)

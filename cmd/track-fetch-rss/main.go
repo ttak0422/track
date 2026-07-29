@@ -14,12 +14,15 @@ package main
 
 import (
 	"encoding/json"
+	"errors"
 	"flag"
 	"fmt"
 	"io"
+	"net"
 	"net/http"
 	"os"
 	"strings"
+	"syscall"
 	"time"
 
 	"github.com/ttak0422/track/internal/fetch/rss"
@@ -99,13 +102,12 @@ func open(source string, timeout time.Duration) (io.ReadCloser, error) {
 	if !strings.HasPrefix(source, "http://") && !strings.HasPrefix(source, "https://") {
 		return os.Open(source)
 	}
-	client := &http.Client{Timeout: timeout}
 	req, err := http.NewRequest(http.MethodGet, source, nil)
 	if err != nil {
 		return nil, err
 	}
 	req.Header.Set("User-Agent", "track-fetch-rss/0.1")
-	resp, err := client.Do(req)
+	resp, err := newGuardedClient(timeout).Do(req)
 	if err != nil {
 		return nil, err
 	}
@@ -113,8 +115,57 @@ func open(source string, timeout time.Duration) (io.ReadCloser, error) {
 		resp.Body.Close()
 		return nil, fmt.Errorf("fetch %s: HTTP %s", source, resp.Status)
 	}
-	return resp.Body, nil
+	// The cap keeps a hostile or misconfigured endpoint from streaming without bound; 20MB is far
+	// beyond any real feed.
+	return struct {
+		io.Reader
+		io.Closer
+	}{io.LimitReader(resp.Body, 20<<20), resp.Body}, nil
 }
+
+// newGuardedClient is the SSRF-guarded HTTP client, mirroring track-fetch-web (fetch tools stay
+// independent of the engine — docs/spec/fetch.md — hence the local copy): the dial control sees the
+// resolved ip:port, so it catches both direct private targets and DNS names (including redirect
+// hops) that resolve to private addresses. A feed served on the local network (e.g. a self-hosted
+// aggregator) can still be ingested by saving it to a file and passing the path.
+func newGuardedClient(timeout time.Duration) *http.Client {
+	dialer := &net.Dialer{
+		Timeout: 5 * time.Second,
+		Control: func(_, address string, _ syscall.RawConn) error {
+			host, _, err := net.SplitHostPort(address)
+			if err != nil {
+				return err
+			}
+			ip := net.ParseIP(host)
+			if ip == nil {
+				return fmt.Errorf("unresolved address %q", address)
+			}
+			if ip.IsLoopback() || ip.IsPrivate() || ip.IsUnspecified() ||
+				ip.IsLinkLocalUnicast() || ip.IsLinkLocalMulticast() || ip.IsMulticast() ||
+				cgnat.Contains(ip) {
+				return fmt.Errorf("refusing to fetch non-public address %s", host)
+			}
+			return nil
+		},
+	}
+	return &http.Client{
+		Timeout:   timeout,
+		Transport: &http.Transport{DialContext: dialer.DialContext},
+		CheckRedirect: func(_ *http.Request, via []*http.Request) error {
+			if len(via) >= 5 {
+				return errors.New("too many redirects")
+			}
+			return nil
+		},
+	}
+}
+
+// cgnat is the carrier-grade NAT range (RFC 6598), which net.IP.IsPrivate does not cover but is
+// just as internal as RFC 1918 space.
+var cgnat = func() *net.IPNet {
+	_, n, _ := net.ParseCIDR("100.64.0.0/10")
+	return n
+}()
 
 func fail(stderr io.Writer, err error) int {
 	fmt.Fprintf(stderr, "track-fetch-rss: %v\n", err)

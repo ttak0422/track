@@ -15,9 +15,9 @@ import {
   isEChartsHref,
   isHtmlHref,
   isImageHref,
+  isBinaryText,
   isMermaidHref,
   isPdfHref,
-  isTextAssetHref,
   safeFrameUrl,
   textAssetLang,
   tweetIdFromUrl,
@@ -110,10 +110,11 @@ export function Embed({ src, alt, height }: EmbedProps) {
     }
   }
 
-  // A text-file attachment (a mermaid diagram source, or any plain-text file) is fetched and rendered
-  // inline rather than handed to <img>, which would only show a broken image. This stays asset-only so a
+  // A text-file attachment (a mermaid diagram source, or any text file — no extension whitelist) is
+  // fetched and rendered inline rather than handed to <img>, which would only show a broken image.
+  // Binary content is sniffed after the fetch and degrades to a link. This stays asset-only so a
   // remote text URL is still treated as an ordinary link/OGP card.
-  if (asset && isTextAssetHref(src)) {
+  if (asset && !isImageHref(src)) {
     // A resolved-chart asset renders the same interactive block a fenced ```echarts chart does, so the
     // media hover-preview/float chrome would only pop up a duplicate of it; render it bare like the fence.
     if (isEChartsHref(src)) {
@@ -158,7 +159,9 @@ function TextAssetEmbed({ href, src, alt }: TextAssetEmbedProps) {
   if (text.isLoading) {
     return <div className="embed text-asset text-asset-loading">Loading…</div>;
   }
-  if (text.isError || text.data === undefined) {
+  // A failed fetch and binary content both degrade to a plain link, so the embed is never a dead
+  // end and a binary attachment never dumps mojibake into the note.
+  if (text.isError || text.data === undefined || isBinaryText(text.data)) {
     return (
       <a className="embed md-link text-asset-fallback" href={href} target="_blank" rel="noreferrer noopener">
         {alt || src}
@@ -179,7 +182,7 @@ function TextAssetEmbed({ href, src, alt }: TextAssetEmbedProps) {
   if (isEChartsHref(src)) {
     return <EChartsFence text={text.data} />;
   }
-  return <CodeBlock lang={textAssetLang(src) ?? ""} text={text.data} />;
+  return <CodeBlock lang={textAssetLang(src)} text={text.data} />;
 }
 
 interface TweetEmbedProps {

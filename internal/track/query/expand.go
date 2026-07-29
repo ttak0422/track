@@ -98,7 +98,9 @@ func Markdown(res Result) string {
 	for _, row := range res.Rows {
 		cells := escapeCells(row.Cells)
 		for i, col := range res.Columns {
-			if col == "title" && row.Title != "" {
+			// A title carrying a pipe keeps its escaped plain cell: raw it would split the table,
+			// and inside [[…]] a pipe reads as the alias separator, so it cannot be a wiki link.
+			if col == "title" && row.Title != "" && !strings.Contains(row.Title, "|") {
 				cells[i] = "[[" + row.Title + "]]"
 			}
 		}

@@ -205,46 +205,42 @@ export function isEChartsHref(src: string): boolean {
   return /\.echarts\.json$/i.test(path.trim());
 }
 
-// textAssetLangs maps a text-file asset extension to how its embed should render: "mermaid" renders a
-// diagram, every other entry is a CodeBlock language ("" means plain text, shown without highlighting).
+// textAssetLangs maps the asset extensions whose embeds render as something other than themselves:
+// "mermaid"/"dot"/"d2"/"plantuml" render diagrams, and the rest alias an extension to the CodeBlock
+// language highlighters know it by ("" means plain text).
 const textAssetLangs: Record<string, string> = {
   mmd: "mermaid",
   mermaid: "mermaid",
   txt: "",
   text: "",
   log: "",
-  csv: "csv",
-  tsv: "tsv",
-  json: "json",
-  yaml: "yaml",
-  yml: "yaml",
-  toml: "toml",
-  xml: "xml",
-  ini: "ini",
-  conf: "ini",
   env: "",
+  yml: "yaml",
+  conf: "ini",
   sh: "bash",
   bash: "bash",
   zsh: "bash",
-  dot: "dot",
   gv: "dot",
-  d2: "d2",
   puml: "plantuml",
   plantuml: "plantuml",
 };
 
-// textAssetLang returns the render language for a text-file asset embed, or null when the extension is
-// not one we inline (image/PDF/remote links are handled elsewhere).
-export function textAssetLang(src: string): string | null {
+// textAssetLang returns the render language for a text-file asset embed. Any extension is inlined —
+// there is no whitelist; the mapping above only translates the special cases, and every other
+// extension is handed to CodeBlock as its own language (unknown languages highlight as plain text).
+// A file with no extension is plain text. Binary content is caught after the fetch, by sniffing.
+export function textAssetLang(src: string): string {
   const path = src.split(/[?#]/, 1)[0] ?? "";
   const ext = /\.([a-z0-9]+)$/i.exec(path.trim())?.[1]?.toLowerCase() ?? "";
-  return ext in textAssetLangs ? textAssetLangs[ext] : null;
+  return textAssetLangs[ext] ?? ext;
 }
 
-// isTextAssetHref reports whether src names a text-file asset we render inline (mermaid diagram or code
-// block), as opposed to an image/PDF/remote link handled elsewhere.
-export function isTextAssetHref(src: string): boolean {
-  return textAssetLang(src) !== null;
+// isBinaryText reports whether fetched asset text looks like a binary file that happened to be
+// embedded: control characters that no text file carries. The embed then degrades to a link
+// instead of dumping mojibake — content decides, not the file's extension.
+export function isBinaryText(text: string): boolean {
+  // eslint-disable-next-line no-control-regex
+  return /[\u0000-\u0008\u000B\u000E-\u001F]/.test(text.slice(0, 4096));
 }
 
 // safeFrameUrl returns the URL only when it is safe to load in an iframe: http(s) or a same-origin

@@ -1049,8 +1049,9 @@ a.calendar-title:focus-visible {
   display: flex;
   /* Every tab is the same width, so the close button sits at the same place in every one: closing a
      tab slides its neighbour's × under the pointer and a run of tabs can be dismissed by clicking in
-     place. Tabs never shrink either, so the strip scrolls horizontally once they overflow. */
-  flex: 0 0 220px;
+     place. Tabs never shrink either, so the strip scrolls horizontally once they overflow. The width
+     itself sits in browser-tab territory rather than stretching a short title across a wide slab. */
+  flex: 0 0 160px;
   align-items: center;
   color: var(--muted);
 }

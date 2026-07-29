@@ -133,8 +133,21 @@ func open(source string, timeout time.Duration) (io.ReadCloser, *url.URL, error)
 		return nil, nil, fmt.Errorf("fetch %s: unsupported content type %q (expected HTML)", source, ct)
 	}
 	// resp.Request.URL is the final URL after redirects; relative links resolve against it.
-	return resp.Body, resp.Request.URL, nil
+	// The cap keeps a hostile or misconfigured endpoint from streaming without bound; 20MB is far
+	// beyond any real article page.
+	limited := struct {
+		io.Reader
+		io.Closer
+	}{io.LimitReader(resp.Body, 20<<20), resp.Body}
+	return limited, resp.Request.URL, nil
 }
+
+// cgnat is the carrier-grade NAT range (RFC 6598), which net.IP.IsPrivate does not cover but is
+// just as internal as RFC 1918 space.
+var cgnat = func() *net.IPNet {
+	_, n, _ := net.ParseCIDR("100.64.0.0/10")
+	return n
+}()
 
 // newGuardedClient is the SSRF-guarded HTTP client, mirroring the engine's web-workspace OGP
 // fetcher (internal/track/webui): the dial control sees the resolved ip:port, so it catches both
@@ -154,7 +167,8 @@ func newGuardedClient(timeout time.Duration) *http.Client {
 				return fmt.Errorf("unresolved address %q", address)
 			}
 			if ip.IsLoopback() || ip.IsPrivate() || ip.IsUnspecified() ||
-				ip.IsLinkLocalUnicast() || ip.IsLinkLocalMulticast() || ip.IsMulticast() {
+				ip.IsLinkLocalUnicast() || ip.IsLinkLocalMulticast() || ip.IsMulticast() ||
+				cgnat.Contains(ip) {
 				return fmt.Errorf("refusing to fetch non-public address %s", host)
 			}
 			return nil

@@ -73,7 +73,7 @@ export function TabBar() {
               {vault ? <span className="tab-vault">{vault}</span> : null}
               <span className="tab-title">{label}</span>
             </button>
-            {active && !isViewTab(tab.id) ? <FloatButton noteID={tab.id} /> : null}
+            {!isViewTab(tab.id) ? <FloatButton noteID={tab.id} /> : null}
             <button
               type="button"
               className="tab-close"

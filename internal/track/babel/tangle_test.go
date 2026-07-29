@@ -1,6 +1,8 @@
 package babel
 
 import (
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 )
@@ -102,5 +104,55 @@ func TestResolveTanglePath(t *testing.T) {
 	// The vault directory itself is not a writable file target.
 	if _, err := ResolveTanglePath(noteDir, vault, "/vault"); err == nil {
 		t.Fatalf("vault root should be refused as a file target")
+	}
+
+	// track's own files are off limits: everything under .track/, and the direct children of the
+	// flat note/, journal/, and template/ directories. Subdirectories there are user territory.
+	for _, target := range []string{
+		"/vault/.track/config.yml",
+		"/vault/.track/notes/1.yaml",
+		"1234.md", // resolves to /vault/note/1234.md — a note file
+		"/vault/journal/20260729.md",
+		"/vault/template/daily.md",
+	} {
+		if got, err := ResolveTanglePath(noteDir, vault, target); err == nil {
+			t.Fatalf("target %q should be refused, got %q", target, got)
+		}
+	}
+	if _, err := ResolveTanglePath(noteDir, vault, "/vault/journal/scripts/x.sh"); err != nil {
+		t.Fatalf("subdirectory under journal/ should be allowed: %v", err)
+	}
+}
+
+func TestResolveTanglePathSymlinkEscape(t *testing.T) {
+	root := t.TempDir()
+	vault := filepath.Join(root, "vault")
+	noteDir := filepath.Join(vault, "note")
+	outside := filepath.Join(root, "outside")
+	for _, dir := range []string{noteDir, outside} {
+		if err := os.MkdirAll(dir, 0o755); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := os.Symlink(outside, filepath.Join(vault, "link")); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(outside, "file.sh"), nil, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink(filepath.Join(outside, "file.sh"), filepath.Join(vault, "evil.sh")); err != nil {
+		t.Fatal(err)
+	}
+
+	// A directory symlink and a file symlink both point out of the vault: refused even though the
+	// lexical path sits inside it.
+	for _, target := range []string{"../link/build.sh", "../link/deep/build.sh", "../evil.sh"} {
+		if got, err := ResolveTanglePath(noteDir, vault, target); err == nil {
+			t.Fatalf("target %q should be refused, got %q", target, got)
+		}
+	}
+	// An ordinary vault path still resolves, existing or not.
+	if _, err := ResolveTanglePath(noteDir, vault, "../scripts/build.sh"); err != nil {
+		t.Fatalf("plain vault target: %v", err)
 	}
 }
