@@ -32,8 +32,9 @@ local function result_title(result)
    return result.title or ("#" .. tostring(result.note_id or "?"))
 end
 
--- Fields shared by every entry regardless of scope. lnum seeds the previewer's
--- initial line and is reused by open_selection when jumping into the note.
+-- Fields shared by every entry regardless of scope. lnum is the 1-based line the
+-- grep previewer scrolls to and highlights; nil means no known location, which
+-- leaves the preview at the top of the file. Opening jumps via value.line instead.
 local function base_entry(result, lnum)
    local path = result.path or ""
    return {
@@ -50,7 +51,9 @@ end
 local function make_entry_maker(telescope, scope)
    if scope ~= "body" then
       return function(result)
-         local entry = base_entry(result, 1)
+         -- Title hits carry no matched line, so no lnum: the preview shows the top
+         -- of the note instead of pointlessly highlighting line 1.
+         local entry = base_entry(result, nil)
          entry.display = result_title(result)
          entry.ordinal = entry.display
          return entry
@@ -62,7 +65,9 @@ local function make_entry_maker(telescope, scope)
       items = { { width = 30 }, { remaining = true } },
    })
    return function(result)
-      local line = (result.line and result.line > 0) and result.line or 1
+      -- line can be 0: the CLI's sentinel for "matched, but no single line holds the
+      -- query terms" — treated like a title hit (no jump) rather than faked as line 1.
+      local line = (result.line and result.line > 0) and result.line or nil
       local entry = base_entry(result, line)
       local title = result_title(result)
       local snippet = result.snippet or ""
@@ -204,7 +209,11 @@ local function pick(scope, opts)
          -- that order; generic_sorter would re-rank by fuzzy proximity to the prompt,
          -- demoting frequently-updated notes and dropping non-fuzzy-matching hits.
          sorter = telescope.sorters.empty(),
-         previewer = telescope.conf.file_previewer(picker_opts),
+         -- The grep previewer scrolls the preview to entry.lnum and highlights that
+         -- line (TelescopePreviewLine), so a body hit shows where it matched deep in
+         -- a long note; file_previewer never jumps. Entries without an lnum (title
+         -- scope, the line-0 sentinel) preview from the top as before.
+         previewer = telescope.conf.grep_previewer(picker_opts),
          attach_mappings = function(prompt_bufnr)
             -- <CR> opens the highlighted note, or creates one titled with the prompt when the
             -- search finds nothing. Creation lives on <CR> alone so list navigation never
@@ -249,7 +258,9 @@ function M.backlinks(opts)
                entry_maker = make_backlink_entry(telescope),
             }),
             sorter = telescope.conf.generic_sorter(picker_opts),
-            previewer = telescope.conf.file_previewer(picker_opts),
+            -- Backlink entries know their referencing line; the grep previewer
+            -- scrolls to it and highlights it, like the body-search picker.
+            previewer = telescope.conf.grep_previewer(picker_opts),
             attach_mappings = function(prompt_bufnr)
                telescope.actions.select_default:replace(function()
                   open_selection(telescope, prompt_bufnr)
