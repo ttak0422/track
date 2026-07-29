@@ -69,6 +69,13 @@ func collectAssets(body string) []string {
 // provenance inside spec assets, exactly as resolveViewSpecBlocks does for fenced charts.
 func copyAssets(srcDir, outDir string, rels []string, noteSlug func(string) (string, bool)) (copied, missing []string, err error) {
 	for _, rel := range rels {
+		// The choke point rejects traversal for every rel source (collectAssets applies the same
+		// rule, but a cover image from a hand-edited sidecar arrives unfiltered): an absolute or
+		// ".." rel would read — and publish — a file outside the vault's assets tree.
+		if rel == "" || filepath.IsAbs(rel) || strings.Contains(rel, "..") {
+			missing = append(missing, rel)
+			continue
+		}
 		src := filepath.Join(srcDir, filepath.FromSlash(rel))
 		info, statErr := os.Stat(src)
 		if statErr != nil || info.IsDir() {
