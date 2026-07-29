@@ -1,26 +1,28 @@
 import { describe, expect, it } from "vitest";
-import { isZoomWheel } from "./graphWheel";
+import { isZoomWheel, zoomDelta } from "./graphWheel";
+
+const wheel = { ctrlKey: false, shiftKey: false, deltaX: 0, deltaY: 0 };
 
 describe("isZoomWheel", () => {
   it("zooms on a trackpad pinch (ctrl+wheel)", () => {
-    expect(isZoomWheel({ ctrlKey: true, deltaMode: 0, deltaX: 0, deltaY: 4 })).toBe(true);
+    expect(isZoomWheel({ ...wheel, ctrlKey: true, deltaY: 4 })).toBe(true);
   });
 
-  it("zooms on a line/page-mode mouse wheel", () => {
-    expect(isZoomWheel({ ctrlKey: false, deltaMode: 1, deltaX: 0, deltaY: 3 })).toBe(true);
+  it("zooms on shift+wheel, even as the horizontal delta browsers turn it into", () => {
+    expect(isZoomWheel({ ...wheel, shiftKey: true, deltaY: 8 })).toBe(true);
+    expect(isZoomWheel({ ...wheel, shiftKey: true, deltaX: 120 })).toBe(true);
   });
 
-  it("zooms on a big quantized vertical mouse-wheel notch", () => {
-    expect(isZoomWheel({ ctrlKey: false, deltaMode: 0, deltaX: 0, deltaY: 100 })).toBe(true);
-    expect(isZoomWheel({ ctrlKey: false, deltaMode: 0, deltaX: 0, deltaY: -120 })).toBe(true);
+  it("leaves a bare wheel alone, whatever the device looks like", () => {
+    expect(isZoomWheel({ ...wheel, deltaY: 8 })).toBe(false); // trackpad scroll
+    expect(isZoomWheel({ ...wheel, deltaY: -120 })).toBe(false); // mouse notch
+    expect(isZoomWheel({ ...wheel, deltaX: 4, deltaY: 90 })).toBe(false); // diagonal
   });
+});
 
-  it("leaves a trackpad two-finger scroll to the page", () => {
-    // small vertical
-    expect(isZoomWheel({ ctrlKey: false, deltaMode: 0, deltaX: 0, deltaY: 8 })).toBe(false);
-    // fractional (momentum)
-    expect(isZoomWheel({ ctrlKey: false, deltaMode: 0, deltaX: 0, deltaY: 62.5 })).toBe(false);
-    // diagonal scroll carries a horizontal component
-    expect(isZoomWheel({ ctrlKey: false, deltaMode: 0, deltaX: 4, deltaY: 90 })).toBe(false);
+describe("zoomDelta", () => {
+  it("reads the vertical delta, falling back to the horizontal one shift+wheel produces", () => {
+    expect(zoomDelta({ ...wheel, deltaY: -120 })).toBe(-120);
+    expect(zoomDelta({ ...wheel, shiftKey: true, deltaX: -120 })).toBe(-120);
   });
 });

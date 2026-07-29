@@ -8,9 +8,9 @@ import {
   type SimulationLinkDatum,
   type SimulationNodeDatum,
 } from "d3-force";
-import { PointerEvent, WheelEvent, useEffect, useRef, useState } from "react";
+import { PointerEvent, useEffect, useRef, useState } from "react";
 import type { Graph, GraphEdge, GraphNode, NoteID } from "../types";
-import { isZoomWheel } from "./graphWheel";
+import { isZoomWheel, zoomDelta } from "./graphWheel";
 
 export interface GraphCanvasProps {
   graph: Graph;
@@ -399,7 +399,7 @@ export function GraphCanvas({
     ctx.restore();
   }
 
-  function canvasPoint(event: PointerEvent<HTMLCanvasElement> | WheelEvent<HTMLCanvasElement>): Point {
+  function canvasPoint(event: PointerEvent<HTMLCanvasElement>): Point {
     const rect = event.currentTarget.getBoundingClientRect();
     return {
       x: event.clientX - rect.left,
@@ -599,23 +599,32 @@ export function GraphCanvas({
     }
   }
 
-  function wheel(event: WheelEvent<HTMLCanvasElement>) {
-    // A mouse wheel and a trackpad pinch both zoom the graph; a trackpad two-finger scroll is left to
-    // scroll the page (see isZoomWheel for how the three are told apart).
-    if (!isZoomWheel(event)) return;
-    event.preventDefault();
-    const point = canvasPoint(event);
-    const before = worldPoint(point);
-    const factor = Math.exp(-event.deltaY * 0.001);
-    const scale = clamp(viewRef.current.scale * factor, 0.015, 4);
-    viewRef.current = {
-      x: point.x - size.width / 2 - before.x * scale,
-      y: point.y - size.height / 2 - before.y * scale,
-      scale,
+  // The graph zooms only on ctrl+wheel (trackpad pinch) or shift+wheel; a bare wheel is left to
+  // scroll whatever is under the cursor (see graphWheel.ts). Registered natively because React
+  // attaches onWheel passively (React 17+), where preventDefault() is ignored — the zoom would
+  // also scroll the note aside/page under the cursor, and a pinch would browser-zoom the whole page.
+  useEffect(() => {
+    const canvas = canvasRef.current;
+    if (!canvas) return;
+    const wheel = (event: globalThis.WheelEvent) => {
+      if (!isZoomWheel(event)) return;
+      event.preventDefault();
+      const rect = canvas.getBoundingClientRect();
+      const point = { x: event.clientX - rect.left, y: event.clientY - rect.top };
+      const before = worldPoint(point);
+      const factor = Math.exp(-zoomDelta(event) * 0.001);
+      const scale = clamp(viewRef.current.scale * factor, 0.015, 4);
+      viewRef.current = {
+        x: point.x - size.width / 2 - before.x * scale,
+        y: point.y - size.height / 2 - before.y * scale,
+        scale,
+      };
+      userAdjustedRef.current = true;
+      drawGraph(size);
     };
-    userAdjustedRef.current = true;
-    drawGraph(size);
-  }
+    canvas.addEventListener("wheel", wheel, { passive: false });
+    return () => canvas.removeEventListener("wheel", wheel);
+  });
 
   return (
     <canvas
@@ -626,7 +635,6 @@ export function GraphCanvas({
       onPointerUp={pointerUp}
       onPointerCancel={pointerCancel}
       onPointerLeave={pointerLeave}
-      onWheel={wheel}
     />
   );
 }

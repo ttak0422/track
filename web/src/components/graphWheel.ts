@@ -1,23 +1,21 @@
-// isZoomWheel decides whether a wheel event should zoom the graph or be left to scroll the page.
-//
-// Three sources produce `wheel` events and we want different behaviour for each:
-//   - Trackpad pinch      → zoom  (every engine reports it as ctrl+wheel)
-//   - Physical mouse wheel → zoom  (line/page deltaMode, or big quantized integer vertical steps)
-//   - Trackpad 2-finger scroll → page scroll  (small/fractional pixel deltas, often with deltaX)
-//
-// ponytail: single-event device heuristic — a mouse wheel delivers large, integer, purely-vertical
-// steps while a trackpad delivers small or fractional deltas (frequently with a horizontal component).
-// A fast trackpad flick can occasionally look like a mouse notch; upgrade to tracking event cadence if
-// that misfire ever matters in practice.
+// isZoomWheel: a graph zooms only on an explicit gesture — ctrl+wheel (how every engine reports a
+// trackpad pinch, and what a deliberate ctrl+scroll means) or shift+wheel — and the gesture is the
+// same on every surface: the note aside, the floating panel, and /graph. A bare wheel is always
+// left alone, so over a scrollable page it scrolls the page and never fights the graph. (Guessing
+// the device from a single event — integer notches = mouse wheel = zoom — misread smooth-scrolling
+// mice, whose fractional deltas made a wheel turn zoom and scroll at once.)
 export interface WheelLike {
   ctrlKey: boolean;
-  deltaMode: number;
+  shiftKey: boolean;
   deltaX: number;
   deltaY: number;
 }
 
 export function isZoomWheel(e: WheelLike): boolean {
-  if (e.ctrlKey) return true; // pinch-zoom
-  if (e.deltaMode !== 0) return true; // line/page deltas only come from a mouse wheel (e.g. Firefox)
-  return e.deltaX === 0 && Number.isInteger(e.deltaY) && Math.abs(e.deltaY) >= 50;
+  return e.ctrlKey || e.shiftKey;
+}
+
+// Browsers turn shift+wheel into a horizontal delta, so the zoom step is whichever axis moved.
+export function zoomDelta(e: WheelLike): number {
+  return e.deltaY !== 0 ? e.deltaY : e.deltaX;
 }
