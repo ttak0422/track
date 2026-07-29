@@ -269,11 +269,19 @@ func isHTTPURL(raw string) bool {
 // multicast, and unspecified ranges so OGP fetches cannot reach internal services.
 func isPublicIP(ip net.IP) bool {
 	if ip.IsLoopback() || ip.IsPrivate() || ip.IsUnspecified() ||
-		ip.IsLinkLocalUnicast() || ip.IsLinkLocalMulticast() || ip.IsMulticast() {
+		ip.IsLinkLocalUnicast() || ip.IsLinkLocalMulticast() || ip.IsMulticast() ||
+		cgnat.Contains(ip) {
 		return false
 	}
 	return true
 }
+
+// cgnat is the carrier-grade NAT range (RFC 6598), which net.IP.IsPrivate does not cover but is
+// just as internal as RFC 1918 space.
+var cgnat = func() *net.IPNet {
+	_, n, _ := net.ParseCIDR("100.64.0.0/10")
+	return n
+}()
 
 func firstNonEmpty(values ...string) string {
 	for _, v := range values {
