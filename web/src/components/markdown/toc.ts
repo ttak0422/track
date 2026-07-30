@@ -60,6 +60,13 @@ function headingLabel(text: string): string {
     .trim();
 }
 
+// headingSlug is the id a [[Note#Heading]] link resolves to: the same rule tocEntries applies, so a
+// link and the outline agree. It carries no dedupe counter — a link names a heading by text, and the
+// first heading with that text is the one it means (the engine's anchor resolution says the same).
+export function headingSlug(text: string): string {
+  return slugify(headingLabel(text));
+}
+
 // slugify is the id rule: lowercase, drop everything that is not a letter, number, space or hyphen,
 // then spaces to hyphens. Letters and numbers are matched by Unicode property, so a Japanese heading
 // keeps its text rather than collapsing to an empty id.

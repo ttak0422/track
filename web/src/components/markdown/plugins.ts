@@ -3,7 +3,7 @@ import type { Paragraph, Root as MdastRoot } from "mdast";
 import { visit } from "unist-util-visit";
 import { taskStates } from "../../taskStates";
 import type { TaskState } from "../../types";
-import { headingElementID } from "./toc";
+import { headingElementID, headingSlug } from "./toc";
 
 // The [[target|display]] wiki-link grammar (target, optional |display alias). Shared with the portable
 // export so both flatten the same construct. It carries the /g flag; reset lastIndex before manual exec.
@@ -25,14 +25,23 @@ export function blockElementID(blockID: string): string {
 // mirroring the engine's anchor parsing: "Note#^id" resolves by "Note" and navigates to the block,
 // "Note#Heading" also resolves by "Note" (navigation lands at the note), and a "#" with nothing
 // after it stays part of the key (e.g. "C#").
-export function splitWikiTarget(target: string): { key: string; blockID: string } {
+export function splitWikiTarget(target: string): { key: string; blockID: string; headingID: string } {
   const i = target.indexOf("#");
-  if (i < 0) return { key: target, blockID: "" };
+  if (i < 0) return { key: target, blockID: "", headingID: "" };
   const rest = target.slice(i + 1).trim();
   const block = blockIDPattern.exec(rest);
-  if (block) return { key: target.slice(0, i).trim(), blockID: block[1] };
-  if (rest.replace(/^#+/, "").trim() === "") return { key: target, blockID: "" };
-  return { key: target.slice(0, i).trim(), blockID: "" };
+  if (block) return { key: target.slice(0, i).trim(), blockID: block[1], headingID: "" };
+  if (rest.replace(/^#+/, "").trim() === "") return { key: target, blockID: "", headingID: "" };
+  // A heading anchor resolves by the note key like any other link, and navigates to the heading's
+  // own id — the same id the note's Contents outline links to (see toc.ts). Extra leading "#"s are
+  // the level marker ("Note##Deeper"), which the level-agnostic slug ignores.
+  // ponytail: like the engine's anchor resolution, the first heading with that text wins; a note
+  // holding both "# X" and "## X" lands on the first. Match the level if that ever matters.
+  return {
+    key: target.slice(0, i).trim(),
+    blockID: "",
+    headingID: headingSlug(rest.replace(/^#+/, "").trim()),
+  };
 }
 
 // remarkBlockID strips a trailing "^id" block marker from a paragraph or list item and gives the
