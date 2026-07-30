@@ -79,3 +79,23 @@ func ApplyTaskState(cfg *config.Config, notePath string, line int, state, expect
 	}
 	return tr, nil
 }
+
+// ApplyTaskDate writes a task's scheduled or due date in a note file, the date counterpart of
+// ApplyTaskState: same addressing (path plus 1-based line), same in-place rewrite. No sidecar log
+// entry — the task log records state transitions, and a date is not one. Callers reindex afterwards.
+func ApplyTaskDate(notePath string, line int, field, date string) (task.Task, error) {
+	raw, err := os.ReadFile(notePath)
+	if err != nil {
+		return task.Task{}, fmt.Errorf("read note: %w", err)
+	}
+	updated, t, err := task.SetDate(string(raw), line, field, date)
+	if err != nil {
+		return task.Task{}, err
+	}
+	if updated != string(raw) {
+		if err := os.WriteFile(notePath, []byte(updated), 0o644); err != nil {
+			return task.Task{}, fmt.Errorf("write note: %w", err)
+		}
+	}
+	return t, nil
+}

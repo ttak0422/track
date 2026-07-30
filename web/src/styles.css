@@ -2561,6 +2561,34 @@ textarea.modal-input:focus-visible {
   color: var(--text);
 }
 
+/* The date cells double as their control, the same way the state cell does: a native date input
+   stripped to the cell's own text look, so picking a date is a click on what the row already shows.
+   A cell with no date reads as blank until the row is hovered or keyboard-focused — an untouched
+   table stays quiet rather than showing a row of empty inputs. */
+.markdown-view input.task-row-date-input {
+  appearance: none;
+  -webkit-appearance: none;
+  border: none;
+  padding: 0;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  cursor: pointer;
+}
+
+.markdown-view input.task-row-date-input::-webkit-calendar-picker-indicator {
+  display: none;
+}
+
+.markdown-view input.task-row-date-input[data-empty] {
+  opacity: 0;
+}
+
+.markdown-view tr.task-row:hover input.task-row-date-input[data-empty],
+.markdown-view input.task-row-date-input[data-empty]:focus-visible {
+  opacity: 1;
+}
+
 .markdown-view tr.task-row-done td.task-row-text {
   color: var(--muted);
   text-decoration: line-through;

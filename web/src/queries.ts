@@ -17,6 +17,7 @@ import {
   saveNote,
   saveNoteMeta,
   searchNotes,
+  setTaskDate,
   setTaskState,
   uploadAsset,
 } from "./api";
@@ -256,6 +257,22 @@ export function useSetTaskStateMutation(noteID: NoteID) {
     // note actually says now.
     onError: () => {
       void queryClient.invalidateQueries({ queryKey: queryKeys.note(noteID) });
+    },
+  });
+}
+
+// useSetTaskDateMutation writes a task's scheduled/due date. The note's body changed, so the same
+// queries the state mutation invalidates are invalidated here.
+export function useSetTaskDateMutation(noteID: NoteID) {
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: ({ line, field, date }: { line: number; field: "sched" | "due"; date: string }) =>
+      setTaskDate(noteID, line, field, date),
+    onSuccess: () => {
+      void queryClient.invalidateQueries({ queryKey: queryKeys.note(noteID) });
+      void queryClient.invalidateQueries({ queryKey: queryKeys.notes() });
+      void queryClient.invalidateQueries({ queryKey: ["render"] });
     },
   });
 }

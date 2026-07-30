@@ -36,7 +36,7 @@ import { EChartsFence } from "./markdown/EChartsBlock";
 import { QueryView } from "./markdown/QueryView";
 import { ViewSpecChart } from "./markdown/ViewSpecChart";
 import { WikiLink } from "./preview/WikiLink";
-import { useNoteQuery, useSetTaskStateMutation } from "../queries";
+import { useNoteQuery, useSetTaskDateMutation, useSetTaskStateMutation } from "../queries";
 import { STATIC_MODE } from "../runtime";
 
 interface MarkdownViewProps {
@@ -213,6 +213,44 @@ function TaskCheckControl({ noteID, item }: { noteID: NoteID; item: TaskItem }) 
   );
 }
 
+// TaskRowDate is the scheduled/due cell. Read-only it is the marked date as written; where the note
+// can be written it is a native date input styled down to look like that same text, so picking a
+// date is a click on what it shows rather than a separate editing mode. An empty cell shows nothing
+// until the row is hovered or focused (the CSS reveals it), so an untouched table stays quiet.
+function TaskRowDate({ field, value, line }: { field: "sched" | "due"; value: string; line: number }) {
+  const { noteID, item } = useTaskAtLine(line);
+  const marker = field === "sched" ? "▷" : "!";
+  if (!item) {
+    return <>{value ? `${marker} ${value}` : ""}</>;
+  }
+  return <TaskRowDateControl noteID={noteID} item={item} field={field} value={value} />;
+}
+
+function TaskRowDateControl({
+  noteID,
+  item,
+  field,
+  value,
+}: {
+  noteID: NoteID;
+  item: TaskItem;
+  field: "sched" | "due";
+  value: string;
+}) {
+  const mutation = useSetTaskDateMutation(noteID);
+  return (
+    <input
+      type="date"
+      className="task-row-date-input"
+      aria-label={field === "sched" ? "Scheduled date" : "Due date"}
+      value={value}
+      disabled={mutation.isPending}
+      data-empty={value === "" || undefined}
+      onChange={(event) => mutation.mutate({ line: item.line, field, date: event.currentTarget.value })}
+    />
+  );
+}
+
 function TaskRowState({ name, done, line }: { name: string; done: boolean; line: number }) {
   const { noteID, item } = useTaskAtLine(line);
   const className = `task-row-state${done ? " task-row-state-done" : ""}`;
@@ -322,8 +360,12 @@ function TaskRow({ node, children }: ElementProps) {
         <TaskRowState name={String(props.state ?? "")} done={done} line={Number(props.line ?? 0)} />
       </td>
       <td className="task-row-text">{children}</td>
-      <td className="task-row-date">{props.sched ? `▷ ${props.sched}` : ""}</td>
-      <td className="task-row-date task-row-due">{props.due ? `! ${props.due}` : ""}</td>
+      <td className="task-row-date">
+        <TaskRowDate field="sched" value={String(props.sched ?? "")} line={Number(props.line ?? 0)} />
+      </td>
+      <td className="task-row-date task-row-due">
+        <TaskRowDate field="due" value={String(props.due ?? "")} line={Number(props.line ?? 0)} />
+      </td>
     </tr>
   );
 }

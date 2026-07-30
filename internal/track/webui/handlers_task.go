@@ -65,6 +65,10 @@ func (s *Server) handleTaskSet(v *vaultView, w http.ResponseWriter, r *http.Requ
 		// know it, so they send it and a stale view is refused (409) instead of writing over
 		// whatever the line became.
 		Expect string `json:"expect"`
+		// Date patches. Pointers so "set it to empty" (clear the token) is distinguishable from
+		// "leave it alone"; State may be empty when only a date is being written.
+		Sched *string `json:"sched"`
+		Due   *string `json:"due"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		writeError(w, fmt.Errorf("decode request: %w", err), http.StatusBadRequest)
@@ -74,10 +78,25 @@ func (s *Server) handleTaskSet(v *vaultView, w http.ResponseWriter, r *http.Requ
 	path := v.cfg.PathForKind(ref.FileKind, ref.NoteID)
 	var tr task.Transition
 	if err := v.write(func() error {
-		var err error
-		tr, err = note.ApplyTaskState(v.cfg, path, req.Line, req.State, req.Expect, time.Now())
-		if err != nil {
-			return err
+		if req.State != "" {
+			var err error
+			tr, err = note.ApplyTaskState(v.cfg, path, req.Line, req.State, req.Expect, time.Now())
+			if err != nil {
+				return err
+			}
+		}
+		// Dates are written after the state so a stamp the state change just added is already there
+		// for the token ordering to place against.
+		for _, patch := range []struct {
+			field string
+			value *string
+		}{{"sched", req.Sched}, {"due", req.Due}} {
+			if patch.value == nil {
+				continue
+			}
+			if _, err := note.ApplyTaskDate(path, req.Line, patch.field, *patch.value); err != nil {
+				return err
+			}
 		}
 		return index.New(v.cfg, v.store).One(path)
 	}); err != nil {

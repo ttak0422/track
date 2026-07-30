@@ -15,15 +15,17 @@ import (
 // cmdTask routes `track task <sub>`.
 func cmdTask(args []string) int {
 	if len(args) == 0 {
-		return fail("usage: track task set (--id N | --title S | --path P) --line N --state NAME | track task cycle (--id N | --title S | --path P) --line N")
+		return fail("usage: track task set (--id N | --title S | --path P) --line N --state NAME | track task cycle (--id N | --title S | --path P) --line N | track task date (--id N | --title S | --path P) --line N [--sched D] [--due D]")
 	}
 	switch args[0] {
 	case "set":
 		return cmdTaskSet(args[1:])
 	case "cycle":
 		return cmdTaskCycle(args[1:])
+	case "date":
+		return cmdTaskDate(args[1:])
 	default:
-		return fail("unknown task subcommand %q (expected: set, cycle)", args[0])
+		return fail("unknown task subcommand %q (expected: set, cycle, date)", args[0])
 	}
 }
 
@@ -235,4 +237,71 @@ func cmdTasks(args []string) int {
 		rows[i].Path = cfg.PathForKind(rows[i].FileKind, rows[i].NoteID)
 	}
 	return emit(map[string]any{"tasks": rows})
+}
+
+// cmdTaskDate writes a task's scheduled and/or due date. An empty value clears that token, so
+// `--due ""` removes a deadline; passing neither flag is an error rather than a silent no-op.
+func cmdTaskDate(args []string) int {
+	fs := flag.NewFlagSet("task date", flag.ContinueOnError)
+	id := fs.Int64("id", 0, "note id")
+	title := fs.String("title", "", "note title (alternative to --id)")
+	path := fs.String("path", "", "note path (alternative to --id)")
+	line := fs.Int("line", 0, "1-based line number of the task")
+	fs.String("sched", "", "scheduled date YYYY-MM-DD (empty clears it)")
+	fs.String("due", "", "due date YYYY-MM-DD (empty clears it)")
+	if err := fs.Parse(args); err != nil {
+		return fail("parse args: %v", err)
+	}
+	if *line <= 0 {
+		return fail("--line is required and must be positive")
+	}
+	// flag.Visit reports only what was actually passed, which is what tells "clear it" apart from
+	// "leave it alone" — both look like "" in the flag value.
+	given := map[string]string{}
+	fs.Visit(func(f *flag.Flag) {
+		if f.Name == "sched" || f.Name == "due" {
+			given[f.Name] = strings.TrimSpace(f.Value.String())
+		}
+	})
+	if len(given) == 0 {
+		return fail("--sched or --due is required")
+	}
+
+	cfg, s, err := open()
+	if err != nil {
+		return fail("%v", err)
+	}
+	defer s.Close()
+
+	notePath, err := resolveNotePath(cfg, s, *id, strings.TrimSpace(*title), strings.TrimSpace(*path))
+	if err != nil {
+		return fail("%v", err)
+	}
+	noteID, err := note.IDFromPath(notePath)
+	if err != nil {
+		return fail("invalid note path: %v", err)
+	}
+
+	var t task.Task
+	for _, field := range []string{"sched", "due"} {
+		value, ok := given[field]
+		if !ok {
+			continue
+		}
+		if t, err = note.ApplyTaskDate(notePath, *line, field, value); err != nil {
+			return fail("%v", err)
+		}
+	}
+	if err := index.New(cfg, s).One(notePath); err != nil {
+		return fail("index note: %v", err)
+	}
+	return emit(map[string]any{
+		"id":        noteID,
+		"path":      notePath,
+		"line":      t.Line,
+		"state":     t.State,
+		"scheduled": t.Scheduled,
+		"due":       t.Due,
+		"text":      t.Text,
+	})
 }

@@ -2132,3 +2132,36 @@ func openDB(t *testing.T, vault string) *sql.DB {
 	t.Cleanup(func() { db.Close() })
 	return db
 }
+
+func TestTaskDate(t *testing.T) {
+	vault := t.TempDir()
+	body := "# Plan\n\n- [ ] ship it\n"
+	if _, code := runInWithStdin(t, vault, body, "new", "--title", "Plan", "--id", "520"); code != 0 {
+		t.Fatalf("new failed")
+	}
+	path := filepath.Join(vault, "note", "520.md")
+
+	out, code := runIn(t, vault, "task", "date", "--id", "520", "--line", "3", "--due", "2026-08-01")
+	if code != 0 || out["due"] != "2026-08-01" {
+		t.Fatalf("set due failed: %v", out)
+	}
+	if got := readFileString(t, path); !strings.Contains(got, "- [ ] ship it [due:2026-08-01]") {
+		t.Fatalf("due token not written: %q", got)
+	}
+
+	// An empty value clears the token — distinguishable from not passing the flag at all.
+	if out, code := runIn(t, vault, "task", "date", "--id", "520", "--line", "3", "--due", ""); code != 0 || out["due"] != "" {
+		t.Fatalf("clear due failed: %v", out)
+	}
+	if got := readFileString(t, path); strings.Contains(got, "due:") {
+		t.Fatalf("due token should be gone: %q", got)
+	}
+
+	// Neither flag is an error, not a silent no-op.
+	if out, code := runIn(t, vault, "task", "date", "--id", "520", "--line", "3"); code == 0 || out["error"] == nil {
+		t.Fatalf("expected an error with no date flags, got %v", out)
+	}
+	if out, code := runIn(t, vault, "task", "date", "--id", "520", "--line", "3", "--sched", "nope"); code == 0 {
+		t.Fatalf("expected an invalid-date error, got %v", out)
+	}
+}

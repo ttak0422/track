@@ -28,12 +28,14 @@ vi.mock("@hpcc-js/wasm-graphviz", () => ({
 // Partial mock: only the task write is stubbed, so every other api call the view makes (OGP cards,
 // asset text, wiki-link resolution) keeps its real implementation.
 const setTaskState = vi.hoisted(() => vi.fn(async () => ({ tasks: { items: [] } })));
+const setTaskDate = vi.hoisted(() => vi.fn(async () => ({ tasks: { items: [] } })));
 // An embedded excerpt fetches the note it came from, to address its tasks by their own lines.
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 const getNote = vi.hoisted(() => vi.fn(async (): Promise<any> => ({ note: { tasks: { items: [] } } })));
 vi.mock("../api", async (importOriginal) => ({
   ...(await importOriginal<typeof import("../api")>()),
   setTaskState,
+  setTaskDate,
   getNote,
 }));
 
@@ -166,6 +168,26 @@ describe("MarkdownView", () => {
     // four-column table under the user's cursor.
     expect(container.querySelectorAll("table.task-table")).toHaveLength(0);
     expect(container.querySelectorAll("input[type='checkbox']")).toHaveLength(2);
+  });
+
+  it("makes the date cells editable where the note can be written", async () => {
+    const tasks = { items: [{ line: 1, state: "TODO", done: false, text: "a task", due: "2026-07-24" }] };
+    const { container } = renderWithQuery(
+      <TaskBoardContext.Provider value={{ noteID: "100", tasks }}>
+        <MarkdownView markdown={"- [ ] a task [due:2026-07-24]"} />
+      </TaskBoardContext.Provider>,
+    );
+    const due = container.querySelector<HTMLInputElement>("td.task-row-due input[type='date']");
+    expect(due).not.toBeNull();
+    expect(due!.value).toBe("2026-07-24");
+    fireEvent.change(due!, { target: { value: "2026-08-01" } });
+    await waitFor(() => expect(setTaskDate).toHaveBeenCalledWith("100", 1, "due", "2026-08-01"));
+  });
+
+  it("keeps the date cells as plain text with no note behind them", () => {
+    const { container } = render(<MarkdownView markdown={"- [ ] a task [due:2026-07-24]"} />);
+    expect(container.querySelector("input[type='date']")).toBeNull();
+    expect(container.querySelector("td.task-row-due")?.textContent).toBe("! 2026-07-24");
   });
 
   it("wires the badge select by source line, so inline markup does not break it", () => {
