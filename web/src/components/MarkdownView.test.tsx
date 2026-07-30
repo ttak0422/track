@@ -25,6 +25,14 @@ vi.mock("@hpcc-js/wasm-graphviz", () => ({
   Graphviz: { load: async () => ({ dot: () => '<svg viewBox="0 0 10 10"><text>G</text></svg>' }) },
 }));
 
+// Partial mock: only the task write is stubbed, so every other api call the view makes (OGP cards,
+// asset text, wiki-link resolution) keeps its real implementation.
+const setTaskState = vi.hoisted(() => vi.fn(async () => ({ tasks: { items: [] } })));
+vi.mock("../api", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("../api")>()),
+  setTaskState,
+}));
+
 vi.mock("@terrastruct/d2", () => ({
   D2: class {
     compile = async () => ({ diagram: {}, renderOptions: {} });
@@ -118,6 +126,42 @@ describe("MarkdownView", () => {
     const { container } = render(<MarkdownView markdown={"- [z] not a task\n- plain item"} />);
     expect(container.querySelectorAll("li.task-row")).toHaveLength(0);
     expect(screen.getByText("[z] not a task")).toBeInTheDocument();
+  });
+
+  it("makes a plain checklist tickable when the note is editable", async () => {
+    const tasks = {
+      items: [
+        { line: 1, state: "TODO", done: false, text: "todo" },
+        { line: 2, state: "DONE", done: true, text: "done" },
+      ],
+    };
+    const { container } = renderWithQuery(
+      <TaskBoardContext.Provider value={{ noteID: "100", tasks }}>
+        <MarkdownView markdown={"- [ ] todo\n- [x] done"} />
+      </TaskBoardContext.Provider>,
+    );
+    // Still a plain checklist, not the notation table — only the boxes come alive.
+    expect(container.querySelectorAll("table.task-table")).toHaveLength(0);
+    const boxes = container.querySelectorAll<HTMLInputElement>("input[type='checkbox']");
+    expect(boxes).toHaveLength(2);
+    expect(boxes[0]).toBeEnabled();
+    fireEvent.click(boxes[0]);
+    await waitFor(() =>
+      expect(setTaskState).toHaveBeenCalledWith("100", 1, "DONE", "TODO"),
+    );
+  });
+
+  it("leaves a plain checklist inert with no note behind it", () => {
+    const { container } = render(<MarkdownView markdown={"- [ ] todo"} />);
+    expect(container.querySelector<HTMLInputElement>("input[type='checkbox']")).toBeDisabled();
+  });
+
+  it("keeps a checklist plain once the engine stamps a completion date", () => {
+    const { container } = render(<MarkdownView markdown={"- [ ] todo\n- [x] done [done:2026-07-30]"} />);
+    // The stamp is written by the engine, not authored, so it must not promote the list to the
+    // four-column table under the user's cursor.
+    expect(container.querySelectorAll("table.task-table")).toHaveLength(0);
+    expect(container.querySelectorAll("input[type='checkbox']")).toHaveLength(2);
   });
 
   it("wires the badge select by source line, so inline markup does not break it", () => {

@@ -183,14 +183,21 @@ function parseTaskItem(item: any, byChar: Map<string, TaskState>): TaskItemParse
     custom = true;
     prefixLen = m[0].length;
   }
+  // A [done:] stamp does not count as authored notation: the engine writes it when a box is
+  // ticked, so counting it would rebuild a plain checklist as the four-column table the moment
+  // someone checks something.
   let hasTokens = false;
   for (const child of para.children) {
     if (child.type !== "text") continue;
     taskTokenPattern.lastIndex = 0;
-    if (taskTokenPattern.test(child.value)) {
-      hasTokens = true;
-      break;
+    let match: RegExpExecArray | null;
+    while ((match = taskTokenPattern.exec(child.value)) !== null) {
+      if (match[2] !== "done") {
+        hasTokens = true;
+        break;
+      }
     }
+    if (hasTokens) break;
   }
   return { state, custom, hasTokens, prefixLen };
 }
@@ -384,5 +391,27 @@ export function makeRehypeBudoux(parse: (text: string) => string[]) {
         return index + replacement.length;
       });
     };
+  };
+}
+
+// rehypeTaskCheck stamps a GFM checklist item's source line onto its checkbox, so a plain
+// "- [ ] foo" list — one with no task notation, left as native checkboxes by remarkTaskLine — can
+// still be ticked in the workspace. mdast-util-to-hast synthesizes the <input> without a position
+// of its own, so the line comes from the enclosing <li>. The markup is otherwise untouched: the
+// task-list-item classes the stylesheet keys on stay exactly as GFM emitted them.
+export function rehypeTaskCheck() {
+  return (tree: HastRoot) => {
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    visit(tree, "element", (node: any) => {
+      if (node.tagName !== "li") return;
+      const line = node.position?.start?.line;
+      if (!line) return;
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const box = (node.children ?? []).find(
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        (c: any) => c.type === "element" && c.tagName === "input" && c.properties?.type === "checkbox",
+      );
+      if (box) box.properties.dataTaskLine = line;
+    });
   };
 }

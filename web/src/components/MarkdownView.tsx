@@ -1,8 +1,8 @@
 import type { Element } from "hast";
-import { type ReactNode, useContext, useEffect, useState } from "react";
+import { type InputHTMLAttributes, type ReactNode, useContext, useEffect, useState } from "react";
 import Markdown, { type Components } from "react-markdown";
 import remarkGfm from "remark-gfm";
-import type { NoteInclude } from "../types";
+import type { NoteID, NoteInclude, TaskItem } from "../types";
 import { rehypeBudoux } from "./markdown/budouxEager";
 import { CodeBlock } from "./markdown/CodeBlock";
 import {
@@ -26,6 +26,7 @@ import {
   remarkEmbedOptions,
   remarkInclude,
   remarkTaskLine,
+  rehypeTaskCheck,
   remarkWikiLink,
   spliceIncludeTokens,
 } from "./markdown/plugins";
@@ -94,7 +95,13 @@ export function MarkdownView({ markdown, kind = "note", vault = "", includes }: 
   // BudouX (Japanese word-break) is gated behind __TRACK_STATIC__, a build-time literal, so the static
   // help site tree-shakes its ~190KB model away (English content is never segmented) while the live
   // workspace keeps it eager.
-  const rehypePlugins = [...(math ? [math.rehype] : []), ...(__TRACK_STATIC__ ? [] : [rehypeBudoux])];
+  const rehypePlugins = [
+    ...(math ? [math.rehype] : []),
+    // Stamps each checklist item's source line onto its native checkbox, so a plain "- [ ]" list
+    // can be ticked (see TaskCheck). Cheap and static-safe: the static site just never wires it up.
+    rehypeTaskCheck,
+    ...(__TRACK_STATIC__ ? [] : [rehypeBudoux]),
+  ];
 
   return (
     <NoteKindContext.Provider value={kind}>
@@ -152,17 +159,69 @@ const emptyTaskBoard = { noteID: "" };
 // the same engine path as the board's cards. Its source line resolves the row to the engine-parsed
 // task (rendered bodies are line-aligned with the note file — the invariant includes rely on); on
 // static sites and hover previews (no note id) it stays a plain badge.
-function TaskRowState({ name, done, line }: { name: string; done: boolean; line: number }) {
+// useTaskAtLine resolves a rendered line back to the task the engine parsed. It yields nothing on
+// the published static site, inside a preview that carries no note, or while the editor buffer is
+// dirty (noteID is blanked then) — every surface where a write would either be refused or land on a
+// line that no longer means what it did. Reading the context costs no query client, so a read-only
+// render (a preview, a test) never needs one; the control below mounts the mutation only once there
+// is something to write.
+function useTaskAtLine(line: number) {
   const { noteID, tasks } = useContext(TaskBoardContext);
-  const mutation = useSetTaskStateMutation(noteID);
-  const className = `task-row-state${done ? " task-row-state-done" : ""}`;
   const item =
     !STATIC_MODE && noteID !== "" && tasks && line > 0
       ? tasks.items.find((t) => t.line === line)
       : undefined;
-  if (!item || !tasks) {
+  return { noteID, item };
+}
+
+// TaskCheck makes a plain GFM checklist ("- [ ] foo", no task notation) tickable: the engine has
+// always parsed those lines as tasks, only the frontend left the native checkbox disabled. The line
+// comes from rehypeTaskCheck; a box it cannot resolve stays exactly as it renders today.
+function TaskCheck({ line, checked }: { line: number; checked: boolean }) {
+  const { noteID, item } = useTaskAtLine(line);
+  if (!item) {
+    return <input type="checkbox" checked={checked} disabled readOnly />;
+  }
+  return <TaskCheckControl noteID={noteID} item={item} />;
+}
+
+function TaskCheckControl({ noteID, item }: { noteID: NoteID; item: TaskItem }) {
+  const mutation = useSetTaskStateMutation(noteID);
+  const target = taskStates.find((state) => state.done !== item.done);
+  // While the write is in flight, show where it is going rather than snapping back.
+  const shown = mutation.isPending ? !item.done : item.done;
+  return (
+    <input
+      type="checkbox"
+      checked={shown}
+      disabled={mutation.isPending || !target}
+      aria-label={`Toggle task: ${item.text}`}
+      onChange={() => {
+        if (target) mutation.mutate({ line: item.line, state: target.name, expect: item.state });
+      }}
+    />
+  );
+}
+
+function TaskRowState({ name, done, line }: { name: string; done: boolean; line: number }) {
+  const { noteID, item } = useTaskAtLine(line);
+  const className = `task-row-state${done ? " task-row-state-done" : ""}`;
+  if (!item) {
     return <span className={className}>{name}</span>;
   }
+  return <TaskRowStateControl noteID={noteID} item={item} className={className} />;
+}
+
+function TaskRowStateControl({
+  noteID,
+  item,
+  className,
+}: {
+  noteID: NoteID;
+  item: TaskItem;
+  className: string;
+}) {
+  const mutation = useSetTaskStateMutation(noteID);
   return (
     <select
       className={className}
@@ -354,6 +413,15 @@ const markdownComponents = {
   },
   tasktable: TaskTable,
   taskrow: TaskRow,
+  // A checklist checkbox carrying a source line (rehypeTaskCheck) becomes tickable; every other
+  // input renders as react-markdown produced it.
+  input: ({ node, ...props }: ElementProps & InputHTMLAttributes<HTMLInputElement>) => {
+    const line = (node?.properties as { dataTaskLine?: unknown } | undefined)?.dataTaskLine;
+    if (typeof line === "number" && props.type === "checkbox") {
+      return <TaskCheck line={line} checked={props.checked === true} />;
+    }
+    return <input {...props} />;
+  },
   taskchip: ({ node }: ElementProps) => {
     const props = (node?.properties ?? {}) as { kind?: unknown; value?: unknown };
     const value = String(props.value ?? "");

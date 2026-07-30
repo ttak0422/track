@@ -2473,6 +2473,12 @@ textarea.modal-input:focus-visible {
   vertical-align: middle;
 }
 
+/* A box the workspace can write to is enabled (see TaskCheck); the published site's stay disabled,
+   so the cursor is the only thing that says which is which. */
+.markdown-view .task-list-item input[type="checkbox"]:not(:disabled) {
+  cursor: pointer;
+}
+
 /* Task table (remarkTaskLine): a checklist that uses task notation renders as one sortable table —
    state cell, task text with chips, and scheduled/due columns. */
 .markdown-view table.task-table {
