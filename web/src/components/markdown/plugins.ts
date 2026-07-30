@@ -171,7 +171,9 @@ function parseTaskItem(item: any, byChar: Map<string, TaskState>): TaskItemParse
   } else {
     const first = para.children?.[0];
     if (!first || first.type !== "text") return null;
-    const m = /^\[(.)\][ \t]+/.exec(first.value);
+    // The text after the marker may be empty ("- [/]" alone), which the engine still counts as a
+    // task; requiring text here would make one such line drop the whole list back to checkboxes.
+    const m = /^\[(.)\](?:[ \t]+|$)/.exec(first.value);
     if (!m) return null;
     state = byChar.get(m[1]);
     if (!state) return null;
@@ -246,22 +248,54 @@ function upgradeTaskItem(item: any, p: TaskItemParse) {
   (data as any).hProperties = { line, state: p.state.name, done: p.state.done, sched, due };
 }
 
+// collectTaskItems walks a list and every list nested inside it, in document order, pairing each
+// item with its nesting depth. An indented sub-list is its own mdast list node, so deciding per
+// list node would split one checklist the reader sees as a whole: notation on a child would upgrade
+// the children and leave their parents as bare checkboxes.
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+function collectTaskItems(list: any, byChar: Map<string, TaskState>, depth = 0): { item: any; parse: TaskItemParse | null; depth: number }[] {
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const out: { item: any; parse: TaskItemParse | null; depth: number }[] = [];
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  for (const item of list.children ?? []) {
+    out.push({ item, parse: parseTaskItem(item, byChar), depth });
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    for (const child of item.children ?? []) {
+      if (child.type === "list") {
+        out.push(...collectTaskItems(child, byChar, depth + 1));
+      }
+    }
+  }
+  return out;
+}
+
 export function remarkTaskLine() {
   const byChar = new Map(taskStates.map((s) => [s.char, s]));
   return (tree: MdastRoot) => {
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    visit(tree, "list", (list: any) => {
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      const parsed = list.children.map((item: any) => parseTaskItem(item, byChar));
-      if (!parsed.some((p: TaskItemParse | null) => p && (p.custom || p.hasTokens))) {
+    visit(tree, "list", (list: any, index, parent: any) => {
+      // Only the outermost list decides: a nested one is part of its parent's checklist and is
+      // handled with it (and skipped here, since visiting it again would flatten it twice).
+      if (parent?.type === "listItem") return;
+      const entries = collectTaskItems(list, byChar);
+      if (!entries.some((e) => e.parse && (e.parse.custom || e.parse.hasTokens))) {
         return; // plain GFM checklist (or no tasks at all): leave it alone
       }
-      if (parsed.some((p: TaskItemParse | null) => !p)) {
+      if (entries.some((e) => !e.parse)) {
         return; // a plain bullet mixed into the block: an <li> cannot live in a <table>, stay plain
       }
+      // The table is flat, so the nesting the source expressed with indentation is carried as a
+      // depth property and drawn as an indent (see TaskRow). The rows keep document order, which is
+      // the order the reader wrote them in — parent, then its children.
+      entries.forEach(({ item, parse, depth }) => {
+        upgradeTaskItem(item, parse as TaskItemParse);
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        ((item.data as any).hProperties as Record<string, unknown>).depth = depth;
+      });
+      list.children = entries.map((e) => e.item);
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      list.children.forEach((item: any, i: number) => {
-        upgradeTaskItem(item, parsed[i] as TaskItemParse);
+      entries.forEach(({ item }: any) => {
+        item.children = (item.children ?? []).filter((child: { type: string }) => child.type !== "list");
       });
       const data = (list.data ??= {});
       // eslint-disable-next-line @typescript-eslint/no-explicit-any

@@ -185,6 +185,14 @@ export function GraphCanvas({
       return;
     }
 
+    // Lay the graph out at the size it will be seen at. Nodes and labels are drawn at a fixed
+    // SCREEN size (radius and font are divided by the view scale), so a layout built for a
+    // full-page canvas and then shrunk to fit a small one keeps its dots the same size while the
+    // distances between them collapse — the note aside's 300x220 box turned the graph into a blob.
+    // Scaling the world-space constants with the viewport instead lands the fit near 1:1, where the
+    // separation matches what the dots are drawn at. Charge goes with the square: it falls off with
+    // distance², so the equilibrium only holds its shape if it scales with area.
+    const layout = layoutScale(size);
     const simulation = forceSimulation<SimNode, SimEdge>(nodesRef.current)
       .velocityDecay(0.18)
       .alpha(1)
@@ -193,10 +201,10 @@ export function GraphCanvas({
         "link",
         forceLink<SimNode, SimEdge>(edgesRef.current)
           .id((node) => String(node.note_id))
-          .distance(110)
+          .distance(110 * layout)
           .strength(0.12),
       )
-      .force("charge", forceManyBody<SimNode>().strength(-1400).distanceMin(9))
+      .force("charge", forceManyBody<SimNode>().strength(-1400 * layout * layout).distanceMin(9))
       .force("x", forceX<SimNode>(0).strength(0.002))
       .force("y", forceY<SimNode>(0).strength(0.002))
       .on("tick", () => {
@@ -241,14 +249,28 @@ export function GraphCanvas({
       minY = Math.min(minY, node.y);
       maxY = Math.max(maxY, node.y);
     });
-    const padding = 96;
+    // The margin is a share of the box, not a flat 96px: in the aside's 220px-tall canvas a fixed
+    // 96 ate nearly half the height, so the fit had to shrink the layout far past the point where
+    // the fixed-size dots still had room between them.
+    const padding = Math.min(96, Math.min(nextSize.width, nextSize.height) * 0.18);
     const graphW = Math.max(1, maxX - minX);
     const graphH = Math.max(1, maxY - minY);
     const availW = Math.max(1, nextSize.width - padding);
     const availH = Math.max(1, nextSize.height - padding);
-    const scale = Math.max(0.05, Math.min(0.65, Math.min(availW / graphW, availH / graphH)));
-    const centerX = (minX + maxX) / 2;
-    const centerY = (minY + maxY) / 2;
+    // Fitting everything in is only worth doing while the result stays readable. Below the floor the
+    // dots — drawn at a fixed screen size — sit closer together than they are wide and the graph
+    // reads as one blob, which is what a busy neighbourhood did to the note aside. Past that point a
+    // small canvas stops zooming out and shows the graph at the floor, centred on the note itself so
+    // the one node you came for is never the one pushed off; panning and zooming reach the rest.
+    // A full-size canvas keeps the old near-zero floor: the whole-vault view is an overview, where
+    // seeing everything at once is the point and a clipped graph would be the wrong answer.
+    const floor = nextSize.width >= 420 ? 0.05 : 0.35;
+    const fitted = Math.min(availW / graphW, availH / graphH);
+    const scale = Math.max(floor, Math.min(0.65, fitted));
+    const center =
+      fitted < floor ? nodesRef.current.find((node) => node.center || node.note_id === graphRef.current.center_id) : undefined;
+    const centerX = center ? center.x : (minX + maxX) / 2;
+    const centerY = center ? center.y : (minY + maxY) / 2;
     return {
       x: -centerX * scale,
       y: -centerY * scale,
@@ -358,13 +380,22 @@ export function GraphCanvas({
       ctx.stroke();
     });
 
-    const showLabels = view.scale >= 0.26;
+    // Labels are drawn at a fixed screen size, so a canvas holds far fewer of them than it holds
+    // nodes. On a roomy canvas everything past a readable zoom is named, and a well-connected node
+    // is named even when zoomed out. A small one — the note aside — cannot afford either rule: in a
+    // densely linked vault every neighbor clears any degree bar, and the box fills with overlapping
+    // text. There, only the note itself, whatever is under the pointer, and a highlighted match are
+    // named; the rest are dots to hover — and in the aside the backlinks and children lists right
+    // above the graph already name the neighbourhood in text, so the graph is there for its shape.
+    const roomy = nextSize.width >= 420;
+    const showLabels = roomy && view.scale >= 0.26;
     nodesRef.current.forEach((node) => {
       if (decorative) return;
       const center = node.center || node.note_id === graph.center_id;
       const active = nodeIsActive(node.note_id);
       const hovered = node.note_id === hoverRef.current;
-      if (!(showLabels || center || node.degree >= 4 || hovered || (hasActiveHighlight && active))) {
+      const wellConnected = roomy && node.degree >= 4;
+      if (!(showLabels || center || wellConnected || hovered || (hasActiveHighlight && active))) {
         return;
       }
       const radius = (nodeRadius(node) * ratio) / view.scale;
@@ -641,6 +672,14 @@ export function GraphCanvas({
 
 function css(name: string): string {
   return getComputedStyle(document.documentElement).getPropertyValue(name).trim();
+}
+
+// layoutScale sizes the force layout to the canvas: 1 at the full-page graph's scale and smaller
+// for a panel or the note aside, floored so a very short box still spreads its nodes rather than
+// stacking them. 520 is roughly the smaller side of the floating panel, the size the constants
+// above were tuned against.
+function layoutScale(size: { width: number; height: number }): number {
+  return clamp(Math.min(size.width, size.height) / 520, 0.42, 1);
 }
 
 function clamp(value: number, min: number, max: number): number {

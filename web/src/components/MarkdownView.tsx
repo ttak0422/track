@@ -181,7 +181,7 @@ function TaskRowState({ name, done, line }: { name: string; done: boolean; line:
   );
 }
 
-type TaskRowProps = { line?: unknown; state?: unknown; done?: unknown; sched?: unknown; due?: unknown };
+type TaskRowProps = { line?: unknown; state?: unknown; done?: unknown; sched?: unknown; due?: unknown; depth?: unknown };
 
 // TaskTable renders a notation-bearing checklist as one sortable table. Sorting is view-only (the
 // note keeps its order); STATE sorts by the state-set order, the date columns sort empties last, and
@@ -246,12 +246,17 @@ function TaskTable({ node, children }: ElementProps) {
 function TaskRow({ node, children }: ElementProps) {
   const props = (node?.properties ?? {}) as TaskRowProps;
   const done = Boolean(props.done);
+  const depth = Number(props.depth ?? 0);
   return (
     <tr className={`task-row${done ? " task-row-done" : ""}`}>
       <td className="task-row-state-cell">
         <TaskRowState name={String(props.state ?? "")} done={done} line={Number(props.line ?? 0)} />
       </td>
-      <td className="task-row-text">{children}</td>
+      {/* Nesting from the source is an indent, not a nested table: the rows are flat so the whole
+          checklist stays one sortable table. */}
+      <td className="task-row-text" style={depth > 0 ? { paddingLeft: `${depth * 16}px` } : undefined}>
+        {children}
+      </td>
       <td className="task-row-date">{props.sched ? `▷ ${props.sched}` : ""}</td>
       <td className="task-row-date task-row-due">{props.due ? `! ${props.due}` : ""}</td>
     </tr>

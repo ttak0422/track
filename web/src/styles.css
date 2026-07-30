@@ -2925,7 +2925,10 @@ textarea.modal-input:focus-visible {
    its container via ResizeObserver). */
 .aside-graph {
   display: flex;
-  height: 220px;
+  /* Tall enough that a note with a dozen neighbours has somewhere to put them: the dots are drawn
+     at a fixed screen size, so height is the budget for how much neighbourhood fits before the
+     view has to stop zooming out (see fitGraphView's floor). */
+  height: 280px;
 }
 
 /* Unlike the opt-in floating panel, this canvas sits in the page's scroll flow, so a flick that

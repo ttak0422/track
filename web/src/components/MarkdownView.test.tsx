@@ -73,6 +73,33 @@ describe("MarkdownView", () => {
     expect(boxes[1]).toBeChecked();
   });
 
+  it("upgrades a nested checklist as one table, indenting by depth", () => {
+    const { container } = renderWithQuery(
+      <MarkdownView markdown={"- [ ] parent\n  - [ ] child [due:2026-01-01]\n  - [ ] sibling\n- [ ] parent2"} />,
+    );
+    // A sub-list is its own mdast list, but the reader sees one checklist: notation on a child must
+    // not leave its parent behind as a bare checkbox.
+    expect(container.querySelectorAll("table.task-table")).toHaveLength(1);
+    const rows = container.querySelectorAll("tr.task-row");
+    expect(rows).toHaveLength(4);
+    expect(container.querySelectorAll("input[type='checkbox']")).toHaveLength(0);
+    // Document order, with the source's nesting carried as an indent.
+    const texts = [...rows].map((row) => row.querySelector("td.task-row-text")?.textContent?.trim());
+    expect(texts).toEqual(["parent", "child", "sibling", "parent2"]);
+    const indent = (i: number) =>
+      (rows[i].querySelector("td.task-row-text") as HTMLElement).style.paddingLeft;
+    expect(indent(0)).toBe("");
+    expect(indent(1)).not.toBe("");
+    expect(indent(3)).toBe("");
+  });
+
+  it("keeps a task line with no text in the table", () => {
+    const { container } = renderWithQuery(
+      <MarkdownView markdown={"- [/]\n- [ ] with text [#A]"} />,
+    );
+    expect(container.querySelectorAll("tr.task-row")).toHaveLength(2);
+  });
+
   it("upgrades a checklist with task notation to one task table", () => {
     const { container } = renderWithQuery(
       <MarkdownView
