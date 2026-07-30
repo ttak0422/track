@@ -24,10 +24,12 @@ export function Shell() {
   // Note pages carry their own always-on local graph in the aside; the static "/" renders the
   // start note, so it counts as one too — but only when a start page exists (without one, static
   // "/" is the empty state, which should keep the floating graph launcher).
-  const isNote = /^\/notes\/[^/]+$/.test(path) || (STATIC_MODE && isHome && START_PAGE_ID !== "");
-  // The live workspace has a heatmap home at "/"; the static site does not — there "/" is the empty state
-  // (all tabs closed), so it keeps the normal chrome (sidebar, no home hero, no ambient graph).
-  const isLiveHome = isHome && !STATIC_MODE;
+  const isNote = /^\/notes\/[^/]+$/.test(path) || (isHome && START_PAGE_ID !== "");
+  // The search hero: the live workspace's "/" when no home note is configured. With one, "/" renders
+  // that note and is an ordinary note page; the static "/" is either the start page or the empty
+  // state. The hero owns its own scrolling and ambient graph, but not the chrome — the rail and tab
+  // strip are on every route, so the workspace's views are reachable from the landing screen too.
+  const isHero = isHome && !STATIC_MODE && START_PAGE_ID === "";
   const navigate = useNavigate();
   useLiveEvents();
 
@@ -56,8 +58,7 @@ export function Shell() {
     <SearchProvider>
       <FloatingProvider>
       <TabsProvider>
-      <main className={`workspace${isLiveHome ? " home" : ""}`}>
-        {isLiveHome ? null : (
+      <main className={`workspace${isHero ? " home" : ""}`}>
           <aside className="sidebar">
             <nav className="activity-rail" aria-label="Workspace views">
               {/* On the static site "/" is the start page; on the live server it is the heatmap home. */}
@@ -104,17 +105,16 @@ export function Shell() {
               <ThemeMenu />
             </nav>
           </aside>
-        )}
         <div className="reader-pane">
-          {isLiveHome ? null : <TabBar />}
+          <TabBar />
           <section className="reader">
-            {isLiveHome ? <GraphBackground /> : null}
+            {isHero ? <GraphBackground /> : null}
             <Outlet />
           </section>
         </div>
         {/* The floating launcher serves the views without a graph of their own (day, tags, search);
             note pages show the local graph in their aside instead. */}
-        {isLiveHome || isGraph || isCalendar || isNote ? null : <GraphPanel />}
+        {isHero || isGraph || isCalendar || isNote ? null : <GraphPanel />}
         <FloatingLayer />
       </main>
       </TabsProvider>

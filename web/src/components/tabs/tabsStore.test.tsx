@@ -150,6 +150,26 @@ describe("TabsProvider", () => {
     expect(routerMock.navigate).toHaveBeenCalledWith({ to: "/graph" });
   });
 
+  it("remembers recently opened notes, most recent first, and outlives a new session", () => {
+    routerMock.pathname = "/notes/a1";
+    const { result, rerender } = renderHook(() => useTabs(), { wrapper });
+    routerMock.pathname = "/notes/b2";
+    rerender();
+    routerMock.pathname = "/graph"; // a view, not a note: never recorded
+    rerender();
+    routerMock.pathname = "/notes/a1"; // revisiting moves it back to the front, no duplicate
+    rerender();
+    expect(result.current.recent.map((note) => note.id)).toEqual(["a1", "b2"]);
+
+    // A fresh `track web` launch drops the open strip but keeps the recents: the strip is this
+    // run's workspace, the recents are where the person has been.
+    window.__trackSession = "next-session";
+    routerMock.pathname = "/";
+    const second = renderHook(() => useTabs(), { wrapper });
+    expect(window.localStorage.getItem("track.tabs")).toBeNull();
+    expect(second.result.current.recent.map((note) => note.id)).toEqual(["a1", "b2"]);
+  });
+
   it("does not navigate when closing an inactive tab", () => {
     window.localStorage.setItem(
       "track.tabs",

@@ -29,7 +29,8 @@ vi.mock("@hpcc-js/wasm-graphviz", () => ({
 // asset text, wiki-link resolution) keeps its real implementation.
 const setTaskState = vi.hoisted(() => vi.fn(async () => ({ tasks: { items: [] } })));
 // An embedded excerpt fetches the note it came from, to address its tasks by their own lines.
-const getNote = vi.hoisted(() => vi.fn(async () => ({ note: { tasks: { items: [] } } })));
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+const getNote = vi.hoisted(() => vi.fn(async (): Promise<any> => ({ note: { tasks: { items: [] } } })));
 vi.mock("../api", async (importOriginal) => ({
   ...(await importOriginal<typeof import("../api")>()),
   setTaskState,

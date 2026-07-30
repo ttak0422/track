@@ -21,6 +21,9 @@ export interface NoteTab {
 
 interface TabsApi {
   tabs: NoteTab[];
+  // Notes visited this browser, most recent first. Unlike the open strip this outlives a server
+  // restart — "recently opened" is a property of the person, not of the session.
+  recent: NoteTab[];
   // The note id of the route currently shown, or null when off a note (home/graph). Used to mark the
   // active tab; it may not be in `tabs` for a frame until the open effect adds it.
   activeID: NoteID | null;
@@ -39,6 +42,10 @@ const STORAGE_KEY = "track.tabs";
 // tabs); a fresh `track web` launch injects a new one (discard the tabs, so a new day's `Track new`
 // starts clean rather than restoring yesterday's strip).
 const SESSION_KEY = "track.tabs.session";
+// Recently opened notes. Deliberately not cleared with the tabs on a new session: the strip is this
+// run's workspace, the recents are where you have been.
+const RECENT_KEY = "track.recent";
+const RECENT_LIMIT = 10;
 
 // The full-page views (graph, calendar) open as ordinary tabs with fixed labels rather than separate
 // overlays. Each uses a sentinel id and routes to its own path instead of /notes/$id. A note slug equal
@@ -102,11 +109,28 @@ function noteIDFromPath(pathname: string): NoteID | null {
   return match ? match[1] : null;
 }
 
+// Recents survive a new server session (loadTabs clears the strip, not this), so the list answers
+// "where have I been" rather than "what is open".
+function loadRecent(): NoteTab[] {
+  try {
+    const raw = window.localStorage.getItem(RECENT_KEY);
+    if (!raw) return [];
+    const parsed: unknown = JSON.parse(raw);
+    if (!Array.isArray(parsed)) return [];
+    return parsed
+      .filter((entry): entry is NoteTab => typeof (entry as NoteTab)?.id === "string")
+      .slice(0, RECENT_LIMIT);
+  } catch {
+    return [];
+  }
+}
+
 export function TabsProvider({ children }: { children: ReactNode }) {
   // Start empty so a prerendered page and the client's first (hydration) render agree — localStorage is
   // client-only, so reading it during render would desync SSR HTML from hydration. The persisted strip is
   // restored in a mount effect below instead.
   const [tabs, setTabs] = useState<NoteTab[]>([]);
+  const [recent, setRecent] = useState<NoteTab[]>([]);
   const [dirtyID, setDirtyID] = useState<NoteID | null>(null);
   const pathname = useRouterState({ select: (state) => state.location.pathname });
   const navigate = useNavigate();
@@ -117,11 +141,33 @@ export function TabsProvider({ children }: { children: ReactNode }) {
   // Titles reported via setTitle for tabs that do not exist yet (see the append effect below).
   const knownTitles = useRef(new Map<NoteID, string>());
 
-  // Restore the persisted strip once, after mount.
+  // Restore the persisted strip and recents once, after mount (localStorage is client-only, so
+  // reading during render would desync the prerendered HTML from hydration).
   useEffect(() => {
     const restored = loadTabs();
     if (restored.length > 0) setTabs(restored);
+    const remembered = loadRecent();
+    if (remembered.length > 0) setRecent(remembered);
   }, []);
+
+  // Every note the route lands on goes to the front of the recents, deduped. View tabs (graph,
+  // calendar) are not notes and are skipped.
+  useEffect(() => {
+    if (activeID === null || isViewTab(activeID)) return;
+    setRecent((current) => {
+      const title = knownTitles.current.get(activeID) ?? current.find((r) => r.id === activeID)?.title ?? "";
+      const next = [{ id: activeID, title }, ...current.filter((r) => r.id !== activeID)].slice(
+        0,
+        RECENT_LIMIT,
+      );
+      try {
+        window.localStorage.setItem(RECENT_KEY, JSON.stringify(next));
+      } catch {
+        // A full or unavailable localStorage just means recents are session-only this run.
+      }
+      return next;
+    });
+  }, [activeID]);
 
   // Navigating to a note opens a tab for it (appended) unless one is already open.
   useEffect(() => {
@@ -158,6 +204,18 @@ export function TabsProvider({ children }: { children: ReactNode }) {
     setTabs((current) =>
       current.map((tab) => (tab.id === id && tab.title !== title ? { ...tab, title } : tab)),
     );
+    // A note is recorded as recent the moment it is opened, before its title resolves; label it
+    // when it does, and persist so the label survives the next launch.
+    setRecent((current) => {
+      if (!current.some((r) => r.id === id && r.title !== title)) return current;
+      const next = current.map((r) => (r.id === id ? { ...r, title } : r));
+      try {
+        window.localStorage.setItem(RECENT_KEY, JSON.stringify(next));
+      } catch {
+        // Same as above: labels are then session-only.
+      }
+      return next;
+    });
   }, []);
 
   const setDirty = useCallback<TabsApi["setDirty"]>((id) => {
@@ -183,8 +241,8 @@ export function TabsProvider({ children }: { children: ReactNode }) {
   );
 
   const api = useMemo<TabsApi>(
-    () => ({ tabs, activeID, dirtyID, setTitle, setDirty, close }),
-    [tabs, activeID, dirtyID, setTitle, setDirty, close],
+    () => ({ tabs, recent, activeID, dirtyID, setTitle, setDirty, close }),
+    [tabs, recent, activeID, dirtyID, setTitle, setDirty, close],
   );
 
   return <TabsContext.Provider value={api}>{children}</TabsContext.Provider>;
