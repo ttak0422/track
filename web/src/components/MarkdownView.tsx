@@ -3,6 +3,7 @@ import { type InputHTMLAttributes, type ReactNode, useContext, useEffect, useSta
 import Markdown, { type Components } from "react-markdown";
 import remarkGfm from "remark-gfm";
 import type { NoteID, NoteInclude, TaskItem } from "../types";
+import { qualify } from "../vaultId";
 import { rehypeBudoux } from "./markdown/budouxEager";
 import { CodeBlock } from "./markdown/CodeBlock";
 import {
@@ -35,7 +36,7 @@ import { EChartsFence } from "./markdown/EChartsBlock";
 import { QueryView } from "./markdown/QueryView";
 import { ViewSpecChart } from "./markdown/ViewSpecChart";
 import { WikiLink } from "./preview/WikiLink";
-import { useSetTaskStateMutation } from "../queries";
+import { useNoteQuery, useSetTaskStateMutation } from "../queries";
 import { STATIC_MODE } from "../runtime";
 
 interface MarkdownViewProps {
@@ -126,6 +127,14 @@ export function MarkdownView({ markdown, kind = "note", vault = "", includes }: 
 // include inside embedded content shows as text, matching the spec's no-recursion rule.
 function IncludeEmbed({ include }: { include: NoteInclude }) {
   const vault = useContext(NoteVaultContext);
+  // A task shown through an include belongs to the note it was written in, so the excerpt's task
+  // context points there: the source note's id and tasks, plus the offset that turns a line of the
+  // excerpt into a line of that file. Without a usable offset (several :lines ranges) or on the
+  // published site the rows stay inert, as they were before.
+  const offset = include.source_line ?? -1;
+  const sourceID =
+    !STATIC_MODE && include.note_id && offset >= 0 ? qualify(vault, include.note_id) : "";
+  const source = useNoteQuery(sourceID, { enabled: sourceID !== "" });
   if (include.error) {
     return <div className="note-include note-include-error">⚠ {include.error}</div>;
   }
@@ -138,9 +147,11 @@ function IncludeEmbed({ include }: { include: NoteInclude }) {
           include.caption
         )}
       </div>
-      {/* Reset the task-board context: a ```taskboard fence inside embedded content must not show
-          the host note's board. */}
-      <TaskBoardContext.Provider value={emptyTaskBoard}>
+      {/* Never the host note's board: an excerpt's tasks are the source note's, addressed through
+          its own line offset. */}
+      <TaskBoardContext.Provider
+        value={{ noteID: sourceID, tasks: source.data?.note.tasks, lineOffset: offset }}
+      >
         <MarkdownView markdown={include.lines.join("\n")} kind={include.kind ?? "note"} vault={vault} />
       </TaskBoardContext.Provider>
       {(include.bad_options ?? []).map((bad) => (
@@ -152,7 +163,6 @@ function IncludeEmbed({ include }: { include: NoteInclude }) {
   );
 }
 
-const emptyTaskBoard = { noteID: "" };
 
 // TaskRowState is the state cell of a task-table row, and doubles as the state control: in the
 // live workspace it renders as a select stripped down to the badge's text look, writing through
@@ -166,10 +176,10 @@ const emptyTaskBoard = { noteID: "" };
 // render (a preview, a test) never needs one; the control below mounts the mutation only once there
 // is something to write.
 function useTaskAtLine(line: number) {
-  const { noteID, tasks } = useContext(TaskBoardContext);
+  const { noteID, tasks, lineOffset = 0 } = useContext(TaskBoardContext);
   const item =
     !STATIC_MODE && noteID !== "" && tasks && line > 0
-      ? tasks.items.find((t) => t.line === line)
+      ? tasks.items.find((t) => t.line === line + lineOffset)
       : undefined;
   return { noteID, item };
 }

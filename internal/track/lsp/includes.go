@@ -65,7 +65,7 @@ func (s *Server) includes(uri string) ([]includeResult, error) {
 			results = append(results, res)
 			continue
 		}
-		lines, ok := link.Extract(body, inc)
+		lines, _, ok := link.Extract(body, inc)
 		if !ok {
 			res.Error = fmt.Sprintf("heading not found: %s", inc.Heading)
 			results = append(results, res)

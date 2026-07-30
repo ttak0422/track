@@ -76,7 +76,8 @@ func sectionEnd(all []string, h Heading) int {
 func CutSection(body string, h Heading) (rest string, section []string) {
 	all := strings.Split(body, "\n")
 	end := sectionEnd(all, h)
-	section = append([]string(nil), trimBlankEdges(all[h.Line:end])...)
+	trimmed, _ := trimBlankEdges(all[h.Line:end])
+	section = append([]string(nil), trimmed...)
 	rest = strings.Join(append(all[:h.Line:h.Line], all[end:]...), "\n")
 	return rest, section
 }
@@ -126,7 +127,7 @@ func leadingWS(s string) int {
 // precedes it — except between two list items, so captured entries pack into an existing list —
 // and from any non-blank line that follows (e.g. the next heading).
 func AppendUnder(body string, h *Heading, block []string) (string, int) {
-	block = trimBlankEdges(block)
+	block, _ = trimBlankEdges(block)
 	if len(block) == 0 {
 		return body, 0
 	}

@@ -28,9 +28,12 @@ vi.mock("@hpcc-js/wasm-graphviz", () => ({
 // Partial mock: only the task write is stubbed, so every other api call the view makes (OGP cards,
 // asset text, wiki-link resolution) keeps its real implementation.
 const setTaskState = vi.hoisted(() => vi.fn(async () => ({ tasks: { items: [] } })));
+// An embedded excerpt fetches the note it came from, to address its tasks by their own lines.
+const getNote = vi.hoisted(() => vi.fn(async () => ({ note: { tasks: { items: [] } } })));
 vi.mock("../api", async (importOriginal) => ({
   ...(await importOriginal<typeof import("../api")>()),
   setTaskState,
+  getNote,
 }));
 
 vi.mock("@terrastruct/d2", () => ({
@@ -350,6 +353,54 @@ describe("MarkdownView", () => {
     // The caption header links back to the source note; the raw directive text is gone.
     expect(within(card as HTMLElement).getByText("Design##API")).toBeInTheDocument();
     expect(container.textContent).not.toContain(":only-contents");
+  });
+
+  it("writes an embedded task back to the note that owns it, at its own line", async () => {
+    // The excerpt starts at the source note's line 10 (0-based source_line 9), so its first line
+    // is that file's line 10 — not line 1 of the host note.
+    const sourceTasks = { items: [{ line: 10, state: "TODO", done: false, text: "owned task" }] };
+    getNote.mockResolvedValue({ note: { tasks: sourceTasks } });
+    const { container } = renderWithQuery(
+      <FloatingProvider>
+        <MarkdownView
+          markdown={"host\n\n![[Design##Plan]]"}
+          includes={[
+            {
+              line: 2,
+              note_id: 42,
+              title: "Design",
+              caption: "Design##Plan",
+              lines: ["- [ ] owned task"],
+              source_line: 9,
+            },
+          ]}
+        />
+      </FloatingProvider>,
+    );
+    const card = container.querySelector(".note-include") as HTMLElement;
+    const box = await waitFor(() => {
+      const found = within(card).getByRole("checkbox");
+      expect(found).toBeEnabled();
+      return found;
+    });
+    fireEvent.click(box);
+    await waitFor(() => expect(setTaskState).toHaveBeenCalledWith("42", 10, "DONE", "TODO"));
+  });
+
+  it("leaves an embedded task inert when the excerpt is not one run of the source", async () => {
+    getNote.mockResolvedValue({ note: { tasks: { items: [{ line: 1, state: "TODO", done: false, text: "t" }] } } });
+    const { container } = renderWithQuery(
+      <FloatingProvider>
+        <MarkdownView
+          markdown={"![[Design]] :lines 1,3"}
+          includes={[
+            { line: 0, note_id: 42, title: "Design", caption: "Design", lines: ["- [ ] t"], source_line: -1 },
+          ]}
+        />
+      </FloatingProvider>,
+    );
+    const card = container.querySelector(".note-include") as HTMLElement;
+    expect(within(card).getByRole("checkbox")).toBeDisabled();
   });
 
   it("renders an include error as a warning card instead of dropping the line", () => {

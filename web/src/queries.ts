@@ -121,11 +121,12 @@ export function useResolveQuery(term: string, vault = "") {
 // SSE change stream (see useLiveEvents); this only covers a dropped stream.
 const liveRefetchInterval = 30000;
 
-export function useNoteQuery(noteID: NoteID, options: { live?: boolean } = {}) {
+export function useNoteQuery(noteID: NoteID, options: { live?: boolean; enabled?: boolean } = {}) {
   return useQuery({
     queryKey: queryKeys.note(noteID),
     queryFn: () => getNote(noteID),
     refetchInterval: options.live ? liveRefetchInterval : false,
+    enabled: options.enabled ?? true,
   });
 }
 
@@ -247,6 +248,9 @@ export function useSetTaskStateMutation(noteID: NoteID) {
     onSuccess: () => {
       void queryClient.invalidateQueries({ queryKey: queryKeys.note(noteID) });
       void queryClient.invalidateQueries({ queryKey: queryKeys.notes() });
+      // A host note embedding this one renders a cached excerpt keyed by its own body text, so
+      // without this the embedded lines keep their old marker and stamp after the write.
+      void queryClient.invalidateQueries({ queryKey: ["render"] });
     },
     // A refused write means the view is stale — refetch so the error is read against what the
     // note actually says now.
