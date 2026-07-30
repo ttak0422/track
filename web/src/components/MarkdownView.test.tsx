@@ -32,6 +32,17 @@ vi.mock("@terrastruct/d2", () => ({
   },
 }));
 
+// The draw.io viewer is a vendored script injected at runtime, not an importable module; stub the
+// loader with a viewer that draws a marker SVG into the host.
+vi.mock("./markdown/drawioViewer", () => ({
+  loadDrawioViewer: () =>
+    Promise.resolve({
+      createViewerForElement: (element: Element) => {
+        element.innerHTML = '<svg viewBox="0 0 10 10"><text>X</text></svg>';
+      },
+    }),
+}));
+
 // A QueryClient is only needed for markdown that produces links (ExternalLink/WikiLink) or viewspec
 // charts (ViewSpecChart), which call useQuery. Pure block content (tables, task lists, code) renders
 // without it.
@@ -156,6 +167,15 @@ describe("MarkdownView", () => {
     const { container } = render(<MarkdownView markdown={"```d2\na -> b\n```"} />);
     await waitFor(() => expect(container.querySelector("svg")).toBeInTheDocument());
     expect(screen.getByRole("img", { name: "D2 diagram" })).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Copy code" })).not.toBeInTheDocument();
+  });
+
+  it("renders drawio fences through the draw.io viewer component", async () => {
+    const { container } = render(
+      <MarkdownView markdown={"```drawio\n<mxGraphModel><root><mxCell id='0'/></root></mxGraphModel>\n```"} />,
+    );
+    await waitFor(() => expect(container.querySelector("svg")).toBeInTheDocument());
+    expect(screen.getByRole("img", { name: "draw.io diagram" })).toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "Copy code" })).not.toBeInTheDocument();
   });
 

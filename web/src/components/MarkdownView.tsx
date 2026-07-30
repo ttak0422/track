@@ -16,6 +16,7 @@ import { TaskBoard } from "./markdown/TaskBoard";
 import { Embed } from "./markdown/Embed";
 import { ExternalLink } from "./markdown/ExternalLink";
 import { D2Diagram } from "./markdown/D2Diagram";
+import { DrawioDiagram } from "./markdown/DrawioDiagram";
 import { GraphvizDiagram } from "./markdown/GraphvizDiagram";
 import { loadMathPlugins, looksLikeMath, type MathPlugins, mathPluginsIfLoaded } from "./markdown/math";
 import { MermaidDiagram } from "./markdown/MermaidDiagram";
@@ -325,6 +326,9 @@ const markdownComponents = {
       }
       if (normalized === "d2") {
         return <D2Diagram text={text} />;
+      }
+      if (normalized === "drawio") {
+        return <DrawioDiagram text={text} />;
       }
       if (normalized === "mindmap") {
         return <MindmapDiagram text={text} />;

@@ -145,6 +145,8 @@ describe("text-file asset embeds", () => {
     // No whitelist: an unmapped extension is its own language, no extension is plain text.
     expect(textAssetLang("assets/main.go")).toBe("go");
     expect(textAssetLang("assets/Makefile")).toBe("");
+    // draw.io sources ride the same rule; the embed renders them as diagrams, not code.
+    expect(textAssetLang("assets/flow.drawio")).toBe("drawio");
   });
   it("matches .html/.htm as HTML documents", () => {
     expect(isHtmlHref("assets/widget.html")).toBe(true);
