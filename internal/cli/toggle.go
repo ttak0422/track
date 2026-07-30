@@ -27,6 +27,7 @@ func cmdToggle(args []string) int {
 	path := fs.String("path", "", "note path (alternative to --id)")
 	line := fs.Int("line", 0, "1-based line number of the checkbox to toggle")
 	state := fs.String("state", "toggle", "resulting state: toggle, check, or uncheck")
+	expect := fs.String("expect", "", "refuse the write unless the line is in this state (e.g. TODO)")
 	if err := fs.Parse(args); err != nil {
 		return fail("parse args: %v", err)
 	}
@@ -60,6 +61,7 @@ func cmdToggle(args []string) int {
 	if want == "uncheck" {
 		target = todo.Name
 	}
+	assert := strings.TrimSpace(*expect)
 	if want == "toggle" {
 		raw, err := os.ReadFile(notePath)
 		if err != nil {
@@ -72,9 +74,14 @@ func cmdToggle(args []string) int {
 		if cur.Done {
 			target = todo.Name
 		}
+		// The target was chosen from this read; assert it so an edit landing between the read and
+		// the write cannot flip a state we never saw. An explicit --expect wins.
+		if assert == "" {
+			assert = cur.State
+		}
 	}
 
-	tr, err := note.ApplyTaskState(cfg, notePath, *line, target, time.Now())
+	tr, err := note.ApplyTaskState(cfg, notePath, *line, target, assert, time.Now())
 	if err != nil {
 		return fail("%v", err)
 	}

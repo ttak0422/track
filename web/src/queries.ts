@@ -242,10 +242,16 @@ export function useSetTaskStateMutation(noteID: NoteID) {
   const queryClient = useQueryClient();
 
   return useMutation({
-    mutationFn: ({ line, state }: { line: number; state: string }) => setTaskState(noteID, line, state),
+    mutationFn: ({ line, state, expect }: { line: number; state: string; expect?: string }) =>
+      setTaskState(noteID, line, state, expect),
     onSuccess: () => {
       void queryClient.invalidateQueries({ queryKey: queryKeys.note(noteID) });
       void queryClient.invalidateQueries({ queryKey: queryKeys.notes() });
+    },
+    // A refused write means the view is stale — refetch so the error is read against what the
+    // note actually says now.
+    onError: () => {
+      void queryClient.invalidateQueries({ queryKey: queryKeys.note(noteID) });
     },
   });
 }

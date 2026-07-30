@@ -2,6 +2,7 @@ package webui
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
 	"net/http"
 	"os"
@@ -60,6 +61,10 @@ func (s *Server) handleTaskSet(v *vaultView, w http.ResponseWriter, r *http.Requ
 	var req struct {
 		Line  int    `json:"line"`
 		State string `json:"state"`
+		// The state the client believes the line is in. The board and the rendered task rows both
+		// know it, so they send it and a stale view is refused (409) instead of writing over
+		// whatever the line became.
+		Expect string `json:"expect"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		writeError(w, fmt.Errorf("decode request: %w", err), http.StatusBadRequest)
@@ -70,12 +75,18 @@ func (s *Server) handleTaskSet(v *vaultView, w http.ResponseWriter, r *http.Requ
 	var tr task.Transition
 	if err := v.write(func() error {
 		var err error
-		tr, err = note.ApplyTaskState(v.cfg, path, req.Line, req.State, time.Now())
+		tr, err = note.ApplyTaskState(v.cfg, path, req.Line, req.State, req.Expect, time.Now())
 		if err != nil {
 			return err
 		}
 		return index.New(v.cfg, v.store).One(path)
 	}); err != nil {
+		// A refused assertion is a conflict, not a bad request — the same shape the note save's
+		// etag mismatch returns, one level down.
+		if errors.Is(err, note.ErrStateMismatch) {
+			writeError(w, err, http.StatusConflict)
+			return
+		}
 		writeError(w, err, http.StatusBadRequest)
 		return
 	}

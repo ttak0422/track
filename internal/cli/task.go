@@ -37,6 +37,7 @@ func cmdTaskCycle(args []string) int {
 	title := fs.String("title", "", "note title (alternative to --id)")
 	path := fs.String("path", "", "note path (alternative to --id)")
 	line := fs.Int("line", 0, "1-based line number of the task")
+	expect := fs.String("expect", "", "refuse the write unless the line is in this state")
 	if err := fs.Parse(args); err != nil {
 		return fail("parse args: %v", err)
 	}
@@ -79,7 +80,13 @@ func cmdTaskCycle(args []string) int {
 		return fail("state %q is not a task state", cur.State)
 	}
 
-	tr, err := note.ApplyTaskState(cfg, notePath, *line, target, time.Now())
+	// The next state was chosen from the read above; assert it so a concurrent edit cannot make
+	// the cycle advance from a state we never saw. An explicit --expect wins.
+	assert := strings.TrimSpace(*expect)
+	if assert == "" {
+		assert = cur.State
+	}
+	tr, err := note.ApplyTaskState(cfg, notePath, *line, target, assert, time.Now())
 	if err != nil {
 		return fail("%v", err)
 	}
@@ -110,6 +117,7 @@ func cmdTaskSet(args []string) int {
 	path := fs.String("path", "", "note path (alternative to --id)")
 	line := fs.Int("line", 0, "1-based line number of the task")
 	state := fs.String("state", "", "target state name (e.g. TODO, DOING, DONE)")
+	expect := fs.String("expect", "", "refuse the write unless the line is in this state")
 	if err := fs.Parse(args); err != nil {
 		return fail("parse args: %v", err)
 	}
@@ -135,7 +143,7 @@ func cmdTaskSet(args []string) int {
 		return fail("invalid note path: %v", err)
 	}
 
-	tr, err := note.ApplyTaskState(cfg, notePath, *line, strings.TrimSpace(*state), time.Now())
+	tr, err := note.ApplyTaskState(cfg, notePath, *line, strings.TrimSpace(*state), strings.TrimSpace(*expect), time.Now())
 	if err != nil {
 		return fail("%v", err)
 	}

@@ -169,7 +169,9 @@ function TaskRowState({ name, done, line }: { name: string; done: boolean; line:
       aria-label="Task state"
       value={item.state}
       disabled={mutation.isPending}
-      onChange={(event) => mutation.mutate({ line: item.line, state: event.currentTarget.value })}
+      onChange={(event) =>
+        mutation.mutate({ line: item.line, state: event.currentTarget.value, expect: item.state })
+      }
     >
       {taskStates.map((state) => (
         <option key={state.name} value={state.name}>

@@ -1,20 +1,34 @@
 package note
 
 import (
+	"errors"
 	"fmt"
 	"os"
+	"strings"
 	"time"
 
 	"github.com/ttak0422/track/internal/track/config"
 	"github.com/ttak0422/track/internal/track/task"
 )
 
+// ErrStateMismatch reports that the task line was not in the state the caller asserted, so nothing
+// was written. It is the task-level counterpart of the note save's etag conflict.
+var ErrStateMismatch = errors.New("task state mismatch")
+
 // ApplyTaskState is the single write path for task state changes, shared by the CLI (task set, the
 // legacy toggle) and the web workspace's board. It rewrites the task line in the note file (stamping
 // or clearing the [done:date] token and recomputing progress cookies) and, when the state actually
 // changed, appends the transition to the note's sidecar task log — so history survives without
 // polluting the body. Callers reindex the note afterwards, matching the other mutation commands.
-func ApplyTaskState(cfg *config.Config, notePath string, line int, state string, now time.Time) (task.Transition, error) {
+//
+// expect, when non-empty, is the state the caller believes the line is in: a mismatch refuses the
+// write with ErrStateMismatch instead of flipping whatever is there now. Every caller reads the
+// line, decides a target, and only then calls this — so without the assertion each carries its own
+// window in which someone else's edit lands in between.
+// ponytail: asserting the state catches a concurrent state change, not a concurrent line shift —
+// an inserted line above makes `line` a different task, and if that task is in the expected state
+// too the guard passes. Assert the task text if that ever bites.
+func ApplyTaskState(cfg *config.Config, notePath string, line int, state, expect string, now time.Time) (task.Transition, error) {
 	raw, err := os.ReadFile(notePath)
 	if err != nil {
 		return task.Transition{}, fmt.Errorf("read note: %w", err)
@@ -22,6 +36,14 @@ func ApplyTaskState(cfg *config.Config, notePath string, line int, state string,
 	updated, tr, err := task.SetState(string(raw), line, state, now)
 	if err != nil {
 		return task.Transition{}, err
+	}
+	if expect != "" {
+		if _, ok := task.StateNamed(expect); !ok {
+			return task.Transition{}, fmt.Errorf("unknown state %q", expect)
+		}
+		if !strings.EqualFold(expect, tr.From) {
+			return task.Transition{}, fmt.Errorf("%w: line %d is %s, not %s", ErrStateMismatch, line, tr.From, expect)
+		}
 	}
 	// Cookies may need a rewrite even when the state itself did not change (a stale cookie).
 	if updated != string(raw) {

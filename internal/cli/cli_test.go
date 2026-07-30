@@ -1681,6 +1681,42 @@ func TestToggleCheckbox(t *testing.T) {
 	}
 }
 
+func TestTaskWriteRefusesUnexpectedState(t *testing.T) {
+	vault := t.TempDir()
+	body := "# Tasks\n\n- [ ] first\n"
+	if _, code := runInWithStdin(t, vault, body, "new", "--title", "Tasks", "--id", "510"); code != 0 {
+		t.Fatalf("new failed")
+	}
+	path := filepath.Join(vault, "note", "510.md")
+
+	// The line is TODO, so asserting DONE refuses the write — and leaves the file alone.
+	out, code := runIn(t, vault, "task", "set", "--id", "510", "--line", "3", "--state", "DOING", "--expect", "DONE")
+	if code == 0 || out["error"] == nil {
+		t.Fatalf("expected a state mismatch, got %v", out)
+	}
+	if got := readFileString(t, path); !strings.Contains(got, "- [ ] first") {
+		t.Fatalf("a refused write must not touch the file: %q", got)
+	}
+
+	// A typo in the state name is its own error, not a silent always-fails mismatch.
+	if out, code := runIn(t, vault, "task", "set", "--id", "510", "--line", "3", "--state", "DOING", "--expect", "DONEE"); code == 0 || out["error"] == nil {
+		t.Fatalf("expected an unknown-state error, got %v", out)
+	}
+
+	// The matching assertion goes through.
+	if out, code := runIn(t, vault, "task", "set", "--id", "510", "--line", "3", "--state", "DOING", "--expect", "TODO"); code != 0 {
+		t.Fatalf("expected the matching assertion to succeed: %v", out)
+	}
+	if got := readFileString(t, path); !strings.Contains(got, "- [/] first") {
+		t.Fatalf("state should be DOING now: %q", got)
+	}
+
+	// toggle asserts the state it read, so its own read-then-write window is closed too.
+	if out, code := runIn(t, vault, "toggle", "--id", "510", "--line", "3", "--expect", "TODO"); code == 0 || out["error"] == nil {
+		t.Fatalf("expected toggle to refuse a stale expectation, got %v", out)
+	}
+}
+
 func TestTaskSetAndTasks(t *testing.T) {
 	vault := t.TempDir()
 	body := "# Sprint [0/3]\n\n- [ ] alpha [#B] [due:2000-01-02]\n- [ ] beta [#A] [due:2999-12-31]\n- [ ] gamma\n"
