@@ -81,6 +81,10 @@ All `/api/*` responses are JSON. Read endpoints:
   link cards. Only `http(s)` URLs are accepted and the fetch is SSRF-guarded; see
   "Markdown embeds" below.
 
+- `GET /api/tasks[?vault=<name>]`: every task in the vault carrying a scheduled or
+  due date, for the calendar and day pages; `?id=<id>` narrows it to one note's
+  task set. The published site carries the same listing as `data/tasks.json`.
+
 Write endpoint:
 
 - `PUT /api/note?id=<id>[&vault=<name>]`: save the body of an existing note. The request

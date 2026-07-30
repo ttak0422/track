@@ -5,10 +5,12 @@ import (
 	"fmt"
 	"net/http"
 	"os"
+	"strings"
 	"time"
 
 	"github.com/ttak0422/track/internal/track/index"
 	"github.com/ttak0422/track/internal/track/note"
+	"github.com/ttak0422/track/internal/track/store"
 	"github.com/ttak0422/track/internal/track/task"
 )
 
@@ -21,6 +23,22 @@ func (s *Server) handleTasks(v *vaultView, w http.ResponseWriter, r *http.Reques
 		return
 	}
 	s.refresh(v)
+	// Without an id this is the vault-wide listing the calendar and day pages read: every task
+	// carrying a date, so a planned day is visible without opening the note that planned it.
+	if strings.TrimSpace(r.URL.Query().Get("id")) == "" {
+		rows, err := v.store.Tasks(store.TaskFilter{Dated: true})
+		if err != nil {
+			writeError(w, err, http.StatusInternalServerError)
+			return
+		}
+		if rows == nil {
+			rows = []store.TaskRow{}
+		}
+		// The vault label qualifies each row's note id client-side, as the journal and search
+		// responses do — two vaults hold different notes under the same number.
+		writeJSON(w, map[string]any{"vault": v.label, "tasks": rows})
+		return
+	}
 	id, err := parseID(r)
 	if err != nil {
 		writeError(w, err, http.StatusBadRequest)

@@ -5,10 +5,12 @@ import { DayView } from "./DayView";
 const agendaQuery = vi.hoisted(() => ({ current: {} as Record<string, unknown> }));
 const navigate = vi.hoisted(() => vi.fn());
 const openJournal = vi.hoisted(() => vi.fn());
+const tasksQuery = vi.hoisted(() => ({ current: {} as Record<string, unknown> }));
 
 vi.mock("../queries", () => ({
   useAgendaQuery: () => agendaQuery.current,
   useResolveQuery: () => ({ data: undefined }),
+  useDatedTasksQuery: () => tasksQuery.current,
 }));
 vi.mock("../api", () => ({ openJournal }));
 vi.mock("@tanstack/react-router", () => ({
@@ -45,6 +47,7 @@ const loadedAgenda = {
 describe("DayView", () => {
   beforeEach(() => {
     agendaQuery.current = { ...loadedAgenda };
+    tasksQuery.current = { data: { tasks: [] } };
     navigate.mockClear();
     openJournal.mockClear();
   });
@@ -71,6 +74,23 @@ describe("DayView", () => {
     fireEvent.click(getByText("Journal"));
     await waitFor(() => expect(navigate).toHaveBeenCalledWith({ to: "/notes/$noteId", params: { noteId: "20260703" } }));
     expect(openJournal).toHaveBeenCalledWith("2026-07-03");
+  });
+
+  it("lists the tasks planned for the day, marked by which date put them there", () => {
+    tasksQuery.current = {
+      data: {
+        tasks: [
+          { note_id: "9", file_kind: "note", title: "Plan", line: 1, state: "TODO", done: false, text: "ship it", due: "2026-07-03" },
+          { note_id: "9", file_kind: "note", title: "Plan", line: 2, state: "TODO", done: false, text: "start it", scheduled: "2026-07-03" },
+          { note_id: "9", file_kind: "note", title: "Plan", line: 3, state: "TODO", done: false, text: "elsewhere", due: "2026-07-04" },
+        ],
+      },
+    };
+    const { container, getByText } = render(<DayView date="2026-07-03" />);
+    const rows = container.querySelectorAll(".day-task");
+    expect(rows).toHaveLength(2);
+    expect(getByText("ship it").parentElement?.textContent).toContain("!");
+    expect(getByText("start it").parentElement?.textContent).toContain("▷");
   });
 
   it("rejects a malformed date", () => {

@@ -10,6 +10,7 @@ import {
   getNoteMeta,
   getOgp,
   getSite,
+  listDatedTasks,
   listNotes,
   renderMarkdown,
   renderViewSpec,
@@ -33,6 +34,7 @@ export const queryKeys = {
   note: (noteID: NoteID) => ["note", noteID] as const,
   noteMeta: (noteID: NoteID) => ["note-meta", noteID] as const,
   notes: () => ["notes"] as const,
+  datedTasks: () => ["dated-tasks"] as const,
   resolve: (term: string, vault = "") => ["resolve", vault, term] as const,
   search: (query: string, limit: number) => ["search", query, limit] as const,
   ogp: (url: string) => ["ogp", url] as const,
@@ -95,6 +97,16 @@ export function useNotesQuery() {
   return useQuery({
     queryKey: queryKeys.notes(),
     queryFn: listNotes,
+  });
+}
+
+// useDatedTasksQuery lists every task in the vault carrying a date, for the calendar and the day
+// page. One cache entry serves both, so opening a day from the calendar paints from what is already
+// held.
+export function useDatedTasksQuery() {
+  return useQuery({
+    queryKey: queryKeys.datedTasks(),
+    queryFn: listDatedTasks,
   });
 }
 
@@ -246,6 +258,8 @@ export function useSetTaskStateMutation(noteID: NoteID) {
     onSuccess: () => {
       void queryClient.invalidateQueries({ queryKey: queryKeys.note(noteID) });
       void queryClient.invalidateQueries({ queryKey: queryKeys.notes() });
+      // A state change can stamp or clear a completion date, and the listing shows dated tasks.
+      void queryClient.invalidateQueries({ queryKey: queryKeys.datedTasks() });
     },
   });
 }

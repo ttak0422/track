@@ -14,7 +14,9 @@ type TaskFilter struct {
 	States        []string
 	DueBy         string
 	OverdueBefore string
-	ByPriority    bool
+	// Dated keeps only tasks carrying a scheduled or due date — the ones that belong on a calendar.
+	Dated      bool
+	ByPriority bool
 }
 
 // TaskRow is one task in the cross-note listing: the parsed task plus its note's identity.
@@ -50,6 +52,9 @@ func (s *Store) Tasks(f TaskFilter) ([]TaskRow, error) {
 	if f.OverdueBefore != "" {
 		conds = append(conds, "t.due <> '' AND t.due < ? AND t.done = 0")
 		args = append(args, f.OverdueBefore)
+	}
+	if f.Dated {
+		conds = append(conds, "(t.scheduled <> '' OR t.due <> '')")
 	}
 	if len(conds) > 0 {
 		query += " WHERE " + strings.Join(conds, " AND ")

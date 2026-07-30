@@ -1,6 +1,6 @@
 import { Link, useNavigate } from "@tanstack/react-router";
 import { openJournal } from "../api";
-import { useAgendaQuery, useResolveQuery } from "../queries";
+import { useAgendaQuery, useDatedTasksQuery, useResolveQuery } from "../queries";
 import { STATIC_MODE } from "../runtime";
 
 // DayView is the page a calendar day opens: the notes active that day (the same set the reader's
@@ -10,6 +10,7 @@ import { STATIC_MODE } from "../runtime";
 export function DayView({ date }: { date: string }) {
   const valid = /^\d{4}-\d{2}-\d{2}$/.test(date);
   const agendaQuery = useAgendaQuery(date, "", { enabled: valid });
+  const tasksQuery = useDatedTasksQuery();
   // Journal titles are the day's yyyyMMdd, so resolving that term finds the published journal.
   const journalQuery = useResolveQuery(STATIC_MODE && valid ? date.replaceAll("-", "") : "");
   const navigate = useNavigate();
@@ -28,6 +29,11 @@ export function DayView({ date }: { date: string }) {
   }
 
   const journal = journalQuery.data?.found ? journalQuery.data.note : undefined;
+  // Tasks planned for this day, from the same listing the calendar filled — so arriving from a
+  // calendar cell paints without a fetch.
+  const dayTasks = (tasksQuery.data?.tasks ?? []).filter(
+    (task) => task.scheduled === date || task.due === date,
+  );
 
   return (
     <div className="day-view" aria-label={`Notes on ${date}`}>
@@ -64,6 +70,27 @@ export function DayView({ date }: { date: string }) {
             ))}
           </div>
         )
+      ) : null}
+      {dayTasks.length > 0 ? (
+        <section className="day-tasks">
+          <h2>Tasks</h2>
+          <div className="backlink-list day-list">
+            {dayTasks.map((task) => (
+              <Link
+                className="backlink day-task"
+                key={`${task.note_id}:${task.line}`}
+                to="/notes/$noteId"
+                params={{ noteId: String(task.note_id) }}
+              >
+                {/* The marker says which date put the task on this day: due reads as a deadline, so
+                    it carries the same "!" the task table's due column uses. */}
+                <span className="day-task-mark">{task.due === date ? "!" : "▷"}</span>
+                {task.text}
+                <span className="day-task-note">{task.title}</span>
+              </Link>
+            ))}
+          </div>
+        </section>
       ) : null}
     </div>
   );

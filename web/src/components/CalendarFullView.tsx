@@ -1,7 +1,7 @@
 import { Link } from "@tanstack/react-router";
 import { useMemo, useState } from "react";
-import { useNotesQuery } from "../queries";
-import type { NoteID, SearchResult } from "../types";
+import { useDatedTasksQuery, useNotesQuery } from "../queries";
+import type { NoteID, SearchResult, TaskRow } from "../types";
 
 const WEEKDAYS = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
 // How many note titles a day cell lists before collapsing the rest into a "+N" count.
@@ -15,6 +15,8 @@ const CELL_NOTES = 3;
 // endpoint of its own — and no journals — to work.
 export function CalendarFullView() {
   const notesQuery = useNotesQuery();
+  // The calendar never waits on this: a pending or failed listing just means no task counts.
+  const tasksQuery = useDatedTasksQuery();
   const [month, setMonth] = useState(startOfCurrentMonth);
 
   // day (YYYY-MM-DD) → notes active that day, kept in the listing's order — most recently updated
@@ -31,6 +33,21 @@ export function CalendarFullView() {
     }
     return map;
   }, [notesQuery.data]);
+
+  // day → the dated tasks that fall on it. A task with both a scheduled and a due date lands on both
+  // days (an agenda has an entry for "start Monday" and one for "due Friday"), but never twice on the
+  // same day.
+  const tasksByDay = useMemo(() => {
+    const map = new Map<string, TaskRow[]>();
+    for (const task of tasksQuery.data?.tasks ?? []) {
+      for (const day of new Set([task.scheduled, task.due].filter(Boolean) as string[])) {
+        const list = map.get(day);
+        if (list) list.push(task);
+        else map.set(day, [task]);
+      }
+    }
+    return map;
+  }, [tasksQuery.data]);
 
   // Journal notes are date-addressed by title (yyyyMM months), so the title is the lookup key directly.
   const journals = useMemo(() => {
@@ -97,7 +114,8 @@ export function CalendarFullView() {
             const date = `${year}-${pad2(monthNo)}-${pad2(i + 1)}`;
             const dayNotes = notesByDay.get(date) ?? [];
             const today = date === todayKey ? "date" : undefined;
-            if (dayNotes.length === 0) {
+            const dayTasks = tasksByDay.get(date) ?? [];
+            if (dayNotes.length === 0 && dayTasks.length === 0) {
               return (
                 <span className="calendar-day" key={date} aria-current={today}>
                   <span className="calendar-day-number">{i + 1}</span>
@@ -111,7 +129,7 @@ export function CalendarFullView() {
                 params={{ date }}
                 key={date}
                 aria-current={today}
-                title={`Notes on ${date}`}
+                title={`Notes and tasks on ${date}`}
               >
                 <span className="calendar-day-number">{i + 1}</span>
                 {dayNotes.slice(0, CELL_NOTES).map((note) => (
@@ -121,6 +139,13 @@ export function CalendarFullView() {
                 ))}
                 {dayNotes.length > CELL_NOTES ? (
                   <span className="calendar-day-more">+{dayNotes.length - CELL_NOTES}</span>
+                ) : null}
+                {/* One line, always last: a cell that already lists titles has no room to name tasks
+                    too, and the count is what makes a planned day worth opening. */}
+                {dayTasks.length > 0 ? (
+                  <span className="calendar-day-tasks">
+                    {dayTasks.length} task{dayTasks.length === 1 ? "" : "s"}
+                  </span>
                 ) : null}
               </Link>
             );

@@ -1,7 +1,7 @@
 import { RouterProvider, createMemoryHistory } from "@tanstack/react-router";
 import { QueryClient, dehydrate } from "@tanstack/react-query";
 import { renderToString } from "react-dom/server";
-import { getAgenda, getNote, getSite, listNotes, renderMarkdown, resolveTerm } from "./api";
+import { getAgenda, getNote, getSite, listDatedTasks, listNotes, renderMarkdown, resolveTerm } from "./api";
 import { AppTree, createAppRouter } from "./App";
 import { queryKeys } from "./queries";
 
@@ -50,8 +50,10 @@ async function prefetchForRoute(queryClient: QueryClient, routePath: string): Pr
   await queryClient.prefetchQuery({ queryKey: queryKeys.site(), queryFn: getSite });
 
   if (routePath === "/calendar") {
-    // The calendar's above-the-fold content IS the notes list (it derives the per-day notes from it).
+    // The calendar's above-the-fold content IS the notes list (it derives the per-day notes from it),
+    // plus the dated tasks its cells count.
     await queryClient.prefetchQuery({ queryKey: queryKeys.notes(), queryFn: listNotes });
+    await queryClient.prefetchQuery({ queryKey: queryKeys.datedTasks(), queryFn: listDatedTasks });
     return;
   }
 
@@ -62,6 +64,7 @@ async function prefetchForRoute(queryClient: QueryClient, routePath: string): Pr
     const term = date.replaceAll("-", "");
     await queryClient.prefetchQuery({ queryKey: queryKeys.agenda(date), queryFn: () => getAgenda(date) });
     await queryClient.prefetchQuery({ queryKey: queryKeys.resolve(term), queryFn: () => resolveTerm(term) });
+    await queryClient.prefetchQuery({ queryKey: queryKeys.datedTasks(), queryFn: listDatedTasks });
     return;
   }
 

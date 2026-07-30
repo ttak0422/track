@@ -73,6 +73,18 @@ func writePages(outDir, startPage string, root int64, docs, listed []doc, site j
 			for _, day := range d.days {
 				days[day] = true
 			}
+			// A day nothing was written on can still be a day something is planned for, and the
+			// calendar links to it — so it needs a page too.
+			if d.tasks == nil {
+				continue
+			}
+			for _, t := range d.tasks.Items {
+				for _, day := range []string{t.Scheduled, t.Due} {
+					if day != "" {
+						days[day] = true
+					}
+				}
+			}
 		}
 		for day := range days {
 			if err := write(filepath.Join("day", day, "index.html"), pageHead(site, nil, "/day/"+day)); err != nil {
