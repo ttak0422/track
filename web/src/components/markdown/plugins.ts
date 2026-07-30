@@ -3,6 +3,7 @@ import type { Paragraph, Root as MdastRoot } from "mdast";
 import { visit } from "unist-util-visit";
 import { taskStates } from "../../taskStates";
 import type { TaskState } from "../../types";
+import { headingElementID } from "./toc";
 
 // The [[target|display]] wiki-link grammar (target, optional |display alias). Shared with the portable
 // export so both flatten the same construct. It carries the /g flag; reset lastIndex before manual exec.
@@ -65,6 +66,30 @@ function takeTrailingBlockID(node: Paragraph): string | null {
   if (stripped === "" && node.children.length === 1) return null;
   last.value = stripped;
   return match[1];
+}
+
+// remarkHeadingID gives each rendered heading the id its outline entry links to. The ids are
+// computed from the note's source by tocEntries and handed in, so the outline and the headings can
+// never disagree about which id belongs to which heading — matching them here by text would have to
+// re-derive the dedupe counter and could drift.
+//
+// Setext headings ("Title" over "====") are skipped: remark parses them, but track's heading
+// parsers are ATX-only, so counting one would shift every id after it onto the wrong heading.
+export function remarkHeadingID(ids: string[]) {
+  return (tree: MdastRoot) => {
+    let i = 0;
+    visit(tree, "heading", (node) => {
+      const start = node.position?.start?.line;
+      const end = node.position?.end?.line;
+      if (start !== undefined && end !== undefined && start !== end) return; // setext
+      const id = ids[i++];
+      if (!id) return;
+      const data = (node.data ??= {});
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any -- hProperties is untyped mdast data
+      const props = ((data as any).hProperties ??= {});
+      props.id = headingElementID(id);
+    });
+  };
 }
 
 // Include directives (ADR 0031) reach the renderer as data, not syntax: the server resolves each

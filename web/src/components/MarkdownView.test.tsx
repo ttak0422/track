@@ -46,6 +46,20 @@ describe("MarkdownView", () => {
     expect(screen.getByText("Empty note.")).toBeInTheDocument();
   });
 
+  it("gives headings the ids their outline links to, counting repeats", () => {
+    const { container } = render(<MarkdownView markdown={"# Intro\n## Intro\n### 設計"} />);
+    expect(container.querySelector("h1")?.id).toBe("h-intro");
+    expect(container.querySelector("h2")?.id).toBe("h-intro-2");
+    expect(container.querySelector("h3")?.id).toBe("h-設計");
+  });
+
+  it("does not count a setext heading, which track's parsers do not see", () => {
+    // remark parses "Title\n=====" as a heading; the engine's ATX-only scanners do not, so counting
+    // it here would shift every later id onto the wrong heading.
+    const { container } = render(<MarkdownView markdown={"Setext\n======\n\n# Real"} />);
+    expect(container.querySelector("h1#h-real")).not.toBeNull();
+  });
+
   it("renders a GFM table", () => {
     render(<MarkdownView markdown={"| a | b |\n| --- | --- |\n| 1 | 2 |"} />);
     const table = screen.getByRole("table");

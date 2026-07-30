@@ -72,6 +72,7 @@ export function NoteReaderStatic({ noteID }: { noteID: NoteID }) {
       </div>
 
       <NoteAside
+        markdown={rendered.data?.markdown ?? ""}
         backlinks={data.backlinks}
         childNotes={data.children ?? []}
         noteID={noteID}
