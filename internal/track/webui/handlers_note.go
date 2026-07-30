@@ -412,19 +412,24 @@ func (s *Server) handleRender(v *vaultView, w http.ResponseWriter, r *http.Reque
 	// Embedded ```track-query fences resolve here into Markdown result tables over the freshly
 	// reconciled index, so the workspace draws them with its ordinary table rendering — the same
 	// expansion the static export bakes in at build time. A row-load failure leaves the fences as
-	// source rather than failing the whole render.
-	if rows, err := query.RowsFromStore(v.store); err == nil {
-		kinds := make(map[int64]string, len(rows))
-		for _, r := range rows {
-			kinds[r.ID] = r.Kind
+	// source rather than failing the whole render. Like the dashboard block above, the row scan is
+	// skipped unless the body carries a query fence: the editor re-renders per keystroke, and
+	// almost no note has one. The test is on the rendered markdown, not the request body, because
+	// a dashboard fence can expand into query fences.
+	if strings.Contains(markdown, "```"+query.FenceLang) {
+		if rows, err := query.RowsFromStore(v.store); err == nil {
+			kinds := make(map[int64]string, len(rows))
+			for _, r := range rows {
+				kinds[r.ID] = r.Kind
+			}
+			// Gallery covers come from the sidecar metadata, read lazily per matched note; the value is
+			// the note-relative "assets/<file>" the frontend already maps to /api/asset. The icon is the
+			// cover's stand-in on cards without one, resolved by the one resolver every surface uses.
+			markdown = query.ExpandBlocks(markdown, v.cfg.Queries, rows, func(id int64) (string, string) {
+				meta, _, _ := note.ReadMetadata(v.cfg.MetadataPath(id))
+				return meta.Image, v.cfg.NoteIcon(kinds[id], meta.Tags, meta.Icon)
+			})
 		}
-		// Gallery covers come from the sidecar metadata, read lazily per matched note; the value is
-		// the note-relative "assets/<file>" the frontend already maps to /api/asset. The icon is the
-		// cover's stand-in on cards without one, resolved by the one resolver every surface uses.
-		markdown = query.ExpandBlocks(markdown, v.cfg.Queries, rows, func(id int64) (string, string) {
-			meta, _, _ := note.ReadMetadata(v.cfg.MetadataPath(id))
-			return meta.Image, v.cfg.NoteIcon(kinds[id], meta.Tags, meta.Icon)
-		})
 	}
 	// Includes resolve against the rendered markdown (what the frontend draws), so their line
 	// numbers align with the text the client splices them into; target bodies render through the
