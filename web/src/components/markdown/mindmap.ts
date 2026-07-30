@@ -1,3 +1,4 @@
+import { scanHeadings } from "./toc";
 // Mindmap model: parse Markdown headings into a tree, and lay the
 // tree out as a left-to-right node/edge diagram. Pure data — no React, no DOM — so it is unit-tested
 // directly and renders identically in the browser and in the static prerender.
@@ -24,24 +25,12 @@ interface Item {
 // headingTree builds the tree of a note's Markdown headings: "## Section" nests under "# Title" and so
 // on. Headings inside fenced code blocks are ignored. Returns null when the note has no headings.
 export function headingTree(markdown: string): MindmapNode | null {
-  const items: Item[] = [];
-  let fence: string | null = null;
-  for (const line of markdown.split("\n")) {
-    const fenceMark = /^\s{0,3}(`{3,}|~{3,})/.exec(line)?.[1];
-    if (fence !== null) {
-      if (fenceMark && fenceMark[0] === fence[0] && fenceMark.length >= fence.length) fence = null;
-      continue;
-    }
-    if (fenceMark) {
-      fence = fenceMark;
-      continue;
-    }
-    const heading = /^(#{1,6})\s+(.+?)\s*#*\s*$/.exec(line);
-    if (heading) {
-      const { label, link } = parseLabel(heading[2]);
-      items.push({ depth: heading[1].length, label, link });
-    }
-  }
+  // Same scan the note outline uses, so the tree and the Contents list never disagree about what
+  // this note's headings are.
+  const items: Item[] = scanHeadings(markdown).map(({ level, text }) => {
+    const { label, link } = parseLabel(text);
+    return { depth: level, label, link };
+  });
   return treeFromItems(items);
 }
 

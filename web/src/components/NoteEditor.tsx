@@ -470,6 +470,7 @@ export function NoteEditor({ noteID }: NoteEditorProps) {
       </div>
 
       <NoteAside
+        markdown={renderQuery.data?.markdown ?? ""}
         backlinks={data.backlinks}
         external={data.external}
         unavailable={data.unavailable}

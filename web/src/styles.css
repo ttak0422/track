@@ -2900,6 +2900,25 @@ textarea.modal-input:focus-visible {
   text-decoration: none;
 }
 
+/* The Contents outline is one entry per row (a wrapped outline is not an outline) and quieter than
+   a backlink: it navigates inside the note you are already reading, not away from it. Indentation
+   by heading level is inline, since the depth is data. */
+.note-toc .backlink-list {
+  display: flex;
+  flex-direction: column;
+  gap: 0;
+}
+
+.note-toc-entry {
+  width: auto;
+  color: var(--muted);
+  font-weight: 400;
+}
+
+.note-toc-entry:hover {
+  color: var(--text);
+}
+
 /* In the note aside the links wrap several to a row (not one per row) so a heavily linked note's
    Backlinks / On this day sections stay a few lines tall. They're plain text links — accent, no pill
    — with enough column gap to tell adjacent titles apart. The day page keeps the row list, where the

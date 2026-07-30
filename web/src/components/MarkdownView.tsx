@@ -1,5 +1,5 @@
 import type { Element } from "hast";
-import { type ReactNode, useContext, useEffect, useState } from "react";
+import { type ReactNode, useContext, useEffect, useMemo, useState } from "react";
 import Markdown, { type Components } from "react-markdown";
 import remarkGfm from "remark-gfm";
 import type { NoteInclude } from "../types";
@@ -26,10 +26,12 @@ import {
   remarkBlockID,
   remarkEmbedOptions,
   remarkInclude,
+  remarkHeadingID,
   remarkTaskLine,
   remarkWikiLink,
   spliceIncludeTokens,
 } from "./markdown/plugins";
+import { tocEntries } from "./markdown/toc";
 import { taskStates } from "../taskStates";
 import { EChartsFence } from "./markdown/EChartsBlock";
 import { QueryView } from "./markdown/QueryView";
@@ -81,10 +83,14 @@ export function MarkdownView({ markdown, kind = "note", vault = "", includes }: 
         includes.map((inc) => inc.line),
       )
     : markdown;
+  // The ids come from the note's own source, not the spliced copy: splicing rewrites include lines
+  // and the outline in the aside reads the same source, so both sides agree on which heading is which.
+  const headingIDs = useMemo(() => tocEntries(markdown).map((entry) => entry.id), [markdown]);
   const remarkPlugins = [
     remarkGfm,
     remarkAlert,
     remarkBlockID,
+    [remarkHeadingID, headingIDs] as [typeof remarkHeadingID, string[]],
     remarkEmbedOptions,
     ...(math ? [math.remark] : []),
     remarkWikiLink,
