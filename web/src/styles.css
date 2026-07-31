@@ -1073,8 +1073,39 @@ a.calendar-title:focus-visible {
      place. Tabs never shrink either, so the strip scrolls horizontally once they overflow. The width
      itself sits in browser-tab territory rather than stretching a short title across a wide slab. */
   flex: 0 0 160px;
+  /* A flex item's automatic minimum size is its content, which a long title made larger than the
+     basis — so the one tab holding a long title grew past every other and the strip stopped being
+     uniform. The inner label and title already collapse; the tab itself has to be allowed to as
+     well, and then the title's ellipsis does its job. */
+  min-width: 0;
   align-items: center;
   color: var(--muted);
+}
+
+/* While panning, the cursor says so and text selection would fight the drag. */
+.tabbar.dragging {
+  cursor: grabbing;
+  user-select: none;
+}
+
+.tab:hover .tab-label,
+.tab:has(:focus-visible) .tab-label {
+  padding-right: 54px;
+}
+
+/* At rest the hidden buttons sit over the title's tail. A mouse cannot reach them (hovering makes
+   the room first), but a touch tap could close a tab it never showed, so they take no pointer until
+   they are visible. Keyboard focus is unaffected. */
+.tab-close,
+.tab-float {
+  pointer-events: none;
+}
+
+.tab:hover .tab-close,
+.tab:hover .tab-float,
+.tab:has(:focus-visible) .tab-close,
+.tab:has(:focus-visible) .tab-float {
+  pointer-events: auto;
 }
 
 .tab.active {
@@ -1094,10 +1125,10 @@ a.calendar-title:focus-visible {
   max-width: 100%;
   align-items: center;
   border: 0;
-  /* Leave room on the right for the absolutely-placed buttons: the close button / dirty dot, and the
-     float button beside it. Reserved on every tab, not just the one showing the float button, so a
-     title never reflows as tabs are activated. */
-  padding: 8px 54px 8px 12px;
+  /* The close and float buttons only appear on hover, so at rest their 54px belongs to the title:
+     a 160px tab shows 124px of it instead of 94px. The room is made when they are revealed, which
+     re-clips only the hovered title — tabs are a fixed width, so nothing else in the strip moves. */
+  padding: 8px 24px 8px 12px;
   color: inherit;
   background: transparent;
   font: inherit;
@@ -1223,15 +1254,18 @@ a.calendar-title:focus-visible {
    scrolls. They're text, not buttons: muted labels that ink on hover, an active one carrying the
    accent — no pills, no fills. They sit below the full-graph overlay and the floating windows. */
 .note-float-controls {
-  /* Pinned to the reader's top-right, but below the tab strip so the controls never sit on top of the
-     tabs. The offset clears the ~33px tab bar (see .tabbar) with a small gap. */
-  position: fixed;
-  top: 44px;
-  right: 18px;
+  /* Anchored to the note's own top-right, not the window's: the reading column is centred and capped,
+     so a window-pinned control drifted further from the text the wider the screen got. Sticky keeps it
+     in view as the note scrolls, which is what the fixed position was buying. */
+  position: sticky;
+  top: 0;
   z-index: 30;
   display: flex;
+  align-self: flex-end;
   align-items: center;
   gap: 14px;
+  /* It sits in the flow above the breadcrumbs, so give back the height it takes. */
+  margin-bottom: -28px;
 }
 
 .follow-toggle,
@@ -1462,14 +1496,17 @@ textarea.modal-input:focus-visible {
 
 /* A note's tags link to their tag pages, but they're still text — no pill. Muted at rest, accent
    on hover, the way a link would answer to the pointer. */
-.note-tags a {
+.note-tags a,
+.note-aside-tags a {
   color: var(--muted);
   text-decoration: none;
   font-size: calc(12px * var(--font-scale, 1));
 }
 
 .note-tags a:hover,
-.note-tags a:focus-visible {
+.note-tags a:focus-visible,
+.note-aside-tags a:hover,
+.note-aside-tags a:focus-visible {
   color: var(--accent);
 }
 
@@ -3013,10 +3050,12 @@ textarea.modal-input:focus-visible {
   touch-action: pan-y;
 }
 
+/* The graph section has no caption, so its only chrome is the reset control — pushed to the right
+   where the other sections' captions begin. */
 .aside-graph-head {
   display: flex;
   align-items: baseline;
-  justify-content: space-between;
+  justify-content: flex-end;
 }
 
 .note-aside::-webkit-scrollbar {

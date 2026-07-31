@@ -7,7 +7,6 @@ import {
   NoteAside,
   NoteBreadcrumbs,
   NoteProperties,
-  NoteTags,
   journalDateFromNote,
   useScrollToHash,
 } from "./noteShared";
@@ -298,42 +297,6 @@ export function NoteEditor({ noteID }: NoteEditorProps) {
     <article
       className={`note-reader${editorMode === "split" ? " note-reader-split" : ""}`}
     >
-      {/* Note controls float over the reader as a graph-style overlay, not in the header bar. */}
-      <div className="note-float-controls">
-        <button
-          className={`follow-toggle${followEnabled ? " active" : ""}`}
-          type="button"
-          aria-pressed={followEnabled}
-          onClick={() => setFollowEnabled((value) => !value)}
-        >
-          Follow
-        </button>
-        <div
-          className="mode-switch"
-          role="group"
-          aria-label="Markdown display mode"
-        >
-          {editorModes.map((mode) => (
-            <button
-              aria-pressed={editorMode === mode}
-              key={mode}
-              type="button"
-              onClick={() => setEditorMode(mode)}
-            >
-              {modeLabel(mode)}
-            </button>
-          ))}
-        </div>
-        <NoteActionsMenu
-          body={body}
-          onMeta={() => setMetaOpen(true)}
-          onDelete={() => {
-            setDeleteConfirmText("");
-            deleteNote.reset();
-            setConfirmDeleteOpen(true);
-          }}
-        />
-      </div>
 
       {metaOpen ? (
         <NoteMetaDialog noteID={noteID} onClose={() => setMetaOpen(false)} />
@@ -394,8 +357,44 @@ export function NoteEditor({ noteID }: NoteEditorProps) {
         </div>
       ) : null}
       <div className="note-main">
+      {/* The note's own controls, at the top-right of the reading column rather than the window's:
+          they belong to this note, and on a wide screen a window-pinned row drifts away from it. */}
+      <div className="note-float-controls">
+        <button
+          className={`follow-toggle${followEnabled ? " active" : ""}`}
+          type="button"
+          aria-pressed={followEnabled}
+          onClick={() => setFollowEnabled((value) => !value)}
+        >
+          Follow
+        </button>
+        <div
+          className="mode-switch"
+          role="group"
+          aria-label="Markdown display mode"
+        >
+          {editorModes.map((mode) => (
+            <button
+              aria-pressed={editorMode === mode}
+              key={mode}
+              type="button"
+              onClick={() => setEditorMode(mode)}
+            >
+              {modeLabel(mode)}
+            </button>
+          ))}
+        </div>
+        <NoteActionsMenu
+          body={body}
+          onMeta={() => setMetaOpen(true)}
+          onDelete={() => {
+            setDeleteConfirmText("");
+            deleteNote.reset();
+            setConfirmDeleteOpen(true);
+          }}
+        />
+      </div>
         <NoteBreadcrumbs trail={data.trail ?? []} />
-        <NoteTags tags={tags} />
         {/* Properties are read-only here: sidecar values are edited via `track meta --set`, inline
           fields by editing the body itself. */}
         <NoteProperties props={data.note.props ?? []} />
@@ -471,6 +470,7 @@ export function NoteEditor({ noteID }: NoteEditorProps) {
       </div>
 
       <NoteAside
+        tags={tags}
         markdown={renderQuery.data?.markdown ?? ""}
         backlinks={data.backlinks}
         external={data.external}

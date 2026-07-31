@@ -60,6 +60,46 @@ describe("TabBar", () => {
     expect(screen.getAllByRole("button", { name: "Float this note" })).toHaveLength(2);
   });
 
+  it("pans the strip on drag, and does not open the tab the drag ended on", () => {
+    // jsdom implements neither pointer capture nor layout; stub the one and treat scrollLeft as the
+    // plain property it is.
+    Element.prototype.setPointerCapture = () => {};
+    Element.prototype.releasePointerCapture = () => {};
+    const view = renderStrip();
+    routerMock.pathname = "/notes/b2";
+    view.rerender(strip());
+    const bar = screen.getByRole("list");
+    // jsdom has no layout, so scrollLeft is just a property — enough to prove the handler math.
+    Object.defineProperty(bar, "scrollWidth", { value: 800, configurable: true });
+    bar.scrollLeft = 100;
+
+    fireEvent.pointerDown(bar, { pointerType: "mouse", button: 0, pointerId: 1, clientX: 200 });
+    fireEvent.pointerMove(bar, { pointerType: "mouse", pointerId: 1, clientX: 140 });
+    expect(bar.scrollLeft).toBe(160); // dragged left by 60, so the strip scrolled right by 60
+    fireEvent.pointerUp(bar, { pointerType: "mouse", pointerId: 1, clientX: 140 });
+
+    // The click that ends a pan is not a request to open anything.
+    routerMock.navigate.mockClear();
+    fireEvent.click(screen.getAllByRole("button", { name: /Close/ })[0].parentElement!.querySelector("button.tab-label")!);
+    expect(routerMock.navigate).not.toHaveBeenCalled();
+    // …but the next one is.
+    fireEvent.click(screen.getAllByRole("button", { name: /Close/ })[0].parentElement!.querySelector("button.tab-label")!);
+    expect(routerMock.navigate).toHaveBeenCalled();
+  });
+
+  it("ignores a drag that never moved, so a plain click still opens its tab", () => {
+    Element.prototype.setPointerCapture = () => {};
+    Element.prototype.releasePointerCapture = () => {};
+    renderStrip();
+    const bar = screen.getByRole("list");
+    fireEvent.pointerDown(bar, { pointerType: "mouse", button: 0, pointerId: 1, clientX: 200 });
+    fireEvent.pointerMove(bar, { pointerType: "mouse", pointerId: 1, clientX: 198 }); // 2px of travel
+    fireEvent.pointerUp(bar, { pointerType: "mouse", pointerId: 1, clientX: 198 });
+    routerMock.navigate.mockClear();
+    fireEvent.click(document.querySelector("button.tab-label")!);
+    expect(routerMock.navigate).toHaveBeenCalled();
+  });
+
   it("offers no float button on a view tab, which has no note to float", () => {
     routerMock.pathname = "/graph";
     renderStrip();

@@ -45,7 +45,9 @@ describe("NoteAside graph section", () => {
     localGraph.mockReturnValue({ data: linkedGraph });
     render(<NoteAside backlinks={[]} noteID="1" journalDate="" />);
 
-    expect(screen.getByRole("heading", { name: "Graph" })).toBeTruthy();
+    // The section carries no caption — a graph is recognisably a graph — so it is found by its
+    // accessible name instead.
+    expect(screen.getByRole("region", { name: "Local graph" })).toBeTruthy();
 
     const canvas = screen.getByText("select-2");
     expect(canvas.getAttribute("data-reset")).toBe("0");
@@ -67,6 +69,6 @@ describe("NoteAside graph section", () => {
       },
     });
     render(<NoteAside backlinks={[]} noteID="1" journalDate="" />);
-    expect(screen.queryByRole("heading", { name: "Graph" })).toBeNull();
+    expect(screen.queryByRole("region", { name: "Local graph" })).toBeNull();
   });
 });

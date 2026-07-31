@@ -115,22 +115,20 @@ export function CalendarFullView() {
             const dayNotes = notesByDay.get(date) ?? [];
             const today = date === todayKey ? "date" : undefined;
             const dayTasks = tasksByDay.get(date) ?? [];
-            if (dayNotes.length === 0 && dayTasks.length === 0) {
+            // A journal is titled by its date, so the map built for the month title finds the day's
+            // one too. Clicking a date opens it when it exists — the day is what the journal is
+            // about, so that is the page you meant. Navigation never creates: a day with no journal
+            // keeps opening the day page, which is also the only thing a published site can do.
+            const journalID = journals.get(`${year}${pad2(monthNo)}${pad2(i + 1)}`);
+            if (dayNotes.length === 0 && dayTasks.length === 0 && journalID === undefined) {
               return (
                 <span className="calendar-day" key={date} aria-current={today}>
                   <span className="calendar-day-number">{i + 1}</span>
                 </span>
               );
             }
-            return (
-              <Link
-                className="calendar-day calendar-day-active"
-                to="/day/$date"
-                params={{ date }}
-                key={date}
-                aria-current={today}
-                title={`Notes and tasks on ${date}`}
-              >
+            const cell = (
+              <>
                 <span className="calendar-day-number">{i + 1}</span>
                 {dayNotes.slice(0, CELL_NOTES).map((note) => (
                   <span className="calendar-day-note" key={note.note_id}>
@@ -147,6 +145,31 @@ export function CalendarFullView() {
                     {dayTasks.length} task{dayTasks.length === 1 ? "" : "s"}
                   </span>
                 ) : null}
+              </>
+            );
+            // Two literal links rather than one with a computed target: the router types the params
+            // per route, so a shared spread would not typecheck.
+            return journalID !== undefined ? (
+              <Link
+                className="calendar-day calendar-day-active"
+                to="/notes/$noteId"
+                params={{ noteId: String(journalID) }}
+                key={date}
+                aria-current={today}
+                title={`Open the journal for ${date}`}
+              >
+                {cell}
+              </Link>
+            ) : (
+              <Link
+                className="calendar-day calendar-day-active"
+                to="/day/$date"
+                params={{ date }}
+                key={date}
+                aria-current={today}
+                title={`Notes and tasks on ${date}`}
+              >
+                {cell}
               </Link>
             );
           })}
