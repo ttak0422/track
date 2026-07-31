@@ -2234,6 +2234,17 @@ textarea.modal-input:focus-visible {
   background: var(--panel);
 }
 
+/* draw.io renders through its own live viewer (no shared SVG frame), so it only borrows the
+   diagram card treatment; the viewer manages the diagram's size inside it. */
+.drawio-diagram {
+  margin: 1em 0;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-lg);
+  padding: 14px;
+  overflow-x: auto;
+  background: var(--panel);
+}
+
 .mermaid-viewport {
   overflow: hidden;
   cursor: grab;
@@ -2936,6 +2947,25 @@ textarea.modal-input:focus-visible {
   text-decoration: none;
 }
 
+/* The Contents outline is one entry per row (a wrapped outline is not an outline) and quieter than
+   a backlink: it navigates inside the note you are already reading, not away from it. Indentation
+   by heading level is inline, since the depth is data. */
+.note-toc .backlink-list {
+  display: flex;
+  flex-direction: column;
+  gap: 0;
+}
+
+.note-toc-entry {
+  width: auto;
+  color: var(--muted);
+  font-weight: 400;
+}
+
+.note-toc-entry:hover {
+  color: var(--text);
+}
+
 /* In the note aside the links wrap several to a row (not one per row) so a heavily linked note's
    Backlinks / On this day sections stay a few lines tall. They're plain text links — accent, no pill
    — with enough column gap to tell adjacent titles apart. The day page keeps the row list, where the
@@ -2961,7 +2991,10 @@ textarea.modal-input:focus-visible {
    its container via ResizeObserver). */
 .aside-graph {
   display: flex;
-  height: 220px;
+  /* Tall enough that a note with a dozen neighbours has somewhere to put them: the dots are drawn
+     at a fixed screen size, so height is the budget for how much neighbourhood fits before the
+     view has to stop zooming out (see fitGraphView's floor). */
+  height: 280px;
 }
 
 /* Unlike the opt-in floating panel, this canvas sits in the page's scroll flow, so a flick that

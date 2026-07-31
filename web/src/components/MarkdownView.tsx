@@ -1,5 +1,12 @@
 import type { Element } from "hast";
-import { type InputHTMLAttributes, type ReactNode, useContext, useEffect, useState } from "react";
+import {
+  type InputHTMLAttributes,
+  type ReactNode,
+  useContext,
+  useEffect,
+  useMemo,
+  useState,
+} from "react";
 import Markdown, { type Components } from "react-markdown";
 import remarkGfm from "remark-gfm";
 import type { NoteID, NoteInclude, TaskItem } from "../types";
@@ -17,6 +24,7 @@ import { TaskBoard } from "./markdown/TaskBoard";
 import { Embed } from "./markdown/Embed";
 import { ExternalLink } from "./markdown/ExternalLink";
 import { D2Diagram } from "./markdown/D2Diagram";
+import { DrawioDiagram } from "./markdown/DrawioDiagram";
 import { GraphvizDiagram } from "./markdown/GraphvizDiagram";
 import { loadMathPlugins, looksLikeMath, type MathPlugins, mathPluginsIfLoaded } from "./markdown/math";
 import { MermaidDiagram } from "./markdown/MermaidDiagram";
@@ -26,11 +34,13 @@ import {
   remarkBlockID,
   remarkEmbedOptions,
   remarkInclude,
+  remarkHeadingID,
   remarkTaskLine,
   rehypeTaskCheck,
   remarkWikiLink,
   spliceIncludeTokens,
 } from "./markdown/plugins";
+import { tocEntries } from "./markdown/toc";
 import { taskStates } from "../taskStates";
 import { EChartsFence } from "./markdown/EChartsBlock";
 import { QueryView } from "./markdown/QueryView";
@@ -82,10 +92,14 @@ export function MarkdownView({ markdown, kind = "note", vault = "", includes }: 
         includes.map((inc) => inc.line),
       )
     : markdown;
+  // The ids come from the note's own source, not the spliced copy: splicing rewrites include lines
+  // and the outline in the aside reads the same source, so both sides agree on which heading is which.
+  const headingIDs = useMemo(() => tocEntries(markdown).map((entry) => entry.id), [markdown]);
   const remarkPlugins = [
     remarkGfm,
     remarkAlert,
     remarkBlockID,
+    [remarkHeadingID, headingIDs] as [typeof remarkHeadingID, string[]],
     remarkEmbedOptions,
     ...(math ? [math.remark] : []),
     remarkWikiLink,
@@ -289,7 +303,7 @@ function TaskRowStateControl({
   );
 }
 
-type TaskRowProps = { line?: unknown; state?: unknown; done?: unknown; sched?: unknown; due?: unknown };
+type TaskRowProps = { line?: unknown; state?: unknown; done?: unknown; sched?: unknown; due?: unknown; depth?: unknown };
 
 // TaskTable renders a notation-bearing checklist as one sortable table. Sorting is view-only (the
 // note keeps its order); STATE sorts by the state-set order, the date columns sort empties last, and
@@ -354,12 +368,17 @@ function TaskTable({ node, children }: ElementProps) {
 function TaskRow({ node, children }: ElementProps) {
   const props = (node?.properties ?? {}) as TaskRowProps;
   const done = Boolean(props.done);
+  const depth = Number(props.depth ?? 0);
   return (
     <tr className={`task-row${done ? " task-row-done" : ""}`}>
       <td className="task-row-state-cell">
         <TaskRowState name={String(props.state ?? "")} done={done} line={Number(props.line ?? 0)} />
       </td>
-      <td className="task-row-text">{children}</td>
+      {/* Nesting from the source is an indent, not a nested table: the rows are flat so the whole
+          checklist stays one sortable table. */}
+      <td className="task-row-text" style={depth > 0 ? { paddingLeft: `${depth * 16}px` } : undefined}>
+        {children}
+      </td>
       <td className="task-row-date">
         <TaskRowDate field="sched" value={String(props.sched ?? "")} line={Number(props.line ?? 0)} />
       </td>
@@ -438,6 +457,9 @@ const markdownComponents = {
       }
       if (normalized === "d2") {
         return <D2Diagram text={text} />;
+      }
+      if (normalized === "drawio") {
+        return <DrawioDiagram text={text} />;
       }
       if (normalized === "mindmap") {
         return <MindmapDiagram text={text} />;

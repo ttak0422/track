@@ -3,6 +3,7 @@ import { useContext, useEffect, useRef, useState } from "react";
 import { useResolveQuery } from "../../queries";
 import { NoteVaultContext, PreviewDepthContext } from "../markdown/context";
 import { blockElementID, splitWikiTarget } from "../markdown/plugins";
+import { headingElementID } from "../markdown/toc";
 import { type PreviewAnchor, type PreviewBounds, initialPreviewBounds } from "./bounds";
 import { useFloating } from "./floatingStore";
 import { NoteWindow } from "./NoteWindow";
@@ -25,7 +26,7 @@ export function WikiLink({ target, display }: WikiLinkProps) {
   const floating = useFloating();
   // The target may carry a "#..." anchor (heading or ^block); the note resolves by its key, and a
   // block anchor becomes the URL hash so the reader scrolls to and highlights the marked block.
-  const { key, blockID } = splitWikiTarget(target);
+  const { key, blockID, headingID } = splitWikiTarget(target);
   const vault = useContext(NoteVaultContext);
   const resolved = useResolveQuery(key, vault);
   const noteID = resolved.data?.found ? resolved.data.note.note_id : undefined;
@@ -121,7 +122,7 @@ export function WikiLink({ target, display }: WikiLinkProps) {
         ref={linkRef}
         to="/notes/$noteId"
         params={{ noteId: String(noteID) }}
-        hash={blockID ? blockElementID(blockID) : undefined}
+        hash={anchorHash(blockID, headingID)}
       >
         {display}
       </Link>
@@ -142,4 +143,12 @@ export function WikiLink({ target, display }: WikiLinkProps) {
       ) : null}
     </span>
   );
+}
+
+// anchorHash is the URL hash a [[Note#anchor]] link navigates with: a block marker, a heading, or
+// nothing. Both ids are namespaced (see blockElementID / headingElementID), so they cannot collide.
+function anchorHash(blockID: string, headingID: string): string | undefined {
+  if (blockID) return blockElementID(blockID);
+  if (headingID) return headingElementID(headingID);
+  return undefined;
 }

@@ -46,6 +46,17 @@ vi.mock("@terrastruct/d2", () => ({
   },
 }));
 
+// The draw.io viewer is a vendored script injected at runtime, not an importable module; stub the
+// loader with a viewer that draws a marker SVG into the host.
+vi.mock("./markdown/drawioViewer", () => ({
+  loadDrawioViewer: () =>
+    Promise.resolve({
+      createViewerForElement: (element: Element) => {
+        element.innerHTML = '<svg viewBox="0 0 10 10"><text>X</text></svg>';
+      },
+    }),
+}));
+
 // A QueryClient is only needed for markdown that produces links (ExternalLink/WikiLink) or viewspec
 // charts (ViewSpecChart), which call useQuery. Pure block content (tables, task lists, code) renders
 // without it.
@@ -58,6 +69,20 @@ describe("MarkdownView", () => {
   it("shows a placeholder for empty input", () => {
     render(<MarkdownView markdown="   " />);
     expect(screen.getByText("Empty note.")).toBeInTheDocument();
+  });
+
+  it("gives headings the ids their outline links to, counting repeats", () => {
+    const { container } = render(<MarkdownView markdown={"# Intro\n## Intro\n### 設計"} />);
+    expect(container.querySelector("h1")?.id).toBe("h-intro");
+    expect(container.querySelector("h2")?.id).toBe("h-intro-2");
+    expect(container.querySelector("h3")?.id).toBe("h-設計");
+  });
+
+  it("does not count a setext heading, which track's parsers do not see", () => {
+    // remark parses "Title\n=====" as a heading; the engine's ATX-only scanners do not, so counting
+    // it here would shift every later id onto the wrong heading.
+    const { container } = render(<MarkdownView markdown={"Setext\n======\n\n# Real"} />);
+    expect(container.querySelector("h1#h-real")).not.toBeNull();
   });
 
   it("renders a GFM table", () => {
@@ -74,6 +99,33 @@ describe("MarkdownView", () => {
     expect(boxes).toHaveLength(2);
     expect(boxes[0]).not.toBeChecked();
     expect(boxes[1]).toBeChecked();
+  });
+
+  it("upgrades a nested checklist as one table, indenting by depth", () => {
+    const { container } = renderWithQuery(
+      <MarkdownView markdown={"- [ ] parent\n  - [ ] child [due:2026-01-01]\n  - [ ] sibling\n- [ ] parent2"} />,
+    );
+    // A sub-list is its own mdast list, but the reader sees one checklist: notation on a child must
+    // not leave its parent behind as a bare checkbox.
+    expect(container.querySelectorAll("table.task-table")).toHaveLength(1);
+    const rows = container.querySelectorAll("tr.task-row");
+    expect(rows).toHaveLength(4);
+    expect(container.querySelectorAll("input[type='checkbox']")).toHaveLength(0);
+    // Document order, with the source's nesting carried as an indent.
+    const texts = [...rows].map((row) => row.querySelector("td.task-row-text")?.textContent?.trim());
+    expect(texts).toEqual(["parent", "child", "sibling", "parent2"]);
+    const indent = (i: number) =>
+      (rows[i].querySelector("td.task-row-text") as HTMLElement).style.paddingLeft;
+    expect(indent(0)).toBe("");
+    expect(indent(1)).not.toBe("");
+    expect(indent(3)).toBe("");
+  });
+
+  it("keeps a task line with no text in the table", () => {
+    const { container } = renderWithQuery(
+      <MarkdownView markdown={"- [/]\n- [ ] with text [#A]"} />,
+    );
+    expect(container.querySelectorAll("tr.task-row")).toHaveLength(2);
   });
 
   it("upgrades a checklist with task notation to one task table", () => {
@@ -226,6 +278,15 @@ describe("MarkdownView", () => {
     const { container } = render(<MarkdownView markdown={"```d2\na -> b\n```"} />);
     await waitFor(() => expect(container.querySelector("svg")).toBeInTheDocument());
     expect(screen.getByRole("img", { name: "D2 diagram" })).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Copy code" })).not.toBeInTheDocument();
+  });
+
+  it("renders drawio fences through the draw.io viewer component", async () => {
+    const { container } = render(
+      <MarkdownView markdown={"```drawio\n<mxGraphModel><root><mxCell id='0'/></root></mxGraphModel>\n```"} />,
+    );
+    await waitFor(() => expect(container.querySelector("svg")).toBeInTheDocument());
+    expect(screen.getByRole("img", { name: "draw.io diagram" })).toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "Copy code" })).not.toBeInTheDocument();
   });
 

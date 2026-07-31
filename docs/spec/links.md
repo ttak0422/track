@@ -31,6 +31,8 @@ A `#` with no heading text after it stays part of the note key, so a note titled
 
 When the note resolves but the heading is not found, navigation falls back to the top of the note rather than failing.
 
+On the web every rendered heading carries `id="h-<slug>"` — the heading text lowercased, with anything outside letters/numbers/spaces/hyphens dropped and spaces turned to hyphens, so a Japanese heading stays addressable — and a heading anchor navigates by that id. The web slug is level-agnostic (`[[note#bar]]` and `[[note##bar]]` reach the same heading), and repeated heading text is disambiguated in the rendered ids (`-2`, `-3`) but not by links, which take the first. The same ids back the Contents outline in the note aside.
+
 Fenced code blocks delimited by lines starting with ` ``` ` are excluded.
 
 ### Block anchors
