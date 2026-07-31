@@ -1,5 +1,5 @@
 import { useNavigate } from "@tanstack/react-router";
-import { type MouseEvent, useEffect, useRef, type WheelEvent } from "react";
+import { type MouseEvent, type PointerEvent, useEffect, useRef, type WheelEvent } from "react";
 import type { NoteID } from "../../types";
 import { vaultOf } from "../../vaultId";
 import { initialPreviewBounds } from "../preview/bounds";
@@ -14,6 +14,9 @@ export function TabBar() {
   const { tabs, activeID, dirtyID, close } = useTabs();
   const navigate = useNavigate();
   const stripRef = useRef<HTMLDivElement>(null);
+  const dragRef = useRef<{ pointerId: number; x: number; left: number; moved: boolean } | null>(null);
+  // Set by a pan that moved, read and cleared by the click it produces.
+  const draggedRef = useRef(false);
   const activeRef = useRef<HTMLDivElement>(null);
 
   // Keep the active tab in view when navigation (e.g. a backlink) selects an off-screen one. Also
@@ -35,7 +38,49 @@ export function TabBar() {
     strip.scrollLeft += event.deltaY;
   }
 
+  // Dragging the strip pans it, the second way to reach an overflowed tab with a plain mouse (the
+  // wheel above is the first). Touch already pans natively, so this is mouse-only. A drag that
+  // actually moved swallows the click that ends it, or letting go over a tab would open it.
+  function onPointerDown(event: PointerEvent<HTMLDivElement>) {
+    const strip = stripRef.current;
+    if (!strip || event.pointerType !== "mouse" || event.button !== 0) return;
+    // Cleared here rather than only in the click it suppresses: a pan that ends over something other
+    // than a tab produces no click, and a stale flag would swallow the next real one.
+    draggedRef.current = false;
+    dragRef.current = { pointerId: event.pointerId, x: event.clientX, left: strip.scrollLeft, moved: false };
+  }
+
+  function onPointerMove(event: PointerEvent<HTMLDivElement>) {
+    const drag = dragRef.current;
+    const strip = stripRef.current;
+    if (!drag || !strip || drag.pointerId !== event.pointerId) return;
+    const dx = event.clientX - drag.x;
+    if (!drag.moved) {
+      if (Math.abs(dx) <= 4) return; // a click has a little travel in it; that is not a drag
+      drag.moved = true;
+      event.currentTarget.setPointerCapture(event.pointerId);
+      strip.classList.add("dragging");
+    }
+    strip.scrollLeft = drag.left - dx;
+  }
+
+  function endDrag(event: PointerEvent<HTMLDivElement>) {
+    const drag = dragRef.current;
+    if (!drag || drag.pointerId !== event.pointerId) return;
+    dragRef.current = null;
+    stripRef.current?.classList.remove("dragging");
+    if (drag.moved) {
+      event.currentTarget.releasePointerCapture?.(event.pointerId);
+      draggedRef.current = true;
+    }
+  }
+
   function openTab(id: NoteID) {
+    // The click that ends a pan is not a request to open anything.
+    if (draggedRef.current) {
+      draggedRef.current = false;
+      return;
+    }
     void navigate(tabRoute(id));
   }
 
@@ -48,7 +93,17 @@ export function TabBar() {
   }
 
   return (
-    <div className="tabbar" role="list" aria-label="Open notes" ref={stripRef} onWheel={onWheel}>
+    <div
+      className="tabbar"
+      role="list"
+      aria-label="Open notes"
+      ref={stripRef}
+      onWheel={onWheel}
+      onPointerDown={onPointerDown}
+      onPointerMove={onPointerMove}
+      onPointerUp={endDrag}
+      onPointerCancel={endDrag}
+    >
       {tabs.map((tab) => {
         const active = tab.id === activeID;
         const label = tab.title || "Untitled";

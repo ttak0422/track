@@ -5,7 +5,6 @@ import {
   NoteAside,
   NoteBreadcrumbs,
   NoteProperties,
-  NoteTags,
   journalDateFromNote,
   useScrollToHash,
 } from "./noteShared";
@@ -51,7 +50,6 @@ export function NoteReaderStatic({ noteID }: { noteID: NoteID }) {
     <article className="note-reader">
       <div className="note-main">
         <NoteBreadcrumbs trail={data.trail ?? []} />
-        <NoteTags tags={data.note.tags ?? []} />
         <NoteProperties props={data.note.props ?? []} />
 
         <section className="note-preview" aria-label="Rendered note">
@@ -72,6 +70,7 @@ export function NoteReaderStatic({ noteID }: { noteID: NoteID }) {
       </div>
 
       <NoteAside
+        tags={data.note.tags ?? []}
         markdown={rendered.data?.markdown ?? ""}
         backlinks={data.backlinks}
         childNotes={data.children ?? []}

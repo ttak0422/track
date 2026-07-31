@@ -105,6 +105,24 @@ describe("CalendarFullView", () => {
     expect(queryByText("2026 / 06")).toBeNull();
   });
 
+  it("opens a day's journal when there is one, and the day page when there is not", () => {
+    notesQuery.current = {
+      ...loadedNotes,
+      data: {
+        notes: [
+          ...(loadedNotes.data as { notes: unknown[] }).notes,
+          { note_id: "j3", file_kind: "journal", title: "20260703", days: [] },
+        ],
+      },
+    };
+    const { container } = render(<CalendarFullView />);
+    // A journal exists for the 3rd: the date opens it, since the day is what the journal is about.
+    expect(container.querySelector('a.calendar-day[href="/notes/j3"]')).toBeTruthy();
+    // No journal for the 15th, so the day page — clicking a date must never create a note.
+    expect(container.querySelector('a.calendar-day[href="/day/2026-07-15"]')).toBeTruthy();
+    expect(container.querySelector('a.calendar-day[href="/day/2026-07-03"]')).toBeNull();
+  });
+
   it("counts dated tasks on their day, and makes a purely planned day openable", () => {
     tasksQuery.current = {
       data: {

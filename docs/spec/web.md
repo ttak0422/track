@@ -62,6 +62,11 @@ is written with are always the same one.
 
 All `/api/*` responses are JSON. Read endpoints:
 
+The calendar's day cells open that day's **journal** when one exists — the day is
+what the journal is about — and the day page otherwise. Navigation never creates a
+note, so a day with no journal (a purely planned future day, a vault with journals
+off, a published site) still opens the day page and its notes-and-tasks listing.
+
 - `GET /api/search?q=<query>&limit=<n>[&vault=<name>]`: search notes across every
   served vault; an empty `q` lists recent notes. `#tag` terms filter by sidecar tags.
 - `GET /api/notes`: list indexed notes; each entry carries its activity `days` (the local days the note

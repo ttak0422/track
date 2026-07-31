@@ -81,6 +81,7 @@ export function NoteAside({
   noteID,
   journalDate,
   markdown = "",
+  tags = [],
 }: {
   backlinks: NoteRef[];
   // Inbound references from other vaults, listed apart from same-vault backlinks because they are
@@ -93,6 +94,9 @@ export function NoteAside({
   // The note's rendered body, for the Contents outline. Optional so a caller without one simply
   // gets no outline rather than a broken aside.
   markdown?: string;
+  // The note's tags. They live here rather than above the body: they are metadata about the note,
+  // like its backlinks and its outline, not part of what it says.
+  tags?: string[];
 }) {
   const agendaQuery = useAgendaQuery(journalDate, vaultOf(noteID), { enabled: journalDate !== "" });
   const graphQuery = useLocalGraphQuery(noteID);
@@ -105,6 +109,19 @@ export function NoteAside({
 
   return (
     <div className="note-aside">
+      {tags.length > 0 ? (
+        <section className="backlinks note-aside-tags" aria-labelledby="tags-heading">
+          <h3 id="tags-heading">Tags</h3>
+          <div className="tag-list">
+            {tags.map((tag) => (
+              <Link key={tag} to="/tags/$" params={{ _splat: tag }}>
+                #{tag}
+              </Link>
+            ))}
+          </div>
+        </section>
+      ) : null}
+
       {toc.length > 1 ? (
         <section className="backlinks note-toc" aria-labelledby="contents-heading">
           <h3 id="contents-heading">Contents</h3>
@@ -218,11 +235,11 @@ export function NoteAside({
       ) : null}
 
       {/* The always-on local graph. A lone unlinked node says nothing the note itself doesn't, so
-          the section only appears once the note connects somewhere. */}
+          the section only appears once the note connects somewhere. It carries no caption: a graph is
+          recognisably a graph, while the sections above are lists that a caption tells apart. */}
       {graph && graph.nodes.length > 1 ? (
-        <section className="backlinks note-aside-graph" aria-labelledby="graph-heading">
+        <section className="backlinks note-aside-graph" aria-label="Local graph">
           <div className="aside-graph-head">
-            <h3 id="graph-heading">Graph</h3>
             <button
               className="graph-reset"
               type="button"
@@ -285,17 +302,3 @@ export function NoteProperties({ props: noteProps }: { props: NoteProp[] }) {
   );
 }
 
-// NoteTags renders a note's tags as links to their tag pages (/tags/<tag>), which list every note
-// carrying the tag or one of its descendants (#a/b files under #a).
-export function NoteTags({ tags }: { tags: string[] }) {
-  if (tags.length === 0) return null;
-  return (
-    <div className="tag-list note-tags" aria-label="Note tags">
-      {tags.map((tag) => (
-        <Link key={tag} to="/tags/$" params={{ _splat: tag }}>
-          #{tag}
-        </Link>
-      ))}
-    </div>
-  );
-}
