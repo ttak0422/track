@@ -282,6 +282,37 @@ func TestBuildListsByRecency(t *testing.T) {
 	}
 }
 
+// TestBuildPublishesSearchCorpus pins the full-text half of the published search: search.json carries
+// every published body keyed by slug, and only published ones — an out-of-set note must not become
+// findable through a search that reads its text.
+func TestBuildPublishesSearchCorpus(t *testing.T) {
+	cfg, s := vaultStore(t)
+	writeVaultNote(t, cfg, 100, "Home", "# Home\n\nthe quick brown fox\n")
+	writeVaultNote(t, cfg, 200, "Secret", "# Secret\n\nunpublished text\n")
+	if _, err := index.New(cfg, s).Full(); err != nil {
+		t.Fatalf("index: %v", err)
+	}
+
+	out := t.TempDir()
+	if _, err := Build(cfg, s, Options{Root: 100}, fakeFrontend(t), out); err != nil {
+		t.Fatalf("build: %v", err)
+	}
+
+	corpus := readJSON[struct {
+		Bodies map[string]string `json:"bodies"`
+	}](t, filepath.Join(out, "data", "search.json"))
+	if !strings.Contains(corpus.Bodies[PublishID(100)], "quick brown fox") {
+		t.Fatalf("search.json should carry the published body, got %q", corpus.Bodies[PublishID(100)])
+	}
+	if _, ok := corpus.Bodies[PublishID(200)]; ok {
+		t.Fatalf("search.json should hold published notes only, got %v", corpus.Bodies)
+	}
+	// The corpus is keyed by the opaque slug like every other id in the bundle, never the source id.
+	if _, ok := corpus.Bodies["100"]; ok {
+		t.Fatalf("search.json should key by publish slug, got %v", corpus.Bodies)
+	}
+}
+
 // TestBuildRewritesChartNoteRefs pins the published-chart provenance contract: a chart datum's "note"
 // reference (a vault note id) becomes the note's opaque publish slug, and a reference to a note
 // outside the published set is dropped — the static site never navigates to a hidden internal id.

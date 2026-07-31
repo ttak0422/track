@@ -181,6 +181,23 @@ func writeBundle(docs []doc, edges []edge, root int64, calendar bool, baseURL st
 		return Result{}, err
 	}
 
+	// search.json: every published body, keyed by slug — the corpus the site's full-text search scans
+	// (see web/src/staticSearch.ts). It is a separate file rather than a field on notes.json because
+	// notes.json is fetched at first paint and this is only wanted once someone types; the client
+	// fetches it on the first search. The bodies themselves are not new weight on the site — each one
+	// already ships twice, in its prerendered page and in note/<slug>.json — so what this buys is a
+	// search that reads the same text the live server reads, for a file nobody who does not search
+	// ever downloads. Source Markdown, like the live server's file scan, not the resolved body: a
+	// snippet should read as the note is written, and an expanded chart's option JSON is not text
+	// anybody meant to search.
+	bodies := make(map[string]string, len(listed))
+	for _, d := range listed {
+		bodies[slugOf(&d)] = d.body
+	}
+	if err := writeJSONFile(filepath.Join(outDir, "data", "search.json"), map[string]any{"bodies": bodies}); err != nil {
+		return Result{}, err
+	}
+
 	// tasks.json: every published task carrying a date, the read-only half of the live workspace's
 	// vault-wide listing. Written even when empty, so the client's fetch is never a 404.
 	datedTasks := []jsonTaskRow{}

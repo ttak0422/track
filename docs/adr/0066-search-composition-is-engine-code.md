@@ -51,10 +51,11 @@ not comparable.
   code) rather than doubling the CLI's row budget for a case nobody has hit.
 - Each search now reads up to `limit` matched files for line and snippet — the
   cost telescope already paid, new for a long-lived server.
-- The published static site stays **title-only**. It has no server, and
-  `notes.json` carries no bodies; shipping them would grow the bundle by the
-  whole vault's text and still could not reproduce bm25 ranking. Saying so is
-  better than a second, worse search that looks like the first.
+- The published static site is full-text too, by running the composition's
+  **scan path** in the browser — see ADR 0067. It has no server, so it cannot
+  run the FTS index; but the scan is the fallback the engine already ships for
+  queries the index cannot serve, so the published site runs engine behaviour
+  rather than a second, different search.
 - A body hit now reaches the browser with the line it matched on. The web note
   route has no scroll-to-line yet, so the line is carried but unused — the
   natural follow-up.
