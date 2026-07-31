@@ -1272,6 +1272,21 @@ func TestTaskEndpoints(t *testing.T) {
 		t.Fatalf("unexpected items: %v", items)
 	}
 
+	// The vault-wide listing answers two different questions. Without ?open it keeps only dated
+	// tasks, so "alpha" — a priority but no date, the shape most of a checklist has — is absent.
+	// With ?open=1 both are there, worst first: the prioritized one leads the merely dated one.
+	dated := getJSON(t, server.URL+"/api/tasks")["tasks"].([]any)
+	if len(dated) != 1 || dated[0].(map[string]any)["text"] != "beta" {
+		t.Fatalf("dated listing = %v, want only the dated beta", dated)
+	}
+	openRows := getJSON(t, server.URL+"/api/tasks?open=1")["tasks"].([]any)
+	if len(openRows) != 2 {
+		t.Fatalf("open listing = %v, want both open tasks", openRows)
+	}
+	if openRows[0].(map[string]any)["text"] != "alpha" || openRows[1].(map[string]any)["text"] != "beta" {
+		t.Fatalf("open listing order = %v, want [#A] alpha ahead of dated beta", openRows)
+	}
+
 	// POST /api/task moves a line into a named state through the shared engine path.
 	req, err := http.NewRequest(http.MethodPost, server.URL+"/api/task?id=900", strings.NewReader(`{"line":3,"state":"DONE"}`))
 	if err != nil {
@@ -1333,6 +1348,13 @@ func TestTaskEndpoints(t *testing.T) {
 	noteJSON := getJSON(t, server.URL+"/api/note?id=900")["note"].(map[string]any)
 	if _, ok := noteJSON["tasks"]; !ok {
 		t.Fatalf("note response should include tasks: %v", noteJSON)
+	}
+
+	// Completing a task drops it from the open listing — the terminal flag is what Open reads, so
+	// this holds for CANCELLED just as for DONE.
+	afterDone := getJSON(t, server.URL+"/api/tasks?open=1")["tasks"].([]any)
+	if len(afterDone) != 1 || afterDone[0].(map[string]any)["text"] != "beta" {
+		t.Fatalf("open listing after completing alpha = %v, want just beta", afterDone)
 	}
 
 	// A bad state is a client error.

@@ -87,8 +87,10 @@ off, a published site) still opens the day page and its notes-and-tasks listing.
   "Markdown embeds" below.
 
 - `GET /api/tasks[?vault=<name>]`: every task in the vault carrying a scheduled or
-  due date, for the calendar and day pages; `?id=<id>` narrows it to one note's
-  task set. The published site carries the same listing as `data/tasks.json`.
+  due date, for the calendar and day pages; `?open=1` asks for the open ones
+  instead — any state that is not terminal, dated or not, worst first — for the
+  tasks page; `?id=<id>` narrows it to one note's task set. The published site
+  carries the dated listing as `data/tasks.json`.
 
 Write endpoint:
 
@@ -248,6 +250,22 @@ A published site opts into the calendar with `track export-site --calendar`. The
 frontend shows the rail button and the prerender emits `calendar/index.html` plus a real
 `day/<date>/index.html` for every active day. Without the flag — the default, suiting reference sites
 like the repo help docs — the calendar and day pages are absent from the output.
+
+## Tasks view
+
+`/tasks` lists the vault's open work — every task whose state is not a terminal one, dated or not —
+reached from the sidebar rail. The order is the engine's: `[#A]` before `[#B]` before unprioritized,
+ties broken by deadline. A row marks what put it where it is (its priority, else `!` for a deadline
+and `▷` for neither), names the note it lives in, and navigates there.
+
+The listing is `GET /api/tasks?open=1`. Without the flag the same endpoint answers the calendar's
+question instead — every task carrying a date, whatever its state — because a planned day should show
+what was already finished on it. The two share a React Query prefix so a task write refreshes both.
+
+The page reads and never writes. A task's identity is its line number in a note file, which is stable
+only against that file, so changing a state belongs on the note page where the line is in view. The
+published bundle carries the dated listing alone (`tasks.json`), so both the page and its rail button
+are live-only.
 
 ## Theme and colors
 

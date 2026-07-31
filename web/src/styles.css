@@ -984,7 +984,9 @@ a.calendar-title:focus-visible {
 
 /* The day page: the notes active on one day (what the reader's "On this day" aside shows) as a plain
    list, opened from a calendar day cell. */
-.day-view {
+.day-view,
+/* The task listing is the day page's text column with a different query behind it. */
+.tasks-view {
   max-width: 760px;
   margin: 0 auto;
 }

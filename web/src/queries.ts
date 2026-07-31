@@ -12,6 +12,7 @@ import {
   getSite,
   listDatedTasks,
   listNotes,
+  listOpenTasks,
   renderMarkdown,
   renderViewSpec,
   resolveTerm,
@@ -35,7 +36,10 @@ export const queryKeys = {
   note: (noteID: NoteID) => ["note", noteID] as const,
   noteMeta: (noteID: NoteID) => ["note-meta", noteID] as const,
   notes: () => ["notes"] as const,
-  datedTasks: () => ["dated-tasks"] as const,
+  // Both listings sit under one prefix so a task write invalidates them together.
+  tasks: () => ["tasks"] as const,
+  datedTasks: () => ["tasks", "dated"] as const,
+  openTasks: () => ["tasks", "open"] as const,
   resolve: (term: string, vault = "") => ["resolve", vault, term] as const,
   search: (query: string, limit: number) => ["search", query, limit] as const,
   ogp: (url: string) => ["ogp", url] as const,
@@ -108,6 +112,16 @@ export function useDatedTasksQuery() {
   return useQuery({
     queryKey: queryKeys.datedTasks(),
     queryFn: listDatedTasks,
+  });
+}
+
+// useOpenTasksQuery lists every task still to do across the vault, worst-first. Live server only:
+// the published bundle carries the dated listing alone.
+export function useOpenTasksQuery(enabled = true) {
+  return useQuery({
+    queryKey: queryKeys.openTasks(),
+    queryFn: listOpenTasks,
+    enabled,
   });
 }
 
@@ -261,8 +275,9 @@ export function useSetTaskStateMutation(noteID: NoteID) {
     onSuccess: () => {
       void queryClient.invalidateQueries({ queryKey: queryKeys.note(noteID) });
       void queryClient.invalidateQueries({ queryKey: queryKeys.notes() });
-      // A state change can stamp or clear a completion date, and the listing shows dated tasks.
-      void queryClient.invalidateQueries({ queryKey: queryKeys.datedTasks() });
+      // A state change can stamp or clear a completion date, and it moves a task in or out of the
+      // open listing — the prefix covers both.
+      void queryClient.invalidateQueries({ queryKey: queryKeys.tasks() });
       // A host note embedding this one renders a cached excerpt keyed by its own body text, so
       // without this the embedded lines keep their old marker and stamp after the write.
       void queryClient.invalidateQueries({ queryKey: ["render"] });
@@ -287,7 +302,7 @@ export function useSetTaskDateMutation(noteID: NoteID) {
     onSuccess: () => {
       void queryClient.invalidateQueries({ queryKey: queryKeys.note(noteID) });
       void queryClient.invalidateQueries({ queryKey: queryKeys.notes() });
-      void queryClient.invalidateQueries({ queryKey: queryKeys.datedTasks() });
+      void queryClient.invalidateQueries({ queryKey: queryKeys.tasks() });
       void queryClient.invalidateQueries({ queryKey: ["render"] });
     },
   });

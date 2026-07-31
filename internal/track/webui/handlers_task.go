@@ -24,10 +24,13 @@ func (s *Server) handleTasks(v *vaultView, w http.ResponseWriter, r *http.Reques
 		return
 	}
 	s.refresh(v)
-	// Without an id this is the vault-wide listing the calendar and day pages read: every task
-	// carrying a date, so a planned day is visible without opening the note that planned it.
+	// Without an id this is the vault-wide listing. By default it is what the calendar and day pages
+	// read: every task carrying a date, so a planned day is visible without opening the note that
+	// planned it. ?open=1 asks the other question — everything still to do, dated or not — which is
+	// most of a project note's checklist and is invisible under the dated filter.
 	if strings.TrimSpace(r.URL.Query().Get("id")) == "" {
-		rows, err := v.store.Tasks(store.TaskFilter{Dated: true})
+		open := r.URL.Query().Get("open") == "1"
+		rows, err := v.store.Tasks(store.TaskFilter{Dated: !open, Open: open, ByPriority: open})
 		if err != nil {
 			writeError(w, err, http.StatusInternalServerError)
 			return

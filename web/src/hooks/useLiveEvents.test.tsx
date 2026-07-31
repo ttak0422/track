@@ -54,6 +54,14 @@ describe("useLiveEvents", () => {
     expect(invalidate).not.toHaveBeenCalledWith({ queryKey: ["viewspec"] });
   });
 
+  it("refreshes the task listings too, since a checkbox can be written from anywhere", () => {
+    const { invalidate, source } = renderLiveEvents();
+    source.emit("change");
+    vi.advanceTimersByTime(150);
+    // The prefix covers both the dated listing (calendar, day page) and the open one (tasks page).
+    expect(invalidate).toHaveBeenCalledWith({ queryKey: ["tasks"] });
+  });
+
   it("invalidates only viewspec queries on a data event, debouncing bursts", () => {
     const { invalidate, source, unmount } = renderLiveEvents();
     // A burst of writes under data/ coalesces into a single chart refresh.

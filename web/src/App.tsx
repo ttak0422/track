@@ -15,6 +15,7 @@ import { EmptyState } from "./components/EmptyState";
 import { GraphFullView } from "./components/GraphFullView";
 import { NoteReader } from "./components/NoteReader";
 import { SearchHome } from "./components/SearchHome";
+import { TasksView } from "./components/TasksView";
 import { RecentNotes } from "./components/RecentNotes";
 import { Shell } from "./components/Shell";
 import { TagView } from "./components/TagView";
@@ -48,6 +49,12 @@ const calendarRoute = createRoute({
   component: () => <CalendarFullView />,
 });
 
+const tasksRoute = createRoute({
+  getParentRoute: () => rootRoute,
+  path: "/tasks",
+  component: () => <TasksView />,
+});
+
 const dayRoute = createRoute({
   getParentRoute: () => rootRoute,
   path: "/day/$date",
@@ -75,6 +82,7 @@ const routeTree = rootRoute.addChildren([
   noteRoute,
   graphRoute,
   calendarRoute,
+  tasksRoute,
   dayRoute,
   tagRoute,
   emptyRoute,

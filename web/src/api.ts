@@ -136,6 +136,12 @@ export function listDatedTasks(): Promise<TaskListResponse> {
   return api<TaskListResponse>("/api/tasks");
 }
 
+// listOpenTasks lists every task still to do, dated or not, worst-first. The published bundle holds
+// only the dated listing, so this one is live-only and its view is gated the same way.
+export function listOpenTasks(): Promise<TaskListResponse> {
+  return api<TaskListResponse>("/api/tasks?open=1");
+}
+
 export function getActivity(since: string, until: string): Promise<ActivityResponse> {
   if (STATIC_MODE) {
     // The published site has no heatmap, so activity is empty.
