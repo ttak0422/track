@@ -3,6 +3,7 @@ import type { Paragraph, Root as MdastRoot } from "mdast";
 import { visit } from "unist-util-visit";
 import { taskStates } from "../../taskStates";
 import type { TaskState } from "../../types";
+import { headingElementID, headingSlug } from "./toc";
 
 // The [[target|display]] wiki-link grammar (target, optional |display alias). Shared with the portable
 // export so both flatten the same construct. It carries the /g flag; reset lastIndex before manual exec.
@@ -24,14 +25,23 @@ export function blockElementID(blockID: string): string {
 // mirroring the engine's anchor parsing: "Note#^id" resolves by "Note" and navigates to the block,
 // "Note#Heading" also resolves by "Note" (navigation lands at the note), and a "#" with nothing
 // after it stays part of the key (e.g. "C#").
-export function splitWikiTarget(target: string): { key: string; blockID: string } {
+export function splitWikiTarget(target: string): { key: string; blockID: string; headingID: string } {
   const i = target.indexOf("#");
-  if (i < 0) return { key: target, blockID: "" };
+  if (i < 0) return { key: target, blockID: "", headingID: "" };
   const rest = target.slice(i + 1).trim();
   const block = blockIDPattern.exec(rest);
-  if (block) return { key: target.slice(0, i).trim(), blockID: block[1] };
-  if (rest.replace(/^#+/, "").trim() === "") return { key: target, blockID: "" };
-  return { key: target.slice(0, i).trim(), blockID: "" };
+  if (block) return { key: target.slice(0, i).trim(), blockID: block[1], headingID: "" };
+  if (rest.replace(/^#+/, "").trim() === "") return { key: target, blockID: "", headingID: "" };
+  // A heading anchor resolves by the note key like any other link, and navigates to the heading's
+  // own id — the same id the note's Contents outline links to (see toc.ts). Extra leading "#"s are
+  // the level marker ("Note##Deeper"), which the level-agnostic slug ignores.
+  // ponytail: like the engine's anchor resolution, the first heading with that text wins; a note
+  // holding both "# X" and "## X" lands on the first. Match the level if that ever matters.
+  return {
+    key: target.slice(0, i).trim(),
+    blockID: "",
+    headingID: headingSlug(rest.replace(/^#+/, "").trim()),
+  };
 }
 
 // remarkBlockID strips a trailing "^id" block marker from a paragraph or list item and gives the
@@ -67,6 +77,30 @@ function takeTrailingBlockID(node: Paragraph): string | null {
   return match[1];
 }
 
+// remarkHeadingID gives each rendered heading the id its outline entry links to. The ids are
+// computed from the note's source by tocEntries and handed in, so the outline and the headings can
+// never disagree about which id belongs to which heading — matching them here by text would have to
+// re-derive the dedupe counter and could drift.
+//
+// Setext headings ("Title" over "====") are skipped: remark parses them, but track's heading
+// parsers are ATX-only, so counting one would shift every id after it onto the wrong heading.
+export function remarkHeadingID(ids: string[]) {
+  return (tree: MdastRoot) => {
+    let i = 0;
+    visit(tree, "heading", (node) => {
+      const start = node.position?.start?.line;
+      const end = node.position?.end?.line;
+      if (start !== undefined && end !== undefined && start !== end) return; // setext
+      const id = ids[i++];
+      if (!id) return;
+      const data = (node.data ??= {});
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any -- hProperties is untyped mdast data
+      const props = ((data as any).hProperties ??= {});
+      props.id = headingElementID(id);
+    });
+  };
+}
+
 // Include directives (ADR 0031) reach the renderer as data, not syntax: the server resolves each
 // ![[...]] line and reports its 0-based line number, so the client never re-implements the
 // directive grammar. spliceIncludeTokens swaps those lines for placeholder paragraphs, and
@@ -81,8 +115,13 @@ export function spliceIncludeTokens(markdown: string, lineNumbers: number[]): st
     // Trust but verify: a stale line number (body edited since the response) must not swallow an
     // unrelated line, so only a line that really is a directive is replaced.
     if (lines[line]?.trimStart().startsWith("![[")) {
-      // Blank padding makes the token its own paragraph even mid-paragraph-block.
-      lines[line] = `\n${includeToken}${i}%%\n`;
+      // One line in, one line out: every line below an include keeps its file line number, which
+      // is what resolves a rendered task row back to the task the engine parsed (see the task
+      // components in MarkdownView). Blank padding around the token — the old way to make it its
+      // own block mid-paragraph — shifted everything below by two lines, so a row could resolve
+      // to a different task and write to it. An ATX heading is the one leaf block that is exactly
+      // one line, interrupts a paragraph, and does not absorb the next line.
+      lines[line] = `###### ${includeToken}${i}%%`;
     }
   });
   return lines.join("\n");
@@ -90,7 +129,7 @@ export function spliceIncludeTokens(markdown: string, lineNumbers: number[]): st
 
 export function remarkInclude() {
   return (tree: MdastRoot) => {
-    visit(tree, "paragraph", (node, index, parent) => {
+    visit(tree, "heading", (node, index, parent) => {
       if (!parent || index === undefined || node.children.length !== 1) return;
       const child = node.children[0];
       if (child.type !== "text") return;
@@ -171,21 +210,30 @@ function parseTaskItem(item: any, byChar: Map<string, TaskState>): TaskItemParse
   } else {
     const first = para.children?.[0];
     if (!first || first.type !== "text") return null;
-    const m = /^\[(.)\][ \t]+/.exec(first.value);
+    // The text after the marker may be empty ("- [/]" alone), which the engine still counts as a
+    // task; requiring text here would make one such line drop the whole list back to checkboxes.
+    const m = /^\[(.)\](?:[ \t]+|$)/.exec(first.value);
     if (!m) return null;
     state = byChar.get(m[1]);
     if (!state) return null;
     custom = true;
     prefixLen = m[0].length;
   }
+  // A [done:] stamp does not count as authored notation: the engine writes it when a box is
+  // ticked, so counting it would rebuild a plain checklist as the four-column table the moment
+  // someone checks something.
   let hasTokens = false;
   for (const child of para.children) {
     if (child.type !== "text") continue;
     taskTokenPattern.lastIndex = 0;
-    if (taskTokenPattern.test(child.value)) {
-      hasTokens = true;
-      break;
+    let match: RegExpExecArray | null;
+    while ((match = taskTokenPattern.exec(child.value)) !== null) {
+      if (match[2] !== "done") {
+        hasTokens = true;
+        break;
+      }
     }
+    if (hasTokens) break;
   }
   return { state, custom, hasTokens, prefixLen };
 }
@@ -234,9 +282,12 @@ function upgradeTaskItem(item: any, p: TaskItemParse) {
     i += parts.length - 1;
   }
 
-  // The item's source line resolves the row to the engine-parsed task. Rendered bodies are
-  // line-aligned with the note file — BlankFieldLines blanks rather than removes, and the include
-  // splice swaps lines 1:1 — the same invariant the includes feature already relies on.
+  // The item's source line resolves the row to the engine-parsed task, so the rendered body has to
+  // stay line-aligned with the note file: WebBody rewrites lines in place and the include splice is
+  // 1:1 (see spliceIncludeTokens). A fence that expands into several lines — a dashboard or
+  // track-query block — still shifts everything below it.
+  // ponytail: known ceiling; the fix is a server-emitted line map, worth it only if someone puts a
+  // task list under an expanding fence and notices.
   const line = item.position?.start?.line ?? 0;
 
   const data = (item.data ??= {});
@@ -246,22 +297,54 @@ function upgradeTaskItem(item: any, p: TaskItemParse) {
   (data as any).hProperties = { line, state: p.state.name, done: p.state.done, sched, due };
 }
 
+// collectTaskItems walks a list and every list nested inside it, in document order, pairing each
+// item with its nesting depth. An indented sub-list is its own mdast list node, so deciding per
+// list node would split one checklist the reader sees as a whole: notation on a child would upgrade
+// the children and leave their parents as bare checkboxes.
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+function collectTaskItems(list: any, byChar: Map<string, TaskState>, depth = 0): { item: any; parse: TaskItemParse | null; depth: number }[] {
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const out: { item: any; parse: TaskItemParse | null; depth: number }[] = [];
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  for (const item of list.children ?? []) {
+    out.push({ item, parse: parseTaskItem(item, byChar), depth });
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    for (const child of item.children ?? []) {
+      if (child.type === "list") {
+        out.push(...collectTaskItems(child, byChar, depth + 1));
+      }
+    }
+  }
+  return out;
+}
+
 export function remarkTaskLine() {
   const byChar = new Map(taskStates.map((s) => [s.char, s]));
   return (tree: MdastRoot) => {
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    visit(tree, "list", (list: any) => {
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      const parsed = list.children.map((item: any) => parseTaskItem(item, byChar));
-      if (!parsed.some((p: TaskItemParse | null) => p && (p.custom || p.hasTokens))) {
+    visit(tree, "list", (list: any, index, parent: any) => {
+      // Only the outermost list decides: a nested one is part of its parent's checklist and is
+      // handled with it (and skipped here, since visiting it again would flatten it twice).
+      if (parent?.type === "listItem") return;
+      const entries = collectTaskItems(list, byChar);
+      if (!entries.some((e) => e.parse && (e.parse.custom || e.parse.hasTokens))) {
         return; // plain GFM checklist (or no tasks at all): leave it alone
       }
-      if (parsed.some((p: TaskItemParse | null) => !p)) {
+      if (entries.some((e) => !e.parse)) {
         return; // a plain bullet mixed into the block: an <li> cannot live in a <table>, stay plain
       }
+      // The table is flat, so the nesting the source expressed with indentation is carried as a
+      // depth property and drawn as an indent (see TaskRow). The rows keep document order, which is
+      // the order the reader wrote them in — parent, then its children.
+      entries.forEach(({ item, parse, depth }) => {
+        upgradeTaskItem(item, parse as TaskItemParse);
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        ((item.data as any).hProperties as Record<string, unknown>).depth = depth;
+      });
+      list.children = entries.map((e) => e.item);
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      list.children.forEach((item: any, i: number) => {
-        upgradeTaskItem(item, parsed[i] as TaskItemParse);
+      entries.forEach(({ item }: any) => {
+        item.children = (item.children ?? []).filter((child: { type: string }) => child.type !== "list");
       });
       const data = (list.data ??= {});
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -376,5 +459,27 @@ export function makeRehypeBudoux(parse: (text: string) => string[]) {
         return index + replacement.length;
       });
     };
+  };
+}
+
+// rehypeTaskCheck stamps a GFM checklist item's source line onto its checkbox, so a plain
+// "- [ ] foo" list — one with no task notation, left as native checkboxes by remarkTaskLine — can
+// still be ticked in the workspace. mdast-util-to-hast synthesizes the <input> without a position
+// of its own, so the line comes from the enclosing <li>. The markup is otherwise untouched: the
+// task-list-item classes the stylesheet keys on stay exactly as GFM emitted them.
+export function rehypeTaskCheck() {
+  return (tree: HastRoot) => {
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    visit(tree, "element", (node: any) => {
+      if (node.tagName !== "li") return;
+      const line = node.position?.start?.line;
+      if (!line) return;
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const box = (node.children ?? []).find(
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        (c: any) => c.type === "element" && c.tagName === "input" && c.properties?.type === "checkbox",
+      );
+      if (box) box.properties.dataTaskLine = line;
+    });
   };
 }

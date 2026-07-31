@@ -48,3 +48,8 @@ properties to say *how* — the selector grammar and the presentation options st
   for free.
 - Future selectors (`:block <name>` for named babel blocks, excerpt markers) extend the option
   grammar without touching the link syntax.
+- An excerpt is read-only *text*, but its **tasks are writable through it**: each resolved include
+  reports the source line the excerpt starts at (`source_line`), so a task rendered inside an embed
+  addresses the note that owns it, at that note's own line. The write lands in the source file, not
+  the host — display is transcluded, the data is not copied. An excerpt built from several `:lines`
+  ranges is not one run of the source, so it reports `-1` and its tasks stay inert.

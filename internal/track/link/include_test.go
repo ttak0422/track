@@ -74,7 +74,7 @@ third
 impl line`
 
 func TestExtractWholeNote(t *testing.T) {
-	got, ok := Extract(includeBody, Include{})
+	got, _, ok := Extract(includeBody, Include{})
 	if !ok {
 		t.Fatal("whole-note extract must succeed")
 	}
@@ -85,7 +85,7 @@ func TestExtractWholeNote(t *testing.T) {
 
 func TestExtractSectionStopsAtNextHeading(t *testing.T) {
 	inc := Includes("![[X##設計]]")[0]
-	got, ok := Extract(includeBody, inc)
+	got, _, ok := Extract(includeBody, inc)
 	if !ok {
 		t.Fatal("section extract must succeed")
 	}
@@ -97,7 +97,7 @@ func TestExtractSectionStopsAtNextHeading(t *testing.T) {
 
 func TestExtractOnlyContentsAndLines(t *testing.T) {
 	inc := Includes("![[X##設計]] :only-contents :lines 1-2,99")[0]
-	got, ok := Extract(includeBody, inc)
+	got, _, ok := Extract(includeBody, inc)
 	if !ok {
 		t.Fatal("extract must succeed")
 	}
@@ -110,7 +110,44 @@ func TestExtractOnlyContentsAndLines(t *testing.T) {
 
 func TestExtractMissingHeadingFails(t *testing.T) {
 	inc := Includes("![[X###どこにもない]]")[0]
-	if _, ok := Extract(includeBody, inc); ok {
+	if _, _, ok := Extract(includeBody, inc); ok {
 		t.Error("missing heading must not fall back to the whole note")
+	}
+}
+
+// The start line is what lets a task shown through an include be written back to the note that
+// owns it: the client adds it to a line of the excerpt to get the source file's line.
+func TestExtractReportsSourceStart(t *testing.T) {
+	lines := strings.Split(includeBody, "\n")
+	at := func(i int) string { return lines[i] }
+
+	for _, tc := range []struct {
+		name      string
+		directive string
+		want      int
+	}{
+		// The body opens with "intro line", but a whole-note include trims the blank line after it
+		// only from the end — the first line is line 0 either way.
+		{"whole note", "![[X]]", 0},
+		{"heading section", "![[X##設計]]", 2},
+		{"only contents skips the heading line", "![[X##設計]] :only-contents", 3},
+		{"a single range offsets from the section", "![[X##設計]] :only-contents :lines 2-2", 4},
+	} {
+		got, start, ok := Extract(includeBody, Includes(tc.directive)[0])
+		if !ok {
+			t.Fatalf("%s: extract failed", tc.name)
+		}
+		if start != tc.want {
+			t.Errorf("%s: start = %d, want %d", tc.name, start, tc.want)
+		}
+		// The reported line must actually be where the excerpt begins.
+		if at(start) != got[0] {
+			t.Errorf("%s: source line %d is %q, excerpt starts %q", tc.name, start, at(start), got[0])
+		}
+	}
+
+	// Several ranges are not one run of the source, so no single offset describes them.
+	if _, start, ok := Extract(includeBody, Includes("![[X##設計]] :lines 1,3")[0]); !ok || start != -1 {
+		t.Errorf("multi-range start = %d, want -1", start)
 	}
 }

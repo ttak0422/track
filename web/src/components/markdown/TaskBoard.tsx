@@ -21,9 +21,9 @@ export function TaskBoard() {
 
   const editable = !STATIC_MODE && noteID !== "";
 
-  function moveTask(line: number, state: string) {
+  function moveTask(line: number, state: string, expect: string) {
     if (!editable || mutation.isPending) return;
-    mutation.mutate({ line, state });
+    mutation.mutate({ line, state, expect });
   }
 
   return (
@@ -52,7 +52,12 @@ export function TaskBoard() {
                       event.preventDefault();
                       setDragOver("");
                       const line = Number(event.dataTransfer.getData("text/plain"));
-                      if (Number.isInteger(line) && line > 0) moveTask(line, state.name);
+                      // The dragged card's state as this board drew it: the write is refused if
+                      // the line has since moved on.
+                      const dragged = tasks?.items.find((t) => t.line === line);
+                      if (Number.isInteger(line) && line > 0 && dragged) {
+                        moveTask(line, state.name, dragged.state);
+                      }
                     }
                   : undefined
               }
@@ -66,7 +71,7 @@ export function TaskBoard() {
                   key={item.line}
                   item={item}
                   editable={editable}
-                  onMove={(state) => moveTask(item.line, state)}
+                  onMove={(state) => moveTask(item.line, state, item.state)}
                 />
               ))}
             </section>

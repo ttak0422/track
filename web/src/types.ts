@@ -86,6 +86,8 @@ export interface NoteInclude {
   lines: string[];
   bad_options?: string[];
   error?: string;
+  // 0-based line of the target note the excerpt starts at; -1 when it is not one contiguous run.
+  source_line?: number;
 }
 
 // One named task state: the checkbox marker character and whether the state is done-family

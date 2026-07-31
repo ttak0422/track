@@ -1,7 +1,8 @@
 import { Link, useLocation, useNavigate } from "@tanstack/react-router";
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useAgendaQuery, useLocalGraphQuery } from "../queries";
 import { GraphCanvas } from "./GraphCanvasLazy";
+import { headingElementID, tocEntries } from "./markdown/toc";
 import { WikiLink } from "./preview/WikiLink";
 import type { ExternalRef, FileKind, NoteID, NoteProp, NoteRef, UnavailableVault } from "../types";
 import { split, vaultOf } from "../vaultId";
@@ -79,6 +80,7 @@ export function NoteAside({
   childNotes = [],
   noteID,
   journalDate,
+  markdown = "",
 }: {
   backlinks: NoteRef[];
   // Inbound references from other vaults, listed apart from same-vault backlinks because they are
@@ -88,15 +90,38 @@ export function NoteAside({
   childNotes?: NoteRef[];
   noteID: NoteID;
   journalDate: string;
+  // The note's rendered body, for the Contents outline. Optional so a caller without one simply
+  // gets no outline rather than a broken aside.
+  markdown?: string;
 }) {
   const agendaQuery = useAgendaQuery(journalDate, vaultOf(noteID), { enabled: journalDate !== "" });
   const graphQuery = useLocalGraphQuery(noteID);
   const [graphResetToken, setGraphResetToken] = useState(0);
   const navigate = useNavigate();
   const graph = graphQuery.data?.graph;
+  // A single heading is not an outline — it is the note's own title restated — so the section only
+  // appears once there is somewhere to navigate between.
+  const toc = useMemo(() => tocEntries(markdown), [markdown]);
 
   return (
     <div className="note-aside">
+      {toc.length > 1 ? (
+        <section className="backlinks note-toc" aria-labelledby="contents-heading">
+          <h3 id="contents-heading">Contents</h3>
+          <div className="backlink-list">
+            {toc.map((entry) => (
+              <a
+                className="backlink note-toc-entry"
+                key={entry.id}
+                href={`#${headingElementID(entry.id)}`}
+                style={entry.level > 1 ? { paddingLeft: `${(entry.level - 1) * 12}px` } : undefined}
+              >
+                {entry.text}
+              </a>
+            ))}
+          </div>
+        </section>
+      ) : null}
       {childNotes.length > 0 ? (
         <section className="backlinks" aria-labelledby="children-heading">
           <h3 id="children-heading">Children</h3>

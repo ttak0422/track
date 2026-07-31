@@ -130,10 +130,10 @@ embed instead of a link:
 - `.pdf` URLs become an inline iframe viewer with an "open" link fallback;
 - image URLs (`.png`, `.jpg`, `.gif`, `.webp`, `.avif`, `.svg`, …) render as an `<img>`;
 - a text-file **attachment** (`assets/<file>`) is fetched and rendered inline: a
-  Mermaid source (`.mmd`/`.mermaid`) renders as a diagram, any other recognized text
-  extension (`.txt`, `.json`, `.yaml`, `.csv`, shell scripts, …) as a code block. This
-  is asset-only — a remote text URL is left to the OGP/link path — and degrades to a
-  plain link while loading fails;
+  diagram source (`.mmd`/`.mermaid`, `.dot`/`.gv`, `.d2`, `.drawio`) renders with its
+  diagram engine, any other text extension (`.txt`, `.json`, `.yaml`, `.csv`, shell
+  scripts, …) as a code block. This is asset-only — a remote text URL is left to the
+  OGP/link path — and degrades to a plain link while loading fails;
 - any other `http(s)` URL renders as an Open Graph card.
 
 Only `http(s)` and same-origin relative URLs feed an iframe, so a note cannot
@@ -160,6 +160,12 @@ block. The same renderer backs an embedded `.mmd`/`.mermaid` attachment (see
 "Markdown embeds"), so a diagram kept as a separate file renders identically to a
 fenced block.
 
+Graphviz (` ```dot `), D2 (` ```d2 `), and draw.io (` ```drawio `) follow the same
+contract: lazy-loaded engine, error falls back to the source. draw.io is not a text
+DSL — the block (or a `.drawio` attachment) holds the `<mxfile>` XML the editor
+saves, compressed or not, and renders through drawio's vendored static viewer
+(ADR 0065); the first page of a multi-page file is shown.
+
 ### Save conflict detection
 
 `PUT /api/note` is guarded by an optimistic-concurrency `etag`, the content hash
@@ -174,6 +180,16 @@ on disk:
 
 A missing `etag` is a `400`. Titles stay sidecar-authoritative (ADR 0013), so a
 save only writes the markdown body, never the title.
+
+`POST /api/task` also takes optional `sched`/`due` date patches beside `state`
+(a JSON `null`/absent field leaves the token alone, `""` clears it), so the task
+table's date cells write through the same endpoint the state cell uses.
+
+It carries the save's conflict model one level down too: the optional `expect`
+field is the state the client is looking at, and a line that has since become
+something else is refused with `409 Conflict`, leaving the file untouched. The
+board and the rendered task rows both send it, since both already know the state
+they drew. Omitting it writes unconditionally, as before.
 
 ## Copy path
 

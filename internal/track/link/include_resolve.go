@@ -7,8 +7,12 @@ import "fmt"
 // identically in both modes. Line keys the directive to its 0-based body line; a directive that
 // cannot embed still appears with Error so the renderer can mark the line instead of dropping it.
 type ResolvedInclude struct {
-	Line       int      `json:"line"`
-	NoteID     int64    `json:"note_id,omitempty"`
+	Line   int   `json:"line"`
+	NoteID int64 `json:"note_id,omitempty"`
+	// SourceLine is the 0-based line of the target note that Lines[0] came from, so a client can
+	// map a line of the excerpt back to the file that owns it — what lets a task rendered through
+	// an include be written back. -1 when the excerpt is not one contiguous run of the source.
+	SourceLine int      `json:"source_line"`
 	Kind       string   `json:"kind,omitempty"` // target file kind ("note"/"journal"), for asset resolution
 	Title      string   `json:"title,omitempty"`
 	Caption    string   `json:"caption"`
@@ -38,7 +42,7 @@ func ResolveIncludes(body string, load func(key string) (id int64, kind, text st
 		res.NoteID = id
 		res.Kind = kind
 		res.Title = inc.Text
-		lines, ok := Extract(text, inc)
+		lines, start, ok := Extract(text, inc)
 		if !ok {
 			if inc.BlockID != "" {
 				res.Error = fmt.Sprintf("block not found: ^%s", inc.BlockID)
@@ -49,6 +53,7 @@ func ResolveIncludes(body string, load func(key string) (id int64, kind, text st
 			continue
 		}
 		res.Lines = lines
+		res.SourceLine = start
 		out = append(out, res)
 	}
 	return out

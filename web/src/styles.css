@@ -153,10 +153,6 @@ button {
   min-height: 560px;
 }
 
-.workspace.home {
-  grid-template-columns: 1fr;
-}
-
 /* The rail sits on the same surface as the note itself — no slab, no divider. Chrome is the icons,
    nothing else; it never paints a fill. */
 .sidebar {
@@ -686,7 +682,6 @@ button {
 }
 
 .reader-pane:has(.tabbar),
-.workspace.home .reader-pane,
 /* The empty state has no tab bar (and none will mount without navigating away), and its arrow guides are
    aligned to the sidebar rail's top origin, so drop the reserved row there. */
 .reader-pane:has(.empty-state) {
@@ -708,6 +703,24 @@ button {
 
 .reader::-webkit-scrollbar {
   display: none;
+}
+
+/* The hero's recents sit in the right margin, absolutely placed so the logo and search stay put as
+   the results list grows beneath them (the hero is position: relative). Below the width where that
+   margin exists, the list would crowd the search box, so it goes away rather than reflowing. */
+.home-recent {
+  position: absolute;
+  top: 16vh;
+  right: 32px;
+  width: 220px;
+  border-top: 0;
+  text-align: left;
+}
+
+@media (max-width: 1000px) {
+  .home-recent {
+    display: none;
+  }
 }
 
 /* On home the hero owns its own internal scrolling, so the reader must not also scroll/grow. */
@@ -2229,6 +2242,17 @@ textarea.modal-input:focus-visible {
   background: var(--panel);
 }
 
+/* draw.io renders through its own live viewer (no shared SVG frame), so it only borrows the
+   diagram card treatment; the viewer manages the diagram's size inside it. */
+.drawio-diagram {
+  margin: 1em 0;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-lg);
+  padding: 14px;
+  overflow-x: auto;
+  background: var(--panel);
+}
+
 .mermaid-viewport {
   overflow: hidden;
   cursor: grab;
@@ -2481,6 +2505,12 @@ textarea.modal-input:focus-visible {
   vertical-align: middle;
 }
 
+/* A box the workspace can write to is enabled (see TaskCheck); the published site's stay disabled,
+   so the cursor is the only thing that says which is which. */
+.markdown-view .task-list-item input[type="checkbox"]:not(:disabled) {
+  cursor: pointer;
+}
+
 /* Task table (remarkTaskLine): a checklist that uses task notation renders as one sortable table —
    state cell, task text with chips, and scheduled/due columns. */
 .markdown-view table.task-table {
@@ -2548,6 +2578,34 @@ textarea.modal-input:focus-visible {
 
 .markdown-view select.task-row-state:hover {
   color: var(--text);
+}
+
+/* The date cells double as their control, the same way the state cell does: a native date input
+   stripped to the cell's own text look, so picking a date is a click on what the row already shows.
+   A cell with no date reads as blank until the row is hovered or keyboard-focused — an untouched
+   table stays quiet rather than showing a row of empty inputs. */
+.markdown-view input.task-row-date-input {
+  appearance: none;
+  -webkit-appearance: none;
+  border: none;
+  padding: 0;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  cursor: pointer;
+}
+
+.markdown-view input.task-row-date-input::-webkit-calendar-picker-indicator {
+  display: none;
+}
+
+.markdown-view input.task-row-date-input[data-empty] {
+  opacity: 0;
+}
+
+.markdown-view tr.task-row:hover input.task-row-date-input[data-empty],
+.markdown-view input.task-row-date-input[data-empty]:focus-visible {
+  opacity: 1;
 }
 
 .markdown-view tr.task-row-done td.task-row-text {
@@ -2897,6 +2955,25 @@ textarea.modal-input:focus-visible {
   text-decoration: none;
 }
 
+/* The Contents outline is one entry per row (a wrapped outline is not an outline) and quieter than
+   a backlink: it navigates inside the note you are already reading, not away from it. Indentation
+   by heading level is inline, since the depth is data. */
+.note-toc .backlink-list {
+  display: flex;
+  flex-direction: column;
+  gap: 0;
+}
+
+.note-toc-entry {
+  width: auto;
+  color: var(--muted);
+  font-weight: 400;
+}
+
+.note-toc-entry:hover {
+  color: var(--text);
+}
+
 /* In the note aside the links wrap several to a row (not one per row) so a heavily linked note's
    Backlinks / On this day sections stay a few lines tall. They're plain text links — accent, no pill
    — with enough column gap to tell adjacent titles apart. The day page keeps the row list, where the
@@ -2922,7 +2999,10 @@ textarea.modal-input:focus-visible {
    its container via ResizeObserver). */
 .aside-graph {
   display: flex;
-  height: 220px;
+  /* Tall enough that a note with a dozen neighbours has somewhere to put them: the dots are drawn
+     at a fixed screen size, so height is the budget for how much neighbourhood fits before the
+     view has to stop zooming out (see fitGraphView's floor). */
+  height: 280px;
 }
 
 /* Unlike the opt-in floating panel, this canvas sits in the page's scroll flow, so a flick that

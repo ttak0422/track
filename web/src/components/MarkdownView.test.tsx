@@ -25,11 +25,36 @@ vi.mock("@hpcc-js/wasm-graphviz", () => ({
   Graphviz: { load: async () => ({ dot: () => '<svg viewBox="0 0 10 10"><text>G</text></svg>' }) },
 }));
 
+// Partial mock: only the task write is stubbed, so every other api call the view makes (OGP cards,
+// asset text, wiki-link resolution) keeps its real implementation.
+const setTaskState = vi.hoisted(() => vi.fn(async () => ({ tasks: { items: [] } })));
+const setTaskDate = vi.hoisted(() => vi.fn(async () => ({ tasks: { items: [] } })));
+// An embedded excerpt fetches the note it came from, to address its tasks by their own lines.
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+const getNote = vi.hoisted(() => vi.fn(async (): Promise<any> => ({ note: { tasks: { items: [] } } })));
+vi.mock("../api", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("../api")>()),
+  setTaskState,
+  setTaskDate,
+  getNote,
+}));
+
 vi.mock("@terrastruct/d2", () => ({
   D2: class {
     compile = async () => ({ diagram: {}, renderOptions: {} });
     render = async () => '<svg viewBox="0 0 10 10"><text>D</text></svg>';
   },
+}));
+
+// The draw.io viewer is a vendored script injected at runtime, not an importable module; stub the
+// loader with a viewer that draws a marker SVG into the host.
+vi.mock("./markdown/drawioViewer", () => ({
+  loadDrawioViewer: () =>
+    Promise.resolve({
+      createViewerForElement: (element: Element) => {
+        element.innerHTML = '<svg viewBox="0 0 10 10"><text>X</text></svg>';
+      },
+    }),
 }));
 
 // A QueryClient is only needed for markdown that produces links (ExternalLink/WikiLink) or viewspec
@@ -46,6 +71,20 @@ describe("MarkdownView", () => {
     expect(screen.getByText("Empty note.")).toBeInTheDocument();
   });
 
+  it("gives headings the ids their outline links to, counting repeats", () => {
+    const { container } = render(<MarkdownView markdown={"# Intro\n## Intro\n### 設計"} />);
+    expect(container.querySelector("h1")?.id).toBe("h-intro");
+    expect(container.querySelector("h2")?.id).toBe("h-intro-2");
+    expect(container.querySelector("h3")?.id).toBe("h-設計");
+  });
+
+  it("does not count a setext heading, which track's parsers do not see", () => {
+    // remark parses "Title\n=====" as a heading; the engine's ATX-only scanners do not, so counting
+    // it here would shift every later id onto the wrong heading.
+    const { container } = render(<MarkdownView markdown={"Setext\n======\n\n# Real"} />);
+    expect(container.querySelector("h1#h-real")).not.toBeNull();
+  });
+
   it("renders a GFM table", () => {
     render(<MarkdownView markdown={"| a | b |\n| --- | --- |\n| 1 | 2 |"} />);
     const table = screen.getByRole("table");
@@ -60,6 +99,33 @@ describe("MarkdownView", () => {
     expect(boxes).toHaveLength(2);
     expect(boxes[0]).not.toBeChecked();
     expect(boxes[1]).toBeChecked();
+  });
+
+  it("upgrades a nested checklist as one table, indenting by depth", () => {
+    const { container } = renderWithQuery(
+      <MarkdownView markdown={"- [ ] parent\n  - [ ] child [due:2026-01-01]\n  - [ ] sibling\n- [ ] parent2"} />,
+    );
+    // A sub-list is its own mdast list, but the reader sees one checklist: notation on a child must
+    // not leave its parent behind as a bare checkbox.
+    expect(container.querySelectorAll("table.task-table")).toHaveLength(1);
+    const rows = container.querySelectorAll("tr.task-row");
+    expect(rows).toHaveLength(4);
+    expect(container.querySelectorAll("input[type='checkbox']")).toHaveLength(0);
+    // Document order, with the source's nesting carried as an indent.
+    const texts = [...rows].map((row) => row.querySelector("td.task-row-text")?.textContent?.trim());
+    expect(texts).toEqual(["parent", "child", "sibling", "parent2"]);
+    const indent = (i: number) =>
+      (rows[i].querySelector("td.task-row-text") as HTMLElement).style.paddingLeft;
+    expect(indent(0)).toBe("");
+    expect(indent(1)).not.toBe("");
+    expect(indent(3)).toBe("");
+  });
+
+  it("keeps a task line with no text in the table", () => {
+    const { container } = renderWithQuery(
+      <MarkdownView markdown={"- [/]\n- [ ] with text [#A]"} />,
+    );
+    expect(container.querySelectorAll("tr.task-row")).toHaveLength(2);
   });
 
   it("upgrades a checklist with task notation to one task table", () => {
@@ -120,6 +186,62 @@ describe("MarkdownView", () => {
     expect(screen.getByText("[z] not a task")).toBeInTheDocument();
   });
 
+  it("makes a plain checklist tickable when the note is editable", async () => {
+    const tasks = {
+      items: [
+        { line: 1, state: "TODO", done: false, text: "todo" },
+        { line: 2, state: "DONE", done: true, text: "done" },
+      ],
+    };
+    const { container } = renderWithQuery(
+      <TaskBoardContext.Provider value={{ noteID: "100", tasks }}>
+        <MarkdownView markdown={"- [ ] todo\n- [x] done"} />
+      </TaskBoardContext.Provider>,
+    );
+    // Still a plain checklist, not the notation table — only the boxes come alive.
+    expect(container.querySelectorAll("table.task-table")).toHaveLength(0);
+    const boxes = container.querySelectorAll<HTMLInputElement>("input[type='checkbox']");
+    expect(boxes).toHaveLength(2);
+    expect(boxes[0]).toBeEnabled();
+    fireEvent.click(boxes[0]);
+    await waitFor(() =>
+      expect(setTaskState).toHaveBeenCalledWith("100", 1, "DONE", "TODO"),
+    );
+  });
+
+  it("leaves a plain checklist inert with no note behind it", () => {
+    const { container } = render(<MarkdownView markdown={"- [ ] todo"} />);
+    expect(container.querySelector<HTMLInputElement>("input[type='checkbox']")).toBeDisabled();
+  });
+
+  it("keeps a checklist plain once the engine stamps a completion date", () => {
+    const { container } = render(<MarkdownView markdown={"- [ ] todo\n- [x] done [done:2026-07-30]"} />);
+    // The stamp is written by the engine, not authored, so it must not promote the list to the
+    // four-column table under the user's cursor.
+    expect(container.querySelectorAll("table.task-table")).toHaveLength(0);
+    expect(container.querySelectorAll("input[type='checkbox']")).toHaveLength(2);
+  });
+
+  it("makes the date cells editable where the note can be written", async () => {
+    const tasks = { items: [{ line: 1, state: "TODO", done: false, text: "a task", due: "2026-07-24" }] };
+    const { container } = renderWithQuery(
+      <TaskBoardContext.Provider value={{ noteID: "100", tasks }}>
+        <MarkdownView markdown={"- [ ] a task [due:2026-07-24]"} />
+      </TaskBoardContext.Provider>,
+    );
+    const due = container.querySelector<HTMLInputElement>("td.task-row-due input[type='date']");
+    expect(due).not.toBeNull();
+    expect(due!.value).toBe("2026-07-24");
+    fireEvent.change(due!, { target: { value: "2026-08-01" } });
+    await waitFor(() => expect(setTaskDate).toHaveBeenCalledWith("100", 1, "due", "2026-08-01"));
+  });
+
+  it("keeps the date cells as plain text with no note behind them", () => {
+    const { container } = render(<MarkdownView markdown={"- [ ] a task [due:2026-07-24]"} />);
+    expect(container.querySelector("input[type='date']")).toBeNull();
+    expect(container.querySelector("td.task-row-due")?.textContent).toBe("! 2026-07-24");
+  });
+
   it("wires the badge select by source line, so inline markup does not break it", () => {
     const tasks = { items: [{ line: 1, state: "DOING", done: false, text: "a bold task" }] };
     const { container } = renderWithQuery(
@@ -156,6 +278,15 @@ describe("MarkdownView", () => {
     const { container } = render(<MarkdownView markdown={"```d2\na -> b\n```"} />);
     await waitFor(() => expect(container.querySelector("svg")).toBeInTheDocument());
     expect(screen.getByRole("img", { name: "D2 diagram" })).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Copy code" })).not.toBeInTheDocument();
+  });
+
+  it("renders drawio fences through the draw.io viewer component", async () => {
+    const { container } = render(
+      <MarkdownView markdown={"```drawio\n<mxGraphModel><root><mxCell id='0'/></root></mxGraphModel>\n```"} />,
+    );
+    await waitFor(() => expect(container.querySelector("svg")).toBeInTheDocument());
+    expect(screen.getByRole("img", { name: "draw.io diagram" })).toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "Copy code" })).not.toBeInTheDocument();
   });
 
@@ -306,6 +437,54 @@ describe("MarkdownView", () => {
     // The caption header links back to the source note; the raw directive text is gone.
     expect(within(card as HTMLElement).getByText("Design##API")).toBeInTheDocument();
     expect(container.textContent).not.toContain(":only-contents");
+  });
+
+  it("writes an embedded task back to the note that owns it, at its own line", async () => {
+    // The excerpt starts at the source note's line 10 (0-based source_line 9), so its first line
+    // is that file's line 10 — not line 1 of the host note.
+    const sourceTasks = { items: [{ line: 10, state: "TODO", done: false, text: "owned task" }] };
+    getNote.mockResolvedValue({ note: { tasks: sourceTasks } });
+    const { container } = renderWithQuery(
+      <FloatingProvider>
+        <MarkdownView
+          markdown={"host\n\n![[Design##Plan]]"}
+          includes={[
+            {
+              line: 2,
+              note_id: 42,
+              title: "Design",
+              caption: "Design##Plan",
+              lines: ["- [ ] owned task"],
+              source_line: 9,
+            },
+          ]}
+        />
+      </FloatingProvider>,
+    );
+    const card = container.querySelector(".note-include") as HTMLElement;
+    const box = await waitFor(() => {
+      const found = within(card).getByRole("checkbox");
+      expect(found).toBeEnabled();
+      return found;
+    });
+    fireEvent.click(box);
+    await waitFor(() => expect(setTaskState).toHaveBeenCalledWith("42", 10, "DONE", "TODO"));
+  });
+
+  it("leaves an embedded task inert when the excerpt is not one run of the source", async () => {
+    getNote.mockResolvedValue({ note: { tasks: { items: [{ line: 1, state: "TODO", done: false, text: "t" }] } } });
+    const { container } = renderWithQuery(
+      <FloatingProvider>
+        <MarkdownView
+          markdown={"![[Design]] :lines 1,3"}
+          includes={[
+            { line: 0, note_id: 42, title: "Design", caption: "Design", lines: ["- [ ] t"], source_line: -1 },
+          ]}
+        />
+      </FloatingProvider>,
+    );
+    const card = container.querySelector(".note-include") as HTMLElement;
+    expect(within(card).getByRole("checkbox")).toBeDisabled();
   });
 
   it("renders an include error as a warning card instead of dropping the line", () => {

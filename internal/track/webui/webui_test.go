@@ -1298,6 +1298,21 @@ func TestTaskEndpoints(t *testing.T) {
 		t.Fatalf("response should carry refreshed tasks: %v", refreshed)
 	}
 
+	// The line is DONE now, so a write asserting the state the client last drew is a conflict —
+	// the task-level counterpart of the note save's etag mismatch.
+	stale, err := http.NewRequest(http.MethodPost, server.URL+"/api/task?id=900", strings.NewReader(`{"line":3,"state":"TODO","expect":"WAITING"}`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	conflict, err := http.DefaultClient.Do(stale)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer conflict.Body.Close()
+	if conflict.StatusCode != http.StatusConflict {
+		t.Fatalf("stale expect status = %d, want 409", conflict.StatusCode)
+	}
+
 	// The file was rewritten (stamp + cookie) and the sidecar logged the transition.
 	raw, err := os.ReadFile(cfg.NotePath(900))
 	if err != nil {

@@ -223,3 +223,58 @@ func TestFirstStates(t *testing.T) {
 		t.Fatalf("unexpected first states: %+v %+v", todo, done)
 	}
 }
+
+func TestSetDate(t *testing.T) {
+	for _, tc := range []struct {
+		name  string
+		body  string
+		field string
+		date  string
+		want  string
+	}{
+		{"appends when absent", "- [ ] write it\n", "due", "2026-08-01", "- [ ] write it [due:2026-08-01]\n"},
+		{
+			"replaces in place, keeping the line's shape",
+			"- [ ] write it [due:2026-01-01] [#A]\n", "due", "2026-08-01",
+			"- [ ] write it [due:2026-08-01] [#A]\n",
+		},
+		{"clears with an empty date", "- [ ] write it [sched:2026-01-01]\n", "sched", "", "- [ ] write it\n"},
+		{
+			"lands before the completion stamp",
+			"- [x] write it [done:2026-07-30]\n", "due", "2026-08-01",
+			"- [x] write it [due:2026-08-01] [done:2026-07-30]\n",
+		},
+		{"clearing an absent token is a no-op", "- [ ] write it\n", "sched", "", "- [ ] write it\n"},
+	} {
+		got, task, err := SetDate(tc.body, 1, tc.field, tc.date)
+		if err != nil {
+			t.Fatalf("%s: %v", tc.name, err)
+		}
+		if got != tc.want {
+			t.Errorf("%s: body = %q, want %q", tc.name, got, tc.want)
+		}
+		// The reparsed task is what the caller reports back, so it must agree with the line.
+		if tc.field == "due" && task.Due != tc.date {
+			t.Errorf("%s: due = %q, want %q", tc.name, task.Due, tc.date)
+		}
+		if tc.field == "sched" && task.Scheduled != tc.date {
+			t.Errorf("%s: scheduled = %q, want %q", tc.name, task.Scheduled, tc.date)
+		}
+	}
+
+	for _, tc := range []struct{ name, body, field, date string }{
+		{"a bad date", "- [ ] x\n", "due", "2026-13-45"},
+		{"a non-date", "- [ ] x\n", "due", "tomorrow"},
+		{"an unknown field", "- [ ] x\n", "start", "2026-08-01"},
+		{"a non-task line", "just prose\n", "due", "2026-08-01"},
+		{"a fenced line", "```\n- [ ] x\n```\n", "due", "2026-08-01"},
+	} {
+		line := 1
+		if tc.name == "a fenced line" {
+			line = 2
+		}
+		if _, _, err := SetDate(tc.body, line, tc.field, tc.date); err == nil {
+			t.Errorf("%s should be refused", tc.name)
+		}
+	}
+}
