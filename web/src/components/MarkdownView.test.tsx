@@ -78,6 +78,29 @@ describe("MarkdownView", () => {
     expect(container.querySelector("h3")?.id).toBe("h-設計");
   });
 
+  it("keeps heading ids right below an include", async () => {
+    // The include splice writes the directive line as a one-line ATX heading token; if id assignment
+    // ran before includes resolve, the token would eat the id meant for the heading below it.
+    const { container } = renderWithQuery(
+      <FloatingProvider>
+        <MarkdownView
+          markdown={"# First\n\n![[Other]]\n\n# Second"}
+          includes={[{ line: 2, title: "Other", caption: "Other", lines: ["excerpt"] }]}
+        />
+      </FloatingProvider>,
+    );
+    await waitFor(() =>
+      expect([...container.querySelectorAll("h1")].map((h) => h.id)).toEqual(["h-first", "h-second"]),
+    );
+  });
+
+  it("survives an empty body becoming a real one, as a hover preview does", () => {
+    // A preview mounts before its render arrives: every hook must run on both passes, or React
+    // throws and the router shows a bare "Something went wrong!".
+    const view = renderWithQuery(<MarkdownView markdown="" />);
+    expect(() => view.rerender(<MarkdownView markdown={"# Later\n\ntext"} />)).not.toThrow();
+  });
+
   it("does not count a setext heading, which track's parsers do not see", () => {
     // remark parses "Title\n=====" as a heading; the engine's ATX-only scanners do not, so counting
     // it here would shift every later id onto the wrong heading.

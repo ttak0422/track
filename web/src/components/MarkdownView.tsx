@@ -81,6 +81,14 @@ export function MarkdownView({ markdown, kind = "note", vault = "", includes }: 
     };
   }, [hasMath, math]);
 
+  // Every hook runs before the empty-note return below: a preview mounts with "" and gets its body a
+  // moment later, so a hook placed after the return would change the hook count between renders and
+  // React would throw — which the router catches and shows as a bare "Something went wrong!".
+  //
+  // The ids come from the note's own source, not the spliced copy: splicing rewrites include lines
+  // and the outline in the aside reads the same source, so both sides agree on which heading is which.
+  const headingIDs = useMemo(() => tocEntries(markdown).map((entry) => entry.id), [markdown]);
+
   if (markdown.trim() === "") {
     return <p className="muted">Empty note.</p>;
   }
@@ -92,18 +100,18 @@ export function MarkdownView({ markdown, kind = "note", vault = "", includes }: 
         includes.map((inc) => inc.line),
       )
     : markdown;
-  // The ids come from the note's own source, not the spliced copy: splicing rewrites include lines
-  // and the outline in the aside reads the same source, so both sides agree on which heading is which.
-  const headingIDs = useMemo(() => tocEntries(markdown).map((entry) => entry.id), [markdown]);
   const remarkPlugins = [
     remarkGfm,
     remarkAlert,
     remarkBlockID,
-    [remarkHeadingID, headingIDs] as [typeof remarkHeadingID, string[]],
     remarkEmbedOptions,
     ...(math ? [math.remark] : []),
     remarkWikiLink,
     ...(hasIncludes ? [remarkInclude] : []),
+    // After remarkInclude: the include splice writes each directive line as a one-line ATX heading
+    // token, so running this first would spend a real heading's id on a token and shift every
+    // heading below an include onto the wrong one. remarkInclude has replaced them by now.
+    [remarkHeadingID, headingIDs] as [typeof remarkHeadingID, string[]],
     // After remarkWikiLink, so a [[link]] in task text is consumed before token extraction.
     remarkTaskLine,
   ];
