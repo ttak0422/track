@@ -15,7 +15,10 @@ type TaskFilter struct {
 	DueBy         string
 	OverdueBefore string
 	// Dated keeps only tasks carrying a scheduled or due date — the ones that belong on a calendar.
-	Dated      bool
+	Dated bool
+	// Open keeps only tasks in a state whose terminal flag is false, whatever that state is named —
+	// the undated ones included, which is what a "still to do" listing wants and Dated excludes.
+	Open       bool
 	ByPriority bool
 }
 
@@ -55,6 +58,9 @@ func (s *Store) Tasks(f TaskFilter) ([]TaskRow, error) {
 	}
 	if f.Dated {
 		conds = append(conds, "(t.scheduled <> '' OR t.due <> '')")
+	}
+	if f.Open {
+		conds = append(conds, "t.done = 0")
 	}
 	if len(conds) > 0 {
 		query += " WHERE " + strings.Join(conds, " AND ")

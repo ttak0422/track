@@ -93,6 +93,12 @@ export function Shell() {
                   <RailCalendarIcon />
                 </Link>
               )}
+              {/* The open-task listing is live-only: the published bundle carries dated tasks alone. */}
+              {!STATIC_MODE && (
+                <Link className="rail-button" to="/tasks" aria-label="Tasks" title="Tasks">
+                  <RailTasksIcon />
+                </Link>
+              )}
               <Link
                 className="rail-button"
                 to="/graph"
@@ -144,6 +150,31 @@ function RailCalendarIcon() {
       <circle cx="15.5" cy="13" r="1.2" fill="currentColor" />
       <circle cx="8.5" cy="16.5" r="1.2" fill="currentColor" />
       <circle cx="12" cy="16.5" r="1.2" fill="currentColor" />
+    </svg>
+  );
+}
+
+function RailTasksIcon() {
+  return (
+    <svg className="rail-icon-svg" viewBox="0 0 24 24" width="20" height="20" aria-hidden="true">
+      <polyline
+        points="4,8 6,10 9.5,6"
+        fill="none"
+        stroke="currentColor"
+        strokeWidth="1.6"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+      />
+      <polyline
+        points="4,17 6,19 9.5,15"
+        fill="none"
+        stroke="currentColor"
+        strokeWidth="1.6"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+      />
+      <line x1="13" y1="8" x2="20" y2="8" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" />
+      <line x1="13" y1="17" x2="20" y2="17" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" />
     </svg>
   );
 }

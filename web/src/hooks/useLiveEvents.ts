@@ -29,6 +29,10 @@ export function useLiveEvents() {
         void queryClient.invalidateQueries({ queryKey: ["activity"] });
         void queryClient.invalidateQueries({ queryKey: ["agenda"] });
         void queryClient.invalidateQueries({ queryKey: ["graph"] });
+        // Both task listings: a checkbox written from Neovim or the CLI moves a task in or out of
+        // them, and the tasks page is nothing but that one query, so without this it keeps showing
+        // work already finished elsewhere.
+        void queryClient.invalidateQueries({ queryKey: queryKeys.tasks() });
       }, 150);
     }
     let dataTimer: number | undefined;

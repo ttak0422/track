@@ -91,6 +91,8 @@ const tags = [
   ),
 ];
 
+// /tasks is deliberately absent: the bundle carries the dated listing alone, so the page has nothing
+// to read and neither it nor its rail button is shown on a published site.
 const targets = [
   { route: "/", out: "index.html" },
   { route: "/graph", out: "graph/index.html" },
