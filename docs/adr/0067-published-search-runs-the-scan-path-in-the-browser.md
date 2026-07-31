@@ -58,10 +58,13 @@ ADR 0066 was right to want to avoid.
 Publish the bodies as their own file and run **the engine's own scan path** over
 them in the browser.
 
-- `export-site` writes `data/search.json` — `{"bodies": {"<slug>": "<source
-  markdown>"}}` for the published set only. Source Markdown, not the resolved
-  body, so a snippet reads as the note is written and an expanded chart's option
-  JSON never enters the corpus.
+- `export-site` writes `data/search.json` — one entry per published note, its
+  slug and **the published body, byte for byte what `note/<slug>.json` already
+  carries**. Not the source body: every published surface replaces original asset
+  file names and internal note ids with opaque slugs, and a corpus built from the
+  source would be the one file in the built site that put them back. Entries are
+  written in the order a body search returns hits, so the client keeps the file's
+  order instead of shipping mtimes to sort by.
 - `web/src/staticSearch.ts` mirrors `bodySearchScan` and the store's title query:
   the same OR/AND grammar, the same hierarchical `#tag` filter and rank vector,
   case-insensitive substring matching (which is what a trigram index *means*), the
@@ -75,11 +78,21 @@ them in the browser.
 
 ## Consequences
 
-- The search box means the same thing in all three places — CLI, workspace,
-  published site. There is one grammar and one notion of what matched.
-- The published site cannot rank by bm25, and orders body hits by recency. This
-  is not a published-site compromise: it is exactly what the engine does whenever
-  a query misses its index.
+- The search box has one grammar in all three places — CLI, workspace, published
+  site — and one notion of what matched.
+- **Order is where they differ, and it is not a corner case.** For a query the
+  index can serve — three runes or more, which is most of them — the live server
+  ranks body hits by bm25 and the published site cannot, so the same notes come
+  back in a different order. Recency is what the engine falls back to, and it is
+  the honest ceiling here: bm25 needs an index, and this ADR chose not to ship
+  one. Match set and snippets agree; ranking does not.
+- Two smaller divergences are known and left alone, both from the live side
+  disagreeing with itself. `%` and `_` in a query are unescaped SQL `LIKE`
+  wildcards on the server's *title* path but literal everywhere else (including
+  the server's own body path, which quotes each term) — the fix belongs in
+  `titleMatchClause`, not here. And case folding differs three ways already
+  (SQLite's ASCII-only `LIKE`, Go's `strings.ToLower`, FTS5's Unicode folding),
+  so no client can agree with all of them; the port folds like FTS5.
 - Substring matching is what the site can honestly offer, and it is what the live
   server offers. A two-character CJK query — the case that forces the engine's own
   fallback — works on the published site for the same reason.
@@ -90,6 +103,6 @@ them in the browser.
   scale; a site large enough for that to hurt would want the index this ADR
   rejected, and the measurement above says to revisit only if the corpus stops
   being mostly CJK.
-- `data/search.json` publishes nothing new. Every body in it is already in that
-  site's prerendered HTML and its `note/<slug>.json`; the published set is the
-  same set, so a note excluded from publication stays excluded.
+- `data/search.json` publishes nothing new, and a test pins it: each corpus body
+  is compared against the body already in `note/<slug>.json`. The published set is
+  the same set, so a note excluded from publication stays excluded.

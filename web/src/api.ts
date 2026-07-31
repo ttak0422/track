@@ -1,5 +1,5 @@
 import { dataURL, STATIC_MODE } from "./runtime";
-import { bodyHits, titleHits, type SearchCorpus } from "./staticSearch";
+import { bodyHits, titleHits, type SearchCorpus, type SearchDoc } from "./staticSearch";
 import { idParams, qualify, vaultParams } from "./vaultId";
 import type {
   ActivityResponse,
@@ -119,20 +119,33 @@ export function searchNotes(query: string, limit = 100): Promise<SearchResponse>
   return api<SearchResponse>(`/api/search?${params}`);
 }
 
-// The corpus is fetched once, on the first search that needs it, and never as part of first paint —
-// a reader who does not search never downloads it. Kept as the promise, not the value, so several
-// keystrokes in flight at once share the one request.
-let corpus: Promise<Record<string, string>> | null = null;
+// A published bundle never changes under the page, so both files a search reads are fetched once and
+// held as the promise, not the value — several keystrokes in flight share the one request. The
+// corpus is fetched on the first search that needs it and never as part of first paint, so a reader
+// who does not search never downloads it.
+let notesFile: Promise<SearchResult[]> | null = null;
+let corpus: Promise<SearchDoc[]> | null = null;
 
-function searchCorpus(): Promise<Record<string, string>> {
+function staticNotes(): Promise<SearchResult[]> {
+  notesFile ??= staticData<NotesResponse>("notes.json").then(
+    (data) => data.notes,
+    (err: unknown) => {
+      notesFile = null;
+      throw err;
+    },
+  );
+  return notesFile;
+}
+
+function searchCorpus(): Promise<SearchDoc[]> {
   corpus ??= staticData<SearchCorpus>("search.json").then(
-    (data) => data.bodies ?? {},
+    (data) => data.docs ?? [],
     () => {
       // A bundle built before search.json existed has no corpus, and the site should still answer
       // title-and-tag rather than fail a search it can half-answer. Drop the cache on the way out
       // so a transient failure costs one search rather than the whole session.
       corpus = null;
-      return {};
+      return [];
     },
   );
   return corpus;
@@ -141,14 +154,14 @@ function searchCorpus(): Promise<Record<string, string>> {
 // The published site's search composes exactly like the engine's (internal/track/search): title hits
 // first, then body hits for the notes the titles did not already name, sharing one budget.
 async function staticSearch(query: string, limit: number): Promise<SearchResponse> {
-  const { notes } = await staticData<NotesResponse>("notes.json");
+  const notes = await staticNotes();
   const titles = titleHits(notes, query).slice(0, limit);
   if (titles.length >= limit) {
     return { results: titles };
   }
   const skip = new Set(titles.map((note) => String(note.note_id)));
-  const bodies = await searchCorpus();
-  return { results: [...titles, ...bodyHits(notes, bodies, query, limit - titles.length, skip)] };
+  const docs = await searchCorpus();
+  return { results: [...titles, ...bodyHits(notes, docs, query, limit - titles.length, skip)] };
 }
 
 export function listNotes(): Promise<NotesResponse> {

@@ -54,10 +54,18 @@ describe("lineMatch", () => {
     expect(lineMatch("alpha\nbeta", splitOrGroups("gamma"))).toEqual({ line: 0, snippet: "" });
   });
 
-  it("truncates the snippet at 120 bytes on a rune boundary, like the engine", () => {
+  it("truncates the snippet at 120 bytes, like the engine", () => {
     const { snippet } = lineMatch(`  ${"あ".repeat(60)} hit`, splitOrGroups("あ"));
-    // 120 bytes is 40 three-byte runes exactly, so nothing is cut mid-character.
+    // 120 bytes is 40 three-byte runes exactly, so this one lands on a boundary already.
     expect(snippet).toBe(`${"あ".repeat(40)}…`);
+  });
+
+  it("backs up to a rune boundary rather than cutting a character in half", () => {
+    // One ASCII byte ahead of the Japanese puts byte 120 inside the 40th rune (bytes 118-120), so
+    // the cut has to walk back to 118 and drop that rune whole.
+    const { snippet } = lineMatch(`x${"あ".repeat(60)} hit`, splitOrGroups("あ"));
+    expect(snippet).toBe(`x${"あ".repeat(39)}…`);
+    expect(new TextEncoder().encode(snippet.slice(0, -1)).length).toBe(118);
   });
 });
 
@@ -94,40 +102,54 @@ describe("titleHits", () => {
   it("lists everything for an empty query, which is what the notes listing is", () => {
     expect(titleHits(notes, "")).toHaveLength(4);
   });
+
+  it("searches titles for a bare # rather than listing the vault", () => {
+    // The first keystroke of a "#tag" query yields no tag, and the store falls through to a plain
+    // title search over the raw string. Dropping the "#" instead would flash every note.
+    expect(titleHits(notes, "#")).toHaveLength(0);
+    expect(titleHits([...notes, note("n5", "C# notes")], "#").map((n) => n.note_id)).toEqual(["n5"]);
+  });
 });
 
 describe("bodyHits", () => {
   const notes = [note("n1", "One"), note("n2", "Two"), note("n3", "Three")];
-  const bodies = {
-    n1: "# One\n\nthe quick brown fox\n",
-    n2: "# Two\n\nnothing here\n",
-    n3: "# Three\n\na quick dog\n",
-  };
+  const docs = [
+    { note_id: "n1", body: "# One\n\nthe quick brown fox\n" },
+    { note_id: "n2", body: "# Two\n\nnothing here\n" },
+    { note_id: "n3", body: "# Three\n\na quick dog\n" },
+  ];
 
-  it("returns matching notes in bundle order, each with its line and snippet", () => {
-    const hits = bodyHits(notes, bodies, "quick", 10, new Set());
+  it("returns matching notes in corpus order, each with its line and snippet", () => {
+    const hits = bodyHits(notes, docs, "quick", 10, new Set());
     expect(hits.map((n) => n.note_id)).toEqual(["n1", "n3"]);
     expect(hits[0]).toMatchObject({ match: "body", line: 3, snippet: "the quick brown fox" });
   });
 
+  it("keeps the corpus order rather than the notes listing's", () => {
+    // The two orders differ on an mtime tie, and the corpus is the one the engine's scan uses.
+    const reversed = [...docs].reverse();
+    expect(bodyHits(notes, reversed, "quick", 10, new Set()).map((n) => n.note_id)).toEqual(["n3", "n1"]);
+  });
+
   it("skips the notes the title search already named", () => {
-    expect(bodyHits(notes, bodies, "quick", 10, new Set(["n1"])).map((n) => n.note_id)).toEqual(["n3"]);
+    expect(bodyHits(notes, docs, "quick", 10, new Set(["n1"])).map((n) => n.note_id)).toEqual(["n3"]);
   });
 
   it("stops at the remaining budget", () => {
-    expect(bodyHits(notes, bodies, "quick", 1, new Set())).toHaveLength(1);
+    expect(bodyHits(notes, docs, "quick", 1, new Set())).toHaveLength(1);
   });
 
   it("points at the first line holding a term when the group straddles lines", () => {
-    const hit = bodyHits([note("n1", "One")], { n1: "quick\nfox" }, "quick fox", 10, new Set())[0];
+    const hit = bodyHits([note("n1", "One")], [{ note_id: "n1", body: "quick\nfox" }], "quick fox", 10, new Set())[0];
     expect(hit).toMatchObject({ match: "body", line: 1, snippet: "quick" });
   });
 
   it("matches nothing for an empty query rather than everything", () => {
-    expect(bodyHits(notes, bodies, "  ", 10, new Set())).toEqual([]);
+    expect(bodyHits(notes, docs, "  ", 10, new Set())).toEqual([]);
   });
 
-  it("ignores a note the corpus has no body for, so an older bundle degrades quietly", () => {
-    expect(bodyHits(notes, { n2: "quick" }, "quick", 10, new Set()).map((n) => n.note_id)).toEqual(["n2"]);
+  it("ignores a corpus entry the notes listing does not name", () => {
+    const extra = [...docs, { note_id: "gone", body: "quick" }];
+    expect(bodyHits(notes, extra, "quick", 10, new Set()).map((n) => n.note_id)).toEqual(["n1", "n3"]);
   });
 });

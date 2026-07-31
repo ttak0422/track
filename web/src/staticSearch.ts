@@ -8,15 +8,24 @@
 // the published site runs the fallback the engine already ships, over the bodies the bundle already
 // ships, and the two agree on which notes match and on what the snippet says.
 //
-// The one thing it cannot reproduce is bm25 relevance, which lives in the index. Neither can the
-// engine's own fallback, which is why the fallback orders by recency — and why this does too,
-// rather than inventing a ranking the live server would disagree with.
+// The one thing it cannot reproduce is bm25 relevance, which lives in the index — and that is not
+// only the fallback's problem: for an ordinary query the live server ranks body hits by bm25 and
+// this cannot, so the same notes come back in a different order. Recency is what the engine falls
+// back to, and it beats inventing a third ranking neither side would agree with.
 
 import type { SearchResult } from "./types";
 
-// bodies maps a published slug to that note's source Markdown, the shape of data/search.json.
+// data/search.json: one entry per published note, already in the order a body search returns hits
+// (most recently updated first), so scanning the file in order lands on the engine's ordering
+// without shipping mtimes to sort by. The body is the published one, byte for byte what
+// note/<slug>.json carries.
+export interface SearchDoc {
+  note_id: string;
+  body: string;
+}
+
 export interface SearchCorpus {
-  bodies: Record<string, string>;
+  docs: SearchDoc[];
 }
 
 // splitOrGroups mirrors store.splitOrGroups: an uppercase OR ends a group of implicitly-ANDed terms,
@@ -91,8 +100,12 @@ interface TaggedQuery {
   tags: string[];
 }
 
-// splitTagQuery mirrors store.parseTaggedQuery: "#tag" fields filter by tag and leave the rest as the
-// text query. Duplicates collapse, and a bare "#" is not a tag.
+// splitTagQuery mirrors store.parseTaggedQuery and the branch the store takes on its result: "#tag"
+// fields filter by tag and leave the rest as the text query, duplicates collapse, and a bare "#" is
+// not a tag. When no field yielded a tag the store does not use the stripped text at all — it falls
+// through to the plain title query over the *raw* string. That matters on the first keystroke of a
+// "#tag" query: "#" alone has to search titles for "#", not drop to an empty query that lists the
+// whole vault.
 function splitTagQuery(query: string): TaggedQuery {
   const tags: string[] = [];
   const text: string[] = [];
@@ -104,6 +117,10 @@ function splitTagQuery(query: string): TaggedQuery {
       continue;
     }
     text.push(field);
+  }
+  if (tags.length === 0) {
+    // Raw, not rejoined: the store ranks an exact/prefix title against the query string as typed.
+    return { text: query, tags };
   }
   return { text: text.join(" "), tags };
 }
@@ -156,24 +173,24 @@ export function titleHits(notes: SearchResult[], query: string): SearchResult[] 
 }
 
 // bodyHits scans the corpus for notes whose body satisfies the query, skipping the ones the titles
-// already named — the same budget the engine's composition spends, title hits first. Notes arrive in
-// the bundle's recently-updated-first order and are kept in it, which is the scan path's ordering.
+// already named — the same budget the engine's composition spends, title hits first. The corpus is
+// already in the scan path's order, so it is walked as it comes and the result keeps that order.
 export function bodyHits(
   notes: SearchResult[],
-  bodies: Record<string, string>,
+  docs: SearchDoc[],
   query: string,
   limit: number,
   skip: Set<string>,
 ): SearchResult[] {
   const groups = splitOrGroups(query);
   if (limit <= 0 || groups.length === 0) return [];
+  const byID = new Map(notes.map((note) => [String(note.note_id), note]));
   const out: SearchResult[] = [];
-  for (const note of notes) {
-    const id = String(note.note_id);
-    if (skip.has(id)) continue;
-    const body = bodies[id];
-    if (body === undefined || !matchesAnyGroup(body, groups)) continue;
-    const { line, snippet } = lineMatch(body, groups);
+  for (const doc of docs) {
+    if (skip.has(doc.note_id)) continue;
+    const note = byID.get(doc.note_id);
+    if (note === undefined || !matchesAnyGroup(doc.body, groups)) continue;
+    const { line, snippet } = lineMatch(doc.body, groups);
     // Line 0 is the sentinel, and the live server omits both fields there rather than sending a
     // line number that points at nothing.
     out.push({ ...note, match: "body", ...(line > 0 ? { line, snippet } : {}) });
