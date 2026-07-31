@@ -239,9 +239,11 @@ export function NoteAside({
           recognisably a graph, while the sections above are lists that a caption tells apart. */}
       {graph && graph.nodes.length > 1 ? (
         <section className="backlinks note-aside-graph" aria-label="Local graph">
-          <div className="aside-graph-head">
+          <div className="aside-graph">
+            {/* Over the graph, like the floating panel's and the full view's controls — the aside was
+                the one graph surface spending a row of chrome on a single button. */}
             <button
-              className="graph-reset"
+              className="graph-reset aside-graph-reset"
               type="button"
               aria-label="Reset graph view"
               title="Reset graph view"
@@ -249,8 +251,6 @@ export function NoteAside({
             >
               ↺
             </button>
-          </div>
-          <div className="aside-graph">
             <GraphCanvas
               graph={graph}
               resetToken={graphResetToken}

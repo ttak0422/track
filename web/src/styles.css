@@ -3035,6 +3035,7 @@ textarea.modal-input:focus-visible {
 /* The aside's local graph: a fixed-height flex box the canvas fills (GraphCanvas sizes itself to
    its container via ResizeObserver). */
 .aside-graph {
+  position: relative;
   display: flex;
   /* Tall enough that a note with a dozen neighbours has somewhere to put them: the dots are drawn
      at a fixed screen size, so height is the budget for how much neighbourhood fits before the
@@ -3046,16 +3047,19 @@ textarea.modal-input:focus-visible {
    starts on it must still scroll the page on touch (the published site is the main mobile surface).
    pan-y hands vertical gestures to the browser; the trade is that touch node-drags only work
    sideways here — fine for a secondary surface. */
-.aside-graph .graph-canvas {
-  touch-action: pan-y;
+/* The reset sits over the graph's own top-left corner, the way every other graph surface overlays
+   its controls (.graph-controls) rather than reserving a row of chrome above them. Top-left because
+   the graph is fitted around its centre node: the corners are the emptiest part of the canvas, and
+   the left one is furthest from the labels, which trail to the right of their dots. */
+.aside-graph-reset {
+  position: absolute;
+  top: 0;
+  left: 0;
+  z-index: 1;
 }
 
-/* The graph section has no caption, so its only chrome is the reset control — pushed to the right
-   where the other sections' captions begin. */
-.aside-graph-head {
-  display: flex;
-  align-items: baseline;
-  justify-content: flex-end;
+.aside-graph .graph-canvas {
+  touch-action: pan-y;
 }
 
 .note-aside::-webkit-scrollbar {
