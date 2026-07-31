@@ -177,6 +177,16 @@ on disk:
 A missing `etag` is a `400`. Titles stay sidecar-authoritative (ADR 0013), so a
 save only writes the markdown body, never the title.
 
+`POST /api/task` also takes optional `sched`/`due` date patches beside `state`
+(a JSON `null`/absent field leaves the token alone, `""` clears it), so the task
+table's date cells write through the same endpoint the state cell uses.
+
+It carries the save's conflict model one level down too: the optional `expect`
+field is the state the client is looking at, and a line that has since become
+something else is refused with `409 Conflict`, leaving the file untouched. The
+board and the rendered task rows both send it, since both already know the state
+they drew. Omitting it writes unconditionally, as before.
+
 ## Copy path
 
 The note view has a **Copy path** button that copies the note's absolute file path

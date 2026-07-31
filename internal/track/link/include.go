@@ -120,34 +120,42 @@ func parseLineRanges(s string) ([]LineRange, bool) {
 // Leading and trailing blank lines are trimmed so the embed sits tight. ok is false when the anchor
 // does not match any heading or block marker — unlike navigation (which falls back to the note
 // top), an include must not silently embed the whole note.
-func Extract(body string, inc Include) (lines []string, ok bool) {
+// start is the 0-based line of body that the first returned line came from, so a caller can map a
+// line of the excerpt back to the source file — what lets a task shown through an include be
+// written back to the note that owns it. It is -1 when the excerpt is not one contiguous run
+// (several :lines ranges), where no single offset describes it.
+func Extract(body string, inc Include) (lines []string, start int, ok bool) {
 	all := strings.Split(body, "\n")
 	region := all
+	start = 0
 	if inc.BlockID != "" {
 		from, to, found := FindBlock(body, inc.BlockID)
 		if !found {
-			return nil, false
+			return nil, -1, false
 		}
 		region = append([]string(nil), all[from:to]...)
 		for i := range region {
 			region[i] = StripBlockMarker(region[i])
 		}
+		start = from
 	}
 	if inc.Heading != "" {
-		start, found := FindHeading(body, inc.HeadingLevel, inc.Heading)
+		from, found := FindHeading(body, inc.HeadingLevel, inc.Heading)
 		if !found {
-			return nil, false
+			return nil, -1, false
 		}
 		end := len(all)
 		for _, h := range Headings(body) {
-			if h.Line > start && h.Level <= inc.HeadingLevel {
+			if h.Line > from && h.Level <= inc.HeadingLevel {
 				end = h.Line
 				break
 			}
 		}
-		region = all[start:end]
+		region = all[from:end]
+		start = from
 		if inc.OnlyContents {
 			region = region[1:]
+			start++
 		}
 	}
 	if len(inc.Lines) > 0 {
@@ -162,12 +170,23 @@ func Extract(body string, inc Include) (lines []string, ok bool) {
 			}
 			picked = append(picked, region[from:to]...)
 		}
+		if len(inc.Lines) == 1 && len(picked) > 0 {
+			start += inc.Lines[0].From - 1
+		} else {
+			start = -1 // several ranges: the excerpt is not one run of the source
+		}
 		region = picked
 	}
-	return trimBlankEdges(region), true
+	trimmed, lead := trimBlankEdges(region)
+	if start >= 0 {
+		start += lead
+	}
+	return trimmed, start, true
 }
 
-func trimBlankEdges(lines []string) []string {
+// trimBlankEdges drops blank lines from both ends, also reporting how many it dropped from the
+// front so a caller tracking the source offset can move it along.
+func trimBlankEdges(lines []string) ([]string, int) {
 	start, end := 0, len(lines)
 	for start < end && strings.TrimSpace(lines[start]) == "" {
 		start++
@@ -175,5 +194,5 @@ func trimBlankEdges(lines []string) []string {
 	for end > start && strings.TrimSpace(lines[end-1]) == "" {
 		end--
 	}
-	return lines[start:end]
+	return lines[start:end], start
 }

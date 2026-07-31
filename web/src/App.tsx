@@ -15,6 +15,7 @@ import { EmptyState } from "./components/EmptyState";
 import { GraphFullView } from "./components/GraphFullView";
 import { NoteReader } from "./components/NoteReader";
 import { SearchHome } from "./components/SearchHome";
+import { RecentNotes } from "./components/RecentNotes";
 import { Shell } from "./components/Shell";
 import { TagView } from "./components/TagView";
 import "./styles.css";
@@ -158,6 +159,7 @@ function HomeRoute() {
   return (
     <section className="home-hero">
       <SearchHome />
+      <RecentNotes />
     </section>
   );
 }

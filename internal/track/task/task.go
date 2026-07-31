@@ -271,6 +271,81 @@ func FirstStates() (todo State, done State) {
 // done-family state from a not-done one stamps a [done:date] token on the line; leaving the done
 // family removes it. Progress cookies on parent headings/list items are recomputed over the whole
 // body. The returned body preserves the presence of a trailing newline.
+// taskLineAt locates a writable task line: it splits the body, range-checks the 1-based line, rejects
+// a line inside a code fence (notation shown as an example is not a task), and matches the task
+// grammar. It returns the split lines, the grammar's submatches, and whether the body ended in a
+// newline, so a mutator can rewrite the line and rejoin without repeating any of this.
+func taskLineAt(body string, line int) (lines []string, m []string, trailingNewline bool, err error) {
+	trailingNewline = strings.HasSuffix(body, "\n")
+	lines = strings.Split(strings.TrimSuffix(body, "\n"), "\n")
+	if line < 1 || line > len(lines) {
+		return nil, nil, false, fmt.Errorf("line %d is out of range (note has %d lines)", line, len(lines))
+	}
+	if fenced(lines)[line-1] {
+		return nil, nil, false, fmt.Errorf("line %d is inside a code fence, not a task line", line)
+	}
+	m = lineRE.FindStringSubmatch(lines[line-1])
+	if m == nil {
+		return nil, nil, false, fmt.Errorf("line %d is not a task line: %q", line, lines[line-1])
+	}
+	return lines, m, trailingNewline, nil
+}
+
+// SetDate writes a task's scheduled or due date: field is "sched" or "due", and an empty date clears
+// the token. The token is replaced where it already sits, so a hand-arranged line keeps its shape,
+// and otherwise appended — before any [done:] stamp, since the completion stamp reads last. Unlike
+// a state change this touches no cookies (a date does not change what is done) and writes no
+// transition log (the log's shape is a state transition).
+func SetDate(body string, line int, field, date string) (string, Task, error) {
+	var re *regexp.Regexp
+	switch field {
+	case "sched":
+		re = schedRE
+	case "due":
+		re = dueRE
+	default:
+		return "", Task{}, fmt.Errorf("unknown date field %q (want sched or due)", field)
+	}
+	if date != "" {
+		if _, err := time.Parse(dateLayout, date); err != nil {
+			return "", Task{}, fmt.Errorf("invalid date %q (want YYYY-MM-DD)", date)
+		}
+	}
+
+	lines, m, trailingNewline, err := taskLineAt(body, line)
+	if err != nil {
+		return "", Task{}, err
+	}
+	rest := m[4]
+	token := ""
+	if date != "" {
+		token = "[" + field + ":" + date + "]"
+	}
+	if re.MatchString(rest) {
+		if token == "" {
+			rest = strings.TrimRight(re.ReplaceAllString(rest, ""), " \t")
+		} else {
+			rest = re.ReplaceAllString(rest, token)
+		}
+	} else if token != "" {
+		// Append before the completion stamp so the line keeps the documented token order.
+		if loc := completedTokenRE.FindStringIndex(rest); loc != nil {
+			rest = strings.TrimRight(rest[:loc[0]], " \t") + " " + token + " " + strings.TrimSpace(rest[loc[0]:])
+		} else {
+			rest = strings.TrimRight(rest, " \t") + " " + token
+		}
+	}
+	lines[line-1] = m[1] + m[2] + "[" + m[3] + "]" + rest
+
+	updated := strings.Join(lines, "\n")
+	if trailingNewline {
+		updated += "\n"
+	}
+	t, _ := parseLine(lines[line-1])
+	t.Line = line
+	return updated, t, nil
+}
+
 func SetState(body string, line int, target string, now time.Time) (string, Transition, error) {
 	to, ok := StateNamed(target)
 	if !ok {
@@ -281,17 +356,9 @@ func SetState(body string, line int, target string, now time.Time) (string, Tran
 		return "", Transition{}, fmt.Errorf("unknown task state %q (states: %s)", target, strings.Join(names, ", "))
 	}
 
-	trailingNewline := strings.HasSuffix(body, "\n")
-	lines := strings.Split(strings.TrimSuffix(body, "\n"), "\n")
-	if line < 1 || line > len(lines) {
-		return "", Transition{}, fmt.Errorf("line %d is out of range (note has %d lines)", line, len(lines))
-	}
-	if fenced(lines)[line-1] {
-		return "", Transition{}, fmt.Errorf("line %d is inside a code fence, not a task line", line)
-	}
-	m := lineRE.FindStringSubmatch(lines[line-1])
-	if m == nil {
-		return "", Transition{}, fmt.Errorf("line %d is not a task line: %q", line, lines[line-1])
+	lines, m, trailingNewline, err := taskLineAt(body, line)
+	if err != nil {
+		return "", Transition{}, err
 	}
 	from, ok := stateForChar(m[3])
 	if !ok {

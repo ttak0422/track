@@ -429,9 +429,10 @@ export function NoteEditor({ noteID }: NoteEditorProps) {
                   <LoadingIndicator label="Loading note" />
                 ) : (
                   // The board reads the saved note's tasks (line numbers must match the file on disk
-                  // for the state-set API), not the live textarea buffer.
+                  // for the state-set API), not the live textarea buffer. While the buffer is dirty
+                  // the two disagree, so the controls go inert rather than write to a stale line.
                   <TaskBoardContext.Provider
-                    value={{ noteID, tasks: note.tasks }}
+                    value={{ noteID: dirty ? "" : noteID, tasks: note.tasks }}
                   >
                     <MarkdownView
                       markdown={renderQuery.data?.markdown ?? ""}

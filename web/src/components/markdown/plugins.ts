@@ -115,8 +115,13 @@ export function spliceIncludeTokens(markdown: string, lineNumbers: number[]): st
     // Trust but verify: a stale line number (body edited since the response) must not swallow an
     // unrelated line, so only a line that really is a directive is replaced.
     if (lines[line]?.trimStart().startsWith("![[")) {
-      // Blank padding makes the token its own paragraph even mid-paragraph-block.
-      lines[line] = `\n${includeToken}${i}%%\n`;
+      // One line in, one line out: every line below an include keeps its file line number, which
+      // is what resolves a rendered task row back to the task the engine parsed (see the task
+      // components in MarkdownView). Blank padding around the token — the old way to make it its
+      // own block mid-paragraph — shifted everything below by two lines, so a row could resolve
+      // to a different task and write to it. An ATX heading is the one leaf block that is exactly
+      // one line, interrupts a paragraph, and does not absorb the next line.
+      lines[line] = `###### ${includeToken}${i}%%`;
     }
   });
   return lines.join("\n");
@@ -124,7 +129,7 @@ export function spliceIncludeTokens(markdown: string, lineNumbers: number[]): st
 
 export function remarkInclude() {
   return (tree: MdastRoot) => {
-    visit(tree, "paragraph", (node, index, parent) => {
+    visit(tree, "heading", (node, index, parent) => {
       if (!parent || index === undefined || node.children.length !== 1) return;
       const child = node.children[0];
       if (child.type !== "text") return;
@@ -214,14 +219,21 @@ function parseTaskItem(item: any, byChar: Map<string, TaskState>): TaskItemParse
     custom = true;
     prefixLen = m[0].length;
   }
+  // A [done:] stamp does not count as authored notation: the engine writes it when a box is
+  // ticked, so counting it would rebuild a plain checklist as the four-column table the moment
+  // someone checks something.
   let hasTokens = false;
   for (const child of para.children) {
     if (child.type !== "text") continue;
     taskTokenPattern.lastIndex = 0;
-    if (taskTokenPattern.test(child.value)) {
-      hasTokens = true;
-      break;
+    let match: RegExpExecArray | null;
+    while ((match = taskTokenPattern.exec(child.value)) !== null) {
+      if (match[2] !== "done") {
+        hasTokens = true;
+        break;
+      }
     }
+    if (hasTokens) break;
   }
   return { state, custom, hasTokens, prefixLen };
 }
@@ -270,9 +282,12 @@ function upgradeTaskItem(item: any, p: TaskItemParse) {
     i += parts.length - 1;
   }
 
-  // The item's source line resolves the row to the engine-parsed task. Rendered bodies are
-  // line-aligned with the note file — BlankFieldLines blanks rather than removes, and the include
-  // splice swaps lines 1:1 — the same invariant the includes feature already relies on.
+  // The item's source line resolves the row to the engine-parsed task, so the rendered body has to
+  // stay line-aligned with the note file: WebBody rewrites lines in place and the include splice is
+  // 1:1 (see spliceIncludeTokens). A fence that expands into several lines — a dashboard or
+  // track-query block — still shifts everything below it.
+  // ponytail: known ceiling; the fix is a server-emitted line map, worth it only if someone puts a
+  // task list under an expanding fence and notices.
   const line = item.position?.start?.line ?? 0;
 
   const data = (item.data ??= {});
@@ -444,5 +459,27 @@ export function makeRehypeBudoux(parse: (text: string) => string[]) {
         return index + replacement.length;
       });
     };
+  };
+}
+
+// rehypeTaskCheck stamps a GFM checklist item's source line onto its checkbox, so a plain
+// "- [ ] foo" list — one with no task notation, left as native checkboxes by remarkTaskLine — can
+// still be ticked in the workspace. mdast-util-to-hast synthesizes the <input> without a position
+// of its own, so the line comes from the enclosing <li>. The markup is otherwise untouched: the
+// task-list-item classes the stylesheet keys on stay exactly as GFM emitted them.
+export function rehypeTaskCheck() {
+  return (tree: HastRoot) => {
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    visit(tree, "element", (node: any) => {
+      if (node.tagName !== "li") return;
+      const line = node.position?.start?.line;
+      if (!line) return;
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const box = (node.children ?? []).find(
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        (c: any) => c.type === "element" && c.tagName === "input" && c.properties?.type === "checkbox",
+      );
+      if (box) box.properties.dataTaskLine = line;
+    });
   };
 }

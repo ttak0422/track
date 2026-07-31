@@ -106,17 +106,17 @@ func TestExtractBlockInclude(t *testing.T) {
 		t.Fatalf("want 3 includes, got %+v", incs)
 	}
 
-	lines, ok := Extract(body, incs[0])
+	lines, _, ok := Extract(body, incs[0])
 	if !ok || !reflect.DeepEqual(lines, []string{"An intro paragraph", "spanning two lines."}) {
 		t.Fatalf("paragraph block extract = (%v, %v)", lines, ok)
 	}
 
-	lines, ok = Extract(body, incs[1])
+	lines, _, ok = Extract(body, incs[1])
 	if !ok || !reflect.DeepEqual(lines, []string{"- a list item", "  with a child"}) {
 		t.Fatalf("list block extract = (%v, %v)", lines, ok)
 	}
 
-	if _, ok := Extract(body, incs[2]); ok {
+	if _, _, ok := Extract(body, incs[2]); ok {
 		t.Fatal("missing block must not fall back to the whole note")
 	}
 }

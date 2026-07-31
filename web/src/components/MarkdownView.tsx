@@ -1,8 +1,16 @@
 import type { Element } from "hast";
-import { type ReactNode, useContext, useEffect, useMemo, useState } from "react";
+import {
+  type InputHTMLAttributes,
+  type ReactNode,
+  useContext,
+  useEffect,
+  useMemo,
+  useState,
+} from "react";
 import Markdown, { type Components } from "react-markdown";
 import remarkGfm from "remark-gfm";
-import type { NoteInclude } from "../types";
+import type { NoteID, NoteInclude, TaskItem } from "../types";
+import { qualify } from "../vaultId";
 import { rehypeBudoux } from "./markdown/budouxEager";
 import { CodeBlock } from "./markdown/CodeBlock";
 import {
@@ -28,6 +36,7 @@ import {
   remarkInclude,
   remarkHeadingID,
   remarkTaskLine,
+  rehypeTaskCheck,
   remarkWikiLink,
   spliceIncludeTokens,
 } from "./markdown/plugins";
@@ -37,7 +46,7 @@ import { EChartsFence } from "./markdown/EChartsBlock";
 import { QueryView } from "./markdown/QueryView";
 import { ViewSpecChart } from "./markdown/ViewSpecChart";
 import { WikiLink } from "./preview/WikiLink";
-import { useSetTaskStateMutation } from "../queries";
+import { useNoteQuery, useSetTaskDateMutation, useSetTaskStateMutation } from "../queries";
 import { STATIC_MODE } from "../runtime";
 
 interface MarkdownViewProps {
@@ -101,7 +110,13 @@ export function MarkdownView({ markdown, kind = "note", vault = "", includes }: 
   // BudouX (Japanese word-break) is gated behind __TRACK_STATIC__, a build-time literal, so the static
   // help site tree-shakes its ~190KB model away (English content is never segmented) while the live
   // workspace keeps it eager.
-  const rehypePlugins = [...(math ? [math.rehype] : []), ...(__TRACK_STATIC__ ? [] : [rehypeBudoux])];
+  const rehypePlugins = [
+    ...(math ? [math.rehype] : []),
+    // Stamps each checklist item's source line onto its native checkbox, so a plain "- [ ]" list
+    // can be ticked (see TaskCheck). Cheap and static-safe: the static site just never wires it up.
+    rehypeTaskCheck,
+    ...(__TRACK_STATIC__ ? [] : [rehypeBudoux]),
+  ];
 
   return (
     <NoteKindContext.Provider value={kind}>
@@ -126,6 +141,14 @@ export function MarkdownView({ markdown, kind = "note", vault = "", includes }: 
 // include inside embedded content shows as text, matching the spec's no-recursion rule.
 function IncludeEmbed({ include }: { include: NoteInclude }) {
   const vault = useContext(NoteVaultContext);
+  // A task shown through an include belongs to the note it was written in, so the excerpt's task
+  // context points there: the source note's id and tasks, plus the offset that turns a line of the
+  // excerpt into a line of that file. Without a usable offset (several :lines ranges) or on the
+  // published site the rows stay inert, as they were before.
+  const offset = include.source_line ?? -1;
+  const sourceID =
+    !STATIC_MODE && include.note_id && offset >= 0 ? qualify(vault, include.note_id) : "";
+  const source = useNoteQuery(sourceID, { enabled: sourceID !== "" });
   if (include.error) {
     return <div className="note-include note-include-error">⚠ {include.error}</div>;
   }
@@ -138,9 +161,11 @@ function IncludeEmbed({ include }: { include: NoteInclude }) {
           include.caption
         )}
       </div>
-      {/* Reset the task-board context: a ```taskboard fence inside embedded content must not show
-          the host note's board. */}
-      <TaskBoardContext.Provider value={emptyTaskBoard}>
+      {/* Never the host note's board: an excerpt's tasks are the source note's, addressed through
+          its own line offset. */}
+      <TaskBoardContext.Provider
+        value={{ noteID: sourceID, tasks: source.data?.note.tasks, lineOffset: offset }}
+      >
         <MarkdownView markdown={include.lines.join("\n")} kind={include.kind ?? "note"} vault={vault} />
       </TaskBoardContext.Provider>
       {(include.bad_options ?? []).map((bad) => (
@@ -152,31 +177,122 @@ function IncludeEmbed({ include }: { include: NoteInclude }) {
   );
 }
 
-const emptyTaskBoard = { noteID: "" };
 
 // TaskRowState is the state cell of a task-table row, and doubles as the state control: in the
 // live workspace it renders as a select stripped down to the badge's text look, writing through
 // the same engine path as the board's cards. Its source line resolves the row to the engine-parsed
 // task (rendered bodies are line-aligned with the note file — the invariant includes rely on); on
 // static sites and hover previews (no note id) it stays a plain badge.
-function TaskRowState({ name, done, line }: { name: string; done: boolean; line: number }) {
-  const { noteID, tasks } = useContext(TaskBoardContext);
-  const mutation = useSetTaskStateMutation(noteID);
-  const className = `task-row-state${done ? " task-row-state-done" : ""}`;
+// useTaskAtLine resolves a rendered line back to the task the engine parsed. It yields nothing on
+// the published static site, inside a preview that carries no note, or while the editor buffer is
+// dirty (noteID is blanked then) — every surface where a write would either be refused or land on a
+// line that no longer means what it did. Reading the context costs no query client, so a read-only
+// render (a preview, a test) never needs one; the control below mounts the mutation only once there
+// is something to write.
+function useTaskAtLine(line: number) {
+  const { noteID, tasks, lineOffset = 0 } = useContext(TaskBoardContext);
   const item =
     !STATIC_MODE && noteID !== "" && tasks && line > 0
-      ? tasks.items.find((t) => t.line === line)
+      ? tasks.items.find((t) => t.line === line + lineOffset)
       : undefined;
-  if (!item || !tasks) {
+  return { noteID, item };
+}
+
+// TaskCheck makes a plain GFM checklist ("- [ ] foo", no task notation) tickable: the engine has
+// always parsed those lines as tasks, only the frontend left the native checkbox disabled. The line
+// comes from rehypeTaskCheck; a box it cannot resolve stays exactly as it renders today.
+function TaskCheck({ line, checked }: { line: number; checked: boolean }) {
+  const { noteID, item } = useTaskAtLine(line);
+  if (!item) {
+    return <input type="checkbox" checked={checked} disabled readOnly />;
+  }
+  return <TaskCheckControl noteID={noteID} item={item} />;
+}
+
+function TaskCheckControl({ noteID, item }: { noteID: NoteID; item: TaskItem }) {
+  const mutation = useSetTaskStateMutation(noteID);
+  const target = taskStates.find((state) => state.done !== item.done);
+  // While the write is in flight, show where it is going rather than snapping back.
+  const shown = mutation.isPending ? !item.done : item.done;
+  return (
+    <input
+      type="checkbox"
+      checked={shown}
+      disabled={mutation.isPending || !target}
+      aria-label={`Toggle task: ${item.text}`}
+      onChange={() => {
+        if (target) mutation.mutate({ line: item.line, state: target.name, expect: item.state });
+      }}
+    />
+  );
+}
+
+// TaskRowDate is the scheduled/due cell. Read-only it is the marked date as written; where the note
+// can be written it is a native date input styled down to look like that same text, so picking a
+// date is a click on what it shows rather than a separate editing mode. An empty cell shows nothing
+// until the row is hovered or focused (the CSS reveals it), so an untouched table stays quiet.
+function TaskRowDate({ field, value, line }: { field: "sched" | "due"; value: string; line: number }) {
+  const { noteID, item } = useTaskAtLine(line);
+  const marker = field === "sched" ? "▷" : "!";
+  if (!item) {
+    return <>{value ? `${marker} ${value}` : ""}</>;
+  }
+  return <TaskRowDateControl noteID={noteID} item={item} field={field} value={value} />;
+}
+
+function TaskRowDateControl({
+  noteID,
+  item,
+  field,
+  value,
+}: {
+  noteID: NoteID;
+  item: TaskItem;
+  field: "sched" | "due";
+  value: string;
+}) {
+  const mutation = useSetTaskDateMutation(noteID);
+  return (
+    <input
+      type="date"
+      className="task-row-date-input"
+      aria-label={field === "sched" ? "Scheduled date" : "Due date"}
+      value={value}
+      disabled={mutation.isPending}
+      data-empty={value === "" || undefined}
+      onChange={(event) => mutation.mutate({ line: item.line, field, date: event.currentTarget.value })}
+    />
+  );
+}
+
+function TaskRowState({ name, done, line }: { name: string; done: boolean; line: number }) {
+  const { noteID, item } = useTaskAtLine(line);
+  const className = `task-row-state${done ? " task-row-state-done" : ""}`;
+  if (!item) {
     return <span className={className}>{name}</span>;
   }
+  return <TaskRowStateControl noteID={noteID} item={item} className={className} />;
+}
+
+function TaskRowStateControl({
+  noteID,
+  item,
+  className,
+}: {
+  noteID: NoteID;
+  item: TaskItem;
+  className: string;
+}) {
+  const mutation = useSetTaskStateMutation(noteID);
   return (
     <select
       className={className}
       aria-label="Task state"
       value={item.state}
       disabled={mutation.isPending}
-      onChange={(event) => mutation.mutate({ line: item.line, state: event.currentTarget.value })}
+      onChange={(event) =>
+        mutation.mutate({ line: item.line, state: event.currentTarget.value, expect: item.state })
+      }
     >
       {taskStates.map((state) => (
         <option key={state.name} value={state.name}>
@@ -263,8 +379,12 @@ function TaskRow({ node, children }: ElementProps) {
       <td className="task-row-text" style={depth > 0 ? { paddingLeft: `${depth * 16}px` } : undefined}>
         {children}
       </td>
-      <td className="task-row-date">{props.sched ? `▷ ${props.sched}` : ""}</td>
-      <td className="task-row-date task-row-due">{props.due ? `! ${props.due}` : ""}</td>
+      <td className="task-row-date">
+        <TaskRowDate field="sched" value={String(props.sched ?? "")} line={Number(props.line ?? 0)} />
+      </td>
+      <td className="task-row-date task-row-due">
+        <TaskRowDate field="due" value={String(props.due ?? "")} line={Number(props.line ?? 0)} />
+      </td>
     </tr>
   );
 }
@@ -367,6 +487,15 @@ const markdownComponents = {
   },
   tasktable: TaskTable,
   taskrow: TaskRow,
+  // A checklist checkbox carrying a source line (rehypeTaskCheck) becomes tickable; every other
+  // input renders as react-markdown produced it.
+  input: ({ node, ...props }: ElementProps & InputHTMLAttributes<HTMLInputElement>) => {
+    const line = (node?.properties as { dataTaskLine?: unknown } | undefined)?.dataTaskLine;
+    if (typeof line === "number" && props.type === "checkbox") {
+      return <TaskCheck line={line} checked={props.checked === true} />;
+    }
+    return <input {...props} />;
+  },
   taskchip: ({ node }: ElementProps) => {
     const props = (node?.properties ?? {}) as { kind?: unknown; value?: unknown };
     const value = String(props.value ?? "");

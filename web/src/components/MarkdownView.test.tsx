@@ -25,6 +25,20 @@ vi.mock("@hpcc-js/wasm-graphviz", () => ({
   Graphviz: { load: async () => ({ dot: () => '<svg viewBox="0 0 10 10"><text>G</text></svg>' }) },
 }));
 
+// Partial mock: only the task write is stubbed, so every other api call the view makes (OGP cards,
+// asset text, wiki-link resolution) keeps its real implementation.
+const setTaskState = vi.hoisted(() => vi.fn(async () => ({ tasks: { items: [] } })));
+const setTaskDate = vi.hoisted(() => vi.fn(async () => ({ tasks: { items: [] } })));
+// An embedded excerpt fetches the note it came from, to address its tasks by their own lines.
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+const getNote = vi.hoisted(() => vi.fn(async (): Promise<any> => ({ note: { tasks: { items: [] } } })));
+vi.mock("../api", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("../api")>()),
+  setTaskState,
+  setTaskDate,
+  getNote,
+}));
+
 vi.mock("@terrastruct/d2", () => ({
   D2: class {
     compile = async () => ({ diagram: {}, renderOptions: {} });
@@ -170,6 +184,62 @@ describe("MarkdownView", () => {
     const { container } = render(<MarkdownView markdown={"- [z] not a task\n- plain item"} />);
     expect(container.querySelectorAll("li.task-row")).toHaveLength(0);
     expect(screen.getByText("[z] not a task")).toBeInTheDocument();
+  });
+
+  it("makes a plain checklist tickable when the note is editable", async () => {
+    const tasks = {
+      items: [
+        { line: 1, state: "TODO", done: false, text: "todo" },
+        { line: 2, state: "DONE", done: true, text: "done" },
+      ],
+    };
+    const { container } = renderWithQuery(
+      <TaskBoardContext.Provider value={{ noteID: "100", tasks }}>
+        <MarkdownView markdown={"- [ ] todo\n- [x] done"} />
+      </TaskBoardContext.Provider>,
+    );
+    // Still a plain checklist, not the notation table — only the boxes come alive.
+    expect(container.querySelectorAll("table.task-table")).toHaveLength(0);
+    const boxes = container.querySelectorAll<HTMLInputElement>("input[type='checkbox']");
+    expect(boxes).toHaveLength(2);
+    expect(boxes[0]).toBeEnabled();
+    fireEvent.click(boxes[0]);
+    await waitFor(() =>
+      expect(setTaskState).toHaveBeenCalledWith("100", 1, "DONE", "TODO"),
+    );
+  });
+
+  it("leaves a plain checklist inert with no note behind it", () => {
+    const { container } = render(<MarkdownView markdown={"- [ ] todo"} />);
+    expect(container.querySelector<HTMLInputElement>("input[type='checkbox']")).toBeDisabled();
+  });
+
+  it("keeps a checklist plain once the engine stamps a completion date", () => {
+    const { container } = render(<MarkdownView markdown={"- [ ] todo\n- [x] done [done:2026-07-30]"} />);
+    // The stamp is written by the engine, not authored, so it must not promote the list to the
+    // four-column table under the user's cursor.
+    expect(container.querySelectorAll("table.task-table")).toHaveLength(0);
+    expect(container.querySelectorAll("input[type='checkbox']")).toHaveLength(2);
+  });
+
+  it("makes the date cells editable where the note can be written", async () => {
+    const tasks = { items: [{ line: 1, state: "TODO", done: false, text: "a task", due: "2026-07-24" }] };
+    const { container } = renderWithQuery(
+      <TaskBoardContext.Provider value={{ noteID: "100", tasks }}>
+        <MarkdownView markdown={"- [ ] a task [due:2026-07-24]"} />
+      </TaskBoardContext.Provider>,
+    );
+    const due = container.querySelector<HTMLInputElement>("td.task-row-due input[type='date']");
+    expect(due).not.toBeNull();
+    expect(due!.value).toBe("2026-07-24");
+    fireEvent.change(due!, { target: { value: "2026-08-01" } });
+    await waitFor(() => expect(setTaskDate).toHaveBeenCalledWith("100", 1, "due", "2026-08-01"));
+  });
+
+  it("keeps the date cells as plain text with no note behind them", () => {
+    const { container } = render(<MarkdownView markdown={"- [ ] a task [due:2026-07-24]"} />);
+    expect(container.querySelector("input[type='date']")).toBeNull();
+    expect(container.querySelector("td.task-row-due")?.textContent).toBe("! 2026-07-24");
   });
 
   it("wires the badge select by source line, so inline markup does not break it", () => {
@@ -367,6 +437,54 @@ describe("MarkdownView", () => {
     // The caption header links back to the source note; the raw directive text is gone.
     expect(within(card as HTMLElement).getByText("Design##API")).toBeInTheDocument();
     expect(container.textContent).not.toContain(":only-contents");
+  });
+
+  it("writes an embedded task back to the note that owns it, at its own line", async () => {
+    // The excerpt starts at the source note's line 10 (0-based source_line 9), so its first line
+    // is that file's line 10 — not line 1 of the host note.
+    const sourceTasks = { items: [{ line: 10, state: "TODO", done: false, text: "owned task" }] };
+    getNote.mockResolvedValue({ note: { tasks: sourceTasks } });
+    const { container } = renderWithQuery(
+      <FloatingProvider>
+        <MarkdownView
+          markdown={"host\n\n![[Design##Plan]]"}
+          includes={[
+            {
+              line: 2,
+              note_id: 42,
+              title: "Design",
+              caption: "Design##Plan",
+              lines: ["- [ ] owned task"],
+              source_line: 9,
+            },
+          ]}
+        />
+      </FloatingProvider>,
+    );
+    const card = container.querySelector(".note-include") as HTMLElement;
+    const box = await waitFor(() => {
+      const found = within(card).getByRole("checkbox");
+      expect(found).toBeEnabled();
+      return found;
+    });
+    fireEvent.click(box);
+    await waitFor(() => expect(setTaskState).toHaveBeenCalledWith("42", 10, "DONE", "TODO"));
+  });
+
+  it("leaves an embedded task inert when the excerpt is not one run of the source", async () => {
+    getNote.mockResolvedValue({ note: { tasks: { items: [{ line: 1, state: "TODO", done: false, text: "t" }] } } });
+    const { container } = renderWithQuery(
+      <FloatingProvider>
+        <MarkdownView
+          markdown={"![[Design]] :lines 1,3"}
+          includes={[
+            { line: 0, note_id: 42, title: "Design", caption: "Design", lines: ["- [ ] t"], source_line: -1 },
+          ]}
+        />
+      </FloatingProvider>,
+    );
+    const card = container.querySelector(".note-include") as HTMLElement;
+    expect(within(card).getByRole("checkbox")).toBeDisabled();
   });
 
   it("renders an include error as a warning card instead of dropping the line", () => {
