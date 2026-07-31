@@ -24,6 +24,9 @@ export interface SearchResult extends NoteRef {
   icon?: string;
   line?: number;
   snippet?: string;
+  // Which search produced this hit, so the panel can group title and full-text matches. Not
+  // derivable from snippet: a body hit whose terms straddle lines carries none.
+  match?: "title" | "body";
 }
 
 // One vault a cross-vault search could not read. Without it a short result list is

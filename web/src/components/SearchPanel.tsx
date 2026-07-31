@@ -20,6 +20,10 @@ export function SearchPanel({ onNavigate, autoFocus }: SearchPanelProps = {}) {
   const search = useSearchQuery(trimmedQuery, 100, { enabled: hasQuery });
   const navigate = useNavigate();
   const results = hasQuery ? (search.data?.results ?? []) : [];
+  // The server tags each hit with the search that found it; a body hit can carry no snippet (its
+  // terms straddled lines), so the tag is the discriminator, not the snippet.
+  const titleHits = results.filter((note) => note.match !== "body");
+  const bodyHits = results.filter((note) => note.match === "body");
   // Vaults the server could not read. Saying so is the point: otherwise a search that reached only
   // half the vaults looks exactly like one that found nothing in the other half.
   const unavailable = hasQuery ? (search.data?.unavailable ?? []) : [];
@@ -49,9 +53,21 @@ export function SearchPanel({ onNavigate, autoFocus }: SearchPanelProps = {}) {
       <div className="results" aria-live="polite">
         {hasQuery && search.isPending ? <p className="muted">Loading notes...</p> : null}
         {hasQuery && search.isError ? <p className="error">{search.error.message}</p> : null}
-        {results.map((note) => (
+        {/* Title matches first, then full-text — the ordering the engine composed, kept visible.
+            The captions only appear once there is a second group to tell apart, so an ordinary
+            title-only search looks exactly as it always has. */}
+        {bodyHits.length > 0 && titleHits.length > 0 ? <h3 className="results-group">Titles</h3> : null}
+        {titleHits.map((note) => (
           <SearchResultItem key={note.note_id} note={note} onNavigate={onNavigate} />
         ))}
+        {bodyHits.length > 0 ? (
+          <>
+            {titleHits.length > 0 ? <h3 className="results-group">Full text</h3> : null}
+            {bodyHits.map((note) => (
+              <SearchResultItem key={note.note_id} note={note} onNavigate={onNavigate} />
+            ))}
+          </>
+        ) : null}
         {unavailable.map((vault) => (
           <p key={vault.name} className="muted search-unavailable">
             ⚠ vault “{vault.name}” could not be searched{vault.error ? `: ${vault.error}` : ""}

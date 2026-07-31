@@ -41,7 +41,11 @@ type SearchResult struct {
 	Icon    string `json:"icon,omitempty"`
 	Line    int    `json:"line,omitempty"`
 	Snippet string `json:"snippet,omitempty"`
-	Mtime   int64  `json:"-"`
+	// Match says which search produced this hit, "title" or "body", so a frontend can group them.
+	// It is not derivable from Line/Snippet: a body hit whose terms straddle lines legitimately has
+	// neither (see the composition in internal/track/search).
+	Match string `json:"match,omitempty"`
+	Mtime int64  `json:"-"`
 	// Rank is the sort key the vault's own query gave this hit: the packed title/tag rank vector for a
 	// title search, bm25 for a body search, 0 for an unranked listing. It exists so results from
 	// several vaults can be merged (MergeSearchResults) on exactly the key SQLite ranked them by —
@@ -356,7 +360,7 @@ func (s *Store) SearchBodyFTS(query string, limit int) ([]SearchResult, error) {
 	rows, err := s.db.Query(
 		// bm25 is selected as well as ordered by, so a cross-vault merge (MergeSearchResults) orders on
 		// the score the index computed instead of trying to reproduce it.
-		`SELECT n.id, n.kind, n.title, n.mtime,
+		`SELECT n.id, n.kind, n.title, n.mtime, n.icon,
 		   COALESCE((
 		     SELECT group_concat(tag, char(31))
 		     FROM (SELECT tag FROM tags WHERE note_id = n.id ORDER BY tag)
@@ -378,7 +382,9 @@ func (s *Store) SearchBodyFTS(query string, limit int) ([]SearchResult, error) {
 	for rows.Next() {
 		var r SearchResult
 		var tags string
-		if err := rows.Scan(&r.NoteID, &r.FileKind, &r.Title, &r.Mtime, &tags, &r.Rank); err != nil {
+		// The icon rides along like it does on the title path: without it the same note would show
+		// one icon in the title group and the tag/kind fallback in the body group.
+		if err := rows.Scan(&r.NoteID, &r.FileKind, &r.Title, &r.Mtime, &r.Icon, &tags, &r.Rank); err != nil {
 			return nil, err
 		}
 		r.Tags = splitTags(tags)

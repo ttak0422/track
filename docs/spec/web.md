@@ -69,6 +69,11 @@ off, a published site) still opens the day page and its notes-and-tasks listing.
 
 - `GET /api/search?q=<query>&limit=<n>[&vault=<name>]`: search notes across every
   served vault; an empty `q` lists recent notes. `#tag` terms filter by sidecar tags.
+  Results are the shared engine composition (ADR 0066): title matches first, then
+  full-text matches for notes the titles did not already name, each tagged
+  `match: "title" | "body"`. A body hit also carries the `line` it matched on and
+  a `snippet` of it — though a match whose terms straddle lines has neither, which
+  is why `match` and not the snippet is the discriminator.
 - `GET /api/notes`: list indexed notes; each entry carries its activity `days` (the local days the note
   was created or updated), which the calendar view derives its per-day note lists from.
 - `GET /api/activity?days=<n>`: return local-day update counts for the recent

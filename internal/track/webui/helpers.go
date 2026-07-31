@@ -29,6 +29,18 @@ func addSearchPaths(v *vaultView, results []store.SearchResult) {
 	}
 }
 
+// decorateSearchIcons resolves the icon of every hit that came from this view's vault, the one part
+// of addSearchPaths a cross-vault result cannot get from the search itself: paths and vault labels
+// are filled by the federated composition, but the icon needs each vault's own tag/kind mapping.
+func decorateSearchIcons(v *vaultView, results []store.SearchResult) {
+	for i := range results {
+		if results[i].Vault != v.label {
+			continue
+		}
+		results[i].Icon = v.cfg.NoteIcon(results[i].FileKind, results[i].Tags, results[i].Icon)
+	}
+}
+
 // addRefPaths is addSearchPaths for the plain references (backlinks, hierarchy, agenda listings).
 func addRefPaths(v *vaultView, refs []store.NoteRef) {
 	for i := range refs {

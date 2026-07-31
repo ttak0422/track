@@ -256,6 +256,64 @@ func TestSearchSpansEveryServedVault(t *testing.T) {
 	}
 }
 
+// The workspace's search box is full-text: a note whose body holds the term comes back after the
+// title hits, tagged with which search found it and carrying the line and snippet to show. The
+// endpoint had been title-only — it called the store's title query directly, and the store answers
+// body search through a different method entirely.
+func TestSearchReturnsBodyHitsAfterTitleHits(t *testing.T) {
+	server, main, _ := twoVaultServer(t)
+	writeVaultNote(t, main, 300, "Unrelated title", "# Unrelated title\n\nthe body mentions kumquat\n")
+	writeVaultNote(t, main, 400, "kumquat", "# kumquat\n\nnothing else\n")
+
+	out := getVaultJSON(t, server.URL+"/api/search?q=kumquat")
+	hits := out["results"].([]any)
+	if len(hits) != 2 {
+		t.Fatalf("expected one title hit and one body hit, got %v", hits)
+	}
+	first, second := hits[0].(map[string]any), hits[1].(map[string]any)
+	if first["title"] != "kumquat" || first["match"] != "title" {
+		t.Fatalf("the title hit must come first: %v", first)
+	}
+	if second["title"] != "Unrelated title" || second["match"] != "body" {
+		t.Fatalf("the body hit must follow, tagged as one: %v", second)
+	}
+	if second["snippet"] == "" || second["line"].(float64) < 1 {
+		t.Fatalf("a body hit carries the matched line and its snippet: %v", second)
+	}
+}
+
+// A cross-vault search composes two rankings that are not comparable: a title rank vector is 0..3
+// and bm25 is negative. Merging each vault's already-composed title-then-body list on one key would
+// therefore sort every body hit above every title hit — the exact inversion of what the search is
+// supposed to show. The two phases have to merge separately.
+func TestSearchAcrossVaultsKeepsTitleHitsFirst(t *testing.T) {
+	server, main, work := twoVaultServer(t)
+	// Two notes whose BODY mentions Alpha, one per vault, so both rankings are populated.
+	writeVaultNote(t, main, 200, "Notes from main", "# Notes from main\n\nmentions Alpha here\n")
+	writeVaultNote(t, work, 200, "Notes from work", "# Notes from work\n\nmentions Alpha here\n")
+
+	out := getVaultJSON(t, server.URL+"/api/search?q=Alpha")
+	hits := out["results"].([]any)
+	if len(hits) < 4 {
+		t.Fatalf("expected title and body hits from both vaults, got %v", hits)
+	}
+	seenBody := false
+	for _, raw := range hits {
+		hit := raw.(map[string]any)
+		match, _ := hit["match"].(string)
+		if match == "body" {
+			seenBody = true
+			continue
+		}
+		if seenBody {
+			t.Fatalf("a title hit followed a body hit; the two rankings were merged as one: %v", hits)
+		}
+	}
+	if !seenBody {
+		t.Fatalf("cross-vault search returned no body hits: %v", hits)
+	}
+}
+
 func TestSearchReportsAnUnreachableVault(t *testing.T) {
 	// A registry entry pointing at a vault that is not there — an unmounted drive, a cloud folder
 	// that has not synced — must be named in the response. Silently omitting it would read as
