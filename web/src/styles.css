@@ -94,6 +94,7 @@
 .activity-header h2,
 .activity-panel h2,
 .backlinks h3,
+.day-tasks h2,
 .code-block[data-language]::before,
 .markdown-view .task-table th,
 .ogp-card-site {
@@ -966,6 +967,13 @@ a.calendar-title:focus-visible {
 .calendar-day-more {
   font-size: calc(11px * var(--font-scale, 1));
   color: var(--muted);
+}
+
+/* Task counts sit under the day's note titles as one quiet line — a text control, no badge: a box
+   is not earned inside a cell that is itself borderless. */
+.calendar-day-tasks {
+  color: var(--muted);
+  font-size: 11px;
 }
 
 /* Today: a quiet accent marker on the number rather than a resting ring. */
@@ -3431,4 +3439,22 @@ textarea.modal-input:focus-visible {
 .mindmap-root rect {
   fill: color-mix(in srgb, var(--accent) 14%, var(--panel));
   stroke: var(--accent);
+}
+
+/* A task row on the day page: the marker says which date put it here, the note title trails as
+   quiet provenance. */
+.day-tasks {
+  margin-top: 24px;
+}
+
+.day-task-mark {
+  display: inline-block;
+  width: 1em;
+  color: var(--muted);
+}
+
+.day-task-note {
+  margin-left: 8px;
+  color: var(--muted);
+  font-weight: 400;
 }

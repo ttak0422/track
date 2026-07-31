@@ -65,6 +65,16 @@ type jsonRef struct {
 	Title    string `json:"title"`
 }
 
+// jsonTaskRow mirrors store.TaskRow on the wire, so the published calendar and day pages read dated
+// tasks with the same frontend code the live server feeds. The note id is the published slug, like
+// every other id in the bundle.
+type jsonTaskRow struct {
+	NoteID   string `json:"note_id"`
+	FileKind string `json:"file_kind"`
+	Title    string `json:"title"`
+	task.Task
+}
+
 type jsonSearchResult struct {
 	NoteID   string   `json:"note_id"`
 	FileKind string   `json:"file_kind"`
@@ -168,6 +178,24 @@ func writeBundle(docs []doc, edges []edge, root int64, calendar bool, baseURL st
 		}
 	}
 	if err := writeJSONFile(filepath.Join(outDir, "data", "notes.json"), map[string]any{"notes": notes}); err != nil {
+		return Result{}, err
+	}
+
+	// tasks.json: every published task carrying a date, the read-only half of the live workspace's
+	// vault-wide listing. Written even when empty, so the client's fetch is never a 404.
+	datedTasks := []jsonTaskRow{}
+	for _, d := range listed {
+		if d.tasks == nil {
+			continue
+		}
+		for _, t := range d.tasks.Items {
+			if t.Scheduled == "" && t.Due == "" {
+				continue
+			}
+			datedTasks = append(datedTasks, jsonTaskRow{NoteID: slugOf(&d), FileKind: kindOf(d), Title: d.title, Task: t})
+		}
+	}
+	if err := writeJSONFile(filepath.Join(outDir, "data", "tasks.json"), map[string]any{"tasks": datedTasks}); err != nil {
 		return Result{}, err
 	}
 

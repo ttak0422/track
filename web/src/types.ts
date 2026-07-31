@@ -100,6 +100,18 @@ export interface TaskState {
 
 // One parsed task line of a note. line is 1-based over the note file — the coordinate the state-set
 // API takes. The date fields are plain YYYY-MM-DD strings from the inline bracket tokens.
+// TaskRow is one task in the vault-wide dated listing: the task plus the note it lives in, so the
+// calendar and day pages can show what is planned without opening every note.
+export interface TaskRow extends TaskItem {
+  note_id: NoteID;
+  file_kind: string;
+  title: string;
+}
+
+export interface TaskListResponse {
+  tasks: TaskRow[];
+}
+
 export interface TaskItem {
   line: number;
   state: string;

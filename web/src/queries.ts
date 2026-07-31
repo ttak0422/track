@@ -10,6 +10,7 @@ import {
   getNoteMeta,
   getOgp,
   getSite,
+  listDatedTasks,
   listNotes,
   renderMarkdown,
   renderViewSpec,
@@ -34,6 +35,7 @@ export const queryKeys = {
   note: (noteID: NoteID) => ["note", noteID] as const,
   noteMeta: (noteID: NoteID) => ["note-meta", noteID] as const,
   notes: () => ["notes"] as const,
+  datedTasks: () => ["dated-tasks"] as const,
   resolve: (term: string, vault = "") => ["resolve", vault, term] as const,
   search: (query: string, limit: number) => ["search", query, limit] as const,
   ogp: (url: string) => ["ogp", url] as const,
@@ -96,6 +98,16 @@ export function useNotesQuery() {
   return useQuery({
     queryKey: queryKeys.notes(),
     queryFn: listNotes,
+  });
+}
+
+// useDatedTasksQuery lists every task in the vault carrying a date, for the calendar and the day
+// page. One cache entry serves both, so opening a day from the calendar paints from what is already
+// held.
+export function useDatedTasksQuery() {
+  return useQuery({
+    queryKey: queryKeys.datedTasks(),
+    queryFn: listDatedTasks,
   });
 }
 
@@ -249,6 +261,8 @@ export function useSetTaskStateMutation(noteID: NoteID) {
     onSuccess: () => {
       void queryClient.invalidateQueries({ queryKey: queryKeys.note(noteID) });
       void queryClient.invalidateQueries({ queryKey: queryKeys.notes() });
+      // A state change can stamp or clear a completion date, and the listing shows dated tasks.
+      void queryClient.invalidateQueries({ queryKey: queryKeys.datedTasks() });
       // A host note embedding this one renders a cached excerpt keyed by its own body text, so
       // without this the embedded lines keep their old marker and stamp after the write.
       void queryClient.invalidateQueries({ queryKey: ["render"] });
@@ -262,7 +276,8 @@ export function useSetTaskStateMutation(noteID: NoteID) {
 }
 
 // useSetTaskDateMutation writes a task's scheduled/due date. The note's body changed, so the same
-// queries the state mutation invalidates are invalidated here.
+// queries the state mutation invalidates are invalidated here — the dated listing above all, since
+// a date write is exactly what moves a task from one calendar day to another.
 export function useSetTaskDateMutation(noteID: NoteID) {
   const queryClient = useQueryClient();
 
@@ -272,6 +287,7 @@ export function useSetTaskDateMutation(noteID: NoteID) {
     onSuccess: () => {
       void queryClient.invalidateQueries({ queryKey: queryKeys.note(noteID) });
       void queryClient.invalidateQueries({ queryKey: queryKeys.notes() });
+      void queryClient.invalidateQueries({ queryKey: queryKeys.datedTasks() });
       void queryClient.invalidateQueries({ queryKey: ["render"] });
     },
   });

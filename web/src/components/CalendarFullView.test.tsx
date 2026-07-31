@@ -20,8 +20,12 @@ const loadedNotes = {
 };
 
 const notesQuery = vi.hoisted(() => ({ current: {} as Record<string, unknown> }));
+const tasksQuery = vi.hoisted(() => ({ current: {} as Record<string, unknown> }));
 
-vi.mock("../queries", () => ({ useNotesQuery: () => notesQuery.current }));
+vi.mock("../queries", () => ({
+  useNotesQuery: () => notesQuery.current,
+  useDatedTasksQuery: () => tasksQuery.current,
+}));
 
 // Link renders as a plain anchor carrying the resolved route path, so hrefs are assertable without a
 // router context.
@@ -45,6 +49,7 @@ vi.mock("@tanstack/react-router", () => ({
 describe("CalendarFullView", () => {
   beforeEach(() => {
     notesQuery.current = { ...loadedNotes };
+    tasksQuery.current = { data: { tasks: [] } };
     vi.useFakeTimers();
     // A Sunday mid-month, so leading blanks and the today marker are both exercised.
     vi.setSystemTime(new Date(2026, 6, 5));
@@ -98,6 +103,24 @@ describe("CalendarFullView", () => {
     fireEvent.click(getByText("Today"));
     expect(getByText("2026 / 07")).toBeTruthy();
     expect(queryByText("2026 / 06")).toBeNull();
+  });
+
+  it("counts dated tasks on their day, and makes a purely planned day openable", () => {
+    tasksQuery.current = {
+      data: {
+        tasks: [
+          // Both dates on one task: it belongs to two days, but only once to each.
+          { note_id: "1", file_kind: "note", title: "Plan", line: 1, state: "TODO", done: false, text: "ship", scheduled: "2026-07-09", due: "2026-07-10" },
+          { note_id: "2", file_kind: "note", title: "Plan", line: 2, state: "TODO", done: false, text: "write", due: "2026-07-10" },
+        ],
+      },
+    };
+    const { container } = render(<CalendarFullView />);
+    const cellFor = (day: string) =>
+      container.querySelector(`a.calendar-day[href="/day/${day}"]`) as HTMLElement | null;
+    // 2026-07-09 has no note activity in the fixture, so only the task puts it on the calendar.
+    expect(cellFor("2026-07-09")?.textContent).toContain("1 task");
+    expect(cellFor("2026-07-10")?.textContent).toContain("2 tasks");
   });
 
   it("shows the pending state before the notes list resolves", () => {

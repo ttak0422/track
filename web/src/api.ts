@@ -24,7 +24,7 @@ import type {
   SiteResponse,
   TasksResponse,
   ViewSpecResponse,
-} from "./types";
+  TaskListResponse,} from "./types";
 
 interface APIOptions {
   method?: string;
@@ -125,6 +125,15 @@ export function listNotes(): Promise<NotesResponse> {
     return staticData<NotesResponse>("notes.json");
   }
   return api<NotesResponse>("/api/notes");
+}
+
+// listDatedTasks lists every task in the vault carrying a scheduled or due date. The published site
+// reads the same shape from the bundle, so the calendar and day pages need no live-only branch.
+export function listDatedTasks(): Promise<TaskListResponse> {
+  if (STATIC_MODE) {
+    return staticData<TaskListResponse>("tasks.json");
+  }
+  return api<TaskListResponse>("/api/tasks");
 }
 
 export function getActivity(since: string, until: string): Promise<ActivityResponse> {

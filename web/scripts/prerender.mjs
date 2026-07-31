@@ -22,6 +22,9 @@ if (!siteDir || !serverEntry) {
 
 const site = JSON.parse(readFileSync(join(siteDir, "data/site.json"), "utf8"));
 const notes = JSON.parse(readFileSync(join(siteDir, "data/notes.json"), "utf8")).notes;
+// Dated tasks give the calendar days of their own: a day nothing was written on can still be a day
+// something is planned for, and its page has to exist for the calendar's link to land.
+const datedTasks = JSON.parse(readFileSync(join(siteDir, "data/tasks.json"), "utf8")).tasks ?? [];
 
 // A jsdom window lets the CSR-oriented components read window/localStorage during render unchanged, and
 // carries the start-page id the "/" route needs.
@@ -69,7 +72,14 @@ if (!template.includes('<div id="root"></div>')) {
 // The calendar is opt-in per site (export-site --calendar, carried in site.json). When on, every day
 // with note activity gets a real /day page file, so the calendar's day links survive a reload on a
 // fallback-less host.
-const dayDates = site.calendar ? [...new Set(notes.flatMap((n) => n.days ?? []))] : [];
+const dayDates = site.calendar
+  ? [
+      ...new Set([
+        ...notes.flatMap((n) => n.days ?? []),
+        ...datedTasks.flatMap((t) => [t.scheduled, t.due].filter(Boolean)),
+      ]),
+    ]
+  : [];
 
 // Every used tag gets a real /tags page file, plus each hierarchical ancestor ("a/b/c" also yields
 // "a/b" and "a") so prefix tag pages resolve too. Mirrors internal/track/site tagRoutes.
