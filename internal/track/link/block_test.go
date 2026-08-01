@@ -122,8 +122,8 @@ func TestExtractBlockInclude(t *testing.T) {
 }
 
 func TestResolveIncludesReportsMissingBlock(t *testing.T) {
-	res := ResolveIncludes("![[Note#^nope]]", func(string) (int64, string, string, bool) {
-		return 1, "note", "some body", true
+	res := ResolveIncludes("![[Note#^nope]]", func(string) (int64, string, string, string, bool) {
+		return 1, "note", "some body", "etag", true
 	})
 	if len(res) != 1 || res[0].Error != "block not found: ^nope" {
 		t.Fatalf("unexpected resolution: %+v", res)

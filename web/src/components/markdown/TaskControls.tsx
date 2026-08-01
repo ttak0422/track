@@ -27,26 +27,26 @@ interface ElementProps {
 // render (a preview, a test) never needs one; the control below mounts the mutation only once there
 // is something to write.
 function useTaskAtLine(line: number) {
-  const { noteID, tasks, lineOffset = 0 } = useContext(TaskBoardContext);
+  const { noteID, tasks, etag, lineOffset = 0 } = useContext(TaskBoardContext);
   const item =
-    !STATIC_MODE && noteID !== "" && tasks && line > 0
+    !STATIC_MODE && noteID !== "" && tasks && etag && line > 0
       ? tasks.items.find((t) => t.line === line + lineOffset)
       : undefined;
-  return { noteID, item };
+  return { noteID, item, etag };
 }
 
 // TaskCheck makes a plain GFM checklist ("- [ ] foo", no task notation) tickable: the engine has
 // always parsed those lines as tasks, only the frontend left the native checkbox disabled. The line
 // comes from rehypeTaskCheck; a box it cannot resolve stays exactly as it renders today.
 export function TaskCheck({ line, checked }: { line: number; checked: boolean }) {
-  const { noteID, item } = useTaskAtLine(line);
+  const { noteID, item, etag } = useTaskAtLine(line);
   if (!item) {
     return <input type="checkbox" checked={checked} disabled readOnly />;
   }
-  return <TaskCheckControl noteID={noteID} item={item} />;
+  return <TaskCheckControl noteID={noteID} item={item} etag={etag!} />;
 }
 
-function TaskCheckControl({ noteID, item }: { noteID: NoteID; item: TaskItem }) {
+function TaskCheckControl({ noteID, item, etag }: { noteID: NoteID; item: TaskItem; etag: string }) {
   const mutation = useSetTaskStateMutation(noteID);
   const target = taskStates.find((state) => state.done !== item.done);
   // While the write is in flight, show where it is going rather than snapping back.
@@ -58,7 +58,7 @@ function TaskCheckControl({ noteID, item }: { noteID: NoteID; item: TaskItem }) 
       disabled={mutation.isPending || !target}
       aria-label={`Toggle task: ${item.text}`}
       onChange={() => {
-        if (target) mutation.mutate({ line: item.line, state: target.name, expect: item.state });
+        if (target) mutation.mutate({ line: item.line, state: target.name, expect: item.state, etag });
       }}
     />
   );
@@ -69,12 +69,12 @@ function TaskCheckControl({ noteID, item }: { noteID: NoteID; item: TaskItem }) 
 // date is a click on what it shows rather than a separate editing mode. An empty cell shows nothing
 // until the row is hovered or focused (the CSS reveals it), so an untouched table stays quiet.
 function TaskRowDate({ field, value, line }: { field: DateField; value: string; line: number }) {
-  const { noteID, item } = useTaskAtLine(line);
+  const { noteID, item, etag } = useTaskAtLine(line);
   const marker = field === "sched" ? "▷" : "!";
   if (!item) {
     return <>{value ? `${marker} ${value}` : ""}</>;
   }
-  return <TaskRowDateControl noteID={noteID} item={item} field={field} value={value} />;
+  return <TaskRowDateControl noteID={noteID} item={item} field={field} value={value} etag={etag!} />;
 }
 
 function TaskRowDateControl({
@@ -82,11 +82,13 @@ function TaskRowDateControl({
   item,
   field,
   value,
+  etag,
 }: {
   noteID: NoteID;
   item: TaskItem;
   field: DateField;
   value: string;
+  etag: string;
 }) {
   const mutation = useSetTaskDateMutation(noteID);
   return (
@@ -111,7 +113,7 @@ function TaskRowDateControl({
         event.currentTarget.showPicker?.();
       }}
       onChange={(event) =>
-        mutation.mutate({ line: item.line, field, date: event.currentTarget.value, expect: item.state })
+        mutation.mutate({ line: item.line, field, date: event.currentTarget.value, expect: item.state, etag })
       }
     />
   );
@@ -123,22 +125,24 @@ function TaskRowDateControl({
 // task (rendered bodies are line-aligned with the note file — the invariant includes rely on); on
 // static sites and hover previews (no note id) it stays a plain badge.
 function TaskRowState({ name, done, line }: { name: string; done: boolean; line: number }) {
-  const { noteID, item } = useTaskAtLine(line);
+  const { noteID, item, etag } = useTaskAtLine(line);
   const className = `task-row-state${done ? " task-row-state-done" : ""}`;
   if (!item) {
     return <span className={className}>{name}</span>;
   }
-  return <TaskRowStateControl noteID={noteID} item={item} className={className} />;
+  return <TaskRowStateControl noteID={noteID} item={item} className={className} etag={etag!} />;
 }
 
 function TaskRowStateControl({
   noteID,
   item,
   className,
+  etag,
 }: {
   noteID: NoteID;
   item: TaskItem;
   className: string;
+  etag: string;
 }) {
   const mutation = useSetTaskStateMutation(noteID);
   return (
@@ -148,7 +152,7 @@ function TaskRowStateControl({
       value={item.state}
       disabled={mutation.isPending}
       onChange={(event) =>
-        mutation.mutate({ line: item.line, state: event.currentTarget.value, expect: item.state })
+        mutation.mutate({ line: item.line, state: event.currentTarget.value, expect: item.state, etag })
       }
     >
       {taskStates.map((state) => (

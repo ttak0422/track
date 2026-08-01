@@ -20,6 +20,7 @@ import { RecentNotes } from "./components/RecentNotes";
 import { Shell } from "./components/Shell";
 import { TagView } from "./components/TagView";
 import "./styles.css";
+import { NotificationProvider } from "./notifications";
 
 const rootRoute = createRootRoute({
   component: Shell,
@@ -124,7 +125,11 @@ let clientRouter: ReturnType<typeof createAppRouter> | null = null;
 // coordinate the same Suspense boundaries so prerender and hydration agree, which a plain RouterProvider
 // on both sides does not.
 export function AppTree({ queryClient, children }: { queryClient: QueryClient; children: ReactNode }) {
-  return <QueryClientProvider client={queryClient}>{children}</QueryClientProvider>;
+  return (
+    <QueryClientProvider client={queryClient}>
+      <NotificationProvider>{children}</NotificationProvider>
+    </QueryClientProvider>
+  );
 }
 
 // The client's shared query client. On the static site the prerender inlines its dehydrated react-query

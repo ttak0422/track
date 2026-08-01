@@ -157,6 +157,7 @@ function IncludeEmbed({ include }: { include: NoteInclude }) {
   const sourceID =
     !STATIC_MODE && include.note_id && offset >= 0 ? qualify(vault, include.note_id) : "";
   const source = useNoteQuery(sourceID, { enabled: sourceID !== "" });
+  const sourceMatchesExcerpt = source.data?.note.etag === include.etag;
   if (include.error) {
     return <div className="note-include note-include-error">⚠ {include.error}</div>;
   }
@@ -172,7 +173,12 @@ function IncludeEmbed({ include }: { include: NoteInclude }) {
       {/* Never the host note's board: an excerpt's tasks are the source note's, addressed through
           its own line offset. */}
       <TaskBoardContext.Provider
-        value={{ noteID: sourceID, tasks: source.data?.note.tasks, lineOffset: offset }}
+        value={{
+          noteID: sourceID,
+          tasks: sourceMatchesExcerpt ? source.data?.note.tasks : undefined,
+          etag: sourceMatchesExcerpt ? include.etag : undefined,
+          lineOffset: offset,
+        }}
       >
         <MarkdownView markdown={include.lines.join("\n")} kind={include.kind ?? "note"} vault={vault} />
       </TaskBoardContext.Provider>

@@ -1286,16 +1286,13 @@ func TestTaskEndpoints(t *testing.T) {
 	if openRows[0].(map[string]any)["text"] != "alpha" || openRows[1].(map[string]any)["text"] != "beta" {
 		t.Fatalf("open listing order = %v, want [#A] alpha ahead of dated beta", openRows)
 	}
+	noteJSON := getJSON(t, server.URL+"/api/note?id=900")["note"].(map[string]any)
+	etag := noteJSON["etag"].(string)
 
 	// POST /api/task moves a line into a named state through the shared engine path.
-	req, err := http.NewRequest(http.MethodPost, server.URL+"/api/task?id=900", strings.NewReader(`{"line":3,"state":"DONE"}`))
-	if err != nil {
-		t.Fatal(err)
-	}
-	resp, err := http.DefaultClient.Do(req)
-	if err != nil {
-		t.Fatal(err)
-	}
+	resp := postBody(t, server.URL+"/api/task?id=900", map[string]any{
+		"line": 3, "state": "DONE", "etag": etag,
+	})
 	defer resp.Body.Close()
 	if resp.StatusCode != http.StatusOK {
 		t.Fatalf("task set status = %d", resp.StatusCode)
@@ -1312,17 +1309,17 @@ func TestTaskEndpoints(t *testing.T) {
 	if refreshed[0].(map[string]any)["state"] != "DONE" {
 		t.Fatalf("response should carry refreshed tasks: %v", refreshed)
 	}
+	nextETag := decoded["etag"].(string)
+	if nextETag == etag {
+		t.Fatalf("task write returned unchanged etag %q", nextETag)
+	}
+	etag = nextETag
 
 	// The line is DONE now, so a write asserting the state the client last drew is a conflict —
 	// the task-level counterpart of the note save's etag mismatch.
-	stale, err := http.NewRequest(http.MethodPost, server.URL+"/api/task?id=900", strings.NewReader(`{"line":3,"state":"TODO","expect":"WAITING"}`))
-	if err != nil {
-		t.Fatal(err)
-	}
-	conflict, err := http.DefaultClient.Do(stale)
-	if err != nil {
-		t.Fatal(err)
-	}
+	conflict := postBody(t, server.URL+"/api/task?id=900", map[string]any{
+		"line": 3, "state": "TODO", "expect": "WAITING", "etag": etag,
+	})
 	defer conflict.Body.Close()
 	if conflict.StatusCode != http.StatusConflict {
 		t.Fatalf("stale expect status = %d, want 409", conflict.StatusCode)
@@ -1345,7 +1342,7 @@ func TestTaskEndpoints(t *testing.T) {
 	}
 
 	// The note response carries the tasks payload for the board fence.
-	noteJSON := getJSON(t, server.URL+"/api/note?id=900")["note"].(map[string]any)
+	noteJSON = getJSON(t, server.URL+"/api/note?id=900")["note"].(map[string]any)
 	if _, ok := noteJSON["tasks"]; !ok {
 		t.Fatalf("note response should include tasks: %v", noteJSON)
 	}
@@ -1364,7 +1361,7 @@ func TestTaskEndpoints(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	staleDate := postBody(t, server.URL+"/api/task?id=900", map[string]any{"line": 3, "expect": "TODO", "due": "2030-01-01"})
+	staleDate := postBody(t, server.URL+"/api/task?id=900", map[string]any{"line": 3, "expect": "TODO", "due": "2030-01-01", "etag": etag})
 	defer staleDate.Body.Close()
 	if staleDate.StatusCode != http.StatusConflict {
 		t.Fatalf("stale date expect status = %d, want 409", staleDate.StatusCode)
@@ -1378,11 +1375,16 @@ func TestTaskEndpoints(t *testing.T) {
 	}
 
 	// The same write with the state the line is actually in lands.
-	freshDate := postBody(t, server.URL+"/api/task?id=900", map[string]any{"line": 3, "expect": "DONE", "due": "2030-01-01"})
+	freshDate := postBody(t, server.URL+"/api/task?id=900", map[string]any{"line": 3, "expect": "DONE", "due": "2030-01-01", "etag": etag})
 	defer freshDate.Body.Close()
 	if freshDate.StatusCode != http.StatusOK {
 		t.Fatalf("matching date expect status = %d, want 200", freshDate.StatusCode)
 	}
+	var freshDecoded map[string]any
+	if err := json.NewDecoder(freshDate.Body).Decode(&freshDecoded); err != nil {
+		t.Fatal(err)
+	}
+	etag = freshDecoded["etag"].(string)
 	raw, err = os.ReadFile(cfg.NotePath(900))
 	if err != nil {
 		t.Fatal(err)
@@ -1394,11 +1396,16 @@ func TestTaskEndpoints(t *testing.T) {
 	// A request carrying both a state and a date asserts expect once, against the state before the
 	// write. Beta (line 4) is still TODO: the state pass moves it to DOING, and the date pass must
 	// not then re-assert the now-stale TODO against the line the state pass just changed.
-	combined := postBody(t, server.URL+"/api/task?id=900", map[string]any{"line": 4, "state": "DOING", "expect": "TODO", "due": "2030-02-02"})
+	combined := postBody(t, server.URL+"/api/task?id=900", map[string]any{"line": 4, "state": "DOING", "expect": "TODO", "due": "2030-02-02", "etag": etag})
 	defer combined.Body.Close()
 	if combined.StatusCode != http.StatusOK {
 		t.Fatalf("combined state+date status = %d, want 200", combined.StatusCode)
 	}
+	var combinedDecoded map[string]any
+	if err := json.NewDecoder(combined.Body).Decode(&combinedDecoded); err != nil {
+		t.Fatal(err)
+	}
+	etag = combinedDecoded["etag"].(string)
 	raw, err = os.ReadFile(cfg.NotePath(900))
 	if err != nil {
 		t.Fatal(err)
@@ -1408,13 +1415,56 @@ func TestTaskEndpoints(t *testing.T) {
 	}
 
 	// A bad state is a client error.
-	req, _ = http.NewRequest(http.MethodPost, server.URL+"/api/task?id=900", strings.NewReader(`{"line":3,"state":"bogus"}`))
-	resp2, err := http.DefaultClient.Do(req)
-	if err != nil {
-		t.Fatal(err)
-	}
+	resp2 := postBody(t, server.URL+"/api/task?id=900", map[string]any{
+		"line": 3, "state": "bogus", "etag": etag,
+	})
 	defer resp2.Body.Close()
 	if resp2.StatusCode != http.StatusBadRequest {
 		t.Fatalf("bogus state should be 400, got %d", resp2.StatusCode)
+	}
+}
+
+func TestTaskWriteRejectsShiftedSameStateWithStaleETag(t *testing.T) {
+	body := "# Board [0/2]\n\n- [ ] alpha\n- [ ] beta\n"
+	server, cfg := putNoteSetup(t, 901, "Board", body)
+
+	noteJSON := getJSON(t, server.URL+"/api/note?id=901")["note"].(map[string]any)
+	etag := noteJSON["etag"].(string)
+	missing := postBody(t, server.URL+"/api/task?id=901", map[string]any{
+		"line": 3, "state": "DONE", "expect": "TODO",
+	})
+	defer missing.Body.Close()
+	if missing.StatusCode != http.StatusBadRequest {
+		t.Fatalf("missing etag status = %d, want 400", missing.StatusCode)
+	}
+
+	// Another writer inserts a TODO above the task the client drew. A state-only assertion cannot
+	// distinguish the new line 3 from the old line 3 because both are TODO; the note etag must.
+	shifted := "# Board [0/3]\n\n- [ ] inserted\n- [ ] alpha\n- [ ] beta\n"
+	if err := os.WriteFile(cfg.NotePath(901), []byte(shifted), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	resp := postBody(t, server.URL+"/api/task?id=901", map[string]any{
+		"line": 3, "state": "DONE", "expect": "TODO", "etag": etag,
+	})
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusConflict {
+		t.Fatalf("stale etag status = %d, want 409", resp.StatusCode)
+	}
+
+	raw, err := os.ReadFile(cfg.NotePath(901))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(raw) != shifted {
+		t.Fatalf("refused task write touched the note: %q", raw)
+	}
+	meta, found, err := note.ReadMetadata(cfg.MetadataPath(901))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if found && len(meta.TaskLog) != 0 {
+		t.Fatalf("refused task write appended a transition: %+v", meta.TaskLog)
 	}
 }

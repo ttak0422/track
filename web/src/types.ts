@@ -84,6 +84,7 @@ export interface NoteInclude {
   line: number;
   note_id?: number;
   kind?: string;
+  etag?: string;
   title?: string;
   caption: string;
   lines: string[];
@@ -140,6 +141,7 @@ export interface NoteTasks {
 
 export interface TasksResponse {
   tasks: NoteTasks;
+  etag: string;
 }
 
 // NoteProp is one flattened typed note property, as the engine indexes it: a sidecar props entry

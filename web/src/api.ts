@@ -33,6 +33,16 @@ interface APIOptions {
   body?: unknown;
 }
 
+export class APIError extends Error {
+  constructor(
+    readonly status: number,
+    message: string,
+  ) {
+    super(message);
+    this.name = "APIError";
+  }
+}
+
 export async function api<T>(path: string, options: APIOptions = {}): Promise<T> {
   const headers = new Headers();
   const init: RequestInit = {
@@ -56,7 +66,7 @@ async function handleResponse<T>(response: Response): Promise<T> {
       typeof body === "object" && body !== null && "error" in body
         ? String((body as { error: unknown }).error)
         : `${response.status} ${response.statusText}`;
-    throw new Error(message);
+    throw new APIError(response.status, message);
   }
   return stringifyIDs(body) as T;
 }
@@ -276,14 +286,15 @@ export function setTaskDate(
   line: number,
   field: DateField,
   date: string,
-  expect = "",
+  expect: string,
+  etag: string,
 ): Promise<TasksResponse> {
   if (STATIC_MODE) {
     return readOnly();
   }
   return api<TasksResponse>(`/api/task?${idParams(noteID)}`, {
     method: "POST",
-    body: { line, [field]: date, expect },
+    body: { line, [field]: date, expect, etag },
   });
 }
 
@@ -291,7 +302,8 @@ export function setTaskState(
   noteID: NoteID,
   line: number,
   state: string,
-  expect = "",
+  expect: string,
+  etag: string,
 ): Promise<TasksResponse> {
   if (STATIC_MODE) {
     return readOnly();
@@ -300,7 +312,7 @@ export function setTaskState(
   // line has since become something else, rather than overwriting an edit the view never saw.
   return api<TasksResponse>(`/api/task?${idParams(noteID)}`, {
     method: "POST",
-    body: { line, state, expect },
+    body: { line, state, expect, etag },
   });
 }
 

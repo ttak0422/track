@@ -57,7 +57,7 @@ export function NoteReaderStatic({ noteID }: { noteID: NoteID }) {
             <LoadingIndicator label="Loading note" />
           ) : (
             <TaskBoardContext.Provider
-              value={{ noteID, tasks: data.note.tasks }}
+              value={{ noteID, tasks: data.note.tasks, etag: data.note.etag }}
             >
               <MarkdownView
                 markdown={rendered.data?.markdown ?? ""}

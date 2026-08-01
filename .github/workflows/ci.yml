@@ -136,6 +136,12 @@ jobs:
           export TRACK_CACHE_DIR="$(mktemp -d)"
           nix run .#test-nvim -- --headless '+luafile scripts/e2e/nvim_task_conceal.lua'
 
+      - name: Neovim task conflict E2E
+        run: |
+          export TRACK_VAULT="$(mktemp -d)"
+          export TRACK_CACHE_DIR="$(mktemp -d)"
+          nix run .#test-nvim -- --headless '+luafile scripts/e2e/nvim_task_conflict.lua'
+
       - name: Neovim link completion retrigger E2E
         run: |
           export TRACK_VAULT="$(mktemp -d)"

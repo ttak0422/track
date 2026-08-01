@@ -82,6 +82,7 @@ func (s *Server) handleTaskSet(v *vaultView, w http.ResponseWriter, r *http.Requ
 	var req struct {
 		Line  int    `json:"line"`
 		State string `json:"state"`
+		ETag  string `json:"etag"`
 		// The state the client believes the line is in. The board, the rendered task rows, and the
 		// table's date cells all know it, so they send it and a stale view is refused (409) instead
 		// of writing over whatever the line became — a date patch on its own included.
@@ -95,41 +96,32 @@ func (s *Server) handleTaskSet(v *vaultView, w http.ResponseWriter, r *http.Requ
 		writeError(w, fmt.Errorf("decode request: %w", err), http.StatusBadRequest)
 		return
 	}
+	if strings.TrimSpace(req.ETag) == "" {
+		writeError(w, errors.New("etag is required"), http.StatusBadRequest)
+		return
+	}
 
 	path := v.cfg.PathForKind(ref.FileKind, ref.NoteID)
 	var tr task.Transition
+	var updatedRaw []byte
 	if err := v.write(func() error {
-		if req.State != "" {
-			var err error
-			tr, err = note.ApplyTaskState(v.cfg, path, req.Line, req.State, req.Expect, time.Now())
-			if err != nil {
-				return err
-			}
+		var err error
+		tr, err = note.ApplyTaskPatch(v.cfg, path, note.TaskPatch{
+			Line: req.Line, State: req.State, Expect: req.Expect,
+			Sched: req.Sched, Due: req.Due, ETag: req.ETag,
+		}, time.Now())
+		if err != nil {
+			return err
 		}
-		// Dates are written after the state so a stamp the state change just added is already there
-		// for the token ordering to place against. The state write has already asserted expect and
-		// left the line in its target state, so re-asserting the old one here would refuse every
-		// combined state+date write.
-		dateExpect := req.Expect
-		if req.State != "" {
-			dateExpect = ""
+		if err := index.New(v.cfg, v.store).One(path); err != nil {
+			return err
 		}
-		for _, patch := range []struct {
-			field task.DateField
-			value *string
-		}{{task.SchedField, req.Sched}, {task.DueField, req.Due}} {
-			if patch.value == nil {
-				continue
-			}
-			if _, err := note.ApplyTaskDate(path, req.Line, patch.field, *patch.value, dateExpect); err != nil {
-				return err
-			}
-		}
-		return index.New(v.cfg, v.store).One(path)
+		updatedRaw, err = os.ReadFile(path)
+		return err
 	}); err != nil {
 		// A refused assertion is a conflict, not a bad request — the same shape the note save's
 		// etag mismatch returns, one level down.
-		if errors.Is(err, note.ErrStateMismatch) {
+		if errors.Is(err, note.ErrStateMismatch) || errors.Is(err, note.ErrETagMismatch) {
 			writeError(w, err, http.StatusConflict)
 			return
 		}
@@ -141,7 +133,7 @@ func (s *Server) handleTaskSet(v *vaultView, w http.ResponseWriter, r *http.Requ
 		writeError(w, err, http.StatusInternalServerError)
 		return
 	}
-	writeJSON(w, map[string]any{"tasks": set, "transition": tr})
+	writeJSON(w, map[string]any{"tasks": set, "transition": tr, "etag": note.ContentETag(updatedRaw)})
 }
 
 // noteTasks reads a note file and parses its task lines with the configured state set.

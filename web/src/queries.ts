@@ -1,5 +1,6 @@
 import { keepPreviousData, type QueryClient, useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import {
+  APIError,
   deleteNote,
   fetchAssetText,
   getActivity,
@@ -23,6 +24,7 @@ import {
   setTaskState,
   uploadAsset,
 } from "./api";
+import { useNotifications } from "./notifications";
 import { STATIC_MODE } from "./runtime";
 import { useDebouncedValue } from "./hooks/useDebouncedValue";
 import type { DateField, NoteID, NoteMetaResponse, NoteResponse, SaveNoteMetaRequest, SaveNoteRequest } from "./types";
@@ -277,25 +279,37 @@ function invalidateTaskWrite(queryClient: QueryClient, noteID: NoteID) {
   void queryClient.invalidateQueries({ queryKey: ["render"] });
 }
 
+function handleTaskWriteError(
+  queryClient: QueryClient,
+  noteID: NoteID,
+  notify: (message: string) => void,
+  error: unknown,
+) {
+  void queryClient.invalidateQueries({ queryKey: queryKeys.note(noteID) });
+  if (error instanceof APIError && error.status === 409) {
+    notify("This note changed since it was loaded. Reloading the latest version; retry your task change.");
+  }
+}
+
 // useSetTaskStateMutation moves one task line into a named state (board drag / card select).
 export function useSetTaskStateMutation(noteID: NoteID) {
   const queryClient = useQueryClient();
+  const { notify } = useNotifications();
 
   return useMutation({
-    mutationFn: ({ line, state, expect }: { line: number; state: string; expect?: string }) =>
-      setTaskState(noteID, line, state, expect),
+    mutationFn: ({ line, state, expect, etag }: { line: number; state: string; expect?: string; etag: string }) =>
+      setTaskState(noteID, line, state, expect ?? "", etag),
     onSuccess: () => invalidateTaskWrite(queryClient, noteID),
     // A refused write means the view is stale — refetch so the error is read against what the
     // note actually says now.
-    onError: () => {
-      void queryClient.invalidateQueries({ queryKey: queryKeys.note(noteID) });
-    },
+    onError: (error) => handleTaskWriteError(queryClient, noteID, notify, error),
   });
 }
 
 // useSetTaskDateMutation writes a task's scheduled/due date.
 export function useSetTaskDateMutation(noteID: NoteID) {
   const queryClient = useQueryClient();
+  const { notify } = useNotifications();
 
   return useMutation({
     mutationFn: ({
@@ -303,18 +317,18 @@ export function useSetTaskDateMutation(noteID: NoteID) {
       field,
       date,
       expect,
+      etag,
     }: {
       line: number;
       field: DateField;
       date: string;
       expect?: string;
-    }) => setTaskDate(noteID, line, field, date, expect),
+      etag: string;
+    }) => setTaskDate(noteID, line, field, date, expect ?? "", etag),
     onSuccess: () => invalidateTaskWrite(queryClient, noteID),
     // A refused write means the view is stale — refetch so the error is read against what the
     // note actually says now.
-    onError: () => {
-      void queryClient.invalidateQueries({ queryKey: queryKeys.note(noteID) });
-    },
+    onError: (error) => handleTaskWriteError(queryClient, noteID, notify, error),
   });
 }
 

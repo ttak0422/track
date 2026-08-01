@@ -26,6 +26,7 @@ export const IncludesContext = createContext<NoteInclude[]>([]);
 export interface TaskBoardData {
   noteID: NoteID;
   tasks?: NoteTasks;
+  etag?: string;
   // Added to a rendered line to get this note's file line. 0 when a note renders its own body; an
   // excerpt shown through an include renders the source note's lines starting partway in, so its
   // rows resolve through the source's offset (see IncludeEmbed).
