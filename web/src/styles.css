@@ -1090,6 +1090,13 @@ a.calendar-title:focus-visible {
   user-select: none;
 }
 
+/* A dirty note shows its dot in the close slot without being hovered, so that one tab is the only
+   one that has to keep the slot clear at rest. The hover rule follows it, and wins on source order
+   at equal specificity, because revealing the buttons needs the room either way. */
+.tab.dirty .tab-label {
+  padding-right: 24px;
+}
+
 .tab:hover .tab-label,
 .tab:has(:focus-visible) .tab-label {
   padding-right: 54px;
@@ -1127,10 +1134,11 @@ a.calendar-title:focus-visible {
   max-width: 100%;
   align-items: center;
   border: 0;
-  /* The close and float buttons only appear on hover, so at rest their 54px belongs to the title:
-     a 160px tab shows 124px of it instead of 94px. The room is made when they are revealed, which
-     re-clips only the hovered title — tabs are a fixed width, so nothing else in the strip moves. */
-  padding: 8px 24px 8px 12px;
+  /* Nothing stands in the close slot at rest, so the whole tab is the title's: a 160px tab shows
+     148px of it rather than the 94px it would if the buttons kept their room. That room is made
+     when they are revealed, which re-clips only the hovered title — tabs are a fixed width, so
+     nothing else in the strip moves. */
+  padding: 8px 12px;
   color: inherit;
   background: transparent;
   font: inherit;
@@ -1196,15 +1204,17 @@ a.calendar-title:focus-visible {
   background: currentColor;
 }
 
-/* The close button is hidden until the tab is hovered (or reached by keyboard), leaving just the
-   title. A dirty note instead shows a dot in the close slot, which the hover state swaps back for
-   the × button. */
+/* The close button is hidden until the tab is hovered or reached by keyboard, leaving just the
+   title. A dirty note instead shows a dot in the close slot, which either reveal swaps back for the
+   × button. Every rule that reveals something — this one, the float button's, the room the label
+   makes, and the pointer-events gate — keys off the same pair of conditions, so a tab cannot end up
+   with the buttons' room made but the buttons still invisible. */
 .tab-close-glyph {
   opacity: 0;
 }
 
 .tab:hover .tab-close-glyph,
-.tab-close:focus-visible .tab-close-glyph {
+.tab:has(:focus-visible) .tab-close-glyph {
   opacity: 1;
 }
 
@@ -1216,7 +1226,8 @@ a.calendar-title:focus-visible {
   opacity: 1;
 }
 
-.tab.dirty:hover .tab-dirty-dot {
+.tab.dirty:hover .tab-dirty-dot,
+.tab.dirty:has(:focus-visible) .tab-dirty-dot {
   opacity: 0;
 }
 
@@ -1248,7 +1259,7 @@ a.calendar-title:focus-visible {
 }
 
 .tab:hover .tab-float,
-.tab-float:focus-visible {
+.tab:has(:focus-visible) .tab-float {
   opacity: 1;
 }
 
