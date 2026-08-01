@@ -15,7 +15,7 @@ export function TabBar() {
   const navigate = useNavigate();
   const stripRef = useRef<HTMLDivElement>(null);
   const dragRef = useRef<{ pointerId: number; x: number; left: number; moved: boolean } | null>(null);
-  // Set by a pan that moved, read and cleared by the click it produces.
+  // Set by a pan that moved, and consumed by the click it produces.
   const draggedRef = useRef(false);
   const activeRef = useRef<HTMLDivElement>(null);
 
@@ -75,12 +75,18 @@ export function TabBar() {
     }
   }
 
+  // The click that ends a pan is not a request to open — or close — anything, so it is swallowed
+  // here, on the strip, in the capture phase. It cannot be swallowed by the tab's own handler: the
+  // pan holds pointer capture, which retargets that click to the strip, so a handler on the tab
+  // never runs — and so never cleared the flag either, which then sat there until some later
+  // activation with no pointer of its own, a keyboard Enter, was swallowed in its place.
+  function onClickCapture(event: MouseEvent<HTMLDivElement>) {
+    if (!draggedRef.current) return;
+    draggedRef.current = false;
+    event.stopPropagation();
+  }
+
   function openTab(id: NoteID) {
-    // The click that ends a pan is not a request to open anything.
-    if (draggedRef.current) {
-      draggedRef.current = false;
-      return;
-    }
     void navigate(tabRoute(id));
   }
 
@@ -103,6 +109,7 @@ export function TabBar() {
       onPointerMove={onPointerMove}
       onPointerUp={endDrag}
       onPointerCancel={endDrag}
+      onClickCapture={onClickCapture}
     >
       {tabs.map((tab) => {
         const active = tab.id === activeID;

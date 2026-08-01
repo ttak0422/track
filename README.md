@@ -203,7 +203,7 @@ Commands:
 :Track on_this_day     " from a daily journal, show notes worked on that date (Telescope when available, else quickfix)
 :Track links           " show links from the current note in quickfix
 :Track graph           " show a local note graph around the current note
-:Track web [addr]      " start the local web workspace and open it in a browser
+:Track web [addr]      " start the local web workspace and open it in a browser, on the note the current buffer holds
 :Track babel_exec      " run the source block under the cursor; result shows below it
 :Track babel_restore   " restore stored babel results without running code
 :Track babel_clear     " clear rendered babel results in the buffer

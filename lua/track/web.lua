@@ -128,10 +128,29 @@ local function open_url(url)
    pcall(vim.ui.open, url)
 end
 
+-- note_path is the workspace route for the note buf holds, or "" when it holds none. A buffer from
+-- another vault also yields "": the workspace addresses those by the registry name they were opened
+-- under, which this side does not know — the follow channel below still reaches them.
+local function note_path(buf)
+   local state = follow_state(buf)
+   local vault = config.options.vault_dir
+   if not state or not vault or vault == "" then
+      return ""
+   end
+   if normalize_path(state.vault_path) ~= normalize_path(vault) then
+      return ""
+   end
+   return "/notes/" .. state.note_id
+end
+
+-- The editor already knows which note you are reading, so the browser opens on that note rather than
+-- on the landing page and leaves you to find it again. With no note in front of you — a scratch
+-- buffer, the file explorer — it opens the landing page as before.
 local function open_ready_url(url)
-   open_url(url)
+   local buf = vim.api.nvim_get_current_buf()
+   open_url(url .. note_path(buf))
    if type(M.publish_follow) == "function" then
-      M.publish_follow(vim.api.nvim_get_current_buf())
+      M.publish_follow(buf)
    end
 end
 

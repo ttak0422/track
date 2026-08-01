@@ -37,7 +37,9 @@ The Lua plugin is intentionally thin:
 - It resolves the `track` and `track-lsp` binaries.
 - It resolves the vault from the user config file or `setup({ vault_dir = ... })`, defaulting to `$HOME/track` when neither is set (ADR 0015); `TRACK_VAULT=<path>` selects the active vault by path, which is how an unregistered vault is addressed (ADR 0061).
 - It registers the `:Track` dispatcher command with subcommands such as `:Track open`, `:Track follow`, and `:Track journal`.
-- It can start the local web workspace through `:Track web`, delegating the server to the Go CLI.
+- It can start the local web workspace through `:Track web`, delegating the server to the Go CLI. The
+  browser opens on whatever note the current buffer holds, since the editor already knows what is
+  being read; a buffer that is not a note in the served vault opens the landing page.
 - It starts `track-lsp` for markdown buffers under the vault.
 - It renders resolved `textDocument/documentLink` results as underlined ranges and highlights unresolved `[[...]]` distinctly.
 - It follows links through `textDocument/definition` and completes titles inside `[[` through `textDocument/completion`.
