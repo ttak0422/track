@@ -64,6 +64,12 @@ jobs:
           path: coverage.out
           if-no-files-found: error
 
+      # The frontend's vitest net (ADR 0017) runs in jsdom, so it needs no browser and fits in this
+      # job. Node comes from the dev shell — the same one `make site` builds the frontend with, so
+      # there is no second place declaring a Node version.
+      - name: Web tests
+        run: nix develop --command bash -euo pipefail -c 'cd web && npm ci && npm test'
+
       - name: Neovim action-link E2E
         run: |
           export TRACK_VAULT="$(mktemp -d)"
