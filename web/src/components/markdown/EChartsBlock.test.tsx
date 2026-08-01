@@ -5,6 +5,7 @@ import {
   attachDetailTooltip,
   detailTooltipFormatter,
   EChartsBlock,
+  chartAriaLabel,
   plotBottomGap,
   suppressBoxLabels,
 } from "./EChartsBlock";
@@ -47,10 +48,15 @@ describe("EChartsBlock provenance clicks", () => {
     handlers.click = undefined;
   });
 
-  it("keeps today's exact tree for options without box markers", async () => {
+  it("wraps options without box markers in the same figure card", async () => {
     const { container } = await renderChart({ series: [] });
-    expect(container.querySelector(".viewspec-chart-wrap")).toBeNull();
+    expect(container.querySelector("figure.viewspec-chart-wrap")).not.toBeNull();
     expect(container.querySelector(".viewspec-chart")).not.toBeNull();
+  });
+
+  it("uses the chart title as its accessible label", async () => {
+    const { container } = await renderChart({ title: { text: "Revenue by quarter" }, series: [] });
+    expect(container.querySelector('[role="img"]')).toHaveAttribute("aria-label", "Revenue by quarter");
   });
 
   it("opens a datum's source URL in a new tab (http(s) only)", async () => {
@@ -92,6 +98,13 @@ describe("EChartsBlock provenance clicks", () => {
     expect(open).not.toHaveBeenCalled();
     expect(navigate).not.toHaveBeenCalled();
     open.mockRestore();
+  });
+});
+
+describe("chartAriaLabel", () => {
+  it("reads either ECharts title shape and has a meaningful fallback", () => {
+    expect(chartAriaLabel({ title: [{ text: "" }, { text: "Second title" }] })).toBe("Second title");
+    expect(chartAriaLabel({ series: [] })).toBe("Data visualization");
   });
 });
 

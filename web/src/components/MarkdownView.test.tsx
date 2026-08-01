@@ -71,6 +71,28 @@ describe("MarkdownView", () => {
     expect(screen.getByText("Empty note.")).toBeInTheDocument();
   });
 
+  it("uses the note title as the page h1 and blanks an identical leading body h1", () => {
+    const markdown = "\n# **Project**\n\n## Status\n\nbody";
+    const { container } = render(<MarkdownView title="Project" markdown={markdown} />);
+    expect([...container.querySelectorAll("h1")].map((h) => h.textContent)).toEqual(["Project"]);
+    expect(container.querySelector("h1.note-title")).not.toBeNull();
+    expect(container.querySelector("h2")?.id).toBe("h-status");
+  });
+
+  it("keeps a distinct leading body h1 below the canonical note title", () => {
+    const { container } = render(<MarkdownView title="Project" markdown="# Executive summary" />);
+    expect([...container.querySelectorAll("h1")].map((h) => h.textContent)).toEqual([
+      "Project",
+      "Executive summary",
+    ]);
+  });
+
+  it("renders the note title and empty-state copy for an empty body", () => {
+    const { container } = render(<MarkdownView title="Project" markdown="" />);
+    expect(container.querySelector("h1")?.textContent).toBe("Project");
+    expect(screen.getByText("Empty note.")).toBeInTheDocument();
+  });
+
   it("gives headings the ids their outline links to, counting repeats", () => {
     const { container } = render(<MarkdownView markdown={"# Intro\n## Intro\n### 設計"} />);
     expect(container.querySelector("h1")?.id).toBe("h-intro");
