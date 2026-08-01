@@ -282,6 +282,94 @@ func TestBuildListsByRecency(t *testing.T) {
 	}
 }
 
+// TestBuildPublishesSearchCorpus pins the full-text half of the published search. The property that
+// matters is exposure: the corpus must be byte-identical to the body already published in
+// note/<slug>.json, so it can never become the one file in the built site that hands out what the
+// rest of it hides — an original asset file name, an internal note id, or an unpublished note.
+func TestBuildPublishesSearchCorpus(t *testing.T) {
+	cfg, s := vaultStore(t)
+	writeVaultNote(t, cfg, 100, "Home", "# Home\n\nthe quick brown fox ![](assets/private-name.png)\n")
+	writeVaultNote(t, cfg, 200, "Secret", "# Secret\n\nunpublished text\n")
+	if _, err := index.New(cfg, s).Full(); err != nil {
+		t.Fatalf("index: %v", err)
+	}
+
+	out := t.TempDir()
+	if _, err := Build(cfg, s, Options{Root: 100}, fakeFrontend(t), out); err != nil {
+		t.Fatalf("build: %v", err)
+	}
+
+	corpus := readJSON[struct {
+		Docs []jsonSearchDoc `json:"docs"`
+	}](t, filepath.Join(out, "data", "search.json"))
+	bodies := map[string]string{}
+	for _, d := range corpus.Docs {
+		bodies[d.NoteID] = d.Body
+	}
+	if len(bodies) != 1 {
+		t.Fatalf("search.json should hold the published set only, got %v", bodies)
+	}
+	// The corpus body is the published body, not the source: same text as note/<slug>.json.
+	published := readJSON[jsonNoteResponse](t, filepath.Join(out, "data", "note", PublishID(100)+".json"))
+	if bodies[PublishID(100)] != published.Note.Body {
+		t.Fatalf("corpus body should equal the published body:\n corpus: %q\n note:   %q", bodies[PublishID(100)], published.Note.Body)
+	}
+	if !strings.Contains(bodies[PublishID(100)], "quick brown fox") {
+		t.Fatalf("search.json should carry the note's text, got %q", bodies[PublishID(100)])
+	}
+	// Which means it cannot leak what the rest of the bundle hides.
+	if strings.Contains(bodies[PublishID(100)], "private-name") {
+		t.Fatalf("search.json leaked the source asset name: %q", bodies[PublishID(100)])
+	}
+	if _, ok := bodies["100"]; ok {
+		t.Fatalf("search.json should key by publish slug, got %v", bodies)
+	}
+}
+
+// TestBuildOrdersSearchCorpusLikeTheEngine pins the corpus order: a body search returns hits most
+// recently updated first and breaks a tie by *highest* id (search.Sort), which is the opposite of
+// the note listing's tie-break. The client keeps the file's order, so the file has to carry it.
+func TestBuildOrdersSearchCorpusLikeTheEngine(t *testing.T) {
+	cfg, s := vaultStore(t)
+	writeVaultNote(t, cfg, 100, "Root", "# Root\n\n[[Tie A]] [[Tie B]] [[Newer]]\n")
+	writeVaultNote(t, cfg, 200, "Tie A", "# Tie A\n")
+	writeVaultNote(t, cfg, 300, "Tie B", "# Tie B\n")
+	writeVaultNote(t, cfg, 400, "Newer", "# Newer\n")
+	base := time.Now().Add(-time.Hour)
+	// 200 and 300 share an mtime, so only the id tie-break can order them.
+	for id, offset := range map[int64]time.Duration{100: 0, 200: time.Minute, 300: time.Minute, 400: 2 * time.Minute} {
+		if err := os.Chtimes(cfg.NotePath(id), base.Add(offset), base.Add(offset)); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if _, err := index.New(cfg, s).Full(); err != nil {
+		t.Fatalf("index: %v", err)
+	}
+
+	out := t.TempDir()
+	if _, err := Build(cfg, s, Options{Root: 100, IDs: []int64{200, 300, 400}}, fakeFrontend(t), out); err != nil {
+		t.Fatalf("build: %v", err)
+	}
+
+	corpus := readJSON[struct {
+		Docs []jsonSearchDoc `json:"docs"`
+	}](t, filepath.Join(out, "data", "search.json"))
+	got := make([]string, 0, len(corpus.Docs))
+	for _, d := range corpus.Docs {
+		got = append(got, d.NoteID)
+	}
+	want := []string{PublishID(400), PublishID(300), PublishID(200), PublishID(100)}
+	if len(got) != len(want) {
+		t.Fatalf("search.json should carry every published note, got %v", got)
+	}
+	for i := range want {
+		if got[i] != want[i] {
+			// 300 before 200 is the point: the notes.json listing puts them the other way round.
+			t.Fatalf("search.json order should be the engine's (mtime desc, id desc), got %v want %v", got, want)
+		}
+	}
+}
+
 // TestBuildRewritesChartNoteRefs pins the published-chart provenance contract: a chart datum's "note"
 // reference (a vault note id) becomes the note's opaque publish slug, and a reference to a note
 // outside the published set is dropped — the static site never navigates to a hidden internal id.

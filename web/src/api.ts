@@ -1,4 +1,5 @@
 import { dataURL, STATIC_MODE } from "./runtime";
+import { bodyHits, titleHits, type SearchCorpus, type SearchDoc } from "./staticSearch";
 import { idParams, qualify, vaultParams } from "./vaultId";
 import type {
   ActivityResponse,
@@ -112,12 +113,55 @@ const readOnly = () => Promise.reject(new Error("read-only static site"));
 
 export function searchNotes(query: string, limit = 100): Promise<SearchResponse> {
   if (STATIC_MODE) {
-    return staticData<NotesResponse>("notes.json").then((data) => ({
-      results: filterNotes(data.notes, query).slice(0, limit),
-    }));
+    return staticSearch(query, limit);
   }
   const params = new URLSearchParams({ limit: String(limit), q: query });
   return api<SearchResponse>(`/api/search?${params}`);
+}
+
+// A published bundle never changes under the page, so both files a search reads are fetched once and
+// held as the promise, not the value — several keystrokes in flight share the one request. The
+// corpus is fetched on the first search that needs it and never as part of first paint, so a reader
+// who does not search never downloads it.
+let notesFile: Promise<SearchResult[]> | null = null;
+let corpus: Promise<SearchDoc[]> | null = null;
+
+function staticNotes(): Promise<SearchResult[]> {
+  notesFile ??= staticData<NotesResponse>("notes.json").then(
+    (data) => data.notes,
+    (err: unknown) => {
+      notesFile = null;
+      throw err;
+    },
+  );
+  return notesFile;
+}
+
+function searchCorpus(): Promise<SearchDoc[]> {
+  corpus ??= staticData<SearchCorpus>("search.json").then(
+    (data) => data.docs ?? [],
+    () => {
+      // A bundle built before search.json existed has no corpus, and the site should still answer
+      // title-and-tag rather than fail a search it can half-answer. Drop the cache on the way out
+      // so a transient failure costs one search rather than the whole session.
+      corpus = null;
+      return [];
+    },
+  );
+  return corpus;
+}
+
+// The published site's search composes exactly like the engine's (internal/track/search): title hits
+// first, then body hits for the notes the titles did not already name, sharing one budget.
+async function staticSearch(query: string, limit: number): Promise<SearchResponse> {
+  const notes = await staticNotes();
+  const titles = titleHits(notes, query).slice(0, limit);
+  if (titles.length >= limit) {
+    return { results: titles };
+  }
+  const skip = new Set(titles.map((note) => String(note.note_id)));
+  const docs = await searchCorpus();
+  return { results: [...titles, ...bodyHits(notes, docs, query, limit - titles.length, skip)] };
 }
 
 export function listNotes(): Promise<NotesResponse> {
@@ -345,25 +389,6 @@ export async function fetchAssetText(href: string): Promise<string> {
     throw new Error(`${response.status} ${response.statusText}`);
   }
   return response.text();
-}
-
-// filterNotes is the static-mode search: a case-insensitive match on title, or a "#tag" filter on the
-// note's tags. Tags match hierarchically like the server search: #a matches #a and #a/b, never #ab.
-function filterNotes(notes: SearchResult[], query: string): SearchResult[] {
-  const q = query.trim().toLowerCase();
-  if (q === "") {
-    return notes;
-  }
-  if (q.startsWith("#")) {
-    const tag = q.slice(1);
-    return notes.filter((n) =>
-      (n.tags ?? []).some((t) => {
-        const lower = t.toLowerCase();
-        return lower === tag || lower.startsWith(`${tag}/`);
-      }),
-    );
-  }
-  return notes.filter((n) => n.title.toLowerCase().includes(q));
 }
 
 // localGraph derives the 1-hop neighbourhood of a note from the full graph, marking the center, so the

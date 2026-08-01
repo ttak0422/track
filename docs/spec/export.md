@@ -133,7 +133,7 @@ the note's cover (`track meta --image assets/<file>`, published under its conten
 every asset); a note without one falls back to the site-wide default `ogp-default.png` shipped with
 the frontend build.
 
-The exporter writes a JSON bundle under `<out>/data` mirroring the server's `/api/*` shapes — `notes.json`, `note/<id>.json` (web-sanitized body + backlinks), `graph.json`, `resolve.json`, `site.json` — then copies the static frontend build and referenced `assets/<path>` media into `<out>`. Wiki links to notes outside the published set are absent from `resolve.json`/`graph.json`, so the frontend leaves them inert. The live heatmap home is not published; the root note is the entry point. The `docs/help` vault is a working example — this repository publishes it with `make site`.
+The exporter writes a JSON bundle under `<out>/data` mirroring the server's `/api/*` shapes — `notes.json`, `note/<id>.json` (web-sanitized body + backlinks), `graph.json`, `resolve.json`, `site.json` — plus `search.json`, the published bodies (the same text `note/<id>.json` carries, in body-search order), which the site's full-text search scans in the browser ([ADR 0067](../adr/0067-published-search-runs-the-scan-path-in-the-browser.md)); it is fetched on the first search rather than at first paint. Then it copies the static frontend build and referenced `assets/<path>` media into `<out>`. Wiki links to notes outside the published set are absent from `resolve.json`/`graph.json`, so the frontend leaves them inert. The live heatmap home is not published; the root note is the entry point. The `docs/help` vault is a working example — this repository publishes it with `make site`.
 
 ## Future
 

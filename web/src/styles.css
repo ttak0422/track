@@ -95,6 +95,7 @@
 .activity-panel h2,
 .backlinks h3,
 .day-tasks h2,
+.results-group,
 .code-block[data-language]::before,
 .markdown-view .task-table th,
 .ogp-card-site {
@@ -3502,4 +3503,13 @@ textarea.modal-input:focus-visible {
   margin-left: 8px;
   color: var(--muted);
   font-weight: 400;
+}
+
+/* Only the margins here: the typography comes from the shared section-label rule. */
+.results-group {
+  margin: 12px 8px 4px;
+}
+
+.results-group:first-child {
+  margin-top: 0;
 }

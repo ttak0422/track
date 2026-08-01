@@ -10,6 +10,7 @@ import (
 	"github.com/ttak0422/track/internal/track/config"
 	"github.com/ttak0422/track/internal/track/index"
 	"github.com/ttak0422/track/internal/track/journal"
+	"github.com/ttak0422/track/internal/track/search"
 	"github.com/ttak0422/track/internal/track/store"
 	tmpl "github.com/ttak0422/track/internal/track/template"
 )
@@ -78,7 +79,11 @@ func (s *Server) searchOne(v *vaultView, query string, limit int) ([]store.Searc
 			results = results[:limit]
 		}
 	} else {
-		results, err = v.store.SearchScoped(query, limit, store.SearchAll)
+		// The composed search: title hits first, then full-text hits for notes the titles did not
+		// already name, each tagged with which one found it. The store answers the two separately —
+		// SearchScoped is title-only — so this is the shared engine composition, the same one the
+		// CLI and telescope use.
+		results, err = search.Scoped(v.cfg, v.store, query, limit, store.SearchAll)
 	}
 	if err != nil {
 		return nil, err
@@ -97,6 +102,28 @@ func (s *Server) searchOne(v *vaultView, query string, limit int) ([]store.Searc
 // the same list a single query over all of them would (store.MergeSearchResults). A vault that could
 // not be opened never reaches here; servedViews already reported it as a gap.
 func (s *Server) searchAcross(views []*vaultView, query string, limit int) ([]store.SearchResult, error) {
+	if query != "" {
+		// Title and body merge separately, because their ranks are on different scales — bm25 is
+		// negative, a title rank vector is 0..3 — so merging composed per-vault lists on one key
+		// would sort every body hit above every title hit. The engine's federated composition keeps
+		// the two phases apart; here it only needs each vault's handles.
+		vaults := make([]search.Vault, 0, len(views))
+		for _, v := range views {
+			s.refresh(v)
+			vaults = append(vaults, search.Vault{Name: v.label, Cfg: v.cfg, Store: v.store})
+		}
+		results, err := search.Federated(vaults, query, limit, store.SearchAll)
+		if err != nil {
+			return nil, err
+		}
+		for _, v := range views {
+			decorateSearchIcons(v, results)
+		}
+		if results == nil {
+			results = []store.SearchResult{}
+		}
+		return results, nil
+	}
 	pages := make([][]store.SearchResult, 0, len(views))
 	for _, v := range views {
 		page, err := s.searchOne(v, query, limit)
@@ -104,9 +131,6 @@ func (s *Server) searchAcross(views []*vaultView, query string, limit int) ([]st
 			return nil, err
 		}
 		pages = append(pages, page)
-	}
-	if query != "" {
-		return store.MergeSearchResults(pages, limit), nil
 	}
 	// An empty query is the recent-notes listing, not a search: it carries no rank and every listing
 	// surface breaks an mtime tie by ascending id (sortRefs), the opposite of the search order.

@@ -89,6 +89,12 @@ type jsonSearchResult struct {
 	Image       string `json:"image,omitempty"`
 }
 
+// jsonSearchDoc is one note in the full-text corpus: its published slug and its published body.
+type jsonSearchDoc struct {
+	NoteID string `json:"note_id"`
+	Body   string `json:"body"`
+}
+
 type jsonNoteDetail struct {
 	Includes []link.ResolvedInclude `json:"includes,omitempty"`
 	jsonSearchResult
@@ -180,6 +186,10 @@ func writeBundle(docs []doc, edges []edge, root int64, calendar bool, baseURL st
 	if err := writeJSONFile(filepath.Join(outDir, "data", "notes.json"), map[string]any{"notes": notes}); err != nil {
 		return Result{}, err
 	}
+
+	// searchBodies collects the corpus the site's full-text search scans; it is written below, once the
+	// per-note loop has produced each published body.
+	searchBodies := make(map[int64]string, len(docs))
 
 	// tasks.json: every published task carrying a date, the read-only half of the live workspace's
 	// vault-wide listing. Written even when empty, so the client's fetch is never a 404.
@@ -333,9 +343,32 @@ func writeBundle(docs []doc, edges []edge, root int64, calendar bool, baseURL st
 			Trail:     trailOf(d.id),
 			Children:  children,
 		}
+		searchBodies[d.id] = body
 		if err := writeJSONFile(filepath.Join(outDir, "data", "note", fmt.Sprintf("%s.json", slugOf(&d))), resp); err != nil {
 			return Result{}, err
 		}
+	}
+
+	// search.json: the corpus the site's full-text search scans (see web/src/staticSearch.ts). It is a
+	// separate file rather than a field on notes.json because notes.json is fetched at first paint and
+	// this is only wanted once someone types; the client fetches it on the first search, so a reader
+	// who never searches never downloads it.
+	//
+	// The body is the *published* one, byte for byte what note/<slug>.json carries — not the source.
+	// That is what makes this file exposure-free: every published surface strips things the vault
+	// should not hand out (asset file names and internal note ids become opaque slugs), and a corpus
+	// built from the source body would be the one place in the built site that put them back.
+	//
+	// Ordered the way the engine's body scan returns hits (searchOrder), so the client can keep the
+	// file's order and land on the engine's ordering without shipping mtimes to sort by.
+	ordered := append([]doc(nil), docs...)
+	searchOrder(ordered)
+	searchDocs := make([]jsonSearchDoc, 0, len(ordered))
+	for _, d := range ordered {
+		searchDocs = append(searchDocs, jsonSearchDoc{NoteID: slugOf(&d), Body: searchBodies[d.id]})
+	}
+	if err := writeJSONFile(filepath.Join(outDir, "data", "search.json"), map[string]any{"docs": searchDocs}); err != nil {
+		return Result{}, err
 	}
 
 	// graph.json (whole published set).
@@ -442,6 +475,19 @@ func byRecency(ds []doc) {
 			return ds[i].mtime > ds[j].mtime
 		}
 		return ds[i].id < ds[j].id
+	})
+}
+
+// searchOrder sorts docs the way a body search returns hits (search.Sort): most recently updated
+// first, highest id on a tie. It is deliberately not byRecency — the note *listing* breaks the same
+// tie the other way, and so does the live server's listing (webui sortRefs), so the two orders are
+// genuinely different and the corpus follows the search one.
+func searchOrder(ds []doc) {
+	sort.Slice(ds, func(i, j int) bool {
+		if ds[i].mtime != ds[j].mtime {
+			return ds[i].mtime > ds[j].mtime
+		}
+		return ds[i].id > ds[j].id
 	})
 }
 
