@@ -170,6 +170,16 @@ button {
   align-items: center;
   gap: 6px;
   padding: 8px 4px;
+  /* The rail grew a second group (the open note's controls), so on a short window it can be taller
+     than the viewport. The sidebar clips its overflow, which would silently swallow whatever fell
+     off the bottom — settings, or the note menu. Scroll instead, without a visible bar: this is
+     chrome, and the bar would eat a quarter of a 48px rail. */
+  overflow-y: auto;
+  scrollbar-width: none;
+}
+
+.activity-rail::-webkit-scrollbar {
+  display: none;
 }
 
 .rail-spacer {
@@ -194,6 +204,8 @@ button {
 .rail-button {
   display: grid;
   place-items: center;
+  /* Never squashed by a rail too short for its contents — it scrolls instead (see .activity-rail). */
+  flex: none;
   width: 40px;
   height: 40px;
   border: 0;
@@ -205,6 +217,22 @@ button {
 .rail-button:hover,
 .rail-button:focus-visible {
   color: var(--text);
+}
+
+/* A rail button that marks a mode being on — the note's display mode, follow — carries the accent,
+   the text control's "active" state (design.md variant 1). Navigation buttons never take it: they go
+   somewhere rather than turn something on. */
+.rail-button.active {
+  color: var(--accent);
+}
+
+/* The hairline separating the workspace's views from the open note's controls below them. */
+.rail-divider {
+  width: 20px;
+  height: 1px;
+  flex: none;
+  margin: 4px 0;
+  background: var(--line);
 }
 
 .rail-icon {
@@ -1263,66 +1291,32 @@ a.calendar-title:focus-visible {
   opacity: 1;
 }
 
-/* The note's controls sit over the reader, fixed to the top-right so they stay put while the note
-   scrolls. They're text, not buttons: muted labels that ink on hover, an active one carrying the
-   accent — no pills, no fills. They sit below the full-graph overlay and the floating windows. */
-.note-float-controls {
-  /* Anchored to the note's own top-right, not the window's: the reading column is centred and capped,
-     so a window-pinned control drifted further from the text the wider the screen got. Sticky keeps it
-     in view as the note scrolls, which is what the fixed position was buying. */
-  position: sticky;
-  top: 0;
-  z-index: 30;
-  display: flex;
-  align-self: flex-end;
-  align-items: center;
-  gap: 14px;
-  /* It sits in the flow above the breadcrumbs, so give back the height it takes. */
-  margin-bottom: -28px;
-}
-
-.follow-toggle,
-.note-menu-toggle {
-  border: 0;
-  padding: 0;
-  color: var(--muted);
-  background: transparent;
-  font-size: calc(12px * var(--font-scale, 1));
-  cursor: pointer;
-}
-
-.follow-toggle:hover,
-.follow-toggle:focus-visible,
-.note-menu-toggle:hover,
-.note-menu-toggle:focus-visible,
-.note-menu-toggle[aria-expanded="true"] {
-  color: var(--text);
-}
-
-.follow-toggle.active {
-  color: var(--accent);
-  font-weight: 600;
-}
-
-/* The overflow menu anchors its floating panel; the glyph trigger reads as chrome until hovered/open. */
+/* The overflow menu in the rail: a rail-sized trigger whose panel escapes the rail's clipped
+   overflow the way the theme menu and search popup do — fixed, placed from the trigger's own rect
+   (the note group's position in the rail depends on which views the deployment shows), and above the
+   full-graph overlay at z-index 90. */
 .note-menu {
-  position: relative;
   display: flex;
 }
 
 .note-menu-toggle {
-  /* Nudge the ⋯ glyph up a hair so it centers on the text baseline of its inline neighbours. */
+  font-size: calc(18px * var(--font-scale, 1));
   line-height: 1;
   letter-spacing: 1px;
+}
+
+.note-menu-toggle[aria-expanded="true"] {
+  color: var(--text);
 }
 
 /* A floating action list — the one layer that legitimately floats — sharing the .menu-panel surface
    (panel bg + hairline + soft shadow) but stacking its items as flat muted-text rows, not a segmented
    control. */
 .note-menu-panel {
-  top: calc(100% + 8px);
-  right: 0;
-  left: auto;
+  position: fixed;
+  z-index: 95;
+  top: auto;
+  right: auto;
   display: flex;
   width: max-content;
   min-width: 160px;
@@ -1606,32 +1600,6 @@ textarea.modal-input:focus-visible {
   flex: 1;
   flex-direction: column;
   gap: 10px;
-}
-
-/* A text segmented control: the three modes read as a row of labels, the active one inked and bold,
-   the rest muted — no track, no thumb. */
-.mode-switch {
-  display: flex;
-  gap: 12px;
-}
-
-.mode-switch button {
-  border: 0;
-  padding: 0;
-  color: var(--muted);
-  background: transparent;
-  font-size: calc(12px * var(--font-scale, 1));
-  cursor: pointer;
-}
-
-.mode-switch button:hover,
-.mode-switch button:focus-visible {
-  color: var(--text);
-}
-
-.mode-switch button[aria-pressed="true"] {
-  color: var(--text);
-  font-weight: 600;
 }
 
 .editor-grid {

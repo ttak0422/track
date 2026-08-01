@@ -12,7 +12,7 @@ import {
 } from "./noteShared";
 import { getFollowState, normalizeIDs } from "../api";
 import { NoteMetaDialog } from "./NoteMetaDialog";
-import { NoteActionsMenu } from "./NoteActionsMenu";
+import { useNoteControls, type EditorMode } from "../noteControls";
 import {
   useDeleteNoteMutation,
   useNoteQuery,
@@ -27,8 +27,6 @@ interface NoteEditorProps {
   noteID: NoteID;
 }
 
-type EditorMode = "preview" | "edit" | "split";
-const editorModes: EditorMode[] = ["preview", "edit", "split"];
 const unsavedChangesMessage = "保存していない変更は失われます。移動しますか？";
 
 // NoteEditor is the live workspace's editable note view — read, edit (textarea/split), save, delete,
@@ -54,8 +52,14 @@ export function NoteEditor({ noteID }: NoteEditorProps) {
   // adopts it once it arrives — unchanged behavior.
   const cachedNote = noteQuery.data?.note;
   const [body, setBody] = useState(() => cachedNote?.body ?? "");
-  const [editorMode, setEditorMode] = useState<EditorMode>("preview");
-  const [followEnabled, setFollowEnabled] = useState(false);
+  // Mode and follow are drawn in the sidebar rail (NoteRailControls), so their state sits above both
+  // views rather than here. setActions is how this note tells the rail what it can act on.
+  const {
+    mode: editorMode,
+    setMode: setEditorMode,
+    follow: followEnabled,
+    setActions,
+  } = useNoteControls();
   // Delete confirmation: the user must retype the title (GitHub-style) before the note can be removed.
   const [confirmDeleteOpen, setConfirmDeleteOpen] = useState(false);
   // Page-metadata dialog (description / cover image for the published og: tags).
@@ -91,6 +95,32 @@ export function NoteEditor({ noteID }: NoteEditorProps) {
   useEffect(() => {
     editorModeRef.current = editorMode;
   }, [editorMode]);
+
+  // What the rail's note group acts on. Registered once — this view is not remounted when the route
+  // moves to another note — and read through refs, so neither a keystroke nor a new mutation object
+  // re-registers anything. Cleared on unmount, which is what makes the group disappear when the
+  // reader leaves the note behind.
+  const railBodyRef = useRef(body);
+  const railMetaRef = useRef(() => {});
+  const railDeleteRef = useRef(() => {});
+  useEffect(() => {
+    railBodyRef.current = body;
+    railMetaRef.current = () => setMetaOpen(true);
+    railDeleteRef.current = () => {
+      setDeleteConfirmText("");
+      deleteNote.reset();
+      setConfirmDeleteOpen(true);
+    };
+  });
+
+  useEffect(() => {
+    setActions({
+      getBody: () => railBodyRef.current,
+      onMeta: () => railMetaRef.current(),
+      onDelete: () => railDeleteRef.current(),
+    });
+    return () => setActions(null);
+  }, [setActions]);
 
   useEffect(() => {
     const incoming = noteQuery.data?.note;
@@ -357,43 +387,6 @@ export function NoteEditor({ noteID }: NoteEditorProps) {
         </div>
       ) : null}
       <div className="note-main">
-      {/* The note's own controls, at the top-right of the reading column rather than the window's:
-          they belong to this note, and on a wide screen a window-pinned row drifts away from it. */}
-      <div className="note-float-controls">
-        <button
-          className={`follow-toggle${followEnabled ? " active" : ""}`}
-          type="button"
-          aria-pressed={followEnabled}
-          onClick={() => setFollowEnabled((value) => !value)}
-        >
-          Follow
-        </button>
-        <div
-          className="mode-switch"
-          role="group"
-          aria-label="Markdown display mode"
-        >
-          {editorModes.map((mode) => (
-            <button
-              aria-pressed={editorMode === mode}
-              key={mode}
-              type="button"
-              onClick={() => setEditorMode(mode)}
-            >
-              {modeLabel(mode)}
-            </button>
-          ))}
-        </div>
-        <NoteActionsMenu
-          body={body}
-          onMeta={() => setMetaOpen(true)}
-          onDelete={() => {
-            setDeleteConfirmText("");
-            deleteNote.reset();
-            setConfirmDeleteOpen(true);
-          }}
-        />
-      </div>
         <NoteBreadcrumbs trail={data.trail ?? []} />
         {/* Properties are read-only here: sidecar values are edited via `track meta --set`, inline
           fields by editing the body itself. */}
@@ -481,15 +474,4 @@ export function NoteEditor({ noteID }: NoteEditorProps) {
       />
     </article>
   );
-}
-
-function modeLabel(mode: EditorMode): string {
-  switch (mode) {
-    case "edit":
-      return "Edit";
-    case "preview":
-      return "Preview";
-    case "split":
-      return "Split";
-  }
 }

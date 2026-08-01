@@ -12,6 +12,8 @@ import { openJournal } from "../api";
 import { useLiveEvents } from "../hooks/useLiveEvents";
 import { useSiteQuery } from "../queries";
 import { START_PAGE_ID, STATIC_MODE } from "../runtime";
+import { NoteControlsProvider } from "../noteControls";
+import { NoteRailControls } from "./NoteRailControls";
 import { SearchProvider } from "../searchState";
 
 export function Shell() {
@@ -56,6 +58,7 @@ export function Shell() {
 
   return (
     <SearchProvider>
+      <NoteControlsProvider>
       <FloatingProvider>
       <TabsProvider>
       <main className={`workspace${isHero ? " home" : ""}`}>
@@ -107,6 +110,9 @@ export function Shell() {
               >
                 <RailGraphIcon />
               </Link>
+              {/* The open note's own controls, below the workspace's views. Absent while no note is
+                  open, so the rail is navigation alone the rest of the time. */}
+              {!STATIC_MODE && <NoteRailControls />}
               <div className="rail-spacer" />
               <ThemeMenu />
             </nav>
@@ -125,6 +131,7 @@ export function Shell() {
       </main>
       </TabsProvider>
       </FloatingProvider>
+      </NoteControlsProvider>
     </SearchProvider>
   );
 }

@@ -61,8 +61,11 @@ tags. Plain text, no border, no fill, no radius.
 - Hover / `:focus-visible`: `color: var(--text)`.
 - Active/selected: `color: var(--text)` (or `--accent` when it marks a mode
   being *on*, e.g. follow) plus `font-weight: 600`.
-- Canonical: `.mode-switch button`, `.follow-toggle`, `.graph-reset`,
-  `.note-tags button`.
+- Canonical: `.rail-button`, `.graph-reset`, `.note-tags button`.
+- In the icon rail the same states are carried by the glyph rather than a
+  label: `.rail-button.active` takes `--accent` for a mode that is *on* (the
+  note's display mode, follow), and never for navigation, which goes somewhere
+  rather than turns something on.
 
 ### 2. Quiet chip — a control resting on content
 
