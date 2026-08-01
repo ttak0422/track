@@ -288,7 +288,8 @@ func cmdTaskDate(args []string) int {
 		if !ok {
 			continue
 		}
-		if t, err = note.ApplyTaskDate(notePath, *line, field, value); err != nil {
+		// No assertion: this command has no --expect flag, unlike task set and cycle.
+		if t, err = note.ApplyTaskDate(notePath, *line, field, value, ""); err != nil {
 			return fail("%v", err)
 		}
 	}

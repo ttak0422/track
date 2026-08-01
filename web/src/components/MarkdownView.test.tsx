@@ -256,7 +256,9 @@ describe("MarkdownView", () => {
     expect(due).not.toBeNull();
     expect(due!.value).toBe("2026-07-24");
     fireEvent.change(due!, { target: { value: "2026-08-01" } });
-    await waitFor(() => expect(setTaskDate).toHaveBeenCalledWith("100", 1, "due", "2026-08-01"));
+    // The cell asserts the state it drew, as the state controls do: a date picked against a task
+    // that has since moved is refused rather than written onto whatever the line became.
+    await waitFor(() => expect(setTaskDate).toHaveBeenCalledWith("100", 1, "due", "2026-08-01", "TODO"));
   });
 
   it("opens the calendar on a click, since the cell hides the picker indicator", () => {

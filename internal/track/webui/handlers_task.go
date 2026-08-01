@@ -82,9 +82,9 @@ func (s *Server) handleTaskSet(v *vaultView, w http.ResponseWriter, r *http.Requ
 	var req struct {
 		Line  int    `json:"line"`
 		State string `json:"state"`
-		// The state the client believes the line is in. The board and the rendered task rows both
-		// know it, so they send it and a stale view is refused (409) instead of writing over
-		// whatever the line became.
+		// The state the client believes the line is in. The board, the rendered task rows, and the
+		// table's date cells all know it, so they send it and a stale view is refused (409) instead
+		// of writing over whatever the line became — a date patch on its own included.
 		Expect string `json:"expect"`
 		// Date patches. Pointers so "set it to empty" (clear the token) is distinguishable from
 		// "leave it alone"; State may be empty when only a date is being written.
@@ -107,7 +107,13 @@ func (s *Server) handleTaskSet(v *vaultView, w http.ResponseWriter, r *http.Requ
 			}
 		}
 		// Dates are written after the state so a stamp the state change just added is already there
-		// for the token ordering to place against.
+		// for the token ordering to place against. The state write has already asserted expect and
+		// left the line in its target state, so re-asserting the old one here would refuse every
+		// combined state+date write.
+		dateExpect := req.Expect
+		if req.State != "" {
+			dateExpect = ""
+		}
 		for _, patch := range []struct {
 			field string
 			value *string
@@ -115,7 +121,7 @@ func (s *Server) handleTaskSet(v *vaultView, w http.ResponseWriter, r *http.Requ
 			if patch.value == nil {
 				continue
 			}
-			if _, err := note.ApplyTaskDate(path, req.Line, patch.field, *patch.value); err != nil {
+			if _, err := note.ApplyTaskDate(path, req.Line, patch.field, *patch.value, dateExpect); err != nil {
 				return err
 			}
 		}

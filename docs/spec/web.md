@@ -204,8 +204,11 @@ table's date cells write through the same endpoint the state cell uses.
 It carries the save's conflict model one level down too: the optional `expect`
 field is the state the client is looking at, and a line that has since become
 something else is refused with `409 Conflict`, leaving the file untouched. The
-board and the rendered task rows both send it, since both already know the state
-they drew. Omitting it writes unconditionally, as before.
+board, the rendered task rows, and the table's date cells all send it, since all
+three already know the state they drew — a date patch is refused on a stale line
+just as a state change is. When a request carries both a state and a date patch,
+`expect` is asserted once, against the state before the write. Omitting it
+writes unconditionally, as before.
 
 ## Copy path
 

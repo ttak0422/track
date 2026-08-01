@@ -110,7 +110,9 @@ function TaskRowDateControl({
         event.preventDefault();
         event.currentTarget.showPicker?.();
       }}
-      onChange={(event) => mutation.mutate({ line: item.line, field, date: event.currentTarget.value })}
+      onChange={(event) =>
+        mutation.mutate({ line: item.line, field, date: event.currentTarget.value, expect: item.state })
+      }
     />
   );
 }

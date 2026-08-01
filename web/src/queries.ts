@@ -298,9 +298,23 @@ export function useSetTaskDateMutation(noteID: NoteID) {
   const queryClient = useQueryClient();
 
   return useMutation({
-    mutationFn: ({ line, field, date }: { line: number; field: "sched" | "due"; date: string }) =>
-      setTaskDate(noteID, line, field, date),
+    mutationFn: ({
+      line,
+      field,
+      date,
+      expect,
+    }: {
+      line: number;
+      field: "sched" | "due";
+      date: string;
+      expect?: string;
+    }) => setTaskDate(noteID, line, field, date, expect),
     onSuccess: () => invalidateTaskWrite(queryClient, noteID),
+    // A refused write means the view is stale — refetch so the error is read against what the
+    // note actually says now.
+    onError: () => {
+      void queryClient.invalidateQueries({ queryKey: queryKeys.note(noteID) });
+    },
   });
 }
 

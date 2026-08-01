@@ -268,19 +268,21 @@ export function saveNoteMeta(noteID: NoteID, request: SaveNoteMetaRequest): Prom
 // the note's refreshed tasks so the board can redraw without a second request. Live server only —
 // the published static board is read-only.
 // setTaskDate writes one task line's scheduled or due date; an empty date clears it. Same endpoint
-// and addressing as setTaskState — a task is a note id plus a file line on every surface.
+// and addressing as setTaskState — a task is a note id plus a file line on every surface — and the
+// same expect assertion, since a date is picked against a task the caller has already drawn.
 export function setTaskDate(
   noteID: NoteID,
   line: number,
   field: "sched" | "due",
   date: string,
+  expect = "",
 ): Promise<TasksResponse> {
   if (STATIC_MODE) {
     return readOnly();
   }
   return api<TasksResponse>(`/api/task?${idParams(noteID)}`, {
     method: "POST",
-    body: { line, [field]: date },
+    body: { line, [field]: date, expect },
   });
 }
 

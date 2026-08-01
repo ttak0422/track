@@ -1357,6 +1357,56 @@ func TestTaskEndpoints(t *testing.T) {
 		t.Fatalf("open listing after completing alpha = %v, want just beta", afterDone)
 	}
 
+	// A date patch carries the same assertion a state change does. Line 3 is DONE by now, so a cell
+	// that drew it as TODO is looking at a task that has moved: the date is refused and nothing is
+	// written, rather than landing a deadline on whatever the line became.
+	before, err := os.ReadFile(cfg.NotePath(900))
+	if err != nil {
+		t.Fatal(err)
+	}
+	staleDate := postBody(t, server.URL+"/api/task?id=900", map[string]any{"line": 3, "expect": "TODO", "due": "2030-01-01"})
+	defer staleDate.Body.Close()
+	if staleDate.StatusCode != http.StatusConflict {
+		t.Fatalf("stale date expect status = %d, want 409", staleDate.StatusCode)
+	}
+	after, err := os.ReadFile(cfg.NotePath(900))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(after) != string(before) {
+		t.Fatalf("refused date write touched the file: %q -> %q", before, after)
+	}
+
+	// The same write with the state the line is actually in lands.
+	freshDate := postBody(t, server.URL+"/api/task?id=900", map[string]any{"line": 3, "expect": "DONE", "due": "2030-01-01"})
+	defer freshDate.Body.Close()
+	if freshDate.StatusCode != http.StatusOK {
+		t.Fatalf("matching date expect status = %d, want 200", freshDate.StatusCode)
+	}
+	raw, err = os.ReadFile(cfg.NotePath(900))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(raw), "alpha [#A] [due:2030-01-01]") {
+		t.Fatalf("date not written: %q", raw)
+	}
+
+	// A request carrying both a state and a date asserts expect once, against the state before the
+	// write. Beta (line 4) is still TODO: the state pass moves it to DOING, and the date pass must
+	// not then re-assert the now-stale TODO against the line the state pass just changed.
+	combined := postBody(t, server.URL+"/api/task?id=900", map[string]any{"line": 4, "state": "DOING", "expect": "TODO", "due": "2030-02-02"})
+	defer combined.Body.Close()
+	if combined.StatusCode != http.StatusOK {
+		t.Fatalf("combined state+date status = %d, want 200", combined.StatusCode)
+	}
+	raw, err = os.ReadFile(cfg.NotePath(900))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(raw), "[/] beta [due:2030-02-02]") {
+		t.Fatalf("combined write did not land both changes: %q", raw)
+	}
+
 	// A bad state is a client error.
 	req, _ = http.NewRequest(http.MethodPost, server.URL+"/api/task?id=900", strings.NewReader(`{"line":3,"state":"bogus"}`))
 	resp2, err := http.DefaultClient.Do(req)

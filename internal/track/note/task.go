@@ -83,10 +83,30 @@ func ApplyTaskState(cfg *config.Config, notePath string, line int, state, expect
 // ApplyTaskDate writes a task's scheduled or due date in a note file, the date counterpart of
 // ApplyTaskState: same addressing (path plus 1-based line), same in-place rewrite. No sidecar log
 // entry — the task log records state transitions, and a date is not one. Callers reindex afterwards.
-func ApplyTaskDate(notePath string, line int, field, date string) (task.Task, error) {
+//
+// expect carries the same assertion ApplyTaskState takes, for the same reason: a date is picked
+// against a task the caller has already read, so without it a re-date lands on whatever the line
+// became in between. The state is what is asserted — a date write does not change it, so the check
+// is purely "is this still the task I was looking at".
+// ponytail: asserting the state catches a concurrent state change, not a concurrent line shift —
+// an inserted line above makes `line` a different task, and if that task is in the expected state
+// too the guard passes. Assert the task text if that ever bites.
+func ApplyTaskDate(notePath string, line int, field, date, expect string) (task.Task, error) {
 	raw, err := os.ReadFile(notePath)
 	if err != nil {
 		return task.Task{}, fmt.Errorf("read note: %w", err)
+	}
+	if expect != "" {
+		if _, ok := task.StateNamed(expect); !ok {
+			return task.Task{}, fmt.Errorf("unknown state %q", expect)
+		}
+		cur, ok := task.At(string(raw), line)
+		if !ok {
+			return task.Task{}, fmt.Errorf("line %d is not a task checkbox", line)
+		}
+		if !strings.EqualFold(expect, cur.State) {
+			return task.Task{}, fmt.Errorf("%w: line %d is %s, not %s", ErrStateMismatch, line, cur.State, expect)
+		}
 	}
 	updated, t, err := task.SetDate(string(raw), line, field, date)
 	if err != nil {
