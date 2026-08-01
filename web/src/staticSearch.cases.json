@@ -1,0 +1,141 @@
+{
+  "_comment": "Shared fixture: the engine's body scan (internal/track/search: bodyMatchesAnyGroup + bodyLineMatchGroups) and its browser port (web/src/staticSearch.ts: matchesAnyGroup + lineMatch) must answer every case identically. Read by web/src/staticSearch.test.ts and internal/track/search/search_test.go. line/snippet are what the line lookup returns for the query, whether or not the body matched.",
+  "cases": [
+    {
+      "name": "implicit AND needs every term",
+      "query": "quick fox",
+      "body": "the quick brown fox\n",
+      "match": true,
+      "line": 1,
+      "snippet": "the quick brown fox"
+    },
+    {
+      "name": "a missing term is no match, but the line lookup still points at a term",
+      "query": "quick fox",
+      "body": "the quick brown dog\n",
+      "match": false,
+      "line": 1,
+      "snippet": "the quick brown dog"
+    },
+    {
+      "name": "an explicit AND is dropped",
+      "query": "quick AND fox",
+      "body": "the quick brown fox\n",
+      "match": true,
+      "line": 1,
+      "snippet": "the quick brown fox"
+    },
+    {
+      "name": "an uppercase OR splits alternatives",
+      "query": "quick OR slow",
+      "body": "a slow dog\n",
+      "match": true,
+      "line": 1,
+      "snippet": "a slow dog"
+    },
+    {
+      "name": "a lowercase or is an ordinary term",
+      "query": "quick or slow",
+      "body": "quick and slow\n",
+      "match": false,
+      "line": 1,
+      "snippet": "quick and slow"
+    },
+    {
+      "name": "…and matches when it is present",
+      "query": "quick or slow",
+      "body": "quick or slow\n",
+      "match": true,
+      "line": 1,
+      "snippet": "quick or slow"
+    },
+    {
+      "name": "ASCII folds both ways",
+      "query": "fox",
+      "body": "The FOX jumped\n",
+      "match": true,
+      "line": 1,
+      "snippet": "The FOX jumped"
+    },
+    {
+      "name": "matches inside a word, like the trigram index",
+      "query": "察す",
+      "body": "観察する\n",
+      "match": true,
+      "line": 1,
+      "snippet": "観察する"
+    },
+    {
+      "name": "the tightest line wins",
+      "query": "quick fox",
+      "body": "quick here\nand fox here\nquick fox together\n",
+      "match": true,
+      "line": 3,
+      "snippet": "quick fox together"
+    },
+    {
+      "name": "falls back to the first line holding any term",
+      "query": "quick fox",
+      "body": "nothing\nquick here\nfox here\n",
+      "match": true,
+      "line": 2,
+      "snippet": "quick here"
+    },
+    {
+      "name": "the title-only sentinel when no line holds a term",
+      "query": "gamma",
+      "body": "alpha\nbeta\n",
+      "match": false,
+      "line": 0,
+      "snippet": ""
+    },
+    {
+      "name": "an empty query matches nothing rather than everything",
+      "query": "   ",
+      "body": "anything\n",
+      "match": false,
+      "line": 0,
+      "snippet": ""
+    },
+    {
+      "name": "the snippet is trimmed and cut at 120 bytes",
+      "query": "あ",
+      "body": "  ああああああああああああああああああああああああああああああああああああああああああああああああああああああああああああ hit",
+      "match": true,
+      "line": 1,
+      "snippet": "ああああああああああああああああああああああああああああああああああああああああ…"
+    },
+    {
+      "name": "the cut backs up off a split rune",
+      "query": "あ",
+      "body": "xああああああああああああああああああああああああああああああああああああああああああああああああああああああああああああ hit",
+      "match": true,
+      "line": 1,
+      "snippet": "xあああああああああああああああああああああああああああああああああああああああ…"
+    },
+    {
+      "name": "folds İ the way strings.ToLower does",
+      "query": "istanbul",
+      "body": "İSTANBUL notes\n",
+      "match": true,
+      "line": 1,
+      "snippet": "İSTANBUL notes"
+    },
+    {
+      "name": "folds a word-final Σ to σ, not ς",
+      "query": "οδοσ",
+      "body": "ΟΔΟΣ Αθηνας\n",
+      "match": true,
+      "line": 1,
+      "snippet": "ΟΔΟΣ Αθηνας"
+    },
+    {
+      "name": "folds an uppercase query the same way",
+      "query": "ΟΔΟΣ",
+      "body": "οδοσ αθηνας\n",
+      "match": true,
+      "line": 1,
+      "snippet": "οδοσ αθηνας"
+    }
+  ]
+}
