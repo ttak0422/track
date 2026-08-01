@@ -268,6 +268,10 @@ function TaskRowDateControl({
       value={value}
       disabled={mutation.isPending}
       data-empty={value === "" || undefined}
+      // The cell wears the note's own type and hides the browser's picker indicator, so a click would
+      // otherwise land a caret in the date segments. showPicker opens the calendar the indicator would
+      // have opened, which keeps picking a date one click on what the cell already shows.
+      onClick={(event) => event.currentTarget.showPicker?.()}
       onChange={(event) => mutation.mutate({ line: item.line, field, date: event.currentTarget.value })}
     />
   );
