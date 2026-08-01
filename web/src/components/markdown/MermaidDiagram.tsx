@@ -97,7 +97,7 @@ export function DiagramFrame({ state, source, sourceLang, label, className }: Di
     toggleCollapsed,
   } = panZoom;
   return (
-    <div className={rootClass}>
+    <div className={rootClass} data-collapsed={collapsed || undefined}>
       <div
         className="mermaid-viewport"
         ref={viewportRef}
@@ -118,6 +118,7 @@ export function DiagramFrame({ state, source, sourceLang, label, className }: Di
           {svgHost}
         </div>
       </div>
+      {collapsed && <div className="mermaid-continuation" aria-hidden="true" />}
       <button
         className="mermaid-control mermaid-fold"
         type="button"
@@ -125,7 +126,14 @@ export function DiagramFrame({ state, source, sourceLang, label, className }: Di
         aria-label={collapsed ? "Expand diagram" : "Collapse diagram"}
         title={collapsed ? "Expand diagram" : "Collapse diagram"}
       >
-        {collapsed ? "▸" : "▾"}
+        {collapsed ? (
+          <>
+            <span aria-hidden="true">▾</span>
+            <span>Show full diagram</span>
+          </>
+        ) : (
+          "▴"
+        )}
       </button>
       {!collapsed && (
         <div className="mermaid-controls">
@@ -214,8 +222,9 @@ const fitWidthRatio = 0.8;
 // text match the surrounding article text: articleFontPx / mermaidFontPx.
 const mermaidFontPx = 16;
 
-// A collapsed (縮小) diagram fits entirely inside this height — a skimmable thumbnail.
-const collapsedHeight = 220;
+// A collapsed tall diagram keeps its normal readable fit but reveals only this much. A fade and
+// labelled control make the continuation explicit instead of shrinking the whole figure to illegibility.
+const collapsedHeight = 320;
 
 // A diagram whose fitted height exceeds this starts collapsed, so tall figures never dominate a
 // page being skimmed; the fold button restores the full size.
@@ -225,8 +234,9 @@ const autoCollapseHeight = 480;
 // the diagram is fitted to the ideal scale — diagram text matching the article's font size — shrunk
 // only if that would overflow fitWidthRatio of the viewport width; the viewport height is sized to the
 // scaled diagram; reset returns to that fit, and the fit follows container resizes until the user pans
-// or zooms. A tall diagram starts collapsed: scaled down to fit collapsedHeight whole, interactions
-// off, with a fold toggle to expand. `svg` is the rendered markup (null until ready), used to re-fit
+// or zooms. A tall diagram starts collapsed: kept at the normal fit scale inside a clipped
+// collapsedHeight preview, interactions off, with a labelled fold toggle to expand. `svg` is the
+// rendered markup (null until ready), used to re-fit
 // whenever the diagram changes.
 function usePanZoom(svg: string | null) {
   const [transform, setTransform] = useState<Transform>(identityTransform);
@@ -381,20 +391,16 @@ function usePanZoom(svg: string | null) {
   };
 }
 
-// computeCollapsedFit scales the diagram to fit WHOLE inside collapsedHeight (never larger than the
-// normal fit), centered — the skimmable thumbnail the fold button toggles.
+// computeCollapsedFit keeps the normal, readable fit scale and clips only the viewport height. The
+// continuation fade and fold button communicate that more content follows below the preview.
 export function computeCollapsedFit(
   naturalW: number,
   naturalH: number,
   viewW: number,
   idealScale = 1,
 ): { transform: Transform; height: number } {
-  const scale = clamp(
-    Math.min((viewW * fitWidthRatio) / naturalW, collapsedHeight / naturalH, idealScale),
-    0.02,
-    8,
-  );
-  return { transform: { scale, x: (viewW - naturalW * scale) / 2, y: 0 }, height: naturalH * scale };
+  const fit = computeFit(naturalW, naturalH, viewW, idealScale);
+  return { transform: fit.transform, height: Math.min(fit.height, collapsedHeight) };
 }
 
 // computeFit shows a naturalW×naturalH diagram at idealScale (diagram text matches the article's
