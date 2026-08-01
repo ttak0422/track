@@ -1,5 +1,5 @@
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
+import { createEvent, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import type { ReactElement } from "react";
 import { describe, expect, it, vi } from "vitest";
 import { MarkdownView } from "./MarkdownView";
@@ -257,6 +257,23 @@ describe("MarkdownView", () => {
     expect(due!.value).toBe("2026-07-24");
     fireEvent.change(due!, { target: { value: "2026-08-01" } });
     await waitFor(() => expect(setTaskDate).toHaveBeenCalledWith("100", 1, "due", "2026-08-01"));
+  });
+
+  it("opens the calendar on a click, since the cell hides the picker indicator", () => {
+    const tasks = { items: [{ line: 1, state: "TODO", done: false, text: "a task", due: "2026-07-24" }] };
+    const { container } = renderWithQuery(
+      <TaskBoardContext.Provider value={{ noteID: "100", tasks }}>
+        <MarkdownView markdown={"- [ ] a task [due:2026-07-24]"} />
+      </TaskBoardContext.Provider>,
+    );
+    const due = container.querySelector<HTMLInputElement>("td.task-row-due input[type='date']")!;
+    const showPicker = vi.fn();
+    due.showPicker = showPicker;
+    const click = createEvent.click(due);
+    fireEvent(due, click);
+    expect(showPicker).toHaveBeenCalled();
+    // Cancelled so Gecko's own click listener, which runs after this one, leaves the picker open.
+    expect(click.defaultPrevented).toBe(true);
   });
 
   it("keeps the date cells as plain text with no note behind them", () => {
