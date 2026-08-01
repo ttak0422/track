@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+import fixture from "./staticSearch.cases.json";
 import { bodyHits, lineMatch, matchesAnyGroup, splitOrGroups, titleHits } from "./staticSearch";
 import type { SearchResult } from "./types";
 
@@ -151,5 +152,18 @@ describe("bodyHits", () => {
   it("ignores a corpus entry the notes listing does not name", () => {
     const extra = [...docs, { note_id: "gone", body: "quick" }];
     expect(bodyHits(notes, extra, "quick", 10, new Set()).map((n) => n.note_id)).toEqual(["n1", "n3"]);
+  });
+});
+
+// The other half of internal/track/search/search_test.go's differential test. The cases above were
+// transcribed from the Go source and can drift from it unnoticed; these are read from the same file
+// the Go test reads, so a divergence between the engine's scan and this port goes red on one side or
+// the other. The Unicode cases are the ones that caught this port folding like JavaScript rather than
+// like strings.ToLower.
+describe("the shared engine fixture", () => {
+  it.each(fixture.cases)("$name", ({ query, body, match, line, snippet }) => {
+    const groups = splitOrGroups(query);
+    expect(matchesAnyGroup(body, groups)).toBe(match);
+    expect(lineMatch(body, groups)).toEqual({ line, snippet });
   });
 });

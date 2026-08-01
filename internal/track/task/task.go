@@ -291,17 +291,28 @@ func taskLineAt(body string, line int) (lines []string, m []string, trailingNewl
 	return lines, m, trailingNewline, nil
 }
 
-// SetDate writes a task's scheduled or due date: field is "sched" or "due", and an empty date clears
-// the token. The token is replaced where it already sits, so a hand-arranged line keeps its shape,
-// and otherwise appended — before any [done:] stamp, since the completion stamp reads last. Unlike
-// a state change this touches no cookies (a date does not change what is done) and writes no
+// DateField names one of the two date tokens a client may write on a task line. The values are the
+// token keywords in the note body and the JSON keys POST /api/task takes, so they are wire, not
+// labels: schedRE/dueRE above and the web handler's json struct tags spell the same strings by hand,
+// and changing a value here would not move them.
+type DateField string
+
+const (
+	SchedField DateField = "sched"
+	DueField   DateField = "due"
+)
+
+// SetDate writes a task's scheduled or due date: field is SchedField or DueField, and an empty date
+// clears the token. The token is replaced where it already sits, so a hand-arranged line keeps its
+// shape, and otherwise appended — before any [done:] stamp, since the completion stamp reads last.
+// Unlike a state change this touches no cookies (a date does not change what is done) and writes no
 // transition log (the log's shape is a state transition).
-func SetDate(body string, line int, field, date string) (string, Task, error) {
+func SetDate(body string, line int, field DateField, date string) (string, Task, error) {
 	var re *regexp.Regexp
 	switch field {
-	case "sched":
+	case SchedField:
 		re = schedRE
-	case "due":
+	case DueField:
 		re = dueRE
 	default:
 		return "", Task{}, fmt.Errorf("unknown date field %q (want sched or due)", field)
@@ -319,7 +330,7 @@ func SetDate(body string, line int, field, date string) (string, Task, error) {
 	rest := m[4]
 	token := ""
 	if date != "" {
-		token = "[" + field + ":" + date + "]"
+		token = "[" + string(field) + ":" + date + "]"
 	}
 	if re.MatchString(rest) {
 		if token == "" {

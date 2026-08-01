@@ -325,12 +325,12 @@ func writeBundle(docs []doc, edges []edge, root int64, calendar bool, baseURL st
 				// ponytail: a viewspec or track-query fence inside an embedded region shows as
 				// source in static mode (targets skip the fence resolvers); resolve per-target if
 				// that ever matters.
-				Includes: link.ResolveIncludes(body, func(key string) (int64, string, string, bool) {
+				Includes: link.ResolveIncludes(body, func(key string) (int64, string, string, string, bool) {
 					t, ok := keyDocs[key]
 					if !ok {
-						return 0, "", "", false
+						return 0, "", "", "", false
 					}
-					return 0, kindOf(t), rewriteAssetRefs(t.body), true
+					return 0, kindOf(t), rewriteAssetRefs(t.body), etag(t.body), true
 				}),
 				jsonSearchResult: searchResultOf(d),
 				CopyPath:         "", // see searchResultOf: the source path is intentionally not published.

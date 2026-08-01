@@ -5,6 +5,7 @@ import type {
   ActivityResponse,
   AgendaResponse,
   AssetUploadResponse,
+  DateField,
   DeleteNoteResponse,
   FollowResponse,
   Graph,
@@ -32,6 +33,16 @@ interface APIOptions {
   body?: unknown;
 }
 
+export class APIError extends Error {
+  constructor(
+    readonly status: number,
+    message: string,
+  ) {
+    super(message);
+    this.name = "APIError";
+  }
+}
+
 export async function api<T>(path: string, options: APIOptions = {}): Promise<T> {
   const headers = new Headers();
   const init: RequestInit = {
@@ -55,7 +66,7 @@ async function handleResponse<T>(response: Response): Promise<T> {
       typeof body === "object" && body !== null && "error" in body
         ? String((body as { error: unknown }).error)
         : `${response.status} ${response.statusText}`;
-    throw new Error(message);
+    throw new APIError(response.status, message);
   }
   return stringifyIDs(body) as T;
 }
@@ -268,19 +279,22 @@ export function saveNoteMeta(noteID: NoteID, request: SaveNoteMetaRequest): Prom
 // the note's refreshed tasks so the board can redraw without a second request. Live server only —
 // the published static board is read-only.
 // setTaskDate writes one task line's scheduled or due date; an empty date clears it. Same endpoint
-// and addressing as setTaskState — a task is a note id plus a file line on every surface.
+// and addressing as setTaskState — a task is a note id plus a file line on every surface — and the
+// same expect assertion, since a date is picked against a task the caller has already drawn.
 export function setTaskDate(
   noteID: NoteID,
   line: number,
-  field: "sched" | "due",
+  field: DateField,
   date: string,
+  expect: string,
+  etag: string,
 ): Promise<TasksResponse> {
   if (STATIC_MODE) {
     return readOnly();
   }
   return api<TasksResponse>(`/api/task?${idParams(noteID)}`, {
     method: "POST",
-    body: { line, [field]: date },
+    body: { line, [field]: date, expect, etag },
   });
 }
 
@@ -288,7 +302,8 @@ export function setTaskState(
   noteID: NoteID,
   line: number,
   state: string,
-  expect = "",
+  expect: string,
+  etag: string,
 ): Promise<TasksResponse> {
   if (STATIC_MODE) {
     return readOnly();
@@ -297,7 +312,7 @@ export function setTaskState(
   // line has since become something else, rather than overwriting an edit the view never saw.
   return api<TasksResponse>(`/api/task?${idParams(noteID)}`, {
     method: "POST",
-    body: { line, state, expect },
+    body: { line, state, expect, etag },
   });
 }
 

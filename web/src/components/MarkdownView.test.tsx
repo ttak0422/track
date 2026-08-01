@@ -31,7 +31,7 @@ const setTaskState = vi.hoisted(() => vi.fn(async () => ({ tasks: { items: [] } 
 const setTaskDate = vi.hoisted(() => vi.fn(async () => ({ tasks: { items: [] } })));
 // An embedded excerpt fetches the note it came from, to address its tasks by their own lines.
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
-const getNote = vi.hoisted(() => vi.fn(async (): Promise<any> => ({ note: { tasks: { items: [] } } })));
+const getNote = vi.hoisted(() => vi.fn(async (): Promise<any> => ({ note: { tasks: { items: [] }, etag: "loaded" } })));
 vi.mock("../api", async (importOriginal) => ({
   ...(await importOriginal<typeof import("../api")>()),
   setTaskState,
@@ -217,7 +217,7 @@ describe("MarkdownView", () => {
       ],
     };
     const { container } = renderWithQuery(
-      <TaskBoardContext.Provider value={{ noteID: "100", tasks }}>
+      <TaskBoardContext.Provider value={{ noteID: "100", tasks, etag: "loaded" }}>
         <MarkdownView markdown={"- [ ] todo\n- [x] done"} />
       </TaskBoardContext.Provider>,
     );
@@ -228,7 +228,7 @@ describe("MarkdownView", () => {
     expect(boxes[0]).toBeEnabled();
     fireEvent.click(boxes[0]);
     await waitFor(() =>
-      expect(setTaskState).toHaveBeenCalledWith("100", 1, "DONE", "TODO"),
+      expect(setTaskState).toHaveBeenCalledWith("100", 1, "DONE", "TODO", "loaded"),
     );
   });
 
@@ -248,7 +248,7 @@ describe("MarkdownView", () => {
   it("makes the date cells editable where the note can be written", async () => {
     const tasks = { items: [{ line: 1, state: "TODO", done: false, text: "a task", due: "2026-07-24" }] };
     const { container } = renderWithQuery(
-      <TaskBoardContext.Provider value={{ noteID: "100", tasks }}>
+      <TaskBoardContext.Provider value={{ noteID: "100", tasks, etag: "loaded" }}>
         <MarkdownView markdown={"- [ ] a task [due:2026-07-24]"} />
       </TaskBoardContext.Provider>,
     );
@@ -256,13 +256,17 @@ describe("MarkdownView", () => {
     expect(due).not.toBeNull();
     expect(due!.value).toBe("2026-07-24");
     fireEvent.change(due!, { target: { value: "2026-08-01" } });
-    await waitFor(() => expect(setTaskDate).toHaveBeenCalledWith("100", 1, "due", "2026-08-01"));
+    // The cell asserts the state it drew, as the state controls do: a date picked against a task
+    // that has since moved is refused rather than written onto whatever the line became.
+    await waitFor(() =>
+      expect(setTaskDate).toHaveBeenCalledWith("100", 1, "due", "2026-08-01", "TODO", "loaded"),
+    );
   });
 
   it("opens the calendar on a click, since the cell hides the picker indicator", () => {
     const tasks = { items: [{ line: 1, state: "TODO", done: false, text: "a task", due: "2026-07-24" }] };
     const { container } = renderWithQuery(
-      <TaskBoardContext.Provider value={{ noteID: "100", tasks }}>
+      <TaskBoardContext.Provider value={{ noteID: "100", tasks, etag: "loaded" }}>
         <MarkdownView markdown={"- [ ] a task [due:2026-07-24]"} />
       </TaskBoardContext.Provider>,
     );
@@ -285,7 +289,7 @@ describe("MarkdownView", () => {
   it("wires the badge select by source line, so inline markup does not break it", () => {
     const tasks = { items: [{ line: 1, state: "DOING", done: false, text: "a bold task" }] };
     const { container } = renderWithQuery(
-      <TaskBoardContext.Provider value={{ noteID: "100", tasks }}>
+      <TaskBoardContext.Provider value={{ noteID: "100", tasks, etag: "loaded" }}>
         <MarkdownView markdown={"- [/] a **bold** task [#A]"} />
       </TaskBoardContext.Provider>,
     );
@@ -483,7 +487,7 @@ describe("MarkdownView", () => {
     // The excerpt starts at the source note's line 10 (0-based source_line 9), so its first line
     // is that file's line 10 — not line 1 of the host note.
     const sourceTasks = { items: [{ line: 10, state: "TODO", done: false, text: "owned task" }] };
-    getNote.mockResolvedValue({ note: { tasks: sourceTasks } });
+    getNote.mockResolvedValue({ note: { tasks: sourceTasks, etag: "source-etag" } });
     const { container } = renderWithQuery(
       <FloatingProvider>
         <MarkdownView
@@ -496,6 +500,7 @@ describe("MarkdownView", () => {
               caption: "Design##Plan",
               lines: ["- [ ] owned task"],
               source_line: 9,
+              etag: "source-etag",
             },
           ]}
         />
@@ -508,7 +513,9 @@ describe("MarkdownView", () => {
       return found;
     });
     fireEvent.click(box);
-    await waitFor(() => expect(setTaskState).toHaveBeenCalledWith("42", 10, "DONE", "TODO"));
+    await waitFor(() =>
+      expect(setTaskState).toHaveBeenCalledWith("42", 10, "DONE", "TODO", "source-etag"),
+    );
   });
 
   it("leaves an embedded task inert when the excerpt is not one run of the source", async () => {
@@ -525,6 +532,32 @@ describe("MarkdownView", () => {
     );
     const card = container.querySelector(".note-include") as HTMLElement;
     expect(within(card).getByRole("checkbox")).toBeDisabled();
+  });
+
+  it("leaves an embedded task inert when its source has changed since the excerpt was rendered", async () => {
+    getNote.mockResolvedValue({
+      note: { tasks: { items: [{ line: 10, state: "TODO", done: false, text: "new task" }] }, etag: "new" },
+    });
+    const { container } = renderWithQuery(
+      <FloatingProvider>
+        <MarkdownView
+          markdown={"![[Design]]"}
+          includes={[
+            {
+              line: 0,
+              note_id: 42,
+              title: "Design",
+              caption: "Design",
+              lines: ["- [ ] old task"],
+              source_line: 9,
+              etag: "old",
+            },
+          ]}
+        />
+      </FloatingProvider>,
+    );
+    const box = await waitFor(() => within(container.querySelector(".note-include")!).getByRole("checkbox"));
+    expect(box).toBeDisabled();
   });
 
   it("renders an include error as a warning card instead of dropping the line", () => {

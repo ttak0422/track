@@ -14,6 +14,7 @@ import (
 	"time"
 
 	"github.com/ttak0422/track/internal/track/config"
+	"github.com/ttak0422/track/internal/track/note"
 	_ "modernc.org/sqlite"
 )
 
@@ -1714,6 +1715,30 @@ func TestTaskWriteRefusesUnexpectedState(t *testing.T) {
 	// toggle asserts the state it read, so its own read-then-write window is closed too.
 	if out, code := runIn(t, vault, "toggle", "--id", "510", "--line", "3", "--expect", "TODO"); code == 0 || out["error"] == nil {
 		t.Fatalf("expected toggle to refuse a stale expectation, got %v", out)
+	}
+}
+
+func TestTaskCycleRefusesStaleNoteETag(t *testing.T) {
+	vault := t.TempDir()
+	body := "# Tasks [0/2]\n\n- [ ] alpha\n- [ ] beta\n"
+	if _, code := runInWithStdin(t, vault, body, "new", "--title", "Tasks", "--id", "511"); code != 0 {
+		t.Fatalf("new failed")
+	}
+	path := filepath.Join(vault, "note", "511.md")
+	original := []byte(readFileString(t, path))
+	etag := note.ContentETag(original)
+
+	shifted := "# Tasks [0/3]\n\n- [ ] inserted\n- [ ] alpha\n- [ ] beta\n"
+	if err := os.WriteFile(path, []byte(shifted), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	out, code := runIn(t, vault, "task", "cycle", "--path", path, "--line", "3", "--etag", etag)
+	errMessage, _ := out["error"].(string)
+	if code == 0 || !strings.Contains(errMessage, "note changed on disk") {
+		t.Fatalf("expected stale-etag conflict, got code=%d out=%v", code, out)
+	}
+	if got := readFileString(t, path); got != shifted {
+		t.Fatalf("refused cycle touched the note: %q", got)
 	}
 }
 

@@ -424,7 +424,7 @@ export function NoteEditor({ noteID }: NoteEditorProps) {
                   // for the state-set API), not the live textarea buffer. While the buffer is dirty
                   // the two disagree, so the controls go inert rather than write to a stale line.
                   <TaskBoardContext.Provider
-                    value={{ noteID: dirty ? "" : noteID, tasks: note.tasks }}
+                    value={{ noteID: dirty || changedOnDisk ? "" : noteID, tasks: note.tasks, etag: note.etag }}
                   >
                     <MarkdownView
                       markdown={renderQuery.data?.markdown ?? ""}

@@ -1,6 +1,11 @@
 # 0054. One web workspace serves a set of vaults
 
-Status: Accepted
+Status: Accepted; the ATTACH mechanism its cross-vault search assumed — one
+federated connection, SQLite's limit of ten attached databases, and the gap an
+eleventh vault fell into — is superseded by
+[0062](0062-cross-vault-reads-merge-in-go.md), which merges per-vault queries in
+Go: every served vault is searched, and a vault is either searched or reported
+`unavailable`. The workspace shape this ADR decided is unchanged.
 
 ## Context
 

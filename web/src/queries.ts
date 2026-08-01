@@ -1,5 +1,6 @@
-import { keepPreviousData, useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { keepPreviousData, type QueryClient, useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import {
+  APIError,
   deleteNote,
   fetchAssetText,
   getActivity,
@@ -23,9 +24,10 @@ import {
   setTaskState,
   uploadAsset,
 } from "./api";
+import { useNotifications } from "./notifications";
 import { STATIC_MODE } from "./runtime";
 import { useDebouncedValue } from "./hooks/useDebouncedValue";
-import type { NoteID, NoteMetaResponse, NoteResponse, SaveNoteMetaRequest, SaveNoteRequest } from "./types";
+import type { DateField, NoteID, NoteMetaResponse, NoteResponse, SaveNoteMetaRequest, SaveNoteRequest } from "./types";
 
 export const queryKeys = {
   site: () => ["site"] as const,
@@ -263,48 +265,70 @@ export function useNoteMetaQuery(noteID: NoteID, opts: { enabled: boolean }) {
   });
 }
 
-// useSetTaskStateMutation moves one task line into a named state (board drag / card select). The
-// note's body changed on disk (state marker, completion stamp, progress cookies), so the note query
-// is invalidated to refresh both the rendered body and the embedded tasks payload.
+// invalidateTaskWrite refreshes every view a task write can have made stale. Writing a task line
+// rewrites the note's body on disk, so all of them go at once: the note query (rendered body and
+// embedded tasks payload) and the notes listing; both task listings under the ["tasks"] prefix — a
+// state change can stamp or clear a completion date and moves a task in or out of the open listing,
+// and a date write is exactly what moves it from one calendar day to another; and every cached
+// render, because a host note embedding this one keys its excerpt by its own body text and would
+// otherwise keep the old marker, stamp, and dates.
+function invalidateTaskWrite(queryClient: QueryClient, noteID: NoteID) {
+  void queryClient.invalidateQueries({ queryKey: queryKeys.note(noteID) });
+  void queryClient.invalidateQueries({ queryKey: queryKeys.notes() });
+  void queryClient.invalidateQueries({ queryKey: queryKeys.tasks() });
+  void queryClient.invalidateQueries({ queryKey: ["render"] });
+}
+
+function handleTaskWriteError(
+  queryClient: QueryClient,
+  noteID: NoteID,
+  notify: (message: string) => void,
+  error: unknown,
+) {
+  void queryClient.invalidateQueries({ queryKey: queryKeys.note(noteID) });
+  if (error instanceof APIError && error.status === 409) {
+    notify("This note changed since it was loaded. Reloading the latest version; retry your task change.");
+  }
+}
+
+// useSetTaskStateMutation moves one task line into a named state (board drag / card select).
 export function useSetTaskStateMutation(noteID: NoteID) {
   const queryClient = useQueryClient();
+  const { notify } = useNotifications();
 
   return useMutation({
-    mutationFn: ({ line, state, expect }: { line: number; state: string; expect?: string }) =>
-      setTaskState(noteID, line, state, expect),
-    onSuccess: () => {
-      void queryClient.invalidateQueries({ queryKey: queryKeys.note(noteID) });
-      void queryClient.invalidateQueries({ queryKey: queryKeys.notes() });
-      // A state change can stamp or clear a completion date, and it moves a task in or out of the
-      // open listing — the prefix covers both.
-      void queryClient.invalidateQueries({ queryKey: queryKeys.tasks() });
-      // A host note embedding this one renders a cached excerpt keyed by its own body text, so
-      // without this the embedded lines keep their old marker and stamp after the write.
-      void queryClient.invalidateQueries({ queryKey: ["render"] });
-    },
+    mutationFn: ({ line, state, expect, etag }: { line: number; state: string; expect?: string; etag: string }) =>
+      setTaskState(noteID, line, state, expect ?? "", etag),
+    onSuccess: () => invalidateTaskWrite(queryClient, noteID),
     // A refused write means the view is stale — refetch so the error is read against what the
     // note actually says now.
-    onError: () => {
-      void queryClient.invalidateQueries({ queryKey: queryKeys.note(noteID) });
-    },
+    onError: (error) => handleTaskWriteError(queryClient, noteID, notify, error),
   });
 }
 
-// useSetTaskDateMutation writes a task's scheduled/due date. The note's body changed, so the same
-// queries the state mutation invalidates are invalidated here — the dated listing above all, since
-// a date write is exactly what moves a task from one calendar day to another.
+// useSetTaskDateMutation writes a task's scheduled/due date.
 export function useSetTaskDateMutation(noteID: NoteID) {
   const queryClient = useQueryClient();
+  const { notify } = useNotifications();
 
   return useMutation({
-    mutationFn: ({ line, field, date }: { line: number; field: "sched" | "due"; date: string }) =>
-      setTaskDate(noteID, line, field, date),
-    onSuccess: () => {
-      void queryClient.invalidateQueries({ queryKey: queryKeys.note(noteID) });
-      void queryClient.invalidateQueries({ queryKey: queryKeys.notes() });
-      void queryClient.invalidateQueries({ queryKey: queryKeys.tasks() });
-      void queryClient.invalidateQueries({ queryKey: ["render"] });
-    },
+    mutationFn: ({
+      line,
+      field,
+      date,
+      expect,
+      etag,
+    }: {
+      line: number;
+      field: DateField;
+      date: string;
+      expect?: string;
+      etag: string;
+    }) => setTaskDate(noteID, line, field, date, expect ?? "", etag),
+    onSuccess: () => invalidateTaskWrite(queryClient, noteID),
+    // A refused write means the view is stale — refetch so the error is read against what the
+    // note actually says now.
+    onError: (error) => handleTaskWriteError(queryClient, noteID, notify, error),
   });
 }
 

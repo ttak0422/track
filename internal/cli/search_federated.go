@@ -21,7 +21,8 @@ type openVault struct {
 // rank key their own SQL assigned (store.MergeSearchResults). Each page is that vault's top-k under
 // the one shared total order, so the merge is the exact global top-k rather than an approximation —
 // and unlike a query spanning attached databases it has no ceiling on how many vaults it covers. An
-// unreachable vault is reported under "unavailable" instead of failing the search.
+// unreachable vault — or one whose own query fails — is reported under "unavailable" instead of
+// failing the search.
 func federatedSearchResults(targets []vaultTarget, query string, limit int, scope store.SearchScope) (map[string]any, error) {
 	if limit <= 0 {
 		limit = 50
@@ -59,12 +60,30 @@ func federatedSearchResults(targets []vaultTarget, query string, limit int, scop
 	for _, v := range healthy {
 		vaults = append(vaults, search.Vault{Name: v.name, Cfg: v.cfg, Store: v.store})
 	}
-	results, err := search.Federated(vaults, query, limit, scope)
+	results, failed, err := search.Federated(vaults, query, limit, scope)
 	if err != nil {
 		return nil, err
+	}
+	// A vault whose own query failed is the same hole in the answer as one that could not be opened,
+	// so it is reported the same way rather than taking every other vault's hits down with it.
+	for _, f := range failed {
+		unavailable = append(unavailable, map[string]any{
+			"name": f.Vault, "path": targetPath(targets, f.Vault), "error": f.Err.Error(),
+		})
 	}
 	if results == nil {
 		results = []store.SearchResult{}
 	}
 	return map[string]any{"results": results, "unavailable": unavailable}, nil
+}
+
+// targetPath is where the vault the engine labelled name was registered, so a gap reported after the
+// vault opened carries the same path as one reported when it would not open.
+func targetPath(targets []vaultTarget, name string) string {
+	for _, tgt := range targets {
+		if tgt.Name == name {
+			return tgt.Path
+		}
+	}
+	return ""
 }

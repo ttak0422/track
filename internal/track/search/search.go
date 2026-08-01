@@ -31,6 +31,16 @@ type Vault struct {
 	Store *store.Store
 }
 
+// Failed is one vault whose own search returned an error. A cross-vault search reports it and
+// answers from the vaults that could reply: ADR 0062 gives a vault exactly two outcomes in a
+// cross-vault read, searched or unavailable with a reason, and a query that errored is the second
+// one just as much as a vault that could not be opened. Vault is the label the caller handed in, so
+// the caller can map it back to whatever it reports gaps as.
+type Failed struct {
+	Vault string
+	Err   error
+}
+
 // vaultKey is the (vault, id) identity a cross-vault result needs: the same numeric id can name
 // different notes in different vaults.
 type vaultKey struct {
@@ -310,39 +320,54 @@ func truncateSearchSnippet(s string, max int) string {
 // every vault merge into one page, then body hits from every vault merge into another. Merging each
 // vault's already-composed title-then-body list instead would interleave bm25-ranked body hits with
 // title hits, which are ranked on a different scale. Hits are deduplicated by (vault, id).
-func Federated(vaults []Vault, query string, limit int, scope store.SearchScope) ([]store.SearchResult, error) {
+//
+// A vault whose own query fails comes back in the second value rather than sinking the search; the
+// error return is reserved for a caller mistake — an unknown scope — that no vault can degrade.
+func Federated(vaults []Vault, query string, limit int, scope store.SearchScope) ([]store.SearchResult, []Failed, error) {
 	switch scope {
 	case store.SearchTitle:
-		return federatedTitle(vaults, query, limit)
+		results, failed := federatedTitle(vaults, query, limit)
+		return results, failed, nil
 	case store.SearchAll:
-		results, err := federatedTitle(vaults, query, limit)
-		if err != nil {
-			return nil, err
-		}
+		results, failed := federatedTitle(vaults, query, limit)
 		seen := make(map[vaultKey]bool, len(results))
 		for _, r := range results {
 			seen[vaultKey{r.Vault, r.NoteID}] = true
 		}
-		body, err := federatedBody(vaults, query, limit-len(results), seen)
-		if err != nil {
-			return nil, err
-		}
-		return append(results, body...), nil
+		// A vault that already failed its title query is not asked again: it would fail the same way
+		// and be reported twice.
+		body, bodyFailed := federatedBody(without(vaults, failed), query, limit-len(results), seen)
+		return append(results, body...), append(failed, bodyFailed...), nil
 	case store.SearchBody:
-		return federatedBody(vaults, query, limit, nil)
+		results, failed := federatedBody(vaults, query, limit, nil)
+		return results, failed, nil
 	default:
-		return nil, fmt.Errorf("unknown search scope %q", scope)
+		return nil, nil, fmt.Errorf("unknown search scope %q", scope)
 	}
+}
+
+// without drops the vaults that already failed a phase. Vaults are matched by name, which the
+// registry keeps unique.
+func without(vaults []Vault, failed []Failed) []Vault {
+	out := make([]Vault, 0, len(vaults))
+	for _, v := range vaults {
+		if !slices.ContainsFunc(failed, func(f Failed) bool { return f.Vault == v.Name }) {
+			out = append(out, v)
+		}
+	}
+	return out
 }
 
 // federatedTitleResults runs the single-vault title query in every vault, labels and resolves each
 // hit against the vault it came from, and merges the pages into the global top-k.
-func federatedTitle(vaults []Vault, query string, limit int) ([]store.SearchResult, error) {
+func federatedTitle(vaults []Vault, query string, limit int) ([]store.SearchResult, []Failed) {
 	pages := make([][]store.SearchResult, 0, len(vaults))
+	var failed []Failed
 	for _, v := range vaults {
 		page, err := v.Store.SearchScoped(query, limit, store.SearchTitle)
 		if err != nil {
-			return nil, err
+			failed = append(failed, Failed{Vault: v.Name, Err: err})
+			continue
 		}
 		for i := range page {
 			page[i].Vault = v.Name
@@ -351,13 +376,13 @@ func federatedTitle(vaults []Vault, query string, limit int) ([]store.SearchResu
 		mark(page, MatchTitle)
 		pages = append(pages, page)
 	}
-	return store.MergeSearchResults(pages, limit), nil
+	return store.MergeSearchResults(pages, limit), failed
 }
 
 // federatedBodyResults is the cross-vault counterpart of bodySearchResults, and runs exactly that per
 // vault — so the FTS path, the short-term scan fallback, and the line/snippet lookup all stay in one
 // place. Already-returned title hits are skipped per vault, since ids only mean anything inside one.
-func federatedBody(vaults []Vault, query string, limit int, seen map[vaultKey]bool) ([]store.SearchResult, error) {
+func federatedBody(vaults []Vault, query string, limit int, seen map[vaultKey]bool) ([]store.SearchResult, []Failed) {
 	if limit <= 0 {
 		return []store.SearchResult{}, nil
 	}
@@ -365,6 +390,7 @@ func federatedBody(vaults []Vault, query string, limit int, seen map[vaultKey]bo
 		return []store.SearchResult{}, nil
 	}
 	pages := make([][]store.SearchResult, 0, len(vaults))
+	var failed []Failed
 	for _, v := range vaults {
 		skip := map[int64]bool{}
 		for key := range seen {
@@ -374,12 +400,13 @@ func federatedBody(vaults []Vault, query string, limit int, seen map[vaultKey]bo
 		}
 		page, err := bodySearchResults(v.Cfg, v.Store, query, limit, skip)
 		if err != nil {
-			return nil, err
+			failed = append(failed, Failed{Vault: v.Name, Err: err})
+			continue
 		}
 		for i := range page {
 			page[i].Vault = v.Name
 		}
 		pages = append(pages, page)
 	}
-	return store.MergeSearchResults(pages, limit), nil
+	return store.MergeSearchResults(pages, limit), failed
 }

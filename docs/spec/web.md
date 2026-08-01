@@ -30,10 +30,12 @@ exactly as it did before it could serve several, whether or not that vault is
 registered.
 
 - `GET /api/search` searches **every** served vault by default and labels each
-  hit with its vault, merging them through one federated connection (ADR 0052).
-  `?vault=<name>` narrows it to one. Vaults that could not be read are reported
-  under `unavailable` — `[{"name","path","error"}]` — so "no matches there"
-  stays distinguishable from "could not read that vault".
+  hit with its vault: each vault answers the ordinary single-vault query and
+  its pages merge in Go on the rank its own SQL assigned (ADR 0062), so no
+  attach limit bounds how many vaults one search covers. `?vault=<name>`
+  narrows it to one. A vault is either searched or reported under
+  `unavailable` — `[{"name","path","error"}]` — so "no matches there" stays
+  distinguishable from "could not read that vault".
 - `GET /api/note` also carries `external`: the inbound `[[vault:title]]`
   references other vaults make to this note (ADR 0053), with `unavailable` for
   vaults that could not be consulted. Those edges live in the referring vaults'
@@ -73,7 +75,9 @@ off, a published site) still opens the day page and its notes-and-tasks listing.
   full-text matches for notes the titles did not already name, each tagged
   `match: "title" | "body"`. A body hit also carries the `line` it matched on and
   a `snippet` of it — though a match whose terms straddle lines has neither, which
-  is why `match` and not the snippet is the discriminator.
+  is why `match` and not the snippet is the discriminator. Across vaults the two
+  phases merge separately — every served vault's title hits first, then the body
+  hits — since a title rank and a bm25 score are not on one scale (ADR 0062).
 - `GET /api/notes`: list indexed notes; each entry carries its activity `days` (the local days the note
   was created or updated), which the calendar view derives its per-day note lists from.
 - `GET /api/activity?days=<n>`: return local-day update counts for the recent
@@ -200,8 +204,11 @@ table's date cells write through the same endpoint the state cell uses.
 It carries the save's conflict model one level down too: the optional `expect`
 field is the state the client is looking at, and a line that has since become
 something else is refused with `409 Conflict`, leaving the file untouched. The
-board and the rendered task rows both send it, since both already know the state
-they drew. Omitting it writes unconditionally, as before.
+board, the rendered task rows, and the table's date cells all send it, since all
+three already know the state they drew — a date patch is refused on a stale line
+just as a state change is. When a request carries both a state and a date patch,
+`expect` is asserted once, against the state before the write. Omitting it
+writes unconditionally, as before.
 
 ## Copy path
 

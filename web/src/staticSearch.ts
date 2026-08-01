@@ -49,12 +49,20 @@ export function splitOrGroups(text: string): string[][] {
   return groups;
 }
 
+// fold lowercases the way the engine's scan does. Go's strings.ToLower maps each rune on its own;
+// JavaScript's toLowerCase applies Unicode SpecialCasing on top — a word-final "Σ" becomes "ς" and
+// "İ" expands to "i" + U+0307 — so a body the CLI matches would quietly miss here. Pre-map the two
+// characters where the two folds disagree, then lowercase.
+function fold(text: string): string {
+  return text.replace(/İ/g, "i").replace(/Σ/g, "σ").toLowerCase();
+}
+
 // matchesAnyGroup mirrors search.bodyMatchesAnyGroup: text matches when some one group has all of
 // its terms present as case-insensitive substrings — the trigram index's semantics, which is why the
 // scan and the index agree on what matched.
 export function matchesAnyGroup(text: string, groups: string[][]): boolean {
-  const lower = text.toLowerCase();
-  return groups.some((terms) => terms.every((term) => lower.includes(term.toLowerCase())));
+  const lower = fold(text);
+  return groups.some((terms) => terms.every((term) => lower.includes(fold(term))));
 }
 
 // lineMatch mirrors search.bodyLineMatchGroups: the first line carrying every term of some satisfied
@@ -65,12 +73,12 @@ export function lineMatch(body: string, groups: string[][]): { line: number; sni
   let fallback = { line: 0, snippet: "" };
   const lines = body.split("\n");
   for (let i = 0; i < lines.length; i++) {
-    const lower = lines[i].toLowerCase();
+    const lower = fold(lines[i]);
     for (const terms of groups) {
       let all = terms.length > 0;
       let some = false;
       for (const term of terms) {
-        if (lower.includes(term.toLowerCase())) some = true;
+        if (lower.includes(fold(term))) some = true;
         else all = false;
       }
       if (all) return { line: i + 1, snippet: snippetOf(lines[i]) };
@@ -128,16 +136,16 @@ function splitTagQuery(query: string): TaggedQuery {
 // hasTag mirrors the store's hierarchical tag filter: #a matches a note tagged "a" or any descendant
 // like "a/b", never "ab".
 function hasTag(note: SearchResult, tag: string): boolean {
-  const want = tag.toLowerCase();
+  const want = fold(tag);
   return (note.tags ?? []).some((t) => {
-    const lower = t.toLowerCase();
+    const lower = fold(t);
     return lower === want || lower.startsWith(`${want}/`);
   });
 }
 
 function hasExactTag(note: SearchResult, tag: string): boolean {
-  const want = tag.toLowerCase();
-  return (note.tags ?? []).some((t) => t.toLowerCase() === want);
+  const want = fold(tag);
+  return (note.tags ?? []).some((t) => fold(t) === want);
 }
 
 // titleHits mirrors the store's title query: #tags filter hierarchically and rank an exact tag before
@@ -147,11 +155,11 @@ function hasExactTag(note: SearchResult, tag: string): boolean {
 export function titleHits(notes: SearchResult[], query: string): SearchResult[] {
   const { text, tags } = splitTagQuery(query);
   const groups = splitOrGroups(text);
-  const lowerText = text.toLowerCase();
+  const lowerText = fold(text);
   const rankOf = (note: SearchResult): number[] => {
     const rank = tags.map((tag) => (hasExactTag(note, tag) ? 0 : 1));
     if (text !== "") {
-      const title = note.title.toLowerCase();
+      const title = fold(note.title);
       rank.push(title === lowerText ? 0 : 1, title.startsWith(lowerText) ? 0 : 1);
     }
     return rank;

@@ -1,8 +1,6 @@
 package webui
 
 import (
-	"crypto/sha256"
-	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -140,7 +138,7 @@ func (s *Server) getNote(v *vaultView, w http.ResponseWriter, r *http.Request) {
 		"body":      body,
 		// etag is a content hash of the file as read; clients echo it back on PUT so a save can be
 		// rejected when the file changed underneath (e.g. an OneDrive sync) since this read.
-		"etag": etagFor(raw),
+		"etag": note.ContentETag(raw),
 	}
 	// Task lines ride along so a ```taskboard fence renders without a second request, mirroring the
 	// static bundle's note JSON.
@@ -247,7 +245,7 @@ func (s *Server) putNote(v *vaultView, w http.ResponseWriter, r *http.Request) {
 		writeError(w, errors.New("etag is required to detect conflicts"), http.StatusBadRequest)
 		return
 	}
-	if req.ETag != etagFor(current) {
+	if req.ETag != note.ContentETag(current) {
 		writeError(w, errors.New("note changed on disk since it was loaded; reload before saving"), http.StatusConflict)
 		return
 	}
@@ -262,7 +260,7 @@ func (s *Server) putNote(v *vaultView, w http.ResponseWriter, r *http.Request) {
 		writeError(w, fmt.Errorf("save note: %w", err), http.StatusInternalServerError)
 		return
 	}
-	writeJSON(w, map[string]any{"vault": v.label, "note_id": ref.NoteID, "etag": etagFor(out), "saved": true})
+	writeJSON(w, map[string]any{"vault": v.label, "note_id": ref.NoteID, "etag": note.ContentETag(out), "saved": true})
 }
 
 // handleNoteMeta reads or edits a note's editable sidecar metadata — title, tags, description,
@@ -443,21 +441,21 @@ func (s *Server) handleRender(v *vaultView, w http.ResponseWriter, r *http.Reque
 // loadRenderedNote resolves a link key to a note and returns its web-rendered body, for include
 // resolution. Any failure (unknown key, unreadable file, render error) reads as "not found" — the
 // include renders as unresolved rather than surfacing a partial embed.
-func (v *vaultView) loadRenderedNote(key string) (int64, string, string, bool) {
+func (v *vaultView) loadRenderedNote(key string) (int64, string, string, string, bool) {
 	ref, found, err := v.store.ResolveTerm(key)
 	if err != nil || !found {
-		return 0, "", "", false
+		return 0, "", "", "", false
 	}
 	raw, err := os.ReadFile(v.cfg.PathForKind(ref.FileKind, ref.NoteID))
 	if err != nil {
-		return 0, "", "", false
+		return 0, "", "", "", false
 	}
 	body, _, _ := note.SplitLegacyFootmatter(string(raw))
 	markdown, err := export.WebBody(body)
 	if err != nil {
-		return 0, "", "", false
+		return 0, "", "", "", false
 	}
-	return ref.NoteID, ref.FileKind, markdown, true
+	return ref.NoteID, ref.FileKind, markdown, note.ContentETag(raw), true
 }
 
 // handleViewSpec resolves a fenced ```viewspec block (a View Spec JSON) to its ECharts option JSON,
@@ -483,12 +481,6 @@ func (s *Server) handleViewSpec(v *vaultView, w http.ResponseWriter, r *http.Req
 		return
 	}
 	writeJSON(w, map[string]any{"echarts": json.RawMessage(opt)})
-}
-
-// etagFor returns a short content hash used as an optimistic-concurrency token for note bodies.
-func etagFor(raw []byte) string {
-	sum := sha256.Sum256(raw)
-	return hex.EncodeToString(sum[:16])
 }
 
 // ensureTrailingNewline mirrors the CLI's write behavior so saved bodies end with exactly one newline.

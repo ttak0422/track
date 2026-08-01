@@ -14,6 +14,7 @@ type ResolvedInclude struct {
 	// an include be written back. -1 when the excerpt is not one contiguous run of the source.
 	SourceLine int      `json:"source_line"`
 	Kind       string   `json:"kind,omitempty"` // target file kind ("note"/"journal"), for asset resolution
+	ETag       string   `json:"etag,omitempty"` // exact target version Lines were extracted from
 	Title      string   `json:"title,omitempty"`
 	Caption    string   `json:"caption"`
 	Lines      []string `json:"lines"`
@@ -24,7 +25,7 @@ type ResolvedInclude struct {
 // ResolveIncludes extracts and resolves every include directive in body. load resolves a link key
 // to the target note's id, file kind, and body text (ok=false when the key matches no note or the
 // note cannot be read), injected so this stays store-free like the rest of the package.
-func ResolveIncludes(body string, load func(key string) (id int64, kind, text string, ok bool)) []ResolvedInclude {
+func ResolveIncludes(body string, load func(key string) (id int64, kind, text, etag string, ok bool)) []ResolvedInclude {
 	out := []ResolvedInclude{}
 	for _, inc := range Includes(body) {
 		res := ResolvedInclude{
@@ -33,7 +34,7 @@ func ResolveIncludes(body string, load func(key string) (id int64, kind, text st
 			Lines:      []string{},
 			BadOptions: inc.BadOptions,
 		}
-		id, kind, text, ok := load(inc.Text)
+		id, kind, text, etag, ok := load(inc.Text)
 		if !ok {
 			res.Error = fmt.Sprintf("unresolved note %q", inc.Text)
 			out = append(out, res)
@@ -41,6 +42,7 @@ func ResolveIncludes(body string, load func(key string) (id int64, kind, text st
 		}
 		res.NoteID = id
 		res.Kind = kind
+		res.ETag = etag
 		res.Title = inc.Text
 		lines, start, ok := Extract(text, inc)
 		if !ok {

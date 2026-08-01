@@ -40,6 +40,7 @@ func cmdTaskCycle(args []string) int {
 	path := fs.String("path", "", "note path (alternative to --id)")
 	line := fs.Int("line", 0, "1-based line number of the task")
 	expect := fs.String("expect", "", "refuse the write unless the line is in this state")
+	etag := fs.String("etag", "", "refuse the write unless the note content matches this etag")
 	if err := fs.Parse(args); err != nil {
 		return fail("parse args: %v", err)
 	}
@@ -88,7 +89,9 @@ func cmdTaskCycle(args []string) int {
 	if assert == "" {
 		assert = cur.State
 	}
-	tr, err := note.ApplyTaskState(cfg, notePath, *line, target, assert, time.Now())
+	tr, err := note.ApplyTaskPatch(cfg, notePath, note.TaskPatch{
+		Line: *line, State: target, Expect: assert, ETag: strings.TrimSpace(*etag),
+	}, time.Now())
 	if err != nil {
 		return fail("%v", err)
 	}
@@ -283,12 +286,13 @@ func cmdTaskDate(args []string) int {
 	}
 
 	var t task.Task
-	for _, field := range []string{"sched", "due"} {
-		value, ok := given[field]
+	for _, field := range []task.DateField{task.SchedField, task.DueField} {
+		value, ok := given[string(field)]
 		if !ok {
 			continue
 		}
-		if t, err = note.ApplyTaskDate(notePath, *line, field, value); err != nil {
+		// No assertion: this command has no --expect flag, unlike task set and cycle.
+		if t, err = note.ApplyTaskDate(notePath, *line, field, value, ""); err != nil {
 			return fail("%v", err)
 		}
 	}

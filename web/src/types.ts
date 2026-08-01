@@ -84,6 +84,7 @@ export interface NoteInclude {
   line: number;
   note_id?: number;
   kind?: string;
+  etag?: string;
   title?: string;
   caption: string;
   lines: string[];
@@ -115,6 +116,12 @@ export interface TaskListResponse {
   tasks: TaskRow[];
 }
 
+// DateField names the two date tokens a client may write on a task line, mirroring the engine's
+// task.DateField (internal/track/task). The values are the note's token keywords and the JSON keys
+// POST /api/task takes — setTaskDate sends { line, [field]: date } — not display labels. A task's
+// parsed dates come back under the different keys `scheduled`/`due` below; keep the two apart.
+export type DateField = "sched" | "due";
+
 export interface TaskItem {
   line: number;
   state: string;
@@ -134,6 +141,7 @@ export interface NoteTasks {
 
 export interface TasksResponse {
   tasks: NoteTasks;
+  etag: string;
 }
 
 // NoteProp is one flattened typed note property, as the engine indexes it: a sidecar props entry

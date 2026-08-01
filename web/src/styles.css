@@ -3090,6 +3090,41 @@ textarea.modal-input:focus-visible {
   color: var(--danger);
 }
 
+/* Floating layer: a task conflict needs to remain visible above the workspace until dismissed. */
+.notification-toast {
+  position: fixed;
+  right: 20px;
+  bottom: 20px;
+  z-index: 210;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  max-width: min(440px, calc(100vw - 40px));
+  padding: 12px 14px;
+  color: var(--text);
+  background: var(--panel);
+  border: 1px solid var(--line);
+  border-radius: var(--radius-lg);
+  box-shadow: 0 12px 32px color-mix(in srgb, var(--text) 22%, transparent);
+}
+
+.notification-toast button {
+  flex: 0 0 auto;
+  min-width: 24px;
+  min-height: 24px;
+  padding: 2px 6px;
+  color: var(--muted);
+  font: inherit;
+  background: transparent;
+  border: 0;
+  cursor: pointer;
+}
+
+.notification-toast button:hover,
+.notification-toast button:focus-visible {
+  color: var(--text);
+}
+
 .muted {
   color: var(--muted);
 }

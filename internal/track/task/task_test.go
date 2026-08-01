@@ -228,7 +228,7 @@ func TestSetDate(t *testing.T) {
 	for _, tc := range []struct {
 		name  string
 		body  string
-		field string
+		field DateField
 		date  string
 		want  string
 	}{
@@ -262,7 +262,11 @@ func TestSetDate(t *testing.T) {
 		}
 	}
 
-	for _, tc := range []struct{ name, body, field, date string }{
+	for _, tc := range []struct {
+		name, body string
+		field      DateField
+		date       string
+	}{
 		{"a bad date", "- [ ] x\n", "due", "2026-13-45"},
 		{"a non-date", "- [ ] x\n", "due", "tomorrow"},
 		{"an unknown field", "- [ ] x\n", "start", "2026-08-01"},

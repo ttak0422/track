@@ -92,7 +92,11 @@ them in the browser.
   the server's own body path, which quotes each term) — the fix belongs in
   `titleMatchClause`, not here. And case folding differs three ways already
   (SQLite's ASCII-only `LIKE`, Go's `strings.ToLower`, FTS5's Unicode folding),
-  so no client can agree with all of them; the port folds like FTS5.
+  so no client can agree with all of them. The port folds like the scan it
+  mirrors, Go's `strings.ToLower` — which JavaScript's `toLowerCase` is not: it
+  applies Unicode SpecialCasing, turning a word-final `Σ` into `ς` and expanding
+  `İ` to `i` + U+0307. The port pre-maps those two characters before
+  lowercasing, and the fixture both sides read keeps it there.
 - Substring matching is what the site can honestly offer, and it is what the live
   server offers. A two-character CJK query — the case that forces the engine's own
   fallback — works on the published site for the same reason.
