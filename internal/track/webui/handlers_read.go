@@ -18,7 +18,8 @@ import (
 // handleSearch searches every vault the workspace serves, so one search box reaches a whole set of
 // vaults rather than only the one track web was launched in. ?vault=<name> narrows it back to a
 // single vault. Each hit is labelled with the vault it came from, and vaults that could not be
-// opened are listed under "unavailable" instead of quietly shrinking the result set.
+// opened or could not answer are listed under "unavailable" instead of quietly shrinking the result
+// set.
 func (s *Server) handleSearch(w http.ResponseWriter, r *http.Request) {
 	query := strings.TrimSpace(r.URL.Query().Get("q"))
 	limit := parseLimit(r.URL.Query().Get("limit"), 50)
@@ -56,11 +57,12 @@ func (s *Server) handleSearch(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	results, err := s.searchAcross(views, query, limit)
+	results, gaps, err := s.searchAcross(views, query, limit)
 	if err != nil {
 		writeError(w, err, http.StatusInternalServerError)
 		return
 	}
+	unavailable = append(unavailable, gaps...)
 	writeJSON(w, map[string]any{"results": results, "unavailable": unavailable})
 }
 
@@ -100,8 +102,9 @@ func (s *Server) searchOne(v *vaultView, query string, limit int) ([]store.Searc
 // label against the vault it came from — all vault-local, so no shared query could fill them anyway —
 // and each vault's page is its own top-k under the order every vault shares, so merging them yields
 // the same list a single query over all of them would (store.MergeSearchResults). A vault that could
-// not be opened never reaches here; servedViews already reported it as a gap.
-func (s *Server) searchAcross(views []*vaultView, query string, limit int) ([]store.SearchResult, error) {
+// not be opened never reaches here; servedViews already reported it as a gap. A vault that opened
+// but could not answer becomes one of the gaps returned beside the results.
+func (s *Server) searchAcross(views []*vaultView, query string, limit int) ([]store.SearchResult, []vaultInfo, error) {
 	if query != "" {
 		// Title and body merge separately, because their ranks are on different scales — bm25 is
 		// negative, a title rank vector is 0..3 — so merging composed per-vault lists on one key
@@ -112,9 +115,9 @@ func (s *Server) searchAcross(views []*vaultView, query string, limit int) ([]st
 			s.refresh(v)
 			vaults = append(vaults, search.Vault{Name: v.label, Cfg: v.cfg, Store: v.store})
 		}
-		results, err := search.Federated(vaults, query, limit, store.SearchAll)
+		results, failed, err := search.Federated(vaults, query, limit, store.SearchAll)
 		if err != nil {
-			return nil, err
+			return nil, nil, err
 		}
 		for _, v := range views {
 			decorateSearchIcons(v, results)
@@ -122,13 +125,17 @@ func (s *Server) searchAcross(views []*vaultView, query string, limit int) ([]st
 		if results == nil {
 			results = []store.SearchResult{}
 		}
-		return results, nil
+		return results, searchGaps(views, failed), nil
 	}
+	var gaps []vaultInfo
 	pages := make([][]store.SearchResult, 0, len(views))
 	for _, v := range views {
 		page, err := s.searchOne(v, query, limit)
 		if err != nil {
-			return nil, err
+			// The listing is the same endpoint with an empty query, so one vault that cannot answer
+			// degrades here too rather than taking the whole workspace's listing down with it.
+			gaps = append(gaps, vaultInfo{Name: v.name, Path: v.cfg.VaultDirDisplay, Error: err.Error()})
+			continue
 		}
 		pages = append(pages, page)
 	}
@@ -142,7 +149,25 @@ func (s *Server) searchAcross(views []*vaultView, query string, limit int) ([]st
 	if len(results) > limit {
 		results = results[:limit]
 	}
-	return results, nil
+	return results, gaps, nil
+}
+
+// searchGaps turns the engine's per-vault search failures into the wire gaps the response already
+// carries for vaults that could not be opened. The engine labels a failure with the wire label it
+// was handed ("" for the launch vault), so the view it came from supplies the registry name and
+// path the gap list reports.
+func searchGaps(views []*vaultView, failed []search.Failed) []vaultInfo {
+	gaps := make([]vaultInfo, 0, len(failed))
+	for _, f := range failed {
+		gap := vaultInfo{Name: f.Vault, Error: f.Err.Error()}
+		for _, v := range views {
+			if v.label == f.Vault {
+				gap.Name, gap.Path = v.name, v.cfg.VaultDirDisplay
+			}
+		}
+		gaps = append(gaps, gap)
+	}
+	return gaps
 }
 
 func (s *Server) handleNotes(v *vaultView, w http.ResponseWriter, r *http.Request) {

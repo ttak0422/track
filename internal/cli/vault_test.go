@@ -345,6 +345,56 @@ func TestFederatedSearchCoversMoreVaultsThanSQLiteCanAttach(t *testing.T) {
 	}
 }
 
+func TestFederatedSearchDegradesAVaultWhoseSearchFails(t *testing.T) {
+	// A vault that opens and then fails its own query — a note the process cannot read here, which is
+	// the "permission denied" case docs/spec/agent-workflows.md promises — must be reported under
+	// "unavailable" like an unmounted one. Failing the command instead would throw away every other
+	// vault's hits over one unreadable file.
+	if os.Geteuid() == 0 {
+		t.Skip("root reads a 0o000 file, so the vault would not fail")
+	}
+	cache := filepath.Join(t.TempDir(), "cache") // shared, so both vaults stay indexed across calls
+	defaultVault, work := t.TempDir(), t.TempDir()
+	registry := map[string]string{"work": work}
+
+	if _, code := runWithRegistryCache(t, cache, defaultVault, nil,
+		"new", "--title", "Home", "--body", "abacus in the home vault"); code != 0 {
+		t.Fatal("seed default vault")
+	}
+	if _, code := runWithRegistryCache(t, cache, work, nil,
+		"new", "--title", "Work", "--body", "abacus in the work vault"); code != 0 {
+		t.Fatal("seed work vault")
+	}
+	notes, err := filepath.Glob(filepath.Join(work, "note", "*.md"))
+	if err != nil || len(notes) != 1 {
+		t.Fatalf("want one seeded note in the work vault, got %v (err %v)", notes, err)
+	}
+	// chmod leaves the mtime alone, so the index self-heal ahead of the search finds nothing to
+	// re-read: the vault opens cleanly and only the query itself trips over the file.
+	if err := os.Chmod(notes[0], 0o000); err != nil {
+		t.Fatal(err)
+	}
+
+	// Two characters cannot form a trigram, so this takes the scan fallback, which is the path that
+	// actually reads note files.
+	decoded, code := runWithRegistryCache(t, cache, defaultVault, registry, "search", "--query", "ab", "--scope", "body")
+	if code != 0 {
+		t.Fatalf("one vault's failed query must not fail the search: %v", decoded)
+	}
+	results := decoded["results"].([]any)
+	if len(results) != 1 || results[0].(map[string]any)["title"] != "Home" {
+		t.Fatalf("the vault that could answer must still answer, got %v", results)
+	}
+	unavailable := decoded["unavailable"].([]any)
+	if len(unavailable) != 1 {
+		t.Fatalf("the vault whose query failed must be reported, got %v", unavailable)
+	}
+	gap := unavailable[0].(map[string]any)
+	if gap["name"] != "work" || gap["path"] != work || gap["error"] == "" {
+		t.Fatalf("the gap must name the vault, where it lives, and why it failed, got %v", gap)
+	}
+}
+
 func TestCrossVaultRefsResolveAndBacklinks(t *testing.T) {
 	home := t.TempDir()
 	work := t.TempDir()

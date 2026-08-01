@@ -37,6 +37,15 @@ func writeVaultNote(t *testing.T, vault string, id int64, title, body string) {
 // that matters: ids are vault-local, and journal ids collide across vaults outright.
 func twoVaultServer(t *testing.T) (*httptest.Server, string, string) {
 	t.Helper()
+	_, server, main, work := twoVaultWorkspace(t)
+	return server, main, work
+}
+
+// twoVaultWorkspace is twoVaultServer plus the Server behind it, for the tests that have to reach
+// past the HTTP surface — closing one vault's index handle, say, which nothing a request can do
+// would produce.
+func twoVaultWorkspace(t *testing.T) (*Server, *httptest.Server, string, string) {
+	t.Helper()
 	main, work := t.TempDir(), t.TempDir()
 	writeVaultNote(t, main, 100, "Alpha in main", "# Alpha in main\n")
 	writeVaultNote(t, work, 100, "Alpha in work", "# Alpha in work\n")
@@ -64,7 +73,7 @@ func twoVaultServer(t *testing.T) (*httptest.Server, string, string) {
 	t.Cleanup(srv.closeViews)
 	server := httptest.NewServer(srv.Handler())
 	t.Cleanup(server.Close)
-	return server, main, work
+	return srv, server, main, work
 }
 
 func getVaultJSON(t *testing.T, url string) map[string]any {
@@ -359,8 +368,8 @@ func TestSearchReportsAnUnreachableVault(t *testing.T) {
 	}
 }
 
-// mustView is used by the launch-vault test below; the registry itself refuses two names for one
-// vault (config.resolveVaults), so the only vault reachable under two names is the launch one.
+// mustView opens a served vault's view directly, for the tests that need the handle behind an
+// endpoint rather than the answers it gives.
 func mustView(t *testing.T, srv *Server, name string) *vaultView {
 	t.Helper()
 	v, err := srv.viewByName(name)
@@ -403,6 +412,41 @@ func TestASearchReportsAVaultThatWentAway(t *testing.T) {
 	gaps := out["unavailable"].([]any)
 	if len(gaps) != 1 || gaps[0].(map[string]any)["name"] != "work" {
 		t.Fatalf("the vault that went away must be reported, got %v", gaps)
+	}
+}
+
+func TestSearchDegradesAVaultWhoseQueryFails(t *testing.T) {
+	// A vault can be perfectly reachable and still fail the query it is handed — a corrupt index, a
+	// note the process cannot read. ADR 0062 gives a vault two outcomes in a cross-vault read,
+	// searched or unavailable with a reason, and that is the second one: the search must name the
+	// vault and answer from the ones that could reply, not 500 and throw their hits away.
+	srv, server, _, _ := twoVaultWorkspace(t)
+	// Closing the second vault's index handle is the failure no request could arrange: every query
+	// it runs from here answers "sql: database is closed".
+	mustView(t, srv, "work").store.Close()
+
+	out := getVaultJSON(t, server.URL+"/api/search?q=Alpha")
+	hits := out["results"].([]any)
+	if len(hits) != 1 || hits[0].(map[string]any)["title"] != "Alpha in main" {
+		t.Fatalf("the vault that could still answer must answer, got %v", hits)
+	}
+	gaps := out["unavailable"].([]any)
+	if len(gaps) != 1 {
+		t.Fatalf("the vault whose query failed must be reported, got %v", gaps)
+	}
+	gap := gaps[0].(map[string]any)
+	if gap["name"] != "work" || gap["error"] == "" {
+		t.Fatalf("the gap must name the vault and say why, got %v", gap)
+	}
+
+	// The recent-notes listing is the same endpoint with an empty query, and it reads every vault the
+	// same way, so it degrades the same way.
+	out = getVaultJSON(t, server.URL+"/api/search")
+	if hits := out["results"].([]any); len(hits) != 1 {
+		t.Fatalf("the listing must still show the vault that could answer, got %v", hits)
+	}
+	if gaps := out["unavailable"].([]any); len(gaps) != 1 || gaps[0].(map[string]any)["name"] != "work" {
+		t.Fatalf("the listing must report the vault it could not read, got %v", gaps)
 	}
 }
 
