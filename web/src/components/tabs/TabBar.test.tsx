@@ -87,6 +87,41 @@ describe("TabBar", () => {
     expect(routerMock.navigate).toHaveBeenCalled();
   });
 
+  it("does not swallow a later keyboard activation when the pan's click never reached a tab", () => {
+    // What a real browser does: the pan holds pointer capture, so the click that ends it is
+    // retargeted to the strip and no tab handler ever sees it. The suppression has to be consumed
+    // there, or it sits armed and swallows the next activation that arrives without a pointer —
+    // opening a focused tab with Enter.
+    Element.prototype.setPointerCapture = () => {};
+    Element.prototype.releasePointerCapture = () => {};
+    renderStrip();
+    const bar = screen.getByRole("list");
+    fireEvent.pointerDown(bar, { pointerType: "mouse", button: 0, pointerId: 1, clientX: 200 });
+    fireEvent.pointerMove(bar, { pointerType: "mouse", pointerId: 1, clientX: 140 });
+    fireEvent.pointerUp(bar, { pointerType: "mouse", pointerId: 1, clientX: 140 });
+    fireEvent.click(bar);
+
+    routerMock.navigate.mockClear();
+    fireEvent.click(document.querySelector("button.tab-label")!);
+    expect(routerMock.navigate).toHaveBeenCalled();
+  });
+
+  it("does not close a tab with the click that ends a pan either", () => {
+    Element.prototype.setPointerCapture = () => {};
+    Element.prototype.releasePointerCapture = () => {};
+    const view = renderStrip();
+    routerMock.pathname = "/notes/b2";
+    view.rerender(strip());
+    const bar = screen.getByRole("list");
+    fireEvent.pointerDown(bar, { pointerType: "mouse", button: 0, pointerId: 1, clientX: 200 });
+    fireEvent.pointerMove(bar, { pointerType: "mouse", pointerId: 1, clientX: 140 });
+    fireEvent.pointerUp(bar, { pointerType: "mouse", pointerId: 1, clientX: 140 });
+
+    expect(screen.getAllByRole("listitem")).toHaveLength(2);
+    fireEvent.click(screen.getAllByRole("button", { name: /Close/ })[0]);
+    expect(screen.getAllByRole("listitem")).toHaveLength(2);
+  });
+
   it("ignores a drag that never moved, so a plain click still opens its tab", () => {
     Element.prototype.setPointerCapture = () => {};
     Element.prototype.releasePointerCapture = () => {};
