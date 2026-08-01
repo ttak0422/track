@@ -1,5 +1,5 @@
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
+import { createEvent, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import type { ReactElement } from "react";
 import { describe, expect, it, vi } from "vitest";
 import { MarkdownView } from "./MarkdownView";
@@ -269,8 +269,11 @@ describe("MarkdownView", () => {
     const due = container.querySelector<HTMLInputElement>("td.task-row-due input[type='date']")!;
     const showPicker = vi.fn();
     due.showPicker = showPicker;
-    fireEvent.click(due);
+    const click = createEvent.click(due);
+    fireEvent(due, click);
     expect(showPicker).toHaveBeenCalled();
+    // Cancelled so Gecko's own click listener, which runs after this one, leaves the picker open.
+    expect(click.defaultPrevented).toBe(true);
   });
 
   it("keeps the date cells as plain text with no note behind them", () => {

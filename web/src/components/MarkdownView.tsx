@@ -269,9 +269,18 @@ function TaskRowDateControl({
       disabled={mutation.isPending}
       data-empty={value === "" || undefined}
       // The cell wears the note's own type and hides the browser's picker indicator, so a click would
-      // otherwise land a caret in the date segments. showPicker opens the calendar the indicator would
-      // have opened, which keeps picking a date one click on what the cell already shows.
-      onClick={(event) => event.currentTarget.showPicker?.()}
+      // otherwise land in the date segments. showPicker opens the calendar the indicator would have
+      // opened, which keeps picking a date one click on what the cell already shows.
+      //
+      // The indicator we hide is a -webkit- pseudo, so Gecko still draws its own calendar button and
+      // toggles the picker from a system-group click listener — a second dispatch pass, after this
+      // handler. It would find the picker already open and close it. Cancelling the click makes that
+      // listener stand down (it returns early on defaultPrevented) and costs nothing elsewhere: no
+      // engine focuses a date segment on click, only on mousedown.
+      onClick={(event) => {
+        event.preventDefault();
+        event.currentTarget.showPicker?.();
+      }}
       onChange={(event) => mutation.mutate({ line: item.line, field, date: event.currentTarget.value })}
     />
   );
