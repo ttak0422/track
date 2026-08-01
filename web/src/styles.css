@@ -2330,7 +2330,32 @@ textarea.modal-input:focus-visible {
   left: 8px;
 }
 
-/* A collapsed thumbnail is inert: no grab cursor, the wheel scrolls the page. */
+/* A tall collapsed diagram stays at a readable scale and is clipped, so make both the continuation
+   and the way to reveal it unmistakable. The fade is purely visual and never intercepts input. */
+.mermaid-diagram[data-collapsed] .mermaid-fold {
+  top: auto;
+  bottom: 18px;
+  left: 50%;
+  z-index: 2;
+  width: auto;
+  min-width: max-content;
+  padding: 0 10px;
+  gap: 6px;
+  transform: translateX(-50%);
+}
+
+.mermaid-continuation {
+  position: absolute;
+  right: 14px;
+  bottom: 14px;
+  left: 14px;
+  height: 96px;
+  z-index: 1;
+  pointer-events: none;
+  background: linear-gradient(to bottom, transparent, var(--panel) 78%);
+}
+
+/* A collapsed preview is inert: no grab cursor, the wheel scrolls the page. */
 .mermaid-viewport[data-collapsed] {
   cursor: default;
   touch-action: auto;

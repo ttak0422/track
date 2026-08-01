@@ -3,6 +3,7 @@ import { afterEach, beforeAll, describe, expect, it, vi } from "vitest";
 import {
   computeCollapsedFit,
   computeFit,
+  DiagramFrame,
   isDarkColor,
   MermaidDiagram,
   mermaidConfig,
@@ -105,6 +106,53 @@ describe("MermaidDiagram", () => {
   });
 });
 
+describe("DiagramFrame tall-diagram preview", () => {
+  it("keeps text at the normal fit scale and reveals the rest through an explicit control", () => {
+    const clientWidth = vi
+      .spyOn(HTMLElement.prototype, "clientWidth", "get")
+      .mockReturnValue(500);
+    const offsetWidth = vi
+      .spyOn(HTMLElement.prototype, "offsetWidth", "get")
+      .mockImplementation(function (this: HTMLElement) {
+        return this.classList.contains("mermaid-pan") ? 400 : 0;
+      });
+    const offsetHeight = vi
+      .spyOn(HTMLElement.prototype, "offsetHeight", "get")
+      .mockImplementation(function (this: HTMLElement) {
+        return this.classList.contains("mermaid-pan") ? 2200 : 0;
+      });
+
+    const { container } = render(
+      <DiagramFrame
+        state={{ status: "ready", svg: '<svg viewBox="0 0 400 2200"></svg>' }}
+        source="graph TD"
+        sourceLang="mermaid"
+        label="Tall diagram"
+      />,
+    );
+
+    const viewport = container.querySelector(".mermaid-viewport") as HTMLElement;
+    const pan = screen.getByRole("img", { name: "Tall diagram" });
+    expect(viewport).toHaveAttribute("data-collapsed");
+    expect(viewport.style.height).toBe("320px");
+    expect(pan.style.transform).toBe("translate(50px, 0px) scale(1)");
+    expect(container.querySelector(".mermaid-continuation")).toBeInTheDocument();
+
+    const expand = screen.getByRole("button", { name: "Expand diagram" });
+    expect(expand).toHaveTextContent("Show full diagram");
+    fireEvent.click(expand);
+
+    expect(viewport).not.toHaveAttribute("data-collapsed");
+    expect(viewport.style.height).toBe("2200px");
+    expect(container.querySelector(".mermaid-continuation")).not.toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Zoom in" })).toBeInTheDocument();
+
+    clientWidth.mockRestore();
+    offsetWidth.mockRestore();
+    offsetHeight.mockRestore();
+  });
+});
+
 describe("mermaidConfig dark mode", () => {
   it("classifies theme surfaces by luminance", () => {
     expect(isDarkColor("#161814")).toBe(true); // dark theme --bg
@@ -143,12 +191,12 @@ describe("computeFit", () => {
 });
 
 describe("computeCollapsedFit", () => {
-  it("fits a tall diagram whole inside the collapsed height", () => {
-    // 400x2200 at 500 wide: the width fit (scale 1) would be 2200 tall; collapsed caps at 220.
+  it("keeps a tall diagram readable and clips only the viewport", () => {
+    // 400x2200 at 500 wide fits at scale 1; the collapsed preview shows its first 320px.
     const { transform, height } = computeCollapsedFit(400, 2200, 500);
-    expect(transform.scale).toBeCloseTo(0.1); // 220 / 2200
-    expect(height).toBeCloseTo(220);
-    expect(transform.x).toBeCloseTo((500 - 400 * 0.1) / 2);
+    expect(transform.scale).toBeCloseTo(1);
+    expect(height).toBeCloseTo(320);
+    expect(transform.x).toBeCloseTo(50);
   });
 
   it("never scales wider than the normal width fit", () => {
