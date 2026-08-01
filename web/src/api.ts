@@ -5,6 +5,7 @@ import type {
   ActivityResponse,
   AgendaResponse,
   AssetUploadResponse,
+  DateField,
   DeleteNoteResponse,
   FollowResponse,
   Graph,
@@ -273,7 +274,7 @@ export function saveNoteMeta(noteID: NoteID, request: SaveNoteMetaRequest): Prom
 export function setTaskDate(
   noteID: NoteID,
   line: number,
-  field: "sched" | "due",
+  field: DateField,
   date: string,
   expect = "",
 ): Promise<TasksResponse> {

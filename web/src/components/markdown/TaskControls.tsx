@@ -4,7 +4,7 @@ import { TaskBoardContext } from "./context";
 import { useSetTaskDateMutation, useSetTaskStateMutation } from "../../queries";
 import { STATIC_MODE } from "../../runtime";
 import { taskStates } from "../../taskStates";
-import type { NoteID, TaskItem } from "../../types";
+import type { DateField, NoteID, TaskItem } from "../../types";
 
 // The write UI a rendered body carries: the tickable plain checkbox of a GFM checklist, and the
 // notation table's state and date cells. Each one resolves the line it was rendered from back to the
@@ -68,7 +68,7 @@ function TaskCheckControl({ noteID, item }: { noteID: NoteID; item: TaskItem }) 
 // can be written it is a native date input styled down to look like that same text, so picking a
 // date is a click on what it shows rather than a separate editing mode. An empty cell shows nothing
 // until the row is hovered or focused (the CSS reveals it), so an untouched table stays quiet.
-function TaskRowDate({ field, value, line }: { field: "sched" | "due"; value: string; line: number }) {
+function TaskRowDate({ field, value, line }: { field: DateField; value: string; line: number }) {
   const { noteID, item } = useTaskAtLine(line);
   const marker = field === "sched" ? "▷" : "!";
   if (!item) {
@@ -85,7 +85,7 @@ function TaskRowDateControl({
 }: {
   noteID: NoteID;
   item: TaskItem;
-  field: "sched" | "due";
+  field: DateField;
   value: string;
 }) {
   const mutation = useSetTaskDateMutation(noteID);
@@ -166,7 +166,7 @@ type TaskRowProps = { line?: unknown; state?: unknown; done?: unknown; sched?: u
 // note keeps its order); STATE sorts by the state-set order, the date columns sort empties last, and
 // a third click on a header returns to the source order.
 export function TaskTable({ node, children }: ElementProps) {
-  const [sort, setSort] = useState<{ key: "state" | "sched" | "due"; asc: boolean } | null>(null);
+  const [sort, setSort] = useState<{ key: "state" | DateField; asc: boolean } | null>(null);
   const rowNodes = (node?.children ?? []).filter((c): c is Element => c.type === "element");
   const rowEls = (Array.isArray(children) ? children : [children]).filter((c) => typeof c !== "string");
   let order = rowNodes.map((_, i) => i);
@@ -191,7 +191,7 @@ export function TaskTable({ node, children }: ElementProps) {
       return asc ? cmp : -cmp;
     });
   }
-  const header = (key: "state" | "sched" | "due", label: string) => (
+  const header = (key: "state" | DateField, label: string) => (
     <th>
       <button
         type="button"

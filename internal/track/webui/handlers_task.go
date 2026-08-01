@@ -115,9 +115,9 @@ func (s *Server) handleTaskSet(v *vaultView, w http.ResponseWriter, r *http.Requ
 			dateExpect = ""
 		}
 		for _, patch := range []struct {
-			field string
+			field task.DateField
 			value *string
-		}{{"sched", req.Sched}, {"due", req.Due}} {
+		}{{task.SchedField, req.Sched}, {task.DueField, req.Due}} {
 			if patch.value == nil {
 				continue
 			}

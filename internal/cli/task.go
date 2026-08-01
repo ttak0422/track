@@ -283,8 +283,8 @@ func cmdTaskDate(args []string) int {
 	}
 
 	var t task.Task
-	for _, field := range []string{"sched", "due"} {
-		value, ok := given[field]
+	for _, field := range []task.DateField{task.SchedField, task.DueField} {
+		value, ok := given[string(field)]
 		if !ok {
 			continue
 		}

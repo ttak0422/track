@@ -91,7 +91,7 @@ func ApplyTaskState(cfg *config.Config, notePath string, line int, state, expect
 // ponytail: asserting the state catches a concurrent state change, not a concurrent line shift —
 // an inserted line above makes `line` a different task, and if that task is in the expected state
 // too the guard passes. Assert the task text if that ever bites.
-func ApplyTaskDate(notePath string, line int, field, date, expect string) (task.Task, error) {
+func ApplyTaskDate(notePath string, line int, field task.DateField, date, expect string) (task.Task, error) {
 	raw, err := os.ReadFile(notePath)
 	if err != nil {
 		return task.Task{}, fmt.Errorf("read note: %w", err)

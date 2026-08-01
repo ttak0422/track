@@ -25,7 +25,7 @@ import {
 } from "./api";
 import { STATIC_MODE } from "./runtime";
 import { useDebouncedValue } from "./hooks/useDebouncedValue";
-import type { NoteID, NoteMetaResponse, NoteResponse, SaveNoteMetaRequest, SaveNoteRequest } from "./types";
+import type { DateField, NoteID, NoteMetaResponse, NoteResponse, SaveNoteMetaRequest, SaveNoteRequest } from "./types";
 
 export const queryKeys = {
   site: () => ["site"] as const,
@@ -305,7 +305,7 @@ export function useSetTaskDateMutation(noteID: NoteID) {
       expect,
     }: {
       line: number;
-      field: "sched" | "due";
+      field: DateField;
       date: string;
       expect?: string;
     }) => setTaskDate(noteID, line, field, date, expect),
