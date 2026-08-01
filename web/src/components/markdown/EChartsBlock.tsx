@@ -193,13 +193,10 @@ export function EChartsBlock({ option }: EChartsBlockProps) {
       ref={containerRef}
       className="viewspec-chart"
       role="img"
-      aria-label="Chart"
+      aria-label={chartAriaLabel(option)}
       style={aboveHeight > 0 ? { height: CHART_BASE_HEIGHT + aboveHeight } : undefined}
     />
   );
-  if (rail.boxes.length === 0) {
-    return chartHost;
-  }
   // The bands are siblings of the role="img" host (not children): their links stay visible to
   // assistive tech, and the wheel/pinch listeners above keep their scope. Boxes alternate between
   // the above and below bands (railSide); the above band overlays the strip reserved between the
@@ -207,17 +204,32 @@ export function EChartsBlock({ option }: EChartsBlockProps) {
   return (
     <figure className="viewspec-chart-wrap">
       {chartHost}
-      <MarkerRail
-        boxes={rail.boxes}
-        layout={layout}
-        anchors={anchors}
-        side="above"
-        width={width}
-        offsetTop={baseGridTop}
-      />
-      <MarkerRail boxes={rail.boxes} layout={layout} anchors={anchors} side="below" width={width} />
+      {rail.boxes.length > 0 ? (
+        <>
+          <MarkerRail
+            boxes={rail.boxes}
+            layout={layout}
+            anchors={anchors}
+            side="above"
+            width={width}
+            offsetTop={baseGridTop}
+          />
+          <MarkerRail boxes={rail.boxes} layout={layout} anchors={anchors} side="below" width={width} />
+        </>
+      ) : null}
     </figure>
   );
+}
+
+// ECharts accepts one title object or an array. Prefer the first non-empty title, keeping a useful
+// generic fallback for intentionally untitled charts.
+export function chartAriaLabel(option: Record<string, unknown>): string {
+  const titles = Array.isArray(option.title) ? option.title : [option.title];
+  for (const title of titles) {
+    const text = (title as { text?: unknown } | undefined)?.text;
+    if (typeof text === "string" && text.trim() !== "") return text.trim();
+  }
+  return "Data visualization";
 }
 
 // gridTopOf reads the option's grid.top (the plot's top edge — where the above annotation band

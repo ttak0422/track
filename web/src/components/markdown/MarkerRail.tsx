@@ -11,7 +11,8 @@ export interface RailBox {
 }
 
 export const BOX_WIDTH = 160;
-export const LANE_HEIGHT = 76;
+// Four lines of headline plus date/source chrome fit without colliding with the next lane.
+export const LANE_HEIGHT = 114;
 export const RAIL_TOP = 10;
 const LANE_GAP = 8;
 const MAX_LANES = 6;
