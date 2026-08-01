@@ -1,12 +1,26 @@
 package render
 
 import (
+	"encoding/json"
 	"math"
 	"strings"
 	"testing"
 
 	"github.com/ttak0422/track/internal/track/viewspec"
 )
+
+func echartsOptionForTest(t *testing.T, res viewspec.Resolved) map[string]any {
+	t.Helper()
+	out, err := EChartsOptionJSON(res)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var opt map[string]any
+	if err := json.Unmarshal([]byte(out), &opt); err != nil {
+		t.Fatalf("decode option: %v", err)
+	}
+	return opt
+}
 
 func resolvedChart(t viewspec.ChartType, label string, vals []float64) viewspec.Resolved {
 	return viewspec.Resolved{
@@ -346,6 +360,107 @@ func TestEChartsComboDrawsPerSeriesForms(t *testing.T) {
 	}
 	if !strings.Contains(out, `"type":"bar"`) || !strings.Contains(out, `"type":"line"`) {
 		t.Fatalf("combo should mix series types: %s", out)
+	}
+}
+
+func TestEChartsCategoryAxesFollowSeriesForms(t *testing.T) {
+	t.Run("line uses its data range", func(t *testing.T) {
+		opt := echartsOptionForTest(t, resolvedChart(viewspec.ChartLine, "index", []float64{98, 102}))
+		x := opt["xAxis"].(map[string]any)
+		y := opt["yAxis"].([]any)[0].(map[string]any)
+		if x["boundaryGap"] != false || y["scale"] != true {
+			t.Fatalf("line should use an edge-to-edge category axis and scaled value axis: x=%v y=%v", x, y)
+		}
+		gap := y["boundaryGap"].([]any)
+		if gap[0] != "6%" || gap[1] != "12%" {
+			t.Fatalf("scaled line axis should have breathing room on both ends: %v", gap)
+		}
+	})
+
+	t.Run("area keeps its baseline", func(t *testing.T) {
+		opt := echartsOptionForTest(t, resolvedChart(viewspec.ChartArea, "amount", []float64{98, 102}))
+		x := opt["xAxis"].(map[string]any)
+		y := opt["yAxis"].([]any)[0].(map[string]any)
+		if x["boundaryGap"] != true {
+			t.Fatalf("area should retain category-edge padding: %v", x)
+		}
+		if _, ok := y["scale"]; ok {
+			t.Fatalf("area should retain its zero baseline: %v", y)
+		}
+		if got := y["boundaryGap"].([]any)[0]; got != float64(0) {
+			t.Fatalf("baseline form should not add lower value-axis padding: %v", y)
+		}
+	})
+
+	t.Run("each value axis is classified independently", func(t *testing.T) {
+		res := viewspec.Resolved{
+			Spec: viewspec.Spec{}, Chart: viewspec.ChartBar, Labels: []string{"a", "b"},
+			Series: []viewspec.Series{
+				{Label: "index", Values: []float64{98, 102}, Mark: viewspec.ChartLine},
+				{Label: "volume", Values: []float64{10, 20}, Axis: "y2", Mark: viewspec.ChartBar},
+			},
+		}
+		opt := echartsOptionForTest(t, res)
+		axes := opt["yAxis"].([]any)
+		primary := axes[0].(map[string]any)
+		secondary := axes[1].(map[string]any)
+		if primary["scale"] != true {
+			t.Fatalf("line-only primary axis should scale: %v", primary)
+		}
+		if _, ok := secondary["scale"]; ok {
+			t.Fatalf("bar-bearing secondary axis should keep its baseline: %v", secondary)
+		}
+	})
+}
+
+func TestEChartsLegendAndSingleSeriesLabel(t *testing.T) {
+	t.Run("single series moves its label to its value axis", func(t *testing.T) {
+		primary := echartsOptionForTest(t, resolvedChart(viewspec.ChartLine, "index", []float64{1, 2}))
+		if _, ok := primary["legend"]; ok {
+			t.Fatalf("single-series chart should not spend a row on a legend: %v", primary["legend"])
+		}
+		if got := primary["yAxis"].([]any)[0].(map[string]any)["name"]; got != "index" {
+			t.Fatalf("single series should label its primary value axis, got %v", got)
+		}
+
+		secondaryRes := resolvedChart(viewspec.ChartLine, "rate", []float64{1, 2})
+		secondaryRes.Series[0].Axis = "y2"
+		secondary := echartsOptionForTest(t, secondaryRes)
+		axes := secondary["yAxis"].([]any)
+		if _, ok := axes[0].(map[string]any)["name"]; ok {
+			t.Fatalf("a y2 series must not label the primary axis: %v", axes[0])
+		}
+		if got := axes[1].(map[string]any)["name"]; got != "rate" {
+			t.Fatalf("single y2 series should label the secondary value axis, got %v", got)
+		}
+	})
+
+	t.Run("multiple series use a compact scrolling legend", func(t *testing.T) {
+		res := resolvedChart(viewspec.ChartLine, "a", []float64{1, 2})
+		res.Series = append(res.Series, viewspec.Series{Label: "b", Values: []float64{2, 3}})
+		opt := echartsOptionForTest(t, res)
+		legend := opt["legend"].(map[string]any)
+		grid := opt["grid"].(map[string]any)
+		if legend["type"] != "scroll" || legend["top"] != float64(34) || grid["top"] != float64(62) {
+			t.Fatalf("title legend should scroll in the compact header: legend=%v grid=%v", legend, grid)
+		}
+	})
+}
+
+func TestEChartsGridBottomLeavesRoomOnlyForSlider(t *testing.T) {
+	sparse := echartsOptionForTest(t, resolvedChart(viewspec.ChartLine, "S", []float64{1, 2}))
+	if got := sparse["grid"].(map[string]any)["bottom"]; got != float64(24) {
+		t.Fatalf("non-slider chart should use compact bottom spacing, got %v", got)
+	}
+
+	labels := make([]string, dataZoomSliderThreshold+1)
+	values := make([]float64, len(labels))
+	dense := echartsOptionForTest(t, viewspec.Resolved{
+		Spec: viewspec.Spec{}, Chart: viewspec.ChartLine, Labels: labels,
+		Series: []viewspec.Series{{Label: "S", Values: values}},
+	})
+	if got := dense["grid"].(map[string]any)["bottom"]; got != float64(64) {
+		t.Fatalf("slider should retain its larger bottom spacing, got %v", got)
 	}
 }
 

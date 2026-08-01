@@ -167,6 +167,9 @@ func applyDataZoom(opt map[string]any, res viewspec.Resolved) {
 		// (pinch and the slider still work unmodified).
 		"zoomOnMouseWheel": "shift",
 	}}
+	// ECharts' default leaves a disproportionately deep empty band under short category charts.
+	// Dense charts overwrite this below when the visible slider needs its own strip.
+	gridOf(opt)["bottom"] = 24
 	if len(res.Labels) > dataZoomSliderThreshold {
 		// The slider owns the bottom edge (the legend sits up top); the grid shrinks so the x labels
 		// keep their room.
@@ -186,11 +189,13 @@ func applyLegend(opt map[string]any, labels []string) {
 	if len(labels) == 0 {
 		return
 	}
-	top, gridTop := 4, 56
+	top, gridTop := 4, 30
 	if _, ok := opt["title"]; ok {
-		top, gridTop = 40, 96
+		top, gridTop = 34, 62
 	}
-	opt["legend"] = map[string]any{"data": labels, "top": top, "left": echartsInset}
+	opt["legend"] = map[string]any{
+		"data": labels, "type": "scroll", "top": top, "left": echartsInset, "right": echartsInset,
+	}
 	gridOf(opt)["top"] = gridTop
 }
 
@@ -207,7 +212,24 @@ func gridOf(opt map[string]any) map[string]any {
 
 // buildSeriesChart handles the shared category-x forms: line, area, bar, and scatter.
 func buildSeriesChart(opt map[string]any, res viewspec.Resolved) {
-	opt["xAxis"] = map[string]any{"type": "category", "data": res.Labels}
+	axisHasBaselineForm := [2]bool{}
+	axisHasSeries := [2]bool{}
+	for i, s := range res.Series {
+		axis := 0
+		if s.Axis == "y2" {
+			axis = 1
+		}
+		axisHasSeries[axis] = true
+		form := res.SeriesForm(i)
+		if form != viewspec.ChartLine && form != viewspec.ChartScatter {
+			axisHasBaselineForm[axis] = true
+		}
+	}
+	// Line/scatter-only category plots meet the edge of the category range. Bars and areas need the
+	// half-category padding so their first and last marks are not clipped.
+	opt["xAxis"] = map[string]any{
+		"type": "category", "data": res.Labels, "boundaryGap": axisHasBaselineForm[0] || axisHasBaselineForm[1],
+	}
 
 	usesY2 := false
 	for _, s := range res.Series {
@@ -215,15 +237,25 @@ func buildSeriesChart(opt map[string]any, res viewspec.Resolved) {
 			usesY2 = true
 		}
 	}
-	// Headroom above the data max keeps overlay callouts and band labels from piling into the
-	// legend row at the plot's top edge (static percentages; min stays pinned for bar baselines).
-	headroom := []any{0, "12%"}
-	yAxes := []any{map[string]any{"type": "value", "boundaryGap": headroom}}
+	valueAxis := func(axis int) map[string]any {
+		out := map[string]any{"type": "value"}
+		if axisHasSeries[axis] && !axisHasBaselineForm[axis] {
+			// Comparisons between nearby values need their data range, rather than an unrelated zero
+			// baseline. Symmetric lower breathing room also keeps the first point off the plot edge.
+			out["scale"] = true
+			out["boundaryGap"] = []any{"6%", "12%"}
+		} else {
+			// Bar and area encode magnitude from their baseline, so zero remains visually meaningful.
+			out["boundaryGap"] = []any{0, "12%"}
+		}
+		return out
+	}
+	yAxes := []any{valueAxis(0)}
 	if usesY2 {
 		// Keep the secondary axis's gridlines off the chart area so the two scales don't collide.
-		yAxes = append(yAxes, map[string]any{
-			"type": "value", "boundaryGap": headroom, "splitLine": map[string]any{"show": false},
-		})
+		secondary := valueAxis(1)
+		secondary["splitLine"] = map[string]any{"show": false}
+		yAxes = append(yAxes, secondary)
 	}
 	opt["yAxis"] = yAxes
 
@@ -258,7 +290,15 @@ func buildSeriesChart(opt map[string]any, res viewspec.Resolved) {
 		legend = append(legend, s.Label)
 	}
 	opt["series"] = series
-	applyLegend(opt, legend)
+	if len(legend) == 1 {
+		axis := 0
+		if res.Series[0].Axis == "y2" {
+			axis = 1
+		}
+		yAxes[axis].(map[string]any)["name"] = legend[0]
+	} else {
+		applyLegend(opt, legend)
+	}
 }
 
 // seriesData emits a series' data items: bare numbers normally, {value, ...} objects when the spec's
