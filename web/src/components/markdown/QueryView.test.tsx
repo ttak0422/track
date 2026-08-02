@@ -27,6 +27,23 @@ function fence(payload: unknown): string {
 }
 
 describe("QueryView", () => {
+  it("renders a list payload without table chrome", () => {
+    const { container } = renderWithQuery(
+      <MarkdownView
+        markdown={fence({
+          layout: "list",
+          columns: ["title"],
+          groups: [{ rows: [{ title: "Alpha", cells: ["Alpha"] }, { title: "Beta", cells: ["Beta"] }] }],
+        })}
+      />
+    );
+    const list = container.querySelector(".query-list");
+    expect(list).not.toBeNull();
+    expect(list?.querySelectorAll(".query-list-item")).toHaveLength(2);
+    expect(list?.textContent).toContain("Alpha");
+    expect(container.querySelector("table")).toBeNull();
+  });
+
   it("renders a board payload as lanes of cards", () => {
     const { container } = renderWithQuery(
       <MarkdownView
@@ -51,6 +68,23 @@ describe("QueryView", () => {
     expect(card?.textContent).toContain("due");
     expect(card?.textContent).toContain("2026-07-02");
     expect(card?.textContent).not.toContain("state");
+  });
+
+  it("keeps the card link while hiding a card title", () => {
+    const { container } = renderWithQuery(
+      <MarkdownView
+        markdown={fence({
+          layout: "board",
+          showTitle: false,
+          key: "state",
+          columns: ["title", "state"],
+          groups: [{ name: "todo", rows: [{ title: "Alpha", cells: ["Alpha", "todo"] }] }],
+        })}
+      />
+    );
+    const title = container.querySelector(".query-card-title-hidden");
+    expect(title).not.toBeNull();
+    expect(title?.querySelector(".wiki-link")).not.toBeNull();
   });
 
   it("renders a gallery payload with covers served as assets", () => {

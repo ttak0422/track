@@ -3357,7 +3357,7 @@ textarea.modal-input:focus-visible {
 }
 
 /* Query layouts (```track-query :layout ...): the engine lays the result out into a ```track-view
-   payload; these style its three shapes. Cards share one quiet panel look; the calendar layout
+   payload; these style its four shapes. Cards share one quiet panel look; the calendar layout
    reuses the workspace calendar's grid styles above. */
 .query-view {
   margin: 12px 0;
@@ -3399,6 +3399,28 @@ textarea.modal-input:focus-visible {
   line-height: 1.35;
 }
 
+/* A hidden card title still owns the stretched link above the card. Keeping the anchor in the
+   document preserves keyboard and screen-reader navigation while the card's other content carries
+   the visible identity. */
+.query-card-title-hidden {
+  display: block;
+  height: 0;
+  line-height: 0;
+  overflow: visible;
+}
+
+.query-card-title-hidden .wiki-link {
+  color: transparent;
+}
+
+.query-card-title-hidden .wiki-link:focus-visible {
+  color: var(--accent);
+  font-size: 1rem;
+  line-height: 1.35;
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+
 .query-card-meta {
   font-size: calc(12px * var(--font-scale, 1));
   color: var(--muted);
@@ -3412,6 +3434,49 @@ textarea.modal-input:focus-visible {
 }
 
 .query-card-meta-key::after {
+  content: ":";
+}
+
+/* List: the title link is the row's primary content, so there is no redundant `title` table
+   header. Additional query columns remain as compact metadata. */
+.query-list {
+  margin: 12px 0;
+  padding: 0;
+  list-style: none;
+}
+
+.query-list-item {
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
+  min-width: 0;
+  padding: 7px 2px;
+  border-bottom: 1px solid var(--line);
+}
+
+.query-list-item:first-child {
+  border-top: 1px solid var(--line);
+}
+
+.query-list-title {
+  min-width: 0;
+  font-weight: 600;
+}
+
+.query-list-meta {
+  min-width: 0;
+  overflow: hidden;
+  color: var(--muted);
+  font-size: calc(12px * var(--font-scale, 1));
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.query-list-meta-key {
+  opacity: 0.75;
+}
+
+.query-list-meta-key::after {
   content: ":";
 }
 

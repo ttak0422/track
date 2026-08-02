@@ -33,7 +33,7 @@ func buildView(t *testing.T, layout, by, expr string, meta func(int64) (string, 
 	if err != nil {
 		t.Fatalf("parse %q: %v", expr, err)
 	}
-	v, err := BuildView(layout, by, Run(q, viewRows()), meta)
+	v, err := BuildView(layout, by, Run(q, viewRows()), meta, ViewOptions{ShowTitle: true})
 	if err != nil {
 		t.Fatalf("BuildView(%s): %v", layout, err)
 	}
@@ -79,10 +79,10 @@ func TestBoardDefaultsToFirstNonTitleColumn(t *testing.T) {
 	if v.Key != "state" {
 		t.Fatalf("default key = %q, want state", v.Key)
 	}
-	if _, err := BuildView("board", "", Result{Columns: []string{"title"}, Rows: []Row{{Title: "x", Cells: []string{"x"}}}}, nil); err == nil {
+	if _, err := BuildView("board", "", Result{Columns: []string{"title"}, Rows: []Row{{Title: "x", Cells: []string{"x"}}}}, nil, ViewOptions{ShowTitle: true}); err == nil {
 		t.Fatal("board over only title must error")
 	}
-	if _, err := BuildView("board", "owner", Result{Columns: []string{"title"}, Rows: []Row{{Title: "x", Cells: []string{"x"}}}}, nil); err == nil {
+	if _, err := BuildView("board", "owner", Result{Columns: []string{"title"}, Rows: []Row{{Title: "x", Cells: []string{"x"}}}}, nil, ViewOptions{ShowTitle: true}); err == nil {
 		t.Fatal(":by outside TABLE columns must error")
 	}
 }
@@ -111,6 +111,19 @@ func TestGalleryCarriesCoversAndIcons(t *testing.T) {
 	}
 }
 
+func TestListKeepsRowsInQueryOrderWithoutGrouping(t *testing.T) {
+	v := buildView(t, "list", "", "TABLE title", nil)
+	if v.Key != "" || !v.ShowTitle {
+		t.Fatalf("list view = %+v", v)
+	}
+	if len(v.Groups) != 1 {
+		t.Fatalf("list groups = %+v", v.Groups)
+	}
+	if got := groupTitles(v.Groups[0]); !reflect.DeepEqual(got, []string{"Alpha", "Beta", "Gamma", "Delta"}) {
+		t.Fatalf("list rows = %v", got)
+	}
+}
+
 func TestCalendarBucketsByDayAscending(t *testing.T) {
 	v := buildView(t, "calendar", "props.due", "TABLE title, props.due SORT props.due DESC", nil)
 	// Days sort ascending regardless of query SORT; the datetime value lands on its day; the
@@ -135,11 +148,34 @@ func TestExpandBlocksLayouts(t *testing.T) {
 	if v.Layout != "board" || len(v.Groups) != 3 {
 		t.Fatalf("view = %+v", v)
 	}
+	if !v.ShowTitle {
+		t.Fatal("default card title should be visible")
+	}
+
+	got = ExpandBlocks("```track-query :layout list\nTABLE title\n```", nil, viewRows(), nil)
+	var list View
+	if err := json.Unmarshal([]byte(strings.Split(got, "\n")[1]), &list); err != nil {
+		t.Fatalf("list fence body is not View JSON: %v", err)
+	}
+	if list.Layout != "list" || len(list.Groups) != 1 || len(list.Groups[0].Rows) != 4 {
+		t.Fatalf("list view = %+v", list)
+	}
+
+	got = ExpandBlocks("```track-query :layout gallery :title hide\nTABLE title\n```", nil, viewRows(), nil)
+	var hidden View
+	if err := json.Unmarshal([]byte(strings.Split(got, "\n")[1]), &hidden); err != nil {
+		t.Fatalf("hidden-title fence body is not View JSON: %v", err)
+	}
+	if hidden.ShowTitle {
+		t.Fatal("gallery :title hide should hide the visible card title")
+	}
 
 	// An unknown layout and a bad :by degrade to the inline error, keeping the source visible.
 	for _, body := range []string{
 		"```track-query :layout waterfall\nTABLE title\n```",
 		"```track-query :layout board :by props.owner\nTABLE title, props.state\n```",
+		"```track-query :layout list :title hide\nTABLE title\n```",
+		"```track-query :layout board :title maybe\nTABLE title, props.state\n```",
 	} {
 		if got := ExpandBlocks(body, nil, viewRows(), nil); !strings.Contains(got, "> Query error:") {
 			t.Fatalf("expected inline error for %q, got:\n%s", body, got)

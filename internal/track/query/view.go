@@ -8,7 +8,7 @@ import (
 )
 
 // ViewFenceLang is the fence language ExpandBlocks emits for a non-table layout: the body is a
-// ready-to-draw View JSON that the frontend renders as a board, gallery, or calendar — mirroring how
+// ready-to-draw View JSON that the frontend renders as a list, board, gallery, or calendar — mirroring how
 // a ```viewspec fence resolves into a ```echarts option block. Layout semantics (grouping, date
 // bucketing, covers) are decided here in the engine, so the live workspace and the static export draw
 // the same thing from the same payload.
@@ -18,10 +18,18 @@ const ViewFenceLang = "track-view"
 // marshaled into a ```track-view fence. Rows link by title (never by internal note id), so a
 // published view exposes exactly what a published table does.
 type View struct {
-	Layout  string      `json:"layout"` // "board", "gallery", or "calendar"
-	Key     string      `json:"key,omitempty"`
-	Columns []string    `json:"columns"`
-	Groups  []ViewGroup `json:"groups"`
+	Layout    string      `json:"layout"` // "list", "board", "gallery", or "calendar"
+	ShowTitle bool        `json:"showTitle"`
+	Key       string      `json:"key,omitempty"`
+	Columns   []string    `json:"columns"`
+	Groups    []ViewGroup `json:"groups"`
+}
+
+// ViewOptions controls presentation details that belong to a rendered view rather than to the
+// query result itself. ShowTitle defaults to true when BuildView is called without options, so old
+// callers retain the existing card presentation.
+type ViewOptions struct {
+	ShowTitle bool
 }
 
 // ViewGroup is one lane of a view: a board column (Name is the grouping value), a calendar day
@@ -49,14 +57,18 @@ var dayPrefix = regexp.MustCompile(`^\d{4}-\d{2}-\d{2}`)
 // BuildView distributes a query result into the groups of a layout. by names the grouping column
 // (board) or the date-valued column (calendar); empty defaults to the first non-title column. meta
 // supplies a note's cover image and icon for gallery cards (nil = neither).
-func BuildView(layout, by string, res Result, meta func(noteID int64) (cover, icon string)) (View, error) {
+func BuildView(layout, by string, res Result, meta func(noteID int64) (cover, icon string), options ...ViewOptions) (View, error) {
+	viewOptions := ViewOptions{ShowTitle: true}
+	if len(options) > 0 {
+		viewOptions = options[0]
+	}
 	// The View is a rendering payload, so its column/key labels are display form (props.status →
 	// status), matching the Markdown table header; :by still matches the raw query columns below.
 	display := make([]string, len(res.Columns))
 	for i, c := range res.Columns {
 		display[i] = displayKey(c)
 	}
-	v := View{Layout: layout, Columns: display, Groups: []ViewGroup{}}
+	v := View{Layout: layout, ShowTitle: viewOptions.ShowTitle, Columns: display, Groups: []ViewGroup{}}
 	if layout == "gallery" {
 		rows := make([]ViewRow, 0, len(res.Rows))
 		for _, r := range res.Rows {
@@ -65,6 +77,14 @@ func BuildView(layout, by string, res Result, meta func(noteID int64) (cover, ic
 				row.Cover, row.Icon = meta(r.NoteID)
 			}
 			rows = append(rows, row)
+		}
+		v.Groups = append(v.Groups, ViewGroup{Rows: rows})
+		return v, nil
+	}
+	if layout == "list" {
+		rows := make([]ViewRow, 0, len(res.Rows))
+		for _, r := range res.Rows {
+			rows = append(rows, ViewRow{Title: r.Title, Cells: r.Cells})
 		}
 		v.Groups = append(v.Groups, ViewGroup{Rows: rows})
 		return v, nil
@@ -81,7 +101,7 @@ func BuildView(layout, by string, res Result, meta func(noteID int64) (cover, ic
 	case "calendar":
 		v.Groups = calendarGroups(res, idx)
 	default:
-		return View{}, fmt.Errorf("unknown layout %q (table, board, gallery, calendar)", layout)
+		return View{}, fmt.Errorf("unknown layout %q (table, list, board, gallery, calendar)", layout)
 	}
 	return v, nil
 }
