@@ -364,6 +364,20 @@ func TestEChartsComboDrawsPerSeriesForms(t *testing.T) {
 }
 
 func TestEChartsCategoryAxesFollowSeriesForms(t *testing.T) {
+	t.Run("explicit domain pins the value axis", func(t *testing.T) {
+		res := resolvedChart(viewspec.ChartLine, "index", []float64{87, 101})
+		res.Spec.Encoding.Y = []viewspec.Channel{{Field: "value", Domain: []float64{80, 120}}}
+		opt := echartsOptionForTest(t, res)
+		y := opt["yAxis"].([]any)[0].(map[string]any)
+		if y["min"] != float64(80) || y["max"] != float64(120) || y["scale"] != true {
+			t.Fatalf("explicit domain not applied: %v", y)
+		}
+		gap := y["boundaryGap"].([]any)
+		if gap[0] != float64(0) || gap[1] != float64(0) {
+			t.Fatalf("explicit domain should not receive automatic padding: %v", gap)
+		}
+	})
+
 	t.Run("line uses its data range", func(t *testing.T) {
 		opt := echartsOptionForTest(t, resolvedChart(viewspec.ChartLine, "index", []float64{98, 102}))
 		x := opt["xAxis"].(map[string]any)

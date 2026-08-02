@@ -123,18 +123,20 @@ type Encoding struct {
 // ignored on non-y channels. Sort and Limit order and truncate the category axis (see SortOptions);
 // they are only accepted on the channel that supplies it. Stack stacks a bar's series and is only
 // accepted on the bar mark's measure channel. Scale selects the color ramp for a quantitative color
-// value (rect/treemap) and is only accepted there. Placement of these options is enforced by Validate,
-// so a misplaced option errors instead of being silently ignored.
+// value (rect/treemap) and is only accepted there. Domain pins a primary quantitative y axis to an
+// explicit [min,max]. Placement of these options is enforced by Validate, so a misplaced option
+// errors instead of being silently ignored.
 type Channel struct {
-	Field string      `json:"field"`
-	Title string      `json:"title,omitempty"`
-	Type  ChannelType `json:"type,omitempty"`
-	Axis  string      `json:"axis,omitempty"`
-	Sort  string      `json:"sort,omitempty"`  // category-axis order: ascending | descending | value | -value
-	Limit int         `json:"limit,omitempty"` // keep only the first N categories (after sort): top-N
-	Stack bool        `json:"stack,omitempty"` // bar mark: stack the series instead of grouping them
-	Mark  Mark        `json:"mark,omitempty"`  // y channels only: draw this series as line|bar|area (a combo chart)
-	Scale string      `json:"scale,omitempty"` // color channel on rect/treemap: "" (sequential) | "diverging"
+	Field  string      `json:"field"`
+	Title  string      `json:"title,omitempty"`
+	Type   ChannelType `json:"type,omitempty"`
+	Axis   string      `json:"axis,omitempty"`
+	Sort   string      `json:"sort,omitempty"`   // category-axis order: ascending | descending | value | -value
+	Limit  int         `json:"limit,omitempty"`  // keep only the first N categories (after sort): top-N
+	Stack  bool        `json:"stack,omitempty"`  // bar mark: stack the series instead of grouping them
+	Mark   Mark        `json:"mark,omitempty"`   // y channels only: draw this series as line|bar|area (a combo chart)
+	Scale  string      `json:"scale,omitempty"`  // color channel on rect/treemap: "" (sequential) | "diverging"
+	Domain []float64   `json:"domain,omitempty"` // quantitative y only: explicit [min,max] for its value axis
 
 	// Window replaces the series with its rolling mean over the last N records (a moving average,
 	// e.g. MA25 on a candlestick). The engine computes it in record order; the first N-1 points are
@@ -683,6 +685,24 @@ func (s Spec) validateChannelOptions() error {
 	}
 	labelName, stackName := s.labelChannelName(), s.stackChannelName()
 	for _, nc := range chans {
+		if len(nc.ch.Domain) > 0 {
+			if !strings.HasPrefix(nc.name, "encoding.y[") {
+				return fmt.Errorf("view spec: %s.domain applies only to a quantitative encoding.y channel", nc.name)
+			}
+			if nc.ch.nominal() {
+				return fmt.Errorf("view spec: %s.domain needs a quantitative channel", nc.name)
+			}
+			if nc.ch.Axis == "y2" {
+				return fmt.Errorf("view spec: %s.domain is not yet supported on y2 (the SVG renderer has one value scale)", nc.name)
+			}
+			if len(nc.ch.Domain) != 2 {
+				return fmt.Errorf("view spec: %s.domain must be [min,max]", nc.name)
+			}
+			lo, hi := nc.ch.Domain[0], nc.ch.Domain[1]
+			if math.IsNaN(lo) || math.IsNaN(hi) || math.IsInf(lo, 0) || math.IsInf(hi, 0) || lo >= hi {
+				return fmt.Errorf("view spec: %s.domain must contain two finite values with min < max", nc.name)
+			}
+		}
 		if nc.ch.Sort != "" {
 			if !slices.Contains(SortOptions, nc.ch.Sort) {
 				return fmt.Errorf("view spec: %s.sort %q is not one of %s", nc.name, nc.ch.Sort, strings.Join(SortOptions, " | "))
@@ -714,6 +734,49 @@ func (s Spec) validateChannelOptions() error {
 			if nc.name != "encoding.color" || (s.Mark != MarkRect && s.Mark != MarkTreemap) {
 				return fmt.Errorf("view spec: %s.scale applies only to encoding.color on mark rect or treemap (a quantitative cell value)", nc.name)
 			}
+		}
+	}
+	if err := s.validateAxisDomains(); err != nil {
+		return err
+	}
+	return nil
+}
+
+// validateAxisDomains makes an explicit quantitative range a property of one value axis, even
+// though authors place it on a y channel. Channels sharing an axis may omit the domain, but two
+// explicit declarations must agree. Baseline forms retain zero so bar lengths and area fills do not
+// float inside a truncated range.
+func (s Spec) validateAxisDomains() error {
+	type domain struct {
+		lo, hi float64
+		set    bool
+	}
+	domains := map[string]domain{}
+	baseline := map[string]bool{}
+	for i, y := range s.Encoding.Y {
+		axis := y.Axis
+		if axis == "" {
+			axis = "y"
+		}
+		form := s.Mark
+		if y.Mark != "" {
+			form = y.Mark
+		}
+		if form == MarkBar || form == MarkArea {
+			baseline[axis] = true
+		}
+		if len(y.Domain) == 0 {
+			continue
+		}
+		d := domain{lo: y.Domain[0], hi: y.Domain[1], set: true}
+		if prev := domains[axis]; prev.set && (prev.lo != d.lo || prev.hi != d.hi) {
+			return fmt.Errorf("view spec: encoding.y[%d].domain conflicts with another channel on axis %s", i, axis)
+		}
+		domains[axis] = d
+	}
+	for axis, d := range domains {
+		if baseline[axis] && (d.lo > 0 || d.hi < 0) {
+			return fmt.Errorf("view spec: axis %s domain [%g,%g] must include zero for bar/area series", axis, d.lo, d.hi)
 		}
 	}
 	return nil
@@ -1005,6 +1068,24 @@ func (r Resolved) SeriesForm(i int) ChartType {
 // option from one place.
 func (r Resolved) DivergingColor() bool {
 	return r.Spec.Encoding.Color != nil && r.Spec.Encoding.Color.Scale == ScaleDiverging
+}
+
+// AxisDomain returns the explicit [min,max] declared by any y channel on axis. Validation guarantees
+// that multiple declarations on the same axis agree.
+func (r Resolved) AxisDomain(axis string) (lo, hi float64, ok bool) {
+	if axis == "" {
+		axis = "y"
+	}
+	for _, y := range r.Spec.Encoding.Y {
+		yAxis := y.Axis
+		if yAxis == "" {
+			yAxis = "y"
+		}
+		if yAxis == axis && len(y.Domain) == 2 {
+			return y.Domain[0], y.Domain[1], true
+		}
+	}
+	return 0, 0, false
 }
 
 // Resolve applies the spec's filter and encoding to records, producing the resolved drawing form and

@@ -41,6 +41,9 @@ func seriesColor(i int) string { return seriesPalette[i%len(seriesPalette)] }
 
 // Render produces a complete SVG document for the resolved spec.
 func (SVG) Render(res viewspec.Resolved) (string, error) {
+	if err := validateAxisDomains(res); err != nil {
+		return "", err
+	}
 	switch res.Chart {
 	case viewspec.ChartBubble:
 		return renderBubble(res), nil
@@ -75,6 +78,9 @@ func (SVG) Render(res viewspec.Resolved) (string, error) {
 // bars span the per-category stack totals instead of individual values. A degenerate (zero-width)
 // range is padded so the chart still has height.
 func valueRange(res viewspec.Resolved) (lo, hi float64) {
+	if lo, hi, ok := res.AxisDomain("y"); ok {
+		return lo, hi
+	}
 	if res.Stacked {
 		return stackedValueRange(res)
 	}
