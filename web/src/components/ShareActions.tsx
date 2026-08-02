@@ -12,9 +12,10 @@ export function publishedNoteURL(noteID: NoteID, baseURL?: string): string {
 }
 
 function xIntentURL(url: string, title: string): string {
+  // The URL rides in text so a blank line separates it from the title; a
+  // separate url param would make X append the link a second time.
   const params = new URLSearchParams({
-    url,
-    text: title,
+    text: `${title}\n\n${url}`,
   });
   return `https://x.com/intent/tweet?${params.toString()}`;
 }
