@@ -37,7 +37,7 @@ describe("NoteRailControls", () => {
   it("shows the open note's controls once it registers", async () => {
     renderRail(noopActions);
     expect(await screen.findByRole("button", { name: "Preview" })).toBeInTheDocument();
-    for (const name of ["Follow the editor", "Preview", "Edit", "Split", "More actions"]) {
+    for (const name of ["Follow the editor: Off", "Preview", "Edit", "Split", "More actions"]) {
       expect(screen.getByRole("button", { name })).toBeInTheDocument();
     }
   });
@@ -57,10 +57,13 @@ describe("NoteRailControls", () => {
   it("toggles follow, which the note view reads back", async () => {
     const seen: string[] = [];
     renderRail(noopActions, (s) => seen.push(s));
-    const follow = await screen.findByRole("button", { name: "Follow the editor" });
+    const follow = await screen.findByRole("button", { name: "Follow the editor: Off" });
     expect(follow).toHaveAttribute("aria-pressed", "false");
+    expect(follow.querySelector("svg")).toHaveAttribute("data-state", "off");
     fireEvent.click(follow);
-    expect(screen.getByRole("button", { name: "Follow the editor" })).toHaveAttribute("aria-pressed", "true");
+    const activeFollow = screen.getByRole("button", { name: "Follow the editor: On" });
+    expect(activeFollow).toHaveAttribute("aria-pressed", "true");
+    expect(activeFollow.querySelector("svg")).toHaveAttribute("data-state", "on");
     expect(seen.at(-1)).toBe("preview/true");
   });
 

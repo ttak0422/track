@@ -9,6 +9,8 @@ export function NoteRailControls() {
   const { mode, setMode, follow, setFollow, actions } = useNoteControls();
   if (!actions) return null;
 
+  const followLabel = `Follow the editor: ${follow ? "On" : "Off"}`;
+
   return (
     <>
       <div className="rail-divider" />
@@ -16,11 +18,11 @@ export function NoteRailControls() {
         className={`rail-button${follow ? " active" : ""}`}
         type="button"
         aria-pressed={follow}
-        aria-label="Follow the editor"
-        title="Follow the editor"
+        aria-label={followLabel}
+        title={followLabel}
         onClick={() => setFollow(!follow)}
       >
-        <FollowIcon />
+        <FollowIcon active={follow} />
       </button>
       {editorModes.map((each) => (
         <button
@@ -96,10 +98,12 @@ function ModeIcon({ mode }: { mode: EditorMode }) {
 }
 
 // Follow is the editor's cursor arriving here, so the glyph is an eye: the workspace watching.
-function FollowIcon() {
+// The slash keeps its off state legible without relying on the rail's accent colour alone.
+function FollowIcon({ active }: { active: boolean }) {
   return (
     <svg
       className="rail-icon-svg"
+      data-state={active ? "on" : "off"}
       viewBox="0 0 24 24"
       width="20"
       height="20"
@@ -112,6 +116,7 @@ function FollowIcon() {
     >
       <path d="M2 12s3.6-6 10-6 10 6 10 6-3.6 6-10 6-10-6-10-6Z" />
       <circle cx="12" cy="12" r="2.6" />
+      {!active ? <line x1="4" y1="4" x2="20" y2="20" /> : null}
     </svg>
   );
 }
