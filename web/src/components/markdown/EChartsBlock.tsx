@@ -1,5 +1,11 @@
+import type {
+  Chart as KumoChart,
+  ChartEvents,
+  KumoChartOption,
+} from "@cloudflare/kumo/components/chart";
 import { useNavigate } from "@tanstack/react-router";
-import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
+import type { ECharts, SetOptionOpts } from "echarts";
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { CodeBlock } from "./CodeBlock";
 import { applyChartTheme, chartThemeFromCSS } from "./echartsTheme";
 import { computeRailLayout, extractRail, MarkerRail, type RailAnchors } from "./MarkerRail";
@@ -9,32 +15,71 @@ import { useThemeVersion } from "./MermaidDiagram";
 // container by its own height so the plot keeps this size while grid.top shifts down.
 const CHART_BASE_HEIGHT = 360;
 
-// echartsModule caches the lazy import so every chart on a page shares one load. ECharts is pulled in
-// on demand (a separate chunk): pages without charts never download it. Both the live workspace and
-// the static site render through this module — the option always arrives pre-resolved (from the
-// server endpoint live, or baked in at export time statically), so no chart resolution happens here.
-let echartsModule: Promise<typeof import("echarts")> | undefined;
-function loadECharts() {
-  echartsModule ??= import("echarts");
-  return echartsModule;
+// chartModule caches the lazy import so every chart on a page shares one load. ECharts and Kumo's
+// Chart wrapper arrive together in one on-demand chunk (Kumo's chart bundle imports echarts modules
+// itself, so splitting them would gain nothing): pages without charts never download either. Both
+// the live workspace and the static site render through this module — the option always arrives
+// pre-resolved (from the server endpoint live, or baked in at export time statically), so no chart
+// resolution happens here.
+interface ChartModule {
+  echarts: typeof import("echarts");
+  Chart: typeof KumoChart;
 }
+let chartModule: Promise<ChartModule> | undefined;
+function loadChartModule() {
+  chartModule ??= Promise.all([
+    import("echarts"),
+    import("@cloudflare/kumo/components/chart"),
+  ]).then(([echarts, kumo]) => ({ echarts, Chart: kumo.Chart }));
+  return chartModule;
+}
+
+// Kumo's Chart defaults to { notMerge: false, lazyUpdate: true }; keep ECharts' plain setOption
+// semantics instead. The resolved option is a complete replacement each time (mark types can change
+// between edits), and the update must apply synchronously: the anchor-measuring effect below runs
+// right after Kumo's setOption effect, and under lazyUpdate the coordinate system does not exist
+// yet — convertToPixel returns nothing and every annotation box hides until the next zoom gesture.
+// Module-level so the object identity is stable and Kumo's setOption effect only reruns when the
+// option itself changes.
+const OPTION_UPDATE: SetOptionOpts = { notMerge: true, lazyUpdate: false };
 
 interface EChartsBlockProps {
   option: Record<string, unknown>;
 }
 
-// EChartsBlock draws a ready-to-draw ECharts option into a sized container. It is the single drawing
-// surface behind every chart embed: fenced ```viewspec blocks in the live workspace (ViewSpecChart),
-// fenced ```echarts blocks and .echarts.json asset embeds in the published static site. The instance
-// is kept across option updates (live re-renders apply in place via setOption) and disposed only on
-// unmount.
+// EChartsBlock draws a ready-to-draw ECharts option through Kumo's Chart component
+// (https://kumo-ui.com/charts/), which owns the instance lifecycle: init, setOption updates, event
+// binding, resize observation, and disposal. It is the single drawing surface behind every chart
+// embed: fenced ```viewspec blocks in the live workspace (ViewSpecChart), fenced ```echarts blocks
+// and .echarts.json asset embeds in the published static site. This module keeps what Kumo does not
+// cover: the CSS-variable theme (applyChartTheme — Kumo's isDarkMode only swaps to ECharts'
+// built-in dark theme), the annotation rail, provenance click navigation, and the wheel/pinch
+// gating on the host.
 export function EChartsBlock({ option }: EChartsBlockProps) {
   const containerRef = useRef<HTMLDivElement>(null);
+  const chartRef = useRef<ECharts | null>(null);
   const visible = useVisible(containerRef);
   const navigate = useNavigate();
-  // Redraw with the new colors when the app theme flips; the option itself is theme-neutral and
+  // Recompute the themed option when the app theme flips; the option itself is theme-neutral and
   // recolored at draw time (applyChartTheme).
   const themeVersion = useThemeVersion();
+  // Kumo's Chart mounts only once the lazy chunk has loaded (and the host has scrolled into view),
+  // so the static export and the server render never touch document/CSS state.
+  const [mod, setMod] = useState<ChartModule | null>(null);
+  useEffect(() => {
+    if (!visible) {
+      return;
+    }
+    let cancelled = false;
+    void loadChartModule().then((m) => {
+      if (!cancelled) {
+        setMod(m);
+      }
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [visible]);
   // Box-mode markers (ADR 0028) render as annotation bands hugging the chart. The boxes and their
   // full-range positions come straight off the option, so the bands lay out (and reserve their
   // heights) before the chart instance exists; the instance later refines the pixel anchors.
@@ -42,6 +87,22 @@ export function EChartsBlock({ option }: EChartsBlockProps) {
   const [anchors, setAnchors] = useState<RailAnchors | null>(null);
   useEffect(() => setAnchors(null), [option]);
   const [width, setWidth] = useState(0);
+  // Refine each annotation box's anchor to the true axis pixel, and hide boxes whose marker sits
+  // outside the current dataZoom window. The rail's lanes are frozen at the full range, so this
+  // only ever slides or hides boxes — the rail's height never moves during a gesture.
+  const layoutAnchors = useCallback(() => {
+    const chart = chartRef.current;
+    const el = containerRef.current;
+    if (!chart || !el || rail.boxes.length === 0) {
+      return;
+    }
+    const midY = el.clientHeight / 2;
+    const xs = rail.boxes.map((b) => {
+      const x = chart.convertToPixel({ xAxisIndex: 0 }, b.at);
+      return Number.isFinite(x) && chart.containPixel({ gridIndex: 0 }, [x, midY]) ? x : null;
+    });
+    setAnchors({ xs, gapBelow: plotBottomGap(chart, xs, el.clientHeight, midY) });
+  }, [rail]);
   useLayoutEffect(() => {
     const el = containerRef.current;
     if (!el) {
@@ -51,10 +112,17 @@ export function EChartsBlock({ option }: EChartsBlockProps) {
     if (typeof ResizeObserver === "undefined") {
       return;
     }
-    const ro = new ResizeObserver(() => setWidth(el.clientWidth));
+    const ro = new ResizeObserver(() => {
+      setWidth(el.clientWidth);
+      // Kumo's own observer also resizes the chart, but ordering between the two observers is
+      // unspecified — resize here first so the anchors are measured against the new geometry
+      // (resize is a no-op when the size already matches).
+      chartRef.current?.resize();
+      layoutAnchors();
+    });
     ro.observe(el);
     return () => ro.disconnect();
-  }, []);
+  }, [layoutAnchors]);
   const layout = useMemo(
     () => computeRailLayout(rail.boxes.length, rail.fractions, width),
     [rail, width],
@@ -62,39 +130,37 @@ export function EChartsBlock({ option }: EChartsBlockProps) {
   // The above band lives between the legend and the plot: the chart grows by the band's height and
   // grid.top shifts down the same amount (applyRailChrome), so the plot keeps its size.
   const aboveHeight = layout.mode === "rail" ? layout.above.height : 0;
+  const labelChip = layout.mode === "rail" && layout.below.indexes.length > 0;
   const baseGridTop = gridTopOf(option);
 
-  useEffect(() => {
-    const el = containerRef.current;
-    if (!el || !visible) {
-      return;
+  // The themed clone Kumo draws. Theming happens at render (not in an effect) so Kumo's setOption
+  // effect always receives the current colors in the same commit; gated on the loaded module, it
+  // never runs during a server render. themeVersion is not read here — it forces a recompute so
+  // chartThemeFromCSS picks up the flipped CSS variables.
+  const themed = useMemo(() => {
+    if (mod === null) {
+      return null;
     }
-    let disposed = false;
-    let chart: import("echarts").ECharts | undefined;
-    let observer: ResizeObserver | undefined;
-    void loadECharts().then((echarts) => {
-      if (disposed || !containerRef.current) {
-        return;
-      }
-      // getInstanceByDom keeps the existing instance across live updates, so setOption transitions
-      // smoothly instead of tearing the chart down.
-      chart = echarts.getInstanceByDom(el) ?? echarts.init(el);
-      const theme = chartThemeFromCSS();
-      const themed = applyChartTheme(option, theme);
-      attachDetailTooltip(themed);
-      suppressBoxLabels(themed);
-      applyRailChrome(themed, {
-        aboveHeight,
-        labelChip: layout.mode === "rail" && layout.below.indexes.length > 0,
-        labelBackground: theme.panel,
-      });
-      chart.setOption(themed, { notMerge: true });
-      // A datum can carry provenance the Go engine put on it (see the View Spec's encoding.href and
-      // the overlay event url/note): clicking opens the source URL, or navigates to the referenced
-      // vault note when there is no URL. off() first — the instance survives option updates, and the
-      // handler must not stack.
-      chart.off("click");
-      chart.on("click", (params: unknown) => {
+    void themeVersion;
+    const theme = chartThemeFromCSS();
+    const opt = applyChartTheme(option, theme);
+    attachDetailTooltip(opt);
+    suppressBoxLabels(opt);
+    applyRailChrome(opt, {
+      aboveHeight,
+      labelChip,
+      labelBackground: theme.panel,
+    });
+    toKumoTooltip(opt);
+    return opt;
+  }, [mod, option, themeVersion, aboveHeight, labelChip]);
+
+  // A datum can carry provenance the Go engine put on it (see the View Spec's encoding.href and
+  // the overlay event url/note): clicking opens the source URL, or navigates to the referenced
+  // vault note when there is no URL. Kumo rebinds handlers itself when this object changes.
+  const onEvents = useMemo(() => {
+    const events: Partial<ChartEvents> = {
+      click: (params: unknown) => {
         const data = (params as { data?: { href?: unknown; note?: unknown } }).data;
         const href = typeof data?.href === "string" ? data.href : "";
         const note = typeof data?.note === "string" ? data.note : "";
@@ -105,51 +171,19 @@ export function EChartsBlock({ option }: EChartsBlockProps) {
         if (note !== "") {
           void navigate({ to: "/notes/$noteId", params: { noteId: note } });
         }
-      });
-      // Refine each annotation box's anchor to the true axis pixel, and hide boxes whose marker sits
-      // outside the current dataZoom window. The rail's lanes are frozen at the full range, so this
-      // only ever slides or hides boxes — the rail's height never moves during a gesture.
-      const layoutAnchors = () => {
-        if (!chart || rail.boxes.length === 0) {
-          return;
-        }
-        const midY = el.clientHeight / 2;
-        const xs = rail.boxes.map((b) => {
-          const x = chart!.convertToPixel({ xAxisIndex: 0 }, b.at);
-          return Number.isFinite(x) && chart!.containPixel({ gridIndex: 0 }, [x, midY])
-            ? x
-            : null;
-        });
-        setAnchors({ xs, gapBelow: plotBottomGap(chart!, xs, el.clientHeight, midY) });
-      };
-      if (rail.boxes.length > 0) {
-        layoutAnchors();
-        chart.off("datazoom");
-        chart.on("datazoom", layoutAnchors);
-      }
-      if (typeof ResizeObserver !== "undefined") {
-        observer = new ResizeObserver(() => {
-          chart?.resize();
-          layoutAnchors();
-        });
-        observer.observe(el);
-      }
-    });
-    return () => {
-      disposed = true;
-      observer?.disconnect();
+      },
     };
-  }, [option, visible, themeVersion, navigate, rail, layout, aboveHeight]);
+    if (rail.boxes.length > 0) {
+      events.datazoom = layoutAnchors;
+    }
+    return events;
+  }, [navigate, rail, layoutAnchors]);
 
-  // Dispose the ECharts instance only on unmount; the option effect above reuses it across updates.
+  // Measure the anchors once the option is drawn. This effect runs after Kumo's own effects (child
+  // effects flush first), so the instance exists and the new option is applied by the time it runs.
   useEffect(() => {
-    const el = containerRef.current;
-    return () => {
-      if (el) {
-        void loadECharts().then((echarts) => echarts.getInstanceByDom(el)?.dispose());
-      }
-    };
-  }, []);
+    layoutAnchors();
+  }, [themed, layoutAnchors]);
 
   // A plain wheel over the chart must keep scrolling the page, but zrender's canvas listener swallows
   // every wheel event once an inside dataZoom exists — even with its zoom gated behind Shift. Stop
@@ -195,7 +229,19 @@ export function EChartsBlock({ option }: EChartsBlockProps) {
       role="img"
       aria-label={chartAriaLabel(option)}
       style={aboveHeight > 0 ? { height: CHART_BASE_HEIGHT + aboveHeight } : undefined}
-    />
+    >
+      {mod !== null && themed !== null ? (
+        <mod.Chart
+          ref={chartRef}
+          echarts={mod.echarts}
+          // The resolved option is free-form server JSON; Kumo types it as its option map.
+          options={themed as KumoChartOption}
+          optionUpdateBehavior={OPTION_UPDATE}
+          height={CHART_BASE_HEIGHT + aboveHeight}
+          onEvents={onEvents}
+        />
+      ) : null}
+    </div>
   );
   // The bands are siblings of the role="img" host (not children): their links stay visible to
   // assistive tech, and the wheel/pinch listeners above keep their scope. Boxes alternate between
@@ -274,7 +320,7 @@ export function applyRailChrome(
 // unbroken (the above band needs no measurement: its bottom edge is the plot top by construction).
 // Without a visible anchor (everything zoomed out) there is nothing to bridge.
 export function plotBottomGap(
-  chart: import("echarts").ECharts,
+  chart: ECharts,
   xs: (number | null)[],
   height: number,
   insideY: number,
@@ -311,6 +357,30 @@ export function suppressBoxLabels(option: Record<string, unknown>): void {
       if (typeof item === "object" && item !== null && "box" in item) {
         (item as Record<string, unknown>).label = { show: false };
       }
+    }
+  }
+}
+
+// toKumoTooltip moves each tooltip's formatter into the dangerousHtmlFormatter slot Kumo's Chart
+// consumes — Kumo strips a plain formatter from the option it draws, so without this rename both
+// the engine's string templates ("{b}: {c}") and the detail formatter would silently vanish. The
+// content is safe for the slot's contract: string templates are interpolated by ECharts itself, and
+// detailTooltipFormatter HTML-escapes every note-derived value. Runs last on the themed clone; the
+// option itself keeps the standard ECharts shape for bare-setOption consumers.
+export function toKumoTooltip(option: Record<string, unknown>): void {
+  const tooltips = Array.isArray(option.tooltip)
+    ? option.tooltip
+    : option.tooltip !== undefined
+      ? [option.tooltip]
+      : [];
+  for (const raw of tooltips) {
+    if (typeof raw !== "object" || raw === null) {
+      continue;
+    }
+    const tooltip = raw as Record<string, unknown>;
+    if ("formatter" in tooltip) {
+      tooltip.dangerousHtmlFormatter = tooltip.formatter;
+      delete tooltip.formatter;
     }
   }
 }

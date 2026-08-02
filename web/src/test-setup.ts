@@ -18,6 +18,14 @@ HTMLDialogElement.prototype.close ??= function (this: HTMLDialogElement) {
 // unconditionally. There is nothing to assert about scrolling here, so a no-op is enough.
 Element.prototype.scrollIntoView ??= () => {};
 
+// jsdom ships no ResizeObserver; Kumo's Chart constructs one unconditionally. jsdom does no layout,
+// so a no-op observer (nothing ever resizes) is the honest behavior.
+globalThis.ResizeObserver ??= class {
+  observe() {}
+  unobserve() {}
+  disconnect() {}
+};
+
 afterEach(() => {
   cleanup();
 });

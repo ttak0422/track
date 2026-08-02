@@ -8,10 +8,13 @@ import {
   chartAriaLabel,
   plotBottomGap,
   suppressBoxLabels,
+  toKumoTooltip,
 } from "./EChartsBlock";
 
-// The mock chart records the handlers EChartsBlock registers per event, so tests can drive a datum
+// The mock chart records the handlers Kumo's Chart registers per event, so tests can drive a datum
 // click (or a zoom) without a real canvas. convertToPixel spreads anchors so the rail lays out.
+// Only the "echarts" specifier is mocked: Kumo's own Chart component runs for real and receives
+// this module through its echarts prop.
 const handlers = vi.hoisted(
   () => ({}) as Record<string, ((params: unknown) => void) | undefined>,
 );
@@ -30,7 +33,6 @@ vi.mock("echarts", () => ({
     convertToPixel: vi.fn((_finder: unknown, at: unknown) => 100 + String(at).charCodeAt(0)),
     containPixel: vi.fn(() => true),
   })),
-  getInstanceByDom: vi.fn(() => undefined),
 }));
 
 const navigate = vi.hoisted(() => vi.fn());
@@ -245,5 +247,34 @@ describe("detail tooltip", () => {
     // Detail values are escaped and deduped across series sharing the record.
     expect(html).toContain("note&lt;b&gt;: says &quot;hi&quot;");
     expect(html.match(/note&lt;b&gt;/g)).toHaveLength(1);
+  });
+});
+
+describe("toKumoTooltip", () => {
+  afterEach(() => {
+    vi.clearAllMocks();
+    handlers.click = undefined;
+  });
+
+  it("moves the formatter into Kumo's dangerousHtmlFormatter slot, both tooltip shapes", () => {
+    const single: Record<string, unknown> = { tooltip: { trigger: "axis", formatter: "{b}: {c}" } };
+    toKumoTooltip(single);
+    expect(single.tooltip).toEqual({ trigger: "axis", dangerousHtmlFormatter: "{b}: {c}" });
+
+    const list: Record<string, unknown> = { tooltip: [{ formatter: "{b}" }, { trigger: "item" }] };
+    toKumoTooltip(list);
+    expect(list.tooltip).toEqual([{ dangerousHtmlFormatter: "{b}" }, { trigger: "item" }]);
+
+    const bare: Record<string, unknown> = { series: [] };
+    toKumoTooltip(bare);
+    expect(bare.tooltip).toBeUndefined();
+  });
+
+  it("keeps the engine's string formatter alive through Kumo's draw path", async () => {
+    // Kumo's Chart replaces tooltip.formatter with its dangerousHtmlFormatter slot; the rename in
+    // toKumoTooltip must round-trip the server's template back into the option setOption receives.
+    await renderChart({ series: [], tooltip: { formatter: "{b}: {c}" } });
+    const drawn = setOption.mock.calls[0][0] as { tooltip: { formatter?: unknown } };
+    expect(drawn.tooltip.formatter).toBe("{b}: {c}");
   });
 });

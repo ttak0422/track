@@ -50,7 +50,7 @@ describe("ViewSpecChart", () => {
     await waitFor(() =>
       expect(setOption).toHaveBeenCalledWith(
         expect.objectContaining({ series: [{ type: "line" }] }),
-        { notMerge: true },
+        { notMerge: true, lazyUpdate: false },
       ),
     );
   });
@@ -73,7 +73,7 @@ describe("ViewSpecChart", () => {
     await waitFor(() =>
       expect(setOption).toHaveBeenCalledWith(
         expect.objectContaining({ title: expect.objectContaining({ text: "before" }) }),
-        { notMerge: true },
+        { notMerge: true, lazyUpdate: false },
       ),
     );
 
@@ -82,7 +82,7 @@ describe("ViewSpecChart", () => {
     await waitFor(() =>
       expect(setOption).toHaveBeenCalledWith(
         expect.objectContaining({ title: expect.objectContaining({ text: "after" }) }),
-        { notMerge: true },
+        { notMerge: true, lazyUpdate: false },
       ),
     );
     expect(mockRender).toHaveBeenCalledTimes(2);
