@@ -326,6 +326,12 @@ describe("MarkdownView", () => {
     expect(screen.getByRole("button", { name: "Copy code" })).toBeInTheDocument();
   });
 
+  it("hides the copy button on a fence without an info string", () => {
+    const { container } = render(<MarkdownView markdown={"```\nplain text\n```"} />);
+    expect(container.querySelector(".code-block")).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Copy code" })).not.toBeInTheDocument();
+  });
+
   it("renders Mermaid fences through the diagram component", () => {
     const { container } = render(<MarkdownView markdown={"```mermaid\ngraph TD\nA-->B\n```"} />);
     expect(container.querySelector(".mermaid-diagram")).toBeInTheDocument();
