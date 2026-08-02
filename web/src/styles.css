@@ -1683,14 +1683,34 @@ textarea.modal-input:focus-visible {
 
 .markdown-view h1,
 .markdown-view h2,
-.markdown-view h3 {
+.markdown-view h3,
+.markdown-view h4 {
   margin: 1.1em 0 0.45em;
   line-height: 1.25;
+}
+
+.markdown-view h1 {
+  font-size: calc(30px * var(--font-scale, 1));
+  letter-spacing: -0.025em;
+}
+
+.markdown-view h2 {
+  font-size: calc(21px * var(--font-scale, 1));
+  letter-spacing: -0.015em;
+}
+
+.markdown-view h3 {
+  font-size: calc(17px * var(--font-scale, 1));
+}
+
+.markdown-view h4 {
+  font-size: calc(15px * var(--font-scale, 1));
 }
 
 .markdown-view h1:first-child,
 .markdown-view h2:first-child,
 .markdown-view h3:first-child,
+.markdown-view h4:first-child,
 .markdown-view p:first-child {
   margin-top: 0;
 }
@@ -1770,6 +1790,7 @@ textarea.modal-input:focus-visible {
   margin: 0.9em 0;
   overflow-x: auto;
   border-collapse: collapse;
+  font-variant-numeric: tabular-nums;
 }
 
 .markdown-view th,
@@ -2330,7 +2351,32 @@ textarea.modal-input:focus-visible {
   left: 8px;
 }
 
-/* A collapsed thumbnail is inert: no grab cursor, the wheel scrolls the page. */
+/* A tall collapsed diagram stays at a readable scale and is clipped, so make both the continuation
+   and the way to reveal it unmistakable. The fade is purely visual and never intercepts input. */
+.mermaid-diagram[data-collapsed] .mermaid-fold {
+  top: auto;
+  bottom: 18px;
+  left: 50%;
+  z-index: 2;
+  width: auto;
+  min-width: max-content;
+  padding: 0 10px;
+  gap: 6px;
+  transform: translateX(-50%);
+}
+
+.mermaid-continuation {
+  position: absolute;
+  right: 14px;
+  bottom: 14px;
+  left: 14px;
+  height: 96px;
+  z-index: 1;
+  pointer-events: none;
+  background: linear-gradient(to bottom, transparent, var(--panel) 78%);
+}
+
+/* A collapsed preview is inert: no grab cursor, the wheel scrolls the page. */
 .mermaid-viewport[data-collapsed] {
   cursor: default;
   touch-action: auto;
@@ -2370,7 +2416,11 @@ textarea.modal-input:focus-visible {
 .viewspec-chart-wrap {
   position: relative;
   margin: 1em 0;
+  padding-block: 14px;
+  padding-inline: 0;
   background: var(--panel);
+  border: 1px solid var(--line);
+  border-radius: var(--radius-lg);
 }
 
 .viewspec-chart-wrap .viewspec-chart {
@@ -2385,6 +2435,8 @@ textarea.modal-input:focus-visible {
   left: 0;
   right: 0;
   z-index: 2;
+  /* The figure's block padding moves the chart down; keep the overlaid upper rail locked to it. */
+  transform: translateY(14px);
   /* Only the boxes take the pointer: the strip itself must not swallow canvas gestures. */
   pointer-events: none;
 }
@@ -2443,7 +2495,7 @@ textarea.modal-input:focus-visible {
   font-size: 12px;
   font-weight: 500;
   display: -webkit-box;
-  -webkit-line-clamp: 2;
+  -webkit-line-clamp: 4;
   -webkit-box-orient: vertical;
   overflow: hidden;
 }

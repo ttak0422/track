@@ -51,6 +51,9 @@ import { STATIC_MODE } from "../runtime";
 
 interface MarkdownViewProps {
   markdown: string;
+  // The canonical note title is the document heading in full-page readers. A matching leading body
+  // h1 is blanked (not deleted, so include/task source line numbers stay stable).
+  title?: string;
   kind?: string;
   // Vault of the note this body belongs to (registry name; "" for the launch vault). Everything the
   // body refers to lives in that vault, so it is what attachments, links, includes, and chart data
@@ -66,8 +69,9 @@ interface MarkdownViewProps {
 // /api/render (action links flattened); the track-specific construct is [[...]] wiki links (remarkWikiLink).
 // KaTeX is loaded lazily (see ./markdown/math), so a note without math never pulls in its bundle; while a
 // math note's first render waits for that chunk, the "$…$" briefly shows as source, then typesets.
-export function MarkdownView({ markdown, kind = "note", vault = "", includes }: MarkdownViewProps) {
-  const hasMath = looksLikeMath(markdown);
+export function MarkdownView({ markdown, title, kind = "note", vault = "", includes }: MarkdownViewProps) {
+  const bodyMarkdown = useMemo(() => withoutDuplicateTitle(markdown, title), [markdown, title]);
+  const hasMath = looksLikeMath(bodyMarkdown);
   const [math, setMath] = useState<MathPlugins | null>(() => (hasMath ? mathPluginsIfLoaded() : null));
 
   useEffect(() => {
@@ -87,19 +91,19 @@ export function MarkdownView({ markdown, kind = "note", vault = "", includes }: 
   //
   // The ids come from the note's own source, not the spliced copy: splicing rewrites include lines
   // and the outline in the aside reads the same source, so both sides agree on which heading is which.
-  const headingIDs = useMemo(() => tocEntries(markdown).map((entry) => entry.id), [markdown]);
+  const headingIDs = useMemo(() => tocEntries(bodyMarkdown).map((entry) => entry.id), [bodyMarkdown]);
 
-  if (markdown.trim() === "") {
+  if (bodyMarkdown.trim() === "" && !title) {
     return <p className="muted">Empty note.</p>;
   }
 
   const hasIncludes = includes !== undefined && includes.length > 0;
   const source = hasIncludes
     ? spliceIncludeTokens(
-        markdown,
+        bodyMarkdown,
         includes.map((inc) => inc.line),
       )
-    : markdown;
+    : bodyMarkdown;
   const remarkPlugins = [
     remarkGfm,
     remarkAlert,
@@ -130,8 +134,10 @@ export function MarkdownView({ markdown, kind = "note", vault = "", includes }: 
     <NoteKindContext.Provider value={kind}>
       <NoteVaultContext.Provider value={vault}>
         <IncludesContext.Provider value={includes ?? []}>
-        <MarkdownSourceContext.Provider value={markdown}>
+        <MarkdownSourceContext.Provider value={bodyMarkdown}>
           <div className="markdown-view">
+            {title ? <h1 className="note-title">{title}</h1> : null}
+            {bodyMarkdown.trim() === "" ? <p className="muted">Empty note.</p> : null}
             <Markdown remarkPlugins={remarkPlugins} rehypePlugins={rehypePlugins} components={markdownComponents}>
               {source}
             </Markdown>
@@ -141,6 +147,36 @@ export function MarkdownView({ markdown, kind = "note", vault = "", includes }: 
       </NoteVaultContext.Provider>
     </NoteKindContext.Provider>
   );
+}
+
+// withoutDuplicateTitle removes only the first visible block when it is an h1 whose rendered text
+// exactly matches the sidecar title. Replacing source lines with blanks preserves every later line
+// number, which includes and interactive task controls use to address the original note.
+export function withoutDuplicateTitle(markdown: string, title?: string): string {
+  const wanted = title?.trim();
+  if (!wanted) return markdown;
+  const lines = markdown.split("\n");
+  let first = 0;
+  while (first < lines.length && lines[first].trim() === "") first++;
+  const atx = /^#\s+(.+?)\s*#*\s*$/.exec(lines[first] ?? "");
+  if (atx && plainHeadingText(atx[1]) === wanted) {
+    lines[first] = "";
+    return lines.join("\n");
+  }
+  if (/^\s{0,3}=+\s*$/.test(lines[first + 1] ?? "") && plainHeadingText(lines[first] ?? "") === wanted) {
+    lines[first] = "";
+    lines[first + 1] = "";
+    return lines.join("\n");
+  }
+  return markdown;
+}
+
+function plainHeadingText(text: string): string {
+  return text
+    .replace(/\[\[([^|\]]+)(?:\|([^\]]+))?\]\]/g, (_, target: string, alias?: string) => alias ?? target)
+    .replace(/\[([^\]]+)\]\([^\s)]*\)/g, "$1")
+    .replace(/[*_~`]/g, "")
+    .trim();
 }
 
 // IncludeEmbed renders one resolved ![[...]] include as an embed card: a caption header linking to
