@@ -707,8 +707,15 @@ func TestBuildPublishesSiteIcon(t *testing.T) {
 		t.Fatalf("index: %v", err)
 	}
 
+	// A stray icon.png in the frontend build must not clobber the vault icon (it is copied after
+	// copyTree).
+	frontend := fakeFrontend(t)
+	if err := os.WriteFile(filepath.Join(frontend, "icon.png"), []byte("stray"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
 	out := t.TempDir()
-	if _, err := Build(cfg, s, Options{Root: 100, IDs: []int64{200}}, fakeFrontend(t), out); err != nil {
+	if _, err := Build(cfg, s, Options{Root: 100, IDs: []int64{200}}, frontend, out); err != nil {
 		t.Fatalf("build: %v", err)
 	}
 
