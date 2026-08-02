@@ -1066,10 +1066,18 @@ a.calendar-title:focus-visible {
   gap: 18px;
 }
 
-/* The note's own content (breadcrumbs, tags, props, body) as one flex item, so the aside can sit
-   beside it as a rail on a wide viewport (see the .note-aside rail rules). Reproduces what its
-   children saw as direct .note-reader children: the same 18px rhythm, and flex: 1 so the editor
-   form still fills the reader's bound height. */
+/* The note content and aside share a layout row on wide screens and stack on narrow screens. Keeping
+   them together lets the share footer below use the full reader width while still staying after the
+   article and its context. */
+.note-layout {
+  display: flex;
+  min-width: 0;
+  min-height: 0;
+  flex: 1 1 auto;
+  flex-direction: column;
+  gap: 18px;
+}
+
 .note-main {
   display: flex;
   min-width: 0;
@@ -1689,9 +1697,10 @@ textarea.modal-input:focus-visible {
   display: none;
 }
 
-/* Static-only share actions sit at the end of the reading column. On short notes the auto margin sends
-   them to the bottom of the page; on longer notes they stay with the article's end. The export option
-   keeps this quiet on the documentation site, while the blog can opt in without changing note content. */
+/* Static-only share actions sit after the note layout. The layout flexes to fill short pages, which puts
+   this footer at the reader's bottom; on longer notes it follows the article and remains sticky while
+   the reader scrolls. The export option keeps this quiet on the documentation site, while the blog can
+   opt in without changing note content. */
 .share-actions {
   display: flex;
   flex: 0 0 auto;
@@ -3262,6 +3271,9 @@ textarea.modal-input:focus-visible {
 @media (min-width: 1100px) {
   .workspace:not(.home) .note-reader:not(:has(.note-editor textarea)) {
     max-width: calc(var(--content-width, 960px) + 332px);
+  }
+
+  .workspace:not(.home) .note-reader:not(:has(.note-editor textarea)) > .note-layout {
     flex-direction: row;
     align-items: flex-start;
     gap: 32px;
@@ -3271,7 +3283,7 @@ textarea.modal-input:focus-visible {
     max-width: none;
   }
 
-  .workspace:not(.home) .note-reader:not(:has(.note-editor textarea)) > .note-aside {
+  .workspace:not(.home) .note-reader:not(:has(.note-editor textarea)) > .note-layout > .note-aside {
     position: sticky;
     top: 32px; /* keep the reader's 32px breathing room when stuck under the tab bar */
     flex: 0 0 300px;
@@ -3283,7 +3295,7 @@ textarea.modal-input:focus-visible {
     scrollbar-width: none;
   }
 
-  .workspace:not(.home) .note-reader:not(:has(.note-editor textarea)) > .note-aside > .backlinks {
+  .workspace:not(.home) .note-reader:not(:has(.note-editor textarea)) > .note-layout > .note-aside > .backlinks {
     flex: 0 0 auto;
     width: 100%;
   }
