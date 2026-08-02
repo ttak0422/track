@@ -8,7 +8,8 @@ interface CodeBlockProps {
 }
 
 // CodeBlock renders a fenced code block with a copy-to-clipboard button. The button briefly switches
-// to a "Copied" state so the action is acknowledged, then resets.
+// to a "Copied" state so the action is acknowledged, then resets. Blocks without an explicit
+// language (no fence info string) are plain text, not code to lift — they get no copy button.
 export function CodeBlock({ lang, text }: CodeBlockProps) {
   const [copied, setCopied] = useState(false);
   const resetTimer = useRef<number | undefined>(undefined);
@@ -33,14 +34,16 @@ export function CodeBlock({ lang, text }: CodeBlockProps) {
 
   return (
     <div className="code-block" data-language={lang || undefined}>
-      <button
-        type="button"
-        className="code-copy"
-        onClick={copy}
-        aria-label={copied ? "Copied" : "Copy code"}
-      >
-        {copied ? "Copied" : "Copy"}
-      </button>
+      {lang !== "" && (
+        <button
+          type="button"
+          className="code-copy"
+          onClick={copy}
+          aria-label={copied ? "Copied" : "Copy code"}
+        >
+          {copied ? "Copied" : "Copy"}
+        </button>
+      )}
       <pre className="code-block-pre">
         <code>{highlightCode(text, lang)}</code>
       </pre>

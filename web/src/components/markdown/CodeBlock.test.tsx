@@ -18,10 +18,15 @@ describe("CodeBlock", () => {
   });
 
   it("copies to the clipboard and acknowledges via the button label", async () => {
-    render(<CodeBlock lang="" text="plain text" />);
+    render(<CodeBlock lang="js" text="const x = 1" />);
     const button = screen.getByRole("button", { name: "Copy code" });
     button.click();
-    expect(navigator.clipboard.writeText).toHaveBeenCalledWith("plain text");
+    expect(navigator.clipboard.writeText).toHaveBeenCalledWith("const x = 1");
     await waitFor(() => expect(screen.getByRole("button", { name: "Copied" })).toBeInTheDocument());
+  });
+
+  it("hides the copy button when the block has no explicit language", () => {
+    render(<CodeBlock lang="" text="plain text" />);
+    expect(screen.queryByRole("button", { name: "Copy code" })).not.toBeInTheDocument();
   });
 });
