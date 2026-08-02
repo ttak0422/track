@@ -127,6 +127,10 @@ func TestMoveRefusesUnresolvedDestinationLinksBeforeWriting(t *testing.T) {
 		"new", "--id", "100", "--title", "Post", "--body", "see [[Secret]]"); code != 0 {
 		t.Fatal("create source note failed")
 	}
+	indexesBefore, err := filepath.Glob(filepath.Join(cache, "*", "index.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
 
 	out, code := runWithRegistryCache(t, cache, home, registry,
 		"mv", "--id", "100", "--to", "blog")
@@ -141,6 +145,10 @@ func TestMoveRefusesUnresolvedDestinationLinksBeforeWriting(t *testing.T) {
 	}
 	if _, err := os.Stat(filepath.Join(home, "note", "100.md")); err != nil {
 		t.Fatalf("preflight failure must leave source in place: %v", err)
+	}
+	indexesAfter, err := filepath.Glob(filepath.Join(cache, "*", "index.db"))
+	if err != nil || len(indexesAfter) != len(indexesBefore) {
+		t.Fatalf("preflight failure must not create a destination index: before=%v after=%v err=%v", indexesBefore, indexesAfter, err)
 	}
 }
 
@@ -251,6 +259,47 @@ func TestMoveCopiesReferencedAssetsAndPreservesSlugSidecar(t *testing.T) {
 	}
 }
 
+func TestMovePreservesPublishedURLAcrossVaults(t *testing.T) {
+	home := t.TempDir()
+	blog := t.TempDir()
+	cache := filepath.Join(t.TempDir(), "cache")
+	registry := map[string]string{"home": home, "blog": blog}
+	if _, code := runWithRegistryCache(t, cache, home, registry,
+		"new", "--id", "100", "--title", "Post", "--body", "published body"); code != 0 {
+		t.Fatal("create source note failed")
+	}
+	metaPath := filepath.Join(home, ".track", "notes", "100.yaml")
+	meta, err := os.ReadFile(metaPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	meta = []byte(strings.Replace(string(meta), "version: 3", "version: 8", 1) + "slug: stable-post\n")
+	if err := os.WriteFile(metaPath, meta, 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	before := filepath.Join(t.TempDir(), "before")
+	if out, code := runWithRegistryCache(t, cache, home, registry,
+		"export-site", "--all", "--root", "100", "--frontend", fakeFrontend(t), "--out", before); code != 0 {
+		t.Fatalf("source export failed: %v", out)
+	}
+	if _, err := os.Stat(filepath.Join(before, "notes", "stable-post", "index.html")); err != nil {
+		t.Fatalf("source published URL missing: %v", err)
+	}
+	if out, code := runWithRegistryCache(t, cache, home, registry,
+		"mv", "--id", "100", "--to", "blog"); code != 0 {
+		t.Fatalf("mv failed: %v", out)
+	}
+	after := filepath.Join(t.TempDir(), "after")
+	if out, code := runWithRegistryCache(t, cache, blog, registry,
+		"export-site", "--all", "--root", "100", "--frontend", fakeFrontend(t), "--out", after); code != 0 {
+		t.Fatalf("destination export failed: %v", out)
+	}
+	if _, err := os.Stat(filepath.Join(after, "notes", "stable-post", "index.html")); err != nil {
+		t.Fatalf("destination published URL changed: %v", err)
+	}
+}
+
 func TestMoveFailureAfterDestinationBodyWriteLeavesSource(t *testing.T) {
 	home := t.TempDir()
 	blog := t.TempDir()
@@ -334,6 +383,56 @@ func TestMovePreflightRejectsIDAndAssetConflictsWithoutWriting(t *testing.T) {
 		}
 		if _, err := os.Stat(filepath.Join(home, "note", "100.md")); err != nil {
 			t.Fatalf("asset preflight failure must leave source: %v", err)
+		}
+	})
+
+	t.Run("template id", func(t *testing.T) {
+		home := t.TempDir()
+		blog := t.TempDir()
+		cache := filepath.Join(t.TempDir(), "cache")
+		registry := map[string]string{"home": home, "blog": blog}
+		if _, code := runWithRegistryCache(t, cache, home, registry,
+			"new", "--id", "100", "--title", "Post", "--body", "source"); code != 0 {
+			t.Fatal("create source failed")
+		}
+		if out, code := runWithRegistryCache(t, cache, blog, registry,
+			"template", "new", "--id", "100", "--name", "Existing"); code != 0 {
+			t.Fatalf("create destination template failed: %v", out)
+		}
+
+		out, code := runWithRegistryCache(t, cache, home, registry,
+			"mv", "--id", "100", "--to", "blog")
+		if code == 0 || !strings.Contains(out["error"].(string), "note id 100") {
+			t.Fatalf("template id collision must fail clearly: code=%d out=%v", code, out)
+		}
+	})
+
+	t.Run("cover traversal", func(t *testing.T) {
+		home := t.TempDir()
+		blog := t.TempDir()
+		cache := filepath.Join(t.TempDir(), "cache")
+		registry := map[string]string{"home": home, "blog": blog}
+		if _, code := runWithRegistryCache(t, cache, home, registry,
+			"new", "--id", "100", "--title", "Post", "--body", "source"); code != 0 {
+			t.Fatal("create source failed")
+		}
+		metaPath := filepath.Join(home, ".track", "notes", "100.yaml")
+		meta, err := os.ReadFile(metaPath)
+		if err != nil {
+			t.Fatal(err)
+		}
+		meta = []byte(strings.Replace(string(meta), "version: 3", "version: 4", 1) + "image: assets/../../escape.png\n")
+		if err := os.WriteFile(metaPath, meta, 0o644); err != nil {
+			t.Fatal(err)
+		}
+
+		out, code := runWithRegistryCache(t, cache, home, registry,
+			"mv", "--id", "100", "--to", "blog")
+		if code == 0 || !strings.Contains(out["error"].(string), "plain assets") {
+			t.Fatalf("cover traversal must fail clearly: code=%d out=%v", code, out)
+		}
+		if _, err := os.Stat(filepath.Join(blog, "note", "100.md")); !os.IsNotExist(err) {
+			t.Fatalf("cover traversal must fail before destination write, stat err=%v", err)
 		}
 	})
 }
