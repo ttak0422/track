@@ -299,4 +299,7 @@ export interface SiteResponse {
   calendar?: boolean;
   base_url?: string;
   share?: boolean;
+  // Published site icon file name at the site root ("icon.<ext>", from config web.icon); replaces
+  // the built-in brand mark.
+  icon?: string;
 }

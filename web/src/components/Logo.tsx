@@ -7,6 +7,15 @@ interface LogoProps {
   className?: string;
 }
 
+// The site's brand mark: the published site icon (site.json icon, a file at the site root) when one
+// is configured, the built-in k mark otherwise. Decorative (alt="") — the wrapping link carries the
+// accessible label. A user-supplied image keeps its own colors rather than adapting to the theme.
+export function BrandMark({ icon, className }: { icon?: string; className?: string }) {
+  if (!icon) return <KMark className={className} />;
+  // BASE_URL always ends with "/" (see vite.config.ts); icon is a bare site-root file name.
+  return <img className={className} src={import.meta.env.BASE_URL + icon} alt="" />;
+}
+
 // Single-character "k" mark (web/public/k_logo.svg).
 export function KMark({ className }: LogoProps) {
   return (

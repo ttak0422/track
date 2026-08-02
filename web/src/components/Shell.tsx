@@ -1,7 +1,7 @@
 import { Link, Outlet, useNavigate, useRouterState } from "@tanstack/react-router";
 import { GraphBackground } from "./GraphBackground";
 import { GraphPanel } from "./GraphPanel";
-import { KMark } from "./Logo";
+import { BrandMark } from "./Logo";
 import { FloatingLayer } from "./preview/FloatingLayer";
 import { FloatingProvider } from "./preview/floatingStore";
 import { SidebarSearch } from "./SidebarSearch";
@@ -71,7 +71,7 @@ export function Shell() {
                 aria-label={STATIC_MODE ? "Start page" : "track home"}
                 title={STATIC_MODE ? "Start page" : "track home"}
               >
-                <KMark className="rail-mark" />
+                <BrandMark icon={site.data?.icon} className="rail-mark" />
               </Link>
               <SidebarSearch />
               {/* The published static site is read-only and cannot create journals. */}

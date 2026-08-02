@@ -25,7 +25,7 @@ func writePages(outDir, startPage string, root int64, docs, listed []doc, site j
 	if err != nil {
 		return err
 	}
-	base := applyPlaceholders(string(raw), startPage)
+	base := swapFavicon(applyPlaceholders(string(raw), startPage), site.Icon)
 
 	write := func(rel, head string) error {
 		path := filepath.Join(outDir, filepath.FromSlash(rel))
@@ -135,6 +135,30 @@ func applyPlaceholders(tmpl, startPage string) string {
 	tmpl = strings.ReplaceAll(tmpl, "__TRACK_COLOR_OVERRIDES__", "")
 	tmpl = strings.ReplaceAll(tmpl, "__TRACK_START_PAGE__", startPage)
 	return tmpl
+}
+
+var (
+	faviconLinkRe = regexp.MustCompile(`<link\b[^>]*\brel="icon"[^>]*>`)
+	faviconHrefRe = regexp.MustCompile(`\bhref="([^"]*)"`)
+)
+
+// swapFavicon repoints the shell's favicon link at the published site icon (a site-root file name,
+// "icon.<ext>"). The href keeps everything up to and including its last "/" — that prefix is the Vite
+// base the frontend was built with ("/" at root, "/track/" under SITE_BASE) — and only the file name
+// changes. The rebuilt tag drops the shell's type attribute: the icon's format follows the vault file,
+// and browsers sniff it. No-op with no icon or no favicon link (the make site-data stub has none).
+func swapFavicon(tmpl, icon string) string {
+	if icon == "" {
+		return tmpl
+	}
+	return faviconLinkRe.ReplaceAllStringFunc(tmpl, func(tag string) string {
+		m := faviconHrefRe.FindStringSubmatch(tag)
+		if m == nil {
+			return tag
+		}
+		prefix := m[1][:strings.LastIndex(m[1], "/")+1]
+		return `<link rel="icon" href="` + prefix + icon + `" />`
+	})
 }
 
 var titleTagRe = regexp.MustCompile(`(?is)<title\b[^>]*>.*?</title>`)

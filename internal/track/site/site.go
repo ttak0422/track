@@ -9,6 +9,8 @@ package site
 
 import (
 	"fmt"
+	"os"
+	"path/filepath"
 	"sort"
 	"strings"
 
@@ -111,7 +113,18 @@ func Build(cfg *config.Config, st *store.Store, opts Options, frontendDir, outDi
 	if err != nil {
 		return Result{}, err
 	}
-	return writeBundle(docs, edges, opts.Root, opts.Calendar, opts.Share, opts.BaseURL, cfg.Queries, frontendDir, outDir)
+
+	// The site icon (config web.icon) replaces the brand mark and favicon on the published site. A
+	// configured icon that is missing fails the build: publishing a site without its brand silently
+	// is worse than stopping.
+	iconSrc := ""
+	if cfg.WebIcon != "" {
+		iconSrc = filepath.Join(cfg.VaultDir, filepath.FromSlash(cfg.WebIcon))
+		if _, err := os.Stat(iconSrc); err != nil {
+			return Result{}, fmt.Errorf("web.icon: %s: not found", cfg.WebIcon)
+		}
+	}
+	return writeBundle(docs, edges, opts.Root, opts.Calendar, opts.Share, opts.BaseURL, iconSrc, cfg.Queries, frontendDir, outDir)
 }
 
 // vaultEdges returns the [[link]] edges of the index whose endpoints are both in the published set.

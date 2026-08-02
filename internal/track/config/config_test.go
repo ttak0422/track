@@ -227,7 +227,7 @@ func TestLoadIconsAndHome(t *testing.T) {
 	if err := os.WriteFile(configPath, []byte("vault_dir: "+vault+"\ncache_dir: "+t.TempDir()+"\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	writeVaultConfig(t, vault, "web:\n  home: Home\n"+
+	writeVaultConfig(t, vault, "web:\n  home: Home\n  icon: assets/logo.png\n"+
 		"icons:\n  tags:\n    idea: \"💡\"\n  kinds:\n    journal: \"📓\"\n")
 	t.Setenv("TRACK_CONFIG", configPath)
 	t.Setenv("TRACK_VAULT", "")
@@ -239,6 +239,9 @@ func TestLoadIconsAndHome(t *testing.T) {
 	}
 	if cfg.WebHome != "Home" {
 		t.Fatalf("WebHome = %q, want %q", cfg.WebHome, "Home")
+	}
+	if cfg.WebIcon != "assets/logo.png" {
+		t.Fatalf("WebIcon = %q, want %q", cfg.WebIcon, "assets/logo.png")
 	}
 	if got := cfg.NoteIcon("note", []string{"idea"}, ""); got != "💡" {
 		t.Fatalf("tag icon = %q, want 💡", got)

@@ -21,7 +21,7 @@ func fakeFrontend(t *testing.T) string {
 	if err := os.MkdirAll(filepath.Join(dir, "assets"), 0o755); err != nil {
 		t.Fatal(err)
 	}
-	index := `<!doctype html><head><title>track</title><script>var t="__TRACK_DEFAULT_THEME__";window.__trackStartPage="__TRACK_START_PAGE__"</script>__TRACK_COLOR_OVERRIDES__</head><body><div id="root"></div></body>`
+	index := `<!doctype html><head><title>track</title><link rel="icon" type="image/svg+xml" href="/k_logo.svg" /><script>var t="__TRACK_DEFAULT_THEME__";window.__trackStartPage="__TRACK_START_PAGE__"</script>__TRACK_COLOR_OVERRIDES__</head><body><div id="root"></div></body>`
 	if err := os.WriteFile(filepath.Join(dir, "index.html"), []byte(index), 0o644); err != nil {
 		t.Fatal(err)
 	}
@@ -685,6 +685,110 @@ func TestPinnedSlugKeepsAPublishedURL(t *testing.T) {
 		}
 		if strings.Contains(string(raw), PublishID(200)) {
 			t.Fatalf("%s still carries the id-derived slug:\n%s", name, raw)
+		}
+	}
+}
+
+// TestBuildPublishesSiteIcon covers the site icon (config web.icon): the vault file publishes under
+// the fixed name icon.<ext> at the site root, site.json names it for the frontend's brand mark, and
+// every emitted page's favicon link points at it instead of the built-in mark.
+func TestBuildPublishesSiteIcon(t *testing.T) {
+	cfg, s := vaultStore(t)
+	cfg.WebIcon = "assets/logo.png"
+	writeVaultNote(t, cfg, 100, "Home", "# Home\n")
+	writeVaultNote(t, cfg, 200, "Child", "# Child\n")
+	if err := os.MkdirAll(filepath.Join(cfg.VaultDir, "assets"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(cfg.VaultDir, "assets", "logo.png"), []byte("png-bytes"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := index.New(cfg, s).Full(); err != nil {
+		t.Fatalf("index: %v", err)
+	}
+
+	// A stray icon.png in the frontend build must not clobber the vault icon (it is copied after
+	// copyTree).
+	frontend := fakeFrontend(t)
+	if err := os.WriteFile(filepath.Join(frontend, "icon.png"), []byte("stray"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	out := t.TempDir()
+	if _, err := Build(cfg, s, Options{Root: 100, IDs: []int64{200}}, frontend, out); err != nil {
+		t.Fatalf("build: %v", err)
+	}
+
+	if raw, err := os.ReadFile(filepath.Join(out, "icon.png")); err != nil || string(raw) != "png-bytes" {
+		t.Fatalf("icon.png should be the vault icon file, got %q, %v", raw, err)
+	}
+	site := readJSON[jsonSite](t, filepath.Join(out, "data", "site.json"))
+	if site.Icon != "icon.png" {
+		t.Fatalf("site.json should name the published icon, got %+v", site)
+	}
+	for _, rel := range []string{"index.html", filepath.Join("notes", PublishID(200), "index.html")} {
+		raw, err := os.ReadFile(filepath.Join(out, rel))
+		if err != nil {
+			t.Fatal(err)
+		}
+		if !strings.Contains(string(raw), `href="/icon.png"`) {
+			t.Fatalf("%s favicon should point at the site icon:\n%s", rel, raw)
+		}
+		if strings.Contains(string(raw), "k_logo.svg") {
+			t.Fatalf("%s still carries the built-in favicon:\n%s", rel, raw)
+		}
+	}
+}
+
+// A configured icon that is missing fails the build rather than publishing a brand-less site.
+func TestBuildMissingSiteIconFails(t *testing.T) {
+	cfg, s := vaultStore(t)
+	cfg.WebIcon = "assets/nope.png"
+	writeVaultNote(t, cfg, 100, "Home", "# Home\n")
+	if _, err := index.New(cfg, s).Full(); err != nil {
+		t.Fatalf("index: %v", err)
+	}
+
+	_, err := Build(cfg, s, Options{Root: 100}, fakeFrontend(t), t.TempDir())
+	if err == nil || !strings.Contains(err.Error(), "web.icon") {
+		t.Fatalf("a missing web.icon must fail the build naming the key, got %v", err)
+	}
+}
+
+// swapFavicon keeps the href's directory prefix — the Vite base the frontend was built with — and
+// swaps only the file name; without an icon or a favicon link it leaves the shell alone.
+func TestSwapFavicon(t *testing.T) {
+	cases := []struct {
+		name, tmpl, icon, want string
+	}{
+		{
+			"root base",
+			`<head><link rel="icon" type="image/svg+xml" href="/k_logo.svg" /></head>`,
+			"icon.png",
+			`<head><link rel="icon" href="/icon.png" /></head>`,
+		},
+		{
+			"subpath base survives",
+			`<head><link rel="icon" type="image/svg+xml" href="/track/k_logo.svg" /></head>`,
+			"icon.svg",
+			`<head><link rel="icon" href="/track/icon.svg" /></head>`,
+		},
+		{
+			"no icon is a no-op",
+			`<head><link rel="icon" href="/k_logo.svg" /></head>`,
+			"",
+			`<head><link rel="icon" href="/k_logo.svg" /></head>`,
+		},
+		{
+			"no favicon link is a no-op",
+			`<head><title>t</title></head>`,
+			"icon.png",
+			`<head><title>t</title></head>`,
+		},
+	}
+	for _, c := range cases {
+		if got := swapFavicon(c.tmpl, c.icon); got != c.want {
+			t.Errorf("%s: swapFavicon = %q, want %q", c.name, got, c.want)
 		}
 	}
 }
