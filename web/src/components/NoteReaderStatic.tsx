@@ -50,39 +50,42 @@ export function NoteReaderStatic({ noteID }: { noteID: NoteID }) {
 
   return (
     <article className="note-reader">
-      <div className="note-main">
-        <NoteBreadcrumbs trail={data.trail ?? []} />
-        <NoteProperties props={data.note.props ?? []} />
+      <div className="note-layout">
+        <div className="note-main">
+          <NoteBreadcrumbs trail={data.trail ?? []} />
+          <NoteProperties props={data.note.props ?? []} />
 
-        <section className="note-preview" aria-label="Rendered note">
-          {body.trim() !== "" && rendered.data?.markdown === undefined ? (
-            <LoadingIndicator label="Loading note" />
-          ) : (
-            <TaskBoardContext.Provider
-              value={{ noteID, tasks: data.note.tasks, etag: data.note.etag }}
-            >
-              <MarkdownView
-                markdown={rendered.data?.markdown ?? ""}
-                title={data.note.title}
-                kind={data.note.file_kind}
-                includes={data.note.includes}
-              />
-            </TaskBoardContext.Provider>
-          )}
-        </section>
-        {siteQuery.data?.share ? (
-          <ShareActions noteID={noteID} title={data.note.title} baseURL={siteQuery.data.base_url} />
-        ) : null}
+          <section className="note-preview" aria-label="Rendered note">
+            {body.trim() !== "" && rendered.data?.markdown === undefined ? (
+              <LoadingIndicator label="Loading note" />
+            ) : (
+              <TaskBoardContext.Provider
+                value={{ noteID, tasks: data.note.tasks, etag: data.note.etag }}
+              >
+                <MarkdownView
+                  markdown={rendered.data?.markdown ?? ""}
+                  title={data.note.title}
+                  kind={data.note.file_kind}
+                  includes={data.note.includes}
+                />
+              </TaskBoardContext.Provider>
+            )}
+          </section>
+        </div>
+
+        <NoteAside
+          tags={data.note.tags ?? []}
+          markdown={rendered.data?.markdown ?? ""}
+          backlinks={data.backlinks}
+          childNotes={data.children ?? []}
+          noteID={noteID}
+          journalDate={journalDate}
+        />
       </div>
 
-      <NoteAside
-        tags={data.note.tags ?? []}
-        markdown={rendered.data?.markdown ?? ""}
-        backlinks={data.backlinks}
-        childNotes={data.children ?? []}
-        noteID={noteID}
-        journalDate={journalDate}
-      />
+      {siteQuery.data?.share ? (
+        <ShareActions noteID={noteID} title={data.note.title} baseURL={siteQuery.data.base_url} />
+      ) : null}
     </article>
   );
 }
