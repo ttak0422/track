@@ -5,10 +5,11 @@ import { NoteKindContext, NoteVaultContext } from "./context";
 import { assetHref } from "./urls";
 
 // QueryView draws fenced ```track-view blocks: the laid-out result of a ```track-query fence whose
-// :layout is board, gallery, or calendar. The engine resolves the fence at render time (live) or
+// :layout is list, board, gallery, or calendar. The engine resolves the fence at render time (live) or
 // build time (static export) into a View JSON payload — grouping, date bucketing, and covers are all
 // decided server-side — so this component only places already-grouped rows on screen. Titles render
-// as wiki links, resolving exactly like a [[Title]] cell in the default table layout.
+// as wiki links, resolving exactly like a [[Title]] cell in the default table layout. Card layouts
+// can hide the visible title while retaining the stretched title link as the card's target.
 
 interface ViewRow {
   title: string;
@@ -24,6 +25,7 @@ interface ViewGroup {
 
 interface ViewPayload {
   layout: string;
+  showTitle?: boolean;
   key?: string;
   columns: string[];
   groups: ViewGroup[];
@@ -41,6 +43,8 @@ export function QueryView({ text }: { text: string }) {
     return <CodeBlock lang="json" text={text} />;
   }
   switch (view.layout) {
+    case "list":
+      return <List view={view} />;
     case "board":
       return <Board view={view} />;
     case "gallery":
@@ -50,6 +54,29 @@ export function QueryView({ text }: { text: string }) {
     default:
       return <CodeBlock lang="json" text={text} />;
   }
+}
+
+function List({ view }: { view: ViewPayload }) {
+  const rows = view.groups.flatMap((group) => group.rows);
+  return (
+    <ul className="query-view query-list">
+      {rows.map((row) => {
+        const meta = rowMeta(row, view);
+        return (
+          <li className="query-list-item" key={row.title}>
+            <span className="query-list-title">
+              <WikiLink target={row.title} display={row.title} />
+            </span>
+            {meta.map(({ column, value }) => (
+              <span className="query-list-meta" key={column}>
+                <span className="query-list-meta-key">{column}</span> {value}
+              </span>
+            ))}
+          </li>
+        );
+      })}
+    </ul>
+  );
 }
 
 function parseView(text: string): ViewPayload | null {
@@ -209,12 +236,11 @@ function Card({ row, view, skip }: { row: ViewRow; view: ViewPayload; skip?: str
 // remaining column — the title column and the lane's own grouping column would only repeat what the
 // card's position already says.
 function CardBody({ row, view, skip }: { row: ViewRow; view: ViewPayload; skip?: string }) {
-  const meta = view.columns
-    .map((column, i) => ({ column, value: row.cells[i] ?? "" }))
-    .filter(({ column, value }) => column !== "title" && column !== skip && value !== "");
+  const meta = rowMeta(row, view, skip);
+  const showTitle = view.showTitle !== false;
   return (
     <div className="query-card-body">
-      <span className="query-card-title">
+      <span className={`query-card-title${showTitle ? "" : " query-card-title-hidden"}`}>
         <WikiLink target={row.title} display={row.title} />
       </span>
       {meta.map(({ column, value }) => (
@@ -224,6 +250,12 @@ function CardBody({ row, view, skip }: { row: ViewRow; view: ViewPayload; skip?:
       ))}
     </div>
   );
+}
+
+function rowMeta(row: ViewRow, view: ViewPayload, skip?: string) {
+  return view.columns
+    .map((column, i) => ({ column, value: row.cells[i] ?? "" }))
+    .filter(({ column, value }) => column !== "title" && column !== skip && value !== "");
 }
 
 function pad2(n: number): string {

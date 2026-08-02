@@ -11,14 +11,14 @@ import (
 // FenceLang is the fence language that marks an embedded query (```track-query ... ```), mirroring
 // how ```viewspec marks an embedded chart. The fence body is a query expression, or "saved: <name>"
 // referencing a named query from config. Org-style header arguments on the fence choose the layout:
-// ":layout table|board|gallery|calendar" (default table) and ":by <column>" (the board grouping /
-// calendar date column).
+// ":layout table|list|board|gallery|calendar" (default table), ":by <column>" (the board grouping /
+// calendar date column), and ":title show|hide" (card title visibility for board/gallery).
 const FenceLang = "track-query"
 
 // ExpandBlocks replaces every fenced ```track-query block in body with its rendered result: a GFM
-// Markdown table by default, or — for a board/gallery/calendar :layout — a ```track-view fence whose
-// body is the laid-out View JSON the frontend draws. A bad query is replaced by an inline error plus
-// the original expression, so the note still renders and the typo is visible at the block position.
+// Markdown table by default, or — for a list/board/gallery/calendar :layout — a ```track-view fence
+// whose body is the laid-out View JSON the frontend draws. A bad query is replaced by an inline error
+// plus the original expression, so the note still renders and the typo is visible at the block position.
 // saved supplies named queries for "saved: <name>" bodies; rows is the query domain; meta supplies a
 // note's cover image and icon for gallery cards (nil = neither).
 func ExpandBlocks(body string, saved map[string]string, rows []NoteRow, meta func(noteID int64) (cover, icon string)) string {
@@ -42,10 +42,14 @@ func ExpandBlocks(body string, saved map[string]string, rows []NoteRow, meta fun
 // look broken.
 func resultLines(b babel.Block, res Result, meta func(int64) (string, string)) ([]string, error) {
 	layout := headerArg(b, "layout")
+	showTitle, err := titleVisibility(layout, headerArg(b, "title"))
+	if err != nil {
+		return nil, err
+	}
 	if layout == "" || layout == "table" || len(res.Rows) == 0 {
 		return strings.Split(Markdown(res), "\n"), nil
 	}
-	v, err := BuildView(layout, headerArg(b, "by"), res, meta)
+	v, err := BuildView(layout, headerArg(b, "by"), res, meta, ViewOptions{ShowTitle: showTitle})
 	if err != nil {
 		return nil, err
 	}
@@ -55,6 +59,23 @@ func resultLines(b babel.Block, res Result, meta func(int64) (string, string)) (
 		return nil, err
 	}
 	return []string{"```" + ViewFenceLang, string(data), "```"}, nil
+}
+
+// titleVisibility resolves the optional card-title presentation setting. Lists and calendars
+// always show their title link: it is the content that identifies each item there. Cards can hide
+// the visible title because their entire surface remains a title link.
+func titleVisibility(layout, value string) (bool, error) {
+	switch value {
+	case "", "show":
+		return true, nil
+	case "hide":
+		if layout != "board" && layout != "gallery" {
+			return false, fmt.Errorf(":title hide is only supported for board and gallery layouts")
+		}
+		return false, nil
+	default:
+		return false, fmt.Errorf(":title must be show or hide, got %q", value)
+	}
 }
 
 // headerArg returns the first value of an Org-style ":key value" fence header argument.
