@@ -12,6 +12,7 @@ import {
   getOgp,
   getSite,
   listDatedTasks,
+  listNewNotes,
   listNotes,
   listOpenTasks,
   renderMarkdown,
@@ -38,6 +39,7 @@ export const queryKeys = {
   note: (noteID: NoteID) => ["note", noteID] as const,
   noteMeta: (noteID: NoteID) => ["note-meta", noteID] as const,
   notes: () => ["notes"] as const,
+  newNotes: (limit: number) => ["notes", "new", limit] as const,
   // Both listings sit under one prefix so a task write invalidates them together.
   tasks: () => ["tasks"] as const,
   datedTasks: () => ["tasks", "dated"] as const,
@@ -104,6 +106,13 @@ export function useNotesQuery() {
   return useQuery({
     queryKey: queryKeys.notes(),
     queryFn: listNotes,
+  });
+}
+
+export function useNewNotesQuery(limit = 10) {
+  return useQuery({
+    queryKey: queryKeys.newNotes(limit),
+    queryFn: () => listNewNotes(limit),
   });
 }
 

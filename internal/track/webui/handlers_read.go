@@ -172,6 +172,16 @@ func searchGaps(views []*vaultView, failed []search.Failed) []vaultInfo {
 
 func (s *Server) handleNotes(v *vaultView, w http.ResponseWriter, r *http.Request) {
 	s.refresh(v)
+	if strings.TrimSpace(r.URL.Query().Get("sort")) == "created" {
+		results, err := v.store.NewestRefs(parseLimit(r.URL.Query().Get("limit"), 10))
+		if err != nil {
+			writeError(w, err, http.StatusInternalServerError)
+			return
+		}
+		addSearchPaths(v, results)
+		writeJSON(w, map[string]any{"notes": results})
+		return
+	}
 	results, err := v.store.SearchRefs()
 	if err != nil {
 		writeError(w, err, http.StatusInternalServerError)
