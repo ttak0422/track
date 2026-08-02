@@ -16,6 +16,7 @@ describe("ShareActions", () => {
     const xLink = screen.getByRole("link", { name: "Share on X" });
     const intent = new URL(xLink.getAttribute("href") ?? "");
 
+    expect(xLink.querySelector("svg")).toHaveClass("share-action-icon");
     expect(intent.origin + intent.pathname).toBe("https://x.com/intent/tweet");
     expect(intent.searchParams.get("url")).toBe("https://example.com/site/notes/note-1/");
     expect(intent.searchParams.get("text")).toBe("A note");
@@ -28,6 +29,9 @@ describe("ShareActions", () => {
     fireEvent.click(screen.getByRole("button", { name: "Copy link" }));
     await waitFor(() => expect(copyText).toHaveBeenCalledWith("https://example.com/notes/note-1/"));
     expect(await screen.findByRole("button", { name: "Copied" })).toBeTruthy();
+    expect(screen.getByRole("button", { name: "Copied" }).querySelector("svg")).toHaveClass(
+      "share-action-icon",
+    );
   });
 
   it("falls back to the browser URL when no public base is configured", () => {
