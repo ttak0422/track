@@ -30,28 +30,35 @@ describe("NoteRailControls", () => {
   it("shows nothing while no note is open, so the rail stays navigation alone", async () => {
     renderRail(null);
     await Promise.resolve();
-    expect(screen.queryByRole("button", { name: "Preview" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Display mode: Preview" })).not.toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "More actions" })).not.toBeInTheDocument();
   });
 
   it("shows the open note's controls once it registers", async () => {
     renderRail(noopActions);
-    expect(await screen.findByRole("button", { name: "Preview" })).toBeInTheDocument();
-    for (const name of ["Follow the editor: Off", "Preview", "Edit", "Split", "More actions"]) {
+    expect(await screen.findByRole("button", { name: "Display mode: Preview" })).toBeInTheDocument();
+    for (const name of ["Follow the editor: Off", "Display mode: Preview", "More actions"]) {
       expect(screen.getByRole("button", { name })).toBeInTheDocument();
     }
+    expect(screen.queryByRole("menuitemradio", { name: "Edit" })).not.toBeInTheDocument();
   });
 
-  it("marks the current mode pressed and switches on click", async () => {
+  it("shows only the current mode in the rail and switches from the labelled hover menu", async () => {
     const seen: string[] = [];
     renderRail(noopActions, (s) => seen.push(s));
-    const preview = await screen.findByRole("button", { name: "Preview" });
-    expect(preview).toHaveAttribute("aria-pressed", "true");
-    expect(screen.getByRole("button", { name: "Split" })).toHaveAttribute("aria-pressed", "false");
+    const toggle = await screen.findByRole("button", { name: "Display mode: Preview" });
+    expect(toggle.querySelector("svg")).toHaveAttribute("data-mode", "preview");
 
-    fireEvent.click(screen.getByRole("button", { name: "Split" }));
-    expect(screen.getByRole("button", { name: "Split" })).toHaveAttribute("aria-pressed", "true");
-    expect(seen.at(-1)).toBe("split/false");
+    fireEvent.pointerEnter(toggle);
+    expect(screen.getByRole("menu", { name: "Display mode" })).toBeInTheDocument();
+    expect(screen.getByRole("menuitemradio", { name: "Preview" })).toHaveAttribute("aria-checked", "true");
+    expect(screen.getByRole("menuitemradio", { name: "Edit" })).toHaveAttribute("aria-checked", "false");
+
+    fireEvent.click(screen.getByRole("menuitemradio", { name: "Edit" }));
+    const editToggle = screen.getByRole("button", { name: "Display mode: Edit" });
+    expect(editToggle.querySelector("svg")).toHaveAttribute("data-mode", "edit");
+    expect(screen.queryByRole("menu", { name: "Display mode" })).not.toBeInTheDocument();
+    expect(seen.at(-1)).toBe("edit/false");
   });
 
   it("toggles follow, which the note view reads back", async () => {

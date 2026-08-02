@@ -1300,6 +1300,10 @@ a.calendar-title:focus-visible {
   display: flex;
 }
 
+.mode-menu {
+  display: flex;
+}
+
 .note-menu-toggle {
   font-size: calc(18px * var(--font-scale, 1));
   line-height: 1;
@@ -1346,6 +1350,29 @@ a.calendar-title:focus-visible {
 .note-menu-panel .danger-item:hover,
 .note-menu-panel .danger-item:focus-visible {
   color: var(--danger);
+}
+
+/* Floating layer: the rail keeps only the current display-mode glyph; this labelled menu exposes
+   the alternatives without making three persistent buttons compete for space. */
+.mode-menu-panel {
+  min-width: 132px;
+}
+
+.mode-menu-panel button {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+}
+
+.mode-menu-panel button[aria-checked="true"] {
+  color: var(--accent);
+  font-weight: 600;
+}
+
+.mode-menu-panel .rail-icon-svg {
+  width: 18px;
+  height: 18px;
+  flex: none;
 }
 
 /* Centered confirmation dialog, above the float controls and floating windows. */
