@@ -74,6 +74,31 @@ func TestSearchRefsCarriesIconOverride(t *testing.T) {
 	}
 }
 
+func TestNewestRefsListsOnlyRegularNotesByCreationID(t *testing.T) {
+	s := newTestStore(t)
+	for _, n := range []*note.Note{
+		{ID: 100, Mtime: 900, Meta: note.Metadata{Title: "Old but edited"}},
+		{ID: 200, Mtime: 200, Meta: note.Metadata{Title: "Middle"}},
+		{ID: 300, Mtime: 100, Meta: note.Metadata{Title: "Newest", Tags: []string{"fresh"}, Icon: "🌱"}},
+		{ID: 20260802, Kind: "journal", Mtime: 1000, Meta: note.Metadata{Title: "20260802"}},
+	} {
+		if err := s.UpsertNote(n); err != nil {
+			t.Fatalf("upsert: %v", err)
+		}
+	}
+
+	refs, err := s.NewestRefs(2)
+	if err != nil {
+		t.Fatalf("newest refs: %v", err)
+	}
+	if len(refs) != 2 || refs[0].NoteID != 300 || refs[1].NoteID != 200 {
+		t.Fatalf("newest refs = %+v, want note ids [300 200]", refs)
+	}
+	if refs[0].Icon != "🌱" || !slices.Equal(refs[0].Tags, []string{"fresh"}) {
+		t.Fatalf("newest ref lost display metadata: %+v", refs[0])
+	}
+}
+
 func TestSearchTitleAndOr(t *testing.T) {
 	s := newTestStore(t)
 	for _, n := range []*note.Note{

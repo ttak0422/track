@@ -12,7 +12,7 @@ export function RecentNotes() {
     return null;
   }
   return (
-    <section className="backlinks home-recent" aria-labelledby="recent-heading">
+    <section className="backlinks home-note-list home-recent" aria-labelledby="recent-heading">
       <h3 id="recent-heading">Recent</h3>
       <div className="backlink-list">
         {recent.map((note) => (
