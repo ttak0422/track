@@ -60,6 +60,10 @@ type Config struct {
 	// instead of the search hero. Empty keeps the search home. A dashboard note (one with ```dashboard
 	// widget blocks) is the intended target. Resolved to a note id by the web layer, not here.
 	WebHome string
+	// WebIcon is the site icon image, as a path relative to the vault root (e.g. "assets/logo.png").
+	// The static-site exporter publishes it as the site's brand mark and favicon; empty keeps the
+	// built-in track mark.
+	WebIcon string
 	// Icons maps a tag or note kind to an emoji/icon shown beside note titles in lists, search, and the
 	// static-site navigation. A per-note sidecar override (Metadata.Icon) wins over both maps; see
 	// NoteIcon.
@@ -171,6 +175,8 @@ type machineWebConfig struct {
 type vaultWebConfig struct {
 	// Home names the landing note (title or numeric id) the workspace opens instead of the search hero.
 	Home string `yaml:"home"`
+	// Icon is the site icon image, as a path relative to the vault root (see Config.WebIcon).
+	Icon string `yaml:"icon"`
 }
 
 // iconsFileConfig is the config.yml `icons:` block: two optional maps from tag/kind to an emoji.
@@ -358,6 +364,7 @@ func load(fixedVault string) (*Config, error) {
 		JournalOff:        vc.Journal != nil && !*vc.Journal,
 		GenOff:            vc.Gen != nil && !*vc.Gen,
 		WebHome:           strings.TrimSpace(vc.Web.Home),
+		WebIcon:           strings.TrimSpace(vc.Web.Icon),
 		Icons:             IconMap{Tags: vc.Icons.Tags, Kinds: vc.Icons.Kinds},
 		Properties:        vc.Properties,
 		Queries:           vc.Queries,
