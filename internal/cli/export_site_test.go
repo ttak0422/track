@@ -72,6 +72,47 @@ func TestExportSiteBuildsStaticSite(t *testing.T) {
 	if !strings.Contains(string(childPage), `<meta property="og:title" content="Child">`) {
 		t.Fatalf("child page should carry its own og:title: %s", childPage)
 	}
+	metaRaw, err := os.ReadFile(filepath.Join(out, "data", "site.json"))
+	if err != nil {
+		t.Fatalf("site metadata missing: %v", err)
+	}
+	if strings.Contains(string(metaRaw), `"share"`) {
+		t.Fatalf("share should be opt-in by default: %s", metaRaw)
+	}
+}
+
+func TestExportSiteShareOption(t *testing.T) {
+	vault := t.TempDir()
+	if _, code := runIn(t, vault, "new", "--title", "Home", "--id", "100", "--body", "# Home\n"); code != 0 {
+		t.Fatalf("new Home failed")
+	}
+
+	frontend := fakeFrontend(t)
+	withoutBase := filepath.Join(vault, "without-base")
+	res, code := runIn(t, vault, "export-site", "--root", "100", "--share", "--frontend", frontend, "--out", withoutBase)
+	if code != 1 || !strings.Contains(res["error"].(string), "--share requires --base-url") {
+		t.Fatalf("expected --share to require --base-url, got code=%d out=%v", code, res)
+	}
+
+	out := filepath.Join(vault, "site")
+	res, code = runIn(t, vault, "export-site", "--root", "100", "--share", "--base-url", "https://example.com/blog", "--frontend", frontend, "--out", out)
+	if code != 0 {
+		t.Fatalf("export-site with sharing failed: %v", res)
+	}
+	raw, err := os.ReadFile(filepath.Join(out, "data", "site.json"))
+	if err != nil {
+		t.Fatalf("site metadata missing: %v", err)
+	}
+	var meta struct {
+		BaseURL string `json:"base_url"`
+		Share   bool   `json:"share"`
+	}
+	if err := json.Unmarshal(raw, &meta); err != nil {
+		t.Fatal(err)
+	}
+	if meta.BaseURL != "https://example.com/blog" || !meta.Share {
+		t.Fatalf("share option should be published with its base URL, got %+v", meta)
+	}
 }
 
 func TestExportSiteRequiresRoot(t *testing.T) {

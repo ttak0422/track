@@ -111,10 +111,16 @@ The target note is given by `--id`, by `--title` (resolved through the keyword d
 The input is a vault (`--frontend <dir>`, the static-mode frontend build, and `--out <dir>` are required):
 
 ```
-track export-site (--all | --id <id> ...) [--root <id>] [--calendar] --frontend <dist> --out <dir>
+track export-site (--all | --id <id> ...) [--root <id>] [--calendar] [--share]
+                  [--base-url <url>] --frontend <dist> --out <dir>
 ```
 
 `--all` publishes every note in the vault; `--id` selects instead. Journals are excluded from `--all`: they are day hubs indexing creates as a side effect, and the set of them records which days their author worked, so publishing them stays something a caller asks for by id. `--root` is the landing note's id and defaults to the vault config's `web.home` — the same landing note the workspace opens, so the front door travels with the content instead of sitting in a build config. A full reindex runs first so the published graph is complete.
+
+`--base-url` supplies the absolute public site URL used by canonical and social metadata. `--share` is
+opt-in: it adds X and copy-link actions below each static note, and requires `--base-url` so both actions
+have an absolute published URL. It is off by default, which keeps the documentation site free of sharing
+controls.
 
 There used to be a second input mode: `--src <dir>` published a directory of plain Markdown outside any vault, with a `site.yml` standing in for the sidecars it did not have. It is gone (ADR 0059). A vault does everything it did — and a directory can become one: pin each page's current address in its sidecar (`slug:`, see [storage.md](storage.md)) so no published URL moves, since the slug is otherwise derived from the note id. This repository's own help site made exactly that move.
 

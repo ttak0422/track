@@ -291,11 +291,12 @@ export interface ViewSpecResponse {
   echarts: Record<string, unknown>;
 }
 
-// SiteResponse describes the published static site: which note is the entry page, and whether the
-// export opted into the calendar view (`track export-site --calendar`). It only exists in the static
-// export bundle (data/site.json).
+// SiteResponse describes the published static site: which note is the entry page, its public URL, and
+// the opt-in surfaces enabled by export-site. It only exists in the static export bundle (data/site.json).
 export interface SiteResponse {
   root: NoteID;
   title: string;
   calendar?: boolean;
+  base_url?: string;
+  share?: boolean;
 }

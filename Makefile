@@ -30,6 +30,9 @@ SITE_BASE  ?= /
 # SITE_ORIGIN is the absolute public origin used for canonical/social-card URLs. Leave it empty for
 # local exports where absolute og:url/og:image are not meaningful.
 SITE_ORIGIN ?=
+# SITE_SHARE opts static note pages into X and copy-link actions. It defaults off for documentation
+# exports; enabling it requires SITE_ORIGIN to be set.
+SITE_SHARE ?= false
 
 site: web/node_modules ## Build + prerender the static help site into $(SITE_OUT)
 	rm -rf $(SITE_OUT)
@@ -37,7 +40,7 @@ site: web/node_modules ## Build + prerender the static help site into $(SITE_OUT
 	cd web && VITE_TRACK_STATIC=1 SITE_BASE=$(SITE_BASE) npx vite build --outDir dist-static
 	cd web && VITE_TRACK_STATIC=1 SITE_BASE=$(SITE_BASE) npx vite build --ssr src/entry-server.tsx --outDir dist-server
 	go build -o $(TRACK_BIN) ./cmd/track
-	TRACK_VAULT=$(SITE_VAULT) TRACK_CACHE_DIR=$(SITE_CACHE) ./$(TRACK_BIN) export-site --all --frontend $(WEB_DIST) --out $(SITE_OUT) --base-url "$(SITE_ORIGIN)"
+	TRACK_VAULT=$(SITE_VAULT) TRACK_CACHE_DIR=$(SITE_CACHE) ./$(TRACK_BIN) export-site --all --frontend $(WEB_DIST) --out $(SITE_OUT) --base-url "$(SITE_ORIGIN)" --share=$(SITE_SHARE)
 	node web/scripts/prerender.mjs $(SITE_OUT) web/dist-server/entry-server.js
 	@echo "Built + prerendered $(SITE_OUT)/ — run 'make site-serve' to preview"
 
@@ -52,7 +55,7 @@ lighthouse: site ## Run Lighthouse on the built site and print the scores (needs
 site-data:
 	go build -o $(TRACK_BIN) ./cmd/track
 	mkdir -p .site-stub && printf '<!doctype html><div id="root"></div>' > .site-stub/index.html
-	TRACK_VAULT=$(SITE_VAULT) TRACK_CACHE_DIR=$(SITE_CACHE) ./$(TRACK_BIN) export-site --all --frontend .site-stub --out $(SITE_OUT) --base-url "$(SITE_ORIGIN)"
+	TRACK_VAULT=$(SITE_VAULT) TRACK_CACHE_DIR=$(SITE_CACHE) ./$(TRACK_BIN) export-site --all --frontend .site-stub --out $(SITE_OUT) --base-url "$(SITE_ORIGIN)" --share=$(SITE_SHARE)
 
 site-dev: web/node_modules site-data ## Dev preview: Vite dev server (HMR) over the exported data — fast iteration
 	@echo "Vite dev server (static mode, HMR). Edit web/src for instant reload; re-run 'make site-data' after help vault edits."
@@ -73,7 +76,7 @@ site-serve: site ## Serve at http://localhost:$(SITE_PORT), open a browser, and 
 			$(MAKE) --no-print-directory site; \
 		elif [ -n "$$(find $(SITE_VAULT) -type f -newer $(SITE_OUT)/index.html 2>/dev/null)" ]; then \
 			echo "== docs changed — rebuilding content =="; \
-			TRACK_VAULT=$(SITE_VAULT) TRACK_CACHE_DIR=$(SITE_CACHE) ./$(TRACK_BIN) export-site --all --frontend $(WEB_DIST) --out $(SITE_OUT) --base-url "$(SITE_ORIGIN)"; \
+			TRACK_VAULT=$(SITE_VAULT) TRACK_CACHE_DIR=$(SITE_CACHE) ./$(TRACK_BIN) export-site --all --frontend $(WEB_DIST) --out $(SITE_OUT) --base-url "$(SITE_ORIGIN)" --share=$(SITE_SHARE); \
 		fi; \
 		sleep 1; \
 	done

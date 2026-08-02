@@ -144,12 +144,15 @@ type jsonSite struct {
 	// BaseURL is the site's absolute origin (export-site --base-url, no trailing slash). The
 	// prerender needs it for og:image / og:url, which must be absolute; empty omits those tags.
 	BaseURL string `json:"base_url,omitempty"`
+	// Share opts the static note reader into showing its X and copy-link actions. It is deliberately
+	// opt-in because the track documentation site does not need publishing controls.
+	Share bool `json:"share,omitempty"`
 }
 
 // writeBundle emits the data bundle, copies the static frontend over it, and copies assets. frontendDir
 // is the static-mode Vite build (index.html + assets/...). root is the entry note's id. saved supplies
 // the named queries a ```track-query fence may reference (nil on a directory site, which has no config).
-func writeBundle(docs []doc, edges []edge, root int64, calendar bool, baseURL string, saved map[string]string, frontendDir, outDir string) (Result, error) {
+func writeBundle(docs []doc, edges []edge, root int64, calendar, share bool, baseURL string, saved map[string]string, frontendDir, outDir string) (Result, error) {
 	if len(docs) == 0 {
 		return Result{}, fmt.Errorf("no notes to publish")
 	}
@@ -401,7 +404,13 @@ func writeBundle(docs []doc, edges []edge, root int64, calendar bool, baseURL st
 	}
 
 	// site.json: the entry note and site-level toggles.
-	siteMeta := jsonSite{Root: slugOf(docPtr(byID, root)), Title: rootTitle, Calendar: calendar, BaseURL: strings.TrimRight(baseURL, "/")}
+	siteMeta := jsonSite{
+		Root:     slugOf(docPtr(byID, root)),
+		Title:    rootTitle,
+		Calendar: calendar,
+		Share:    share,
+		BaseURL:  strings.TrimRight(baseURL, "/"),
+	}
 	if err := writeJSONFile(filepath.Join(outDir, "data", "site.json"), siteMeta); err != nil {
 		return Result{}, err
 	}

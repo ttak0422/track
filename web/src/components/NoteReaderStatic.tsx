@@ -8,10 +8,11 @@ import {
   journalDateFromNote,
   useScrollToHash,
 } from "./noteShared";
-import { useNoteQuery, useRenderQuery } from "../queries";
+import { useNoteQuery, useRenderQuery, useSiteQuery } from "../queries";
 import { useTabs } from "./tabs/tabsStore";
 import { useEffect } from "react";
 import type { NoteID } from "../types";
+import { ShareActions } from "./ShareActions";
 
 // NoteReaderStatic is the published site's read-only note view: the title, tags, rendered body, and
 // backlinks/on-this-day — no editor, save/delete, follow, or dirty tracking. NoteReader picks it over
@@ -19,6 +20,7 @@ import type { NoteID } from "../types";
 // static bundle.
 export function NoteReaderStatic({ noteID }: { noteID: NoteID }) {
   const noteQuery = useNoteQuery(noteID);
+  const siteQuery = useSiteQuery();
   const { setTitle: setTabTitle } = useTabs();
   const note = noteQuery.data?.note;
   const rendered = useRenderQuery(note?.body ?? "");
@@ -68,6 +70,9 @@ export function NoteReaderStatic({ noteID }: { noteID: NoteID }) {
             </TaskBoardContext.Provider>
           )}
         </section>
+        {siteQuery.data?.share ? (
+          <ShareActions noteID={noteID} title={data.note.title} baseURL={siteQuery.data.base_url} />
+        ) : null}
       </div>
 
       <NoteAside
