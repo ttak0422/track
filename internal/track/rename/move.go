@@ -16,11 +16,14 @@ import (
 	"github.com/ttak0422/track/internal/track/store"
 )
 
-// MoveOptions selects the explicit policy for local links that cannot resolve in the destination.
-type MoveOptions struct {
-	Unlink  bool
-	Qualify bool
-}
+// LinkPolicy selects what a move does with local links that cannot resolve in the destination.
+type LinkPolicy string
+
+const (
+	RefuseBrokenLinks  LinkPolicy = "refuse"
+	UnlinkBrokenLinks  LinkPolicy = "unlink"
+	QualifyBrokenLinks LinkPolicy = "qualify"
+)
 
 // MoveResult reports the durable destination and source backlink changes.
 type MoveResult struct {
@@ -34,10 +37,10 @@ type MoveResult struct {
 // conflicts are checked from authoritative vault files before any destination or cache write. Once
 // writing begins, every failure before the final source reindex leaves or restores the source,
 // preferring a duplicate to lost text.
-func Move(srcCfg, dstCfg *config.Config, srcStore *store.Store, srcPath, dstName string, opts MoveOptions) (MoveResult, error) {
+func Move(srcCfg, dstCfg *config.Config, srcStore *store.Store, srcPath, dstName string, policy LinkPolicy) (MoveResult, error) {
 	var res MoveResult
-	if opts.Unlink && opts.Qualify {
-		return res, fmt.Errorf("unlink and qualify are mutually exclusive")
+	if policy != RefuseBrokenLinks && policy != UnlinkBrokenLinks && policy != QualifyBrokenLinks {
+		return res, fmt.Errorf("unknown broken-link policy %q", policy)
 	}
 	if _, err := index.New(srcCfg, srcStore).Full(); err != nil {
 		return res, fmt.Errorf("reindex source before move: %w", err)
@@ -100,19 +103,19 @@ func Move(srcCfg, dstCfg *config.Config, srcStore *store.Store, srcPath, dstName
 			unresolved = append(unresolved, ref.Text)
 		}
 	}
-	if len(unresolved) > 0 && !opts.Unlink && !opts.Qualify {
+	if len(unresolved) > 0 && policy == RefuseBrokenLinks {
 		return res, fmt.Errorf("move would leave unresolved local links in %q: %s (use --unlink or --qualify)", dstName, strings.Join(unresolved, ", "))
 	}
-	if len(unresolved) > 0 && opts.Qualify && srcCfg.VaultName == "" {
+	if len(unresolved) > 0 && policy == QualifyBrokenLinks && srcCfg.VaultName == "" {
 		return res, fmt.Errorf("--qualify requires the source vault to have a registered name")
 	}
-	if opts.Qualify {
+	if policy == QualifyBrokenLinks {
 		for _, key := range unresolved {
 			rewritten, _ := link.ReplaceRefKey(string(body), key, srcCfg.VaultName+":"+key)
 			body = []byte(rewritten)
 		}
 	}
-	if opts.Unlink {
+	if policy == UnlinkBrokenLinks {
 		rewritten, _ := link.UnlinkRefKeys(string(body), unresolvedSet)
 		body = []byte(rewritten)
 	}

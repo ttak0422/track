@@ -54,9 +54,16 @@ func cmdMv(args []string) int {
 	if err != nil {
 		return fail("load destination vault: %v", err)
 	}
-	res, err := trackrename.Move(srcCfg, dstCfg, srcStore, srcPath, dstName, trackrename.MoveOptions{
-		Unlink: *unlink, Qualify: *qualify,
-	})
+	if err := requireVaultDir(dstCfg); err != nil {
+		return fail("destination vault %q: %v", dstName, err)
+	}
+	policy := trackrename.RefuseBrokenLinks
+	if *unlink {
+		policy = trackrename.UnlinkBrokenLinks
+	} else if *qualify {
+		policy = trackrename.QualifyBrokenLinks
+	}
+	res, err := trackrename.Move(srcCfg, dstCfg, srcStore, srcPath, dstName, policy)
 	if err != nil {
 		return fail("%v", err)
 	}
