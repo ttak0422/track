@@ -97,6 +97,8 @@ track update (--id N | --title S | --path P) [--body <s>] [--tag <s>] [--clear-t
                                       # replace body text and/or update tags
 track rename (--id N | --title S | --path P) --to S
                                       # rename a sidecar title and rewrite backlinks
+track mv (--id N | --title S | --path P) --to VAULT [--unlink | --qualify]
+                                      # move a note into a registered vault; refuse dead local links by default
 track journal [--offset <n>] [--template <s>] [--body <s>]
                                       # open/create a daily note (0=today)
 track reindex [--full]                # rebuild the index

@@ -169,6 +169,36 @@ func ReplaceRefKey(text, oldKey, newKey string) (string, int) {
 	return strings.Join(lines, "\n"), count
 }
 
+// UnlinkRefKeys turns references whose resolution key is in keys into their visible text. An alias
+// is preserved; without one, the written target (including any anchor) becomes plain text. Fenced
+// code remains untouched because Refs excludes it.
+func UnlinkRefKeys(text string, keys map[string]bool) (string, int) {
+	if len(keys) == 0 {
+		return text, 0
+	}
+	lines := strings.Split(text, "\n")
+	byLine := map[int][]Ref{}
+	for _, ref := range Refs(text) {
+		if keys[ref.Text] {
+			byLine[ref.Line] = append(byLine[ref.Line], ref)
+		}
+	}
+	count := 0
+	for lineNo, refs := range byLine {
+		line := lines[lineNo]
+		for i := len(refs) - 1; i >= 0; i-- {
+			ref := refs[i]
+			if ref.OpenByte > ref.CloseByte || ref.CloseByte > len(line) {
+				continue
+			}
+			line = line[:ref.OpenByte] + ref.Display + line[ref.CloseByte:]
+			count++
+		}
+		lines[lineNo] = line
+	}
+	return strings.Join(lines, "\n"), count
+}
+
 // Heading is one ATX heading occurrence in note text.
 type Heading struct {
 	Level int    // number of leading "#" (1 == h1, 2 == h2, ...)

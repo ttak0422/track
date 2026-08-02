@@ -72,6 +72,8 @@ func Run(args []string) int {
 		return cmdAsset(rest)
 	case "rename":
 		return cmdRename(rest)
+	case "mv":
+		return cmdMv(rest)
 	case "rm":
 		return cmdRm(rest)
 	case "gen":
@@ -169,6 +171,8 @@ Usage:
   track asset dir [--ensure]            print (and optionally create) the vault's assets directory (JSON)
   track rename (--id N | --title S | --path P) --to S
                                         rename a note's title and rewrite its backlinks (JSON)
+  track mv (--id N | --title S | --path P) --to VAULT [--unlink | --qualify]
+                                        move a note into a registered vault without leaving dead links (JSON)
   track rm (--id N | --title S | --path P)
                                         soft-delete a note: move it and its sidecar into .track/trash (JSON)
   track gen increment                   save the working vault as a new generation; drops generations
