@@ -147,12 +147,17 @@ type jsonSite struct {
 	// Share opts the static note reader into showing its X and copy-link actions. It is deliberately
 	// opt-in because the track documentation site does not need publishing controls.
 	Share bool `json:"share,omitempty"`
+	// Icon is the published site icon's file name at the site root ("icon.<ext>", from config
+	// web.icon). The frontend shows it as the brand mark; the favicon swap bakes it into every page.
+	// Empty keeps the built-in track mark.
+	Icon string `json:"icon,omitempty"`
 }
 
 // writeBundle emits the data bundle, copies the static frontend over it, and copies assets. frontendDir
 // is the static-mode Vite build (index.html + assets/...). root is the entry note's id. saved supplies
 // the named queries a ```track-query fence may reference (nil on a directory site, which has no config).
-func writeBundle(docs []doc, edges []edge, root int64, calendar, share bool, baseURL string, saved map[string]string, frontendDir, outDir string) (Result, error) {
+// iconSrc is the resolved site-icon file to publish as icon.<ext> at the site root ("" = none).
+func writeBundle(docs []doc, edges []edge, root int64, calendar, share bool, baseURL, iconSrc string, saved map[string]string, frontendDir, outDir string) (Result, error) {
 	if len(docs) == 0 {
 		return Result{}, fmt.Errorf("no notes to publish")
 	}
@@ -411,6 +416,11 @@ func writeBundle(docs []doc, edges []edge, root int64, calendar, share bool, bas
 		Share:    share,
 		BaseURL:  strings.TrimRight(baseURL, "/"),
 	}
+	if iconSrc != "" {
+		// Published under a fixed name so the source file name never leaks; the extension carries the
+		// format, so the favicon works without a type attribute.
+		siteMeta.Icon = "icon" + strings.ToLower(filepath.Ext(iconSrc))
+	}
 	if err := writeJSONFile(filepath.Join(outDir, "data", "site.json"), siteMeta); err != nil {
 		return Result{}, err
 	}
@@ -418,6 +428,12 @@ func writeBundle(docs []doc, edges []edge, root int64, calendar, share bool, bas
 	// Copy the static frontend over the output (index.html + assets/...).
 	if err := copyTree(frontendDir, outDir); err != nil {
 		return Result{}, fmt.Errorf("copy frontend: %w", err)
+	}
+	// The site icon lands after copyTree so a stray icon.* in the frontend build can never clobber it.
+	if iconSrc != "" {
+		if err := copyFile(iconSrc, filepath.Join(outDir, siteMeta.Icon)); err != nil {
+			return Result{}, fmt.Errorf("copy site icon: %w", err)
+		}
 	}
 	// Emit a real HTML file per route (start page, per note, and the site-level pages) with that page's
 	// OGP meta injected into the copied shell, so crawlers/social shares see per-note metadata and deep
