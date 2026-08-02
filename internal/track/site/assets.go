@@ -43,9 +43,9 @@ func rewriteAssetRefs(body string) string {
 	return b.String()
 }
 
-// collectAssets returns the distinct "assets/<path>" file references found in a note body, ignoring any
+// CollectAssets returns the distinct "assets/<path>" file references found in a note body, ignoring any
 // written inside a code block or inline code span (those are examples, not attachments to publish).
-func collectAssets(body string) []string {
+func CollectAssets(body string) []string {
 	masked := maskCode(body)
 	seen := map[string]bool{}
 	for _, loc := range assetRef.FindAllStringSubmatchIndex(masked, -1) {

@@ -42,7 +42,7 @@ func TestCollectAssetsIgnoresCodeExamples(t *testing.T) {
 		"```",
 	}, "\n")
 
-	got := collectAssets(body)
+	got := CollectAssets(body)
 	want := []string{"pic.png"}
 	if !reflect.DeepEqual(got, want) {
 		t.Fatalf("collectAssets = %v, want %v", got, want)
