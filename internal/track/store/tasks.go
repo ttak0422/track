@@ -16,8 +16,9 @@ type TaskFilter struct {
 	OverdueBefore string
 	// Dated keeps only tasks carrying a scheduled or due date — the ones that belong on a calendar.
 	Dated bool
-	// Open keeps only tasks in a state whose terminal flag is false, whatever that state is named —
-	// the undated ones included, which is what a "still to do" listing wants and Dated excludes.
+	// Open keeps only tasks in a state whose terminal flag is false, whatever that state is named.
+	// It says nothing about dates; a "still to do" listing that wants only committed work ANDs it
+	// with Dated.
 	Open       bool
 	ByPriority bool
 }
