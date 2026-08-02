@@ -29,8 +29,8 @@ func cmdExportSite(args []string) int {
 	out := fs.String("out", "", "output directory")
 	calendar := fs.Bool("calendar", false, "include the calendar view and per-day pages")
 	baseURL := fs.String("base-url", "", "absolute site origin (https://example.com/site) for og:image/og:url; omitted, those tags are skipped")
-	if err := fs.Parse(args); err != nil {
-		return fail("parse args: %v", err)
+	if code, ok := parseArgs(fs, args); !ok {
+		return code
 	}
 	if *out == "" {
 		return fail("--out <dir> is required")

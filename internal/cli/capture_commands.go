@@ -21,11 +21,11 @@ import (
 // invents a heading. With --template, the captured text fills the template's {{ title }} placeholder.
 func cmdCapture(args []string) int {
 	fs := flag.NewFlagSet("capture", flag.ContinueOnError)
-	target := fs.String("target", "", `destination "<note>#<heading>"; defaults to the configured capture inbox`)
+	target := fs.String("target", "", "destination \"<note>#<heading>\"; defaults to the configured capture inbox.\nOnly that inbox is created on demand - an explicit target note must already\nexist, and in both cases the heading must already be there and resolve\nunambiguously. capture never invents a heading")
 	template := fs.String("template", "", "template applied to the captured text ({{ title }} is the text)")
 	bodyFlag := fs.String("body", "", "text to capture; read from stdin when omitted and piped")
-	if err := fs.Parse(args); err != nil {
-		return fail("parse args: %v", err)
+	if code, ok := parseArgs(fs, args); !ok {
+		return code
 	}
 
 	text, err := readBody(fs, *bodyFlag)
@@ -108,11 +108,11 @@ func cmdCapture(args []string) int {
 // touched, so a failed write never loses the moved text.
 func cmdRefile(args []string) int {
 	fs := flag.NewFlagSet("refile", flag.ContinueOnError)
-	from := fs.String("from", "", `source "<note>#<heading>" (or just "<note>" with --line)`)
+	from := fs.String("from", "", "source \"<note>#<heading>\" — or just \"<note>\" with --line, which is the rule\nand not a shorthand: a #heading here is an error when --line is given, and\nmandatory when it is not")
 	to := fs.String("to", "", `destination "<note>#<heading>" (or "<note>" to append at the end)`)
 	line := fs.Int("line", 0, "move the single list item at this 1-based line of the source note")
-	if err := fs.Parse(args); err != nil {
-		return fail("parse args: %v", err)
+	if code, ok := parseArgs(fs, args); !ok {
+		return code
 	}
 
 	fromKey, fromHeading, fromLevel := link.SplitAnchor(strings.TrimSpace(*from))
@@ -218,8 +218,8 @@ func cmdRefile(args []string) int {
 // date — so where it came from survives the move. Unlike rm this is a living move, not a deletion.
 func cmdArchive(args []string) int {
 	fs := flag.NewFlagSet("archive", flag.ContinueOnError)
-	if err := fs.Parse(args); err != nil {
-		return fail("parse args: %v", err)
+	if code, ok := parseArgs(fs, args); !ok {
+		return code
 	}
 	target := strings.TrimSpace(strings.Join(fs.Args(), " "))
 	if target == "" {

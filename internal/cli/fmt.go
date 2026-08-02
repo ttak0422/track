@@ -22,8 +22,8 @@ func cmdFmt(args []string) int {
 	fs := flag.NewFlagSet("fmt", flag.ContinueOnError)
 	check := fs.Bool("check", false, "report files that would change and exit non-zero; do not write")
 	all := fs.Bool("all", false, "format every note and journal file in the vault")
-	if err := fs.Parse(args); err != nil {
-		return fail("parse args: %v", err)
+	if code, ok := parseArgs(fs, args); !ok {
+		return code
 	}
 	paths := fs.Args()
 

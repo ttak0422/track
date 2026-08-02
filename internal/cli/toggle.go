@@ -28,8 +28,8 @@ func cmdToggle(args []string) int {
 	line := fs.Int("line", 0, "1-based line number of the checkbox to toggle")
 	state := fs.String("state", "toggle", "resulting state: toggle, check, or uncheck")
 	expect := fs.String("expect", "", "refuse the write unless the line is in this state (e.g. TODO)")
-	if err := fs.Parse(args); err != nil {
-		return fail("parse args: %v", err)
+	if code, ok := parseArgs(fs, args); !ok {
+		return code
 	}
 	if *line <= 0 {
 		return fail("--line is required and must be positive")

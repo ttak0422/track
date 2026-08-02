@@ -10,11 +10,26 @@ import (
 
 // cmdQuery runs a query expression (or a saved query from config `queries:`) over the indexed notes
 // and prints the result table as JSON. See the "Query" help note for the grammar.
+// queryUsage documents the grammar, which no flag can show: the expression is positional.
+const queryUsage = `Usage: track query '<expr>'   |   track query --saved <name>
+
+  TABLE <cols> [FROM #tag] [WHERE <cond> AND ...] [SORT <key> [DESC]] [LIMIT n]
+
+A column or key is either a note attribute — bare ` + "`title`" + ` or ` + "`tags`" + `, the only two — or a user
+property, which is reachable only as props.<key>. Any other bare key is a loud error, never an
+empty column. Conditions are #tag filters, typed comparisons (=, !=, <, >), or a bare key as a
+presence check; they combine with AND only. Tags are hierarchical: #a matches #a/b, not #ab.
+
+  track query 'TABLE title, props.status FROM #project WHERE props.status != done SORT props.due LIMIT 10'
+
+Prints {"columns":[…],"rows":[{"note_id","title","cells"}],"count"}.
+`
+
 func cmdQuery(args []string) int {
 	fs := flag.NewFlagSet("query", flag.ContinueOnError)
-	saved := fs.String("saved", "", "run a saved query by name (config queries:)")
-	if err := fs.Parse(args); err != nil {
-		return fail("parse args: %v", err)
+	saved := fs.String("saved", "", "run a saved query by name (config queries: in <vault>/.track/config.yml)")
+	if code, ok := parseArgs(fs, args, queryUsage); !ok {
+		return code
 	}
 	expr := strings.TrimSpace(strings.Join(fs.Args(), " "))
 

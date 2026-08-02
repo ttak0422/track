@@ -35,9 +35,9 @@ func cmdKeywords(args []string) int {
 
 func cmdResolve(args []string) int {
 	fs := flag.NewFlagSet("resolve", flag.ContinueOnError)
-	term := fs.String("term", "", "keyword to resolve (or pass it as the first argument)")
-	if err := fs.Parse(args); err != nil {
-		return fail("parse args: %v", err)
+	term := fs.String("term", "", "keyword to resolve (or pass it as the first argument). The match is exact and\ncase-sensitive on the title - no substring, no ranking - which is what makes\nthis, and not search, the way to confirm a title before linking to it.\n\"<vault>:Title\" resolves in a registered vault and adds \"vault\" to the reply")
+	if code, ok := parseArgs(fs, args); !ok {
+		return code
 	}
 	keyword := strings.TrimSpace(*term)
 	if keyword == "" && fs.NArg() > 0 {
@@ -84,11 +84,11 @@ func cmdResolve(args []string) int {
 
 func cmdSearch(args []string) int {
 	fs := flag.NewFlagSet("search", flag.ContinueOnError)
-	query := fs.String("query", "", "search query; #tag filters tags")
-	limit := fs.Int("limit", 50, "max results")
-	scope := fs.String("scope", string(store.SearchAll), "search scope: all, title, body")
-	if err := fs.Parse(args); err != nil {
-		return fail("parse args: %v", err)
+	query := fs.String("query", "", "search query: space-separated terms are ANDed, an uppercase OR splits\nalternatives ('a b OR c' is (a AND b) OR c), and a lowercase and/or is an\nordinary term. There is no negation, no quoted phrase and no field: prefix.\nMatching is case-insensitive substring, so a short term over-matches -\nlengthen it rather than quoting. '#tag' filters tags (hierarchically: #a\nmatches a/b, never ab) on the title path only")
+	limit := fs.Int("limit", 50, "max results, shared by the title and body groups under --scope all: a query\nmatching this many titles leaves no room for full-text hits")
+	scope := fs.String("scope", string(store.SearchAll), "search scope: all, title, body. 'all' is the title hits, ranked, followed by\nthe body hits, ranked separately - one list, two scales. A '#tag' term is a\ntag filter only on the title path; under 'body' it is hunted as literal body\ntext, and tags live in sidecars, so it matches nothing")
+	if code, ok := parseArgs(fs, args); !ok {
+		return code
 	}
 	if *query == "" {
 		return fail("--query is required")
@@ -140,8 +140,8 @@ func cmdNotes(args []string) int {
 	fs := flag.NewFlagSet("notes", flag.ContinueOnError)
 	untagged := fs.Bool("untagged", false, "only notes that carry no tags")
 	limit := fs.Int("limit", 0, "max results (0 = no limit)")
-	if err := fs.Parse(args); err != nil {
-		return fail("parse args: %v", err)
+	if code, ok := parseArgs(fs, args); !ok {
+		return code
 	}
 
 	cfg, s, err := open()
@@ -182,8 +182,8 @@ func cmdBacklinks(args []string) int {
 	fs := flag.NewFlagSet("backlinks", flag.ContinueOnError)
 	id := fs.Int64("id", 0, "note id")
 	path := fs.String("path", "", "note path (alternative to --id)")
-	if err := fs.Parse(args); err != nil {
-		return fail("parse args: %v", err)
+	if code, ok := parseArgs(fs, args); !ok {
+		return code
 	}
 
 	cfg, s, err := open()
@@ -241,12 +241,29 @@ func cmdBacklinks(args []string) int {
 // cmdNav prints a note's hierarchy navigation, built from the "up" relation property: the ancestor
 // trail (root first) and the children (notes whose "up" points at this note). This is the same data
 // the web note view renders as breadcrumbs.
+// navUsage spells out the hierarchy contract: how a parent is written, and the two ways nav quietly
+// returns nothing — a parent title that does not match exactly, and an index that has not caught up.
+const navUsage = `Usage: track nav (--id N | --path P)
+
+Prints {"trail":[…],"children":[…]} — the "up" ancestors, root first and excluding this note, and
+the notes whose "up" points here, newest first. Takes no --title, unlike its sibling read commands.
+
+A parent is written as an inline body line, "up:: [[Parent]]", or as an "up" sidecar prop holding a
+[[link]] — a plain string value is not a parent. Prefer the inline form: it is an ordinary wikilink
+as well, so the parent gains a backlink and track rename rewrites it. The title must match exactly,
+case included; a near miss is stored happily and produces no parent and no error. Several parents
+are legal but the trail follows the first.
+
+Unlike search/notes/query/agenda/tasks, nav does not self-heal a stale index, so an "up" written by
+an editor rather than by track shows up only after the next reindex.
+`
+
 func cmdNav(args []string) int {
 	fs := flag.NewFlagSet("nav", flag.ContinueOnError)
 	id := fs.Int64("id", 0, "note id")
 	path := fs.String("path", "", "note path (alternative to --id)")
-	if err := fs.Parse(args); err != nil {
-		return fail("parse args: %v", err)
+	if code, ok := parseArgs(fs, args, navUsage); !ok {
+		return code
 	}
 
 	cfg, s, err := open()
@@ -295,8 +312,8 @@ func cmdNav(args []string) int {
 func cmdAgenda(args []string) int {
 	fs := flag.NewFlagSet("agenda", flag.ContinueOnError)
 	date := fs.String("date", "", "calendar day (default: today)")
-	if err := fs.Parse(args); err != nil {
-		return fail("parse args: %v", err)
+	if code, ok := parseArgs(fs, args); !ok {
+		return code
 	}
 
 	cfg, s, err := open()
@@ -334,8 +351,8 @@ func cmdGraph(args []string) int {
 	id := fs.Int64("id", 0, "note id")
 	path := fs.String("path", "", "note path (alternative to --id)")
 	orphans := fs.Bool("orphans", false, "report notes with no inbound links and notes with a missing parent scope (ignores --id/--path)")
-	if err := fs.Parse(args); err != nil {
-		return fail("parse args: %v", err)
+	if code, ok := parseArgs(fs, args); !ok {
+		return code
 	}
 
 	cfg, s, err := open()

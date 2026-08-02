@@ -17,8 +17,8 @@ func cmdExport(args []string) int {
 	out := fs.String("out", "", "write to a file instead of stdout")
 	frontmatter := fs.Bool("frontmatter", false, "prepend a YAML metadata block")
 	exportsDefault := fs.String("exports-default", "code", "exports mode for blocks without :exports (code|results|both|none)")
-	if err := fs.Parse(args); err != nil {
-		return fail("parse args: %v", err)
+	if code, ok := parseArgs(fs, args); !ok {
+		return code
 	}
 
 	switch *exportsDefault {

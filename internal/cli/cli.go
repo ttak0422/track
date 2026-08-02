@@ -126,16 +126,23 @@ the note immediately, so reindex is for bulk repair.
 
 Every command accepts a global --vault NAME flag selecting a named vault from the machine config's
 vaults: registry (a name -> path map) for this invocation; without it the default vault is used.
-An unknown name is an error, never a new vault.
+An unknown name is an error, never a new vault. --vault is also the only thing that narrows search,
+reindex, doctor and refresh-all back to one vault: with a registry they cover every registered vault,
+and TRACK_VAULT does not scope them.
 
 Usage:
   track vault list                      list registered vaults, marking the active one (JSON)
   track vault current                   print the active vault's name (empty when unregistered) and path (JSON)
   track vault which <name>              resolve a registered vault name to its path (JSON)
-  track new --title <t> [--id <id>] [--template <s>] [--body <s>] [--tag <s>]
-                                        create a note (fails if the title exists); --body is saved verbatim
-  track open --title <t> [--template <s>] [--body <s>] [--tag <s>]
-                                        open the note with this title, creating it if absent
+  track new --title <t> [--id <id>] [--template <s>] [--body <s>] [--tag <s>] [--parent-path P]
+                                        create a note (fails if the title exists); --body is saved
+                                        verbatim, and --parent-path fills a template's {{ parent }}
+                                        with that note's title
+  track open --title <t> [--template <s>] [--body <s>] [--tag <s>] [--parent-path P]
+                                        open the note with this title, creating it if absent. --body
+                                        and --tag apply only on creation: passing either when the note
+                                        already exists is an error naming track append. --template is
+                                        the exception and is ignored on an existing note
   track append (--id N | --title S | --path P) [--body <s>] [--tag <s>]
                                         append body text and/or merge tags into an existing note
   track capture [--target "<note>#<heading>"] [--template <s>] [--body <s>]
@@ -148,23 +155,34 @@ Usage:
                                         stamping a [[link]] back to the source and the date (JSON)
   track update (--id N | --title S | --path P) [--body <s>] [--tag <s>] [--clear-tags]
                                         replace body text and/or update tags on an existing note
-  track meta (--id N | --title S | --path P) [--description S] [--image assets/F]
+  track meta (--id N | --title S | --path P) [--description S] [--image assets/F] [--icon S]
              [--set key=value ...] [--unset key ...] [--edit (FILE|-)]
                                         print a note's metadata (incl. its editable YAML document
                                         under "doc"), or set it: description (og:description), cover
-                                        image (og:image; an existing vault asset), and typed
-                                        properties (--set/--unset; comma-separated value makes a list).
+                                        image (og:image; an existing vault asset), the per-note icon,
+                                        and typed properties (--set/--unset; comma-separated value
+                                        makes a list). "up" is the conventional property that files a
+                                        note under a parent, and only a [[link]] value counts.
                                         An empty description/image clears the field. --edit applies a
                                         full document (title/tags/description/image/props) from a file
                                         or stdin, validated as a whole before anything is written; a
                                         changed title renames the note, backlinks included (JSON)
-  track toggle (--id N | --title S | --path P) --line N [--state toggle|check|uncheck]
-                                        flip (or set) a task checkbox on one line of a note (JSON)
-  track task set (--id N | --title S | --path P) --line N --state NAME
-                                        move a task line into a named state (default set: TODO, DOING,
-                                        WAITING, DONE, CANCELLED); done-family states stamp [done:date],
-                                        transitions are logged in the sidecar, and parent [n/m]/[p%]
-                                        progress cookies are recomputed (JSON)
+  track toggle (--id N | --title S | --path P) --line N [--state toggle|check|uncheck] [--expect NAME]
+                                        flip (or set) a task checkbox between the first open and the
+                                        first done state; DOING and WAITING are out of its reach and
+                                        need task set (JSON)
+  track task set (--id N | --title S | --path P) --line N --state NAME [--expect NAME]
+                                        move a task line into a named state. The set is fixed: TODO,
+                                        DOING, WAITING, DONE, CANCELLED. Done-family states stamp
+                                        [done:date], transitions are logged in the sidecar, and parent
+                                        [n/m]/[p%] progress cookies are recomputed. --expect refuses the
+                                        write unless the line is in that state (JSON)
+  track task cycle (--id N | --title S | --path P) --line N [--expect NAME]
+                                        advance the task one step through the state order, wrapping at
+                                        the end; the same write path as task set (JSON)
+  track task date (--id N | --title S | --path P) --line N [--sched YYYY-MM-DD] [--due YYYY-MM-DD]
+                                        write a task's scheduled and/or due token; an empty value clears
+                                        that token, and passing neither flag is an error (JSON)
   track tasks [--id N | --title S | --path P] [--state A,B] [--due YYYY-MM-DD] [--overdue]
               [--sort priority]         list indexed tasks with state/deadline filters (JSON)
   track asset import <file>             copy a file into the vault's assets/ dir; prints the assets/<file> ref (JSON)
@@ -175,20 +193,28 @@ Usage:
                                         move a note into a registered vault without leaving dead links (JSON)
   track rm (--id N | --title S | --path P)
                                         soft-delete a note: move it and its sidecar into .track/trash (JSON)
-  track gen increment                   save the working vault as a new generation; drops generations
-                                        past the cursor and prunes old ones beyond gen_keep (JSON)
-  track gen undo                        step back one generation and restore it; unsaved changes are
-                                        auto-saved as a generation first when at the head (JSON)
+  track gen increment [--label S]       save the working vault as a new generation; drops generations
+                                        past the cursor (the redo future goes even when nothing changed)
+                                        and prunes old ones beyond gen_keep (JSON)
+  track gen undo                        step back one generation and restore it; at a dirty head it
+                                        instead auto-saves the working tree as a new generation and
+                                        restores the cursor in place (JSON)
   track gen redo                        step forward one generation and restore it (JSON)
   track gen list                        list generations, the cursor, and dirty state (JSON)
+  track gen status                      the file-level detail behind dirty: which files the working
+                                        vault added, changed, or deleted against the cursor (JSON)
   track gen peek [--gen N] (--id N | --title S | --path P)
                                         print a note's content as of a generation (default: cursor)
   track journal [--offset <n>] [--template <s>] [--body <s>]
                                         open/create a daily note
-  track init                            create the vault directory skeleton (idempotent, JSON)
+  track init                            create the vault directory skeleton; the only command that
+                                        ever creates a vault, so a typo elsewhere cannot (idempotent, JSON)
   track reindex [--full]                rebuild the index
-  track doctor [--fix]                  report vault/sidecar divergence without changing files (JSON);
-                                        --fix repairs it by auto-numbered restore, then reindexes
+  track doctor [--fix]                  report vault/sidecar divergence without changing files; finding
+                                        issues is not a failure, so branch on .ok rather than the exit
+                                        code (JSON). --fix repairs by auto-numbered restore and then
+                                        reindexes: titles and tags of a missing sidecar are gone, renumbered
+                                        duplicates keep no backlinks, and it demands an explicit --vault
   track refresh-all                     run the maintenance pipeline in one idempotent pass (full reindex +
                                         read-only doctor report); suitable for cron/launchd (JSON)
   track fmt [--check] (<path>... | --all)
@@ -198,18 +224,27 @@ Usage:
   track keywords                        dump the auto-link dictionary (JSON)
   track resolve (--term <s> | <s>)      resolve a keyword to a note (JSON)
   track search --query <s> [--scope all|title|body] [--limit N]
-                                        search notes (JSON)
+                                        search notes. Space-separated terms are ANDed and an uppercase
+                                        OR splits alternatives; matching is case-insensitive substring.
+                                        #tag filters tags on the title path only — under --scope body a
+                                        #tag term is hunted as literal body text. With a vaults: registry
+                                        and no --vault this crosses every registered vault (JSON)
   track query (<expr> | --saved <name>)  run a table query over notes, e.g.
-                                        'TABLE title, status FROM #project WHERE status != done SORT due LIMIT 10' (JSON)
-  track similar --id N [--limit K]      list notes semantically closest to a note, using the configured
-                                        embedder command; explains setup and exits cleanly if none (JSON)
+                                        'TABLE title, props.status FROM #project WHERE props.status != done
+                                        SORT props.due LIMIT 10'. Bare keys are title and tags only; every
+                                        user property is reached as props.<key>, and an unknown bare key
+                                        is an error rather than an empty column (JSON)
   track notes [--untagged] [--limit N]  list notes, newest first; --untagged keeps only notes with no
                                         tags, for a curation pass that adds tags via track append --tag (JSON)
   track backlinks (--id N | --path P)   list backlinks (JSON)
-  track nav (--id N | --path P)         print hierarchy navigation from the "up" property:
-                                        the ancestor trail and the child notes (JSON)
-  track agenda [--date YYYY-MM-DD]       list notes active on a day (JSON)
+  track nav (--id N | --path P)         print hierarchy navigation from the "up" property (up:: [[Parent]]
+                                        in the body, or an up sidecar prop holding a [[link]]): the
+                                        ancestor trail, root first, and the notes whose up points here.
+                                        Takes no --title, and does not self-heal a stale index (JSON)
+  track agenda [--date YYYY-MM-DD]       list notes created or updated on a calendar day (JSON)
   track graph (--id N | --path P)       show a local link graph (JSON)
+  track graph --orphans                 vault-wide link hygiene in one call: notes with no inbound link,
+                                        and titles naming a parent scope no note owns (JSON)
   track web [--addr 127.0.0.1:8765]      serve the local web workspace
   track template new --name <s> [--id N]
                                         create a template (JSON)

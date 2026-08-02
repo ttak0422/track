@@ -29,8 +29,8 @@ func cmdRender(args []string) int {
 		fmt.Print(renderUsage(fs))
 		return 0
 	}
-	if err := fs.Parse(args); err != nil {
-		return fail("parse args: %v", err)
+	if code, ok := parseArgs(fs, args); !ok {
+		return code
 	}
 	if *spec == "" {
 		return fail("--spec is required")
