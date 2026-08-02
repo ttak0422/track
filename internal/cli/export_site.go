@@ -29,6 +29,7 @@ func cmdExportSite(args []string) int {
 	out := fs.String("out", "", "output directory")
 	calendar := fs.Bool("calendar", false, "include the calendar view and per-day pages")
 	baseURL := fs.String("base-url", "", "absolute site origin (https://example.com/site) for og:image/og:url; omitted, those tags are skipped")
+	share := fs.Bool("share", false, "include X and copy-link actions below static notes; requires --base-url")
 	if code, ok := parseArgs(fs, args); !ok {
 		return code
 	}
@@ -37,6 +38,9 @@ func cmdExportSite(args []string) int {
 	}
 	if *frontend == "" {
 		return fail("--frontend <dir> is required (static-mode frontend build)")
+	}
+	if *share && strings.TrimSpace(*baseURL) == "" {
+		return fail("--share requires --base-url so the published note URL is absolute")
 	}
 
 	var rootID int64
@@ -94,7 +98,7 @@ func cmdExportSite(args []string) int {
 		}
 	}
 
-	res, err := site.Build(cfg, s, site.Options{Root: rootID, IDs: ids, Calendar: *calendar, BaseURL: *baseURL}, *frontend, *out)
+	res, err := site.Build(cfg, s, site.Options{Root: rootID, IDs: ids, Calendar: *calendar, Share: *share, BaseURL: *baseURL}, *frontend, *out)
 	if err != nil {
 		return fail("export-site: %v", err)
 	}

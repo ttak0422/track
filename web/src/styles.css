@@ -1689,6 +1689,34 @@ textarea.modal-input:focus-visible {
   display: none;
 }
 
+/* Static-only share actions sit after the article body. The export option keeps this quiet on the
+   documentation site, while the blog can opt in without changing note content. */
+.share-actions {
+  display: flex;
+  flex: 0 0 auto;
+  align-items: center;
+  gap: 12px;
+  border-top: 1px solid var(--line);
+  padding-top: 16px;
+}
+
+.share-actions-label {
+  color: var(--muted);
+  font-size: 13px;
+}
+
+.share-actions-list {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.share-action {
+  display: inline-flex;
+  align-items: center;
+  text-decoration: none;
+}
+
 .editor-grid-split .note-preview {
   border-left: 1px solid var(--line);
 }
