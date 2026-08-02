@@ -25,7 +25,7 @@ describe("TasksView", () => {
     openTasks.mockReturnValue({
       data: {
         tasks: [
-          { note_id: "1", file_kind: "note", title: "Project", line: 3, state: "TODO", done: false, priority: "A", text: "write the thing" },
+          { note_id: "1", file_kind: "note", title: "Project", line: 3, state: "TODO", done: false, priority: "A", scheduled: "2026-07-30", text: "write the thing" },
           { note_id: "2", file_kind: "note", title: "Other", line: 9, state: "DOING", done: false, due: "2026-08-01", text: "chase the other" },
         ],
       },

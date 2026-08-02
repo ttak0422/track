@@ -1279,19 +1279,16 @@ func TestTaskEndpoints(t *testing.T) {
 		t.Fatalf("unexpected items: %v", items)
 	}
 
-	// The vault-wide listing answers two different questions. Without ?open it keeps only dated
-	// tasks, so "alpha" — a priority but no date, the shape most of a checklist has — is absent.
-	// With ?open=1 both are there, worst first: the prioritized one leads the merely dated one.
+	// The vault-wide listing is dated either way. Without ?open it keeps every dated task; "alpha" —
+	// a priority but no date, the shape most of a checklist has — is absent. ?open=1 narrows to what
+	// is still to do but keeps the dated filter, so alpha stays out there too: only beta is listed.
 	dated := getJSON(t, server.URL+"/api/tasks")["tasks"].([]any)
 	if len(dated) != 1 || dated[0].(map[string]any)["text"] != "beta" {
 		t.Fatalf("dated listing = %v, want only the dated beta", dated)
 	}
 	openRows := getJSON(t, server.URL+"/api/tasks?open=1")["tasks"].([]any)
-	if len(openRows) != 2 {
-		t.Fatalf("open listing = %v, want both open tasks", openRows)
-	}
-	if openRows[0].(map[string]any)["text"] != "alpha" || openRows[1].(map[string]any)["text"] != "beta" {
-		t.Fatalf("open listing order = %v, want [#A] alpha ahead of dated beta", openRows)
+	if len(openRows) != 1 || openRows[0].(map[string]any)["text"] != "beta" {
+		t.Fatalf("open listing = %v, want only the dated beta; undated alpha must be excluded", openRows)
 	}
 	noteJSON := getJSON(t, server.URL+"/api/note?id=900")["note"].(map[string]any)
 	etag := noteJSON["etag"].(string)
@@ -1354,8 +1351,7 @@ func TestTaskEndpoints(t *testing.T) {
 		t.Fatalf("note response should include tasks: %v", noteJSON)
 	}
 
-	// Completing a task drops it from the open listing — the terminal flag is what Open reads, so
-	// this holds for CANCELLED just as for DONE.
+	// Completing alpha leaves the open listing as it was: it was already out as undated.
 	afterDone := getJSON(t, server.URL+"/api/tasks?open=1")["tasks"].([]any)
 	if len(afterDone) != 1 || afterDone[0].(map[string]any)["text"] != "beta" {
 		t.Fatalf("open listing after completing alpha = %v, want just beta", afterDone)
@@ -1398,6 +1394,15 @@ func TestTaskEndpoints(t *testing.T) {
 	}
 	if !strings.Contains(string(raw), "alpha [#A] [due:2030-01-01]") {
 		t.Fatalf("date not written: %q", raw)
+	}
+
+	// Alpha is now dated but DONE: the dated listing shows it, the open one still refuses it — the
+	// terminal flag is what Open reads, so this holds for CANCELLED just as for DONE.
+	if rows := getJSON(t, server.URL+"/api/tasks")["tasks"].([]any); len(rows) != 2 {
+		t.Fatalf("dated listing after dating alpha = %v, want alpha and beta", rows)
+	}
+	if rows := getJSON(t, server.URL+"/api/tasks?open=1")["tasks"].([]any); len(rows) != 1 || rows[0].(map[string]any)["text"] != "beta" {
+		t.Fatalf("open listing after dating done alpha = %v, want just beta", rows)
 	}
 
 	// A request carrying both a state and a date asserts expect once, against the state before the

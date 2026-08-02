@@ -26,11 +26,11 @@ func (s *Server) handleTasks(v *vaultView, w http.ResponseWriter, r *http.Reques
 	s.refresh(v)
 	// Without an id this is the vault-wide listing. By default it is what the calendar and day pages
 	// read: every task carrying a date, so a planned day is visible without opening the note that
-	// planned it. ?open=1 asks the other question — everything still to do, dated or not — which is
-	// most of a project note's checklist and is invisible under the dated filter.
+	// planned it. ?open=1 narrows to what is still to do, worst first — and stays dated: undated
+	// checklist lines (a report's hypothetical tasks, a note's loose reminders) would swamp the page.
 	if strings.TrimSpace(r.URL.Query().Get("id")) == "" {
 		open := r.URL.Query().Get("open") == "1"
-		rows, err := v.store.Tasks(store.TaskFilter{Dated: !open, Open: open, ByPriority: open})
+		rows, err := v.store.Tasks(store.TaskFilter{Dated: true, Open: open, ByPriority: open})
 		if err != nil {
 			writeError(w, err, http.StatusInternalServerError)
 			return
