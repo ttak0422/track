@@ -182,6 +182,16 @@ export function listNotes(): Promise<NotesResponse> {
   return api<NotesResponse>("/api/notes");
 }
 
+// The live workspace's New widget is creation history, distinct from the modified-order notes file
+// used by the calendar and static search. Static sites never render that workspace-only home.
+export function listNewNotes(limit = 10): Promise<NotesResponse> {
+  if (STATIC_MODE) {
+    return Promise.resolve({ notes: [] });
+  }
+  const params = new URLSearchParams({ sort: "created", limit: String(limit) });
+  return api<NotesResponse>(`/api/notes?${params}`);
+}
+
 // listDatedTasks lists every task in the vault carrying a scheduled or due date. The published site
 // reads the same shape from the bundle, so the calendar and day pages need no live-only branch.
 export function listDatedTasks(): Promise<TaskListResponse> {

@@ -438,6 +438,44 @@ func (s *Store) SearchRefs() ([]SearchResult, error) {
 	return out, rows.Err()
 }
 
+// NewestRefs returns regular notes in creation order, newest first. Regular note ids are
+// time-derived at creation, so the id is the precise ordering key; the sidecar's Created field is a
+// display date whose format is configurable and may only have day precision. Journals are excluded:
+// opening today's journal is activity, not creating a new note for the workspace's New listing.
+func (s *Store) NewestRefs(limit int) ([]SearchResult, error) {
+	if limit <= 0 {
+		limit = 10
+	}
+	rows, err := s.db.Query(
+		`SELECT n.id, n.kind, n.title, n.mtime, n.icon,
+		   COALESCE((
+		     SELECT group_concat(tag, char(31))
+		     FROM (SELECT tag FROM tags WHERE note_id = n.id ORDER BY tag)
+		   ), '') AS tags
+		 FROM notes n
+		 WHERE n.kind = 'note'
+		 ORDER BY n.id DESC
+		 LIMIT ?`,
+		limit,
+	)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var out []SearchResult
+	for rows.Next() {
+		var r SearchResult
+		var tags string
+		if err := rows.Scan(&r.NoteID, &r.FileKind, &r.Title, &r.Mtime, &r.Icon, &tags); err != nil {
+			return nil, err
+		}
+		r.Tags = splitTags(tags)
+		out = append(out, r)
+	}
+	return out, rows.Err()
+}
+
 func splitTags(value string) []string {
 	if value == "" {
 		return nil

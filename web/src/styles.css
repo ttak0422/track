@@ -734,20 +734,27 @@ button {
   display: none;
 }
 
-/* The hero's recents sit in the right margin, absolutely placed so the logo and search stay put as
-   the results list grows beneath them (the hero is position: relative). Below the width where that
-   margin exists, the list would crowd the search box, so it goes away rather than reflowing. */
-.home-recent {
+/* Creation history and browser history occupy the hero's two open margins, so the central logo and
+   search stay put as results grow beneath them. Below the width where those margins exist, both lists
+   go away rather than crowding the search box. */
+.home-note-list {
   position: absolute;
   top: 16vh;
-  right: 32px;
   width: 220px;
   border-top: 0;
   text-align: left;
 }
 
-@media (max-width: 1000px) {
-  .home-recent {
+.home-new {
+  left: 32px;
+}
+
+.home-recent {
+  right: 32px;
+}
+
+@media (max-width: 1120px) {
+  .home-note-list {
     display: none;
   }
 }

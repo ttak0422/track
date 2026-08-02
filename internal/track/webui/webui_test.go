@@ -87,6 +87,13 @@ func TestAPIHandlers(t *testing.T) {
 	if len(results) != 1 || results[0].(map[string]any)["title"] != "Alpha" {
 		t.Fatalf("unexpected search results: %v", results)
 	}
+	// The home New widget asks for creation order, which follows the time-derived note id rather than
+	// the modification order used by the ordinary notes listing. Alpha has the newer mtime above, but
+	// Beta has the newer creation id and must therefore win this one-item page.
+	newest := getJSON(t, server.URL+"/api/notes?sort=created&limit=1")["notes"].([]any)
+	if len(newest) != 1 || newest[0].(map[string]any)["title"] != "Beta" {
+		t.Fatalf("unexpected newest notes: %v", newest)
+	}
 	tags := results[0].(map[string]any)["tags"].([]any)
 	if len(tags) != 1 || tags[0] != "project" {
 		t.Fatalf("unexpected search result tags: %v", results[0])
