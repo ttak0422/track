@@ -84,7 +84,7 @@ func Build(cfg *config.Config, st *store.Store, opts Options, frontendDir, outDi
 			path:     cfg.PathForKind(n.Kind, id),
 			body:     body,
 			keys:     []string{noteTitle(n)},
-			assets:   collectAssets(n.Body),
+			assets:   CollectAssets(n.Body),
 			desc:     n.Meta.Description,
 			image:    strings.TrimPrefix(n.Meta.Image, "assets/"),
 			icon:     cfg.NoteIcon(n.Kind, n.Meta.Tags, n.Meta.Icon),

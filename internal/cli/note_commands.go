@@ -613,25 +613,15 @@ func cmdRm(args []string) int {
 		return fail("invalid note path: %v", err)
 	}
 
-	if err := os.MkdirAll(cfg.TrashDir(), 0o755); err != nil {
-		return fail("create trash dir: %v", err)
-	}
-	stamp := time.Now().UnixMilli()
-	trashed := filepath.Join(cfg.TrashDir(), fmt.Sprintf("%d-%s", stamp, filepath.Base(notePath)))
-	if err := os.Rename(notePath, trashed); err != nil {
+	trashed, err := note.MoveToTrash(cfg, notePath, noteID)
+	if err != nil {
 		return fail("move to trash: %v", err)
-	}
-	metaPath := cfg.MetadataPath(noteID)
-	if fileExists(metaPath) {
-		if err := os.Rename(metaPath, filepath.Join(cfg.TrashDir(), fmt.Sprintf("%d-%s", stamp, filepath.Base(metaPath)))); err != nil {
-			return fail("move sidecar to trash: %v", err)
-		}
 	}
 
 	if _, err := index.New(cfg, s).Full(); err != nil {
 		return fail("reindex: %v", err)
 	}
-	return emit(map[string]any{"id": noteID, "path": notePath, "trash": trashed})
+	return emit(map[string]any{"id": noteID, "path": notePath, "trash": trashed.TrashedNote})
 }
 
 // resolveNotePath turns one of --id/--title/--path into a concrete, existing note file path.

@@ -93,7 +93,7 @@ func cmdCapture(args []string) int {
 	if at == 0 {
 		return fail("captured text is empty after templating")
 	}
-	if err := writeVerify(notePath, newBody); err != nil {
+	if err := note.WriteVerify(notePath, []byte(newBody)); err != nil {
 		return fail("%v", err)
 	}
 	if err := index.New(cfg, s).One(notePath); err != nil {
@@ -177,7 +177,7 @@ func cmdRefile(args []string) int {
 			return fail("%v", err)
 		}
 		newBody, at := link.AppendUnder(rest, hp, block)
-		if err := writeVerify(fromPath, newBody); err != nil {
+		if err := note.WriteVerify(fromPath, []byte(newBody)); err != nil {
 			return fail("%v", err)
 		}
 		if err := index.New(cfg, s).One(fromPath); err != nil {
@@ -195,12 +195,12 @@ func cmdRefile(args []string) int {
 		return fail("%v", err)
 	}
 	newTo, at := link.AppendUnder(string(toRaw), hp, block)
-	if err := writeVerify(toPath, newTo); err != nil {
+	if err := note.WriteVerify(toPath, []byte(newTo)); err != nil {
 		return fail("write destination: %v", err)
 	}
 	// Destination now holds the text; only then remove it from the source. A failure here duplicates
 	// rather than loses, and is surfaced so the user can reconcile.
-	if err := writeVerify(fromPath, rest); err != nil {
+	if err := note.WriteVerify(fromPath, []byte(rest)); err != nil {
 		return fail("moved into destination but failed to update source (text is now in both): %v", err)
 	}
 	ix := index.New(cfg, s)
@@ -276,10 +276,10 @@ func cmdArchive(args []string) int {
 		return fail("read archive: %v", err)
 	}
 	newArchive, at := link.AppendUnder(string(archiveRaw), nil, block)
-	if err := writeVerify(archivePath, newArchive); err != nil {
+	if err := note.WriteVerify(archivePath, []byte(newArchive)); err != nil {
 		return fail("write archive: %v", err)
 	}
-	if err := writeVerify(srcPath, rest); err != nil {
+	if err := note.WriteVerify(srcPath, []byte(rest)); err != nil {
 		return fail("moved into archive but failed to update source (text is now in both): %v", err)
 	}
 	ix := index.New(cfg, s)
@@ -346,21 +346,4 @@ func ensureNote(cfg *config.Config, s *store.Store, title string) (path string, 
 		return "", 0, err
 	}
 	return res["path"].(string), newID, nil
-}
-
-// writeVerify writes content to path and reads it back, confirming the exact bytes landed before any
-// caller proceeds to mutate a second file. This is the "never lose text" guard behind refile/archive:
-// the destination is verified present before the source is stripped.
-func writeVerify(path, content string) error {
-	if err := os.WriteFile(path, []byte(content), 0o644); err != nil {
-		return fmt.Errorf("write %s: %v", path, err)
-	}
-	back, err := os.ReadFile(path)
-	if err != nil {
-		return fmt.Errorf("verify %s: %v", path, err)
-	}
-	if string(back) != content {
-		return fmt.Errorf("write verification failed for %s", path)
-	}
-	return nil
 }
