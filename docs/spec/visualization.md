@@ -87,7 +87,7 @@ fields onto *visual channels* (x, y series, color, size), orthogonally. Unknown 
 | `data.records`   | one of   | Inline data: an array of records carried in the spec (mutually exclusive with `source`). |
 | `data.kind`      | yes      | One of the canonical kinds.                                           |
 | `encoding.x`     | yes      | The x channel: `{ field, type?, title? }`.                           |
-| `encoding.y`     | yes*     | One or more y series; each `{ field, type?, title?, axis? }`. (*optional on `candlestick` — its OHLC fields are implied, and explicit y channels are extra series over the candles; at most one nominal group channel on `treemap`.) |
+| `encoding.y`     | yes*     | One or more y series; each `{ field, type?, title?, axis?, domain? }`. (*optional on `candlestick` — its OHLC fields are implied, and explicit y channels are extra series over the candles; at most one nominal group channel on `treemap`.) |
 | `encoding.color` | rect, treemap | On `rect`/`treemap`: the (quantitative) cell value, with an optional `scale: "diverging"` (see below). On every other mark: a **nominal** category that splits records into one colored series per value (see below). |
 | `encoding.size`  | no*      | Radius channel for a `point` (bubble radius / timeline dot); the rectangle area for a `treemap` (*required there). |
 | `encoding.detail`| no       | Provenance channel: `[{ field, title? }]` — extra fields carried per datum; the web reader lists them in the tooltip. Series forms only (line/area/bar/scatter/hbar). |
@@ -104,6 +104,11 @@ hint that lets one mark cover the former chart types, since it names which axis 
 - **`point`** is a **scatter** with a nominal x, a **bubble** (linear axes, `{x,y,r}`) with a
   quantitative x, or a **timeline** swimlane with a nominal y.
 - **`rect`** is a **heatmap**: nominal x and y form the grid, `color` gives the cell value.
+
+An optional `domain: [min,max]` on a quantitative primary `encoding.y[]` pins that value axis. It is
+for semantically stable ranges such as a normalized index centered on 100. Channels sharing the axis
+must declare the same domain, and a bar/area domain must include zero. Rendering fails when data or a
+reference overlay falls outside the domain, so an old range cannot silently clip a new extreme.
 - **`area`** is a line with the region between it and the zero baseline filled (translucently, so
   overlapping series stay readable). It resolves to the same series shape as a line, so every line
   channel — multi-series y, `color` split, `axis: "y2"`, `sort`/`limit` — works unchanged.

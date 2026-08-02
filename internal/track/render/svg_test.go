@@ -179,6 +179,43 @@ func TestSVGGolden(t *testing.T) {
 	}
 }
 
+func TestSVGUsesExplicitDomain(t *testing.T) {
+	res := viewspec.Resolved{
+		Spec: viewspec.Spec{Encoding: viewspec.Encoding{
+			Y: []viewspec.Channel{{Field: "value", Domain: []float64{80, 120}}},
+		}},
+		Chart:  viewspec.ChartLine,
+		Labels: []string{"a", "b"},
+		Series: []viewspec.Series{{Label: "index", Values: []float64{87, 101}}},
+	}
+	out, err := (SVG{}).Render(res)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, label := range []string{">80.00<", ">100.00<", ">120.00<"} {
+		if !strings.Contains(out, label) {
+			t.Fatalf("explicit domain axis missing %s: %s", label, out)
+		}
+	}
+}
+
+func TestRenderRejectsDataOutsideExplicitDomain(t *testing.T) {
+	res := viewspec.Resolved{
+		Spec: viewspec.Spec{Encoding: viewspec.Encoding{
+			Y: []viewspec.Channel{{Field: "value", Domain: []float64{80, 120}}},
+		}},
+		Chart:  viewspec.ChartLine,
+		Labels: []string{"a"},
+		Series: []viewspec.Series{{Label: "index", Values: []float64{121}}},
+	}
+	if _, err := (SVG{}).Render(res); err == nil || !strings.Contains(err.Error(), "outside explicit domain") {
+		t.Fatalf("SVG error = %v, want outside-domain error", err)
+	}
+	if _, err := EChartsOptionJSON(res); err == nil || !strings.Contains(err.Error(), "outside explicit domain") {
+		t.Fatalf("ECharts error = %v, want outside-domain error", err)
+	}
+}
+
 func TestSVGBubbleRenders(t *testing.T) {
 	out, err := SVG{}.Render(goldenCases()["bubble"])
 	if err != nil {

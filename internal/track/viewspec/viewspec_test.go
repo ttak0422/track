@@ -1150,6 +1150,39 @@ func TestValidateColorScalePlacement(t *testing.T) {
 	}
 }
 
+func TestValidateQuantitativeYDomain(t *testing.T) {
+	load := func(spec string) error {
+		_, err := Load(strings.NewReader(spec))
+		return err
+	}
+	valid := `{"version":2,"mark":"line","data":{"source":"x","kind":"metric"},` +
+		`"encoding":{"x":{"field":"t"},"y":[{"field":"v","domain":[80,120]}]}}`
+	if err := load(valid); err != nil {
+		t.Fatalf("quantitative y domain should validate: %v", err)
+	}
+	invalid := map[string]string{
+		"wrong length": `{"version":2,"mark":"line","data":{"source":"x","kind":"metric"},` +
+			`"encoding":{"x":{"field":"t"},"y":[{"field":"v","domain":[80]}]}}`,
+		"reversed": `{"version":2,"mark":"line","data":{"source":"x","kind":"metric"},` +
+			`"encoding":{"x":{"field":"t"},"y":[{"field":"v","domain":[120,80]}]}}`,
+		"nominal": `{"version":2,"mark":"bar","data":{"source":"x","kind":"metric"},` +
+			`"encoding":{"x":{"field":"v"},"y":[{"field":"n","type":"nominal","domain":[0,10]}]}}`,
+		"x channel": `{"version":2,"mark":"line","data":{"source":"x","kind":"metric"},` +
+			`"encoding":{"x":{"field":"t","domain":[0,10]},"y":[{"field":"v"}]}}`,
+		"conflict": `{"version":2,"mark":"line","data":{"source":"x","kind":"metric"},` +
+			`"encoding":{"x":{"field":"t"},"y":[{"field":"a","domain":[80,120]},{"field":"b","domain":[90,110]}]}}`,
+		"bar excludes zero": `{"version":2,"mark":"bar","data":{"source":"x","kind":"metric"},` +
+			`"encoding":{"x":{"field":"t"},"y":[{"field":"v","domain":[80,120]}]}}`,
+		"secondary axis": `{"version":2,"mark":"line","data":{"source":"x","kind":"metric"},` +
+			`"encoding":{"x":{"field":"t"},"y":[{"field":"v","axis":"y2","domain":[80,120]}]}}`,
+	}
+	for name, spec := range invalid {
+		if err := load(spec); err == nil || !strings.Contains(err.Error(), "domain") {
+			t.Errorf("%s: want domain error, got %v", name, err)
+		}
+	}
+}
+
 func TestResolveCandlestickExtras(t *testing.T) {
 	spec := Spec{
 		Version: 2,

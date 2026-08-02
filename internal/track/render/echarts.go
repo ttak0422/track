@@ -65,6 +65,9 @@ func EChartsOptionJSON(res viewspec.Resolved) (string, error) {
 
 // echartsOption maps a resolved drawing form onto the ECharts option shape.
 func echartsOption(res viewspec.Resolved) (map[string]any, error) {
+	if err := validateAxisDomains(res); err != nil {
+		return nil, err
+	}
 	opt := map[string]any{
 		"color":   seriesPalette,
 		"tooltip": map[string]any{"trigger": tooltipTrigger(res.Chart)},
@@ -239,6 +242,16 @@ func buildSeriesChart(opt map[string]any, res viewspec.Resolved) {
 	}
 	valueAxis := func(axis int) map[string]any {
 		out := map[string]any{"type": "value"}
+		axisName := "y"
+		if axis == 1 {
+			axisName = "y2"
+		}
+		if lo, hi, ok := res.AxisDomain(axisName); ok {
+			out["min"], out["max"] = lo, hi
+			out["scale"] = true
+			out["boundaryGap"] = []any{0, 0}
+			return out
+		}
 		if axisHasSeries[axis] && !axisHasBaselineForm[axis] {
 			// Comparisons between nearby values need their data range, rather than an unrelated zero
 			// baseline. Symmetric lower breathing room also keeps the first point off the plot edge.
