@@ -19,8 +19,8 @@ import (
 // idempotent and reports the directories it created, so it is safe to run on an existing vault.
 func cmdInit(args []string) int {
 	fs := flag.NewFlagSet("init", flag.ContinueOnError)
-	if err := fs.Parse(args); err != nil {
-		return fail("parse args: %v", err)
+	if code, ok := parseArgs(fs, args); !ok {
+		return code
 	}
 	cfg, err := config.Load()
 	if err != nil {
@@ -147,9 +147,9 @@ func refreshVault(cfg *config.Config) (map[string]any, error) {
 
 func cmdReindex(args []string) int {
 	fs := flag.NewFlagSet("reindex", flag.ContinueOnError)
-	fs.Bool("full", false, "full rebuild (default and only mode for now)")
-	if err := fs.Parse(args); err != nil {
-		return fail("parse args: %v", err)
+	fs.Bool("full", false, "full rebuild (default and only mode for now). The index is deleted and rebuilt\nfrom the notes and sidecars on disk; with a vaults: registry and no --vault\nthis happens to every registered vault")
+	if code, ok := parseArgs(fs, args); !ok {
+		return code
 	}
 
 	targets, cross, err := crossVaultTargets()
@@ -186,9 +186,9 @@ func cmdReindex(args []string) int {
 // index so the cache reflects the repaired vault.
 func cmdDoctor(args []string) int {
 	fs := flag.NewFlagSet("doctor", flag.ContinueOnError)
-	fix := fs.Bool("fix", false, "repair divergence by auto-numbered restore, then reindex")
-	if err := fs.Parse(args); err != nil {
-		return fail("parse args: %v", err)
+	fix := fs.Bool("fix", false, "repair divergence by auto-numbered restore, then reindex. Irreversible and\nlossy: a missing sidecar comes back as \"Untitled N\" with its title, tags and\nprops gone, and duplicate titles are renumbered without rewriting backlinks.\nunreadable_sidecar, property_violation and shadowed_title are never fixed.\nRefused outright while a vaults: registry is in play - pass --vault NAME,\nwhich TRACK_VAULT does not substitute for. Read the plain report first, and\ntake a track gen increment before running it")
+	if code, ok := parseArgs(fs, args); !ok {
+		return code
 	}
 
 	targets, cross, err := crossVaultTargets()
@@ -255,8 +255,8 @@ func cmdDoctor(args []string) int {
 // vault registry (and no --vault selection) it sweeps every vault, so one cron entry maintains them all.
 func cmdRefreshAll(args []string) int {
 	fs := flag.NewFlagSet("refresh-all", flag.ContinueOnError)
-	if err := fs.Parse(args); err != nil {
-		return fail("parse args: %v", err)
+	if code, ok := parseArgs(fs, args); !ok {
+		return code
 	}
 
 	start := time.Now()
@@ -288,8 +288,8 @@ func cmdRefreshAll(args []string) int {
 func cmdWeb(args []string) int {
 	fs := flag.NewFlagSet("web", flag.ContinueOnError)
 	addr := fs.String("addr", "127.0.0.1:8765", "listen address")
-	if err := fs.Parse(args); err != nil {
-		return fail("parse args: %v", err)
+	if code, ok := parseArgs(fs, args); !ok {
+		return code
 	}
 
 	cfg, s, err := open()

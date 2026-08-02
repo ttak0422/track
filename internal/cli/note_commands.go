@@ -28,8 +28,8 @@ func cmdNew(args []string) int {
 	bodyFlag := fs.String("body", "", "note body; read from stdin when omitted and piped")
 	var tags tagsFlag
 	fs.Var(&tags, "tag", "tag to attach (repeatable, comma-separated)")
-	if err := fs.Parse(args); err != nil {
-		return fail("parse args: %v", err)
+	if code, ok := parseArgs(fs, args); !ok {
+		return code
 	}
 	t := strings.TrimSpace(*title)
 	if t == "" {
@@ -82,11 +82,11 @@ func cmdOpen(args []string) int {
 	title := fs.String("title", "", "note title to open, or create when absent (JSON)")
 	template := fs.String("template", "", "template name or path used when creating")
 	parentPath := fs.String("parent-path", "", "path of the note this creation was triggered from; its title fills the template {{ parent }}")
-	bodyFlag := fs.String("body", "", "body used when creating; read from stdin when omitted and piped")
+	bodyFlag := fs.String("body", "", "body used when creating; read from stdin when omitted and piped. Applies\nonly on creation: passing it when the note already exists is an error naming\ntrack append, so a re-runnable script opens bare and branches on \"created\"")
 	var tags tagsFlag
 	fs.Var(&tags, "tag", "tag attached when creating (repeatable, comma-separated)")
-	if err := fs.Parse(args); err != nil {
-		return fail("parse args: %v", err)
+	if code, ok := parseArgs(fs, args); !ok {
+		return code
 	}
 	t := strings.TrimSpace(*title)
 	if t == "" {
@@ -202,11 +202,11 @@ func createTitledNote(cfg *config.Config, s *store.Store, noteID int64, title st
 
 func cmdJournal(args []string) int {
 	fs := flag.NewFlagSet("journal", flag.ContinueOnError)
-	offset := fs.Int("offset", 0, "day offset: 0=today, -1=yesterday, 1=tomorrow")
+	offset := fs.Int("offset", 0, "day offset in days: 0=today, -1=yesterday, 1=tomorrow")
 	template := fs.String("template", "", "template name or path used when creating")
-	bodyFlag := fs.String("body", "", "body used when creating; read from stdin when omitted and piped")
-	if err := fs.Parse(args); err != nil {
-		return fail("parse args: %v", err)
+	bodyFlag := fs.String("body", "", "body used when creating; read from stdin when omitted and piped. Applies only\non creation, and a day's journal is created by the day's first note edit, so\nafter that this is an error - add to it with track append --id <yyyyMMdd>")
+	if code, ok := parseArgs(fs, args); !ok {
+		return code
 	}
 
 	body, err := readBody(fs, *bodyFlag)
@@ -272,8 +272,8 @@ func cmdAppend(args []string) int {
 	bodyFlag := fs.String("body", "", "text to append; read from stdin when omitted and piped")
 	var tags tagsFlag
 	fs.Var(&tags, "tag", "tag to add (repeatable, comma-separated)")
-	if err := fs.Parse(args); err != nil {
-		return fail("parse args: %v", err)
+	if code, ok := parseArgs(fs, args); !ok {
+		return code
 	}
 
 	appendText, err := readBody(fs, *bodyFlag)
@@ -344,8 +344,8 @@ func cmdUpdate(args []string) int {
 	clearTags := fs.Bool("clear-tags", false, "remove existing tags before applying --tag")
 	var tags tagsFlag
 	fs.Var(&tags, "tag", "tag to add (repeatable, comma-separated)")
-	if err := fs.Parse(args); err != nil {
-		return fail("parse args: %v", err)
+	if code, ok := parseArgs(fs, args); !ok {
+		return code
 	}
 
 	bodyWasSet := flagWasSet(fs, "body")
@@ -428,10 +428,10 @@ func cmdMeta(args []string) int {
 	editDoc := fs.String("edit", "", "apply a full metadata YAML document (tags/description/image/props) from this file, or stdin when \"-\"")
 	var sets kvFlag
 	var unsets tagsFlag
-	fs.Var(&sets, "set", "set a property as key=value (repeatable; comma-separated value makes a list)")
+	fs.Var(&sets, "set", "set a property as key=value (repeatable; comma-separated value makes a list).\nThe value is typed from its text: true/false, a number, a YYYY-MM-DD date, a\n[[link]], else a string. \"up\" is the conventional key that files this note\nunder a parent and only a [[link]] value counts - but a sidecar up is not\nrewritten by track rename, so prefer an inline \"up:: [[Parent]]\" body line")
 	fs.Var(&unsets, "unset", "remove a property key (repeatable)")
-	if err := fs.Parse(args); err != nil {
-		return fail("parse args: %v", err)
+	if code, ok := parseArgs(fs, args); !ok {
+		return code
 	}
 
 	cfg, s, err := open()
@@ -554,8 +554,8 @@ func cmdRename(args []string) int {
 	title := fs.String("title", "", "note title (alternative to --id)")
 	path := fs.String("path", "", "note path (alternative to --id)")
 	toFlag := fs.String("to", "", "new note title")
-	if err := fs.Parse(args); err != nil {
-		return fail("parse args: %v", err)
+	if code, ok := parseArgs(fs, args); !ok {
+		return code
 	}
 	to := strings.TrimSpace(*toFlag)
 	if to == "" {
@@ -594,8 +594,8 @@ func cmdRm(args []string) int {
 	id := fs.Int64("id", 0, "note id")
 	title := fs.String("title", "", "note title (alternative to --id)")
 	path := fs.String("path", "", "note path (alternative to --id)")
-	if err := fs.Parse(args); err != nil {
-		return fail("parse args: %v", err)
+	if code, ok := parseArgs(fs, args); !ok {
+		return code
 	}
 
 	cfg, s, err := open()

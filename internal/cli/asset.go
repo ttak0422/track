@@ -32,8 +32,8 @@ func cmdAsset(args []string) int {
 func cmdAssetImport(args []string) int {
 	fs := flag.NewFlagSet("asset import", flag.ContinueOnError)
 	file := fs.String("file", "", "path to the file to import (or pass it as the first argument)")
-	if err := fs.Parse(args); err != nil {
-		return fail("parse args: %v", err)
+	if code, ok := parseArgs(fs, args); !ok {
+		return code
 	}
 	src := strings.TrimSpace(*file)
 	if src == "" && fs.NArg() > 0 {
@@ -58,8 +58,8 @@ func cmdAssetImport(args []string) int {
 func cmdAssetDir(args []string) int {
 	fs := flag.NewFlagSet("asset dir", flag.ContinueOnError)
 	ensure := fs.Bool("ensure", false, "create the directory if it does not exist")
-	if err := fs.Parse(args); err != nil {
-		return fail("parse args: %v", err)
+	if code, ok := parseArgs(fs, args); !ok {
+		return code
 	}
 	cfg, err := config.Load()
 	if err != nil {

@@ -41,8 +41,8 @@ func cmdTaskCycle(args []string) int {
 	line := fs.Int("line", 0, "1-based line number of the task")
 	expect := fs.String("expect", "", "refuse the write unless the line is in this state")
 	etag := fs.String("etag", "", "refuse the write unless the note content matches this etag")
-	if err := fs.Parse(args); err != nil {
-		return fail("parse args: %v", err)
+	if code, ok := parseArgs(fs, args); !ok {
+		return code
 	}
 	if *line <= 0 {
 		return fail("--line is required and must be positive")
@@ -121,10 +121,10 @@ func cmdTaskSet(args []string) int {
 	title := fs.String("title", "", "note title (alternative to --id)")
 	path := fs.String("path", "", "note path (alternative to --id)")
 	line := fs.Int("line", 0, "1-based line number of the task")
-	state := fs.String("state", "", "target state name (e.g. TODO, DOING, DONE)")
+	state := fs.String("state", "", "target state name, case-insensitive. The set is fixed and not configurable:\nTODO, DOING, WAITING, DONE, CANCELLED")
 	expect := fs.String("expect", "", "refuse the write unless the line is in this state")
-	if err := fs.Parse(args); err != nil {
-		return fail("parse args: %v", err)
+	if code, ok := parseArgs(fs, args); !ok {
+		return code
 	}
 	if *line <= 0 {
 		return fail("--line is required and must be positive")
@@ -177,11 +177,11 @@ func cmdTasks(args []string) int {
 	title := fs.String("title", "", "limit to one note by title")
 	path := fs.String("path", "", "limit to one note by path")
 	states := fs.String("state", "", "comma-separated state names to keep (e.g. TODO,DOING)")
-	due := fs.String("due", "", "keep open tasks due on or before this date (YYYY-MM-DD)")
-	overdue := fs.Bool("overdue", false, "keep open tasks whose deadline has passed")
+	due := fs.String("due", "", "keep open tasks due on or before this date (YYYY-MM-DD). Drops done tasks and\nundated ones alike, so this is never a superset of the unfiltered list")
+	overdue := fs.Bool("overdue", false, "keep open tasks whose deadline has passed; undated tasks drop out too")
 	sortKey := fs.String("sort", "", "sort order: priority (default: note, line)")
-	if err := fs.Parse(args); err != nil {
-		return fail("parse args: %v", err)
+	if code, ok := parseArgs(fs, args); !ok {
+		return code
 	}
 	switch *sortKey {
 	case "", "priority":
@@ -252,8 +252,8 @@ func cmdTaskDate(args []string) int {
 	line := fs.Int("line", 0, "1-based line number of the task")
 	fs.String("sched", "", "scheduled date YYYY-MM-DD (empty clears it)")
 	fs.String("due", "", "due date YYYY-MM-DD (empty clears it)")
-	if err := fs.Parse(args); err != nil {
-		return fail("parse args: %v", err)
+	if code, ok := parseArgs(fs, args); !ok {
+		return code
 	}
 	if *line <= 0 {
 		return fail("--line is required and must be positive")

@@ -28,8 +28,8 @@ func cmdTemplateNew(args []string) int {
 	fs := flagSet("template new")
 	name := fs.String("name", "", "template name")
 	id := fs.Int64("id", 0, "template id; defaults to current Unix second * 1000 plus a same-second sequence")
-	if err := fs.Parse(args); err != nil {
-		return fail("parse args: %v", err)
+	if code, ok := parseArgs(fs, args); !ok {
+		return code
 	}
 	cfg, err := config.Load()
 	if err != nil {
@@ -45,8 +45,8 @@ func cmdTemplateNew(args []string) int {
 func cmdTemplateOpen(args []string) int {
 	fs := flagSet("template open")
 	name := fs.String("name", "", "template name")
-	if err := fs.Parse(args); err != nil {
-		return fail("parse args: %v", err)
+	if code, ok := parseArgs(fs, args); !ok {
+		return code
 	}
 	cfg, err := config.Load()
 	if err != nil {
@@ -70,8 +70,8 @@ func cmdTemplateOpen(args []string) int {
 
 func cmdTemplateList(args []string) int {
 	fs := flagSet("template list")
-	if err := fs.Parse(args); err != nil {
-		return fail("parse args: %v", err)
+	if code, ok := parseArgs(fs, args); !ok {
+		return code
 	}
 	cfg, err := config.Load()
 	if err != nil {

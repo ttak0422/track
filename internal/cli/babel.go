@@ -54,8 +54,8 @@ func cmdBabelExec(args []string) int {
 	timeout := fs.Duration("timeout", 30*time.Second, "max run time per block (0 = no limit)")
 	var cliVars varsFlag
 	fs.Var(&cliVars, "var", "k=v passed to the block's environment (repeatable); overrides the block's :var")
-	if err := fs.Parse(args); err != nil {
-		return fail("parse args: %v", err)
+	if code, ok := parseArgs(fs, args); !ok {
+		return code
 	}
 
 	cfg, s, err := open()
@@ -149,8 +149,8 @@ func cmdBabelRestore(args []string) int {
 	fs := flag.NewFlagSet("babel restore", flag.ContinueOnError)
 	path := fs.String("path", "", "note path")
 	id := fs.Int64("id", 0, "note id (alternative to --path)")
-	if err := fs.Parse(args); err != nil {
-		return fail("parse args: %v", err)
+	if code, ok := parseArgs(fs, args); !ok {
+		return code
 	}
 
 	cfg, s, err := open()
@@ -193,8 +193,8 @@ func cmdBabelTangle(args []string) int {
 	path := fs.String("path", "", "note path")
 	id := fs.Int64("id", 0, "note id (alternative to --path)")
 	dryRun := fs.Bool("dry-run", false, "print the tangle plan without writing files")
-	if err := fs.Parse(args); err != nil {
-		return fail("parse args: %v", err)
+	if code, ok := parseArgs(fs, args); !ok {
+		return code
 	}
 
 	cfg, s, err := open()

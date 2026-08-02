@@ -40,8 +40,8 @@ func cmdGen(args []string) int {
 func cmdGenIncrement(args []string) int {
 	fs := flag.NewFlagSet("gen increment", flag.ContinueOnError)
 	label := fs.String("label", "", "optional label stored with the generation (e.g. to mark a dream save point)")
-	if err := fs.Parse(args); err != nil {
-		return fail("parse args: %v", err)
+	if code, ok := parseArgs(fs, args); !ok {
+		return code
 	}
 	cfg, err := config.Load()
 	if err != nil {
@@ -56,8 +56,8 @@ func cmdGenIncrement(args []string) int {
 
 func cmdGenStatus(args []string) int {
 	fs := flag.NewFlagSet("gen status", flag.ContinueOnError)
-	if err := fs.Parse(args); err != nil {
-		return fail("parse args: %v", err)
+	if code, ok := parseArgs(fs, args); !ok {
+		return code
 	}
 	cfg, err := config.Load()
 	if err != nil {
@@ -74,8 +74,8 @@ func cmdGenStatus(args []string) int {
 // files and sidecars wholesale, so a full reset is the honest way to make search and links match.
 func cmdGenMove(args []string, dir string) int {
 	fs := flag.NewFlagSet("gen "+dir, flag.ContinueOnError)
-	if err := fs.Parse(args); err != nil {
-		return fail("parse args: %v", err)
+	if code, ok := parseArgs(fs, args); !ok {
+		return code
 	}
 	cfg, err := config.Load()
 	if err != nil {
@@ -112,8 +112,8 @@ func cmdGenMove(args []string, dir string) int {
 
 func cmdGenList(args []string) int {
 	fs := flag.NewFlagSet("gen list", flag.ContinueOnError)
-	if err := fs.Parse(args); err != nil {
-		return fail("parse args: %v", err)
+	if code, ok := parseArgs(fs, args); !ok {
+		return code
 	}
 	cfg, err := config.Load()
 	if err != nil {
@@ -135,8 +135,8 @@ func cmdGenPeek(args []string) int {
 	id := fs.Int64("id", 0, "note id")
 	title := fs.String("title", "", "note title (alternative to --id)")
 	path := fs.String("path", "", "note path (alternative to --id)")
-	if err := fs.Parse(args); err != nil {
-		return fail("parse args: %v", err)
+	if code, ok := parseArgs(fs, args); !ok {
+		return code
 	}
 	cfg, s, err := open()
 	if err != nil {
