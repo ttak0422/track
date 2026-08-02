@@ -3,10 +3,10 @@ import { useOpenTasksQuery } from "../queries";
 import { STATIC_MODE } from "../runtime";
 import type { TaskRow } from "../types";
 
-// TasksView is the vault's open work in one list: every task not in a terminal state, worst first
-// (the engine's priority order — [#A] before [#B] before unprioritized, ties by deadline). Most of a
-// project note's checklist carries no date at all, so the calendar's dated listing cannot show it and
-// this page is the only place it is visible.
+// TasksView is the vault's open work in one list: every dated task not in a terminal state, worst
+// first (the engine's priority order — [#A] before [#B] before unprioritized, ties by deadline).
+// Undated checklist lines stay on their notes: without a [sched:]/[due:] commitment they would
+// swamp this page with every loose reminder and hypothetical in the vault.
 //
 // It reads, it does not write. A task's identity is its line number in the file, which is stable only
 // against the note on disk, so changing state belongs on the note page where the line is in view.

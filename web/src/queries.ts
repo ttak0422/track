@@ -126,8 +126,8 @@ export function useDatedTasksQuery() {
   });
 }
 
-// useOpenTasksQuery lists every task still to do across the vault, worst-first. Live server only:
-// the published bundle carries the dated listing alone.
+// useOpenTasksQuery lists every dated task still to do across the vault, worst-first. Live server
+// only: the published bundle carries the full dated listing alone.
 export function useOpenTasksQuery(enabled = true) {
   return useQuery({
     queryKey: queryKeys.openTasks(),
