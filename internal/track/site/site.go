@@ -83,6 +83,7 @@ func Build(cfg *config.Config, st *store.Store, opts Options, frontendDir, outDi
 			kind:     n.Kind,
 			tags:     n.Meta.Tags,
 			days:     note.ActivityDays(n.Kind, n.Meta),
+			created:  n.Meta.Created,
 			mtime:    n.Mtime,
 			path:     cfg.PathForKind(n.Kind, id),
 			body:     body,

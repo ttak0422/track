@@ -58,7 +58,7 @@ func writeVaultNote(t *testing.T, cfg *config.Config, id int64, title, body stri
 	if err := os.WriteFile(path, []byte(body), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	if err := note.WriteMetadata(cfg.MetadataPath(id), note.Metadata{Version: note.CurrentMetadataVersion, Title: title}); err != nil {
+	if err := note.WriteMetadata(cfg.MetadataPath(id), note.Metadata{Version: note.CurrentMetadataVersion, Title: title, Created: "2026-06-14"}); err != nil {
 		t.Fatal(err)
 	}
 }
@@ -123,6 +123,10 @@ func TestBuildVaultBundle(t *testing.T) {
 	// The published note carries the opaque slug, never the timestamp id or source path.
 	if root.Note.NoteID != PublishID(100) || root.Note.Path != "" || root.Note.CopyPath != "" {
 		t.Fatalf("note should publish the slug and drop the path: %+v", root.Note)
+	}
+	// Its dates are published like the live server's: the sidecar string verbatim and the file mtime.
+	if root.Note.Created != "2026-06-14" || root.Note.Updated == 0 {
+		t.Fatalf("note should publish its dates: %+v", root.Note)
 	}
 
 	// Child note has a backlink from Home.

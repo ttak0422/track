@@ -390,7 +390,11 @@ export function NoteEditor({ noteID }: NoteEditorProps) {
         <NoteBreadcrumbs trail={data.trail ?? []} />
         {/* Properties are read-only here: sidecar values are edited via `track meta --set`, inline
           fields by editing the body itself. */}
-        <NoteProperties props={data.note.props ?? []} />
+        <NoteProperties
+          props={data.note.props ?? []}
+          created={data.note.created}
+          updated={data.note.updated}
+        />
 
         <form className="note-editor" onSubmit={submit}>
           <div className={`editor-grid editor-grid-${editorMode}`}>

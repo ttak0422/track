@@ -161,6 +161,10 @@ export interface NoteDetail extends SearchResult {
   includes?: NoteInclude[];
   tasks?: NoteTasks;
   props?: NoteProp[];
+  // The note's creation date as the sidecar stores it (the vault's configured date format, day
+  // precision), and its last modification as the file mtime in unix seconds. Absent when unknown.
+  created?: string;
+  updated?: number;
 }
 
 // One inbound reference from another vault, written [[vault:title]] there (ADR 0053). It is a
