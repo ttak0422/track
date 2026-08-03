@@ -2512,14 +2512,19 @@ textarea.modal-input:focus-visible {
 }
 
 /* A tall collapsed diagram stays at a readable scale and is clipped, so make both the continuation
-   and the way to reveal it unmistakable. The fade is purely visual and never intercepts input. */
+   and the way to reveal it unmistakable. The fade is purely visual and never intercepts input.
+   Collapsed, the chip carries a label beside the caret, so its grid flows in one row and its box
+   grows to fit — the icon-sized square would push the text out over the diagram. */
 .mermaid-diagram[data-collapsed] .mermaid-fold {
   top: auto;
   bottom: 18px;
   left: 50%;
   z-index: 2;
+  grid-auto-flow: column;
   width: auto;
   min-width: max-content;
+  height: auto;
+  min-height: 26px;
   padding: 0 10px;
   gap: 6px;
   transform: translateX(-50%);
