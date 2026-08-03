@@ -95,4 +95,16 @@ describe("NoteProperties dates", () => {
     render(<NoteProperties props={props} created="2026-06-14" />);
     expect(screen.getAllByRole("term").map((dt) => dt.textContent)).toEqual(["status", "created"]);
   });
+
+  // The common note has no properties of its own but does have a created date, so the strip has to
+  // open for the dates alone — it is only empty when there is nothing at all to show.
+  it("shows the dates on a note with no properties, and nothing at all without either", () => {
+    const { unmount } = render(<NoteProperties props={[]} created="2026-06-14" />);
+    expect(screen.getAllByRole("term").map((dt) => dt.textContent)).toEqual(["created"]);
+    unmount();
+
+    render(<NoteProperties props={[]} />);
+    expect(screen.queryByRole("list")).toBeNull();
+    expect(screen.queryAllByRole("term")).toEqual([]);
+  });
 });
