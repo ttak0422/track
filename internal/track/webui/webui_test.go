@@ -44,7 +44,8 @@ func TestAPIHandlers(t *testing.T) {
 	if err := note.WriteMetadata(cfg.MetadataPath(100), note.Metadata{Title: "Alpha", Tags: []string{"project"}}); err != nil {
 		t.Fatal(err)
 	}
-	if err := note.WriteMetadata(cfg.MetadataPath(200), note.Metadata{Title: "Beta", Tags: []string{"draft"}}); err != nil {
+	// Beta's sidecar carries a creation date, so the note response can be checked for it.
+	if err := note.WriteMetadata(cfg.MetadataPath(200), note.Metadata{Title: "Beta", Tags: []string{"draft"}, Created: "2026-06-14"}); err != nil {
 		t.Fatal(err)
 	}
 
@@ -116,6 +117,14 @@ func TestAPIHandlers(t *testing.T) {
 	}
 	if cp, _ := noteBody["copy_path"].(string); cp == "" {
 		t.Fatalf("note response should carry a copy_path: %v", noteBody)
+	}
+	// The dates ride along with the note: the sidecar's created string verbatim, and the indexed
+	// mtime — Beta's is a day old — as updated.
+	if noteBody["created"] != "2026-06-14" {
+		t.Fatalf("note response should carry the sidecar created date: %v", noteBody["created"])
+	}
+	if updated, _ := noteBody["updated"].(float64); int64(updated) != now-86400 {
+		t.Fatalf("note response should carry the note mtime as updated: %v", noteBody["updated"])
 	}
 
 	graph := getJSON(t, server.URL+"/api/graph/local?id=100")["graph"].(map[string]any)

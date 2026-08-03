@@ -1,6 +1,7 @@
 import { Link, useLocation, useNavigate } from "@tanstack/react-router";
 import { useEffect, useMemo, useState } from "react";
 import { useAgendaQuery, useLocalGraphQuery } from "../queries";
+import { dateKey } from "./activityDates";
 import { GraphCanvas } from "./GraphCanvasLazy";
 import { headingElementID, tocEntries } from "./markdown/toc";
 import { WikiLink } from "./preview/WikiLink";
@@ -270,9 +271,23 @@ export function NoteAside({
 // so a list value reads as one row; link values navigate like any body wiki link.
 // The "up" relation has its own display — the breadcrumb trail and children list — so its link
 // values stay out of the strip; a string-typed up is not hierarchy and shows like any property.
-export function NoteProperties({ props: noteProps }: { props: NoteProp[] }) {
+// The note's own dates close the strip, after the user's props so user content leads: created is the
+// sidecar string verbatim (its format is the vault's), updated the file mtime at the same day
+// precision.
+export function NoteProperties({
+  props: noteProps,
+  created,
+  updated,
+}: {
+  props: NoteProp[];
+  created?: string;
+  updated?: number;
+}) {
   const shown = noteProps.filter((p) => !(p.key === "up" && p.type === "link"));
-  if (shown.length === 0) return null;
+  const dates: [string, string][] = [];
+  if (created) dates.push(["created", created]);
+  if (updated) dates.push(["updated", dateKey(new Date(updated * 1000))]);
+  if (shown.length === 0 && dates.length === 0) return null;
   const keys: string[] = [];
   const byKey = new Map<string, NoteProp[]>();
   for (const prop of shown) {
@@ -295,6 +310,14 @@ export function NoteProperties({ props: noteProps }: { props: NoteProp[] }) {
                 {prop.type === "link" ? <WikiLink target={prop.value} display={prop.value} /> : prop.value}
               </span>
             ))}
+          </dd>
+        </div>
+      ))}
+      {dates.map(([key, value]) => (
+        <div className="note-prop" key={key}>
+          <dt>{key}</dt>
+          <dd>
+            <span className="note-prop-value note-prop-date">{value}</span>
           </dd>
         </div>
       ))}

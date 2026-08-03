@@ -140,6 +140,16 @@ func (s *Server) getNote(v *vaultView, w http.ResponseWriter, r *http.Request) {
 		// rejected when the file changed underneath (e.g. an OneDrive sync) since this read.
 		"etag": note.ContentETag(raw),
 	}
+	// Timestamps: created is the sidecar string verbatim (its format is config.DateFormat, and
+	// `track export --frontmatter` emits the same string — reformatting here would let the two
+	// diverge), updated is the file mtime the index already carries. Each is omitted when absent,
+	// including when the sidecar cannot be read: a note stays readable without its dates.
+	if meta, _, err := note.ReadMetadata(v.cfg.MetadataPath(id)); err == nil && meta.Created != "" {
+		noteJSON["created"] = meta.Created
+	}
+	if ref.Mtime != 0 {
+		noteJSON["updated"] = ref.Mtime
+	}
 	// Task lines ride along so a ```taskboard fence renders without a second request, mirroring the
 	// static bundle's note JSON.
 	if set := task.NewSet(body); len(set.Items) > 0 {

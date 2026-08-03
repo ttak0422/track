@@ -35,6 +35,7 @@ type doc struct {
 	kind     string // "note" or "journal"
 	tags     []string
 	days     []string    // activity days (YYYY-MM-DD) from the sidecar; journals carry none
+	created  string      // sidecar creation date, verbatim in the vault's date format ("" = none)
 	mtime    int64       // file mtime, for the shared recently-updated-first listing order (0 in dir mode)
 	path     string      // source/display path (informational in the static site)
 	body     string      // web-sanitized Markdown the frontend renders
@@ -99,6 +100,10 @@ type jsonNoteDetail struct {
 	Includes []link.ResolvedInclude `json:"includes,omitempty"`
 	jsonSearchResult
 	CopyPath string `json:"copy_path"`
+	// Created and Updated mirror the live server's note timestamps: the sidecar date string verbatim
+	// and the file mtime in unix seconds.
+	Created string `json:"created,omitempty"`
+	Updated int64  `json:"updated,omitempty"`
 	// Props mirrors the live server's flattened note properties; link values stay resolution keys,
 	// which the frontend resolves through resolve.json like any other wiki link.
 	Props []note.Prop `json:"props,omitempty"`
@@ -342,6 +347,8 @@ func writeBundle(docs []doc, edges []edge, root int64, calendar, share bool, bas
 				}),
 				jsonSearchResult: searchResultOf(d),
 				CopyPath:         "", // see searchResultOf: the source path is intentionally not published.
+				Created:          d.created,
+				Updated:          d.mtime,
 				Props:            d.props,
 				Body:             body,
 				ETag:             etag(body),

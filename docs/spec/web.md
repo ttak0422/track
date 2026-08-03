@@ -87,7 +87,10 @@ off, a published site) still opens the day page and its notes-and-tasks listing.
 - `GET /api/note?id=<id>[&vault=<name>]`: the note's body, tags, paths, backlinks, and an `etag`
   (a content hash of the file as read). It returns two paths: `path`, the canonical
   (symlink-resolved) location, and `copy_path`, the same note in the configured,
-  symlink-intact form used for the copy-path button.
+  symlink-intact form used for the copy-path button. It also carries the note's
+  timestamps when they are known: `created`, the sidecar date string verbatim (in
+  the vault's configured date format), and `updated`, the file mtime in unix
+  seconds. The published bundle's note JSON carries both the same way.
 - `GET /api/graph/local?id=<id>[&vault=<name>]`: the one-hop local graph around a note.
 - `GET /api/graph`: the whole-vault graph — every indexed note as a node and every
   link between two known notes as an edge, with no center.

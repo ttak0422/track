@@ -53,7 +53,11 @@ export function NoteReaderStatic({ noteID }: { noteID: NoteID }) {
       <div className="note-layout">
         <div className="note-main">
           <NoteBreadcrumbs trail={data.trail ?? []} />
-          <NoteProperties props={data.note.props ?? []} />
+          <NoteProperties
+            props={data.note.props ?? []}
+            created={data.note.created}
+            updated={data.note.updated}
+          />
 
           <section className="note-preview" aria-label="Rendered note">
             {body.trim() !== "" && rendered.data?.markdown === undefined ? (
