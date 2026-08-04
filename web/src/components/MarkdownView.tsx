@@ -1,4 +1,5 @@
 import type { Element } from "hast";
+import { Link } from "@tanstack/react-router";
 import {
   type InputHTMLAttributes,
   type ReactNode,
@@ -9,7 +10,7 @@ import {
 } from "react";
 import Markdown, { type Components } from "react-markdown";
 import remarkGfm from "remark-gfm";
-import type { NoteInclude } from "../types";
+import type { NoteInclude, NoteID } from "../types";
 import { qualify } from "../vaultId";
 import { rehypeBudoux } from "./markdown/budouxEager";
 import { CodeBlock } from "./markdown/CodeBlock";
@@ -54,6 +55,9 @@ interface MarkdownViewProps {
   // The canonical note title is the document heading in full-page readers. A matching leading body
   // h1 is blanked (not deleted, so include/task source line numbers stay stable).
   title?: string;
+  // The note's ID — when set, the title renders as a self-referencing link so readers can
+  // click-to-copy the permalink.
+  noteId?: NoteID;
   kind?: string;
   // Vault of the note this body belongs to (registry name; "" for the launch vault). Everything the
   // body refers to lives in that vault, so it is what attachments, links, includes, and chart data
@@ -69,7 +73,7 @@ interface MarkdownViewProps {
 // /api/render (action links flattened); the track-specific construct is [[...]] wiki links (remarkWikiLink).
 // KaTeX is loaded lazily (see ./markdown/math), so a note without math never pulls in its bundle; while a
 // math note's first render waits for that chunk, the "$…$" briefly shows as source, then typesets.
-export function MarkdownView({ markdown, title, kind = "note", vault = "", includes }: MarkdownViewProps) {
+export function MarkdownView({ markdown, title, noteId, kind = "note", vault = "", includes }: MarkdownViewProps) {
   const bodyMarkdown = useMemo(() => withoutDuplicateTitle(markdown, title), [markdown, title]);
   const hasMath = looksLikeMath(bodyMarkdown);
   const [math, setMath] = useState<MathPlugins | null>(() => (hasMath ? mathPluginsIfLoaded() : null));
@@ -136,7 +140,15 @@ export function MarkdownView({ markdown, title, kind = "note", vault = "", inclu
         <IncludesContext.Provider value={includes ?? []}>
         <MarkdownSourceContext.Provider value={bodyMarkdown}>
           <div className="markdown-view">
-            {title ? <h1 className="note-title">{title}</h1> : null}
+            {title ? (
+              noteId ? (
+                <Link to="/notes/$noteId" params={{ noteId: String(noteId) }}>
+                  <h1 className="note-title">{title}</h1>
+                </Link>
+              ) : (
+                <h1 className="note-title">{title}</h1>
+              )
+            ) : null}
             {bodyMarkdown.trim() === "" ? <p className="muted">Empty note.</p> : null}
             <Markdown remarkPlugins={remarkPlugins} rehypePlugins={rehypePlugins} components={markdownComponents}>
               {source}

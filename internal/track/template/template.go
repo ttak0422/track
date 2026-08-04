@@ -69,7 +69,7 @@ func Create(cfg *config.Config, name string, id int64, overwrite bool) (Ref, err
 }
 
 func defaultBody(name string) string {
-	return fmt.Sprintf("<!-- track-template\nname: %s\n-->\n# {{ title }}\n", name)
+	return fmt.Sprintf("<!-- track-template\nname: %s\n-->\n", name)
 }
 
 func freeID(cfg *config.Config, t time.Time) (int64, error) {

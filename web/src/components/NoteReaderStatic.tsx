@@ -69,6 +69,7 @@ export function NoteReaderStatic({ noteID }: { noteID: NoteID }) {
                 <MarkdownView
                   markdown={rendered.data?.markdown ?? ""}
                   title={data.note.title}
+                  noteId={noteID}
                   kind={data.note.file_kind}
                   includes={data.note.includes}
                 />

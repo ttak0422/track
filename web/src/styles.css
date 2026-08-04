@@ -1899,6 +1899,19 @@ textarea.modal-input:focus-visible {
   margin-top: 0;
 }
 
+.note-title {
+  word-break: break-word;
+}
+
+a:has(> .note-title) {
+  color: inherit;
+  text-decoration: none;
+}
+
+a:has(> .note-title):hover {
+  color: var(--accent);
+}
+
 .markdown-view p {
   margin: 0.8em 0;
 }

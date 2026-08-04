@@ -110,8 +110,10 @@ M.defaults = {
    -- caps how many show before an "… (+N lines)" tail (0 = no cap); :TrackIncludeToggle expands.
    include_max_lines = 15,
    include_prefix = "│ ",
-   include_hl = "TrackInclude",
-   -- Highlight groups for rendered babel results (status header, stdout, stderr).
+    include_hl = "TrackInclude",
+    -- Highlight group for the note title rendered as virtual text on the first line.
+    title_hl = "TrackTitle",
+    -- Highlight groups for rendered babel results (status header, stdout, stderr).
    babel_hl_header = "TrackBabelHeader",
    babel_hl_result = "TrackBabelResult",
    babel_hl_error = "TrackBabelError",
