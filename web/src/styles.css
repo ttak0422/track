@@ -2477,6 +2477,7 @@ textarea.modal-input:focus-visible {
   position: absolute;
   top: 8px;
   right: 8px;
+  z-index: 2; /* above the continuation fades */
   display: flex;
   flex-direction: column;
   gap: 4px;
@@ -2509,6 +2510,7 @@ textarea.modal-input:focus-visible {
   position: absolute;
   top: 8px;
   left: 8px;
+  z-index: 2; /* above the continuation fades */
 }
 
 /* A tall collapsed diagram stays at a readable scale and is clipped, so make both the continuation
@@ -2519,7 +2521,6 @@ textarea.modal-input:focus-visible {
   top: auto;
   bottom: 18px;
   left: 50%;
-  z-index: 2;
   grid-auto-flow: column;
   width: auto;
   min-width: max-content;
@@ -2539,6 +2540,29 @@ textarea.modal-input:focus-visible {
   z-index: 1;
   pointer-events: none;
   background: linear-gradient(to bottom, transparent, var(--panel) 78%);
+}
+
+/* Horizontal analog of the continuation fade: a wide diagram stops shrinking at a readable scale
+   and is clipped at the viewport edge instead, so a side fade marks each clipped side. It follows
+   the current pan — purely visual, never intercepting input. */
+.mermaid-continuation-left,
+.mermaid-continuation-right {
+  position: absolute;
+  top: 14px;
+  bottom: 14px;
+  width: 72px;
+  z-index: 1;
+  pointer-events: none;
+}
+
+.mermaid-continuation-left {
+  left: 14px;
+  background: linear-gradient(to left, transparent, var(--panel) 78%);
+}
+
+.mermaid-continuation-right {
+  right: 14px;
+  background: linear-gradient(to right, transparent, var(--panel) 78%);
 }
 
 /* A collapsed preview is inert: no grab cursor, the wheel scrolls the page. */
