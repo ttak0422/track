@@ -1248,8 +1248,11 @@ a.calendar-title:focus-visible {
   cursor: pointer;
 }
 
-.tab-close:hover {
-  background: var(--line);
+/* Icon button (variant 7): the aiming cue is a surface, not the hairline color, and keyboard focus
+   gets the same cue as the pointer. */
+.tab-close:hover,
+.tab-close:focus-visible {
+  background: var(--panel-soft);
   color: var(--text);
 }
 
@@ -1316,8 +1319,10 @@ a.calendar-title:focus-visible {
   cursor: pointer;
 }
 
-.tab-float:hover {
-  background: var(--line);
+/* Icon button (variant 7), matching the close button beside it. */
+.tab-float:hover,
+.tab-float:focus-visible {
+  background: var(--panel-soft);
   color: var(--text);
 }
 

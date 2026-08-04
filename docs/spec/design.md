@@ -118,6 +118,24 @@ BACKLINKS, a code block's language, an OGP card's site name).
   site keeps only its own margins. Add new labels to that rule rather than
   restating the recipe.
 
+### 7. Icon button — a glyph whose target is invisible
+
+A chrome control with no label: the tab's close and float buttons, the wiki
+preview's expander. It is a text control (variant 1) at rest, but its glyph is
+smaller than the area that responds to a click, so it shows that area while
+being aimed at.
+
+- Rest: `color: var(--muted)`, transparent background, no border.
+- Hover / `:focus-visible`: `color: var(--text)` plus
+  `background: var(--panel-soft)` and `border-radius: var(--radius-sm)`. The
+  fill is `--panel-soft` — a surface — never `--line`, which is a hairline.
+- The hit target stays at least 24px even when the glyph is half that; the fill
+  is what makes the target legible.
+- Canonical: `.tab-close`, `.tab-float`, `.wiki-preview-toggle`.
+- A glyph button resting *on content* (a preview body, a diagram, media) is a
+  quiet chip (variant 2) instead: it needs separation from what is beneath it,
+  not just an aiming cue.
+
 ## Adding new UI
 
 - Reuse the canonical class when the markup allows; otherwise copy its recipe
