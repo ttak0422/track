@@ -90,6 +90,7 @@ export function DiagramFrame({ state, source, sourceLang, label, className }: Di
     viewportRef,
     panRef,
     viewportHeight,
+    overflow,
     reset,
     zoomBy,
     handlers,
@@ -119,6 +120,10 @@ export function DiagramFrame({ state, source, sourceLang, label, className }: Di
         </div>
       </div>
       {collapsed && <div className="mermaid-continuation" aria-hidden="true" />}
+      {/* The collapsed preview is inert, so a side fade would advertise a pan it cannot make;
+          the fold chip already owns the "there is more" signal until expanded. */}
+      {!collapsed && overflow.left && <div className="mermaid-continuation-left" aria-hidden="true" />}
+      {!collapsed && overflow.right && <div className="mermaid-continuation-right" aria-hidden="true" />}
       <button
         className="mermaid-control mermaid-fold"
         type="button"
@@ -215,8 +220,15 @@ interface Transform {
 
 const identityTransform: Transform = { x: 0, y: 0, scale: 1 };
 
-// Width cap: a diagram never exceeds this fraction of the viewport width.
+// Width target: fitting shrinks a diagram to at most this fraction of the viewport width — until
+// the readability floor below binds, past which the diagram runs wider and clips.
 const fitWidthRatio = 0.8;
+
+// Readability floor: a wide diagram never fits below this fraction of the ideal scale (12px text
+// against a 16px article). Past it the diagram overflows horizontally — clipped at the viewport
+// edge and pannable, the horizontal analog of a tall diagram's collapsed preview — instead of
+// shrinking the whole figure to an unreadable thumbnail.
+const minReadableRatio = 0.75;
 
 // Font size mermaid renders at (pinned in mermaidConfig). The ideal display scale makes diagram
 // text match the surrounding article text: articleFontPx / mermaidFontPx.
@@ -232,11 +244,13 @@ const autoCollapseHeight = 480;
 
 // Pan (pointer drag) and zoom (wheel/buttons) applied as a CSS transform on the diagram. On first paint
 // the diagram is fitted to the ideal scale — diagram text matching the article's font size — shrunk
-// only if that would overflow fitWidthRatio of the viewport width; the viewport height is sized to the
-// scaled diagram; reset returns to that fit, and the fit follows container resizes until the user pans
-// or zooms. A tall diagram starts collapsed: kept at the normal fit scale inside a clipped
-// collapsedHeight preview, interactions off, with a labelled fold toggle to expand. `svg` is the
-// rendered markup (null until ready), used to re-fit
+// only if that would overflow fitWidthRatio of the viewport width, and never below the readability
+// floor: a wider diagram keeps legible text, is clipped at the viewport edge, and pans (drag or
+// horizontal wheel), with `overflow` naming the clipped sides so the frame can fade them. The
+// viewport height is sized to the scaled diagram; reset returns to the fit, and the fit follows
+// container resizes until the user pans or zooms. A tall diagram starts collapsed: kept at the
+// normal fit scale inside a clipped collapsedHeight preview, interactions off, with a labelled fold
+// toggle to expand. `svg` is the rendered markup (null until ready), used to re-fit
 // whenever the diagram changes.
 function usePanZoom(svg: string | null) {
   const [transform, setTransform] = useState<Transform>(identityTransform);
@@ -252,6 +266,15 @@ function usePanZoom(svg: string | null) {
   const touchedRef = useRef(false);
   const collapsedRef = useRef(false);
   collapsedRef.current = collapsed;
+  // Mirror for the non-passive wheel listener, whose closure would otherwise hold a stale transform.
+  const transformRef = useRef(transform);
+  transformRef.current = transform;
+  // Viewport width as state, so the render-time overflow fades recompute on container resizes even
+  // while a touched view has its fit frozen.
+  const [viewportW, setViewportW] = useState(0);
+  // Axis of the current wheel gesture, latched on its first event like a native scroller's: a
+  // diagonal page scroll must not jiggle the diagram on its dx-dominant ticks.
+  const gestureRef = useRef<{ axis: "x" | "y"; t: number } | null>(null);
   const dragRef = useRef<{ px: number; py: number; x: number; y: number } | null>(null);
 
   // applyView recomputes the canonical view (fit or collapsed thumbnail) for the current width.
@@ -283,6 +306,7 @@ function usePanZoom(svg: string | null) {
     const naturalH = pan.offsetHeight;
     if (naturalW === 0 || naturalH === 0) return;
     naturalRef.current = { w: naturalW, h: naturalH };
+    setViewportW(viewport.clientWidth);
     idealScaleRef.current = measureIdealScale(viewport);
     touchedRef.current = false;
     const { height } = computeFit(naturalW, naturalH, viewport.clientWidth, idealScaleRef.current);
@@ -302,7 +326,10 @@ function usePanZoom(svg: string | null) {
     let lastW = el.clientWidth;
     const ro = new ResizeObserver(() => {
       const w = el.clientWidth;
-      if (w === 0 || w === lastW || naturalRef.current.w === 0) return;
+      if (w === 0 || naturalRef.current.w === 0) return;
+      // Keep the overflow fades honest even when a touched view skips the re-fit below.
+      setViewportW(w);
+      if (w === lastW) return;
       lastW = w;
       idealScaleRef.current = measureIdealScale(el);
       const { w: nw, h: nh } = naturalRef.current;
@@ -324,7 +351,31 @@ function usePanZoom(svg: string | null) {
     const el = viewportRef.current;
     if (!el) return;
     function onWheel(event: WheelEvent) {
-      if (collapsedRef.current || (!event.shiftKey && !event.ctrlKey)) return;
+      if (collapsedRef.current) return;
+      if (!event.shiftKey && !event.ctrlKey) {
+        // A horizontal trackpad swipe pans a clipped wide diagram, as it would scroll any other
+        // overflow-x region; a vertical wheel still scrolls the page past the diagram.
+        const g = gestureRef.current;
+        const axis =
+          g != null && event.timeStamp - g.t < 250
+            ? g.axis
+            : Math.abs(event.deltaX) > Math.abs(event.deltaY)
+              ? "x"
+              : "y";
+        gestureRef.current = { axis, t: event.timeStamp };
+        if (axis === "y") return;
+        const viewW = el!.clientWidth;
+        const scaledW = naturalRef.current.w * transformRef.current.scale;
+        if (scaledW <= viewW + 1) return;
+        // At an end of the pan the event is left unconsumed, so a swipe past the edge falls
+        // through to the browser (back/forward) and a no-op tick doesn't mark the view touched.
+        const x = clamp(transformRef.current.x - event.deltaX, viewW - scaledW, 0);
+        if (x === transformRef.current.x) return;
+        event.preventDefault();
+        touchedRef.current = true;
+        setTransform((prev) => ({ ...prev, x }));
+        return;
+      }
       event.preventDefault();
       touchedRef.current = true;
       // Browsers report Shift+wheel on the horizontal axis; take whichever axis carries the delta.
@@ -370,11 +421,20 @@ function usePanZoom(svg: string | null) {
     setTransform((prev) => zoomAt(prev, rect.width / 2, rect.height / 2, factor));
   }
 
+  // Which sides hide clipped content under the current pan — recomputed per render (pan, zoom, and
+  // viewport resizes all set state). Purely visual scroll-shadow-style hints.
+  const scaledW = naturalRef.current.w * transform.scale;
+  const overflow = {
+    left: viewportW > 0 && transform.x < -1,
+    right: viewportW > 0 && transform.x + scaledW > viewportW + 1,
+  };
+
   return {
     transform,
     viewportRef,
     panRef,
     viewportHeight,
+    overflow,
     reset: () => {
       touchedRef.current = false;
       setCollapsed(false);
@@ -404,16 +464,23 @@ export function computeCollapsedFit(
 }
 
 // computeFit shows a naturalW×naturalH diagram at idealScale (diagram text matches the article's
-// font size), shrinking only if that overflows fitWidthRatio of viewW; centers it horizontally and
-// returns the viewport height that hugs the scaled diagram.
+// font size), shrinking only if that overflows fitWidthRatio of viewW — but never below the
+// readability floor: a wider diagram keeps legible text and is clipped at the viewport edge
+// instead. Centers a fitting diagram, left-aligns a clipped one (reading order shows the start),
+// and returns the viewport height that hugs the scaled diagram.
 export function computeFit(
   naturalW: number,
   naturalH: number,
   viewW: number,
   idealScale = 1,
 ): { transform: Transform; height: number } {
-  const scale = clamp(Math.min((viewW * fitWidthRatio) / naturalW, idealScale), 0.2, 8);
-  return { transform: { scale, x: (viewW - naturalW * scale) / 2, y: 0 }, height: naturalH * scale };
+  const scale = clamp(
+    Math.min((viewW * fitWidthRatio) / naturalW, idealScale),
+    minReadableRatio * idealScale,
+    8,
+  );
+  const x = Math.max((viewW - naturalW * scale) / 2, 0);
+  return { transform: { scale, x, y: 0 }, height: naturalH * scale };
 }
 
 // sizeSvgToViewBox pins the rendered SVG to its natural (viewBox) pixel size. Mermaid emits

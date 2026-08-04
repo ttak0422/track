@@ -153,6 +153,110 @@ describe("DiagramFrame tall-diagram preview", () => {
   });
 });
 
+describe("DiagramFrame wide-diagram clipping", () => {
+  // Mounts a panW×panH diagram in a 500px viewport and returns the mounted handles plus the
+  // layout-mock teardown.
+  function setupWide(panW = 2000, panH = 300) {
+    const clientWidth = vi
+      .spyOn(HTMLElement.prototype, "clientWidth", "get")
+      .mockReturnValue(500);
+    const offsetWidth = vi
+      .spyOn(HTMLElement.prototype, "offsetWidth", "get")
+      .mockImplementation(function (this: HTMLElement) {
+        return this.classList.contains("mermaid-pan") ? panW : 0;
+      });
+    const offsetHeight = vi
+      .spyOn(HTMLElement.prototype, "offsetHeight", "get")
+      .mockImplementation(function (this: HTMLElement) {
+        return this.classList.contains("mermaid-pan") ? panH : 0;
+      });
+    const { container } = render(
+      <DiagramFrame
+        state={{ status: "ready", svg: `<svg viewBox="0 0 ${panW} ${panH}"></svg>` }}
+        source="graph LR"
+        sourceLang="mermaid"
+        label="Wide diagram"
+      />,
+    );
+    const viewport = container.querySelector(".mermaid-viewport") as HTMLElement;
+    const fade = (side: "left" | "right") =>
+      container.querySelector(`.mermaid-continuation-${side}`);
+    const restore = () => {
+      clientWidth.mockRestore();
+      offsetWidth.mockRestore();
+      offsetHeight.mockRestore();
+    };
+    return { container, viewport, fade, restore };
+  }
+
+  it("keeps readable text, clips at the edge, and fades the clipped side", () => {
+    const { viewport, fade, restore } = setupWide();
+
+    const pan = screen.getByRole("img", { name: "Wide diagram" });
+    expect(viewport).not.toHaveAttribute("data-collapsed");
+    expect(viewport.style.height).toBe("225px"); // 300 * 0.75: floored, not shrunk to fit
+    expect(pan.style.transform).toBe("translate(0px, 0px) scale(0.75)");
+    expect(fade("right")).toBeInTheDocument();
+    expect(fade("left")).not.toBeInTheDocument();
+
+    // Panning right reveals the left edge fade; the right side is still clipped.
+    fireEvent.pointerDown(viewport, { pointerId: 1, clientX: 0, clientY: 0 });
+    fireEvent.pointerMove(viewport, { pointerId: 1, clientX: -100, clientY: 0 });
+    expect(fade("left")).toBeInTheDocument();
+    expect(fade("right")).toBeInTheDocument();
+
+    restore();
+  });
+
+  it("pans on a horizontal wheel while clipped; a vertical wheel keeps scrolling the page", () => {
+    const { viewport, fade, restore } = setupWide();
+    const pan = screen.getByRole("img", { name: "Wide diagram" });
+
+    // fireEvent returns false when the handler consumed (preventDefaulted) the event.
+    expect(fireEvent.wheel(viewport, { deltaX: 120, deltaY: 4 })).toBe(false);
+    expect(pan.style.transform).toBe("translate(-120px, 0px) scale(0.75)");
+
+    expect(fireEvent.wheel(viewport, { deltaY: 120 })).toBe(true);
+    expect(pan.style.transform).toBe("translate(-120px, 0px) scale(0.75)");
+
+    // The pan clamps to the diagram's far end, like a native scroller, and the fades follow.
+    fireEvent.wheel(viewport, { deltaX: 5000 });
+    expect(pan.style.transform).toBe("translate(-1000px, 0px) scale(0.75)"); // 500 - 2000 * 0.75
+    expect(fade("right")).not.toBeInTheDocument();
+    expect(fade("left")).toBeInTheDocument();
+
+    // ...and back to the start; a tick at an end is left unconsumed, so an edge swipe falls
+    // through to the browser instead of dying on a diagram that cannot move further.
+    fireEvent.wheel(viewport, { deltaX: -5000 });
+    expect(pan.style.transform).toBe("translate(0px, 0px) scale(0.75)");
+    expect(fireEvent.wheel(viewport, { deltaX: -100 })).toBe(true);
+
+    restore();
+  });
+
+  it("leaves a horizontal wheel alone when the diagram fits", () => {
+    const { viewport, restore } = setupWide(400, 300);
+    const pan = screen.getByRole("img", { name: "Wide diagram" });
+    expect(pan.style.transform).toBe("translate(50px, 0px) scale(1)");
+
+    expect(fireEvent.wheel(viewport, { deltaX: 120, deltaY: 4 })).toBe(true);
+    expect(pan.style.transform).toBe("translate(50px, 0px) scale(1)");
+
+    restore();
+  });
+
+  it("keeps the inert collapsed preview free of side fades until expanded", () => {
+    const { viewport, fade, restore } = setupWide(2000, 2200);
+    expect(viewport).toHaveAttribute("data-collapsed");
+    expect(fade("right")).not.toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole("button", { name: "Expand diagram" }));
+    expect(fade("right")).toBeInTheDocument();
+
+    restore();
+  });
+});
+
 describe("mermaidConfig dark mode", () => {
   it("classifies theme surfaces by luminance", () => {
     expect(isDarkColor("#161814")).toBe(true); // dark theme --bg
@@ -168,11 +272,11 @@ describe("mermaidConfig dark mode", () => {
 });
 
 describe("computeFit", () => {
-  it("shrinks a wide diagram to 80% width and centers it", () => {
-    const { transform, height } = computeFit(1000, 400, 500);
-    expect(transform.scale).toBeCloseTo(0.4); // 500 * 0.8 / 1000
-    expect(transform.x).toBeCloseTo(50); // (500 - 1000 * 0.4) / 2
-    expect(height).toBeCloseTo(160); // 400 * 0.4
+  it("shrinks a slightly wide diagram to 80% width and centers it", () => {
+    const { transform, height } = computeFit(500, 400, 500);
+    expect(transform.scale).toBeCloseTo(0.8); // 500 * 0.8 / 500, above the readability floor
+    expect(transform.x).toBeCloseTo(50); // (500 - 500 * 0.8) / 2
+    expect(height).toBeCloseTo(320); // 400 * 0.8
   });
 
   it("keeps a small diagram at the ideal scale instead of inflating it to fill the width", () => {
@@ -185,8 +289,18 @@ describe("computeFit", () => {
     const ideal = computeFit(100, 60, 500, 1.25);
     expect(ideal.transform.scale).toBeCloseTo(1.25);
 
-    const capped = computeFit(1000, 400, 500, 1.25);
-    expect(capped.transform.scale).toBeCloseTo(0.4); // width cap binds before the ideal scale
+    const capped = computeFit(400, 300, 500, 1.25);
+    expect(capped.transform.scale).toBeCloseTo(1); // width cap binds before the ideal scale
+  });
+
+  it("stops shrinking a wide diagram at the readability floor and left-aligns the clipped fit", () => {
+    const { transform, height } = computeFit(2000, 300, 500);
+    expect(transform.scale).toBeCloseTo(0.75); // floor, not 500 * 0.8 / 2000 = 0.2
+    expect(transform.x).toBe(0); // clipped: show the start, not a centered middle slice
+    expect(height).toBeCloseTo(225); // 300 * 0.75
+
+    // The floor follows the article font: text never drops below 75% of the surrounding size.
+    expect(computeFit(2000, 300, 500, 1.25).transform.scale).toBeCloseTo(0.9375);
   });
 });
 
@@ -202,7 +316,7 @@ describe("computeCollapsedFit", () => {
   it("never scales wider than the normal width fit", () => {
     // A short-and-wide diagram: the height cap is not the binding constraint.
     const collapsed = computeCollapsedFit(1000, 100, 500);
-    expect(collapsed.transform.scale).toBeCloseTo(0.4); // same as computeFit
-    expect(collapsed.height).toBeCloseTo(40);
+    expect(collapsed.transform.scale).toBeCloseTo(0.75); // same floored scale as computeFit
+    expect(collapsed.height).toBeCloseTo(75);
   });
 });
