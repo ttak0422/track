@@ -562,7 +562,12 @@ local function attach(buf)
    -- number when the note is reopened, so re-set the maps on every attach — otherwise the reopened
    -- buffer keeps the stale guard and loses <CR>/K, and Enter silently stops following links. Autocmds
    -- survive the unload, so they stay behind the one-time guard below.
-   vim.keymap.set("n", "<CR>", function()
+    vim.keymap.set("n", "<CR>", function()
+      local cursor = vim.api.nvim_win_get_cursor(0)
+      if cursor[1] == 1 then
+         require("track.meta").edit()
+         return ""
+      end
       return require("track.follow").smart_action()
    end, { expr = true, buffer = buf, desc = "track: follow link under cursor" })
    vim.keymap.set("n", "K", function()
@@ -582,7 +587,9 @@ local function attach(buf)
       end
       retrigger_completion(buf, true)
       return ""
-   end, { expr = true, buffer = buf, desc = "track: reopen the [[ completion" })
+    end, { expr = true, buffer = buf, desc = "track: reopen the [[ completion" })
+
+   require("track.title").attach(buf)
 
    if attached[buf] then
       return

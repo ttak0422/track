@@ -433,6 +433,7 @@ export function NoteEditor({ noteID }: NoteEditorProps) {
                     <MarkdownView
                       markdown={renderQuery.data?.markdown ?? ""}
                       title={note.title}
+                      noteId={noteID}
                       kind={note.file_kind}
                       vault={noteVault}
                       includes={renderQuery.data?.includes}

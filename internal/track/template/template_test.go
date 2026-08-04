@@ -42,9 +42,9 @@ func TestRenderBuiltinJournal(t *testing.T) {
 	if err != nil {
 		t.Fatalf("render: %v", err)
 	}
-	// The builtin journal is just the title (the journal name is already the date), so the rendered
-	// body is the expanded heading and nothing else.
-	if body != "# 20260622\n" {
+	// The builtin journal template no longer carries a heading line — the title lives in the
+	// sidecar metadata and is only displayed by the frontend (virtual text in nvim, h1 in web).
+	if body != "" {
 		t.Fatalf("unexpected rendered journal body: %q", body)
 	}
 }

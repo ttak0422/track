@@ -126,7 +126,7 @@ func TestNewResolveKeywordsFlow(t *testing.T) {
 	if strings.Contains(string(noteContent), "<!--track") {
 		t.Fatalf("note file should not contain metadata: %q", noteContent)
 	}
-	if string(noteContent) != "# リンク\n" {
+	if string(noteContent) != "" {
 		t.Fatalf("new without a body should apply the builtin default template, got %q", noteContent)
 	}
 	metaContent, err := os.ReadFile(vault + "/.track/notes/1000.yaml")
@@ -487,8 +487,9 @@ func TestJournalIdempotent(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !strings.Contains(string(body), "# "+name) {
-		t.Fatalf("journal without a body should apply the builtin journal template, got %q", body)
+	if string(body) != "" {
+		// The builtin journal template no longer carries a heading; title is in sidecar metadata only.
+		t.Fatalf("journal body should be empty, got %q", body)
 	}
 }
 
@@ -552,7 +553,7 @@ func TestTemplateCommands(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !strings.Contains(string(body), "name: daily") || !strings.Contains(string(body), "# {{ title }}") {
+	if !strings.Contains(string(body), "name: daily") {
 		t.Fatalf("unexpected default template body: %q", body)
 	}
 
@@ -1181,7 +1182,8 @@ func TestNewWithoutBodyAppliesDefaultTemplate(t *testing.T) {
 		t.Fatal(err)
 	}
 	// With neither --template nor --body, the shipped builtin "default" template is applied.
-	if string(got) != "# Empty\n" {
+	// The builtin template no longer carries a heading — the title is in the sidecar metadata.
+	if string(got) != "" {
 		t.Fatalf("body = %q, want the builtin default template", got)
 	}
 	meta, err := os.ReadFile(vault + "/.track/notes/130.yaml")
@@ -1617,7 +1619,7 @@ func TestBuiltinDefaultProvidedAndOverridden(t *testing.T) {
 	if _, code := runIn(t, vault, "new", "--title", "Plain", "--id", "140"); code != 0 {
 		t.Fatalf("new failed")
 	}
-	if got := readFileString(t, filepath.Join(vault, "note", "140.md")); got != "# Plain\n" {
+	if got := readFileString(t, filepath.Join(vault, "note", "140.md")); got != "" {
 		t.Fatalf("builtin default template not applied: %q", got)
 	}
 	// builtin templates are not written into the vault.
