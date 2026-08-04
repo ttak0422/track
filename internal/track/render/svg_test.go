@@ -276,6 +276,67 @@ func TestSVGComboDrawsBarsAndLine(t *testing.T) {
 	}
 }
 
+// The value axis follows the mark, not the data: line and scatter compare nearby values and need the
+// data's own range, while bar and area encode magnitude from zero and must keep it on the axis. The
+// golden cases all sit next to zero, where the two rules agree; an index hovering around 100 is where
+// they part, and where dropping the distinction turns a 12% fall into a flat line.
+func TestValueRangeFollowsTheMark(t *testing.T) {
+	series := []viewspec.Series{{Label: "index", Values: []float64{97, 102, 88}}}
+	for _, tc := range []struct {
+		name     string
+		chart    viewspec.ChartType
+		wantZero bool
+	}{
+		{"line", viewspec.ChartLine, false},
+		{"scatter", viewspec.ChartScatter, false},
+		{"bar", viewspec.ChartBar, true},
+		{"hbar", viewspec.ChartHBar, true},
+		{"area", viewspec.ChartArea, true},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			lo, hi := valueRange(viewspec.Resolved{Chart: tc.chart, Labels: []string{"a", "b", "c"}, Series: series})
+			wantLo := 88.0
+			if tc.wantZero {
+				wantLo = 0
+			}
+			if lo != wantLo || hi != 102 {
+				t.Fatalf("%s axis = [%g,%g], want [%g,102]", tc.name, lo, hi, wantLo)
+			}
+		})
+	}
+}
+
+// One bar series is enough to pin zero: a combo chart's bars are measured from a baseline even when
+// the chart as a whole is a line.
+func TestValueRangeComboWithABarKeepsZero(t *testing.T) {
+	res := viewspec.Resolved{
+		Chart: viewspec.ChartLine, Labels: []string{"a", "b"},
+		Series: []viewspec.Series{
+			{Label: "index", Values: []float64{98, 102}, Mark: viewspec.ChartLine},
+			{Label: "volume", Values: []float64{40, 60}, Mark: viewspec.ChartBar},
+		},
+	}
+	if lo, hi := valueRange(res); lo != 0 || hi != 102 {
+		t.Fatalf("combo axis = [%g,%g], want [0,102]", lo, hi)
+	}
+}
+
+// A candlestick's numbers are prices, so its axis is the price range — zero is not a baseline there.
+func TestValueRangeCandlestickSpansPrices(t *testing.T) {
+	res := viewspec.Resolved{
+		Chart: viewspec.ChartCandlestick, Labels: []string{"a", "b"},
+		Series: []viewspec.Series{
+			{Label: "open", Values: []float64{97, 101}},
+			{Label: "high", Values: []float64{103, 104}},
+			{Label: "low", Values: []float64{95, 99}},
+			{Label: "close", Values: []float64{101, 100}},
+		},
+	}
+	if lo, hi := valueRange(res); lo != 95 || hi != 104 {
+		t.Fatalf("candlestick axis = [%g,%g], want the price range [95,104]", lo, hi)
+	}
+}
+
 func TestSVGCalloutDrawsBubble(t *testing.T) {
 	res := viewspec.Resolved{
 		Spec: viewspec.Spec{}, Chart: viewspec.ChartLine,

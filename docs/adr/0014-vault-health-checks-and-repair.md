@@ -16,7 +16,8 @@ normal create/reindex paths do not produce:
 - a sidecar whose markdown was removed elsewhere (a full reindex would delete it
   silently, indistinguishable from an intended delete);
 - conflict copies such as `1781359469000 (conflicted copy).md` that break the
-  `<id>.md` naming rule;
+  `<id>.md` naming rule, and the same copies made of a sidecar under
+  `.track/notes/`;
 - a sidecar that fails to parse;
 - a title shared by two notes after a merge, leaving `[[title]]` ambiguous.
 
@@ -31,8 +32,8 @@ repair pass that restores structure and identity but never invents content.
 
 `track doctor` treats the on-disk markdown and sidecars as the source of truth
 (the index is ignored) and reports divergence as a JSON `issues` array:
-`missing_sidecar`, `orphan_sidecar`, `stray_file`, `unreadable_sidecar`, and
-`duplicate_title`. Finding issues is not an error: it exits 0, reserving the
+`missing_sidecar`, `orphan_sidecar`, `stray_file`, `stray_sidecar`,
+`unreadable_sidecar`, and `duplicate_title`. Finding issues is not an error: it exits 0, reserving the
 `{"error":...}`/exit 1 contract for real failures.
 
 `track doctor --fix` repairs by **auto-numbered restore**, then reindexes:
@@ -45,6 +46,9 @@ repair pass that restores structure and identity but never invents content.
   `Untitled N` title.
 - `unreadable_sidecar`: reported under `skipped`, never auto-fixed, because the
   intended contents are unknown.
+- `stray_sidecar`: reported under `skipped` as well. A sidecar is metadata, not
+  content, so there is no note to import it as, and which of the two copies
+  carries the title the user wants is a decision only they can make.
 
 Detection logic lives in one internal `scan()` so `Diagnose` and `Fix` cannot
 drift.

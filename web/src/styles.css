@@ -94,6 +94,7 @@
 .activity-header h2,
 .activity-panel h2,
 .backlinks h3,
+.home-note-list h3,
 .day-tasks h2,
 .results-group,
 .code-block[data-language]::before,
@@ -736,13 +737,31 @@ button {
 
 /* Creation history and browser history occupy the hero's two open margins, so the central logo and
    search stay put as results grow beneath them. Below the width where those margins exist, both lists
-   go away rather than crowding the search box. */
+   go away rather than crowding the search box. These are the hero's own content, not a note aside's
+   block: no rule above them, and the list runs the full height of the margin instead of the capped,
+   scrolled column .backlinks gives a heavily linked note. */
 .home-note-list {
   position: absolute;
   top: 16vh;
+  bottom: 24px;
+  display: flex;
+  flex-direction: column;
   width: 220px;
-  border-top: 0;
   text-align: left;
+}
+
+.home-note-list h3 {
+  margin: 0 0 10px;
+}
+
+.home-note-list-items {
+  min-height: 0;
+  overflow-y: auto;
+  scrollbar-width: none;
+}
+
+.home-note-list-items::-webkit-scrollbar {
+  display: none;
 }
 
 .home-new {
@@ -1229,8 +1248,11 @@ a.calendar-title:focus-visible {
   cursor: pointer;
 }
 
-.tab-close:hover {
-  background: var(--line);
+/* Icon button (variant 7): the aiming cue is a surface, not the hairline color, and keyboard focus
+   gets the same cue as the pointer. */
+.tab-close:hover,
+.tab-close:focus-visible {
+  background: var(--panel-soft);
   color: var(--text);
 }
 
@@ -1297,8 +1319,10 @@ a.calendar-title:focus-visible {
   cursor: pointer;
 }
 
-.tab-float:hover {
-  background: var(--line);
+/* Icon button (variant 7), matching the close button beside it. */
+.tab-float:hover,
+.tab-float:focus-visible {
+  background: var(--panel-soft);
   color: var(--text);
 }
 

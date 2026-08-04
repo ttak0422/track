@@ -173,7 +173,13 @@ page exposes no metadata.
 
 Fenced code blocks tagged `mermaid` render as Mermaid diagrams in the web
 preview. The frontend initializes Mermaid with `securityLevel: "strict"` and the
-current track theme colors. If a diagram fails to parse or render, the preview
+current track theme colors, and re-renders on a theme change, so a diagram that
+names no colors of its own is legible in both themes. Colors written into the
+diagram source (a `style`/`classDef` fill, or `%%{init: …}%%` setting
+`themeVariables`) are passed through as-is — the renderer does not detect or
+rewrite them — so they hold in both themes and one of the two shows a diagram
+drawn for the other. The contract is the source's: leave color to the theme.
+If a diagram fails to parse or render, the preview
 shows the error and falls back to the original fenced source as a normal code
 block. The same renderer backs an embedded `.mmd`/`.mermaid` attachment (see
 "Markdown embeds"), so a diagram kept as a separate file renders identically to a

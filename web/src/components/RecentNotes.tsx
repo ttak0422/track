@@ -12,9 +12,9 @@ export function RecentNotes() {
     return null;
   }
   return (
-    <section className="backlinks home-note-list home-recent" aria-labelledby="recent-heading">
+    <section className="home-note-list home-recent" aria-labelledby="recent-heading">
       <h3 id="recent-heading">Recent</h3>
-      <div className="backlink-list">
+      <div className="home-note-list-items">
         {recent.map((note) => (
           <Link className="backlink" key={note.id} to="/notes/$noteId" params={{ noteId: String(note.id) }}>
             {note.title || note.id}
