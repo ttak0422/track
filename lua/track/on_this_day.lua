@@ -20,13 +20,18 @@ function M.date_from_path(path)
    return compact:sub(1, 4) .. "-" .. compact:sub(5, 6) .. "-" .. compact:sub(7, 8)
 end
 
--- request fetches the notes active on the current daily journal's date.
+-- request fetches the notes active on the current daily journal's date. When
+-- invoked outside a daily journal, it creates today's journal first.
 function M.request(cb)
    local path = vim.api.nvim_buf_get_name(vim.api.nvim_get_current_buf())
    local date = M.date_from_path(path)
    if not date then
-      vim.notify("track: on_this_day requires a daily journal buffer", vim.log.levels.WARN)
-      return
+      local journal, err = client.run_json({ "journal" })
+      if not journal then
+         vim.notify("track: " .. tostring(err), vim.log.levels.ERROR)
+         return
+      end
+      date = M.date_from_path(journal.path)
    end
 
    local data, err = client.run_json({ "agenda", "--date", date })
