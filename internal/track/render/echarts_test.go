@@ -406,6 +406,22 @@ func TestEChartsCategoryAxesFollowSeriesForms(t *testing.T) {
 		}
 	})
 
+	t.Run("candlestick keeps the price range", func(t *testing.T) {
+		res := viewspec.Resolved{
+			Spec: viewspec.Spec{}, Chart: viewspec.ChartCandlestick, Labels: []string{"a", "b"},
+			Series: []viewspec.Series{
+				{Label: "open", Values: []float64{97, 101}},
+				{Label: "high", Values: []float64{103, 104}},
+				{Label: "low", Values: []float64{95, 99}},
+				{Label: "close", Values: []float64{101, 100}},
+			},
+		}
+		y := echartsOptionForTest(t, res)["yAxis"].([]any)[0].(map[string]any)
+		if y["scale"] != true {
+			t.Fatalf("prices are not measured from zero: %v", y)
+		}
+	})
+
 	t.Run("each value axis is classified independently", func(t *testing.T) {
 		res := viewspec.Resolved{
 			Spec: viewspec.Spec{}, Chart: viewspec.ChartBar, Labels: []string{"a", "b"},
