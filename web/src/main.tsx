@@ -2,6 +2,7 @@ import { StrictMode } from "react";
 import { createRoot } from "react-dom/client";
 import { App, clientAppRouter } from "./App";
 import { STATIC_MODE } from "./runtime";
+import { applyDesignPreview, parseDesignPreview } from "./dev/preview";
 
 const root = document.getElementById("root");
 
@@ -17,6 +18,15 @@ if (!root) {
 if (STATIC_MODE && window.location.pathname.endsWith("/index.html")) {
   const dir = window.location.pathname.slice(0, -"index.html".length);
   window.history.replaceState(window.history.state, "", dir + window.location.search + window.location.hash);
+}
+
+// Dev-only (dead code in both builds): ?theme=…&variant=… selects a design-candidate preview
+// (ADR 0068) before first paint, so design-shots screenshots address combinations as plain URLs.
+// The candidate token blocks ship in their own dev-only import — on /gallery the playground also
+// loads them, but any other dev URL needs them injected here for the variant to render.
+if (import.meta.env.DEV) {
+  applyDesignPreview(parseDesignPreview(window.location.search));
+  void import("./dev/candidates.css");
 }
 
 // Each deploy replaces every content-hashed chunk, and GitHub Pages caches HTML for up to 10 minutes

@@ -31,6 +31,17 @@ function serveExportedData(): PluginOption {
   };
 }
 
+// The dev server serves index.html raw, so the Go-side placeholders (__TRACK_COLOR_OVERRIDES__ sits
+// bare in <head>) would render as literal text on every dev page — and in every design-shots
+// screenshot. Strip it in dev; the builds leave it for the server/export to substitute.
+function stripServerPlaceholders(): PluginOption {
+  return {
+    name: "track-strip-server-placeholders",
+    apply: "serve",
+    transformIndexHtml: (html: string) => html.replace("__TRACK_COLOR_OVERRIDES__", ""),
+  };
+}
+
 // The static-site export build (VITE_TRACK_STATIC=1) is path-routed and prerendered, so it needs a known
 // absolute base (SITE_BASE, default "/") baked into the bundle: import.meta.env.BASE_URL then drives both
 // the router basepath and asset URLs, keeping the prerender and the hydrating client in agreement. Set
@@ -65,7 +76,7 @@ export default defineConfig({
   // Normalize to a trailing slash: GitHub's configure-pages emits base_path as "/repo" (no slash), and
   // BASE_URL consumers concatenate paths onto it ("/repo" + "data/…" would yield "/repodata/…").
   base: staticBuild ? (process.env.SITE_BASE || "/").replace(/\/*$/, "/") : "/",
-  plugins: [react(), ...(staticBuild ? [serveExportedData()] : [bundlePdfjsAssets()])],
+  plugins: [react(), stripServerPlaceholders(), ...(staticBuild ? [serveExportedData()] : [bundlePdfjsAssets()])],
   // A literal boolean the bundler folds at build time, so code gated on `!__TRACK_STATIC__` (e.g. the
   // BudouX word-break model) is dead-code-eliminated from the static build rather than merely unused.
   define: {
