@@ -31,6 +31,11 @@ const (
 	// IssueStrayFile is a file under note/ or journal/ that carries a note extension but does not match
 	// the numeric id naming rule, e.g. an OneDrive conflict copy "1781359469000 (conflicted copy).md".
 	IssueStrayFile IssueKind = "stray_file"
+	// IssueStraySidecar is the same accident on the metadata side: a `.yaml` under .track/notes/ whose
+	// name is not an id, e.g. "1781359469000 (conflicted copy).yaml". The markdown half of a conflict is
+	// reported as a stray_file; without this the sidecar half was skipped in silence, so a vault could
+	// read clean while holding the very divergence doctor exists to surface.
+	IssueStraySidecar IssueKind = "stray_sidecar"
 	// IssueUnreadableSidecar is a sidecar that exists but cannot be parsed (bad YAML or unsupported version).
 	IssueUnreadableSidecar IssueKind = "unreadable_sidecar"
 	// IssueDuplicateTitle is a title shared by more than one note. Creation prevents this, but a sync
@@ -71,6 +76,7 @@ type scanResult struct {
 	unreadable     []int64          // md present, sidecar unreadable
 	unreadablePath map[int64]string // id -> sidecar path for unreadable sidecars
 	strays         []string         // file paths that break the id naming rule
+	straySidecars  []string         // sidecar paths that break the <id>.yaml naming rule
 	orphans        []int64          // sidecar ids with no markdown file
 	propIssues     []Issue          // schema violations, only gathered when a property schema is configured
 	shadowed       []Issue          // titles a registered vault name shadows as a cross-vault qualifier
@@ -143,6 +149,7 @@ func scan(cfg *config.Config) (scanResult, error) {
 		}
 		id, err := strconv.ParseInt(strings.TrimSuffix(e.Name(), ".yaml"), 10, 64)
 		if err != nil {
+			res.straySidecars = append(res.straySidecars, filepath.Join(cfg.MetadataDir(), e.Name()))
 			continue
 		}
 		if !res.mdIDs[id] {
@@ -210,6 +217,10 @@ func Diagnose(cfg *config.Config) (Report, error) {
 		rep.Issues = append(rep.Issues, Issue{Kind: IssueStrayFile, Path: path,
 			Detail: "file does not match the <id> naming rule"})
 	}
+	for _, path := range res.straySidecars {
+		rep.Issues = append(rep.Issues, Issue{Kind: IssueStraySidecar, Path: path,
+			Detail: "sidecar does not match the <id>.yaml naming rule"})
+	}
 	for _, id := range res.orphans {
 		rep.Issues = append(rep.Issues, Issue{Kind: IssueOrphanSidecar, ID: id, Path: cfg.MetadataPath(id),
 			Detail: "no markdown file in note/ or journal/ for this id"})
@@ -254,9 +265,10 @@ type FixReport struct {
 //   - duplicate_title: keep the lowest id's title; renumber the rest to fresh auto-numbered titles.
 //   - stray_file:      import the file as a new note with a fresh auto-numbered id and title.
 //
-// unreadable_sidecar is not auto-fixable (the intended contents are unknown) and is reported under
-// Skipped. startID seeds the id allocator for stray imports (callers pass a time-based id); ids are then
-// taken with note.FreeID so they never collide with files written earlier in the same run.
+// unreadable_sidecar and stray_sidecar are not auto-fixable (the intended contents, and which copy of
+// a conflicted sidecar wins, are both unknown) and are reported under Skipped. startID seeds the id
+// allocator for stray imports (callers pass a time-based id); ids are then taken with note.FreeID so
+// they never collide with files written earlier in the same run.
 func Fix(cfg *config.Config, startID int64) (FixReport, error) {
 	res, err := scan(cfg)
 	if err != nil {
@@ -331,6 +343,13 @@ func Fix(cfg *config.Config, startID int64) (FixReport, error) {
 	for _, id := range sortedInt64(res.unreadable) {
 		rep.Skipped = append(rep.Skipped, Issue{Kind: IssueUnreadableSidecar, ID: id, Path: res.unreadablePath[id],
 			Detail: "cannot auto-repair an unreadable sidecar; fix or remove it by hand"})
+	}
+	// A stray sidecar is metadata, not content: importing it the way a stray markdown file is imported
+	// would invent a note out of a title, and choosing between it and the sidecar it conflicts with is
+	// the user's call.
+	for _, path := range res.straySidecars {
+		rep.Skipped = append(rep.Skipped, Issue{Kind: IssueStraySidecar, Path: path,
+			Detail: "cannot auto-repair a stray sidecar; compare it with the note's own sidecar and remove it by hand"})
 	}
 	// Property violations are not auto-fixable either: the intended value is unknown, so edit by hand.
 	rep.Skipped = append(rep.Skipped, res.propIssues...)

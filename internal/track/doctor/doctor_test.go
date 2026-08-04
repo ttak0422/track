@@ -109,6 +109,54 @@ func TestDiagnoseStrayConflictCopy(t *testing.T) {
 	}
 }
 
+// The sidecar half of a sync conflict has no id in its name, so the sidecar sweep used to skip it in
+// silence — the vault read clean while carrying a conflict copy.
+func TestDiagnoseStraySidecarConflictCopy(t *testing.T) {
+	cfg := newVault(t)
+	writeNote(t, cfg, 100, "Alpha")
+	stray := filepath.Join(cfg.MetadataDir(), "100 (conflicted copy).yaml")
+	if err := os.WriteFile(stray, []byte("version: 1\ntitle: Alpha\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	rep, err := Diagnose(cfg)
+	if err != nil {
+		t.Fatalf("diagnose: %v", err)
+	}
+	got := issuesByKind(rep)[IssueStraySidecar]
+	if len(got) != 1 || got[0].Path != stray {
+		t.Fatalf("stray_sidecar issues = %v", rep.Issues)
+	}
+	// It is not an orphan: the note it shadows is present and healthy.
+	if other := issuesByKind(rep)[IssueOrphanSidecar]; len(other) != 0 {
+		t.Fatalf("stray sidecar should not be reported as an orphan: %v", other)
+	}
+}
+
+// Which copy of a conflicted sidecar wins is the user's call, so --fix reports it instead of guessing.
+func TestFixSkipsStraySidecar(t *testing.T) {
+	cfg := newVault(t)
+	writeNote(t, cfg, 100, "Alpha")
+	stray := filepath.Join(cfg.MetadataDir(), "100 (conflicted copy).yaml")
+	if err := os.WriteFile(stray, []byte("version: 1\ntitle: Alpha\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	rep, err := Fix(cfg, 1700000000000)
+	if err != nil {
+		t.Fatalf("fix: %v", err)
+	}
+	if len(rep.Fixed) != 0 {
+		t.Fatalf("nothing should be auto-fixed: %+v", rep.Fixed)
+	}
+	if len(rep.Skipped) != 1 || rep.Skipped[0].Kind != IssueStraySidecar || rep.Skipped[0].Path != stray {
+		t.Fatalf("stray sidecar should be skipped: %+v", rep.Skipped)
+	}
+	if _, err := os.Stat(stray); err != nil {
+		t.Fatalf("stray sidecar should be left on disk: %v", err)
+	}
+}
+
 func TestDiagnoseDuplicateTitle(t *testing.T) {
 	cfg := newVault(t)
 	writeNote(t, cfg, 100, "Same")
