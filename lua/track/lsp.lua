@@ -473,7 +473,10 @@ end
 -- vim.lsp.completion whenever its popup is closed (it only ever re-opens on trigger characters). The
 -- built-in call is a no-op unless the user ran vim.lsp.completion.enable, so nobody gets popups they
 -- did not opt into; for the same reason cmp users with autocomplete disabled are left alone.
-local function retrigger_completion(buf)
+-- Both of those gates are heuristics about what the user probably meant. A manual call (the <C-l> map
+-- in attach) is the user saying it outright, so it skips them and re-opens the popup whatever was last
+-- typed — the way back when a title was typed ASCII-first, or with cmp's autocomplete off.
+local function retrigger_completion(buf, manual)
    if not inside_open_link() then
       return
    end
@@ -489,16 +492,19 @@ local function retrigger_completion(buf)
       end
       local ok, cmp = pcall(require, "cmp")
       if ok then
-         local auto = (cmp.get_config().completion or {}).autocomplete
-         local manual_only = auto == false or (type(auto) == "table" and #auto == 0)
-         local col = vim.api.nvim_win_get_cursor(0)[2]
-         local byte = col > 0 and vim.api.nvim_get_current_line():byte(col)
-         if byte and byte >= 0x80 and not manual_only then
-            cmp.complete({ config = { sources = { { name = "nvim_lsp" } } } })
+         if not manual then
+            local auto = (cmp.get_config().completion or {}).autocomplete
+            local manual_only = auto == false or (type(auto) == "table" and #auto == 0)
+            local col = vim.api.nvim_win_get_cursor(0)[2]
+            local byte = col > 0 and vim.api.nvim_get_current_line():byte(col)
+            if not byte or byte < 0x80 or manual_only then
+               return
+            end
          end
+         cmp.complete({ config = { sources = { { name = "nvim_lsp" } } } })
          return
       end
-      if vim.lsp.completion and vim.fn.pumvisible() == 0 then
+      if vim.lsp.completion and (manual or vim.fn.pumvisible() == 0) then
          pcall(vim.lsp.completion.get)
       end
    end)
@@ -566,6 +572,17 @@ local function attach(buf)
          vim.notify("track: LSP hover is not ready for this buffer", vim.log.levels.INFO)
       end
    end, { buffer = buf, desc = "track: hover note link" })
+   -- Re-open the [[ completion by hand. The automatic re-trigger reads intent from the keystroke
+   -- (multibyte inside an unclosed [[), so a title typed ASCII-first, or typed with cmp's autocomplete
+   -- off, has no way back once the popup closes. Outside a link the key keeps its own meaning
+   -- (ins-completion's CTRL-L), so the map costs nothing where it has nothing to offer.
+   vim.keymap.set("i", "<C-l>", function()
+      if not inside_open_link() then
+         return "<C-l>"
+      end
+      retrigger_completion(buf, true)
+      return ""
+   end, { expr = true, buffer = buf, desc = "track: reopen the [[ completion" })
 
    if attached[buf] then
       return
