@@ -10,9 +10,9 @@ export function NewNotes() {
     return null;
   }
   return (
-    <section className="backlinks home-note-list home-new" aria-labelledby="new-heading">
+    <section className="home-note-list home-new" aria-labelledby="new-heading">
       <h3 id="new-heading">New</h3>
-      <div className="backlink-list">
+      <div className="home-note-list-items">
         {notes.map((note) => (
           <Link className="backlink" key={note.note_id} to="/notes/$noteId" params={{ noteId: String(note.note_id) }}>
             {note.title || note.note_id}
