@@ -1,0 +1,74 @@
+/* Candidate token sets under trial (ADR 0068). Dev-only: loaded by the /gallery playground, never
+   part of either production build. A candidate is a [data-theme-variant="…"] block overriding the
+   :root tokens from styles.css — set the attribute on <html> (the playground's switcher, or
+   ?variant=… via dev/preview.ts) to try it app-wide, or on any wrapper element to preview one
+   subtree. Non-root tokens inherit through, so a candidate only lists what it changes.
+
+   The blocks below are disposable sketches: replace them freely per experiment. Keep the variant
+   list in GalleryView.tsx in sync. Adopting a candidate means editing docs/spec/design.md first,
+   then styles.css — not promoting this file.
+
+   ponytail: system-follow ("system" theme + OS dark) resolves to the base dark block in styles.css,
+   which outranks a candidate's light values — preview candidates with an explicit light/dark
+   selection (the playground forces one). Duplicating every candidate into the
+   prefers-color-scheme block would fix it, if that ever matters. */
+
+/* candidate-a — warm paper, amber salient */
+[data-theme-variant="candidate-a"] {
+  --bg: #f8f5ef;
+  --panel: #fffdf9;
+  --panel-soft: #f1ece2;
+  --text: #262019;
+  --muted: #746a5c;
+  --line: #ded5c6;
+  --accent: #a05a17;
+  --accent-strong: #7a4210;
+  --chart-1: #a05a17;
+  --chart-ramp-lo: #f1e7d8;
+  --chart-ramp-hi: #7a4210;
+}
+
+[data-theme="dark"] [data-theme-variant="candidate-a"],
+[data-theme-variant="candidate-a"][data-theme="dark"] {
+  --bg: #191612;
+  --panel: #24201a;
+  --panel-soft: #2e2921;
+  --text: #efeae2;
+  --muted: #a89d8e;
+  --line: #423b31;
+  --accent: #e0a458;
+  --accent-strong: #f0c68a;
+  --chart-1: #e0a458;
+  --chart-ramp-lo: #302a20;
+  --chart-ramp-hi: #f0c68a;
+}
+
+/* candidate-b — cool slate, blue salient */
+[data-theme-variant="candidate-b"] {
+  --bg: #f4f6f8;
+  --panel: #ffffff;
+  --panel-soft: #eceff3;
+  --text: #1d2229;
+  --muted: #64707d;
+  --line: #d5dce3;
+  --accent: #31639f;
+  --accent-strong: #1d4a80;
+  --chart-1: #31639f;
+  --chart-ramp-lo: #e2eaf2;
+  --chart-ramp-hi: #1d4a80;
+}
+
+[data-theme="dark"] [data-theme-variant="candidate-b"],
+[data-theme-variant="candidate-b"][data-theme="dark"] {
+  --bg: #14171b;
+  --panel: #1e2329;
+  --panel-soft: #262d35;
+  --text: #e8edf2;
+  --muted: #9aa7b3;
+  --line: #38424d;
+  --accent: #74a9d8;
+  --accent-strong: #a3c9e8;
+  --chart-1: #74a9d8;
+  --chart-ramp-lo: #222a33;
+  --chart-ramp-hi: #a3c9e8;
+}

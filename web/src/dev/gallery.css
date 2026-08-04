@@ -1,0 +1,157 @@
+/* Layout for the dev-only design playground (/gallery, ADR 0068). Only this page's own chrome is
+   styled here — the specimens themselves use the canonical classes from styles.css, so they render
+   exactly what the app renders. Recipes for this page's chrome are copied from docs/spec/design.md
+   (the shared rules in styles.css enumerate their sites, which this dev file stays out of). */
+
+.design-gallery {
+  max-width: 960px;
+  margin: 0 auto;
+  padding: 32px 24px 64px;
+}
+
+.design-gallery > header {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 12px 24px;
+  margin-bottom: 8px;
+}
+
+.design-gallery h1 {
+  font-size: calc(20px * var(--font-scale, 1));
+  margin: 0;
+}
+
+/* text control */
+.gallery-switch {
+  display: flex;
+  gap: 12px;
+}
+
+.gallery-switch button {
+  border: 0;
+  background: none;
+  padding: 0;
+  color: var(--muted);
+  font-size: calc(13px * var(--font-scale, 1));
+}
+
+.gallery-switch button:hover,
+.gallery-switch button:focus-visible {
+  color: var(--text);
+}
+
+.gallery-switch button[aria-pressed="true"] {
+  color: var(--accent);
+  font-weight: 600;
+}
+
+.gallery-hint {
+  color: var(--muted);
+  font-size: calc(12px * var(--font-scale, 1));
+  margin: 0 0 24px;
+}
+
+.gallery-section {
+  margin: 28px 0;
+}
+
+/* section label */
+.gallery-section > h2 {
+  color: var(--muted);
+  font-family: var(--font-mono);
+  font-size: calc(11px * var(--font-scale, 1));
+  font-weight: 500;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  margin: 0 0 12px;
+}
+
+.gallery-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 16px;
+}
+
+/* The floating-layer specimen sits in the page flow instead of floating over it. */
+.design-gallery .menu-panel {
+  position: static;
+}
+
+.gallery-swatches {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.gallery-swatch {
+  width: 28px;
+  height: 28px;
+  border-radius: 50%;
+  border: 1px solid var(--line);
+}
+
+.gallery-radius {
+  width: 56px;
+  height: 36px;
+  background: var(--panel-soft);
+  border: 1px solid var(--line);
+  display: grid;
+  place-items: center;
+  color: var(--muted);
+  font-family: var(--font-mono);
+  font-size: calc(11px * var(--font-scale, 1));
+}
+
+/* Side-by-side candidate cards: each card scopes one token set to its own subtree, so the grid
+   shows every candidate at once under the page's current light/dark selection. */
+.gallery-compare {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+  gap: 16px;
+}
+
+.gallery-card {
+  background: var(--bg);
+  color: var(--text);
+  border: 1px solid var(--line);
+  border-radius: var(--radius-lg);
+  padding: 14px;
+}
+
+/* section label */
+.gallery-card-name {
+  color: var(--muted);
+  font-family: var(--font-mono);
+  font-size: calc(11px * var(--font-scale, 1));
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  margin-bottom: 10px;
+}
+
+.gallery-card-panel {
+  background: var(--panel);
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  padding: 12px;
+  margin-bottom: 10px;
+  font-size: calc(13px * var(--font-scale, 1));
+}
+
+.gallery-card-panel p {
+  margin: 0 0 6px;
+}
+
+.gallery-card-muted {
+  color: var(--muted);
+}
+
+.gallery-card-link {
+  color: var(--accent);
+  cursor: pointer;
+}
+
+.gallery-card-link:hover {
+  text-decoration: underline;
+}

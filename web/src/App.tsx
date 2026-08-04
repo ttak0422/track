@@ -7,7 +7,7 @@ import {
   createRouter,
 } from "@tanstack/react-router";
 import { QueryClient, QueryClientProvider, hydrate } from "@tanstack/react-query";
-import type { ReactNode } from "react";
+import { Suspense, lazy, type ReactNode } from "react";
 import { START_PAGE_ID, STATIC_MODE } from "./runtime";
 import { CalendarFullView } from "./components/CalendarFullView";
 import { DayView } from "./components/DayView";
@@ -79,6 +79,26 @@ const emptyRoute = createRoute({
   component: () => <EmptyState />,
 });
 
+// The design playground (ADR 0068) exists only on the dev server: the whole branch — the lazy()
+// call included, so its chunk is never emitted — folds away in production builds, and the
+// prerender never sees the route.
+const devRoutes = import.meta.env.DEV
+  ? (() => {
+      const GalleryView = lazy(() => import("./dev/GalleryView"));
+      return [
+        createRoute({
+          getParentRoute: () => rootRoute,
+          path: "/gallery",
+          component: () => (
+            <Suspense fallback={null}>
+              <GalleryView />
+            </Suspense>
+          ),
+        }),
+      ];
+    })()
+  : [];
+
 const routeTree = rootRoute.addChildren([
   indexRoute,
   noteRoute,
@@ -88,6 +108,7 @@ const routeTree = rootRoute.addChildren([
   dayRoute,
   tagRoute,
   emptyRoute,
+  ...devRoutes,
 ]);
 
 // The router basepath (and asset URLs) come from the build-time base (import.meta.env.BASE_URL), so the

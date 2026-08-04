@@ -127,3 +127,18 @@ BACKLINKS, a code block's language, an OGP card's site name).
   the glyph is smaller.
 - Scrollers hide their scrollbars (`scrollbar-width: none` plus the WebKit
   rule), matching the rest of the app.
+
+## Trying a restyle
+
+A candidate design is a token set, not a branch (ADR 0068):
+
+- Write each candidate as a `[data-theme-variant="…"]` block in
+  `web/src/dev/candidates.css` — dev-only, never bundled. Because everything
+  reads tokens, charts and diagrams follow automatically.
+- Preview on the dev server (`make site-dev`) at `/gallery`: the variants above
+  rendered under any candidate, and all candidates side by side. Any dev URL
+  accepts `?variant=…&theme=…`.
+- `make design-shots` screenshots candidates × light/dark into
+  `_design-shots/index.html` for a one-page comparison.
+- Adopting a candidate edits **this document first** (tokens, principles), then
+  `styles.css` follows. Candidates never merge as-is.

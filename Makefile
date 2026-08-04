@@ -18,7 +18,7 @@ WEB_DIST   := web/dist-static
 # Open a URL in the browser: xdg-open on Linux, open on macOS. Empty if neither is on PATH.
 OPEN := $(shell command -v xdg-open 2>/dev/null || command -v open 2>/dev/null)
 
-.PHONY: help site site-serve site-dev site-data site-clean lighthouse web-nvim
+.PHONY: help site site-serve site-dev site-data site-clean lighthouse design-shots web-nvim
 
 help: ## List the available targets
 	@grep -E '^[a-zA-Z0-9_-]+:.*?## ' $(MAKEFILE_LIST) \
@@ -48,6 +48,11 @@ lighthouse: site ## Run Lighthouse on the built site and print the scores (needs
 	npx --yes @lhci/cli@0.14.x collect
 	node scripts/lhci-summary.mjs
 	@echo "Full report: open .lighthouseci/lhr-*.html"
+
+# Shoots the /gallery design playground (ADR 0068) against the running dev server — start
+# `make site-dev` first. Candidates come from web/src/dev/candidates.css.
+design-shots: ## Screenshot design candidates × light/dark into _design-shots/index.html
+	node scripts/design-shots.mjs
 
 # site-data regenerates only the exported JSON bundle ($(SITE_OUT)/data) — the part that changes when a
 # note changes. It needs a frontend dir to satisfy export-site, so it hands it a throwaway stub. Fast:
