@@ -266,7 +266,12 @@ func svgAxisName(res viewspec.Resolved) string {
 	if name := res.AxisName("y"); name != "" {
 		return name
 	}
-	return res.AxisName("y2")
+	for _, axis := range []string{"y2", "y3"} {
+		if name := res.AxisName(axis); name != "" {
+			return name
+		}
+	}
+	return ""
 }
 
 func writeVerticalAxisTitle(b *strings.Builder, g svgGeom, name string) {
@@ -292,7 +297,7 @@ func writeHorizontalAxisTitle(b *strings.Builder, g svgGeom, name string) {
 // scale, and stretching the price axis to a volume magnitude would flatten the candles — skipping is
 // the documented degradation, like display:"box" falling back to plain markers here.
 func candleSkipsSeries(res viewspec.Resolved, si int) bool {
-	return res.Chart == viewspec.ChartCandlestick && res.Series[si].Axis == "y2"
+	return res.Chart == viewspec.ChartCandlestick && (res.Series[si].Axis == "y2" || res.Series[si].Axis == "y3")
 }
 
 // writeSeries draws each y series by its own form — the chart's, or the series' mark override in a

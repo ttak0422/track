@@ -639,6 +639,7 @@ func TestValidateOverlayShapes(t *testing.T) {
 		}
 	}
 	y := 6.5
+	y2 := 9.5
 	inline := []dataset.Record{{"time": "d1", "title": "ev"}}
 	valid := map[string]Overlay{
 		"callout":        {X: "d1", Y: &y, Label: "peak here"},
@@ -646,6 +647,8 @@ func TestValidateOverlayShapes(t *testing.T) {
 		"inline markers": {Records: inline, Kind: dataset.KindEvent, At: "time", Label: "title"},
 		"line":           {Y: &y, Label: "threshold"},
 		"line-y2":        {Y: &y, Axis: "y2"},
+		"line-y3":        {Y: &y, Axis: "y3"},
+		"vband":          {YFrom: &y, YTo: &y2, Label: "zone"},
 		"band":           {From: "d1", To: "d2", Label: "Q1"},
 		"line-at-zero":   {Y: new(float64)}, // y: 0 is a value, not an unset shape
 		"box markers":    {Records: inline, Kind: dataset.KindEvent, Label: "title", Display: "box"},
@@ -662,7 +665,8 @@ func TestValidateOverlayShapes(t *testing.T) {
 		"source and line":      {Source: "e.jsonl", Kind: dataset.KindEvent, Y: &y},
 		"band missing to":      {From: "d1"},
 		"band missing from":    {To: "d2"},
-		"bad line axis":        {Y: &y, Axis: "y3"},
+		"bad line axis":        {Y: &y, Axis: "y4"},
+		"bad vband axis":       {YFrom: &y, YTo: &y2, Axis: "y4"},
 		"axis on markers":      {Source: "e.jsonl", Kind: dataset.KindEvent, Axis: "y"},
 		"kind on line":         {Y: &y, Kind: dataset.KindEvent},
 		"at on band":           {From: "d1", To: "d2", At: "time"},

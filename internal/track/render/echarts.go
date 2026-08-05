@@ -215,13 +215,10 @@ func gridOf(opt map[string]any) map[string]any {
 
 // buildSeriesChart handles the shared category-x forms: line, area, bar, and scatter.
 func buildSeriesChart(opt map[string]any, res viewspec.Resolved) {
-	axisHasBaselineForm := [2]bool{}
-	axisHasSeries := [2]bool{}
+	axisHasBaselineForm := [3]bool{}
+	axisHasSeries := [3]bool{}
 	for i, s := range res.Series {
-		axis := 0
-		if s.Axis == "y2" {
-			axis = 1
-		}
+		axis := axisIndex(s.Axis)
 		axisHasSeries[axis] = true
 		form := res.SeriesForm(i)
 		if form != viewspec.ChartLine && form != viewspec.ChartScatter {
@@ -231,21 +228,18 @@ func buildSeriesChart(opt map[string]any, res viewspec.Resolved) {
 	// Line/scatter-only category plots meet the edge of the category range. Bars and areas need the
 	// half-category padding so their first and last marks are not clipped.
 	opt["xAxis"] = map[string]any{
-		"type": "category", "data": res.Labels, "boundaryGap": axisHasBaselineForm[0] || axisHasBaselineForm[1],
+		"type": "category", "data": res.Labels, "boundaryGap": axisHasBaselineForm[0] || axisHasBaselineForm[1] || axisHasBaselineForm[2],
 	}
 
-	usesY2 := false
+	nAxes := 1
 	for _, s := range res.Series {
-		if s.Axis == "y2" {
-			usesY2 = true
+		if a := axisIndex(s.Axis); a+1 > nAxes {
+			nAxes = a + 1
 		}
 	}
 	valueAxis := func(axis int) map[string]any {
 		out := map[string]any{"type": "value"}
-		axisName := "y"
-		if axis == 1 {
-			axisName = "y2"
-		}
+		axisName := []string{"y", "y2", "y3"}[axis]
 		if name := res.AxisName(axisName); name != "" {
 			out["name"] = name
 		}
@@ -267,11 +261,16 @@ func buildSeriesChart(opt map[string]any, res viewspec.Resolved) {
 		return out
 	}
 	yAxes := []any{valueAxis(0)}
-	if usesY2 {
-		// Keep the secondary axis's gridlines off the chart area so the two scales don't collide.
-		secondary := valueAxis(1)
-		secondary["splitLine"] = map[string]any{"show": false}
-		yAxes = append(yAxes, secondary)
+	for axis := 1; axis < nAxes; axis++ {
+		// Keep the secondary/tertiary axes' gridlines off the chart area so the scales don't
+		// collide. y3 sits on the right, offset beyond y2, so both price overlays stay readable.
+		extra := valueAxis(axis)
+		extra["splitLine"] = map[string]any{"show": false}
+		if axis >= 2 {
+			extra["position"] = "right"
+			extra["offset"] = 60
+		}
+		yAxes = append(yAxes, extra)
 	}
 	opt["yAxis"] = yAxes
 
@@ -296,18 +295,15 @@ func buildSeriesChart(opt map[string]any, res viewspec.Resolved) {
 		if res.Stacked && form == viewspec.ChartBar {
 			es["stack"] = "total"
 		}
-		if s.Axis == "y2" {
-			es["yAxisIndex"] = 1
+		if a := axisIndex(s.Axis); a > 0 {
+			es["yAxisIndex"] = a
 		}
 		series = append(series, es)
 		legend = append(legend, s.Label)
 	}
 	opt["series"] = series
 	if len(legend) == 1 {
-		axis := 0
-		if res.Series[0].Axis == "y2" {
-			axis = 1
-		}
+		axis := axisIndex(res.Series[0].Axis)
 		// An explicit axisName wins; otherwise the single series names its own axis.
 		ax := yAxes[axis].(map[string]any)
 		if _, has := ax["name"]; !has {
@@ -316,6 +312,17 @@ func buildSeriesChart(opt map[string]any, res viewspec.Resolved) {
 	} else {
 		applyLegend(opt, legend)
 	}
+}
+
+// axisIndex maps a y-series axis assignment onto the position in the yAxis array (y→0, y2→1, y3→2).
+func axisIndex(axis string) int {
+	switch axis {
+	case "y2":
+		return 1
+	case "y3":
+		return 2
+	}
+	return 0
 }
 
 // applySeriesStyle applies the resolved channel style to an ECharts series. seriesIndex addresses the
@@ -828,8 +835,8 @@ func applyOverlays(opt map[string]any, res viewspec.Resolved) {
 			"borderRadius":    2,
 		}
 	}
-	var primary, secondary []any // markLine items per target axis group
-	linked := false              // any marker carrying provenance makes its markLine clickable
+	var primary []any // markLine items for markers on the primary axis
+	linked := false   // any marker carrying provenance makes its markLine clickable
 	markerItem := func(m viewspec.Marker) map[string]any {
 		item := map[string]any{"xAxis": m.At}
 		if m.Label != "" {
@@ -888,6 +895,8 @@ func applyOverlays(opt map[string]any, res viewspec.Resolved) {
 			primary = append(primary, item)
 		}
 	}
+	lineItems := [3][]any{} // markLine items grouped by target axis (y, y2, y3)
+	lineItems[0] = primary  // markers always anchor on the primary axis
 	for _, l := range res.Lines {
 		item := map[string]any{
 			"yAxis":     l.Y,
@@ -896,11 +905,7 @@ func applyOverlays(opt map[string]any, res viewspec.Resolved) {
 		if l.Label != "" {
 			item["label"] = boxedLabel(l.Label)
 		}
-		if l.Axis == "y2" {
-			secondary = append(secondary, item)
-			continue
-		}
-		primary = append(primary, item)
+		lineItems[axisIndex(l.Axis)] = append(lineItems[axisIndex(l.Axis)], item)
 	}
 
 	markLine := func(items []any) map[string]any {
@@ -915,12 +920,13 @@ func applyOverlays(opt map[string]any, res viewspec.Resolved) {
 		}
 	}
 	first, _ := series[0].(map[string]any)
-	if len(primary) > 0 && first != nil {
-		first["markLine"] = markLine(primary)
-	}
-	if len(secondary) > 0 {
-		if s := seriesOnY2(series); s != nil {
-			s["markLine"] = markLine(secondary)
+	for axis := 0; axis < len(lineItems); axis++ {
+		items := lineItems[axis]
+		if len(items) == 0 {
+			continue
+		}
+		if target := seriesOnAxis(series, axis); target != nil {
+			target["markLine"] = markLine(items)
 		}
 	}
 
@@ -940,16 +946,13 @@ func applyOverlays(opt map[string]any, res viewspec.Resolved) {
 	// markArea. Attach each range to a series using its axis so ECharts interprets yAxis values against
 	// the intended scale. The x bands above and these can coexist on one series.
 	if len(res.VBands) > 0 {
-		byAxis := [2][]any{}
+		byAxis := [3][]any{}
 		for _, vb := range res.VBands {
 			from := map[string]any{"yAxis": vb.From}
 			if vb.Label != "" {
 				from["name"] = vb.Label
 			}
-			axis := 0
-			if vb.Axis == "y2" {
-				axis = 1
-			}
+			axis := axisIndex(vb.Axis)
 			byAxis[axis] = append(byAxis[axis], []any{from, map[string]any{"yAxis": vb.To}})
 		}
 		for axis, ranges := range byAxis {
@@ -989,12 +992,9 @@ func applyOverlays(opt map[string]any, res viewspec.Resolved) {
 	}
 }
 
-// seriesOnY2 finds a series bound to the secondary axis to carry y2 mark geometry; a y2 reference
-// line without any y2 series has no scale to sit on and is dropped, like the SVG renderer.
-func seriesOnY2(series []any) map[string]any {
-	return seriesOnAxis(series, 1)
-}
-
+// seriesOnAxis finds a series bound to the given axis (0 = y, 1 = y2, 2 = y3) to carry that axis'
+// mark geometry; an axis-bound reference line without any series on it has no scale to sit on and is
+// dropped, like the SVG renderer.
 func seriesOnAxis(series []any, axis int) map[string]any {
 	for _, s := range series {
 		m, ok := s.(map[string]any)

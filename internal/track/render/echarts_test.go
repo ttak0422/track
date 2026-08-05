@@ -836,3 +836,45 @@ func TestEChartsCandlestickExtraAppliesSeriesStyleAndAxisName(t *testing.T) {
 		t.Fatalf("candlestick extra style = %#v", extra)
 	}
 }
+
+func TestEChartsThirdAxisY3(t *testing.T) {
+	res := viewspec.Resolved{
+		Spec: viewspec.Spec{}, Chart: viewspec.ChartBar,
+		Labels: []string{"a", "b"},
+		Series: []viewspec.Series{
+			{Label: "count", Values: []float64{1, 2}},
+			{Label: "first", Values: []float64{100, 110}, Mark: viewspec.ChartLine, Axis: "y2"},
+			{Label: "second", Values: []float64{10, 12}, Mark: viewspec.ChartLine, Axis: "y3"},
+		},
+	}
+	out, err := EChartsOptionJSON(res)
+	if err != nil {
+		t.Fatal(err)
+	}
+	opt := echartsOptionForTest(t, res)
+	yAxes := opt["yAxis"].([]any)
+	if len(yAxes) != 3 {
+		t.Fatalf("want 3 value axes, got %d: %s", len(yAxes), out)
+	}
+	y3 := yAxes[2].(map[string]any)
+	if y3["position"] != "right" || y3["offset"] != 60.0 {
+		t.Fatalf("y3 axis should sit right with an offset: %+v", y3)
+	}
+	for _, s := range opt["series"].([]any) {
+		sm := s.(map[string]any)
+		switch sm["name"] {
+		case "second":
+			if sm["yAxisIndex"] != float64(2) {
+				t.Fatalf("y3 series should target axis index 2: %+v", sm)
+			}
+		case "first":
+			if sm["yAxisIndex"] != float64(1) {
+				t.Fatalf("y2 series should target axis index 1: %+v", sm)
+			}
+		case "count":
+			if _, has := sm["yAxisIndex"]; has {
+				t.Fatalf("primary series should not set yAxisIndex: %+v", sm)
+			}
+		}
+	}
+}

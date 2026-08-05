@@ -85,8 +85,10 @@ const (
 	ChartTreemap     ChartType = "treemap"     // treemap mark: axis-less area rectangles colored by the color channel
 )
 
-// AxisOptions lists the valid y-series axis assignments (primary/secondary), for help and validation.
-var AxisOptions = []string{"y", "y2"}
+// AxisOptions lists the valid y-series axis assignments (primary, secondary, tertiary), for help
+// and validation. y3 lets two overlay series on different scales ride the same chart (e.g. a bar
+// count series with two price overlays); renderers without a third scale ignore it like y2.
+var AxisOptions = []string{"y", "y2", "y3"}
 
 // Spec is a single visualization.
 type Spec struct {
@@ -744,7 +746,7 @@ func (e Encoding) validate(yRequired bool) error {
 		switch y.Axis {
 		case "", "y", "y2":
 		default:
-			return fmt.Errorf("view spec: encoding.y[%d].axis %q is not y or y2", i, y.Axis)
+			return fmt.Errorf("view spec: encoding.y[%d].axis %q is not y, y2, or y3", i, y.Axis)
 		}
 	}
 	for name, ch := range map[string]*Channel{"encoding.color": e.Color, "encoding.size": e.Size, "encoding.href": e.Href, "encoding.note": e.Note} {
@@ -951,7 +953,7 @@ func (o Overlay) validate(i int) error {
 			return fmt.Errorf("view spec: overlays[%d].display applies only to a marker overlay", i)
 		}
 		if o.Axis != "" && !slices.Contains(AxisOptions, o.Axis) {
-			return fmt.Errorf("view spec: overlays[%d].axis %q is not y or y2", i, o.Axis)
+			return fmt.Errorf("view spec: overlays[%d].axis %q is not y, y2, or y3", i, o.Axis)
 		}
 	case hasVBand:
 		if o.YFrom == nil || o.YTo == nil {
@@ -964,7 +966,7 @@ func (o Overlay) validate(i int) error {
 			return fmt.Errorf("view spec: overlays[%d] vband overlay does not take kind/at", i)
 		}
 		if o.Axis != "" && !slices.Contains(AxisOptions, o.Axis) {
-			return fmt.Errorf("view spec: overlays[%d].axis %q is not y or y2", i, o.Axis)
+			return fmt.Errorf("view spec: overlays[%d].axis %q is not y, y2, or y3", i, o.Axis)
 		}
 		if o.Display != "" {
 			return fmt.Errorf("view spec: overlays[%d].display applies only to a marker overlay", i)

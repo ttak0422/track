@@ -10,7 +10,7 @@ import (
 // validateAxisDomains prevents an explicit domain from silently clipping data or narrative
 // overlays. Authors can widen the range or omit it and use the renderer's automatic scale.
 func validateAxisDomains(res viewspec.Resolved) error {
-	for _, axis := range []string{"y", "y2"} {
+	for _, axis := range []string{"y", "y2", "y3"} {
 		lo, hi, ok := res.AxisDomain(axis)
 		if !ok {
 			continue
