@@ -149,7 +149,7 @@ const echartsInset = 16
 
 // dataZoomSliderThreshold is the category count past which a chart gets a visible range slider on
 // top of the inside (Shift+wheel/pinch/drag) zoom: short series don't need one, dense time series
-// (the shape the goal articles zoom) do.
+// (the shape that needs one) do.
 // ponytail: fixed count cutoff; derive from label pixel density if charts get configurable widths
 const dataZoomSliderThreshold = 30
 
@@ -246,6 +246,9 @@ func buildSeriesChart(opt map[string]any, res viewspec.Resolved) {
 		if axis == 1 {
 			axisName = "y2"
 		}
+		if name := res.AxisName(axisName); name != "" {
+			out["name"] = name
+		}
 		if lo, hi, ok := res.AxisDomain(axisName); ok {
 			out["min"], out["max"] = lo, hi
 			out["scale"] = true
@@ -284,9 +287,45 @@ func buildSeriesChart(opt map[string]any, res viewspec.Resolved) {
 		if seriesHasHref(s) {
 			es["cursor"] = "pointer"
 		}
+		if color, ok := res.SeriesColor(s.Label); ok {
+			es["color"] = color
+		}
+		// Per-series style: opacity fades the whole series (the emphasis knob), width and dash
+		// style a line/area stroke.
+		if op := res.SeriesOpacity(i); op != nil {
+			es["itemStyle"] = map[string]any{"opacity": *op}
+		}
+		if form == viewspec.ChartLine || form == viewspec.ChartScatter || form == viewspec.ChartArea {
+			var ls map[string]any
+			if w, ok := res.SeriesWidth(i); ok {
+				ls = map[string]any{"width": w}
+			}
+			if d := res.SeriesDash(i); d != "" {
+				if ls == nil {
+					ls = map[string]any{}
+				}
+				ls["type"] = d
+			}
+			if op := res.SeriesOpacity(i); op != nil {
+				if ls == nil {
+					ls = map[string]any{}
+				}
+				ls["opacity"] = *op
+			}
+			if ls != nil {
+				es["lineStyle"] = ls
+			}
+		}
 		if form == viewspec.ChartArea {
-			// Fill down to the baseline at the SVG renderer's 30% opacity so both outputs read alike.
-			es["areaStyle"] = map[string]any{"color": seriesFillColor(i), "origin": "start"}
+			// Fill down to the baseline; the default keeps the SVG renderer's 30% fill, an explicit
+			// opacity replaces it so the fade is the author's own.
+			as := map[string]any{"origin": "start"}
+			if op := res.SeriesOpacity(i); op != nil {
+				as["opacity"] = *op
+			} else {
+				as["color"] = seriesFillColor(i)
+			}
+			es["areaStyle"] = as
 		}
 		if form == viewspec.ChartLine || form == viewspec.ChartArea {
 			// No vertex dots, matching the SVG renderer's plain polyline; the axis tooltip still
@@ -308,7 +347,11 @@ func buildSeriesChart(opt map[string]any, res viewspec.Resolved) {
 		if res.Series[0].Axis == "y2" {
 			axis = 1
 		}
-		yAxes[axis].(map[string]any)["name"] = legend[0]
+		// An explicit axisName wins; otherwise the single series names its own axis.
+		ax := yAxes[axis].(map[string]any)
+		if _, has := ax["name"]; !has {
+			ax["name"] = legend[0]
+		}
 	} else {
 		applyLegend(opt, legend)
 	}
@@ -726,7 +769,7 @@ func boxSource(href string) (link, host string) {
 // a y2-bound series (any one works; the geometry itself is chart-global). Colors match the other
 // renderers' overlay red and band gray.
 func applyOverlays(opt map[string]any, res viewspec.Resolved) {
-	if len(res.Markers)+len(res.Lines)+len(res.Bands)+len(res.Callouts) == 0 {
+	if len(res.Markers)+len(res.Lines)+len(res.Bands)+len(res.VBands)+len(res.Callouts) == 0 {
 		return
 	}
 	series, ok := opt["series"].([]any)
@@ -855,6 +898,31 @@ func applyOverlays(opt map[string]any, res viewspec.Resolved) {
 			"data":      ranges,
 			"itemStyle": map[string]any{"color": "rgba(108,117,125,0.15)"},
 			"label":     map[string]any{"color": "#6c757d"},
+		}
+	}
+
+	// Y-range bands (vband) shade a value span on a value axis — e.g. target ranges — as a second
+	// markArea. The x bands above and these can coexist on one series.
+	if len(res.VBands) > 0 && first != nil {
+		var ranges []any
+		for _, vb := range res.VBands {
+			from := map[string]any{"yAxis": vb.From}
+			if vb.Label != "" {
+				from["name"] = vb.Label
+			}
+			ranges = append(ranges, []any{from, map[string]any{"yAxis": vb.To}})
+		}
+		area := map[string]any{
+			"silent":    true,
+			"data":      ranges,
+			"itemStyle": map[string]any{"color": "rgba(108,117,125,0.15)"},
+			"label":     map[string]any{"color": "#6c757d"},
+		}
+		if existing, ok := first["markArea"].(map[string]any); ok {
+			area["data"] = append(existing["data"].([]any), ranges...)
+			first["markArea"] = area
+		} else {
+			first["markArea"] = area
 		}
 	}
 

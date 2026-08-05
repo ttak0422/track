@@ -139,7 +139,14 @@ not a silent no-op):
   series in its own form (`line`, `bar`, or `area`), composing a **combo chart** — e.g. volume bars
   with an index line on `y2`, the shape data articles overlay macro context with. Bars split their
   band among the bar-form series alone and draw behind lines; `stack` piles only the bar-form series.
-  Not combinable with a `color` split (split series share one mark) or a horizontal bar.
+  With a `color` split, `y[0]` is the split measure (its mark stays the chart's) and `y[1+]` are
+  explicit overlay series whose mark is **required** — a total line over color-coded bars, for
+  instance. Not combinable with a horizontal bar.
+- `opacity` (0..1) / `width` (px) / `dash` (`solid`|`dashed`|`dotted`) — per-series style; see
+  "Per-series style" below. `opacity` also sits on `encoding.color` (a shared fade for every split
+  series). `width`/`dash` need a quantitative line/area series.
+- `axisName` — title a quantitative value axis independently of its series ("Per-series style"
+  below).
 - `window` — on **quantitative y channels** of the category-x forms (line/area/bar/scatter and
   candlestick's extra series): replace the series with its **rolling mean** over the trailing N
   records (a moving average, `"window": 25` → MA25). The engine computes it in record order, before
@@ -173,15 +180,50 @@ group:
 ```
 
 - `color` must set `"type": "nominal"` (on `rect` it is instead the quantitative cell value).
-- It combines with a **single** `y` channel (each category becomes its own series).
+- It combines with a **single** `y` channel for the split itself; additional `y[1+]` channels become
+  **overlay series** drawn on top of the split (e.g. a total index line over color-coded stacked
+  bars). An extra channel must name its own form with `"mark": "line" | "bar" | "area"` — it reads
+  its own field from the same records, so the overlay and the split always share the category axis.
+- `color.colors` overrides the palette per category: `{ "colors": { "buy": "#2d6a4f", "sell": "#a32820" } }`
+  draws each named category in its declared CSS color while every other category keeps its palette
+  slot (an override never shifts the other series' colors).
+- `color.opacity` (0..1) fades every split series — the "show the data, de-emphasize it" knob for
+  charts whose emphasis rides on an overlay line.
 - Categories and x labels accumulate in **first-seen order**, so the same input always produces the
   same series order — and therefore the same colors. Both renderers assign colors from the same
   fixed palette by series index, so a spec is colored identically in HTML and SVG output. The
   heatmap's light→dark value ramp is a separate scale and is unaffected.
 - A category with no record at some x label contributes `NaN` there (a gap, not a zero). A repeated
-  `(x, category)` pair keeps the later record's value.
+  `(x, category)` pair keeps the later record's value (and the overlay series' value at that label
+  likewise keeps the later record's).
 - A timeline (`point` with a nominal y) rejects `color`: its lanes are already colored by the
   nominal y.
+
+### Per-series style
+
+A y channel styles its own series; `encoding.color.opacity` styles every split series. Both
+renderers apply the same values, so a styled spec reads alike in HTML and SVG:
+
+| Channel field   | Scope                    | Effect                                             |
+|-----------------|--------------------------|----------------------------------------------------|
+| `y[].opacity`   | That series              | Whole-series fade (bars, lines, area fill), 0..1   |
+| `y[].width`     | That line/area series    | Stroke width in px                                 |
+| `y[].dash`      | That line/area series    | `solid` (default) / `dashed` / `dotted`            |
+| `color.opacity` | Every split series       | Same fade as `y[].opacity`, applied to the split   |
+| `color.colors`  | Per category             | Explicit CSS color for named categories            |
+
+```json
+{ "version": 2, "mark": "bar", "data": { "source": "metrics.jsonl", "kind": "metric" },
+  "encoding": { "x": { "field": "time" },
+                "y": [ { "field": "value", "stack": true },
+                       { "field": "total", "mark": "line", "width": 2.4 } ],
+                "color": { "field": "entity", "type": "nominal",
+                           "opacity": 0.42, "colors": { "east": "#cf7a4a" } } } }
+```
+
+`y[].axisName` titles a quantitative value axis independently of its series (a chart with three
+series on one axis can name that axis `"score"` while the legend keeps the series names); two
+channels naming the same axis differently are a validation error.
 
 ### Sort, top-N, and stacking
 
@@ -303,13 +345,14 @@ anywhere else (on other marks `color` is a nominal series split, not a value).
 ### Overlays (markers, reference lines, bands)
 
 An overlay draws reference geometry on top of the chart. Each entry in `overlays` is **exactly one**
-of four shapes, discriminated by which fields are set (a mixed entry is rejected):
+of five shapes, discriminated by which fields are set (a mixed entry is rejected):
 
 ```json
 "overlays": [
   { "source": "events.jsonl", "kind": "event", "at": "time", "label": "title" },
   { "y": 100, "axis": "y2", "label": "threshold" },
   { "from": "2026-01-01", "to": "2026-02-01", "label": "earnings window" },
+  { "yfrom": 10, "yto": 18, "label": "high zone" },
   { "x": "2026-01-15", "y": 112.5, "label": "peak before the drop" }
 ]
 ```
@@ -364,6 +407,20 @@ references to unpublished notes (see ADR 0027).
 | `to`    | yes      | Last x category of the range (inclusive).                          |
 | `label` | no       | Literal label text drawn in the band.                              |
 
+**VBand** — a shaded y-range highlighting a value span (e.g. a target range):
+
+| Field   | Required | Notes                                                                        |
+|---------|----------|------------------------------------------------------------------------------|
+| `yfrom` | yes      | Lower value of the span (must be < `yto`).                                   |
+| `yto`   | yes      | Upper value of the span.                                                     |
+| `axis`  | no       | `y` (default) or `y2` — which value axis the span is pinned to.              |
+| `label` | no       | Literal label text drawn in the band.                                        |
+
+The ECharts renderer draws both band kinds as a `markArea` (xAxis for `band`, yAxis for `vband`);
+the SVG renderer shades a full-width (x bands) or full-height (y bands) translucent rectangle,
+clamped to the plotted value range. Unlike a reference line, a vband shades a span rather than
+marking a single value, so stacked zones — high / medium / low — can be drawn behind a series.
+
 **Callout** — a text bubble pointing at one data point, for narrative annotation:
 
 | Field   | Required | Notes                                                               |
@@ -376,10 +433,9 @@ The ECharts renderer draws it as a dot on the point with the text in a bordered 
 `markPoint`); the SVG renderer draws the dot, a leader line, and the box. A callout whose `x` matches
 no category label, or whose `y` is outside the value range (SVG), is skipped like the other overlays.
 
-Source marker overlays need file IO, so they resolve in the CLI; line/band/callout overlays (literal
-values) and inline marker records travel with the spec and resolve in `Spec.Resolve`, which is why
-they also work for embedded assets (below). A y-range band is deliberately not supported — a value
-threshold is a reference line.
+Source marker overlays need file IO, so they resolve in the CLI; line/band/vband/callout overlays
+(literal values) and inline marker records travel with the spec and resolve in `Spec.Resolve`, which
+is why they also work for embedded assets (below).
 
 ### Inline data (self-contained specs)
 

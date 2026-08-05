@@ -138,6 +138,28 @@ type Channel struct {
 	Scale  string      `json:"scale,omitempty"`  // color channel on rect/treemap: "" (sequential) | "diverging"
 	Domain []float64   `json:"domain,omitempty"` // quantitative y only: explicit [min,max] for its value axis
 
+	// Colors maps nominal color categories to explicit CSS colors (encoding.color only): a category
+	// with an entry is drawn in that color instead of the shared palette. Categories without an
+	// entry keep their palette slot, so an override never shifts the other series' colors.
+	Colors map[string]string `json:"colors,omitempty"`
+
+	// Opacity overrides a series' draw opacity (0..1; nil = full). On a y channel it styles that
+	// series; on encoding.color it styles every split series (a shared "fade the data back" knob
+	// that keeps the emphasis series — an overlay line — opaque).
+	Opacity *float64 `json:"opacity,omitempty"`
+
+	// Width overrides a line/area series' stroke width in pixels (y channels only).
+	Width *float64 `json:"width,omitempty"`
+
+	// Dash sets a line/area series' stroke pattern: solid (default) | dashed | dotted (y channels
+	// only).
+	Dash string `json:"dash,omitempty"`
+
+	// AxisName titles a quantitative value axis independently of its series (the legend keeps the
+	// series names): e.g. "score" on a chart with three series on one axis. At most one name
+	// per axis, enforced by Validate.
+	AxisName string `json:"axisName,omitempty"`
+
 	// Window replaces the series with its rolling mean over the last N records (a moving average,
 	// e.g. MA25 on a candlestick). The engine computes it in record order; the first N-1 points are
 	// NaN, so the smoothed series starts as a gap. Y channels of the category-axis series forms only.
@@ -276,6 +298,9 @@ func (s Spec) stacked() bool {
 //     on the primary ("y", default) or secondary ("y2") axis. Label is the literal line text.
 //   - band: {from, to, label?} — a shaded x-range highlighting the period between the From and To
 //     category labels (inclusive). Label is the literal band text.
+//   - vband: {yfrom, yto, axis?, label?} — a shaded y-range highlighting a value span between YFrom
+//     and YTo on a value axis (e.g. a target range: values 10..18 read "high"). Label is the
+//     literal band text.
 //   - callout: {x, y, label} — a text bubble calling out one data point: the literal Label is drawn
 //     in a box near the point at (X category, Y value), connected by a leader. The presence of X
 //     (with Y) is what distinguishes a callout from a reference line (Y alone).
@@ -286,10 +311,13 @@ type Overlay struct {
 	At      string           `json:"at,omitempty"` // x-position field; defaults to "time"
 
 	Y    *float64 `json:"y,omitempty"`    // line: the y value to draw at; callout: the point's value
-	Axis string   `json:"axis,omitempty"` // line: "y" (default) or "y2"
+	Axis string   `json:"axis,omitempty"` // line/vband: "y" (default) or "y2"
 
 	From string `json:"from,omitempty"` // band: first x category (inclusive)
 	To   string `json:"to,omitempty"`   // band: last x category (inclusive)
+
+	YFrom *float64 `json:"yfrom,omitempty"` // vband: lower value of the shaded span
+	YTo   *float64 `json:"yto,omitempty"`   // vband: upper value of the shaded span
 
 	X string `json:"x,omitempty"` // callout: the point's x category (a value matching an x label)
 
@@ -522,15 +550,32 @@ func (s Spec) Validate() error {
 		if !s.Encoding.Color.nominal() {
 			return fmt.Errorf("view spec: encoding.color on mark %s must be type nominal (records split into one series per category)", s.Mark)
 		}
-		if len(s.Encoding.Y) > 1 {
-			return fmt.Errorf("view spec: encoding.color needs a single encoding.y channel (each color category becomes its own series)")
-		}
 		if s.chart() == ChartTimeline {
 			return fmt.Errorf("view spec: encoding.color is not supported on a timeline (lanes are already colored by the nominal y)")
 		}
 	}
-	// Per-series mark overrides compose a combo chart (e.g. bars with a line on y2). They are only
-	// well-defined on the vertical series forms, with explicit series (not a color split).
+	// Per-series mark overrides compose a combo chart (e.g. bars with a line on y2), alone or on top
+	// of a color split: the split series draw in the chart's own mark, and every extra y channel
+	// (y[1+]) is an explicit series that needs its own mark override. The extra channels read their
+	// own field from the same records, so an index line can overlay color-coded bars.
+	if s.Encoding.Color != nil && s.Mark != MarkRect && s.Mark != MarkTreemap {
+		for i, y := range s.Encoding.Y {
+			if i == 0 {
+				if y.Mark != "" {
+					return fmt.Errorf("view spec: encoding.y[0].mark cannot combine with encoding.color (the split series share the chart's mark)")
+				}
+				continue
+			}
+			switch y.Mark {
+			case MarkLine, MarkBar, MarkArea:
+			default:
+				return fmt.Errorf("view spec: encoding.y[%d].mark is required under encoding.color (extra channels are explicit series: line, bar, or area)", i)
+			}
+			if y.nominal() {
+				return fmt.Errorf("view spec: encoding.y[%d].mark under encoding.color needs a quantitative channel", i)
+			}
+		}
+	}
 	for i, y := range s.Encoding.Y {
 		if y.Mark == "" {
 			continue
@@ -547,9 +592,6 @@ func (s Spec) Validate() error {
 		}
 		if s.yNominal() {
 			return fmt.Errorf("view spec: encoding.y[%d].mark is not supported on a horizontal bar", i)
-		}
-		if s.Encoding.Color != nil {
-			return fmt.Errorf("view spec: encoding.y[%d].mark cannot combine with encoding.color (split series share one mark)", i)
 		}
 	}
 	// A rolling mean is only well-defined over an ordered measure series, so window sits on the
@@ -584,6 +626,68 @@ func (s Spec) Validate() error {
 		if nc.ch != nil && nc.ch.Window != 0 {
 			return fmt.Errorf("view spec: %s.window is not supported (window belongs on y channels)", nc.name)
 		}
+	}
+	// Series styling: opacity styles any quantitative y series or (as a scalar) every color-split
+	// series; width/dash belong to line/area strokes; explicit colors belong to the nominal color
+	// split; an axis name belongs to a quantitative value axis.
+	for i, y := range s.Encoding.Y {
+		if y.Opacity != nil && (*y.Opacity < 0 || *y.Opacity > 1) {
+			return fmt.Errorf("view spec: encoding.y[%d].opacity must be between 0 and 1", i)
+		}
+		if y.Width != nil && *y.Width <= 0 {
+			return fmt.Errorf("view spec: encoding.y[%d].width must be positive", i)
+		}
+		if y.Dash != "" && !slices.Contains([]string{"solid", "dashed", "dotted"}, y.Dash) {
+			return fmt.Errorf("view spec: encoding.y[%d].dash %q is not solid, dashed, or dotted", i, y.Dash)
+		}
+		if (y.Width != nil || y.Dash != "") && y.nominal() {
+			return fmt.Errorf("view spec: encoding.y[%d].width/dash need a quantitative line or area channel", i)
+		}
+		if y.AxisName != "" && y.nominal() {
+			return fmt.Errorf("view spec: encoding.y[%d].axisName needs a quantitative channel", i)
+		}
+	}
+	if c := s.Encoding.Color; c != nil && s.Mark != MarkRect && s.Mark != MarkTreemap {
+		if c.Opacity != nil && (*c.Opacity < 0 || *c.Opacity > 1) {
+			return fmt.Errorf("view spec: encoding.color.opacity must be between 0 and 1")
+		}
+		if c.Width != nil || c.Dash != "" {
+			return fmt.Errorf("view spec: encoding.color does not take width/dash (style per split series is a y-channel feature)")
+		}
+		if len(c.Colors) > 0 {
+			for k, v := range c.Colors {
+				if strings.TrimSpace(v) == "" {
+					return fmt.Errorf("view spec: encoding.color.colors[%q] needs a color value", k)
+				}
+			}
+		}
+	}
+	for _, nc := range []struct {
+		name string
+		ch   *Channel
+	}{{"encoding.x", &s.Encoding.X}, {"encoding.size", s.Encoding.Size}} {
+		if nc.ch != nil && nc.ch.Opacity != nil {
+			return fmt.Errorf("view spec: %s.opacity is not supported (opacity belongs on y channels or encoding.color)", nc.name)
+		}
+		if nc.ch != nil && (nc.ch.Width != nil || nc.ch.Dash != "" || nc.ch.AxisName != "") {
+			return fmt.Errorf("view spec: %s does not take width/dash/axisName (they belong on y channels)", nc.name)
+		}
+		if nc.ch != nil && len(nc.ch.Colors) > 0 {
+			return fmt.Errorf("view spec: %s.colors is not supported (explicit colors belong on encoding.color)", nc.name)
+		}
+	}
+	// At most one explicit axis name per value axis; two series naming the same axis differently
+	// would be ambiguous.
+	axisNames := map[string]string{}
+	for i, y := range s.Encoding.Y {
+		if y.AxisName == "" {
+			continue
+		}
+		a := y.axisID()
+		if prev, ok := axisNames[a]; ok && prev != y.AxisName {
+			return fmt.Errorf("view spec: encoding.y[%d].axisName %q conflicts with %q on the same axis", i, y.AxisName, prev)
+		}
+		axisNames[a] = y.AxisName
 	}
 	for i, o := range s.Overlays {
 		if err := o.validate(i); err != nil {
@@ -791,25 +895,26 @@ func sortPlacementError(where, opt, labelName string) error {
 	return fmt.Errorf("view spec: %s.%s belongs on the category-axis channel (%s)", where, opt, labelName)
 }
 
-// validate checks an overlay is exactly one of its four shapes (markers / line / band / callout) and
-// that the chosen shape is complete: a marker overlay needs a canonical kind and exactly one of
-// source or records, a line's axis must be y or y2, a band needs both ends, and a callout needs its
-// point (x, y) and text. Fields of another shape are rejected rather than ignored, so a mixed overlay
-// surfaces as an error.
+// validate checks an overlay is exactly one of its five shapes (markers / line / band / vband /
+// callout) and that the chosen shape is complete: a marker overlay needs a canonical kind and exactly
+// one of source or records, a line's axis must be y or y2, a band needs both ends, and a callout
+// needs its point (x, y) and text. Fields of another shape are rejected rather than ignored, so a
+// mixed overlay surfaces as an error.
 func (o Overlay) validate(i int) error {
 	hasSource := strings.TrimSpace(o.Source) != ""
 	hasRecords := len(o.Records) > 0
 	hasCallout := o.X != ""
 	hasLine := o.Y != nil && !hasCallout
 	hasBand := o.From != "" || o.To != ""
+	hasVBand := o.YFrom != nil || o.YTo != nil
 	shapes := 0
-	for _, set := range []bool{hasSource || hasRecords, hasLine, hasBand, hasCallout} {
+	for _, set := range []bool{hasSource || hasRecords, hasLine, hasBand, hasVBand, hasCallout} {
 		if set {
 			shapes++
 		}
 	}
 	if shapes != 1 {
-		return fmt.Errorf("view spec: overlays[%d] must be exactly one of markers {source|records, kind}, line {y}, band {from, to}, or callout {x, y, label}", i)
+		return fmt.Errorf("view spec: overlays[%d] must be exactly one of markers {source|records, kind}, line {y}, band {from, to}, vband {yfrom, yto}, or callout {x, y, label}", i)
 	}
 	switch {
 	case hasSource || hasRecords:
@@ -820,7 +925,7 @@ func (o Overlay) validate(i int) error {
 			return fmt.Errorf("view spec: overlays[%d].kind %q is not a canonical kind", i, o.Kind)
 		}
 		if o.Axis != "" {
-			return fmt.Errorf("view spec: overlays[%d].axis applies only to a line overlay", i)
+			return fmt.Errorf("view spec: overlays[%d].axis applies only to a line or vband overlay", i)
 		}
 		if o.Display != "" && o.Display != "box" {
 			return fmt.Errorf("view spec: overlays[%d].display %q is not %q", i, o.Display, "box")
@@ -837,6 +942,22 @@ func (o Overlay) validate(i int) error {
 		}
 		if o.Axis != "" && !slices.Contains(AxisOptions, o.Axis) {
 			return fmt.Errorf("view spec: overlays[%d].axis %q is not y or y2", i, o.Axis)
+		}
+	case hasVBand:
+		if o.YFrom == nil || o.YTo == nil {
+			return fmt.Errorf("view spec: overlays[%d] vband needs both yfrom and yto", i)
+		}
+		if *o.YFrom >= *o.YTo {
+			return fmt.Errorf("view spec: overlays[%d] vband needs yfrom < yto (the shaded span)", i)
+		}
+		if o.Kind != "" || o.At != "" {
+			return fmt.Errorf("view spec: overlays[%d] vband overlay does not take kind/at", i)
+		}
+		if o.Axis != "" && !slices.Contains(AxisOptions, o.Axis) {
+			return fmt.Errorf("view spec: overlays[%d].axis %q is not y or y2", i, o.Axis)
+		}
+		if o.Display != "" {
+			return fmt.Errorf("view spec: overlays[%d].display applies only to a marker overlay", i)
 		}
 	case hasCallout:
 		if o.Y == nil {
@@ -1036,6 +1157,13 @@ type TreeNode struct {
 	Size, Value  float64
 }
 
+// VBand is a resolved y-range highlight (a value span on a value axis, e.g. a target range).
+type VBand struct {
+	From, To float64
+	Axis     string
+	Label    string
+}
+
 // Resolved is a Spec applied to data: the resolved drawing form plus the shared x-axis labels and one
 // Series per y encoding. A Renderer consumes Resolved and never touches raw records, keeping field
 // extraction in one place. Grid is set instead of Series for grid forms (heatmap/timeline); Tree for
@@ -1051,7 +1179,14 @@ type Resolved struct {
 	Markers  []Marker  // vertical overlays (events/annotations): inline records fill them in Resolve, source overlays are filled by the caller from Overlays
 	Lines    []RefLine // horizontal reference lines, filled by Resolve (they carry no data source)
 	Bands    []Band    // x-range highlights, filled by Resolve (they carry no data source)
+	VBands   []VBand   // y-range highlights, filled by Resolve (they carry no data source)
 	Callouts []Callout // text bubbles pointing at data points, filled by Resolve (literal values)
+
+	// ColorSeries is the number of leading series produced by a nominal color split; series past it
+	// are the explicit extra y channels. It is 0 without a color split, and renderers use it to map
+	// a series index back to the channel carrying its style (split series read encoding.color,
+	// extras read their own y channel).
+	ColorSeries int
 }
 
 // SeriesForm is the drawing form of one series: its mark override when set (a combo chart), else the
@@ -1068,6 +1203,77 @@ func (r Resolved) SeriesForm(i int) ChartType {
 // option from one place.
 func (r Resolved) DivergingColor() bool {
 	return r.Spec.Encoding.Color != nil && r.Spec.Encoding.Color.Scale == ScaleDiverging
+}
+
+// seriesChannel is the encoding channel a series' per-series style comes from: the matching y channel
+// on the series forms, or — for the color split — encoding.color itself (its scalar opacity) plus the
+// extra y channels after the split. Series before ColorSeries are split series; the ones after map to
+// Encoding.Y[1:].
+func (r Resolved) seriesChannel(i int) *Channel {
+	if r.Spec.Encoding.Color != nil {
+		if i < r.ColorSeries {
+			return r.Spec.Encoding.Color
+		}
+		j := i - r.ColorSeries + 1
+		if j >= 1 && j < len(r.Spec.Encoding.Y) {
+			return &r.Spec.Encoding.Y[j]
+		}
+		return nil
+	}
+	if i >= 0 && i < len(r.Spec.Encoding.Y) {
+		return &r.Spec.Encoding.Y[i]
+	}
+	return nil
+}
+
+// SeriesColor returns the explicit color a series draws in (encoding.color.colors, keyed by the
+// series label), when the spec declares one. Categories without an entry keep their palette slot.
+func (r Resolved) SeriesColor(label string) (string, bool) {
+	c := r.Spec.Encoding.Color
+	if c == nil || len(c.Colors) == 0 {
+		return "", false
+	}
+	v, ok := c.Colors[label]
+	return v, ok
+}
+
+// SeriesOpacity returns the draw opacity a series should use: encoding.color.opacity (a scalar fade
+// shared by every split series) or the y channel's own. nil means full opacity.
+func (r Resolved) SeriesOpacity(i int) *float64 {
+	if c := r.seriesChannel(i); c != nil {
+		return c.Opacity
+	}
+	return nil
+}
+
+// SeriesWidth returns a line/area series' stroke width override, if its channel declares one.
+func (r Resolved) SeriesWidth(i int) (float64, bool) {
+	if c := r.seriesChannel(i); c != nil && c.Width != nil {
+		return *c.Width, true
+	}
+	return 0, false
+}
+
+// SeriesDash returns a line/area series' stroke pattern (solid | dashed | dotted), "" for the
+// default solid.
+func (r Resolved) SeriesDash(i int) string {
+	if c := r.seriesChannel(i); c != nil {
+		return c.Dash
+	}
+	return ""
+}
+
+// AxisName returns the explicit title a value axis carries (any y channel on it), "" when unnamed.
+func (r Resolved) AxisName(axis string) string {
+	if axis == "" {
+		axis = "y"
+	}
+	for _, y := range r.Spec.Encoding.Y {
+		if y.axisID() == axis && y.AxisName != "" {
+			return y.AxisName
+		}
+	}
+	return ""
 }
 
 // AxisDomain returns the explicit [min,max] declared by any y channel on axis. Validation guarantees
@@ -1124,6 +1330,8 @@ func (s Spec) Resolve(records []dataset.Record) Resolved {
 		switch {
 		case o.X != "" && o.Y != nil:
 			res.Callouts = append(res.Callouts, Callout{X: o.X, Y: *o.Y, Label: o.Label})
+		case o.YFrom != nil:
+			res.VBands = append(res.VBands, VBand{From: *o.YFrom, To: *o.YTo, Axis: o.axisID(), Label: o.Label})
 		case o.Y != nil:
 			res.Lines = append(res.Lines, RefLine{Y: *o.Y, Axis: o.axisID(), Label: o.Label})
 		case o.From != "":
@@ -1209,10 +1417,15 @@ func (s Spec) resolveHorizontal(records []dataset.Record, res *Resolved) {
 // category axis (x for the vertical forms, the nominal y for horizontal bars), valueField the measure.
 // Labels and series accumulate in first-seen order (which keeps output deterministic for a given
 // input), several records may share one label slot (one per category), and every series is aligned to
-// the shared axis with NaN gaps so a category missing at a label renders as a gap.
+// the shared axis with NaN gaps so a category missing at a label renders as a gap. Extra y channels
+// (y[1+], validated to carry a mark override) become explicit overlay series over the same labels —
+// e.g. an index line drawn on top of color-coded stacked bars.
 func (s Spec) resolveColorSeries(records []dataset.Record, res *Resolved, labelField, valueField, axis string) {
 	labelIdx := map[string]int{}
 	seriesIdx := map[string]int{}
+	extras := s.Encoding.Y[1:] // explicit overlay series on top of the color split
+	extraVals := make([][]float64, len(extras))
+	extraExs := make([][]PointExtra, len(extras))
 	for _, rec := range s.filtered(records) {
 		label, _ := rec.String(labelField)
 		li, ok := labelIdx[label]
@@ -1238,20 +1451,45 @@ func (s Spec) resolveColorSeries(records []dataset.Record, res *Resolved, labelF
 		} else {
 			(*vals)[li] = v // repeated (label, category): the later record wins, like grid cells
 		}
+		var ex PointExtra
 		if s.hasExtras() {
 			// Extras follow the exact same slotting as Values so they stay aligned per (series, label).
+			ex = s.pointExtra(rec)
 			exs := &res.Series[si].Extras
 			for len(*exs) < li {
 				*exs = append(*exs, PointExtra{})
 			}
-			ex := s.pointExtra(rec)
 			if len(*exs) == li {
 				*exs = append(*exs, ex)
 			} else {
 				(*exs)[li] = ex
 			}
 		}
+		// Overlay series slot one value per label; a record missing the extra field contributes NaN
+		// (a gap), and the later record wins when several share a label, matching the split series.
+		for j, y := range extras {
+			for len(extraVals[j]) < li {
+				extraVals[j] = append(extraVals[j], math.NaN())
+			}
+			ev := floatOrNaN(rec, y.Field)
+			if len(extraVals[j]) == li {
+				extraVals[j] = append(extraVals[j], ev)
+			} else {
+				extraVals[j][li] = ev
+			}
+			if s.hasExtras() {
+				for len(extraExs[j]) < li {
+					extraExs[j] = append(extraExs[j], PointExtra{})
+				}
+				if len(extraExs[j]) == li {
+					extraExs[j] = append(extraExs[j], ex)
+				} else {
+					extraExs[j][li] = ex
+				}
+			}
+		}
 	}
+	res.ColorSeries = len(res.Series)
 	for i := range res.Series {
 		for len(res.Series[i].Values) < len(res.Labels) {
 			res.Series[i].Values = append(res.Series[i].Values, math.NaN())
@@ -1261,6 +1499,19 @@ func (s Spec) resolveColorSeries(records []dataset.Record, res *Resolved, labelF
 				res.Series[i].Extras = append(res.Series[i].Extras, PointExtra{})
 			}
 		}
+	}
+	for j, y := range extras {
+		for len(extraVals[j]) < len(res.Labels) {
+			extraVals[j] = append(extraVals[j], math.NaN())
+		}
+		ser := Series{Label: y.title(), Axis: y.axisID(), Mark: y.seriesForm(), Values: extraVals[j]}
+		if s.hasExtras() {
+			for len(extraExs[j]) < len(res.Labels) {
+				extraExs[j] = append(extraExs[j], PointExtra{})
+			}
+			ser.Extras = extraExs[j]
+		}
+		res.Series = append(res.Series, ser)
 	}
 }
 

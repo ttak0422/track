@@ -534,3 +534,35 @@ func TestSVGRegistered(t *testing.T) {
 		t.Fatalf("svg should be registered: %v", err)
 	}
 }
+
+func TestSVGSeriesStyleAndVBand(t *testing.T) {
+	op := 0.42
+	w := 2.4
+	res := viewspec.Resolved{
+		Spec: viewspec.Spec{Encoding: viewspec.Encoding{
+			Color: &viewspec.Channel{Field: "entity", Type: viewspec.Nominal, Opacity: &op,
+				Colors: map[string]string{"buy": "#2d6a4f"}},
+			Y: []viewspec.Channel{{Field: "v"}, {Field: "idx", Mark: viewspec.MarkLine, Width: &w, Dash: "dashed"}},
+		}}, Chart: viewspec.ChartBar,
+		Labels:      []string{"a", "b"},
+		ColorSeries: 1,
+		Series: []viewspec.Series{
+			{Label: "buy", Values: []float64{1, 2}},
+			{Label: "idx", Values: []float64{3, 4}, Mark: viewspec.ChartLine},
+		},
+		VBands: []viewspec.VBand{{From: 1, To: 3, Label: "high"}},
+	}
+	out, err := SVG{}.Render(res)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, want := range []string{`fill="#2d6a4f"`, `opacity="0.42"`, `stroke-width="2.40"`, `stroke-dasharray="6 4"`} {
+		if !strings.Contains(out, want) {
+			t.Errorf("styled series missing %q: %s", want, out)
+		}
+	}
+	// A vband shades a full-width rect inside the plot area; the label rides at its top edge.
+	if !strings.Contains(out, `fill-opacity="0.15"`) || !strings.Contains(out, "high") {
+		t.Fatalf("vband rect or label missing: %s", out)
+	}
+}

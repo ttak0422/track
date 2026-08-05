@@ -674,3 +674,70 @@ func TestEChartsRegistered(t *testing.T) {
 		t.Fatal("chartjs was replaced by echarts and should be gone")
 	}
 }
+
+func TestEChartsColorSplitWithOverlayLine(t *testing.T) {
+	res := viewspec.Resolved{
+		Spec: viewspec.Spec{}, Chart: viewspec.ChartBar,
+		Labels:      []string{"d1", "d2"},
+		ColorSeries: 2,
+		Series: []viewspec.Series{
+			{Label: "a", Values: []float64{1, 3}},
+			{Label: "b", Values: []float64{2, 4}},
+			{Label: "index", Values: []float64{10, 20}, Mark: viewspec.ChartLine},
+		},
+	}
+	out, err := EChartsOptionJSON(res)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, want := range []string{`"type":"bar"`, `"type":"line"`, `"name":"index"`, `"data":[10,20]`} {
+		if !strings.Contains(out, want) {
+			t.Errorf("color split + overlay line missing %q: %s", want, out)
+		}
+	}
+}
+
+func TestEChartsVBandBecomesMarkArea(t *testing.T) {
+	res := viewspec.Resolved{
+		Spec: viewspec.Spec{}, Chart: viewspec.ChartLine,
+		Labels: []string{"a", "b"},
+		Series: []viewspec.Series{{Label: "S", Values: []float64{1, 2}}},
+		VBands: []viewspec.VBand{{From: 10, To: 18, Label: "high"}, {From: -9, To: 0}},
+	}
+	out, err := EChartsOptionJSON(res)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, want := range []string{`"markArea"`, `"yAxis":10`, `"yAxis":18`, `"name":"high"`, `"yAxis":-9`} {
+		if !strings.Contains(out, want) {
+			t.Errorf("vband markArea missing %q: %s", want, out)
+		}
+	}
+}
+
+func TestEChartsSeriesColorsAndStyle(t *testing.T) {
+	op := 0.42
+	w := 2.4
+	res := viewspec.Resolved{
+		Spec: viewspec.Spec{Encoding: viewspec.Encoding{
+			Color: &viewspec.Channel{Field: "entity", Type: viewspec.Nominal, Opacity: &op,
+				Colors: map[string]string{"buy": "#2d6a4f"}},
+			Y: []viewspec.Channel{{Field: "v"}, {Field: "idx", Mark: viewspec.MarkLine, Width: &w, Dash: "dashed", AxisName: "z"}},
+		}}, Chart: viewspec.ChartBar,
+		Labels:      []string{"a"},
+		ColorSeries: 1,
+		Series: []viewspec.Series{
+			{Label: "buy", Values: []float64{1}},
+			{Label: "idx", Values: []float64{9}, Mark: viewspec.ChartLine},
+		},
+	}
+	out, err := EChartsOptionJSON(res)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, want := range []string{`"color":"#2d6a4f"`, `"opacity":0.42`, `"width":2.4`, `"type":"dashed"`, `"name":"z"`} {
+		if !strings.Contains(out, want) {
+			t.Errorf("series style missing %q: %s", want, out)
+		}
+	}
+}

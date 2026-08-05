@@ -39,6 +39,41 @@ var seriesPalette = []string{"#4e79a7", "#f28e2b", "#e15759", "#76b7b2", "#59a14
 
 func seriesColor(i int) string { return seriesPalette[i%len(seriesPalette)] }
 
+// seriesStyle is a series' resolved visual style: its color (an encoding.color.colors override or
+// the shared palette), draw opacity, stroke width, and stroke pattern. It is computed once per
+// series from the same Resolved helpers the ECharts renderer reads, so a styled spec draws alike in
+// both outputs.
+type seriesStyle struct {
+	color   string
+	opacity *float64
+	width   *float64
+	dash    string
+}
+
+func svgSeriesStyle(res viewspec.Resolved, si int) seriesStyle {
+	st := seriesStyle{color: seriesColor(si)}
+	if c, ok := res.SeriesColor(res.Series[si].Label); ok {
+		st.color = c
+	}
+	st.opacity = res.SeriesOpacity(si)
+	if w, ok := res.SeriesWidth(si); ok {
+		st.width = &w
+	}
+	st.dash = res.SeriesDash(si)
+	return st
+}
+
+// dashArray maps a stroke pattern to the SVG stroke-dasharray attribute; "" for the default solid.
+func (s seriesStyle) dashArray() string {
+	switch s.dash {
+	case "dashed":
+		return "6 4"
+	case "dotted":
+		return "2 3"
+	}
+	return ""
+}
+
 // Render produces a complete SVG document for the resolved spec.
 func (SVG) Render(res viewspec.Resolved) (string, error) {
 	if err := validateAxisDomains(res); err != nil {
@@ -62,6 +97,7 @@ func (SVG) Render(res viewspec.Resolved) (string, error) {
 		writeHBars(&b, g, res, lo, hi)
 	} else {
 		writeBands(&b, g, res)
+		writeVBands(&b, g, res, lo, hi)
 		writeSeries(&b, g, res, lo, hi)
 		writeMarkers(&b, g, res)
 		writeRefLines(&b, g, res, lo, hi)
@@ -245,32 +281,41 @@ func writeSeries(b *strings.Builder, g svgGeom, res viewspec.Resolved, lo, hi fl
 	}
 	writeBars(b, g, res, centers, lo, hi)
 	for si, s := range res.Series {
+		st := svgSeriesStyle(res, si)
 		switch res.SeriesForm(si) {
 		case viewspec.ChartArea:
-			writeAreaFill(b, g, centers, s.Values, lo, hi, seriesColor(si))
-			writePolyline(b, g, centers, s.Values, lo, hi, seriesColor(si))
+			writeAreaFill(b, g, centers, s.Values, lo, hi, st)
+			writePolyline(b, g, centers, s.Values, lo, hi, st)
 		case viewspec.ChartScatter:
 			for i, v := range s.Values {
 				if math.IsNaN(v) || i >= len(centers) {
 					continue
 				}
-				fmt.Fprintf(b, `<circle cx="%s" cy="%s" r="3.5" fill="%s"/>`+"\n",
-					num(centers[i]), num(yPixel(g, lo, hi, v)), seriesColor(si))
+				fmt.Fprintf(b, `<circle cx="%s" cy="%s" r="3.5" fill="%s"%s/>`+"\n",
+					num(centers[i]), num(yPixel(g, lo, hi, v)), st.color, opacityAttr(st.opacity))
 			}
 		case viewspec.ChartLine:
-			writePolyline(b, g, centers, s.Values, lo, hi, seriesColor(si))
+			writePolyline(b, g, centers, s.Values, lo, hi, st)
 		}
 	}
 }
 
+// opacityAttr renders an SVG opacity attribute ("" when the series draws fully opaque).
+func opacityAttr(op *float64) string {
+	if op == nil {
+		return ""
+	}
+	return fmt.Sprintf(` opacity="%g"`, *op)
+}
+
 // writePolyline draws a series as connected segments, breaking the line at NaN gaps so a missing
 // value reads as a hole rather than a straight line through it.
-func writePolyline(b *strings.Builder, g svgGeom, centers, vals []float64, lo, hi float64, color string) {
+func writePolyline(b *strings.Builder, g svgGeom, centers, vals []float64, lo, hi float64, st seriesStyle) {
 	var run []string
 	flush := func() {
 		if len(run) >= 2 {
-			fmt.Fprintf(b, `<polyline points="%s" fill="none" stroke="%s" stroke-width="2"/>`+"\n",
-				strings.Join(run, " "), color)
+			fmt.Fprintf(b, `<polyline points="%s" fill="none" stroke="%s" stroke-width="%s"%s%s%s/>`+"\n",
+				strings.Join(run, " "), st.color, strokeWidth(st.width), dashAttr(st.dashArray()), opacityAttr(st.opacity), strokeOpacityAttr(st.opacity))
 		}
 		run = run[:0]
 	}
@@ -284,18 +329,47 @@ func writePolyline(b *strings.Builder, g svgGeom, centers, vals []float64, lo, h
 	flush()
 }
 
+// strokeWidth renders a series' stroke width, defaulting to the standard 2px.
+func strokeWidth(w *float64) string {
+	if w == nil {
+		return "2"
+	}
+	return num(*w)
+}
+
+// dashAttr renders a stroke-dasharray attribute, "" for a solid stroke.
+func dashAttr(d string) string {
+	if d == "" {
+		return ""
+	}
+	return fmt.Sprintf(` stroke-dasharray="%s"`, d)
+}
+
+// strokeOpacityAttr applies the series opacity to a stroke (fill opacity is handled by the fill
+// element itself); a line drawn over a faded area should fade with it.
+func strokeOpacityAttr(op *float64) string {
+	if op == nil {
+		return ""
+	}
+	return fmt.Sprintf(` stroke-opacity="%g"`, *op)
+}
+
 // writeAreaFill shades the region between a series and the zero baseline (valueRange pins zero into
 // the area's range) as one polygon per NaN-free run, so a missing value reads as a hole exactly like
 // the line it underlays. The stroke itself is drawn by writePolyline on top.
-func writeAreaFill(b *strings.Builder, g svgGeom, centers, vals []float64, lo, hi float64, color string) {
+func writeAreaFill(b *strings.Builder, g svgGeom, centers, vals []float64, lo, hi float64, st seriesStyle) {
 	baseY := num(yPixel(g, lo, hi, 0))
+	op := "0.3"
+	if st.opacity != nil {
+		op = num(*st.opacity)
+	}
 	var run []string
 	var xs []string // the run's x coordinates, to close the polygon along the baseline
 	flush := func() {
 		if len(run) >= 2 {
 			closing := xs[len(xs)-1] + "," + baseY + " " + xs[0] + "," + baseY
-			fmt.Fprintf(b, `<polygon points="%s %s" fill="%s" fill-opacity="0.3"/>`+"\n",
-				strings.Join(run, " "), closing, color)
+			fmt.Fprintf(b, `<polygon points="%s %s" fill="%s" fill-opacity="%s"/>`+"\n",
+				strings.Join(run, " "), closing, st.color, op)
 		}
 		run, xs = run[:0], xs[:0]
 	}
@@ -362,12 +436,14 @@ func writeCandleExtras(b *strings.Builder, g svgGeom, res viewspec.Resolved, cen
 			continue
 		}
 		s := res.Series[si]
+		extras := svgSeriesStyle(res, si)
+		extras.color = candleExtraColor(si) // the candle family's own palette slotting
 		switch s.Mark {
 		case viewspec.ChartArea:
-			writeAreaFill(b, g, centers, s.Values, lo, hi, candleExtraColor(si))
-			writePolyline(b, g, centers, s.Values, lo, hi, candleExtraColor(si))
+			writeAreaFill(b, g, centers, s.Values, lo, hi, extras)
+			writePolyline(b, g, centers, s.Values, lo, hi, extras)
 		case viewspec.ChartLine:
-			writePolyline(b, g, centers, s.Values, lo, hi, candleExtraColor(si))
+			writePolyline(b, g, centers, s.Values, lo, hi, extras)
 		}
 	}
 }
@@ -428,6 +504,7 @@ func writeBars(b *strings.Builder, g svgGeom, res viewspec.Resolved, centers []f
 		pos := make([]float64, len(centers))
 		neg := make([]float64, len(centers))
 		for _, si := range bars {
+			st := svgSeriesStyle(res, si)
 			for i, v := range res.Series[si].Values {
 				if math.IsNaN(v) || math.IsInf(v, 0) || i >= len(centers) {
 					continue
@@ -438,8 +515,8 @@ func writeBars(b *strings.Builder, g svgGeom, res viewspec.Resolved, centers []f
 				}
 				y0, y1 := yPixel(g, lo, hi, *base), yPixel(g, lo, hi, *base+v)
 				*base += v
-				fmt.Fprintf(b, `<rect x="%s" y="%s" width="%s" height="%s" fill="%s"/>`+"\n",
-					num(centers[i]-bw/2), num(math.Min(y0, y1)), num(bw), num(math.Abs(y0-y1)), seriesColor(si))
+				fmt.Fprintf(b, `<rect x="%s" y="%s" width="%s" height="%s" fill="%s"%s/>`+"\n",
+					num(centers[i]-bw/2), num(math.Min(y0, y1)), num(bw), num(math.Abs(y0-y1)), st.color, opacityAttr(st.opacity))
 			}
 		}
 		return
@@ -447,6 +524,7 @@ func writeBars(b *strings.Builder, g svgGeom, res viewspec.Resolved, centers []f
 	bw := band * 0.8 / float64(n) // 20% inter-band gap, split across the bar series
 	baseY := yPixel(g, lo, hi, math.Max(lo, 0))
 	for slot, si := range bars {
+		st := svgSeriesStyle(res, si)
 		for i, v := range res.Series[si].Values {
 			if math.IsNaN(v) || i >= len(centers) {
 				continue
@@ -454,8 +532,8 @@ func writeBars(b *strings.Builder, g svgGeom, res viewspec.Resolved, centers []f
 			x := centers[i] - band*0.4 + bw*float64(slot)
 			y := yPixel(g, lo, hi, v)
 			top, h := math.Min(y, baseY), math.Abs(baseY-y)
-			fmt.Fprintf(b, `<rect x="%s" y="%s" width="%s" height="%s" fill="%s"/>`+"\n",
-				num(x), num(top), num(bw), num(h), seriesColor(si))
+			fmt.Fprintf(b, `<rect x="%s" y="%s" width="%s" height="%s" fill="%s"%s/>`+"\n",
+				num(x), num(top), num(bw), num(h), st.color, opacityAttr(st.opacity))
 		}
 	}
 }
@@ -489,6 +567,7 @@ func writeHBars(b *strings.Builder, g svgGeom, res viewspec.Resolved, lo, hi flo
 		pos := make([]float64, len(centers))
 		neg := make([]float64, len(centers))
 		for si, s := range res.Series {
+			st := svgSeriesStyle(res, si)
 			for i, v := range s.Values {
 				if math.IsNaN(v) || math.IsInf(v, 0) || i >= len(centers) {
 					continue
@@ -499,8 +578,8 @@ func writeHBars(b *strings.Builder, g svgGeom, res viewspec.Resolved, lo, hi flo
 				}
 				x0, x1 := xPixel(g, lo, hi, *base), xPixel(g, lo, hi, *base+v)
 				*base += v
-				fmt.Fprintf(b, `<rect x="%s" y="%s" width="%s" height="%s" fill="%s"/>`+"\n",
-					num(math.Min(x0, x1)), num(centers[i]-bh/2), num(math.Abs(x0-x1)), num(bh), seriesColor(si))
+				fmt.Fprintf(b, `<rect x="%s" y="%s" width="%s" height="%s" fill="%s"%s/>`+"\n",
+					num(math.Min(x0, x1)), num(centers[i]-bh/2), num(math.Abs(x0-x1)), num(bh), st.color, opacityAttr(st.opacity))
 			}
 		}
 		return
@@ -508,6 +587,7 @@ func writeHBars(b *strings.Builder, g svgGeom, res viewspec.Resolved, lo, hi flo
 	bh := band * 0.8 / float64(n)
 	baseX := xPixel(g, lo, hi, math.Max(lo, 0))
 	for si, s := range res.Series {
+		st := svgSeriesStyle(res, si)
 		for i, v := range s.Values {
 			if math.IsNaN(v) || i >= len(centers) {
 				continue
@@ -515,8 +595,8 @@ func writeHBars(b *strings.Builder, g svgGeom, res viewspec.Resolved, lo, hi flo
 			y := centers[i] - band*0.4 + bh*float64(si)
 			x := xPixel(g, lo, hi, v)
 			left, w := math.Min(x, baseX), math.Abs(x-baseX)
-			fmt.Fprintf(b, `<rect x="%s" y="%s" width="%s" height="%s" fill="%s"/>`+"\n",
-				num(left), num(y), num(w), num(bh), seriesColor(si))
+			fmt.Fprintf(b, `<rect x="%s" y="%s" width="%s" height="%s" fill="%s"%s/>`+"\n",
+				num(left), num(y), num(w), num(bh), st.color, opacityAttr(st.opacity))
 		}
 	}
 }
@@ -589,6 +669,30 @@ func writeBands(b *strings.Builder, g svgGeom, res viewspec.Resolved) {
 		if bd.Label != "" {
 			fmt.Fprintf(b, `<text x="%s" y="%g" font-size="10" fill="#6c757d">%s</text>`+"\n",
 				num(x+4), g.top+12, html.EscapeString(bd.Label))
+		}
+	}
+}
+
+// writeVBands shades each vband overlay's y range: a translucent rectangle spanning the full plot
+// width, mirroring the ECharts markArea y-axis bands. A band is clamped to the plotted value range
+// (like the ECharts markArea, which the axis clips) and skipped when it lies entirely outside. The
+// SVG renderer has a single value scale, so the band's axis choice (y/y2) is ignored here, like the
+// reference lines.
+func writeVBands(b *strings.Builder, g svgGeom, res viewspec.Resolved, lo, hi float64) {
+	if len(res.VBands) == 0 {
+		return
+	}
+	for _, vb := range res.VBands {
+		from, to := math.Max(vb.From, lo), math.Min(vb.To, hi)
+		if to <= from {
+			continue
+		}
+		y0, y1 := yPixel(g, lo, hi, from), yPixel(g, lo, hi, to)
+		fmt.Fprintf(b, `<rect x="%g" y="%s" width="%g" height="%s" fill="#6c757d" fill-opacity="0.15"/>`+"\n",
+			g.left, num(y1), g.plotW(), num(y0-y1))
+		if vb.Label != "" {
+			fmt.Fprintf(b, `<text x="%g" y="%s" font-size="10" fill="#6c757d">%s</text>`+"\n",
+				g.left+4, num(y0-4), html.EscapeString(vb.Label))
 		}
 	}
 }
@@ -688,6 +792,8 @@ func writeLegend(b *strings.Builder, g svgGeom, res viewspec.Resolved) {
 		color := seriesColor(si)
 		if res.Chart == viewspec.ChartCandlestick {
 			color = candleExtraColor(si)
+		} else if c, ok := res.SeriesColor(res.Series[si].Label); ok {
+			color = c
 		}
 		yi := y + float64(row)*16
 		row++
