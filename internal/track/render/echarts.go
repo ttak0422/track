@@ -6,6 +6,7 @@ import (
 	"html"
 	"math"
 	"net/url"
+	"slices"
 	"sort"
 	"strconv"
 	"strings"
@@ -89,6 +90,8 @@ func echartsOption(res viewspec.Resolved) (map[string]any, error) {
 		buildCandlestick(opt, res)
 	case viewspec.ChartHBar:
 		buildHBar(opt, res)
+	case viewspec.ChartGauge:
+		buildGauge(opt, res)
 	default: // line, area, bar, scatter — category x, numeric y series
 		buildSeriesChart(opt, res)
 	}
@@ -97,6 +100,7 @@ func echartsOption(res viewspec.Resolved) (map[string]any, error) {
 	applyGrid(opt, res.Chart)
 	applyDataZoom(opt, res)
 	applyOverlays(opt, res)
+	applyBoxMargins(opt, res)
 	return opt, nil
 }
 
@@ -215,13 +219,10 @@ func gridOf(opt map[string]any) map[string]any {
 
 // buildSeriesChart handles the shared category-x forms: line, area, bar, and scatter.
 func buildSeriesChart(opt map[string]any, res viewspec.Resolved) {
-	axisHasBaselineForm := [2]bool{}
-	axisHasSeries := [2]bool{}
+	axisHasBaselineForm := [3]bool{}
+	axisHasSeries := [3]bool{}
 	for i, s := range res.Series {
-		axis := 0
-		if s.Axis == "y2" {
-			axis = 1
-		}
+		axis := axisIndex(s.Axis)
 		axisHasSeries[axis] = true
 		form := res.SeriesForm(i)
 		if form != viewspec.ChartLine && form != viewspec.ChartScatter {
@@ -231,21 +232,18 @@ func buildSeriesChart(opt map[string]any, res viewspec.Resolved) {
 	// Line/scatter-only category plots meet the edge of the category range. Bars and areas need the
 	// half-category padding so their first and last marks are not clipped.
 	opt["xAxis"] = map[string]any{
-		"type": "category", "data": res.Labels, "boundaryGap": axisHasBaselineForm[0] || axisHasBaselineForm[1],
+		"type": "category", "data": res.Labels, "boundaryGap": axisHasBaselineForm[0] || axisHasBaselineForm[1] || axisHasBaselineForm[2],
 	}
 
-	usesY2 := false
+	nAxes := 1
 	for _, s := range res.Series {
-		if s.Axis == "y2" {
-			usesY2 = true
+		if a := axisIndex(s.Axis); a+1 > nAxes {
+			nAxes = a + 1
 		}
 	}
 	valueAxis := func(axis int) map[string]any {
 		out := map[string]any{"type": "value"}
-		axisName := "y"
-		if axis == 1 {
-			axisName = "y2"
-		}
+		axisName := []string{"y", "y2", "y3"}[axis]
 		if name := res.AxisName(axisName); name != "" {
 			out["name"] = name
 		}
@@ -267,11 +265,16 @@ func buildSeriesChart(opt map[string]any, res viewspec.Resolved) {
 		return out
 	}
 	yAxes := []any{valueAxis(0)}
-	if usesY2 {
-		// Keep the secondary axis's gridlines off the chart area so the two scales don't collide.
-		secondary := valueAxis(1)
-		secondary["splitLine"] = map[string]any{"show": false}
-		yAxes = append(yAxes, secondary)
+	for axis := 1; axis < nAxes; axis++ {
+		// Keep the secondary/tertiary axes' gridlines off the chart area so the scales don't
+		// collide. y3 sits on the right, offset beyond y2, so both price overlays stay readable.
+		extra := valueAxis(axis)
+		extra["splitLine"] = map[string]any{"show": false}
+		if axis >= 2 {
+			extra["position"] = "right"
+			extra["offset"] = 60
+		}
+		yAxes = append(yAxes, extra)
 	}
 	opt["yAxis"] = yAxes
 
@@ -296,18 +299,15 @@ func buildSeriesChart(opt map[string]any, res viewspec.Resolved) {
 		if res.Stacked && form == viewspec.ChartBar {
 			es["stack"] = "total"
 		}
-		if s.Axis == "y2" {
-			es["yAxisIndex"] = 1
+		if a := axisIndex(s.Axis); a > 0 {
+			es["yAxisIndex"] = a
 		}
 		series = append(series, es)
 		legend = append(legend, s.Label)
 	}
 	opt["series"] = series
 	if len(legend) == 1 {
-		axis := 0
-		if res.Series[0].Axis == "y2" {
-			axis = 1
-		}
+		axis := axisIndex(res.Series[0].Axis)
 		// An explicit axisName wins; otherwise the single series names its own axis.
 		ax := yAxes[axis].(map[string]any)
 		if _, has := ax["name"]; !has {
@@ -316,6 +316,17 @@ func buildSeriesChart(opt map[string]any, res viewspec.Resolved) {
 	} else {
 		applyLegend(opt, legend)
 	}
+}
+
+// axisIndex maps a y-series axis assignment onto the position in the yAxis array (y→0, y2→1, y3→2).
+func axisIndex(axis string) int {
+	switch axis {
+	case "y2":
+		return 1
+	case "y3":
+		return 2
+	}
+	return 0
 }
 
 // applySeriesStyle applies the resolved channel style to an ECharts series. seriesIndex addresses the
@@ -507,19 +518,29 @@ func buildCandlestick(opt map[string]any, res viewspec.Resolved) {
 		primaryAxis["name"] = name
 	}
 	yAxes := []any{primaryAxis}
-	if usesY2, y2max := candleY2(extras); usesY2 {
-		// The secondary axis exists to host volume-style bars under the candles: gridlines and labels
-		// stay off (the magnitude is tooltip detail, not an axis to read), and when every y2 series is
-		// a bar its max is inflated 4x so the bars hug the bottom band instead of covering the candles.
-		axis := map[string]any{
-			"type":      "value",
-			"splitLine": map[string]any{"show": false},
-			"axisLabel": map[string]any{"show": false},
+	usesY2, y2max := candleY2(extras)
+	nAxes := 1
+	for _, s := range extras {
+		if axis := axisIndex(s.Axis); axis+1 > nAxes {
+			nAxes = axis + 1
 		}
-		if y2max > 0 {
-			axis["max"] = y2max
+	}
+	for axisIndexValue := 1; axisIndexValue < nAxes; axisIndexValue++ {
+		// y2 hosts volume-style bars under the candles: gridlines and labels stay off, and when
+		// every y2 series is a bar its max is inflated 4x so the bars hug the bottom band. y3 is a
+		// regular right-hand scale, offset beyond y2 like the category-x renderer.
+		axis := map[string]any{"type": "value", "splitLine": map[string]any{"show": false}}
+		if axisIndexValue == 1 {
+			axis["axisLabel"] = map[string]any{"show": false}
+			if usesY2 && y2max > 0 {
+				axis["max"] = y2max
+			}
 		}
-		if name := res.AxisName("y2"); name != "" {
+		if axisIndexValue >= 2 {
+			axis["position"] = "right"
+			axis["offset"] = 60
+		}
+		if name := res.AxisName([]string{"y", "y2", "y3"}[axisIndexValue]); name != "" {
 			axis["name"] = name
 		}
 		yAxes = append(yAxes, axis)
@@ -562,8 +583,8 @@ func buildCandlestick(opt map[string]any, res viewspec.Resolved) {
 		if s.Mark == viewspec.ChartLine || s.Mark == viewspec.ChartArea {
 			es["showSymbol"] = false
 		}
-		if s.Axis == "y2" {
-			es["yAxisIndex"] = 1
+		if axis := axisIndex(s.Axis); axis > 0 {
+			es["yAxisIndex"] = axis
 		}
 		series = append(series, es)
 		legend = append(legend, s.Label)
@@ -631,6 +652,7 @@ func buildTimeline(opt map[string]any, res viewspec.Resolved) {
 	opt["xAxis"] = map[string]any{"type": "category", "data": grid.Cols}
 	opt["yAxis"] = map[string]any{"type": "category", "data": grid.Rows, "inverse": true}
 	lo, hi := gridValueRange(grid.Cells)
+	palette := gridColorPalette(res)
 	var data []any
 	for _, c := range grid.Cells {
 		if c.Col >= len(grid.Cols) || c.Row >= len(grid.Rows) {
@@ -643,6 +665,15 @@ func buildTimeline(opt map[string]any, res viewspec.Resolved) {
 			item["value"] = []any{grid.Cols[c.Col], grid.Rows[c.Row], c.Value}
 		}
 		item["symbolSize"] = 2 * r
+		if color, ok := palette[c.Color]; ok {
+			// Per-point category color: the spec's explicit map or the shared palette in first-seen
+			// order, so buy/sell-style categories stay distinguishable without lane splitting.
+			style := map[string]any{"color": color}
+			if op := res.Spec.Encoding.Color.Opacity; op != nil {
+				style["opacity"] = *op
+			}
+			item["itemStyle"] = style
+		}
 		data = append(data, item)
 	}
 	opt["series"] = []any{map[string]any{"type": "scatter", "data": data}}
@@ -798,6 +829,9 @@ func boxSource(href string) (link, host string) {
 	}
 	switch strings.ToLower(u.Scheme) {
 	case "http", "https":
+		if strings.TrimSpace(u.Host) == "" {
+			return "", ""
+		}
 		return href, strings.TrimPrefix(u.Host, "www.")
 	}
 	return "", ""
@@ -828,15 +862,15 @@ func applyOverlays(opt map[string]any, res viewspec.Resolved) {
 			"borderRadius":    2,
 		}
 	}
-	var primary, secondary []any // markLine items per target axis group
-	linked := false              // any marker carrying provenance makes its markLine clickable
+	var primary []any // markLine items for markers on the primary axis
+	linked := false   // any marker carrying provenance makes its markLine clickable
 	markerItem := func(m viewspec.Marker) map[string]any {
 		item := map[string]any{"xAxis": m.At}
 		if m.Label != "" {
 			item["label"] = boxedLabel(m.Label)
 		}
-		if m.Href != "" {
-			item["href"] = m.Href
+		if href, _ := boxSource(m.Href); href != "" {
+			item["href"] = href
 			linked = true
 		}
 		if m.Note != "" {
@@ -888,6 +922,8 @@ func applyOverlays(opt map[string]any, res viewspec.Resolved) {
 			primary = append(primary, item)
 		}
 	}
+	lineItems := [3][]any{} // markLine items grouped by target axis (y, y2, y3)
+	lineItems[0] = primary  // markers always anchor on the primary axis
 	for _, l := range res.Lines {
 		item := map[string]any{
 			"yAxis":     l.Y,
@@ -896,11 +932,7 @@ func applyOverlays(opt map[string]any, res viewspec.Resolved) {
 		if l.Label != "" {
 			item["label"] = boxedLabel(l.Label)
 		}
-		if l.Axis == "y2" {
-			secondary = append(secondary, item)
-			continue
-		}
-		primary = append(primary, item)
+		lineItems[axisIndex(l.Axis)] = append(lineItems[axisIndex(l.Axis)], item)
 	}
 
 	markLine := func(items []any) map[string]any {
@@ -915,12 +947,19 @@ func applyOverlays(opt map[string]any, res viewspec.Resolved) {
 		}
 	}
 	first, _ := series[0].(map[string]any)
-	if len(primary) > 0 && first != nil {
-		first["markLine"] = markLine(primary)
-	}
-	if len(secondary) > 0 {
-		if s := seriesOnY2(series); s != nil {
-			s["markLine"] = markLine(secondary)
+	for axis := 0; axis < len(lineItems); axis++ {
+		items := lineItems[axis]
+		if len(items) == 0 {
+			continue
+		}
+		target := seriesOnAxis(series, axis)
+		if target == nil && axis == 0 {
+			// An x marker is independent of the value scale. If a valid chart has only y2/y3
+			// series, let the first series carry it instead of dropping the marker entirely.
+			target = first
+		}
+		if target != nil {
+			target["markLine"] = markLine(items)
 		}
 	}
 
@@ -939,17 +978,14 @@ func applyOverlays(opt map[string]any, res viewspec.Resolved) {
 	// Y-range bands (vband) shade a value span on a value axis — e.g. target ranges — as a second
 	// markArea. Attach each range to a series using its axis so ECharts interprets yAxis values against
 	// the intended scale. The x bands above and these can coexist on one series.
-	if len(res.VBands) > 0 {
-		byAxis := [2][]any{}
+	if len(res.VBands) > 0 && res.Chart != viewspec.ChartGauge {
+		byAxis := [3][]any{}
 		for _, vb := range res.VBands {
 			from := map[string]any{"yAxis": vb.From}
 			if vb.Label != "" {
 				from["name"] = vb.Label
 			}
-			axis := 0
-			if vb.Axis == "y2" {
-				axis = 1
-			}
+			axis := axisIndex(vb.Axis)
 			byAxis[axis] = append(byAxis[axis], []any{from, map[string]any{"yAxis": vb.To}})
 		}
 		for axis, ranges := range byAxis {
@@ -989,12 +1025,9 @@ func applyOverlays(opt map[string]any, res viewspec.Resolved) {
 	}
 }
 
-// seriesOnY2 finds a series bound to the secondary axis to carry y2 mark geometry; a y2 reference
-// line without any y2 series has no scale to sit on and is dropped, like the SVG renderer.
-func seriesOnY2(series []any) map[string]any {
-	return seriesOnAxis(series, 1)
-}
-
+// seriesOnAxis finds a series bound to the given axis (0 = y, 1 = y2, 2 = y3) to carry that axis'
+// mark geometry; an axis-bound reference line without any series on it has no scale to sit on and is
+// dropped, like the SVG renderer.
 func seriesOnAxis(series []any, axis int) map[string]any {
 	for _, s := range series {
 		m, ok := s.(map[string]any)
@@ -1028,6 +1061,25 @@ func setMarkArea(series map[string]any, ranges []any) {
 		}
 	}
 	series["markArea"] = area
+}
+
+// applyBoxMargins reserves enough room for standalone annotation cards above and below the plot.
+// The web reader has its own rail layout, but the same option can be consumed by the standalone
+// page, where cards otherwise overlap the title/x labels or extend outside the chart element.
+func applyBoxMargins(opt map[string]any, res viewspec.Resolved) {
+	for _, marker := range res.Markers {
+		if !marker.Box {
+			continue
+		}
+		grid := gridOf(opt)
+		if top, ok := grid["top"].(int); !ok || top < 140 {
+			grid["top"] = 140
+		}
+		if bottom, ok := grid["bottom"].(int); !ok || bottom < 160 {
+			grid["bottom"] = 160
+		}
+		return
+	}
 }
 
 // seriesFillColor is the series color at the same 30% opacity the SVG renderer fills areas with, so
@@ -1074,7 +1126,9 @@ func echartsPage(escapedTitle, optionJSON string) string {
 	b.WriteString(`<meta name="viewport" content="width=device-width, initial-scale=1">` + "\n")
 	b.WriteString("<title>" + escapedTitle + "</title>\n")
 	b.WriteString(`<script src="` + echartsCDN + `"></script>` + "\n")
-	b.WriteString("<style>html,body{margin:0;height:100%}#chart{box-sizing:border-box;padding:16px;height:100%}</style>\n")
+	// The chart fills the page; the padding lives on body so convertToPixel coordinates (relative
+	// to the chart element) match the absolutely positioned annotation cards below.
+	b.WriteString("<style>html,body{margin:0;height:100%}body{box-sizing:border-box;padding:16px}#chart{width:100%;height:100%}</style>\n")
 	b.WriteString("</head>\n")
 	b.WriteString("<body>\n")
 	b.WriteString(`<div id="chart"></div>` + "\n")
@@ -1082,8 +1136,209 @@ func echartsPage(escapedTitle, optionJSON string) string {
 	b.WriteString("const option = " + optionJSON + ";\n")
 	b.WriteString(`const chart = echarts.init(document.getElementById("chart"));` + "\n")
 	b.WriteString("chart.setOption(option);\n")
-	b.WriteString(`addEventListener("resize", () => chart.resize());` + "\n")
 	b.WriteString("</script>\n")
+	b.WriteString(`<script>
+// Box-mode markers (markLine items carrying a "box" payload, ADR 0028) draw as always-visible
+// annotation cards hugging the plot: date line, wrapped label, and source host, alternating above
+// and below the plot with a leader to the marker. The full rail (lane packing, collision
+// resolution) lives in the web reader; this standalone page keeps the simple alternating layout.
+function boxedAnnotations(chart, option) {
+  const items = [];
+  for (const s of option.series || []) {
+    for (const it of (s.markLine && s.markLine.data) || []) {
+      if (it.box) items.push(it);
+    }
+  }
+  if (!items.length) return;
+  let host = document.getElementById("annotation-host");
+  if (!host) {
+    host = document.createElement("div");
+    host.id = "annotation-host";
+    host.style.position = "absolute";
+    host.style.left = "0";
+    host.style.top = "0";
+    host.style.pointerEvents = "none";
+    document.getElementById("chart").appendChild(host);
+  }
+  host.innerHTML = "";
+  const grid = chart.getModel().getComponent("grid");
+  if (!grid || !grid[0]) return;
+  const rect = grid[0].getRect();
+  const W = 180, gap = 8, lineH = 15;
+  let i = 0;
+  for (const it of items) {
+    const px = chart.convertToPixel({ xAxisIndex: 0 }, it.xAxis);
+    if (px == null || isNaN(px.x)) continue;
+    const above = i++ % 2 === 0;
+    const x = Math.max(rect.x + 4, Math.min(px.x - W / 2, rect.x + rect.width - W - 4));
+    const box = document.createElement("div");
+    box.style.position = "absolute";
+    box.style.width = W + "px";
+    box.style.left = x + "px";
+    box.style.border = "1px solid #b9893a";
+    box.style.background = "#fdfcfb";
+    box.style.font = "11px/1.35 sans-serif";
+    box.style.color = "#1a1612";
+    box.style.padding = "6px 8px";
+    box.style.pointerEvents = "auto";
+    const date = document.createElement("div");
+    date.textContent = it.box.date || "";
+    date.style.fontWeight = "600";
+    date.style.color = "#a32820";
+    const label = document.createElement("div");
+    label.textContent = (it.label && it.label.formatter) || "";
+    const src = document.createElement("div");
+    src.textContent = it.box.host || "";
+    src.style.color = "#948872";
+    src.style.fontSize = "9px";
+    box.append(date, label, src);
+    if (it.href) {
+      box.style.cursor = "pointer";
+      box.addEventListener("click", () => window.open(it.href, "_blank"));
+    }
+    host.appendChild(box);
+    const boxH = box.offsetHeight;
+    const yEdge = above ? rect.y : rect.y + rect.height;
+    const boxY = above ? rect.y - gap - boxH : rect.y + rect.height + gap;
+    box.style.top = boxY + "px";
+    const lead = document.createElement("div");
+    lead.style.position = "absolute";
+    lead.style.width = "1px";
+    lead.style.background = "#b9893a";
+    lead.style.left = px.x + "px";
+    lead.style.top = (above ? boxY + boxH : yEdge) + "px";
+    lead.style.height = Math.max((above ? yEdge - gap - boxY - boxH : boxY - yEdge - gap), 2) + "px";
+    host.appendChild(lead);
+    const dot = document.createElement("div");
+    dot.style.position = "absolute";
+    dot.style.width = dot.style.height = "6px";
+    dot.style.borderRadius = "50%";
+    dot.style.background = "#b9893a";
+    dot.style.left = (px.x - 3) + "px";
+    dot.style.top = (yEdge - 3) + "px";
+    host.appendChild(dot);
+  }
+}
+</script>` + "\n")
+	b.WriteString(`<script>
+boxedAnnotations(chart, option);
+addEventListener("resize", () => { chart.resize(); boxedAnnotations(chart, option); });
+</script>` + "\n")
 	b.WriteString("</body>\n</html>\n")
 	return b.String()
+}
+
+// gridColorPalette maps a grid's color categories to colors: explicit encoding.color.colors entries
+// win, everything else takes the shared palette in first-seen cell order (an explicit entry never
+// shifts the other categories' palette slots, matching the series split). It returns nil when the
+// spec carries no color channel.
+func gridColorPalette(res viewspec.Resolved) map[string]string {
+	c := res.Spec.Encoding.Color
+	if c == nil || res.Grid == nil {
+		return nil
+	}
+	out := map[string]string{}
+	slot := 0
+	for _, cell := range res.Grid.Cells {
+		if cell.Color == "" {
+			continue
+		}
+		if _, ok := out[cell.Color]; ok {
+			continue
+		}
+		if v, ok := c.Colors[cell.Color]; ok {
+			out[cell.Color] = v
+			continue
+		}
+		out[cell.Color] = seriesColor(slot)
+		slot++
+	}
+	return out
+}
+
+// gaugeZoneColors paint a gauge's dial zones bottom-up (green → yellow → orange → red, the market
+// convention for "comfortable → pressured"). They cycle when a spec declares more than four zones;
+// the spans between declared zones stay neutral.
+var gaugeZoneColors = []string{"#3fae7a", "#e3b53a", "#df8a3a", "#cf4436"}
+
+// buildGauge draws the gauge form: an ECharts gauge series whose axis line is segmented by the
+// spec's vband overlays (each zone's value span mapped onto the dial range), with a pointer and the
+// value shown under the dial. Everything stays pure JSON — the detail formatter is the string
+// template "{value}", never a function.
+func buildGauge(opt map[string]any, res viewspec.Resolved) {
+	g := res.Gauge
+	if g == nil {
+		g = &viewspec.Gauge{Value: math.NaN(), Min: 0, Max: 100}
+	}
+	var value any = g.Value
+	if math.IsNaN(g.Value) || math.IsInf(g.Value, 0) {
+		value = nil
+	}
+	span := g.Max - g.Min
+	frac := func(v float64) float64 {
+		if span == 0 {
+			return 0
+		}
+		return (v - g.Min) / span
+	}
+	// Dial zones: vbands clamped to the range and sorted by their lower bound; the gaps between
+	// them (and outside them) draw neutral so the colored segments always tile 0..1.
+	zones := append([]viewspec.VBand(nil), res.VBands...)
+	slices.SortFunc(zones, func(a, b viewspec.VBand) int {
+		switch {
+		case a.From < b.From:
+			return -1
+		case a.From > b.From:
+			return 1
+		}
+		return 0
+	})
+	var segments []any
+	cursor := 0.0
+	for i, z := range zones {
+		from, to := math.Max(z.From, g.Min), math.Min(z.To, g.Max)
+		if to <= from {
+			continue
+		}
+		start, end := frac(from), frac(to)
+		if start > cursor {
+			segments = append(segments, []any{cursor, "#e0e0e0"})
+		}
+		segments = append(segments, []any{end, gaugeZoneColors[i%len(gaugeZoneColors)]})
+		cursor = end
+	}
+	if cursor < 1 {
+		segments = append(segments, []any{1, "#e0e0e0"})
+	}
+	if len(segments) == 0 {
+		segments = append(segments, []any{1, "#e0e0e0"})
+	}
+	series := map[string]any{
+		"type": "gauge",
+		"min":  g.Min,
+		"max":  g.Max,
+		"axisLine": map[string]any{
+			"lineStyle": map[string]any{"width": 15, "color": segments},
+		},
+		"axisTick":  map[string]any{"show": false},
+		"splitLine": map[string]any{"show": false},
+		"axisLabel": map[string]any{"show": false},
+		"pointer":   map[string]any{"width": 4, "length": "46%"},
+		"anchor":    map[string]any{"show": true, "size": 8},
+		"detail": map[string]any{
+			"formatter":    "{value}",
+			"fontSize":     36,
+			"offsetCenter": []any{0, "38%"},
+		},
+		"title": map[string]any{"show": false},
+		"data":  []any{map[string]any{"value": value}},
+	}
+	opt["series"] = []any{series}
+}
+
+// boxHost extracts a marker URL's display host ("" for empty or non-http(s) URLs), shared by the
+// ECharts box payload and the SVG box cards.
+func boxHost(href string) string {
+	_, host := boxSource(href)
+	return host
 }

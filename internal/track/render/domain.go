@@ -10,7 +10,7 @@ import (
 // validateAxisDomains prevents an explicit domain from silently clipping data or narrative
 // overlays. Authors can widen the range or omit it and use the renderer's automatic scale.
 func validateAxisDomains(res viewspec.Resolved) error {
-	for _, axis := range []string{"y", "y2"} {
+	for _, axis := range []string{"y", "y2", "y3"} {
 		lo, hi, ok := res.AxisDomain(axis)
 		if !ok {
 			continue
@@ -41,10 +41,23 @@ func validateAxisDomains(res viewspec.Resolved) error {
 				return fmt.Errorf("render: reference line %g on axis %s falls outside explicit domain [%g,%g]", line.Y, axis, lo, hi)
 			}
 		}
+		for _, band := range res.VBands {
+			bandAxis := band.Axis
+			if bandAxis == "" {
+				bandAxis = "y"
+			}
+			if bandAxis == axis && (band.From < lo || band.To > hi) {
+				return fmt.Errorf("render: vband [%g,%g] on axis %s falls outside explicit domain [%g,%g]", band.From, band.To, axis, lo, hi)
+			}
+		}
 		for _, callout := range res.Callouts {
 			if axis == "y" && (callout.Y < lo || callout.Y > hi) {
 				return fmt.Errorf("render: callout %g on axis y falls outside explicit domain [%g,%g]", callout.Y, lo, hi)
 			}
+		}
+		if axis == "y" && res.Gauge != nil && !math.IsNaN(res.Gauge.Value) && !math.IsInf(res.Gauge.Value, 0) &&
+			(res.Gauge.Value < lo || res.Gauge.Value > hi) {
+			return fmt.Errorf("render: gauge value %g falls outside explicit domain [%g,%g]", res.Gauge.Value, lo, hi)
 		}
 	}
 	return nil

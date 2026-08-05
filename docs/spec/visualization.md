@@ -155,15 +155,21 @@ not a silent no-op):
   no stable record order to average over).
 
 `title` overrides the legend/axis text, defaulting to the field name. A y channel may set
-`"axis": "y2"` to plot on a secondary right-hand axis (default `"y"`), so series on different scales —
-e.g. a price and an index — can share one x-axis:
+`"axis": "y2"` or `"y3"` to plot on right-hand axes (default `"y"`), so series on different scales —
+e.g. a price and an index, or two price overlays over a count series — can share one x-axis. `y3`
+sits on the right, offset beyond `y2`, so both overlays keep their own scale:
 
 ```json
 "y": [
   { "field": "close", "title": "Close", "axis": "y" },
-  { "field": "index", "title": "Index", "axis": "y2" }
+  { "field": "index", "title": "Index", "axis": "y2" },
+  { "field": "wti", "title": "WTI", "axis": "y3", "mark": "line" }
 ]
 ```
+
+The SVG renderer accepts the same schema but keeps all value series on one shared scale; it does not
+draw separate right-hand axes for `y2`/`y3`. Its candlestick renderer skips `y2`/`y3` extras because
+mixing their magnitude into the price scale would flatten the candles.
 
 ### Color (series split by category)
 
@@ -196,8 +202,10 @@ group:
 - A category with no record at some x label contributes `NaN` there (a gap, not a zero). A repeated
   `(x, category)` pair keeps the later record's value (and the overlay series' value at that label
   likewise keeps the later record's).
-- A timeline (`point` with a nominal y) rejects `color`: its lanes are already colored by the
-  nominal y.
+- A timeline (`point` with a nominal y) treats `color` as **per-point category colors**: the lanes
+  keep the nominal y, and each dot is drawn in its category's color (explicit `color.colors`
+  entries, or the shared palette in first-seen dot order). `color.opacity` fades every dot. This is
+  how a sector-by-time bubble chart distinguishes buys from sells, for example.
 
 ### Per-series style
 
@@ -342,6 +350,33 @@ convention, matching the candlestick colors), over a domain symmetric around zer
 uses. The option is shared with `rect`, so a diverging heatmap works the same way; it is rejected
 anywhere else (on other marks `color` is a nominal series split, not a value).
 
+### Gauge (dial)
+
+`mark: "gauge"` draws the **last value** of a quantitative `y[0]` series on a semicircular dial —
+a single reading, not a series:
+
+```json
+{ "version": 2, "mark": "gauge", "title": "Pressure",
+  "data": { "source": "metrics.jsonl", "kind": "metric" },
+  "encoding": { "y": [ { "field": "value", "domain": [-9, 18] } ] },
+  "overlays": [
+    { "yfrom": -9, "yto": 0, "label": "comfort" },
+    { "yfrom": 0,  "yto": 5, "label": "low" },
+    { "yfrom": 5,  "yto": 10, "label": "medium" },
+    { "yfrom": 10, "yto": 18, "label": "high" }
+  ] }
+```
+
+- The dial's range is `y[0].domain` (`0..100` when absent); the value is the last record's `y[0]`
+  field, so a rolling file keeps showing the newest reading.
+- **Vband overlays become the dial's colored zones**: each `{yfrom, yto, label}` span maps onto the
+  range and is painted green → yellow → orange → red bottom-up (cycling for more than four zones),
+  with neutral gaps between unclaimed spans.
+- The gauge takes exactly one quantitative `y` channel on the primary axis, no `x`/`color`/`size`/
+  `detail`/`href`/`note`, no `y2`/`y3` zone axes, and only non-overlapping vband overlays — the strict-schema stance.
+- ECharts draws the zone axis line, pointer, and the value under the dial; the SVG renderer draws
+  the zone arcs, the needle, and the value with its active zone's label.
+
 ### Overlays (markers, reference lines, bands)
 
 An overlay draws reference geometry on top of the chart. Each entry in `overlays` is **exactly one**
@@ -380,9 +415,12 @@ chart doubles as a scannable index of its evidence. The engine resolves the box 
 the `at` value (an RFC3339 timestamp is trimmed to its day), the source link and its display host
 come from the record's `url` (non-`http(s)` URLs are dropped), and boxes are ordered by category.
 A marker whose `at` matches no x label gets a line but no box (skipped, like everywhere else). The
-rail is drawn by the web reader (workspace and published site); surfaces without it — the standalone
-HTML page, the composed article, the SVG renderer — keep the classic marker rendering, so the mode
-degrades to exactly today's look there.
+The rail is drawn by the web reader (workspace and published site) with lane packing and
+collision resolution. The standalone surfaces draw the same cards in a simple alternating
+above/below layout: the standalone ECharts page runs a small `convertToPixel`-driven script
+(`boxedAnnotations`), and the SVG renderer draws the card natively (bordered rect, wrapped label up
+to six lines, date, source host, and a leader to the marker). The composed article keeps the classic
+marker rendering.
 
 A marker record's provenance fields ride along automatically — no extra vocabulary: an event's `url`
 becomes the marker's click-through source (the web reader opens it; the SVG renderer wraps the marker
@@ -396,7 +434,7 @@ references to unpublished notes (see ADR 0027).
 | Field   | Required | Notes                                                             |
 |---------|----------|-------------------------------------------------------------------|
 | `y`     | yes      | The value to draw the line at.                                    |
-| `axis`  | no       | `y` (default) or `y2` — which value axis the line is pinned to.  |
+| `axis`  | no       | `y` (default), `y2`, or `y3` — which value axis the line is pinned to.  |
 | `label` | no       | Literal label text drawn on the line.                             |
 
 **Band** — a shaded x-range highlighting a period:
@@ -413,7 +451,7 @@ references to unpublished notes (see ADR 0027).
 |---------|----------|------------------------------------------------------------------------------|
 | `yfrom` | yes      | Lower value of the span (must be < `yto`).                                   |
 | `yto`   | yes      | Upper value of the span.                                                     |
-| `axis`  | no       | `y` (default) or `y2` — which value axis the span is pinned to.              |
+| `axis`  | no       | `y` (default), `y2`, or `y3` — which value axis the span is pinned to.              |
 | `label` | no       | Literal label text drawn in the band.                                        |
 
 The ECharts renderer draws both band kinds as a `markArea` (xAxis for `band`, yAxis for `vband`);
@@ -586,7 +624,7 @@ output embeds directly in notes, emails, or a static site:
 - A candlestick draws a high–low wick and an open–close body per category, green for a rising candle
   and red for a falling one; the OHLC component series are not listed in the legend. Its extra y
   channels draw over the candles on the price scale (moving-average lines, rise/fall-colored bars);
-  a `y2`-bound extra is **skipped** — this renderer has a single value scale, and stretching the
+  a `y2`- or `y3`-bound extra is **skipped** — this renderer has a single value scale, and stretching the
   price axis to a volume magnitude would flatten the candles, so dropping the series is the
   documented degradation (like `display: "box"` below) and the legend lists only what is drawn.
 - A bubble (quantitative-x point) is drawn over **linear** x and y axes (one circle per `{x, y, r}`
@@ -601,7 +639,7 @@ output embeds directly in notes, emails, or a static site:
 - `NaN`/`Inf` values are gaps: a line breaks its segment, a bar/scatter/bubble point is omitted.
 - **Overlays** mirror the ECharts mark geometry: markers are vertical lines at the matching category
   label; reference lines are dashed horizontal lines (the SVG renderer has a single value scale, so
-  `axis: "y2"` is ignored; a line outside the data's value range is skipped); bands are translucent
+  `axis: "y2"`/`"y3"` is treated on that shared scale; a line outside the data's value range is skipped); bands are translucent
   rectangles spanning the `from`..`to` category slots (inclusive), drawn behind the series. A marker
   overlay's `display: "box"` is ignored — the classic marker rendering is the documented degradation
   (ADR 0028), like note references staying inert here.

@@ -43,7 +43,7 @@ func renderGrid(res viewspec.Resolved) string {
 	if res.Chart == viewspec.ChartHeatmap {
 		writeHeatmapCells(&b, g, grid, res)
 	} else {
-		writeTimelineCells(&b, g, grid)
+		writeTimelineCells(&b, g, grid, res)
 	}
 	b.WriteString("</svg>\n")
 	return b.String()
@@ -130,7 +130,7 @@ func writeHeatLegend(b *strings.Builder, g svgGeom, lo, hi float64, ramp func(fl
 // writeTimelineCells plots one dot per record at its (column, row) lane position. The dot radius
 // scales with the cell value when a size encoding is present; otherwise a fixed radius is used. Each
 // lane gets its own color so rows stay distinguishable.
-func writeTimelineCells(b *strings.Builder, g svgGeom, grid *viewspec.Grid) {
+func writeTimelineCells(b *strings.Builder, g svgGeom, grid *viewspec.Grid, res viewspec.Resolved) {
 	xc := bandCenters(g, len(grid.Cols))
 	yc := bandCentersVertical(g, len(grid.Rows))
 	// Faint lane guides so dots read against their row.
@@ -139,6 +139,7 @@ func writeTimelineCells(b *strings.Builder, g svgGeom, grid *viewspec.Grid) {
 			g.left, num(y), g.left+g.plotW(), num(y))
 	}
 	lo, hi := gridValueRange(grid.Cells)
+	palette := gridColorPalette(res)
 	for _, c := range grid.Cells {
 		if c.Col >= len(xc) || c.Row >= len(yc) {
 			continue
@@ -147,8 +148,18 @@ func writeTimelineCells(b *strings.Builder, g svgGeom, grid *viewspec.Grid) {
 		if !math.IsNaN(c.Value) {
 			r = 3 + 7*(c.Value-lo)/(hi-lo) // 3..10 px
 		}
-		fmt.Fprintf(b, `<circle cx="%s" cy="%s" r="%s" fill="%s" fill-opacity="0.8"/>`+"\n",
-			num(xc[c.Col]), num(yc[c.Row]), num(r), seriesColor(c.Row))
+		color := seriesColor(c.Row)
+		opacity := "0.8"
+		if c.Color != "" {
+			if v, ok := palette[c.Color]; ok {
+				color = v
+			}
+			if op := res.Spec.Encoding.Color.Opacity; op != nil {
+				opacity = num(*op)
+			}
+		}
+		fmt.Fprintf(b, `<circle cx="%s" cy="%s" r="%s" fill="%s" fill-opacity="%s"/>`+"\n",
+			num(xc[c.Col]), num(yc[c.Row]), num(r), svgColor(color), opacity)
 	}
 }
 

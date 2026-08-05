@@ -601,8 +601,8 @@ func TestValidateColorConstraints(t *testing.T) {
 	timeline.Mark = MarkPoint
 	timeline.Encoding.X.Type = Nominal
 	timeline.Encoding.Y[0].Type = Nominal
-	if err := timeline.Validate(); err == nil || !strings.Contains(err.Error(), "timeline") {
-		t.Fatalf("color on timeline should fail, got %v", err)
+	if err := timeline.Validate(); err != nil {
+		t.Fatalf("color on a timeline should validate (per-point category colors): %v", err)
 	}
 }
 
@@ -622,7 +622,7 @@ func TestValidateRejectsBadAxis(t *testing.T) {
 	s := Spec{
 		Version: Version, Mark: MarkLine,
 		Data:     DataRef{Source: "x", Kind: dataset.KindPrice},
-		Encoding: Encoding{X: Channel{Field: "time"}, Y: []Channel{{Field: "close", Axis: "y3"}}},
+		Encoding: Encoding{X: Channel{Field: "time"}, Y: []Channel{{Field: "close", Axis: "y4"}}},
 	}
 	if err := s.Validate(); err == nil || !strings.Contains(err.Error(), "axis") {
 		t.Fatalf("want axis error, got %v", err)
@@ -639,6 +639,7 @@ func TestValidateOverlayShapes(t *testing.T) {
 		}
 	}
 	y := 6.5
+	y2 := 9.5
 	inline := []dataset.Record{{"time": "d1", "title": "ev"}}
 	valid := map[string]Overlay{
 		"callout":        {X: "d1", Y: &y, Label: "peak here"},
@@ -646,6 +647,8 @@ func TestValidateOverlayShapes(t *testing.T) {
 		"inline markers": {Records: inline, Kind: dataset.KindEvent, At: "time", Label: "title"},
 		"line":           {Y: &y, Label: "threshold"},
 		"line-y2":        {Y: &y, Axis: "y2"},
+		"line-y3":        {Y: &y, Axis: "y3"},
+		"vband":          {YFrom: &y, YTo: &y2, Label: "zone"},
 		"band":           {From: "d1", To: "d2", Label: "Q1"},
 		"line-at-zero":   {Y: new(float64)}, // y: 0 is a value, not an unset shape
 		"box markers":    {Records: inline, Kind: dataset.KindEvent, Label: "title", Display: "box"},
@@ -662,7 +665,8 @@ func TestValidateOverlayShapes(t *testing.T) {
 		"source and line":      {Source: "e.jsonl", Kind: dataset.KindEvent, Y: &y},
 		"band missing to":      {From: "d1"},
 		"band missing from":    {To: "d2"},
-		"bad line axis":        {Y: &y, Axis: "y3"},
+		"bad line axis":        {Y: &y, Axis: "y4"},
+		"bad vband axis":       {YFrom: &y, YTo: &y2, Axis: "y4"},
 		"axis on markers":      {Source: "e.jsonl", Kind: dataset.KindEvent, Axis: "y"},
 		"kind on line":         {Y: &y, Kind: dataset.KindEvent},
 		"at on band":           {From: "d1", To: "d2", At: "time"},
@@ -1185,6 +1189,8 @@ func TestValidateQuantitativeYDomain(t *testing.T) {
 			`"encoding":{"x":{"field":"t"},"y":[{"field":"v","domain":[80,120]}]}}`,
 		"secondary axis": `{"version":2,"mark":"line","data":{"source":"x","kind":"metric"},` +
 			`"encoding":{"x":{"field":"t"},"y":[{"field":"v","axis":"y2","domain":[80,120]}]}}`,
+		"tertiary axis": `{"version":2,"mark":"line","data":{"source":"x","kind":"metric"},` +
+			`"encoding":{"x":{"field":"t"},"y":[{"field":"v","axis":"y3","domain":[80,120]}]}}`,
 	}
 	for name, spec := range invalid {
 		if err := load(spec); err == nil || !strings.Contains(err.Error(), "domain") {
@@ -1398,3 +1404,92 @@ func TestResolveColorSplitWithOverlaySeries(t *testing.T) {
 }
 
 func ptr(f float64) *float64 { return &f }
+
+func TestResolveTimelineColorCategories(t *testing.T) {
+	s := lineSpec()
+	s.Mark = MarkPoint
+	s.Encoding.X.Field = "time"
+	s.Encoding.X.Type = Nominal
+	s.Encoding.Y[0].Field = "lane"
+	s.Encoding.Y[0].Type = Nominal
+	s.Encoding.Color = &Channel{Field: "side", Type: Nominal}
+	recs, _ := dataset.ReadJSONL(strings.NewReader(
+		`{"time":"d1","lane":"L1","side":"buy","value":1}` + "\n" +
+			`{"time":"d2","lane":"L1","side":"sell","value":2}` + "\n" +
+			`{"time":"d2","lane":"L2","side":"buy","value":3}` + "\n"))
+	res := s.Resolve(recs)
+	if res.Chart != ChartTimeline {
+		t.Fatalf("chart = %q", res.Chart)
+	}
+	grid := res.Grid
+	if grid == nil || len(grid.Cells) != 3 {
+		t.Fatalf("grid cells = %+v", grid)
+	}
+	want := []string{"buy", "sell", "buy"}
+	for i, c := range grid.Cells {
+		if c.Color != want[i] {
+			t.Fatalf("cell %d color = %q, want %q", i, c.Color, want[i])
+		}
+	}
+}
+
+func TestGaugeValidateAndResolve(t *testing.T) {
+	gauge := func() Spec {
+		return Spec{
+			Version: Version, Mark: MarkGauge,
+			Data:     DataRef{Source: "x", Kind: dataset.KindMetric},
+			Encoding: Encoding{Y: []Channel{{Field: "value", Domain: []float64{-9, 18}}}},
+		}
+	}
+	if err := gauge().Validate(); err != nil {
+		t.Fatalf("plain gauge should validate (no x channel): %v", err)
+	}
+	withX := gauge()
+	withX.Encoding.X = Channel{Field: "time"}
+	if err := withX.Validate(); err == nil || !strings.Contains(err.Error(), "does not take encoding.x") {
+		t.Fatalf("gauge with x should fail, got %v", err)
+	}
+	withZone := gauge()
+	withZone.Overlays = []Overlay{{YFrom: ptr(-9), YTo: ptr(0), Label: "comfort"}}
+	if err := withZone.Validate(); err != nil {
+		t.Fatalf("gauge with a vband zone should validate: %v", err)
+	}
+	wrongAxis := gauge()
+	wrongAxis.Overlays = []Overlay{{YFrom: ptr(-9), YTo: ptr(0), Axis: "y2"}}
+	if err := wrongAxis.Validate(); err == nil || !strings.Contains(err.Error(), "primary axis") {
+		t.Fatalf("gauge y2 zone should fail, got %v", err)
+	}
+	overlap := gauge()
+	overlap.Overlays = []Overlay{{YFrom: ptr(-9), YTo: ptr(4)}, {YFrom: ptr(0), YTo: ptr(9)}}
+	if err := overlap.Validate(); err == nil || !strings.Contains(err.Error(), "overlaps") {
+		t.Fatalf("overlapping gauge zones should fail, got %v", err)
+	}
+	badOverlay := gauge()
+	badOverlay.Overlays = []Overlay{{Y: ptr(5)}}
+	if err := badOverlay.Validate(); err == nil || !strings.Contains(err.Error(), "must be a vband") {
+		t.Fatalf("non-vband overlay on a gauge should fail, got %v", err)
+	}
+	colored := gauge()
+	colored.Encoding.Color = &Channel{Field: "entity", Type: Nominal}
+	if err := colored.Validate(); err == nil || !strings.Contains(err.Error(), "does not take") {
+		t.Fatalf("color on a gauge should fail, got %v", err)
+	}
+	nominal := gauge()
+	nominal.Encoding.Y[0].Type = Nominal
+	if err := nominal.Validate(); err == nil || !strings.Contains(err.Error(), "quantitative") {
+		t.Fatalf("nominal y on a gauge should fail, got %v", err)
+	}
+
+	recs, _ := dataset.ReadJSONL(strings.NewReader(
+		`{"time":"d1","value":1}` + "\n" +
+			`{"time":"d2","value":7}` + "\n" +
+			`{"time":"d3","value":14}` + "\n"))
+	res := gauge().Resolve(recs)
+	if res.Gauge == nil || res.Gauge.Value != 14 || res.Gauge.Min != -9 || res.Gauge.Max != 18 {
+		t.Fatalf("gauge resolve = %+v", res.Gauge)
+	}
+	empty := gauge().Resolve(nil)
+	if empty.Gauge == nil || !math.IsNaN(empty.Gauge.Value) {
+		t.Fatalf("empty gauge should have no reading, got %+v", empty.Gauge)
+	}
+}

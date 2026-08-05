@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"html"
 	"math"
+	"slices"
 	"strconv"
 	"strings"
 
@@ -50,10 +51,15 @@ type seriesStyle struct {
 	dash    string
 }
 
+// svgColor escapes user-provided color strings before they enter an SVG attribute. View specs keep
+// colors renderer-neutral, so the SVG surface must protect its attribute context even when a value
+// is not a valid CSS color (the browser will simply ignore that fill/stroke).
+func svgColor(color string) string { return html.EscapeString(color) }
+
 func svgSeriesStyle(res viewspec.Resolved, si int) seriesStyle {
 	st := seriesStyle{color: seriesColor(si)}
 	if c, ok := res.SeriesColor(res.Series[si].Label); ok {
-		st.color = c
+		st.color = svgColor(c)
 	}
 	st.opacity = res.SeriesOpacity(si)
 	if w, ok := res.SeriesWidth(si); ok {
@@ -86,8 +92,11 @@ func (SVG) Render(res viewspec.Resolved) (string, error) {
 		return renderGrid(res), nil
 	case viewspec.ChartTreemap:
 		return renderTreemap(res), nil
+	case viewspec.ChartGauge:
+		return renderGauge(res), nil
 	}
 	g := svgGeom{w: 800, h: 480, left: 56, right: 16, top: 40, bottom: 56}
+	g.top, g.bottom = markerBoxMargins(res)
 	lo, hi := valueRange(res)
 
 	var b strings.Builder
@@ -266,7 +275,12 @@ func svgAxisName(res viewspec.Resolved) string {
 	if name := res.AxisName("y"); name != "" {
 		return name
 	}
-	return res.AxisName("y2")
+	for _, axis := range []string{"y2", "y3"} {
+		if name := res.AxisName(axis); name != "" {
+			return name
+		}
+	}
+	return ""
 }
 
 func writeVerticalAxisTitle(b *strings.Builder, g svgGeom, name string) {
@@ -288,17 +302,17 @@ func writeHorizontalAxisTitle(b *strings.Builder, g svgGeom, name string) {
 }
 
 // candleSkipsSeries reports whether the SVG renderer leaves a resolved series undrawn: on a
-// candlestick, extras bound to the secondary axis (volume bars). This renderer has a single value
-// scale, and stretching the price axis to a volume magnitude would flatten the candles — skipping is
+// candlestick, extras bound to the secondary/tertiary axes (volume bars). This renderer has a single value
+// scale, and stretching the price axis to a volume magnitude would flatten the candles — skipping y2/y3 is
 // the documented degradation, like display:"box" falling back to plain markers here.
 func candleSkipsSeries(res viewspec.Resolved, si int) bool {
-	return res.Chart == viewspec.ChartCandlestick && res.Series[si].Axis == "y2"
+	return res.Chart == viewspec.ChartCandlestick && (res.Series[si].Axis == "y2" || res.Series[si].Axis == "y3")
 }
 
 // writeSeries draws each y series by its own form — the chart's, or the series' mark override in a
 // combo chart — over a shared category x axis. Bars draw first so lines and areas stay readable on
 // top of them. A candlestick draws its candles first, then its extra series (moving averages) on the
-// same price scale; y2-bound extras are skipped (see candleSkipsSeries).
+// same price scale; y2/y3-bound extras are skipped (see candleSkipsSeries).
 func writeSeries(b *strings.Builder, g svgGeom, res viewspec.Resolved, lo, hi float64) {
 	centers := bandCenters(g, len(res.Labels))
 	if res.Chart == viewspec.ChartCandlestick {
@@ -645,16 +659,27 @@ func writeMarkers(b *strings.Builder, g svgGeom, res viewspec.Resolved) {
 		idx[l] = i
 	}
 	centers := bandCenters(g, len(res.Labels))
+	// Box-mode markers (display: "box") draw an always-visible annotation card hugging the plot —
+	// date, wrapped label, and source host — alternating above and below, with a leader to the
+	// marker. Classic markers keep the vertical line + rotated label.
+	boxed := 0
 	for _, m := range res.Markers {
 		i, ok := idx[m.At]
 		if !ok || i >= len(centers) {
 			continue
 		}
 		x := centers[i]
+		if m.Box {
+			boxed++
+			m.Href, _ = boxSource(m.Href)
+			writeMarkerBox(b, g, x, m, boxed%2 == 1)
+			continue
+		}
+		href, _ := boxSource(m.Href)
 		// A marker carrying a source URL becomes a real link — SVG anchors work in every host. Note
 		// references stay non-links here: the static renderer has no router to resolve them.
-		if m.Href != "" {
-			fmt.Fprintf(b, `<a href="%s" target="_blank" rel="noopener">`+"\n", html.EscapeString(m.Href))
+		if href != "" {
+			fmt.Fprintf(b, `<a href="%s" target="_blank" rel="noopener">`+"\n", html.EscapeString(href))
 		}
 		fmt.Fprintf(b, `<line x1="%s" y1="%g" x2="%s" y2="%g" stroke="rgba(220,53,69,0.7)" stroke-width="1"/>`+"\n",
 			num(x), g.top, num(x), g.top+g.plotH())
@@ -662,10 +687,139 @@ func writeMarkers(b *strings.Builder, g svgGeom, res viewspec.Resolved) {
 			fmt.Fprintf(b, `<text x="%s" y="%g" font-size="10" fill="#dc3545" transform="rotate(90 %s %g)">%s</text>`+"\n",
 				num(x+3), g.top+4, num(x+3), g.top+4, html.EscapeString(m.Label))
 		}
-		if m.Href != "" {
+		if href != "" {
 			b.WriteString("</a>\n")
 		}
 	}
+}
+
+// markerBoxWidth is an annotation card's fixed width; label lines wrap at the remaining text width.
+const (
+	markerBoxWidth    = 180.0
+	markerBoxLineH    = 14.0
+	markerBoxPadTop   = 22.0
+	markerBoxGap      = 8.0
+	markerBoxMaxLines = 6
+	markerBoxTextMax  = 27
+)
+
+func markerBoxHeight(m viewspec.Marker) float64 {
+	lines := wrapLabel(m.Label, markerBoxTextMax)
+	if len(lines) > markerBoxMaxLines {
+		lines = lines[:markerBoxMaxLines]
+	}
+	return markerBoxPadTop + float64(len(lines))*markerBoxLineH + 6
+}
+
+func markerBoxMargins(res viewspec.Resolved) (top, bottom float64) {
+	const baseTop, baseBottom = 40.0, 56.0
+	top, bottom = baseTop, baseBottom
+	boxed := 0
+	for _, marker := range res.Markers {
+		if !marker.Box {
+			continue
+		}
+		boxed++
+		h := markerBoxHeight(marker)
+		if boxed%2 == 1 {
+			top = math.Max(top, baseTop+markerBoxGap+h)
+		} else {
+			bottom = math.Max(bottom, baseBottom+markerBoxGap+h)
+		}
+	}
+	return top, bottom
+}
+
+// writeMarkerBox draws one box-mode annotation: a card of markerBoxWidth anchored at x (clamped to
+// the plot) that sits above or below the plot by side, its leader touching the marker line's x. The
+// card shows the date line (the at value), the wrapped label (up to six lines), and the source host.
+func writeMarkerBox(b *strings.Builder, g svgGeom, x float64, m viewspec.Marker, above bool) {
+	const padX = 10.0
+	m.Href, _ = boxSource(m.Href)
+	if x < g.left+markerBoxWidth/2 {
+		x = g.left + markerBoxWidth/2
+	} else if x > g.left+g.plotW()-markerBoxWidth/2 {
+		x = g.left + g.plotW() - markerBoxWidth/2
+	}
+	lines := wrapLabel(m.Label, markerBoxTextMax) // ~27 glyphs fit the card's text width at font-size 11
+	if len(lines) > markerBoxMaxLines {
+		lines = lines[:markerBoxMaxLines]
+	}
+	boxH := markerBoxPadTop + float64(len(lines))*markerBoxLineH + 6
+	var y float64
+	if above {
+		y = g.top - markerBoxGap - boxH
+	} else {
+		y = g.top + g.plotH() + 56 + markerBoxGap
+	}
+	if m.Href != "" {
+		fmt.Fprintf(b, `<a href="%s" target="_blank" rel="noopener">`+"\n", html.EscapeString(m.Href))
+	}
+	fmt.Fprintf(b, `<rect x="%s" y="%s" width="%g" height="%s" fill="#fdfcfb" stroke="#b9893a" stroke-width="0.8"/>`+"\n",
+		num(x-markerBoxWidth/2), num(y), markerBoxWidth, num(boxH))
+	// The leader: from the card edge nearest the plot to the marker's x on the plot edge.
+	leaderY := y + boxH
+	if above {
+		leaderY = y
+	}
+	fmt.Fprintf(b, `<line x1="%s" y1="%s" x2="%s" y2="%g" stroke="#b9893a" stroke-width="0.6"/>`+"\n",
+		num(x), num(leaderY), num(x), g.top+1)
+	fmt.Fprintf(b, `<circle cx="%s" cy="%g" r="3" fill="#b9893a"/>`+"\n", num(x), g.top+1)
+	// Date line, wrapped label lines, and the source host.
+	ty := y + 14
+	fmt.Fprintf(b, `<text x="%s" y="%s" font-size="10" font-weight="600" fill="#dc3545">%s</text>`+"\n",
+		num(x-markerBoxWidth/2+padX), num(ty), html.EscapeString(boxDate(m.At)))
+	ty += 6
+	for _, line := range lines {
+		ty += markerBoxLineH
+		fmt.Fprintf(b, `<text x="%s" y="%s" font-size="11" fill="#1a1612">%s</text>`+"\n",
+			num(x-markerBoxWidth/2+padX), num(ty), html.EscapeString(line))
+	}
+	if host := boxHost(m.Href); host != "" {
+		fmt.Fprintf(b, `<text x="%s" y="%s" font-size="9" fill="#948872">%s</text>`+"\n",
+			num(x-markerBoxWidth/2+padX), num(y+boxH-5), html.EscapeString(host))
+	}
+	if m.Href != "" {
+		b.WriteString("</a>\n")
+	}
+}
+
+// wrapLabel splits a label into lines at word boundaries so each line stays within max runes.
+func wrapLabel(s string, max int) []string {
+	if max < 1 {
+		max = 1
+	}
+	words := strings.Fields(s)
+	var lines []string
+	cur := ""
+	for _, w := range words {
+		runes := []rune(w)
+		// A single word longer than the width hard-splits (the goal sites' own labels do).
+		for len(runes) > max {
+			if cur != "" {
+				lines = append(lines, cur)
+				cur = ""
+			}
+			lines = append(lines, string(runes[:max]))
+			runes = runes[max:]
+		}
+		w = string(runes)
+		if cur == "" {
+			cur = w
+		} else if len([]rune(cur))+1+len(runes) <= max {
+			cur += " " + w
+		} else {
+			lines = append(lines, cur)
+			cur = w
+		}
+	}
+	if cur != "" {
+		lines = append(lines, cur)
+	}
+	if len(lines) == 0 {
+		return []string{""}
+	}
+	return lines
 }
 
 // writeBands shades each band overlay's x range: a translucent rectangle spanning the full plot
@@ -704,7 +858,7 @@ func writeBands(b *strings.Builder, g svgGeom, res viewspec.Resolved) {
 // writeVBands shades each vband overlay's y range: a translucent rectangle spanning the full plot
 // width, mirroring the ECharts markArea y-axis bands. A band is clamped to the plotted value range
 // (like the ECharts markArea, which the axis clips) and skipped when it lies entirely outside. The
-// SVG renderer has a single value scale, so the band's axis choice (y/y2) is ignored here, like the
+// SVG renderer has a single value scale, so the band's axis choice (y/y2/y3) is ignored here, like the
 // reference lines.
 func writeVBands(b *strings.Builder, g svgGeom, res viewspec.Resolved, lo, hi float64) {
 	if len(res.VBands) == 0 {
@@ -727,7 +881,7 @@ func writeVBands(b *strings.Builder, g svgGeom, res viewspec.Resolved, lo, hi fl
 
 // writeRefLines draws each reference-line overlay as a dashed horizontal line at its y value, labeled
 // at the right edge, mirroring the ECharts reference lines. The SVG renderer has a single value
-// scale, so the line's axis choice (y/y2) is ignored here.
+// scale, so the line's axis choice (y/y2/y3) is ignored here.
 // ponytail: a line outside the data's value range is skipped, not drawn; expand valueRange over
 // res.Lines if off-scale thresholds need to show.
 func writeRefLines(b *strings.Builder, g svgGeom, res viewspec.Resolved, lo, hi float64) {
@@ -821,7 +975,7 @@ func writeLegend(b *strings.Builder, g svgGeom, res viewspec.Resolved) {
 		if res.Chart == viewspec.ChartCandlestick {
 			color = candleExtraColor(si)
 		} else if c, ok := res.SeriesColor(res.Series[si].Label); ok {
-			color = c
+			color = svgColor(c)
 		}
 		yi := y + float64(row)*16
 		row++
@@ -920,4 +1074,103 @@ func bubbleRange(series []viewspec.Series) (xlo, xhi, ylo, yhi float64) {
 // output is stable across platforms (Go's float formatting is deterministic at fixed precision).
 func num(v float64) string {
 	return strconv.FormatFloat(v, 'f', 2, 64)
+}
+
+// renderGauge draws the gauge form as a static dial: a semicircular arc segmented into the spec's
+// vband zones (green → yellow → orange → red bottom-up, neutral gaps), a needle at the value, and
+// the value with its active zone label under the dial. The dial spans 180° — min at the left end,
+// max at the right.
+func renderGauge(res viewspec.Resolved) string {
+	g := res.Gauge
+	if g == nil {
+		g = &viewspec.Gauge{}
+	}
+	const (
+		w, h = 300.0, 220.0
+		cx   = 150.0
+		cy   = 150.0
+		r    = 96.0
+	)
+	span := g.Max - g.Min
+	angle := func(v float64) float64 {
+		if span == 0 {
+			return 180
+		}
+		return 180 * (1 - (v-g.Min)/span) // 180° (left) .. 0° (right)
+	}
+	point := func(v float64) (float64, float64) {
+		rad := angle(v) * math.Pi / 180
+		return cx + r*math.Cos(rad), cy - r*math.Sin(rad)
+	}
+	arcPath := func(from, to float64) string {
+		x1, y1 := point(from)
+		x2, y2 := point(to)
+		large := 0
+		if angle(from)-angle(to) > 180 {
+			large = 1
+		}
+		return fmt.Sprintf("M %s %s A %g %g 0 %d 1 %s %s",
+			num(x1), num(y1), r, r, large, num(x2), num(y2))
+	}
+
+	var b strings.Builder
+	writeSVGHeader(&b, svgGeom{w: w, h: h}, res.Spec.Title)
+
+	zones := append([]viewspec.VBand(nil), res.VBands...)
+	slices.SortFunc(zones, func(a, b viewspec.VBand) int {
+		switch {
+		case a.From < b.From:
+			return -1
+		case a.From > b.From:
+			return 1
+		}
+		return 0
+	})
+	cursor := g.Min
+	for i, z := range zones {
+		from, to := math.Max(z.From, g.Min), math.Min(z.To, g.Max)
+		if to <= from {
+			continue
+		}
+		if from > cursor {
+			fmt.Fprintf(&b, `<path d="%s" fill="none" stroke="#e0e0e0" stroke-width="15"/>`+"\n",
+				arcPath(cursor, from))
+		}
+		fmt.Fprintf(&b, `<path d="%s" fill="none" stroke="%s" stroke-width="15"/>`+"\n",
+			arcPath(from, to), gaugeZoneColors[i%len(gaugeZoneColors)])
+		cursor = to
+	}
+	if cursor < g.Max {
+		fmt.Fprintf(&b, `<path d="%s" fill="none" stroke="#e0e0e0" stroke-width="15"/>`+"\n",
+			arcPath(cursor, g.Max))
+	}
+
+	// The needle: a line from the dial center to 74% of the radius, plus the anchor dot.
+	if !math.IsNaN(g.Value) {
+		rad := angle(g.Value) * math.Pi / 180
+		nx, ny := cx+0.74*r*math.Cos(rad), cy-0.74*r*math.Sin(rad)
+		fmt.Fprintf(&b, `<line x1="%g" y1="%g" x2="%s" y2="%s" stroke="#1a1612" stroke-width="4"/>`+"\n",
+			cx, cy, num(nx), num(ny))
+	}
+	fmt.Fprintf(&b, `<circle cx="%g" cy="%g" r="8" fill="#1a1612"/>`+"\n", cx, cy)
+
+	if !math.IsNaN(g.Value) {
+		fmt.Fprintf(&b, `<text x="%g" y="%s" font-size="36" text-anchor="middle" fill="#1a1612">%s</text>`+"\n",
+			cx, num(cy+62), num(g.Value))
+	}
+	zone := ""
+	for _, z := range zones {
+		if g.Value >= z.From && g.Value < z.To {
+			zone = z.Label
+			break
+		}
+	}
+	if zone == "" {
+		zone = "—"
+	}
+	fmt.Fprintf(&b, `<text x="%g" y="%s" font-size="12" text-anchor="middle" fill="#6a5f4d">%s</text>`+"\n",
+		cx, num(cy+86), html.EscapeString(zone))
+
+	b.WriteString("</svg>\n")
+	return b.String()
 }
