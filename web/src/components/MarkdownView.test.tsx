@@ -13,6 +13,9 @@ vi.mock("@tanstack/react-router", () => ({
   useNavigate: () => vi.fn(),
 }));
 
+const copyText = vi.hoisted(() => vi.fn());
+vi.mock("./markdown/clipboard", () => ({ copyText }));
+
 // EChartsBlock lazy-imports echarts; stub it so a chart fence doesn't pull the real (heavy) library
 // into this suite and starve the KaTeX lazy-load test of its waitFor budget.
 vi.mock("echarts", () => ({
@@ -91,6 +94,18 @@ describe("MarkdownView", () => {
     const { container } = render(<MarkdownView title="Project" markdown="" />);
     expect(container.querySelector("h1")?.textContent).toBe("Project");
     expect(screen.getByText("Empty note.")).toBeInTheDocument();
+  });
+
+  it("copies the note title from the title copy button", async () => {
+    copyText.mockReset();
+    copyText.mockResolvedValue(true);
+
+    render(<MarkdownView title="Project" noteId="note-1" markdown="" />);
+
+    expect(screen.queryByRole("link", { name: "Project" })).not.toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "Copy title" }));
+    await waitFor(() => expect(copyText).toHaveBeenCalledWith("Project"));
+    expect(await screen.findByRole("button", { name: "Title copied" })).toBeInTheDocument();
   });
 
   it("gives headings the ids their outline links to, counting repeats", () => {

@@ -57,6 +57,13 @@ func TestEChartsAreaFillsAndBarStacks(t *testing.T) {
 	if !strings.Contains(area, `"areaStyle"`) || !strings.Contains(area, "rgba(78,121,167,0.3)") {
 		t.Fatalf("area should fill at the shared palette opacity: %s", area)
 	}
+	colorArea := resolvedChart(viewspec.ChartArea, "buy", []float64{1, 2})
+	colorArea.Spec.Encoding.Color = &viewspec.Channel{Field: "entity", Type: viewspec.Nominal, Colors: map[string]string{"buy": "#2d6a4f"}}
+	colorArea.ColorSeries = 1
+	colored, _ := EChartsOptionJSON(colorArea)
+	if !strings.Contains(colored, "rgba(45,106,79,0.3)") {
+		t.Fatalf("area should fill with the explicit series color: %s", colored)
+	}
 	stacked := resolvedChart(viewspec.ChartBar, "S", []float64{1, 2})
 	stacked.Stacked = true
 	stack, _ := EChartsOptionJSON(stacked)
@@ -94,6 +101,41 @@ func TestEChartsHBarInvertsCategoryAxis(t *testing.T) {
 	// Categories run down the y axis with the first (top-ranked) label on top.
 	if !strings.Contains(out, `"inverse":true`) || !strings.Contains(out, `"type":"bar"`) {
 		t.Fatalf("hbar should invert its category y axis: %s", out)
+	}
+}
+
+func TestEChartsHBarAndBubbleApplySeriesStyle(t *testing.T) {
+	op := 0.42
+	hbar := viewspec.Resolved{
+		Spec: viewspec.Spec{Encoding: viewspec.Encoding{Color: &viewspec.Channel{
+			Field: "entity", Type: viewspec.Nominal, Opacity: &op,
+			Colors: map[string]string{"buy": "#2d6a4f"},
+		}}}, Chart: viewspec.ChartHBar,
+		Labels: []string{"a"}, ColorSeries: 1,
+		Series: []viewspec.Series{{Label: "buy", Values: []float64{3}}},
+	}
+	hbarOpt := echartsOptionForTest(t, hbar)
+	hbarSeries := hbarOpt["series"].([]any)[0].(map[string]any)
+	if hbarSeries["color"] != "#2d6a4f" || hbarSeries["itemStyle"].(map[string]any)["opacity"] != op {
+		t.Fatalf("hbar style = %#v", hbarSeries)
+	}
+
+	bubble := viewspec.Resolved{
+		Spec: viewspec.Spec{Encoding: viewspec.Encoding{
+			Y: []viewspec.Channel{{Field: "value", AxisName: "score"}},
+			Color: &viewspec.Channel{Field: "entity", Type: viewspec.Nominal, Opacity: &op,
+				Colors: map[string]string{"buy": "#2d6a4f"}},
+		}}, Chart: viewspec.ChartBubble,
+		ColorSeries: 1,
+		Series:      []viewspec.Series{{Label: "buy", Points: []viewspec.Point{{X: 1, Y: 2, R: 4}}}},
+	}
+	bubbleOpt := echartsOptionForTest(t, bubble)
+	bubbleSeries := bubbleOpt["series"].([]any)[0].(map[string]any)
+	if bubbleSeries["color"] != "#2d6a4f" || bubbleSeries["itemStyle"].(map[string]any)["opacity"] != op {
+		t.Fatalf("bubble style = %#v", bubbleSeries)
+	}
+	if bubbleOpt["yAxis"].(map[string]any)["name"] != "score" {
+		t.Fatalf("bubble axis name = %#v", bubbleOpt["yAxis"])
 	}
 }
 
@@ -672,5 +714,125 @@ func TestEChartsRegistered(t *testing.T) {
 	}
 	if _, err := Get("chartjs"); err == nil {
 		t.Fatal("chartjs was replaced by echarts and should be gone")
+	}
+}
+
+func TestEChartsColorSplitWithOverlayLine(t *testing.T) {
+	res := viewspec.Resolved{
+		Spec: viewspec.Spec{}, Chart: viewspec.ChartBar,
+		Labels:      []string{"d1", "d2"},
+		ColorSeries: 2,
+		Series: []viewspec.Series{
+			{Label: "a", Values: []float64{1, 3}},
+			{Label: "b", Values: []float64{2, 4}},
+			{Label: "index", Values: []float64{10, 20}, Mark: viewspec.ChartLine},
+		},
+	}
+	out, err := EChartsOptionJSON(res)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, want := range []string{`"type":"bar"`, `"type":"line"`, `"name":"index"`, `"data":[10,20]`} {
+		if !strings.Contains(out, want) {
+			t.Errorf("color split + overlay line missing %q: %s", want, out)
+		}
+	}
+}
+
+func TestEChartsVBandBecomesMarkArea(t *testing.T) {
+	res := viewspec.Resolved{
+		Spec: viewspec.Spec{}, Chart: viewspec.ChartLine,
+		Labels: []string{"a", "b"},
+		Series: []viewspec.Series{{Label: "S", Values: []float64{1, 2}}},
+		VBands: []viewspec.VBand{{From: 10, To: 18, Label: "high"}, {From: -9, To: 0}},
+	}
+	out, err := EChartsOptionJSON(res)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, want := range []string{`"markArea"`, `"yAxis":10`, `"yAxis":18`, `"name":"high"`, `"yAxis":-9`} {
+		if !strings.Contains(out, want) {
+			t.Errorf("vband markArea missing %q: %s", want, out)
+		}
+	}
+}
+
+func TestEChartsVBandsFollowTheirValueAxis(t *testing.T) {
+	res := viewspec.Resolved{
+		Spec: viewspec.Spec{}, Chart: viewspec.ChartLine,
+		Labels: []string{"a", "b"},
+		Series: []viewspec.Series{
+			{Label: "primary", Values: []float64{1, 2}},
+			{Label: "secondary", Values: []float64{10, 20}, Axis: "y2"},
+		},
+		VBands: []viewspec.VBand{
+			{From: 1, To: 2, Axis: "y", Label: "primary band"},
+			{From: 10, To: 20, Axis: "y2", Label: "secondary band"},
+		},
+	}
+	opt := echartsOptionForTest(t, res)
+	series := opt["series"].([]any)
+	primary := series[0].(map[string]any)
+	secondary := series[1].(map[string]any)
+	primaryArea, _ := json.Marshal(primary["markArea"])
+	secondaryArea, _ := json.Marshal(secondary["markArea"])
+	if !strings.Contains(string(primaryArea), "primary band") || strings.Contains(string(primaryArea), "secondary band") {
+		t.Fatalf("primary vband attached to wrong series: %s", primaryArea)
+	}
+	if !strings.Contains(string(secondaryArea), "secondary band") || strings.Contains(string(secondaryArea), "primary band") {
+		t.Fatalf("secondary vband attached to wrong series: %s", secondaryArea)
+	}
+}
+
+func TestEChartsSeriesColorsAndStyle(t *testing.T) {
+	op := 0.42
+	w := 2.4
+	res := viewspec.Resolved{
+		Spec: viewspec.Spec{Encoding: viewspec.Encoding{
+			Color: &viewspec.Channel{Field: "entity", Type: viewspec.Nominal, Opacity: &op,
+				Colors: map[string]string{"buy": "#2d6a4f"}},
+			Y: []viewspec.Channel{{Field: "v"}, {Field: "idx", Mark: viewspec.MarkLine, Width: &w, Dash: "dashed", AxisName: "z"}},
+		}}, Chart: viewspec.ChartBar,
+		Labels:      []string{"a"},
+		ColorSeries: 1,
+		Series: []viewspec.Series{
+			{Label: "buy", Values: []float64{1}},
+			{Label: "idx", Values: []float64{9}, Mark: viewspec.ChartLine},
+		},
+	}
+	out, err := EChartsOptionJSON(res)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, want := range []string{`"color":"#2d6a4f"`, `"opacity":0.42`, `"width":2.4`, `"type":"dashed"`, `"name":"z"`} {
+		if !strings.Contains(out, want) {
+			t.Errorf("series style missing %q: %s", want, out)
+		}
+	}
+}
+
+func TestEChartsCandlestickExtraAppliesSeriesStyleAndAxisName(t *testing.T) {
+	opacity := 0.42
+	width := 2.4
+	res := viewspec.Resolved{
+		Spec: viewspec.Spec{Encoding: viewspec.Encoding{Y: []viewspec.Channel{{
+			Field: "ma", Mark: viewspec.MarkLine, Opacity: &opacity, Width: &width, Dash: "dashed", AxisName: "price",
+		}}}}, Chart: viewspec.ChartCandlestick,
+		Labels: []string{"a"},
+		Series: []viewspec.Series{
+			{Label: "open", Values: []float64{10}}, {Label: "high", Values: []float64{12}},
+			{Label: "low", Values: []float64{8}}, {Label: "close", Values: []float64{11}},
+			{Label: "ma", Values: []float64{10}, Mark: viewspec.ChartLine},
+		},
+	}
+	opt := echartsOptionForTest(t, res)
+	axis := opt["yAxis"].([]any)[0].(map[string]any)
+	if axis["name"] != "price" {
+		t.Fatalf("candlestick axis name = %#v", axis)
+	}
+	extra := opt["series"].([]any)[1].(map[string]any)
+	lineStyle := extra["lineStyle"].(map[string]any)
+	if lineStyle["width"] != width || lineStyle["type"] != "dashed" || lineStyle["opacity"] != opacity {
+		t.Fatalf("candlestick extra style = %#v", extra)
 	}
 }

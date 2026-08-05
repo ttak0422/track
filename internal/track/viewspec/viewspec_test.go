@@ -584,8 +584,18 @@ func TestValidateColorConstraints(t *testing.T) {
 	}
 	multiY := base()
 	multiY.Encoding.Y = append(multiY.Encoding.Y, Channel{Field: "d"})
-	if err := multiY.Validate(); err == nil || !strings.Contains(err.Error(), "single encoding.y") {
-		t.Fatalf("color with multiple y should fail, got %v", err)
+	if err := multiY.Validate(); err == nil || !strings.Contains(err.Error(), "mark is required under encoding.color") {
+		t.Fatalf("extra y without a mark under color should fail, got %v", err)
+	}
+	multiYOK := base()
+	multiYOK.Encoding.Y = append(multiYOK.Encoding.Y, Channel{Field: "d", Mark: MarkLine})
+	if err := multiYOK.Validate(); err != nil {
+		t.Fatalf("extra y with a line mark under color should validate: %v", err)
+	}
+	markOnSplit := base()
+	markOnSplit.Encoding.Y[0].Mark = MarkLine
+	if err := markOnSplit.Validate(); err == nil || !strings.Contains(err.Error(), "encoding.y[0].mark cannot combine") {
+		t.Fatalf("mark on the split y[0] under color should fail, got %v", err)
 	}
 	timeline := base()
 	timeline.Mark = MarkPoint
@@ -1235,3 +1245,156 @@ func equalStrings(a, b []string) bool {
 	}
 	return true
 }
+
+func TestValidateVBandOverlay(t *testing.T) {
+	s := lineSpec()
+	s.Overlays = []Overlay{{YFrom: ptr(10.0)}}
+	if err := s.Validate(); err == nil || !strings.Contains(err.Error(), "needs both yfrom and yto") {
+		t.Fatalf("vband with one end should fail, got %v", err)
+	}
+	s.Overlays = []Overlay{{YFrom: ptr(10.0), YTo: ptr(5.0)}}
+	if err := s.Validate(); err == nil || !strings.Contains(err.Error(), "yfrom < yto") {
+		t.Fatalf("vband with reversed ends should fail, got %v", err)
+	}
+	s.Overlays = []Overlay{{YFrom: ptr(5.0), YTo: ptr(10.0), Label: "high"}}
+	if err := s.Validate(); err != nil {
+		t.Fatalf("vband should validate: %v", err)
+	}
+	res := s.Resolve(nil)
+	if len(res.VBands) != 1 || res.VBands[0].From != 5 || res.VBands[0].To != 10 || res.VBands[0].Label != "high" {
+		t.Fatalf("vband resolve = %+v", res.VBands)
+	}
+}
+
+func TestValidateSeriesStyle(t *testing.T) {
+	base := lineSpec
+	opacityBad := base()
+	opacityBad.Encoding.Y[0].Opacity = ptr(-0.1)
+	if err := opacityBad.Validate(); err == nil || !strings.Contains(err.Error(), "opacity") {
+		t.Fatalf("opacity out of range should fail, got %v", err)
+	}
+	widthNominal := base()
+	widthNominal.Encoding.Y[0].Type = Nominal
+	widthNominal.Encoding.Y[0].Width = ptr(2.0)
+	if err := widthNominal.Validate(); err == nil || !strings.Contains(err.Error(), "quantitative") {
+		t.Fatalf("width on a nominal channel should fail, got %v", err)
+	}
+	dashBad := base()
+	dashBad.Encoding.Y[0].Dash = "wiggly"
+	if err := dashBad.Validate(); err == nil || !strings.Contains(err.Error(), "solid, dashed, or dotted") {
+		t.Fatalf("bad dash should fail, got %v", err)
+	}
+	styleOK := base()
+	styleOK.Encoding.Y[0].Opacity = ptr(0.42)
+	styleOK.Encoding.Y[0].Width = ptr(2.4)
+	styleOK.Encoding.Y[0].Dash = "dashed"
+	if err := styleOK.Validate(); err != nil {
+		t.Fatalf("series style should validate: %v", err)
+	}
+	bar := lineSpec()
+	bar.Mark = MarkBar
+	bar.Encoding.Y[0].Width = ptr(2.0)
+	if err := bar.Validate(); err == nil || !strings.Contains(err.Error(), "line or area") {
+		t.Fatalf("width on a bar channel should fail, got %v", err)
+	}
+	scatter := lineSpec()
+	scatter.Mark = MarkPoint
+	scatter.Encoding.Y[0].Dash = "dotted"
+	if err := scatter.Validate(); err == nil || !strings.Contains(err.Error(), "line or area") {
+		t.Fatalf("dash on a point channel should fail, got %v", err)
+	}
+}
+
+func TestValidateColorColorsAndOpacity(t *testing.T) {
+	colored := lineSpec()
+	colored.Encoding.Color = &Channel{Field: "entity", Type: Nominal, Colors: map[string]string{"buy": "#2d6a4f", "sell": "#a32820"}}
+	if err := colored.Validate(); err != nil {
+		t.Fatalf("color colors should validate: %v", err)
+	}
+	emptyColor := lineSpec()
+	emptyColor.Encoding.Color = &Channel{Field: "entity", Type: Nominal, Colors: map[string]string{"buy": ""}}
+	if err := emptyColor.Validate(); err == nil || !strings.Contains(err.Error(), "needs a color value") {
+		t.Fatalf("empty color value should fail, got %v", err)
+	}
+	faded := lineSpec()
+	faded.Encoding.Color = &Channel{Field: "entity", Type: Nominal, Opacity: ptr(0.42)}
+	if err := faded.Validate(); err != nil {
+		t.Fatalf("color opacity should validate: %v", err)
+	}
+	widthOnColor := lineSpec()
+	widthOnColor.Encoding.Color = &Channel{Field: "entity", Type: Nominal, Width: ptr(2.0)}
+	if err := widthOnColor.Validate(); err == nil || !strings.Contains(err.Error(), "does not take width/dash") {
+		t.Fatalf("width on color should fail, got %v", err)
+	}
+	colorsOnX := lineSpec()
+	colorsOnX.Encoding.X.Colors = map[string]string{"a": "#000"}
+	if err := colorsOnX.Validate(); err == nil || !strings.Contains(err.Error(), "belong on encoding.color") {
+		t.Fatalf("colors on x should fail, got %v", err)
+	}
+}
+
+func TestValidateAxisName(t *testing.T) {
+	s := lineSpec()
+	s.Encoding.Y = append(s.Encoding.Y, Channel{Field: "d", Mark: MarkLine, AxisName: "z"})
+	s.Encoding.Y[0].AxisName = "z"
+	if err := s.Validate(); err != nil {
+		t.Fatalf("consistent axisName should validate: %v", err)
+	}
+	s.Encoding.Y[0].AxisName = "other"
+	if err := s.Validate(); err == nil || !strings.Contains(err.Error(), "conflicts") {
+		t.Fatalf("conflicting axisName should fail, got %v", err)
+	}
+	nominal := lineSpec()
+	nominal.Encoding.Y[0].Type = Nominal
+	nominal.Encoding.Y[0].AxisName = "z"
+	if err := nominal.Validate(); err == nil || !strings.Contains(err.Error(), "quantitative") {
+		t.Fatalf("axisName on a nominal channel should fail, got %v", err)
+	}
+}
+
+func TestResolveColorSplitWithOverlaySeries(t *testing.T) {
+	s := lineSpec()
+	s.Mark = MarkBar
+	s.Encoding.X.Field = "time"
+	s.Encoding.Y[0].Field = "value"
+	s.Encoding.Y[0].Stack = true
+	s.Encoding.Color = &Channel{Field: "entity", Type: Nominal}
+	s.Encoding.Y = append(s.Encoding.Y, Channel{Field: "total", Mark: MarkLine, Title: "index"})
+	recs, _ := dataset.ReadJSONL(strings.NewReader(
+		`{"time":"d1","entity":"a","value":1,"total":10}` + "\n" +
+			`{"time":"d1","entity":"b","value":2,"total":10}` + "\n" +
+			`{"time":"d2","entity":"a","value":3,"total":20}` + "\n" +
+			`{"time":"d2","entity":"b","value":4,"total":20}` + "\n"))
+	res := s.Resolve(recs)
+	if res.Chart != ChartBar {
+		t.Fatalf("chart = %q", res.Chart)
+	}
+	if want := []string{"d1", "d2"}; !equalStrings(res.Labels, want) {
+		t.Fatalf("labels = %v, want %v", res.Labels, want)
+	}
+	if res.ColorSeries != 2 {
+		t.Fatalf("ColorSeries = %d, want 2", res.ColorSeries)
+	}
+	if len(res.Series) != 3 {
+		t.Fatalf("series = %d, want 3 (2 split + 1 overlay)", len(res.Series))
+	}
+	if res.Series[2].Label != "index" || res.Series[2].Mark != ChartLine {
+		t.Fatalf("overlay series = %+v", res.Series[2])
+	}
+	if got := res.Series[2].Values; got[0] != 10 || got[1] != 20 {
+		t.Fatalf("overlay values = %v", got)
+	}
+	// A repeated (label, category) record overwrites both the split and the overlay slot.
+	recs2, _ := dataset.ReadJSONL(strings.NewReader(
+		`{"time":"d1","entity":"a","value":1,"total":10}` + "\n" +
+			`{"time":"d1","entity":"a","value":9,"total":99}` + "\n"))
+	res2 := s.Resolve(recs2)
+	if res2.ColorSeries != 1 || len(res2.Series) != 2 {
+		t.Fatalf("single category should give 1 split + 1 overlay: %+v", res2.Series)
+	}
+	if res2.Series[0].Values[0] != 9 || res2.Series[1].Values[0] != 99 {
+		t.Fatalf("later record should win: %+v", res2.Series)
+	}
+}
+
+func ptr(f float64) *float64 { return &f }

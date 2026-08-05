@@ -149,7 +149,7 @@ const echartsInset = 16
 
 // dataZoomSliderThreshold is the category count past which a chart gets a visible range slider on
 // top of the inside (Shift+wheel/pinch/drag) zoom: short series don't need one, dense time series
-// (the shape the goal articles zoom) do.
+// (the shape that needs one) do.
 // ponytail: fixed count cutoff; derive from label pixel density if charts get configurable widths
 const dataZoomSliderThreshold = 30
 
@@ -246,6 +246,9 @@ func buildSeriesChart(opt map[string]any, res viewspec.Resolved) {
 		if axis == 1 {
 			axisName = "y2"
 		}
+		if name := res.AxisName(axisName); name != "" {
+			out["name"] = name
+		}
 		if lo, hi, ok := res.AxisDomain(axisName); ok {
 			out["min"], out["max"] = lo, hi
 			out["scale"] = true
@@ -284,10 +287,7 @@ func buildSeriesChart(opt map[string]any, res viewspec.Resolved) {
 		if seriesHasHref(s) {
 			es["cursor"] = "pointer"
 		}
-		if form == viewspec.ChartArea {
-			// Fill down to the baseline at the SVG renderer's 30% opacity so both outputs read alike.
-			es["areaStyle"] = map[string]any{"color": seriesFillColor(i), "origin": "start"}
-		}
+		applySeriesStyle(es, res, i, form, i)
 		if form == viewspec.ChartLine || form == viewspec.ChartArea {
 			// No vertex dots, matching the SVG renderer's plain polyline; the axis tooltip still
 			// highlights the hovered point.
@@ -308,10 +308,69 @@ func buildSeriesChart(opt map[string]any, res viewspec.Resolved) {
 		if res.Series[0].Axis == "y2" {
 			axis = 1
 		}
-		yAxes[axis].(map[string]any)["name"] = legend[0]
+		// An explicit axisName wins; otherwise the single series names its own axis.
+		ax := yAxes[axis].(map[string]any)
+		if _, has := ax["name"]; !has {
+			ax["name"] = legend[0]
+		}
 	} else {
 		applyLegend(opt, legend)
 	}
+}
+
+// applySeriesStyle applies the resolved channel style to an ECharts series. seriesIndex addresses the
+// resolved series (so candlestick extras find their y channel), while paletteIndex preserves the
+// renderer's visual slot when synthetic series such as OHLC occupy the first position.
+func applySeriesStyle(es map[string]any, res viewspec.Resolved, seriesIndex int, form viewspec.ChartType, paletteIndex int) {
+	if seriesIndex >= 0 && seriesIndex < len(res.Series) {
+		if color, ok := res.SeriesColor(res.Series[seriesIndex].Label); ok {
+			es["color"] = color
+		}
+	}
+	op := res.SeriesOpacity(seriesIndex)
+	if op != nil {
+		es["itemStyle"] = map[string]any{"opacity": *op}
+	}
+	if form == viewspec.ChartLine || form == viewspec.ChartArea {
+		var lineStyle map[string]any
+		if w, ok := res.SeriesWidth(seriesIndex); ok {
+			lineStyle = map[string]any{"width": w}
+		}
+		if dash := res.SeriesDash(seriesIndex); dash != "" {
+			if lineStyle == nil {
+				lineStyle = map[string]any{}
+			}
+			lineStyle["type"] = dash
+		}
+		if op != nil {
+			if lineStyle == nil {
+				lineStyle = map[string]any{}
+			}
+			lineStyle["opacity"] = *op
+		}
+		if lineStyle != nil {
+			es["lineStyle"] = lineStyle
+		}
+	}
+	if form == viewspec.ChartArea {
+		areaStyle := map[string]any{"origin": "start"}
+		if op != nil {
+			areaStyle["color"] = seriesBaseColor(res, seriesIndex, paletteIndex)
+			areaStyle["opacity"] = *op
+		} else {
+			areaStyle["color"] = seriesFillColor(res, seriesIndex, paletteIndex)
+		}
+		es["areaStyle"] = areaStyle
+	}
+}
+
+func seriesBaseColor(res viewspec.Resolved, seriesIndex, paletteIndex int) string {
+	if seriesIndex >= 0 && seriesIndex < len(res.Series) {
+		if color, ok := res.SeriesColor(res.Series[seriesIndex].Label); ok {
+			return color
+		}
+	}
+	return seriesColor(paletteIndex)
 }
 
 // seriesData emits a series' data items: bare numbers normally, {value, ...} objects when the spec's
@@ -374,15 +433,20 @@ func echartsSeriesType(t viewspec.ChartType) string {
 // buildHBar draws a ranking: categories run down the y-axis (inverse keeps the first — often the
 // top-sorted — label at the top, matching the SVG renderer) and the measure runs along x.
 func buildHBar(opt map[string]any, res viewspec.Resolved) {
-	opt["xAxis"] = map[string]any{"type": "value"}
+	xAxis := map[string]any{"type": "value"}
+	if name := res.AxisName("y"); name != "" {
+		xAxis["name"] = name
+	}
+	opt["xAxis"] = xAxis
 	opt["yAxis"] = map[string]any{"type": "category", "data": res.Labels, "inverse": true}
 	var series []any
 	var legend []string
-	for _, s := range res.Series {
+	for i, s := range res.Series {
 		es := map[string]any{"name": s.Label, "type": "bar", "data": seriesData(s)}
 		if seriesHasHref(s) {
 			es["cursor"] = "pointer"
 		}
+		applySeriesStyle(es, res, i, viewspec.ChartBar, i)
 		if res.Stacked {
 			es["stack"] = "total"
 		}
@@ -398,10 +462,14 @@ func buildHBar(opt map[string]any, res viewspec.Resolved) {
 // non-positive radius falls back to a small visible default, like the other renderers.
 func buildBubble(opt map[string]any, res viewspec.Resolved) {
 	opt["xAxis"] = map[string]any{"type": "value"}
-	opt["yAxis"] = map[string]any{"type": "value"}
+	yAxis := map[string]any{"type": "value"}
+	if name := res.AxisName("y"); name != "" {
+		yAxis["name"] = name
+	}
+	opt["yAxis"] = yAxis
 	var series []any
 	var legend []string
-	for _, s := range res.Series {
+	for i, s := range res.Series {
 		var data []any
 		for _, p := range s.Points {
 			if math.IsNaN(p.X) || math.IsNaN(p.Y) {
@@ -414,7 +482,9 @@ func buildBubble(opt map[string]any, res viewspec.Resolved) {
 			// symbolSize is a diameter; the resolved radius matches the SVG renderer's pixels.
 			data = append(data, map[string]any{"value": []any{p.X, p.Y}, "symbolSize": 2 * r})
 		}
-		series = append(series, map[string]any{"name": s.Label, "type": "scatter", "data": data})
+		es := map[string]any{"name": s.Label, "type": "scatter", "data": data}
+		applySeriesStyle(es, res, i, viewspec.ChartScatter, i)
+		series = append(series, es)
 		legend = append(legend, s.Label)
 	}
 	opt["series"] = series
@@ -432,7 +502,11 @@ func buildCandlestick(opt map[string]any, res viewspec.Resolved) {
 	opt["xAxis"] = map[string]any{"type": "category", "data": res.Labels}
 
 	extras := res.Series[min(len(res.Series), len(viewspec.CandleSeries)):]
-	yAxes := []any{map[string]any{"type": "value", "scale": true}}
+	primaryAxis := map[string]any{"type": "value", "scale": true}
+	if name := res.AxisName("y"); name != "" {
+		primaryAxis["name"] = name
+	}
+	yAxes := []any{primaryAxis}
 	if usesY2, y2max := candleY2(extras); usesY2 {
 		// The secondary axis exists to host volume-style bars under the candles: gridlines and labels
 		// stay off (the magnitude is tooltip detail, not an axis to read), and when every y2 series is
@@ -444,6 +518,9 @@ func buildCandlestick(opt map[string]any, res viewspec.Resolved) {
 		}
 		if y2max > 0 {
 			axis["max"] = y2max
+		}
+		if name := res.AxisName("y2"); name != "" {
+			axis["name"] = name
 		}
 		yAxes = append(yAxes, axis)
 	}
@@ -470,12 +547,18 @@ func buildCandlestick(opt map[string]any, res viewspec.Resolved) {
 		},
 	}}
 	var legend []string
-	for _, s := range extras {
+	for i, s := range extras {
 		es := map[string]any{
 			"name": s.Label,
 			"type": echartsSeriesType(s.Mark),
 			"data": candleExtraData(s),
 		}
+		seriesIndex := i + len(viewspec.CandleSeries)
+		form := s.Mark
+		if form == "" {
+			form = viewspec.ChartLine
+		}
+		applySeriesStyle(es, res, seriesIndex, form, i+1)
 		if s.Mark == viewspec.ChartLine || s.Mark == viewspec.ChartArea {
 			es["showSymbol"] = false
 		}
@@ -720,13 +803,13 @@ func boxSource(href string) (link, host string) {
 	return "", ""
 }
 
-// applyOverlays attaches the resolved overlay geometry to the first series: vertical marker lines and
+// applyOverlays attaches the resolved overlay geometry to ECharts series: vertical marker lines and
 // horizontal reference lines as markLine data, bands as markArea ranges, callouts as markPoint
-// bubbles. ECharts scopes mark geometry to a series, so a reference line on the secondary axis rides
-// a y2-bound series (any one works; the geometry itself is chart-global). Colors match the other
+// bubbles. ECharts scopes mark geometry to a series, so axis-bound geometry rides a series on the
+// matching axis (any one works; the geometry itself is chart-global). Colors match the other
 // renderers' overlay red and band gray.
 func applyOverlays(opt map[string]any, res viewspec.Resolved) {
-	if len(res.Markers)+len(res.Lines)+len(res.Bands)+len(res.Callouts) == 0 {
+	if len(res.Markers)+len(res.Lines)+len(res.Bands)+len(res.VBands)+len(res.Callouts) == 0 {
 		return
 	}
 	series, ok := opt["series"].([]any)
@@ -850,11 +933,29 @@ func applyOverlays(opt map[string]any, res viewspec.Resolved) {
 			}
 			ranges = append(ranges, []any{from, map[string]any{"xAxis": bd.To}})
 		}
-		first["markArea"] = map[string]any{
-			"silent":    true,
-			"data":      ranges,
-			"itemStyle": map[string]any{"color": "rgba(108,117,125,0.15)"},
-			"label":     map[string]any{"color": "#6c757d"},
+		setMarkArea(first, ranges)
+	}
+
+	// Y-range bands (vband) shade a value span on a value axis — e.g. target ranges — as a second
+	// markArea. Attach each range to a series using its axis so ECharts interprets yAxis values against
+	// the intended scale. The x bands above and these can coexist on one series.
+	if len(res.VBands) > 0 {
+		byAxis := [2][]any{}
+		for _, vb := range res.VBands {
+			from := map[string]any{"yAxis": vb.From}
+			if vb.Label != "" {
+				from["name"] = vb.Label
+			}
+			axis := 0
+			if vb.Axis == "y2" {
+				axis = 1
+			}
+			byAxis[axis] = append(byAxis[axis], []any{from, map[string]any{"yAxis": vb.To}})
+		}
+		for axis, ranges := range byAxis {
+			if target := seriesOnAxis(series, axis); target != nil {
+				setMarkArea(target, ranges)
+			}
 		}
 	}
 
@@ -891,20 +992,55 @@ func applyOverlays(opt map[string]any, res viewspec.Resolved) {
 // seriesOnY2 finds a series bound to the secondary axis to carry y2 mark geometry; a y2 reference
 // line without any y2 series has no scale to sit on and is dropped, like the SVG renderer.
 func seriesOnY2(series []any) map[string]any {
+	return seriesOnAxis(series, 1)
+}
+
+func seriesOnAxis(series []any, axis int) map[string]any {
 	for _, s := range series {
 		m, ok := s.(map[string]any)
-		if ok && m["yAxisIndex"] == 1 {
+		if !ok {
+			continue
+		}
+		index := 0
+		if value, ok := m["yAxisIndex"].(int); ok {
+			index = value
+		}
+		if index == axis {
 			return m
 		}
 	}
 	return nil
 }
 
-// seriesFillColor is the shared palette color at the same 30% opacity the SVG renderer fills areas
-// with, so an area chart reads identically in HTML and SVG output.
-func seriesFillColor(i int) string {
-	hex := seriesColor(i) // "#rrggbb" from the shared palette
-	v, err := strconv.ParseUint(hex[1:], 16, 32)
+func setMarkArea(series map[string]any, ranges []any) {
+	if series == nil || len(ranges) == 0 {
+		return
+	}
+	area := map[string]any{
+		"silent":    true,
+		"data":      ranges,
+		"itemStyle": map[string]any{"color": "rgba(108,117,125,0.15)"},
+		"label":     map[string]any{"color": "#6c757d"},
+	}
+	if existing, ok := series["markArea"].(map[string]any); ok {
+		if data, ok := existing["data"].([]any); ok {
+			area["data"] = append(data, ranges...)
+		}
+	}
+	series["markArea"] = area
+}
+
+// seriesFillColor is the series color at the same 30% opacity the SVG renderer fills areas with, so
+// an area chart reads identically in HTML and SVG output, including explicit category colors.
+func seriesFillColor(res viewspec.Resolved, seriesIndex, paletteIndex int) string {
+	hex := seriesBaseColor(res, seriesIndex, paletteIndex)
+	value := strings.TrimPrefix(hex, "#")
+	if len(value) == 3 {
+		value = string([]byte{value[0], value[0], value[1], value[1], value[2], value[2]})
+	} else if len(value) != 6 {
+		return hex
+	}
+	v, err := strconv.ParseUint(value, 16, 32)
 	if err != nil {
 		return hex
 	}

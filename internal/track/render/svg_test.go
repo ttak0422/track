@@ -227,6 +227,25 @@ func TestSVGBubbleRenders(t *testing.T) {
 	}
 }
 
+func TestSVGBubbleAppliesSeriesStyleAndAxisName(t *testing.T) {
+	op := 0.42
+	res := viewspec.Resolved{
+		Spec: viewspec.Spec{Encoding: viewspec.Encoding{
+			Y: []viewspec.Channel{{Field: "value", AxisName: "score"}},
+			Color: &viewspec.Channel{Field: "entity", Type: viewspec.Nominal, Opacity: &op,
+				Colors: map[string]string{"buy": "#2d6a4f"}},
+		}}, Chart: viewspec.ChartBubble, ColorSeries: 1,
+		Series: []viewspec.Series{{Label: "buy", Points: []viewspec.Point{{X: 1, Y: 2, R: 4}}}},
+	}
+	out, err := SVG{}.Render(res)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(out, `fill="#2d6a4f"`) || !strings.Contains(out, `fill-opacity="0.42"`) || !strings.Contains(out, "score") {
+		t.Fatalf("bubble style or axis name missing: %s", out)
+	}
+}
+
 func TestSVGThinsDenseCategoryLabels(t *testing.T) {
 	// A daily series has far more categories than fit as axis labels; only every step-th is drawn.
 	labels := make([]string, 90)
@@ -532,5 +551,62 @@ func TestSVGSelfContainedNoCDN(t *testing.T) {
 func TestSVGRegistered(t *testing.T) {
 	if _, err := Get("svg"); err != nil {
 		t.Fatalf("svg should be registered: %v", err)
+	}
+}
+
+func TestSVGSeriesStyleAndVBand(t *testing.T) {
+	op := 0.42
+	w := 2.4
+	res := viewspec.Resolved{
+		Spec: viewspec.Spec{Encoding: viewspec.Encoding{
+			Color: &viewspec.Channel{Field: "entity", Type: viewspec.Nominal, Opacity: &op,
+				Colors: map[string]string{"buy": "#2d6a4f"}},
+			Y: []viewspec.Channel{{Field: "v"}, {Field: "idx", Mark: viewspec.MarkLine, Width: &w, Dash: "dashed"}},
+		}}, Chart: viewspec.ChartBar,
+		Labels:      []string{"a", "b"},
+		ColorSeries: 1,
+		Series: []viewspec.Series{
+			{Label: "buy", Values: []float64{1, 2}},
+			{Label: "idx", Values: []float64{3, 4}, Mark: viewspec.ChartLine},
+		},
+		VBands: []viewspec.VBand{{From: 1, To: 3, Label: "high"}},
+	}
+	out, err := SVG{}.Render(res)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, want := range []string{`fill="#2d6a4f"`, `opacity="0.42"`, `stroke-width="2.40"`, `stroke-dasharray="6 4"`} {
+		if !strings.Contains(out, want) {
+			t.Errorf("styled series missing %q: %s", want, out)
+		}
+	}
+	// A vband shades a full-width rect inside the plot area; the label rides at its top edge.
+	if !strings.Contains(out, `fill-opacity="0.15"`) || !strings.Contains(out, "high") {
+		t.Fatalf("vband rect or label missing: %s", out)
+	}
+}
+
+func TestSVGCandlestickExtraAppliesSeriesStyleAndAxisName(t *testing.T) {
+	op := 0.42
+	w := 2.4
+	res := viewspec.Resolved{
+		Spec: viewspec.Spec{Encoding: viewspec.Encoding{Y: []viewspec.Channel{{
+			Field: "ma", Mark: viewspec.MarkLine, Opacity: &op, Width: &w, Dash: "dashed", AxisName: "price",
+		}}}}, Chart: viewspec.ChartCandlestick,
+		Labels: []string{"a", "b"},
+		Series: []viewspec.Series{
+			{Label: "open", Values: []float64{10, 11}}, {Label: "high", Values: []float64{12, 13}},
+			{Label: "low", Values: []float64{8, 9}}, {Label: "close", Values: []float64{11, 12}},
+			{Label: "ma", Values: []float64{10, 11}, Mark: viewspec.ChartLine},
+		},
+	}
+	out, err := SVG{}.Render(res)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, want := range []string{`stroke-width="2.40"`, `stroke-dasharray="6 4"`, `opacity="0.42"`, "price"} {
+		if !strings.Contains(out, want) {
+			t.Errorf("candlestick extra missing %q: %s", want, out)
+		}
 	}
 }
