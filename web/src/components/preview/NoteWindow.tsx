@@ -18,8 +18,14 @@ export function NoteWindow({ noteID, ...controls }: NoteWindowProps) {
   const note = useNoteQuery(noteID);
   // Sanitize the previewed body the same way as the main reader, so action links are flattened here too.
   const vault = vaultOf(noteID);
-  const rendered = useRenderQuery(note.data?.note.body ?? "", vault);
+  const body = note.data?.note.body ?? "";
+  const rendered = useRenderQuery(body, vault);
   const title = note.data?.note.title ?? "Preview";
+  // Hold the loading state until the sanitized body is in hand: the note and its render land in two
+  // steps, and drawing an empty MarkdownView in between makes FloatingWindow's auto-fit shrink to
+  // nothing and then jump back to the real height. An empty note (or a failed render) has nothing to
+  // wait for, so it falls through to the empty view instead of spinning forever.
+  const awaitingRender = body.trim() !== "" && rendered.data === undefined && !rendered.isError;
 
   return (
     <FloatingWindow
@@ -27,9 +33,9 @@ export function NoteWindow({ noteID, ...controls }: NoteWindowProps) {
       {...controls}
       onJump={() => navigate({ to: "/notes/$noteId", params: { noteId: String(noteID) } })}
     >
-      {note.isPending ? <LoadingIndicator label="Loading note" /> : null}
+      {note.isPending || awaitingRender ? <LoadingIndicator label="Loading note" /> : null}
       {note.isError ? <p className="error">{note.error.message}</p> : null}
-      {note.data ? (
+      {note.data && !awaitingRender ? (
         <PreviewDepthContext.Provider value={controls.depth + 1}>
           <MarkdownView
             markdown={rendered.data?.markdown ?? ""}
