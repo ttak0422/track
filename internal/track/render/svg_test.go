@@ -633,3 +633,25 @@ func TestSVGTimelinePointColors(t *testing.T) {
 		t.Fatalf("timeline dots should carry per-point colors: %s", out)
 	}
 }
+
+func TestSVGGaugeDrawsDial(t *testing.T) {
+	res := viewspec.Resolved{
+		Spec: viewspec.Spec{Title: "G"}, Chart: viewspec.ChartGauge,
+		Gauge: &viewspec.Gauge{Value: 7, Min: -9, Max: 18},
+		VBands: []viewspec.VBand{
+			{From: 0, To: 5, Label: "low"},
+			{From: 5, To: 10, Label: "medium"},
+			{From: -9, To: 0, Label: "comfort"},
+			{From: 10, To: 18, Label: "high"},
+		},
+	}
+	out, err := SVG{}.Render(res)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, want := range []string{"<path", `stroke="#3fae7a"`, `stroke="#cf4436"`, "7", "medium"} {
+		if !strings.Contains(out, want) {
+			t.Errorf("gauge output missing %q: %s", want, out)
+		}
+	}
+}

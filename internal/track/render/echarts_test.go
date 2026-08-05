@@ -904,3 +904,43 @@ func TestEChartsTimelinePointColors(t *testing.T) {
 		t.Fatalf("sell dot should take the next palette slot: %s", out)
 	}
 }
+
+func TestEChartsGaugeDialZones(t *testing.T) {
+	res := viewspec.Resolved{
+		Spec: viewspec.Spec{}, Chart: viewspec.ChartGauge,
+		Gauge: &viewspec.Gauge{Value: 14, Min: -9, Max: 18},
+		VBands: []viewspec.VBand{
+			{From: 10, To: 18, Label: "high"},
+			{From: 0, To: 5, Label: "low"},
+			{From: 5, To: 10, Label: "medium"},
+			{From: -9, To: 0, Label: "comfort"},
+		},
+	}
+	out, err := EChartsOptionJSON(res)
+	if err != nil {
+		t.Fatal(err)
+	}
+	opt := echartsOptionForTest(t, res)
+	series := opt["series"].([]any)[0].(map[string]any)
+	if series["type"] != "gauge" {
+		t.Fatalf("want a gauge series: %s", out)
+	}
+	if series["min"] != -9.0 || series["max"] != 18.0 {
+		t.Fatalf("gauge range = %v..%v", series["min"], series["max"])
+	}
+	data := series["data"].([]any)[0].(map[string]any)
+	if data["value"] != 14.0 {
+		t.Fatalf("gauge value = %v", data["value"])
+	}
+	segs := series["axisLine"].(map[string]any)["lineStyle"].(map[string]any)["color"].([]any)
+	// Zones sorted by From: -9..0 → 0.333 green, 0..5 → 0.518 yellow, 5..10 → 0.704 orange,
+	// 10..18 → 1.0 red — the goal dial's exact boundaries.
+	want := [][]any{{0.333, "#3fae7a"}, {0.518, "#e3b53a"}, {0.704, "#df8a3a"}, {1.0, "#cf4436"}}
+	for i, seg := range segs {
+		pair := seg.([]any)
+		f := pair[0].(float64)
+		if math.Abs(f-want[i][0].(float64)) > 0.002 || pair[1] != want[i][1] {
+			t.Fatalf("segment %d = %v, want %v", i, pair, want[i])
+		}
+	}
+}

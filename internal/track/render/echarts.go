@@ -6,6 +6,7 @@ import (
 	"html"
 	"math"
 	"net/url"
+	"slices"
 	"sort"
 	"strconv"
 	"strings"
@@ -89,6 +90,8 @@ func echartsOption(res viewspec.Resolved) (map[string]any, error) {
 		buildCandlestick(opt, res)
 	case viewspec.ChartHBar:
 		buildHBar(opt, res)
+	case viewspec.ChartGauge:
+		buildGauge(opt, res)
 	default: // line, area, bar, scatter — category x, numeric y series
 		buildSeriesChart(opt, res)
 	}
@@ -1124,4 +1127,80 @@ func gridColorPalette(res viewspec.Resolved) map[string]string {
 		slot++
 	}
 	return out
+}
+
+// gaugeZoneColors paint a gauge's dial zones bottom-up (green → yellow → orange → red, the market
+// convention for "comfortable → pressured"). They cycle when a spec declares more than four zones;
+// the spans between declared zones stay neutral.
+var gaugeZoneColors = []string{"#3fae7a", "#e3b53a", "#df8a3a", "#cf4436"}
+
+// buildGauge draws the gauge form: an ECharts gauge series whose axis line is segmented by the
+// spec's vband overlays (each zone's value span mapped onto the dial range), with a pointer and the
+// value shown under the dial. Everything stays pure JSON — the detail formatter is the string
+// template "{value}", never a function.
+func buildGauge(opt map[string]any, res viewspec.Resolved) {
+	g := res.Gauge
+	if g == nil {
+		g = &viewspec.Gauge{}
+	}
+	span := g.Max - g.Min
+	frac := func(v float64) float64 {
+		if span == 0 {
+			return 0
+		}
+		return (v - g.Min) / span
+	}
+	// Dial zones: vbands clamped to the range and sorted by their lower bound; the gaps between
+	// them (and outside them) draw neutral so the colored segments always tile 0..1.
+	zones := append([]viewspec.VBand(nil), res.VBands...)
+	slices.SortFunc(zones, func(a, b viewspec.VBand) int {
+		switch {
+		case a.From < b.From:
+			return -1
+		case a.From > b.From:
+			return 1
+		}
+		return 0
+	})
+	var segments []any
+	cursor := 0.0
+	for i, z := range zones {
+		from, to := math.Max(z.From, g.Min), math.Min(z.To, g.Max)
+		if to <= from {
+			continue
+		}
+		start, end := frac(from), frac(to)
+		if start > cursor {
+			segments = append(segments, []any{cursor, "#e0e0e0"})
+		}
+		segments = append(segments, []any{end, gaugeZoneColors[i%len(gaugeZoneColors)]})
+		cursor = end
+	}
+	if cursor < 1 {
+		segments = append(segments, []any{1, "#e0e0e0"})
+	}
+	if len(segments) == 0 {
+		segments = append(segments, []any{1, "#e0e0e0"})
+	}
+	series := map[string]any{
+		"type": "gauge",
+		"min":  g.Min,
+		"max":  g.Max,
+		"axisLine": map[string]any{
+			"lineStyle": map[string]any{"width": 15, "color": segments},
+		},
+		"axisTick":  map[string]any{"show": false},
+		"splitLine": map[string]any{"show": false},
+		"axisLabel": map[string]any{"show": false},
+		"pointer":   map[string]any{"width": 4, "length": "46%"},
+		"anchor":    map[string]any{"show": true, "size": 8},
+		"detail": map[string]any{
+			"formatter":    "{value}",
+			"fontSize":     36,
+			"offsetCenter": []any{0, "38%"},
+		},
+		"title": map[string]any{"show": false},
+		"data":  []any{map[string]any{"value": g.Value}},
+	}
+	opt["series"] = []any{series}
 }

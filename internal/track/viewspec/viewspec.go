@@ -39,11 +39,12 @@ const (
 	MarkRect        Mark = "rect"        // heatmap: a grid colored by a value channel
 	MarkCandlestick Mark = "candlestick" // OHLC bars for the price kind; open/high/low/close are implied, so no y channels
 	MarkTreemap     Mark = "treemap"     // area-proportional rectangles (size), colored by a value (color), grouped one level (y[0])
+	MarkGauge       Mark = "gauge"       // a dial: the last value of y[0] on a semicircle, with vband overlays as colored zones
 )
 
 // Marks lists the marks a spec may use, in a stable order. It is the single source for both validation
 // and help text, so a new mark shows up in `track render --help` automatically.
-var Marks = []Mark{MarkLine, MarkBar, MarkPoint, MarkArea, MarkRect, MarkCandlestick, MarkTreemap}
+var Marks = []Mark{MarkLine, MarkBar, MarkPoint, MarkArea, MarkRect, MarkCandlestick, MarkTreemap, MarkGauge}
 
 // validMark reports whether m is a drawable mark.
 func validMark(m Mark) bool { return slices.Contains(Marks, m) }
@@ -83,6 +84,7 @@ const (
 	ChartTimeline    ChartType = "timeline"    // point mark, nominal y: swimlane dots sized by the size channel
 	ChartCandlestick ChartType = "candlestick" // candlestick mark: OHLC bars over a category x axis
 	ChartTreemap     ChartType = "treemap"     // treemap mark: axis-less area rectangles colored by the color channel
+	ChartGauge       ChartType = "gauge"       // gauge mark: a dial showing the last value, vbands as zones
 )
 
 // AxisOptions lists the valid y-series axis assignments (primary, secondary, tertiary), for help
@@ -231,6 +233,8 @@ func (s Spec) chart() ChartType {
 		return ChartCandlestick
 	case MarkTreemap:
 		return ChartTreemap
+	case MarkGauge:
+		return ChartGauge
 	default: // line
 		return ChartLine
 	}
@@ -487,7 +491,8 @@ func (s Spec) Validate() error {
 	if !s.Data.Kind.Valid() {
 		return fmt.Errorf("view spec: data.kind %q is not a canonical kind", s.Data.Kind)
 	}
-	if err := s.Encoding.validate(s.Mark != MarkCandlestick && s.Mark != MarkTreemap); err != nil {
+	if err := s.Encoding.validate(s.Mark != MarkCandlestick && s.Mark != MarkTreemap && s.Mark != MarkGauge,
+		s.Mark != MarkCandlestick && s.Mark != MarkTreemap); err != nil {
 		return err
 	}
 	if err := s.validateChannelOptions(); err != nil {
@@ -542,7 +547,7 @@ func (s Spec) Validate() error {
 	// yet. An explicit error beats silently dropping them (the strict-schema stance).
 	if s.Encoding.Href != nil || s.Encoding.Note != nil || len(s.Encoding.Detail) > 0 {
 		switch s.chart() {
-		case ChartHeatmap, ChartTimeline, ChartBubble, ChartCandlestick, ChartTreemap:
+		case ChartHeatmap, ChartTimeline, ChartBubble, ChartCandlestick, ChartTreemap, ChartGauge:
 			return fmt.Errorf("view spec: encoding.detail/href are not supported on %s charts", s.chart())
 		}
 	}
@@ -699,6 +704,27 @@ func (s Spec) Validate() error {
 		}
 		axisNames[a] = y.AxisName
 	}
+	// A gauge is a dial over one measure: exactly one quantitative y channel on the primary axis,
+	// no other channels, and vband overlays only (they become the dial's colored zones).
+	if s.Mark == MarkGauge {
+		if len(s.Encoding.Y) == 0 || s.Encoding.Y[0].nominal() {
+			return fmt.Errorf("view spec: mark gauge needs a quantitative encoding.y[0] (the value to show)")
+		}
+		if len(s.Encoding.Y) > 1 {
+			return fmt.Errorf("view spec: mark gauge takes exactly one encoding.y channel")
+		}
+		if a := s.Encoding.Y[0].axisID(); a != "y" {
+			return fmt.Errorf("view spec: mark gauge draws on the primary axis only (y[0].axis is %q)", a)
+		}
+		if s.Encoding.Color != nil || s.Encoding.Size != nil || s.Encoding.Href != nil || s.Encoding.Note != nil || len(s.Encoding.Detail) > 0 {
+			return fmt.Errorf("view spec: mark gauge does not take encoding.color/size/detail/href/note")
+		}
+		for i, o := range s.Overlays {
+			if o.YFrom == nil {
+				return fmt.Errorf("view spec: overlays[%d] on mark gauge must be a vband (a dial zone)", i)
+			}
+		}
+	}
 	for i, o := range s.Overlays {
 		if err := o.validate(i); err != nil {
 			return err
@@ -708,7 +734,7 @@ func (s Spec) Validate() error {
 		// An explicit error beats silently dropping the mode (the strict-schema stance).
 		if o.Display == "box" {
 			switch s.chart() {
-			case ChartHeatmap, ChartTimeline, ChartBubble, ChartHBar:
+			case ChartHeatmap, ChartTimeline, ChartBubble, ChartHBar, ChartGauge:
 				return fmt.Errorf("view spec: overlays[%d].display %q is not supported on %s charts", i, "box", s.chart())
 			}
 		}
@@ -724,8 +750,8 @@ func (s Spec) Validate() error {
 // validate checks the encoding: an x field, at least one y series (unless the mark implies its
 // vertical encoding, as candlestick does), and valid types/axes on every channel (including the
 // optional color/size).
-func (e Encoding) validate(yRequired bool) error {
-	if e.X.Field == "" {
+func (e Encoding) validate(xRequired, yRequired bool) error {
+	if xRequired && e.X.Field == "" {
 		return fmt.Errorf("view spec: encoding.x.field is required")
 	}
 	if err := e.X.validateType("encoding.x"); err != nil {
@@ -1176,6 +1202,14 @@ type VBand struct {
 	Label    string
 }
 
+// Gauge is the resolved form of a gauge mark: the value to show (the last record's y[0] value) and
+// the dial's [Min, Max] range (y[0].domain, defaulting to 0..100). The dial's colored zones are the
+// spec's vband overlays, resolved into Resolved.VBands like everywhere else.
+type Gauge struct {
+	Value    float64
+	Min, Max float64
+}
+
 // Resolved is a Spec applied to data: the resolved drawing form plus the shared x-axis labels and one
 // Series per y encoding. A Renderer consumes Resolved and never touches raw records, keeping field
 // extraction in one place. Grid is set instead of Series for grid forms (heatmap/timeline); Tree for
@@ -1193,6 +1227,10 @@ type Resolved struct {
 	Bands    []Band    // x-range highlights, filled by Resolve (they carry no data source)
 	VBands   []VBand   // y-range highlights, filled by Resolve (they carry no data source)
 	Callouts []Callout // text bubbles pointing at data points, filled by Resolve (literal values)
+
+	// Gauge is set instead of Series for the gauge form (dial value + range); its zones live in
+	// VBands above.
+	Gauge *Gauge
 
 	// ColorSeries is the number of leading series produced by a nominal color split; series past it
 	// are the explicit extra y channels. It is 0 without a color split, and renderers use it to map
@@ -1331,6 +1369,8 @@ func (s Spec) Resolve(records []dataset.Record) Resolved {
 	case ChartTreemap:
 		t := s.resolveTree(records)
 		res.Tree = &t
+	case ChartGauge:
+		s.resolveGauge(records, &res)
 	default: // line, area, bar, scatter — category x, numeric y series
 		s.resolveSeries(records, &res)
 	}
@@ -1356,6 +1396,21 @@ func (s Spec) Resolve(records []dataset.Record) Resolved {
 		}
 	}
 	return res
+}
+
+// resolveGauge reads the dial value: the last finite y[0] value across the filtered records, with
+// the range from y[0].domain (0..100 when the spec declares none).
+func (s Spec) resolveGauge(records []dataset.Record, res *Resolved) {
+	g := &Gauge{Min: 0, Max: 100}
+	if d := s.Encoding.Y[0].Domain; len(d) == 2 {
+		g.Min, g.Max = d[0], d[1]
+	}
+	for _, rec := range s.filtered(records) {
+		if v := floatOrNaN(rec, s.Encoding.Y[0].Field); !math.IsNaN(v) {
+			g.Value = v
+		}
+	}
+	res.Gauge = g
 }
 
 // resolveSeries maps records onto category x-axis labels and one numeric y series per y channel — the

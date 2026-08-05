@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"html"
 	"math"
+	"slices"
 	"strconv"
 	"strings"
 
@@ -86,6 +87,8 @@ func (SVG) Render(res viewspec.Resolved) (string, error) {
 		return renderGrid(res), nil
 	case viewspec.ChartTreemap:
 		return renderTreemap(res), nil
+	case viewspec.ChartGauge:
+		return renderGauge(res), nil
 	}
 	g := svgGeom{w: 800, h: 480, left: 56, right: 16, top: 40, bottom: 56}
 	lo, hi := valueRange(res)
@@ -925,4 +928,103 @@ func bubbleRange(series []viewspec.Series) (xlo, xhi, ylo, yhi float64) {
 // output is stable across platforms (Go's float formatting is deterministic at fixed precision).
 func num(v float64) string {
 	return strconv.FormatFloat(v, 'f', 2, 64)
+}
+
+// renderGauge draws the gauge form as a static dial: a semicircular arc segmented into the spec's
+// vband zones (green → yellow → orange → red bottom-up, neutral gaps), a needle at the value, and
+// the value with its active zone label under the dial. The dial spans 180° — min at the left end,
+// max at the right.
+func renderGauge(res viewspec.Resolved) string {
+	g := res.Gauge
+	if g == nil {
+		g = &viewspec.Gauge{}
+	}
+	const (
+		w, h = 300.0, 220.0
+		cx   = 150.0
+		cy   = 150.0
+		r    = 96.0
+	)
+	span := g.Max - g.Min
+	angle := func(v float64) float64 {
+		if span == 0 {
+			return 180
+		}
+		return 180 * (1 - (v-g.Min)/span) // 180° (left) .. 0° (right)
+	}
+	point := func(v float64) (float64, float64) {
+		rad := angle(v) * math.Pi / 180
+		return cx + r*math.Cos(rad), cy - r*math.Sin(rad)
+	}
+	arcPath := func(from, to float64) string {
+		x1, y1 := point(from)
+		x2, y2 := point(to)
+		large := 0
+		if angle(from)-angle(to) > 180 {
+			large = 1
+		}
+		return fmt.Sprintf("M %s %s A %g %g 0 %d 1 %s %s",
+			num(x1), num(y1), r, r, large, num(x2), num(y2))
+	}
+
+	var b strings.Builder
+	writeSVGHeader(&b, svgGeom{w: w, h: h}, res.Spec.Title)
+
+	zones := append([]viewspec.VBand(nil), res.VBands...)
+	slices.SortFunc(zones, func(a, b viewspec.VBand) int {
+		switch {
+		case a.From < b.From:
+			return -1
+		case a.From > b.From:
+			return 1
+		}
+		return 0
+	})
+	cursor := g.Min
+	for i, z := range zones {
+		from, to := math.Max(z.From, g.Min), math.Min(z.To, g.Max)
+		if to <= from {
+			continue
+		}
+		if from > cursor {
+			fmt.Fprintf(&b, `<path d="%s" fill="none" stroke="#e0e0e0" stroke-width="15"/>`+"\n",
+				arcPath(cursor, from))
+		}
+		fmt.Fprintf(&b, `<path d="%s" fill="none" stroke="%s" stroke-width="15"/>`+"\n",
+			arcPath(from, to), gaugeZoneColors[i%len(gaugeZoneColors)])
+		cursor = to
+	}
+	if cursor < g.Max {
+		fmt.Fprintf(&b, `<path d="%s" fill="none" stroke="#e0e0e0" stroke-width="15"/>`+"\n",
+			arcPath(cursor, g.Max))
+	}
+
+	// The needle: a line from the dial center to 74% of the radius, plus the anchor dot.
+	if !math.IsNaN(g.Value) {
+		rad := angle(g.Value) * math.Pi / 180
+		nx, ny := cx+0.74*r*math.Cos(rad), cy-0.74*r*math.Sin(rad)
+		fmt.Fprintf(&b, `<line x1="%g" y1="%g" x2="%s" y2="%s" stroke="#1a1612" stroke-width="4"/>`+"\n",
+			cx, cy, num(nx), num(ny))
+	}
+	fmt.Fprintf(&b, `<circle cx="%g" cy="%g" r="8" fill="#1a1612"/>`+"\n", cx, cy)
+
+	if !math.IsNaN(g.Value) {
+		fmt.Fprintf(&b, `<text x="%g" y="%s" font-size="36" text-anchor="middle" fill="#1a1612">%s</text>`+"\n",
+			cx, num(cy+62), num(g.Value))
+	}
+	zone := ""
+	for _, z := range zones {
+		if g.Value >= z.From && g.Value < z.To {
+			zone = z.Label
+			break
+		}
+	}
+	if zone == "" {
+		zone = "—"
+	}
+	fmt.Fprintf(&b, `<text x="%g" y="%s" font-size="12" text-anchor="middle" fill="#6a5f4d">%s</text>`+"\n",
+		cx, num(cy+86), html.EscapeString(zone))
+
+	b.WriteString("</svg>\n")
+	return b.String()
 }

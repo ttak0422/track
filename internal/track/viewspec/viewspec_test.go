@@ -1430,3 +1430,45 @@ func TestResolveTimelineColorCategories(t *testing.T) {
 		}
 	}
 }
+
+func TestGaugeValidateAndResolve(t *testing.T) {
+	gauge := func() Spec {
+		return Spec{
+			Version: Version, Mark: MarkGauge,
+			Data:     DataRef{Source: "x", Kind: dataset.KindMetric},
+			Encoding: Encoding{Y: []Channel{{Field: "value", Domain: []float64{-9, 18}}}},
+		}
+	}
+	if err := gauge().Validate(); err != nil {
+		t.Fatalf("plain gauge should validate (no x channel): %v", err)
+	}
+	withZone := gauge()
+	withZone.Overlays = []Overlay{{YFrom: ptr(-9), YTo: ptr(0), Label: "comfort"}}
+	if err := withZone.Validate(); err != nil {
+		t.Fatalf("gauge with a vband zone should validate: %v", err)
+	}
+	badOverlay := gauge()
+	badOverlay.Overlays = []Overlay{{Y: ptr(5)}}
+	if err := badOverlay.Validate(); err == nil || !strings.Contains(err.Error(), "must be a vband") {
+		t.Fatalf("non-vband overlay on a gauge should fail, got %v", err)
+	}
+	colored := gauge()
+	colored.Encoding.Color = &Channel{Field: "entity", Type: Nominal}
+	if err := colored.Validate(); err == nil || !strings.Contains(err.Error(), "does not take") {
+		t.Fatalf("color on a gauge should fail, got %v", err)
+	}
+	nominal := gauge()
+	nominal.Encoding.Y[0].Type = Nominal
+	if err := nominal.Validate(); err == nil || !strings.Contains(err.Error(), "quantitative") {
+		t.Fatalf("nominal y on a gauge should fail, got %v", err)
+	}
+
+	recs, _ := dataset.ReadJSONL(strings.NewReader(
+		`{"time":"d1","value":1}` + "\n" +
+			`{"time":"d2","value":7}` + "\n" +
+			`{"time":"d3","value":14}` + "\n"))
+	res := gauge().Resolve(recs)
+	if res.Gauge == nil || res.Gauge.Value != 14 || res.Gauge.Min != -9 || res.Gauge.Max != 18 {
+		t.Fatalf("gauge resolve = %+v", res.Gauge)
+	}
+}
