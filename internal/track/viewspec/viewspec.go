@@ -546,14 +546,12 @@ func (s Spec) Validate() error {
 			return fmt.Errorf("view spec: encoding.detail/href are not supported on %s charts", s.chart())
 		}
 	}
-	// On every mark but rect and treemap, color is a nominal category that splits records into one
-	// series per value; the constraints keep that split well-defined.
+	// On every mark but rect and treemap, color is a nominal category. On the series forms it splits
+	// records into one series per value; on a timeline it colors each point by its category (the
+	// lanes keep the nominal y, the dots carry the category).
 	if s.Encoding.Color != nil && s.Mark != MarkRect && s.Mark != MarkTreemap {
 		if !s.Encoding.Color.nominal() {
 			return fmt.Errorf("view spec: encoding.color on mark %s must be type nominal (records split into one series per category)", s.Mark)
-		}
-		if s.chart() == ChartTimeline {
-			return fmt.Errorf("view spec: encoding.color is not supported on a timeline (lanes are already colored by the nominal y)")
 		}
 	}
 	// Per-series mark overrides compose a combo chart (e.g. bars with a line on y2), alone or on top
@@ -1149,10 +1147,12 @@ type Grid struct {
 }
 
 // Cell is one record placed in the grid: Col/Row index into Grid.Cols/Rows, Value is the value
-// channel (heatmap color intensity / timeline dot magnitude) or NaN when absent.
+// channel (heatmap color intensity / timeline dot magnitude) or NaN when absent, and Color is the
+// encoding.color category (timeline only) or "" when the spec carries none.
 type Cell struct {
 	Col, Row int
 	Value    float64
+	Color    string
 }
 
 // Tree is the resolved form of a treemap: one node per source record, in record order (so group
@@ -1317,10 +1317,10 @@ func (s Spec) Resolve(records []dataset.Record) Resolved {
 	res := Resolved{Spec: s, Chart: chart, Stacked: s.stacked()}
 	switch chart {
 	case ChartHeatmap:
-		g := s.resolveGrid(records, s.Encoding.Color)
+		g := s.resolveGrid(records, s.Encoding.Color, nil)
 		res.Grid = &g
 	case ChartTimeline:
-		g := s.resolveGrid(records, s.Encoding.Size)
+		g := s.resolveGrid(records, s.Encoding.Size, s.Encoding.Color)
 		res.Grid = &g
 	case ChartBubble:
 		s.resolveBubble(records, &res)
@@ -1665,7 +1665,7 @@ func (s Spec) bubblePoint(rec dataset.Record, y Channel) Point {
 // and value (the color channel for a heatmap, the size channel for a timeline, when set) the cell value.
 // Columns and rows accumulate in first-seen order. One Cell is produced per record; a repeated cell's
 // later record draws on top.
-func (s Spec) resolveGrid(records []dataset.Record, value *Channel) Grid {
+func (s Spec) resolveGrid(records []dataset.Record, value, color *Channel) Grid {
 	var g Grid
 	colIdx := map[string]int{}
 	rowIdx := map[string]int{}
@@ -1688,11 +1688,15 @@ func (s Spec) resolveGrid(records []dataset.Record, value *Channel) Grid {
 		if value != nil {
 			val = floatOrNaN(rec, value.Field)
 		}
-		g.Cells = append(g.Cells, Cell{
+		cell := Cell{
 			Col:   intern(&g.Cols, colIdx, col),
 			Row:   intern(&g.Rows, rowIdx, row),
 			Value: val,
-		})
+		}
+		if color != nil {
+			cell.Color, _ = rec.String(color.Field)
+		}
+		g.Cells = append(g.Cells, cell)
 	}
 	return g
 }

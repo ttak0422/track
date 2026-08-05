@@ -638,6 +638,7 @@ func buildTimeline(opt map[string]any, res viewspec.Resolved) {
 	opt["xAxis"] = map[string]any{"type": "category", "data": grid.Cols}
 	opt["yAxis"] = map[string]any{"type": "category", "data": grid.Rows, "inverse": true}
 	lo, hi := gridValueRange(grid.Cells)
+	palette := gridColorPalette(res)
 	var data []any
 	for _, c := range grid.Cells {
 		if c.Col >= len(grid.Cols) || c.Row >= len(grid.Rows) {
@@ -650,6 +651,15 @@ func buildTimeline(opt map[string]any, res viewspec.Resolved) {
 			item["value"] = []any{grid.Cols[c.Col], grid.Rows[c.Row], c.Value}
 		}
 		item["symbolSize"] = 2 * r
+		if color, ok := palette[c.Color]; ok {
+			// Per-point category color: the spec's explicit map or the shared palette in first-seen
+			// order, so buy/sell-style categories stay distinguishable without lane splitting.
+			style := map[string]any{"color": color}
+			if op := res.Spec.Encoding.Color.Opacity; op != nil {
+				style["opacity"] = *op
+			}
+			item["itemStyle"] = style
+		}
 		data = append(data, item)
 	}
 	opt["series"] = []any{map[string]any{"type": "scatter", "data": data}}
@@ -1086,4 +1096,32 @@ func echartsPage(escapedTitle, optionJSON string) string {
 	b.WriteString("</script>\n")
 	b.WriteString("</body>\n</html>\n")
 	return b.String()
+}
+
+// gridColorPalette maps a grid's color categories to colors: explicit encoding.color.colors entries
+// win, everything else takes the shared palette in first-seen cell order (an explicit entry never
+// shifts the other categories' palette slots, matching the series split). It returns nil when the
+// spec carries no color channel.
+func gridColorPalette(res viewspec.Resolved) map[string]string {
+	c := res.Spec.Encoding.Color
+	if c == nil || res.Grid == nil {
+		return nil
+	}
+	out := map[string]string{}
+	slot := 0
+	for _, cell := range res.Grid.Cells {
+		if cell.Color == "" {
+			continue
+		}
+		if _, ok := out[cell.Color]; ok {
+			continue
+		}
+		if v, ok := c.Colors[cell.Color]; ok {
+			out[cell.Color] = v
+			continue
+		}
+		out[cell.Color] = seriesColor(slot)
+		slot++
+	}
+	return out
 }

@@ -601,8 +601,8 @@ func TestValidateColorConstraints(t *testing.T) {
 	timeline.Mark = MarkPoint
 	timeline.Encoding.X.Type = Nominal
 	timeline.Encoding.Y[0].Type = Nominal
-	if err := timeline.Validate(); err == nil || !strings.Contains(err.Error(), "timeline") {
-		t.Fatalf("color on timeline should fail, got %v", err)
+	if err := timeline.Validate(); err != nil {
+		t.Fatalf("color on a timeline should validate (per-point category colors): %v", err)
 	}
 }
 
@@ -1402,3 +1402,31 @@ func TestResolveColorSplitWithOverlaySeries(t *testing.T) {
 }
 
 func ptr(f float64) *float64 { return &f }
+
+func TestResolveTimelineColorCategories(t *testing.T) {
+	s := lineSpec()
+	s.Mark = MarkPoint
+	s.Encoding.X.Field = "time"
+	s.Encoding.X.Type = Nominal
+	s.Encoding.Y[0].Field = "lane"
+	s.Encoding.Y[0].Type = Nominal
+	s.Encoding.Color = &Channel{Field: "side", Type: Nominal}
+	recs, _ := dataset.ReadJSONL(strings.NewReader(
+		`{"time":"d1","lane":"L1","side":"buy","value":1}` + "\n" +
+			`{"time":"d2","lane":"L1","side":"sell","value":2}` + "\n" +
+			`{"time":"d2","lane":"L2","side":"buy","value":3}` + "\n"))
+	res := s.Resolve(recs)
+	if res.Chart != ChartTimeline {
+		t.Fatalf("chart = %q", res.Chart)
+	}
+	grid := res.Grid
+	if grid == nil || len(grid.Cells) != 3 {
+		t.Fatalf("grid cells = %+v", grid)
+	}
+	want := []string{"buy", "sell", "buy"}
+	for i, c := range grid.Cells {
+		if c.Color != want[i] {
+			t.Fatalf("cell %d color = %q, want %q", i, c.Color, want[i])
+		}
+	}
+}

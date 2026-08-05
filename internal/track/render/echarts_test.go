@@ -878,3 +878,29 @@ func TestEChartsThirdAxisY3(t *testing.T) {
 		}
 	}
 }
+
+func TestEChartsTimelinePointColors(t *testing.T) {
+	res := viewspec.Resolved{
+		Spec: viewspec.Spec{Encoding: viewspec.Encoding{
+			Color: &viewspec.Channel{Field: "side", Type: viewspec.Nominal,
+				Colors: map[string]string{"buy": "#2d6a4f"}},
+		}}, Chart: viewspec.ChartTimeline,
+		Grid: &viewspec.Grid{
+			Cols: []string{"d1", "d2"}, Rows: []string{"L1", "L2"},
+			Cells: []viewspec.Cell{
+				{Col: 0, Row: 0, Value: 1, Color: "buy"},
+				{Col: 1, Row: 0, Value: 2, Color: "sell"},
+			},
+		},
+	}
+	out, err := EChartsOptionJSON(res)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(out, `"itemStyle":{"color":"#2d6a4f"}`) {
+		t.Fatalf("buy dot should use its explicit color: %s", out)
+	}
+	if !strings.Contains(out, `"itemStyle":{"color":"#4e79a7"}`) {
+		t.Fatalf("sell dot should take the next palette slot: %s", out)
+	}
+}
