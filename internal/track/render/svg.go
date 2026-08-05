@@ -653,12 +653,21 @@ func writeMarkers(b *strings.Builder, g svgGeom, res viewspec.Resolved) {
 		idx[l] = i
 	}
 	centers := bandCenters(g, len(res.Labels))
+	// Box-mode markers (display: "box") draw an always-visible annotation card hugging the plot —
+	// date, wrapped label, and source host — alternating above and below, with a leader to the
+	// marker. Classic markers keep the vertical line + rotated label.
+	boxed := 0
 	for _, m := range res.Markers {
 		i, ok := idx[m.At]
 		if !ok || i >= len(centers) {
 			continue
 		}
 		x := centers[i]
+		if m.Box {
+			boxed++
+			writeMarkerBox(b, g, x, m, boxed%2 == 1)
+			continue
+		}
 		// A marker carrying a source URL becomes a real link — SVG anchors work in every host. Note
 		// references stay non-links here: the static renderer has no router to resolve them.
 		if m.Href != "" {
@@ -674,6 +683,103 @@ func writeMarkers(b *strings.Builder, g svgGeom, res viewspec.Resolved) {
 			b.WriteString("</a>\n")
 		}
 	}
+}
+
+// markerBoxWidth is an annotation card's fixed width; label lines wrap at the remaining text width.
+const markerBoxWidth = 180.0
+
+// writeMarkerBox draws one box-mode annotation: a card of markerBoxWidth anchored at x (clamped to
+// the plot) that sits above or below the plot by side, its leader touching the marker line's x. The
+// card shows the date line (the at value), the wrapped label (up to six lines), and the source host.
+func writeMarkerBox(b *strings.Builder, g svgGeom, x float64, m viewspec.Marker, above bool) {
+	const (
+		lineH  = 14.0
+		padX   = 10.0
+		padTop = 22.0 // date line + gap
+		boxGap = 8.0
+	)
+	if x < g.left+markerBoxWidth/2 {
+		x = g.left + markerBoxWidth/2
+	} else if x > g.left+g.plotW()-markerBoxWidth/2 {
+		x = g.left + g.plotW() - markerBoxWidth/2
+	}
+	lines := wrapLabel(m.Label, 27) // ~27 glyphs fit the card's text width at font-size 11
+	if len(lines) > 6 {
+		lines = lines[:6]
+	}
+	boxH := padTop + float64(len(lines))*lineH + 6
+	var y float64
+	if above {
+		y = g.top - boxGap - boxH
+	} else {
+		y = g.top + g.plotH() + boxGap
+	}
+	if m.Href != "" {
+		fmt.Fprintf(b, `<a href="%s" target="_blank" rel="noopener">`+"\n", html.EscapeString(m.Href))
+	}
+	fmt.Fprintf(b, `<rect x="%s" y="%s" width="%g" height="%s" fill="#fdfcfb" stroke="#b9893a" stroke-width="0.8"/>`+"\n",
+		num(x-markerBoxWidth/2), num(y), markerBoxWidth, num(boxH))
+	// The leader: from the card edge nearest the plot to the marker's x on the plot edge.
+	leaderY := y + boxH
+	if above {
+		leaderY = y
+	}
+	fmt.Fprintf(b, `<line x1="%s" y1="%s" x2="%s" y2="%g" stroke="#b9893a" stroke-width="0.6"/>`+"\n",
+		num(x), num(leaderY), num(x), g.top+1)
+	fmt.Fprintf(b, `<circle cx="%s" cy="%g" r="3" fill="#b9893a"/>`+"\n", num(x), g.top+1)
+	// Date line, wrapped label lines, and the source host.
+	ty := y + 14
+	fmt.Fprintf(b, `<text x="%s" y="%s" font-size="10" font-weight="600" fill="#dc3545">%s</text>`+"\n",
+		num(x-markerBoxWidth/2+padX), num(ty), html.EscapeString(boxDate(m.At)))
+	ty += 6
+	for _, line := range lines {
+		ty += lineH
+		fmt.Fprintf(b, `<text x="%s" y="%s" font-size="11" fill="#1a1612">%s</text>`+"\n",
+			num(x-markerBoxWidth/2+padX), num(ty), html.EscapeString(line))
+	}
+	if host := boxHost(m.Href); host != "" {
+		fmt.Fprintf(b, `<text x="%s" y="%s" font-size="9" fill="#948872">%s</text>`+"\n",
+			num(x-markerBoxWidth/2+padX), num(y+boxH-5), html.EscapeString(host))
+	}
+	if m.Href != "" {
+		b.WriteString("</a>\n")
+	}
+}
+
+// wrapLabel splits a label into lines at word boundaries so each line stays within max runes.
+func wrapLabel(s string, max int) []string {
+	if max < 1 {
+		max = 1
+	}
+	words := strings.Fields(s)
+	var lines []string
+	cur := ""
+	for _, w := range words {
+		// A single word longer than the width hard-splits (the goal sites' own labels do).
+		for len(w) > max {
+			if cur != "" {
+				lines = append(lines, cur)
+				cur = ""
+			}
+			lines = append(lines, w[:max])
+			w = w[max:]
+		}
+		if cur == "" {
+			cur = w
+		} else if len(cur)+1+len(w) <= max {
+			cur += " " + w
+		} else {
+			lines = append(lines, cur)
+			cur = w
+		}
+	}
+	if cur != "" {
+		lines = append(lines, cur)
+	}
+	if len(lines) == 0 {
+		return []string{""}
+	}
+	return lines
 }
 
 // writeBands shades each band overlay's x range: a translucent rectangle spanning the full plot

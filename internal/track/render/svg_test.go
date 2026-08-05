@@ -655,3 +655,32 @@ func TestSVGGaugeDrawsDial(t *testing.T) {
 		}
 	}
 }
+
+func TestSVGBoxMarkersDrawCards(t *testing.T) {
+	res := viewspec.Resolved{
+		Spec: viewspec.Spec{Title: "T"}, Chart: viewspec.ChartLine,
+		Labels: []string{"a", "b", "c"},
+		Series: []viewspec.Series{{Label: "S1", Values: []float64{1, 2, 3}}},
+		Markers: []viewspec.Marker{
+			{At: "a", Label: "An event that happened early on", Href: "https://example.com/news", Box: true},
+			{At: "b", Label: "plain marker", Box: false},
+			{At: "c", Label: "Another event", Box: true},
+		},
+	}
+	out, err := SVG{}.Render(res)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, want := range []string{`stroke="#b9893a"`, "example.com", "An event that happened", `href="https://example.com/news"`} {
+		if !strings.Contains(out, want) {
+			t.Errorf("box card missing %q: %s", want, out)
+		}
+	}
+	// Both cards drawn, alternating sides; classic markers keep vertical lines.
+	if n := strings.Count(out, `stroke-width="0.8"`); n != 2 {
+		t.Fatalf("want 2 box cards, got %d", n)
+	}
+	if !strings.Contains(out, `stroke="rgba(220,53,69,0.7)"`) {
+		t.Fatalf("classic marker lines should still draw: %s", out)
+	}
+}

@@ -1087,7 +1087,9 @@ func echartsPage(escapedTitle, optionJSON string) string {
 	b.WriteString(`<meta name="viewport" content="width=device-width, initial-scale=1">` + "\n")
 	b.WriteString("<title>" + escapedTitle + "</title>\n")
 	b.WriteString(`<script src="` + echartsCDN + `"></script>` + "\n")
-	b.WriteString("<style>html,body{margin:0;height:100%}#chart{box-sizing:border-box;padding:16px;height:100%}</style>\n")
+	// The chart fills the page; the padding lives on body so convertToPixel coordinates (relative
+	// to the chart element) match the absolutely positioned annotation cards below.
+	b.WriteString("<style>html,body{margin:0;height:100%}body{box-sizing:border-box;padding:16px}#chart{width:100%;height:100%}</style>\n")
 	b.WriteString("</head>\n")
 	b.WriteString("<body>\n")
 	b.WriteString(`<div id="chart"></div>` + "\n")
@@ -1095,8 +1097,92 @@ func echartsPage(escapedTitle, optionJSON string) string {
 	b.WriteString("const option = " + optionJSON + ";\n")
 	b.WriteString(`const chart = echarts.init(document.getElementById("chart"));` + "\n")
 	b.WriteString("chart.setOption(option);\n")
-	b.WriteString(`addEventListener("resize", () => chart.resize());` + "\n")
+	b.WriteString("boxedAnnotations(chart, option);\n")
+	b.WriteString(`addEventListener("resize", () => { chart.resize(); boxedAnnotations(chart, option); });` + "\n")
 	b.WriteString("</script>\n")
+	b.WriteString(`<script>
+// Box-mode markers (markLine items carrying a "box" payload, ADR 0028) draw as always-visible
+// annotation cards hugging the plot: date line, wrapped label, and source host, alternating above
+// and below the plot with a leader to the marker. The full rail (lane packing, collision
+// resolution) lives in the web reader; this standalone page keeps the simple alternating layout.
+function boxedAnnotations(chart, option) {
+  const items = [];
+  for (const s of option.series || []) {
+    for (const it of (s.markLine && s.markLine.data) || []) {
+      if (it.box) items.push(it);
+    }
+  }
+  if (!items.length) return;
+  let host = document.getElementById("annotation-host");
+  if (!host) {
+    host = document.createElement("div");
+    host.id = "annotation-host";
+    host.style.position = "absolute";
+    host.style.left = "0";
+    host.style.top = "0";
+    host.style.pointerEvents = "none";
+    document.getElementById("chart").appendChild(host);
+  }
+  host.innerHTML = "";
+  const grid = chart.getModel().getComponent("grid");
+  if (!grid || !grid[0]) return;
+  const rect = grid[0].getRect();
+  const W = 180, gap = 8, lineH = 15;
+  let i = 0;
+  for (const it of items) {
+    const px = chart.convertToPixel({ xAxisIndex: 0 }, it.xAxis);
+    if (px == null || isNaN(px.x)) continue;
+    const above = i++ % 2 === 0;
+    const x = Math.max(rect.x + 4, Math.min(px.x - W / 2, rect.x + rect.width - W - 4));
+    const box = document.createElement("div");
+    box.style.position = "absolute";
+    box.style.width = W + "px";
+    box.style.left = x + "px";
+    box.style.border = "1px solid #b9893a";
+    box.style.background = "#fdfcfb";
+    box.style.font = "11px/1.35 sans-serif";
+    box.style.color = "#1a1612";
+    box.style.padding = "6px 8px";
+    box.style.pointerEvents = "auto";
+    const date = document.createElement("div");
+    date.textContent = it.box.date || "";
+    date.style.fontWeight = "600";
+    date.style.color = "#a32820";
+    const label = document.createElement("div");
+    label.textContent = (it.label && it.label.formatter) || "";
+    const src = document.createElement("div");
+    src.textContent = it.box.host || "";
+    src.style.color = "#948872";
+    src.style.fontSize = "9px";
+    box.append(date, label, src);
+    if (it.href) {
+      box.style.cursor = "pointer";
+      box.addEventListener("click", () => window.open(it.href, "_blank"));
+    }
+    host.appendChild(box);
+    const boxH = box.offsetHeight;
+    const yEdge = above ? rect.y : rect.y + rect.height;
+    const boxY = above ? rect.y - gap - boxH : rect.y + rect.height + gap;
+    box.style.top = boxY + "px";
+    const lead = document.createElement("div");
+    lead.style.position = "absolute";
+    lead.style.width = "1px";
+    lead.style.background = "#b9893a";
+    lead.style.left = px.x + "px";
+    lead.style.top = (above ? boxY + boxH : yEdge) + "px";
+    lead.style.height = Math.max((above ? yEdge - gap - boxY - boxH : boxY - yEdge - gap), 2) + "px";
+    host.appendChild(lead);
+    const dot = document.createElement("div");
+    dot.style.position = "absolute";
+    dot.style.width = dot.style.height = "6px";
+    dot.style.borderRadius = "50%";
+    dot.style.background = "#b9893a";
+    dot.style.left = (px.x - 3) + "px";
+    dot.style.top = (yEdge - 3) + "px";
+    host.appendChild(dot);
+  }
+}
+</script>` + "\n")
 	b.WriteString("</body>\n</html>\n")
 	return b.String()
 }
@@ -1203,4 +1289,11 @@ func buildGauge(opt map[string]any, res viewspec.Resolved) {
 		"data":  []any{map[string]any{"value": g.Value}},
 	}
 	opt["series"] = []any{series}
+}
+
+// boxHost extracts a marker URL's display host ("" for empty or non-http(s) URLs), shared by the
+// ECharts box payload and the SVG box cards.
+func boxHost(href string) string {
+	_, host := boxSource(href)
+	return host
 }

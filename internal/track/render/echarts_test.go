@@ -944,3 +944,31 @@ func TestEChartsGaugeDialZones(t *testing.T) {
 		}
 	}
 }
+
+func TestEChartsPageEmbedsBoxAnnotationScript(t *testing.T) {
+	res := viewspec.Resolved{
+		Spec: viewspec.Spec{Title: "T"}, Chart: viewspec.ChartLine,
+		Labels: []string{"a"},
+		Series: []viewspec.Series{{Label: "S1", Values: []float64{1}}},
+		Markers: []viewspec.Marker{
+			{At: "a", Label: "event", Href: "https://example.com/news", Box: true},
+		},
+	}
+	out, err := ECharts{}.Render(res)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, want := range []string{"boxedAnnotations(chart, option)", "it.box", "annotation-host", `"box":{"date":"a","host":"example.com"}`} {
+		if !strings.Contains(out, want) {
+			t.Errorf("standalone page missing %q", want)
+		}
+	}
+	// A chart without box markers still gets the (no-op) hook, but no payload.
+	plain, err := ECharts{}.Render(resolvedChart(viewspec.ChartLine, "S", []float64{1, 2}))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(plain, `"box":`) {
+		t.Fatalf("plain chart should carry no box payload: %s", plain)
+	}
+}
