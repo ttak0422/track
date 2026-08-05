@@ -622,7 +622,7 @@ func TestValidateRejectsBadAxis(t *testing.T) {
 	s := Spec{
 		Version: Version, Mark: MarkLine,
 		Data:     DataRef{Source: "x", Kind: dataset.KindPrice},
-		Encoding: Encoding{X: Channel{Field: "time"}, Y: []Channel{{Field: "close", Axis: "y3"}}},
+		Encoding: Encoding{X: Channel{Field: "time"}, Y: []Channel{{Field: "close", Axis: "y4"}}},
 	}
 	if err := s.Validate(); err == nil || !strings.Contains(err.Error(), "axis") {
 		t.Fatalf("want axis error, got %v", err)

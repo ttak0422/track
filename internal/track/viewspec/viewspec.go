@@ -768,7 +768,7 @@ func (e Encoding) validate(xRequired, yRequired bool) error {
 			return err
 		}
 		switch y.Axis {
-		case "", "y", "y2":
+		case "", "y", "y2", "y3":
 		default:
 			return fmt.Errorf("view spec: encoding.y[%d].axis %q is not y, y2, or y3", i, y.Axis)
 		}
