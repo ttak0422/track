@@ -236,6 +236,7 @@ func writeAxes(b *strings.Builder, g svgGeom, res viewspec.Resolved, lo, hi floa
 			fmt.Fprintf(b, `<text x="%g" y="%s" font-size="11" text-anchor="end" dominant-baseline="middle" fill="#333333">%s</text>`+"\n",
 				g.left-6, num(centers[i]), html.EscapeString(lbl))
 		}
+		writeHorizontalAxisTitle(b, g, svgAxisName(res))
 		return
 	}
 
@@ -258,6 +259,32 @@ func writeAxes(b *strings.Builder, g svgGeom, res viewspec.Resolved, lo, hi floa
 		fmt.Fprintf(b, `<text x="%s" y="%g" font-size="11" text-anchor="middle" fill="#333333">%s</text>`+"\n",
 			num(centers[i]), g.top+g.plotH()+16, html.EscapeString(lbl))
 	}
+	writeVerticalAxisTitle(b, g, svgAxisName(res))
+}
+
+func svgAxisName(res viewspec.Resolved) string {
+	if name := res.AxisName("y"); name != "" {
+		return name
+	}
+	return res.AxisName("y2")
+}
+
+func writeVerticalAxisTitle(b *strings.Builder, g svgGeom, name string) {
+	if name == "" {
+		return
+	}
+	x, y := 14.0, g.top+g.plotH()/2
+	fmt.Fprintf(b, `<text x="%s" y="%s" font-size="11" text-anchor="middle" fill="#333333" transform="rotate(-90 %s %s)">%s</text>`+"\n",
+		num(x), num(y), num(x), num(y), html.EscapeString(name))
+}
+
+func writeHorizontalAxisTitle(b *strings.Builder, g svgGeom, name string) {
+	if name == "" {
+		return
+	}
+	x, y := g.left+g.plotW()/2, g.top+g.plotH()+38
+	fmt.Fprintf(b, `<text x="%s" y="%s" font-size="11" text-anchor="middle" fill="#333333">%s</text>`+"\n",
+		num(x), num(y), html.EscapeString(name))
 }
 
 // candleSkipsSeries reports whether the SVG renderer leaves a resolved series undrawn: on a
@@ -413,13 +440,14 @@ func writeCandleExtras(b *strings.Builder, g svgGeom, res viewspec.Resolved, cen
 			continue
 		}
 		s := res.Series[si]
+		st := svgSeriesStyle(res, si)
 		bw := band * 0.6
 		baseY := yPixel(g, lo, hi, math.Max(lo, 0))
 		for i, v := range s.Values {
 			if math.IsNaN(v) || i >= len(centers) {
 				continue
 			}
-			color := candleExtraColor(si)
+			color := st.color
 			if i < len(s.Rise) && s.Rise[i] > 0 {
 				color = candleUp
 			} else if i < len(s.Rise) && s.Rise[i] < 0 {
@@ -427,8 +455,8 @@ func writeCandleExtras(b *strings.Builder, g svgGeom, res viewspec.Resolved, cen
 			}
 			y := yPixel(g, lo, hi, v)
 			top, h := math.Min(y, baseY), math.Abs(baseY-y)
-			fmt.Fprintf(b, `<rect x="%s" y="%s" width="%s" height="%s" fill="%s"/>`+"\n",
-				num(centers[i]-bw/2), num(top), num(bw), num(h), color)
+			fmt.Fprintf(b, `<rect x="%s" y="%s" width="%s" height="%s" fill="%s"%s/>`+"\n",
+				num(centers[i]-bw/2), num(top), num(bw), num(h), color, opacityAttr(st.opacity))
 		}
 	}
 	for si := len(viewspec.CandleSeries); si < len(res.Series); si++ {
@@ -830,9 +858,16 @@ func renderBubble(res viewspec.Resolved) string {
 		fmt.Fprintf(&b, `<text x="%g" y="%s" font-size="11" text-anchor="end" dominant-baseline="middle" fill="#666666">%s</text>`+"\n",
 			g.left-6, num(y), num(yhi-(yhi-ylo)*frac))
 	}
+	writeVerticalAxisTitle(&b, g, svgAxisName(res))
 
 	for si, s := range res.Series {
-		color := seriesColor(si)
+		st := svgSeriesStyle(res, si)
+		fillOpacity := "0.6"
+		strokeOpacity := ""
+		if st.opacity != nil {
+			fillOpacity = num(*st.opacity)
+			strokeOpacity = fmt.Sprintf(` stroke-opacity="%s"`, num(*st.opacity))
+		}
 		for _, p := range s.Points {
 			if math.IsNaN(p.X) || math.IsNaN(p.Y) {
 				continue
@@ -842,8 +877,8 @@ func renderBubble(res viewspec.Resolved) string {
 				r = 4
 			}
 			r = math.Min(r, 40) // keep a stray huge value from swamping the plot
-			fmt.Fprintf(&b, `<circle cx="%s" cy="%s" r="%s" fill="%s" fill-opacity="0.6" stroke="%s"/>`+"\n",
-				num(xPixel(g, xlo, xhi, p.X)), num(yPixel(g, ylo, yhi, p.Y)), num(r), color, color)
+			fmt.Fprintf(&b, `<circle cx="%s" cy="%s" r="%s" fill="%s" fill-opacity="%s" stroke="%s"%s/>`+"\n",
+				num(xPixel(g, xlo, xhi, p.X)), num(yPixel(g, ylo, yhi, p.Y)), num(r), st.color, fillOpacity, st.color, strokeOpacity)
 		}
 	}
 	writeLegend(&b, g, res)

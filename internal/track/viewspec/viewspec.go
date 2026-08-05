@@ -643,6 +643,16 @@ func (s Spec) Validate() error {
 		if (y.Width != nil || y.Dash != "") && y.nominal() {
 			return fmt.Errorf("view spec: encoding.y[%d].width/dash need a quantitative line or area channel", i)
 		}
+		form := s.Mark
+		if y.Mark != "" {
+			form = y.Mark
+		} else if s.Mark == MarkCandlestick {
+			// Explicit y channels ride over the OHLC mark as ordinary line series by default.
+			form = MarkLine
+		}
+		if (y.Width != nil || y.Dash != "") && form != MarkLine && form != MarkArea {
+			return fmt.Errorf("view spec: encoding.y[%d].width/dash need a line or area channel", i)
+		}
 		if y.AxisName != "" && y.nominal() {
 			return fmt.Errorf("view spec: encoding.y[%d].axisName needs a quantitative channel", i)
 		}
@@ -1207,8 +1217,8 @@ func (r Resolved) DivergingColor() bool {
 
 // seriesChannel is the encoding channel a series' per-series style comes from: the matching y channel
 // on the series forms, or — for the color split — encoding.color itself (its scalar opacity) plus the
-// extra y channels after the split. Series before ColorSeries are split series; the ones after map to
-// Encoding.Y[1:].
+// extra y channels after the split. Candlestick's four synthetic OHLC series precede explicit y
+// channels, so their style index is offset by CandleSeries.
 func (r Resolved) seriesChannel(i int) *Channel {
 	if r.Spec.Encoding.Color != nil {
 		if i < r.ColorSeries {
@@ -1219,6 +1229,9 @@ func (r Resolved) seriesChannel(i int) *Channel {
 			return &r.Spec.Encoding.Y[j]
 		}
 		return nil
+	}
+	if r.Chart == ChartCandlestick {
+		i -= len(CandleSeries)
 	}
 	if i >= 0 && i < len(r.Spec.Encoding.Y) {
 		return &r.Spec.Encoding.Y[i]

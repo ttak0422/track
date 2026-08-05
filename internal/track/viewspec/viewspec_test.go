@@ -1291,6 +1291,18 @@ func TestValidateSeriesStyle(t *testing.T) {
 	if err := styleOK.Validate(); err != nil {
 		t.Fatalf("series style should validate: %v", err)
 	}
+	bar := lineSpec()
+	bar.Mark = MarkBar
+	bar.Encoding.Y[0].Width = ptr(2.0)
+	if err := bar.Validate(); err == nil || !strings.Contains(err.Error(), "line or area") {
+		t.Fatalf("width on a bar channel should fail, got %v", err)
+	}
+	scatter := lineSpec()
+	scatter.Mark = MarkPoint
+	scatter.Encoding.Y[0].Dash = "dotted"
+	if err := scatter.Validate(); err == nil || !strings.Contains(err.Error(), "line or area") {
+		t.Fatalf("dash on a point channel should fail, got %v", err)
+	}
 }
 
 func TestValidateColorColorsAndOpacity(t *testing.T) {
