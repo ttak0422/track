@@ -22,6 +22,29 @@ func echartsOptionForTest(t *testing.T, res viewspec.Resolved) map[string]any {
 	return opt
 }
 
+func standaloneEChartsOptionForTest(t *testing.T, res viewspec.Resolved) map[string]any {
+	t.Helper()
+	page, err := ECharts{}.Render(res)
+	if err != nil {
+		t.Fatal(err)
+	}
+	const prefix = "const option = "
+	start := strings.Index(page, prefix)
+	if start < 0 {
+		t.Fatalf("standalone page has no option")
+	}
+	start += len(prefix)
+	end := strings.Index(page[start:], ";\nconst chart")
+	if end < 0 {
+		t.Fatalf("standalone page option terminator missing")
+	}
+	var opt map[string]any
+	if err := json.Unmarshal([]byte(page[start:start+end]), &opt); err != nil {
+		t.Fatalf("decode standalone option: %v", err)
+	}
+	return opt
+}
+
 func resolvedChart(t viewspec.ChartType, label string, vals []float64) viewspec.Resolved {
 	return viewspec.Resolved{
 		Spec: viewspec.Spec{Title: "T"}, Chart: t,
@@ -1017,7 +1040,7 @@ func TestEChartsPageEmbedsBoxAnnotationScript(t *testing.T) {
 	if def, call := strings.Index(out, "function boxedAnnotations"), strings.Index(out, "boxedAnnotations(chart, option);"); def < 0 || call < def {
 		t.Fatalf("annotation helper must be defined before it is called")
 	}
-	boxOpt := echartsOptionForTest(t, res)
+	boxOpt := standaloneEChartsOptionForTest(t, res)
 	grid := boxOpt["grid"].(map[string]any)
 	if grid["top"] != float64(140) || grid["bottom"] != float64(160) {
 		t.Fatalf("box chart should reserve card margins: %#v", grid)
@@ -1029,5 +1052,19 @@ func TestEChartsPageEmbedsBoxAnnotationScript(t *testing.T) {
 	}
 	if strings.Contains(plain, `"box":`) {
 		t.Fatalf("plain chart should carry no box payload: %s", plain)
+	}
+}
+
+func TestEChartsOptionForEmbeddedChartsDoesNotReserveStandaloneBoxMargins(t *testing.T) {
+	res := viewspec.Resolved{
+		Spec: viewspec.Spec{Title: "T"}, Chart: viewspec.ChartLine,
+		Labels:  []string{"a"},
+		Series:  []viewspec.Series{{Label: "S1", Values: []float64{1}}},
+		Markers: []viewspec.Marker{{At: "a", Label: "event", Box: true}},
+	}
+	opt := echartsOptionForTest(t, res)
+	grid := opt["grid"].(map[string]any)
+	if grid["top"] == float64(140) || grid["bottom"] == float64(160) {
+		t.Fatalf("embedded chart must not inherit standalone box margins: %#v", grid)
 	}
 }
