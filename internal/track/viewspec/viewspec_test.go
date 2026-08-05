@@ -1189,6 +1189,8 @@ func TestValidateQuantitativeYDomain(t *testing.T) {
 			`"encoding":{"x":{"field":"t"},"y":[{"field":"v","domain":[80,120]}]}}`,
 		"secondary axis": `{"version":2,"mark":"line","data":{"source":"x","kind":"metric"},` +
 			`"encoding":{"x":{"field":"t"},"y":[{"field":"v","axis":"y2","domain":[80,120]}]}}`,
+		"tertiary axis": `{"version":2,"mark":"line","data":{"source":"x","kind":"metric"},` +
+			`"encoding":{"x":{"field":"t"},"y":[{"field":"v","axis":"y3","domain":[80,120]}]}}`,
 	}
 	for name, spec := range invalid {
 		if err := load(spec); err == nil || !strings.Contains(err.Error(), "domain") {
@@ -1442,10 +1444,25 @@ func TestGaugeValidateAndResolve(t *testing.T) {
 	if err := gauge().Validate(); err != nil {
 		t.Fatalf("plain gauge should validate (no x channel): %v", err)
 	}
+	withX := gauge()
+	withX.Encoding.X = Channel{Field: "time"}
+	if err := withX.Validate(); err == nil || !strings.Contains(err.Error(), "does not take encoding.x") {
+		t.Fatalf("gauge with x should fail, got %v", err)
+	}
 	withZone := gauge()
 	withZone.Overlays = []Overlay{{YFrom: ptr(-9), YTo: ptr(0), Label: "comfort"}}
 	if err := withZone.Validate(); err != nil {
 		t.Fatalf("gauge with a vband zone should validate: %v", err)
+	}
+	wrongAxis := gauge()
+	wrongAxis.Overlays = []Overlay{{YFrom: ptr(-9), YTo: ptr(0), Axis: "y2"}}
+	if err := wrongAxis.Validate(); err == nil || !strings.Contains(err.Error(), "primary axis") {
+		t.Fatalf("gauge y2 zone should fail, got %v", err)
+	}
+	overlap := gauge()
+	overlap.Overlays = []Overlay{{YFrom: ptr(-9), YTo: ptr(4)}, {YFrom: ptr(0), YTo: ptr(9)}}
+	if err := overlap.Validate(); err == nil || !strings.Contains(err.Error(), "overlaps") {
+		t.Fatalf("overlapping gauge zones should fail, got %v", err)
 	}
 	badOverlay := gauge()
 	badOverlay.Overlays = []Overlay{{Y: ptr(5)}}
@@ -1470,5 +1487,9 @@ func TestGaugeValidateAndResolve(t *testing.T) {
 	res := gauge().Resolve(recs)
 	if res.Gauge == nil || res.Gauge.Value != 14 || res.Gauge.Min != -9 || res.Gauge.Max != 18 {
 		t.Fatalf("gauge resolve = %+v", res.Gauge)
+	}
+	empty := gauge().Resolve(nil)
+	if empty.Gauge == nil || !math.IsNaN(empty.Gauge.Value) {
+		t.Fatalf("empty gauge should have no reading, got %+v", empty.Gauge)
 	}
 }

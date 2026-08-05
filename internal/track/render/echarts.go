@@ -100,6 +100,7 @@ func echartsOption(res viewspec.Resolved) (map[string]any, error) {
 	applyGrid(opt, res.Chart)
 	applyDataZoom(opt, res)
 	applyOverlays(opt, res)
+	applyBoxMargins(opt, res)
 	return opt, nil
 }
 
@@ -517,19 +518,29 @@ func buildCandlestick(opt map[string]any, res viewspec.Resolved) {
 		primaryAxis["name"] = name
 	}
 	yAxes := []any{primaryAxis}
-	if usesY2, y2max := candleY2(extras); usesY2 {
-		// The secondary axis exists to host volume-style bars under the candles: gridlines and labels
-		// stay off (the magnitude is tooltip detail, not an axis to read), and when every y2 series is
-		// a bar its max is inflated 4x so the bars hug the bottom band instead of covering the candles.
-		axis := map[string]any{
-			"type":      "value",
-			"splitLine": map[string]any{"show": false},
-			"axisLabel": map[string]any{"show": false},
+	usesY2, y2max := candleY2(extras)
+	nAxes := 1
+	for _, s := range extras {
+		if axis := axisIndex(s.Axis); axis+1 > nAxes {
+			nAxes = axis + 1
 		}
-		if y2max > 0 {
-			axis["max"] = y2max
+	}
+	for axisIndexValue := 1; axisIndexValue < nAxes; axisIndexValue++ {
+		// y2 hosts volume-style bars under the candles: gridlines and labels stay off, and when
+		// every y2 series is a bar its max is inflated 4x so the bars hug the bottom band. y3 is a
+		// regular right-hand scale, offset beyond y2 like the category-x renderer.
+		axis := map[string]any{"type": "value", "splitLine": map[string]any{"show": false}}
+		if axisIndexValue == 1 {
+			axis["axisLabel"] = map[string]any{"show": false}
+			if usesY2 && y2max > 0 {
+				axis["max"] = y2max
+			}
 		}
-		if name := res.AxisName("y2"); name != "" {
+		if axisIndexValue >= 2 {
+			axis["position"] = "right"
+			axis["offset"] = 60
+		}
+		if name := res.AxisName([]string{"y", "y2", "y3"}[axisIndexValue]); name != "" {
 			axis["name"] = name
 		}
 		yAxes = append(yAxes, axis)
@@ -572,8 +583,8 @@ func buildCandlestick(opt map[string]any, res viewspec.Resolved) {
 		if s.Mark == viewspec.ChartLine || s.Mark == viewspec.ChartArea {
 			es["showSymbol"] = false
 		}
-		if s.Axis == "y2" {
-			es["yAxisIndex"] = 1
+		if axis := axisIndex(s.Axis); axis > 0 {
+			es["yAxisIndex"] = axis
 		}
 		series = append(series, es)
 		legend = append(legend, s.Label)
@@ -818,6 +829,9 @@ func boxSource(href string) (link, host string) {
 	}
 	switch strings.ToLower(u.Scheme) {
 	case "http", "https":
+		if strings.TrimSpace(u.Host) == "" {
+			return "", ""
+		}
 		return href, strings.TrimPrefix(u.Host, "www.")
 	}
 	return "", ""
@@ -855,8 +869,8 @@ func applyOverlays(opt map[string]any, res viewspec.Resolved) {
 		if m.Label != "" {
 			item["label"] = boxedLabel(m.Label)
 		}
-		if m.Href != "" {
-			item["href"] = m.Href
+		if href, _ := boxSource(m.Href); href != "" {
+			item["href"] = href
 			linked = true
 		}
 		if m.Note != "" {
@@ -938,7 +952,13 @@ func applyOverlays(opt map[string]any, res viewspec.Resolved) {
 		if len(items) == 0 {
 			continue
 		}
-		if target := seriesOnAxis(series, axis); target != nil {
+		target := seriesOnAxis(series, axis)
+		if target == nil && axis == 0 {
+			// An x marker is independent of the value scale. If a valid chart has only y2/y3
+			// series, let the first series carry it instead of dropping the marker entirely.
+			target = first
+		}
+		if target != nil {
 			target["markLine"] = markLine(items)
 		}
 	}
@@ -958,7 +978,7 @@ func applyOverlays(opt map[string]any, res viewspec.Resolved) {
 	// Y-range bands (vband) shade a value span on a value axis — e.g. target ranges — as a second
 	// markArea. Attach each range to a series using its axis so ECharts interprets yAxis values against
 	// the intended scale. The x bands above and these can coexist on one series.
-	if len(res.VBands) > 0 {
+	if len(res.VBands) > 0 && res.Chart != viewspec.ChartGauge {
 		byAxis := [3][]any{}
 		for _, vb := range res.VBands {
 			from := map[string]any{"yAxis": vb.From}
@@ -1043,6 +1063,25 @@ func setMarkArea(series map[string]any, ranges []any) {
 	series["markArea"] = area
 }
 
+// applyBoxMargins reserves enough room for standalone annotation cards above and below the plot.
+// The web reader has its own rail layout, but the same option can be consumed by the standalone
+// page, where cards otherwise overlap the title/x labels or extend outside the chart element.
+func applyBoxMargins(opt map[string]any, res viewspec.Resolved) {
+	for _, marker := range res.Markers {
+		if !marker.Box {
+			continue
+		}
+		grid := gridOf(opt)
+		if top, ok := grid["top"].(int); !ok || top < 140 {
+			grid["top"] = 140
+		}
+		if bottom, ok := grid["bottom"].(int); !ok || bottom < 160 {
+			grid["bottom"] = 160
+		}
+		return
+	}
+}
+
 // seriesFillColor is the series color at the same 30% opacity the SVG renderer fills areas with, so
 // an area chart reads identically in HTML and SVG output, including explicit category colors.
 func seriesFillColor(res viewspec.Resolved, seriesIndex, paletteIndex int) string {
@@ -1097,8 +1136,6 @@ func echartsPage(escapedTitle, optionJSON string) string {
 	b.WriteString("const option = " + optionJSON + ";\n")
 	b.WriteString(`const chart = echarts.init(document.getElementById("chart"));` + "\n")
 	b.WriteString("chart.setOption(option);\n")
-	b.WriteString("boxedAnnotations(chart, option);\n")
-	b.WriteString(`addEventListener("resize", () => { chart.resize(); boxedAnnotations(chart, option); });` + "\n")
 	b.WriteString("</script>\n")
 	b.WriteString(`<script>
 // Box-mode markers (markLine items carrying a "box" payload, ADR 0028) draw as always-visible
@@ -1183,6 +1220,10 @@ function boxedAnnotations(chart, option) {
   }
 }
 </script>` + "\n")
+	b.WriteString(`<script>
+boxedAnnotations(chart, option);
+addEventListener("resize", () => { chart.resize(); boxedAnnotations(chart, option); });
+</script>` + "\n")
 	b.WriteString("</body>\n</html>\n")
 	return b.String()
 }
@@ -1227,7 +1268,11 @@ var gaugeZoneColors = []string{"#3fae7a", "#e3b53a", "#df8a3a", "#cf4436"}
 func buildGauge(opt map[string]any, res viewspec.Resolved) {
 	g := res.Gauge
 	if g == nil {
-		g = &viewspec.Gauge{}
+		g = &viewspec.Gauge{Value: math.NaN(), Min: 0, Max: 100}
+	}
+	var value any = g.Value
+	if math.IsNaN(g.Value) || math.IsInf(g.Value, 0) {
+		value = nil
 	}
 	span := g.Max - g.Min
 	frac := func(v float64) float64 {
@@ -1286,7 +1331,7 @@ func buildGauge(opt map[string]any, res viewspec.Resolved) {
 			"offsetCenter": []any{0, "38%"},
 		},
 		"title": map[string]any{"show": false},
-		"data":  []any{map[string]any{"value": g.Value}},
+		"data":  []any{map[string]any{"value": value}},
 	}
 	opt["series"] = []any{series}
 }

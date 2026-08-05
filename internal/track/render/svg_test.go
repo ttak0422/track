@@ -216,6 +216,36 @@ func TestRenderRejectsDataOutsideExplicitDomain(t *testing.T) {
 	}
 }
 
+func TestRenderRejectsOverlaysAndGaugeOutsideExplicitDomain(t *testing.T) {
+	vband := viewspec.Resolved{
+		Spec:  viewspec.Spec{Encoding: viewspec.Encoding{Y: []viewspec.Channel{{Field: "value", Domain: []float64{0, 10}}}}},
+		Chart: viewspec.ChartLine, Labels: []string{"a"},
+		Series: []viewspec.Series{{Label: "value", Values: []float64{5}}},
+		VBands: []viewspec.VBand{{From: -1, To: 4}},
+	}
+	for name, render := range map[string]func(viewspec.Resolved) (string, error){
+		"svg":     func(r viewspec.Resolved) (string, error) { return SVG{}.Render(r) },
+		"echarts": func(r viewspec.Resolved) (string, error) { return EChartsOptionJSON(r) },
+	} {
+		if _, err := render(vband); err == nil || !strings.Contains(err.Error(), "vband") {
+			t.Errorf("%s should reject an out-of-domain vband: %v", name, err)
+		}
+	}
+	gauge := vband
+	gauge.Chart = viewspec.ChartGauge
+	gauge.Series = nil
+	gauge.VBands = nil
+	gauge.Gauge = &viewspec.Gauge{Value: 11, Min: 0, Max: 10}
+	for name, render := range map[string]func(viewspec.Resolved) (string, error){
+		"svg":     func(r viewspec.Resolved) (string, error) { return SVG{}.Render(r) },
+		"echarts": func(r viewspec.Resolved) (string, error) { return EChartsOptionJSON(r) },
+	} {
+		if _, err := render(gauge); err == nil || !strings.Contains(err.Error(), "gauge value") {
+			t.Errorf("%s should reject an out-of-domain gauge value: %v", name, err)
+		}
+	}
+}
+
 func TestSVGBubbleRenders(t *testing.T) {
 	out, err := SVG{}.Render(goldenCases()["bubble"])
 	if err != nil {
@@ -632,6 +662,13 @@ func TestSVGTimelinePointColors(t *testing.T) {
 	if !strings.Contains(out, `fill="#2d6a4f"`) || !strings.Contains(out, `fill="#4e79a7"`) {
 		t.Fatalf("timeline dots should carry per-point colors: %s", out)
 	}
+	unsafe := res
+	unsafe.Spec.Encoding.Color = &viewspec.Channel{Field: "side", Type: viewspec.Nominal,
+		Colors: map[string]string{"buy": `red" onload="alert(1)`}}
+	unsafeOut, _ := SVG{}.Render(unsafe)
+	if strings.Contains(unsafeOut, `onload="`) {
+		t.Fatalf("timeline colors must stay inside the SVG attribute: %s", unsafeOut)
+	}
 }
 
 func TestSVGGaugeDrawsDial(t *testing.T) {
@@ -682,5 +719,14 @@ func TestSVGBoxMarkersDrawCards(t *testing.T) {
 	}
 	if !strings.Contains(out, `stroke="rgba(220,53,69,0.7)"`) {
 		t.Fatalf("classic marker lines should still draw: %s", out)
+	}
+	if strings.Contains(out, `<rect x="`) && strings.Contains(out, ` y="-`) {
+		t.Fatalf("box cards should stay inside the SVG viewport: %s", out)
+	}
+	unsafe := res
+	unsafe.Markers = []viewspec.Marker{{At: "a", Label: "unsafe", Href: "javascript:alert(1)", Box: true}}
+	unsafeOut, _ := SVG{}.Render(unsafe)
+	if strings.Contains(unsafeOut, "javascript:") {
+		t.Fatalf("SVG marker URLs must be scrubbed too: %s", unsafeOut)
 	}
 }

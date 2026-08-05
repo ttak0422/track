@@ -159,7 +159,7 @@ func writeTimelineCells(b *strings.Builder, g svgGeom, grid *viewspec.Grid, res 
 			}
 		}
 		fmt.Fprintf(b, `<circle cx="%s" cy="%s" r="%s" fill="%s" fill-opacity="%s"/>`+"\n",
-			num(xc[c.Col]), num(yc[c.Row]), num(r), color, opacity)
+			num(xc[c.Col]), num(yc[c.Row]), num(r), svgColor(color), opacity)
 	}
 }
 

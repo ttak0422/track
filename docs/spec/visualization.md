@@ -167,6 +167,10 @@ sits on the right, offset beyond `y2`, so both overlays keep their own scale:
 ]
 ```
 
+The SVG renderer accepts the same schema but keeps all value series on one shared scale; it does not
+draw separate right-hand axes for `y2`/`y3`. Its candlestick renderer skips `y2`/`y3` extras because
+mixing their magnitude into the price scale would flatten the candles.
+
 ### Color (series split by category)
 
 On every mark except `rect`, `encoding.color` names a **nominal** field whose values split the records
@@ -368,8 +372,8 @@ a single reading, not a series:
 - **Vband overlays become the dial's colored zones**: each `{yfrom, yto, label}` span maps onto the
   range and is painted green → yellow → orange → red bottom-up (cycling for more than four zones),
   with neutral gaps between unclaimed spans.
-- The gauge takes exactly one quantitative `y` channel on the primary axis, no `color`/`size`/
-  `detail`/`href`/`note`, and only vband overlays — the strict-schema stance.
+- The gauge takes exactly one quantitative `y` channel on the primary axis, no `x`/`color`/`size`/
+  `detail`/`href`/`note`, no `y2`/`y3` zone axes, and only non-overlapping vband overlays — the strict-schema stance.
 - ECharts draws the zone axis line, pointer, and the value under the dial; the SVG renderer draws
   the zone arcs, the needle, and the value with its active zone's label.
 
@@ -620,7 +624,7 @@ output embeds directly in notes, emails, or a static site:
 - A candlestick draws a high–low wick and an open–close body per category, green for a rising candle
   and red for a falling one; the OHLC component series are not listed in the legend. Its extra y
   channels draw over the candles on the price scale (moving-average lines, rise/fall-colored bars);
-  a `y2`-bound extra is **skipped** — this renderer has a single value scale, and stretching the
+  a `y2`- or `y3`-bound extra is **skipped** — this renderer has a single value scale, and stretching the
   price axis to a volume magnitude would flatten the candles, so dropping the series is the
   documented degradation (like `display: "box"` below) and the legend lists only what is drawn.
 - A bubble (quantitative-x point) is drawn over **linear** x and y axes (one circle per `{x, y, r}`
@@ -635,7 +639,7 @@ output embeds directly in notes, emails, or a static site:
 - `NaN`/`Inf` values are gaps: a line breaks its segment, a bar/scatter/bubble point is omitted.
 - **Overlays** mirror the ECharts mark geometry: markers are vertical lines at the matching category
   label; reference lines are dashed horizontal lines (the SVG renderer has a single value scale, so
-  `axis: "y2"` is ignored; a line outside the data's value range is skipped); bands are translucent
+  `axis: "y2"`/`"y3"` is treated on that shared scale; a line outside the data's value range is skipped); bands are translucent
   rectangles spanning the `from`..`to` category slots (inclusive), drawn behind the series. A marker
   overlay's `display: "box"` is ignored — the classic marker rendering is the documented degradation
   (ADR 0028), like note references staying inert here.

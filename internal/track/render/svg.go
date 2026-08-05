@@ -51,10 +51,15 @@ type seriesStyle struct {
 	dash    string
 }
 
+// svgColor escapes user-provided color strings before they enter an SVG attribute. View specs keep
+// colors renderer-neutral, so the SVG surface must protect its attribute context even when a value
+// is not a valid CSS color (the browser will simply ignore that fill/stroke).
+func svgColor(color string) string { return html.EscapeString(color) }
+
 func svgSeriesStyle(res viewspec.Resolved, si int) seriesStyle {
 	st := seriesStyle{color: seriesColor(si)}
 	if c, ok := res.SeriesColor(res.Series[si].Label); ok {
-		st.color = c
+		st.color = svgColor(c)
 	}
 	st.opacity = res.SeriesOpacity(si)
 	if w, ok := res.SeriesWidth(si); ok {
@@ -91,6 +96,7 @@ func (SVG) Render(res viewspec.Resolved) (string, error) {
 		return renderGauge(res), nil
 	}
 	g := svgGeom{w: 800, h: 480, left: 56, right: 16, top: 40, bottom: 56}
+	g.top, g.bottom = markerBoxMargins(res)
 	lo, hi := valueRange(res)
 
 	var b strings.Builder
@@ -296,8 +302,8 @@ func writeHorizontalAxisTitle(b *strings.Builder, g svgGeom, name string) {
 }
 
 // candleSkipsSeries reports whether the SVG renderer leaves a resolved series undrawn: on a
-// candlestick, extras bound to the secondary axis (volume bars). This renderer has a single value
-// scale, and stretching the price axis to a volume magnitude would flatten the candles — skipping is
+// candlestick, extras bound to the secondary/tertiary axes (volume bars). This renderer has a single value
+// scale, and stretching the price axis to a volume magnitude would flatten the candles — skipping y2/y3 is
 // the documented degradation, like display:"box" falling back to plain markers here.
 func candleSkipsSeries(res viewspec.Resolved, si int) bool {
 	return res.Chart == viewspec.ChartCandlestick && (res.Series[si].Axis == "y2" || res.Series[si].Axis == "y3")
@@ -306,7 +312,7 @@ func candleSkipsSeries(res viewspec.Resolved, si int) bool {
 // writeSeries draws each y series by its own form — the chart's, or the series' mark override in a
 // combo chart — over a shared category x axis. Bars draw first so lines and areas stay readable on
 // top of them. A candlestick draws its candles first, then its extra series (moving averages) on the
-// same price scale; y2-bound extras are skipped (see candleSkipsSeries).
+// same price scale; y2/y3-bound extras are skipped (see candleSkipsSeries).
 func writeSeries(b *strings.Builder, g svgGeom, res viewspec.Resolved, lo, hi float64) {
 	centers := bandCenters(g, len(res.Labels))
 	if res.Chart == viewspec.ChartCandlestick {
@@ -665,13 +671,15 @@ func writeMarkers(b *strings.Builder, g svgGeom, res viewspec.Resolved) {
 		x := centers[i]
 		if m.Box {
 			boxed++
+			m.Href, _ = boxSource(m.Href)
 			writeMarkerBox(b, g, x, m, boxed%2 == 1)
 			continue
 		}
+		href, _ := boxSource(m.Href)
 		// A marker carrying a source URL becomes a real link — SVG anchors work in every host. Note
 		// references stay non-links here: the static renderer has no router to resolve them.
-		if m.Href != "" {
-			fmt.Fprintf(b, `<a href="%s" target="_blank" rel="noopener">`+"\n", html.EscapeString(m.Href))
+		if href != "" {
+			fmt.Fprintf(b, `<a href="%s" target="_blank" rel="noopener">`+"\n", html.EscapeString(href))
 		}
 		fmt.Fprintf(b, `<line x1="%s" y1="%g" x2="%s" y2="%g" stroke="rgba(220,53,69,0.7)" stroke-width="1"/>`+"\n",
 			num(x), g.top, num(x), g.top+g.plotH())
@@ -679,40 +687,70 @@ func writeMarkers(b *strings.Builder, g svgGeom, res viewspec.Resolved) {
 			fmt.Fprintf(b, `<text x="%s" y="%g" font-size="10" fill="#dc3545" transform="rotate(90 %s %g)">%s</text>`+"\n",
 				num(x+3), g.top+4, num(x+3), g.top+4, html.EscapeString(m.Label))
 		}
-		if m.Href != "" {
+		if href != "" {
 			b.WriteString("</a>\n")
 		}
 	}
 }
 
 // markerBoxWidth is an annotation card's fixed width; label lines wrap at the remaining text width.
-const markerBoxWidth = 180.0
+const (
+	markerBoxWidth    = 180.0
+	markerBoxLineH    = 14.0
+	markerBoxPadTop   = 22.0
+	markerBoxGap      = 8.0
+	markerBoxMaxLines = 6
+	markerBoxTextMax  = 27
+)
+
+func markerBoxHeight(m viewspec.Marker) float64 {
+	lines := wrapLabel(m.Label, markerBoxTextMax)
+	if len(lines) > markerBoxMaxLines {
+		lines = lines[:markerBoxMaxLines]
+	}
+	return markerBoxPadTop + float64(len(lines))*markerBoxLineH + 6
+}
+
+func markerBoxMargins(res viewspec.Resolved) (top, bottom float64) {
+	const baseTop, baseBottom = 40.0, 56.0
+	top, bottom = baseTop, baseBottom
+	boxed := 0
+	for _, marker := range res.Markers {
+		if !marker.Box {
+			continue
+		}
+		boxed++
+		h := markerBoxHeight(marker)
+		if boxed%2 == 1 {
+			top = math.Max(top, baseTop+markerBoxGap+h)
+		} else {
+			bottom = math.Max(bottom, baseBottom+markerBoxGap+h)
+		}
+	}
+	return top, bottom
+}
 
 // writeMarkerBox draws one box-mode annotation: a card of markerBoxWidth anchored at x (clamped to
 // the plot) that sits above or below the plot by side, its leader touching the marker line's x. The
 // card shows the date line (the at value), the wrapped label (up to six lines), and the source host.
 func writeMarkerBox(b *strings.Builder, g svgGeom, x float64, m viewspec.Marker, above bool) {
-	const (
-		lineH  = 14.0
-		padX   = 10.0
-		padTop = 22.0 // date line + gap
-		boxGap = 8.0
-	)
+	const padX = 10.0
+	m.Href, _ = boxSource(m.Href)
 	if x < g.left+markerBoxWidth/2 {
 		x = g.left + markerBoxWidth/2
 	} else if x > g.left+g.plotW()-markerBoxWidth/2 {
 		x = g.left + g.plotW() - markerBoxWidth/2
 	}
-	lines := wrapLabel(m.Label, 27) // ~27 glyphs fit the card's text width at font-size 11
-	if len(lines) > 6 {
-		lines = lines[:6]
+	lines := wrapLabel(m.Label, markerBoxTextMax) // ~27 glyphs fit the card's text width at font-size 11
+	if len(lines) > markerBoxMaxLines {
+		lines = lines[:markerBoxMaxLines]
 	}
-	boxH := padTop + float64(len(lines))*lineH + 6
+	boxH := markerBoxPadTop + float64(len(lines))*markerBoxLineH + 6
 	var y float64
 	if above {
-		y = g.top - boxGap - boxH
+		y = g.top - markerBoxGap - boxH
 	} else {
-		y = g.top + g.plotH() + boxGap
+		y = g.top + g.plotH() + 56 + markerBoxGap
 	}
 	if m.Href != "" {
 		fmt.Fprintf(b, `<a href="%s" target="_blank" rel="noopener">`+"\n", html.EscapeString(m.Href))
@@ -733,7 +771,7 @@ func writeMarkerBox(b *strings.Builder, g svgGeom, x float64, m viewspec.Marker,
 		num(x-markerBoxWidth/2+padX), num(ty), html.EscapeString(boxDate(m.At)))
 	ty += 6
 	for _, line := range lines {
-		ty += lineH
+		ty += markerBoxLineH
 		fmt.Fprintf(b, `<text x="%s" y="%s" font-size="11" fill="#1a1612">%s</text>`+"\n",
 			num(x-markerBoxWidth/2+padX), num(ty), html.EscapeString(line))
 	}
@@ -755,18 +793,20 @@ func wrapLabel(s string, max int) []string {
 	var lines []string
 	cur := ""
 	for _, w := range words {
+		runes := []rune(w)
 		// A single word longer than the width hard-splits (the goal sites' own labels do).
-		for len(w) > max {
+		for len(runes) > max {
 			if cur != "" {
 				lines = append(lines, cur)
 				cur = ""
 			}
-			lines = append(lines, w[:max])
-			w = w[max:]
+			lines = append(lines, string(runes[:max]))
+			runes = runes[max:]
 		}
+		w = string(runes)
 		if cur == "" {
 			cur = w
-		} else if len(cur)+1+len(w) <= max {
+		} else if len([]rune(cur))+1+len(runes) <= max {
 			cur += " " + w
 		} else {
 			lines = append(lines, cur)
@@ -818,7 +858,7 @@ func writeBands(b *strings.Builder, g svgGeom, res viewspec.Resolved) {
 // writeVBands shades each vband overlay's y range: a translucent rectangle spanning the full plot
 // width, mirroring the ECharts markArea y-axis bands. A band is clamped to the plotted value range
 // (like the ECharts markArea, which the axis clips) and skipped when it lies entirely outside. The
-// SVG renderer has a single value scale, so the band's axis choice (y/y2) is ignored here, like the
+// SVG renderer has a single value scale, so the band's axis choice (y/y2/y3) is ignored here, like the
 // reference lines.
 func writeVBands(b *strings.Builder, g svgGeom, res viewspec.Resolved, lo, hi float64) {
 	if len(res.VBands) == 0 {
@@ -841,7 +881,7 @@ func writeVBands(b *strings.Builder, g svgGeom, res viewspec.Resolved, lo, hi fl
 
 // writeRefLines draws each reference-line overlay as a dashed horizontal line at its y value, labeled
 // at the right edge, mirroring the ECharts reference lines. The SVG renderer has a single value
-// scale, so the line's axis choice (y/y2) is ignored here.
+// scale, so the line's axis choice (y/y2/y3) is ignored here.
 // ponytail: a line outside the data's value range is skipped, not drawn; expand valueRange over
 // res.Lines if off-scale thresholds need to show.
 func writeRefLines(b *strings.Builder, g svgGeom, res viewspec.Resolved, lo, hi float64) {
@@ -935,7 +975,7 @@ func writeLegend(b *strings.Builder, g svgGeom, res viewspec.Resolved) {
 		if res.Chart == viewspec.ChartCandlestick {
 			color = candleExtraColor(si)
 		} else if c, ok := res.SeriesColor(res.Series[si].Label); ok {
-			color = c
+			color = svgColor(c)
 		}
 		yi := y + float64(row)*16
 		row++

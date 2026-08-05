@@ -338,6 +338,31 @@ func TestEChartsCandlestickExtras(t *testing.T) {
 	}
 }
 
+func TestEChartsCandlestickThirdAxis(t *testing.T) {
+	res := viewspec.Resolved{
+		Spec: viewspec.Spec{Encoding: viewspec.Encoding{Y: []viewspec.Channel{{Axis: "y3", AxisName: "tertiary"}}}}, Chart: viewspec.ChartCandlestick,
+		Labels: []string{"a"},
+		Series: []viewspec.Series{
+			{Label: "open", Values: []float64{10}}, {Label: "high", Values: []float64{12}},
+			{Label: "low", Values: []float64{8}}, {Label: "close", Values: []float64{11}},
+			{Label: "third", Values: []float64{3}, Axis: "y3", Mark: viewspec.ChartLine},
+		},
+	}
+	opt := echartsOptionForTest(t, res)
+	yAxes := opt["yAxis"].([]any)
+	if len(yAxes) != 3 {
+		t.Fatalf("y3 candlestick should create three axes, got %d", len(yAxes))
+	}
+	y3 := yAxes[2].(map[string]any)
+	if y3["position"] != "right" || y3["offset"] != float64(60) || y3["name"] != "tertiary" {
+		t.Fatalf("y3 candlestick axis = %#v", y3)
+	}
+	extra := opt["series"].([]any)[1].(map[string]any)
+	if extra["yAxisIndex"] != float64(2) {
+		t.Fatalf("y3 candlestick series should target axis 2: %#v", extra)
+	}
+}
+
 func TestEChartsOverlays(t *testing.T) {
 	res := resolvedChart(viewspec.ChartLine, "S", []float64{1, 2})
 	res.Markers = []viewspec.Marker{{At: "b", Label: "ev"}}
@@ -695,6 +720,12 @@ func TestEChartsBoxMarkersCarryPayload(t *testing.T) {
 	if strings.Contains(out3, `"box"`) {
 		t.Fatalf("no box key without display box: %s", out3)
 	}
+	unsafe := resolvedChart(viewspec.ChartLine, "S", []float64{1, 2})
+	unsafe.Markers = []viewspec.Marker{{At: "a", Label: "ev", Href: "javascript:alert(1)"}}
+	unsafeOut, _ := EChartsOptionJSON(unsafe)
+	if strings.Contains(unsafeOut, "javascript:") {
+		t.Fatalf("classic marker URLs must be scrubbed too: %s", unsafeOut)
+	}
 }
 
 func TestEChartsAxisPointerByForm(t *testing.T) {
@@ -879,6 +910,17 @@ func TestEChartsThirdAxisY3(t *testing.T) {
 	}
 }
 
+func TestEChartsMarkersAttachWhenOnlyTertiarySeriesExists(t *testing.T) {
+	res := resolvedChart(viewspec.ChartLine, "tertiary", []float64{1, 2})
+	res.Series[0].Axis = "y3"
+	res.Markers = []viewspec.Marker{{At: "a", Label: "event"}}
+	opt := echartsOptionForTest(t, res)
+	series := opt["series"].([]any)[0].(map[string]any)
+	if _, ok := series["markLine"]; !ok {
+		t.Fatalf("x marker should attach to the only available series: %#v", series)
+	}
+}
+
 func TestEChartsTimelinePointColors(t *testing.T) {
 	res := viewspec.Resolved{
 		Spec: viewspec.Spec{Encoding: viewspec.Encoding{
@@ -932,6 +974,9 @@ func TestEChartsGaugeDialZones(t *testing.T) {
 	if data["value"] != 14.0 {
 		t.Fatalf("gauge value = %v", data["value"])
 	}
+	if _, ok := series["markArea"]; ok {
+		t.Fatalf("gauge vbands should be dial zones, not cartesian markArea: %s", out)
+	}
 	segs := series["axisLine"].(map[string]any)["lineStyle"].(map[string]any)["color"].([]any)
 	// Zones sorted by From: -9..0 → 0.333 green, 0..5 → 0.518 yellow, 5..10 → 0.704 orange,
 	// 10..18 → 1.0 red — the goal dial's exact boundaries.
@@ -942,6 +987,12 @@ func TestEChartsGaugeDialZones(t *testing.T) {
 		if math.Abs(f-want[i][0].(float64)) > 0.002 || pair[1] != want[i][1] {
 			t.Fatalf("segment %d = %v, want %v", i, pair, want[i])
 		}
+	}
+	empty := res
+	empty.Gauge = &viewspec.Gauge{Value: math.NaN(), Min: 0, Max: 100}
+	emptyOut, err := EChartsOptionJSON(empty)
+	if err != nil || !strings.Contains(emptyOut, `"value":null`) {
+		t.Fatalf("empty gauge should serialize a null reading: err=%v output=%s", err, emptyOut)
 	}
 }
 
@@ -962,6 +1013,14 @@ func TestEChartsPageEmbedsBoxAnnotationScript(t *testing.T) {
 		if !strings.Contains(out, want) {
 			t.Errorf("standalone page missing %q", want)
 		}
+	}
+	if def, call := strings.Index(out, "function boxedAnnotations"), strings.Index(out, "boxedAnnotations(chart, option);"); def < 0 || call < def {
+		t.Fatalf("annotation helper must be defined before it is called")
+	}
+	boxOpt := echartsOptionForTest(t, res)
+	grid := boxOpt["grid"].(map[string]any)
+	if grid["top"] != float64(140) || grid["bottom"] != float64(160) {
+		t.Fatalf("box chart should reserve card margins: %#v", grid)
 	}
 	// A chart without box markers still gets the (no-op) hook, but no payload.
 	plain, err := ECharts{}.Render(resolvedChart(viewspec.ChartLine, "S", []float64{1, 2}))

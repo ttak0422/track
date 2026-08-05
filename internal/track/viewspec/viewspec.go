@@ -385,7 +385,7 @@ type Marker struct {
 	Box   bool
 }
 
-// RefLine is a resolved horizontal reference line (a threshold): a value on axis "y" or "y2" plus an
+// RefLine is a resolved horizontal reference line (a threshold): a value on axis "y", "y2", or "y3" plus an
 // optional label.
 type RefLine struct {
 	Y     float64
@@ -707,6 +707,9 @@ func (s Spec) Validate() error {
 	// A gauge is a dial over one measure: exactly one quantitative y channel on the primary axis,
 	// no other channels, and vband overlays only (they become the dial's colored zones).
 	if s.Mark == MarkGauge {
+		if s.Encoding.X.Field != "" {
+			return fmt.Errorf("view spec: mark gauge does not take encoding.x")
+		}
 		if len(s.Encoding.Y) == 0 || s.Encoding.Y[0].nominal() {
 			return fmt.Errorf("view spec: mark gauge needs a quantitative encoding.y[0] (the value to show)")
 		}
@@ -716,12 +719,24 @@ func (s Spec) Validate() error {
 		if a := s.Encoding.Y[0].axisID(); a != "y" {
 			return fmt.Errorf("view spec: mark gauge draws on the primary axis only (y[0].axis is %q)", a)
 		}
+		if s.Encoding.Y[0].Opacity != nil || s.Encoding.Y[0].AxisName != "" {
+			return fmt.Errorf("view spec: mark gauge does not take y[0].opacity or y[0].axisName")
+		}
 		if s.Encoding.Color != nil || s.Encoding.Size != nil || s.Encoding.Href != nil || s.Encoding.Note != nil || len(s.Encoding.Detail) > 0 {
 			return fmt.Errorf("view spec: mark gauge does not take encoding.color/size/detail/href/note")
 		}
 		for i, o := range s.Overlays {
 			if o.YFrom == nil {
 				return fmt.Errorf("view spec: overlays[%d] on mark gauge must be a vband (a dial zone)", i)
+			}
+			if o.Axis != "" && o.Axis != "y" {
+				return fmt.Errorf("view spec: overlays[%d] on mark gauge must target the primary axis", i)
+			}
+			for j := 0; j < i; j++ {
+				prev := s.Overlays[j]
+				if prev.YFrom != nil && prev.YTo != nil && o.YTo != nil && *o.YFrom < *prev.YTo && *prev.YFrom < *o.YTo {
+					return fmt.Errorf("view spec: overlays[%d] overlaps gauge zone overlays[%d]", i, j)
+				}
 			}
 		}
 	}
@@ -832,8 +847,8 @@ func (s Spec) validateChannelOptions() error {
 			if nc.ch.nominal() {
 				return fmt.Errorf("view spec: %s.domain needs a quantitative channel", nc.name)
 			}
-			if nc.ch.Axis == "y2" {
-				return fmt.Errorf("view spec: %s.domain is not yet supported on y2 (the SVG renderer has one value scale)", nc.name)
+			if nc.ch.Axis == "y2" || nc.ch.Axis == "y3" {
+				return fmt.Errorf("view spec: %s.domain is not yet supported on %s (the SVG renderer has one value scale)", nc.name, nc.ch.Axis)
 			}
 			if len(nc.ch.Domain) != 2 {
 				return fmt.Errorf("view spec: %s.domain must be [min,max]", nc.name)
@@ -1401,12 +1416,12 @@ func (s Spec) Resolve(records []dataset.Record) Resolved {
 // resolveGauge reads the dial value: the last finite y[0] value across the filtered records, with
 // the range from y[0].domain (0..100 when the spec declares none).
 func (s Spec) resolveGauge(records []dataset.Record, res *Resolved) {
-	g := &Gauge{Min: 0, Max: 100}
+	g := &Gauge{Value: math.NaN(), Min: 0, Max: 100}
 	if d := s.Encoding.Y[0].Domain; len(d) == 2 {
 		g.Min, g.Max = d[0], d[1]
 	}
 	for _, rec := range s.filtered(records) {
-		if v := floatOrNaN(rec, s.Encoding.Y[0].Field); !math.IsNaN(v) {
+		if v := floatOrNaN(rec, s.Encoding.Y[0].Field); !math.IsNaN(v) && !math.IsInf(v, 0) {
 			g.Value = v
 		}
 	}

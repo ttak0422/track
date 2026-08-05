@@ -240,6 +240,7 @@ func viewSpecReference() string {
 	b.WriteString("  encoding.y[]:    {field, type?, title?, axis?, domain?}   one or more y series\n")
 	fmt.Fprintf(&b, "  encoding.*.type: %s   (default quantitative; nominal = category)\n", strings.Join(chTypes, " | "))
 	fmt.Fprintf(&b, "  y[].axis:        %s   (y2/y3 = right-hand axes for further scales)\n", strings.Join(viewspec.AxisOptions, " | "))
+	b.WriteString("                   SVG keeps one shared value scale (and skips y2/y3 candlestick extras)\n")
 	fmt.Fprintf(&b, "  sort:            %s   on the category-axis channel (x, or y[0]\n", strings.Join(viewspec.SortOptions, " | "))
 	b.WriteString("                   for a horizontal bar); value/-value order categories by series total\n")
 	b.WriteString("  limit:           N   keep only the first N categories (after sort): top-N ranking\n")
@@ -286,7 +287,7 @@ func viewSpecReference() string {
 	b.WriteString("optional nominal y[0] = group, size = area, color = cell value; it is axis-less,\n")
 	b.WriteString("so sort/limit and overlays are rejected.\n")
 	b.WriteString("gauge draws the last value of a quantitative y[0] on a dial: the range is y[0].domain\n")
-	b.WriteString("(default 0..100) and vband overlays become the dial's colored zones.\n")
+	b.WriteString("(default 0..100), with non-overlapping primary-axis vbands as its colored zones; no x channel.\n")
 	b.WriteString("\nExample:\n")
 	b.WriteString(`  {
     "version": 2,
