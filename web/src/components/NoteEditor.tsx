@@ -72,7 +72,7 @@ export function NoteEditor({ noteID }: NoteEditorProps) {
   // the raw body, so track-specific rules live only in the engine. The body is posted as you type.
   // Everything this body refers to lives in the note's own vault.
   const noteVault = vaultOf(noteID);
-  const renderQuery = useRenderQuery(body, noteVault);
+  const renderQuery = useRenderQuery(body, noteVault, 200);
   // The note/body/etag last adopted from disk. Edits are "dirty" relative to this, and
   // saves use this etag so a background reload cannot mask a conflicting change. noteID is
   // tracked so switching notes always reloads, even with unsaved edits to the previous note.

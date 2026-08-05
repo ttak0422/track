@@ -169,14 +169,17 @@ export function useNoteQuery(noteID: NoteID, options: { live?: boolean; enabled?
 }
 
 // useRenderQuery turns a raw note body into the sanitized Markdown the preview renders, via the server's
-// /api/render endpoint. The body is debounced so typing in the editor does not post on every keystroke,
-// and the previous render is kept while the next one loads so the preview never flashes empty mid-edit.
-export function useRenderQuery(body: string, vault = "") {
-  const debounced = useDebouncedValue(body, 200);
+// /api/render endpoint. The previous render is kept while the next one loads so the preview never
+// flashes empty mid-edit. Debouncing is opt-in: only the editor types into the body, and there a delay
+// avoids posting on every keystroke. A reader or a hover preview sees the body change exactly once, and
+// waiting there just delays the render — long enough that the preview window's auto-fit resizes twice.
+export function useRenderQuery(body: string, vault = "", debounceMs = 0) {
+  const debounced = useDebouncedValue(body, debounceMs);
+  const source = debounceMs === 0 ? body : debounced;
   return useQuery({
-    queryKey: queryKeys.render(debounced, vault),
-    queryFn: () => renderMarkdown(debounced, vault),
-    enabled: debounced.trim() !== "",
+    queryKey: queryKeys.render(source, vault),
+    queryFn: () => renderMarkdown(source, vault),
+    enabled: source.trim() !== "",
     // Sanitization is a pure function of the body and the server caches nothing per-note, so an identical
     // body never needs re-posting within a session.
     staleTime: Infinity,
