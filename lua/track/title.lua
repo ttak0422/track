@@ -23,12 +23,9 @@ function M.render(buf)
    if not title or title == "" then
       return
    end
-   if vim.api.nvim_buf_line_count(buf) < 1 then
-      return
-   end
    vim.api.nvim_buf_set_extmark(buf, ns, 0, 0, {
-      virt_text = { { title, config.options.title_hl } },
-      virt_text_pos = "overlay",
+      virt_lines = { { { title, config.options.title_hl } } },
+      virt_lines_above = true,
       priority = 90,
    })
 end
