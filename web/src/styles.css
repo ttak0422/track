@@ -746,7 +746,10 @@ button {
   bottom: 24px;
   display: flex;
   flex-direction: column;
-  width: 220px;
+  /* Take the margin the hero actually leaves instead of a fixed column, so long titles stop wrapping
+     on a wide window. Floor 220px is the width the 1120px breakpoint below still affords; the cap
+     keeps a very wide window from turning the lists into full-width prose. */
+  width: clamp(220px, calc((100% - 560px) / 2 - 64px), 420px);
   text-align: left;
 }
 
