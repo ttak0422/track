@@ -47,9 +47,18 @@ assert_true(details.virt_lines[1][1][1] == "Virt line title", "title text missin
 -- The first body line must still be the buffer's line 1, untouched by the title.
 assert_true(vim.api.nvim_buf_get_lines(buf, 0, 1, false)[1] == "first body line", "body line 1 was overwritten")
 
--- copy_title copies the cached title string into the + register.
+-- copy_title copies the cached title string into the + register. Headless CI has no clipboard
+-- provider, so capture the value passed to setreg instead of reading the register back.
+local copied
+local orig_setreg = vim.fn.setreg
+vim.fn.setreg = function(reg, val)
+   if reg == "+" then
+      copied = val
+   end
+   return orig_setreg(reg, val)
+end
 require("track.title").copy_title()
-assert_true(vim.fn.getreg("+") == "Virt line title", "copy_title did not copy the title: " .. vim.inspect(vim.fn.getreg("+")))
+assert_true(copied == "Virt line title", "copy_title did not copy the title: " .. vim.inspect(copied))
 
 print("track-e2e: PASS nvim title virtline")
 vim.cmd("qa!")
