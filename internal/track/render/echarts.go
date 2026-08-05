@@ -35,15 +35,23 @@ func (ECharts) Name() string { return "echarts" }
 
 // Render builds the ECharts option from the resolved spec and embeds it in a complete HTML document.
 func (ECharts) Render(res viewspec.Resolved) (string, error) {
-	optJSON, err := EChartsOptionJSON(res)
+	// The standalone page owns the annotation cards, so reserve their space here. Embedded charts
+	// use the same option builder but render their cards in the web reader's rail; putting these
+	// margins in the shared option leaves the embedded chart with almost no plot height.
+	opt, err := echartsOption(res)
 	if err != nil {
 		return "", err
+	}
+	applyBoxMargins(opt, res)
+	optJSON, err := json.Marshal(opt)
+	if err != nil {
+		return "", fmt.Errorf("marshal echarts option: %w", err)
 	}
 	title := res.Spec.Title
 	if title == "" {
 		title = "track chart"
 	}
-	return echartsPage(html.EscapeString(title), optJSON), nil
+	return echartsPage(html.EscapeString(title), string(optJSON)), nil
 }
 
 // EChartsOptionJSON builds the ECharts option object for a resolved spec, marshaled to JSON. It is
@@ -100,7 +108,6 @@ func echartsOption(res viewspec.Resolved) (map[string]any, error) {
 	applyGrid(opt, res.Chart)
 	applyDataZoom(opt, res)
 	applyOverlays(opt, res)
-	applyBoxMargins(opt, res)
 	return opt, nil
 }
 
