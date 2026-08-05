@@ -1903,13 +1903,39 @@ textarea.modal-input:focus-visible {
   word-break: break-word;
 }
 
-a:has(> .note-title) {
-  color: inherit;
-  text-decoration: none;
+.note-title-copy {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 1.35em;
+  height: 1.35em;
+  margin-inline-start: 0.35em;
+  padding: 0.12em;
+  border: 0;
+  border-radius: var(--radius);
+  color: var(--muted);
+  background: transparent;
+  vertical-align: 0.08em;
+  cursor: pointer;
+  opacity: 0.45;
+  transition: opacity 0.12s ease, color 0.12s ease, background 0.12s ease;
 }
 
-a:has(> .note-title):hover {
+.note-title-copy:hover,
+.note-title-copy:focus-visible {
+  background: var(--panel-soft);
   color: var(--accent);
+  opacity: 1;
+}
+
+.note-title-copy svg {
+  width: 100%;
+  height: 100%;
+  fill: none;
+  stroke: currentColor;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+  stroke-width: 1.8;
 }
 
 .markdown-view p {
