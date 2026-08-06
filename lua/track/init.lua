@@ -15,6 +15,7 @@ function M.setup(opts)
     require("track.babel").setup()
     require("track.include").setup()
     require("track.title").setup()
+    require("track.watch").setup()
     require("track.commands").setup()
 end
 

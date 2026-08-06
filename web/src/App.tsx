@@ -22,6 +22,7 @@ import { Shell } from "./components/Shell";
 import { TagView } from "./components/TagView";
 import "./styles.css";
 import { NotificationProvider } from "./notifications";
+import { VaultActivityWatcher } from "./components/VaultActivityWatcher";
 
 const rootRoute = createRootRoute({
   component: Shell,
@@ -149,7 +150,11 @@ let clientRouter: ReturnType<typeof createAppRouter> | null = null;
 export function AppTree({ queryClient, children }: { queryClient: QueryClient; children: ReactNode }) {
   return (
     <QueryClientProvider client={queryClient}>
-      <NotificationProvider>{children}</NotificationProvider>
+      <NotificationProvider>
+        {/* Live only: a published site's notes never change under the reader. */}
+        {STATIC_MODE ? null : <VaultActivityWatcher />}
+        {children}
+      </NotificationProvider>
     </QueryClientProvider>
   );
 }
