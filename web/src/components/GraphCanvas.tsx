@@ -29,6 +29,28 @@ export interface GraphCanvasProps {
   focusNodeID?: NoteID;
 }
 
+// How long the layout may run inline before it owes the frame back. Half a 60fps frame: a note's
+// local graph settles inside one slice and never blinks, and a big one costs no more than this
+// before the browser gets the thread back.
+const SETTLE_BUDGET_MS = 8;
+// Ceiling on settling work, so a graph too large to converge still appears instead of staying blank.
+const SETTLE_TICK_CAP = 400;
+// While the view still follows the layout automatically. Reached the moment the layout settles, so
+// the fit happens once rather than every tick — dragging a node later never yanks the camera.
+const FIT_FOLLOW_TICKS = 150;
+
+// requestIdleCallback is not everywhere (older Safari, jsdom). A macrotask is close enough for work
+// nobody is waiting on; the deadline it fabricates just spends the same budget as the first slice.
+function requestIdle(run: (deadline: IdleDeadline) => void): number {
+  if (typeof requestIdleCallback === "function") return requestIdleCallback(run);
+  return window.setTimeout(() => run({ didTimeout: true, timeRemaining: () => SETTLE_BUDGET_MS }), 0);
+}
+
+function cancelIdle(handle: number) {
+  if (typeof cancelIdleCallback === "function") cancelIdleCallback(handle);
+  else window.clearTimeout(handle);
+}
+
 interface SimNode extends GraphNode, SimulationNodeDatum {
   x: number;
   y: number;
@@ -92,6 +114,13 @@ export function GraphCanvas({
   const pinnedRef = useRef<SimNode | null>(null);
   const simulationRef = useRef<Simulation<SimNode, SimEdge> | null>(null);
   const ticksRef = useRef(0);
+  // In-flight settling pass: the idle handle to cancel, and the ticks it has spent against the cap.
+  const settleIdleRef = useRef<number | null>(null);
+  const settleTicksRef = useRef(0);
+  // Only the very first layout hides the canvas while it settles. Later ones (a resize, another
+  // note's graph) keep the previous drawing up and swap it out when the new one lands, so resizing a
+  // window does not strobe.
+  const firstLayoutRef = useRef(true);
   const hoverRef = useRef<NoteID | null>(null);
   const userAdjustedRef = useRef(false);
   const graphRef = useRef(graph);
@@ -208,16 +237,64 @@ export function GraphCanvas({
       .force("x", forceX<SimNode>(0).strength(0.002))
       .force("y", forceY<SimNode>(0).strength(0.002))
       .on("tick", () => {
-        if (!userAdjustedRef.current && ticksRef.current < 150) {
+        if (!userAdjustedRef.current && ticksRef.current < FIT_FOLLOW_TICKS) {
           viewRef.current = fitGraphView(size);
         }
         drawGraph(size);
         ticksRef.current += 1;
       });
     simulationRef.current = simulation;
+
+    // Settle before the first paint. The trip from the seed ring to equilibrium is noise, not
+    // information, and drawing it spends a canvas frame per tick — this vault's 194-node graph runs
+    // 194 of them. simulation.tick() does not fire "tick", so nothing is drawn until the layout
+    // lands; the ticks the drag handlers restart later still paint as they always did.
+    simulation.stop();
+    settleTicksRef.current = 0;
+    settleGraph();
+  }
+
+  // settleGraph runs the layout to equilibrium off the page's critical path: the first slice is
+  // inline on a frame budget (a small graph is done here, with no blank and no wait for an idle
+  // callback that a busy page may hold for a hundred milliseconds), and a graph too big for that
+  // hands the rest to requestIdleCallback rather than blocking a frame it does not deserve.
+  function settleGraph(deadline?: IdleDeadline) {
+    const simulation = simulationRef.current;
+    if (!simulation) return;
+
+    const until = performance.now() + SETTLE_BUDGET_MS;
+    const affordable = () => (deadline ? deadline.timeRemaining() > 1 : performance.now() < until);
+    while (
+      simulation.alpha() > simulation.alphaMin() &&
+      settleTicksRef.current < SETTLE_TICK_CAP &&
+      affordable()
+    ) {
+      simulation.tick();
+      settleTicksRef.current += 1;
+    }
+
+    if (simulation.alpha() > simulation.alphaMin() && settleTicksRef.current < SETTLE_TICK_CAP) {
+      // Blank rather than show a layout mid-flight — but only the first time, so a resize keeps the
+      // drawing it already has until the new one is ready.
+      if (firstLayoutRef.current) canvasRef.current?.setAttribute("data-settling", "true");
+      settleIdleRef.current = requestIdle(settleGraph);
+      return;
+    }
+
+    settleIdleRef.current = null;
+    firstLayoutRef.current = false;
+    canvasRef.current?.removeAttribute("data-settling");
+    // The layout is final, so the view is fitted once here instead of chased on every tick.
+    ticksRef.current = FIT_FOLLOW_TICKS;
+    if (!userAdjustedRef.current) viewRef.current = fitGraphView(size);
+    drawGraph(size);
   }
 
   function stopGraph() {
+    if (settleIdleRef.current !== null) {
+      cancelIdle(settleIdleRef.current);
+      settleIdleRef.current = null;
+    }
     simulationRef.current?.stop();
     simulationRef.current = null;
   }
