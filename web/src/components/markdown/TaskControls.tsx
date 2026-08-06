@@ -1,5 +1,5 @@
 import type { Element } from "hast";
-import { type ReactNode, useContext, useState } from "react";
+import { type ReactNode, memo, useContext, useState } from "react";
 import { TaskBoardContext } from "./context";
 import { useSetTaskDateMutation, useSetTaskStateMutation } from "../../queries";
 import { STATIC_MODE } from "../../runtime";
@@ -27,7 +27,9 @@ interface ElementProps {
 // render (a preview, a test) never needs one; the control below mounts the mutation only once there
 // is something to write.
 function useTaskAtLine(line: number) {
-  const { noteID, tasks, etag, lineOffset = 0 } = useContext(TaskBoardContext);
+  const { noteID, tasksRef, lineOffset = 0 } = useContext(TaskBoardContext);
+  const tasks = tasksRef?.current.tasks;
+  const etag = tasksRef?.current.etag;
   const item =
     !STATIC_MODE && noteID !== "" && tasks && etag && line > 0
       ? tasks.items.find((t) => t.line === line + lineOffset)
@@ -35,89 +37,140 @@ function useTaskAtLine(line: number) {
   return { noteID, item, etag };
 }
 
+// sameTask compares the parts of a task a control renders, so a resolved row can skip re-rendering
+// when the underlying data refreshed without changing it. The etag is deliberately not part of that
+// comparison: it changes on every disk refresh, and re-rendering on it would re-commit the input
+// (re-applying its type) and close an open native date picker. Controls read the etag from the
+// context at write time instead, so the optimistic lock is always current.
+function sameTask(a: TaskItem | undefined, b: TaskItem | undefined) {
+  if (a === b) return true;
+  if (!a || !b) return false;
+  return (
+    a.line === b.line &&
+    a.state === b.state &&
+    a.done === b.done &&
+    a.text === b.text &&
+    a.scheduled === b.scheduled &&
+    a.due === b.due &&
+    a.completed === b.completed &&
+    a.priority === b.priority
+  );
+}
+
 // TaskCheck makes a plain GFM checklist ("- [ ] foo", no task notation) tickable: the engine has
 // always parsed those lines as tasks, only the frontend left the native checkbox disabled. The line
 // comes from rehypeTaskCheck; a box it cannot resolve stays exactly as it renders today.
 export function TaskCheck({ line, checked }: { line: number; checked: boolean }) {
-  const { noteID, item, etag } = useTaskAtLine(line);
+  const { noteID, item } = useTaskAtLine(line);
   if (!item) {
     return <input type="checkbox" checked={checked} disabled readOnly />;
   }
-  return <TaskCheckControl noteID={noteID} item={item} etag={etag!} />;
+  return <TaskCheckControl noteID={noteID} item={item} />;
 }
 
-function TaskCheckControl({ noteID, item, etag }: { noteID: NoteID; item: TaskItem; etag: string }) {
-  const mutation = useSetTaskStateMutation(noteID);
-  const target = taskStates.find((state) => state.done !== item.done);
-  // While the write is in flight, show where it is going rather than snapping back.
-  const shown = mutation.isPending ? !item.done : item.done;
-  return (
-    <input
-      type="checkbox"
-      checked={shown}
-      disabled={mutation.isPending || !target}
-      aria-label={`Toggle task: ${item.text}`}
-      onChange={() => {
-        if (target) mutation.mutate({ line: item.line, state: target.name, expect: item.state, etag });
-      }}
-    />
-  );
-}
+// TaskCheckControl is memoized on the rendered task: a disk refresh that does not change the line
+// must not re-render it (see sameTask). Its own mutation state still re-renders it while a write is
+// in flight. The etag is read from the context at write time, not captured in the render, so a write
+// always carries the current optimistic lock even while this component is skipping re-renders.
+const TaskCheckControl = memo(
+  function TaskCheckControl({ noteID, item }: { noteID: NoteID; item: TaskItem }) {
+    const mutation = useSetTaskStateMutation(noteID);
+    const { tasksRef } = useContext(TaskBoardContext);
+    const target = taskStates.find((state) => state.done !== item.done);
+    // While the write is in flight, show where it is going rather than snapping back.
+    const shown = mutation.isPending ? !item.done : item.done;
+    return (
+      <input
+        type="checkbox"
+        checked={shown}
+        disabled={mutation.isPending || !target}
+        aria-label={`Toggle task: ${item.text}`}
+        onChange={() => {
+          if (target) {
+            mutation.mutate({
+              line: item.line,
+              state: target.name,
+              expect: item.state,
+              etag: tasksRef?.current.etag ?? "",
+            });
+          }
+        }}
+      />
+    );
+  },
+  (prev, next) => prev.noteID === next.noteID && sameTask(prev.item, next.item),
+);
 
 // TaskRowDate is the scheduled/due cell. Read-only it is the marked date as written; where the note
 // can be written it is a native date input styled down to look like that same text, so picking a
 // date is a click on what it shows rather than a separate editing mode. An empty cell shows nothing
 // until the row is hovered or focused (the CSS reveals it), so an untouched table stays quiet.
 function TaskRowDate({ field, value, line }: { field: DateField; value: string; line: number }) {
-  const { noteID, item, etag } = useTaskAtLine(line);
+  const { noteID, item } = useTaskAtLine(line);
   const marker = field === "sched" ? "▷" : "!";
   if (!item) {
     return <>{value ? `${marker} ${value}` : ""}</>;
   }
-  return <TaskRowDateControl noteID={noteID} item={item} field={field} value={value} etag={etag!} />;
+  return <TaskRowDateControl noteID={noteID} item={item} field={field} value={value} />;
 }
 
-function TaskRowDateControl({
-  noteID,
-  item,
-  field,
-  value,
-  etag,
-}: {
-  noteID: NoteID;
-  item: TaskItem;
-  field: DateField;
-  value: string;
-  etag: string;
-}) {
-  const mutation = useSetTaskDateMutation(noteID);
-  return (
-    <input
-      type="date"
-      className="task-row-date-input"
-      aria-label={field === "sched" ? "Scheduled date" : "Due date"}
-      value={value}
-      disabled={mutation.isPending}
-      data-empty={value === "" || undefined}
-      // The cell wears the note's own type and hides the browser's picker indicator, so a click would
-      // otherwise land in the date segments. showPicker opens the calendar the indicator would have
-      // opened, which keeps picking a date one click on what the cell already shows.
-      //
-      // The indicator we hide is a -webkit- pseudo, so Gecko still draws its own calendar button and
-      // toggles the picker from a system-group click listener — a second dispatch pass, after this
-      // handler. It would find the picker already open and close it. Cancelling the click makes that
-      // listener stand down (it returns early on defaultPrevented) and costs nothing elsewhere: no
-      // engine focuses a date segment on click, only on mousedown.
-      onClick={(event) => {
-        event.preventDefault();
-        event.currentTarget.showPicker?.();
-      }}
-      onChange={(event) =>
-        mutation.mutate({ line: item.line, field, date: event.currentTarget.value, expect: item.state, etag })
-      }
-    />
-  );
-}
+// TaskRowDateControl is memoized on what it renders (the cell's date, the resolved task): a disk
+// refresh that leaves the line's task unchanged must not re-commit the input — re-applying its type
+// closes an open native date picker. The etag is read from the context at write time (see
+// TaskCheckControl), so a write always carries the current lock without re-rendering.
+const TaskRowDateControl = memo(
+  function TaskRowDateControl({
+    noteID,
+    item,
+    field,
+    value,
+  }: {
+    noteID: NoteID;
+    item: TaskItem;
+    field: DateField;
+    value: string;
+  }) {
+    const mutation = useSetTaskDateMutation(noteID);
+    const { tasksRef } = useContext(TaskBoardContext);
+    return (
+      <input
+        type="date"
+        className="task-row-date-input"
+        aria-label={field === "sched" ? "Scheduled date" : "Due date"}
+        value={value}
+        disabled={mutation.isPending}
+        data-empty={value === "" || undefined}
+        // The cell wears the note's own type and hides the browser's picker indicator, so a click would
+        // otherwise land in the date segments. showPicker opens the calendar the indicator would have
+        // opened, which keeps picking a date one click on what the cell already shows.
+        //
+        // The indicator we hide is a -webkit- pseudo, so Gecko still draws its own calendar button and
+        // toggles the picker from a system-group click listener — a second dispatch pass, after this
+        // handler. It would find the picker already open and close it. Cancelling the click makes that
+        // listener stand down (it returns early on defaultPrevented) and costs nothing elsewhere: no
+        // engine focuses a date segment on click, only on mousedown.
+        onClick={(event) => {
+          event.preventDefault();
+          event.currentTarget.showPicker?.();
+        }}
+        onChange={(event) =>
+          mutation.mutate({
+            line: item.line,
+            field,
+            date: event.currentTarget.value,
+            expect: item.state,
+            etag: tasksRef?.current.etag ?? "",
+          })
+        }
+      />
+    );
+  },
+  (prev, next) =>
+    prev.noteID === next.noteID &&
+    prev.field === next.field &&
+    prev.value === next.value &&
+    sameTask(prev.item, next.item),
+);
 
 // TaskRowState is the state cell of a task-table row, and doubles as the state control: in the
 // live workspace it renders as a select stripped down to the badge's text look, writing through
@@ -125,44 +178,52 @@ function TaskRowDateControl({
 // task (rendered bodies are line-aligned with the note file — the invariant includes rely on); on
 // static sites and hover previews (no note id) it stays a plain badge.
 function TaskRowState({ name, done, line }: { name: string; done: boolean; line: number }) {
-  const { noteID, item, etag } = useTaskAtLine(line);
+  const { noteID, item } = useTaskAtLine(line);
   const className = `task-row-state${done ? " task-row-state-done" : ""}`;
   if (!item) {
     return <span className={className}>{name}</span>;
   }
-  return <TaskRowStateControl noteID={noteID} item={item} className={className} etag={etag!} />;
+  return <TaskRowStateControl noteID={noteID} item={item} className={className} />;
 }
 
-function TaskRowStateControl({
-  noteID,
-  item,
-  className,
-  etag,
-}: {
-  noteID: NoteID;
-  item: TaskItem;
-  className: string;
-  etag: string;
-}) {
-  const mutation = useSetTaskStateMutation(noteID);
-  return (
-    <select
-      className={className}
-      aria-label="Task state"
-      value={item.state}
-      disabled={mutation.isPending}
-      onChange={(event) =>
-        mutation.mutate({ line: item.line, state: event.currentTarget.value, expect: item.state, etag })
-      }
-    >
-      {taskStates.map((state) => (
-        <option key={state.name} value={state.name}>
-          {state.name}
-        </option>
-      ))}
-    </select>
-  );
-}
+const TaskRowStateControl = memo(
+  function TaskRowStateControl({
+    noteID,
+    item,
+    className,
+  }: {
+    noteID: NoteID;
+    item: TaskItem;
+    className: string;
+  }) {
+    const mutation = useSetTaskStateMutation(noteID);
+    const { tasksRef } = useContext(TaskBoardContext);
+    return (
+      <select
+        className={className}
+        aria-label="Task state"
+        value={item.state}
+        disabled={mutation.isPending}
+        onChange={(event) =>
+          mutation.mutate({
+            line: item.line,
+            state: event.currentTarget.value,
+            expect: item.state,
+            etag: tasksRef?.current.etag ?? "",
+          })
+        }
+      >
+        {taskStates.map((state) => (
+          <option key={state.name} value={state.name}>
+            {state.name}
+          </option>
+        ))}
+      </select>
+    );
+  },
+  (prev, next) =>
+    prev.noteID === next.noteID && prev.className === next.className && sameTask(prev.item, next.item),
+);
 
 type TaskRowProps = { line?: unknown; state?: unknown; done?: unknown; sched?: unknown; due?: unknown; depth?: unknown };
 

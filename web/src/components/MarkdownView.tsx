@@ -268,8 +268,12 @@ function IncludeEmbed({ include }: { include: NoteInclude }) {
       <TaskBoardContext.Provider
         value={{
           noteID: sourceID,
-          tasks: sourceMatchesExcerpt ? source.data?.note.tasks : undefined,
-          etag: sourceMatchesExcerpt ? include.etag : undefined,
+          tasksRef: {
+            current: {
+              tasks: sourceMatchesExcerpt ? source.data?.note.tasks ?? { items: [] } : { items: [] },
+              etag: sourceMatchesExcerpt ? include.etag ?? "" : "",
+            },
+          },
           lineOffset: offset,
         }}
       >

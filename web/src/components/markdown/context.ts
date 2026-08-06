@@ -25,8 +25,12 @@ export const IncludesContext = createContext<NoteInclude[]>([]);
 // dragging, e.g. in hover previews) and its parsed tasks from the note response / static bundle.
 export interface TaskBoardData {
   noteID: NoteID;
-  tasks?: NoteTasks;
-  etag?: string;
+  // The parsed tasks and the etag writes must match. They live behind a ref rather than in the
+  // context value: the note query refreshes them on every disk change, and re-rendering the task
+  // controls on that churn would take an open native date picker down with it (any re-render of the
+  // input re-applies its type, which Chrome treats as a picker close). The ref is updated only when
+  // the editor adopts a new body, so the controls re-render exactly when the body they render does.
+  tasksRef?: { current: { tasks: NoteTasks; etag: string } };
   // Added to a rendered line to get this note's file line. 0 when a note renders its own body; an
   // excerpt shown through an include renders the source note's lines starting partway in, so its
   // rows resolve through the source's offset (see IncludeEmbed).

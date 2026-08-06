@@ -11,7 +11,9 @@ import type { TaskItem } from "../../types";
 // same write path as `track task set`, so completion stamps, the sidecar log, and progress cookies
 // all apply. The published static site renders the same board read-only.
 export function TaskBoard() {
-  const { noteID, tasks, etag } = useContext(TaskBoardContext);
+  const { noteID, tasksRef } = useContext(TaskBoardContext);
+  const tasks = tasksRef?.current.tasks;
+  const etag = tasksRef?.current.etag;
   const mutation = useSetTaskStateMutation(noteID);
   const [dragOver, setDragOver] = useState<string>("");
 

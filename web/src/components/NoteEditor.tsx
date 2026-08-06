@@ -1,5 +1,5 @@
 import { useBlocker, useNavigate } from "@tanstack/react-router";
-import { FormEvent, useEffect, useRef, useState } from "react";
+import { FormEvent, useEffect, useMemo, useRef, useState } from "react";
 import { MarkdownView } from "./MarkdownView";
 import { TaskBoardContext } from "./markdown/context";
 import {
@@ -82,6 +82,12 @@ export function NoteEditor({ noteID }: NoteEditorProps) {
     body: cachedNote?.body ?? "",
     etag: cachedNote?.etag ?? "",
   });
+  // The task controls' writable data, updated on the same adopt as the body. See TaskBoardData:
+  // the ref keeps a disk refresh from re-rendering the controls (and closing their pickers).
+  const tasksRef = useRef({
+    tasks: cachedNote?.tasks ?? { items: [] },
+    etag: cachedNote?.etag ?? "",
+  });
   const noteIDRef = useRef(noteID);
   const editorModeRef = useRef(editorMode);
   const pendingFollowRef = useRef<FollowState | null>(null);
@@ -133,6 +139,7 @@ export function NoteEditor({ noteID }: NoteEditorProps) {
       switchedNote && body !== loadedRef.current.body;
     if (switchedNote || body === loadedRef.current.body) {
       loadedRef.current = { noteID, body: incoming.body, etag: incoming.etag };
+      tasksRef.current = { tasks: incoming.tasks ?? { items: [] }, etag: incoming.etag };
       setBody(incoming.body);
       if (discardedUnsavedEdit) {
         setEditorMode("preview");
@@ -141,6 +148,13 @@ export function NoteEditor({ noteID }: NoteEditorProps) {
   }, [noteID, noteQuery.data?.note.etag]);
 
   const dirty = body !== loadedRef.current.body;
+  // Memoized so a disk refresh (which swaps only tasksRef.current) does not re-render the controls:
+  // the value identity is what the consumers re-render on, and noteID is the only part of it that
+  // changes their rendered output (the inert/read-only blanking while the buffer is dirty).
+  const taskBoardValue = useMemo(
+    () => ({ noteID: dirty ? "" : noteID, tasksRef }),
+    [dirty, noteID, tasksRef],
+  );
 
   useBlocker({
     shouldBlockFn: ({ current, next }) => {
@@ -429,9 +443,12 @@ export function NoteEditor({ noteID }: NoteEditorProps) {
                     // The board reads the saved note's tasks (line numbers must match the file on disk
                     // for the state-set API), not the live textarea buffer. While the buffer is dirty
                     // the two disagree, so the controls go inert rather than write to a stale line.
-                    <TaskBoardContext.Provider
-                      value={{ noteID: dirty || changedOnDisk ? "" : noteID, tasks: note.tasks, etag: note.etag }}
-                    >
+                    //
+                    // A note changed on disk is not the same situation: the tasks/etag stay on the
+                    // adopted state (tasksRef) until the body catches up in the same tick, so a sync
+                    // landing re-renders nothing the controls care about — an open native picker
+                    // survives it.
+                    <TaskBoardContext.Provider value={taskBoardValue}>
                       <MarkdownView
                         markdown={renderQuery.data?.markdown ?? ""}
                         title={note.title}
