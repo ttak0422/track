@@ -41,8 +41,16 @@ function useTaskAtLine(line: number) {
 // when the underlying data refreshed without changing it. The etag is deliberately not part of that
 // comparison: it changes on every disk refresh, and re-rendering on it would re-commit the input
 // (re-applying its type) and close an open native date picker. Controls read the etag from the
-// context at write time instead, so the optimistic lock is always current.
-function sameTask(a: TaskItem | undefined, b: TaskItem | undefined) {
+// context at write time instead.
+//
+// That trades away part of the lock, and the trade is the point: a write now carries the newest
+// etag rather than the one that was on screen, so an edit that landed elsewhere in the file no
+// longer collides. What still catches a stale write is the per-line `expect` — the line's own state
+// must be what the control rendered — which is the half that protects the row being written.
+//
+// Exported for its test: every field a control renders has to be in here, and a comparison that
+// quietly drops one shows up as a row that stops updating.
+export function sameTask(a: TaskItem | undefined, b: TaskItem | undefined) {
   if (a === b) return true;
   if (!a || !b) return false;
   return (
