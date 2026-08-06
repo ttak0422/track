@@ -71,6 +71,11 @@ jobs:
           git clone --depth 1 --branch gh-pages "git@github.com:${PREVIEW_REPO}.git" /tmp/previews
           rm -rf "/tmp/previews/pr-${PR}"
           cp -R _site "/tmp/previews/pr-${PR}"
+          # Pages runs Jekyll over the whole branch unless this file is there, and a prerendered Vite
+          # site is not Jekyll input. One file it refuses fails the build for the entire branch, so
+          # every PR's preview 404s at once — which is what happened on 2026-08-06. Serve the files
+          # as they are instead.
+          touch /tmp/previews/.nojekyll
           cd /tmp/previews
           git config user.name github-actions
           git config user.email github-actions@users.noreply.github.com
