@@ -1918,7 +1918,9 @@ textarea.modal-input:focus-visible {
   border-radius: var(--radius);
   color: var(--muted);
   background: transparent;
-  vertical-align: 0.08em;
+  /* The 1.35em box sits on the baseline, so its centre lands ~0.68em up — well above the optical
+     centre of the title's glyphs (~0.4em for both CJK and caps). Drop it so the two agree. */
+  vertical-align: -0.16em;
   cursor: pointer;
   opacity: 0.45;
   transition: opacity 0.12s ease, color 0.12s ease, background 0.12s ease;

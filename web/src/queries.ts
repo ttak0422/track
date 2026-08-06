@@ -28,6 +28,7 @@ import {
 import { useNotifications } from "./notifications";
 import { STATIC_MODE } from "./runtime";
 import { useDebouncedValue } from "./hooks/useDebouncedValue";
+import { markSelfWrite } from "./vaultActivity";
 import type { DateField, NoteID, NoteMetaResponse, NoteResponse, SaveNoteMetaRequest, SaveNoteRequest } from "./types";
 
 export const queryKeys = {
@@ -258,6 +259,8 @@ export function useSaveNoteMutation(noteID: NoteID) {
           },
         };
       });
+      // This tab's own save must not come back as vault activity news.
+      markSelfWrite(noteID);
       void queryClient.invalidateQueries({ queryKey: queryKeys.note(noteID) });
       void queryClient.invalidateQueries({ queryKey: queryKeys.notes() });
       void queryClient.invalidateQueries({ queryKey: ["search"] });

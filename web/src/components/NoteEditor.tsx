@@ -386,98 +386,101 @@ export function NoteEditor({ noteID }: NoteEditorProps) {
           </div>
         </div>
       ) : null}
-      <div className="note-main">
-        <NoteBreadcrumbs trail={data.trail ?? []} />
-        {/* Properties are read-only here: sidecar values are edited via `track meta --set`, inline
-          fields by editing the body itself. */}
-        <NoteProperties
-          props={data.note.props ?? []}
-          created={data.note.created}
-          updated={data.note.updated}
-        />
+      {/* Same shape as the static reader: the rail rules dock .note-aside from inside .note-layout. */}
+      <div className="note-layout">
+        <div className="note-main">
+          <NoteBreadcrumbs trail={data.trail ?? []} />
+          {/* Properties are read-only here: sidecar values are edited via `track meta --set`, inline
+            fields by editing the body itself. */}
+          <NoteProperties
+            props={data.note.props ?? []}
+            created={data.note.created}
+            updated={data.note.updated}
+          />
 
-        <form className="note-editor" onSubmit={submit}>
-          <div className={`editor-grid editor-grid-${editorMode}`}>
-            {editorMode !== "preview" ? (
-              <textarea
-                aria-label="Note body"
-                ref={textareaRef}
-                value={body}
-                onChange={(event) => {
-                  setBody(event.currentTarget.value);
-                  revealTextareaCaret(event.currentTarget);
-                }}
-                onClick={(event) => revealTextareaCaret(event.currentTarget)}
-                onKeyUp={(event) => revealTextareaCaret(event.currentTarget)}
-                onSelect={(event) => revealTextareaCaret(event.currentTarget)}
-              />
-            ) : null}
-            {editorMode !== "edit" ? (
-              <section
-                className="note-preview"
-                ref={previewRef}
-                aria-label="Rendered note preview"
-              >
-                {/* A non-empty body with no render yet is still loading — show a spinner rather than let
-                  MarkdownView flash "Empty note." for a body that is not actually empty. */}
-                {body.trim() !== "" &&
-                renderQuery.data?.markdown === undefined ? (
-                  <LoadingIndicator label="Loading note" />
-                ) : (
-                  // The board reads the saved note's tasks (line numbers must match the file on disk
-                  // for the state-set API), not the live textarea buffer. While the buffer is dirty
-                  // the two disagree, so the controls go inert rather than write to a stale line.
-                  <TaskBoardContext.Provider
-                    value={{ noteID: dirty || changedOnDisk ? "" : noteID, tasks: note.tasks, etag: note.etag }}
-                  >
-                    <MarkdownView
-                      markdown={renderQuery.data?.markdown ?? ""}
-                      title={note.title}
-                      noteId={noteID}
-                      kind={note.file_kind}
-                      vault={noteVault}
-                      includes={renderQuery.data?.includes}
-                    />
-                  </TaskBoardContext.Provider>
-                )}
-              </section>
-            ) : null}
-          </div>
-          {editorMode !== "preview" ? (
-            <div className="editor-actions">
-              {dirty && changedOnDisk ? (
-                <p className="error">
-                  This note changed on disk while you were editing.
-                </p>
+          <form className="note-editor" onSubmit={submit}>
+            <div className={`editor-grid editor-grid-${editorMode}`}>
+              {editorMode !== "preview" ? (
+                <textarea
+                  aria-label="Note body"
+                  ref={textareaRef}
+                  value={body}
+                  onChange={(event) => {
+                    setBody(event.currentTarget.value);
+                    revealTextareaCaret(event.currentTarget);
+                  }}
+                  onClick={(event) => revealTextareaCaret(event.currentTarget)}
+                  onKeyUp={(event) => revealTextareaCaret(event.currentTarget)}
+                  onSelect={(event) => revealTextareaCaret(event.currentTarget)}
+                />
               ) : null}
-              {saveNote.isError ? (
-                <p className="error">{saveNote.error.message}</p>
+              {editorMode !== "edit" ? (
+                <section
+                  className="note-preview"
+                  ref={previewRef}
+                  aria-label="Rendered note preview"
+                >
+                  {/* A non-empty body with no render yet is still loading — show a spinner rather than let
+                    MarkdownView flash "Empty note." for a body that is not actually empty. */}
+                  {body.trim() !== "" &&
+                  renderQuery.data?.markdown === undefined ? (
+                    <LoadingIndicator label="Loading note" />
+                  ) : (
+                    // The board reads the saved note's tasks (line numbers must match the file on disk
+                    // for the state-set API), not the live textarea buffer. While the buffer is dirty
+                    // the two disagree, so the controls go inert rather than write to a stale line.
+                    <TaskBoardContext.Provider
+                      value={{ noteID: dirty || changedOnDisk ? "" : noteID, tasks: note.tasks, etag: note.etag }}
+                    >
+                      <MarkdownView
+                        markdown={renderQuery.data?.markdown ?? ""}
+                        title={note.title}
+                        noteId={noteID}
+                        kind={note.file_kind}
+                        vault={noteVault}
+                        includes={renderQuery.data?.includes}
+                      />
+                    </TaskBoardContext.Provider>
+                  )}
+                </section>
               ) : null}
-              {saveNote.isSuccess && !dirty ? (
-                <p className="muted">Saved.</p>
-              ) : null}
-              <button
-                className="primary-button"
-                type="submit"
-                disabled={!dirty || saveNote.isPending}
-              >
-                {saveNote.isPending ? "Saving..." : "Save"}
-              </button>
             </div>
-          ) : null}
-        </form>
-      </div>
+            {editorMode !== "preview" ? (
+              <div className="editor-actions">
+                {dirty && changedOnDisk ? (
+                  <p className="error">
+                    This note changed on disk while you were editing.
+                  </p>
+                ) : null}
+                {saveNote.isError ? (
+                  <p className="error">{saveNote.error.message}</p>
+                ) : null}
+                {saveNote.isSuccess && !dirty ? (
+                  <p className="muted">Saved.</p>
+                ) : null}
+                <button
+                  className="primary-button"
+                  type="submit"
+                  disabled={!dirty || saveNote.isPending}
+                >
+                  {saveNote.isPending ? "Saving..." : "Save"}
+                </button>
+              </div>
+            ) : null}
+          </form>
+        </div>
 
-      <NoteAside
-        tags={tags}
-        markdown={renderQuery.data?.markdown ?? ""}
-        backlinks={data.backlinks}
-        external={data.external}
-        unavailable={data.unavailable}
-        childNotes={data.children ?? []}
-        noteID={noteID}
-        journalDate={journalDate}
-      />
+        <NoteAside
+          tags={tags}
+          markdown={renderQuery.data?.markdown ?? ""}
+          backlinks={data.backlinks}
+          external={data.external}
+          unavailable={data.unavailable}
+          childNotes={data.children ?? []}
+          noteID={noteID}
+          journalDate={journalDate}
+        />
+      </div>
     </article>
   );
 }

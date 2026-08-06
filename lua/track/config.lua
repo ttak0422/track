@@ -106,6 +106,9 @@ M.defaults = {
    task_glyphs = { [" "] = "☐", ["/"] = "◐", ["?"] = "⧖", ["x"] = "☑", ["-"] = "☒" },
    -- Debounce for re-highlighting, in milliseconds.
    debounce_ms = 150,
+   -- How often to check the vault for notes added or updated elsewhere (another editor, the web
+   -- workspace, a sync) and report them with vim.notify. 0 disables the watcher.
+   watch_interval_ms = 60000,
    -- ![[...]] includes (ADR 0031) render as virtual lines below the directive. include_max_lines
    -- caps how many show before an "… (+N lines)" tail (0 = no cap); :TrackIncludeToggle expands.
    include_max_lines = 15,
