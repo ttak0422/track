@@ -136,6 +136,16 @@ jobs:
           export TRACK_CACHE_DIR="$(mktemp -d)"
           nix run .#test-nvim -- --headless '+luafile scripts/e2e/nvim_title_virtline.lua'
 
+      # The launcher resolves a symlinked vault_dir before comparing it to the note's own vault, so
+      # the browser must open the note being read even when TRACK_VAULT goes through a link.
+      - name: Neovim web launcher E2E
+        run: |
+          export TRACK_VAULT="$(mktemp -d)"
+          export TRACK_CACHE_DIR="$(mktemp -d)"
+          ln -s "$TRACK_VAULT" "$TRACK_VAULT-link"
+          export TRACK_VAULT="$TRACK_VAULT-link"
+          nix run .#test-nvim -- --headless '+luafile scripts/e2e/nvim_web_launcher.lua'
+
       - name: Neovim task conceal E2E
         run: |
           export TRACK_VAULT="$(mktemp -d)"
