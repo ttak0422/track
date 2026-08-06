@@ -880,6 +880,14 @@ button {
   min-height: 0;
   flex: 1;
   touch-action: none;
+  transition: opacity 0.16s ease;
+}
+
+/* A layout still settling has nothing worth showing — a graph mid-flight is a scaffold, not the
+   answer — so the first one is held blank and fades in when it lands. Only large graphs ever get
+   here: a small one settles inside its first inline slice and never carries the attribute. */
+.graph-canvas[data-settling="true"] {
+  opacity: 0;
 }
 
 .graph-canvas.dragging {
