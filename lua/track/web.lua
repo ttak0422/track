@@ -137,7 +137,12 @@ local function note_path(buf)
    if not state or not vault or vault == "" then
       return ""
    end
-   if normalize_path(state.vault_path) ~= normalize_path(vault) then
+   -- Both sides resolve symlinks: the buffer's vault comes back canonical from follow_state, while
+   -- the configured vault_dir may be a link (or the buffer's path may go through one). An unresolved
+   -- spelling would never match the canonical buffer vault, so the browser would fall back to the
+   -- landing page even though the note is the one being read.
+   local resolved = uv.fs_realpath(vault) or normalize_path(vault)
+   if normalize_path(state.vault_path) ~= normalize_path(resolved) then
       return ""
    end
    return "/notes/" .. state.note_id
