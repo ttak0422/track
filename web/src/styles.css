@@ -162,12 +162,17 @@ button {
 .sidebar {
   position: fixed;
   z-index: 91;
-  top: 50%;
+  /* A full-height strip that centres the dock by alignment, NOT by translate. A transformed ancestor
+     becomes the containing block for its fixed-position descendants, and the search palette lives
+     inside the rail: a translate here shrinks its backdrop to the dock's own 48px box and clips the
+     popup inside the rail's scroller. The strip itself must not eat clicks meant for the reader
+     beneath it, hence pointer-events. */
+  top: 0;
+  bottom: 0;
   left: 8px;
-  translate: 0 -50%;
   display: flex;
-  min-width: 0;
-  min-height: 0;
+  align-items: center;
+  pointer-events: none;
 }
 
 /* Floating layer (design.md variant 3): the rail is a dock over the sheet, not a column ruled out of
@@ -178,6 +183,9 @@ button {
   align-items: center;
   gap: 6px;
   padding: 8px 4px;
+  /* Restores what the strip above switches off — the dock and its popups are clickable, the empty
+     space around them is not. */
+  pointer-events: auto;
   border: 1px solid var(--line);
   border-radius: var(--radius-lg);
   background: var(--panel);
