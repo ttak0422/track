@@ -43,6 +43,9 @@ vi.mock("../../queries", () => ({
   useRenderQuery: () => ({ data: { markdown: "" } }),
 }));
 
+const copyText = vi.hoisted(() => vi.fn());
+vi.mock("../markdown/clipboard", () => ({ copyText }));
+
 function preview(container: HTMLElement) {
   return container.querySelector(".wiki-preview");
 }
@@ -109,5 +112,24 @@ describe("WikiLink hover intent", () => {
 
     fireEvent.click(container.querySelector(".wiki-preview-close")!);
     expect(preview(container)).toBeNull();
+  });
+
+  it("copies the note title from the chrome copy button", async () => {
+    copyText.mockReset();
+    copyText.mockResolvedValue(true);
+    const { container } = renderWithFloating(<WikiLink target="Target" display="Target" />);
+    const wrap = container.querySelector(".wiki-link-wrap")!;
+
+    fireEvent.mouseEnter(wrap);
+    await act(async () => {
+      vi.advanceTimersByTime(previewOpenDelay + 10);
+    });
+
+    const copy = container.querySelector<HTMLButtonElement>(".wiki-preview-copy")!;
+    expect(copy).not.toBeNull();
+    fireEvent.click(copy);
+    await act(async () => {});
+    expect(copyText).toHaveBeenCalledWith("Target");
+    expect(copy).toHaveAttribute("aria-label", "Title copied");
   });
 });

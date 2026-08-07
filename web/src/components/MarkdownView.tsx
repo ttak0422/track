@@ -5,7 +5,6 @@ import {
   useContext,
   useEffect,
   useMemo,
-  useRef,
   useState,
 } from "react";
 import Markdown, { type Components } from "react-markdown";
@@ -24,7 +23,6 @@ import {
 import { TaskBoard } from "./markdown/TaskBoard";
 import { TaskCheck, TaskRow, TaskTable } from "./markdown/TaskControls";
 import { Embed } from "./markdown/Embed";
-import { copyText } from "./markdown/clipboard";
 import { ExternalLink } from "./markdown/ExternalLink";
 import { D2Diagram } from "./markdown/D2Diagram";
 import { DrawioDiagram } from "./markdown/DrawioDiagram";
@@ -48,6 +46,7 @@ import { EChartsFence } from "./markdown/EChartsBlock";
 import { QueryView } from "./markdown/QueryView";
 import { ViewSpecChart } from "./markdown/ViewSpecChart";
 import { WikiLink } from "./preview/WikiLink";
+import { TitleCopyButton } from "./TitleCopyButton";
 import { useNoteQuery } from "../queries";
 import { STATIC_MODE } from "../runtime";
 
@@ -155,54 +154,6 @@ export function MarkdownView({ markdown, title, noteId, kind = "note", vault = "
         </IncludesContext.Provider>
       </NoteVaultContext.Provider>
     </NoteKindContext.Provider>
-  );
-}
-
-function TitleCopyButton({ title }: { title: string }) {
-  const [copied, setCopied] = useState(false);
-  const resetTimer = useRef<number | undefined>(undefined);
-
-  useEffect(
-    () => () => {
-      if (resetTimer.current !== undefined) window.clearTimeout(resetTimer.current);
-    },
-    [],
-  );
-
-  async function copyTitle() {
-    if (!(await copyText(title))) return;
-    setCopied(true);
-    if (resetTimer.current !== undefined) window.clearTimeout(resetTimer.current);
-    resetTimer.current = window.setTimeout(() => setCopied(false), 1500);
-  }
-
-  return (
-    <button
-      type="button"
-      className="note-title-copy"
-      onClick={() => void copyTitle()}
-      aria-label={copied ? "Title copied" : "Copy title"}
-      title={copied ? "Title copied" : "Copy title"}
-    >
-      {copied ? <CheckIcon /> : <CopyIcon />}
-    </button>
-  );
-}
-
-function CopyIcon() {
-  return (
-    <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false">
-      <rect x="8" y="8" width="11" height="11" rx="1.5" />
-      <path d="M16 8V5.5A1.5 1.5 0 0 0 14.5 4h-9A1.5 1.5 0 0 0 4 5.5v9A1.5 1.5 0 0 0 5.5 16H8" />
-    </svg>
-  );
-}
-
-function CheckIcon() {
-  return (
-    <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false">
-      <path d="m5 12.5 4.2 4.2L19 7" />
-    </svg>
   );
 }
 

@@ -11,6 +11,7 @@ import {
 } from "./bounds";
 import { InFloatingWindowContext } from "./floatingStore";
 import { previewBaseZIndex } from "./stack";
+import { TitleCopyButton } from "../TitleCopyButton";
 
 // The window's frame/behavior props, shared by the content wrappers (NoteWindow, MediaWindow).
 export interface FloatingWindowControls {
@@ -43,6 +44,9 @@ export interface FloatingWindowControls {
 
 interface FloatingWindowProps extends FloatingWindowControls {
   title: string;
+  // When set, the title gets a copy button in the chrome (a note title worth copying); media windows
+  // leave it undefined and no button renders.
+  copyTitle?: string;
   children: ReactNode;
 }
 
@@ -59,6 +63,7 @@ interface DragState {
 // windows in the floating layer. Content (a note body or a media embed) is passed as children.
 export function FloatingWindow({
   title,
+  copyTitle,
   initialBounds,
   reanchor,
   pinned,
@@ -248,7 +253,10 @@ export function FloatingWindow({
         >
           <span className="wiki-preview-caret" aria-hidden="true" />
         </button>
-        <span className="wiki-preview-title">{title}</span>
+        <span className="wiki-preview-title">
+          <span className="wiki-preview-title-text">{title}</span>
+          {copyTitle ? <TitleCopyButton title={copyTitle} className="wiki-preview-copy" /> : null}
+        </span>
         {onJump ? (
           <button
             className="wiki-preview-jump"

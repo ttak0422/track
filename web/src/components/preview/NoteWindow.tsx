@@ -30,6 +30,7 @@ export function NoteWindow({ noteID, ...controls }: NoteWindowProps) {
   return (
     <FloatingWindow
       title={title}
+      copyTitle={note.data?.note.title}
       {...controls}
       onJump={() => navigate({ to: "/notes/$noteId", params: { noteId: String(noteID) } })}
     >
