@@ -11,24 +11,30 @@ export function markSelfWrite(noteID: NoteID) {
   seen.add(noteID);
 }
 
-// newlyActive returns the titles of the notes that joined `day`'s activity since the last call, and
-// records them so each note is announced once per day. A note's activity days cover both halves of
-// "something changed": the day it was created, and every day it was edited. A day change primes
-// rather than reports — yesterday's notes are not news either — which the boolean tells the caller.
-export function newlyActive(notes: SearchResult[], day: string): { titles: string[]; priming: boolean } {
+// newlyActive returns the notes that joined `day`'s activity since the last call, and records them so
+// each note is announced once per day. A note's activity days cover both halves of "something changed":
+// the day it was created, and every day it was edited. A day change primes rather than reports —
+// yesterday's notes are not news either — which the boolean tells the caller.
+export function newlyActive(notes: SearchResult[], day: string): { notes: ActiveNote[]; priming: boolean } {
   const priming = day !== seenDay;
   if (priming) {
     seen = new Set();
     seenDay = day;
   }
-  const titles: string[] = [];
+  const active: ActiveNote[] = [];
   for (const note of notes) {
     if (!(note.days ?? []).includes(day)) continue;
     if (seen.has(note.note_id)) continue;
     seen.add(note.note_id);
-    titles.push(note.title || note.note_id);
+    active.push({ note_id: note.note_id, title: note.title || note.note_id });
   }
-  return { titles, priming };
+  return { notes: active, priming };
+}
+
+// ActiveNote is one note that joined a day's activity, with the id a toast can navigate to.
+export interface ActiveNote {
+  note_id: NoteID;
+  title: string;
 }
 
 export function activityMessage(titles: string[]): string {

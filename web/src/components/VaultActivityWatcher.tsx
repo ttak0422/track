@@ -19,8 +19,11 @@ export function VaultActivityWatcher() {
 
   useEffect(() => {
     if (!notes) return;
-    const { titles, priming } = newlyActive(notes, today());
-    if (!priming && titles.length > 0) notify(activityMessage(titles));
+    const { notes: active, priming } = newlyActive(notes, today());
+    if (!priming && active.length > 0) {
+      // The toast announces what changed; it is clickable, so it names the note it can jump to.
+      notify(activityMessage(active.map((note) => note.title)), active[0].note_id);
+    }
   }, [notes, notify]);
 
   return null;

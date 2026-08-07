@@ -17,28 +17,30 @@ describe("newlyActive", () => {
   it("primes on the first look and reports only what arrives after it", () => {
     const first = newlyActive([note("1", "Old", [DAY])], DAY);
     expect(first.priming).toBe(true);
-    expect(first.titles).toEqual(["Old"]);
+    expect(first.notes).toEqual([{ note_id: "1", title: "Old" }]);
 
     const second = newlyActive([note("1", "Old", [DAY]), note("2", "New", [DAY])], DAY);
     expect(second.priming).toBe(false);
-    expect(second.titles).toEqual(["New"]);
+    expect(second.notes).toEqual([{ note_id: "2", title: "New" }]);
   });
 
   it("announces a note once per day", () => {
     newlyActive([], DAY);
-    expect(newlyActive([note("1", "Edited", [DAY])], DAY).titles).toEqual(["Edited"]);
-    expect(newlyActive([note("1", "Edited", [DAY])], DAY).titles).toEqual([]);
+    expect(newlyActive([note("1", "Edited", [DAY])], DAY).notes).toEqual([{ note_id: "1", title: "Edited" }]);
+    expect(newlyActive([note("1", "Edited", [DAY])], DAY).notes).toEqual([]);
   });
 
   it("ignores notes whose activity is on another day", () => {
     newlyActive([], DAY);
-    expect(newlyActive([note("1", "Yesterday", ["2026-08-05"])], DAY).titles).toEqual([]);
+    expect(newlyActive([note("1", "Yesterday", ["2026-08-05"])], DAY).notes).toEqual([]);
   });
 
   it("skips a note this tab saved itself", () => {
     newlyActive([], DAY);
     markSelfWrite("1");
-    expect(newlyActive([note("1", "Mine", [DAY]), note("2", "Theirs", [DAY])], DAY).titles).toEqual(["Theirs"]);
+    expect(newlyActive([note("1", "Mine", [DAY]), note("2", "Theirs", [DAY])], DAY).notes).toEqual([
+      { note_id: "2", title: "Theirs" },
+    ]);
   });
 });
 
