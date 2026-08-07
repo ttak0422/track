@@ -5,6 +5,11 @@ on:
     branches:
       - main
   pull_request:
+  # A run that never started has no way back on its own: an outage or a quota swallows the
+  # pull_request event, and the branch is then stuck with a required check that will never report.
+  # Closing and reopening the PR re-fires it, but that is a workaround standing in for a door.
+  # `gh workflow run ci.yml --ref <branch>` is the door.
+  workflow_dispatch:
 
 jobs:
   test:
