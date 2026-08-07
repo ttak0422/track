@@ -1932,6 +1932,8 @@ textarea.modal-input:focus-visible {
   word-break: break-word;
 }
 
+/* The copy button is revealed by hovering the title (variant 2's hover-reveal idiom: it sits on
+   content, not chrome), so a resting page shows no chrome at all. */
 .note-title-copy {
   display: inline-flex;
   align-items: center;
@@ -1948,15 +1950,20 @@ textarea.modal-input:focus-visible {
      centre of the title's glyphs (~0.4em for both CJK and caps). Drop it so the two agree. */
   vertical-align: -0.16em;
   cursor: pointer;
-  opacity: 0.45;
+  opacity: 0;
   transition: opacity 0.12s ease, color 0.12s ease, background 0.12s ease;
+}
+
+.note-title:hover .note-title-copy,
+.note-title:focus-within .note-title-copy,
+.note-title-copy:focus-visible {
+  opacity: 1;
 }
 
 .note-title-copy:hover,
 .note-title-copy:focus-visible {
   background: var(--panel-soft);
   color: var(--accent);
-  opacity: 1;
 }
 
 .note-title-copy svg {
@@ -3076,12 +3083,59 @@ textarea.modal-input:focus-visible {
 }
 
 .wiki-preview-title {
+  display: flex;
+  align-items: center;
+  gap: 2px;
   min-width: 0;
   flex: 1;
-  overflow: hidden;
   font-weight: 700;
+}
+
+.wiki-preview-title-text {
+  min-width: 0;
+  overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+
+/* Title copy button in the chrome: an icon button (variant 7) revealed by hovering the title row, the
+   same hover idiom as the full-page reader's note-title-copy. */
+.wiki-preview-copy {
+  display: grid;
+  place-items: center;
+  flex: 0 0 auto;
+  width: 24px;
+  height: 24px;
+  border: 0;
+  border-radius: var(--radius-sm);
+  padding: 0;
+  color: var(--muted);
+  background: transparent;
+  cursor: pointer;
+  opacity: 0;
+  transition: opacity 0.12s ease, color 0.12s ease, background 0.12s ease;
+}
+
+.wiki-preview-title:hover .wiki-preview-copy,
+.wiki-preview-title:focus-within .wiki-preview-copy,
+.wiki-preview-copy:focus-visible {
+  opacity: 1;
+}
+
+.wiki-preview-copy:hover,
+.wiki-preview-copy:focus-visible {
+  color: var(--text);
+  background: var(--panel-soft);
+}
+
+.wiki-preview-copy svg {
+  width: 15px;
+  height: 15px;
+  fill: none;
+  stroke: currentColor;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+  stroke-width: 1.8;
 }
 
 .wiki-preview-close {
