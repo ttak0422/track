@@ -254,7 +254,7 @@ describe("MarkdownView", () => {
       ],
     };
     const { container } = renderWithQuery(
-      <TaskBoardContext.Provider value={{ noteID: "100", tasks, etag: "loaded" }}>
+      <TaskBoardContext.Provider value={{ noteID: "100", tasksRef: { current: { tasks, etag: "loaded" } } }}>
         <MarkdownView markdown={"- [ ] todo\n- [x] done"} />
       </TaskBoardContext.Provider>,
     );
@@ -285,7 +285,7 @@ describe("MarkdownView", () => {
   it("makes the date cells editable where the note can be written", async () => {
     const tasks = { items: [{ line: 1, state: "TODO", done: false, text: "a task", due: "2026-07-24" }] };
     const { container } = renderWithQuery(
-      <TaskBoardContext.Provider value={{ noteID: "100", tasks, etag: "loaded" }}>
+      <TaskBoardContext.Provider value={{ noteID: "100", tasksRef: { current: { tasks, etag: "loaded" } } }}>
         <MarkdownView markdown={"- [ ] a task [due:2026-07-24]"} />
       </TaskBoardContext.Provider>,
     );
@@ -303,7 +303,7 @@ describe("MarkdownView", () => {
   it("opens the calendar on a click, since the cell hides the picker indicator", () => {
     const tasks = { items: [{ line: 1, state: "TODO", done: false, text: "a task", due: "2026-07-24" }] };
     const { container } = renderWithQuery(
-      <TaskBoardContext.Provider value={{ noteID: "100", tasks, etag: "loaded" }}>
+      <TaskBoardContext.Provider value={{ noteID: "100", tasksRef: { current: { tasks, etag: "loaded" } } }}>
         <MarkdownView markdown={"- [ ] a task [due:2026-07-24]"} />
       </TaskBoardContext.Provider>,
     );
@@ -326,7 +326,7 @@ describe("MarkdownView", () => {
   it("wires the badge select by source line, so inline markup does not break it", () => {
     const tasks = { items: [{ line: 1, state: "DOING", done: false, text: "a bold task" }] };
     const { container } = renderWithQuery(
-      <TaskBoardContext.Provider value={{ noteID: "100", tasks, etag: "loaded" }}>
+      <TaskBoardContext.Provider value={{ noteID: "100", tasksRef: { current: { tasks, etag: "loaded" } } }}>
         <MarkdownView markdown={"- [/] a **bold** task [#A]"} />
       </TaskBoardContext.Provider>,
     );
