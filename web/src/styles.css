@@ -150,42 +150,47 @@ button {
   display: grid;
   /* The reader column must shrink below its content's preferred width (a phone is narrower than the
      old 380px floor, which forced sideways scrolling of the whole workspace). */
-  grid-template-columns: 48px minmax(0, 1fr);
+  /* The dock is 48px wide; the column is 8px wider so the dock's shadow and its rounded edge have
+     air on both sides instead of butting against the reader. */
+  grid-template-columns: 56px minmax(0, 1fr);
   height: 100vh;
   min-height: 560px;
 }
 
-/* The rail sits on the same surface as the note itself — no slab, no divider. Chrome is the icons,
-   nothing else; it never paints a fill. */
+/* The column is now just an empty lane the dock floats in — it paints nothing itself. Centering
+   happens here so the dock hugs its buttons rather than being stretched to the viewport. */
 .sidebar {
   display: flex;
+  align-items: center;
+  justify-content: center;
   min-width: 0;
   min-height: 0;
-  background: var(--panel);
-  overflow: hidden;
+  /* The dock's shadow spills past the lane; clipping it would shear the shadow down one side. */
+  overflow: visible;
 }
 
+/* Floating layer (design.md variant 3): the rail is a dock over the sheet, not a column ruled out of
+   it, so it earns a surface, a hairline, and a shadow the rest of the permanent chrome never takes. */
 .activity-rail {
-  flex: 1;
   display: flex;
   flex-direction: column;
   align-items: center;
   gap: 6px;
   padding: 8px 4px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-lg);
+  background: var(--panel);
+  box-shadow: 0 16px 38px color-mix(in srgb, #000 18%, transparent);
   /* The rail grew a second group (the open note's controls), so on a short window it can be taller
-     than the viewport. The sidebar clips its overflow, which would silently swallow whatever fell
-     off the bottom — settings, or the note menu. Scroll instead, without a visible bar: this is
-     chrome, and the bar would eat a quarter of a 48px rail. */
+     than the viewport. Bound it to the lane and scroll inside, without a visible bar: this is chrome,
+     and the bar would eat a quarter of a 48px dock. */
+  max-height: calc(100vh - 16px);
   overflow-y: auto;
   scrollbar-width: none;
 }
 
 .activity-rail::-webkit-scrollbar {
   display: none;
-}
-
-.rail-spacer {
-  flex: 1 1 auto;
 }
 
 .rail-search {
@@ -290,15 +295,26 @@ button {
   pointer-events: none;
 }
 
+/* The guides mirror the dock instead of measuring from the viewport edge: same centre line, same 8px
+   pad, same 40px rows and 6px gaps. Each label therefore lands beside the button it names for any
+   number of buttons — the old hardcoded top offsets drifted the moment the dock gained or lost one. */
 .empty-guides {
+  position: absolute;
+  top: 50%;
+  left: 16px;
+  translate: 0 -50%;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
   margin: 0;
-  padding: 0;
+  padding: 8px 0;
   list-style: none;
 }
 
 .empty-guide {
-  position: absolute;
-  left: 16px;
+  display: flex;
+  height: 40px;
+  align-items: center;
   color: var(--muted);
   font-size: 0.9em;
   white-space: nowrap;
@@ -308,24 +324,6 @@ button {
   content: "←";
   margin-right: 8px;
   opacity: 0.8;
-}
-
-/* Line each hint up with the sidebar button it points at (rail: 8px pad, 40px buttons, 6px gap, so from
-   the top the brand centers near 28px, search near 74px, graph near 120px; settings sits at the bottom). */
-.empty-guide-home {
-  top: 20px;
-}
-
-.empty-guide-search {
-  top: 66px;
-}
-
-.empty-guide-graph {
-  top: 112px;
-}
-
-.empty-guide-settings {
-  bottom: 20px;
 }
 
 /* Note/render loading spinner (pure CSS, so no runtime cost) — replaces the old "Loading note..." text
@@ -456,10 +454,13 @@ button {
 .rail-menu-panel {
   position: fixed;
   z-index: 95;
-  top: auto;
+  /* Anchored to the dock's axis, not the viewport floor: settings rides in the middle of a dock that
+     is itself vertically centred, so a bottom offset would leave the panel stranded near the corner. */
+  top: 50%;
   right: auto;
-  bottom: 12px;
+  bottom: auto;
   left: 64px;
+  translate: 0 -50%;
 }
 
 /* The sidebar search popup floats beside the rail, escaping the rail's overflow with fixed positioning.
