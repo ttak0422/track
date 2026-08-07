@@ -3,6 +3,7 @@ import {
   clamp,
   constrainPreviewBounds,
   initialPreviewBounds,
+  minPreviewWidth,
   type PreviewAnchor,
   resizePreviewBounds,
 } from "./bounds";
@@ -103,5 +104,27 @@ describe("resizePreviewBounds", () => {
       width: 350,
       height: 250,
     });
+  });
+
+  it("resizes the width alone when dragging the right edge", () => {
+    expect(resizePreviewBounds("e", start, 50, 30)).toEqual({
+      left: 100,
+      top: 100,
+      width: 450,
+      height: 300,
+    });
+  });
+
+  it("resizes the height alone when dragging the bottom edge", () => {
+    expect(resizePreviewBounds("s", start, 30, 20)).toEqual({
+      left: 100,
+      top: 100,
+      width: 400,
+      height: 320,
+    });
+  });
+
+  it("holds the width floor when dragging the right edge in", () => {
+    expect(resizePreviewBounds("e", start, -200, 0).width).toBe(minPreviewWidth);
   });
 });

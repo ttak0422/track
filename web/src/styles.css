@@ -3220,6 +3220,24 @@ textarea.modal-input:focus-visible {
   cursor: nwse-resize;
 }
 
+/* The right edge drags the width alone; the bottom edge drags the height alone. Rendered as thin
+   strips along the window frame, underneath the 14px corner handles where they overlap. */
+.wiki-preview-resize-e {
+  top: 0;
+  right: 0;
+  bottom: 0;
+  width: 8px;
+  cursor: ew-resize;
+}
+
+.wiki-preview-resize-s {
+  left: 0;
+  right: 0;
+  bottom: 0;
+  height: 8px;
+  cursor: ns-resize;
+}
+
 .editor-actions {
   display: flex;
   align-items: center;
@@ -3461,6 +3479,28 @@ textarea.modal-input:focus-visible {
 .notification-toast button:hover,
 .notification-toast button:focus-visible {
   color: var(--text);
+}
+
+/* A toast that announces a note update is one big button (minus the dismiss ×): it fills the toast
+   and opens the note it names. The text stays readable until hover, like the ×. */
+.notification-toast button.notification-toast-open {
+  flex: 1;
+  min-width: 0;
+  padding: 0;
+  text-align: left;
+  color: var(--text);
+}
+
+.notification-toast button.notification-toast-open:hover,
+.notification-toast button.notification-toast-open:focus-visible {
+  color: var(--accent);
+}
+
+.notification-toast button.notification-toast-open span {
+  display: block;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .muted {
