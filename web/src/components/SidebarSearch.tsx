@@ -1,11 +1,23 @@
 import { useEffect, useRef, useState } from "react";
+import { isTypingTarget, keys } from "../keys";
 import { SearchPanel } from "./SearchPanel";
 
-// SidebarSearch is the rail's magnifier button plus the floating search popup it toggles open beside the
-// rail. The popup closes on Escape, on an outside click, and when a result is chosen.
+// SidebarSearch is the rail's magnifier button plus the search palette it opens in the middle of the
+// screen. The palette closes on Escape, on an outside click, and when a result is chosen; "/" opens
+// it from anywhere, the way it opens a search in a pager or an editor.
 export function SidebarSearch() {
   const [open, setOpen] = useState(false);
   const containerRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    function onOpenKey(event: KeyboardEvent) {
+      if (open || !keys.openSearch(event) || isTypingTarget(event.target)) return;
+      event.preventDefault();
+      setOpen(true);
+    }
+    document.addEventListener("keydown", onOpenKey);
+    return () => document.removeEventListener("keydown", onOpenKey);
+  }, [open]);
 
   useEffect(() => {
     if (!open) return;
@@ -16,7 +28,7 @@ export function SidebarSearch() {
       }
     }
     function onKeyDown(event: KeyboardEvent) {
-      if (event.key === "Escape") setOpen(false);
+      if (keys.close(event)) setOpen(false);
     }
     document.addEventListener("mousedown", onPointerDown);
     document.addEventListener("keydown", onKeyDown);
@@ -34,15 +46,21 @@ export function SidebarSearch() {
         aria-label="Search notes"
         aria-haspopup="dialog"
         aria-expanded={open}
-        title="Search notes"
+        title="Search notes (/)"
         onClick={() => setOpen((value) => !value)}
       >
         <SearchIcon />
       </button>
       {open ? (
-        <div className="search-popup" role="dialog" aria-label="Search notes">
-          <SearchPanel autoFocus onNavigate={() => setOpen(false)} />
-        </div>
+        <>
+          {/* The query is shared with the home hero's field, so without this the same result list is
+              also live behind the palette — two of them at once read as one broken one. Clicking it
+              closes, same as clicking anywhere else outside. */}
+          <div className="search-backdrop" onMouseDown={() => setOpen(false)} />
+          <div className="search-popup" role="dialog" aria-label="Search notes">
+            <SearchPanel autoFocus onNavigate={() => setOpen(false)} />
+          </div>
+        </>
       ) : null}
     </div>
   );

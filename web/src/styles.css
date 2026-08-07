@@ -467,16 +467,26 @@ button {
    full-bleed canvas would otherwise paint over the popup and swallow its clicks there. It is just the
    search field + results — the wordmark and heatmap belong to the "/" home, not to a lookup from a
    note. */
+.search-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 94;
+  background: rgb(0 0 0 / 28%);
+}
+
+/* The search palette: centred over the workspace rather than hung off the rail, because searching is
+   a mode you enter (Spotlight, a Quick Open) and not a panel you consult. Sits high rather than dead
+   centre so the result list grows downward into empty space instead of pushing the field around. */
 .search-popup {
   position: fixed;
-  left: 64px;
-  top: 52px;
+  left: 50%;
+  top: 12vh;
   z-index: 95;
   display: flex;
   flex-direction: column;
-  width: 380px;
-  max-width: calc(100vw - 80px);
-  max-height: calc(100vh - 80px);
+  width: min(640px, calc(100vw - 48px));
+  max-height: 70vh;
+  transform: translateX(-50%);
   border: 1px solid var(--line);
   border-radius: var(--radius-lg);
   background: var(--panel);
@@ -573,8 +583,16 @@ button {
   text-decoration: none;
 }
 
-.result:hover {
+.result:hover,
+/* The keyboard cursor reads as the same thing as a hover, because it is: the row you are about to
+   open. An accent edge separates "the keys are here" from "the mouse is here" without a second
+   colour scheme. */
+.result.is-active {
   background: var(--panel-soft);
+}
+
+.result.is-active {
+  box-shadow: inset 2px 0 0 var(--accent);
 }
 
 .result-title {

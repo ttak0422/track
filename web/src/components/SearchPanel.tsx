@@ -1,5 +1,7 @@
 import { Link, useNavigate } from "@tanstack/react-router";
+import { useEffect, useRef, useState } from "react";
 import { useDebouncedValue } from "../hooks/useDebouncedValue";
+import { keys, step } from "../keys";
 import { useSearchQuery } from "../queries";
 import { useSearchState } from "../searchState";
 import type { SearchResult } from "../types";
@@ -27,12 +29,40 @@ export function SearchPanel({ onNavigate, autoFocus }: SearchPanelProps = {}) {
   // Vaults the server could not read. Saying so is the point: otherwise a search that reached only
   // half the vaults looks exactly like one that found nothing in the other half.
   const unavailable = hasQuery ? (search.data?.unavailable ?? []) : [];
-  const topResult = results[0];
+  // Keyboard order is what the reader sees: titles first, then full text.
+  const ordered = [...titleHits, ...bodyHits];
+  const [active, setActive] = useState(0);
+  const listRef = useRef<HTMLDivElement>(null);
+
+  // A new result set invalidates the old cursor, so start from the top rather than land somewhere
+  // arbitrary. The top hit is the one Enter has always taken.
+  useEffect(() => {
+    setActive(ordered.length > 0 ? 0 : -1);
+    // Reset per result set, not per render: the ids are what actually changed.
+  }, [ordered.map((note) => note.note_id).join(",")]);
+
+  // Keep the cursor in view when it walks past the edge of the scrolling list.
+  useEffect(() => {
+    if (active < 0) return;
+    listRef.current?.querySelector<HTMLElement>(`[data-index="${active}"]`)?.scrollIntoView({ block: "nearest" });
+  }, [active]);
 
   function onKeyDown(event: React.KeyboardEvent<HTMLInputElement>) {
-    if (event.key === "Enter" && topResult) {
+    if (keys.next(event)) {
       event.preventDefault();
-      void navigate({ to: "/notes/$noteId", params: { noteId: String(topResult.note_id) } });
+      setActive((index) => step(index, 1, ordered.length));
+      return;
+    }
+    if (keys.prev(event)) {
+      event.preventDefault();
+      setActive((index) => step(index, -1, ordered.length));
+      return;
+    }
+    if (keys.accept(event)) {
+      const note = ordered[active];
+      if (!note) return;
+      event.preventDefault();
+      void navigate({ to: "/notes/$noteId", params: { noteId: String(note.note_id) } });
       onNavigate?.();
     }
   }
@@ -48,23 +78,36 @@ export function SearchPanel({ onNavigate, autoFocus }: SearchPanelProps = {}) {
           onChange={(event) => setQuery(event.currentTarget.value)}
           onKeyDown={onKeyDown}
           autoFocus={autoFocus}
+          aria-activedescendant={active >= 0 && ordered[active] ? `search-result-${ordered[active].note_id}` : undefined}
         />
       </label>
-      <div className="results" aria-live="polite">
+      <div className="results" aria-live="polite" ref={listRef}>
         {hasQuery && search.isPending ? <p className="muted">Loading notes...</p> : null}
         {hasQuery && search.isError ? <p className="error">{search.error.message}</p> : null}
         {/* Title matches first, then full-text — the ordering the engine composed, kept visible.
             The captions only appear once there is a second group to tell apart, so an ordinary
             title-only search looks exactly as it always has. */}
         {bodyHits.length > 0 && titleHits.length > 0 ? <h3 className="results-group">Titles</h3> : null}
-        {titleHits.map((note) => (
-          <SearchResultItem key={note.note_id} note={note} onNavigate={onNavigate} />
+        {titleHits.map((note, index) => (
+          <SearchResultItem
+            key={note.note_id}
+            note={note}
+            index={index}
+            active={index === active}
+            onNavigate={onNavigate}
+          />
         ))}
         {bodyHits.length > 0 ? (
           <>
             {titleHits.length > 0 ? <h3 className="results-group">Full text</h3> : null}
-            {bodyHits.map((note) => (
-              <SearchResultItem key={note.note_id} note={note} onNavigate={onNavigate} />
+            {bodyHits.map((note, index) => (
+              <SearchResultItem
+                key={note.note_id}
+                note={note}
+                index={titleHits.length + index}
+                active={titleHits.length + index === active}
+                onNavigate={onNavigate}
+              />
             ))}
           </>
         ) : null}
@@ -80,13 +123,17 @@ export function SearchPanel({ onNavigate, autoFocus }: SearchPanelProps = {}) {
 
 interface SearchResultItemProps {
   note: SearchResult;
+  index: number;
+  active: boolean;
   onNavigate?: () => void;
 }
 
-function SearchResultItem({ note, onNavigate }: SearchResultItemProps) {
+function SearchResultItem({ note, index, active, onNavigate }: SearchResultItemProps) {
   return (
     <Link
-      className="result"
+      className={`result${active ? " is-active" : ""}`}
+      id={`search-result-${note.note_id}`}
+      data-index={index}
       to="/notes/$noteId"
       params={{ noteId: String(note.note_id) }}
       onClick={() => onNavigate?.()}
