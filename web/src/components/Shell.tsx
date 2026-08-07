@@ -13,6 +13,7 @@ import { useLiveEvents } from "../hooks/useLiveEvents";
 import { useSiteQuery } from "../queries";
 import { START_PAGE_ID, STATIC_MODE } from "../runtime";
 import { NoteControlsProvider } from "../noteControls";
+import { NotificationToast } from "../notifications";
 import { NoteRailControls } from "./NoteRailControls";
 import { SearchProvider } from "../searchState";
 
@@ -128,6 +129,7 @@ export function Shell() {
             note pages show the local graph in their aside instead. */}
         {isHero || isGraph || isCalendar || isNote ? null : <GraphPanel />}
         <FloatingLayer />
+        <NotificationToast />
       </main>
       </TabsProvider>
       </FloatingProvider>

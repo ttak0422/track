@@ -3,7 +3,7 @@ import { act, renderHook, screen, waitFor } from "@testing-library/react";
 import type { ReactNode } from "react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { APIError, setTaskState } from "./api";
-import { NotificationProvider } from "./notifications";
+import { NotificationProvider, NotificationToast } from "./notifications";
 import { queryKeys, useSetTaskDateMutation, useSetTaskStateMutation } from "./queries";
 
 // Only the two task writes are stubbed; the rest of the api module keeps its real implementation.
@@ -13,13 +13,21 @@ vi.mock("./api", async (importOriginal) => ({
   setTaskDate: vi.fn(async () => ({ tasks: { items: [] }, etag: "next" })),
 }));
 
+// The toast is mounted by Shell below the router; the tests mount it next to the provider to observe
+// it, so the router module it navigates with is stubbed out.
+const navigate = vi.hoisted(() => vi.fn());
+vi.mock("@tanstack/react-router", () => ({ useNavigate: () => navigate }));
+
 function renderTaskMutation<T>(useHook: () => T) {
   const client = new QueryClient({ defaultOptions: { mutations: { retry: false } } });
   const invalidate = vi.spyOn(client, "invalidateQueries");
   const view = renderHook(useHook, {
     wrapper: ({ children }: { children: ReactNode }) => (
       <QueryClientProvider client={client}>
-        <NotificationProvider>{children}</NotificationProvider>
+        <NotificationProvider>
+          {children}
+          <NotificationToast />
+        </NotificationProvider>
       </QueryClientProvider>
     ),
   });

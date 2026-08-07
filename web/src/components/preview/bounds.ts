@@ -30,7 +30,9 @@ export interface PreviewAnchor {
   linkBottom: number;
 }
 
-export type PreviewResizeCorner = "nw" | "ne" | "sw" | "se";
+// A resize target on the window: one of the four corners, or the right ("e") and bottom ("s") edges —
+// an edge drag moves only the width or the height, a corner drag moves both.
+export type PreviewResizeHandle = "nw" | "ne" | "sw" | "se" | "e" | "s";
 
 export function clamp(value: number, min: number, max: number): number {
   return Math.min(Math.max(value, min), max);
@@ -87,30 +89,30 @@ export function constrainPreviewBounds(bounds: PreviewBounds): PreviewBounds {
 }
 
 export function resizePreviewBounds(
-  corner: PreviewResizeCorner,
+  handle: PreviewResizeHandle,
   start: PreviewBounds,
   dx: number,
   dy: number,
 ): PreviewBounds {
   let next = { ...start };
-  if (corner.includes("e")) {
+  if (handle.includes("e")) {
     next.width = start.width + dx;
   }
-  if (corner.includes("s")) {
+  if (handle.includes("s")) {
     next.height = start.height + dy;
   }
-  if (corner.includes("w")) {
+  if (handle.includes("w")) {
     next.left = start.left + dx;
     next.width = start.width - dx;
   }
-  if (corner.includes("n")) {
+  if (handle.includes("n")) {
     next.top = start.top + dy;
     next.height = start.height - dy;
   }
-  if (next.width < minPreviewWidth && corner.includes("w")) {
+  if (next.width < minPreviewWidth && handle.includes("w")) {
     next.left = start.left + start.width - minPreviewWidth;
   }
-  if (next.height < minPreviewHeight && corner.includes("n")) {
+  if (next.height < minPreviewHeight && handle.includes("n")) {
     next.top = start.top + start.height - minPreviewHeight;
   }
   return constrainPreviewBounds(next);

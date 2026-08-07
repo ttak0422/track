@@ -6,7 +6,7 @@ import {
   minPreviewHeight,
   type PreviewAnchor,
   type PreviewBounds,
-  type PreviewResizeCorner,
+  type PreviewResizeHandle,
   resizePreviewBounds,
 } from "./bounds";
 import { InFloatingWindowContext } from "./floatingStore";
@@ -48,7 +48,7 @@ interface FloatingWindowProps extends FloatingWindowControls {
 
 interface DragState {
   pointerId: number;
-  mode: "move" | PreviewResizeCorner;
+  mode: "move" | PreviewResizeHandle;
   startX: number;
   startY: number;
   startBounds: PreviewBounds;
@@ -163,11 +163,11 @@ export function FloatingWindow({
     startDrag(event, "move");
   }
 
-  function startResize(corner: PreviewResizeCorner) {
+  function startResize(handle: PreviewResizeHandle) {
     return (event: PointerEvent<HTMLElement>) => {
       // A manual resize locks the height; auto-fit no longer overrides the user's chosen size.
       manualResizeRef.current = true;
-      startDrag(event, corner);
+      startDrag(event, handle);
     };
   }
 
@@ -291,13 +291,13 @@ export function FloatingWindow({
       )}
       {collapsed
         ? null
-        : (["nw", "ne", "sw", "se"] as const).map((corner) => (
+        : (["e", "s", "nw", "ne", "sw", "se"] as const).map((handle) => (
             <button
               aria-label="Resize preview"
-              className={`wiki-preview-resize wiki-preview-resize-${corner}`}
-              key={corner}
+              className={`wiki-preview-resize wiki-preview-resize-${handle}`}
+              key={handle}
               onPointerCancel={endDrag}
-              onPointerDown={startResize(corner)}
+              onPointerDown={startResize(handle)}
               onPointerMove={dragPreview}
               onPointerUp={endDrag}
               title="Resize"
