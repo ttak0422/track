@@ -150,23 +150,24 @@ button {
   display: grid;
   /* The reader column must shrink below its content's preferred width (a phone is narrower than the
      old 380px floor, which forced sideways scrolling of the whole workspace). */
-  /* The dock is 48px wide; the column is 8px wider so the dock's shadow and its rounded edge have
-     air on both sides instead of butting against the reader. */
-  grid-template-columns: 56px minmax(0, 1fr);
+  grid-template-columns: minmax(0, 1fr);
   height: 100vh;
   min-height: 560px;
 }
 
-/* The column is now just an empty lane the dock floats in — it paints nothing itself. Centering
-   happens here so the dock hugs its buttons rather than being stretched to the viewport. */
+/* The dock reserves no column: it floats over the reader, which runs the full width beneath it.
+   Nothing in the layout shifts to make room, so the rail costs the page no space at all. Below
+   .search-backdrop (94), so entering search dims the dock like everything else it covers; above
+   .graph-full (90), whose full-bleed canvas would otherwise paint over it on /graph. */
 .sidebar {
+  position: fixed;
+  z-index: 91;
+  top: 50%;
+  left: 8px;
+  translate: 0 -50%;
   display: flex;
-  align-items: center;
-  justify-content: center;
   min-width: 0;
   min-height: 0;
-  /* The dock's shadow spills past the lane; clipping it would shear the shadow down one side. */
-  overflow: visible;
 }
 
 /* Floating layer (design.md variant 3): the rail is a dock over the sheet, not a column ruled out of
@@ -182,8 +183,8 @@ button {
   background: var(--panel);
   box-shadow: 0 16px 38px color-mix(in srgb, #000 18%, transparent);
   /* The rail grew a second group (the open note's controls), so on a short window it can be taller
-     than the viewport. Bound it to the lane and scroll inside, without a visible bar: this is chrome,
-     and the bar would eat a quarter of a 48px dock. */
+     than the viewport. Bound it to the viewport and scroll inside, without a visible bar: this is
+     chrome, and the bar would eat a quarter of a 48px dock. */
   max-height: calc(100vh - 16px);
   overflow-y: auto;
   scrollbar-width: none;
@@ -301,7 +302,8 @@ button {
 .empty-guides {
   position: absolute;
   top: 50%;
-  left: 16px;
+  /* Clear of the dock (8px in, 48px wide) rather than of a column that no longer exists. */
+  left: 72px;
   translate: 0 -50%;
   display: flex;
   flex-direction: column;
@@ -744,6 +746,10 @@ button {
   flex: 1;
   overflow: auto;
   padding: 32px;
+  /* Text steps clear of the floating dock (8px in, 48px wide) instead of running under it. Only the
+     text inset moves — the pane itself is still full width, and full-bleed children that lay
+     themselves out with inset: 0 (the graph, the empty state) ignore this padding entirely. */
+  padding-left: 64px;
   background: var(--panel);
   /* The reader is the page scroller for the full-page views (calendar, day) and long notes; its
      scrollbar stays hidden like every other scroller in the app (tab strip, backlinks, previews). */

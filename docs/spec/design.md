@@ -90,9 +90,13 @@ legitimately sit above the page, so they alone carry shadows.
   `box-shadow`. Items inside are text controls (muted rows that ink on hover).
 - Canonical: `.menu-panel`, `.note-menu-panel`, `.modal-card`, `.activity-rail`.
 - The rail dock is the one *permanent* member: it hugs its buttons, centers
-  itself vertically in the rail column, and takes `--radius-lg` like any panel.
-  Because it floats, whatever anchors to it (the settings panel, the empty
-  state's guides) centers on the same axis instead of measuring from an edge.
+  itself vertically against the viewport, and takes `--radius-lg` like any
+  panel. It reserves no column — the reader runs full width beneath it, so the
+  rail costs the page no space; only the reader's text inset steps clear of it,
+  leaving full-bleed content (the graph, the empty state) undisturbed. Because
+  it floats, whatever anchors to it (the settings panel, the empty state's
+  guides) centers on the same axis and clears the dock's own width instead of
+  measuring from a layout edge.
 
 ### 4. Filled action — modal decisions only
 
