@@ -1,5 +1,6 @@
 import { Link, Outlet, useNavigate, useRouterState } from "@tanstack/react-router";
 import { GraphPanel } from "./GraphPanel";
+import { HierarchyMenu } from "./HierarchyMenu";
 import { BrandMark } from "./Logo";
 import { FloatingLayer } from "./preview/FloatingLayer";
 import { FloatingProvider } from "./preview/floatingStore";
@@ -118,6 +119,8 @@ export function Shell() {
                   <RailTasksIcon />
                 </Link>
               )}
+              {/* The deliberate "up" tree, beside the link graph it is a hand-drawn path through. */}
+              <HierarchyMenu />
               <Link
                 className="rail-button"
                 to="/graph"

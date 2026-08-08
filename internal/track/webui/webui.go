@@ -178,6 +178,7 @@ func (s *Server) routes() {
 	s.mux.HandleFunc("/api/viewspec", s.withVault(s.handleViewSpec))
 	s.mux.HandleFunc("/api/asset", s.withVault(s.handleAsset))
 	s.mux.HandleFunc("/api/ogp", s.handleOGP)
+	s.mux.HandleFunc("/api/hierarchy", s.withVault(s.handleHierarchy))
 	s.mux.HandleFunc("/api/graph/local", s.withVault(s.handleLocalGraph))
 	s.mux.HandleFunc("/api/graph", s.withVault(s.handleGraph))
 	s.mux.HandleFunc("/api/follow", s.handleFollow)

@@ -309,9 +309,13 @@ The note's aside is a quiet column; the rail is a floating dock over the sheet.
   with `--mark` and its edges follow, while everything else dims in place.
   Contrast is what marks a match — no graph gets a colour the rest of the UI
   gave up.
-- Rail: a compact floating dock, vertically centered 8px from the left edge,
-  on `--panel` with a hairline and radius but no shadow. Glyphs are text
-  controls; workspace views and open-note controls share the dock in order.
+- Rail: a compact floating dock 8px from the left edge, centred a quarter of
+  the way down the viewport so its menus open into empty screen rather than
+  against the bottom edge, on `--panel` with a hairline and radius but no
+  shadow. Glyphs are text controls; workspace views and open-note controls
+  share the dock in order. A menu hung off the dock sits on the same centre
+  line (`.rail-menu-panel`) or is anchored to its own button's rect
+  (`.mode-menu-panel`, `.hierarchy-panel`).
 - **One icon family.** Every rail glyph is drawn the same way: a 24-unit
   viewBox at 20px, `fill: none`, `stroke: currentColor`, `stroke-width: 1.5`,
   round caps and joins, and **no filled shapes** — a dot is a small stroked

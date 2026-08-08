@@ -49,6 +49,62 @@ func TestHierarchyTrailAndChildren(t *testing.T) {
 	}
 }
 
+func TestHierarchyForest(t *testing.T) {
+	s := newTestStore(t)
+	upsert(t, s, 1, "Root", "", 10)
+	upsert(t, s, 2, "Mid", "up:: [[Root]]", 20)
+	upsert(t, s, 3, "Leaf", "up:: [[Mid]]", 30)
+	upsert(t, s, 4, "Leaf 2", "up:: [[Mid]]", 40)
+	// Placed by nothing: no parent, no children. It is not a root, it is simply not in the tree.
+	upsert(t, s, 5, "Stray", "up:: somewhere", 50)
+	// A second root, more recently updated but earlier by title, so the ordering is pinned to the
+	// title rather than to the mtime every other listing sorts by.
+	upsert(t, s, 6, "Other root", "", 60)
+	upsert(t, s, 7, "Other child", "up:: [[Other root]]", 70)
+
+	roots, err := s.Hierarchy()
+	if err != nil {
+		t.Fatalf("hierarchy: %v", err)
+	}
+	if len(roots) != 2 || roots[0].Title != "Other root" || roots[1].Title != "Root" {
+		t.Fatalf("roots = %s, want Other root then Root", titles(roots))
+	}
+	mid := roots[1].Children
+	if len(mid) != 1 || mid[0].Title != "Mid" {
+		t.Fatalf("Root's children = %s, want Mid", titles(mid))
+	}
+	// By title, so the newer "Leaf 2" sorts after "Leaf" instead of ahead of it.
+	if kids := mid[0].Children; len(kids) != 2 || kids[0].Title != "Leaf" || kids[1].Title != "Leaf 2" {
+		t.Fatalf("Mid's children = %s, want Leaf then Leaf 2", titles(kids))
+	}
+}
+
+func TestHierarchyDropsCycles(t *testing.T) {
+	s := newTestStore(t)
+	upsert(t, s, 1, "A", "up:: [[B]]", 10)
+	upsert(t, s, 2, "B", "up:: [[A]]", 20)
+	upsert(t, s, 3, "Root", "", 30)
+	upsert(t, s, 4, "Child", "up:: [[Root]]", 40)
+
+	roots, err := s.Hierarchy()
+	if err != nil {
+		t.Fatalf("hierarchy: %v", err)
+	}
+	// Every member of a cycle has a parent, so none is a root and the whole loop stays out of the
+	// forest — which is what keeps a consumer's walk finite.
+	if len(roots) != 1 || roots[0].Title != "Root" {
+		t.Fatalf("roots = %s, want Root alone", titles(roots))
+	}
+}
+
+func titles(nodes []*HierarchyNode) []string {
+	out := make([]string, 0, len(nodes))
+	for _, n := range nodes {
+		out = append(out, n.Title)
+	}
+	return out
+}
+
 func TestHierarchyTrailStopsOnCycle(t *testing.T) {
 	s := newTestStore(t)
 	upsert(t, s, 1, "A", "up:: [[B]]", 10)

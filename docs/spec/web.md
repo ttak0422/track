@@ -94,6 +94,13 @@ off, a published site) still opens the day page and its notes-and-tasks listing.
 - `GET /api/graph/local?id=<id>[&vault=<name>]`: the one-hop local graph around a note.
 - `GET /api/graph`: the whole-vault graph — every indexed note as a node and every
   link between two known notes as an edge, with no center.
+- `GET /api/hierarchy`: the whole vault's `up` forest, each node carrying its
+  `children`. Only notes the hierarchy places are in it — a note with neither a parent
+  nor a child is absent — and a cycle keeps its members out entirely, since none of
+  them is a root. Every level is ordered by title, the one listing that is not in the
+  shared recently-updated-first order: a tree someone laid out on purpose cannot be
+  navigated from memory if editing a note moves it. The rail's hierarchy menu asks for
+  it when it is first opened, not at first paint.
 - `GET /api/ogp?url=<url>`: Open Graph metadata for an embedded link, used to render
   link cards. Only `http(s)` URLs are accepted and the fetch is SSRF-guarded; see
   "Markdown embeds" below.

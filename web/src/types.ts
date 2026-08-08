@@ -190,6 +190,16 @@ export interface NoteResponse {
   children?: NoteRef[];
 }
 
+// One note in the vault-wide "up" tree the rail's hierarchy menu draws. Only notes the hierarchy
+// places are in it: a note with neither a parent nor a child is absent, not a root.
+export interface HierarchyNode extends NoteRef {
+  children?: HierarchyNode[];
+}
+
+export interface HierarchyResponse {
+  hierarchy: HierarchyNode[];
+}
+
 export interface SaveNoteRequest {
   body: string;
   etag: string;

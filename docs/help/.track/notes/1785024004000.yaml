@@ -1,5 +1,7 @@
 version: 8
 title: Home dashboard
 created: '2026-07-26'
+props:
+  up: '[[Web workspace]]'
 icon: 🏠
 slug: 6Xgzgy44LKYysmaRlzVScf
