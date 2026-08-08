@@ -141,9 +141,11 @@ the frontend build.
 
 **The data bundle is locked** ([ADR 0069](../adr/0069-the-published-data-bundle-is-locked.md)). Every file
 under `<out>/data` is gzipped, encrypted with AES-256-GCM, and published as `<name>.bin` — the shapes
-below are what comes *out* of it, not what a fetch returns. The key is derived from the site's public
-identity (`sha256("track-site-lock\0" + base URL + "\0" + root note title)`) and baked into every page as
-`window.__trackLock`, so the app opens its own data while a bulk consumer has to unlock deliberately. The
+below are what comes *out* of it, not what a fetch returns. The key is derived from the site's address
+(`sha256("track-site-lock\0" + base URL + "\0" + root note slug)`) and baked into every page as
+`window.__trackLock`, so the app opens its own data while a bulk consumer has to unlock deliberately.
+Deriving it from the address rather than from content is what lets a page the CDN still serves from an
+earlier deploy keep reading the current bundle. The
 dehydrated cache the prerender inlines into each page is locked the same way. `Unlock` in
 `internal/track/site/lock.go` and `web/src/lock.ts` are the two halves of that conversion. Because
 `crypto.subtle` needs a secure context, a published site must be served over HTTPS or from localhost.

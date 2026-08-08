@@ -1,6 +1,7 @@
 import { StrictMode } from "react";
 import { createRoot } from "react-dom/client";
 import { App, clientAppRouter, hydratePrerenderedState } from "./App";
+import { setStaleKeyHandler } from "./lock";
 import { STATIC_MODE } from "./runtime";
 import { applyDesignPreview, parseDesignPreview } from "./dev/preview";
 
@@ -29,17 +30,28 @@ if (import.meta.env.DEV) {
   void import("./dev/candidates.css");
 }
 
-// Each deploy replaces every content-hashed chunk, and GitHub Pages caches HTML for up to 10 minutes
-// (browser and CDN), so a stale page can lazy-load a chunk that no longer exists. Vite surfaces that
-// failed dynamic import as vite:preloadError; one revalidating reload picks up the new deploy. The
-// sessionStorage flag stops a reload loop when the fetched HTML is itself still stale.
-window.addEventListener("vite:preloadError", (event) => {
-  const last = Number(sessionStorage.getItem("track:chunk-reload") ?? 0);
-  if (Date.now() - last < 30_000) return;
-  sessionStorage.setItem("track:chunk-reload", String(Date.now()));
-  event.preventDefault();
+// GitHub Pages caches HTML for up to 10 minutes (browser and CDN), so a page can outlive the deploy it
+// came from. Two things break when it does, and both recover the same way: one revalidating reload picks
+// up the new deploy. The sessionStorage stamp stops a reload loop when the fetched HTML is itself still
+// stale.
+function reloadOnce(): boolean {
+  const last = Number(sessionStorage.getItem("track:stale-reload") ?? 0);
+  if (Date.now() - last < 30_000) return false;
+  sessionStorage.setItem("track:stale-reload", String(Date.now()));
   window.location.reload();
+  return true;
+}
+
+// Each deploy replaces every content-hashed chunk, so a stale page can lazy-load a chunk that no longer
+// exists. Vite surfaces that failed dynamic import as vite:preloadError.
+window.addEventListener("vite:preloadError", (event) => {
+  if (reloadOnce()) event.preventDefault();
 });
+
+// A stale page also carries the site key of its own deploy. That key normally still opens the current
+// data — it is derived from the site's address, which does not change deploy to deploy — but if the
+// address did change, the page cannot read anything until it is replaced by a current one.
+setStaleKeyHandler(reloadOnce);
 
 // The static site prerenders content into #root for a fast first paint; the client then mounts with
 // createRoot, which renders fresh over that markup (React discards it) rather than hydrating. This is

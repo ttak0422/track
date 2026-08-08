@@ -25,7 +25,7 @@ func writePages(outDir, startPage string, root int64, docs, listed []doc, site j
 	if err != nil {
 		return err
 	}
-	base := swapFavicon(applyPlaceholders(string(raw), startPage, LockKey(site.BaseURL, site.Title)), site.Icon)
+	base := swapFavicon(applyPlaceholders(string(raw), startPage, LockKey(site.BaseURL, site.Root)), site.Icon)
 
 	write := func(rel, head string) error {
 		path := filepath.Join(outDir, filepath.FromSlash(rel))

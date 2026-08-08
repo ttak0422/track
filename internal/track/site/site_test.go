@@ -1,6 +1,7 @@
 package site
 
 import (
+	"bytes"
 	"encoding/base64"
 	"encoding/json"
 	"os"
@@ -161,6 +162,43 @@ func TestBuildLocksTheDataBundle(t *testing.T) {
 	}](t, filepath.Join(out, "data", "search.json"))
 	if len(search.Docs) != 2 {
 		t.Fatalf("the unlocked corpus should carry both published notes, got %+v", search.Docs)
+	}
+}
+
+// TestLockKeySurvivesAnEdit covers the CDN cache window: GitHub Pages serves a page for up to ten
+// minutes after the deploy that produced it, so a page in a reader's hands must keep opening freshly
+// published data. The key is derived from the site's address alone, so editing the content — here the
+// root note's title, which the key used to depend on — leaves it untouched.
+func TestLockKeySurvivesAnEdit(t *testing.T) {
+	cfg, s := vaultStore(t)
+	writeVaultNote(t, cfg, 100, "Home", "# Home\n")
+	if _, err := index.New(cfg, s).Full(); err != nil {
+		t.Fatalf("index: %v", err)
+	}
+	before := t.TempDir()
+	if _, err := Build(cfg, s, Options{Root: 100}, fakeFrontend(t), before); err != nil {
+		t.Fatalf("build: %v", err)
+	}
+
+	writeVaultNote(t, cfg, 100, "Home, renamed", "# Home\n\nand an edit\n")
+	if _, err := index.New(cfg, s).Full(); err != nil {
+		t.Fatalf("reindex: %v", err)
+	}
+	after := t.TempDir()
+	if _, err := Build(cfg, s, Options{Root: 100}, fakeFrontend(t), after); err != nil {
+		t.Fatalf("rebuild: %v", err)
+	}
+
+	if !bytes.Equal(pageLockKey(t, before), pageLockKey(t, after)) {
+		t.Fatalf("editing a note must not change the site key: a page from the earlier deploy could no longer read the data")
+	}
+	// And the earlier page really can open the later deploy's bundle.
+	raw, err := os.ReadFile(filepath.Join(after, "data", "notes.bin"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := Unlock(pageLockKey(t, before), raw); err != nil {
+		t.Fatalf("a page from the earlier deploy should still open the current data: %v", err)
 	}
 }
 

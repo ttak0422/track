@@ -177,16 +177,16 @@ func writeBundle(docs []doc, edges []edge, root int64, calendar, share bool, bas
 	}
 
 	sort.Slice(docs, func(i, j int) bool { return docs[i].id < docs[j].id })
-	rootTitle := ""
-	for _, d := range docs {
-		if d.id == root {
-			rootTitle = d.title
+	rootTitle, rootSlug := "", ""
+	for i := range docs {
+		if docs[i].id == root {
+			rootTitle = docs[i].title
+			rootSlug = slugOf(&docs[i])
 		}
 	}
-	// Every data file below is written locked (see lock.go). The key is derived from the site's own
-	// identity and travels in the page, so the app opens its data and a bulk consumer has to unlock
-	// deliberately.
-	key := LockKey(strings.TrimRight(baseURL, "/"), rootTitle)
+	// Every data file below is written locked (see lock.go). The key is derived from the site's address
+	// and travels in the page, so the app opens its data and a bulk consumer has to unlock deliberately.
+	key := LockKey(strings.TrimRight(baseURL, "/"), rootSlug)
 
 	// notes.json, in the shared note-list order (recently updated first) so the published calendar,
 	// day pages, and search listing read like the live server's.

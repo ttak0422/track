@@ -34,10 +34,17 @@ Each file is gzipped, encrypted with AES-256-GCM, and written as `<name>.bin`:
 nonce (12 bytes) || AES-256-GCM(gzip(json))
 ```
 
-The key is 32 bytes derived from the site's public identity —
-`sha256("track-site-lock\0" + base-url + "\0" + root-note-title)` — so a rebuild of
-the same site produces the same key and two sites do not share one. It travels in
-the page as `window.__trackLock`, because the reader's browser has to open the data.
+The key is 32 bytes derived from the site's **address** —
+`sha256("track-site-lock\0" + base-url + "\0" + root-note-slug)` — so a rebuild of the
+same site produces the same key and two sites do not share one. It travels in the page
+as `window.__trackLock`, because the reader's browser has to open the data.
+
+Both inputs are addresses on purpose. GitHub Pages serves HTML for up to ten minutes
+after the deploy that produced it, so a page in a reader's hands has to keep opening
+data published after it. A key derived from editable content — the root note's title,
+in the first cut of this — would change the moment someone renamed that note, and
+every page still in the CDN would go blind. An address changes only when the site
+moves, which is not an edit.
 
 One mechanism, three holders of the key: `internal/track/site/lock.go` locks the
 bundle, `web/src/lock.ts` opens it in the browser (the only place the frontend reads
@@ -84,6 +91,12 @@ warehouse behind it.
   `staticData`.
 - **Hydration became async.** Opening the inlined state is a promise, so the client
   awaits it alongside the router before its first render (`web/src/main.tsx`).
+- **A stale page recovers by reloading.** If the site's address does change, a page
+  from before the move cannot open the current bundle. That is the same failure the
+  CDN cache window already causes for content-hashed chunks, so it takes the same
+  cure: one revalidating reload, guarded against a loop by a sessionStorage stamp
+  (`reloadOnce` in `web/src/main.tsx`, wired to the lock through
+  `setStaleKeyHandler`).
 - **Anything reading the bundle must hold the key**, including tests. That is a
   feature: the test that reads `notes.json` performs the same conversion a reader
   does, so the format cannot drift on one side without failing on the other. The

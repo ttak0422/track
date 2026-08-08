@@ -9,7 +9,7 @@ import (
 // TestLockRoundTrip pins the published format: locked bytes are not the data (no plaintext survives in
 // them), and Unlock with the site's key gives it back exactly.
 func TestLockRoundTrip(t *testing.T) {
-	key := LockKey("https://example.test", "Home")
+	key := LockKey("https://example.test", PublishID(100))
 	plain := []byte(`{"notes":[{"note_id":"abc","title":"Secret Title"}]}`)
 
 	blob, err := lock(key, plain)
@@ -29,10 +29,10 @@ func TestLockRoundTrip(t *testing.T) {
 	}
 
 	// Another site's key does not open it, and the key is stable across rebuilds of the same site.
-	if _, err := Unlock(LockKey("https://other.test", "Home"), blob); err == nil {
+	if _, err := Unlock(LockKey("https://other.test", PublishID(100)), blob); err == nil {
 		t.Fatalf("a different site's key should not unlock the bundle")
 	}
-	if !bytes.Equal(key, LockKey("https://example.test", "Home")) {
+	if !bytes.Equal(key, LockKey("https://example.test", PublishID(100))) {
 		t.Fatalf("the key should be stable for the same site")
 	}
 }

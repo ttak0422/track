@@ -20,10 +20,13 @@ import (
 //
 // Layout: nonce (12 bytes) || AES-256-GCM(gzip(plaintext)).
 //
-// The key is derived from the site's public identity so a rebuild of the same site keeps the same key,
-// and two different sites do not share one.
-func LockKey(baseURL, title string) []byte {
-	sum := sha256.Sum256([]byte("track-site-lock\x00" + baseURL + "\x00" + title))
+// The key is derived from the site's address — its base URL and its root note's published slug — so a
+// rebuild of the same site keeps the same key and two different sites do not share one. Both inputs are
+// addresses, deliberately: anything derived from editable content (a title, say) would change the key
+// the moment someone edited it, and pages the CDN still serves from before that edit could no longer
+// open the data published after it.
+func LockKey(baseURL, rootSlug string) []byte {
+	sum := sha256.Sum256([]byte("track-site-lock\x00" + baseURL + "\x00" + rootSlug))
 	return sum[:]
 }
 

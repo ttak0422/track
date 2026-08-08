@@ -1,9 +1,9 @@
 import { beforeAll, describe, expect, it } from "vitest";
-import { lock, unlock, unlockText } from "./lock";
+import { lock, setStaleKeyHandler, unlock, unlockText } from "./lock";
 
-// The key `track export-site` derives for a site published at https://example.test with the root note
-// "Home", and one data file it locked with it — produced by internal/track/site/lock.go. The two sides
-// of the lock are written in different languages, so this fixture is what keeps them one mechanism.
+// The key `track export-site` derives for one site's address, and a data file it locked with it —
+// both produced by internal/track/site/lock.go. The two sides of the lock are written in different
+// languages, so this fixture is what keeps them one mechanism.
 const KEY = "LG4/Bc9q+UaWD+sEC9s/LpmC3x1KBuBGmFh/NsbBdAA=";
 const BLOB =
   "1a2npt5isSpeSoXgXTbocf/S/NLInRT/FleFYxGj1ckLCZAwtp3vBN/eA82UQeCt8CytLWpeo9rEznAFlv/eY3UkLCHtMvGXUgGHrBTAldexOM30k5PgrLFtOHU=";
@@ -25,9 +25,14 @@ describe("the site data lock", () => {
     expect(await unlockText(locked)).toBe(state);
   });
 
-  it("refuses data locked for another site", async () => {
+  it("refuses data this page's key does not open, and reports the page as stale", async () => {
+    let stale = 0;
+    setStaleKeyHandler(() => stale++);
     const bytes = Uint8Array.from(atob(BLOB), (c) => c.charCodeAt(0));
     bytes[bytes.length - 1] ^= 0xff;
     await expect(unlock(bytes.buffer)).rejects.toThrow();
+    // The page cannot read what the site published, so the client's recovery (one reload) is signalled.
+    expect(stale).toBe(1);
+    setStaleKeyHandler(() => {});
   });
 });
