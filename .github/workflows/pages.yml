@@ -54,6 +54,7 @@ jobs:
       - name: Build + prerender static help site
         env:
           SITE_BASE: ${{ steps.pages.outputs.base_path }}
+          SITE_ORIGIN: ${{ steps.pages.outputs.base_url }}
         run: |
           nix develop --command bash -euo pipefail -c 'make site SITE_OUT=./_site'
 

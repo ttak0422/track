@@ -57,6 +57,7 @@ jobs:
       - name: Build + prerender static help site
         env:
           SITE_BASE: /track-previews/pr-${{ github.event.pull_request.number }}/
+          SITE_ORIGIN: https://ttak0422.github.io/track-previews/pr-${{ github.event.pull_request.number }}
         run: |
           nix develop --command bash -euo pipefail -c 'make site SITE_OUT=./_site'
 
