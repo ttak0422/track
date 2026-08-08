@@ -7,8 +7,8 @@ export interface ChartTheme {
   text: string;
   muted: string;
   line: string;
-  // The ground the chart is drawn on, used by everything painted over the plot (tooltip, label
-  // chips, treemap gaps). A figure sits on --panel-soft (design.md, Figure), not on the sheet.
+  // The surface used by things painted over the transparent plot (tooltip, label chips, treemap
+  // gaps). The chart itself sits directly on the reading sheet.
   panel: string;
   danger: string;
   palette: string[];

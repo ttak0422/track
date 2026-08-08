@@ -10,7 +10,7 @@ none fits, extend this document first — do not invent a one-off treatment.
   (`--panel`), while navigation floats over the sheet as a compact dock. The
   dock uses the panel surface, a hairline, and a radius, but no shadow: it is a
   stable orientation aid, not a lifted card. The reader itself stays full width.
-- **Color belongs to figures.** Inside a chart, a diagram, or the graph, color
+- **Color belongs to visualizations.** Inside a chart, a diagram, or the graph, color
   carries meaning (series, zones, event lines). So the UI around them gives it
   up: chrome, links, and active states are ink and hairlines. `--mark` is the
   single salient, and today it is ink — the one place a brand color could ever
@@ -19,8 +19,8 @@ none fits, extend this document first — do not invent a one-off treatment.
   reader (body, title, meta) plus the small-caps label. Sections are told
   apart by their leading and by a rule above them, never by a fourth size.
 - **Two measures.** Prose reads at `--measure` (40em ≈ 42–48 Japanese
-  characters); figures, tables, and code blocks run the full column. The
-  difference is what makes a figure read as a figure.
+  characters); visualizations, tables, and code blocks run the full column. The
+  difference is what makes a visualization read as content rather than chrome.
 - **A box is earned.** A border or fill exists only to separate a control from
   content beneath it (quiet chip) or to lift a genuinely floating layer
   (floating layer). Shadows belong to floating layers alone.
@@ -42,12 +42,12 @@ values swapped; nothing else branches on theme.
 | --- | --- | --- | --- |
 | `--bg` | Page ground: around the sheet and behind the dock | `#fbfaf8` | `#141618` |
 | `--panel` | The sheet, dock, tab strip, and floating layers | `#ffffff` | `#191c1e` |
-| `--panel-soft` | Sunk ground: a figure's bed, code blocks, inputs | `#f3f2ee` | `#212528` |
+| `--panel-soft` | Sunk ground: code blocks, inputs, and quiet controls | `#f3f2ee` | `#212528` |
 | `--text` | Body ink | `#1a1a18` | `#e9e9e4` |
 | `--muted` | Secondary ink: chrome at rest, inline code, table cells | `#5e5d58` | `#a2a29b` |
-| `--faint` | Tertiary ink: meta, labels, captions' sources, figure numbers | `#6f6e68` | `#8b8b83` |
+| `--faint` | Tertiary ink: meta, labels, and captions' sources | `#6f6e68` | `#8b8b83` |
 | `--line` | Hairline | `#e6e4de` | `#282c2f` |
-| `--line-strong` | Stated rule: a figure's gutter, link underlines, a table's header rule | `#c7c5bd` | `#3e4347` |
+| `--line-strong` | Stated rule: link underlines, table headers, and scrollbar thumbs | `#c7c5bd` | `#3e4347` |
 | `--line-node` | Graph node outlines | `#8e8c84` | `#6e7478` |
 | `--mark` | The salient: logo, active tab, the graph's centre node | `#1a1a18` | `#e9e9e4` |
 
@@ -56,12 +56,12 @@ brand color would replace, so it never shares a declaration with body ink.
 
 The three inks are a contrast ladder, not a fade: `--faint` is the quietest
 step that still clears WCAG AA (4.5:1) on both the sheet and the sunk ground,
-because everything it carries — labels, meta, figure numbers, a caption's
+because everything it carries — labels, meta, and caption sources —
 source — is text someone has to read. A quieter tertiary is not available; if
 something needs to recede further than `--faint`, it is a rule or a shape, not
 smaller greyer type.
 
-Figures keep their own palette, and it is the only colored thing on the page:
+Visualizations keep their own palette, and it is the only colored thing on the page:
 `--chart-1..6` and `--chart-ramp-*` (series and heatmap ramp, read by
 `echartsTheme.ts`), plus `--danger` for destructive intent and unresolved
 links. A control in the chrome never reaches into this palette — and neither
@@ -111,13 +111,21 @@ nothing else. Paragraphs and lists lead with 13px, list items with 7px.
 ## The reading surface
 
 - The reader column is `--content-width` (880px by default, and a setting).
-  Figures, tables, and code blocks fill it.
+  Visualizations, tables, and code blocks fill it.
 - Prose — paragraphs, lists, headings, the title, the meta strip — is capped
   at `--measure` inside that column. The cap lands on `.markdown-view > *`,
   and the block-level elements that bleed opt out by name.
 - Body copy carries no color and no background. Links are ink with a
   `--line-strong` underline (see variant 8); inline code is mono and `--muted`
   with no chip, because a filled chip in a Japanese line makes the line ripple.
+
+### Scrollbars
+
+Visible overflow uses the same quiet scrollbar everywhere: an 8px thumb,
+transparent track, and a rounded `--line-strong` thumb with a transparent
+inset. Hover moves the thumb to `--muted`. Scrollers whose chrome would compete
+with the content — code blocks, the rail, tab overflow, and preview panes — may
+keep their bars hidden.
 
 ## Variants
 
@@ -222,34 +230,16 @@ links in it turns mottled the moment they carry one.
 - Unresolved wiki links keep `--danger` with a dotted underline — that is a
   warning, not decoration. A pending one is `--muted`.
 
-## Figure
+## Visualization blocks
 
-A figure is one container: number, bed, caption, source, and reading note.
-Nothing about it is a card.
+Charts and diagrams are content blocks, not numbered figures or cards. They
+are separated from surrounding prose by whitespace only; no generated figure
+number, left gutter rule, gray bed, or outer decoration is added by the
+frontend. Their own nodes, series, and annotations carry the visual hierarchy.
 
-```
-[34px gutter] [ figure body                        ]
- │ 図 1        ┌────────────────────────────────┐
- │             │  --panel-soft bed               │
- │             └────────────────────────────────┘
- │             caption                   ADR 0068
- │             How to read: …
-```
-
-- No outer border, no rounded card. A `2px solid var(--line-strong)` rule
-  stands in the left gutter and the figure number sits at its top, mono
-  10.5px, `.1em`, `--faint`, `white-space: nowrap`.
-- Numbers come from a CSS counter on the reader, so they are references the
-  body can point at ("図 1"), not decoration.
-- The body sits on `--panel-soft` with `border-radius: 3px` and 22px 20px of
-  padding.
-- Caption: 12px `--muted`, 11px above. Its source sits at the right end of the
-  same line, mono 11px `--faint`.
-- Reading note: 12.5px `--muted`, `max-width: 44em`, 9px above.
-- Members: charts (`.viewspec-chart-wrap`), Mermaid, Graphviz, D2, and draw.io
-  diagrams. When the Figure envelope (headline / subtitle / chart / caption /
-  sources / interaction hint) is specified, it inherits this look as its
-  default rather than defining a second one.
+Interaction controls remain quiet chips on top of the content and appear on
+hover or focus where possible. A control may still be permanently visible
+when it is the only way to discover a collapsed or pannable visualization.
 
 ## Table
 
@@ -260,7 +250,7 @@ Rules run horizontally only, and only where they separate something.
 - `td`: `--muted`, `vertical-align: top`, a `--line` rule beneath each row.
   The first column stays `--text` — it is what you scan.
 - No column rules, no striping, no header fill. A table bleeds to the column
-  like a figure.
+  like a visualization.
 
 ## Tab strip
 
@@ -325,8 +315,9 @@ The note's aside is a quiet column; the rail is a floating dock over the sheet.
   greppable.
 - Hit targets for icon-sized controls are at least 24px (WCAG 2.2), even when
   the glyph is smaller.
-- Scrollers hide their scrollbars (`scrollbar-width: none` plus the WebKit
-  rule), matching the rest of the app.
+- Visible scrollers use the shared quiet scrollbar. A local `scrollbar-width:
+  none` plus the WebKit rule is reserved for compact chrome whose bar would
+  compete with the content.
 
 ## Trying a restyle
 

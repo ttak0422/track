@@ -53,7 +53,7 @@ interface DiagramFrameProps {
   // The block's source text, for the copy button and the error fallback code block.
   source: string;
   sourceLang: string;
-  // Accessible name of the rendered figure, e.g. "Mermaid diagram".
+  // Accessible name of the rendered visualization, e.g. "Mermaid diagram".
   label: string;
   // Extra class on the root, so engine-specific CSS (e.g. Graphviz dark-mode inversion) can hook in.
   className?: string;
@@ -228,7 +228,7 @@ const fitWidthRatio = 0.8;
 // Readability floor: a wide diagram never fits below this fraction of the ideal scale (12px text
 // against a 16px article). Past it the diagram overflows horizontally — clipped at the viewport
 // edge and pannable, the horizontal analog of a tall diagram's collapsed preview — instead of
-// shrinking the whole figure to an unreadable thumbnail.
+// shrinking the whole visualization to an unreadable thumbnail.
 const minReadableRatio = 0.75;
 
 // Font size mermaid renders at (pinned in mermaidConfig). The ideal display scale makes diagram
@@ -236,10 +236,10 @@ const minReadableRatio = 0.75;
 const mermaidFontPx = 16;
 
 // A collapsed tall diagram keeps its normal readable fit but reveals only this much. A fade and
-// labelled control make the continuation explicit instead of shrinking the whole figure to illegibility.
+// labelled control make the continuation explicit instead of shrinking the whole visualization to illegibility.
 const collapsedHeight = 320;
 
-// A diagram whose fitted height exceeds this starts collapsed, so tall figures never dominate a
+// A diagram whose fitted height exceeds this starts collapsed, so tall visualizations never dominate a
 // page being skimmed; the fold button restores the full size.
 const autoCollapseHeight = 480;
 
@@ -536,10 +536,9 @@ export function mermaidConfig(): MermaidConfig {
       // Pinned (mermaid's default, but relied on by measureIdealScale) so display scale can map
       // diagram text onto the article's font size.
       fontSize: `${mermaidFontPx}px`,
-      // A figure sits on --panel-soft now (design.md, Figure), so that is the diagram's ground and
-      // its nodes take the surface above it — the two used to be the other way round, which left a
-      // node the same colour as the bed it stands on.
-      background: color("--panel-soft", "#f3f2ee"),
+      // The diagram has no decorative bed of its own; keep the page behind it visible and let nodes
+      // carry the visual structure.
+      background: "transparent",
       primaryColor: color("--panel", "#ffffff"),
       primaryTextColor: color("--text", "#1a1a18"),
       primaryBorderColor: color("--line-node", "#8e8c84"),

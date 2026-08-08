@@ -33,21 +33,21 @@
      no second copy of the dark palette to fall out of step with the first. */
   color-scheme: light dark;
   /* The ten that carry the interface (docs/spec/design.md). Chrome is ink and hairlines; the only
-     colored things on a page are its figures, whose palette follows. */
+     colored things on a page are its visualizations, whose palette follows. */
   --bg: light-dark(#fbfaf8, #141618);
   --panel: light-dark(#ffffff, #191c1e);
   --panel-soft: light-dark(#f3f2ee, #212528);
   --text: light-dark(#1a1a18, #e9e9e4);
   --muted: light-dark(#5e5d58, #a2a29b);
   /* AA on every ground it sits on (4.6:1 over --panel-soft, 5.1:1 over the sheet): this one
-     carries the labels, the meta and the figure numbers, which are text. */
+     carries labels, metadata, and caption sources, which are text. */
   --faint: light-dark(#6f6e68, #8b8b83);
   --line: light-dark(#e6e4de, #282c2f);
   --line-strong: light-dark(#c7c5bd, #3e4347);
   --line-node: light-dark(#8e8c84, #6e7478);
   /* Ink by value, a salient by role: the one token a brand color would ever replace. */
   --mark: light-dark(#1a1a18, #e9e9e4);
-  /* The figure palette: quiet, earthy series colours and a teal heatmap ramp (read by
+  /* The visualization palette: quiet, earthy series colours and a teal heatmap ramp (read by
      echartsTheme.ts). The chrome never reaches in here. */
   --danger: light-dark(#8a352b, #de766b);
   --chart-1: light-dark(#286957, #74c4a8);
@@ -63,7 +63,7 @@
   /* The one mono stack — code, the editor, and section labels all read from here. */
   --font-mono: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, monospace;
   /* The prose column. 40em is ~40 Japanese characters (1em each) and ~48 with Latin mixed in — the
-     column the reader's figures and tables are allowed to be wider than. */
+     column the reader's visualizations and tables are allowed to be wider than. */
   --measure: 40em;
   /* The whole radius scale: badges and inline chips, controls and quiet chips, panels and floating
      layers. Drawn shapes (icon glyphs, heatmap cells, pills, circles) keep their own geometry. */
@@ -82,6 +82,40 @@
 
 * {
   box-sizing: border-box;
+}
+
+/* Every visible native scroller shares one quiet scrollbar: narrow enough to stay secondary, but with
+   a real thumb so horizontal code and wide tables remain discoverable. Component-specific scrollers
+   that deliberately hide their bar keep their local `scrollbar-width: none` rule below. */
+* {
+  scrollbar-width: thin;
+  scrollbar-color: var(--line-strong) transparent;
+}
+
+*::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+
+*::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+*::-webkit-scrollbar-thumb {
+  min-height: 32px;
+  border: 2px solid transparent;
+  border-radius: 999px;
+  background: var(--line-strong);
+  background-clip: padding-box;
+}
+
+*::-webkit-scrollbar-thumb:hover {
+  background: var(--muted);
+  background-clip: padding-box;
+}
+
+*::-webkit-scrollbar-corner {
+  background: transparent;
 }
 
 /* Section labels — the small caps naming a region (CONTENTS, BACKLINKS, a property's key, a code
@@ -567,15 +601,13 @@ img.theme-asset-dark {
   text-decoration: none;
 }
 
-.result:hover,
-/* The keyboard cursor reads as the same thing as a hover, because it is: the row you are about to
-   open. An inked edge separates "the keys are here" from "the mouse is here" without a second
-   colour scheme. */
-.result.is-active {
+.result:hover {
   background: var(--panel-soft);
 }
 
+/* The keyboard cursor is a quiet reading-edge marker, not a selected card. */
 .result.is-active {
+  background: transparent;
   box-shadow: inset 2px 0 0 var(--mark);
 }
 
@@ -679,7 +711,7 @@ img.theme-asset-dark {
   cursor: default;
 }
 
-/* The heatmap is a figure, not chrome: its ramp keeps the chart palette's colour while the UI around
+/* The heatmap is a visualization, not chrome: its ramp keeps the chart palette's colour while the UI around
    it goes achromatic, because the shade is the datum here. */
 .activity-cell:hover {
   outline: 1px solid var(--chart-ramp-hi);
@@ -733,8 +765,8 @@ img.theme-asset-dark {
      still use the reader's full box and can run beneath the dock. */
   padding-left: 64px;
   background: var(--panel);
-  /* The reader is the page scroller for the full-page views (calendar, day) and long notes; its
-     scrollbar stays hidden like every other scroller in the app (tab strip, backlinks, previews). */
+  /* The reader is the page scroller for the full-page views (calendar, day) and long notes; keep its
+     bar hidden because the full-page chrome already has a strong vertical edge. */
   scrollbar-width: none;
 }
 
@@ -1080,7 +1112,7 @@ a.calendar-title:focus-visible {
 
 .note-reader {
   display: flex;
-  /* The reader's column: what figures, tables and code fill. Prose is capped tighter inside it
+  /* The reader's column: what visualizations, tables and code fill. Prose is capped tighter inside it
      (--measure), so this is the wide measure, not the reading one. Overridable via the Content width
      setting (--content-width). */
   width: 100%;
@@ -1701,7 +1733,7 @@ textarea.modal-input:focus-visible {
 }
 
 /* Dates and other machine-written values line up under their labels, so they are set in the mono
-   stack like every other column of figures in the reader. */
+   stack like every other metadata column in the reader. */
 .note-prop-date {
   font-family: var(--font-mono);
   font-variant-numeric: tabular-nums;
@@ -1759,7 +1791,7 @@ textarea.modal-input:focus-visible {
   overflow: auto;
   padding: 16px;
   background: var(--panel);
-  /* A note page scrolls here (not the reader), so it needs the app's hidden-scrollbar treatment too. */
+  /* A note page scrolls here (not the reader); keep the bar hidden so the split preview stays quiet. */
   scrollbar-width: none;
 }
 
@@ -1908,9 +1940,6 @@ textarea.modal-input:focus-visible {
      than it needs the size — the reader's whole hierarchy is space, not scale. */
   font-size: calc(16px * var(--font-scale, 1));
   line-height: 1.85;
-  /* Figures number themselves per note: the body refers to them ("図 1"), so the number is a
-     reference, not decoration. */
-  counter-reset: figure;
   /* Wrap Japanese only at the phrase boundaries BudouX marks with <wbr>, falling back to breaking a
      long unbroken run (e.g. a URL) so nothing overflows the column. */
   word-break: keep-all;
@@ -1919,7 +1948,7 @@ textarea.modal-input:focus-visible {
 
 /* Two measures (design.md, The reading surface). Prose is capped at --measure inside the reader's
    column; the blocks meant to be wider than a sentence say so by name and fill it. The difference is
-   what makes a figure read as a figure rather than as part of the paragraph above it. */
+   what makes a visualization read as content rather than as part of the paragraph above it. */
 .markdown-view > * {
   max-width: var(--measure);
 }
@@ -2091,7 +2120,7 @@ textarea.modal-input:focus-visible {
   --alert-color: var(--chart-3);
 }
 
-/* The five alert types are semantic colour, like a chart's series — they keep the figure palette
+/* The five alert types are semantic colour, like a chart's series — they keep the visualization palette
    rather than following the chrome to ink. */
 .markdown-view .md-alert-tip {
   --alert-color: var(--chart-1);
@@ -2504,7 +2533,7 @@ textarea.modal-input:focus-visible {
   font-size: 0.87em;
 }
 
-/* A code block is a sunk bed like a figure's, not a card: the ground is what separates it from the
+/* A code block is a sunk bed, not a card: the ground is what separates it from the
    prose, so it needs no border on top of that. */
 .code-block {
   position: relative;
@@ -2517,6 +2546,12 @@ textarea.modal-input:focus-visible {
 .code-block-pre {
   margin: 0;
   overflow: auto;
+  /* The code bed stays visually quiet; horizontal overflow remains available via wheel/trackpad. */
+  scrollbar-width: none;
+}
+
+.code-block-pre::-webkit-scrollbar {
+  display: none;
 }
 
 .code-block code {
@@ -2589,58 +2624,23 @@ textarea.modal-input:focus-visible {
   margin-bottom: 6px;
 }
 
-/* Figure (design.md, Figure). A figure is a rule standing in the gutter with its number at the top,
-   and the diagram itself on a sunk bed — no card, no outer border, nothing rounded off. The gutter is
-   margin rather than padding so the bed keeps the container's own box: the chart's annotation rail
-   measures that box in px, and an inset would slide every marker off its line.
-   Style only for now: the envelope's caption, source and reading note are not in the markup yet, and
-   when they arrive they inherit this look instead of defining a second one. */
+/* Visualization blocks are content, not numbered figures: separate them with whitespace and let the
+   rendered chart or diagram provide its own visual structure. No generated label, gutter rule, or
+   decorative bed belongs around the user's content. */
 .mermaid-diagram,
 .drawio-diagram,
 .mindmap-diagram,
 .viewspec-chart-wrap {
   position: relative;
-  margin: 30px 0 0 34px;
-  padding: 22px 20px;
+  margin: 24px 0;
+  padding: 0;
   border: 0;
-  border-radius: 3px;
-  background: var(--panel-soft);
-  counter-increment: figure;
+  border-radius: 0;
+  background: transparent;
 }
 
-/* The number, in the gutter beside the rule. The body refers to it, so it is set like a label and
-   never wraps. */
-.mermaid-diagram::before,
-.drawio-diagram::before,
-.mindmap-diagram::before,
-.viewspec-chart-wrap::before {
-  content: "図 " counter(figure);
-  position: absolute;
-  top: 0;
-  left: -25px;
-  color: var(--faint);
-  font-family: var(--font-mono);
-  font-size: calc(11px * var(--font-scale, 1));
-  letter-spacing: 0.1em;
-  white-space: nowrap;
-}
-
-/* The rule itself, running the figure's full height. */
-.mermaid-diagram::after,
-.drawio-diagram::after,
-.mindmap-diagram::after,
-.viewspec-chart-wrap::after {
-  content: "";
-  position: absolute;
-  top: 0;
-  bottom: 0;
-  left: -34px;
-  width: 2px;
-  background: var(--line-strong);
-}
-
-/* draw.io renders through its own live viewer (no shared SVG frame), so it only borrows the figure
-   treatment; the viewer manages the diagram's size inside it. */
+/* draw.io renders through its own live viewer (no shared SVG frame), so the viewer manages the
+   diagram's size inside the same whitespace-only content block. */
 .drawio-diagram {
   overflow-x: auto;
 }
@@ -2667,8 +2667,8 @@ textarea.modal-input:focus-visible {
 
 .mermaid-controls {
   position: absolute;
-  top: 30px;
-  right: 28px;
+  top: 8px;
+  right: 8px;
   z-index: 2; /* above the continuation fades */
   display: flex;
   flex-direction: column;
@@ -2700,8 +2700,8 @@ textarea.modal-input:focus-visible {
    to get it back without hunting for a hover control. */
 .mermaid-fold {
   position: absolute;
-  top: 30px;
-  left: 28px;
+  top: 8px;
+  left: 8px;
   z-index: 2; /* above the continuation fades */
 }
 
@@ -2725,9 +2725,9 @@ textarea.modal-input:focus-visible {
 
 .mermaid-continuation {
   position: absolute;
-  right: 20px;
-  bottom: 22px;
-  left: 20px;
+  right: 0;
+  bottom: 0;
+  left: 0;
   height: 96px;
   z-index: 1;
   pointer-events: none;
@@ -2740,20 +2740,20 @@ textarea.modal-input:focus-visible {
 .mermaid-continuation-left,
 .mermaid-continuation-right {
   position: absolute;
-  top: 22px;
-  bottom: 22px;
+  top: 0;
+  bottom: 0;
   width: 72px;
   z-index: 1;
   pointer-events: none;
 }
 
 .mermaid-continuation-left {
-  left: 20px;
+  left: 0;
   background: linear-gradient(to left, transparent, var(--panel-soft) 78%);
 }
 
 .mermaid-continuation-right {
-  right: 20px;
+  right: 0;
   background: linear-gradient(to right, transparent, var(--panel-soft) 78%);
 }
 
@@ -2783,20 +2783,20 @@ textarea.modal-input:focus-visible {
 .viewspec-chart {
   margin: 1em 0;
   height: 360px;
-  background: var(--panel);
+  background: transparent;
 }
 
 /* Annotation bands (ADR 0028): box-mode markers render as always-visible evidence bands hugging the
    chart — below it, and in a strip reserved between the legend and the plot. Geometry (lane
    positions, band heights) is computed from the option and set inline; only the look lives here.
    The bands are siblings of the role="img" chart host, so their links are real, focusable DOM and
-   the chart's wheel/pinch capture never sees them. Z-order: the panel background moves to the wrap,
-   the chart host (z1, transparent) paints its canvas over the below band's stems — so axis labels
+   the chart's wheel/pinch capture never sees them. Z-order: the transparent chart host (z1) paints
+   its canvas over the below band's stems — so axis labels
    read over the line instead of under it — and the above band (z2) keeps its links clickable inside
    the reserved strip. */
 .viewspec-chart-wrap {
   /* No side padding: the annotation rail below is laid out in px against this box, so the chart and
-     the rail have to share one width. The figure's gutter is margin (see the figure rule above). */
+     the rail have to share one width. */
   padding-inline: 0;
 }
 
@@ -2812,8 +2812,6 @@ textarea.modal-input:focus-visible {
   left: 0;
   right: 0;
   z-index: 2;
-  /* The figure's block padding moves the chart down; keep the overlaid upper rail locked to it. */
-  transform: translateY(22px);
   /* Only the boxes take the pointer: the strip itself must not swallow canvas gestures. */
   pointer-events: none;
 }
@@ -2828,7 +2826,7 @@ textarea.modal-input:focus-visible {
   position: relative;
   /* Its own stacking context: the stems' negative z-index keeps them behind every box (and its
      text/links) without letting them slip behind the page background; the positioned rail itself
-     paints above the chart div's panel background, so an above-rail stem crossing the legend strip
+     paints above the transparent chart surface, so an above-rail stem crossing the legend strip
      stays visible while legend text (drawn later on the canvas) still paints over the line. */
   z-index: 0;
   margin: 0;
@@ -3449,7 +3447,7 @@ textarea.modal-input:focus-visible {
   margin: 0 0 8px;
 }
 
-/* The count rides the heading's right end, in mono so a two-digit figure keeps the label's width. */
+/* The count rides the heading's right end, in mono so a two-digit count keeps the label's width. */
 .backlinks-count {
   color: var(--faint);
   font-family: var(--font-mono);
@@ -4082,7 +4080,7 @@ textarea.modal-input:focus-visible {
 }
 
 /* Mindmap: an in-house SVG tree (see markdown/mindmap.ts); colors ride the theme variables, and the
-   container takes the shared figure treatment above. */
+   container takes the shared visualization spacing above. */
 .mindmap-diagram svg {
   display: block;
   margin: 0 auto;

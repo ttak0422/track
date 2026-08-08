@@ -48,7 +48,7 @@ describe("EChartsBlock provenance clicks", () => {
     handlers.click = undefined;
   });
 
-  it("wraps options without box markers in the same figure card", async () => {
+  it("wraps options without box markers in the same visualization block", async () => {
     const { container } = await renderChart({ series: [] });
     expect(container.querySelector("figure.viewspec-chart-wrap")).not.toBeNull();
     expect(container.querySelector(".viewspec-chart")).not.toBeNull();
