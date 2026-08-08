@@ -43,6 +43,10 @@ function M.render(buf)
    vim.api.nvim_buf_set_extmark(buf, ns, 0, 0, {
       virt_lines = { { { title, config.options.title_hl } } },
       virt_lines_above = true,
+      -- The title belongs to the note, not to whatever text happens to start it. With the default
+      -- right gravity, typing on line 1 and pressing Enter carries the mark onto the new line 2 and
+      -- the title drops into the body; left gravity pins it to the start of the buffer.
+      right_gravity = false,
       priority = 90,
    })
    reserve_row(buf)

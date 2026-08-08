@@ -58,6 +58,13 @@ vim.cmd("close")
 -- The first body line must still be the buffer's line 1, untouched by the title.
 assert_true(vim.api.nvim_buf_get_lines(buf, 0, 1, false)[1] == "first body line", "body line 1 was overwritten")
 
+-- Typing at the start of line 1 and splitting it used to carry the mark onto the new line 2, which
+-- dropped the title into the body. It is anchored to the start of the buffer instead.
+vim.api.nvim_buf_set_text(buf, 0, 0, 0, 0, { "typed", "" })
+local moved = vim.api.nvim_buf_get_extmarks(buf, ns, 0, -1, {})[1]
+assert_true(moved[2] == 0, "the title left the first line after an edit: " .. vim.inspect(moved))
+vim.cmd("undo")
+
 -- copy_title copies the cached title string into the + register. Headless CI has no clipboard
 -- provider, so capture the value passed to setreg instead of reading the register back.
 local copied
