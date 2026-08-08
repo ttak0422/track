@@ -249,18 +249,19 @@ export function NoteAside({
       {graph && graph.nodes.length > 1 ? (
         <section className="backlinks note-aside-graph" aria-labelledby="local-graph-heading">
           <h3 id="local-graph-heading">Graph</h3>
+          {/* Beside the heading, where the other sections carry their count — over the canvas it was
+              a glyph floating on nothing. A sibling of the heading rather than a child of it, so the
+              heading a screen reader announces stays "Graph" and not "Graph ↺". */}
+          <button
+            className="graph-reset aside-graph-reset"
+            type="button"
+            aria-label="Reset graph view"
+            title="Reset graph view"
+            onClick={() => setGraphResetToken((token) => token + 1)}
+          >
+            ↺
+          </button>
           <div className="aside-graph">
-            {/* Over the graph, like the floating panel's and the full view's controls — the aside was
-                the one graph surface spending a row of chrome on a single button. */}
-            <button
-              className="graph-reset aside-graph-reset"
-              type="button"
-              aria-label="Reset graph view"
-              title="Reset graph view"
-              onClick={() => setGraphResetToken((token) => token + 1)}
-            >
-              ↺
-            </button>
             <GraphCanvas
               graph={graph}
               resetToken={graphResetToken}

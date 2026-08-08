@@ -1,14 +1,14 @@
-import { KMark } from "./Logo";
+import { Mark } from "./Logo";
 import { useSiteQuery } from "../queries";
 
-// EmptyState fills the static site's reader when every tab is closed: a faint centered mark (VS Code's
-// empty-editor watermark) plus arrows pointing back at the rail, so a suddenly-blank area reads as
-// "nothing open" — here is how to open something — rather than looking broken.
+// EmptyState fills the static site's reader when every tab is closed: the mark, faint and centered
+// (VS Code's empty-editor watermark), plus arrows pointing back at the rail, so a suddenly-blank area
+// reads as "nothing open" — here is how to open something — rather than looking broken.
 export function EmptyState() {
   const site = useSiteQuery();
   return (
     <div className="empty-state" aria-hidden="true">
-      <KMark className="empty-mark" />
+      <Mark className="empty-mark" />
       {/* One entry per rail button, in rail order. The guides ride the rail's own rhythm (8px pad,
           40px rows, 6px gaps, a spacer before settings) instead of hardcoded offsets, so they stay
           lined up whatever the rail is carrying — hence the calendar row appearing on exactly the

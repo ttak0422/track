@@ -104,9 +104,9 @@
 .ogp-card-site {
   color: var(--faint);
   font-family: var(--font-mono);
-  font-size: calc(10.5px * var(--font-scale, 1));
+  font-size: calc(11px * var(--font-scale, 1));
   font-weight: 500;
-  letter-spacing: 0.13em;
+  letter-spacing: 0.12em;
   text-transform: uppercase;
 }
 
@@ -197,10 +197,12 @@ button {
   position: relative;
 }
 
+/* The mark: the one solid shape in a rail of outlines, so it reads as the mark and not as another
+   control. Square, because a configured site icon (an image) drops into the same box. */
 .rail-mark {
   display: block;
-  width: auto;
-  height: 26px;
+  width: 22px;
+  height: 22px;
 }
 
 .rail-icon-svg {
@@ -240,39 +242,6 @@ button {
   flex: none;
   margin: 4px 0;
   background: var(--line);
-}
-
-.rail-icon {
-  position: relative;
-  display: block;
-  width: 20px;
-  height: 20px;
-}
-
-.rail-icon-journal {
-  border: 2px solid currentColor;
-  border-radius: 3px;
-}
-
-.rail-icon-journal::before {
-  content: "";
-  position: absolute;
-  top: 0;
-  left: 0;
-  right: 0;
-  height: 4px;
-  border-bottom: 2px solid currentColor;
-}
-
-.rail-icon-journal::after {
-  content: "";
-  position: absolute;
-  left: 4px;
-  top: 9px;
-  width: 4px;
-  height: 4px;
-  background: currentColor;
-  border-radius: 1px;
 }
 
 /* Static-site empty state (every tab closed): a faint centered mark plus arrows pointing back at the
@@ -1149,10 +1118,11 @@ a.calendar-title:focus-visible {
 }
 
 /* Tab strip: the open notes as a line of titles above the reader — no boxes, no per-tab fills. A tab
-   is its title, faded when inactive and ink over a --mark underline when active. Only four are shown
-   (see TabBar); the rest go to the +N button at the right end, which is why the strip below can hold
-   the underline that separates it from the note. */
+   is its title, faded when inactive and ink over a --mark underline when active. The strip never
+   scrolls sideways: it shows every tab that fits (TabBar measures) and the rest wait in the +N menu,
+   which is what lets the hairline below run the full width as the note's top edge. */
 .tabstrip {
+  position: relative;
   display: flex;
   flex: 0 0 auto;
   align-items: stretch;
@@ -1165,65 +1135,22 @@ a.calendar-title:focus-visible {
   flex: 1 1 auto;
   min-width: 0;
   align-items: stretch;
-  overflow-x: auto;
-  scrollbar-width: none;
-}
-
-.tabbar::-webkit-scrollbar {
-  display: none;
 }
 
 .tab {
   position: relative;
   display: flex;
-  /* Content-sized up to a cap: four tabs of their own width read as a line of titles, where one fixed
-     width padded every short title out into a slab of its own. */
+  /* Content-sized up to a cap: tabs of their own width read as a line of titles, where one fixed
+     width padded every short title out into a slab of its own. The cap keeps a single long title
+     from crowding out the ones beside it. */
   flex: 0 1 auto;
-  /* A flex item's automatic minimum size is its content, which a long title would make larger than
-     the cap. The inner label and title already collapse; the tab itself has to be allowed to as
-     well, and then the title's ellipsis does its job. */
-  min-width: 0;
+  /* Between a floor and a cap. The cap keeps one long title from crowding out the tabs beside it;
+     the floor is what makes the strip overflow instead of squeezing every title into an unreadable
+     sliver — overflowing is the signal TabBar measures to move a tab into the +N menu. */
+  min-width: 110px;
   max-width: 210px;
   align-items: center;
   color: var(--muted);
-}
-
-/* While panning, the cursor says so and text selection would fight the drag. */
-.tabbar.dragging {
-  cursor: grabbing;
-  user-select: none;
-}
-
-/* A dirty note shows its dot in the close slot without being hovered, so that one tab is the only
-   one that has to keep the slot clear at rest. The hover rule follows it, and wins on source order
-   at equal specificity, because revealing the buttons needs the room either way.
-   The room is made *inside* a box that keeps its width: a tab is content-sized now, so padding alone
-   would grow it and shove its neighbours aside the moment the pointer arrived. The negative margin
-   cancels the growth, and the title truncates that much earlier instead. */
-.tab.dirty .tab-label {
-  padding-right: 24px;
-  margin-right: -24px;
-}
-
-.tab:hover .tab-label,
-.tab:has(:focus-visible) .tab-label {
-  padding-right: 54px;
-  margin-right: -54px;
-}
-
-/* At rest the hidden buttons sit over the title's tail. A mouse cannot reach them (hovering makes
-   the room first), but a touch tap could close a tab it never showed, so they take no pointer until
-   they are visible. Keyboard focus is unaffected. */
-.tab-close,
-.tab-float {
-  pointer-events: none;
-}
-
-.tab:hover .tab-close,
-.tab:hover .tab-float,
-.tab:has(:focus-visible) .tab-close,
-.tab:has(:focus-visible) .tab-float {
-  pointer-events: auto;
 }
 
 .tab.active {
@@ -1236,8 +1163,8 @@ a.calendar-title:focus-visible {
   font-weight: 500;
 }
 
-/* The overflow control: everything past the fourth tab, opened as a floating layer. It sits outside
-   the scrolling strip so the panel it opens is not clipped by that scroller. */
+/* The overflow control: whatever had no room on the strip, opened as a floating layer. It sits
+   outside the tab row so it keeps its place as the row's contents change. */
 .tab-overflow {
   position: relative;
   display: flex;
@@ -1255,7 +1182,7 @@ a.calendar-title:focus-visible {
   border: 0;
   color: var(--muted);
   background: transparent;
-  font-size: calc(12px * var(--font-scale, 1));
+  font-size: calc(13px * var(--font-scale, 1));
   white-space: nowrap;
 }
 
@@ -1314,10 +1241,9 @@ a.calendar-title:focus-visible {
   max-width: 100%;
   align-items: center;
   border: 0;
-  /* Nothing stands in the close slot at rest, so the whole tab is the title's: a 160px tab shows
-     148px of it rather than the 94px it would if the buttons kept their room. That room is made
-     when they are revealed, which re-clips only the hovered title — tabs are a fixed width, so
-     nothing else in the strip moves. */
+  /* The whole tab is the title's: its controls hang under the strip rather than standing in it, so
+     nothing has to be kept clear here. */
+  gap: 6px;
   padding: 8px 12px;
   color: inherit;
   background: transparent;
@@ -1328,7 +1254,7 @@ a.calendar-title:focus-visible {
 /* Titles that overflow show their beginning, with an ellipsis standing in for the clipped tail. */
 .tab-title {
   overflow: hidden;
-  font-size: calc(13px * var(--font-scale, 1));
+  font-size: calc(14px * var(--font-scale, 1));
   text-overflow: ellipsis;
   white-space: nowrap;
 }
@@ -1347,28 +1273,62 @@ a.calendar-title:focus-visible {
   white-space: nowrap;
 }
 
-.tab-close {
+/* The unsaved-changes dot is state, not a control, so it is the one thing that stays in the tab —
+   beside the title it describes, and never covering it. */
+.tab-dirty-dot {
+  flex: none;
+  width: 7px;
+  height: 7px;
+  border-radius: 999px;
+  background: currentColor;
+}
+
+/* Floating layer (design.md variant 3): a tab's controls hang under the strip instead of standing in
+   the tab. Two 24px buttons are wider than a short title, so in the tab they covered the very thing
+   they belong to; under it they always have their own room. Revealed by hovering or focusing the tab
+   — hover reveals controls, it does not open a surface (Principles). */
+.tab-tools {
   position: absolute;
-  top: 50%;
-  right: 6px;
+  z-index: 30;
+  top: 100%;
+  left: 0;
+  display: flex;
+  gap: 2px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  padding: 3px;
+  background: var(--panel);
+  box-shadow: 0 10px 24px color-mix(in srgb, #000 16%, transparent);
+  opacity: 0;
+  pointer-events: none;
+}
+
+.tab:hover .tab-tools,
+.tab:focus-within .tab-tools {
+  opacity: 1;
+  pointer-events: auto;
+}
+
+/* Icon button (variant 7): a 24px target for a smaller glyph, the aiming cue a surface rather than
+   the hairline colour. */
+.tab-close,
+.tab-float {
   display: grid;
-  /* 24px hit target (WCAG 2.2 target size); the × glyph inside stays small. */
   width: 24px;
   height: 24px;
-  translate: 0 -50%;
   place-items: center;
   border: 0;
   border-radius: var(--radius-sm);
   padding: 0;
-  color: inherit;
+  color: var(--muted);
   background: transparent;
   cursor: pointer;
 }
 
-/* Icon button (variant 7): the aiming cue is a surface, not the hairline color, and keyboard focus
-   gets the same cue as the pointer. */
 .tab-close:hover,
-.tab-close:focus-visible {
+.tab-close:focus-visible,
+.tab-float:hover,
+.tab-float:focus-visible {
   background: var(--panel-soft);
   color: var(--text);
 }
@@ -1377,75 +1337,6 @@ a.calendar-title:focus-visible {
   /* An SVG block centers by geometry under the button's place-items:center — no text baseline to
      leave the × optically high (as the old text glyph did). */
   display: block;
-}
-
-.tab-dirty-dot {
-  position: absolute;
-  width: 8px;
-  height: 8px;
-  border-radius: 999px;
-  background: currentColor;
-}
-
-/* The close button is hidden until the tab is hovered or reached by keyboard, leaving just the
-   title. A dirty note instead shows a dot in the close slot, which either reveal swaps back for the
-   × button. Every rule that reveals something — this one, the float button's, the room the label
-   makes, and the pointer-events gate — keys off the same pair of conditions, so a tab cannot end up
-   with the buttons' room made but the buttons still invisible. */
-.tab-close-glyph {
-  opacity: 0;
-}
-
-.tab:hover .tab-close-glyph,
-.tab:has(:focus-visible) .tab-close-glyph {
-  opacity: 1;
-}
-
-.tab-dirty-dot {
-  opacity: 0;
-}
-
-.tab.dirty .tab-dirty-dot {
-  opacity: 1;
-}
-
-.tab.dirty:hover .tab-dirty-dot,
-.tab.dirty:has(:focus-visible) .tab-dirty-dot {
-  opacity: 0;
-}
-
-/* The open note's float button, in the tab's own slot next to the close button and revealed by the same
-   hover. It used to hang under the tab as a fixed popup, which the strip's scrolling and reflow left
-   stranded and which the pointer had to cross a gap to reach. */
-.tab-float {
-  position: absolute;
-  top: 50%;
-  right: 30px;
-  display: grid;
-  /* 24px hit target (WCAG 2.2), matching the close button beside it. */
-  width: 24px;
-  height: 24px;
-  translate: 0 -50%;
-  place-items: center;
-  border: 0;
-  border-radius: var(--radius-sm);
-  padding: 0;
-  color: inherit;
-  background: transparent;
-  opacity: 0;
-  cursor: pointer;
-}
-
-/* Icon button (variant 7), matching the close button beside it. */
-.tab-float:hover,
-.tab-float:focus-visible {
-  background: var(--panel-soft);
-  color: var(--text);
-}
-
-.tab:hover .tab-float,
-.tab:has(:focus-visible) .tab-float {
-  opacity: 1;
 }
 
 /* The overflow menu in the rail: a rail-sized trigger whose panel escapes the rail's clipped
@@ -1691,7 +1582,7 @@ textarea.modal-input:focus-visible {
 .note-aside-tags a {
   color: var(--muted);
   text-decoration: none;
-  font-size: calc(12px * var(--font-scale, 1));
+  font-size: calc(13px * var(--font-scale, 1));
 }
 
 .note-tags a:hover,
@@ -1709,7 +1600,7 @@ textarea.modal-input:focus-visible {
   flex-wrap: wrap;
   align-items: baseline;
   gap: 2px;
-  font-size: calc(12px * var(--font-scale, 1));
+  font-size: calc(13px * var(--font-scale, 1));
   color: var(--muted);
 }
 
@@ -1757,7 +1648,7 @@ textarea.modal-input:focus-visible {
   gap: 10px 28px;
   max-width: var(--measure);
   margin: 0;
-  font-size: calc(12px * var(--font-scale, 1));
+  font-size: calc(13px * var(--font-scale, 1));
 }
 
 .note-prop {
@@ -1978,10 +1869,10 @@ textarea.modal-input:focus-visible {
 }
 
 .markdown-view {
-  /* 15px/1.9. A Japanese paragraph carrying inline code, bold, and links needs the leading more than
-     it needs the size — the reader's whole hierarchy is space, not scale. */
-  font-size: calc(15px * var(--font-scale, 1));
-  line-height: 1.9;
+  /* 16px/1.85. A Japanese paragraph carrying inline code, bold, and links needs the leading more
+     than it needs the size — the reader's whole hierarchy is space, not scale. */
+  font-size: calc(16px * var(--font-scale, 1));
+  line-height: 1.85;
   /* Figures number themselves per note: the body refers to them ("図 1"), so the number is a
      reference, not decoration. */
   counter-reset: figure;
@@ -2028,9 +1919,9 @@ textarea.modal-input:focus-visible {
 
 .markdown-view h1 {
   margin: 0;
-  font-size: calc(24px * var(--font-scale, 1));
+  font-size: calc(26px * var(--font-scale, 1));
   font-weight: 500;
-  line-height: 1.45;
+  line-height: 1.4;
   letter-spacing: 0.005em;
 }
 
@@ -2066,7 +1957,7 @@ textarea.modal-input:focus-visible {
 
 .markdown-view li::marker {
   color: var(--faint);
-  font-size: calc(13px * var(--font-scale, 1));
+  font-size: calc(14px * var(--font-scale, 1));
 }
 
 .markdown-view > :first-child {
@@ -2194,7 +2085,7 @@ textarea.modal-input:focus-visible {
   margin: 26px 0 0;
   overflow-x: auto;
   border-collapse: collapse;
-  font-size: calc(13.5px * var(--font-scale, 1));
+  font-size: calc(14px * var(--font-scale, 1));
   line-height: 1.6;
   font-variant-numeric: tabular-nums;
 }
@@ -2694,7 +2585,7 @@ textarea.modal-input:focus-visible {
   left: -25px;
   color: var(--faint);
   font-family: var(--font-mono);
-  font-size: calc(10.5px * var(--font-scale, 1));
+  font-size: calc(11px * var(--font-scale, 1));
   letter-spacing: 0.1em;
   white-space: nowrap;
 }
@@ -3596,7 +3487,7 @@ textarea.modal-input:focus-visible {
   width: 100%;
   overflow: hidden;
   padding: 3px 0;
-  font-size: calc(13px * var(--font-scale, 1));
+  font-size: calc(14px * var(--font-scale, 1));
   text-overflow: ellipsis;
   white-space: nowrap;
 }
@@ -3616,15 +3507,19 @@ textarea.modal-input:focus-visible {
    starts on it must still scroll the page on touch (the published site is the main mobile surface).
    pan-y hands vertical gestures to the browser; the trade is that touch node-drags only work
    sideways here — fine for a secondary surface. */
-/* The reset sits over the graph's own top-left corner, the way every other graph surface overlays
-   its controls (.graph-controls) rather than reserving a row of chrome above them. Top-left because
-   the graph is fitted around its centre node: the corners are the emptiest part of the canvas, and
-   the left one is furthest from the labels, which trail to the right of their dots. */
+/* The reset rides the right end of the GRAPH heading, where the other sections carry their count:
+   over the canvas it was a glyph floating on nothing, and the aside's sections all end their heading
+   row the same way. */
+.note-aside-graph {
+  position: relative;
+}
+
 .aside-graph-reset {
   position: absolute;
   top: 0;
-  left: 0;
-  z-index: 1;
+  right: 0;
+  font-size: calc(13px * var(--font-scale, 1));
+  line-height: 1;
 }
 
 .aside-graph .graph-canvas {

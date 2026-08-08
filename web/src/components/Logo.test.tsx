@@ -13,7 +13,7 @@ describe("BrandMark", () => {
     expect(img?.getAttribute("alt")).toBe("");
   });
 
-  it("falls back to the built-in k mark without an icon", () => {
+  it("falls back to the built-in square mark without an icon", () => {
     const { container } = render(<BrandMark className="rail-mark" />);
     expect(container.querySelector("img")).toBeNull();
     expect(container.querySelector("svg")).toHaveClass("rail-mark");

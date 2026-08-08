@@ -84,7 +84,23 @@ export function Shell() {
                   title="Today's journal"
                   onClick={openTodayJournal}
                 >
-                  <span className="rail-icon rail-icon-journal" aria-hidden="true" />
+                  <svg
+                    className="rail-icon-svg"
+                    viewBox="0 0 24 24"
+                    width="20"
+                    height="20"
+                    fill="none"
+                    stroke="currentColor"
+                    strokeWidth="1.5"
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                    aria-hidden="true"
+                  >
+                    <rect x="4" y="3.5" width="16" height="17" rx="2" />
+                    <line x1="4" y1="8.5" x2="20" y2="8.5" />
+                    <line x1="8" y1="12.5" x2="16" y2="12.5" />
+                    <line x1="8" y1="16" x2="14" y2="16" />
+                  </svg>
                 </button>
               )}
               {showCalendar && (
@@ -141,63 +157,73 @@ export function Shell() {
 
 function RailCalendarIcon() {
   return (
-    <svg className="rail-icon-svg" viewBox="0 0 24 24" width="20" height="20" aria-hidden="true">
-      <rect
-        x="4"
-        y="5.5"
-        width="16"
-        height="14"
-        rx="2"
-        fill="none"
-        stroke="currentColor"
-        strokeWidth="1.6"
-      />
-      <line x1="4" y1="9.5" x2="20" y2="9.5" stroke="currentColor" strokeWidth="1.6" />
-      <line x1="8.5" y1="3.5" x2="8.5" y2="6.5" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" />
-      <line x1="15.5" y1="3.5" x2="15.5" y2="6.5" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" />
-      <circle cx="8.5" cy="13" r="1.2" fill="currentColor" />
-      <circle cx="12" cy="13" r="1.2" fill="currentColor" />
-      <circle cx="15.5" cy="13" r="1.2" fill="currentColor" />
-      <circle cx="8.5" cy="16.5" r="1.2" fill="currentColor" />
-      <circle cx="12" cy="16.5" r="1.2" fill="currentColor" />
+    <svg
+      className="rail-icon-svg"
+      viewBox="0 0 24 24"
+      width="20"
+      height="20"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="1.5"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      aria-hidden="true"
+    >
+      <rect x="4" y="5.5" width="16" height="14" rx="2" />
+      <line x1="4" y1="9.5" x2="20" y2="9.5" />
+      <line x1="8.5" y1="3.5" x2="8.5" y2="6.5" />
+      <line x1="15.5" y1="3.5" x2="15.5" y2="6.5" />
+      <circle cx="8.5" cy="13" r="0.9" />
+      <circle cx="12" cy="13" r="0.9" />
+      <circle cx="15.5" cy="13" r="0.9" />
+      <circle cx="8.5" cy="16.5" r="0.9" />
+      <circle cx="12" cy="16.5" r="0.9" />
     </svg>
   );
 }
 
 function RailTasksIcon() {
   return (
-    <svg className="rail-icon-svg" viewBox="0 0 24 24" width="20" height="20" aria-hidden="true">
-      <polyline
-        points="4,8 6,10 9.5,6"
-        fill="none"
-        stroke="currentColor"
-        strokeWidth="1.6"
-        strokeLinecap="round"
-        strokeLinejoin="round"
-      />
-      <polyline
-        points="4,17 6,19 9.5,15"
-        fill="none"
-        stroke="currentColor"
-        strokeWidth="1.6"
-        strokeLinecap="round"
-        strokeLinejoin="round"
-      />
-      <line x1="13" y1="8" x2="20" y2="8" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" />
-      <line x1="13" y1="17" x2="20" y2="17" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" />
+    <svg
+      className="rail-icon-svg"
+      viewBox="0 0 24 24"
+      width="20"
+      height="20"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="1.5"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      aria-hidden="true"
+    >
+      <path d="m4 8 2 2 3.5-4" />
+      <path d="m4 17 2 2 3.5-4" />
+      <line x1="13" y1="8" x2="20" y2="8" />
+      <line x1="13" y1="17" x2="20" y2="17" />
     </svg>
   );
 }
 
 function RailGraphIcon() {
   return (
-    <svg className="rail-icon-svg" viewBox="0 0 24 24" width="20" height="20" aria-hidden="true">
-      <line x1="7" y1="8" x2="16" y2="7" stroke="currentColor" strokeWidth="1.6" />
-      <line x1="7" y1="8" x2="12" y2="17" stroke="currentColor" strokeWidth="1.6" />
-      <line x1="16" y1="7" x2="12" y2="17" stroke="currentColor" strokeWidth="1.6" />
-      <circle cx="7" cy="8" r="2.4" fill="currentColor" />
-      <circle cx="16" cy="7" r="2.4" fill="currentColor" />
-      <circle cx="12" cy="17" r="2.4" fill="currentColor" />
+    <svg
+      className="rail-icon-svg"
+      viewBox="0 0 24 24"
+      width="20"
+      height="20"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="1.5"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      aria-hidden="true"
+    >
+      <line x1="7" y1="8" x2="16" y2="7" />
+      <line x1="7" y1="8" x2="12" y2="17" />
+      <line x1="16" y1="7" x2="12" y2="17" />
+      <circle cx="7" cy="8" r="2" />
+      <circle cx="16" cy="7" r="2" />
+      <circle cx="12" cy="17" r="2" />
     </svg>
   );
 }

@@ -96,10 +96,10 @@ Three sizes, and no fourth.
 
 | Role | Size | Weight |
 | --- | --- | --- |
-| Body, `h2`, `h3` | 15px / 1.9 | 400, headings 700 |
-| Note title (`h1`) | 24px / 1.45 | 500 |
-| Meta, captions, tables, the aside | 12–13.5px | 400 |
-| `.label` (section label) | 10.5px, `.13em`, uppercase, `--faint` | 500 |
+| Body, `h2`, `h3` | 16px / 1.85 | 400, headings 700 |
+| Note title (`h1`) | 26px / 1.4 | 500 |
+| Meta, captions, tables, the aside, tabs | 13–14px | 400 |
+| `.label` (section label) | 11px, `.12em`, uppercase, `--faint` | 500 |
 
 `h1` stays at 1.6× the body: note titles run long (`20260805 表現力ベンチ
 ゴールデータでの再現`), and a larger one simply folds to two lines.
@@ -154,7 +154,8 @@ above the page, so they alone carry shadows.
 
 - `background: var(--panel)`, `border: 1px solid var(--line)`, soft
   `box-shadow`. Items inside are text controls (muted rows that ink on hover).
-- Canonical: `.menu-panel`, `.note-menu-panel`, `.modal-card`, `.tab-overflow-panel`.
+- Canonical: `.menu-panel`, `.note-menu-panel`, `.modal-card`,
+  `.tab-overflow-panel`, `.tab-tools`.
 - Every member is transient. The rail is not one: it is a column of the page,
   ruled off by a hairline, and it paints no surface of its own.
 
@@ -181,8 +182,8 @@ Single-line fields carry editability with a bottom hairline, not a box.
 Small caps that title a chrome region or annotate content (CONTENTS,
 BACKLINKS, a code block's language, an OGP card's site name).
 
-- `font-family: var(--font-mono)`, `calc(10.5px * var(--font-scale, 1))`,
-  `font-weight: 500`, `letter-spacing: 0.13em`, `text-transform: uppercase`,
+- `font-family: var(--font-mono)`, `calc(11px * var(--font-scale, 1))`,
+  `font-weight: 500`, `letter-spacing: 0.12em`, `text-transform: uppercase`,
   `color: var(--faint)`.
 - One shared rule near the top of `styles.css` carries the typography; each
   site keeps only its own margins. Add new labels to that rule rather than
@@ -190,7 +191,7 @@ BACKLINKS, a code block's language, an OGP card's site name).
 
 ### 7. Icon button — a glyph whose target is invisible
 
-A chrome control with no label: the tab's close and float buttons, the wiki
+A chrome control with no label: a tab's close and float buttons, the wiki
 preview's expander. It is a text control (variant 1) at rest, but its glyph is
 smaller than the area that responds to a click, so it shows that area while
 being aimed at.
@@ -201,7 +202,8 @@ being aimed at.
   fill is `--panel-soft` — a surface — never `--line`, which is a hairline.
 - The hit target stays at least 24px even when the glyph is half that; the fill
   is what makes the target legible.
-- Canonical: `.tab-close`, `.tab-float`, `.wiki-preview-toggle`.
+- Canonical: `.tab-close`, `.tab-float` (both inside the tab's own floating
+  layer, see Tab strip), `.wiki-preview-toggle`.
 - A glyph button resting *on content* (a preview body, a diagram, media) is a
   quiet chip (variant 2) instead: it needs separation from what is beneath it,
   not just an aiming cue.
@@ -264,13 +266,23 @@ Rules run horizontally only, and only where they separate something.
 
 The strip is a line of titles on the sheet, not a bar of chrome.
 
-- At most **four** tabs are shown, each truncating at 210px. The rest go to a
-  `+N` button at the right end that opens them in a floating layer.
-- The active tab is always one of the four, and it is marked by
-  `border-bottom: 2px solid var(--mark)` plus `font-weight: 500` — never a
-  fill or a box.
-- Inactive tabs are `--muted` with no border. A hairline under the whole strip
-  separates it from the note.
+- **Most recent first**, so the note being read is the leftmost tab and the
+  strip behind it is the order you visited things in. The tab you are on is
+  therefore always in the same place, and never in the overflow.
+- **Every tab that fits is shown.** The count is measured, not fixed: a wide
+  window with short titles keeps them all, and only what genuinely has no room
+  goes to the `+N` button at the right end, which lists the rest in a floating
+  layer. Each tab truncates at 210px so no single title can crowd the others
+  out. The strip never scrolls sideways — a title you cannot see is in the
+  menu, not off the edge.
+- The active tab is marked by `border-bottom: 2px solid var(--mark)` plus
+  `font-weight: 500` — never a fill or a box. Inactive tabs are `--muted` with
+  no border, and a hairline under the whole strip separates it from the note.
+- **A tab's controls hang under it, they do not sit in it.** Float and close
+  open as a floating layer (variant 3) below the strip on hover or focus, so a
+  short title is not covered by two buttons wider than the tab itself. Only the
+  unsaved-changes dot stays inline: it is state, not a control, and it belongs
+  next to the title it describes.
 
 ## Sidebar
 
@@ -285,6 +297,15 @@ The note's aside (right) and the rail (left) are both quiet columns.
 - Rail: a 56px column on `--bg`, ruled off the sheet by a hairline on its
   right edge. Glyphs are text controls; views sit at the top, settings at the
   bottom. It paints no surface, casts no shadow, and takes no radius.
+- **One icon family.** Every rail glyph is drawn the same way: a 24-unit
+  viewBox at 20px, `fill: none`, `stroke: currentColor`, `stroke-width: 1.5`,
+  round caps and joins, and **no filled shapes** — a dot is a small stroked
+  circle, not a blob. They are outlines so that the one solid shape in the
+  column reads as what it is.
+- **The mark is a filled square** in `--mark`, at the head of the rail. It is
+  the app's mark wherever a mark is drawn (the rail, the empty state's
+  watermark), and it carries no color of its own: a published site that
+  configures its own icon replaces it, and that image keeps its own colors.
 
 ## Adding new UI
 
