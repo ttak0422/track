@@ -25,7 +25,7 @@ func writePages(outDir, startPage string, root int64, docs, listed []doc, site j
 	if err != nil {
 		return err
 	}
-	base := swapFavicon(applyPlaceholders(string(raw), startPage), site.Icon)
+	base := swapFavicon(applyPlaceholders(string(raw), startPage, LockKey(site.BaseURL, site.Title)), site.Icon)
 
 	write := func(rel, head string) error {
 		path := filepath.Join(outDir, filepath.FromSlash(rel))
@@ -130,10 +130,12 @@ func tagRoutes(docs []doc) []string {
 // left unsubstituted, __TRACK_COLOR_OVERRIDES__ would show as literal text. startPage is the root note's
 // published id, baked in so the frontend redirects to the start page on launch without a site.json
 // round-trip (see web/src/runtime.ts START_PAGE_ID).
-func applyPlaceholders(tmpl, startPage string) string {
+// lockKey is the site's data key (see lock.go), baked in so the app can open the locked data bundle.
+func applyPlaceholders(tmpl, startPage string, lockKey []byte) string {
 	tmpl = strings.ReplaceAll(tmpl, "__TRACK_DEFAULT_THEME__", "system")
 	tmpl = strings.ReplaceAll(tmpl, "__TRACK_COLOR_OVERRIDES__", "")
 	tmpl = strings.ReplaceAll(tmpl, "__TRACK_START_PAGE__", startPage)
+	tmpl = strings.ReplaceAll(tmpl, "__TRACK_LOCK_KEY__", LockKeyString(lockKey))
 	return tmpl
 }
 

@@ -1,6 +1,6 @@
 import { StrictMode } from "react";
 import { createRoot } from "react-dom/client";
-import { App, clientAppRouter } from "./App";
+import { App, clientAppRouter, hydratePrerenderedState } from "./App";
 import { STATIC_MODE } from "./runtime";
 import { applyDesignPreview, parseDesignPreview } from "./dev/preview";
 
@@ -45,16 +45,14 @@ window.addEventListener("vite:preloadError", (event) => {
 // createRoot, which renders fresh over that markup (React discards it) rather than hydrating. This is
 // deliberate: TanStack Router wraps route content in a client-only Suspense boundary that a standalone
 // prerender cannot reproduce, so hydration would always mismatch. The dehydrated react-query cache
-// (window.__TRACK_STATE__, read in App) is seeded before this render, so the re-render paints the same
+// (window.__TRACK_STATE__) is unlocked and seeded before this render, so the re-render paints the same
 // content immediately with no refetch flash. Loading the router before the first render keeps that render
 // from briefly showing a pending state over the prerendered content. The live app has an empty #root and
 // mounts the same way.
-void clientAppRouter()
-  .load()
-  .finally(() => {
-    createRoot(root).render(
-      <StrictMode>
-        <App />
-      </StrictMode>,
-    );
-  });
+void Promise.all([clientAppRouter().load(), hydratePrerenderedState()]).finally(() => {
+  createRoot(root).render(
+    <StrictMode>
+      <App />
+    </StrictMode>,
+  );
+});

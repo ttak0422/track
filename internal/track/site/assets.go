@@ -67,7 +67,7 @@ func CollectAssets(body string) []string {
 // path so the "assets/<path>" references in the generated HTML resolve. Missing source files are
 // skipped and reported, so a broken reference does not fail the whole build. noteSlug maps note
 // provenance inside spec assets, exactly as resolveViewSpecBlocks does for fenced charts.
-func copyAssets(srcDir, outDir string, rels []string, noteSlug func(string) (string, bool)) (copied, missing []string, err error) {
+func copyAssets(srcDir, outDir string, rels []string, noteSlug func(string) (string, bool), key []byte) (copied, missing []string, err error) {
 	for _, rel := range rels {
 		// The choke point rejects traversal for every rel source (collectAssets applies the same
 		// rule, but a cover image from a hand-edited sidecar arrives unfiltered): an absolute or
@@ -84,7 +84,7 @@ func copyAssets(srcDir, outDir string, rels []string, noteSlug func(string) (str
 		}
 		dst := filepath.Join(outDir, config.AssetsDirName, publishAssetName(rel))
 		if isSpecAsset(rel) {
-			if err = renderSpecAsset(src, dst, noteSlug); err != nil {
+			if err = renderSpecAsset(src, dst, noteSlug, key); err != nil {
 				return copied, missing, err
 			}
 		} else if err = copyFile(src, dst); err != nil {
@@ -95,12 +95,17 @@ func copyAssets(srcDir, outDir string, rels []string, noteSlug func(string) (str
 	return copied, missing, nil
 }
 
-// renderSpecAsset reads a View Spec asset (inline-data chart) and writes its resolved ECharts option
-// (pure JSON) to dst; the frontend fetches it and draws an interactive chart with its bundled ECharts.
-// A malformed spec fails the build loudly rather than being silently skipped, so a broken chart is not
-// published as a dead reference. Note provenance is slug-rewritten like the fence path, so a spec
-// asset never publishes an internal note id.
-func renderSpecAsset(src, dst string, noteSlug func(string) (string, bool)) error {
+// renderSpecAsset reads a View Spec asset (inline-data chart) and writes its resolved ECharts option to
+// dst; the frontend fetches it and draws an interactive chart with its bundled ECharts. A malformed spec
+// fails the build loudly rather than being silently skipped, so a broken chart is not published as a dead
+// reference. Note provenance is slug-rewritten like the fence path, so a spec asset never publishes an
+// internal note id.
+//
+// The option is a chart's data in machine shape — exactly what the data bundle is locked for (ADR 0069) —
+// so it is published locked, as "<slug>.echarts.bin". The reference in the body keeps saying
+// ".echarts.json": it names what the file holds, which is how the frontend knows to draw a chart with it
+// (web/src/api.ts fetchAssetText swaps the extension the same way).
+func renderSpecAsset(src, dst string, noteSlug func(string) (string, bool), key []byte) error {
 	specJSON, err := os.ReadFile(src)
 	if err != nil {
 		return err
@@ -112,7 +117,11 @@ func renderSpecAsset(src, dst string, noteSlug func(string) (string, bool)) erro
 	if err := os.MkdirAll(filepath.Dir(dst), 0o755); err != nil {
 		return err
 	}
-	return os.WriteFile(dst, []byte(rewriteNoteRefs(opt, noteSlug)), 0o644)
+	locked, err := lock(key, []byte(rewriteNoteRefs(opt, noteSlug)))
+	if err != nil {
+		return err
+	}
+	return os.WriteFile(strings.TrimSuffix(dst, ".json")+".bin", locked, 0o644)
 }
 
 func copyFile(src, dst string) error {

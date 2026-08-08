@@ -11,8 +11,9 @@ import { cpSync, existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 
 // serveExportedData lets `make site-dev` preview the help site with the Vite dev server (HMR): the
-// static-mode app fetches its JSON from /data/*, which this middleware serves from the exported bundle
-// (_site/data, produced by `make site-data`). Dev-only; the production build reads no data at build time.
+// static-mode app fetches its data from /data/*, which this middleware serves from the exported bundle
+// (_site/data, produced by `make site-data`). Those files are locked (ADR 0069), so they go out as bytes
+// and the app opens them itself. Dev-only; the production build reads no data at build time.
 function serveExportedData(): PluginOption {
   return {
     name: "track-serve-exported-data",
@@ -23,8 +24,8 @@ function serveExportedData(): PluginOption {
         if (!url.startsWith("/data/")) return next();
         const file = join("..", "_site", url); // url already begins with /data/
         if (!existsSync(file)) return next();
-        res.setHeader("content-type", "application/json");
-        res.end(readFileSync(file, "utf8"));
+        res.setHeader("content-type", "application/octet-stream");
+        res.end(readFileSync(file));
       };
       server.middlewares.use(handler);
     },
@@ -34,12 +35,23 @@ function serveExportedData(): PluginOption {
 // The dev server serves index.html raw, so the Go-side placeholders (__TRACK_COLOR_OVERRIDES__ sits
 // bare in <head>) would render as literal text on every dev page — and in every design-shots
 // screenshot. Strip it in dev; the builds leave it for the server/export to substitute.
+//
+// The lock key is the one placeholder dev has to fill rather than drop: without it the app cannot open
+// the bundle served above. It comes from the same export (_site/index.html), so a dev preview holds the
+// key of the site it is previewing.
 function stripServerPlaceholders(): PluginOption {
   return {
     name: "track-strip-server-placeholders",
     apply: "serve",
-    transformIndexHtml: (html: string) => html.replace("__TRACK_COLOR_OVERRIDES__", ""),
+    transformIndexHtml: (html: string) =>
+      html.replace("__TRACK_COLOR_OVERRIDES__", "").replace("__TRACK_LOCK_KEY__", exportedLockKey()),
   };
+}
+
+function exportedLockKey(): string {
+  const page = join("..", "_site", "index.html");
+  if (!existsSync(page)) return "";
+  return /__trackLock\s*=\s*"([^"]*)"/.exec(readFileSync(page, "utf8"))?.[1] ?? "";
 }
 
 // The static-site export build (VITE_TRACK_STATIC=1) is path-routed and prerendered, so it needs a known
