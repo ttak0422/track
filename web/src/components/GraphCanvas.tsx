@@ -440,7 +440,7 @@ export function GraphCanvas({
       const radius = (nodeRadius(node) * ratio) / view.scale;
       const x = node.x * ratio;
       const y = node.y * ratio;
-      ctx.globalAlpha = active ? 0.92 : 0.18;
+      const nodeAlpha = active ? 0.92 : 0.18;
       ctx.lineWidth = hasActiveHighlight && active ? highlightLineWidth : baseLineWidth;
       ctx.beginPath();
       ctx.arc(x, y, radius, 0, Math.PI * 2);
@@ -454,10 +454,14 @@ export function GraphCanvas({
         // At rest the graph is ink and outline (design.md, Sidebar): the note you are on is the one
         // filled dot, its neighbours are rings on the page. Colour is reserved for the highlight
         // above, where it means "this is what you asked for".
-        ctx.fillStyle = center ? css("--mark") : css("--bg");
+        ctx.fillStyle = center && !hasActiveHighlight ? css("--mark") : css("--bg");
         ctx.strokeStyle = center ? css("--mark") : css("--line-node");
       }
+      // Edges are painted first, so a translucent fill would let them show through every node. Keep
+      // the interior opaque and use alpha only for the outline's inactive/active emphasis.
+      ctx.globalAlpha = 1;
       ctx.fill();
+      ctx.globalAlpha = nodeAlpha;
       ctx.stroke();
     });
 

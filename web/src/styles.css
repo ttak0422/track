@@ -907,6 +907,12 @@ button {
   cursor: pointer;
 }
 
+.graph-reset svg {
+  display: block;
+  width: 15px;
+  height: 15px;
+}
+
 .graph-reset:hover,
 .graph-reset:focus-visible {
   color: var(--text);
