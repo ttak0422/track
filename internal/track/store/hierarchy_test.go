@@ -57,7 +57,8 @@ func TestHierarchyForest(t *testing.T) {
 	upsert(t, s, 4, "Leaf 2", "up:: [[Mid]]", 40)
 	// Placed by nothing: no parent, no children. It is not a root, it is simply not in the tree.
 	upsert(t, s, 5, "Stray", "up:: somewhere", 50)
-	// A second root, more recently updated, so root order is checked too.
+	// A second root, more recently updated but earlier by title, so the ordering is pinned to the
+	// title rather than to the mtime every other listing sorts by.
 	upsert(t, s, 6, "Other root", "", 60)
 	upsert(t, s, 7, "Other child", "up:: [[Other root]]", 70)
 
@@ -72,9 +73,9 @@ func TestHierarchyForest(t *testing.T) {
 	if len(mid) != 1 || mid[0].Title != "Mid" {
 		t.Fatalf("Root's children = %s, want Mid", titles(mid))
 	}
-	// Shared note-list order: most recently updated first.
-	if kids := mid[0].Children; len(kids) != 2 || kids[0].Title != "Leaf 2" || kids[1].Title != "Leaf" {
-		t.Fatalf("Mid's children = %s, want Leaf 2 then Leaf", titles(kids))
+	// By title, so the newer "Leaf 2" sorts after "Leaf" instead of ahead of it.
+	if kids := mid[0].Children; len(kids) != 2 || kids[0].Title != "Leaf" || kids[1].Title != "Leaf 2" {
+		t.Fatalf("Mid's children = %s, want Leaf then Leaf 2", titles(kids))
 	}
 }
 

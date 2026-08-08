@@ -3,6 +3,7 @@ package store
 import (
 	"cmp"
 	"slices"
+	"strings"
 
 	"github.com/ttak0422/track/internal/track/note"
 )
@@ -58,17 +59,18 @@ type HierarchyNode struct {
 	Children []*HierarchyNode `json:"children,omitempty"`
 }
 
-// Hierarchy returns the whole vault's "up" tree, roots first and every level in the shared note-list
-// order (most recently updated first). Only notes the hierarchy actually places are in it: a note
-// with neither a parent nor a child never appears. A note with several "up" values follows the first,
-// like Trail, so the result is a forest; a cycle keeps its members out of it entirely, since none of
-// them is a root.
+// Hierarchy returns the whole vault's "up" tree, roots first and every level by title. This is the
+// one listing that is not in the shared recently-updated-first order: a hierarchy is a structure
+// someone laid out on purpose, and a file tree that reshuffles itself as its notes are edited cannot
+// be navigated from memory. Only notes the hierarchy actually places are in it: a note with neither a
+// parent nor a child never appears. A note with several "up" values follows the first, like Trail, so
+// the result is a forest; a cycle keeps its members out of it entirely, since none of them is a root.
 func (s *Store) Hierarchy() ([]*HierarchyNode, error) {
 	// One row per child, carrying its first parent (min(p.ord) selects that row's parent columns) —
 	// the parent is joined as a note too, so a root that declares no "up" of its own still arrives
 	// with its title.
 	rows, err := s.db.Query(
-		`SELECT n.id, n.kind, n.title, n.mtime, pn.id, pn.kind, pn.title, pn.mtime, min(p.ord)
+		`SELECT n.id, n.kind, n.title, pn.id, pn.kind, pn.title, min(p.ord)
 		 FROM props p
 		 JOIN keywords k ON k.term = p.value
 		 JOIN notes n ON n.id = p.note_id
@@ -84,24 +86,23 @@ func (s *Store) Hierarchy() ([]*HierarchyNode, error) {
 	defer rows.Close()
 
 	nodes := map[int64]*HierarchyNode{}
-	mtimes := map[int64]int64{}
 	child := map[int64]bool{}
-	at := func(id int64, kind, title string, mtime int64) *HierarchyNode {
-		n, ok := nodes[id]
+	at := func(r NoteRef) *HierarchyNode {
+		n, ok := nodes[r.NoteID]
 		if !ok {
-			n = &HierarchyNode{NoteRef: NoteRef{NoteID: id, FileKind: kind, Title: title}}
-			nodes[id], mtimes[id] = n, mtime
+			n = &HierarchyNode{NoteRef: r}
+			nodes[r.NoteID] = n
 		}
 		return n
 	}
 	for rows.Next() {
 		var c, p NoteRef
-		var cm, pm, ord int64
-		if err := rows.Scan(&c.NoteID, &c.FileKind, &c.Title, &cm, &p.NoteID, &p.FileKind, &p.Title, &pm, &ord); err != nil {
+		var ord int64
+		if err := rows.Scan(&c.NoteID, &c.FileKind, &c.Title, &p.NoteID, &p.FileKind, &p.Title, &ord); err != nil {
 			return nil, err
 		}
-		parent := at(p.NoteID, p.FileKind, p.Title, pm)
-		parent.Children = append(parent.Children, at(c.NoteID, c.FileKind, c.Title, cm))
+		parent := at(p)
+		parent.Children = append(parent.Children, at(c))
 		child[c.NoteID] = true
 	}
 	if err := rows.Err(); err != nil {
@@ -110,25 +111,22 @@ func (s *Store) Hierarchy() ([]*HierarchyNode, error) {
 
 	roots := []*HierarchyNode{}
 	for id, n := range nodes {
-		slices.SortFunc(n.Children, func(a, b *HierarchyNode) int {
-			return compareRecency(mtimes[a.NoteID], a.NoteID, mtimes[b.NoteID], b.NoteID)
-		})
+		slices.SortFunc(n.Children, compareHierarchyNodes)
 		if !child[id] {
 			roots = append(roots, n)
 		}
 	}
-	slices.SortFunc(roots, func(a, b *HierarchyNode) int {
-		return compareRecency(mtimes[a.NoteID], a.NoteID, mtimes[b.NoteID], b.NoteID)
-	})
+	slices.SortFunc(roots, compareHierarchyNodes)
 	return roots, nil
 }
 
-// compareRecency is the shared note-list order: most recently updated first, id ascending on ties.
-func compareRecency(am, aid, bm, bid int64) int {
-	if am != bm {
-		return cmp.Compare(bm, am)
+// compareHierarchyNodes orders a level by title, case-insensitively (the comparison `SORT title`
+// uses), with the id breaking ties so two same-titled notes keep a fixed order.
+func compareHierarchyNodes(a, b *HierarchyNode) int {
+	if c := cmp.Compare(strings.ToLower(a.Title), strings.ToLower(b.Title)); c != 0 {
+		return c
 	}
-	return cmp.Compare(aid, bid)
+	return cmp.Compare(a.NoteID, b.NoteID)
 }
 
 // Trail returns the chain of "up" ancestors of a note, root first, the immediate parent last. A note

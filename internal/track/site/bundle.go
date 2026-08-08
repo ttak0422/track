@@ -298,14 +298,15 @@ func writeBundle(docs []doc, edges []edge, root int64, calendar, share bool, bas
 			cur = p
 		}
 	}
-	// hierarchy.json: the published "up" forest, roots first, prebuilt here so the rail's hierarchy
-	// menu never walks the tree in the browser. Like search.json it is fetched when that menu is first
-	// opened rather than at first paint, so a reader who never opens it never downloads it. Notes the
-	// hierarchy does not place — no parent, no children — are simply absent.
+	// hierarchy.json: the published "up" forest, prebuilt here so the rail's hierarchy menu never walks
+	// the tree in the browser. Like search.json it is fetched when that menu is first opened rather
+	// than at first paint, so a reader who never opens it never downloads it. Notes the hierarchy does
+	// not place — no parent, no children — are simply absent. Every level is by title, not the shared
+	// recency order the rest of the bundle uses: see store.Hierarchy for why a tree holds still.
 	var hierarchyNode func(d doc) jsonHierarchyNode
 	hierarchyNode = func(d doc) jsonHierarchyNode {
 		kids := append([]doc(nil), childrenOf[d.id]...)
-		byRecency(kids)
+		byTitle(kids)
 		node := jsonHierarchyNode{jsonRef: refOf(d)}
 		for _, kid := range kids {
 			node.Children = append(node.Children, hierarchyNode(kid))
@@ -320,7 +321,7 @@ func writeBundle(docs []doc, edges []edge, root int64, calendar, share bool, bas
 			hRoots = append(hRoots, d)
 		}
 	}
-	byRecency(hRoots)
+	byTitle(hRoots)
 	forest := make([]jsonHierarchyNode, 0, len(hRoots))
 	for _, d := range hRoots {
 		forest = append(forest, hierarchyNode(d))
@@ -542,6 +543,19 @@ func byRecency(ds []doc) {
 	sort.Slice(ds, func(i, j int) bool {
 		if ds[i].mtime != ds[j].mtime {
 			return ds[i].mtime > ds[j].mtime
+		}
+		return ds[i].id < ds[j].id
+	})
+}
+
+// byTitle sorts docs the way the hierarchy is drawn: by title, case-insensitively (the comparison
+// `SORT title` uses), with the id breaking ties. It mirrors store.compareHierarchyNodes so a
+// published tree reads in the same order as the live one.
+func byTitle(ds []doc) {
+	sort.Slice(ds, func(i, j int) bool {
+		a, b := strings.ToLower(ds[i].title), strings.ToLower(ds[j].title)
+		if a != b {
+			return a < b
 		}
 		return ds[i].id < ds[j].id
 	})
