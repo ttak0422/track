@@ -45,7 +45,7 @@ values swapped; nothing else branches on theme.
 | `--panel-soft` | Sunk ground: a figure's bed, code blocks, inputs | `#f3f2ee` | `#212528` |
 | `--text` | Body ink | `#1a1a18` | `#e9e9e4` |
 | `--muted` | Secondary ink: chrome at rest, inline code, table cells | `#5e5d58` | `#a2a29b` |
-| `--faint` | Tertiary ink: meta, labels, captions' sources, figure numbers | `#93928b` | `#6e6e68` |
+| `--faint` | Tertiary ink: meta, labels, captions' sources, figure numbers | `#6f6e68` | `#8b8b83` |
 | `--line` | Hairline | `#e6e4de` | `#282c2f` |
 | `--line-strong` | Stated rule: a figure's gutter, link underlines, a table's header rule | `#c7c5bd` | `#3e4347` |
 | `--line-node` | Graph node outlines | `#8e8c84` | `#6e7478` |
@@ -53,6 +53,13 @@ values swapped; nothing else branches on theme.
 
 `--mark` equals `--text` by value and differs by role: it is the one token a
 brand color would replace, so it never shares a declaration with body ink.
+
+The three inks are a contrast ladder, not a fade: `--faint` is the quietest
+step that still clears WCAG AA (4.5:1) on both the sheet and the sunk ground,
+because everything it carries — labels, meta, figure numbers, a caption's
+source — is text someone has to read. A quieter tertiary is not available; if
+something needs to recede further than `--faint`, it is a rule or a shape, not
+smaller greyer type.
 
 Figures keep their own palette, and it is the only colored thing on the page:
 `--chart-1..6` and `--chart-ramp-*` (series and heatmap ramp, read by
