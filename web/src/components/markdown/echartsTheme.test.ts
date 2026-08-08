@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { applyChartTheme, type ChartTheme } from "./echartsTheme";
+import { applyChartTheme, chartThemeFromCSS, type ChartTheme } from "./echartsTheme";
 
 const THEME: ChartTheme = {
   text: "#111111",
@@ -11,6 +11,16 @@ const THEME: ChartTheme = {
   rampLo: "#eeeeee",
   rampHi: "#000033",
 };
+
+describe("chartThemeFromCSS", () => {
+  it("keeps its fallback palette aligned with the quiet-sheet figure colors", () => {
+    const theme = chartThemeFromCSS();
+
+    expect(theme.palette).toEqual(["#286957", "#a05f2e", "#536f91", "#99504a", "#737b4a", "#795f80"]);
+    expect(theme.rampLo).toBe("#e4ebe7");
+    expect(theme.rampHi).toBe("#286957");
+  });
+});
 
 describe("applyChartTheme", () => {
   it("recolors palette, text, axes, and overlay geometry without mutating the input", () => {

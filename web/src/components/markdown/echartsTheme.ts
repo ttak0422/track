@@ -16,7 +16,10 @@ export interface ChartTheme {
   rampHi: string;
 }
 
-const PALETTE_FALLBACK = ["#2f6f5e", "#f08300", "#5b7aa5", "#8a352b", "#7d8a4e", "#96608f"];
+// Keep the fallback aligned with styles.css: it is used by standalone tests and by browsers that do
+// not expose a token (for example, before the stylesheet has loaded). The palette follows the current
+// quiet-sheet design with muted teal, amber, slate, terracotta, olive, and plum roles.
+const PALETTE_FALLBACK = ["#286957", "#a05f2e", "#536f91", "#99504a", "#737b4a", "#795f80"];
 
 // chartThemeFromCSS reads the theme variables off the document root, so the palette always matches
 // whatever theme (light, dark, or a future override) is active at draw time.
@@ -30,8 +33,8 @@ export function chartThemeFromCSS(): ChartTheme {
     panel: v("--panel-soft", "#f3f2ee"),
     danger: v("--danger", "#8a352b"),
     palette: PALETTE_FALLBACK.map((fallback, i) => v(`--chart-${i + 1}`, fallback)),
-    rampLo: v("--chart-ramp-lo", "#e3ece9"),
-    rampHi: v("--chart-ramp-hi", "#174c40"),
+    rampLo: v("--chart-ramp-lo", "#e4ebe7"),
+    rampHi: v("--chart-ramp-hi", "#286957"),
   };
 }
 
