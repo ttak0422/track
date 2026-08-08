@@ -19,8 +19,6 @@
 @property --line-node { syntax: "<color>"; inherits: true; initial-value: #808080 }
 @property --mark { syntax: "<color>"; inherits: true; initial-value: #808080 }
 @property --danger { syntax: "<color>"; inherits: true; initial-value: #808080 }
-@property --graph-active { syntax: "<color>"; inherits: true; initial-value: #808080 }
-@property --graph-active-strong { syntax: "<color>"; inherits: true; initial-value: #808080 }
 @property --chart-1 { syntax: "<color>"; inherits: true; initial-value: #808080 }
 @property --chart-2 { syntax: "<color>"; inherits: true; initial-value: #808080 }
 @property --chart-3 { syntax: "<color>"; inherits: true; initial-value: #808080 }
@@ -49,10 +47,9 @@
   --line-node: light-dark(#8e8c84, #6e7478);
   /* Ink by value, a salient by role: the one token a brand color would ever replace. */
   --mark: light-dark(#1a1a18, #e9e9e4);
-  /* The figure palette. Chart series and heatmap ramp (read by echartsTheme.ts), the graph's
-     hover/search highlight, and destructive intent — the chrome never reaches in here. */
-  --graph-active: light-dark(#f08300, #ff9a1f);
-  --graph-active-strong: light-dark(#a85200, #ffc06a);
+  /* The figure palette: chart series, the heatmap ramp (both read by echartsTheme.ts), and
+     destructive intent. The chrome never reaches in here — and the graph no longer does either: a
+     highlighted node is ink against neighbours that dim, not a colour of its own. */
   --danger: light-dark(#8a352b, #de766b);
   --chart-1: light-dark(#2f6f5e, #62b39b);
   --chart-2: light-dark(#f08300, #ff9a1f);
@@ -2067,7 +2064,7 @@ textarea.modal-input:focus-visible {
 }
 
 .markdown-view .md-alert-warning {
-  --alert-color: var(--graph-active);
+  --alert-color: var(--chart-2);
 }
 
 .markdown-view .md-alert-caution {

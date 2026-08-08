@@ -420,7 +420,7 @@ export function GraphCanvas({
         const active = edgeIsActive(edge);
         ctx.globalAlpha = active ? 0.86 : 0.08;
         ctx.lineWidth = active ? highlightLineWidth : baseLineWidth;
-        ctx.strokeStyle = active ? css("--graph-active-strong") : css("--line-strong");
+        ctx.strokeStyle = active ? css("--mark") : css("--line-strong");
       } else {
         ctx.globalAlpha = 0.62;
         ctx.lineWidth = baseLineWidth;
@@ -445,10 +445,11 @@ export function GraphCanvas({
       ctx.beginPath();
       ctx.arc(x, y, radius, 0, Math.PI * 2);
       if (hasActiveHighlight && active) {
-        // Light active nodes up with the graph accent so search and hover focus stay distinct from
-        // the rest of the UI accent system.
-        ctx.fillStyle = css("--graph-active");
-        ctx.strokeStyle = css("--graph-active-strong");
+        // Ink, like everything else that is emphasised here (design.md, Sidebar). What marks a match
+        // is not a colour of its own but the contrast with the rest, which dims in place — the same
+        // move the reader makes when it takes emphasis from weight and space instead of hue.
+        ctx.fillStyle = css("--mark");
+        ctx.strokeStyle = css("--mark");
       } else {
         // At rest the graph is ink and outline (design.md, Sidebar): the note you are on is the one
         // filled dot, its neighbours are rings on the page. Colour is reserved for the highlight

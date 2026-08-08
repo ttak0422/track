@@ -14,19 +14,17 @@ import (
 // palette file, so a palette can never inject arbitrary properties into the served page.
 // The ten that carry the interface plus the figure palette's own (docs/spec/design.md, Tokens).
 var paletteVars = map[string]bool{
-	"bg":                  true,
-	"panel":               true,
-	"panel-soft":          true,
-	"text":                true,
-	"muted":               true,
-	"faint":               true,
-	"line":                true,
-	"line-strong":         true,
-	"line-node":           true,
-	"mark":                true,
-	"graph-active":        true,
-	"graph-active-strong": true,
-	"danger":              true,
+	"bg":          true,
+	"panel":       true,
+	"panel-soft":  true,
+	"text":        true,
+	"muted":       true,
+	"faint":       true,
+	"line":        true,
+	"line-strong": true,
+	"line-node":   true,
+	"mark":        true,
+	"danger":      true,
 }
 
 // colorValue restricts palette values to safe CSS color syntax (hex, rgb()/hsl()/keyword). It excludes

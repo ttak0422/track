@@ -16,7 +16,7 @@ func TestLoadPaletteEmptyPath(t *testing.T) {
 
 func TestLoadPaletteBuildsScopedCSS(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "colors.yml")
-	contents := "light:\n  mark: \"#1a1a18\"\n  graph-active: \"#F08300\"\n  text: \"#20231f\"\ndark:\n  mark: \"#e9e9e4\"\n  graph-active-strong: \"#ffc06a\"\n"
+	contents := "light:\n  mark: \"#1a1a18\"\n  line: \"#e6e4de\"\n  text: \"#20231f\"\ndark:\n  mark: \"#e9e9e4\"\n  faint: \"#8b8b83\"\n"
 	if err := os.WriteFile(path, []byte(contents), 0o644); err != nil {
 		t.Fatal(err)
 	}
@@ -25,8 +25,8 @@ func TestLoadPaletteBuildsScopedCSS(t *testing.T) {
 		t.Fatalf("load: %v", err)
 	}
 	for _, want := range []string{
-		":root{--graph-active:#F08300;--mark:#1a1a18;--text:#20231f;}",
-		`:root[data-theme="dark"]{--graph-active-strong:#ffc06a;--mark:#e9e9e4;}`,
+		":root{--line:#e6e4de;--mark:#1a1a18;--text:#20231f;}",
+		`:root[data-theme="dark"]{--faint:#8b8b83;--mark:#e9e9e4;}`,
 		"@media (prefers-color-scheme: dark)",
 	} {
 		if !strings.Contains(css, want) {

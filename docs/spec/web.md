@@ -315,8 +315,7 @@ dark:
 ```
 
 Themeable variables: `bg`, `panel`, `panel-soft`, `text`, `muted`, `faint`,
-`line`, `line-strong`, `line-node`, `mark`, `graph-active`,
-`graph-active-strong`, `danger` — the token set in
+`line`, `line-strong`, `line-node`, `mark`, `danger` — the token set in
 [design.md](design.md). Unknown keys are ignored and values are validated against safe color
 syntax, so a palette can never inject arbitrary CSS. A malformed value is an
 error; a missing or unreadable palette file is logged and the server falls back

@@ -63,9 +63,9 @@ smaller greyer type.
 
 Figures keep their own palette, and it is the only colored thing on the page:
 `--chart-1..6` and `--chart-ramp-*` (series and heatmap ramp, read by
-`echartsTheme.ts`), `--graph-active`(`-strong`) for the graph's hover/search
-highlight, `--danger` for destructive intent and unresolved links. A control
-in the chrome never reaches into this palette.
+`echartsTheme.ts`), plus `--danger` for destructive intent and unresolved
+links. A control in the chrome never reaches into this palette — and neither
+does the graph, whose emphasis is ink against neighbours that dim.
 
 Non-color tokens: `--font-mono` (the one mono stack: code, the editor, section
 labels), `--measure` (the prose column), `--radius-sm` (4px, badges and inline
@@ -293,7 +293,10 @@ The note's aside (right) and the rail (left) are both quiet columns.
   `--faint`. Rows are text controls — no pills.
 - The aside's graph draws its centre node filled with `--mark`, its other
   nodes filled with `--bg` and outlined 1px in `--line-node`, and its edges in
-  `--line-strong`. Hover and search highlighting keep `--graph-active`.
+  `--line-strong`. Hover and search highlighting are ink too: the match fills
+  with `--mark` and its edges follow, while everything else dims in place.
+  Contrast is what marks a match — no graph gets a colour the rest of the UI
+  gave up.
 - Rail: a 56px column on `--bg`, ruled off the sheet by a hairline on its
   right edge. Glyphs are text controls; views sit at the top, settings at the
   bottom. It paints no surface, casts no shadow, and takes no radius.
