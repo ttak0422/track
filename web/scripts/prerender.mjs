@@ -50,6 +50,9 @@ window.innerHeight = 800;
 // before this script can open a locked data file (opening one needs those modules).
 window.__trackLock = template.match(/__trackLock\s*=\s*"([^"]*)"/)?.[1] ?? "";
 window.__trackStartPage = template.match(/__trackStartPage\s*=\s*"([^"]*)"/)?.[1] ?? "";
+// The bundle is published under a fingerprint of its contents, so its directory is named in the page too.
+const generation = template.match(/__trackData\s*=\s*"([^"]*)"/)?.[1] ?? "";
+window.__trackData = generation;
 globalThis.window = window;
 globalThis.self = window;
 globalThis.document = window.document;
@@ -73,7 +76,7 @@ const { renderPage, lock, unlock } = await import(pathToFileURL(serverEntry).hre
 // readData opens one file of the bundle for this script's own use (the app's fetch path is above).
 // Callers name it by what it holds; the published file is "<name>.bin".
 async function readData(name) {
-  const bytes = readFileSync(join(siteDir, "data", `${name}.bin`));
+  const bytes = readFileSync(join(siteDir, "data", generation, `${name}.bin`));
   return JSON.parse(await unlock(bytes.buffer.slice(bytes.byteOffset, bytes.byteOffset + bytes.byteLength)));
 }
 

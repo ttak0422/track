@@ -1,8 +1,7 @@
 import { StrictMode } from "react";
 import { createRoot } from "react-dom/client";
 import { App, clientAppRouter, hydratePrerenderedState } from "./App";
-import { setStaleKeyHandler } from "./lock";
-import { STATIC_MODE } from "./runtime";
+import { setStalePageHandler, STATIC_MODE } from "./runtime";
 import { applyDesignPreview, parseDesignPreview } from "./dev/preview";
 
 const root = document.getElementById("root");
@@ -48,10 +47,9 @@ window.addEventListener("vite:preloadError", (event) => {
   if (reloadOnce()) event.preventDefault();
 });
 
-// A stale page also carries the site key of its own deploy. That key normally still opens the current
-// data — it is derived from the site's address, which does not change deploy to deploy — but if the
-// address did change, the page cannot read anything until it is replaced by a current one.
-setStaleKeyHandler(reloadOnce);
+// A stale page also names its own deploy's data bundle, and carries that deploy's site key. When the app
+// finds that bundle gone (or a file it cannot open), the page is what needs replacing.
+setStalePageHandler(reloadOnce);
 
 // The static site prerenders content into #root for a fast first paint; the client then mounts with
 // createRoot, which renders fresh over that markup (React discards it) rather than hydrating. This is

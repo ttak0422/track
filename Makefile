@@ -59,7 +59,7 @@ design-shots: ## Screenshot design candidates × light/dark into _design-shots/i
 # no Vite build, no prerender. Re-run it after editing docs/help while `make site-dev` is running.
 site-data:
 	go build -o $(TRACK_BIN) ./cmd/track
-	mkdir -p .site-stub && printf '<!doctype html><script>window.__trackLock = "__TRACK_LOCK_KEY__"</script><div id="root"></div>' > .site-stub/index.html
+	mkdir -p .site-stub && printf '<!doctype html><script>window.__trackLock = "__TRACK_LOCK_KEY__";window.__trackData = "__TRACK_DATA_GEN__"</script><div id="root"></div>' > .site-stub/index.html
 	TRACK_VAULT=$(SITE_VAULT) TRACK_CACHE_DIR=$(SITE_CACHE) ./$(TRACK_BIN) export-site --all --frontend .site-stub --out $(SITE_OUT) --base-url "$(SITE_ORIGIN)" --share=$(SITE_SHARE)
 
 site-dev: web/node_modules site-data ## Dev preview: Vite dev server (HMR) over the exported data — fast iteration

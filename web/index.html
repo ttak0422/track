@@ -59,6 +59,11 @@
         // API, not a locked bundle. (The placeholder is spelled only once here — the dev server
         // substitutes the first occurrence.)
         window.__trackLock = "__TRACK_LOCK_KEY__";
+        // The static export fills this in with the fingerprint its data bundle was published under, so
+        // this page reads data/<generation>/… — the data of its own deploy. A page the CDN still serves
+        // from an earlier deploy therefore never mixes with data from a later one. Empty on the live
+        // server. (Spelled once: the dev server substitutes the first occurrence.)
+        window.__trackData = "__TRACK_DATA_GEN__";
       })();
     </script>
     <style>

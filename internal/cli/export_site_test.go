@@ -25,7 +25,13 @@ func fakeFrontend(t *testing.T) string {
 // its root note's published slug) and baked into the pages the export writes.
 func readBundle(t *testing.T, out, baseURL, rootSlug, name string) []byte {
 	t.Helper()
-	raw, err := os.ReadFile(filepath.Join(out, "data", filepath.FromSlash(name)+".bin"))
+	// The bundle is published under a fingerprint of its contents (ADR 0070), so the file sits one
+	// directory below: data/<generation>/<name>.bin.
+	generations, err := os.ReadDir(filepath.Join(out, "data"))
+	if err != nil || len(generations) != 1 {
+		t.Fatalf("a build publishes exactly one data generation, got %v (%v)", generations, err)
+	}
+	raw, err := os.ReadFile(filepath.Join(out, "data", generations[0].Name(), filepath.FromSlash(name)+".bin"))
 	if err != nil {
 		t.Fatalf("bundle file missing: %v", err)
 	}

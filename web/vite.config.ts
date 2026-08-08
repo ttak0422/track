@@ -36,22 +36,25 @@ function serveExportedData(): PluginOption {
 // bare in <head>) would render as literal text on every dev page — and in every design-shots
 // screenshot. Strip it in dev; the builds leave it for the server/export to substitute.
 //
-// The lock key is the one placeholder dev has to fill rather than drop: without it the app cannot open
-// the bundle served above. It comes from the same export (_site/index.html), so a dev preview holds the
-// key of the site it is previewing.
+// The lock key and the data generation are the placeholders dev has to fill rather than drop: without
+// them the app cannot find or open the bundle served above. Both come from the same export
+// (_site/index.html), so a dev preview reads the site it is previewing.
 function stripServerPlaceholders(): PluginOption {
   return {
     name: "track-strip-server-placeholders",
     apply: "serve",
     transformIndexHtml: (html: string) =>
-      html.replace("__TRACK_COLOR_OVERRIDES__", "").replace("__TRACK_LOCK_KEY__", exportedLockKey()),
+      html
+        .replace("__TRACK_COLOR_OVERRIDES__", "")
+        .replace("__TRACK_LOCK_KEY__", exportedPageValue("__trackLock"))
+        .replace("__TRACK_DATA_GEN__", exportedPageValue("__trackData")),
   };
 }
 
-function exportedLockKey(): string {
+function exportedPageValue(name: string): string {
   const page = join("..", "_site", "index.html");
   if (!existsSync(page)) return "";
-  return /__trackLock\s*=\s*"([^"]*)"/.exec(readFileSync(page, "utf8"))?.[1] ?? "";
+  return new RegExp(`${name}\\s*=\\s*"([^"]*)"`).exec(readFileSync(page, "utf8"))?.[1] ?? "";
 }
 
 // The static-site export build (VITE_TRACK_STATIC=1) is path-routed and prerendered, so it needs a known

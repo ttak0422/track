@@ -20,12 +20,12 @@ import (
 // `make site`) overwrites the same files with SSR content; this is the standalone fallback the CLI
 // produces on its own. startPage is baked into every page's shell, but only the "/" route reads it
 // (START_PAGE_ID), so per-note pages still render their own route.
-func writePages(outDir, startPage string, root int64, docs, listed []doc, site jsonSite) error {
+func writePages(outDir, startPage string, root int64, docs, listed []doc, site jsonSite, lockKey []byte, generation string) error {
 	raw, err := os.ReadFile(filepath.Join(outDir, "index.html"))
 	if err != nil {
 		return err
 	}
-	base := swapFavicon(applyPlaceholders(string(raw), startPage, LockKey(site.BaseURL, site.Root)), site.Icon)
+	base := swapFavicon(applyPlaceholders(string(raw), startPage, lockKey, generation), site.Icon)
 
 	write := func(rel, head string) error {
 		path := filepath.Join(outDir, filepath.FromSlash(rel))
@@ -130,12 +130,15 @@ func tagRoutes(docs []doc) []string {
 // left unsubstituted, __TRACK_COLOR_OVERRIDES__ would show as literal text. startPage is the root note's
 // published id, baked in so the frontend redirects to the start page on launch without a site.json
 // round-trip (see web/src/runtime.ts START_PAGE_ID).
-// lockKey is the site's data key (see lock.go), baked in so the app can open the locked data bundle.
-func applyPlaceholders(tmpl, startPage string, lockKey []byte) string {
+// lockKey is the site's data key (see lock.go), baked in so the app can open the locked data bundle;
+// generation is the fingerprint the bundle was published under, so this page fetches the data of its own
+// deploy rather than whatever sits at a shared path (ADR 0070).
+func applyPlaceholders(tmpl, startPage string, lockKey []byte, generation string) string {
 	tmpl = strings.ReplaceAll(tmpl, "__TRACK_DEFAULT_THEME__", "system")
 	tmpl = strings.ReplaceAll(tmpl, "__TRACK_COLOR_OVERRIDES__", "")
 	tmpl = strings.ReplaceAll(tmpl, "__TRACK_START_PAGE__", startPage)
 	tmpl = strings.ReplaceAll(tmpl, "__TRACK_LOCK_KEY__", LockKeyString(lockKey))
+	tmpl = strings.ReplaceAll(tmpl, "__TRACK_DATA_GEN__", generation)
 	return tmpl
 }
 

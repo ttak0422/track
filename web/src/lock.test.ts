@@ -1,5 +1,6 @@
 import { beforeAll, describe, expect, it } from "vitest";
-import { lock, setStaleKeyHandler, unlock, unlockText } from "./lock";
+import { lock, unlock, unlockText } from "./lock";
+import { setStalePageHandler } from "./runtime";
 
 // The key `track export-site` derives for one site's address, and a data file it locked with it —
 // both produced by internal/track/site/lock.go. The two sides of the lock are written in different
@@ -27,12 +28,12 @@ describe("the site data lock", () => {
 
   it("refuses data this page's key does not open, and reports the page as stale", async () => {
     let stale = 0;
-    setStaleKeyHandler(() => stale++);
+    setStalePageHandler(() => stale++);
     const bytes = Uint8Array.from(atob(BLOB), (c) => c.charCodeAt(0));
     bytes[bytes.length - 1] ^= 0xff;
     await expect(unlock(bytes.buffer)).rejects.toThrow();
     // The page cannot read what the site published, so the client's recovery (one reload) is signalled.
     expect(stale).toBe(1);
-    setStaleKeyHandler(() => {});
+    setStalePageHandler(() => {});
   });
 });

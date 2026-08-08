@@ -1,5 +1,5 @@
 import { unlock } from "./lock";
-import { dataURL, STATIC_MODE } from "./runtime";
+import { dataURL, reportStalePage, STATIC_MODE } from "./runtime";
 import { bodyHits, titleHits, type SearchCorpus, type SearchDoc } from "./staticSearch";
 import { idParams, qualify, vaultParams } from "./vaultId";
 import type {
@@ -119,6 +119,9 @@ function stringifyIDs<T>(value: T, vault = ""): T {
 async function staticData<T>(path: string): Promise<T> {
   const response = await fetch(dataURL(path.replace(/\.json$/, ".bin")));
   if (!response.ok) {
+    // The bundle is published per generation, so a missing file means this page's generation is gone:
+    // the page outlived its deploy (the CDN serves HTML for up to ten minutes) and needs replacing.
+    if (response.status === 404) reportStalePage();
     throw new Error(`${response.status} ${response.statusText}`);
   }
   return JSON.parse(await unlock(await response.arrayBuffer())) as T;
