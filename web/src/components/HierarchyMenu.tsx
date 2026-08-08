@@ -19,15 +19,15 @@ export function HierarchyMenu() {
   const [asked, setAsked] = useState(false);
   const { data } = useHierarchyQuery(asked);
   const roots = data?.hierarchy ?? [];
-  const [collapsed, setCollapsed] = useState<Set<string>>(storedCollapsed);
+  const [expanded, setExpanded] = useState<Set<string>>(storedExpanded);
 
-  // Folding is written through on the click rather than in an effect: the set is what the reader last
-  // left the tree looking like, and it should survive a reload, not just this menu being closed.
+  // Unfolding is written through on the click rather than in an effect: the set is what the reader
+  // last left the tree looking like, and it should survive a reload, not just this menu being closed.
   function toggleBranch(noteID: string) {
-    const next = new Set(collapsed);
+    const next = new Set(expanded);
     if (!next.delete(noteID)) next.add(noteID);
-    setCollapsed(next);
-    localStorage.setItem(collapsedKey, JSON.stringify([...next]));
+    setExpanded(next);
+    localStorage.setItem(expandedKey, JSON.stringify([...next]));
   }
 
   function cancelClose() {
@@ -97,7 +97,7 @@ export function HierarchyMenu() {
           ) : (
             <HierarchyList
               nodes={roots}
-              collapsed={collapsed}
+              expanded={expanded}
               onToggle={toggleBranch}
               onNavigate={() => setOpen(false)}
             />
@@ -110,12 +110,12 @@ export function HierarchyMenu() {
 
 function HierarchyList({
   nodes,
-  collapsed,
+  expanded,
   onToggle,
   onNavigate,
 }: {
   nodes: HierarchyNode[];
-  collapsed: Set<string>;
+  expanded: Set<string>;
   onToggle: (noteID: string) => void;
   onNavigate: () => void;
 }) {
@@ -123,7 +123,7 @@ function HierarchyList({
     <ul className="hierarchy-list">
       {nodes.map((node) => {
         const children = node.children ?? [];
-        const folded = collapsed.has(node.note_id);
+        const folded = !expanded.has(node.note_id);
         return (
           <li key={node.note_id}>
             <div className="hierarchy-row">
@@ -158,7 +158,7 @@ function HierarchyList({
             {children.length > 0 && !folded ? (
               <HierarchyList
                 nodes={children}
-                collapsed={collapsed}
+                expanded={expanded}
                 onToggle={onToggle}
                 onNavigate={onNavigate}
               />
@@ -170,16 +170,17 @@ function HierarchyList({
   );
 }
 
-// Which branches the reader folded, by note id. Only the folds are stored: a tree opens fully
-// expanded, so a note that appears later is visible without anyone having to know about it. Ids that
-// outlive their note are inert set members, not a reason to prune on read.
-const collapsedKey = "track.hierarchyCollapsed";
+// Which branches the reader unfolded, by note id. A tree opens at its roots and nothing below them,
+// so the menu is a short list of the vault's top-level subjects rather than everything the hierarchy
+// holds; only what the reader opened is stored, and stays open. Ids that outlive their note are inert
+// set members, not a reason to prune on read.
+const expandedKey = "track.hierarchyExpanded";
 
-function storedCollapsed(): Set<string> {
+function storedExpanded(): Set<string> {
   // There is no localStorage during the prerender, and the menu is closed in that output anyway.
   if (typeof window === "undefined") return new Set();
   try {
-    const stored: unknown = JSON.parse(localStorage.getItem(collapsedKey) ?? "[]");
+    const stored: unknown = JSON.parse(localStorage.getItem(expandedKey) ?? "[]");
     return new Set(Array.isArray(stored) ? stored.filter((id) => typeof id === "string") : []);
   } catch {
     return new Set();
