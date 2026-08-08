@@ -4,6 +4,8 @@ import { GraphCanvas } from "./GraphCanvas";
 
 interface CanvasMock {
   globalAlpha: number;
+  fillStyle: string;
+  strokeStyle: string;
   clearRect: ReturnType<typeof vi.fn>;
   save: ReturnType<typeof vi.fn>;
   translate: ReturnType<typeof vi.fn>;
@@ -23,6 +25,8 @@ interface CanvasMock {
 function makeCanvasContext(): CanvasMock {
   return {
     globalAlpha: 1,
+    fillStyle: "",
+    strokeStyle: "",
     clearRect: vi.fn(),
     save: vi.fn(),
     translate: vi.fn(),
@@ -51,6 +55,7 @@ const graph = {
 
 let context: CanvasMock;
 const fillAlphas: number[] = [];
+let themeChange: (() => void) | undefined;
 
 beforeAll(() => {
   vi.stubGlobal(
@@ -84,5 +89,29 @@ describe("GraphCanvas node painting", () => {
     // Decorative mode omits labels, so every fill is a node interior. The last draw pass is the
     // settled graph, and both nodes must cover the edge beneath them completely.
     expect(fillAlphas.slice(-2)).toEqual([1, 1]);
+  });
+
+  it("redraws with the current CSS colors when the system theme changes", async () => {
+    document.documentElement.style.setProperty("--line-node", "#old");
+    const media = {
+      addEventListener: vi.fn((_type: string, listener: () => void) => {
+        themeChange = listener;
+      }),
+      removeEventListener: vi.fn(),
+    };
+    vi.stubGlobal("matchMedia", vi.fn(() => media));
+
+    render(<GraphCanvas graph={graph} onSelect={vi.fn()} resetToken={0} decorative />);
+    await waitFor(() => expect(context.clearRect).toHaveBeenCalled());
+    const drawsBeforeThemeChange = context.clearRect.mock.calls.length;
+
+    document.documentElement.style.setProperty("--line-node", "#new");
+    themeChange?.();
+
+    await waitFor(() => expect(context.clearRect.mock.calls.length).toBeGreaterThan(drawsBeforeThemeChange));
+    expect(context.strokeStyle).toBe("#new");
+
+    document.documentElement.style.removeProperty("--line-node");
+    vi.unstubAllGlobals();
   });
 });

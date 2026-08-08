@@ -1,5 +1,6 @@
 import type { MermaidConfig } from "mermaid";
 import { type PointerEvent, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
+import { useThemeVersion } from "../../hooks/useThemeVersion";
 import { CodeBlock } from "./CodeBlock";
 import { copyText } from "./clipboard";
 
@@ -580,26 +581,4 @@ function errorMessage(error: unknown): string {
     return `Mermaid render failed: ${error.message}`;
   }
   return "Mermaid render failed.";
-}
-
-// useThemeVersion bumps whenever the app theme changes (the data-theme attribute or the OS
-// preference), so theme-dependent renders (Mermaid, ECharts) can redraw with the new colors.
-export function useThemeVersion(): number {
-  const [version, setVersion] = useState(0);
-
-  useEffect(() => {
-    const bump = () => setVersion((value) => value + 1);
-    const observer = new MutationObserver(bump);
-    observer.observe(document.documentElement, { attributes: true, attributeFilter: ["data-theme"] });
-
-    const media = window.matchMedia?.("(prefers-color-scheme: dark)");
-    media?.addEventListener("change", bump);
-
-    return () => {
-      observer.disconnect();
-      media?.removeEventListener("change", bump);
-    };
-  }, []);
-
-  return version;
 }

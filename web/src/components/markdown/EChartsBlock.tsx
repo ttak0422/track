@@ -1,9 +1,9 @@
 import { useNavigate } from "@tanstack/react-router";
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
+import { useThemeVersion } from "../../hooks/useThemeVersion";
 import { CodeBlock } from "./CodeBlock";
 import { applyChartTheme, chartThemeFromCSS } from "./echartsTheme";
 import { computeRailLayout, extractRail, MarkerRail, type RailAnchors } from "./MarkerRail";
-import { useThemeVersion } from "./MermaidDiagram";
 
 // The chart container's CSS height (styles.css .viewspec-chart); the above annotation band grows the
 // container by its own height so the plot keeps this size while grid.top shifts down.

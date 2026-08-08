@@ -9,6 +9,7 @@ import {
   type SimulationNodeDatum,
 } from "d3-force";
 import { PointerEvent, useEffect, useRef, useState } from "react";
+import { useThemeVersion } from "../hooks/useThemeVersion";
 import type { Graph, GraphEdge, GraphNode, NoteID } from "../types";
 import { isZoomWheel, zoomDelta } from "./graphWheel";
 
@@ -128,6 +129,7 @@ export function GraphCanvas({
   const onHoverRef = useRef(onHover);
   const highlightRef = useRef<ReadonlySet<NoteID> | null>(highlightIds);
   const [size, setSize] = useState({ width: 1, height: 1 });
+  const themeVersion = useThemeVersion();
 
   onSelectRef.current = onSelect;
   onHoverRef.current = onHover;
@@ -162,7 +164,7 @@ export function GraphCanvas({
       viewRef.current = fitGraphView(size);
     }
     drawGraph(size);
-  }, [size]);
+  }, [size, themeVersion]);
 
   useEffect(() => {
     dragRef.current = null;
