@@ -6,20 +6,28 @@ none fits, extend this document first — do not invent a one-off treatment.
 
 ## Principles
 
-- **One surface.** The tab strip and note body share the same panel. Permanent
-  chrome draws no slabs, boxes, or fills; the app reads as one sheet of paper.
-  The rail is the single exception: it is a dock floating over the sheet rather
-  than a column ruled out of it (floating layer), so it carries its own surface.
-  The persistent lines are the hairline under the active tab and the dock's edge.
-- **Hierarchy by ink, not boxes.** State and emphasis are expressed with color
-  (`--muted` → `--text` → `--accent`) and `font-weight`, never by adding
-  borders or background fills to a control at rest.
+- **Two grounds, one sheet.** The page (`--bg`) carries the rail; the sheet
+  (`--panel`) carries the tab strip and the note. One hairline rules them
+  apart. Nothing else in the permanent chrome draws a slab, a box, or a fill:
+  the reader is one sheet of paper with a margin of tools beside it.
+- **Color belongs to figures.** Inside a chart, a diagram, or the graph, color
+  carries meaning (series, zones, event lines). So the UI around them gives it
+  up: chrome, links, and active states are ink and hairlines. `--mark` is the
+  single salient, and today it is ink — the one place a brand color could ever
+  land.
+- **Hierarchy by space and rule, not size.** Three type sizes in the whole
+  reader (body, title, meta) plus the small-caps label. Sections are told
+  apart by their leading and by a rule above them, never by a fourth size.
+- **Two measures.** Prose reads at `--measure` (40em ≈ 42–48 Japanese
+  characters); figures, tables, and code blocks run the full column. The
+  difference is what makes a figure read as a figure.
 - **A box is earned.** A border or fill exists only to separate a control from
   content beneath it (quiet chip) or to lift a genuinely floating layer
   (floating layer). Shadows belong to floating layers alone.
-- **Tokens only.** Every color and corner radius comes from the `:root` custom
-  properties in `web/src/styles.css`; components never hardcode hex values or
-  raw radii. Font sizes in chrome scale via `calc(...px * var(--font-scale, 1))`.
+- **Tokens only, defined once.** Every color and corner radius comes from the
+  custom properties at the top of `web/src/styles.css`; components never
+  hardcode hex values or raw radii. Font sizes in chrome scale via
+  `calc(...px * var(--font-scale, 1))`.
 - **No hover-triggered popups on visible content.** Previews and expansions
   open from an explicit affordance (a button, a click), never from merely
   hovering something already readable. Hover may *reveal controls* (quiet
@@ -27,30 +35,82 @@ none fits, extend this document first — do not invent a one-off treatment.
 
 ## Tokens
 
-| Token | Role |
-| --- | --- |
-| `--bg` | App background behind the panel |
-| `--panel` | The main surface (sidebar, notes, tabs, floating layers) |
-| `--panel-soft` | Slightly shifted surface: quiet chips, code blocks, inputs |
-| `--text` | Primary ink |
-| `--muted` | Resting ink for chrome and secondary text |
-| `--line` | Hairlines and chip borders |
-| `--accent` / `--accent-strong` | The single salient: active state, links |
-| `--danger` | Destructive intent |
-| `--graph-active`(`-strong`) | Graph highlight |
-| `--chart-1..6`, `--chart-ramp-*` | Chart series and heatmap ramp |
-| `--font-mono` | The one mono stack: code, the editor, section labels |
-| `--radius-sm` (4px) | Badges and inline chips |
-| `--radius` (6px) | Controls: quiet chips, inputs, list rows |
-| `--radius-lg` (8px) | Panels, cards, embeds, floating layers |
+Ten carry the whole interface. Light and dark are the same design with the
+values swapped; nothing else branches on theme.
 
-Light and dark values are defined together at the top of `styles.css`; using
-tokens makes a component theme-correct with no extra work.
+| Token | Role | Light | Dark |
+| --- | --- | --- | --- |
+| `--bg` | Page ground: behind the sheet, under the rail | `#fbfaf8` | `#141618` |
+| `--panel` | The sheet: tab strip, reader, floating layers | `#ffffff` | `#191c1e` |
+| `--panel-soft` | Sunk ground: a figure's bed, code blocks, inputs | `#f3f2ee` | `#212528` |
+| `--text` | Body ink | `#1a1a18` | `#e9e9e4` |
+| `--muted` | Secondary ink: chrome at rest, inline code, table cells | `#5e5d58` | `#a2a29b` |
+| `--faint` | Tertiary ink: meta, labels, captions' sources, figure numbers | `#93928b` | `#6e6e68` |
+| `--line` | Hairline | `#e6e4de` | `#282c2f` |
+| `--line-strong` | Stated rule: a figure's gutter, link underlines, a table's header rule | `#c7c5bd` | `#3e4347` |
+| `--line-node` | Graph node outlines | `#8e8c84` | `#6e7478` |
+| `--mark` | The salient: logo, active tab, the graph's centre node | `#1a1a18` | `#e9e9e4` |
 
-Those three are the whole radius scale — a control that wants a corner takes
-one of them, not a new number. Drawn shapes are not on the scale and keep
-their own geometry: icon glyphs, heatmap cells, pills (`999px`), circles
-(`50%`).
+`--mark` equals `--text` by value and differs by role: it is the one token a
+brand color would replace, so it never shares a declaration with body ink.
+
+Figures keep their own palette, and it is the only colored thing on the page:
+`--chart-1..6` and `--chart-ramp-*` (series and heatmap ramp, read by
+`echartsTheme.ts`), `--graph-active`(`-strong`) for the graph's hover/search
+highlight, `--danger` for destructive intent and unresolved links. A control
+in the chrome never reaches into this palette.
+
+Non-color tokens: `--font-mono` (the one mono stack: code, the editor, section
+labels), `--measure` (the prose column), `--radius-sm` (4px, badges and inline
+chips), `--radius` (6px, controls and inputs), `--radius-lg` (8px, panels and
+floating layers). Those three are the whole radius scale — a control that
+wants a corner takes one of them, not a new number. Drawn shapes are not on
+the scale and keep their own geometry: icon glyphs, heatmap cells, pills
+(`999px`), circles (`50%`).
+
+### One definition per value
+
+Each token is declared **once**, as `light-dark(<light>, <dark>)` on `:root`.
+The manual override works through `color-scheme` (`:root[data-theme="dark"]`
+sets it to `dark`, `[data-theme="light"]` to `light`), so there is no second
+copy of the dark palette to drift out of step with the first.
+
+Every color token is registered with `@property … syntax: "<color>"`. That is
+not decoration: `getComputedStyle().getPropertyValue()` on an *unregistered*
+property hands back the literal text `light-dark(#fbfaf8, #141618)`, and the
+ECharts theme, the Mermaid config, and the graph canvas all read their colors
+that way. Registered, the same call returns the resolved `rgb(...)` for
+whichever mode is live. A new color token is registered with the rest or it
+breaks those three surfaces silently.
+
+## Type
+
+Three sizes, and no fourth.
+
+| Role | Size | Weight |
+| --- | --- | --- |
+| Body, `h2`, `h3` | 15px / 1.9 | 400, headings 700 |
+| Note title (`h1`) | 24px / 1.45 | 500 |
+| Meta, captions, tables, the aside | 12–13.5px | 400 |
+| `.label` (section label) | 10.5px, `.13em`, uppercase, `--faint` | 500 |
+
+`h1` stays at 1.6× the body: note titles run long (`20260805 表現力ベンチ
+ゴールデータでの再現`), and a larger one simply folds to two lines.
+
+`h2` and `h3` are the same size as body text. Their hierarchy is space and a
+rule: `h2` takes 44px of lead and a hairline above it, `h3` takes 26px and
+nothing else. Paragraphs and lists lead with 13px, list items with 7px.
+
+## The reading surface
+
+- The reader column is `--content-width` (880px by default, and a setting).
+  Figures, tables, and code blocks fill it.
+- Prose — paragraphs, lists, headings, the title, the meta strip — is capped
+  at `--measure` inside that column. The cap lands on `.markdown-view > *`,
+  and the block-level elements that bleed opt out by name.
+- Body copy carries no color and no background. Links are ink with a
+  `--line-strong` underline (see variant 8); inline code is mono and `--muted`
+  with no chip, because a filled chip in a Japanese line makes the line ripple.
 
 ## Variants
 
@@ -61,13 +121,12 @@ tags. Plain text, no border, no fill, no radius.
 
 - Rest: `color: var(--muted)`.
 - Hover / `:focus-visible`: `color: var(--text)`.
-- Active/selected: `color: var(--text)` (or `--accent` when it marks a mode
-  being *on*, e.g. follow) plus `font-weight: 600`.
+- Active/selected: `color: var(--text)` plus `font-weight: 500`, or `--mark`
+  where the state is a mode being *on* (the note's display mode, follow).
 - Canonical: `.rail-button`, `.graph-reset`, `.note-tags button`.
 - In the icon rail the same states are carried by the glyph rather than a
-  label: `.rail-button.active` takes `--accent` for a mode that is *on* (the
-  note's display mode, follow), and never for navigation, which goes somewhere
-  rather than turns something on.
+  label. Navigation never takes the active treatment: it goes somewhere rather
+  than turns something on.
 
 ### 2. Quiet chip — a control resting on content
 
@@ -83,20 +142,14 @@ from what is beneath them.
 
 ### 3. Floating layer — the only layer that floats
 
-Menus, previews, the search popup, modal dialogs, and the rail dock. These
-legitimately sit above the page, so they alone carry shadows.
+Menus, previews, the search popup, and modal dialogs. These legitimately sit
+above the page, so they alone carry shadows.
 
 - `background: var(--panel)`, `border: 1px solid var(--line)`, soft
   `box-shadow`. Items inside are text controls (muted rows that ink on hover).
-- Canonical: `.menu-panel`, `.note-menu-panel`, `.modal-card`, `.activity-rail`.
-- The rail dock is the one *permanent* member: it hugs its buttons, centers
-  itself vertically against the viewport, and takes `--radius-lg` like any
-  panel. It reserves no column — the reader runs full width beneath it, so the
-  rail costs the page no space; only the reader's text inset steps clear of it,
-  leaving full-bleed content (the graph, the empty state) undisturbed. Because
-  it floats, whatever anchors to it (the settings panel, the empty state's
-  guides) centers on the same axis and clears the dock's own width instead of
-  measuring from a layout edge.
+- Canonical: `.menu-panel`, `.note-menu-panel`, `.modal-card`, `.tab-overflow-panel`.
+- Every member is transient. The rail is not one: it is a column of the page,
+  ruled off by a hairline, and it paints no surface of its own.
 
 ### 4. Filled action — modal decisions only
 
@@ -112,18 +165,18 @@ destructive choice needs weight the flat idiom cannot give.
 Single-line fields carry editability with a bottom hairline, not a box.
 
 - `border: 0; border-bottom: 1px solid var(--line);` transparent background;
-  focus moves the line to `--accent`.
+  focus moves the line to `--mark`.
 - Canonical: `.home-hero .searchbox input`, `input.modal-input`.
 - Exception: the multi-line editor textarea keeps a boxed `--panel-soft` field.
 
 ### 6. Section label — the caption naming a region
 
-Small caps that title a chrome region or annotate content (ACTIVITY,
+Small caps that title a chrome region or annotate content (CONTENTS,
 BACKLINKS, a code block's language, an OGP card's site name).
 
-- `font-family: var(--font-mono)`, `calc(11px * var(--font-scale, 1))`,
-  `font-weight: 500`, `letter-spacing: 0.06em`, `text-transform: uppercase`,
-  `color: var(--muted)`.
+- `font-family: var(--font-mono)`, `calc(10.5px * var(--font-scale, 1))`,
+  `font-weight: 500`, `letter-spacing: 0.13em`, `text-transform: uppercase`,
+  `color: var(--faint)`.
 - One shared rule near the top of `styles.css` carries the typography; each
   site keeps only its own margins. Add new labels to that rule rather than
   restating the recipe.
@@ -145,6 +198,86 @@ being aimed at.
 - A glyph button resting *on content* (a preview body, a diagram, media) is a
   quiet chip (variant 2) instead: it needs separation from what is beneath it,
   not just an aiming cue.
+
+### 8. Link — ink and an underline
+
+Body links, wiki links, backlinks, breadcrumbs. No color: a paragraph with six
+links in it turns mottled the moment they carry one.
+
+- `color: var(--text)`, `text-decoration: underline`,
+  `text-decoration-color: var(--line-strong)`, `text-underline-offset: 3px`,
+  `text-decoration-thickness: 1px`. Hover moves the underline to `--muted`.
+- In the aside and other chrome lists the underline goes away and the link is
+  a text control (variant 1): `--muted` at rest, `--text` for the active or
+  hovered row.
+- Unresolved wiki links keep `--danger` with a dotted underline — that is a
+  warning, not decoration. A pending one is `--muted`.
+
+## Figure
+
+A figure is one container: number, bed, caption, source, and reading note.
+Nothing about it is a card.
+
+```
+[34px gutter] [ figure body                        ]
+ │ 図 1        ┌────────────────────────────────┐
+ │             │  --panel-soft bed               │
+ │             └────────────────────────────────┘
+ │             caption                   ADR 0068
+ │             How to read: …
+```
+
+- No outer border, no rounded card. A `2px solid var(--line-strong)` rule
+  stands in the left gutter and the figure number sits at its top, mono
+  10.5px, `.1em`, `--faint`, `white-space: nowrap`.
+- Numbers come from a CSS counter on the reader, so they are references the
+  body can point at ("図 1"), not decoration.
+- The body sits on `--panel-soft` with `border-radius: 3px` and 22px 20px of
+  padding.
+- Caption: 12px `--muted`, 11px above. Its source sits at the right end of the
+  same line, mono 11px `--faint`.
+- Reading note: 12.5px `--muted`, `max-width: 44em`, 9px above.
+- Members: charts (`.viewspec-chart-wrap`), Mermaid, Graphviz, D2, and draw.io
+  diagrams. When the Figure envelope (headline / subtitle / chart / caption /
+  sources / interaction hint) is specified, it inherits this look as its
+  default rather than defining a second one.
+
+## Table
+
+Rules run horizontally only, and only where they separate something.
+
+- `th`: the section label recipe, `text-align: left`, no fill, one
+  `--line-strong` rule beneath the header row.
+- `td`: `--muted`, `vertical-align: top`, a `--line` rule beneath each row.
+  The first column stays `--text` — it is what you scan.
+- No column rules, no striping, no header fill. A table bleeds to the column
+  like a figure.
+
+## Tab strip
+
+The strip is a line of titles on the sheet, not a bar of chrome.
+
+- At most **four** tabs are shown, each truncating at 210px. The rest go to a
+  `+N` button at the right end that opens them in a floating layer.
+- The active tab is always one of the four, and it is marked by
+  `border-bottom: 2px solid var(--mark)` plus `font-weight: 500` — never a
+  fill or a box.
+- Inactive tabs are `--muted` with no border. A hairline under the whole strip
+  separates it from the note.
+
+## Sidebar
+
+The note's aside (right) and the rail (left) are both quiet columns.
+
+- Aside: 186px wide, 60px from the note column. Section headings take the
+  label recipe; a count sits at the right end of the heading row in mono 11px
+  `--faint`. Rows are text controls — no pills.
+- The aside's graph draws its centre node filled with `--mark`, its other
+  nodes filled with `--bg` and outlined 1px in `--line-node`, and its edges in
+  `--line-strong`. Hover and search highlighting keep `--graph-active`.
+- Rail: a 56px column on `--bg`, ruled off the sheet by a hairline on its
+  right edge. Glyphs are text controls; views sit at the top, settings at the
+  bottom. It paints no surface, casts no shadow, and takes no radius.
 
 ## Adding new UI
 
