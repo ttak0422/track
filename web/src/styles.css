@@ -158,7 +158,7 @@ button {
    graph view (90) and below menus/search (94+). */
 .sidebar {
   position: fixed;
-  z-index: 91;
+  z-index: 92;
   top: 0;
   bottom: 0;
   left: 8px;
@@ -1104,6 +1104,9 @@ a.calendar-title:focus-visible {
    which is what lets the hairline below run the full width as the note's top edge. */
 .tabstrip {
   position: relative;
+  /* Keep the tab's hover popup above full-bleed special views such as .graph-full (z-index 90).
+     The popup is a child, so raising the strip creates the stacking context it needs as a whole. */
+  z-index: 91;
   display: flex;
   flex: 0 0 auto;
   align-items: stretch;
