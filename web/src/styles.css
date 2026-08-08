@@ -147,7 +147,7 @@ button {
 /* Brand assets ship in light/dark pairs so manual theme selection changes the mark immediately, while
    an unset theme follows the system color scheme. The alternate image is hidden rather than filtered:
    the supplied lockups carry their own deliberate black/white contrast. */
-.theme-asset-dark {
+img.theme-asset-dark {
   display: none;
 }
 
