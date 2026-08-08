@@ -279,10 +279,14 @@ The strip is a line of titles on the sheet, not a bar of chrome.
   `font-weight: 500` — never a fill or a box. Inactive tabs are `--muted` with
   no border, and a hairline under the whole strip separates it from the note.
 - **A tab's controls hang under it, they do not sit in it.** Float and close
-  open as a floating layer (variant 3) below the strip on hover or focus, so a
-  short title is not covered by two buttons wider than the tab itself. Only the
-  unsaved-changes dot stays inline: it is state, not a control, and it belongs
-  next to the title it describes.
+  open as a floating layer (variant 3) below the strip on hover or keyboard
+  focus, so a short title is not covered by two buttons wider than the tab
+  itself. Only the unsaved-changes dot stays inline: it is state, not a
+  control, and it belongs next to the title it describes.
+- The reveal keys off `:hover` and `:has(:focus-visible)` — **not**
+  `:focus-within`, which variant 2's hover-revealed chips can afford and this
+  cannot: the container here also holds the tab's own title button, so a mouse
+  click on the tab left the panel pinned open with the pointer long gone.
 
 ## Sidebar
 

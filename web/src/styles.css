@@ -1300,8 +1300,12 @@ a.calendar-title:focus-visible {
   pointer-events: none;
 }
 
+/* :focus-visible, not :focus-within — clicking a tab focuses its title button, which under
+   :focus-within left the panel pinned open long after the pointer had gone (and, because opening a
+   tab reorders the strip, over a tab that was no longer even the one hovered). Keyboard focus still
+   opens it: that is the case :focus-visible is for. */
 .tab:hover .tab-tools,
-.tab:focus-within .tab-tools {
+.tab:has(:focus-visible) .tab-tools {
   opacity: 1;
   pointer-events: auto;
 }
