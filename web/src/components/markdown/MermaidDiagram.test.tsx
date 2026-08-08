@@ -259,15 +259,18 @@ describe("DiagramFrame wide-diagram clipping", () => {
 
 describe("mermaidConfig dark mode", () => {
   it("classifies theme surfaces by luminance", () => {
-    expect(isDarkColor("#161814")).toBe(true); // dark theme --bg
-    expect(isDarkColor("#f7f7f4")).toBe(false); // light theme --bg
+    expect(isDarkColor("#141618")).toBe(true); // dark theme --bg
+    expect(isDarkColor("#fbfaf8")).toBe(false); // light theme --bg
+    // What getPropertyValue actually returns for a registered custom property (styles.css).
+    expect(isDarkColor("rgb(20, 22, 24)")).toBe(true);
+    expect(isDarkColor("rgb(251, 250, 248)")).toBe(false);
     expect(isDarkColor("not-a-color")).toBe(false); // unparseable: keep light derivations
   });
 
   it("passes darkMode and textColor to the base theme", () => {
     const variables = mermaidConfig().themeVariables as Record<string, unknown>;
     expect(variables.darkMode).toBe(false); // jsdom resolves no tokens: light fallbacks
-    expect(variables.textColor).toBe("#20231f");
+    expect(variables.textColor).toBe("#1a1a18");
   });
 });
 

@@ -40,8 +40,10 @@
     <style>
       /* Reserve the app-shell background before the CSS bundle and React arrive: without this the page
          is blank/white until the bundle mounts, then the real background flashes in — and on the static
-         site that flash lands on top of already-rendered content, scoring as layout shift (CLS). Values
-         must stay in sync with the --bg light/dark tokens in styles.css. */
+         site that flash lands on top of already-rendered content, scoring as layout shift (CLS). The
+         values must stay in sync with the --bg token in styles.css, which is why they are written the
+         same way it is: one light-dark() pair driven by color-scheme, since the stylesheet that sets
+         color-scheme has not loaded yet. */
       html,
       body,
       #root {
@@ -49,16 +51,17 @@
         min-height: 100vh;
         min-height: 100dvh;
       }
+      :root {
+        color-scheme: light dark;
+      }
+      :root[data-theme="dark"] {
+        color-scheme: dark;
+      }
+      :root[data-theme="light"] {
+        color-scheme: light;
+      }
       body {
-        background: #f7f7f4;
-      }
-      :root[data-theme="dark"] body {
-        background: #161814;
-      }
-      @media (prefers-color-scheme: dark) {
-        :root:not([data-theme="light"]) body {
-          background: #161814;
-        }
+        background: light-dark(#fbfaf8, #141618);
       }
     </style>
     __TRACK_COLOR_OVERRIDES__

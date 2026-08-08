@@ -527,33 +527,48 @@ export function mermaidConfig(): MermaidConfig {
       // The base theme derives every color we don't pin (edge labels, section fills, cluster
       // titles, …) for a light surface unless told otherwise; on the dark theme that left #333-ish
       // text on dark panels. darkMode flips those derivations, textColor pins the biggest offender.
-      darkMode: isDarkColor(color("--bg", "#f7f7f4")),
-      textColor: color("--text", "#20231f"),
+      darkMode: isDarkColor(color("--bg", "#fbfaf8")),
+      textColor: color("--text", "#1a1a18"),
       // Pinned (mermaid's default, but relied on by measureIdealScale) so display scale can map
       // diagram text onto the article's font size.
       fontSize: `${mermaidFontPx}px`,
-      background: color("--panel", "#ffffff"),
-      primaryColor: color("--panel-soft", "#f6f6f3"),
-      primaryTextColor: color("--text", "#20231f"),
-      primaryBorderColor: color("--line", "#d9d6cd"),
+      // A figure sits on --panel-soft now (design.md, Figure), so that is the diagram's ground and
+      // its nodes take the surface above it — the two used to be the other way round, which left a
+      // node the same colour as the bed it stands on.
+      background: color("--panel-soft", "#f3f2ee"),
+      primaryColor: color("--panel", "#ffffff"),
+      primaryTextColor: color("--text", "#1a1a18"),
+      primaryBorderColor: color("--line-node", "#8e8c84"),
       secondaryColor: color("--panel", "#ffffff"),
-      tertiaryColor: color("--bg", "#faf9f5"),
-      lineColor: color("--muted", "#666a60"),
-      noteBkgColor: color("--panel-soft", "#f6f6f3"),
-      noteTextColor: color("--text", "#20231f"),
-      noteBorderColor: color("--line", "#d9d6cd"),
+      tertiaryColor: color("--panel-soft", "#f3f2ee"),
+      lineColor: color("--muted", "#5e5d58"),
+      noteBkgColor: color("--panel", "#ffffff"),
+      noteTextColor: color("--text", "#1a1a18"),
+      noteBorderColor: color("--line", "#e6e4de"),
     },
     fontFamily: 'Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif',
   };
 }
 
-// isDarkColor reads a #rrggbb theme token's perceived luminance, so dark detection follows whatever
-// theme resolved the tokens instead of duplicating the data-theme / prefers-color-scheme cascade.
-export function isDarkColor(hex: string): boolean {
-  const m = /^#([0-9a-f]{6})$/i.exec(hex);
-  if (!m) return false;
-  const v = Number.parseInt(m[1], 16);
-  const luminance = (0.2126 * ((v >> 16) & 0xff) + 0.7152 * ((v >> 8) & 0xff) + 0.0722 * (v & 0xff)) / 255;
+// isDarkColor reads a theme token's perceived luminance, so dark detection follows whatever theme
+// resolved the tokens instead of duplicating the data-theme / prefers-color-scheme cascade. Both
+// notations are accepted: the tokens are written as hex, but they are registered custom properties
+// (see styles.css), so getPropertyValue hands back the computed "rgb(r, g, b)" instead.
+export function isDarkColor(color: string): boolean {
+  const hex = /^#([0-9a-f]{6})$/i.exec(color);
+  const rgb = /^rgba?\(\s*([\d.]+)[\s,]+([\d.]+)[\s,]+([\d.]+)/i.exec(color);
+  let r: number;
+  let g: number;
+  let b: number;
+  if (hex) {
+    const v = Number.parseInt(hex[1], 16);
+    [r, g, b] = [(v >> 16) & 0xff, (v >> 8) & 0xff, v & 0xff];
+  } else if (rgb) {
+    [r, g, b] = [Number(rgb[1]), Number(rgb[2]), Number(rgb[3])];
+  } else {
+    return false;
+  }
+  const luminance = (0.2126 * r + 0.7152 * g + 0.0722 * b) / 255;
   return luminance < 0.5;
 }
 

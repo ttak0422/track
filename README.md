@@ -151,7 +151,7 @@ web:
   colors_path: ~/.config/track/colors.yml
 ```
 
-The palette file has optional `light:` and `dark:` sections mapping a themeable variable (`accent`, `accent-strong`, `graph-active`, `graph-active-strong`, `bg`, `panel`, `panel-soft`, `text`, `muted`, `line`, `generated`, `danger`) to a CSS color. Unknown keys are ignored and only safe color values are accepted.
+The palette file has optional `light:` and `dark:` sections mapping a themeable variable (`bg`, `panel`, `panel-soft`, `text`, `muted`, `faint`, `line`, `line-strong`, `line-node`, `mark`, `graph-active`, `graph-active-strong`, `danger`) to a CSS color. Unknown keys are ignored and only safe color values are accepted.
 
 ## LSP
 

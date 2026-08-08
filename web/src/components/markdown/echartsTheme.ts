@@ -7,6 +7,8 @@ export interface ChartTheme {
   text: string;
   muted: string;
   line: string;
+  // The ground the chart is drawn on, used by everything painted over the plot (tooltip, label
+  // chips, treemap gaps). A figure sits on --panel-soft (design.md, Figure), not on the sheet.
   panel: string;
   danger: string;
   palette: string[];
@@ -22,10 +24,10 @@ export function chartThemeFromCSS(): ChartTheme {
   const css = getComputedStyle(document.documentElement);
   const v = (name: string, fallback: string) => css.getPropertyValue(name).trim() || fallback;
   return {
-    text: v("--text", "#20231f"),
-    muted: v("--muted", "#687069"),
-    line: v("--line", "#d9ddd5"),
-    panel: v("--panel", "#ffffff"),
+    text: v("--text", "#1a1a18"),
+    muted: v("--muted", "#5e5d58"),
+    line: v("--line", "#e6e4de"),
+    panel: v("--panel-soft", "#f3f2ee"),
     danger: v("--danger", "#8a352b"),
     palette: PALETTE_FALLBACK.map((fallback, i) => v(`--chart-${i + 1}`, fallback)),
     rampLo: v("--chart-ramp-lo", "#e3ece9"),

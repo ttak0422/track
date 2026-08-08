@@ -391,7 +391,7 @@ export function GraphCanvas({
     const baseLineWidth = (1 * ratio) / view.scale;
     const highlightLineWidth = (2.6 * ratio) / view.scale;
     ctx.lineWidth = baseLineWidth;
-    ctx.strokeStyle = css("--line");
+    ctx.strokeStyle = css("--line-strong");
 
     // Search and hover both keep the graph shape intact: active nodes/edges stay strong while the rest
     // dim in place instead of being removed from the graph.
@@ -420,11 +420,11 @@ export function GraphCanvas({
         const active = edgeIsActive(edge);
         ctx.globalAlpha = active ? 0.86 : 0.08;
         ctx.lineWidth = active ? highlightLineWidth : baseLineWidth;
-        ctx.strokeStyle = active ? css("--graph-active-strong") : css("--line");
+        ctx.strokeStyle = active ? css("--graph-active-strong") : css("--line-strong");
       } else {
         ctx.globalAlpha = 0.62;
         ctx.lineWidth = baseLineWidth;
-        ctx.strokeStyle = css("--line");
+        ctx.strokeStyle = css("--line-strong");
       }
       ctx.beginPath();
       ctx.moveTo(edge.source.x * ratio, edge.source.y * ratio);
@@ -450,8 +450,11 @@ export function GraphCanvas({
         ctx.fillStyle = css("--graph-active");
         ctx.strokeStyle = css("--graph-active-strong");
       } else {
-        ctx.fillStyle = center ? css("--graph-active") : css("--panel-soft");
-        ctx.strokeStyle = center ? css("--graph-active-strong") : css("--muted");
+        // At rest the graph is ink and outline (design.md, Sidebar): the note you are on is the one
+        // filled dot, its neighbours are rings on the page. Colour is reserved for the highlight
+        // above, where it means "this is what you asked for".
+        ctx.fillStyle = center ? css("--mark") : css("--bg");
+        ctx.strokeStyle = center ? css("--mark") : css("--line-node");
       }
       ctx.fill();
       ctx.stroke();

@@ -135,6 +135,27 @@ describe("TabBar", () => {
     expect(routerMock.navigate).toHaveBeenCalled();
   });
 
+  it("shows four tabs and sends the rest to the overflow menu, keeping the open note on the strip", () => {
+    const view = renderStrip();
+    for (const id of ["b2", "c3", "d4", "e5", "f6"]) {
+      routerMock.pathname = `/notes/${id}`;
+      view.rerender(strip());
+    }
+
+    // Six notes open, four on the strip — and the sixth is the one being read, so it takes the last
+    // slot rather than hiding behind the button.
+    const shown = screen.getAllByRole("listitem");
+    expect(shown).toHaveLength(4);
+    expect(shown[3]).toContainElement(screen.getByRole("button", { current: "page" }));
+    fireEvent.click(screen.getByRole("button", { name: "2 more open notes" }));
+    expect(screen.getAllByRole("menuitem")).toHaveLength(2);
+
+    routerMock.navigate.mockClear();
+    fireEvent.click(screen.getAllByRole("menuitem")[0]);
+    expect(routerMock.navigate).toHaveBeenCalled();
+    expect(screen.queryByRole("menuitem")).not.toBeInTheDocument(); // opening one closes the menu
+  });
+
   it("offers no float button on a view tab, which has no note to float", () => {
     routerMock.pathname = "/graph";
     renderStrip();

@@ -114,8 +114,8 @@ export function Shell() {
               {/* The open note's own controls, below the workspace's views. Absent while no note is
                   open, so the rail is navigation alone the rest of the time. */}
               {!STATIC_MODE && <NoteRailControls />}
-              {/* Settings closes the dock. No spacer pushing it to a far edge: the dock hugs its
-                  buttons, so there is no far edge to push it to. */}
+              {/* Settings closes the column, at its foot rather than among the views. */}
+              <div className="rail-spacer" />
               <ThemeMenu />
             </nav>
           </aside>

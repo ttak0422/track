@@ -159,7 +159,14 @@ export function NoteAside({
       ) : null}
 
       <section className="backlinks" aria-labelledby="backlinks-heading">
-        <h3 id="backlinks-heading">Backlinks</h3>
+        {/* The count rides the heading rather than the note's meta strip: backlinks have a display of
+            their own here, and saying "6" twice on one screen is one place too many to keep true. */}
+        <h3 id="backlinks-heading">
+          Backlinks
+          {backlinks.length > 0 ? (
+            <span className="backlinks-count">{String(backlinks.length).padStart(2, "0")}</span>
+          ) : null}
+        </h3>
         {backlinks.length === 0 ? (
           <p className="muted">No backlinks.</p>
         ) : (

@@ -21,8 +21,7 @@
   --text: #262019;
   --muted: #746a5c;
   --line: #ded5c6;
-  --accent: #a05a17;
-  --accent-strong: #7a4210;
+  --mark: #a05a17;
   --chart-1: #a05a17;
   --chart-ramp-lo: #f1e7d8;
   --chart-ramp-hi: #7a4210;
@@ -36,8 +35,7 @@
   --text: #efeae2;
   --muted: #a89d8e;
   --line: #423b31;
-  --accent: #e0a458;
-  --accent-strong: #f0c68a;
+  --mark: #e0a458;
   --chart-1: #e0a458;
   --chart-ramp-lo: #302a20;
   --chart-ramp-hi: #f0c68a;
@@ -51,8 +49,7 @@
   --text: #1d2229;
   --muted: #64707d;
   --line: #d5dce3;
-  --accent: #31639f;
-  --accent-strong: #1d4a80;
+  --mark: #31639f;
   --chart-1: #31639f;
   --chart-ramp-lo: #e2eaf2;
   --chart-ramp-hi: #1d4a80;
@@ -66,8 +63,7 @@
   --text: #e8edf2;
   --muted: #9aa7b3;
   --line: #38424d;
-  --accent: #74a9d8;
-  --accent-strong: #a3c9e8;
+  --mark: #74a9d8;
   --chart-1: #74a9d8;
   --chart-ramp-lo: #222a33;
   --chart-ramp-hi: #a3c9e8;
