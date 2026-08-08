@@ -1,4 +1,4 @@
-import { fireEvent, render, screen } from "@testing-library/react";
+import { fireEvent, render, screen, within } from "@testing-library/react";
 import type { ReactNode } from "react";
 import { describe, expect, it, vi } from "vitest";
 import { NoteAside, NoteProperties } from "./noteShared";
@@ -56,6 +56,32 @@ describe("NoteAside graph section", () => {
 
     fireEvent.click(canvas);
     expect(navigate).toHaveBeenCalledWith({ to: "/notes/$noteId", params: { noteId: "2" } });
+  });
+
+  it("opens the enlarged graph in a centered dialog and closes on backdrop click", () => {
+    localGraph.mockReturnValue({ data: linkedGraph });
+    const { container } = render(<NoteAside backlinks={[]} noteID="1" journalDate="" />);
+
+    fireEvent.click(screen.getByRole("button", { name: "Enlarge graph" }));
+    const dialog = container.querySelector("dialog.graph-lightbox");
+    expect(dialog).not.toBeNull();
+    // The lightbox carries its own canvas, independent of the aside's.
+    expect(within(dialog! as HTMLElement).getByText("select-2")).toBeTruthy();
+
+    // A backdrop click lands on the dialog element itself and closes (unmounts) the lightbox.
+    fireEvent.click(dialog!);
+    expect(container.querySelector("dialog.graph-lightbox")).toBeNull();
+  });
+
+  it("navigates from a node selected in the enlarged graph and drops the dialog", () => {
+    localGraph.mockReturnValue({ data: linkedGraph });
+    const { container } = render(<NoteAside backlinks={[]} noteID="1" journalDate="" />);
+
+    fireEvent.click(screen.getByRole("button", { name: "Enlarge graph" }));
+    const dialog = container.querySelector("dialog.graph-lightbox")!;
+    fireEvent.click(within(dialog as HTMLElement).getByText("select-2"));
+    expect(navigate).toHaveBeenCalledWith({ to: "/notes/$noteId", params: { noteId: "2" } });
+    expect(container.querySelector("dialog.graph-lightbox")).toBeNull();
   });
 
   it("omits the graph while it is loading or when the note links nowhere", () => {
