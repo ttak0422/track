@@ -1,5 +1,5 @@
 import { fireEvent, render, screen } from "@testing-library/react";
-import { describe, expect, it, vi } from "vitest";
+import { beforeEach, describe, expect, it, vi } from "vitest";
 import { HierarchyMenu } from "./HierarchyMenu";
 import type { HierarchyResponse } from "../types";
 
@@ -25,7 +25,15 @@ const tree: HierarchyResponse = {
   ],
 };
 
+function openMenu() {
+  fireEvent.pointerEnter(screen.getByRole("button", { name: "Hierarchy" }));
+}
+
 describe("HierarchyMenu", () => {
+  beforeEach(() => {
+    localStorage.clear();
+  });
+
   it("asks for the tree only once the menu is opened", () => {
     hierarchy.mockReturnValue({ data: undefined });
     render(<HierarchyMenu />);
@@ -54,9 +62,40 @@ describe("HierarchyMenu", () => {
   it("says so rather than opening an empty panel when nothing is placed by a hierarchy", () => {
     hierarchy.mockReturnValue({ data: { hierarchy: [] } });
     render(<HierarchyMenu />);
-    fireEvent.pointerEnter(screen.getByRole("button", { name: "Hierarchy" }));
+    openMenu();
 
     expect(screen.getByText("No hierarchy")).toBeInTheDocument();
     expect(screen.queryByRole("menuitem")).not.toBeInTheDocument();
+  });
+
+  it("folds a branch away and remembers the fold across a reload", () => {
+    hierarchy.mockReturnValue({ data: tree });
+    const first = render(<HierarchyMenu />);
+    openMenu();
+
+    fireEvent.click(screen.getByRole("menuitem", { name: "Collapse Child" }));
+    // Only the folded branch goes: its parent's row stays, and so does the row that folded it.
+    expect(screen.queryByRole("menuitem", { name: "Grandchild" })).not.toBeInTheDocument();
+    expect(screen.getByRole("menuitem", { name: "Child" })).toBeInTheDocument();
+    expect(screen.getByRole("menuitem", { name: "Expand Child" })).toHaveAttribute("aria-expanded", "false");
+
+    first.unmount();
+    render(<HierarchyMenu />);
+    openMenu();
+    expect(screen.queryByRole("menuitem", { name: "Grandchild" })).not.toBeInTheDocument();
+
+    // And unfolding is remembered the same way, rather than only the folds being sticky.
+    fireEvent.click(screen.getByRole("menuitem", { name: "Expand Child" }));
+    expect(screen.getByRole("menuitem", { name: "Grandchild" })).toBeInTheDocument();
+    expect(localStorage.getItem("track.hierarchyCollapsed")).toBe("[]");
+  });
+
+  it("gives a leaf no fold control", () => {
+    hierarchy.mockReturnValue({ data: tree });
+    render(<HierarchyMenu />);
+    openMenu();
+
+    expect(screen.queryByRole("menuitem", { name: /Grandchild$/ })).toBeInTheDocument();
+    expect(screen.queryByRole("menuitem", { name: "Collapse Grandchild" })).not.toBeInTheDocument();
   });
 });

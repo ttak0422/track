@@ -19,6 +19,16 @@ export function HierarchyMenu() {
   const [asked, setAsked] = useState(false);
   const { data } = useHierarchyQuery(asked);
   const roots = data?.hierarchy ?? [];
+  const [collapsed, setCollapsed] = useState<Set<string>>(storedCollapsed);
+
+  // Folding is written through on the click rather than in an effect: the set is what the reader last
+  // left the tree looking like, and it should survive a reload, not just this menu being closed.
+  function toggleBranch(noteID: string) {
+    const next = new Set(collapsed);
+    if (!next.delete(noteID)) next.add(noteID);
+    setCollapsed(next);
+    localStorage.setItem(collapsedKey, JSON.stringify([...next]));
+  }
 
   function cancelClose() {
     if (closeTimer.current !== undefined) window.clearTimeout(closeTimer.current);
@@ -85,7 +95,12 @@ export function HierarchyMenu() {
           {roots.length === 0 ? (
             <p className="hierarchy-empty">No hierarchy</p>
           ) : (
-            <HierarchyList nodes={roots} onNavigate={() => setOpen(false)} />
+            <HierarchyList
+              nodes={roots}
+              collapsed={collapsed}
+              onToggle={toggleBranch}
+              onNavigate={() => setOpen(false)}
+            />
           )}
         </div>
       ) : null}
@@ -93,26 +108,82 @@ export function HierarchyMenu() {
   );
 }
 
-function HierarchyList({ nodes, onNavigate }: { nodes: HierarchyNode[]; onNavigate: () => void }) {
+function HierarchyList({
+  nodes,
+  collapsed,
+  onToggle,
+  onNavigate,
+}: {
+  nodes: HierarchyNode[];
+  collapsed: Set<string>;
+  onToggle: (noteID: string) => void;
+  onNavigate: () => void;
+}) {
   return (
     <ul className="hierarchy-list">
-      {nodes.map((node) => (
-        <li key={node.note_id}>
-          {/* text control */}
-          <Link
-            to="/notes/$noteId"
-            params={{ noteId: node.note_id }}
-            role="menuitem"
-            title={node.title}
-            onClick={onNavigate}
-          >
-            {node.title}
-          </Link>
-          {node.children?.length ? <HierarchyList nodes={node.children} onNavigate={onNavigate} /> : null}
-        </li>
-      ))}
+      {nodes.map((node) => {
+        const children = node.children ?? [];
+        const folded = collapsed.has(node.note_id);
+        return (
+          <li key={node.note_id}>
+            <div className="hierarchy-row">
+              {/* The caret column is held open on leaves too, so titles at one level line up whether
+                  or not the branch beside them can be folded. */}
+              {children.length > 0 ? (
+                /* icon button */
+                <button
+                  className="hierarchy-toggle"
+                  type="button"
+                  role="menuitem"
+                  aria-expanded={!folded}
+                  aria-label={`${folded ? "Expand" : "Collapse"} ${node.title}`}
+                  onClick={() => onToggle(node.note_id)}
+                >
+                  <span className="hierarchy-caret" aria-hidden="true" />
+                </button>
+              ) : (
+                <span className="hierarchy-toggle" aria-hidden="true" />
+              )}
+              {/* text control */}
+              <Link
+                to="/notes/$noteId"
+                params={{ noteId: node.note_id }}
+                role="menuitem"
+                title={node.title}
+                onClick={onNavigate}
+              >
+                {node.title}
+              </Link>
+            </div>
+            {children.length > 0 && !folded ? (
+              <HierarchyList
+                nodes={children}
+                collapsed={collapsed}
+                onToggle={onToggle}
+                onNavigate={onNavigate}
+              />
+            ) : null}
+          </li>
+        );
+      })}
     </ul>
   );
+}
+
+// Which branches the reader folded, by note id. Only the folds are stored: a tree opens fully
+// expanded, so a note that appears later is visible without anyone having to know about it. Ids that
+// outlive their note are inert set members, not a reason to prune on read.
+const collapsedKey = "track.hierarchyCollapsed";
+
+function storedCollapsed(): Set<string> {
+  // There is no localStorage during the prerender, and the menu is closed in that output anyway.
+  if (typeof window === "undefined") return new Set();
+  try {
+    const stored: unknown = JSON.parse(localStorage.getItem(collapsedKey) ?? "[]");
+    return new Set(Array.isArray(stored) ? stored.filter((id) => typeof id === "string") : []);
+  } catch {
+    return new Set();
+  }
 }
 
 // An org chart: one node over two, connected. Outlines only, like every other rail glyph — it is the

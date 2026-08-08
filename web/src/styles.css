@@ -1539,16 +1539,62 @@ a.calendar-title:focus-visible {
   list-style: none;
 }
 
-/* Depth reads as an indent against a hairline, the aside's quiet-column idiom — no glyphs, no pills. */
+/* Depth reads as an indent against a hairline, the aside's quiet-column idiom — no glyphs, no pills.
+   The indent is half a caret column, so a nested title sits under its parent's rather than under the
+   parent's caret. */
 .hierarchy-list .hierarchy-list {
-  margin-left: 7px;
+  margin-left: 12px;
   border-left: 1px solid var(--line);
   padding-left: 9px;
+}
+
+.hierarchy-row {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+}
+
+/* icon button: the fold caret. The glyph is 8px in a 24px target, and the box is kept on a leaf too
+   (as an empty span), which is what lines the titles of one level up with each other. */
+.hierarchy-toggle {
+  display: grid;
+  width: 24px;
+  height: 24px;
+  flex: none;
+  border: 0;
+  border-radius: var(--radius-sm);
+  padding: 0;
+  color: var(--muted);
+  background: transparent;
+  cursor: pointer;
+  place-items: center;
+}
+
+.hierarchy-toggle:hover,
+.hierarchy-toggle:focus-visible {
+  color: var(--text);
+  background: var(--panel-soft);
+}
+
+/* Down-pointing caret when the branch is open; rotates to point right when it is folded. */
+.hierarchy-caret {
+  width: 0;
+  height: 0;
+  border-top: 5px solid currentColor;
+  border-right: 4px solid transparent;
+  border-left: 4px solid transparent;
+  transition: transform 120ms ease;
+}
+
+.hierarchy-toggle[aria-expanded="false"] .hierarchy-caret {
+  transform: rotate(-90deg);
 }
 
 /* text control */
 .hierarchy-list a {
   display: block;
+  min-width: 0;
+  flex: 1;
   overflow: hidden;
   padding: 3px 0;
   color: var(--muted);
