@@ -85,6 +85,23 @@ func TestBuildPublishesHierarchy(t *testing.T) {
 	if len(outside.Trail) != 0 {
 		t.Fatalf("an out-of-set parent should leave no trail, got %+v", outside.Trail)
 	}
+
+	// The same relation, whole: hierarchy.json carries the forest the rail's menu draws, prebuilt so
+	// the browser never walks it. Only notes the hierarchy places are in it — "Outside" resolves to
+	// nothing published, so it is absent rather than standing as a second root.
+	tree := readJSON[struct {
+		Hierarchy []jsonHierarchyNode `json:"hierarchy"`
+	}](t, filepath.Join(out, "data", "hierarchy.json"))
+	if len(tree.Hierarchy) != 1 || tree.Hierarchy[0].Title != "Welcome" {
+		t.Fatalf("hierarchy roots = %+v, want Welcome alone", tree.Hierarchy)
+	}
+	kids := tree.Hierarchy[0].Children
+	if len(kids) != 1 || kids[0].Title != "Topic" || kids[0].NoteID != PublishID(200) {
+		t.Fatalf("Welcome's children = %+v, want the published Topic", kids)
+	}
+	if deep := kids[0].Children; len(deep) != 1 || deep[0].Title != "Deep" {
+		t.Fatalf("Topic's children = %+v, want Deep", deep)
+	}
 }
 
 // Tags drive three published surfaces at once: the note list, the ```track-query blocks expanded at

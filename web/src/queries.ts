@@ -6,6 +6,7 @@ import {
   getActivity,
   getAgenda,
   getGraph,
+  getHierarchy,
   getLocalGraph,
   getNote,
   getNoteMeta,
@@ -36,6 +37,7 @@ export const queryKeys = {
   activity: (since: string, until: string) => ["activity", since, until] as const,
   agenda: (date: string, vault = "") => ["agenda", vault, date] as const,
   graph: () => ["graph"] as const,
+  hierarchy: () => ["hierarchy"] as const,
   localGraph: (noteID: NoteID) => ["graph", "local", noteID] as const,
   note: (noteID: NoteID) => ["note", noteID] as const,
   noteMeta: (noteID: NoteID) => ["note-meta", noteID] as const,
@@ -134,6 +136,17 @@ export function useOpenTasksQuery(enabled = true) {
     queryKey: queryKeys.openTasks(),
     queryFn: listOpenTasks,
     enabled,
+  });
+}
+
+// useHierarchyQuery reads the vault's "up" tree for the rail's hierarchy menu. It stays disabled
+// until the menu is first opened, so neither first paint nor the prerender pays for it.
+export function useHierarchyQuery(enabled: boolean) {
+  return useQuery({
+    queryKey: queryKeys.hierarchy(),
+    queryFn: getHierarchy,
+    enabled,
+    staleTime: STATIC_MODE ? Infinity : 30_000,
   });
 }
 

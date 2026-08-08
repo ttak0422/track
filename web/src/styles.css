@@ -218,12 +218,16 @@ img.theme-asset-dark {
 
 /* The reader owns the layout; the navigation rail is a compact dock floating over it. The strip around
    the dock does not intercept reader clicks, while the dock itself stays interactive. It sits above the
-   graph view (90) and below menus/search (94+). */
+   graph view (90) and below menus/search (94+).
+
+   The strip covers the top half of the viewport and centres the dock in it, which puts the dock's
+   centre a quarter of the way down: its menus open downward into empty screen rather than fighting the
+   bottom edge, and the dock sits where the eye starts rather than where the page ends. */
 .sidebar {
   position: fixed;
   z-index: 92;
   top: 0;
-  bottom: 0;
+  bottom: 50%;
   left: 8px;
   display: flex;
   align-items: center;
@@ -241,14 +245,20 @@ img.theme-asset-dark {
   border-radius: var(--radius-lg);
   background: var(--panel);
   /* The rail grew a second group (the open note's controls), so on a short window it can be taller
-     than the viewport. Scroll inside the dock without a visible bar. */
-  max-height: calc(100vh - 16px);
+     than the strip it is centred in. Scroll inside the dock without a visible bar. */
+  max-height: calc(50vh - 16px);
   overflow-y: auto;
   scrollbar-width: none;
 }
 
 .activity-rail::-webkit-scrollbar {
   display: none;
+}
+
+/* Nothing in the dock is squashed by a rail too short for its contents — it scrolls instead. This is
+   on every child, not just the buttons: several are wrappers holding a button plus its menu. */
+.activity-rail > * {
+  flex: none;
 }
 
 .rail-search {
@@ -271,8 +281,6 @@ img.theme-asset-dark {
 .rail-button {
   display: grid;
   place-items: center;
-  /* Never squashed by a rail too short for its contents — it scrolls instead (see .activity-rail). */
-  flex: none;
   width: 40px;
   height: 40px;
   border: 0;
@@ -321,11 +329,11 @@ img.theme-asset-dark {
   pointer-events: none;
 }
 
-/* The guides mirror the floating rail rather than measuring from the reader's content box: same center
-   line, same 8px pad, 40px rows, and 6px gaps. */
+/* The guides mirror the floating rail rather than measuring from the reader's content box: same centre
+   line (a quarter down, see .sidebar), same 8px pad, 40px rows, and 6px gaps. */
 .empty-guides {
   position: absolute;
-  top: 50%;
+  top: 25%;
   left: 72px;
   translate: 0 -50%;
   display: flex;
@@ -473,12 +481,13 @@ img.theme-asset-dark {
   box-shadow: 0 16px 38px color-mix(in srgb, #000 18%, transparent);
 }
 
-/* The settings menu opens beside the centered dock. It is fixed so it is not clipped by the rail and
-   stays above reader content like note backlinks and the full-graph view. */
+/* The settings menu opens beside the dock, on the dock's own centre line (a quarter down — see
+   .sidebar). It is fixed so it is not clipped by the rail and stays above reader content like note
+   backlinks and the full-graph view. */
 .rail-menu-panel {
   position: fixed;
   z-index: 95;
-  top: 50%;
+  top: 25%;
   right: auto;
   left: 64px;
   translate: 0 -50%;
@@ -1438,7 +1447,8 @@ a.calendar-title:focus-visible {
   display: flex;
 }
 
-.mode-menu {
+.mode-menu,
+.hierarchy-menu {
   display: flex;
 }
 
@@ -1511,6 +1521,53 @@ a.calendar-title:focus-visible {
   width: 18px;
   height: 18px;
   flex: none;
+}
+
+/* Floating layer: the rail's "up" tree, on the same menu surface but holding nested rows instead of
+   one action list. It scrolls rather than growing past the viewport — a vault's whole hierarchy can
+   be longer than the screen — and never wider than a reading-comfortable column. */
+.hierarchy-panel {
+  max-width: 280px;
+  max-height: 50vh;
+  padding: 8px 10px;
+  overflow-y: auto;
+}
+
+.hierarchy-list {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+/* Depth reads as an indent against a hairline, the aside's quiet-column idiom — no glyphs, no pills. */
+.hierarchy-list .hierarchy-list {
+  margin-left: 7px;
+  border-left: 1px solid var(--line);
+  padding-left: 9px;
+}
+
+/* text control */
+.hierarchy-list a {
+  display: block;
+  overflow: hidden;
+  padding: 3px 0;
+  color: var(--muted);
+  font-size: calc(13px * var(--font-scale, 1));
+  text-decoration: none;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.hierarchy-list a:hover,
+.hierarchy-list a:focus-visible {
+  color: var(--text);
+}
+
+.hierarchy-empty {
+  margin: 0;
+  padding: 3px 0;
+  color: var(--faint);
+  font-size: calc(13px * var(--font-scale, 1));
 }
 
 /* Centered confirmation dialog, above the float controls and floating windows. */

@@ -122,6 +122,12 @@ type jsonNoteResponse struct {
 	Children []jsonRef `json:"children"`
 }
 
+// jsonHierarchyNode mirrors store.HierarchyNode: a published reference plus the notes below it.
+type jsonHierarchyNode struct {
+	jsonRef
+	Children []jsonHierarchyNode `json:"children,omitempty"`
+}
+
 type jsonGraphNode struct {
 	NoteID   string `json:"note_id"`
 	FileKind string `json:"file_kind"`
@@ -292,6 +298,37 @@ func writeBundle(docs []doc, edges []edge, root int64, calendar, share bool, bas
 			cur = p
 		}
 	}
+	// hierarchy.json: the published "up" forest, roots first, prebuilt here so the rail's hierarchy
+	// menu never walks the tree in the browser. Like search.json it is fetched when that menu is first
+	// opened rather than at first paint, so a reader who never opens it never downloads it. Notes the
+	// hierarchy does not place — no parent, no children — are simply absent.
+	var hierarchyNode func(d doc) jsonHierarchyNode
+	hierarchyNode = func(d doc) jsonHierarchyNode {
+		kids := append([]doc(nil), childrenOf[d.id]...)
+		byRecency(kids)
+		node := jsonHierarchyNode{jsonRef: refOf(d)}
+		for _, kid := range kids {
+			node.Children = append(node.Children, hierarchyNode(kid))
+		}
+		return node
+	}
+	// A doc in a cycle has a parent and so is never a root: its branch drops out of the forest, which
+	// is what keeps the walk above finite.
+	hRoots := []doc{}
+	for _, d := range docs {
+		if _, hasParent := parentOf[d.id]; !hasParent && len(childrenOf[d.id]) > 0 {
+			hRoots = append(hRoots, d)
+		}
+	}
+	byRecency(hRoots)
+	forest := make([]jsonHierarchyNode, 0, len(hRoots))
+	for _, d := range hRoots {
+		forest = append(forest, hierarchyNode(d))
+	}
+	if err := writeJSONFile(filepath.Join(outDir, "data", "hierarchy.json"), map[string]any{"hierarchy": forest}); err != nil {
+		return Result{}, err
+	}
+
 	// The query domain for embedded ```track-query fences is the published set (in the shared
 	// recently-updated-first order), so a published table never links to — or leaks — an unpublished
 	// note; its [[Title]] cells resolve through resolve.json like any other wiki link.

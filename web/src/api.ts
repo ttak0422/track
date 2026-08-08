@@ -10,6 +10,7 @@ import type {
   FollowResponse,
   Graph,
   GraphResponse,
+  HierarchyResponse,
   JournalResponse,
   NoteID,
   NoteMetaResponse,
@@ -173,6 +174,16 @@ async function staticSearch(query: string, limit: number): Promise<SearchRespons
   const skip = new Set(titles.map((note) => String(note.note_id)));
   const docs = await searchCorpus();
   return { results: [...titles, ...bodyHits(notes, docs, query, limit - titles.length, skip)] };
+}
+
+// getHierarchy reads the vault's whole "up" tree for the rail's hierarchy menu. Both sides hand over
+// a tree that is already built — a prerendered file on the published site, one indexed query on the
+// live server — and the menu asks for it only when it is first opened, never at first paint.
+export function getHierarchy(): Promise<HierarchyResponse> {
+  if (STATIC_MODE) {
+    return staticData<HierarchyResponse>("hierarchy.json");
+  }
+  return api<HierarchyResponse>("/api/hierarchy");
 }
 
 export function listNotes(): Promise<NotesResponse> {
