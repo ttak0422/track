@@ -1293,14 +1293,14 @@ a.calendar-title:focus-visible {
   left: 0;
   display: flex;
   width: max-content;
-  /* Wide enough for a date-prefixed title on two lines, narrow enough that the panel under the last
-     tab stays inside the window. */
-  max-width: 260px;
-  flex-direction: column;
-  gap: 6px;
+  /* Wide enough for a date-prefixed title beside its buttons, narrow enough that the panel under the
+     last tab stays inside the window. */
+  max-width: 320px;
+  align-items: center;
+  gap: 10px;
   border: 1px solid var(--line);
   border-radius: var(--radius);
-  padding: 8px 8px 6px;
+  padding: 4px 5px 4px 10px;
   background: var(--panel);
   box-shadow: 0 10px 24px color-mix(in srgb, #000 16%, transparent);
   opacity: 0;
@@ -1309,6 +1309,7 @@ a.calendar-title:focus-visible {
 
 /* The full title, wrapped rather than clipped — clipping it here would defeat the point. */
 .tab-tools-title {
+  min-width: 0;
   color: var(--text);
   font-size: calc(13px * var(--font-scale, 1));
   line-height: 1.5;
@@ -1317,8 +1318,8 @@ a.calendar-title:focus-visible {
 
 .tab-tools-actions {
   display: flex;
+  flex: none;
   gap: 2px;
-  justify-content: flex-end;
 }
 
 /* :focus-visible, not :focus-within — clicking a tab focuses its title button, which under

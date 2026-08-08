@@ -279,8 +279,8 @@ The strip is a line of titles on the sheet, not a bar of chrome.
   `font-weight: 500` — never a fill or a box. Inactive tabs are `--muted` with
   no border, and a hairline under the whole strip separates it from the note.
 - **A tab's popup carries what the tab has no room for.** Hovering (or focusing)
-  a tab opens a floating layer (variant 3) under the strip holding its full
-  title, wrapped rather than clipped, and its controls — float and close. Both
+  a tab opens a floating layer (variant 3) under the strip: one row holding its
+  full title — wrapped rather than clipped — with float and close beside it. Both
   used to happen in the tab: two 24px buttons covered the title they belong to,
   and the full title came from the browser's own `title` tooltip, which opens at
   the pointer and landed on top of those buttons. A control that has a panel of
