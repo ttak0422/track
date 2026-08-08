@@ -51,16 +51,18 @@ describe("TabsProvider", () => {
     expect(result.current.tabs).toEqual([{ id: "a1", title: "Alpha" }]);
   });
 
-  it("opens a tab when navigating to a note and dedupes repeats", () => {
+  it("opens a tab when navigating to a note, most recent first, and dedupes repeats", () => {
     routerMock.pathname = "/notes/a1";
     const { result, rerender } = renderHook(() => useTabs(), { wrapper });
     expect(result.current.tabs.map((tab) => tab.id)).toEqual(["a1"]);
 
+    // The note being read is always the leftmost tab, so it is always on the strip whatever the
+    // strip has room for.
     routerMock.pathname = "/notes/b2";
     rerender();
-    expect(result.current.tabs.map((tab) => tab.id)).toEqual(["a1", "b2"]);
+    expect(result.current.tabs.map((tab) => tab.id)).toEqual(["b2", "a1"]);
 
-    // Returning to an already-open note activates it without duplicating the tab.
+    // Returning to an already-open note moves it to the front instead of duplicating the tab.
     routerMock.pathname = "/notes/a1";
     rerender();
     expect(result.current.tabs.map((tab) => tab.id)).toEqual(["a1", "b2"]);
@@ -72,12 +74,12 @@ describe("TabsProvider", () => {
     const { rerender, unmount } = renderHook(() => useTabs(), { wrapper });
     routerMock.pathname = "/notes/b2";
     rerender();
-    expect(storedIDs()).toEqual(["a1", "b2"]);
+    expect(storedIDs()).toEqual(["b2", "a1"]);
     unmount();
 
     routerMock.pathname = "/";
     const { result } = renderHook(() => useTabs(), { wrapper });
-    expect(result.current.tabs.map((tab) => tab.id)).toEqual(["a1", "b2"]);
+    expect(result.current.tabs.map((tab) => tab.id)).toEqual(["b2", "a1"]);
   });
 
   it("keeps restored tabs when the session token is unchanged (a reload)", () => {
@@ -98,19 +100,21 @@ describe("TabsProvider", () => {
     expect(window.localStorage.getItem("track.tabs.session")).toBe("s2");
   });
 
-  it("closes the active tab and navigates to the neighbor that fills its slot", () => {
+  it("closes the active tab and navigates to the note visited before it", () => {
     window.localStorage.setItem(
       "track.tabs",
       JSON.stringify([{ id: "a", title: "" }, { id: "b", title: "" }, { id: "c", title: "" }]),
     );
     routerMock.pathname = "/notes/b";
     const { result } = renderHook(() => useTabs(), { wrapper });
+    // Opening b brought it to the front of the most-recent-first strip.
+    expect(result.current.tabs.map((tab) => tab.id)).toEqual(["b", "a", "c"]);
 
     act(() => result.current.close("b"));
     expect(result.current.tabs.map((tab) => tab.id)).toEqual(["a", "c"]);
     expect(routerMock.navigate).toHaveBeenCalledWith({
       to: "/notes/$noteId",
-      params: { noteId: "c" },
+      params: { noteId: "a" },
     });
   });
 

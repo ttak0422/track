@@ -308,15 +308,15 @@ variable to a CSS color:
 
 ```yaml
 light:
-  accent: "#2f6f5e"
-  text: "#20231f"
+  mark: "#1a1a18"
+  text: "#1a1a18"
 dark:
-  accent: "#62b39b"
+  mark: "#e9e9e4"
 ```
 
-Themeable variables: `bg`, `panel`, `panel-soft`, `text`, `muted`, `line`,
-`accent`, `accent-strong`, `graph-active`, `graph-active-strong`, `generated`,
-`danger`. Unknown keys are ignored and values are validated against safe color
+Themeable variables: `bg`, `panel`, `panel-soft`, `text`, `muted`, `faint`,
+`line`, `line-strong`, `line-node`, `mark`, `danger` — the token set in
+[design.md](design.md). Unknown keys are ignored and values are validated against safe color
 syntax, so a palette can never inject arbitrary CSS. A malformed value is an
 error; a missing or unreadable palette file is logged and the server falls back
 to the built-in palette rather than failing to start. The overrides follow the

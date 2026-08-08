@@ -144,8 +144,9 @@ function ModeIcon({ mode }: { mode: EditorMode }) {
       height="20"
       fill="none"
       stroke="currentColor"
-      strokeWidth="1.8"
+      strokeWidth="1.5"
       strokeLinecap="round"
+      strokeLinejoin="round"
       aria-hidden="true"
     >
       {mode === "preview" ? (
@@ -188,7 +189,7 @@ function FollowIcon({ active }: { active: boolean }) {
       height="20"
       fill="none"
       stroke="currentColor"
-      strokeWidth="1.8"
+      strokeWidth="1.5"
       strokeLinecap="round"
       strokeLinejoin="round"
       aria-hidden="true"

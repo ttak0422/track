@@ -42,7 +42,7 @@
 }
 
 .gallery-switch button[aria-pressed="true"] {
-  color: var(--accent);
+  color: var(--mark);
   font-weight: 600;
 }
 
@@ -148,7 +148,7 @@
 }
 
 .gallery-card-link {
-  color: var(--accent);
+  color: var(--mark);
   cursor: pointer;
 }
 

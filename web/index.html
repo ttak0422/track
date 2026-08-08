@@ -7,7 +7,7 @@
       name="description"
       content="track is a linked Markdown knowledge base: wiki links, backlinks, charts, diagrams, and a local web workspace."
     />
-    <link rel="icon" type="image/svg+xml" href="/k_logo.svg" />
+    <link rel="icon" type="image/svg+xml" href="/track-icon.svg" data-track-favicon />
     <title>track</title>
     <script>
       // The Go server replaces __TRACK_DEFAULT_THEME__ with the configured default before serving this
@@ -19,6 +19,25 @@
         if (theme === "light" || theme === "dark") {
           document.documentElement.dataset.theme = theme;
         }
+        // Keep the built-in favicon aligned with the same explicit/system theme cascade as the app
+        // marks. A configured site icon removes this data attribute during export and is left alone.
+        function updateFavicon() {
+          var link = document.querySelector('link[data-track-favicon]');
+          if (!link) return;
+          var explicitTheme = document.documentElement.dataset.theme;
+          var dark =
+            explicitTheme === "dark" ||
+            (explicitTheme !== "light" && window.matchMedia("(prefers-color-scheme: dark)").matches);
+          var href = link.getAttribute("href") || "";
+          link.setAttribute("href", href.replace(/track-icon(?:-dark)?\.svg$/, dark ? "track-icon-dark.svg" : "track-icon.svg"));
+        }
+        updateFavicon();
+        new MutationObserver(updateFavicon).observe(document.documentElement, {
+          attributes: true,
+          attributeFilter: ["data-theme"],
+        });
+        var colorScheme = window.matchMedia("(prefers-color-scheme: dark)");
+        colorScheme.addEventListener?.("change", updateFavicon);
         // The saved content width is applied before first paint for the same reason: it moves the
         // reading column AND gates the docked aside (html[data-content-width], see the .note-aside
         // rail rules), so applying it only after React mounts would dock then undock the rail.
@@ -40,8 +59,10 @@
     <style>
       /* Reserve the app-shell background before the CSS bundle and React arrive: without this the page
          is blank/white until the bundle mounts, then the real background flashes in — and on the static
-         site that flash lands on top of already-rendered content, scoring as layout shift (CLS). Values
-         must stay in sync with the --bg light/dark tokens in styles.css. */
+         site that flash lands on top of already-rendered content, scoring as layout shift (CLS). The
+         values must stay in sync with the --bg token in styles.css, which is why they are written the
+         same way it is: one light-dark() pair driven by color-scheme, since the stylesheet that sets
+         color-scheme has not loaded yet. */
       html,
       body,
       #root {
@@ -49,16 +70,17 @@
         min-height: 100vh;
         min-height: 100dvh;
       }
+      :root {
+        color-scheme: light dark;
+      }
+      :root[data-theme="dark"] {
+        color-scheme: dark;
+      }
+      :root[data-theme="light"] {
+        color-scheme: light;
+      }
       body {
-        background: #f7f7f4;
-      }
-      :root[data-theme="dark"] body {
-        background: #161814;
-      }
-      @media (prefers-color-scheme: dark) {
-        :root:not([data-theme="light"]) body {
-          background: #161814;
-        }
+        background: light-dark(#fbfaf8, #141618);
       }
     </style>
     __TRACK_COLOR_OVERRIDES__

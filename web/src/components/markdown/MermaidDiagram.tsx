@@ -1,5 +1,6 @@
 import type { MermaidConfig } from "mermaid";
 import { type PointerEvent, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
+import { useThemeVersion } from "../../hooks/useThemeVersion";
 import { CodeBlock } from "./CodeBlock";
 import { copyText } from "./clipboard";
 
@@ -52,7 +53,7 @@ interface DiagramFrameProps {
   // The block's source text, for the copy button and the error fallback code block.
   source: string;
   sourceLang: string;
-  // Accessible name of the rendered figure, e.g. "Mermaid diagram".
+  // Accessible name of the rendered visualization, e.g. "Mermaid diagram".
   label: string;
   // Extra class on the root, so engine-specific CSS (e.g. Graphviz dark-mode inversion) can hook in.
   className?: string;
@@ -95,6 +96,7 @@ export function DiagramFrame({ state, source, sourceLang, label, className }: Di
     zoomBy,
     handlers,
     collapsed,
+    showFoldControl,
     toggleCollapsed,
   } = panZoom;
   return (
@@ -124,22 +126,24 @@ export function DiagramFrame({ state, source, sourceLang, label, className }: Di
           the fold chip already owns the "there is more" signal until expanded. */}
       {!collapsed && overflow.left && <div className="mermaid-continuation-left" aria-hidden="true" />}
       {!collapsed && overflow.right && <div className="mermaid-continuation-right" aria-hidden="true" />}
-      <button
-        className="mermaid-control mermaid-fold"
-        type="button"
-        onClick={toggleCollapsed}
-        aria-label={collapsed ? "Expand diagram" : "Collapse diagram"}
-        title={collapsed ? "Expand diagram" : "Collapse diagram"}
-      >
-        {collapsed ? (
-          <>
-            <span aria-hidden="true">▾</span>
-            <span>Show full diagram</span>
-          </>
-        ) : (
-          "▴"
-        )}
-      </button>
+      {showFoldControl && (
+        <button
+          className="mermaid-control mermaid-fold"
+          type="button"
+          onClick={toggleCollapsed}
+          aria-label={collapsed ? "Expand diagram" : "Collapse diagram"}
+          title={collapsed ? "Expand diagram" : "Collapse diagram"}
+        >
+          {collapsed ? (
+            <>
+              <span aria-hidden="true">▾</span>
+              <span>Show full diagram</span>
+            </>
+          ) : (
+            "▴"
+          )}
+        </button>
+      )}
       {!collapsed && (
         <div className="mermaid-controls">
           <CopySource text={source} />
@@ -227,7 +231,7 @@ const fitWidthRatio = 0.8;
 // Readability floor: a wide diagram never fits below this fraction of the ideal scale (12px text
 // against a 16px article). Past it the diagram overflows horizontally — clipped at the viewport
 // edge and pannable, the horizontal analog of a tall diagram's collapsed preview — instead of
-// shrinking the whole figure to an unreadable thumbnail.
+// shrinking the whole visualization to an unreadable thumbnail.
 const minReadableRatio = 0.75;
 
 // Font size mermaid renders at (pinned in mermaidConfig). The ideal display scale makes diagram
@@ -235,10 +239,10 @@ const minReadableRatio = 0.75;
 const mermaidFontPx = 16;
 
 // A collapsed tall diagram keeps its normal readable fit but reveals only this much. A fade and
-// labelled control make the continuation explicit instead of shrinking the whole figure to illegibility.
+// labelled control make the continuation explicit instead of shrinking the whole visualization to illegibility.
 const collapsedHeight = 320;
 
-// A diagram whose fitted height exceeds this starts collapsed, so tall figures never dominate a
+// A diagram whose fitted height exceeds this starts collapsed, so tall visualizations never dominate a
 // page being skimmed; the fold button restores the full size.
 const autoCollapseHeight = 480;
 
@@ -256,6 +260,9 @@ function usePanZoom(svg: string | null) {
   const [transform, setTransform] = useState<Transform>(identityTransform);
   const [viewportHeight, setViewportHeight] = useState<number | null>(null);
   const [collapsed, setCollapsed] = useState(false);
+  // A fold control is useful only when the diagram needed the initial collapsed preview. Small diagrams
+  // start fully open and should not grow a permanent close affordance after every render.
+  const [showFoldControl, setShowFoldControl] = useState(false);
   const viewportRef = useRef<HTMLDivElement>(null);
   const panRef = useRef<HTMLDivElement>(null);
   const fitRef = useRef<Transform>(identityTransform);
@@ -311,6 +318,7 @@ function usePanZoom(svg: string | null) {
     touchedRef.current = false;
     const { height } = computeFit(naturalW, naturalH, viewport.clientWidth, idealScaleRef.current);
     const startCollapsed = height > autoCollapseHeight;
+    setShowFoldControl(startCollapsed);
     setCollapsed(startCollapsed);
     applyView(startCollapsed);
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -347,7 +355,10 @@ function usePanZoom(svg: string | null) {
   // Shift+wheel zooms, and a trackpad pinch (ctrl+wheel) zooms instead of scaling the whole page.
   // Non-passive so the zooming cases can preventDefault. A collapsed thumbnail is inert either way.
   // Keyed on svg for the same mount-timing reason as the resize observer above.
-  useEffect(() => {
+  // Layout, not passive: the listener has to exist by the time the diagram is on screen. A passive
+  // effect leaves a window where the SVG is in the DOM and the wheel does nothing — small in a
+  // browser, and wide enough in the tests that the zoom case failed about one run in ten.
+  useLayoutEffect(() => {
     const el = viewportRef.current;
     if (!el) return;
     function onWheel(event: WheelEvent) {
@@ -443,6 +454,7 @@ function usePanZoom(svg: string | null) {
     zoomBy,
     handlers: { onPointerDown, onPointerMove, onPointerUp, onPointerCancel: onPointerUp },
     collapsed,
+    showFoldControl,
     toggleCollapsed: () => {
       touchedRef.current = false;
       setCollapsed(!collapsed);
@@ -527,33 +539,49 @@ export function mermaidConfig(): MermaidConfig {
       // The base theme derives every color we don't pin (edge labels, section fills, cluster
       // titles, …) for a light surface unless told otherwise; on the dark theme that left #333-ish
       // text on dark panels. darkMode flips those derivations, textColor pins the biggest offender.
-      darkMode: isDarkColor(color("--bg", "#f7f7f4")),
-      textColor: color("--text", "#20231f"),
+      darkMode: isDarkColor(color("--bg", "#fbfaf8")),
+      textColor: color("--text", "#1a1a18"),
       // Pinned (mermaid's default, but relied on by measureIdealScale) so display scale can map
       // diagram text onto the article's font size.
       fontSize: `${mermaidFontPx}px`,
-      background: color("--panel", "#ffffff"),
-      primaryColor: color("--panel-soft", "#f6f6f3"),
-      primaryTextColor: color("--text", "#20231f"),
-      primaryBorderColor: color("--line", "#d9d6cd"),
+      // The diagram has no decorative bed of its own; keep the page behind it visible and let nodes
+      // carry the visual structure.
+      background: "transparent",
+      primaryColor: color("--panel", "#ffffff"),
+      primaryTextColor: color("--text", "#1a1a18"),
+      primaryBorderColor: color("--line-node", "#8e8c84"),
       secondaryColor: color("--panel", "#ffffff"),
-      tertiaryColor: color("--bg", "#faf9f5"),
-      lineColor: color("--muted", "#666a60"),
-      noteBkgColor: color("--panel-soft", "#f6f6f3"),
-      noteTextColor: color("--text", "#20231f"),
-      noteBorderColor: color("--line", "#d9d6cd"),
+      tertiaryColor: color("--panel-soft", "#f3f2ee"),
+      lineColor: color("--muted", "#5e5d58"),
+      noteBkgColor: color("--panel", "#ffffff"),
+      noteTextColor: color("--text", "#1a1a18"),
+      noteBorderColor: color("--line", "#e6e4de"),
     },
-    fontFamily: 'Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif',
+    fontFamily:
+      css.getPropertyValue("--font-sans").trim() ||
+      '"IBM Plex Sans JP", Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif',
   };
 }
 
-// isDarkColor reads a #rrggbb theme token's perceived luminance, so dark detection follows whatever
-// theme resolved the tokens instead of duplicating the data-theme / prefers-color-scheme cascade.
-export function isDarkColor(hex: string): boolean {
-  const m = /^#([0-9a-f]{6})$/i.exec(hex);
-  if (!m) return false;
-  const v = Number.parseInt(m[1], 16);
-  const luminance = (0.2126 * ((v >> 16) & 0xff) + 0.7152 * ((v >> 8) & 0xff) + 0.0722 * (v & 0xff)) / 255;
+// isDarkColor reads a theme token's perceived luminance, so dark detection follows whatever theme
+// resolved the tokens instead of duplicating the data-theme / prefers-color-scheme cascade. Both
+// notations are accepted: the tokens are written as hex, but they are registered custom properties
+// (see styles.css), so getPropertyValue hands back the computed "rgb(r, g, b)" instead.
+export function isDarkColor(color: string): boolean {
+  const hex = /^#([0-9a-f]{6})$/i.exec(color);
+  const rgb = /^rgba?\(\s*([\d.]+)[\s,]+([\d.]+)[\s,]+([\d.]+)/i.exec(color);
+  let r: number;
+  let g: number;
+  let b: number;
+  if (hex) {
+    const v = Number.parseInt(hex[1], 16);
+    [r, g, b] = [(v >> 16) & 0xff, (v >> 8) & 0xff, v & 0xff];
+  } else if (rgb) {
+    [r, g, b] = [Number(rgb[1]), Number(rgb[2]), Number(rgb[3])];
+  } else {
+    return false;
+  }
+  const luminance = (0.2126 * r + 0.7152 * g + 0.0722 * b) / 255;
   return luminance < 0.5;
 }
 
@@ -562,26 +590,4 @@ function errorMessage(error: unknown): string {
     return `Mermaid render failed: ${error.message}`;
   }
   return "Mermaid render failed.";
-}
-
-// useThemeVersion bumps whenever the app theme changes (the data-theme attribute or the OS
-// preference), so theme-dependent renders (Mermaid, ECharts) can redraw with the new colors.
-export function useThemeVersion(): number {
-  const [version, setVersion] = useState(0);
-
-  useEffect(() => {
-    const bump = () => setVersion((value) => value + 1);
-    const observer = new MutationObserver(bump);
-    observer.observe(document.documentElement, { attributes: true, attributeFilter: ["data-theme"] });
-
-    const media = window.matchMedia?.("(prefers-color-scheme: dark)");
-    media?.addEventListener("change", bump);
-
-    return () => {
-      observer.disconnect();
-      media?.removeEventListener("change", bump);
-    };
-  }, []);
-
-  return version;
 }

@@ -1021,7 +1021,7 @@ func TestAppServesSPAFallback(t *testing.T) {
 
 func TestIndexInjectsPaletteOverrides(t *testing.T) {
 	palettePath := filepath.Join(t.TempDir(), "colors.yml")
-	if err := os.WriteFile(palettePath, []byte("dark:\n  accent: \"#123456\"\n"), 0o644); err != nil {
+	if err := os.WriteFile(palettePath, []byte("dark:\n  mark: \"#123456\"\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
 	cfg := &config.Config{
@@ -1045,7 +1045,7 @@ func TestIndexInjectsPaletteOverrides(t *testing.T) {
 	defer resp.Body.Close()
 	body, _ := io.ReadAll(resp.Body)
 	html := string(body)
-	if !strings.Contains(html, `id="track-colors"`) || !strings.Contains(html, "--accent:#123456;") {
+	if !strings.Contains(html, `id="track-colors"`) || !strings.Contains(html, "--mark:#123456;") {
 		t.Fatalf("served HTML should inject palette overrides, got:\n%s", html)
 	}
 }

@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
-import { DiagramFrame, type DiagramState, isDarkColor, useThemeVersion } from "./MermaidDiagram";
+import { useThemeVersion } from "../../hooks/useThemeVersion";
+import { DiagramFrame, type DiagramState, isDarkColor } from "./MermaidDiagram";
 
 interface D2DiagramProps {
   text: string;

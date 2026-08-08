@@ -9,6 +9,7 @@ import {
   type SimulationNodeDatum,
 } from "d3-force";
 import { PointerEvent, useEffect, useRef, useState } from "react";
+import { useThemeVersion } from "../hooks/useThemeVersion";
 import type { Graph, GraphEdge, GraphNode, NoteID } from "../types";
 import { isZoomWheel, zoomDelta } from "./graphWheel";
 
@@ -128,6 +129,7 @@ export function GraphCanvas({
   const onHoverRef = useRef(onHover);
   const highlightRef = useRef<ReadonlySet<NoteID> | null>(highlightIds);
   const [size, setSize] = useState({ width: 1, height: 1 });
+  const themeVersion = useThemeVersion();
 
   onSelectRef.current = onSelect;
   onHoverRef.current = onHover;
@@ -162,7 +164,7 @@ export function GraphCanvas({
       viewRef.current = fitGraphView(size);
     }
     drawGraph(size);
-  }, [size]);
+  }, [size, themeVersion]);
 
   useEffect(() => {
     dragRef.current = null;
@@ -387,11 +389,13 @@ export function GraphCanvas({
     ctx.translate(width / 2 + view.x * ratio, height / 2 + view.y * ratio);
     ctx.scale(view.scale, view.scale);
     const labelFontSize = 13;
-    ctx.font = `${Math.floor((labelFontSize * ratio) / view.scale)}px system-ui, sans-serif`;
+    ctx.font = `${Math.floor((labelFontSize * ratio) / view.scale)}px ${
+      css("--font-sans") || '"IBM Plex Sans JP", Inter, system-ui, sans-serif'
+    }`;
     const baseLineWidth = (1 * ratio) / view.scale;
     const highlightLineWidth = (2.6 * ratio) / view.scale;
     ctx.lineWidth = baseLineWidth;
-    ctx.strokeStyle = css("--line");
+    ctx.strokeStyle = css("--line-strong");
 
     // Search and hover both keep the graph shape intact: active nodes/edges stay strong while the rest
     // dim in place instead of being removed from the graph.
@@ -420,11 +424,11 @@ export function GraphCanvas({
         const active = edgeIsActive(edge);
         ctx.globalAlpha = active ? 0.86 : 0.08;
         ctx.lineWidth = active ? highlightLineWidth : baseLineWidth;
-        ctx.strokeStyle = active ? css("--graph-active-strong") : css("--line");
+        ctx.strokeStyle = active ? css("--mark") : css("--line-strong");
       } else {
         ctx.globalAlpha = 0.62;
         ctx.lineWidth = baseLineWidth;
-        ctx.strokeStyle = css("--line");
+        ctx.strokeStyle = css("--line-strong");
       }
       ctx.beginPath();
       ctx.moveTo(edge.source.x * ratio, edge.source.y * ratio);
@@ -440,20 +444,28 @@ export function GraphCanvas({
       const radius = (nodeRadius(node) * ratio) / view.scale;
       const x = node.x * ratio;
       const y = node.y * ratio;
-      ctx.globalAlpha = active ? 0.92 : 0.18;
+      const nodeAlpha = active ? 0.92 : 0.18;
       ctx.lineWidth = hasActiveHighlight && active ? highlightLineWidth : baseLineWidth;
       ctx.beginPath();
       ctx.arc(x, y, radius, 0, Math.PI * 2);
       if (hasActiveHighlight && active) {
-        // Light active nodes up with the graph accent so search and hover focus stay distinct from
-        // the rest of the UI accent system.
-        ctx.fillStyle = css("--graph-active");
-        ctx.strokeStyle = css("--graph-active-strong");
+        // Ink, like everything else that is emphasised here (design.md, Sidebar). What marks a match
+        // is not a colour of its own but the contrast with the rest, which dims in place — the same
+        // move the reader makes when it takes emphasis from weight and space instead of hue.
+        ctx.fillStyle = css("--mark");
+        ctx.strokeStyle = css("--mark");
       } else {
-        ctx.fillStyle = center ? css("--graph-active") : css("--panel-soft");
-        ctx.strokeStyle = center ? css("--graph-active-strong") : css("--muted");
+        // At rest the graph is ink and outline (design.md, Sidebar): the note you are on is the one
+        // filled dot, its neighbours are rings on the page. Colour is reserved for the highlight
+        // above, where it means "this is what you asked for".
+        ctx.fillStyle = center && !hasActiveHighlight ? css("--mark") : css("--bg");
+        ctx.strokeStyle = center ? css("--mark") : css("--line-node");
       }
+      // Edges are painted first, so a translucent fill would let them show through every node. Keep
+      // the interior opaque and use alpha only for the outline's inactive/active emphasis.
+      ctx.globalAlpha = 1;
       ctx.fill();
+      ctx.globalAlpha = nodeAlpha;
       ctx.stroke();
     });
 

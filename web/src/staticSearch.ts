@@ -53,7 +53,7 @@ export function splitOrGroups(text: string): string[][] {
 // JavaScript's toLowerCase applies Unicode SpecialCasing on top — a word-final "Σ" becomes "ς" and
 // "İ" expands to "i" + U+0307 — so a body the CLI matches would quietly miss here. Pre-map the two
 // characters where the two folds disagree, then lowercase.
-function fold(text: string): string {
+export function fold(text: string): string {
   return text.replace(/İ/g, "i").replace(/Σ/g, "σ").toLowerCase();
 }
 

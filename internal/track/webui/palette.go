@@ -12,19 +12,19 @@ import (
 
 // paletteVars is the whitelist of themeable CSS custom properties. Only these keys are honored in a
 // palette file, so a palette can never inject arbitrary properties into the served page.
+// The ten that carry the interface plus the figure palette's own (docs/spec/design.md, Tokens).
 var paletteVars = map[string]bool{
-	"bg":                  true,
-	"panel":               true,
-	"panel-soft":          true,
-	"text":                true,
-	"muted":               true,
-	"line":                true,
-	"accent":              true,
-	"accent-strong":       true,
-	"graph-active":        true,
-	"graph-active-strong": true,
-	"generated":           true,
-	"danger":              true,
+	"bg":          true,
+	"panel":       true,
+	"panel-soft":  true,
+	"text":        true,
+	"muted":       true,
+	"faint":       true,
+	"line":        true,
+	"line-strong": true,
+	"line-node":   true,
+	"mark":        true,
+	"danger":      true,
 }
 
 // colorValue restricts palette values to safe CSS color syntax (hex, rgb()/hsl()/keyword). It excludes
@@ -34,10 +34,10 @@ var colorValue = regexp.MustCompile(`^#[0-9A-Fa-f]{3,8}$|^[a-zA-Z]+$|^(rgb|rgba|
 // paletteFile is the on-disk palette format: per-theme maps of themeable variable name to CSS color.
 //
 //	light:
-//	  accent: "#2f6f5e"
-//	  text: "#20231f"
+//	  mark: "#1a1a18"
+//	  text: "#1a1a18"
 //	dark:
-//	  accent: "#62b39b"
+//	  mark: "#e9e9e4"
 type paletteFile struct {
 	Light map[string]string `yaml:"light"`
 	Dark  map[string]string `yaml:"dark"`

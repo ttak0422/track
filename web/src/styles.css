@@ -1,31 +1,74 @@
+@import url("https://fonts.googleapis.com/css2?family=IBM+Plex+Sans+JP:wght@400;500;600;700&display=swap");
+
 /* Design master: docs/spec/design.md — pick a variant there (text control, quiet chip, floating
-   layer, filled action, underline input, section label) before styling any new control. */
+   layer, filled action, underline input, section label, icon button, link) before styling any new
+   control. */
+
+/* Every color token is registered. That is what lets each value be declared once, as light-dark():
+   getPropertyValue() on an *unregistered* custom property hands back the literal text
+   "light-dark(#fbfaf8, #141618)", and echartsTheme.ts, mermaidConfig() and GraphCanvas all read
+   their colors that way — registered as <color>, the same call resolves to whichever mode is live.
+   initial-value is never used (:root declares every one of them below); a grey UI means a token was
+   deleted, not that a theme drifted. */
+@property --bg { syntax: "<color>"; inherits: true; initial-value: #808080 }
+@property --panel { syntax: "<color>"; inherits: true; initial-value: #808080 }
+@property --panel-soft { syntax: "<color>"; inherits: true; initial-value: #808080 }
+@property --text { syntax: "<color>"; inherits: true; initial-value: #808080 }
+@property --muted { syntax: "<color>"; inherits: true; initial-value: #808080 }
+@property --faint { syntax: "<color>"; inherits: true; initial-value: #808080 }
+@property --line { syntax: "<color>"; inherits: true; initial-value: #808080 }
+@property --line-strong { syntax: "<color>"; inherits: true; initial-value: #808080 }
+@property --line-node { syntax: "<color>"; inherits: true; initial-value: #808080 }
+@property --mark { syntax: "<color>"; inherits: true; initial-value: #808080 }
+@property --danger { syntax: "<color>"; inherits: true; initial-value: #808080 }
+@property --chart-1 { syntax: "<color>"; inherits: true; initial-value: #808080 }
+@property --chart-2 { syntax: "<color>"; inherits: true; initial-value: #808080 }
+@property --chart-3 { syntax: "<color>"; inherits: true; initial-value: #808080 }
+@property --chart-4 { syntax: "<color>"; inherits: true; initial-value: #808080 }
+@property --chart-5 { syntax: "<color>"; inherits: true; initial-value: #808080 }
+@property --chart-6 { syntax: "<color>"; inherits: true; initial-value: #808080 }
+@property --chart-ramp-lo { syntax: "<color>"; inherits: true; initial-value: #808080 }
+@property --chart-ramp-hi { syntax: "<color>"; inherits: true; initial-value: #808080 }
+
 :root {
+  /* light-dark() reads this, so the two theme selectors below are the whole theme switch — there is
+     no second copy of the dark palette to fall out of step with the first. */
   color-scheme: light dark;
-  --bg: #f7f7f4;
-  --panel: #ffffff;
-  --panel-soft: #f0f2ef;
-  --text: #20231f;
-  --muted: #687069;
-  --line: #d9ddd5;
-  --accent: #2f6f5e;
-  --accent-strong: #174c40;
-  --graph-active: #f08300;
-  --graph-active-strong: #a85200;
-  --danger: #8a352b;
-  /* Chart series palette + heatmap ramp, tuned to the app theme (read by echartsTheme.ts). */
-  --chart-1: #2f6f5e;
-  --chart-2: #f08300;
-  --chart-3: #5b7aa5;
-  --chart-4: #8a352b;
-  --chart-5: #7d8a4e;
-  --chart-6: #96608f;
-  --chart-ramp-lo: #e3ece9;
-  --chart-ramp-hi: #174c40;
-  font-family:
-    Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+  /* The ten that carry the interface (docs/spec/design.md). Chrome is ink and hairlines; the only
+     colored things on a page are its visualizations, whose palette follows. */
+  --bg: light-dark(#fbfaf8, #141618);
+  --panel: light-dark(#ffffff, #191c1e);
+  --panel-soft: light-dark(#f3f2ee, #212528);
+  --text: light-dark(#1a1a18, #e9e9e4);
+  --muted: light-dark(#5e5d58, #a2a29b);
+  /* AA on every ground it sits on (4.6:1 over --panel-soft, 5.1:1 over the sheet): this one
+     carries labels, metadata, and caption sources, which are text. */
+  --faint: light-dark(#6f6e68, #8b8b83);
+  --line: light-dark(#e6e4de, #282c2f);
+  --line-strong: light-dark(#c7c5bd, #3e4347);
+  --line-node: light-dark(#8e8c84, #6e7478);
+  /* Ink by value, a salient by role: the one token a brand color would ever replace. */
+  --mark: light-dark(#1a1a18, #e9e9e4);
+  /* The visualization palette: quiet, earthy series colours and a teal heatmap ramp (read by
+     echartsTheme.ts). The chrome never reaches in here. */
+  --danger: light-dark(#8a352b, #de766b);
+  --chart-1: light-dark(#286957, #74c4a8);
+  --chart-2: light-dark(#a05f2e, #dca06a);
+  --chart-3: light-dark(#536f91, #9bb7d5);
+  --chart-4: light-dark(#99504a, #dc8b84);
+  --chart-5: light-dark(#737b4a, #b5c383);
+  --chart-6: light-dark(#795f80, #c1a4c6);
+  --chart-ramp-lo: light-dark(#e4ebe7, #28322f);
+  --chart-ramp-hi: light-dark(#286957, #91d0b8);
+  --font-sans:
+    "IBM Plex Sans JP", Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI",
+    sans-serif;
+  font-family: var(--font-sans);
   /* The one mono stack — code, the editor, and section labels all read from here. */
   --font-mono: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, monospace;
+  /* The prose column. 40em is ~40 Japanese characters (1em each) and ~48 with Latin mixed in — the
+     column the reader's visualizations and tables are allowed to be wider than. */
+  --measure: 40em;
   /* The whole radius scale: badges and inline chips, controls and quiet chips, panels and floating
      layers. Drawn shapes (icon glyphs, heatmap cells, pills, circles) keep their own geometry. */
   --radius-sm: 4px;
@@ -35,62 +78,53 @@
 
 :root[data-theme="dark"] {
   color-scheme: dark;
-  --bg: #161814;
-  --panel: #20231f;
-  --panel-soft: #292d28;
-  --text: #ecefe8;
-  --muted: #a3aa9f;
-  --line: #3a4039;
-  --accent: #62b39b;
-  --accent-strong: #8dd8c2;
-  --graph-active: #ff9a1f;
-  --graph-active-strong: #ffc06a;
-  --danger: #de766b;
-  --chart-1: #62b39b;
-  --chart-2: #ff9a1f;
-  --chart-3: #8fb0d8;
-  --chart-4: #de766b;
-  --chart-5: #b3c47a;
-  --chart-6: #c99bc2;
-  --chart-ramp-lo: #22302b;
-  --chart-ramp-hi: #8dd8c2;
 }
 
 :root[data-theme="light"] {
   color-scheme: light;
 }
 
-@media (prefers-color-scheme: dark) {
-  :root:not([data-theme="light"]) {
-    --bg: #161814;
-    --panel: #20231f;
-    --panel-soft: #292d28;
-    --text: #ecefe8;
-    --muted: #a3aa9f;
-    --line: #3a4039;
-    --accent: #62b39b;
-    --accent-strong: #8dd8c2;
-    --graph-active: #ff9a1f;
-    --graph-active-strong: #ffc06a;
-    --danger: #de766b;
-  --chart-1: #62b39b;
-  --chart-2: #ff9a1f;
-  --chart-3: #8fb0d8;
-  --chart-4: #de766b;
-  --chart-5: #b3c47a;
-  --chart-6: #c99bc2;
-  --chart-ramp-lo: #22302b;
-  --chart-ramp-hi: #8dd8c2;
-  }
-}
-
 * {
   box-sizing: border-box;
 }
 
-/* Section labels — the small caps naming a region (ACTIVITY, BACKLINKS, a code block's language, an
-   OGP card's site). One recipe everywhere: quiet mono caps, muted like the rest of the chrome at
-   rest. Layout (margins) stays with each site; only the typography is shared here. */
+/* Every visible native scroller shares one quiet scrollbar: narrow enough to stay secondary, but with
+   a real thumb so horizontal code and wide tables remain discoverable. Component-specific scrollers
+   that deliberately hide their bar keep their local `scrollbar-width: none` rule below. */
+* {
+  scrollbar-width: thin;
+  scrollbar-color: var(--line-strong) transparent;
+}
+
+*::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+
+*::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+*::-webkit-scrollbar-thumb {
+  min-height: 32px;
+  border: 2px solid transparent;
+  border-radius: 999px;
+  background: var(--line-strong);
+  background-clip: padding-box;
+}
+
+*::-webkit-scrollbar-thumb:hover {
+  background: var(--muted);
+  background-clip: padding-box;
+}
+
+*::-webkit-scrollbar-corner {
+  background: transparent;
+}
+
+/* Section labels — the small caps naming a region (CONTENTS, BACKLINKS, a property's key, a code
+   block's language, an OGP card's site). One recipe everywhere: quiet mono caps, the faintest ink on
+   the page. Layout (margins) stays with each site; only the typography is shared here. */
 .activity-header h2,
 .activity-panel h2,
 .backlinks h3,
@@ -99,12 +133,14 @@
 .results-group,
 .code-block[data-language]::before,
 .markdown-view .task-table th,
+.markdown-view th,
+.note-prop dt,
 .ogp-card-site {
-  color: var(--muted);
+  color: var(--faint);
   font-family: var(--font-mono);
   font-size: calc(11px * var(--font-scale, 1));
   font-weight: 500;
-  letter-spacing: 0.06em;
+  letter-spacing: 0.12em;
   text-transform: uppercase;
 }
 
@@ -146,6 +182,31 @@ button {
   white-space: nowrap;
 }
 
+/* Brand assets ship in light/dark pairs so manual theme selection changes the mark immediately, while
+   an unset theme follows the system color scheme. The alternate image is hidden rather than filtered:
+   the supplied lockups carry their own deliberate black/white contrast. */
+img.theme-asset-dark {
+  display: none;
+}
+
+:root[data-theme="dark"] .theme-asset-light {
+  display: none;
+}
+
+:root[data-theme="dark"] .theme-asset-dark {
+  display: block;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) .theme-asset-light {
+    display: none;
+  }
+
+  :root:not([data-theme="light"]) .theme-asset-dark {
+    display: block;
+  }
+}
+
 .workspace {
   display: grid;
   /* The reader column must shrink below its content's preferred width (a phone is narrower than the
@@ -155,18 +216,12 @@ button {
   min-height: 560px;
 }
 
-/* The dock reserves no column: it floats over the reader, which runs the full width beneath it.
-   Nothing in the layout shifts to make room, so the rail costs the page no space at all. Below
-   .search-backdrop (94), so entering search dims the dock like everything else it covers; above
-   .graph-full (90), whose full-bleed canvas would otherwise paint over it on /graph. */
+/* The reader owns the layout; the navigation rail is a compact dock floating over it. The strip around
+   the dock does not intercept reader clicks, while the dock itself stays interactive. It sits above the
+   graph view (90) and below menus/search (94+). */
 .sidebar {
   position: fixed;
-  z-index: 91;
-  /* A full-height strip that centres the dock by alignment, NOT by translate. A transformed ancestor
-     becomes the containing block for its fixed-position descendants, and the search palette lives
-     inside the rail: a translate here shrinks its backdrop to the dock's own 48px box and clips the
-     popup inside the rail's scroller. The strip itself must not eat clicks meant for the reader
-     beneath it, hence pointer-events. */
+  z-index: 92;
   top: 0;
   bottom: 0;
   left: 8px;
@@ -175,24 +230,18 @@ button {
   pointer-events: none;
 }
 
-/* Floating layer (design.md variant 3): the rail is a dock over the sheet, not a column ruled out of
-   it, so it earns a surface, a hairline, and a shadow the rest of the permanent chrome never takes. */
 .activity-rail {
   display: flex;
   flex-direction: column;
   align-items: center;
   gap: 6px;
   padding: 8px 4px;
-  /* Restores what the strip above switches off — the dock and its popups are clickable, the empty
-     space around them is not. */
   pointer-events: auto;
   border: 1px solid var(--line);
   border-radius: var(--radius-lg);
   background: var(--panel);
-  box-shadow: 0 16px 38px color-mix(in srgb, #000 18%, transparent);
   /* The rail grew a second group (the open note's controls), so on a short window it can be taller
-     than the viewport. Bound it to the viewport and scroll inside, without a visible bar: this is
-     chrome, and the bar would eat a quarter of a 48px dock. */
+     than the viewport. Scroll inside the dock without a visible bar. */
   max-height: calc(100vh - 16px);
   overflow-y: auto;
   scrollbar-width: none;
@@ -206,6 +255,8 @@ button {
   position: relative;
 }
 
+/* The mark: the one solid shape in a rail of outlines, so it reads as the mark and not as another
+   control. Square, because a configured site icon (an image) drops into the same box. */
 .rail-mark {
   display: block;
   width: auto;
@@ -235,11 +286,11 @@ button {
   color: var(--text);
 }
 
-/* A rail button that marks a mode being on — the note's display mode, follow — carries the accent,
+/* A rail button that marks a mode being on — the note's display mode, follow — carries the mark,
    the text control's "active" state (design.md variant 1). Navigation buttons never take it: they go
    somewhere rather than turn something on. */
 .rail-button.active {
-  color: var(--accent);
+  color: var(--mark);
 }
 
 /* The hairline separating the workspace's views from the open note's controls below them. */
@@ -251,44 +302,10 @@ button {
   background: var(--line);
 }
 
-.rail-icon {
-  position: relative;
-  display: block;
-  width: 20px;
-  height: 20px;
-}
-
-.rail-icon-journal {
-  border: 2px solid currentColor;
-  border-radius: 3px;
-}
-
-.rail-icon-journal::before {
-  content: "";
-  position: absolute;
-  top: 0;
-  left: 0;
-  right: 0;
-  height: 4px;
-  border-bottom: 2px solid currentColor;
-}
-
-.rail-icon-journal::after {
-  content: "";
-  position: absolute;
-  left: 4px;
-  top: 9px;
-  width: 4px;
-  height: 4px;
-  background: currentColor;
-  border-radius: 1px;
-}
-
 /* Static-site empty state (every tab closed): a faint centered mark plus arrows pointing back at the
-   sidebar, so the blank reader reads as "nothing open" rather than broken. */
+   floating rail, so the blank reader reads as "nothing open" rather than broken. */
 .empty-state {
-  /* Fill the reader's padding box (ignoring its 32px padding) so the guide offsets share the sidebar
-     rail's origin — the rail and the reader both start at the workspace top. */
+  /* Fill the reader's padding box (ignoring its 32px padding) so the mark stays centered in the sheet. */
   position: absolute;
   inset: 0;
 }
@@ -304,13 +321,11 @@ button {
   pointer-events: none;
 }
 
-/* The guides mirror the dock instead of measuring from the viewport edge: same centre line, same 8px
-   pad, same 40px rows and 6px gaps. Each label therefore lands beside the button it names for any
-   number of buttons — the old hardcoded top offsets drifted the moment the dock gained or lost one. */
+/* The guides mirror the floating rail rather than measuring from the reader's content box: same center
+   line, same 8px pad, 40px rows, and 6px gaps. */
 .empty-guides {
   position: absolute;
   top: 50%;
-  /* Clear of the dock (8px in, 48px wide) rather than of a column that no longer exists. */
   left: 72px;
   translate: 0 -50%;
   display: flex;
@@ -348,7 +363,7 @@ button {
   width: 22px;
   height: 22px;
   border: 2px solid var(--line);
-  border-top-color: var(--accent);
+  border-top-color: var(--mark);
   border-radius: 50%;
   animation: spin 0.7s linear infinite;
 }
@@ -418,7 +433,7 @@ button {
 
 .home-hero .searchbox input:focus {
   outline: none;
-  border-bottom-color: var(--accent);
+  border-bottom-color: var(--mark);
 }
 
 .home-hero .results {
@@ -458,17 +473,13 @@ button {
   box-shadow: 0 16px 38px color-mix(in srgb, #000 18%, transparent);
 }
 
-/* In the rail the settings menu sits at the bottom, so its panel opens beside the rail. It must be
-   fixed, not absolute: the rail clips overflow, and a high z-index keeps it above reader content like
-   a note's backlinks (and, like the search popup below, the full-graph view at z-index 90). */
+/* The settings menu opens beside the centered dock. It is fixed so it is not clipped by the rail and
+   stays above reader content like note backlinks and the full-graph view. */
 .rail-menu-panel {
   position: fixed;
   z-index: 95;
-  /* Anchored to the dock's axis, not the viewport floor: settings rides in the middle of a dock that
-     is itself vertically centred, so a bottom offset would leave the panel stranded near the corner. */
   top: 50%;
   right: auto;
-  bottom: auto;
   left: 64px;
   translate: 0 -50%;
 }
@@ -522,7 +533,7 @@ button {
 
 .search-popup .searchbox input:focus {
   outline: none;
-  border-bottom-color: var(--accent);
+  border-bottom-color: var(--mark);
 }
 
 .menu-section h2 {
@@ -594,16 +605,14 @@ button {
   text-decoration: none;
 }
 
-.result:hover,
-/* The keyboard cursor reads as the same thing as a hover, because it is: the row you are about to
-   open. An accent edge separates "the keys are here" from "the mouse is here" without a second
-   colour scheme. */
-.result.is-active {
+.result:hover {
   background: var(--panel-soft);
 }
 
+/* The keyboard cursor is a quiet reading-edge marker, not a selected card. */
 .result.is-active {
-  box-shadow: inset 2px 0 0 var(--accent);
+  background: transparent;
+  box-shadow: inset 2px 0 0 var(--mark);
 }
 
 .result-title {
@@ -706,25 +715,27 @@ button {
   cursor: default;
 }
 
+/* The heatmap is a visualization, not chrome: its ramp keeps the chart palette's colour while the UI around
+   it goes achromatic, because the shade is the datum here. */
 .activity-cell:hover {
-  outline: 1px solid var(--accent-strong);
+  outline: 1px solid var(--chart-ramp-hi);
   outline-offset: 1px;
 }
 
 .activity-cell[data-level="1"] {
-  background: color-mix(in srgb, var(--accent) 28%, var(--panel-soft));
+  background: color-mix(in srgb, var(--chart-1) 28%, var(--panel-soft));
 }
 
 .activity-cell[data-level="2"] {
-  background: color-mix(in srgb, var(--accent) 50%, var(--panel-soft));
+  background: color-mix(in srgb, var(--chart-1) 50%, var(--panel-soft));
 }
 
 .activity-cell[data-level="3"] {
-  background: color-mix(in srgb, var(--accent) 72%, var(--panel-soft));
+  background: color-mix(in srgb, var(--chart-1) 72%, var(--panel-soft));
 }
 
 .activity-cell[data-level="4"] {
-  background: var(--accent);
+  background: var(--chart-1);
 }
 
 /* The reader column is a flex stack: the tab bar stays pinned while the reader below it scrolls. */
@@ -741,8 +752,8 @@ button {
 }
 
 .reader-pane:has(.tabbar),
-/* The empty state has no tab bar (and none will mount without navigating away), and its arrow guides are
-   aligned to the sidebar rail's top origin, so drop the reserved row there. */
+/* The empty state has no tab bar (and none will mount without navigating away), so drop the reserved row
+   there; its arrow guides align to the floating dock instead. */
 .reader-pane:has(.empty-state) {
   padding-top: 0;
 }
@@ -754,18 +765,27 @@ button {
   flex: 1;
   overflow: auto;
   padding: 32px;
-  /* Text steps clear of the floating dock (8px in, 48px wide) instead of running under it. Only the
-     text inset moves — the pane itself is still full width, and full-bleed children that lay
-     themselves out with inset: 0 (the graph, the empty state) ignore this padding entirely. */
+  /* Leave the compact floating dock a clear reading lane. Full-bleed views positioned with inset: 0
+     still use the reader's full box and can run beneath the dock. */
   padding-left: 64px;
   background: var(--panel);
-  /* The reader is the page scroller for the full-page views (calendar, day) and long notes; its
-     scrollbar stays hidden like every other scroller in the app (tab strip, backlinks, previews). */
+  /* The reader is the page scroller for the full-page views (calendar, day) and long notes; keep its
+     bar hidden because the full-page chrome already has a strong vertical edge. */
   scrollbar-width: none;
 }
 
 .reader::-webkit-scrollbar {
   display: none;
+}
+
+/* Ordinary read-only notes are the one document surface that uses the page scroller visibly. Full-page
+   views and editing panes keep the quiet hidden treatment above; split preview scrolls in its own pane. */
+.reader:has(.note-reader):not(:has(.note-editor textarea)) {
+  scrollbar-width: thin;
+}
+
+.reader:has(.note-reader):not(:has(.note-editor textarea))::-webkit-scrollbar {
+  display: block;
 }
 
 /* Creation history and browser history occupy the hero's two open margins, so the central logo and
@@ -817,20 +837,6 @@ button {
 /* On home the hero owns its own internal scrolling, so the reader must not also scroll/grow. */
 .workspace.home .reader {
   overflow: hidden;
-}
-
-.graph-background {
-  position: absolute;
-  inset: 0;
-  z-index: 0;
-  overflow: hidden;
-  pointer-events: none;
-  opacity: 0.4;
-}
-
-.graph-background .graph-canvas {
-  width: 100%;
-  height: 100%;
 }
 
 /* The full-screen graph fills the reader pane while leaving the workspace rail visible. It still sits
@@ -950,6 +956,12 @@ button {
   cursor: pointer;
 }
 
+.graph-reset svg {
+  display: block;
+  width: 15px;
+  height: 15px;
+}
+
 .graph-reset:hover,
 .graph-reset:focus-visible {
   color: var(--text);
@@ -976,7 +988,7 @@ button {
 
 a.calendar-title:hover,
 a.calendar-title:focus-visible {
-  color: var(--accent);
+  color: var(--mark);
 }
 
 .calendar-nav {
@@ -1046,11 +1058,11 @@ a.calendar-title:focus-visible {
 }
 
 .calendar-day-active:hover {
-  background: color-mix(in srgb, var(--accent) 8%, transparent);
+  background: color-mix(in srgb, var(--mark) 8%, transparent);
 }
 
 .calendar-day-active:focus-visible {
-  outline: 1px solid var(--accent);
+  outline: 1px solid var(--mark);
   outline-offset: -1px;
 }
 
@@ -1075,9 +1087,9 @@ a.calendar-title:focus-visible {
   font-size: 11px;
 }
 
-/* Today: a quiet accent marker on the number rather than a resting ring. */
+/* Today: a quiet marker on the number rather than a resting ring. */
 .calendar-day[aria-current="date"] .calendar-day-number {
-  color: var(--accent);
+  color: var(--mark);
   font-weight: 600;
 }
 
@@ -1114,11 +1126,11 @@ a.calendar-title:focus-visible {
 
 .note-reader {
   display: flex;
-  /* Cap the reading column and center it so a wide viewport keeps a comfortable
-     measure (like GitHub's README) instead of stretching prose edge to edge. The
-     cap is overridable via the Content width setting (--content-width). */
+  /* The reader's column: what visualizations, tables and code fill. Prose is capped tighter inside it
+     (--measure), so this is the wide measure, not the reading one. Overridable via the Content width
+     setting (--content-width). */
   width: 100%;
-  max-width: var(--content-width, 960px);
+  max-width: var(--content-width, 880px);
   margin-inline: auto;
   /* Bind to the reader's content box exactly — not calc(100vh - …), which ignored the tab bar's height
      and left the article a few px too tall, so a short note (just a title) was needlessly scrollable.
@@ -1157,81 +1169,134 @@ a.calendar-title:focus-visible {
   max-width: 1920px;
 }
 
-/* Tab bar: a horizontally scrolling strip of open notes pinned above the reader. */
-/* The tab strip shares the note's surface: no boxes, no per-tab fills. A tab is its title — faded
-   when inactive, ink plus an accent underline when active — so the row reads as a line of text, not
-   a bar of chrome. */
-.tabbar {
+/* Tab strip: the open notes as a line of titles above the reader — no boxes, no per-tab fills. A tab
+   is its title, faded when inactive and ink over a --mark underline when active. The strip never
+   scrolls sideways: it shows every tab that fits (TabBar measures) and the rest wait in the +N menu,
+   which is what lets the hairline below run the full width as the note's top edge. */
+.tabstrip {
+  position: relative;
+  /* Keep the tab's hover popup above full-bleed special views such as .graph-full (z-index 90).
+     The popup is a child, so raising the strip creates the stacking context it needs as a whole. */
+  z-index: 91;
   display: flex;
   flex: 0 0 auto;
   align-items: stretch;
-  overflow-x: auto;
+  border-bottom: 1px solid var(--line);
   background: var(--panel);
-  scrollbar-width: none;
 }
 
-.tabbar::-webkit-scrollbar {
-  display: none;
+.tabbar {
+  display: flex;
+  flex: 1 1 auto;
+  min-width: 0;
+  align-items: stretch;
 }
 
 .tab {
   position: relative;
   display: flex;
-  /* Every tab is the same width, so the close button sits at the same place in every one: closing a
-     tab slides its neighbour's × under the pointer and a run of tabs can be dismissed by clicking in
-     place. Tabs never shrink either, so the strip scrolls horizontally once they overflow. The width
-     itself sits in browser-tab territory rather than stretching a short title across a wide slab. */
-  flex: 0 0 160px;
-  /* A flex item's automatic minimum size is its content, which a long title made larger than the
-     basis — so the one tab holding a long title grew past every other and the strip stopped being
-     uniform. The inner label and title already collapse; the tab itself has to be allowed to as
-     well, and then the title's ellipsis does its job. */
-  min-width: 0;
+  /* Content-sized up to a cap: tabs of their own width read as a line of titles, where one fixed
+     width padded every short title out into a slab of its own. The cap keeps a single long title
+     from crowding out the ones beside it. */
+  flex: 0 1 auto;
+  /* Between a floor and a cap. The cap keeps one long title from crowding out the tabs beside it;
+     the floor is what makes the strip overflow instead of squeezing every title into an unreadable
+     sliver — overflowing is the signal TabBar measures to move a tab into the +N menu. */
+  min-width: 110px;
+  max-width: 210px;
   align-items: center;
   color: var(--muted);
 }
 
-/* While panning, the cursor says so and text selection would fight the drag. */
-.tabbar.dragging {
-  cursor: grabbing;
-  user-select: none;
-}
-
-/* A dirty note shows its dot in the close slot without being hovered, so that one tab is the only
-   one that has to keep the slot clear at rest. The hover rule follows it, and wins on source order
-   at equal specificity, because revealing the buttons needs the room either way. */
-.tab.dirty .tab-label {
-  padding-right: 24px;
-}
-
-.tab:hover .tab-label,
-.tab:has(:focus-visible) .tab-label {
-  padding-right: 54px;
-}
-
-/* At rest the hidden buttons sit over the title's tail. A mouse cannot reach them (hovering makes
-   the room first), but a touch tap could close a tab it never showed, so they take no pointer until
-   they are visible. Keyboard focus is unaffected. */
-.tab-close,
-.tab-float {
-  pointer-events: none;
-}
-
-.tab:hover .tab-close,
-.tab:hover .tab-float,
-.tab:has(:focus-visible) .tab-close,
-.tab:has(:focus-visible) .tab-float {
-  pointer-events: auto;
-}
-
 .tab.active {
   color: var(--text);
-  /* The accent underline under the active tab is the strip's only line. */
-  box-shadow: inset 0 -2px 0 var(--accent);
+  /* Ink over the strip's hairline — the mark, not a fill or a box. */
+  box-shadow: inset 0 -2px 0 var(--mark);
 }
 
 .tab.active .tab-title {
-  font-weight: 600;
+  font-weight: 500;
+}
+
+/* The overflow control: whatever had no room on the strip, opened as a floating layer. It sits
+   outside the tab row so it keeps its place as the row's contents change. */
+.tab-overflow {
+  position: relative;
+  display: flex;
+  flex: none;
+  align-items: center;
+  padding-right: 8px;
+}
+
+/* text control */
+.tab-overflow-toggle {
+  display: flex;
+  gap: 4px;
+  align-items: center;
+  padding: 8px 6px;
+  border: 0;
+  color: var(--muted);
+  background: transparent;
+  font-size: calc(13px * var(--font-scale, 1));
+  white-space: nowrap;
+}
+
+/* Spotlight-like match emphasis: mark the matching text itself, not the whole result row. */
+.search-highlight {
+  color: inherit;
+  font-weight: 500;
+  background: var(--panel-soft);
+  border-radius: var(--radius-sm);
+  box-decoration-break: clone;
+  -webkit-box-decoration-break: clone;
+}
+
+.tab-overflow-toggle:hover,
+.tab-overflow-toggle:focus-visible,
+.tab-overflow-toggle[aria-expanded="true"] {
+  color: var(--text);
+}
+
+/* floating layer */
+.tab-overflow-panel {
+  position: absolute;
+  z-index: 30;
+  top: calc(100% + 4px);
+  right: 4px;
+  display: flex;
+  width: 260px;
+  max-height: 60vh;
+  flex-direction: column;
+  overflow-y: auto;
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  padding: 6px;
+  background: var(--panel);
+  box-shadow: 0 16px 38px color-mix(in srgb, #000 18%, transparent);
+  scrollbar-width: none;
+}
+
+.tab-overflow-panel::-webkit-scrollbar {
+  display: none;
+}
+
+.tab-overflow-panel button {
+  overflow: hidden;
+  padding: 7px 8px;
+  border: 0;
+  border-radius: var(--radius-sm);
+  color: var(--muted);
+  background: transparent;
+  font-size: calc(13px * var(--font-scale, 1));
+  text-align: left;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.tab-overflow-panel button:hover,
+.tab-overflow-panel button:focus-visible {
+  color: var(--text);
+  background: var(--panel-soft);
 }
 
 .tab-label {
@@ -1241,10 +1306,9 @@ a.calendar-title:focus-visible {
   max-width: 100%;
   align-items: center;
   border: 0;
-  /* Nothing stands in the close slot at rest, so the whole tab is the title's: a 160px tab shows
-     148px of it rather than the 94px it would if the buttons kept their room. That room is made
-     when they are revealed, which re-clips only the hovered title — tabs are a fixed width, so
-     nothing else in the strip moves. */
+  /* The whole tab is the title's: its controls hang under the strip rather than standing in it, so
+     nothing has to be kept clear here. */
+  gap: 6px;
   padding: 8px 12px;
   color: inherit;
   background: transparent;
@@ -1255,7 +1319,7 @@ a.calendar-title:focus-visible {
 /* Titles that overflow show their beginning, with an ellipsis standing in for the clipped tail. */
 .tab-title {
   overflow: hidden;
-  font-size: calc(13px * var(--font-scale, 1));
+  font-size: calc(14px * var(--font-scale, 1));
   text-overflow: ellipsis;
   white-space: nowrap;
 }
@@ -1274,28 +1338,88 @@ a.calendar-title:focus-visible {
   white-space: nowrap;
 }
 
-.tab-close {
+/* The unsaved-changes dot is state, not a control, so it is the one thing that stays in the tab —
+   beside the title it describes, and never covering it. */
+.tab-dirty-dot {
+  flex: none;
+  width: 7px;
+  height: 7px;
+  border-radius: 999px;
+  background: currentColor;
+}
+
+/* Floating layer (design.md variant 3): a tab's own popup, hanging under the strip. It carries the
+   two things a tab has no room for — its full title (the strip shows only the head) and its
+   controls. Both used to happen inside the tab: two 24px buttons covered the title they belong to,
+   and the full title came from the browser's own tooltip, which opened at the pointer and landed on
+   top of those buttons. Revealed by hovering or focusing the tab — hover reveals controls, it does
+   not open a surface (Principles). */
+.tab-tools {
   position: absolute;
-  top: 50%;
-  right: 6px;
+  z-index: 30;
+  top: 100%;
+  left: 0;
+  display: flex;
+  width: max-content;
+  /* Wide enough for a date-prefixed title beside its buttons, narrow enough that the panel under the
+     last tab stays inside the window. */
+  max-width: 320px;
+  align-items: center;
+  gap: 10px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  padding: 4px 5px 4px 10px;
+  background: var(--panel);
+  box-shadow: 0 10px 24px color-mix(in srgb, #000 16%, transparent);
+  opacity: 0;
+  pointer-events: none;
+}
+
+/* The full title, wrapped rather than clipped — clipping it here would defeat the point. */
+.tab-tools-title {
+  min-width: 0;
+  color: var(--text);
+  font-size: calc(13px * var(--font-scale, 1));
+  line-height: 1.5;
+  overflow-wrap: anywhere;
+}
+
+.tab-tools-actions {
+  display: flex;
+  flex: none;
+  gap: 2px;
+}
+
+/* :focus-visible, not :focus-within — clicking a tab focuses its title button, which under
+   :focus-within left the panel pinned open long after the pointer had gone (and, because opening a
+   tab reorders the strip, over a tab that was no longer even the one hovered). Keyboard focus still
+   opens it: that is the case :focus-visible is for. */
+.tab:hover .tab-tools,
+.tab:has(:focus-visible) .tab-tools {
+  opacity: 1;
+  pointer-events: auto;
+}
+
+/* Icon button (variant 7): a 24px target for a smaller glyph, the aiming cue a surface rather than
+   the hairline colour. */
+.tab-close,
+.tab-float {
   display: grid;
-  /* 24px hit target (WCAG 2.2 target size); the × glyph inside stays small. */
   width: 24px;
   height: 24px;
-  translate: 0 -50%;
   place-items: center;
   border: 0;
   border-radius: var(--radius-sm);
   padding: 0;
-  color: inherit;
+  color: var(--muted);
   background: transparent;
   cursor: pointer;
 }
 
-/* Icon button (variant 7): the aiming cue is a surface, not the hairline color, and keyboard focus
-   gets the same cue as the pointer. */
 .tab-close:hover,
-.tab-close:focus-visible {
+.tab-close:focus-visible,
+.tab-float:hover,
+.tab-float:focus-visible {
   background: var(--panel-soft);
   color: var(--text);
 }
@@ -1304,75 +1428,6 @@ a.calendar-title:focus-visible {
   /* An SVG block centers by geometry under the button's place-items:center — no text baseline to
      leave the × optically high (as the old text glyph did). */
   display: block;
-}
-
-.tab-dirty-dot {
-  position: absolute;
-  width: 8px;
-  height: 8px;
-  border-radius: 999px;
-  background: currentColor;
-}
-
-/* The close button is hidden until the tab is hovered or reached by keyboard, leaving just the
-   title. A dirty note instead shows a dot in the close slot, which either reveal swaps back for the
-   × button. Every rule that reveals something — this one, the float button's, the room the label
-   makes, and the pointer-events gate — keys off the same pair of conditions, so a tab cannot end up
-   with the buttons' room made but the buttons still invisible. */
-.tab-close-glyph {
-  opacity: 0;
-}
-
-.tab:hover .tab-close-glyph,
-.tab:has(:focus-visible) .tab-close-glyph {
-  opacity: 1;
-}
-
-.tab-dirty-dot {
-  opacity: 0;
-}
-
-.tab.dirty .tab-dirty-dot {
-  opacity: 1;
-}
-
-.tab.dirty:hover .tab-dirty-dot,
-.tab.dirty:has(:focus-visible) .tab-dirty-dot {
-  opacity: 0;
-}
-
-/* The open note's float button, in the tab's own slot next to the close button and revealed by the same
-   hover. It used to hang under the tab as a fixed popup, which the strip's scrolling and reflow left
-   stranded and which the pointer had to cross a gap to reach. */
-.tab-float {
-  position: absolute;
-  top: 50%;
-  right: 30px;
-  display: grid;
-  /* 24px hit target (WCAG 2.2), matching the close button beside it. */
-  width: 24px;
-  height: 24px;
-  translate: 0 -50%;
-  place-items: center;
-  border: 0;
-  border-radius: var(--radius-sm);
-  padding: 0;
-  color: inherit;
-  background: transparent;
-  opacity: 0;
-  cursor: pointer;
-}
-
-/* Icon button (variant 7), matching the close button beside it. */
-.tab-float:hover,
-.tab-float:focus-visible {
-  background: var(--panel-soft);
-  color: var(--text);
-}
-
-.tab:hover .tab-float,
-.tab:has(:focus-visible) .tab-float {
-  opacity: 1;
 }
 
 /* The overflow menu in the rail: a rail-sized trigger whose panel escapes the rail's clipped
@@ -1448,7 +1503,7 @@ a.calendar-title:focus-visible {
 }
 
 .mode-menu-panel button[aria-checked="true"] {
-  color: var(--accent);
+  color: var(--mark);
   font-weight: 600;
 }
 
@@ -1518,7 +1573,7 @@ input.modal-input {
 
 input.modal-input:focus-visible {
   outline: none;
-  border-bottom-color: var(--accent);
+  border-bottom-color: var(--mark);
 }
 
 /* A text region keeps a thin outline (an underline alone reads poorly for multi-line) but no fill. */
@@ -1530,7 +1585,7 @@ textarea.modal-input {
 
 textarea.modal-input:focus-visible {
   outline: none;
-  border-color: var(--accent);
+  border-color: var(--mark);
 }
 
 /* A disabled field (e.g. a journal's date-derived title) drops its line entirely and mutes its ink,
@@ -1612,42 +1667,46 @@ textarea.modal-input:focus-visible {
   flex-shrink: 0;
 }
 
-/* A note's tags link to their tag pages, but they're still text — no pill. Muted at rest, accent
-   on hover, the way a link would answer to the pointer. */
+/* A note's tags link to their tag pages, but they're still text — no pill. Muted at rest, ink on
+   hover, the way a link would answer to the pointer. */
 .note-tags a,
 .note-aside-tags a {
   color: var(--muted);
   text-decoration: none;
-  font-size: calc(12px * var(--font-scale, 1));
+  font-size: calc(13px * var(--font-scale, 1));
 }
 
 .note-tags a:hover,
 .note-tags a:focus-visible,
 .note-aside-tags a:hover,
 .note-aside-tags a:focus-visible {
-  color: var(--accent);
+  color: var(--mark);
 }
 
 /* Breadcrumbs: the ancestor trail from the "up" relation property, above the tags. Quiet like the
-   tag strip — muted links, accent on hover — so it reads as orientation, not content. */
+   tag strip — quiet links that ink on hover — so it reads as orientation, not content. */
 .note-breadcrumbs {
   flex-shrink: 0; /* like .note-tags: never squeezed by .note-reader's height bound */
   display: flex;
   flex-wrap: wrap;
   align-items: baseline;
   gap: 2px;
-  font-size: calc(12px * var(--font-scale, 1));
+  font-size: calc(13px * var(--font-scale, 1));
   color: var(--muted);
 }
 
+/* link (design.md variant 8) */
 .note-breadcrumbs a {
-  color: var(--muted);
-  text-decoration: none;
+  color: var(--text);
+  text-decoration: underline;
+  text-decoration-color: var(--line-strong);
+  text-decoration-thickness: 1px;
+  text-underline-offset: 3px;
 }
 
 .note-breadcrumbs a:hover,
 .note-breadcrumbs a:focus-visible {
-  color: var(--accent);
+  text-decoration-color: var(--muted);
 }
 
 .note-crumb-sep {
@@ -1655,41 +1714,38 @@ textarea.modal-input:focus-visible {
 }
 
 /* Block-anchor arrival: the block a [[Note#^id]] link landed on flashes, then settles to a faint
-   tint so the eye keeps its place. Colors derive from --accent, so both themes are covered. */
+   tint so the eye keeps its place. Colors derive from --mark, so both themes are covered. */
 .block-target {
   border-radius: var(--radius-sm);
   animation: block-flash 1.6s ease-out;
-  background: color-mix(in srgb, var(--accent) 10%, transparent);
+  background: color-mix(in srgb, var(--mark) 10%, transparent);
 }
 
 @keyframes block-flash {
   0% {
-    background: color-mix(in srgb, var(--accent) 30%, transparent);
+    background: color-mix(in srgb, var(--mark) 30%, transparent);
   }
   100% {
-    background: color-mix(in srgb, var(--accent) 10%, transparent);
+    background: color-mix(in srgb, var(--mark) 10%, transparent);
   }
 }
 
-/* Note properties: a quiet key/value strip between the tags and the body. Keys read muted like tags;
-   values sit in soft chips so a row of them still scans as discrete items. */
+/* Note properties: the meta strip above the title, read as columns — a label (shared label recipe)
+   over its value. No chips: a row of filled boxes above the title outweighs the title. */
 .note-props {
   flex-shrink: 0; /* like .note-tags: never squeezed by .note-reader's height bound */
   display: flex;
   flex-wrap: wrap;
-  gap: 4px 16px;
+  gap: 10px 28px;
+  max-width: var(--measure);
   margin: 0;
-  font-size: calc(12px * var(--font-scale, 1));
+  font-size: calc(13px * var(--font-scale, 1));
 }
 
 .note-prop {
   display: flex;
-  align-items: baseline;
-  gap: 6px;
-}
-
-.note-prop dt {
-  color: var(--muted);
+  flex-direction: column;
+  gap: 3px;
 }
 
 .note-prop dd {
@@ -1697,12 +1753,14 @@ textarea.modal-input:focus-visible {
   flex-wrap: wrap;
   gap: 4px;
   margin: 0;
+  color: var(--muted);
 }
 
-.note-prop-value {
-  padding: 1px 6px;
-  border-radius: var(--radius-sm);
-  background: var(--panel-soft);
+/* Dates and other machine-written values line up under their labels, so they are set in the mono
+   stack like every other metadata column in the reader. */
+.note-prop-date {
+  font-family: var(--font-mono);
+  font-variant-numeric: tabular-nums;
 }
 
 .note-editor {
@@ -1757,7 +1815,8 @@ textarea.modal-input:focus-visible {
   overflow: auto;
   padding: 16px;
   background: var(--panel);
-  /* A note page scrolls here (not the reader), so it needs the app's hidden-scrollbar treatment too. */
+  /* Read-only notes flow into the outer reader below; split preview keeps its own overflow but hides
+     the bar so the editing surface stays quiet. */
   scrollbar-width: none;
 }
 
@@ -1814,7 +1873,7 @@ textarea.modal-input:focus-visible {
 }
 
 .share-action-copy {
-  color: var(--accent);
+  color: var(--mark);
 }
 
 .share-action:hover,
@@ -1825,7 +1884,7 @@ textarea.modal-input:focus-visible {
 }
 
 .share-action:focus-visible {
-  outline: 2px solid var(--accent);
+  outline: 2px solid var(--mark);
   outline-offset: 2px;
 }
 
@@ -1902,44 +1961,95 @@ textarea.modal-input:focus-visible {
 }
 
 .markdown-view {
-  line-height: 1.65;
+  /* 16px/1.85. A Japanese paragraph carrying inline code, bold, and links needs the leading more
+     than it needs the size — the reader's whole hierarchy is space, not scale. */
+  font-size: calc(16px * var(--font-scale, 1));
+  line-height: 1.85;
   /* Wrap Japanese only at the phrase boundaries BudouX marks with <wbr>, falling back to breaking a
      long unbroken run (e.g. a URL) so nothing overflows the column. */
   word-break: keep-all;
   overflow-wrap: anywhere;
 }
 
+/* Two measures (design.md, The reading surface). Prose is capped at --measure inside the reader's
+   column; the blocks meant to be wider than a sentence say so by name and fill it. The difference is
+   what makes a visualization read as content rather than as part of the paragraph above it. */
+.markdown-view > * {
+  max-width: var(--measure);
+}
+
+.markdown-view > table,
+.markdown-view > hr,
+.markdown-view > .code-block,
+.markdown-view > .embed,
+.markdown-view > .media-frame,
+.markdown-view > .mermaid-diagram,
+.markdown-view > .drawio-diagram,
+.markdown-view > .mindmap-diagram,
+.markdown-view > .graphviz-diagram,
+.markdown-view > .viewspec-chart,
+.markdown-view > .viewspec-chart-wrap,
+.markdown-view > .note-include,
+.markdown-view > .task-board,
+.markdown-view > .query-view,
+.markdown-view > .footnotes {
+  max-width: 100%;
+}
+
+/* One rhythm, all leading and no second size: h2 opens a section with a rule and 44px of air, h3
+   marks a turn inside one with 26px, and both read at body size. */
 .markdown-view h1,
 .markdown-view h2,
 .markdown-view h3,
 .markdown-view h4 {
-  margin: 1.1em 0 0.45em;
-  line-height: 1.25;
+  font-size: inherit;
+  line-height: inherit;
 }
 
 .markdown-view h1 {
-  font-size: calc(30px * var(--font-scale, 1));
-  letter-spacing: -0.025em;
+  margin: 0;
+  font-size: calc(26px * var(--font-scale, 1));
+  font-weight: 500;
+  line-height: 1.4;
+  letter-spacing: 0.005em;
 }
 
 .markdown-view h2 {
-  font-size: calc(21px * var(--font-scale, 1));
-  letter-spacing: -0.015em;
+  margin: 44px 0 0;
+  padding-top: 13px;
+  border-top: 1px solid var(--line);
+  font-weight: 700;
 }
 
 .markdown-view h3 {
-  font-size: calc(17px * var(--font-scale, 1));
+  margin: 26px 0 0;
+  font-weight: 700;
 }
 
 .markdown-view h4 {
-  font-size: calc(15px * var(--font-scale, 1));
+  margin: 20px 0 0;
+  font-weight: 700;
+  color: var(--muted);
 }
 
-.markdown-view h1:first-child,
-.markdown-view h2:first-child,
-.markdown-view h3:first-child,
-.markdown-view h4:first-child,
-.markdown-view p:first-child {
+.markdown-view p,
+.markdown-view ul,
+.markdown-view ol,
+.markdown-view blockquote,
+.markdown-view dl {
+  margin: 13px 0 0;
+}
+
+.markdown-view li {
+  margin-top: 7px;
+}
+
+.markdown-view li::marker {
+  color: var(--faint);
+  font-size: calc(14px * var(--font-scale, 1));
+}
+
+.markdown-view > :first-child {
   margin-top: 0;
 }
 
@@ -1978,7 +2088,7 @@ textarea.modal-input:focus-visible {
 .note-title-copy:hover,
 .note-title-copy:focus-visible {
   background: var(--panel-soft);
-  color: var(--accent);
+  color: var(--mark);
 }
 
 .note-title-copy svg {
@@ -1991,20 +2101,14 @@ textarea.modal-input:focus-visible {
   stroke-width: 1.8;
 }
 
-.markdown-view p {
-  margin: 0.8em 0;
-}
-
 .markdown-view ul,
 .markdown-view ol {
-  margin: 0.8em 0;
   padding-left: 1.3em;
 }
 
 .markdown-view blockquote {
-  margin: 0.8em 0;
   padding: 0.2em 0 0.2em 1em;
-  border-left: 3px solid var(--line);
+  border-left: 2px solid var(--line-strong);
   color: var(--muted);
 }
 
@@ -2017,7 +2121,7 @@ textarea.modal-input:focus-visible {
 /* GitHub-style alerts: a blockquote whose first line is [!NOTE]/[!TIP]/… (see remarkAlert). Each type
    carries its own accent via --alert-color, reused for the left border, tinted background, and title. */
 .markdown-view .md-alert {
-  margin: 0.8em 0;
+  margin: 20px 0 0;
   padding: 0.4em 1em;
   border-left: 3px solid var(--alert-color);
   border-radius: 0 var(--radius-sm) var(--radius-sm) 0;
@@ -2041,8 +2145,10 @@ textarea.modal-input:focus-visible {
   --alert-color: var(--chart-3);
 }
 
+/* The five alert types are semantic colour, like a chart's series — they keep the visualization palette
+   rather than following the chrome to ink. */
 .markdown-view .md-alert-tip {
-  --alert-color: var(--accent);
+  --alert-color: var(--chart-1);
 }
 
 .markdown-view .md-alert-important {
@@ -2050,39 +2156,52 @@ textarea.modal-input:focus-visible {
 }
 
 .markdown-view .md-alert-warning {
-  --alert-color: var(--graph-active);
+  --alert-color: var(--chart-2);
 }
 
 .markdown-view .md-alert-caution {
   --alert-color: var(--danger);
 }
 
-/* GFM tables: horizontal rules only (no column separators, no row striping), scrolling horizontally
-   when wider than the column. */
+/* GFM tables: horizontal rules only (no column separators, no row striping, no header fill), bleeding
+   to the reader's column and scrolling horizontally when wider than it. The header takes the section
+   label recipe (see the shared rule at the top), so what tells it from the body is a stated rule, not
+   a slab. */
 .markdown-view table {
   display: block;
   width: max-content;
   max-width: 100%;
-  margin: 0.9em 0;
+  margin: 26px 0 0;
   overflow-x: auto;
   border-collapse: collapse;
+  font-size: calc(14px * var(--font-scale, 1));
+  line-height: 1.6;
   font-variant-numeric: tabular-nums;
 }
 
-.markdown-view th,
-.markdown-view td {
-  padding: 6px 12px;
-  border-block: 1px solid var(--line);
+.markdown-view th {
+  padding: 0 18px 8px 0;
+  border-bottom: 1px solid var(--line-strong);
+  background: none;
   text-align: left;
+  white-space: nowrap;
 }
 
-.markdown-view th {
-  background: var(--panel-soft);
-  font-weight: 700;
+.markdown-view td {
+  padding: 11px 18px 11px 0;
+  border-bottom: 1px solid var(--line);
+  color: var(--muted);
+  text-align: left;
+  vertical-align: top;
+}
+
+/* The first column is what you scan down, so it keeps body ink while the cells beside it recede. */
+.markdown-view td:first-child {
+  color: var(--text);
 }
 
 .embed {
-  margin: 0.9em 0;
+  margin: 26px 0 0;
 }
 
 /* Wraps a media embed so hovering reveals fullscreen/float controls. */
@@ -2226,7 +2345,7 @@ textarea.modal-input:focus-visible {
 }
 
 .embed-pdf:focus-visible {
-  outline: 2px solid var(--accent, #4c8bf5);
+  outline: 2px solid var(--mark);
   outline-offset: 2px;
   border-radius: var(--radius-lg);
 }
@@ -2407,10 +2526,10 @@ textarea.modal-input:focus-visible {
     flex-basis: 160px;
   }
 
-  /* Phone width: tighter chrome so the 56px rail plus content read comfortably. The published static
-     site is the main mobile surface (the live workspace is desk-bound), but both share these. */
+  /* Phone width: keep the reader clear of the floating dock. The published static site is the main
+     mobile surface (the live workspace is desk-bound), but both share these. */
   .reader {
-    padding: 16px 12px;
+    padding: 16px 12px 16px 64px;
   }
 
   .note-preview {
@@ -2427,26 +2546,37 @@ textarea.modal-input:focus-visible {
   }
 }
 
+/* No chip. A filled box behind `make site-dev` makes a Japanese line ripple — five of them in a
+   paragraph and the whole block loses its baseline — so the mono face and a step down in ink are
+   what mark code inside a sentence. The chip stays on multi-line .code-block, which is a block. */
 .inline-code {
-  padding: 0.1em 0.35em;
-  border-radius: var(--radius-sm);
-  background: var(--panel-soft);
+  padding: 0;
+  border: 0;
+  background: none;
+  color: var(--muted);
   font-family: var(--font-mono);
-  font-size: 0.9em;
+  font-size: 0.87em;
 }
 
+/* A code block is a sunk bed, not a card: the ground is what separates it from the
+   prose, so it needs no border on top of that. */
 .code-block {
   position: relative;
-  margin: 0.9em 0;
-  border: 1px solid var(--line);
-  border-radius: var(--radius-lg);
-  padding: 12px 14px;
+  margin: 26px 0 0;
+  border-radius: 3px;
+  padding: 16px 18px;
   background: var(--panel-soft);
 }
 
 .code-block-pre {
   margin: 0;
   overflow: auto;
+  /* The code bed stays visually quiet; horizontal overflow remains available via wheel/trackpad. */
+  scrollbar-width: none;
+}
+
+.code-block-pre::-webkit-scrollbar {
+  display: none;
 }
 
 .code-block code {
@@ -2461,59 +2591,29 @@ textarea.modal-input:focus-visible {
   font-style: italic;
 }
 
+/* The code palette: four hues that are a syntax scheme in their own right, not UI ink, so they are
+   the one place raw hex stands (design.md, Tokens). Each is written once, light and dark together —
+   they used to be three blocks saying the same thing. A keyword takes weight instead of a fifth hue,
+   since ink is what the rest of the reader emphasises with. */
 .syntax-keyword {
-  color: var(--accent-strong);
+  color: var(--text);
   font-weight: 700;
 }
 
 .syntax-string {
-  color: #7c4a28;
+  color: light-dark(#7c4a28, #d59b75);
 }
 
 .syntax-number {
-  color: #5b5aa8;
+  color: light-dark(#5b5aa8, #aaa7ff);
 }
 
 .syntax-function {
-  color: #1f6f86;
+  color: light-dark(#1f6f86, #72c7d7);
 }
 
 .syntax-property {
-  color: #8a4f83;
-}
-
-:root[data-theme="dark"] .syntax-string {
-  color: #d59b75;
-}
-
-:root[data-theme="dark"] .syntax-number {
-  color: #aaa7ff;
-}
-
-:root[data-theme="dark"] .syntax-function {
-  color: #72c7d7;
-}
-
-:root[data-theme="dark"] .syntax-property {
-  color: #d89ad1;
-}
-
-@media (prefers-color-scheme: dark) {
-  :root:not([data-theme="light"]) .syntax-string {
-    color: #d59b75;
-  }
-
-  :root:not([data-theme="light"]) .syntax-number {
-    color: #aaa7ff;
-  }
-
-  :root:not([data-theme="light"]) .syntax-function {
-    color: #72c7d7;
-  }
-
-  :root:not([data-theme="light"]) .syntax-property {
-    color: #d89ad1;
-  }
+  color: light-dark(#8a4f83, #d89ad1);
 }
 
 .code-copy {
@@ -2540,7 +2640,7 @@ textarea.modal-input:focus-visible {
 
 .code-copy:hover {
   color: var(--text);
-  border-color: var(--accent);
+  border-color: var(--mark);
 }
 
 .code-block[data-language]::before {
@@ -2549,24 +2649,25 @@ textarea.modal-input:focus-visible {
   margin-bottom: 6px;
 }
 
-.mermaid-diagram {
+/* Visualization blocks are content, not numbered figures: separate them with whitespace and let the
+   rendered chart or diagram provide its own visual structure. No generated label, gutter rule, or
+   decorative bed belongs around the user's content. */
+.mermaid-diagram,
+.drawio-diagram,
+.mindmap-diagram,
+.viewspec-chart-wrap {
   position: relative;
-  margin: 1em 0;
-  border: 1px solid var(--line);
-  border-radius: var(--radius-lg);
-  padding: 14px;
-  background: var(--panel);
+  margin: 24px 0;
+  padding: 0;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
 }
 
-/* draw.io renders through its own live viewer (no shared SVG frame), so it only borrows the
-   diagram card treatment; the viewer manages the diagram's size inside it. */
+/* draw.io renders through its own live viewer (no shared SVG frame), so the viewer manages the
+   diagram's size inside the same whitespace-only content block. */
 .drawio-diagram {
-  margin: 1em 0;
-  border: 1px solid var(--line);
-  border-radius: var(--radius-lg);
-  padding: 14px;
   overflow-x: auto;
-  background: var(--panel);
 }
 
 .mermaid-viewport {
@@ -2620,13 +2721,21 @@ textarea.modal-input:focus-visible {
   opacity: 1;
 }
 
-/* The fold toggle (縮小/展開) sits top-left and stays visible — a collapsed diagram must show how
-   to get it back without hunting for a hover control. */
+/* The fold toggle is a quiet hover affordance once a diagram is full-sized. A collapsed preview keeps
+   its Show full diagram action visible because otherwise the way back to the full content is hidden. */
 .mermaid-fold {
   position: absolute;
   top: 8px;
   left: 8px;
   z-index: 2; /* above the continuation fades */
+  opacity: 0;
+  transition: opacity 0.12s ease;
+}
+
+.mermaid-diagram:hover .mermaid-fold,
+.mermaid-fold:focus-visible,
+.mermaid-diagram[data-collapsed] .mermaid-fold {
+  opacity: 1;
 }
 
 /* A tall collapsed diagram stays at a readable scale and is clipped, so make both the continuation
@@ -2649,13 +2758,13 @@ textarea.modal-input:focus-visible {
 
 .mermaid-continuation {
   position: absolute;
-  right: 14px;
-  bottom: 14px;
-  left: 14px;
+  right: 0;
+  bottom: 0;
+  left: 0;
   height: 96px;
   z-index: 1;
   pointer-events: none;
-  background: linear-gradient(to bottom, transparent, var(--panel) 78%);
+  background: linear-gradient(to bottom, transparent, var(--panel-soft) 78%);
 }
 
 /* Horizontal analog of the continuation fade: a wide diagram stops shrinking at a readable scale
@@ -2664,21 +2773,21 @@ textarea.modal-input:focus-visible {
 .mermaid-continuation-left,
 .mermaid-continuation-right {
   position: absolute;
-  top: 14px;
-  bottom: 14px;
+  top: 0;
+  bottom: 0;
   width: 72px;
   z-index: 1;
   pointer-events: none;
 }
 
 .mermaid-continuation-left {
-  left: 14px;
-  background: linear-gradient(to left, transparent, var(--panel) 78%);
+  left: 0;
+  background: linear-gradient(to left, transparent, var(--panel-soft) 78%);
 }
 
 .mermaid-continuation-right {
-  right: 14px;
-  background: linear-gradient(to right, transparent, var(--panel) 78%);
+  right: 0;
+  background: linear-gradient(to right, transparent, var(--panel-soft) 78%);
 }
 
 /* A collapsed preview is inert: no grab cursor, the wheel scrolls the page. */
@@ -2707,25 +2816,21 @@ textarea.modal-input:focus-visible {
 .viewspec-chart {
   margin: 1em 0;
   height: 360px;
-  background: var(--panel);
+  background: transparent;
 }
 
 /* Annotation bands (ADR 0028): box-mode markers render as always-visible evidence bands hugging the
    chart — below it, and in a strip reserved between the legend and the plot. Geometry (lane
    positions, band heights) is computed from the option and set inline; only the look lives here.
    The bands are siblings of the role="img" chart host, so their links are real, focusable DOM and
-   the chart's wheel/pinch capture never sees them. Z-order: the panel background moves to the wrap,
-   the chart host (z1, transparent) paints its canvas over the below band's stems — so axis labels
+   the chart's wheel/pinch capture never sees them. Z-order: the transparent chart host (z1) paints
+   its canvas over the below band's stems — so axis labels
    read over the line instead of under it — and the above band (z2) keeps its links clickable inside
    the reserved strip. */
 .viewspec-chart-wrap {
-  position: relative;
-  margin: 1em 0;
-  padding-block: 14px;
+  /* No side padding: the annotation rail below is laid out in px against this box, so the chart and
+     the rail have to share one width. */
   padding-inline: 0;
-  background: var(--panel);
-  border: 1px solid var(--line);
-  border-radius: var(--radius-lg);
 }
 
 .viewspec-chart-wrap .viewspec-chart {
@@ -2740,8 +2845,6 @@ textarea.modal-input:focus-visible {
   left: 0;
   right: 0;
   z-index: 2;
-  /* The figure's block padding moves the chart down; keep the overlaid upper rail locked to it. */
-  transform: translateY(14px);
   /* Only the boxes take the pointer: the strip itself must not swallow canvas gestures. */
   pointer-events: none;
 }
@@ -2756,7 +2859,7 @@ textarea.modal-input:focus-visible {
   position: relative;
   /* Its own stacking context: the stems' negative z-index keeps them behind every box (and its
      text/links) without letting them slip behind the page background; the positioned rail itself
-     paints above the chart div's panel background, so an above-rail stem crossing the legend strip
+     paints above the transparent chart surface, so an above-rail stem crossing the legend strip
      stays visible while legend text (drawn later on the canvas) still paints over the line. */
   z-index: 0;
   margin: 0;
@@ -2994,25 +3097,32 @@ textarea.modal-input:focus-visible {
   display: inline-block;
 }
 
-.wiki-link {
-  color: var(--accent);
-  font-weight: 700;
-  text-decoration: none;
+/* Link (design.md variant 8): ink and an underline, never a colour. The Answer section of a research
+   note runs five or six links to a paragraph; coloured, the paragraph goes mottled, while underlines
+   take that density without the block coming apart. */
+.wiki-link,
+.md-link {
+  color: var(--text);
+  text-decoration: underline;
+  text-decoration-color: var(--line-strong);
+  text-decoration-thickness: 1px;
+  text-underline-offset: 3px;
+}
+
+.wiki-link:hover,
+.md-link:hover {
+  text-decoration-color: var(--muted);
 }
 
 .wiki-link.pending {
   color: var(--muted);
 }
 
+/* A link to nothing is a warning, not decoration, so this one keeps its colour. */
 .wiki-link.unresolved {
   color: var(--danger);
-  text-decoration: underline;
+  text-decoration-color: currentcolor;
   text-decoration-style: dotted;
-}
-
-.md-link {
-  color: var(--accent);
-  text-decoration: underline;
 }
 
 .wiki-preview {
@@ -3205,7 +3315,7 @@ textarea.modal-input:focus-visible {
 }
 
 .wiki-preview-pin.active {
-  color: var(--accent);
+  color: var(--mark);
 }
 
 /* Jump sits just left of the pin, sharing the same corner-hugging chrome-button style. */
@@ -3330,9 +3440,9 @@ textarea.modal-input:focus-visible {
 }
 
 .primary-button {
-  border: 1px solid var(--accent);
+  border: 1px solid var(--mark);
   color: var(--panel);
-  background: var(--accent);
+  background: var(--mark);
 }
 
 .primary-button:disabled {
@@ -3349,7 +3459,7 @@ textarea.modal-input:focus-visible {
 .note-aside {
   display: flex;
   flex-wrap: wrap;
-  gap: 16px 32px;
+  gap: 26px 32px;
   align-items: flex-start;
   /* Never compressed by .note-reader's height bound — .note-preview shrinks first. */
   flex-shrink: 0;
@@ -3360,13 +3470,23 @@ textarea.modal-input:focus-visible {
   min-width: 0;
 }
 
-.backlinks {
-  border-top: 1px solid var(--line);
-  padding-top: 16px;
+/* The aside's sections are told apart by their labels and the air between them; a rule over each one
+   would draw four lines beside a note that already has its own. */
+.backlinks h3 {
+  display: flex;
+  gap: 8px;
+  align-items: baseline;
+  justify-content: space-between;
+  margin: 0 0 8px;
 }
 
-.backlinks h3 {
-  margin: 0 0 10px;
+/* The count rides the heading's right end, in mono so a two-digit count keeps the label's width. */
+.backlinks-count {
+  color: var(--faint);
+  font-family: var(--font-mono);
+  font-size: calc(11px * var(--font-scale, 1));
+  font-variant-numeric: tabular-nums;
+  letter-spacing: 0;
 }
 
 .backlink-list {
@@ -3386,14 +3506,19 @@ textarea.modal-input:focus-visible {
   display: none;
 }
 
+/* A list of links in the chrome is a text control (design.md variant 8): no underline, no weight —
+   the eye is scanning titles here, not reading a sentence with links in it. */
 .backlink {
   display: block;
   width: fit-content;
-  border-radius: var(--radius);
   padding: 6px 0;
-  color: var(--accent);
-  font-weight: 700;
+  color: var(--muted);
   text-decoration: none;
+}
+
+.backlink:hover,
+.backlink:focus-visible {
+  color: var(--text);
 }
 
 /* The Contents outline is one entry per row (a wrapped outline is not an outline) and quieter than
@@ -3415,25 +3540,22 @@ textarea.modal-input:focus-visible {
   color: var(--text);
 }
 
-/* In the note aside the links wrap several to a row (not one per row) so a heavily linked note's
-   Backlinks / On this day sections stay a few lines tall. They're plain text links — accent, no pill
-   — with enough column gap to tell adjacent titles apart. The day page keeps the row list, where the
-   links are the page content, not an aside. */
+/* The aside is a 186px column, so its links are one per row and clipped rather than wrapped: a
+   two-line entry stops reading as one item in a list. The day page keeps its own list, where the
+   links are the page content and have the width to wrap. */
 .note-aside .backlink-list {
   display: flex;
-  flex-wrap: wrap;
-  gap: 4px 16px;
+  flex-direction: column;
+  gap: 0;
 }
 
 .note-aside .backlink {
-  padding: 2px 0;
-  font-weight: 500;
-  font-size: calc(13px * var(--font-scale, 1));
-}
-
-.note-aside .backlink:hover {
-  color: var(--accent-strong);
-  text-decoration: underline;
+  width: 100%;
+  overflow: hidden;
+  padding: 3px 0;
+  font-size: calc(14px * var(--font-scale, 1));
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 /* The aside's local graph: a fixed-height flex box the canvas fills (GraphCanvas sizes itself to
@@ -3451,24 +3573,22 @@ textarea.modal-input:focus-visible {
    starts on it must still scroll the page on touch (the published site is the main mobile surface).
    pan-y hands vertical gestures to the browser; the trade is that touch node-drags only work
    sideways here — fine for a secondary surface. */
-/* The reset sits over the graph's own top-left corner, the way every other graph surface overlays
-   its controls (.graph-controls) rather than reserving a row of chrome above them. Top-left because
-   the graph is fitted around its centre node: the corners are the emptiest part of the canvas, and
-   the left one is furthest from the labels, which trail to the right of their dots. */
-.aside-graph-reset {
-  position: absolute;
-  top: 0;
-  left: 0;
-  z-index: 1;
+/* Reset and enlarge ride the right end of the GRAPH heading, where the other sections carry their
+   count: over the canvas they were glyphs floating on nothing, and the aside's sections all end
+   their heading row the same way. */
+.note-aside-graph {
+  position: relative;
 }
 
-/* The enlarge button mirrors the reset at the graph's top-right corner, keeping the two controls on
-   the same quiet text-control recipe (they rest on the same canvas). */
-.aside-graph-expand {
+.aside-graph-controls {
   position: absolute;
   top: 0;
   right: 0;
-  z-index: 1;
+  display: flex;
+  gap: 6px;
+  align-items: center;
+  font-size: calc(13px * var(--font-scale, 1));
+  line-height: 1;
 }
 
 .aside-graph .graph-canvas {
@@ -3509,13 +3629,13 @@ textarea.modal-input:focus-visible {
    cannot digest, so ThemeMenu mirrors it into html[data-content-width] for the uncapped gate. */
 @media (min-width: 1100px) {
   .workspace:not(.home) .note-reader:not(:has(.note-editor textarea)) {
-    max-width: calc(var(--content-width, 960px) + 332px);
+    max-width: calc(var(--content-width, 880px) + 246px);
   }
 
   .workspace:not(.home) .note-reader:not(:has(.note-editor textarea)) > .note-layout {
     flex-direction: row;
     align-items: flex-start;
-    gap: 32px;
+    gap: 60px;
   }
 
   html[data-content-width="none"] .workspace:not(.home) .note-reader:not(:has(.note-editor textarea)) {
@@ -3525,7 +3645,7 @@ textarea.modal-input:focus-visible {
   .workspace:not(.home) .note-reader:not(:has(.note-editor textarea)) > .note-layout > .note-aside {
     position: sticky;
     top: 32px; /* keep the reader's 32px breathing room when stuck under the tab bar */
-    flex: 0 0 300px;
+    flex: 0 0 186px;
     flex-direction: column;
     flex-wrap: nowrap;
     max-height: calc(100vh - 65px); /* tab bar (33px) + the 32px sticky offset */
@@ -3591,7 +3711,7 @@ textarea.modal-input:focus-visible {
 
 .notification-toast button.notification-toast-open:hover,
 .notification-toast button.notification-toast-open:focus-visible {
-  color: var(--accent);
+  color: var(--mark);
 }
 
 .notification-toast button.notification-toast-open span {
@@ -3644,7 +3764,7 @@ textarea.modal-input:focus-visible {
 }
 
 .query-card:hover {
-  border-color: var(--accent);
+  border-color: var(--mark);
 }
 
 .query-card-body {
@@ -3675,10 +3795,10 @@ textarea.modal-input:focus-visible {
 }
 
 .query-card-title-hidden .wiki-link:focus-visible {
-  color: var(--accent);
+  color: var(--mark);
   font-size: 1rem;
   line-height: 1.35;
-  outline: 2px solid var(--accent);
+  outline: 2px solid var(--mark);
   outline-offset: 2px;
 }
 
@@ -3859,7 +3979,7 @@ textarea.modal-input:focus-visible {
 }
 
 .task-column-dragover {
-  outline: 2px solid var(--accent);
+  outline: 2px solid var(--mark);
   outline-offset: -2px;
 }
 
@@ -3934,8 +4054,8 @@ textarea.modal-input:focus-visible {
 }
 
 .task-chip-priority {
-  color: var(--accent-strong);
-  border-color: var(--accent);
+  color: var(--mark);
+  border-color: var(--mark);
 }
 
 .task-chip-due {
@@ -3992,15 +4112,8 @@ textarea.modal-input:focus-visible {
   }
 }
 
-/* Mindmap: an in-house SVG tree (see markdown/mindmap.ts); colors ride the theme variables. */
-.mindmap-diagram {
-  margin: 1em 0;
-  border: 1px solid var(--line);
-  border-radius: var(--radius-lg);
-  padding: 14px;
-  background: var(--panel);
-}
-
+/* Mindmap: an in-house SVG tree (see markdown/mindmap.ts); colors ride the theme variables, and the
+   container takes the shared visualization spacing above. */
 .mindmap-diagram svg {
   display: block;
   margin: 0 auto;
@@ -4013,8 +4126,8 @@ textarea.modal-input:focus-visible {
 }
 
 .mindmap-node rect {
-  fill: var(--panel-soft);
-  stroke: var(--line);
+  fill: var(--panel);
+  stroke: var(--line-node);
 }
 
 .mindmap-node text {
@@ -4028,18 +4141,15 @@ textarea.modal-input:focus-visible {
   cursor: pointer;
 }
 
-.mindmap-wiki-link .mindmap-node text {
-  fill: var(--accent);
-  font-weight: 700;
-}
-
+/* Links inside a diagram follow the reader's links: ink and an underline, no colour. */
+.mindmap-wiki-link .mindmap-node text,
 .mindmap-external-link .mindmap-node text {
   text-decoration: underline;
 }
 
 .mindmap-root rect {
-  fill: color-mix(in srgb, var(--accent) 14%, var(--panel));
-  stroke: var(--accent);
+  fill: color-mix(in srgb, var(--mark) 14%, var(--panel));
+  stroke: var(--mark);
 }
 
 /* A task row on the day page: the marker says which date put it here, the note title trails as

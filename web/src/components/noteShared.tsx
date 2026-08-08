@@ -170,7 +170,14 @@ export function NoteAside({
       ) : null}
 
       <section className="backlinks" aria-labelledby="backlinks-heading">
-        <h3 id="backlinks-heading">Backlinks</h3>
+        {/* The count rides the heading rather than the note's meta strip: backlinks have a display of
+            their own here, and saying "6" twice on one screen is one place too many to keep true. */}
+        <h3 id="backlinks-heading">
+          Backlinks
+          {backlinks.length > 0 ? (
+            <span className="backlinks-count">{String(backlinks.length).padStart(2, "0")}</span>
+          ) : null}
+        </h3>
         {backlinks.length === 0 ? (
           <p className="muted">No backlinks.</p>
         ) : (
@@ -247,14 +254,16 @@ export function NoteAside({
       ) : null}
 
       {/* The always-on local graph. A lone unlinked node says nothing the note itself doesn't, so
-          the section only appears once the note connects somewhere. It carries no caption: a graph is
-          recognisably a graph, while the sections above are lists that a caption tells apart. */}
+          the section only appears once the note connects somewhere. It is labelled like the lists
+          above it: three sections down a 186px column read as one stack, and the odd one out reads
+          as something that fell off the end of the note (design.md, Sidebar). */}
       {graph && graph.nodes.length > 1 ? (
-        <section className="backlinks note-aside-graph" aria-label="Local graph">
-          <div className="aside-graph">
-            {/* Over the graph, like the floating panel's and the full view's controls — the aside was
-                the one graph surface spending a row of chrome on a single button. The enlarge button
-                mirrors the reset at the opposite corner. */}
+        <section className="backlinks note-aside-graph" aria-labelledby="local-graph-heading">
+          <h3 id="local-graph-heading">Graph</h3>
+          {/* Both controls end the heading row, where the other sections carry their count — over the
+              canvas they were glyphs floating on nothing. Siblings of the heading rather than children
+              of it, so the heading a screen reader announces stays "Graph". */}
+          <div className="aside-graph-controls">
             <button
               className="graph-reset aside-graph-reset"
               type="button"
@@ -262,7 +271,7 @@ export function NoteAside({
               title="Reset graph view"
               onClick={() => setGraphResetToken((token) => token + 1)}
             >
-              ↺
+              <GraphResetIcon />
             </button>
             <button
               className="graph-reset aside-graph-expand"
@@ -271,14 +280,15 @@ export function NoteAside({
               title="Enlarge graph"
               onClick={() => setGraphEnlarged(true)}
             >
-              {/* Expand-to-corners glyph, the same one media embeds use to enlarge. */}
+              {/* Expand-to-corners glyph, the same one media embeds use to enlarge. Drawn in the rail's
+                  outline family (design.md, Sidebar): 1.5 stroke, no fills. */}
               <svg
                 viewBox="0 0 24 24"
                 width="15"
                 height="15"
                 fill="none"
                 stroke="currentColor"
-                strokeWidth="2"
+                strokeWidth="1.5"
                 strokeLinecap="round"
                 strokeLinejoin="round"
                 aria-hidden="true"
@@ -286,6 +296,8 @@ export function NoteAside({
                 <path d="M8 3H5a2 2 0 0 0-2 2v3m18 0V5a2 2 0 0 0-2-2h-3M3 16v3a2 2 0 0 0 2 2h3m8 0h3a2 2 0 0 0 2-2v-3" />
               </svg>
             </button>
+          </div>
+          <div className="aside-graph">
             <GraphCanvas
               graph={graph}
               resetToken={graphResetToken}
@@ -325,7 +337,7 @@ export function NoteAside({
                   title="Reset graph view"
                   onClick={() => setLightboxResetToken((token) => token + 1)}
                 >
-                  ↺
+                  <GraphResetIcon />
                 </button>
               </div>
             </dialog>
@@ -333,6 +345,25 @@ export function NoteAside({
         </section>
       ) : null}
     </div>
+  );
+}
+
+function GraphResetIcon() {
+  return (
+    <svg
+      viewBox="0 0 24 24"
+      width="15"
+      height="15"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="1.5"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      aria-hidden="true"
+    >
+      <path d="M3 12a9 9 0 1 0 9-9 9.75 9.75 0 0 0-6.74 2.74L3 8" />
+      <path d="M3 3v5h5" />
+    </svg>
   );
 }
 
@@ -394,4 +425,3 @@ export function NoteProperties({
     </dl>
   );
 }
-

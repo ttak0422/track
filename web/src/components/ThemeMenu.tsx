@@ -15,9 +15,9 @@ const fontScales: { label: string; value: number }[] = [
 ];
 // Reading-column max width, applied through the --content-width CSS var on .note-reader. "none" removes
 // the cap so prose fills the viewport for wide-display use.
-const defaultContentWidth = "960px";
+const defaultContentWidth = "880px";
 const contentWidths: { label: string; value: string }[] = [
-  { label: "Normal", value: "960px" },
+  { label: "Normal", value: "880px" },
   { label: "Wide", value: "1280px" },
   { label: "Full", value: "none" },
 ];
@@ -166,7 +166,7 @@ function GearIcon() {
       height="20"
       fill="none"
       stroke="currentColor"
-      strokeWidth="2"
+      strokeWidth="1.5"
       strokeLinecap="round"
       strokeLinejoin="round"
       aria-hidden="true"

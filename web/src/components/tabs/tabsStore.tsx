@@ -169,20 +169,24 @@ export function TabsProvider({ children }: { children: ReactNode }) {
     });
   }, [activeID]);
 
-  // Navigating to a note opens a tab for it (appended) unless one is already open.
+  // Navigating to a note brings its tab to the front of the strip, opening one if it is not already
+  // there. The strip is therefore most-recent-first: the note being read is always the leftmost tab
+  // (so it is always visible, whatever the strip has room for) and the order behind it is the order
+  // the notes were visited in.
   useEffect(() => {
     if (activeID === null) return;
-    setTabs((current) =>
-      current.some((tab) => tab.id === activeID)
-        ? current
-        : // View tabs carry a fixed label; note tabs get theirs once the note resolves — or from a
-          // setTitle that already arrived (child effects run before this parent effect, so a note
-          // hydrated from prerendered state reports its title before its tab exists).
-          [
-            ...current,
-            { id: activeID, title: VIEW_TABS[activeID]?.label ?? knownTitles.current.get(activeID) ?? "" },
-          ],
-    );
+    setTabs((current) => {
+      if (current[0]?.id === activeID) return current;
+      const existing = current.find((tab) => tab.id === activeID);
+      // View tabs carry a fixed label; note tabs get theirs once the note resolves — or from a
+      // setTitle that already arrived (child effects run before this parent effect, so a note
+      // hydrated from prerendered state reports its title before its tab exists).
+      const tab = existing ?? {
+        id: activeID,
+        title: VIEW_TABS[activeID]?.label ?? knownTitles.current.get(activeID) ?? "",
+      };
+      return [tab, ...current.filter((entry) => entry.id !== activeID)];
+    });
   }, [activeID]);
 
   // Persist the open set/order (without titles' dirtiness) so a reload restores the strip. The first run
@@ -230,8 +234,9 @@ export function TabsProvider({ children }: { children: ReactNode }) {
       setTabs(next);
       if (id === dirtyID) setDirtyID(null);
       // Closing the active tab moves to a neighbor (the one that slides into its slot, else the tab to
-      // its left); with none left, fall back home — the empty state on the static site (whose "/" is the
-      // start page), or "/" (the heatmap home) on the live workspace.
+      // its left) — in a most-recent-first strip the active tab is the first, so that is the note
+      // visited before it. With none left, fall back home: the empty state on the static site (whose
+      // "/" is the start page), or "/" (the heatmap home) on the live workspace.
       if (id === activeID) {
         const target = next[index] ?? next[index - 1] ?? null;
         void navigate(target ? tabRoute(target.id) : { to: STATIC_MODE ? "/empty" : "/" });

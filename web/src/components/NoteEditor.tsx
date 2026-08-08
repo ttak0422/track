@@ -52,7 +52,7 @@ export function NoteEditor({ noteID }: NoteEditorProps) {
   // adopts it once it arrives — unchanged behavior.
   const cachedNote = noteQuery.data?.note;
   const [body, setBody] = useState(() => cachedNote?.body ?? "");
-  // Mode and follow are drawn in the sidebar rail (NoteRailControls), so their state sits above both
+  // Mode and follow are drawn in the floating rail (NoteRailControls), so their state sits above both
   // views rather than here. setActions is how this note tells the rail what it can act on.
   const {
     mode: editorMode,

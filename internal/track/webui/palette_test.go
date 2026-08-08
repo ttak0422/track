@@ -16,7 +16,7 @@ func TestLoadPaletteEmptyPath(t *testing.T) {
 
 func TestLoadPaletteBuildsScopedCSS(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "colors.yml")
-	contents := "light:\n  accent: \"#2f6f5e\"\n  graph-active: \"#F08300\"\n  text: \"#20231f\"\ndark:\n  accent: \"#62b39b\"\n  graph-active-strong: \"#ffc06a\"\n"
+	contents := "light:\n  mark: \"#1a1a18\"\n  line: \"#e6e4de\"\n  text: \"#20231f\"\ndark:\n  mark: \"#e9e9e4\"\n  faint: \"#8b8b83\"\n"
 	if err := os.WriteFile(path, []byte(contents), 0o644); err != nil {
 		t.Fatal(err)
 	}
@@ -25,8 +25,8 @@ func TestLoadPaletteBuildsScopedCSS(t *testing.T) {
 		t.Fatalf("load: %v", err)
 	}
 	for _, want := range []string{
-		":root{--accent:#2f6f5e;--graph-active:#F08300;--text:#20231f;}",
-		`:root[data-theme="dark"]{--accent:#62b39b;--graph-active-strong:#ffc06a;}`,
+		":root{--line:#e6e4de;--mark:#1a1a18;--text:#20231f;}",
+		`:root[data-theme="dark"]{--faint:#8b8b83;--mark:#e9e9e4;}`,
 		"@media (prefers-color-scheme: dark)",
 	} {
 		if !strings.Contains(css, want) {
@@ -38,7 +38,7 @@ func TestLoadPaletteBuildsScopedCSS(t *testing.T) {
 func TestLoadPaletteIgnoresUnknownKeys(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "colors.yml")
 	// "wallpaper" is not a themeable variable and must be dropped, not injected.
-	if err := os.WriteFile(path, []byte("light:\n  accent: \"#abc\"\n  wallpaper: \"#fff\"\n"), 0o644); err != nil {
+	if err := os.WriteFile(path, []byte("light:\n  mark: \"#abc\"\n  wallpaper: \"#fff\"\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
 	css, err := LoadPalette(path)
@@ -48,7 +48,7 @@ func TestLoadPaletteIgnoresUnknownKeys(t *testing.T) {
 	if strings.Contains(css, "wallpaper") {
 		t.Fatalf("unknown key leaked into css: %s", css)
 	}
-	if !strings.Contains(css, "--accent:#abc;") {
+	if !strings.Contains(css, "--mark:#abc;") {
 		t.Fatalf("known key dropped: %s", css)
 	}
 }
@@ -56,7 +56,7 @@ func TestLoadPaletteIgnoresUnknownKeys(t *testing.T) {
 func TestLoadPaletteRejectsInjection(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "colors.yml")
 	// A value trying to break out of the declaration must be rejected.
-	if err := os.WriteFile(path, []byte("light:\n  accent: \"red;} body{display:none\"\n"), 0o644); err != nil {
+	if err := os.WriteFile(path, []byte("light:\n  mark: \"red;} body{display:none\"\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := LoadPalette(path); err == nil {

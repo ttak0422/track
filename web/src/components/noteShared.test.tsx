@@ -45,9 +45,8 @@ describe("NoteAside graph section", () => {
     localGraph.mockReturnValue({ data: linkedGraph });
     render(<NoteAside backlinks={[]} noteID="1" journalDate="" />);
 
-    // The section carries no caption — a graph is recognisably a graph — so it is found by its
-    // accessible name instead.
-    expect(screen.getByRole("region", { name: "Local graph" })).toBeTruthy();
+    // Labelled like the lists above it, so the aside reads as one stack of sections.
+    expect(screen.getByRole("region", { name: "Graph" })).toBeTruthy();
 
     const canvas = screen.getByText("select-2");
     expect(canvas.getAttribute("data-reset")).toBe("0");
@@ -56,6 +55,24 @@ describe("NoteAside graph section", () => {
 
     fireEvent.click(canvas);
     expect(navigate).toHaveBeenCalledWith({ to: "/notes/$noteId", params: { noteId: "2" } });
+  });
+
+  it("uses equally sized vector icons for the graph controls", () => {
+    localGraph.mockReturnValue({ data: linkedGraph });
+    render(<NoteAside backlinks={[]} noteID="1" journalDate="" />);
+
+    const region = screen.getByRole("region", { name: "Graph" });
+    const reset = within(region).getByRole("button", { name: "Reset graph view" });
+    const enlarge = within(region).getByRole("button", { name: "Enlarge graph" });
+    const resetIcon = reset.querySelector("svg");
+    const enlargeIcon = enlarge.querySelector("svg");
+
+    expect(resetIcon).not.toBeNull();
+    expect(enlargeIcon).not.toBeNull();
+    expect(resetIcon).toHaveAttribute("width", "15");
+    expect(resetIcon).toHaveAttribute("height", "15");
+    expect(enlargeIcon).toHaveAttribute("width", "15");
+    expect(enlargeIcon).toHaveAttribute("height", "15");
   });
 
   it("opens the enlarged graph in a centered dialog and closes on backdrop click", () => {
@@ -95,7 +112,7 @@ describe("NoteAside graph section", () => {
       },
     });
     render(<NoteAside backlinks={[]} noteID="1" journalDate="" />);
-    expect(screen.queryByRole("region", { name: "Local graph" })).toBeNull();
+    expect(screen.queryByRole("region", { name: "Graph" })).toBeNull();
   });
 });
 

@@ -3,7 +3,7 @@ import { copyRich, copyText } from "./markdown/clipboard";
 import { toPortableMarkdown } from "./markdown/portable";
 
 interface NoteActionsMenuProps {
-  // A getter, not the body: the menu lives in the sidebar rail now, and holding the body as a prop
+  // A getter, not the body: the menu lives in the floating rail now, and holding the body as a prop
   // there would re-render the rail on every keystroke. It is only read when an item is clicked.
   getBody: () => string;
   onMeta: () => void;
@@ -30,7 +30,7 @@ async function portableToHtml(portable: string): Promise<string> {
 export function NoteActionsMenu({ getBody, onMeta, onDelete }: NoteActionsMenuProps) {
   const [open, setOpen] = useState(false);
   const [copied, setCopied] = useState<"md" | "html" | null>(null);
-  // Where to draw the panel. It lives in the sidebar rail, which clips its overflow, so the panel is
+  // Where to draw the panel. It lives in the floating rail, which clips its overflow, so the panel is
   // positioned fixed and beside the trigger rather than absolutely under it — the same escape the
   // rail's other two popups make.
   const [anchor, setAnchor] = useState<{ top: number; left: number } | null>(null);

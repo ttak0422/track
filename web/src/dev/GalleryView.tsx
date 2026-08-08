@@ -167,7 +167,7 @@ export function GalleryView() {
         <h2>Prose</h2>
         <div className="markdown-view">
           <p>
-            Body text with an <a className="gallery-card-link">accent link</a>, some{" "}
+            Body text with a <a className="gallery-card-link">link</a>, some{" "}
             <code>inline code</code>, and 日本語の本文が混在する段落。Hierarchy comes from ink, not
             boxes.
           </p>
@@ -184,8 +184,11 @@ export function GalleryView() {
               "--panel-soft",
               "--text",
               "--muted",
+              "--faint",
               "--line",
-              "--accent",
+              "--line-strong",
+              "--line-node",
+              "--mark",
               "--danger",
               "--chart-1",
               "--chart-2",
@@ -217,9 +220,9 @@ function MiniCard({ variant }: { variant?: string }) {
       <div className="gallery-card-panel">
         <p>Panel surface / ノート本文</p>
         <p className="gallery-card-muted">muted secondary line</p>
-        <a className="gallery-card-link">accent link</a>
+        <a className="gallery-card-link">a link</a>
       </div>
-      <Swatches names={["--bg", "--panel", "--panel-soft", "--accent", "--chart-2", "--chart-3"]} />
+      <Swatches names={["--bg", "--panel", "--panel-soft", "--mark", "--chart-2", "--chart-3"]} />
     </div>
   );
 }
