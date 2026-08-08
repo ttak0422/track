@@ -127,10 +127,9 @@ export function Shell() {
                 <RailGraphIcon />
               </Link>
               {/* The open note's own controls, below the workspace's views. Absent while no note is
-                  open, so the rail is navigation alone the rest of the time. */}
+                  open, so the dock keeps carrying nothing but navigation the rest of the time. */}
               {!STATIC_MODE && <NoteRailControls />}
-              {/* Settings closes the column, at its foot rather than among the views. */}
-              <div className="rail-spacer" />
+              {/* Settings stays with the floating dock, after the workspace controls. */}
               <ThemeMenu />
             </nav>
           </aside>

@@ -148,41 +148,40 @@ button {
   display: grid;
   /* The reader column must shrink below its content's preferred width (a phone is narrower than the
      old 380px floor, which forced sideways scrolling of the whole workspace). */
-  grid-template-columns: 56px minmax(0, 1fr);
+  grid-template-columns: minmax(0, 1fr);
   height: 100vh;
   min-height: 560px;
 }
 
-/* Two grounds (design.md, Principles): the rail is a column of the page, the reader is the sheet, and
-   one hairline rules them apart. The rail paints no surface of its own — it is the page showing
-   through — so it is not a floating layer and takes no shadow and no radius. */
+/* The reader owns the layout; the navigation rail is a compact dock floating over it. The strip around
+   the dock does not intercept reader clicks, while the dock itself stays interactive. It sits above the
+   graph view (90) and below menus/search (94+). */
 .sidebar {
+  position: fixed;
+  z-index: 91;
+  top: 0;
+  bottom: 0;
+  left: 8px;
   display: flex;
-  min-width: 0;
-  min-height: 0;
-  border-right: 1px solid var(--line);
-  background: var(--bg);
-  overflow: hidden;
+  align-items: center;
+  pointer-events: none;
 }
 
 .activity-rail {
-  flex: 1;
   display: flex;
   flex-direction: column;
   align-items: center;
   gap: 6px;
-  padding: 8px 0;
+  padding: 8px 4px;
+  pointer-events: auto;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-lg);
+  background: var(--panel);
   /* The rail grew a second group (the open note's controls), so on a short window it can be taller
-     than the viewport. The sidebar clips its overflow, which would silently swallow whatever fell
-     off the bottom — settings, or the note menu. Scroll instead, without a visible bar: this is
-     chrome, and the bar would eat a quarter of a 56px column. */
+     than the viewport. Scroll inside the dock without a visible bar. */
+  max-height: calc(100vh - 16px);
   overflow-y: auto;
   scrollbar-width: none;
-}
-
-/* Views at the top, settings at the foot of the column. */
-.rail-spacer {
-  flex: 1 1 auto;
 }
 
 .activity-rail::-webkit-scrollbar {
@@ -197,8 +196,8 @@ button {
    control. Square, because a configured site icon (an image) drops into the same box. */
 .rail-mark {
   display: block;
-  width: 22px;
-  height: 22px;
+  width: auto;
+  height: 26px;
 }
 
 .rail-icon-svg {
@@ -241,10 +240,9 @@ button {
 }
 
 /* Static-site empty state (every tab closed): a faint centered mark plus arrows pointing back at the
-   sidebar, so the blank reader reads as "nothing open" rather than broken. */
+   floating rail, so the blank reader reads as "nothing open" rather than broken. */
 .empty-state {
-  /* Fill the reader's padding box (ignoring its 32px padding) so the guide offsets share the sidebar
-     rail's origin — the rail and the reader both start at the workspace top. */
+  /* Fill the reader's padding box (ignoring its 32px padding) so the mark stays centered in the sheet. */
   position: absolute;
   inset: 0;
 }
@@ -260,15 +258,13 @@ button {
   pointer-events: none;
 }
 
-/* The guides mirror the rail's own rhythm rather than measuring from the viewport edge: same 8px pad,
-   same 40px rows and 6px gaps, and the same spacer before settings. Each label therefore lands beside
-   the button it names for any number of buttons — the old hardcoded top offsets drifted the moment
-   the rail gained or lost one. */
+/* The guides mirror the floating rail rather than measuring from the reader's content box: same center
+   line, same 8px pad, 40px rows, and 6px gaps. */
 .empty-guides {
   position: absolute;
-  top: 0;
-  bottom: 0;
-  left: 16px;
+  top: 50%;
+  left: 72px;
+  translate: 0 -50%;
   display: flex;
   flex-direction: column;
   gap: 6px;
@@ -284,11 +280,6 @@ button {
   color: var(--muted);
   font-size: 0.9em;
   white-space: nowrap;
-}
-
-/* The rail's spacer, mirrored: settings sits at the foot of the column, so its guide does too. */
-.empty-guide-settings {
-  margin-top: auto;
 }
 
 .empty-guide::before {
@@ -419,16 +410,15 @@ button {
   box-shadow: 0 16px 38px color-mix(in srgb, #000 18%, transparent);
 }
 
-/* In the rail the settings menu sits at the bottom, so its panel opens beside the rail. It must be
-   fixed, not absolute: the rail clips overflow, and a high z-index keeps it above reader content like
-   a note's backlinks (and, like the search popup below, the full-graph view at z-index 90). */
+/* The settings menu opens beside the centered dock. It is fixed so it is not clipped by the rail and
+   stays above reader content like note backlinks and the full-graph view. */
 .rail-menu-panel {
   position: fixed;
   z-index: 95;
-  top: auto;
+  top: 50%;
   right: auto;
-  bottom: 12px;
   left: 64px;
+  translate: 0 -50%;
 }
 
 /* The sidebar search popup floats beside the rail, escaping the rail's overflow with fixed positioning.
@@ -701,8 +691,8 @@ button {
 }
 
 .reader-pane:has(.tabbar),
-/* The empty state has no tab bar (and none will mount without navigating away), and its arrow guides are
-   aligned to the sidebar rail's top origin, so drop the reserved row there. */
+/* The empty state has no tab bar (and none will mount without navigating away), so drop the reserved row
+   there; its arrow guides align to the floating dock instead. */
 .reader-pane:has(.empty-state) {
   padding-top: 0;
 }
@@ -714,6 +704,9 @@ button {
   flex: 1;
   overflow: auto;
   padding: 32px;
+  /* Leave the compact floating dock a clear reading lane. Full-bleed views positioned with inset: 0
+     still use the reader's full box and can run beneath the dock. */
+  padding-left: 64px;
   background: var(--panel);
   /* The reader is the page scroller for the full-page views (calendar, day) and long notes; its
      scrollbar stays hidden like every other scroller in the app (tab strip, backlinks, previews). */
@@ -2451,10 +2444,10 @@ textarea.modal-input:focus-visible {
     flex-basis: 160px;
   }
 
-  /* Phone width: tighter chrome so the 56px rail plus content read comfortably. The published static
-     site is the main mobile surface (the live workspace is desk-bound), but both share these. */
+  /* Phone width: keep the reader clear of the floating dock. The published static site is the main
+     mobile surface (the live workspace is desk-bound), but both share these. */
   .reader {
-    padding: 16px 12px;
+    padding: 16px 12px 16px 64px;
   }
 
   .note-preview {

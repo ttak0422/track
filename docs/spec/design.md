@@ -6,10 +6,10 @@ none fits, extend this document first — do not invent a one-off treatment.
 
 ## Principles
 
-- **Two grounds, one sheet.** The page (`--bg`) carries the rail; the sheet
-  (`--panel`) carries the tab strip and the note. One hairline rules them
-  apart. Nothing else in the permanent chrome draws a slab, a box, or a fill:
-  the reader is one sheet of paper with a margin of tools beside it.
+- **One sheet, floating rail.** The page (`--bg`) surrounds the reader sheet
+  (`--panel`), while navigation floats over the sheet as a compact dock. The
+  dock uses the panel surface, a hairline, and a radius, but no shadow: it is a
+  stable orientation aid, not a lifted card. The reader itself stays full width.
 - **Color belongs to figures.** Inside a chart, a diagram, or the graph, color
   carries meaning (series, zones, event lines). So the UI around them gives it
   up: chrome, links, and active states are ink and hairlines. `--mark` is the
@@ -40,8 +40,8 @@ values swapped; nothing else branches on theme.
 
 | Token | Role | Light | Dark |
 | --- | --- | --- | --- |
-| `--bg` | Page ground: behind the sheet, under the rail | `#fbfaf8` | `#141618` |
-| `--panel` | The sheet: tab strip, reader, floating layers | `#ffffff` | `#191c1e` |
+| `--bg` | Page ground: around the sheet and behind the dock | `#fbfaf8` | `#141618` |
+| `--panel` | The sheet, dock, tab strip, and floating layers | `#ffffff` | `#191c1e` |
 | `--panel-soft` | Sunk ground: a figure's bed, code blocks, inputs | `#f3f2ee` | `#212528` |
 | `--text` | Body ink | `#1a1a18` | `#e9e9e4` |
 | `--muted` | Secondary ink: chrome at rest, inline code, table cells | `#5e5d58` | `#a2a29b` |
@@ -156,8 +156,8 @@ above the page, so they alone carry shadows.
   `box-shadow`. Items inside are text controls (muted rows that ink on hover).
 - Canonical: `.menu-panel`, `.note-menu-panel`, `.modal-card`,
   `.tab-overflow-panel`, `.tab-tools`.
-- Every member is transient. The rail is not one: it is a column of the page,
-  ruled off by a hairline, and it paints no surface of its own.
+- Every member is transient. The rail is the exception: it is a permanent
+  floating dock with the panel surface, a hairline, and a radius, but no shadow.
 
 ### 4. Filled action — modal decisions only
 
@@ -292,9 +292,9 @@ The strip is a line of titles on the sheet, not a bar of chrome.
   cannot: the container here also holds the tab's own title button, so a mouse
   click on the tab left the panel pinned open with the pointer long gone.
 
-## Sidebar
+## Sidebar and rail
 
-The note's aside (right) and the rail (left) are both quiet columns.
+The note's aside is a quiet column; the rail is a floating dock over the sheet.
 
 - Aside: 186px wide, 60px from the note column. Section headings take the
   label recipe; a count sits at the right end of the heading row in mono 11px
@@ -305,9 +305,9 @@ The note's aside (right) and the rail (left) are both quiet columns.
   with `--mark` and its edges follow, while everything else dims in place.
   Contrast is what marks a match — no graph gets a colour the rest of the UI
   gave up.
-- Rail: a 56px column on `--bg`, ruled off the sheet by a hairline on its
-  right edge. Glyphs are text controls; views sit at the top, settings at the
-  bottom. It paints no surface, casts no shadow, and takes no radius.
+- Rail: a compact floating dock, vertically centered 8px from the left edge,
+  on `--panel` with a hairline and radius but no shadow. Glyphs are text
+  controls; workspace views and open-note controls share the dock in order.
 - **One icon family.** Every rail glyph is drawn the same way: a 24-unit
   viewBox at 20px, `fill: none`, `stroke: currentColor`, `stroke-width: 1.5`,
   round caps and joins, and **no filled shapes** — a dot is a small stroked
