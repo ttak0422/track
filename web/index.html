@@ -7,7 +7,7 @@
       name="description"
       content="track is a linked Markdown knowledge base: wiki links, backlinks, charts, diagrams, and a local web workspace."
     />
-    <link rel="icon" type="image/svg+xml" href="/k_logo.svg" />
+    <link rel="icon" type="image/svg+xml" href="/track-icon.svg" data-track-favicon />
     <title>track</title>
     <script>
       // The Go server replaces __TRACK_DEFAULT_THEME__ with the configured default before serving this
@@ -19,6 +19,25 @@
         if (theme === "light" || theme === "dark") {
           document.documentElement.dataset.theme = theme;
         }
+        // Keep the built-in favicon aligned with the same explicit/system theme cascade as the app
+        // marks. A configured site icon removes this data attribute during export and is left alone.
+        function updateFavicon() {
+          var link = document.querySelector('link[data-track-favicon]');
+          if (!link) return;
+          var explicitTheme = document.documentElement.dataset.theme;
+          var dark =
+            explicitTheme === "dark" ||
+            (explicitTheme !== "light" && window.matchMedia("(prefers-color-scheme: dark)").matches);
+          var href = link.getAttribute("href") || "";
+          link.setAttribute("href", href.replace(/track-icon(?:-dark)?\.svg$/, dark ? "track-icon-dark.svg" : "track-icon.svg"));
+        }
+        updateFavicon();
+        new MutationObserver(updateFavicon).observe(document.documentElement, {
+          attributes: true,
+          attributeFilter: ["data-theme"],
+        });
+        var colorScheme = window.matchMedia("(prefers-color-scheme: dark)");
+        colorScheme.addEventListener?.("change", updateFavicon);
         // The saved content width is applied before first paint for the same reason: it moves the
         // reading column AND gates the docked aside (html[data-content-width], see the .note-aside
         // rail rules), so applying it only after React mounts would dock then undock the rail.

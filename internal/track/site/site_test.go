@@ -21,7 +21,7 @@ func fakeFrontend(t *testing.T) string {
 	if err := os.MkdirAll(filepath.Join(dir, "assets"), 0o755); err != nil {
 		t.Fatal(err)
 	}
-	index := `<!doctype html><head><title>track</title><link rel="icon" type="image/svg+xml" href="/k_logo.svg" /><script>var t="__TRACK_DEFAULT_THEME__";window.__trackStartPage="__TRACK_START_PAGE__"</script>__TRACK_COLOR_OVERRIDES__</head><body><div id="root"></div></body>`
+	index := `<!doctype html><head><title>track</title><link rel="icon" type="image/svg+xml" href="/track-icon.svg" data-track-favicon /><script>var t="__TRACK_DEFAULT_THEME__";window.__trackStartPage="__TRACK_START_PAGE__"</script>__TRACK_COLOR_OVERRIDES__</head><body><div id="root"></div></body>`
 	if err := os.WriteFile(filepath.Join(dir, "index.html"), []byte(index), 0o644); err != nil {
 		t.Fatal(err)
 	}
@@ -738,7 +738,7 @@ func TestBuildPublishesSiteIcon(t *testing.T) {
 		if !strings.Contains(string(raw), `href="/icon.png"`) {
 			t.Fatalf("%s favicon should point at the site icon:\n%s", rel, raw)
 		}
-		if strings.Contains(string(raw), "k_logo.svg") {
+		if strings.Contains(string(raw), `href="/track-icon.svg"`) || strings.Contains(string(raw), `href="/track-icon-dark.svg"`) {
 			t.Fatalf("%s still carries the built-in favicon:\n%s", rel, raw)
 		}
 	}
@@ -767,21 +767,21 @@ func TestSwapFavicon(t *testing.T) {
 	}{
 		{
 			"root base",
-			`<head><link rel="icon" type="image/svg+xml" href="/k_logo.svg" /></head>`,
+			`<head><link rel="icon" type="image/svg+xml" href="/track-icon.svg" /></head>`,
 			"icon.png",
 			`<head><link rel="icon" href="/icon.png" /></head>`,
 		},
 		{
 			"subpath base survives",
-			`<head><link rel="icon" type="image/svg+xml" href="/track/k_logo.svg" /></head>`,
+			`<head><link rel="icon" type="image/svg+xml" href="/track/track-icon.svg" /></head>`,
 			"icon.svg",
 			`<head><link rel="icon" href="/track/icon.svg" /></head>`,
 		},
 		{
 			"no icon is a no-op",
-			`<head><link rel="icon" href="/k_logo.svg" /></head>`,
+			`<head><link rel="icon" href="/track-icon.svg" /></head>`,
 			"",
-			`<head><link rel="icon" href="/k_logo.svg" /></head>`,
+			`<head><link rel="icon" href="/track-icon.svg" /></head>`,
 		},
 		{
 			"no favicon link is a no-op",

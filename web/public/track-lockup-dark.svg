@@ -1,0 +1,26 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 720 128" role="img" aria-labelledby="title desc">
+  <title id="title">track horizontal lockup dark mode</title>
+  <desc id="desc">A white square with a black lowercase t followed by the word track in white.</desc>
+
+  <rect x="8" y="8" width="112" height="112" rx="16" fill="#FFFFFF"/>
+  <g transform="translate(8 8) scale(.4375)">
+    <path
+      d="M122 52V88M78 93H166M122 93V181C122 199 132 209 150 209H171"
+      fill="none"
+      stroke="#171717"
+      stroke-width="30"
+      stroke-linecap="round"
+      stroke-linejoin="round"
+    />
+  </g>
+
+  <text
+    x="158"
+    y="82"
+    fill="#FFFFFF"
+    font-family="Inter, ui-sans-serif, -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif"
+    font-size="58"
+    font-weight="600"
+    letter-spacing="0.5"
+  >track</text>
+</svg>

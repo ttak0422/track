@@ -144,6 +144,31 @@ button {
   white-space: nowrap;
 }
 
+/* Brand assets ship in light/dark pairs so manual theme selection changes the mark immediately, while
+   an unset theme follows the system color scheme. The alternate image is hidden rather than filtered:
+   the supplied lockups carry their own deliberate black/white contrast. */
+.theme-asset-dark {
+  display: none;
+}
+
+:root[data-theme="dark"] .theme-asset-light {
+  display: none;
+}
+
+:root[data-theme="dark"] .theme-asset-dark {
+  display: block;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) .theme-asset-light {
+    display: none;
+  }
+
+  :root:not([data-theme="light"]) .theme-asset-dark {
+    display: block;
+  }
+}
+
 .workspace {
   display: grid;
   /* The reader column must shrink below its content's preferred width (a phone is narrower than the
