@@ -347,7 +347,10 @@ function usePanZoom(svg: string | null) {
   // Shift+wheel zooms, and a trackpad pinch (ctrl+wheel) zooms instead of scaling the whole page.
   // Non-passive so the zooming cases can preventDefault. A collapsed thumbnail is inert either way.
   // Keyed on svg for the same mount-timing reason as the resize observer above.
-  useEffect(() => {
+  // Layout, not passive: the listener has to exist by the time the diagram is on screen. A passive
+  // effect leaves a window where the SVG is in the DOM and the wheel does nothing — small in a
+  // browser, and wide enough in the tests that the zoom case failed about one run in ten.
+  useLayoutEffect(() => {
     const el = viewportRef.current;
     if (!el) return;
     function onWheel(event: WheelEvent) {
