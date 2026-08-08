@@ -44,6 +44,17 @@ assert_true(details.virt_lines_above == true, "title must sit above the first bu
 assert_true(details.virt_text == nil, "title must not use virt_text overlay: " .. vim.inspect(details))
 assert_true(details.virt_lines[1][1][1] == "Virt line title", "title text missing: " .. vim.inspect(details))
 
+-- The extmark alone never reaches the screen: Neovim makes no room above the first buffer line, so
+-- the window has to reserve a filler row for the virtual line or the title is silently not painted.
+local view = vim.fn.winsaveview()
+assert_true(view.topline == 1, "the note must open at the top: " .. vim.inspect(view))
+assert_true(view.topfill == 1, "no room reserved above line 1, the title is invisible: " .. vim.inspect(view))
+
+-- A split starts from topfill = 0, so the new window must reserve the row on its own.
+vim.cmd("split")
+assert_true(vim.fn.winsaveview().topfill == 1, "the split lost the title row: " .. vim.inspect(vim.fn.winsaveview()))
+vim.cmd("close")
+
 -- The first body line must still be the buffer's line 1, untouched by the title.
 assert_true(vim.api.nvim_buf_get_lines(buf, 0, 1, false)[1] == "first body line", "body line 1 was overwritten")
 
