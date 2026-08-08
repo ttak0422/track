@@ -1,5 +1,5 @@
 import { Link, useLocation, useNavigate } from "@tanstack/react-router";
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { useAgendaQuery, useLocalGraphQuery } from "../queries";
 import { dateKey } from "./activityDates";
 import { GraphCanvas } from "./GraphCanvasLazy";
@@ -102,11 +102,22 @@ export function NoteAside({
   const agendaQuery = useAgendaQuery(journalDate, vaultOf(noteID), { enabled: journalDate !== "" });
   const graphQuery = useLocalGraphQuery(noteID);
   const [graphResetToken, setGraphResetToken] = useState(0);
+  // The enlarged graph's own state: a separate reset so the aside and the lightbox don't disturb each
+  // other's view, and the dialog element for the modal (mounted only while open, like MediaFrame's).
+  const [graphEnlarged, setGraphEnlarged] = useState(false);
+  const [lightboxResetToken, setLightboxResetToken] = useState(0);
+  const graphDialogRef = useRef<HTMLDialogElement>(null);
   const navigate = useNavigate();
   const graph = graphQuery.data?.graph;
   // A single heading is not an outline — it is the note's own title restated — so the section only
   // appears once there is somewhere to navigate between.
   const toc = useMemo(() => tocEntries(markdown), [markdown]);
+
+  // The lightbox <dialog> mounts only while enlarged; showModal() must run after that mount, so it
+  // lives in an effect rather than the click handler.
+  useEffect(() => {
+    if (graphEnlarged) graphDialogRef.current?.showModal();
+  }, [graphEnlarged]);
 
   return (
     <div className="note-aside">
@@ -249,18 +260,43 @@ export function NoteAside({
       {graph && graph.nodes.length > 1 ? (
         <section className="backlinks note-aside-graph" aria-labelledby="local-graph-heading">
           <h3 id="local-graph-heading">Graph</h3>
-          {/* Beside the heading, where the other sections carry their count — over the canvas it was
-              a glyph floating on nothing. A sibling of the heading rather than a child of it, so the
-              heading a screen reader announces stays "Graph" and not "Graph ↺". */}
-          <button
-            className="graph-reset aside-graph-reset"
-            type="button"
-            aria-label="Reset graph view"
-            title="Reset graph view"
-            onClick={() => setGraphResetToken((token) => token + 1)}
-          >
-            ↺
-          </button>
+          {/* Both controls end the heading row, where the other sections carry their count — over the
+              canvas they were glyphs floating on nothing. Siblings of the heading rather than children
+              of it, so the heading a screen reader announces stays "Graph". */}
+          <div className="aside-graph-controls">
+            <button
+              className="graph-reset aside-graph-reset"
+              type="button"
+              aria-label="Reset graph view"
+              title="Reset graph view"
+              onClick={() => setGraphResetToken((token) => token + 1)}
+            >
+              ↺
+            </button>
+            <button
+              className="graph-reset aside-graph-expand"
+              type="button"
+              aria-label="Enlarge graph"
+              title="Enlarge graph"
+              onClick={() => setGraphEnlarged(true)}
+            >
+              {/* Expand-to-corners glyph, the same one media embeds use to enlarge. Drawn in the rail's
+                  outline family (design.md, Sidebar): 1.5 stroke, no fills. */}
+              <svg
+                viewBox="0 0 24 24"
+                width="15"
+                height="15"
+                fill="none"
+                stroke="currentColor"
+                strokeWidth="1.5"
+                strokeLinecap="round"
+                strokeLinejoin="round"
+                aria-hidden="true"
+              >
+                <path d="M8 3H5a2 2 0 0 0-2 2v3m18 0V5a2 2 0 0 0-2-2h-3M3 16v3a2 2 0 0 0 2 2h3m8 0h3a2 2 0 0 0 2-2v-3" />
+              </svg>
+            </button>
+          </div>
           <div className="aside-graph">
             <GraphCanvas
               graph={graph}
@@ -270,6 +306,42 @@ export function NoteAside({
               }
             />
           </div>
+          {graphEnlarged ? (
+            /* The enlarged local graph: a modal <dialog> centered over the page, sized from the
+               viewport (the canvas fills its container, so it needs real geometry to fill). Esc or
+               a backdrop click closes it, like the media lightbox. Selecting a node navigates, which
+               drops the dialog rather than leaving it open over a different note. */
+            <dialog
+              ref={graphDialogRef}
+              className="graph-lightbox"
+              aria-label="Enlarged local graph"
+              onClose={() => setGraphEnlarged(false)}
+              onClick={(event) => {
+                // A backdrop click lands on the dialog element itself (content clicks land on children).
+                if (event.target === graphDialogRef.current) graphDialogRef.current.close();
+              }}
+            >
+              <GraphCanvas
+                graph={graph}
+                resetToken={lightboxResetToken}
+                onSelect={(selected) => {
+                  setGraphEnlarged(false);
+                  void navigate({ to: "/notes/$noteId", params: { noteId: String(selected) } });
+                }}
+              />
+              <div className="graph-controls">
+                <button
+                  className="graph-reset"
+                  type="button"
+                  aria-label="Reset graph view"
+                  title="Reset graph view"
+                  onClick={() => setLightboxResetToken((token) => token + 1)}
+                >
+                  ↺
+                </button>
+              </div>
+            </dialog>
+          ) : null}
         </section>
       ) : null}
     </div>

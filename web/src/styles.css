@@ -3504,23 +3504,46 @@ textarea.modal-input:focus-visible {
    starts on it must still scroll the page on touch (the published site is the main mobile surface).
    pan-y hands vertical gestures to the browser; the trade is that touch node-drags only work
    sideways here — fine for a secondary surface. */
-/* The reset rides the right end of the GRAPH heading, where the other sections carry their count:
-   over the canvas it was a glyph floating on nothing, and the aside's sections all end their heading
-   row the same way. */
+/* Reset and enlarge ride the right end of the GRAPH heading, where the other sections carry their
+   count: over the canvas they were glyphs floating on nothing, and the aside's sections all end
+   their heading row the same way. */
 .note-aside-graph {
   position: relative;
 }
 
-.aside-graph-reset {
+.aside-graph-controls {
   position: absolute;
   top: 0;
   right: 0;
+  display: flex;
+  gap: 6px;
+  align-items: center;
   font-size: calc(13px * var(--font-scale, 1));
   line-height: 1;
 }
 
 .aside-graph .graph-canvas {
   touch-action: pan-y;
+}
+
+/* The enlarged local graph: a modal <dialog>, so the browser centers it over the page and a dimmed
+   backdrop; Esc or a backdrop click closes it. Unlike the media lightbox (which hugs its content)
+   the graph canvas fills its container, so the dialog itself carries the viewport-sized box. */
+.graph-lightbox {
+  display: flex;
+  flex-direction: column;
+  width: min(92vw, 1100px);
+  height: min(84vh, 720px);
+  border: 1px solid var(--line);
+  border-radius: var(--radius-lg);
+  padding: 0;
+  overflow: hidden;
+  background: var(--panel);
+  box-shadow: 0 24px 60px rgb(0 0 0 / 28%);
+}
+
+.graph-lightbox::backdrop {
+  background: rgb(0 0 0 / 45%);
 }
 
 .note-aside::-webkit-scrollbar {
