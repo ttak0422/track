@@ -65,74 +65,76 @@ export function Shell() {
       <main className={`workspace${isHero ? " home" : ""}`}>
           <aside className="sidebar">
             <nav className="activity-rail" aria-label="Workspace views">
-              {/* On the static site "/" is the start page; on the live server it is the heatmap home. */}
-              <Link
-                className="rail-button rail-brand"
-                to="/"
-                aria-label={STATIC_MODE ? "Start page" : "track home"}
-                title={STATIC_MODE ? "Start page" : "track home"}
-              >
-                <BrandMark icon={site.data?.icon} className="rail-mark" />
-              </Link>
-              <SidebarSearch />
-              {/* The published static site is read-only and cannot create journals. */}
-              {!STATIC_MODE && (
-                <button
-                  className="rail-button"
-                  type="button"
-                  aria-label="Today's journal"
-                  title="Today's journal"
-                  onClick={openTodayJournal}
+              <div className="rail-scroll">
+                {/* On the static site "/" is the start page; on the live server it is the heatmap home. */}
+                <Link
+                  className="rail-button rail-brand"
+                  to="/"
+                  aria-label={STATIC_MODE ? "Start page" : "track home"}
+                  title={STATIC_MODE ? "Start page" : "track home"}
                 >
-                  <svg
-                    className="rail-icon-svg"
-                    viewBox="0 0 24 24"
-                    width="20"
-                    height="20"
-                    fill="none"
-                    stroke="currentColor"
-                    strokeWidth="1.5"
-                    strokeLinecap="round"
-                    strokeLinejoin="round"
-                    aria-hidden="true"
+                  <BrandMark icon={site.data?.icon} className="rail-mark" />
+                </Link>
+                <SidebarSearch />
+                {/* The published static site is read-only and cannot create journals. */}
+                {!STATIC_MODE && (
+                  <button
+                    className="rail-button"
+                    type="button"
+                    aria-label="Today's journal"
+                    title="Today's journal"
+                    onClick={openTodayJournal}
                   >
-                    <rect x="4" y="3.5" width="16" height="17" rx="2" />
-                    <line x1="4" y1="8.5" x2="20" y2="8.5" />
-                    <line x1="8" y1="12.5" x2="16" y2="12.5" />
-                    <line x1="8" y1="16" x2="14" y2="16" />
-                  </svg>
-                </button>
-              )}
-              {showCalendar && (
+                    <svg
+                      className="rail-icon-svg"
+                      viewBox="0 0 24 24"
+                      width="20"
+                      height="20"
+                      fill="none"
+                      stroke="currentColor"
+                      strokeWidth="1.5"
+                      strokeLinecap="round"
+                      strokeLinejoin="round"
+                      aria-hidden="true"
+                    >
+                      <rect x="4" y="3.5" width="16" height="17" rx="2" />
+                      <line x1="4" y1="8.5" x2="20" y2="8.5" />
+                      <line x1="8" y1="12.5" x2="16" y2="12.5" />
+                      <line x1="8" y1="16" x2="14" y2="16" />
+                    </svg>
+                  </button>
+                )}
+                {showCalendar && (
+                  <Link
+                    className="rail-button"
+                    to="/calendar"
+                    aria-label="Calendar"
+                    title="Calendar"
+                  >
+                    <RailCalendarIcon />
+                  </Link>
+                )}
+                {/* The open-task listing is live-only: the published bundle carries dated tasks alone. */}
+                {!STATIC_MODE && (
+                  <Link className="rail-button" to="/tasks" aria-label="Tasks" title="Tasks">
+                    <RailTasksIcon />
+                  </Link>
+                )}
+                {/* The deliberate "up" tree, beside the link graph it is a hand-drawn path through. */}
+                <HierarchyMenu />
                 <Link
                   className="rail-button"
-                  to="/calendar"
-                  aria-label="Calendar"
-                  title="Calendar"
+                  to="/graph"
+                  aria-label="Full graph"
+                  title="Full graph"
                 >
-                  <RailCalendarIcon />
+                  <RailGraphIcon />
                 </Link>
-              )}
-              {/* The open-task listing is live-only: the published bundle carries dated tasks alone. */}
-              {!STATIC_MODE && (
-                <Link className="rail-button" to="/tasks" aria-label="Tasks" title="Tasks">
-                  <RailTasksIcon />
-                </Link>
-              )}
-              {/* The deliberate "up" tree, beside the link graph it is a hand-drawn path through. */}
-              <HierarchyMenu />
-              <Link
-                className="rail-button"
-                to="/graph"
-                aria-label="Full graph"
-                title="Full graph"
-              >
-                <RailGraphIcon />
-              </Link>
-              {/* The open note's own controls, below the workspace's views. Absent while no note is
-                  open, so the dock keeps carrying nothing but navigation the rest of the time. */}
-              {!STATIC_MODE && <NoteRailControls />}
-              {/* Settings stays with the floating dock, after the workspace controls. */}
+                {/* The open note's own controls, below the workspace's views. Absent while no note is
+                    open, so the dock keeps carrying nothing but navigation the rest of the time. */}
+                {!STATIC_MODE && <NoteRailControls />}
+              </div>
+              {/* Settings is outside the scrolling group so it stays reachable on a short window. */}
               <ThemeMenu />
             </nav>
           </aside>
