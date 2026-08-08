@@ -297,8 +297,11 @@ The strip is a line of titles on the sheet, not a bar of chrome.
 
 The note's aside is a quiet column; the rail is a floating dock over the sheet.
 
-- Aside: 186px wide, 60px from the note column. Section headings take the
-  label recipe; a count sits at the right end of the heading row in mono 11px
+- Aside: a viewport-sized column — `clamp(240px, 24vw, 380px)` — 60px from
+  the note column. The fixed 186px stub truncated every other title; the rail
+  instead drinks the screen's spare width, and the note column gives up width
+  before the rail does on a narrow laptop. Section headings take the label
+  recipe; a count sits at the right end of the heading row in mono 11px
   `--faint`. Rows are text controls — no pills.
 - The aside's graph draws its centre node filled with `--mark`, its other
   nodes filled with `--bg` and outlined 1px in `--line-node`, and its edges in
