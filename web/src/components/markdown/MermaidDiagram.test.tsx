@@ -146,6 +146,7 @@ describe("DiagramFrame tall-diagram preview", () => {
     expect(viewport.style.height).toBe("2200px");
     expect(container.querySelector(".mermaid-continuation")).not.toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Zoom in" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Collapse diagram" })).toBeInTheDocument();
 
     clientWidth.mockRestore();
     offsetWidth.mockRestore();
@@ -194,6 +195,7 @@ describe("DiagramFrame wide-diagram clipping", () => {
 
     const pan = screen.getByRole("img", { name: "Wide diagram" });
     expect(viewport).not.toHaveAttribute("data-collapsed");
+    expect(screen.queryByRole("button", { name: "Collapse diagram" })).not.toBeInTheDocument();
     expect(viewport.style.height).toBe("225px"); // 300 * 0.75: floored, not shrunk to fit
     expect(pan.style.transform).toBe("translate(0px, 0px) scale(0.75)");
     expect(fade("right")).toBeInTheDocument();

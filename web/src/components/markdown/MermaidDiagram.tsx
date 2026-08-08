@@ -96,6 +96,7 @@ export function DiagramFrame({ state, source, sourceLang, label, className }: Di
     zoomBy,
     handlers,
     collapsed,
+    showFoldControl,
     toggleCollapsed,
   } = panZoom;
   return (
@@ -125,22 +126,24 @@ export function DiagramFrame({ state, source, sourceLang, label, className }: Di
           the fold chip already owns the "there is more" signal until expanded. */}
       {!collapsed && overflow.left && <div className="mermaid-continuation-left" aria-hidden="true" />}
       {!collapsed && overflow.right && <div className="mermaid-continuation-right" aria-hidden="true" />}
-      <button
-        className="mermaid-control mermaid-fold"
-        type="button"
-        onClick={toggleCollapsed}
-        aria-label={collapsed ? "Expand diagram" : "Collapse diagram"}
-        title={collapsed ? "Expand diagram" : "Collapse diagram"}
-      >
-        {collapsed ? (
-          <>
-            <span aria-hidden="true">▾</span>
-            <span>Show full diagram</span>
-          </>
-        ) : (
-          "▴"
-        )}
-      </button>
+      {showFoldControl && (
+        <button
+          className="mermaid-control mermaid-fold"
+          type="button"
+          onClick={toggleCollapsed}
+          aria-label={collapsed ? "Expand diagram" : "Collapse diagram"}
+          title={collapsed ? "Expand diagram" : "Collapse diagram"}
+        >
+          {collapsed ? (
+            <>
+              <span aria-hidden="true">▾</span>
+              <span>Show full diagram</span>
+            </>
+          ) : (
+            "▴"
+          )}
+        </button>
+      )}
       {!collapsed && (
         <div className="mermaid-controls">
           <CopySource text={source} />
@@ -257,6 +260,9 @@ function usePanZoom(svg: string | null) {
   const [transform, setTransform] = useState<Transform>(identityTransform);
   const [viewportHeight, setViewportHeight] = useState<number | null>(null);
   const [collapsed, setCollapsed] = useState(false);
+  // A fold control is useful only when the diagram needed the initial collapsed preview. Small diagrams
+  // start fully open and should not grow a permanent close affordance after every render.
+  const [showFoldControl, setShowFoldControl] = useState(false);
   const viewportRef = useRef<HTMLDivElement>(null);
   const panRef = useRef<HTMLDivElement>(null);
   const fitRef = useRef<Transform>(identityTransform);
@@ -312,6 +318,7 @@ function usePanZoom(svg: string | null) {
     touchedRef.current = false;
     const { height } = computeFit(naturalW, naturalH, viewport.clientWidth, idealScaleRef.current);
     const startCollapsed = height > autoCollapseHeight;
+    setShowFoldControl(startCollapsed);
     setCollapsed(startCollapsed);
     applyView(startCollapsed);
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -447,6 +454,7 @@ function usePanZoom(svg: string | null) {
     zoomBy,
     handlers: { onPointerDown, onPointerMove, onPointerUp, onPointerCancel: onPointerUp },
     collapsed,
+    showFoldControl,
     toggleCollapsed: () => {
       touchedRef.current = false;
       setCollapsed(!collapsed);

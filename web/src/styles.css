@@ -774,6 +774,16 @@ img.theme-asset-dark {
   display: none;
 }
 
+/* Ordinary read-only notes are the one document surface that uses the page scroller visibly. Full-page
+   views and editing panes keep the quiet hidden treatment above; split preview scrolls in its own pane. */
+.reader:has(.note-reader):not(:has(.note-editor textarea)) {
+  scrollbar-width: thin;
+}
+
+.reader:has(.note-reader):not(:has(.note-editor textarea))::-webkit-scrollbar {
+  display: block;
+}
+
 /* Creation history and browser history occupy the hero's two open margins, so the central logo and
    search stay put as results grow beneath them. Below the width where those margins exist, both lists
    go away rather than crowding the search box. These are the hero's own content, not a note aside's
@@ -1225,6 +1235,16 @@ a.calendar-title:focus-visible {
   background: transparent;
   font-size: calc(13px * var(--font-scale, 1));
   white-space: nowrap;
+}
+
+/* Spotlight-like match emphasis: mark the matching text itself, not the whole result row. */
+.search-highlight {
+  color: inherit;
+  font-weight: 600;
+  background: color-mix(in srgb, var(--mark) 14%, transparent);
+  border-radius: 2px;
+  box-decoration-break: clone;
+  -webkit-box-decoration-break: clone;
 }
 
 .tab-overflow-toggle:hover,
@@ -1791,12 +1811,8 @@ textarea.modal-input:focus-visible {
   overflow: auto;
   padding: 16px;
   background: var(--panel);
-  /* A note page scrolls here (not the reader); keep the bar hidden so the split preview stays quiet. */
-  scrollbar-width: none;
-}
-
-.note-preview::-webkit-scrollbar {
-  display: none;
+  /* Split preview is an editing pane and keeps the shared visible scrollbar; flowing read-only notes
+     opt out of this pane's overflow below so the outer reader becomes the document scroller. */
 }
 
 /* Static-only share actions sit after the note layout. The layout flexes to fill short pages, which puts
@@ -2696,13 +2712,21 @@ textarea.modal-input:focus-visible {
   opacity: 1;
 }
 
-/* The fold toggle (縮小/展開) sits top-left and stays visible — a collapsed diagram must show how
-   to get it back without hunting for a hover control. */
+/* The fold toggle is a quiet hover affordance once a diagram is full-sized. A collapsed preview keeps
+   its Show full diagram action visible because otherwise the way back to the full content is hidden. */
 .mermaid-fold {
   position: absolute;
   top: 8px;
   left: 8px;
   z-index: 2; /* above the continuation fades */
+  opacity: 0;
+  transition: opacity 0.12s ease;
+}
+
+.mermaid-diagram:hover .mermaid-fold,
+.mermaid-fold:focus-visible,
+.mermaid-diagram[data-collapsed] .mermaid-fold {
+  opacity: 1;
 }
 
 /* A tall collapsed diagram stays at a readable scale and is clipped, so make both the continuation

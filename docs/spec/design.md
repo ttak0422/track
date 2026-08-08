@@ -127,6 +127,9 @@ inset. Hover moves the thumb to `--muted`. Scrollers whose chrome would compete
 with the content — code blocks, the rail, tab overflow, and preview panes — may
 keep their bars hidden.
 
+The ordinary read-only note uses the reader's visible scrollbar; its thumb
+belongs to the reading surface rather than to the surrounding workspace chrome.
+
 ## Variants
 
 ### 1. Text control — the default for chrome

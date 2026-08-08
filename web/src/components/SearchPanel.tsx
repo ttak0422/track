@@ -4,6 +4,7 @@ import { useDebouncedValue } from "../hooks/useDebouncedValue";
 import { keys, step } from "../keys";
 import { useSearchQuery } from "../queries";
 import { useSearchState } from "../searchState";
+import { highlightSearchText } from "../searchHighlight";
 import type { SearchResult } from "../types";
 
 interface SearchPanelProps {
@@ -94,6 +95,7 @@ export function SearchPanel({ onNavigate, autoFocus }: SearchPanelProps = {}) {
             note={note}
             index={index}
             active={index === active}
+            query={trimmedQuery}
             onNavigate={onNavigate}
           />
         ))}
@@ -106,6 +108,7 @@ export function SearchPanel({ onNavigate, autoFocus }: SearchPanelProps = {}) {
                 note={note}
                 index={titleHits.length + index}
                 active={titleHits.length + index === active}
+                query={trimmedQuery}
                 onNavigate={onNavigate}
               />
             ))}
@@ -125,10 +128,11 @@ interface SearchResultItemProps {
   note: SearchResult;
   index: number;
   active: boolean;
+  query: string;
   onNavigate?: () => void;
 }
 
-function SearchResultItem({ note, index, active, onNavigate }: SearchResultItemProps) {
+function SearchResultItem({ note, index, active, query, onNavigate }: SearchResultItemProps) {
   return (
     <Link
       className={`result${active ? " is-active" : ""}`}
@@ -144,18 +148,34 @@ function SearchResultItem({ note, index, active, onNavigate }: SearchResultItemP
             {note.icon}
           </span>
         ) : null}
-        {note.title}
+        <HighlightedSearchText text={note.title} query={query} />
       </span>
-      {note.snippet ? <p className="result-snippet">{note.snippet}</p> : null}
+      {note.snippet ? (
+        <p className="result-snippet">
+          <HighlightedSearchText text={note.snippet} query={query} />
+        </p>
+      ) : null}
       {note.tags && note.tags.length > 0 ? (
         <div className="tag-list" aria-label={`${note.title} tags`}>
           {note.tags.map((tag) => (
             <span key={tag}>
-              #{tag}
+              <HighlightedSearchText text={`#${tag}`} query={query} />
             </span>
           ))}
         </div>
       ) : null}
     </Link>
+  );
+}
+
+function HighlightedSearchText({ text, query }: { text: string; query: string }) {
+  return highlightSearchText(text, query).map((part, index) =>
+    part.highlighted ? (
+      <mark className="search-highlight" key={index}>
+        {part.text}
+      </mark>
+    ) : (
+      part.text
+    ),
   );
 }
