@@ -3540,9 +3540,9 @@ textarea.modal-input:focus-visible {
   color: var(--text);
 }
 
-/* The aside is a 186px column, so its links are one per row and clipped rather than wrapped: a
-   two-line entry stops reading as one item in a list. The day page keeps its own list, where the
-   links are the page content and have the width to wrap. */
+/* The aside is a column sized from the viewport, so its links are one per row and clipped rather
+   than wrapped: a two-line entry stops reading as one item in a list. Wide enough that an ordinary
+   note title fits on the row; only a very long one ellipsizes. */
 .note-aside .backlink-list {
   display: flex;
   flex-direction: column;
@@ -3620,16 +3620,19 @@ textarea.modal-input:focus-visible {
 }
 
 /* Put the aside beside the note instead of under it whenever the viewport holds both: the reader
-   becomes a row of note column + 300px rail, centered together, and the note column gives up width
+   becomes a row of note column + rail, centered together, and the note column gives up width
    before the rail does — so the rail shows on an ordinary laptop, not only when the centered
-   column's margin happens to hold one. Reading surfaces only: :has(.note-editor textarea) keeps
-   edit/split stacked (the meta dialog's textarea must not undock the rail), and the live home
-   renders the configured home note in hero chrome, so it stays stacked too. The rail sticks under
-   the tab bar and scrolls its own overflow. The "Full" content width stores none, which calc()
-   cannot digest, so ThemeMenu mirrors it into html[data-content-width] for the uncapped gate. */
+   column's margin happens to hold one. The rail's width scales with the viewport (clamp), so a
+   screen with width to spare shows longer titles instead of 186px stubs; the reader's max-width
+   mirrors the same clamp so the row only grows when the rail actually does. Reading surfaces
+   only: :has(.note-editor textarea) keeps edit/split stacked (the meta dialog's textarea must not
+   undock the rail), and the live home renders the configured home note in hero chrome, so it stays
+   stacked too. The rail sticks under the tab bar and scrolls its own overflow. The "Full" content
+   width stores none, which calc() cannot digest, so ThemeMenu mirrors it into
+   html[data-content-width] for the uncapped gate. */
 @media (min-width: 1100px) {
   .workspace:not(.home) .note-reader:not(:has(.note-editor textarea)) {
-    max-width: calc(var(--content-width, 880px) + 246px);
+    max-width: calc(var(--content-width, 880px) + 60px + clamp(240px, 24vw, 380px));
   }
 
   .workspace:not(.home) .note-reader:not(:has(.note-editor textarea)) > .note-layout {
@@ -3645,7 +3648,7 @@ textarea.modal-input:focus-visible {
   .workspace:not(.home) .note-reader:not(:has(.note-editor textarea)) > .note-layout > .note-aside {
     position: sticky;
     top: 32px; /* keep the reader's 32px breathing room when stuck under the tab bar */
-    flex: 0 0 186px;
+    flex: 0 0 clamp(240px, 24vw, 380px);
     flex-direction: column;
     flex-wrap: nowrap;
     max-height: calc(100vh - 65px); /* tab bar (33px) + the 32px sticky offset */

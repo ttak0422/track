@@ -255,7 +255,7 @@ export function NoteAside({
 
       {/* The always-on local graph. A lone unlinked node says nothing the note itself doesn't, so
           the section only appears once the note connects somewhere. It is labelled like the lists
-          above it: three sections down a 186px column read as one stack, and the odd one out reads
+          above it: three sections down a column read as one stack, and the odd one out reads
           as something that fell off the end of the note (design.md, Sidebar). */}
       {graph && graph.nodes.length > 1 ? (
         <section className="backlinks note-aside-graph" aria-labelledby="local-graph-heading">
