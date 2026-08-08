@@ -44,18 +44,17 @@ describe("HierarchyMenu", () => {
     expect(hierarchy).toHaveBeenLastCalledWith(true);
   });
 
-  it("opens at the roots alone, each level linking to its note as it is unfolded", () => {
+  it("opens with the roots and their children, and descends where asked", () => {
     hierarchy.mockReturnValue({ data: tree });
     render(<HierarchyMenu />);
     openMenu();
 
     expect(screen.getByRole("menu", { name: "Hierarchy" })).toBeInTheDocument();
+    // A root is always open, so it has no fold control at all — only what is under it does.
     expect(screen.getByRole("menuitem", { name: "Root" })).toHaveAttribute("href", "/notes/1");
-    expect(screen.queryByRole("menuitem", { name: "Child" })).not.toBeInTheDocument();
-
-    fireEvent.click(screen.getByRole("menuitem", { name: "Expand Root" }));
+    expect(screen.queryByRole("menuitem", { name: "Collapse Root" })).not.toBeInTheDocument();
     expect(screen.getByRole("menuitem", { name: "Child" })).toHaveAttribute("href", "/notes/2");
-    // One level at a time: unfolding a branch does not unfold what is inside it.
+    // One level at a time: the branch under Child stays folded until it is asked for.
     expect(screen.queryByRole("menuitem", { name: "Grandchild" })).not.toBeInTheDocument();
 
     fireEvent.click(screen.getByRole("menuitem", { name: "Expand Child" }));
@@ -75,30 +74,29 @@ describe("HierarchyMenu", () => {
     hierarchy.mockReturnValue({ data: tree });
     const first = render(<HierarchyMenu />);
     openMenu();
-    fireEvent.click(screen.getByRole("menuitem", { name: "Expand Root" }));
+    fireEvent.click(screen.getByRole("menuitem", { name: "Expand Child" }));
 
     first.unmount();
     const second = render(<HierarchyMenu />);
     openMenu();
-    expect(screen.getByRole("menuitem", { name: "Child" })).toBeInTheDocument();
+    expect(screen.getByRole("menuitem", { name: "Grandchild" })).toBeInTheDocument();
 
     // Folding it back leaves the row that folded it, and is remembered the same way.
-    fireEvent.click(screen.getByRole("menuitem", { name: "Collapse Root" }));
-    expect(screen.queryByRole("menuitem", { name: "Child" })).not.toBeInTheDocument();
-    expect(screen.getByRole("menuitem", { name: "Expand Root" })).toHaveAttribute("aria-expanded", "false");
+    fireEvent.click(screen.getByRole("menuitem", { name: "Collapse Child" }));
+    expect(screen.queryByRole("menuitem", { name: "Grandchild" })).not.toBeInTheDocument();
+    expect(screen.getByRole("menuitem", { name: "Expand Child" })).toHaveAttribute("aria-expanded", "false");
     expect(localStorage.getItem("track.hierarchyExpanded")).toBe("[]");
 
     second.unmount();
     render(<HierarchyMenu />);
     openMenu();
-    expect(screen.queryByRole("menuitem", { name: "Child" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("menuitem", { name: "Grandchild" })).not.toBeInTheDocument();
   });
 
   it("gives a leaf no fold control", () => {
     hierarchy.mockReturnValue({ data: tree });
     render(<HierarchyMenu />);
     openMenu();
-    fireEvent.click(screen.getByRole("menuitem", { name: "Expand Root" }));
     fireEvent.click(screen.getByRole("menuitem", { name: "Expand Child" }));
 
     expect(screen.getByRole("menuitem", { name: "Grandchild" })).toBeInTheDocument();

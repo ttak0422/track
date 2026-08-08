@@ -97,6 +97,7 @@ export function HierarchyMenu() {
           ) : (
             <HierarchyList
               nodes={roots}
+              root
               expanded={expanded}
               onToggle={toggleBranch}
               onNavigate={() => setOpen(false)}
@@ -108,13 +109,18 @@ export function HierarchyMenu() {
   );
 }
 
+// root marks the top level, whose branches are always open: a root only exists because something
+// sits under it, and folding away every subject at once would leave a menu of nothing. So the roots
+// carry no caret, and the caret column is not held open beside them either.
 function HierarchyList({
   nodes,
+  root = false,
   expanded,
   onToggle,
   onNavigate,
 }: {
   nodes: HierarchyNode[];
+  root?: boolean;
   expanded: Set<string>;
   onToggle: (noteID: string) => void;
   onNavigate: () => void;
@@ -123,13 +129,13 @@ function HierarchyList({
     <ul className="hierarchy-list">
       {nodes.map((node) => {
         const children = node.children ?? [];
-        const folded = !expanded.has(node.note_id);
+        const folded = !root && !expanded.has(node.note_id);
         return (
           <li key={node.note_id}>
             <div className="hierarchy-row">
-              {/* The caret column is held open on leaves too, so titles at one level line up whether
-                  or not the branch beside them can be folded. */}
-              {children.length > 0 ? (
+              {/* Below the roots the caret column is held open on leaves too, so titles at one level
+                  line up whether or not the branch beside them can be folded. */}
+              {root ? null : children.length > 0 ? (
                 /* icon button */
                 <button
                   className="hierarchy-toggle"
@@ -170,10 +176,10 @@ function HierarchyList({
   );
 }
 
-// Which branches the reader unfolded, by note id. A tree opens at its roots and nothing below them,
-// so the menu is a short list of the vault's top-level subjects rather than everything the hierarchy
-// holds; only what the reader opened is stored, and stays open. Ids that outlive their note are inert
-// set members, not a reason to prune on read.
+// Which branches the reader unfolded, by note id. A tree opens showing its roots and their children
+// and nothing deeper, so the menu is the vault's subjects rather than everything the hierarchy holds;
+// only what the reader opened is stored, and stays open. Ids that outlive their note are inert set
+// members, not a reason to prune on read.
 const expandedKey = "track.hierarchyExpanded";
 
 function storedExpanded(): Set<string> {

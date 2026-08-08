@@ -1540,10 +1540,10 @@ a.calendar-title:focus-visible {
 }
 
 /* Depth reads as an indent against a hairline, the aside's quiet-column idiom — no glyphs, no pills.
-   The indent is half a caret column, so a nested title sits under its parent's rather than under the
-   parent's caret. */
+   One step is narrower than a caret column: the roots carry no caret, so a wider step would open a
+   gap between a root's title and the row beneath it. */
 .hierarchy-list .hierarchy-list {
-  margin-left: 12px;
+  margin-left: 3px;
   border-left: 1px solid var(--line);
   padding-left: 9px;
 }
