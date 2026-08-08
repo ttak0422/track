@@ -278,11 +278,15 @@ The strip is a line of titles on the sheet, not a bar of chrome.
 - The active tab is marked by `border-bottom: 2px solid var(--mark)` plus
   `font-weight: 500` — never a fill or a box. Inactive tabs are `--muted` with
   no border, and a hairline under the whole strip separates it from the note.
-- **A tab's controls hang under it, they do not sit in it.** Float and close
-  open as a floating layer (variant 3) below the strip on hover or keyboard
-  focus, so a short title is not covered by two buttons wider than the tab
-  itself. Only the unsaved-changes dot stays inline: it is state, not a
-  control, and it belongs next to the title it describes.
+- **A tab's popup carries what the tab has no room for.** Hovering (or focusing)
+  a tab opens a floating layer (variant 3) under the strip holding its full
+  title, wrapped rather than clipped, and its controls — float and close. Both
+  used to happen in the tab: two 24px buttons covered the title they belong to,
+  and the full title came from the browser's own `title` tooltip, which opens at
+  the pointer and landed on top of those buttons. A control that has a panel of
+  its own does not also carry a native tooltip. Only the unsaved-changes dot
+  stays inline: it is state, not a control, and it belongs next to the title it
+  describes.
 - The reveal keys off `:hover` and `:has(:focus-visible)` — **not**
   `:focus-within`, which variant 2's hover-revealed chips can afford and this
   cannot: the container here also holds the tab's own title button, so a mouse

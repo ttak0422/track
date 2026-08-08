@@ -1280,24 +1280,45 @@ a.calendar-title:focus-visible {
   background: currentColor;
 }
 
-/* Floating layer (design.md variant 3): a tab's controls hang under the strip instead of standing in
-   the tab. Two 24px buttons are wider than a short title, so in the tab they covered the very thing
-   they belong to; under it they always have their own room. Revealed by hovering or focusing the tab
-   — hover reveals controls, it does not open a surface (Principles). */
+/* Floating layer (design.md variant 3): a tab's own popup, hanging under the strip. It carries the
+   two things a tab has no room for — its full title (the strip shows only the head) and its
+   controls. Both used to happen inside the tab: two 24px buttons covered the title they belong to,
+   and the full title came from the browser's own tooltip, which opened at the pointer and landed on
+   top of those buttons. Revealed by hovering or focusing the tab — hover reveals controls, it does
+   not open a surface (Principles). */
 .tab-tools {
   position: absolute;
   z-index: 30;
   top: 100%;
   left: 0;
   display: flex;
-  gap: 2px;
+  width: max-content;
+  /* Wide enough for a date-prefixed title on two lines, narrow enough that the panel under the last
+     tab stays inside the window. */
+  max-width: 260px;
+  flex-direction: column;
+  gap: 6px;
   border: 1px solid var(--line);
   border-radius: var(--radius);
-  padding: 3px;
+  padding: 8px 8px 6px;
   background: var(--panel);
   box-shadow: 0 10px 24px color-mix(in srgb, #000 16%, transparent);
   opacity: 0;
   pointer-events: none;
+}
+
+/* The full title, wrapped rather than clipped — clipping it here would defeat the point. */
+.tab-tools-title {
+  color: var(--text);
+  font-size: calc(13px * var(--font-scale, 1));
+  line-height: 1.5;
+  overflow-wrap: anywhere;
+}
+
+.tab-tools-actions {
+  display: flex;
+  gap: 2px;
+  justify-content: flex-end;
 }
 
 /* :focus-visible, not :focus-within — clicking a tab focuses its title button, which under

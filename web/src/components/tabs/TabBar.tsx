@@ -85,7 +85,6 @@ export function TabBar() {
                 type="button"
                 aria-current={active ? "page" : undefined}
                 className="tab-label"
-                title={vault ? `${label} — ${vault}` : label}
                 onClick={() => openTab(tab.id)}
                 onAuxClick={(event) => onAuxClick(event, tab.id)}
               >
@@ -93,30 +92,38 @@ export function TabBar() {
                 <span className="tab-title">{label}</span>
                 {tab.id === dirtyID ? <span className="tab-dirty-dot" aria-hidden="true" /> : null}
               </button>
+              {/* The tab's own popup: the full title (the tab itself only has room for its head)
+                  and the controls. The title used to come from the browser's own tooltip, which
+                  opened at the pointer and landed on top of these buttons. */}
               <div className="tab-tools">
-                {!isViewTab(tab.id) ? <FloatButton noteID={tab.id} /> : null}
-                <button
-                  type="button"
-                  className="tab-close"
-                  aria-label={`Close ${label}`}
-                  title="Close"
-                  onClick={() => close(tab.id)}
-                >
-                  <svg
-                    className="tab-close-glyph"
-                    viewBox="0 0 24 24"
-                    width="14"
-                    height="14"
-                    fill="none"
-                    stroke="currentColor"
-                    strokeWidth="2"
-                    strokeLinecap="round"
-                    aria-hidden="true"
+                <span className="tab-tools-title">
+                  {vault ? <span className="tab-vault">{vault}</span> : null}
+                  {label}
+                </span>
+                <div className="tab-tools-actions">
+                  {!isViewTab(tab.id) ? <FloatButton noteID={tab.id} /> : null}
+                  <button
+                    type="button"
+                    className="tab-close"
+                    aria-label={`Close ${label}`}
+                    onClick={() => close(tab.id)}
                   >
-                    <line x1="6" y1="6" x2="18" y2="18" />
-                    <line x1="18" y1="6" x2="6" y2="18" />
-                  </svg>
-                </button>
+                    <svg
+                      className="tab-close-glyph"
+                      viewBox="0 0 24 24"
+                      width="14"
+                      height="14"
+                      fill="none"
+                      stroke="currentColor"
+                      strokeWidth="2"
+                      strokeLinecap="round"
+                      aria-hidden="true"
+                    >
+                      <line x1="6" y1="6" x2="18" y2="18" />
+                      <line x1="18" y1="6" x2="6" y2="18" />
+                    </svg>
+                  </button>
+                </div>
               </div>
             </div>
           );
@@ -210,7 +217,6 @@ function FloatButton({ noteID }: { noteID: NoteID }) {
       type="button"
       className="tab-float"
       aria-label="Float this note"
-      title="Float this note"
       onClick={float}
     >
       <svg
