@@ -557,7 +557,9 @@ export function mermaidConfig(): MermaidConfig {
       noteTextColor: color("--text", "#1a1a18"),
       noteBorderColor: color("--line", "#e6e4de"),
     },
-    fontFamily: 'Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif',
+    fontFamily:
+      css.getPropertyValue("--font-sans").trim() ||
+      '"IBM Plex Sans JP", Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif',
   };
 }
 

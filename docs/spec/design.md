@@ -67,9 +67,10 @@ Visualizations keep their own palette, and it is the only colored thing on the p
 links. A control in the chrome never reaches into this palette — and neither
 does the graph, whose emphasis is ink against neighbours that dim.
 
-Non-color tokens: `--font-mono` (the one mono stack: code, the editor, section
-labels), `--measure` (the prose column), `--radius-sm` (4px, badges and inline
-chips), `--radius` (6px, controls and inputs), `--radius-lg` (8px, panels and
+Non-color tokens: `--font-sans` (IBM Plex Sans JP for the reading surface),
+`--font-mono` (the one mono stack: code, the editor, section labels),
+`--measure` (the prose column), `--radius-sm` (4px, badges and inline chips),
+`--radius` (6px, controls and inputs), `--radius-lg` (8px, panels and
 floating layers). Those three are the whole radius scale — a control that
 wants a corner takes one of them, not a new number. Drawn shapes are not on
 the scale and keep their own geometry: icon glyphs, heatmap cells, pills
@@ -129,6 +130,13 @@ keep their bars hidden.
 
 The ordinary read-only note uses the reader's visible scrollbar; its thumb
 belongs to the reading surface rather than to the surrounding workspace chrome.
+
+### Search matches
+
+Search results use a semantic `<mark>` around the matching text only. The mark
+inherits the surrounding ink, uses `--panel-soft` with `--radius-sm`, and takes
+`font-weight: 500`; the result row itself stays flat, with the keyboard cursor
+remaining an inked edge.
 
 ## Variants
 

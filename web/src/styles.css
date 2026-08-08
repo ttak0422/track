@@ -1,3 +1,5 @@
+@import url("https://fonts.googleapis.com/css2?family=IBM+Plex+Sans+JP:wght@400;500;600;700&display=swap");
+
 /* Design master: docs/spec/design.md — pick a variant there (text control, quiet chip, floating
    layer, filled action, underline input, section label, icon button, link) before styling any new
    control. */
@@ -58,8 +60,10 @@
   --chart-6: light-dark(#795f80, #c1a4c6);
   --chart-ramp-lo: light-dark(#e4ebe7, #28322f);
   --chart-ramp-hi: light-dark(#286957, #91d0b8);
-  font-family:
-    Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+  --font-sans:
+    "IBM Plex Sans JP", Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI",
+    sans-serif;
+  font-family: var(--font-sans);
   /* The one mono stack — code, the editor, and section labels all read from here. */
   --font-mono: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, monospace;
   /* The prose column. 40em is ~40 Japanese characters (1em each) and ~48 with Latin mixed in — the
@@ -1240,9 +1244,9 @@ a.calendar-title:focus-visible {
 /* Spotlight-like match emphasis: mark the matching text itself, not the whole result row. */
 .search-highlight {
   color: inherit;
-  font-weight: 600;
-  background: color-mix(in srgb, var(--mark) 14%, transparent);
-  border-radius: 2px;
+  font-weight: 500;
+  background: var(--panel-soft);
+  border-radius: var(--radius-sm);
   box-decoration-break: clone;
   -webkit-box-decoration-break: clone;
 }
@@ -1811,8 +1815,13 @@ textarea.modal-input:focus-visible {
   overflow: auto;
   padding: 16px;
   background: var(--panel);
-  /* Split preview is an editing pane and keeps the shared visible scrollbar; flowing read-only notes
-     opt out of this pane's overflow below so the outer reader becomes the document scroller. */
+  /* Read-only notes flow into the outer reader below; split preview keeps its own overflow but hides
+     the bar so the editing surface stays quiet. */
+  scrollbar-width: none;
+}
+
+.note-preview::-webkit-scrollbar {
+  display: none;
 }
 
 /* Static-only share actions sit after the note layout. The layout flexes to fill short pages, which puts

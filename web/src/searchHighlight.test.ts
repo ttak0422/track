@@ -27,4 +27,8 @@ describe("highlightSearchText", () => {
       { text: " [c]", highlighted: false },
     ]);
   });
+
+  it("uses the search engine's Unicode fold", () => {
+    expect(highlightSearchText("İSTANBUL", "istanbul")).toEqual([{ text: "İSTANBUL", highlighted: true }]);
+  });
 });

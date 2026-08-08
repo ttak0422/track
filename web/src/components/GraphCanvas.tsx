@@ -389,7 +389,9 @@ export function GraphCanvas({
     ctx.translate(width / 2 + view.x * ratio, height / 2 + view.y * ratio);
     ctx.scale(view.scale, view.scale);
     const labelFontSize = 13;
-    ctx.font = `${Math.floor((labelFontSize * ratio) / view.scale)}px system-ui, sans-serif`;
+    ctx.font = `${Math.floor((labelFontSize * ratio) / view.scale)}px ${
+      css("--font-sans") || '"IBM Plex Sans JP", Inter, system-ui, sans-serif'
+    }`;
     const baseLineWidth = (1 * ratio) / view.scale;
     const highlightLineWidth = (2.6 * ratio) / view.scale;
     ctx.lineWidth = baseLineWidth;
