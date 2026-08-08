@@ -243,10 +243,12 @@ export function NoteAside({
       ) : null}
 
       {/* The always-on local graph. A lone unlinked node says nothing the note itself doesn't, so
-          the section only appears once the note connects somewhere. It carries no caption: a graph is
-          recognisably a graph, while the sections above are lists that a caption tells apart. */}
+          the section only appears once the note connects somewhere. It is labelled like the lists
+          above it: three sections down a 186px column read as one stack, and the odd one out reads
+          as something that fell off the end of the note (design.md, Sidebar). */}
       {graph && graph.nodes.length > 1 ? (
-        <section className="backlinks note-aside-graph" aria-label="Local graph">
+        <section className="backlinks note-aside-graph" aria-labelledby="local-graph-heading">
+          <h3 id="local-graph-heading">Graph</h3>
           <div className="aside-graph">
             {/* Over the graph, like the floating panel's and the full view's controls — the aside was
                 the one graph surface spending a row of chrome on a single button. */}
