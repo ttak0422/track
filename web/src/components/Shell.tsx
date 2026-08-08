@@ -1,5 +1,4 @@
 import { Link, Outlet, useNavigate, useRouterState } from "@tanstack/react-router";
-import { GraphBackground } from "./GraphBackground";
 import { GraphPanel } from "./GraphPanel";
 import { BrandMark } from "./Logo";
 import { FloatingLayer } from "./preview/FloatingLayer";
@@ -30,8 +29,8 @@ export function Shell() {
   const isNote = /^\/notes\/[^/]+$/.test(path) || (isHome && START_PAGE_ID !== "");
   // The search hero: the live workspace's "/" when no home note is configured. With one, "/" renders
   // that note and is an ordinary note page; the static "/" is either the start page or the empty
-  // state. The hero owns its own scrolling and ambient graph, but not the chrome — the rail and tab
-  // strip are on every route, so the workspace's views are reachable from the landing screen too.
+  // state. The hero owns its own scrolling, but not the chrome — the rail and tab strip are on every
+  // route, so the workspace's views are reachable from the landing screen too.
   const isHero = isHome && !STATIC_MODE && START_PAGE_ID === "";
   const navigate = useNavigate();
   useLiveEvents();
@@ -138,7 +137,6 @@ export function Shell() {
         <div className="reader-pane">
           <TabBar />
           <section className="reader">
-            {isHero ? <GraphBackground /> : null}
             <Outlet />
           </section>
         </div>
