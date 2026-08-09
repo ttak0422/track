@@ -1567,7 +1567,8 @@ a.calendar-title:focus-visible {
 
 /* icon button: the fold caret. The glyph is 8px in a 24px target, and the box is kept on a leaf too
    (as an empty span), which is what lines the titles of one level up with each other. */
-.hierarchy-toggle {
+.hierarchy-toggle,
+.hierarchy-toggle-placeholder {
   display: grid;
   width: 24px;
   height: 24px;
@@ -2821,6 +2822,7 @@ textarea.modal-input:focus-visible {
   height: 26px;
   display: grid;
   place-items: center;
+  padding: 0;
   border: 1px solid var(--line);
   border-radius: var(--radius);
   background: var(--panel-soft);
@@ -2891,8 +2893,7 @@ textarea.modal-input:focus-visible {
 }
 
 .mermaid-diagram:hover .mermaid-open,
-.mermaid-open:focus-visible,
-.mermaid-diagram[data-collapsed] .mermaid-open {
+.mermaid-open:focus-visible {
   opacity: 1;
 }
 

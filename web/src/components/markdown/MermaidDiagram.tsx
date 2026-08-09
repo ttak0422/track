@@ -111,7 +111,7 @@ export function DiagramFrame({ state, source, sourceLang, label, className }: Di
     showFoldControl,
     toggleCollapsed,
   } = panZoom;
-  const showPopupControl = showFoldControl || overflow.left || overflow.right;
+  const showPopupControl = !collapsed && (showFoldControl || overflow.left || overflow.right);
   return (
     <div className={rootClass} data-collapsed={collapsed || undefined}>
       <div

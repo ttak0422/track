@@ -148,7 +148,7 @@ function HierarchyList({
                   <span className="hierarchy-caret" aria-hidden="true" />
                 </button>
               ) : (
-                <span className="hierarchy-toggle" aria-hidden="true" />
+                <span className="hierarchy-toggle-placeholder" aria-hidden="true" />
               )}
               {/* text control */}
               <Link

@@ -138,7 +138,7 @@ describe("DiagramFrame tall-diagram preview", () => {
     expect(viewport.style.height).toBe("320px");
     expect(pan.style.transform).toBe("translate(50px, 0px) scale(1)");
     expect(container.querySelector(".mermaid-continuation")).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "Open diagram in popup" })).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Open diagram in popup" })).not.toBeInTheDocument();
 
     const expand = screen.getByRole("button", { name: "Expand diagram" });
     expect(expand).toHaveTextContent("Show full diagram");
@@ -149,6 +149,7 @@ describe("DiagramFrame tall-diagram preview", () => {
     expect(container.querySelector(".mermaid-continuation")).not.toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Zoom in" })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Collapse diagram" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Open diagram in popup" })).toBeInTheDocument();
 
     clientWidth.mockRestore();
     offsetWidth.mockRestore();
