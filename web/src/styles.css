@@ -3513,13 +3513,14 @@ textarea.modal-input:focus-visible {
   cursor: nwse-resize;
 }
 
-/* Edge handles drag one dimension alone. Rendered as thin strips along the window frame, underneath
-   the 14px corner handles where they overlap. */
+/* Edge handles drag one dimension alone. Their 14px hit areas match the corner handles and sit
+   underneath them where they overlap. */
 .wiki-preview-resize-w {
   top: 0;
   bottom: 0;
   left: 0;
-  width: 8px;
+  width: 14px;
+  height: auto;
   cursor: ew-resize;
 }
 
@@ -3527,7 +3528,8 @@ textarea.modal-input:focus-visible {
   top: 0;
   right: 0;
   bottom: 0;
-  width: 8px;
+  width: 14px;
+  height: auto;
   cursor: ew-resize;
 }
 
@@ -3535,7 +3537,8 @@ textarea.modal-input:focus-visible {
   top: 0;
   left: 0;
   right: 0;
-  height: 8px;
+  height: 14px;
+  width: auto;
   cursor: ns-resize;
 }
 
@@ -3543,7 +3546,8 @@ textarea.modal-input:focus-visible {
   left: 0;
   right: 0;
   bottom: 0;
-  height: 8px;
+  height: 14px;
+  width: auto;
   cursor: ns-resize;
 }
 
