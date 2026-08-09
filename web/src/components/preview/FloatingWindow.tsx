@@ -299,7 +299,7 @@ export function FloatingWindow({
       )}
       {collapsed
         ? null
-        : (["e", "s", "nw", "ne", "sw", "se"] as const).map((handle) => (
+        : (["w", "e", "n", "s", "nw", "ne", "sw", "se"] as const).map((handle) => (
             <button
               aria-label="Resize preview"
               className={`wiki-preview-resize wiki-preview-resize-${handle}`}

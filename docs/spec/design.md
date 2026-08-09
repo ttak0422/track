@@ -338,6 +338,9 @@ The note's aside is a quiet column; the rail is a floating dock over the sheet.
   greppable.
 - Hit targets for icon-sized controls are at least 24px (WCAG 2.2), even when
   the glyph is smaller.
+- Window resize handles are frame interaction zones, not icon-sized controls;
+  their hit area follows the window edge geometry and may be narrower than
+  24px.
 - Visible scrollers use the shared quiet scrollbar. A local `scrollbar-width:
   none` plus the WebKit rule is reserved for compact chrome whose bar would
   compete with the content.

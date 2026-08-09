@@ -30,9 +30,9 @@ export interface PreviewAnchor {
   linkBottom: number;
 }
 
-// A resize target on the window: one of the four corners, or the right ("e") and bottom ("s") edges —
-// an edge drag moves only the width or the height, a corner drag moves both.
-export type PreviewResizeHandle = "nw" | "ne" | "sw" | "se" | "e" | "s";
+// A resize target on the window: one of the four corners or four edges. An edge drag moves only the
+// width or the height, while a corner drag moves both dimensions.
+export type PreviewResizeHandle = "nw" | "ne" | "sw" | "se" | "w" | "e" | "n" | "s";
 
 export function clamp(value: number, min: number, max: number): number {
   return Math.min(Math.max(value, min), max);

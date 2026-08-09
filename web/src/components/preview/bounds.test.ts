@@ -115,12 +115,30 @@ describe("resizePreviewBounds", () => {
     });
   });
 
+  it("resizes the width alone and moves the origin when dragging the left edge", () => {
+    expect(resizePreviewBounds("w", start, 50, 30)).toEqual({
+      left: 150,
+      top: 100,
+      width: 350,
+      height: 300,
+    });
+  });
+
   it("resizes the height alone when dragging the bottom edge", () => {
     expect(resizePreviewBounds("s", start, 30, 20)).toEqual({
       left: 100,
       top: 100,
       width: 400,
       height: 320,
+    });
+  });
+
+  it("resizes the height alone and moves the origin when dragging the top edge", () => {
+    expect(resizePreviewBounds("n", start, 30, 20)).toEqual({
+      left: 100,
+      top: 120,
+      width: 400,
+      height: 280,
     });
   });
 
