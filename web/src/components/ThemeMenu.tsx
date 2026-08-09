@@ -13,8 +13,8 @@ const fontScales: { label: string; value: number }[] = [
   { label: "L", value: 1.15 },
   { label: "XL", value: 1.3 },
 ];
-// Reading-column max width, applied through the --content-width CSS var on .note-reader. "none" removes
-// the cap so prose fills the viewport for wide-display use.
+// Reading-column max width, applied through --content-width on .note-reader and the prose measure via
+// --content-measure. "none" removes the cap so prose fills the viewport for wide-display use.
 const defaultContentWidth = "880px";
 const contentWidths: { label: string; value: string }[] = [
   { label: "Normal", value: "880px" },

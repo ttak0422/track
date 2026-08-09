@@ -34,6 +34,20 @@ describe("special-page layering", () => {
   });
 });
 
+describe("content width", () => {
+  it("lets the Content width setting reach prose blocks", () => {
+    const proseRule = css.match(/\.markdown-view > \*\s*\{([^}]*)\}/)?.[1] ?? "";
+
+    expect(proseRule).toMatch(/max-width:\s*var\(--content-measure\)/);
+  });
+
+  it("lets the Content width setting reach note metadata", () => {
+    const propsRule = css.match(/\.note-props\s*\{([^}]*)\}/)?.[1] ?? "";
+
+    expect(propsRule).toMatch(/max-width:\s*var\(--content-measure\)/);
+  });
+});
+
 describe("sidebar at short viewport heights", () => {
   it("reserves the tab row and an 8px gap above a quarter-centred rail", () => {
     const reservedTabRow = Number(ruleBody(".reader-pane").match(/padding-top:\s*(\d+)px/)?.[1]);
