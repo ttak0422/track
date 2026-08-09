@@ -5,6 +5,7 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
+	"hash"
 	"io/fs"
 	"os"
 	"path/filepath"
@@ -172,21 +173,25 @@ func writeBundle(docs []doc, edges []edge, root int64, calendar, share bool, bas
 	if len(docs) == 0 {
 		return Result{}, fmt.Errorf("no notes to publish")
 	}
-	if err := os.MkdirAll(filepath.Join(outDir, "data", "note"), 0o755); err != nil {
-		return Result{}, fmt.Errorf("create out dir: %w", err)
-	}
-
 	sort.Slice(docs, func(i, j int) bool { return docs[i].id < docs[j].id })
-	rootTitle := ""
-	for _, d := range docs {
-		if d.id == root {
-			rootTitle = d.title
+	rootTitle, rootSlug := "", ""
+	for i := range docs {
+		if docs[i].id == root {
+			rootTitle = docs[i].title
+			rootSlug = slugOf(&docs[i])
 		}
 	}
-	// Every data file below is written locked (see lock.go). The key is derived from the site's own
-	// identity and travels in the page, so the app opens its data and a bulk consumer has to unlock
-	// deliberately.
-	key := LockKey(strings.TrimRight(baseURL, "/"), rootTitle)
+	// Every data file below is written locked (see lock.go). The key is derived from the site's address
+	// and travels in the page, so the app opens its data and a bulk consumer has to unlock deliberately.
+	// The writer also stages the files and fingerprints them, so the bundle publishes under a path that
+	// changes with its content (ADR 0070).
+	bundle, err := newBundleWriter(outDir, LockKey(strings.TrimRight(baseURL, "/"), rootSlug))
+	if err != nil {
+		return Result{}, err
+	}
+	// Published asset names are addressed by content, so every surface that names one — a rewritten
+	// body, a cover in the listing, the copy itself — resolves it here (ADR 0070).
+	names := newAssetNamer()
 
 	// notes.json, in the shared note-list order (recently updated first) so the published calendar,
 	// day pages, and search listing read like the live server's.
@@ -194,7 +199,7 @@ func writeBundle(docs []doc, edges []edge, root int64, calendar, share bool, bas
 	byRecency(listed)
 	notes := make([]jsonSearchResult, 0, len(listed))
 	for _, d := range listed {
-		notes = append(notes, searchResultOf(d))
+		notes = append(notes, searchResultOf(d, names))
 	}
 
 	// Dashboard widget data for any ```dashboard blocks in the published bodies: recent-notes titles in
@@ -206,7 +211,7 @@ func writeBundle(docs []doc, edges []edge, root int64, calendar, share bool, bas
 			dashData.RecentTitles = append(dashData.RecentTitles, d.title)
 		}
 	}
-	if err := writeJSONFile(key, filepath.Join(outDir, "data", "notes.json"), map[string]any{"notes": notes}); err != nil {
+	if err := bundle.writeJSON("notes.json", map[string]any{"notes": notes}); err != nil {
 		return Result{}, err
 	}
 
@@ -228,7 +233,7 @@ func writeBundle(docs []doc, edges []edge, root int64, calendar, share bool, bas
 			datedTasks = append(datedTasks, jsonTaskRow{NoteID: slugOf(&d), FileKind: kindOf(d), Title: d.title, Task: t})
 		}
 	}
-	if err := writeJSONFile(key, filepath.Join(outDir, "data", "tasks.json"), map[string]any{"tasks": datedTasks}); err != nil {
+	if err := bundle.writeJSON("tasks.json", map[string]any{"tasks": datedTasks}); err != nil {
 		return Result{}, err
 	}
 
@@ -330,7 +335,7 @@ func writeBundle(docs []doc, edges []edge, root int64, calendar, share bool, bas
 	for _, d := range hRoots {
 		forest = append(forest, hierarchyNode(d))
 	}
-	if err := writeJSONFile(key, filepath.Join(outDir, "data", "hierarchy.json"), map[string]any{"hierarchy": forest}); err != nil {
+	if err := bundle.writeJSON("hierarchy.json", map[string]any{"hierarchy": forest}); err != nil {
 		return Result{}, err
 	}
 
@@ -346,7 +351,7 @@ func writeBundle(docs []doc, edges []edge, root int64, calendar, share bool, bas
 	for _, d := range listed {
 		queryRows = append(queryRows, query.NoteRow{ID: d.id, Title: d.title, Tags: d.tags, Props: d.props, Mtime: d.mtime})
 		if d.image != "" {
-			queryCovers[d.id] = "assets/" + publishAssetName(d.image)
+			queryCovers[d.id] = "assets/" + names.name(d.assetSrc, d.image)
 		}
 		queryIcons[d.id] = d.icon
 	}
@@ -364,7 +369,7 @@ func writeBundle(docs []doc, edges []edge, root int64, calendar, share bool, bas
 			children = append(children, refOf(kid))
 		}
 		// Rewrite asset references to their published (slugged) names, matching the copied files.
-		body := rewriteAssetRefs(d.body)
+		body := rewriteAssetRefs(d.body, d.assetSrc, names)
 		// Resolve ```dashboard widget blocks to Markdown (recent/journal/pinned lists) at build time, so
 		// a published home note shows the same landing view the live workspace does.
 		body = dashboard.Resolve(body, dashData)
@@ -385,9 +390,9 @@ func writeBundle(docs []doc, edges []edge, root int64, calendar, share bool, bas
 					if !ok {
 						return 0, "", "", "", false
 					}
-					return 0, kindOf(t), rewriteAssetRefs(t.body), etag(t.body), true
+					return 0, kindOf(t), rewriteAssetRefs(t.body, t.assetSrc, names), etag(t.body), true
 				}),
-				jsonSearchResult: searchResultOf(d),
+				jsonSearchResult: searchResultOf(d, names),
 				CopyPath:         "", // see searchResultOf: the source path is intentionally not published.
 				Created:          d.created,
 				Updated:          d.mtime,
@@ -401,7 +406,7 @@ func writeBundle(docs []doc, edges []edge, root int64, calendar, share bool, bas
 			Children:  children,
 		}
 		searchBodies[d.id] = body
-		if err := writeJSONFile(key, filepath.Join(outDir, "data", "note", fmt.Sprintf("%s.json", slugOf(&d))), resp); err != nil {
+		if err := bundle.writeJSON(fmt.Sprintf("note/%s.json", slugOf(&d)), resp); err != nil {
 			return Result{}, err
 		}
 	}
@@ -424,7 +429,7 @@ func writeBundle(docs []doc, edges []edge, root int64, calendar, share bool, bas
 	for _, d := range ordered {
 		searchDocs = append(searchDocs, jsonSearchDoc{NoteID: slugOf(&d), Body: searchBodies[d.id]})
 	}
-	if err := writeJSONFile(key, filepath.Join(outDir, "data", "search.json"), map[string]any{"docs": searchDocs}); err != nil {
+	if err := bundle.writeJSON("search.json", map[string]any{"docs": searchDocs}); err != nil {
 		return Result{}, err
 	}
 
@@ -438,7 +443,7 @@ func writeBundle(docs []doc, edges []edge, root int64, calendar, share bool, bas
 		gEdges = append(gEdges, jsonGraphEdge{SourceID: slugOf(docPtr(byID, e.src)), TargetID: slugOf(docPtr(byID, e.dst))})
 	}
 	// CenterID is empty for the whole-set graph: there is no centered node, and no slug ever equals "".
-	if err := writeJSONFile(key, filepath.Join(outDir, "data", "graph.json"),
+	if err := bundle.writeJSON("graph.json",
 		map[string]any{"graph": jsonGraph{CenterID: "", Nodes: nodes, Edges: gEdges}}); err != nil {
 		return Result{}, err
 	}
@@ -453,7 +458,7 @@ func writeBundle(docs []doc, edges []edge, root int64, calendar, share bool, bas
 			}
 		}
 	}
-	if err := writeJSONFile(key, filepath.Join(outDir, "data", "resolve.json"), resolve); err != nil {
+	if err := bundle.writeJSON("resolve.json", resolve); err != nil {
 		return Result{}, err
 	}
 
@@ -470,7 +475,14 @@ func writeBundle(docs []doc, edges []edge, root int64, calendar, share bool, bas
 		// format, so the favicon works without a type attribute.
 		siteMeta.Icon = "icon" + strings.ToLower(filepath.Ext(iconSrc))
 	}
-	if err := writeJSONFile(key, filepath.Join(outDir, "data", "site.json"), siteMeta); err != nil {
+	if err := bundle.writeJSON("site.json", siteMeta); err != nil {
+		return Result{}, err
+	}
+
+	// The bundle is complete: publish it under its fingerprint, so a page always fetches the data of its
+	// own deploy and never a cached mix of two (ADR 0070).
+	generation, err := bundle.publish()
+	if err != nil {
 		return Result{}, err
 	}
 
@@ -487,7 +499,7 @@ func writeBundle(docs []doc, edges []edge, root int64, calendar, share bool, bas
 	// Emit a real HTML file per route (start page, per note, and the site-level pages) with that page's
 	// OGP meta injected into the copied shell, so crawlers/social shares see per-note metadata and deep
 	// links resolve without a host fallback.
-	if err := writePages(outDir, slugOf(docPtr(byID, root)), root, docs, listed, siteMeta); err != nil {
+	if err := writePages(outDir, slugOf(docPtr(byID, root)), root, docs, listed, siteMeta, bundle.key, generation, names); err != nil {
 		return Result{}, fmt.Errorf("write pages: %w", err)
 	}
 
@@ -516,7 +528,7 @@ func writeBundle(docs []doc, edges []edge, root int64, calendar, share bool, bas
 			rels = append(rels, rel)
 		}
 		sort.Strings(rels)
-		copied, missing, err := copyAssets(src, outDir, rels, noteSlug, key)
+		copied, missing, err := copyAssets(src, outDir, rels, noteSlug, bundle.key, names)
 		if err != nil {
 			return Result{}, fmt.Errorf("copy assets: %w", err)
 		}
@@ -528,10 +540,10 @@ func writeBundle(docs []doc, edges []edge, root int64, calendar, share bool, bas
 
 // The source path is dropped from the bundle: like the id, the file name is timestamp-based, so emitting
 // it would re-expose what the slug is meant to hide. It was only informational in the static site.
-func searchResultOf(d doc) jsonSearchResult {
+func searchResultOf(d doc, names *assetNamer) jsonSearchResult {
 	out := jsonSearchResult{NoteID: slugOf(&d), FileKind: kindOf(d), Path: "", Title: d.title, Tags: d.tags, Days: d.days, Icon: d.icon, Description: d.desc}
 	if d.image != "" {
-		out.Image = "assets/" + publishAssetName(d.image)
+		out.Image = "assets/" + names.name(d.assetSrc, d.image)
 	}
 	return out
 }
@@ -594,19 +606,60 @@ func etag(body string) string {
 // that is what it holds, but the published file is "<name>.bin" — the bytes on disk are not JSON, and a
 // name promising JSON would be a lie to every host and reader. The frontend swaps the extension the same
 // way (web/src/api.ts staticData).
-func writeJSONFile(key []byte, path string, v any) error {
-	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
-		return err
+// bundleWriter writes the data files and publishes them under a fingerprint of what they hold.
+//
+// The fingerprint is over the *plaintext* the files carry, not the bytes on disk: the lock uses a fresh
+// nonce per file, so identical data encrypts differently every build, and a path that changed on every
+// build would throw away a reader's cache for no reason. Hashing the data means the path changes when —
+// and only when — the data does.
+type bundleWriter struct {
+	stage string
+	key   []byte
+	sum   hash.Hash
+}
+
+func newBundleWriter(outDir string, key []byte) (*bundleWriter, error) {
+	// Staged one level down: the finished directory is renamed into place under its fingerprint, which is
+	// only known once every file is written.
+	stage := filepath.Join(outDir, "data", "staging")
+	if err := os.MkdirAll(filepath.Join(stage, "note"), 0o755); err != nil {
+		return nil, fmt.Errorf("create out dir: %w", err)
 	}
+	return &bundleWriter{stage: stage, key: key, sum: sha256.New()}, nil
+}
+
+// writeJSON writes one data file. name is the slash path of what it holds ("notes.json",
+// "note/<slug>.json"); the published file is "<name>.bin", because its bytes are not JSON (ADR 0069).
+func (w *bundleWriter) writeJSON(name string, v any) error {
 	data, err := json.Marshal(v)
 	if err != nil {
 		return err
 	}
-	locked, err := lock(key, data)
+	_, _ = w.sum.Write([]byte(name))
+	_, _ = w.sum.Write(data)
+	locked, err := lock(w.key, data)
 	if err != nil {
 		return err
 	}
-	return os.WriteFile(strings.TrimSuffix(path, ".json")+".bin", locked, 0o644)
+	path := filepath.Join(w.stage, filepath.FromSlash(strings.TrimSuffix(name, ".json")+".bin"))
+	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+		return err
+	}
+	return os.WriteFile(path, locked, 0o644)
+}
+
+// publish moves the staged bundle to "data/<generation>" and returns that generation.
+func (w *bundleWriter) publish() (string, error) {
+	generation := hex.EncodeToString(w.sum.Sum(nil)[:8])
+	dst := filepath.Join(filepath.Dir(w.stage), generation)
+	// A rebuild into the same output directory finds its own previous generation there; replace it.
+	if err := os.RemoveAll(dst); err != nil {
+		return "", err
+	}
+	if err := os.Rename(w.stage, dst); err != nil {
+		return "", fmt.Errorf("publish data bundle: %w", err)
+	}
+	return generation, nil
 }
 
 // copyTree copies every file under src into dst, preserving the relative layout. Dot-prefixed entries

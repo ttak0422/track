@@ -6,6 +6,8 @@
 //
 // Layout: nonce (12 bytes) || AES-256-GCM(gzip(plaintext)).
 
+import { reportStalePage } from "./runtime";
+
 const NONCE_BYTES = 12;
 
 let cached: Promise<CryptoKey> | undefined;
@@ -26,11 +28,14 @@ function siteKey(): Promise<CryptoKey> {
 // unlock turns one fetched data file back into its JSON text.
 export async function unlock(blob: ArrayBuffer): Promise<string> {
   const bytes = new Uint8Array(blob);
-  const plain = await crypto.subtle.decrypt(
-    { name: "AES-GCM", iv: bytes.subarray(0, NONCE_BYTES) },
-    await siteKey(),
-    bytes.subarray(NONCE_BYTES),
-  );
+  const plain = await crypto.subtle
+    .decrypt({ name: "AES-GCM", iv: bytes.subarray(0, NONCE_BYTES) }, await siteKey(), bytes.subarray(NONCE_BYTES))
+    .catch((err: unknown) => {
+      // A file this page's key cannot open belongs to a different deploy than the page does — which,
+      // since the data bundle is fetched per generation, only leaves the carried-forward assets.
+      reportStalePage();
+      throw err;
+    });
   return await new Response(byteStream(new Uint8Array(plain)).pipeThrough(new DecompressionStream("gzip"))).text();
 }
 

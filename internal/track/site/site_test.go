@@ -1,6 +1,7 @@
 package site
 
 import (
+	"bytes"
 	"encoding/base64"
 	"encoding/json"
 	"os"
@@ -80,6 +81,11 @@ func readJSON[T any](t *testing.T, path string) T {
 func readLocked(t *testing.T, path string) []byte {
 	t.Helper()
 	published := strings.TrimSuffix(path, ".json") + ".bin"
+	// A file of the data bundle lives under the generation the build published (bundlePath finds it);
+	// a published asset sits at its own name.
+	if strings.Contains(published, string(filepath.Separator)+"data"+string(filepath.Separator)) {
+		published = bundlePath(t, published)
+	}
 	raw, err := os.ReadFile(published)
 	if err != nil {
 		t.Fatalf("read %s: %v", published, err)
@@ -89,6 +95,27 @@ func readLocked(t *testing.T, path string) []byte {
 		t.Fatalf("unlock %s: %v", published, err)
 	}
 	return plain
+}
+
+// bundlePath resolves "<out>/data/<rest>" — how a caller names a file it wants out of the bundle — to
+// where that file is actually published: "<out>/data/<generation>/<rest>". Callers name the file, not the
+// deploy, exactly as the frontend does (dataURL adds the generation for them).
+func bundlePath(t *testing.T, path string) string {
+	t.Helper()
+	sep := string(filepath.Separator)
+	outDir, rest, ok := strings.Cut(path, sep+"data"+sep)
+	if !ok {
+		t.Fatalf("%s is not inside a published data bundle", path)
+	}
+	dataDir := filepath.Join(outDir, "data")
+	entries, err := os.ReadDir(dataDir)
+	if err != nil {
+		t.Fatalf("read %s: %v", dataDir, err)
+	}
+	if len(entries) != 1 || !entries[0].IsDir() {
+		t.Fatalf("a build publishes exactly one data generation, found %v", entries)
+	}
+	return filepath.Join(dataDir, entries[0].Name(), rest)
 }
 
 // siteDirOf walks up from a published file to the site root — the directory holding the page the key
@@ -141,10 +168,10 @@ func TestBuildLocksTheDataBundle(t *testing.T) {
 	}
 
 	for _, name := range []string{"notes", "graph", "search", "site"} {
-		if fileExists(filepath.Join(out, "data", name+".json")) {
+		if fileExists(bundlePath(t, filepath.Join(out, "data", name+".json"))) {
 			t.Fatalf("%s.json should not be published as readable JSON", name)
 		}
-		raw, err := os.ReadFile(filepath.Join(out, "data", name+".bin"))
+		raw, err := os.ReadFile(bundlePath(t, filepath.Join(out, "data", name+".bin")))
 		if err != nil {
 			t.Fatalf("read %s.bin: %v", name, err)
 		}
@@ -161,6 +188,139 @@ func TestBuildLocksTheDataBundle(t *testing.T) {
 	}](t, filepath.Join(out, "data", "search.json"))
 	if len(search.Docs) != 2 {
 		t.Fatalf("the unlocked corpus should carry both published notes, got %+v", search.Docs)
+	}
+}
+
+// TestDataGenerationTracksContent covers the other half of the CDN cache window (ADR 0070): the bundle's
+// path is a fingerprint of what it holds, so an edit publishes to a new path — a page from the new deploy
+// can never be served a cached copy of the old data — while an unchanged vault republishes to the same
+// path, leaving readers' caches valid.
+func TestDataGenerationTracksContent(t *testing.T) {
+	cfg, s := vaultStore(t)
+	writeVaultNote(t, cfg, 100, "Home", "# Home\n")
+	if _, err := index.New(cfg, s).Full(); err != nil {
+		t.Fatalf("index: %v", err)
+	}
+	build := func() string {
+		t.Helper()
+		out := t.TempDir()
+		if _, err := Build(cfg, s, Options{Root: 100}, fakeFrontend(t), out); err != nil {
+			t.Fatalf("build: %v", err)
+		}
+		entries, err := os.ReadDir(filepath.Join(out, "data"))
+		if err != nil || len(entries) != 1 {
+			t.Fatalf("a build publishes exactly one data generation, got %v (%v)", entries, err)
+		}
+		return entries[0].Name()
+	}
+
+	first := build()
+	// Same content, built again: the nonce differs per file, so only fingerprinting the data (not the
+	// published bytes) keeps the path — and the reader's cache — stable.
+	if again := build(); again != first {
+		t.Fatalf("an unchanged vault should republish to the same path, got %s then %s", first, again)
+	}
+
+	writeVaultNote(t, cfg, 100, "Home", "# Home\n\nnow with a second line\n")
+	if _, err := index.New(cfg, s).Full(); err != nil {
+		t.Fatalf("reindex: %v", err)
+	}
+	if edited := build(); edited == first {
+		t.Fatalf("an edit must publish to a new path, still %s", edited)
+	}
+}
+
+// TestAssetNameTracksContent is the same rule for attachments: a published asset is addressed by its
+// contents, so replacing the file publishes it at a new URL — the reader is never served the old image
+// from cache under a name that now means something else — and the body reference follows.
+func TestAssetNameTracksContent(t *testing.T) {
+	cfg, s := vaultStore(t)
+	writeVaultNote(t, cfg, 100, "Home", "# Home\n\n![pic](assets/pic.png)\n")
+	if err := os.MkdirAll(filepath.Join(cfg.VaultDir, "assets"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	picture := filepath.Join(cfg.VaultDir, "assets", "pic.png")
+
+	publishedName := func(png string) string {
+		t.Helper()
+		if err := os.WriteFile(picture, []byte(png), 0o644); err != nil {
+			t.Fatal(err)
+		}
+		if _, err := index.New(cfg, s).Full(); err != nil {
+			t.Fatalf("index: %v", err)
+		}
+		out := t.TempDir()
+		if _, err := Build(cfg, s, Options{Root: 100}, fakeFrontend(t), out); err != nil {
+			t.Fatalf("build: %v", err)
+		}
+		// The frontend build stub copies an app.js in beside it; the picture is the .png.
+		entries, err := os.ReadDir(filepath.Join(out, "assets"))
+		if err != nil {
+			t.Fatal(err)
+		}
+		name := ""
+		for _, e := range entries {
+			if strings.HasSuffix(e.Name(), ".png") {
+				name = e.Name()
+			}
+		}
+		if name == "" {
+			t.Fatalf("the picture was not published, got %v", entries)
+		}
+		// The name is opaque, and the note body points at exactly the file that was published.
+		if strings.Contains(name, "pic") {
+			t.Fatalf("published asset name leaks the source file name: %q", name)
+		}
+		note := readJSON[jsonNoteResponse](t, filepath.Join(out, "data", "note", PublishID(100)+".json"))
+		if !strings.Contains(note.Note.Body, "assets/"+name) {
+			t.Fatalf("body should reference the published asset %q: %s", name, note.Note.Body)
+		}
+		return name
+	}
+
+	first := publishedName("PNG-BYTES")
+	if again := publishedName("PNG-BYTES"); again != first {
+		t.Fatalf("an unchanged asset should keep its address, got %s then %s", first, again)
+	}
+	if edited := publishedName("PNG-BYTES-EDITED"); edited == first {
+		t.Fatalf("a replaced asset must publish at a new address, still %s", edited)
+	}
+}
+
+// TestLockKeySurvivesAnEdit covers the CDN cache window: GitHub Pages serves a page for up to ten
+// minutes after the deploy that produced it, so a page in a reader's hands must keep opening freshly
+// published data. The key is derived from the site's address alone, so editing the content — here the
+// root note's title, which the key used to depend on — leaves it untouched.
+func TestLockKeySurvivesAnEdit(t *testing.T) {
+	cfg, s := vaultStore(t)
+	writeVaultNote(t, cfg, 100, "Home", "# Home\n")
+	if _, err := index.New(cfg, s).Full(); err != nil {
+		t.Fatalf("index: %v", err)
+	}
+	before := t.TempDir()
+	if _, err := Build(cfg, s, Options{Root: 100}, fakeFrontend(t), before); err != nil {
+		t.Fatalf("build: %v", err)
+	}
+
+	writeVaultNote(t, cfg, 100, "Home, renamed", "# Home\n\nand an edit\n")
+	if _, err := index.New(cfg, s).Full(); err != nil {
+		t.Fatalf("reindex: %v", err)
+	}
+	after := t.TempDir()
+	if _, err := Build(cfg, s, Options{Root: 100}, fakeFrontend(t), after); err != nil {
+		t.Fatalf("rebuild: %v", err)
+	}
+
+	if !bytes.Equal(pageLockKey(t, before), pageLockKey(t, after)) {
+		t.Fatalf("editing a note must not change the site key: a page from the earlier deploy could no longer read the data")
+	}
+	// And the earlier page really can open the later deploy's bundle.
+	raw, err := os.ReadFile(bundlePath(t, filepath.Join(after, "data", "notes.bin")))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := Unlock(pageLockKey(t, before), raw); err != nil {
+		t.Fatalf("a page from the earlier deploy should still open the current data: %v", err)
 	}
 }
 
@@ -528,8 +688,10 @@ func TestBuildRewritesSpecAssetNoteRefs(t *testing.T) {
 		t.Fatalf("build: %v", err)
 	}
 
-	// The published option is locked like the data bundle, so reading it takes the site's key.
-	opt := string(readLocked(t, filepath.Join(out, "assets", publishAssetName("c.viewspec.json"))))
+	// The published name addresses the source spec's contents, and the option is locked like the data
+	// bundle, so reading it takes the site's key.
+	specName := newAssetNamer().name(filepath.Join(cfg.VaultDir, "assets"), "c.viewspec.json")
+	opt := string(readLocked(t, filepath.Join(out, "assets", specName)))
 	if !strings.Contains(opt, `"note":"`+PublishID(200)+`"`) {
 		t.Fatalf("published note ref should become its slug: %s", opt)
 	}
@@ -602,7 +764,8 @@ func TestBuildWritesPerNoteOGP(t *testing.T) {
 	if !strings.Contains(page2, `<meta property="og:url" content="https://example.com/site/notes/`+PublishID(200)+`/">`) {
 		t.Fatalf("with base url, child page should carry an absolute og:url: %s", page2)
 	}
-	if !strings.Contains(page2, `<meta property="og:image" content="https://example.com/site/assets/`+publishAssetName("cover.png")+`">`) {
+	coverName := newAssetNamer().name(filepath.Join(cfg.VaultDir, "assets"), "cover.png")
+	if !strings.Contains(page2, `<meta property="og:image" content="https://example.com/site/assets/`+coverName+`">`) {
 		t.Fatalf("with base url, child page should carry an absolute og:image: %s", page2)
 	}
 }
@@ -756,10 +919,10 @@ func TestPinnedSlugKeepsAPublishedURL(t *testing.T) {
 	}
 
 	// The page, its data file, and the link pointing at it all use the pinned address.
-	if !fileExists(filepath.Join(out, "data", "note", pinned+".bin")) {
+	if !fileExists(bundlePath(t, filepath.Join(out, "data", "note", pinned+".bin"))) {
 		t.Fatalf("pinned slug should name the note's data file")
 	}
-	if fileExists(filepath.Join(out, "data", "note", PublishID(200)+".bin")) {
+	if fileExists(bundlePath(t, filepath.Join(out, "data", "note", PublishID(200)+".bin"))) {
 		t.Fatalf("the id-derived slug must not be published alongside the pinned one")
 	}
 	// The listing and the link-resolution map — the two places a reader reaches the note through —

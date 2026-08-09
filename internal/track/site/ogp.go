@@ -20,12 +20,12 @@ import (
 // `make site`) overwrites the same files with SSR content; this is the standalone fallback the CLI
 // produces on its own. startPage is baked into every page's shell, but only the "/" route reads it
 // (START_PAGE_ID), so per-note pages still render their own route.
-func writePages(outDir, startPage string, root int64, docs, listed []doc, site jsonSite) error {
+func writePages(outDir, startPage string, root int64, docs, listed []doc, site jsonSite, lockKey []byte, generation string, names *assetNamer) error {
 	raw, err := os.ReadFile(filepath.Join(outDir, "index.html"))
 	if err != nil {
 		return err
 	}
-	base := swapFavicon(applyPlaceholders(string(raw), startPage, LockKey(site.BaseURL, site.Title)), site.Icon)
+	base := swapFavicon(applyPlaceholders(string(raw), startPage, lockKey, generation), site.Icon)
 
 	write := func(rel, head string) error {
 		path := filepath.Join(outDir, filepath.FromSlash(rel))
@@ -43,7 +43,7 @@ func writePages(outDir, startPage string, root int64, docs, listed []doc, site j
 			break
 		}
 	}
-	if err := write("index.html", pageHead(site, rootDoc, "/")); err != nil {
+	if err := write("index.html", pageHead(site, rootDoc, "/", names)); err != nil {
 		return err
 	}
 
@@ -51,7 +51,7 @@ func writePages(outDir, startPage string, root int64, docs, listed []doc, site j
 	for i := range docs {
 		d := &docs[i]
 		slug := slugOf(d)
-		if err := write(filepath.Join("notes", slug, "index.html"), pageHead(site, d, "/notes/"+slug)); err != nil {
+		if err := write(filepath.Join("notes", slug, "index.html"), pageHead(site, d, "/notes/"+slug, names)); err != nil {
 			return err
 		}
 	}
@@ -63,7 +63,7 @@ func writePages(outDir, startPage string, root int64, docs, listed []doc, site j
 		generic = append(generic, "calendar")
 	}
 	for _, r := range generic {
-		if err := write(filepath.Join(r, "index.html"), pageHead(site, nil, "/"+r)); err != nil {
+		if err := write(filepath.Join(r, "index.html"), pageHead(site, nil, "/"+r, names)); err != nil {
 			return err
 		}
 	}
@@ -87,7 +87,7 @@ func writePages(outDir, startPage string, root int64, docs, listed []doc, site j
 			}
 		}
 		for day := range days {
-			if err := write(filepath.Join("day", day, "index.html"), pageHead(site, nil, "/day/"+day)); err != nil {
+			if err := write(filepath.Join("day", day, "index.html"), pageHead(site, nil, "/day/"+day, names)); err != nil {
 				return err
 			}
 		}
@@ -96,7 +96,7 @@ func writePages(outDir, startPage string, root int64, docs, listed []doc, site j
 	// Per-tag pages: tags/<tag>/index.html resolves /tags/<tag> for every published tag and each of
 	// its ancestors (tags are hierarchical, so /tags/a lists #a/b notes too).
 	for _, tag := range tagRoutes(docs) {
-		if err := write(filepath.Join("tags", filepath.FromSlash(tag), "index.html"), pageHead(site, nil, "/tags/"+tag)); err != nil {
+		if err := write(filepath.Join("tags", filepath.FromSlash(tag), "index.html"), pageHead(site, nil, "/tags/"+tag, names)); err != nil {
 			return err
 		}
 	}
@@ -130,12 +130,15 @@ func tagRoutes(docs []doc) []string {
 // left unsubstituted, __TRACK_COLOR_OVERRIDES__ would show as literal text. startPage is the root note's
 // published id, baked in so the frontend redirects to the start page on launch without a site.json
 // round-trip (see web/src/runtime.ts START_PAGE_ID).
-// lockKey is the site's data key (see lock.go), baked in so the app can open the locked data bundle.
-func applyPlaceholders(tmpl, startPage string, lockKey []byte) string {
+// lockKey is the site's data key (see lock.go), baked in so the app can open the locked data bundle;
+// generation is the fingerprint the bundle was published under, so this page fetches the data of its own
+// deploy rather than whatever sits at a shared path (ADR 0070).
+func applyPlaceholders(tmpl, startPage string, lockKey []byte, generation string) string {
 	tmpl = strings.ReplaceAll(tmpl, "__TRACK_DEFAULT_THEME__", "system")
 	tmpl = strings.ReplaceAll(tmpl, "__TRACK_COLOR_OVERRIDES__", "")
 	tmpl = strings.ReplaceAll(tmpl, "__TRACK_START_PAGE__", startPage)
 	tmpl = strings.ReplaceAll(tmpl, "__TRACK_LOCK_KEY__", LockKeyString(lockKey))
+	tmpl = strings.ReplaceAll(tmpl, "__TRACK_DATA_GEN__", generation)
 	return tmpl
 }
 
@@ -180,7 +183,7 @@ func injectHead(base, head string) string {
 // HTML-escaped. og:url and og:image are absolute, so they are emitted only when the export ran with a
 // base URL (--base-url); the published image path is always a slugged assets/ reference, never an
 // external or unsafe scheme.
-func pageHead(site jsonSite, d *doc, route string) string {
+func pageHead(site jsonSite, d *doc, route string, names *assetNamer) string {
 	name := siteName(site)
 	title, ogType, desc, image := name, "website", "", ""
 	if d != nil {
@@ -193,7 +196,7 @@ func pageHead(site jsonSite, d *doc, route string) string {
 			desc = bodyExcerpt(d.body)
 		}
 		if d.image != "" {
-			image = "assets/" + publishAssetName(d.image)
+			image = "assets/" + names.name(d.assetSrc, d.image)
 		}
 	}
 	if desc == "" {

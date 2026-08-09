@@ -17,10 +17,10 @@ func TestRewriteAssetRefsLeavesCodeExamples(t *testing.T) {
 		"```",
 	}, "\n")
 
-	got := rewriteAssetRefs(body)
+	got := rewriteAssetRefs(body, t.TempDir(), newAssetNamer())
 
 	// The real embed is rewritten to its published slug name.
-	want := "assets/" + publishAssetName("pic.png")
+	want := "assets/" + publishAssetName("pic.png", nil)
 	if !strings.Contains(got, want) {
 		t.Fatalf("real embed not rewritten: %q", got)
 	}

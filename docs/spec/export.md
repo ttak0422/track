@@ -139,16 +139,24 @@ the note's cover (`track meta --image assets/<file>`, published under its conten
 every asset); a note without one falls back to the site-wide default `ogp-default.png` shipped with
 the frontend build.
 
-**The data bundle is locked** ([ADR 0069](../adr/0069-the-published-data-bundle-is-locked.md)). Every file
-under `<out>/data` is gzipped, encrypted with AES-256-GCM, and published as `<name>.bin` — the shapes
-below are what comes *out* of it, not what a fetch returns. The key is derived from the site's public
-identity (`sha256("track-site-lock\0" + base URL + "\0" + root note title)`) and baked into every page as
-`window.__trackLock`, so the app opens its own data while a bulk consumer has to unlock deliberately. The
+**The data bundle is locked** ([ADR 0069](../adr/0069-the-published-data-bundle-is-locked.md)) **and
+content-addressed** ([ADR 0070](../adr/0070-published-data-lives-at-a-content-addressed-path.md)). Every
+file is gzipped, encrypted with AES-256-GCM, and published as `<out>/data/<generation>/<name>.bin`, where
+the generation is a fingerprint of the data the bundle holds — the shapes below are what comes *out* of
+it, not what a fetch returns. The generation is baked into every page as `window.__trackData`, so a page
+reads the data of its own deploy: an update is visible immediately instead of behind the host's
+ten-minute cache, and a page the CDN still serves from an earlier deploy never mixes with a later
+bundle. A missing generation (that deploy is gone) tells the client its page is stale, and it reloads
+once. The key is derived from the site's address
+(`sha256("track-site-lock\0" + base URL + "\0" + root note slug)`) and baked into every page as
+`window.__trackLock`, so the app opens its own data while a bulk consumer has to unlock deliberately.
+Deriving it from the address rather than from content is what lets a page the CDN still serves from an
+earlier deploy keep reading the current bundle. The
 dehydrated cache the prerender inlines into each page is locked the same way. `Unlock` in
 `internal/track/site/lock.go` and `web/src/lock.ts` are the two halves of that conversion. Because
 `crypto.subtle` needs a secure context, a published site must be served over HTTPS or from localhost.
 
-The exporter writes a JSON bundle under `<out>/data` mirroring the server's `/api/*` shapes — `notes.json`, `note/<id>.json` (web-sanitized body + backlinks), `graph.json`, `resolve.json`, `site.json` — plus `search.json`, the published bodies (the same text `note/<id>.json` carries, in body-search order), which the site's full-text search scans in the browser ([ADR 0067](../adr/0067-published-search-runs-the-scan-path-in-the-browser.md)); it is fetched on the first search rather than at first paint. `hierarchy.json` is the other deferred file: the published `up` forest, prebuilt so the rail's hierarchy menu never walks the tree in the browser, and fetched when that menu is first opened. Then it copies the static frontend build and referenced `assets/<path>` media into `<out>`. Wiki links to notes outside the published set are absent from `resolve.json`/`graph.json`, so the frontend leaves them inert. The live heatmap home is not published; the root note is the entry point. The `docs/help` vault is a working example — this repository publishes it with `make site`.
+The exporter writes a JSON bundle (named by what each file holds; published as above) mirroring the server's `/api/*` shapes — `notes.json`, `note/<id>.json` (web-sanitized body + backlinks), `graph.json`, `resolve.json`, `site.json` — plus `search.json`, the published bodies (the same text `note/<id>.json` carries, in body-search order), which the site's full-text search scans in the browser ([ADR 0067](../adr/0067-published-search-runs-the-scan-path-in-the-browser.md)); it is fetched on the first search rather than at first paint. `hierarchy.json` is the other deferred file: the published `up` forest, prebuilt so the rail's hierarchy menu never walks the tree in the browser, and fetched when that menu is first opened. Then it copies the static frontend build and referenced `assets/<path>` media into `<out>`; each attachment publishes as `assets/<content slug><ext>`, so the source file name never appears and a replaced file lands at a new URL instead of behind the host's cache ([ADR 0070](../adr/0070-published-data-lives-at-a-content-addressed-path.md)). Wiki links to notes outside the published set are absent from `resolve.json`/`graph.json`, so the frontend leaves them inert. The live heatmap home is not published; the root note is the entry point. The `docs/help` vault is a working example — this repository publishes it with `make site`.
 
 ## Future
 

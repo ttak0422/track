@@ -16,11 +16,35 @@ export const START_PAGE_ID = (() => {
   return !raw || raw.startsWith("__TRACK_") ? "" : raw;
 })();
 
+// DATA_GENERATION is the fingerprint the exported data bundle was published under, injected into the page
+// at export time (see internal/track/site/bundle.go). It makes every data URL specific to the deploy the
+// page came from: GitHub Pages serves HTML for up to ten minutes after a deploy, and a shared path would
+// let such a page read a newer bundle — or keep serving an older one from cache long after the site
+// changed. Empty on the live server and on the Vite dev server (which serves index.html raw).
+const DATA_GENERATION = (() => {
+  const raw = typeof window !== "undefined" ? window.__trackData : "";
+  return !raw || raw.startsWith("__TRACK_") ? "" : raw;
+})();
+
+// A published page belongs to one deploy: it carries that deploy's data generation and site key. When it
+// cannot read what the site is currently serving — the bundle it names is gone, or a file will not open
+// with its key — the page itself is what is out of date. reportStalePage says so; the client entry
+// (main.tsx) decides what to do about it, and nothing happens outside the browser.
+let stalePageHandler: () => void = () => {};
+
+export function setStalePageHandler(handler: () => void): void {
+  stalePageHandler = handler;
+}
+
+export function reportStalePage(): void {
+  stalePageHandler();
+}
+
 // dataURL resolves a path inside the exported data bundle. The static site is path-routed, so it cannot
 // rely on document.baseURI (which varies per route); anchor to the build-time base (BASE_URL, "/" or the
 // configured subpath) instead, which is where the data bundle sits. During prerender (no import.meta in
 // some contexts) BASE_URL is still inlined at build, and the leading path is matched by the prerender's
 // fetch shim.
 export function dataURL(path: string): string {
-  return `${import.meta.env.BASE_URL}data/${path}`;
+  return `${import.meta.env.BASE_URL}data/${DATA_GENERATION ? `${DATA_GENERATION}/` : ""}${path}`;
 }

@@ -23,7 +23,7 @@ func TestCopyAssetsRejectsTraversal(t *testing.T) {
 	}
 
 	rels := []string{"ok.txt", "../secret.txt", secret, ""}
-	copied, missing, err := copyAssets(srcDir, outDir, rels, func(string) (string, bool) { return "", false }, LockKey("", ""))
+	copied, missing, err := copyAssets(srcDir, outDir, rels, func(string) (string, bool) { return "", false }, LockKey("", ""), newAssetNamer())
 	if err != nil {
 		t.Fatal(err)
 	}

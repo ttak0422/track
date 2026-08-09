@@ -16,6 +16,9 @@ interface Window {
   // Injected by the static export as the base64 key that opens its locked data bundle (see
   // web/src/lock.ts). Empty on the live server, which serves /api/* instead.
   __trackLock?: string;
+  // Injected by the static export as the fingerprint its data bundle was published under, so the page
+  // reads data/<generation>/… — the data of its own deploy. Empty on the live server.
+  __trackData?: string;
   // Injected by the prerender as the dehydrated react-query cache for the page, so the client hydrates
   // the prerendered markup without refetching. Locked like the rest of the published data (a base64
   // blob, see web/src/lock.ts); it opens to react-query's DehydratedState.

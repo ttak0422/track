@@ -21,15 +21,21 @@ func fakeFrontend(t *testing.T) string {
 }
 
 // readBundle opens one file of the published data bundle. It is locked (ADR 0069): the published file is
-// "<name>.bin", and reading it takes the site's key, derived from the site's own public identity (its
-// base URL and its root note's title) and baked into the pages the export writes.
-func readBundle(t *testing.T, out, baseURL, rootTitle, name string) []byte {
+// "<name>.bin", and reading it takes the site's key, derived from the site's address (its base URL and
+// its root note's published slug) and baked into the pages the export writes.
+func readBundle(t *testing.T, out, baseURL, rootSlug, name string) []byte {
 	t.Helper()
-	raw, err := os.ReadFile(filepath.Join(out, "data", filepath.FromSlash(name)+".bin"))
+	// The bundle is published under a fingerprint of its contents (ADR 0070), so the file sits one
+	// directory below: data/<generation>/<name>.bin.
+	generations, err := os.ReadDir(filepath.Join(out, "data"))
+	if err != nil || len(generations) != 1 {
+		t.Fatalf("a build publishes exactly one data generation, got %v (%v)", generations, err)
+	}
+	raw, err := os.ReadFile(filepath.Join(out, "data", generations[0].Name(), filepath.FromSlash(name)+".bin"))
 	if err != nil {
 		t.Fatalf("bundle file missing: %v", err)
 	}
-	plain, err := site.Unlock(site.LockKey(baseURL, rootTitle), raw)
+	plain, err := site.Unlock(site.LockKey(baseURL, rootSlug), raw)
 	if err != nil {
 		t.Fatalf("unlock %s: %v", name, err)
 	}
@@ -58,7 +64,7 @@ func TestExportSiteBuildsStaticSite(t *testing.T) {
 	if _, err := os.Stat(filepath.Join(out, "index.html")); err != nil {
 		t.Fatalf("frontend not copied: %v", err)
 	}
-	raw := readBundle(t, out, "", "Home", "note/"+site.PublishID(200))
+	raw := readBundle(t, out, "", site.PublishID(100), "note/"+site.PublishID(200))
 	var note struct {
 		Note struct {
 			Body string `json:"body"`
@@ -85,7 +91,7 @@ func TestExportSiteBuildsStaticSite(t *testing.T) {
 	if !strings.Contains(string(childPage), `<meta property="og:title" content="Child">`) {
 		t.Fatalf("child page should carry its own og:title: %s", childPage)
 	}
-	metaRaw := readBundle(t, out, "", "Home", "site")
+	metaRaw := readBundle(t, out, "", site.PublishID(100), "site")
 	if strings.Contains(string(metaRaw), `"share"`) {
 		t.Fatalf("share should be opt-in by default: %s", metaRaw)
 	}
@@ -109,7 +115,7 @@ func TestExportSiteShareOption(t *testing.T) {
 	if code != 0 {
 		t.Fatalf("export-site with sharing failed: %v", res)
 	}
-	raw := readBundle(t, out, "https://example.com/blog", "Home", "site")
+	raw := readBundle(t, out, "https://example.com/blog", site.PublishID(100), "site")
 	var meta struct {
 		BaseURL string `json:"base_url"`
 		Share   bool   `json:"share"`
@@ -144,7 +150,7 @@ func TestExportSiteRootDefaultsToVaultHome(t *testing.T) {
 	if code != 0 {
 		t.Fatalf("export-site failed: %v", res)
 	}
-	raw := readBundle(t, out, "", "Home", "site")
+	raw := readBundle(t, out, "", site.PublishID(100), "site")
 	var meta struct {
 		Root string `json:"root"`
 	}
