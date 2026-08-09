@@ -505,6 +505,10 @@ img.theme-asset-dark {
   translate: 0 -50%;
 }
 
+.rail-menu-panel .menu-section + .menu-section {
+  margin-top: 16px;
+}
+
 /* The sidebar search popup floats beside the rail, escaping the rail's overflow with fixed positioning.
    Above .graph-full (z-index 90): the rail (and this popup) render on every page including /graph, whose
    full-bleed canvas would otherwise paint over the popup and swallow its clicks there. It is just the
@@ -630,10 +634,12 @@ img.theme-asset-dark {
   background: var(--panel-soft);
 }
 
-/* The keyboard cursor is a quiet reading-edge marker, not a selected card. */
+/* The keyboard cursor is an L-shaped reading-edge marker, not a selected card: the left edge anchors
+   the row and the bottom edge makes the active result easy to scan without adding a filled tile. */
 .result.is-active {
   background: transparent;
-  box-shadow: inset 2px 0 0 var(--mark);
+  border-radius: 0;
+  box-shadow: inset 2px 0 0 var(--mark), inset 0 -2px 0 var(--mark);
 }
 
 .result-title {
@@ -1567,7 +1573,8 @@ a.calendar-title:focus-visible {
 
 /* icon button: the fold caret. The glyph is 8px in a 24px target, and the box is kept on a leaf too
    (as an empty span), which is what lines the titles of one level up with each other. */
-.hierarchy-toggle {
+.hierarchy-toggle,
+.hierarchy-toggle-placeholder {
   display: grid;
   width: 24px;
   height: 24px;
@@ -2807,7 +2814,7 @@ textarea.modal-input:focus-visible {
 .mermaid-controls {
   position: absolute;
   top: 8px;
-  right: 8px;
+  right: 44px;
   z-index: 2; /* above the continuation fades */
   display: flex;
   flex-direction: column;
@@ -2821,6 +2828,7 @@ textarea.modal-input:focus-visible {
   height: 26px;
   display: grid;
   place-items: center;
+  padding: 0;
   border: 1px solid var(--line);
   border-radius: var(--radius);
   background: var(--panel-soft);
@@ -2830,8 +2838,68 @@ textarea.modal-input:focus-visible {
   cursor: pointer;
 }
 
+.mermaid-open {
+  position: absolute;
+  top: 8px;
+  right: 8px;
+  z-index: 2;
+  opacity: 0;
+  transition: opacity 0.12s ease;
+}
+
+/* Wide diagrams can keep their natural text size in a modal instead of shrinking until the workflow
+   labels become unreadable in the note column. The content area scrolls both axes when necessary. */
+.diagram-lightbox {
+  width: min(96vw, 1600px);
+  height: min(92vh, 1000px);
+  max-width: 96vw;
+  max-height: 92vh;
+  padding: 16px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-lg);
+  background: var(--panel);
+  color: var(--text);
+  overflow: hidden;
+  box-shadow: 0 24px 60px color-mix(in srgb, var(--text) 28%, transparent);
+}
+
+.diagram-lightbox::backdrop {
+  background: color-mix(in srgb, var(--text) 45%, transparent);
+}
+
+.diagram-lightbox-content {
+  width: 100%;
+  height: 100%;
+  overflow: auto;
+}
+
+.diagram-lightbox-content .mermaid-pan {
+  width: max-content;
+  min-width: 100%;
+}
+
+.diagram-lightbox-content svg {
+  display: block;
+  width: auto;
+  height: auto;
+  max-width: none;
+}
+
+.diagram-lightbox-close {
+  position: absolute;
+  top: 8px;
+  right: 8px;
+  z-index: 1;
+  font-size: calc(20px * var(--font-scale, 1));
+}
+
 .mermaid-diagram:hover .mermaid-controls,
 .mermaid-controls:focus-within {
+  opacity: 1;
+}
+
+.mermaid-diagram:hover .mermaid-open,
+.mermaid-open:focus-visible {
   opacity: 1;
 }
 

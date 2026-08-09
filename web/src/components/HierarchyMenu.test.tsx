@@ -101,5 +101,7 @@ describe("HierarchyMenu", () => {
 
     expect(screen.getByRole("menuitem", { name: "Grandchild" })).toBeInTheDocument();
     expect(screen.queryByRole("menuitem", { name: "Expand Grandchild" })).not.toBeInTheDocument();
+    expect(document.querySelector(".hierarchy-toggle-placeholder")).toBeInTheDocument();
+    expect(document.querySelector(".hierarchy-toggle-placeholder")).not.toHaveClass("hierarchy-toggle");
   });
 });

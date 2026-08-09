@@ -64,6 +64,9 @@ interface DiagramFrameProps {
 export function DiagramFrame({ state, source, sourceLang, label, className }: DiagramFrameProps) {
   const svg = state.status === "ready" ? state.svg : null;
   const panZoom = usePanZoom(svg);
+  const [enlarged, setEnlarged] = useState(false);
+  const dialogRef = useRef<HTMLDialogElement>(null);
+  const lightboxPanRef = useRef<HTMLDivElement>(null);
   // A stable element per svg string: pan/zoom re-renders reuse it untouched, so react-dom never
   // rewrites the innerHTML — which would both discard sizeSvgToViewBox's sizing and re-parse a large
   // SVG on every drag frame.
@@ -72,6 +75,15 @@ export function DiagramFrame({ state, source, sourceLang, label, className }: Di
     [svg],
   );
   const rootClass = className ? `mermaid-diagram ${className}` : "mermaid-diagram";
+
+  useEffect(() => {
+    const dialog = dialogRef.current;
+    if (enlarged && svg && dialog && !dialog.open) dialog.showModal();
+  }, [enlarged, svg]);
+
+  useLayoutEffect(() => {
+    if (enlarged && svg && lightboxPanRef.current) sizeSvgToViewBox(lightboxPanRef.current);
+  }, [enlarged, svg]);
 
   if (state.status === "error") {
     return (
@@ -99,6 +111,7 @@ export function DiagramFrame({ state, source, sourceLang, label, className }: Di
     showFoldControl,
     toggleCollapsed,
   } = panZoom;
+  const showPopupControl = !collapsed && (showFoldControl || overflow.left || overflow.right);
   return (
     <div className={rootClass} data-collapsed={collapsed || undefined}>
       <div
@@ -176,6 +189,42 @@ export function DiagramFrame({ state, source, sourceLang, label, className }: Di
           </button>
         </div>
       )}
+      {showPopupControl ? (
+        <button
+          className="mermaid-control mermaid-open"
+          type="button"
+          onClick={() => setEnlarged(true)}
+          aria-label="Open diagram in popup"
+          title="Open diagram in popup"
+        >
+          ⛶
+        </button>
+      ) : null}
+      {enlarged && svg ? (
+        <dialog
+          ref={dialogRef}
+          className="diagram-lightbox"
+          onClose={() => setEnlarged(false)}
+          onClick={(event) => {
+            if (event.target === dialogRef.current) dialogRef.current.close();
+          }}
+        >
+          <button
+            className="mermaid-control diagram-lightbox-close"
+            type="button"
+            onClick={() => dialogRef.current?.close()}
+            aria-label="Close diagram popup"
+            title="Close diagram popup"
+          >
+            ×
+          </button>
+          <div className={`diagram-lightbox-content ${className ?? ""}`}>
+            <div ref={lightboxPanRef} className="mermaid-pan" role="img" aria-label={label}>
+              <div dangerouslySetInnerHTML={{ __html: svg }} />
+            </div>
+          </div>
+        </dialog>
+      ) : null}
     </div>
   );
 }
