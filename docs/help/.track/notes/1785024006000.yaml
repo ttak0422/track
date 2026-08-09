@@ -1,11 +1,13 @@
 version: 8
 title: Embeds
 tags:
-- help/visualization/embeds
-created: '2026-07-26'
+    - help/visualization/embeds
+created: "2026-07-26"
+days:
+    - "2026-07-31"
 image: assets/cover-embeds.svg
 props:
-  section: visualization
-  up: '[[Visualization]]'
-icon: 🧩
+    section: visualization
+    up: '[[Visualization]]'
+icon: "\U0001F9E9"
 slug: 36ukB4V5MfAQePgJsUVhnS

@@ -1,11 +1,13 @@
 version: 8
 title: Diagrams
 tags:
-- help/visualization/diagrams
-created: '2026-07-26'
+    - help/visualization/diagrams
+created: "2026-07-26"
+days:
+    - "2026-08-05"
 image: assets/cover-diagrams.svg
 props:
-  section: visualization
-  up: '[[Visualization]]'
-icon: 📐
+    section: visualization
+    up: '[[Visualization]]'
+icon: "\U0001F4D0"
 slug: 5bBoWd3NKXixIBj7useATQ

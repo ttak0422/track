@@ -1,11 +1,13 @@
 version: 8
 title: Properties
 tags:
-- help/authoring
-created: '2026-07-26'
+    - help/authoring
+created: "2026-07-26"
+days:
+    - "2026-07-26"
 props:
-  section: authoring
-  reviewed: '2026-07-02'
-  up: '[[track]]'
-icon: 🏷️
+    reviewed: "2026-07-02"
+    section: authoring
+    up: '[[track]]'
+icon: "\U0001F3F7️"
 slug: 2sNIBTsmREke9vFuCe6TLb

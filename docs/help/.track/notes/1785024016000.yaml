@@ -1,11 +1,13 @@
 version: 8
 title: Visualization
 tags:
-- help/visualization
-created: '2026-07-26'
+    - help/visualization
+created: "2026-07-26"
+days:
+    - "2026-07-31"
 image: assets/cover-visualization.svg
 props:
-  section: visualization
-  up: '[[track]]'
-icon: 📈
+    section: visualization
+    up: '[[track]]'
+icon: "\U0001F4C8"
 slug: 6lkMYz6DB66BiNMLmXjG9e

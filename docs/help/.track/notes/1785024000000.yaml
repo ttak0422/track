@@ -1,10 +1,12 @@
 version: 8
 title: Babel
 tags:
-- help/authoring
-created: '2026-07-26'
+    - help/authoring
+created: "2026-07-26"
+days:
+    - "2026-07-26"
 props:
-  section: authoring
-  up: '[[CLI]]'
-icon: 🧪
+    section: authoring
+    up: '[[CLI]]'
+icon: "\U0001F9EA"
 slug: 1fBExGozUeXAXNB324DsDk

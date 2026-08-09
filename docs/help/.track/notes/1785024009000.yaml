@@ -1,9 +1,11 @@
 version: 8
 title: Linking notes
 tags:
-- help/concepts
-created: '2026-07-26'
+    - help/concepts
+created: "2026-07-26"
+days:
+    - "2026-07-31"
 props:
-  up: '[[track]]'
-icon: 🔗
+    up: '[[track]]'
+icon: "\U0001F517"
 slug: 3eUjhpw6SZX83jXq4rtDpG

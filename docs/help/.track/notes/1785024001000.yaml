@@ -1,6 +1,8 @@
 version: 8
 title: Block links
-created: '2026-07-26'
+created: "2026-07-26"
+days:
+    - "2026-07-26"
 props:
-  up: '[[Linking notes]]'
+    up: '[[Linking notes]]'
 slug: 3qspHppxZXmxlO0h1KAPMJ

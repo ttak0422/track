@@ -1,6 +1,8 @@
 version: 8
 title: Hierarchy
-created: '2026-07-26'
+created: "2026-07-26"
+days:
+    - "2026-08-08"
 props:
-  up: '[[track]]'
+    up: '[[track]]'
 slug: 5TjZrtnIp272Pu1vDOoFTI
