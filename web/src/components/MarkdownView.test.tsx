@@ -90,6 +90,14 @@ describe("MarkdownView", () => {
     ]);
   });
 
+  it("removes a duplicate body h1 without rendering a title owned by popup chrome", () => {
+    const { container } = render(
+      <MarkdownView title="Project" showTitle={false} markdown={"# Project\n\n## Status"} />,
+    );
+    expect(container.querySelector("h1")).toBeNull();
+    expect(container.querySelector("h2")?.textContent).toBe("Status");
+  });
+
   it("renders the note title and empty-state copy for an empty body", () => {
     const { container } = render(<MarkdownView title="Project" markdown="" />);
     expect(container.querySelector("h1")?.textContent).toBe("Project");

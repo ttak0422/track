@@ -19,7 +19,11 @@ vi.mock("./FloatingWindow", () => ({
   FloatingWindow: ({ children }: { children: ReactNode }) => <div>{children}</div>,
 }));
 vi.mock("../MarkdownView", () => ({
-  MarkdownView: ({ markdown }: { markdown: string }) => <div data-testid="body">{markdown}</div>,
+  MarkdownView: ({ markdown, title, showTitle }: { markdown: string; title?: string; showTitle?: boolean }) => (
+    <div data-testid="body" data-title={title} data-show-title={String(showTitle)}>
+      {markdown}
+    </div>
+  ),
 }));
 
 const controls = {
@@ -55,6 +59,14 @@ describe("NoteWindow content switch", () => {
     show();
     expect(screen.queryByRole("status")).toBeNull();
     expect(screen.getByTestId("body").textContent).toBe("# hi");
+  });
+
+  it("passes the note title for duplicate removal without rendering it in the popup body", () => {
+    noteQuery.mockReturnValue(noteLoaded("# T"));
+    renderQuery.mockReturnValue({ data: { markdown: "# T" }, isError: false });
+    show();
+    expect(screen.getByTestId("body")).toHaveAttribute("data-title", "T");
+    expect(screen.getByTestId("body")).toHaveAttribute("data-show-title", "false");
   });
 
   it("does not wait on an empty note, whose render never runs", () => {
