@@ -630,10 +630,11 @@ img.theme-asset-dark {
   background: var(--panel-soft);
 }
 
-/* The keyboard cursor is a quiet reading-edge marker, not a selected card. */
+/* The keyboard cursor is an L-shaped reading-edge marker, not a selected card: the left edge anchors
+   the row and the bottom edge makes the active result easy to scan without adding a filled tile. */
 .result.is-active {
   background: transparent;
-  box-shadow: inset 2px 0 0 var(--mark);
+  box-shadow: inset 2px 0 0 var(--mark), inset 0 -2px 0 var(--mark);
 }
 
 .result-title {
