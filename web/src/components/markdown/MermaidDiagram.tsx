@@ -64,6 +64,9 @@ interface DiagramFrameProps {
 export function DiagramFrame({ state, source, sourceLang, label, className }: DiagramFrameProps) {
   const svg = state.status === "ready" ? state.svg : null;
   const panZoom = usePanZoom(svg);
+  const [enlarged, setEnlarged] = useState(false);
+  const dialogRef = useRef<HTMLDialogElement>(null);
+  const lightboxPanRef = useRef<HTMLDivElement>(null);
   // A stable element per svg string: pan/zoom re-renders reuse it untouched, so react-dom never
   // rewrites the innerHTML — which would both discard sizeSvgToViewBox's sizing and re-parse a large
   // SVG on every drag frame.
@@ -72,6 +75,14 @@ export function DiagramFrame({ state, source, sourceLang, label, className }: Di
     [svg],
   );
   const rootClass = className ? `mermaid-diagram ${className}` : "mermaid-diagram";
+
+  useEffect(() => {
+    if (enlarged) dialogRef.current?.showModal();
+  }, [enlarged]);
+
+  useLayoutEffect(() => {
+    if (enlarged && svg && lightboxPanRef.current) sizeSvgToViewBox(lightboxPanRef.current);
+  }, [enlarged, svg]);
 
   if (state.status === "error") {
     return (
@@ -174,8 +185,42 @@ export function DiagramFrame({ state, source, sourceLang, label, className }: Di
           >
             ↺
           </button>
+          <button
+            className="mermaid-control"
+            type="button"
+            onClick={() => setEnlarged(true)}
+            aria-label="Open diagram in popup"
+            title="Open diagram in popup"
+          >
+            ⛶
+          </button>
         </div>
       )}
+      {enlarged && svg ? (
+        <dialog
+          ref={dialogRef}
+          className="diagram-lightbox"
+          onClose={() => setEnlarged(false)}
+          onClick={(event) => {
+            if (event.target === dialogRef.current) dialogRef.current.close();
+          }}
+        >
+          <button
+            className="diagram-lightbox-close"
+            type="button"
+            onClick={() => dialogRef.current?.close()}
+            aria-label="Close diagram popup"
+            title="Close diagram popup"
+          >
+            ×
+          </button>
+          <div className={`diagram-lightbox-content ${className ?? ""}`}>
+            <div ref={lightboxPanRef} className="mermaid-pan" role="img" aria-label={label}>
+              <div dangerouslySetInnerHTML={{ __html: svg }} />
+            </div>
+          </div>
+        </dialog>
+      ) : null}
     </div>
   );
 }
