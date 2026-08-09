@@ -634,6 +634,7 @@ img.theme-asset-dark {
    the row and the bottom edge makes the active result easy to scan without adding a filled tile. */
 .result.is-active {
   background: transparent;
+  border-radius: 0;
   box-shadow: inset 2px 0 0 var(--mark), inset 0 -2px 0 var(--mark);
 }
 
