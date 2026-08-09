@@ -3780,15 +3780,30 @@ textarea.modal-input:focus-visible {
   position: relative;
 }
 
+.aside-graph-heading {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  margin-bottom: 8px;
+}
+
+.aside-graph-heading h3 {
+  min-width: 0;
+  margin: 0;
+}
+
 .aside-graph-controls {
-  position: absolute;
-  top: 0;
-  right: 0;
   display: flex;
   gap: 6px;
   align-items: center;
   font-size: calc(13px * var(--font-scale, 1));
   line-height: 1;
+}
+
+.aside-graph-controls .graph-reset {
+  width: 28px;
+  height: 28px;
 }
 
 .aside-graph .graph-canvas {
