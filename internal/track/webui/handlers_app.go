@@ -107,6 +107,8 @@ func (s *Server) serveIndex(w http.ResponseWriter, r *http.Request) {
 		startPage = strconv.FormatInt(id, 10)
 	}
 	html = strings.ReplaceAll(html, "__TRACK_START_PAGE__", startPage)
+	// Only the static export has a locked data bundle to open; the live app reads /api/*.
+	html = strings.ReplaceAll(html, "__TRACK_LOCK_KEY__", "")
 	_, _ = w.Write([]byte(html))
 }
 

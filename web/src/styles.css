@@ -245,20 +245,31 @@ img.theme-asset-dark {
   border: 1px solid var(--line);
   border-radius: var(--radius-lg);
   background: var(--panel);
-  /* The rail grew a second group (the open note's controls), so on a short window it can be taller
-     than the strip it is centred in. Scroll inside the dock without a visible bar. */
-  max-height: calc(50vh - 16px);
+  /* The rail is centred at 25vh. Subtract twice the reserved 33px tab row plus an 8px gap so even a
+     max-height rail starts below the tabs instead of crossing them on a short viewport. */
+  max-height: calc(50vh - 82px);
+}
+
+/* Settings stays outside this scroller, pinned at the foot of the dock. The workspace and note groups
+   give up height first, and keep their scrollbar hidden like the original compact rail. */
+.rail-scroll {
+  display: flex;
+  min-height: 0;
+  flex: 1 1 auto;
+  flex-direction: column;
+  align-items: center;
+  gap: 6px;
   overflow-y: auto;
   scrollbar-width: none;
 }
 
-.activity-rail::-webkit-scrollbar {
+.rail-scroll::-webkit-scrollbar {
   display: none;
 }
 
-/* Nothing in the dock is squashed by a rail too short for its contents — it scrolls instead. This is
-   on every child, not just the buttons: several are wrappers holding a button plus its menu. */
-.activity-rail > * {
+/* Nothing in the scrolling group is squashed by a short rail. Several children are wrappers holding
+   a button plus its menu, so the rule belongs on every direct child rather than buttons alone. */
+.rail-scroll > * {
   flex: none;
 }
 

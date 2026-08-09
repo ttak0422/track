@@ -1,9 +1,11 @@
 package site
 
 import (
+	"encoding/base64"
 	"encoding/json"
 	"os"
 	"path/filepath"
+	"regexp"
 	"strings"
 	"testing"
 	"time"
@@ -21,7 +23,7 @@ func fakeFrontend(t *testing.T) string {
 	if err := os.MkdirAll(filepath.Join(dir, "assets"), 0o755); err != nil {
 		t.Fatal(err)
 	}
-	index := `<!doctype html><head><title>track</title><link rel="icon" type="image/svg+xml" href="/track-icon.svg" data-track-favicon /><script>var t="__TRACK_DEFAULT_THEME__";window.__trackStartPage="__TRACK_START_PAGE__"</script>__TRACK_COLOR_OVERRIDES__</head><body><div id="root"></div></body>`
+	index := `<!doctype html><head><title>track</title><link rel="icon" type="image/svg+xml" href="/track-icon.svg" data-track-favicon /><script>var t="__TRACK_DEFAULT_THEME__";window.__trackStartPage="__TRACK_START_PAGE__";window.__trackLock="__TRACK_LOCK_KEY__"</script>__TRACK_COLOR_OVERRIDES__</head><body><div id="root"></div></body>`
 	if err := os.WriteFile(filepath.Join(dir, "index.html"), []byte(index), 0o644); err != nil {
 		t.Fatal(err)
 	}
@@ -63,17 +65,103 @@ func writeVaultNote(t *testing.T, cfg *config.Config, id int64, title, body stri
 	}
 }
 
+// readJSON reads one published data file, named by what it holds ("<out>/data/notes.json"). The bundle
+// is locked (lock.go), so the test does what a reader does: take the key the site baked into its page,
+// open the published "<name>.bin", and read the JSON that comes out.
 func readJSON[T any](t *testing.T, path string) T {
 	t.Helper()
-	raw, err := os.ReadFile(path)
-	if err != nil {
-		t.Fatalf("read %s: %v", path, err)
-	}
 	var v T
-	if err := json.Unmarshal(raw, &v); err != nil {
+	if err := json.Unmarshal(readLocked(t, path), &v); err != nil {
 		t.Fatalf("decode %s: %v", path, err)
 	}
 	return v
+}
+
+func readLocked(t *testing.T, path string) []byte {
+	t.Helper()
+	published := strings.TrimSuffix(path, ".json") + ".bin"
+	raw, err := os.ReadFile(published)
+	if err != nil {
+		t.Fatalf("read %s: %v", published, err)
+	}
+	plain, err := Unlock(pageLockKey(t, siteDirOf(t, published)), raw)
+	if err != nil {
+		t.Fatalf("unlock %s: %v", published, err)
+	}
+	return plain
+}
+
+// siteDirOf walks up from a published file to the site root — the directory holding the page the key
+// was baked into.
+func siteDirOf(t *testing.T, path string) string {
+	t.Helper()
+	for dir := filepath.Dir(path); dir != "." && dir != string(filepath.Separator); dir = filepath.Dir(dir) {
+		if fileExists(filepath.Join(dir, "index.html")) {
+			return dir
+		}
+	}
+	t.Fatalf("%s is not inside a published site", path)
+	return ""
+}
+
+// pageLockKey takes the site's key out of the page it was baked into, the same place the frontend and
+// the prerender read it from.
+func pageLockKey(t *testing.T, outDir string) []byte {
+	t.Helper()
+	html, err := os.ReadFile(filepath.Join(outDir, "index.html"))
+	if err != nil {
+		t.Fatalf("read page: %v", err)
+	}
+	m := regexp.MustCompile(`__trackLock="([^"]*)"`).FindStringSubmatch(string(html))
+	if m == nil {
+		t.Fatalf("page carries no site key:\n%s", html)
+	}
+	key, err := base64.StdEncoding.DecodeString(m[1])
+	if err != nil {
+		t.Fatalf("decode key: %v", err)
+	}
+	return key
+}
+
+// TestBuildLocksTheDataBundle covers what the published files are: not readable data. The bundle holds
+// binary files under their own names, no plain JSON is left beside them, and a note's title cannot be
+// read out of the bytes — the site's key (baked into the page, and what every other test here uses to
+// read the bundle) is what turns them back into data.
+func TestBuildLocksTheDataBundle(t *testing.T) {
+	cfg, s := vaultStore(t)
+	writeVaultNote(t, cfg, 100, "Home", "# Home\n\ngo to [[Child]]\n")
+	writeVaultNote(t, cfg, 200, "Child", "# Child\n\nsecret body text\n")
+	if _, err := index.New(cfg, s).Full(); err != nil {
+		t.Fatalf("index: %v", err)
+	}
+
+	out := t.TempDir()
+	if _, err := Build(cfg, s, Options{Root: 100, IDs: []int64{200}}, fakeFrontend(t), out); err != nil {
+		t.Fatalf("build: %v", err)
+	}
+
+	for _, name := range []string{"notes", "graph", "search", "site"} {
+		if fileExists(filepath.Join(out, "data", name+".json")) {
+			t.Fatalf("%s.json should not be published as readable JSON", name)
+		}
+		raw, err := os.ReadFile(filepath.Join(out, "data", name+".bin"))
+		if err != nil {
+			t.Fatalf("read %s.bin: %v", name, err)
+		}
+		for _, leak := range []string{"note_id", "Child", "secret body text"} {
+			if strings.Contains(string(raw), leak) {
+				t.Fatalf("%s.bin still reads as data (%q):\n%q", name, leak, raw)
+			}
+		}
+	}
+
+	// And the reader's side of the lock works: the key in the page opens the same files.
+	search := readJSON[struct {
+		Docs []jsonSearchDoc `json:"docs"`
+	}](t, filepath.Join(out, "data", "search.json"))
+	if len(search.Docs) != 2 {
+		t.Fatalf("the unlocked corpus should carry both published notes, got %+v", search.Docs)
+	}
 }
 
 func TestBuildVaultBundle(t *testing.T) {
@@ -440,11 +528,8 @@ func TestBuildRewritesSpecAssetNoteRefs(t *testing.T) {
 		t.Fatalf("build: %v", err)
 	}
 
-	raw, err := os.ReadFile(filepath.Join(out, "assets", publishAssetName("c.viewspec.json")))
-	if err != nil {
-		t.Fatalf("resolved option not written: %v", err)
-	}
-	opt := string(raw)
+	// The published option is locked like the data bundle, so reading it takes the site's key.
+	opt := string(readLocked(t, filepath.Join(out, "assets", publishAssetName("c.viewspec.json"))))
 	if !strings.Contains(opt, `"note":"`+PublishID(200)+`"`) {
 		t.Fatalf("published note ref should become its slug: %s", opt)
 	}
@@ -671,19 +756,16 @@ func TestPinnedSlugKeepsAPublishedURL(t *testing.T) {
 	}
 
 	// The page, its data file, and the link pointing at it all use the pinned address.
-	if !fileExists(filepath.Join(out, "data", "note", pinned+".json")) {
+	if !fileExists(filepath.Join(out, "data", "note", pinned+".bin")) {
 		t.Fatalf("pinned slug should name the note's data file")
 	}
-	if fileExists(filepath.Join(out, "data", "note", PublishID(200)+".json")) {
+	if fileExists(filepath.Join(out, "data", "note", PublishID(200)+".bin")) {
 		t.Fatalf("the id-derived slug must not be published alongside the pinned one")
 	}
 	// The listing and the link-resolution map — the two places a reader reaches the note through —
 	// both address it by the pinned slug.
 	for _, name := range []string{"notes.json", "resolve.json"} {
-		raw, err := os.ReadFile(filepath.Join(out, "data", name))
-		if err != nil {
-			t.Fatal(err)
-		}
+		raw := readLocked(t, filepath.Join(out, "data", name))
 		if !strings.Contains(string(raw), pinned) {
 			t.Fatalf("%s should address the pinned note by its pinned slug:\n%s", name, raw)
 		}

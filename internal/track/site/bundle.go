@@ -183,6 +183,10 @@ func writeBundle(docs []doc, edges []edge, root int64, calendar, share bool, bas
 			rootTitle = d.title
 		}
 	}
+	// Every data file below is written locked (see lock.go). The key is derived from the site's own
+	// identity and travels in the page, so the app opens its data and a bulk consumer has to unlock
+	// deliberately.
+	key := LockKey(strings.TrimRight(baseURL, "/"), rootTitle)
 
 	// notes.json, in the shared note-list order (recently updated first) so the published calendar,
 	// day pages, and search listing read like the live server's.
@@ -202,7 +206,7 @@ func writeBundle(docs []doc, edges []edge, root int64, calendar, share bool, bas
 			dashData.RecentTitles = append(dashData.RecentTitles, d.title)
 		}
 	}
-	if err := writeJSONFile(filepath.Join(outDir, "data", "notes.json"), map[string]any{"notes": notes}); err != nil {
+	if err := writeJSONFile(key, filepath.Join(outDir, "data", "notes.json"), map[string]any{"notes": notes}); err != nil {
 		return Result{}, err
 	}
 
@@ -224,7 +228,7 @@ func writeBundle(docs []doc, edges []edge, root int64, calendar, share bool, bas
 			datedTasks = append(datedTasks, jsonTaskRow{NoteID: slugOf(&d), FileKind: kindOf(d), Title: d.title, Task: t})
 		}
 	}
-	if err := writeJSONFile(filepath.Join(outDir, "data", "tasks.json"), map[string]any{"tasks": datedTasks}); err != nil {
+	if err := writeJSONFile(key, filepath.Join(outDir, "data", "tasks.json"), map[string]any{"tasks": datedTasks}); err != nil {
 		return Result{}, err
 	}
 
@@ -326,7 +330,7 @@ func writeBundle(docs []doc, edges []edge, root int64, calendar, share bool, bas
 	for _, d := range hRoots {
 		forest = append(forest, hierarchyNode(d))
 	}
-	if err := writeJSONFile(filepath.Join(outDir, "data", "hierarchy.json"), map[string]any{"hierarchy": forest}); err != nil {
+	if err := writeJSONFile(key, filepath.Join(outDir, "data", "hierarchy.json"), map[string]any{"hierarchy": forest}); err != nil {
 		return Result{}, err
 	}
 
@@ -397,7 +401,7 @@ func writeBundle(docs []doc, edges []edge, root int64, calendar, share bool, bas
 			Children:  children,
 		}
 		searchBodies[d.id] = body
-		if err := writeJSONFile(filepath.Join(outDir, "data", "note", fmt.Sprintf("%s.json", slugOf(&d))), resp); err != nil {
+		if err := writeJSONFile(key, filepath.Join(outDir, "data", "note", fmt.Sprintf("%s.json", slugOf(&d))), resp); err != nil {
 			return Result{}, err
 		}
 	}
@@ -420,7 +424,7 @@ func writeBundle(docs []doc, edges []edge, root int64, calendar, share bool, bas
 	for _, d := range ordered {
 		searchDocs = append(searchDocs, jsonSearchDoc{NoteID: slugOf(&d), Body: searchBodies[d.id]})
 	}
-	if err := writeJSONFile(filepath.Join(outDir, "data", "search.json"), map[string]any{"docs": searchDocs}); err != nil {
+	if err := writeJSONFile(key, filepath.Join(outDir, "data", "search.json"), map[string]any{"docs": searchDocs}); err != nil {
 		return Result{}, err
 	}
 
@@ -434,7 +438,7 @@ func writeBundle(docs []doc, edges []edge, root int64, calendar, share bool, bas
 		gEdges = append(gEdges, jsonGraphEdge{SourceID: slugOf(docPtr(byID, e.src)), TargetID: slugOf(docPtr(byID, e.dst))})
 	}
 	// CenterID is empty for the whole-set graph: there is no centered node, and no slug ever equals "".
-	if err := writeJSONFile(filepath.Join(outDir, "data", "graph.json"),
+	if err := writeJSONFile(key, filepath.Join(outDir, "data", "graph.json"),
 		map[string]any{"graph": jsonGraph{CenterID: "", Nodes: nodes, Edges: gEdges}}); err != nil {
 		return Result{}, err
 	}
@@ -449,7 +453,7 @@ func writeBundle(docs []doc, edges []edge, root int64, calendar, share bool, bas
 			}
 		}
 	}
-	if err := writeJSONFile(filepath.Join(outDir, "data", "resolve.json"), resolve); err != nil {
+	if err := writeJSONFile(key, filepath.Join(outDir, "data", "resolve.json"), resolve); err != nil {
 		return Result{}, err
 	}
 
@@ -466,7 +470,7 @@ func writeBundle(docs []doc, edges []edge, root int64, calendar, share bool, bas
 		// format, so the favicon works without a type attribute.
 		siteMeta.Icon = "icon" + strings.ToLower(filepath.Ext(iconSrc))
 	}
-	if err := writeJSONFile(filepath.Join(outDir, "data", "site.json"), siteMeta); err != nil {
+	if err := writeJSONFile(key, filepath.Join(outDir, "data", "site.json"), siteMeta); err != nil {
 		return Result{}, err
 	}
 
@@ -512,7 +516,7 @@ func writeBundle(docs []doc, edges []edge, root int64, calendar, share bool, bas
 			rels = append(rels, rel)
 		}
 		sort.Strings(rels)
-		copied, missing, err := copyAssets(src, outDir, rels, noteSlug)
+		copied, missing, err := copyAssets(src, outDir, rels, noteSlug, key)
 		if err != nil {
 			return Result{}, fmt.Errorf("copy assets: %w", err)
 		}
@@ -586,7 +590,11 @@ func etag(body string) string {
 	return hex.EncodeToString(sum[:16])
 }
 
-func writeJSONFile(path string, v any) error {
+// writeJSONFile writes one data file locked (see lock.go): the caller names it "<name>.json" because
+// that is what it holds, but the published file is "<name>.bin" — the bytes on disk are not JSON, and a
+// name promising JSON would be a lie to every host and reader. The frontend swaps the extension the same
+// way (web/src/api.ts staticData).
+func writeJSONFile(key []byte, path string, v any) error {
 	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
 		return err
 	}
@@ -594,7 +602,11 @@ func writeJSONFile(path string, v any) error {
 	if err != nil {
 		return err
 	}
-	return os.WriteFile(path, data, 0o644)
+	locked, err := lock(key, data)
+	if err != nil {
+		return err
+	}
+	return os.WriteFile(strings.TrimSuffix(path, ".json")+".bin", locked, 0o644)
 }
 
 // copyTree copies every file under src into dst, preserving the relative layout. Dot-prefixed entries

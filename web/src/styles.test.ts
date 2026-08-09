@@ -3,6 +3,7 @@ import { readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
 
 const css = readFileSync("src/styles.css", "utf8");
+const shell = readFileSync("src/components/Shell.tsx", "utf8");
 
 function ruleBody(selector: string): string {
   const escaped = selector.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
@@ -44,5 +45,24 @@ describe("content width", () => {
     const propsRule = css.match(/\.note-props\s*\{([^}]*)\}/)?.[1] ?? "";
 
     expect(propsRule).toMatch(/max-width:\s*var\(--content-measure\)/);
+  });
+});
+
+describe("sidebar at short viewport heights", () => {
+  it("reserves the tab row and an 8px gap above a quarter-centred rail", () => {
+    const reservedTabRow = Number(ruleBody(".reader-pane").match(/padding-top:\s*(\d+)px/)?.[1]);
+    const railHeightDeduction = Number(
+      ruleBody(".activity-rail").match(/max-height:\s*calc\(50vh\s*-\s*(\d+)px\)/)?.[1],
+    );
+
+    expect(reservedTabRow).toBeGreaterThan(0);
+    expect(railHeightDeduction).toBeGreaterThanOrEqual(2 * (reservedTabRow + 8));
+  });
+
+  it("keeps Settings outside the scrolling group so it remains reachable", () => {
+    expect(ruleBody(".rail-scroll")).toMatch(/overflow-y:\s*auto/);
+    expect(shell).toMatch(
+      /<nav className="activity-rail"[\s\S]*<div className="rail-scroll">[\s\S]*<\/div>[\s\S]*?<ThemeMenu \/>/,
+    );
   });
 });
