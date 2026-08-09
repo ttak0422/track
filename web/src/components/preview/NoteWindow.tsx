@@ -40,6 +40,8 @@ export function NoteWindow({ noteID, ...controls }: NoteWindowProps) {
         <PreviewDepthContext.Provider value={controls.depth + 1}>
           <MarkdownView
             markdown={rendered.data?.markdown ?? ""}
+            title={note.data.note.title}
+            showTitle={false}
             kind={note.data.note.file_kind}
             vault={vault}
             includes={rendered.data?.includes}

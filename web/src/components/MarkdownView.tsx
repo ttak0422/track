@@ -55,6 +55,9 @@ interface MarkdownViewProps {
   // The canonical note title is the document heading in full-page readers. A matching leading body
   // h1 is blanked (not deleted, so include/task source line numbers stay stable).
   title?: string;
+  // Popup chrome owns the title row, but still passes the title here so a duplicate body h1 can be
+  // blanked without rendering a second title inside the popup.
+  showTitle?: boolean;
   // The note's ID — when set, the title gets a copy button.
   noteId?: NoteID;
   kind?: string;
@@ -72,7 +75,15 @@ interface MarkdownViewProps {
 // /api/render (action links flattened); the track-specific construct is [[...]] wiki links (remarkWikiLink).
 // KaTeX is loaded lazily (see ./markdown/math), so a note without math never pulls in its bundle; while a
 // math note's first render waits for that chunk, the "$…$" briefly shows as source, then typesets.
-export function MarkdownView({ markdown, title, noteId, kind = "note", vault = "", includes }: MarkdownViewProps) {
+export function MarkdownView({
+  markdown,
+  title,
+  showTitle = true,
+  noteId,
+  kind = "note",
+  vault = "",
+  includes,
+}: MarkdownViewProps) {
   const bodyMarkdown = useMemo(() => withoutDuplicateTitle(markdown, title), [markdown, title]);
   const hasMath = looksLikeMath(bodyMarkdown);
   const [math, setMath] = useState<MathPlugins | null>(() => (hasMath ? mathPluginsIfLoaded() : null));
@@ -139,7 +150,7 @@ export function MarkdownView({ markdown, title, noteId, kind = "note", vault = "
         <IncludesContext.Provider value={includes ?? []}>
         <MarkdownSourceContext.Provider value={bodyMarkdown}>
           <div className="markdown-view">
-            {title ? (
+            {title && showTitle ? (
               <h1 className="note-title">
                 {title}
                 {noteId ? <TitleCopyButton title={title} /> : null}
