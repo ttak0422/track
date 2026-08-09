@@ -28,8 +28,9 @@ func TestPublishIDStableAndOpaque(t *testing.T) {
 
 func TestPublishAssetName(t *testing.T) {
 	const rel = "diagrams/My Secret Photo.PNG"
+	content := []byte("the file's bytes")
 
-	name := publishAssetName(rel)
+	name := publishAssetName(rel, content)
 
 	// The extension is kept (lowercased) for media-kind/content-type detection; the rest is an opaque
 	// 22-char slug that hides the source name and directory.
@@ -39,11 +40,20 @@ func TestPublishAssetName(t *testing.T) {
 	if strings.Contains(name, "Secret") || strings.Contains(name, "diagrams") {
 		t.Fatalf("asset name leaks the source path: %q", name)
 	}
-	if again := publishAssetName(rel); again != name {
+	if again := publishAssetName(rel, content); again != name {
 		t.Fatalf("publishAssetName not stable: %q != %q", name, again)
 	}
-	// The "asset:" prefix keeps the asset and note-id slug spaces disjoint ("1" (no ext) vs id 1).
-	if publishAssetName("1") == PublishID(1) {
+	// The name addresses the contents: editing the file publishes it somewhere else, so a reader can
+	// never be served a cached copy of the old one under the new name (ADR 0070).
+	if edited := publishAssetName(rel, []byte("the file's bytes, edited")); edited == name {
+		t.Fatalf("an edited asset should publish under a new name, still %q", name)
+	}
+	// A file that cannot be read falls back to a name derived from its path, and the "asset:" prefix
+	// keeps that space disjoint from the note ids ("1" (no ext) vs id 1).
+	if unreadable := publishAssetName(rel, nil); unreadable == name {
+		t.Fatalf("the fallback name should not collide with the content-addressed one")
+	}
+	if publishAssetName("1", nil) == PublishID(1) {
 		t.Fatalf("asset and note id spaces should not collide")
 	}
 }

@@ -20,7 +20,7 @@ import (
 // `make site`) overwrites the same files with SSR content; this is the standalone fallback the CLI
 // produces on its own. startPage is baked into every page's shell, but only the "/" route reads it
 // (START_PAGE_ID), so per-note pages still render their own route.
-func writePages(outDir, startPage string, root int64, docs, listed []doc, site jsonSite, lockKey []byte, generation string) error {
+func writePages(outDir, startPage string, root int64, docs, listed []doc, site jsonSite, lockKey []byte, generation string, names *assetNamer) error {
 	raw, err := os.ReadFile(filepath.Join(outDir, "index.html"))
 	if err != nil {
 		return err
@@ -43,7 +43,7 @@ func writePages(outDir, startPage string, root int64, docs, listed []doc, site j
 			break
 		}
 	}
-	if err := write("index.html", pageHead(site, rootDoc, "/")); err != nil {
+	if err := write("index.html", pageHead(site, rootDoc, "/", names)); err != nil {
 		return err
 	}
 
@@ -51,7 +51,7 @@ func writePages(outDir, startPage string, root int64, docs, listed []doc, site j
 	for i := range docs {
 		d := &docs[i]
 		slug := slugOf(d)
-		if err := write(filepath.Join("notes", slug, "index.html"), pageHead(site, d, "/notes/"+slug)); err != nil {
+		if err := write(filepath.Join("notes", slug, "index.html"), pageHead(site, d, "/notes/"+slug, names)); err != nil {
 			return err
 		}
 	}
@@ -63,7 +63,7 @@ func writePages(outDir, startPage string, root int64, docs, listed []doc, site j
 		generic = append(generic, "calendar")
 	}
 	for _, r := range generic {
-		if err := write(filepath.Join(r, "index.html"), pageHead(site, nil, "/"+r)); err != nil {
+		if err := write(filepath.Join(r, "index.html"), pageHead(site, nil, "/"+r, names)); err != nil {
 			return err
 		}
 	}
@@ -87,7 +87,7 @@ func writePages(outDir, startPage string, root int64, docs, listed []doc, site j
 			}
 		}
 		for day := range days {
-			if err := write(filepath.Join("day", day, "index.html"), pageHead(site, nil, "/day/"+day)); err != nil {
+			if err := write(filepath.Join("day", day, "index.html"), pageHead(site, nil, "/day/"+day, names)); err != nil {
 				return err
 			}
 		}
@@ -96,7 +96,7 @@ func writePages(outDir, startPage string, root int64, docs, listed []doc, site j
 	// Per-tag pages: tags/<tag>/index.html resolves /tags/<tag> for every published tag and each of
 	// its ancestors (tags are hierarchical, so /tags/a lists #a/b notes too).
 	for _, tag := range tagRoutes(docs) {
-		if err := write(filepath.Join("tags", filepath.FromSlash(tag), "index.html"), pageHead(site, nil, "/tags/"+tag)); err != nil {
+		if err := write(filepath.Join("tags", filepath.FromSlash(tag), "index.html"), pageHead(site, nil, "/tags/"+tag, names)); err != nil {
 			return err
 		}
 	}
@@ -183,7 +183,7 @@ func injectHead(base, head string) string {
 // HTML-escaped. og:url and og:image are absolute, so they are emitted only when the export ran with a
 // base URL (--base-url); the published image path is always a slugged assets/ reference, never an
 // external or unsafe scheme.
-func pageHead(site jsonSite, d *doc, route string) string {
+func pageHead(site jsonSite, d *doc, route string, names *assetNamer) string {
 	name := siteName(site)
 	title, ogType, desc, image := name, "website", "", ""
 	if d != nil {
@@ -196,7 +196,7 @@ func pageHead(site jsonSite, d *doc, route string) string {
 			desc = bodyExcerpt(d.body)
 		}
 		if d.image != "" {
-			image = "assets/" + publishAssetName(d.image)
+			image = "assets/" + names.name(d.assetSrc, d.image)
 		}
 	}
 	if desc == "" {

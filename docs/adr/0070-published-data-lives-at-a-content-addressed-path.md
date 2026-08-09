@@ -64,7 +64,15 @@ every deploy to protect a ten-minute window that self-heals.
   the app has to find the directory (the prerender takes it from the page; the tests
   resolve it in one helper). One more placeholder in `index.html`, filled by the export
   and by the dev server the same way the site key is.
-- **Assets are still at mutable paths.** `assets/<slug>.<ext>` is derived from the
-  source path, not the content, so an edited image or chart keeps its name and can be
-  served stale for the cache window. That is the pre-existing behaviour and is left
-  alone here; the bundle was the part that a lock made brittle.
+- **Assets follow the same rule.** A published attachment was already renamed to an
+  opaque slug — the source file name never leaves the vault — but that slug came from
+  its *path*, so replacing a file republished it at the same URL and readers kept the
+  old one for the cache window. The slug now comes from the file's contents
+  (`publishAssetName`), which keeps the name opaque, makes an edit land at a new URL,
+  and lets identical files share one. A file that cannot be read falls back to the
+  path-derived slug so the reference stays deterministic and the copy still reports it
+  missing. Pinned by `TestAssetNameTracksContent`.
+- **The CI asset carry-forward now does what it was written for.** It keeps the
+  previous deploy's `assets/` alive for the cache window; with content-addressed names
+  those files are the ones stale pages actually reference, instead of names that a
+  newer deploy has since overwritten with different bytes.

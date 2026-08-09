@@ -189,6 +189,9 @@ func writeBundle(docs []doc, edges []edge, root int64, calendar, share bool, bas
 	if err != nil {
 		return Result{}, err
 	}
+	// Published asset names are addressed by content, so every surface that names one — a rewritten
+	// body, a cover in the listing, the copy itself — resolves it here (ADR 0070).
+	names := newAssetNamer()
 
 	// notes.json, in the shared note-list order (recently updated first) so the published calendar,
 	// day pages, and search listing read like the live server's.
@@ -196,7 +199,7 @@ func writeBundle(docs []doc, edges []edge, root int64, calendar, share bool, bas
 	byRecency(listed)
 	notes := make([]jsonSearchResult, 0, len(listed))
 	for _, d := range listed {
-		notes = append(notes, searchResultOf(d))
+		notes = append(notes, searchResultOf(d, names))
 	}
 
 	// Dashboard widget data for any ```dashboard blocks in the published bodies: recent-notes titles in
@@ -348,7 +351,7 @@ func writeBundle(docs []doc, edges []edge, root int64, calendar, share bool, bas
 	for _, d := range listed {
 		queryRows = append(queryRows, query.NoteRow{ID: d.id, Title: d.title, Tags: d.tags, Props: d.props, Mtime: d.mtime})
 		if d.image != "" {
-			queryCovers[d.id] = "assets/" + publishAssetName(d.image)
+			queryCovers[d.id] = "assets/" + names.name(d.assetSrc, d.image)
 		}
 		queryIcons[d.id] = d.icon
 	}
@@ -366,7 +369,7 @@ func writeBundle(docs []doc, edges []edge, root int64, calendar, share bool, bas
 			children = append(children, refOf(kid))
 		}
 		// Rewrite asset references to their published (slugged) names, matching the copied files.
-		body := rewriteAssetRefs(d.body)
+		body := rewriteAssetRefs(d.body, d.assetSrc, names)
 		// Resolve ```dashboard widget blocks to Markdown (recent/journal/pinned lists) at build time, so
 		// a published home note shows the same landing view the live workspace does.
 		body = dashboard.Resolve(body, dashData)
@@ -387,9 +390,9 @@ func writeBundle(docs []doc, edges []edge, root int64, calendar, share bool, bas
 					if !ok {
 						return 0, "", "", "", false
 					}
-					return 0, kindOf(t), rewriteAssetRefs(t.body), etag(t.body), true
+					return 0, kindOf(t), rewriteAssetRefs(t.body, t.assetSrc, names), etag(t.body), true
 				}),
-				jsonSearchResult: searchResultOf(d),
+				jsonSearchResult: searchResultOf(d, names),
 				CopyPath:         "", // see searchResultOf: the source path is intentionally not published.
 				Created:          d.created,
 				Updated:          d.mtime,
@@ -496,7 +499,7 @@ func writeBundle(docs []doc, edges []edge, root int64, calendar, share bool, bas
 	// Emit a real HTML file per route (start page, per note, and the site-level pages) with that page's
 	// OGP meta injected into the copied shell, so crawlers/social shares see per-note metadata and deep
 	// links resolve without a host fallback.
-	if err := writePages(outDir, slugOf(docPtr(byID, root)), root, docs, listed, siteMeta, bundle.key, generation); err != nil {
+	if err := writePages(outDir, slugOf(docPtr(byID, root)), root, docs, listed, siteMeta, bundle.key, generation, names); err != nil {
 		return Result{}, fmt.Errorf("write pages: %w", err)
 	}
 
@@ -525,7 +528,7 @@ func writeBundle(docs []doc, edges []edge, root int64, calendar, share bool, bas
 			rels = append(rels, rel)
 		}
 		sort.Strings(rels)
-		copied, missing, err := copyAssets(src, outDir, rels, noteSlug, bundle.key)
+		copied, missing, err := copyAssets(src, outDir, rels, noteSlug, bundle.key, names)
 		if err != nil {
 			return Result{}, fmt.Errorf("copy assets: %w", err)
 		}
@@ -537,10 +540,10 @@ func writeBundle(docs []doc, edges []edge, root int64, calendar, share bool, bas
 
 // The source path is dropped from the bundle: like the id, the file name is timestamp-based, so emitting
 // it would re-expose what the slug is meant to hide. It was only informational in the static site.
-func searchResultOf(d doc) jsonSearchResult {
+func searchResultOf(d doc, names *assetNamer) jsonSearchResult {
 	out := jsonSearchResult{NoteID: slugOf(&d), FileKind: kindOf(d), Path: "", Title: d.title, Tags: d.tags, Days: d.days, Icon: d.icon, Description: d.desc}
 	if d.image != "" {
-		out.Image = "assets/" + publishAssetName(d.image)
+		out.Image = "assets/" + names.name(d.assetSrc, d.image)
 	}
 	return out
 }

@@ -230,6 +230,63 @@ func TestDataGenerationTracksContent(t *testing.T) {
 	}
 }
 
+// TestAssetNameTracksContent is the same rule for attachments: a published asset is addressed by its
+// contents, so replacing the file publishes it at a new URL — the reader is never served the old image
+// from cache under a name that now means something else — and the body reference follows.
+func TestAssetNameTracksContent(t *testing.T) {
+	cfg, s := vaultStore(t)
+	writeVaultNote(t, cfg, 100, "Home", "# Home\n\n![pic](assets/pic.png)\n")
+	if err := os.MkdirAll(filepath.Join(cfg.VaultDir, "assets"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	picture := filepath.Join(cfg.VaultDir, "assets", "pic.png")
+
+	publishedName := func(png string) string {
+		t.Helper()
+		if err := os.WriteFile(picture, []byte(png), 0o644); err != nil {
+			t.Fatal(err)
+		}
+		if _, err := index.New(cfg, s).Full(); err != nil {
+			t.Fatalf("index: %v", err)
+		}
+		out := t.TempDir()
+		if _, err := Build(cfg, s, Options{Root: 100}, fakeFrontend(t), out); err != nil {
+			t.Fatalf("build: %v", err)
+		}
+		// The frontend build stub copies an app.js in beside it; the picture is the .png.
+		entries, err := os.ReadDir(filepath.Join(out, "assets"))
+		if err != nil {
+			t.Fatal(err)
+		}
+		name := ""
+		for _, e := range entries {
+			if strings.HasSuffix(e.Name(), ".png") {
+				name = e.Name()
+			}
+		}
+		if name == "" {
+			t.Fatalf("the picture was not published, got %v", entries)
+		}
+		// The name is opaque, and the note body points at exactly the file that was published.
+		if strings.Contains(name, "pic") {
+			t.Fatalf("published asset name leaks the source file name: %q", name)
+		}
+		note := readJSON[jsonNoteResponse](t, filepath.Join(out, "data", "note", PublishID(100)+".json"))
+		if !strings.Contains(note.Note.Body, "assets/"+name) {
+			t.Fatalf("body should reference the published asset %q: %s", name, note.Note.Body)
+		}
+		return name
+	}
+
+	first := publishedName("PNG-BYTES")
+	if again := publishedName("PNG-BYTES"); again != first {
+		t.Fatalf("an unchanged asset should keep its address, got %s then %s", first, again)
+	}
+	if edited := publishedName("PNG-BYTES-EDITED"); edited == first {
+		t.Fatalf("a replaced asset must publish at a new address, still %s", edited)
+	}
+}
+
 // TestLockKeySurvivesAnEdit covers the CDN cache window: GitHub Pages serves a page for up to ten
 // minutes after the deploy that produced it, so a page in a reader's hands must keep opening freshly
 // published data. The key is derived from the site's address alone, so editing the content — here the
@@ -631,8 +688,10 @@ func TestBuildRewritesSpecAssetNoteRefs(t *testing.T) {
 		t.Fatalf("build: %v", err)
 	}
 
-	// The published option is locked like the data bundle, so reading it takes the site's key.
-	opt := string(readLocked(t, filepath.Join(out, "assets", publishAssetName("c.viewspec.json"))))
+	// The published name addresses the source spec's contents, and the option is locked like the data
+	// bundle, so reading it takes the site's key.
+	specName := newAssetNamer().name(filepath.Join(cfg.VaultDir, "assets"), "c.viewspec.json")
+	opt := string(readLocked(t, filepath.Join(out, "assets", specName)))
 	if !strings.Contains(opt, `"note":"`+PublishID(200)+`"`) {
 		t.Fatalf("published note ref should become its slug: %s", opt)
 	}
@@ -705,7 +764,8 @@ func TestBuildWritesPerNoteOGP(t *testing.T) {
 	if !strings.Contains(page2, `<meta property="og:url" content="https://example.com/site/notes/`+PublishID(200)+`/">`) {
 		t.Fatalf("with base url, child page should carry an absolute og:url: %s", page2)
 	}
-	if !strings.Contains(page2, `<meta property="og:image" content="https://example.com/site/assets/`+publishAssetName("cover.png")+`">`) {
+	coverName := newAssetNamer().name(filepath.Join(cfg.VaultDir, "assets"), "cover.png")
+	if !strings.Contains(page2, `<meta property="og:image" content="https://example.com/site/assets/`+coverName+`">`) {
 		t.Fatalf("with base url, child page should carry an absolute og:image: %s", page2)
 	}
 }
