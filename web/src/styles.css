@@ -2807,7 +2807,7 @@ textarea.modal-input:focus-visible {
 .mermaid-controls {
   position: absolute;
   top: 8px;
-  right: 8px;
+  right: 44px;
   z-index: 2; /* above the continuation fades */
   display: flex;
   flex-direction: column;
@@ -2830,6 +2830,15 @@ textarea.modal-input:focus-visible {
   cursor: pointer;
 }
 
+.mermaid-open {
+  position: absolute;
+  top: 8px;
+  right: 8px;
+  z-index: 2;
+  opacity: 0;
+  transition: opacity 0.12s ease;
+}
+
 /* Wide diagrams can keep their natural text size in a modal instead of shrinking until the workflow
    labels become unreadable in the note column. The content area scrolls both axes when necessary. */
 .diagram-lightbox {
@@ -2843,10 +2852,11 @@ textarea.modal-input:focus-visible {
   background: var(--panel);
   color: var(--text);
   overflow: hidden;
+  box-shadow: 0 24px 60px color-mix(in srgb, var(--text) 28%, transparent);
 }
 
 .diagram-lightbox::backdrop {
-  background: rgb(0 0 0 / 60%);
+  background: color-mix(in srgb, var(--text) 45%, transparent);
 }
 
 .diagram-lightbox-content {
@@ -2872,21 +2882,17 @@ textarea.modal-input:focus-visible {
   top: 8px;
   right: 8px;
   z-index: 1;
-  width: 28px;
-  height: 28px;
-  display: grid;
-  place-items: center;
-  border: 1px solid var(--line);
-  border-radius: var(--radius);
-  background: var(--panel-soft);
-  color: var(--text);
-  font-size: 20px;
-  line-height: 1;
-  cursor: pointer;
+  font-size: calc(20px * var(--font-scale, 1));
 }
 
 .mermaid-diagram:hover .mermaid-controls,
 .mermaid-controls:focus-within {
+  opacity: 1;
+}
+
+.mermaid-diagram:hover .mermaid-open,
+.mermaid-open:focus-visible,
+.mermaid-diagram[data-collapsed] .mermaid-open {
   opacity: 1;
 }
 

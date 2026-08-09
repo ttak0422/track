@@ -105,23 +105,6 @@ describe("MermaidDiagram", () => {
     expect(scaleOf()).toBeCloseTo(1);
   });
 
-  it("opens the full diagram in a popup", () => {
-    const { container } = render(
-      <DiagramFrame
-        state={{ status: "ready", svg: '<svg viewBox="0 0 1200 300"><text>Diagram</text></svg>' }}
-        source="graph LR"
-        sourceLang="mermaid"
-        label="Wide diagram"
-      />,
-    );
-
-    fireEvent.click(screen.getByRole("button", { name: "Open diagram in popup" }));
-    expect(container.querySelector("dialog.diagram-lightbox")).toBeInTheDocument();
-    expect(container.querySelector("dialog.diagram-lightbox svg")).toBeInTheDocument();
-
-    fireEvent.click(screen.getByRole("button", { name: "Close diagram popup" }));
-    expect(container.querySelector("dialog.diagram-lightbox")).not.toBeInTheDocument();
-  });
 });
 
 describe("DiagramFrame tall-diagram preview", () => {
@@ -155,6 +138,7 @@ describe("DiagramFrame tall-diagram preview", () => {
     expect(viewport.style.height).toBe("320px");
     expect(pan.style.transform).toBe("translate(50px, 0px) scale(1)");
     expect(container.querySelector(".mermaid-continuation")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Open diagram in popup" })).toBeInTheDocument();
 
     const expand = screen.getByRole("button", { name: "Expand diagram" });
     expect(expand).toHaveTextContent("Show full diagram");
@@ -225,6 +209,20 @@ describe("DiagramFrame wide-diagram clipping", () => {
     expect(fade("left")).toBeInTheDocument();
     expect(fade("right")).toBeInTheDocument();
 
+    restore();
+  });
+
+  it("opens the full diagram in a popup", () => {
+    const { container, restore } = setupWide();
+
+    fireEvent.click(screen.getByRole("button", { name: "Open diagram in popup" }));
+    const dialog = container.querySelector("dialog.diagram-lightbox") as HTMLDialogElement;
+    expect(dialog).toBeInTheDocument();
+    expect(dialog.open).toBe(true);
+    expect(dialog.querySelector("svg")).toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole("button", { name: "Close diagram popup" }));
+    expect(container.querySelector("dialog.diagram-lightbox")).not.toBeInTheDocument();
     restore();
   });
 

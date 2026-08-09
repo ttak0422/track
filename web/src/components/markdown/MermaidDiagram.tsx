@@ -77,8 +77,9 @@ export function DiagramFrame({ state, source, sourceLang, label, className }: Di
   const rootClass = className ? `mermaid-diagram ${className}` : "mermaid-diagram";
 
   useEffect(() => {
-    if (enlarged) dialogRef.current?.showModal();
-  }, [enlarged]);
+    const dialog = dialogRef.current;
+    if (enlarged && svg && dialog && !dialog.open) dialog.showModal();
+  }, [enlarged, svg]);
 
   useLayoutEffect(() => {
     if (enlarged && svg && lightboxPanRef.current) sizeSvgToViewBox(lightboxPanRef.current);
@@ -110,6 +111,7 @@ export function DiagramFrame({ state, source, sourceLang, label, className }: Di
     showFoldControl,
     toggleCollapsed,
   } = panZoom;
+  const showPopupControl = showFoldControl || overflow.left || overflow.right;
   return (
     <div className={rootClass} data-collapsed={collapsed || undefined}>
       <div
@@ -185,17 +187,19 @@ export function DiagramFrame({ state, source, sourceLang, label, className }: Di
           >
             ↺
           </button>
-          <button
-            className="mermaid-control"
-            type="button"
-            onClick={() => setEnlarged(true)}
-            aria-label="Open diagram in popup"
-            title="Open diagram in popup"
-          >
-            ⛶
-          </button>
         </div>
       )}
+      {showPopupControl ? (
+        <button
+          className="mermaid-control mermaid-open"
+          type="button"
+          onClick={() => setEnlarged(true)}
+          aria-label="Open diagram in popup"
+          title="Open diagram in popup"
+        >
+          ⛶
+        </button>
+      ) : null}
       {enlarged && svg ? (
         <dialog
           ref={dialogRef}
@@ -206,7 +210,7 @@ export function DiagramFrame({ state, source, sourceLang, label, className }: Di
           }}
         >
           <button
-            className="diagram-lightbox-close"
+            className="mermaid-control diagram-lightbox-close"
             type="button"
             onClick={() => dialogRef.current?.close()}
             aria-label="Close diagram popup"
