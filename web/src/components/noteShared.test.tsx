@@ -46,7 +46,9 @@ describe("NoteAside graph section", () => {
     render(<NoteAside backlinks={[]} noteID="1" journalDate="" />);
 
     // Labelled like the lists above it, so the aside reads as one stack of sections.
-    expect(screen.getByRole("region", { name: "Graph" })).toBeTruthy();
+    const region = screen.getByRole("region", { name: "Graph" });
+    const heading = within(region).getByRole("heading", { name: "Graph" });
+    expect(heading.parentElement).toHaveClass("aside-graph-heading");
 
     const canvas = screen.getByText("select-2");
     expect(canvas.getAttribute("data-reset")).toBe("0");

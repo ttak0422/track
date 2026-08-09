@@ -259,43 +259,45 @@ export function NoteAside({
           as something that fell off the end of the note (design.md, Sidebar). */}
       {graph && graph.nodes.length > 1 ? (
         <section className="backlinks note-aside-graph" aria-labelledby="local-graph-heading">
-          <h3 id="local-graph-heading">Graph</h3>
-          {/* Both controls end the heading row, where the other sections carry their count — over the
-              canvas they were glyphs floating on nothing. Siblings of the heading rather than children
-              of it, so the heading a screen reader announces stays "Graph". */}
-          <div className="aside-graph-controls">
-            <button
-              className="graph-reset aside-graph-reset"
-              type="button"
-              aria-label="Reset graph view"
-              title="Reset graph view"
-              onClick={() => setGraphResetToken((token) => token + 1)}
-            >
-              <GraphResetIcon />
-            </button>
-            <button
-              className="graph-reset aside-graph-expand"
-              type="button"
-              aria-label="Enlarge graph"
-              title="Enlarge graph"
-              onClick={() => setGraphEnlarged(true)}
-            >
-              {/* Expand-to-corners glyph, the same one media embeds use to enlarge. Drawn in the rail's
-                  outline family (design.md, Sidebar): 1.5 stroke, no fills. */}
-              <svg
-                viewBox="0 0 24 24"
-                width="15"
-                height="15"
-                fill="none"
-                stroke="currentColor"
-                strokeWidth="1.5"
-                strokeLinecap="round"
-                strokeLinejoin="round"
-                aria-hidden="true"
+          <div className="aside-graph-heading">
+            <h3 id="local-graph-heading">Graph</h3>
+            {/* Both controls end the heading row, where the other sections carry their count — over the
+                canvas they were glyphs floating on nothing. They remain siblings of the heading so
+                the heading a screen reader announces stays "Graph". */}
+            <div className="aside-graph-controls">
+              <button
+                className="graph-reset aside-graph-reset"
+                type="button"
+                aria-label="Reset graph view"
+                title="Reset graph view"
+                onClick={() => setGraphResetToken((token) => token + 1)}
               >
-                <path d="M8 3H5a2 2 0 0 0-2 2v3m18 0V5a2 2 0 0 0-2-2h-3M3 16v3a2 2 0 0 0 2 2h3m8 0h3a2 2 0 0 0 2-2v-3" />
-              </svg>
-            </button>
+                <GraphResetIcon />
+              </button>
+              <button
+                className="graph-reset aside-graph-expand"
+                type="button"
+                aria-label="Enlarge graph"
+                title="Enlarge graph"
+                onClick={() => setGraphEnlarged(true)}
+              >
+                {/* Expand-to-corners glyph, the same one media embeds use to enlarge. Drawn in the rail's
+                    outline family (design.md, Sidebar): 1.5 stroke, no fills. */}
+                <svg
+                  viewBox="0 0 24 24"
+                  width="15"
+                  height="15"
+                  fill="none"
+                  stroke="currentColor"
+                  strokeWidth="1.5"
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                  aria-hidden="true"
+                >
+                  <path d="M8 3H5a2 2 0 0 0-2 2v3m18 0V5a2 2 0 0 0-2-2h-3M3 16v3a2 2 0 0 0 2 2h3m8 0h3a2 2 0 0 0 2-2v-3" />
+                </svg>
+              </button>
+            </div>
           </div>
           <div className="aside-graph">
             <GraphCanvas
