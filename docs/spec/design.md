@@ -18,9 +18,10 @@ none fits, extend this document first — do not invent a one-off treatment.
 - **Hierarchy by space and rule, not size.** Three type sizes in the whole
   reader (body, title, meta) plus the small-caps label. Sections are told
   apart by their leading and by a rule above them, never by a fourth size.
-- **Two measures.** Prose reads at `--measure` (40em ≈ 42–48 Japanese
+- **Two measures by default.** Prose reads at `--measure` (40em ≈ 42–48 Japanese
   characters); visualizations, tables, and code blocks run the full column. The
-  difference is what makes a visualization read as content rather than chrome.
+  Content width setting may widen the prose measure through `--content-measure`,
+  while the default difference keeps visualizations reading as content rather than chrome.
 - **A box is earned.** A border or fill exists only to separate a control from
   content beneath it (quiet chip) or to lift a genuinely floating layer
   (floating layer). Shadows belong to floating layers alone.
@@ -113,9 +114,10 @@ nothing else. Paragraphs and lists lead with 13px, list items with 7px.
 
 - The reader column is `--content-width` (880px by default, and a setting).
   Visualizations, tables, and code blocks fill it.
-- Prose — paragraphs, lists, headings, the title, the meta strip — is capped
-  at `--measure` inside that column. The cap lands on `.markdown-view > *`,
-  and the block-level elements that bleed opt out by name.
+- Prose — paragraphs, lists, headings, the title, the meta strip — defaults to
+  `--measure` inside that column and follows the setting through
+  `--content-measure`. The cap lands on `.markdown-view > *`, and the block-level
+  elements that bleed opt out by name.
 - Body copy carries no color and no background. Links are ink with a
   `--line-strong` underline (see variant 8); inline code is mono and `--muted`
   with no chip, because a filled chip in a Japanese line makes the line ripple.

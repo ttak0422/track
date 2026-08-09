@@ -66,9 +66,10 @@
   font-family: var(--font-sans);
   /* The one mono stack — code, the editor, and section labels all read from here. */
   --font-mono: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, monospace;
-  /* The prose column. 40em is ~40 Japanese characters (1em each) and ~48 with Latin mixed in — the
-     column the reader's visualizations and tables are allowed to be wider than. */
+  /* The default prose column. 40em is ~40 Japanese characters (1em each) and ~48 with Latin mixed
+     in. Content width replaces this default when the user chooses Wide or Full. */
   --measure: 40em;
+  --content-measure: var(--content-width, var(--measure));
   /* The whole radius scale: badges and inline chips, controls and quiet chips, panels and floating
      layers. Drawn shapes (icon glyphs, heatmap cells, pills, circles) keep their own geometry. */
   --radius-sm: 4px;
@@ -1135,9 +1136,8 @@ a.calendar-title:focus-visible {
 
 .note-reader {
   display: flex;
-  /* The reader's column: what visualizations, tables and code fill. Prose is capped tighter inside it
-     (--measure), so this is the wide measure, not the reading one. Overridable via the Content width
-     setting (--content-width). */
+  /* The reader's column: what visualizations, tables and code fill. Prose uses the readable default
+     (--measure), unless the Content width setting overrides it through --content-measure. */
   width: 100%;
   max-width: var(--content-width, 880px);
   margin-inline: auto;
@@ -1840,7 +1840,7 @@ textarea.modal-input:focus-visible {
   display: flex;
   flex-wrap: wrap;
   gap: 10px 28px;
-  max-width: var(--measure);
+  max-width: var(--content-measure);
   margin: 0;
   font-size: calc(13px * var(--font-scale, 1));
 }
@@ -2074,11 +2074,11 @@ textarea.modal-input:focus-visible {
   overflow-wrap: anywhere;
 }
 
-/* Two measures (design.md, The reading surface). Prose is capped at --measure inside the reader's
-   column; the blocks meant to be wider than a sentence say so by name and fill it. The difference is
-   what makes a visualization read as content rather than as part of the paragraph above it. */
+/* Two measures by default (design.md, The reading surface). Prose uses --measure inside the reader's
+   column; the Content width setting can intentionally widen that measure, while blocks meant to be
+   wider than a sentence still fill the reader column. */
 .markdown-view > * {
-  max-width: var(--measure);
+  max-width: var(--content-measure);
 }
 
 .markdown-view > table,

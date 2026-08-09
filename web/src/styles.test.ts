@@ -32,3 +32,17 @@ describe("special-page layering", () => {
     }
   });
 });
+
+describe("content width", () => {
+  it("lets the Content width setting reach prose blocks", () => {
+    const proseRule = css.match(/\.markdown-view > \*\s*\{([^}]*)\}/)?.[1] ?? "";
+
+    expect(proseRule).toMatch(/max-width:\s*var\(--content-measure\)/);
+  });
+
+  it("lets the Content width setting reach note metadata", () => {
+    const propsRule = css.match(/\.note-props\s*\{([^}]*)\}/)?.[1] ?? "";
+
+    expect(propsRule).toMatch(/max-width:\s*var\(--content-measure\)/);
+  });
+});
