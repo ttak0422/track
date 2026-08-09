@@ -505,6 +505,10 @@ img.theme-asset-dark {
   translate: 0 -50%;
 }
 
+.rail-menu-panel .menu-section + .menu-section {
+  margin-top: 16px;
+}
+
 /* The sidebar search popup floats beside the rail, escaping the rail's overflow with fixed positioning.
    Above .graph-full (z-index 90): the rail (and this popup) render on every page including /graph, whose
    full-bleed canvas would otherwise paint over the popup and swallow its clicks there. It is just the
