@@ -5,6 +5,10 @@ import { getAgenda, getNote, getSite, listDatedTasks, listNotes, renderMarkdown,
 import { AppTree, createAppRouter } from "./App";
 import { queryKeys } from "./queries";
 
+// The prerender runs in Node and has to open the locked data bundle and lock the state it inlines; it
+// gets both from here rather than reimplementing the conversion (ADR 0069).
+export { lock, unlock } from "./lock";
+
 export interface RenderedPage {
   html: string;
   // Dehydrated react-query cache, inlined into the page so the client hydrates without refetching.

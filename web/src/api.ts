@@ -1,3 +1,4 @@
+import { unlock } from "./lock";
 import { dataURL, STATIC_MODE } from "./runtime";
 import { bodyHits, titleHits, type SearchCorpus, type SearchDoc } from "./staticSearch";
 import { idParams, qualify, vaultParams } from "./vaultId";
@@ -111,14 +112,16 @@ function stringifyIDs<T>(value: T, vault = ""): T {
   return value;
 }
 
-// staticData fetches a pre-generated JSON file from the exported data bundle. It is only used in static
-// mode; the file is a plain static asset, so an ordinary fetch works without a server.
+// staticData fetches one file from the exported data bundle. It is only used in static mode; the file is
+// a plain static asset, so an ordinary fetch works without a server — but it is locked (ADR 0069), so
+// what comes back is bytes, not JSON, until unlock() opens it with the site's key. Callers name the file
+// by what it holds ("notes.json"); the published file is "<name>.bin", the same swap export-site makes.
 async function staticData<T>(path: string): Promise<T> {
-  const response = await fetch(dataURL(path));
+  const response = await fetch(dataURL(path.replace(/\.json$/, ".bin")));
   if (!response.ok) {
     throw new Error(`${response.status} ${response.statusText}`);
   }
-  return (await response.json()) as T;
+  return JSON.parse(await unlock(await response.arrayBuffer())) as T;
 }
 
 const readOnly = () => Promise.reject(new Error("read-only static site"));
@@ -419,12 +422,17 @@ export function getSite(): Promise<SiteResponse> {
 // fetchAssetText loads the raw text of a vault asset from its resolved href (served by /api/asset live,
 // or copied to ./assets/<name> in the static export). Text-file embeds — Mermaid diagrams and other
 // inlined text files — read their source this way.
+//
+// One kind of asset is locked (ADR 0069): the ".echarts.json" chart options the export generates, which
+// are a chart's data in machine shape rather than a file the author attached. The reference keeps naming
+// the kind while the published file is "<name>.echarts.bin", the same swap the data bundle makes.
 export async function fetchAssetText(href: string): Promise<string> {
-  const response = await fetch(href);
+  const locked = STATIC_MODE && /\.echarts\.json$/i.test(href);
+  const response = await fetch(locked ? href.replace(/\.json$/i, ".bin") : href);
   if (!response.ok) {
     throw new Error(`${response.status} ${response.statusText}`);
   }
-  return response.text();
+  return locked ? unlock(await response.arrayBuffer()) : response.text();
 }
 
 // localGraph derives the 1-hop neighbourhood of a note from the full graph, marking the center, so the

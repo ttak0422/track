@@ -54,6 +54,11 @@
         // redirects straight to the start page on launch without first fetching site.json. The live
         // server replaces it with empty (it uses the heatmap home, not a start-page redirect).
         window.__trackStartPage = "__TRACK_START_PAGE__";
+        // The static export fills this in with the key that opens its locked data bundle (base64; see
+        // internal/track/site/lock.go and web/src/lock.ts). The live server empties it: it serves the
+        // API, not a locked bundle. (The placeholder is spelled only once here — the dev server
+        // substitutes the first occurrence.)
+        window.__trackLock = "__TRACK_LOCK_KEY__";
       })();
     </script>
     <style>

@@ -498,9 +498,12 @@ it as an image:
 ```
 
 `track export-site` (`internal/track/site`) detects a `.viewspec.json` asset reference, resolves it to
-its ECharts option (`render.EChartsOptionFromSpecDir`) at build time, writes the option JSON into the
-published `assets/` as `.echarts.json`, and rewrites the reference — the frontend embed fetches it and
-draws an interactive chart with its bundled ECharts. Embedded charts must use inline `data.records`
+its ECharts option (`render.EChartsOptionFromSpecDir`) at build time, writes the option into the
+published `assets/`, and rewrites the reference — the frontend embed fetches it and
+draws an interactive chart with its bundled ECharts. The option is generated display data, so it is
+published locked like the data bundle ([ADR 0069](../adr/0069-the-published-data-bundle-is-locked.md)):
+the file is `<slug>.echarts.bin` while the reference keeps saying `.echarts.json`, which is how the embed
+knows it is a chart. Embedded charts must use inline `data.records`
 (an asset is resolved in isolation, with no spec-relative file to read); source marker overlays and
 `data.source` are not supported on this path, but line/band overlays (literal values) and inline
 marker records (`overlays[].records`) render. The live web workspace does not yet render embedded
