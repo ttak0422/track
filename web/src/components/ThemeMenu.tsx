@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from "react";
+import { createPortal } from "react-dom";
 
 type ThemeMode = "system" | "light" | "dark";
 
@@ -28,6 +29,7 @@ export function ThemeMenu() {
   const [contentWidth, setContentWidth] = useState<string>(() => storedContentWidth());
   const [open, setOpen] = useState(false);
   const menuRef = useRef<HTMLDivElement>(null);
+  const overlayRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
     if (theme === "system") {
@@ -72,7 +74,10 @@ export function ThemeMenu() {
     }
 
     function onPointerDown(event: MouseEvent) {
-      if (!menuRef.current?.contains(event.target as Node)) {
+      if (
+        !menuRef.current?.contains(event.target as Node) &&
+        !overlayRef.current?.contains(event.target as Node)
+      ) {
         setOpen(false);
       }
     }
@@ -104,55 +109,62 @@ export function ThemeMenu() {
       >
         <GearIcon />
       </button>
-      {open ? (
-        <div className="menu-panel rail-menu-panel">
-          <section className="menu-section" aria-label="Theme">
-            <h2>Theme</h2>
-            <div className="theme-switch" role="group" aria-label="Theme">
-              {themeModes.map((mode) => (
-                <button
-                  aria-pressed={theme === mode}
-                  key={mode}
-                  type="button"
-                  onClick={() => setTheme(mode)}
-                >
-                  {label(mode)}
-                </button>
-              ))}
-            </div>
-          </section>
-          <section className="menu-section" aria-label="Text size">
-            <h2>Text size</h2>
-            <div className="theme-switch" role="group" aria-label="Text size">
-              {fontScales.map((scale) => (
-                <button
-                  aria-pressed={fontScale === scale.value}
-                  key={scale.value}
-                  type="button"
-                  onClick={() => setFontScale(scale.value)}
-                >
-                  {scale.label}
-                </button>
-              ))}
-            </div>
-          </section>
-          <section className="menu-section" aria-label="Content width">
-            <h2>Content width</h2>
-            <div className="theme-switch" role="group" aria-label="Content width">
-              {contentWidths.map((width) => (
-                <button
-                  aria-pressed={contentWidth === width.value}
-                  key={width.value}
-                  type="button"
-                  onClick={() => setContentWidth(width.value)}
-                >
-                  {width.label}
-                </button>
-              ))}
-            </div>
-          </section>
-        </div>
-      ) : null}
+      {open
+        ? createPortal(
+            // The rail is a fixed stacking context; the settings surface must be a body sibling for
+            // its layer to compete with previews, while the trigger remains in the rail.
+            <div ref={overlayRef}>
+              <div className="menu-panel rail-menu-panel">
+                <section className="menu-section" aria-label="Theme">
+                  <h2>Theme</h2>
+                  <div className="theme-switch" role="group" aria-label="Theme">
+                    {themeModes.map((mode) => (
+                      <button
+                        aria-pressed={theme === mode}
+                        key={mode}
+                        type="button"
+                        onClick={() => setTheme(mode)}
+                      >
+                        {label(mode)}
+                      </button>
+                    ))}
+                  </div>
+                </section>
+                <section className="menu-section" aria-label="Text size">
+                  <h2>Text size</h2>
+                  <div className="theme-switch" role="group" aria-label="Text size">
+                    {fontScales.map((scale) => (
+                      <button
+                        aria-pressed={fontScale === scale.value}
+                        key={scale.value}
+                        type="button"
+                        onClick={() => setFontScale(scale.value)}
+                      >
+                        {scale.label}
+                      </button>
+                    ))}
+                  </div>
+                </section>
+                <section className="menu-section" aria-label="Content width">
+                  <h2>Content width</h2>
+                  <div className="theme-switch" role="group" aria-label="Content width">
+                    {contentWidths.map((width) => (
+                      <button
+                        aria-pressed={contentWidth === width.value}
+                        key={width.value}
+                        type="button"
+                        onClick={() => setContentWidth(width.value)}
+                      >
+                        {width.label}
+                      </button>
+                    ))}
+                  </div>
+                </section>
+              </div>
+            </div>,
+            document.body,
+          )
+        : null}
     </div>
   );
 }
