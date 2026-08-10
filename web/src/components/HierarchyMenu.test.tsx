@@ -93,6 +93,18 @@ describe("HierarchyMenu", () => {
     expect(screen.queryByRole("menuitem", { name: "Grandchild" })).not.toBeInTheDocument();
   });
 
+  // The panel opens away from the glyph that summoned it, so it has to say what it is — and the
+  // heading has to stay out of the menu, where only menu items belong.
+  it("names itself, outside the menu", () => {
+    hierarchy.mockReturnValue({ data: tree });
+    render(<HierarchyMenu />);
+    openMenu();
+
+    const title = screen.getByRole("heading", { name: "Hierarchy" });
+    expect(title).toHaveClass("rail-panel-title");
+    expect(title.closest('[role="menu"]')).toBeNull();
+  });
+
   it("gives a leaf no fold control", () => {
     hierarchy.mockReturnValue({ data: tree });
     render(<HierarchyMenu />);

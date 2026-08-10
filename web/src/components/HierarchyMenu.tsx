@@ -86,23 +86,23 @@ export function HierarchyMenu() {
         <RailHierarchyIcon />
       </button>
       {open ? (
-        <div
-          className="menu-panel note-menu-panel hierarchy-panel"
-          role="menu"
-          aria-label="Hierarchy"
-          style={anchor ?? undefined}
-        >
-          {roots.length === 0 ? (
-            <p className="hierarchy-empty">No hierarchy</p>
-          ) : (
-            <HierarchyList
-              nodes={roots}
-              root
-              expanded={expanded}
-              onToggle={toggleBranch}
-              onNavigate={() => setOpen(false)}
-            />
-          )}
+        // The title stays outside the menu and outside the scroller: a heading is not a menu item,
+        // and a panel that scrolls would carry its own name off the top.
+        <div className="menu-panel note-menu-panel hierarchy-panel" style={anchor ?? undefined}>
+          <h2 className="rail-panel-title">Hierarchy</h2>
+          <div className="hierarchy-scroll" role="menu" aria-label="Hierarchy">
+            {roots.length === 0 ? (
+              <p className="hierarchy-empty">No hierarchy</p>
+            ) : (
+              <HierarchyList
+                nodes={roots}
+                root
+                expanded={expanded}
+                onToggle={toggleBranch}
+                onNavigate={() => setOpen(false)}
+              />
+            )}
+          </div>
         </div>
       ) : null}
     </div>

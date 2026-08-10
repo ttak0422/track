@@ -58,15 +58,17 @@ export function SidebarHistory() {
   }, [open]);
 
   const panel = open ? (
+    // The title stays outside the menu: a heading is not a menu item, and the panel opens away from
+    // the glyph that summoned it, so it has to say which one that was.
     <div
       ref={panelRef}
       className="menu-panel note-menu-panel history-panel"
-      role="menu"
-      aria-label="Recently opened notes"
       style={anchor ?? undefined}
       onPointerEnter={cancelClose}
       onPointerLeave={scheduleClose}
     >
+      <h2 className="rail-panel-title">History</h2>
+      <div className="history-scroll" role="menu" aria-label="Recently opened notes">
       {recent.length === 0 ? (
         <p className="history-empty">No recently opened notes</p>
       ) : (
@@ -87,6 +89,7 @@ export function SidebarHistory() {
           ))}
         </ul>
       )}
+      </div>
     </div>
   ) : null;
 

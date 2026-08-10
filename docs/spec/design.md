@@ -332,6 +332,12 @@ The note's aside is a quiet column; the rail is a floating dock over the sheet.
   and open-note controls share the dock in order. A menu hung off the dock sits
   on the same centre line (`.rail-menu-panel`) or is anchored to its own
   button's rect (`.mode-menu-panel`, `.hierarchy-panel`).
+- **A rail panel names itself.** A flyout opens away from the glyph that
+  summoned it, and a panel of rows says nothing about which glyph that was, so
+  each carries a `.rail-panel-title` — the section label recipe again (variant
+  6). It sits above the panel's body, outside any scroller and outside any
+  `role="menu"`: a panel that scrolls must not carry its own name off the top,
+  and a heading is not a menu item.
 - **One icon family.** Every rail glyph is drawn the same way: a 24-unit
   viewBox at 20px, `fill: none`, `stroke: currentColor`, `stroke-width: 1.5`,
   round caps and joins, and **no filled shapes** — a dot is a small stroked
