@@ -12,6 +12,15 @@ describe("keys", () => {
     expect(keys.openSearch(press("?"))).toBe(false);
   });
 
+  it("also opens search on the Quick Open chord, but never on Ctrl+P", () => {
+    expect(keys.openSearchChord(press("p", { metaKey: true }))).toBe(true);
+    expect(keys.openSearchChord(press("P", { metaKey: true }))).toBe(true);
+    expect(keys.openSearchChord(press("p"))).toBe(false);
+    // Ctrl+P is "previous" in the result list; it must not double as "open".
+    expect(keys.openSearchChord(press("p", { ctrlKey: true }))).toBe(false);
+    expect(keys.prev(press("p", { ctrlKey: true }))).toBe(true);
+  });
+
   it("takes both the Vim keys and the arrows", () => {
     expect(keys.next(press("n", { ctrlKey: true }))).toBe(true);
     expect(keys.next(press("ArrowDown"))).toBe(true);
