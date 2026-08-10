@@ -104,4 +104,17 @@ describe("TabBar", () => {
     expect(screen.getByRole("listitem")).toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "Float this note" })).not.toBeInTheDocument();
   });
+
+  // Closing a run of tabs is one gesture repeated, so close must not sit in the popup hanging under
+  // the strip: reaching it there costs a trip down and back for every tab.
+  it("keeps close in the tab and float in the popup", () => {
+    renderStrip();
+
+    const close = screen.getAllByRole("button", { name: /^Close / })[0];
+    expect(close.closest(".tab")).not.toBeNull();
+    expect(close.closest(".tab-tools")).toBeNull();
+
+    const float = screen.getAllByRole("button", { name: "Float this note" })[0];
+    expect(float.closest(".tab-tools")).not.toBeNull();
+  });
 });
