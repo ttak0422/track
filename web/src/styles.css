@@ -2498,6 +2498,18 @@ textarea.modal-input:focus-visible {
   border-radius: var(--radius-lg);
 }
 
+/* :frame none keeps the page in normal flow but removes the wrapper's clipping and the iframe's
+   border/radius, so the embedded document meets the note without changing its sandbox. */
+.embed-html-frame-none {
+  border-radius: 0;
+  overflow: visible;
+}
+
+.embed-html-frame-none iframe {
+  border: 0;
+  border-radius: 0;
+}
+
 .embed-pdf {
   display: flex;
   flex-direction: column;

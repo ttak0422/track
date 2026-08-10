@@ -290,12 +290,13 @@ const markdownComponents = {
     return <ExternalLink href={href ?? ""}>{children}</ExternalLink>;
   },
   img: ({ node, src, alt }: ElementProps & { src?: string; alt?: string }) => {
-    const height = (node?.properties as { embedHeight?: unknown } | undefined)?.embedHeight;
+    const properties = node?.properties as { embedHeight?: unknown; embedFrame?: unknown } | undefined;
     return (
       <Embed
         src={typeof src === "string" ? src : ""}
         alt={alt ?? ""}
-        height={typeof height === "string" ? height : undefined}
+        height={typeof properties?.embedHeight === "string" ? properties.embedHeight : undefined}
+        frame={properties?.embedFrame === "none" ? "none" : undefined}
       />
     );
   },

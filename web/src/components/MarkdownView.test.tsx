@@ -516,6 +516,28 @@ describe("MarkdownView", () => {
     expect((pct.querySelector(".embed-html iframe") as HTMLIFrameElement).style.height).toBe("90vh");
   });
 
+  it("removes the HTML frame with :frame none without changing the sandbox", () => {
+    const { container: defaultEmbed } = render(<MarkdownView markdown={"![Widget](assets/x.html)"} />);
+    const defaultFrame = defaultEmbed.querySelector(".embed-html") as HTMLElement;
+    expect(defaultFrame).not.toHaveClass("embed-html-frame-none");
+    expect(defaultFrame.querySelector("iframe")).toHaveAttribute("sandbox", "allow-scripts allow-popups");
+
+    const { container } = render(<MarkdownView markdown={"![Widget](assets/x.html) :frame none"} />);
+    const frame = container.querySelector(".embed-html") as HTMLElement;
+    expect(frame).toHaveClass("embed-html-frame-none");
+    expect(frame.querySelector("iframe")).toHaveAttribute("sandbox", "allow-scripts allow-popups");
+    expect(container.textContent).not.toContain(":frame");
+  });
+
+  it("applies multiple embed options from the same tail", () => {
+    const { container } = render(
+      <MarkdownView markdown={"![Widget](assets/x.html) :height 400 :frame none"} />,
+    );
+    const frame = container.querySelector(".embed-html") as HTMLElement;
+    expect(frame).toHaveClass("embed-html-frame-none");
+    expect((frame.querySelector("iframe") as HTMLIFrameElement).style.height).toBe("400px");
+  });
+
   it("renders a resolved include as an embed card in place of its directive line", () => {
     // The embed header's WikiLink needs the floating-window store (same as WikiLink.test.tsx).
     const { container } = renderWithQuery(
