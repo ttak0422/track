@@ -51,10 +51,9 @@ describe("content width", () => {
   it("lets shared diagram viewports bleed to the window while keeping frame chrome in the prose column", () => {
     const viewportRule = ruleBody(".markdown-view > .mermaid-diagram > .mermaid-viewport");
 
-    expect(viewportRule).toMatch(/width:\s*100vw/);
-    expect(viewportRule).toMatch(/max-width:\s*100vw/);
-    expect(viewportRule).toMatch(/margin-left:\s*calc\(50%\s*-\s*50vw\)/);
-    expect(viewportRule).not.toMatch(/position:\s*relative/);
+    expect(viewportRule).toMatch(/width:\s*100%/);
+    expect(css).toMatch(/\.markdown-view > \.mermaid-diagram > \.mermaid-viewport:not\(\[data-collapsed\]\)\s*\{[^}]*width:\s*100vw/);
+    expect(css).toMatch(/\.markdown-view > \.mermaid-diagram > \.mermaid-viewport:not\(\[data-collapsed\]\)\s*\{[^}]*margin-left:\s*calc\(50%\s*-\s*50vw\)/);
     expect(css).not.toMatch(/\.markdown-view > \.mermaid-diagram\s*\{[^}]*width:\s*100vw/);
   });
 
@@ -69,6 +68,37 @@ describe("content width", () => {
     expect(ruleBody(".markdown-view table")).toMatch(/overflow-x:\s*auto/);
     expect(ruleBody(".mermaid-viewport")).toMatch(/position:\s*relative/);
     expect(ruleBody(".mermaid-viewport")).toMatch(/overflow:\s*hidden/);
+  });
+
+  it("keeps popup content from drawing a redundant scrollbar", () => {
+    const popupRule = ruleBody(".diagram-lightbox-content");
+    const popupViewportRule = ruleBody(".diagram-lightbox-content .mermaid-viewport");
+
+    expect(popupRule).toMatch(/overflow:\s*hidden/);
+    expect(popupViewportRule).toMatch(/width:\s*100%/);
+    expect(popupViewportRule).toMatch(/height:\s*100%/);
+  });
+
+  it("uses the bare glyph-button treatment for diagram controls and fold chips", () => {
+    const controlRule = css.match(/(?:^|\n)\.mermaid-control\s*\{([^}]*)\}/)?.[1] ?? "";
+    const hoverRule = css.match(/\.mermaid-control:hover,[\s\S]*?\.mermaid-control:focus-visible\s*\{([^}]*)\}/)?.[1] ?? "";
+
+    expect(controlRule).toMatch(/border:\s*0/);
+    expect(controlRule).toMatch(/background:\s*transparent/);
+    expect(controlRule).toMatch(/color:\s*var\(--muted\)/);
+    expect(hoverRule).toMatch(/background:\s*var\(--panel-soft\)/);
+    expect(hoverRule).toMatch(/border-radius:\s*var\(--radius-sm\)/);
+  });
+
+  it("anchors the collapsed fold chip at the frame's top-left", () => {
+    const collapsedRule = css.match(
+      /\.mermaid-diagram\[data-collapsed\] \.mermaid-fold\s*\{\s*top:[^}]*\}/,
+    )?.[0] ?? "";
+
+    expect(collapsedRule).toMatch(/top:\s*8px/);
+    expect(collapsedRule).toMatch(/bottom:\s*auto/);
+    expect(collapsedRule).toMatch(/left:\s*8px/);
+    expect(collapsedRule).toMatch(/transform:\s*none/);
   });
 });
 

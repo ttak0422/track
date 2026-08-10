@@ -2803,6 +2803,10 @@ textarea.modal-input:focus-visible {
    control chips keep their reading-column anchors. The viewport clips its own drawing and fades at
    those real edges, while .reader clips the window-wide overrun from horizontal page scrolling. */
 .markdown-view > .mermaid-diagram > .mermaid-viewport {
+  width: 100%;
+}
+
+.markdown-view > .mermaid-diagram > .mermaid-viewport:not([data-collapsed]) {
   width: 100vw;
   max-width: 100vw;
   margin-left: calc(50% - 50vw);
@@ -2840,13 +2844,20 @@ textarea.modal-input:focus-visible {
   display: grid;
   place-items: center;
   padding: 0;
-  border: 1px solid var(--line);
-  border-radius: var(--radius);
-  background: var(--panel-soft);
-  color: var(--text);
-  font-size: 15px;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+  color: var(--muted);
+  font-size: calc(15px * var(--font-scale, 1));
   line-height: 1;
   cursor: pointer;
+}
+
+.mermaid-control:hover,
+.mermaid-control:focus-visible {
+  border-radius: var(--radius-sm);
+  background: var(--panel-soft);
+  color: var(--text);
 }
 
 /* Wide diagrams can keep their natural text size in a modal instead of shrinking until the workflow
@@ -2872,7 +2883,12 @@ textarea.modal-input:focus-visible {
 .diagram-lightbox-content {
   width: 100%;
   height: 100%;
-  overflow: auto;
+  overflow: hidden;
+}
+
+.diagram-lightbox-content .mermaid-viewport {
+  width: 100%;
+  height: 100%;
 }
 
 .diagram-lightbox-content svg {
@@ -2922,9 +2938,9 @@ textarea.modal-input:focus-visible {
    Collapsed, the chip carries a label beside the caret, so its grid flows in one row and its box
    grows to fit — the icon-sized square would push the text out over the diagram. */
 .mermaid-diagram[data-collapsed] .mermaid-fold {
-  top: auto;
-  bottom: 18px;
-  left: 50%;
+  top: 8px;
+  bottom: auto;
+  left: 8px;
   grid-auto-flow: column;
   width: auto;
   min-width: max-content;
@@ -2932,7 +2948,7 @@ textarea.modal-input:focus-visible {
   min-height: 26px;
   padding: 0 10px;
   gap: 6px;
-  transform: translateX(-50%);
+  transform: none;
 }
 
 .mermaid-continuation {

@@ -166,7 +166,11 @@ from what is beneath them.
   No shadow.
 - Usually hover-revealed: `opacity: 0`, switched to `1` on the container's
   `:hover` / `:focus-within`.
-- Canonical: `.mermaid-control`, `.media-control`, `.pdf-deck-nav`.
+- Canonical: `.media-control`, `.pdf-deck-nav`.
+
+Diagram controls are the icon-button exception: `.mermaid-control` uses variant 7 because the diagram
+already supplies the visual surface and its glyphs need no resting slab. Media and deck controls remain
+quiet chips when their underlying content needs a separating surface.
 
 ### 3. Floating layer — the only layer that floats
 
@@ -224,10 +228,9 @@ being aimed at.
 - The hit target stays at least 24px even when the glyph is half that; the fill
   is what makes the target legible.
 - Canonical: `.tab-close`, `.tab-float` (both inside the tab's own floating
-  layer, see Tab strip), `.wiki-preview-toggle`.
-- A glyph button resting *on content* (a preview body, a diagram, media) is a
-  quiet chip (variant 2) instead: it needs separation from what is beneath it,
-  not just an aiming cue.
+  layer, see Tab strip), `.wiki-preview-toggle`, `.mermaid-control`.
+- A glyph button resting on media or a deck remains a quiet chip when that
+  content needs separation; diagram chrome is the documented exception above.
 
 ### 8. Link — ink and an underline
 

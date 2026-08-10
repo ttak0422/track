@@ -251,9 +251,6 @@ export function DiagramFrame({ state, source, sourceLang, label, className }: Di
             <div
               className="mermaid-viewport"
               ref={lightboxPanZoom.viewportRef}
-              style={
-                lightboxPanZoom.viewportHeight != null ? { height: lightboxPanZoom.viewportHeight } : undefined
-              }
               {...lightboxPanZoom.handlers}
             >
               <div
@@ -401,16 +398,14 @@ function usePanZoom(
     setViewportHeight(view.height);
   }
 
-  // Measure after the SVG is in the DOM but before paint, so the initial fit shows without a flash.
-  // .mermaid-pan is width:fit-content, so its offset size is the diagram's natural (untransformed) size.
-  useLayoutEffect(() => {
+  function measureAndApply() {
     const viewport = viewportRef.current;
     const pan = panRef.current;
-    if (!svg || !viewport || !pan) return;
+    if (!svg || !viewport || !pan) return false;
     sizeSvgToViewBox(pan);
     const naturalW = pan.offsetWidth;
     const naturalH = pan.offsetHeight;
-    if (naturalW === 0 || naturalH === 0) return;
+    if (naturalW === 0 || naturalH === 0) return false;
     naturalRef.current = { w: naturalW, h: naturalH };
     setViewportW(viewport.clientWidth);
     idealScaleRef.current = measureIdealScale(viewport);
@@ -422,6 +417,13 @@ function usePanZoom(
     setShowFoldControl(startCollapsed);
     setCollapsed(startCollapsed);
     applyView(startCollapsed);
+    return true;
+  }
+
+  // Measure after the SVG is in the DOM but before paint, so the initial fit shows without a flash.
+  // .mermaid-pan is width:fit-content, so its offset size is the diagram's natural (untransformed) size.
+  useLayoutEffect(() => {
+    measureAndApply();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [svg]);
 
@@ -435,7 +437,14 @@ function usePanZoom(
     let lastW = el.clientWidth;
     const ro = new ResizeObserver(() => {
       const w = el.clientWidth;
-      if (w === 0 || naturalRef.current.w === 0) return;
+      if (w === 0) return;
+      // A modal's viewport is display:none during the first layout effect. When showModal() makes it
+      // measurable, recover the natural size here instead of leaving the popup permanently unfit.
+      if (naturalRef.current.w === 0) {
+        if (!measureAndApply()) return;
+        lastW = w;
+        return;
+      }
       // Keep the overflow fades honest even when a touched view skips the re-fit below.
       setViewportW(w);
       if (w === lastW) return;
