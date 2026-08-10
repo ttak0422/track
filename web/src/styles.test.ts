@@ -48,6 +48,19 @@ describe("content width", () => {
   });
 });
 
+describe("modal layout stability", () => {
+  it("keeps the visible note scrollbar's gutter stable while a popup changes scrolling", () => {
+    const noteReaderRule =
+      css.match(/\.reader:has\(\.note-reader\):not\(:has\(\.note-editor textarea\)\)\s*\{([^}]*)\}/)?.[1] ?? "";
+
+    expect(noteReaderRule).toMatch(/scrollbar-width:\s*thin/);
+    expect(noteReaderRule).toMatch(/scrollbar-gutter:\s*stable/);
+    expect(css).toMatch(
+      /\.reader:has\(\.note-reader\):not\(:has\(\.note-editor textarea\)\)::\-webkit-scrollbar\s*\{[^}]*display:\s*block/,
+    );
+  });
+});
+
 describe("sidebar at short viewport heights", () => {
   it("reserves the tab row and an 8px gap above a quarter-centred rail", () => {
     const reservedTabRow = Number(ruleBody(".reader-pane").match(/padding-top:\s*(\d+)px/)?.[1]);
