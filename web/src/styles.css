@@ -1496,6 +1496,38 @@ a.calendar-title:focus-visible {
   padding: 6px;
 }
 
+/* Floating layer: the browser's recent-note list shares the aside's backlink text-control idiom. It is
+   anchored to its rail button and scrolls within the viewport rather than growing over the workspace. */
+.history-panel {
+  max-width: min(360px, calc(100vw - 88px));
+  max-height: 50vh;
+  overflow-y: auto;
+}
+
+.history-list {
+  min-width: 220px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.history-list .backlink {
+  width: auto;
+  max-width: 100%;
+  overflow: hidden;
+  padding: 6px 10px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.history-empty {
+  margin: 0;
+  padding: 6px 10px;
+  color: var(--muted);
+  font-size: calc(13px * var(--font-scale, 1));
+  white-space: nowrap;
+}
+
 .note-menu-panel button {
   border: 0;
   border-radius: var(--radius);

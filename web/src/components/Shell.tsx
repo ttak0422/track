@@ -5,6 +5,7 @@ import { BrandMark } from "./Logo";
 import { FloatingLayer } from "./preview/FloatingLayer";
 import { FloatingProvider } from "./preview/floatingStore";
 import { SidebarSearch } from "./SidebarSearch";
+import { SidebarHistory } from "./SidebarHistory";
 import { TabBar } from "./tabs/TabBar";
 import { TabsProvider } from "./tabs/tabsStore";
 import { ThemeMenu } from "./ThemeMenu";
@@ -76,6 +77,7 @@ export function Shell() {
                   <BrandMark icon={site.data?.icon} className="rail-mark" />
                 </Link>
                 <SidebarSearch />
+                <SidebarHistory />
                 {/* The published static site is read-only and cannot create journals. */}
                 {!STATIC_MODE && (
                   <button
