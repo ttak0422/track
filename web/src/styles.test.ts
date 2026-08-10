@@ -163,3 +163,12 @@ describe("sidebar at short viewport heights", () => {
     );
   });
 });
+
+describe("arrival highlight", () => {
+  it("fades out instead of tinting the block for as long as the note stays open", () => {
+    // The class outlives the animation (it is removed only when the hash changes), so a resting
+    // background here is a highlight that never goes away.
+    expect(ruleBody(".block-target")).not.toMatch(/background:/);
+    expect(css).toMatch(/@keyframes block-flash\s*\{[\s\S]*?100%\s*\{\s*background:\s*transparent;/);
+  });
+});

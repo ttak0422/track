@@ -1832,20 +1832,24 @@ textarea.modal-input:focus-visible {
   margin: 0 4px;
 }
 
-/* Block-anchor arrival: the block a [[Note#^id]] link landed on flashes, then settles to a faint
-   tint so the eye keeps its place. Colors derive from --mark, so both themes are covered. */
+/* Arrival highlight: the block a [[Note#^id]] link or a Contents entry landed on flashes, holds long
+   enough to be found, and then fades out. It answers "where did I just land" — once that is answered
+   it has nothing left to say, so it leaves rather than tinting the block for as long as the note
+   stays open. Colors derive from --mark, so both themes are covered. */
 .block-target {
   border-radius: var(--radius-sm);
-  animation: block-flash 1.6s ease-out;
-  background: color-mix(in srgb, var(--mark) 10%, transparent);
+  animation: block-flash 2.4s ease-out;
 }
 
 @keyframes block-flash {
   0% {
     background: color-mix(in srgb, var(--mark) 30%, transparent);
   }
+  40% {
+    background: color-mix(in srgb, var(--mark) 30%, transparent);
+  }
   100% {
-    background: color-mix(in srgb, var(--mark) 10%, transparent);
+    background: transparent;
   }
 }
 
