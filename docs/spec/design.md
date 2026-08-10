@@ -258,8 +258,8 @@ when it is the only way to discover a collapsed or pannable visualization.
 
 Rules run horizontally only, and only where they separate something.
 
-- `th`: the section label recipe, `text-align: left`, no fill, one
-  `--line-strong` rule beneath the header row.
+- `th`: body sans, `font-weight: 500`, the author's casing and normal tracking,
+  `text-align: left`, no fill, one `--line-strong` rule beneath the header row.
 - `td`: `--muted`, `vertical-align: top`, a `--line` rule beneath each row.
   The first column stays `--text` — it is what you scan.
 - No column rules, no striping, no header fill. A table bleeds to the column

@@ -131,8 +131,6 @@
 .day-tasks h2,
 .results-group,
 .code-block[data-language]::before,
-.markdown-view .task-table th,
-.markdown-view th,
 .note-prop dt,
 .ogp-card-site {
   color: var(--faint);
@@ -2283,9 +2281,7 @@ textarea.modal-input:focus-visible {
 }
 
 /* GFM tables: horizontal rules only (no column separators, no row striping, no header fill), bleeding
-   to the reader's column and scrolling horizontally when wider than it. The header takes the section
-   label recipe (see the shared rule at the top), so what tells it from the body is a stated rule, not
-   a slab. */
+   to the reader's column and scrolling horizontally when wider than it. */
 .markdown-view table {
   display: block;
   width: max-content;
@@ -2298,7 +2294,11 @@ textarea.modal-input:focus-visible {
   font-variant-numeric: tabular-nums;
 }
 
+/* A column name is something the note's author typed, not a label this UI supplies, so it keeps its
+   own casing and the body's type. What tells it from the cells below is the rule beneath it and the
+   body ink the muted cells give up. */
 .markdown-view th {
+  font-weight: 500;
   padding: 0 18px 8px 0;
   border-bottom: 1px solid var(--line-strong);
   background: none;
