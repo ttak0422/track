@@ -335,6 +335,14 @@ describe("computeFit", () => {
     // The floor follows the article font: text never drops below 75% of the surrounding size.
     expect(computeFit(2000, 300, 500, 1.25).transform.scale).toBeCloseTo(0.9375);
   });
+
+  it("can center an overflowing diagram for the popup without changing inline alignment", () => {
+    const inline = computeFit(2000, 300, 500);
+    const popup = computeFit(2000, 300, 500, 1, { centerOverflow: true });
+
+    expect(inline.transform.x).toBe(0);
+    expect(popup.transform.x).toBeCloseTo(-500); // (500 - 2000 * 0.75) / 2
+  });
 });
 
 describe("computeCollapsedFit", () => {

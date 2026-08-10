@@ -2118,17 +2118,6 @@ textarea.modal-input:focus-visible {
   max-width: 100%;
 }
 
-/* A shared diagram frame is centred on the prose column but spans the window so wide SVGs can run
-   beneath the dock and note aside. The reader clips the overrun rather than making it horizontally
-   scrollable; its own viewport still owns diagram panning. */
-.markdown-view > .mermaid-diagram {
-  width: 100vw;
-  max-width: 100vw;
-  margin-left: -50vw;
-  position: relative;
-  left: 50%;
-}
-
 /* One rhythm, all leading and no second size: h2 opens a section with a rule and 44px of air, h3
    marks a turn inside one with 26px, and both read at body size. */
 .markdown-view h1,
@@ -2804,9 +2793,19 @@ textarea.modal-input:focus-visible {
 }
 
 .mermaid-viewport {
+  position: relative;
   overflow: hidden;
   cursor: grab;
   touch-action: none;
+}
+
+/* Only the drawing viewport bleeds to the window: the frame remains at the prose width so its fold and
+   control chips keep their reading-column anchors. The viewport clips its own drawing and fades at
+   those real edges, while .reader clips the window-wide overrun from horizontal page scrolling. */
+.markdown-view > .mermaid-diagram > .mermaid-viewport {
+  width: 100vw;
+  max-width: 100vw;
+  margin-left: calc(50% - 50vw);
 }
 
 .mermaid-viewport:active {

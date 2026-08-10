@@ -65,7 +65,10 @@ export function DiagramFrame({ state, source, sourceLang, label, className }: Di
   const svg = state.status === "ready" ? state.svg : null;
   const panZoom = usePanZoom(svg);
   const [enlarged, setEnlarged] = useState(false);
-  const lightboxPanZoom = usePanZoom(enlarged ? svg : null, { collapseTall: false });
+  const lightboxPanZoom = usePanZoom(enlarged ? svg : null, {
+    collapseTall: false,
+    centerOverflow: true,
+  });
   const dialogRef = useRef<HTMLDialogElement>(null);
   // A stable element per svg string: pan/zoom re-renders reuse it untouched, so react-dom never
   // rewrites the innerHTML — which would both discard sizeSvgToViewBox's sizing and re-parse a large
@@ -129,12 +132,12 @@ export function DiagramFrame({ state, source, sourceLang, label, className }: Di
         >
           {svgHost}
         </div>
+        {collapsed && <div className="mermaid-continuation" aria-hidden="true" />}
+        {/* The collapsed preview is inert, so a side fade would advertise a pan it cannot make;
+            the fold chip already owns the "there is more" signal until expanded. */}
+        {!collapsed && overflow.left && <div className="mermaid-continuation-left" aria-hidden="true" />}
+        {!collapsed && overflow.right && <div className="mermaid-continuation-right" aria-hidden="true" />}
       </div>
-      {collapsed && <div className="mermaid-continuation" aria-hidden="true" />}
-      {/* The collapsed preview is inert, so a side fade would advertise a pan it cannot make;
-          the fold chip already owns the "there is more" signal until expanded. */}
-      {!collapsed && overflow.left && <div className="mermaid-continuation-left" aria-hidden="true" />}
-      {!collapsed && overflow.right && <div className="mermaid-continuation-right" aria-hidden="true" />}
       {showFoldControl && (
         <button
           className="mermaid-control mermaid-fold"
@@ -349,7 +352,10 @@ const autoCollapseHeight = 480;
 // normal fit scale inside a clipped collapsedHeight preview, interactions off, with a labelled fold
 // toggle to expand. `svg` is the rendered markup (null until ready), used to re-fit
 // whenever the diagram changes.
-function usePanZoom(svg: string | null, { collapseTall = true }: { collapseTall?: boolean } = {}) {
+function usePanZoom(
+  svg: string | null,
+  { collapseTall = true, centerOverflow = false }: { collapseTall?: boolean; centerOverflow?: boolean } = {},
+) {
   const [transform, setTransform] = useState<Transform>(identityTransform);
   const [viewportHeight, setViewportHeight] = useState<number | null>(null);
   const [collapsed, setCollapsed] = useState(false);
@@ -389,8 +395,8 @@ function usePanZoom(svg: string | null, { collapseTall = true }: { collapseTall?
     const ideal = idealScaleRef.current;
     const view = col
       ? computeCollapsedFit(w, h, viewport.clientWidth, ideal)
-      : computeFit(w, h, viewport.clientWidth, ideal);
-    fitRef.current = computeFit(w, h, viewport.clientWidth, ideal).transform;
+      : computeFit(w, h, viewport.clientWidth, ideal, { centerOverflow });
+    fitRef.current = computeFit(w, h, viewport.clientWidth, ideal, { centerOverflow }).transform;
     setTransform(view.transform);
     setViewportHeight(view.height);
   }
@@ -409,7 +415,9 @@ function usePanZoom(svg: string | null, { collapseTall = true }: { collapseTall?
     setViewportW(viewport.clientWidth);
     idealScaleRef.current = measureIdealScale(viewport);
     touchedRef.current = false;
-    const { height } = computeFit(naturalW, naturalH, viewport.clientWidth, idealScaleRef.current);
+    const { height } = computeFit(naturalW, naturalH, viewport.clientWidth, idealScaleRef.current, {
+      centerOverflow,
+    });
     const startCollapsed = collapseTall && height > autoCollapseHeight;
     setShowFoldControl(startCollapsed);
     setCollapsed(startCollapsed);
@@ -434,7 +442,7 @@ function usePanZoom(svg: string | null, { collapseTall = true }: { collapseTall?
       lastW = w;
       idealScaleRef.current = measureIdealScale(el);
       const { w: nw, h: nh } = naturalRef.current;
-      fitRef.current = computeFit(nw, nh, w, idealScaleRef.current).transform;
+      fitRef.current = computeFit(nw, nh, w, idealScaleRef.current, { centerOverflow }).transform;
       if (!touchedRef.current) {
         applyView(collapsedRef.current);
       }
@@ -578,13 +586,14 @@ export function computeFit(
   naturalH: number,
   viewW: number,
   idealScale = 1,
+  { centerOverflow = false }: { centerOverflow?: boolean } = {},
 ): { transform: Transform; height: number } {
   const scale = clamp(
     Math.min((viewW * fitWidthRatio) / naturalW, idealScale),
     minReadableRatio * idealScale,
     8,
   );
-  const x = Math.max((viewW - naturalW * scale) / 2, 0);
+  const x = centerOverflow ? (viewW - naturalW * scale) / 2 : Math.max((viewW - naturalW * scale) / 2, 0);
   return { transform: { scale, x, y: 0 }, height: naturalH * scale };
 }
 

@@ -48,13 +48,14 @@ describe("content width", () => {
     expect(propsRule).toMatch(/max-width:\s*var\(--content-measure\)/);
   });
 
-  it("lets shared diagram frames bleed to the window while keeping their prose-centred origin", () => {
-    const diagramRule = ruleBody(".markdown-view > .mermaid-diagram");
+  it("lets shared diagram viewports bleed to the window while keeping frame chrome in the prose column", () => {
+    const viewportRule = ruleBody(".markdown-view > .mermaid-diagram > .mermaid-viewport");
 
-    expect(diagramRule).toMatch(/width:\s*100vw/);
-    expect(diagramRule).toMatch(/max-width:\s*100vw/);
-    expect(diagramRule).toMatch(/margin-left:\s*-50vw/);
-    expect(diagramRule).toMatch(/left:\s*50%/);
+    expect(viewportRule).toMatch(/width:\s*100vw/);
+    expect(viewportRule).toMatch(/max-width:\s*100vw/);
+    expect(viewportRule).toMatch(/margin-left:\s*calc\(50%\s*-\s*50vw\)/);
+    expect(viewportRule).not.toMatch(/position:\s*relative/);
+    expect(css).not.toMatch(/\.markdown-view > \.mermaid-diagram\s*\{[^}]*width:\s*100vw/);
   });
 
   it("clips full-bleed diagrams without taking ownership of vertical reading scroll", () => {
@@ -66,6 +67,7 @@ describe("content width", () => {
 
   it("leaves horizontal overflow to tables and diagram viewports", () => {
     expect(ruleBody(".markdown-view table")).toMatch(/overflow-x:\s*auto/);
+    expect(ruleBody(".mermaid-viewport")).toMatch(/position:\s*relative/);
     expect(ruleBody(".mermaid-viewport")).toMatch(/overflow:\s*hidden/);
   });
 });
