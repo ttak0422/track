@@ -6,7 +6,15 @@ import { GraphCanvas } from "./GraphCanvasLazy";
 import { type PreviewAnchor, type PreviewBounds, initialPreviewBounds } from "./preview/bounds";
 import { useFloating } from "./preview/floatingStore";
 import { NoteWindow } from "./preview/NoteWindow";
-import { nextPreviewStackOrder, previewOpenDelay } from "./preview/stack";
+import {
+  activatePreview,
+  bringPreviewToFront as raisePreviewToFront,
+  createPreviewID,
+  deactivatePreview,
+  previewOpenDelay,
+  releasePreview,
+  usePreviewStackOrder,
+} from "./preview/stack";
 
 interface Point {
   x: number;
@@ -29,7 +37,8 @@ export function GraphFullView() {
   // WikiLink's hover-intent machine; unify into a shared hook if a third consumer appears.
   const [preview, setPreview] = useState<{ noteID: NoteID; anchor: PreviewAnchor } | null>(null);
   const [sticky, setSticky] = useState(false);
-  const [stackOrder, setStackOrder] = useState(nextPreviewStackOrder);
+  const [previewID] = useState(createPreviewID);
+  const stackOrder = usePreviewStackOrder(previewID);
   const openTimer = useRef<number | undefined>(undefined);
   const closeTimer = useRef<number | undefined>(undefined);
   const pendingRef = useRef<{ noteID: NoteID; anchor: PreviewAnchor } | null>(null);
@@ -41,8 +50,9 @@ export function GraphFullView() {
     () => () => {
       if (openTimer.current !== undefined) window.clearTimeout(openTimer.current);
       if (closeTimer.current !== undefined) window.clearTimeout(closeTimer.current);
+      releasePreview(previewID);
     },
-    [],
+    [previewID],
   );
 
   function holdPreview() {
@@ -67,6 +77,7 @@ export function GraphFullView() {
     if (sticky || closeTimer.current !== undefined) return;
     closeTimer.current = window.setTimeout(() => {
       closeTimer.current = undefined;
+      deactivatePreview(previewID);
       setPreview(null);
     }, 220);
   }
@@ -87,14 +98,14 @@ export function GraphFullView() {
     openTimer.current = window.setTimeout(() => {
       openTimer.current = undefined;
       if (pendingRef.current) {
-        setStackOrder(nextPreviewStackOrder());
+        activatePreview(previewID);
         setPreview(pendingRef.current);
       }
     }, previewOpenDelay);
   }
 
   function bringPreviewToFront() {
-    setStackOrder(nextPreviewStackOrder());
+    raisePreviewToFront(previewID);
   }
 
   function detachPreview() {
@@ -113,6 +124,7 @@ export function GraphFullView() {
       floating.open({ kind: "note", noteID: preview.noteID }, geo.bounds, geo.collapsed, false);
     }
     boundsRef.current = null;
+    deactivatePreview(previewID);
     setSticky(false);
     setPreview(null);
   }
@@ -121,11 +133,13 @@ export function GraphFullView() {
   function promote(bounds: PreviewBounds, collapsed: boolean) {
     if (!preview) return;
     floating.open({ kind: "note", noteID: preview.noteID }, bounds, collapsed, true);
+    deactivatePreview(previewID);
     setSticky(false);
     setPreview(null);
   }
 
   function closePreview() {
+    deactivatePreview(previewID);
     setSticky(false);
     setPreview(null);
   }

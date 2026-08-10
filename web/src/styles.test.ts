@@ -3,6 +3,7 @@ import { readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
 
 const css = readFileSync("src/styles.css", "utf8");
+const previewStack = readFileSync("src/components/preview/stack.ts", "utf8");
 const shell = readFileSync("src/components/Shell.tsx", "utf8");
 const mermaid = readFileSync("src/components/markdown/MermaidDiagram.tsx", "utf8");
 
@@ -32,6 +33,26 @@ describe("special-page layering", () => {
     for (const selector of [".calendar-full", ".day-view", ".tasks-view", ".home-hero"]) {
       expect(zIndex(selector) ?? Number.NEGATIVE_INFINITY).toBeLessThan(tabstripZ);
     }
+  });
+});
+
+describe("transient layer ordering", () => {
+  it("keeps aside list rows intact so capped lists can scroll", () => {
+    expect(ruleBody(".note-aside .backlink")).toMatch(/flex:\s*0\s+0\s+auto/);
+    expect(ruleBody(".backlink-list")).toMatch(/max-height:\s*320px/);
+  });
+
+  it("keeps search above previews but below modal and toast layers", () => {
+    const previewBaseZ = Number(previewStack.match(/previewBaseZIndex\s*=\s*(\d+)/)?.[1]);
+    const previewMaxZ = Number(previewStack.match(/previewMaxZIndex\s*=\s*(\d+)/)?.[1]);
+    const searchBackdropZ = zIndex(".search-backdrop")!;
+    const searchPopupZ = zIndex(".search-popup")!;
+
+    expect(searchBackdropZ).toBeGreaterThan(previewBaseZ);
+    expect(searchBackdropZ).toBeGreaterThan(previewMaxZ);
+    expect(searchPopupZ).toBeGreaterThan(searchBackdropZ);
+    expect(searchPopupZ).toBeLessThan(zIndex(".modal-backdrop")!);
+    expect(searchPopupZ).toBeLessThan(zIndex(".notification-toast")!);
   });
 });
 

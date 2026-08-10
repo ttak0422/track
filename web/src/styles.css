@@ -215,7 +215,7 @@ img.theme-asset-dark {
 
 /* The reader owns the layout; the navigation rail is a compact dock floating over it. The strip around
    the dock does not intercept reader clicks, while the dock itself stays interactive. It sits above the
-   graph view (90) and below menus/search (94+).
+   graph view (90) and below transient menus and search.
 
    The strip covers the top half of the viewport and centres the dock in it, which puts the dock's
    centre a quarter of the way down: its menus open downward into empty screen rather than fighting the
@@ -506,14 +506,13 @@ img.theme-asset-dark {
 }
 
 /* The sidebar search popup floats beside the rail, escaping the rail's overflow with fixed positioning.
-   Above .graph-full (z-index 90): the rail (and this popup) render on every page including /graph, whose
-   full-bleed canvas would otherwise paint over the popup and swallow its clicks there. It is just the
-   search field + results — the wordmark and heatmap belong to the "/" home, not to a lookup from a
-   note. */
+   Its layer is above previews (previewBaseZIndex 100+) as well as .graph-full (90), so the search field
+   and results remain usable while a preview is open. It is just the search field + results — the wordmark
+   and heatmap belong to the "/" home, not to a lookup from a note. */
 .search-backdrop {
   position: fixed;
   inset: 0;
-  z-index: 94;
+  z-index: 190;
   background: rgb(0 0 0 / 28%);
 }
 
@@ -524,7 +523,7 @@ img.theme-asset-dark {
   position: fixed;
   left: 50%;
   top: 12vh;
-  z-index: 95;
+  z-index: 191;
   display: flex;
   flex-direction: column;
   width: min(640px, calc(100vw - 48px));
@@ -3766,6 +3765,7 @@ textarea.modal-input:focus-visible {
 
 .note-aside .backlink {
   width: 100%;
+  flex: 0 0 auto;
   overflow: hidden;
   padding: 3px 0;
   font-size: calc(14px * var(--font-scale, 1));

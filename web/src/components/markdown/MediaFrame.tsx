@@ -2,7 +2,14 @@ import { createContext, type ReactNode, useContext, useEffect, useRef, useState 
 import { initialPreviewBounds, type PreviewAnchor, type PreviewBounds } from "../preview/bounds";
 import { InFloatingWindowContext, useFloating } from "../preview/floatingStore";
 import { MediaWindow } from "../preview/MediaWindow";
-import { nextPreviewStackOrder } from "../preview/stack";
+import {
+  activatePreview,
+  bringPreviewToFront,
+  createPreviewID,
+  deactivatePreview,
+  releasePreview,
+  usePreviewStackOrder,
+} from "../preview/stack";
 import { NoteKindContext, NoteVaultContext } from "./context";
 
 // MediaFrame wraps a media embed (image, PDF) with hover-revealed controls: preview (an enlarged
@@ -27,7 +34,8 @@ export function MediaFrame({ src, alt, children }: { src: string; alt: string; c
 
   const [open, setOpen] = useState(false);
   const [anchor, setAnchor] = useState<PreviewAnchor | null>(null);
-  const [stackOrder, setStackOrder] = useState(nextPreviewStackOrder);
+  const [previewID] = useState(createPreviewID);
+  const stackOrder = usePreviewStackOrder(previewID);
   const [enlarged, setEnlarged] = useState(false);
   const dialogRef = useRef<HTMLDialogElement>(null);
 
@@ -36,6 +44,8 @@ export function MediaFrame({ src, alt, children }: { src: string; alt: string; c
   useEffect(() => {
     if (enlarged) dialogRef.current?.showModal();
   }, [enlarged]);
+
+  useEffect(() => () => releasePreview(previewID), [previewID]);
 
   if (inFloating) {
     return <>{children}</>;
@@ -51,12 +61,13 @@ export function MediaFrame({ src, alt, children }: { src: string; alt: string; c
   // The preview was asked for by a click, so it stays until its close button (or enlarging the
   // media) dismisses it, rather than evaporating when the pointer wanders off.
   function openPreview() {
-    setStackOrder(nextPreviewStackOrder());
+    activatePreview(previewID);
     setAnchor(frameAnchor());
     setOpen(true);
   }
 
   function closePreview() {
+    deactivatePreview(previewID);
     setOpen(false);
   }
 
@@ -64,6 +75,7 @@ export function MediaFrame({ src, alt, children }: { src: string; alt: string; c
   // same as WikiLink promoting a note preview.
   function promote(bounds: PreviewBounds, collapsed: boolean) {
     floating.open({ kind: "media", src, alt, noteKind: kind, vault }, bounds, collapsed, true);
+    deactivatePreview(previewID);
     setOpen(false);
   }
 
@@ -150,7 +162,7 @@ export function MediaFrame({ src, alt, children }: { src: string; alt: string; c
           pinned={false}
           depth={0}
           stackOrder={stackOrder}
-          onActivate={() => setStackOrder(nextPreviewStackOrder())}
+          onActivate={() => bringPreviewToFront(previewID)}
           onClose={closePreview}
           onPinToggle={promote}
         />
