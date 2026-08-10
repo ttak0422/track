@@ -5,6 +5,7 @@ import {
   useContext,
   useEffect,
   useMemo,
+  useRef,
   useState,
 } from "react";
 import Markdown, { type Components } from "react-markdown";
@@ -37,6 +38,7 @@ import {
   remarkInclude,
   remarkHeadingID,
   remarkTaskLine,
+  rehypeCopyLine,
   rehypeTaskCheck,
   remarkWikiLink,
   spliceIncludeTokens,
@@ -47,8 +49,10 @@ import { QueryView } from "./markdown/QueryView";
 import { ViewSpecChart } from "./markdown/ViewSpecChart";
 import { WikiLink } from "./preview/WikiLink";
 import { TitleCopyButton } from "./TitleCopyButton";
+import { copyText } from "./markdown/clipboard";
 import { useNoteQuery } from "../queries";
 import { STATIC_MODE } from "../runtime";
+import { copyLineRangeText, resolveCopyLineRange, type CopyLineRange } from "./markdown/copyRange";
 
 interface MarkdownViewProps {
   markdown: string;
@@ -68,6 +72,9 @@ interface MarkdownViewProps {
   // Resolved ![[...]] includes for this body (ADR 0031), from /api/render live or the static
   // bundle. Absent or empty, include lines render as ordinary text (their [[...]] stays a link).
   includes?: NoteInclude[];
+  // Published bundles leave this empty because their source path is not meaningful on the reader's
+  // machine; the live note response supplies the path agents can open.
+  copyPath?: string;
 }
 
 // The markdown is parsed by react-markdown (CommonMark + GFM tables/strikethrough/task lists, plus
@@ -83,10 +90,14 @@ export function MarkdownView({
   kind = "note",
   vault = "",
   includes,
+  copyPath = "",
 }: MarkdownViewProps) {
   const bodyMarkdown = useMemo(() => withoutDuplicateTitle(markdown, title), [markdown, title]);
   const hasMath = looksLikeMath(bodyMarkdown);
   const [math, setMath] = useState<MathPlugins | null>(() => (hasMath ? mathPluginsIfLoaded() : null));
+  const markdownRef = useRef<HTMLDivElement>(null);
+  const [copyRange, setCopyRange] = useState<CopyLineRange | null>(null);
+  const [copyPopupPosition, setCopyPopupPosition] = useState({ left: 0, top: 0 });
 
   useEffect(() => {
     if (!hasMath || math) return;
@@ -98,6 +109,49 @@ export function MarkdownView({
       cancelled = true;
     };
   }, [hasMath, math]);
+
+  useEffect(() => {
+    if (!copyPath) {
+      setCopyRange(null);
+      return;
+    }
+    const updateSelection = () => {
+      const selection = window.getSelection();
+      const range = selection && selection.rangeCount > 0 ? selection.getRangeAt(0) : null;
+      const root = markdownRef.current;
+      const resolved = root ? resolveCopyLineRange(root, selection) : null;
+      if (!resolved || !range) {
+        setCopyRange(null);
+        return;
+      }
+      const rect =
+        typeof range.getBoundingClientRect === "function" ? range.getBoundingClientRect() : undefined;
+      if (!rect) {
+        // Older DOMs can resolve the selection without exposing geometry; keep the action reachable
+        // at a safe edge position rather than silently dropping a valid line range.
+        setCopyRange(resolved);
+        setCopyPopupPosition({ left: 56, top: 8 });
+        return;
+      }
+      const popupHeight = 36;
+      const top =
+        rect.bottom + 8 + popupHeight <= window.innerHeight
+          ? rect.bottom + 8
+          : Math.max(8, rect.top - popupHeight - 8);
+      setCopyRange(resolved);
+      setCopyPopupPosition({
+        left: Math.min(Math.max(rect.left + rect.width / 2, 56), window.innerWidth - 56),
+        top,
+      });
+    };
+    document.addEventListener("selectionchange", updateSelection);
+    window.addEventListener("resize", updateSelection);
+    updateSelection();
+    return () => {
+      document.removeEventListener("selectionchange", updateSelection);
+      window.removeEventListener("resize", updateSelection);
+    };
+  }, [copyPath]);
 
   // Every hook runs before the empty-note return below: a preview mounts with "" and gets its body a
   // moment later, so a hook placed after the return would change the hook count between renders and
@@ -141,6 +195,7 @@ export function MarkdownView({
     // Stamps each checklist item's source line onto its native checkbox, so a plain "- [ ]" list
     // can be ticked (see TaskCheck). Cheap and static-safe: the static site just never wires it up.
     rehypeTaskCheck,
+    ...(copyPath ? [rehypeCopyLine] : []),
     ...(__TRACK_STATIC__ ? [] : [rehypeBudoux]),
   ];
 
@@ -149,7 +204,7 @@ export function MarkdownView({
       <NoteVaultContext.Provider value={vault}>
         <IncludesContext.Provider value={includes ?? []}>
         <MarkdownSourceContext.Provider value={bodyMarkdown}>
-          <div className="markdown-view">
+          <div ref={markdownRef} className="markdown-view">
             {title && showTitle ? (
               <h1 className="note-title">
                 {title}
@@ -160,6 +215,12 @@ export function MarkdownView({
             <Markdown remarkPlugins={remarkPlugins} rehypePlugins={rehypePlugins} components={markdownComponents}>
               {source}
             </Markdown>
+            {copyPath && copyRange ? (
+              <SelectionCopyButton
+                text={copyLineRangeText(copyPath, copyRange)}
+                style={{ left: copyPopupPosition.left, top: copyPopupPosition.top }}
+              />
+            ) : null}
           </div>
         </MarkdownSourceContext.Provider>
         </IncludesContext.Provider>
@@ -196,6 +257,39 @@ function plainHeadingText(text: string): string {
     .replace(/\[([^\]]+)\]\([^\s)]*\)/g, "$1")
     .replace(/[*_~`]/g, "")
     .trim();
+}
+
+function SelectionCopyButton({ text, style }: { text: string; style: { left: number; top: number } }) {
+  const [copied, setCopied] = useState(false);
+  const resetTimer = useRef<number | undefined>(undefined);
+
+  useEffect(
+    () => () => {
+      if (resetTimer.current !== undefined) window.clearTimeout(resetTimer.current);
+    },
+    [],
+  );
+
+  async function copyRange() {
+    if (!(await copyText(text))) return;
+    setCopied(true);
+    if (resetTimer.current !== undefined) window.clearTimeout(resetTimer.current);
+    resetTimer.current = window.setTimeout(() => setCopied(false), 1500);
+  }
+
+  return (
+    <button
+      type="button"
+      className="selection-copy"
+      style={style}
+      onClick={() => void copyRange()}
+      // Prevent the button's press from clearing the selection before copyRange reads its saved range.
+      onMouseDown={(event) => event.preventDefault()}
+      aria-label={copied ? "Copied" : "Copy range"}
+    >
+      {copied ? "Copied" : "Copy range"}
+    </button>
+  );
 }
 
 // IncludeEmbed renders one resolved ![[...]] include as an embed card: a caption header linking to
@@ -267,6 +361,20 @@ interface ElementProps {
   children?: ReactNode;
 }
 
+interface CopyLineProperties {
+  "data-copy-line-start"?: number;
+  "data-copy-line-end"?: number;
+}
+
+function copyLineProperties(node?: Element): CopyLineProperties {
+  const props = (node?.properties ?? {}) as Record<string, unknown>;
+  const start = props.dataCopyLineStart;
+  const end = props.dataCopyLineEnd;
+  return typeof start === "number" && typeof end === "number"
+    ? { "data-copy-line-start": start, "data-copy-line-end": end }
+    : {};
+}
+
 const markdownComponents = {
   a: ({ node, href, children }: ElementProps & { href?: string; children?: ReactNode }) => {
     // GFM footnote anchors (reference ↔ back-link) must keep their generated ids so the jumps land;
@@ -303,7 +411,7 @@ const markdownComponents = {
   // otherwise nest a block element inside a <p>. The id (a ^block anchor, see remarkBlockID) is
   // forwarded so hash navigation still finds the paragraph.
   p: ({ node, children, id }: ElementProps & { id?: string }) =>
-    isSoleImage(node) ? <>{children}</> : <p id={id}>{children}</p>,
+    isSoleImage(node) ? <>{children}</> : <p id={id} {...copyLineProperties(node)}>{children}</p>,
   pre: ({ node, children }: ElementProps) => {
     const code = node?.children?.[0];
     if (code && code.type === "element" && code.tagName === "code") {
@@ -337,9 +445,9 @@ const markdownComponents = {
       if (normalized === "track-view") {
         return <QueryView text={text} />;
       }
-      return <CodeBlock lang={lang} text={text} />;
+      return <CodeBlock lang={lang} text={text} copyLineProperties={copyLineProperties(node)} />;
     }
-    return <pre>{children}</pre>;
+    return <pre {...copyLineProperties(node)}>{children}</pre>;
   },
   code: ({ children }: { children?: ReactNode }) => <code className="inline-code">{children}</code>,
   wikilink: ({ node }: ElementProps) => {

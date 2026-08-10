@@ -5,12 +5,16 @@ import { tokenizeCode } from "./highlight";
 interface CodeBlockProps {
   lang: string;
   text: string;
+  copyLineProperties?: {
+    "data-copy-line-start"?: number;
+    "data-copy-line-end"?: number;
+  };
 }
 
 // CodeBlock renders a fenced code block with a copy-to-clipboard button. The button briefly switches
 // to a "Copied" state so the action is acknowledged, then resets. Blocks without an explicit
 // language (no fence info string) are plain text, not code to lift — they get no copy button.
-export function CodeBlock({ lang, text }: CodeBlockProps) {
+export function CodeBlock({ lang, text, copyLineProperties }: CodeBlockProps) {
   const [copied, setCopied] = useState(false);
   const resetTimer = useRef<number | undefined>(undefined);
 
@@ -33,7 +37,7 @@ export function CodeBlock({ lang, text }: CodeBlockProps) {
   }
 
   return (
-    <div className="code-block" data-language={lang || undefined}>
+    <div className="code-block" data-language={lang || undefined} {...copyLineProperties}>
       {lang !== "" && (
         <button
           type="button"

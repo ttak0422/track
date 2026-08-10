@@ -2220,6 +2220,30 @@ textarea.modal-input:focus-visible {
   stroke-width: 1.8;
 }
 
+/* Copy range is an explicit selection action, so it is a floating layer (variant 3), not a hover
+   control. It sits just below the selection when there is room, or just above it, so the action does
+   not cover the text that made it appear. */
+.selection-copy {
+  position: fixed;
+  z-index: 20;
+  transform: translateX(-50%);
+  padding: 4px 10px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  color: var(--muted);
+  background: var(--panel);
+  box-shadow: 0 10px 24px color-mix(in srgb, var(--text) 16%, transparent);
+  font-size: calc(13px * var(--font-scale, 1));
+  line-height: 1.6;
+  white-space: nowrap;
+  cursor: pointer;
+}
+
+.selection-copy:hover,
+.selection-copy:focus-visible {
+  color: var(--text);
+}
+
 .markdown-view ul,
 .markdown-view ol {
   padding-left: 1.3em;

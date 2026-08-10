@@ -181,6 +181,9 @@ above the page, so they alone carry shadows.
   `box-shadow`. Items inside are text controls (muted rows that ink on hover).
 - Canonical: `.menu-panel`, `.note-menu-panel`, `.modal-card`,
   `.tab-overflow-panel`, `.tab-tools`.
+- A selection action popover is this same floating-layer variant: it is anchored just
+  outside an explicit text selection, never opened by hover, and its press preserves
+  the selection it acts on.
 - Every member is transient. The rail is the exception: it is a permanent
   floating dock with the panel surface, a hairline, and a radius, but no shadow.
 
