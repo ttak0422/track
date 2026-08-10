@@ -90,11 +90,36 @@ export function TabBar() {
               >
                 {vault ? <span className="tab-vault">{vault}</span> : null}
                 <span className="tab-title">{label}</span>
+              </button>
+              {/* Close rides the tab's own right end so a run of tabs can be dismissed in place: from
+                  the popup, every one cost a trip down and back. It overlays the title's tail on
+                  hover rather than holding a slot, which would pad every tab and lengthen the strip.
+                  The unsaved-changes dot sits in that same place until then. */}
+              <button
+                type="button"
+                className="tab-close"
+                aria-label={`Close ${label}`}
+                onClick={() => close(tab.id)}
+              >
+                <svg
+                  className="tab-close-glyph"
+                  viewBox="0 0 24 24"
+                  width="14"
+                  height="14"
+                  fill="none"
+                  stroke="currentColor"
+                  strokeWidth="2"
+                  strokeLinecap="round"
+                  aria-hidden="true"
+                >
+                  <line x1="6" y1="6" x2="18" y2="18" />
+                  <line x1="18" y1="6" x2="6" y2="18" />
+                </svg>
                 {tab.id === dirtyID ? <span className="tab-dirty-dot" aria-hidden="true" /> : null}
               </button>
-              {/* The tab's own popup: the full title (the tab itself only has room for its head)
-                  and the controls. The title used to come from the browser's own tooltip, which
-                  opened at the pointer and landed on top of these buttons. */}
+              {/* The tab's own popup: the full title (the tab itself only has room for its head) and
+                  the float control. The title used to come from the browser's own tooltip, which
+                  opened at the pointer and landed on top of that button. */}
               <div className="tab-tools">
                 <span className="tab-tools-title">
                   {vault ? <span className="tab-vault">{vault}</span> : null}
@@ -102,27 +127,6 @@ export function TabBar() {
                 </span>
                 <div className="tab-tools-actions">
                   {!isViewTab(tab.id) ? <FloatButton noteID={tab.id} /> : null}
-                  <button
-                    type="button"
-                    className="tab-close"
-                    aria-label={`Close ${label}`}
-                    onClick={() => close(tab.id)}
-                  >
-                    <svg
-                      className="tab-close-glyph"
-                      viewBox="0 0 24 24"
-                      width="14"
-                      height="14"
-                      fill="none"
-                      stroke="currentColor"
-                      strokeWidth="2"
-                      strokeLinecap="round"
-                      aria-hidden="true"
-                    >
-                      <line x1="6" y1="6" x2="18" y2="18" />
-                      <line x1="18" y1="6" x2="6" y2="18" />
-                    </svg>
-                  </button>
                 </div>
               </div>
             </div>

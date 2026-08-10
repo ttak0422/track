@@ -278,7 +278,7 @@ The strip is a line of titles on the sheet, not a bar of chrome.
 - **Every tab that fits is shown.** The count is measured, not fixed: a wide
   window with short titles keeps them all, and only what genuinely has no room
   goes to the `+N` button at the right end, which lists the rest in a floating
-  layer. Each tab truncates at 210px so no single title can crowd the others
+  layer. Each tab truncates at 168px so no single title can crowd the others
   out. The strip never scrolls sideways — a title you cannot see is in the
   menu, not off the edge.
 - The active tab is marked by `border-bottom: 2px solid var(--mark)` plus
@@ -286,13 +286,18 @@ The strip is a line of titles on the sheet, not a bar of chrome.
   no border, and a hairline under the whole strip separates it from the note.
 - **A tab's popup carries what the tab has no room for.** Hovering (or focusing)
   a tab opens a floating layer (variant 3) under the strip: one row holding its
-  full title — wrapped rather than clipped — with float and close beside it. Both
-  used to happen in the tab: two 24px buttons covered the title they belong to,
-  and the full title came from the browser's own `title` tooltip, which opens at
-  the pointer and landed on top of those buttons. A control that has a panel of
-  its own does not also carry a native tooltip. Only the unsaved-changes dot
-  stays inline: it is state, not a control, and it belongs next to the title it
-  describes.
+  full title — wrapped rather than clipped — with float beside it. The full title
+  used to come from the browser's own `title` tooltip, which opens at the pointer
+  and landed on top of that button; a control that has a panel of its own does
+  not also carry a native tooltip.
+- **Close is the exception, and stands in the tab.** Closing several tabs is one
+  gesture repeated, and from the popup each repeat cost a trip down into it and
+  back. It sits at the tab's right end, revealed by the tab's own hover. It is
+  absolutely positioned and reserves no width: a slot kept clear on every tab
+  padded the strip out, and the title it overlays is already clipped there. The
+  unsaved-changes dot holds that same corner until the tab is hovered — it is
+  state, not a control, so it says what the corner says while nothing is aimed
+  at it.
 - The reveal keys off `:hover` and `:has(:focus-visible)` — **not**
   `:focus-within`, which variant 2's hover-revealed chips can afford and this
   cannot: the container here also holds the tab's own title button, so a mouse

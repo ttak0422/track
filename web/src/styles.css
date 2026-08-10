@@ -1227,7 +1227,7 @@ a.calendar-title:focus-visible {
      the floor is what makes the strip overflow instead of squeezing every title into an unreadable
      sliver — overflowing is the signal TabBar measures to move a tab into the +N menu. */
   min-width: 110px;
-  max-width: 210px;
+  max-width: 168px;
   align-items: center;
   color: var(--muted);
 }
@@ -1330,8 +1330,8 @@ a.calendar-title:focus-visible {
   max-width: 100%;
   align-items: center;
   border: 0;
-  /* The whole tab is the title's: its controls hang under the strip rather than standing in it, so
-     nothing has to be kept clear here. */
+  /* The whole tab is the title's. Close stands at its right end but takes no width from it: a slot
+     kept clear on every tab is what padded the strip out. */
   gap: 6px;
   padding: 8px 12px;
   color: inherit;
@@ -1362,10 +1362,10 @@ a.calendar-title:focus-visible {
   white-space: nowrap;
 }
 
-/* The unsaved-changes dot is state, not a control, so it is the one thing that stays in the tab —
-   beside the title it describes, and never covering it. */
+/* The unsaved-changes dot is state, not a control, so it holds the close button's place rather than
+   taking one of its own: while the tab is unhovered the dot is what that corner says. */
 .tab-dirty-dot {
-  flex: none;
+  position: absolute;
   width: 7px;
   height: 7px;
   border-radius: 999px;
@@ -1440,6 +1440,26 @@ a.calendar-title:focus-visible {
   cursor: pointer;
 }
 
+/* Close is the one control that stands in the tab, at its right end. It is absolute so it costs the
+   strip no width: reserving a slot on every tab is what made the strip long, and the title it
+   overlays is already clipped there. */
+.tab-close {
+  position: absolute;
+  top: 50%;
+  right: 6px;
+  translate: 0 -50%;
+}
+
+.tab:hover .tab-close-glyph,
+.tab-close:focus-visible .tab-close-glyph {
+  opacity: 1;
+}
+
+.tab.dirty:hover .tab-dirty-dot,
+.tab-close:focus-visible .tab-dirty-dot {
+  opacity: 0;
+}
+
 .tab-close:hover,
 .tab-close:focus-visible,
 .tab-float:hover,
@@ -1450,8 +1470,10 @@ a.calendar-title:focus-visible {
 
 .tab-close-glyph {
   /* An SVG block centers by geometry under the button's place-items:center — no text baseline to
-     leave the × optically high (as the old text glyph did). */
+     leave the × optically high (as the old text glyph did). Only the glyph hides while the tab is
+     unhovered, not the button: the dot that holds the same corner is a child of it. */
   display: block;
+  opacity: 0;
 }
 
 /* The overflow menu in the rail: a rail-sized trigger whose panel escapes the rail's clipped
