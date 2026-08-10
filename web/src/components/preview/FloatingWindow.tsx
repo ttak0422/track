@@ -231,7 +231,7 @@ export function FloatingWindow({
         top: bounds.top,
         width: bounds.width,
         height: collapsed ? "auto" : bounds.height,
-        zIndex: previewBaseZIndex + depth + stackOrder,
+        zIndex: previewBaseZIndex + stackOrder,
       }}
     >
       <div

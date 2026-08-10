@@ -2,6 +2,7 @@ import { act, renderHook } from "@testing-library/react";
 import type { ReactNode } from "react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { FloatingProvider, useFloating } from "./floatingStore";
+import { getPreviewStackOrder } from "./stack";
 
 const routerMock = vi.hoisted(() => ({ pathname: "/" }));
 
@@ -28,14 +29,20 @@ describe("FloatingProvider", () => {
     expect(result.current.windows).toHaveLength(1);
 
     // Same note again: no new window, but it is raised to the front.
-    const firstOrder = result.current.windows[0].stackOrder;
+    const firstID = result.current.windows[0].id;
+    const firstOrder = getPreviewStackOrder(firstID);
     act(() => result.current.open({ kind: "note", noteID: "1" }, bounds, false, false));
     expect(result.current.windows).toHaveLength(1);
-    expect(result.current.windows[0].stackOrder).toBeGreaterThan(firstOrder);
+    expect(getPreviewStackOrder(firstID)).toBe(firstOrder);
 
     // A different note adds a second window.
     act(() => result.current.open({ kind: "note", noteID: "2" }, bounds, false, false));
     expect(result.current.windows).toHaveLength(2);
+    const secondID = result.current.windows[1].id;
+    act(() => result.current.bringToFront(result.current.windows[0].id));
+    expect(getPreviewStackOrder(result.current.windows[0].id)).toBeGreaterThan(
+      getPreviewStackOrder(result.current.windows[1].id),
+    );
 
     act(() => result.current.remove(result.current.windows[0].id));
     expect(result.current.windows).toHaveLength(1);

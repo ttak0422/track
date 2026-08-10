@@ -7,7 +7,15 @@ import { headingElementID } from "../markdown/toc";
 import { type PreviewAnchor, type PreviewBounds, initialPreviewBounds } from "./bounds";
 import { useFloating } from "./floatingStore";
 import { NoteWindow } from "./NoteWindow";
-import { nextPreviewStackOrder, previewOpenDelay } from "./stack";
+import {
+  activatePreview,
+  bringPreviewToFront as raisePreviewToFront,
+  createPreviewID,
+  deactivatePreview,
+  previewOpenDelay,
+  releasePreview,
+  usePreviewStackOrder,
+} from "./stack";
 
 interface WikiLinkProps {
   target: string;
@@ -18,7 +26,8 @@ export function WikiLink({ target, display }: WikiLinkProps) {
   const [open, setOpen] = useState(false);
   const [anchor, setAnchor] = useState<PreviewAnchor | null>(null);
   const [sticky, setSticky] = useState(false);
-  const [stackOrder, setStackOrder] = useState(nextPreviewStackOrder);
+  const [previewID] = useState(createPreviewID);
+  const stackOrder = usePreviewStackOrder(previewID);
   const linkRef = useRef<HTMLAnchorElement>(null);
   const closeTimer = useRef<number | undefined>(undefined);
   const openTimer = useRef<number | undefined>(undefined);
@@ -33,10 +42,11 @@ export function WikiLink({ target, display }: WikiLinkProps) {
 
   useEffect(() => {
     return () => {
+      releasePreview(previewID);
       if (closeTimer.current !== undefined) window.clearTimeout(closeTimer.current);
       if (openTimer.current !== undefined) window.clearTimeout(openTimer.current);
     };
-  }, []);
+  }, [previewID]);
 
   // scheduleOpen defers opening on hover until the pointer has rested on the link, so a cursor passing
   // over a column of links does not flash a preview under each one.
@@ -59,7 +69,7 @@ export function WikiLink({ target, display }: WikiLinkProps) {
   function openPreview() {
     holdPreview();
     cancelOpen();
-    bringPreviewToFront();
+    activatePreview(previewID);
     const rect = linkRef.current?.getBoundingClientRect();
     if (rect) {
       setAnchor({ linkLeft: rect.left, linkRight: rect.right, linkTop: rect.top, linkBottom: rect.bottom });
@@ -72,14 +82,17 @@ export function WikiLink({ target, display }: WikiLinkProps) {
   }
 
   function bringPreviewToFront() {
-    setStackOrder(nextPreviewStackOrder());
+    raisePreviewToFront(previewID);
   }
 
   function scheduleClose() {
     cancelOpen();
     if (sticky) return;
     if (closeTimer.current !== undefined) window.clearTimeout(closeTimer.current);
-    closeTimer.current = window.setTimeout(() => setOpen(false), 220);
+    closeTimer.current = window.setTimeout(() => {
+      deactivatePreview(previewID);
+      setOpen(false);
+    }, 220);
   }
 
   // Pinning promotes the transient hover preview into the persistent floating layer at its current
@@ -88,6 +101,7 @@ export function WikiLink({ target, display }: WikiLinkProps) {
     if (noteID === undefined) return;
     floating.open({ kind: "note", noteID }, bounds, collapsed, true);
     setSticky(false);
+    deactivatePreview(previewID);
     setOpen(false);
   }
 
@@ -98,6 +112,7 @@ export function WikiLink({ target, display }: WikiLinkProps) {
 
   function closePreview() {
     setSticky(false);
+    deactivatePreview(previewID);
     setOpen(false);
   }
 

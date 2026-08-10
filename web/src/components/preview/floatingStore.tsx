@@ -2,7 +2,11 @@ import { useRouterState } from "@tanstack/react-router";
 import { createContext, type ReactNode, useCallback, useContext, useEffect, useMemo, useState } from "react";
 import type { NoteID } from "../../types";
 import type { PreviewBounds } from "./bounds";
-import { nextPreviewStackOrder } from "./stack";
+import {
+  bringPreviewToFront,
+  registerPreview,
+  releasePreview,
+} from "./stack";
 
 export type FloatingContent =
   | { kind: "note"; noteID: NoteID }
@@ -17,7 +21,6 @@ export interface FloatingWin {
   // Where/how the window first appears; the window owns its live bounds/collapsed after that.
   initialBounds: PreviewBounds;
   initialCollapsed: boolean;
-  stackOrder: number;
   // Pinned windows persist across navigation; unpinned ones are dropped when the route changes.
   pinned: boolean;
 }
@@ -56,28 +59,35 @@ export function FloatingProvider({ children }: { children: ReactNode }) {
   useEffect(() => {
     setWindows((current) => {
       const kept = current.filter((w) => w.pinned);
+      for (const window of current) {
+        if (!window.pinned) releasePreview(window.id);
+      }
       return kept.length === current.length ? current : kept;
     });
   }, [pathname]);
 
   const open = useCallback<FloatingApi["open"]>((content, initialBounds, initialCollapsed, pinned) => {
     const key = contentKey(content);
+    // Minted outside the updater: React may run an updater more than once for a single call, and an
+    // id drawn from the clock inside it would register a second stack entry that no window ever owns
+    // — so it would never be released, and would hold a rank for the rest of the session.
+    const id = `${key}#${Date.now()}`;
     setWindows((current) => {
       const existing = current.find((w) => contentKey(w.content) === key);
       if (existing) {
-        const order = nextPreviewStackOrder();
+        bringPreviewToFront(existing.id);
         return current.map((w) =>
-          w.id === existing.id ? { ...w, stackOrder: order, pinned: w.pinned || pinned } : w,
+          w.id === existing.id ? { ...w, pinned: w.pinned || pinned } : w,
         );
       }
+      registerPreview(id);
       return [
         ...current,
         {
-          id: `${key}#${Date.now()}`,
+          id,
           content,
           initialBounds,
           initialCollapsed,
-          stackOrder: nextPreviewStackOrder(),
           pinned,
         },
       ];
@@ -89,12 +99,12 @@ export function FloatingProvider({ children }: { children: ReactNode }) {
   }, []);
 
   const remove = useCallback<FloatingApi["remove"]>((id) => {
+    releasePreview(id);
     setWindows((current) => current.filter((w) => w.id !== id));
   }, []);
 
   const bringToFront = useCallback<FloatingApi["bringToFront"]>((id) => {
-    const order = nextPreviewStackOrder();
-    setWindows((current) => current.map((w) => (w.id === id ? { ...w, stackOrder: order } : w)));
+    bringPreviewToFront(id);
   }, []);
 
   const api = useMemo<FloatingApi>(
