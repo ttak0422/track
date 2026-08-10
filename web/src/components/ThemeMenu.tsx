@@ -143,8 +143,9 @@ export function ThemeMenu() {
             // its layer to compete with previews, while the trigger remains in the rail.
             <div ref={overlayRef}>
               <div className="menu-panel rail-menu-panel">
+                <h2 className="rail-panel-title">Settings</h2>
                 <section className="menu-section" aria-label="Theme">
-                  <h2>Theme</h2>
+                  <h3>Theme</h3>
                   <div className="theme-switch" role="group" aria-label="Theme">
                     {themeModes.map((mode) => (
                       <button
@@ -159,7 +160,7 @@ export function ThemeMenu() {
                   </div>
                 </section>
                 <section className="menu-section" aria-label="Text size">
-                  <h2>Text size</h2>
+                  <h3>Text size</h3>
                   <div className="theme-switch" role="group" aria-label="Text size">
                     {fontScales.map((scale) => (
                       <button
@@ -174,7 +175,7 @@ export function ThemeMenu() {
                   </div>
                 </section>
                 <section className="menu-section" aria-label="Content width">
-                  <h2>Content width</h2>
+                  <h3>Content width</h3>
                   <div className="theme-switch" role="group" aria-label="Content width">
                     {contentWidths.map((width) => (
                       <button

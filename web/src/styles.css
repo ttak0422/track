@@ -129,6 +129,7 @@
 .backlinks h3,
 .home-note-list h3,
 .day-tasks h2,
+.rail-panel-title,
 .results-group,
 .code-block[data-language]::before,
 .note-prop dt,
@@ -559,11 +560,19 @@ img.theme-asset-dark {
   border-bottom-color: var(--mark);
 }
 
-.menu-section h2 {
+.menu-section h3 {
   margin: 0 0 8px;
   color: var(--muted);
   font-size: calc(12px * var(--font-scale, 1));
   font-weight: 650;
+}
+
+/* The rail's flyouts open away from the button that summoned them, and a panel of rows says nothing
+   about which button opened it — so each one names itself, with the section label the note aside
+   uses for its regions (variant 6, the shared rule at the top of this file). It sits above the
+   panel's body rather than inside it, so a panel that scrolls cannot carry its own name away. */
+.rail-panel-title {
+  margin: 0 0 8px;
 }
 
 .theme-switch {
@@ -1523,8 +1532,15 @@ a.calendar-title:focus-visible {
 /* Floating layer: the browser's recent-note list shares the aside's backlink text-control idiom. It is
    anchored to its rail button and scrolls within the viewport rather than growing over the workspace. */
 .history-panel {
+  display: flex;
+  flex-direction: column;
   max-width: min(360px, calc(100vw - 88px));
   max-height: 50vh;
+}
+
+/* The rows scroll, not the panel: the title above them stays put. */
+.history-scroll {
+  min-height: 0;
   overflow-y: auto;
 }
 
@@ -1601,9 +1617,16 @@ a.calendar-title:focus-visible {
    one action list. It scrolls rather than growing past the viewport — a vault's whole hierarchy can
    be longer than the screen — and never wider than a reading-comfortable column. */
 .hierarchy-panel {
+  display: flex;
+  flex-direction: column;
   max-width: 280px;
   max-height: 50vh;
   padding: 8px 10px;
+}
+
+/* The tree scrolls, not the panel: the title above it stays put. */
+.hierarchy-scroll {
+  min-height: 0;
   overflow-y: auto;
 }
 

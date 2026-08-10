@@ -53,8 +53,14 @@ describe("SidebarHistory", () => {
       "href",
       "/notes/first",
     );
-    expect(panel.parentElement).toBe(document.body);
-    expect(panel.closest(".sidebar")).toBeNull();
+    // The rail is a fixed stacking context, so the panel has to be a body child to outrank previews.
+    const surface = panel.closest(".history-panel")!;
+    expect(surface.parentElement).toBe(document.body);
+    expect(surface.closest(".sidebar")).toBeNull();
+    // The heading names the panel, and stays out of the menu where only menu items belong.
+    const title = screen.getByRole("heading", { name: "History" });
+    expect(title).toHaveClass("rail-panel-title");
+    expect(title.closest('[role="menu"]')).toBeNull();
   });
 
   it("explains the empty history when there are no recent notes", () => {
