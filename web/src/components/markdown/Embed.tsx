@@ -32,6 +32,9 @@ interface EmbedProps {
   // A CSS length from the `:height` embed option (see remarkEmbedOptions); applied to the HTML-page
   // frame, which otherwise has no intrinsic height. Ignored by intrinsically-sized embeds.
   height?: string;
+  // `none` from the `:frame` embed option removes only the HTML frame chrome; the iframe remains
+  // sandboxed exactly as it is by default.
+  frame?: "none";
 }
 
 // Embed renders a standalone ![alt](src), routing by the kind of target: YouTube links become an
@@ -39,7 +42,7 @@ interface EmbedProps {
 // card. Embedding stays opt-in via the ![...]() syntax so ordinary [text](url) links are never turned
 // into noisy previews. The URL is normalized through webHref so bare domains still resolve, and only
 // http(s)/relative URLs feed an iframe so a note cannot smuggle a javascript: document into the frame.
-export function Embed({ src, alt, height }: EmbedProps) {
+export function Embed({ src, alt, height, frame }: EmbedProps) {
   const kind = useContext(NoteKindContext);
   const vault = useContext(NoteVaultContext);
   // A relative "assets/<file>" reference is served from the vault by the local server. Resolving it here
@@ -97,7 +100,7 @@ export function Embed({ src, alt, height }: EmbedProps) {
     const safe = safeFrameUrl(target);
     if (safe) {
       return (
-        <div className="embed embed-html">
+        <div className={"embed embed-html" + (frame === "none" ? " embed-html-frame-none" : "")}>
           <iframe
             src={safe}
             sandbox="allow-scripts allow-popups"

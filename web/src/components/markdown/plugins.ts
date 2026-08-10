@@ -396,11 +396,11 @@ export function remarkAlert() {
 }
 
 // remarkEmbedOptions reads a trailing Org-style ":key value" tail after a standalone image embed — the
-// same option shape includes and babel use (e.g. `![x](y) :height 360`). Only `:height` is defined: a
-// bare number is px, and `%`/`vh` are treated as viewport height (an iframe in normal flow has no
-// percentage-height basis). The parsed height is attached to the image via hProperties for the Embed
-// component to apply, and the option tail is stripped so the paragraph stays a sole-image block embed.
-const embedHeightPattern = /^:height\s+(\d+)(px|vh|%)?$/i;
+// same option shape includes and babel use. The parsed values are attached to the image via hProperties
+// for the Embed component to apply, and the option tail is stripped so the paragraph stays a sole-image
+// block embed.
+const embedOptionPattern = /:([a-z-]+)\s+([^\s:]+)/gi;
+const embedHeightPattern = /^(\d+)(px|vh|%)?$/i;
 
 function normalizeEmbedHeight(value: string, unit: string): string | null {
   const n = Number(value);
@@ -420,13 +420,37 @@ export function remarkEmbedOptions() {
       if (kids.length !== 2) return;
       const [img, tail] = kids;
       if (img.type !== "image" || tail.type !== "text") return;
-      const m = embedHeightPattern.exec(tail.value.trim());
-      if (!m) return; // an unrecognized ":..." tail is left as visible text rather than silently dropped
-      const height = normalizeEmbedHeight(m[1], (m[2] ?? "").toLowerCase());
-      if (!height) return;
+      const value = tail.value.trim();
+      let cursor = 0;
+      let height: string | undefined;
+      let frame: "none" | undefined;
+      let match: RegExpExecArray | null;
+      let found = false;
+      // A malformed tail can return before exec reaches null, so do not carry its cursor into the
+      // next paragraph visited by this plugin.
+      embedOptionPattern.lastIndex = 0;
+      while ((match = embedOptionPattern.exec(value)) !== null) {
+        found = true;
+        if (value.slice(cursor, match.index).trim() !== "") return;
+        cursor = embedOptionPattern.lastIndex;
+        const key = match[1].toLowerCase();
+        if (key === "height") {
+          const heightMatch = embedHeightPattern.exec(match[2]);
+          if (!heightMatch) return;
+          height = normalizeEmbedHeight(heightMatch[1], (heightMatch[2] ?? "").toLowerCase()) ?? undefined;
+          if (!height) return;
+        } else if (key === "frame" && match[2].toLowerCase() === "none") {
+          frame = "none";
+        } else {
+          // An unrecognized or malformed option is left as visible text rather than silently dropped.
+          return;
+        }
+      }
+      if (!found || value.slice(cursor).trim() !== "" || (!height && !frame)) return;
       const data = (img.data ??= {});
       const props = (data.hProperties ??= {});
-      props.embedHeight = height;
+      if (height) props.embedHeight = height;
+      if (frame) props.embedFrame = frame;
       node.children = [img]; // drop the tail so the paragraph is a sole image again
     });
   };
