@@ -1,4 +1,4 @@
-import { render, waitFor } from "@testing-library/react";
+import { fireEvent, render, waitFor } from "@testing-library/react";
 import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
 import { GraphCanvas } from "./GraphCanvas";
 
@@ -51,6 +51,19 @@ const graph = {
     { note_id: "neighbor", file_kind: "note", title: "Neighbor" },
   ],
   edges: [{ source_id: "center", target_id: "neighbor" }],
+};
+
+const longTitleGraph = {
+  center_id: "center",
+  nodes: [
+    {
+      note_id: "center",
+      file_kind: "note",
+      title: "A title that is deliberately much longer than twenty-four characters",
+      center: true,
+    },
+  ],
+  edges: [],
 };
 
 let context: CanvasMock;
@@ -113,5 +126,26 @@ describe("GraphCanvas node painting", () => {
 
     document.documentElement.style.removeProperty("--line-node");
     vi.unstubAllGlobals();
+  });
+
+  it("shows the full title for the hovered node and measures that title for its backdrop", async () => {
+    vi.stubGlobal(
+      "ResizeObserver",
+      class {
+        observe() {}
+        disconnect() {}
+      },
+    );
+    const { container } = render(
+      <GraphCanvas graph={longTitleGraph} onSelect={vi.fn()} resetToken={0} focusNodeID="center" />,
+    );
+    const canvas = container.querySelector("canvas")!;
+    context.measureText.mockClear();
+
+    fireEvent.pointerMove(canvas, { clientX: 0, clientY: 0 });
+
+    await waitFor(() => {
+      expect(context.measureText).toHaveBeenCalledWith(longTitleGraph.nodes[0].title);
+    });
   });
 });

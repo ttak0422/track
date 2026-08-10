@@ -48,6 +48,18 @@ describe("content width", () => {
   });
 });
 
+describe("enlarged local graph", () => {
+  it("uses a viewport-relative size without a desktop pixel cap", () => {
+    const lightboxRule = ruleBody(".graph-lightbox");
+
+    expect(lightboxRule).toMatch(/width:\s*80vw/);
+    expect(lightboxRule).toMatch(/height:\s*80vh/);
+    expect(css).toMatch(
+      /@media\s*\(max-width:\s*960px\)[\s\S]*?\.graph-lightbox\s*\{[\s\S]*?width:\s*92vw[\s\S]*?height:\s*84vh/,
+    );
+  });
+});
+
 describe("sidebar at short viewport heights", () => {
   it("reserves the tab row and an 8px gap above a quarter-centred rail", () => {
     const reservedTabRow = Number(ruleBody(".reader-pane").match(/padding-top:\s*(\d+)px/)?.[1]);

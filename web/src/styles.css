@@ -3816,14 +3816,21 @@ textarea.modal-input:focus-visible {
 .graph-lightbox {
   display: flex;
   flex-direction: column;
-  width: min(92vw, 1100px);
-  height: min(84vh, 720px);
+  width: 80vw;
+  height: 80vh;
   border: 1px solid var(--line);
   border-radius: var(--radius-lg);
   padding: 0;
   overflow: hidden;
   background: var(--panel);
   box-shadow: 0 24px 60px rgb(0 0 0 / 28%);
+}
+
+@media (max-width: 960px) {
+  .graph-lightbox {
+    width: 92vw;
+    height: 84vh;
+  }
 }
 
 .graph-lightbox::backdrop {
