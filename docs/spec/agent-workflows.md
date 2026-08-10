@@ -6,6 +6,11 @@ This document is a tool-neutral guide for agents that use track through the CLI.
 
 All commands except `version` print one compact JSON object on stdout. Failures print `{"error":"..."}` and exit 1. Agents should parse JSON instead of scraping human text.
 
+`track export-site` writes its static HTML site under `--out` and, when `--base-url` is supplied, also
+writes `<out>/sitemap.xml` and `<out>/robots.txt`. The sitemap contains only the pages emitted by that
+export; the robots file points to the absolute sitemap URL. Without a base URL neither crawler file is
+written.
+
 Configuration is split by ownership (ADR 0050). The machine config — the platform user config file, typically `~/.config/track/config.yml` on XDG-style systems and `~/Library/Application Support/track/config.yml` on macOS — owns machine and user values: which vault is active (`default_vault` with a registry, else `vault_dir`; `$HOME/track` when unset, ADR 0015), `cache_dir`, `web.theme`/`web.colors_path`, and the `vaults:` registry. The vault config `<vault>/.track/config.yml` owns the note semantics that travel with the vault: `task_states`, `properties`, `queries`, `icons`, date formats, default templates, `capture_inbox`, `archive_note`, `web.home`, `gen_keep`, and `extensions`. Both files are decoded strictly — a key in the wrong file is a hard error. Any key can be overridden from the environment by one rule: `TRACK_` plus the key in upper snake case (`TRACK_CACHE_DIR`, `TRACK_GEN_KEEP`, `TRACK_CAPTURE_INBOX`, `TRACK_VAULTS_<NAME>`); each variable sets exactly the thing it names. `TRACK_CONFIG` and `TRACK_VAULT` sit outside the rule because neither names a key — the first is the config file, the second selects the active vault **by path**, which is how an unregistered vault is addressed. The SQLite index is a rebuildable cache; authoritative per-note metadata lives under `.track/notes/` and must be backed up with note bodies.
 
 ## Vault Selection

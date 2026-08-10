@@ -28,7 +28,7 @@ func cmdExportSite(args []string) int {
 	frontend := fs.String("frontend", "", "static-mode frontend build directory to copy into the site")
 	out := fs.String("out", "", "output directory")
 	calendar := fs.Bool("calendar", false, "include the calendar view and per-day pages")
-	baseURL := fs.String("base-url", "", "absolute site origin (https://example.com/site) for og:image/og:url; omitted, those tags are skipped")
+	baseURL := fs.String("base-url", "", "absolute site origin (https://example.com/site) for og:image/og:url, sitemap.xml, and robots.txt; omitted, those files are skipped")
 	share := fs.Bool("share", false, "include X and copy-link actions below static notes; requires --base-url")
 	if code, ok := parseArgs(fs, args); !ok {
 		return code

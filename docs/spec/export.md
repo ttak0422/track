@@ -122,6 +122,14 @@ opt-in: it adds X and copy-link actions below each static note, and requires `--
 have an absolute published URL. It is off by default, which keeps the documentation site free of sharing
 controls.
 
+When `--base-url` is present, the export also writes `sitemap.xml` with every HTML page it publishes:
+the root, selected note pages (using each note's resolved or pinned `slug:`), graph and empty pages,
+used tag pages and their ancestors, and—when `--calendar` is set—the calendar and activity/task-date
+day pages. Assets, encrypted bundle files, `/tasks/`, and disabled calendar routes are not listed. Note
+URLs carry `lastmod` from the note body's indexed file mtime; generated view URLs omit it. The export
+also writes `robots.txt` pointing at that absolute sitemap URL. Without `--base-url`, both files are
+omitted because a sitemap cannot contain relative locators.
+
 There used to be a second input mode: `--src <dir>` published a directory of plain Markdown outside any vault, with a `site.yml` standing in for the sidecars it did not have. It is gone (ADR 0059). A vault does everything it did — and a directory can become one: pin each page's current address in its sidecar (`slug:`, see [storage.md](storage.md)) so no published URL moves, since the slug is otherwise derived from the note id. This repository's own help site made exactly that move.
 
 Two things the directory mode did that a vault does not. It resolved `[[links]]` by file base name as well as by title; a vault resolves by title, as everywhere else in track. And its link graph kept self-edges, which the index drops (`ReplaceLinks`) — so a page that links to itself does not appear in its own backlinks, matching the live workspace.

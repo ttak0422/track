@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"encoding/base64"
 	"encoding/json"
+	"encoding/xml"
 	"os"
 	"path/filepath"
 	"regexp"
@@ -767,6 +768,123 @@ func TestBuildWritesPerNoteOGP(t *testing.T) {
 	coverName := newAssetNamer().name(filepath.Join(cfg.VaultDir, "assets"), "cover.png")
 	if !strings.Contains(page2, `<meta property="og:image" content="https://example.com/site/assets/`+coverName+`">`) {
 		t.Fatalf("with base url, child page should carry an absolute og:image: %s", page2)
+	}
+}
+
+func TestBuildWritesSitemapForPublishedPages(t *testing.T) {
+	cfg, s := vaultStore(t)
+	writeVaultNoteMeta(t, cfg, 100, "# Home\n", note.Metadata{Title: "Home", Tags: []string{"docs"}, Days: []string{"2026-07-01"}})
+	writeVaultNoteMeta(t, cfg, 200, "# Child\n\n- [ ] planned [due:2026-07-08]\n", note.Metadata{
+		Title: "Child", Tags: []string{"docs/guide"}, Slug: "legacy-child", Days: []string{"2026-07-02"},
+	})
+	writeVaultNoteMeta(t, cfg, 300, "# Other\n", note.Metadata{Title: "Other"})
+	for id, stamp := range map[int64]time.Time{
+		100: time.Date(2026, 7, 1, 10, 0, 0, 0, time.UTC),
+		200: time.Date(2026, 7, 2, 11, 0, 0, 0, time.UTC),
+		300: time.Date(2026, 7, 3, 12, 0, 0, 0, time.UTC),
+	} {
+		if err := os.Chtimes(cfg.NotePath(id), stamp, stamp); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if _, err := index.New(cfg, s).Full(); err != nil {
+		t.Fatalf("index: %v", err)
+	}
+
+	out := t.TempDir()
+	if _, err := Build(cfg, s, Options{
+		Root: 100, IDs: []int64{200, 300}, Calendar: true, BaseURL: "https://example.com/track/",
+	}, fakeFrontend(t), out); err != nil {
+		t.Fatalf("build: %v", err)
+	}
+
+	var sitemap struct {
+		URLs []struct {
+			Loc     string `xml:"loc"`
+			Lastmod string `xml:"lastmod"`
+		} `xml:"url"`
+	}
+	raw, err := os.ReadFile(filepath.Join(out, "sitemap.xml"))
+	if err != nil {
+		t.Fatalf("read sitemap: %v", err)
+	}
+	if err := xml.Unmarshal(raw, &sitemap); err != nil {
+		t.Fatalf("parse sitemap: %v\n%s", err, raw)
+	}
+
+	base := "https://example.com/track"
+	want := map[string]string{
+		base + "/":                              "2026-07-01T10:00:00Z",
+		base + "/notes/" + PublishID(100) + "/": "2026-07-01T10:00:00Z",
+		base + "/notes/legacy-child/":           "2026-07-02T11:00:00Z",
+		base + "/notes/" + PublishID(300) + "/": "2026-07-03T12:00:00Z",
+		base + "/graph/":                        "",
+		base + "/empty/":                        "",
+		base + "/calendar/":                     "",
+		base + "/day/2026-07-01/":               "",
+		base + "/day/2026-07-02/":               "",
+		base + "/day/2026-07-08/":               "",
+		base + "/tags/docs/":                    "",
+		base + "/tags/docs/guide/":              "",
+	}
+	got := make(map[string]string, len(sitemap.URLs))
+	for _, entry := range sitemap.URLs {
+		got[entry.Loc] = entry.Lastmod
+	}
+	if len(got) != len(want) {
+		t.Fatalf("sitemap URL count = %d, want %d: %v", len(got), len(want), got)
+	}
+	for loc, lastmod := range want {
+		if got[loc] != lastmod {
+			t.Errorf("sitemap %s lastmod = %q, want %q", loc, got[loc], lastmod)
+		}
+	}
+	for _, forbidden := range []string{"/tasks/", "/assets/", "/data/", ".bin"} {
+		if strings.Contains(string(raw), forbidden) {
+			t.Errorf("sitemap must not list %q: %s", forbidden, raw)
+		}
+	}
+	if !fileExists(filepath.Join(out, "notes", "legacy-child", "index.html")) {
+		t.Fatal("pinned slug page was not written")
+	}
+
+	robots, err := os.ReadFile(filepath.Join(out, "robots.txt"))
+	if err != nil {
+		t.Fatalf("read robots.txt: %v", err)
+	}
+	if string(robots) != "User-agent: *\nSitemap: https://example.com/track/sitemap.xml\n" {
+		t.Fatalf("robots.txt = %q", robots)
+	}
+}
+
+func TestBuildSkipsSitemapWithoutBaseURL(t *testing.T) {
+	cfg, s := vaultStore(t)
+	writeVaultNoteMeta(t, cfg, 100, "# Home\n", note.Metadata{Title: "Home"})
+	if _, err := index.New(cfg, s).Full(); err != nil {
+		t.Fatalf("index: %v", err)
+	}
+	out := t.TempDir()
+	if _, err := Build(cfg, s, Options{Root: 100}, fakeFrontend(t), out); err != nil {
+		t.Fatalf("build: %v", err)
+	}
+	for _, name := range []string{"sitemap.xml", "robots.txt"} {
+		if fileExists(filepath.Join(out, name)) {
+			t.Fatalf("%s should be omitted when no absolute base URL is configured", name)
+		}
+	}
+}
+
+func TestBuildRejectsInvalidBaseURL(t *testing.T) {
+	cfg, s := vaultStore(t)
+	writeVaultNoteMeta(t, cfg, 100, "# Home\n", note.Metadata{Title: "Home"})
+	if _, err := index.New(cfg, s).Full(); err != nil {
+		t.Fatalf("index: %v", err)
+	}
+	for _, baseURL := range []string{"example.com/site", "https://example.com/site?preview=1", "ftp://example.com/site"} {
+		_, err := Build(cfg, s, Options{Root: 100, BaseURL: baseURL}, fakeFrontend(t), t.TempDir())
+		if err == nil || !strings.Contains(err.Error(), "base-url") {
+			t.Errorf("Build(%q) error = %v, want a base-url validation error", baseURL, err)
+		}
 	}
 }
 
