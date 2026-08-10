@@ -1,6 +1,18 @@
 import { useNavigate } from "@tanstack/react-router";
-import { createContext, type ReactNode, useCallback, useContext, useMemo, useState } from "react";
+import {
+  createContext,
+  type ReactNode,
+  useCallback,
+  useContext,
+  useEffect,
+  useMemo,
+  useState,
+} from "react";
 import type { NoteID } from "./types";
+
+// How long a toast stays up. Long enough to read the longest message this app raises (the task
+// conflict notice) and still reach for it, short enough that it is gone before it becomes furniture.
+const toastLifetime = 8000;
 
 // One toast: a message, plus the note it navigates to when it announces a note update. A notification
 // without a noteID is a plain message with no navigation.
@@ -38,6 +50,16 @@ export function NotificationProvider({ children }: { children: ReactNode }) {
 export function NotificationToast() {
   const { notification, dismiss } = useNotifications();
   const navigate = useNavigate();
+  // A toast reports something that already happened, so it expires on its own rather than waiting to
+  // be dismissed — otherwise a vault update from an hour ago is still sitting over the corner of the
+  // reader. Each new notification is a fresh object, so an identical message repeated later restarts
+  // the clock instead of inheriting the old one.
+  useEffect(() => {
+    if (!notification) return;
+    const timer = window.setTimeout(dismiss, toastLifetime);
+    return () => window.clearTimeout(timer);
+  }, [notification, dismiss]);
+
   if (!notification) return null;
   const { message, noteID } = notification;
 

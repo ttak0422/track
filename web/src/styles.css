@@ -3882,7 +3882,8 @@ textarea.modal-input:focus-visible {
   color: var(--danger);
 }
 
-/* Floating layer: a task conflict needs to remain visible above the workspace until dismissed. */
+/* Floating layer: a toast reports something that already happened, so for the seconds it is up it
+   must clear the workspace rather than be covered by it. */
 .notification-toast {
   position: fixed;
   right: 20px;
