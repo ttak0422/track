@@ -490,7 +490,9 @@ export function GraphCanvas({
       const radius = (nodeRadius(node) * ratio) / view.scale;
       const x = node.x * ratio;
       const y = node.y * ratio;
-      const label = trim(node.title || `#${node.note_id}`, 24);
+      const label = hovered
+        ? node.title || `#${node.note_id}`
+        : trim(node.title || `#${node.note_id}`, 24);
       const fontPx = (labelFontSize * ratio) / view.scale;
       const padX = (5 * ratio) / view.scale;
       const padY = (3 * ratio) / view.scale;
