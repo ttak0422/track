@@ -65,4 +65,8 @@ describe("sidebar at short viewport heights", () => {
       /<nav className="activity-rail"[\s\S]*<div className="rail-scroll">[\s\S]*<\/div>[\s\S]*?<ThemeMenu \/>/,
     );
   });
+
+  it("drops the brand mark on the page the brand mark links to", () => {
+    expect(shell).toMatch(/\{isHome \? null : \([\s\S]*?className="rail-button rail-brand"/);
+  });
 });

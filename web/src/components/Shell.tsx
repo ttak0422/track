@@ -66,15 +66,20 @@ export function Shell() {
           <aside className="sidebar">
             <nav className="activity-rail" aria-label="Workspace views">
               <div className="rail-scroll">
-                {/* On the static site "/" is the start page; on the live server it is the heatmap home. */}
-                <Link
-                  className="rail-button rail-brand"
-                  to="/"
-                  aria-label={STATIC_MODE ? "Start page" : "track home"}
-                  title={STATIC_MODE ? "Start page" : "track home"}
-                >
-                  <BrandMark icon={site.data?.icon} className="rail-mark" />
-                </Link>
+                {/* On the static site "/" is the start page; on the live server it is the heatmap home.
+                    The mark is only there to get back there, so on "/" itself it is a link to the page
+                    you are reading — and on the search hero it is the second copy of a wordmark that
+                    page already shows at full size. */}
+                {isHome ? null : (
+                  <Link
+                    className="rail-button rail-brand"
+                    to="/"
+                    aria-label={STATIC_MODE ? "Start page" : "track home"}
+                    title={STATIC_MODE ? "Start page" : "track home"}
+                  >
+                    <BrandMark icon={site.data?.icon} className="rail-mark" />
+                  </Link>
+                )}
                 <SidebarSearch />
                 {/* The published static site is read-only and cannot create journals. */}
                 {!STATIC_MODE && (
