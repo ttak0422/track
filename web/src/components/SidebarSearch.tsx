@@ -13,7 +13,13 @@ export function SidebarSearch() {
 
   useEffect(() => {
     function onOpenKey(event: KeyboardEvent) {
-      if (open || !keys.openSearch(event) || isTypingTarget(event.target)) return;
+      if (open) return;
+      // The typing guard belongs to the bare "/" alone — it is a character someone may be writing.
+      // The chord never could have been text, so it opens search from the editor as well, where it
+      // is most useful and where "/" is correctly ignored.
+      const opens =
+        keys.openSearchChord(event) || (keys.openSearch(event) && !isTypingTarget(event.target));
+      if (!opens) return;
       event.preventDefault();
       setOpen(true);
     }
