@@ -507,3 +507,21 @@ export function rehypeTaskCheck() {
     });
   };
 }
+
+// rehypeCopyLine puts source spans on rendered top-level blocks. Marking inline nodes would make a
+// long paragraph more precise, but would turn every link, emphasis run, and word-break wrapper into
+// selection bookkeeping; the block span is the quieter tradeoff for this action.
+export function rehypeCopyLine() {
+  return (tree: HastRoot) => {
+    for (const node of tree.children) {
+      if (node.type !== "element") continue;
+      const start = node.position?.start?.line;
+      const end = node.position?.end?.line;
+      if (start === undefined || end === undefined) continue;
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const properties = (node.properties ??= {}) as any;
+      properties.dataCopyLineStart = start;
+      properties.dataCopyLineEnd = end;
+    }
+  };
+}

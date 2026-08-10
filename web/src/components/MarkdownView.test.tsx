@@ -116,6 +116,70 @@ describe("MarkdownView", () => {
     expect(await screen.findByRole("button", { name: "Title copied" })).toBeInTheDocument();
   });
 
+  it("offers a copy range for a cross-block selection and keeps it for a backwards drag", async () => {
+    copyText.mockReset();
+    copyText.mockResolvedValue(true);
+    const { container } = render(
+      <MarkdownView copyPath="notes/project.md" markdown={"first block\n\nsecond block"} />,
+    );
+    const paragraphs = container.querySelectorAll("p");
+    expect(paragraphs[0]).toHaveAttribute("data-copy-line-start", "1");
+    expect(paragraphs[0]).toHaveAttribute("data-copy-line-end", "1");
+    expect(paragraphs[1]).toHaveAttribute("data-copy-line-start", "3");
+
+    const selection = window.getSelection()!;
+    const first = paragraphs[0].firstChild!;
+    const second = paragraphs[1].firstChild!;
+    selection.setBaseAndExtent(first, 1, second, 6);
+    fireEvent(document, new Event("selectionchange"));
+    expect(screen.getByRole("button", { name: "Copy range" })).toBeInTheDocument();
+
+    selection.setBaseAndExtent(second, 6, first, 1);
+    fireEvent(document, new Event("selectionchange"));
+    fireEvent.click(screen.getByRole("button", { name: "Copy range" }));
+    await waitFor(() => expect(copyText).toHaveBeenCalledWith("notes/project.md:1-3"));
+  });
+
+  it("uses a one-line reference for a selection within one source line", async () => {
+    copyText.mockReset();
+    copyText.mockResolvedValue(true);
+    const { container } = render(
+      <MarkdownView copyPath="notes/project.md" markdown="single line" />,
+    );
+    const text = container.querySelector("p")!.firstChild!;
+    const selection = window.getSelection()!;
+    selection.setBaseAndExtent(text, 0, text, 6);
+    fireEvent(document, new Event("selectionchange"));
+    fireEvent.click(screen.getByRole("button", { name: "Copy range" }));
+    await waitFor(() => expect(copyText).toHaveBeenCalledWith("notes/project.md:1"));
+  });
+
+  it("offers nothing when the selection has no marked note line", () => {
+    const { container } = render(
+      <MarkdownView copyPath="notes/project.md" title="Project" markdown="body" />,
+    );
+    const title = container.querySelector("h1.note-title")!.firstChild!;
+    const selection = window.getSelection()!;
+    selection.setBaseAndExtent(title, 0, title, title.textContent!.length);
+    fireEvent(document, new Event("selectionchange"));
+    expect(screen.queryByRole("button", { name: "Copy range" })).not.toBeInTheDocument();
+  });
+
+  it("offers nothing for text inside a diagram SVG", () => {
+    const { container } = render(<MarkdownView copyPath="notes/project.md" markdown="body" />);
+    const paragraph = container.querySelector("p")!;
+    const svg = document.createElementNS("http://www.w3.org/2000/svg", "svg");
+    const label = document.createElementNS("http://www.w3.org/2000/svg", "text");
+    label.textContent = "chart label";
+    svg.append(label);
+    paragraph.append(svg);
+    const text = label.firstChild!;
+    const selection = window.getSelection()!;
+    selection.setBaseAndExtent(text, 0, text, text.textContent!.length);
+    fireEvent(document, new Event("selectionchange"));
+    expect(screen.queryByRole("button", { name: "Copy range" })).not.toBeInTheDocument();
+  });
+
   it("gives headings the ids their outline links to, counting repeats", () => {
     const { container } = render(<MarkdownView markdown={"# Intro\n## Intro\n### 設計"} />);
     expect(container.querySelector("h1")?.id).toBe("h-intro");

@@ -456,6 +456,7 @@ export function NoteEditor({ noteID }: NoteEditorProps) {
                         kind={note.file_kind}
                         vault={noteVault}
                         includes={renderQuery.data?.includes}
+                        copyPath={note.copy_path}
                       />
                     </TaskBoardContext.Provider>
                   )}
