@@ -68,6 +68,23 @@ export function ThemeMenu() {
     document.documentElement.dataset.contentWidth = contentWidth;
   }, [contentWidth]);
 
+  // Hover opens and closes the menu, both on a timer. Opening waits so that sweeping the pointer down
+  // the rail does not flash the panel under every button it crosses; closing waits so the pointer can
+  // cross the gap between the rail and the panel without the panel going out from under it.
+  const hoverTimer = useRef<number | undefined>(undefined);
+
+  function cancelHover() {
+    if (hoverTimer.current !== undefined) window.clearTimeout(hoverTimer.current);
+    hoverTimer.current = undefined;
+  }
+
+  function scheduleOpen(next: boolean) {
+    cancelHover();
+    hoverTimer.current = window.setTimeout(() => setOpen(next), next ? 180 : 220);
+  }
+
+  useEffect(() => cancelHover, []);
+
   useEffect(() => {
     if (!open) {
       return;
@@ -97,7 +114,15 @@ export function ThemeMenu() {
   }, [open]);
 
   return (
-    <div className="app-menu" ref={menuRef}>
+    // The panel is fixed and so sits in a gap beside the rail, but it stays a DOM descendant of this
+    // container, so pointer events from it still count as being in the menu. Crossing that gap does
+    // fire a leave, hence the delay: it is long enough to cross and short enough not to feel stuck.
+    <div
+      className="app-menu"
+      ref={menuRef}
+      onPointerEnter={() => scheduleOpen(true)}
+      onPointerLeave={() => scheduleOpen(false)}
+    >
       <button
         className="rail-button"
         type="button"
@@ -105,7 +130,10 @@ export function ThemeMenu() {
         title="Settings"
         aria-haspopup="true"
         aria-expanded={open}
-        onClick={() => setOpen((value) => !value)}
+        onClick={() => {
+          cancelHover();
+          setOpen((value) => !value);
+        }}
       >
         <GearIcon />
       </button>
