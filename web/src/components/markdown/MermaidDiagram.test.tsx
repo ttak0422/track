@@ -1,4 +1,4 @@
-import { fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { afterEach, beforeAll, describe, expect, it, vi } from "vitest";
 import {
   computeCollapsedFit,
@@ -160,10 +160,12 @@ describe("DiagramFrame tall-diagram preview", () => {
 describe("DiagramFrame wide-diagram clipping", () => {
   // Mounts a panW×panH diagram in a 500px viewport and returns the mounted handles plus the
   // layout-mock teardown.
-  function setupWide(panW = 2000, panH = 300) {
+  function setupWide(panW = 2000, panH = 300, popupW = 500) {
     const clientWidth = vi
       .spyOn(HTMLElement.prototype, "clientWidth", "get")
-      .mockReturnValue(500);
+      .mockImplementation(function (this: HTMLElement) {
+        return this.closest("dialog") ? popupW : 500;
+      });
     const offsetWidth = vi
       .spyOn(HTMLElement.prototype, "offsetWidth", "get")
       .mockImplementation(function (this: HTMLElement) {
@@ -214,13 +216,22 @@ describe("DiagramFrame wide-diagram clipping", () => {
   });
 
   it("opens the full diagram in a popup", () => {
-    const { container, restore } = setupWide();
+    const { container, restore } = setupWide(2000, 300, 2000);
 
     fireEvent.click(screen.getByRole("button", { name: "Open diagram in popup" }));
     const dialog = container.querySelector("dialog.diagram-lightbox") as HTMLDialogElement;
     expect(dialog).toBeInTheDocument();
     expect(dialog.open).toBe(true);
     expect(dialog.querySelector("svg")).toBeInTheDocument();
+    expect(dialog.querySelector(".diagram-lightbox-controls")).toBeInTheDocument();
+    expect(dialog.querySelectorAll(".diagram-lightbox-controls .mermaid-control")).toHaveLength(4);
+    expect(screen.queryByRole("button", { name: "Collapse diagram" })).not.toBeInTheDocument();
+
+    fireEvent.click(within(dialog).getByRole("button", { name: "Zoom in" }));
+    const popupTransform = dialog.querySelector(".mermaid-pan")?.getAttribute("style") ?? "";
+    const inlineTransform = container.querySelector(".mermaid-viewport > .mermaid-pan")?.getAttribute("style") ?? "";
+    expect(Number(popupTransform.match(/scale\(([^)]+)\)/)?.[1])).toBeGreaterThan(0.75);
+    expect(inlineTransform).toContain("scale(0.75)");
 
     fireEvent.click(screen.getByRole("button", { name: "Close diagram popup" }));
     expect(container.querySelector("dialog.diagram-lightbox")).not.toBeInTheDocument();

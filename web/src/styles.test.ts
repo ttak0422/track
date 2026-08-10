@@ -4,6 +4,7 @@ import { describe, expect, it } from "vitest";
 
 const css = readFileSync("src/styles.css", "utf8");
 const shell = readFileSync("src/components/Shell.tsx", "utf8");
+const mermaid = readFileSync("src/components/markdown/MermaidDiagram.tsx", "utf8");
 
 function ruleBody(selector: string): string {
   const escaped = selector.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
@@ -45,6 +46,37 @@ describe("content width", () => {
     const propsRule = css.match(/\.note-props\s*\{([^}]*)\}/)?.[1] ?? "";
 
     expect(propsRule).toMatch(/max-width:\s*var\(--content-measure\)/);
+  });
+
+  it("lets shared diagram frames bleed to the window while keeping their prose-centred origin", () => {
+    const diagramRule = ruleBody(".markdown-view > .mermaid-diagram");
+
+    expect(diagramRule).toMatch(/width:\s*100vw/);
+    expect(diagramRule).toMatch(/max-width:\s*100vw/);
+    expect(diagramRule).toMatch(/margin-left:\s*-50vw/);
+    expect(diagramRule).toMatch(/left:\s*50%/);
+  });
+
+  it("clips full-bleed diagrams without taking ownership of vertical reading scroll", () => {
+    const readerRule = ruleBody(".reader");
+
+    expect(readerRule).toMatch(/overflow-x:\s*clip/);
+    expect(readerRule).toMatch(/overflow-y:\s*auto/);
+  });
+
+  it("leaves horizontal overflow to tables and diagram viewports", () => {
+    expect(ruleBody(".markdown-view table")).toMatch(/overflow-x:\s*auto/);
+    expect(ruleBody(".mermaid-viewport")).toMatch(/overflow:\s*hidden/);
+  });
+});
+
+describe("diagram controls", () => {
+  it("keeps the expand control in the shared quiet-chip row", () => {
+    const controlsRule = css.match(/(?:^|\n)\.mermaid-controls\s*\{([^}]*)\}/)?.[1] ?? "";
+
+    expect(controlsRule).toMatch(/display:\s*flex/);
+    expect(controlsRule).toMatch(/flex-direction:\s*row/);
+    expect(mermaid).toMatch(/<div className="mermaid-controls">[\s\S]*className="mermaid-control mermaid-open"/);
   });
 });
 

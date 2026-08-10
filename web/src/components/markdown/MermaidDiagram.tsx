@@ -65,8 +65,8 @@ export function DiagramFrame({ state, source, sourceLang, label, className }: Di
   const svg = state.status === "ready" ? state.svg : null;
   const panZoom = usePanZoom(svg);
   const [enlarged, setEnlarged] = useState(false);
+  const lightboxPanZoom = usePanZoom(enlarged ? svg : null, { collapseTall: false });
   const dialogRef = useRef<HTMLDialogElement>(null);
-  const lightboxPanRef = useRef<HTMLDivElement>(null);
   // A stable element per svg string: pan/zoom re-renders reuse it untouched, so react-dom never
   // rewrites the innerHTML — which would both discard sizeSvgToViewBox's sizing and re-parse a large
   // SVG on every drag frame.
@@ -79,10 +79,6 @@ export function DiagramFrame({ state, source, sourceLang, label, className }: Di
   useEffect(() => {
     const dialog = dialogRef.current;
     if (enlarged && svg && dialog && !dialog.open) dialog.showModal();
-  }, [enlarged, svg]);
-
-  useLayoutEffect(() => {
-    if (enlarged && svg && lightboxPanRef.current) sizeSvgToViewBox(lightboxPanRef.current);
   }, [enlarged, svg]);
 
   if (state.status === "error") {
@@ -187,19 +183,19 @@ export function DiagramFrame({ state, source, sourceLang, label, className }: Di
           >
             ↺
           </button>
+          {showPopupControl ? (
+            <button
+              className="mermaid-control mermaid-open"
+              type="button"
+              onClick={() => setEnlarged(true)}
+              aria-label="Open diagram in popup"
+              title="Open diagram in popup"
+            >
+              ⛶
+            </button>
+          ) : null}
         </div>
       )}
-      {showPopupControl ? (
-        <button
-          className="mermaid-control mermaid-open"
-          type="button"
-          onClick={() => setEnlarged(true)}
-          aria-label="Open diagram in popup"
-          title="Open diagram in popup"
-        >
-          ⛶
-        </button>
-      ) : null}
       {enlarged && svg ? (
         <dialog
           ref={dialogRef}
@@ -209,6 +205,36 @@ export function DiagramFrame({ state, source, sourceLang, label, className }: Di
             if (event.target === dialogRef.current) dialogRef.current.close();
           }}
         >
+          <div className="mermaid-controls diagram-lightbox-controls">
+            <CopySource text={source} />
+            <button
+              className="mermaid-control"
+              type="button"
+              onClick={() => lightboxPanZoom.zoomBy(zoomStep)}
+              aria-label="Zoom in"
+              title="Zoom in"
+            >
+              +
+            </button>
+            <button
+              className="mermaid-control"
+              type="button"
+              onClick={() => lightboxPanZoom.zoomBy(1 / zoomStep)}
+              aria-label="Zoom out"
+              title="Zoom out"
+            >
+              −
+            </button>
+            <button
+              className="mermaid-control"
+              type="button"
+              onClick={lightboxPanZoom.reset}
+              aria-label="Reset diagram view"
+              title="Reset diagram view"
+            >
+              ↺
+            </button>
+          </div>
           <button
             className="mermaid-control diagram-lightbox-close"
             type="button"
@@ -219,8 +245,26 @@ export function DiagramFrame({ state, source, sourceLang, label, className }: Di
             ×
           </button>
           <div className={`diagram-lightbox-content ${className ?? ""}`}>
-            <div ref={lightboxPanRef} className="mermaid-pan" role="img" aria-label={label}>
-              <div dangerouslySetInnerHTML={{ __html: svg }} />
+            <div
+              className="mermaid-viewport"
+              ref={lightboxPanZoom.viewportRef}
+              style={
+                lightboxPanZoom.viewportHeight != null ? { height: lightboxPanZoom.viewportHeight } : undefined
+              }
+              {...lightboxPanZoom.handlers}
+            >
+              <div
+                ref={lightboxPanZoom.panRef}
+                className="mermaid-pan"
+                style={{
+                  transform: `translate(${lightboxPanZoom.transform.x}px, ${lightboxPanZoom.transform.y}px) scale(${lightboxPanZoom.transform.scale})`,
+                  transformOrigin: "0 0",
+                }}
+                role="img"
+                aria-label={label}
+              >
+                {svgHost}
+              </div>
             </div>
           </div>
         </dialog>
@@ -305,7 +349,7 @@ const autoCollapseHeight = 480;
 // normal fit scale inside a clipped collapsedHeight preview, interactions off, with a labelled fold
 // toggle to expand. `svg` is the rendered markup (null until ready), used to re-fit
 // whenever the diagram changes.
-function usePanZoom(svg: string | null) {
+function usePanZoom(svg: string | null, { collapseTall = true }: { collapseTall?: boolean } = {}) {
   const [transform, setTransform] = useState<Transform>(identityTransform);
   const [viewportHeight, setViewportHeight] = useState<number | null>(null);
   const [collapsed, setCollapsed] = useState(false);
@@ -366,7 +410,7 @@ function usePanZoom(svg: string | null) {
     idealScaleRef.current = measureIdealScale(viewport);
     touchedRef.current = false;
     const { height } = computeFit(naturalW, naturalH, viewport.clientWidth, idealScaleRef.current);
-    const startCollapsed = height > autoCollapseHeight;
+    const startCollapsed = collapseTall && height > autoCollapseHeight;
     setShowFoldControl(startCollapsed);
     setCollapsed(startCollapsed);
     applyView(startCollapsed);
