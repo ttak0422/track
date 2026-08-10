@@ -35,7 +35,26 @@ func writePages(outDir, startPage string, root int64, docs, listed []doc, site j
 		return os.WriteFile(path, []byte(injectHead(base, head)), 0o644)
 	}
 
-	// Root index.html carries the start note's meta (sharing the site root previews that note).
+	for _, page := range publishedPageRoutes(docs, listed, root, site.Calendar) {
+		if err := write(page.output, pageHead(site, page.doc, page.route, names)); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+// pageRoute is the one route inventory shared by the Go-side page writer and sitemap. The frontend
+// prerender mirrors this inventory in Node because it cannot import Go, while this list remains the
+// authoritative set for the export's data-owning side.
+type pageRoute struct {
+	route  string
+	output string
+	doc    *doc
+}
+
+// publishedPageRoutes returns every HTML page the export lays down. Generated views have no source
+// note and therefore no last-modification value; note routes and the root route retain their source doc.
+func publishedPageRoutes(docs, listed []doc, root int64, calendar bool) []pageRoute {
 	var rootDoc *doc
 	for i := range docs {
 		if docs[i].id == root {
@@ -43,64 +62,59 @@ func writePages(outDir, startPage string, root int64, docs, listed []doc, site j
 			break
 		}
 	}
-	if err := write("index.html", pageHead(site, rootDoc, "/", names)); err != nil {
-		return err
-	}
-
-	// Per-note pages: notes/<slug>/index.html resolves /notes/<slug>.
+	routes := []pageRoute{{route: "/", output: "index.html", doc: rootDoc}}
 	for i := range docs {
-		d := &docs[i]
-		slug := slugOf(d)
-		if err := write(filepath.Join("notes", slug, "index.html"), pageHead(site, d, "/notes/"+slug, names)); err != nil {
-			return err
+		slug := slugOf(&docs[i])
+		routes = append(routes, pageRoute{
+			route:  "/notes/" + slug,
+			output: filepath.Join("notes", slug, "index.html"),
+			doc:    &docs[i],
+		})
+	}
+	for _, name := range []string{"graph", "empty"} {
+		routes = append(routes, pageRoute{route: "/" + name, output: filepath.Join(name, "index.html")})
+	}
+	if calendar {
+		routes = append(routes, pageRoute{route: "/calendar", output: filepath.Join("calendar", "index.html")})
+		for _, day := range activityDayRoutes(listed) {
+			routes = append(routes, pageRoute{route: "/day/" + day, output: filepath.Join("day", day, "index.html")})
 		}
 	}
+	for _, tag := range tagRoutes(docs) {
+		routes = append(routes, pageRoute{
+			route:  "/tags/" + tag,
+			output: filepath.Join("tags", filepath.FromSlash(tag), "index.html"),
+		})
+	}
+	return routes
+}
 
-	// Site-level pages get a generic head (no per-day OG images). Mirrors the prerender's route set so
-	// every deep link resolves standalone; the calendar and per-day pages are calendar-only.
-	generic := []string{"graph", "empty"}
-	if site.Calendar {
-		generic = append(generic, "calendar")
-	}
-	for _, r := range generic {
-		if err := write(filepath.Join(r, "index.html"), pageHead(site, nil, "/"+r, names)); err != nil {
-			return err
+// activityDayRoutes is sorted to keep generated output, sitemap diffs, and tests deterministic. A
+// dated task also creates a page even when no note was active on that day, because the calendar links
+// to planned work as well as recorded activity.
+func activityDayRoutes(listed []doc) []string {
+	days := map[string]bool{}
+	for _, d := range listed {
+		for _, day := range d.days {
+			days[day] = true
 		}
-	}
-	if site.Calendar {
-		days := map[string]bool{}
-		for _, d := range listed {
-			for _, day := range d.days {
-				days[day] = true
-			}
-			// A day nothing was written on can still be a day something is planned for, and the
-			// calendar links to it — so it needs a page too.
-			if d.tasks == nil {
-				continue
-			}
-			for _, t := range d.tasks.Items {
-				for _, day := range []string{t.Scheduled, t.Due} {
-					if day != "" {
-						days[day] = true
-					}
+		if d.tasks == nil {
+			continue
+		}
+		for _, t := range d.tasks.Items {
+			for _, day := range []string{t.Scheduled, t.Due} {
+				if day != "" {
+					days[day] = true
 				}
 			}
 		}
-		for day := range days {
-			if err := write(filepath.Join("day", day, "index.html"), pageHead(site, nil, "/day/"+day, names)); err != nil {
-				return err
-			}
-		}
 	}
-
-	// Per-tag pages: tags/<tag>/index.html resolves /tags/<tag> for every published tag and each of
-	// its ancestors (tags are hierarchical, so /tags/a lists #a/b notes too).
-	for _, tag := range tagRoutes(docs) {
-		if err := write(filepath.Join("tags", filepath.FromSlash(tag), "index.html"), pageHead(site, nil, "/tags/"+tag, names)); err != nil {
-			return err
-		}
+	out := make([]string, 0, len(days))
+	for day := range days {
+		out = append(out, day)
 	}
-	return nil
+	sort.Strings(out)
+	return out
 }
 
 // tagRoutes returns every tag used by the published docs plus each hierarchical ancestor ("a/b/c"

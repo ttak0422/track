@@ -9,6 +9,7 @@ package site
 
 import (
 	"fmt"
+	"net/url"
 	"os"
 	"path/filepath"
 	"sort"
@@ -43,6 +44,10 @@ type Result struct {
 func Build(cfg *config.Config, st *store.Store, opts Options, frontendDir, outDir string) (Result, error) {
 	if opts.Root == 0 {
 		return Result{}, fmt.Errorf("root note id is required")
+	}
+	baseURL, err := normalizeBaseURL(opts.BaseURL)
+	if err != nil {
+		return Result{}, err
 	}
 	ids := dedupIDs(append([]int64{opts.Root}, opts.IDs...))
 	inSet := make(map[int64]bool, len(ids))
@@ -125,7 +130,25 @@ func Build(cfg *config.Config, st *store.Store, opts Options, frontendDir, outDi
 			return Result{}, fmt.Errorf("web.icon: %s: not found", cfg.WebIcon)
 		}
 	}
-	return writeBundle(docs, edges, opts.Root, opts.Calendar, opts.Share, opts.BaseURL, iconSrc, cfg.Queries, frontendDir, outDir)
+	return writeBundle(docs, edges, opts.Root, opts.Calendar, opts.Share, baseURL, iconSrc, cfg.Queries, frontendDir, outDir)
+}
+
+// normalizeBaseURL keeps the origin used by canonical metadata, sharing, and the sitemap in one
+// form. A sitemap cannot use a relative or query-bearing base, and accepting one would produce a
+// site whose crawler URLs disagree with the deployment URL the flag is meant to describe.
+func normalizeBaseURL(raw string) (string, error) {
+	raw = strings.TrimSpace(raw)
+	if raw == "" {
+		return "", nil
+	}
+	u, err := url.Parse(raw)
+	if err != nil || !u.IsAbs() || u.Host == "" || (u.Scheme != "http" && u.Scheme != "https") {
+		return "", fmt.Errorf("base-url must be an absolute http(s) URL (got %q)", raw)
+	}
+	if u.RawQuery != "" || u.Fragment != "" {
+		return "", fmt.Errorf("base-url must not contain a query or fragment (got %q)", raw)
+	}
+	return strings.TrimRight(raw, "/"), nil
 }
 
 // vaultEdges returns the [[link]] edges of the index whose endpoints are both in the published set.

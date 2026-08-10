@@ -502,6 +502,11 @@ func writeBundle(docs []doc, edges []edge, root int64, calendar, share bool, bas
 	if err := writePages(outDir, slugOf(docPtr(byID, root)), root, docs, listed, siteMeta, bundle.key, generation, names); err != nil {
 		return Result{}, fmt.Errorf("write pages: %w", err)
 	}
+	// Use the same in-memory route inventory as the HTML writer; walking outDir would mix assets and
+	// encrypted data files into the sitemap and could drift from the pages this export actually emits.
+	if err := writeSitemap(outDir, baseURL, publishedPageRoutes(docs, listed, root, calendar)); err != nil {
+		return Result{}, fmt.Errorf("write sitemap: %w", err)
+	}
 
 	// Copy referenced note assets.
 	res := Result{OutDir: outDir}
