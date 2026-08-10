@@ -145,6 +145,19 @@ describe("enlarged local graph", () => {
   });
 });
 
+describe("modal layout stability", () => {
+  it("keeps the visible note scrollbar's gutter stable while a popup changes scrolling", () => {
+    const noteReaderRule =
+      css.match(/\.reader:has\(\.note-reader\):not\(:has\(\.note-editor textarea\)\)\s*\{([^}]*)\}/)?.[1] ?? "";
+
+    expect(noteReaderRule).toMatch(/scrollbar-width:\s*thin/);
+    expect(noteReaderRule).toMatch(/scrollbar-gutter:\s*stable/);
+    expect(css).toMatch(
+      /\.reader:has\(\.note-reader\):not\(:has\(\.note-editor textarea\)\)::\-webkit-scrollbar\s*\{[^}]*display:\s*block/,
+    );
+  });
+});
+
 describe("sidebar at short viewport heights", () => {
   it("hangs the dock from a fixed anchor, so an added entry does not move the rest", () => {
     const sidebar = ruleBody(".sidebar");

@@ -806,10 +806,12 @@ img.theme-asset-dark {
   display: none;
 }
 
-/* Ordinary read-only notes are the one document surface that uses the page scroller visibly. Full-page
-   views and editing panes keep the quiet hidden treatment above; split preview scrolls in its own pane. */
+/* The read-only note keeps its visible reading-surface scrollbar (design.md). Reserve its gutter as
+   well, because a modal or a content-height change must not resize the reading column when the thumb
+   appears or disappears. */
 .reader:has(.note-reader):not(:has(.note-editor textarea)) {
   scrollbar-width: thin;
+  scrollbar-gutter: stable;
 }
 
 .reader:has(.note-reader):not(:has(.note-editor textarea))::-webkit-scrollbar {
