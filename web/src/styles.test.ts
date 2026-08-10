@@ -146,14 +146,21 @@ describe("enlarged local graph", () => {
 });
 
 describe("sidebar at short viewport heights", () => {
-  it("reserves the tab row and an 8px gap above a quarter-centred rail", () => {
+  it("hangs the dock from a fixed anchor, so an added entry does not move the rest", () => {
+    const sidebar = ruleBody(".sidebar");
+
+    // Centring is what made the top edge a function of the dock's own height.
+    expect(sidebar).not.toMatch(/align-items:\s*center/);
+    expect(sidebar).toMatch(/align-items:\s*flex-start/);
+    expect(sidebar).toMatch(/top:\s*max\(/);
+  });
+
+  it("keeps the anchor clear of the tab row", () => {
     const reservedTabRow = Number(ruleBody(".reader-pane").match(/padding-top:\s*(\d+)px/)?.[1]);
-    const railHeightDeduction = Number(
-      ruleBody(".activity-rail").match(/max-height:\s*calc\(50vh\s*-\s*(\d+)px\)/)?.[1],
-    );
+    const anchorFloor = Number(ruleBody(".sidebar").match(/top:\s*max\((\d+)px/)?.[1]);
 
     expect(reservedTabRow).toBeGreaterThan(0);
-    expect(railHeightDeduction).toBeGreaterThanOrEqual(2 * (reservedTabRow + 8));
+    expect(anchorFloor).toBeGreaterThanOrEqual(reservedTabRow + 8);
   });
 
   it("keeps Settings outside the scrolling group so it remains reachable", () => {
