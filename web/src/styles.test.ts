@@ -4,6 +4,7 @@ import { describe, expect, it } from "vitest";
 
 const css = readFileSync("src/styles.css", "utf8");
 const shell = readFileSync("src/components/Shell.tsx", "utf8");
+const mermaid = readFileSync("src/components/markdown/MermaidDiagram.tsx", "utf8");
 
 function ruleBody(selector: string): string {
   const escaped = selector.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
@@ -45,6 +46,69 @@ describe("content width", () => {
     const propsRule = css.match(/\.note-props\s*\{([^}]*)\}/)?.[1] ?? "";
 
     expect(propsRule).toMatch(/max-width:\s*var\(--content-measure\)/);
+  });
+
+  it("lets shared diagram viewports bleed to the window while keeping frame chrome in the prose column", () => {
+    const viewportRule = ruleBody(".markdown-view > .mermaid-diagram > .mermaid-viewport");
+
+    expect(viewportRule).toMatch(/width:\s*100%/);
+    expect(css).toMatch(/\.markdown-view > \.mermaid-diagram > \.mermaid-viewport:not\(\[data-collapsed\]\)\s*\{[^}]*width:\s*100vw/);
+    expect(css).toMatch(/\.markdown-view > \.mermaid-diagram > \.mermaid-viewport:not\(\[data-collapsed\]\)\s*\{[^}]*margin-left:\s*calc\(50%\s*-\s*50vw\)/);
+    expect(css).not.toMatch(/\.markdown-view > \.mermaid-diagram\s*\{[^}]*width:\s*100vw/);
+  });
+
+  it("clips full-bleed diagrams without taking ownership of vertical reading scroll", () => {
+    const readerRule = ruleBody(".reader");
+
+    expect(readerRule).toMatch(/overflow-x:\s*clip/);
+    expect(readerRule).toMatch(/overflow-y:\s*auto/);
+  });
+
+  it("leaves horizontal overflow to tables and diagram viewports", () => {
+    expect(ruleBody(".markdown-view table")).toMatch(/overflow-x:\s*auto/);
+    expect(ruleBody(".mermaid-viewport")).toMatch(/position:\s*relative/);
+    expect(ruleBody(".mermaid-viewport")).toMatch(/overflow:\s*hidden/);
+  });
+
+  it("keeps popup content from drawing a redundant scrollbar", () => {
+    const popupRule = ruleBody(".diagram-lightbox-content");
+    const popupViewportRule = ruleBody(".diagram-lightbox-content .mermaid-viewport");
+
+    expect(popupRule).toMatch(/overflow:\s*hidden/);
+    expect(popupViewportRule).toMatch(/width:\s*100%/);
+    expect(popupViewportRule).toMatch(/height:\s*100%/);
+  });
+
+  it("uses the bare glyph-button treatment for diagram controls and fold chips", () => {
+    const controlRule = css.match(/(?:^|\n)\.mermaid-control\s*\{([^}]*)\}/)?.[1] ?? "";
+    const hoverRule = css.match(/\.mermaid-control:hover,[\s\S]*?\.mermaid-control:focus-visible\s*\{([^}]*)\}/)?.[1] ?? "";
+
+    expect(controlRule).toMatch(/border:\s*0/);
+    expect(controlRule).toMatch(/background:\s*transparent/);
+    expect(controlRule).toMatch(/color:\s*var\(--muted\)/);
+    expect(hoverRule).toMatch(/background:\s*var\(--panel-soft\)/);
+    expect(hoverRule).toMatch(/border-radius:\s*var\(--radius-sm\)/);
+  });
+
+  it("anchors the collapsed fold chip at the frame's top-left", () => {
+    const collapsedRule = css.match(
+      /\.mermaid-diagram\[data-collapsed\] \.mermaid-fold\s*\{\s*top:[^}]*\}/,
+    )?.[0] ?? "";
+
+    expect(collapsedRule).toMatch(/top:\s*8px/);
+    expect(collapsedRule).toMatch(/bottom:\s*auto/);
+    expect(collapsedRule).toMatch(/left:\s*8px/);
+    expect(collapsedRule).toMatch(/transform:\s*none/);
+  });
+});
+
+describe("diagram controls", () => {
+  it("keeps the expand control in the shared quiet-chip row", () => {
+    const controlsRule = css.match(/(?:^|\n)\.mermaid-controls\s*\{([^}]*)\}/)?.[1] ?? "";
+
+    expect(controlsRule).toMatch(/display:\s*flex/);
+    expect(controlsRule).toMatch(/flex-direction:\s*row/);
+    expect(mermaid).toMatch(/<div className="mermaid-controls">[\s\S]*className="mermaid-control mermaid-open"/);
   });
 });
 

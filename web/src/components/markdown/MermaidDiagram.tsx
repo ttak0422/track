@@ -65,8 +65,11 @@ export function DiagramFrame({ state, source, sourceLang, label, className }: Di
   const svg = state.status === "ready" ? state.svg : null;
   const panZoom = usePanZoom(svg);
   const [enlarged, setEnlarged] = useState(false);
+  const lightboxPanZoom = usePanZoom(enlarged ? svg : null, {
+    collapseTall: false,
+    centerOverflow: true,
+  });
   const dialogRef = useRef<HTMLDialogElement>(null);
-  const lightboxPanRef = useRef<HTMLDivElement>(null);
   // A stable element per svg string: pan/zoom re-renders reuse it untouched, so react-dom never
   // rewrites the innerHTML — which would both discard sizeSvgToViewBox's sizing and re-parse a large
   // SVG on every drag frame.
@@ -79,10 +82,6 @@ export function DiagramFrame({ state, source, sourceLang, label, className }: Di
   useEffect(() => {
     const dialog = dialogRef.current;
     if (enlarged && svg && dialog && !dialog.open) dialog.showModal();
-  }, [enlarged, svg]);
-
-  useLayoutEffect(() => {
-    if (enlarged && svg && lightboxPanRef.current) sizeSvgToViewBox(lightboxPanRef.current);
   }, [enlarged, svg]);
 
   if (state.status === "error") {
@@ -133,12 +132,12 @@ export function DiagramFrame({ state, source, sourceLang, label, className }: Di
         >
           {svgHost}
         </div>
+        {collapsed && <div className="mermaid-continuation" aria-hidden="true" />}
+        {/* The collapsed preview is inert, so a side fade would advertise a pan it cannot make;
+            the fold chip already owns the "there is more" signal until expanded. */}
+        {!collapsed && overflow.left && <div className="mermaid-continuation-left" aria-hidden="true" />}
+        {!collapsed && overflow.right && <div className="mermaid-continuation-right" aria-hidden="true" />}
       </div>
-      {collapsed && <div className="mermaid-continuation" aria-hidden="true" />}
-      {/* The collapsed preview is inert, so a side fade would advertise a pan it cannot make;
-          the fold chip already owns the "there is more" signal until expanded. */}
-      {!collapsed && overflow.left && <div className="mermaid-continuation-left" aria-hidden="true" />}
-      {!collapsed && overflow.right && <div className="mermaid-continuation-right" aria-hidden="true" />}
       {showFoldControl && (
         <button
           className="mermaid-control mermaid-fold"
@@ -187,19 +186,19 @@ export function DiagramFrame({ state, source, sourceLang, label, className }: Di
           >
             ↺
           </button>
+          {showPopupControl ? (
+            <button
+              className="mermaid-control mermaid-open"
+              type="button"
+              onClick={() => setEnlarged(true)}
+              aria-label="Open diagram in popup"
+              title="Open diagram in popup"
+            >
+              ⛶
+            </button>
+          ) : null}
         </div>
       )}
-      {showPopupControl ? (
-        <button
-          className="mermaid-control mermaid-open"
-          type="button"
-          onClick={() => setEnlarged(true)}
-          aria-label="Open diagram in popup"
-          title="Open diagram in popup"
-        >
-          ⛶
-        </button>
-      ) : null}
       {enlarged && svg ? (
         <dialog
           ref={dialogRef}
@@ -209,6 +208,36 @@ export function DiagramFrame({ state, source, sourceLang, label, className }: Di
             if (event.target === dialogRef.current) dialogRef.current.close();
           }}
         >
+          <div className="mermaid-controls diagram-lightbox-controls">
+            <CopySource text={source} />
+            <button
+              className="mermaid-control"
+              type="button"
+              onClick={() => lightboxPanZoom.zoomBy(zoomStep)}
+              aria-label="Zoom in"
+              title="Zoom in"
+            >
+              +
+            </button>
+            <button
+              className="mermaid-control"
+              type="button"
+              onClick={() => lightboxPanZoom.zoomBy(1 / zoomStep)}
+              aria-label="Zoom out"
+              title="Zoom out"
+            >
+              −
+            </button>
+            <button
+              className="mermaid-control"
+              type="button"
+              onClick={lightboxPanZoom.reset}
+              aria-label="Reset diagram view"
+              title="Reset diagram view"
+            >
+              ↺
+            </button>
+          </div>
           <button
             className="mermaid-control diagram-lightbox-close"
             type="button"
@@ -219,8 +248,23 @@ export function DiagramFrame({ state, source, sourceLang, label, className }: Di
             ×
           </button>
           <div className={`diagram-lightbox-content ${className ?? ""}`}>
-            <div ref={lightboxPanRef} className="mermaid-pan" role="img" aria-label={label}>
-              <div dangerouslySetInnerHTML={{ __html: svg }} />
+            <div
+              className="mermaid-viewport"
+              ref={lightboxPanZoom.viewportRef}
+              {...lightboxPanZoom.handlers}
+            >
+              <div
+                ref={lightboxPanZoom.panRef}
+                className="mermaid-pan"
+                style={{
+                  transform: `translate(${lightboxPanZoom.transform.x}px, ${lightboxPanZoom.transform.y}px) scale(${lightboxPanZoom.transform.scale})`,
+                  transformOrigin: "0 0",
+                }}
+                role="img"
+                aria-label={label}
+              >
+                {svgHost}
+              </div>
             </div>
           </div>
         </dialog>
@@ -305,7 +349,10 @@ const autoCollapseHeight = 480;
 // normal fit scale inside a clipped collapsedHeight preview, interactions off, with a labelled fold
 // toggle to expand. `svg` is the rendered markup (null until ready), used to re-fit
 // whenever the diagram changes.
-function usePanZoom(svg: string | null) {
+function usePanZoom(
+  svg: string | null,
+  { collapseTall = true, centerOverflow = false }: { collapseTall?: boolean; centerOverflow?: boolean } = {},
+) {
   const [transform, setTransform] = useState<Transform>(identityTransform);
   const [viewportHeight, setViewportHeight] = useState<number | null>(null);
   const [collapsed, setCollapsed] = useState(false);
@@ -345,31 +392,38 @@ function usePanZoom(svg: string | null) {
     const ideal = idealScaleRef.current;
     const view = col
       ? computeCollapsedFit(w, h, viewport.clientWidth, ideal)
-      : computeFit(w, h, viewport.clientWidth, ideal);
-    fitRef.current = computeFit(w, h, viewport.clientWidth, ideal).transform;
+      : computeFit(w, h, viewport.clientWidth, ideal, { centerOverflow });
+    fitRef.current = computeFit(w, h, viewport.clientWidth, ideal, { centerOverflow }).transform;
     setTransform(view.transform);
     setViewportHeight(view.height);
+  }
+
+  function measureAndApply() {
+    const viewport = viewportRef.current;
+    const pan = panRef.current;
+    if (!svg || !viewport || !pan) return false;
+    sizeSvgToViewBox(pan);
+    const naturalW = pan.offsetWidth;
+    const naturalH = pan.offsetHeight;
+    if (naturalW === 0 || naturalH === 0) return false;
+    naturalRef.current = { w: naturalW, h: naturalH };
+    setViewportW(viewport.clientWidth);
+    idealScaleRef.current = measureIdealScale(viewport);
+    touchedRef.current = false;
+    const { height } = computeFit(naturalW, naturalH, viewport.clientWidth, idealScaleRef.current, {
+      centerOverflow,
+    });
+    const startCollapsed = collapseTall && height > autoCollapseHeight;
+    setShowFoldControl(startCollapsed);
+    setCollapsed(startCollapsed);
+    applyView(startCollapsed);
+    return true;
   }
 
   // Measure after the SVG is in the DOM but before paint, so the initial fit shows without a flash.
   // .mermaid-pan is width:fit-content, so its offset size is the diagram's natural (untransformed) size.
   useLayoutEffect(() => {
-    const viewport = viewportRef.current;
-    const pan = panRef.current;
-    if (!svg || !viewport || !pan) return;
-    sizeSvgToViewBox(pan);
-    const naturalW = pan.offsetWidth;
-    const naturalH = pan.offsetHeight;
-    if (naturalW === 0 || naturalH === 0) return;
-    naturalRef.current = { w: naturalW, h: naturalH };
-    setViewportW(viewport.clientWidth);
-    idealScaleRef.current = measureIdealScale(viewport);
-    touchedRef.current = false;
-    const { height } = computeFit(naturalW, naturalH, viewport.clientWidth, idealScaleRef.current);
-    const startCollapsed = height > autoCollapseHeight;
-    setShowFoldControl(startCollapsed);
-    setCollapsed(startCollapsed);
-    applyView(startCollapsed);
+    measureAndApply();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [svg]);
 
@@ -383,14 +437,21 @@ function usePanZoom(svg: string | null) {
     let lastW = el.clientWidth;
     const ro = new ResizeObserver(() => {
       const w = el.clientWidth;
-      if (w === 0 || naturalRef.current.w === 0) return;
+      if (w === 0) return;
+      // A modal's viewport is display:none during the first layout effect. When showModal() makes it
+      // measurable, recover the natural size here instead of leaving the popup permanently unfit.
+      if (naturalRef.current.w === 0) {
+        if (!measureAndApply()) return;
+        lastW = w;
+        return;
+      }
       // Keep the overflow fades honest even when a touched view skips the re-fit below.
       setViewportW(w);
       if (w === lastW) return;
       lastW = w;
       idealScaleRef.current = measureIdealScale(el);
       const { w: nw, h: nh } = naturalRef.current;
-      fitRef.current = computeFit(nw, nh, w, idealScaleRef.current).transform;
+      fitRef.current = computeFit(nw, nh, w, idealScaleRef.current, { centerOverflow }).transform;
       if (!touchedRef.current) {
         applyView(collapsedRef.current);
       }
@@ -534,13 +595,14 @@ export function computeFit(
   naturalH: number,
   viewW: number,
   idealScale = 1,
+  { centerOverflow = false }: { centerOverflow?: boolean } = {},
 ): { transform: Transform; height: number } {
   const scale = clamp(
     Math.min((viewW * fitWidthRatio) / naturalW, idealScale),
     minReadableRatio * idealScale,
     8,
   );
-  const x = Math.max((viewW - naturalW * scale) / 2, 0);
+  const x = centerOverflow ? (viewW - naturalW * scale) / 2 : Math.max((viewW - naturalW * scale) / 2, 0);
   return { transform: { scale, x, y: 0 }, height: naturalH * scale };
 }
 
