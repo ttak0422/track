@@ -219,17 +219,20 @@ img.theme-asset-dark {
    the dock does not intercept reader clicks, while the dock itself stays interactive. It sits above the
    graph view (90) and below menus/search (94+).
 
-   The strip covers the top half of the viewport and centres the dock in it, which puts the dock's
-   centre a quarter of the way down: its menus open downward into empty screen rather than fighting the
-   bottom edge, and the dock sits where the eye starts rather than where the page ends. */
+   The dock hangs from a fixed point rather than being centred on one. Centring it in the top half put
+   its centre a quarter down — but it also made every entry's position depend on how many entries there
+   were, so opening a note (which adds its controls) slid the whole dock up under the pointer. The
+   anchor still tracks the viewport the way that centre did: a quarter down, less half a nominal dock,
+   so a dock of the usual size sits exactly where it always did and a longer one grows downward. It
+   never rises into the 33px tab row. */
 .sidebar {
   position: fixed;
   z-index: 92;
-  top: 0;
-  bottom: 50%;
+  top: max(41px, calc(25vh - 200px));
+  bottom: 8px;
   left: 8px;
   display: flex;
-  align-items: center;
+  align-items: flex-start;
   pointer-events: none;
 }
 
@@ -243,9 +246,9 @@ img.theme-asset-dark {
   border: 1px solid var(--line);
   border-radius: var(--radius-lg);
   background: var(--panel);
-  /* The rail is centred at 25vh. Subtract twice the reserved 33px tab row plus an 8px gap so even a
-     max-height rail starts below the tabs instead of crossing them on a short viewport. */
-  max-height: calc(50vh - 82px);
+  /* The strip already starts below the tab row and ends at the foot of the window, so the dock simply
+     fills what is left and .rail-scroll takes over past that. */
+  max-height: 100%;
 }
 
 /* Settings stays outside this scroller, pinned at the foot of the dock. The workspace and note groups
