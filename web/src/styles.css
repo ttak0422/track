@@ -2198,7 +2198,9 @@ textarea.modal-input:focus-visible {
 .markdown-view > table,
 .markdown-view > hr,
 .markdown-view > .code-block,
-.markdown-view > .embed,
+/* Every embed bleeds except the link card: it is a sentence's worth of text in a box, so it keeps the
+   narrower cap it sets for itself rather than being stretched past the prose beside it. */
+.markdown-view > .embed:not(.ogp-card),
 .markdown-view > .media-frame,
 .markdown-view > .mermaid-diagram,
 .markdown-view > .drawio-diagram,

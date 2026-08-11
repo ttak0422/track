@@ -602,6 +602,22 @@ describe("MarkdownView", () => {
     expect((frame.querySelector("iframe") as HTMLIFrameElement).style.height).toBe("400px");
   });
 
+  it("renders an embed sharing a paragraph with text as a sibling of that text", () => {
+    // A block embed left inside a <p> loses its margins to anonymous blocks (it ends up flush against
+    // the line below it), is capped at the prose measure instead of the column, and makes the
+    // prerendered static HTML invalid — so it is hoisted out whether or not blank lines surround it.
+    const { container } = render(
+      <MarkdownView markdown={"foo\n![y](https://www.youtube.com/watch?v=abcdefghijk)\nbar"} />,
+    );
+    const view = container.querySelector(".markdown-view");
+    expect(view?.querySelector("p .embed")).toBeNull();
+    expect([...(view?.children ?? [])].map((el) => el.className)).toEqual([
+      "",
+      "embed embed-video",
+      "",
+    ]);
+  });
+
   it("renders a resolved include as an embed card in place of its directive line", () => {
     // The embed header's WikiLink needs the floating-window store (same as WikiLink.test.tsx).
     const { container } = renderWithQuery(
