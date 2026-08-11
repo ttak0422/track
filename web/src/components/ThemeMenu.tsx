@@ -1,5 +1,6 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useRef, useState, type CSSProperties } from "react";
 import { createPortal } from "react-dom";
+import { railAnchor } from "./railAnchor";
 
 type ThemeMode = "system" | "light" | "dark";
 
@@ -28,8 +29,10 @@ export function ThemeMenu() {
   const [fontScale, setFontScale] = useState<number>(() => storedFontScale());
   const [contentWidth, setContentWidth] = useState<string>(() => storedContentWidth());
   const [open, setOpen] = useState(false);
+  const [anchor, setAnchor] = useState<CSSProperties | undefined>(undefined);
   const menuRef = useRef<HTMLDivElement>(null);
   const overlayRef = useRef<HTMLDivElement>(null);
+  const toggleRef = useRef<HTMLButtonElement>(null);
 
   useEffect(() => {
     if (theme === "system") {
@@ -78,9 +81,16 @@ export function ThemeMenu() {
     hoverTimer.current = undefined;
   }
 
+  // The panel is placed from the gear's own rect, so it lands beside the button whatever the dock is
+  // carrying above it. Reading it as the menu opens keeps it right after a scroll or a resize.
+  function toggle(next: boolean) {
+    if (next) setAnchor(railAnchor(toggleRef.current));
+    setOpen(next);
+  }
+
   function scheduleOpen(next: boolean) {
     cancelHover();
-    hoverTimer.current = window.setTimeout(() => setOpen(next), next ? 180 : 220);
+    hoverTimer.current = window.setTimeout(() => toggle(next), next ? 180 : 220);
   }
 
   useEffect(() => cancelHover, []);
@@ -124,6 +134,7 @@ export function ThemeMenu() {
       onPointerLeave={() => scheduleOpen(false)}
     >
       <button
+        ref={toggleRef}
         className="rail-button"
         type="button"
         aria-label="Settings"
@@ -132,7 +143,7 @@ export function ThemeMenu() {
         aria-expanded={open}
         onClick={() => {
           cancelHover();
-          setOpen((value) => !value);
+          toggle(!open);
         }}
       >
         <GearIcon />
@@ -142,7 +153,7 @@ export function ThemeMenu() {
             // The rail is a fixed stacking context; the settings surface must be a body sibling for
             // its layer to compete with previews, while the trigger remains in the rail.
             <div ref={overlayRef}>
-              <div className="menu-panel rail-menu-panel">
+              <div className="menu-panel rail-menu-panel" style={anchor}>
                 <h2 className="rail-panel-title">Settings</h2>
                 <section className="menu-section" aria-label="Theme">
                   <h3>Theme</h3>

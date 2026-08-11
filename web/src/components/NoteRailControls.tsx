@@ -1,6 +1,7 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useRef, useState, type CSSProperties } from "react";
 import { editorModes, useNoteControls, type EditorMode } from "../noteControls";
 import { NoteActionsMenu } from "./NoteActionsMenu";
+import { railAnchor } from "./railAnchor";
 
 // The open note's controls, in the rail under the workspace's views. They used to float over the
 // note's top-right corner, which put chrome in the reading column and moved with it; the rail is
@@ -33,7 +34,7 @@ export function NoteRailControls() {
 
 function EditorModeMenu({ mode, setMode }: { mode: EditorMode; setMode: (mode: EditorMode) => void }) {
   const [open, setOpen] = useState(false);
-  const [anchor, setAnchor] = useState<{ top: number; left: number } | null>(null);
+  const [anchor, setAnchor] = useState<CSSProperties | undefined>(undefined);
   const menuRef = useRef<HTMLDivElement>(null);
   const toggleRef = useRef<HTMLButtonElement>(null);
   const closeTimer = useRef<number | undefined>(undefined);
@@ -46,8 +47,7 @@ function EditorModeMenu({ mode, setMode }: { mode: EditorMode; setMode: (mode: E
 
   function showMenu() {
     cancelClose();
-    const rect = toggleRef.current?.getBoundingClientRect();
-    setAnchor(rect ? { top: rect.top, left: rect.right + 12 } : null);
+    setAnchor(railAnchor(toggleRef.current));
     setOpen(true);
   }
 
@@ -98,7 +98,7 @@ function EditorModeMenu({ mode, setMode }: { mode: EditorMode; setMode: (mode: E
           className="menu-panel note-menu-panel mode-menu-panel"
           role="menu"
           aria-label="Display mode"
-          style={anchor ?? undefined}
+          style={anchor}
         >
           {editorModes.map((each) => (
             <button
