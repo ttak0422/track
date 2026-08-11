@@ -1,6 +1,7 @@
 import { Link } from "@tanstack/react-router";
 import { useEffect, useRef, useState, type CSSProperties } from "react";
 import { useHierarchyQuery } from "../queries";
+import { hoverOpen } from "./hoverOpen";
 import { railAnchor } from "./railAnchor";
 import type { HierarchyNode } from "../types";
 
@@ -72,7 +73,7 @@ export function HierarchyMenu() {
   }, [open]);
 
   return (
-    <div className="hierarchy-menu" ref={menuRef} onPointerEnter={showMenu} onPointerLeave={scheduleClose}>
+    <div className="hierarchy-menu" ref={menuRef} {...hoverOpen(showMenu, scheduleClose)}>
       <button
         ref={toggleRef}
         className="rail-button"

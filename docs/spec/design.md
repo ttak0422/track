@@ -50,6 +50,13 @@ none fits, extend this document first — do not invent a one-off treatment.
   controls hover would have revealed stand from the start instead: a reveal that
   never fires leaves a control nobody can find. The published site is where this
   is felt — a phone reads it, while the live workspace is desk-bound.
+- **A tap is not a hover.** The rail's flyouts open on hover and toggle on click,
+  and a tap fires `pointerenter` on its way down all the same — so the tap opened
+  the panel and its own click, finding it open, shut it again. Every rail flyout
+  therefore takes its hover handlers from `hoverOpen`, which ignores a touch
+  pointer and leaves the click the whole job; a button that also opens on focus
+  asks for `:focus-visible`, since the focus a tap gives it has a click on its
+  way. A panel a thumb can open is one that opens on a press, not on an arrival.
 
 ## Tokens
 

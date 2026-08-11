@@ -92,12 +92,30 @@ describe("SidebarHistory", () => {
     renderHistory();
     const trigger = screen.getByRole("button", { name: "Recently opened notes" });
 
-    fireEvent.focus(trigger);
+    // A real focus, not a synthesized event: what opens the panel is keyboard focus specifically
+    // (:focus-visible), and only actually focusing the button puts it in that state.
+    act(() => trigger.focus());
     expect(screen.getByRole("menu", { name: "Recently opened notes" })).toBeInTheDocument();
 
     fireEvent.keyDown(document, { key: "Escape" });
     expect(screen.queryByRole("menu", { name: "Recently opened notes" })).not.toBeInTheDocument();
     expect(trigger).toHaveAttribute("aria-expanded", "false");
+  });
+
+  // A tap fires pointerenter on the way down and pointerleave on the way up, so the panel opened
+  // under the finger and the button's own click found it open and closed it again — on a phone the
+  // history could not be opened at all. A touch pointer is left to the click alone.
+  it("opens from a tap, which is not a hover", () => {
+    vi.useFakeTimers();
+    renderHistory();
+    const trigger = screen.getByRole("button", { name: "Recently opened notes" });
+
+    fireEvent.pointerEnter(trigger, { pointerType: "touch" });
+    fireEvent.pointerLeave(trigger, { pointerType: "touch" });
+    fireEvent.click(trigger);
+    act(() => vi.advanceTimersByTime(400));
+
+    expect(screen.getByRole("menu", { name: "Recently opened notes" })).toBeInTheDocument();
   });
 
   it("toggles from a direct click", () => {
