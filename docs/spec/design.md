@@ -335,10 +335,13 @@ The note's aside is a quiet column; the rail is a floating dock over the sheet.
   `--faint`. Rows are text controls — no pills.
 - The aside's graph draws its centre node filled with `--mark`, its other
   nodes filled with `--bg` and outlined 1px in `--line-node`, and its edges in
-  `--line-strong`. Hover and search highlighting take that same salient: the
-  match fills with `--mark` and its edges follow, while everything else dims in
-  place. The graph gets the one colour the chrome has and no palette of its
-  own — a match is told by contrast and by its neighbours receding.
+  `--line-strong`. Hover and search highlighting are ink (`--text`), not the
+  salient: the match and its edges strengthen while everything else dims in
+  place. Only the centre node stays `--mark`, highlighted or not — a frame
+  frozen mid-hover must still say which note you are on, and it cannot if
+  "where I am" and "what I am pointing at" wear the same colour. The graph
+  therefore has no palette of its own: emphasis is contrast, and the one colour
+  means one thing.
 - Rail: a compact floating dock 8px from the left edge, centred a quarter of
   the way down the viewport so its menus open into empty screen rather than
   against the bottom edge, on `--panel` with a hairline and radius but no
