@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState, type CSSProperties } from "react";
 import { copyRich, copyText } from "./markdown/clipboard";
 import { toPortableMarkdown } from "./markdown/portable";
+import { hoverOpen } from "./hoverOpen";
 import { railAnchor } from "./railAnchor";
 
 interface NoteActionsMenuProps {
@@ -103,8 +104,7 @@ export function NoteActionsMenu({ getBody, onMeta, onDelete }: NoteActionsMenuPr
     <div
       className="note-menu"
       ref={menuRef}
-      onPointerEnter={showMenu}
-      onPointerLeave={scheduleClose}
+      {...hoverOpen(showMenu, scheduleClose)}
     >
       <button
         ref={toggleRef}

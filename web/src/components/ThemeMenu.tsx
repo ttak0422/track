@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState, type CSSProperties } from "react";
 import { createPortal } from "react-dom";
+import { hoverOpen } from "./hoverOpen";
 import { railAnchor } from "./railAnchor";
 
 type ThemeMode = "system" | "light" | "dark";
@@ -130,8 +131,10 @@ export function ThemeMenu() {
     <div
       className="app-menu"
       ref={menuRef}
-      onPointerEnter={() => scheduleOpen(true)}
-      onPointerLeave={() => scheduleOpen(false)}
+      {...hoverOpen(
+        () => scheduleOpen(true),
+        () => scheduleOpen(false),
+      )}
     >
       <button
         ref={toggleRef}

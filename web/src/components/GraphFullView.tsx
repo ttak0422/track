@@ -11,6 +11,7 @@ import {
   bringPreviewToFront as raisePreviewToFront,
   createPreviewID,
   deactivatePreview,
+  pointerCanHover,
   previewOpenDelay,
   releasePreview,
   usePreviewStackOrder,
@@ -89,6 +90,9 @@ export function GraphFullView() {
       scheduleClose();
       return;
     }
+    // A touch drag across the canvas reports hovers the whole way; on a pointer that cannot hover the
+    // node is opened by the tap that navigates to it, not by a window (see pointerCanHover).
+    if (!pointerCanHover()) return;
     holdPreview();
     if (preview?.noteID === noteID) return; // already showing this node; don't chase the cursor
     // A kept window blocks the single preview slot; hand it to the floating layer so a new node can pop.

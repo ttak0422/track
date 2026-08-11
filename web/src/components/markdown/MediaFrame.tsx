@@ -84,7 +84,7 @@ export function MediaFrame({ src, alt, children }: { src: string; alt: string; c
       {children}
       <div className="media-controls">
         <button
-          className="media-control"
+          className="media-control media-preview"
           type="button"
           onClick={() => {
             if (enlarged) return;

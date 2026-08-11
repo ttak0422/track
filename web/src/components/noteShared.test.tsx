@@ -92,6 +92,19 @@ describe("NoteAside graph section", () => {
     expect(container.querySelector("dialog.graph-lightbox")).toBeNull();
   });
 
+  // The lightbox fills the window, so what is left to click past it is a few pixels of backdrop —
+  // nothing a thumb can aim at, and there is no Esc key on a phone either.
+  it("closes the enlarged graph from a button of its own", () => {
+    localGraph.mockReturnValue({ data: linkedGraph });
+    const { container } = render(<NoteAside backlinks={[]} noteID="1" journalDate="" />);
+
+    fireEvent.click(screen.getByRole("button", { name: "Enlarge graph" }));
+    const dialog = container.querySelector("dialog.graph-lightbox")!;
+    fireEvent.click(within(dialog as HTMLElement).getByRole("button", { name: "Close enlarged graph" }));
+
+    expect(container.querySelector("dialog.graph-lightbox")).toBeNull();
+  });
+
   it("navigates from a node selected in the enlarged graph and drops the dialog", () => {
     localGraph.mockReturnValue({ data: linkedGraph });
     const { container } = render(<NoteAside backlinks={[]} noteID="1" journalDate="" />);

@@ -75,6 +75,11 @@
      token because a second thing lines up with it — the empty state's guides point at the rail's
      buttons — and two copies of this expression is exactly how they drifted apart before. */
   --rail-anchor: max(41px, calc(25vh - 200px));
+  /* What the dock takes along the foot of the window at phone width, where it lies horizontally
+     instead of hanging at the left edge (see the phone-width block). Everything else pinned to the
+     bottom corner adds it to its own offset, so the dock's height is written once. Zero everywhere
+     the dock is vertical, which is why those offsets need no media query of their own. */
+  --foot-dock: 0px;
   /* The whole radius scale: badges and inline chips, controls and quiet chips, panels and floating
      layers. Drawn shapes (icon glyphs, heatmap cells, pills, circles) keep their own geometry. */
   --radius-sm: 4px;
@@ -218,7 +223,10 @@ img.theme-asset-dark {
   /* The reader column must shrink below its content's preferred width (a phone is narrower than the
      old 380px floor, which forced sideways scrolling of the whole workspace). */
   grid-template-columns: minmax(0, 1fr);
-  height: 100vh;
+  /* Dynamic viewport height, not 100vh: a phone browser's 100vh is the height with the toolbars
+     retracted, so the workspace hung the foot of the reader (and the dock docked to it) behind the
+     toolbar that was actually on screen. On a desktop the two units are the same number. */
+  height: 100dvh;
   min-height: 560px;
 }
 
@@ -907,7 +915,7 @@ img.theme-asset-dark {
 .graph-panel {
   position: fixed;
   right: 18px;
-  bottom: 18px;
+  bottom: calc(18px + var(--foot-dock));
   z-index: 30;
   display: flex;
   max-width: calc(100vw - 36px);
@@ -941,7 +949,7 @@ img.theme-asset-dark {
 .graph-fab {
   position: fixed;
   right: 18px;
-  bottom: 18px;
+  bottom: calc(18px + var(--foot-dock));
   z-index: 30;
   display: grid;
   place-items: center;
@@ -990,6 +998,13 @@ img.theme-asset-dark {
   display: flex;
   align-items: center;
   gap: 8px;
+}
+
+/* The full-bleed graph reaches under the foot dock (it fills the reader, which the dock floats over),
+   so its controls step up by the dock's height. The floating panel's copy needs no such step: the
+   panel itself already sits above the dock. */
+.graph-full .graph-controls {
+  bottom: calc(12px + var(--foot-dock));
 }
 
 .graph-reset {
@@ -1517,6 +1532,29 @@ a.calendar-title:focus-visible {
      unhovered, not the button: the dot that holds the same corner is a child of it. */
   display: block;
   opacity: 0;
+}
+
+/* A pointer that cannot hover reveals nothing, so the tab's two hover states are settled up front.
+   The popup goes away — the strip on such a screen shows one full-width tab, whose title needs no
+   panel to be read, and a tap-triggered :hover would leave that panel standing over the note. Close
+   stays, because it is a control and the only way to leave a tab; it brings the ground it always
+   brought, and takes the corner from the unsaved dot for good rather than for the length of a hover. */
+@media (hover: none) {
+  .tab-tools {
+    display: none;
+  }
+
+  .tab-close {
+    background: var(--panel-soft);
+  }
+
+  .tab-close-glyph {
+    opacity: 1;
+  }
+
+  .tab-dirty-dot {
+    opacity: 0;
+  }
 }
 
 /* The overflow menu in the rail: a rail-sized trigger whose panel escapes the rail's clipped
@@ -2498,6 +2536,20 @@ textarea.modal-input:focus-visible {
   opacity: 1;
 }
 
+/* Without a hover to reveal them the chips are simply there — a quiet chip may stand permanently
+   when it is the only way to discover what it opens. Preview is the one that goes: it opens a
+   draggable, resizable copy of media that is already fully visible, which is a cursor's idiom.
+   Enlarge answers the same question with a modal lightbox, and that works with a thumb. */
+@media (hover: none) {
+  .media-controls {
+    opacity: 1;
+  }
+
+  .media-preview {
+    display: none;
+  }
+}
+
 /* The frame controls sit at top-right; a wrapped code block's copy button and a mermaid diagram's
    controls also live there, so shift those left of the two-button cluster (2×28 + gaps) to avoid overlap. */
 .media-frame .code-copy,
@@ -2790,6 +2842,65 @@ textarea.modal-input:focus-visible {
   overflow: hidden;
 }
 
+/* Where the dock cannot hang at the left edge: a screen with no cursor, and a window with no room to
+   spare a 64px lane. It lies along the foot of the window instead.
+
+   The two conditions ask one question — is there reach and room for a rail down the side? — and a
+   phone answers no whichever way it is turned. Width alone could not say that: turning a phone
+   sideways is 390px becoming 844px, and the dock jumped back to the edge halfway through the
+   rotation. The published static site is where this is felt (the live workspace is desk-bound), but
+   both share it. */
+@media (hover: none), (max-width: 540px) {
+  :root {
+    --foot-dock: calc(52px + env(safe-area-inset-bottom));
+  }
+
+  /* The lane goes back to the reader; the foot is what the dock takes in its place. */
+  .reader {
+    padding-left: 32px;
+    padding-bottom: calc(32px + var(--foot-dock));
+  }
+
+  .sidebar {
+    top: auto;
+    right: 0;
+    bottom: 0;
+    left: 0;
+    /* One child spanning the window: no flex row to align it in. */
+    display: block;
+  }
+
+  /* A dock that spans the window is a foot rail, not a floating card: it gives up the radius and
+     keeps only the hairline that separates it from the sheet. The home indicator's strip is padding
+     rather than a gap, so the panel still runs to the physical edge behind it. */
+  .activity-rail {
+    flex-direction: row;
+    max-height: none;
+    border-width: 1px 0 0;
+    border-radius: 0;
+    padding: 4px 8px calc(4px + env(safe-area-inset-bottom));
+  }
+
+  .rail-scroll {
+    flex-direction: row;
+    overflow-x: auto;
+    overflow-y: hidden;
+  }
+
+  /* The hairline between the workspace's views and the open note's controls turns with the dock. */
+  .rail-divider {
+    width: 1px;
+    height: 20px;
+    margin: 0 4px;
+  }
+
+  /* The guides point at the buttons of a dock that is no longer at the left edge. */
+  .empty-guides {
+    display: none;
+  }
+}
+
+/* Phone width proper: what a hand-held window is too narrow for, whatever kind of pointer it has. */
 @media (max-width: 540px) {
   .ogp-card {
     flex-direction: column;
@@ -2800,10 +2911,18 @@ textarea.modal-input:focus-visible {
     flex-basis: 160px;
   }
 
-  /* Phone width: keep the reader clear of the floating dock. The published static site is the main
-     mobile surface (the live workspace is desk-bound), but both share these. */
+  /* Tighter margins than the sheet's 32px, and the foot dock's clearance kept (the rule above set it
+     on a padding-bottom this shorthand replaces). */
   .reader {
-    padding: 16px 12px 16px 64px;
+    padding: 16px 12px calc(16px + var(--foot-dock));
+  }
+
+  /* One tab at a time. The frame fills the strip, so TabBar's own measuring pass — which shrinks the
+     strip while it overflows — settles on the single leftmost tab, which is always the note being
+     read, and sends every other one to the +N menu beside it. A landscape phone and a tablet keep
+     the ordinary strip: they have the width for several tabs, whatever their dock is doing. */
+  .tab {
+    flex: 1 0 100%;
   }
 
   .note-preview {
@@ -3050,7 +3169,11 @@ textarea.modal-input:focus-visible {
   max-width: none;
 }
 
-.diagram-lightbox-close {
+/* A lightbox is closed by pressing Esc or by clicking past it, and neither is available to a thumb:
+   a modal sized to fill the window leaves a backdrop a few pixels wide to aim at. So every lightbox
+   carries its own way out, in the same corner. This class is placement only — the button keeps its
+   own surface's icon-button treatment (.mermaid-control, .graph-reset). */
+.lightbox-close {
   position: absolute;
   top: 8px;
   right: 8px;
@@ -4062,7 +4185,7 @@ textarea.modal-input:focus-visible {
 .notification-toast {
   position: fixed;
   right: 20px;
-  bottom: 20px;
+  bottom: calc(20px + var(--foot-dock));
   z-index: 210;
   display: flex;
   align-items: center;

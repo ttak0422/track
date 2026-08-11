@@ -41,6 +41,22 @@ none fits, extend this document first — do not invent a one-off treatment.
   crossing a column of links opens nothing, and it opens only for a link that
   resolves — a pending or unresolved one is inert. Nothing else on a reading
   surface may take it as precedent.
+- **A pointer that cannot hover gets none of it.** Both halves of the rule above
+  are a cursor's idiom. On a touch screen there is no resting on anything — the
+  tap that would open a preview is the tap that follows the link, and it focuses
+  the link besides — and what opens is a window to be dragged, resized, and
+  dismissed by pointing somewhere else. So under `(hover: none)` no preview opens
+  at all (wiki link, graph node, media), the tab's popup is absent, and the
+  controls hover would have revealed stand from the start instead: a reveal that
+  never fires leaves a control nobody can find. The published site is where this
+  is felt — a phone reads it, while the live workspace is desk-bound.
+- **A tap is not a hover.** The rail's flyouts open on hover and toggle on click,
+  and a tap fires `pointerenter` on its way down all the same — so the tap opened
+  the panel and its own click, finding it open, shut it again. Every rail flyout
+  therefore takes its hover handlers from `hoverOpen`, which ignores a touch
+  pointer and leaves the click the whole job; a button that also opens on focus
+  asks for `:focus-visible`, since the focus a tap gives it has a click on its
+  way. A panel a thumb can open is one that opens on a press, not on an arrival.
 
 ## Tokens
 
@@ -199,6 +215,11 @@ above the page, so they alone carry shadows.
   the selection it acts on.
 - Every member is transient. The rail is the exception: it is a permanent
   floating dock with the panel surface, a hairline, and a radius, but no shadow.
+- **A lightbox carries its own way out.** Esc and a click past the modal close
+  it, and a modal sized to fill the window leaves neither: the backdrop is a few
+  pixels wide, and a phone has no Esc. So each one takes a `.lightbox-close` in
+  its top-right corner — placement only, the button keeping its own surface's
+  icon-button treatment (`.mermaid-control`, `.graph-reset`).
 
 ### 4. Filled action — modal decisions only
 
@@ -323,6 +344,13 @@ The strip is a line of titles on the sheet, not a bar of chrome.
   `:focus-within`, which variant 2's hover-revealed chips can afford and this
   cannot: the container here also holds the tab's own title button, so a mouse
   click on the tab left the panel pinned open with the pointer long gone.
+- **At phone width the strip is one tab.** The frame fills the strip rather than
+  taking its 168px, so the same measuring pass settles on the leftmost tab — which
+  is always the note being read — and everything behind it waits in the `+N` menu.
+  Nothing else about the strip changes: same measure, same overflow, and the tab
+  you are on in the same place. Close stands in that tab from the start there,
+  since no hover will reveal it, and the popup carrying the full title is gone —
+  a tab with the whole strip to itself has room to say what it is.
 
 ## Sidebar and rail
 
@@ -353,6 +381,28 @@ The note's aside is a quiet column; the rail is a floating dock over the sheet.
   and open-note controls share the dock in order. A menu hung off the dock sits
   on the same centre line (`.rail-menu-panel`) or is anchored to its own
   button's rect (`.mode-menu-panel`, `.hierarchy-panel`).
+- **A screen with no cursor, or a window under 540px, lays the dock along the
+  foot.** Both ask one question — is there reach and room for a rail down the
+  side? — and a phone answers no whichever way it is turned, which width alone
+  could not say: rotating one is 390px becoming 844px, and the dock jumped back
+  to the left edge halfway through the turn. A 64px lane is a quarter of a phone
+  besides, and the reader wants that width more than the dock wants a margin.
+  (What is *only* about width stays behind the 540px query: the tab frame filling
+  the strip, the reader's tighter margins. A landscape phone and a tablet have the
+  width for several tabs, whatever their dock is doing.)
+  Spanning the window the dock is a foot rail
+  rather than a floating card: no radius, one hairline along its top edge, and the
+  home indicator's strip taken as padding so the panel still reaches the physical
+  edge. The glyphs scroll sideways past what fits, and Settings holds the end of
+  the row as it held the foot of the column. The height it takes is `--foot-dock`,
+  and everything else pinned to the bottom corner — the graph launcher, the toast,
+  the reader's own last line — adds that token to its offset, so none of them
+  needs a breakpoint of its own: the token is `0px` while the dock is vertical.
+  A flyout has no room beside a button there, so it rises from the button's top
+  edge at the window's left margin (`railAnchor`). The workspace measures itself
+  in `dvh`, because a phone's `100vh` is the height with the toolbars retracted —
+  the foot of the reader, and the dock docked to it, sat behind the toolbar that
+  was actually on screen.
 - **A rail panel names itself.** A flyout opens away from the glyph that
   summoned it, and a panel of rows says nothing about which glyph that was, so
   each carries a `.rail-panel-title` — the section label recipe again (variant

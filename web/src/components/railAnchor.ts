@@ -11,6 +11,14 @@ import type { CSSProperties } from "react";
 export function railAnchor(trigger: HTMLElement | null | undefined): CSSProperties | undefined {
   const rect = trigger?.getBoundingClientRect();
   if (!rect) return undefined;
+  // A screen with no cursor, or a window with no room for a lane, lays the dock along the foot
+  // instead (the same query in styles.css — keep the two in step), and there is nothing beside a
+  // button there but the next button. So the flyout rises from the whole dock: from the button's top
+  // edge, and from the window's left margin rather than the button's own column, which for a button
+  // near the right edge would put the panel off screen.
+  if (window.matchMedia?.("(hover: none), (max-width: 540px)").matches) {
+    return { left: 8, bottom: window.innerHeight - rect.top + 8 };
+  }
   const left = rect.right + 12;
   return rect.top > window.innerHeight / 2
     ? { left, bottom: window.innerHeight - rect.bottom }

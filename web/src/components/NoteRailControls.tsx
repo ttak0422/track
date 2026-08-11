@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState, type CSSProperties } from "react";
 import { editorModes, useNoteControls, type EditorMode } from "../noteControls";
 import { NoteActionsMenu } from "./NoteActionsMenu";
+import { hoverOpen } from "./hoverOpen";
 import { railAnchor } from "./railAnchor";
 
 // The open note's controls, in the rail under the workspace's views. They used to float over the
@@ -80,7 +81,7 @@ function EditorModeMenu({ mode, setMode }: { mode: EditorMode; setMode: (mode: E
   }, [open]);
 
   return (
-    <div className="mode-menu" ref={menuRef} onPointerEnter={showMenu} onPointerLeave={scheduleClose}>
+    <div className="mode-menu" ref={menuRef} {...hoverOpen(showMenu, scheduleClose)}>
       <button
         ref={toggleRef}
         className="rail-button active"

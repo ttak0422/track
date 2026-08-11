@@ -343,7 +343,7 @@ export function GraphCanvas({
     // the one node you came for is never the one pushed off; panning and zooming reach the rest.
     // A full-size canvas keeps the old near-zero floor: the whole-vault view is an overview, where
     // seeing everything at once is the point and a clipped graph would be the wrong answer.
-    const floor = nextSize.width >= 420 ? 0.05 : 0.35;
+    const floor = roomyCanvas(nextSize) ? 0.05 : 0.35;
     const fitted = Math.min(availW / graphW, availH / graphH);
     const scale = Math.max(floor, Math.min(0.65, fitted));
     const center =
@@ -478,7 +478,7 @@ export function GraphCanvas({
     // text. There, only the note itself, whatever is under the pointer, and a highlighted match are
     // named; the rest are dots to hover — and in the aside the backlinks and children lists right
     // above the graph already name the neighbourhood in text, so the graph is there for its shape.
-    const roomy = nextSize.width >= 420;
+    const roomy = roomyCanvas(nextSize);
     const showLabels = roomy && view.scale >= 0.26;
     nodesRef.current.forEach((node) => {
       if (decorative) return;
@@ -765,6 +765,16 @@ export function GraphCanvas({
 
 function css(name: string): string {
   return getComputedStyle(document.documentElement).getPropertyValue(name).trim();
+}
+
+// roomyCanvas: has this box the room to name what it draws, and to zoom out far enough to hold a
+// whole vault? Either side reaching 420px is enough. Width alone used to stand for it, which read a
+// phone's full-page graph — 390px wide and the height of the screen — as the note aside's 280px-tall
+// box: the one surface deliberately kept to dots, because the backlinks list above it already names
+// the same neighbourhood in text. So the graph filling a phone showed no titles at all, and stopped
+// zooming out at the aside's floor.
+function roomyCanvas(size: { width: number; height: number }): boolean {
+  return size.width >= 420 || size.height >= 420;
 }
 
 // layoutScale sizes the force layout to the canvas: 1 at the full-page graph's scale and smaller
