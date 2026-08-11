@@ -25,12 +25,16 @@ between CI and a laptop because they read whatever ambient machine config happen
 
 Split configuration into two strictly-decoded files with disjoint key ownership:
 
-- **Machine config** (the platform user config file, `TRACK_CONFIG` to override): `vault_dir`,
-  `db_path`, `cache_dir`, `web.theme`, `web.colors_path`. Babel executors stay env-only
-  (`TRACK_BABEL_<LANG>`), which is machine scope by construction.
-- **Vault config** (`<vault>/.track/config.yml`, optional): `extensions`, `date_format`,
-  `journal_date_format`, `default_template`, `journal_template`, `gen_keep`, `task_states`,
-  `properties`, `queries`, `capture_inbox`, `archive_note`, `icons`, `web.home`.
+- **Machine config** (the platform user config file, `TRACK_CONFIG` to override): at the time of
+  this decision, `vault_dir`, `db_path`, `cache_dir`, `web.theme`, `web.colors_path`. Babel
+  executors stay env-only (`TRACK_BABEL_<LANG>`), which is machine scope by construction. ADR 0064
+  later removed configured `db_path`: the index path is now derived from the cache directory and
+  vault path, so `cache_dir` is the remaining machine key for where it lands.
+- **Vault config** (`<vault>/.track/config.yml`, optional): at the time of this decision,
+  `extensions`, `date_format`, `journal_date_format`, `default_template`, `journal_template`,
+  `gen_keep`, `task_states`, `properties`, `queries`, `capture_inbox`, `archive_note`, `icons`,
+  `web.home`. ADR 0058 later removed `task_states` and fixed the state set in code; the current
+  vault file has no such key.
 
 Both files reject unknown keys. A vault-scope key in the machine file is a hard error naming the new
 location; a machine-scope key in the vault file is a hard error naming the offending key. There is no
@@ -50,10 +54,13 @@ exec path — Babel — is configured by environment variable only and runs on a
 `track babel run`. The rule stands for anything added later: a command-valued key belongs to the
 machine, never to a vault.
 
-The second half is what the split enforces today. `db_path` and `cache_dir` are machine scope for a
-plainer reason than danger: they describe *this machine*, not these notes. The same vault opened on
-two machines needs two cache locations, and one machine's path may not exist on the other. Letting a
-synced vault set them would point this machine's writes somewhere it never chose.
+The second half is what the split enforces today. At the time of this decision, `db_path` and
+`cache_dir` were machine scope for a plainer reason than danger: they describe *this machine*, not
+these notes. ADR 0064 later removed `db_path` as a configured key; the derived index path still
+keeps that ownership boundary, while `cache_dir` remains the setting a machine may choose. The same
+vault opened on two machines needs two cache locations, and one machine's path may not exist on the
+other. Letting a synced vault set either location would point this machine's writes somewhere it
+never chose.
 
 Both are enforced structurally by the strict schemas — a key simply has no field in the other file —
 rather than by validating individual values.

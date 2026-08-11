@@ -29,10 +29,16 @@ none fits, extend this document first — do not invent a one-off treatment.
   custom properties at the top of `web/src/styles.css`; components never
   hardcode hex values or raw radii. Font sizes in chrome scale via
   `calc(...px * var(--font-scale, 1))`.
-- **No hover-triggered popups on visible content.** Previews and expansions
-  open from an explicit affordance (a button, a click), never from merely
-  hovering something already readable. Hover may *reveal controls* (quiet
-  chips fading in over media) — it must not *open surfaces*.
+- **Hover reveals controls; it does not open surfaces.** A quiet chip fading in
+  over media is hover's job. A panel, an expansion, or anything that covers what
+  is being read opens from an explicit affordance instead.
+  The one exception is the note preview on a resolved `[[wikilink]]`, which is
+  the feature rather than an accident: the link *is* the affordance, so the
+  preview answers "what is behind this" without spending a navigation. It earns
+  the exception by behaving: it waits out a hover-intent delay so a pointer
+  crossing a column of links opens nothing, and it opens only for a link that
+  resolves — a pending or unresolved one is inert. Nothing else on a reading
+  surface may take it as precedent.
 
 ## Tokens
 
