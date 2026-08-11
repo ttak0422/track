@@ -1233,15 +1233,12 @@ a.calendar-title:focus-visible {
 .tab {
   position: relative;
   display: flex;
-  /* Content-sized up to a cap: tabs of their own width read as a line of titles, where one fixed
-     width padded every short title out into a slab of its own. The cap keeps a single long title
-     from crowding out the ones beside it. */
-  flex: 0 1 auto;
-  /* Between a floor and a cap. The cap keeps one long title from crowding out the tabs beside it;
-     the floor is what makes the strip overflow instead of squeezing every title into an unreadable
-     sliver — overflowing is the signal TabBar measures to move a tab into the +N menu. */
-  min-width: 110px;
-  max-width: 168px;
+  /* One width for every tab. Tabs sized to their own titles put the close button somewhere different
+     on each one, so closing a run of them meant chasing it; a constant frame lands the next × exactly
+     where the last one was. A title too long for the frame clips to it with an ellipsis. The frame
+     never shrinks either — the strip overflowing is the signal TabBar measures to move a tab into the
+     +N menu, and it cannot measure a strip whose tabs squeeze instead. */
+  flex: 0 0 168px;
   align-items: center;
   color: var(--muted);
 }
@@ -1462,6 +1459,15 @@ a.calendar-title:focus-visible {
   top: 50%;
   right: 6px;
   translate: 0 -50%;
+}
+
+/* When it appears it brings its own ground. It stands on the tail of the title it closes, and a glyph
+   drawn straight onto letters leaves both unreadable — so the fill arrives with the glyph rather than
+   waiting for the pointer to find the 24px button inside the tab. The fill is the icon button's own
+   (variant 7); what changes is only when it shows. */
+.tab:hover .tab-close,
+.tab-close:focus-visible {
+  background: var(--panel-soft);
 }
 
 .tab:hover .tab-close-glyph,
