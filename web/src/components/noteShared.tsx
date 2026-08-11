@@ -331,6 +331,18 @@ export function NoteAside({
                   void navigate({ to: "/notes/$noteId", params: { noteId: String(selected) } });
                 }}
               />
+              {/* The way out. Esc and a click past the dialog still close it, but this one fills the
+                  window: what is left to click past is a few pixels of backdrop, which a thumb
+                  cannot aim at at all. Same corner as the diagram lightbox's (.lightbox-close). */}
+              <button
+                className="graph-reset lightbox-close"
+                type="button"
+                aria-label="Close enlarged graph"
+                title="Close enlarged graph"
+                onClick={() => graphDialogRef.current?.close()}
+              >
+                <CloseIcon />
+              </button>
               <div className="graph-controls">
                 <button
                   className="graph-reset"
@@ -347,6 +359,25 @@ export function NoteAside({
         </section>
       ) : null}
     </div>
+  );
+}
+
+// The rail's outline family, at the size the graph's own controls are drawn (see GraphResetIcon).
+function CloseIcon() {
+  return (
+    <svg
+      viewBox="0 0 24 24"
+      width="15"
+      height="15"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="1.5"
+      strokeLinecap="round"
+      aria-hidden="true"
+    >
+      <line x1="5" y1="5" x2="19" y2="19" />
+      <line x1="19" y1="5" x2="5" y2="19" />
+    </svg>
   );
 }
 

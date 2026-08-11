@@ -239,7 +239,7 @@ export function DiagramFrame({ state, source, sourceLang, label, className }: Di
             </button>
           </div>
           <button
-            className="mermaid-control diagram-lightbox-close"
+            className="mermaid-control lightbox-close"
             type="button"
             onClick={() => dialogRef.current?.close()}
             aria-label="Close diagram popup"

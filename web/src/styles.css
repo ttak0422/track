@@ -3169,7 +3169,11 @@ textarea.modal-input:focus-visible {
   max-width: none;
 }
 
-.diagram-lightbox-close {
+/* A lightbox is closed by pressing Esc or by clicking past it, and neither is available to a thumb:
+   a modal sized to fill the window leaves a backdrop a few pixels wide to aim at. So every lightbox
+   carries its own way out, in the same corner. This class is placement only — the button keeps its
+   own surface's icon-button treatment (.mermaid-control, .graph-reset). */
+.lightbox-close {
   position: absolute;
   top: 8px;
   right: 8px;

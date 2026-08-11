@@ -215,6 +215,11 @@ above the page, so they alone carry shadows.
   the selection it acts on.
 - Every member is transient. The rail is the exception: it is a permanent
   floating dock with the panel surface, a hairline, and a radius, but no shadow.
+- **A lightbox carries its own way out.** Esc and a click past the modal close
+  it, and a modal sized to fill the window leaves neither: the backdrop is a few
+  pixels wide, and a phone has no Esc. So each one takes a `.lightbox-close` in
+  its top-right corner — placement only, the button keeping its own surface's
+  icon-button treatment (`.mermaid-control`, `.graph-reset`).
 
 ### 4. Filled action — modal decisions only
 
