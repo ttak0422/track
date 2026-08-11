@@ -64,8 +64,19 @@ describe("tab strip", () => {
 
     expect(tab).toMatch(/flex:\s*0\s+0\s+\d+px/);
     expect(tab).not.toMatch(/max-width:/);
+    // The basis alone does not hold it: a flex item's automatic minimum size is its content's, so an
+    // unbreakable title (a Japanese one has no spaces) stretched the tab past the basis.
+    expect(tab).toMatch(/min-width:\s*0/);
     const title = css.match(/\n\.tab-title\s*\{([^}]*)\}/)?.[1] ?? "";
     expect(title).toMatch(/text-overflow:\s*ellipsis/);
+  });
+
+  // A vault name is free-form; the title it annotates is the point of the tab.
+  it("keeps the vault name to a corner of the frame", () => {
+    const layout = ruleBody(".tab-label .tab-vault");
+
+    expect(layout).toMatch(/max-width:\s*40%/);
+    expect(layout).toMatch(/text-overflow:\s*ellipsis/);
   });
 
   // The button stands on the tail of the title it closes. Without a fill arriving alongside it, the
@@ -82,9 +93,11 @@ describe("tab strip", () => {
   it("writes the vault name as a section label, not a filled badge", () => {
     const rules = [...css.matchAll(/\.tab-vault[^{]*\{([^}]*)\}/g)].map((m) => m[1]);
 
-    expect(rules).toHaveLength(2);
+    expect(rules).toHaveLength(3);
     expect(rules[0]).toMatch(/text-transform:\s*uppercase/);
-    expect(rules[1]).not.toMatch(/background|border-radius|padding/);
+    for (const rule of rules.slice(1)) {
+      expect(rule).not.toMatch(/background|border-radius|padding/);
+    }
   });
 });
 
