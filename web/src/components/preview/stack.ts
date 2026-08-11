@@ -9,6 +9,17 @@ export const previewMaxZIndex = 189;
 // column of links does not flash a popup under every one it crosses.
 export const previewOpenDelay = 260;
 
+// A preview needs a cursor, and a touch screen has none. There is no resting on a link there — the
+// tap that would open the preview is the tap that follows the link, and a tapped link is focused
+// besides, which is the other way in — and what opens is a window to be dragged, resized, and
+// dismissed by pointing somewhere else. The published site is the mobile surface, so on a pointer
+// that cannot hover no preview opens at all and the link simply navigates. Read at the moment of
+// opening rather than at render, so a page rendered on the server takes no position on the pointer
+// that will read it.
+export function pointerCanHover(): boolean {
+  return window.matchMedia?.("(hover: none)").matches !== true;
+}
+
 type PreviewEntry = { active: boolean; order: number };
 
 const previewEntries = new Map<string, PreviewEntry>();

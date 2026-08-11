@@ -56,7 +56,10 @@ describe("WikiLink hover intent", () => {
     HTMLElement.prototype.setPointerCapture = vi.fn();
     HTMLElement.prototype.releasePointerCapture = vi.fn();
   });
-  afterEach(() => vi.useRealTimers());
+  afterEach(() => {
+    vi.useRealTimers();
+    vi.unstubAllGlobals();
+  });
 
   it("opens the preview only after the pointer rests past the open delay", async () => {
     const { container } = renderWithFloating(<WikiLink target="Target" display="Target" />);
@@ -72,6 +75,26 @@ describe("WikiLink hover intent", () => {
       vi.advanceTimersByTime(60);
     });
     expect(preview(container)).not.toBeNull();
+  });
+
+  // A touch screen has no resting on a link: the tap that would open the preview is the tap that
+  // follows the link, and it focuses the link besides — which is the preview's other way in.
+  it("opens no preview on a pointer that cannot hover", async () => {
+    vi.stubGlobal(
+      "matchMedia",
+      vi.fn((query: string) => ({ matches: query === "(hover: none)" })),
+    );
+    const { container } = renderWithFloating(<WikiLink target="Target" display="Target" />);
+    const wrap = container.querySelector(".wiki-link-wrap")!;
+
+    fireEvent.mouseEnter(wrap);
+    await act(async () => {
+      vi.advanceTimersByTime(previewOpenDelay + 300);
+    });
+    expect(preview(container)).toBeNull();
+
+    fireEvent.focus(wrap);
+    expect(preview(container)).toBeNull();
   });
 
   it("does not open when the pointer leaves before the delay elapses", async () => {

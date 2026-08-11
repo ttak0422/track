@@ -41,6 +41,15 @@ none fits, extend this document first — do not invent a one-off treatment.
   crossing a column of links opens nothing, and it opens only for a link that
   resolves — a pending or unresolved one is inert. Nothing else on a reading
   surface may take it as precedent.
+- **A pointer that cannot hover gets none of it.** Both halves of the rule above
+  are a cursor's idiom. On a touch screen there is no resting on anything — the
+  tap that would open a preview is the tap that follows the link, and it focuses
+  the link besides — and what opens is a window to be dragged, resized, and
+  dismissed by pointing somewhere else. So under `(hover: none)` no preview opens
+  at all (wiki link, graph node, media), the tab's popup is absent, and the
+  controls hover would have revealed stand from the start instead: a reveal that
+  never fires leaves a control nobody can find. The published site is where this
+  is felt — a phone reads it, while the live workspace is desk-bound.
 
 ## Tokens
 
@@ -323,6 +332,13 @@ The strip is a line of titles on the sheet, not a bar of chrome.
   `:focus-within`, which variant 2's hover-revealed chips can afford and this
   cannot: the container here also holds the tab's own title button, so a mouse
   click on the tab left the panel pinned open with the pointer long gone.
+- **At phone width the strip is one tab.** The frame fills the strip rather than
+  taking its 168px, so the same measuring pass settles on the leftmost tab — which
+  is always the note being read — and everything behind it waits in the `+N` menu.
+  Nothing else about the strip changes: same measure, same overflow, and the tab
+  you are on in the same place. Close stands in that tab from the start there,
+  since no hover will reveal it, and the popup carrying the full title is gone —
+  a tab with the whole strip to itself has room to say what it is.
 
 ## Sidebar and rail
 
@@ -353,6 +369,21 @@ The note's aside is a quiet column; the rail is a floating dock over the sheet.
   and open-note controls share the dock in order. A menu hung off the dock sits
   on the same centre line (`.rail-menu-panel`) or is anchored to its own
   button's rect (`.mode-menu-panel`, `.hierarchy-panel`).
+- **At phone width (540px) the dock lies along the foot of the window.** A 64px
+  lane down the left edge is a quarter of a phone, and the reader wants that width
+  more than the dock wants a margin. Spanning the window the dock is a foot rail
+  rather than a floating card: no radius, one hairline along its top edge, and the
+  home indicator's strip taken as padding so the panel still reaches the physical
+  edge. The glyphs scroll sideways past what fits, and Settings holds the end of
+  the row as it held the foot of the column. The height it takes is `--foot-dock`,
+  and everything else pinned to the bottom corner — the graph launcher, the toast,
+  the reader's own last line — adds that token to its offset, so none of them
+  needs a breakpoint of its own: the token is `0px` while the dock is vertical.
+  A flyout has no room beside a button there, so it rises from the button's top
+  edge at the window's left margin (`railAnchor`). The workspace measures itself
+  in `dvh`, because a phone's `100vh` is the height with the toolbars retracted —
+  the foot of the reader, and the dock docked to it, sat behind the toolbar that
+  was actually on screen.
 - **A rail panel names itself.** A flyout opens away from the glyph that
   summoned it, and a panel of rows says nothing about which glyph that was, so
   each carries a `.rail-panel-title` — the section label recipe again (variant

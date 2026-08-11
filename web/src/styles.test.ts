@@ -17,6 +17,15 @@ function zIndex(selector: string): number | undefined {
   return value === undefined ? undefined : Number(value);
 }
 
+// Everything a media query declares, joined: a query the sheet opens more than once — each block
+// beside the component it belongs to — reads here as the one set of rules it is.
+function mediaBody(query: string): string {
+  const escaped = query.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  return [...css.matchAll(new RegExp(`@media ${escaped} \\{([\\s\\S]*?)\\n\\}`, "g"))]
+    .map((match) => match[1])
+    .join("\n");
+}
+
 describe("special-page layering", () => {
   it("keeps tabbar popups above the full-bleed graph view", () => {
     const tabstripZ = zIndex(".tabstrip");
@@ -237,6 +246,65 @@ describe("sidebar at short viewport heights", () => {
     expect(shell).toMatch(
       /<nav className="activity-rail"[\s\S]*<div className="rail-scroll">[\s\S]*<\/div>[\s\S]*?<ThemeMenu \/>/,
     );
+  });
+});
+
+describe("phone width", () => {
+  const phone = mediaBody("(max-width: 540px)");
+
+  it("lays the dock along the foot of the window", () => {
+    expect(phone).toMatch(/\.sidebar\s*\{[^}]*top:\s*auto/);
+    expect(phone).toMatch(/\.sidebar\s*\{[^}]*bottom:\s*0/);
+    expect(phone).toMatch(/\.activity-rail\s*\{[^}]*flex-direction:\s*row/);
+    expect(phone).toMatch(/\.rail-scroll\s*\{[^}]*flex-direction:\s*row/);
+  });
+
+  // The dock's height is one measurement. Everything pinned to the bottom corner adds it, which is
+  // why none of them needs a media query of its own — the token is zero while the dock is vertical.
+  it("clears the foot dock from a single measurement", () => {
+    expect(ruleBody(":root")).toMatch(/--foot-dock:\s*0px/);
+    expect(phone).toMatch(/--foot-dock:\s*calc\(/);
+    expect(phone).toMatch(/\.reader\s*\{[^}]*var\(--foot-dock\)/);
+
+    for (const selector of [
+      ".graph-panel",
+      ".graph-fab",
+      ".notification-toast",
+      // The full-bleed graph fills the reader, which the dock floats over.
+      ".graph-full .graph-controls",
+    ]) {
+      expect(ruleBody(selector)).toMatch(/bottom:\s*calc\([^)]*var\(--foot-dock\)\)/);
+    }
+  });
+
+  // A full-width frame settles TabBar's own measuring pass on one tab: the leftmost, which is always
+  // the note being read. Everything behind it waits in the +N menu instead of splitting the strip.
+  it("gives the strip to the tab being read", () => {
+    expect(phone).toMatch(/\.tab\s*\{[^}]*flex:\s*1\s+0\s+100%/);
+  });
+
+  // 100vh on a phone is the height with the toolbars retracted, so the foot of the workspace — and
+  // the dock docked to it — sat behind the toolbar that was on screen.
+  it("measures the workspace against the viewport the browser is showing", () => {
+    expect(ruleBody(".workspace")).toMatch(/height:\s*100dvh/);
+  });
+});
+
+describe("pointers that cannot hover", () => {
+  const touch = mediaBody("(hover: none)");
+
+  it("opens none of the surfaces hover opens", () => {
+    expect(touch).toMatch(/\.tab-tools\s*\{[^}]*display:\s*none/);
+    expect(touch).toMatch(/\.media-preview\s*\{[^}]*display:\s*none/);
+    // The note and graph previews are JS, and ask the same question of the same pointer.
+    expect(previewStack).toMatch(/matchMedia\?\.\("\(hover: none\)"\)/);
+  });
+
+  // A reveal that never fires leaves a control that cannot be found: close is the only way out of a
+  // tab, and the media chips are the only way into the lightbox.
+  it("settles the states a hover would have revealed", () => {
+    expect(touch).toMatch(/\.tab-close-glyph\s*\{[^}]*opacity:\s*1/);
+    expect(touch).toMatch(/\.media-controls\s*\{[^}]*opacity:\s*1/);
   });
 });
 

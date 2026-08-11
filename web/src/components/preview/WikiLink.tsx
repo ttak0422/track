@@ -12,6 +12,7 @@ import {
   bringPreviewToFront as raisePreviewToFront,
   createPreviewID,
   deactivatePreview,
+  pointerCanHover,
   previewOpenDelay,
   releasePreview,
   usePreviewStackOrder,
@@ -67,6 +68,9 @@ export function WikiLink({ target, display }: WikiLinkProps) {
   }
 
   function openPreview() {
+    // Both ways in pass through here — the hover-intent timer and the focus a tap already gives the
+    // link — so the pointer is asked once, here (see pointerCanHover).
+    if (!pointerCanHover()) return;
     holdPreview();
     cancelOpen();
     activatePreview(previewID);
