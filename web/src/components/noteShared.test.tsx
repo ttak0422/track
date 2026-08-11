@@ -136,6 +136,25 @@ describe("NoteProperties dates", () => {
     expect(screen.getByText("2026-06-20")).toBeTruthy();
   });
 
+  // The help vault's own Properties page demonstrates inline fields with an `updated:: 2026-07-11`,
+  // and got two UPDATED rows carrying different dates for its trouble.
+  it("leaves a date key the note has spent to the note", () => {
+    const updated = new Date(2026, 5, 20, 12, 0, 0).getTime() / 1000;
+    const own = [
+      { key: "status", value: "draft", type: "string", line: 0 },
+      { key: "updated", value: "2026-07-11", type: "string", line: 1 },
+    ];
+    render(<NoteProperties props={own} created="2026-06-14" updated={updated} />);
+
+    expect(screen.getAllByRole("term").map((dt) => dt.textContent)).toEqual([
+      "status",
+      "updated",
+      "created",
+    ]);
+    expect(screen.getByText("2026-07-11")).toBeTruthy();
+    expect(screen.queryByText("2026-06-20")).toBeNull();
+  });
+
   it("omits a date row the note has no value for", () => {
     render(<NoteProperties props={props} created="2026-06-14" />);
     expect(screen.getAllByRole("term").map((dt) => dt.textContent)).toEqual(["status", "created"]);

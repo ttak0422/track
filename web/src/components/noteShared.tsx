@@ -387,9 +387,14 @@ export function NoteProperties({
   updated?: number;
 }) {
   const shown = noteProps.filter((p) => !(p.key === "up" && p.type === "link"));
+  // A note that carries its own created/updated has said what it means by the word, so the derived
+  // pair gives that key up rather than printing the same label a second time with a different value
+  // underneath it — which is what the strip did, leaving a reader to guess which UPDATED was the
+  // note's. User content leads here as it does in the ordering below.
+  const spent = new Set(shown.map((prop) => prop.key));
   const dates: [string, string][] = [];
-  if (created) dates.push(["created", created]);
-  if (updated) dates.push(["updated", dateKey(new Date(updated * 1000))]);
+  if (created && !spent.has("created")) dates.push(["created", created]);
+  if (updated && !spent.has("updated")) dates.push(["updated", dateKey(new Date(updated * 1000))]);
   if (shown.length === 0 && dates.length === 0) return null;
   const keys: string[] = [];
   const byKey = new Map<string, NoteProp[]>();

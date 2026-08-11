@@ -90,7 +90,11 @@ off, a published site) still opens the day page and its notes-and-tasks listing.
   symlink-intact form used for the copy-path button. It also carries the note's
   timestamps when they are known: `created`, the sidecar date string verbatim (in
   the vault's configured date format), and `updated`, the file mtime in unix
-  seconds. The published bundle's note JSON carries both the same way.
+  seconds. The published bundle's note JSON carries both the same way. The reader
+  closes its property strip with these two, after the note's own properties — but
+  a note that carries a `created`/`updated` property of its own keeps that key:
+  the derived value is dropped rather than printed under a second row with the
+  same label.
 - `GET /api/graph/local?id=<id>[&vault=<name>]`: the one-hop local graph around a note.
 - `GET /api/graph`: the whole-vault graph — every indexed note as a node and every
   link between two known notes as an edge, with no center.
