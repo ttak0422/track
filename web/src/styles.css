@@ -503,16 +503,16 @@ img.theme-asset-dark {
   box-shadow: 0 16px 38px color-mix(in srgb, #000 18%, transparent);
 }
 
-/* The settings menu opens beside the dock, on the dock's own centre line (a quarter down — see
-   .sidebar). It is fixed so it is not clipped by the rail and stays above reader content like note
-   backlinks and the full-graph view. */
+/* The settings menu opens beside the gear that summoned it, placed from the button's own rect like the
+   rail's other flyouts (see railAnchor.ts). It used to hang at a quarter down, which matched the gear
+   only while the dock was centred there; the gear is pinned to the foot of the dock, so the panel drew
+   itself a long way above its own button. It is fixed so it is not clipped by the rail and stays above
+   reader content like note backlinks and the full-graph view. */
 .rail-menu-panel {
   position: fixed;
   z-index: 95;
-  top: 25%;
+  top: auto;
   right: auto;
-  left: 64px;
-  translate: 0 -50%;
 }
 
 .rail-menu-panel .menu-section + .menu-section {

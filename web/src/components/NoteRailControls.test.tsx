@@ -74,6 +74,16 @@ describe("NoteRailControls", () => {
     expect(seen.at(-1)).toBe("preview/true");
   });
 
+  it("opens the actions menu on hover, like the rail's other flyouts", async () => {
+    renderRail(noopActions);
+    const toggle = await screen.findByRole("button", { name: "More actions" });
+    expect(screen.queryByRole("menuitem", { name: "Copy MD" })).not.toBeInTheDocument();
+
+    fireEvent.pointerEnter(toggle);
+    expect(screen.getByRole("menuitem", { name: "Copy MD" })).toBeInTheDocument();
+    expect(screen.getByRole("menuitem", { name: "Copy for Confluence" })).toBeInTheDocument();
+  });
+
   it("reads the body through the getter, so a keystroke never re-renders the rail", async () => {
     const getBody = vi.fn(() => "# body");
     renderRail({ ...noopActions, getBody });

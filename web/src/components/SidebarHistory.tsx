@@ -1,7 +1,8 @@
 import { Link } from "@tanstack/react-router";
 import { createPortal } from "react-dom";
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useRef, useState, type CSSProperties } from "react";
 import { useTabs } from "./tabs/tabsStore";
+import { railAnchor } from "./railAnchor";
 
 // SidebarHistory is the rail's clock button plus the browser-local list of notes it recently opened.
 // The panel is portalled because the fixed rail owns a stacking context below floating previews; a
@@ -9,7 +10,7 @@ import { useTabs } from "./tabs/tabsStore";
 export function SidebarHistory() {
   const { recent } = useTabs();
   const [open, setOpen] = useState(false);
-  const [anchor, setAnchor] = useState<{ top: number; left: number } | null>(null);
+  const [anchor, setAnchor] = useState<CSSProperties | undefined>(undefined);
   const toggleRef = useRef<HTMLButtonElement>(null);
   const panelRef = useRef<HTMLDivElement>(null);
   const closeTimer = useRef<number | undefined>(undefined);
@@ -21,8 +22,7 @@ export function SidebarHistory() {
 
   function showPanel() {
     cancelClose();
-    const rect = toggleRef.current?.getBoundingClientRect();
-    setAnchor(rect ? { top: rect.top, left: rect.right + 12 } : null);
+    setAnchor(railAnchor(toggleRef.current));
     setOpen(true);
   }
 
@@ -63,7 +63,7 @@ export function SidebarHistory() {
     <div
       ref={panelRef}
       className="menu-panel note-menu-panel history-panel"
-      style={anchor ?? undefined}
+      style={anchor}
       onPointerEnter={cancelClose}
       onPointerLeave={scheduleClose}
     >

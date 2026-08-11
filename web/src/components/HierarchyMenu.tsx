@@ -1,6 +1,7 @@
 import { Link } from "@tanstack/react-router";
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useRef, useState, type CSSProperties } from "react";
 import { useHierarchyQuery } from "../queries";
+import { railAnchor } from "./railAnchor";
 import type { HierarchyNode } from "../types";
 
 // The rail's hierarchy button: the vault's "up" tree, opened by hovering the glyph the way the
@@ -10,7 +11,7 @@ import type { HierarchyNode } from "../types";
 // which on a vault using "up" for a handful of notes keeps the menu the size of that handful.
 export function HierarchyMenu() {
   const [open, setOpen] = useState(false);
-  const [anchor, setAnchor] = useState<{ top: number; left: number } | null>(null);
+  const [anchor, setAnchor] = useState<CSSProperties | undefined>(undefined);
   const menuRef = useRef<HTMLDivElement>(null);
   const toggleRef = useRef<HTMLButtonElement>(null);
   const closeTimer = useRef<number | undefined>(undefined);
@@ -37,8 +38,7 @@ export function HierarchyMenu() {
 
   function showMenu() {
     cancelClose();
-    const rect = toggleRef.current?.getBoundingClientRect();
-    setAnchor(rect ? { top: rect.top, left: rect.right + 12 } : null);
+    setAnchor(railAnchor(toggleRef.current));
     setAsked(true);
     setOpen(true);
   }
@@ -88,7 +88,7 @@ export function HierarchyMenu() {
       {open ? (
         // The title stays outside the menu and outside the scroller: a heading is not a menu item,
         // and a panel that scrolls would carry its own name off the top.
-        <div className="menu-panel note-menu-panel hierarchy-panel" style={anchor ?? undefined}>
+        <div className="menu-panel note-menu-panel hierarchy-panel" style={anchor}>
           <h2 className="rail-panel-title">Hierarchy</h2>
           <div className="hierarchy-scroll" role="menu" aria-label="Hierarchy">
             {roots.length === 0 ? (
