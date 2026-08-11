@@ -68,6 +68,10 @@
      in. Content width replaces this default when the user chooses Wide or Full. */
   --measure: 40em;
   --content-measure: var(--content-width, var(--measure));
+  /* Where the floating rail hangs from (see .sidebar for why it hangs rather than centres). It is a
+     token because a second thing lines up with it — the empty state's guides point at the rail's
+     buttons — and two copies of this expression is exactly how they drifted apart before. */
+  --rail-anchor: max(41px, calc(25vh - 200px));
   /* The whole radius scale: badges and inline chips, controls and quiet chips, panels and floating
      layers. Drawn shapes (icon glyphs, heatmap cells, pills, circles) keep their own geometry. */
   --radius-sm: 4px;
@@ -227,7 +231,7 @@ img.theme-asset-dark {
 .sidebar {
   position: fixed;
   z-index: 92;
-  top: max(41px, calc(25vh - 200px));
+  top: var(--rail-anchor);
   bottom: 8px;
   left: 8px;
   display: flex;
@@ -341,13 +345,15 @@ img.theme-asset-dark {
   pointer-events: none;
 }
 
-/* The guides mirror the floating rail rather than measuring from the reader's content box: same centre
-   line (a quarter down, see .sidebar), same 8px pad, 40px rows, and 6px gaps. */
+/* The guides mirror the floating rail rather than measuring from the reader's content box: they hang
+   from the rail's own anchor and repeat its rhythm — 8px pad, 40px rows, 6px gaps — so every row lines
+   up with a button whatever the dock is carrying. The extra pixel is the rail's border, which the
+   guides have no equivalent of. They used to be centred on a quarter down, which matched the rail only
+   while the rail was centred there too; it stopped being when the dock changed to hanging. */
 .empty-guides {
-  position: absolute;
-  top: 25%;
+  position: fixed;
+  top: calc(var(--rail-anchor) + 1px);
   left: 72px;
-  translate: 0 -50%;
   display: flex;
   flex-direction: column;
   gap: 6px;

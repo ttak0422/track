@@ -165,15 +165,26 @@ describe("sidebar at short viewport heights", () => {
     // Centring is what made the top edge a function of the dock's own height.
     expect(sidebar).not.toMatch(/align-items:\s*center/);
     expect(sidebar).toMatch(/align-items:\s*flex-start/);
-    expect(sidebar).toMatch(/top:\s*max\(/);
+    expect(ruleBody(":root")).toMatch(/--rail-anchor:\s*max\(/);
   });
 
   it("keeps the anchor clear of the tab row", () => {
     const reservedTabRow = Number(ruleBody(".reader-pane").match(/padding-top:\s*(\d+)px/)?.[1]);
-    const anchorFloor = Number(ruleBody(".sidebar").match(/top:\s*max\((\d+)px/)?.[1]);
+    const anchorFloor = Number(ruleBody(":root").match(/--rail-anchor:\s*max\((\d+)px/)?.[1]);
 
     expect(reservedTabRow).toBeGreaterThan(0);
     expect(anchorFloor).toBeGreaterThanOrEqual(reservedTabRow + 8);
+  });
+
+  // The guides in the empty state point at the rail's buttons. They line up only while both hang from
+  // the same place — they drifted once already, when the dock stopped being centred and the guides
+  // were left centred. One anchor, read by both.
+  it("hangs the empty state's guides from the rail's own anchor", () => {
+    expect(ruleBody(":root")).toMatch(/--rail-anchor:/);
+    expect(ruleBody(".sidebar")).toMatch(/top:\s*var\(--rail-anchor\)/);
+    expect(ruleBody(".empty-guides")).toMatch(/top:\s*calc\(var\(--rail-anchor\)/);
+    // Centring is what broke it before: the guides must not re-acquire a centre of their own.
+    expect(ruleBody(".empty-guides")).not.toMatch(/translate:/);
   });
 
   it("keeps Settings outside the scrolling group so it remains reachable", () => {

@@ -17,6 +17,7 @@ export function EmptyState() {
       <ul className="empty-guides">
         <li className="empty-guide">Start page</li>
         <li className="empty-guide">Search notes</li>
+        <li className="empty-guide">Recently opened</li>
         {site.data?.calendar === true && <li className="empty-guide">Calendar</li>}
         <li className="empty-guide">Hierarchy</li>
         <li className="empty-guide">Explore the graph</li>
