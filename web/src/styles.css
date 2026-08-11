@@ -1249,6 +1249,12 @@ a.calendar-title:focus-visible {
      never shrinks either — the strip overflowing is the signal TabBar measures to move a tab into the
      +N menu, and it cannot measure a strip whose tabs squeeze instead. */
   flex: 0 0 168px;
+  /* Without this the frame is not a frame: a flex item's automatic minimum size is its content's, so a
+     title with nothing to break on — a Japanese one has no spaces at all — pushed the tab out to the
+     width of its own text, past the basis above. The ellipsis then never arrived (there was nothing to
+     clip), the close button moved tab by tab again, and the strip measured itself full several tabs
+     early. The title inside already clips, so zero is the right floor. */
+  min-width: 0;
   align-items: center;
   color: var(--muted);
 }
@@ -1377,6 +1383,17 @@ a.calendar-title:focus-visible {
   flex: none;
   margin-right: 6px;
   white-space: nowrap;
+}
+
+/* In the strip the name annotates the title, so it never takes more than a corner of the frame from
+   it: a registry name is free-form, and an unshrinkable one ate the whole tab. Past that corner it
+   clips like the title does — the tab's own popup below still carries both in full. */
+.tab-label .tab-vault {
+  flex: 0 1 auto;
+  min-width: 0;
+  max-width: 40%;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
 /* The unsaved-changes dot is state, not a control, so it holds the close button's place rather than
