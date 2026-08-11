@@ -2842,25 +2842,23 @@ textarea.modal-input:focus-visible {
   overflow: hidden;
 }
 
-@media (max-width: 540px) {
-  .ogp-card {
-    flex-direction: column;
-  }
+/* Where the dock cannot hang at the left edge: a screen with no cursor, and a window with no room to
+   spare a 64px lane. It lies along the foot of the window instead.
 
-  .ogp-card-image {
-    width: 100%;
-    flex-basis: 160px;
-  }
-
-  /* Phone width: the dock lies along the foot of the window instead of hanging at the left edge, so
-     the reader keeps the whole width — a 64px lane is a quarter of a phone. The published static site
-     is the main mobile surface (the live workspace is desk-bound), but both share these. */
+   The two conditions ask one question — is there reach and room for a rail down the side? — and a
+   phone answers no whichever way it is turned. Width alone could not say that: turning a phone
+   sideways is 390px becoming 844px, and the dock jumped back to the edge halfway through the
+   rotation. The published static site is where this is felt (the live workspace is desk-bound), but
+   both share it. */
+@media (hover: none), (max-width: 540px) {
   :root {
     --foot-dock: calc(52px + env(safe-area-inset-bottom));
   }
 
+  /* The lane goes back to the reader; the foot is what the dock takes in its place. */
   .reader {
-    padding: 16px 12px calc(16px + var(--foot-dock));
+    padding-left: 32px;
+    padding-bottom: calc(32px + var(--foot-dock));
   }
 
   .sidebar {
@@ -2900,10 +2898,29 @@ textarea.modal-input:focus-visible {
   .empty-guides {
     display: none;
   }
+}
+
+/* Phone width proper: what a hand-held window is too narrow for, whatever kind of pointer it has. */
+@media (max-width: 540px) {
+  .ogp-card {
+    flex-direction: column;
+  }
+
+  .ogp-card-image {
+    width: 100%;
+    flex-basis: 160px;
+  }
+
+  /* Tighter margins than the sheet's 32px, and the foot dock's clearance kept (the rule above set it
+     on a padding-bottom this shorthand replaces). */
+  .reader {
+    padding: 16px 12px calc(16px + var(--foot-dock));
+  }
 
   /* One tab at a time. The frame fills the strip, so TabBar's own measuring pass — which shrinks the
      strip while it overflows — settles on the single leftmost tab, which is always the note being
-     read, and sends every other one to the +N menu beside it. */
+     read, and sends every other one to the +N menu beside it. A landscape phone and a tablet keep
+     the ordinary strip: they have the width for several tabs, whatever their dock is doing. */
   .tab {
     flex: 1 0 100%;
   }

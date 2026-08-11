@@ -376,9 +376,16 @@ The note's aside is a quiet column; the rail is a floating dock over the sheet.
   and open-note controls share the dock in order. A menu hung off the dock sits
   on the same centre line (`.rail-menu-panel`) or is anchored to its own
   button's rect (`.mode-menu-panel`, `.hierarchy-panel`).
-- **At phone width (540px) the dock lies along the foot of the window.** A 64px
-  lane down the left edge is a quarter of a phone, and the reader wants that width
-  more than the dock wants a margin. Spanning the window the dock is a foot rail
+- **A screen with no cursor, or a window under 540px, lays the dock along the
+  foot.** Both ask one question — is there reach and room for a rail down the
+  side? — and a phone answers no whichever way it is turned, which width alone
+  could not say: rotating one is 390px becoming 844px, and the dock jumped back
+  to the left edge halfway through the turn. A 64px lane is a quarter of a phone
+  besides, and the reader wants that width more than the dock wants a margin.
+  (What is *only* about width stays behind the 540px query: the tab frame filling
+  the strip, the reader's tighter margins. A landscape phone and a tablet have the
+  width for several tabs, whatever their dock is doing.)
+  Spanning the window the dock is a foot rail
   rather than a floating card: no radius, one hairline along its top edge, and the
   home indicator's strip taken as padding so the panel still reaches the physical
   edge. The glyphs scroll sideways past what fits, and Settings holds the end of

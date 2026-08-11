@@ -27,12 +27,12 @@ describe("railAnchor", () => {
     expect(railAnchor(button(600))).toEqual({ bottom: 800 - 640, left: 60 });
   });
 
-  // At phone width the dock lies along the foot of the window: there is nothing beside a button but
-  // the next button, and a button near the right edge would send its panel off screen.
-  it("raises a flyout off the foot dock at phone width", () => {
+  // A dock along the foot of the window has nothing beside a button but the next button, and a
+  // button near the right edge would send its panel off screen.
+  it("raises a flyout off the foot dock", () => {
     vi.stubGlobal(
       "matchMedia",
-      vi.fn((query: string) => ({ matches: query === "(max-width: 540px)" })),
+      vi.fn((query: string) => ({ matches: query === "(hover: none), (max-width: 540px)" })),
     );
 
     expect(railAnchor(button(742))).toEqual({ left: 8, bottom: 800 - 742 + 8 });

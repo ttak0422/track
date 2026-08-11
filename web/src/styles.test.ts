@@ -4,6 +4,7 @@ import { describe, expect, it } from "vitest";
 
 const css = readFileSync("src/styles.css", "utf8");
 const previewStack = readFileSync("src/components/preview/stack.ts", "utf8");
+const railAnchor = readFileSync("src/components/railAnchor.ts", "utf8");
 const shell = readFileSync("src/components/Shell.tsx", "utf8");
 const mermaid = readFileSync("src/components/markdown/MermaidDiagram.tsx", "utf8");
 
@@ -251,19 +252,26 @@ describe("sidebar at short viewport heights", () => {
 
 describe("phone width", () => {
   const phone = mediaBody("(max-width: 540px)");
+  // The dock moves for either reason: no cursor to reach a side rail with, or no width to spare it.
+  // A phone answers both in portrait and only the first one turned sideways, which is why the query
+  // is not width alone — rotating one used to send the dock back to the left edge.
+  const footDock = mediaBody("(hover: none), (max-width: 540px)");
 
   it("lays the dock along the foot of the window", () => {
-    expect(phone).toMatch(/\.sidebar\s*\{[^}]*top:\s*auto/);
-    expect(phone).toMatch(/\.sidebar\s*\{[^}]*bottom:\s*0/);
-    expect(phone).toMatch(/\.activity-rail\s*\{[^}]*flex-direction:\s*row/);
-    expect(phone).toMatch(/\.rail-scroll\s*\{[^}]*flex-direction:\s*row/);
+    expect(footDock).toMatch(/\.sidebar\s*\{[^}]*top:\s*auto/);
+    expect(footDock).toMatch(/\.sidebar\s*\{[^}]*bottom:\s*0/);
+    expect(footDock).toMatch(/\.activity-rail\s*\{[^}]*flex-direction:\s*row/);
+    expect(footDock).toMatch(/\.rail-scroll\s*\{[^}]*flex-direction:\s*row/);
+    // railAnchor places the flyouts and has to ask exactly the same question.
+    expect(railAnchor).toContain('"(hover: none), (max-width: 540px)"');
   });
 
   // The dock's height is one measurement. Everything pinned to the bottom corner adds it, which is
   // why none of them needs a media query of its own — the token is zero while the dock is vertical.
   it("clears the foot dock from a single measurement", () => {
     expect(ruleBody(":root")).toMatch(/--foot-dock:\s*0px/);
-    expect(phone).toMatch(/--foot-dock:\s*calc\(/);
+    expect(footDock).toMatch(/--foot-dock:\s*calc\(/);
+    expect(footDock).toMatch(/\.reader\s*\{[^}]*var\(--foot-dock\)/);
     expect(phone).toMatch(/\.reader\s*\{[^}]*var\(--foot-dock\)/);
 
     for (const selector of [
