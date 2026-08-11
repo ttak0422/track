@@ -304,9 +304,10 @@ interface OgpCardProps {
   alt: string;
 }
 
-// OgpCard fetches the link's Open Graph metadata through the local server and renders it as a card. It
-// degrades gracefully: while loading it shows the host and label, and on a failed/blocked fetch it
-// falls back to a plain link so the embed is never a dead end.
+// OgpCard fetches the link's Open Graph metadata — through the local server in a live workspace, and in
+// the reader's own browser on a published site (see getOgp) — and renders it as a card. It degrades
+// gracefully: while loading it shows the host and label, and on a failed/blocked fetch it falls back to
+// a plain link so the embed is never a dead end.
 function OgpCard({ url, alt }: OgpCardProps) {
   const ogp = useOgpQuery(url);
   const host = hostOf(url);

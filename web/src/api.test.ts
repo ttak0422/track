@@ -51,3 +51,59 @@ describe("fetchAssetText", () => {
     expect(fetched).toEqual(["/api/asset?path=x.echarts.json"]);
   });
 });
+
+// The published site has no /api/ogp to call, so the reader's browser fetches the linked page itself.
+async function getOgp(url: string) {
+  vi.stubEnv("VITE_TRACK_STATIC", "1");
+  vi.resetModules();
+  return (await import("./api")).getOgp(url);
+}
+
+describe("parseOgp", () => {
+  it("reads the Open Graph tags and resolves a relative image", async () => {
+    const { parseOgp } = await import("./api");
+    const html = `<html><head>
+      <title>ignored when og:title is present</title>
+      <meta property="og:title" content="A linked page">
+      <meta property="og:description" content="What the page says about itself.">
+      <meta property="og:image" content="/images/card.png">
+      <meta property="og:site_name" content="Example">
+    </head><body><meta property="og:title" content="body tags are not metadata"></body></html>`;
+    expect(parseOgp(html, "https://example.com/post", "https://example.com/post")).toEqual({
+      url: "https://example.com/post",
+      title: "A linked page",
+      description: "What the page says about itself.",
+      image: "https://example.com/images/card.png",
+      site_name: "Example",
+    });
+  });
+
+  it("falls back to <title> and the host, and drops an unsafe image", async () => {
+    const { parseOgp } = await import("./api");
+    const html = `<html><head>
+      <title>  Untagged page  </title>
+      <meta name="description" content="Only a plain description tag.">
+      <meta property="og:image" content="javascript:alert(1)">
+    </head></html>`;
+    expect(parseOgp(html, "https://example.org/page", "https://example.org/page")).toEqual({
+      url: "https://example.org/page",
+      title: "Untagged page",
+      description: "Only a plain description tag.",
+      site_name: "example.org",
+    });
+  });
+});
+
+describe("getOgp on a published site", () => {
+  it("degrades to the bare card when the host refuses the cross-origin read", async () => {
+    vi.stubGlobal("fetch", async () => {
+      throw new TypeError("Failed to fetch");
+    });
+    expect(await getOgp("https://example.net/strict")).toEqual({ url: "https://example.net/strict" });
+  });
+
+  it("degrades to the bare card when the response is not HTML", async () => {
+    vi.stubGlobal("fetch", async () => new Response("{}", { headers: { "content-type": "application/json" } }));
+    expect(await getOgp("https://example.com/data.json")).toEqual({ url: "https://example.com/data.json" });
+  });
+});
