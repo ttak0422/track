@@ -1,5 +1,6 @@
+import { fromMarkdown } from "mdast-util-from-markdown";
 import { describe, expect, it } from "vitest";
-import { spliceIncludeTokens, splitWikiTarget } from "./plugins";
+import { remarkBlockEmbed, spliceIncludeTokens, splitWikiTarget } from "./plugins";
 
 describe("splitWikiTarget", () => {
   it("passes a plain key through", () => {
@@ -48,5 +49,39 @@ describe("spliceIncludeTokens", () => {
   it("leaves a line that is no longer a directive alone", () => {
     const body = "# Title\nplain text";
     expect(spliceIncludeTokens(body, [1])).toBe(body);
+  });
+});
+
+describe("remarkBlockEmbed", () => {
+  // Each top-level block as "<type>:<text>", so a stray empty paragraph shows up as "paragraph:".
+  function blocks(markdown: string): string[] {
+    const tree = fromMarkdown(markdown);
+    remarkBlockEmbed()(tree);
+    return tree.children.map((node) => {
+      const kids = "children" in node ? node.children : [];
+      const kind = kids.length === 1 ? kids[0].type : node.type;
+      const text = kids
+        .map((kid) => ("value" in kid ? kid.value : ""))
+        .join("")
+        .trim();
+      return `${kind}:${text}`;
+    });
+  }
+
+  it("splits the paragraph around an image sharing it with text", () => {
+    expect(blocks("foo\n![y](https://example.com)\nbar")).toEqual([
+      "text:foo",
+      "image:",
+      "text:bar",
+    ]);
+  });
+
+  it("stacks images without leaving the line breaks between them as empty paragraphs", () => {
+    expect(blocks("![a](a.png)\n![b](b.png)")).toEqual(["image:", "image:"]);
+  });
+
+  it("leaves a paragraph that is already a sole image, or has no image at all, alone", () => {
+    expect(blocks("![a](a.png)")).toEqual(["image:"]);
+    expect(blocks("foo\nbar")).toEqual(["text:foo\nbar"]);
   });
 });

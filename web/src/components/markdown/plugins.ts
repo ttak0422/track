@@ -456,6 +456,50 @@ export function remarkEmbedOptions() {
   };
 }
 
+// remarkBlockEmbed lifts every image out of its paragraph, splitting the paragraph around it. An
+// ![...]() is always a block embed in track (a card, a player, a framed image — never an inline
+// glyph), so one written next to text on the same line — "foo\n![x](url)\nbar", with no blank line
+// around it — parses as one paragraph and renders as a block box inside a <p>: the text around it
+// falls into anonymous blocks that can carry no margin (so the embed ends up flush against the line
+// below it), the embed is capped at the prose measure instead of the column, and the prerendered
+// static HTML nests a <div> inside a <p>, which the parser then reshuffles. Hoisting it makes the
+// embed a sibling, so it renders exactly like the blank-line-separated form.
+//
+// Runs after remarkEmbedOptions, which needs the sole-image paragraph its `:height` tail sits in.
+export function remarkBlockEmbed() {
+  return (tree: MdastRoot) => {
+    visit(tree, "paragraph", (node, index, parent) => {
+      if (!parent || index === undefined) return;
+      if (!node.children.some((child) => child.type === "image")) return;
+      const parts: Paragraph[] = [];
+      let run: Paragraph["children"] = [];
+      const flush = () => {
+        // Whitespace-only runs are the line breaks between stacked images; they would render as
+        // empty paragraphs carrying the paragraph lead.
+        if (run.some((child) => child.type !== "text" || child.value.trim() !== "")) {
+          parts.push({ type: "paragraph", children: run });
+        }
+        run = [];
+      };
+      for (const child of node.children) {
+        if (child.type !== "image") {
+          run.push(child);
+          continue;
+        }
+        flush();
+        parts.push({ type: "paragraph", children: [child] });
+      }
+      flush();
+      // A sole image is already a block: markdownComponents unwraps that paragraph on its own.
+      if (parts.length < 2) return;
+      // A block marker is trailing text, so its id belongs to the last part (see remarkBlockID).
+      if (node.data) parts[parts.length - 1].data = node.data;
+      parent.children.splice(index, 1, ...parts);
+      return index + parts.length;
+    });
+  };
+}
+
 // makeRehypeBudoux builds a rehype plugin that segments Japanese text at BudouX phrase boundaries.
 // Paired with CSS `word-break: keep-all`, the inserted <wbr> markers let lines wrap between phrases
 // instead of at arbitrary characters. The BudouX parser is injected (not imported here) so its ~190KB

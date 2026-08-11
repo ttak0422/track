@@ -33,6 +33,7 @@ import { MermaidDiagram } from "./markdown/MermaidDiagram";
 import { MindmapDiagram } from "./markdown/MindmapDiagram";
 import {
   remarkAlert,
+  remarkBlockEmbed,
   remarkBlockID,
   remarkEmbedOptions,
   remarkInclude,
@@ -177,6 +178,9 @@ export function MarkdownView({
     remarkAlert,
     remarkBlockID,
     remarkEmbedOptions,
+    // After remarkEmbedOptions: it reads the option tail out of a sole-image paragraph, which this
+    // would otherwise split away from its image.
+    remarkBlockEmbed,
     ...(math ? [math.remark] : []),
     remarkWikiLink,
     ...(hasIncludes ? [remarkInclude] : []),
