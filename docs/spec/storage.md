@@ -14,7 +14,7 @@ The default location is `~/.config/track/config.yml` on XDG-style systems, `~/Li
 
 With a `vaults:` registry, the active vault is named rather than pathed: `default_vault: <name>` picks one of the registered vaults, and `vault_dir` is refused — the path is written once, under `vaults:`. Without a registry there are no names, so `vault_dir` gives the path directly and must be absolute (or start with `~/`). When neither sets a vault, track defaults to `$HOME/track` (ADR 0015). Precedence is `TRACK_VAULT` > `default_vault`/`vault_dir` > `$HOME/track`. The fixed, conventional default is low-risk; tests must still set `TRACK_VAULT` (or `HOME`) to a temp path so they never write to a real `$HOME/track`.
 
-On first launch — the first command that touches a vault whose directory does not exist yet (including `track web`) — track lays down the directory skeleton: `note/`, `journal/`, `assets/`, `template/`, and `.track/notes/`. An existing vault is left alone (directories are otherwise created lazily as notes are written), so this never resurrects a directory that was intentionally removed. `track init` creates the skeleton explicitly and is idempotent.
+Only `track init` creates the vault skeleton. The normal vault-opening path, including `track web`, refuses a missing directory and refuses a populated directory that is not a vault (ADR 0063), so a typo or an unmounted path is not scaffolded implicitly. `track init` creates `note/`, `journal/`, `assets/`, `template/`, `data/`, and `.track/notes/`; it is idempotent. Other kind directories are created lazily inside an existing vault as notes are written.
 
 Notes are markdown files under managed vault directories and are named by note id:
 
@@ -80,7 +80,7 @@ Current contents:
 <vault>/.track/trash/
 ```
 
-`.track/config.yml` is the vault config: the note semantics that travel with the vault (`task_states`, `properties`, `queries`, `icons`, date formats, default templates, `capture_inbox`, `archive_note`, `web.home`, `gen_keep`, `extensions`). It is optional — a vault without one uses the defaults.
+`.track/config.yml` is the vault config: the note semantics that travel with the vault (`properties`, `queries`, `icons`, date formats, default templates, `capture_inbox`, `archive_note`, `web.home`, `gen_keep`, `extensions`). It is optional — a vault without one uses the defaults. Task states are fixed in the engine (`task.States`: `TODO`, `DOING`, `WAITING`, `DONE`, and `CANCELLED`) rather than configured per vault.
 
 Two switches turn off whole features for a vault, both on by default:
 
@@ -119,14 +119,15 @@ The vault path is canonicalized (symlinks resolved, made absolute) before use. A
 
 ## Note Metadata
 
-Metadata is separate from the markdown note body.
-For a note:
+Metadata is separate from the markdown note body. Paths are derived from file kind and id rather than stored in the SQLite cache. A regular note, a journal, and a template use these forms:
 
 ```text
-<vault>/1000.md
+<vault>/note/1000.md
+<vault>/journal/20260811.md
+<vault>/template/1000.template.md
 ```
 
-the metadata path is:
+The sidecar for the regular note is:
 
 ```text
 <vault>/.track/notes/1000.yaml
@@ -168,114 +169,21 @@ It can be rebuilt from markdown note files and sidecar metadata.
 The indexer scans the top-level `note/` and `journal/` directories only, matching the file-kind rules above.
 SQLite `PRAGMA user_version` stores the database schema version and is independent from sidecar metadata versions.
 
-Schema version 5 contains:
+Schema version 8 contains a central `notes` table with each indexed id, file kind, cached sidecar title and creation date, note-file `mtime`, sidecar `meta_mtime`, and icon override. The two mtimes let `RefreshIfStale` detect both body changes and sidecar-only changes. `tags` stores the note's tags, `links` stores computed directed links between notes, and `ext_links` stores outgoing cross-vault references as `(source id, vault name, title)` without a target numeric id because ids are vault-local.
 
-- `notes`: note id, file kind, title, created date, mtime, and icon override.
-- `tags`: tags for each note.
-- `links`: computed directed links between notes.
-- `note_days`: the activity days each note was created or updated on.
-- `tasks`: one row per checkbox line with its state, priority, and scheduling fields.
-- `props`: flattened typed note properties (sidecar props and inline `key::` body fields).
-- `embeddings`: cached per-note vectors for `track similar`.
-- `notes_fts`: an FTS5 trigram index over note bodies (ADR 0045).
-- `keywords`: a view over note titles.
+`note_days` stores the local activity days for each non-journal note, mirrored from sidecar `days` and falling back to `created` for older sidecars. `tasks` stores one row per parsed checkbox line, including its fixed state, terminal flag, priority, scheduling, due, completion, and text fields. `props` stores flattened typed properties from sidecars and inline `key::` body fields; list values retain their order.
+
+The `keywords` view exposes non-empty note titles for keyword resolution and link highlighting. `notes_fts` is an FTS5 trigram virtual table whose rowid is the note id and whose body is the parsed note text, providing case-insensitive substring body search with bm25 ranking. The removed semantic-related-notes feature has no table in the current schema (ADR 0056).
+
+The exact columns, indexes, foreign keys, and virtual-table definition live in [`internal/track/store/schema.go`](../../internal/track/store/schema.go). Keeping the specification at the model level avoids duplicating that DDL here.
 
 The index uses WAL mode and foreign keys, and sets no busy timeout: a database locked by another process fails fast instead of queueing. Note paths are never cached — they are derived from file kind plus note id — but note bodies are cached in `notes_fts` for body search; terms too short to form a trigram fall back to a per-file scan.
 
 Because the index is a rebuildable cache, a schema bump needs no migration: when `Open` finds an older `user_version`, it drops the existing tables and views and re-applies the schema in place. The emptied store is repopulated by the next `RefreshIfStale` → full reindex, which reparses every note and sidecar.
 
-### Schema Version 5
-
-```sql
-CREATE TABLE notes (
-  id      INTEGER PRIMARY KEY,
-  kind    TEXT NOT NULL DEFAULT 'note',
-  title   TEXT NOT NULL DEFAULT '',
-  created TEXT,
-  mtime   INTEGER NOT NULL DEFAULT 0,
-  icon    TEXT NOT NULL DEFAULT ''
-);
-CREATE INDEX IF NOT EXISTS idx_notes_kind_mtime ON notes(kind, mtime);
-
-CREATE TABLE tags (
-  note_id INTEGER NOT NULL REFERENCES notes(id) ON DELETE CASCADE,
-  tag     TEXT NOT NULL,
-  PRIMARY KEY (note_id, tag)
-);
-CREATE INDEX idx_tags_tag ON tags(tag);
-
-CREATE TABLE links (
-  src_id INTEGER NOT NULL REFERENCES notes(id) ON DELETE CASCADE,
-  dst_id INTEGER NOT NULL REFERENCES notes(id) ON DELETE CASCADE,
-  PRIMARY KEY (src_id, dst_id)
-);
-CREATE INDEX idx_links_dst ON links(dst_id);
-
-CREATE TABLE note_days (
-  note_id INTEGER NOT NULL REFERENCES notes(id) ON DELETE CASCADE,
-  day     TEXT NOT NULL,
-  PRIMARY KEY (note_id, day)
-);
-CREATE INDEX idx_note_days_day ON note_days(day);
-
-CREATE TABLE tasks (
-  note_id   INTEGER NOT NULL REFERENCES notes(id) ON DELETE CASCADE,
-  line      INTEGER NOT NULL,
-  state     TEXT NOT NULL,
-  done      INTEGER NOT NULL DEFAULT 0,
-  priority  TEXT NOT NULL DEFAULT '',
-  scheduled TEXT NOT NULL DEFAULT '',
-  due       TEXT NOT NULL DEFAULT '',
-  completed TEXT NOT NULL DEFAULT '',
-  text      TEXT NOT NULL DEFAULT '',
-  PRIMARY KEY (note_id, line)
-);
-CREATE INDEX idx_tasks_state ON tasks(state);
-CREATE INDEX idx_tasks_due ON tasks(due);
-
-CREATE TABLE props (
-  note_id INTEGER NOT NULL REFERENCES notes(id) ON DELETE CASCADE,
-  key     TEXT NOT NULL,
-  value   TEXT NOT NULL,
-  type    TEXT NOT NULL,
-  line    INTEGER NOT NULL DEFAULT 0,
-  ord     INTEGER NOT NULL DEFAULT 0
-);
-CREATE INDEX idx_props_note ON props(note_id);
-CREATE INDEX idx_props_key ON props(key, value);
-
-CREATE VIEW keywords AS
-  SELECT title AS term, id AS note_id, 'title' AS kind FROM notes WHERE title <> '';
-
-CREATE TABLE embeddings (
-  note_id INTEGER PRIMARY KEY REFERENCES notes(id) ON DELETE CASCADE,
-  hash    TEXT NOT NULL,
-  vector  TEXT NOT NULL
-);
-
-CREATE VIRTUAL TABLE notes_fts USING fts5(body, tokenize='trigram');
-```
-
-Column notes:
-
-- `notes.id`: numeric note id. Regular notes use time-derived second buckets plus a sequence; journal notes use `yyyyMMdd`.
-- `notes.kind`: file kind used with `id` to derive the path. Current values are `note` and `journal` for indexed notes; `template` is reserved for template files.
-- `notes.title`: cached sidecar title used as the primary keyword.
-- `notes.created`: cached metadata creation date string.
-- `notes.mtime`: note file modification time as a Unix timestamp. `RefreshIfStale` compares it against the files on disk to detect notes added, edited, or removed outside track.
-- `notes.icon`: cached sidecar icon override; display resolution is sidecar icon > tag icon > kind icon.
-- `tags.note_id`: metadata rows attached to a note. They are replaced on note upsert.
-- `links.src_id` and `links.dst_id`: computed directed note links. Self-links are ignored by the writer.
-- `note_days.day`: one local calendar day the note was active, mirrored from the sidecar `days` field and replaced on note upsert. When a sidecar has no `days` yet, the upsert falls back to its `created` day so the note still surfaces on the day it was made. Journals (the daily note and the month/year summary journals) contribute no rows: activity tracks real notes worked on, so a day's journal does not count as activity on the days it is opened. The `agenda` query and the web activity heatmap read from this table and so exclude journals.
-- `tasks`: one row per checkbox line of a note, replaced on upsert; `state` is the configured task state, `done` its terminal flag, and `priority`/`scheduled`/`due`/`completed` the parsed task fields (ADR 0035).
-- `props`: a note's flattened typed properties — sidecar props at `line = 0`, inline `key:: value` body fields at their 1-based line; a list value is one row per item with `ord` preserving order (ADR 0032).
-- `embeddings`: one cached vector per note for `track similar`; `hash` is the content hash the vector was computed from, so unchanged notes are never re-embedded (ADR 0037).
-- `notes_fts`: FTS5 trigram table whose rowid is the note id and whose `body` is the parsed note text, giving case-insensitive substring body search with bm25 ranking (ADR 0045).
-- `keywords`: convenience view used by keyword dumping, resolution, and `[[...]]` link highlighting.
-
 ## Deletion
 
-During a full reindex, notes missing from the filesystem are removed from the SQLite index, and their sidecar metadata files are moved into `.track/trash/` with the same `<stamp>-<basename>` naming `track rm` uses. The sidecar is authoritative data and a sync gap looks identical to a deletion, so the indexer sets sidecars aside instead of destroying them.
+During a full reindex, notes missing from the filesystem are removed from the SQLite index only. Their sidecar metadata remains at `.track/notes/<id>.yaml`; with no matching markdown file, `track doctor` reports it as an `orphan_sidecar`. Reconciliation does not move the sidecar or write a file in `.track/trash/`; file moves are reserved for explicit commands such as `track rm` and `doctor --fix`.
 
 When the scan finds no note files at all while the index still lists several notes, the reindex refuses to reconcile: an unmounted or unreadable vault must fail loudly rather than silently empty the index. A small floor keeps legitimate cases working — emptying a tiny vault (down to `track rm` of its last file) still reconciles — so the refusal fires only when a populated index would be wiped wholesale. If the notes really are gone, `track reindex` resets the database and rebuilds from what is on disk.
 
