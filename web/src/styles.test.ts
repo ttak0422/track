@@ -56,6 +56,28 @@ describe("transient layer ordering", () => {
   });
 });
 
+describe("tab strip", () => {
+  // A tab sized to its own title puts the close button somewhere different on every one, which is what
+  // made closing a run of them a chase.
+  it("gives every tab the same frame", () => {
+    const tab = ruleBody(".tab");
+
+    expect(tab).toMatch(/flex:\s*0\s+0\s+\d+px/);
+    expect(tab).not.toMatch(/max-width:/);
+    const title = css.match(/\n\.tab-title\s*\{([^}]*)\}/)?.[1] ?? "";
+    expect(title).toMatch(/text-overflow:\s*ellipsis/);
+  });
+
+  // The button stands on the tail of the title it closes. Without a fill arriving alongside it, the
+  // glyph is drawn straight onto the letters and neither can be read.
+  it("gives the close glyph an opaque ground as it appears", () => {
+    const revealed = css.match(/\.tab:hover \.tab-close,\s*\.tab-close:focus-visible\s*\{([^}]*)\}/)?.[1] ?? "";
+
+    expect(revealed).toMatch(/background:\s*var\(--panel-soft\)/);
+    expect(css).toMatch(/\.tab:hover \.tab-close-glyph/);
+  });
+});
+
 describe("content width", () => {
   it("lets the Content width setting reach prose blocks", () => {
     const proseRule = css.match(/\.markdown-view > \*\s*\{([^}]*)\}/)?.[1] ?? "";

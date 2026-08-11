@@ -287,9 +287,10 @@ The strip is a line of titles on the sheet, not a bar of chrome.
 - **Every tab that fits is shown.** The count is measured, not fixed: a wide
   window with short titles keeps them all, and only what genuinely has no room
   goes to the `+N` button at the right end, which lists the rest in a floating
-  layer. Each tab truncates at 168px so no single title can crowd the others
-  out. The strip never scrolls sideways — a title you cannot see is in the
-  menu, not off the edge.
+  layer. Every tab is the same 168px, so no title crowds the others out and the
+  close button lands in the same place on each; a longer title clips to the
+  frame with an ellipsis. The strip never scrolls sideways — a title you cannot
+  see is in the menu, not off the edge.
 - The active tab is marked by `border-bottom: 2px solid var(--mark)` plus
   `font-weight: 500` — never a fill or a box. Inactive tabs are `--muted` with
   no border, and a hairline under the whole strip separates it from the note.
@@ -303,7 +304,10 @@ The strip is a line of titles on the sheet, not a bar of chrome.
   gesture repeated, and from the popup each repeat cost a trip down into it and
   back. It sits at the tab's right end, revealed by the tab's own hover. It is
   absolutely positioned and reserves no width: a slot kept clear on every tab
-  padded the strip out, and the title it overlays is already clipped there. The
+  padded the strip out, and the title it overlays is already clipped there. It
+  brings its own ground when it appears — the icon button's `--panel-soft` fill,
+  shown with the glyph rather than on the button's own hover, because a glyph
+  drawn straight onto the letters underneath leaves both unreadable. The
   unsaved-changes dot holds that same corner until the tab is hovered — it is
   state, not a control, so it says what the corner says while nothing is aimed
   at it.
