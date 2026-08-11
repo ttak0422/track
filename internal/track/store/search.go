@@ -2,6 +2,8 @@ package store
 
 import (
 	"cmp"
+	// Aliased: this file builds queries in locals named sql, which would shadow the package.
+	gosql "database/sql"
 	"fmt"
 	"slices"
 	"strings"
@@ -12,12 +14,24 @@ import (
 // characters forms no trigram, so a body query containing such a term must fall back to a scan.
 const minTrigram = 3
 
+// The columns every search row is scanned from (see scanSearchRows), named once so a second query
+// cannot drift from the first.
+const searchColumns = `n.id, n.kind, n.title, n.mtime, n.icon,
+	   COALESCE((
+	     SELECT group_concat(tag, char(31))
+	     FROM (SELECT tag FROM tags WHERE note_id = n.id ORDER BY tag)
+	   ), '') AS tags`
+
 type SearchScope string
 
 const (
 	SearchAll   SearchScope = "all"
 	SearchTitle SearchScope = "title"
 	SearchBody  SearchScope = "body"
+	// SearchPath finds a note by the file it is stored in. Every kind's file name is derived from the
+	// note's id (config.PathForKind), so this scope is an id lookup wearing a path's clothes — see
+	// search.NoteIDFromFileName for what counts as naming a file.
+	SearchPath SearchScope = "path"
 )
 
 // SearchResult is one hit from a title search, or a file-backed body search assembled by callers.
@@ -133,7 +147,24 @@ func (s *Store) SearchScoped(query string, limit int, scope SearchScope) ([]Sear
 		return nil, err
 	}
 	defer rows.Close()
+	return scanSearchRows(rows)
+}
 
+// SearchByID returns the one note stored at a given id, as a search result. It is the second half of
+// the file-name lookup: a note's file is named from its id, so naming the file is naming the id.
+func (s *Store) SearchByID(id int64) ([]SearchResult, error) {
+	rows, err := s.db.Query(`SELECT `+searchColumns+`, 0 AS rank_key
+	 FROM notes n
+	 WHERE n.id = ? AND n.kind IN ('note', 'journal')
+	 LIMIT 1`, id)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	return scanSearchRows(rows)
+}
+
+func scanSearchRows(rows *gosql.Rows) ([]SearchResult, error) {
 	var out []SearchResult
 	for rows.Next() {
 		var r SearchResult
@@ -154,6 +185,9 @@ func searchQuery(scope SearchScope, query string, limit int) (string, []any, err
 	case SearchBody:
 		// Body search runs through the FTS5 index, not this title query — see SearchBodyFTS.
 		return "", nil, fmt.Errorf("use SearchBodyFTS for body scope")
+	case SearchPath:
+		// A file name resolves to one id rather than a text match — see SearchByID.
+		return "", nil, fmt.Errorf("use SearchByID for path scope")
 	default:
 		return "", nil, fmt.Errorf("unknown search scope %q", scope)
 	}
@@ -174,11 +208,7 @@ func searchQuery(scope SearchScope, query string, limit int) (string, []any, err
 		"CASE WHEN n.title = ? COLLATE NOCASE THEN 0 ELSE 1 END",
 		"CASE WHEN n.title LIKE ? THEN 0 ELSE 1 END",
 	})
-	sql := `SELECT n.id, n.kind, n.title, n.mtime, n.icon,
-	   COALESCE((
-	     SELECT group_concat(tag, char(31))
-	     FROM (SELECT tag FROM tags WHERE note_id = n.id ORDER BY tag)
-	   ), '') AS tags,
+	sql := `SELECT ` + searchColumns + `,
 	   ` + rank + ` AS rank_key
 	 FROM notes n
 	 WHERE ` + where + `

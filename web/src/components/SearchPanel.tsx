@@ -25,13 +25,16 @@ export function SearchPanel({ onNavigate, autoFocus }: SearchPanelProps = {}) {
   const results = hasQuery ? (search.data?.results ?? []) : [];
   // The server tags each hit with the search that found it; a body hit can carry no snippet (its
   // terms straddled lines), so the tag is the discriminator, not the snippet.
-  const titleHits = results.filter((note) => note.match !== "body");
+  const titleHits = results.filter((note) => note.match !== "body" && note.match !== "path");
   const bodyHits = results.filter((note) => note.match === "body");
+  // A note the query named by its file rather than by anything it says. The published site never has
+  // these — its bundle carries no source paths — so the group simply never appears there.
+  const pathHits = results.filter((note) => note.match === "path");
   // Vaults the server could not read. Saying so is the point: otherwise a search that reached only
   // half the vaults looks exactly like one that found nothing in the other half.
   const unavailable = hasQuery ? (search.data?.unavailable ?? []) : [];
-  // Keyboard order is what the reader sees: titles first, then full text.
-  const ordered = [...titleHits, ...bodyHits];
+  // Keyboard order is what the reader sees: titles, then full text, then the file name.
+  const ordered = [...titleHits, ...bodyHits, ...pathHits];
   const [active, setActive] = useState(0);
   const listRef = useRef<HTMLDivElement>(null);
 
@@ -108,6 +111,23 @@ export function SearchPanel({ onNavigate, autoFocus }: SearchPanelProps = {}) {
                 note={note}
                 index={titleHits.length + index}
                 active={titleHits.length + index === active}
+                query={trimmedQuery}
+                onNavigate={onNavigate}
+              />
+            ))}
+          </>
+        ) : null}
+        {pathHits.length > 0 ? (
+          <>
+            {titleHits.length + bodyHits.length > 0 ? (
+              <h3 className="results-group">File name</h3>
+            ) : null}
+            {pathHits.map((note, index) => (
+              <SearchResultItem
+                key={note.note_id}
+                note={note}
+                index={titleHits.length + bodyHits.length + index}
+                active={titleHits.length + bodyHits.length + index === active}
                 query={trimmedQuery}
                 onNavigate={onNavigate}
               />
