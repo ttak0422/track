@@ -118,7 +118,9 @@ track export-site (--all | --id <id> ...) [--root <id>] [--calendar] [--share]
 `--all` publishes every note in the vault; `--id` selects instead. Journals are excluded from `--all`: they are day hubs indexing creates as a side effect, and the set of them records which days their author worked, so publishing them stays something a caller asks for by id. `--root` is the landing note's id and defaults to the vault config's `web.home` — the same landing note the workspace opens, so the front door travels with the content instead of sitting in a build config. A full reindex runs first so the published graph is complete.
 
 `--base-url` supplies the absolute public site URL used by canonical and social metadata. `--share` is
-opt-in: it adds X and copy-link actions below each static note, and requires `--base-url` so both actions
+opt-in: it adds X and copy-link actions at the end of each static note — closing the note column, between
+the body and the aside's own sections, rather than riding the foot of the window where they would cover a
+line of the note for the whole read — and requires `--base-url` so both actions
 have an absolute published URL. It is off by default, which keeps the documentation site free of sharing
 controls.
 

@@ -77,6 +77,14 @@ export function NoteReaderStatic({ noteID }: { noteID: NoteID }) {
               </TaskBoardContext.Provider>
             )}
           </section>
+
+          {/* At the end of the note it belongs to, not stuck to the foot of the window: a bar that
+              never leaves covers a line of the note for the whole read, and on a phone it stacked
+              on top of the dock. Here it closes the note column, so it is the last thing before the
+              aside's own sections. */}
+          {siteQuery.data?.share ? (
+            <ShareActions noteID={noteID} title={data.note.title} baseURL={siteQuery.data.base_url} />
+          ) : null}
         </div>
 
         <NoteAside
@@ -88,10 +96,6 @@ export function NoteReaderStatic({ noteID }: { noteID: NoteID }) {
           journalDate={journalDate}
         />
       </div>
-
-      {siteQuery.data?.share ? (
-        <ShareActions noteID={noteID} title={data.note.title} baseURL={siteQuery.data.base_url} />
-      ) : null}
     </article>
   );
 }
