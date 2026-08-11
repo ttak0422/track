@@ -30,9 +30,11 @@ flake.nix                # Go CLI + Vim plugin packaging
 Skills that let a coding agent drive this CLI live in
 [ttak0422/track-lab](https://github.com/ttak0422/track-lab) as the `note` plugin.
 
-What stays here is the contract they build on: every command prints single-line JSON, errors
-are `{"error":...}` with exit code 1, and the tool-neutral workflow reference is
-[docs/spec/agent-workflows.md](docs/spec/agent-workflows.md).
+What stays here is the contract they build on: normal commands print one compact JSON object and
+errors are `{"error":...}` with exit code 1. The deliberate exceptions are `version` (plain text),
+`web` (a listening URL on stderr, then no JSON while the server runs), `export` without `--out`
+(Markdown), and `gen peek` (Markdown); `export --out` is JSON. Help prints prose usage, while
+the tool-neutral workflow reference is [docs/spec/agent-workflows.md](docs/spec/agent-workflows.md).
 
 ## Data safety
 

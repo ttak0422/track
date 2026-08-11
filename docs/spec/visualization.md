@@ -534,17 +534,17 @@ differs:
   also watches the vault's `data/` directory and emits a `data` Server-Sent Event (alongside the
   existing `change` event for note edits) so displayed charts re-fetch when a `data.source` /
   `overlays[].source` file changes.
-- **Static site** (`track export-site`, both the vault and `--dir` front-ends): each fence is
-  resolved at build time to a fenced ```` ```echarts ```` block carrying the ready-to-draw option, so
-  the published page draws the same interactive chart with the frontend's bundled ECharts (a lazily
-  loaded chunk; pages without charts never download it). No chart engine or vault data ships with the
-  site — resolution already happened.
+- **Static site** (`track export-site`): each fence is resolved at build time to a fenced
+  ```` ```echarts ```` block carrying the ready-to-draw option, so the published page draws the same
+  interactive chart with the frontend's bundled ECharts (a lazily loaded chunk; pages without charts
+  never download it). Static export takes a vault plus `--frontend` and `--out`; the former `--src`/`--dir`
+  directory mode is gone (ADR 0059). No chart engine or vault data ships with the site — resolution
+  already happened.
 
 Unlike the isolated `.viewspec.json` asset path, a fenced block may use `data.source` (and
-`overlays[].source`): paths resolve **inside the vault's `data/` directory** (for `--dir` exports, a
-`data/` directory next to the Markdown files). Absolute paths and `..` traversal are rejected, so a
-note cannot read files outside the data directory. Inline `data.records` works as well and keeps the
-block self-contained.
+`overlays[].source`): paths resolve **inside the vault's `data/` directory**. Absolute paths and `..`
+traversal are rejected, so a note cannot read files outside the data directory. Inline `data.records`
+works as well and keeps the block self-contained.
 
 An invalid spec (or unreadable data) never breaks the page: the web workspace shows the error message
 plus the original source at the block position, and the static export publishes an inline error
