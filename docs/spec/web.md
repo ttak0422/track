@@ -127,18 +127,19 @@ of control variants (text control, quiet chip, floating layer, filled action,
 underline input, section label) over the shared color tokens. Consult it
 before adding UI.
 
-The current production UI is still served by the Go `internal/track/webui`
-package. The React migration lives under `web/` and is built with Vite,
-TypeScript, TanStack Query, and TanStack Router while it is brought up to parity.
+The production UI is the React frontend under `web/`, built with Vite, TypeScript,
+TanStack Query, and TanStack Router. `internal/track/webui/embed.go` embeds the built
+frontend from `dist`; `handleApp` in `handlers_app.go` serves real built files and falls
+back to `index.html` for client-side routes. The Go server therefore serves the same React
+workspace in a released build, while a plain source-tree build carries the committed
+placeholder `dist` until the frontend is built and copied there.
 
-During migration:
+For frontend development:
 
 - keep the existing `/api/*` contract stable;
 - run `npm install` and `npm run build` from `web/` for frontend changes;
 - run `track web --addr 127.0.0.1:8765` and `npm run dev` from `web/` to use the
   Vite dev server against the local Go API;
-- only switch Go's served assets to the Vite build once the React workspace has
-  reached feature parity with the existing raw-string UI.
 
 ### Markdown embeds
 
