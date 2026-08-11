@@ -76,6 +76,16 @@ describe("tab strip", () => {
     expect(revealed).toMatch(/background:\s*var\(--panel-soft\)/);
     expect(css).toMatch(/\.tab:hover \.tab-close-glyph/);
   });
+
+  // The vault a note came from names the tab, it does not control anything: it joins the shared
+  // section label recipe (design.md variant 6) and keeps only its own spacing.
+  it("writes the vault name as a section label, not a filled badge", () => {
+    const rules = [...css.matchAll(/\.tab-vault[^{]*\{([^}]*)\}/g)].map((m) => m[1]);
+
+    expect(rules).toHaveLength(2);
+    expect(rules[0]).toMatch(/text-transform:\s*uppercase/);
+    expect(rules[1]).not.toMatch(/background|border-radius|padding/);
+  });
 });
 
 describe("content width", () => {

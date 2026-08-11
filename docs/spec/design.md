@@ -214,7 +214,8 @@ Single-line fields carry editability with a bottom hairline, not a box.
 ### 6. Section label — the caption naming a region
 
 Small caps that title a chrome region or annotate content (CONTENTS,
-BACKLINKS, a code block's language, an OGP card's site name).
+BACKLINKS, a code block's language, an OGP card's site name, the vault a tab's
+note came from).
 
 - `font-family: var(--font-mono)`, `calc(11px * var(--font-scale, 1))`,
   `font-weight: 500`, `letter-spacing: 0.12em`, `text-transform: uppercase`,

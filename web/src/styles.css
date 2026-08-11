@@ -137,7 +137,8 @@
 .results-group,
 .code-block[data-language]::before,
 .note-prop dt,
-.ogp-card-site {
+.ogp-card-site,
+.tab-vault {
   color: var(--faint);
   font-family: var(--font-mono);
   font-size: calc(11px * var(--font-scale, 1));
@@ -1366,16 +1367,12 @@ a.calendar-title:focus-visible {
 }
 
 /* The vault a tab's note comes from, shown only when the workspace serves named vaults: two of them
-   can hold notes with the same title, so the badge is what tells the tabs apart. */
+   can hold notes with the same title, so the name is what tells the tabs apart. It annotates the
+   title rather than controlling anything, so it takes the section label recipe (design.md variant 6,
+   typography shared above) — chrome carries no filled chips. */
 .tab-vault {
   flex: none;
   margin-right: 6px;
-  padding: 1px 5px;
-  border-radius: var(--radius-sm);
-  background: var(--panel-soft);
-  color: var(--muted);
-  font-size: calc(11px * var(--font-scale, 1));
-  letter-spacing: 0.02em;
   white-space: nowrap;
 }
 
