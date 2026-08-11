@@ -2096,23 +2096,21 @@ textarea.modal-input:focus-visible {
   display: none;
 }
 
-/* Static-only share actions sit after the note layout. The layout flexes to fill short pages, which puts
-   this footer at the reader's bottom; on longer notes it follows the article and remains sticky while
-   the reader scrolls. The export option keeps this quiet on the documentation site, while the blog can
-   opt in without changing note content. */
+/* Static-only share actions, closing the note column under the body. They used to be a sticky bar at
+   the foot of the reader: a strip of chrome over the last line of the note for the whole read, and on
+   a phone a second bar stacked on the dock. Sharing is what you do at the end of a note, so it waits
+   there — a hairline above it, and no surface of its own now that nothing passes underneath. The
+   export option keeps this quiet on the documentation site, while the blog can opt in without
+   changing note content. */
 .share-actions {
   display: flex;
   flex: 0 0 auto;
   align-items: center;
   justify-content: center;
-  margin-top: auto;
+  /* On top of the column's own 18px gap: a rule and 44px of lead, the same break an h2 takes. */
+  margin-top: 26px;
   border-top: 1px solid color-mix(in srgb, var(--line) 70%, transparent);
   padding: 10px 0;
-  background: color-mix(in srgb, var(--panel) 92%, transparent);
-  backdrop-filter: blur(12px);
-  position: sticky;
-  bottom: 0;
-  z-index: 2;
 }
 
 .share-actions-list {
