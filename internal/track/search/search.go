@@ -13,6 +13,7 @@ import (
 	"os"
 	"path/filepath"
 	"slices"
+	"strconv"
 	"strings"
 	"unicode/utf8"
 
@@ -83,9 +84,21 @@ func Scoped(cfg *config.Config, s *store.Store, query string, limit int, scope s
 		}
 		// ponytail: title hits spend the shared budget first, so a query matching `limit` titles
 		// leaves the body group empty. Give each group its own limit if that ever shows up.
-		return append(results, body...), nil
+		results = append(results, body...)
+		for _, result := range body {
+			seen[result.NoteID] = true
+		}
+		// Last, and at most one: naming a file is the coarsest of the three ways to ask for a note,
+		// so it goes after what the query said about the note's own words.
+		path, err := pathSearchResults(cfg, s, query, limit-len(results), seen)
+		if err != nil {
+			return nil, err
+		}
+		return append(results, path...), nil
 	case store.SearchBody:
 		return bodySearchResults(cfg, s, query, limit, nil)
+	case store.SearchPath:
+		return pathSearchResults(cfg, s, query, limit, nil)
 	default:
 		return nil, fmt.Errorf("unknown search scope %q", scope)
 	}
@@ -99,7 +112,59 @@ func Scoped(cfg *config.Config, s *store.Store, query string, limit int, scope s
 const (
 	MatchTitle = "title"
 	MatchBody  = "body"
+	MatchPath  = "path"
 )
+
+// NoteIDFromFileName reads the note id out of a query that names a file. A coding agent that has been
+// reading the vault refers to notes the way the filesystem does — "note/1785024006000.md", or just the
+// file name, or the bare id — and every kind's file is named from the id (config.PathForKind), so all
+// three are the same lookup.
+//
+// The rule is deliberately exact rather than a substring match on the path: ids are timestamps, so a
+// substring rule would turn any digit run into a shower of near-misses. Naming a file is naming one
+// note, and anything that is not a whole id is left to the title and body searches.
+func NoteIDFromFileName(query string) (int64, bool) {
+	name := strings.TrimSpace(query)
+	if name == "" {
+		return 0, false
+	}
+	// Both separators: an agent on Windows, or one quoting a path it read from a Go error, may hand
+	// over either.
+	name = name[strings.LastIndexAny(name, `/\`)+1:]
+	name = strings.TrimSuffix(name, ".md")
+	if name == "" {
+		return 0, false
+	}
+	for _, r := range name {
+		if r < '0' || r > '9' {
+			return 0, false
+		}
+	}
+	id, err := strconv.ParseInt(name, 10, 64)
+	if err != nil {
+		return 0, false // a run of digits too long for an id names no note
+	}
+	return id, true
+}
+
+// pathSearchResults returns the note whose file the query names, or nothing. skip drops a note the
+// title or body groups already listed, so one note never appears twice in a composed list.
+func pathSearchResults(cfg *config.Config, s *store.Store, query string, limit int, skip map[int64]bool) ([]store.SearchResult, error) {
+	if limit <= 0 {
+		return nil, nil
+	}
+	id, ok := NoteIDFromFileName(query)
+	if !ok || skip[id] {
+		return nil, nil
+	}
+	results, err := s.SearchByID(id)
+	if err != nil {
+		return nil, err
+	}
+	AddPaths(cfg, results)
+	mark(results, MatchPath)
+	return results, nil
+}
 
 func mark(results []store.SearchResult, match string) {
 	for i := range results {
@@ -337,9 +402,20 @@ func Federated(vaults []Vault, query string, limit int, scope store.SearchScope)
 		// A vault that already failed its title query is not asked again: it would fail the same way
 		// and be reported twice.
 		body, bodyFailed := federatedBody(without(vaults, failed), query, limit-len(results), seen)
-		return append(results, body...), append(failed, bodyFailed...), nil
+		results = append(results, body...)
+		failed = append(failed, bodyFailed...)
+		for _, r := range body {
+			seen[vaultKey{r.Vault, r.NoteID}] = true
+		}
+		// Ids are vault-local, so a file name can name a note in more than one vault; each answers for
+		// itself, the same way the title and body groups do.
+		path, pathFailed := federatedPath(without(vaults, failed), query, limit-len(results), seen)
+		return append(results, path...), append(failed, pathFailed...), nil
 	case store.SearchBody:
 		results, failed := federatedBody(vaults, query, limit, nil)
+		return results, failed, nil
+	case store.SearchPath:
+		results, failed := federatedPath(vaults, query, limit, nil)
 		return results, failed, nil
 	default:
 		return nil, nil, fmt.Errorf("unknown search scope %q", scope)
@@ -382,6 +458,35 @@ func federatedTitle(vaults []Vault, query string, limit int) ([]store.SearchResu
 // federatedBodyResults is the cross-vault counterpart of bodySearchResults, and runs exactly that per
 // vault — so the FTS path, the short-term scan fallback, and the line/snippet lookup all stay in one
 // place. Already-returned title hits are skipped per vault, since ids only mean anything inside one.
+func federatedPath(vaults []Vault, query string, limit int, seen map[vaultKey]bool) ([]store.SearchResult, []Failed) {
+	if limit <= 0 {
+		return []store.SearchResult{}, nil
+	}
+	if _, ok := NoteIDFromFileName(query); !ok {
+		return []store.SearchResult{}, nil
+	}
+	pages := make([][]store.SearchResult, 0, len(vaults))
+	var failed []Failed
+	for _, v := range vaults {
+		skip := map[int64]bool{}
+		for key := range seen {
+			if key.vault == v.Name {
+				skip[key.id] = true
+			}
+		}
+		page, err := pathSearchResults(v.Cfg, v.Store, query, limit, skip)
+		if err != nil {
+			failed = append(failed, Failed{Vault: v.Name, Err: err})
+			continue
+		}
+		for i := range page {
+			page[i].Vault = v.Name
+		}
+		pages = append(pages, page)
+	}
+	return store.MergeSearchResults(pages, limit), failed
+}
+
 func federatedBody(vaults []Vault, query string, limit int, seen map[vaultKey]bool) ([]store.SearchResult, []Failed) {
 	if limit <= 0 {
 		return []store.SearchResult{}, nil

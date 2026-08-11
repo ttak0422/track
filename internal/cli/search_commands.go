@@ -86,7 +86,7 @@ func cmdSearch(args []string) int {
 	fs := flag.NewFlagSet("search", flag.ContinueOnError)
 	query := fs.String("query", "", "search query: space-separated terms are ANDed, an uppercase OR splits\nalternatives ('a b OR c' is (a AND b) OR c), and a lowercase and/or is an\nordinary term. There is no negation, no quoted phrase and no field: prefix.\nMatching is case-insensitive substring, so a short term over-matches -\nlengthen it rather than quoting. '#tag' filters tags (hierarchically: #a\nmatches a/b, never ab) on the title path only")
 	limit := fs.Int("limit", 50, "max results, shared by the title and body groups under --scope all: a query\nmatching this many titles leaves no room for full-text hits")
-	scope := fs.String("scope", string(store.SearchAll), "search scope: all, title, body. 'all' is the title hits, ranked, followed by\nthe body hits, ranked separately - one list, two scales. A '#tag' term is a\ntag filter only on the title path; under 'body' it is hunted as literal body\ntext, and tags live in sidecars, so it matches nothing")
+	scope := fs.String("scope", string(store.SearchAll), "search scope: all, title, body, path. 'all' is the title hits, ranked, then the\nbody hits, ranked separately - one list, two scales - and last the note whose\nfile the query names, if it named one. 'path' asks only that: a whole note id,\nwith or without a directory and a .md suffix. A '#tag' term is a tag filter only\non the title path; under 'body' it is hunted as literal body text, and tags live\nin sidecars, so it matches nothing")
 	if code, ok := parseArgs(fs, args); !ok {
 		return code
 	}

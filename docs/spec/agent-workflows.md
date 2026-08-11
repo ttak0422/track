@@ -99,7 +99,16 @@ literal term. `#tag` filters by tag and combines with the text (AND):
 track search --query "distributed systems"     # titles containing both words
 track search --query "graph OR chart"          # either word
 track search --query "#zettel graph"           # tagged #zettel and titled …graph…
+track search --query "note/1785024006000.md"   # the note that file holds
 ```
+
+A query that names a note's **file** finds that note. `--scope all` composes three groups in order —
+title hits, then body hits, then the named file — and each hit says which one found it in `"match"`
+(`title`, `body`, `path`); a note appears in only one group. The file-name rule is exact: a whole
+note id, with or without a directory and a `.md` suffix, so `1785024006000`, `1785024006000.md` and
+`note/1785024006000.md` are one lookup, while a query that merely contains digits stays an ordinary
+text search. `--scope path` asks for that lookup alone. It exists because an agent that has been
+reading the vault refers to notes the way the filesystem does.
 
 With a `vaults:` registry (and no `--vault` selection), `track search` crosses the active vault and
 every registered one: each vault's index self-heals, each runs the ordinary single-vault query, and

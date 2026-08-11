@@ -24,9 +24,11 @@ export interface SearchResult extends NoteRef {
   icon?: string;
   line?: number;
   snippet?: string;
-  // Which search produced this hit, so the panel can group title and full-text matches. Not
-  // derivable from snippet: a body hit whose terms straddle lines carries none.
-  match?: "title" | "body";
+  // Which search produced this hit, so the panel can group them. Not derivable from snippet: a body
+  // hit whose terms straddle lines carries none. "path" means the query named the note's file rather
+  // than anything it says, and only the live workspace can produce it — a published bundle carries no
+  // source paths.
+  match?: "title" | "body" | "path";
 }
 
 // One vault a cross-vault search could not read. Without it a short result list is
