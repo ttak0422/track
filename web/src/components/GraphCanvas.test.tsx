@@ -68,6 +68,7 @@ const longTitleGraph = {
 
 let context: CanvasMock;
 const fillAlphas: number[] = [];
+const fillStyles: string[] = [];
 let themeChange: (() => void) | undefined;
 
 beforeAll(() => {
@@ -81,6 +82,7 @@ beforeAll(() => {
   context = makeCanvasContext();
   context.fill.mockImplementation(function (this: CanvasMock) {
     fillAlphas.push(this.globalAlpha);
+    fillStyles.push(this.fillStyle);
   });
   vi.spyOn(HTMLCanvasElement.prototype, "getContext").mockReturnValue(
     context as unknown as CanvasRenderingContext2D,
@@ -147,5 +149,26 @@ describe("GraphCanvas node painting", () => {
     await waitFor(() => {
       expect(context.measureText).toHaveBeenCalledWith(longTitleGraph.nodes[0].title);
     });
+  });
+
+  // A frame frozen mid-hover has to answer both "what am I pointing at" and "where am I", so the
+  // highlight is ink and the salient stays with the centre (design.md, Sidebar).
+  it("highlights in ink and leaves the salient on the centre node", async () => {
+    const root = document.documentElement.style;
+    root.setProperty("--mark", "#mark");
+    root.setProperty("--text", "#ink");
+
+    const { container } = render(
+      <GraphCanvas graph={graph} onSelect={vi.fn()} resetToken={0} focusNodeID="center" />,
+    );
+    const canvas = container.querySelector("canvas")!;
+    fillStyles.length = 0;
+    fireEvent.pointerMove(canvas, { clientX: 0, clientY: 0 });
+
+    await waitFor(() => expect(fillStyles).toContain("#ink"));
+    expect(fillStyles).toContain("#mark");
+
+    root.removeProperty("--mark");
+    root.removeProperty("--text");
   });
 });

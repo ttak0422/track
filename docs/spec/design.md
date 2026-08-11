@@ -10,11 +10,13 @@ none fits, extend this document first — do not invent a one-off treatment.
   (`--panel`), while navigation floats over the sheet as a compact dock. The
   dock uses the panel surface, a hairline, and a radius, but no shadow: it is a
   stable orientation aid, not a lifted card. The reader itself stays full width.
-- **Color belongs to visualizations.** Inside a chart, a diagram, or the graph, color
-  carries meaning (series, zones, event lines). So the UI around them gives it
-  up: chrome, links, and active states are ink and hairlines. `--mark` is the
-  single salient, and today it is ink — the one place a brand color could ever
-  land.
+- **Color belongs to visualizations, and to one salient.** Inside a chart, a
+  diagram, or the graph, color carries meaning (series, zones, event lines). So
+  the UI around them gives it up: chrome, links, and body text are ink and
+  hairlines. The one exception is `--mark`, a vermilion that says *this one* —
+  the keyboard cursor, the active tab, the graph's centre node, the focus ring.
+  It is the chrome's whole colour budget: there is no second accent, and nothing
+  takes the vermilion merely to look alive.
 - **Hierarchy by space and rule, not size.** Three type sizes in the whole
   reader (body, title, meta) plus the small-caps label. Sections are told
   apart by their leading and by a rule above them, never by a fourth size.
@@ -56,10 +58,13 @@ values swapped; nothing else branches on theme.
 | `--line` | Hairline | `#e6e4de` | `#282c2f` |
 | `--line-strong` | Stated rule: link underlines, table headers, and scrollbar thumbs | `#c7c5bd` | `#3e4347` |
 | `--line-node` | Graph node outlines | `#8e8c84` | `#6e7478` |
-| `--mark` | The salient: logo, active tab, the graph's centre node | `#1a1a18` | `#e9e9e4` |
+| `--mark` | The salient: logo, active tab, the graph's centre node | `#c13a1e` | `#f4785e` |
 
-`--mark` equals `--text` by value and differs by role: it is the one token a
-brand color would replace, so it never shares a declaration with body ink.
+`--mark` is the only colored token the chrome carries, and it colors text and
+fills as well as rules — the keyboard cursor's bars, a filled `.primary-button`
+with a white label — so both values clear AA on every ground they land on
+(5.4:1 on the sheet in light, 6.3:1 in dark). It never shares a declaration with
+`--text`: re-branding the salient must not reach body ink.
 
 The three inks are a contrast ladder, not a fade: `--faint` is the quietest
 step that still clears WCAG AA (4.5:1) on both the sheet and the sunk ground,
@@ -68,11 +73,13 @@ source — is text someone has to read. A quieter tertiary is not available; if
 something needs to recede further than `--faint`, it is a rule or a shape, not
 smaller greyer type.
 
-Visualizations keep their own palette, and it is the only colored thing on the page:
-`--chart-1..6` and `--chart-ramp-*` (series and heatmap ramp, read by
-`echartsTheme.ts`), plus `--danger` for destructive intent and unresolved
-links. A control in the chrome never reaches into this palette — and neither
-does the graph, whose emphasis is ink against neighbours that dim.
+Visualizations keep their own palette — the only place on the page where several
+colors meet: `--chart-1..6` and `--chart-ramp-*` (series and heatmap ramp, read
+by `echartsTheme.ts`), plus `--danger` for destructive intent and unresolved
+links. A control in the chrome never reaches into this palette; it has `--mark`
+and nothing else. `--danger` is the near neighbour of that vermilion, so the two
+are told apart by shape rather than hue: danger is a dotted underline or a
+filled destructive button, the mark is a solid rule, ring, or node.
 
 Non-color tokens: `--font-sans` (IBM Plex Sans JP for the reading surface),
 `--font-mono` (the one mono stack: code, the editor, section labels),
@@ -329,10 +336,13 @@ The note's aside is a quiet column; the rail is a floating dock over the sheet.
   `--faint`. Rows are text controls — no pills.
 - The aside's graph draws its centre node filled with `--mark`, its other
   nodes filled with `--bg` and outlined 1px in `--line-node`, and its edges in
-  `--line-strong`. Hover and search highlighting are ink too: the match fills
-  with `--mark` and its edges follow, while everything else dims in place.
-  Contrast is what marks a match — no graph gets a colour the rest of the UI
-  gave up.
+  `--line-strong`. Hover and search highlighting are ink (`--text`), not the
+  salient: the match and its edges strengthen while everything else dims in
+  place. Only the centre node stays `--mark`, highlighted or not — a frame
+  frozen mid-hover must still say which note you are on, and it cannot if
+  "where I am" and "what I am pointing at" wear the same colour. The graph
+  therefore has no palette of its own: emphasis is contrast, and the one colour
+  means one thing.
 - Rail: a compact floating dock 8px from the left edge, centred a quarter of
   the way down the viewport so its menus open into empty screen rather than
   against the bottom edge, on `--panel` with a hairline and radius but no

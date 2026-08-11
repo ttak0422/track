@@ -424,7 +424,9 @@ export function GraphCanvas({
         const active = edgeIsActive(edge);
         ctx.globalAlpha = active ? 0.86 : 0.08;
         ctx.lineWidth = active ? highlightLineWidth : baseLineWidth;
-        ctx.strokeStyle = active ? css("--mark") : css("--line-strong");
+        // Ink, not the salient: emphasis here is contrast against edges that dim, and the vermilion
+        // is spent on where you are (see the node pass below).
+        ctx.strokeStyle = active ? css("--text") : css("--line-strong");
       } else {
         ctx.globalAlpha = 0.62;
         ctx.lineWidth = baseLineWidth;
@@ -449,11 +451,11 @@ export function GraphCanvas({
       ctx.beginPath();
       ctx.arc(x, y, radius, 0, Math.PI * 2);
       if (hasActiveHighlight && active) {
-        // Ink, like everything else that is emphasised here (design.md, Sidebar). What marks a match
-        // is not a colour of its own but the contrast with the rest, which dims in place — the same
-        // move the reader makes when it takes emphasis from weight and space instead of hue.
-        ctx.fillStyle = css("--mark");
-        ctx.strokeStyle = css("--mark");
+        // A match is ink: what marks it is the contrast with everything that dims in place, not a
+        // colour of its own. The centre keeps the salient even while highlighted, so a frame frozen
+        // mid-hover still says which note you are on rather than showing one undifferentiated set.
+        ctx.fillStyle = center ? css("--mark") : css("--text");
+        ctx.strokeStyle = center ? css("--mark") : css("--text");
       } else {
         // At rest the graph is ink and outline (design.md, Sidebar): the note you are on is the one
         // filled dot, its neighbours are rings on the page. Colour is reserved for the highlight
