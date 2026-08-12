@@ -16,6 +16,24 @@ export function weekAlignedDates(today: Date, weeks: number): string[] {
   });
 }
 
+// monthColumnLabels names the week columns where a month begins, so the heatmap can caption its
+// columns the way GitHub's graph does. The first column is always named — a window narrow enough to
+// sit inside one month would otherwise say nothing about when it is — and every later column is named
+// only when its first day belongs to a new month. Numeric ("01".."12"), which needs no translation
+// and fits the column pitch two characters wide.
+export function monthColumnLabels(dates: string[]): { column: number; label: string }[] {
+  const labels: { column: number; label: string }[] = [];
+  let previous = "";
+  for (let column = 0; column * 7 < dates.length; column++) {
+    const month = dates[column * 7].slice(5, 7);
+    if (column === 0 || month !== previous) {
+      labels.push({ column, label: month });
+    }
+    previous = month;
+  }
+  return labels;
+}
+
 export function dateKey(date: Date): string {
   const year = date.getFullYear();
   const month = String(date.getMonth() + 1).padStart(2, "0");

@@ -138,6 +138,8 @@
    the page. Layout (margins) stays with each site; only the typography is shared here. */
 .activity-header h2,
 .activity-panel h2,
+.activity-months,
+.activity-weekdays,
 .backlinks h3,
 .home-note-list h3,
 .day-tasks h2,
@@ -728,8 +730,37 @@ img.theme-asset-dark {
   border-top: 0;
 }
 
-.activity-panel-home .activity-grid {
-  justify-content: center;
+/* The heatmap and its two scales: a gutter of weekday names beside the cells, a row of month numbers
+   above them. Both scales share the cells' 9px pitch so a caption lands on the row or column it names,
+   and the cell track takes what is left so the measured week count already excludes the gutter. */
+.activity-chart {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  column-gap: 6px;
+  row-gap: 3px;
+}
+
+.activity-months {
+  display: grid;
+  grid-area: 1 / 2;
+  grid-auto-flow: column;
+  grid-auto-columns: 9px;
+  gap: 3px;
+  /* A caption is wider than the single column it marks, so it spills to the right the way GitHub's
+     does; the last one is clipped here rather than widening the panel. */
+  overflow: hidden;
+}
+
+.activity-months span {
+  white-space: nowrap;
+}
+
+.activity-weekdays {
+  display: grid;
+  grid-area: 2 / 1;
+  grid-template-rows: repeat(7, 9px);
+  gap: 3px;
+  align-items: center;
 }
 
 .activity-hover {
@@ -760,6 +791,7 @@ img.theme-asset-dark {
 
 .activity-grid {
   display: grid;
+  grid-area: 2 / 2;
   grid-auto-flow: column;
   grid-template-rows: repeat(7, 9px);
   grid-auto-columns: 9px;

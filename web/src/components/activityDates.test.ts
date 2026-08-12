@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { dateKey, weekAlignedDates } from "./activityDates";
+import { dateKey, monthColumnLabels, weekAlignedDates } from "./activityDates";
 
 describe("weekAlignedDates", () => {
   it("starts on a Sunday and ends today, with whole weeks before the current one", () => {
@@ -37,6 +37,24 @@ describe("weekAlignedDates", () => {
     expect(dates[0]).toBe("2026-07-26");
     expect(dates[dates.length - 1]).toBe("2026-08-02");
     expect(dates).toHaveLength(8);
+  });
+});
+
+describe("monthColumnLabels", () => {
+  it("names the first column and every column that opens a new month", () => {
+    // 2026-08-15 is a Saturday, so five whole weeks run from 2026-07-12 to that day.
+    const dates = weekAlignedDates(new Date(2026, 7, 15), 5);
+    expect(dates[0]).toBe("2026-07-12");
+    // Columns open on 07-12, 07-19, 07-26, 08-02, 08-09 — August starts in the fourth.
+    expect(monthColumnLabels(dates)).toEqual([
+      { column: 0, label: "07" },
+      { column: 3, label: "08" },
+    ]);
+  });
+
+  it("still names a window that never leaves one month", () => {
+    const dates = weekAlignedDates(new Date(2026, 1, 21), 2); // 2026-02-21, a Saturday
+    expect(monthColumnLabels(dates)).toEqual([{ column: 0, label: "02" }]);
   });
 });
 
