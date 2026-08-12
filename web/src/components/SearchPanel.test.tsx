@@ -11,7 +11,7 @@ const setQuery = vi.hoisted(() => vi.fn());
 vi.mock("../searchState", () => ({ useSearchState: () => ({ query: "1785024006000", setQuery }) }));
 
 const results = [
-  { note_id: 1, file_kind: "note", path: "", title: "Titled", match: "title" },
+  { note_id: 1, file_kind: "note", path: "", title: "Titled", match: "title", tags: ["daily"] },
   { note_id: 2, file_kind: "note", path: "", title: "Bodied", match: "body" },
   { note_id: 3, file_kind: "note", path: "", title: "Named", match: "path" },
 ];
@@ -44,6 +44,16 @@ describe("SearchPanel groups", () => {
     fireEvent.click(container.querySelector("a")!);
     expect(setQuery).toHaveBeenCalledWith("");
     expect(onNavigate).toHaveBeenCalled();
+  });
+
+  // #tag is a tag filter the engine already understands; the panel just had no way to reach it
+  // without typing the sigil by hand.
+  it("adds a tag term to the query when a result's tag is clicked", () => {
+    setQuery.mockReset();
+    render(<SearchPanel />);
+
+    fireEvent.click(screen.getByRole("button", { name: "#daily" }));
+    expect(setQuery).toHaveBeenCalledWith("1785024006000 #daily");
   });
 
   it("clears the query when Enter takes the active result", () => {

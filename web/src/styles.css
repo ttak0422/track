@@ -702,6 +702,22 @@ img.theme-asset-dark {
   font-size: calc(12px * var(--font-scale, 1));
 }
 
+/* A result's tags sit beside the result rather than inside its link, since each one narrows the
+   search instead of opening the note. Text control (variant 1), aligned with the result's padding. */
+.result-tags {
+  padding: 0 10px 8px;
+}
+
+.result-tags button {
+  color: var(--muted);
+  font-size: calc(12px * var(--font-scale, 1));
+}
+
+.result-tags button:hover,
+.result-tags button:focus-visible {
+  color: var(--mark);
+}
+
 .activity-panel {
   padding: 14px 18px 18px;
   border-top: 1px solid var(--line);
