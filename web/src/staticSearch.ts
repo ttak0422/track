@@ -120,7 +120,9 @@ function splitTagQuery(query: string): TaggedQuery {
   for (const field of query.split(/\s+/)) {
     if (field === "") continue;
     if (field.startsWith("#")) {
-      const tag = field.slice(1).trim();
+      // Trailing "/" dropped like the store does: it is how someone writes "everything under this",
+      // which the filter already means, and no tag is stored carrying one.
+      const tag = field.slice(1).trim().replace(/\/+$/, "");
       if (tag !== "" && !tags.includes(tag)) tags.push(tag);
       continue;
     }

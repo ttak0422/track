@@ -91,6 +91,12 @@ describe("titleHits", () => {
     expect(titleHits(notes, "#animal/wild").map((n) => n.note_id)).toEqual(["n1"]);
   });
 
+  it("reads a trailing separator as the descent the filter already makes", () => {
+    // "#animal/" is how a reader asks for everything under animal. Kept as written it matched nothing,
+    // since no tag is stored with a trailing separator.
+    expect(titleHits(notes, "#animal/").map((n) => n.note_id)).toEqual(["n2", "n3", "n4", "n1"]);
+  });
+
   it("combines a #tag filter with the text query", () => {
     // n4 fails the text; n1 passes both but ranks last, since its tag matches only as a descendant.
     expect(titleHits(notes, "#animal fox").map((n) => n.note_id)).toEqual(["n2", "n3", "n1"]);

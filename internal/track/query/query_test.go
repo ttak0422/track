@@ -190,6 +190,11 @@ func TestRunFromTagMatchesHierarchically(t *testing.T) {
 	if got := ids(run(t, "TABLE title FROM #pro")); len(got) != 0 {
 		t.Fatalf("FROM #pro = %v, want none", got)
 	}
+	// A trailing separator spells the descent the filter already makes, so it selects the same notes
+	// rather than nothing: no tag is stored carrying one.
+	if got := ids(run(t, "TABLE title FROM #project/")); !reflect.DeepEqual(got, []int64{1, 2, 4}) {
+		t.Fatalf("FROM #project/ = %v, want [1 2 4]", got)
+	}
 }
 
 func TestRunWhereComparisons(t *testing.T) {

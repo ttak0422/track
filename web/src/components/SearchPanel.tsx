@@ -51,6 +51,23 @@ export function SearchPanel({ onNavigate, autoFocus }: SearchPanelProps = {}) {
     listRef.current?.querySelector<HTMLElement>(`[data-index="${active}"]`)?.scrollIntoView({ block: "nearest" });
   }, [active]);
 
+  // Choosing a result ends the search, so the field goes back to empty and the host closes. The query
+  // is shared state, so leaving it set kept the palette (and the home hero behind it) showing the last
+  // search's hits — reopening search looked like it had never been used.
+  function chooseResult() {
+    setQuery("");
+    onNavigate?.();
+  }
+
+  // A tag narrows the search in place: the engine reads "#tag" as a hierarchical tag filter (#a matches
+  // a/b, never ab) beside the words already typed, so clicking one adds a term rather than starting over.
+  function filterByTag(tag: string) {
+    const term = `#${tag}`;
+    const terms = query.split(/\s+/).filter(Boolean);
+    if (terms.includes(term)) return;
+    setQuery([...terms, term].join(" "));
+  }
+
   function onKeyDown(event: React.KeyboardEvent<HTMLInputElement>) {
     if (keys.next(event)) {
       event.preventDefault();
@@ -67,7 +84,7 @@ export function SearchPanel({ onNavigate, autoFocus }: SearchPanelProps = {}) {
       if (!note) return;
       event.preventDefault();
       void navigate({ to: "/notes/$noteId", params: { noteId: String(note.note_id) } });
-      onNavigate?.();
+      chooseResult();
     }
   }
 
@@ -99,7 +116,8 @@ export function SearchPanel({ onNavigate, autoFocus }: SearchPanelProps = {}) {
             index={index}
             active={index === active}
             query={trimmedQuery}
-            onNavigate={onNavigate}
+            onNavigate={chooseResult}
+            onFilterTag={filterByTag}
           />
         ))}
         {bodyHits.length > 0 ? (
@@ -112,7 +130,8 @@ export function SearchPanel({ onNavigate, autoFocus }: SearchPanelProps = {}) {
                 index={titleHits.length + index}
                 active={titleHits.length + index === active}
                 query={trimmedQuery}
-                onNavigate={onNavigate}
+                onNavigate={chooseResult}
+                onFilterTag={filterByTag}
               />
             ))}
           </>
@@ -129,7 +148,8 @@ export function SearchPanel({ onNavigate, autoFocus }: SearchPanelProps = {}) {
                 index={titleHits.length + bodyHits.length + index}
                 active={titleHits.length + bodyHits.length + index === active}
                 query={trimmedQuery}
-                onNavigate={onNavigate}
+                onNavigate={chooseResult}
+                onFilterTag={filterByTag}
               />
             ))}
           </>
@@ -150,41 +170,46 @@ interface SearchResultItemProps {
   active: boolean;
   query: string;
   onNavigate?: () => void;
+  onFilterTag: (tag: string) => void;
 }
 
-function SearchResultItem({ note, index, active, query, onNavigate }: SearchResultItemProps) {
+function SearchResultItem({ note, index, active, query, onNavigate, onFilterTag }: SearchResultItemProps) {
   return (
-    <Link
-      className={`result${active ? " is-active" : ""}`}
-      id={`search-result-${note.note_id}`}
-      data-index={index}
-      to="/notes/$noteId"
-      params={{ noteId: String(note.note_id) }}
-      onClick={() => onNavigate?.()}
-    >
-      <span className="result-title">
-        {note.icon ? (
-          <span className="note-icon" aria-hidden="true">
-            {note.icon}
-          </span>
-        ) : null}
-        <HighlightedSearchText text={note.title} query={query} />
-      </span>
-      {note.snippet ? (
-        <p className="result-snippet">
-          <HighlightedSearchText text={note.snippet} query={query} />
-        </p>
-      ) : null}
-      {note.tags && note.tags.length > 0 ? (
-        <div className="tag-list" aria-label={`${note.title} tags`}>
-          {note.tags.map((tag) => (
-            <span key={tag}>
-              <HighlightedSearchText text={`#${tag}`} query={query} />
+    <>
+      <Link
+        className={`result${active ? " is-active" : ""}`}
+        id={`search-result-${note.note_id}`}
+        data-index={index}
+        to="/notes/$noteId"
+        params={{ noteId: String(note.note_id) }}
+        onClick={() => onNavigate?.()}
+      >
+        <span className="result-title">
+          {note.icon ? (
+            <span className="note-icon" aria-hidden="true">
+              {note.icon}
             </span>
+          ) : null}
+          <HighlightedSearchText text={note.title} query={query} />
+        </span>
+        {note.snippet ? (
+          <p className="result-snippet">
+            <HighlightedSearchText text={note.snippet} query={query} />
+          </p>
+        ) : null}
+      </Link>
+      {/* The tags narrow the search rather than open the note, so they are controls beside the result,
+          not part of the link — which also keeps them out of an anchor they cannot legally sit in. */}
+      {note.tags && note.tags.length > 0 ? (
+        <div className="tag-list result-tags" aria-label={`${note.title} tags`}>
+          {note.tags.map((tag) => (
+            <button key={tag} type="button" onClick={() => onFilterTag(tag)} title={`Filter by #${tag}`}>
+              <HighlightedSearchText text={`#${tag}`} query={query} />
+            </button>
           ))}
         </div>
       ) : null}
-    </Link>
+    </>
   );
 }
 

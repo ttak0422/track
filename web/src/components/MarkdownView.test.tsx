@@ -154,6 +154,44 @@ describe("MarkdownView", () => {
     await waitFor(() => expect(copyText).toHaveBeenCalledWith("notes/project.md:1"));
   });
 
+  it("dismisses the copy range popup once it has copied", async () => {
+    copyText.mockReset();
+    copyText.mockResolvedValue(true);
+    vi.useFakeTimers({ shouldAdvanceTime: true });
+    try {
+      const { container } = render(
+        <MarkdownView copyPath="notes/project.md" markdown="single line" />,
+      );
+      const text = container.querySelector("p")!.firstChild!;
+      const selection = window.getSelection()!;
+      selection.setBaseAndExtent(text, 0, text, 6);
+      fireEvent(document, new Event("selectionchange"));
+      fireEvent.click(screen.getByRole("button", { name: "Copy range" }));
+      await waitFor(() => expect(copyText).toHaveBeenCalled());
+      vi.advanceTimersByTime(1500);
+      await waitFor(() =>
+        expect(screen.queryByRole("button", { name: /Copy range|Copied/ })).not.toBeInTheDocument(),
+      );
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("resolves a selection inside a list to the items it touches", async () => {
+    copyText.mockReset();
+    copyText.mockResolvedValue(true);
+    const { container } = render(
+      <MarkdownView copyPath="notes/project.md" markdown={"intro\n\n- one\n- two\n- three"} />,
+    );
+    const items = container.querySelectorAll("li");
+    expect(items[1]).toHaveAttribute("data-copy-line-start", "4");
+    const selection = window.getSelection()!;
+    selection.setBaseAndExtent(items[1].firstChild!, 0, items[2].firstChild!, 3);
+    fireEvent(document, new Event("selectionchange"));
+    fireEvent.click(screen.getByRole("button", { name: "Copy range" }));
+    await waitFor(() => expect(copyText).toHaveBeenCalledWith("notes/project.md:4-5"));
+  });
+
   it("offers nothing when the selection has no marked note line", () => {
     const { container } = render(
       <MarkdownView copyPath="notes/project.md" title="Project" markdown="body" />,

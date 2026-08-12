@@ -35,11 +35,10 @@ function lineElementForBoundary(
   if (!scope.contains(node) || hasNonContentAncestor(scope, node)) return null;
   const point = node === scope ? boundaryChild(scope, offset, isStart) : node;
   let current: Node | null = point;
+  // Nearest marked ancestor, not the top-level block: list items carry their own span, so a selection
+  // inside a list resolves to the items it touches instead of to the whole list.
   while (current && current !== scope) {
-    if (current.parentNode === scope) {
-      if (current instanceof HTMLElement && isCopyLineElement(current)) return current;
-      return null;
-    }
+    if (current instanceof HTMLElement && isCopyLineElement(current)) return current;
     current = current.parentNode;
   }
   return null;
