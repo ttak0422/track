@@ -94,6 +94,9 @@ func Run(q Query, rows []NoteRow) Result {
 // filter "a" matches tags "a" and "a/b" but not "ab".
 func TagMatches(tag, filter string) bool {
 	t, f := strings.ToLower(tag), strings.ToLower(filter)
+	// "a/" is how someone spells "everything under a", which is what the filter already means; no tag
+	// is stored with a trailing separator, so leaving it on would match nothing at all.
+	f = strings.TrimRight(f, "/")
 	return t == f || strings.HasPrefix(t, f+"/")
 }
 

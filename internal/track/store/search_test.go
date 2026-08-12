@@ -344,6 +344,21 @@ func TestSearchHashMatchesTagsHierarchically(t *testing.T) {
 	if len(results) != 1 || results[0].NoteID != 300 {
 		t.Fatalf("child tag results = %+v, want only note 300", results)
 	}
+
+	// "#graph/" is how a reader asks for everything under graph, which is what "#graph" already
+	// selects. Kept as written it matched nothing — no tag is stored with a trailing separator — so
+	// the query fell through to a full-text hunt for the literal "#graph/".
+	trailing, err := s.SearchScoped("#graph/", 10, SearchTitle)
+	if err != nil {
+		t.Fatalf("search trailing separator: %v", err)
+	}
+	var trailingIDs []int64
+	for _, r := range trailing {
+		trailingIDs = append(trailingIDs, r.NoteID)
+	}
+	if !slices.Equal(trailingIDs, wantIDs) {
+		t.Fatalf("#graph/ results = %v, want the same as #graph (%v)", trailingIDs, wantIDs)
+	}
 }
 
 func TestSearchHashPrefixCombinesMultipleTagsAndTitleText(t *testing.T) {

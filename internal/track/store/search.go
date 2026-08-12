@@ -282,7 +282,10 @@ func parseTaggedQuery(query string) (parsedTaggedQuery, bool) {
 	seen := map[string]bool{}
 	for _, field := range strings.Fields(query) {
 		if strings.HasPrefix(field, "#") {
-			tag := strings.TrimSpace(strings.TrimPrefix(field, "#"))
+			// A trailing "/" is how someone writes "everything under this", which is what the filter
+			// already means — and left in place it means the opposite, since no tag is stored with one:
+			// "#a/" would match nothing and quietly fall through to a full-text hunt for the literal text.
+			tag := strings.TrimRight(strings.TrimSpace(strings.TrimPrefix(field, "#")), "/")
 			if tag == "" || seen[tag] {
 				continue
 			}
