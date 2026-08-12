@@ -51,6 +51,14 @@ export function SearchPanel({ onNavigate, autoFocus }: SearchPanelProps = {}) {
     listRef.current?.querySelector<HTMLElement>(`[data-index="${active}"]`)?.scrollIntoView({ block: "nearest" });
   }, [active]);
 
+  // Choosing a result ends the search, so the field goes back to empty and the host closes. The query
+  // is shared state, so leaving it set kept the palette (and the home hero behind it) showing the last
+  // search's hits — reopening search looked like it had never been used.
+  function chooseResult() {
+    setQuery("");
+    onNavigate?.();
+  }
+
   function onKeyDown(event: React.KeyboardEvent<HTMLInputElement>) {
     if (keys.next(event)) {
       event.preventDefault();
@@ -67,7 +75,7 @@ export function SearchPanel({ onNavigate, autoFocus }: SearchPanelProps = {}) {
       if (!note) return;
       event.preventDefault();
       void navigate({ to: "/notes/$noteId", params: { noteId: String(note.note_id) } });
-      onNavigate?.();
+      chooseResult();
     }
   }
 
@@ -99,7 +107,7 @@ export function SearchPanel({ onNavigate, autoFocus }: SearchPanelProps = {}) {
             index={index}
             active={index === active}
             query={trimmedQuery}
-            onNavigate={onNavigate}
+            onNavigate={chooseResult}
           />
         ))}
         {bodyHits.length > 0 ? (
@@ -112,7 +120,7 @@ export function SearchPanel({ onNavigate, autoFocus }: SearchPanelProps = {}) {
                 index={titleHits.length + index}
                 active={titleHits.length + index === active}
                 query={trimmedQuery}
-                onNavigate={onNavigate}
+                onNavigate={chooseResult}
               />
             ))}
           </>
@@ -129,7 +137,7 @@ export function SearchPanel({ onNavigate, autoFocus }: SearchPanelProps = {}) {
                 index={titleHits.length + bodyHits.length + index}
                 active={titleHits.length + bodyHits.length + index === active}
                 query={trimmedQuery}
-                onNavigate={onNavigate}
+                onNavigate={chooseResult}
               />
             ))}
           </>
