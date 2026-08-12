@@ -223,6 +223,7 @@ export function MarkdownView({
               <SelectionCopyButton
                 text={copyLineRangeText(copyPath, copyRange)}
                 style={{ left: copyPopupPosition.left, top: copyPopupPosition.top }}
+                onDone={() => setCopyRange(null)}
               />
             ) : null}
           </div>
@@ -263,7 +264,15 @@ function plainHeadingText(text: string): string {
     .trim();
 }
 
-function SelectionCopyButton({ text, style }: { text: string; style: { left: number; top: number } }) {
+function SelectionCopyButton({
+  text,
+  style,
+  onDone,
+}: {
+  text: string;
+  style: { left: number; top: number };
+  onDone: () => void;
+}) {
   const [copied, setCopied] = useState(false);
   const resetTimer = useRef<number | undefined>(undefined);
 
@@ -278,7 +287,10 @@ function SelectionCopyButton({ text, style }: { text: string; style: { left: num
     if (!(await copyText(text))) return;
     setCopied(true);
     if (resetTimer.current !== undefined) window.clearTimeout(resetTimer.current);
-    resetTimer.current = window.setTimeout(() => setCopied(false), 1500);
+    // The popup acts on one selection and is done after it copies, so it confirms and then leaves.
+    // Keeping it would leave the action hanging over the text until some later click cleared the
+    // selection — including over the very lines the reader just referenced.
+    resetTimer.current = window.setTimeout(onDone, 1200);
   }
 
   return (

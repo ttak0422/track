@@ -558,14 +558,23 @@ export function rehypeTaskCheck() {
 export function rehypeCopyLine() {
   return (tree: HastRoot) => {
     for (const node of tree.children) {
-      if (node.type !== "element") continue;
-      const start = node.position?.start?.line;
-      const end = node.position?.end?.line;
-      if (start === undefined || end === undefined) continue;
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      const properties = (node.properties ??= {}) as any;
-      properties.dataCopyLineStart = start;
-      properties.dataCopyLineEnd = end;
+      if (node.type === "element") markCopyLine(node);
     }
+    // A list renders as a single top-level block, so marking only that block resolves a selection of
+    // two items to the whole list. The item is the next unit the source itself has, and it is the one
+    // a reader points at, so items carry their own span too (nested items included).
+    visit(tree, "element", (node: Element) => {
+      if (node.tagName === "li") markCopyLine(node);
+    });
   };
+}
+
+function markCopyLine(node: Element) {
+  const start = node.position?.start?.line;
+  const end = node.position?.end?.line;
+  if (start === undefined || end === undefined) return;
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const properties = (node.properties ??= {}) as any;
+  properties.dataCopyLineStart = start;
+  properties.dataCopyLineEnd = end;
 }
