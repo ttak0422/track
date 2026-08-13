@@ -2600,11 +2600,16 @@ textarea.modal-input:focus-visible {
   }
 }
 
-/* The frame controls sit at top-right; a wrapped code block's copy button and a mermaid diagram's
-   controls also live there, so shift those left of the two-button cluster (2×28 + gaps) to avoid overlap. */
-.media-frame .code-copy,
-.media-frame .mermaid-controls {
+/* The frame controls sit at top-right; a wrapped code block's copy button lives there too, so shift it
+   left of the two-button cluster (2×28 + gaps) to avoid overlap. */
+.media-frame .code-copy {
   right: 76px;
+}
+
+/* A diagram attachment brings its own control strip, which ends where the frame's own cluster begins.
+   The strip is in flow, so it keeps clear by giving up the width rather than by moving. */
+.media-frame .mermaid-bar {
+  padding-right: 68px;
 }
 
 /* The enlarge control's in-window lightbox: a modal <dialog>, so the media grows to the window (not
@@ -3148,16 +3153,26 @@ textarea.modal-input:focus-visible {
   height: auto;
 }
 
+/* The diagram's control strip: fold at the left end, everything else at the right, on the frame's own
+   ground above the drawing. It replaces two chips that floated in the drawing's top corners, where
+   they sat on whatever the diagram had put there. Nothing here waits for a hover — out of the drawing
+   there is nothing for them to obscure, and a control a touch pointer can never reveal is no control
+   (see design.md, "A tap is not a hover"). */
+.mermaid-bar {
+  display: flex;
+  min-height: 26px; /* the control's own height, so an empty end of the strip holds the row open */
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+/* The right end of the strip. The lightbox reuses the row as a floating cluster (see below), so the
+   positioning lives there rather than here. */
 .mermaid-controls {
-  position: absolute;
-  top: 8px;
-  right: 8px;
-  z-index: 2; /* above the continuation fades */
   display: flex;
   flex-direction: row;
+  margin-left: auto; /* hold the right end even when the fold control is absent */
   gap: 4px;
-  opacity: 0;
-  transition: opacity 0.12s ease;
 }
 
 .mermaid-control {
@@ -3232,41 +3247,20 @@ textarea.modal-input:focus-visible {
   font-size: calc(20px * var(--font-scale, 1));
 }
 
+/* The popup has no strip of its own — its controls float in the window's top corner, clear of a
+   drawing that is fitted inside the window's padding. 44px leaves the close button its corner. */
 .diagram-lightbox-controls {
-  right: 44px;
-  opacity: 1;
-}
-
-.mermaid-diagram:hover .mermaid-controls,
-.mermaid-controls:focus-within {
-  opacity: 1;
-}
-
-/* The fold toggle is a quiet hover affordance once a diagram is full-sized. A collapsed preview keeps
-   its Show full diagram action visible because otherwise the way back to the full content is hidden. */
-.mermaid-fold {
   position: absolute;
   top: 8px;
-  left: 8px;
-  z-index: 2; /* above the continuation fades */
-  opacity: 0;
-  transition: opacity 0.12s ease;
-}
-
-.mermaid-diagram:hover .mermaid-fold,
-.mermaid-fold:focus-visible,
-.mermaid-diagram[data-collapsed] .mermaid-fold {
-  opacity: 1;
+  right: 44px;
+  z-index: 2;
 }
 
 /* A tall collapsed diagram stays at a readable scale and is clipped, so make both the continuation
    and the way to reveal it unmistakable. The fade is purely visual and never intercepts input.
    Collapsed, the chip carries a label beside the caret, so its grid flows in one row and its box
-   grows to fit — the icon-sized square would push the text out over the diagram. */
+   grows to fit — the icon-sized square would clip the text. */
 .mermaid-diagram[data-collapsed] .mermaid-fold {
-  top: 8px;
-  bottom: auto;
-  left: 8px;
   grid-auto-flow: column;
   width: auto;
   min-width: max-content;
@@ -3274,7 +3268,6 @@ textarea.modal-input:focus-visible {
   min-height: 26px;
   padding: 0 10px;
   gap: 6px;
-  transform: none;
 }
 
 .mermaid-continuation {

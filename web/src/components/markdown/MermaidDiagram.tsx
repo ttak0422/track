@@ -113,6 +113,73 @@ export function DiagramFrame({ state, source, sourceLang, label, className }: Di
   const showPopupControl = !collapsed && (showFoldControl || overflow.left || overflow.right);
   return (
     <div className={rootClass} data-collapsed={collapsed || undefined}>
+      {/* Every control the diagram has, in one strip above the drawing. They used to float over the
+          two top corners, where they landed on whatever the diagram put there — a node's label, most
+          of the time — and a chip a reader has to look past is worse than one they have to look for.
+          Out here they need no hover to appear and cover nothing. */}
+      <div className="mermaid-bar">
+        {showFoldControl && (
+          <button
+            className="mermaid-control mermaid-fold"
+            type="button"
+            onClick={toggleCollapsed}
+            aria-label={collapsed ? "Expand diagram" : "Collapse diagram"}
+            title={collapsed ? "Expand diagram" : "Collapse diagram"}
+          >
+            {collapsed ? (
+              <>
+                <span aria-hidden="true">▾</span>
+                <span>Show full diagram</span>
+              </>
+            ) : (
+              "▴"
+            )}
+          </button>
+        )}
+        {!collapsed && (
+          <div className="mermaid-controls">
+            <CopySource text={source} />
+            <button
+              className="mermaid-control"
+              type="button"
+              onClick={() => zoomBy(zoomStep)}
+              aria-label="Zoom in"
+              title="Zoom in"
+            >
+              +
+            </button>
+            <button
+              className="mermaid-control"
+              type="button"
+              onClick={() => zoomBy(1 / zoomStep)}
+              aria-label="Zoom out"
+              title="Zoom out"
+            >
+              −
+            </button>
+            <button
+              className="mermaid-control"
+              type="button"
+              onClick={reset}
+              aria-label="Reset diagram view"
+              title="Reset diagram view"
+            >
+              ↺
+            </button>
+            {showPopupControl ? (
+              <button
+                className="mermaid-control mermaid-open"
+                type="button"
+                onClick={() => setEnlarged(true)}
+                aria-label="Open diagram in popup"
+                title="Open diagram in popup"
+              >
+                ⛶
+              </button>
+            ) : null}
+          </div>
+        )}
+      </div>
       <div
         className="mermaid-viewport"
         ref={viewportRef}
@@ -138,67 +205,6 @@ export function DiagramFrame({ state, source, sourceLang, label, className }: Di
         {!collapsed && overflow.left && <div className="mermaid-continuation-left" aria-hidden="true" />}
         {!collapsed && overflow.right && <div className="mermaid-continuation-right" aria-hidden="true" />}
       </div>
-      {showFoldControl && (
-        <button
-          className="mermaid-control mermaid-fold"
-          type="button"
-          onClick={toggleCollapsed}
-          aria-label={collapsed ? "Expand diagram" : "Collapse diagram"}
-          title={collapsed ? "Expand diagram" : "Collapse diagram"}
-        >
-          {collapsed ? (
-            <>
-              <span aria-hidden="true">▾</span>
-              <span>Show full diagram</span>
-            </>
-          ) : (
-            "▴"
-          )}
-        </button>
-      )}
-      {!collapsed && (
-        <div className="mermaid-controls">
-          <CopySource text={source} />
-          <button
-            className="mermaid-control"
-            type="button"
-            onClick={() => zoomBy(zoomStep)}
-            aria-label="Zoom in"
-            title="Zoom in"
-          >
-            +
-          </button>
-          <button
-            className="mermaid-control"
-            type="button"
-            onClick={() => zoomBy(1 / zoomStep)}
-            aria-label="Zoom out"
-            title="Zoom out"
-          >
-            −
-          </button>
-          <button
-            className="mermaid-control"
-            type="button"
-            onClick={reset}
-            aria-label="Reset diagram view"
-            title="Reset diagram view"
-          >
-            ↺
-          </button>
-          {showPopupControl ? (
-            <button
-              className="mermaid-control mermaid-open"
-              type="button"
-              onClick={() => setEnlarged(true)}
-              aria-label="Open diagram in popup"
-              title="Open diagram in popup"
-            >
-              ⛶
-            </button>
-          ) : null}
-        </div>
-      )}
       {enlarged && svg ? (
         <dialog
           ref={dialogRef}
