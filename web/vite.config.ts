@@ -123,7 +123,14 @@ export default defineConfig({
   },
   server: {
     proxy: {
-      "/api": "http://127.0.0.1:8765",
+      // The track server guards against DNS rebinding (a foreign Host) and CSRF (a foreign Origin on a
+      // write), so a proxied request has to arrive wearing the server's own address rather than the dev
+      // server's — otherwise every POST, /api/render included, comes back 403 and notes render blank.
+      "/api": {
+        target: "http://127.0.0.1:8765",
+        changeOrigin: true,
+        headers: { origin: "http://127.0.0.1:8765" },
+      },
     },
   },
   test: {

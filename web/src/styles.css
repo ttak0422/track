@@ -2133,7 +2133,11 @@ textarea.modal-input:focus-visible {
      with a lot of backlinks scrolls only its own backlink list, not the whole page. */
   min-height: 0;
   overflow: auto;
-  padding: 16px;
+  /* Named because a full-bleed diagram has to undo it to reach the reader's edges (see the bleed rule
+     in the docked-rail block); a padding it could not see would leave the diagram short by exactly
+     this much. */
+  --preview-pad-inline: 16px;
+  padding: 16px var(--preview-pad-inline);
   background: var(--panel);
   /* Read-only notes flow into the outer reader below; split preview keeps its own overflow but hides
      the bar so the editing surface stays quiet. */
@@ -2972,7 +2976,8 @@ textarea.modal-input:focus-visible {
   }
 
   .note-preview {
-    padding: 12px 8px;
+    --preview-pad-inline: 8px;
+    padding: 12px var(--preview-pad-inline);
   }
 
   .calendar-grid {
@@ -4213,7 +4218,44 @@ textarea.modal-input:focus-visible {
     max-height: calc(100vh - 65px); /* tab bar (33px) + the 32px sticky offset */
     overflow-y: auto;
     padding-bottom: 18px;
+    /* A full-bleed diagram runs the width of the reading surface and passes under this column, where
+       its strokes crossed the contents and backlink lists and made them hard to read. The rail takes
+       the page's own ground so the words win — the surface, not a panel: no rule, no radius, nothing
+       that would read as a box. */
+    background: var(--panel);
     scrollbar-width: none;
+  }
+
+  /* The full-bleed diagram spans the whole reading surface rather than a window's width centred on the
+     prose. Once the rail docks beside it the column is no longer centred, so a 100vw box struck from
+     the prose's middle stopped ~190px short of the scrollbar and spilled the same amount off the left,
+     where it was only ever clipped. Anchor it to the reader's left padding edge instead — the 64px
+     dock lane, plus whatever margin auto-centring gave the column — and 100vw carries it past the far
+     edge on its own. 100vw counts the scrollbar the reader's client box does not, which overshoots
+     both ends by about half its width; the reader clips that. */
+  .workspace:not(.home)
+    .note-reader:not(:has(.note-editor textarea))
+    .markdown-view
+    > .mermaid-diagram
+    > .mermaid-viewport:not([data-collapsed]) {
+    margin-left: calc(
+      -64px - var(--preview-pad-inline, 16px) -
+        max(
+          0px,
+          (100vw - 96px - (var(--content-width, 880px) + 60px + clamp(240px, 24vw, 380px))) / 2
+        )
+    );
+  }
+
+  /* "Full" width leaves the column uncapped, so it starts at the lane with no centring margin — and
+     none is a value calc() cannot digest anyway. */
+  html[data-content-width="none"]
+    .workspace:not(.home)
+    .note-reader:not(:has(.note-editor textarea))
+    .markdown-view
+    > .mermaid-diagram
+    > .mermaid-viewport:not([data-collapsed]) {
+    margin-left: calc(-64px - var(--preview-pad-inline, 16px));
   }
 
   .workspace:not(.home) .note-reader:not(:has(.note-editor textarea)) > .note-layout > .note-aside > .backlinks {

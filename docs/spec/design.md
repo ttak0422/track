@@ -150,6 +150,13 @@ nothing else. Paragraphs and lists lead with 13px, list items with 7px.
 - Body copy carries no color and no background. Links are ink with a
   `--line-strong` underline (see variant 8); inline code is mono and `--muted`
   with no chip, because a filled chip in a Japanese line makes the line ripple.
+- A block that bleeds takes the whole reading surface — the reader's left edge
+  to its scrollbar — not a window's width struck from the middle of the prose.
+  Once the aside docks the column is no longer centred, so the second reading
+  leaves a band of surface unused on the right and spills the same amount off
+  the left, where it is only ever clipped. The bleed is measured from the
+  reader's left padding edge instead; the aside's ground (see Sidebar) is what
+  keeps the block from taking the words with it.
 
 ### Scrollbars
 
@@ -362,6 +369,11 @@ The note's aside is a quiet column; the rail is a floating dock over the sheet.
   before the rail does on a narrow laptop. Section headings take the label
   recipe; a count sits at the right end of the heading row in mono 11px
   `--faint`. Rows are text controls — no pills.
+- Docked, the aside takes the sheet's own ground (`--panel`) — no rule, no
+  radius, nothing that reads as a box. It is not decoration: a full-bleed block
+  runs the width of the reading surface and passes beneath this column, and
+  strokes crossing the contents and backlink lists made them unreadable. The
+  words win, and the ground is what lets them.
 - The aside's graph draws its centre node filled with `--mark`, its other
   nodes filled with `--bg` and outlined 1px in `--line-node`, and its edges in
   `--line-strong`. Hover and search highlighting are ink (`--text`), not the

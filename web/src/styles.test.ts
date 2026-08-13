@@ -133,6 +133,28 @@ describe("content width", () => {
     expect(css).not.toMatch(/\.markdown-view > \.mermaid-diagram\s*\{[^}]*width:\s*100vw/);
   });
 
+  it("anchors the docked bleed at the reading surface's edge, not the middle of the prose", () => {
+    const docked = mediaBody("(min-width: 1100px)");
+
+    // Undo the reader's dock lane and the preview's own padding, then whatever margin auto-centring
+    // gave the column — the prose's midpoint is not the surface's once the aside sits beside it.
+    expect(docked).toMatch(/margin-left:\s*calc\(\s*-64px - var\(--preview-pad-inline/);
+    expect(docked).toMatch(/100vw - 96px/);
+    // The padding it undoes has to be the one .note-preview actually sets, or the block lands short.
+    expect(ruleBody(".note-preview")).toMatch(/--preview-pad-inline:\s*16px/);
+    expect(ruleBody(".note-preview")).toMatch(/padding:\s*16px var\(--preview-pad-inline\)/);
+  });
+
+  it("gives the docked aside the sheet's ground so a bleeding block cannot cross its text", () => {
+    const docked = mediaBody("(min-width: 1100px)");
+    const aside = docked.match(/> \.note-aside \{([^}]*)\}/)?.[1] ?? "";
+
+    expect(aside).toMatch(/background:\s*var\(--panel\)/);
+    // The ground is there to carry text over a diagram, not to draw a box around the column.
+    expect(aside).not.toMatch(/border(?!-)/);
+    expect(aside).not.toMatch(/border-radius/);
+  });
+
   it("clips full-bleed diagrams without taking ownership of vertical reading scroll", () => {
     const readerRule = ruleBody(".reader");
 
