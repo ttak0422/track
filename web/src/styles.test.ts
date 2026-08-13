@@ -133,16 +133,24 @@ describe("content width", () => {
     expect(css).not.toMatch(/\.markdown-view > \.mermaid-diagram\s*\{[^}]*width:\s*100vw/);
   });
 
-  it("anchors the docked bleed at the reading surface's edge, not the middle of the prose", () => {
+  it("lands the docked bleed on the note's own row, so it keeps the margins everything else has", () => {
     const docked = mediaBody("(min-width: 1100px)");
 
-    // Undo the reader's dock lane and the preview's own padding, then whatever margin auto-centring
-    // gave the column — the prose's midpoint is not the surface's once the aside sits beside it.
-    expect(docked).toMatch(/margin-left:\s*calc\(\s*-64px - var\(--preview-pad-inline/);
-    expect(docked).toMatch(/100vw - 96px/);
+    // Undo the preview's padding on the left, and the gutter and rail on the right: the block then
+    // spans prose + gutter + rail exactly. The prose's midpoint is not the surface's once the rail
+    // sits beside it, so a width struck from there reaches neither edge.
+    expect(docked).toMatch(/margin-left:\s*calc\(-1 \* var\(--preview-pad-inline, 16px\)\)/);
+    expect(docked).toMatch(
+      /margin-right:\s*calc\(-1 \* \(var\(--preview-pad-inline, 16px\) \+ 60px \+ clamp\(240px, 24vw, 380px\)\)\)/,
+    );
+    // Width follows from the margins, which is what keeps the scrollbar out of the arithmetic.
+    expect(docked).toMatch(/width:\s*auto/);
     // The padding it undoes has to be the one .note-preview actually sets, or the block lands short.
     expect(ruleBody(".note-preview")).toMatch(/--preview-pad-inline:\s*16px/);
     expect(ruleBody(".note-preview")).toMatch(/padding:\s*16px var\(--preview-pad-inline\)/);
+    // The gutter and rail it undoes are the ones .note-layout and .note-aside are actually given.
+    expect(docked).toMatch(/gap:\s*60px/);
+    expect(docked).toMatch(/flex:\s*0 0 clamp\(240px, 24vw, 380px\)/);
   });
 
   it("gives the docked aside the sheet's ground so a bleeding block cannot cross its text", () => {

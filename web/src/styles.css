@@ -4226,36 +4226,22 @@ textarea.modal-input:focus-visible {
     scrollbar-width: none;
   }
 
-  /* The full-bleed diagram spans the whole reading surface rather than a window's width centred on the
-     prose. Once the rail docks beside it the column is no longer centred, so a 100vw box struck from
-     the prose's middle stopped ~190px short of the scrollbar and spilled the same amount off the left,
-     where it was only ever clipped. Anchor it to the reader's left padding edge instead — the 64px
-     dock lane, plus whatever margin auto-centring gave the column — and 100vw carries it past the far
-     edge on its own. 100vw counts the scrollbar the reader's client box does not, which overshoots
-     both ends by about half its width; the reader clips that. */
+  /* Once the rail docks, a bleeding diagram takes the note's whole row — the prose column, the gutter,
+     and the rail — instead of a window's width struck from the middle of the prose. The prose is no
+     longer centred with the rail beside it, so that second reading left a band unused on the right and
+     spilled the same amount off the left, where it was only ever clipped. Undoing the preview's padding
+     on the left and the gutter and rail on the right lands the block on exactly the band every other
+     element already reads within, so it keeps the same margins they do. Widths follow from the margins
+     (auto), which is why none of this has to guess at the scrollbar 100vw would have counted. */
   .workspace:not(.home)
     .note-reader:not(:has(.note-editor textarea))
     .markdown-view
     > .mermaid-diagram
     > .mermaid-viewport:not([data-collapsed]) {
-    margin-left: calc(
-      -64px - var(--preview-pad-inline, 16px) -
-        max(
-          0px,
-          (100vw - 96px - (var(--content-width, 880px) + 60px + clamp(240px, 24vw, 380px))) / 2
-        )
-    );
-  }
-
-  /* "Full" width leaves the column uncapped, so it starts at the lane with no centring margin — and
-     none is a value calc() cannot digest anyway. */
-  html[data-content-width="none"]
-    .workspace:not(.home)
-    .note-reader:not(:has(.note-editor textarea))
-    .markdown-view
-    > .mermaid-diagram
-    > .mermaid-viewport:not([data-collapsed]) {
-    margin-left: calc(-64px - var(--preview-pad-inline, 16px));
+    width: auto;
+    max-width: none;
+    margin-left: calc(-1 * var(--preview-pad-inline, 16px));
+    margin-right: calc(-1 * (var(--preview-pad-inline, 16px) + 60px + clamp(240px, 24vw, 380px)));
   }
 
   .workspace:not(.home) .note-reader:not(:has(.note-editor textarea)) > .note-layout > .note-aside > .backlinks {

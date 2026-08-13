@@ -150,13 +150,14 @@ nothing else. Paragraphs and lists lead with 13px, list items with 7px.
 - Body copy carries no color and no background. Links are ink with a
   `--line-strong` underline (see variant 8); inline code is mono and `--muted`
   with no chip, because a filled chip in a Japanese line makes the line ripple.
-- A block that bleeds takes the whole reading surface — the reader's left edge
-  to its scrollbar — not a window's width struck from the middle of the prose.
-  Once the aside docks the column is no longer centred, so the second reading
-  leaves a band of surface unused on the right and spills the same amount off
-  the left, where it is only ever clipped. The bleed is measured from the
-  reader's left padding edge instead; the aside's ground (see Sidebar) is what
-  keeps the block from taking the words with it.
+- A block that bleeds takes the note's whole row — the prose column, the gutter,
+  and the aside beside it — not a window's width struck from the middle of the
+  prose. Once the aside docks the column is no longer centred, so the second
+  reading leaves a band unused on the right and spills the same amount off the
+  left, where it is only ever clipped. Widening to the row instead lands the
+  block on the band every other element already reads within, so it keeps the
+  same margins they do; the aside's ground (see Sidebar) is what keeps the block
+  from taking the words with it.
 
 ### Scrollbars
 
