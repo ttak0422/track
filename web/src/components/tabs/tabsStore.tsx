@@ -21,8 +21,9 @@ export interface NoteTab {
 
 interface TabsApi {
   tabs: NoteTab[];
-  // Notes visited this browser, most recent first. Unlike the open strip this outlives a server
-  // restart — "recently opened" is a property of the person, not of the session.
+  // Notes visited this browser, most recent first. Like the open strip it outlives a server restart —
+  // "recently opened" is a property of the person, not of the session. It reaches further back than
+  // the strip: a tab is closed when you are done with it, a visit still happened.
   recent: NoteTab[];
   // The note id of the route currently shown, or null when off a note (home/graph). Used to mark the
   // active tab; it may not be in `tabs` for a frame until the open effect adds it.
@@ -38,14 +39,12 @@ interface TabsApi {
 const TabsContext = createContext<TabsApi | null>(null);
 
 const STORAGE_KEY = "track.tabs";
-// The server session token the persisted tabs belong to. A reload carries the same token (keep the
-// tabs); a fresh `track web` launch injects a new one (discard the tabs, so a new day's `Track new`
-// starts clean rather than restoring yesterday's strip).
-const SESSION_KEY = "track.tabs.session";
-// Recently opened notes. Deliberately not cleared with the tabs on a new session: the strip is this
-// run's workspace, the recents are where you have been.
+// Recently opened notes, the History panel's list.
 const RECENT_KEY = "track.recent";
-const RECENT_LIMIT = 10;
+// Deep enough that an afternoon of reading is still in the panel. `track web` is relaunched often
+// (`:Track web` from the editor), and a history that only reaches back ten notes is one an ordinary
+// session walks off the end of.
+const RECENT_LIMIT = 50;
 
 // The full-page views (graph, calendar) open as ordinary tabs with fixed labels rather than separate
 // overlays. Each uses a sentinel id and routes to its own path instead of /notes/$id. A note slug equal
@@ -71,16 +70,11 @@ export function tabRoute(id: NoteID) {
     : ({ to: "/notes/$noteId", params: { noteId: String(id) } } as const);
 }
 
-// Open tabs survive reloads (persisted to localStorage); the dirty flag does not. A fresh server
-// launch (new session token) starts with an empty strip instead of restoring the previous run's tabs.
+// Open tabs survive both a reload and a relaunch (persisted to localStorage); the dirty flag does
+// not. The strip used to be dropped whenever `track web` started a new process, which made closing
+// the workspace the one action that quietly threw away where you had been.
 function loadTabs(): NoteTab[] {
   try {
-    const session = window.__trackSession ?? "";
-    if (session && window.localStorage.getItem(SESSION_KEY) !== session) {
-      window.localStorage.setItem(SESSION_KEY, session);
-      window.localStorage.removeItem(STORAGE_KEY);
-      return [];
-    }
     const raw = window.localStorage.getItem(STORAGE_KEY);
     if (!raw) return [];
     const parsed: unknown = JSON.parse(raw);
