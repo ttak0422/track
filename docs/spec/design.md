@@ -150,6 +150,13 @@ nothing else. Paragraphs and lists lead with 13px, list items with 7px.
 - Body copy carries no color and no background. Links are ink with a
   `--line-strong` underline (see variant 8); inline code is mono and `--muted`
   with no chip, because a filled chip in a Japanese line makes the line ripple.
+- A block that bleeds takes the whole reading surface — the reader's left edge to
+  its scrollbar — not a window's width struck from the middle of the prose. Once
+  the aside docks the column is no longer centred, so the second reading leaves a
+  band of surface unused on the right and spills the same amount off the left,
+  where it is only ever clipped. The bleed is measured from the reader's left
+  padding edge instead. Nothing is held back to protect the aside: the aside's
+  padded ground (see Sidebar) is what keeps the block from taking its words.
 
 ### Scrollbars
 
@@ -197,9 +204,15 @@ from what is beneath them.
   `:hover` / `:focus-within`.
 - Canonical: `.media-control`, `.pdf-deck-nav`.
 
-Diagram controls are the icon-button exception: `.mermaid-control` uses variant 7 because the diagram
-already supplies the visual surface and its glyphs need no resting slab. Media and deck controls remain
-quiet chips when their underlying content needs a separating surface.
+Diagram controls do not rest on content at all: an inline diagram gathers every control it has —
+the fold chip at the left, the rest at the right — into one strip on the frame's own ground above the
+drawing (`.mermaid-bar`). A chip floating in the drawing's corner lands on whatever the diagram put
+there, and a control a reader has to look *past* is worse than one they have to look for. Off the
+drawing there is nothing to obscure, so the strip waits for no hover either — which is also the only
+way a touch pointer ever reaches it. The glyphs take variant 7. A popup keeps its floating cluster:
+its drawing is fitted inside the window's own padding, so the corner is already clear.
+
+Media and deck controls remain quiet chips when their underlying content needs a separating surface.
 
 ### 3. Floating layer — the only layer that floats
 
@@ -362,6 +375,16 @@ The note's aside is a quiet column; the rail is a floating dock over the sheet.
   before the rail does on a narrow laptop. Section headings take the label
   recipe; a count sits at the right end of the heading row in mono 11px
   `--faint`. Rows are text controls — no pills.
+- Docked, the aside takes the sheet's own ground (`--panel`) — no rule, no
+  radius, nothing that reads as a box. It is not decoration: a full-bleed block
+  runs the width of the reading surface and passes beneath this column, and
+  strokes crossing the contents and backlink lists made them unreadable. The
+  words win, and the ground is what lets them.
+- That ground reaches past the words by the page's usual 16px, because ground
+  flush with a glyph is not ground — a stroke arriving from under the column
+  stops touching the letter it stopped at. It grows outward only: the padding is
+  added to the column's width and taken back off its margins, so neither the
+  words nor the row move.
 - The aside's graph draws its centre node filled with `--mark`, its other
   nodes filled with `--bg` and outlined 1px in `--line-node`, and its edges in
   `--line-strong`. Hover and search highlighting are ink (`--text`), not the

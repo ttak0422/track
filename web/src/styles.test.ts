@@ -133,6 +133,42 @@ describe("content width", () => {
     expect(css).not.toMatch(/\.markdown-view > \.mermaid-diagram\s*\{[^}]*width:\s*100vw/);
   });
 
+  it("anchors the docked bleed at the reading surface's edge, not the middle of the prose", () => {
+    const docked = mediaBody("(min-width: 1100px)");
+
+    // Undo the reader's dock lane and the preview's own padding, then whatever margin auto-centring
+    // gave the column — the prose's midpoint is not the surface's once the rail sits beside it.
+    expect(docked).toMatch(/margin-left:\s*calc\(\s*-64px - var\(--preview-pad-inline, 16px\)/);
+    expect(docked).toMatch(/100vw - 96px/);
+    // The padding it undoes has to be the one .note-preview actually sets, or the block lands short.
+    expect(ruleBody(".note-preview")).toMatch(/--preview-pad-inline:\s*16px/);
+    expect(ruleBody(".note-preview")).toMatch(/padding:\s*16px var\(--preview-pad-inline\)/);
+    // Uncapped, the column starts at the lane with no centring margin to undo.
+    expect(docked).toMatch(
+      /html\[data-content-width="none"\][\s\S]*?margin-left:\s*calc\(-64px - var\(--preview-pad-inline, 16px\)\)/,
+    );
+  });
+
+  it("gives the docked aside padded ground, so a bleeding block cannot reach its text", () => {
+    const docked = mediaBody("(min-width: 1100px)");
+    const aside = docked.match(/> \.note-aside \{([^}]*)\}/)?.[1] ?? "";
+
+    expect(aside).toMatch(/background:\s*var\(--panel\)/);
+    expect(aside).toMatch(/padding:\s*var\(--aside-pad\)/);
+    // Ground flush with a glyph is not ground: it has to reach past the words, by the measure the
+    // rest of the page keeps.
+    expect(aside).toMatch(/--aside-pad:\s*16px/);
+    // It grows outward only — added to the column's width, taken back off its margins — so neither
+    // the words nor the row move.
+    expect(aside).toMatch(/flex:\s*0 0 calc\(clamp\(240px, 24vw, 380px\) \+ var\(--aside-pad\) \* 2\)/);
+    expect(aside).toMatch(/margin-inline:\s*calc\(-1 \* var\(--aside-pad\)\)/);
+    expect(aside).toMatch(/margin-top:\s*calc\(-1 \* var\(--aside-pad\)\)/);
+    expect(aside).toMatch(/top:\s*calc\(32px - var\(--aside-pad\)\)/);
+    // The ground carries text over a diagram; it does not draw a box around the column.
+    expect(aside).not.toMatch(/border(?!-)/);
+    expect(aside).not.toMatch(/border-radius/);
+  });
+
   it("clips full-bleed diagrams without taking ownership of vertical reading scroll", () => {
     const readerRule = ruleBody(".reader");
 
@@ -166,15 +202,15 @@ describe("content width", () => {
     expect(hoverRule).toMatch(/border-radius:\s*var\(--radius-sm\)/);
   });
 
-  it("anchors the collapsed fold chip at the frame's top-left", () => {
-    const collapsedRule = css.match(
-      /\.mermaid-diagram\[data-collapsed\] \.mermaid-fold\s*\{\s*top:[^}]*\}/,
-    )?.[0] ?? "";
+  it("lets the collapsed fold chip carry its label without clipping it", () => {
+    const collapsedRule =
+      css.match(/\.mermaid-diagram\[data-collapsed\] \.mermaid-fold\s*\{([^}]*)\}/)?.[1] ?? "";
 
-    expect(collapsedRule).toMatch(/top:\s*8px/);
-    expect(collapsedRule).toMatch(/bottom:\s*auto/);
-    expect(collapsedRule).toMatch(/left:\s*8px/);
-    expect(collapsedRule).toMatch(/transform:\s*none/);
+    // Collapsed, the chip is a caret plus "Show full diagram", so the icon-sized square has to give.
+    expect(collapsedRule).toMatch(/grid-auto-flow:\s*column/);
+    expect(collapsedRule).toMatch(/min-width:\s*max-content/);
+    // It rides the strip like every other control, so it takes no corner of its own.
+    expect(collapsedRule).not.toMatch(/position:|top:|left:|transform:/);
   });
 });
 
@@ -185,6 +221,25 @@ describe("diagram controls", () => {
     expect(controlsRule).toMatch(/display:\s*flex/);
     expect(controlsRule).toMatch(/flex-direction:\s*row/);
     expect(mermaid).toMatch(/<div className="mermaid-controls">[\s\S]*className="mermaid-control mermaid-open"/);
+  });
+
+  it("keeps every control off the drawing, in one strip above it", () => {
+    // Both the fold chip and the control row are children of the strip, and the strip precedes the
+    // viewport — nothing is left floating in a corner of the drawing.
+    expect(mermaid).toMatch(
+      /<div className="mermaid-bar">[\s\S]*className="mermaid-control mermaid-fold"[\s\S]*<div className="mermaid-controls">[\s\S]*<\/div>\s*<div\s+className="mermaid-viewport"/,
+    );
+
+    // Anchored: .media-frame's own override of the strip comes earlier in the sheet.
+    const barRule = css.match(/(?:^|\n)\.mermaid-bar\s*\{([^}]*)\}/)?.[1] ?? "";
+    expect(barRule).toMatch(/display:\s*flex/);
+    expect(barRule).toMatch(/justify-content:\s*space-between/);
+    // Out of the drawing there is nothing to obscure, so the strip does not wait for a hover — which
+    // is also the only way a touch pointer ever reaches these controls.
+    expect(css).not.toMatch(/\.mermaid-diagram:hover \.mermaid-(controls|fold)/);
+    expect(ruleBody(".mermaid-controls")).not.toMatch(/opacity:\s*0/);
+    // The popup keeps its floating cluster: its drawing is fitted inside the window's own padding.
+    expect(ruleBody(".diagram-lightbox-controls")).toMatch(/position:\s*absolute/);
   });
 });
 

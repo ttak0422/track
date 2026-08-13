@@ -2133,7 +2133,11 @@ textarea.modal-input:focus-visible {
      with a lot of backlinks scrolls only its own backlink list, not the whole page. */
   min-height: 0;
   overflow: auto;
-  padding: 16px;
+  /* Named because a full-bleed diagram has to undo it to reach the reader's edges (see the bleed rule
+     in the docked-rail block); a padding it could not see would leave the diagram short by exactly
+     this much. */
+  --preview-pad-inline: 16px;
+  padding: 16px var(--preview-pad-inline);
   background: var(--panel);
   /* Read-only notes flow into the outer reader below; split preview keeps its own overflow but hides
      the bar so the editing surface stays quiet. */
@@ -2596,11 +2600,16 @@ textarea.modal-input:focus-visible {
   }
 }
 
-/* The frame controls sit at top-right; a wrapped code block's copy button and a mermaid diagram's
-   controls also live there, so shift those left of the two-button cluster (2×28 + gaps) to avoid overlap. */
-.media-frame .code-copy,
-.media-frame .mermaid-controls {
+/* The frame controls sit at top-right; a wrapped code block's copy button lives there too, so shift it
+   left of the two-button cluster (2×28 + gaps) to avoid overlap. */
+.media-frame .code-copy {
   right: 76px;
+}
+
+/* A diagram attachment brings its own control strip, which ends where the frame's own cluster begins.
+   The strip is in flow, so it keeps clear by giving up the width rather than by moving. */
+.media-frame .mermaid-bar {
+  padding-right: 68px;
 }
 
 /* The enlarge control's in-window lightbox: a modal <dialog>, so the media grows to the window (not
@@ -2972,7 +2981,8 @@ textarea.modal-input:focus-visible {
   }
 
   .note-preview {
-    padding: 12px 8px;
+    --preview-pad-inline: 8px;
+    padding: 12px var(--preview-pad-inline);
   }
 
   .calendar-grid {
@@ -3143,16 +3153,26 @@ textarea.modal-input:focus-visible {
   height: auto;
 }
 
+/* The diagram's control strip: fold at the left end, everything else at the right, on the frame's own
+   ground above the drawing. It replaces two chips that floated in the drawing's top corners, where
+   they sat on whatever the diagram had put there. Nothing here waits for a hover — out of the drawing
+   there is nothing for them to obscure, and a control a touch pointer can never reveal is no control
+   (see design.md, "A tap is not a hover"). */
+.mermaid-bar {
+  display: flex;
+  min-height: 26px; /* the control's own height, so an empty end of the strip holds the row open */
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+/* The right end of the strip. The lightbox reuses the row as a floating cluster (see below), so the
+   positioning lives there rather than here. */
 .mermaid-controls {
-  position: absolute;
-  top: 8px;
-  right: 8px;
-  z-index: 2; /* above the continuation fades */
   display: flex;
   flex-direction: row;
+  margin-left: auto; /* hold the right end even when the fold control is absent */
   gap: 4px;
-  opacity: 0;
-  transition: opacity 0.12s ease;
 }
 
 .mermaid-control {
@@ -3227,41 +3247,20 @@ textarea.modal-input:focus-visible {
   font-size: calc(20px * var(--font-scale, 1));
 }
 
+/* The popup has no strip of its own — its controls float in the window's top corner, clear of a
+   drawing that is fitted inside the window's padding. 44px leaves the close button its corner. */
 .diagram-lightbox-controls {
-  right: 44px;
-  opacity: 1;
-}
-
-.mermaid-diagram:hover .mermaid-controls,
-.mermaid-controls:focus-within {
-  opacity: 1;
-}
-
-/* The fold toggle is a quiet hover affordance once a diagram is full-sized. A collapsed preview keeps
-   its Show full diagram action visible because otherwise the way back to the full content is hidden. */
-.mermaid-fold {
   position: absolute;
   top: 8px;
-  left: 8px;
-  z-index: 2; /* above the continuation fades */
-  opacity: 0;
-  transition: opacity 0.12s ease;
-}
-
-.mermaid-diagram:hover .mermaid-fold,
-.mermaid-fold:focus-visible,
-.mermaid-diagram[data-collapsed] .mermaid-fold {
-  opacity: 1;
+  right: 44px;
+  z-index: 2;
 }
 
 /* A tall collapsed diagram stays at a readable scale and is clipped, so make both the continuation
    and the way to reveal it unmistakable. The fade is purely visual and never intercepts input.
    Collapsed, the chip carries a label beside the caret, so its grid flows in one row and its box
-   grows to fit — the icon-sized square would push the text out over the diagram. */
+   grows to fit — the icon-sized square would clip the text. */
 .mermaid-diagram[data-collapsed] .mermaid-fold {
-  top: 8px;
-  bottom: auto;
-  left: 8px;
   grid-auto-flow: column;
   width: auto;
   min-width: max-content;
@@ -3269,7 +3268,6 @@ textarea.modal-input:focus-visible {
   min-height: 26px;
   padding: 0 10px;
   gap: 6px;
-  transform: none;
 }
 
 .mermaid-continuation {
@@ -4205,15 +4203,62 @@ textarea.modal-input:focus-visible {
   }
 
   .workspace:not(.home) .note-reader:not(:has(.note-editor textarea)) > .note-layout > .note-aside {
+    /* A full-bleed diagram runs the width of the reading surface and passes under this column, where
+       its strokes crossed the contents and backlink lists and made them hard to read. The rail takes
+       the page's own ground so the words win — the surface, not a panel: no rule, no radius, nothing
+       that would read as a box.
+
+       The ground reaches past the words by the measure the rest of the page keeps (--preview-pad's
+       16px), because ground flush with a glyph is not ground: a stroke arriving from under the column
+       stops touching the letter it stopped at. It grows outward only — the padding is added to the
+       column's width and taken back off its margins — so neither the words nor the row move. */
+    --aside-pad: 16px;
     position: sticky;
-    top: 32px; /* keep the reader's 32px breathing room when stuck under the tab bar */
-    flex: 0 0 clamp(240px, 24vw, 380px);
+    top: calc(32px - var(--aside-pad)); /* the reader's 32px of breathing room, less the ground's own */
+    flex: 0 0 calc(clamp(240px, 24vw, 380px) + var(--aside-pad) * 2);
     flex-direction: column;
     flex-wrap: nowrap;
-    max-height: calc(100vh - 65px); /* tab bar (33px) + the 32px sticky offset */
+    max-height: calc(100vh - 65px + var(--aside-pad)); /* tab bar (33px) + the sticky offset */
     overflow-y: auto;
-    padding-bottom: 18px;
+    margin-top: calc(-1 * var(--aside-pad));
+    margin-inline: calc(-1 * var(--aside-pad));
+    padding: var(--aside-pad);
+    padding-bottom: calc(18px + var(--aside-pad));
+    background: var(--panel);
     scrollbar-width: none;
+  }
+
+  /* A bleeding diagram takes the whole reading surface, not a window's width struck from the middle of
+     the prose. Once the rail docks the column is no longer centred, so that second reading stopped
+     ~190px short of the scrollbar and spilled the same amount off the left, where it was only ever
+     clipped. Anchor it to the reader's left padding edge instead — the 64px dock lane, the preview's
+     own padding, and whatever margin auto-centring gave the column — and 100vw carries it past the far
+     edge on its own. 100vw counts the scrollbar the reader's client box does not, which overshoots both
+     ends by about half its width; the reader clips that. The rail keeps its own words legible by
+     standing on ground of its own (see the .note-aside rule above), not by holding the diagram back. */
+  .workspace:not(.home)
+    .note-reader:not(:has(.note-editor textarea))
+    .markdown-view
+    > .mermaid-diagram
+    > .mermaid-viewport:not([data-collapsed]) {
+    margin-left: calc(
+      -64px - var(--preview-pad-inline, 16px) -
+        max(
+          0px,
+          (100vw - 96px - (var(--content-width, 880px) + 60px + clamp(240px, 24vw, 380px))) / 2
+        )
+    );
+  }
+
+  /* "Full" width leaves the column uncapped, so it starts at the lane with no centring margin — and
+     none is a value calc() cannot digest anyway. */
+  html[data-content-width="none"]
+    .workspace:not(.home)
+    .note-reader:not(:has(.note-editor textarea))
+    .markdown-view
+    > .mermaid-diagram
+    > .mermaid-viewport:not([data-collapsed]) {
+    margin-left: calc(-64px - var(--preview-pad-inline, 16px));
   }
 
   .workspace:not(.home) .note-reader:not(:has(.note-editor textarea)) > .note-layout > .note-aside > .backlinks {
