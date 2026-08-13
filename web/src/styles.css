@@ -4203,38 +4203,62 @@ textarea.modal-input:focus-visible {
   }
 
   .workspace:not(.home) .note-reader:not(:has(.note-editor textarea)) > .note-layout > .note-aside {
-    position: sticky;
-    top: 32px; /* keep the reader's 32px breathing room when stuck under the tab bar */
-    flex: 0 0 clamp(240px, 24vw, 380px);
-    flex-direction: column;
-    flex-wrap: nowrap;
-    max-height: calc(100vh - 65px); /* tab bar (33px) + the 32px sticky offset */
-    overflow-y: auto;
-    padding-bottom: 18px;
     /* A full-bleed diagram runs the width of the reading surface and passes under this column, where
        its strokes crossed the contents and backlink lists and made them hard to read. The rail takes
        the page's own ground so the words win — the surface, not a panel: no rule, no radius, nothing
-       that would read as a box. */
+       that would read as a box.
+
+       The ground reaches past the words by the measure the rest of the page keeps (--preview-pad's
+       16px), because ground flush with a glyph is not ground: a stroke arriving from under the column
+       stops touching the letter it stopped at. It grows outward only — the padding is added to the
+       column's width and taken back off its margins — so neither the words nor the row move. */
+    --aside-pad: 16px;
+    position: sticky;
+    top: calc(32px - var(--aside-pad)); /* the reader's 32px of breathing room, less the ground's own */
+    flex: 0 0 calc(clamp(240px, 24vw, 380px) + var(--aside-pad) * 2);
+    flex-direction: column;
+    flex-wrap: nowrap;
+    max-height: calc(100vh - 65px + var(--aside-pad)); /* tab bar (33px) + the sticky offset */
+    overflow-y: auto;
+    margin-top: calc(-1 * var(--aside-pad));
+    margin-inline: calc(-1 * var(--aside-pad));
+    padding: var(--aside-pad);
+    padding-bottom: calc(18px + var(--aside-pad));
     background: var(--panel);
     scrollbar-width: none;
   }
 
-  /* Once the rail docks, a bleeding diagram takes the note's whole row — the prose column, the gutter,
-     and the rail — instead of a window's width struck from the middle of the prose. The prose is no
-     longer centred with the rail beside it, so that second reading left a band unused on the right and
-     spilled the same amount off the left, where it was only ever clipped. Undoing the preview's padding
-     on the left and the gutter and rail on the right lands the block on exactly the band every other
-     element already reads within, so it keeps the same margins they do. Widths follow from the margins
-     (auto), which is why none of this has to guess at the scrollbar 100vw would have counted. */
+  /* A bleeding diagram takes the whole reading surface, not a window's width struck from the middle of
+     the prose. Once the rail docks the column is no longer centred, so that second reading stopped
+     ~190px short of the scrollbar and spilled the same amount off the left, where it was only ever
+     clipped. Anchor it to the reader's left padding edge instead — the 64px dock lane, the preview's
+     own padding, and whatever margin auto-centring gave the column — and 100vw carries it past the far
+     edge on its own. 100vw counts the scrollbar the reader's client box does not, which overshoots both
+     ends by about half its width; the reader clips that. The rail keeps its own words legible by
+     standing on ground of its own (see the .note-aside rule above), not by holding the diagram back. */
   .workspace:not(.home)
     .note-reader:not(:has(.note-editor textarea))
     .markdown-view
     > .mermaid-diagram
     > .mermaid-viewport:not([data-collapsed]) {
-    width: auto;
-    max-width: none;
-    margin-left: calc(-1 * var(--preview-pad-inline, 16px));
-    margin-right: calc(-1 * (var(--preview-pad-inline, 16px) + 60px + clamp(240px, 24vw, 380px)));
+    margin-left: calc(
+      -64px - var(--preview-pad-inline, 16px) -
+        max(
+          0px,
+          (100vw - 96px - (var(--content-width, 880px) + 60px + clamp(240px, 24vw, 380px))) / 2
+        )
+    );
+  }
+
+  /* "Full" width leaves the column uncapped, so it starts at the lane with no centring margin — and
+     none is a value calc() cannot digest anyway. */
+  html[data-content-width="none"]
+    .workspace:not(.home)
+    .note-reader:not(:has(.note-editor textarea))
+    .markdown-view
+    > .mermaid-diagram
+    > .mermaid-viewport:not([data-collapsed]) {
+    margin-left: calc(-64px - var(--preview-pad-inline, 16px));
   }
 
   .workspace:not(.home) .note-reader:not(:has(.note-editor textarea)) > .note-layout > .note-aside > .backlinks {

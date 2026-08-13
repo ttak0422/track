@@ -133,32 +133,38 @@ describe("content width", () => {
     expect(css).not.toMatch(/\.markdown-view > \.mermaid-diagram\s*\{[^}]*width:\s*100vw/);
   });
 
-  it("lands the docked bleed on the note's own row, so it keeps the margins everything else has", () => {
+  it("anchors the docked bleed at the reading surface's edge, not the middle of the prose", () => {
     const docked = mediaBody("(min-width: 1100px)");
 
-    // Undo the preview's padding on the left, and the gutter and rail on the right: the block then
-    // spans prose + gutter + rail exactly. The prose's midpoint is not the surface's once the rail
-    // sits beside it, so a width struck from there reaches neither edge.
-    expect(docked).toMatch(/margin-left:\s*calc\(-1 \* var\(--preview-pad-inline, 16px\)\)/);
-    expect(docked).toMatch(
-      /margin-right:\s*calc\(-1 \* \(var\(--preview-pad-inline, 16px\) \+ 60px \+ clamp\(240px, 24vw, 380px\)\)\)/,
-    );
-    // Width follows from the margins, which is what keeps the scrollbar out of the arithmetic.
-    expect(docked).toMatch(/width:\s*auto/);
+    // Undo the reader's dock lane and the preview's own padding, then whatever margin auto-centring
+    // gave the column — the prose's midpoint is not the surface's once the rail sits beside it.
+    expect(docked).toMatch(/margin-left:\s*calc\(\s*-64px - var\(--preview-pad-inline, 16px\)/);
+    expect(docked).toMatch(/100vw - 96px/);
     // The padding it undoes has to be the one .note-preview actually sets, or the block lands short.
     expect(ruleBody(".note-preview")).toMatch(/--preview-pad-inline:\s*16px/);
     expect(ruleBody(".note-preview")).toMatch(/padding:\s*16px var\(--preview-pad-inline\)/);
-    // The gutter and rail it undoes are the ones .note-layout and .note-aside are actually given.
-    expect(docked).toMatch(/gap:\s*60px/);
-    expect(docked).toMatch(/flex:\s*0 0 clamp\(240px, 24vw, 380px\)/);
+    // Uncapped, the column starts at the lane with no centring margin to undo.
+    expect(docked).toMatch(
+      /html\[data-content-width="none"\][\s\S]*?margin-left:\s*calc\(-64px - var\(--preview-pad-inline, 16px\)\)/,
+    );
   });
 
-  it("gives the docked aside the sheet's ground so a bleeding block cannot cross its text", () => {
+  it("gives the docked aside padded ground, so a bleeding block cannot reach its text", () => {
     const docked = mediaBody("(min-width: 1100px)");
     const aside = docked.match(/> \.note-aside \{([^}]*)\}/)?.[1] ?? "";
 
     expect(aside).toMatch(/background:\s*var\(--panel\)/);
-    // The ground is there to carry text over a diagram, not to draw a box around the column.
+    expect(aside).toMatch(/padding:\s*var\(--aside-pad\)/);
+    // Ground flush with a glyph is not ground: it has to reach past the words, by the measure the
+    // rest of the page keeps.
+    expect(aside).toMatch(/--aside-pad:\s*16px/);
+    // It grows outward only — added to the column's width, taken back off its margins — so neither
+    // the words nor the row move.
+    expect(aside).toMatch(/flex:\s*0 0 calc\(clamp\(240px, 24vw, 380px\) \+ var\(--aside-pad\) \* 2\)/);
+    expect(aside).toMatch(/margin-inline:\s*calc\(-1 \* var\(--aside-pad\)\)/);
+    expect(aside).toMatch(/margin-top:\s*calc\(-1 \* var\(--aside-pad\)\)/);
+    expect(aside).toMatch(/top:\s*calc\(32px - var\(--aside-pad\)\)/);
+    // The ground carries text over a diagram; it does not draw a box around the column.
     expect(aside).not.toMatch(/border(?!-)/);
     expect(aside).not.toMatch(/border-radius/);
   });
