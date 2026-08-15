@@ -683,6 +683,35 @@ img.theme-asset-dark {
   font-weight: 400;
 }
 
+/* A note's state in a list row (design.md: label typography in a radius-sm chip). NEW says this
+   browser has never opened the note — the one thing to notice, so it takes the salient --mark;
+   stale says the note's last activity is over a year past, a quiet --faint warning. Both are
+   inline state, so the row keeps its own layout and the badge takes none of it. */
+.note-state-badge {
+  display: inline-block;
+  flex: none;
+  margin-left: 8px;
+  border-radius: var(--radius-sm);
+  padding: 1px 6px;
+  font-family: var(--font-mono);
+  font-size: calc(10px * var(--font-scale, 1));
+  font-weight: 500;
+  letter-spacing: 0.08em;
+  line-height: 1.5;
+  vertical-align: 0.15em;
+  white-space: nowrap;
+}
+
+.note-state-new {
+  color: var(--mark);
+  background: color-mix(in srgb, var(--mark) 12%, transparent);
+}
+
+.note-state-stale {
+  color: var(--faint);
+  background: var(--panel-soft);
+}
+
 .result-snippet {
   grid-column: 1 / -1;
   margin: 0;

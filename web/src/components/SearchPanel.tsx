@@ -5,6 +5,7 @@ import { keys, step } from "../keys";
 import { useSearchQuery } from "../queries";
 import { useSearchState } from "../searchState";
 import { highlightSearchText } from "../searchHighlight";
+import { isNew } from "../reading";
 import type { SearchResult } from "../types";
 
 interface SearchPanelProps {
@@ -191,6 +192,9 @@ function SearchResultItem({ note, index, active, query, onNavigate, onFilterTag 
             </span>
           ) : null}
           <HighlightedSearchText text={note.title} query={query} />
+          {isNew(note.note_id) ? (
+            <span className="note-state-badge note-state-new">NEW</span>
+          ) : null}
         </span>
         {note.snippet ? (
           <p className="result-snippet">

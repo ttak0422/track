@@ -111,6 +111,17 @@ describe("tab strip", () => {
   });
 });
 
+describe("note state badges", () => {
+  it("writes NEW in the salient and stale in faint, as label-typography chips", () => {
+    const badge = ruleBody(".note-state-badge");
+
+    expect(badge).toMatch(/font-family:\s*var\(--font-mono\)/);
+    expect(badge).toMatch(/border-radius:\s*var\(--radius-sm\)/);
+    expect(ruleBody(".note-state-new")).toMatch(/color:\s*var\(--mark\)/);
+    expect(ruleBody(".note-state-stale")).toMatch(/color:\s*var\(--faint\)/);
+  });
+});
+
 describe("content width", () => {
   it("lets the Content width setting reach prose blocks", () => {
     const proseRule = css.match(/\.markdown-view > \*\s*\{([^}]*)\}/)?.[1] ?? "";

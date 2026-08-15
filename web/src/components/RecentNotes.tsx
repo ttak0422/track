@@ -1,4 +1,5 @@
 import { Link } from "@tanstack/react-router";
+import { isNew } from "../reading";
 import { useTabs } from "./tabs/tabsStore";
 
 // RecentNotes lists the notes this browser opened most recently, for the search hero: the landing
@@ -18,6 +19,9 @@ export function RecentNotes() {
         {recent.map((note) => (
           <Link className="backlink" key={note.id} to="/notes/$noteId" params={{ noteId: String(note.id) }}>
             {note.title || note.id}
+            {isNew(String(note.id)) ? (
+              <span className="note-state-badge note-state-new">NEW</span>
+            ) : null}
           </Link>
         ))}
       </div>
