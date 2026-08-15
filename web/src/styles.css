@@ -1043,6 +1043,66 @@ img.theme-asset-dark {
   color: var(--text);
 }
 
+/* The phone's floating navigation (MobileDock): a round track logo over the reading surface that
+   drags anywhere and, tapped, fans its controls out in the half-circle facing away from the edge it
+   sits at. It replaces the foot dock on screens without a side rail, so it is hidden everywhere
+   else. The mark and its fan are floating layers (variant 3) — they hover over prose, so they keep
+   the panel surface and a soft shadow. */
+.mobile-dock {
+  display: none;
+}
+
+/* The mark itself: a 48px disc — a thumb's target — carrying the brand mark. touch-action: none
+   keeps the drag from scrolling the page underneath, and the pointer is captured so the drag does
+   not drop when the thumb crosses the button's edge. */
+.mobile-dock-fab {
+  position: fixed;
+  z-index: 100;
+  display: grid;
+  width: 48px;
+  height: 48px;
+  place-items: center;
+  border: 1px solid var(--line);
+  border-radius: 50%;
+  padding: 0;
+  background: var(--panel);
+  box-shadow: 0 8px 24px color-mix(in srgb, #000 18%, transparent);
+  cursor: grab;
+  touch-action: none;
+}
+
+.mobile-dock-fab:active {
+  cursor: grabbing;
+}
+
+.mobile-dock-mark {
+  width: 30px;
+  height: 30px;
+}
+
+/* A fan button: the rail's icon button (variant 7) scaled to a thumb — the 24px hit target is a
+   mouse's, a thumb lands closer to 44 — standing on its own disc because it floats over prose. */
+.mobile-dock-fan-btn {
+  position: fixed;
+  z-index: 100;
+  display: grid;
+  width: 44px;
+  height: 44px;
+  place-items: center;
+  border: 1px solid var(--line);
+  border-radius: 50%;
+  padding: 0;
+  color: var(--muted);
+  background: var(--panel);
+  box-shadow: 0 6px 18px color-mix(in srgb, #000 14%, transparent);
+  cursor: pointer;
+}
+
+.mobile-dock-fan-btn:hover,
+.mobile-dock-fan-btn:focus-visible {
+  color: var(--text);
+}
+
 .graph-message {
   margin: 16px;
 }
@@ -2940,52 +3000,31 @@ textarea.modal-input:focus-visible {
    rotation. The published static site is where this is felt (the live workspace is desk-bound), but
    both share it. */
 @media (hover: none), (max-width: 540px) {
+  /* The foot dock is gone: the floating mark (MobileDock) carries the same controls in a fan and
+     takes no strip of the window, so everything that pinned itself above the dock — the toast, the
+     graph launcher, the reader's last line — simply has its space back. */
   :root {
-    --foot-dock: calc(52px + env(safe-area-inset-bottom));
+    --foot-dock: 0px;
   }
 
-  /* The lane goes back to the reader; the foot is what the dock takes in its place. */
+  /* The lane goes back to the reader. */
   .reader {
     padding-left: 32px;
-    padding-bottom: calc(32px + var(--foot-dock));
   }
 
+  /* The side rail is the dock the mark replaces. It stays mounted — the "/" search chord and the
+     popups behind it still work through a hidden trigger — but takes no strip of the screen. */
   .sidebar {
-    top: auto;
-    right: 0;
-    bottom: 0;
-    left: 0;
-    /* One child spanning the window: no flex row to align it in. */
-    display: block;
-  }
-
-  /* A dock that spans the window is a foot rail, not a floating card: it gives up the radius and
-     keeps only the hairline that separates it from the sheet. The home indicator's strip is padding
-     rather than a gap, so the panel still runs to the physical edge behind it. */
-  .activity-rail {
-    flex-direction: row;
-    max-height: none;
-    border-width: 1px 0 0;
-    border-radius: 0;
-    padding: 4px 8px calc(4px + env(safe-area-inset-bottom));
-  }
-
-  .rail-scroll {
-    flex-direction: row;
-    overflow-x: auto;
-    overflow-y: hidden;
-  }
-
-  /* The hairline between the workspace's views and the open note's controls turns with the dock. */
-  .rail-divider {
-    width: 1px;
-    height: 20px;
-    margin: 0 4px;
+    display: none;
   }
 
   /* The guides point at the buttons of a dock that is no longer at the left edge. */
   .empty-guides {
     display: none;
+  }
+
+  .mobile-dock {
+    display: block;
   }
 }
 

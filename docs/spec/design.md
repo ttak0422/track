@@ -409,28 +409,24 @@ The note's aside is a quiet column; the rail is a floating dock over the sheet.
   and open-note controls share the dock in order. A menu hung off the dock sits
   on the same centre line (`.rail-menu-panel`) or is anchored to its own
   button's rect (`.mode-menu-panel`, `.hierarchy-panel`).
-- **A screen with no cursor, or a window under 540px, lays the dock along the
-  foot.** Both ask one question — is there reach and room for a rail down the
-  side? — and a phone answers no whichever way it is turned, which width alone
-  could not say: rotating one is 390px becoming 844px, and the dock jumped back
-  to the left edge halfway through the turn. A 64px lane is a quarter of a phone
-  besides, and the reader wants that width more than the dock wants a margin.
-  (What is *only* about width stays behind the 540px query: the tab frame filling
-  the strip, the reader's tighter margins. A landscape phone and a tablet have the
-  width for several tabs, whatever their dock is doing.)
-  Spanning the window the dock is a foot rail
-  rather than a floating card: no radius, one hairline along its top edge, and the
-  home indicator's strip taken as padding so the panel still reaches the physical
-  edge. The glyphs scroll sideways past what fits, and Settings holds the end of
-  the row as it held the foot of the column. The height it takes is `--foot-dock`,
-  and everything else pinned to the bottom corner — the graph launcher, the toast,
-  the reader's own last line — adds that token to its offset, so none of them
-  needs a breakpoint of its own: the token is `0px` while the dock is vertical.
-  A flyout has no room beside a button there, so it rises from the button's top
-  edge at the window's left margin (`railAnchor`). The workspace measures itself
-  in `dvh`, because a phone's `100vh` is the height with the toolbars retracted —
-  the foot of the reader, and the dock docked to it, sat behind the toolbar that
-  was actually on screen.
+- **A screen with no cursor, or a window under 540px, trades the rail for a
+  floating mark.** Both ask one question — is there reach and room for a rail
+  down the side? — and a phone answers no whichever way it is turned, which
+  width alone could not say: rotating one is 390px becoming 844px, and the
+  dock jumped back to the left edge halfway through the turn. A 64px lane is a
+  quarter of a phone besides, and the reader wants that width more than the
+  dock wants a margin. A foot rail spanning the window bought the reach with
+  a strip of the reading surface, so it is gone: a round track logo floats
+  over the reading surface instead (`MobileDock`), draggable anywhere, and a
+  tap fans its controls — search, history, the views, settings — out in the
+  180° half-circle facing away from the edge it sits at. The mark is a
+  floating layer (variant 3): panel surface, hairline, radius, soft shadow.
+  The rail stays mounted behind it (the `/` search chord and the popups still
+  work) but takes no strip of the window: `--foot-dock` stays `0px`, and
+  nothing below needs a breakpoint of its own. (What is *only* about width
+  stays behind the 540px query: the tab frame filling the strip, the reader's
+  tighter margins. A landscape phone and a tablet have the width for several
+  tabs, whatever their dock is doing.)
 - **A rail panel names itself.** A flyout opens away from the glyph that
   summoned it, and a panel of rows says nothing about which glyph that was, so
   each carries a `.rail-panel-title` — the section label recipe again (variant

@@ -2,13 +2,10 @@ import { useEffect, useRef, useState, type CSSProperties } from "react";
 import { createPortal } from "react-dom";
 import { hoverOpen } from "./hoverOpen";
 import { railAnchor } from "./railAnchor";
+import { themeModes, useThemeMode } from "../themeState";
 
-type ThemeMode = "system" | "light" | "dark";
-
-const storageKey = "track.theme";
 const fontScaleKey = "track.fontScale";
 const contentWidthKey = "track.contentWidth";
-const themeModes: ThemeMode[] = ["system", "light", "dark"];
 // Whole-UI font scale, applied through the --font-scale CSS var every font-size is wrapped in.
 const fontScales: { label: string; value: number }[] = [
   { label: "S", value: 0.85 },
@@ -26,7 +23,9 @@ const contentWidths: { label: string; value: string }[] = [
 ];
 
 export function ThemeMenu() {
-  const [theme, setTheme] = useState<ThemeMode>(() => storedTheme());
+  // The theme lives in the shared themeState module: the phone's floating dock writes the same key,
+  // so either surface switching themes shows up on the other.
+  const [theme, setTheme] = useThemeMode();
   const [fontScale, setFontScale] = useState<number>(() => storedFontScale());
   const [contentWidth, setContentWidth] = useState<string>(() => storedContentWidth());
   const [open, setOpen] = useState(false);
@@ -34,17 +33,6 @@ export function ThemeMenu() {
   const menuRef = useRef<HTMLDivElement>(null);
   const overlayRef = useRef<HTMLDivElement>(null);
   const toggleRef = useRef<HTMLButtonElement>(null);
-
-  useEffect(() => {
-    if (theme === "system") {
-      localStorage.removeItem(storageKey);
-      delete document.documentElement.dataset.theme;
-      return;
-    }
-
-    localStorage.setItem(storageKey, theme);
-    document.documentElement.dataset.theme = theme;
-  }, [theme]);
 
   useEffect(() => {
     if (fontScale === 1) {
@@ -232,19 +220,6 @@ function GearIcon() {
   );
 }
 
-function storedTheme(): ThemeMode {
-  // During prerender there is no localStorage/window; return the neutral default so SSR does not crash
-  // (the settings panel is closed initially, so this value is not in the prerendered output anyway).
-  if (typeof window === "undefined") return "system";
-  const value = localStorage.getItem(storageKey);
-  if (value === "light" || value === "dark") {
-    return value;
-  }
-  // Fall back to the server-configured default the index bootstrap recorded on window.
-  const serverDefault = window.__trackDefaultTheme;
-  return serverDefault === "light" || serverDefault === "dark" ? serverDefault : "system";
-}
-
 function storedFontScale(): number {
   if (typeof window === "undefined") return 1;
   const value = Number(localStorage.getItem(fontScaleKey));
@@ -257,6 +232,6 @@ function storedContentWidth(): string {
   return contentWidths.some((width) => width.value === value) ? (value as string) : defaultContentWidth;
 }
 
-function label(mode: ThemeMode): string {
+function label(mode: string): string {
   return mode[0].toUpperCase() + mode.slice(1);
 }

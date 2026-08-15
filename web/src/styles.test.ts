@@ -331,22 +331,24 @@ describe("phone width", () => {
   // is not width alone — rotating one used to send the dock back to the left edge.
   const footDock = mediaBody("(hover: none), (max-width: 540px)");
 
-  it("lays the dock along the foot of the window", () => {
-    expect(footDock).toMatch(/\.sidebar\s*\{[^}]*top:\s*auto/);
-    expect(footDock).toMatch(/\.sidebar\s*\{[^}]*bottom:\s*0/);
-    expect(footDock).toMatch(/\.activity-rail\s*\{[^}]*flex-direction:\s*row/);
-    expect(footDock).toMatch(/\.rail-scroll\s*\{[^}]*flex-direction:\s*row/);
+  it("replaces the foot dock with the floating mark", () => {
+    expect(footDock).toMatch(/\.mobile-dock\s*\{[^}]*display:\s*block/);
+    expect(footDock).toMatch(/\.sidebar\s*\{[^}]*display:\s*none/);
+    // The mark's fan is the dock's buttons; the dock's strip goes back to the reader.
+    expect(footDock).toMatch(/--foot-dock:\s*0px/);
     // railAnchor places the flyouts and has to ask exactly the same question.
     expect(railAnchor).toContain('"(hover: none), (max-width: 540px)"');
   });
 
+  it("hides the mark everywhere the side rail is reachable", () => {
+    expect(ruleBody(".mobile-dock")).toMatch(/display:\s*none/);
+  });
+
   // The dock's height is one measurement. Everything pinned to the bottom corner adds it, which is
-  // why none of them needs a media query of its own — the token is zero while the dock is vertical.
-  it("clears the foot dock from a single measurement", () => {
+  // why none of them needs a media query of its own — the token is zero while the dock is vertical,
+  // and stays zero now that the dock is a floating mark instead of a strip.
+  it("keeps the pinned chrome off the dock from a single measurement", () => {
     expect(ruleBody(":root")).toMatch(/--foot-dock:\s*0px/);
-    expect(footDock).toMatch(/--foot-dock:\s*calc\(/);
-    expect(footDock).toMatch(/\.reader\s*\{[^}]*var\(--foot-dock\)/);
-    expect(phone).toMatch(/\.reader\s*\{[^}]*var\(--foot-dock\)/);
 
     for (const selector of [
       ".graph-panel",
