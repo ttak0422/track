@@ -1,0 +1,30 @@
+import { describe, expect, it } from "vitest";
+import { radiusForNode } from "./nodeRadius";
+
+describe("radiusForNode", () => {
+  it("keeps the centre at its focal size whatever its grade", () => {
+    expect(radiusForNode({ note_id: "c", file_kind: "note", title: "", center: true, size: 1 }, "c")).toBe(10);
+    expect(radiusForNode({ note_id: "c", file_kind: "note", title: "", size: 5 }, "c")).toBe(10);
+  });
+
+  it("draws the precomputed grade: five levels from stub to hub", () => {
+    const radius = (size: number) => radiusForNode({ note_id: "n", file_kind: "note", title: "", size }, "c");
+    expect(radius(1)).toBe(6);
+    expect(radius(5)).toBe(12);
+    // Monotonic across the five levels.
+    const radii = [1, 2, 3, 4, 5].map(radius);
+    expect([...radii].sort((a, b) => a - b)).toEqual(radii);
+    expect(radius(5)).toBeGreaterThan(radius(1));
+  });
+
+  it("falls back to the degree-based size when no grade rides along", () => {
+    const none = radiusForNode({ note_id: "n", file_kind: "note", title: "", degree: 0 }, "c");
+    const hub = radiusForNode({ note_id: "n", file_kind: "note", title: "", degree: 20 }, "c");
+    expect(hub).toBeGreaterThan(none);
+  });
+
+  it("ignores an out-of-range grade", () => {
+    expect(radiusForNode({ note_id: "n", file_kind: "note", title: "", size: 0 }, "c")).toBe(6);
+    expect(radiusForNode({ note_id: "n", file_kind: "note", title: "", size: 9 }, "c")).toBe(6);
+  });
+});

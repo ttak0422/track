@@ -12,6 +12,7 @@ import { PointerEvent, useEffect, useRef, useState } from "react";
 import { useThemeVersion } from "../hooks/useThemeVersion";
 import type { Graph, GraphEdge, GraphNode, NoteID } from "../types";
 import { isZoomWheel, zoomDelta } from "./graphWheel";
+import { radiusForNode } from "./nodeRadius";
 
 export interface GraphCanvasProps {
   graph: Graph;
@@ -539,13 +540,13 @@ export function GraphCanvas({
     };
   }
 
-  // nodeRadius returns a node's drawn radius in CSS pixels (independent of zoom): larger for the center
-  // node and for higher-degree nodes. Rendering and hit-testing both use it so the clickable area always
-  // matches the dot the user actually sees.
+  // nodeRadius returns a node's drawn radius in CSS pixels (independent of zoom): the centre node
+  // keeps its focal size, and the rest take their precomputed five-level grade (1–5) from the
+  // engine — the same grade in every view, so a node's size does not depend on which graph shows it.
+  // A node without a grade falls back to the degree-based size (see radiusForNode). Rendering and
+  // hit-testing both use it so the clickable area always matches the dot the user actually sees.
   function nodeRadius(node: SimNode): number {
-    const center = node.center || node.note_id === graphRef.current.center_id;
-    const base = center ? 10 : 6;
-    return base + Math.min(8, Math.sqrt(node.degree) * 2);
+    return radiusForNode(node, graphRef.current.center_id);
   }
 
   function graphNodeAt(point: Point): SimNode | undefined {

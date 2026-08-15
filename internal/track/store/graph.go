@@ -91,6 +91,11 @@ type GraphNode struct {
 	Path   string `json:"path,omitempty"`
 	Title  string `json:"title"`
 	Center bool   `json:"center,omitempty"`
+	// Size is the note's precomputed five-level grade (1–5) from its outgoing-link count — how much
+	// this note reaches out to other notes. The grade is absolute: computed from the whole vault's
+	// links with fixed thresholds, never from the slice a view shows, so a node keeps the same size
+	// in every graph and the client draws it without computing anything.
+	Size int `json:"size,omitempty"`
 }
 
 // GraphEdge is one directed link between graph nodes.
@@ -104,6 +109,45 @@ type Graph struct {
 	CenterID int64       `json:"center_id"`
 	Nodes    []GraphNode `json:"nodes"`
 	Edges    []GraphEdge `json:"edges"`
+}
+
+// sizeLevel grades an outgoing-link count into one of five absolute levels: 0, 1, 2–3, 4–7, 8+.
+// Log-scaled, so a hub separates from an ordinary note without a few links blowing the top of the
+// scale. "Absolute" means the thresholds never depend on the vault's best or worst note.
+func sizeLevel(count int) int {
+	switch {
+	case count <= 0:
+		return 1
+	case count == 1:
+		return 2
+	case count <= 3:
+		return 3
+	case count <= 7:
+		return 4
+	default:
+		return 5
+	}
+}
+
+// outgoingCounts returns each note's count of links to other notes (self-links excluded) — the
+// precomputed measure the graph sizes its nodes by. One query for any graph view, so local and full
+// graphs agree on a node's grade.
+func (s *Store) outgoingCounts() (map[int64]int, error) {
+	rows, err := s.db.Query(`SELECT src_id, COUNT(*) FROM links WHERE src_id != dst_id GROUP BY src_id`)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	counts := map[int64]int{}
+	for rows.Next() {
+		var id int64
+		var n int
+		if err := rows.Scan(&id, &n); err != nil {
+			return nil, err
+		}
+		counts[id] = n
+	}
+	return counts, rows.Err()
 }
 
 // FullGraph returns the entire link graph: every indexed note as a node and every link between two
@@ -122,6 +166,15 @@ func (s *Store) FullGraph() (Graph, error) {
 			FileKind: n.FileKind,
 			Title:    n.Title,
 		})
+	}
+	// The size grade is the same for every view (absolute grading over the vault's own links), so it
+	// is precomputed once per graph build rather than derived per node on the client.
+	counts, err := s.outgoingCounts()
+	if err != nil {
+		return Graph{}, err
+	}
+	for i := range nodes {
+		nodes[i].Size = sizeLevel(counts[nodes[i].NoteID])
 	}
 
 	rows, err := s.db.Query(`SELECT src_id, dst_id FROM links ORDER BY src_id, dst_id`)
@@ -181,6 +234,12 @@ func (s *Store) LocalGraph(centerID int64) (Graph, error) {
 	for _, n := range notes {
 		known[n.NoteID] = n
 	}
+	// Absolute grading over the vault's own links, so the local graph's sizes match the full
+	// graph's — a node is not bigger or smaller depending on the view that shows it.
+	counts, err := s.outgoingCounts()
+	if err != nil {
+		return Graph{}, err
+	}
 	var nodes []GraphNode
 	for _, n := range notes {
 		if !nodeIDs[n.NoteID] {
@@ -191,6 +250,7 @@ func (s *Store) LocalGraph(centerID int64) (Graph, error) {
 			FileKind: n.FileKind,
 			Title:    n.Title,
 			Center:   n.NoteID == centerID,
+			Size:     sizeLevel(counts[n.NoteID]),
 		})
 	}
 

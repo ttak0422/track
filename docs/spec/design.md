@@ -408,8 +408,12 @@ The note's aside is a quiet column; the rail is a floating dock over the sheet.
   words nor the row move.
 - The aside's graph draws its centre node filled with `--mark`, its other
   nodes filled with `--bg` and outlined 1px in `--line-node`, and its edges in
-  `--line-strong`. Hover and search highlighting are ink (`--text`), not the
-  salient: the match and its edges strengthen while everything else dims in
+  `--line-strong`. A node's radius carries its precomputed five-level grade
+  (1–5, from the note's own outgoing-link count, graded absolutely over the
+  whole vault) — the same size in every view, so the engine computes it once
+  and the canvas only draws it. Hover and search highlighting are ink
+  (`--text`), not the salient: the match and its edges strengthen while
+  everything else dims in
   place. Only the centre node stays `--mark`, highlighted or not — a frame
   frozen mid-hover must still say which note you are on, and it cannot if
   "where I am" and "what I am pointing at" wear the same colour. The graph
