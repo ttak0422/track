@@ -331,8 +331,13 @@ The strip is a line of titles on the sheet, not a bar of chrome.
   goes to the `+N` button at the right end, which lists the rest in a floating
   layer. Every tab is the same 168px, so no title crowds the others out and the
   close button lands in the same place on each; a longer title clips to the
-  frame with an ellipsis. The strip never scrolls sideways — a title you cannot
-  see is in the menu, not off the edge.
+  frame with an ellipsis. **The active tab takes twice the frame (336px)** — the
+  title being read is the one that gets room — and the invariant still holds:
+  closing the active tab hands the wide frame to the next one, so the close
+  button keeps landing where the last one was. A phone gives the active tab
+  nothing extra, because every tab already fills the strip there. The strip
+  never scrolls sideways — a title you cannot see is in the menu, not off the
+  edge.
 - The active tab is marked by `border-bottom: 2px solid var(--mark)` plus
   `font-weight: 500` — never a fill or a box. Inactive tabs are `--muted` with
   no border, and a hairline under the whole strip separates it from the note.

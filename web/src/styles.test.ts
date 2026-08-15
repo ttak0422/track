@@ -81,6 +81,14 @@ describe("tab strip", () => {
     expect(title).toMatch(/text-overflow:\s*ellipsis/);
   });
 
+  // The tab being read is the one whose title matters, so it takes twice the frame; closing it hands
+  // the wide frame to the next active tab, keeping the close button's landing spot stable.
+  it("gives the active tab twice the frame, except on a phone", () => {
+    expect(ruleBody(".tab.active")).toMatch(/flex:\s*0\s+0\s+336px/);
+    const phone = mediaBody("(max-width: 540px)");
+    expect(phone).toMatch(/\.tab\.active\s*\{[^}]*flex:\s*1\s+0\s+100%/);
+  });
+
   // A vault name is free-form; the title it annotates is the point of the tab.
   it("keeps the vault name to a corner of the frame", () => {
     const layout = ruleBody(".tab-label .tab-vault");

@@ -1351,7 +1351,12 @@ a.calendar-title:focus-visible {
   color: var(--muted);
 }
 
+/* The tab being read gets twice the frame (200% of the 168px basis), so the title that is actually
+   being read is the one that gets room. Closing it makes the next tab active and hands it the same
+   wide frame, so the close button keeps landing in the same place across a run of closes — the
+   invariant the single-width frame existed for is held by the active state, not by every tab. */
 .tab.active {
+  flex: 0 0 336px;
   color: var(--text);
   /* Ink over the strip's hairline — the mark, not a fill or a box. */
   box-shadow: inset 0 -2px 0 var(--mark);
@@ -3006,6 +3011,13 @@ textarea.modal-input:focus-visible {
      read, and sends every other one to the +N menu beside it. A landscape phone and a tablet keep
      the ordinary strip: they have the width for several tabs, whatever their dock is doing. */
   .tab {
+    flex: 1 0 100%;
+  }
+
+  /* The active tab's wider frame belongs to a strip that fits several tabs; on a phone every tab
+     already fills the strip, so the active state keeps the phone's own width (its higher
+     specificity would otherwise win this one). */
+  .tab.active {
     flex: 1 0 100%;
   }
 
