@@ -133,14 +133,24 @@ export function TabBar() {
           );
         })}
       </div>
-      {hidden.length > 0 ? <TabOverflow tabs={hidden} onOpen={openTab} /> : null}
+      {hidden.length > 0 ? <TabOverflow tabs={hidden} onOpen={openTab} onClose={close} /> : null}
     </div>
   );
 }
 
 // TabOverflow lists the open notes the strip had no room for. Opening one makes it the active note,
 // which puts it at the front of the strip — the menu is a way back to a note, not a second tab bar.
-function TabOverflow({ tabs, onOpen }: { tabs: NoteTab[]; onOpen: (id: NoteID) => void }) {
+// Close stands beside each row: a tab sent here could otherwise only be closed by opening it first,
+// and on a phone, where the strip holds one tab, the menu is the whole tab bar.
+function TabOverflow({
+  tabs,
+  onOpen,
+  onClose,
+}: {
+  tabs: NoteTab[];
+  onOpen: (id: NoteID) => void;
+  onClose: (id: NoteID) => void;
+}) {
   const [open, setOpen] = useState(false);
   const ref = useRef<HTMLDivElement>(null);
 
@@ -182,18 +192,39 @@ function TabOverflow({ tabs, onOpen }: { tabs: NoteTab[]; onOpen: (id: NoteID) =
       {open ? (
         <div className="tab-overflow-panel" role="menu">
           {tabs.map((tab) => (
-            <button
-              key={tab.id}
-              type="button"
-              role="menuitem"
-              title={tab.title || "Untitled"}
-              onClick={() => {
-                setOpen(false);
-                onOpen(tab.id);
-              }}
-            >
-              {tab.title || "Untitled"}
-            </button>
+            <div key={tab.id} role="menuitem" className="tab-overflow-item">
+              <button
+                type="button"
+                className="tab-overflow-open"
+                title={tab.title || "Untitled"}
+                onClick={() => {
+                  setOpen(false);
+                  onOpen(tab.id);
+                }}
+              >
+                {tab.title || "Untitled"}
+              </button>
+              <button
+                type="button"
+                className="tab-overflow-close"
+                aria-label={`Close ${tab.title || "Untitled"}`}
+                onClick={() => onClose(tab.id)}
+              >
+                <svg
+                  viewBox="0 0 24 24"
+                  width="12"
+                  height="12"
+                  fill="none"
+                  stroke="currentColor"
+                  strokeWidth="2"
+                  strokeLinecap="round"
+                  aria-hidden="true"
+                >
+                  <line x1="6" y1="6" x2="18" y2="18" />
+                  <line x1="18" y1="6" x2="6" y2="18" />
+                </svg>
+              </button>
+            </div>
           ))}
         </div>
       ) : null}

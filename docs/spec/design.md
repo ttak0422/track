@@ -337,7 +337,10 @@ The strip is a line of titles on the sheet, not a bar of chrome.
   button keeps landing where the last one was. A phone gives the active tab
   nothing extra, because every tab already fills the strip there. The strip
   never scrolls sideways — a title you cannot see is in the menu, not off the
-  edge.
+  edge. **A tab sent to the `+N` menu can be closed in the menu itself**: each
+  row pairs its open action with a close button (variant 7), so dismissing an
+  overflowed tab costs no page switch — which on a phone, where the strip holds
+  one tab, would be the whole trip.
 - The active tab is marked by `border-bottom: 2px solid var(--mark)` plus
   `font-weight: 500` — never a fill or a box. Inactive tabs are `--muted` with
   no border, and a hairline under the whole strip separates it from the note.

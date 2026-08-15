@@ -1488,11 +1488,26 @@ a.calendar-title:focus-visible {
   display: none;
 }
 
-.tab-overflow-panel button {
+/* One row per overflowed tab: the open action takes the row, and close stands at its right end as
+   an icon button (variant 7) — a tab sent here could otherwise only be closed by opening it first,
+   and on a phone, where the strip holds one tab, this menu is the whole tab bar. */
+.tab-overflow-item {
+  display: flex;
+  align-items: center;
+  border-radius: var(--radius-sm);
+}
+
+.tab-overflow-item:hover,
+.tab-overflow-item:focus-within {
+  background: var(--panel-soft);
+}
+
+.tab-overflow-open {
   overflow: hidden;
+  flex: 1;
+  min-width: 0;
   padding: 7px 8px;
   border: 0;
-  border-radius: var(--radius-sm);
   color: var(--muted);
   background: transparent;
   font-size: calc(13px * var(--font-scale, 1));
@@ -1501,8 +1516,28 @@ a.calendar-title:focus-visible {
   white-space: nowrap;
 }
 
-.tab-overflow-panel button:hover,
-.tab-overflow-panel button:focus-visible {
+.tab-overflow-open:hover,
+.tab-overflow-open:focus-visible {
+  color: var(--text);
+}
+
+.tab-overflow-close {
+  display: grid;
+  flex: none;
+  width: 24px;
+  height: 24px;
+  margin-right: 4px;
+  place-items: center;
+  border: 0;
+  border-radius: var(--radius-sm);
+  padding: 0;
+  color: var(--muted);
+  background: transparent;
+  cursor: pointer;
+}
+
+.tab-overflow-close:hover,
+.tab-overflow-close:focus-visible {
   color: var(--text);
   background: var(--panel-soft);
 }
