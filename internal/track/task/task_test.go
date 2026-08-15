@@ -282,3 +282,49 @@ func TestSetDate(t *testing.T) {
 		}
 	}
 }
+
+func TestAppend(t *testing.T) {
+	for _, tc := range []struct {
+		name     string
+		body     string
+		opts     AppendOpts
+		wantBody string
+		wantLine int
+	}{
+		{"to an empty body", "", AppendOpts{Text: "beta"},
+			"- [ ] beta\n", 1},
+		{"to a body with trailing newline", "# T\n\n- [ ] alpha\n", AppendOpts{Text: "beta"},
+			"# T\n\n- [ ] alpha\n- [ ] beta\n", 4},
+		{"to a body without trailing newline", "# T\n- [ ] alpha", AppendOpts{Text: "beta"},
+			"# T\n- [ ] alpha\n- [ ] beta\n", 3},
+		{"tokens in documented order", "- [ ] alpha\n", AppendOpts{Text: "beta", Priority: "a", Scheduled: "2026-08-21", Due: "2026-08-25"},
+			"- [ ] alpha\n- [ ] beta [#A] [sched:2026-08-21] [due:2026-08-25]\n", 2},
+	} {
+		got, task, err := Append(tc.body, tc.opts)
+		if err != nil {
+			t.Errorf("%s: Append error: %v", tc.name, err)
+			continue
+		}
+		if got != tc.wantBody {
+			t.Errorf("%s: body = %q, want %q", tc.name, got, tc.wantBody)
+		}
+		if task.Line != tc.wantLine {
+			t.Errorf("%s: line = %d, want %d", tc.name, task.Line, tc.wantLine)
+		}
+	}
+
+	for _, tc := range []struct {
+		name string
+		opts AppendOpts
+	}{
+		{"an empty text", AppendOpts{Text: "  "}},
+		{"a multi-line text", AppendOpts{Text: "a\nb"}},
+		{"a bad priority", AppendOpts{Text: "x", Priority: "AA"}},
+		{"a bad scheduled date", AppendOpts{Text: "x", Scheduled: "2026-13-45"}},
+		{"a bad due date", AppendOpts{Text: "x", Due: "tomorrow"}},
+	} {
+		if _, _, err := Append("", tc.opts); err == nil {
+			t.Errorf("%s should be refused", tc.name)
+		}
+	}
+}

@@ -267,6 +267,62 @@ func FirstStates() (todo State, done State) {
 	return todo, done
 }
 
+// AppendOpts carries the tokens a new task line may be created with. Text is the human text of the
+// task; the rest are the optional tokens the parser knows ([#A], [sched:], [due:]).
+type AppendOpts struct {
+	Text      string
+	Priority  string
+	Scheduled string
+	Due       string
+}
+
+// Append adds one new open task line to the end of body and returns the updated body with the parsed
+// task (its Line is the 1-based line it landed on). The line is written in the documented token
+// order — text, priority, scheduled, due — so hand-edited and machine-written lines read alike.
+// The body's trailing-newline convention is preserved: an empty body becomes just the line.
+func Append(body string, o AppendOpts) (string, Task, error) {
+	text := strings.TrimSpace(o.Text)
+	if text == "" {
+		return "", Task{}, fmt.Errorf("task text is empty")
+	}
+	if strings.ContainsAny(text, "\n\r") {
+		return "", Task{}, fmt.Errorf("task text must be a single line")
+	}
+	line := "- [ ] " + text
+	if o.Priority != "" {
+		p := strings.ToUpper(o.Priority)
+		if len(p) != 1 || p < "A" || p > "Z" {
+			return "", Task{}, fmt.Errorf("invalid priority %q (want a single letter A-Z)", o.Priority)
+		}
+		line += " [#" + p + "]"
+	}
+	for _, f := range []struct{ name, date string }{{"sched", o.Scheduled}, {"due", o.Due}} {
+		if f.date == "" {
+			continue
+		}
+		if _, err := time.Parse(dateLayout, f.date); err != nil {
+			return "", Task{}, fmt.Errorf("invalid %s date %q (want YYYY-MM-DD)", f.name, f.date)
+		}
+		line += " [" + f.name + ":" + f.date + "]"
+	}
+
+	trimmed := strings.TrimSuffix(body, "\n")
+	updated := trimmed
+	if updated != "" {
+		updated += "\n"
+	}
+	updated += line + "\n"
+
+	t, _ := parseLine(line)
+	// The new line's number: the body's lines plus one. A body without a trailing newline still
+	// counts as its own last line; an empty body holds none, so the new line is 1.
+	t.Line = len(strings.Split(trimmed, "\n")) + 1
+	if body == "" {
+		t.Line = 1
+	}
+	return updated, t, nil
+}
+
 // SetState rewrites the task on the given 1-based line of body to the named target state. Entering a
 // done-family state from a not-done one stamps a [done:date] token on the line; leaving the done
 // family removes it. Progress cookies on parent headings/list items are recomputed over the whole

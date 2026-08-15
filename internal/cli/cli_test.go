@@ -1875,6 +1875,47 @@ func TestTaskSetAndTasks(t *testing.T) {
 	}
 }
 
+// TestTaskAdd appends an open task line to the note's end in the documented token order, and the
+// appended task is immediately visible to the tasks listing.
+func TestTaskAdd(t *testing.T) {
+	vault := t.TempDir()
+	body := "# Sprint\n\n- [ ] alpha\n\nprose\n"
+	if _, code := runInWithStdin(t, vault, body, "new", "--title", "Board", "--id", "730"); code != 0 {
+		t.Fatalf("new failed")
+	}
+	path := filepath.Join(vault, "note", "730.md")
+
+	res, code := runIn(t, vault, "task", "add", "--id", "730", "--text", "beta", "--priority", "b", "--sched", "2026-08-21", "--due", "2026-08-25")
+	if code != 0 {
+		t.Fatalf("task add failed: %v", res)
+	}
+	if res["line"].(float64) != 6 || res["state"] != "TODO" || res["priority"] != "B" ||
+		res["scheduled"] != "2026-08-21" || res["due"] != "2026-08-25" || res["text"] != "beta" {
+		t.Fatalf("unexpected task add result: %v", res)
+	}
+	if got := readFileString(t, path); !strings.Contains(got, "- [ ] beta [#B] [sched:2026-08-21] [due:2026-08-25]\n") {
+		t.Fatalf("appended line not in token order: %q", got)
+	}
+
+	// The new task is indexed and findable by its text.
+	list, code := runIn(t, vault, "tasks", "--text", "beta")
+	if code != 0 || len(list["tasks"].([]any)) != 1 {
+		t.Fatalf("appended task missing from tasks listing: %v", list)
+	}
+
+	// An empty text is an error rather than a stray checkbox line.
+	if out, code := runIn(t, vault, "task", "add", "--id", "730", "--text", "  "); code == 0 || out["error"] == nil {
+		t.Fatalf("expected empty-text error, got %v", out)
+	}
+	// An invalid date is refused without touching the note.
+	if out, code := runIn(t, vault, "task", "add", "--id", "730", "--text", "gamma", "--due", "nope"); code == 0 || out["error"] == nil {
+		t.Fatalf("expected invalid-date error, got %v", out)
+	}
+	if got := readFileString(t, path); strings.Contains(got, "gamma") {
+		t.Fatalf("refused add touched the note: %q", got)
+	}
+}
+
 func TestTaskCycle(t *testing.T) {
 	vault := t.TempDir()
 	body := "# T\n\n- [ ] alpha\n\nprose\n"

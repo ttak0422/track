@@ -15,7 +15,7 @@ import (
 // cmdTask routes `track task <sub>`.
 func cmdTask(args []string) int {
 	if len(args) == 0 {
-		return fail("usage: track task set (--id N | --title S | --path P) --line N --state NAME | track task cycle (--id N | --title S | --path P) --line N | track task date (--id N | --title S | --path P) --line N [--sched D] [--due D]")
+		return fail("usage: track task set (--id N | --title S | --path P) --line N --state NAME | track task cycle (--id N | --title S | --path P) --line N | track task date (--id N | --title S | --path P) --line N [--sched D] [--due D] | track task add (--id N | --title S | --path P) --text S [--priority P] [--sched D] [--due D]")
 	}
 	switch args[0] {
 	case "set":
@@ -24,9 +24,70 @@ func cmdTask(args []string) int {
 		return cmdTaskCycle(args[1:])
 	case "date":
 		return cmdTaskDate(args[1:])
+	case "add":
+		return cmdTaskAdd(args[1:])
 	default:
-		return fail("unknown task subcommand %q (expected: set, cycle, date)", args[0])
+		return fail("unknown task subcommand %q (expected: set, cycle, date, add)", args[0])
 	}
+}
+
+// cmdTaskAdd appends a new open task line to the end of a note, in the documented token order: text,
+// then priority, then dates. It is the machine's way to add a task without hand-writing a checkbox
+// line — the same grammar hand-edited lines use, so everything downstream (the board, the calendar,
+// the agenda) picks it up. The note is reindexed so `track tasks` reflects the change immediately.
+func cmdTaskAdd(args []string) int {
+	fs := flag.NewFlagSet("task add", flag.ContinueOnError)
+	id := fs.Int64("id", 0, "note id")
+	title := fs.String("title", "", "note title (alternative to --id)")
+	path := fs.String("path", "", "note path (alternative to --id)")
+	text := fs.String("text", "", "task text")
+	priority := fs.String("priority", "", "priority letter A-Z (writes a [#A] token)")
+	sched := fs.String("sched", "", "scheduled date YYYY-MM-DD (writes a [sched:...] token)")
+	due := fs.String("due", "", "due date YYYY-MM-DD (writes a [due:...] token)")
+	if code, ok := parseArgs(fs, args); !ok {
+		return code
+	}
+	if strings.TrimSpace(*text) == "" {
+		return fail("--text is required")
+	}
+
+	cfg, s, err := open()
+	if err != nil {
+		return fail("%v", err)
+	}
+	defer s.Close()
+
+	notePath, err := resolveNotePath(cfg, s, *id, strings.TrimSpace(*title), strings.TrimSpace(*path))
+	if err != nil {
+		return fail("%v", err)
+	}
+	noteID, err := note.IDFromPath(notePath)
+	if err != nil {
+		return fail("invalid note path: %v", err)
+	}
+
+	t, err := note.ApplyTaskAppend(notePath, task.AppendOpts{
+		Text:      strings.TrimSpace(*text),
+		Priority:  strings.TrimSpace(*priority),
+		Scheduled: strings.TrimSpace(*sched),
+		Due:       strings.TrimSpace(*due),
+	})
+	if err != nil {
+		return fail("%v", err)
+	}
+	if err := index.New(cfg, s).One(notePath); err != nil {
+		return fail("index note: %v", err)
+	}
+	return emit(map[string]any{
+		"id":        noteID,
+		"path":      notePath,
+		"line":      t.Line,
+		"state":     t.State,
+		"priority":  t.Priority,
+		"scheduled": t.Scheduled,
+		"due":       t.Due,
+		"text":      t.Text,
+	})
 }
 
 // cmdTaskCycle advances the task on one line to the next state in the vault's state-set order,

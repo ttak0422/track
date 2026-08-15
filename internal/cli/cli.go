@@ -183,6 +183,8 @@ Usage:
   track task date (--id N | --title S | --path P) --line N [--sched YYYY-MM-DD] [--due YYYY-MM-DD]
                                         write a task's scheduled and/or due token; an empty value clears
                                         that token, and passing neither flag is an error (JSON)
+  track task add (--id N | --title S | --path P) --text S [--priority A] [--sched YYYY-MM-DD]
+                 [--due YYYY-MM-DD]     append a new open task line to the note's end (JSON)
   track tasks [--id N | --title S | --path P] [--state A,B] [--priority A,B] [--text S]
               [--due YYYY-MM-DD] [--overdue] [--sort priority]
                                         list indexed tasks with state/deadline/priority/text filters (JSON)

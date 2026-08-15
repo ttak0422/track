@@ -166,6 +166,25 @@ func appendTaskTransition(cfg *config.Config, notePath string, tr task.Transitio
 	return nil
 }
 
+// ApplyTaskAppend adds a new open task line at the end of a note file: the CLI counterpart of
+// task.Append, sharing the same read-write path as the other task mutations. No sidecar log entry —
+// the task log records state transitions, and a new task starts in the first open state. The caller
+// reindexes afterwards, which stamps the note's activity day like any other mutation.
+func ApplyTaskAppend(notePath string, o task.AppendOpts) (task.Task, error) {
+	raw, err := os.ReadFile(notePath)
+	if err != nil {
+		return task.Task{}, fmt.Errorf("read note: %w", err)
+	}
+	updated, t, err := task.Append(string(raw), o)
+	if err != nil {
+		return task.Task{}, err
+	}
+	if err := os.WriteFile(notePath, []byte(updated), 0o644); err != nil {
+		return task.Task{}, fmt.Errorf("write note: %w", err)
+	}
+	return t, nil
+}
+
 // ApplyTaskDate writes a task's scheduled or due date in a note file, the date counterpart of
 // ApplyTaskState: same addressing (path plus 1-based line), same in-place rewrite. No sidecar log
 // entry — the task log records state transitions, and a date is not one. Callers reindex afterwards.
