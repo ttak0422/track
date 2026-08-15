@@ -306,8 +306,9 @@ func cmdNav(args []string) int {
 	return emit(map[string]any{"trail": trail, "children": children})
 }
 
-// cmdAgenda lists the notes active (created or updated) on a given local calendar day, derived from the
-// activity days recorded in each note's sidecar. It powers "what did I work on that day" lookups from a
+// cmdAgenda lists what a calendar day holds: the notes active (created or updated) on that day,
+// derived from the activity days recorded in each note's sidecar, plus the open tasks scheduled for
+// or due on it. It powers "what did I work on that day" and "what is on for that day" lookups from a
 // day's journal and, later, a calendar.
 func cmdAgenda(args []string) int {
 	fs := flag.NewFlagSet("agenda", flag.ContinueOnError)
@@ -343,7 +344,24 @@ func cmdAgenda(args []string) int {
 	for i := range notes {
 		notes[i].Path = cfg.PathForKind(notes[i].FileKind, notes[i].NoteID)
 	}
-	return emit(map[string]any{"date": day, "notes": notes})
+
+	// Task tokens are always ISO dates (see task package) regardless of the vault's display format,
+	// so the day string is normalized before it can meet them.
+	isoDay := day
+	if t, err := time.Parse(cfg.DateFormat, day); err == nil {
+		isoDay = t.Format("2006-01-02")
+	}
+	tasks, err := s.Tasks(store.TaskFilter{Day: isoDay})
+	if err != nil {
+		return fail("agenda: %v", err)
+	}
+	if tasks == nil {
+		tasks = []store.TaskRow{}
+	}
+	for i := range tasks {
+		tasks[i].Path = cfg.PathForKind(tasks[i].FileKind, tasks[i].NoteID)
+	}
+	return emit(map[string]any{"date": day, "notes": notes, "tasks": tasks})
 }
 
 func cmdGraph(args []string) int {

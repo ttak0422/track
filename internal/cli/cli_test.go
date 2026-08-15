@@ -343,6 +343,40 @@ func TestAgendaListsNotesByDay(t *testing.T) {
 	if list, _ := empty["notes"].([]any); len(list) != 0 {
 		t.Fatalf("agenda for empty day = %v, want none", empty["notes"])
 	}
+	if list, _ := empty["tasks"].([]any); len(list) != 0 {
+		t.Fatalf("agenda for empty day = %v, want no tasks", empty["tasks"])
+	}
+}
+
+// TestAgendaListsTasksForTheDay checks the agenda's task side: open tasks scheduled for or due on the
+// day, with due-first ordering, and done tasks left out.
+func TestAgendaListsTasksForTheDay(t *testing.T) {
+	vault := t.TempDir()
+	body := "# Sprint\n\n- [ ] scheduled [#A] [sched:2026-08-20]\n- [ ] due [due:2026-08-20]\n- [x] done [due:2026-08-20] [done:2026-08-20]\n- [ ] elsewhere [due:2026-08-21]\n"
+	if _, code := runInWithStdin(t, vault, body, "new", "--title", "Board", "--id", "720"); code != 0 {
+		t.Fatalf("new failed")
+	}
+
+	out, code := runIn(t, vault, "agenda", "--date", "2026-08-20")
+	if code != 0 {
+		t.Fatalf("agenda failed: %v", out)
+	}
+	tasks, ok := out["tasks"].([]any)
+	if !ok {
+		t.Fatalf("agenda tasks missing: %v", out)
+	}
+	if len(tasks) != 2 {
+		t.Fatalf("agenda tasks = %v, want the two open tasks for the day", tasks)
+	}
+	// Due that day before merely scheduled, then by note/line.
+	if tasks[0].(map[string]any)["text"] != "due" || tasks[1].(map[string]any)["text"] != "scheduled" {
+		t.Fatalf("agenda task order = %v, want due first", tasks)
+	}
+	// The temp dir and its real path differ by symlink, so compare the note's tail rather than the
+	// joined path.
+	if got := tasks[0].(map[string]any)["path"]; !strings.HasSuffix(got.(string), filepath.Join("note", "720.md")) {
+		t.Fatalf("agenda task should carry its note path: %v", tasks[0])
+	}
 }
 
 func TestReindexKeepsMetadataTitleIgnoringBodyH1(t *testing.T) {
@@ -1810,6 +1844,26 @@ func TestTaskSetAndTasks(t *testing.T) {
 	rows := list["tasks"].([]any)
 	if len(rows) != 3 || rows[0].(map[string]any)["text"] != "alpha" || rows[2].(map[string]any)["text"] != "beta" {
 		t.Fatalf("priority sort failed: %v", list)
+	}
+
+	// --priority keeps only tasks with a matching priority token, case-insensitively; --text is a
+	// literal, case-insensitive substring match on the task's own text.
+	list, _ = runIn(t, vault, "tasks", "--priority", "a")
+	if rows := list["tasks"].([]any); len(rows) != 1 || rows[0].(map[string]any)["text"] != "beta" {
+		t.Fatalf("priority filter failed: %v", list)
+	}
+	list, _ = runIn(t, vault, "tasks", "--text", "GAMMA")
+	if rows := list["tasks"].([]any); len(rows) != 1 || rows[0].(map[string]any)["text"] != "gamma" {
+		t.Fatalf("text filter failed: %v", list)
+	}
+	// The needle is literal: % is not a wildcard.
+	list, _ = runIn(t, vault, "tasks", "--text", "%")
+	if rows := list["tasks"].([]any); len(rows) != 0 {
+		t.Fatalf("text filter should not treat %% as a wildcard: %v", list)
+	}
+	// An invalid priority is an error rather than a silent empty list.
+	if out, code := runIn(t, vault, "tasks", "--priority", "AA"); code == 0 || out["error"] == nil {
+		t.Fatalf("expected invalid-priority error, got %v", out)
 	}
 
 	// Reopening beta clears the stamp.

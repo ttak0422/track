@@ -183,8 +183,9 @@ Usage:
   track task date (--id N | --title S | --path P) --line N [--sched YYYY-MM-DD] [--due YYYY-MM-DD]
                                         write a task's scheduled and/or due token; an empty value clears
                                         that token, and passing neither flag is an error (JSON)
-  track tasks [--id N | --title S | --path P] [--state A,B] [--due YYYY-MM-DD] [--overdue]
-              [--sort priority]         list indexed tasks with state/deadline filters (JSON)
+  track tasks [--id N | --title S | --path P] [--state A,B] [--priority A,B] [--text S]
+              [--due YYYY-MM-DD] [--overdue] [--sort priority]
+                                        list indexed tasks with state/deadline/priority/text filters (JSON)
   track asset import <file>             copy a file into the vault's assets/ dir; prints the assets/<file> ref (JSON)
   track asset dir [--ensure]            print (and optionally create) the vault's assets directory (JSON)
   track rename (--id N | --title S | --path P) --to S
@@ -241,7 +242,8 @@ Usage:
                                         in the body, or an up sidecar prop holding a [[link]]): the
                                         ancestor trail, root first, and the notes whose up points here.
                                         Takes no --title, and does not self-heal a stale index (JSON)
-  track agenda [--date YYYY-MM-DD]       list notes created or updated on a calendar day (JSON)
+  track agenda [--date YYYY-MM-DD]       list notes created or updated on a calendar day, plus the
+                                        open tasks scheduled for or due on it (JSON)
   track graph (--id N | --path P)       show a local link graph (JSON)
   track graph --orphans                 vault-wide link hygiene in one call: notes with no inbound link,
                                         and titles naming a parent scope no note owns (JSON)

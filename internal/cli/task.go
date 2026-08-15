@@ -168,8 +168,8 @@ func cmdTaskSet(args []string) int {
 	})
 }
 
-// cmdTasks lists indexed tasks as JSON, across the vault or scoped to one note, with state, deadline
-// and priority filters. Dates in task tokens are plain YYYY-MM-DD, so the filters compare dates
+// cmdTasks lists indexed tasks as JSON, across the vault or scoped to one note, with state, deadline,
+// priority, and text filters. Dates in task tokens are plain YYYY-MM-DD, so the filters compare dates
 // lexically regardless of the vault's display date format.
 func cmdTasks(args []string) int {
 	fs := flag.NewFlagSet("tasks", flag.ContinueOnError)
@@ -177,6 +177,8 @@ func cmdTasks(args []string) int {
 	title := fs.String("title", "", "limit to one note by title")
 	path := fs.String("path", "", "limit to one note by path")
 	states := fs.String("state", "", "comma-separated state names to keep (e.g. TODO,DOING)")
+	priorities := fs.String("priority", "", "comma-separated priority letters to keep (e.g. A,B; case-insensitive);\ntasks without a priority token never match")
+	text := fs.String("text", "", "keep tasks whose text contains this substring (case-insensitive, literal)")
 	due := fs.String("due", "", "keep open tasks due on or before this date (YYYY-MM-DD). Drops done tasks and\nundated ones alike, so this is never a superset of the unfiltered list")
 	overdue := fs.Bool("overdue", false, "keep open tasks whose deadline has passed; undated tasks drop out too")
 	sortKey := fs.String("sort", "", "sort order: priority (default: note, line)")
@@ -222,6 +224,17 @@ func cmdTasks(args []string) int {
 		}
 		filter.States = append(filter.States, st)
 	}
+	for _, p := range strings.Split(*priorities, ",") {
+		p = strings.ToUpper(strings.TrimSpace(p))
+		if p == "" {
+			continue
+		}
+		if len(p) != 1 || p < "A" || p > "Z" {
+			return fail("invalid priority %q (want a single letter A-Z)", p)
+		}
+		filter.Priorities = append(filter.Priorities, p)
+	}
+	filter.TextContains = strings.TrimSpace(*text)
 	if *due != "" {
 		filter.DueBy = *due
 	}
