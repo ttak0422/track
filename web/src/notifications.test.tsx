@@ -33,6 +33,21 @@ describe("NotificationToast", () => {
     expect(screen.queryByRole("alert")).toBeNull();
   });
 
+  it("draws the countdown bar for exactly the lifetime the timer runs", () => {
+    render(
+      <NotificationProvider>
+        <Raise message="Vault updated" />
+        <NotificationToast />
+      </NotificationProvider>,
+    );
+
+    act(() => void screen.getByText("raise").click());
+    const timer = document.querySelector(".notification-timer");
+    expect(timer).not.toBeNull();
+    // The animation duration is the toast's own lifetime, so the bar cannot drift from the timer.
+    expect((timer as HTMLElement).style.animationDuration).toBe("8000ms");
+  });
+
   it("restarts the clock when a later notification replaces the current one", () => {
     render(
       <NotificationProvider>

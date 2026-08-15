@@ -130,6 +130,20 @@ describe("note state badges", () => {
   });
 });
 
+describe("notification toast", () => {
+  it("gives up its shadow for the countdown bar, which drains in the accent", () => {
+    const toast = ruleBody(".notification-toast");
+
+    expect(toast).not.toMatch(/box-shadow/);
+    expect(toast).toMatch(/overflow:\s*hidden/);
+    // The main rule carries the accent fill; the reduced-motion override hides the bar instead.
+    const timer = css.match(/\.notification-timer\s*\{([^}]*background:\s*var\(--mark\)[^}]*)\}/)?.[1] ?? "";
+    expect(timer).toMatch(/animation:\s*notification-drain/);
+    expect(css).toMatch(/@keyframes notification-drain/);
+    expect(ruleBody(".notification-timer")).toMatch(/display:\s*none/);
+  });
+});
+
 describe("content width", () => {
   it("lets the Content width setting reach prose blocks", () => {
     const proseRule = css.match(/\.markdown-view > \*\s*\{([^}]*)\}/)?.[1] ?? "";

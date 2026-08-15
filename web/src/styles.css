@@ -418,6 +418,11 @@ img.theme-asset-dark {
   .spinner {
     animation-duration: 2s;
   }
+
+  /* The drain is decoration; the toast still dismisses on the same timer. */
+  .notification-timer {
+    display: none;
+  }
 }
 
 .home-hero {
@@ -4387,7 +4392,9 @@ textarea.modal-input:focus-visible {
 }
 
 /* Floating layer: a toast reports something that already happened, so for the seconds it is up it
-   must clear the workspace rather than be covered by it. */
+   must clear the workspace rather than be covered by it. It is the one floating layer that gives up
+   its shadow — the countdown bar underneath says what the shadow would only imply — and the one
+   place a control carries the accent --mark as a fill. */
 .notification-toast {
   position: fixed;
   right: 20px;
@@ -4397,12 +4404,35 @@ textarea.modal-input:focus-visible {
   align-items: center;
   gap: 12px;
   max-width: min(440px, calc(100vw - 40px));
+  overflow: hidden;
   padding: 12px 14px;
   color: var(--text);
   background: var(--panel);
   border: 1px solid var(--line);
   border-radius: var(--radius-lg);
-  box-shadow: 0 12px 32px color-mix(in srgb, var(--text) 22%, transparent);
+}
+
+/* The drain: the accent bar runs the toast's foot and empties over the toast's own lifetime, so
+   "how long is this up" is read from the bar, not guessed. The duration comes inline from the
+   timeout the toast actually runs, so the two cannot drift apart. */
+.notification-timer {
+  position: absolute;
+  right: 0;
+  bottom: 0;
+  left: 0;
+  height: 3px;
+  background: var(--mark);
+  transform-origin: left;
+  animation: notification-drain linear forwards;
+}
+
+@keyframes notification-drain {
+  from {
+    transform: scaleX(1);
+  }
+  to {
+    transform: scaleX(0);
+  }
 }
 
 .notification-toast button {
