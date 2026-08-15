@@ -373,6 +373,19 @@ The strip is a line of titles on the sheet, not a bar of chrome.
   since no hover will reveal it, and the popup carrying the full title is gone —
   a tab with the whole strip to itself has room to say what it is.
 
+## Task table
+
+The notation table's cells are their own controls, wearing the text they
+show: the state cell is a stripped select, a date cell a stripped button.
+
+- A date cell opens the workspace's own calendar (`TaskDatePicker`), not the
+  browser's native one: the native picker shows era years and a foreign
+  scheme, and it cannot be restyled. The picker is a floating layer (variant
+  3) anchored under the cell, with its own month navigation (text controls),
+  a day grid, and a footer of two text controls — `DELETE` and `SAVE`, muted
+  and inking, SAVE in full ink. Today wears the mark's ring; the working
+  choice is a filled mark.
+
 ## Sidebar and rail
 
 The note's aside is a quiet column; the rail is a floating dock over the sheet.

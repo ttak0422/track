@@ -3693,11 +3693,12 @@ textarea.modal-input:focus-visible {
   color: var(--text);
 }
 
-/* The date cells double as their control, the same way the state cell does: a native date input
-   stripped to the cell's own text look, so picking a date is a click on what the row already shows.
-   A cell with no date reads as blank until the row is hovered or keyboard-focused — an untouched
-   table stays quiet rather than showing a row of empty inputs. */
-.markdown-view input.task-row-date-input {
+/* The date cells double as their control, the same way the state cell does: a button wearing the
+   cell's own text look, so picking a date is a click on what the row already shows — which opens
+   the workspace's own calendar (TaskDatePicker) rather than the browser's native one. A cell with
+   no date reads as blank until the row is hovered or keyboard-focused — an untouched table stays
+   quiet rather than showing a row of empty controls. */
+.markdown-view .task-row-date-input {
   appearance: none;
   -webkit-appearance: none;
   border: none;
@@ -3708,17 +3709,140 @@ textarea.modal-input:focus-visible {
   cursor: pointer;
 }
 
-.markdown-view input.task-row-date-input::-webkit-calendar-picker-indicator {
-  display: none;
-}
-
-.markdown-view input.task-row-date-input[data-empty] {
+.markdown-view .task-row-date-input[data-empty] {
   opacity: 0;
 }
 
-.markdown-view tr.task-row:hover input.task-row-date-input[data-empty],
-.markdown-view input.task-row-date-input[data-empty]:focus-visible {
+.markdown-view tr.task-row:hover .task-row-date-input[data-empty],
+.markdown-view .task-row-date-input[data-empty]:focus-visible {
   opacity: 1;
+}
+
+/* The date cell's own calendar (TaskDatePicker), a floating layer (variant 3) hung under the cell.
+   It is drawn in the workspace's tokens instead of the browser's native chrome, and its actions are
+   the two text controls DELETE and SAVE — a destructive choice reads as itself, not as a button. */
+.task-date-picker {
+  position: fixed;
+  z-index: 40;
+  width: 248px;
+  padding: 10px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-lg);
+  background: var(--panel);
+  box-shadow: 0 16px 38px color-mix(in srgb, #000 18%, transparent);
+}
+
+.task-date-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 8px;
+}
+
+.task-date-head button {
+  border: 0;
+  padding: 2px 8px;
+  color: var(--muted);
+  background: transparent;
+  font-size: calc(14px * var(--font-scale, 1));
+  line-height: 1.2;
+  cursor: pointer;
+}
+
+.task-date-head button:hover,
+.task-date-head button:focus-visible {
+  color: var(--text);
+}
+
+.task-date-month {
+  color: var(--text);
+  font-size: calc(13px * var(--font-scale, 1));
+  font-weight: 500;
+}
+
+.task-date-weekdays {
+  display: grid;
+  grid-template-columns: repeat(7, 1fr);
+  margin-bottom: 4px;
+}
+
+.task-date-weekdays span {
+  padding: 3px 0;
+  color: var(--faint);
+  font-family: var(--font-mono);
+  font-size: calc(10px * var(--font-scale, 1));
+  text-align: center;
+}
+
+.task-date-grid {
+  display: grid;
+  grid-template-columns: repeat(7, 1fr);
+  gap: 2px;
+}
+
+.task-date-day {
+  display: grid;
+  width: 100%;
+  height: 30px;
+  place-items: center;
+  border: 0;
+  border-radius: var(--radius-sm);
+  padding: 0;
+  color: var(--muted);
+  background: transparent;
+  font-size: calc(12px * var(--font-scale, 1));
+  cursor: pointer;
+}
+
+.task-date-day:hover,
+.task-date-day:focus-visible {
+  color: var(--text);
+  background: var(--panel-soft);
+}
+
+/* Today is where the mark's ring goes: the cursor's own place, said in the chrome's one color. */
+.task-date-today {
+  box-shadow: inset 0 0 0 1px var(--mark);
+}
+
+/* The working choice is a filled mark, like the modal's primary button: the one day this dialog is
+   about. */
+.task-date-day[aria-pressed="true"] {
+  color: #fff;
+  background: var(--mark);
+  font-weight: 600;
+}
+
+.task-date-actions {
+  display: flex;
+  justify-content: space-between;
+  margin-top: 10px;
+  border-top: 1px solid var(--line);
+  padding-top: 8px;
+}
+
+/* DELETE and SAVE are the picker's decisions, so they are text controls: muted, inking on hover,
+   the affirmative taking weight — nothing filled, nothing boxed. */
+.task-date-actions button {
+  border: 0;
+  padding: 4px 6px;
+  color: var(--muted);
+  background: transparent;
+  font-family: var(--font-mono);
+  font-size: calc(11px * var(--font-scale, 1));
+  font-weight: 500;
+  letter-spacing: 0.1em;
+  cursor: pointer;
+}
+
+.task-date-actions button:hover,
+.task-date-actions button:focus-visible {
+  color: var(--text);
+}
+
+/* SAVE is the affirmative of the two decisions, so it sits in full ink at rest. */
+.task-date-actions button.task-date-save {
+  color: var(--text);
 }
 
 .markdown-view tr.task-row-done td.task-row-text {

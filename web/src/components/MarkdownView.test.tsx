@@ -399,37 +399,45 @@ describe("MarkdownView", () => {
         <MarkdownView markdown={"- [ ] a task [due:2026-07-24]"} />
       </TaskBoardContext.Provider>,
     );
-    const due = container.querySelector<HTMLInputElement>("td.task-row-due input[type='date']");
+    const due = container.querySelector<HTMLButtonElement>("td.task-row-due button.task-row-date-input");
     expect(due).not.toBeNull();
-    expect(due!.value).toBe("2026-07-24");
-    fireEvent.change(due!, { target: { value: "2026-08-01" } });
+    expect(due!.textContent).toContain("2026-07-24");
+    // The picker opens on the cell's month, a day click is the working choice, and SAVE writes it.
+    fireEvent.click(due!);
+    fireEvent.click(screen.getByRole("button", { name: "30" }));
+    fireEvent.click(screen.getByRole("button", { name: "SAVE" }));
     // The cell asserts the state it drew, as the state controls do: a date picked against a task
     // that has since moved is refused rather than written onto whatever the line became.
     await waitFor(() =>
-      expect(setTaskDate).toHaveBeenCalledWith("100", 1, "due", "2026-08-01", "TODO", "loaded"),
+      expect(setTaskDate).toHaveBeenCalledWith("100", 1, "due", "2026-07-30", "TODO", "loaded"),
     );
   });
 
-  it("opens the calendar on a click, since the cell hides the picker indicator", () => {
+  it("opens the workspace's own calendar on a click, not the browser's", async () => {
     const tasks = { items: [{ line: 1, state: "TODO", done: false, text: "a task", due: "2026-07-24" }] };
     const { container } = renderWithQuery(
       <TaskBoardContext.Provider value={{ noteID: "100", tasksRef: { current: { tasks, etag: "loaded" } } }}>
         <MarkdownView markdown={"- [ ] a task [due:2026-07-24]"} />
       </TaskBoardContext.Provider>,
     );
-    const due = container.querySelector<HTMLInputElement>("td.task-row-due input[type='date']")!;
-    const showPicker = vi.fn();
-    due.showPicker = showPicker;
-    const click = createEvent.click(due);
-    fireEvent(due, click);
-    expect(showPicker).toHaveBeenCalled();
-    // Cancelled so Gecko's own click listener, which runs after this one, leaves the picker open.
-    expect(click.defaultPrevented).toBe(true);
+    const due = container.querySelector<HTMLButtonElement>("td.task-row-due button.task-row-date-input")!;
+    fireEvent.click(due);
+    const dialog = screen.getByRole("dialog", { name: "Pick a date" });
+    expect(dialog).toBeInTheDocument();
+    // The month is the cell's own (July 2026 has 31 days), drawn in the workspace's tokens rather
+    // than the browser's era-laden native scheme.
+    expect(dialog.querySelector(".task-date-month")?.textContent).toBe("2026 / 07");
+    expect(dialog.querySelectorAll(".task-date-day")).toHaveLength(31);
+    // DELETE clears the token in the same write path SAVE uses.
+    fireEvent.click(screen.getByRole("button", { name: "DELETE" }));
+    await waitFor(() =>
+      expect(setTaskDate).toHaveBeenCalledWith("100", 1, "due", "", "TODO", "loaded"),
+    );
   });
 
   it("keeps the date cells as plain text with no note behind them", () => {
     const { container } = render(<MarkdownView markdown={"- [ ] a task [due:2026-07-24]"} />);
-    expect(container.querySelector("input[type='date']")).toBeNull();
+    expect(container.querySelector("button.task-row-date-input")).toBeNull();
     expect(container.querySelector("td.task-row-due")?.textContent).toBe("! 2026-07-24");
   });
 
