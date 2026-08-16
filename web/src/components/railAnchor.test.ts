@@ -27,15 +27,18 @@ describe("railAnchor", () => {
     expect(railAnchor(button(600))).toEqual({ bottom: 800 - 640, left: 60 });
   });
 
-  // A dock along the foot of the window has nothing beside a button but the next button, and a
-  // button near the right edge would send its panel off screen.
-  it("raises a flyout off the foot dock", () => {
+  // The phone's trigger is the floating mark, which is dragged wherever the reader likes, so a panel
+  // placed from its rect landed somewhere new every time. It takes the window instead — one place,
+  // whatever corner the mark is resting in.
+  it("gives the phone's flyout the window, not a spot beside the trigger", () => {
     vi.stubGlobal(
       "matchMedia",
       vi.fn((query: string) => ({ matches: query === "(hover: none), (max-width: 540px)" })),
     );
 
-    expect(railAnchor(button(742))).toEqual({ left: 8, bottom: 800 - 742 + 8 });
+    expect(railAnchor(button(742))).toEqual({ inset: 8 });
+    // Wherever the mark has been dragged to, the same box.
+    expect(railAnchor(button(120))).toEqual({ inset: 8 });
   });
 
   it("has no placement for a trigger that is not mounted", () => {

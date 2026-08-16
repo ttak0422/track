@@ -480,7 +480,12 @@ The note's aside is a quiet column; the rail is a floating dock over the sheet.
   is a hair from the page's own, and a disc wearing it disappeared into the
   words behind it. The brand tile is blended into the mark's disc so the letter
   alone stands on it. The flyouts those buttons open are ordinary rail panels
-  (variant 3 + `.rail-panel-title`).
+  (variant 3 + `.rail-panel-title`), but pinned to the window rather than to
+  the button: the mark is dragged wherever the reader likes, and a panel placed
+  from its rect opened somewhere new every time. They take the window the way
+  the full-page graph takes the reader, and a list too short to fill that box
+  leaves the rest of it empty — where a panel opens matters more than how much
+  of it is used. The mark floats above them and closes them.
   The rail stays mounted behind it (the `/` search chord and the popups still
   work) but takes no strip of the window: `--foot-dock` stays `0px`, and
   nothing below needs a breakpoint of its own. (What is *only* about width

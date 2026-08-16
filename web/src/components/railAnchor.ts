@@ -11,13 +11,15 @@ import type { CSSProperties } from "react";
 export function railAnchor(trigger: HTMLElement | null | undefined): CSSProperties | undefined {
   const rect = trigger?.getBoundingClientRect();
   if (!rect) return undefined;
-  // A screen with no cursor, or a window with no room for a lane, lays the dock along the foot
-  // instead (the same query in styles.css — keep the two in step), and there is nothing beside a
-  // button there but the next button. So the flyout rises from the whole dock: from the button's top
-  // edge, and from the window's left margin rather than the button's own column, which for a button
-  // near the right edge would put the panel off screen.
+  // A screen with no cursor, or a window with no room for a lane, has no rail to open beside (the
+  // same query in styles.css — keep the two in step): the trigger is the floating mark, which the
+  // reader drags wherever they like. A panel placed from that rect opened somewhere new every time,
+  // so there it is not a flyout at all — it takes the window, the way the full-page graph takes the
+  // reader, and opens in the same place whatever corner the mark is resting in. A list too short to
+  // fill it simply leaves the rest empty; where the panel is matters more than how much of it is
+  // used. The mark itself floats above it (z-index 100 over the panel's 95) and closes it.
   if (window.matchMedia?.("(hover: none), (max-width: 540px)").matches) {
-    return { left: 8, bottom: window.innerHeight - rect.top + 8 };
+    return { inset: 8 };
   }
   const left = rect.right + 12;
   return rect.top > window.innerHeight / 2

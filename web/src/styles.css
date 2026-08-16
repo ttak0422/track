@@ -3105,6 +3105,20 @@ textarea.modal-input:focus-visible {
     display: none;
   }
 
+  /* A flyout from the mark takes the window (railAnchor pins it to inset: 8px), because the mark it
+     would hang from is dragged wherever the reader likes and a panel placed from that rect opened
+     somewhere new every time. So the widths that shaped a flyout beside the rail go: the box is the
+     window's, and a list too short to fill it leaves the rest empty. */
+  .note-menu-panel {
+    width: auto;
+    max-width: none;
+  }
+
+  .history-panel {
+    max-width: none;
+    max-height: none;
+  }
+
   /* contents, not block: the dock is a child of the workspace grid, and a block box there is a row of
      its own. Everything it holds is position: fixed, so that row measured zero and the grid split the
      window between it and the reader — the reader kept a little over half the height, and the graph
