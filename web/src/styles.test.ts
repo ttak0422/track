@@ -362,11 +362,16 @@ describe("phone width", () => {
   // muted glyph on it has to be found among the words. The ink disc (variant 9) inverts instead, and
   // the two tokens swap themselves between the themes — black on white one way, white on black the
   // other — which is the whole reason it is written as a pair and not as two colours.
-  it("draws the fan's buttons as ink discs, not bordered panels", () => {
+  it("draws the mark and its fan as ink discs, not bordered panels", () => {
     const disc = ruleBody(".mobile-dock-fan-btn");
     expect(disc).toMatch(/background:\s*var\(--text\)/);
     expect(disc).toMatch(/color:\s*var\(--bg\)/);
     expect(disc).toMatch(/border:\s*0/);
+    // The mark is the same disc: it floats on the same prose, and the brand tile it carries draws
+    // the inverted ground itself, so a panel-surfaced mark put a pale square inside a ring.
+    const mark = ruleBody(".mobile-dock-fab");
+    expect(mark).toMatch(/background:\s*var\(--text\)/);
+    expect(mark).toMatch(/border:\s*0/);
     // Nothing on the disc can ink further, so being aimed at rings it instead.
     expect(ruleBody(".mobile-dock-fan-btn:focus-visible")).toMatch(/outline:[^;]*var\(--mark\)/);
   });

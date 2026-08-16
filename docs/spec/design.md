@@ -299,19 +299,22 @@ links in it turns mottled the moment they carry one.
 
 ### 9. Ink disc — a thumb's target floating over prose
 
-A round control that opens over the reading surface with nothing behind it to
-rest on: the phone fan's buttons. Variant 3's panel surface is a hair from the
-page's own, which left a muted glyph on a disc you had to find among the words
-behind it, so this one inverts — the fill is ink and the glyph is the page.
-The pair swaps itself between themes: a black disc with a white glyph in
-light, white with a black glyph in dark.
+A round control that sits on the reading surface with nothing behind it to
+rest on: the phone's floating mark and the buttons it fans. Variant 3's panel
+surface is a hair from the page's own, which left a muted glyph on a disc you
+had to find among the words behind it, so this one inverts — the fill is ink
+and the glyph is the page. The pair swaps itself between themes: a black disc
+with a white glyph in light, white with a black glyph in dark.
 
 - `background: var(--text)`, `color: var(--bg)`, no border,
   `border-radius: 50%`, soft shadow. At least 44px: it is aimed at with a thumb.
 - Hover / `:focus-visible`: `outline: 2px solid var(--mark)` with a 2px
   offset. The glyph cannot ink further — it is already the page's colour on
   ink — so the aimed-at state rings the disc rather than recolouring it.
-- Canonical: `.mobile-dock-fan-btn`.
+- A disc carrying the brand tile (which draws its own near-black or white
+  ground) inherits the same inversion: the tile settles into the disc and the
+  letter alone stands on it.
+- Canonical: `.mobile-dock-fab`, `.mobile-dock-fan-btn`.
 
 ## Visualization blocks
 
@@ -467,10 +470,13 @@ The note's aside is a quiet column; the rail is a floating dock over the sheet.
   fan's popups is a rail panel unchanged (variant 3 + `.rail-panel-title`),
   and the note group is the rail's own four controls (follow, display mode,
   Meta, Delete) as one panel; the copy actions stay behind, since a phone's
-  own selection copies text. The mark is a
-  floating layer (variant 3): panel surface, hairline, radius, soft shadow.
-  Its fan buttons are ink discs (variant 9) — inverted, unbordered — because
-  they open over the prose itself rather than over the mark's own surface.
+  own selection copies text. The mark and its fan buttons are ink discs
+  (variant 9) — inverted, unbordered, soft shadow — because they sit on the
+  prose itself rather than on chrome; the panel surface a rail button rests on
+  is a hair from the page's own, and a disc wearing it disappeared into the
+  words behind it. The brand tile settles into the inverted disc so the letter
+  alone stands on it. The flyouts those buttons open are ordinary rail panels
+  (variant 3 + `.rail-panel-title`).
   The rail stays mounted behind it (the `/` search chord and the popups still
   work) but takes no strip of the window: `--foot-dock` stays `0px`, and
   nothing below needs a breakpoint of its own. (What is *only* about width
