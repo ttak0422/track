@@ -89,13 +89,13 @@ describe("tab strip", () => {
     expect(phone).toMatch(/\.tab\.active\s*\{[^}]*flex:\s*1\s+0\s+100%/);
   });
 
-  // The wide frame is for the title's sake, so on a short title it says nothing on its own — twice
-  // the width in the same book as its neighbours is just a long tab. The mark says it instead: a dot
-  // where the line starts, and the tabs behind it a step fainter.
-  it("marks the active tab rather than only widening it", () => {
-    expect(ruleBody(".tab.active .tab-label::before")).toMatch(/background:\s*var\(--mark\)/);
+  // The strip is read by finding the one title that is not faded, so the gap between the tab being
+  // read and the rest is wider than chrome's usual muted/ink pair. It is carried by the type, not by
+  // a second dot: the strip already has one, and it means unsaved changes.
+  it("stands the active tab out by ink against faint, with no dot of its own", () => {
     expect(ruleBody(".tab")).toMatch(/color:\s*var\(--faint\)/);
     expect(ruleBody(".tab.active")).toMatch(/color:\s*var\(--text\)/);
+    expect(css).not.toMatch(/\.tab\.active[^{]*::before/);
   });
 
   // A vault name is free-form; the title it annotates is the point of the tab.

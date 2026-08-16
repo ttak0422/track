@@ -1467,19 +1467,6 @@ a.calendar-title:focus-visible {
   font-weight: 500;
 }
 
-/* The tab being read carries the mark, not just a wider frame. Twice the width in the same book as
-   its neighbours read as a tab that happened to be long — the frame is for the title's sake, and a
-   short title left it saying nothing. The dot says it at the head of the line, where the eye starts,
-   while the underline goes on saying it at the foot of the strip. */
-.tab.active .tab-label::before {
-  content: "";
-  width: 5px;
-  height: 5px;
-  flex: none;
-  border-radius: 50%;
-  background: var(--mark);
-}
-
 /* The overflow control: whatever had no room on the strip, opened as a floating layer. It sits
    outside the tab row so it keeps its place as the row's contents change. */
 .tab-overflow {
