@@ -44,8 +44,9 @@ export function MobileDock() {
   const { recent } = useTabs();
   const [theme, setTheme] = useThemeMode();
   const fabRef = useRef<HTMLButtonElement>(null);
-  // The mark's position, as a fixed left/top pair. null means "the corner it starts in", which is
-  // measured on demand so the very first frame before layout still has a place to stand.
+  // The mark's position, as a fixed left/top pair. null means "the corner it starts in" — the mark is
+  // left to the stylesheet's own right/bottom offsets there, so an untouched mark follows the window
+  // without React hearing about the resize at all.
   const [pos, setPos] = useState<{ x: number; y: number } | null>(null);
   const [open, setOpen] = useState(false);
   const [popup, setPopup] = useState<Popup>(null);
@@ -73,9 +74,12 @@ export function MobileDock() {
     }
     if (!drag.moved) return;
     const cur = position();
-    const x = clamp(cur.x + event.clientX - drag.x, EDGE, window.innerWidth - FAB_SIZE - EDGE);
-    const y = clamp(cur.y + event.clientY - drag.y, EDGE, window.innerHeight - FAB_SIZE - EDGE);
-    setPos({ x, y });
+    setPos(clampToWindow({ x: cur.x + event.clientX - drag.x, y: cur.y + event.clientY - drag.y }));
+    // The move is relative to the last one, not to where the thumb landed: keeping the original
+    // pointer as the origin added the whole travel again on every event, so the mark ran away from
+    // the thumb and pinned itself to whichever edge it reached first.
+    drag.x = event.clientX;
+    drag.y = event.clientY;
   }
 
   function onPointerUp() {
@@ -95,6 +99,16 @@ export function MobileDock() {
     setOpen(false);
     setPopup(next);
   }
+
+  // A dragged mark is held inside the window as it changes size: a mark parked at the right edge of a
+  // wide window sat off-screen entirely once the window became a phone's, and nothing brought it back.
+  useEffect(() => {
+    function onResize() {
+      setPos((cur) => (cur ? clampToWindow(cur) : cur));
+    }
+    window.addEventListener("resize", onResize);
+    return () => window.removeEventListener("resize", onResize);
+  }, []);
 
   // Outside taps and Escape close whatever is up. The dock sits over the reading surface, so the
   // surface itself is the backdrop.
@@ -215,7 +229,7 @@ export function MobileDock() {
         className="mobile-dock-fab"
         aria-label={open ? "Close note menu" : "Open note menu"}
         aria-expanded={open || popup !== null}
-        style={{ left: p.x, top: p.y }}
+        style={pos ? { left: pos.x, top: pos.y } : undefined}
         onPointerDown={onPointerDown}
         onPointerMove={onPointerMove}
         onPointerUp={onPointerUp}
@@ -346,6 +360,14 @@ function fanPlacement(
 
 function clamp(value: number, min: number, max: number): number {
   return Math.min(max, Math.max(min, value));
+}
+
+// Keep the mark whole inside the window, at the same EDGE the stylesheet parks it at.
+function clampToWindow(p: { x: number; y: number }): { x: number; y: number } {
+  return {
+    x: clamp(p.x, EDGE, window.innerWidth - FAB_SIZE - EDGE),
+    y: clamp(p.y, EDGE, window.innerHeight - FAB_SIZE - EDGE),
+  };
 }
 
 // The fan glyphs are the rail's own family: 24-unit viewBox at 20px, stroke-only, round caps.

@@ -1,5 +1,5 @@
 import { useNavigate } from "@tanstack/react-router";
-import { type MouseEvent, useEffect, useLayoutEffect, useRef, useState } from "react";
+import { type MouseEvent, useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
 import type { NoteID } from "../../types";
 import { vaultOf } from "../../vaultId";
 import { initialPreviewBounds } from "../preview/bounds";
@@ -22,8 +22,13 @@ export function TabBar() {
   const capRef = useRef(Number.POSITIVE_INFINITY);
   const [width, setWidth] = useState(0);
 
-  useEffect(() => {
-    const strip = stripRef.current;
+  // Observed through the ref callback, not a mount effect: the strip does not exist until the tabs are
+  // restored (a post-paint effect), so an effect on mount ran while stripRef was still null and never
+  // observed anything. The count then froze at whatever the first geometry produced, and a window
+  // narrowed after load — a phone rotating, devtools switching to a phone size — kept it: the tabs
+  // that no longer fit simply overflowed under the +N menu instead of moving into it.
+  const observeStrip = useCallback((strip: HTMLDivElement | null) => {
+    stripRef.current = strip;
     if (!strip || typeof ResizeObserver === "undefined") return;
     const observer = new ResizeObserver(([entry]) => setWidth(entry.contentRect.width));
     observer.observe(strip);
@@ -68,7 +73,7 @@ export function TabBar() {
 
   return (
     <div className="tabstrip">
-      <div className="tabbar" role="list" aria-label="Open notes" ref={stripRef}>
+      <div className="tabbar" role="list" aria-label="Open notes" ref={observeStrip}>
         {visible.map((tab) => {
           const active = tab.id === activeID;
           const label = tab.title || "Untitled";

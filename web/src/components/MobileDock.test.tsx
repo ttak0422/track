@@ -60,6 +60,13 @@ describe("MobileDock", () => {
     expect(container.querySelector(".mobile-dock-fan-btn")).toBeNull();
   });
 
+  // An untouched mark carries no inline offsets: the stylesheet's own right/bottom park it, so it
+  // follows a window that changes size without a re-render.
+  it("leaves the untouched mark's corner to the stylesheet", () => {
+    const { container } = dock();
+    expect(container.querySelector(".mobile-dock-fab")!.getAttribute("style")).toBeNull();
+  });
+
   it("a drag moves the mark without opening the fan", () => {
     const { container } = dock();
     const fab = container.querySelector(".mobile-dock-fab") as HTMLElement;
@@ -67,11 +74,29 @@ describe("MobileDock", () => {
     // drops clientX, so the move is asserted on the axis it carries.)
     fireEvent.pointerDown(fab, { clientY: 700 });
     fireEvent.pointerMove(fab, { clientY: 640 });
-    fireEvent.pointerUp(fab, { clientY: 640 });
+    expect(fab.getAttribute("style")).toContain("top: 648px");
+    // Each move is relative to the one before it, not to where the thumb first landed — the mark
+    // travels exactly as far as the thumb does rather than adding the whole travel again.
+    fireEvent.pointerMove(fab, { clientY: 620 });
+    fireEvent.pointerUp(fab, { clientY: 620 });
 
     expect(container.querySelector(".mobile-dock-fan-btn")).toBeNull();
-    const style = fab.getAttribute("style") ?? "";
-    expect(style).toContain("top: 648px");
+    expect(fab.getAttribute("style")).toContain("top: 628px");
+  });
+
+  it("brings a dragged mark back inside a window that shrinks under it", () => {
+    const { container } = dock();
+    const fab = container.querySelector(".mobile-dock-fab") as HTMLElement;
+    fireEvent.pointerDown(fab, { clientY: 700 });
+    fireEvent.pointerMove(fab, { clientY: 690 });
+    fireEvent.pointerUp(fab, { clientY: 690 });
+    expect(fab.getAttribute("style")).toContain("top: 698px");
+
+    Object.defineProperty(window, "innerHeight", { value: 400, configurable: true });
+    fireEvent(window, new Event("resize"));
+    // 400 - 48 (the mark) - 12 (its edge): the foot of the new window, not off the end of it.
+    expect(fab.getAttribute("style")).toContain("top: 340px");
+    Object.defineProperty(window, "innerHeight", { value: 768, configurable: true });
   });
 
   it("opens the search palette from the fan", () => {

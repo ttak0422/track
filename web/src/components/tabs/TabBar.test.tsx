@@ -61,6 +61,27 @@ describe("TabBar", () => {
     expect(screen.getAllByRole("button", { name: "Float this note" })).toHaveLength(2);
   });
 
+  // The strip is absent from the first render — the open tabs arrive in an effect — so an observer
+  // bound on mount watched nothing at all, and the tab count then answered no resize for the rest of
+  // the session: narrowing the window left the tabs that no longer fit overflowing under the +N menu
+  // instead of moving into it.
+  it("observes the strip even though it mounts a frame late", () => {
+    const observed: string[] = [];
+    vi.stubGlobal(
+      "ResizeObserver",
+      class {
+        observe(el: Element) {
+          observed.push(el.className);
+        }
+        unobserve() {}
+        disconnect() {}
+      },
+    );
+    renderStrip();
+    expect(observed).toContain("tabbar");
+    vi.unstubAllGlobals();
+  });
+
   it("opens a tab when its title is clicked", () => {
     renderStrip();
     routerMock.navigate.mockClear();
