@@ -442,8 +442,16 @@ The note's aside is a quiet column; the rail is a floating dock over the sheet.
   dock wants a margin. A foot rail spanning the window bought the reach with
   a strip of the reading surface, so it is gone: a round track logo floats
   over the reading surface instead (`MobileDock`), draggable anywhere, and a
-  tap fans its controls — search, history, the views, settings — out in the
-  180° half-circle facing away from the edge it sits at. The mark is a
+  tap fans its controls — search, history, the views, settings, and the open
+  note's own group — out in the arc facing away from the edges it rests
+  against: a half-circle against one edge, the quadrant between them in a
+  corner. The arc's radius grows with the number of buttons rather than the
+  buttons crowding along a fixed one — an arc too short for them ends with the
+  off-screen clamp stacking half the fan on a single point. Each of the
+  fan's popups is a rail panel unchanged (variant 3 + `.rail-panel-title`),
+  and the note group is the rail's own four controls (follow, display mode,
+  Meta, Delete) as one panel; the copy actions stay behind, since a phone's
+  own selection copies text. The mark is a
   floating layer (variant 3): panel surface, hairline, radius, soft shadow.
   The rail stays mounted behind it (the `/` search chord and the popups still
   work) but takes no strip of the window: `--foot-dock` stays `0px`, and

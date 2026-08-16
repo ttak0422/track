@@ -10,6 +10,7 @@ import {
 import { createPortal } from "react-dom";
 import { openJournal } from "../api";
 import { keys } from "../keys";
+import { editorModes, useNoteControls } from "../noteControls";
 import { useSiteQuery } from "../queries";
 import { STATIC_MODE } from "../runtime";
 import { themeModes, useThemeMode } from "../themeState";
@@ -29,7 +30,7 @@ const EDGE = 12;
 const FAN_RADIUS = 108;
 const FAN_BUTTON = 44;
 
-type Popup = "search" | "history" | "settings" | null;
+type Popup = "search" | "history" | "settings" | "note" | null;
 
 interface FanAction {
   key: string;
@@ -43,6 +44,10 @@ export function MobileDock() {
   const site = useSiteQuery();
   const { recent } = useTabs();
   const [theme, setTheme] = useThemeMode();
+  // The open note's own controls. They live in the rail on a desk, and the rail is what the mark
+  // replaced here, so the phone reaches them through the fan instead — the note group appears in it
+  // for exactly as long as a note is open, the way the rail's does.
+  const { mode, setMode, follow, setFollow, actions: noteActions } = useNoteControls();
   const fabRef = useRef<HTMLButtonElement>(null);
   // The mark's position, as a fixed left/top pair. null means "the corner it starts in" — the mark is
   // left to the stylesheet's own right/bottom offsets there, so an untouched mark follows the window
@@ -153,6 +158,14 @@ export function MobileDock() {
   // The fan's actions, mirroring the dock they replaced: the view switches, the search and history
   // popups, and settings. Live-only surfaces (journal, tasks) stay live-only here.
   const actions: FanAction[] = [];
+  if (noteActions) {
+    actions.push({
+      key: "note",
+      label: "This note",
+      icon: <NoteIcon />,
+      run: () => openPopup("note"),
+    });
+  }
   if (!STATIC_MODE) {
     actions.push({
       key: "journal",
@@ -294,6 +307,55 @@ export function MobileDock() {
             document.body,
           )
         : null}
+      {popup === "note" && noteActions && typeof document !== "undefined"
+        ? createPortal(
+            // The rail's note group as one panel: the follow toggle, the display mode, and the two
+            // dialogs. The copy actions stay off it — a phone's own selection copies text, and the
+            // panel is worth more as the four controls that have nowhere else to go.
+            <div className="menu-panel note-menu-panel" style={railAnchor(fabRef.current)}>
+              <h2 className="rail-panel-title">This note</h2>
+              <button
+                type="button"
+                aria-pressed={follow}
+                onClick={() => setFollow(!follow)}
+              >
+                Follow the editor: {follow ? "On" : "Off"}
+              </button>
+              <div className="theme-switch" role="group" aria-label="Display mode">
+                {editorModes.map((each) => (
+                  <button
+                    aria-pressed={mode === each}
+                    key={each}
+                    type="button"
+                    onClick={() => setMode(each)}
+                  >
+                    {each[0].toUpperCase() + each.slice(1)}
+                  </button>
+                ))}
+              </div>
+              <button
+                type="button"
+                onClick={() => {
+                  setPopup(null);
+                  noteActions.onMeta();
+                }}
+              >
+                Meta…
+              </button>
+              <button
+                type="button"
+                className="danger-item"
+                onClick={() => {
+                  setPopup(null);
+                  noteActions.onDelete();
+                }}
+              >
+                Delete…
+              </button>
+            </div>,
+            document.body,
+          )
+        : null}
       {popup === "settings" && typeof document !== "undefined"
         ? createPortal(
             <div className="menu-panel note-menu-panel mobile-settings" style={railAnchor(fabRef.current)}>
@@ -318,9 +380,11 @@ export function MobileDock() {
   );
 }
 
-// fanPlacement spreads n buttons on a 180° arc pointing away from the edge the mark is nearest to —
-// a mark at the foot of the screen fans upward, one at the left edge fans rightward, and so on —
-// each clamped into the window so no button opens off-screen.
+// fanPlacement spreads n buttons on an arc around the mark, opening toward the middle of the window
+// and so away from whatever edges the mark is resting against. A mark against one edge has a half
+// circle to fan into; one in a corner has only the quadrant facing the middle, so the spread narrows
+// there — and the radius grows with the number of buttons, because an arc that cannot hold them
+// side by side used to end with the clamp below stacking half the fan on one point.
 function fanPlacement(
   p: { x: number; y: number },
   n: number,
@@ -328,28 +392,32 @@ function fanPlacement(
   if (typeof window === "undefined") return [];
   const cx = p.x + FAB_SIZE / 2;
   const cy = p.y + FAB_SIZE / 2;
-  const distances = {
-    top: cy,
-    bottom: window.innerHeight - cy,
-    left: cx,
-    right: window.innerWidth - cx,
-  } as const;
-  const nearest = (Object.keys(distances) as (keyof typeof distances)[]).sort(
-    (a, b) => distances[a] - distances[b],
-  )[0];
-  // Screen angles: 0° is right, 90° down, 180° left, 270° up.
-  const base = nearest === "bottom" ? 270 : nearest === "top" ? 90 : nearest === "left" ? 0 : 180;
+  // An edge closer than the fan's own radius is a wall the arc cannot reach across. The arc points
+  // away from the walls the mark is resting against: away from one of them across a half circle,
+  // away from two (a corner) across the quadrant between them.
+  const away = {
+    x: cx < FAN_RADIUS ? 1 : window.innerWidth - cx < FAN_RADIUS ? -1 : 0,
+    y: cy < FAN_RADIUS ? -1 : window.innerHeight - cy < FAN_RADIUS ? 1 : 0,
+  };
+  const spread = away.x !== 0 && away.y !== 0 ? 90 : 180;
+  // Screen angles, counter-clockwise from east: 0° right, 90° up, 180° left, 270° down. A mark with
+  // room on every side fans upward, over the note rather than along it.
+  const base =
+    away.x === 0 && away.y === 0 ? 90 : (Math.atan2(away.y, away.x) * 180) / Math.PI;
+  const arc = (spread * Math.PI) / 180;
+  const radius = Math.max(FAN_RADIUS, ((n - 1) * (FAN_BUTTON + 6)) / arc);
 
   const out: CSSProperties[] = [];
   for (let i = 0; i < n; i++) {
-    const angle = ((base - 90 + (i * 180) / (n - 1)) * Math.PI) / 180;
+    const step = n > 1 ? (i * spread) / (n - 1) : spread / 2;
+    const angle = ((base - spread / 2 + step) * Math.PI) / 180;
     const x = clamp(
-      cx + FAN_RADIUS * Math.cos(angle) - FAN_BUTTON / 2,
+      cx + radius * Math.cos(angle) - FAN_BUTTON / 2,
       8,
       window.innerWidth - FAN_BUTTON - 8,
     );
     const y = clamp(
-      cy - FAN_RADIUS * Math.sin(angle) - FAN_BUTTON / 2,
+      cy - radius * Math.sin(angle) - FAN_BUTTON / 2,
       8,
       window.innerHeight - FAN_BUTTON - 8,
     );
@@ -426,6 +494,19 @@ function GraphIcon() {
       <circle cx="7" cy="8" r="2" />
       <circle cx="16" cy="7" r="2" />
       <circle cx="12" cy="17" r="2" />
+    </svg>
+  );
+}
+
+// The open note: a page with a line lifted off it, the one glyph in the fan that points at content
+// rather than at a view.
+function NoteIcon() {
+  return (
+    <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+      <path d="M6 3.5h8L19 8v12.5H6z" />
+      <path d="M14 3.5V8h5" />
+      <line x1="9" y1="12.5" x2="16" y2="12.5" />
+      <line x1="9" y1="16" x2="13.5" y2="16" />
     </svg>
   );
 }

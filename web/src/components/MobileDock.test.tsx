@@ -1,5 +1,7 @@
 import { fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { useEffect } from "react";
 import { describe, expect, it, vi } from "vitest";
+import { NoteControlsProvider, useNoteControls, type NoteActions } from "../noteControls";
 import { MobileDock } from "./MobileDock";
 
 const navigate = vi.hoisted(() => vi.fn());
@@ -21,8 +23,20 @@ vi.mock("./SearchPanel", () => ({
 
 // jsdom gives the window 1024x768; the mark starts in the bottom-right corner, so the fan (which
 // opens away from the nearest edge) fans upward from there.
-function dock() {
-  return render(<MobileDock />);
+function dock(noteActions?: NoteActions) {
+  return render(
+    <NoteControlsProvider>
+      {noteActions ? <OpenNote actions={noteActions} /> : null}
+      <MobileDock />
+    </NoteControlsProvider>,
+  );
+}
+
+// Stands in for the note view, which hands the workspace its actions while it is mounted.
+function OpenNote({ actions }: { actions: NoteActions }) {
+  const { setActions } = useNoteControls();
+  useEffect(() => setActions(actions), [actions, setActions]);
+  return null;
 }
 
 describe("MobileDock", () => {
@@ -47,6 +61,41 @@ describe("MobileDock", () => {
     expect(labels).toContain("Tasks");
     expect(labels).toContain("Full graph");
     expect(labels).toContain("Settings");
+    // The note group belongs to an open note, exactly as it does in the rail.
+    expect(labels).not.toContain("This note");
+  });
+
+  // On a phone the rail is behind the mark, so the fan is the only way to the open note's own
+  // controls — follow, the display mode, and the two dialogs.
+  it("reaches the open note's controls through the fan", () => {
+    const onMeta = vi.fn();
+    const onDelete = vi.fn();
+    const { container } = dock({ getBody: () => "", onMeta, onDelete });
+    const fab = container.querySelector(".mobile-dock-fab")!;
+    fireEvent.pointerDown(fab);
+    fireEvent.pointerUp(fab);
+    fireEvent.click(screen.getByRole("button", { name: "This note" }));
+
+    fireEvent.click(screen.getByRole("button", { name: /^Follow the editor: Off/ }));
+    expect(screen.getByRole("button", { name: /^Follow the editor: On/ })).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "Edit", pressed: false }));
+    expect(screen.getByRole("button", { name: "Edit", pressed: true })).toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole("button", { name: "Meta…" }));
+    expect(onMeta).toHaveBeenCalled();
+    // The dialog it opens owns the screen from here, so the panel closes behind it.
+    expect(screen.queryByRole("button", { name: "Meta…" })).not.toBeInTheDocument();
+  });
+
+  it("hands delete straight to the note's own dialog", () => {
+    const onDelete = vi.fn();
+    const { container } = dock({ getBody: () => "", onMeta: vi.fn(), onDelete });
+    const fab = container.querySelector(".mobile-dock-fab")!;
+    fireEvent.pointerDown(fab);
+    fireEvent.pointerUp(fab);
+    fireEvent.click(screen.getByRole("button", { name: "This note" }));
+    fireEvent.click(screen.getByRole("button", { name: "Delete…" }));
+    expect(onDelete).toHaveBeenCalled();
   });
 
   it("a second tap closes the fan", () => {
@@ -58,6 +107,32 @@ describe("MobileDock", () => {
     fireEvent.pointerDown(fab);
     fireEvent.pointerUp(fab);
     expect(container.querySelector(".mobile-dock-fan-btn")).toBeNull();
+  });
+
+  // The mark starts in a corner, where the arc has a quadrant to fan into rather than a half circle.
+  // The buttons have to stand apart on it: an arc too short for them ended with the off-screen clamp
+  // stacking half the fan on a single point, where only the topmost one could be tapped at all.
+  it("stands the fan's buttons apart even in a corner", () => {
+    const { container } = dock({ getBody: () => "", onMeta: vi.fn(), onDelete: vi.fn() });
+    const fab = container.querySelector(".mobile-dock-fab")!;
+    fireEvent.pointerDown(fab);
+    fireEvent.pointerUp(fab);
+
+    const spots = [...container.querySelectorAll<HTMLElement>(".mobile-dock-fan-btn")].map((b) => ({
+      x: Number.parseFloat(b.style.left),
+      y: Number.parseFloat(b.style.top),
+    }));
+    expect(spots).toHaveLength(8);
+    for (const [i, a] of spots.entries()) {
+      // Inside jsdom's 1024x768 window, every one of them.
+      expect(a.x).toBeGreaterThanOrEqual(8);
+      expect(a.y).toBeGreaterThanOrEqual(8);
+      expect(a.x).toBeLessThanOrEqual(1024 - 44 - 8);
+      expect(a.y).toBeLessThanOrEqual(768 - 44 - 8);
+      for (const b of spots.slice(i + 1)) {
+        expect(Math.hypot(a.x - b.x, a.y - b.y)).toBeGreaterThanOrEqual(44);
+      }
+    }
   });
 
   // An untouched mark carries no inline offsets: the stylesheet's own right/bottom park it, so it

@@ -1846,6 +1846,14 @@ a.calendar-title:focus-visible {
   color: var(--danger);
 }
 
+/* A touch pointer never hovers, so on a phone the destructive row would read exactly like the two
+   above it — and there the fan's panel is the only way to it. It wears its colour at rest instead. */
+@media (hover: none) {
+  .note-menu-panel .danger-item {
+    color: var(--danger);
+  }
+}
+
 /* Floating layer: the rail keeps only the current display-mode glyph; this labelled menu exposes
    the alternatives without making three persistent buttons compete for space. */
 .mode-menu-panel {
