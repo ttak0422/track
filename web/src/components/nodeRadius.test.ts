@@ -2,19 +2,20 @@ import { describe, expect, it } from "vitest";
 import { radiusForNode } from "./nodeRadius";
 
 describe("radiusForNode", () => {
-  it("keeps the centre at its focal size whatever its grade", () => {
+  it("keeps the centre focal, and never smaller than its own grade", () => {
     expect(radiusForNode({ note_id: "c", file_kind: "note", title: "", center: true, size: 1 }, "c")).toBe(10);
-    expect(radiusForNode({ note_id: "c", file_kind: "note", title: "", size: 5 }, "c")).toBe(10);
+    expect(radiusForNode({ note_id: "c", file_kind: "note", title: "", size: 5 }, "c")).toBe(17);
   });
 
   it("draws the precomputed grade: five levels from stub to hub", () => {
     const radius = (size: number) => radiusForNode({ note_id: "n", file_kind: "note", title: "", size }, "c");
-    expect(radius(1)).toBe(6);
-    expect(radius(5)).toBe(12);
+    expect(radius(1)).toBe(4);
+    expect(radius(5)).toBe(17);
     // Monotonic across the five levels.
     const radii = [1, 2, 3, 4, 5].map(radius);
     expect([...radii].sort((a, b) => a - b)).toEqual(radii);
-    expect(radius(5)).toBeGreaterThan(radius(1));
+    // A grade apart is a gap you can see: every step is at least a third larger than the last.
+    for (let i = 1; i < radii.length; i++) expect(radii[i]).toBeGreaterThan(radii[i - 1] * 1.33);
   });
 
   it("falls back to the degree-based size when no grade rides along", () => {

@@ -8,9 +8,18 @@ import type { GraphNode } from "../types";
 // Exported for its test.
 export function radiusForNode(node: GraphNode & { degree?: number }, centerID: string): number {
   const center = node.center || node.note_id === centerID;
-  if (center) return 10;
-  if (typeof node.size === "number" && node.size >= 1 && node.size <= 5) {
-    return 4.5 + node.size * 1.5;
-  }
-  return 6 + Math.min(8, Math.sqrt(node.degree ?? 0) * 2);
+  const graded =
+    typeof node.size === "number" && node.size >= 1 && node.size <= 5
+      ? GRADE_RADIUS[node.size - 1]
+      : undefined;
+  // The centre keeps its focal size, but never draws smaller than its own grade would: a hub read as
+  // a stub the moment you opened it.
+  if (center) return Math.max(10, graded ?? 0);
+  return graded ?? 6 + Math.min(8, Math.sqrt(node.degree ?? 0) * 2);
 }
+
+// The five grades as radii, one per level rather than a ramp: the 1.5px step the ramp gave between
+// neighbouring grades was a difference you had to go looking for, which is no difference at all in a
+// field of dots. Each level is about 1.4× the last instead, so the gap between a stub and a hub is a
+// factor of four across the radius — visible without comparing two nodes side by side.
+const GRADE_RADIUS = [4, 6, 8.5, 12, 17];

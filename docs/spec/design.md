@@ -411,7 +411,11 @@ The note's aside is a quiet column; the rail is a floating dock over the sheet.
   `--line-strong`. A node's radius carries its precomputed five-level grade
   (1–5, from the note's own outgoing-link count, graded absolutely over the
   whole vault) — the same size in every view, so the engine computes it once
-  and the canvas only draws it. Hover and search highlighting are ink
+  and the canvas only draws it. The five radii are 4 / 6 / 8.5 / 12 / 17px:
+  each level about 1.4× the last, because a grade has to be legible from the
+  shape of the field rather than by comparing two dots side by side. The
+  centre keeps its focal 10px, or its own grade where that is larger. Hover
+  and search highlighting are ink
   (`--text`), not the salient: the match and its edges strengthen while
   everything else dims in
   place. Only the centre node stays `--mark`, highlighted or not — a frame
