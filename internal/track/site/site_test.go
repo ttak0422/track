@@ -391,9 +391,18 @@ func TestBuildVaultBundle(t *testing.T) {
 	if !hasEdge(graph.Graph.Edges, 100, 200) {
 		t.Fatalf("graph missing edge 100->200: %+v", graph.Graph.Edges)
 	}
+	// Each node carries the vault's own five-level grade, so a published node is drawn the size the
+	// workspace draws it. 100 links twice (Child and the out-of-set Outsider) for grade 3, 200 once
+	// for grade 2: the grade counts the vault's links, not the published slice's.
 	for _, n := range graph.Graph.Nodes {
 		if n.NoteID == PublishID(300) {
 			t.Fatalf("out-of-set note 300 should not be a graph node")
+		}
+		if n.NoteID == PublishID(100) && n.Size != 3 {
+			t.Fatalf("node 100 should carry grade 3 (two outgoing links), got %d", n.Size)
+		}
+		if n.NoteID == PublishID(200) && n.Size != 2 {
+			t.Fatalf("node 200 should carry grade 2 (one outgoing link), got %d", n.Size)
 		}
 	}
 

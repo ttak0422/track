@@ -115,9 +115,12 @@ func Build(cfg *config.Config, st *store.Store, opts Options, frontendDir, outDi
 		}
 	}
 
-	edges, err := vaultEdges(st, inSet)
+	edges, grades, err := vaultEdges(st, inSet)
 	if err != nil {
 		return Result{}, err
+	}
+	for i := range docs {
+		docs[i].size = grades[docs[i].id]
 	}
 
 	// The site icon (config web.icon) replaces the brand mark and favicon on the published site. A
@@ -151,11 +154,14 @@ func normalizeBaseURL(raw string) (string, error) {
 	return strings.TrimRight(raw, "/"), nil
 }
 
-// vaultEdges returns the [[link]] edges of the index whose endpoints are both in the published set.
-func vaultEdges(st *store.Store, inSet map[int64]bool) ([]edge, error) {
+// vaultEdges returns the [[link]] edges of the index whose endpoints are both in the published set,
+// plus each note's five-level graph grade. The grade is graded over the whole vault's links (not the
+// published slice), which is the point of it: a note is the same size in the published graph as it
+// is in the workspace it came from.
+func vaultEdges(st *store.Store, inSet map[int64]bool) ([]edge, map[int64]int, error) {
 	g, err := st.FullGraph()
 	if err != nil {
-		return nil, fmt.Errorf("graph: %w", err)
+		return nil, nil, fmt.Errorf("graph: %w", err)
 	}
 	var edges []edge
 	for _, e := range g.Edges {
@@ -163,7 +169,11 @@ func vaultEdges(st *store.Store, inSet map[int64]bool) ([]edge, error) {
 			edges = append(edges, edge{src: e.SourceID, dst: e.TargetID})
 		}
 	}
-	return edges, nil
+	grades := make(map[int64]int, len(g.Nodes))
+	for _, n := range g.Nodes {
+		grades[n.NoteID] = n.Size
+	}
+	return edges, grades, nil
 }
 
 // docTasks parses a source body's task lines for the published bundle, or nil when it has none.
