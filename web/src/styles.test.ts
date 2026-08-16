@@ -89,6 +89,15 @@ describe("tab strip", () => {
     expect(phone).toMatch(/\.tab\.active\s*\{[^}]*flex:\s*1\s+0\s+100%/);
   });
 
+  // The wide frame is for the title's sake, so on a short title it says nothing on its own — twice
+  // the width in the same book as its neighbours is just a long tab. The mark says it instead: a dot
+  // where the line starts, and the tabs behind it a step fainter.
+  it("marks the active tab rather than only widening it", () => {
+    expect(ruleBody(".tab.active .tab-label::before")).toMatch(/background:\s*var\(--mark\)/);
+    expect(ruleBody(".tab")).toMatch(/color:\s*var\(--faint\)/);
+    expect(ruleBody(".tab.active")).toMatch(/color:\s*var\(--text\)/);
+  });
+
   // A vault name is free-form; the title it annotates is the point of the tab.
   it("keeps the vault name to a corner of the frame", () => {
     const layout = ruleBody(".tab-label .tab-vault");

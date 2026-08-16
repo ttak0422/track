@@ -364,9 +364,16 @@ The strip is a line of titles on the sheet, not a bar of chrome.
   row pairs its open action with a close button (variant 7), so dismissing an
   overflowed tab costs no page switch — which on a phone, where the strip holds
   one tab, would be the whole trip.
-- The active tab is marked by `border-bottom: 2px solid var(--mark)` plus
-  `font-weight: 500` — never a fill or a box. Inactive tabs are `--muted` with
-  no border, and a hairline under the whole strip separates it from the note.
+- The active tab is marked by `border-bottom: 2px solid var(--mark)`,
+  `font-weight: 500`, and a 5px `--mark` dot at the head of its title — never a
+  fill or a box. The dot is what the wide frame needs: twice the width set in
+  the same book as its neighbours reads as a tab that happens to be long, and a
+  short title leaves the extra room saying nothing at all. It marks the line
+  where the eye starts, while the underline goes on marking the strip's foot.
+  Inactive tabs are `--faint` — a step further back than chrome usually
+  stands, because the strip is read by finding the one title that is not faded
+  — with no border, and a hairline under the whole strip separates it from the
+  note.
 - **A tab's popup carries what the tab has no room for.** Hovering (or focusing)
   a tab opens a floating layer (variant 3) under the strip: one row holding its
   full title — wrapped rather than clipped — with float beside it. The full title
