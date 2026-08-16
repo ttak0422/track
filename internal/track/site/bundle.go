@@ -50,6 +50,7 @@ type doc struct {
 	tasks    *task.Set   // parsed task lines + state set, for the read-only board (nil = none)
 	props    []note.Prop // flattened typed properties (sidecar props + inline fields), shown read-only
 	up       []int64     // ids of the doc's parents ("up" relation), resolved by the input front-end; out-of-set ids are skipped
+	size     int         // the note's five-level graph grade (store.Graph's Size), so published nodes are sized like live ones
 }
 
 // edge is a directed [[link]] between two in-set docs.
@@ -133,6 +134,11 @@ type jsonGraphNode struct {
 	NoteID   string `json:"note_id"`
 	FileKind string `json:"file_kind"`
 	Title    string `json:"title"`
+	// Size is the note's five-level grade, carried so the published graph draws the vault's hubs at
+	// the same radius the live workspace does. Without it the client falls back to sizing by the
+	// degree of whatever slice it is drawing, and the published site was the one view where a note's
+	// size depended on which graph you were looking at.
+	Size int `json:"size,omitempty"`
 }
 
 type jsonGraphEdge struct {
@@ -436,7 +442,7 @@ func writeBundle(docs []doc, edges []edge, root int64, calendar, share bool, bas
 	// graph.json (whole published set).
 	nodes := make([]jsonGraphNode, 0, len(docs))
 	for _, d := range docs {
-		nodes = append(nodes, jsonGraphNode{NoteID: slugOf(&d), FileKind: kindOf(d), Title: d.title})
+		nodes = append(nodes, jsonGraphNode{NoteID: slugOf(&d), FileKind: kindOf(d), Title: d.title, Size: d.size})
 	}
 	gEdges := make([]jsonGraphEdge, 0, len(edges))
 	for _, e := range edges {

@@ -2,6 +2,7 @@ import { Link, Outlet, useNavigate, useRouterState } from "@tanstack/react-route
 import { GraphPanel } from "./GraphPanel";
 import { HierarchyMenu } from "./HierarchyMenu";
 import { BrandMark } from "./Logo";
+import { MobileDock } from "./MobileDock";
 import { FloatingLayer } from "./preview/FloatingLayer";
 import { FloatingProvider } from "./preview/floatingStore";
 import { SidebarSearch } from "./SidebarSearch";
@@ -151,6 +152,7 @@ export function Shell() {
         {isHero || isGraph || isCalendar || isNote ? null : <GraphPanel />}
         <FloatingLayer />
         <NotificationToast />
+        <MobileDock />
       </main>
       </TabsProvider>
       </FloatingProvider>

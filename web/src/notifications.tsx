@@ -65,6 +65,13 @@ export function NotificationToast() {
 
   return (
     <div className="notification-toast" role="alert">
+      {/* The bar shows how long the toast stays: the accent (--mark) drains over the lifetime,
+          matching the timeout above. It is the timer, drawn — the toast needs no other one. */}
+      <span
+        className="notification-timer"
+        style={{ animationDuration: `${toastLifetime}ms` }}
+        aria-hidden="true"
+      />
       {noteID ? (
         <button
           type="button"

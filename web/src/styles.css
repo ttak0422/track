@@ -418,6 +418,11 @@ img.theme-asset-dark {
   .spinner {
     animation-duration: 2s;
   }
+
+  /* The drain is decoration; the toast still dismisses on the same timer. */
+  .notification-timer {
+    display: none;
+  }
 }
 
 .home-hero {
@@ -681,6 +686,35 @@ img.theme-asset-dark {
 .note-icon {
   margin-right: 0.4em;
   font-weight: 400;
+}
+
+/* A note's state in a list row (design.md: label typography in a radius-sm chip). NEW says this
+   browser has never opened the note — the one thing to notice, so it takes the salient --mark;
+   stale says the note's last activity is over a year past, a quiet --faint warning. Both are
+   inline state, so the row keeps its own layout and the badge takes none of it. */
+.note-state-badge {
+  display: inline-block;
+  flex: none;
+  margin-left: 8px;
+  border-radius: var(--radius-sm);
+  padding: 1px 6px;
+  font-family: var(--font-mono);
+  font-size: calc(10px * var(--font-scale, 1));
+  font-weight: 500;
+  letter-spacing: 0.08em;
+  line-height: 1.5;
+  vertical-align: 0.15em;
+  white-space: nowrap;
+}
+
+.note-state-new {
+  color: var(--mark);
+  background: color-mix(in srgb, var(--mark) 12%, transparent);
+}
+
+.note-state-stale {
+  color: var(--faint);
+  background: var(--panel-soft);
 }
 
 .result-snippet {
@@ -1014,6 +1048,100 @@ img.theme-asset-dark {
   color: var(--text);
 }
 
+/* The phone's floating navigation (MobileDock): a round track logo over the reading surface that
+   drags anywhere and, tapped, fans its controls out in the half-circle facing away from the edge it
+   sits at. It replaces the foot dock on screens without a side rail, so it is hidden everywhere
+   else. The mark and its fan are floating layers (variant 3) — they hover over prose, so they keep
+   the panel surface and a soft shadow. */
+.mobile-dock {
+  display: none;
+}
+
+/* The mark itself: a 48px disc — a thumb's target — carrying the brand mark. touch-action: none
+   keeps the drag from scrolling the page underneath, and the pointer is captured so the drag does
+   not drop when the thumb crosses the button's edge.
+
+   The corner it starts in is written here rather than as a measured left/top, so a window that
+   changes size — a rotation, a devtools viewport — carries the mark with it without React hearing
+   about the resize. A drag replaces both offsets with a left/top pair (EDGE in MobileDock.tsx is
+   this same 12px, and the drag is clamped to it).
+
+   It is an ink disc like the buttons it fans (variant 9), and for the same reason: it floats over
+   the note, not over chrome. The brand mark draws its own ground — a near-black tile in light, a
+   white one in dark — so an inverted disc is the ground that tile already assumes: the tile settles
+   into the disc and the letter alone stands on it, instead of a pale square sitting inside a ring. */
+.mobile-dock-fab {
+  position: fixed;
+  z-index: 100;
+  right: 12px;
+  bottom: 12px;
+  display: grid;
+  width: 48px;
+  height: 48px;
+  place-items: center;
+  border: 0;
+  border-radius: 50%;
+  padding: 0;
+  background: var(--text);
+  box-shadow: 0 8px 24px color-mix(in srgb, #000 18%, transparent);
+  cursor: grab;
+  touch-action: none;
+  /* The mark blends against this disc (see .mobile-dock-mark) and nothing behind it. */
+  isolation: isolate;
+}
+
+.mobile-dock-fab:active {
+  cursor: grabbing;
+}
+
+.mobile-dock-mark {
+  width: 30px;
+  height: 30px;
+}
+
+/* Only the letter, not the tile it is drawn on. The brand mark is a tile — a near-black square with
+   a white letter in light, the reverse in dark — and on a disc that square is a second shape inside
+   the first. Blending it against the disc drops the ground and keeps the letter: the light tile's
+   ground is darker than the disc it sits on, so `lighten` resolves it to the disc, and the dark
+   tile's is lighter, so `darken` does the same. A configured site icon is untouched (it carries no
+   theme-asset class): a supplied image keeps its own colors, tile and all. */
+.mobile-dock-mark.theme-asset-light {
+  mix-blend-mode: lighten;
+}
+
+.mobile-dock-mark.theme-asset-dark {
+  mix-blend-mode: darken;
+}
+
+/* A fan button: an ink disc (variant 9), sized for a thumb — the 24px hit target of the rail's icon
+   button is a mouse's, a thumb lands closer to 44. The disc is inverted rather than a panel with a
+   hairline on it: it opens over prose, and a panel surface is a hair from the page's own, which left
+   a muted glyph on a near-invisible disc to be found among the words behind it. Ink fill and a
+   page-coloured glyph read as a control at a glance, and the pair swaps itself between themes. */
+.mobile-dock-fan-btn {
+  position: fixed;
+  z-index: 100;
+  display: grid;
+  width: 44px;
+  height: 44px;
+  place-items: center;
+  border: 0;
+  border-radius: 50%;
+  padding: 0;
+  color: var(--bg);
+  background: var(--text);
+  box-shadow: 0 6px 18px color-mix(in srgb, #000 14%, transparent);
+  cursor: pointer;
+}
+
+/* The glyph cannot ink further — it is already the page's colour on ink — so the aimed-at state
+   rings the disc in the salient instead of recolouring anything on it. */
+.mobile-dock-fan-btn:hover,
+.mobile-dock-fan-btn:focus-visible {
+  outline: 2px solid var(--mark);
+  outline-offset: 2px;
+}
+
 .graph-message {
   margin: 16px;
 }
@@ -1319,10 +1447,17 @@ a.calendar-title:focus-visible {
      early. The title inside already clips, so zero is the right floor. */
   min-width: 0;
   align-items: center;
-  color: var(--muted);
+  /* Faint, not muted: the strip is read by finding the one title that is not faded, so the tabs
+     behind the active one stand a step further back than chrome usually does. */
+  color: var(--faint);
 }
 
+/* The tab being read gets twice the frame (200% of the 168px basis), so the title that is actually
+   being read is the one that gets room. Closing it makes the next tab active and hands it the same
+   wide frame, so the close button keeps landing in the same place across a run of closes — the
+   invariant the single-width frame existed for is held by the active state, not by every tab. */
 .tab.active {
+  flex: 0 0 336px;
   color: var(--text);
   /* Ink over the strip's hairline — the mark, not a fill or a box. */
   box-shadow: inset 0 -2px 0 var(--mark);
@@ -1394,11 +1529,26 @@ a.calendar-title:focus-visible {
   display: none;
 }
 
-.tab-overflow-panel button {
+/* One row per overflowed tab: the open action takes the row, and close stands at its right end as
+   an icon button (variant 7) — a tab sent here could otherwise only be closed by opening it first,
+   and on a phone, where the strip holds one tab, this menu is the whole tab bar. */
+.tab-overflow-item {
+  display: flex;
+  align-items: center;
+  border-radius: var(--radius-sm);
+}
+
+.tab-overflow-item:hover,
+.tab-overflow-item:focus-within {
+  background: var(--panel-soft);
+}
+
+.tab-overflow-open {
   overflow: hidden;
+  flex: 1;
+  min-width: 0;
   padding: 7px 8px;
   border: 0;
-  border-radius: var(--radius-sm);
   color: var(--muted);
   background: transparent;
   font-size: calc(13px * var(--font-scale, 1));
@@ -1407,8 +1557,28 @@ a.calendar-title:focus-visible {
   white-space: nowrap;
 }
 
-.tab-overflow-panel button:hover,
-.tab-overflow-panel button:focus-visible {
+.tab-overflow-open:hover,
+.tab-overflow-open:focus-visible {
+  color: var(--text);
+}
+
+.tab-overflow-close {
+  display: grid;
+  flex: none;
+  width: 24px;
+  height: 24px;
+  margin-right: 4px;
+  place-items: center;
+  border: 0;
+  border-radius: var(--radius-sm);
+  padding: 0;
+  color: var(--muted);
+  background: transparent;
+  cursor: pointer;
+}
+
+.tab-overflow-close:hover,
+.tab-overflow-close:focus-visible {
   color: var(--text);
   background: var(--panel-soft);
 }
@@ -1703,6 +1873,14 @@ a.calendar-title:focus-visible {
 .note-menu-panel .danger-item:hover,
 .note-menu-panel .danger-item:focus-visible {
   color: var(--danger);
+}
+
+/* A touch pointer never hovers, so on a phone the destructive row would read exactly like the two
+   above it — and there the fan's panel is the only way to it. It wears its colour at rest instead. */
+@media (hover: none) {
+  .note-menu-panel .danger-item {
+    color: var(--danger);
+  }
 }
 
 /* Floating layer: the rail keeps only the current display-mode glyph; this labelled menu exposes
@@ -2906,52 +3084,51 @@ textarea.modal-input:focus-visible {
    rotation. The published static site is where this is felt (the live workspace is desk-bound), but
    both share it. */
 @media (hover: none), (max-width: 540px) {
+  /* The foot dock is gone: the floating mark (MobileDock) carries the same controls in a fan and
+     takes no strip of the window, so everything that pinned itself above the dock — the toast, the
+     graph launcher, the reader's last line — simply has its space back. */
   :root {
-    --foot-dock: calc(52px + env(safe-area-inset-bottom));
+    --foot-dock: 0px;
   }
 
-  /* The lane goes back to the reader; the foot is what the dock takes in its place. */
+  /* The lane goes back to the reader. */
   .reader {
     padding-left: 32px;
-    padding-bottom: calc(32px + var(--foot-dock));
   }
 
+  /* The side rail is the dock the mark replaces. It stays mounted — the "/" search chord and the
+     popups behind it still work through a hidden trigger — but takes no strip of the screen. */
   .sidebar {
-    top: auto;
-    right: 0;
-    bottom: 0;
-    left: 0;
-    /* One child spanning the window: no flex row to align it in. */
-    display: block;
-  }
-
-  /* A dock that spans the window is a foot rail, not a floating card: it gives up the radius and
-     keeps only the hairline that separates it from the sheet. The home indicator's strip is padding
-     rather than a gap, so the panel still runs to the physical edge behind it. */
-  .activity-rail {
-    flex-direction: row;
-    max-height: none;
-    border-width: 1px 0 0;
-    border-radius: 0;
-    padding: 4px 8px calc(4px + env(safe-area-inset-bottom));
-  }
-
-  .rail-scroll {
-    flex-direction: row;
-    overflow-x: auto;
-    overflow-y: hidden;
-  }
-
-  /* The hairline between the workspace's views and the open note's controls turns with the dock. */
-  .rail-divider {
-    width: 1px;
-    height: 20px;
-    margin: 0 4px;
+    display: none;
   }
 
   /* The guides point at the buttons of a dock that is no longer at the left edge. */
   .empty-guides {
     display: none;
+  }
+
+  /* A flyout from the mark takes the window (railAnchor pins it to inset: 8px), because the mark it
+     would hang from is dragged wherever the reader likes and a panel placed from that rect opened
+     somewhere new every time. So the widths that shaped a flyout beside the rail go: the box is the
+     window's, and a list too short to fill it leaves the rest empty. */
+  .note-menu-panel {
+    width: auto;
+    max-width: none;
+  }
+
+  .history-panel {
+    max-width: none;
+    max-height: none;
+  }
+
+  /* contents, not block: the dock is a child of the workspace grid, and a block box there is a row of
+     its own. Everything it holds is position: fixed, so that row measured zero and the grid split the
+     window between it and the reader — the reader kept a little over half the height, and the graph
+     (absolutely positioned inside it, so it contributes no height of its own to argue with) drew into
+     a box barely wider than the note aside's: too small to be allowed titles, and short enough that
+     the whole vault fitted in the blank half. Taking no box at all leaves the reader the window. */
+  .mobile-dock {
+    display: contents;
   }
 }
 
@@ -2977,6 +3154,13 @@ textarea.modal-input:focus-visible {
      read, and sends every other one to the +N menu beside it. A landscape phone and a tablet keep
      the ordinary strip: they have the width for several tabs, whatever their dock is doing. */
   .tab {
+    flex: 1 0 100%;
+  }
+
+  /* The active tab's wider frame belongs to a strip that fits several tabs; on a phone every tab
+     already fills the strip, so the active state keeps the phone's own width (its higher
+     specificity would otherwise win this one). */
+  .tab.active {
     flex: 1 0 100%;
   }
 
@@ -3573,11 +3757,12 @@ textarea.modal-input:focus-visible {
   color: var(--text);
 }
 
-/* The date cells double as their control, the same way the state cell does: a native date input
-   stripped to the cell's own text look, so picking a date is a click on what the row already shows.
-   A cell with no date reads as blank until the row is hovered or keyboard-focused — an untouched
-   table stays quiet rather than showing a row of empty inputs. */
-.markdown-view input.task-row-date-input {
+/* The date cells double as their control, the same way the state cell does: a button wearing the
+   cell's own text look, so picking a date is a click on what the row already shows — which opens
+   the workspace's own calendar (TaskDatePicker) rather than the browser's native one. A cell with
+   no date reads as blank until the row is hovered or keyboard-focused — an untouched table stays
+   quiet rather than showing a row of empty controls. */
+.markdown-view .task-row-date-input {
   appearance: none;
   -webkit-appearance: none;
   border: none;
@@ -3588,17 +3773,140 @@ textarea.modal-input:focus-visible {
   cursor: pointer;
 }
 
-.markdown-view input.task-row-date-input::-webkit-calendar-picker-indicator {
-  display: none;
-}
-
-.markdown-view input.task-row-date-input[data-empty] {
+.markdown-view .task-row-date-input[data-empty] {
   opacity: 0;
 }
 
-.markdown-view tr.task-row:hover input.task-row-date-input[data-empty],
-.markdown-view input.task-row-date-input[data-empty]:focus-visible {
+.markdown-view tr.task-row:hover .task-row-date-input[data-empty],
+.markdown-view .task-row-date-input[data-empty]:focus-visible {
   opacity: 1;
+}
+
+/* The date cell's own calendar (TaskDatePicker), a floating layer (variant 3) hung under the cell.
+   It is drawn in the workspace's tokens instead of the browser's native chrome, and its actions are
+   the two text controls DELETE and SAVE — a destructive choice reads as itself, not as a button. */
+.task-date-picker {
+  position: fixed;
+  z-index: 40;
+  width: 248px;
+  padding: 10px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-lg);
+  background: var(--panel);
+  box-shadow: 0 16px 38px color-mix(in srgb, #000 18%, transparent);
+}
+
+.task-date-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 8px;
+}
+
+.task-date-head button {
+  border: 0;
+  padding: 2px 8px;
+  color: var(--muted);
+  background: transparent;
+  font-size: calc(14px * var(--font-scale, 1));
+  line-height: 1.2;
+  cursor: pointer;
+}
+
+.task-date-head button:hover,
+.task-date-head button:focus-visible {
+  color: var(--text);
+}
+
+.task-date-month {
+  color: var(--text);
+  font-size: calc(13px * var(--font-scale, 1));
+  font-weight: 500;
+}
+
+.task-date-weekdays {
+  display: grid;
+  grid-template-columns: repeat(7, 1fr);
+  margin-bottom: 4px;
+}
+
+.task-date-weekdays span {
+  padding: 3px 0;
+  color: var(--faint);
+  font-family: var(--font-mono);
+  font-size: calc(10px * var(--font-scale, 1));
+  text-align: center;
+}
+
+.task-date-grid {
+  display: grid;
+  grid-template-columns: repeat(7, 1fr);
+  gap: 2px;
+}
+
+.task-date-day {
+  display: grid;
+  width: 100%;
+  height: 30px;
+  place-items: center;
+  border: 0;
+  border-radius: var(--radius-sm);
+  padding: 0;
+  color: var(--muted);
+  background: transparent;
+  font-size: calc(12px * var(--font-scale, 1));
+  cursor: pointer;
+}
+
+.task-date-day:hover,
+.task-date-day:focus-visible {
+  color: var(--text);
+  background: var(--panel-soft);
+}
+
+/* Today is where the mark's ring goes: the cursor's own place, said in the chrome's one color. */
+.task-date-today {
+  box-shadow: inset 0 0 0 1px var(--mark);
+}
+
+/* The working choice is a filled mark, like the modal's primary button: the one day this dialog is
+   about. */
+.task-date-day[aria-pressed="true"] {
+  color: #fff;
+  background: var(--mark);
+  font-weight: 600;
+}
+
+.task-date-actions {
+  display: flex;
+  justify-content: space-between;
+  margin-top: 10px;
+  border-top: 1px solid var(--line);
+  padding-top: 8px;
+}
+
+/* DELETE and SAVE are the picker's decisions, so they are text controls: muted, inking on hover,
+   the affirmative taking weight — nothing filled, nothing boxed. */
+.task-date-actions button {
+  border: 0;
+  padding: 4px 6px;
+  color: var(--muted);
+  background: transparent;
+  font-family: var(--font-mono);
+  font-size: calc(11px * var(--font-scale, 1));
+  font-weight: 500;
+  letter-spacing: 0.1em;
+  cursor: pointer;
+}
+
+.task-date-actions button:hover,
+.task-date-actions button:focus-visible {
+  color: var(--text);
+}
+
+/* SAVE is the affirmative of the two decisions, so it sits in full ink at rest. */
+.task-date-actions button.task-date-save {
+  color: var(--text);
 }
 
 .markdown-view tr.task-row-done td.task-row-text {
@@ -4272,7 +4580,9 @@ textarea.modal-input:focus-visible {
 }
 
 /* Floating layer: a toast reports something that already happened, so for the seconds it is up it
-   must clear the workspace rather than be covered by it. */
+   must clear the workspace rather than be covered by it. It is the one floating layer that gives up
+   its shadow — the countdown bar underneath says what the shadow would only imply — and the one
+   place a control carries the accent --mark as a fill. */
 .notification-toast {
   position: fixed;
   right: 20px;
@@ -4282,12 +4592,35 @@ textarea.modal-input:focus-visible {
   align-items: center;
   gap: 12px;
   max-width: min(440px, calc(100vw - 40px));
+  overflow: hidden;
   padding: 12px 14px;
   color: var(--text);
   background: var(--panel);
   border: 1px solid var(--line);
   border-radius: var(--radius-lg);
-  box-shadow: 0 12px 32px color-mix(in srgb, var(--text) 22%, transparent);
+}
+
+/* The drain: the accent bar runs the toast's foot and empties over the toast's own lifetime, so
+   "how long is this up" is read from the bar, not guessed. The duration comes inline from the
+   timeout the toast actually runs, so the two cannot drift apart. */
+.notification-timer {
+  position: absolute;
+  right: 0;
+  bottom: 0;
+  left: 0;
+  height: 3px;
+  background: var(--mark);
+  transform-origin: left;
+  animation: notification-drain linear forwards;
+}
+
+@keyframes notification-drain {
+  from {
+    transform: scaleX(1);
+  }
+  to {
+    transform: scaleX(0);
+  }
 }
 
 .notification-toast button {

@@ -1,6 +1,7 @@
 package store
 
 import (
+	"fmt"
 	"testing"
 
 	"github.com/ttak0422/track/internal/track/note"
@@ -36,6 +37,51 @@ func TestFullGraph(t *testing.T) {
 	}
 	if len(g.Edges) != 2 {
 		t.Fatalf("edges = %d, want 2: %+v", len(g.Edges), g.Edges)
+	}
+
+	// Sizes are the absolute five-level grade of each note's outgoing links: A writes 1 link (level
+	// 2), B writes 1 (level 2), C writes none (level 1).
+	sizes := map[int64]int{}
+	for _, n := range g.Nodes {
+		sizes[n.NoteID] = n.Size
+	}
+	for id, want := range map[int64]int{1: 2, 2: 2, 3: 1} {
+		if sizes[id] != want {
+			t.Errorf("note %d size = %d, want %d", id, sizes[id], want)
+		}
+	}
+
+	// A note that links a lot grades higher: 8 links is the top level, and the local graph around
+	// an unrelated note still reports the same absolute grade.
+	if err := s.ReplaceLinks(2, []int64{3, 1, 3, 1, 3, 1, 3, 1}); err != nil {
+		t.Fatal(err)
+	}
+	// (ReplaceLinks stores a set, so the repeated targets collapse; add distinct notes instead.)
+	extra := []int64{4, 5, 6, 7, 8, 9, 10}
+	for _, id := range extra {
+		if err := s.UpsertNote(&note.Note{ID: id, Path: fmt.Sprintf("/v/%d.md", id), Meta: note.Metadata{Title: fmt.Sprintf("N%d", id)}}); err != nil {
+			t.Fatalf("upsert %d: %v", id, err)
+		}
+	}
+	if err := s.ReplaceLinks(2, append([]int64{1, 3}, extra...)); err != nil {
+		t.Fatal(err)
+	}
+	full, err := s.FullGraph()
+	if err != nil {
+		t.Fatalf("full graph: %v", err)
+	}
+	local, err := s.LocalGraph(3)
+	if err != nil {
+		t.Fatalf("local graph: %v", err)
+	}
+	for _, g2 := range []Graph{full, local} {
+		byID := map[int64]int{}
+		for _, n := range g2.Nodes {
+			byID[n.NoteID] = n.Size
+		}
+		if byID[2] != 5 {
+			t.Errorf("note 2 (9 links) size = %d, want 5 in %+v", byID[2], g2)
+		}
 	}
 }
 

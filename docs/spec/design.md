@@ -297,6 +297,29 @@ links in it turns mottled the moment they carry one.
 - Unresolved wiki links keep `--danger` with a dotted underline — that is a
   warning, not decoration. A pending one is `--muted`.
 
+### 9. Ink disc — a thumb's target floating over prose
+
+A round control that sits on the reading surface with nothing behind it to
+rest on: the phone's floating mark and the buttons it fans. Variant 3's panel
+surface is a hair from the page's own, which left a muted glyph on a disc you
+had to find among the words behind it, so this one inverts — the fill is ink
+and the glyph is the page. The pair swaps itself between themes: a black disc
+with a white glyph in light, white with a black glyph in dark.
+
+- `background: var(--text)`, `color: var(--bg)`, no border,
+  `border-radius: 50%`, soft shadow. At least 44px: it is aimed at with a thumb.
+- Hover / `:focus-visible`: `outline: 2px solid var(--mark)` with a 2px
+  offset. The glyph cannot ink further — it is already the page's colour on
+  ink — so the aimed-at state rings the disc rather than recolouring it.
+- A disc carrying the brand mark shows the letter alone. The mark is a tile —
+  it draws its own ground, near-black in light and white in dark — and a square
+  inside the circle is a second shape, not a mark, so the tile is blended into
+  the disc: `mix-blend-mode: lighten` resolves the light tile's darker ground
+  to the disc it sits on, `darken` does the same for the dark tile's lighter
+  one, and the letter survives both. A configured site icon is left alone; a
+  supplied image keeps its own colors, tile and all.
+- Canonical: `.mobile-dock-fab`, `.mobile-dock-fan-btn`.
+
 ## Visualization blocks
 
 Charts and diagrams are content blocks, not numbered figures or cards. They
@@ -331,11 +354,24 @@ The strip is a line of titles on the sheet, not a bar of chrome.
   goes to the `+N` button at the right end, which lists the rest in a floating
   layer. Every tab is the same 168px, so no title crowds the others out and the
   close button lands in the same place on each; a longer title clips to the
-  frame with an ellipsis. The strip never scrolls sideways — a title you cannot
-  see is in the menu, not off the edge.
+  frame with an ellipsis. **The active tab takes twice the frame (336px)** — the
+  title being read is the one that gets room — and the invariant still holds:
+  closing the active tab hands the wide frame to the next one, so the close
+  button keeps landing where the last one was. A phone gives the active tab
+  nothing extra, because every tab already fills the strip there. The strip
+  never scrolls sideways — a title you cannot see is in the menu, not off the
+  edge. **A tab sent to the `+N` menu can be closed in the menu itself**: each
+  row pairs its open action with a close button (variant 7), so dismissing an
+  overflowed tab costs no page switch — which on a phone, where the strip holds
+  one tab, would be the whole trip.
 - The active tab is marked by `border-bottom: 2px solid var(--mark)` plus
-  `font-weight: 500` — never a fill or a box. Inactive tabs are `--muted` with
-  no border, and a hairline under the whole strip separates it from the note.
+  `font-weight: 500` — never a fill or a box. Inactive tabs are `--faint` — a
+  step further back than chrome usually stands, because the strip is read by
+  finding the one title that is not faded — with no border, and a hairline
+  under the whole strip separates it from the note. The strip carries only one
+  dot, and it belongs to the unsaved-changes state: a second one marking the
+  active tab read as "this tab is being edited", which is the one thing the
+  tab you are on cannot afford to be ambiguous about.
 - **A tab's popup carries what the tab has no room for.** Hovering (or focusing)
   a tab opens a floating layer (variant 3) under the strip: one row holding its
   full title — wrapped rather than clipped — with float beside it. The full title
@@ -365,6 +401,19 @@ The strip is a line of titles on the sheet, not a bar of chrome.
   since no hover will reveal it, and the popup carrying the full title is gone —
   a tab with the whole strip to itself has room to say what it is.
 
+## Task table
+
+The notation table's cells are their own controls, wearing the text they
+show: the state cell is a stripped select, a date cell a stripped button.
+
+- A date cell opens the workspace's own calendar (`TaskDatePicker`), not the
+  browser's native one: the native picker shows era years and a foreign
+  scheme, and it cannot be restyled. The picker is a floating layer (variant
+  3) anchored under the cell, with its own month navigation (text controls),
+  a day grid, and a footer of two text controls — `DELETE` and `SAVE`, muted
+  and inking, SAVE in full ink. Today wears the mark's ring; the working
+  choice is a filled mark.
+
 ## Sidebar and rail
 
 The note's aside is a quiet column; the rail is a floating dock over the sheet.
@@ -387,8 +436,16 @@ The note's aside is a quiet column; the rail is a floating dock over the sheet.
   words nor the row move.
 - The aside's graph draws its centre node filled with `--mark`, its other
   nodes filled with `--bg` and outlined 1px in `--line-node`, and its edges in
-  `--line-strong`. Hover and search highlighting are ink (`--text`), not the
-  salient: the match and its edges strengthen while everything else dims in
+  `--line-strong`. A node's radius carries its precomputed five-level grade
+  (1–5, from the note's own outgoing-link count, graded absolutely over the
+  whole vault) — the same size in every view, so the engine computes it once
+  and the canvas only draws it. The five radii are 4 / 6 / 8.5 / 12 / 17px:
+  each level about 1.4× the last, because a grade has to be legible from the
+  shape of the field rather than by comparing two dots side by side. The
+  centre keeps its focal 10px, or its own grade where that is larger. Hover
+  and search highlighting are ink
+  (`--text`), not the salient: the match and its edges strengthen while
+  everything else dims in
   place. Only the centre node stays `--mark`, highlighted or not — a frame
   frozen mid-hover must still say which note you are on, and it cannot if
   "where I am" and "what I am pointing at" wear the same colour. The graph
@@ -404,28 +461,42 @@ The note's aside is a quiet column; the rail is a floating dock over the sheet.
   and open-note controls share the dock in order. A menu hung off the dock sits
   on the same centre line (`.rail-menu-panel`) or is anchored to its own
   button's rect (`.mode-menu-panel`, `.hierarchy-panel`).
-- **A screen with no cursor, or a window under 540px, lays the dock along the
-  foot.** Both ask one question — is there reach and room for a rail down the
-  side? — and a phone answers no whichever way it is turned, which width alone
-  could not say: rotating one is 390px becoming 844px, and the dock jumped back
-  to the left edge halfway through the turn. A 64px lane is a quarter of a phone
-  besides, and the reader wants that width more than the dock wants a margin.
-  (What is *only* about width stays behind the 540px query: the tab frame filling
-  the strip, the reader's tighter margins. A landscape phone and a tablet have the
-  width for several tabs, whatever their dock is doing.)
-  Spanning the window the dock is a foot rail
-  rather than a floating card: no radius, one hairline along its top edge, and the
-  home indicator's strip taken as padding so the panel still reaches the physical
-  edge. The glyphs scroll sideways past what fits, and Settings holds the end of
-  the row as it held the foot of the column. The height it takes is `--foot-dock`,
-  and everything else pinned to the bottom corner — the graph launcher, the toast,
-  the reader's own last line — adds that token to its offset, so none of them
-  needs a breakpoint of its own: the token is `0px` while the dock is vertical.
-  A flyout has no room beside a button there, so it rises from the button's top
-  edge at the window's left margin (`railAnchor`). The workspace measures itself
-  in `dvh`, because a phone's `100vh` is the height with the toolbars retracted —
-  the foot of the reader, and the dock docked to it, sat behind the toolbar that
-  was actually on screen.
+- **A screen with no cursor, or a window under 540px, trades the rail for a
+  floating mark.** Both ask one question — is there reach and room for a rail
+  down the side? — and a phone answers no whichever way it is turned, which
+  width alone could not say: rotating one is 390px becoming 844px, and the
+  dock jumped back to the left edge halfway through the turn. A 64px lane is a
+  quarter of a phone besides, and the reader wants that width more than the
+  dock wants a margin. A foot rail spanning the window bought the reach with
+  a strip of the reading surface, so it is gone: a round track logo floats
+  over the reading surface instead (`MobileDock`), draggable anywhere, and a
+  tap fans its controls — search, history, the views, settings, and the open
+  note's own group — out in the arc facing away from the edges it rests
+  against: a half-circle against one edge, the quadrant between them in a
+  corner. The arc's radius grows with the number of buttons rather than the
+  buttons crowding along a fixed one — an arc too short for them ends with the
+  off-screen clamp stacking half the fan on a single point. Each of the
+  fan's popups is a rail panel unchanged (variant 3 + `.rail-panel-title`),
+  and the note group is the rail's own four controls (follow, display mode,
+  Meta, Delete) as one panel; the copy actions stay behind, since a phone's
+  own selection copies text. The mark and its fan buttons are ink discs
+  (variant 9) — inverted, unbordered, soft shadow — because they sit on the
+  prose itself rather than on chrome; the panel surface a rail button rests on
+  is a hair from the page's own, and a disc wearing it disappeared into the
+  words behind it. The brand tile is blended into the mark's disc so the letter
+  alone stands on it. The flyouts those buttons open are ordinary rail panels
+  (variant 3 + `.rail-panel-title`), but pinned to the window rather than to
+  the button: the mark is dragged wherever the reader likes, and a panel placed
+  from its rect opened somewhere new every time. They take the window the way
+  the full-page graph takes the reader, and a list too short to fill that box
+  leaves the rest of it empty — where a panel opens matters more than how much
+  of it is used. The mark floats above them and closes them.
+  The rail stays mounted behind it (the `/` search chord and the popups still
+  work) but takes no strip of the window: `--foot-dock` stays `0px`, and
+  nothing below needs a breakpoint of its own. (What is *only* about width
+  stays behind the 540px query: the tab frame filling the strip, the reader's
+  tighter margins. A landscape phone and a tablet have the width for several
+  tabs, whatever their dock is doing.)
 - **A rail panel names itself.** A flyout opens away from the glyph that
   summoned it, and a panel of rows says nothing about which glyph that was, so
   each carries a `.rail-panel-title` — the section label recipe again (variant

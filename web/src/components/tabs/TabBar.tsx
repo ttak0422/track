@@ -1,5 +1,5 @@
 import { useNavigate } from "@tanstack/react-router";
-import { type MouseEvent, useEffect, useLayoutEffect, useRef, useState } from "react";
+import { type MouseEvent, useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
 import type { NoteID } from "../../types";
 import { vaultOf } from "../../vaultId";
 import { initialPreviewBounds } from "../preview/bounds";
@@ -22,8 +22,13 @@ export function TabBar() {
   const capRef = useRef(Number.POSITIVE_INFINITY);
   const [width, setWidth] = useState(0);
 
-  useEffect(() => {
-    const strip = stripRef.current;
+  // Observed through the ref callback, not a mount effect: the strip does not exist until the tabs are
+  // restored (a post-paint effect), so an effect on mount ran while stripRef was still null and never
+  // observed anything. The count then froze at whatever the first geometry produced, and a window
+  // narrowed after load — a phone rotating, devtools switching to a phone size — kept it: the tabs
+  // that no longer fit simply overflowed under the +N menu instead of moving into it.
+  const observeStrip = useCallback((strip: HTMLDivElement | null) => {
+    stripRef.current = strip;
     if (!strip || typeof ResizeObserver === "undefined") return;
     const observer = new ResizeObserver(([entry]) => setWidth(entry.contentRect.width));
     observer.observe(strip);
@@ -68,7 +73,7 @@ export function TabBar() {
 
   return (
     <div className="tabstrip">
-      <div className="tabbar" role="list" aria-label="Open notes" ref={stripRef}>
+      <div className="tabbar" role="list" aria-label="Open notes" ref={observeStrip}>
         {visible.map((tab) => {
           const active = tab.id === activeID;
           const label = tab.title || "Untitled";
@@ -133,14 +138,24 @@ export function TabBar() {
           );
         })}
       </div>
-      {hidden.length > 0 ? <TabOverflow tabs={hidden} onOpen={openTab} /> : null}
+      {hidden.length > 0 ? <TabOverflow tabs={hidden} onOpen={openTab} onClose={close} /> : null}
     </div>
   );
 }
 
 // TabOverflow lists the open notes the strip had no room for. Opening one makes it the active note,
 // which puts it at the front of the strip — the menu is a way back to a note, not a second tab bar.
-function TabOverflow({ tabs, onOpen }: { tabs: NoteTab[]; onOpen: (id: NoteID) => void }) {
+// Close stands beside each row: a tab sent here could otherwise only be closed by opening it first,
+// and on a phone, where the strip holds one tab, the menu is the whole tab bar.
+function TabOverflow({
+  tabs,
+  onOpen,
+  onClose,
+}: {
+  tabs: NoteTab[];
+  onOpen: (id: NoteID) => void;
+  onClose: (id: NoteID) => void;
+}) {
   const [open, setOpen] = useState(false);
   const ref = useRef<HTMLDivElement>(null);
 
@@ -182,18 +197,39 @@ function TabOverflow({ tabs, onOpen }: { tabs: NoteTab[]; onOpen: (id: NoteID) =
       {open ? (
         <div className="tab-overflow-panel" role="menu">
           {tabs.map((tab) => (
-            <button
-              key={tab.id}
-              type="button"
-              role="menuitem"
-              title={tab.title || "Untitled"}
-              onClick={() => {
-                setOpen(false);
-                onOpen(tab.id);
-              }}
-            >
-              {tab.title || "Untitled"}
-            </button>
+            <div key={tab.id} role="menuitem" className="tab-overflow-item">
+              <button
+                type="button"
+                className="tab-overflow-open"
+                title={tab.title || "Untitled"}
+                onClick={() => {
+                  setOpen(false);
+                  onOpen(tab.id);
+                }}
+              >
+                {tab.title || "Untitled"}
+              </button>
+              <button
+                type="button"
+                className="tab-overflow-close"
+                aria-label={`Close ${tab.title || "Untitled"}`}
+                onClick={() => onClose(tab.id)}
+              >
+                <svg
+                  viewBox="0 0 24 24"
+                  width="12"
+                  height="12"
+                  fill="none"
+                  stroke="currentColor"
+                  strokeWidth="2"
+                  strokeLinecap="round"
+                  aria-hidden="true"
+                >
+                  <line x1="6" y1="6" x2="18" y2="18" />
+                  <line x1="18" y1="6" x2="6" y2="18" />
+                </svg>
+              </button>
+            </div>
           ))}
         </div>
       ) : null}

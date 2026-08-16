@@ -29,9 +29,11 @@ describe("SearchPanel groups", () => {
     const headings = screen.getAllByRole("heading").map((h) => h.textContent);
     expect(headings).toEqual(["Titles", "Full text", "File name"]);
 
-    // Reading order is the grouping: the named note comes last, not folded into Titles.
+    // Reading order is the grouping: the named note comes last, not folded into Titles. A NEW badge
+    // rides each title (nothing was ever opened in this test's fresh storage), so titles are matched
+    // by prefix.
     const shown = [...container.querySelectorAll("a")].map((link) => link.textContent);
-    expect(shown).toEqual(["Titled", "Bodied", "Named"]);
+    expect(shown).toEqual(["TitledNEW", "BodiedNEW", "NamedNEW"]);
   });
 
   // The query is shared state, so a search that stayed set kept its hits on screen behind the host

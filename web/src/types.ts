@@ -272,6 +272,9 @@ export interface GraphNode {
   path?: string;
   title: string;
   center?: boolean;
+  // The note's precomputed size grade (1–5), absolute across views. Absent (an older bundle, an
+  // orphan report) means the client falls back to its own degree-based sizing.
+  size?: number;
 }
 
 export interface GraphEdge {

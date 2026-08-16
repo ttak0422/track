@@ -81,6 +81,23 @@ describe("tab strip", () => {
     expect(title).toMatch(/text-overflow:\s*ellipsis/);
   });
 
+  // The tab being read is the one whose title matters, so it takes twice the frame; closing it hands
+  // the wide frame to the next active tab, keeping the close button's landing spot stable.
+  it("gives the active tab twice the frame, except on a phone", () => {
+    expect(ruleBody(".tab.active")).toMatch(/flex:\s*0\s+0\s+336px/);
+    const phone = mediaBody("(max-width: 540px)");
+    expect(phone).toMatch(/\.tab\.active\s*\{[^}]*flex:\s*1\s+0\s+100%/);
+  });
+
+  // The strip is read by finding the one title that is not faded, so the gap between the tab being
+  // read and the rest is wider than chrome's usual muted/ink pair. It is carried by the type, not by
+  // a second dot: the strip already has one, and it means unsaved changes.
+  it("stands the active tab out by ink against faint, with no dot of its own", () => {
+    expect(ruleBody(".tab")).toMatch(/color:\s*var\(--faint\)/);
+    expect(ruleBody(".tab.active")).toMatch(/color:\s*var\(--text\)/);
+    expect(css).not.toMatch(/\.tab\.active[^{]*::before/);
+  });
+
   // A vault name is free-form; the title it annotates is the point of the tab.
   it("keeps the vault name to a corner of the frame", () => {
     const layout = ruleBody(".tab-label .tab-vault");
@@ -108,6 +125,31 @@ describe("tab strip", () => {
     for (const rule of rules.slice(1)) {
       expect(rule).not.toMatch(/background|border-radius|padding/);
     }
+  });
+});
+
+describe("note state badges", () => {
+  it("writes NEW in the salient and stale in faint, as label-typography chips", () => {
+    const badge = ruleBody(".note-state-badge");
+
+    expect(badge).toMatch(/font-family:\s*var\(--font-mono\)/);
+    expect(badge).toMatch(/border-radius:\s*var\(--radius-sm\)/);
+    expect(ruleBody(".note-state-new")).toMatch(/color:\s*var\(--mark\)/);
+    expect(ruleBody(".note-state-stale")).toMatch(/color:\s*var\(--faint\)/);
+  });
+});
+
+describe("notification toast", () => {
+  it("gives up its shadow for the countdown bar, which drains in the accent", () => {
+    const toast = ruleBody(".notification-toast");
+
+    expect(toast).not.toMatch(/box-shadow/);
+    expect(toast).toMatch(/overflow:\s*hidden/);
+    // The main rule carries the accent fill; the reduced-motion override hides the bar instead.
+    const timer = css.match(/\.notification-timer\s*\{([^}]*background:\s*var\(--mark\)[^}]*)\}/)?.[1] ?? "";
+    expect(timer).toMatch(/animation:\s*notification-drain/);
+    expect(css).toMatch(/@keyframes notification-drain/);
+    expect(ruleBody(".notification-timer")).toMatch(/display:\s*none/);
   });
 });
 
@@ -312,22 +354,49 @@ describe("phone width", () => {
   // is not width alone — rotating one used to send the dock back to the left edge.
   const footDock = mediaBody("(hover: none), (max-width: 540px)");
 
-  it("lays the dock along the foot of the window", () => {
-    expect(footDock).toMatch(/\.sidebar\s*\{[^}]*top:\s*auto/);
-    expect(footDock).toMatch(/\.sidebar\s*\{[^}]*bottom:\s*0/);
-    expect(footDock).toMatch(/\.activity-rail\s*\{[^}]*flex-direction:\s*row/);
-    expect(footDock).toMatch(/\.rail-scroll\s*\{[^}]*flex-direction:\s*row/);
+  it("replaces the foot dock with the floating mark", () => {
+    // contents, never a box: the dock is a child of the workspace grid, and a box there takes a row
+    // from the reader — everything the dock holds is fixed, so the row it took measured zero and the
+    // grid handed it half the window anyway.
+    expect(footDock).toMatch(/\.mobile-dock\s*\{[^}]*display:\s*contents/);
+    expect(footDock).toMatch(/\.sidebar\s*\{[^}]*display:\s*none/);
+    // The mark's fan is the dock's buttons; the dock's strip goes back to the reader.
+    expect(footDock).toMatch(/--foot-dock:\s*0px/);
     // railAnchor places the flyouts and has to ask exactly the same question.
     expect(railAnchor).toContain('"(hover: none), (max-width: 540px)"');
   });
 
+  it("hides the mark everywhere the side rail is reachable", () => {
+    expect(ruleBody(".mobile-dock")).toMatch(/display:\s*none/);
+  });
+
+  // The fan opens over the prose, where the panel surface is a hair from the page behind it and a
+  // muted glyph on it has to be found among the words. The ink disc (variant 9) inverts instead, and
+  // the two tokens swap themselves between the themes — black on white one way, white on black the
+  // other — which is the whole reason it is written as a pair and not as two colours.
+  it("draws the mark and its fan as ink discs, not bordered panels", () => {
+    const disc = ruleBody(".mobile-dock-fan-btn");
+    expect(disc).toMatch(/background:\s*var\(--text\)/);
+    expect(disc).toMatch(/color:\s*var\(--bg\)/);
+    expect(disc).toMatch(/border:\s*0/);
+    // The mark is the same disc: it floats on the same prose, and the brand tile it carries draws
+    // the inverted ground itself, so a panel-surfaced mark put a pale square inside a ring.
+    const mark = ruleBody(".mobile-dock-fab");
+    expect(mark).toMatch(/background:\s*var\(--text\)/);
+    expect(mark).toMatch(/border:\s*0/);
+    // And only the letter stands on it: the tile the brand mark draws it on is blended into the
+    // disc, since a square inside the circle is a second shape rather than a mark.
+    expect(ruleBody(".mobile-dock-mark.theme-asset-light")).toMatch(/mix-blend-mode:\s*lighten/);
+    expect(ruleBody(".mobile-dock-mark.theme-asset-dark")).toMatch(/mix-blend-mode:\s*darken/);
+    // Nothing on the disc can ink further, so being aimed at rings it instead.
+    expect(ruleBody(".mobile-dock-fan-btn:focus-visible")).toMatch(/outline:[^;]*var\(--mark\)/);
+  });
+
   // The dock's height is one measurement. Everything pinned to the bottom corner adds it, which is
-  // why none of them needs a media query of its own — the token is zero while the dock is vertical.
-  it("clears the foot dock from a single measurement", () => {
+  // why none of them needs a media query of its own — the token is zero while the dock is vertical,
+  // and stays zero now that the dock is a floating mark instead of a strip.
+  it("keeps the pinned chrome off the dock from a single measurement", () => {
     expect(ruleBody(":root")).toMatch(/--foot-dock:\s*0px/);
-    expect(footDock).toMatch(/--foot-dock:\s*calc\(/);
-    expect(footDock).toMatch(/\.reader\s*\{[^}]*var\(--foot-dock\)/);
-    expect(phone).toMatch(/\.reader\s*\{[^}]*var\(--foot-dock\)/);
 
     for (const selector of [
       ".graph-panel",

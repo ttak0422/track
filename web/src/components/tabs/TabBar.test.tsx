@@ -61,6 +61,27 @@ describe("TabBar", () => {
     expect(screen.getAllByRole("button", { name: "Float this note" })).toHaveLength(2);
   });
 
+  // The strip is absent from the first render — the open tabs arrive in an effect — so an observer
+  // bound on mount watched nothing at all, and the tab count then answered no resize for the rest of
+  // the session: narrowing the window left the tabs that no longer fit overflowing under the +N menu
+  // instead of moving into it.
+  it("observes the strip even though it mounts a frame late", () => {
+    const observed: string[] = [];
+    vi.stubGlobal(
+      "ResizeObserver",
+      class {
+        observe(el: Element) {
+          observed.push(el.className);
+        }
+        unobserve() {}
+        disconnect() {}
+      },
+    );
+    renderStrip();
+    expect(observed).toContain("tabbar");
+    vi.unstubAllGlobals();
+  });
+
   it("opens a tab when its title is clicked", () => {
     renderStrip();
     routerMock.navigate.mockClear();
@@ -93,9 +114,36 @@ describe("TabBar", () => {
     expect(screen.getAllByRole("menuitem")).toHaveLength(4);
 
     routerMock.navigate.mockClear();
-    fireEvent.click(screen.getAllByRole("menuitem")[0]);
+    // The row's open action is the button inside the menuitem row (close rides beside it).
+    fireEvent.click(screen.getAllByRole("menuitem")[0].querySelector(".tab-overflow-open")!);
     expect(routerMock.navigate).toHaveBeenCalled();
     expect(screen.queryByRole("menuitem")).not.toBeInTheDocument(); // opening one closes the menu
+  });
+
+  it("closes an overflowed tab from the menu, without opening it first", () => {
+    const view = renderStrip();
+    for (const id of ["b2", "c3", "d4", "e5", "f6"]) {
+      routerMock.pathname = `/notes/${id}`;
+      view.rerender(strip());
+    }
+    const bar = screen.getByRole("list");
+    Object.defineProperty(bar, "clientWidth", { configurable: true, get: () => 400 });
+    Object.defineProperty(bar, "scrollWidth", {
+      configurable: true,
+      get: () => bar.querySelectorAll(".tab").length * 150,
+    });
+    view.rerender(strip());
+    fireEvent.click(screen.getByRole("button", { name: "4 more open notes" }));
+
+    // A tab in the menu can be dismissed in place; the strip does not need the page switch that
+    // would come with opening it. The active tab never reaches the menu, so its own close is safe.
+    routerMock.navigate.mockClear();
+    const closers = screen.getAllByRole("button", { name: /^Close / });
+    expect(closers.length).toBeGreaterThanOrEqual(4);
+    fireEvent.click(closers[closers.length - 1]);
+    expect(routerMock.navigate).not.toHaveBeenCalled();
+    // One fewer row; the menu stays open so a run of closes is one gesture.
+    expect(screen.getAllByRole("menuitem")).toHaveLength(3);
   });
 
   it("offers no float button on a view tab, which has no note to float", () => {

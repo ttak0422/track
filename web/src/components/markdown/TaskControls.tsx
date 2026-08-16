@@ -1,5 +1,6 @@
 import type { Element } from "hast";
-import { type ReactNode, memo, useContext, useState } from "react";
+import { type CSSProperties, type ReactNode, memo, useContext, useEffect, useRef, useState } from "react";
+import { createPortal } from "react-dom";
 import { TaskBoardContext } from "./context";
 import { useSetTaskDateMutation, useSetTaskStateMutation } from "../../queries";
 import { STATIC_MODE } from "../../runtime";
@@ -110,67 +111,84 @@ const TaskCheckControl = memo(
 );
 
 // TaskRowDate is the scheduled/due cell. Read-only it is the marked date as written; where the note
-// can be written it is a native date input styled down to look like that same text, so picking a
-// date is a click on what it shows rather than a separate editing mode. An empty cell shows nothing
-// until the row is hovered or focused (the CSS reveals it), so an untouched table stays quiet.
+// can be written it is a button styled down to look like that same text, opening the custom picker
+// (TaskDatePicker) — the browser's own calendar shows era years and a garish native scheme, so the
+// cell opens one drawn in the workspace's own language instead. An empty cell shows nothing until
+// the row is hovered or focused (the CSS reveals it), so an untouched table stays quiet.
 function TaskRowDate({ field, value, line }: { field: DateField; value: string; line: number }) {
   const { noteID, item } = useTaskAtLine(line);
   const marker = field === "sched" ? "▷" : "!";
   if (!item) {
     return <>{value ? `${marker} ${value}` : ""}</>;
   }
-  return <TaskRowDateControl noteID={noteID} item={item} field={field} value={value} />;
+  return <TaskRowDateControl noteID={noteID} item={item} field={field} value={value} marker={marker} />;
 }
 
 // TaskRowDateControl is memoized on what it renders (the cell's date, the resolved task): a disk
 // refresh that leaves the line's task unchanged must not re-commit the input — re-applying its type
-// closes an open native date picker. The etag is read from the context at write time (see
-// TaskCheckControl), so a write always carries the current lock without re-rendering.
+// closes an open picker. The etag is read from the context at write time (see TaskCheckControl), so
+// a write always carries the current lock without re-rendering.
 const TaskRowDateControl = memo(
   function TaskRowDateControl({
     noteID,
     item,
     field,
     value,
+    marker,
   }: {
     noteID: NoteID;
     item: TaskItem;
     field: DateField;
     value: string;
+    marker: string;
   }) {
     const mutation = useSetTaskDateMutation(noteID);
     const { tasksRef } = useContext(TaskBoardContext);
+    const [pickerOpen, setPickerOpen] = useState(false);
+    const cellRef = useRef<HTMLButtonElement>(null);
+
+    // Committing from the picker: the picked day, or "" to clear the token. The line's own state is
+    // asserted at write time, like the state controls — a date picked against a task that has since
+    // moved is refused rather than written onto whatever the line became.
+    function commit(date: string) {
+      mutation.mutate({
+        line: item.line,
+        field,
+        date,
+        expect: item.state,
+        etag: tasksRef?.current.etag ?? "",
+      });
+      setPickerOpen(false);
+    }
+
     return (
-      <input
-        type="date"
-        className="task-row-date-input"
-        aria-label={field === "sched" ? "Scheduled date" : "Due date"}
-        value={value}
-        disabled={mutation.isPending}
-        data-empty={value === "" || undefined}
-        // The cell wears the note's own type and hides the browser's picker indicator, so a click would
-        // otherwise land in the date segments. showPicker opens the calendar the indicator would have
-        // opened, which keeps picking a date one click on what the cell already shows.
-        //
-        // The indicator we hide is a -webkit- pseudo, so Gecko still draws its own calendar button and
-        // toggles the picker from a system-group click listener — a second dispatch pass, after this
-        // handler. It would find the picker already open and close it. Cancelling the click makes that
-        // listener stand down (it returns early on defaultPrevented) and costs nothing elsewhere: no
-        // engine focuses a date segment on click, only on mousedown.
-        onClick={(event) => {
-          event.preventDefault();
-          event.currentTarget.showPicker?.();
-        }}
-        onChange={(event) =>
-          mutation.mutate({
-            line: item.line,
-            field,
-            date: event.currentTarget.value,
-            expect: item.state,
-            etag: tasksRef?.current.etag ?? "",
-          })
-        }
-      />
+      <>
+        <button
+          ref={cellRef}
+          type="button"
+          className="task-row-date-input"
+          aria-label={field === "sched" ? "Scheduled date" : "Due date"}
+          aria-haspopup="dialog"
+          aria-expanded={pickerOpen}
+          data-empty={value === "" || undefined}
+          disabled={mutation.isPending}
+          onClick={() => setPickerOpen(true)}
+        >
+          {value ? `${marker} ${value}` : ""}
+        </button>
+        {pickerOpen && cellRef.current
+          ? createPortal(
+              <TaskDatePicker
+                anchor={cellRef.current}
+                value={value}
+                onSave={(date) => commit(date)}
+                onClear={() => commit("")}
+                onClose={() => setPickerOpen(false)}
+              />,
+              document.body,
+            )
+          : null}
+      </>
     );
   },
   (prev, next) =>
@@ -179,6 +197,125 @@ const TaskRowDateControl = memo(
     prev.value === next.value &&
     sameTask(prev.item, next.item),
 );
+
+const WEEKDAYS = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
+
+// TaskDatePicker is the cell's own calendar: a floating layer (design.md variant 3) anchored under
+// the cell, with the workspace's tokens and its own text SAVE/DELETE instead of the browser's
+// native chrome. The month header navigates; a day click sets the working choice; SAVE writes it and
+// DELETE clears the token. Outside clicks and Escape close without writing.
+function TaskDatePicker({
+  anchor,
+  value,
+  onSave,
+  onClear,
+  onClose,
+}: {
+  anchor: HTMLElement;
+  value: string;
+  onSave: (date: string) => void;
+  onClear: () => void;
+  onClose: () => void;
+}) {
+  const panelRef = useRef<HTMLDivElement>(null);
+  const [month, setMonth] = useState(() => monthOf(value));
+  const [picked, setPicked] = useState(value);
+
+  useEffect(() => {
+    function onPointerDown(event: MouseEvent) {
+      if (!panelRef.current?.contains(event.target as Node)) onClose();
+    }
+    function onKeyDown(event: KeyboardEvent) {
+      if (event.key === "Escape") onClose();
+    }
+    document.addEventListener("mousedown", onPointerDown);
+    document.addEventListener("keydown", onKeyDown);
+    return () => {
+      document.removeEventListener("mousedown", onPointerDown);
+      document.removeEventListener("keydown", onKeyDown);
+    };
+  }, [onClose]);
+
+  // Anchor the panel under the cell, clamped into the window.
+  const rect = anchor.getBoundingClientRect();
+  const style: CSSProperties = {
+    top: Math.min(rect.bottom + 6, Math.max(8, window.innerHeight - 316)),
+    left: Math.min(Math.max(rect.left, 8), Math.max(8, window.innerWidth - 248)),
+  };
+
+  const year = month.getFullYear();
+  const monthNo = month.getMonth() + 1;
+  const daysInMonth = new Date(year, monthNo, 0).getDate();
+  const leadingBlanks = month.getDay();
+  const todayKey = dateKey(new Date());
+
+  function shiftMonth(delta: number) {
+    setMonth((current) => new Date(current.getFullYear(), current.getMonth() + delta, 1));
+  }
+
+  return (
+    <div className="task-date-picker" role="dialog" aria-label="Pick a date" ref={panelRef} style={style}>
+      <header className="task-date-head">
+        <button type="button" aria-label="Previous month" onClick={() => shiftMonth(-1)}>
+          ‹
+        </button>
+        <span className="task-date-month">
+          {year} / {pad2(monthNo)}
+        </span>
+        <button type="button" aria-label="Next month" onClick={() => shiftMonth(1)}>
+          ›
+        </button>
+      </header>
+      <div className="task-date-weekdays">
+        {WEEKDAYS.map((day) => (
+          <span key={day}>{day}</span>
+        ))}
+      </div>
+      <div className="task-date-grid">
+        {Array.from({ length: leadingBlanks }, (_, i) => (
+          <span className="task-date-blank" key={`blank-${i}`} />
+        ))}
+        {Array.from({ length: daysInMonth }, (_, i) => {
+          const key = `${year}-${pad2(monthNo)}-${pad2(i + 1)}`;
+          return (
+            <button
+              type="button"
+              className={`task-date-day${key === todayKey ? " task-date-today" : ""}`}
+              aria-pressed={key === picked}
+              key={key}
+              onClick={() => setPicked(key)}
+            >
+              {i + 1}
+            </button>
+          );
+        })}
+      </div>
+      <footer className="task-date-actions">
+        <button type="button" className="task-date-clear" onClick={onClear}>
+          DELETE
+        </button>
+        <button type="button" className="task-date-save" onClick={() => onSave(picked)}>
+          SAVE
+        </button>
+      </footer>
+    </div>
+  );
+}
+
+function monthOf(date: string): Date {
+  const match = /^(\d{4})-(\d{2})/.exec(date);
+  if (match) return new Date(Number(match[1]), Number(match[2]) - 1, 1);
+  const now = new Date();
+  return new Date(now.getFullYear(), now.getMonth(), 1);
+}
+
+function dateKey(date: Date): string {
+  return `${date.getFullYear()}-${pad2(date.getMonth() + 1)}-${pad2(date.getDate())}`;
+}
+
+function pad2(n: number): string {
+  return String(n).padStart(2, "0");
+}
 
 // TaskRowState is the state cell of a task-table row, and doubles as the state control: in the
 // live workspace it renders as a select stripped down to the badge's text look, writing through
