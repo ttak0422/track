@@ -346,7 +346,10 @@ describe("phone width", () => {
   const footDock = mediaBody("(hover: none), (max-width: 540px)");
 
   it("replaces the foot dock with the floating mark", () => {
-    expect(footDock).toMatch(/\.mobile-dock\s*\{[^}]*display:\s*block/);
+    // contents, never a box: the dock is a child of the workspace grid, and a box there takes a row
+    // from the reader — everything the dock holds is fixed, so the row it took measured zero and the
+    // grid handed it half the window anyway.
+    expect(footDock).toMatch(/\.mobile-dock\s*\{[^}]*display:\s*contents/);
     expect(footDock).toMatch(/\.sidebar\s*\{[^}]*display:\s*none/);
     // The mark's fan is the dock's buttons; the dock's strip goes back to the reader.
     expect(footDock).toMatch(/--foot-dock:\s*0px/);

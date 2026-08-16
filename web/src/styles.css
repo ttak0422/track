@@ -3105,8 +3105,14 @@ textarea.modal-input:focus-visible {
     display: none;
   }
 
+  /* contents, not block: the dock is a child of the workspace grid, and a block box there is a row of
+     its own. Everything it holds is position: fixed, so that row measured zero and the grid split the
+     window between it and the reader — the reader kept a little over half the height, and the graph
+     (absolutely positioned inside it, so it contributes no height of its own to argue with) drew into
+     a box barely wider than the note aside's: too small to be allowed titles, and short enough that
+     the whole vault fitted in the blank half. Taking no box at all leaves the reader the window. */
   .mobile-dock {
-    display: block;
+    display: contents;
   }
 }
 
