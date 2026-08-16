@@ -372,6 +372,10 @@ describe("phone width", () => {
     const mark = ruleBody(".mobile-dock-fab");
     expect(mark).toMatch(/background:\s*var\(--text\)/);
     expect(mark).toMatch(/border:\s*0/);
+    // And only the letter stands on it: the tile the brand mark draws it on is blended into the
+    // disc, since a square inside the circle is a second shape rather than a mark.
+    expect(ruleBody(".mobile-dock-mark.theme-asset-light")).toMatch(/mix-blend-mode:\s*lighten/);
+    expect(ruleBody(".mobile-dock-mark.theme-asset-dark")).toMatch(/mix-blend-mode:\s*darken/);
     // Nothing on the disc can ink further, so being aimed at rings it instead.
     expect(ruleBody(".mobile-dock-fan-btn:focus-visible")).toMatch(/outline:[^;]*var\(--mark\)/);
   });

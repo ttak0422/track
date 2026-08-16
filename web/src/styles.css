@@ -1086,6 +1086,8 @@ img.theme-asset-dark {
   box-shadow: 0 8px 24px color-mix(in srgb, #000 18%, transparent);
   cursor: grab;
   touch-action: none;
+  /* The mark blends against this disc (see .mobile-dock-mark) and nothing behind it. */
+  isolation: isolate;
 }
 
 .mobile-dock-fab:active {
@@ -1095,6 +1097,20 @@ img.theme-asset-dark {
 .mobile-dock-mark {
   width: 30px;
   height: 30px;
+}
+
+/* Only the letter, not the tile it is drawn on. The brand mark is a tile — a near-black square with
+   a white letter in light, the reverse in dark — and on a disc that square is a second shape inside
+   the first. Blending it against the disc drops the ground and keeps the letter: the light tile's
+   ground is darker than the disc it sits on, so `lighten` resolves it to the disc, and the dark
+   tile's is lighter, so `darken` does the same. A configured site icon is untouched (it carries no
+   theme-asset class): a supplied image keeps its own colors, tile and all. */
+.mobile-dock-mark.theme-asset-light {
+  mix-blend-mode: lighten;
+}
+
+.mobile-dock-mark.theme-asset-dark {
+  mix-blend-mode: darken;
 }
 
 /* A fan button: an ink disc (variant 9), sized for a thumb — the 24px hit target of the rail's icon

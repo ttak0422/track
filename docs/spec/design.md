@@ -311,9 +311,13 @@ with a white glyph in light, white with a black glyph in dark.
 - Hover / `:focus-visible`: `outline: 2px solid var(--mark)` with a 2px
   offset. The glyph cannot ink further — it is already the page's colour on
   ink — so the aimed-at state rings the disc rather than recolouring it.
-- A disc carrying the brand tile (which draws its own near-black or white
-  ground) inherits the same inversion: the tile settles into the disc and the
-  letter alone stands on it.
+- A disc carrying the brand mark shows the letter alone. The mark is a tile —
+  it draws its own ground, near-black in light and white in dark — and a square
+  inside the circle is a second shape, not a mark, so the tile is blended into
+  the disc: `mix-blend-mode: lighten` resolves the light tile's darker ground
+  to the disc it sits on, `darken` does the same for the dark tile's lighter
+  one, and the letter survives both. A configured site icon is left alone; a
+  supplied image keeps its own colors, tile and all.
 - Canonical: `.mobile-dock-fab`, `.mobile-dock-fan-btn`.
 
 ## Visualization blocks
@@ -474,7 +478,7 @@ The note's aside is a quiet column; the rail is a floating dock over the sheet.
   (variant 9) — inverted, unbordered, soft shadow — because they sit on the
   prose itself rather than on chrome; the panel surface a rail button rests on
   is a hair from the page's own, and a disc wearing it disappeared into the
-  words behind it. The brand tile settles into the inverted disc so the letter
+  words behind it. The brand tile is blended into the mark's disc so the letter
   alone stands on it. The flyouts those buttons open are ordinary rail panels
   (variant 3 + `.rail-panel-title`).
   The rail stays mounted behind it (the `/` search chord and the popups still
