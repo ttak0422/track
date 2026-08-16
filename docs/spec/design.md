@@ -297,6 +297,22 @@ links in it turns mottled the moment they carry one.
 - Unresolved wiki links keep `--danger` with a dotted underline — that is a
   warning, not decoration. A pending one is `--muted`.
 
+### 9. Ink disc — a thumb's target floating over prose
+
+A round control that opens over the reading surface with nothing behind it to
+rest on: the phone fan's buttons. Variant 3's panel surface is a hair from the
+page's own, which left a muted glyph on a disc you had to find among the words
+behind it, so this one inverts — the fill is ink and the glyph is the page.
+The pair swaps itself between themes: a black disc with a white glyph in
+light, white with a black glyph in dark.
+
+- `background: var(--text)`, `color: var(--bg)`, no border,
+  `border-radius: 50%`, soft shadow. At least 44px: it is aimed at with a thumb.
+- Hover / `:focus-visible`: `outline: 2px solid var(--mark)` with a 2px
+  offset. The glyph cannot ink further — it is already the page's colour on
+  ink — so the aimed-at state rings the disc rather than recolouring it.
+- Canonical: `.mobile-dock-fan-btn`.
+
 ## Visualization blocks
 
 Charts and diagrams are content blocks, not numbered figures or cards. They
@@ -453,6 +469,8 @@ The note's aside is a quiet column; the rail is a floating dock over the sheet.
   Meta, Delete) as one panel; the copy actions stay behind, since a phone's
   own selection copies text. The mark is a
   floating layer (variant 3): panel surface, hairline, radius, soft shadow.
+  Its fan buttons are ink discs (variant 9) — inverted, unbordered — because
+  they open over the prose itself rather than over the mark's own surface.
   The rail stays mounted behind it (the `/` search chord and the popups still
   work) but takes no strip of the window: `--foot-dock` stays `0px`, and
   nothing below needs a breakpoint of its own. (What is *only* about width

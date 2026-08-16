@@ -1092,8 +1092,11 @@ img.theme-asset-dark {
   height: 30px;
 }
 
-/* A fan button: the rail's icon button (variant 7) scaled to a thumb — the 24px hit target is a
-   mouse's, a thumb lands closer to 44 — standing on its own disc because it floats over prose. */
+/* A fan button: an ink disc (variant 9), sized for a thumb — the 24px hit target of the rail's icon
+   button is a mouse's, a thumb lands closer to 44. The disc is inverted rather than a panel with a
+   hairline on it: it opens over prose, and a panel surface is a hair from the page's own, which left
+   a muted glyph on a near-invisible disc to be found among the words behind it. Ink fill and a
+   page-coloured glyph read as a control at a glance, and the pair swaps itself between themes. */
 .mobile-dock-fan-btn {
   position: fixed;
   z-index: 100;
@@ -1101,18 +1104,21 @@ img.theme-asset-dark {
   width: 44px;
   height: 44px;
   place-items: center;
-  border: 1px solid var(--line);
+  border: 0;
   border-radius: 50%;
   padding: 0;
-  color: var(--muted);
-  background: var(--panel);
+  color: var(--bg);
+  background: var(--text);
   box-shadow: 0 6px 18px color-mix(in srgb, #000 14%, transparent);
   cursor: pointer;
 }
 
+/* The glyph cannot ink further — it is already the page's colour on ink — so the aimed-at state
+   rings the disc in the salient instead of recolouring anything on it. */
 .mobile-dock-fan-btn:hover,
 .mobile-dock-fan-btn:focus-visible {
-  color: var(--text);
+  outline: 2px solid var(--mark);
+  outline-offset: 2px;
 }
 
 .graph-message {
