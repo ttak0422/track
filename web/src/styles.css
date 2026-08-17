@@ -732,8 +732,12 @@ img.theme-asset-dark {
 }
 
 /* Tags are text, not chips: a muted #tag reads as a tag by its hash, so the pill outline is just
-   noise. */
-.tag-list span {
+   noise. A clickable tag is still text, so it drops the button chrome the UA would otherwise draw. */
+.tag-list span,
+.tag-list button {
+  padding: 0;
+  border: 0;
+  background: none;
   color: var(--muted);
   font-size: calc(12px * var(--font-scale, 1));
 }
@@ -742,11 +746,6 @@ img.theme-asset-dark {
    search instead of opening the note. Text control (variant 1), aligned with the result's padding. */
 .result-tags {
   padding: 0 10px 8px;
-}
-
-.result-tags button {
-  color: var(--muted);
-  font-size: calc(12px * var(--font-scale, 1));
 }
 
 .result-tags button:hover,
