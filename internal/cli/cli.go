@@ -94,6 +94,8 @@ func Run(args []string) int {
 		return cmdNav(rest)
 	case "agenda":
 		return cmdAgenda(rest)
+	case "agent":
+		return cmdAgent(rest)
 	case "graph":
 		return cmdGraph(rest)
 	case "web":
@@ -242,6 +244,12 @@ Usage:
                                         ancestor trail, root first, and the notes whose up points here.
                                         Takes no --title, and does not self-heal a stale index (JSON)
   track agenda [--date YYYY-MM-DD]       list notes created or updated on a calendar day (JSON)
+  track agent ls                        list live Claude Code sessions: reads ~/.claude, alive-checks
+                                        each record, and needs no vault (JSON)
+  track agent log <sessionId> [--tail N]
+                                        print the tail of a session transcript (default 50
+                                        user/assistant messages), its latest ai-title, and the PR
+                                        it created; no vault needed (JSON)
   track graph (--id N | --path P)       show a local link graph (JSON)
   track graph --orphans                 vault-wide link hygiene in one call: notes with no inbound link,
                                         and titles naming a parent scope no note owns (JSON)
