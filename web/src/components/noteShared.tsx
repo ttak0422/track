@@ -1,6 +1,7 @@
 import { Link, useLocation, useNavigate } from "@tanstack/react-router";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useAgendaQuery, useLocalGraphQuery } from "../queries";
+import { isNew } from "../reading";
 import { dateKey } from "./activityDates";
 import { GraphCanvas } from "./GraphCanvasLazy";
 import { headingElementID, tocEntries } from "./markdown/toc";
@@ -192,6 +193,9 @@ export function NoteAside({
                 params={{ noteId: String(backlink.note_id) }}
               >
                 {backlink.title}
+                {isNew(backlink.note_id) ? (
+                  <span className="note-state-badge note-state-new">NEW</span>
+                ) : null}
               </Link>
             ))}
           </div>
@@ -244,6 +248,9 @@ export function NoteAside({
                       params={{ noteId: String(item.note_id) }}
                     >
                       {item.title}
+                      {isNew(item.note_id) ? (
+                        <span className="note-state-badge note-state-new">NEW</span>
+                      ) : null}
                     </Link>
                   ))}
                 </div>
