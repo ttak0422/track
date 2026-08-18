@@ -41,20 +41,17 @@ describe("weekAlignedDates", () => {
 });
 
 describe("monthColumnLabels", () => {
-  it("names the first column and every column that opens a new month", () => {
+  it("names every column that opens a new month, and not the leading one", () => {
     // 2026-08-15 is a Saturday, so five whole weeks run from 2026-07-12 to that day.
     const dates = weekAlignedDates(new Date(2026, 7, 15), 5);
     expect(dates[0]).toBe("2026-07-12");
     // Columns open on 07-12, 07-19, 07-26, 08-02, 08-09 — August starts in the fourth.
-    expect(monthColumnLabels(dates)).toEqual([
-      { column: 0, label: "07" },
-      { column: 3, label: "08" },
-    ]);
+    expect(monthColumnLabels(dates)).toEqual([{ column: 3, label: "08" }]);
   });
 
-  it("still names a window that never leaves one month", () => {
+  it("leaves a window that never leaves one month uncaptioned", () => {
     const dates = weekAlignedDates(new Date(2026, 1, 21), 2); // 2026-02-21, a Saturday
-    expect(monthColumnLabels(dates)).toEqual([{ column: 0, label: "02" }]);
+    expect(monthColumnLabels(dates)).toEqual([]);
   });
 });
 

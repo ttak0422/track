@@ -17,16 +17,17 @@ export function weekAlignedDates(today: Date, weeks: number): string[] {
 }
 
 // monthColumnLabels names the week columns where a month begins, so the heatmap can caption its
-// columns the way GitHub's graph does. The first column is always named — a window narrow enough to
-// sit inside one month would otherwise say nothing about when it is — and every later column is named
-// only when its first day belongs to a new month. Numeric ("01".."12"), which needs no translation
-// and fits the column pitch two characters wide.
+// columns the way GitHub's graph does. Only months that actually open inside the window are named:
+// captioning the leading column too puts its label right next to the next month's whenever the window
+// starts a few days before a boundary, and a window that never leaves one month is better left
+// uncaptioned than crowded. Numeric ("01".."12"), which needs no translation and fits the column pitch
+// two characters wide.
 export function monthColumnLabels(dates: string[]): { column: number; label: string }[] {
   const labels: { column: number; label: string }[] = [];
-  let previous = "";
-  for (let column = 0; column * 7 < dates.length; column++) {
+  let previous = dates[0]?.slice(5, 7);
+  for (let column = 1; column * 7 < dates.length; column++) {
     const month = dates[column * 7].slice(5, 7);
-    if (column === 0 || month !== previous) {
+    if (month !== previous) {
       labels.push({ column, label: month });
     }
     previous = month;
