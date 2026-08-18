@@ -442,14 +442,6 @@ img.theme-asset-dark {
   text-align: center;
 }
 
-.home-logo {
-  /* Fixed size: don't scale down with the viewport width or shrink inside the flex column. */
-  width: 260px;
-  max-width: 100%;
-  height: auto;
-  flex: none;
-}
-
 .home-hero .search-panel {
   width: min(560px, 100%);
   flex: 0 1 auto;
