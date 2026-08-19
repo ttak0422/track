@@ -27,12 +27,17 @@ type Ref struct {
 // wikiLink matches a single-line [[...]] with no brackets inside, so [[a]b]] and [[]] do not match.
 var wikiLink = regexp.MustCompile(`\[\[([^\[\]]+)\]\]`)
 
-// Refs extracts every [[...]] occurrence in text, skipping fenced code blocks.
-// Links are single-line; references whose inner text is blank after trimming are ignored.
+// Refs extracts every [[...]] occurrence in text, skipping fenced code blocks and inline code spans
+// (for example, `[[x]]` is code, not a link). Links are single-line; references whose inner text is blank
+// after trimming are ignored. Offsets are always into the original line, so a skipped inline-code
+// link never shifts the byte positions of the links around it.
 func Refs(text string) []Ref {
 	var out []Ref
 	for _, line := range scannableLines(text) {
 		for _, m := range wikiLink.FindAllStringSubmatchIndex(line.Text, -1) {
+			if inlineCodeSpanAt(line.Text, m[0]) {
+				continue
+			}
 			inner := line.Text[m[2]:m[3]]
 			target, display := splitDisplay(inner)
 			anchor := splitAnchor(target)
@@ -344,4 +349,48 @@ func scannableLines(text string) []scannableLine {
 
 func isFence(line string) bool {
 	return strings.HasPrefix(strings.TrimSpace(line), "```")
+}
+
+// inlineCodeSpanAt reports whether byte offset pos in line sits inside an inline code span.
+// Spans follow the CommonMark rule: a run of N backticks opens a span that a later run of exactly N
+// backticks closes, runs of other lengths inside are literal content, and an unterminated opening run
+// is literal text too (so "`[[foo]]" still contains a link). A run's own backticks are not "inside";
+// only the content between the opening and closing runs is.
+func inlineCodeSpanAt(line string, pos int) bool {
+	i := 0
+	for i < len(line) {
+		if line[i] != '`' {
+			i++
+			continue
+		}
+		open := i
+		for i < len(line) && line[i] == '`' {
+			i++
+		}
+		openLen := i - open
+		closeEnd := -1
+		for j := i; j < len(line); {
+			if line[j] != '`' {
+				j++
+				continue
+			}
+			k := j
+			for k < len(line) && line[k] == '`' {
+				k++
+			}
+			if k-j == openLen {
+				closeEnd = k
+				break
+			}
+			j = k
+		}
+		if closeEnd == -1 {
+			continue // unterminated opening run: literal backticks, keep scanning
+		}
+		if pos > open && pos < closeEnd {
+			return true
+		}
+		i = closeEnd
+	}
+	return false
 }

@@ -38,6 +38,77 @@ func TestRefsSkipsFencedCode(t *testing.T) {
 	}
 }
 
+func TestRefsIgnoresInlineCode(t *testing.T) {
+	got := Refs("`[[foo]]` and [[bar]]")
+	want := []Ref{
+		// The backtick-wrapped [[foo]] is code, not a link; [[bar]] is real and its
+		// offsets still point into the original line, unchanged by the skipped match.
+		{Line: 0, StartByte: 16, EndByte: 19, OpenByte: 14, CloseByte: 21, Text: "bar", Display: "bar"},
+	}
+	if !reflect.DeepEqual(got, want) {
+		t.Fatalf("got %+v, want %+v", got, want)
+	}
+}
+
+func TestRefsIgnoresMultiBacktickInlineCode(t *testing.T) {
+	// A double-backtick span: [[foo]] is content, not a link.
+	if got := Refs("``[[foo]]``"); len(got) != 0 {
+		t.Fatalf("double-backtick span: expected no refs, got %+v", got)
+	}
+	// Content of a double-backtick span may itself hold single backticks.
+	if got := Refs("``a `b` [[foo]]``"); len(got) != 0 {
+		t.Fatalf("span with inner single backticks: expected no refs, got %+v", got)
+	}
+	// A real link beside a closed multi-backtick span still extracts, with original offsets.
+	got := Refs("``code`` and [[real]]")
+	want := []Ref{
+		{Line: 0, StartByte: 15, EndByte: 19, OpenByte: 13, CloseByte: 21, Text: "real", Display: "real"},
+	}
+	if !reflect.DeepEqual(got, want) {
+		t.Fatalf("got %+v, want %+v", got, want)
+	}
+}
+
+func TestRefsUnterminatedBackticksAreLiteral(t *testing.T) {
+	// A lone opening backtick never closes, so it is literal text and the links stay real.
+	got := Refs("`[[foo]] and [[bar]]")
+	want := []Ref{
+		{Line: 0, StartByte: 3, EndByte: 6, OpenByte: 1, CloseByte: 8, Text: "foo", Display: "foo"},
+		{Line: 0, StartByte: 15, EndByte: 18, OpenByte: 13, CloseByte: 20, Text: "bar", Display: "bar"},
+	}
+	if !reflect.DeepEqual(got, want) {
+		t.Fatalf("got %+v, want %+v", got, want)
+	}
+}
+
+func TestRefsInlineCodeWithFences(t *testing.T) {
+	// Fenced blocks stay skipped and inline code outside them is skipped too; only real links survive.
+	got := Refs("[[a]]\n```\n`[[b]]`\n```\n`[[c]]` and [[d]]")
+	want := []Ref{
+		{Line: 0, StartByte: 2, EndByte: 3, OpenByte: 0, CloseByte: 5, Text: "a", Display: "a"},
+		{Line: 4, StartByte: 14, EndByte: 15, OpenByte: 12, CloseByte: 17, Text: "d", Display: "d"},
+	}
+	if !reflect.DeepEqual(got, want) {
+		t.Fatalf("got %+v, want %+v", got, want)
+	}
+}
+
+func TestReplaceAndUnlinkSkipInlineCode(t *testing.T) {
+	// Rename and unlink rewriters share Refs, so inline-code links are never rewritten.
+	got, count := ReplaceRefKey("see `[[Old]]` and [[Old]]", "Old", "New")
+	if got != "see `[[Old]]` and [[New]]" || count != 1 {
+		t.Fatalf("ReplaceRefKey() = %q, %d; want %q, 1", got, count, "see `[[Old]]` and [[New]]")
+	}
+	got, count = ReplaceRefKey("`[[Old]]`\n```\n[[Old]]\n```", "Old", "New")
+	if got != "`[[Old]]`\n```\n[[Old]]\n```" || count != 0 {
+		t.Fatalf("ReplaceRefKey() = %q, %d; want input unchanged, 0", got, count)
+	}
+	got, count = UnlinkRefKeys("`[[Old]]` and [[Old|o]]", map[string]bool{"Old": true})
+	if got != "`[[Old]]` and o" || count != 1 {
+		t.Fatalf("UnlinkRefKeys() = %q, %d; want %q, 1", got, count, "`[[Old]]` and o")
+	}
+}
+
 func TestRefsTrimsInnerWhitespace(t *testing.T) {
 	got := Refs("[[  リンク  ]]")
 	if len(got) != 1 || got[0].Text != "リンク" {
