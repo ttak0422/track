@@ -262,6 +262,16 @@ describe("MarkdownView", () => {
     expect(within(table).getByText("2")).toBeInTheDocument();
   });
 
+  it("renders a br in a GFM table cell without enabling arbitrary HTML", () => {
+    const { container } = render(
+      <MarkdownView markdown={"| a | b |\n| --- | --- |\n| first<br/>second | 2 |"} />,
+    );
+    const cell = container.querySelector("tbody td");
+    expect(cell?.textContent).toMatch(/first\s+second/);
+    expect(cell?.querySelector("br")).toBeInTheDocument();
+    expect(container.querySelector("script")).toBeNull();
+  });
+
   it("keeps a plain GFM checklist as native checkboxes", () => {
     const { container } = render(<MarkdownView markdown={"- [ ] todo\n- [x] done"} />);
     expect(container.querySelectorAll("li.task-row")).toHaveLength(0);

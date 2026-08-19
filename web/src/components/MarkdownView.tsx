@@ -33,6 +33,7 @@ import { MermaidDiagram } from "./markdown/MermaidDiagram";
 import { MindmapDiagram } from "./markdown/MindmapDiagram";
 import {
   remarkAlert,
+  remarkBreakHTML,
   remarkBlockEmbed,
   remarkBlockID,
   remarkEmbedOptions,
@@ -175,6 +176,7 @@ export function MarkdownView({
     : bodyMarkdown;
   const remarkPlugins = [
     remarkGfm,
+    remarkBreakHTML,
     remarkAlert,
     remarkBlockID,
     remarkEmbedOptions,

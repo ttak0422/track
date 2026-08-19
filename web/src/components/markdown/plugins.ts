@@ -1,5 +1,5 @@
 import type { Element, Root as HastRoot, Text as HastText } from "hast";
-import type { Paragraph, Root as MdastRoot } from "mdast";
+import type { Break, Paragraph, Root as MdastRoot } from "mdast";
 import { visit } from "unist-util-visit";
 import { taskStates } from "../../taskStates";
 import type { TaskState } from "../../types";
@@ -8,6 +8,18 @@ import { headingElementID, headingSlug } from "./toc";
 // The [[target|display]] wiki-link grammar (target, optional |display alias). Shared with the portable
 // export so both flatten the same construct. It carries the /g flag; reset lastIndex before manual exec.
 export const wikiPattern = /\[\[([^\]|]+)(?:\|([^\]]+))?\]\]/g;
+
+// react-markdown intentionally drops raw HTML. Convert only the safe, presentational <br> tag to
+// mdast's native hard-break node so line breaks authored in table cells are preserved without
+// enabling arbitrary HTML.
+export function remarkBreakHTML() {
+  return (tree: MdastRoot) => {
+    visit(tree, "html", (node, index, parent) => {
+      if (!parent || index === undefined || !/^<br\s*\/?>(?:\s*)$/i.test(node.value)) return;
+      parent.children[index] = { type: "break" } satisfies Break;
+    });
+  };
+}
 
 // Block anchors: a trailing " ^id" marks a paragraph or list item as a link target the engine
 // resolves for [[Note#^id]] links and ![[Note#^id]] transclusions. The id grammar mirrors the
