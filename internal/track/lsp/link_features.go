@@ -260,7 +260,7 @@ func (s *Server) definition(uri string, pos position) (*location, error) {
 		return nil, err
 	}
 	for _, ref := range link.Refs(text) {
-		if !refContainsPosition(ref, pos) {
+		if !refContainsPosition(ref, pos) && !includeBangPos(text, ref, pos) {
 			continue
 		}
 		// A qualified ref jumps into its target vault; anchors resolve against that file.
@@ -335,6 +335,26 @@ func (s *Server) blockLine(path, id string) (int, bool) {
 
 func refContainsPosition(ref link.Ref, pos position) bool {
 	return ref.Line == int(pos.Line) && int(pos.Character) >= ref.OpenByte && int(pos.Character) < ref.CloseByte
+}
+
+// includeBangPos reports whether pos sits on the "!" that prefixes a block include
+// (![[...]]). Includes are block-level (link.Includes only accepts a whole-line directive), so
+// the "!" must be the first non-space byte of its line, immediately before the ref's "[[".
+// This lets Enter on the leading "!" of an include follow it, without treating a "!" that
+// happens to precede a plain inline [[...]] as a navigable span.
+func includeBangPos(text string, ref link.Ref, pos position) bool {
+	if ref.Line != int(pos.Line) || int(pos.Character) != ref.OpenByte-1 {
+		return false
+	}
+	lines := strings.Split(text, "\n")
+	if ref.Line < 0 || ref.Line >= len(lines) {
+		return false
+	}
+	line := lines[ref.Line]
+	trimmed := strings.TrimLeft(line, " \t")
+	// ref.OpenByte points at "[["; the "!" sits one byte earlier and must be the line's first
+	// non-space byte (block-level include prefix).
+	return len(line)-len(trimmed) == ref.OpenByte-1 && strings.HasPrefix(trimmed, "![[")
 }
 
 // keywordDict loads the auto-link dictionary keyed by term, so resolving each [[...]] is an O(1) lookup.

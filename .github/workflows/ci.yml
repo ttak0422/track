@@ -175,6 +175,12 @@ jobs:
           export TRACK_CACHE_DIR="$(mktemp -d)"
           nix run .#test-nvim -- --headless '+luafile scripts/e2e/nvim_link_completion_retrigger.lua'
 
+      - name: Neovim include <CR> E2E
+        run: |
+          export TRACK_VAULT="$(mktemp -d)"
+          export TRACK_CACHE_DIR="$(mktemp -d)"
+          nix run .#test-nvim -- --headless '+luafile scripts/e2e/nvim_include_cr.lua'
+
   # Reads this run's coverage profile and the one from the last main run, and comments the per-package
   # table and the change against main. Forks and Dependabot get no token that can comment, so they are
   # left out rather than failed. Runs without Nix: the action ships its own binary.
