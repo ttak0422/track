@@ -4,6 +4,8 @@ import { bodyHits, titleHits, type SearchCorpus, type SearchDoc } from "./static
 import { idParams, qualify, vaultParams } from "./vaultId";
 import type {
   ActivityResponse,
+  AgentLog,
+  AgentsResponse,
   AgendaResponse,
   AssetUploadResponse,
   DateField,
@@ -190,6 +192,20 @@ export function getHierarchy(): Promise<HierarchyResponse> {
     return staticData<HierarchyResponse>("hierarchy.json");
   }
   return api<HierarchyResponse>("/api/hierarchy");
+}
+
+export function getAgents(): Promise<AgentsResponse> {
+  if (STATIC_MODE) {
+    return Promise.resolve({ sessions: [] });
+  }
+  return api<AgentsResponse>("/api/agents");
+}
+
+export function getAgentLog(id: string, tail = 50): Promise<AgentLog> {
+  if (STATIC_MODE) {
+    return readOnly();
+  }
+  return api<AgentLog>(`/api/agent/log?id=${encodeURIComponent(id)}&tail=${tail}`);
 }
 
 export function listNotes(): Promise<NotesResponse> {

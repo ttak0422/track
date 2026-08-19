@@ -1,10 +1,12 @@
 version: 8
 title: CLI
 tags:
-- help/reference
-created: '2026-07-26'
+    - help/reference
+created: "2026-07-26"
+days:
+    - "2026-08-20"
 props:
-  section: reference
-  up: '[[track]]'
+    section: reference
+    up: '[[track]]'
 icon: ⌨️
 slug: 5bsKWpzrLcdY0SkLtwsCr9

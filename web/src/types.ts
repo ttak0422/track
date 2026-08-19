@@ -322,3 +322,56 @@ export interface SiteResponse {
   // the built-in brand mark.
   icon?: string;
 }
+
+export interface AgentNote {
+  note_id: NoteID;
+  title: string;
+}
+
+export type AgentStatus = "busy" | "shell" | "idle" | "waiting";
+
+export interface AgentSession {
+  pid: number;
+  sessionId: string;
+  cwd: string;
+  startedAt: number;
+  procStart: string;
+  version: string;
+  kind: "interactive" | "bg";
+  name: string;
+  updatedAt: number;
+  status: AgentStatus;
+  statusUpdatedAt: number;
+  waitingFor?: string;
+  note?: AgentNote;
+  branch?: string;
+}
+
+export interface AgentBlock {
+  type: "text" | "tool_use" | "tool_result" | "thinking" | string;
+  text?: string;
+  name?: string;
+  input?: unknown;
+  content?: unknown;
+}
+
+export interface AgentMessage {
+  type: "user" | "assistant";
+  uuid: string;
+  parentUuid: string;
+  timestamp: string;
+  cwd: string;
+  gitBranch: string;
+  message: AgentBlock[];
+}
+
+export interface AgentLog {
+  sessionId: string;
+  aiTitle?: string;
+  pr?: { number: number; url: string; repository: string };
+  messages: AgentMessage[];
+}
+
+export interface AgentsResponse {
+  sessions: AgentSession[];
+}

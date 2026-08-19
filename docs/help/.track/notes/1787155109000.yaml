@@ -1,0 +1,11 @@
+version: 6
+title: Agent sessions
+tags:
+    - help/reference
+created: "2026-08-20"
+days:
+    - "2026-08-20"
+props:
+    section: reference
+    up: '[[CLI]]'
+icon: "\U0001F916"

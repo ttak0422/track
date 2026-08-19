@@ -17,6 +17,7 @@ import { GraphFullView } from "./components/GraphFullView";
 import { NoteReader } from "./components/NoteReader";
 import { SearchHome } from "./components/SearchHome";
 import { TasksView } from "./components/TasksView";
+import { AgentsView } from "./components/AgentsView";
 import { RecentNotes } from "./components/RecentNotes";
 import { NewNotes } from "./components/NewNotes";
 import { Shell } from "./components/Shell";
@@ -57,6 +58,12 @@ const tasksRoute = createRoute({
   getParentRoute: () => rootRoute,
   path: "/tasks",
   component: () => <TasksView />,
+});
+
+const agentsRoute = createRoute({
+  getParentRoute: () => rootRoute,
+  path: "/agents",
+  component: () => <AgentsView />,
 });
 
 const dayRoute = createRoute({
@@ -107,6 +114,7 @@ const routeTree = rootRoute.addChildren([
   graphRoute,
   calendarRoute,
   tasksRoute,
+  agentsRoute,
   dayRoute,
   tagRoute,
   emptyRoute,

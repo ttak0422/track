@@ -5,6 +5,8 @@ import {
   fetchAssetText,
   getActivity,
   getAgenda,
+  getAgentLog,
+  getAgents,
   getGraph,
   getHierarchy,
   getLocalGraph,
@@ -52,8 +54,27 @@ export const queryKeys = {
   ogp: (url: string) => ["ogp", url] as const,
   render: (body: string, vault = "") => ["render", vault, body] as const,
   assetText: (href: string) => ["assetText", href] as const,
+  agents: () => ["agents"] as const,
+  agentLog: (id: string) => ["agents", "log", id] as const,
   viewspec: (spec: string, vault = "") => ["viewspec", vault, spec] as const,
 };
+
+export function useAgents() {
+  return useQuery({
+    queryKey: queryKeys.agents(),
+    queryFn: getAgents,
+    refetchInterval: 2000,
+  });
+}
+
+export function useAgentLog(id: string, enabled = true) {
+  return useQuery({
+    queryKey: queryKeys.agentLog(id),
+    queryFn: () => getAgentLog(id),
+    enabled: enabled && id !== "",
+    placeholderData: keepPreviousData,
+  });
+}
 
 export function useActivityQuery(since: string, until: string) {
   return useQuery({
