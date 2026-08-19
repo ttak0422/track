@@ -409,6 +409,37 @@ func TestDefinitionFollowsSameNoteHeading(t *testing.T) {
 	}
 }
 
+func TestDefinitionOnIncludeBang(t *testing.T) {
+	srv, vault := setupServer(t)
+	uri := uriFromPath(filepath.Join(vault, "note", "200.md"))
+
+	// A block include: the cursor on the leading "!" must follow the include to its target.
+	srv.docs[uri] = "![[Go]]"
+	loc, err := srv.definition(uri, newPosition(0, 0))
+	if err != nil {
+		t.Fatalf("definition on include bang: %v", err)
+	}
+	if loc == nil || string(loc.URI) != uriFromPath(filepath.Join(vault, "note", "100.md")) {
+		t.Fatalf("expected definition from the include bang to Go, got %+v", loc)
+	}
+
+	// An indented include: the "!" is still the first non-space byte.
+	srv.docs[uri] = "  ![[Go]]"
+	loc, err = srv.definition(uri, newPosition(0, 2))
+	if err != nil || loc == nil {
+		t.Fatalf("indented include bang definition: loc=%+v err=%v", loc, err)
+	}
+	if string(loc.URI) != uriFromPath(filepath.Join(vault, "note", "100.md")) {
+		t.Fatalf("unexpected indented include uri: %+v", loc)
+	}
+
+	// A "!" that only precedes an inline [[...]] (not a block include) must NOT widen behavior.
+	srv.docs[uri] = "see ![[Go]]"
+	if loc, err := srv.definition(uri, newPosition(0, 4)); err != nil || loc != nil {
+		t.Fatalf("inline non-block bang must not define, got loc=%+v err=%v", loc, err)
+	}
+}
+
 func TestCompletionOffersHeadings(t *testing.T) {
 	srv, vault := setupServer(t)
 	targetURI := uriFromPath(filepath.Join(vault, "note", "100.md"))
