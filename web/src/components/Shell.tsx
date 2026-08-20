@@ -6,6 +6,7 @@ import { MobileDock } from "./MobileDock";
 import { FloatingLayer } from "./preview/FloatingLayer";
 import { FloatingProvider } from "./preview/floatingStore";
 import { SidebarSearch } from "./SidebarSearch";
+import { SidebarNew } from "./SidebarNew";
 import { SidebarHistory } from "./SidebarHistory";
 import { TabBar } from "./tabs/TabBar";
 import { TabsProvider } from "./tabs/tabsStore";
@@ -78,6 +79,7 @@ export function Shell() {
                   <BrandMark icon={site.data?.icon} className="rail-mark" />
                 </Link>
                 <SidebarSearch />
+                <SidebarNew />
                 <SidebarHistory />
                 {/* The published static site is read-only and cannot create journals. */}
                 {!STATIC_MODE && (
