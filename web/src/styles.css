@@ -3339,6 +3339,9 @@ textarea.modal-input:focus-visible {
   align-items: center;
   justify-content: space-between;
   gap: 8px;
+  padding: 4px;
+  border-radius: var(--radius);
+  background: var(--panel-soft);
 }
 
 /* The right end of the strip. The lightbox reuses the row as a floating cluster (see below), so the
@@ -3368,7 +3371,7 @@ textarea.modal-input:focus-visible {
 .mermaid-control:hover,
 .mermaid-control:focus-visible {
   border-radius: var(--radius-sm);
-  background: var(--panel-soft);
+  background: var(--panel);
   color: var(--text);
 }
 
