@@ -63,10 +63,9 @@ interface DiagramFrameProps {
 // fallback (message + source), and the fitted pan/zoom viewport with fold/copy/zoom controls.
 export function DiagramFrame({ state, source, sourceLang, label, className }: DiagramFrameProps) {
   const svg = state.status === "ready" ? state.svg : null;
-  const panZoom = usePanZoom(svg);
+  const panZoom = usePanZoom(svg, { persistenceKey: diagramStorageKey(sourceLang, source) });
   const [enlarged, setEnlarged] = useState(false);
   const lightboxPanZoom = usePanZoom(enlarged ? svg : null, {
-    collapseTall: false,
     centerOverflow: true,
   });
   const dialogRef = useRef<HTMLDialogElement>(null);
@@ -341,8 +340,8 @@ const mermaidFontPx = 16;
 // labelled control make the continuation explicit instead of shrinking the whole visualization to illegibility.
 const collapsedHeight = 320;
 
-// A diagram whose fitted height exceeds this starts collapsed, so tall visualizations never dominate a
-// page being skimmed; the fold button restores the full size.
+// A diagram whose fitted height exceeds this gets a fold button, so tall visualizations can be
+// compacted without forcing a permanent control onto small diagrams.
 const autoCollapseHeight = 480;
 
 // Pan (pointer drag) and zoom (wheel/buttons) applied as a CSS transform on the diagram. On first paint
@@ -351,19 +350,22 @@ const autoCollapseHeight = 480;
 // floor: a wider diagram keeps legible text, is clipped at the viewport edge, and pans (drag or
 // horizontal wheel), with `overflow` naming the clipped sides so the frame can fade them. The
 // viewport height is sized to the scaled diagram; reset returns to the fit, and the fit follows
-// container resizes until the user pans or zooms. A tall diagram starts collapsed: kept at the
-// normal fit scale inside a clipped collapsedHeight preview, interactions off, with a labelled fold
-// toggle to expand. `svg` is the rendered markup (null until ready), used to re-fit
+// container resizes until the user pans or zooms. A tall diagram has a fold toggle, but starts
+// expanded unless the reader previously collapsed this source. `svg` is the rendered markup (null
+// until ready), used to re-fit
 // whenever the diagram changes.
 function usePanZoom(
   svg: string | null,
-  { collapseTall = true, centerOverflow = false }: { collapseTall?: boolean; centerOverflow?: boolean } = {},
+  {
+    centerOverflow = false,
+    persistenceKey,
+  }: { centerOverflow?: boolean; persistenceKey?: string } = {},
 ) {
   const [transform, setTransform] = useState<Transform>(identityTransform);
   const [viewportHeight, setViewportHeight] = useState<number | null>(null);
   const [collapsed, setCollapsed] = useState(false);
-  // A fold control is useful only when the diagram needed the initial collapsed preview. Small diagrams
-  // start fully open and should not grow a permanent close affordance after every render.
+  // A fold control is useful only when the fitted diagram is tall, unless it is currently collapsed
+  // (in which case it must remain available to expand it again).
   const [showFoldControl, setShowFoldControl] = useState(false);
   const viewportRef = useRef<HTMLDivElement>(null);
   const panRef = useRef<HTMLDivElement>(null);
@@ -419,10 +421,11 @@ function usePanZoom(
     const { height } = computeFit(naturalW, naturalH, viewport.clientWidth, idealScaleRef.current, {
       centerOverflow,
     });
-    const startCollapsed = collapseTall && height > autoCollapseHeight;
-    setShowFoldControl(startCollapsed);
-    setCollapsed(startCollapsed);
-    applyView(startCollapsed);
+    const storedCollapsed = persistenceKey != null && readCollapsedState(persistenceKey);
+    const shouldCollapse = storedCollapsed === true;
+    setShowFoldControl(height > autoCollapseHeight || shouldCollapse);
+    setCollapsed(shouldCollapse);
+    applyView(shouldCollapse);
     return true;
   }
 
@@ -431,7 +434,7 @@ function usePanZoom(
   useLayoutEffect(() => {
     measureAndApply();
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [svg]);
+  }, [svg, persistenceKey]);
 
   // Follow container width changes (a widened pane or window): the diagram re-fits — scale and
   // viewport height included — instead of keeping its old size in a larger box. Keyed on svg: the
@@ -465,7 +468,7 @@ function usePanZoom(
     ro.observe(el);
     return () => ro.disconnect();
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [svg]);
+  }, [svg, persistenceKey]);
 
   // Wheel zoom follows the charts' convention (db676ce): a plain wheel keeps scrolling the page,
   // Shift+wheel zooms, and a trackpad pinch (ctrl+wheel) zooms instead of scaling the whole page.
@@ -565,6 +568,7 @@ function usePanZoom(
     reset: () => {
       touchedRef.current = false;
       setCollapsed(false);
+      if (persistenceKey != null) writeCollapsedState(persistenceKey, false);
       applyView(false);
     },
     zoomBy,
@@ -573,10 +577,41 @@ function usePanZoom(
     showFoldControl,
     toggleCollapsed: () => {
       touchedRef.current = false;
-      setCollapsed(!collapsed);
-      applyView(!collapsed);
+      const nextCollapsed = !collapsed;
+      setCollapsed(nextCollapsed);
+      if (persistenceKey != null) writeCollapsedState(persistenceKey, nextCollapsed);
+      applyView(nextCollapsed);
     },
   };
+}
+
+const diagramStoragePrefix = "track-diagram-collapse:";
+
+export function diagramStorageKey(sourceLang: string, source: string): string {
+  const input = `${sourceLang}\n${source}`;
+  let hash = 2166136261;
+  for (let index = 0; index < input.length; index += 1) {
+    hash ^= input.charCodeAt(index);
+    hash = Math.imul(hash, 16777619);
+  }
+  return `${diagramStoragePrefix}${(hash >>> 0).toString(36)}`;
+}
+
+function readCollapsedState(key: string): boolean | undefined {
+  try {
+    const value = window.localStorage.getItem(key);
+    return value === "collapsed" ? true : value === "expanded" ? false : undefined;
+  } catch {
+    return undefined;
+  }
+}
+
+function writeCollapsedState(key: string, collapsed: boolean) {
+  try {
+    window.localStorage.setItem(key, collapsed ? "collapsed" : "expanded");
+  } catch {
+    // A blocked or full localStorage should degrade to the current session's state.
+  }
 }
 
 // computeCollapsedFit keeps the normal, readable fit scale and clips only the viewport height. The
