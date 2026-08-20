@@ -163,13 +163,13 @@ describe("TabsProvider", () => {
 
   it("keeps a history deeper than the strip, capped so it cannot grow without bound", () => {
     const { result, rerender } = renderHook(() => useTabs(), { wrapper });
-    for (let i = 0; i < 60; i += 1) {
+    for (let i = 0; i < 110; i += 1) {
       routerMock.pathname = `/notes/n${i}`;
       rerender();
     }
-    expect(result.current.recent).toHaveLength(50);
-    expect(result.current.recent[0].id).toBe("n59");
-    expect(result.current.recent[49].id).toBe("n10");
+    expect(result.current.recent).toHaveLength(100);
+    expect(result.current.recent[0].id).toBe("n109");
+    expect(result.current.recent[99].id).toBe("n10");
   });
 
   it("does not navigate when closing an inactive tab", () => {

@@ -28,7 +28,7 @@ describe("SidebarNew", () => {
 
   it("requests and lists recently-created notes", async () => {
     render(<SidebarNew />);
-    expect(newNotes).toHaveBeenCalledWith(undefined);
+    expect(newNotes).toHaveBeenCalledWith(100);
     fireEvent.pointerEnter(screen.getByRole("button", { name: "Recently created notes" }));
     const panel = await screen.findByRole("menu", { name: "Recently created notes" });
     expect(screen.getAllByRole("menuitem").map((item) => item.textContent)).toEqual([

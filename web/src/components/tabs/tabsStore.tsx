@@ -44,7 +44,7 @@ const RECENT_KEY = "track.recent";
 // Deep enough that an afternoon of reading is still in the panel. `track web` is relaunched often
 // (`:Track web` from the editor), and a history that only reaches back ten notes is one an ordinary
 // session walks off the end of.
-const RECENT_LIMIT = 50;
+const RECENT_LIMIT = 100;
 
 // The full-page views (graph, calendar) open as ordinary tabs with fixed labels rather than separate
 // overlays. Each uses a sentinel id and routes to its own path instead of /notes/$id. A note slug equal

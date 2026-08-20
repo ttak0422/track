@@ -8,7 +8,7 @@ import { railAnchor } from "./railAnchor";
 // SidebarNew is the rail's creation button plus the vault's recently-created notes. It deliberately
 // differs from SidebarHistory, which remembers notes opened in this browser.
 export function SidebarNew() {
-  const query = useNewNotesQuery();
+  const query = useNewNotesQuery(100);
   const notes = query.data?.notes ?? [];
   const [open, setOpen] = useState(false);
   const [anchor, setAnchor] = useState<CSSProperties | undefined>(undefined);
