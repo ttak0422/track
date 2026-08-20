@@ -15,6 +15,10 @@ beforeAll(() => {
   Element.prototype.releasePointerCapture = () => {};
 });
 
+afterEach(() => {
+  window.localStorage.clear();
+});
+
 vi.mock("mermaid", () => ({
   default: {
     initialize: vi.fn(),
@@ -134,23 +138,48 @@ describe("DiagramFrame tall-diagram preview", () => {
 
     const viewport = container.querySelector(".mermaid-viewport") as HTMLElement;
     const pan = screen.getByRole("img", { name: "Tall diagram" });
-    expect(viewport).toHaveAttribute("data-collapsed");
-    expect(viewport.style.height).toBe("320px");
-    expect(pan.style.transform).toBe("translate(50px, 0px) scale(1)");
-    expect(container.querySelector(".mermaid-continuation")).toBeInTheDocument();
-    expect(screen.queryByRole("button", { name: "Open diagram in popup" })).not.toBeInTheDocument();
-
-    const expand = screen.getByRole("button", { name: "Expand diagram" });
-    expect(expand).toHaveTextContent("Show full diagram");
-    fireEvent.click(expand);
-
     expect(viewport).not.toHaveAttribute("data-collapsed");
     expect(viewport.style.height).toBe("2200px");
+    expect(pan.style.transform).toBe("translate(50px, 0px) scale(1)");
     expect(container.querySelector(".mermaid-continuation")).not.toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "Zoom in" })).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "Collapse diagram" })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Open diagram in popup" })).toBeInTheDocument();
 
+    const collapse = screen.getByRole("button", { name: "Collapse diagram" });
+    fireEvent.click(collapse);
+
+    expect(viewport).toHaveAttribute("data-collapsed");
+    expect(viewport.style.height).toBe("320px");
+    expect(screen.getByRole("button", { name: "Expand diagram" })).toHaveTextContent("Show full diagram");
+
+    clientWidth.mockRestore();
+    offsetWidth.mockRestore();
+    offsetHeight.mockRestore();
+  });
+
+  it("remembers a manually collapsed diagram across remounts", () => {
+    const clientWidth = vi.spyOn(HTMLElement.prototype, "clientWidth", "get").mockReturnValue(500);
+    const offsetWidth = vi.spyOn(HTMLElement.prototype, "offsetWidth", "get").mockImplementation(function (this: HTMLElement) {
+      return this.classList.contains("mermaid-pan") ? 400 : 0;
+    });
+    const offsetHeight = vi.spyOn(HTMLElement.prototype, "offsetHeight", "get").mockImplementation(function (this: HTMLElement) {
+      return this.classList.contains("mermaid-pan") ? 2200 : 0;
+    });
+    const props = {
+      state: { status: "ready" as const, svg: '<svg viewBox="0 0 400 2200"></svg>' },
+      source: "graph TD\nA-->B",
+      sourceLang: "mermaid",
+      label: "Persistent diagram",
+    };
+
+    const first = render(<DiagramFrame {...props} />);
+    fireEvent.click(screen.getByRole("button", { name: "Collapse diagram" }));
+    first.unmount();
+    render(<DiagramFrame {...props} />);
+
+    expect(screen.getByRole("button", { name: "Expand diagram" })).toHaveTextContent("Show full diagram");
+    expect(screen.getByRole("img", { name: "Persistent diagram" }).closest(".mermaid-viewport")).toHaveAttribute(
+      "data-collapsed",
+    );
     clientWidth.mockRestore();
     offsetWidth.mockRestore();
     offsetHeight.mockRestore();
@@ -300,6 +329,7 @@ describe("DiagramFrame wide-diagram clipping", () => {
 
   it("keeps the inert collapsed preview free of side fades until expanded", () => {
     const { viewport, fade, restore } = setupWide(2000, 2200);
+    fireEvent.click(screen.getByRole("button", { name: "Collapse diagram" }));
     expect(viewport).toHaveAttribute("data-collapsed");
     expect(fade("right")).not.toBeInTheDocument();
 

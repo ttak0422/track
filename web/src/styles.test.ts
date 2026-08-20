@@ -240,7 +240,7 @@ describe("content width", () => {
     expect(controlRule).toMatch(/border:\s*0/);
     expect(controlRule).toMatch(/background:\s*transparent/);
     expect(controlRule).toMatch(/color:\s*var\(--muted\)/);
-    expect(hoverRule).toMatch(/background:\s*var\(--panel-soft\)/);
+    expect(hoverRule).toMatch(/background:\s*var\(--panel\)/);
     expect(hoverRule).toMatch(/border-radius:\s*var\(--radius-sm\)/);
   });
 
@@ -276,6 +276,8 @@ describe("diagram controls", () => {
     const barRule = css.match(/(?:^|\n)\.mermaid-bar\s*\{([^}]*)\}/)?.[1] ?? "";
     expect(barRule).toMatch(/display:\s*flex/);
     expect(barRule).toMatch(/justify-content:\s*space-between/);
+    expect(barRule).toMatch(/background:\s*var\(--panel-soft\)/);
+    expect(barRule).toMatch(/border-radius:\s*var\(--radius\)/);
     // Out of the drawing there is nothing to obscure, so the strip does not wait for a hover — which
     // is also the only way a touch pointer ever reaches these controls.
     expect(css).not.toMatch(/\.mermaid-diagram:hover \.mermaid-(controls|fold)/);

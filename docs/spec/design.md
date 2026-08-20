@@ -206,10 +206,12 @@ from what is beneath them.
 
 Diagram controls do not rest on content at all: an inline diagram gathers every control it has —
 the fold chip at the left, the rest at the right — into one strip on the frame's own ground above the
-drawing (`.mermaid-bar`). A chip floating in the drawing's corner lands on whatever the diagram put
-there, and a control a reader has to look *past* is worse than one they have to look for. Off the
-drawing there is nothing to obscure, so the strip waits for no hover either — which is also the only
-way a touch pointer ever reaches it. The glyphs take variant 7. A popup keeps its floating cluster:
+drawing (`.mermaid-bar`). The strip uses the sunk `--panel-soft` ground, `--radius`, and a small
+padding inset; its glyphs take variant 7, whose hover/focus surface is `--panel` so it remains legible
+against the strip. A chip floating in the drawing's corner lands on whatever the diagram put there,
+and a control a reader has to look *past* is worse than one they have to look for. Off the drawing
+there is nothing to obscure, so the strip waits for no hover either — which is also the only
+way a touch pointer ever reaches it. A popup keeps its floating cluster:
 its drawing is fitted inside the window's own padding, so the corner is already clear.
 
 Media and deck controls remain quiet chips when their underlying content needs a separating surface.
