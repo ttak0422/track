@@ -1,6 +1,7 @@
 import { Link } from "@tanstack/react-router";
-import { type ReactNode, useContext } from "react";
+import { type ReactNode, useContext, useEffect, useRef, useState } from "react";
 import { useResolveQuery } from "../../queries";
+import { pointerCanHover, previewOpenDelay } from "../preview/stack";
 import { NoteKindContext, NoteVaultContext } from "./context";
 import { assetHref, noteCandidateFromHref, webHref } from "./urls";
 
@@ -41,13 +42,48 @@ export function ExternalLink({ href, children }: ExternalLinkProps) {
   }
   const target = webHref(href);
   const external = /^https?:\/\//i.test(target);
+  if (!external) {
+    return <a className="md-link" href={target}>{children}</a>;
+  }
   return (
-    <a
-      className="md-link"
-      href={target}
-      {...(external ? { target: "_blank", rel: "noreferrer noopener" } : {})}
-    >
+    <ExternalURLPopup target={target}>
+      <a className="md-link" href={target} target="_blank" rel="noreferrer noopener">
+        {children}
+      </a>
+    </ExternalURLPopup>
+  );
+}
+
+// A pointer crossing a column of links should not flash a destination under each one. The link remains
+// the affordance and the popup simply answers where it leads.
+function ExternalURLPopup({ target, children }: { target: string; children: ReactNode }) {
+  const [open, setOpen] = useState(false);
+  const timer = useRef<number | undefined>(undefined);
+
+  useEffect(() => () => {
+    if (timer.current !== undefined) window.clearTimeout(timer.current);
+  }, []);
+
+  function close() {
+    if (timer.current !== undefined) {
+      window.clearTimeout(timer.current);
+      timer.current = undefined;
+    }
+    setOpen(false);
+  }
+
+  function scheduleOpen() {
+    if (!pointerCanHover() || open || timer.current !== undefined) return;
+    timer.current = window.setTimeout(() => {
+      timer.current = undefined;
+      if (pointerCanHover()) setOpen(true);
+    }, previewOpenDelay);
+  }
+
+  return (
+    <span className="md-link-url-wrap" onMouseEnter={scheduleOpen} onMouseLeave={close}>
       {children}
-    </a>
+      {open ? <span className="md-link-url-popup" role="tooltip">{target}</span> : null}
+    </span>
   );
 }

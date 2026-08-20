@@ -39,8 +39,10 @@ none fits, extend this document first — do not invent a one-off treatment.
   preview answers "what is behind this" without spending a navigation. It earns
   the exception by behaving: it waits out a hover-intent delay so a pointer
   crossing a column of links opens nothing, and it opens only for a link that
-  resolves — a pending or unresolved one is inert. Nothing else on a reading
-  surface may take it as precedent.
+  resolves — a pending or unresolved one is inert. The same narrow exception applies
+  to an external http(s) link's URL popup: the link is the affordance, and the
+  floating layer reveals the destination without changing navigation. Nothing else
+  on a reading surface may take either exception as precedent.
 - **A pointer that cannot hover gets none of it.** Both halves of the rule above
   are a cursor's idiom. On a touch screen there is no resting on anything — the
   tap that would open a preview is the tap that follows the link, and it focuses
