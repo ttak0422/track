@@ -90,7 +90,9 @@ off, a published site) still opens the day page and its notes-and-tasks listing.
   symlink-intact form used for the copy-path button. It also carries the note's
   timestamps when they are known: `created`, the sidecar date string verbatim (in
   the vault's configured date format), and `updated`, the file mtime in unix
-  seconds. The published bundle's note JSON carries both the same way.
+  seconds, plus the shared reading milestones `seen_at`/`read_at` (unix seconds,
+  ADR 0072). The published bundle's note JSON carries the timestamps but not the
+  milestones: a public site's NEW/read badges stay per-visitor.
 - `GET /api/graph/local?id=<id>[&vault=<name>]`: the one-hop local graph around a note.
 - `GET /api/graph`: the whole-vault graph — every indexed note as a node and every
   link between two known notes as an edge, with no center.
@@ -119,6 +121,12 @@ Write endpoint:
   sidecar metadata, and its index row (tags and links cascade). Other notes keep
   their now-dangling `[[links]]`. The destructive title-retype confirmation is
   enforced in the web UI; the endpoint deletes by id.
+- `POST /api/note/read?id=<id>[&vault=<name>]`: record a shared reading milestone
+  on the note's sidecar — `{"event": "seen"}` (the workspace opened the note) or
+  `{"event": "read"}` (viewing time crossed the read threshold). Milestones are
+  monotonic firsts: whichever device reaches one first wins and a repeat report
+  changes nothing, so no etag is required. The response echoes both milestones as
+  unix seconds (ADR 0072).
 
 ## Frontend implementation
 

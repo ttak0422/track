@@ -1489,3 +1489,125 @@ func TestTaskWriteRejectsShiftedSameStateWithStaleETag(t *testing.T) {
 		t.Fatalf("refused task write appended a transition: %+v", meta.TaskLog)
 	}
 }
+
+func TestHandleNoteRead(t *testing.T) {
+	cfg := &config.Config{
+		VaultDir:          t.TempDir(),
+		DBPath:            filepath.Join(t.TempDir(), "index.db"),
+		Extensions:        []string{".md"},
+		DateFormat:        "2006-01-02",
+		JournalDateFormat: "20060102",
+	}
+	if err := os.MkdirAll(cfg.NoteDir(), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(cfg.NotePath(300), []byte("# Report\n\nBody.\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := note.WriteMetadata(cfg.MetadataPath(300), note.Metadata{Title: "Report"}); err != nil {
+		t.Fatal(err)
+	}
+
+	s, err := store.Open(cfg.DBPath)
+	if err != nil {
+		t.Fatalf("open store: %v", err)
+	}
+	t.Cleanup(func() { s.Close() })
+	// Pin the indexed mtimes to the files on disk, like TestAPIHandlers, so the read-time freshness
+	// check starts out seeing the index as in sync.
+	fi, err := os.Stat(cfg.MetadataPath(300))
+	if err != nil {
+		t.Fatal(err)
+	}
+	bfi, err := os.Stat(cfg.NotePath(300))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := s.UpsertNote(&note.Note{ID: 300, Mtime: bfi.ModTime().Unix(), MetaMtime: fi.ModTime().Unix(), Meta: note.Metadata{Title: "Report"}}); err != nil {
+		t.Fatal(err)
+	}
+
+	server := httptest.NewServer(New(cfg, s).Handler())
+	t.Cleanup(server.Close)
+
+	post := func(id string, body map[string]any) (int, map[string]any) {
+		resp := postBody(t, server.URL+"/api/note/read?id="+id, body)
+		defer resp.Body.Close()
+		var decoded map[string]any
+		if err := json.NewDecoder(resp.Body).Decode(&decoded); err != nil {
+			t.Fatalf("decode response: %v", err)
+		}
+		return resp.StatusCode, decoded
+	}
+	sidecar := func() note.Metadata {
+		meta, found, err := note.ReadMetadata(cfg.MetadataPath(300))
+		if err != nil || !found {
+			t.Fatalf("read sidecar: found=%v err=%v", found, err)
+		}
+		return meta
+	}
+
+	// A method other than POST is not allowed.
+	if resp, err := http.Get(server.URL + "/api/note/read?id=300"); err != nil {
+		t.Fatal(err)
+	} else {
+		resp.Body.Close()
+		if resp.StatusCode != http.StatusMethodNotAllowed {
+			t.Fatalf("GET /api/note/read status = %d, want 405", resp.StatusCode)
+		}
+	}
+
+	// Unknown id and unknown event are client errors that write nothing.
+	if code, res := post("999", map[string]any{"event": "seen"}); code != http.StatusNotFound || res["error"] == nil {
+		t.Fatalf("unknown id = %d %v, want 404 with error", code, res)
+	}
+	if code, res := post("300", map[string]any{"event": "skimmed"}); code != http.StatusBadRequest || res["error"] == nil {
+		t.Fatalf("bad event = %d %v, want 400 with error", code, res)
+	}
+	if sidecar().SeenAt != "" {
+		t.Fatalf("rejected requests must leave the sidecar untouched")
+	}
+
+	// The first report of each milestone stamps the sidecar and answers with both unix seconds.
+	code, res := post("300", map[string]any{"event": "seen"})
+	if code != http.StatusOK || res["seen_at"] == nil || res["read_at"] != nil {
+		t.Fatalf("seen = %d %v, want 200 with seen_at only", code, res)
+	}
+	meta := sidecar()
+	if meta.SeenAt == "" || meta.ReadAt != "" {
+		t.Fatalf("sidecar after seen = %+v", meta)
+	}
+	if meta.Version < note.MetadataVersionV9 {
+		t.Fatalf("a sidecar carrying read milestones is at least v%d, got %d", note.MetadataVersionV9, meta.Version)
+	}
+	firstSeen := meta.SeenAt
+
+	code, res = post("300", map[string]any{"event": "read"})
+	if code != http.StatusOK || res["seen_at"] == nil || res["read_at"] == nil {
+		t.Fatalf("read = %d %v, want 200 with both milestones", code, res)
+	}
+	meta = sidecar()
+	if meta.ReadAt == "" {
+		t.Fatalf("sidecar after read = %+v", meta)
+	}
+
+	// Milestones are monotonic firsts: re-reporting seen changes nothing on disk — no new stamp,
+	// and therefore no sidecar rewrite for OneDrive to churn over.
+	if code, _ := post("300", map[string]any{"event": "seen"}); code != http.StatusOK {
+		t.Fatalf("repeat seen status = %d, want 200", code)
+	}
+	if after := sidecar(); after.SeenAt != firstSeen {
+		t.Fatalf("repeat seen moved the stamp: %q -> %q", firstSeen, after.SeenAt)
+	}
+
+	// The index picked the milestones up, so every listing carries them as unix seconds. The
+	// sidecar-only change is what a refresh notices, so ask through a refreshing endpoint.
+	hit := getJSON(t, server.URL+"/api/search?q=Report")["results"].([]any)[0].(map[string]any)
+	if hit["seen_at"] == nil || hit["read_at"] == nil {
+		t.Fatalf("search result should carry the shared milestones: %v", hit)
+	}
+	noteBody := getJSON(t, server.URL+"/api/note?id=300")["note"].(map[string]any)
+	if noteBody["seen_at"] == nil || noteBody["read_at"] == nil {
+		t.Fatalf("note response should carry the shared milestones: %v", noteBody)
+	}
+}
