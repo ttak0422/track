@@ -1,4 +1,5 @@
 import { unlock } from "./lock";
+import { adoptReadState } from "./reading";
 import { dataURL, reportStalePage, STATIC_MODE } from "./runtime";
 import { bodyHits, titleHits, type SearchCorpus, type SearchDoc } from "./staticSearch";
 import { idParams, qualify, vaultParams } from "./vaultId";
@@ -134,7 +135,10 @@ export function searchNotes(query: string, limit = 100): Promise<SearchResponse>
     return staticSearch(query, limit);
   }
   const params = new URLSearchParams({ limit: String(limit), q: query });
-  return api<SearchResponse>(`/api/search?${params}`);
+  return api<SearchResponse>(`/api/search?${params}`).then((data) => {
+    adoptReadState(data.results);
+    return data;
+  });
 }
 
 // A published bundle never changes under the page, so both files a search reads are fetched once and
@@ -196,7 +200,10 @@ export function listNotes(): Promise<NotesResponse> {
   if (STATIC_MODE) {
     return staticData<NotesResponse>("notes.json");
   }
-  return api<NotesResponse>("/api/notes");
+  return api<NotesResponse>("/api/notes").then((data) => {
+    adoptReadState(data.notes);
+    return data;
+  });
 }
 
 // The live workspace's New widget is creation history, distinct from the modified-order notes file
@@ -206,7 +213,10 @@ export function listNewNotes(limit = 10): Promise<NotesResponse> {
     return Promise.resolve({ notes: [] });
   }
   const params = new URLSearchParams({ sort: "created", limit: String(limit) });
-  return api<NotesResponse>(`/api/notes?${params}`);
+  return api<NotesResponse>(`/api/notes?${params}`).then((data) => {
+    adoptReadState(data.notes);
+    return data;
+  });
 }
 
 // listDatedTasks lists every task in the vault carrying a scheduled or due date. The published site
@@ -240,7 +250,10 @@ export function resolveTerm(term: string, vault = ""): Promise<ResolveResponse> 
       return note ? { found: true, note } : { found: false, note: { note_id: "", file_kind: "note", title: term } };
     });
   }
-  return api<ResolveResponse>(`/api/resolve?term=${encodeURIComponent(term)}${vaultParams(vault)}`);
+  return api<ResolveResponse>(`/api/resolve?term=${encodeURIComponent(term)}${vaultParams(vault)}`).then((data) => {
+    if (data.found) adoptReadState([data.note]);
+    return data;
+  });
 }
 
 export function getAgenda(date: string, vault = ""): Promise<AgendaResponse> {
@@ -268,7 +281,14 @@ export function getNote(noteID: NoteID): Promise<NoteResponse> {
   if (STATIC_MODE) {
     return staticData<NoteResponse>(`note/${noteID}.json`);
   }
-  return api<NoteResponse>(`/api/note?${idParams(noteID)}`);
+  return api<NoteResponse>(`/api/note?${idParams(noteID)}`).then((data) => {
+    // The open note and its reference lists carry the shared reading milestones; adopting them at
+    // the boundary is what lets a note another device already read stop reading as NEW here before
+    // any listing is fetched. The published bundle carries no milestones (per-visitor there), so
+    // the static branch has nothing to adopt.
+    adoptReadState([data.note, ...data.backlinks, ...(data.trail ?? []), ...(data.children ?? [])]);
+    return data;
+  });
 }
 
 export function saveNote(noteID: NoteID, request: SaveNoteRequest): Promise<SaveNoteResponse> {
