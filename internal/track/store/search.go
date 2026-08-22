@@ -16,7 +16,7 @@ const minTrigram = 3
 
 // The columns every search row is scanned from (see scanSearchRows), named once so a second query
 // cannot drift from the first.
-const searchColumns = `n.id, n.kind, n.title, n.mtime, n.icon,
+const searchColumns = `n.id, n.kind, n.title, n.mtime, n.icon, n.seen_at, n.read_at,
 	   COALESCE((
 	     SELECT group_concat(tag, char(31))
 	     FROM (SELECT tag FROM tags WHERE note_id = n.id ORDER BY tag)
@@ -59,7 +59,14 @@ type SearchResult struct {
 	// It is not derivable from Line/Snippet: a body hit whose terms straddle lines legitimately has
 	// neither (see the composition in internal/track/search).
 	Match string `json:"match,omitempty"`
-	Mtime int64  `json:"-"`
+	// SeenAt / ReadAt are the note's shared reading milestones as unix seconds (0 = never): when any
+	// device first opened the note in the web workspace and when viewing time there first crossed its
+	// read threshold. They ride on every listing so NEW/read badges come from vault metadata that
+	// syncs, not from per-browser localStorage (ADR 0072). The static export strips them: a public
+	// site's badges stay per-visitor.
+	SeenAt int64 `json:"seen_at,omitempty"`
+	ReadAt int64 `json:"read_at,omitempty"`
+	Mtime  int64 `json:"-"`
 	// Rank is the sort key the vault's own query gave this hit: the packed title/tag rank vector for a
 	// title search, bm25 for a body search, 0 for an unranked listing. It exists so results from
 	// several vaults can be merged (MergeSearchResults) on exactly the key SQLite ranked them by —
@@ -169,7 +176,7 @@ func scanSearchRows(rows *gosql.Rows) ([]SearchResult, error) {
 	for rows.Next() {
 		var r SearchResult
 		var tags string
-		if err := rows.Scan(&r.NoteID, &r.FileKind, &r.Title, &r.Mtime, &r.Icon, &tags, &r.Rank); err != nil {
+		if err := rows.Scan(&r.NoteID, &r.FileKind, &r.Title, &r.Mtime, &r.Icon, &r.SeenAt, &r.ReadAt, &tags, &r.Rank); err != nil {
 			return nil, err
 		}
 		r.Tags = splitTags(tags)
@@ -333,7 +340,7 @@ func searchTagged(parsed parsedTaggedQuery, limit int) (string, []any) {
 		rankArgs = append(rankArgs, parsed.Text, parsed.Text+"%")
 	}
 
-	sql := `SELECT n.id, n.kind, n.title, n.mtime, n.icon,
+	sql := `SELECT n.id, n.kind, n.title, n.mtime, n.icon, n.seen_at, n.read_at,
 	   COALESCE((
 	     SELECT group_concat(tag, char(31))
 	     FROM (SELECT tag FROM tags WHERE note_id = n.id ORDER BY tag)
@@ -393,7 +400,7 @@ func (s *Store) SearchBodyFTS(query string, limit int) ([]SearchResult, error) {
 	rows, err := s.db.Query(
 		// bm25 is selected as well as ordered by, so a cross-vault merge (MergeSearchResults) orders on
 		// the score the index computed instead of trying to reproduce it.
-		`SELECT n.id, n.kind, n.title, n.mtime, n.icon,
+		`SELECT n.id, n.kind, n.title, n.mtime, n.icon, n.seen_at, n.read_at,
 		   COALESCE((
 		     SELECT group_concat(tag, char(31))
 		     FROM (SELECT tag FROM tags WHERE note_id = n.id ORDER BY tag)
@@ -417,7 +424,7 @@ func (s *Store) SearchBodyFTS(query string, limit int) ([]SearchResult, error) {
 		var tags string
 		// The icon rides along like it does on the title path: without it the same note would show
 		// one icon in the title group and the tag/kind fallback in the body group.
-		if err := rows.Scan(&r.NoteID, &r.FileKind, &r.Title, &r.Mtime, &r.Icon, &tags, &r.Rank); err != nil {
+		if err := rows.Scan(&r.NoteID, &r.FileKind, &r.Title, &r.Mtime, &r.Icon, &r.SeenAt, &r.ReadAt, &tags, &r.Rank); err != nil {
 			return nil, err
 		}
 		r.Tags = splitTags(tags)
@@ -445,7 +452,7 @@ func ftsMatchExprGroups(groups [][]string) string {
 // SearchRefs returns indexed notes with search-only ranking/display metadata.
 func (s *Store) SearchRefs() ([]SearchResult, error) {
 	rows, err := s.db.Query(
-		`SELECT n.id, n.kind, n.title, n.mtime, n.icon,
+		`SELECT n.id, n.kind, n.title, n.mtime, n.icon, n.seen_at, n.read_at,
 		   COALESCE((
 		     SELECT group_concat(tag, char(31))
 		     FROM (SELECT tag FROM tags WHERE note_id = n.id ORDER BY tag)
@@ -462,7 +469,7 @@ func (s *Store) SearchRefs() ([]SearchResult, error) {
 	for rows.Next() {
 		var r SearchResult
 		var tags string
-		if err := rows.Scan(&r.NoteID, &r.FileKind, &r.Title, &r.Mtime, &r.Icon, &tags); err != nil {
+		if err := rows.Scan(&r.NoteID, &r.FileKind, &r.Title, &r.Mtime, &r.Icon, &r.SeenAt, &r.ReadAt, &tags); err != nil {
 			return nil, err
 		}
 		r.Tags = splitTags(tags)
@@ -480,7 +487,7 @@ func (s *Store) NewestRefs(limit int) ([]SearchResult, error) {
 		limit = 10
 	}
 	rows, err := s.db.Query(
-		`SELECT n.id, n.kind, n.title, n.mtime, n.icon,
+		`SELECT n.id, n.kind, n.title, n.mtime, n.icon, n.seen_at, n.read_at,
 		   COALESCE((
 		     SELECT group_concat(tag, char(31))
 		     FROM (SELECT tag FROM tags WHERE note_id = n.id ORDER BY tag)
@@ -500,7 +507,7 @@ func (s *Store) NewestRefs(limit int) ([]SearchResult, error) {
 	for rows.Next() {
 		var r SearchResult
 		var tags string
-		if err := rows.Scan(&r.NoteID, &r.FileKind, &r.Title, &r.Mtime, &r.Icon, &tags); err != nil {
+		if err := rows.Scan(&r.NoteID, &r.FileKind, &r.Title, &r.Mtime, &r.Icon, &r.SeenAt, &r.ReadAt, &tags); err != nil {
 			return nil, err
 		}
 		r.Tags = splitTags(tags)

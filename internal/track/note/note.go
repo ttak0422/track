@@ -28,6 +28,11 @@ import (
 // scalars, flattened and typed by SidecarProps and indexed alongside inline "key:: value" fields.
 // Icon is a per-note override (version 6 sidecars): an emoji shown beside the note's title in search
 // results, the one surface that draws it. When empty, the config tag/kind mapping applies (config.NoteIcon).
+// SeenAt and ReadAt are the shared reading milestones (version 9 sidecars) as RFC 3339 timestamps:
+// when the note was first opened in the web workspace and when viewing time first crossed its read
+// threshold there. They live in the sidecar so the milestones survive across devices through the
+// vault's own sync — per-browser localStorage keeps only the accumulation between them. The web
+// workspace is their only writer; reading also happens in Neovim, which reports nothing.
 type Metadata struct {
 	Version     int                        `yaml:"version"`
 	Title       string                     `yaml:"title,omitempty"`
@@ -38,6 +43,8 @@ type Metadata struct {
 	Image       string                     `yaml:"image,omitempty"`
 	Props       map[string]any             `yaml:"props,omitempty"`
 	Icon        string                     `yaml:"icon,omitempty"`
+	SeenAt      string                     `yaml:"seen_at,omitempty"`
+	ReadAt      string                     `yaml:"read_at,omitempty"`
 	Blocks      map[string]babel.BlockMeta `yaml:"blocks,omitempty"`
 	TaskLog     []task.LogEntry            `yaml:"task_log,omitempty"`
 	// Slug pins this note's published URL. The static export normally derives a slug from the note

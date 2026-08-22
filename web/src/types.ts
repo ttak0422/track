@@ -7,6 +7,13 @@ export type FileKind = "note" | "journal" | string;
 export interface NoteRef {
   note_id: NoteID;
   file_kind: FileKind;
+  // The note's shared reading milestones as unix seconds (absent/0 = never): when any device first
+  // opened the note in the web workspace and when viewing time there crossed its read threshold.
+  // Server truth the local reading cache adopts, so NEW/read badges agree across devices instead of
+  // living only in this browser's localStorage. The static bundle carries neither: a public site's
+  // badges stay per-visitor.
+  seen_at?: number;
+  read_at?: number;
   path?: string;
   title: string;
 }
