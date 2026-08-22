@@ -1,11 +1,13 @@
 version: 8
 title: Web workspace
 tags:
-- help/reference
-created: '2026-07-26'
+    - help/reference
+created: "2026-07-26"
+days:
+    - "2026-08-20"
 props:
-  section: reference
-  reviewed: '2026-06-18'
-  up: '[[track]]'
-icon: 🌐
+    reviewed: "2026-06-18"
+    section: reference
+    up: '[[track]]'
+icon: "\U0001F310"
 slug: 3eXzsvDeU80xrwTdpnyT2O
