@@ -129,17 +129,22 @@ Three sizes, and no fourth.
 
 | Role | Size | Weight |
 | --- | --- | --- |
-| Body, `h2`, `h3` | 16px / 1.85 | 400, headings 700 |
-| Note title (`h1`) | 26px / 1.4 | 500 |
+| Body, `h1`–`h4` in the body | 16px / 1.85 | 400, headings 700 |
+| Note title (`.note-title`) | 26px / 1.4 | 500 |
 | Meta, captions, tables, the aside, tabs | 13–14px | 400 |
 | `.label` (section label) | 11px, `.12em`, uppercase, `--faint` | 500 |
 
 `h1` stays at 1.6× the body: note titles run long (`20260805 表現力ベンチ
 ゴールデータでの再現`), and a larger one simply folds to two lines.
 
-`h2` and `h3` are the same size as body text. Their hierarchy is space and a
-rule: `h2` takes 44px of lead and a hairline above it, `h3` takes 26px and
-nothing else. Paragraphs and lists lead with 13px, list items with 7px.
+`h1`–`h4` in the body are the same size as body text. Their hierarchy is space and a rule: a body
+`h1` — one whose text differs from the note title, since a matching leading one is blanked — is a
+chapter head that opens like an `h2` but under the stated rule (`--line-strong`) instead of the
+hairline, so the title stays the only large type on the page. `h2` takes 44px of lead and a hairline
+above it, `h3` takes 26px and a faint section sign before its first word — the ink the list markers
+wear, marking the turn inside a section without a second size, since bold shares both the h3's size
+and weight — and `h4` takes 20px in muted ink. Paragraphs and lists lead
+with 13px, list items with 7px.
 
 ## The reading surface
 

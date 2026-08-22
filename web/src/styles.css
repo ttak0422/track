@@ -2489,8 +2489,10 @@ textarea.modal-input:focus-visible {
   max-width: 100%;
 }
 
-/* One rhythm, all leading and no second size: h2 opens a section with a rule and 44px of air, h3
-   marks a turn inside one with 26px, and both read at body size. */
+/* One rhythm, all leading and no second size: a body h1 opens a chapter and h2 opens a section, both
+   with 44px of air and a rule above — the chapter takes the stated rule (--line-strong) where the
+   section takes the hairline, so the two ranks part without a fourth type size — and h3 marks a turn
+   inside a section with 26px. Everything here reads at body size; only the title stands larger. */
 .markdown-view h1,
 .markdown-view h2,
 .markdown-view h3,
@@ -2499,12 +2501,13 @@ textarea.modal-input:focus-visible {
   line-height: inherit;
 }
 
-.markdown-view h1 {
-  margin: 0;
-  font-size: calc(26px * var(--font-scale, 1));
-  font-weight: 500;
-  line-height: 1.4;
-  letter-spacing: 0.005em;
+/* A body h1 whose text differs from the note title is a chapter head, not the title: it joins this
+   rhythm instead of competing with the title's 26px. */
+.markdown-view h1:not(.note-title) {
+  margin: 44px 0 0;
+  padding-top: 13px;
+  border-top: 1px solid var(--line-strong);
+  font-weight: 700;
 }
 
 .markdown-view h2 {
@@ -2517,6 +2520,16 @@ textarea.modal-input:focus-visible {
 .markdown-view h3 {
   margin: 26px 0 0;
   font-weight: 700;
+}
+
+/* Bold shares the h3's size and weight, so the heading carries a faint section sign before its text
+   — the ink the list markers wear — reading as a mark-level device beneath h2's full-width hairline.
+   Generated content, so copies and the outline never see it. */
+.markdown-view h3::before {
+  content: "§";
+  margin-inline-end: 0.45em;
+  color: var(--faint);
+  font-weight: 400;
 }
 
 .markdown-view h4 {
@@ -2546,7 +2559,15 @@ textarea.modal-input:focus-visible {
   margin-top: 0;
 }
 
-.note-title {
+/* The note's title keeps the reader's largest type (26px/500) — the one size above the body rhythm.
+   It carries its own class-scoped rule because a plain body h1 is now a chapter head (see above), and
+   the compound selector out-ranks the shared heading rule's font-size: inherit. */
+.markdown-view .note-title {
+  margin: 0;
+  font-size: calc(26px * var(--font-scale, 1));
+  font-weight: 500;
+  line-height: 1.4;
+  letter-spacing: 0.005em;
   word-break: break-word;
 }
 
