@@ -55,7 +55,7 @@ jobs:
       - name: Run Lighthouse
         env:
           CHROME_PATH: ${{ steps.chrome.outputs.chrome-path }}
-        run: nix develop --command npx --yes @lhci/cli@0.14.x collect
+        run: nix develop --command npx --yes @lhci/cli@0.14.x collect --settings.saveAssets=true
 
       - name: Score summary
         run: nix develop --command node scripts/lhci-summary.mjs
@@ -66,4 +66,7 @@ jobs:
         with:
           name: lighthouse-report
           path: .lighthouseci/
+          # .lighthouseci is itself a hidden directory; without this flag the upload silently
+          # matches nothing.
+          include-hidden-files: true
           retention-days: 14
