@@ -141,7 +141,9 @@ Three sizes, and no fourth.
 `h1` — one whose text differs from the note title, since a matching leading one is blanked — is a
 chapter head that opens like an `h2` but under the stated rule (`--line-strong`) instead of the
 hairline, so the title stays the only large type on the page. `h2` takes 44px of lead and a hairline
-above it, `h3` takes 26px and nothing else, `h4` takes 20px in muted ink. Paragraphs and lists lead
+above it, `h3` takes 26px and a faint section sign before its first word — the ink the list markers
+wear, marking the turn inside a section without a second size, since bold shares both the h3's size
+and weight — and `h4` takes 20px in muted ink. Paragraphs and lists lead
 with 13px, list items with 7px.
 
 ## The reading surface

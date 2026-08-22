@@ -2522,6 +2522,16 @@ textarea.modal-input:focus-visible {
   font-weight: 700;
 }
 
+/* Bold shares the h3's size and weight, so the heading carries a faint section sign before its text
+   — the ink the list markers wear — reading as a mark-level device beneath h2's full-width hairline.
+   Generated content, so copies and the outline never see it. */
+.markdown-view h3::before {
+  content: "§";
+  margin-inline-end: 0.45em;
+  color: var(--faint);
+  font-weight: 400;
+}
+
 .markdown-view h4 {
   margin: 20px 0 0;
   font-weight: 700;
