@@ -40,6 +40,19 @@ export function reportStalePage(): void {
   stalePageHandler();
 }
 
+// GitHub Pages caches HTML for up to 10 minutes (browser and CDN), so a page can outlive the deploy it
+// came from. Two things break when it does, and both recover the same way: one revalidating reload picks
+// up the new deploy. The sessionStorage stamp stops a reload loop when the fetched HTML is itself still
+// stale. Both entry halves need it (main.tsx guards its own chunk load, app.tsx guards data reads), so
+// it lives here beside them.
+export function reloadOnce(): boolean {
+  const last = Number(sessionStorage.getItem("track:stale-reload") ?? 0);
+  if (Date.now() - last < 30_000) return false;
+  sessionStorage.setItem("track:stale-reload", String(Date.now()));
+  window.location.reload();
+  return true;
+}
+
 // dataURL resolves a path inside the exported data bundle. The static site is path-routed, so it cannot
 // rely on document.baseURI (which varies per route); anchor to the build-time base (BASE_URL, "/" or the
 // configured subpath) instead, which is where the data bundle sits. During prerender (no import.meta in

@@ -3,6 +3,18 @@ import { type PointerEvent, useEffect, useLayoutEffect, useMemo, useRef, useStat
 import { useThemeVersion } from "../../hooks/useThemeVersion";
 import { CodeBlock } from "./CodeBlock";
 import { copyText } from "./clipboard";
+import {
+  IconCheck,
+  IconChevronDown,
+  IconChevronUp,
+  IconCopy,
+  IconMaximize,
+  IconMinus,
+  IconPlus,
+  IconRotate2,
+  IconX,
+  RailIcon,
+} from "../icons";
 
 interface MermaidDiagramProps {
   text: string;
@@ -127,11 +139,11 @@ export function DiagramFrame({ state, source, sourceLang, label, className }: Di
           >
             {collapsed ? (
               <>
-                <span aria-hidden="true">▾</span>
+                <RailIcon Icon={IconChevronDown} size={14} />
                 <span>Show full diagram</span>
               </>
             ) : (
-              "▴"
+              <RailIcon Icon={IconChevronUp} size={14} />
             )}
           </button>
         )}
@@ -145,7 +157,7 @@ export function DiagramFrame({ state, source, sourceLang, label, className }: Di
               aria-label="Zoom in"
               title="Zoom in"
             >
-              +
+              <RailIcon Icon={IconPlus} size={14} />
             </button>
             <button
               className="mermaid-control"
@@ -154,7 +166,7 @@ export function DiagramFrame({ state, source, sourceLang, label, className }: Di
               aria-label="Zoom out"
               title="Zoom out"
             >
-              −
+              <RailIcon Icon={IconMinus} size={14} />
             </button>
             <button
               className="mermaid-control"
@@ -163,7 +175,7 @@ export function DiagramFrame({ state, source, sourceLang, label, className }: Di
               aria-label="Reset diagram view"
               title="Reset diagram view"
             >
-              ↺
+              <RailIcon Icon={IconRotate2} size={14} />
             </button>
             {showPopupControl ? (
               <button
@@ -173,7 +185,7 @@ export function DiagramFrame({ state, source, sourceLang, label, className }: Di
                 aria-label="Open diagram in popup"
                 title="Open diagram in popup"
               >
-                ⛶
+                <RailIcon Icon={IconMaximize} size={14} />
               </button>
             ) : null}
           </div>
@@ -222,7 +234,7 @@ export function DiagramFrame({ state, source, sourceLang, label, className }: Di
               aria-label="Zoom in"
               title="Zoom in"
             >
-              +
+              <RailIcon Icon={IconPlus} size={14} />
             </button>
             <button
               className="mermaid-control"
@@ -231,7 +243,7 @@ export function DiagramFrame({ state, source, sourceLang, label, className }: Di
               aria-label="Zoom out"
               title="Zoom out"
             >
-              −
+              <RailIcon Icon={IconMinus} size={14} />
             </button>
             <button
               className="mermaid-control"
@@ -240,7 +252,7 @@ export function DiagramFrame({ state, source, sourceLang, label, className }: Di
               aria-label="Reset diagram view"
               title="Reset diagram view"
             >
-              ↺
+              <RailIcon Icon={IconRotate2} size={14} />
             </button>
           </div>
           <button
@@ -250,7 +262,7 @@ export function DiagramFrame({ state, source, sourceLang, label, className }: Di
             aria-label="Close diagram popup"
             title="Close diagram popup"
           >
-            ×
+            <RailIcon Icon={IconX} size={14} />
           </button>
           <div className={`diagram-lightbox-content ${className ?? ""}`}>
             <div
@@ -306,7 +318,11 @@ function CopySource({ text }: { text: string }) {
       aria-label={copied ? "Copied" : "Copy source"}
       title={copied ? "Copied" : "Copy source"}
     >
-      {copied ? "✓" : "⧉"}
+      {copied ? (
+        <RailIcon Icon={IconCheck} size={14} />
+      ) : (
+        <RailIcon Icon={IconCopy} size={14} />
+      )}
     </button>
   );
 }

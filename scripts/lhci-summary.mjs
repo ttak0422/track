@@ -1,6 +1,7 @@
-// Turn the newest Lighthouse result (.lighthouseci/lhr-*.json, written by `lhci collect`) into a
-// Markdown score table and append it to the GitHub Actions run summary ($GITHUB_STEP_SUMMARY), so the
-// help site's scores are visible on the run page without digging through logs or downloading the report.
+// Turn the newest Lighthouse results (.lighthouseci/lhr-*.json, written by `lhci collect`) into a
+// Markdown report appended to the GitHub Actions run summary ($GITHUB_STEP_SUMMARY), so the help
+// site's scores are visible on the run page without digging through logs or downloading reports.
+// One row per measured URL — a single overall number hides which page carries the cost.
 import { appendFileSync, readdirSync, readFileSync } from "node:fs";
 
 const dir = ".lighthouseci";
@@ -13,24 +14,34 @@ if (files.length === 0) {
   process.exit(1);
 }
 
-const lhr = JSON.parse(readFileSync(`${dir}/${files[files.length - 1]}`, "utf8"));
-const categories = lhr.categories ?? {};
-const order = ["performance", "accessibility", "best-practices", "seo"];
+const metrics = [
+  ["FCP", "first-contentful-paint"],
+  ["LCP", "largest-contentful-paint"],
+  ["TBT", "total-blocking-time"],
+  ["CLS", "cumulative-layout-shift"],
+  ["SI", "speed-index"],
+];
 
-const rows = order
-  .filter((id) => categories[id])
-  .map((id) => `| ${categories[id].title} | ${Math.round((categories[id].score ?? 0) * 100)} |`);
+const rows = files.map((f) => {
+  const lhr = JSON.parse(readFileSync(`${dir}/${f}`, "utf8"));
+  const url = String(lhr.finalDisplayedUrl ?? lhr.finalUrl ?? lhr.requestedUrl ?? "?").replace(
+    /^https?:\/\/[^/]+/,
+    "",
+  );
+  const cells = [`| ${url || "/"} | ${Math.round((lhr.categories?.performance?.score ?? 0) * 100)} |`];
+  for (const [, id] of metrics) {
+    const value = lhr.audits?.[id]?.displayValue ?? "–";
+    cells.push(` ${value} |`);
+  }
+  return cells.join("");
+});
 
-const table = [
-  "## Lighthouse — help site",
-  "",
-  `Tested: \`${lhr.finalDisplayedUrl ?? lhr.finalUrl ?? lhr.requestedUrl ?? "?"}\``,
-  "",
-  "| Category | Score |",
-  "| --- | ---: |",
-  ...rows,
-  "",
+const head = [
+  "| URL | Performance | " + metrics.map(([label]) => label).join(" | ") + " |",
+  `| --- | ---: | ${metrics.map(() => "---:").join(" | ")} |`,
 ].join("\n");
+
+const table = ["## Lighthouse — help site", "", head, ...rows, ""].join("\n");
 
 const summary = process.env.GITHUB_STEP_SUMMARY;
 if (summary) {

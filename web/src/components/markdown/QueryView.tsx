@@ -3,6 +3,7 @@ import { WikiLink } from "../preview/WikiLink";
 import { CodeBlock } from "./CodeBlock";
 import { NoteKindContext, NoteVaultContext } from "./context";
 import { assetHref } from "./urls";
+import { IconPhotoOff, RailIcon } from "../icons";
 
 // QueryView draws fenced ```track-view blocks: the laid-out result of a ```track-query fence whose
 // :layout is list, board, gallery, or calendar. The engine resolves the fence at render time (live) or
@@ -203,25 +204,8 @@ function MonthGrid({ month, byDay }: { month: string; byDay: Map<string, ViewRow
   );
 }
 
-// NoImageFace is the built-in placeholder pictogram for a card whose note sets neither a cover image
-// nor an icon: a muted picture-frame glyph, so an unconfigured gallery reads as "no image yet", not
-// as broken.
 function NoImageFace() {
-  return (
-    <svg
-      className="query-card-noimage"
-      viewBox="0 0 24 24"
-      fill="none"
-      stroke="currentColor"
-      strokeWidth="1.5"
-      strokeLinecap="round"
-      strokeLinejoin="round"
-    >
-      <rect x="3" y="3" width="18" height="18" rx="2" />
-      <circle cx="9" cy="9" r="2" />
-      <path d="m21 15-3.1-3.1a2 2 0 0 0-2.8 0L6 21" />
-    </svg>
-  );
+  return <RailIcon Icon={IconPhotoOff} className="query-card-noimage" />;
 }
 
 function Card({ row, view, skip }: { row: ViewRow; view: ViewPayload; skip?: string }) {

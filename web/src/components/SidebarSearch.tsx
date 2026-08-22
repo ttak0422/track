@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { isTypingTarget, keys } from "../keys";
 import { SearchPanel } from "./SearchPanel";
+import { IconSearch, RailIcon } from "./icons";
 
 // SidebarSearch is the rail's magnifier button plus the search palette it opens in the middle of the
 // screen. The palette closes on Escape, on an outside click, and when a result is chosen; "/" opens
@@ -83,21 +84,5 @@ export function SidebarSearch() {
 }
 
 function SearchIcon() {
-  return (
-    <svg
-      className="rail-icon-svg"
-      viewBox="0 0 24 24"
-      width="20"
-      height="20"
-      fill="none"
-      stroke="currentColor"
-      strokeWidth="1.5"
-      strokeLinecap="round"
-      strokeLinejoin="round"
-      aria-hidden="true"
-    >
-      <circle cx="10.75" cy="10.75" r="6.5" />
-      <line x1="15.5" y1="15.5" x2="20.5" y2="20.5" />
-    </svg>
-  );
+  return <RailIcon Icon={IconSearch} />;
 }

@@ -168,6 +168,14 @@ body,
   min-height: 100dvh;
 }
 
+/* Reserve the viewport's scrollbar slot from the first paint. On platforms with classic (width-taking)
+   scrollbars — Linux, Windows — a page that starts short and grows past the fold at the client boot
+   gains a scrollbar then, and every full-width element shifts sideways by its width in one jump
+   (measured as CLS 0.25+). Overlay-scroll platforms pay nothing for the reservation. */
+html {
+  scrollbar-gutter: stable;
+}
+
 body {
   background: var(--bg);
   color: var(--text);
@@ -385,8 +393,7 @@ img.theme-asset-dark {
   white-space: nowrap;
 }
 
-.empty-guide::before {
-  content: "←";
+.empty-guide .rail-icon-svg {
   margin-right: 8px;
   opacity: 0.8;
 }
@@ -2418,19 +2425,12 @@ textarea.modal-input:focus-visible {
   opacity: 1;
 }
 
+/* Both share glyphs are tabler outlines drawn by RailIcon (fill none, round, 1.5 stroke);
+   the class only fixes the box. */
 .share-action-icon {
   display: block;
   width: 20px;
   height: 20px;
-  fill: currentColor;
-}
-
-.share-action-copy .share-action-icon {
-  fill: none;
-  stroke: currentColor;
-  stroke-linecap: round;
-  stroke-linejoin: round;
-  stroke-width: 1.8;
 }
 
 .editor-grid-split .note-preview {
@@ -4059,13 +4059,10 @@ textarea.modal-input:focus-visible {
   background: var(--panel-soft);
 }
 
-/* Down-pointing caret when expanded; rotates to point right when collapsed. */
+/* Down-pointing caret (tabler chevron) when expanded; rotates to point right when collapsed. */
 .wiki-preview-caret {
-  width: 0;
-  height: 0;
-  border-left: 4px solid transparent;
-  border-right: 4px solid transparent;
-  border-top: 5px solid currentColor;
+  display: block;
+  line-height: 0;
   transition: transform 120ms ease;
 }
 

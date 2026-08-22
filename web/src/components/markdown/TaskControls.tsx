@@ -6,6 +6,7 @@ import { useSetTaskDateMutation, useSetTaskStateMutation } from "../../queries";
 import { STATIC_MODE } from "../../runtime";
 import { taskStates } from "../../taskStates";
 import type { DateField, NoteID, TaskItem } from "../../types";
+import { IconChevronLeft, IconChevronRight, RailIcon } from "../icons";
 
 // The write UI a rendered body carries: the tickable plain checkbox of a GFM checklist, and the
 // notation table's state and date cells. Each one resolves the line it was rendered from back to the
@@ -257,13 +258,13 @@ function TaskDatePicker({
     <div className="task-date-picker" role="dialog" aria-label="Pick a date" ref={panelRef} style={style}>
       <header className="task-date-head">
         <button type="button" aria-label="Previous month" onClick={() => shiftMonth(-1)}>
-          ‹
+          <RailIcon Icon={IconChevronLeft} size={14} />
         </button>
         <span className="task-date-month">
           {year} / {pad2(monthNo)}
         </span>
         <button type="button" aria-label="Next month" onClick={() => shiftMonth(1)}>
-          ›
+          <RailIcon Icon={IconChevronRight} size={14} />
         </button>
       </header>
       <div className="task-date-weekdays">

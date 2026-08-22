@@ -77,8 +77,9 @@ describe("MermaidDiagram", () => {
       svg: '<svg viewBox="0 0 866 217" width="100%" style="max-width: 866px;"></svg>',
     } as Awaited<ReturnType<typeof mermaid.render>>);
     const { container } = render(<MermaidDiagram text={"graph LR\nA-->B"} />);
-    await waitFor(() => expect(container.querySelector("svg")).toBeInTheDocument());
-    const svg = container.querySelector("svg") as SVGSVGElement;
+    // The diagram svg, not the controls' tabler glyphs (the fold chevron is also an svg).
+    await waitFor(() => expect(container.querySelector(".mermaid-viewport svg")).toBeInTheDocument());
+    const svg = container.querySelector(".mermaid-viewport svg") as SVGSVGElement;
     expect(svg.style.width).toBe("866px");
     expect(svg.style.height).toBe("217px");
     expect(svg.style.maxWidth).toBe("none");

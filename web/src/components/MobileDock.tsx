@@ -15,6 +15,17 @@ import { useSiteQuery } from "../queries";
 import { STATIC_MODE } from "../runtime";
 import { themeModes, useThemeMode } from "../themeState";
 import { BrandMark } from "./Logo";
+import {
+  IconAffiliate,
+  IconCalendar,
+  IconChecklist,
+  IconFileText,
+  IconHistory,
+  IconNotebook,
+  IconSearch,
+  IconSettings,
+  RailIcon,
+} from "./icons";
 import { SearchPanel } from "./SearchPanel";
 import { railAnchor } from "./railAnchor";
 import { useTabs } from "./tabs/tabsStore";
@@ -162,7 +173,7 @@ export function MobileDock() {
     actions.push({
       key: "note",
       label: "This note",
-      icon: <NoteIcon />,
+      icon: <RailIcon Icon={IconFileText} />,
       run: () => openPopup("note"),
     });
   }
@@ -170,7 +181,7 @@ export function MobileDock() {
     actions.push({
       key: "journal",
       label: "Today's journal",
-      icon: <JournalIcon />,
+      icon: <RailIcon Icon={IconNotebook} />,
       run: () => {
         setOpen(false);
         void openTodayJournal();
@@ -181,13 +192,13 @@ export function MobileDock() {
     {
       key: "search",
       label: "Search notes",
-      icon: <SearchIcon />,
+      icon: <RailIcon Icon={IconSearch} />,
       run: () => openPopup("search"),
     },
     {
       key: "history",
       label: "Recently opened notes",
-      icon: <HistoryIcon />,
+      icon: <RailIcon Icon={IconHistory} />,
       run: () => openPopup("history"),
     },
   );
@@ -195,7 +206,7 @@ export function MobileDock() {
     actions.push({
       key: "calendar",
       label: "Calendar",
-      icon: <CalendarIcon />,
+      icon: <RailIcon Icon={IconCalendar} />,
       run: () => {
         setOpen(false);
         void navigate({ to: "/calendar" });
@@ -206,7 +217,7 @@ export function MobileDock() {
     actions.push({
       key: "tasks",
       label: "Tasks",
-      icon: <TasksIcon />,
+      icon: <RailIcon Icon={IconChecklist} />,
       run: () => {
         setOpen(false);
         void navigate({ to: "/tasks" });
@@ -217,7 +228,7 @@ export function MobileDock() {
     {
       key: "graph",
       label: "Full graph",
-      icon: <GraphIcon />,
+      icon: <RailIcon Icon={IconAffiliate} />,
       run: () => {
         setOpen(false);
         void navigate({ to: "/graph" });
@@ -226,7 +237,7 @@ export function MobileDock() {
     {
       key: "settings",
       label: "Settings",
-      icon: <GearIcon />,
+      icon: <RailIcon Icon={IconSettings} />,
       run: () => openPopup("settings"),
     },
   );
@@ -438,95 +449,10 @@ function clampToWindow(p: { x: number; y: number }): { x: number; y: number } {
   };
 }
 
-// The fan glyphs are the rail's own family: 24-unit viewBox at 20px, stroke-only, round caps.
-function SearchIcon() {
-  return (
-    <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-      <circle cx="10.75" cy="10.75" r="6.5" />
-      <line x1="15.5" y1="15.5" x2="20.5" y2="20.5" />
-    </svg>
-  );
-}
 
-function HistoryIcon() {
-  return (
-    <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-      <path d="M3.5 12a8.5 8.5 0 1 0 2.8-6.3L3.5 8" />
-      <path d="M3.5 3.5v4.5h4.5" />
-      <path d="M12 7v5l3 2" />
-    </svg>
-  );
-}
 
-function CalendarIcon() {
-  return (
-    <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-      <rect x="4" y="5.5" width="16" height="14" rx="2" />
-      <line x1="4" y1="9.5" x2="20" y2="9.5" />
-      <line x1="8.5" y1="3.5" x2="8.5" y2="6.5" />
-      <line x1="15.5" y1="3.5" x2="15.5" y2="6.5" />
-      <circle cx="8.5" cy="13" r="0.9" />
-      <circle cx="12" cy="13" r="0.9" />
-      <circle cx="15.5" cy="13" r="0.9" />
-      <circle cx="8.5" cy="16.5" r="0.9" />
-      <circle cx="12" cy="16.5" r="0.9" />
-    </svg>
-  );
-}
 
-function TasksIcon() {
-  return (
-    <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-      <path d="m4 8 2 2 3.5-4" />
-      <path d="m4 17 2 2 3.5-4" />
-      <line x1="13" y1="8" x2="20" y2="8" />
-      <line x1="13" y1="17" x2="20" y2="17" />
-    </svg>
-  );
-}
 
-function GraphIcon() {
-  return (
-    <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-      <line x1="7" y1="8" x2="16" y2="7" />
-      <line x1="7" y1="8" x2="12" y2="17" />
-      <line x1="16" y1="7" x2="12" y2="17" />
-      <circle cx="7" cy="8" r="2" />
-      <circle cx="16" cy="7" r="2" />
-      <circle cx="12" cy="17" r="2" />
-    </svg>
-  );
-}
 
-// The open note: a page with a line lifted off it, the one glyph in the fan that points at content
-// rather than at a view.
-function NoteIcon() {
-  return (
-    <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-      <path d="M6 3.5h8L19 8v12.5H6z" />
-      <path d="M14 3.5V8h5" />
-      <line x1="9" y1="12.5" x2="16" y2="12.5" />
-      <line x1="9" y1="16" x2="13.5" y2="16" />
-    </svg>
-  );
-}
 
-function JournalIcon() {
-  return (
-    <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-      <rect x="4" y="3.5" width="16" height="17" rx="2" />
-      <line x1="4" y1="8.5" x2="20" y2="8.5" />
-      <line x1="8" y1="12.5" x2="16" y2="12.5" />
-      <line x1="8" y1="16" x2="14" y2="16" />
-    </svg>
-  );
-}
 
-function GearIcon() {
-  return (
-    <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-      <circle cx="12" cy="12" r="3" />
-      <path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z" />
-    </svg>
-  );
-}

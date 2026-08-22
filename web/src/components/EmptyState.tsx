@@ -1,4 +1,5 @@
 import { Mark } from "./Logo";
+import { IconArrowLeft, RailIcon } from "./icons";
 import { useSiteQuery } from "../queries";
 
 // EmptyState fills the static site's reader when every tab is closed: the mark, faint and centered
@@ -15,14 +16,23 @@ export function EmptyState() {
           carrying — hence the calendar row appearing on exactly the sites whose rail has a calendar
           button (Shell's showCalendar). */}
       <ul className="empty-guides">
-        <li className="empty-guide">Start page</li>
-        <li className="empty-guide">Search notes</li>
-        <li className="empty-guide">Recently opened</li>
-        {site.data?.calendar === true && <li className="empty-guide">Calendar</li>}
-        <li className="empty-guide">Hierarchy</li>
-        <li className="empty-guide">Explore the graph</li>
-        <li className="empty-guide empty-guide-settings">Settings</li>
+        <Guide>Start page</Guide>
+        <Guide>Search notes</Guide>
+        <Guide>Recently opened</Guide>
+        {site.data?.calendar === true && <Guide>Calendar</Guide>}
+        <Guide>Hierarchy</Guide>
+        <Guide>Explore the graph</Guide>
+        <Guide className="empty-guide-settings">Settings</Guide>
       </ul>
     </div>
+  );
+}
+
+function Guide({ children, className }: { children: string; className?: string }) {
+  return (
+    <li className={className ? `empty-guide ${className}` : "empty-guide"}>
+      <RailIcon Icon={IconArrowLeft} size={14} />
+      {children}
+    </li>
   );
 }

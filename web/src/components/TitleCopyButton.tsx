@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import { copyText } from "./markdown/clipboard";
+import { IconCheck, IconCopy, RailIcon } from "./icons";
 
 interface TitleCopyButtonProps {
   title: string;
@@ -38,24 +39,9 @@ export function TitleCopyButton({ title, className = "note-title-copy" }: TitleC
       aria-label={copied ? "Title copied" : "Copy title"}
       title={copied ? "Title copied" : "Copy title"}
     >
-      {copied ? <CheckIcon /> : <CopyIcon />}
+      {copied ? <RailIcon Icon={IconCheck} /> : <RailIcon Icon={IconCopy} />}
     </button>
   );
 }
 
-function CopyIcon() {
-  return (
-    <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false">
-      <rect x="8" y="8" width="11" height="11" rx="1.5" />
-      <path d="M16 8V5.5A1.5 1.5 0 0 0 14.5 4h-9A1.5 1.5 0 0 0 4 5.5v9A1.5 1.5 0 0 0 5.5 16H8" />
-    </svg>
-  );
-}
 
-function CheckIcon() {
-  return (
-    <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false">
-      <path d="m5 12.5 4.2 4.2L19 7" />
-    </svg>
-  );
-}

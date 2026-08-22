@@ -4,6 +4,7 @@ import { useEffect, useRef, useState, type CSSProperties, type FocusEvent } from
 import { useNewNotesQuery } from "../queries";
 import { hoverOpen } from "./hoverOpen";
 import { railAnchor } from "./railAnchor";
+import { IconPlus, RailIcon } from "./icons";
 
 // SidebarNew is the rail's creation button plus the vault's recently-created notes. It deliberately
 // differs from SidebarHistory, which remembers notes opened in this browser.
@@ -114,23 +115,5 @@ export function SidebarNew() {
 }
 
 function NewIcon() {
-  return (
-    <svg
-      className="rail-icon-svg"
-      viewBox="0 0 24 24"
-      width="20"
-      height="20"
-      fill="none"
-      stroke="currentColor"
-      strokeWidth="1.5"
-      strokeLinecap="round"
-      strokeLinejoin="round"
-      aria-hidden="true"
-    >
-      <path d="M12 3.5v17" />
-      <path d="M3.5 12h17" />
-      <path d="m5.5 5.5 1 1" />
-      <path d="m17.5 17.5 1 1" />
-    </svg>
-  );
+  return <RailIcon Icon={IconPlus} />;
 }

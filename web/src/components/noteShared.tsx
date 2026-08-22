@@ -8,6 +8,7 @@ import { headingElementID, tocEntries } from "./markdown/toc";
 import { WikiLink } from "./preview/WikiLink";
 import type { ExternalRef, FileKind, NoteID, NoteProp, NoteRef, UnavailableVault } from "../types";
 import { split, vaultOf } from "../vaultId";
+import { IconMaximize, IconRotate2, IconX, RailIcon } from "./icons";
 
 // Shared read-only note UI, used by both the static reader (NoteReaderStatic) and the live editor
 // (NoteEditor), so the two stay consistent and the editor-only code is the only thing that differs.
@@ -288,21 +289,8 @@ export function NoteAside({
                 title="Enlarge graph"
                 onClick={() => setGraphEnlarged(true)}
               >
-                {/* Expand-to-corners glyph, the same one media embeds use to enlarge. Drawn in the rail's
-                    outline family (design.md, Sidebar): 1.5 stroke, no fills. */}
-                <svg
-                  viewBox="0 0 24 24"
-                  width="15"
-                  height="15"
-                  fill="none"
-                  stroke="currentColor"
-                  strokeWidth="1.5"
-                  strokeLinecap="round"
-                  strokeLinejoin="round"
-                  aria-hidden="true"
-                >
-                  <path d="M8 3H5a2 2 0 0 0-2 2v3m18 0V5a2 2 0 0 0-2-2h-3M3 16v3a2 2 0 0 0 2 2h3m8 0h3a2 2 0 0 0 2-2v-3" />
-                </svg>
+                {/* Expand-to-corners glyph (tabler maximize), the same one media embeds use to enlarge. */}
+                <RailIcon Icon={IconMaximize} size={15} />
               </button>
             </div>
           </div>
@@ -369,42 +357,12 @@ export function NoteAside({
   );
 }
 
-// The rail's outline family, at the size the graph's own controls are drawn (see GraphResetIcon).
 function CloseIcon() {
-  return (
-    <svg
-      viewBox="0 0 24 24"
-      width="15"
-      height="15"
-      fill="none"
-      stroke="currentColor"
-      strokeWidth="1.5"
-      strokeLinecap="round"
-      aria-hidden="true"
-    >
-      <line x1="5" y1="5" x2="19" y2="19" />
-      <line x1="19" y1="5" x2="5" y2="19" />
-    </svg>
-  );
+  return <RailIcon Icon={IconX} size={15} />;
 }
 
 function GraphResetIcon() {
-  return (
-    <svg
-      viewBox="0 0 24 24"
-      width="15"
-      height="15"
-      fill="none"
-      stroke="currentColor"
-      strokeWidth="1.5"
-      strokeLinecap="round"
-      strokeLinejoin="round"
-      aria-hidden="true"
-    >
-      <path d="M3 12a9 9 0 1 0 9-9 9.75 9.75 0 0 0-6.74 2.74L3 8" />
-      <path d="M3 3v5h5" />
-    </svg>
-  );
+  return <RailIcon Icon={IconRotate2} size={15} />;
 }
 
 // NoteProperties renders a note's flattened properties (sidecar props and inline "key:: value"

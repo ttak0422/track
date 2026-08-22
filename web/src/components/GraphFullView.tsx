@@ -16,6 +16,7 @@ import {
   releasePreview,
   usePreviewStackOrder,
 } from "./preview/stack";
+import { IconRotate2, RailIcon } from "./icons";
 
 interface Point {
   x: number;
@@ -187,7 +188,7 @@ export function GraphFullView() {
           title="Reset graph view"
           onClick={() => setResetToken((token) => token + 1)}
         >
-          ↺
+          <RailIcon Icon={IconRotate2} size={15} />
         </button>
       </div>
     </div>
