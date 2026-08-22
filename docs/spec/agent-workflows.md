@@ -144,6 +144,43 @@ Typical creation loop:
 4. `track search --query X` to rediscover notes.
 5. `track rename --title Old --to New` when a title changes.
 
+## Agent Status
+
+`track agent` reports on running Claude Code sessions. It reads `~/.claude` directly and needs no
+vault at all: agent state is not a vault asset, so it is never indexed, never stored in a note, and
+no `TRACK_VAULT`/`--vault` setup is involved (ADR 0072). Both commands follow the usual JSON
+contract; failures are `{"error":...}` with exit 1.
+
+- `track agent ls`: `{"sessions":[...]}` with one entry per **live** session, pid-sorted. Each entry
+  carries the keys Claude Code wrote: `pid`, `sessionId`, `cwd`, `startedAt`, `procStart`,
+  `version`, `kind` (`interactive` or `bg`), `name`, `updatedAt`, `status`, `statusUpdatedAt` —
+  plus `waitingFor` (omitempty) when `status` is `waiting`. A missing `~/.claude` is an empty list,
+  not an error.
+- `track agent log <sessionId> [--tail N]`: the session's transcript tail as a flat object (not
+  wrapped): `{"sessionId","aiTitle"?, "pr"?,"messages"}` where `pr` is `{"number","url",
+  "repository"}` and `messages` are the last `--tail` (default 50) `user`/`assistant` entries in
+  chronological order, each with `type`, `uuid`, `parentUuid`, `timestamp`, `cwd`, `gitBranch`, and
+  a `message` array of content blocks. The blocks keep `type`, and the payload of the three kinds
+  the frontend folds — `text` (`text`), `tool_use` (`name`/`input`), `tool_result` (`content`);
+  other kinds (images, thinking, …) come through type-only so the conversation shape survives
+  without their payloads. `aiTitle`/`pr` are the newest the backward scan passed; a short `--tail`
+  may leave them absent. The transcript is found by globbing `~/.claude/projects/*/<sessionId>.jsonl`
+  — the cwd-slug directory name is never reconstructed — and read backward in chunks, so a
+  multi-hundred-KB transcript costs only the tail read.
+
+Liveness is track's own, three checks deep (ADR 0072): `kill(pid, 0)` for existence; the process
+command line from `ps` must not be the daemon — the only Claude Code process that can never run a
+session, and the only word that survives macOS's 16-character command-column truncation — while a
+`claude bg-spare` process that a record names is the background session itself and stays; and the
+process start time must match the record's `procStart`, which rules out pid reuse. Dead records,
+reused pids, and corrupt files are dropped silently, so the list is exactly what is running now —
+including `kind: "bg"` sessions. `updatedAt` is *not* a heartbeat and must never be used to judge
+liveness: Claude Code only rewrites it when the status changes.
+
+Input sending is out of scope here: track owns no PTY, and the PTY for a session belongs to its
+process tree or to the daemon's PTY host. A future `track agent` input feature delegates to the PTY
+owner rather than re-implementing terminal handling.
+
 ## Generations and Deletion
 
 `track gen` gives an agent run a non-destructive review boundary without git (ADR 0025). The model
