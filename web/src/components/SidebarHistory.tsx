@@ -4,6 +4,7 @@ import { useEffect, useRef, useState, type CSSProperties, type FocusEvent } from
 import { useTabs } from "./tabs/tabsStore";
 import { hoverOpen } from "./hoverOpen";
 import { railAnchor } from "./railAnchor";
+import { IconHistory, RailIcon } from "./icons";
 
 // SidebarHistory is the rail's clock button plus the browser-local list of notes it recently opened.
 // The panel is portalled because the fixed rail owns a stacking context below floating previews; a
@@ -122,26 +123,5 @@ export function SidebarHistory() {
 }
 
 function HistoryIcon() {
-  return (
-    <svg
-      className="rail-icon-svg"
-      viewBox="0 0 24 24"
-      width="20"
-      height="20"
-      fill="none"
-      stroke="currentColor"
-      strokeWidth="1.5"
-      strokeLinecap="round"
-      strokeLinejoin="round"
-      aria-hidden="true"
-    >
-      {/* The dial is centred on the viewBox like every other rail glyph. It was drawn from two
-          endpoints and a radius, which put its real centre at (11.25, 8.5) — the clock sat 3.5 units
-          high, its hands were struck from a point off its own face, and in a row of glyphs along the
-          foot of a phone that reads as one icon out of line. */}
-      <path d="M3.5 12a8.5 8.5 0 1 0 2.8-6.3L3.5 8" />
-      <path d="M3.5 3.5v4.5h4.5" />
-      <path d="M12 7v5l3 2" />
-    </svg>
-  );
+  return <RailIcon Icon={IconHistory} />;
 }

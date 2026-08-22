@@ -2,6 +2,7 @@ import { Link } from "@tanstack/react-router";
 import { useMemo, useState } from "react";
 import { useDatedTasksQuery, useNotesQuery } from "../queries";
 import type { NoteID, SearchResult, TaskRow } from "../types";
+import { IconChevronLeft, IconChevronRight, RailIcon } from "./icons";
 
 const WEEKDAYS = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
 // How many note titles a day cell lists before collapsing the rest into a "+N" count.
@@ -88,13 +89,13 @@ export function CalendarFullView() {
         )}
         <div className="calendar-nav">
           <button type="button" aria-label="Previous month" title="Previous month" onClick={() => shiftMonth(-1)}>
-            ‹
+            <RailIcon Icon={IconChevronLeft} size={14} />
           </button>
           <button type="button" onClick={() => setMonth(startOfCurrentMonth())}>
             Today
           </button>
           <button type="button" aria-label="Next month" title="Next month" onClick={() => shiftMonth(1)}>
-            ›
+            <RailIcon Icon={IconChevronRight} size={14} />
           </button>
         </div>
       </header>

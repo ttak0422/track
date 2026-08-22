@@ -19,6 +19,7 @@ import { NoteControlsProvider } from "../noteControls";
 import { NotificationToast } from "../notifications";
 import { NoteRailControls } from "./NoteRailControls";
 import { SearchProvider } from "../searchState";
+import { IconAffiliate, IconCalendar, IconChecklist, IconNotebook, RailIcon } from "./icons";
 
 export function Shell() {
   const pathname = useRouterState({ select: (state) => state.location.pathname });
@@ -90,23 +91,7 @@ export function Shell() {
                     title="Today's journal"
                     onClick={openTodayJournal}
                   >
-                    <svg
-                      className="rail-icon-svg"
-                      viewBox="0 0 24 24"
-                      width="20"
-                      height="20"
-                      fill="none"
-                      stroke="currentColor"
-                      strokeWidth="1.5"
-                      strokeLinecap="round"
-                      strokeLinejoin="round"
-                      aria-hidden="true"
-                    >
-                      <rect x="4" y="3.5" width="16" height="17" rx="2" />
-                      <line x1="4" y1="8.5" x2="20" y2="8.5" />
-                      <line x1="8" y1="12.5" x2="16" y2="12.5" />
-                      <line x1="8" y1="16" x2="14" y2="16" />
-                    </svg>
+                    <RailIcon Icon={IconNotebook} />
                   </button>
                 )}
                 {showCalendar && (
@@ -116,13 +101,13 @@ export function Shell() {
                     aria-label="Calendar"
                     title="Calendar"
                   >
-                    <RailCalendarIcon />
+                    <RailIcon Icon={IconCalendar} />
                   </Link>
                 )}
                 {/* The open-task listing is live-only: the published bundle carries dated tasks alone. */}
                 {!STATIC_MODE && (
                   <Link className="rail-button" to="/tasks" aria-label="Tasks" title="Tasks">
-                    <RailTasksIcon />
+                    <RailIcon Icon={IconChecklist} />
                   </Link>
                 )}
                 {/* The deliberate "up" tree, beside the link graph it is a hand-drawn path through. */}
@@ -133,7 +118,7 @@ export function Shell() {
                   aria-label="Full graph"
                   title="Full graph"
                 >
-                  <RailGraphIcon />
+                  <RailIcon Icon={IconAffiliate} />
                 </Link>
                 {/* The open note's own controls, below the workspace's views. Absent while no note is
                     open, so the dock keeps carrying nothing but navigation the rest of the time. */}
@@ -160,78 +145,5 @@ export function Shell() {
       </FloatingProvider>
       </NoteControlsProvider>
     </SearchProvider>
-  );
-}
-
-function RailCalendarIcon() {
-  return (
-    <svg
-      className="rail-icon-svg"
-      viewBox="0 0 24 24"
-      width="20"
-      height="20"
-      fill="none"
-      stroke="currentColor"
-      strokeWidth="1.5"
-      strokeLinecap="round"
-      strokeLinejoin="round"
-      aria-hidden="true"
-    >
-      <rect x="4" y="5.5" width="16" height="14" rx="2" />
-      <line x1="4" y1="9.5" x2="20" y2="9.5" />
-      <line x1="8.5" y1="3.5" x2="8.5" y2="6.5" />
-      <line x1="15.5" y1="3.5" x2="15.5" y2="6.5" />
-      <circle cx="8.5" cy="13" r="0.9" />
-      <circle cx="12" cy="13" r="0.9" />
-      <circle cx="15.5" cy="13" r="0.9" />
-      <circle cx="8.5" cy="16.5" r="0.9" />
-      <circle cx="12" cy="16.5" r="0.9" />
-    </svg>
-  );
-}
-
-function RailTasksIcon() {
-  return (
-    <svg
-      className="rail-icon-svg"
-      viewBox="0 0 24 24"
-      width="20"
-      height="20"
-      fill="none"
-      stroke="currentColor"
-      strokeWidth="1.5"
-      strokeLinecap="round"
-      strokeLinejoin="round"
-      aria-hidden="true"
-    >
-      <path d="m4 8 2 2 3.5-4" />
-      <path d="m4 17 2 2 3.5-4" />
-      <line x1="13" y1="8" x2="20" y2="8" />
-      <line x1="13" y1="17" x2="20" y2="17" />
-    </svg>
-  );
-}
-
-function RailGraphIcon() {
-  return (
-    <svg
-      className="rail-icon-svg"
-      viewBox="0 0 24 24"
-      width="20"
-      height="20"
-      fill="none"
-      stroke="currentColor"
-      strokeWidth="1.5"
-      strokeLinecap="round"
-      strokeLinejoin="round"
-      aria-hidden="true"
-    >
-      <line x1="7" y1="8" x2="16" y2="7" />
-      <line x1="7" y1="8" x2="12" y2="17" />
-      <line x1="16" y1="7" x2="12" y2="17" />
-      <circle cx="7" cy="8" r="2" />
-      <circle cx="16" cy="7" r="2" />
-      <circle cx="12" cy="17" r="2" />
-    </svg>
   );
 }

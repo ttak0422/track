@@ -516,7 +516,9 @@ The note's aside is a quiet column; the rail is a floating dock over the sheet.
   re-exported through `web/src/components/icons.tsx`, whose `RailIcon` applies
   these values). Always set `stroke` to 1.5 — tabler's own default is 2 —
   keep the default `size` of 20px, and never reach for a `*-filled` glyph:
-  those are filled shapes, which this family forbids. The track logo (the
+  those are filled shapes, which this family forbids. Every icon-bearing
+  control draws from the family — no hand-drawn svgs and no unicode
+  stand-ins (`×`, `↺`, `‹›`) outside it. The track logo (the
   `track-icon.svg` image) and the filled square mark at the head of the rail
   are custom and stay outside the family.
 - **The mark is a filled square** in `--mark`, at the head of the rail. It is

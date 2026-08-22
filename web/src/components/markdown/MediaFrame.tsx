@@ -11,6 +11,7 @@ import {
   usePreviewStackOrder,
 } from "../preview/stack";
 import { NoteKindContext, NoteVaultContext } from "./context";
+import { IconMaximize, IconPictureInPicture, RailIcon } from "../icons";
 
 // MediaFrame wraps a media embed (image, PDF) with hover-revealed controls: preview (an enlarged
 // copy floating beside the media, the same FloatingWindow chrome a WikiLink note preview uses via
@@ -93,23 +94,9 @@ export function MediaFrame({ src, alt, children }: { src: string; alt: string; c
           aria-label="Preview"
           title="Preview"
         >
-          {/* Picture-in-picture glyph: pop an enlarged copy up beside the media, on demand rather
-              than on hover. The frame-with-inner-window shape (preferred over the eye it briefly
-              was) reads as "opens a window". */}
-          <svg
-            viewBox="0 0 24 24"
-            width="15"
-            height="15"
-            fill="none"
-            stroke="currentColor"
-            strokeWidth="2"
-            strokeLinecap="round"
-            strokeLinejoin="round"
-            aria-hidden="true"
-          >
-            <rect x="3" y="5" width="18" height="14" rx="2" />
-            <rect x="12" y="11" width="7" height="6" rx="1" fill="currentColor" stroke="none" />
-          </svg>
+          {/* Picture-in-picture glyph (tabler picture-in-picture): pop an enlarged copy up beside the
+              media, on demand rather than on hover. */}
+          <RailIcon Icon={IconPictureInPicture} size={15} />
         </button>
         <button
           className="media-control"
@@ -122,21 +109,9 @@ export function MediaFrame({ src, alt, children }: { src: string; alt: string; c
           aria-label="Enlarge"
           title="Enlarge"
         >
-          {/* Expand-to-corners glyph: enlarge in an in-window lightbox (a modal <dialog> over a dimmed
-              backdrop), not display fullscreen. */}
-          <svg
-            viewBox="0 0 24 24"
-            width="15"
-            height="15"
-            fill="none"
-            stroke="currentColor"
-            strokeWidth="2"
-            strokeLinecap="round"
-            strokeLinejoin="round"
-            aria-hidden="true"
-          >
-            <path d="M8 3H5a2 2 0 0 0-2 2v3m18 0V5a2 2 0 0 0-2-2h-3M3 16v3a2 2 0 0 0 2 2h3m8 0h3a2 2 0 0 0 2-2v-3" />
-          </svg>
+          {/* Expand-to-corners glyph (tabler maximize): enlarge in an in-window lightbox (a modal
+              <dialog> over a dimmed backdrop), not display fullscreen. */}
+          <RailIcon Icon={IconMaximize} size={15} />
         </button>
       </div>
       {enlarged ? (

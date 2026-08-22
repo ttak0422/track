@@ -1,4 +1,5 @@
 import { useNavigate } from "@tanstack/react-router";
+import { IconX, RailIcon } from "./components/icons";
 import {
   createContext,
   type ReactNode,
@@ -87,7 +88,7 @@ export function NotificationToast() {
         <span>{message}</span>
       )}
       <button type="button" aria-label="Dismiss notification" onClick={dismiss}>
-        ×
+        <RailIcon Icon={IconX} size={14} />
       </button>
     </div>
   );

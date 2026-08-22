@@ -5,6 +5,7 @@ import { vaultOf } from "../../vaultId";
 import { initialPreviewBounds } from "../preview/bounds";
 import { useFloating } from "../preview/floatingStore";
 import { isViewTab, type NoteTab, tabRoute, useTabs } from "./tabsStore";
+import { IconChevronDown, IconPictureInPicture, IconX, RailIcon } from "../icons";
 
 // TabBar is the strip of open notes above the reader, most recent first (tabsStore keeps that order),
 // so the note being read is always the leftmost tab and never in the overflow. The strip shows every
@@ -106,20 +107,7 @@ export function TabBar() {
                 aria-label={`Close ${label}`}
                 onClick={() => close(tab.id)}
               >
-                <svg
-                  className="tab-close-glyph"
-                  viewBox="0 0 24 24"
-                  width="14"
-                  height="14"
-                  fill="none"
-                  stroke="currentColor"
-                  strokeWidth="2"
-                  strokeLinecap="round"
-                  aria-hidden="true"
-                >
-                  <line x1="6" y1="6" x2="18" y2="18" />
-                  <line x1="18" y1="6" x2="6" y2="18" />
-                </svg>
+                <RailIcon Icon={IconX} size={14} className="tab-close-glyph rail-icon-svg" />
                 {tab.id === dirtyID ? <span className="tab-dirty-dot" aria-hidden="true" /> : null}
               </button>
               {/* The tab's own popup: the full title (the tab itself only has room for its head) and
@@ -190,9 +178,7 @@ function TabOverflow({
         onClick={() => setOpen((value) => !value)}
       >
         +{tabs.length}
-        <svg viewBox="0 0 24 24" width="12" height="12" fill="none" stroke="currentColor" strokeWidth="2" aria-hidden="true">
-          <polyline points="6,9 12,15 18,9" />
-        </svg>
+        <RailIcon Icon={IconChevronDown} size={12} />
       </button>
       {open ? (
         <div className="tab-overflow-panel" role="menu">
@@ -215,19 +201,7 @@ function TabOverflow({
                 aria-label={`Close ${tab.title || "Untitled"}`}
                 onClick={() => onClose(tab.id)}
               >
-                <svg
-                  viewBox="0 0 24 24"
-                  width="12"
-                  height="12"
-                  fill="none"
-                  stroke="currentColor"
-                  strokeWidth="2"
-                  strokeLinecap="round"
-                  aria-hidden="true"
-                >
-                  <line x1="6" y1="6" x2="18" y2="18" />
-                  <line x1="18" y1="6" x2="6" y2="18" />
-                </svg>
+                <RailIcon Icon={IconX} size={12} />
               </button>
             </div>
           ))}
@@ -259,20 +233,7 @@ function FloatButton({ noteID }: { noteID: NoteID }) {
       aria-label="Float this note"
       onClick={float}
     >
-      <svg
-        viewBox="0 0 24 24"
-        width="14"
-        height="14"
-        fill="none"
-        stroke="currentColor"
-        strokeWidth="2"
-        strokeLinecap="round"
-        strokeLinejoin="round"
-        aria-hidden="true"
-      >
-        <rect x="3" y="5" width="18" height="14" rx="2" />
-        <rect x="12" y="11" width="7" height="6" rx="1" fill="currentColor" stroke="none" />
-      </svg>
+      <RailIcon Icon={IconPictureInPicture} size={14} />
     </button>
   );
 }

@@ -3,6 +3,7 @@ import { useEffect, useRef, useState, type CSSProperties } from "react";
 import { useHierarchyQuery } from "../queries";
 import { hoverOpen } from "./hoverOpen";
 import { railAnchor } from "./railAnchor";
+import { IconSitemap, RailIcon } from "./icons";
 import type { HierarchyNode } from "../types";
 
 // The rail's hierarchy button: the vault's "up" tree, opened by hovering the glyph the way the
@@ -84,7 +85,7 @@ export function HierarchyMenu() {
         aria-expanded={open}
         onClick={() => (open ? setOpen(false) : showMenu())}
       >
-        <RailHierarchyIcon />
+        <RailIcon Icon={IconSitemap} />
       </button>
       {open ? (
         // The title stays outside the menu and outside the scroller: a heading is not a menu item,
@@ -192,29 +193,4 @@ function storedExpanded(): Set<string> {
   } catch {
     return new Set();
   }
-}
-
-// An org chart: one node over two, connected. Outlines only, like every other rail glyph — it is the
-// deliberate tree over the link graph, so it is drawn as ranks rather than as the graph's triangle.
-function RailHierarchyIcon() {
-  return (
-    <svg
-      className="rail-icon-svg"
-      viewBox="0 0 24 24"
-      width="20"
-      height="20"
-      fill="none"
-      stroke="currentColor"
-      strokeWidth="1.5"
-      strokeLinecap="round"
-      strokeLinejoin="round"
-      aria-hidden="true"
-    >
-      <rect x="9" y="3.5" width="6" height="4.5" rx="1" />
-      <rect x="2.5" y="16" width="6" height="4.5" rx="1" />
-      <rect x="15.5" y="16" width="6" height="4.5" rx="1" />
-      <path d="M12 8v3.5" />
-      <path d="M5.5 16v-4.5h13V16" />
-    </svg>
-  );
 }
