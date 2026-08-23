@@ -98,8 +98,11 @@ export function Embed({ src, alt, height, frame }: EmbedProps) {
   // its own sandbox, so that pair is deliberately never used, and allow-top-navigation is withheld so the
   // frame cannot hijack the parent tab. A remote http(s) …/page.html URL never enters this branch; it falls
   // through to the Open Graph card below. allow-popups-to-escape-sandbox lets a link opened from the frame
-  // come up as an ordinary browsing context in its new tab while the frame itself stays isolated, and
-  // allow="clipboard-write" grants the embedded document clipboard-write permission.
+  // come up as an ordinary browsing context in its new tab while the frame itself stays isolated;
+  // allow-downloads and allow-modals let an interactive tool save a file and show a dialog;
+  // allow="clipboard-write" grants the embedded document clipboard-write permission. allow-forms stays out
+  // (a blocked submission never dispatches the submit event, so tools drive actions from click handlers)
+  // along with allow-top-navigation.
   if (asset && isHtmlHref(src)) {
     const safe = safeFrameUrl(target);
     if (safe) {
@@ -107,7 +110,7 @@ export function Embed({ src, alt, height, frame }: EmbedProps) {
         <div className={"embed embed-html" + (frame === "none" ? " embed-html-frame-none" : "")}>
           <iframe
             src={safe}
-            sandbox="allow-scripts allow-popups allow-popups-to-escape-sandbox"
+            sandbox="allow-scripts allow-popups allow-popups-to-escape-sandbox allow-downloads allow-modals"
             allow="clipboard-write"
             loading="lazy"
             title={alt || "Embedded page"}

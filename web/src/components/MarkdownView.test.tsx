@@ -653,7 +653,7 @@ describe("MarkdownView", () => {
     expect(defaultFrame).not.toHaveClass("embed-html-frame-none");
     expect(defaultFrame.querySelector("iframe")).toHaveAttribute(
       "sandbox",
-      "allow-scripts allow-popups allow-popups-to-escape-sandbox",
+      "allow-scripts allow-popups allow-popups-to-escape-sandbox allow-downloads allow-modals",
     );
 
     const { container } = render(<MarkdownView markdown={"![Demo](assets/x.html) :frame none"} />);
@@ -661,7 +661,7 @@ describe("MarkdownView", () => {
     expect(frame).toHaveClass("embed-html-frame-none");
     expect(frame.querySelector("iframe")).toHaveAttribute(
       "sandbox",
-      "allow-scripts allow-popups allow-popups-to-escape-sandbox",
+      "allow-scripts allow-popups allow-popups-to-escape-sandbox allow-downloads allow-modals",
     );
     expect(container.textContent).not.toContain(":frame");
   });
@@ -672,7 +672,7 @@ describe("MarkdownView", () => {
     expect(iframe).not.toBeNull();
     expect(iframe).toHaveAttribute(
       "sandbox",
-      "allow-scripts allow-popups allow-popups-to-escape-sandbox",
+      "allow-scripts allow-popups allow-popups-to-escape-sandbox allow-downloads allow-modals",
     );
     // Popups from the frame escape into ordinary tabs, and the document may write to the clipboard.
     expect(iframe).toHaveAttribute("allow", "clipboard-write");
