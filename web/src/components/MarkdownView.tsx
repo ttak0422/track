@@ -1,6 +1,7 @@
 import type { Element } from "hast";
 import {
   type InputHTMLAttributes,
+  type MouseEvent as ReactMouseEvent,
   type ReactNode,
   useContext,
   useEffect,
@@ -54,7 +55,12 @@ import { TitleCopyButton } from "./TitleCopyButton";
 import { copyText } from "./markdown/clipboard";
 import { useNoteQuery } from "../queries";
 import { STATIC_MODE } from "../runtime";
-import { copyLineRangeText, resolveCopyLineRange, type CopyLineRange } from "./markdown/copyRange";
+import {
+  copyLineRangeMarkdown,
+  copyLineRangeText,
+  resolveCopyLineRange,
+  type CopyLineRange,
+} from "./markdown/copyRange";
 
 interface MarkdownViewProps {
   markdown: string;
@@ -222,8 +228,10 @@ export function MarkdownView({
               {source}
             </Markdown>
             {copyPath && copyRange ? (
-              <SelectionCopyButton
-                text={copyLineRangeText(copyPath, copyRange)}
+              <SelectionCopyPopover
+                path={copyPath}
+                range={copyRange}
+                markdown={bodyMarkdown}
                 style={{ left: copyPopupPosition.left, top: copyPopupPosition.top }}
                 onDone={() => setCopyRange(null)}
               />
@@ -266,16 +274,24 @@ function plainHeadingText(text: string): string {
     .trim();
 }
 
-function SelectionCopyButton({
-  text,
+// SelectionCopyPopover is the floating-layer panel anchored to a text selection. It carries the two
+// actions a selection can ask for: an agent-facing reference (path:start-end) and the selected lines'
+// markdown source itself. Both act on one selection — each confirms with "Copied" and then leaves
+// after 1200ms, as before.
+function SelectionCopyPopover({
+  path,
+  range,
+  markdown,
   style,
   onDone,
 }: {
-  text: string;
+  path: string;
+  range: CopyLineRange;
+  markdown: string;
   style: { left: number; top: number };
   onDone: () => void;
 }) {
-  const [copied, setCopied] = useState(false);
+  const [copied, setCopied] = useState<"range" | "markdown" | null>(null);
   const resetTimer = useRef<number | undefined>(undefined);
 
   useEffect(
@@ -285,9 +301,9 @@ function SelectionCopyButton({
     [],
   );
 
-  async function copyRange() {
+  async function copy(action: "range" | "markdown", text: string) {
     if (!(await copyText(text))) return;
-    setCopied(true);
+    setCopied(action);
     if (resetTimer.current !== undefined) window.clearTimeout(resetTimer.current);
     // The popup acts on one selection and is done after it copies, so it confirms and then leaves.
     // Keeping it would leave the action hanging over the text until some later click cleared the
@@ -295,18 +311,25 @@ function SelectionCopyButton({
     resetTimer.current = window.setTimeout(onDone, 1200);
   }
 
+  function actionProps(action: "range" | "markdown", text: string) {
+    return {
+      type: "button" as const,
+      onClick: () => void copy(action, text),
+      // Prevent the button's press from clearing the selection before copy() reads its saved range.
+      onMouseDown: (event: ReactMouseEvent<HTMLButtonElement>) => event.preventDefault(),
+      "aria-label": copied === action ? "Copied" : action === "range" ? "Copy range" : "Copy markdown",
+    };
+  }
+
   return (
-    <button
-      type="button"
-      className="selection-copy"
-      style={style}
-      onClick={() => void copyRange()}
-      // Prevent the button's press from clearing the selection before copyRange reads its saved range.
-      onMouseDown={(event) => event.preventDefault()}
-      aria-label={copied ? "Copied" : "Copy range"}
-    >
-      {copied ? "Copied" : "Copy range"}
-    </button>
+    <div className="selection-copy" style={style}>
+      <button {...actionProps("range", copyLineRangeText(path, range))}>
+        {copied === "range" ? "Copied" : "Copy range"}
+      </button>
+      <button {...actionProps("markdown", copyLineRangeMarkdown(markdown, range))}>
+        {copied === "markdown" ? "Copied" : "Copy markdown"}
+      </button>
+    </div>
   );
 }
 

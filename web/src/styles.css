@@ -141,7 +141,6 @@
 .activity-months,
 .activity-weekdays,
 .backlinks h3,
-.home-note-list h3,
 .day-tasks h2,
 .rail-panel-title,
 .results-group,
@@ -346,6 +345,27 @@ img.theme-asset-dark {
   flex: none;
   margin: 4px 0;
   background: var(--line);
+}
+
+/* Floating layer (design.md variant 3) as a single-line label — .tab-tools' look, beside the rail
+   (see railAnchor.ts). It names the rail's icon-only controls that open no panel of their own,
+   replacing their native title tooltip, which a control carrying its own popup does not also get.
+   A label, not a menu: pointer-events never reach it, so it covers nothing that can be aimed at. */
+.rail-tip {
+  position: fixed;
+  z-index: 95;
+  width: max-content;
+  max-width: 240px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  padding: 3px 10px;
+  background: var(--panel);
+  box-shadow: 0 10px 24px color-mix(in srgb, #000 16%, transparent);
+  color: var(--text);
+  font-size: calc(13px * var(--font-scale, 1));
+  line-height: 1.5;
+  overflow-wrap: anywhere;
+  pointer-events: none;
 }
 
 /* Static-site empty state (every tab closed): a faint centered mark plus arrows pointing back at the
@@ -925,52 +945,6 @@ img.theme-asset-dark {
   display: block;
 }
 
-/* Creation history and browser history occupy the hero's two open margins, so the central logo and
-   search stay put as results grow beneath them. Below the width where those margins exist, both lists
-   go away rather than crowding the search box. These are the hero's own content, not a note aside's
-   block: no rule above them, and the list runs the full height of the margin instead of the capped,
-   scrolled column .backlinks gives a heavily linked note. */
-.home-note-list {
-  position: absolute;
-  top: 16vh;
-  bottom: 24px;
-  display: flex;
-  flex-direction: column;
-  /* Take the margin the hero actually leaves instead of a fixed column, so long titles stop wrapping
-     on a wide window. Floor 220px is the width the 1120px breakpoint below still affords; the cap
-     keeps a very wide window from turning the lists into full-width prose. */
-  width: clamp(220px, calc((100% - 560px) / 2 - 64px), 420px);
-  text-align: left;
-}
-
-.home-note-list h3 {
-  margin: 0 0 10px;
-}
-
-.home-note-list-items {
-  min-height: 0;
-  overflow-y: auto;
-  scrollbar-width: none;
-}
-
-.home-note-list-items::-webkit-scrollbar {
-  display: none;
-}
-
-.home-new {
-  left: 32px;
-}
-
-.home-recent {
-  right: 32px;
-}
-
-@media (max-width: 1120px) {
-  .home-note-list {
-    display: none;
-  }
-}
-
 /* On home the hero owns its own internal scrolling, so the reader must not also scroll/grow. */
 .workspace.home .reader {
   overflow: hidden;
@@ -1313,22 +1287,67 @@ a.calendar-title:focus-visible {
   line-height: 1.5;
 }
 
-.calendar-day-more {
+.calendar-day-more,
+.calendar-day-task-more {
   font-size: calc(11px * var(--font-scale, 1));
   color: var(--muted);
 }
 
-/* Task counts sit under the day's note titles as one quiet line — a text control, no badge: a box
-   is not earned inside a cell that is itself borderless. */
-.calendar-day-tasks {
-  color: var(--muted);
-  font-size: 11px;
+/* Task rows lead the cell, above the note titles: a deadline says what the day owes, and that
+   outranks where the day's words went. Each row stacks its deadline bar over the task text, clipped
+   to one line like the note titles below it. */
+.calendar-day-task {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  max-width: 100%;
 }
 
-/* Today: a quiet marker on the number rather than a resting ring. */
+.calendar-day-task-text {
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: calc(11px * var(--font-scale, 1));
+  line-height: 1.5;
+}
+
+/* The deadline bar is a visualization, not chrome, so it draws from the chart palette rather than
+   the chrome's one salient: fill length encodes the days left until the due date (a 14-day window,
+   full at zero) in --chart-1, the series color the activity heatmap already spends on "how much",
+   and --danger takes the whole track once overdue. The track is a hairline ground; drawn shapes
+   keep their own geometry, so the pill takes 999px rather than the radius scale. */
+.calendar-day-due {
+  height: 3px;
+  border-radius: 999px;
+  background: var(--line);
+  overflow: hidden;
+}
+
+.calendar-day-due-fill {
+  display: block;
+  height: 100%;
+  border-radius: inherit;
+  background: var(--chart-1); /* variant: upcoming-deadline urgency */
+}
+
+.calendar-day-due-overdue .calendar-day-due-fill {
+  background: var(--danger); /* variant: past the deadline */
+}
+
+/* Today: a filled mark disc on the number — the salient spent whole on one day, read at a glance.
+   The disc is a drawn shape (50%), sized with the type it holds and centred in place; --panel keeps
+   the digits legible on the fill, as on .primary-button. */
 .calendar-day[aria-current="date"] .calendar-day-number {
-  color: var(--mark);
-  font-weight: 600;
+  align-self: flex-start;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: calc(22px * var(--font-scale, 1));
+  height: calc(22px * var(--font-scale, 1));
+  border-radius: 50%;
+  background: var(--mark);
+  color: var(--panel);
 }
 
 /* The day page: the notes active on one day (what the reader's "On this day" aside shows) as a plain
@@ -1757,6 +1776,11 @@ a.calendar-title:focus-visible {
    brought, and takes the corner from the unsaved dot for good rather than for the length of a hover. */
 @media (hover: none) {
   .tab-tools {
+    display: none;
+  }
+
+  /* The rail tip goes with them: its whole job is naming what hover is aiming at. */
+  .rail-tip {
     display: none;
   }
 
@@ -2615,27 +2639,38 @@ textarea.modal-input:focus-visible {
   stroke-width: 1.8;
 }
 
-/* Copy range is an explicit selection action, so it is a floating layer (variant 3), not a hover
-   control. It sits just below the selection when there is room, or just above it, so the action does
-   not cover the text that made it appear. */
+/* The selection popover is a floating layer (variant 3): a small panel anchored to an explicit text
+   selection. It sits just below the selection when there is room, or just above it, so the actions
+   do not cover the text that made them appear. */
 .selection-copy {
   position: fixed;
   z-index: 20;
+  display: flex;
+  gap: 2px;
+  padding: 2px;
   transform: translateX(-50%);
-  padding: 4px 10px;
   border: 1px solid var(--line);
   border-radius: var(--radius);
-  color: var(--muted);
   background: var(--panel);
   box-shadow: 0 10px 24px color-mix(in srgb, var(--text) 16%, transparent);
+  white-space: nowrap;
+}
+
+/* The panel's actions are variant 1 text controls on the floating ground: muted ink that darkens on
+   hover or keyboard focus, no border or fill of their own. */
+.selection-copy button {
+  padding: 2px 8px;
+  border: 0;
+  border-radius: var(--radius-sm);
+  color: var(--muted);
+  background: transparent;
   font-size: calc(13px * var(--font-scale, 1));
   line-height: 1.6;
-  white-space: nowrap;
   cursor: pointer;
 }
 
-.selection-copy:hover,
-.selection-copy:focus-visible {
+.selection-copy button:hover,
+.selection-copy button:focus-visible {
   color: var(--text);
 }
 

@@ -17,8 +17,6 @@ import { GraphFullView } from "./components/GraphFullView";
 import { NoteReader } from "./components/NoteReader";
 import { SearchHome } from "./components/SearchHome";
 import { TasksView } from "./components/TasksView";
-import { RecentNotes } from "./components/RecentNotes";
-import { NewNotes } from "./components/NewNotes";
 import { Shell } from "./components/Shell";
 import { TagView } from "./components/TagView";
 import "./styles.css";
@@ -210,8 +208,6 @@ function HomeRoute() {
   return (
     <section className="home-hero">
       <SearchHome />
-      <NewNotes />
-      <RecentNotes />
     </section>
   );
 }

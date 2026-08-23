@@ -77,3 +77,11 @@ function hasNonContentAncestor(scope: HTMLElement, node: Node): boolean {
 export function copyLineRangeText(path: string, range: CopyLineRange): string {
   return range.start === range.end ? `${path}:${range.start}` : `${path}:${range.start}-${range.end}`;
 }
+
+// copyLineRangeMarkdown slices the note's own source instead of describing it: rehypeCopyLine stamps
+// source positions onto the rendered blocks (include splices keep 1-in/1-out so lines stay put), so
+// the resolved range addresses bodyMarkdown's lines directly.
+export function copyLineRangeMarkdown(markdown: string, range: CopyLineRange): string {
+  const lines = markdown.split("\n");
+  return lines.slice(range.start - 1, range.end).join("\n");
+}

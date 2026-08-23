@@ -429,6 +429,7 @@ describe("pointers that cannot hover", () => {
 
   it("opens none of the surfaces hover opens", () => {
     expect(touch).toMatch(/\.tab-tools\s*\{[^}]*display:\s*none/);
+    expect(touch).toMatch(/\.rail-tip\s*\{[^}]*display:\s*none/);
     expect(touch).toMatch(/\.media-preview\s*\{[^}]*display:\s*none/);
     // The note and graph previews are JS, and ask the same question of the same pointer.
     expect(previewStack).toMatch(/matchMedia\?\.\("\(hover: none\)"\)/);

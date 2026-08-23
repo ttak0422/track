@@ -234,7 +234,9 @@ above the page, so they alone carry shadows.
   `.tab-overflow-panel`, `.tab-tools`.
 - A selection action popover is this same floating-layer variant: it is anchored just
   outside an explicit text selection, never opened by hover, and its press preserves
-  the selection it acts on.
+  the selection it acts on. Its actions sit inside the panel as variant 1 text
+  controls, and one selection may offer several — the note's copy popover pairs an
+  agent-facing range reference with the selected lines' markdown source.
 - Every member is transient. The rail is the exception: it is a permanent
   floating dock with the panel surface, a hairline, and a radius, but no shadow.
 - **A lightbox carries its own way out.** Esc and a click past the modal close
@@ -423,6 +425,26 @@ show: the state cell is a stripped select, a date cell a stripped button.
   and inking, SAVE in full ink. Today wears the mark's ring; the working
   choice is a filled mark.
 
+## Calendar
+
+The month view is a grid of day cells, each leading with the day's tasks and
+following with the notes that were active on it — a deadline says what the day
+owes, and that outranks where its words went.
+
+- **Today is a filled mark disc**, the number knocked out in `--panel` the way
+  a `.primary-button` carries its label. The date picker spends the mark's ring
+  on today and its fill on the working choice because it has two states to tell
+  apart; a month with nothing selected has one, and the salient goes to it
+  whole.
+- **A deadline is a bar, and a bar is a visualization**, so it draws from the
+  chart palette and not from the chrome's one salient. Length is the countdown:
+  full at the due date, running down to nothing at the far edge of a two-week
+  window, in `--chart-1` — the series color the activity heatmap already spends
+  on *how much*. Past the deadline the whole track goes `--danger`. A task
+  carrying only a scheduled date has no deadline to count down to and draws no
+  bar at all, which is why the bar's absence has to read as "no due date"
+  rather than "plenty of time".
+
 ## Sidebar and rail
 
 The note's aside is a quiet column; the rail is a floating dock over the sheet.
@@ -512,6 +534,16 @@ The note's aside is a quiet column; the rail is a floating dock over the sheet.
   6). It sits above the panel's body, outside any scroller and outside any
   `role="menu"`: a panel that scrolls must not carry its own name off the top,
   and a heading is not a menu item.
+- **A bare glyph says its name on hover.** The rail's icon-only views that open
+  no panel of their own — journal, Calendar, Tasks, the full graph — float a
+  `.rail-tip` on hover and on `:focus-visible` instead: variant 3 cut down to a
+  single line, anchored beside the rail like any other flyout. It replaces the
+  native `title` tooltip rather than joining it, since a control carrying a
+  popup of its own does not also get the browser's. It is inert — `aria-hidden`
+  and no pointer events — because the control it names already carries an
+  `aria-label` for a screen reader, and a label nobody can click covers nothing
+  that can be aimed at. It goes away with the rest of the hover-only surfaces
+  on a pointer that cannot hover.
 - **One icon family.** Every rail glyph is drawn the same way: a 24-unit
   viewBox at 20px, `fill: none`, `stroke: currentColor`, `stroke-width: 1.5`,
   round caps and joins, and **no filled shapes** — a dot is a small stroked
