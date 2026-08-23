@@ -18,6 +18,7 @@ import { START_PAGE_ID, STATIC_MODE } from "../runtime";
 import { NoteControlsProvider } from "../noteControls";
 import { NotificationToast } from "../notifications";
 import { NoteRailControls } from "./NoteRailControls";
+import { RailTip } from "./RailTip";
 import { SearchProvider } from "../searchState";
 import { IconAffiliate, IconCalendar, IconChecklist, IconNotebook, RailIcon } from "./icons";
 
@@ -82,44 +83,43 @@ export function Shell() {
                 <SidebarSearch />
                 <SidebarNew />
                 <SidebarHistory />
-                {/* The published static site is read-only and cannot create journals. */}
+                {/* The published static site is read-only and cannot create journals. The icon-only
+                    controls that open no panel of their own carry a RailTip label instead of the
+                    native title tooltip. */}
                 {!STATIC_MODE && (
-                  <button
-                    className="rail-button"
-                    type="button"
-                    aria-label="Today's journal"
-                    title="Today's journal"
-                    onClick={openTodayJournal}
-                  >
-                    <RailIcon Icon={IconNotebook} />
-                  </button>
+                  <RailTip label="Today's journal">
+                    <button
+                      className="rail-button"
+                      type="button"
+                      aria-label="Today's journal"
+                      onClick={openTodayJournal}
+                    >
+                      <RailIcon Icon={IconNotebook} />
+                    </button>
+                  </RailTip>
                 )}
                 {showCalendar && (
-                  <Link
-                    className="rail-button"
-                    to="/calendar"
-                    aria-label="Calendar"
-                    title="Calendar"
-                  >
-                    <RailIcon Icon={IconCalendar} />
-                  </Link>
+                  <RailTip label="Calendar">
+                    <Link className="rail-button" to="/calendar" aria-label="Calendar">
+                      <RailIcon Icon={IconCalendar} />
+                    </Link>
+                  </RailTip>
                 )}
                 {/* The open-task listing is live-only: the published bundle carries dated tasks alone. */}
                 {!STATIC_MODE && (
-                  <Link className="rail-button" to="/tasks" aria-label="Tasks" title="Tasks">
-                    <RailIcon Icon={IconChecklist} />
-                  </Link>
+                  <RailTip label="Tasks">
+                    <Link className="rail-button" to="/tasks" aria-label="Tasks">
+                      <RailIcon Icon={IconChecklist} />
+                    </Link>
+                  </RailTip>
                 )}
                 {/* The deliberate "up" tree, beside the link graph it is a hand-drawn path through. */}
                 <HierarchyMenu />
-                <Link
-                  className="rail-button"
-                  to="/graph"
-                  aria-label="Full graph"
-                  title="Full graph"
-                >
-                  <RailIcon Icon={IconAffiliate} />
-                </Link>
+                <RailTip label="Full graph">
+                  <Link className="rail-button" to="/graph" aria-label="Full graph">
+                    <RailIcon Icon={IconAffiliate} />
+                  </Link>
+                </RailTip>
                 {/* The open note's own controls, below the workspace's views. Absent while no note is
                     open, so the dock keeps carrying nothing but navigation the rest of the time. */}
                 {!STATIC_MODE && <NoteRailControls />}

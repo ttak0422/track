@@ -347,6 +347,27 @@ img.theme-asset-dark {
   background: var(--line);
 }
 
+/* Floating layer (design.md variant 3) as a single-line label — .tab-tools' look, beside the rail
+   (see railAnchor.ts). It names the rail's icon-only controls that open no panel of their own,
+   replacing their native title tooltip, which a control carrying its own popup does not also get.
+   A label, not a menu: pointer-events never reach it, so it covers nothing that can be aimed at. */
+.rail-tip {
+  position: fixed;
+  z-index: 95;
+  width: max-content;
+  max-width: 240px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  padding: 3px 10px;
+  background: var(--panel);
+  box-shadow: 0 10px 24px color-mix(in srgb, #000 16%, transparent);
+  color: var(--text);
+  font-size: calc(13px * var(--font-scale, 1));
+  line-height: 1.5;
+  overflow-wrap: anywhere;
+  pointer-events: none;
+}
+
 /* Static-site empty state (every tab closed): a faint centered mark plus arrows pointing back at the
    floating rail, so the blank reader reads as "nothing open" rather than broken. */
 .empty-state {
@@ -1719,6 +1740,11 @@ a.calendar-title:focus-visible {
    brought, and takes the corner from the unsaved dot for good rather than for the length of a hover. */
 @media (hover: none) {
   .tab-tools {
+    display: none;
+  }
+
+  /* The rail tip goes with them: its whole job is naming what hover is aiming at. */
+  .rail-tip {
     display: none;
   }
 
