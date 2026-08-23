@@ -635,7 +635,7 @@ describe("MarkdownView", () => {
   });
 
   it("applies a :height embed option to an HTML embed and strips the option tail", () => {
-    const { container } = render(<MarkdownView markdown={"![Widget](assets/x.html) :height 240"} />);
+    const { container } = render(<MarkdownView markdown={"![Demo](assets/x.html) :height 240"} />);
     const frame = container.querySelector(".embed-html iframe") as HTMLIFrameElement | null;
     expect(frame).not.toBeNull();
     expect(frame?.style.height).toBe("240px");
@@ -643,12 +643,12 @@ describe("MarkdownView", () => {
     expect(container.textContent).not.toContain(":height");
 
     // A percentage is treated as viewport height (vh), since a normal-flow iframe has no % basis.
-    const { container: pct } = render(<MarkdownView markdown={"![Widget](assets/x.html) :height 90%"} />);
+    const { container: pct } = render(<MarkdownView markdown={"![Demo](assets/x.html) :height 90%"} />);
     expect((pct.querySelector(".embed-html iframe") as HTMLIFrameElement).style.height).toBe("90vh");
   });
 
   it("removes the HTML frame with :frame none without changing the sandbox", () => {
-    const { container: defaultEmbed } = render(<MarkdownView markdown={"![Widget](assets/x.html)"} />);
+    const { container: defaultEmbed } = render(<MarkdownView markdown={"![Demo](assets/x.html)"} />);
     const defaultFrame = defaultEmbed.querySelector(".embed-html") as HTMLElement;
     expect(defaultFrame).not.toHaveClass("embed-html-frame-none");
     expect(defaultFrame.querySelector("iframe")).toHaveAttribute(
@@ -656,7 +656,7 @@ describe("MarkdownView", () => {
       "allow-scripts allow-popups allow-popups-to-escape-sandbox",
     );
 
-    const { container } = render(<MarkdownView markdown={"![Widget](assets/x.html) :frame none"} />);
+    const { container } = render(<MarkdownView markdown={"![Demo](assets/x.html) :frame none"} />);
     const frame = container.querySelector(".embed-html") as HTMLElement;
     expect(frame).toHaveClass("embed-html-frame-none");
     expect(frame.querySelector("iframe")).toHaveAttribute(
@@ -667,7 +667,7 @@ describe("MarkdownView", () => {
   });
 
   it("mounts only a vault-local HTML asset in the sandboxed frame with clipboard write allowed", () => {
-    const { container } = render(<MarkdownView markdown={"![Widget](assets/widget.html)"} />);
+    const { container } = render(<MarkdownView markdown={"![Demo](assets/demo.html)"} />);
     const iframe = container.querySelector(".embed-html iframe") as HTMLIFrameElement | null;
     expect(iframe).not.toBeNull();
     expect(iframe).toHaveAttribute(
@@ -689,7 +689,7 @@ describe("MarkdownView", () => {
 
   it("applies multiple embed options from the same tail", () => {
     const { container } = render(
-      <MarkdownView markdown={"![Widget](assets/x.html) :height 400 :frame none"} />,
+      <MarkdownView markdown={"![Demo](assets/x.html) :height 400 :frame none"} />,
     );
     const frame = container.querySelector(".embed-html") as HTMLElement;
     expect(frame).toHaveClass("embed-html-frame-none");
