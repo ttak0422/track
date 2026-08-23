@@ -165,6 +165,36 @@ describe("MarkdownView", () => {
     await waitFor(() => expect(copyText).toHaveBeenCalledWith("notes/project.md:1"));
   });
 
+  it("copies the selected lines' markdown source from the copy markdown action", async () => {
+    copyText.mockReset();
+    copyText.mockResolvedValue(true);
+    const { container } = render(
+      <MarkdownView copyPath="notes/project.md" markdown={"first block\n\nsecond block"} />,
+    );
+    const first = container.querySelectorAll("p")[0].firstChild!;
+    const second = container.querySelectorAll("p")[1].firstChild!;
+    // Lines 1..3 of the source, including the blank separator line between the paragraphs.
+    const selection = window.getSelection()!;
+    selection.setBaseAndExtent(first, 1, second, 6);
+    fireEvent(document, new Event("selectionchange"));
+    fireEvent.click(screen.getByRole("button", { name: "Copy markdown" }));
+    await waitFor(() => expect(copyText).toHaveBeenCalledWith("first block\n\nsecond block"));
+  });
+
+  it("copies just the one selected line's markdown for a single-line selection", async () => {
+    copyText.mockReset();
+    copyText.mockResolvedValue(true);
+    const { container } = render(
+      <MarkdownView copyPath="notes/project.md" markdown={"alpha\n\nbeta"} />,
+    );
+    const second = container.querySelectorAll("p")[1].firstChild!;
+    const selection = window.getSelection()!;
+    selection.setBaseAndExtent(second, 0, second, 4);
+    fireEvent(document, new Event("selectionchange"));
+    fireEvent.click(screen.getByRole("button", { name: "Copy markdown" }));
+    await waitFor(() => expect(copyText).toHaveBeenCalledWith("beta"));
+  });
+
   it("dismisses the copy range popup once it has copied", async () => {
     copyText.mockReset();
     copyText.mockResolvedValue(true);

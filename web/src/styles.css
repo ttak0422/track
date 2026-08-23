@@ -2603,27 +2603,38 @@ textarea.modal-input:focus-visible {
   stroke-width: 1.8;
 }
 
-/* Copy range is an explicit selection action, so it is a floating layer (variant 3), not a hover
-   control. It sits just below the selection when there is room, or just above it, so the action does
-   not cover the text that made it appear. */
+/* The selection popover is a floating layer (variant 3): a small panel anchored to an explicit text
+   selection. It sits just below the selection when there is room, or just above it, so the actions
+   do not cover the text that made them appear. */
 .selection-copy {
   position: fixed;
   z-index: 20;
+  display: flex;
+  gap: 2px;
+  padding: 2px;
   transform: translateX(-50%);
-  padding: 4px 10px;
   border: 1px solid var(--line);
   border-radius: var(--radius);
-  color: var(--muted);
   background: var(--panel);
   box-shadow: 0 10px 24px color-mix(in srgb, var(--text) 16%, transparent);
+  white-space: nowrap;
+}
+
+/* The panel's actions are variant 1 text controls on the floating ground: muted ink that darkens on
+   hover or keyboard focus, no border or fill of their own. */
+.selection-copy button {
+  padding: 2px 8px;
+  border: 0;
+  border-radius: var(--radius-sm);
+  color: var(--muted);
+  background: transparent;
   font-size: calc(13px * var(--font-scale, 1));
   line-height: 1.6;
-  white-space: nowrap;
   cursor: pointer;
 }
 
-.selection-copy:hover,
-.selection-copy:focus-visible {
+.selection-copy button:hover,
+.selection-copy button:focus-visible {
   color: var(--text);
 }
 

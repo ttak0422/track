@@ -234,7 +234,9 @@ above the page, so they alone carry shadows.
   `.tab-overflow-panel`, `.tab-tools`.
 - A selection action popover is this same floating-layer variant: it is anchored just
   outside an explicit text selection, never opened by hover, and its press preserves
-  the selection it acts on.
+  the selection it acts on. Its actions sit inside the panel as variant 1 text
+  controls, and one selection may offer several — the note's copy popover pairs an
+  agent-facing range reference with the selected lines' markdown source.
 - Every member is transient. The rail is the exception: it is a permanent
   floating dock with the panel surface, a hairline, and a radius, but no shadow.
 - **A lightbox carries its own way out.** Esc and a click past the modal close
