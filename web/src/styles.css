@@ -141,7 +141,6 @@
 .activity-months,
 .activity-weekdays,
 .backlinks h3,
-.home-note-list h3,
 .day-tasks h2,
 .rail-panel-title,
 .results-group,
@@ -923,52 +922,6 @@ img.theme-asset-dark {
 
 .reader:has(.note-reader):not(:has(.note-editor textarea))::-webkit-scrollbar {
   display: block;
-}
-
-/* Creation history and browser history occupy the hero's two open margins, so the central logo and
-   search stay put as results grow beneath them. Below the width where those margins exist, both lists
-   go away rather than crowding the search box. These are the hero's own content, not a note aside's
-   block: no rule above them, and the list runs the full height of the margin instead of the capped,
-   scrolled column .backlinks gives a heavily linked note. */
-.home-note-list {
-  position: absolute;
-  top: 16vh;
-  bottom: 24px;
-  display: flex;
-  flex-direction: column;
-  /* Take the margin the hero actually leaves instead of a fixed column, so long titles stop wrapping
-     on a wide window. Floor 220px is the width the 1120px breakpoint below still affords; the cap
-     keeps a very wide window from turning the lists into full-width prose. */
-  width: clamp(220px, calc((100% - 560px) / 2 - 64px), 420px);
-  text-align: left;
-}
-
-.home-note-list h3 {
-  margin: 0 0 10px;
-}
-
-.home-note-list-items {
-  min-height: 0;
-  overflow-y: auto;
-  scrollbar-width: none;
-}
-
-.home-note-list-items::-webkit-scrollbar {
-  display: none;
-}
-
-.home-new {
-  left: 32px;
-}
-
-.home-recent {
-  right: 32px;
-}
-
-@media (max-width: 1120px) {
-  .home-note-list {
-    display: none;
-  }
 }
 
 /* On home the hero owns its own internal scrolling, so the reader must not also scroll/grow. */
