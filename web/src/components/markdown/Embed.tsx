@@ -92,18 +92,23 @@ export function Embed({ src, alt, height, frame }: EmbedProps) {
     }
   }
 
-  // An HTML document (local asset or remote page) is mounted in a sandboxed iframe so its own JS/CSS run
-  // but it cannot reach the app/vault: no allow-same-origin, so the frame gets a unique opaque origin with
-  // no access to the parent, cookies, or storage. allow-scripts + allow-same-origin together would let the
-  // frame remove its own sandbox, so that pair is deliberately never used.
-  if (isHtmlHref(src)) {
+  // Only a vault-local HTML asset is mounted in this sandboxed iframe, so its own JS/CSS run but it cannot
+  // reach the app/vault: no allow-same-origin, so the frame gets a unique opaque origin with no access to
+  // the parent, cookies, or storage. allow-scripts + allow-same-origin together would let the frame remove
+  // its own sandbox, so that pair is deliberately never used, and allow-top-navigation is withheld so the
+  // frame cannot hijack the parent tab. A remote http(s) …/page.html URL never enters this branch; it falls
+  // through to the Open Graph card below. allow-popups-to-escape-sandbox lets a link opened from the frame
+  // come up as an ordinary browsing context in its new tab while the frame itself stays isolated, and
+  // allow="clipboard-write" lets the embedded document copy text to the clipboard.
+  if (asset && isHtmlHref(src)) {
     const safe = safeFrameUrl(target);
     if (safe) {
       return (
         <div className={"embed embed-html" + (frame === "none" ? " embed-html-frame-none" : "")}>
           <iframe
             src={safe}
-            sandbox="allow-scripts allow-popups"
+            sandbox="allow-scripts allow-popups allow-popups-to-escape-sandbox"
+            allow="clipboard-write"
             loading="lazy"
             title={alt || "Embedded page"}
             // `:height` overrides the CSS min-height floor (both, so a value below the default can shrink).

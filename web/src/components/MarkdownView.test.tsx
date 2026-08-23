@@ -28,10 +28,20 @@ vi.mock("@hpcc-js/wasm-graphviz", () => ({
   Graphviz: { load: async () => ({ dot: () => '<svg viewBox="0 0 10 10"><text>G</text></svg>' }) },
 }));
 
-// Partial mock: only the task write is stubbed, so every other api call the view makes (OGP cards,
-// asset text, wiki-link resolution) keeps its real implementation.
+// Partial mock: only the task write and the OGP fetch are stubbed, so every other api call the view
+// makes (asset text, wiki-link resolution) keeps its real implementation. The OGP fetch is stubbed so a
+// card renders deterministically instead of degrading to its offline fallback.
 const setTaskState = vi.hoisted(() => vi.fn(async () => ({ tasks: { items: [] } })));
 const setTaskDate = vi.hoisted(() => vi.fn(async () => ({ tasks: { items: [] } })));
+const getOgp = vi.hoisted(() =>
+  vi.fn(async (url: string) => ({
+    url,
+    site_name: "Example",
+    title: "Example page",
+    description: "A sample page.",
+    image: "https://example.com/og.png",
+  })),
+);
 // An embedded excerpt fetches the note it came from, to address its tasks by their own lines.
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 const getNote = vi.hoisted(() => vi.fn(async (): Promise<any> => ({ note: { tasks: { items: [] }, etag: "loaded" } })));
@@ -39,6 +49,7 @@ vi.mock("../api", async (importOriginal) => ({
   ...(await importOriginal<typeof import("../api")>()),
   setTaskState,
   setTaskDate,
+  getOgp,
   getNote,
 }));
 
@@ -640,13 +651,40 @@ describe("MarkdownView", () => {
     const { container: defaultEmbed } = render(<MarkdownView markdown={"![Widget](assets/x.html)"} />);
     const defaultFrame = defaultEmbed.querySelector(".embed-html") as HTMLElement;
     expect(defaultFrame).not.toHaveClass("embed-html-frame-none");
-    expect(defaultFrame.querySelector("iframe")).toHaveAttribute("sandbox", "allow-scripts allow-popups");
+    expect(defaultFrame.querySelector("iframe")).toHaveAttribute(
+      "sandbox",
+      "allow-scripts allow-popups allow-popups-to-escape-sandbox",
+    );
 
     const { container } = render(<MarkdownView markdown={"![Widget](assets/x.html) :frame none"} />);
     const frame = container.querySelector(".embed-html") as HTMLElement;
     expect(frame).toHaveClass("embed-html-frame-none");
-    expect(frame.querySelector("iframe")).toHaveAttribute("sandbox", "allow-scripts allow-popups");
+    expect(frame.querySelector("iframe")).toHaveAttribute(
+      "sandbox",
+      "allow-scripts allow-popups allow-popups-to-escape-sandbox",
+    );
     expect(container.textContent).not.toContain(":frame");
+  });
+
+  it("mounts only a vault-local HTML asset in the sandboxed frame with clipboard write allowed", () => {
+    const { container } = render(<MarkdownView markdown={"![Widget](assets/widget.html)"} />);
+    const iframe = container.querySelector(".embed-html iframe") as HTMLIFrameElement | null;
+    expect(iframe).not.toBeNull();
+    expect(iframe).toHaveAttribute(
+      "sandbox",
+      "allow-scripts allow-popups allow-popups-to-escape-sandbox",
+    );
+    // Popups from the frame escape into ordinary tabs, and the document may write to the clipboard.
+    expect(iframe).toHaveAttribute("allow", "clipboard-write");
+  });
+
+  it("renders a remote .html URL as an Open Graph card instead of an HTML frame", () => {
+    const { container } = renderWithQuery(
+      <MarkdownView markdown={"![Page](https://example.com/page.html)"} />,
+    );
+    // Only vault-local assets mount an HTML iframe; a remote .html page falls through to the card.
+    expect(container.querySelector(".embed-html")).toBeNull();
+    expect(container.querySelector(".ogp-card")).not.toBeNull();
   });
 
   it("applies multiple embed options from the same tail", () => {
