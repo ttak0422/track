@@ -1278,10 +1278,19 @@ a.calendar-title:focus-visible {
   font-size: 11px;
 }
 
-/* Today: a quiet marker on the number rather than a resting ring. */
+/* Today: a filled mark disc on the number — the salient spent whole on one day, read at a glance.
+   The disc is a drawn shape (50%), sized with the type it holds and centred in place; --panel keeps
+   the digits legible on the fill, as on .primary-button. */
 .calendar-day[aria-current="date"] .calendar-day-number {
-  color: var(--mark);
-  font-weight: 600;
+  align-self: flex-start;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: calc(22px * var(--font-scale, 1));
+  height: calc(22px * var(--font-scale, 1));
+  border-radius: 50%;
+  background: var(--mark);
+  color: var(--panel);
 }
 
 /* The day page: the notes active on one day (what the reader's "On this day" aside shows) as a plain
