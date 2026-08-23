@@ -99,7 +99,7 @@ export function Embed({ src, alt, height, frame }: EmbedProps) {
   // frame cannot hijack the parent tab. A remote http(s) …/page.html URL never enters this branch; it falls
   // through to the Open Graph card below. allow-popups-to-escape-sandbox lets a link opened from the frame
   // come up as an ordinary browsing context in its new tab while the frame itself stays isolated, and
-  // allow="clipboard-write" lets the embedded document copy text to the clipboard.
+  // allow="clipboard-write" grants the embedded document clipboard-write permission.
   if (asset && isHtmlHref(src)) {
     const safe = safeFrameUrl(target);
     if (safe) {
