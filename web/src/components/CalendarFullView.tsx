@@ -140,8 +140,9 @@ export function CalendarFullView() {
                   return (
                     <span className="calendar-day-task" key={`${task.note_id}:${task.line}`}>
                       {/* The bar is a small data visualization — the days left until the due date,
-                          full and in --danger once overdue, urgency-scaled --mark otherwise. A task
-                          with only a scheduled date has no deadline to count down to, so no bar. */}
+                          urgency-scaled in the chart palette, the full track in --danger once
+                          overdue. A task with only a scheduled date has no deadline to count down
+                          to, so no bar. */}
                       {bar.kind !== "none" ? (
                         <span
                           className={`calendar-day-due${bar.kind === "overdue" ? " calendar-day-due-overdue" : ""}`}

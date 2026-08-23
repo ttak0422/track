@@ -36,11 +36,11 @@ describe("dueBar", () => {
   });
 
   it("fills the whole track when the deadline is today", () => {
-    expect(dueBar("2026-07-05", today)).toEqual({ kind: "mark", fillPct: 100 });
+    expect(dueBar("2026-07-05", today)).toEqual({ kind: "due", fillPct: 100 });
   });
 
   it("scales the fill linearly over the window and empties it at the edge", () => {
-    expect(dueBar("2026-07-12", today)).toEqual({ kind: "mark", fillPct: 50 }); // 7 of 14 days left
+    expect(dueBar("2026-07-12", today)).toEqual({ kind: "due", fillPct: 50 }); // 7 of 14 days left
     expect(dueBar("2026-07-19", today).fillPct).toBe(0); // the window's edge
     expect(dueBar("2026-07-26", today).fillPct).toBe(0); // clamped past it
   });

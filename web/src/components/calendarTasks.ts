@@ -15,9 +15,9 @@ export function daysUntil(due: string, today: string): number {
 }
 
 // DueBar models one task row's deadline bar. "none" — the task carries no due date (scheduled only),
-// and a period with no end cannot be drawn; "mark" — upcoming, filled by urgency in --mark;
-// "overdue" — past the deadline, the full track in --danger.
-export type DueBarKind = "none" | "mark" | "overdue";
+// and a period with no end cannot be drawn; "due" — upcoming, filled by urgency; "overdue" — past
+// the deadline, the full track. The kinds name the state, not the token that paints it.
+export type DueBarKind = "none" | "due" | "overdue";
 
 export interface DueBar {
   kind: DueBarKind;
@@ -32,7 +32,7 @@ export function dueBar(due: string | undefined, today: string): DueBar {
   const remaining = daysUntil(due, today);
   if (remaining < 0) return { kind: "overdue", fillPct: 100 };
   const urgency = Math.min(Math.max(1 - remaining / URGENCY_WINDOW_DAYS, 0), 1);
-  return { kind: "mark", fillPct: urgency * 100 };
+  return { kind: "due", fillPct: urgency * 100 };
 }
 
 function utcMidnight(iso: string): number {

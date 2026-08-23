@@ -1312,10 +1312,11 @@ a.calendar-title:focus-visible {
   line-height: 1.5;
 }
 
-/* The deadline bar is a visualization, not chrome, so unlike controls it may carry color: fill
-   length encodes the days left until the due date (a 14-day window, full at zero), --mark while
-   upcoming, --danger once overdue. The track is a hairline ground; drawn shapes keep their own
-   geometry, so the pill takes 999px rather than the radius scale. */
+/* The deadline bar is a visualization, not chrome, so it draws from the chart palette rather than
+   the chrome's one salient: fill length encodes the days left until the due date (a 14-day window,
+   full at zero) in --chart-1, the series color the activity heatmap already spends on "how much",
+   and --danger takes the whole track once overdue. The track is a hairline ground; drawn shapes
+   keep their own geometry, so the pill takes 999px rather than the radius scale. */
 .calendar-day-due {
   height: 3px;
   border-radius: 999px;
@@ -1327,7 +1328,7 @@ a.calendar-title:focus-visible {
   display: block;
   height: 100%;
   border-radius: inherit;
-  background: var(--mark); /* variant: upcoming-deadline urgency */
+  background: var(--chart-1); /* variant: upcoming-deadline urgency */
 }
 
 .calendar-day-due-overdue .calendar-day-due-fill {
