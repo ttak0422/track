@@ -123,22 +123,73 @@ describe("CalendarFullView", () => {
     expect(container.querySelector('a.calendar-day[href="/day/2026-07-03"]')).toBeNull();
   });
 
-  it("counts dated tasks on their day, and makes a purely planned day openable", () => {
+  it("lists dated tasks as rows before the note titles, collapsing the rest into a count", () => {
     tasksQuery.current = {
       data: {
         tasks: [
           // Both dates on one task: it belongs to two days, but only once to each.
           { note_id: "1", file_kind: "note", title: "Plan", line: 1, state: "TODO", done: false, text: "ship", scheduled: "2026-07-09", due: "2026-07-10" },
           { note_id: "2", file_kind: "note", title: "Plan", line: 2, state: "TODO", done: false, text: "write", due: "2026-07-10" },
+          { note_id: "3", file_kind: "note", title: "Plan", line: 3, state: "TODO", done: false, text: "review", due: "2026-07-10" },
+          { note_id: "4", file_kind: "note", title: "Plan", line: 4, state: "TODO", done: false, text: "polish", due: "2026-07-10" },
         ],
       },
     };
     const { container } = render(<CalendarFullView />);
     const cellFor = (day: string) =>
       container.querySelector(`a.calendar-day[href="/day/${day}"]`) as HTMLElement | null;
-    // 2026-07-09 has no note activity in the fixture, so only the task puts it on the calendar.
-    expect(cellFor("2026-07-09")?.textContent).toContain("1 task");
-    expect(cellFor("2026-07-10")?.textContent).toContain("2 tasks");
+    // Tasks read as rows — the task's own text — not a bare "N tasks" count.
+    expect(cellFor("2026-07-09")?.textContent).toContain("ship");
+    const tenth = cellFor("2026-07-10")!;
+    expect([...tenth.querySelectorAll(".calendar-day-task-text")].map((n) => n.textContent)).toEqual([
+      "ship",
+      "write",
+      "review",
+    ]);
+    expect(tenth.querySelector(".calendar-day-task-more")?.textContent).toBe("+1");
+    expect(tenth.textContent).not.toContain("task");
+  });
+
+  it("draws each task's deadline bar from the days left until its due date", () => {
+    // System time is 2026-07-05, set in beforeEach; every bar is read against that day.
+    const task = (line: number, dates: Partial<{ due: string; scheduled: string }>, text: string) => ({
+      note_id: `t${line}`,
+      file_kind: "note",
+      title: "T",
+      state: "TODO",
+      done: false,
+      ...dates,
+      line,
+      text,
+    });
+    tasksQuery.current = {
+      data: {
+        tasks: [
+          task(1, { due: "2026-07-05" }, "today"),
+          task(2, { due: "2026-07-12" }, "halfway"), // 7 of the 14 days left
+          task(3, { due: "2026-07-19" }, "far out"), // at the window's edge
+          task(4, { due: "2026-07-04" }, "late"), // past its deadline
+          task(5, { scheduled: "2026-07-06" }, "unscheduled"), // no due date
+        ],
+      },
+    };
+    const { container } = render(<CalendarFullView />);
+    const rowFor = (text: string) =>
+      [...container.querySelectorAll(".calendar-day-task")].find((n) => n.textContent === text)!;
+
+    // Due today: the window is spent, so the mark fill runs the whole track.
+    expect(rowFor("today").querySelector(".calendar-day-due-fill")).toBeTruthy();
+    expect(rowFor("today").querySelector(".calendar-day-due-overdue")).toBeNull();
+    // Halfway through the window fills half the track; at the edge there is nothing left.
+    expect(rowFor("halfway").querySelector<HTMLElement>(".calendar-day-due-fill")!.style.width).toBe("50%");
+    expect(rowFor("far out").querySelector<HTMLElement>(".calendar-day-due-fill")!.style.width).toBe("0%");
+    // Overdue takes the full track under the danger treatment.
+    expect(
+      rowFor("late").querySelector<HTMLElement>(".calendar-day-due-overdue .calendar-day-due-fill")!.style
+        .width,
+    ).toBe("100%");
+    // Scheduled only: a period with no end draws no bar.
+    expect(rowFor("unscheduled").querySelector(".calendar-day-due")).toBeNull();
   });
 
   it("shows the pending state before the notes list resolves", () => {

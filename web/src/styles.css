@@ -1287,16 +1287,51 @@ a.calendar-title:focus-visible {
   line-height: 1.5;
 }
 
-.calendar-day-more {
+.calendar-day-more,
+.calendar-day-task-more {
   font-size: calc(11px * var(--font-scale, 1));
   color: var(--muted);
 }
 
-/* Task counts sit under the day's note titles as one quiet line — a text control, no badge: a box
-   is not earned inside a cell that is itself borderless. */
-.calendar-day-tasks {
-  color: var(--muted);
-  font-size: 11px;
+/* Task rows lead the cell, above the note titles: a deadline says what the day owes, and that
+   outranks where the day's words went. Each row stacks its deadline bar over the task text, clipped
+   to one line like the note titles below it. */
+.calendar-day-task {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  max-width: 100%;
+}
+
+.calendar-day-task-text {
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: calc(11px * var(--font-scale, 1));
+  line-height: 1.5;
+}
+
+/* The deadline bar is a visualization, not chrome, so unlike controls it may carry color: fill
+   length encodes the days left until the due date (a 14-day window, full at zero), --mark while
+   upcoming, --danger once overdue. The track is a hairline ground; drawn shapes keep their own
+   geometry, so the pill takes 999px rather than the radius scale. */
+.calendar-day-due {
+  height: 3px;
+  border-radius: 999px;
+  background: var(--line);
+  overflow: hidden;
+}
+
+.calendar-day-due-fill {
+  display: block;
+  height: 100%;
+  border-radius: inherit;
+  background: var(--mark); /* variant: upcoming-deadline urgency */
+}
+
+.calendar-day-due-overdue .calendar-day-due-fill {
+  background: var(--danger); /* variant: past the deadline */
 }
 
 /* Today: a filled mark disc on the number — the salient spent whole on one day, read at a glance.

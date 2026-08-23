@@ -2,11 +2,15 @@ import { Link } from "@tanstack/react-router";
 import { useMemo, useState } from "react";
 import { useDatedTasksQuery, useNotesQuery } from "../queries";
 import type { NoteID, SearchResult, TaskRow } from "../types";
+import { dueBar } from "./calendarTasks";
 import { IconChevronLeft, IconChevronRight, RailIcon } from "./icons";
 
 const WEEKDAYS = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
 // How many note titles a day cell lists before collapsing the rest into a "+N" count.
 const CELL_NOTES = 3;
+// How many task rows a cell lists before its own "+N". Tasks take the upper block: what the day owes
+// (a deadline) matters more than where its words went (the note titles below).
+const CELL_TASKS = 3;
 
 // CalendarFullView fills the reader with a month calendar of note activity. Each day cell lists the top
 // notes active that day (from the notes listing's activity days) and links to the /day page, which shows
@@ -131,6 +135,29 @@ export function CalendarFullView() {
             const cell = (
               <>
                 <span className="calendar-day-number">{i + 1}</span>
+                {dayTasks.slice(0, CELL_TASKS).map((task) => {
+                  const bar = dueBar(task.due, todayKey);
+                  return (
+                    <span className="calendar-day-task" key={`${task.note_id}:${task.line}`}>
+                      {/* The bar is a small data visualization — the days left until the due date,
+                          full and in --danger once overdue, urgency-scaled --mark otherwise. A task
+                          with only a scheduled date has no deadline to count down to, so no bar. */}
+                      {bar.kind !== "none" ? (
+                        <span
+                          className={`calendar-day-due${bar.kind === "overdue" ? " calendar-day-due-overdue" : ""}`}
+                        >
+                          <span className="calendar-day-due-fill" style={{ width: `${bar.fillPct}%` }} />
+                        </span>
+                      ) : null}
+                      <span className="calendar-day-task-text">{task.text}</span>
+                    </span>
+                  );
+                })}
+                {dayTasks.length > CELL_TASKS ? (
+                  <span className="calendar-day-more calendar-day-task-more">
+                    +{dayTasks.length - CELL_TASKS}
+                  </span>
+                ) : null}
                 {dayNotes.slice(0, CELL_NOTES).map((note) => (
                   <span className="calendar-day-note" key={note.note_id}>
                     {note.title}
@@ -138,13 +165,6 @@ export function CalendarFullView() {
                 ))}
                 {dayNotes.length > CELL_NOTES ? (
                   <span className="calendar-day-more">+{dayNotes.length - CELL_NOTES}</span>
-                ) : null}
-                {/* One line, always last: a cell that already lists titles has no room to name tasks
-                    too, and the count is what makes a planned day worth opening. */}
-                {dayTasks.length > 0 ? (
-                  <span className="calendar-day-tasks">
-                    {dayTasks.length} task{dayTasks.length === 1 ? "" : "s"}
-                  </span>
                 ) : null}
               </>
             );
