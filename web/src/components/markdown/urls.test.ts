@@ -149,7 +149,7 @@ describe("text-file asset embeds", () => {
     expect(textAssetLang("assets/flow.drawio")).toBe("drawio");
   });
   it("matches .html/.htm as HTML documents", () => {
-    expect(isHtmlHref("assets/widget.html")).toBe(true);
+    expect(isHtmlHref("assets/demo.html")).toBe(true);
     expect(isHtmlHref("assets/page.htm")).toBe(true);
     expect(isHtmlHref("https://example.com/app.HTML?v=1")).toBe(true);
     expect(isHtmlHref("assets/photo.png")).toBe(false);
