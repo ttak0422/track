@@ -2,6 +2,7 @@ package store
 
 import (
 	"fmt"
+	"math"
 	"testing"
 
 	"github.com/ttak0422/track/internal/track/note"
@@ -96,6 +97,117 @@ func TestFullGraphEmpty(t *testing.T) {
 	}
 	if len(g.Nodes) != 0 || len(g.Edges) != 0 {
 		t.Fatalf("empty graph should be empty, got %+v", g)
+	}
+}
+
+// fullGraphTestStore builds a small vault with two components — a chain 1→2→3→4 and a star 5→(6,7,8)
+// — plus the isolated note 9, so layout tests can exercise hubs, chains and singletons at once.
+func fullGraphTestStore(t *testing.T) *Store {
+	t.Helper()
+	s := newTestStore(t)
+	for id := int64(1); id <= 9; id++ {
+		n := &note.Note{ID: id, Path: fmt.Sprintf("/v/%d.md", id), Meta: note.Metadata{Title: fmt.Sprintf("N%d", id)}}
+		if err := s.UpsertNote(n); err != nil {
+			t.Fatalf("upsert %d: %v", id, err)
+		}
+	}
+	if err := s.ReplaceLinks(1, []int64{2}); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.ReplaceLinks(2, []int64{3}); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.ReplaceLinks(3, []int64{4}); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.ReplaceLinks(5, []int64{6, 7, 8}); err != nil {
+		t.Fatal(err)
+	}
+	return s
+}
+
+func TestFullGraphLayout(t *testing.T) {
+	s := fullGraphTestStore(t)
+	g, err := s.FullGraph()
+	if err != nil {
+		t.Fatalf("full graph: %v", err)
+	}
+
+	byID := map[int64]GraphNode{}
+	for _, n := range g.Nodes {
+		byID[n.NoteID] = n
+		if math.IsNaN(n.X) || math.IsInf(n.X, 0) || math.IsNaN(n.Y) || math.IsInf(n.Y, 0) {
+			t.Fatalf("node %d has non-finite coordinates (%v, %v)", n.NoteID, n.X, n.Y)
+		}
+		if n.X <= 0 || n.Y <= 0 {
+			t.Errorf("node %d coordinates must stay positive so JSON omitempty keeps them, got (%v, %v)", n.NoteID, n.X, n.Y)
+		}
+	}
+
+	// Every edge's both ends exist among the laid-out nodes.
+	for _, e := range g.Edges {
+		if _, ok := byID[e.SourceID]; !ok {
+			t.Errorf("edge source %d is not a node", e.SourceID)
+		}
+		if _, ok := byID[e.TargetID]; !ok {
+			t.Errorf("edge target %d is not a node", e.TargetID)
+		}
+	}
+
+	// No two notes share a position: an overview where nodes stack hides the structure it exists to show.
+	type pt struct{ x, y float64 }
+	seen := map[pt]int64{}
+	for _, n := range g.Nodes {
+		p := pt{n.X, n.Y}
+		if prev, dup := seen[p]; dup {
+			t.Errorf("nodes %d and %d share position (%v, %v)", prev, n.NoteID, n.X, n.Y)
+		}
+		seen[p] = n.NoteID
+	}
+
+	// The star's hub (5, degree 3) sits at its component center: its leaves are equidistant on one
+	// ring, and no leaf is closer to the component's other notes than to the hub.
+	hub, ring := byID[5], make(map[int64]float64, 3)
+	for _, leaf := range []int64{6, 7, 8} {
+		dx, dy := byID[leaf].X-hub.X, byID[leaf].Y-hub.Y
+		ring[leaf] = math.Sqrt(dx*dx + dy*dy)
+	}
+	for _, leaf := range []int64{6, 7, 8} {
+		if math.Abs(ring[leaf]-ring[6]) > 1e-9 {
+			t.Errorf("star leaf %d sits at radius %v, want the hub ring %v", leaf, ring[leaf], ring[6])
+		}
+	}
+
+	// The local graph carries no layout: it never sets x/y.
+	local, err := s.LocalGraph(2)
+	if err != nil {
+		t.Fatalf("local graph: %v", err)
+	}
+	for _, n := range local.Nodes {
+		if n.X != 0 || n.Y != 0 {
+			t.Errorf("local graph node %d should have no layout, got (%v, %v)", n.NoteID, n.X, n.Y)
+		}
+	}
+}
+
+func TestFullGraphLayoutDeterministic(t *testing.T) {
+	s := fullGraphTestStore(t)
+	first, err := s.FullGraph()
+	if err != nil {
+		t.Fatalf("full graph: %v", err)
+	}
+	second, err := s.FullGraph()
+	if err != nil {
+		t.Fatalf("full graph (2nd): %v", err)
+	}
+	if len(first.Nodes) != len(second.Nodes) {
+		t.Fatalf("node counts differ between runs: %d vs %d", len(first.Nodes), len(second.Nodes))
+	}
+	for i := range first.Nodes {
+		a, b := first.Nodes[i], second.Nodes[i]
+		if a.NoteID != b.NoteID || a.X != b.X || a.Y != b.Y {
+			t.Fatalf("layout is not deterministic at node %d: (%v, %v) vs (%v, %v)", a.NoteID, a.X, a.Y, b.X, b.Y)
+		}
 	}
 }
 
