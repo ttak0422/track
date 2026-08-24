@@ -52,7 +52,8 @@ import { QueryView } from "./markdown/QueryView";
 import { ViewSpecChart } from "./markdown/ViewSpecChart";
 import { WikiLink } from "./preview/WikiLink";
 import { TitleCopyButton } from "./TitleCopyButton";
-import { copyText } from "./markdown/clipboard";
+import { copyRich, copyText } from "./markdown/clipboard";
+import { portableToHtml, toPortableMarkdown } from "./markdown/portable";
 import { useNoteQuery } from "../queries";
 import { STATIC_MODE } from "../runtime";
 import {
@@ -274,10 +275,12 @@ function plainHeadingText(text: string): string {
     .trim();
 }
 
-// SelectionCopyPopover is the floating-layer panel anchored to a text selection. It carries the two
-// actions a selection can ask for: an agent-facing reference (path:start-end) and the selected lines'
-// markdown source itself. Both act on one selection — each confirms with "Copied" and then leaves
-// after 1200ms, as before.
+// SelectionCopyPopover is the floating-layer panel anchored to a text selection. It carries the three
+// actions a selection can ask for: an agent-facing reference (path:start-end), the selected lines'
+// markdown source itself, and that source re-rendered as rich HTML for pasting into Confluence. All act
+// on one selection — each confirms with "Copied" and then leaves after 1200ms, as before.
+type SelectionCopyAction = "range" | "markdown" | "confluence";
+
 function SelectionCopyPopover({
   path,
   range,
@@ -291,7 +294,7 @@ function SelectionCopyPopover({
   style: { left: number; top: number };
   onDone: () => void;
 }) {
-  const [copied, setCopied] = useState<"range" | "markdown" | null>(null);
+  const [copied, setCopied] = useState<SelectionCopyAction | null>(null);
   const resetTimer = useRef<number | undefined>(undefined);
 
   useEffect(
@@ -301,8 +304,8 @@ function SelectionCopyPopover({
     [],
   );
 
-  async function copy(action: "range" | "markdown", text: string) {
-    if (!(await copyText(text))) return;
+  async function copy(action: SelectionCopyAction, write: () => Promise<boolean>) {
+    if (!(await write())) return;
     setCopied(action);
     if (resetTimer.current !== undefined) window.clearTimeout(resetTimer.current);
     // The popup acts on one selection and is done after it copies, so it confirms and then leaves.
@@ -311,23 +314,36 @@ function SelectionCopyPopover({
     resetTimer.current = window.setTimeout(onDone, 1200);
   }
 
-  function actionProps(action: "range" | "markdown", text: string) {
+  // The Confluence flavor is the same selected source as Copy markdown, sent through the note menu's
+  // portable→HTML pipeline so a rich editor pastes formatting instead of markup characters.
+  async function copyConfluence(): Promise<boolean> {
+    const portable = toPortableMarkdown(copyLineRangeMarkdown(markdown, range));
+    const html = await portableToHtml(portable);
+    return copyRich(html, portable);
+  }
+
+  function actionProps(action: SelectionCopyAction, write: () => Promise<boolean>, label: string) {
     return {
       type: "button" as const,
-      onClick: () => void copy(action, text),
+      onClick: () => void copy(action, write),
       // Prevent the button's press from clearing the selection before copy() reads its saved range.
       onMouseDown: (event: ReactMouseEvent<HTMLButtonElement>) => event.preventDefault(),
-      "aria-label": copied === action ? "Copied" : action === "range" ? "Copy range" : "Copy markdown",
+      "aria-label": copied === action ? "Copied" : label,
     };
   }
 
   return (
     <div className="selection-copy" style={style}>
-      <button {...actionProps("range", copyLineRangeText(path, range))}>
+      <button {...actionProps("range", () => copyText(copyLineRangeText(path, range)), "Copy range")}>
         {copied === "range" ? "Copied" : "Copy range"}
       </button>
-      <button {...actionProps("markdown", copyLineRangeMarkdown(markdown, range))}>
+      <button
+        {...actionProps("markdown", () => copyText(copyLineRangeMarkdown(markdown, range)), "Copy markdown")}
+      >
         {copied === "markdown" ? "Copied" : "Copy markdown"}
+      </button>
+      <button {...actionProps("confluence", copyConfluence, "Copy for Confluence")}>
+        {copied === "confluence" ? "Copied" : "Copy for Confluence"}
       </button>
     </div>
   );

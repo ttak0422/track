@@ -1,3 +1,4 @@
+import { createElement } from "react";
 import { wikiPattern } from "./plugins";
 
 // Block-level include directive (ADR 0031): `![[...]]` starting a line, with optional trailing babel
@@ -21,4 +22,17 @@ export function toPortableMarkdown(body: string): string {
     // No alias: use the resolution key (the text before the first heading anchor `#`).
     return label && label.length > 0 ? label : (target.split("#", 1)[0] ?? target).trim();
   });
+}
+
+// portableToHtml renders portable Markdown to a static HTML string for the rich (Confluence) copy. It
+// reuses the app's react-markdown pipeline (default HTML tags + GFM tables/strikethrough/task lists), so
+// the output is semantic HTML a rich editor can paste. react-dom/server and the markdown deps are
+// dynamically imported so they load only when a rich-copy action is used, staying out of the main chunk.
+export async function portableToHtml(portable: string): Promise<string> {
+  const [{ renderToStaticMarkup }, { default: Markdown }, { default: remarkGfm }] = await Promise.all([
+    import("react-dom/server"),
+    import("react-markdown"),
+    import("remark-gfm"),
+  ]);
+  return renderToStaticMarkup(createElement(Markdown, { remarkPlugins: [remarkGfm] }, portable));
 }
