@@ -1,5 +1,6 @@
 import { useBlocker, useNavigate } from "@tanstack/react-router";
 import { FormEvent, useEffect, useMemo, useRef, useState } from "react";
+import { LineHint } from "./LineHint";
 import { MarkdownView } from "./MarkdownView";
 import { TaskBoardContext } from "./markdown/context";
 import {
@@ -466,6 +467,9 @@ export function NoteEditor({ noteID }: NoteEditorProps) {
                   ref={previewRef}
                   aria-label="Rendered note preview"
                 >
+                  {/* The rough source-line marker is a reading aid, so it rides the reading mode
+                    alone — split keeps its editing surface marker-free. */}
+                  {editorMode === "preview" ? <LineHint /> : null}
                   {/* A non-empty body with no render yet is still loading — show a spinner rather than let
                     MarkdownView flash "Empty note." for a body that is not actually empty. */}
                   {body.trim() !== "" &&

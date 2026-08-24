@@ -142,6 +142,7 @@
 .activity-weekdays,
 .backlinks h3,
 .day-tasks h2,
+.line-hint-mark,
 .rail-panel-title,
 .results-group,
 .code-block[data-language]::before,
@@ -2348,6 +2349,27 @@ textarea.modal-input:focus-visible {
   display: none;
 }
 
+/* Rough source-line marker, reading mode only: a zero-height sticky strip at the head of the
+   preview whose label hangs into the gutter left of the prose column and reports, in hundred-line
+   bands (~400), where the top of the reading surface sits in the note's source. Section-label
+   typography (variant 6) carries it; it is inert — it points, nothing points at it — so it takes no
+   hover, no fill, and never intercepts a click meant for content beneath. */
+.line-hint {
+  position: sticky;
+  top: 32px;
+  height: 0;
+  pointer-events: none;
+}
+
+.line-hint-mark {
+  position: absolute;
+  top: 0;
+  /* Into the margin left of the column: the dock lane and centring whitespace are already there,
+     and whatever they cannot hold the reader's overflow-x clip quietly swallows. */
+  right: calc(100% + 8px);
+  white-space: nowrap;
+}
+
 /* Static-only share actions, closing the note column under the body. They used to be a sticky bar at
    the foot of the reader: a strip of chrome over the last line of the note for the whole read, and on
    a phone a second bar stacked on the dock. Sharing is what you do at the end of a note, so it waits
@@ -3214,6 +3236,12 @@ textarea.modal-input:focus-visible {
   .note-preview {
     --preview-pad-inline: 8px;
     padding: 12px var(--preview-pad-inline);
+  }
+
+  /* The column takes the window here, so the marker's gutter is gone — half-clipped glyphs are
+     worse than none, and a thumb-held read has no use for a scroll-position hint anyway. */
+  .line-hint {
+    display: none;
   }
 
   .calendar-grid {

@@ -14,7 +14,18 @@ vi.mock("@tanstack/react-router", () => ({
 }));
 
 const copyText = vi.hoisted(() => vi.fn());
-vi.mock("./markdown/clipboard", () => ({ copyText }));
+const copyRich = vi.hoisted(() => vi.fn());
+vi.mock("./markdown/clipboard", () => ({ copyText, copyRich }));
+
+// The selection popover's Confluence action renders its portable markdown through portableToHtml;
+// stub the renderer so the wiring test asserts exact clipboard flavors without loading react-dom/server.
+const portableToHtml = vi.hoisted(() =>
+  vi.fn(async (portable: string) => `<section data-stub>${portable}</section>`),
+);
+vi.mock("./markdown/portable", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("./markdown/portable")>()),
+  portableToHtml,
+}));
 
 // EChartsBlock lazy-imports echarts; stub it so a chart fence doesn't pull the real (heavy) library
 // into this suite and starve the KaTeX lazy-load test of its waitFor budget.
@@ -193,6 +204,57 @@ describe("MarkdownView", () => {
     fireEvent(document, new Event("selectionchange"));
     fireEvent.click(screen.getByRole("button", { name: "Copy markdown" }));
     await waitFor(() => expect(copyText).toHaveBeenCalledWith("beta"));
+  });
+
+  it("copies the selected lines re-rendered as rich HTML for Confluence", async () => {
+    copyText.mockReset();
+    copyRich.mockReset();
+    copyRich.mockResolvedValue(true);
+    // FloatingProvider wraps the render because the selection spans a wiki link.
+    const { container } = renderWithQuery(
+      <FloatingProvider>
+        <MarkdownView copyPath="notes/project.md" markdown={"see [[Design|API]] first\n\nsecond block"} />
+      </FloatingProvider>,
+    );
+    const first = container.querySelectorAll("p")[0].firstChild!;
+    const second = container.querySelectorAll("p")[1].firstChild!;
+    const selection = window.getSelection()!;
+    selection.setBaseAndExtent(first, 1, second, 6);
+    fireEvent(document, new Event("selectionchange"));
+    fireEvent.click(screen.getByRole("button", { name: "Copy for Confluence" }));
+    // The same selected source Copy markdown takes — wiki links flattened to their alias — paired
+    // with the HTML flavor rendered from that portable text.
+    await waitFor(() =>
+      expect(copyRich).toHaveBeenCalledWith(
+        "<section data-stub>see API first\n\nsecond block</section>",
+        "see API first\n\nsecond block",
+      ),
+    );
+    expect(await screen.findByRole("button", { name: "Copied" })).toBeInTheDocument();
+  });
+
+  it("dismisses the popover once the Confluence copy has confirmed", async () => {
+    copyText.mockReset();
+    copyRich.mockReset();
+    copyRich.mockResolvedValue(true);
+    vi.useFakeTimers({ shouldAdvanceTime: true });
+    try {
+      const { container } = render(
+        <MarkdownView copyPath="notes/project.md" markdown="single line" />,
+      );
+      const text = container.querySelector("p")!.firstChild!;
+      const selection = window.getSelection()!;
+      selection.setBaseAndExtent(text, 0, text, 6);
+      fireEvent(document, new Event("selectionchange"));
+      fireEvent.click(screen.getByRole("button", { name: "Copy for Confluence" }));
+      await waitFor(() => expect(copyRich).toHaveBeenCalled());
+      vi.advanceTimersByTime(1500);
+      await waitFor(() =>
+        expect(screen.queryByRole("button", { name: /Copy|Copied/ })).not.toBeInTheDocument(),
+      );
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
   it("dismisses the copy range popup once it has copied", async () => {

@@ -183,6 +183,16 @@ inherits the surrounding ink, uses `--panel-soft` with `--radius-sm`, and takes
 `font-weight: 500`; the result row itself stays flat, with the keyboard cursor
 remaining an inked edge.
 
+### Source-line marker
+
+Reading mode carries one quiet orientation aid: a zero-height sticky strip at
+the head of the preview whose label — the section-label recipe (variant 6) —
+hangs in the gutter left of the column and reports the hundred-line band of the
+note's source sitting at the top of the viewport (`~400`). It is inert: no
+hover, no fill, `pointer-events: none`, `aria-hidden`; it stays quiet until the
+reader passes the first band, and it disappears below 540px, where the column
+takes the whole gutter.
+
 ## Variants
 
 ### 1. Text control — the default for chrome
