@@ -1139,6 +1139,17 @@ img.theme-asset-dark {
   cursor: grabbing;
 }
 
+/* The WebGL overview (sigma.js) fills the reader the way .graph-canvas does. sigma absolutely
+   positions its layers inside the container, so the container is the positioning context, and
+   touch-action:none hands the gestures to sigma's own captors instead of the browser. */
+.graph-overview {
+  position: relative;
+  width: 100%;
+  min-height: 0;
+  flex: 1;
+  touch-action: none;
+}
+
 .graph-controls {
   position: absolute;
   right: 12px;
