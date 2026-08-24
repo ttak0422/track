@@ -282,6 +282,10 @@ export interface GraphNode {
   // The note's precomputed size grade (1–5), absolute across views. Absent (an older bundle, an
   // orphan report) means the client falls back to its own degree-based sizing.
   size?: number;
+  // Server-computed overview position, filled by the full graph only — local graphs leave them
+  // unset and lay themselves out on the client. The whole-vault overview draws straight from these.
+  x?: number;
+  y?: number;
 }
 
 export interface GraphEdge {

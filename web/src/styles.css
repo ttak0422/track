@@ -1139,6 +1139,24 @@ img.theme-asset-dark {
   cursor: grabbing;
 }
 
+/* The whole-vault overview is a static SVG fitted to the layout's own bounding box: no pan, zoom or
+   reset chrome, because seeing everything at once is the whole view. Colors follow the aside
+   graph's treatment — edges --line-strong, nodes --bg outlined in --line-node — and hover is ink. */
+.graph-overview {
+  flex: 1;
+  width: 100%;
+  height: 100%;
+  min-height: 0;
+}
+
+.graph-overview circle {
+  cursor: pointer;
+}
+
+.graph-overview circle:hover {
+  stroke: var(--text);
+}
+
 .graph-controls {
   position: absolute;
   right: 12px;
