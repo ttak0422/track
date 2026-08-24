@@ -257,6 +257,35 @@ describe("MarkdownView", () => {
     }
   });
 
+  it("keeps the whole action row on screen when the selection sits at a window edge", async () => {
+    // jsdom measures nothing and its Range has no geometry at all, so stand in for both: the row's
+    // real width (three actions, ~336px), a phone-width window, and a selection near an edge. The
+    // panel is centred with translateX(-50%), so a centre nearer an edge than half the row would
+    // push an action off-screen.
+    const width = vi.spyOn(HTMLElement.prototype, "offsetWidth", "get").mockReturnValue(336);
+    const innerWidth = window.innerWidth;
+    Object.defineProperty(window, "innerWidth", { value: 390, configurable: true });
+    const rect = vi.fn(() => ({ left: 4, width: 0, top: 0, bottom: 0 }) as DOMRect);
+    Object.defineProperty(Range.prototype, "getBoundingClientRect", { value: rect, configurable: true });
+    try {
+      const { container } = render(<MarkdownView copyPath="notes/project.md" markdown="single line" />);
+      const text = container.querySelector("p")!.firstChild!;
+      const selection = window.getSelection()!;
+      selection.setBaseAndExtent(text, 0, text, 6);
+      fireEvent(document, new Event("selectionchange"));
+      // Half the row plus the 8px inset, rather than the selection's own centre at 4px.
+      expect(container.querySelector<HTMLElement>(".selection-copy")!.style.left).toBe("176px");
+
+      rect.mockReturnValue({ left: 386, width: 0, top: 0, bottom: 0 } as DOMRect);
+      fireEvent(document, new Event("selectionchange"));
+      expect(container.querySelector<HTMLElement>(".selection-copy")!.style.left).toBe("214px");
+    } finally {
+      width.mockRestore();
+      delete (Range.prototype as Partial<Range>).getBoundingClientRect;
+      Object.defineProperty(window, "innerWidth", { value: innerWidth, configurable: true });
+    }
+  });
+
   it("dismisses the copy range popup once it has copied", async () => {
     copyText.mockReset();
     copyText.mockResolvedValue(true);

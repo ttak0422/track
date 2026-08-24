@@ -5,6 +5,7 @@ import {
   type ReactNode,
   useContext,
   useEffect,
+  useLayoutEffect,
   useMemo,
   useRef,
   useState,
@@ -149,7 +150,7 @@ export function MarkdownView({
           : Math.max(8, rect.top - popupHeight - 8);
       setCopyRange(resolved);
       setCopyPopupPosition({
-        left: Math.min(Math.max(rect.left + rect.width / 2, 56), window.innerWidth - 56),
+        left: rect.left + rect.width / 2,
         top,
       });
     };
@@ -296,6 +297,16 @@ function SelectionCopyPopover({
 }) {
   const [copied, setCopied] = useState<SelectionCopyAction | null>(null);
   const resetTimer = useRef<number | undefined>(undefined);
+  const panel = useRef<HTMLDivElement>(null);
+  // The panel is centred on the selection (translateX(-50%)), and the caller hands it that centre
+  // without knowing how wide the panel is. Near a narrow window's edge that puts the outermost action
+  // off-screen, so keep the centre at least a half-panel from either edge — measured, because the row
+  // grows whenever an action is added to it. Wider than the window: pin left and let the tail overflow.
+  const [left, setLeft] = useState(style.left);
+  useLayoutEffect(() => {
+    const inset = (panel.current?.offsetWidth ?? 0) / 2 + 8;
+    setLeft(Math.min(Math.max(style.left, inset), Math.max(inset, window.innerWidth - inset)));
+  }, [style.left]);
 
   useEffect(
     () => () => {
@@ -333,7 +344,7 @@ function SelectionCopyPopover({
   }
 
   return (
-    <div className="selection-copy" style={style}>
+    <div className="selection-copy" ref={panel} style={{ left, top: style.top }}>
       <button {...actionProps("range", () => copyText(copyLineRangeText(path, range)), "Copy range")}>
         {copied === "range" ? "Copied" : "Copy range"}
       </button>
