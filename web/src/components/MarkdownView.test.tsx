@@ -96,11 +96,14 @@ describe("MarkdownView", () => {
     expect(screen.getByText("Empty note.")).toBeInTheDocument();
   });
 
-  it("uses the note title as the page h1 and blanks an identical leading body h1", () => {
+  it("renders the note title as chrome and keeps an identical leading body h1", () => {
     const markdown = "\n# **Project**\n\n## Status\n\nbody";
     const { container } = render(<MarkdownView title="Project" markdown={markdown} />);
-    expect([...container.querySelectorAll("h1")].map((h) => h.textContent)).toEqual(["Project"]);
+    expect([...container.querySelectorAll("h1")].map((h) => h.textContent)).toEqual(["Project", "Project"]);
     expect(container.querySelector("h1.note-title")).not.toBeNull();
+    // The body h1 is an ordinary heading again: it renders with the id the aside's Contents
+    // outline links to, and the h2 below it keeps its own.
+    expect(container.querySelector("h1:not(.note-title)")?.id).toBe("h-project");
     expect(container.querySelector("h2")?.id).toBe("h-status");
   });
 
@@ -112,11 +115,12 @@ describe("MarkdownView", () => {
     ]);
   });
 
-  it("removes a duplicate body h1 without rendering a title owned by popup chrome", () => {
+  it("renders the body h1 when the popup chrome owns the title row", () => {
     const { container } = render(
       <MarkdownView title="Project" showTitle={false} markdown={"# Project\n\n## Status"} />,
     );
-    expect(container.querySelector("h1")).toBeNull();
+    expect(container.querySelector("h1")?.textContent).toBe("Project");
+    expect(container.querySelector("h1")?.id).toBe("h-project");
     expect(container.querySelector("h2")?.textContent).toBe("Status");
   });
 
