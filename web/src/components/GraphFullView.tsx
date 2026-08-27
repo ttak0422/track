@@ -3,6 +3,7 @@ import { useNavigate } from "@tanstack/react-router";
 import { useGraphQuery } from "../queries";
 import type { NoteID } from "../types";
 import { GraphCanvas } from "./GraphCanvasLazy";
+import { graphCountCaption, graphTooManyMessage, MAX_GRAPH_NODES } from "./graphLimit";
 import { type PreviewAnchor, type PreviewBounds, initialPreviewBounds } from "./preview/bounds";
 import { useFloating } from "./preview/floatingStore";
 import { NoteWindow } from "./preview/NoteWindow";
@@ -33,6 +34,10 @@ export function GraphFullView() {
   const floating = useFloating();
   const [resetToken, setResetToken] = useState(0);
   const graph = graphQuery.data?.graph;
+  // A whole vault can outgrow the canvas (the force layout converges but draws a blob); past the
+  // limit the graph refuses to render and says so with the actual count.
+  const nodeCount = graph?.nodes.length ?? 0;
+  const tooMany = nodeCount > MAX_GRAPH_NODES;
 
   // A single transient hover preview. Dragging it (sticky) keeps it until closed; pinning promotes it to
   // the floating layer, which is what holds multiple persistent windows. ponytail: this mirrors
@@ -153,13 +158,17 @@ export function GraphFullView() {
     <div className="graph-full" aria-label="Graph">
       {graphQuery.isPending ? <p className="muted graph-message">Loading graph...</p> : null}
       {graphQuery.isError ? <p className="error graph-message">{graphQuery.error.message}</p> : null}
-      {graph ? (
+      {graph && tooMany ? <p className="error graph-message">{graphTooManyMessage(nodeCount)}</p> : null}
+      {graph && !tooMany ? (
         <GraphCanvas
           graph={graph}
           resetToken={resetToken}
           onHover={onHover}
           onSelect={(noteID) => void navigate({ to: "/notes/$noteId", params: { noteId: String(noteID) } })}
         />
+      ) : null}
+      {graph && !tooMany && nodeCount > 0 ? (
+        <span className="graph-count muted">{graphCountCaption(nodeCount)}</span>
       ) : null}
       {preview ? (
         <NoteWindow

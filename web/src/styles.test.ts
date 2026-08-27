@@ -406,6 +406,7 @@ describe("phone width", () => {
       ".notification-toast",
       // The full-bleed graph fills the reader, which the dock floats over.
       ".graph-full .graph-controls",
+      ".graph-full .graph-count",
     ]) {
       expect(ruleBody(selector)).toMatch(/bottom:\s*calc\([^)]*var\(--foot-dock\)\)/);
     }

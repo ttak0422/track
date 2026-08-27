@@ -2,6 +2,7 @@ import { useNavigate } from "@tanstack/react-router";
 import { PointerEvent, useRef, useState } from "react";
 import { useGraphQuery } from "../queries";
 import { GraphCanvas } from "./GraphCanvasLazy";
+import { graphCountCaption, graphTooManyMessage, MAX_GRAPH_NODES } from "./graphLimit";
 import { IconAffiliate, IconRotate2, IconX, RailIcon } from "./icons";
 
 // The floating whole-vault graph, behind a corner launcher. It only mounts on views without a graph
@@ -40,6 +41,10 @@ export function GraphPanel() {
   const navigate = useNavigate();
 
   const graph = state.data?.graph;
+  // The whole-vault graph cannot render a vault past the node limit — the layout converges but draws
+  // a blob — so the panel refuses and says so with the actual count.
+  const nodeCount = graph?.nodes.length ?? 0;
+  const tooMany = nodeCount > MAX_GRAPH_NODES;
 
   function onHandleDown(event: PointerEvent<HTMLButtonElement>) {
     event.preventDefault();
@@ -108,7 +113,8 @@ export function GraphPanel() {
       />
       {state.isPending ? <p className="muted graph-message">Loading graph...</p> : null}
       {state.isError ? <p className="error graph-message">{state.error.message}</p> : null}
-      {graph ? (
+      {graph && tooMany ? <p className="error graph-message">{graphTooManyMessage(nodeCount)}</p> : null}
+      {graph && !tooMany ? (
         <GraphCanvas
           graph={graph}
           resetToken={resetToken}
@@ -116,6 +122,9 @@ export function GraphPanel() {
             void navigate({ to: "/notes/$noteId", params: { noteId: String(noteID) } })
           }
         />
+      ) : null}
+      {graph && !tooMany && nodeCount > 0 ? (
+        <span className="graph-count muted">{graphCountCaption(nodeCount)}</span>
       ) : null}
       <div className="graph-controls">
         <button
