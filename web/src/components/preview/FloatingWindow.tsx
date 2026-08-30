@@ -27,7 +27,6 @@ export interface FloatingWindowControls {
   reanchor?: PreviewAnchor;
   pinned: boolean;
   initialCollapsed?: boolean;
-  depth: number;
   stackOrder: number;
   onActivate: () => void;
   onHold?: () => void;
@@ -75,7 +74,6 @@ export function FloatingWindow({
   reanchor,
   pinned,
   initialCollapsed = false,
-  depth,
   stackOrder,
   onActivate,
   onHold,

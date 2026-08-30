@@ -1,15 +1,6 @@
 import { createContext, type ReactNode, useContext, useEffect, useRef, useState } from "react";
-import { initialPreviewBounds, type PreviewAnchor, type PreviewBounds } from "../preview/bounds";
+import { initialPreviewBounds, type PreviewAnchor } from "../preview/bounds";
 import { InFloatingWindowContext, useFloating } from "../preview/floatingStore";
-import { MediaWindow } from "../preview/MediaWindow";
-import {
-  activatePreview,
-  bringPreviewToFront,
-  createPreviewID,
-  deactivatePreview,
-  releasePreview,
-  usePreviewStackOrder,
-} from "../preview/stack";
 import { NoteKindContext, NoteVaultContext } from "./context";
 import { IconMaximize, IconPictureInPicture, RailIcon } from "../icons";
 
@@ -33,10 +24,9 @@ export function MediaFrame({ src, alt, children }: { src: string; alt: string; c
   const floating = useFloating();
   const ref = useRef<HTMLDivElement>(null);
 
-  const [open, setOpen] = useState(false);
-  const [anchor, setAnchor] = useState<PreviewAnchor | null>(null);
-  const [previewID] = useState(createPreviewID);
-  const stackOrder = usePreviewStackOrder(previewID);
+  // The preview this frame opened, so enlarging can take it down again. The window itself belongs to
+  // the floating layer.
+  const openedRef = useRef<string | null>(null);
   const [enlarged, setEnlarged] = useState(false);
   const dialogRef = useRef<HTMLDialogElement>(null);
 
@@ -45,8 +35,6 @@ export function MediaFrame({ src, alt, children }: { src: string; alt: string; c
   useEffect(() => {
     if (enlarged) dialogRef.current?.showModal();
   }, [enlarged]);
-
-  useEffect(() => () => releasePreview(previewID), [previewID]);
 
   if (inFloating) {
     return <>{children}</>;
@@ -59,25 +47,20 @@ export function MediaFrame({ src, alt, children }: { src: string; alt: string; c
       : { linkLeft: 0, linkRight: 0, linkTop: 0, linkBottom: 0 };
   }
 
-  // The preview was asked for by a click, so it stays until its close button (or enlarging the
-  // media) dismisses it, rather than evaporating when the pointer wanders off.
+  // The preview was asked for by a click, so it opens settled: it stays until its close button (or
+  // enlarging the media) dismisses it, rather than evaporating when the pointer wanders off. Its pin
+  // button is what makes it persist across navigation, same as any other window in the layer.
   function openPreview() {
-    activatePreview(previewID);
-    setAnchor(frameAnchor());
-    setOpen(true);
+    openedRef.current = floating.open(
+      { kind: "media", src, alt, noteKind: kind, vault },
+      initialPreviewBounds(frameAnchor()),
+      false,
+    );
   }
 
   function closePreview() {
-    deactivatePreview(previewID);
-    setOpen(false);
-  }
-
-  // Pin promotes the preview popup into the persistent floating layer at its current position/size,
-  // same as WikiLink promoting a note preview.
-  function promote(bounds: PreviewBounds, collapsed: boolean) {
-    floating.open({ kind: "media", src, alt, noteKind: kind, vault }, bounds, collapsed, true);
-    deactivatePreview(previewID);
-    setOpen(false);
+    if (openedRef.current) floating.remove(openedRef.current);
+    openedRef.current = null;
   }
 
   return (
@@ -126,21 +109,6 @@ export function MediaFrame({ src, alt, children }: { src: string; alt: string; c
         >
           <InLightboxContext.Provider value={true}>{children}</InLightboxContext.Provider>
         </dialog>
-      ) : null}
-      {open && anchor ? (
-        <MediaWindow
-          src={src}
-          alt={alt}
-          kind={kind}
-          vault={vault}
-          initialBounds={initialPreviewBounds(anchor)}
-          pinned={false}
-          depth={0}
-          stackOrder={stackOrder}
-          onActivate={() => bringPreviewToFront(previewID)}
-          onClose={closePreview}
-          onPinToggle={promote}
-        />
       ) : null}
     </div>
   );

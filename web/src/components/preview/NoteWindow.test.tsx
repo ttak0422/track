@@ -29,7 +29,6 @@ vi.mock("../MarkdownView", () => ({
 const controls = {
   initialBounds: { left: 0, top: 0, width: 320, height: 240 },
   pinned: false,
-  depth: 0,
   stackOrder: 0,
   onActivate: () => {},
   onClose: () => {},

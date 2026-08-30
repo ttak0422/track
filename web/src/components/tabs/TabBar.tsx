@@ -222,7 +222,7 @@ function FloatButton({ noteID }: { noteID: NoteID }) {
     const anchor = rect
       ? { linkLeft: rect.left, linkRight: rect.right, linkTop: rect.top, linkBottom: rect.bottom }
       : { linkLeft: 0, linkRight: 0, linkTop: 0, linkBottom: 0 };
-    floating.open({ kind: "note", noteID }, initialPreviewBounds(anchor), false, true);
+    floating.open({ kind: "note", noteID }, initialPreviewBounds(anchor), false, { pinned: true });
   }
 
   return (

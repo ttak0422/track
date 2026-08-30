@@ -1,22 +1,12 @@
 import { Link } from "@tanstack/react-router";
-import { useContext, useEffect, useRef, useState } from "react";
+import { useContext, useEffect, useRef } from "react";
 import { useResolveQuery } from "../../queries";
-import { NoteVaultContext, PreviewDepthContext } from "../markdown/context";
+import { NoteVaultContext } from "../markdown/context";
 import { blockElementID, splitWikiTarget } from "../markdown/plugins";
 import { headingElementID } from "../markdown/toc";
-import { type PreviewAnchor, type PreviewBounds, initialPreviewBounds } from "./bounds";
+import { initialPreviewBounds } from "./bounds";
 import { useFloating } from "./floatingStore";
-import { NoteWindow } from "./NoteWindow";
-import {
-  activatePreview,
-  bringPreviewToFront as raisePreviewToFront,
-  createPreviewID,
-  deactivatePreview,
-  pointerCanHover,
-  previewOpenDelay,
-  releasePreview,
-  usePreviewStackOrder,
-} from "./stack";
+import { pointerCanHover, previewOpenDelay } from "./stack";
 
 interface WikiLinkProps {
   target: string;
@@ -24,15 +14,12 @@ interface WikiLinkProps {
 }
 
 export function WikiLink({ target, display }: WikiLinkProps) {
-  const [open, setOpen] = useState(false);
-  const [anchor, setAnchor] = useState<PreviewAnchor | null>(null);
-  const [sticky, setSticky] = useState(false);
-  const [previewID] = useState(createPreviewID);
-  const stackOrder = usePreviewStackOrder(previewID);
   const linkRef = useRef<HTMLAnchorElement>(null);
-  const closeTimer = useRef<number | undefined>(undefined);
   const openTimer = useRef<number | undefined>(undefined);
-  const depth = useContext(PreviewDepthContext);
+  // The window this link opened, so leaving the link closes the window it is answerable for and no
+  // other. It is only a handle: the window belongs to the floating layer, and a preview opened from
+  // inside another preview stays when that one is closed.
+  const openedRef = useRef<string | null>(null);
   const floating = useFloating();
   // The target may carry a "#..." anchor (heading or ^block); the note resolves by its key, and a
   // block anchor becomes the URL hash so the reader scrolls to and highlights the marked block.
@@ -41,19 +28,15 @@ export function WikiLink({ target, display }: WikiLinkProps) {
   const resolved = useResolveQuery(key, vault);
   const noteID = resolved.data?.found ? resolved.data.note.note_id : undefined;
 
-  useEffect(() => {
-    return () => {
-      releasePreview(previewID);
-      if (closeTimer.current !== undefined) window.clearTimeout(closeTimer.current);
-      if (openTimer.current !== undefined) window.clearTimeout(openTimer.current);
-    };
-  }, [previewID]);
+  // Only the intent timer is this component's to clean up. A window it opened is the layer's, and
+  // closing the preview this link sits in must not take the preview it opened down with it.
+  useEffect(() => () => cancelOpen(), []);
 
   // scheduleOpen defers opening on hover until the pointer has rested on the link, so a cursor passing
   // over a column of links does not flash a preview under each one.
   function scheduleOpen() {
     holdPreview();
-    if (open || openTimer.current !== undefined) return;
+    if (openTimer.current !== undefined) return;
     openTimer.current = window.setTimeout(() => {
       openTimer.current = undefined;
       openPreview();
@@ -70,54 +53,31 @@ export function WikiLink({ target, display }: WikiLinkProps) {
   function openPreview() {
     // Both ways in pass through here — the hover-intent timer and the focus a tap already gives the
     // link — so the pointer is asked once, here (see pointerCanHover).
-    if (!pointerCanHover()) return;
-    holdPreview();
+    if (!pointerCanHover() || noteID === undefined) return;
     cancelOpen();
-    activatePreview(previewID);
     const rect = linkRef.current?.getBoundingClientRect();
-    if (rect) {
-      setAnchor({ linkLeft: rect.left, linkRight: rect.right, linkTop: rect.top, linkBottom: rect.bottom });
-    }
-    setOpen(true);
+    if (!rect) return;
+    const anchor = {
+      linkLeft: rect.left,
+      linkRight: rect.right,
+      linkTop: rect.top,
+      linkBottom: rect.bottom,
+    };
+    openedRef.current = floating.open(
+      { kind: "note", noteID },
+      initialPreviewBounds(anchor),
+      false,
+      { transient: true, anchor },
+    );
   }
 
   function holdPreview() {
-    if (closeTimer.current !== undefined) window.clearTimeout(closeTimer.current);
-  }
-
-  function bringPreviewToFront() {
-    raisePreviewToFront(previewID);
+    if (openedRef.current) floating.hold(openedRef.current);
   }
 
   function scheduleClose() {
     cancelOpen();
-    if (sticky) return;
-    if (closeTimer.current !== undefined) window.clearTimeout(closeTimer.current);
-    closeTimer.current = window.setTimeout(() => {
-      deactivatePreview(previewID);
-      setOpen(false);
-    }, 220);
-  }
-
-  // Pinning promotes the transient hover preview into the persistent floating layer at its current
-  // position, then closes the inline copy.
-  function promote(bounds: PreviewBounds, collapsed: boolean) {
-    if (noteID === undefined) return;
-    floating.open({ kind: "note", noteID }, bounds, collapsed, true);
-    setSticky(false);
-    deactivatePreview(previewID);
-    setOpen(false);
-  }
-
-  function detachPreview() {
-    holdPreview();
-    setSticky(true);
-  }
-
-  function closePreview() {
-    setSticky(false);
-    deactivatePreview(previewID);
-    setOpen(false);
+    if (openedRef.current) floating.scheduleClose(openedRef.current);
   }
 
   if (resolved.isPending) {
@@ -145,21 +105,6 @@ export function WikiLink({ target, display }: WikiLinkProps) {
       >
         {display}
       </Link>
-      {open && anchor ? (
-        <NoteWindow
-          noteID={noteID}
-          initialBounds={initialPreviewBounds(anchor)}
-          reanchor={sticky ? undefined : anchor}
-          pinned={false}
-          depth={depth}
-          stackOrder={stackOrder}
-          onActivate={bringPreviewToFront}
-          onHold={holdPreview}
-          onDetach={detachPreview}
-          onClose={closePreview}
-          onPinToggle={promote}
-        />
-      ) : null}
     </span>
   );
 }
