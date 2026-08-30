@@ -7,6 +7,7 @@ import (
 	"encoding/xml"
 	"os"
 	"path/filepath"
+	"reflect"
 	"regexp"
 	"strings"
 	"testing"
@@ -501,6 +502,79 @@ func TestBuildPublishesActivityDays(t *testing.T) {
 	site := readJSON[jsonSite](t, filepath.Join(out, "data", "site.json"))
 	if !site.Calendar {
 		t.Fatalf("Options.Calendar should surface in site.json, got %+v", site)
+	}
+}
+
+// TestBuildPublishesFlags pins the note-flags half of the static export: flags are author metadata
+// (unlike the reading milestones, which stay per-visitor and are deliberately stripped), so a flagged
+// note's stamp and badges must draw on the published site. The note JSON carries them through
+// jsonSearchResult (embedded by jsonNoteDetail), notes.json carries them on the listing, and every
+// reference — backlinks, trail, children, resolve — carries them through jsonRef.
+func TestBuildPublishesFlags(t *testing.T) {
+	cfg, s := vaultStore(t)
+	writeVaultNote(t, cfg, 100, "Deprecated", "# Deprecated\n\nsee [[Fresh]]\n")
+	if err := note.WriteMetadata(
+		cfg.MetadataPath(100),
+		note.Metadata{Version: note.CurrentMetadataVersion, Title: "Deprecated", Created: "2026-06-14", Flags: []string{"DEPRECATED"}},
+	); err != nil {
+		t.Fatal(err)
+	}
+	writeVaultNote(t, cfg, 200, "Fresh", "# Fresh\n")
+	if _, err := index.New(cfg, s).Full(); err != nil {
+		t.Fatalf("index: %v", err)
+	}
+
+	out := t.TempDir()
+	if _, err := Build(cfg, s, Options{Root: 100, IDs: []int64{200}}, fakeFrontend(t), out); err != nil {
+		t.Fatalf("build: %v", err)
+	}
+
+	// notes.json: the flagged note lists with its flags, the unflagged note omits the field.
+	notes := readJSON[struct {
+		Notes []jsonSearchResult `json:"notes"`
+	}](t, filepath.Join(out, "data", "notes.json"))
+	byID := map[string]jsonSearchResult{}
+	for _, n := range notes.Notes {
+		byID[n.NoteID] = n
+	}
+	if got := byID[PublishID(100)].Flags; !reflect.DeepEqual(got, []string{"DEPRECATED"}) {
+		t.Fatalf("notes.json should carry flags on the flagged note, got %v", got)
+	}
+	if got := byID[PublishID(200)].Flags; len(got) != 0 {
+		t.Fatalf("notes.json should omit flags on an unflagged note, got %v", got)
+	}
+
+	// Note detail: the flagged note's own JSON carries flags; the unflagged note's does not.
+	flagged := readJSON[jsonNoteResponse](t, filepath.Join(out, "data", "note", PublishID(100)+".json"))
+	if got := flagged.Note.Flags; !reflect.DeepEqual(got, []string{"DEPRECATED"}) {
+		t.Fatalf("note detail should carry flags, got %v", got)
+	}
+	// Smoke check at the wire level: the unlocked bundle byte for the flagged note really has the
+	// field, so a frontend reading raw JSON sees it.
+	if raw := string(readLocked(t, filepath.Join(out, "data", "note", PublishID(100)+".json"))); !strings.Contains(raw, `"flags":["DEPRECATED"]`) {
+		t.Fatalf("published note JSON should contain %q, got:\n%s", `"flags":["DEPRECATED"]`, raw)
+	}
+	unflagged := readJSON[jsonNoteResponse](t, filepath.Join(out, "data", "note", PublishID(200)+".json"))
+	if got := unflagged.Note.Flags; len(got) != 0 {
+		t.Fatalf("unflagged note detail should omit flags, got %v", got)
+	}
+
+	// Backlinks: Deprecated links to Fresh, so Fresh's backlinks carry a ref to the flagged note that
+	// itself carries the flag — the badge draws on the published backlinks list.
+	if len(unflagged.Backlinks) != 1 || unflagged.Backlinks[0].NoteID != PublishID(100) {
+		t.Fatalf("Fresh should have one backlink from Deprecated, got %v", unflagged.Backlinks)
+	}
+	if got := unflagged.Backlinks[0].Flags; !reflect.DeepEqual(got, []string{"DEPRECATED"}) {
+		t.Fatalf("backlink ref should carry the flagged note's flags, got %v", got)
+	}
+
+	// resolve.json maps keys through jsonRef too, so a title resolution badged the same way.
+	resolve := readJSON[map[string]jsonRef](t, filepath.Join(out, "data", "resolve.json"))
+	if got := resolve["Deprecated"].Flags; !reflect.DeepEqual(got, []string{"DEPRECATED"}) {
+		t.Fatalf("resolve ref should carry flags, got %v", got)
+	}
+	if got := resolve["Fresh"].Flags; len(got) != 0 {
+		t.Fatalf("resolve ref should omit flags on an unflagged note, got %v", got)
 	}
 }
 
