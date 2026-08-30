@@ -1,4 +1,6 @@
-// Stacking helpers shared by WikiLink and the floating windows.
+// Stacking for the floating preview layer: one flat order, no parents. A window opened from inside
+// another is its sibling here, and the only thing that decides what is in front is what was
+// activated last.
 import { useSyncExternalStore } from "react";
 
 // Keep the complete preview layer below search (190). The stack is renormalized after each change, so
@@ -8,6 +10,9 @@ export const previewMaxZIndex = 189;
 // Hover intent: only open a preview once the pointer rests on a link, so sweeping the cursor down a
 // column of links does not flash a popup under every one it crosses.
 export const previewOpenDelay = 260;
+// Grace period before a transient window closes, so the pointer can travel from the link to the
+// window it opened without the window vanishing on the way.
+export const previewCloseDelay = 220;
 
 // A preview needs a cursor, and a touch screen has none. There is no resting on a link there — the
 // tap that would open the preview is the tap that follows the link, and a tapped link is focused
@@ -20,12 +25,11 @@ export function pointerCanHover(): boolean {
   return window.matchMedia?.("(hover: none)").matches !== true;
 }
 
-type PreviewEntry = { active: boolean; order: number };
-
-const previewEntries = new Map<string, PreviewEntry>();
+// Map insertion order is the stack order, oldest first; the value is the rank the band was
+// renormalized to.
+const previewRanks = new Map<string, number>();
 const previewListeners = new Set<() => void>();
 let previewStackVersion = 0;
-let previewID = 0;
 
 function notifyPreviewStackChanged() {
   previewStackVersion += 1;
@@ -33,13 +37,13 @@ function notifyPreviewStackChanged() {
 }
 
 function renormalizePreviewStack() {
-  const active = [...previewEntries.values()].filter((entry) => entry.active);
-  const firstRank = Math.max(0, active.length - (previewStackSize() - 1));
-  active.forEach((entry, index) => {
+  const ids = [...previewRanks.keys()];
+  const firstRank = Math.max(0, ids.length - (previewStackSize() - 1));
+  ids.forEach((id, index) => {
     // The oldest overflow entries share the floor; every newer entry keeps a distinct rank, including
     // the frontmost one. This is a bounded overflow policy, not a counter clamp: raises still reorder
-    // the active stack and can never cross the search layer.
-    entry.order = index < firstRank ? 0 : index - firstRank + 1;
+    // the stack and can never cross the search layer.
+    previewRanks.set(id, index < firstRank ? 0 : index - firstRank + 1);
   });
 }
 
@@ -48,56 +52,33 @@ function subscribePreviewStack(listener: () => void): () => void {
   return () => previewListeners.delete(listener);
 }
 
-export function createPreviewID(): string {
-  const id = `preview-${previewID++}`;
-  previewEntries.set(id, { active: false, order: 0 });
-  return id;
-}
-
+// A new window enters at the front: opening one is activating it.
 export function registerPreview(id: string) {
-  previewEntries.set(id, { active: true, order: 0 });
-  renormalizePreviewStack();
-  notifyPreviewStackChanged();
-}
-
-export function activatePreview(id: string) {
-  const entry = previewEntries.get(id);
-  if (!entry) return;
-  entry.active = true;
-  bringPreviewToFront(id);
-}
-
-export function deactivatePreview(id: string) {
-  const entry = previewEntries.get(id);
-  if (!entry?.active) return;
-  entry.active = false;
+  previewRanks.delete(id);
+  previewRanks.set(id, 0);
   renormalizePreviewStack();
   notifyPreviewStackChanged();
 }
 
 export function releasePreview(id: string) {
-  if (!previewEntries.delete(id)) return;
+  if (!previewRanks.delete(id)) return;
   renormalizePreviewStack();
   notifyPreviewStackChanged();
 }
 
 export function bringPreviewToFront(id: string) {
-  const entry = previewEntries.get(id);
-  if (!entry?.active) return;
-  // Map insertion order is the stack order. Reinsert the entry at the end, then compact all active
-  // ranks so the finite preview band remains available after any number of interactions.
-  previewEntries.delete(id);
-  previewEntries.set(id, entry);
+  const rank = previewRanks.get(id);
+  if (rank === undefined) return;
+  // Reinsert at the end (the front), then compact every rank so the finite preview band remains
+  // available after any number of interactions.
+  previewRanks.delete(id);
+  previewRanks.set(id, rank);
   renormalizePreviewStack();
   notifyPreviewStackChanged();
 }
 
 export function getPreviewStackOrder(id: string): number {
-  return previewEntries.get(id)?.order ?? 0;
-}
-
-export function usePreviewStackOrder(id: string): number {
-  return useSyncExternalStore(subscribePreviewStack, () => getPreviewStackOrder(id), () => 0);
+  return previewRanks.get(id) ?? 0;
 }
 
 export function usePreviewStackVersion(): number {

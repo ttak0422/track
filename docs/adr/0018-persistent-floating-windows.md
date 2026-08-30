@@ -2,7 +2,8 @@
 
 ## Status
 
-Accepted
+Accepted. The floating layer stands; the inline hover preview it kept in `WikiLink` is superseded by
+ADR 0075 (one flat preview layer), which opens every window in the layer.
 
 ## Context
 

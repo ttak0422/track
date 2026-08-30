@@ -3,16 +3,23 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { GraphFullView, graphPointAnchor } from "./GraphFullView";
 import { previewOpenDelay } from "./preview/stack";
 
-const floatingOpen = vi.hoisted(() => vi.fn());
+// The view no longer owns a window: it asks the floating layer to open one and keeps the id. So the
+// stand-in is the layer's api, and what the tests read is what the view asked it for.
+const floating = vi.hoisted(() => ({
+  windows: [] as { id: string; content: { kind: string; noteID: string } }[],
+  open: vi.fn(() => "win-1"),
+  hold: vi.fn(),
+  scheduleClose: vi.fn(),
+}));
 const navigate = vi.hoisted(() => vi.fn());
 
 vi.mock("@tanstack/react-router", () => ({ useNavigate: () => navigate }));
 vi.mock("../queries", () => ({ useGraphQuery: () => ({ data: { graph: { nodes: [], edges: [] } } }) }));
-vi.mock("./preview/floatingStore", () => ({ useFloating: () => ({ open: floatingOpen }) }));
+vi.mock("./preview/floatingStore", () => ({ useFloating: () => floating }));
 
-// Stub the canvas so the test can drive onHover/onSelect directly, and the note window so it exposes the
-// detach/pin/close controls the hover machine wires up. GraphFullView consumes the canvas through the
-// lazy wrapper (GraphCanvasLazy), so mock that module — it renders synchronously here, bypassing Suspense.
+// Stub the canvas so the test can drive onHover/onSelect directly. GraphFullView consumes the canvas
+// through the lazy wrapper (GraphCanvasLazy), so mock that module — it renders synchronously here,
+// bypassing Suspense.
 vi.mock("./GraphCanvasLazy", () => ({
   GraphCanvas: ({
     onHover,
@@ -38,37 +45,6 @@ vi.mock("./GraphCanvasLazy", () => ({
   ),
 }));
 
-vi.mock("./preview/NoteWindow", () => ({
-  NoteWindow: ({
-    noteID,
-    onDetach,
-    onLeave,
-    onClose,
-    onPinToggle,
-  }: {
-    noteID: string;
-    onDetach?: () => void;
-    onLeave?: () => void;
-    onClose: () => void;
-    onPinToggle: (b: { left: number; top: number; width: number; height: number }, c: boolean) => void;
-  }) => (
-    <div data-testid="note-window" data-note-id={noteID}>
-      <button type="button" onClick={() => onDetach?.()}>
-        detach
-      </button>
-      <button type="button" onClick={() => onLeave?.()}>
-        leave
-      </button>
-      <button type="button" onClick={() => onPinToggle({ left: 0, top: 0, width: 300, height: 200 }, false)}>
-        pin
-      </button>
-      <button type="button" onClick={onClose}>
-        close
-      </button>
-    </div>
-  ),
-}));
-
 describe("graphPointAnchor", () => {
   it("uses the clicked graph point as the floating preview anchor", () => {
     expect(graphPointAnchor({ x: 320, y: 180 })).toEqual({
@@ -83,28 +59,30 @@ describe("graphPointAnchor", () => {
 describe("GraphFullView hover preview", () => {
   beforeEach(() => {
     vi.useFakeTimers();
-    floatingOpen.mockClear();
+    floating.windows = [];
+    floating.open.mockClear();
+    floating.hold.mockClear();
+    floating.scheduleClose.mockClear();
     navigate.mockClear();
   });
   afterEach(() => vi.useRealTimers());
 
-  function win(c: HTMLElement) {
-    return c.querySelector('[data-testid="note-window"]');
-  }
   function click(c: HTMLElement, label: string) {
     fireEvent.click([...c.querySelectorAll("button")].find((b) => b.textContent?.trim() === label)!);
   }
 
-  it("opens a preview after the intent delay and closes it when the pointer leaves", () => {
+  it("opens a transient window in the layer after the intent delay", () => {
     const { container } = render(<GraphFullView />);
     click(container, "hover-a");
-    expect(win(container)).toBeNull(); // still within the intent delay
-    act(() => vi.advanceTimersByTime(previewOpenDelay + 10));
-    expect(win(container)?.getAttribute("data-note-id")).toBe("a");
+    expect(floating.open).not.toHaveBeenCalled(); // still within the intent delay
 
-    click(container, "hover-out");
-    act(() => vi.advanceTimersByTime(300));
-    expect(win(container)).toBeNull();
+    act(() => vi.advanceTimersByTime(previewOpenDelay + 10));
+    expect(floating.open).toHaveBeenCalledWith(
+      { kind: "note", noteID: "a" },
+      expect.anything(),
+      false,
+      { transient: true, anchor: { linkLeft: 10, linkRight: 10, linkTop: 10, linkBottom: 10 } },
+    );
   });
 
   it("cancels a pending open when the pointer leaves before the delay", () => {
@@ -113,62 +91,49 @@ describe("GraphFullView hover preview", () => {
     act(() => vi.advanceTimersByTime(previewOpenDelay - 50));
     click(container, "hover-out");
     act(() => vi.advanceTimersByTime(previewOpenDelay + 300));
-    expect(win(container)).toBeNull();
+    expect(floating.open).not.toHaveBeenCalled();
   });
 
-  it("closes a hover preview when the pointer leaves it without dragging", () => {
+  it("asks the layer to close the window it opened when the pointer leaves", () => {
     const { container } = render(<GraphFullView />);
     click(container, "hover-a");
     act(() => vi.advanceTimersByTime(previewOpenDelay + 10));
-    expect(win(container)).not.toBeNull();
-
-    click(container, "leave"); // pointer leaves the window, no drag
-    act(() => vi.advanceTimersByTime(300));
-    expect(win(container)).toBeNull();
-  });
-
-  it("keeps a dragged (sticky) preview open after the pointer leaves", () => {
-    const { container } = render(<GraphFullView />);
-    click(container, "hover-a");
-    act(() => vi.advanceTimersByTime(previewOpenDelay + 10));
-    click(container, "detach");
     click(container, "hover-out");
-    act(() => vi.advanceTimersByTime(300));
-    expect(win(container)).not.toBeNull();
-    click(container, "close");
-    expect(win(container)).toBeNull();
+    expect(floating.scheduleClose).toHaveBeenCalledWith("win-1");
   });
 
-  it("hands a dragged preview to the floating layer (unpinned) when another node is hovered", () => {
+  // Resting on the node already shown holds its window where it is instead of re-anchoring it to
+  // every pixel the cursor moves.
+  it("holds the open window rather than chasing the cursor on the same node", () => {
     const { container } = render(<GraphFullView />);
     click(container, "hover-a");
     act(() => vi.advanceTimersByTime(previewOpenDelay + 10));
-    click(container, "detach"); // keep window a without pinning
+    expect(floating.open).toHaveBeenCalledTimes(1);
+
+    floating.windows = [{ id: "win-1", content: { kind: "note", noteID: "a" } }];
+    click(container, "hover-a");
+    act(() => vi.advanceTimersByTime(previewOpenDelay + 10));
+    expect(floating.open).toHaveBeenCalledTimes(1);
+    expect(floating.hold).toHaveBeenCalledWith("win-1");
+  });
+
+  // A different node is a different window: the layer holds both, ordered by whichever was opened
+  // last, instead of one replacing the other.
+  it("opens a second window for a second node", () => {
+    const { container } = render(<GraphFullView />);
+    click(container, "hover-a");
+    act(() => vi.advanceTimersByTime(previewOpenDelay + 10));
+    floating.windows = [{ id: "win-1", content: { kind: "note", noteID: "a" } }];
+
     click(container, "hover-b");
-    // a is handed off unpinned so the slot frees up...
-    expect(floatingOpen).toHaveBeenCalledWith(
-      { kind: "note", noteID: "a" },
+    act(() => vi.advanceTimersByTime(previewOpenDelay + 10));
+    expect(floating.open).toHaveBeenCalledTimes(2);
+    expect(floating.open).toHaveBeenLastCalledWith(
+      { kind: "note", noteID: "b" },
       expect.anything(),
       false,
-      false,
+      expect.objectContaining({ transient: true }),
     );
-    // ...and b pops in the freed transient slot.
-    act(() => vi.advanceTimersByTime(previewOpenDelay + 10));
-    expect(win(container)?.getAttribute("data-note-id")).toBe("b");
-  });
-
-  it("promotes to the floating layer on pin", () => {
-    const { container } = render(<GraphFullView />);
-    click(container, "hover-a");
-    act(() => vi.advanceTimersByTime(previewOpenDelay + 10));
-    click(container, "pin");
-    expect(floatingOpen).toHaveBeenCalledWith(
-      { kind: "note", noteID: "a" },
-      { left: 0, top: 0, width: 300, height: 200 },
-      false,
-      true,
-    );
-    expect(win(container)).toBeNull();
   });
 
   it("navigates to the note on click", () => {

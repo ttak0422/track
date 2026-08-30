@@ -2,7 +2,6 @@ import { useNavigate } from "@tanstack/react-router";
 import type { NoteID } from "../../types";
 import { useNoteQuery, useRenderQuery } from "../../queries";
 import { vaultOf } from "../../vaultId";
-import { PreviewDepthContext } from "../markdown/context";
 import { MarkdownView } from "../MarkdownView";
 import { LoadingIndicator } from "../noteShared";
 import { FloatingWindow, type FloatingWindowControls } from "./FloatingWindow";
@@ -37,16 +36,14 @@ export function NoteWindow({ noteID, ...controls }: NoteWindowProps) {
       {note.isPending || awaitingRender ? <LoadingIndicator label="Loading note" /> : null}
       {note.isError ? <p className="error">{note.error.message}</p> : null}
       {note.data && !awaitingRender ? (
-        <PreviewDepthContext.Provider value={controls.depth + 1}>
-          <MarkdownView
-            markdown={rendered.data?.markdown ?? ""}
-            title={note.data.note.title}
-            showTitle={false}
-            kind={note.data.note.file_kind}
-            vault={vault}
-            includes={rendered.data?.includes}
-          />
-        </PreviewDepthContext.Provider>
+        <MarkdownView
+          markdown={rendered.data?.markdown ?? ""}
+          title={note.data.note.title}
+          showTitle={false}
+          kind={note.data.note.file_kind}
+          vault={vault}
+          includes={rendered.data?.includes}
+        />
       ) : null}
     </FloatingWindow>
   );

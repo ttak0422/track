@@ -9,7 +9,6 @@ describe("FloatingWindow resize handles", () => {
         title="Preview"
         initialBounds={{ left: 100, top: 100, width: 400, height: 300 }}
         pinned={false}
-        depth={0}
         stackOrder={0}
         onActivate={vi.fn()}
         onClose={vi.fn()}
