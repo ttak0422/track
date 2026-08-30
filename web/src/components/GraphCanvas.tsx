@@ -217,8 +217,9 @@ export function GraphCanvas({
       return;
     }
 
-    // Lay the graph out at the size it will be seen at. Nodes and labels are drawn at a fixed
-    // SCREEN size (radius and font are divided by the view scale), so a layout built for a
+    // Lay the graph out at the size it will be seen at. Nodes are drawn at a fixed SCREEN size
+    // (radius is divided by the view scale, and labels are drawn in a separate pass at a fixed pixel
+    // size), so a layout built for a
     // full-page canvas and then shrunk to fit a small one keeps its dots the same size while the
     // distances between them collapse — the note aside's 300x220 box turned the graph into a blob.
     // Scaling the world-space constants with the viewport instead lands the fit near 1:1, where the
@@ -389,10 +390,6 @@ export function GraphCanvas({
     ctx.save();
     ctx.translate(width / 2 + view.x * ratio, height / 2 + view.y * ratio);
     ctx.scale(view.scale, view.scale);
-    const labelFontSize = 13;
-    ctx.font = `${Math.floor((labelFontSize * ratio) / view.scale)}px ${
-      css("--font-sans") || '"IBM Plex Sans JP", Inter, system-ui, sans-serif'
-    }`;
     const baseLineWidth = (1 * ratio) / view.scale;
     const highlightLineWidth = (2.6 * ratio) / view.scale;
     ctx.lineWidth = baseLineWidth;
@@ -481,6 +478,16 @@ export function GraphCanvas({
     // above the graph already name the neighbourhood in text, so the graph is there for its shape.
     const roomy = roomyCanvas(nextSize);
     const showLabels = roomy && view.scale >= 0.26;
+    // Labels are drawn in CSS pixels under a devicePixelRatio-only transform, not through the zoom
+    // transform above. Under the zoom CTM the rasterizer is handed a fractional, non-1:1 scale (and
+    // zoomed in, a font set smaller than the pixels it lands on), so the glyphs lose their pixel grid
+    // and read as rough; with the pure ratio scale they are always rasterized at a crisp integer
+    // device-pixel size. The text lands at the same fixed screen size either way.
+    ctx.setTransform(ratio, 0, 0, ratio, 0, 0);
+    const labelFontSize = 13;
+    ctx.font = `${labelFontSize}px ${
+      css("--font-sans") || '"IBM Plex Sans JP", Inter, system-ui, sans-serif'
+    }`;
     nodesRef.current.forEach((node) => {
       if (decorative) return;
       const center = node.center || node.note_id === graph.center_id;
@@ -490,16 +497,16 @@ export function GraphCanvas({
       if (!(showLabels || center || wellConnected || hovered || (hasActiveHighlight && active))) {
         return;
       }
-      const radius = (nodeRadius(node) * ratio) / view.scale;
-      const x = node.x * ratio;
-      const y = node.y * ratio;
+      const radius = nodeRadius(node);
+      const x = node.x * view.scale + size.width / 2 + view.x;
+      const y = node.y * view.scale + size.height / 2 + view.y;
       const label = hovered
         ? node.title || `#${node.note_id}`
         : trim(node.title || `#${node.note_id}`, 24);
-      const fontPx = (labelFontSize * ratio) / view.scale;
-      const padX = (5 * ratio) / view.scale;
-      const padY = (3 * ratio) / view.scale;
-      const tx = x + radius + (7 * ratio) / view.scale;
+      const fontPx = labelFontSize;
+      const padX = 5;
+      const padY = 3;
+      const tx = x + radius + 7;
       const ty = y;
       ctx.textAlign = "start";
       ctx.textBaseline = "middle";
@@ -514,7 +521,7 @@ export function GraphCanvas({
         ty - fontPx / 2 - padY,
         textWidth + padX * 2,
         fontPx + padY * 2,
-        (4 * ratio) / view.scale,
+        4,
       );
       ctx.globalAlpha = center || hovered ? 0.98 : 0.88;
       ctx.fillStyle = css("--text");

@@ -71,6 +71,31 @@ describe("SidebarHistory", () => {
     expect(screen.queryByRole("menuitem")).not.toBeInTheDocument();
   });
 
+  // History is title-based, never id-based: a recents entry whose title has not resolved (a deleted
+  // note, or one hopped away from before the query returned) reads as "Untitled" like a tab in the
+  // strip, not as a bare internal id — a timestamp or slug is not a label.
+  it("labels an untitled entry Untitled rather than its id", async () => {
+    window.localStorage.setItem(
+      "track.recent",
+      JSON.stringify([
+        { id: "titled", title: "Titled note" },
+        { id: "1781359469000", title: "" },
+      ]),
+    );
+    renderHistory();
+
+    fireEvent.pointerEnter(screen.getByRole("button", { name: "Recently opened notes" }));
+    const panel = await screen.findByRole("menu", { name: "Recently opened notes" });
+    expect(panel).toHaveTextContent("Titled note");
+    expect(panel).toHaveTextContent("Untitled");
+    expect(panel).not.toHaveTextContent("1781359469000");
+    // The entry still routes by id; only its label hides the id.
+    expect(screen.getByRole("menuitem", { name: "Untitled" })).toHaveAttribute(
+      "href",
+      "/notes/1781359469000",
+    );
+  });
+
   it("keeps the panel open across the trigger-to-panel gap, then closes after leaving", () => {
     vi.useFakeTimers();
     renderHistory();

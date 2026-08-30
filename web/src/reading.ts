@@ -57,7 +57,13 @@ export function readThresholdFor(text: string): number {
 
 // isNew reports whether no device has opened the note yet (server truth adopted, or never marked
 // here — the two merge monotonically, so a note cannot flip back to NEW).
+//
+// Never on a published site: NEW is the author's own backlog marker — a note the vault holds that
+// nobody has looked at — and a reader arriving at the site has looked at none of them, so every row
+// would carry the badge. Nothing clears it there either (the static reader records no milestones),
+// so it would be a permanent NEW on every note in every list.
 export function isNew(id: string): boolean {
+  if (STATIC_MODE) return false;
   return !(id in load());
 }
 

@@ -6,6 +6,7 @@ interface CanvasMock {
   globalAlpha: number;
   fillStyle: string;
   strokeStyle: string;
+  font: string;
   clearRect: ReturnType<typeof vi.fn>;
   save: ReturnType<typeof vi.fn>;
   translate: ReturnType<typeof vi.fn>;
@@ -17,6 +18,7 @@ interface CanvasMock {
   arc: ReturnType<typeof vi.fn>;
   fill: ReturnType<typeof vi.fn>;
   restore: ReturnType<typeof vi.fn>;
+  setTransform: ReturnType<typeof vi.fn>;
   measureText: ReturnType<typeof vi.fn>;
   fillText: ReturnType<typeof vi.fn>;
   rect: ReturnType<typeof vi.fn>;
@@ -27,6 +29,7 @@ function makeCanvasContext(): CanvasMock {
     globalAlpha: 1,
     fillStyle: "",
     strokeStyle: "",
+    font: "",
     clearRect: vi.fn(),
     save: vi.fn(),
     translate: vi.fn(),
@@ -38,6 +41,7 @@ function makeCanvasContext(): CanvasMock {
     arc: vi.fn(),
     fill: vi.fn(),
     restore: vi.fn(),
+    setTransform: vi.fn(),
     measureText: vi.fn(() => ({ width: 40 })),
     fillText: vi.fn(),
     rect: vi.fn(),
@@ -149,6 +153,26 @@ describe("GraphCanvas node painting", () => {
     await waitFor(() => {
       expect(context.measureText).toHaveBeenCalledWith(longTitleGraph.nodes[0].title);
     });
+  });
+
+  // Labels are rasterized under a devicePixelRatio-only transform at a fixed CSS-pixel font, never
+  // through the zoom CTM with an inversely-scaled font — the zoom path hands the rasterizer a
+  // fractional scale (or a font smaller than the pixels it lands on, zoomed in), which reads as rough
+  // text. The backing store is already ratio-sized; this pins the draw pass to match it.
+  it("draws labels at a fixed CSS-pixel font under the devicePixelRatio-only transform", async () => {
+    Object.defineProperty(window, "devicePixelRatio", { value: 2, configurable: true });
+    context.setTransform.mockClear();
+    context.fillText.mockClear();
+
+    render(<GraphCanvas graph={graph} onSelect={vi.fn()} resetToken={0} focusNodeID="center" />);
+    await waitFor(() => expect(context.fillText).toHaveBeenCalled());
+
+    // The label pass drops the zoom transform for the pure ratio scale (device px = css px × ratio).
+    expect(context.setTransform).toHaveBeenCalledWith(2, 0, 0, 2, 0, 0);
+    // The font is a fixed 13 CSS px, not floor(13·ratio / view.scale) in user space.
+    expect(String(context.font)).toMatch(/^13px /);
+
+    delete (window as { devicePixelRatio?: number }).devicePixelRatio;
   });
 
   // A frame frozen mid-hover has to answer both "what am I pointing at" and "where am I", so the

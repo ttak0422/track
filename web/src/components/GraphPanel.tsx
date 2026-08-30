@@ -1,8 +1,9 @@
 import { useNavigate } from "@tanstack/react-router";
-import { PointerEvent, useRef, useState } from "react";
+import { PointerEvent, useMemo, useRef, useState } from "react";
 import { useGraphQuery } from "../queries";
 import { GraphCanvas } from "./GraphCanvasLazy";
 import { IconAffiliate, IconRotate2, IconX, RailIcon } from "./icons";
+import { overviewGraph } from "./overviewGraph";
 
 // The floating whole-vault graph, behind a corner launcher. It only mounts on views without a graph
 // of their own (day, tags, search, the empty state): note pages carry an always-on local graph in
@@ -39,7 +40,12 @@ export function GraphPanel() {
   const state = useGraphQuery(visible);
   const navigate = useNavigate();
 
-  const graph = state.data?.graph;
+  // Same whole-vault graph as the Graph tab, so it takes the same bound (see overviewGraph).
+  const overview = useMemo(
+    () => (state.data?.graph ? overviewGraph(state.data.graph) : null),
+    [state.data?.graph],
+  );
+  const graph = overview?.graph;
 
   function onHandleDown(event: PointerEvent<HTMLButtonElement>) {
     event.preventDefault();
@@ -116,6 +122,9 @@ export function GraphPanel() {
             void navigate({ to: "/notes/$noteId", params: { noteId: String(noteID) } })
           }
         />
+      ) : null}
+      {overview && overview.hidden > 0 ? (
+        <p className="graph-scope">{overview.hidden.toLocaleString()} notes not drawn</p>
       ) : null}
       <div className="graph-controls">
         <button

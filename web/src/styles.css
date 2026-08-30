@@ -146,6 +146,7 @@
 .rail-panel-title,
 .results-group,
 .code-block[data-language]::before,
+.graph-scope,
 .note-prop dt,
 .ogp-card-site,
 .tab-vault {
@@ -1162,6 +1163,22 @@ img.theme-asset-dark {
 
 .graph-canvas.dragging {
   cursor: grabbing;
+}
+
+/* The overview names what it left out: the whole-vault graph draws the link graph's connected part
+   up to a cap, and this caption carries the rest as a count. Section label (design.md variant 6),
+   parked in the corner opposite the controls. */
+.graph-scope {
+  position: absolute;
+  left: 12px;
+  bottom: 12px;
+  z-index: 1;
+  margin: 0;
+  pointer-events: none;
+}
+
+.graph-full .graph-scope {
+  bottom: calc(12px + var(--foot-dock));
 }
 
 .graph-controls {
@@ -4384,7 +4401,6 @@ textarea.modal-input:focus-visible {
 
 .wiki-preview-body .markdown-view p {
   margin: 0;
-  color: var(--muted);
 }
 
 .wiki-preview-resize {

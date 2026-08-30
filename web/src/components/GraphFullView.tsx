@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { useNavigate } from "@tanstack/react-router";
 import { useGraphQuery } from "../queries";
 import type { NoteID } from "../types";
@@ -17,6 +17,7 @@ import {
   usePreviewStackOrder,
 } from "./preview/stack";
 import { IconRotate2, RailIcon } from "./icons";
+import { overviewGraph } from "./overviewGraph";
 
 interface Point {
   x: number;
@@ -32,7 +33,13 @@ export function GraphFullView() {
   const navigate = useNavigate();
   const floating = useFloating();
   const [resetToken, setResetToken] = useState(0);
-  const graph = graphQuery.data?.graph;
+  // The whole vault is more than a picture can hold, so the view draws the link graph's connected
+  // part up to a cap and says what it left out (overviewGraph).
+  const overview = useMemo(
+    () => (graphQuery.data?.graph ? overviewGraph(graphQuery.data.graph) : null),
+    [graphQuery.data?.graph],
+  );
+  const graph = overview?.graph;
 
   // A single transient hover preview. Dragging it (sticky) keeps it until closed; pinning promotes it to
   // the floating layer, which is what holds multiple persistent windows. ponytail: this mirrors
@@ -179,6 +186,9 @@ export function GraphFullView() {
           onClose={closePreview}
           onPinToggle={promote}
         />
+      ) : null}
+      {overview && overview.hidden > 0 ? (
+        <p className="graph-scope">{overview.hidden.toLocaleString()} notes not drawn</p>
       ) : null}
       <div className="graph-controls">
         <button

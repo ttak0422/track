@@ -485,3 +485,10 @@ describe("arrival highlight", () => {
     expect(css).toMatch(/@keyframes block-flash\s*\{[\s\S]*?100%\s*\{\s*background:\s*transparent;/);
   });
 });
+
+describe("floating preview", () => {
+  it("reads previewed prose in body ink, not the chrome's muted ink", () => {
+    expect(ruleBody(".wiki-preview")).toMatch(/color:\s*var\(--text\)/);
+    expect(ruleBody(".wiki-preview-body .markdown-view p")).not.toMatch(/color:/);
+  });
+});
