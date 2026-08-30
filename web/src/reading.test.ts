@@ -86,6 +86,22 @@ describe("NEW and read state", () => {
   });
 });
 
+describe("NEW on a published site", () => {
+  afterEach(() => {
+    vi.unstubAllEnvs();
+    vi.resetModules();
+  });
+
+  // STATIC_MODE is baked in at import time, so the case imports reading.ts after setting the flag.
+  it("never marks a note NEW, however little of the site has been read", async () => {
+    vi.stubEnv("VITE_TRACK_STATIC", "1");
+    vi.resetModules();
+    const { isNew: staticIsNew } = await import("./reading");
+
+    expect(staticIsNew("100")).toBe(false);
+  });
+});
+
 describe("stale day", () => {
   it("takes the newest activity day", () => {
     expect(lastActivityDay(["2024-01-01", "2026-08-10", "2025-06-01"])).toBe("2026-08-10");
