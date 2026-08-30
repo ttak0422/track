@@ -1,6 +1,7 @@
 import { Link } from "@tanstack/react-router";
 import { useNotesQuery } from "../queries";
 import { isNew, isStaleDay, lastActivityDay } from "../reading";
+import { NoteFlagBadges } from "./noteShared";
 
 // TagView is the page a rendered #tag opens: every note carrying the tag or one of its descendants
 // (tags are hierarchical, so /tags/a lists #a/b notes too), in the shared note-list order the notes
@@ -46,6 +47,7 @@ export function TagView({ tag }: { tag: string }) {
                   {isNew(note.note_id) ? (
                     <span className="note-state-badge note-state-new">NEW</span>
                   ) : null}
+                  <NoteFlagBadges flags={note.flags} />
                   {last !== "" && isStaleDay(last) ? (
                     <span className="note-state-badge note-state-stale">古い</span>
                   ) : null}

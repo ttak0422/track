@@ -9,15 +9,38 @@ vi.mock("@tanstack/react-router", () => ({
 vi.mock("../hooks/useDebouncedValue", () => ({ useDebouncedValue: (value: string) => value }));
 const setQuery = vi.hoisted(() => vi.fn());
 vi.mock("../searchState", () => ({ useSearchState: () => ({ query: "1785024006000", setQuery }) }));
+// The panel's result rows share the aside's flag badges, which would drag the graph canvas and the
+// wiki-link preview windows (and through them d3-force and pdf.js) into this test; neither is under
+// test here.
+vi.mock("./GraphCanvasLazy", () => ({ GraphCanvas: () => null }));
+vi.mock("./preview/WikiLink", () => ({ WikiLink: () => null }));
 
-const results = [
-  { note_id: 1, file_kind: "note", path: "", title: "Titled", match: "title", tags: ["daily"] },
-  { note_id: 2, file_kind: "note", path: "", title: "Bodied", match: "body" },
-  { note_id: 3, file_kind: "note", path: "", title: "Named", match: "path" },
-];
+// A mutable holder so a test can swap in a flagged result and restore the default afterwards. The
+// defaults live here (not in a module const) because vi.mock's factory is hoisted above it.
+type MockResult = {
+  note_id: number;
+  file_kind: string;
+  path: string;
+  title: string;
+  match: string;
+  tags?: string[];
+  flags?: string[];
+};
+
+const searchState = vi.hoisted(() => ({
+  results: [
+    { note_id: 1, file_kind: "note", path: "", title: "Titled", match: "title", tags: ["daily"] },
+    { note_id: 2, file_kind: "note", path: "", title: "Bodied", match: "body" },
+    { note_id: 3, file_kind: "note", path: "", title: "Named", match: "path" },
+  ] as MockResult[],
+}));
 
 vi.mock("../queries", () => ({
-  useSearchQuery: () => ({ data: { results, unavailable: [] }, isPending: false, isError: false }),
+  useSearchQuery: () => ({
+    data: { results: searchState.results, unavailable: [] },
+    isPending: false,
+    isError: false,
+  }),
 }));
 
 describe("SearchPanel groups", () => {
@@ -64,5 +87,17 @@ describe("SearchPanel groups", () => {
 
     fireEvent.keyDown(screen.getByRole("searchbox"), { key: "Enter" });
     expect(setQuery).toHaveBeenCalledWith("");
+  });
+
+  it("badges a flagged result beside its title", () => {
+    searchState.results = [
+      { note_id: 9, file_kind: "note", path: "", title: "Flagged", match: "title", flags: ["DEPRECATED"] },
+    ];
+    const { container } = render(<SearchPanel />);
+
+    expect(screen.getByText("Flagged")).toBeTruthy();
+    const badge = container.querySelector(".note-flag-badge-deprecated");
+    expect(badge).not.toBeNull();
+    expect(badge).toHaveTextContent("DEPRECATED");
   });
 });
