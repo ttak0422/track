@@ -84,7 +84,8 @@ off, a published site) still opens the day page and its notes-and-tasks listing.
   `n` days. The sidebar activity grid uses this instead of fetching every note.
 - `GET /api/resolve?term=<title>[&vault=<name>]`: resolve a title to a note within
   one vault, matching how an unqualified `[[title]]` resolves.
-- `GET /api/note?id=<id>[&vault=<name>]`: the note's body, tags, paths, backlinks, and an `etag`
+- `GET /api/note?id=<id>[&vault=<name>]`: the note's body, tags, author-assigned `flags`
+  (the closed set `DEPRECATED`/`CONFIDENTIAL`, ADR 0074), paths, backlinks, and an `etag`
   (a content hash of the file as read). It returns two paths: `path`, the canonical
   (symlink-resolved) location, and `copy_path`, the same note in the configured,
   symlink-intact form used for the copy-path button. It also carries the note's
