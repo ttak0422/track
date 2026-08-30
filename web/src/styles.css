@@ -146,6 +146,7 @@
 .rail-panel-title,
 .results-group,
 .code-block[data-language]::before,
+.graph-scope,
 .note-prop dt,
 .ogp-card-site,
 .tab-vault {
@@ -1119,25 +1120,6 @@ img.theme-asset-dark {
   margin: 16px;
 }
 
-/* The whole-vault graph's count caption: a small muted label in the corner opposite the controls.
-   It is a caption, not a control — pointer events pass through to the canvas underneath, and nothing
-   behind a graph gets a ground of its own. */
-.graph-count {
-  position: absolute;
-  left: 12px;
-  bottom: 12px;
-  z-index: 1;
-  pointer-events: none;
-  font-size: calc(12px * var(--font-scale, 1));
-  line-height: 1;
-}
-
-/* The full-bleed graph reaches under the foot dock, so its count steps up by the dock's height like
-   the controls opposite it. */
-.graph-full .graph-count {
-  bottom: calc(12px + var(--foot-dock));
-}
-
 .graph-canvas {
   display: block;
   width: 100%;
@@ -1156,6 +1138,22 @@ img.theme-asset-dark {
 
 .graph-canvas.dragging {
   cursor: grabbing;
+}
+
+/* The overview's caption: how much of the vault the picture is showing, and what it left out.
+   Section label (design.md variant 6), parked in the corner opposite the controls. It is a caption,
+   not a control — pointer events pass through to the canvas underneath. */
+.graph-scope {
+  position: absolute;
+  left: 12px;
+  bottom: 12px;
+  z-index: 1;
+  margin: 0;
+  pointer-events: none;
+}
+
+.graph-full .graph-scope {
+  bottom: calc(12px + var(--foot-dock));
 }
 
 .graph-controls {
@@ -4311,7 +4309,6 @@ textarea.modal-input:focus-visible {
 
 .wiki-preview-body .markdown-view p {
   margin: 0;
-  color: var(--muted);
 }
 
 .wiki-preview-resize {

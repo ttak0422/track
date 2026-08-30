@@ -1,9 +1,10 @@
 import { useNavigate } from "@tanstack/react-router";
-import { PointerEvent, useRef, useState } from "react";
+import { PointerEvent, useMemo, useRef, useState } from "react";
 import { useGraphQuery } from "../queries";
 import { GraphCanvas } from "./GraphCanvasLazy";
-import { graphCountCaption, graphTooManyMessage, MAX_GRAPH_NODES } from "./graphLimit";
+import { graphCountCaption } from "./graphCaption";
 import { IconAffiliate, IconRotate2, IconX, RailIcon } from "./icons";
+import { overviewGraph } from "./overviewGraph";
 
 // The floating whole-vault graph, behind a corner launcher. It only mounts on views without a graph
 // of their own (day, tags, search, the empty state): note pages carry an always-on local graph in
@@ -40,11 +41,14 @@ export function GraphPanel() {
   const state = useGraphQuery(visible);
   const navigate = useNavigate();
 
-  const graph = state.data?.graph;
-  // The whole-vault graph cannot render a vault past the node limit — the layout converges but draws
-  // a blob — so the panel refuses and says so with the actual count.
+  // Same whole-vault graph as the Graph tab, so it takes the same bound (see overviewGraph).
+  const overview = useMemo(
+    () => (state.data?.graph ? overviewGraph(state.data.graph) : null),
+    [state.data?.graph],
+  );
+  const graph = overview?.graph;
+  // What the canvas is actually showing, which past the cap is not what the vault holds.
   const nodeCount = graph?.nodes.length ?? 0;
-  const tooMany = nodeCount > MAX_GRAPH_NODES;
 
   function onHandleDown(event: PointerEvent<HTMLButtonElement>) {
     event.preventDefault();
@@ -113,8 +117,7 @@ export function GraphPanel() {
       />
       {state.isPending ? <p className="muted graph-message">Loading graph...</p> : null}
       {state.isError ? <p className="error graph-message">{state.error.message}</p> : null}
-      {graph && tooMany ? <p className="error graph-message">{graphTooManyMessage(nodeCount)}</p> : null}
-      {graph && !tooMany ? (
+      {graph ? (
         <GraphCanvas
           graph={graph}
           resetToken={resetToken}
@@ -123,8 +126,8 @@ export function GraphPanel() {
           }
         />
       ) : null}
-      {graph && !tooMany && nodeCount > 0 ? (
-        <span className="graph-count muted">{graphCountCaption(nodeCount)}</span>
+      {overview && nodeCount > 0 ? (
+        <p className="graph-scope">{graphCountCaption(nodeCount, overview.hidden)}</p>
       ) : null}
       <div className="graph-controls">
         <button

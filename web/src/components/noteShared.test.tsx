@@ -40,6 +40,26 @@ const linkedGraph = {
   },
 };
 
+describe("NoteAside Contents outline", () => {
+  it("lists the leading h1 and links each entry to its rendered heading id", () => {
+    localGraph.mockReturnValue({ data: undefined });
+    render(
+      <NoteAside backlinks={[]} noteID="1" journalDate="" markdown={"# Title\n\n## Status"} />,
+    );
+    const contents = screen.getByRole("region", { name: "Contents" });
+    const links = within(contents).getAllByRole("link");
+    expect(links.map((l) => l.textContent)).toEqual(["Title", "Status"]);
+    expect(links[0]).toHaveAttribute("href", "#h-title");
+    expect(links[1]).toHaveAttribute("href", "#h-status");
+  });
+
+  it("omits the Contents section while a body has a single heading", () => {
+    localGraph.mockReturnValue({ data: undefined });
+    render(<NoteAside backlinks={[]} noteID="1" journalDate="" markdown={"# Only"} />);
+    expect(screen.queryByRole("region", { name: "Contents" })).toBeNull();
+  });
+});
+
 describe("NoteAside graph section", () => {
   it("shows the always-on local graph, resets its view, and navigates on node select", () => {
     localGraph.mockReturnValue({ data: linkedGraph });

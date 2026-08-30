@@ -406,7 +406,7 @@ describe("phone width", () => {
       ".notification-toast",
       // The full-bleed graph fills the reader, which the dock floats over.
       ".graph-full .graph-controls",
-      ".graph-full .graph-count",
+      ".graph-full .graph-scope",
     ]) {
       expect(ruleBody(selector)).toMatch(/bottom:\s*calc\([^)]*var\(--foot-dock\)\)/);
     }
@@ -450,5 +450,12 @@ describe("arrival highlight", () => {
     // background here is a highlight that never goes away.
     expect(ruleBody(".block-target")).not.toMatch(/background:/);
     expect(css).toMatch(/@keyframes block-flash\s*\{[\s\S]*?100%\s*\{\s*background:\s*transparent;/);
+  });
+});
+
+describe("floating preview", () => {
+  it("reads previewed prose in body ink, not the chrome's muted ink", () => {
+    expect(ruleBody(".wiki-preview")).toMatch(/color:\s*var\(--text\)/);
+    expect(ruleBody(".wiki-preview-body .markdown-view p")).not.toMatch(/color:/);
   });
 });

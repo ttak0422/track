@@ -1,9 +1,9 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { useNavigate } from "@tanstack/react-router";
 import { useGraphQuery } from "../queries";
 import type { NoteID } from "../types";
 import { GraphCanvas } from "./GraphCanvasLazy";
-import { graphCountCaption, graphTooManyMessage, MAX_GRAPH_NODES } from "./graphLimit";
+import { graphCountCaption } from "./graphCaption";
 import { type PreviewAnchor, type PreviewBounds, initialPreviewBounds } from "./preview/bounds";
 import { useFloating } from "./preview/floatingStore";
 import { NoteWindow } from "./preview/NoteWindow";
@@ -18,6 +18,7 @@ import {
   usePreviewStackOrder,
 } from "./preview/stack";
 import { IconRotate2, RailIcon } from "./icons";
+import { overviewGraph } from "./overviewGraph";
 
 interface Point {
   x: number;
@@ -33,11 +34,15 @@ export function GraphFullView() {
   const navigate = useNavigate();
   const floating = useFloating();
   const [resetToken, setResetToken] = useState(0);
-  const graph = graphQuery.data?.graph;
-  // A whole vault can outgrow the canvas (the force layout converges but draws a blob); past the
-  // limit the graph refuses to render and says so with the actual count.
+  // The whole vault is more than a picture can hold, so the view draws the link graph's connected
+  // part up to a cap and says what it left out (overviewGraph).
+  const overview = useMemo(
+    () => (graphQuery.data?.graph ? overviewGraph(graphQuery.data.graph) : null),
+    [graphQuery.data?.graph],
+  );
+  const graph = overview?.graph;
+  // What the canvas is actually showing, which past the cap is not what the vault holds.
   const nodeCount = graph?.nodes.length ?? 0;
-  const tooMany = nodeCount > MAX_GRAPH_NODES;
 
   // A single transient hover preview. Dragging it (sticky) keeps it until closed; pinning promotes it to
   // the floating layer, which is what holds multiple persistent windows. ponytail: this mirrors
@@ -158,17 +163,13 @@ export function GraphFullView() {
     <div className="graph-full" aria-label="Graph">
       {graphQuery.isPending ? <p className="muted graph-message">Loading graph...</p> : null}
       {graphQuery.isError ? <p className="error graph-message">{graphQuery.error.message}</p> : null}
-      {graph && tooMany ? <p className="error graph-message">{graphTooManyMessage(nodeCount)}</p> : null}
-      {graph && !tooMany ? (
+      {graph ? (
         <GraphCanvas
           graph={graph}
           resetToken={resetToken}
           onHover={onHover}
           onSelect={(noteID) => void navigate({ to: "/notes/$noteId", params: { noteId: String(noteID) } })}
         />
-      ) : null}
-      {graph && !tooMany && nodeCount > 0 ? (
-        <span className="graph-count muted">{graphCountCaption(nodeCount)}</span>
       ) : null}
       {preview ? (
         <NoteWindow
@@ -188,6 +189,9 @@ export function GraphFullView() {
           onClose={closePreview}
           onPinToggle={promote}
         />
+      ) : null}
+      {overview && nodeCount > 0 ? (
+        <p className="graph-scope">{graphCountCaption(nodeCount, overview.hidden)}</p>
       ) : null}
       <div className="graph-controls">
         <button

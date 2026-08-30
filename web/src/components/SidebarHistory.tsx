@@ -82,20 +82,26 @@ export function SidebarHistory() {
         <p className="history-empty">No recently opened notes</p>
       ) : (
         <ul className="history-list">
-          {recent.map((note) => (
-            <li key={note.id}>
-              <Link
-                className="backlink"
-                role="menuitem"
-                to="/notes/$noteId"
-                params={{ noteId: String(note.id) }}
-                title={note.title || note.id}
-                onClick={() => setOpen(false)}
-              >
-                {note.title || note.id}
-              </Link>
-            </li>
-          ))}
+          {recent.map((note) => {
+            // History is title-based: a note whose title has not resolved yet (a deleted note, or
+            // one hopped away from before the query returned) reads as the same "Untitled" the tab
+            // strip uses, never as a bare internal id — a timestamp or slug is not a label.
+            const label = note.title || "Untitled";
+            return (
+              <li key={note.id}>
+                <Link
+                  className="backlink"
+                  role="menuitem"
+                  to="/notes/$noteId"
+                  params={{ noteId: String(note.id) }}
+                  title={label}
+                  onClick={() => setOpen(false)}
+                >
+                  {label}
+                </Link>
+              </li>
+            );
+          })}
         </ul>
       )}
       </div>

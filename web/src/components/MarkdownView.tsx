@@ -66,11 +66,12 @@ import {
 
 interface MarkdownViewProps {
   markdown: string;
-  // The canonical note title is the document heading in full-page readers. A matching leading body
-  // h1 is blanked (not deleted, so include/task source line numbers stay stable).
+  // The canonical note title is the chrome h1 above the body in full-page readers. The body renders
+  // as-is: a note whose leading h1 repeats the title keeps both, and that body h1 is an ordinary
+  // heading (an outline entry like any other).
   title?: string;
-  // Popup chrome owns the title row, but still passes the title here so a duplicate body h1 can be
-  // blanked without rendering a second title inside the popup.
+  // Popup chrome owns the title row, so the title h1 is not rendered here; the body still renders
+  // fully, including a leading h1 that echoes the title.
   showTitle?: boolean;
   // The note's ID — when set, the title gets a copy button.
   noteId?: NoteID;
@@ -102,8 +103,7 @@ export function MarkdownView({
   includes,
   copyPath = "",
 }: MarkdownViewProps) {
-  const bodyMarkdown = useMemo(() => withoutDuplicateTitle(markdown, title), [markdown, title]);
-  const hasMath = looksLikeMath(bodyMarkdown);
+  const hasMath = looksLikeMath(markdown);
   const [math, setMath] = useState<MathPlugins | null>(() => (hasMath ? mathPluginsIfLoaded() : null));
   const markdownRef = useRef<HTMLDivElement>(null);
   const [copyRange, setCopyRange] = useState<CopyLineRange | null>(null);
@@ -169,19 +169,19 @@ export function MarkdownView({
   //
   // The ids come from the note's own source, not the spliced copy: splicing rewrites include lines
   // and the outline in the aside reads the same source, so both sides agree on which heading is which.
-  const headingIDs = useMemo(() => tocEntries(bodyMarkdown).map((entry) => entry.id), [bodyMarkdown]);
+  const headingIDs = useMemo(() => tocEntries(markdown).map((entry) => entry.id), [markdown]);
 
-  if (bodyMarkdown.trim() === "" && !title) {
+  if (markdown.trim() === "" && !title) {
     return <p className="muted">Empty note.</p>;
   }
 
   const hasIncludes = includes !== undefined && includes.length > 0;
   const source = hasIncludes
     ? spliceIncludeTokens(
-        bodyMarkdown,
+        markdown,
         includes.map((inc) => inc.line),
       )
-    : bodyMarkdown;
+    : markdown;
   const remarkPlugins = [
     remarkGfm,
     remarkBreakHTML,
@@ -217,7 +217,7 @@ export function MarkdownView({
     <NoteKindContext.Provider value={kind}>
       <NoteVaultContext.Provider value={vault}>
         <IncludesContext.Provider value={includes ?? []}>
-        <MarkdownSourceContext.Provider value={bodyMarkdown}>
+        <MarkdownSourceContext.Provider value={markdown}>
           <div ref={markdownRef} className="markdown-view">
             {title && showTitle ? (
               <h1 className="note-title">
@@ -225,7 +225,7 @@ export function MarkdownView({
                 {noteId ? <TitleCopyButton title={title} /> : null}
               </h1>
             ) : null}
-            {bodyMarkdown.trim() === "" ? <p className="muted">Empty note.</p> : null}
+            {markdown.trim() === "" ? <p className="muted">Empty note.</p> : null}
             <Markdown remarkPlugins={remarkPlugins} rehypePlugins={rehypePlugins} components={markdownComponents}>
               {source}
             </Markdown>
@@ -233,7 +233,7 @@ export function MarkdownView({
               <SelectionCopyPopover
                 path={copyPath}
                 range={copyRange}
-                markdown={bodyMarkdown}
+                markdown={markdown}
                 style={{ left: copyPopupPosition.left, top: copyPopupPosition.top }}
                 onDone={() => setCopyRange(null)}
               />
@@ -244,36 +244,6 @@ export function MarkdownView({
       </NoteVaultContext.Provider>
     </NoteKindContext.Provider>
   );
-}
-
-// withoutDuplicateTitle removes only the first visible block when it is an h1 whose rendered text
-// exactly matches the sidecar title. Replacing source lines with blanks preserves every later line
-// number, which includes and interactive task controls use to address the original note.
-export function withoutDuplicateTitle(markdown: string, title?: string): string {
-  const wanted = title?.trim();
-  if (!wanted) return markdown;
-  const lines = markdown.split("\n");
-  let first = 0;
-  while (first < lines.length && lines[first].trim() === "") first++;
-  const atx = /^#\s+(.+?)\s*#*\s*$/.exec(lines[first] ?? "");
-  if (atx && plainHeadingText(atx[1]) === wanted) {
-    lines[first] = "";
-    return lines.join("\n");
-  }
-  if (/^\s{0,3}=+\s*$/.test(lines[first + 1] ?? "") && plainHeadingText(lines[first] ?? "") === wanted) {
-    lines[first] = "";
-    lines[first + 1] = "";
-    return lines.join("\n");
-  }
-  return markdown;
-}
-
-function plainHeadingText(text: string): string {
-  return text
-    .replace(/\[\[([^|\]]+)(?:\|([^\]]+))?\]\]/g, (_, target: string, alias?: string) => alias ?? target)
-    .replace(/\[([^\]]+)\]\([^\s)]*\)/g, "$1")
-    .replace(/[*_~`]/g, "")
-    .trim();
 }
 
 // SelectionCopyPopover is the floating-layer panel anchored to a text selection. It carries the three
