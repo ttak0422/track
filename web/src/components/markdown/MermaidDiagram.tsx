@@ -77,9 +77,7 @@ export function DiagramFrame({ state, source, sourceLang, label, className }: Di
   const svg = state.status === "ready" ? state.svg : null;
   const panZoom = usePanZoom(svg, { persistenceKey: diagramStorageKey(sourceLang, source) });
   const [enlarged, setEnlarged] = useState(false);
-  const lightboxPanZoom = usePanZoom(enlarged ? svg : null, {
-    centerOverflow: true,
-  });
+  const lightboxPanZoom = usePanZoom(enlarged ? svg : null);
   const dialogRef = useRef<HTMLDialogElement>(null);
   // A stable element per svg string: pan/zoom re-renders reuse it untouched, so react-dom never
   // rewrites the innerHTML — which would both discard sizeSvgToViewBox's sizing and re-parse a large
@@ -370,13 +368,7 @@ const autoCollapseHeight = 480;
 // expanded unless the reader previously collapsed this source. `svg` is the rendered markup (null
 // until ready), used to re-fit
 // whenever the diagram changes.
-function usePanZoom(
-  svg: string | null,
-  {
-    centerOverflow = false,
-    persistenceKey,
-  }: { centerOverflow?: boolean; persistenceKey?: string } = {},
-) {
+function usePanZoom(svg: string | null, { persistenceKey }: { persistenceKey?: string } = {}) {
   const [transform, setTransform] = useState<Transform>(identityTransform);
   const [viewportHeight, setViewportHeight] = useState<number | null>(null);
   const [collapsed, setCollapsed] = useState(false);
@@ -414,10 +406,11 @@ function usePanZoom(
       return;
     }
     const ideal = idealScaleRef.current;
+    const center = frameCenter(viewport);
     const view = col
-      ? computeCollapsedFit(w, h, viewport.clientWidth, ideal)
-      : computeFit(w, h, viewport.clientWidth, ideal, { centerOverflow });
-    fitRef.current = computeFit(w, h, viewport.clientWidth, ideal, { centerOverflow }).transform;
+      ? computeCollapsedFit(w, h, viewport.clientWidth, ideal, center)
+      : computeFit(w, h, viewport.clientWidth, ideal, center);
+    fitRef.current = computeFit(w, h, viewport.clientWidth, ideal, center).transform;
     setTransform(view.transform);
     setViewportHeight(view.height);
   }
@@ -434,9 +427,7 @@ function usePanZoom(
     setViewportW(viewport.clientWidth);
     idealScaleRef.current = measureIdealScale(viewport);
     touchedRef.current = false;
-    const { height } = computeFit(naturalW, naturalH, viewport.clientWidth, idealScaleRef.current, {
-      centerOverflow,
-    });
+    const { height } = computeFit(naturalW, naturalH, viewport.clientWidth, idealScaleRef.current);
     const storedCollapsed = persistenceKey != null && readCollapsedState(persistenceKey);
     const shouldCollapse = storedCollapsed === true;
     setShowFoldControl(height > autoCollapseHeight || shouldCollapse);
@@ -476,7 +467,7 @@ function usePanZoom(
       lastW = w;
       idealScaleRef.current = measureIdealScale(el);
       const { w: nw, h: nh } = naturalRef.current;
-      fitRef.current = computeFit(nw, nh, w, idealScaleRef.current, { centerOverflow }).transform;
+      fitRef.current = computeFit(nw, nh, w, idealScaleRef.current, frameCenter(el)).transform;
       if (!touchedRef.current) {
         applyView(collapsedRef.current);
       }
@@ -515,7 +506,15 @@ function usePanZoom(
         if (scaledW <= viewW + 1) return;
         // At an end of the pan the event is left unconsumed, so a swipe past the edge falls
         // through to the browser (back/forward) and a no-op tick doesn't mark the view touched.
-        const x = clamp(transformRef.current.x - event.deltaX, viewW - scaledW, 0);
+        // The rest position is centred on the frame, which the bleeding viewport is wider than, so it
+        // can sit inside the viewport's own edges; the range has to reach it rather than snapping the
+        // diagram to the window edge on the first tick.
+        const fitX = fitRef.current.x;
+        const x = clamp(
+          transformRef.current.x - event.deltaX,
+          Math.min(viewW - scaledW, fitX),
+          Math.max(0, fitX),
+        );
         if (x === transformRef.current.x) return;
         event.preventDefault();
         touchedRef.current = true;
@@ -637,30 +636,46 @@ export function computeCollapsedFit(
   naturalH: number,
   viewW: number,
   idealScale = 1,
+  centerX = viewW / 2,
 ): { transform: Transform; height: number } {
-  const fit = computeFit(naturalW, naturalH, viewW, idealScale);
+  const fit = computeFit(naturalW, naturalH, viewW, idealScale, centerX);
   return { transform: fit.transform, height: Math.min(fit.height, collapsedHeight) };
 }
 
 // computeFit shows a naturalW×naturalH diagram at idealScale (diagram text matches the article's
 // font size), shrinking only if that overflows fitWidthRatio of viewW — but never below the
 // readability floor: a wider diagram keeps legible text and is clipped at the viewport edge
-// instead. Centers a fitting diagram, left-aligns a clipped one (reading order shows the start),
-// and returns the viewport height that hugs the scaled diagram.
+// instead. The diagram is centred on centerX — the frame's midpoint, see frameCenter — whether it
+// fits or overflows, and the returned height hugs the scaled diagram.
 export function computeFit(
   naturalW: number,
   naturalH: number,
   viewW: number,
   idealScale = 1,
-  { centerOverflow = false }: { centerOverflow?: boolean } = {},
+  centerX = viewW / 2,
 ): { transform: Transform; height: number } {
   const scale = clamp(
     Math.min((viewW * fitWidthRatio) / naturalW, idealScale),
     minReadableRatio * idealScale,
     8,
   );
-  const x = centerOverflow ? (viewW - naturalW * scale) / 2 : Math.max((viewW - naturalW * scale) / 2, 0);
-  return { transform: { scale, x, y: 0 }, height: naturalH * scale };
+  return {
+    transform: { scale, x: centerX - (naturalW * scale) / 2, y: 0 },
+    height: naturalH * scale,
+  };
+}
+
+// frameCenter is the x the diagram is centred on, in the viewport's own coordinates. Only the
+// drawing viewport bleeds to the window; the frame around it — the control bar the reader sees above
+// the diagram — stays at the reading column, so a diagram centred on the viewport hangs off the bar
+// it belongs to. Measured rather than derived from the bleed CSS: the lightbox reuses the same
+// viewport with no bleed at all, and there the frame is the viewport.
+function frameCenter(viewport: HTMLElement): number {
+  const frameRect = viewport.parentElement?.getBoundingClientRect();
+  // Unmeasurable (no layout engine): the viewport's own midpoint, which is the frame's whenever the
+  // viewport is not bleeding.
+  if (!frameRect || frameRect.width === 0) return viewport.clientWidth / 2;
+  return frameRect.left - viewport.getBoundingClientRect().left + frameRect.width / 2;
 }
 
 // sizeSvgToViewBox pins the rendered SVG to its natural (viewBox) pixel size. Mermaid emits
