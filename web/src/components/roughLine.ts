@@ -1,30 +1,39 @@
 // Rough source-line read-out for the reading surface. rehypeCopyLine stamps every rendered block
-// with its span in the note's own source (data-copy-line-start/-end), so while a reader scrolls,
-// the block at the top of the viewport says roughly where in the file they are. The number is a
-// guide, not a coordinate: it rounds down to whole hundred-line bands ("~400") and stays quiet over
-// the first band, where "around line 0" would say nothing the scrollbar doesn't.
+// with its span in the note's own source (data-copy-line-start/-end), and the gutter names each
+// hundred-line band ("~400") beside the passage where it begins — so the numbers travel with the
+// prose as it scrolls, the way a printed page's marginal numbers do. They are a guide, not a
+// coordinate, and stay quiet over the first band, where "around line 0" would say nothing the
+// scrollbar doesn't.
 
 export const ROUGH_LINE_UNIT = 100;
 
 // One stamped block's position: its first source line, and its top edge in whatever coordinate
-// space the caller measured both sides in (client rects, say). In document order.
+// space the caller measured it in — the gutter's own top, in the reading surface. In document order.
 export interface LineHintSpan {
   start: number;
   top: number;
 }
 
-// lineAtViewportTop returns the first source line of the block sitting at the viewport's top edge:
-// the last stamped block whose top has reached or passed that edge. A gap between blocks (a rule,
-// leading) reads as the block above it, so whitespace never blanks the marker; scrolled above all
-// content falls back to the first block, so an anchored jump into padding still reports honestly.
-export function lineAtViewportTop(spans: readonly LineHintSpan[], viewportTop: number): number | null {
-  let current: number | null = null;
+// One number in the gutter: where to draw it, and what it says.
+export interface LineHintMark {
+  top: number;
+  label: string;
+}
+
+// bandMarks keeps the blocks that open a band the gutter has not named yet, so each number appears
+// once, level with the passage it starts at. A note whose blocks run backwards (an included excerpt
+// from elsewhere) names the band again when it comes back around — the number describes the block
+// beside it, not a monotonic ruler.
+export function bandMarks(spans: readonly LineHintSpan[], unit: number = ROUGH_LINE_UNIT): LineHintMark[] {
+  const marks: LineHintMark[] = [];
+  let last: string | null = null;
   for (const span of spans) {
-    if (span.top > viewportTop) break;
-    current = span.start;
+    const label = roughLineLabel(span.start, unit);
+    if (label === null || label === last) continue;
+    last = label;
+    marks.push({ top: span.top, label });
   }
-  if (current === null && spans.length > 0) return spans[0].start;
-  return current;
+  return marks;
 }
 
 // roughLineLabel rounds a source line down to its hundred-line band and formats it ("~400"). It
