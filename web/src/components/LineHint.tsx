@@ -1,78 +1,87 @@
 import { useEffect, useRef, useState } from "react";
-import { lineAtViewportTop, roughLineLabel, type LineHintSpan } from "./roughLine";
+import { bandMarks, type LineHintMark, type LineHintSpan } from "./roughLine";
 
-// LineHint is the reading surface's rough line marker: a small faint "~400" in the gutter left of
-// the prose column, following the scroll to say which hundred-line band of the source file is at
-// the top of the viewport. Reading mode only — the callers mount it inside .note-preview and never
-// alongside a textarea.
+// LineHint is the reading surface's rough line marker: small faint numbers in the gutter left of the
+// prose column, one per hundred-line band of the source file, each level with the passage that band
+// begins at. They sit in the flow of the note rather than at a fixed height, so they travel with the
+// prose as the reader scrolls — the marginal numbering of a printed page, not a read-out of where
+// the viewport happens to be. Reading mode only — the callers mount it inside .note-preview and
+// never alongside a textarea.
 //
-// It mounts as the first child of .note-preview and works from there: the stamped blocks are its
-// siblings (rehypeCopyLine's data-copy-line-start), and the scroller is whichever ancestor actually
-// scrolls (.reader in reading mode; a home note may scroll its preview internally instead). One
-// rAF-throttled measurement per scroll frame; the label state only moves when the band changes.
+// It mounts as the first child of .note-preview and measures from there: the stamped blocks are its
+// siblings (rehypeCopyLine's data-copy-line-start), and each mark is placed at its block's offset
+// from this element's own top. Nothing here listens to scrolling; the marks move because the note
+// they are pinned to moves.
 export function LineHint() {
   const ref = useRef<HTMLDivElement>(null);
-  const [label, setLabel] = useState<string | null>(null);
+  const [marks, setMarks] = useState<LineHintMark[]>([]);
 
   useEffect(() => {
-    const host = ref.current?.parentElement;
-    if (!host) return;
-    const scroller = scrollParent(host);
-    if (!scroller) return;
+    const el = ref.current;
+    const host = el?.parentElement;
+    if (!el || !host) return;
 
     let scheduled = false;
     let frameId = 0;
-    const update = () => {
+    const measure = () => {
       scheduled = false;
       frameId = 0;
+      // Both edges come from the same coordinate space, so the difference is the block's offset from
+      // the gutter's top however far the surface has been scrolled.
+      const base = el.getBoundingClientRect().top;
       // querySelectorAll walks document order, so spans arrive sorted by position.
       const spans: LineHintSpan[] = [];
-      for (const el of host.querySelectorAll<HTMLElement>("[data-copy-line-start]")) {
-        const start = Number(el.dataset.copyLineStart);
+      for (const block of host.querySelectorAll<HTMLElement>("[data-copy-line-start]")) {
+        const start = Number(block.dataset.copyLineStart);
         if (!Number.isInteger(start)) continue;
-        spans.push({ start, top: el.getBoundingClientRect().top });
+        spans.push({ start, top: block.getBoundingClientRect().top - base });
       }
-      const viewportTop = scroller.getBoundingClientRect().top;
-      const next = roughLineLabel(lineAtViewportTop(spans, viewportTop));
-      setLabel((prev) => (prev === next ? prev : next));
+      const next = bandMarks(spans);
+      setMarks((prev) => (sameMarks(prev, next) ? prev : next));
     };
     const schedule = () => {
       if (scheduled) return;
       scheduled = true;
-      frameId = window.requestAnimationFrame(update);
+      frameId = window.requestAnimationFrame(measure);
     };
 
     schedule();
-    scroller.addEventListener("scroll", schedule, { passive: true });
     window.addEventListener("resize", schedule);
     // The body can swap in after mount (the render query resolves) with no scroll having happened;
     // watch the host rather than guessing at effects upstream.
     const observer = new MutationObserver(schedule);
     observer.observe(host, { childList: true, subtree: true });
+    // A block that grows after layout — an image that loads, a diagram that settles — moves every
+    // mark below it. ResizeObserver on the host catches the height change a mutation does not.
+    const resize =
+      typeof ResizeObserver === "undefined" ? null : new ResizeObserver(schedule);
+    resize?.observe(host);
     return () => {
       if (scheduled) window.cancelAnimationFrame(frameId);
-      scroller.removeEventListener("scroll", schedule);
       window.removeEventListener("resize", schedule);
       observer.disconnect();
+      resize?.disconnect();
     };
   }, []);
 
   return (
     <div ref={ref} className="line-hint" aria-hidden="true">
-      {label ? <span className="line-hint-mark">{label}</span> : null}
+      {marks.map((mark) => (
+        <span key={`${mark.label}@${mark.top}`} className="line-hint-mark" style={{ top: mark.top }}>
+          {mark.label}
+        </span>
+      ))}
     </div>
   );
 }
 
-// scrollParent returns the nearest ancestor with a vertical scrolling box, or null when the marker
-// has nothing to follow. Generic on purpose: the scrolling element differs between surfaces (the
-// full-page reader vs an internally scrolling preview), and hardcoding one class would go stale.
-function scrollParent(el: HTMLElement): HTMLElement | null {
-  let node: HTMLElement | null = el.parentElement;
-  while (node) {
-    const overflowY = window.getComputedStyle(node).overflowY;
-    if (overflowY === "auto" || overflowY === "scroll") return node;
-    node = node.parentElement;
-  }
-  return null;
+// Measuring runs on every mutation of a long note; re-rendering only when a number or its place
+// actually moved keeps that cheap. Sub-pixel drift is not a move.
+function sameMarks(prev: readonly LineHintMark[], next: readonly LineHintMark[]): boolean {
+  return (
+    prev.length === next.length &&
+    prev.every(
+      (mark, i) => mark.label === next[i].label && Math.abs(mark.top - next[i].top) < 0.5,
+    )
+  );
 }

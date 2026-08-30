@@ -2458,21 +2458,20 @@ textarea.modal-input:focus-visible {
   display: none;
 }
 
-/* Rough source-line marker, reading mode only: a zero-height sticky strip at the head of the
-   preview whose label hangs into the gutter left of the prose column and reports, in hundred-line
-   bands (~400), where the top of the reading surface sits in the note's source. Section-label
-   typography (variant 6) carries it; it is inert — it points, nothing points at it — so it takes no
-   hover, no fill, and never intercepts a click meant for content beneath. */
+/* Rough source-line marks, reading mode only: hundred-line bands (~400) hanging in the gutter left
+   of the prose column, each level with the passage its band begins at, the way a printed page
+   numbers its margin. Section-label typography (variant 6) carries them; they are inert — they
+   point, nothing points at them — so they take no hover, no fill, and never intercept a click meant
+   for content beneath. The strip itself is a zero-height origin at the head of the note: positioned
+   rather than sticky, so the numbers travel with the prose instead of reading out the viewport. */
 .line-hint {
-  position: sticky;
-  top: 32px;
+  position: relative;
   height: 0;
   pointer-events: none;
 }
 
 .line-hint-mark {
   position: absolute;
-  top: 0;
   /* Into the margin left of the column: the dock lane and centring whitespace are already there,
      and whatever they cannot hold the reader's overflow-x clip quietly swallows. */
   right: calc(100% + 8px);

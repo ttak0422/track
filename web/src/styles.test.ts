@@ -478,6 +478,17 @@ describe("pointers that cannot hover", () => {
   });
 });
 
+describe("rough line marks", () => {
+  it("scrolls with the prose instead of holding a fixed height", () => {
+    // Sticky is what pinned the old single read-out to the top of the viewport; the marks belong to
+    // the passages beside them now, and the strip is only their origin.
+    expect(ruleBody(".line-hint")).toMatch(/position:\s*relative/);
+    expect(ruleBody(".line-hint")).not.toMatch(/position:\s*sticky/);
+    // Each mark is placed by the component (style.top); a rule that fixed it here would stack them.
+    expect(ruleBody(".line-hint-mark")).not.toMatch(/top:/);
+  });
+});
+
 describe("arrival highlight", () => {
   it("fades out instead of tinting the block for as long as the note stays open", () => {
     // The class outlives the animation (it is removed only when the hash changes), so a resting
