@@ -55,6 +55,43 @@ export function NoteBreadcrumbs({ trail }: { trail: NoteRef[] }) {
   );
 }
 
+// NoteStamps overlays a note's article with its author-assigned flags (ADR 0074): the classic red
+// English-text stamp, uppercase and slightly rotated, transparent enough to keep reading and
+// pointer-transparent so it never blocks selection or editing. Each flag stacks down the article's
+// right edge (the per-stamp top offset comes from here, not CSS, so the stack scales with the flag
+// list rather than a sibling rule). Callers anchor it inside the positioned article.
+export function NoteStamps({ flags }: { flags?: string[] }) {
+  if (!flags || flags.length === 0) return null;
+  return (
+    <div className="note-stamps" aria-hidden="true">
+      {flags.map((flag, index) => (
+        <span
+          key={flag}
+          className={`stamp stamp-${flag.toLowerCase()}`}
+          style={{ top: `${24 + index * 76}px` }}
+        >
+          {flag}
+        </span>
+      ))}
+    </div>
+  );
+}
+
+// NoteFlagBadges renders a note's author-assigned flags as small label chips in list rows — the same
+// inline treatment as the NEW/stale state badges, in the flags' danger red.
+export function NoteFlagBadges({ flags }: { flags?: string[] }) {
+  if (!flags || flags.length === 0) return null;
+  return (
+    <>
+      {flags.map((flag) => (
+        <span key={flag} className={`note-flag-badge note-flag-badge-${flag.toLowerCase()}`}>
+          {flag}
+        </span>
+      ))}
+    </>
+  );
+}
+
 // useScrollToHash scrolls the note view to the element the URL hash names — a block anchor,
 // id="block-<id>" (see remarkBlockID) — once the rendered body is in the DOM, and marks it with
 // .block-target for the arrival highlight. The reader drives this itself because SPA navigation
@@ -197,6 +234,7 @@ export function NoteAside({
                 {isNew(backlink.note_id) ? (
                   <span className="note-state-badge note-state-new">NEW</span>
                 ) : null}
+                <NoteFlagBadges flags={backlink.flags} />
               </Link>
             ))}
           </div>
@@ -252,6 +290,7 @@ export function NoteAside({
                       {isNew(item.note_id) ? (
                         <span className="note-state-badge note-state-new">NEW</span>
                       ) : null}
+                      <NoteFlagBadges flags={item.flags} />
                     </Link>
                   ))}
                 </div>

@@ -139,6 +139,40 @@ describe("note state badges", () => {
   });
 });
 
+describe("note flags", () => {
+  it("badges flagged notes in the danger red, as the same label-typography chip as the state badges", () => {
+    const badge = ruleBody(".note-flag-badge");
+
+    expect(badge).toMatch(/font-family:\s*var\(--font-mono\)/);
+    expect(badge).toMatch(/border-radius:\s*var\(--radius-sm\)/);
+    expect(ruleBody(".note-flag-badge-deprecated,\n.note-flag-badge-confidential")).toMatch(
+      /color:\s*var\(--danger\)/,
+    );
+  });
+
+  it("stamps a flagged note in danger, uppercase and rotated, over the article but under the floating layers", () => {
+    const stamp = ruleBody(".stamp");
+
+    expect(stamp).toMatch(/position:\s*absolute/);
+    expect(stamp).toMatch(/color:\s*var\(--danger\)/);
+    expect(stamp).toMatch(/text-transform:\s*uppercase/);
+    expect(stamp).toMatch(/transform:\s*rotate\(-8deg\)/);
+    expect(stamp).toMatch(/opacity:\s*0\.85/);
+    expect(stamp).toMatch(/pointer-events:\s*none/);
+  });
+
+  it("anchors the stamps to the note article and keeps their layer below every floating one", () => {
+    const previewBaseZ = Number(previewStack.match(/previewBaseZIndex\s*=\s*(\d+)/)?.[1]);
+    const stampsZ = zIndex(".note-stamps")!;
+
+    expect(ruleBody(".note-reader")).toMatch(/position:\s*relative/);
+    expect(ruleBody(".note-editor")).toMatch(/position:\s*relative/);
+    expect(ruleBody(".note-stamps")).toMatch(/pointer-events:\s*none/);
+    expect(stampsZ).toBeLessThan(previewBaseZ);
+    expect(stampsZ).toBeLessThan(zIndex(".selection-copy")!);
+  });
+});
+
 describe("notification toast", () => {
   it("gives up its shadow for the countdown bar, which drains in the accent", () => {
     const toast = ruleBody(".notification-toast");

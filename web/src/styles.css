@@ -737,6 +737,31 @@ img.theme-asset-dark {
   background: var(--panel-soft);
 }
 
+/* A note's author-assigned flags (ADR 0074) in a list row. The same label-typography chip as the
+   NEW/stale state badges, but the flags are the author's own markers — permanent, and red. */
+.note-flag-badge {
+  display: inline-block;
+  flex: none;
+  margin-left: 8px;
+  border-radius: var(--radius-sm);
+  padding: 1px 6px;
+  font-family: var(--font-mono);
+  font-size: calc(10px * var(--font-scale, 1));
+  font-weight: 500;
+  letter-spacing: 0.08em;
+  line-height: 1.5;
+  vertical-align: 0.15em;
+  white-space: nowrap;
+}
+
+/* Both v1 flags take the danger red (ADR 0074: each a red stamp and list badge). A new flag extends
+   this pair with its own rule — the explicit per-flag registry, not a color table. */
+.note-flag-badge-deprecated,
+.note-flag-badge-confidential {
+  color: var(--danger);
+  background: color-mix(in srgb, var(--danger) 12%, transparent);
+}
+
 .result-snippet {
   grid-column: 1 / -1;
   margin: 0;
@@ -1384,6 +1409,8 @@ a.calendar-title:focus-visible {
 
 .note-reader {
   display: flex;
+  /* Anchor the flag stamps (ADR 0074) to the article: .note-stamps is inset to this box. */
+  position: relative;
   /* The reader's column: what visualizations, tables and code fill. Prose uses the readable default
      (--measure), unless the Content width setting overrides it through --content-measure. */
   width: 100%;
@@ -1424,6 +1451,44 @@ a.calendar-title:focus-visible {
    narrower viewports it simply uses the available width. */
 .note-reader-split {
   max-width: 1920px;
+}
+
+/* A note's author-assigned flags (ADR 0074) overlaid on the article: the classic red English-text
+   stamp, uppercase and slightly rotated, transparent enough to keep reading and pointer-transparent
+   so it never blocks selection or editing. The overlay spans the article (.note-reader/.note-editor
+   anchor it) and each flag stacks down its right edge; its z-index sits above the content inside,
+   below every floating layer (preview windows, search, modals). */
+.note-stamps {
+  position: absolute;
+  inset: 0;
+  z-index: 3;
+  pointer-events: none;
+}
+
+.stamp {
+  position: absolute;
+  right: 24px;
+  padding: 3px 12px;
+  border: 2px solid color-mix(in srgb, var(--danger) 70%, transparent);
+  border-radius: 4px;
+  background: color-mix(in srgb, var(--danger) 10%, transparent);
+  color: var(--danger);
+  font-family: var(--font-mono);
+  font-size: calc(22px * var(--font-scale, 1));
+  font-weight: 700;
+  letter-spacing: 0.12em;
+  line-height: 1.3;
+  text-transform: uppercase;
+  opacity: 0.85;
+  transform: rotate(-8deg);
+  pointer-events: none;
+}
+
+/* Both v1 stamps share the red treatment (ADR 0074). A new flag adds its own rule here — the
+   explicit per-flag registry, not a color table. */
+.stamp-deprecated,
+.stamp-confidential {
+  /* shared red-stamp look, see .stamp */
 }
 
 /* Tab strip: the open notes as a line of titles above the reader — no boxes, no per-tab fills. A tab
@@ -2152,6 +2217,31 @@ textarea.modal-input:focus-visible {
   opacity: 0.6;
 }
 
+/* A note's flag checkboxes in the meta dialog (ADR 0074): one toggle per closed-set flag, laid in a
+   row under the field label. The native checkbox keeps the toggle affordance; the name is the flag's
+   own danger-red mono text, the same face the badge and stamp use. */
+.flag-toggles {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 14px;
+}
+
+.flag-toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  font-family: var(--font-mono);
+  font-size: calc(12px * var(--font-scale, 1));
+  letter-spacing: 0.08em;
+  color: var(--danger);
+  cursor: pointer;
+}
+
+.flag-toggle:has(input:disabled) {
+  cursor: default;
+  opacity: 0.6;
+}
+
 .modal-actions {
   display: flex;
   justify-content: flex-end;
@@ -2286,6 +2376,8 @@ textarea.modal-input:focus-visible {
 
 .note-editor {
   display: flex;
+  /* Anchor the flag stamps (ADR 0074) to the editing surface: .note-stamps is inset to this box. */
+  position: relative;
   min-height: 360px;
   flex: 1;
   flex-direction: column;

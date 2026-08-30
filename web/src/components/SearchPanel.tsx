@@ -7,6 +7,7 @@ import { useSearchState } from "../searchState";
 import { highlightSearchText } from "../searchHighlight";
 import { isNew } from "../reading";
 import type { SearchResult } from "../types";
+import { NoteFlagBadges } from "./noteShared";
 
 interface SearchPanelProps {
   // Called when a result is chosen (click or Enter), so a host like the sidebar popup can close itself.
@@ -195,6 +196,7 @@ function SearchResultItem({ note, index, active, query, onNavigate, onFilterTag 
           {isNew(note.note_id) ? (
             <span className="note-state-badge note-state-new">NEW</span>
           ) : null}
+          <NoteFlagBadges flags={note.flags} />
         </span>
         {note.snippet ? (
           <p className="result-snippet">

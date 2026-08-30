@@ -1,10 +1,12 @@
 import { fireEvent, render, screen, within } from "@testing-library/react";
 import type { ReactNode } from "react";
-import { describe, expect, it, vi } from "vitest";
-import { NoteAside, NoteProperties } from "./noteShared";
+import { beforeEach, describe, expect, it, vi } from "vitest";
+import { NoteAside, NoteFlagBadges, NoteProperties, NoteStamps } from "./noteShared";
 
 const navigate = vi.hoisted(() => vi.fn());
 const localGraph = vi.hoisted(() => vi.fn());
+// A default empty agenda is set in beforeEach; tests for a journal's On-this-day list override it.
+const agenda = vi.hoisted(() => vi.fn());
 
 vi.mock("@tanstack/react-router", () => ({
   useNavigate: () => navigate,
@@ -13,7 +15,7 @@ vi.mock("@tanstack/react-router", () => ({
 }));
 
 vi.mock("../queries", () => ({
-  useAgendaQuery: () => ({ isPending: false, data: { notes: [] } }),
+  useAgendaQuery: (date: unknown, vault: unknown) => agenda(date, vault),
   useLocalGraphQuery: (noteID: unknown) => localGraph(noteID),
 }));
 
@@ -39,6 +41,14 @@ const linkedGraph = {
     edges: [{ source_id: "1", target_id: "2" }],
   },
 };
+
+beforeEach(() => {
+  // Every list test starts from an empty agenda and no graph; a test overrides either for its own
+  // note.
+  agenda.mockReturnValue({ isPending: false, data: { notes: [] } });
+  localGraph.mockReset();
+  localGraph.mockReturnValue({ data: undefined });
+});
 
 describe("NoteAside graph section", () => {
   it("shows the always-on local graph, resets its view, and navigates on node select", () => {
@@ -164,5 +174,64 @@ describe("NoteProperties dates", () => {
     render(<NoteProperties props={[]} />);
     expect(screen.queryByRole("list")).toBeNull();
     expect(screen.queryAllByRole("term")).toEqual([]);
+  });
+});
+
+describe("note flags", () => {
+  it("stamps each flag over the article and stacks two flags vertically", () => {
+    const { container } = render(<NoteStamps flags={["DEPRECATED", "CONFIDENTIAL"]} />);
+
+    const stamps = container.querySelectorAll(".stamp");
+    expect(stamps).toHaveLength(2);
+    expect(stamps[0]).toHaveClass("stamp-deprecated");
+    expect(stamps[0]).toHaveTextContent("DEPRECATED");
+    expect(stamps[1]).toHaveClass("stamp-confidential");
+    expect(stamps[1]).toHaveTextContent("CONFIDENTIAL");
+    // Each stamp carries its own top, so the second lands below the first.
+    const tops = [...stamps].map((stamp) =>
+      Number((stamp as HTMLElement).style.top.replace("px", "")),
+    );
+    expect(tops[1]).toBeGreaterThan(tops[0]);
+  });
+
+  it("stamps nothing when the note carries no flags", () => {
+    const { container } = render(<NoteStamps flags={undefined} />);
+    expect(container.querySelector(".note-stamps")).toBeNull();
+  });
+
+  it("badges a flagged note beside its title", () => {
+    const { container } = render(<NoteFlagBadges flags={["CONFIDENTIAL", "DEPRECATED"]} />);
+
+    const badges = container.querySelectorAll(".note-flag-badge");
+    expect(badges).toHaveLength(2);
+    expect(badges[0]).toHaveClass("note-flag-badge-confidential");
+    expect(badges[0]).toHaveTextContent("CONFIDENTIAL");
+    expect(badges[1]).toHaveClass("note-flag-badge-deprecated");
+  });
+
+  it("badges a flagged backlink in the aside list", () => {
+    render(
+      <NoteAside
+        backlinks={[{ note_id: "2", file_kind: "note", title: "Flagged", flags: ["DEPRECATED"] }]}
+        noteID="1"
+        journalDate=""
+      />,
+    );
+
+    const badge = screen.getByText("DEPRECATED");
+    expect(badge).toHaveClass("note-flag-badge-deprecated");
+  });
+
+  it("badges a flagged note in the On-this-day list", () => {
+    agenda.mockReturnValue({
+      isPending: false,
+      data: {
+        notes: [{ note_id: "3", file_kind: "note", title: "That day", flags: ["CONFIDENTIAL"] }],
+      },
+    });
+    render(<NoteAside backlinks={[]} noteID="1" journalDate="2026-07-12" />);
+
+    expect(screen.getByText("That day")).toBeTruthy();
+    expect(screen.getByText("CONFIDENTIAL")).toHaveClass("note-flag-badge-confidential");
   });
 });
