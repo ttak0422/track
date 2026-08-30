@@ -47,7 +47,7 @@ func TestMetaDocRoundTrip(t *testing.T) {
 	if err != nil {
 		t.Fatalf("render doc: %v", err)
 	}
-	for _, key := range []string{"title: Alpha", "tags:", "description:", "image:", "icon:", "props:"} {
+	for _, key := range []string{"title: Alpha", "tags:", "description:", "image:", "icon:", "props:", "flags:"} {
 		if !strings.Contains(doc, key) {
 			t.Fatalf("doc missing %q:\n%s", key, doc)
 		}
@@ -164,7 +164,7 @@ func TestApplyMetaDocRejectsInvalid(t *testing.T) {
 	if err != nil {
 		t.Fatalf("apply empty doc: %v", err)
 	}
-	if got.Tags != nil || got.Props != nil || got.Description != "" || got.Image != "" || got.Icon != "" {
+	if got.Tags != nil || got.Props != nil || got.Description != "" || got.Image != "" || got.Icon != "" || got.Flags != nil {
 		t.Fatalf("empty doc should clear editable fields: %#v", got)
 	}
 }
