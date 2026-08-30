@@ -48,6 +48,22 @@ describe("TabsProvider", () => {
       ),
     });
     expect(result.current.tabs).toEqual([{ id: "a1", title: "Alpha" }]);
+    // The same title reaches the recents the note was just recorded in, so History labels it too.
+    expect(result.current.recent).toEqual([{ id: "a1", title: "Alpha" }]);
+  });
+
+  it("labels a recent note when its title resolves after it was recorded", () => {
+    // A cold visit is recorded the moment the route lands on it, before the note's query resolves.
+    routerMock.pathname = "/notes/a1";
+    const { result, rerender } = renderHook(() => useTabs(), { wrapper });
+    expect(result.current.recent).toEqual([{ id: "a1", title: "" }]);
+
+    // The query resolves and the reader reports the title; History's entry is labeled and persisted.
+    act(() => result.current.setTitle("a1", "Alpha"));
+    expect(result.current.recent).toEqual([{ id: "a1", title: "Alpha" }]);
+    rerender();
+    const stored = JSON.parse(window.localStorage.getItem("track.recent")!) as { title: string }[];
+    expect(stored).toEqual([{ id: "a1", title: "Alpha" }]);
   });
 
   it("opens a tab when navigating to a note, most recent first, and dedupes repeats", () => {
