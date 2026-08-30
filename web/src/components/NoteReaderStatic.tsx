@@ -6,6 +6,7 @@ import {
   NoteAside,
   NoteBreadcrumbs,
   NoteProperties,
+  NoteStamps,
   journalDateFromNote,
   useScrollToHash,
 } from "./noteShared";
@@ -51,6 +52,8 @@ export function NoteReaderStatic({ noteID }: { noteID: NoteID }) {
 
   return (
     <article className="note-reader">
+      {/* Author-assigned flags (ADR 0074) stamp the note itself, not its chrome. */}
+      <NoteStamps flags={data.note.flags} />
       <div className="note-layout">
         <div className="note-main">
           <NoteBreadcrumbs trail={data.trail ?? []} />

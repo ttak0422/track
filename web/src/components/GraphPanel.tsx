@@ -2,6 +2,7 @@ import { useNavigate } from "@tanstack/react-router";
 import { PointerEvent, useMemo, useRef, useState } from "react";
 import { useGraphQuery } from "../queries";
 import { GraphCanvas } from "./GraphCanvasLazy";
+import { graphCountCaption } from "./graphCaption";
 import { IconAffiliate, IconRotate2, IconX, RailIcon } from "./icons";
 import { overviewGraph } from "./overviewGraph";
 
@@ -46,6 +47,8 @@ export function GraphPanel() {
     [state.data?.graph],
   );
   const graph = overview?.graph;
+  // What the canvas is actually showing, which past the cap is not what the vault holds.
+  const nodeCount = graph?.nodes.length ?? 0;
 
   function onHandleDown(event: PointerEvent<HTMLButtonElement>) {
     event.preventDefault();
@@ -123,8 +126,8 @@ export function GraphPanel() {
           }
         />
       ) : null}
-      {overview && overview.hidden > 0 ? (
-        <p className="graph-scope">{overview.hidden.toLocaleString()} notes not drawn</p>
+      {overview && nodeCount > 0 ? (
+        <p className="graph-scope">{graphCountCaption(nodeCount, overview.hidden)}</p>
       ) : null}
       <div className="graph-controls">
         <button

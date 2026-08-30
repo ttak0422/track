@@ -344,6 +344,25 @@ func TestStampUnix(t *testing.T) {
 	}
 }
 
+func TestWriteReadMetadataFlagsBumpsVersion(t *testing.T) {
+	path := filepath.Join(t.TempDir(), ".track", "notes", "1002.yaml")
+	in := Metadata{Title: "Alpha", Flags: []string{"CONFIDENTIAL", "DEPRECATED"}}
+	if err := WriteMetadata(path, in); err != nil {
+		t.Fatalf("write metadata: %v", err)
+	}
+	got, found, err := ReadMetadata(path)
+	if err != nil || !found {
+		t.Fatalf("read metadata: found=%v err=%v", found, err)
+	}
+	if got.Version < MetadataVersionV10 {
+		t.Fatalf("a flags sidecar is at least v%d, got %d", MetadataVersionV10, got.Version)
+	}
+	in.Version = MetadataVersionV10
+	if !reflect.DeepEqual(got, in) {
+		t.Fatalf("flags metadata mismatch:\n got %+v\nwant %+v", got, in)
+	}
+}
+
 func TestWriteMetadataReadStateBumpsVersion(t *testing.T) {
 	path := filepath.Join(t.TempDir(), ".track", "notes", "1001.yaml")
 	in := Metadata{Title: "Alpha", SeenAt: "2026-08-22T09:30:00+09:00"}

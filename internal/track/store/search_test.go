@@ -402,6 +402,122 @@ func TestSearchHashPrefixCombinesMultipleTagsAndTitleText(t *testing.T) {
 	}
 }
 
+func TestSearchTitleDemotesDeprecatedFlags(t *testing.T) {
+	s := newTestStore(t)
+	// Three notes with the same title, mtime, and exact-match rank: the plain ordering would put
+	// the highest id first. The DEPRECATED note must drop below both, while CONFIDENTIAL (display-
+	// only in this pass) keeps the plain id ordering.
+	for _, n := range []*note.Note{
+		{ID: 100, Mtime: 100, Meta: note.Metadata{Title: "Shared Title"}},
+		{ID: 200, Mtime: 100, Meta: note.Metadata{Title: "Shared Title", Flags: []string{"DEPRECATED"}}},
+		{ID: 300, Mtime: 100, Meta: note.Metadata{Title: "Shared Title", Flags: []string{"CONFIDENTIAL"}}},
+	} {
+		if err := s.UpsertNote(n); err != nil {
+			t.Fatalf("upsert %d: %v", n.ID, err)
+		}
+	}
+
+	results, err := s.SearchScoped("Shared Title", 10, SearchTitle)
+	if err != nil {
+		t.Fatalf("search: %v", err)
+	}
+	if len(results) != 3 {
+		t.Fatalf("expected 3 results, got %+v", results)
+	}
+	gotIDs := []int64{results[0].NoteID, results[1].NoteID, results[2].NoteID}
+	wantIDs := []int64{300, 100, 200}
+	for i := range wantIDs {
+		if gotIDs[i] != wantIDs[i] {
+			t.Fatalf("result order = %v, want %v (DEPRECATED below its plain equivalent)", gotIDs, wantIDs)
+		}
+	}
+}
+
+func TestSearchTaggedDemotesDeprecatedFlags(t *testing.T) {
+	s := newTestStore(t)
+	// The same equivalent-note shape through the tagged-query path: the DEPRECATED note would win
+	// the id tiebreak without the penalty and must instead sort last.
+	for _, n := range []*note.Note{
+		{ID: 100, Mtime: 100, Meta: note.Metadata{Title: "Shared Title", Tags: []string{"graph"}}},
+		{ID: 200, Mtime: 100, Meta: note.Metadata{Title: "Shared Title", Tags: []string{"graph"}, Flags: []string{"DEPRECATED"}}},
+	} {
+		if err := s.UpsertNote(n); err != nil {
+			t.Fatalf("upsert %d: %v", n.ID, err)
+		}
+	}
+
+	results, err := s.SearchScoped("#graph", 10, SearchTitle)
+	if err != nil {
+		t.Fatalf("search: %v", err)
+	}
+	if len(results) != 2 {
+		t.Fatalf("expected 2 results, got %+v", results)
+	}
+	if results[0].NoteID != 100 || results[1].NoteID != 200 {
+		t.Fatalf("DEPRECATED note should rank below its plain equivalent in a tagged search: %+v", results)
+	}
+}
+
+func TestSearchBodyFTSDemotesDeprecatedFlags(t *testing.T) {
+	s := newTestStore(t)
+	// Identical bodies score the same bm25, so the tiebreak would put the newer note (200) first;
+	// the DEPRECATED penalty must instead push it below the equivalent plain note.
+	for _, n := range []*note.Note{
+		{ID: 100, Mtime: 100, Body: "needle needle needle", Meta: note.Metadata{Title: "Plain"}},
+		{ID: 200, Mtime: 200, Body: "needle needle needle", Meta: note.Metadata{Title: "Deprecated", Flags: []string{"DEPRECATED"}}},
+	} {
+		if err := s.UpsertNote(n); err != nil {
+			t.Fatalf("upsert %d: %v", n.ID, err)
+		}
+	}
+
+	results, err := s.SearchBodyFTS("needle", 10)
+	if err != nil {
+		t.Fatalf("body search: %v", err)
+	}
+	if len(results) != 2 {
+		t.Fatalf("expected 2 results, got %+v", results)
+	}
+	if results[0].NoteID != 100 || results[1].NoteID != 200 {
+		t.Fatalf("DEPRECATED note should rank below an equivalent plain note: %+v", results)
+	}
+}
+
+func TestSearchCarriesFlags(t *testing.T) {
+	s := newTestStore(t)
+	for _, n := range []*note.Note{
+		{ID: 100, Mtime: 100, Meta: note.Metadata{Title: "Flagged", Flags: []string{"DEPRECATED", "CONFIDENTIAL"}}},
+		{ID: 200, Mtime: 200, Meta: note.Metadata{Title: "Plain"}},
+	} {
+		if err := s.UpsertNote(n); err != nil {
+			t.Fatalf("upsert %d: %v", n.ID, err)
+		}
+	}
+	refs, err := s.SearchRefs()
+	if err != nil {
+		t.Fatalf("search refs: %v", err)
+	}
+	got := map[string][]string{}
+	for _, r := range refs {
+		got[r.Title] = r.Flags
+	}
+	if !slices.Equal(got["Flagged"], []string{"DEPRECATED", "CONFIDENTIAL"}) {
+		t.Fatalf("flags lost through index/search: %v", got["Flagged"])
+	}
+	if len(got["Plain"]) != 0 {
+		t.Fatalf("note without flags should carry an empty list, got %v", got["Plain"])
+	}
+
+	// The same flags ride on a title search hit.
+	results, err := s.SearchScoped("Flagged", 10, SearchTitle)
+	if err != nil {
+		t.Fatalf("title search: %v", err)
+	}
+	if len(results) != 1 || !slices.Equal(results[0].Flags, []string{"DEPRECATED", "CONFIDENTIAL"}) {
+		t.Fatalf("title hit flags = %v", results)
+	}
+}
+
 // seedStore opens a fresh index and fills it with notes, standing in for one vault.
 func seedStore(t *testing.T, notes ...*note.Note) *Store {
 	t.Helper()

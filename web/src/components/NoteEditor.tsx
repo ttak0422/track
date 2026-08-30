@@ -8,6 +8,7 @@ import {
   NoteAside,
   NoteBreadcrumbs,
   NoteProperties,
+  NoteStamps,
   journalDateFromNote,
   useScrollToHash,
 } from "./noteShared";
@@ -446,6 +447,9 @@ export function NoteEditor({ noteID }: NoteEditorProps) {
           />
 
           <form className="note-editor" onSubmit={submit}>
+            {/* Author-assigned flags (ADR 0074) stamp the note's own surface, in every mode; the
+                overlay is pointer-transparent so editing underneath is unaffected. */}
+            <NoteStamps flags={note.flags} />
             <div className={`editor-grid editor-grid-${editorMode}`}>
               {editorMode !== "preview" ? (
                 <textarea

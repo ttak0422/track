@@ -3,6 +3,7 @@ package store
 import (
 	"fmt"
 	"path/filepath"
+	"slices"
 	"testing"
 
 	"github.com/ttak0422/track/internal/track/note"
@@ -84,7 +85,11 @@ func TestLinksAndBacklinks(t *testing.T) {
 	s := newTestStore(t)
 	// Note 2 was updated more recently than 3, so it must list first (the shared recency order).
 	for id, mtime := range map[int64]int64{1: 10, 2: 300, 3: 200} {
-		if err := s.UpsertNote(&note.Note{ID: id, Path: fmt.Sprintf("/v/%d.md", id), Mtime: mtime, Meta: note.Metadata{Title: "n"}}); err != nil {
+		meta := note.Metadata{Title: "n"}
+		if id == 2 {
+			meta.Flags = []string{"DEPRECATED"}
+		}
+		if err := s.UpsertNote(&note.Note{ID: id, Path: fmt.Sprintf("/v/%d.md", id), Mtime: mtime, Meta: meta}); err != nil {
 			t.Fatal(err)
 		}
 	}
@@ -105,6 +110,10 @@ func TestLinksAndBacklinks(t *testing.T) {
 	}
 	if len(back) != 2 || back[0].NoteID != 2 || back[1].NoteID != 3 {
 		t.Fatalf("backlinks should list most recently updated first: %+v", back)
+	}
+	// The NoteRef path carries each note's flags, so badges render on backlinks too.
+	if !slices.Equal(back[0].Flags, []string{"DEPRECATED"}) || len(back[1].Flags) != 0 {
+		t.Fatalf("backlinks should carry the notes' flags: %+v", back)
 	}
 }
 

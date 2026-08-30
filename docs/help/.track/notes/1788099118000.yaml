@@ -1,0 +1,10 @@
+version: 10
+title: A deprecated note
+tags:
+    - help/authoring
+created: "2026-08-30"
+props:
+    section: authoring
+    up: '[[Properties]]'
+flags:
+    - DEPRECATED

@@ -87,6 +87,7 @@ func Build(cfg *config.Config, st *store.Store, opts Options, frontendDir, outDi
 			title:    noteTitle(n),
 			kind:     n.Kind,
 			tags:     n.Meta.Tags,
+			flags:    n.Meta.Flags,
 			days:     note.ActivityDays(n.Kind, n.Meta),
 			created:  n.Meta.Created,
 			mtime:    n.Mtime,

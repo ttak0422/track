@@ -3,6 +3,7 @@ import { useNavigate } from "@tanstack/react-router";
 import { useGraphQuery } from "../queries";
 import type { NoteID } from "../types";
 import { GraphCanvas } from "./GraphCanvasLazy";
+import { graphCountCaption } from "./graphCaption";
 import { type PreviewAnchor, initialPreviewBounds } from "./preview/bounds";
 import { useFloating } from "./preview/floatingStore";
 import { pointerCanHover, previewOpenDelay } from "./preview/stack";
@@ -30,6 +31,8 @@ export function GraphFullView() {
     [graphQuery.data?.graph],
   );
   const graph = overview?.graph;
+  // What the canvas is actually showing, which past the cap is not what the vault holds.
+  const nodeCount = graph?.nodes.length ?? 0;
 
   // Hovering a node opens a transient preview in the floating layer — the same window a wiki link
   // opens, in the same flat stack, so it can be raised over one opened earlier and outlives whatever
@@ -101,8 +104,8 @@ export function GraphFullView() {
           onSelect={(noteID) => void navigate({ to: "/notes/$noteId", params: { noteId: String(noteID) } })}
         />
       ) : null}
-      {overview && overview.hidden > 0 ? (
-        <p className="graph-scope">{overview.hidden.toLocaleString()} notes not drawn</p>
+      {overview && nodeCount > 0 ? (
+        <p className="graph-scope">{graphCountCaption(nodeCount, overview.hidden)}</p>
       ) : null}
       <div className="graph-controls">
         <button

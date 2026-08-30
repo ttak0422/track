@@ -35,6 +35,7 @@ type doc struct {
 	title    string
 	kind     string // "note" or "journal"
 	tags     []string
+	flags    []string    // author-assigned markers (DEPRECATED, CONFIDENTIAL, …) from the sidecar (ADR 0074)
 	days     []string    // activity days (YYYY-MM-DD) from the sidecar; journals carry none
 	created  string      // sidecar creation date, verbatim in the vault's date format ("" = none)
 	mtime    int64       // file mtime, for the shared recently-updated-first listing order (0 in dir mode)
@@ -66,6 +67,11 @@ type jsonRef struct {
 	FileKind string `json:"file_kind"`
 	Path     string `json:"path,omitempty"`
 	Title    string `json:"title"`
+	// Flags are the note's author-assigned markers from the implementation-defined closed set (ADR
+	// 0074), so the published site's backlink/trail/children lists can badge them from vault metadata
+	// like the live server's refs do. They are author metadata, unlike the reading milestones, which
+	// the static export deliberately strips (they stay per-visitor, ADR 0072).
+	Flags []string `json:"flags,omitempty"`
 }
 
 // jsonTaskRow mirrors store.TaskRow on the wire, so the published calendar and day pages read dated
@@ -86,6 +92,12 @@ type jsonSearchResult struct {
 	Tags     []string `json:"tags,omitempty"`
 	Days     []string `json:"days,omitempty"`
 	Icon     string   `json:"icon,omitempty"`
+	// Flags are the note's author-assigned markers (DEPRECATED, CONFIDENTIAL, …) from the closed set
+	// of ADR 0074, as stored in the sidecar. They ride on the published listings and note detail so
+	// the stamp and badges draw from vault metadata on the static site, exactly as they do on the
+	// live server. Unlike seen_at/read_at (per-visitor reading milestones, stripped by this export)
+	// they are author metadata, so they publish.
+	Flags []string `json:"flags,omitempty"`
 	// Description and Image feed the prerender's og: tags; Image is the published asset path
 	// (assets/<slug><ext>), so the consumer never sees the source file name.
 	Description string `json:"description,omitempty"`
@@ -552,7 +564,7 @@ func writeBundle(docs []doc, edges []edge, root int64, calendar, share bool, bas
 // The source path is dropped from the bundle: like the id, the file name is timestamp-based, so emitting
 // it would re-expose what the slug is meant to hide. It was only informational in the static site.
 func searchResultOf(d doc, names *assetNamer) jsonSearchResult {
-	out := jsonSearchResult{NoteID: slugOf(&d), FileKind: kindOf(d), Path: "", Title: d.title, Tags: d.tags, Days: d.days, Icon: d.icon, Description: d.desc}
+	out := jsonSearchResult{NoteID: slugOf(&d), FileKind: kindOf(d), Path: "", Title: d.title, Tags: d.tags, Days: d.days, Icon: d.icon, Flags: d.flags, Description: d.desc}
 	if d.image != "" {
 		out.Image = "assets/" + names.name(d.assetSrc, d.image)
 	}
@@ -560,7 +572,7 @@ func searchResultOf(d doc, names *assetNamer) jsonSearchResult {
 }
 
 func refOf(d doc) jsonRef {
-	return jsonRef{NoteID: slugOf(&d), FileKind: kindOf(d), Title: d.title}
+	return jsonRef{NoteID: slugOf(&d), FileKind: kindOf(d), Title: d.title, Flags: d.flags}
 }
 
 // byRecency sorts docs into the one note-list order every surface shares (see webui's sortRefs):

@@ -148,13 +148,14 @@ days:
 
 Fields:
 
-- `version`: metadata schema version. Required for new writes. The version is the newest schema any present field needs: a sidecar carrying Babel block results is at least v2, and one carrying `days` is at least v3.
+- `version`: metadata schema version. Required for new writes. The version is the newest schema any present field needs: a sidecar carrying Babel block results is at least v2, one carrying `days` is at least v3, and one carrying `flags` is at least v10.
 - `title`: note title and the link keyword. This sidecar field is authoritative.
 - `tags`: note tags.
 - `created`: creation date string. The current format is `YYYY-MM-DD`.
 - `slug`: pins this note's published address. The static export normally derives a slug from the note id, so a note that already has a public URL under a different id — one imported from a published directory — would move; setting `slug` freezes the address it is already reachable at. Empty (the usual case) derives it as before.
 - `days`: sorted, deduplicated set of local calendar days the note was created or updated on (`YYYY-MM-DD`). A day is stamped whenever the note is touched: a track mutation command stamps it via single-note reindex, and a direct editor/external edit is stamped during the mtime-divergence scan in `RefreshIfStale`. This is the authoritative activity record used by `track agenda` to answer "which notes were worked on that day". Sidecars predating the field have no `days`; the index then falls back to `created` so the note still appears on the day it was made.
 - `seen_at` / `read_at`: the shared reading milestones (RFC 3339 timestamps, ADR 0072) — when the note was first opened in the web workspace, and when viewing time there first crossed its read threshold. The web workspace is their only writer (reading in Neovim reports nothing); both are monotonic firsts, so whichever device reaches a milestone first wins. They are what moves the NEW/read badges from per-browser state onto vault metadata that syncs across devices; the accumulated viewing seconds between the milestones stay local. The published bundle carries neither field: a public site's badges stay per-visitor.
+- `flags`: author-assigned markers from the implementation-defined closed set (ADR 0074), stored normalized — trimmed, uppercased, deduplicated, and sorted. The set is strictly closed; an unknown value is rejected at write time. The two v1 flags are `DEPRECATED` (red stamp, list badge, and a search-rank demotion) and `CONFIDENTIAL` (red stamp and list badge; display-only).
 
 Readers reject unsupported metadata versions.
 If a sidecar is missing, the current parser can still read the legacy trailing `<!--track ... -->` metadata block for compatibility, but new writes must use sidecar metadata.
@@ -170,7 +171,7 @@ It can be rebuilt from markdown note files and sidecar metadata.
 The indexer scans the top-level `note/` and `journal/` directories only, matching the file-kind rules above.
 SQLite `PRAGMA user_version` stores the database schema version and is independent from sidecar metadata versions.
 
-Schema version 9 contains a central `notes` table with each indexed id, file kind, cached sidecar title and creation date, note-file `mtime`, sidecar `meta_mtime`, icon override, and the shared reading milestones `seen_at`/`read_at` (sidecar timestamps as unix seconds), so every listing can badge NEW/read from vault metadata. The two mtimes let `RefreshIfStale` detect both body changes and sidecar-only changes. `tags` stores the note's tags, `links` stores computed directed links between notes, and `ext_links` stores outgoing cross-vault references as `(source id, vault name, title)` without a target numeric id because ids are vault-local.
+Schema version 10 contains a central `notes` table with each indexed id, file kind, cached sidecar title and creation date, note-file `mtime`, sidecar `meta_mtime`, icon override, the shared reading milestones `seen_at`/`read_at` (sidecar timestamps as unix seconds), and the normalized `flags` (sidecar flags joined with a unit separator), so every listing can badge NEW/read/flags from vault metadata and search can demote `DEPRECATED` notes. The two mtimes let `RefreshIfStale` detect both body changes and sidecar-only changes. `tags` stores the note's tags, `links` stores computed directed links between notes, and `ext_links` stores outgoing cross-vault references as `(source id, vault name, title)` without a target numeric id because ids are vault-local.
 
 `note_days` stores the local activity days for each non-journal note, mirrored from sidecar `days` and falling back to `created` for older sidecars. `tasks` stores one row per parsed checkbox line, including its fixed state, terminal flag, priority, scheduling, due, completion, and text fields. `props` stores flattened typed properties from sidecars and inline `key::` body fields; list values retain their order.
 

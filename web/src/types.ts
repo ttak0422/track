@@ -16,6 +16,11 @@ export interface NoteRef {
   read_at?: number;
   path?: string;
   title: string;
+  // Author-assigned markers from the closed set {DEPRECATED, CONFIDENTIAL} (ADR 0074). They ride
+  // every note reference the API serves — the detail body, search/list results, and backlinks — so
+  // lists can badge a flagged note and the article can stamp it. The engine rejects anything outside
+  // the set, so the frontend renders whatever arrives.
+  flags?: string[];
 }
 
 export interface SearchResult extends NoteRef {
@@ -239,6 +244,10 @@ export interface NoteMetaResponse {
   image: string;
   // Per-note icon (an emoji) shown beside the title; empty falls back to the config tag/kind mapping.
   icon: string;
+  // The note's author-assigned flags (ADR 0074): a sorted list from the closed set
+  // {DEPRECATED, CONFIDENTIAL}. The dialog edits them as checkboxes; the engine rejects anything
+  // outside the set.
+  flags: string[];
   props: string;
 }
 
@@ -250,6 +259,7 @@ export interface SaveNoteMetaRequest {
   description: string;
   image: string;
   icon: string;
+  flags: string[];
   props: string;
 }
 

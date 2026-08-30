@@ -31,8 +31,11 @@ const (
 	MetadataVersionV8 = 8
 	// MetadataVersionV9 adds the shared reading milestones seen_at and read_at.
 	MetadataVersionV9 = 9
+	// MetadataVersionV10 adds the author-assigned flags (the implementation-defined
+	// closed set DEPRECATED/CONFIDENTIAL, ADR 0074) under flags.
+	MetadataVersionV10 = 10
 	// MaxMetadataVersion is the newest schema this build can read and write.
-	MaxMetadataVersion = MetadataVersionV9
+	MaxMetadataVersion = MetadataVersionV10
 )
 
 func supportedVersion(v int) bool {
@@ -86,6 +89,9 @@ func WriteMetadata(path string, meta Metadata) error {
 	}
 	if (meta.SeenAt != "" || meta.ReadAt != "") && meta.Version < MetadataVersionV9 {
 		meta.Version = MetadataVersionV9
+	}
+	if len(meta.Flags) > 0 && meta.Version < MetadataVersionV10 {
+		meta.Version = MetadataVersionV10
 	}
 	if !supportedVersion(meta.Version) {
 		return fmt.Errorf("unsupported metadata version %d", meta.Version)
