@@ -16,7 +16,7 @@ import (
 // resolve to a note are skipped, mirroring how an unresolved [[link]] is not a graph edge.
 func (s *Store) UpNotes(id int64) ([]NoteRef, error) {
 	rows, err := s.db.Query(
-		`SELECT k.note_id, n.kind, n.title
+		`SELECT k.note_id, n.kind, n.title, n.flags
 		 FROM props p
 		 JOIN keywords k ON k.term = p.value
 		 JOIN notes n ON n.id = k.note_id
@@ -36,7 +36,7 @@ func (s *Store) UpNotes(id int64) ([]NoteRef, error) {
 // order (most recently updated first).
 func (s *Store) ChildNotes(id int64) ([]NoteRef, error) {
 	rows, err := s.db.Query(
-		`SELECT n.id, n.kind, n.title
+		`SELECT n.id, n.kind, n.title, n.flags
 		 FROM props p
 		 JOIN keywords k ON k.term = p.value AND k.note_id = ?
 		 JOIN notes n ON n.id = p.note_id
@@ -70,7 +70,7 @@ func (s *Store) Hierarchy() ([]*HierarchyNode, error) {
 	// the parent is joined as a note too, so a root that declares no "up" of its own still arrives
 	// with its title.
 	rows, err := s.db.Query(
-		`SELECT n.id, n.kind, n.title, pn.id, pn.kind, pn.title, min(p.ord)
+		`SELECT n.id, n.kind, n.title, n.flags, pn.id, pn.kind, pn.title, pn.flags, min(p.ord)
 		 FROM props p
 		 JOIN keywords k ON k.term = p.value
 		 JOIN notes n ON n.id = p.note_id
@@ -97,10 +97,13 @@ func (s *Store) Hierarchy() ([]*HierarchyNode, error) {
 	}
 	for rows.Next() {
 		var c, p NoteRef
+		var cFlags, pFlags string
 		var ord int64
-		if err := rows.Scan(&c.NoteID, &c.FileKind, &c.Title, &p.NoteID, &p.FileKind, &p.Title, &ord); err != nil {
+		if err := rows.Scan(&c.NoteID, &c.FileKind, &c.Title, &cFlags, &p.NoteID, &p.FileKind, &p.Title, &pFlags, &ord); err != nil {
 			return nil, err
 		}
+		c.Flags = splitTags(cFlags)
+		p.Flags = splitTags(pFlags)
 		parent := at(p)
 		parent.Children = append(parent.Children, at(c))
 		child[c.NoteID] = true

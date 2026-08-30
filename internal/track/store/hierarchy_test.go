@@ -1,6 +1,7 @@
 package store
 
 import (
+	"slices"
 	"testing"
 
 	"github.com/ttak0422/track/internal/track/note"
@@ -103,6 +104,57 @@ func titles(nodes []*HierarchyNode) []string {
 		out = append(out, n.Title)
 	}
 	return out
+}
+
+func TestHierarchyCarriesFlags(t *testing.T) {
+	s := newTestStore(t)
+	upsert(t, s, 1, "Root", "", 10)
+	upsert(t, s, 2, "Mid", "up:: [[Root]]", 20)
+	upsert(t, s, 3, "Leaf", "up:: [[Mid]]", 30)
+	// Re-stamp flags through the same upsert path the hierarchy reads, keeping the bodies so the
+	// inline "up::" props (and therefore the edges) survive the replacement.
+	if err := s.UpsertNote(&note.Note{ID: 2, Body: "up:: [[Root]]", Mtime: 20, Meta: note.Metadata{Title: "Mid", Flags: []string{"DEPRECATED"}}}); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.UpsertNote(&note.Note{ID: 3, Body: "up:: [[Mid]]", Mtime: 30, Meta: note.Metadata{Title: "Leaf", Flags: []string{"CONFIDENTIAL"}}}); err != nil {
+		t.Fatal(err)
+	}
+
+	// Hierarchy's custom scan carries both the child's and the parent's flags.
+	roots, err := s.Hierarchy()
+	if err != nil {
+		t.Fatalf("hierarchy: %v", err)
+	}
+	if len(roots) != 1 {
+		t.Fatalf("roots = %s, want Root alone", titles(roots))
+	}
+	mid := roots[0].Children[0]
+	leaf := mid.Children[0]
+	if len(roots[0].Flags) != 0 {
+		t.Fatalf("unflagged Root should carry no flags: %+v", roots[0].NoteRef)
+	}
+	if !slices.Equal(mid.Flags, []string{"DEPRECATED"}) {
+		t.Fatalf("Mid ref should carry its flags: %+v", mid.NoteRef)
+	}
+	if !slices.Equal(leaf.Flags, []string{"CONFIDENTIAL"}) {
+		t.Fatalf("Leaf ref should carry its flags: %+v", leaf.NoteRef)
+	}
+
+	// The scanNoteRefs path (UpNotes/ChildNotes) carries them too.
+	up, err := s.UpNotes(3)
+	if err != nil {
+		t.Fatalf("up: %v", err)
+	}
+	if len(up) != 1 || !slices.Equal(up[0].Flags, []string{"DEPRECATED"}) {
+		t.Fatalf("UpNotes should carry the parent's flags: %+v", up)
+	}
+	kids, err := s.ChildNotes(2)
+	if err != nil {
+		t.Fatalf("children: %v", err)
+	}
+	if len(kids) != 1 || !slices.Equal(kids[0].Flags, []string{"CONFIDENTIAL"}) {
+		t.Fatalf("ChildNotes should carry the child's flags: %+v", kids)
+	}
 }
 
 func TestHierarchyTrailStopsOnCycle(t *testing.T) {

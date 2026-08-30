@@ -13,7 +13,9 @@ package store
 // 9: notes.seen_at / notes.read_at carry the shared reading milestones (sidecar seen_at/read_at as
 // unix seconds), so every listing can draw NEW/read badges from vault metadata instead of per-browser
 // localStorage state.
-const schemaVersion = 9
+// 10: notes.flags carries the note's normalized flags (sidecar flags joined with char(31)), so search
+// can demote DEPRECATED notes and every listing can badge them from vault metadata.
+const schemaVersion = 10
 
 // schemaSQL defines a rebuildable SQLite index, not the primary source of truth.
 // Notes and sidecar metadata on disk are authoritative; this database caches keyword rows and computed links for fast lookup.
@@ -28,7 +30,8 @@ CREATE TABLE notes (
   meta_mtime INTEGER NOT NULL DEFAULT 0,
   icon       TEXT NOT NULL DEFAULT '',
   seen_at    INTEGER NOT NULL DEFAULT 0,
-  read_at    INTEGER NOT NULL DEFAULT 0
+  read_at    INTEGER NOT NULL DEFAULT 0,
+  flags      TEXT NOT NULL DEFAULT ''
 );
 CREATE INDEX IF NOT EXISTS idx_notes_kind_mtime ON notes(kind, mtime);
 

@@ -413,10 +413,11 @@ func cmdUpdate(args []string) int {
 
 // cmdMeta prints or edits a note's metadata. With no edit flags it reports the current metadata
 // (including its editable YAML document under "doc"); --description / --image / --icon set page
-// metadata and --set / --unset edit typed note properties. --edit applies a full metadata document
-// (tags, description, image, props) read from a file or stdin. All writes go through the engine's
-// single validated path (note.ApplyMetaEdit / note.ApplyMetaDoc). An explicitly empty
-// --description / --image / --icon clears the field.
+// metadata, --set / --unset edit typed note properties, and --flag / --unflag add or remove note
+// flags from the implementation-defined closed set (DEPRECATED, CONFIDENTIAL). --edit applies a
+// full metadata document (tags, description, image, props, flags) read from a file or stdin. All
+// writes go through the engine's single validated path (note.ApplyMetaEdit / note.ApplyMetaDoc).
+// An explicitly empty --description / --image / --icon clears the field.
 func cmdMeta(args []string) int {
 	fs := flag.NewFlagSet("meta", flag.ContinueOnError)
 	id := fs.Int64("id", 0, "note id")
@@ -425,11 +426,15 @@ func cmdMeta(args []string) int {
 	description := fs.String("description", "", "page summary (og:description); empty clears")
 	image := fs.String("image", "", "cover image as assets/<file> (og:image); empty clears")
 	icon := fs.String("icon", "", "per-note icon shown beside the title (emoji); empty clears")
-	editDoc := fs.String("edit", "", "apply a full metadata YAML document (tags/description/image/props) from this file, or stdin when \"-\"")
+	editDoc := fs.String("edit", "", "apply a full metadata YAML document (tags/description/image/props/flags) from this file, or stdin when \"-\"")
 	var sets kvFlag
 	var unsets tagsFlag
+	var flagAdd tagsFlag
+	var flagUnset tagsFlag
 	fs.Var(&sets, "set", "set a property as key=value (repeatable; comma-separated value makes a list).\nThe value is typed from its text: true/false, a number, a YYYY-MM-DD date, a\n[[link]], else a string. \"up\" is the conventional key that files this note\nunder a parent and only a [[link]] value counts - but a sidecar up is not\nrewritten by track rename, so prefer an inline \"up:: [[Parent]]\" body line")
 	fs.Var(&unsets, "unset", "remove a property key (repeatable)")
+	fs.Var(&flagAdd, "flag", "add a note flag (repeatable; one of DEPRECATED, CONFIDENTIAL)")
+	fs.Var(&flagUnset, "unflag", "remove a note flag (repeatable; one of DEPRECATED, CONFIDENTIAL)")
 	if code, ok := parseArgs(fs, args); !ok {
 		return code
 	}
@@ -466,10 +471,12 @@ func cmdMeta(args []string) int {
 		}
 	}
 	edit.Unset = []string(unsets)
-	edited := edit.Description != nil || edit.Image != nil || edit.Icon != nil || len(edit.Set) > 0 || len(edit.Unset) > 0
+	edit.FlagAdd = []string(flagAdd)
+	edit.FlagUnset = []string(flagUnset)
+	edited := edit.Description != nil || edit.Image != nil || edit.Icon != nil || len(edit.Set) > 0 || len(edit.Unset) > 0 || len(edit.FlagAdd) > 0 || len(edit.FlagUnset) > 0
 	docSource := strings.TrimSpace(*editDoc)
 	if docSource != "" && edited {
-		return fail("--edit cannot be combined with --description/--image/--icon/--set/--unset")
+		return fail("--edit cannot be combined with --description/--image/--icon/--set/--unset/--flag/--unflag")
 	}
 
 	var meta note.Metadata
@@ -533,6 +540,7 @@ func cmdMeta(args []string) int {
 		"description": meta.Description,
 		"image":       meta.Image,
 		"icon":        meta.Icon,
+		"flags":       meta.Flags,
 		"props":       meta.Props,
 		"doc":         doc,
 		"updated":     edited,

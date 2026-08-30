@@ -33,6 +33,9 @@ import (
 // threshold there. They live in the sidecar so the milestones survive across devices through the
 // vault's own sync — per-browser localStorage keeps only the accumulation between them. The web
 // workspace is their only writer; reading also happens in Neovim, which reports nothing.
+// Flags (version 10 sidecars) are the note's author-assigned markers from the implementation-defined
+// closed set (ADR 0074): a normalized, sorted list such as [DEPRECATED, CONFIDENTIAL]. Unknown values
+// are rejected at write time — the set is closed, so the sidecar stays a parseable contract.
 type Metadata struct {
 	Version     int                        `yaml:"version"`
 	Title       string                     `yaml:"title,omitempty"`
@@ -45,6 +48,7 @@ type Metadata struct {
 	Icon        string                     `yaml:"icon,omitempty"`
 	SeenAt      string                     `yaml:"seen_at,omitempty"`
 	ReadAt      string                     `yaml:"read_at,omitempty"`
+	Flags       []string                   `yaml:"flags,omitempty"`
 	Blocks      map[string]babel.BlockMeta `yaml:"blocks,omitempty"`
 	TaskLog     []task.LogEntry            `yaml:"task_log,omitempty"`
 	// Slug pins this note's published URL. The static export normally derives a slug from the note

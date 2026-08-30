@@ -18,15 +18,19 @@ import (
 )
 
 // MetaEdit is one metadata change: a nil field is left untouched, a pointer to "" clears the
-// field. It is the single write path for description/image/icon and note properties, shared by the
-// CLI meta command and the web editor, so validation lives here once. Set assigns properties (value
-// text parsed by ParsePropValue and checked against the configured schema); Unset removes keys.
+// field. It is the single write path for description/image/icon, note properties, and flags,
+// shared by the CLI meta command and the web editor, so validation lives here once. Set assigns
+// properties (value text parsed by ParsePropValue and checked against the configured schema);
+// Unset removes keys. FlagAdd appends flags and FlagUnset removes them — both validated against
+// the implementation-defined closed set (NormalizeFlags) and merged with what the sidecar holds.
 type MetaEdit struct {
 	Description *string
 	Image       *string
 	Icon        *string
 	Set         map[string]string
 	Unset       []string
+	FlagAdd     []string
+	FlagUnset   []string
 }
 
 // imageExtensions lists the cover-image formats OGP consumers actually render; anything else (an
@@ -84,6 +88,28 @@ func ApplyMetaEdit(cfg *config.Config, noteID int64, edit MetaEdit) (Metadata, e
 	if len(meta.Props) == 0 {
 		meta.Props = nil
 	}
+	if len(edit.FlagAdd) > 0 || len(edit.FlagUnset) > 0 {
+		merged := append(append([]string{}, meta.Flags...), edit.FlagAdd...)
+		flags, err := NormalizeFlags(merged)
+		if err != nil {
+			return Metadata{}, err
+		}
+		remove, err := NormalizeFlags(edit.FlagUnset)
+		if err != nil {
+			return Metadata{}, err
+		}
+		drop := make(map[Flag]bool, len(remove))
+		for _, f := range remove {
+			drop[f] = true
+		}
+		var kept []string
+		for _, f := range flags {
+			if !drop[f] {
+				kept = append(kept, string(f))
+			}
+		}
+		meta.Flags = kept
+	}
 	if err := WriteMetadata(metaPath, meta); err != nil {
 		return Metadata{}, fmt.Errorf("write metadata: %w", err)
 	}
@@ -103,19 +129,20 @@ type MetaDoc struct {
 	Image       string         `yaml:"image"`
 	Icon        string         `yaml:"icon"`
 	Props       map[string]any `yaml:"props"`
+	Flags       []string       `yaml:"flags"`
 }
 
 // MetaDocYAML renders a note's editable metadata document. Empty fields stay present so an editor
 // seeded from it always shows every editable key — as bare "key:" lines rather than the flow-style
 // "[]" / "{}" / '""', which are hostile to hand-editing (ParseMetaDoc reads both forms).
 func MetaDocYAML(meta Metadata) (string, error) {
-	doc := MetaDoc{Title: meta.Title, Tags: meta.Tags, Description: meta.Description, Image: meta.Image, Icon: meta.Icon, Props: meta.Props}
+	doc := MetaDoc{Title: meta.Title, Tags: meta.Tags, Description: meta.Description, Image: meta.Image, Icon: meta.Icon, Props: meta.Props, Flags: meta.Flags}
 	out, err := yaml.Marshal(doc)
 	if err != nil {
 		return "", err
 	}
 	s := "\n" + string(out)
-	for _, key := range []string{"title", "tags", "description", "image", "icon", "props"} {
+	for _, key := range []string{"title", "tags", "description", "image", "icon", "props", "flags"} {
 		for _, empty := range []string{` ""`, " []", " {}"} {
 			s = strings.Replace(s, "\n"+key+":"+empty+"\n", "\n"+key+":\n", 1)
 		}
@@ -205,6 +232,10 @@ func ApplyMetaDocValue(cfg *config.Config, noteID int64, doc MetaDoc) (Metadata,
 	if len(doc.Props) == 0 {
 		doc.Props = nil
 	}
+	flags, err := NormalizeFlags(doc.Flags)
+	if err != nil {
+		return Metadata{}, err
+	}
 	for key, value := range doc.Props {
 		if !ValidPropKey(key) {
 			return Metadata{}, fmt.Errorf("invalid property key %q (want letter, then letters/digits/_/-)", key)
@@ -234,6 +265,7 @@ func ApplyMetaDocValue(cfg *config.Config, noteID int64, doc MetaDoc) (Metadata,
 	meta.Image = doc.Image
 	meta.Icon = icon
 	meta.Props = doc.Props
+	meta.Flags = FlagStrings(flags)
 	if err := WriteMetadata(metaPath, meta); err != nil {
 		return Metadata{}, fmt.Errorf("write metadata: %w", err)
 	}

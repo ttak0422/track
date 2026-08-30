@@ -2102,6 +2102,60 @@ func TestMetaSetAndUnsetProperties(t *testing.T) {
 // TestMetaEditAppliesDocumentAndRenames drives the full editor round-trip through the CLI: the doc
 // from `track meta` applies via --edit -, and a changed title goes through the rename path so
 // backlinks are rewritten. A conflicting title rejects the whole document, changing nothing.
+func TestMetaAddsAndRemovesFlags(t *testing.T) {
+	vault := t.TempDir()
+	runIn(t, vault, "new", "--title", "Flags", "--id", "100", "--body", "body")
+
+	// --flag adds flags; values are normalized (trimmed, uppercased, deduped, sorted) and reported.
+	out, code := runIn(t, vault, "meta", "--id", "100", "--flag", "deprecated", "--flag", "CONFIDENTIAL", "--flag", "deprecated")
+	if code != 0 {
+		t.Fatalf("meta --flag failed: %v", out)
+	}
+	if flags, _ := out["flags"].([]any); len(flags) != 2 || flags[0] != "DEPRECATED" || flags[1] != "CONFIDENTIAL" {
+		t.Fatalf("flags after add = %v", out["flags"])
+	}
+
+	// The normalized flags land in the sidecar, bumping it to version 10.
+	meta, err := os.ReadFile(vault + "/.track/notes/100.yaml")
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, want := range []string{"version: 10", "flags:", "- DEPRECATED", "- CONFIDENTIAL"} {
+		if !strings.Contains(string(meta), want) {
+			t.Fatalf("sidecar %q missing %q", meta, want)
+		}
+	}
+
+	// --unflag removes one flag; removing the last clears the field.
+	out, code = runIn(t, vault, "meta", "--id", "100", "--unflag", "deprecated")
+	if code != 0 {
+		t.Fatalf("meta --unflag failed: %v", out)
+	}
+	if flags, _ := out["flags"].([]any); len(flags) != 1 || flags[0] != "CONFIDENTIAL" {
+		t.Fatalf("flags after unflag = %v", out["flags"])
+	}
+	if _, code := runIn(t, vault, "meta", "--id", "100", "--unflag", "confidential"); code != 0 {
+		t.Fatalf("meta --unflag the last flag should succeed")
+	}
+
+	// A read-only invocation reports the stored flags (empty now that all were removed).
+	out, code = runIn(t, vault, "meta", "--id", "100")
+	if code != 0 {
+		t.Fatalf("meta read failed: %v", out)
+	}
+	if flags, _ := out["flags"].([]any); len(flags) != 0 {
+		t.Fatalf("flags after clearing = %v", out["flags"])
+	}
+
+	// The closed set is enforced: an unknown flag is a hard error.
+	if out, code := runIn(t, vault, "meta", "--id", "100", "--flag", "TOP_SECRET"); code == 0 {
+		t.Fatalf("unknown flag should fail: %v", out)
+	}
+	if out, code := runIn(t, vault, "meta", "--id", "100", "--unflag", "TOP_SECRET"); code == 0 {
+		t.Fatalf("unknown --unflag target should fail: %v", out)
+	}
+}
+
 func TestMetaEditAppliesDocumentAndRenames(t *testing.T) {
 	vault := t.TempDir()
 	runIn(t, vault, "new", "--title", "Doc", "--id", "100", "--body", "body")

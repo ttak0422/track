@@ -1141,7 +1141,7 @@ func TestNoteMetaEndpoint(t *testing.T) {
 	if seed["title"] != "Alpha" {
 		t.Fatalf("seed title = %v", seed["title"])
 	}
-	for _, key := range []string{"title", "kind", "tags", "description", "image", "props"} {
+	for _, key := range []string{"title", "kind", "tags", "description", "image", "props", "flags"} {
 		if _, ok := seed[key]; !ok {
 			t.Fatalf("seed missing field %q: %v", key, seed)
 		}
@@ -1150,15 +1150,19 @@ func TestNoteMetaEndpoint(t *testing.T) {
 	if seed["kind"] != "note" {
 		t.Fatalf("seed kind = %v, want note", seed["kind"])
 	}
+	if flags, _ := seed["flags"].([]any); len(flags) != 0 {
+		t.Fatalf("seed flags should be an empty list, got %v", seed["flags"])
+	}
 
 	// A structured edit applies through the engine's validated write path; the response echoes the
-	// stored fields, props rendered back as a YAML block, tags deduped.
+	// stored fields, props rendered back as a YAML block, tags deduped, flags normalized.
 	resp, res := post(map[string]any{
 		"title":       "Alpha",
 		"tags":        []string{"go", "go"},
 		"description": "a summary",
 		"image":       "assets/cover.png",
 		"props":       "status: draft\n",
+		"flags":       []string{"deprecated", "DEPRECATED", "CONFIDENTIAL"},
 	})
 	if resp.StatusCode != http.StatusOK {
 		t.Fatalf("meta save status = %d: %v", resp.StatusCode, res)
@@ -1173,11 +1177,20 @@ func TestNoteMetaEndpoint(t *testing.T) {
 	if props, _ := stored["props"].(string); !strings.Contains(props, "status: draft") {
 		t.Fatalf("stored props missing status: %q", props)
 	}
+	if flags, _ := stored["flags"].([]any); len(flags) != 2 || flags[0] != "DEPRECATED" || flags[1] != "CONFIDENTIAL" {
+		t.Fatalf("flags should normalize to [DEPRECATED CONFIDENTIAL]: %v", stored["flags"])
+	}
 
-	// A bad image is a 400 carrying the engine's message, and changes nothing.
-	resp, _ = post(map[string]any{"image": "assets/nope.png"})
+	// The note detail carries the flags too.
+	detail := getJSON(t, server.URL+"/api/note?id=100")["note"].(map[string]any)
+	if flags, _ := detail["flags"].([]any); len(flags) != 2 || flags[0] != "DEPRECATED" || flags[1] != "CONFIDENTIAL" {
+		t.Fatalf("note detail flags = %v", detail["flags"])
+	}
+
+	// An unknown flag is a 400 carrying the engine's message, and changes nothing.
+	resp, _ = post(map[string]any{"flags": []string{"TOP_SECRET"}})
 	if resp.StatusCode != http.StatusBadRequest {
-		t.Fatalf("bad image should be a 400, got %d", resp.StatusCode)
+		t.Fatalf("unknown flag should be a 400, got %d", resp.StatusCode)
 	}
 	unchanged := getJSON(t, server.URL+"/api/note/meta?id=100")
 	if unchanged["description"] != "a summary" {
