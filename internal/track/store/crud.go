@@ -41,13 +41,16 @@ func (s *Store) UpsertNote(n *note.Note) error {
 		kind = "note"
 	}
 	if _, err := tx.Exec(
-		`INSERT INTO notes (id, kind, title, created, mtime, meta_mtime, icon, seen_at, read_at)
-		 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+		`INSERT INTO notes (id, kind, title, created, mtime, meta_mtime, icon, seen_at, read_at, flags)
+		 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 		 ON CONFLICT(id) DO UPDATE SET
 		   kind=excluded.kind, title=excluded.title, created=excluded.created, mtime=excluded.mtime, meta_mtime=excluded.meta_mtime, icon=excluded.icon,
-		   seen_at=excluded.seen_at, read_at=excluded.read_at`,
+		   seen_at=excluded.seen_at, read_at=excluded.read_at, flags=excluded.flags`,
 		n.ID, kind, n.Meta.Title, n.Meta.Created, n.Mtime, n.MetaMtime, n.Meta.Icon,
 		note.StampUnix(n.Meta.SeenAt), note.StampUnix(n.Meta.ReadAt),
+		// The index carries the normalized flags as one char(31)-joined column, the same separator
+		// searchColumns splits on, so search can demote DEPRECATED notes and listings can badge them.
+		strings.Join(n.Meta.Flags, "\x1f"),
 	); err != nil {
 		return err
 	}
