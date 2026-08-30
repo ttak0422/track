@@ -157,6 +157,13 @@ func (s *Server) getNote(v *vaultView, w http.ResponseWriter, r *http.Request) {
 		if sec := note.StampUnix(meta.ReadAt); sec != 0 {
 			noteJSON["read_at"] = sec
 		}
+		// Flags ride along as the normalized slice (empty, not null) so the stamp and badges draw
+		// from vault metadata; when the sidecar cannot be read the field stays absent like the dates.
+		flags := meta.Flags
+		if flags == nil {
+			flags = []string{}
+		}
+		noteJSON["flags"] = flags
 	}
 	if ref.Mtime != 0 {
 		noteJSON["updated"] = ref.Mtime
@@ -381,6 +388,7 @@ func (s *Server) handleNoteMeta(v *vaultView, w http.ResponseWriter, r *http.Req
 			Image       string   `json:"image"`
 			Icon        string   `json:"icon"`
 			Props       string   `json:"props"`
+			Flags       []string `json:"flags"`
 		}
 		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 			writeError(w, fmt.Errorf("decode request: %w", err), http.StatusBadRequest)
@@ -398,6 +406,7 @@ func (s *Server) handleNoteMeta(v *vaultView, w http.ResponseWriter, r *http.Req
 			Image:       req.Image,
 			Icon:        req.Icon,
 			Props:       props,
+			Flags:       req.Flags,
 		}
 		// Pre-validate a title change so a conflicting title rejects the whole edit before any
 		// write; an empty title means "leave the title unchanged".
@@ -448,6 +457,10 @@ func writeMetaFields(w http.ResponseWriter, meta note.Metadata, kind string) {
 	if tags == nil {
 		tags = []string{}
 	}
+	flags := meta.Flags
+	if flags == nil {
+		flags = []string{}
+	}
 	writeJSON(w, map[string]any{
 		"title":       meta.Title,
 		"kind":        kind,
@@ -455,6 +468,7 @@ func writeMetaFields(w http.ResponseWriter, meta note.Metadata, kind string) {
 		"description": meta.Description,
 		"image":       meta.Image,
 		"icon":        meta.Icon,
+		"flags":       flags,
 		"props":       propsText,
 	})
 }
