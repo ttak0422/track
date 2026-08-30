@@ -1165,9 +1165,9 @@ img.theme-asset-dark {
   cursor: grabbing;
 }
 
-/* The overview names what it left out: the whole-vault graph draws the link graph's connected part
-   up to a cap, and this caption carries the rest as a count. Section label (design.md variant 6),
-   parked in the corner opposite the controls. */
+/* The overview's caption: how much of the vault the picture is showing, and what it left out.
+   Section label (design.md variant 6), parked in the corner opposite the controls. It is a caption,
+   not a control — pointer events pass through to the canvas underneath. */
 .graph-scope {
   position: absolute;
   left: 12px;

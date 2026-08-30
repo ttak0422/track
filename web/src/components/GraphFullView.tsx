@@ -3,6 +3,7 @@ import { useNavigate } from "@tanstack/react-router";
 import { useGraphQuery } from "../queries";
 import type { NoteID } from "../types";
 import { GraphCanvas } from "./GraphCanvasLazy";
+import { graphCountCaption } from "./graphCaption";
 import { type PreviewAnchor, type PreviewBounds, initialPreviewBounds } from "./preview/bounds";
 import { useFloating } from "./preview/floatingStore";
 import { NoteWindow } from "./preview/NoteWindow";
@@ -40,6 +41,8 @@ export function GraphFullView() {
     [graphQuery.data?.graph],
   );
   const graph = overview?.graph;
+  // What the canvas is actually showing, which past the cap is not what the vault holds.
+  const nodeCount = graph?.nodes.length ?? 0;
 
   // A single transient hover preview. Dragging it (sticky) keeps it until closed; pinning promotes it to
   // the floating layer, which is what holds multiple persistent windows. ponytail: this mirrors
@@ -187,8 +190,8 @@ export function GraphFullView() {
           onPinToggle={promote}
         />
       ) : null}
-      {overview && overview.hidden > 0 ? (
-        <p className="graph-scope">{overview.hidden.toLocaleString()} notes not drawn</p>
+      {overview && nodeCount > 0 ? (
+        <p className="graph-scope">{graphCountCaption(nodeCount, overview.hidden)}</p>
       ) : null}
       <div className="graph-controls">
         <button
