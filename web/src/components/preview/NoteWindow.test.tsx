@@ -61,7 +61,7 @@ describe("NoteWindow content switch", () => {
     expect(screen.getByTestId("body").textContent).toBe("# hi");
   });
 
-  it("passes the note title for duplicate removal without rendering it in the popup body", () => {
+  it("passes the note title and keeps the title row out of the popup body", () => {
     noteQuery.mockReturnValue(noteLoaded("# T"));
     renderQuery.mockReturnValue({ data: { markdown: "# T" }, isError: false });
     show();
