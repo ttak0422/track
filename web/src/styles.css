@@ -4309,7 +4309,6 @@ textarea.modal-input:focus-visible {
 
 .wiki-preview-body .markdown-view p {
   margin: 0;
-  color: var(--muted);
 }
 
 .wiki-preview-resize {
