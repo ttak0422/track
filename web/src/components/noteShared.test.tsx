@@ -68,6 +68,17 @@ describe("NoteAside Contents outline", () => {
     render(<NoteAside backlinks={[]} noteID="1" journalDate="" markdown={"# Only"} />);
     expect(screen.queryByRole("region", { name: "Contents" })).toBeNull();
   });
+
+  it("indents a level by two characters, measured from the outline's own top level", () => {
+    localGraph.mockReturnValue({ data: undefined });
+    // No h1: the leading "##" is this outline's top level, so it sits flush and "###" is one step in.
+    render(
+      <NoteAside backlinks={[]} noteID="1" journalDate="" markdown={"## Status\n### Detail"} />,
+    );
+    const links = within(screen.getByRole("region", { name: "Contents" })).getAllByRole("link");
+    expect(links[0].style.paddingLeft).toBe("");
+    expect(links[1].style.paddingLeft).toBe("2em");
+  });
 });
 
 describe("NoteAside graph section", () => {
