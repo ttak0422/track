@@ -141,6 +141,15 @@ describe("search results", () => {
     expect(float).not.toMatch(/opacity/);
     expect(aimed).toMatch(/background:\s*var\(--panel-soft\)/);
   });
+
+  // The cursor marks the whole result, not the part of it that happens to be a link: the row holds
+  // the float control beside the link, so an edge drawn on the link alone would stop short of it.
+  it("draws the keyboard cursor's edge on the row, past the control's slot", () => {
+    expect(ruleBody(".result-row:has(.result.is-active)")).toMatch(
+      /box-shadow:\s*inset 2px 0 0 var\(--mark\), inset 0 -2px 0 var\(--mark\)/,
+    );
+    expect(ruleBody(".result.is-active")).not.toMatch(/box-shadow/);
+  });
 });
 
 describe("note state badges", () => {
