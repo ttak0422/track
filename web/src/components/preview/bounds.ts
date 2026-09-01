@@ -30,6 +30,16 @@ export interface PreviewAnchor {
   linkBottom: number;
 }
 
+// The anchor a control hands the window it opens: its own rect. An element that is not laid out
+// (jsdom, or one unmounted between the click and the read) anchors at the viewport origin, which
+// initialPreviewBounds then places like any other cramped corner.
+export function elementAnchor(el: Element | null | undefined): PreviewAnchor {
+  const rect = el?.getBoundingClientRect();
+  return rect
+    ? { linkLeft: rect.left, linkRight: rect.right, linkTop: rect.top, linkBottom: rect.bottom }
+    : { linkLeft: 0, linkRight: 0, linkTop: 0, linkBottom: 0 };
+}
+
 // A resize target on the window: one of the four corners or four edges. An edge drag moves only the
 // width or the height, while a corner drag moves both dimensions.
 export type PreviewResizeHandle = "nw" | "ne" | "sw" | "se" | "w" | "e" | "n" | "s";

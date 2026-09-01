@@ -1,9 +1,12 @@
 import { fireEvent, render, screen } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
+import { FloatingProvider, useFloating } from "./preview/floatingStore";
 import { SearchPanel } from "./SearchPanel";
 
 vi.mock("@tanstack/react-router", () => ({
   useNavigate: () => vi.fn(),
+  // The floating layer drops its unpinned windows when the route changes; nothing here navigates.
+  useRouterState: () => "/",
   Link: ({ children, ...rest }: { children?: React.ReactNode }) => <a {...rest}>{children}</a>,
 }));
 vi.mock("../hooks/useDebouncedValue", () => ({ useDebouncedValue: (value: string) => value }));
@@ -43,11 +46,28 @@ vi.mock("../queries", () => ({
   }),
 }));
 
+// Every result row carries a float button, which asks the layer for a window — so the panel only
+// renders inside the provider that owns them.
+function renderPanel(panel: React.ReactElement) {
+  return render(
+    <FloatingProvider>
+      {panel}
+      <FloatingCount />
+    </FloatingProvider>,
+  );
+}
+
+// Reports how many windows the floating layer holds, without rendering the layer itself.
+function FloatingCount() {
+  const { windows } = useFloating();
+  return <output data-testid="floating-count">{windows.length}</output>;
+}
+
 describe("SearchPanel groups", () => {
   // A file-name hit used to fall into Titles, because that group was everything that was not a body
   // hit. It is its own group, last: naming a file is the coarsest way to ask for a note.
   it("puts a file-name hit in its own group, below full text", () => {
-    const { container } = render(<SearchPanel />);
+    const { container } = renderPanel(<SearchPanel />);
 
     const headings = screen.getAllByRole("heading").map((h) => h.textContent);
     expect(headings).toEqual(["Titles", "Full text", "File name"]);
@@ -64,7 +84,7 @@ describe("SearchPanel groups", () => {
   it("clears the query once a result is chosen", () => {
     setQuery.mockReset();
     const onNavigate = vi.fn();
-    const { container } = render(<SearchPanel onNavigate={onNavigate} />);
+    const { container } = renderPanel(<SearchPanel onNavigate={onNavigate} />);
 
     fireEvent.click(container.querySelector("a")!);
     expect(setQuery).toHaveBeenCalledWith("");
@@ -75,7 +95,7 @@ describe("SearchPanel groups", () => {
   // without typing the sigil by hand.
   it("adds a tag term to the query when a result's tag is clicked", () => {
     setQuery.mockReset();
-    render(<SearchPanel />);
+    renderPanel(<SearchPanel />);
 
     fireEvent.click(screen.getByRole("button", { name: "#daily" }));
     expect(setQuery).toHaveBeenCalledWith("1785024006000 #daily");
@@ -83,17 +103,27 @@ describe("SearchPanel groups", () => {
 
   it("clears the query when Enter takes the active result", () => {
     setQuery.mockReset();
-    render(<SearchPanel />);
+    renderPanel(<SearchPanel />);
 
     fireEvent.keyDown(screen.getByRole("searchbox"), { key: "Enter" });
     expect(setQuery).toHaveBeenCalledWith("");
+  });
+
+  // The row's own control, since a button cannot live inside the result's link: it pops the note into
+  // the floating layer rather than navigating, so a hit can be read without spending the search.
+  it("floats a result from the button beside it", () => {
+    renderPanel(<SearchPanel />);
+
+    expect(screen.getByTestId("floating-count")).toHaveTextContent("0");
+    fireEvent.click(screen.getByRole("button", { name: "Float Titled" }));
+    expect(screen.getByTestId("floating-count")).toHaveTextContent("1");
   });
 
   it("badges a flagged result beside its title", () => {
     searchState.results = [
       { note_id: 9, file_kind: "note", path: "", title: "Flagged", match: "title", flags: ["DEPRECATED"] },
     ];
-    const { container } = render(<SearchPanel />);
+    const { container } = renderPanel(<SearchPanel />);
 
     expect(screen.getByText("Flagged")).toBeTruthy();
     const badge = container.querySelector(".note-flag-badge-deprecated");

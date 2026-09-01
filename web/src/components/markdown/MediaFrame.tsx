@@ -1,5 +1,5 @@
 import { createContext, type ReactNode, useContext, useEffect, useRef, useState } from "react";
-import { initialPreviewBounds, type PreviewAnchor } from "../preview/bounds";
+import { elementAnchor, initialPreviewBounds } from "../preview/bounds";
 import { InFloatingWindowContext, useFloating } from "../preview/floatingStore";
 import { NoteKindContext, NoteVaultContext } from "./context";
 import { IconMaximize, IconPictureInPicture, RailIcon } from "../icons";
@@ -40,20 +40,13 @@ export function MediaFrame({ src, alt, children }: { src: string; alt: string; c
     return <>{children}</>;
   }
 
-  function frameAnchor(): PreviewAnchor {
-    const rect = ref.current?.getBoundingClientRect();
-    return rect
-      ? { linkLeft: rect.left, linkRight: rect.right, linkTop: rect.top, linkBottom: rect.bottom }
-      : { linkLeft: 0, linkRight: 0, linkTop: 0, linkBottom: 0 };
-  }
-
   // The preview was asked for by a click, so it opens settled: it stays until its close button (or
   // enlarging the media) dismisses it, rather than evaporating when the pointer wanders off. Its pin
   // button is what makes it persist across navigation, same as any other window in the layer.
   function openPreview() {
     openedRef.current = floating.open(
       { kind: "media", src, alt, noteKind: kind, vault },
-      initialPreviewBounds(frameAnchor()),
+      initialPreviewBounds(elementAnchor(ref.current)),
       false,
     );
   }

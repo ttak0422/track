@@ -8,6 +8,7 @@ import { highlightSearchText } from "../searchHighlight";
 import { isNew } from "../reading";
 import type { SearchResult } from "../types";
 import { NoteFlagBadges } from "./noteShared";
+import { FloatNoteButton } from "./preview/FloatNoteButton";
 
 interface SearchPanelProps {
   // Called when a result is chosen (click or Enter), so a host like the sidebar popup can close itself.
@@ -178,32 +179,42 @@ interface SearchResultItemProps {
 function SearchResultItem({ note, index, active, query, onNavigate, onFilterTag }: SearchResultItemProps) {
   return (
     <>
-      <Link
-        className={`result${active ? " is-active" : ""}`}
-        id={`search-result-${note.note_id}`}
-        data-index={index}
-        to="/notes/$noteId"
-        params={{ noteId: String(note.note_id) }}
-        onClick={() => onNavigate?.()}
-      >
-        <span className="result-title">
-          {note.icon ? (
-            <span className="note-icon" aria-hidden="true">
-              {note.icon}
-            </span>
+      {/* The float button cannot sit inside the link it stands beside, so the row is the pair's
+          container: the result opens the note, the button pops it into the floating layer instead —
+          reading a hit without spending the search. */}
+      <div className="result-row">
+        <Link
+          className={`result${active ? " is-active" : ""}`}
+          id={`search-result-${note.note_id}`}
+          data-index={index}
+          to="/notes/$noteId"
+          params={{ noteId: String(note.note_id) }}
+          onClick={() => onNavigate?.()}
+        >
+          <span className="result-title">
+            {note.icon ? (
+              <span className="note-icon" aria-hidden="true">
+                {note.icon}
+              </span>
+            ) : null}
+            <HighlightedSearchText text={note.title} query={query} />
+            {isNew(note.note_id) ? (
+              <span className="note-state-badge note-state-new">NEW</span>
+            ) : null}
+            <NoteFlagBadges flags={note.flags} />
+          </span>
+          {note.snippet ? (
+            <p className="result-snippet">
+              <HighlightedSearchText text={note.snippet} query={query} />
+            </p>
           ) : null}
-          <HighlightedSearchText text={note.title} query={query} />
-          {isNew(note.note_id) ? (
-            <span className="note-state-badge note-state-new">NEW</span>
-          ) : null}
-          <NoteFlagBadges flags={note.flags} />
-        </span>
-        {note.snippet ? (
-          <p className="result-snippet">
-            <HighlightedSearchText text={note.snippet} query={query} />
-          </p>
-        ) : null}
-      </Link>
+        </Link>
+        <FloatNoteButton
+          noteID={note.note_id}
+          className="result-float"
+          label={`Float ${note.title}`}
+        />
+      </div>
       {/* The tags narrow the search rather than open the note, so they are controls beside the result,
           not part of the link — which also keeps them out of an anchor they cannot legally sit in. */}
       {note.tags && note.tags.length > 0 ? (
