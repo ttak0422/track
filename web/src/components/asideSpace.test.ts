@@ -60,10 +60,14 @@ describe("listCaps", () => {
   });
 });
 
+// The chrome a rail carries around its lists in these cases: headings, tags, the graph, the padding.
+const chrome = 420;
+
 // jsdom lays nothing out, so the rail is built carrying the measurements a browser would have taken.
-function railWith(limit: string, lists: { items: number; shown: number; content: number }[]): HTMLElement {
+// A rail whose content falls short of its height is not short in the DOM — the graph's auto margin
+// takes up the difference — so the fixture stamps that margin the way the layout would.
+function railWith(limit: number, lists: { items: number; shown: number; content: number }[]): HTMLElement {
   const rail = document.createElement("div");
-  rail.style.maxHeight = limit;
   let listTotal = 0;
   for (const spec of lists) {
     const list = document.createElement("div");
@@ -74,16 +78,20 @@ function railWith(limit: string, lists: { items: number; shown: number; content:
     rail.appendChild(list);
     listTotal += spec.shown;
   }
-  // The rail as rendered: its lists, plus the 420px of chrome the measurement has to infer — the
-  // headings, the tags, the graph's fixed height, the padding.
-  Object.defineProperty(rail, "scrollHeight", { value: listTotal + 420, configurable: true });
+  const graph = document.createElement("section");
+  graph.className = "backlinks note-aside-graph";
+  const natural = listTotal + chrome;
+  graph.style.marginTop = `${Math.max(0, limit - natural)}px`;
+  rail.appendChild(graph);
+  Object.defineProperty(rail, "clientHeight", { value: limit, configurable: true });
+  Object.defineProperty(rail, "scrollHeight", { value: Math.max(limit, natural), configurable: true });
   return rail;
 }
 
 describe("applyListCaps", () => {
   // The heart of it: room the rail is not using reaches the lists that are cut off.
   it("spends the rail's spare room on the lists still cut off", () => {
-    const rail = railWith("1200px", [
+    const rail = railWith(1200, [
       { items: 40, shown: baseListCap, content: 1040 },
       { items: 4, shown: 104, content: 104 },
     ]);
@@ -96,20 +104,34 @@ describe("applyListCaps", () => {
     expect(short.style.maxHeight).toBe("");
   });
 
+  // The room the graph's auto margin is holding is the lists' room, not the rail's own: a rail that
+  // measures as full only because the graph was pushed to its foot still has room to hand out.
+  it("counts the room the graph's auto margin is holding", () => {
+    const rail = railWith(1200, [{ items: 40, shown: baseListCap, content: 1040 }]);
+
+    // The fixture's rail is packed to its height (scrollHeight === clientHeight) by that margin alone.
+    expect(rail.scrollHeight).toBe(rail.clientHeight);
+    applyListCaps(rail);
+
+    // 1200 less 420 of chrome and 320 of base leaves 460, all of it the one cut-off list's.
+    expect(rail.querySelector<HTMLElement>(".backlink-list")!.style.maxHeight).toBe("780px");
+  });
+
   // A rail with nothing spare is the rail as it always was: the stylesheet's cap, and the rail's own
   // scroll to reach the rest.
   it("writes no cap of its own when the rail is already full", () => {
-    const rail = railWith("600px", [{ items: 40, shown: baseListCap, content: 1040 }]);
+    const rail = railWith(600, [{ items: 40, shown: baseListCap, content: 1040 }]);
 
     applyListCaps(rail);
 
     expect(rail.querySelector<HTMLElement>(".backlink-list")!.style.maxHeight).toBe("");
   });
 
-  // Stacked under the note there is no bound to share out, and a cap left over from the docked rail
-  // has to go — the same aside is re-rendered across that breakpoint.
-  it("clears the caps when the rail has no height bound", () => {
-    const rail = railWith("", [{ items: 40, shown: baseListCap, content: 1040 }]);
+  // Stacked under the note the rail is sized by its content, so there is nothing spare — and a cap
+  // left over from the docked rail has to go, since the same aside is re-rendered across that
+  // breakpoint.
+  it("clears the caps when the rail is sized by its own content", () => {
+    const rail = railWith(baseListCap + chrome, [{ items: 40, shown: baseListCap, content: 1040 }]);
     const list = rail.querySelector<HTMLElement>(".backlink-list")!;
     list.style.maxHeight = "676px";
 

@@ -459,6 +459,27 @@ describe("phone width", () => {
   });
 });
 
+describe("docked aside", () => {
+  // The rail is the window's height, not its content's — that is what puts the graph at its foot on a
+  // note whose sections come up short, and what the list allocation measures against.
+  it("sizes the rail from the window rather than its sections", () => {
+    expect(mediaBody("(min-width: 1100px)")).toMatch(/> \.note-aside \{[^}]*height:\s*calc\(100vh/);
+  });
+
+  // Pushed to the foot when the sections above come up short, held there when they overflow. The
+  // ground is what keeps the rows from reading through it; the rule is the edge they vanish under.
+  it("holds the graph at the rail's foot, on ground of its own", () => {
+    const pinned = mediaBody("(min-width: 1100px) and (min-height: 600px)");
+
+    expect(pinned).toMatch(/margin-top:\s*auto/);
+    expect(pinned).toMatch(/position:\s*sticky/);
+    expect(pinned).toMatch(/bottom:\s*0/);
+    expect(pinned).toMatch(/background:\s*var\(--panel\)/);
+    // A short window keeps none of it: 280px of graph is the whole rail there.
+    expect(mediaBody("(min-width: 1100px)")).not.toMatch(/position:\s*sticky[^}]*bottom:\s*0/);
+  });
+});
+
 describe("pointers that cannot hover", () => {
   const touch = mediaBody("(hover: none)");
 

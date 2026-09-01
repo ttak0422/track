@@ -4741,7 +4741,10 @@ textarea.modal-input:focus-visible {
     flex: 0 0 calc(clamp(240px, 24vw, 380px) + var(--aside-pad) * 2);
     flex-direction: column;
     flex-wrap: nowrap;
-    max-height: calc(100vh - 65px + var(--aside-pad)); /* tab bar (33px) + the sticky offset */
+    /* The rail is the window's height, not its content's: it holds the graph at its foot whatever the
+       note above it has to say. It takes the sheet's own ground, so a rail longer than its sections
+       shows nothing but the page it already stood on. */
+    height: calc(100vh - 65px + var(--aside-pad)); /* tab bar (33px) + the sticky offset */
     overflow-y: auto;
     margin-top: calc(-1 * var(--aside-pad));
     margin-inline: calc(-1 * var(--aside-pad));
@@ -4787,6 +4790,30 @@ textarea.modal-input:focus-visible {
   .workspace:not(.home) .note-reader:not(:has(.note-editor textarea)) > .note-layout > .note-aside > .backlinks {
     flex: 0 0 auto;
     width: 100%;
+  }
+}
+
+/* The local graph is the aside's map, not its tail. It sits at the foot of the rail — pushed there by
+   the auto margin when the sections above come up short, held there by the sticky bottom when they
+   overflow — so the note's neighbourhood is on screen whatever else the reader is scrolling through.
+   It keeps the rail's ground, so the rows pass behind it rather than through it, and takes a rule on
+   top: the aside draws no other, and this one is earned by being the edge content disappears under.
+
+   Under 600px of window the pin comes off. The graph is 280px before its heading, and a rail that
+   short has nothing left to show once that much of it is spoken for — so there it goes back to being
+   the last section, and scrolls away with the rest. */
+@media (min-width: 1100px) and (min-height: 600px) {
+  .workspace:not(.home)
+    .note-reader:not(:has(.note-editor textarea))
+    > .note-layout
+    > .note-aside
+    > .note-aside-graph {
+    position: sticky;
+    bottom: 0;
+    margin-top: auto;
+    border-top: 1px solid var(--line);
+    padding-top: 14px;
+    background: var(--panel);
   }
 }
 

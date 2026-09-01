@@ -48,25 +48,34 @@ export function listCaps(spare: number, lists: readonly AsideList[]): number[] {
 // applyListCaps measures a rail and writes each list the height it may take.
 //
 // The sizes are read rather than computed: heading heights, the font scale, and the content width
-// setting all move them, and a constant here would drift from the stylesheet. Both readings are the
-// ones it ran with last time — scrollHeight is a list's full content whatever cap stands on it, and
+// setting all move them, and a constant here would drift from the stylesheet. Every reading survives
+// the caps it produces — a list's scrollHeight is its whole content whatever cap stands on it, and
 // the chrome is the rail less the lists as rendered — so the result settles in a single pass.
+//
+// Stacked under the note the rail is sized by its own content, which leaves nothing spare and writes
+// no cap: the same measurement covers both layouts without asking which one is live.
 export function applyListCaps(rail: HTMLElement): void {
   const lists = [...rail.querySelectorAll<HTMLElement>(".backlink-list")];
-  // Stacked under the note the rail has no height bound, so there is no spare room to speak of.
-  const limit = Number.parseFloat(getComputedStyle(rail).maxHeight);
-  if (!Number.isFinite(limit)) {
-    for (const list of lists) list.style.maxHeight = "";
-    return;
-  }
+  const shown = lists.reduce((total, list) => total + list.clientHeight, 0);
   const sizes = lists.map((list) => ({ items: list.childElementCount, content: list.scrollHeight }));
+  const base = sizes.reduce((total, size) => total + Math.min(size.content, baseListCap), 0);
   // Everything in the rail that is not a list: the headings, the tags, the graph's fixed height, the
   // padding. Taken as it stands, so nothing here has to know the stylesheet's numbers.
-  const chrome = rail.scrollHeight - lists.reduce((total, list) => total + list.clientHeight, 0);
-  const base = sizes.reduce((total, size) => total + Math.min(size.content, baseListCap), 0);
-  const caps = listCaps(limit - chrome - base, sizes);
+  const chrome = rail.scrollHeight - shown;
+  const caps = listCaps(rail.clientHeight - chrome + pushedRoom(rail) - base, sizes);
   lists.forEach((list, index) => {
     // Back to the stylesheet's own cap when there is nothing to add, rather than restating it.
     list.style.maxHeight = caps[index] > baseListCap ? `${Math.round(caps[index])}px` : "";
   });
+}
+
+// The graph is held at the rail's foot by an auto margin (see the docked rail's rules), and that
+// margin's used value is exactly the room the lists have not taken. Without it the measurement above
+// would read a rail packed to its own height and conclude there was nothing spare — the auto margin
+// having quietly eaten the very room it is asked about.
+function pushedRoom(rail: HTMLElement): number {
+  const graph = rail.querySelector<HTMLElement>(".note-aside-graph");
+  if (!graph) return 0;
+  const pushed = Number.parseFloat(getComputedStyle(graph).marginTop);
+  return Number.isFinite(pushed) ? pushed : 0;
 }
