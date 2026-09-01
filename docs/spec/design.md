@@ -465,6 +465,14 @@ The note's aside is a quiet column; the rail is a floating dock over the sheet.
   before the rail does on a narrow laptop. Section headings take the label
   recipe; a count sits at the right end of the heading row in mono 11px
   `--faint`. Rows are text controls — no pills.
+- Vertically the aside spends the room it has rather than holding one number.
+  Each list keeps its 320px cap as the floor of the arrangement, and only room
+  the rail is not using is handed out: by item count, never past a list's own
+  rows, and what a short list cannot fill goes back to the ones still cut off.
+  The graph keeps its fixed height and takes no part. Nothing shrinks — a rail
+  with nothing to spare reads exactly as it always has, and its own scroll
+  stays the safety net. The sizes are measured, not computed: the font scale
+  and the content width setting move them, and a constant would drift.
 - Docked, the aside takes the sheet's own ground (`--panel`) — no rule, no
   radius, nothing that reads as a box. It is not decoration: a full-bleed block
   runs the width of the reading surface and passes beneath this column, and

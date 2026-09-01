@@ -1,8 +1,9 @@
 import { Link, useLocation, useNavigate } from "@tanstack/react-router";
-import { useEffect, useMemo, useRef, useState } from "react";
+import { type RefObject, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { useAgendaQuery, useLocalGraphQuery } from "../queries";
 import { isNew } from "../reading";
 import { dateKey } from "./activityDates";
+import { applyListCaps } from "./asideSpace";
 import { GraphCanvas } from "./GraphCanvasLazy";
 import { headingElementID, tocEntries } from "./markdown/toc";
 import { WikiLink } from "./preview/WikiLink";
@@ -109,6 +110,36 @@ export function useScrollToHash(ready: boolean) {
   }, [ready, hash]);
 }
 
+// useAsideSpace spends the room the docked rail has left over. Every capped list shows the same 320px
+// however tall the screen is, so a tall display reads a column of stubs with the room below them going
+// to waste; this hands that room to the lists still cut off (see asideSpace for the rule).
+//
+// The sizes are measured rather than computed: heading heights, the font scale, and the content width
+// setting all move them, and a constant here would drift from the stylesheet. Nothing shrinks — below
+// the cap the aside behaves exactly as it always has, and the rail's own scroll stays the safety net.
+function useAsideSpace(railRef: RefObject<HTMLDivElement | null>) {
+  // After layout on every render, since the aside's content arrives with the note's queries and a rail
+  // already at its bound reports no resize when its content changes. The caps are written to the DOM
+  // rather than to state, so measuring re-renders nothing and cannot chase itself.
+  useLayoutEffect(() => {
+    const rail = railRef.current;
+    if (!rail) return;
+
+    const measure = () => applyListCaps(rail);
+
+    measure();
+    // A shorter window changes what the rail may take without changing the rail itself.
+    window.addEventListener("resize", measure);
+    // ...and the content width setting changes the rail without touching the window.
+    const observer = typeof ResizeObserver === "undefined" ? null : new ResizeObserver(measure);
+    observer?.observe(rail);
+    return () => {
+      window.removeEventListener("resize", measure);
+      observer?.disconnect();
+    };
+  });
+}
+
 // NoteAside renders a note's backlinks, its hierarchy children (notes whose "up" property points
 // here), the note's local link graph, and, for a journal, the other notes touched that day. The
 // sections share the reader's width and wrap to a stack when narrow; on a wide viewport CSS lays
@@ -147,6 +178,8 @@ export function NoteAside({
   const [lightboxResetToken, setLightboxResetToken] = useState(0);
   const graphDialogRef = useRef<HTMLDialogElement>(null);
   const navigate = useNavigate();
+  const railRef = useRef<HTMLDivElement>(null);
+  useAsideSpace(railRef);
   const graph = graphQuery.data?.graph;
   // A single heading is not an outline — it is the note's own title restated — so the section only
   // appears once there is somewhere to navigate between.
@@ -159,7 +192,7 @@ export function NoteAside({
   }, [graphEnlarged]);
 
   return (
-    <div className="note-aside">
+    <div className="note-aside" ref={railRef}>
       {tags.length > 0 ? (
         <section className="backlinks note-aside-tags" aria-labelledby="tags-heading">
           <h3 id="tags-heading">Tags</h3>
