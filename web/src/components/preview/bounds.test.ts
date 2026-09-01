@@ -5,7 +5,9 @@ import {
   initialPreviewBounds,
   minPreviewWidth,
   type PreviewAnchor,
+  previewScatter,
   resizePreviewBounds,
+  scatterPreviewBounds,
 } from "./bounds";
 
 function setViewport(width: number, height: number) {
@@ -144,5 +146,32 @@ describe("resizePreviewBounds", () => {
 
   it("holds the width floor when dragging the right edge in", () => {
     expect(resizePreviewBounds("e", start, -200, 0).width).toBe(minPreviewWidth);
+  });
+});
+
+describe("scatterPreviewBounds", () => {
+  const placed = { left: 400, top: 200, width: 400, height: 300 };
+
+  // Every float button in a column measures nearly the same anchor, so the placement alone would drop
+  // each window on the last. The scatter is what tells two of them apart.
+  it("nudges a placement by up to the scatter in each direction", () => {
+    expect(scatterPreviewBounds(placed, () => 1)).toMatchObject({
+      left: placed.left + previewScatter,
+      top: placed.top + previewScatter,
+    });
+    expect(scatterPreviewBounds(placed, () => 0)).toMatchObject({
+      left: placed.left - previewScatter,
+      top: placed.top - previewScatter,
+    });
+    expect(scatterPreviewBounds(placed, () => 0.5)).toMatchObject({ left: placed.left, top: placed.top });
+  });
+
+  // The nudge is not a way out of the viewport: a window scattered off the edge is pulled back like
+  // any other.
+  it("keeps a scattered window inside the viewport", () => {
+    setViewport(600, 500);
+    const corner = scatterPreviewBounds({ left: 560, top: 460, width: 400, height: 300 }, () => 1);
+
+    expect(corner).toEqual(constrainPreviewBounds(corner));
   });
 });

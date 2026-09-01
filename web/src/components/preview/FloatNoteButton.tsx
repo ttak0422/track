@@ -1,7 +1,7 @@
 import { useRef } from "react";
 import type { NoteID } from "../../types";
 import { IconPictureInPicture, RailIcon } from "../icons";
-import { elementAnchor, initialPreviewBounds } from "./bounds";
+import { elementAnchor, initialPreviewBounds, scatterPreviewBounds } from "./bounds";
 import { useFloating } from "./floatingStore";
 
 interface FloatNoteButtonProps {
@@ -20,12 +20,24 @@ interface FloatNoteButtonProps {
 export function FloatNoteButton({ noteID, className, label }: FloatNoteButtonProps) {
   const ref = useRef<HTMLButtonElement>(null);
   const floating = useFloating();
+  // A note that already has a window is already on screen, so there is nothing here to offer: open()
+  // would only raise the window standing in front of the reader anyway.
+  const floated = floating.windows.some(
+    (win) => win.content.kind === "note" && win.content.noteID === noteID,
+  );
 
   function float() {
-    floating.open({ kind: "note", noteID }, initialPreviewBounds(elementAnchor(ref.current)), false, {
-      pinned: true,
-    });
+    // Scattered rather than placed: every button in a column measures nearly the same anchor, so an
+    // exact placement would drop each window on top of the last.
+    floating.open(
+      { kind: "note", noteID },
+      scatterPreviewBounds(initialPreviewBounds(elementAnchor(ref.current))),
+      false,
+      { pinned: true },
+    );
   }
+
+  if (floated) return null;
 
   return (
     <button ref={ref} type="button" className={className} aria-label={label} title={label} onClick={float}>

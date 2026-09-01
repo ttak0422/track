@@ -40,6 +40,25 @@ export function elementAnchor(el: Element | null | undefined): PreviewAnchor {
     : { linkLeft: 0, linkRight: 0, linkTop: 0, linkBottom: 0 };
 }
 
+// How far an explicitly floated window may land from where its anchor alone would put it. Windows
+// opened from a column of buttons measure near-identical anchors, so without a scatter every one of
+// them lands on the same pixel and a stack of them reads as a single window.
+export const previewScatter = 56;
+
+// scatterPreviewBounds nudges a placement by up to previewScatter in each direction. The randomness
+// is a parameter so the placement stays testable; the viewport still has the last word, since a
+// nudged window is constrained back inside it.
+export function scatterPreviewBounds(
+  bounds: PreviewBounds,
+  random: () => number = Math.random,
+): PreviewBounds {
+  return constrainPreviewBounds({
+    ...bounds,
+    left: bounds.left + (random() * 2 - 1) * previewScatter,
+    top: bounds.top + (random() * 2 - 1) * previewScatter,
+  });
+}
+
 // A resize target on the window: one of the four corners or four edges. An edge drag moves only the
 // width or the height, while a corner drag moves both dimensions.
 export type PreviewResizeHandle = "nw" | "ne" | "sw" | "se" | "w" | "e" | "n" | "s";
