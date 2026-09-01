@@ -184,6 +184,10 @@ export function NoteAside({
   // A single heading is not an outline — it is the note's own title restated — so the section only
   // appears once there is somewhere to navigate between.
   const toc = useMemo(() => tocEntries(markdown), [markdown]);
+  // Indentation is measured from the outline's own shallowest heading, not from h1: a note whose
+  // title is its metadata starts its body at "##", and that "##" is the top of this outline rather
+  // than one level into a heading the note does not have.
+  const topLevel = toc.length > 0 ? Math.min(...toc.map((entry) => entry.level)) : 1;
 
   // The lightbox <dialog> mounts only while enlarged; showModal() must run after that mount, so it
   // lives in an effect rather than the click handler.
@@ -215,7 +219,11 @@ export function NoteAside({
                 className="backlink note-toc-entry"
                 key={entry.id}
                 href={`#${headingElementID(entry.id)}`}
-                style={entry.level > 1 ? { paddingLeft: `${(entry.level - 1) * 12}px` } : undefined}
+                style={
+                  entry.level > topLevel
+                    ? { paddingLeft: `${(entry.level - topLevel) * 2}em` }
+                    : undefined
+                }
               >
                 {entry.text}
               </a>
