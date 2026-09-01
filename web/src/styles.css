@@ -674,6 +674,47 @@ img.theme-asset-dark {
   padding: 8px;
 }
 
+/* A result and the control beside it. The link keeps the row's width; the button takes the slot at
+   its end rather than overlaying the title, which is already clipped there. The slot is held open
+   whether or not the button is in it — a row whose note is already on screen carries none, and a
+   collapsing column would shuffle the titles beside it. */
+.result-row {
+  display: grid;
+  align-items: start;
+  grid-template-columns: minmax(0, 1fr) 32px;
+}
+
+/* Icon button (variant 7), standing permanently: it is the only way to discover that a hit can be
+   read without leaving the search, and a reveal on row hover would leave a keyboard walk of the
+   list with nothing to find. */
+.result-float {
+  display: grid;
+  width: 24px;
+  height: 24px;
+  place-items: center;
+  margin: 10px 8px 0 0;
+  border: 0;
+  border-radius: var(--radius-sm);
+  padding: 0;
+  color: var(--muted);
+  background: transparent;
+  cursor: pointer;
+}
+
+.result-float:hover,
+.result-float:focus-visible {
+  color: var(--text);
+  background: var(--panel-soft);
+}
+
+/* No window opens on a pointer that cannot hover (design.md), so the control that would open one is
+   not there either — the same rule that takes the media frame's preview chip away. */
+@media (hover: none) {
+  .result-float {
+    display: none;
+  }
+}
+
 .result {
   display: grid;
   grid-template-columns: minmax(0, 1fr) auto;

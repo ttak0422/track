@@ -2,10 +2,9 @@ import { useNavigate } from "@tanstack/react-router";
 import { type MouseEvent, useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
 import type { NoteID } from "../../types";
 import { vaultOf } from "../../vaultId";
-import { initialPreviewBounds } from "../preview/bounds";
-import { useFloating } from "../preview/floatingStore";
+import { FloatNoteButton } from "../preview/FloatNoteButton";
 import { isViewTab, type NoteTab, tabRoute, useTabs } from "./tabsStore";
-import { IconChevronDown, IconPictureInPicture, IconX, RailIcon } from "../icons";
+import { IconChevronDown, IconX, RailIcon } from "../icons";
 
 // TabBar is the strip of open notes above the reader, most recent first (tabsStore keeps that order),
 // so the note being read is always the leftmost tab and never in the overflow. The strip shows every
@@ -119,7 +118,9 @@ export function TabBar() {
                   {label}
                 </span>
                 <div className="tab-tools-actions">
-                  {!isViewTab(tab.id) ? <FloatButton noteID={tab.id} /> : null}
+                  {!isViewTab(tab.id) ? (
+                    <FloatNoteButton noteID={tab.id} className="tab-float" label="Float this note" />
+                  ) : null}
                 </div>
               </div>
             </div>
@@ -208,32 +209,5 @@ function TabOverflow({
         </div>
       ) : null}
     </div>
-  );
-}
-
-// FloatButton pops the tab's note into the persistent floating layer (pinned, so it survives navigating
-// away), anchored to the button.
-function FloatButton({ noteID }: { noteID: NoteID }) {
-  const floating = useFloating();
-  const ref = useRef<HTMLButtonElement>(null);
-
-  function float() {
-    const rect = ref.current?.getBoundingClientRect();
-    const anchor = rect
-      ? { linkLeft: rect.left, linkRight: rect.right, linkTop: rect.top, linkBottom: rect.bottom }
-      : { linkLeft: 0, linkRight: 0, linkTop: 0, linkBottom: 0 };
-    floating.open({ kind: "note", noteID }, initialPreviewBounds(anchor), false, { pinned: true });
-  }
-
-  return (
-    <button
-      ref={ref}
-      type="button"
-      className="tab-float"
-      aria-label="Float this note"
-      onClick={float}
-    >
-      <RailIcon Icon={IconPictureInPicture} size={14} />
-    </button>
   );
 }

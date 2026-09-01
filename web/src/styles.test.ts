@@ -128,6 +128,21 @@ describe("tab strip", () => {
   });
 });
 
+describe("search results", () => {
+  // The float control is an icon button (design.md variant 7): transparent at rest, the aiming cue a
+  // surface rather than a hairline. It stands permanently, since a reveal on row hover would leave a
+  // keyboard walk of the list with nothing to find.
+  it("gives a result's float control the icon button's quiet frame", () => {
+    const float = ruleBody(".result-float");
+    const aimed = css.match(/\.result-float:hover,\s*\.result-float:focus-visible\s*\{([^}]*)\}/)?.[1] ?? "";
+
+    expect(float).toMatch(/border-radius:\s*var\(--radius-sm\)/);
+    expect(float).toMatch(/background:\s*transparent/);
+    expect(float).not.toMatch(/opacity/);
+    expect(aimed).toMatch(/background:\s*var\(--panel-soft\)/);
+  });
+});
+
 describe("note state badges", () => {
   it("writes NEW in the salient and stale in faint, as label-typography chips", () => {
     const badge = ruleBody(".note-state-badge");
@@ -466,6 +481,7 @@ describe("pointers that cannot hover", () => {
     expect(touch).toMatch(/\.tab-tools\s*\{[^}]*display:\s*none/);
     expect(touch).toMatch(/\.rail-tip\s*\{[^}]*display:\s*none/);
     expect(touch).toMatch(/\.media-preview\s*\{[^}]*display:\s*none/);
+    expect(touch).toMatch(/\.result-float\s*\{[^}]*display:\s*none/);
     // The note and graph previews are JS, and ask the same question of the same pointer.
     expect(previewStack).toMatch(/matchMedia\?\.\("\(hover: none\)"\)/);
   });

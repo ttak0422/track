@@ -1,9 +1,15 @@
 import { fireEvent, render, screen } from "@testing-library/react";
-import { describe, expect, it, vi } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
+import { FloatingProvider, useFloating } from "./preview/floatingStore";
 import { SearchPanel } from "./SearchPanel";
+
+// Where the reader is. The panel asks so a result already on screen offers no way to open it again;
+// the floating layer asks so it can drop its unpinned windows when the route changes.
+const routerMock = vi.hoisted(() => ({ pathname: "/" }));
 
 vi.mock("@tanstack/react-router", () => ({
   useNavigate: () => vi.fn(),
+  useRouterState: () => routerMock.pathname,
   Link: ({ children, ...rest }: { children?: React.ReactNode }) => <a {...rest}>{children}</a>,
 }));
 vi.mock("../hooks/useDebouncedValue", () => ({ useDebouncedValue: (value: string) => value }));
@@ -18,7 +24,7 @@ vi.mock("./preview/WikiLink", () => ({ WikiLink: () => null }));
 // A mutable holder so a test can swap in a flagged result and restore the default afterwards. The
 // defaults live here (not in a module const) because vi.mock's factory is hoisted above it.
 type MockResult = {
-  note_id: number;
+  note_id: string;
   file_kind: string;
   path: string;
   title: string;
@@ -29,9 +35,9 @@ type MockResult = {
 
 const searchState = vi.hoisted(() => ({
   results: [
-    { note_id: 1, file_kind: "note", path: "", title: "Titled", match: "title", tags: ["daily"] },
-    { note_id: 2, file_kind: "note", path: "", title: "Bodied", match: "body" },
-    { note_id: 3, file_kind: "note", path: "", title: "Named", match: "path" },
+    { note_id: "1", file_kind: "note", path: "", title: "Titled", match: "title", tags: ["daily"] },
+    { note_id: "2", file_kind: "note", path: "", title: "Bodied", match: "body" },
+    { note_id: "3", file_kind: "note", path: "", title: "Named", match: "path" },
   ] as MockResult[],
 }));
 
@@ -43,11 +49,32 @@ vi.mock("../queries", () => ({
   }),
 }));
 
+// Every result row carries a float button, which asks the layer for a window — so the panel only
+// renders inside the provider that owns them.
+function renderPanel(panel: React.ReactElement) {
+  return render(
+    <FloatingProvider>
+      {panel}
+      <FloatingCount />
+    </FloatingProvider>,
+  );
+}
+
+// Reports how many windows the floating layer holds, without rendering the layer itself.
+function FloatingCount() {
+  const { windows } = useFloating();
+  return <output data-testid="floating-count">{windows.length}</output>;
+}
+
 describe("SearchPanel groups", () => {
+  afterEach(() => {
+    routerMock.pathname = "/";
+  });
+
   // A file-name hit used to fall into Titles, because that group was everything that was not a body
   // hit. It is its own group, last: naming a file is the coarsest way to ask for a note.
   it("puts a file-name hit in its own group, below full text", () => {
-    const { container } = render(<SearchPanel />);
+    const { container } = renderPanel(<SearchPanel />);
 
     const headings = screen.getAllByRole("heading").map((h) => h.textContent);
     expect(headings).toEqual(["Titles", "Full text", "File name"]);
@@ -64,7 +91,7 @@ describe("SearchPanel groups", () => {
   it("clears the query once a result is chosen", () => {
     setQuery.mockReset();
     const onNavigate = vi.fn();
-    const { container } = render(<SearchPanel onNavigate={onNavigate} />);
+    const { container } = renderPanel(<SearchPanel onNavigate={onNavigate} />);
 
     fireEvent.click(container.querySelector("a")!);
     expect(setQuery).toHaveBeenCalledWith("");
@@ -75,7 +102,7 @@ describe("SearchPanel groups", () => {
   // without typing the sigil by hand.
   it("adds a tag term to the query when a result's tag is clicked", () => {
     setQuery.mockReset();
-    render(<SearchPanel />);
+    renderPanel(<SearchPanel />);
 
     fireEvent.click(screen.getByRole("button", { name: "#daily" }));
     expect(setQuery).toHaveBeenCalledWith("1785024006000 #daily");
@@ -83,17 +110,39 @@ describe("SearchPanel groups", () => {
 
   it("clears the query when Enter takes the active result", () => {
     setQuery.mockReset();
-    render(<SearchPanel />);
+    renderPanel(<SearchPanel />);
 
     fireEvent.keyDown(screen.getByRole("searchbox"), { key: "Enter" });
     expect(setQuery).toHaveBeenCalledWith("");
   });
 
+  // The row's own control, since a button cannot live inside the result's link: it pops the note into
+  // the floating layer rather than navigating, so a hit can be read without spending the search.
+  it("floats a result from the button beside it", () => {
+    renderPanel(<SearchPanel />);
+
+    expect(screen.getByTestId("floating-count")).toHaveTextContent("0");
+    fireEvent.click(screen.getByRole("button", { name: "Float Titled" }));
+    expect(screen.getByTestId("floating-count")).toHaveTextContent("1");
+    // The note is on screen now, so the row stops offering to put it there: clicking again would only
+    // raise the window already standing in front of the reader.
+    expect(screen.queryByRole("button", { name: "Float Titled" })).toBeNull();
+  });
+
+  // The note in the reader is displayed already — the loudest case of the same rule.
+  it("offers no float control for the note being read", () => {
+    routerMock.pathname = "/notes/1";
+    renderPanel(<SearchPanel />);
+
+    expect(screen.queryByRole("button", { name: "Float Titled" })).toBeNull();
+    expect(screen.getByRole("button", { name: "Float Bodied" })).toBeTruthy();
+  });
+
   it("badges a flagged result beside its title", () => {
     searchState.results = [
-      { note_id: 9, file_kind: "note", path: "", title: "Flagged", match: "title", flags: ["DEPRECATED"] },
+      { note_id: "9", file_kind: "note", path: "", title: "Flagged", match: "title", flags: ["DEPRECATED"] },
     ];
-    const { container } = render(<SearchPanel />);
+    const { container } = renderPanel(<SearchPanel />);
 
     expect(screen.getByText("Flagged")).toBeTruthy();
     const badge = container.querySelector(".note-flag-badge-deprecated");

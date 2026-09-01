@@ -1,4 +1,4 @@
-import { Link, useNavigate } from "@tanstack/react-router";
+import { Link, useNavigate, useRouterState } from "@tanstack/react-router";
 import { useEffect, useRef, useState } from "react";
 import { useDebouncedValue } from "../hooks/useDebouncedValue";
 import { keys, step } from "../keys";
@@ -8,6 +8,8 @@ import { highlightSearchText } from "../searchHighlight";
 import { isNew } from "../reading";
 import type { SearchResult } from "../types";
 import { NoteFlagBadges } from "./noteShared";
+import { FloatNoteButton } from "./preview/FloatNoteButton";
+import { noteIDFromPath } from "./tabs/tabsStore";
 
 interface SearchPanelProps {
   // Called when a result is chosen (click or Enter), so a host like the sidebar popup can close itself.
@@ -24,6 +26,9 @@ export function SearchPanel({ onNavigate, autoFocus }: SearchPanelProps = {}) {
   const hasQuery = trimmedQuery !== "";
   const search = useSearchQuery(trimmedQuery, 100, { enabled: hasQuery });
   const navigate = useNavigate();
+  // The note already open in the reader. It is on screen, so its row offers no way to open it again.
+  const pathname = useRouterState({ select: (state) => state.location.pathname });
+  const reading = noteIDFromPath(pathname);
   const results = hasQuery ? (search.data?.results ?? []) : [];
   // The server tags each hit with the search that found it; a body hit can carry no snippet (its
   // terms straddled lines), so the tag is the discriminator, not the snippet.
@@ -118,6 +123,7 @@ export function SearchPanel({ onNavigate, autoFocus }: SearchPanelProps = {}) {
             index={index}
             active={index === active}
             query={trimmedQuery}
+            reading={note.note_id === reading}
             onNavigate={chooseResult}
             onFilterTag={filterByTag}
           />
@@ -132,6 +138,7 @@ export function SearchPanel({ onNavigate, autoFocus }: SearchPanelProps = {}) {
                 index={titleHits.length + index}
                 active={titleHits.length + index === active}
                 query={trimmedQuery}
+                reading={note.note_id === reading}
                 onNavigate={chooseResult}
                 onFilterTag={filterByTag}
               />
@@ -150,6 +157,7 @@ export function SearchPanel({ onNavigate, autoFocus }: SearchPanelProps = {}) {
                 index={titleHits.length + bodyHits.length + index}
                 active={titleHits.length + bodyHits.length + index === active}
                 query={trimmedQuery}
+                reading={note.note_id === reading}
                 onNavigate={chooseResult}
                 onFilterTag={filterByTag}
               />
@@ -171,39 +179,49 @@ interface SearchResultItemProps {
   index: number;
   active: boolean;
   query: string;
+  // True for the note the reader is already on: it is displayed, so the row drops the float control.
+  reading: boolean;
   onNavigate?: () => void;
   onFilterTag: (tag: string) => void;
 }
 
-function SearchResultItem({ note, index, active, query, onNavigate, onFilterTag }: SearchResultItemProps) {
+function SearchResultItem({ note, index, active, query, reading, onNavigate, onFilterTag }: SearchResultItemProps) {
   return (
     <>
-      <Link
-        className={`result${active ? " is-active" : ""}`}
-        id={`search-result-${note.note_id}`}
-        data-index={index}
-        to="/notes/$noteId"
-        params={{ noteId: String(note.note_id) }}
-        onClick={() => onNavigate?.()}
-      >
-        <span className="result-title">
-          {note.icon ? (
-            <span className="note-icon" aria-hidden="true">
-              {note.icon}
-            </span>
+      {/* The float button cannot sit inside the link it stands beside, so the row is the pair's
+          container: the result opens the note, the button pops it into the floating layer instead —
+          reading a hit without spending the search. */}
+      <div className="result-row">
+        <Link
+          className={`result${active ? " is-active" : ""}`}
+          id={`search-result-${note.note_id}`}
+          data-index={index}
+          to="/notes/$noteId"
+          params={{ noteId: String(note.note_id) }}
+          onClick={() => onNavigate?.()}
+        >
+          <span className="result-title">
+            {note.icon ? (
+              <span className="note-icon" aria-hidden="true">
+                {note.icon}
+              </span>
+            ) : null}
+            <HighlightedSearchText text={note.title} query={query} />
+            {isNew(note.note_id) ? (
+              <span className="note-state-badge note-state-new">NEW</span>
+            ) : null}
+            <NoteFlagBadges flags={note.flags} />
+          </span>
+          {note.snippet ? (
+            <p className="result-snippet">
+              <HighlightedSearchText text={note.snippet} query={query} />
+            </p>
           ) : null}
-          <HighlightedSearchText text={note.title} query={query} />
-          {isNew(note.note_id) ? (
-            <span className="note-state-badge note-state-new">NEW</span>
-          ) : null}
-          <NoteFlagBadges flags={note.flags} />
-        </span>
-        {note.snippet ? (
-          <p className="result-snippet">
-            <HighlightedSearchText text={note.snippet} query={query} />
-          </p>
-        ) : null}
-      </Link>
+        </Link>
+        {reading ? null : (
+          <FloatNoteButton noteID={note.note_id} className="result-float" label={`Float ${note.title}`} />
+        )}
+      </div>
       {/* The tags narrow the search rather than open the note, so they are controls beside the result,
           not part of the link — which also keeps them out of an anchor they cannot legally sit in. */}
       {note.tags && note.tags.length > 0 ? (

@@ -90,7 +90,9 @@ function loadTabs(): NoteTab[] {
   }
 }
 
-function noteIDFromPath(pathname: string): NoteID | null {
+// Exported because the reader's own note is the one thing a list of notes must not offer to open
+// again (SearchPanel), and the route is where that answer lives.
+export function noteIDFromPath(pathname: string): NoteID | null {
   // Tolerate a trailing slash: the prerendered static site serves each route as a directory
   // (/notes/<id>/), so the router's pathname carries the slash.
   const path = pathname.replace(/\/$/, "") || "/";
