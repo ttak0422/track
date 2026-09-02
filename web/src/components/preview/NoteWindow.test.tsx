@@ -19,8 +19,23 @@ vi.mock("./FloatingWindow", () => ({
   FloatingWindow: ({ children }: { children: ReactNode }) => <div>{children}</div>,
 }));
 vi.mock("../MarkdownView", () => ({
-  MarkdownView: ({ markdown, title, showTitle }: { markdown: string; title?: string; showTitle?: boolean }) => (
-    <div data-testid="body" data-title={title} data-show-title={String(showTitle)}>
+  MarkdownView: ({
+    markdown,
+    title,
+    showTitle,
+    copyPath,
+  }: {
+    markdown: string;
+    title?: string;
+    showTitle?: boolean;
+    copyPath?: string;
+  }) => (
+    <div
+      data-testid="body"
+      data-title={title}
+      data-show-title={String(showTitle)}
+      data-copy-path={copyPath}
+    >
       {markdown}
     </div>
   ),
@@ -36,7 +51,11 @@ const controls = {
 };
 
 function noteLoaded(body: string) {
-  return { data: { note: { title: "T", body, file_kind: "note" } }, isPending: false, isError: false };
+  return {
+    data: { note: { title: "T", body, file_kind: "note", copy_path: "notes/t.md" } },
+    isPending: false,
+    isError: false,
+  };
 }
 
 function show() {
@@ -66,6 +85,13 @@ describe("NoteWindow content switch", () => {
     show();
     expect(screen.getByTestId("body")).toHaveAttribute("data-title", "T");
     expect(screen.getByTestId("body")).toHaveAttribute("data-show-title", "false");
+  });
+
+  it("hands the body the note's source path, so a selection in the window offers its copy actions", () => {
+    noteQuery.mockReturnValue(noteLoaded("# hi"));
+    renderQuery.mockReturnValue({ data: { markdown: "# hi" }, isError: false });
+    show();
+    expect(screen.getByTestId("body")).toHaveAttribute("data-copy-path", "notes/t.md");
   });
 
   it("does not wait on an empty note, whose render never runs", () => {

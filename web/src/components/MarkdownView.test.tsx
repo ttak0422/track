@@ -328,6 +328,27 @@ describe("MarkdownView", () => {
     await waitFor(() => expect(copyText).toHaveBeenCalledWith("notes/project.md:4-5"));
   });
 
+  // A reader and every open floating window render a body of their own, and all of them listen on the
+  // one document-level selectionchange. Each resolves the range against its own root, so a selection
+  // belongs to exactly one of them and is copied with that body's path, not a neighbour's.
+  it("answers a selection from the one body that contains it", async () => {
+    copyText.mockReset();
+    copyText.mockResolvedValue(true);
+    const { container } = render(
+      <>
+        <MarkdownView copyPath="notes/reader.md" markdown="reader line" />
+        <MarkdownView copyPath="notes/window.md" markdown="window line" />
+      </>,
+    );
+    const inWindow = container.querySelectorAll("p")[1].firstChild!;
+    const selection = window.getSelection()!;
+    selection.setBaseAndExtent(inWindow, 0, inWindow, 6);
+    fireEvent(document, new Event("selectionchange"));
+    expect(container.querySelectorAll(".selection-copy")).toHaveLength(1);
+    fireEvent.click(screen.getByRole("button", { name: "Copy range" }));
+    await waitFor(() => expect(copyText).toHaveBeenCalledWith("notes/window.md:1"));
+  });
+
   it("offers nothing when the selection has no marked note line", () => {
     const { container } = render(
       <MarkdownView copyPath="notes/project.md" title="Project" markdown="body" />,

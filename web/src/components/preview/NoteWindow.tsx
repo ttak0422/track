@@ -36,6 +36,10 @@ export function NoteWindow({ noteID, ...controls }: NoteWindowProps) {
       {note.isPending || awaitingRender ? <LoadingIndicator label="Loading note" /> : null}
       {note.isError ? <p className="error">{note.error.message}</p> : null}
       {note.data && !awaitingRender ? (
+        // The source path goes in, so selecting prose in a window offers the same copy actions as the
+        // reader does. No portal: the popover is position: fixed and the window sets no transform, so
+        // it escapes the scrolling body instead of being clipped by it, and paints inside the window's
+        // own stacking band rather than under the whole preview layer.
         <MarkdownView
           markdown={rendered.data?.markdown ?? ""}
           title={note.data.note.title}
@@ -43,6 +47,7 @@ export function NoteWindow({ noteID, ...controls }: NoteWindowProps) {
           kind={note.data.note.file_kind}
           vault={vault}
           includes={rendered.data?.includes}
+          copyPath={note.data.note.copy_path}
         />
       ) : null}
     </FloatingWindow>
