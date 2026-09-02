@@ -729,11 +729,16 @@ img.theme-asset-dark {
 }
 
 /* The keyboard cursor is an L-shaped reading-edge marker, not a selected card: the left edge anchors
-   the row and the bottom edge makes the active result easy to scan without adding a filled tile. */
+   the row and the bottom edge makes the active result easy to scan without adding a filled tile. The
+   edge is drawn on the row rather than on the link inside it, so it spans the float control's slot
+   too — the cursor marks the whole result, not the part of it that happens to be a link. */
+.result-row:has(.result.is-active) {
+  box-shadow: inset 2px 0 0 var(--mark), inset 0 -2px 0 var(--mark);
+}
+
 .result.is-active {
   background: transparent;
   border-radius: 0;
-  box-shadow: inset 2px 0 0 var(--mark), inset 0 -2px 0 var(--mark);
 }
 
 .result-title {
