@@ -88,8 +88,12 @@ describe("ThemeMenu text size", () => {
     document.documentElement.removeAttribute("style");
   });
 
-  function pick(group: string, label: string) {
-    fireEvent.click(within(screen.getByRole("group", { name: group })).getByRole("button", { name: label }));
+  function field(label: string) {
+    return screen.getByLabelText(label) as HTMLInputElement;
+  }
+
+  function type(label: string, value: string) {
+    fireEvent.change(field(label), { target: { value } });
   }
 
   function scales() {
@@ -97,12 +101,16 @@ describe("ThemeMenu text size", () => {
     return [root.getPropertyValue("--font-scale"), root.getPropertyValue("--preview-font-scale")];
   }
 
-  it("puts the reader and a preview window on the same scale for the same number", () => {
+  function openSettings() {
     render(<ThemeMenu />);
     fireEvent.click(screen.getByRole("button", { name: "Settings" }));
+  }
 
-    pick("Text size", "18px");
-    pick("Preview text size", "18px");
+  it("puts the reader and a preview window on the same scale for the same number", () => {
+    openSettings();
+
+    type("Text size", "18");
+    type("Preview text size", "18");
 
     // The sheet's prose is 16px * the scale its surface carries, so an equal scale is equal text —
     // and 18/16 is what 18px has to mean on both.
@@ -112,11 +120,10 @@ describe("ThemeMenu text size", () => {
   });
 
   it("keeps the two numbers independent", () => {
-    render(<ThemeMenu />);
-    fireEvent.click(screen.getByRole("button", { name: "Settings" }));
+    openSettings();
 
-    pick("Text size", "20px");
-    pick("Preview text size", "14px");
+    type("Text size", "20");
+    type("Preview text size", "14");
 
     expect(scales()).toEqual(["1.25", "0.875"]);
     expect(localStorage.getItem("track.fontSize")).toBe("20");
@@ -126,14 +133,50 @@ describe("ThemeMenu text size", () => {
   // The default is the absence of the setting, the way the theme's "system" and the content width's
   // "Normal" are: back at the base, both the key and the property go away again.
   it("stores nothing at the default size", () => {
-    render(<ThemeMenu />);
-    fireEvent.click(screen.getByRole("button", { name: "Settings" }));
+    openSettings();
 
-    pick("Text size", "20px");
-    pick("Text size", "16px");
+    type("Text size", "20");
+    type("Text size", "16");
 
     expect(scales()).toEqual(["", ""]);
     expect(localStorage.getItem("track.fontSize")).toBeNull();
     expect(localStorage.getItem("track.previewFontSize")).toBeNull();
+  });
+
+  // Typing is a sequence of half-finished numbers, and the page is resizing under the field while it
+  // happens. Every draft that is not a whole number in range leaves the size exactly where it was.
+  it("holds the size while the field is cleared, mistyped, or out of range", () => {
+    openSettings();
+    type("Text size", "20");
+
+    for (const draft of ["", "  ", "2", "0", "12", "33", "180", "18.5", "abc"]) {
+      // jsdom, like a browser, hands back "" for what a number field cannot parse — either way the
+      // draft is not a size, and the page keeps the one it has.
+      type("Text size", draft);
+      expect(scales()[0]).toBe("1.25");
+      expect(localStorage.getItem("track.fontSize")).toBe("20");
+    }
+
+    // And the field is not left showing a draft the size never took.
+    fireEvent.blur(field("Text size"));
+    expect(field("Text size").value).toBe("20");
+  });
+
+  it("offers the range to the spinner and the arrow keys", () => {
+    openSettings();
+    const input = field("Text size");
+
+    expect(input.type).toBe("number");
+    expect(input.min).toBe("13");
+    expect(input.max).toBe("32");
+    expect(input.step).toBe("1");
+  });
+
+  it("ignores a stored size from outside the range", () => {
+    localStorage.setItem("track.fontSize", "200");
+    openSettings();
+
+    expect(field("Text size").value).toBe("16");
+    expect(scales()[0]).toBe("");
   });
 });

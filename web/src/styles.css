@@ -645,6 +645,33 @@ img.theme-asset-dark {
   font-weight: 600;
 }
 
+/* The text sizes are typed, not stepped, so they are underline inputs (design.md variant 5) rather
+   than another switch. The unit sits beside the field as plain text — there is no box to put it in —
+   and the field is only as wide as the digits plus the room the native spinner asks for. */
+.size-field {
+  display: flex;
+  align-items: baseline;
+  gap: 6px;
+  color: var(--faint);
+  font-size: calc(12px * var(--font-scale, 1));
+}
+
+.size-input {
+  width: 5ch;
+  border: 0;
+  border-bottom: 1px solid var(--line);
+  border-radius: 0;
+  padding: 2px 0;
+  color: var(--text);
+  background: transparent;
+  transition: border-color 0.12s ease;
+}
+
+.size-input:focus-visible {
+  outline: none;
+  border-bottom-color: var(--mark);
+}
+
 .search-panel {
   display: flex;
   flex: 1;
