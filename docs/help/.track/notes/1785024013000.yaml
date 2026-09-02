@@ -1,5 +1,7 @@
 version: 8
 title: Searching notes
 created: '2026-07-26'
+props:
+  up: '[[track]]'
 icon: 🔍
 slug: 2KOlBRK4KsOQ2JVVHeuKuI

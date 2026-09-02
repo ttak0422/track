@@ -1,11 +1,15 @@
-import { Link, useNavigate } from "@tanstack/react-router";
+import { Link, useNavigate, useRouterState } from "@tanstack/react-router";
 import { useEffect, useRef, useState } from "react";
 import { useDebouncedValue } from "../hooks/useDebouncedValue";
 import { keys, step } from "../keys";
 import { useSearchQuery } from "../queries";
 import { useSearchState } from "../searchState";
 import { highlightSearchText } from "../searchHighlight";
+import { isNew } from "../reading";
 import type { SearchResult } from "../types";
+import { NoteFlagBadges } from "./noteShared";
+import { FloatNoteButton } from "./preview/FloatNoteButton";
+import { noteIDFromPath } from "./tabs/tabsStore";
 
 interface SearchPanelProps {
   // Called when a result is chosen (click or Enter), so a host like the sidebar popup can close itself.
@@ -22,16 +26,22 @@ export function SearchPanel({ onNavigate, autoFocus }: SearchPanelProps = {}) {
   const hasQuery = trimmedQuery !== "";
   const search = useSearchQuery(trimmedQuery, 100, { enabled: hasQuery });
   const navigate = useNavigate();
+  // The note already open in the reader. It is on screen, so its row offers no way to open it again.
+  const pathname = useRouterState({ select: (state) => state.location.pathname });
+  const reading = noteIDFromPath(pathname);
   const results = hasQuery ? (search.data?.results ?? []) : [];
   // The server tags each hit with the search that found it; a body hit can carry no snippet (its
   // terms straddled lines), so the tag is the discriminator, not the snippet.
-  const titleHits = results.filter((note) => note.match !== "body");
+  const titleHits = results.filter((note) => note.match !== "body" && note.match !== "path");
   const bodyHits = results.filter((note) => note.match === "body");
+  // A note the query named by its file rather than by anything it says. The published site never has
+  // these — its bundle carries no source paths — so the group simply never appears there.
+  const pathHits = results.filter((note) => note.match === "path");
   // Vaults the server could not read. Saying so is the point: otherwise a search that reached only
   // half the vaults looks exactly like one that found nothing in the other half.
   const unavailable = hasQuery ? (search.data?.unavailable ?? []) : [];
-  // Keyboard order is what the reader sees: titles first, then full text.
-  const ordered = [...titleHits, ...bodyHits];
+  // Keyboard order is what the reader sees: titles, then full text, then the file name.
+  const ordered = [...titleHits, ...bodyHits, ...pathHits];
   const [active, setActive] = useState(0);
   const listRef = useRef<HTMLDivElement>(null);
 
@@ -47,6 +57,23 @@ export function SearchPanel({ onNavigate, autoFocus }: SearchPanelProps = {}) {
     if (active < 0) return;
     listRef.current?.querySelector<HTMLElement>(`[data-index="${active}"]`)?.scrollIntoView({ block: "nearest" });
   }, [active]);
+
+  // Choosing a result ends the search, so the field goes back to empty and the host closes. The query
+  // is shared state, so leaving it set kept the palette (and the home hero behind it) showing the last
+  // search's hits — reopening search looked like it had never been used.
+  function chooseResult() {
+    setQuery("");
+    onNavigate?.();
+  }
+
+  // A tag narrows the search in place: the engine reads "#tag" as a hierarchical tag filter (#a matches
+  // a/b, never ab) beside the words already typed, so clicking one adds a term rather than starting over.
+  function filterByTag(tag: string) {
+    const term = `#${tag}`;
+    const terms = query.split(/\s+/).filter(Boolean);
+    if (terms.includes(term)) return;
+    setQuery([...terms, term].join(" "));
+  }
 
   function onKeyDown(event: React.KeyboardEvent<HTMLInputElement>) {
     if (keys.next(event)) {
@@ -64,7 +91,7 @@ export function SearchPanel({ onNavigate, autoFocus }: SearchPanelProps = {}) {
       if (!note) return;
       event.preventDefault();
       void navigate({ to: "/notes/$noteId", params: { noteId: String(note.note_id) } });
-      onNavigate?.();
+      chooseResult();
     }
   }
 
@@ -96,7 +123,9 @@ export function SearchPanel({ onNavigate, autoFocus }: SearchPanelProps = {}) {
             index={index}
             active={index === active}
             query={trimmedQuery}
-            onNavigate={onNavigate}
+            reading={note.note_id === reading}
+            onNavigate={chooseResult}
+            onFilterTag={filterByTag}
           />
         ))}
         {bodyHits.length > 0 ? (
@@ -109,7 +138,28 @@ export function SearchPanel({ onNavigate, autoFocus }: SearchPanelProps = {}) {
                 index={titleHits.length + index}
                 active={titleHits.length + index === active}
                 query={trimmedQuery}
-                onNavigate={onNavigate}
+                reading={note.note_id === reading}
+                onNavigate={chooseResult}
+                onFilterTag={filterByTag}
+              />
+            ))}
+          </>
+        ) : null}
+        {pathHits.length > 0 ? (
+          <>
+            {titleHits.length + bodyHits.length > 0 ? (
+              <h3 className="results-group">File name</h3>
+            ) : null}
+            {pathHits.map((note, index) => (
+              <SearchResultItem
+                key={note.note_id}
+                note={note}
+                index={titleHits.length + bodyHits.length + index}
+                active={titleHits.length + bodyHits.length + index === active}
+                query={trimmedQuery}
+                reading={note.note_id === reading}
+                onNavigate={chooseResult}
+                onFilterTag={filterByTag}
               />
             ))}
           </>
@@ -129,42 +179,61 @@ interface SearchResultItemProps {
   index: number;
   active: boolean;
   query: string;
+  // True for the note the reader is already on: it is displayed, so the row drops the float control.
+  reading: boolean;
   onNavigate?: () => void;
+  onFilterTag: (tag: string) => void;
 }
 
-function SearchResultItem({ note, index, active, query, onNavigate }: SearchResultItemProps) {
+function SearchResultItem({ note, index, active, query, reading, onNavigate, onFilterTag }: SearchResultItemProps) {
   return (
-    <Link
-      className={`result${active ? " is-active" : ""}`}
-      id={`search-result-${note.note_id}`}
-      data-index={index}
-      to="/notes/$noteId"
-      params={{ noteId: String(note.note_id) }}
-      onClick={() => onNavigate?.()}
-    >
-      <span className="result-title">
-        {note.icon ? (
-          <span className="note-icon" aria-hidden="true">
-            {note.icon}
+    <>
+      {/* The float button cannot sit inside the link it stands beside, so the row is the pair's
+          container: the result opens the note, the button pops it into the floating layer instead —
+          reading a hit without spending the search. */}
+      <div className="result-row">
+        <Link
+          className={`result${active ? " is-active" : ""}`}
+          id={`search-result-${note.note_id}`}
+          data-index={index}
+          to="/notes/$noteId"
+          params={{ noteId: String(note.note_id) }}
+          onClick={() => onNavigate?.()}
+        >
+          <span className="result-title">
+            {note.icon ? (
+              <span className="note-icon" aria-hidden="true">
+                {note.icon}
+              </span>
+            ) : null}
+            <HighlightedSearchText text={note.title} query={query} />
+            {isNew(note.note_id) ? (
+              <span className="note-state-badge note-state-new">NEW</span>
+            ) : null}
+            <NoteFlagBadges flags={note.flags} />
           </span>
-        ) : null}
-        <HighlightedSearchText text={note.title} query={query} />
-      </span>
-      {note.snippet ? (
-        <p className="result-snippet">
-          <HighlightedSearchText text={note.snippet} query={query} />
-        </p>
-      ) : null}
+          {note.snippet ? (
+            <p className="result-snippet">
+              <HighlightedSearchText text={note.snippet} query={query} />
+            </p>
+          ) : null}
+        </Link>
+        {reading ? null : (
+          <FloatNoteButton noteID={note.note_id} className="result-float" label={`Float ${note.title}`} />
+        )}
+      </div>
+      {/* The tags narrow the search rather than open the note, so they are controls beside the result,
+          not part of the link — which also keeps them out of an anchor they cannot legally sit in. */}
       {note.tags && note.tags.length > 0 ? (
-        <div className="tag-list" aria-label={`${note.title} tags`}>
+        <div className="tag-list result-tags" aria-label={`${note.title} tags`}>
           {note.tags.map((tag) => (
-            <span key={tag}>
+            <button key={tag} type="button" onClick={() => onFilterTag(tag)} title={`Filter by #${tag}`}>
               <HighlightedSearchText text={`#${tag}`} query={query} />
-            </span>
+            </button>
           ))}
         </div>
       ) : null}
-    </Link>
+    </>
   );
 }
 

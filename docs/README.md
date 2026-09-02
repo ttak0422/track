@@ -2,35 +2,35 @@
 
 This directory contains durable project knowledge that should be committed and shared across agents and contributors.
 
+The user-facing documentation is not here: it is the track vault under `help/`, published to
+<https://ttak0422.github.io/track/> (ADR 0059).
+
 ## Specifications
 
 - `roadmap.md`: candidate feature TODOs and discussion state.
 - `spec/architecture.md`: implementation architecture and package boundaries.
-- `spec/babel.md`: Markdown-first Org Babel compatibility and support matrix.
+- `spec/agent-workflows.md`: CLI workflow contract for agents and automation.
 - `spec/storage.md`: vault layout, sidecar metadata, and SQLite cache shape.
-- `spec/templates.md`: template file format, substitutions, and creation flows.
 - `spec/links.md`: `[[...]]` link syntax, keyword resolution, and link graph behavior.
+- `spec/templates.md`: template file format, substitutions, and creation flows.
+- `spec/babel.md`: Markdown-first Org Babel compatibility and support matrix.
 - `spec/export.md`: single-note Markdown export rendering and options.
 - `spec/web.md`: local web workspace HTTP API, save conflict detection, graph scopes, and theme/palette config.
-- `spec/agent-workflows.md`: CLI workflow contract for agents and automation.
+- `spec/design.md`: the reference for styling web UI; pick a control variant from here rather than inventing one.
+- `spec/visualization.md`: Canonical Data Model, View Spec, and chart rendering.
+- `spec/fetch.md`: the contract `track-fetch-*` tools target to bring outside data into the Canonical Data Model.
+
+## Agent guides
+
+- `agents/domain.md`: domain docs layout.
+- `agents/issue-tracker.md`: GitHub Issues as the triage surface.
+- `agents/triage-labels.md`: the canonical triage labels.
 
 ## ADRs
 
-- `adr/0001-go-cli-as-source-of-truth.md`
-- `adr/0002-versioned-sidecar-metadata.md`
-- `adr/0003-implicit-longest-match-autolinks.md`
-- `adr/0004-explicit-vault-configuration.md`
-- `adr/0005-journal-date-paths.md`
-- `adr/0006-body-title-is-authoritative.md`
-- `adr/0007-go-lsp-for-editor-navigation.md`
-- `adr/0008-explicit-wiki-links.md`
-- `adr/0009-heading-anchor-links.md`
-- `adr/0010-unique-titles-open-command.md`
-- `adr/0011-markdown-export-pipeline.md`
-- `adr/0012-drop-alias-keywords.md`
-- `adr/0013-metadata-title-is-authoritative.md`
-- `adr/0014-vault-health-checks-and-repair.md`
-- `adr/0015-default-vault-to-home-track.md`
+`adr/` holds the numbered architecture decision records, newest last. The filenames state the
+decision, so browse the directory rather than a list here — a hand-maintained index goes stale
+the moment an ADR lands.
 
 ## Not Here
 

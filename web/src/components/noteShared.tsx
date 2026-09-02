@@ -1,12 +1,15 @@
 import { Link, useLocation, useNavigate } from "@tanstack/react-router";
-import { useEffect, useMemo, useRef, useState } from "react";
+import { type RefObject, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { useAgendaQuery, useLocalGraphQuery } from "../queries";
+import { isNew } from "../reading";
 import { dateKey } from "./activityDates";
+import { applyListCaps } from "./asideSpace";
 import { GraphCanvas } from "./GraphCanvasLazy";
 import { headingElementID, tocEntries } from "./markdown/toc";
 import { WikiLink } from "./preview/WikiLink";
 import type { ExternalRef, FileKind, NoteID, NoteProp, NoteRef, UnavailableVault } from "../types";
 import { split, vaultOf } from "../vaultId";
+import { IconMaximize, IconRotate2, IconX, RailIcon } from "./icons";
 
 // Shared read-only note UI, used by both the static reader (NoteReaderStatic) and the live editor
 // (NoteEditor), so the two stay consistent and the editor-only code is the only thing that differs.
@@ -53,6 +56,43 @@ export function NoteBreadcrumbs({ trail }: { trail: NoteRef[] }) {
   );
 }
 
+// NoteStamps overlays a note's article with its author-assigned flags (ADR 0074): the classic red
+// English-text stamp, uppercase and slightly rotated, transparent enough to keep reading and
+// pointer-transparent so it never blocks selection or editing. Each flag stacks down the article's
+// right edge (the per-stamp top offset comes from here, not CSS, so the stack scales with the flag
+// list rather than a sibling rule). Callers anchor it inside the positioned article.
+export function NoteStamps({ flags }: { flags?: string[] }) {
+  if (!flags || flags.length === 0) return null;
+  return (
+    <div className="note-stamps" aria-hidden="true">
+      {flags.map((flag, index) => (
+        <span
+          key={flag}
+          className={`stamp stamp-${flag.toLowerCase()}`}
+          style={{ top: `${24 + index * 76}px` }}
+        >
+          {flag}
+        </span>
+      ))}
+    </div>
+  );
+}
+
+// NoteFlagBadges renders a note's author-assigned flags as small label chips in list rows — the same
+// inline treatment as the NEW/stale state badges, in the flags' danger red.
+export function NoteFlagBadges({ flags }: { flags?: string[] }) {
+  if (!flags || flags.length === 0) return null;
+  return (
+    <>
+      {flags.map((flag) => (
+        <span key={flag} className={`note-flag-badge note-flag-badge-${flag.toLowerCase()}`}>
+          {flag}
+        </span>
+      ))}
+    </>
+  );
+}
+
 // useScrollToHash scrolls the note view to the element the URL hash names — a block anchor,
 // id="block-<id>" (see remarkBlockID) — once the rendered body is in the DOM, and marks it with
 // .block-target for the arrival highlight. The reader drives this itself because SPA navigation
@@ -68,6 +108,36 @@ export function useScrollToHash(ready: boolean) {
     el.scrollIntoView({ block: "center" });
     return () => el.classList.remove("block-target");
   }, [ready, hash]);
+}
+
+// useAsideSpace spends the room the docked rail has left over. Every capped list shows the same 320px
+// however tall the screen is, so a tall display reads a column of stubs with the room below them going
+// to waste; this hands that room to the lists still cut off (see asideSpace for the rule).
+//
+// The sizes are measured rather than computed: heading heights, the font scale, and the content width
+// setting all move them, and a constant here would drift from the stylesheet. Nothing shrinks — below
+// the cap the aside behaves exactly as it always has, and the rail's own scroll stays the safety net.
+function useAsideSpace(railRef: RefObject<HTMLDivElement | null>) {
+  // After layout on every render, since the aside's content arrives with the note's queries and a rail
+  // already at its bound reports no resize when its content changes. The caps are written to the DOM
+  // rather than to state, so measuring re-renders nothing and cannot chase itself.
+  useLayoutEffect(() => {
+    const rail = railRef.current;
+    if (!rail) return;
+
+    const measure = () => applyListCaps(rail);
+
+    measure();
+    // A shorter window changes what the rail may take without changing the rail itself.
+    window.addEventListener("resize", measure);
+    // ...and the content width setting changes the rail without touching the window.
+    const observer = typeof ResizeObserver === "undefined" ? null : new ResizeObserver(measure);
+    observer?.observe(rail);
+    return () => {
+      window.removeEventListener("resize", measure);
+      observer?.disconnect();
+    };
+  });
 }
 
 // NoteAside renders a note's backlinks, its hierarchy children (notes whose "up" property points
@@ -108,10 +178,16 @@ export function NoteAside({
   const [lightboxResetToken, setLightboxResetToken] = useState(0);
   const graphDialogRef = useRef<HTMLDialogElement>(null);
   const navigate = useNavigate();
+  const railRef = useRef<HTMLDivElement>(null);
+  useAsideSpace(railRef);
   const graph = graphQuery.data?.graph;
   // A single heading is not an outline — it is the note's own title restated — so the section only
   // appears once there is somewhere to navigate between.
   const toc = useMemo(() => tocEntries(markdown), [markdown]);
+  // Indentation is measured from the outline's own shallowest heading, not from h1: a note whose
+  // title is its metadata starts its body at "##", and that "##" is the top of this outline rather
+  // than one level into a heading the note does not have.
+  const topLevel = toc.length > 0 ? Math.min(...toc.map((entry) => entry.level)) : 1;
 
   // The lightbox <dialog> mounts only while enlarged; showModal() must run after that mount, so it
   // lives in an effect rather than the click handler.
@@ -120,7 +196,7 @@ export function NoteAside({
   }, [graphEnlarged]);
 
   return (
-    <div className="note-aside">
+    <div className="note-aside" ref={railRef}>
       {tags.length > 0 ? (
         <section className="backlinks note-aside-tags" aria-labelledby="tags-heading">
           <h3 id="tags-heading">Tags</h3>
@@ -143,7 +219,11 @@ export function NoteAside({
                 className="backlink note-toc-entry"
                 key={entry.id}
                 href={`#${headingElementID(entry.id)}`}
-                style={entry.level > 1 ? { paddingLeft: `${(entry.level - 1) * 12}px` } : undefined}
+                style={
+                  entry.level > topLevel
+                    ? { paddingLeft: `${(entry.level - topLevel) * 2}em` }
+                    : undefined
+                }
               >
                 {entry.text}
               </a>
@@ -192,6 +272,10 @@ export function NoteAside({
                 params={{ noteId: String(backlink.note_id) }}
               >
                 {backlink.title}
+                {isNew(backlink.note_id) ? (
+                  <span className="note-state-badge note-state-new">NEW</span>
+                ) : null}
+                <NoteFlagBadges flags={backlink.flags} />
               </Link>
             ))}
           </div>
@@ -244,6 +328,10 @@ export function NoteAside({
                       params={{ noteId: String(item.note_id) }}
                     >
                       {item.title}
+                      {isNew(item.note_id) ? (
+                        <span className="note-state-badge note-state-new">NEW</span>
+                      ) : null}
+                      <NoteFlagBadges flags={item.flags} />
                     </Link>
                   ))}
                 </div>
@@ -255,47 +343,36 @@ export function NoteAside({
 
       {/* The always-on local graph. A lone unlinked node says nothing the note itself doesn't, so
           the section only appears once the note connects somewhere. It is labelled like the lists
-          above it: three sections down a 186px column read as one stack, and the odd one out reads
+          above it: three sections down a column read as one stack, and the odd one out reads
           as something that fell off the end of the note (design.md, Sidebar). */}
       {graph && graph.nodes.length > 1 ? (
         <section className="backlinks note-aside-graph" aria-labelledby="local-graph-heading">
-          <h3 id="local-graph-heading">Graph</h3>
-          {/* Both controls end the heading row, where the other sections carry their count — over the
-              canvas they were glyphs floating on nothing. Siblings of the heading rather than children
-              of it, so the heading a screen reader announces stays "Graph". */}
-          <div className="aside-graph-controls">
-            <button
-              className="graph-reset aside-graph-reset"
-              type="button"
-              aria-label="Reset graph view"
-              title="Reset graph view"
-              onClick={() => setGraphResetToken((token) => token + 1)}
-            >
-              <GraphResetIcon />
-            </button>
-            <button
-              className="graph-reset aside-graph-expand"
-              type="button"
-              aria-label="Enlarge graph"
-              title="Enlarge graph"
-              onClick={() => setGraphEnlarged(true)}
-            >
-              {/* Expand-to-corners glyph, the same one media embeds use to enlarge. Drawn in the rail's
-                  outline family (design.md, Sidebar): 1.5 stroke, no fills. */}
-              <svg
-                viewBox="0 0 24 24"
-                width="15"
-                height="15"
-                fill="none"
-                stroke="currentColor"
-                strokeWidth="1.5"
-                strokeLinecap="round"
-                strokeLinejoin="round"
-                aria-hidden="true"
+          <div className="aside-graph-heading">
+            <h3 id="local-graph-heading">Graph</h3>
+            {/* Both controls end the heading row, where the other sections carry their count — over the
+                canvas they were glyphs floating on nothing. They remain siblings of the heading so
+                the heading a screen reader announces stays "Graph". */}
+            <div className="aside-graph-controls">
+              <button
+                className="graph-reset aside-graph-reset"
+                type="button"
+                aria-label="Reset graph view"
+                title="Reset graph view"
+                onClick={() => setGraphResetToken((token) => token + 1)}
               >
-                <path d="M8 3H5a2 2 0 0 0-2 2v3m18 0V5a2 2 0 0 0-2-2h-3M3 16v3a2 2 0 0 0 2 2h3m8 0h3a2 2 0 0 0 2-2v-3" />
-              </svg>
-            </button>
+                <GraphResetIcon />
+              </button>
+              <button
+                className="graph-reset aside-graph-expand"
+                type="button"
+                aria-label="Enlarge graph"
+                title="Enlarge graph"
+                onClick={() => setGraphEnlarged(true)}
+              >
+                {/* Expand-to-corners glyph (tabler maximize), the same one media embeds use to enlarge. */}
+                <RailIcon Icon={IconMaximize} size={15} />
+              </button>
+            </div>
           </div>
           <div className="aside-graph">
             <GraphCanvas
@@ -329,6 +406,18 @@ export function NoteAside({
                   void navigate({ to: "/notes/$noteId", params: { noteId: String(selected) } });
                 }}
               />
+              {/* The way out. Esc and a click past the dialog still close it, but this one fills the
+                  window: what is left to click past is a few pixels of backdrop, which a thumb
+                  cannot aim at at all. Same corner as the diagram lightbox's (.lightbox-close). */}
+              <button
+                className="graph-reset lightbox-close"
+                type="button"
+                aria-label="Close enlarged graph"
+                title="Close enlarged graph"
+                onClick={() => graphDialogRef.current?.close()}
+              >
+                <CloseIcon />
+              </button>
               <div className="graph-controls">
                 <button
                   className="graph-reset"
@@ -348,23 +437,12 @@ export function NoteAside({
   );
 }
 
+function CloseIcon() {
+  return <RailIcon Icon={IconX} size={15} />;
+}
+
 function GraphResetIcon() {
-  return (
-    <svg
-      viewBox="0 0 24 24"
-      width="15"
-      height="15"
-      fill="none"
-      stroke="currentColor"
-      strokeWidth="1.5"
-      strokeLinecap="round"
-      strokeLinejoin="round"
-      aria-hidden="true"
-    >
-      <path d="M3 12a9 9 0 1 0 9-9 9.75 9.75 0 0 0-6.74 2.74L3 8" />
-      <path d="M3 3v5h5" />
-    </svg>
-  );
+  return <RailIcon Icon={IconRotate2} size={15} />;
 }
 
 // NoteProperties renders a note's flattened properties (sidecar props and inline "key:: value"

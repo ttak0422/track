@@ -14,7 +14,18 @@ vi.mock("@tanstack/react-router", () => ({
 }));
 
 const copyText = vi.hoisted(() => vi.fn());
-vi.mock("./markdown/clipboard", () => ({ copyText }));
+const copyRich = vi.hoisted(() => vi.fn());
+vi.mock("./markdown/clipboard", () => ({ copyText, copyRich }));
+
+// The selection popover's Confluence action renders its portable markdown through portableToHtml;
+// stub the renderer so the wiring test asserts exact clipboard flavors without loading react-dom/server.
+const portableToHtml = vi.hoisted(() =>
+  vi.fn(async (portable: string) => `<section data-stub>${portable}</section>`),
+);
+vi.mock("./markdown/portable", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("./markdown/portable")>()),
+  portableToHtml,
+}));
 
 // EChartsBlock lazy-imports echarts; stub it so a chart fence doesn't pull the real (heavy) library
 // into this suite and starve the KaTeX lazy-load test of its waitFor budget.
@@ -28,10 +39,20 @@ vi.mock("@hpcc-js/wasm-graphviz", () => ({
   Graphviz: { load: async () => ({ dot: () => '<svg viewBox="0 0 10 10"><text>G</text></svg>' }) },
 }));
 
-// Partial mock: only the task write is stubbed, so every other api call the view makes (OGP cards,
-// asset text, wiki-link resolution) keeps its real implementation.
+// Partial mock: only the task write and the OGP fetch are stubbed, so every other api call the view
+// makes (asset text, wiki-link resolution) keeps its real implementation. The OGP fetch is stubbed so a
+// card renders deterministically instead of degrading to its offline fallback.
 const setTaskState = vi.hoisted(() => vi.fn(async () => ({ tasks: { items: [] } })));
 const setTaskDate = vi.hoisted(() => vi.fn(async () => ({ tasks: { items: [] } })));
+const getOgp = vi.hoisted(() =>
+  vi.fn(async (url: string) => ({
+    url,
+    site_name: "Example",
+    title: "Example page",
+    description: "A sample page.",
+    image: "https://example.com/og.png",
+  })),
+);
 // An embedded excerpt fetches the note it came from, to address its tasks by their own lines.
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 const getNote = vi.hoisted(() => vi.fn(async (): Promise<any> => ({ note: { tasks: { items: [] }, etag: "loaded" } })));
@@ -39,6 +60,7 @@ vi.mock("../api", async (importOriginal) => ({
   ...(await importOriginal<typeof import("../api")>()),
   setTaskState,
   setTaskDate,
+  getOgp,
   getNote,
 }));
 
@@ -74,11 +96,14 @@ describe("MarkdownView", () => {
     expect(screen.getByText("Empty note.")).toBeInTheDocument();
   });
 
-  it("uses the note title as the page h1 and blanks an identical leading body h1", () => {
+  it("renders the note title as chrome and keeps an identical leading body h1", () => {
     const markdown = "\n# **Project**\n\n## Status\n\nbody";
     const { container } = render(<MarkdownView title="Project" markdown={markdown} />);
-    expect([...container.querySelectorAll("h1")].map((h) => h.textContent)).toEqual(["Project"]);
+    expect([...container.querySelectorAll("h1")].map((h) => h.textContent)).toEqual(["Project", "Project"]);
     expect(container.querySelector("h1.note-title")).not.toBeNull();
+    // The body h1 is an ordinary heading again: it renders with the id the aside's Contents
+    // outline links to, and the h2 below it keeps its own.
+    expect(container.querySelector("h1:not(.note-title)")?.id).toBe("h-project");
     expect(container.querySelector("h2")?.id).toBe("h-status");
   });
 
@@ -88,6 +113,15 @@ describe("MarkdownView", () => {
       "Project",
       "Executive summary",
     ]);
+  });
+
+  it("renders the body h1 when the popup chrome owns the title row", () => {
+    const { container } = render(
+      <MarkdownView title="Project" showTitle={false} markdown={"# Project\n\n## Status"} />,
+    );
+    expect(container.querySelector("h1")?.textContent).toBe("Project");
+    expect(container.querySelector("h1")?.id).toBe("h-project");
+    expect(container.querySelector("h2")?.textContent).toBe("Status");
   });
 
   it("renders the note title and empty-state copy for an empty body", () => {
@@ -106,6 +140,218 @@ describe("MarkdownView", () => {
     fireEvent.click(screen.getByRole("button", { name: "Copy title" }));
     await waitFor(() => expect(copyText).toHaveBeenCalledWith("Project"));
     expect(await screen.findByRole("button", { name: "Title copied" })).toBeInTheDocument();
+  });
+
+  it("offers a copy range for a cross-block selection and keeps it for a backwards drag", async () => {
+    copyText.mockReset();
+    copyText.mockResolvedValue(true);
+    const { container } = render(
+      <MarkdownView copyPath="notes/project.md" markdown={"first block\n\nsecond block"} />,
+    );
+    const paragraphs = container.querySelectorAll("p");
+    expect(paragraphs[0]).toHaveAttribute("data-copy-line-start", "1");
+    expect(paragraphs[0]).toHaveAttribute("data-copy-line-end", "1");
+    expect(paragraphs[1]).toHaveAttribute("data-copy-line-start", "3");
+
+    const selection = window.getSelection()!;
+    const first = paragraphs[0].firstChild!;
+    const second = paragraphs[1].firstChild!;
+    selection.setBaseAndExtent(first, 1, second, 6);
+    fireEvent(document, new Event("selectionchange"));
+    expect(screen.getByRole("button", { name: "Copy range" })).toBeInTheDocument();
+
+    selection.setBaseAndExtent(second, 6, first, 1);
+    fireEvent(document, new Event("selectionchange"));
+    fireEvent.click(screen.getByRole("button", { name: "Copy range" }));
+    await waitFor(() => expect(copyText).toHaveBeenCalledWith("notes/project.md:1-3"));
+  });
+
+  it("uses a one-line reference for a selection within one source line", async () => {
+    copyText.mockReset();
+    copyText.mockResolvedValue(true);
+    const { container } = render(
+      <MarkdownView copyPath="notes/project.md" markdown="single line" />,
+    );
+    const text = container.querySelector("p")!.firstChild!;
+    const selection = window.getSelection()!;
+    selection.setBaseAndExtent(text, 0, text, 6);
+    fireEvent(document, new Event("selectionchange"));
+    fireEvent.click(screen.getByRole("button", { name: "Copy range" }));
+    await waitFor(() => expect(copyText).toHaveBeenCalledWith("notes/project.md:1"));
+  });
+
+  it("copies the selected lines' markdown source from the copy markdown action", async () => {
+    copyText.mockReset();
+    copyText.mockResolvedValue(true);
+    const { container } = render(
+      <MarkdownView copyPath="notes/project.md" markdown={"first block\n\nsecond block"} />,
+    );
+    const first = container.querySelectorAll("p")[0].firstChild!;
+    const second = container.querySelectorAll("p")[1].firstChild!;
+    // Lines 1..3 of the source, including the blank separator line between the paragraphs.
+    const selection = window.getSelection()!;
+    selection.setBaseAndExtent(first, 1, second, 6);
+    fireEvent(document, new Event("selectionchange"));
+    fireEvent.click(screen.getByRole("button", { name: "Copy markdown" }));
+    await waitFor(() => expect(copyText).toHaveBeenCalledWith("first block\n\nsecond block"));
+  });
+
+  it("copies just the one selected line's markdown for a single-line selection", async () => {
+    copyText.mockReset();
+    copyText.mockResolvedValue(true);
+    const { container } = render(
+      <MarkdownView copyPath="notes/project.md" markdown={"alpha\n\nbeta"} />,
+    );
+    const second = container.querySelectorAll("p")[1].firstChild!;
+    const selection = window.getSelection()!;
+    selection.setBaseAndExtent(second, 0, second, 4);
+    fireEvent(document, new Event("selectionchange"));
+    fireEvent.click(screen.getByRole("button", { name: "Copy markdown" }));
+    await waitFor(() => expect(copyText).toHaveBeenCalledWith("beta"));
+  });
+
+  it("copies the selected lines re-rendered as rich HTML for Confluence", async () => {
+    copyText.mockReset();
+    copyRich.mockReset();
+    copyRich.mockResolvedValue(true);
+    // FloatingProvider wraps the render because the selection spans a wiki link.
+    const { container } = renderWithQuery(
+      <FloatingProvider>
+        <MarkdownView copyPath="notes/project.md" markdown={"see [[Design|API]] first\n\nsecond block"} />
+      </FloatingProvider>,
+    );
+    const first = container.querySelectorAll("p")[0].firstChild!;
+    const second = container.querySelectorAll("p")[1].firstChild!;
+    const selection = window.getSelection()!;
+    selection.setBaseAndExtent(first, 1, second, 6);
+    fireEvent(document, new Event("selectionchange"));
+    fireEvent.click(screen.getByRole("button", { name: "Copy for Confluence" }));
+    // The same selected source Copy markdown takes — wiki links flattened to their alias — paired
+    // with the HTML flavor rendered from that portable text.
+    await waitFor(() =>
+      expect(copyRich).toHaveBeenCalledWith(
+        "<section data-stub>see API first\n\nsecond block</section>",
+        "see API first\n\nsecond block",
+      ),
+    );
+    expect(await screen.findByRole("button", { name: "Copied" })).toBeInTheDocument();
+  });
+
+  it("dismisses the popover once the Confluence copy has confirmed", async () => {
+    copyText.mockReset();
+    copyRich.mockReset();
+    copyRich.mockResolvedValue(true);
+    vi.useFakeTimers({ shouldAdvanceTime: true });
+    try {
+      const { container } = render(
+        <MarkdownView copyPath="notes/project.md" markdown="single line" />,
+      );
+      const text = container.querySelector("p")!.firstChild!;
+      const selection = window.getSelection()!;
+      selection.setBaseAndExtent(text, 0, text, 6);
+      fireEvent(document, new Event("selectionchange"));
+      fireEvent.click(screen.getByRole("button", { name: "Copy for Confluence" }));
+      await waitFor(() => expect(copyRich).toHaveBeenCalled());
+      vi.advanceTimersByTime(1500);
+      await waitFor(() =>
+        expect(screen.queryByRole("button", { name: /Copy|Copied/ })).not.toBeInTheDocument(),
+      );
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("keeps the whole action row on screen when the selection sits at a window edge", async () => {
+    // jsdom measures nothing and its Range has no geometry at all, so stand in for both: the row's
+    // real width (three actions, ~336px), a phone-width window, and a selection near an edge. The
+    // panel is centred with translateX(-50%), so a centre nearer an edge than half the row would
+    // push an action off-screen.
+    const width = vi.spyOn(HTMLElement.prototype, "offsetWidth", "get").mockReturnValue(336);
+    const innerWidth = window.innerWidth;
+    Object.defineProperty(window, "innerWidth", { value: 390, configurable: true });
+    const rect = vi.fn(() => ({ left: 4, width: 0, top: 0, bottom: 0 }) as DOMRect);
+    Object.defineProperty(Range.prototype, "getBoundingClientRect", { value: rect, configurable: true });
+    try {
+      const { container } = render(<MarkdownView copyPath="notes/project.md" markdown="single line" />);
+      const text = container.querySelector("p")!.firstChild!;
+      const selection = window.getSelection()!;
+      selection.setBaseAndExtent(text, 0, text, 6);
+      fireEvent(document, new Event("selectionchange"));
+      // Half the row plus the 8px inset, rather than the selection's own centre at 4px.
+      expect(container.querySelector<HTMLElement>(".selection-copy")!.style.left).toBe("176px");
+
+      rect.mockReturnValue({ left: 386, width: 0, top: 0, bottom: 0 } as DOMRect);
+      fireEvent(document, new Event("selectionchange"));
+      expect(container.querySelector<HTMLElement>(".selection-copy")!.style.left).toBe("214px");
+    } finally {
+      width.mockRestore();
+      delete (Range.prototype as Partial<Range>).getBoundingClientRect;
+      Object.defineProperty(window, "innerWidth", { value: innerWidth, configurable: true });
+    }
+  });
+
+  it("dismisses the copy range popup once it has copied", async () => {
+    copyText.mockReset();
+    copyText.mockResolvedValue(true);
+    vi.useFakeTimers({ shouldAdvanceTime: true });
+    try {
+      const { container } = render(
+        <MarkdownView copyPath="notes/project.md" markdown="single line" />,
+      );
+      const text = container.querySelector("p")!.firstChild!;
+      const selection = window.getSelection()!;
+      selection.setBaseAndExtent(text, 0, text, 6);
+      fireEvent(document, new Event("selectionchange"));
+      fireEvent.click(screen.getByRole("button", { name: "Copy range" }));
+      await waitFor(() => expect(copyText).toHaveBeenCalled());
+      vi.advanceTimersByTime(1500);
+      await waitFor(() =>
+        expect(screen.queryByRole("button", { name: /Copy range|Copied/ })).not.toBeInTheDocument(),
+      );
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("resolves a selection inside a list to the items it touches", async () => {
+    copyText.mockReset();
+    copyText.mockResolvedValue(true);
+    const { container } = render(
+      <MarkdownView copyPath="notes/project.md" markdown={"intro\n\n- one\n- two\n- three"} />,
+    );
+    const items = container.querySelectorAll("li");
+    expect(items[1]).toHaveAttribute("data-copy-line-start", "4");
+    const selection = window.getSelection()!;
+    selection.setBaseAndExtent(items[1].firstChild!, 0, items[2].firstChild!, 3);
+    fireEvent(document, new Event("selectionchange"));
+    fireEvent.click(screen.getByRole("button", { name: "Copy range" }));
+    await waitFor(() => expect(copyText).toHaveBeenCalledWith("notes/project.md:4-5"));
+  });
+
+  it("offers nothing when the selection has no marked note line", () => {
+    const { container } = render(
+      <MarkdownView copyPath="notes/project.md" title="Project" markdown="body" />,
+    );
+    const title = container.querySelector("h1.note-title")!.firstChild!;
+    const selection = window.getSelection()!;
+    selection.setBaseAndExtent(title, 0, title, title.textContent!.length);
+    fireEvent(document, new Event("selectionchange"));
+    expect(screen.queryByRole("button", { name: "Copy range" })).not.toBeInTheDocument();
+  });
+
+  it("offers nothing for text inside a diagram SVG", () => {
+    const { container } = render(<MarkdownView copyPath="notes/project.md" markdown="body" />);
+    const paragraph = container.querySelector("p")!;
+    const svg = document.createElementNS("http://www.w3.org/2000/svg", "svg");
+    const label = document.createElementNS("http://www.w3.org/2000/svg", "text");
+    label.textContent = "chart label";
+    svg.append(label);
+    paragraph.append(svg);
+    const text = label.firstChild!;
+    const selection = window.getSelection()!;
+    selection.setBaseAndExtent(text, 0, text, text.textContent!.length);
+    fireEvent(document, new Event("selectionchange"));
+    expect(screen.queryByRole("button", { name: "Copy range" })).not.toBeInTheDocument();
   });
 
   it("gives headings the ids their outline links to, counting repeats", () => {
@@ -150,6 +396,16 @@ describe("MarkdownView", () => {
     const table = screen.getByRole("table");
     expect(within(table).getByText("a")).toBeInTheDocument();
     expect(within(table).getByText("2")).toBeInTheDocument();
+  });
+
+  it("renders a br in a GFM table cell without enabling arbitrary HTML", () => {
+    const { container } = render(
+      <MarkdownView markdown={"| a | b |\n| --- | --- |\n| first<br/>second | 2 |"} />,
+    );
+    const cell = container.querySelector("tbody td");
+    expect(cell?.textContent).toMatch(/first\s+second/);
+    expect(cell?.querySelector("br")).toBeInTheDocument();
+    expect(container.querySelector("script")).toBeNull();
   });
 
   it("keeps a plain GFM checklist as native checkboxes", () => {
@@ -289,37 +545,45 @@ describe("MarkdownView", () => {
         <MarkdownView markdown={"- [ ] a task [due:2026-07-24]"} />
       </TaskBoardContext.Provider>,
     );
-    const due = container.querySelector<HTMLInputElement>("td.task-row-due input[type='date']");
+    const due = container.querySelector<HTMLButtonElement>("td.task-row-due button.task-row-date-input");
     expect(due).not.toBeNull();
-    expect(due!.value).toBe("2026-07-24");
-    fireEvent.change(due!, { target: { value: "2026-08-01" } });
+    expect(due!.textContent).toContain("2026-07-24");
+    // The picker opens on the cell's month, a day click is the working choice, and SAVE writes it.
+    fireEvent.click(due!);
+    fireEvent.click(screen.getByRole("button", { name: "30" }));
+    fireEvent.click(screen.getByRole("button", { name: "SAVE" }));
     // The cell asserts the state it drew, as the state controls do: a date picked against a task
     // that has since moved is refused rather than written onto whatever the line became.
     await waitFor(() =>
-      expect(setTaskDate).toHaveBeenCalledWith("100", 1, "due", "2026-08-01", "TODO", "loaded"),
+      expect(setTaskDate).toHaveBeenCalledWith("100", 1, "due", "2026-07-30", "TODO", "loaded"),
     );
   });
 
-  it("opens the calendar on a click, since the cell hides the picker indicator", () => {
+  it("opens the workspace's own calendar on a click, not the browser's", async () => {
     const tasks = { items: [{ line: 1, state: "TODO", done: false, text: "a task", due: "2026-07-24" }] };
     const { container } = renderWithQuery(
       <TaskBoardContext.Provider value={{ noteID: "100", tasksRef: { current: { tasks, etag: "loaded" } } }}>
         <MarkdownView markdown={"- [ ] a task [due:2026-07-24]"} />
       </TaskBoardContext.Provider>,
     );
-    const due = container.querySelector<HTMLInputElement>("td.task-row-due input[type='date']")!;
-    const showPicker = vi.fn();
-    due.showPicker = showPicker;
-    const click = createEvent.click(due);
-    fireEvent(due, click);
-    expect(showPicker).toHaveBeenCalled();
-    // Cancelled so Gecko's own click listener, which runs after this one, leaves the picker open.
-    expect(click.defaultPrevented).toBe(true);
+    const due = container.querySelector<HTMLButtonElement>("td.task-row-due button.task-row-date-input")!;
+    fireEvent.click(due);
+    const dialog = screen.getByRole("dialog", { name: "Pick a date" });
+    expect(dialog).toBeInTheDocument();
+    // The month is the cell's own (July 2026 has 31 days), drawn in the workspace's tokens rather
+    // than the browser's era-laden native scheme.
+    expect(dialog.querySelector(".task-date-month")?.textContent).toBe("2026 / 07");
+    expect(dialog.querySelectorAll(".task-date-day")).toHaveLength(31);
+    // DELETE clears the token in the same write path SAVE uses.
+    fireEvent.click(screen.getByRole("button", { name: "DELETE" }));
+    await waitFor(() =>
+      expect(setTaskDate).toHaveBeenCalledWith("100", 1, "due", "", "TODO", "loaded"),
+    );
   });
 
   it("keeps the date cells as plain text with no note behind them", () => {
     const { container } = render(<MarkdownView markdown={"- [ ] a task [due:2026-07-24]"} />);
-    expect(container.querySelector("input[type='date']")).toBeNull();
+    expect(container.querySelector("button.task-row-date-input")).toBeNull();
     expect(container.querySelector("td.task-row-due")?.textContent).toBe("! 2026-07-24");
   });
 
@@ -496,7 +760,7 @@ describe("MarkdownView", () => {
   });
 
   it("applies a :height embed option to an HTML embed and strips the option tail", () => {
-    const { container } = render(<MarkdownView markdown={"![Widget](assets/x.html) :height 240"} />);
+    const { container } = render(<MarkdownView markdown={"![Demo](assets/x.html) :height 240"} />);
     const frame = container.querySelector(".embed-html iframe") as HTMLIFrameElement | null;
     expect(frame).not.toBeNull();
     expect(frame?.style.height).toBe("240px");
@@ -504,8 +768,73 @@ describe("MarkdownView", () => {
     expect(container.textContent).not.toContain(":height");
 
     // A percentage is treated as viewport height (vh), since a normal-flow iframe has no % basis.
-    const { container: pct } = render(<MarkdownView markdown={"![Widget](assets/x.html) :height 90%"} />);
+    const { container: pct } = render(<MarkdownView markdown={"![Demo](assets/x.html) :height 90%"} />);
     expect((pct.querySelector(".embed-html iframe") as HTMLIFrameElement).style.height).toBe("90vh");
+  });
+
+  it("removes the HTML frame with :frame none without changing the sandbox", () => {
+    const { container: defaultEmbed } = render(<MarkdownView markdown={"![Demo](assets/x.html)"} />);
+    const defaultFrame = defaultEmbed.querySelector(".embed-html") as HTMLElement;
+    expect(defaultFrame).not.toHaveClass("embed-html-frame-none");
+    expect(defaultFrame.querySelector("iframe")).toHaveAttribute(
+      "sandbox",
+      "allow-scripts allow-popups allow-popups-to-escape-sandbox allow-downloads allow-modals",
+    );
+
+    const { container } = render(<MarkdownView markdown={"![Demo](assets/x.html) :frame none"} />);
+    const frame = container.querySelector(".embed-html") as HTMLElement;
+    expect(frame).toHaveClass("embed-html-frame-none");
+    expect(frame.querySelector("iframe")).toHaveAttribute(
+      "sandbox",
+      "allow-scripts allow-popups allow-popups-to-escape-sandbox allow-downloads allow-modals",
+    );
+    expect(container.textContent).not.toContain(":frame");
+  });
+
+  it("mounts only a vault-local HTML asset in the sandboxed frame with clipboard write allowed", () => {
+    const { container } = render(<MarkdownView markdown={"![Demo](assets/demo.html)"} />);
+    const iframe = container.querySelector(".embed-html iframe") as HTMLIFrameElement | null;
+    expect(iframe).not.toBeNull();
+    expect(iframe).toHaveAttribute(
+      "sandbox",
+      "allow-scripts allow-popups allow-popups-to-escape-sandbox allow-downloads allow-modals",
+    );
+    // Popups from the frame escape into ordinary tabs, and the document may write to the clipboard.
+    expect(iframe).toHaveAttribute("allow", "clipboard-write");
+  });
+
+  it("renders a remote .html URL as an Open Graph card instead of an HTML frame", () => {
+    const { container } = renderWithQuery(
+      <MarkdownView markdown={"![Page](https://example.com/page.html)"} />,
+    );
+    // Only vault-local assets mount an HTML iframe; a remote .html page falls through to the card.
+    expect(container.querySelector(".embed-html")).toBeNull();
+    expect(container.querySelector(".ogp-card")).not.toBeNull();
+  });
+
+  it("applies multiple embed options from the same tail", () => {
+    const { container } = render(
+      <MarkdownView markdown={"![Demo](assets/x.html) :height 400 :frame none"} />,
+    );
+    const frame = container.querySelector(".embed-html") as HTMLElement;
+    expect(frame).toHaveClass("embed-html-frame-none");
+    expect((frame.querySelector("iframe") as HTMLIFrameElement).style.height).toBe("400px");
+  });
+
+  it("renders an embed sharing a paragraph with text as a sibling of that text", () => {
+    // A block embed left inside a <p> loses its margins to anonymous blocks (it ends up flush against
+    // the line below it), is capped at the prose measure instead of the column, and makes the
+    // prerendered static HTML invalid — so it is hoisted out whether or not blank lines surround it.
+    const { container } = render(
+      <MarkdownView markdown={"foo\n![y](https://www.youtube.com/watch?v=abcdefghijk)\nbar"} />,
+    );
+    const view = container.querySelector(".markdown-view");
+    expect(view?.querySelector("p .embed")).toBeNull();
+    expect([...(view?.children ?? [])].map((el) => el.className)).toEqual([
+      "",
+      "embed embed-video",
+      "",
+    ]);
   });
 
   it("renders a resolved include as an embed card in place of its directive line", () => {

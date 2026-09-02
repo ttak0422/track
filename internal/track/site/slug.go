@@ -2,6 +2,7 @@ package site
 
 import (
 	"crypto/sha1"
+	"crypto/sha256"
 	"math/big"
 	"path"
 	"strconv"
@@ -53,17 +54,31 @@ func isSpecAsset(rel string) bool {
 	return strings.HasSuffix(strings.ToLower(rel), specAssetExt)
 }
 
-// publishAssetName maps an "assets/<rel>" reference to its opaque published file name: a slug of the rel
-// path (so the original file name and any directory structure are hidden) keeping the lowercased
-// extension, which the frontend uses to detect the media kind and the host to set the content type. The
-// "asset:" prefix keeps the asset id space disjoint from the note-id space. A View Spec asset publishes
-// as ".echarts.json": it is resolved to an ECharts option the frontend draws, so both the copied file
-// and the rewritten reference agree.
-func publishAssetName(rel string) string {
-	if isSpecAsset(rel) {
-		return publishSlug("asset:"+rel) + ".echarts.json"
+// publishAssetName maps an "assets/<rel>" reference to its opaque published file name: a slug of the
+// file's contents (so the original file name and any directory structure are hidden, and an edited file
+// publishes at a new address rather than behind the host's cache — ADR 0070) keeping the lowercased
+// extension, which the frontend uses to detect the media kind and the host to set the content type. A
+// View Spec asset publishes as ".echarts.json": it is resolved to an ECharts option the frontend draws,
+// so both the copied file and the rewritten reference agree.
+//
+// content is nil for a file that could not be read; the name then falls back to a slug of the rel path,
+// which keeps the reference deterministic (the missing file is reported by copyAssets). The "asset:"
+// prefix keeps that id space disjoint from the note-id space.
+func publishAssetName(rel string, content []byte) string {
+	slug := publishSlug("asset:" + rel)
+	if content != nil {
+		slug = contentSlug(content)
 	}
-	return publishSlug("asset:"+rel) + strings.ToLower(path.Ext(rel))
+	if isSpecAsset(rel) {
+		return slug + ".echarts.json"
+	}
+	return slug + strings.ToLower(path.Ext(rel))
+}
+
+// contentSlug addresses a published file by what is in it.
+func contentSlug(content []byte) string {
+	sum := sha256.Sum256(content)
+	return base62Fixed(sum[:16])
 }
 
 // publishSlug is the shared UUIDv5(namespace, name) → base62 mapping behind every published slug.

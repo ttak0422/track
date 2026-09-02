@@ -7,6 +7,7 @@ import (
 	"path/filepath"
 	"slices"
 	"strings"
+	"time"
 
 	"gopkg.in/yaml.v3"
 )
@@ -28,8 +29,13 @@ const (
 	MetadataVersionV7 = 7
 	// MetadataVersionV8 adds the pinned published slug under slug.
 	MetadataVersionV8 = 8
+	// MetadataVersionV9 adds the shared reading milestones seen_at and read_at.
+	MetadataVersionV9 = 9
+	// MetadataVersionV10 adds the author-assigned flags (the implementation-defined
+	// closed set DEPRECATED/CONFIDENTIAL, ADR 0074) under flags.
+	MetadataVersionV10 = 10
 	// MaxMetadataVersion is the newest schema this build can read and write.
-	MaxMetadataVersion = MetadataVersionV8
+	MaxMetadataVersion = MetadataVersionV10
 )
 
 func supportedVersion(v int) bool {
@@ -81,6 +87,12 @@ func WriteMetadata(path string, meta Metadata) error {
 	if meta.Slug != "" && meta.Version < MetadataVersionV8 {
 		meta.Version = MetadataVersionV8
 	}
+	if (meta.SeenAt != "" || meta.ReadAt != "") && meta.Version < MetadataVersionV9 {
+		meta.Version = MetadataVersionV9
+	}
+	if len(meta.Flags) > 0 && meta.Version < MetadataVersionV10 {
+		meta.Version = MetadataVersionV10
+	}
 	if !supportedVersion(meta.Version) {
 		return fmt.Errorf("unsupported metadata version %d", meta.Version)
 	}
@@ -125,6 +137,48 @@ func EnsureDay(meta Metadata, day string) (Metadata, bool) {
 	}
 	meta.Days = slices.Insert(meta.Days, i, day)
 	return meta, true
+}
+
+// ApplyReadEvent records a shared reading milestone on the sidecar metadata: "seen" stamps the first
+// time any device opened the note in the web workspace, "read" stamps the first time viewing time
+// crossed the note's read threshold there (which implies having seen it). Both are monotonic firsts:
+// a milestone never overwrites an earlier stamp, so whichever device reached it first wins and
+// re-reporting is a changeless no-op. Reports whether anything changed; callers persist with
+// WriteMetadata only then. An unknown event changes nothing — callers validate before applying.
+func (m *Metadata) ApplyReadEvent(event string, at time.Time) bool {
+	stamp := at.Format(time.RFC3339)
+	switch event {
+	case "seen":
+		if m.SeenAt != "" {
+			return false
+		}
+		m.SeenAt = stamp
+	case "read":
+		if m.ReadAt != "" {
+			return false
+		}
+		m.ReadAt = stamp
+		if m.SeenAt == "" {
+			m.SeenAt = stamp
+		}
+	default:
+		return false
+	}
+	return true
+}
+
+// StampUnix parses a sidecar timestamp into unix seconds for the index and API payloads: 0 when
+// absent, and 1 for a present-but-unparseable value so a hand-edited stamp still reads as "happened"
+// rather than silently dropping the milestone.
+func StampUnix(stamp string) int64 {
+	if stamp == "" {
+		return 0
+	}
+	t, err := time.Parse(time.RFC3339, stamp)
+	if err != nil {
+		return 1
+	}
+	return t.Unix()
 }
 
 // SplitLegacyFootmatter strips the old trailing HTML-comment metadata block from a note body.

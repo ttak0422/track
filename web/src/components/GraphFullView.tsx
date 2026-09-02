@@ -1,12 +1,14 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { useNavigate } from "@tanstack/react-router";
 import { useGraphQuery } from "../queries";
 import type { NoteID } from "../types";
 import { GraphCanvas } from "./GraphCanvasLazy";
-import { type PreviewAnchor, type PreviewBounds, initialPreviewBounds } from "./preview/bounds";
+import { graphCountCaption } from "./graphCaption";
+import { type PreviewAnchor, initialPreviewBounds } from "./preview/bounds";
 import { useFloating } from "./preview/floatingStore";
-import { NoteWindow } from "./preview/NoteWindow";
-import { nextPreviewStackOrder, previewOpenDelay } from "./preview/stack";
+import { pointerCanHover, previewOpenDelay } from "./preview/stack";
+import { IconRotate2, RailIcon } from "./icons";
+import { overviewGraph } from "./overviewGraph";
 
 interface Point {
   x: number;
@@ -22,35 +24,24 @@ export function GraphFullView() {
   const navigate = useNavigate();
   const floating = useFloating();
   const [resetToken, setResetToken] = useState(0);
-  const graph = graphQuery.data?.graph;
-
-  // A single transient hover preview. Dragging it (sticky) keeps it until closed; pinning promotes it to
-  // the floating layer, which is what holds multiple persistent windows. ponytail: this mirrors
-  // WikiLink's hover-intent machine; unify into a shared hook if a third consumer appears.
-  const [preview, setPreview] = useState<{ noteID: NoteID; anchor: PreviewAnchor } | null>(null);
-  const [sticky, setSticky] = useState(false);
-  const [stackOrder, setStackOrder] = useState(nextPreviewStackOrder);
-  const openTimer = useRef<number | undefined>(undefined);
-  const closeTimer = useRef<number | undefined>(undefined);
-  const pendingRef = useRef<{ noteID: NoteID; anchor: PreviewAnchor } | null>(null);
-  // Live bounds of the current preview, so a kept (sticky) window can be handed to the floating layer
-  // at the geometry the user dragged it to.
-  const boundsRef = useRef<{ bounds: PreviewBounds; collapsed: boolean } | null>(null);
-
-  useEffect(
-    () => () => {
-      if (openTimer.current !== undefined) window.clearTimeout(openTimer.current);
-      if (closeTimer.current !== undefined) window.clearTimeout(closeTimer.current);
-    },
-    [],
+  // The whole vault is more than a picture can hold, so the view draws the link graph's connected
+  // part up to a cap and says what it left out (overviewGraph).
+  const overview = useMemo(
+    () => (graphQuery.data?.graph ? overviewGraph(graphQuery.data.graph) : null),
+    [graphQuery.data?.graph],
   );
+  const graph = overview?.graph;
+  // What the canvas is actually showing, which past the cap is not what the vault holds.
+  const nodeCount = graph?.nodes.length ?? 0;
 
-  function holdPreview() {
-    if (closeTimer.current !== undefined) {
-      window.clearTimeout(closeTimer.current);
-      closeTimer.current = undefined;
-    }
-  }
+  // Hovering a node opens a transient preview in the floating layer — the same window a wiki link
+  // opens, in the same flat stack, so it can be raised over one opened earlier and outlives whatever
+  // opened it. All this view keeps is the intent timer and a handle on what it opened last.
+  const openTimer = useRef<number | undefined>(undefined);
+  const pendingRef = useRef<{ noteID: NoteID; anchor: PreviewAnchor } | null>(null);
+  const openedRef = useRef<string | null>(null);
+
+  useEffect(() => () => cancelOpen(), []);
 
   function cancelOpen() {
     if (openTimer.current !== undefined) {
@@ -60,74 +51,45 @@ export function GraphFullView() {
     pendingRef.current = null;
   }
 
+  function holdPreview() {
+    if (openedRef.current) floating.hold(openedRef.current);
+  }
+
   function scheduleClose() {
     // Leaving before the intent delay cancels a pending open, so a node the pointer only passed over
     // never pops once the cursor has moved on.
     cancelOpen();
-    if (sticky || closeTimer.current !== undefined) return;
-    closeTimer.current = window.setTimeout(() => {
-      closeTimer.current = undefined;
-      setPreview(null);
-    }, 220);
+    if (openedRef.current) floating.scheduleClose(openedRef.current);
   }
 
   // Drives the preview from the canvas: a node id rests it open (after the intent delay), null lets it
-  // close. A sticky preview is left alone so a new hover does not steal a window the user kept.
+  // close.
   function onHover(noteID: NoteID | null, point: Point) {
     if (noteID === null) {
       scheduleClose();
       return;
     }
+    // A touch drag across the canvas reports hovers the whole way; on a pointer that cannot hover the
+    // node is opened by the tap that navigates to it, not by a window (see pointerCanHover).
+    if (!pointerCanHover()) return;
     holdPreview();
-    if (preview?.noteID === noteID) return; // already showing this node; don't chase the cursor
-    // A kept window blocks the single preview slot; hand it to the floating layer so a new node can pop.
-    if (sticky) handOffSticky();
+    // Already showing this node: hold it where it is rather than chasing the cursor. Asked of the
+    // layer, not of a local flag, so a window the reader closed can be hovered open again.
+    const shown = floating.windows.find((win) => win.id === openedRef.current);
+    if (shown && shown.content.kind === "note" && shown.content.noteID === noteID) return;
     pendingRef.current = { noteID, anchor: graphPointAnchor(point) };
     if (openTimer.current !== undefined) return;
     openTimer.current = window.setTimeout(() => {
       openTimer.current = undefined;
-      if (pendingRef.current) {
-        setStackOrder(nextPreviewStackOrder());
-        setPreview(pendingRef.current);
-      }
+      const pending = pendingRef.current;
+      if (!pending) return;
+      openedRef.current = floating.open(
+        { kind: "note", noteID: pending.noteID },
+        initialPreviewBounds(pending.anchor),
+        false,
+        { transient: true, anchor: pending.anchor },
+      );
     }, previewOpenDelay);
-  }
-
-  function bringPreviewToFront() {
-    setStackOrder(nextPreviewStackOrder());
-  }
-
-  function detachPreview() {
-    holdPreview();
-    setSticky(true);
-  }
-
-  // Move the kept preview into the floating layer as an unpinned window (persists on this page, dropped
-  // on navigation), freeing the transient slot for the next hover.
-  function handOffSticky() {
-    if (preview) {
-      const geo = boundsRef.current ?? {
-        bounds: initialPreviewBounds(preview.anchor),
-        collapsed: false,
-      };
-      floating.open({ kind: "note", noteID: preview.noteID }, geo.bounds, geo.collapsed, false);
-    }
-    boundsRef.current = null;
-    setSticky(false);
-    setPreview(null);
-  }
-
-  // Pinning promotes the transient preview into the persistent floating layer at its current bounds.
-  function promote(bounds: PreviewBounds, collapsed: boolean) {
-    if (!preview) return;
-    floating.open({ kind: "note", noteID: preview.noteID }, bounds, collapsed, true);
-    setSticky(false);
-    setPreview(null);
-  }
-
-  function closePreview() {
-    setSticky(false);
-    setPreview(null);
   }
 
   return (
@@ -142,24 +104,8 @@ export function GraphFullView() {
           onSelect={(noteID) => void navigate({ to: "/notes/$noteId", params: { noteId: String(noteID) } })}
         />
       ) : null}
-      {preview ? (
-        <NoteWindow
-          noteID={preview.noteID}
-          initialBounds={initialPreviewBounds(preview.anchor)}
-          reanchor={sticky ? undefined : preview.anchor}
-          pinned={false}
-          depth={0}
-          stackOrder={stackOrder}
-          onActivate={bringPreviewToFront}
-          onHold={holdPreview}
-          onLeave={scheduleClose}
-          onDetach={detachPreview}
-          onBoundsChange={(bounds, collapsed) => {
-            boundsRef.current = { bounds, collapsed };
-          }}
-          onClose={closePreview}
-          onPinToggle={promote}
-        />
+      {overview && nodeCount > 0 ? (
+        <p className="graph-scope">{graphCountCaption(nodeCount, overview.hidden)}</p>
       ) : null}
       <div className="graph-controls">
         <button
@@ -169,7 +115,7 @@ export function GraphFullView() {
           title="Reset graph view"
           onClick={() => setResetToken((token) => token + 1)}
         >
-          ↺
+          <RailIcon Icon={IconRotate2} size={15} />
         </button>
       </div>
     </div>

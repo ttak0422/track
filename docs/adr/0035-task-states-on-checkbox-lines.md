@@ -1,6 +1,7 @@
 # 0035. Task management on checkbox lines: named states, inline tokens, sidecar log
 
-Status: Accepted
+Status: Partially superseded by [0058](0058-fixed-task-state-set.md): the state set is fixed now;
+the task-line syntax, metadata, and write-path decisions below remain accepted.
 
 ## Context
 
@@ -60,5 +61,6 @@ emoji tokens.
   can race a stale line number — acceptable for a single-user vault.
 - The sidecar log grows without bound; if it ever matters, pruning can piggyback on the existing
   metadata versioning.
-- A configured state set is per vault, not per note; the published static site always shows the
-  state set the site was built with.
+- Before ADR 0058, a configured state set was per vault, not per note, and the published static site
+  showed the state set the site was built with. The state set is now fixed for every vault; see ADR
+  0058.

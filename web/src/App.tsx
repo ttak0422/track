@@ -6,8 +6,9 @@ import {
   createRoute,
   createRouter,
 } from "@tanstack/react-router";
-import { QueryClient, QueryClientProvider, hydrate } from "@tanstack/react-query";
+import { type DehydratedState, QueryClient, QueryClientProvider, hydrate } from "@tanstack/react-query";
 import { Suspense, lazy, type ReactNode } from "react";
+import { unlockText } from "./lock";
 import { START_PAGE_ID, STATIC_MODE } from "./runtime";
 import { CalendarFullView } from "./components/CalendarFullView";
 import { DayView } from "./components/DayView";
@@ -16,8 +17,6 @@ import { GraphFullView } from "./components/GraphFullView";
 import { NoteReader } from "./components/NoteReader";
 import { SearchHome } from "./components/SearchHome";
 import { TasksView } from "./components/TasksView";
-import { RecentNotes } from "./components/RecentNotes";
-import { NewNotes } from "./components/NewNotes";
 import { Shell } from "./components/Shell";
 import { TagView } from "./components/TagView";
 import "./styles.css";
@@ -160,11 +159,21 @@ export function AppTree({ queryClient, children }: { queryClient: QueryClient; c
 }
 
 // The client's shared query client. On the static site the prerender inlines its dehydrated react-query
-// cache as window.__TRACK_STATE__; hydrate it here so the client reuses the prerendered content instead
-// of refetching and flashing.
+// cache as window.__TRACK_STATE__, locked like every other published data file (ADR 0069) — so opening it
+// is async, and main.tsx awaits hydratePrerenderedState() before the first render.
 export const queryClient = new QueryClient();
-if (typeof window !== "undefined" && window.__TRACK_STATE__) {
-  hydrate(queryClient, window.__TRACK_STATE__);
+
+// hydratePrerenderedState seeds the cache from the page's inlined state, so the client reuses the
+// prerendered content instead of refetching and flashing. A blob that will not open is not fatal: the
+// queries fall back to fetching the same data from the bundle.
+export async function hydratePrerenderedState(): Promise<void> {
+  const blob = typeof window === "undefined" ? "" : window.__TRACK_STATE__;
+  if (!blob) return;
+  try {
+    hydrate(queryClient, JSON.parse(await unlockText(blob)) as DehydratedState);
+  } catch {
+    // ignored: the data is still one fetch away
+  }
 }
 
 // clientAppRouter returns the client's singleton router (created lazily so importing this module for the
@@ -199,8 +208,6 @@ function HomeRoute() {
   return (
     <section className="home-hero">
       <SearchHome />
-      <NewNotes />
-      <RecentNotes />
     </section>
   );
 }

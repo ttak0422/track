@@ -84,16 +84,26 @@ off, a published site) still opens the day page and its notes-and-tasks listing.
   `n` days. The sidebar activity grid uses this instead of fetching every note.
 - `GET /api/resolve?term=<title>[&vault=<name>]`: resolve a title to a note within
   one vault, matching how an unqualified `[[title]]` resolves.
-- `GET /api/note?id=<id>[&vault=<name>]`: the note's body, tags, paths, backlinks, and an `etag`
+- `GET /api/note?id=<id>[&vault=<name>]`: the note's body, tags, author-assigned `flags`
+  (the closed set `DEPRECATED`/`CONFIDENTIAL`, ADR 0074), paths, backlinks, and an `etag`
   (a content hash of the file as read). It returns two paths: `path`, the canonical
   (symlink-resolved) location, and `copy_path`, the same note in the configured,
   symlink-intact form used for the copy-path button. It also carries the note's
   timestamps when they are known: `created`, the sidecar date string verbatim (in
   the vault's configured date format), and `updated`, the file mtime in unix
-  seconds. The published bundle's note JSON carries both the same way.
+  seconds, plus the shared reading milestones `seen_at`/`read_at` (unix seconds,
+  ADR 0072). The published bundle's note JSON carries the timestamps but not the
+  milestones: a public site's NEW/read badges stay per-visitor.
 - `GET /api/graph/local?id=<id>[&vault=<name>]`: the one-hop local graph around a note.
 - `GET /api/graph`: the whole-vault graph — every indexed note as a node and every
   link between two known notes as an edge, with no center.
+- `GET /api/hierarchy`: the whole vault's `up` forest, each node carrying its
+  `children`. Only notes the hierarchy places are in it — a note with neither a parent
+  nor a child is absent — and a cycle keeps its members out entirely, since none of
+  them is a root. Every level is ordered by title, the one listing that is not in the
+  shared recently-updated-first order: a tree someone laid out on purpose cannot be
+  navigated from memory if editing a note moves it. The rail's hierarchy menu asks for
+  it when it is first opened, not at first paint.
 - `GET /api/ogp?url=<url>`: Open Graph metadata for an embedded link, used to render
   link cards. Only `http(s)` URLs are accepted and the fetch is SSRF-guarded; see
   "Markdown embeds" below.
@@ -112,6 +122,12 @@ Write endpoint:
   sidecar metadata, and its index row (tags and links cascade). Other notes keep
   their now-dangling `[[links]]`. The destructive title-retype confirmation is
   enforced in the web UI; the endpoint deletes by id.
+- `POST /api/note/read?id=<id>[&vault=<name>]`: record a shared reading milestone
+  on the note's sidecar — `{"event": "seen"}` (the workspace opened the note) or
+  `{"event": "read"}` (viewing time crossed the read threshold). Milestones are
+  monotonic firsts: whichever device reaches one first wins and a repeat report
+  changes nothing, so no etag is required. The response echoes both milestones as
+  unix seconds (ADR 0072).
 
 ## Frontend implementation
 
@@ -120,18 +136,19 @@ of control variants (text control, quiet chip, floating layer, filled action,
 underline input, section label) over the shared color tokens. Consult it
 before adding UI.
 
-The current production UI is still served by the Go `internal/track/webui`
-package. The React migration lives under `web/` and is built with Vite,
-TypeScript, TanStack Query, and TanStack Router while it is brought up to parity.
+The production UI is the React frontend under `web/`, built with Vite, TypeScript,
+TanStack Query, and TanStack Router. `internal/track/webui/embed.go` embeds the built
+frontend from `dist`; `handleApp` in `handlers_app.go` serves real built files and falls
+back to `index.html` for client-side routes. The Go server therefore serves the same React
+workspace in a released build, while a plain source-tree build carries the committed
+placeholder `dist` until the frontend is built and copied there.
 
-During migration:
+For frontend development:
 
 - keep the existing `/api/*` contract stable;
 - run `npm install` and `npm run build` from `web/` for frontend changes;
 - run `track web --addr 127.0.0.1:8765` and `npm run dev` from `web/` to use the
   Vite dev server against the local Go API;
-- only switch Go's served assets to the Vite build once the React workspace has
-  reached feature parity with the existing raw-string UI.
 
 ### Markdown embeds
 

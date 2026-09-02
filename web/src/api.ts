@@ -1,4 +1,6 @@
-import { dataURL, STATIC_MODE } from "./runtime";
+import { unlock } from "./lock";
+import { adoptReadState } from "./reading";
+import { dataURL, reportStalePage, STATIC_MODE } from "./runtime";
 import { bodyHits, titleHits, type SearchCorpus, type SearchDoc } from "./staticSearch";
 import { idParams, qualify, vaultParams } from "./vaultId";
 import type {
@@ -10,6 +12,7 @@ import type {
   FollowResponse,
   Graph,
   GraphResponse,
+  HierarchyResponse,
   JournalResponse,
   NoteID,
   NoteMetaResponse,
@@ -110,14 +113,19 @@ function stringifyIDs<T>(value: T, vault = ""): T {
   return value;
 }
 
-// staticData fetches a pre-generated JSON file from the exported data bundle. It is only used in static
-// mode; the file is a plain static asset, so an ordinary fetch works without a server.
+// staticData fetches one file from the exported data bundle. It is only used in static mode; the file is
+// a plain static asset, so an ordinary fetch works without a server — but it is locked (ADR 0069), so
+// what comes back is bytes, not JSON, until unlock() opens it with the site's key. Callers name the file
+// by what it holds ("notes.json"); the published file is "<name>.bin", the same swap export-site makes.
 async function staticData<T>(path: string): Promise<T> {
-  const response = await fetch(dataURL(path));
+  const response = await fetch(dataURL(path.replace(/\.json$/, ".bin")));
   if (!response.ok) {
+    // The bundle is published per generation, so a missing file means this page's generation is gone:
+    // the page outlived its deploy (the CDN serves HTML for up to ten minutes) and needs replacing.
+    if (response.status === 404) reportStalePage();
     throw new Error(`${response.status} ${response.statusText}`);
   }
-  return (await response.json()) as T;
+  return JSON.parse(await unlock(await response.arrayBuffer())) as T;
 }
 
 const readOnly = () => Promise.reject(new Error("read-only static site"));
@@ -127,7 +135,10 @@ export function searchNotes(query: string, limit = 100): Promise<SearchResponse>
     return staticSearch(query, limit);
   }
   const params = new URLSearchParams({ limit: String(limit), q: query });
-  return api<SearchResponse>(`/api/search?${params}`);
+  return api<SearchResponse>(`/api/search?${params}`).then((data) => {
+    adoptReadState(data.results);
+    return data;
+  });
 }
 
 // A published bundle never changes under the page, so both files a search reads are fetched once and
@@ -175,11 +186,24 @@ async function staticSearch(query: string, limit: number): Promise<SearchRespons
   return { results: [...titles, ...bodyHits(notes, docs, query, limit - titles.length, skip)] };
 }
 
+// getHierarchy reads the vault's whole "up" tree for the rail's hierarchy menu. Both sides hand over
+// a tree that is already built — a prerendered file on the published site, one indexed query on the
+// live server — and the menu asks for it only when it is first opened, never at first paint.
+export function getHierarchy(): Promise<HierarchyResponse> {
+  if (STATIC_MODE) {
+    return staticData<HierarchyResponse>("hierarchy.json");
+  }
+  return api<HierarchyResponse>("/api/hierarchy");
+}
+
 export function listNotes(): Promise<NotesResponse> {
   if (STATIC_MODE) {
     return staticData<NotesResponse>("notes.json");
   }
-  return api<NotesResponse>("/api/notes");
+  return api<NotesResponse>("/api/notes").then((data) => {
+    adoptReadState(data.notes);
+    return data;
+  });
 }
 
 // The live workspace's New widget is creation history, distinct from the modified-order notes file
@@ -189,7 +213,10 @@ export function listNewNotes(limit = 10): Promise<NotesResponse> {
     return Promise.resolve({ notes: [] });
   }
   const params = new URLSearchParams({ sort: "created", limit: String(limit) });
-  return api<NotesResponse>(`/api/notes?${params}`);
+  return api<NotesResponse>(`/api/notes?${params}`).then((data) => {
+    adoptReadState(data.notes);
+    return data;
+  });
 }
 
 // listDatedTasks lists every task in the vault carrying a scheduled or due date. The published site
@@ -223,7 +250,10 @@ export function resolveTerm(term: string, vault = ""): Promise<ResolveResponse> 
       return note ? { found: true, note } : { found: false, note: { note_id: "", file_kind: "note", title: term } };
     });
   }
-  return api<ResolveResponse>(`/api/resolve?term=${encodeURIComponent(term)}${vaultParams(vault)}`);
+  return api<ResolveResponse>(`/api/resolve?term=${encodeURIComponent(term)}${vaultParams(vault)}`).then((data) => {
+    if (data.found) adoptReadState([data.note]);
+    return data;
+  });
 }
 
 export function getAgenda(date: string, vault = ""): Promise<AgendaResponse> {
@@ -251,7 +281,14 @@ export function getNote(noteID: NoteID): Promise<NoteResponse> {
   if (STATIC_MODE) {
     return staticData<NoteResponse>(`note/${noteID}.json`);
   }
-  return api<NoteResponse>(`/api/note?${idParams(noteID)}`);
+  return api<NoteResponse>(`/api/note?${idParams(noteID)}`).then((data) => {
+    // The open note and its reference lists carry the shared reading milestones; adopting them at
+    // the boundary is what lets a note another device already read stop reading as NEW here before
+    // any listing is fetched. The published bundle carries no milestones (per-visitor there), so
+    // the static branch has nothing to adopt.
+    adoptReadState([data.note, ...data.backlinks, ...(data.trail ?? []), ...(data.children ?? [])]);
+    return data;
+  });
 }
 
 export function saveNote(noteID: NoteID, request: SaveNoteRequest): Promise<SaveNoteResponse> {
@@ -392,12 +429,85 @@ export function getGraph(): Promise<GraphResponse> {
 }
 
 // getOgp fetches Open Graph metadata for an embedded link so the preview can render a rich card.
-// The static site cannot reach the network at view time, so it returns a bare card.
+// The static site has no server to fetch through, so the reader's browser fetches the page itself:
+// most hosts send Access-Control-Allow-Origin: *, and the card is the same one the live workspace
+// draws. A host that refuses cross-origin reads (github.com, say) degrades to the bare card — the
+// host and the link's label — which is what the static site showed for every link before.
 export function getOgp(url: string): Promise<OgpResponse> {
   if (STATIC_MODE) {
-    return Promise.resolve({ url });
+    return browserOgp(url);
   }
   return api<OgpResponse>(`/api/ogp?url=${encodeURIComponent(url)}`);
+}
+
+async function browserOgp(url: string): Promise<OgpResponse> {
+  try {
+    const response = await fetch(url);
+    const type = response.headers.get("content-type") ?? "";
+    if (!response.ok || (type !== "" && !type.toLowerCase().includes("html"))) {
+      return { url };
+    }
+    // response.url is the final URL after redirects, which is what a relative og:image resolves against.
+    return parseOgp(await response.text(), response.url || url, url);
+  } catch {
+    // A refused cross-origin read or an offline reader: the bare card, never a dead end.
+    return { url };
+  }
+}
+
+// parseOgp mirrors the server's parser (internal/track/webui/ogp.go): the same tag precedence, the same
+// relative-image resolution and http(s)-only guard, the same lengths — so a card reads the same whether
+// its metadata came from the server or from the reader's own browser. Parsing through DOMParser gives an
+// inert document: no script runs and no subresource loads, so the fetched page cannot act here.
+export function parseOgp(html: string, pageURL: string, url: string): OgpResponse {
+  // Only <head> is scanned, so body content is never mistaken for metadata.
+  const head = new DOMParser().parseFromString(html, "text/html").head;
+  const props = new Map<string, string>();
+  for (const tag of head.querySelectorAll("meta")) {
+    const key = (tag.getAttribute("property") ?? tag.getAttribute("name") ?? "").toLowerCase();
+    const content = tag.getAttribute("content");
+    // First value wins, so a page's primary og:* tag is not overwritten by a later duplicate.
+    if (key === "" || content === null || props.has(key)) continue;
+    props.set(key, content.trim());
+  }
+  const first = (...keys: string[]) => keys.map((key) => props.get(key) ?? "").find((value) => value !== "") ?? "";
+
+  const result: OgpResponse = { url };
+  const title = first("og:title", "twitter:title") || (head.querySelector("title")?.textContent ?? "").trim();
+  const description = first("og:description", "twitter:description", "description");
+  const image = absoluteImage(first("og:image", "og:image:url", "twitter:image", "twitter:image:src"), pageURL);
+  const siteName = first("og:site_name") || hostname(pageURL);
+  if (title !== "") result.title = clip(title, 200);
+  if (description !== "") result.description = clip(description, 320);
+  if (image !== "") result.image = image;
+  if (siteName !== "") result.site_name = siteName;
+  return result;
+}
+
+// absoluteImage resolves a possibly-relative image reference against the page, dropping anything that is
+// not http(s) so the card never renders a javascript:/data: image source.
+function absoluteImage(ref: string, pageURL: string): string {
+  if (ref === "") return "";
+  try {
+    const resolved = new URL(ref, pageURL);
+    return resolved.protocol === "http:" || resolved.protocol === "https:" ? resolved.href : "";
+  } catch {
+    return "";
+  }
+}
+
+function hostname(pageURL: string): string {
+  try {
+    return new URL(pageURL).hostname;
+  } catch {
+    return "";
+  }
+}
+
+// clip counts code points, like the server's rune-based truncation, so a surrogate pair is never split.
+function clip(text: string, limit: number): string {
+  const points = [...text];
+  return points.length > limit ? points.slice(0, limit).join("") : text;
 }
 
 // getSite returns the published site's entry note. Static mode only.
@@ -408,12 +518,17 @@ export function getSite(): Promise<SiteResponse> {
 // fetchAssetText loads the raw text of a vault asset from its resolved href (served by /api/asset live,
 // or copied to ./assets/<name> in the static export). Text-file embeds — Mermaid diagrams and other
 // inlined text files — read their source this way.
+//
+// One kind of asset is locked (ADR 0069): the ".echarts.json" chart options the export generates, which
+// are a chart's data in machine shape rather than a file the author attached. The reference keeps naming
+// the kind while the published file is "<name>.echarts.bin", the same swap the data bundle makes.
 export async function fetchAssetText(href: string): Promise<string> {
-  const response = await fetch(href);
+  const locked = STATIC_MODE && /\.echarts\.json$/i.test(href);
+  const response = await fetch(locked ? href.replace(/\.json$/i, ".bin") : href);
   if (!response.ok) {
     throw new Error(`${response.status} ${response.statusText}`);
   }
-  return response.text();
+  return locked ? unlock(await response.arrayBuffer()) : response.text();
 }
 
 // localGraph derives the 1-hop neighbourhood of a note from the full graph, marking the center, so the

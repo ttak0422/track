@@ -19,6 +19,9 @@ export function NoteMetaDialog({ noteID, onClose }: { noteID: NoteID; onClose: (
   const [description, setDescription] = useState("");
   const [image, setImage] = useState("");
   const [icon, setIcon] = useState("");
+  // Author-assigned flags (ADR 0074): a subset of the closed set {DEPRECATED, CONFIDENTIAL}, edited
+  // as checkboxes. Seeded from the fetched metadata like every other field.
+  const [flags, setFlags] = useState<string[]>([]);
   const [props, setProps] = useState("");
   const [loadedFor, setLoadedFor] = useState<NoteID | null>(null);
   const fileInput = useRef<HTMLInputElement>(null);
@@ -34,6 +37,7 @@ export function NoteMetaDialog({ noteID, onClose }: { noteID: NoteID; onClose: (
       setDescription(meta.data.description);
       setImage(meta.data.image);
       setIcon(meta.data.icon);
+      setFlags(meta.data.flags ?? []);
       setProps(meta.data.props);
       setLoadedFor(noteID);
     }
@@ -51,6 +55,7 @@ export function NoteMetaDialog({ noteID, onClose }: { noteID: NoteID; onClose: (
         description,
         image: image.trim(),
         icon: icon.trim(),
+        flags,
         props,
       });
       onClose();
@@ -70,6 +75,12 @@ export function NoteMetaDialog({ noteID, onClose }: { noteID: NoteID; onClose: (
     } catch {
       // An upload failure surfaces via upload.isError; the existing ref is left untouched.
     }
+  }
+
+  // A flag checkbox flips one member of the closed set in or out; the saved list keeps whatever is
+  // checked, in the set's own order.
+  function toggleFlag(flag: string, checked: boolean) {
+    setFlags((current) => (checked ? [...current, flag] : current.filter((f) => f !== flag)));
   }
 
   const escapeCloses = (event: React.KeyboardEvent) => {
@@ -171,6 +182,31 @@ export function NoteMetaDialog({ noteID, onClose }: { noteID: NoteID; onClose: (
             onKeyDown={enterSubmits}
           />
         </label>
+        <div className="modal-field">
+          <span className="muted">
+            Flags — author-assigned markers stamped on the note (DEPRECATED, CONFIDENTIAL)
+          </span>
+          <div className="flag-toggles">
+            <label className="flag-toggle">
+              <input
+                type="checkbox"
+                checked={flags.includes("DEPRECATED")}
+                disabled={meta.isPending}
+                onChange={(event) => toggleFlag("DEPRECATED", event.currentTarget.checked)}
+              />
+              DEPRECATED
+            </label>
+            <label className="flag-toggle">
+              <input
+                type="checkbox"
+                checked={flags.includes("CONFIDENTIAL")}
+                disabled={meta.isPending}
+                onChange={(event) => toggleFlag("CONFIDENTIAL", event.currentTarget.checked)}
+              />
+              CONFIDENTIAL
+            </label>
+          </div>
+        </div>
         <label className="modal-field">
           <span className="muted">Properties — free-form YAML, one “key: value” per line</span>
           <textarea

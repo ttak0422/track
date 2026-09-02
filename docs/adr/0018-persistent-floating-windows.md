@@ -2,7 +2,8 @@
 
 ## Status
 
-Accepted
+Accepted. The floating layer stands; the inline hover preview it kept in `WikiLink` is superseded by
+ADR 0075 (one flat preview layer), which opens every window in the layer.
 
 ## Context
 
@@ -30,9 +31,9 @@ media embeds share.
   child-route navigation. Windows promoted into this layer therefore persist
   until explicitly closed.
 - A generic `FloatingWindow` owns the chrome and interaction — drag, four-corner
-  resize, the collapse toggle, and the pin/close buttons — using the pure
-  geometry in `preview/bounds.ts`. Content is passed as children, so the same
-  window frames a note body or a media embed.
+  and four-edge resize, the collapse toggle, and the pin/close buttons — using
+  the pure geometry in `preview/bounds.ts`. Content is passed as children, so
+  the same window frames a note body or a media embed.
 - Hover previews stay **transient and inline** in `WikiLink`: hovering opens an
   unpinned `FloatingWindow` with the hover-intent delay, and it auto-closes on
   mouse-out. Pinning **promotes** the window — its current bounds and collapsed

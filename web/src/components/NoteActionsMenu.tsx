@@ -1,6 +1,8 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useRef, useState, type CSSProperties } from "react";
 import { copyRich, copyText } from "./markdown/clipboard";
-import { toPortableMarkdown } from "./markdown/portable";
+import { portableToHtml, toPortableMarkdown } from "./markdown/portable";
+import { hoverOpen } from "./hoverOpen";
+import { railAnchor } from "./railAnchor";
 
 interface NoteActionsMenuProps {
   // A getter, not the body: the menu lives in the floating rail now, and holding the body as a prop
@@ -8,19 +10,6 @@ interface NoteActionsMenuProps {
   getBody: () => string;
   onMeta: () => void;
   onDelete: () => void;
-}
-
-// portableToHtml renders portable Markdown to a static HTML string for the rich (Confluence) copy. It
-// reuses the app's react-markdown pipeline (default HTML tags + GFM tables/strikethrough/task lists), so
-// the output is semantic HTML a rich editor can paste. react-dom/server and the markdown deps are
-// dynamically imported so they load only when the action is used, staying out of the main chunk.
-async function portableToHtml(portable: string): Promise<string> {
-  const [{ renderToStaticMarkup }, { default: Markdown }, { default: remarkGfm }] = await Promise.all([
-    import("react-dom/server"),
-    import("react-markdown"),
-    import("remark-gfm"),
-  ]);
-  return renderToStaticMarkup(<Markdown remarkPlugins={[remarkGfm]}>{portable}</Markdown>);
 }
 
 // NoteActionsMenu collapses the note's infrequent actions — Copy MD, Copy for Confluence, Meta, Delete —
@@ -33,14 +22,33 @@ export function NoteActionsMenu({ getBody, onMeta, onDelete }: NoteActionsMenuPr
   // Where to draw the panel. It lives in the floating rail, which clips its overflow, so the panel is
   // positioned fixed and beside the trigger rather than absolutely under it — the same escape the
   // rail's other two popups make.
-  const [anchor, setAnchor] = useState<{ top: number; left: number } | null>(null);
+  const [anchor, setAnchor] = useState<CSSProperties | undefined>(undefined);
   const menuRef = useRef<HTMLDivElement>(null);
   const toggleRef = useRef<HTMLButtonElement>(null);
   const resetTimer = useRef<number | undefined>(undefined);
+  const closeTimer = useRef<number | undefined>(undefined);
+
+  function cancelClose() {
+    if (closeTimer.current !== undefined) window.clearTimeout(closeTimer.current);
+    closeTimer.current = undefined;
+  }
+
+  function showMenu() {
+    cancelClose();
+    setAnchor(railAnchor(toggleRef.current));
+    setOpen(true);
+  }
+
+  // Leaving is on a timer so the pointer can cross the gap between the rail and the panel.
+  function scheduleClose() {
+    cancelClose();
+    closeTimer.current = window.setTimeout(() => setOpen(false), 160);
+  }
 
   useEffect(() => {
     return () => {
       if (resetTimer.current !== undefined) window.clearTimeout(resetTimer.current);
+      cancelClose();
     };
   }, []);
 
@@ -80,7 +88,11 @@ export function NoteActionsMenu({ getBody, onMeta, onDelete }: NoteActionsMenuPr
   }
 
   return (
-    <div className="note-menu" ref={menuRef}>
+    <div
+      className="note-menu"
+      ref={menuRef}
+      {...hoverOpen(showMenu, scheduleClose)}
+    >
       <button
         ref={toggleRef}
         className="rail-button note-menu-toggle"
@@ -89,16 +101,12 @@ export function NoteActionsMenu({ getBody, onMeta, onDelete }: NoteActionsMenuPr
         title="More actions"
         aria-haspopup="menu"
         aria-expanded={open}
-        onClick={() => {
-          const rect = toggleRef.current?.getBoundingClientRect();
-          setAnchor(rect ? { top: rect.top, left: rect.right + 12 } : null);
-          setOpen((value) => !value);
-        }}
+        onClick={() => (open ? setOpen(false) : showMenu())}
       >
         ⋯
       </button>
       {open ? (
-        <div className="menu-panel note-menu-panel" role="menu" style={anchor ?? undefined}>
+        <div className="menu-panel note-menu-panel" role="menu" style={anchor}>
           <button type="button" role="menuitem" onClick={copyMarkdown}>
             {copied === "md" ? "Copied" : "Copy MD"}
           </button>

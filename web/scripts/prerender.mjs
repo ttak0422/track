@@ -8,6 +8,11 @@
 // The app fetches its data through data/<file> URLs; a fetch shim resolves those against <siteDir>/data.
 // Assets and data are referenced by the build-time base (absolute), so one template works at any route
 // depth without a <base> tag.
+//
+// The bundle is locked (ADR 0069), so this script holds the site's key like the browser does: it reads
+// the key out of the page export-site finalized, opens the data files it needs itself, and locks the
+// dehydrated cache it inlines — an unlocked copy of that state in the HTML would hand out the very data
+// the bundle keeps locked.
 import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { pathToFileURL } from "node:url";
@@ -20,41 +25,6 @@ if (!siteDir || !serverEntry) {
   process.exit(1);
 }
 
-const site = JSON.parse(readFileSync(join(siteDir, "data/site.json"), "utf8"));
-const notes = JSON.parse(readFileSync(join(siteDir, "data/notes.json"), "utf8")).notes;
-// Dated tasks give the calendar days of their own: a day nothing was written on can still be a day
-// something is planned for, and its page has to exist for the calendar's link to land.
-const datedTasks = JSON.parse(readFileSync(join(siteDir, "data/tasks.json"), "utf8")).tasks ?? [];
-
-// A jsdom window lets the CSR-oriented components read window/localStorage during render unchanged, and
-// carries the start-page id the "/" route needs.
-const dom = new JSDOM("<!doctype html><html><body></body></html>", {
-  url: "http://localhost/",
-  pretendToBeVisual: true,
-});
-const { window } = dom;
-window.innerWidth = 1280;
-window.innerHeight = 800;
-window.__trackStartPage = site.root;
-globalThis.window = window;
-globalThis.self = window;
-globalThis.document = window.document;
-globalThis.localStorage = window.localStorage;
-Object.defineProperty(globalThis, "navigator", { value: window.navigator, configurable: true });
-globalThis.requestAnimationFrame = (cb) => setTimeout(cb, 0);
-
-globalThis.fetch = async (url) => {
-  const match = String(url).match(/data\/(.+)$/);
-  if (!match) return new Response("", { status: 404 });
-  try {
-    return new Response(readFileSync(join(siteDir, "data", match[1]), "utf8"), { status: 200 });
-  } catch {
-    return new Response("", { status: 404 });
-  }
-};
-
-const { renderPage } = await import(pathToFileURL(serverEntry).href);
-
 // export-site now bakes per-page OGP meta into every HTML file, including this root index.html reused
 // here as the shared template. Strip that baked head so each prerendered route carries exactly one set
 // of og:/twitter: tags — its own, injected below — rather than inheriting the root note's. The <title>
@@ -66,6 +36,55 @@ if (!template.includes('<div id="root"></div>')) {
   console.error('prerender: index.html has no empty <div id="root"></div> to fill');
   process.exit(1);
 }
+
+// A jsdom window lets the CSR-oriented components read window/localStorage during render unchanged, and
+// carries the start-page id the "/" route needs plus the site key the lock module reads.
+const dom = new JSDOM("<!doctype html><html><body></body></html>", {
+  url: "http://localhost/",
+  pretendToBeVisual: true,
+});
+const { window } = dom;
+window.innerWidth = 1280;
+window.innerHeight = 800;
+// Both come out of the page rather than the bundle: the app reads them when its modules load, which is
+// before this script can open a locked data file (opening one needs those modules).
+window.__trackLock = template.match(/__trackLock\s*=\s*"([^"]*)"/)?.[1] ?? "";
+window.__trackStartPage = template.match(/__trackStartPage\s*=\s*"([^"]*)"/)?.[1] ?? "";
+// The bundle is published under a fingerprint of its contents, so its directory is named in the page too.
+const generation = template.match(/__trackData\s*=\s*"([^"]*)"/)?.[1] ?? "";
+window.__trackData = generation;
+globalThis.window = window;
+globalThis.self = window;
+globalThis.document = window.document;
+globalThis.localStorage = window.localStorage;
+Object.defineProperty(globalThis, "navigator", { value: window.navigator, configurable: true });
+globalThis.requestAnimationFrame = (cb) => setTimeout(cb, 0);
+
+// The app's own staticData does the unlocking, so the shim hands it the published bytes unchanged.
+globalThis.fetch = async (url) => {
+  const match = String(url).match(/data\/(.+)$/);
+  if (!match) return new Response("", { status: 404 });
+  try {
+    return new Response(readFileSync(join(siteDir, "data", match[1])), { status: 200 });
+  } catch {
+    return new Response("", { status: 404 });
+  }
+};
+
+const { renderPage, lock, unlock } = await import(pathToFileURL(serverEntry).href);
+
+// readData opens one file of the bundle for this script's own use (the app's fetch path is above).
+// Callers name it by what it holds; the published file is "<name>.bin".
+async function readData(name) {
+  const bytes = readFileSync(join(siteDir, "data", generation, `${name}.bin`));
+  return JSON.parse(await unlock(bytes.buffer.slice(bytes.byteOffset, bytes.byteOffset + bytes.byteLength)));
+}
+
+const site = await readData("site");
+const notes = (await readData("notes")).notes;
+// Dated tasks give the calendar days of their own: a day nothing was written on can still be a day
+// something is planned for, and its page has to exist for the calendar's link to land.
+const datedTasks = (await readData("tasks")).tasks ?? [];
 
 // route → output file (relative to siteDir). Every note gets its own directory index so path routing
 // resolves a real file on a fallback-less host.
@@ -108,8 +127,9 @@ const baseUrl = site.base_url ?? "";
 
 for (const { route, out } of targets) {
   const { html, state } = await renderPage(route);
-  const stateScript = `<script>window.__TRACK_STATE__=${serializeState(state)}</script>`;
-  const head = ogpTags(route) + stateScript;
+  // Locked, so the inlined cache is base64 — nothing in it can close the inline script early either.
+  const stateScript = `<script>window.__TRACK_STATE__="${await lock(state)}"</script>`;
+  const head = (await ogpTags(route)) + stateScript;
   const page = template
     // Use replacer functions: Markdown content may contain `$&`, `$\``, or `$$`, which have special
     // meanings in String.replace replacement strings and would corrupt the generated HTML/state.
@@ -122,12 +142,6 @@ for (const { route, out } of targets) {
 }
 
 console.log(`prerendered ${targets.length} routes into ${siteDir}/`);
-
-// serializeState inlines the dehydrated cache as a JS object literal, escaping "<" so a "</script>" in
-// note content cannot close the inline script early.
-function serializeState(json) {
-  return json.replace(/</g, "\\u003c");
-}
 
 // --- OGP head tags -------------------------------------------------------------------------------
 // Every prerendered page gets og:title/og:description (relative-safe); og:url and og:image need an
@@ -150,10 +164,10 @@ function pageTitle(route) {
 
 // bodyExcerpt flattens the first meaningful lines of a note body into one og:description-sized line:
 // code fences and headings drop, links/images/emphasis reduce to their text.
-function bodyExcerpt(noteId) {
+async function bodyExcerpt(noteId) {
   let body;
   try {
-    body = JSON.parse(readFileSync(join(siteDir, "data", "note", `${noteId}.json`), "utf8")).note?.body ?? "";
+    body = (await readData(join("note", noteId))).note?.body ?? "";
   } catch {
     return "";
   }
@@ -169,10 +183,10 @@ function bodyExcerpt(noteId) {
   return text.length > 160 ? `${text.slice(0, 157)}…` : text;
 }
 
-function ogpTags(route) {
+async function ogpTags(route) {
   const note = noteFor(route);
   const title = note?.title || site.title || "track";
-  const description = (note?.description || (note ? bodyExcerpt(note.note_id) : "")).replace(/\s+/g, " ");
+  const description = (note?.description || (note ? await bodyExcerpt(note.note_id) : "")).replace(/\s+/g, " ");
   const tags = [
     tag("og:site_name", site.title || "track"),
     tag("og:title", title),

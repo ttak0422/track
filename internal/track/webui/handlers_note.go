@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"os"
 	"strings"
+	"time"
 
 	"github.com/ttak0422/track/internal/track/dashboard"
 	"github.com/ttak0422/track/internal/track/export"
@@ -142,10 +143,27 @@ func (s *Server) getNote(v *vaultView, w http.ResponseWriter, r *http.Request) {
 	}
 	// Timestamps: created is the sidecar string verbatim (its format is config.DateFormat, and
 	// `track export --frontmatter` emits the same string — reformatting here would let the two
-	// diverge), updated is the file mtime the index already carries. Each is omitted when absent,
-	// including when the sidecar cannot be read: a note stays readable without its dates.
-	if meta, _, err := note.ReadMetadata(v.cfg.MetadataPath(id)); err == nil && meta.Created != "" {
-		noteJSON["created"] = meta.Created
+	// diverge), updated is the file mtime the index already carries. The reading milestones ride
+	// along as unix seconds so a freshly opened browser adopts what other devices already recorded.
+	// Each is omitted when absent, including when the sidecar cannot be read: a note stays readable
+	// without its dates.
+	if meta, _, err := note.ReadMetadata(v.cfg.MetadataPath(id)); err == nil {
+		if meta.Created != "" {
+			noteJSON["created"] = meta.Created
+		}
+		if sec := note.StampUnix(meta.SeenAt); sec != 0 {
+			noteJSON["seen_at"] = sec
+		}
+		if sec := note.StampUnix(meta.ReadAt); sec != 0 {
+			noteJSON["read_at"] = sec
+		}
+		// Flags ride along as the normalized slice (empty, not null) so the stamp and badges draw
+		// from vault metadata; when the sidecar cannot be read the field stays absent like the dates.
+		flags := meta.Flags
+		if flags == nil {
+			flags = []string{}
+		}
+		noteJSON["flags"] = flags
 	}
 	if ref.Mtime != 0 {
 		noteJSON["updated"] = ref.Mtime
@@ -273,6 +291,68 @@ func (s *Server) putNote(v *vaultView, w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, map[string]any{"vault": v.label, "note_id": ref.NoteID, "etag": note.ContentETag(out), "saved": true})
 }
 
+// handleNoteRead records a shared reading milestone on a note's sidecar: "seen" when the workspace
+// opened the note on any device, "read" when viewing time there crossed its read threshold. Both are
+// monotonic firsts (note.ApplyReadEvent), so whichever device reaches a milestone first wins and a
+// repeat report is a no-op that skips both the sidecar write and the reindex. This is what moves the
+// NEW/read badges from per-browser localStorage onto vault metadata that syncs across devices
+// (ADR 0072); no etag is required because the fields only ever move forward.
+func (s *Server) handleNoteRead(v *vaultView, w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		writeError(w, fmt.Errorf("method %s not allowed", r.Method), http.StatusMethodNotAllowed)
+		return
+	}
+	id, err := parseID(r)
+	if err != nil {
+		writeError(w, err, http.StatusBadRequest)
+		return
+	}
+	ref, err := v.noteByID(id)
+	if err != nil {
+		writeError(w, err, http.StatusNotFound)
+		return
+	}
+	var req struct {
+		Event string `json:"event"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		writeError(w, fmt.Errorf("decode request: %w", err), http.StatusBadRequest)
+		return
+	}
+	if req.Event != "seen" && req.Event != "read" {
+		writeError(w, fmt.Errorf("event must be \"seen\" or \"read\", got %q", req.Event), http.StatusBadRequest)
+		return
+	}
+
+	metaPath := v.cfg.MetadataPath(id)
+	path := v.cfg.PathForKind(ref.FileKind, ref.NoteID)
+	if err := v.write(func() error {
+		meta, _, err := note.ReadMetadata(metaPath)
+		if err != nil {
+			return fmt.Errorf("read sidecar: %w", err)
+		}
+		if !meta.ApplyReadEvent(req.Event, time.Now()) {
+			return nil
+		}
+		if err := note.WriteMetadata(metaPath, meta); err != nil {
+			return fmt.Errorf("write sidecar: %w", err)
+		}
+		return index.New(v.cfg, v.store).One(path)
+	}); err != nil {
+		writeError(w, fmt.Errorf("record read state: %w", err), http.StatusInternalServerError)
+		return
+	}
+	meta, _, _ := note.ReadMetadata(metaPath)
+	out := map[string]any{"vault": v.label, "note_id": ref.NoteID}
+	if sec := note.StampUnix(meta.SeenAt); sec != 0 {
+		out["seen_at"] = sec
+	}
+	if sec := note.StampUnix(meta.ReadAt); sec != 0 {
+		out["read_at"] = sec
+	}
+	writeJSON(w, out)
+}
+
 // handleNoteMeta reads or edits a note's editable sidecar metadata — title, tags, description,
 // cover image, icon, and typed props — as structured fields. GET seeds the dialog's typed controls
 // (props as a free-form YAML "key: value" block); POST takes those fields back, composes a
@@ -308,6 +388,7 @@ func (s *Server) handleNoteMeta(v *vaultView, w http.ResponseWriter, r *http.Req
 			Image       string   `json:"image"`
 			Icon        string   `json:"icon"`
 			Props       string   `json:"props"`
+			Flags       []string `json:"flags"`
 		}
 		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 			writeError(w, fmt.Errorf("decode request: %w", err), http.StatusBadRequest)
@@ -325,6 +406,7 @@ func (s *Server) handleNoteMeta(v *vaultView, w http.ResponseWriter, r *http.Req
 			Image:       req.Image,
 			Icon:        req.Icon,
 			Props:       props,
+			Flags:       req.Flags,
 		}
 		// Pre-validate a title change so a conflicting title rejects the whole edit before any
 		// write; an empty title means "leave the title unchanged".
@@ -375,6 +457,10 @@ func writeMetaFields(w http.ResponseWriter, meta note.Metadata, kind string) {
 	if tags == nil {
 		tags = []string{}
 	}
+	flags := meta.Flags
+	if flags == nil {
+		flags = []string{}
+	}
 	writeJSON(w, map[string]any{
 		"title":       meta.Title,
 		"kind":        kind,
@@ -382,6 +468,7 @@ func writeMetaFields(w http.ResponseWriter, meta note.Metadata, kind string) {
 		"description": meta.Description,
 		"image":       meta.Image,
 		"icon":        meta.Icon,
+		"flags":       flags,
 		"props":       propsText,
 	})
 }

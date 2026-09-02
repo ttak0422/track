@@ -295,3 +295,88 @@ func TestParseFileWithoutSidecarDerivesNoTitle(t *testing.T) {
 		t.Fatal("expected no sidecar to be created from the body title")
 	}
 }
+
+func TestApplyReadEvent(t *testing.T) {
+	at := time.Date(2026, 8, 22, 9, 30, 0, 0, time.FixedZone("JST", 9*3600))
+	want := at.Format(time.RFC3339)
+
+	var m Metadata
+	if !m.ApplyReadEvent("seen", at) {
+		t.Fatal("first seen should change the metadata")
+	}
+	if m.SeenAt != want || m.ReadAt != "" {
+		t.Fatalf("seen = %+v, want SeenAt=%q ReadAt empty", m, want)
+	}
+	// Milestones are monotonic firsts: neither a repeat nor an older device's report moves one.
+	if m.ApplyReadEvent("seen", at.Add(time.Minute)) {
+		t.Fatal("a repeat seen should be a no-op")
+	}
+	if !m.ApplyReadEvent("read", at) {
+		t.Fatal("first read should change the metadata")
+	}
+	if m.SeenAt != want || m.ReadAt != want {
+		t.Fatalf("read = %+v, want both stamps %q", m, want)
+	}
+	// Reading implies having seen: on a note nobody reported seen for, the read stamp covers it.
+	var fresh Metadata
+	if !fresh.ApplyReadEvent("read", at) || fresh.SeenAt != want || fresh.ReadAt != want {
+		t.Fatalf("read without seen = %+v, want both stamps %q", fresh, want)
+	}
+	// An unknown event changes nothing rather than guessing.
+	var other Metadata
+	if other.ApplyReadEvent("skimmed", at) || other.SeenAt != "" || other.ReadAt != "" {
+		t.Fatalf("unknown event = %+v, want no change", other)
+	}
+}
+
+func TestStampUnix(t *testing.T) {
+	if got := StampUnix(""); got != 0 {
+		t.Fatalf("StampUnix(\"\") = %d, want 0", got)
+	}
+	stamp := time.Date(2026, 8, 22, 0, 0, 0, 0, time.UTC).Format(time.RFC3339)
+	if got := StampUnix(stamp); got != time.Date(2026, 8, 22, 0, 0, 0, 0, time.UTC).Unix() {
+		t.Fatalf("StampUnix(%q) = %d, want the parsed second", stamp, got)
+	}
+	// A present but unparseable value (a hand-edited sidecar) still reads as "happened" so the
+	// milestone is not silently dropped.
+	if got := StampUnix("yesterday"); got != 1 {
+		t.Fatalf("StampUnix(unparseable) = %d, want 1", got)
+	}
+}
+
+func TestWriteReadMetadataFlagsBumpsVersion(t *testing.T) {
+	path := filepath.Join(t.TempDir(), ".track", "notes", "1002.yaml")
+	in := Metadata{Title: "Alpha", Flags: []string{"CONFIDENTIAL", "DEPRECATED"}}
+	if err := WriteMetadata(path, in); err != nil {
+		t.Fatalf("write metadata: %v", err)
+	}
+	got, found, err := ReadMetadata(path)
+	if err != nil || !found {
+		t.Fatalf("read metadata: found=%v err=%v", found, err)
+	}
+	if got.Version < MetadataVersionV10 {
+		t.Fatalf("a flags sidecar is at least v%d, got %d", MetadataVersionV10, got.Version)
+	}
+	in.Version = MetadataVersionV10
+	if !reflect.DeepEqual(got, in) {
+		t.Fatalf("flags metadata mismatch:\n got %+v\nwant %+v", got, in)
+	}
+}
+
+func TestWriteMetadataReadStateBumpsVersion(t *testing.T) {
+	path := filepath.Join(t.TempDir(), ".track", "notes", "1001.yaml")
+	in := Metadata{Title: "Alpha", SeenAt: "2026-08-22T09:30:00+09:00"}
+	if err := WriteMetadata(path, in); err != nil {
+		t.Fatalf("write metadata: %v", err)
+	}
+	got, found, err := ReadMetadata(path)
+	if err != nil || !found {
+		t.Fatalf("read metadata: found=%v err=%v", found, err)
+	}
+	if got.Version < MetadataVersionV9 {
+		t.Fatalf("a seen_at sidecar is at least v%d, got %d", MetadataVersionV9, got.Version)
+	}
+	if got.SeenAt != in.SeenAt {
+		t.Fatalf("SeenAt = %q, want %q", got.SeenAt, in.SeenAt)
+	}
+}

@@ -1,10 +1,12 @@
 import { MarkdownView } from "./MarkdownView";
+import { LineHint } from "./LineHint";
 import { TaskBoardContext } from "./markdown/context";
 import {
   LoadingIndicator,
   NoteAside,
   NoteBreadcrumbs,
   NoteProperties,
+  NoteStamps,
   journalDateFromNote,
   useScrollToHash,
 } from "./noteShared";
@@ -50,6 +52,8 @@ export function NoteReaderStatic({ noteID }: { noteID: NoteID }) {
 
   return (
     <article className="note-reader">
+      {/* Author-assigned flags (ADR 0074) stamp the note itself, not its chrome. */}
+      <NoteStamps flags={data.note.flags} />
       <div className="note-layout">
         <div className="note-main">
           <NoteBreadcrumbs trail={data.trail ?? []} />
@@ -60,6 +64,8 @@ export function NoteReaderStatic({ noteID }: { noteID: NoteID }) {
           />
 
           <section className="note-preview" aria-label="Rendered note">
+            {/* The published site reads only, so the rough source-line marker is always live. */}
+            <LineHint />
             {body.trim() !== "" && rendered.data?.markdown === undefined ? (
               <LoadingIndicator label="Loading note" />
             ) : (
@@ -72,10 +78,19 @@ export function NoteReaderStatic({ noteID }: { noteID: NoteID }) {
                   noteId={noteID}
                   kind={data.note.file_kind}
                   includes={data.note.includes}
+                  copyPath={data.note.copy_path}
                 />
               </TaskBoardContext.Provider>
             )}
           </section>
+
+          {/* At the end of the note it belongs to, not stuck to the foot of the window: a bar that
+              never leaves covers a line of the note for the whole read, and on a phone it stacked
+              on top of the dock. Here it closes the note column, so it is the last thing before the
+              aside's own sections. */}
+          {siteQuery.data?.share ? (
+            <ShareActions noteID={noteID} title={data.note.title} baseURL={siteQuery.data.base_url} />
+          ) : null}
         </div>
 
         <NoteAside
@@ -87,10 +102,6 @@ export function NoteReaderStatic({ noteID }: { noteID: NoteID }) {
           journalDate={journalDate}
         />
       </div>
-
-      {siteQuery.data?.share ? (
-        <ShareActions noteID={noteID} title={data.note.title} baseURL={siteQuery.data.base_url} />
-      ) : null}
     </article>
   );
 }

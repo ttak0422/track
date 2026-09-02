@@ -12,6 +12,13 @@ import {
 import { InFloatingWindowContext } from "./floatingStore";
 import { previewBaseZIndex } from "./stack";
 import { TitleCopyButton } from "../TitleCopyButton";
+import {
+  IconChevronDown,
+  IconExternalLink,
+  IconPin,
+  IconX,
+  RailIcon,
+} from "../icons";
 
 // The window's frame/behavior props, shared by the content wrappers (NoteWindow, MediaWindow).
 export interface FloatingWindowControls {
@@ -20,7 +27,6 @@ export interface FloatingWindowControls {
   reanchor?: PreviewAnchor;
   pinned: boolean;
   initialCollapsed?: boolean;
-  depth: number;
   stackOrder: number;
   onActivate: () => void;
   onHold?: () => void;
@@ -68,7 +74,6 @@ export function FloatingWindow({
   reanchor,
   pinned,
   initialCollapsed = false,
-  depth,
   stackOrder,
   onActivate,
   onHold,
@@ -231,7 +236,7 @@ export function FloatingWindow({
         top: bounds.top,
         width: bounds.width,
         height: collapsed ? "auto" : bounds.height,
-        zIndex: previewBaseZIndex + depth + stackOrder,
+        zIndex: previewBaseZIndex + stackOrder,
       }}
     >
       <div
@@ -251,7 +256,7 @@ export function FloatingWindow({
           aria-label={collapsed ? "Expand preview" : "Collapse preview"}
           title={collapsed ? "Expand" : "Collapse"}
         >
-          <span className="wiki-preview-caret" aria-hidden="true" />
+          <span className="wiki-preview-caret" aria-hidden="true"><RailIcon Icon={IconChevronDown} size={12} /></span>
         </button>
         <span className="wiki-preview-title">
           <span className="wiki-preview-title-text">{title}</span>
@@ -278,7 +283,7 @@ export function FloatingWindow({
           aria-label={pinned ? "Unpin preview" : "Pin preview"}
           title={pinned ? "Unpin" : "Pin"}
         >
-          <PinIcon filled={pinned} />
+          <PinIcon />
         </button>
         <button
           className="wiki-preview-close"
@@ -287,7 +292,7 @@ export function FloatingWindow({
           onPointerDown={(event) => event.stopPropagation()}
           aria-label="Close preview"
         >
-          ×
+          <RailIcon Icon={IconX} size={15} />
         </button>
       </div>
       {collapsed ? null : (
@@ -299,7 +304,7 @@ export function FloatingWindow({
       )}
       {collapsed
         ? null
-        : (["e", "s", "nw", "ne", "sw", "se"] as const).map((handle) => (
+        : (["w", "e", "n", "s", "nw", "ne", "sw", "se"] as const).map((handle) => (
             <button
               aria-label="Resize preview"
               className={`wiki-preview-resize wiki-preview-resize-${handle}`}
@@ -317,40 +322,9 @@ export function FloatingWindow({
 }
 
 function JumpIcon() {
-  return (
-    <svg
-      viewBox="0 0 24 24"
-      width="15"
-      height="15"
-      fill="none"
-      stroke="currentColor"
-      strokeWidth="2"
-      strokeLinecap="round"
-      strokeLinejoin="round"
-      aria-hidden="true"
-    >
-      <path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6" />
-      <polyline points="15 3 21 3 21 9" />
-      <line x1="10" y1="14" x2="21" y2="3" />
-    </svg>
-  );
+  return <RailIcon Icon={IconExternalLink} size={15} />;
 }
 
-function PinIcon({ filled }: { filled: boolean }) {
-  return (
-    <svg
-      viewBox="0 0 24 24"
-      width="15"
-      height="15"
-      fill={filled ? "currentColor" : "none"}
-      stroke="currentColor"
-      strokeWidth="2"
-      strokeLinecap="round"
-      strokeLinejoin="round"
-      aria-hidden="true"
-    >
-      <line x1="12" y1="17" x2="12" y2="22" />
-      <path d="M9 4h6l-1 6 3 3H7l3-3-1-6z" />
-    </svg>
-  );
+function PinIcon() {
+  return <RailIcon Icon={IconPin} size={15} />;
 }

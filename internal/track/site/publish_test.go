@@ -52,8 +52,10 @@ func TestBuildPublishesHierarchy(t *testing.T) {
 	writeVaultNoteMeta(t, cfg, 200, "# Topic\n", note.Metadata{Title: "Topic", Props: map[string]any{"up": "[[Welcome]]"}})
 	writeVaultNoteMeta(t, cfg, 300, "# Deep\n", note.Metadata{Title: "Deep", Props: map[string]any{"up": "[[Topic]]"}})
 	writeVaultNoteMeta(t, cfg, 400, "# Outside\n", note.Metadata{Title: "Outside", Props: map[string]any{"up": "[[Unpublished]]"}})
+	// Written last, so it is the newest of Welcome's children while sorting first by title.
+	writeVaultNoteMeta(t, cfg, 500, "# Appendix\n", note.Metadata{Title: "Appendix", Props: map[string]any{"up": "[[Welcome]]"}})
 
-	out := buildAll(t, cfg, s, 100, 200, 300, 400)
+	out := buildAll(t, cfg, s, 100, 200, 300, 400, 500)
 	noteOf := func(id int64) jsonNoteResponse {
 		t.Helper()
 		return readJSON[jsonNoteResponse](t, filepath.Join(out, "data", "note", PublishID(id)+".json"))
@@ -76,8 +78,10 @@ func TestBuildPublishesHierarchy(t *testing.T) {
 	if len(root.Trail) != 0 {
 		t.Fatalf("root trail should be empty, got %+v", root.Trail)
 	}
-	if len(root.Children) != 1 || root.Children[0].Title != "Topic" {
-		t.Fatalf("root children = %+v, want Topic only", root.Children)
+	// The note view's children list stays in the shared recency order, whose tie-breaking depends on
+	// file mtimes this test does not control; what it pins is the membership.
+	if len(root.Children) != 2 || !hasTitle(root.Children, "Topic") || !hasTitle(root.Children, "Appendix") {
+		t.Fatalf("root children = %+v, want Topic and Appendix", root.Children)
 	}
 
 	// An up pointing outside the published set leaves the note with no trail rather than a dangling one.
@@ -85,6 +89,33 @@ func TestBuildPublishesHierarchy(t *testing.T) {
 	if len(outside.Trail) != 0 {
 		t.Fatalf("an out-of-set parent should leave no trail, got %+v", outside.Trail)
 	}
+
+	// The same relation, whole: hierarchy.json carries the forest the rail's menu draws, prebuilt so
+	// the browser never walks it. Only notes the hierarchy places are in it — "Outside" resolves to
+	// nothing published, so it is absent rather than standing as a second root.
+	tree := readJSON[struct {
+		Hierarchy []jsonHierarchyNode `json:"hierarchy"`
+	}](t, filepath.Join(out, "data", "hierarchy.json"))
+	if len(tree.Hierarchy) != 1 || tree.Hierarchy[0].Title != "Welcome" {
+		t.Fatalf("hierarchy roots = %+v, want Welcome alone", tree.Hierarchy)
+	}
+	// A level is by title, not by recency: the newer "Appendix" comes first because A precedes T.
+	kids := tree.Hierarchy[0].Children
+	if len(kids) != 2 || kids[0].Title != "Appendix" || kids[1].Title != "Topic" || kids[1].NoteID != PublishID(200) {
+		t.Fatalf("Welcome's children = %+v, want Appendix then the published Topic", kids)
+	}
+	if deep := kids[1].Children; len(deep) != 1 || deep[0].Title != "Deep" {
+		t.Fatalf("Topic's children = %+v, want Deep", deep)
+	}
+}
+
+func hasTitle(refs []jsonRef, title string) bool {
+	for _, r := range refs {
+		if r.Title == title {
+			return true
+		}
+	}
+	return false
 }
 
 // Tags drive three published surfaces at once: the note list, the ```track-query blocks expanded at

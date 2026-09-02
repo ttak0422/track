@@ -9,6 +9,11 @@ type KeyLike = Pick<KeyboardEvent | ReactKeyboardEvent, "key" | "ctrlKey" | "met
 export const keys = {
   // Bare "/" — a modified slash belongs to the browser (⌘/ and the like).
   openSearch: (event: KeyLike) => event.key === "/" && !event.ctrlKey && !event.metaKey && !event.altKey,
+  // ⌘P opens it too: a Vim-keys browser extension takes "/" for itself before the page ever sees it,
+  // and Quick Open is the chord an editor user already reaches for. Ctrl+P is deliberately not a
+  // second spelling — it is "previous" in the result list right below.
+  openSearchChord: (event: KeyLike) =>
+    event.metaKey && !event.ctrlKey && !event.altKey && (event.key === "p" || event.key === "P"),
   next: (event: KeyLike) => event.key === "ArrowDown" || (event.ctrlKey && event.key === "n"),
   prev: (event: KeyLike) => event.key === "ArrowUp" || (event.ctrlKey && event.key === "p"),
   accept: (event: KeyLike) => event.key === "Enter" || (event.ctrlKey && event.key === "y"),

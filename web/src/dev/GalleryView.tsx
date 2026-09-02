@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import "./candidates.css";
 import "./gallery.css";
+import { IconCirclePlus, IconMinus, IconPlus, IconRotate2, RailIcon } from "../components/icons";
 
 // The dev-only design playground (ADR 0068): every control variant from docs/spec/design.md rendered
 // with its canonical markup, under any candidate token set from candidates.css. Switching a candidate
@@ -112,13 +113,13 @@ export function GalleryView() {
         <h2>2 · Quiet chip</h2>
         <div className="gallery-row">
           <button className="mermaid-control" type="button" aria-label="Zoom in">
-            +
+            <RailIcon Icon={IconPlus} size={14} />
           </button>
           <button className="mermaid-control" type="button" aria-label="Zoom out">
-            −
+            <RailIcon Icon={IconMinus} size={14} />
           </button>
           <button className="mermaid-control" type="button" aria-label="Reset">
-            ⌂
+            <RailIcon Icon={IconRotate2} size={14} />
           </button>
         </div>
       </div>
@@ -243,21 +244,5 @@ function Swatches({ names }: { names: readonly string[] }) {
 }
 
 function GlyphIcon() {
-  return (
-    <svg
-      className="rail-icon-svg"
-      viewBox="0 0 24 24"
-      width="20"
-      height="20"
-      fill="none"
-      stroke="currentColor"
-      strokeWidth="2"
-      strokeLinecap="round"
-      strokeLinejoin="round"
-      aria-hidden="true"
-    >
-      <circle cx="12" cy="12" r="8" />
-      <path d="M12 8v8M8 12h8" />
-    </svg>
-  );
+  return <RailIcon Icon={IconCirclePlus} />;
 }

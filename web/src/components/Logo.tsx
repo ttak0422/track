@@ -21,35 +21,21 @@ export function Mark({ className }: LogoProps) {
   return <ThemedAsset light="track-icon.svg" dark="track-icon-dark.svg" className={className} />;
 }
 
-// Full "track" wordmark, using the refreshed light/dark lockups from web/public.
-export function TrackLogo({ className }: LogoProps) {
-  return (
-    <ThemedAsset
-      light="track-lockup.svg"
-      dark="track-lockup-dark.svg"
-      className={className}
-      alt="track"
-    />
-  );
-}
-
 function ThemedAsset({
   light,
   dark,
   className,
-  alt = "",
 }: {
   light: string;
   dark: string;
   className?: string;
-  alt?: string;
 }) {
   const lightClass = [className, "theme-asset-light"].filter(Boolean).join(" ");
   const darkClass = [className, "theme-asset-dark"].filter(Boolean).join(" ");
   return (
     <>
-      <img className={lightClass} src={import.meta.env.BASE_URL + light} alt={alt} />
-      <img className={darkClass} src={import.meta.env.BASE_URL + dark} alt={alt} />
+      <img className={lightClass} src={import.meta.env.BASE_URL + light} alt="" />
+      <img className={darkClass} src={import.meta.env.BASE_URL + dark} alt="" />
     </>
   );
 }

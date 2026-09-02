@@ -1,5 +1,6 @@
 import { act, fireEvent, render } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { FloatingLayer } from "../preview/FloatingLayer";
 import { FloatingProvider } from "../preview/floatingStore";
 import { MediaFrame } from "./MediaFrame";
 
@@ -11,12 +12,15 @@ vi.mock("@tanstack/react-router", () => ({
 
 // Render MediaFrame in isolation, same shape as WikiLink.test.tsx: it exercises the button-driven
 // preview popup (media never previews on hover — the embed is already visible in the note).
+// The frame and the floating layer are siblings, as they are in Shell: the preview a frame opens is
+// the layer's window, not a child of the media it came from.
 function renderWithFloating(src: string, alt: string) {
   return render(
     <FloatingProvider>
       <MediaFrame src={src} alt={alt}>
         <img src={src} alt={alt} />
       </MediaFrame>
+      <FloatingLayer />
     </FloatingProvider>,
   );
 }

@@ -1,10 +1,12 @@
 import { fireEvent, render, screen, within } from "@testing-library/react";
 import type { ReactNode } from "react";
-import { describe, expect, it, vi } from "vitest";
-import { NoteAside, NoteProperties } from "./noteShared";
+import { beforeEach, describe, expect, it, vi } from "vitest";
+import { NoteAside, NoteFlagBadges, NoteProperties, NoteStamps } from "./noteShared";
 
 const navigate = vi.hoisted(() => vi.fn());
 const localGraph = vi.hoisted(() => vi.fn());
+// A default empty agenda is set in beforeEach; tests for a journal's On-this-day list override it.
+const agenda = vi.hoisted(() => vi.fn());
 
 vi.mock("@tanstack/react-router", () => ({
   useNavigate: () => navigate,
@@ -13,7 +15,7 @@ vi.mock("@tanstack/react-router", () => ({
 }));
 
 vi.mock("../queries", () => ({
-  useAgendaQuery: () => ({ isPending: false, data: { notes: [] } }),
+  useAgendaQuery: (date: unknown, vault: unknown) => agenda(date, vault),
   useLocalGraphQuery: (noteID: unknown) => localGraph(noteID),
 }));
 
@@ -40,13 +42,54 @@ const linkedGraph = {
   },
 };
 
+beforeEach(() => {
+  // Every list test starts from an empty agenda and no graph; a test overrides either for its own
+  // note.
+  agenda.mockReturnValue({ isPending: false, data: { notes: [] } });
+  localGraph.mockReset();
+  localGraph.mockReturnValue({ data: undefined });
+});
+
+describe("NoteAside Contents outline", () => {
+  it("lists the leading h1 and links each entry to its rendered heading id", () => {
+    localGraph.mockReturnValue({ data: undefined });
+    render(
+      <NoteAside backlinks={[]} noteID="1" journalDate="" markdown={"# Title\n\n## Status"} />,
+    );
+    const contents = screen.getByRole("region", { name: "Contents" });
+    const links = within(contents).getAllByRole("link");
+    expect(links.map((l) => l.textContent)).toEqual(["Title", "Status"]);
+    expect(links[0]).toHaveAttribute("href", "#h-title");
+    expect(links[1]).toHaveAttribute("href", "#h-status");
+  });
+
+  it("omits the Contents section while a body has a single heading", () => {
+    localGraph.mockReturnValue({ data: undefined });
+    render(<NoteAside backlinks={[]} noteID="1" journalDate="" markdown={"# Only"} />);
+    expect(screen.queryByRole("region", { name: "Contents" })).toBeNull();
+  });
+
+  it("indents a level by two characters, measured from the outline's own top level", () => {
+    localGraph.mockReturnValue({ data: undefined });
+    // No h1: the leading "##" is this outline's top level, so it sits flush and "###" is one step in.
+    render(
+      <NoteAside backlinks={[]} noteID="1" journalDate="" markdown={"## Status\n### Detail"} />,
+    );
+    const links = within(screen.getByRole("region", { name: "Contents" })).getAllByRole("link");
+    expect(links[0].style.paddingLeft).toBe("");
+    expect(links[1].style.paddingLeft).toBe("2em");
+  });
+});
+
 describe("NoteAside graph section", () => {
   it("shows the always-on local graph, resets its view, and navigates on node select", () => {
     localGraph.mockReturnValue({ data: linkedGraph });
     render(<NoteAside backlinks={[]} noteID="1" journalDate="" />);
 
     // Labelled like the lists above it, so the aside reads as one stack of sections.
-    expect(screen.getByRole("region", { name: "Graph" })).toBeTruthy();
+    const region = screen.getByRole("region", { name: "Graph" });
+    const heading = within(region).getByRole("heading", { name: "Graph" });
+    expect(heading.parentElement).toHaveClass("aside-graph-heading");
 
     const canvas = screen.getByText("select-2");
     expect(canvas.getAttribute("data-reset")).toBe("0");
@@ -87,6 +130,19 @@ describe("NoteAside graph section", () => {
 
     // A backdrop click lands on the dialog element itself and closes (unmounts) the lightbox.
     fireEvent.click(dialog!);
+    expect(container.querySelector("dialog.graph-lightbox")).toBeNull();
+  });
+
+  // The lightbox fills the window, so what is left to click past it is a few pixels of backdrop —
+  // nothing a thumb can aim at, and there is no Esc key on a phone either.
+  it("closes the enlarged graph from a button of its own", () => {
+    localGraph.mockReturnValue({ data: linkedGraph });
+    const { container } = render(<NoteAside backlinks={[]} noteID="1" journalDate="" />);
+
+    fireEvent.click(screen.getByRole("button", { name: "Enlarge graph" }));
+    const dialog = container.querySelector("dialog.graph-lightbox")!;
+    fireEvent.click(within(dialog as HTMLElement).getByRole("button", { name: "Close enlarged graph" }));
+
     expect(container.querySelector("dialog.graph-lightbox")).toBeNull();
   });
 
@@ -149,5 +205,64 @@ describe("NoteProperties dates", () => {
     render(<NoteProperties props={[]} />);
     expect(screen.queryByRole("list")).toBeNull();
     expect(screen.queryAllByRole("term")).toEqual([]);
+  });
+});
+
+describe("note flags", () => {
+  it("stamps each flag over the article and stacks two flags vertically", () => {
+    const { container } = render(<NoteStamps flags={["DEPRECATED", "CONFIDENTIAL"]} />);
+
+    const stamps = container.querySelectorAll(".stamp");
+    expect(stamps).toHaveLength(2);
+    expect(stamps[0]).toHaveClass("stamp-deprecated");
+    expect(stamps[0]).toHaveTextContent("DEPRECATED");
+    expect(stamps[1]).toHaveClass("stamp-confidential");
+    expect(stamps[1]).toHaveTextContent("CONFIDENTIAL");
+    // Each stamp carries its own top, so the second lands below the first.
+    const tops = [...stamps].map((stamp) =>
+      Number((stamp as HTMLElement).style.top.replace("px", "")),
+    );
+    expect(tops[1]).toBeGreaterThan(tops[0]);
+  });
+
+  it("stamps nothing when the note carries no flags", () => {
+    const { container } = render(<NoteStamps flags={undefined} />);
+    expect(container.querySelector(".note-stamps")).toBeNull();
+  });
+
+  it("badges a flagged note beside its title", () => {
+    const { container } = render(<NoteFlagBadges flags={["CONFIDENTIAL", "DEPRECATED"]} />);
+
+    const badges = container.querySelectorAll(".note-flag-badge");
+    expect(badges).toHaveLength(2);
+    expect(badges[0]).toHaveClass("note-flag-badge-confidential");
+    expect(badges[0]).toHaveTextContent("CONFIDENTIAL");
+    expect(badges[1]).toHaveClass("note-flag-badge-deprecated");
+  });
+
+  it("badges a flagged backlink in the aside list", () => {
+    render(
+      <NoteAside
+        backlinks={[{ note_id: "2", file_kind: "note", title: "Flagged", flags: ["DEPRECATED"] }]}
+        noteID="1"
+        journalDate=""
+      />,
+    );
+
+    const badge = screen.getByText("DEPRECATED");
+    expect(badge).toHaveClass("note-flag-badge-deprecated");
+  });
+
+  it("badges a flagged note in the On-this-day list", () => {
+    agenda.mockReturnValue({
+      isPending: false,
+      data: {
+        notes: [{ note_id: "3", file_kind: "note", title: "That day", flags: ["CONFIDENTIAL"] }],
+      },
+    });
+    render(<NoteAside backlinks={[]} noteID="1" journalDate="2026-07-12" />);
+
+    expect(screen.getByText("That day")).toBeTruthy();
+    expect(screen.getByText("CONFIDENTIAL")).toHaveClass("note-flag-badge-confidential");
   });
 });

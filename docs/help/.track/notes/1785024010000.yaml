@@ -1,5 +1,7 @@
 version: 8
 title: Mindmaps
 created: '2026-07-26'
+props:
+  up: '[[Visualization]]'
 icon: 🧠
 slug: 2j6WEM15dAYyfQohkQti7H

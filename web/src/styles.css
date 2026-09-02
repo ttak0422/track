@@ -1,5 +1,3 @@
-@import url("https://fonts.googleapis.com/css2?family=IBM+Plex+Sans+JP:wght@400;500;600;700&display=swap");
-
 /* Design master: docs/spec/design.md — pick a variant there (text control, quiet chip, floating
    layer, filled action, underline input, section label, icon button, link) before styling any new
    control. */
@@ -47,8 +45,11 @@
   --line: light-dark(#e6e4de, #282c2f);
   --line-strong: light-dark(#c7c5bd, #3e4347);
   --line-node: light-dark(#8e8c84, #6e7478);
-  /* Ink by value, a salient by role: the one token a brand color would ever replace. */
-  --mark: light-dark(#1a1a18, #e9e9e4);
+  /* The one salient, and the only color the chrome carries: the keyboard cursor, the active tab,
+     the graph's centre node, focus rings, the app's mark. It colors text and fills as well as rules,
+     so both values clear AA on every ground (5.4:1 on the sheet in light, 6.3:1 in dark) and a white
+     label on the filled mark clears it too. */
+  --mark: light-dark(#c13a1e, #f4785e);
   /* The visualization palette: quiet, earthy series colours and a teal heatmap ramp (read by
      echartsTheme.ts). The chrome never reaches in here. */
   --danger: light-dark(#8a352b, #de766b);
@@ -66,9 +67,19 @@
   font-family: var(--font-sans);
   /* The one mono stack — code, the editor, and section labels all read from here. */
   --font-mono: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, monospace;
-  /* The prose column. 40em is ~40 Japanese characters (1em each) and ~48 with Latin mixed in — the
-     column the reader's visualizations and tables are allowed to be wider than. */
+  /* The default prose column. 40em is ~40 Japanese characters (1em each) and ~48 with Latin mixed
+     in. Content width replaces this default when the user chooses Wide or Full. */
   --measure: 40em;
+  --content-measure: var(--content-width, var(--measure));
+  /* Where the floating rail hangs from (see .sidebar for why it hangs rather than centres). It is a
+     token because a second thing lines up with it — the empty state's guides point at the rail's
+     buttons — and two copies of this expression is exactly how they drifted apart before. */
+  --rail-anchor: max(41px, calc(25vh - 200px));
+  /* What the dock takes along the foot of the window at phone width, where it lies horizontally
+     instead of hanging at the left edge (see the phone-width block). Everything else pinned to the
+     bottom corner adds it to its own offset, so the dock's height is written once. Zero everywhere
+     the dock is vertical, which is why those offsets need no media query of their own. */
+  --foot-dock: 0px;
   /* The whole radius scale: badges and inline chips, controls and quiet chips, panels and floating
      layers. Drawn shapes (icon glyphs, heatmap cells, pills, circles) keep their own geometry. */
   --radius-sm: 4px;
@@ -127,15 +138,18 @@
    the page. Layout (margins) stays with each site; only the typography is shared here. */
 .activity-header h2,
 .activity-panel h2,
+.activity-months,
+.activity-weekdays,
 .backlinks h3,
-.home-note-list h3,
 .day-tasks h2,
+.line-hint-mark,
+.rail-panel-title,
 .results-group,
 .code-block[data-language]::before,
-.markdown-view .task-table th,
-.markdown-view th,
+.graph-scope,
 .note-prop dt,
-.ogp-card-site {
+.ogp-card-site,
+.tab-vault {
   color: var(--faint);
   font-family: var(--font-mono);
   font-size: calc(11px * var(--font-scale, 1));
@@ -153,6 +167,14 @@ body,
      content height (CLS: avoids a blank-then-full-page flash before React mounts). */
   min-height: 100vh;
   min-height: 100dvh;
+}
+
+/* Reserve the viewport's scrollbar slot from the first paint. On platforms with classic (width-taking)
+   scrollbars — Linux, Windows — a page that starts short and grows past the fold at the client boot
+   gains a scrollbar then, and every full-width element shifts sideways by its width in one jump
+   (measured as CLS 0.25+). Overlay-scroll platforms pay nothing for the reservation. */
+html {
+  scrollbar-gutter: stable;
 }
 
 body {
@@ -212,21 +234,31 @@ img.theme-asset-dark {
   /* The reader column must shrink below its content's preferred width (a phone is narrower than the
      old 380px floor, which forced sideways scrolling of the whole workspace). */
   grid-template-columns: minmax(0, 1fr);
-  height: 100vh;
+  /* Dynamic viewport height, not 100vh: a phone browser's 100vh is the height with the toolbars
+     retracted, so the workspace hung the foot of the reader (and the dock docked to it) behind the
+     toolbar that was actually on screen. On a desktop the two units are the same number. */
+  height: 100dvh;
   min-height: 560px;
 }
 
 /* The reader owns the layout; the navigation rail is a compact dock floating over it. The strip around
    the dock does not intercept reader clicks, while the dock itself stays interactive. It sits above the
-   graph view (90) and below menus/search (94+). */
+   graph view (90) and below transient menus and search.
+
+   The dock hangs from a fixed point rather than being centred on one. Centring it in the top half put
+   its centre a quarter down — but it also made every entry's position depend on how many entries there
+   were, so opening a note (which adds its controls) slid the whole dock up under the pointer. The
+   anchor still tracks the viewport the way that centre did: a quarter down, less half a nominal dock,
+   so a dock of the usual size sits exactly where it always did and a longer one grows downward. It
+   never rises into the 33px tab row. */
 .sidebar {
   position: fixed;
   z-index: 92;
-  top: 0;
-  bottom: 0;
+  top: var(--rail-anchor);
+  bottom: 8px;
   left: 8px;
   display: flex;
-  align-items: center;
+  align-items: flex-start;
   pointer-events: none;
 }
 
@@ -240,15 +272,32 @@ img.theme-asset-dark {
   border: 1px solid var(--line);
   border-radius: var(--radius-lg);
   background: var(--panel);
-  /* The rail grew a second group (the open note's controls), so on a short window it can be taller
-     than the viewport. Scroll inside the dock without a visible bar. */
-  max-height: calc(100vh - 16px);
+  /* The strip already starts below the tab row and ends at the foot of the window, so the dock simply
+     fills what is left and .rail-scroll takes over past that. */
+  max-height: 100%;
+}
+
+/* Settings stays outside this scroller, pinned at the foot of the dock. The workspace and note groups
+   give up height first, and keep their scrollbar hidden like the original compact rail. */
+.rail-scroll {
+  display: flex;
+  min-height: 0;
+  flex: 1 1 auto;
+  flex-direction: column;
+  align-items: center;
+  gap: 6px;
   overflow-y: auto;
   scrollbar-width: none;
 }
 
-.activity-rail::-webkit-scrollbar {
+.rail-scroll::-webkit-scrollbar {
   display: none;
+}
+
+/* Nothing in the scrolling group is squashed by a short rail. Several children are wrappers holding
+   a button plus its menu, so the rule belongs on every direct child rather than buttons alone. */
+.rail-scroll > * {
+  flex: none;
 }
 
 .rail-search {
@@ -271,8 +320,6 @@ img.theme-asset-dark {
 .rail-button {
   display: grid;
   place-items: center;
-  /* Never squashed by a rail too short for its contents — it scrolls instead (see .activity-rail). */
-  flex: none;
   width: 40px;
   height: 40px;
   border: 0;
@@ -302,6 +349,27 @@ img.theme-asset-dark {
   background: var(--line);
 }
 
+/* Floating layer (design.md variant 3) as a single-line label — .tab-tools' look, beside the rail
+   (see railAnchor.ts). It names the rail's icon-only controls that open no panel of their own,
+   replacing their native title tooltip, which a control carrying its own popup does not also get.
+   A label, not a menu: pointer-events never reach it, so it covers nothing that can be aimed at. */
+.rail-tip {
+  position: fixed;
+  z-index: 95;
+  width: max-content;
+  max-width: 240px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  padding: 3px 10px;
+  background: var(--panel);
+  box-shadow: 0 10px 24px color-mix(in srgb, #000 16%, transparent);
+  color: var(--text);
+  font-size: calc(13px * var(--font-scale, 1));
+  line-height: 1.5;
+  overflow-wrap: anywhere;
+  pointer-events: none;
+}
+
 /* Static-site empty state (every tab closed): a faint centered mark plus arrows pointing back at the
    floating rail, so the blank reader reads as "nothing open" rather than broken. */
 .empty-state {
@@ -321,13 +389,15 @@ img.theme-asset-dark {
   pointer-events: none;
 }
 
-/* The guides mirror the floating rail rather than measuring from the reader's content box: same center
-   line, same 8px pad, 40px rows, and 6px gaps. */
+/* The guides mirror the floating rail rather than measuring from the reader's content box: they hang
+   from the rail's own anchor and repeat its rhythm — 8px pad, 40px rows, 6px gaps — so every row lines
+   up with a button whatever the dock is carrying. The extra pixel is the rail's border, which the
+   guides have no equivalent of. They used to be centred on a quarter down, which matched the rail only
+   while the rail was centred there too; it stopped being when the dock changed to hanging. */
 .empty-guides {
-  position: absolute;
-  top: 50%;
+  position: fixed;
+  top: calc(var(--rail-anchor) + 1px);
   left: 72px;
-  translate: 0 -50%;
   display: flex;
   flex-direction: column;
   gap: 6px;
@@ -345,8 +415,7 @@ img.theme-asset-dark {
   white-space: nowrap;
 }
 
-.empty-guide::before {
-  content: "←";
+.empty-guide .rail-icon-svg {
   margin-right: 8px;
   opacity: 0.8;
 }
@@ -378,6 +447,11 @@ img.theme-asset-dark {
   .spinner {
     animation-duration: 2s;
   }
+
+  /* The drain is decoration; the toast still dismisses on the same timer. */
+  .notification-timer {
+    display: none;
+  }
 }
 
 .home-hero {
@@ -395,14 +469,6 @@ img.theme-asset-dark {
   padding-top: 16vh;
   padding-bottom: 24px;
   text-align: center;
-}
-
-.home-logo {
-  /* Fixed size: don't scale down with the viewport width or shrink inside the flex column. */
-  width: 260px;
-  max-width: 100%;
-  height: auto;
-  flex: none;
 }
 
 .home-hero .search-panel {
@@ -473,26 +539,30 @@ img.theme-asset-dark {
   box-shadow: 0 16px 38px color-mix(in srgb, #000 18%, transparent);
 }
 
-/* The settings menu opens beside the centered dock. It is fixed so it is not clipped by the rail and
-   stays above reader content like note backlinks and the full-graph view. */
+/* The settings menu opens beside the gear that summoned it, placed from the button's own rect like the
+   rail's other flyouts (see railAnchor.ts). It used to hang at a quarter down, which matched the gear
+   only while the dock was centred there; the gear is pinned to the foot of the dock, so the panel drew
+   itself a long way above its own button. It is fixed so it is not clipped by the rail and stays above
+   reader content like note backlinks and the full-graph view. */
 .rail-menu-panel {
   position: fixed;
   z-index: 95;
-  top: 50%;
+  top: auto;
   right: auto;
-  left: 64px;
-  translate: 0 -50%;
+}
+
+.rail-menu-panel .menu-section + .menu-section {
+  margin-top: 16px;
 }
 
 /* The sidebar search popup floats beside the rail, escaping the rail's overflow with fixed positioning.
-   Above .graph-full (z-index 90): the rail (and this popup) render on every page including /graph, whose
-   full-bleed canvas would otherwise paint over the popup and swallow its clicks there. It is just the
-   search field + results — the wordmark and heatmap belong to the "/" home, not to a lookup from a
-   note. */
+   Its layer is above previews (previewBaseZIndex 100+) as well as .graph-full (90), so the search field
+   and results remain usable while a preview is open. It is just the search field + results — the wordmark
+   and heatmap belong to the "/" home, not to a lookup from a note. */
 .search-backdrop {
   position: fixed;
   inset: 0;
-  z-index: 94;
+  z-index: 190;
   background: rgb(0 0 0 / 28%);
 }
 
@@ -503,7 +573,7 @@ img.theme-asset-dark {
   position: fixed;
   left: 50%;
   top: 12vh;
-  z-index: 95;
+  z-index: 191;
   display: flex;
   flex-direction: column;
   width: min(640px, calc(100vw - 48px));
@@ -536,11 +606,19 @@ img.theme-asset-dark {
   border-bottom-color: var(--mark);
 }
 
-.menu-section h2 {
+.menu-section h3 {
   margin: 0 0 8px;
   color: var(--muted);
   font-size: calc(12px * var(--font-scale, 1));
   font-weight: 650;
+}
+
+/* The rail's flyouts open away from the button that summoned them, and a panel of rows says nothing
+   about which button opened it — so each one names itself, with the section label the note aside
+   uses for its regions (variant 6, the shared rule at the top of this file). It sits above the
+   panel's body rather than inside it, so a panel that scrolls cannot carry its own name away. */
+.rail-panel-title {
+  margin: 0 0 8px;
 }
 
 .theme-switch {
@@ -596,6 +674,47 @@ img.theme-asset-dark {
   padding: 8px;
 }
 
+/* A result and the control beside it. The link keeps the row's width; the button takes the slot at
+   its end rather than overlaying the title, which is already clipped there. The slot is held open
+   whether or not the button is in it — a row whose note is already on screen carries none, and a
+   collapsing column would shuffle the titles beside it. */
+.result-row {
+  display: grid;
+  align-items: start;
+  grid-template-columns: minmax(0, 1fr) 32px;
+}
+
+/* Icon button (variant 7), standing permanently: it is the only way to discover that a hit can be
+   read without leaving the search, and a reveal on row hover would leave a keyboard walk of the
+   list with nothing to find. */
+.result-float {
+  display: grid;
+  width: 24px;
+  height: 24px;
+  place-items: center;
+  margin: 10px 8px 0 0;
+  border: 0;
+  border-radius: var(--radius-sm);
+  padding: 0;
+  color: var(--muted);
+  background: transparent;
+  cursor: pointer;
+}
+
+.result-float:hover,
+.result-float:focus-visible {
+  color: var(--text);
+  background: var(--panel-soft);
+}
+
+/* No window opens on a pointer that cannot hover (design.md), so the control that would open one is
+   not there either — the same rule that takes the media frame's preview chip away. */
+@media (hover: none) {
+  .result-float {
+    display: none;
+  }
+}
+
 .result {
   display: grid;
   grid-template-columns: minmax(0, 1fr) auto;
@@ -609,10 +728,12 @@ img.theme-asset-dark {
   background: var(--panel-soft);
 }
 
-/* The keyboard cursor is a quiet reading-edge marker, not a selected card. */
+/* The keyboard cursor is an L-shaped reading-edge marker, not a selected card: the left edge anchors
+   the row and the bottom edge makes the active result easy to scan without adding a filled tile. */
 .result.is-active {
   background: transparent;
-  box-shadow: inset 2px 0 0 var(--mark);
+  border-radius: 0;
+  box-shadow: inset 2px 0 0 var(--mark), inset 0 -2px 0 var(--mark);
 }
 
 .result-title {
@@ -627,6 +748,60 @@ img.theme-asset-dark {
 .note-icon {
   margin-right: 0.4em;
   font-weight: 400;
+}
+
+/* A note's state in a list row (design.md: label typography in a radius-sm chip). NEW says this
+   browser has never opened the note — the one thing to notice, so it takes the salient --mark;
+   stale says the note's last activity is over a year past, a quiet --faint warning. Both are
+   inline state, so the row keeps its own layout and the badge takes none of it. */
+.note-state-badge {
+  display: inline-block;
+  flex: none;
+  margin-left: 8px;
+  border-radius: var(--radius-sm);
+  padding: 1px 6px;
+  font-family: var(--font-mono);
+  font-size: calc(10px * var(--font-scale, 1));
+  font-weight: 500;
+  letter-spacing: 0.08em;
+  line-height: 1.5;
+  vertical-align: 0.15em;
+  white-space: nowrap;
+}
+
+.note-state-new {
+  color: var(--mark);
+  background: color-mix(in srgb, var(--mark) 12%, transparent);
+}
+
+.note-state-stale {
+  color: var(--faint);
+  background: var(--panel-soft);
+}
+
+/* A note's author-assigned flags (ADR 0074) in a list row. The same label-typography chip as the
+   NEW/stale state badges, but the flags are the author's own markers — permanent, and red. */
+.note-flag-badge {
+  display: inline-block;
+  flex: none;
+  margin-left: 8px;
+  border-radius: var(--radius-sm);
+  padding: 1px 6px;
+  font-family: var(--font-mono);
+  font-size: calc(10px * var(--font-scale, 1));
+  font-weight: 500;
+  letter-spacing: 0.08em;
+  line-height: 1.5;
+  vertical-align: 0.15em;
+  white-space: nowrap;
+}
+
+/* Both v1 flags take the danger red (ADR 0074: each a red stamp and list badge). A new flag extends
+   this pair with its own rule — the explicit per-flag registry, not a color table. */
+.note-flag-badge-deprecated,
+.note-flag-badge-confidential {
+  color: var(--danger);
+  background: color-mix(in srgb, var(--danger) 12%, transparent);
 }
 
 .result-snippet {
@@ -644,10 +819,25 @@ img.theme-asset-dark {
 }
 
 /* Tags are text, not chips: a muted #tag reads as a tag by its hash, so the pill outline is just
-   noise. */
-.tag-list span {
+   noise. A clickable tag is still text, so it drops the button chrome the UA would otherwise draw. */
+.tag-list span,
+.tag-list button {
+  padding: 0;
+  border: 0;
+  background: none;
   color: var(--muted);
   font-size: calc(12px * var(--font-scale, 1));
+}
+
+/* A result's tags sit beside the result rather than inside its link, since each one narrows the
+   search instead of opening the note. Text control (variant 1), aligned with the result's padding. */
+.result-tags {
+  padding: 0 10px 8px;
+}
+
+.result-tags button:hover,
+.result-tags button:focus-visible {
+  color: var(--mark);
 }
 
 .activity-panel {
@@ -660,8 +850,37 @@ img.theme-asset-dark {
   border-top: 0;
 }
 
-.activity-panel-home .activity-grid {
-  justify-content: center;
+/* The heatmap and its two scales: a gutter of weekday names beside the cells, a row of month numbers
+   above them. Both scales share the cells' 9px pitch so a caption lands on the row or column it names,
+   and the cell track takes what is left so the measured week count already excludes the gutter. */
+.activity-chart {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  column-gap: 6px;
+  row-gap: 3px;
+}
+
+.activity-months {
+  display: grid;
+  grid-area: 1 / 2;
+  grid-auto-flow: column;
+  grid-auto-columns: 9px;
+  gap: 3px;
+  /* A caption is wider than the single column it marks, so it spills to the right the way GitHub's
+     does; the last one is clipped here rather than widening the panel. */
+  overflow: hidden;
+}
+
+.activity-months span {
+  white-space: nowrap;
+}
+
+.activity-weekdays {
+  display: grid;
+  grid-area: 2 / 1;
+  grid-template-rows: repeat(7, 9px);
+  gap: 3px;
+  align-items: center;
 }
 
 .activity-hover {
@@ -692,6 +911,7 @@ img.theme-asset-dark {
 
 .activity-grid {
   display: grid;
+  grid-area: 2 / 2;
   grid-auto-flow: column;
   grid-template-rows: repeat(7, 9px);
   grid-auto-columns: 9px;
@@ -763,7 +983,10 @@ img.theme-asset-dark {
   min-width: 0;
   min-height: 0;
   flex: 1;
-  overflow: auto;
+  /* Full-bleed diagrams are centred on the prose but paint beyond this box. Clip that paint at the
+     reading surface so it can sit under the dock/aside without turning the page into a side scroller. */
+  overflow-x: clip;
+  overflow-y: auto;
   padding: 32px;
   /* Leave the compact floating dock a clear reading lane. Full-bleed views positioned with inset: 0
      still use the reader's full box and can run beneath the dock. */
@@ -778,60 +1001,16 @@ img.theme-asset-dark {
   display: none;
 }
 
-/* Ordinary read-only notes are the one document surface that uses the page scroller visibly. Full-page
-   views and editing panes keep the quiet hidden treatment above; split preview scrolls in its own pane. */
+/* The read-only note keeps its visible reading-surface scrollbar (design.md). Reserve its gutter as
+   well, because a modal or a content-height change must not resize the reading column when the thumb
+   appears or disappears. */
 .reader:has(.note-reader):not(:has(.note-editor textarea)) {
   scrollbar-width: thin;
+  scrollbar-gutter: stable;
 }
 
 .reader:has(.note-reader):not(:has(.note-editor textarea))::-webkit-scrollbar {
   display: block;
-}
-
-/* Creation history and browser history occupy the hero's two open margins, so the central logo and
-   search stay put as results grow beneath them. Below the width where those margins exist, both lists
-   go away rather than crowding the search box. These are the hero's own content, not a note aside's
-   block: no rule above them, and the list runs the full height of the margin instead of the capped,
-   scrolled column .backlinks gives a heavily linked note. */
-.home-note-list {
-  position: absolute;
-  top: 16vh;
-  bottom: 24px;
-  display: flex;
-  flex-direction: column;
-  /* Take the margin the hero actually leaves instead of a fixed column, so long titles stop wrapping
-     on a wide window. Floor 220px is the width the 1120px breakpoint below still affords; the cap
-     keeps a very wide window from turning the lists into full-width prose. */
-  width: clamp(220px, calc((100% - 560px) / 2 - 64px), 420px);
-  text-align: left;
-}
-
-.home-note-list h3 {
-  margin: 0 0 10px;
-}
-
-.home-note-list-items {
-  min-height: 0;
-  overflow-y: auto;
-  scrollbar-width: none;
-}
-
-.home-note-list-items::-webkit-scrollbar {
-  display: none;
-}
-
-.home-new {
-  left: 32px;
-}
-
-.home-recent {
-  right: 32px;
-}
-
-@media (max-width: 1120px) {
-  .home-note-list {
-    display: none;
-  }
 }
 
 /* On home the hero owns its own internal scrolling, so the reader must not also scroll/grow. */
@@ -858,7 +1037,7 @@ img.theme-asset-dark {
 .graph-panel {
   position: fixed;
   right: 18px;
-  bottom: 18px;
+  bottom: calc(18px + var(--foot-dock));
   z-index: 30;
   display: flex;
   max-width: calc(100vw - 36px);
@@ -892,7 +1071,7 @@ img.theme-asset-dark {
 .graph-fab {
   position: fixed;
   right: 18px;
-  bottom: 18px;
+  bottom: calc(18px + var(--foot-dock));
   z-index: 30;
   display: grid;
   place-items: center;
@@ -907,6 +1086,100 @@ img.theme-asset-dark {
 .graph-fab:hover,
 .graph-fab:focus-visible {
   color: var(--text);
+}
+
+/* The phone's floating navigation (MobileDock): a round track logo over the reading surface that
+   drags anywhere and, tapped, fans its controls out in the half-circle facing away from the edge it
+   sits at. It replaces the foot dock on screens without a side rail, so it is hidden everywhere
+   else. The mark and its fan are floating layers (variant 3) — they hover over prose, so they keep
+   the panel surface and a soft shadow. */
+.mobile-dock {
+  display: none;
+}
+
+/* The mark itself: a 48px disc — a thumb's target — carrying the brand mark. touch-action: none
+   keeps the drag from scrolling the page underneath, and the pointer is captured so the drag does
+   not drop when the thumb crosses the button's edge.
+
+   The corner it starts in is written here rather than as a measured left/top, so a window that
+   changes size — a rotation, a devtools viewport — carries the mark with it without React hearing
+   about the resize. A drag replaces both offsets with a left/top pair (EDGE in MobileDock.tsx is
+   this same 12px, and the drag is clamped to it).
+
+   It is an ink disc like the buttons it fans (variant 9), and for the same reason: it floats over
+   the note, not over chrome. The brand mark draws its own ground — a near-black tile in light, a
+   white one in dark — so an inverted disc is the ground that tile already assumes: the tile settles
+   into the disc and the letter alone stands on it, instead of a pale square sitting inside a ring. */
+.mobile-dock-fab {
+  position: fixed;
+  z-index: 100;
+  right: 12px;
+  bottom: 12px;
+  display: grid;
+  width: 48px;
+  height: 48px;
+  place-items: center;
+  border: 0;
+  border-radius: 50%;
+  padding: 0;
+  background: var(--text);
+  box-shadow: 0 8px 24px color-mix(in srgb, #000 18%, transparent);
+  cursor: grab;
+  touch-action: none;
+  /* The mark blends against this disc (see .mobile-dock-mark) and nothing behind it. */
+  isolation: isolate;
+}
+
+.mobile-dock-fab:active {
+  cursor: grabbing;
+}
+
+.mobile-dock-mark {
+  width: 30px;
+  height: 30px;
+}
+
+/* Only the letter, not the tile it is drawn on. The brand mark is a tile — a near-black square with
+   a white letter in light, the reverse in dark — and on a disc that square is a second shape inside
+   the first. Blending it against the disc drops the ground and keeps the letter: the light tile's
+   ground is darker than the disc it sits on, so `lighten` resolves it to the disc, and the dark
+   tile's is lighter, so `darken` does the same. A configured site icon is untouched (it carries no
+   theme-asset class): a supplied image keeps its own colors, tile and all. */
+.mobile-dock-mark.theme-asset-light {
+  mix-blend-mode: lighten;
+}
+
+.mobile-dock-mark.theme-asset-dark {
+  mix-blend-mode: darken;
+}
+
+/* A fan button: an ink disc (variant 9), sized for a thumb — the 24px hit target of the rail's icon
+   button is a mouse's, a thumb lands closer to 44. The disc is inverted rather than a panel with a
+   hairline on it: it opens over prose, and a panel surface is a hair from the page's own, which left
+   a muted glyph on a near-invisible disc to be found among the words behind it. Ink fill and a
+   page-coloured glyph read as a control at a glance, and the pair swaps itself between themes. */
+.mobile-dock-fan-btn {
+  position: fixed;
+  z-index: 100;
+  display: grid;
+  width: 44px;
+  height: 44px;
+  place-items: center;
+  border: 0;
+  border-radius: 50%;
+  padding: 0;
+  color: var(--bg);
+  background: var(--text);
+  box-shadow: 0 6px 18px color-mix(in srgb, #000 14%, transparent);
+  cursor: pointer;
+}
+
+/* The glyph cannot ink further — it is already the page's colour on ink — so the aimed-at state
+   rings the disc in the salient instead of recolouring anything on it. */
+.mobile-dock-fan-btn:hover,
+.mobile-dock-fan-btn:focus-visible {
+  outline: 2px solid var(--mark);
+  outline-offset: 2px;
 }
 
 .graph-message {
@@ -933,6 +1206,22 @@ img.theme-asset-dark {
   cursor: grabbing;
 }
 
+/* The overview's caption: how much of the vault the picture is showing, and what it left out.
+   Section label (design.md variant 6), parked in the corner opposite the controls. It is a caption,
+   not a control — pointer events pass through to the canvas underneath. */
+.graph-scope {
+  position: absolute;
+  left: 12px;
+  bottom: 12px;
+  z-index: 1;
+  margin: 0;
+  pointer-events: none;
+}
+
+.graph-full .graph-scope {
+  bottom: calc(12px + var(--foot-dock));
+}
+
 .graph-controls {
   position: absolute;
   right: 12px;
@@ -941,6 +1230,13 @@ img.theme-asset-dark {
   display: flex;
   align-items: center;
   gap: 8px;
+}
+
+/* The full-bleed graph reaches under the foot dock (it fills the reader, which the dock floats over),
+   so its controls step up by the dock's height. The floating panel's copy needs no such step: the
+   panel itself already sits above the dock. */
+.graph-full .graph-controls {
+  bottom: calc(12px + var(--foot-dock));
 }
 
 .graph-reset {
@@ -1075,22 +1371,67 @@ a.calendar-title:focus-visible {
   line-height: 1.5;
 }
 
-.calendar-day-more {
+.calendar-day-more,
+.calendar-day-task-more {
   font-size: calc(11px * var(--font-scale, 1));
   color: var(--muted);
 }
 
-/* Task counts sit under the day's note titles as one quiet line — a text control, no badge: a box
-   is not earned inside a cell that is itself borderless. */
-.calendar-day-tasks {
-  color: var(--muted);
-  font-size: 11px;
+/* Task rows lead the cell, above the note titles: a deadline says what the day owes, and that
+   outranks where the day's words went. Each row stacks its deadline bar over the task text, clipped
+   to one line like the note titles below it. */
+.calendar-day-task {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  max-width: 100%;
 }
 
-/* Today: a quiet marker on the number rather than a resting ring. */
+.calendar-day-task-text {
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: calc(11px * var(--font-scale, 1));
+  line-height: 1.5;
+}
+
+/* The deadline bar is a visualization, not chrome, so it draws from the chart palette rather than
+   the chrome's one salient: fill length encodes the days left until the due date (a 14-day window,
+   full at zero) in --chart-1, the series color the activity heatmap already spends on "how much",
+   and --danger takes the whole track once overdue. The track is a hairline ground; drawn shapes
+   keep their own geometry, so the pill takes 999px rather than the radius scale. */
+.calendar-day-due {
+  height: 3px;
+  border-radius: 999px;
+  background: var(--line);
+  overflow: hidden;
+}
+
+.calendar-day-due-fill {
+  display: block;
+  height: 100%;
+  border-radius: inherit;
+  background: var(--chart-1); /* variant: upcoming-deadline urgency */
+}
+
+.calendar-day-due-overdue .calendar-day-due-fill {
+  background: var(--danger); /* variant: past the deadline */
+}
+
+/* Today: a filled mark disc on the number — the salient spent whole on one day, read at a glance.
+   The disc is a drawn shape (50%), sized with the type it holds and centred in place; --panel keeps
+   the digits legible on the fill, as on .primary-button. */
 .calendar-day[aria-current="date"] .calendar-day-number {
-  color: var(--mark);
-  font-weight: 600;
+  align-self: flex-start;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: calc(22px * var(--font-scale, 1));
+  height: calc(22px * var(--font-scale, 1));
+  border-radius: 50%;
+  background: var(--mark);
+  color: var(--panel);
 }
 
 /* The day page: the notes active on one day (what the reader's "On this day" aside shows) as a plain
@@ -1126,9 +1467,10 @@ a.calendar-title:focus-visible {
 
 .note-reader {
   display: flex;
-  /* The reader's column: what visualizations, tables and code fill. Prose is capped tighter inside it
-     (--measure), so this is the wide measure, not the reading one. Overridable via the Content width
-     setting (--content-width). */
+  /* Anchor the flag stamps (ADR 0074) to the article: .note-stamps is inset to this box. */
+  position: relative;
+  /* The reader's column: what visualizations, tables and code fill. Prose uses the readable default
+     (--measure), unless the Content width setting overrides it through --content-measure. */
   width: 100%;
   max-width: var(--content-width, 880px);
   margin-inline: auto;
@@ -1169,6 +1511,44 @@ a.calendar-title:focus-visible {
   max-width: 1920px;
 }
 
+/* A note's author-assigned flags (ADR 0074) overlaid on the article: the classic red English-text
+   stamp, uppercase and slightly rotated, transparent enough to keep reading and pointer-transparent
+   so it never blocks selection or editing. The overlay spans the article (.note-reader/.note-editor
+   anchor it) and each flag stacks down its right edge; its z-index sits above the content inside,
+   below every floating layer (preview windows, search, modals). */
+.note-stamps {
+  position: absolute;
+  inset: 0;
+  z-index: 3;
+  pointer-events: none;
+}
+
+.stamp {
+  position: absolute;
+  right: 24px;
+  padding: 3px 12px;
+  border: 2px solid color-mix(in srgb, var(--danger) 70%, transparent);
+  border-radius: 4px;
+  background: color-mix(in srgb, var(--danger) 10%, transparent);
+  color: var(--danger);
+  font-family: var(--font-mono);
+  font-size: calc(22px * var(--font-scale, 1));
+  font-weight: 700;
+  letter-spacing: 0.12em;
+  line-height: 1.3;
+  text-transform: uppercase;
+  opacity: 0.85;
+  transform: rotate(-8deg);
+  pointer-events: none;
+}
+
+/* Both v1 stamps share the red treatment (ADR 0074). A new flag adds its own rule here — the
+   explicit per-flag registry, not a color table. */
+.stamp-deprecated,
+.stamp-confidential {
+  /* shared red-stamp look, see .stamp */
+}
+
 /* Tab strip: the open notes as a line of titles above the reader — no boxes, no per-tab fills. A tab
    is its title, faded when inactive and ink over a --mark underline when active. The strip never
    scrolls sideways: it shows every tab that fits (TabBar measures) and the rest wait in the +N menu,
@@ -1195,20 +1575,30 @@ a.calendar-title:focus-visible {
 .tab {
   position: relative;
   display: flex;
-  /* Content-sized up to a cap: tabs of their own width read as a line of titles, where one fixed
-     width padded every short title out into a slab of its own. The cap keeps a single long title
-     from crowding out the ones beside it. */
-  flex: 0 1 auto;
-  /* Between a floor and a cap. The cap keeps one long title from crowding out the tabs beside it;
-     the floor is what makes the strip overflow instead of squeezing every title into an unreadable
-     sliver — overflowing is the signal TabBar measures to move a tab into the +N menu. */
-  min-width: 110px;
-  max-width: 210px;
+  /* One width for every tab. Tabs sized to their own titles put the close button somewhere different
+     on each one, so closing a run of them meant chasing it; a constant frame lands the next × exactly
+     where the last one was. A title too long for the frame clips to it with an ellipsis. The frame
+     never shrinks either — the strip overflowing is the signal TabBar measures to move a tab into the
+     +N menu, and it cannot measure a strip whose tabs squeeze instead. */
+  flex: 0 0 168px;
+  /* Without this the frame is not a frame: a flex item's automatic minimum size is its content's, so a
+     title with nothing to break on — a Japanese one has no spaces at all — pushed the tab out to the
+     width of its own text, past the basis above. The ellipsis then never arrived (there was nothing to
+     clip), the close button moved tab by tab again, and the strip measured itself full several tabs
+     early. The title inside already clips, so zero is the right floor. */
+  min-width: 0;
   align-items: center;
-  color: var(--muted);
+  /* Faint, not muted: the strip is read by finding the one title that is not faded, so the tabs
+     behind the active one stand a step further back than chrome usually does. */
+  color: var(--faint);
 }
 
+/* The tab being read gets twice the frame (200% of the 168px basis), so the title that is actually
+   being read is the one that gets room. Closing it makes the next tab active and hands it the same
+   wide frame, so the close button keeps landing in the same place across a run of closes — the
+   invariant the single-width frame existed for is held by the active state, not by every tab. */
 .tab.active {
+  flex: 0 0 336px;
   color: var(--text);
   /* Ink over the strip's hairline — the mark, not a fill or a box. */
   box-shadow: inset 0 -2px 0 var(--mark);
@@ -1280,11 +1670,26 @@ a.calendar-title:focus-visible {
   display: none;
 }
 
-.tab-overflow-panel button {
+/* One row per overflowed tab: the open action takes the row, and close stands at its right end as
+   an icon button (variant 7) — a tab sent here could otherwise only be closed by opening it first,
+   and on a phone, where the strip holds one tab, this menu is the whole tab bar. */
+.tab-overflow-item {
+  display: flex;
+  align-items: center;
+  border-radius: var(--radius-sm);
+}
+
+.tab-overflow-item:hover,
+.tab-overflow-item:focus-within {
+  background: var(--panel-soft);
+}
+
+.tab-overflow-open {
   overflow: hidden;
+  flex: 1;
+  min-width: 0;
   padding: 7px 8px;
   border: 0;
-  border-radius: var(--radius-sm);
   color: var(--muted);
   background: transparent;
   font-size: calc(13px * var(--font-scale, 1));
@@ -1293,8 +1698,28 @@ a.calendar-title:focus-visible {
   white-space: nowrap;
 }
 
-.tab-overflow-panel button:hover,
-.tab-overflow-panel button:focus-visible {
+.tab-overflow-open:hover,
+.tab-overflow-open:focus-visible {
+  color: var(--text);
+}
+
+.tab-overflow-close {
+  display: grid;
+  flex: none;
+  width: 24px;
+  height: 24px;
+  margin-right: 4px;
+  place-items: center;
+  border: 0;
+  border-radius: var(--radius-sm);
+  padding: 0;
+  color: var(--muted);
+  background: transparent;
+  cursor: pointer;
+}
+
+.tab-overflow-close:hover,
+.tab-overflow-close:focus-visible {
   color: var(--text);
   background: var(--panel-soft);
 }
@@ -1306,8 +1731,8 @@ a.calendar-title:focus-visible {
   max-width: 100%;
   align-items: center;
   border: 0;
-  /* The whole tab is the title's: its controls hang under the strip rather than standing in it, so
-     nothing has to be kept clear here. */
+  /* The whole tab is the title's. Close stands at its right end but takes no width from it: a slot
+     kept clear on every tab is what padded the strip out. */
   gap: 6px;
   padding: 8px 12px;
   color: inherit;
@@ -1325,23 +1750,30 @@ a.calendar-title:focus-visible {
 }
 
 /* The vault a tab's note comes from, shown only when the workspace serves named vaults: two of them
-   can hold notes with the same title, so the badge is what tells the tabs apart. */
+   can hold notes with the same title, so the name is what tells the tabs apart. It annotates the
+   title rather than controlling anything, so it takes the section label recipe (design.md variant 6,
+   typography shared above) — chrome carries no filled chips. */
 .tab-vault {
   flex: none;
   margin-right: 6px;
-  padding: 1px 5px;
-  border-radius: var(--radius-sm);
-  background: var(--panel-soft);
-  color: var(--muted);
-  font-size: calc(11px * var(--font-scale, 1));
-  letter-spacing: 0.02em;
   white-space: nowrap;
 }
 
-/* The unsaved-changes dot is state, not a control, so it is the one thing that stays in the tab —
-   beside the title it describes, and never covering it. */
+/* In the strip the name annotates the title, so it never takes more than a corner of the frame from
+   it: a registry name is free-form, and an unshrinkable one ate the whole tab. Past that corner it
+   clips like the title does — the tab's own popup below still carries both in full. */
+.tab-label .tab-vault {
+  flex: 0 1 auto;
+  min-width: 0;
+  max-width: 40%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* The unsaved-changes dot is state, not a control, so it holds the close button's place rather than
+   taking one of its own: while the tab is unhovered the dot is what that corner says. */
 .tab-dirty-dot {
-  flex: none;
+  position: absolute;
   width: 7px;
   height: 7px;
   border-radius: 999px;
@@ -1416,6 +1848,35 @@ a.calendar-title:focus-visible {
   cursor: pointer;
 }
 
+/* Close is the one control that stands in the tab, at its right end. It is absolute so it costs the
+   strip no width: reserving a slot on every tab is what made the strip long, and the title it
+   overlays is already clipped there. */
+.tab-close {
+  position: absolute;
+  top: 50%;
+  right: 6px;
+  translate: 0 -50%;
+}
+
+/* When it appears it brings its own ground. It stands on the tail of the title it closes, and a glyph
+   drawn straight onto letters leaves both unreadable — so the fill arrives with the glyph rather than
+   waiting for the pointer to find the 24px button inside the tab. The fill is the icon button's own
+   (variant 7); what changes is only when it shows. */
+.tab:hover .tab-close,
+.tab-close:focus-visible {
+  background: var(--panel-soft);
+}
+
+.tab:hover .tab-close-glyph,
+.tab-close:focus-visible .tab-close-glyph {
+  opacity: 1;
+}
+
+.tab.dirty:hover .tab-dirty-dot,
+.tab-close:focus-visible .tab-dirty-dot {
+  opacity: 0;
+}
+
 .tab-close:hover,
 .tab-close:focus-visible,
 .tab-float:hover,
@@ -1426,8 +1887,38 @@ a.calendar-title:focus-visible {
 
 .tab-close-glyph {
   /* An SVG block centers by geometry under the button's place-items:center — no text baseline to
-     leave the × optically high (as the old text glyph did). */
+     leave the × optically high (as the old text glyph did). Only the glyph hides while the tab is
+     unhovered, not the button: the dot that holds the same corner is a child of it. */
   display: block;
+  opacity: 0;
+}
+
+/* A pointer that cannot hover reveals nothing, so the tab's two hover states are settled up front.
+   The popup goes away — the strip on such a screen shows one full-width tab, whose title needs no
+   panel to be read, and a tap-triggered :hover would leave that panel standing over the note. Close
+   stays, because it is a control and the only way to leave a tab; it brings the ground it always
+   brought, and takes the corner from the unsaved dot for good rather than for the length of a hover. */
+@media (hover: none) {
+  .tab-tools {
+    display: none;
+  }
+
+  /* The rail tip goes with them: its whole job is naming what hover is aiming at. */
+  .rail-tip {
+    display: none;
+  }
+
+  .tab-close {
+    background: var(--panel-soft);
+  }
+
+  .tab-close-glyph {
+    opacity: 1;
+  }
+
+  .tab-dirty-dot {
+    opacity: 0;
+  }
 }
 
 /* The overflow menu in the rail: a rail-sized trigger whose panel escapes the rail's clipped
@@ -1438,7 +1929,8 @@ a.calendar-title:focus-visible {
   display: flex;
 }
 
-.mode-menu {
+.mode-menu,
+.hierarchy-menu {
   display: flex;
 }
 
@@ -1468,6 +1960,45 @@ a.calendar-title:focus-visible {
   padding: 6px;
 }
 
+/* Floating layer: the browser's recent-note list shares the aside's backlink text-control idiom. It is
+   anchored to its rail button and scrolls within the viewport rather than growing over the workspace. */
+.history-panel {
+  display: flex;
+  flex-direction: column;
+  max-width: min(360px, calc(100vw - 88px));
+  max-height: 50vh;
+}
+
+/* The rows scroll, not the panel: the title above them stays put. */
+.history-scroll {
+  min-height: 0;
+  overflow-y: auto;
+}
+
+.history-list {
+  min-width: 220px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.history-list .backlink {
+  width: auto;
+  max-width: 100%;
+  overflow: hidden;
+  padding: 6px 10px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.history-empty {
+  margin: 0;
+  padding: 6px 10px;
+  color: var(--muted);
+  font-size: calc(13px * var(--font-scale, 1));
+  white-space: nowrap;
+}
+
 .note-menu-panel button {
   border: 0;
   border-radius: var(--radius);
@@ -1488,6 +2019,14 @@ a.calendar-title:focus-visible {
 .note-menu-panel .danger-item:hover,
 .note-menu-panel .danger-item:focus-visible {
   color: var(--danger);
+}
+
+/* A touch pointer never hovers, so on a phone the destructive row would read exactly like the two
+   above it — and there the fan's panel is the only way to it. It wears its colour at rest instead. */
+@media (hover: none) {
+  .note-menu-panel .danger-item {
+    color: var(--danger);
+  }
 }
 
 /* Floating layer: the rail keeps only the current display-mode glyph; this labelled menu exposes
@@ -1511,6 +2050,107 @@ a.calendar-title:focus-visible {
   width: 18px;
   height: 18px;
   flex: none;
+}
+
+/* Floating layer: the rail's "up" tree, on the same menu surface but holding nested rows instead of
+   one action list. It scrolls rather than growing past the viewport — a vault's whole hierarchy can
+   be longer than the screen — and never wider than a reading-comfortable column. */
+.hierarchy-panel {
+  display: flex;
+  flex-direction: column;
+  max-width: 280px;
+  max-height: 50vh;
+  padding: 8px 10px;
+}
+
+/* The tree scrolls, not the panel: the title above it stays put. */
+.hierarchy-scroll {
+  min-height: 0;
+  overflow-y: auto;
+}
+
+.hierarchy-list {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+/* Depth reads as an indent against a hairline, the aside's quiet-column idiom — no glyphs, no pills.
+   One step is narrower than a caret column: the roots carry no caret, so a wider step would open a
+   gap between a root's title and the row beneath it. */
+.hierarchy-list .hierarchy-list {
+  margin-left: 3px;
+  border-left: 1px solid var(--line);
+  padding-left: 9px;
+}
+
+.hierarchy-row {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+}
+
+/* icon button: the fold caret. The glyph is 8px in a 24px target, and the box is kept on a leaf too
+   (as an empty span), which is what lines the titles of one level up with each other. */
+.hierarchy-toggle,
+.hierarchy-toggle-placeholder {
+  display: grid;
+  width: 24px;
+  height: 24px;
+  flex: none;
+  border: 0;
+  border-radius: var(--radius-sm);
+  padding: 0;
+  color: var(--muted);
+  background: transparent;
+  cursor: pointer;
+  place-items: center;
+}
+
+.hierarchy-toggle:hover,
+.hierarchy-toggle:focus-visible {
+  color: var(--text);
+  background: var(--panel-soft);
+}
+
+/* Down-pointing caret when the branch is open; rotates to point right when it is folded. */
+.hierarchy-caret {
+  width: 0;
+  height: 0;
+  border-top: 5px solid currentColor;
+  border-right: 4px solid transparent;
+  border-left: 4px solid transparent;
+  transition: transform 120ms ease;
+}
+
+.hierarchy-toggle[aria-expanded="false"] .hierarchy-caret {
+  transform: rotate(-90deg);
+}
+
+/* text control */
+.hierarchy-list a {
+  display: block;
+  min-width: 0;
+  flex: 1;
+  overflow: hidden;
+  padding: 3px 0;
+  color: var(--muted);
+  font-size: calc(13px * var(--font-scale, 1));
+  text-decoration: none;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.hierarchy-list a:hover,
+.hierarchy-list a:focus-visible {
+  color: var(--text);
+}
+
+.hierarchy-empty {
+  margin: 0;
+  padding: 3px 0;
+  color: var(--faint);
+  font-size: calc(13px * var(--font-scale, 1));
 }
 
 /* Centered confirmation dialog, above the float controls and floating windows. */
@@ -1635,6 +2275,31 @@ textarea.modal-input:focus-visible {
   opacity: 0.6;
 }
 
+/* A note's flag checkboxes in the meta dialog (ADR 0074): one toggle per closed-set flag, laid in a
+   row under the field label. The native checkbox keeps the toggle affordance; the name is the flag's
+   own danger-red mono text, the same face the badge and stamp use. */
+.flag-toggles {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 14px;
+}
+
+.flag-toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  font-family: var(--font-mono);
+  font-size: calc(12px * var(--font-scale, 1));
+  letter-spacing: 0.08em;
+  color: var(--danger);
+  cursor: pointer;
+}
+
+.flag-toggle:has(input:disabled) {
+  cursor: default;
+  opacity: 0.6;
+}
+
 .modal-actions {
   display: flex;
   justify-content: flex-end;
@@ -1713,20 +2378,24 @@ textarea.modal-input:focus-visible {
   margin: 0 4px;
 }
 
-/* Block-anchor arrival: the block a [[Note#^id]] link landed on flashes, then settles to a faint
-   tint so the eye keeps its place. Colors derive from --mark, so both themes are covered. */
+/* Arrival highlight: the block a [[Note#^id]] link or a Contents entry landed on flashes, holds long
+   enough to be found, and then fades out. It answers "where did I just land" — once that is answered
+   it has nothing left to say, so it leaves rather than tinting the block for as long as the note
+   stays open. Colors derive from --mark, so both themes are covered. */
 .block-target {
   border-radius: var(--radius-sm);
-  animation: block-flash 1.6s ease-out;
-  background: color-mix(in srgb, var(--mark) 10%, transparent);
+  animation: block-flash 2.4s ease-out;
 }
 
 @keyframes block-flash {
   0% {
     background: color-mix(in srgb, var(--mark) 30%, transparent);
   }
+  40% {
+    background: color-mix(in srgb, var(--mark) 30%, transparent);
+  }
   100% {
-    background: color-mix(in srgb, var(--mark) 10%, transparent);
+    background: transparent;
   }
 }
 
@@ -1737,7 +2406,7 @@ textarea.modal-input:focus-visible {
   display: flex;
   flex-wrap: wrap;
   gap: 10px 28px;
-  max-width: var(--measure);
+  max-width: var(--content-measure);
   margin: 0;
   font-size: calc(13px * var(--font-scale, 1));
 }
@@ -1765,6 +2434,8 @@ textarea.modal-input:focus-visible {
 
 .note-editor {
   display: flex;
+  /* Anchor the flag stamps (ADR 0074) to the editing surface: .note-stamps is inset to this box. */
+  position: relative;
   min-height: 360px;
   flex: 1;
   flex-direction: column;
@@ -1813,7 +2484,11 @@ textarea.modal-input:focus-visible {
      with a lot of backlinks scrolls only its own backlink list, not the whole page. */
   min-height: 0;
   overflow: auto;
-  padding: 16px;
+  /* Named because a full-bleed diagram has to undo it to reach the reader's edges (see the bleed rule
+     in the docked-rail block); a padding it could not see would leave the diagram short by exactly
+     this much. */
+  --preview-pad-inline: 16px;
+  padding: 16px var(--preview-pad-inline);
   background: var(--panel);
   /* Read-only notes flow into the outer reader below; split preview keeps its own overflow but hides
      the bar so the editing surface stays quiet. */
@@ -1824,23 +2499,41 @@ textarea.modal-input:focus-visible {
   display: none;
 }
 
-/* Static-only share actions sit after the note layout. The layout flexes to fill short pages, which puts
-   this footer at the reader's bottom; on longer notes it follows the article and remains sticky while
-   the reader scrolls. The export option keeps this quiet on the documentation site, while the blog can
-   opt in without changing note content. */
+/* Rough source-line marks, reading mode only: hundred-line bands (~400) hanging in the gutter left
+   of the prose column, each level with the passage its band begins at, the way a printed page
+   numbers its margin. Section-label typography (variant 6) carries them; they are inert — they
+   point, nothing points at them — so they take no hover, no fill, and never intercept a click meant
+   for content beneath. The strip itself is a zero-height origin at the head of the note: positioned
+   rather than sticky, so the numbers travel with the prose instead of reading out the viewport. */
+.line-hint {
+  position: relative;
+  height: 0;
+  pointer-events: none;
+}
+
+.line-hint-mark {
+  position: absolute;
+  /* Into the margin left of the column: the dock lane and centring whitespace are already there,
+     and whatever they cannot hold the reader's overflow-x clip quietly swallows. */
+  right: calc(100% + 8px);
+  white-space: nowrap;
+}
+
+/* Static-only share actions, closing the note column under the body. They used to be a sticky bar at
+   the foot of the reader: a strip of chrome over the last line of the note for the whole read, and on
+   a phone a second bar stacked on the dock. Sharing is what you do at the end of a note, so it waits
+   there — a hairline above it, and no surface of its own now that nothing passes underneath. The
+   export option keeps this quiet on the documentation site, while the blog can opt in without
+   changing note content. */
 .share-actions {
   display: flex;
   flex: 0 0 auto;
   align-items: center;
   justify-content: center;
-  margin-top: auto;
+  /* On top of the column's own 18px gap: a rule and 44px of lead, the same break an h2 takes. */
+  margin-top: 26px;
   border-top: 1px solid color-mix(in srgb, var(--line) 70%, transparent);
   padding: 10px 0;
-  background: color-mix(in srgb, var(--panel) 92%, transparent);
-  backdrop-filter: blur(12px);
-  position: sticky;
-  bottom: 0;
-  z-index: 2;
 }
 
 .share-actions-list {
@@ -1927,19 +2620,12 @@ textarea.modal-input:focus-visible {
   opacity: 1;
 }
 
+/* Both share glyphs are tabler outlines drawn by RailIcon (fill none, round, 1.5 stroke);
+   the class only fixes the box. */
 .share-action-icon {
   display: block;
   width: 20px;
   height: 20px;
-  fill: currentColor;
-}
-
-.share-action-copy .share-action-icon {
-  fill: none;
-  stroke: currentColor;
-  stroke-linecap: round;
-  stroke-linejoin: round;
-  stroke-width: 1.8;
 }
 
 .editor-grid-split .note-preview {
@@ -1971,17 +2657,19 @@ textarea.modal-input:focus-visible {
   overflow-wrap: anywhere;
 }
 
-/* Two measures (design.md, The reading surface). Prose is capped at --measure inside the reader's
-   column; the blocks meant to be wider than a sentence say so by name and fill it. The difference is
-   what makes a visualization read as content rather than as part of the paragraph above it. */
+/* Two measures by default (design.md, The reading surface). Prose uses --measure inside the reader's
+   column; the Content width setting can intentionally widen that measure, while blocks meant to be
+   wider than a sentence still fill the reader column. */
 .markdown-view > * {
-  max-width: var(--measure);
+  max-width: var(--content-measure);
 }
 
 .markdown-view > table,
 .markdown-view > hr,
 .markdown-view > .code-block,
-.markdown-view > .embed,
+/* Every embed bleeds except the link card: it is a sentence's worth of text in a box, so it keeps the
+   narrower cap it sets for itself rather than being stretched past the prose beside it. */
+.markdown-view > .embed:not(.ogp-card),
 .markdown-view > .media-frame,
 .markdown-view > .mermaid-diagram,
 .markdown-view > .drawio-diagram,
@@ -1996,8 +2684,10 @@ textarea.modal-input:focus-visible {
   max-width: 100%;
 }
 
-/* One rhythm, all leading and no second size: h2 opens a section with a rule and 44px of air, h3
-   marks a turn inside one with 26px, and both read at body size. */
+/* One rhythm, all leading and no second size: a body h1 opens a chapter and h2 opens a section, both
+   with 44px of air and a rule above — the chapter takes the stated rule (--line-strong) where the
+   section takes the hairline, so the two ranks part without a fourth type size — and h3 marks a turn
+   inside a section with 26px. Everything here reads at body size; only the title stands larger. */
 .markdown-view h1,
 .markdown-view h2,
 .markdown-view h3,
@@ -2006,12 +2696,13 @@ textarea.modal-input:focus-visible {
   line-height: inherit;
 }
 
-.markdown-view h1 {
-  margin: 0;
-  font-size: calc(26px * var(--font-scale, 1));
-  font-weight: 500;
-  line-height: 1.4;
-  letter-spacing: 0.005em;
+/* A body h1 whose text differs from the note title is a chapter head, not the title: it joins this
+   rhythm instead of competing with the title's 26px. */
+.markdown-view h1:not(.note-title) {
+  margin: 44px 0 0;
+  padding-top: 13px;
+  border-top: 1px solid var(--line-strong);
+  font-weight: 700;
 }
 
 .markdown-view h2 {
@@ -2024,6 +2715,16 @@ textarea.modal-input:focus-visible {
 .markdown-view h3 {
   margin: 26px 0 0;
   font-weight: 700;
+}
+
+/* Bold shares the h3's size and weight, so the heading carries a faint section sign before its text
+   — the ink the list markers wear — reading as a mark-level device beneath h2's full-width hairline.
+   Generated content, so copies and the outline never see it. */
+.markdown-view h3::before {
+  content: "§";
+  margin-inline-end: 0.45em;
+  color: var(--faint);
+  font-weight: 400;
 }
 
 .markdown-view h4 {
@@ -2053,7 +2754,15 @@ textarea.modal-input:focus-visible {
   margin-top: 0;
 }
 
-.note-title {
+/* The note's title keeps the reader's largest type (26px/500) — the one size above the body rhythm.
+   It carries its own class-scoped rule because a plain body h1 is now a chapter head (see above), and
+   the compound selector out-ranks the shared heading rule's font-size: inherit. */
+.markdown-view .note-title {
+  margin: 0;
+  font-size: calc(26px * var(--font-scale, 1));
+  font-weight: 500;
+  line-height: 1.4;
+  letter-spacing: 0.005em;
   word-break: break-word;
 }
 
@@ -2099,6 +2808,41 @@ textarea.modal-input:focus-visible {
   stroke-linecap: round;
   stroke-linejoin: round;
   stroke-width: 1.8;
+}
+
+/* The selection popover is a floating layer (variant 3): a small panel anchored to an explicit text
+   selection. It sits just below the selection when there is room, or just above it, so the actions
+   do not cover the text that made them appear. */
+.selection-copy {
+  position: fixed;
+  z-index: 20;
+  display: flex;
+  gap: 2px;
+  padding: 2px;
+  transform: translateX(-50%);
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  background: var(--panel);
+  box-shadow: 0 10px 24px color-mix(in srgb, var(--text) 16%, transparent);
+  white-space: nowrap;
+}
+
+/* The panel's actions are variant 1 text controls on the floating ground: muted ink that darkens on
+   hover or keyboard focus, no border or fill of their own. */
+.selection-copy button {
+  padding: 2px 8px;
+  border: 0;
+  border-radius: var(--radius-sm);
+  color: var(--muted);
+  background: transparent;
+  font-size: calc(13px * var(--font-scale, 1));
+  line-height: 1.6;
+  cursor: pointer;
+}
+
+.selection-copy button:hover,
+.selection-copy button:focus-visible {
+  color: var(--text);
 }
 
 .markdown-view ul,
@@ -2164,9 +2908,7 @@ textarea.modal-input:focus-visible {
 }
 
 /* GFM tables: horizontal rules only (no column separators, no row striping, no header fill), bleeding
-   to the reader's column and scrolling horizontally when wider than it. The header takes the section
-   label recipe (see the shared rule at the top), so what tells it from the body is a stated rule, not
-   a slab. */
+   to the reader's column and scrolling horizontally when wider than it. */
 .markdown-view table {
   display: block;
   width: max-content;
@@ -2179,7 +2921,11 @@ textarea.modal-input:focus-visible {
   font-variant-numeric: tabular-nums;
 }
 
+/* A column name is something the note's author typed, not a label this UI supplies, so it keeps its
+   own casing and the body's type. What tells it from the cells below is the rule beneath it and the
+   body ink the muted cells give up. */
 .markdown-view th {
+  font-weight: 500;
   padding: 0 18px 8px 0;
   border-bottom: 1px solid var(--line-strong);
   background: none;
@@ -2236,11 +2982,30 @@ textarea.modal-input:focus-visible {
   opacity: 1;
 }
 
-/* The frame controls sit at top-right; a wrapped code block's copy button and a mermaid diagram's
-   controls also live there, so shift those left of the two-button cluster (2×28 + gaps) to avoid overlap. */
-.media-frame .code-copy,
-.media-frame .mermaid-controls {
+/* Without a hover to reveal them the chips are simply there — a quiet chip may stand permanently
+   when it is the only way to discover what it opens. Preview is the one that goes: it opens a
+   draggable, resizable copy of media that is already fully visible, which is a cursor's idiom.
+   Enlarge answers the same question with a modal lightbox, and that works with a thumb. */
+@media (hover: none) {
+  .media-controls {
+    opacity: 1;
+  }
+
+  .media-preview {
+    display: none;
+  }
+}
+
+/* The frame controls sit at top-right; a wrapped code block's copy button lives there too, so shift it
+   left of the two-button cluster (2×28 + gaps) to avoid overlap. */
+.media-frame .code-copy {
   right: 76px;
+}
+
+/* A diagram attachment brings its own control strip, which ends where the frame's own cluster begins.
+   The strip is in flow, so it keeps clear by giving up the width rather than by moving. */
+.media-frame .mermaid-bar {
+  padding-right: 68px;
 }
 
 /* The enlarge control's in-window lightbox: a modal <dialog>, so the media grows to the window (not
@@ -2336,6 +3101,18 @@ textarea.modal-input:focus-visible {
   min-height: 360px;
   border: 1px solid var(--line, #d9ddd5);
   border-radius: var(--radius-lg);
+}
+
+/* :frame none keeps the page in normal flow but removes the wrapper's clipping and the iframe's
+   border/radius, so the embedded document meets the note without changing its sandbox. */
+.embed-html-frame-none {
+  border-radius: 0;
+  overflow: visible;
+}
+
+.embed-html-frame-none iframe {
+  border: 0;
+  border-radius: 0;
 }
 
 .embed-pdf {
@@ -2516,6 +3293,64 @@ textarea.modal-input:focus-visible {
   overflow: hidden;
 }
 
+/* Where the dock cannot hang at the left edge: a screen with no cursor, and a window with no room to
+   spare a 64px lane. It lies along the foot of the window instead.
+
+   The two conditions ask one question — is there reach and room for a rail down the side? — and a
+   phone answers no whichever way it is turned. Width alone could not say that: turning a phone
+   sideways is 390px becoming 844px, and the dock jumped back to the edge halfway through the
+   rotation. The published static site is where this is felt (the live workspace is desk-bound), but
+   both share it. */
+@media (hover: none), (max-width: 540px) {
+  /* The foot dock is gone: the floating mark (MobileDock) carries the same controls in a fan and
+     takes no strip of the window, so everything that pinned itself above the dock — the toast, the
+     graph launcher, the reader's last line — simply has its space back. */
+  :root {
+    --foot-dock: 0px;
+  }
+
+  /* The lane goes back to the reader. */
+  .reader {
+    padding-left: 32px;
+  }
+
+  /* The side rail is the dock the mark replaces. It stays mounted — the "/" search chord and the
+     popups behind it still work through a hidden trigger — but takes no strip of the screen. */
+  .sidebar {
+    display: none;
+  }
+
+  /* The guides point at the buttons of a dock that is no longer at the left edge. */
+  .empty-guides {
+    display: none;
+  }
+
+  /* A flyout from the mark takes the window (railAnchor pins it to inset: 8px), because the mark it
+     would hang from is dragged wherever the reader likes and a panel placed from that rect opened
+     somewhere new every time. So the widths that shaped a flyout beside the rail go: the box is the
+     window's, and a list too short to fill it leaves the rest empty. */
+  .note-menu-panel {
+    width: auto;
+    max-width: none;
+  }
+
+  .history-panel {
+    max-width: none;
+    max-height: none;
+  }
+
+  /* contents, not block: the dock is a child of the workspace grid, and a block box there is a row of
+     its own. Everything it holds is position: fixed, so that row measured zero and the grid split the
+     window between it and the reader — the reader kept a little over half the height, and the graph
+     (absolutely positioned inside it, so it contributes no height of its own to argue with) drew into
+     a box barely wider than the note aside's: too small to be allowed titles, and short enough that
+     the whole vault fitted in the blank half. Taking no box at all leaves the reader the window. */
+  .mobile-dock {
+    display: contents;
+  }
+}
+
+/* Phone width proper: what a hand-held window is too narrow for, whatever kind of pointer it has. */
 @media (max-width: 540px) {
   .ogp-card {
     flex-direction: column;
@@ -2526,14 +3361,36 @@ textarea.modal-input:focus-visible {
     flex-basis: 160px;
   }
 
-  /* Phone width: keep the reader clear of the floating dock. The published static site is the main
-     mobile surface (the live workspace is desk-bound), but both share these. */
+  /* Tighter margins than the sheet's 32px, and the foot dock's clearance kept (the rule above set it
+     on a padding-bottom this shorthand replaces). */
   .reader {
-    padding: 16px 12px 16px 64px;
+    padding: 16px 12px calc(16px + var(--foot-dock));
+  }
+
+  /* One tab at a time. The frame fills the strip, so TabBar's own measuring pass — which shrinks the
+     strip while it overflows — settles on the single leftmost tab, which is always the note being
+     read, and sends every other one to the +N menu beside it. A landscape phone and a tablet keep
+     the ordinary strip: they have the width for several tabs, whatever their dock is doing. */
+  .tab {
+    flex: 1 0 100%;
+  }
+
+  /* The active tab's wider frame belongs to a strip that fits several tabs; on a phone every tab
+     already fills the strip, so the active state keeps the phone's own width (its higher
+     specificity would otherwise win this one). */
+  .tab.active {
+    flex: 1 0 100%;
   }
 
   .note-preview {
-    padding: 12px 8px;
+    --preview-pad-inline: 8px;
+    padding: 12px var(--preview-pad-inline);
+  }
+
+  /* The column takes the window here, so the marker's gutter is gone — half-clipped glyphs are
+     worse than none, and a thumb-held read has no use for a scroll-position hint anyway. */
+  .line-hint {
+    display: none;
   }
 
   .calendar-grid {
@@ -2671,9 +3528,23 @@ textarea.modal-input:focus-visible {
 }
 
 .mermaid-viewport {
+  position: relative;
   overflow: hidden;
   cursor: grab;
   touch-action: none;
+}
+
+/* Only the drawing viewport bleeds to the window: the frame remains at the prose width so its fold and
+   control chips keep their reading-column anchors. The viewport clips its own drawing and fades at
+   those real edges, while .reader clips the window-wide overrun from horizontal page scrolling. */
+.markdown-view > .mermaid-diagram > .mermaid-viewport {
+  width: 100%;
+}
+
+.markdown-view > .mermaid-diagram > .mermaid-viewport:not([data-collapsed]) {
+  width: 100vw;
+  max-width: 100vw;
+  margin-left: calc(50% - 50vw);
 }
 
 .mermaid-viewport:active {
@@ -2690,16 +3561,29 @@ textarea.modal-input:focus-visible {
   height: auto;
 }
 
-.mermaid-controls {
-  position: absolute;
-  top: 8px;
-  right: 8px;
-  z-index: 2; /* above the continuation fades */
+/* The diagram's control strip: fold at the left end, everything else at the right, on the frame's own
+   ground above the drawing. It replaces two chips that floated in the drawing's top corners, where
+   they sat on whatever the diagram had put there. Nothing here waits for a hover — out of the drawing
+   there is nothing for them to obscure, and a control a touch pointer can never reveal is no control
+   (see design.md, "A tap is not a hover"). */
+.mermaid-bar {
   display: flex;
-  flex-direction: column;
+  min-height: 26px; /* the control's own height, so an empty end of the strip holds the row open */
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 4px;
+  border-radius: var(--radius);
+  background: var(--panel-soft);
+}
+
+/* The right end of the strip. The lightbox reuses the row as a floating cluster (see below), so the
+   positioning lives there rather than here. */
+.mermaid-controls {
+  display: flex;
+  flex-direction: row;
+  margin-left: auto; /* hold the right end even when the fold control is absent */
   gap: 4px;
-  opacity: 0;
-  transition: opacity 0.12s ease;
 }
 
 .mermaid-control {
@@ -2707,45 +3591,87 @@ textarea.modal-input:focus-visible {
   height: 26px;
   display: grid;
   place-items: center;
-  border: 1px solid var(--line);
-  border-radius: var(--radius);
-  background: var(--panel-soft);
-  color: var(--text);
-  font-size: 15px;
+  padding: 0;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+  color: var(--muted);
+  font-size: calc(15px * var(--font-scale, 1));
   line-height: 1;
   cursor: pointer;
 }
 
-.mermaid-diagram:hover .mermaid-controls,
-.mermaid-controls:focus-within {
-  opacity: 1;
+.mermaid-control:hover,
+.mermaid-control:focus-visible {
+  border-radius: var(--radius-sm);
+  background: var(--panel);
+  color: var(--text);
 }
 
-/* The fold toggle is a quiet hover affordance once a diagram is full-sized. A collapsed preview keeps
-   its Show full diagram action visible because otherwise the way back to the full content is hidden. */
-.mermaid-fold {
+/* Wide diagrams can keep their natural text size in a modal instead of shrinking until the workflow
+   labels become unreadable in the note column. The content area scrolls both axes when necessary. */
+.diagram-lightbox {
+  width: min(96vw, 1600px);
+  height: min(92vh, 1000px);
+  max-width: 96vw;
+  max-height: 92vh;
+  padding: 16px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-lg);
+  background: var(--panel);
+  color: var(--text);
+  overflow: hidden;
+  box-shadow: 0 24px 60px color-mix(in srgb, var(--text) 28%, transparent);
+}
+
+.diagram-lightbox::backdrop {
+  background: color-mix(in srgb, var(--text) 45%, transparent);
+}
+
+.diagram-lightbox-content {
+  width: 100%;
+  height: 100%;
+  overflow: hidden;
+}
+
+.diagram-lightbox-content .mermaid-viewport {
+  width: 100%;
+  height: 100%;
+}
+
+.diagram-lightbox-content svg {
+  display: block;
+  width: auto;
+  height: auto;
+  max-width: none;
+}
+
+/* A lightbox is closed by pressing Esc or by clicking past it, and neither is available to a thumb:
+   a modal sized to fill the window leaves a backdrop a few pixels wide to aim at. So every lightbox
+   carries its own way out, in the same corner. This class is placement only — the button keeps its
+   own surface's icon-button treatment (.mermaid-control, .graph-reset). */
+.lightbox-close {
   position: absolute;
   top: 8px;
-  left: 8px;
-  z-index: 2; /* above the continuation fades */
-  opacity: 0;
-  transition: opacity 0.12s ease;
+  right: 8px;
+  z-index: 1;
+  font-size: calc(20px * var(--font-scale, 1));
 }
 
-.mermaid-diagram:hover .mermaid-fold,
-.mermaid-fold:focus-visible,
-.mermaid-diagram[data-collapsed] .mermaid-fold {
-  opacity: 1;
+/* The popup has no strip of its own — its controls float in the window's top corner, clear of a
+   drawing that is fitted inside the window's padding. 44px leaves the close button its corner. */
+.diagram-lightbox-controls {
+  position: absolute;
+  top: 8px;
+  right: 44px;
+  z-index: 2;
 }
 
 /* A tall collapsed diagram stays at a readable scale and is clipped, so make both the continuation
    and the way to reveal it unmistakable. The fade is purely visual and never intercepts input.
    Collapsed, the chip carries a label beside the caret, so its grid flows in one row and its box
-   grows to fit — the icon-sized square would push the text out over the diagram. */
+   grows to fit — the icon-sized square would clip the text. */
 .mermaid-diagram[data-collapsed] .mermaid-fold {
-  top: auto;
-  bottom: 18px;
-  left: 50%;
   grid-auto-flow: column;
   width: auto;
   min-width: max-content;
@@ -2753,7 +3679,6 @@ textarea.modal-input:focus-visible {
   min-height: 26px;
   padding: 0 10px;
   gap: 6px;
-  transform: translateX(-50%);
 }
 
 .mermaid-continuation {
@@ -3059,11 +3984,12 @@ textarea.modal-input:focus-visible {
   color: var(--text);
 }
 
-/* The date cells double as their control, the same way the state cell does: a native date input
-   stripped to the cell's own text look, so picking a date is a click on what the row already shows.
-   A cell with no date reads as blank until the row is hovered or keyboard-focused — an untouched
-   table stays quiet rather than showing a row of empty inputs. */
-.markdown-view input.task-row-date-input {
+/* The date cells double as their control, the same way the state cell does: a button wearing the
+   cell's own text look, so picking a date is a click on what the row already shows — which opens
+   the workspace's own calendar (TaskDatePicker) rather than the browser's native one. A cell with
+   no date reads as blank until the row is hovered or keyboard-focused — an untouched table stays
+   quiet rather than showing a row of empty controls. */
+.markdown-view .task-row-date-input {
   appearance: none;
   -webkit-appearance: none;
   border: none;
@@ -3074,17 +4000,140 @@ textarea.modal-input:focus-visible {
   cursor: pointer;
 }
 
-.markdown-view input.task-row-date-input::-webkit-calendar-picker-indicator {
-  display: none;
-}
-
-.markdown-view input.task-row-date-input[data-empty] {
+.markdown-view .task-row-date-input[data-empty] {
   opacity: 0;
 }
 
-.markdown-view tr.task-row:hover input.task-row-date-input[data-empty],
-.markdown-view input.task-row-date-input[data-empty]:focus-visible {
+.markdown-view tr.task-row:hover .task-row-date-input[data-empty],
+.markdown-view .task-row-date-input[data-empty]:focus-visible {
   opacity: 1;
+}
+
+/* The date cell's own calendar (TaskDatePicker), a floating layer (variant 3) hung under the cell.
+   It is drawn in the workspace's tokens instead of the browser's native chrome, and its actions are
+   the two text controls DELETE and SAVE — a destructive choice reads as itself, not as a button. */
+.task-date-picker {
+  position: fixed;
+  z-index: 40;
+  width: 248px;
+  padding: 10px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-lg);
+  background: var(--panel);
+  box-shadow: 0 16px 38px color-mix(in srgb, #000 18%, transparent);
+}
+
+.task-date-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 8px;
+}
+
+.task-date-head button {
+  border: 0;
+  padding: 2px 8px;
+  color: var(--muted);
+  background: transparent;
+  font-size: calc(14px * var(--font-scale, 1));
+  line-height: 1.2;
+  cursor: pointer;
+}
+
+.task-date-head button:hover,
+.task-date-head button:focus-visible {
+  color: var(--text);
+}
+
+.task-date-month {
+  color: var(--text);
+  font-size: calc(13px * var(--font-scale, 1));
+  font-weight: 500;
+}
+
+.task-date-weekdays {
+  display: grid;
+  grid-template-columns: repeat(7, 1fr);
+  margin-bottom: 4px;
+}
+
+.task-date-weekdays span {
+  padding: 3px 0;
+  color: var(--faint);
+  font-family: var(--font-mono);
+  font-size: calc(10px * var(--font-scale, 1));
+  text-align: center;
+}
+
+.task-date-grid {
+  display: grid;
+  grid-template-columns: repeat(7, 1fr);
+  gap: 2px;
+}
+
+.task-date-day {
+  display: grid;
+  width: 100%;
+  height: 30px;
+  place-items: center;
+  border: 0;
+  border-radius: var(--radius-sm);
+  padding: 0;
+  color: var(--muted);
+  background: transparent;
+  font-size: calc(12px * var(--font-scale, 1));
+  cursor: pointer;
+}
+
+.task-date-day:hover,
+.task-date-day:focus-visible {
+  color: var(--text);
+  background: var(--panel-soft);
+}
+
+/* Today is where the mark's ring goes: the cursor's own place, said in the chrome's one color. */
+.task-date-today {
+  box-shadow: inset 0 0 0 1px var(--mark);
+}
+
+/* The working choice is a filled mark, like the modal's primary button: the one day this dialog is
+   about. */
+.task-date-day[aria-pressed="true"] {
+  color: #fff;
+  background: var(--mark);
+  font-weight: 600;
+}
+
+.task-date-actions {
+  display: flex;
+  justify-content: space-between;
+  margin-top: 10px;
+  border-top: 1px solid var(--line);
+  padding-top: 8px;
+}
+
+/* DELETE and SAVE are the picker's decisions, so they are text controls: muted, inking on hover,
+   the affirmative taking weight — nothing filled, nothing boxed. */
+.task-date-actions button {
+  border: 0;
+  padding: 4px 6px;
+  color: var(--muted);
+  background: transparent;
+  font-family: var(--font-mono);
+  font-size: calc(11px * var(--font-scale, 1));
+  font-weight: 500;
+  letter-spacing: 0.1em;
+  cursor: pointer;
+}
+
+.task-date-actions button:hover,
+.task-date-actions button:focus-visible {
+  color: var(--text);
+}
+
+/* SAVE is the affirmative of the two decisions, so it sits in full ink at rest. */
+.task-date-actions button.task-date-save {
+  color: var(--text);
 }
 
 .markdown-view tr.task-row-done td.task-row-text {
@@ -3095,6 +4144,33 @@ textarea.modal-input:focus-visible {
 .wiki-link-wrap {
   position: relative;
   display: inline-block;
+}
+
+/* A link's destination is the narrow second exception to the reading-surface hover rule (design.md
+   variant 3). It waits for hover intent in ExternalLink rather than appearing as the pointer crosses links. */
+.md-link-url-wrap {
+  position: relative;
+  display: inline-block;
+}
+
+.md-link-url-popup {
+  position: absolute;
+  z-index: 30;
+  top: calc(100% + 6px);
+  left: 0;
+  display: block;
+  width: max-content;
+  max-width: min(420px, 80vw);
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  padding: 4px 10px;
+  color: var(--text);
+  background: var(--panel);
+  box-shadow: 0 10px 24px color-mix(in srgb, #000 16%, transparent);
+  font-size: calc(13px * var(--font-scale, 1));
+  line-height: 1.5;
+  overflow-wrap: anywhere;
+  pointer-events: none;
 }
 
 /* Link (design.md variant 8): ink and an underline, never a colour. The Answer section of a research
@@ -3112,6 +4188,12 @@ textarea.modal-input:focus-visible {
 .wiki-link:hover,
 .md-link:hover {
   text-decoration-color: var(--muted);
+}
+
+@media (hover: none) {
+  .md-link-url-popup {
+    display: none;
+  }
 }
 
 .wiki-link.pending {
@@ -3189,13 +4271,10 @@ textarea.modal-input:focus-visible {
   background: var(--panel-soft);
 }
 
-/* Down-pointing caret when expanded; rotates to point right when collapsed. */
+/* Down-pointing caret (tabler chevron) when expanded; rotates to point right when collapsed. */
 .wiki-preview-caret {
-  width: 0;
-  height: 0;
-  border-left: 4px solid transparent;
-  border-right: 4px solid transparent;
-  border-top: 5px solid currentColor;
+  display: block;
+  line-height: 0;
   transition: transform 120ms ease;
 }
 
@@ -3362,7 +4441,6 @@ textarea.modal-input:focus-visible {
 
 .wiki-preview-body .markdown-view p {
   margin: 0;
-  color: var(--muted);
 }
 
 .wiki-preview-resize {
@@ -3399,21 +4477,41 @@ textarea.modal-input:focus-visible {
   cursor: nwse-resize;
 }
 
-/* The right edge drags the width alone; the bottom edge drags the height alone. Rendered as thin
-   strips along the window frame, underneath the 14px corner handles where they overlap. */
+/* Edge handles drag one dimension alone. Their 14px hit areas match the corner handles and sit
+   underneath them where they overlap. */
+.wiki-preview-resize-w {
+  top: 0;
+  bottom: 0;
+  left: 0;
+  width: 14px;
+  height: auto;
+  cursor: ew-resize;
+}
+
 .wiki-preview-resize-e {
   top: 0;
   right: 0;
   bottom: 0;
-  width: 8px;
+  width: 14px;
+  height: auto;
   cursor: ew-resize;
+}
+
+.wiki-preview-resize-n {
+  top: 0;
+  left: 0;
+  right: 0;
+  height: 14px;
+  width: auto;
+  cursor: ns-resize;
 }
 
 .wiki-preview-resize-s {
   left: 0;
   right: 0;
   bottom: 0;
-  height: 8px;
+  height: 14px;
+  width: auto;
   cursor: ns-resize;
 }
 
@@ -3540,9 +4638,9 @@ textarea.modal-input:focus-visible {
   color: var(--text);
 }
 
-/* The aside is a 186px column, so its links are one per row and clipped rather than wrapped: a
-   two-line entry stops reading as one item in a list. The day page keeps its own list, where the
-   links are the page content and have the width to wrap. */
+/* The aside is a column sized from the viewport, so its links are one per row and clipped rather
+   than wrapped: a two-line entry stops reading as one item in a list. Wide enough that an ordinary
+   note title fits on the row; only a very long one ellipsizes. */
 .note-aside .backlink-list {
   display: flex;
   flex-direction: column;
@@ -3551,6 +4649,7 @@ textarea.modal-input:focus-visible {
 
 .note-aside .backlink {
   width: 100%;
+  flex: 0 0 auto;
   overflow: hidden;
   padding: 3px 0;
   font-size: calc(14px * var(--font-scale, 1));
@@ -3580,15 +4679,30 @@ textarea.modal-input:focus-visible {
   position: relative;
 }
 
+.aside-graph-heading {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  margin-bottom: 8px;
+}
+
+.aside-graph-heading h3 {
+  min-width: 0;
+  margin: 0;
+}
+
 .aside-graph-controls {
-  position: absolute;
-  top: 0;
-  right: 0;
   display: flex;
   gap: 6px;
   align-items: center;
   font-size: calc(13px * var(--font-scale, 1));
   line-height: 1;
+}
+
+.aside-graph-controls .graph-reset {
+  width: 28px;
+  height: 28px;
 }
 
 .aside-graph .graph-canvas {
@@ -3601,14 +4715,21 @@ textarea.modal-input:focus-visible {
 .graph-lightbox {
   display: flex;
   flex-direction: column;
-  width: min(92vw, 1100px);
-  height: min(84vh, 720px);
+  width: 80vw;
+  height: 80vh;
   border: 1px solid var(--line);
   border-radius: var(--radius-lg);
   padding: 0;
   overflow: hidden;
   background: var(--panel);
   box-shadow: 0 24px 60px rgb(0 0 0 / 28%);
+}
+
+@media (max-width: 960px) {
+  .graph-lightbox {
+    width: 92vw;
+    height: 84vh;
+  }
 }
 
 .graph-lightbox::backdrop {
@@ -3620,16 +4741,19 @@ textarea.modal-input:focus-visible {
 }
 
 /* Put the aside beside the note instead of under it whenever the viewport holds both: the reader
-   becomes a row of note column + 300px rail, centered together, and the note column gives up width
+   becomes a row of note column + rail, centered together, and the note column gives up width
    before the rail does — so the rail shows on an ordinary laptop, not only when the centered
-   column's margin happens to hold one. Reading surfaces only: :has(.note-editor textarea) keeps
-   edit/split stacked (the meta dialog's textarea must not undock the rail), and the live home
-   renders the configured home note in hero chrome, so it stays stacked too. The rail sticks under
-   the tab bar and scrolls its own overflow. The "Full" content width stores none, which calc()
-   cannot digest, so ThemeMenu mirrors it into html[data-content-width] for the uncapped gate. */
+   column's margin happens to hold one. The rail's width scales with the viewport (clamp), so a
+   screen with width to spare shows longer titles instead of 186px stubs; the reader's max-width
+   mirrors the same clamp so the row only grows when the rail actually does. Reading surfaces
+   only: :has(.note-editor textarea) keeps edit/split stacked (the meta dialog's textarea must not
+   undock the rail), and the live home renders the configured home note in hero chrome, so it stays
+   stacked too. The rail sticks under the tab bar and scrolls its own overflow. The "Full" content
+   width stores none, which calc() cannot digest, so ThemeMenu mirrors it into
+   html[data-content-width] for the uncapped gate. */
 @media (min-width: 1100px) {
   .workspace:not(.home) .note-reader:not(:has(.note-editor textarea)) {
-    max-width: calc(var(--content-width, 880px) + 246px);
+    max-width: calc(var(--content-width, 880px) + 60px + clamp(240px, 24vw, 380px));
   }
 
   .workspace:not(.home) .note-reader:not(:has(.note-editor textarea)) > .note-layout {
@@ -3643,15 +4767,65 @@ textarea.modal-input:focus-visible {
   }
 
   .workspace:not(.home) .note-reader:not(:has(.note-editor textarea)) > .note-layout > .note-aside {
+    /* A full-bleed diagram runs the width of the reading surface and passes under this column, where
+       its strokes crossed the contents and backlink lists and made them hard to read. The rail takes
+       the page's own ground so the words win — the surface, not a panel: no rule, no radius, nothing
+       that would read as a box.
+
+       The ground reaches past the words by the measure the rest of the page keeps (--preview-pad's
+       16px), because ground flush with a glyph is not ground: a stroke arriving from under the column
+       stops touching the letter it stopped at. It grows outward only — the padding is added to the
+       column's width and taken back off its margins — so neither the words nor the row move. */
+    --aside-pad: 16px;
     position: sticky;
-    top: 32px; /* keep the reader's 32px breathing room when stuck under the tab bar */
-    flex: 0 0 186px;
+    top: calc(32px - var(--aside-pad)); /* the reader's 32px of breathing room, less the ground's own */
+    flex: 0 0 calc(clamp(240px, 24vw, 380px) + var(--aside-pad) * 2);
     flex-direction: column;
     flex-wrap: nowrap;
-    max-height: calc(100vh - 65px); /* tab bar (33px) + the 32px sticky offset */
+    /* The rail is the window's height, not its content's: it holds the graph at its foot whatever the
+       note above it has to say. It takes the sheet's own ground, so a rail longer than its sections
+       shows nothing but the page it already stood on. */
+    height: calc(100vh - 65px + var(--aside-pad)); /* tab bar (33px) + the sticky offset */
     overflow-y: auto;
-    padding-bottom: 18px;
+    margin-top: calc(-1 * var(--aside-pad));
+    margin-inline: calc(-1 * var(--aside-pad));
+    padding: var(--aside-pad);
+    padding-bottom: calc(18px + var(--aside-pad));
+    background: var(--panel);
     scrollbar-width: none;
+  }
+
+  /* A bleeding diagram takes the whole reading surface, not a window's width struck from the middle of
+     the prose. Once the rail docks the column is no longer centred, so that second reading stopped
+     ~190px short of the scrollbar and spilled the same amount off the left, where it was only ever
+     clipped. Anchor it to the reader's left padding edge instead — the 64px dock lane, the preview's
+     own padding, and whatever margin auto-centring gave the column — and 100vw carries it past the far
+     edge on its own. 100vw counts the scrollbar the reader's client box does not, which overshoots both
+     ends by about half its width; the reader clips that. The rail keeps its own words legible by
+     standing on ground of its own (see the .note-aside rule above), not by holding the diagram back. */
+  .workspace:not(.home)
+    .note-reader:not(:has(.note-editor textarea))
+    .markdown-view
+    > .mermaid-diagram
+    > .mermaid-viewport:not([data-collapsed]) {
+    margin-left: calc(
+      -64px - var(--preview-pad-inline, 16px) -
+        max(
+          0px,
+          (100vw - 96px - (var(--content-width, 880px) + 60px + clamp(240px, 24vw, 380px))) / 2
+        )
+    );
+  }
+
+  /* "Full" width leaves the column uncapped, so it starts at the lane with no centring margin — and
+     none is a value calc() cannot digest anyway. */
+  html[data-content-width="none"]
+    .workspace:not(.home)
+    .note-reader:not(:has(.note-editor textarea))
+    .markdown-view
+    > .mermaid-diagram
+    > .mermaid-viewport:not([data-collapsed]) {
+    margin-left: calc(-64px - var(--preview-pad-inline, 16px));
   }
 
   .workspace:not(.home) .note-reader:not(:has(.note-editor textarea)) > .note-layout > .note-aside > .backlinks {
@@ -3660,26 +4834,76 @@ textarea.modal-input:focus-visible {
   }
 }
 
+/* The local graph is the aside's map, not its tail. It sits at the foot of the rail — pushed there by
+   the auto margin when the sections above come up short, held there by the sticky bottom when they
+   overflow — so the note's neighbourhood is on screen whatever else the reader is scrolling through.
+   It keeps the rail's ground, so the rows pass behind it rather than through it, and takes a rule on
+   top: the aside draws no other, and this one is earned by being the edge content disappears under.
+
+   Under 600px of window the pin comes off. The graph is 280px before its heading, and a rail that
+   short has nothing left to show once that much of it is spoken for — so there it goes back to being
+   the last section, and scrolls away with the rest. */
+@media (min-width: 1100px) and (min-height: 600px) {
+  .workspace:not(.home)
+    .note-reader:not(:has(.note-editor textarea))
+    > .note-layout
+    > .note-aside
+    > .note-aside-graph {
+    position: sticky;
+    bottom: 0;
+    margin-top: auto;
+    border-top: 1px solid var(--line);
+    padding-top: 14px;
+    background: var(--panel);
+  }
+}
+
 .error {
   color: var(--danger);
 }
 
-/* Floating layer: a task conflict needs to remain visible above the workspace until dismissed. */
+/* Floating layer: a toast reports something that already happened, so for the seconds it is up it
+   must clear the workspace rather than be covered by it. It is the one floating layer that gives up
+   its shadow — the countdown bar underneath says what the shadow would only imply — and the one
+   place a control carries the accent --mark as a fill. */
 .notification-toast {
   position: fixed;
   right: 20px;
-  bottom: 20px;
+  bottom: calc(20px + var(--foot-dock));
   z-index: 210;
   display: flex;
   align-items: center;
   gap: 12px;
   max-width: min(440px, calc(100vw - 40px));
+  overflow: hidden;
   padding: 12px 14px;
   color: var(--text);
   background: var(--panel);
   border: 1px solid var(--line);
   border-radius: var(--radius-lg);
-  box-shadow: 0 12px 32px color-mix(in srgb, var(--text) 22%, transparent);
+}
+
+/* The drain: the accent bar runs the toast's foot and empties over the toast's own lifetime, so
+   "how long is this up" is read from the bar, not guessed. The duration comes inline from the
+   timeout the toast actually runs, so the two cannot drift apart. */
+.notification-timer {
+  position: absolute;
+  right: 0;
+  bottom: 0;
+  left: 0;
+  height: 3px;
+  background: var(--mark);
+  transform-origin: left;
+  animation: notification-drain linear forwards;
+}
+
+@keyframes notification-drain {
+  from {
+    transform: scaleX(1);
+  }
+  to {
+    transform: scaleX(0);
+  }
 }
 
 .notification-toast button {

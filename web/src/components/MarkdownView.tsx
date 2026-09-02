@@ -1,10 +1,13 @@
 import type { Element } from "hast";
 import {
   type InputHTMLAttributes,
+  type MouseEvent as ReactMouseEvent,
   type ReactNode,
   useContext,
   useEffect,
+  useLayoutEffect,
   useMemo,
+  useRef,
   useState,
 } from "react";
 import Markdown, { type Components } from "react-markdown";
@@ -32,11 +35,14 @@ import { MermaidDiagram } from "./markdown/MermaidDiagram";
 import { MindmapDiagram } from "./markdown/MindmapDiagram";
 import {
   remarkAlert,
+  remarkBreakHTML,
+  remarkBlockEmbed,
   remarkBlockID,
   remarkEmbedOptions,
   remarkInclude,
   remarkHeadingID,
   remarkTaskLine,
+  rehypeCopyLine,
   rehypeTaskCheck,
   remarkWikiLink,
   spliceIncludeTokens,
@@ -47,14 +53,26 @@ import { QueryView } from "./markdown/QueryView";
 import { ViewSpecChart } from "./markdown/ViewSpecChart";
 import { WikiLink } from "./preview/WikiLink";
 import { TitleCopyButton } from "./TitleCopyButton";
+import { copyRich, copyText } from "./markdown/clipboard";
+import { portableToHtml, toPortableMarkdown } from "./markdown/portable";
 import { useNoteQuery } from "../queries";
 import { STATIC_MODE } from "../runtime";
+import {
+  copyLineRangeMarkdown,
+  copyLineRangeText,
+  resolveCopyLineRange,
+  type CopyLineRange,
+} from "./markdown/copyRange";
 
 interface MarkdownViewProps {
   markdown: string;
-  // The canonical note title is the document heading in full-page readers. A matching leading body
-  // h1 is blanked (not deleted, so include/task source line numbers stay stable).
+  // The canonical note title is the chrome h1 above the body in full-page readers. The body renders
+  // as-is: a note whose leading h1 repeats the title keeps both, and that body h1 is an ordinary
+  // heading (an outline entry like any other).
   title?: string;
+  // Popup chrome owns the title row, so the title h1 is not rendered here; the body still renders
+  // fully, including a leading h1 that echoes the title.
+  showTitle?: boolean;
   // The note's ID — when set, the title gets a copy button.
   noteId?: NoteID;
   kind?: string;
@@ -65,6 +83,9 @@ interface MarkdownViewProps {
   // Resolved ![[...]] includes for this body (ADR 0031), from /api/render live or the static
   // bundle. Absent or empty, include lines render as ordinary text (their [[...]] stays a link).
   includes?: NoteInclude[];
+  // Published bundles leave this empty because their source path is not meaningful on the reader's
+  // machine; the live note response supplies the path agents can open.
+  copyPath?: string;
 }
 
 // The markdown is parsed by react-markdown (CommonMark + GFM tables/strikethrough/task lists, plus
@@ -72,10 +93,21 @@ interface MarkdownViewProps {
 // /api/render (action links flattened); the track-specific construct is [[...]] wiki links (remarkWikiLink).
 // KaTeX is loaded lazily (see ./markdown/math), so a note without math never pulls in its bundle; while a
 // math note's first render waits for that chunk, the "$…$" briefly shows as source, then typesets.
-export function MarkdownView({ markdown, title, noteId, kind = "note", vault = "", includes }: MarkdownViewProps) {
-  const bodyMarkdown = useMemo(() => withoutDuplicateTitle(markdown, title), [markdown, title]);
-  const hasMath = looksLikeMath(bodyMarkdown);
+export function MarkdownView({
+  markdown,
+  title,
+  showTitle = true,
+  noteId,
+  kind = "note",
+  vault = "",
+  includes,
+  copyPath = "",
+}: MarkdownViewProps) {
+  const hasMath = looksLikeMath(markdown);
   const [math, setMath] = useState<MathPlugins | null>(() => (hasMath ? mathPluginsIfLoaded() : null));
+  const markdownRef = useRef<HTMLDivElement>(null);
+  const [copyRange, setCopyRange] = useState<CopyLineRange | null>(null);
+  const [copyPopupPosition, setCopyPopupPosition] = useState({ left: 0, top: 0 });
 
   useEffect(() => {
     if (!hasMath || math) return;
@@ -88,30 +120,77 @@ export function MarkdownView({ markdown, title, noteId, kind = "note", vault = "
     };
   }, [hasMath, math]);
 
+  useEffect(() => {
+    if (!copyPath) {
+      setCopyRange(null);
+      return;
+    }
+    const updateSelection = () => {
+      const selection = window.getSelection();
+      const range = selection && selection.rangeCount > 0 ? selection.getRangeAt(0) : null;
+      const root = markdownRef.current;
+      const resolved = root ? resolveCopyLineRange(root, selection) : null;
+      if (!resolved || !range) {
+        setCopyRange(null);
+        return;
+      }
+      const rect =
+        typeof range.getBoundingClientRect === "function" ? range.getBoundingClientRect() : undefined;
+      if (!rect) {
+        // Older DOMs can resolve the selection without exposing geometry; keep the action reachable
+        // at a safe edge position rather than silently dropping a valid line range.
+        setCopyRange(resolved);
+        setCopyPopupPosition({ left: 56, top: 8 });
+        return;
+      }
+      const popupHeight = 36;
+      const top =
+        rect.bottom + 8 + popupHeight <= window.innerHeight
+          ? rect.bottom + 8
+          : Math.max(8, rect.top - popupHeight - 8);
+      setCopyRange(resolved);
+      setCopyPopupPosition({
+        left: rect.left + rect.width / 2,
+        top,
+      });
+    };
+    document.addEventListener("selectionchange", updateSelection);
+    window.addEventListener("resize", updateSelection);
+    updateSelection();
+    return () => {
+      document.removeEventListener("selectionchange", updateSelection);
+      window.removeEventListener("resize", updateSelection);
+    };
+  }, [copyPath]);
+
   // Every hook runs before the empty-note return below: a preview mounts with "" and gets its body a
   // moment later, so a hook placed after the return would change the hook count between renders and
   // React would throw — which the router catches and shows as a bare "Something went wrong!".
   //
   // The ids come from the note's own source, not the spliced copy: splicing rewrites include lines
   // and the outline in the aside reads the same source, so both sides agree on which heading is which.
-  const headingIDs = useMemo(() => tocEntries(bodyMarkdown).map((entry) => entry.id), [bodyMarkdown]);
+  const headingIDs = useMemo(() => tocEntries(markdown).map((entry) => entry.id), [markdown]);
 
-  if (bodyMarkdown.trim() === "" && !title) {
+  if (markdown.trim() === "" && !title) {
     return <p className="muted">Empty note.</p>;
   }
 
   const hasIncludes = includes !== undefined && includes.length > 0;
   const source = hasIncludes
     ? spliceIncludeTokens(
-        bodyMarkdown,
+        markdown,
         includes.map((inc) => inc.line),
       )
-    : bodyMarkdown;
+    : markdown;
   const remarkPlugins = [
     remarkGfm,
+    remarkBreakHTML,
     remarkAlert,
     remarkBlockID,
     remarkEmbedOptions,
+    // After remarkEmbedOptions: it reads the option tail out of a sole-image paragraph, which this
+    // would otherwise split away from its image.
+    remarkBlockEmbed,
     ...(math ? [math.remark] : []),
     remarkWikiLink,
     ...(hasIncludes ? [remarkInclude] : []),
@@ -130,6 +209,7 @@ export function MarkdownView({ markdown, title, noteId, kind = "note", vault = "
     // Stamps each checklist item's source line onto its native checkbox, so a plain "- [ ]" list
     // can be ticked (see TaskCheck). Cheap and static-safe: the static site just never wires it up.
     rehypeTaskCheck,
+    ...(copyPath ? [rehypeCopyLine] : []),
     ...(__TRACK_STATIC__ ? [] : [rehypeBudoux]),
   ];
 
@@ -137,18 +217,27 @@ export function MarkdownView({ markdown, title, noteId, kind = "note", vault = "
     <NoteKindContext.Provider value={kind}>
       <NoteVaultContext.Provider value={vault}>
         <IncludesContext.Provider value={includes ?? []}>
-        <MarkdownSourceContext.Provider value={bodyMarkdown}>
-          <div className="markdown-view">
-            {title ? (
+        <MarkdownSourceContext.Provider value={markdown}>
+          <div ref={markdownRef} className="markdown-view">
+            {title && showTitle ? (
               <h1 className="note-title">
                 {title}
                 {noteId ? <TitleCopyButton title={title} /> : null}
               </h1>
             ) : null}
-            {bodyMarkdown.trim() === "" ? <p className="muted">Empty note.</p> : null}
+            {markdown.trim() === "" ? <p className="muted">Empty note.</p> : null}
             <Markdown remarkPlugins={remarkPlugins} rehypePlugins={rehypePlugins} components={markdownComponents}>
               {source}
             </Markdown>
+            {copyPath && copyRange ? (
+              <SelectionCopyPopover
+                path={copyPath}
+                range={copyRange}
+                markdown={markdown}
+                style={{ left: copyPopupPosition.left, top: copyPopupPosition.top }}
+                onDone={() => setCopyRange(null)}
+              />
+            ) : null}
           </div>
         </MarkdownSourceContext.Provider>
         </IncludesContext.Provider>
@@ -157,34 +246,88 @@ export function MarkdownView({ markdown, title, noteId, kind = "note", vault = "
   );
 }
 
-// withoutDuplicateTitle removes only the first visible block when it is an h1 whose rendered text
-// exactly matches the sidecar title. Replacing source lines with blanks preserves every later line
-// number, which includes and interactive task controls use to address the original note.
-export function withoutDuplicateTitle(markdown: string, title?: string): string {
-  const wanted = title?.trim();
-  if (!wanted) return markdown;
-  const lines = markdown.split("\n");
-  let first = 0;
-  while (first < lines.length && lines[first].trim() === "") first++;
-  const atx = /^#\s+(.+?)\s*#*\s*$/.exec(lines[first] ?? "");
-  if (atx && plainHeadingText(atx[1]) === wanted) {
-    lines[first] = "";
-    return lines.join("\n");
-  }
-  if (/^\s{0,3}=+\s*$/.test(lines[first + 1] ?? "") && plainHeadingText(lines[first] ?? "") === wanted) {
-    lines[first] = "";
-    lines[first + 1] = "";
-    return lines.join("\n");
-  }
-  return markdown;
-}
+// SelectionCopyPopover is the floating-layer panel anchored to a text selection. It carries the three
+// actions a selection can ask for: an agent-facing reference (path:start-end), the selected lines'
+// markdown source itself, and that source re-rendered as rich HTML for pasting into Confluence. All act
+// on one selection — each confirms with "Copied" and then leaves after 1200ms, as before.
+type SelectionCopyAction = "range" | "markdown" | "confluence";
 
-function plainHeadingText(text: string): string {
-  return text
-    .replace(/\[\[([^|\]]+)(?:\|([^\]]+))?\]\]/g, (_, target: string, alias?: string) => alias ?? target)
-    .replace(/\[([^\]]+)\]\([^\s)]*\)/g, "$1")
-    .replace(/[*_~`]/g, "")
-    .trim();
+function SelectionCopyPopover({
+  path,
+  range,
+  markdown,
+  style,
+  onDone,
+}: {
+  path: string;
+  range: CopyLineRange;
+  markdown: string;
+  style: { left: number; top: number };
+  onDone: () => void;
+}) {
+  const [copied, setCopied] = useState<SelectionCopyAction | null>(null);
+  const resetTimer = useRef<number | undefined>(undefined);
+  const panel = useRef<HTMLDivElement>(null);
+  // The panel is centred on the selection (translateX(-50%)), and the caller hands it that centre
+  // without knowing how wide the panel is. Near a narrow window's edge that puts the outermost action
+  // off-screen, so keep the centre at least a half-panel from either edge — measured, because the row
+  // grows whenever an action is added to it. Wider than the window: pin left and let the tail overflow.
+  const [left, setLeft] = useState(style.left);
+  useLayoutEffect(() => {
+    const inset = (panel.current?.offsetWidth ?? 0) / 2 + 8;
+    setLeft(Math.min(Math.max(style.left, inset), Math.max(inset, window.innerWidth - inset)));
+  }, [style.left]);
+
+  useEffect(
+    () => () => {
+      if (resetTimer.current !== undefined) window.clearTimeout(resetTimer.current);
+    },
+    [],
+  );
+
+  async function copy(action: SelectionCopyAction, write: () => Promise<boolean>) {
+    if (!(await write())) return;
+    setCopied(action);
+    if (resetTimer.current !== undefined) window.clearTimeout(resetTimer.current);
+    // The popup acts on one selection and is done after it copies, so it confirms and then leaves.
+    // Keeping it would leave the action hanging over the text until some later click cleared the
+    // selection — including over the very lines the reader just referenced.
+    resetTimer.current = window.setTimeout(onDone, 1200);
+  }
+
+  // The Confluence flavor is the same selected source as Copy markdown, sent through the note menu's
+  // portable→HTML pipeline so a rich editor pastes formatting instead of markup characters.
+  async function copyConfluence(): Promise<boolean> {
+    const portable = toPortableMarkdown(copyLineRangeMarkdown(markdown, range));
+    const html = await portableToHtml(portable);
+    return copyRich(html, portable);
+  }
+
+  function actionProps(action: SelectionCopyAction, write: () => Promise<boolean>, label: string) {
+    return {
+      type: "button" as const,
+      onClick: () => void copy(action, write),
+      // Prevent the button's press from clearing the selection before copy() reads its saved range.
+      onMouseDown: (event: ReactMouseEvent<HTMLButtonElement>) => event.preventDefault(),
+      "aria-label": copied === action ? "Copied" : label,
+    };
+  }
+
+  return (
+    <div className="selection-copy" ref={panel} style={{ left, top: style.top }}>
+      <button {...actionProps("range", () => copyText(copyLineRangeText(path, range)), "Copy range")}>
+        {copied === "range" ? "Copied" : "Copy range"}
+      </button>
+      <button
+        {...actionProps("markdown", () => copyText(copyLineRangeMarkdown(markdown, range)), "Copy markdown")}
+      >
+        {copied === "markdown" ? "Copied" : "Copy markdown"}
+      </button>
+      <button {...actionProps("confluence", copyConfluence, "Copy for Confluence")}>
+        {copied === "confluence" ? "Copied" : "Copy for Confluence"}
+      </button>
+    </div>
+  );
 }
 
 // IncludeEmbed renders one resolved ![[...]] include as an embed card: a caption header linking to
@@ -256,6 +399,20 @@ interface ElementProps {
   children?: ReactNode;
 }
 
+interface CopyLineProperties {
+  "data-copy-line-start"?: number;
+  "data-copy-line-end"?: number;
+}
+
+function copyLineProperties(node?: Element): CopyLineProperties {
+  const props = (node?.properties ?? {}) as Record<string, unknown>;
+  const start = props.dataCopyLineStart;
+  const end = props.dataCopyLineEnd;
+  return typeof start === "number" && typeof end === "number"
+    ? { "data-copy-line-start": start, "data-copy-line-end": end }
+    : {};
+}
+
 const markdownComponents = {
   a: ({ node, href, children }: ElementProps & { href?: string; children?: ReactNode }) => {
     // GFM footnote anchors (reference ↔ back-link) must keep their generated ids so the jumps land;
@@ -279,12 +436,13 @@ const markdownComponents = {
     return <ExternalLink href={href ?? ""}>{children}</ExternalLink>;
   },
   img: ({ node, src, alt }: ElementProps & { src?: string; alt?: string }) => {
-    const height = (node?.properties as { embedHeight?: unknown } | undefined)?.embedHeight;
+    const properties = node?.properties as { embedHeight?: unknown; embedFrame?: unknown } | undefined;
     return (
       <Embed
         src={typeof src === "string" ? src : ""}
         alt={alt ?? ""}
-        height={typeof height === "string" ? height : undefined}
+        height={typeof properties?.embedHeight === "string" ? properties.embedHeight : undefined}
+        frame={properties?.embedFrame === "none" ? "none" : undefined}
       />
     );
   },
@@ -292,7 +450,7 @@ const markdownComponents = {
   // otherwise nest a block element inside a <p>. The id (a ^block anchor, see remarkBlockID) is
   // forwarded so hash navigation still finds the paragraph.
   p: ({ node, children, id }: ElementProps & { id?: string }) =>
-    isSoleImage(node) ? <>{children}</> : <p id={id}>{children}</p>,
+    isSoleImage(node) ? <>{children}</> : <p id={id} {...copyLineProperties(node)}>{children}</p>,
   pre: ({ node, children }: ElementProps) => {
     const code = node?.children?.[0];
     if (code && code.type === "element" && code.tagName === "code") {
@@ -326,9 +484,9 @@ const markdownComponents = {
       if (normalized === "track-view") {
         return <QueryView text={text} />;
       }
-      return <CodeBlock lang={lang} text={text} />;
+      return <CodeBlock lang={lang} text={text} copyLineProperties={copyLineProperties(node)} />;
     }
-    return <pre>{children}</pre>;
+    return <pre {...copyLineProperties(node)}>{children}</pre>;
   },
   code: ({ children }: { children?: ReactNode }) => <code className="inline-code">{children}</code>,
   wikilink: ({ node }: ElementProps) => {

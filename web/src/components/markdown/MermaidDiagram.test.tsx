@@ -1,4 +1,4 @@
-import { fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { act, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { afterEach, beforeAll, describe, expect, it, vi } from "vitest";
 import {
   computeCollapsedFit,
@@ -13,6 +13,10 @@ import {
 beforeAll(() => {
   Element.prototype.setPointerCapture = () => {};
   Element.prototype.releasePointerCapture = () => {};
+});
+
+afterEach(() => {
+  window.localStorage.clear();
 });
 
 vi.mock("mermaid", () => ({
@@ -73,8 +77,9 @@ describe("MermaidDiagram", () => {
       svg: '<svg viewBox="0 0 866 217" width="100%" style="max-width: 866px;"></svg>',
     } as Awaited<ReturnType<typeof mermaid.render>>);
     const { container } = render(<MermaidDiagram text={"graph LR\nA-->B"} />);
-    await waitFor(() => expect(container.querySelector("svg")).toBeInTheDocument());
-    const svg = container.querySelector("svg") as SVGSVGElement;
+    // The diagram svg, not the controls' tabler glyphs (the fold chevron is also an svg).
+    await waitFor(() => expect(container.querySelector(".mermaid-viewport svg")).toBeInTheDocument());
+    const svg = container.querySelector(".mermaid-viewport svg") as SVGSVGElement;
     expect(svg.style.width).toBe("866px");
     expect(svg.style.height).toBe("217px");
     expect(svg.style.maxWidth).toBe("none");
@@ -104,6 +109,7 @@ describe("MermaidDiagram", () => {
     fireEvent.click(screen.getByRole("button", { name: "Zoom out" }));
     expect(scaleOf()).toBeCloseTo(1);
   });
+
 });
 
 describe("DiagramFrame tall-diagram preview", () => {
@@ -133,21 +139,48 @@ describe("DiagramFrame tall-diagram preview", () => {
 
     const viewport = container.querySelector(".mermaid-viewport") as HTMLElement;
     const pan = screen.getByRole("img", { name: "Tall diagram" });
-    expect(viewport).toHaveAttribute("data-collapsed");
-    expect(viewport.style.height).toBe("320px");
-    expect(pan.style.transform).toBe("translate(50px, 0px) scale(1)");
-    expect(container.querySelector(".mermaid-continuation")).toBeInTheDocument();
-
-    const expand = screen.getByRole("button", { name: "Expand diagram" });
-    expect(expand).toHaveTextContent("Show full diagram");
-    fireEvent.click(expand);
-
     expect(viewport).not.toHaveAttribute("data-collapsed");
     expect(viewport.style.height).toBe("2200px");
+    expect(pan.style.transform).toBe("translate(50px, 0px) scale(1)");
     expect(container.querySelector(".mermaid-continuation")).not.toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "Zoom in" })).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "Collapse diagram" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Open diagram in popup" })).toBeInTheDocument();
 
+    const collapse = screen.getByRole("button", { name: "Collapse diagram" });
+    fireEvent.click(collapse);
+
+    expect(viewport).toHaveAttribute("data-collapsed");
+    expect(viewport.style.height).toBe("320px");
+    expect(screen.getByRole("button", { name: "Expand diagram" })).toHaveTextContent("Show full diagram");
+
+    clientWidth.mockRestore();
+    offsetWidth.mockRestore();
+    offsetHeight.mockRestore();
+  });
+
+  it("remembers a manually collapsed diagram across remounts", () => {
+    const clientWidth = vi.spyOn(HTMLElement.prototype, "clientWidth", "get").mockReturnValue(500);
+    const offsetWidth = vi.spyOn(HTMLElement.prototype, "offsetWidth", "get").mockImplementation(function (this: HTMLElement) {
+      return this.classList.contains("mermaid-pan") ? 400 : 0;
+    });
+    const offsetHeight = vi.spyOn(HTMLElement.prototype, "offsetHeight", "get").mockImplementation(function (this: HTMLElement) {
+      return this.classList.contains("mermaid-pan") ? 2200 : 0;
+    });
+    const props = {
+      state: { status: "ready" as const, svg: '<svg viewBox="0 0 400 2200"></svg>' },
+      source: "graph TD\nA-->B",
+      sourceLang: "mermaid",
+      label: "Persistent diagram",
+    };
+
+    const first = render(<DiagramFrame {...props} />);
+    fireEvent.click(screen.getByRole("button", { name: "Collapse diagram" }));
+    first.unmount();
+    render(<DiagramFrame {...props} />);
+
+    expect(screen.getByRole("button", { name: "Expand diagram" })).toHaveTextContent("Show full diagram");
+    expect(screen.getByRole("img", { name: "Persistent diagram" }).closest(".mermaid-viewport")).toHaveAttribute(
+      "data-collapsed",
+    );
     clientWidth.mockRestore();
     offsetWidth.mockRestore();
     offsetHeight.mockRestore();
@@ -157,10 +190,12 @@ describe("DiagramFrame tall-diagram preview", () => {
 describe("DiagramFrame wide-diagram clipping", () => {
   // Mounts a panW×panH diagram in a 500px viewport and returns the mounted handles plus the
   // layout-mock teardown.
-  function setupWide(panW = 2000, panH = 300) {
+  function setupWide(panW = 2000, panH = 300, popupW = 500) {
     const clientWidth = vi
       .spyOn(HTMLElement.prototype, "clientWidth", "get")
-      .mockReturnValue(500);
+      .mockImplementation(function (this: HTMLElement) {
+        return this.closest("dialog") ? popupW : 500;
+      });
     const offsetWidth = vi
       .spyOn(HTMLElement.prototype, "offsetWidth", "get")
       .mockImplementation(function (this: HTMLElement) {
@@ -190,24 +225,70 @@ describe("DiagramFrame wide-diagram clipping", () => {
     return { container, viewport, fade, restore };
   }
 
-  it("keeps readable text, clips at the edge, and fades the clipped side", () => {
+  it("keeps readable text, clips a centred wide diagram on both sides, and fades them", () => {
     const { viewport, fade, restore } = setupWide();
 
     const pan = screen.getByRole("img", { name: "Wide diagram" });
     expect(viewport).not.toHaveAttribute("data-collapsed");
     expect(screen.queryByRole("button", { name: "Collapse diagram" })).not.toBeInTheDocument();
     expect(viewport.style.height).toBe("225px"); // 300 * 0.75: floored, not shrunk to fit
-    expect(pan.style.transform).toBe("translate(0px, 0px) scale(0.75)");
-    expect(fade("right")).toBeInTheDocument();
-    expect(fade("left")).not.toBeInTheDocument();
-
-    // Panning right reveals the left edge fade; the right side is still clipped.
-    fireEvent.pointerDown(viewport, { pointerId: 1, clientX: 0, clientY: 0 });
-    fireEvent.pointerMove(viewport, { pointerId: 1, clientX: -100, clientY: 0 });
+    expect(pan.style.transform).toBe("translate(-500px, 0px) scale(0.75)"); // (500 - 1500) / 2
     expect(fade("left")).toBeInTheDocument();
     expect(fade("right")).toBeInTheDocument();
 
+    // Panning to the diagram's far end drops the fade on the side that ran out.
+    fireEvent.pointerDown(viewport, { pointerId: 1, clientX: 0, clientY: 0 });
+    fireEvent.pointerMove(viewport, { pointerId: 1, clientX: -600, clientY: 0 });
+    expect(fade("left")).toBeInTheDocument();
+    expect(fade("right")).not.toBeInTheDocument();
+
     restore();
+  });
+
+  it("opens the full diagram in a popup", () => {
+    const callbacks: ResizeObserverCallback[] = [];
+    vi.stubGlobal(
+      "ResizeObserver",
+      class {
+        constructor(callback: ResizeObserverCallback) {
+          callbacks.push(callback);
+        }
+        observe() {}
+        disconnect() {}
+      },
+    );
+    const { container, restore } = setupWide(2000, 300, 2000);
+
+    fireEvent.click(screen.getByRole("button", { name: "Open diagram in popup" }));
+    act(() => callbacks.at(-1)?.([], {} as ResizeObserver));
+    const dialog = container.querySelector("dialog.diagram-lightbox") as HTMLDialogElement;
+    expect(dialog).toBeInTheDocument();
+    expect(dialog.open).toBe(true);
+    expect(dialog.querySelector("svg")).toBeInTheDocument();
+    expect(dialog.querySelector(".diagram-lightbox-controls")).toBeInTheDocument();
+    expect(dialog.querySelectorAll(".diagram-lightbox-controls .mermaid-control")).toHaveLength(4);
+    expect(screen.queryByRole("button", { name: "Collapse diagram" })).not.toBeInTheDocument();
+
+    const popupViewport = dialog.querySelector(".mermaid-viewport") as HTMLElement;
+    const popupPan = dialog.querySelector(".mermaid-pan") as HTMLElement;
+    expect(popupPan.style.transform).toBe("translate(200px, 0px) scale(0.8)");
+    fireEvent.click(within(dialog).getByRole("button", { name: "Zoom in" }));
+    expect(popupPan.style.transform).toBe("translate(260px, 0px) scale(1.04)");
+    fireEvent.click(within(dialog).getByRole("button", { name: "Zoom out" }));
+    expect(Number(popupPan.style.transform.match(/scale\(([^)]+)\)/)?.[1])).toBeCloseTo(0.8);
+    fireEvent.click(within(dialog).getByRole("button", { name: "Reset diagram view" }));
+    expect(Number(popupPan.style.transform.match(/scale\(([^)]+)\)/)?.[1])).toBeCloseTo(0.8);
+    fireEvent.pointerDown(popupViewport, { pointerId: 2, clientX: 0, clientY: 0 });
+    fireEvent.pointerMove(popupViewport, { pointerId: 2, clientX: -100, clientY: 0 });
+    expect(popupPan.style.transform).toBe("translate(100px, 0px) scale(0.8)");
+    expect(container.querySelector(".mermaid-viewport > .mermaid-pan")?.getAttribute("style")).toContain(
+      "scale(0.75)",
+    );
+
+    fireEvent.click(screen.getByRole("button", { name: "Close diagram popup" }));
+    expect(container.querySelector("dialog.diagram-lightbox")).not.toBeInTheDocument();
+    restore();
+    vi.unstubAllGlobals();
   });
 
   it("pans on a horizontal wheel while clipped; a vertical wheel keeps scrolling the page", () => {
@@ -216,10 +297,10 @@ describe("DiagramFrame wide-diagram clipping", () => {
 
     // fireEvent returns false when the handler consumed (preventDefaulted) the event.
     expect(fireEvent.wheel(viewport, { deltaX: 120, deltaY: 4 })).toBe(false);
-    expect(pan.style.transform).toBe("translate(-120px, 0px) scale(0.75)");
+    expect(pan.style.transform).toBe("translate(-620px, 0px) scale(0.75)"); // from the centred -500
 
     expect(fireEvent.wheel(viewport, { deltaY: 120 })).toBe(true);
-    expect(pan.style.transform).toBe("translate(-120px, 0px) scale(0.75)");
+    expect(pan.style.transform).toBe("translate(-620px, 0px) scale(0.75)");
 
     // The pan clamps to the diagram's far end, like a native scroller, and the fades follow.
     fireEvent.wheel(viewport, { deltaX: 5000 });
@@ -227,8 +308,8 @@ describe("DiagramFrame wide-diagram clipping", () => {
     expect(fade("right")).not.toBeInTheDocument();
     expect(fade("left")).toBeInTheDocument();
 
-    // ...and back to the start; a tick at an end is left unconsumed, so an edge swipe falls
-    // through to the browser instead of dying on a diagram that cannot move further.
+    // ...and back to the diagram's near end; a tick at an end is left unconsumed, so an edge swipe
+    // falls through to the browser instead of dying on a diagram that cannot move further.
     fireEvent.wheel(viewport, { deltaX: -5000 });
     expect(pan.style.transform).toBe("translate(0px, 0px) scale(0.75)");
     expect(fireEvent.wheel(viewport, { deltaX: -100 })).toBe(true);
@@ -249,6 +330,7 @@ describe("DiagramFrame wide-diagram clipping", () => {
 
   it("keeps the inert collapsed preview free of side fades until expanded", () => {
     const { viewport, fade, restore } = setupWide(2000, 2200);
+    fireEvent.click(screen.getByRole("button", { name: "Collapse diagram" }));
     expect(viewport).toHaveAttribute("data-collapsed");
     expect(fade("right")).not.toBeInTheDocument();
 
@@ -298,14 +380,24 @@ describe("computeFit", () => {
     expect(capped.transform.scale).toBeCloseTo(1); // width cap binds before the ideal scale
   });
 
-  it("stops shrinking a wide diagram at the readability floor and left-aligns the clipped fit", () => {
+  it("stops shrinking a wide diagram at the readability floor and clips it evenly", () => {
     const { transform, height } = computeFit(2000, 300, 500);
     expect(transform.scale).toBeCloseTo(0.75); // floor, not 500 * 0.8 / 2000 = 0.2
-    expect(transform.x).toBe(0); // clipped: show the start, not a centered middle slice
+    expect(transform.x).toBeCloseTo(-500); // (500 - 2000 * 0.75) / 2: centered, clipped both sides
     expect(height).toBeCloseTo(225); // 300 * 0.75
 
     // The floor follows the article font: text never drops below 75% of the surrounding size.
     expect(computeFit(2000, 300, 500, 1.25).transform.scale).toBeCloseTo(0.9375);
+  });
+
+  it("centers on the frame, not the bleeding viewport it is drawn in", () => {
+    // A 500-wide viewport bled out of a 300-wide frame that starts 50 into it: the frame's midpoint
+    // is 200, left of the viewport's own 250.
+    const fits = computeFit(100, 60, 500, 1, 200);
+    const overflows = computeFit(2000, 300, 500, 1, 200);
+
+    expect(fits.transform.x).toBeCloseTo(150); // 200 - 100 / 2
+    expect(overflows.transform.x).toBeCloseTo(-550); // 200 - 2000 * 0.75 / 2
   });
 });
 

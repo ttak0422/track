@@ -1,6 +1,8 @@
 import { useEffect, useRef, useState } from "react";
+import { createPortal } from "react-dom";
 import { isTypingTarget, keys } from "../keys";
 import { SearchPanel } from "./SearchPanel";
+import { IconSearch, RailIcon } from "./icons";
 
 // SidebarSearch is the rail's magnifier button plus the search palette it opens in the middle of the
 // screen. The palette closes on Escape, on an outside click, and when a result is chosen; "/" opens
@@ -8,10 +10,17 @@ import { SearchPanel } from "./SearchPanel";
 export function SidebarSearch() {
   const [open, setOpen] = useState(false);
   const containerRef = useRef<HTMLDivElement>(null);
+  const overlayRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
     function onOpenKey(event: KeyboardEvent) {
-      if (open || !keys.openSearch(event) || isTypingTarget(event.target)) return;
+      if (open) return;
+      // The typing guard belongs to the bare "/" alone — it is a character someone may be writing.
+      // The chord never could have been text, so it opens search from the editor as well, where it
+      // is most useful and where "/" is correctly ignored.
+      const opens =
+        keys.openSearchChord(event) || (keys.openSearch(event) && !isTypingTarget(event.target));
+      if (!opens) return;
       event.preventDefault();
       setOpen(true);
     }
@@ -23,7 +32,10 @@ export function SidebarSearch() {
     if (!open) return;
 
     function onPointerDown(event: MouseEvent) {
-      if (!containerRef.current?.contains(event.target as Node)) {
+      if (
+        !containerRef.current?.contains(event.target as Node) &&
+        !overlayRef.current?.contains(event.target as Node)
+      ) {
         setOpen(false);
       }
     }
@@ -51,37 +63,26 @@ export function SidebarSearch() {
       >
         <SearchIcon />
       </button>
-      {open ? (
-        <>
-          {/* The query is shared with the home hero's field, so without this the same result list is
-              also live behind the palette — two of them at once read as one broken one. Clicking it
-              closes, same as clicking anywhere else outside. */}
-          <div className="search-backdrop" onMouseDown={() => setOpen(false)} />
-          <div className="search-popup" role="dialog" aria-label="Search notes">
-            <SearchPanel autoFocus onNavigate={() => setOpen(false)} />
-          </div>
-        </>
-      ) : null}
+      {open
+        ? createPortal(
+            // The rail is a fixed stacking context; the palette must be a body sibling for its layer
+            // to compete with previews, while the trigger remains in the rail.
+            <div ref={overlayRef}>
+              {/* The query is shared with the home hero's field, so without this the same result list is
+                  also live behind the palette — two of them at once read as one broken one. Clicking it
+                  closes, same as clicking anywhere else outside. */}
+              <div className="search-backdrop" onMouseDown={() => setOpen(false)} />
+              <div className="search-popup" role="dialog" aria-label="Search notes">
+                <SearchPanel autoFocus onNavigate={() => setOpen(false)} />
+              </div>
+            </div>,
+            document.body,
+          )
+        : null}
     </div>
   );
 }
 
 function SearchIcon() {
-  return (
-    <svg
-      className="rail-icon-svg"
-      viewBox="0 0 24 24"
-      width="20"
-      height="20"
-      fill="none"
-      stroke="currentColor"
-      strokeWidth="1.5"
-      strokeLinecap="round"
-      strokeLinejoin="round"
-      aria-hidden="true"
-    >
-      <circle cx="10.75" cy="10.75" r="6.5" />
-      <line x1="15.5" y1="15.5" x2="20.5" y2="20.5" />
-    </svg>
-  );
+  return <RailIcon Icon={IconSearch} />;
 }

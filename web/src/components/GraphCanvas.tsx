@@ -12,6 +12,7 @@ import { PointerEvent, useEffect, useRef, useState } from "react";
 import { useThemeVersion } from "../hooks/useThemeVersion";
 import type { Graph, GraphEdge, GraphNode, NoteID } from "../types";
 import { isZoomWheel, zoomDelta } from "./graphWheel";
+import { radiusForNode } from "./nodeRadius";
 
 export interface GraphCanvasProps {
   graph: Graph;
@@ -216,8 +217,9 @@ export function GraphCanvas({
       return;
     }
 
-    // Lay the graph out at the size it will be seen at. Nodes and labels are drawn at a fixed
-    // SCREEN size (radius and font are divided by the view scale), so a layout built for a
+    // Lay the graph out at the size it will be seen at. Nodes are drawn at a fixed SCREEN size
+    // (radius is divided by the view scale, and labels are drawn in a separate pass at a fixed pixel
+    // size), so a layout built for a
     // full-page canvas and then shrunk to fit a small one keeps its dots the same size while the
     // distances between them collapse — the note aside's 300x220 box turned the graph into a blob.
     // Scaling the world-space constants with the viewport instead lands the fit near 1:1, where the
@@ -343,7 +345,7 @@ export function GraphCanvas({
     // the one node you came for is never the one pushed off; panning and zooming reach the rest.
     // A full-size canvas keeps the old near-zero floor: the whole-vault view is an overview, where
     // seeing everything at once is the point and a clipped graph would be the wrong answer.
-    const floor = nextSize.width >= 420 ? 0.05 : 0.35;
+    const floor = roomyCanvas(nextSize) ? 0.05 : 0.35;
     const fitted = Math.min(availW / graphW, availH / graphH);
     const scale = Math.max(floor, Math.min(0.65, fitted));
     const center =
@@ -388,10 +390,6 @@ export function GraphCanvas({
     ctx.save();
     ctx.translate(width / 2 + view.x * ratio, height / 2 + view.y * ratio);
     ctx.scale(view.scale, view.scale);
-    const labelFontSize = 13;
-    ctx.font = `${Math.floor((labelFontSize * ratio) / view.scale)}px ${
-      css("--font-sans") || '"IBM Plex Sans JP", Inter, system-ui, sans-serif'
-    }`;
     const baseLineWidth = (1 * ratio) / view.scale;
     const highlightLineWidth = (2.6 * ratio) / view.scale;
     ctx.lineWidth = baseLineWidth;
@@ -424,7 +422,9 @@ export function GraphCanvas({
         const active = edgeIsActive(edge);
         ctx.globalAlpha = active ? 0.86 : 0.08;
         ctx.lineWidth = active ? highlightLineWidth : baseLineWidth;
-        ctx.strokeStyle = active ? css("--mark") : css("--line-strong");
+        // Ink, not the salient: emphasis here is contrast against edges that dim, and the vermilion
+        // is spent on where you are (see the node pass below).
+        ctx.strokeStyle = active ? css("--text") : css("--line-strong");
       } else {
         ctx.globalAlpha = 0.62;
         ctx.lineWidth = baseLineWidth;
@@ -449,11 +449,11 @@ export function GraphCanvas({
       ctx.beginPath();
       ctx.arc(x, y, radius, 0, Math.PI * 2);
       if (hasActiveHighlight && active) {
-        // Ink, like everything else that is emphasised here (design.md, Sidebar). What marks a match
-        // is not a colour of its own but the contrast with the rest, which dims in place — the same
-        // move the reader makes when it takes emphasis from weight and space instead of hue.
-        ctx.fillStyle = css("--mark");
-        ctx.strokeStyle = css("--mark");
+        // A match is ink: what marks it is the contrast with everything that dims in place, not a
+        // colour of its own. The centre keeps the salient even while highlighted, so a frame frozen
+        // mid-hover still says which note you are on rather than showing one undifferentiated set.
+        ctx.fillStyle = center ? css("--mark") : css("--text");
+        ctx.strokeStyle = center ? css("--mark") : css("--text");
       } else {
         // At rest the graph is ink and outline (design.md, Sidebar): the note you are on is the one
         // filled dot, its neighbours are rings on the page. Colour is reserved for the highlight
@@ -476,8 +476,18 @@ export function GraphCanvas({
     // text. There, only the note itself, whatever is under the pointer, and a highlighted match are
     // named; the rest are dots to hover — and in the aside the backlinks and children lists right
     // above the graph already name the neighbourhood in text, so the graph is there for its shape.
-    const roomy = nextSize.width >= 420;
+    const roomy = roomyCanvas(nextSize);
     const showLabels = roomy && view.scale >= 0.26;
+    // Labels are drawn in CSS pixels under a devicePixelRatio-only transform, not through the zoom
+    // transform above. Under the zoom CTM the rasterizer is handed a fractional, non-1:1 scale (and
+    // zoomed in, a font set smaller than the pixels it lands on), so the glyphs lose their pixel grid
+    // and read as rough; with the pure ratio scale they are always rasterized at a crisp integer
+    // device-pixel size. The text lands at the same fixed screen size either way.
+    ctx.setTransform(ratio, 0, 0, ratio, 0, 0);
+    const labelFontSize = 13;
+    ctx.font = `${labelFontSize}px ${
+      css("--font-sans") || '"IBM Plex Sans JP", Inter, system-ui, sans-serif'
+    }`;
     nodesRef.current.forEach((node) => {
       if (decorative) return;
       const center = node.center || node.note_id === graph.center_id;
@@ -487,14 +497,16 @@ export function GraphCanvas({
       if (!(showLabels || center || wellConnected || hovered || (hasActiveHighlight && active))) {
         return;
       }
-      const radius = (nodeRadius(node) * ratio) / view.scale;
-      const x = node.x * ratio;
-      const y = node.y * ratio;
-      const label = trim(node.title || `#${node.note_id}`, 24);
-      const fontPx = (labelFontSize * ratio) / view.scale;
-      const padX = (5 * ratio) / view.scale;
-      const padY = (3 * ratio) / view.scale;
-      const tx = x + radius + (7 * ratio) / view.scale;
+      const radius = nodeRadius(node);
+      const x = node.x * view.scale + size.width / 2 + view.x;
+      const y = node.y * view.scale + size.height / 2 + view.y;
+      const label = hovered
+        ? node.title || `#${node.note_id}`
+        : trim(node.title || `#${node.note_id}`, 24);
+      const fontPx = labelFontSize;
+      const padX = 5;
+      const padY = 3;
+      const tx = x + radius + 7;
       const ty = y;
       ctx.textAlign = "start";
       ctx.textBaseline = "middle";
@@ -509,7 +521,7 @@ export function GraphCanvas({
         ty - fontPx / 2 - padY,
         textWidth + padX * 2,
         fontPx + padY * 2,
-        (4 * ratio) / view.scale,
+        4,
       );
       ctx.globalAlpha = center || hovered ? 0.98 : 0.88;
       ctx.fillStyle = css("--text");
@@ -535,13 +547,13 @@ export function GraphCanvas({
     };
   }
 
-  // nodeRadius returns a node's drawn radius in CSS pixels (independent of zoom): larger for the center
-  // node and for higher-degree nodes. Rendering and hit-testing both use it so the clickable area always
-  // matches the dot the user actually sees.
+  // nodeRadius returns a node's drawn radius in CSS pixels (independent of zoom): the centre node
+  // keeps its focal size, and the rest take their precomputed five-level grade (1–5) from the
+  // engine — the same grade in every view, so a node's size does not depend on which graph shows it.
+  // A node without a grade falls back to the degree-based size (see radiusForNode). Rendering and
+  // hit-testing both use it so the clickable area always matches the dot the user actually sees.
   function nodeRadius(node: SimNode): number {
-    const center = node.center || node.note_id === graphRef.current.center_id;
-    const base = center ? 10 : 6;
-    return base + Math.min(8, Math.sqrt(node.degree) * 2);
+    return radiusForNode(node, graphRef.current.center_id);
   }
 
   function graphNodeAt(point: Point): SimNode | undefined {
@@ -761,6 +773,16 @@ export function GraphCanvas({
 
 function css(name: string): string {
   return getComputedStyle(document.documentElement).getPropertyValue(name).trim();
+}
+
+// roomyCanvas: has this box the room to name what it draws, and to zoom out far enough to hold a
+// whole vault? Either side reaching 420px is enough. Width alone used to stand for it, which read a
+// phone's full-page graph — 390px wide and the height of the screen — as the note aside's 280px-tall
+// box: the one surface deliberately kept to dots, because the backlinks list above it already names
+// the same neighbourhood in text. So the graph filling a phone showed no titles at all, and stopped
+// zooming out at the aside's floor.
+function roomyCanvas(size: { width: number; height: number }): boolean {
+  return size.width >= 420 || size.height >= 420;
 }
 
 // layoutScale sizes the force layout to the canvas: 1 at the full-page graph's scale and smaller

@@ -2,8 +2,6 @@
 package webui
 
 import (
-	"crypto/rand"
-	"encoding/hex"
 	"fmt"
 	"io/fs"
 	"mime"
@@ -34,9 +32,6 @@ type Server struct {
 	mux      *http.ServeMux
 	webRoot  fs.FS
 	colorCSS string
-	// session is a token unique to this server process, injected into index.html so the frontend can
-	// tell a fresh launch (new token → discard restored tab strip) from a reload (same token → keep it).
-	session string
 	// bindHost is the non-loopback host the server was asked to listen on (empty for the default
 	// loopback bind); guard admits it alongside the loopback names.
 	bindHost string
@@ -90,7 +85,6 @@ func New(cfg *config.Config, s *store.Store) *Server {
 		views:   map[string]*vaultView{},
 		mux:     http.NewServeMux(),
 		webRoot: embeddedWebRoot,
-		session: newSessionToken(),
 		events:  newEventHub(),
 	}
 	// A palette is a best-effort cosmetic override; a bad file must not take the workspace down, so we
@@ -102,16 +96,6 @@ func New(cfg *config.Config, s *store.Store) *Server {
 	}
 	srv.routes()
 	return srv
-}
-
-// newSessionToken returns a random per-process token. A crypto/rand read failure is not fatal: an empty
-// token just means the frontend keeps its restored tabs (the pre-existing behavior).
-func newSessionToken() string {
-	var b [8]byte
-	if _, err := rand.Read(b[:]); err != nil {
-		return ""
-	}
-	return hex.EncodeToString(b[:])
 }
 
 func (s *Server) Handler() http.Handler {
@@ -172,12 +156,14 @@ func (s *Server) routes() {
 	s.mux.HandleFunc("/api/resolve", s.withVault(s.handleResolve))
 	s.mux.HandleFunc("/api/note", s.withVault(s.handleNote))
 	s.mux.HandleFunc("/api/note/meta", s.withVault(s.handleNoteMeta))
+	s.mux.HandleFunc("/api/note/read", s.withVault(s.handleNoteRead))
 	s.mux.HandleFunc("/api/tasks", s.withVault(s.handleTasks))
 	s.mux.HandleFunc("/api/task", s.withVault(s.handleTaskSet))
 	s.mux.HandleFunc("/api/render", s.withVault(s.handleRender))
 	s.mux.HandleFunc("/api/viewspec", s.withVault(s.handleViewSpec))
 	s.mux.HandleFunc("/api/asset", s.withVault(s.handleAsset))
 	s.mux.HandleFunc("/api/ogp", s.handleOGP)
+	s.mux.HandleFunc("/api/hierarchy", s.withVault(s.handleHierarchy))
 	s.mux.HandleFunc("/api/graph/local", s.withVault(s.handleLocalGraph))
 	s.mux.HandleFunc("/api/graph", s.withVault(s.handleGraph))
 	s.mux.HandleFunc("/api/follow", s.handleFollow)

@@ -96,10 +96,6 @@ func (s *Server) serveIndex(w http.ResponseWriter, r *http.Request) {
 		overrides = "<style id=\"track-colors\">\n" + s.colorCSS + "</style>"
 	}
 	html = strings.ReplaceAll(html, "__TRACK_COLOR_OVERRIDES__", overrides)
-	// A per-process token so the frontend can distinguish a reload (same token) from a fresh launch
-	// (new token) and drop the restored tab strip on the latter. The token is generated server-side,
-	// never user text.
-	html = strings.ReplaceAll(html, "__TRACK_SESSION__", s.session)
 	// The configured web.home note becomes the workspace landing view (the same start-page mechanism the
 	// static export uses). Unset — the common case — leaves this empty, so "/" shows the search hero.
 	startPage := ""
@@ -107,6 +103,8 @@ func (s *Server) serveIndex(w http.ResponseWriter, r *http.Request) {
 		startPage = strconv.FormatInt(id, 10)
 	}
 	html = strings.ReplaceAll(html, "__TRACK_START_PAGE__", startPage)
+	// Only the static export has a locked data bundle to open; the live app reads /api/*.
+	html = strings.ReplaceAll(html, "__TRACK_LOCK_KEY__", "")
 	_, _ = w.Write([]byte(html))
 }
 

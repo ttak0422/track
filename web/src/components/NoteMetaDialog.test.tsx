@@ -21,6 +21,7 @@ const seedMeta = {
   description: "A summary.",
   image: "assets/old.png",
   icon: "\u{1F4DA}",
+  flags: ["DEPRECATED"],
   props: "status: draft\n",
 };
 
@@ -50,6 +51,8 @@ describe("NoteMetaDialog", () => {
     expect(screen.getByLabelText("Description")).toHaveValue("A summary.");
     expect(screen.getByLabelText("Cover image")).toHaveValue("assets/old.png");
     expect(screen.getByLabelText("Icon")).toHaveValue("\u{1F4DA}");
+    expect(screen.getByLabelText("DEPRECATED")).toBeChecked();
+    expect(screen.getByLabelText("CONFIDENTIAL")).not.toBeChecked();
     expect(screen.getByLabelText("Properties")).toHaveValue("status: draft\n");
   });
 
@@ -74,8 +77,29 @@ describe("NoteMetaDialog", () => {
         description: "New.",
         image: "assets/old.png",
         icon: "\u{1F525}",
+        flags: ["DEPRECATED"],
         props: "rating: 8\n",
       }),
+    );
+    await waitFor(() => expect(onClose).toHaveBeenCalled());
+  });
+
+  it("toggles the flag checkboxes and saves the toggled set", async () => {
+    getNoteMeta.mockResolvedValue(seedMeta);
+    saveNoteMeta.mockResolvedValue(seedMeta);
+    const { onClose } = renderDialog();
+    await waitFor(() => expect(screen.getByLabelText("Title")).toHaveValue("Alpha"));
+
+    // Flip DEPRECATED off and CONFIDENTIAL on — the saved set follows the toggles.
+    fireEvent.click(screen.getByLabelText("DEPRECATED"));
+    fireEvent.click(screen.getByLabelText("CONFIDENTIAL"));
+    fireEvent.click(screen.getByRole("button", { name: "Save" }));
+
+    await waitFor(() =>
+      expect(saveNoteMeta).toHaveBeenCalledWith(
+        "n1",
+        expect.objectContaining({ flags: ["CONFIDENTIAL"] }),
+      ),
     );
     await waitFor(() => expect(onClose).toHaveBeenCalled());
   });

@@ -3,6 +3,7 @@ import type { PDFDocumentLoadingTask, PDFDocumentProxy, RenderTask } from "pdfjs
 import workerUrl from "pdfjs-dist/build/pdf.worker.min.mjs?url";
 import { InLightboxContext } from "./markdown/MediaFrame";
 import { STATIC_MODE } from "../runtime";
+import { IconChevronLeft, IconChevronRight, RailIcon } from "./icons";
 
 // pdf.js needs two asset directories at render time: cmaps (CID-keyed fonts — most CJK PDFs show no
 // text without them) and standard_fonts (the standard 14 fonts a PDF may reference without
@@ -219,7 +220,7 @@ export function PdfDeck({ src, alt }: PdfDeckProps) {
           disabled={page <= 1}
           aria-label="Previous page"
         >
-          ‹
+          <RailIcon Icon={IconChevronLeft} size={14} />
         </button>
         <span className="pdf-deck-count">{numPages ? `${page} / ${numPages}` : "…"}</span>
         <button
@@ -229,7 +230,7 @@ export function PdfDeck({ src, alt }: PdfDeckProps) {
           disabled={page >= numPages}
           aria-label="Next page"
         >
-          ›
+          <RailIcon Icon={IconChevronRight} size={14} />
         </button>
         <a className="md-link pdf-deck-open" href={src} target="_blank" rel="noreferrer noopener">
           {alt || "Open PDF"}

@@ -7,8 +7,20 @@ export type FileKind = "note" | "journal" | string;
 export interface NoteRef {
   note_id: NoteID;
   file_kind: FileKind;
+  // The note's shared reading milestones as unix seconds (absent/0 = never): when any device first
+  // opened the note in the web workspace and when viewing time there crossed its read threshold.
+  // Server truth the local reading cache adopts, so NEW/read badges agree across devices instead of
+  // living only in this browser's localStorage. The static bundle carries neither: a public site's
+  // badges stay per-visitor.
+  seen_at?: number;
+  read_at?: number;
   path?: string;
   title: string;
+  // Author-assigned markers from the closed set {DEPRECATED, CONFIDENTIAL} (ADR 0074). They ride
+  // every note reference the API serves — the detail body, search/list results, and backlinks — so
+  // lists can badge a flagged note and the article can stamp it. The engine rejects anything outside
+  // the set, so the frontend renders whatever arrives.
+  flags?: string[];
 }
 
 export interface SearchResult extends NoteRef {
@@ -24,9 +36,11 @@ export interface SearchResult extends NoteRef {
   icon?: string;
   line?: number;
   snippet?: string;
-  // Which search produced this hit, so the panel can group title and full-text matches. Not
-  // derivable from snippet: a body hit whose terms straddle lines carries none.
-  match?: "title" | "body";
+  // Which search produced this hit, so the panel can group them. Not derivable from snippet: a body
+  // hit whose terms straddle lines carries none. "path" means the query named the note's file rather
+  // than anything it says, and only the live workspace can produce it — a published bundle carries no
+  // source paths.
+  match?: "title" | "body" | "path";
 }
 
 // One vault a cross-vault search could not read. Without it a short result list is
@@ -190,6 +204,16 @@ export interface NoteResponse {
   children?: NoteRef[];
 }
 
+// One note in the vault-wide "up" tree the rail's hierarchy menu draws. Only notes the hierarchy
+// places are in it: a note with neither a parent nor a child is absent, not a root.
+export interface HierarchyNode extends NoteRef {
+  children?: HierarchyNode[];
+}
+
+export interface HierarchyResponse {
+  hierarchy: HierarchyNode[];
+}
+
 export interface SaveNoteRequest {
   body: string;
   etag: string;
@@ -220,6 +244,10 @@ export interface NoteMetaResponse {
   image: string;
   // Per-note icon (an emoji) shown beside the title; empty falls back to the config tag/kind mapping.
   icon: string;
+  // The note's author-assigned flags (ADR 0074): a sorted list from the closed set
+  // {DEPRECATED, CONFIDENTIAL}. The dialog edits them as checkboxes; the engine rejects anything
+  // outside the set.
+  flags: string[];
   props: string;
 }
 
@@ -231,6 +259,7 @@ export interface SaveNoteMetaRequest {
   description: string;
   image: string;
   icon: string;
+  flags: string[];
   props: string;
 }
 
@@ -260,6 +289,9 @@ export interface GraphNode {
   path?: string;
   title: string;
   center?: boolean;
+  // The note's precomputed size grade (1–5), absolute across views. Absent (an older bundle, an
+  // orphan report) means the client falls back to its own degree-based sizing.
+  size?: number;
 }
 
 export interface GraphEdge {

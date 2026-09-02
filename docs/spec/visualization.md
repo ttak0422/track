@@ -498,9 +498,12 @@ it as an image:
 ```
 
 `track export-site` (`internal/track/site`) detects a `.viewspec.json` asset reference, resolves it to
-its ECharts option (`render.EChartsOptionFromSpecDir`) at build time, writes the option JSON into the
-published `assets/` as `.echarts.json`, and rewrites the reference — the frontend embed fetches it and
-draws an interactive chart with its bundled ECharts. Embedded charts must use inline `data.records`
+its ECharts option (`render.EChartsOptionFromSpecDir`) at build time, writes the option into the
+published `assets/`, and rewrites the reference — the frontend embed fetches it and
+draws an interactive chart with its bundled ECharts. The option is generated display data, so it is
+published locked like the data bundle ([ADR 0069](../adr/0069-the-published-data-bundle-is-locked.md)):
+the file is `<slug>.echarts.bin` while the reference keeps saying `.echarts.json`, which is how the embed
+knows it is a chart. Embedded charts must use inline `data.records`
 (an asset is resolved in isolation, with no spec-relative file to read); source marker overlays and
 `data.source` are not supported on this path, but line/band overlays (literal values) and inline
 marker records (`overlays[].records`) render. The live web workspace does not yet render embedded
@@ -531,17 +534,17 @@ differs:
   also watches the vault's `data/` directory and emits a `data` Server-Sent Event (alongside the
   existing `change` event for note edits) so displayed charts re-fetch when a `data.source` /
   `overlays[].source` file changes.
-- **Static site** (`track export-site`, both the vault and `--dir` front-ends): each fence is
-  resolved at build time to a fenced ```` ```echarts ```` block carrying the ready-to-draw option, so
-  the published page draws the same interactive chart with the frontend's bundled ECharts (a lazily
-  loaded chunk; pages without charts never download it). No chart engine or vault data ships with the
-  site — resolution already happened.
+- **Static site** (`track export-site`): each fence is resolved at build time to a fenced
+  ```` ```echarts ```` block carrying the ready-to-draw option, so the published page draws the same
+  interactive chart with the frontend's bundled ECharts (a lazily loaded chunk; pages without charts
+  never download it). Static export takes a vault plus `--frontend` and `--out`; the former `--src`/`--dir`
+  directory mode is gone (ADR 0059). No chart engine or vault data ships with the site — resolution
+  already happened.
 
 Unlike the isolated `.viewspec.json` asset path, a fenced block may use `data.source` (and
-`overlays[].source`): paths resolve **inside the vault's `data/` directory** (for `--dir` exports, a
-`data/` directory next to the Markdown files). Absolute paths and `..` traversal are rejected, so a
-note cannot read files outside the data directory. Inline `data.records` works as well and keeps the
-block self-contained.
+`overlays[].source`): paths resolve **inside the vault's `data/` directory**. Absolute paths and `..`
+traversal are rejected, so a note cannot read files outside the data directory. Inline `data.records`
+works as well and keeps the block self-contained.
 
 An invalid spec (or unreadable data) never breaks the page: the web workspace shows the error message
 plus the original source at the block position, and the static export publishes an inline error

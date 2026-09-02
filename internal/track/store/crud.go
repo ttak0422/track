@@ -26,6 +26,10 @@ type NoteRef struct {
 	Vault string `json:"vault,omitempty"`
 	Path  string `json:"path,omitempty"`
 	Title string `json:"title"`
+	// Flags are the note's author-assigned markers from the implementation-defined closed set (ADR
+	// 0074), as stored in the index. They ride on every note-list surface (backlinks, On-this-day,
+	// hierarchy refs) so badges draw from vault metadata the same way SearchResult carries them.
+	Flags []string `json:"flags,omitempty"`
 }
 
 // UpsertNote inserts or updates a note row and replaces its tags in a single transaction.
@@ -41,11 +45,16 @@ func (s *Store) UpsertNote(n *note.Note) error {
 		kind = "note"
 	}
 	if _, err := tx.Exec(
-		`INSERT INTO notes (id, kind, title, created, mtime, meta_mtime, icon)
-		 VALUES (?, ?, ?, ?, ?, ?, ?)
+		`INSERT INTO notes (id, kind, title, created, mtime, meta_mtime, icon, seen_at, read_at, flags)
+		 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 		 ON CONFLICT(id) DO UPDATE SET
-		   kind=excluded.kind, title=excluded.title, created=excluded.created, mtime=excluded.mtime, meta_mtime=excluded.meta_mtime, icon=excluded.icon`,
+		   kind=excluded.kind, title=excluded.title, created=excluded.created, mtime=excluded.mtime, meta_mtime=excluded.meta_mtime, icon=excluded.icon,
+		   seen_at=excluded.seen_at, read_at=excluded.read_at, flags=excluded.flags`,
 		n.ID, kind, n.Meta.Title, n.Meta.Created, n.Mtime, n.MetaMtime, n.Meta.Icon,
+		note.StampUnix(n.Meta.SeenAt), note.StampUnix(n.Meta.ReadAt),
+		// The index carries the normalized flags as one char(31)-joined column, the same separator
+		// searchColumns splits on, so search can demote DEPRECATED notes and listings can badge them.
+		strings.Join(n.Meta.Flags, "\x1f"),
 	); err != nil {
 		return err
 	}
@@ -226,7 +235,7 @@ func (s *Store) ExtBacklinks(vaultNames []string, title string) ([]NoteRef, erro
 	}
 	args = append(args, title)
 	rows, err := s.db.Query(
-		`SELECT DISTINCT n.id, n.kind, n.title
+		`SELECT DISTINCT n.id, n.kind, n.title, n.flags
 		 FROM ext_links e JOIN notes n ON n.id = e.src_id
 		 WHERE e.vault IN (`+placeholders[:len(placeholders)-1]+`) AND e.title = ?
 		 ORDER BY n.mtime DESC, n.id`,
@@ -287,7 +296,7 @@ func (s *Store) ResolveTerm(term string) (NoteRef, bool, error) {
 // ordering every note-list surface shares (see sortRefs in webui and the static bundle).
 func (s *Store) Backlinks(id int64) ([]NoteRef, error) {
 	rows, err := s.db.Query(
-		`SELECT n.id, n.kind, n.title
+		`SELECT n.id, n.kind, n.title, n.flags
 		 FROM links l JOIN notes n ON n.id = l.src_id
 		 WHERE l.dst_id = ? ORDER BY n.mtime DESC, n.id`,
 		id,
@@ -304,7 +313,7 @@ func (s *Store) Backlinks(id int64) ([]NoteRef, error) {
 // page it opens read identically.
 func (s *Store) NotesOnDay(day string) ([]NoteRef, error) {
 	rows, err := s.db.Query(
-		`SELECT n.id, n.kind, n.title
+		`SELECT n.id, n.kind, n.title, n.flags
 		 FROM note_days d JOIN notes n ON n.id = d.note_id
 		 WHERE d.day = ? ORDER BY n.mtime DESC, n.id`,
 		day,
@@ -318,7 +327,7 @@ func (s *Store) NotesOnDay(day string) ([]NoteRef, error) {
 
 // AllNotes returns every note as a NoteRef, ordered by id.
 func (s *Store) AllNotes() ([]NoteRef, error) {
-	rows, err := s.db.Query(`SELECT id, kind, title FROM notes ORDER BY id`)
+	rows, err := s.db.Query(`SELECT id, kind, title, flags FROM notes ORDER BY id`)
 	if err != nil {
 		return nil, err
 	}

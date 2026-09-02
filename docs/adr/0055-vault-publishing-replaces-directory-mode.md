@@ -68,4 +68,5 @@ the case that actually needs an address to survive.
   file reads positively (`journal: false`).
 - `gen: false` refuses reads (`list`, `status`, `peek`) as well as writes: the
   vault keeps no snapshots at all, so there is nothing for them to report.
-- Directory mode still works unchanged; only its removal is scheduled.
+- Directory mode still worked unchanged when this ADR was accepted; ADR 0059 later overtook this
+  consequence by removing directory mode, including `--src`, `--dir`, and `site.yml`.

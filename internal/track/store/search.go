@@ -2,6 +2,8 @@ package store
 
 import (
 	"cmp"
+	// Aliased: this file builds queries in locals named sql, which would shadow the package.
+	gosql "database/sql"
 	"fmt"
 	"slices"
 	"strings"
@@ -12,12 +14,37 @@ import (
 // characters forms no trigram, so a body query containing such a term must fall back to a scan.
 const minTrigram = 3
 
+// The columns every search row is scanned from (see scanSearchRows), named once so a second query
+// cannot drift from the first.
+const searchColumns = `n.id, n.kind, n.title, n.mtime, n.icon, n.seen_at, n.read_at, n.flags,
+	   COALESCE((
+	     SELECT group_concat(tag, char(31))
+	     FROM (SELECT tag FROM tags WHERE note_id = n.id ORDER BY tag)
+	   ), '') AS tags`
+
+// deprecatedRankPenalty is how much the DEPRECATED flag lowers a note's search rank: a note carrying
+// it sorts below an otherwise-equivalent unflagged note in the title/tag rank vector and the body bm25
+// path alike. Both ranking paths order ascending (lower is better), so the penalty is added to the
+// score. One named constant keeps the magnitude easy to tune.
+const deprecatedRankPenalty = 0.5
+
+// flagPenaltyExpr is a SQL fragment adding deprecatedRankPenalty to a rank when the note's stored
+// flags (char(31)-joined, like searchColumns splits) contain the DEPRECATED token. The delimiter-
+// wrapped instr match keeps a future flag whose name embeds "DEPRECATED" from demoting by accident.
+func flagPenaltyExpr() string {
+	return fmt.Sprintf(" + %g * (CASE WHEN instr(char(31) || n.flags || char(31), char(31) || 'DEPRECATED' || char(31)) > 0 THEN 1 ELSE 0 END)", deprecatedRankPenalty)
+}
+
 type SearchScope string
 
 const (
 	SearchAll   SearchScope = "all"
 	SearchTitle SearchScope = "title"
 	SearchBody  SearchScope = "body"
+	// SearchPath finds a note by the file it is stored in. Every kind's file name is derived from the
+	// note's id (config.PathForKind), so this scope is an id lookup wearing a path's clothes — see
+	// search.NoteIDFromFileName for what counts as naming a file.
+	SearchPath SearchScope = "path"
 )
 
 // SearchResult is one hit from a title search, or a file-backed body search assembled by callers.
@@ -38,14 +65,25 @@ type SearchResult struct {
 	// Icon is the note's icon shown beside its title. The store fills it with the per-note sidecar
 	// override; the serving layer (webui addSearchPaths / the static export) resolves it against the
 	// config tag/kind mapping via config.NoteIcon, so an empty override falls back to the mapping.
-	Icon    string `json:"icon,omitempty"`
-	Line    int    `json:"line,omitempty"`
-	Snippet string `json:"snippet,omitempty"`
+	Icon string `json:"icon,omitempty"`
+	// Flags are the note's author-assigned markers from the implementation-defined closed set (ADR
+	// 0074), as stored normalized in the index. They ride on every listing so badges come from vault
+	// metadata, and search uses them to rank DEPRECATED notes down.
+	Flags   []string `json:"flags,omitempty"`
+	Line    int      `json:"line,omitempty"`
+	Snippet string   `json:"snippet,omitempty"`
 	// Match says which search produced this hit, "title" or "body", so a frontend can group them.
 	// It is not derivable from Line/Snippet: a body hit whose terms straddle lines legitimately has
 	// neither (see the composition in internal/track/search).
 	Match string `json:"match,omitempty"`
-	Mtime int64  `json:"-"`
+	// SeenAt / ReadAt are the note's shared reading milestones as unix seconds (0 = never): when any
+	// device first opened the note in the web workspace and when viewing time there first crossed its
+	// read threshold. They ride on every listing so NEW/read badges come from vault metadata that
+	// syncs, not from per-browser localStorage (ADR 0072). The static export strips them: a public
+	// site's badges stay per-visitor.
+	SeenAt int64 `json:"seen_at,omitempty"`
+	ReadAt int64 `json:"read_at,omitempty"`
+	Mtime  int64 `json:"-"`
 	// Rank is the sort key the vault's own query gave this hit: the packed title/tag rank vector for a
 	// title search, bm25 for a body search, 0 for an unranked listing. It exists so results from
 	// several vaults can be merged (MergeSearchResults) on exactly the key SQLite ranked them by —
@@ -133,15 +171,33 @@ func (s *Store) SearchScoped(query string, limit int, scope SearchScope) ([]Sear
 		return nil, err
 	}
 	defer rows.Close()
+	return scanSearchRows(rows)
+}
 
+// SearchByID returns the one note stored at a given id, as a search result. It is the second half of
+// the file-name lookup: a note's file is named from its id, so naming the file is naming the id.
+func (s *Store) SearchByID(id int64) ([]SearchResult, error) {
+	rows, err := s.db.Query(`SELECT `+searchColumns+`, 0 AS rank_key
+	 FROM notes n
+	 WHERE n.id = ? AND n.kind IN ('note', 'journal')
+	 LIMIT 1`, id)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	return scanSearchRows(rows)
+}
+
+func scanSearchRows(rows *gosql.Rows) ([]SearchResult, error) {
 	var out []SearchResult
 	for rows.Next() {
 		var r SearchResult
-		var tags string
-		if err := rows.Scan(&r.NoteID, &r.FileKind, &r.Title, &r.Mtime, &r.Icon, &tags, &r.Rank); err != nil {
+		var tags, flags string
+		if err := rows.Scan(&r.NoteID, &r.FileKind, &r.Title, &r.Mtime, &r.Icon, &r.SeenAt, &r.ReadAt, &flags, &tags, &r.Rank); err != nil {
 			return nil, err
 		}
 		r.Tags = splitTags(tags)
+		r.Flags = splitTags(flags)
 		out = append(out, r)
 	}
 	return out, rows.Err()
@@ -154,6 +210,9 @@ func searchQuery(scope SearchScope, query string, limit int) (string, []any, err
 	case SearchBody:
 		// Body search runs through the FTS5 index, not this title query — see SearchBodyFTS.
 		return "", nil, fmt.Errorf("use SearchBodyFTS for body scope")
+	case SearchPath:
+		// A file name resolves to one id rather than a text match — see SearchByID.
+		return "", nil, fmt.Errorf("use SearchByID for path scope")
 	default:
 		return "", nil, fmt.Errorf("unknown search scope %q", scope)
 	}
@@ -170,15 +229,13 @@ func searchQuery(scope SearchScope, query string, limit int) (string, []any, err
 	}
 	// The rank vector is selected as one packed column and ordered by that alias, so a caller merging
 	// several vaults sorts on the very key SQLite ranked with. Its args come before the WHERE args.
-	rank := rankExpr([]string{
+	// The DEPRECATED flag penalty rides in the same column, so the merged order agrees with the
+	// single-vault one (see flagPenaltyExpr).
+	rank := "(" + rankExpr([]string{
 		"CASE WHEN n.title = ? COLLATE NOCASE THEN 0 ELSE 1 END",
 		"CASE WHEN n.title LIKE ? THEN 0 ELSE 1 END",
-	})
-	sql := `SELECT n.id, n.kind, n.title, n.mtime, n.icon,
-	   COALESCE((
-	     SELECT group_concat(tag, char(31))
-	     FROM (SELECT tag FROM tags WHERE note_id = n.id ORDER BY tag)
-	   ), '') AS tags,
+	}) + ")" + flagPenaltyExpr()
+	sql := `SELECT ` + searchColumns + `,
 	   ` + rank + ` AS rank_key
 	 FROM notes n
 	 WHERE ` + where + `
@@ -252,7 +309,10 @@ func parseTaggedQuery(query string) (parsedTaggedQuery, bool) {
 	seen := map[string]bool{}
 	for _, field := range strings.Fields(query) {
 		if strings.HasPrefix(field, "#") {
-			tag := strings.TrimSpace(strings.TrimPrefix(field, "#"))
+			// A trailing "/" is how someone writes "everything under this", which is what the filter
+			// already means — and left in place it means the opposite, since no tag is stored with one:
+			// "#a/" would match nothing and quietly fall through to a full-text hunt for the literal text.
+			tag := strings.TrimRight(strings.TrimSpace(strings.TrimPrefix(field, "#")), "/")
 			if tag == "" || seen[tag] {
 				continue
 			}
@@ -300,12 +360,12 @@ func searchTagged(parsed parsedTaggedQuery, limit int) (string, []any) {
 		rankArgs = append(rankArgs, parsed.Text, parsed.Text+"%")
 	}
 
-	sql := `SELECT n.id, n.kind, n.title, n.mtime, n.icon,
+	sql := `SELECT n.id, n.kind, n.title, n.mtime, n.icon, n.seen_at, n.read_at, n.flags,
 	   COALESCE((
 	     SELECT group_concat(tag, char(31))
 	     FROM (SELECT tag FROM tags WHERE note_id = n.id ORDER BY tag)
 	   ), '') AS tags,
-	   ` + rankExpr(rankCases) + ` AS rank_key
+	   ` + "(" + rankExpr(rankCases) + ")" + flagPenaltyExpr() + ` AS rank_key
 	 FROM notes n
 	 WHERE ` + strings.Join(where, " AND ") + `
 	 ORDER BY
@@ -357,19 +417,21 @@ func (s *Store) SearchBodyFTS(query string, limit int) ([]SearchResult, error) {
 	if len(groups) == 0 {
 		return nil, nil
 	}
+	// bm25 is selected as well as ordered by, so a cross-vault merge (MergeSearchResults) orders on
+	// the score the index computed instead of trying to reproduce it. The DEPRECATED flag penalty
+	// rides in that score too (flagPenaltyExpr), so the merged order agrees with the single-vault one.
+	score := "bm25(notes_fts)" + flagPenaltyExpr()
 	rows, err := s.db.Query(
-		// bm25 is selected as well as ordered by, so a cross-vault merge (MergeSearchResults) orders on
-		// the score the index computed instead of trying to reproduce it.
-		`SELECT n.id, n.kind, n.title, n.mtime, n.icon,
+		`SELECT n.id, n.kind, n.title, n.mtime, n.icon, n.seen_at, n.read_at, n.flags,
 		   COALESCE((
 		     SELECT group_concat(tag, char(31))
 		     FROM (SELECT tag FROM tags WHERE note_id = n.id ORDER BY tag)
 		   ), '') AS tags,
-		   bm25(notes_fts) AS bm25_rank
+		   `+score+` AS bm25_rank
 		 FROM notes_fts f
 		 JOIN notes n ON n.id = f.rowid
 		 WHERE notes_fts MATCH ? AND n.kind IN ('note', 'journal')
-		 ORDER BY bm25(notes_fts), n.mtime DESC, n.id DESC
+		 ORDER BY `+score+`, n.mtime DESC, n.id DESC
 		 LIMIT ?`,
 		ftsMatchExprGroups(groups), limit,
 	)
@@ -381,13 +443,14 @@ func (s *Store) SearchBodyFTS(query string, limit int) ([]SearchResult, error) {
 	var out []SearchResult
 	for rows.Next() {
 		var r SearchResult
-		var tags string
+		var tags, flags string
 		// The icon rides along like it does on the title path: without it the same note would show
 		// one icon in the title group and the tag/kind fallback in the body group.
-		if err := rows.Scan(&r.NoteID, &r.FileKind, &r.Title, &r.Mtime, &r.Icon, &tags, &r.Rank); err != nil {
+		if err := rows.Scan(&r.NoteID, &r.FileKind, &r.Title, &r.Mtime, &r.Icon, &r.SeenAt, &r.ReadAt, &flags, &tags, &r.Rank); err != nil {
 			return nil, err
 		}
 		r.Tags = splitTags(tags)
+		r.Flags = splitTags(flags)
 		out = append(out, r)
 	}
 	return out, rows.Err()
@@ -412,7 +475,7 @@ func ftsMatchExprGroups(groups [][]string) string {
 // SearchRefs returns indexed notes with search-only ranking/display metadata.
 func (s *Store) SearchRefs() ([]SearchResult, error) {
 	rows, err := s.db.Query(
-		`SELECT n.id, n.kind, n.title, n.mtime, n.icon,
+		`SELECT n.id, n.kind, n.title, n.mtime, n.icon, n.seen_at, n.read_at, n.flags,
 		   COALESCE((
 		     SELECT group_concat(tag, char(31))
 		     FROM (SELECT tag FROM tags WHERE note_id = n.id ORDER BY tag)
@@ -428,11 +491,12 @@ func (s *Store) SearchRefs() ([]SearchResult, error) {
 	var out []SearchResult
 	for rows.Next() {
 		var r SearchResult
-		var tags string
-		if err := rows.Scan(&r.NoteID, &r.FileKind, &r.Title, &r.Mtime, &r.Icon, &tags); err != nil {
+		var tags, flags string
+		if err := rows.Scan(&r.NoteID, &r.FileKind, &r.Title, &r.Mtime, &r.Icon, &r.SeenAt, &r.ReadAt, &flags, &tags); err != nil {
 			return nil, err
 		}
 		r.Tags = splitTags(tags)
+		r.Flags = splitTags(flags)
 		out = append(out, r)
 	}
 	return out, rows.Err()
@@ -447,7 +511,7 @@ func (s *Store) NewestRefs(limit int) ([]SearchResult, error) {
 		limit = 10
 	}
 	rows, err := s.db.Query(
-		`SELECT n.id, n.kind, n.title, n.mtime, n.icon,
+		`SELECT n.id, n.kind, n.title, n.mtime, n.icon, n.seen_at, n.read_at, n.flags,
 		   COALESCE((
 		     SELECT group_concat(tag, char(31))
 		     FROM (SELECT tag FROM tags WHERE note_id = n.id ORDER BY tag)
@@ -466,11 +530,12 @@ func (s *Store) NewestRefs(limit int) ([]SearchResult, error) {
 	var out []SearchResult
 	for rows.Next() {
 		var r SearchResult
-		var tags string
-		if err := rows.Scan(&r.NoteID, &r.FileKind, &r.Title, &r.Mtime, &r.Icon, &tags); err != nil {
+		var tags, flags string
+		if err := rows.Scan(&r.NoteID, &r.FileKind, &r.Title, &r.Mtime, &r.Icon, &r.SeenAt, &r.ReadAt, &flags, &tags); err != nil {
 			return nil, err
 		}
 		r.Tags = splitTags(tags)
+		r.Flags = splitTags(flags)
 		out = append(out, r)
 	}
 	return out, rows.Err()

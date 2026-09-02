@@ -1,9 +1,8 @@
 import { createContext, type ReactNode, useContext, useEffect, useRef, useState } from "react";
-import { initialPreviewBounds, type PreviewAnchor, type PreviewBounds } from "../preview/bounds";
+import { elementAnchor, initialPreviewBounds } from "../preview/bounds";
 import { InFloatingWindowContext, useFloating } from "../preview/floatingStore";
-import { MediaWindow } from "../preview/MediaWindow";
-import { nextPreviewStackOrder } from "../preview/stack";
 import { NoteKindContext, NoteVaultContext } from "./context";
+import { IconMaximize, IconPictureInPicture, RailIcon } from "../icons";
 
 // MediaFrame wraps a media embed (image, PDF) with hover-revealed controls: preview (an enlarged
 // copy floating beside the media, the same FloatingWindow chrome a WikiLink note preview uses via
@@ -25,9 +24,9 @@ export function MediaFrame({ src, alt, children }: { src: string; alt: string; c
   const floating = useFloating();
   const ref = useRef<HTMLDivElement>(null);
 
-  const [open, setOpen] = useState(false);
-  const [anchor, setAnchor] = useState<PreviewAnchor | null>(null);
-  const [stackOrder, setStackOrder] = useState(nextPreviewStackOrder);
+  // The preview this frame opened, so enlarging can take it down again. The window itself belongs to
+  // the floating layer.
+  const openedRef = useRef<string | null>(null);
   const [enlarged, setEnlarged] = useState(false);
   const dialogRef = useRef<HTMLDialogElement>(null);
 
@@ -41,30 +40,20 @@ export function MediaFrame({ src, alt, children }: { src: string; alt: string; c
     return <>{children}</>;
   }
 
-  function frameAnchor(): PreviewAnchor {
-    const rect = ref.current?.getBoundingClientRect();
-    return rect
-      ? { linkLeft: rect.left, linkRight: rect.right, linkTop: rect.top, linkBottom: rect.bottom }
-      : { linkLeft: 0, linkRight: 0, linkTop: 0, linkBottom: 0 };
-  }
-
-  // The preview was asked for by a click, so it stays until its close button (or enlarging the
-  // media) dismisses it, rather than evaporating when the pointer wanders off.
+  // The preview was asked for by a click, so it opens settled: it stays until its close button (or
+  // enlarging the media) dismisses it, rather than evaporating when the pointer wanders off. Its pin
+  // button is what makes it persist across navigation, same as any other window in the layer.
   function openPreview() {
-    setStackOrder(nextPreviewStackOrder());
-    setAnchor(frameAnchor());
-    setOpen(true);
+    openedRef.current = floating.open(
+      { kind: "media", src, alt, noteKind: kind, vault },
+      initialPreviewBounds(elementAnchor(ref.current)),
+      false,
+    );
   }
 
   function closePreview() {
-    setOpen(false);
-  }
-
-  // Pin promotes the preview popup into the persistent floating layer at its current position/size,
-  // same as WikiLink promoting a note preview.
-  function promote(bounds: PreviewBounds, collapsed: boolean) {
-    floating.open({ kind: "media", src, alt, noteKind: kind, vault }, bounds, collapsed, true);
-    setOpen(false);
+    if (openedRef.current) floating.remove(openedRef.current);
+    openedRef.current = null;
   }
 
   return (
@@ -72,7 +61,7 @@ export function MediaFrame({ src, alt, children }: { src: string; alt: string; c
       {children}
       <div className="media-controls">
         <button
-          className="media-control"
+          className="media-control media-preview"
           type="button"
           onClick={() => {
             if (enlarged) return;
@@ -81,23 +70,9 @@ export function MediaFrame({ src, alt, children }: { src: string; alt: string; c
           aria-label="Preview"
           title="Preview"
         >
-          {/* Picture-in-picture glyph: pop an enlarged copy up beside the media, on demand rather
-              than on hover. The frame-with-inner-window shape (preferred over the eye it briefly
-              was) reads as "opens a window". */}
-          <svg
-            viewBox="0 0 24 24"
-            width="15"
-            height="15"
-            fill="none"
-            stroke="currentColor"
-            strokeWidth="2"
-            strokeLinecap="round"
-            strokeLinejoin="round"
-            aria-hidden="true"
-          >
-            <rect x="3" y="5" width="18" height="14" rx="2" />
-            <rect x="12" y="11" width="7" height="6" rx="1" fill="currentColor" stroke="none" />
-          </svg>
+          {/* Picture-in-picture glyph (tabler picture-in-picture): pop an enlarged copy up beside the
+              media, on demand rather than on hover. */}
+          <RailIcon Icon={IconPictureInPicture} size={15} />
         </button>
         <button
           className="media-control"
@@ -110,21 +85,9 @@ export function MediaFrame({ src, alt, children }: { src: string; alt: string; c
           aria-label="Enlarge"
           title="Enlarge"
         >
-          {/* Expand-to-corners glyph: enlarge in an in-window lightbox (a modal <dialog> over a dimmed
-              backdrop), not display fullscreen. */}
-          <svg
-            viewBox="0 0 24 24"
-            width="15"
-            height="15"
-            fill="none"
-            stroke="currentColor"
-            strokeWidth="2"
-            strokeLinecap="round"
-            strokeLinejoin="round"
-            aria-hidden="true"
-          >
-            <path d="M8 3H5a2 2 0 0 0-2 2v3m18 0V5a2 2 0 0 0-2-2h-3M3 16v3a2 2 0 0 0 2 2h3m8 0h3a2 2 0 0 0 2-2v-3" />
-          </svg>
+          {/* Expand-to-corners glyph (tabler maximize): enlarge in an in-window lightbox (a modal
+              <dialog> over a dimmed backdrop), not display fullscreen. */}
+          <RailIcon Icon={IconMaximize} size={15} />
         </button>
       </div>
       {enlarged ? (
@@ -139,21 +102,6 @@ export function MediaFrame({ src, alt, children }: { src: string; alt: string; c
         >
           <InLightboxContext.Provider value={true}>{children}</InLightboxContext.Provider>
         </dialog>
-      ) : null}
-      {open && anchor ? (
-        <MediaWindow
-          src={src}
-          alt={alt}
-          kind={kind}
-          vault={vault}
-          initialBounds={initialPreviewBounds(anchor)}
-          pinned={false}
-          depth={0}
-          stackOrder={stackOrder}
-          onActivate={() => setStackOrder(nextPreviewStackOrder())}
-          onClose={closePreview}
-          onPinToggle={promote}
-        />
       ) : null}
     </div>
   );

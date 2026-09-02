@@ -25,7 +25,6 @@ describe("TabsProvider", () => {
     routerMock.pathname = "/";
     routerMock.navigate.mockClear();
     window.localStorage.clear();
-    window.__trackSession = undefined;
   });
 
   it("keeps a title reported before its tab exists (prerender hydration order)", () => {
@@ -49,6 +48,22 @@ describe("TabsProvider", () => {
       ),
     });
     expect(result.current.tabs).toEqual([{ id: "a1", title: "Alpha" }]);
+    // The same title reaches the recents the note was just recorded in, so History labels it too.
+    expect(result.current.recent).toEqual([{ id: "a1", title: "Alpha" }]);
+  });
+
+  it("labels a recent note when its title resolves after it was recorded", () => {
+    // A cold visit is recorded the moment the route lands on it, before the note's query resolves.
+    routerMock.pathname = "/notes/a1";
+    const { result, rerender } = renderHook(() => useTabs(), { wrapper });
+    expect(result.current.recent).toEqual([{ id: "a1", title: "" }]);
+
+    // The query resolves and the reader reports the title; History's entry is labeled and persisted.
+    act(() => result.current.setTitle("a1", "Alpha"));
+    expect(result.current.recent).toEqual([{ id: "a1", title: "Alpha" }]);
+    rerender();
+    const stored = JSON.parse(window.localStorage.getItem("track.recent")!) as { title: string }[];
+    expect(stored).toEqual([{ id: "a1", title: "Alpha" }]);
   });
 
   it("opens a tab when navigating to a note, most recent first, and dedupes repeats", () => {
@@ -82,22 +97,12 @@ describe("TabsProvider", () => {
     expect(result.current.tabs.map((tab) => tab.id)).toEqual(["b2", "a1"]);
   });
 
-  it("keeps restored tabs when the session token is unchanged (a reload)", () => {
-    window.__trackSession = "s1";
-    window.localStorage.setItem("track.tabs.session", "s1");
+  it("keeps restored tabs across a relaunch, not only a reload", () => {
+    // The strip used to be keyed to the server process, so quitting `track web` threw it away. It is
+    // plain localStorage now: only closing a tab closes it.
     window.localStorage.setItem("track.tabs", JSON.stringify([{ id: "a", title: "" }]));
     const { result } = renderHook(() => useTabs(), { wrapper });
     expect(result.current.tabs.map((tab) => tab.id)).toEqual(["a"]);
-  });
-
-  it("discards restored tabs when the session token changes (a fresh launch)", () => {
-    window.__trackSession = "s2";
-    window.localStorage.setItem("track.tabs.session", "s1");
-    window.localStorage.setItem("track.tabs", JSON.stringify([{ id: "a", title: "" }]));
-    const { result } = renderHook(() => useTabs(), { wrapper });
-    expect(result.current.tabs).toEqual([]);
-    // The new token is adopted so a subsequent reload keeps whatever tabs open this run.
-    expect(window.localStorage.getItem("track.tabs.session")).toBe("s2");
   });
 
   it("closes the active tab and navigates to the note visited before it", () => {
@@ -154,7 +159,7 @@ describe("TabsProvider", () => {
     expect(routerMock.navigate).toHaveBeenCalledWith({ to: "/graph" });
   });
 
-  it("remembers recently opened notes, most recent first, and outlives a new session", () => {
+  it("remembers recently opened notes, most recent first, and outlives a relaunch", () => {
     routerMock.pathname = "/notes/a1";
     const { result, rerender } = renderHook(() => useTabs(), { wrapper });
     routerMock.pathname = "/notes/b2";
@@ -165,13 +170,22 @@ describe("TabsProvider", () => {
     rerender();
     expect(result.current.recent.map((note) => note.id)).toEqual(["a1", "b2"]);
 
-    // A fresh `track web` launch drops the open strip but keeps the recents: the strip is this
-    // run's workspace, the recents are where the person has been.
-    window.__trackSession = "next-session";
+    // A fresh `track web` launch keeps both: where you have been is not the server's to forget.
     routerMock.pathname = "/";
     const second = renderHook(() => useTabs(), { wrapper });
-    expect(window.localStorage.getItem("track.tabs")).toBeNull();
+    expect(second.result.current.tabs.map((note) => note.id)).toEqual(["a1", "graph", "b2"]);
     expect(second.result.current.recent.map((note) => note.id)).toEqual(["a1", "b2"]);
+  });
+
+  it("keeps a history deeper than the strip, capped so it cannot grow without bound", () => {
+    const { result, rerender } = renderHook(() => useTabs(), { wrapper });
+    for (let i = 0; i < 110; i += 1) {
+      routerMock.pathname = `/notes/n${i}`;
+      rerender();
+    }
+    expect(result.current.recent).toHaveLength(100);
+    expect(result.current.recent[0].id).toBe("n109");
+    expect(result.current.recent[99].id).toBe("n10");
   });
 
   it("does not navigate when closing an inactive tab", () => {

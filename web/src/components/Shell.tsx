@@ -1,9 +1,13 @@
 import { Link, Outlet, useNavigate, useRouterState } from "@tanstack/react-router";
 import { GraphPanel } from "./GraphPanel";
+import { HierarchyMenu } from "./HierarchyMenu";
 import { BrandMark } from "./Logo";
+import { MobileDock } from "./MobileDock";
 import { FloatingLayer } from "./preview/FloatingLayer";
 import { FloatingProvider } from "./preview/floatingStore";
 import { SidebarSearch } from "./SidebarSearch";
+import { SidebarNew } from "./SidebarNew";
+import { SidebarHistory } from "./SidebarHistory";
 import { TabBar } from "./tabs/TabBar";
 import { TabsProvider } from "./tabs/tabsStore";
 import { ThemeMenu } from "./ThemeMenu";
@@ -14,7 +18,9 @@ import { START_PAGE_ID, STATIC_MODE } from "../runtime";
 import { NoteControlsProvider } from "../noteControls";
 import { NotificationToast } from "../notifications";
 import { NoteRailControls } from "./NoteRailControls";
+import { RailTip } from "./RailTip";
 import { SearchProvider } from "../searchState";
+import { IconAffiliate, IconCalendar, IconChecklist, IconNotebook, RailIcon } from "./icons";
 
 export function Shell() {
   const pathname = useRouterState({ select: (state) => state.location.pathname });
@@ -64,72 +70,61 @@ export function Shell() {
       <main className={`workspace${isHero ? " home" : ""}`}>
           <aside className="sidebar">
             <nav className="activity-rail" aria-label="Workspace views">
-              {/* On the static site "/" is the start page; on the live server it is the heatmap home. */}
-              <Link
-                className="rail-button rail-brand"
-                to="/"
-                aria-label={STATIC_MODE ? "Start page" : "track home"}
-                title={STATIC_MODE ? "Start page" : "track home"}
-              >
-                <BrandMark icon={site.data?.icon} className="rail-mark" />
-              </Link>
-              <SidebarSearch />
-              {/* The published static site is read-only and cannot create journals. */}
-              {!STATIC_MODE && (
-                <button
-                  className="rail-button"
-                  type="button"
-                  aria-label="Today's journal"
-                  title="Today's journal"
-                  onClick={openTodayJournal}
-                >
-                  <svg
-                    className="rail-icon-svg"
-                    viewBox="0 0 24 24"
-                    width="20"
-                    height="20"
-                    fill="none"
-                    stroke="currentColor"
-                    strokeWidth="1.5"
-                    strokeLinecap="round"
-                    strokeLinejoin="round"
-                    aria-hidden="true"
-                  >
-                    <rect x="4" y="3.5" width="16" height="17" rx="2" />
-                    <line x1="4" y1="8.5" x2="20" y2="8.5" />
-                    <line x1="8" y1="12.5" x2="16" y2="12.5" />
-                    <line x1="8" y1="16" x2="14" y2="16" />
-                  </svg>
-                </button>
-              )}
-              {showCalendar && (
+              <div className="rail-scroll">
+                {/* On the static site "/" is the start page; on the live server it is the heatmap home. */}
                 <Link
-                  className="rail-button"
-                  to="/calendar"
-                  aria-label="Calendar"
-                  title="Calendar"
+                  className="rail-button rail-brand"
+                  to="/"
+                  aria-label={STATIC_MODE ? "Start page" : "track home"}
+                  title={STATIC_MODE ? "Start page" : "track home"}
                 >
-                  <RailCalendarIcon />
+                  <BrandMark icon={site.data?.icon} className="rail-mark" />
                 </Link>
-              )}
-              {/* The open-task listing is live-only: the published bundle carries dated tasks alone. */}
-              {!STATIC_MODE && (
-                <Link className="rail-button" to="/tasks" aria-label="Tasks" title="Tasks">
-                  <RailTasksIcon />
-                </Link>
-              )}
-              <Link
-                className="rail-button"
-                to="/graph"
-                aria-label="Full graph"
-                title="Full graph"
-              >
-                <RailGraphIcon />
-              </Link>
-              {/* The open note's own controls, below the workspace's views. Absent while no note is
-                  open, so the dock keeps carrying nothing but navigation the rest of the time. */}
-              {!STATIC_MODE && <NoteRailControls />}
-              {/* Settings stays with the floating dock, after the workspace controls. */}
+                <SidebarSearch />
+                <SidebarNew />
+                <SidebarHistory />
+                {/* The published static site is read-only and cannot create journals. The icon-only
+                    controls that open no panel of their own carry a RailTip label instead of the
+                    native title tooltip. */}
+                {!STATIC_MODE && (
+                  <RailTip label="Today's journal">
+                    <button
+                      className="rail-button"
+                      type="button"
+                      aria-label="Today's journal"
+                      onClick={openTodayJournal}
+                    >
+                      <RailIcon Icon={IconNotebook} />
+                    </button>
+                  </RailTip>
+                )}
+                {showCalendar && (
+                  <RailTip label="Calendar">
+                    <Link className="rail-button" to="/calendar" aria-label="Calendar">
+                      <RailIcon Icon={IconCalendar} />
+                    </Link>
+                  </RailTip>
+                )}
+                {/* The open-task listing is live-only: the published bundle carries dated tasks alone. */}
+                {!STATIC_MODE && (
+                  <RailTip label="Tasks">
+                    <Link className="rail-button" to="/tasks" aria-label="Tasks">
+                      <RailIcon Icon={IconChecklist} />
+                    </Link>
+                  </RailTip>
+                )}
+                {/* The deliberate "up" tree, beside the link graph it is a hand-drawn path through. */}
+                <HierarchyMenu />
+                <RailTip label="Full graph">
+                  <Link className="rail-button" to="/graph" aria-label="Full graph">
+                    <RailIcon Icon={IconAffiliate} />
+                  </Link>
+                </RailTip>
+                {/* The open note's own controls, below the workspace's views. Absent while no note is
+                    open, so the dock keeps carrying nothing but navigation the rest of the time. */}
+                {!STATIC_MODE && <NoteRailControls />}
+              </div>
+              {/* Settings is outside the scrolling group so it stays reachable on a short window. */}
               <ThemeMenu />
             </nav>
           </aside>
@@ -144,83 +139,11 @@ export function Shell() {
         {isHero || isGraph || isCalendar || isNote ? null : <GraphPanel />}
         <FloatingLayer />
         <NotificationToast />
+        <MobileDock />
       </main>
       </TabsProvider>
       </FloatingProvider>
       </NoteControlsProvider>
     </SearchProvider>
-  );
-}
-
-function RailCalendarIcon() {
-  return (
-    <svg
-      className="rail-icon-svg"
-      viewBox="0 0 24 24"
-      width="20"
-      height="20"
-      fill="none"
-      stroke="currentColor"
-      strokeWidth="1.5"
-      strokeLinecap="round"
-      strokeLinejoin="round"
-      aria-hidden="true"
-    >
-      <rect x="4" y="5.5" width="16" height="14" rx="2" />
-      <line x1="4" y1="9.5" x2="20" y2="9.5" />
-      <line x1="8.5" y1="3.5" x2="8.5" y2="6.5" />
-      <line x1="15.5" y1="3.5" x2="15.5" y2="6.5" />
-      <circle cx="8.5" cy="13" r="0.9" />
-      <circle cx="12" cy="13" r="0.9" />
-      <circle cx="15.5" cy="13" r="0.9" />
-      <circle cx="8.5" cy="16.5" r="0.9" />
-      <circle cx="12" cy="16.5" r="0.9" />
-    </svg>
-  );
-}
-
-function RailTasksIcon() {
-  return (
-    <svg
-      className="rail-icon-svg"
-      viewBox="0 0 24 24"
-      width="20"
-      height="20"
-      fill="none"
-      stroke="currentColor"
-      strokeWidth="1.5"
-      strokeLinecap="round"
-      strokeLinejoin="round"
-      aria-hidden="true"
-    >
-      <path d="m4 8 2 2 3.5-4" />
-      <path d="m4 17 2 2 3.5-4" />
-      <line x1="13" y1="8" x2="20" y2="8" />
-      <line x1="13" y1="17" x2="20" y2="17" />
-    </svg>
-  );
-}
-
-function RailGraphIcon() {
-  return (
-    <svg
-      className="rail-icon-svg"
-      viewBox="0 0 24 24"
-      width="20"
-      height="20"
-      fill="none"
-      stroke="currentColor"
-      strokeWidth="1.5"
-      strokeLinecap="round"
-      strokeLinejoin="round"
-      aria-hidden="true"
-    >
-      <line x1="7" y1="8" x2="16" y2="7" />
-      <line x1="7" y1="8" x2="12" y2="17" />
-      <line x1="16" y1="7" x2="12" y2="17" />
-      <circle cx="7" cy="8" r="2" />
-      <circle cx="16" cy="7" r="2" />
-      <circle cx="12" cy="17" r="2" />
-    </svg>
   );
 }

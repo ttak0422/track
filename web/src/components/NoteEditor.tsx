@@ -1,5 +1,6 @@
 import { useBlocker, useNavigate } from "@tanstack/react-router";
 import { FormEvent, useEffect, useMemo, useRef, useState } from "react";
+import { LineHint } from "./LineHint";
 import { MarkdownView } from "./MarkdownView";
 import { TaskBoardContext } from "./markdown/context";
 import {
@@ -7,12 +8,14 @@ import {
   NoteAside,
   NoteBreadcrumbs,
   NoteProperties,
+  NoteStamps,
   journalDateFromNote,
   useScrollToHash,
 } from "./noteShared";
 import { getFollowState, normalizeIDs } from "../api";
 import { NoteMetaDialog } from "./NoteMetaDialog";
 import { useNoteControls, type EditorMode } from "../noteControls";
+import { markSeen, recordView, VIEW_TICK_SEC } from "../reading";
 import {
   useDeleteNoteMutation,
   useNoteQuery,
@@ -97,6 +100,37 @@ export function NoteEditor({ noteID }: NoteEditorProps) {
   useEffect(() => {
     noteIDRef.current = noteID;
   }, [noteID]);
+
+  // Reading time accrues while the note is open, so the workspace can tell "read here" from
+  // "never opened" (NEW) and mark short reports read after a real look. One coarse interval per
+  // open note (VIEW_TICK_SEC, so no timer storm), paused while the document is hidden, and the
+  // tail is flushed when the note changes or the view unmounts. The body is read through a ref so
+  // keystrokes do not restart the timer.
+  const readBodyRef = useRef(body);
+  useEffect(() => {
+    readBodyRef.current = body;
+  }, [body]);
+
+  useEffect(() => {
+    if (noteQuery.isPending) return;
+    markSeen(noteID);
+    let last = Date.now();
+    const flush = () => {
+      const now = Date.now();
+      if (!document.hidden) recordView(noteID, (now - last) / 1000, readBodyRef.current);
+      last = now;
+    };
+    const timer = window.setInterval(flush, VIEW_TICK_SEC * 1000);
+    const onVisibility = () => {
+      if (!document.hidden) flush();
+    };
+    document.addEventListener("visibilitychange", onVisibility);
+    return () => {
+      window.clearInterval(timer);
+      document.removeEventListener("visibilitychange", onVisibility);
+      flush();
+    };
+  }, [noteID, noteQuery.isPending]);
 
   useEffect(() => {
     editorModeRef.current = editorMode;
@@ -413,6 +447,9 @@ export function NoteEditor({ noteID }: NoteEditorProps) {
           />
 
           <form className="note-editor" onSubmit={submit}>
+            {/* Author-assigned flags (ADR 0074) stamp the note's own surface, in every mode; the
+                overlay is pointer-transparent so editing underneath is unaffected. */}
+            <NoteStamps flags={note.flags} />
             <div className={`editor-grid editor-grid-${editorMode}`}>
               {editorMode !== "preview" ? (
                 <textarea
@@ -434,6 +471,9 @@ export function NoteEditor({ noteID }: NoteEditorProps) {
                   ref={previewRef}
                   aria-label="Rendered note preview"
                 >
+                  {/* The rough source-line marker is a reading aid, so it rides the reading mode
+                    alone — split keeps its editing surface marker-free. */}
+                  {editorMode === "preview" ? <LineHint /> : null}
                   {/* A non-empty body with no render yet is still loading — show a spinner rather than let
                     MarkdownView flash "Empty note." for a body that is not actually empty. */}
                   {body.trim() !== "" &&
@@ -456,6 +496,7 @@ export function NoteEditor({ noteID }: NoteEditorProps) {
                         kind={note.file_kind}
                         vault={noteVault}
                         includes={renderQuery.data?.includes}
+                        copyPath={note.copy_path}
                       />
                     </TaskBoardContext.Provider>
                   )}

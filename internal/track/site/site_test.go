@@ -1,9 +1,14 @@
 package site
 
 import (
+	"bytes"
+	"encoding/base64"
 	"encoding/json"
+	"encoding/xml"
 	"os"
 	"path/filepath"
+	"reflect"
+	"regexp"
 	"strings"
 	"testing"
 	"time"
@@ -21,7 +26,7 @@ func fakeFrontend(t *testing.T) string {
 	if err := os.MkdirAll(filepath.Join(dir, "assets"), 0o755); err != nil {
 		t.Fatal(err)
 	}
-	index := `<!doctype html><head><title>track</title><link rel="icon" type="image/svg+xml" href="/track-icon.svg" data-track-favicon /><script>var t="__TRACK_DEFAULT_THEME__";window.__trackStartPage="__TRACK_START_PAGE__"</script>__TRACK_COLOR_OVERRIDES__</head><body><div id="root"></div></body>`
+	index := `<!doctype html><head><title>track</title><link rel="icon" type="image/svg+xml" href="/track-icon.svg" data-track-favicon /><script>var t="__TRACK_DEFAULT_THEME__";window.__trackStartPage="__TRACK_START_PAGE__";window.__trackLock="__TRACK_LOCK_KEY__"</script>__TRACK_COLOR_OVERRIDES__</head><body><div id="root"></div></body>`
 	if err := os.WriteFile(filepath.Join(dir, "index.html"), []byte(index), 0o644); err != nil {
 		t.Fatal(err)
 	}
@@ -63,17 +68,262 @@ func writeVaultNote(t *testing.T, cfg *config.Config, id int64, title, body stri
 	}
 }
 
+// readJSON reads one published data file, named by what it holds ("<out>/data/notes.json"). The bundle
+// is locked (lock.go), so the test does what a reader does: take the key the site baked into its page,
+// open the published "<name>.bin", and read the JSON that comes out.
 func readJSON[T any](t *testing.T, path string) T {
 	t.Helper()
-	raw, err := os.ReadFile(path)
-	if err != nil {
-		t.Fatalf("read %s: %v", path, err)
-	}
 	var v T
-	if err := json.Unmarshal(raw, &v); err != nil {
+	if err := json.Unmarshal(readLocked(t, path), &v); err != nil {
 		t.Fatalf("decode %s: %v", path, err)
 	}
 	return v
+}
+
+func readLocked(t *testing.T, path string) []byte {
+	t.Helper()
+	published := strings.TrimSuffix(path, ".json") + ".bin"
+	// A file of the data bundle lives under the generation the build published (bundlePath finds it);
+	// a published asset sits at its own name.
+	if strings.Contains(published, string(filepath.Separator)+"data"+string(filepath.Separator)) {
+		published = bundlePath(t, published)
+	}
+	raw, err := os.ReadFile(published)
+	if err != nil {
+		t.Fatalf("read %s: %v", published, err)
+	}
+	plain, err := Unlock(pageLockKey(t, siteDirOf(t, published)), raw)
+	if err != nil {
+		t.Fatalf("unlock %s: %v", published, err)
+	}
+	return plain
+}
+
+// bundlePath resolves "<out>/data/<rest>" — how a caller names a file it wants out of the bundle — to
+// where that file is actually published: "<out>/data/<generation>/<rest>". Callers name the file, not the
+// deploy, exactly as the frontend does (dataURL adds the generation for them).
+func bundlePath(t *testing.T, path string) string {
+	t.Helper()
+	sep := string(filepath.Separator)
+	outDir, rest, ok := strings.Cut(path, sep+"data"+sep)
+	if !ok {
+		t.Fatalf("%s is not inside a published data bundle", path)
+	}
+	dataDir := filepath.Join(outDir, "data")
+	entries, err := os.ReadDir(dataDir)
+	if err != nil {
+		t.Fatalf("read %s: %v", dataDir, err)
+	}
+	if len(entries) != 1 || !entries[0].IsDir() {
+		t.Fatalf("a build publishes exactly one data generation, found %v", entries)
+	}
+	return filepath.Join(dataDir, entries[0].Name(), rest)
+}
+
+// siteDirOf walks up from a published file to the site root — the directory holding the page the key
+// was baked into.
+func siteDirOf(t *testing.T, path string) string {
+	t.Helper()
+	for dir := filepath.Dir(path); dir != "." && dir != string(filepath.Separator); dir = filepath.Dir(dir) {
+		if fileExists(filepath.Join(dir, "index.html")) {
+			return dir
+		}
+	}
+	t.Fatalf("%s is not inside a published site", path)
+	return ""
+}
+
+// pageLockKey takes the site's key out of the page it was baked into, the same place the frontend and
+// the prerender read it from.
+func pageLockKey(t *testing.T, outDir string) []byte {
+	t.Helper()
+	html, err := os.ReadFile(filepath.Join(outDir, "index.html"))
+	if err != nil {
+		t.Fatalf("read page: %v", err)
+	}
+	m := regexp.MustCompile(`__trackLock="([^"]*)"`).FindStringSubmatch(string(html))
+	if m == nil {
+		t.Fatalf("page carries no site key:\n%s", html)
+	}
+	key, err := base64.StdEncoding.DecodeString(m[1])
+	if err != nil {
+		t.Fatalf("decode key: %v", err)
+	}
+	return key
+}
+
+// TestBuildLocksTheDataBundle covers what the published files are: not readable data. The bundle holds
+// binary files under their own names, no plain JSON is left beside them, and a note's title cannot be
+// read out of the bytes — the site's key (baked into the page, and what every other test here uses to
+// read the bundle) is what turns them back into data.
+func TestBuildLocksTheDataBundle(t *testing.T) {
+	cfg, s := vaultStore(t)
+	writeVaultNote(t, cfg, 100, "Home", "# Home\n\ngo to [[Child]]\n")
+	writeVaultNote(t, cfg, 200, "Child", "# Child\n\nsecret body text\n")
+	if _, err := index.New(cfg, s).Full(); err != nil {
+		t.Fatalf("index: %v", err)
+	}
+
+	out := t.TempDir()
+	if _, err := Build(cfg, s, Options{Root: 100, IDs: []int64{200}}, fakeFrontend(t), out); err != nil {
+		t.Fatalf("build: %v", err)
+	}
+
+	for _, name := range []string{"notes", "graph", "search", "site"} {
+		if fileExists(bundlePath(t, filepath.Join(out, "data", name+".json"))) {
+			t.Fatalf("%s.json should not be published as readable JSON", name)
+		}
+		raw, err := os.ReadFile(bundlePath(t, filepath.Join(out, "data", name+".bin")))
+		if err != nil {
+			t.Fatalf("read %s.bin: %v", name, err)
+		}
+		for _, leak := range []string{"note_id", "Child", "secret body text"} {
+			if strings.Contains(string(raw), leak) {
+				t.Fatalf("%s.bin still reads as data (%q):\n%q", name, leak, raw)
+			}
+		}
+	}
+
+	// And the reader's side of the lock works: the key in the page opens the same files.
+	search := readJSON[struct {
+		Docs []jsonSearchDoc `json:"docs"`
+	}](t, filepath.Join(out, "data", "search.json"))
+	if len(search.Docs) != 2 {
+		t.Fatalf("the unlocked corpus should carry both published notes, got %+v", search.Docs)
+	}
+}
+
+// TestDataGenerationTracksContent covers the other half of the CDN cache window (ADR 0070): the bundle's
+// path is a fingerprint of what it holds, so an edit publishes to a new path — a page from the new deploy
+// can never be served a cached copy of the old data — while an unchanged vault republishes to the same
+// path, leaving readers' caches valid.
+func TestDataGenerationTracksContent(t *testing.T) {
+	cfg, s := vaultStore(t)
+	writeVaultNote(t, cfg, 100, "Home", "# Home\n")
+	if _, err := index.New(cfg, s).Full(); err != nil {
+		t.Fatalf("index: %v", err)
+	}
+	build := func() string {
+		t.Helper()
+		out := t.TempDir()
+		if _, err := Build(cfg, s, Options{Root: 100}, fakeFrontend(t), out); err != nil {
+			t.Fatalf("build: %v", err)
+		}
+		entries, err := os.ReadDir(filepath.Join(out, "data"))
+		if err != nil || len(entries) != 1 {
+			t.Fatalf("a build publishes exactly one data generation, got %v (%v)", entries, err)
+		}
+		return entries[0].Name()
+	}
+
+	first := build()
+	// Same content, built again: the nonce differs per file, so only fingerprinting the data (not the
+	// published bytes) keeps the path — and the reader's cache — stable.
+	if again := build(); again != first {
+		t.Fatalf("an unchanged vault should republish to the same path, got %s then %s", first, again)
+	}
+
+	writeVaultNote(t, cfg, 100, "Home", "# Home\n\nnow with a second line\n")
+	if _, err := index.New(cfg, s).Full(); err != nil {
+		t.Fatalf("reindex: %v", err)
+	}
+	if edited := build(); edited == first {
+		t.Fatalf("an edit must publish to a new path, still %s", edited)
+	}
+}
+
+// TestAssetNameTracksContent is the same rule for attachments: a published asset is addressed by its
+// contents, so replacing the file publishes it at a new URL — the reader is never served the old image
+// from cache under a name that now means something else — and the body reference follows.
+func TestAssetNameTracksContent(t *testing.T) {
+	cfg, s := vaultStore(t)
+	writeVaultNote(t, cfg, 100, "Home", "# Home\n\n![pic](assets/pic.png)\n")
+	if err := os.MkdirAll(filepath.Join(cfg.VaultDir, "assets"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	picture := filepath.Join(cfg.VaultDir, "assets", "pic.png")
+
+	publishedName := func(png string) string {
+		t.Helper()
+		if err := os.WriteFile(picture, []byte(png), 0o644); err != nil {
+			t.Fatal(err)
+		}
+		if _, err := index.New(cfg, s).Full(); err != nil {
+			t.Fatalf("index: %v", err)
+		}
+		out := t.TempDir()
+		if _, err := Build(cfg, s, Options{Root: 100}, fakeFrontend(t), out); err != nil {
+			t.Fatalf("build: %v", err)
+		}
+		// The frontend build stub copies an app.js in beside it; the picture is the .png.
+		entries, err := os.ReadDir(filepath.Join(out, "assets"))
+		if err != nil {
+			t.Fatal(err)
+		}
+		name := ""
+		for _, e := range entries {
+			if strings.HasSuffix(e.Name(), ".png") {
+				name = e.Name()
+			}
+		}
+		if name == "" {
+			t.Fatalf("the picture was not published, got %v", entries)
+		}
+		// The name is opaque, and the note body points at exactly the file that was published.
+		if strings.Contains(name, "pic") {
+			t.Fatalf("published asset name leaks the source file name: %q", name)
+		}
+		note := readJSON[jsonNoteResponse](t, filepath.Join(out, "data", "note", PublishID(100)+".json"))
+		if !strings.Contains(note.Note.Body, "assets/"+name) {
+			t.Fatalf("body should reference the published asset %q: %s", name, note.Note.Body)
+		}
+		return name
+	}
+
+	first := publishedName("PNG-BYTES")
+	if again := publishedName("PNG-BYTES"); again != first {
+		t.Fatalf("an unchanged asset should keep its address, got %s then %s", first, again)
+	}
+	if edited := publishedName("PNG-BYTES-EDITED"); edited == first {
+		t.Fatalf("a replaced asset must publish at a new address, still %s", edited)
+	}
+}
+
+// TestLockKeySurvivesAnEdit covers the CDN cache window: GitHub Pages serves a page for up to ten
+// minutes after the deploy that produced it, so a page in a reader's hands must keep opening freshly
+// published data. The key is derived from the site's address alone, so editing the content — here the
+// root note's title, which the key used to depend on — leaves it untouched.
+func TestLockKeySurvivesAnEdit(t *testing.T) {
+	cfg, s := vaultStore(t)
+	writeVaultNote(t, cfg, 100, "Home", "# Home\n")
+	if _, err := index.New(cfg, s).Full(); err != nil {
+		t.Fatalf("index: %v", err)
+	}
+	before := t.TempDir()
+	if _, err := Build(cfg, s, Options{Root: 100}, fakeFrontend(t), before); err != nil {
+		t.Fatalf("build: %v", err)
+	}
+
+	writeVaultNote(t, cfg, 100, "Home, renamed", "# Home\n\nand an edit\n")
+	if _, err := index.New(cfg, s).Full(); err != nil {
+		t.Fatalf("reindex: %v", err)
+	}
+	after := t.TempDir()
+	if _, err := Build(cfg, s, Options{Root: 100}, fakeFrontend(t), after); err != nil {
+		t.Fatalf("rebuild: %v", err)
+	}
+
+	if !bytes.Equal(pageLockKey(t, before), pageLockKey(t, after)) {
+		t.Fatalf("editing a note must not change the site key: a page from the earlier deploy could no longer read the data")
+	}
+	// And the earlier page really can open the later deploy's bundle.
+	raw, err := os.ReadFile(bundlePath(t, filepath.Join(after, "data", "notes.bin")))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := Unlock(pageLockKey(t, before), raw); err != nil {
+		t.Fatalf("a page from the earlier deploy should still open the current data: %v", err)
+	}
 }
 
 func TestBuildVaultBundle(t *testing.T) {
@@ -142,9 +392,18 @@ func TestBuildVaultBundle(t *testing.T) {
 	if !hasEdge(graph.Graph.Edges, 100, 200) {
 		t.Fatalf("graph missing edge 100->200: %+v", graph.Graph.Edges)
 	}
+	// Each node carries the vault's own five-level grade, so a published node is drawn the size the
+	// workspace draws it. 100 links twice (Child and the out-of-set Outsider) for grade 3, 200 once
+	// for grade 2: the grade counts the vault's links, not the published slice's.
 	for _, n := range graph.Graph.Nodes {
 		if n.NoteID == PublishID(300) {
 			t.Fatalf("out-of-set note 300 should not be a graph node")
+		}
+		if n.NoteID == PublishID(100) && n.Size != 3 {
+			t.Fatalf("node 100 should carry grade 3 (two outgoing links), got %d", n.Size)
+		}
+		if n.NoteID == PublishID(200) && n.Size != 2 {
+			t.Fatalf("node 200 should carry grade 2 (one outgoing link), got %d", n.Size)
 		}
 	}
 
@@ -243,6 +502,79 @@ func TestBuildPublishesActivityDays(t *testing.T) {
 	site := readJSON[jsonSite](t, filepath.Join(out, "data", "site.json"))
 	if !site.Calendar {
 		t.Fatalf("Options.Calendar should surface in site.json, got %+v", site)
+	}
+}
+
+// TestBuildPublishesFlags pins the note-flags half of the static export: flags are author metadata
+// (unlike the reading milestones, which stay per-visitor and are deliberately stripped), so a flagged
+// note's stamp and badges must draw on the published site. The note JSON carries them through
+// jsonSearchResult (embedded by jsonNoteDetail), notes.json carries them on the listing, and every
+// reference — backlinks, trail, children, resolve — carries them through jsonRef.
+func TestBuildPublishesFlags(t *testing.T) {
+	cfg, s := vaultStore(t)
+	writeVaultNote(t, cfg, 100, "Deprecated", "# Deprecated\n\nsee [[Fresh]]\n")
+	if err := note.WriteMetadata(
+		cfg.MetadataPath(100),
+		note.Metadata{Version: note.CurrentMetadataVersion, Title: "Deprecated", Created: "2026-06-14", Flags: []string{"DEPRECATED"}},
+	); err != nil {
+		t.Fatal(err)
+	}
+	writeVaultNote(t, cfg, 200, "Fresh", "# Fresh\n")
+	if _, err := index.New(cfg, s).Full(); err != nil {
+		t.Fatalf("index: %v", err)
+	}
+
+	out := t.TempDir()
+	if _, err := Build(cfg, s, Options{Root: 100, IDs: []int64{200}}, fakeFrontend(t), out); err != nil {
+		t.Fatalf("build: %v", err)
+	}
+
+	// notes.json: the flagged note lists with its flags, the unflagged note omits the field.
+	notes := readJSON[struct {
+		Notes []jsonSearchResult `json:"notes"`
+	}](t, filepath.Join(out, "data", "notes.json"))
+	byID := map[string]jsonSearchResult{}
+	for _, n := range notes.Notes {
+		byID[n.NoteID] = n
+	}
+	if got := byID[PublishID(100)].Flags; !reflect.DeepEqual(got, []string{"DEPRECATED"}) {
+		t.Fatalf("notes.json should carry flags on the flagged note, got %v", got)
+	}
+	if got := byID[PublishID(200)].Flags; len(got) != 0 {
+		t.Fatalf("notes.json should omit flags on an unflagged note, got %v", got)
+	}
+
+	// Note detail: the flagged note's own JSON carries flags; the unflagged note's does not.
+	flagged := readJSON[jsonNoteResponse](t, filepath.Join(out, "data", "note", PublishID(100)+".json"))
+	if got := flagged.Note.Flags; !reflect.DeepEqual(got, []string{"DEPRECATED"}) {
+		t.Fatalf("note detail should carry flags, got %v", got)
+	}
+	// Smoke check at the wire level: the unlocked bundle byte for the flagged note really has the
+	// field, so a frontend reading raw JSON sees it.
+	if raw := string(readLocked(t, filepath.Join(out, "data", "note", PublishID(100)+".json"))); !strings.Contains(raw, `"flags":["DEPRECATED"]`) {
+		t.Fatalf("published note JSON should contain %q, got:\n%s", `"flags":["DEPRECATED"]`, raw)
+	}
+	unflagged := readJSON[jsonNoteResponse](t, filepath.Join(out, "data", "note", PublishID(200)+".json"))
+	if got := unflagged.Note.Flags; len(got) != 0 {
+		t.Fatalf("unflagged note detail should omit flags, got %v", got)
+	}
+
+	// Backlinks: Deprecated links to Fresh, so Fresh's backlinks carry a ref to the flagged note that
+	// itself carries the flag — the badge draws on the published backlinks list.
+	if len(unflagged.Backlinks) != 1 || unflagged.Backlinks[0].NoteID != PublishID(100) {
+		t.Fatalf("Fresh should have one backlink from Deprecated, got %v", unflagged.Backlinks)
+	}
+	if got := unflagged.Backlinks[0].Flags; !reflect.DeepEqual(got, []string{"DEPRECATED"}) {
+		t.Fatalf("backlink ref should carry the flagged note's flags, got %v", got)
+	}
+
+	// resolve.json maps keys through jsonRef too, so a title resolution badged the same way.
+	resolve := readJSON[map[string]jsonRef](t, filepath.Join(out, "data", "resolve.json"))
+	if got := resolve["Deprecated"].Flags; !reflect.DeepEqual(got, []string{"DEPRECATED"}) {
+		t.Fatalf("resolve ref should carry flags, got %v", got)
+	}
+	if got := resolve["Fresh"].Flags; len(got) != 0 {
+		t.Fatalf("resolve ref should omit flags on an unflagged note, got %v", got)
 	}
 }
 
@@ -440,11 +772,10 @@ func TestBuildRewritesSpecAssetNoteRefs(t *testing.T) {
 		t.Fatalf("build: %v", err)
 	}
 
-	raw, err := os.ReadFile(filepath.Join(out, "assets", publishAssetName("c.viewspec.json")))
-	if err != nil {
-		t.Fatalf("resolved option not written: %v", err)
-	}
-	opt := string(raw)
+	// The published name addresses the source spec's contents, and the option is locked like the data
+	// bundle, so reading it takes the site's key.
+	specName := newAssetNamer().name(filepath.Join(cfg.VaultDir, "assets"), "c.viewspec.json")
+	opt := string(readLocked(t, filepath.Join(out, "assets", specName)))
 	if !strings.Contains(opt, `"note":"`+PublishID(200)+`"`) {
 		t.Fatalf("published note ref should become its slug: %s", opt)
 	}
@@ -517,8 +848,126 @@ func TestBuildWritesPerNoteOGP(t *testing.T) {
 	if !strings.Contains(page2, `<meta property="og:url" content="https://example.com/site/notes/`+PublishID(200)+`/">`) {
 		t.Fatalf("with base url, child page should carry an absolute og:url: %s", page2)
 	}
-	if !strings.Contains(page2, `<meta property="og:image" content="https://example.com/site/assets/`+publishAssetName("cover.png")+`">`) {
+	coverName := newAssetNamer().name(filepath.Join(cfg.VaultDir, "assets"), "cover.png")
+	if !strings.Contains(page2, `<meta property="og:image" content="https://example.com/site/assets/`+coverName+`">`) {
 		t.Fatalf("with base url, child page should carry an absolute og:image: %s", page2)
+	}
+}
+
+func TestBuildWritesSitemapForPublishedPages(t *testing.T) {
+	cfg, s := vaultStore(t)
+	writeVaultNoteMeta(t, cfg, 100, "# Home\n", note.Metadata{Title: "Home", Tags: []string{"docs"}, Days: []string{"2026-07-01"}})
+	writeVaultNoteMeta(t, cfg, 200, "# Child\n\n- [ ] planned [due:2026-07-08]\n", note.Metadata{
+		Title: "Child", Tags: []string{"docs/guide"}, Slug: "legacy-child", Days: []string{"2026-07-02"},
+	})
+	writeVaultNoteMeta(t, cfg, 300, "# Other\n", note.Metadata{Title: "Other"})
+	for id, stamp := range map[int64]time.Time{
+		100: time.Date(2026, 7, 1, 10, 0, 0, 0, time.UTC),
+		200: time.Date(2026, 7, 2, 11, 0, 0, 0, time.UTC),
+		300: time.Date(2026, 7, 3, 12, 0, 0, 0, time.UTC),
+	} {
+		if err := os.Chtimes(cfg.NotePath(id), stamp, stamp); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if _, err := index.New(cfg, s).Full(); err != nil {
+		t.Fatalf("index: %v", err)
+	}
+
+	out := t.TempDir()
+	if _, err := Build(cfg, s, Options{
+		Root: 100, IDs: []int64{200, 300}, Calendar: true, BaseURL: "https://example.com/track/",
+	}, fakeFrontend(t), out); err != nil {
+		t.Fatalf("build: %v", err)
+	}
+
+	var sitemap struct {
+		URLs []struct {
+			Loc     string `xml:"loc"`
+			Lastmod string `xml:"lastmod"`
+		} `xml:"url"`
+	}
+	raw, err := os.ReadFile(filepath.Join(out, "sitemap.xml"))
+	if err != nil {
+		t.Fatalf("read sitemap: %v", err)
+	}
+	if err := xml.Unmarshal(raw, &sitemap); err != nil {
+		t.Fatalf("parse sitemap: %v\n%s", err, raw)
+	}
+
+	base := "https://example.com/track"
+	want := map[string]string{
+		base + "/":                              "2026-07-01T10:00:00Z",
+		base + "/notes/" + PublishID(100) + "/": "2026-07-01T10:00:00Z",
+		base + "/notes/legacy-child/":           "2026-07-02T11:00:00Z",
+		base + "/notes/" + PublishID(300) + "/": "2026-07-03T12:00:00Z",
+		base + "/graph/":                        "",
+		base + "/empty/":                        "",
+		base + "/calendar/":                     "",
+		base + "/day/2026-07-01/":               "",
+		base + "/day/2026-07-02/":               "",
+		base + "/day/2026-07-08/":               "",
+		base + "/tags/docs/":                    "",
+		base + "/tags/docs/guide/":              "",
+	}
+	got := make(map[string]string, len(sitemap.URLs))
+	for _, entry := range sitemap.URLs {
+		got[entry.Loc] = entry.Lastmod
+	}
+	if len(got) != len(want) {
+		t.Fatalf("sitemap URL count = %d, want %d: %v", len(got), len(want), got)
+	}
+	for loc, lastmod := range want {
+		if got[loc] != lastmod {
+			t.Errorf("sitemap %s lastmod = %q, want %q", loc, got[loc], lastmod)
+		}
+	}
+	for _, forbidden := range []string{"/tasks/", "/assets/", "/data/", ".bin"} {
+		if strings.Contains(string(raw), forbidden) {
+			t.Errorf("sitemap must not list %q: %s", forbidden, raw)
+		}
+	}
+	if !fileExists(filepath.Join(out, "notes", "legacy-child", "index.html")) {
+		t.Fatal("pinned slug page was not written")
+	}
+
+	robots, err := os.ReadFile(filepath.Join(out, "robots.txt"))
+	if err != nil {
+		t.Fatalf("read robots.txt: %v", err)
+	}
+	if string(robots) != "User-agent: *\nSitemap: https://example.com/track/sitemap.xml\n" {
+		t.Fatalf("robots.txt = %q", robots)
+	}
+}
+
+func TestBuildSkipsSitemapWithoutBaseURL(t *testing.T) {
+	cfg, s := vaultStore(t)
+	writeVaultNoteMeta(t, cfg, 100, "# Home\n", note.Metadata{Title: "Home"})
+	if _, err := index.New(cfg, s).Full(); err != nil {
+		t.Fatalf("index: %v", err)
+	}
+	out := t.TempDir()
+	if _, err := Build(cfg, s, Options{Root: 100}, fakeFrontend(t), out); err != nil {
+		t.Fatalf("build: %v", err)
+	}
+	for _, name := range []string{"sitemap.xml", "robots.txt"} {
+		if fileExists(filepath.Join(out, name)) {
+			t.Fatalf("%s should be omitted when no absolute base URL is configured", name)
+		}
+	}
+}
+
+func TestBuildRejectsInvalidBaseURL(t *testing.T) {
+	cfg, s := vaultStore(t)
+	writeVaultNoteMeta(t, cfg, 100, "# Home\n", note.Metadata{Title: "Home"})
+	if _, err := index.New(cfg, s).Full(); err != nil {
+		t.Fatalf("index: %v", err)
+	}
+	for _, baseURL := range []string{"example.com/site", "https://example.com/site?preview=1", "ftp://example.com/site"} {
+		_, err := Build(cfg, s, Options{Root: 100, BaseURL: baseURL}, fakeFrontend(t), t.TempDir())
+		if err == nil || !strings.Contains(err.Error(), "base-url") {
+			t.Errorf("Build(%q) error = %v, want a base-url validation error", baseURL, err)
+		}
 	}
 }
 
@@ -671,19 +1120,16 @@ func TestPinnedSlugKeepsAPublishedURL(t *testing.T) {
 	}
 
 	// The page, its data file, and the link pointing at it all use the pinned address.
-	if !fileExists(filepath.Join(out, "data", "note", pinned+".json")) {
+	if !fileExists(bundlePath(t, filepath.Join(out, "data", "note", pinned+".bin"))) {
 		t.Fatalf("pinned slug should name the note's data file")
 	}
-	if fileExists(filepath.Join(out, "data", "note", PublishID(200)+".json")) {
+	if fileExists(bundlePath(t, filepath.Join(out, "data", "note", PublishID(200)+".bin"))) {
 		t.Fatalf("the id-derived slug must not be published alongside the pinned one")
 	}
 	// The listing and the link-resolution map — the two places a reader reaches the note through —
 	// both address it by the pinned slug.
 	for _, name := range []string{"notes.json", "resolve.json"} {
-		raw, err := os.ReadFile(filepath.Join(out, "data", name))
-		if err != nil {
-			t.Fatal(err)
-		}
+		raw := readLocked(t, filepath.Join(out, "data", name))
 		if !strings.Contains(string(raw), pinned) {
 			t.Fatalf("%s should address the pinned note by its pinned slug:\n%s", name, raw)
 		}

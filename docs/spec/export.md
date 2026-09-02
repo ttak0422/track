@@ -118,9 +118,19 @@ track export-site (--all | --id <id> ...) [--root <id>] [--calendar] [--share]
 `--all` publishes every note in the vault; `--id` selects instead. Journals are excluded from `--all`: they are day hubs indexing creates as a side effect, and the set of them records which days their author worked, so publishing them stays something a caller asks for by id. `--root` is the landing note's id and defaults to the vault config's `web.home` — the same landing note the workspace opens, so the front door travels with the content instead of sitting in a build config. A full reindex runs first so the published graph is complete.
 
 `--base-url` supplies the absolute public site URL used by canonical and social metadata. `--share` is
-opt-in: it adds X and copy-link actions below each static note, and requires `--base-url` so both actions
+opt-in: it adds X and copy-link actions at the end of each static note — closing the note column, between
+the body and the aside's own sections, rather than riding the foot of the window where they would cover a
+line of the note for the whole read — and requires `--base-url` so both actions
 have an absolute published URL. It is off by default, which keeps the documentation site free of sharing
 controls.
+
+When `--base-url` is present, the export also writes `sitemap.xml` with every HTML page it publishes:
+the root, selected note pages (using each note's resolved or pinned `slug:`), graph and empty pages,
+used tag pages and their ancestors, and—when `--calendar` is set—the calendar and activity/task-date
+day pages. Assets, encrypted bundle files, `/tasks/`, and disabled calendar routes are not listed. Note
+URLs carry `lastmod` from the note body's indexed file mtime; generated view URLs omit it. The export
+also writes `robots.txt` pointing at that absolute sitemap URL. Without `--base-url`, both files are
+omitted because a sitemap cannot contain relative locators.
 
 There used to be a second input mode: `--src <dir>` published a directory of plain Markdown outside any vault, with a `site.yml` standing in for the sidecars it did not have. It is gone (ADR 0059). A vault does everything it did — and a directory can become one: pin each page's current address in its sidecar (`slug:`, see [storage.md](storage.md)) so no published URL moves, since the slug is otherwise derived from the note id. This repository's own help site made exactly that move.
 
@@ -139,7 +149,24 @@ the note's cover (`track meta --image assets/<file>`, published under its conten
 every asset); a note without one falls back to the site-wide default `ogp-default.png` shipped with
 the frontend build.
 
-The exporter writes a JSON bundle under `<out>/data` mirroring the server's `/api/*` shapes — `notes.json`, `note/<id>.json` (web-sanitized body + backlinks), `graph.json`, `resolve.json`, `site.json` — plus `search.json`, the published bodies (the same text `note/<id>.json` carries, in body-search order), which the site's full-text search scans in the browser ([ADR 0067](../adr/0067-published-search-runs-the-scan-path-in-the-browser.md)); it is fetched on the first search rather than at first paint. Then it copies the static frontend build and referenced `assets/<path>` media into `<out>`. Wiki links to notes outside the published set are absent from `resolve.json`/`graph.json`, so the frontend leaves them inert. The live heatmap home is not published; the root note is the entry point. The `docs/help` vault is a working example — this repository publishes it with `make site`.
+**The data bundle is locked** ([ADR 0069](../adr/0069-the-published-data-bundle-is-locked.md)) **and
+content-addressed** ([ADR 0070](../adr/0070-published-data-lives-at-a-content-addressed-path.md)). Every
+file is gzipped, encrypted with AES-256-GCM, and published as `<out>/data/<generation>/<name>.bin`, where
+the generation is a fingerprint of the data the bundle holds — the shapes below are what comes *out* of
+it, not what a fetch returns. The generation is baked into every page as `window.__trackData`, so a page
+reads the data of its own deploy: an update is visible immediately instead of behind the host's
+ten-minute cache, and a page the CDN still serves from an earlier deploy never mixes with a later
+bundle. A missing generation (that deploy is gone) tells the client its page is stale, and it reloads
+once. The key is derived from the site's address
+(`sha256("track-site-lock\0" + base URL + "\0" + root note slug)`) and baked into every page as
+`window.__trackLock`, so the app opens its own data while a bulk consumer has to unlock deliberately.
+Deriving it from the address rather than from content is what lets a page the CDN still serves from an
+earlier deploy keep reading the current bundle. The
+dehydrated cache the prerender inlines into each page is locked the same way. `Unlock` in
+`internal/track/site/lock.go` and `web/src/lock.ts` are the two halves of that conversion. Because
+`crypto.subtle` needs a secure context, a published site must be served over HTTPS or from localhost.
+
+The exporter writes a JSON bundle (named by what each file holds; published as above) mirroring the server's `/api/*` shapes — `notes.json`, `note/<id>.json` (web-sanitized body + backlinks), `graph.json`, `resolve.json`, `site.json` — plus `search.json`, the published bodies (the same text `note/<id>.json` carries, in body-search order), which the site's full-text search scans in the browser ([ADR 0067](../adr/0067-published-search-runs-the-scan-path-in-the-browser.md)); it is fetched on the first search rather than at first paint. `hierarchy.json` is the other deferred file: the published `up` forest, prebuilt so the rail's hierarchy menu never walks the tree in the browser, and fetched when that menu is first opened. Then it copies the static frontend build and referenced `assets/<path>` media into `<out>`; each attachment publishes as `assets/<content slug><ext>`, so the source file name never appears and a replaced file lands at a new URL instead of behind the host's cache ([ADR 0070](../adr/0070-published-data-lives-at-a-content-addressed-path.md)). Wiki links to notes outside the published set are absent from `resolve.json`/`graph.json`, so the frontend leaves them inert. The live heatmap home is not published; the root note is the entry point. The `docs/help` vault is a working example — this repository publishes it with `make site`.
 
 ## Future
 

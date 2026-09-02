@@ -8,6 +8,18 @@
       content="track is a linked Markdown knowledge base: wiki links, backlinks, charts, diagrams, and a local web workspace."
     />
     <link rel="icon" type="image/svg+xml" href="/track-icon.svg" data-track-favicon />
+    <!-- The font stylesheet is injected after first paint by src/main.tsx: requested from the head it
+         would put a third-party round trip inside the metrics' critical path while changing nothing
+         about what the first paint draws. Preconnects stay here so the injection reuses warm
+         connections; noscript keeps a synchronous fallback for no-JS readers. -->
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <noscript>
+      <link
+        rel="stylesheet"
+        href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans+JP:wght@400;500;600;700&display=swap"
+      />
+    </noscript>
     <title>track</title>
     <script>
       // The Go server replaces __TRACK_DEFAULT_THEME__ with the configured default before serving this
@@ -46,14 +58,20 @@
           document.documentElement.style.setProperty("--content-width", contentWidth);
           document.documentElement.dataset.contentWidth = contentWidth;
         }
-        // The Go server replaces __TRACK_SESSION__ with a token unique to its process. The tab strip
-        // uses it to keep restored tabs across a reload (same token) but drop them on a fresh launch
-        // (new token). Left as the literal placeholder in the static export, where it stays constant.
-        window.__trackSession = "__TRACK_SESSION__";
         // The static export replaces __TRACK_START_PAGE__ with the root note's published id, so the app
         // redirects straight to the start page on launch without first fetching site.json. The live
         // server replaces it with empty (it uses the heatmap home, not a start-page redirect).
         window.__trackStartPage = "__TRACK_START_PAGE__";
+        // The static export fills this in with the key that opens its locked data bundle (base64; see
+        // internal/track/site/lock.go and web/src/lock.ts). The live server empties it: it serves the
+        // API, not a locked bundle. (The placeholder is spelled only once here — the dev server
+        // substitutes the first occurrence.)
+        window.__trackLock = "__TRACK_LOCK_KEY__";
+        // The static export fills this in with the fingerprint its data bundle was published under, so
+        // this page reads data/<generation>/… — the data of its own deploy. A page the CDN still serves
+        // from an earlier deploy therefore never mixes with data from a later one. Empty on the live
+        // server. (Spelled once: the dev server substitutes the first occurrence.)
+        window.__trackData = "__TRACK_DATA_GEN__";
       })();
     </script>
     <style>

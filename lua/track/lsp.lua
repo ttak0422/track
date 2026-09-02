@@ -562,13 +562,26 @@ local function attach(buf)
    -- number when the note is reopened, so re-set the maps on every attach — otherwise the reopened
    -- buffer keeps the stale guard and loses <CR>/K, and Enter silently stops following links. Autocmds
    -- survive the unload, so they stay behind the one-time guard below.
-    vim.keymap.set("n", "<CR>", function()
-      local cursor = vim.api.nvim_win_get_cursor(0)
-      if cursor[1] == 1 then
-         require("track.meta").edit()
+   -- <CR> follows whatever the cursor is on. The first line doubles as the note's title row — the
+   -- title is drawn as a virtual line above it — so Enter there also stands in for "edit this note's
+   -- metadata", but only once the line has nothing to follow: a link written on line 1 is still a
+   -- link, and it used to be unreachable because this branch ran first.
+   --
+   -- The callback runs under textlock (it is an <expr> map), where opening the popup's buffer and
+   -- window raises E565. smart_action already defers its own work for that reason; the metadata
+   -- editor needs the same deferral rather than being called straight from here.
+   vim.keymap.set("n", "<CR>", function()
+      local action = require("track.follow").smart_action()
+      if action ~= "<CR>" then
+         return action
+      end
+      if vim.api.nvim_win_get_cursor(0)[1] == 1 then
+         vim.schedule(function()
+            require("track.meta").edit()
+         end)
          return ""
       end
-      return require("track.follow").smart_action()
+      return "<CR>"
    end, { expr = true, buffer = buf, desc = "track: follow link under cursor" })
    vim.keymap.set("n", "K", function()
       if track_client(buf, "textDocument/hover") then

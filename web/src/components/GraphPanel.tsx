@@ -1,7 +1,10 @@
 import { useNavigate } from "@tanstack/react-router";
-import { PointerEvent, useRef, useState } from "react";
+import { PointerEvent, useMemo, useRef, useState } from "react";
 import { useGraphQuery } from "../queries";
 import { GraphCanvas } from "./GraphCanvasLazy";
+import { graphCountCaption } from "./graphCaption";
+import { IconAffiliate, IconRotate2, IconX, RailIcon } from "./icons";
+import { overviewGraph } from "./overviewGraph";
 
 // The floating whole-vault graph, behind a corner launcher. It only mounts on views without a graph
 // of their own (day, tags, search, the empty state): note pages carry an always-on local graph in
@@ -38,7 +41,14 @@ export function GraphPanel() {
   const state = useGraphQuery(visible);
   const navigate = useNavigate();
 
-  const graph = state.data?.graph;
+  // Same whole-vault graph as the Graph tab, so it takes the same bound (see overviewGraph).
+  const overview = useMemo(
+    () => (state.data?.graph ? overviewGraph(state.data.graph) : null),
+    [state.data?.graph],
+  );
+  const graph = overview?.graph;
+  // What the canvas is actually showing, which past the cap is not what the vault holds.
+  const nodeCount = graph?.nodes.length ?? 0;
 
   function onHandleDown(event: PointerEvent<HTMLButtonElement>) {
     event.preventDefault();
@@ -116,6 +126,9 @@ export function GraphPanel() {
           }
         />
       ) : null}
+      {overview && nodeCount > 0 ? (
+        <p className="graph-scope">{graphCountCaption(nodeCount, overview.hidden)}</p>
+      ) : null}
       <div className="graph-controls">
         <button
           className="graph-reset"
@@ -124,7 +137,7 @@ export function GraphPanel() {
           title="Reset graph view"
           onClick={() => setResetToken((token) => token + 1)}
         >
-          ↺
+          <RailIcon Icon={IconRotate2} size={15} />
         </button>
         <button
           className="graph-reset"
@@ -133,7 +146,7 @@ export function GraphPanel() {
           title="Hide graph"
           onClick={() => setVisible(false)}
         >
-          ×
+          <RailIcon Icon={IconX} size={15} />
         </button>
       </div>
     </aside>
@@ -145,14 +158,5 @@ function clamp(value: number, min: number, max: number): number {
 }
 
 function GraphGlyph() {
-  return (
-    <svg viewBox="0 0 24 24" width="22" height="22" aria-hidden="true">
-      <line x1="6" y1="7" x2="17" y2="6" stroke="currentColor" strokeWidth="1.5" />
-      <line x1="6" y1="7" x2="12" y2="17" stroke="currentColor" strokeWidth="1.5" />
-      <line x1="17" y1="6" x2="12" y2="17" stroke="currentColor" strokeWidth="1.5" />
-      <circle cx="6" cy="7" r="2.6" fill="currentColor" />
-      <circle cx="17" cy="6" r="2.6" fill="currentColor" />
-      <circle cx="12" cy="17" r="2.6" fill="currentColor" />
-    </svg>
-  );
+  return <RailIcon Icon={IconAffiliate} size={22} />;
 }

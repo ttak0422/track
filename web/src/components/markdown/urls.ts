@@ -184,7 +184,7 @@ export function isPdfHref(src: string): boolean {
   return /\.pdf$/i.test(path.trim());
 }
 
-// isHtmlHref matches an HTML document by extension, so an embedded ![](assets/widget.html) renders in a
+// isHtmlHref matches an HTML document by extension, so an embedded ![](assets/demo.html) renders in a
 // sandboxed iframe (its own JS/CSS run, isolated from the app) instead of a broken <img>.
 export function isHtmlHref(src: string): boolean {
   const path = src.split(/[?#]/, 1)[0] ?? "";

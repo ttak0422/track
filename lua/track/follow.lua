@@ -13,6 +13,13 @@ local function wiki_link_at_cursor(line, col)
       if col >= start_pos and col <= end_pos then
          return true
       end
+      -- The cursor on the "!" that prefixes a block include (![[...]]) should follow it too.
+      -- Includes are block-level: the "!" sits right before the "[[" (start_pos) and must be the
+      -- line's first non-space byte, so a "!" that merely precedes an inline [[...]] is untouched.
+      if col == start_pos - 1 and line:sub(start_pos - 1, start_pos - 1) == "!"
+         and line:sub(1, start_pos - 2):match("^%s*$") then
+         return true
+      end
       search_from = end_pos + 1
    end
 end

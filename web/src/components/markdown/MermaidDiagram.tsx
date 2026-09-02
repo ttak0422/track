@@ -3,6 +3,18 @@ import { type PointerEvent, useEffect, useLayoutEffect, useMemo, useRef, useStat
 import { useThemeVersion } from "../../hooks/useThemeVersion";
 import { CodeBlock } from "./CodeBlock";
 import { copyText } from "./clipboard";
+import {
+  IconCheck,
+  IconChevronDown,
+  IconChevronUp,
+  IconCopy,
+  IconMaximize,
+  IconMinus,
+  IconPlus,
+  IconRotate2,
+  IconX,
+  RailIcon,
+} from "../icons";
 
 interface MermaidDiagramProps {
   text: string;
@@ -63,7 +75,10 @@ interface DiagramFrameProps {
 // fallback (message + source), and the fitted pan/zoom viewport with fold/copy/zoom controls.
 export function DiagramFrame({ state, source, sourceLang, label, className }: DiagramFrameProps) {
   const svg = state.status === "ready" ? state.svg : null;
-  const panZoom = usePanZoom(svg);
+  const panZoom = usePanZoom(svg, { persistenceKey: diagramStorageKey(sourceLang, source) });
+  const [enlarged, setEnlarged] = useState(false);
+  const lightboxPanZoom = usePanZoom(enlarged ? svg : null);
+  const dialogRef = useRef<HTMLDialogElement>(null);
   // A stable element per svg string: pan/zoom re-renders reuse it untouched, so react-dom never
   // rewrites the innerHTML — which would both discard sizeSvgToViewBox's sizing and re-parse a large
   // SVG on every drag frame.
@@ -72,6 +87,11 @@ export function DiagramFrame({ state, source, sourceLang, label, className }: Di
     [svg],
   );
   const rootClass = className ? `mermaid-diagram ${className}` : "mermaid-diagram";
+
+  useEffect(() => {
+    const dialog = dialogRef.current;
+    if (enlarged && svg && dialog && !dialog.open) dialog.showModal();
+  }, [enlarged, svg]);
 
   if (state.status === "error") {
     return (
@@ -99,8 +119,76 @@ export function DiagramFrame({ state, source, sourceLang, label, className }: Di
     showFoldControl,
     toggleCollapsed,
   } = panZoom;
+  const showPopupControl = !collapsed && (showFoldControl || overflow.left || overflow.right);
   return (
     <div className={rootClass} data-collapsed={collapsed || undefined}>
+      {/* Every control the diagram has, in one strip above the drawing. They used to float over the
+          two top corners, where they landed on whatever the diagram put there — a node's label, most
+          of the time — and a chip a reader has to look past is worse than one they have to look for.
+          Out here they need no hover to appear and cover nothing. */}
+      <div className="mermaid-bar">
+        {showFoldControl && (
+          <button
+            className="mermaid-control mermaid-fold"
+            type="button"
+            onClick={toggleCollapsed}
+            aria-label={collapsed ? "Expand diagram" : "Collapse diagram"}
+            title={collapsed ? "Expand diagram" : "Collapse diagram"}
+          >
+            {collapsed ? (
+              <>
+                <RailIcon Icon={IconChevronDown} size={14} />
+                <span>Show full diagram</span>
+              </>
+            ) : (
+              <RailIcon Icon={IconChevronUp} size={14} />
+            )}
+          </button>
+        )}
+        {!collapsed && (
+          <div className="mermaid-controls">
+            <CopySource text={source} />
+            <button
+              className="mermaid-control"
+              type="button"
+              onClick={() => zoomBy(zoomStep)}
+              aria-label="Zoom in"
+              title="Zoom in"
+            >
+              <RailIcon Icon={IconPlus} size={14} />
+            </button>
+            <button
+              className="mermaid-control"
+              type="button"
+              onClick={() => zoomBy(1 / zoomStep)}
+              aria-label="Zoom out"
+              title="Zoom out"
+            >
+              <RailIcon Icon={IconMinus} size={14} />
+            </button>
+            <button
+              className="mermaid-control"
+              type="button"
+              onClick={reset}
+              aria-label="Reset diagram view"
+              title="Reset diagram view"
+            >
+              <RailIcon Icon={IconRotate2} size={14} />
+            </button>
+            {showPopupControl ? (
+              <button
+                className="mermaid-control mermaid-open"
+                type="button"
+                onClick={() => setEnlarged(true)}
+                aria-label="Open diagram in popup"
+                title="Open diagram in popup"
+              >
+                <RailIcon Icon={IconMaximize} size={14} />
+              </button>
+            ) : null}
+          </div>
+        )}
+      </div>
       <div
         className="mermaid-viewport"
         ref={viewportRef}
@@ -120,62 +208,82 @@ export function DiagramFrame({ state, source, sourceLang, label, className }: Di
         >
           {svgHost}
         </div>
+        {collapsed && <div className="mermaid-continuation" aria-hidden="true" />}
+        {/* The collapsed preview is inert, so a side fade would advertise a pan it cannot make;
+            the fold chip already owns the "there is more" signal until expanded. */}
+        {!collapsed && overflow.left && <div className="mermaid-continuation-left" aria-hidden="true" />}
+        {!collapsed && overflow.right && <div className="mermaid-continuation-right" aria-hidden="true" />}
       </div>
-      {collapsed && <div className="mermaid-continuation" aria-hidden="true" />}
-      {/* The collapsed preview is inert, so a side fade would advertise a pan it cannot make;
-          the fold chip already owns the "there is more" signal until expanded. */}
-      {!collapsed && overflow.left && <div className="mermaid-continuation-left" aria-hidden="true" />}
-      {!collapsed && overflow.right && <div className="mermaid-continuation-right" aria-hidden="true" />}
-      {showFoldControl && (
-        <button
-          className="mermaid-control mermaid-fold"
-          type="button"
-          onClick={toggleCollapsed}
-          aria-label={collapsed ? "Expand diagram" : "Collapse diagram"}
-          title={collapsed ? "Expand diagram" : "Collapse diagram"}
+      {enlarged && svg ? (
+        <dialog
+          ref={dialogRef}
+          className="diagram-lightbox"
+          onClose={() => setEnlarged(false)}
+          onClick={(event) => {
+            if (event.target === dialogRef.current) dialogRef.current.close();
+          }}
         >
-          {collapsed ? (
-            <>
-              <span aria-hidden="true">▾</span>
-              <span>Show full diagram</span>
-            </>
-          ) : (
-            "▴"
-          )}
-        </button>
-      )}
-      {!collapsed && (
-        <div className="mermaid-controls">
-          <CopySource text={source} />
+          <div className="mermaid-controls diagram-lightbox-controls">
+            <CopySource text={source} />
+            <button
+              className="mermaid-control"
+              type="button"
+              onClick={() => lightboxPanZoom.zoomBy(zoomStep)}
+              aria-label="Zoom in"
+              title="Zoom in"
+            >
+              <RailIcon Icon={IconPlus} size={14} />
+            </button>
+            <button
+              className="mermaid-control"
+              type="button"
+              onClick={() => lightboxPanZoom.zoomBy(1 / zoomStep)}
+              aria-label="Zoom out"
+              title="Zoom out"
+            >
+              <RailIcon Icon={IconMinus} size={14} />
+            </button>
+            <button
+              className="mermaid-control"
+              type="button"
+              onClick={lightboxPanZoom.reset}
+              aria-label="Reset diagram view"
+              title="Reset diagram view"
+            >
+              <RailIcon Icon={IconRotate2} size={14} />
+            </button>
+          </div>
           <button
-            className="mermaid-control"
+            className="mermaid-control lightbox-close"
             type="button"
-            onClick={() => zoomBy(zoomStep)}
-            aria-label="Zoom in"
-            title="Zoom in"
+            onClick={() => dialogRef.current?.close()}
+            aria-label="Close diagram popup"
+            title="Close diagram popup"
           >
-            +
+            <RailIcon Icon={IconX} size={14} />
           </button>
-          <button
-            className="mermaid-control"
-            type="button"
-            onClick={() => zoomBy(1 / zoomStep)}
-            aria-label="Zoom out"
-            title="Zoom out"
-          >
-            −
-          </button>
-          <button
-            className="mermaid-control"
-            type="button"
-            onClick={reset}
-            aria-label="Reset diagram view"
-            title="Reset diagram view"
-          >
-            ↺
-          </button>
-        </div>
-      )}
+          <div className={`diagram-lightbox-content ${className ?? ""}`}>
+            <div
+              className="mermaid-viewport"
+              ref={lightboxPanZoom.viewportRef}
+              {...lightboxPanZoom.handlers}
+            >
+              <div
+                ref={lightboxPanZoom.panRef}
+                className="mermaid-pan"
+                style={{
+                  transform: `translate(${lightboxPanZoom.transform.x}px, ${lightboxPanZoom.transform.y}px) scale(${lightboxPanZoom.transform.scale})`,
+                  transformOrigin: "0 0",
+                }}
+                role="img"
+                aria-label={label}
+              >
+                {svgHost}
+              </div>
+            </div>
+          </div>
+        </dialog>
+      ) : null}
     </div>
   );
 }
@@ -208,7 +316,11 @@ function CopySource({ text }: { text: string }) {
       aria-label={copied ? "Copied" : "Copy source"}
       title={copied ? "Copied" : "Copy source"}
     >
-      {copied ? "✓" : "⧉"}
+      {copied ? (
+        <RailIcon Icon={IconCheck} size={14} />
+      ) : (
+        <RailIcon Icon={IconCopy} size={14} />
+      )}
     </button>
   );
 }
@@ -242,8 +354,8 @@ const mermaidFontPx = 16;
 // labelled control make the continuation explicit instead of shrinking the whole visualization to illegibility.
 const collapsedHeight = 320;
 
-// A diagram whose fitted height exceeds this starts collapsed, so tall visualizations never dominate a
-// page being skimmed; the fold button restores the full size.
+// A diagram whose fitted height exceeds this gets a fold button, so tall visualizations can be
+// compacted without forcing a permanent control onto small diagrams.
 const autoCollapseHeight = 480;
 
 // Pan (pointer drag) and zoom (wheel/buttons) applied as a CSS transform on the diagram. On first paint
@@ -252,16 +364,16 @@ const autoCollapseHeight = 480;
 // floor: a wider diagram keeps legible text, is clipped at the viewport edge, and pans (drag or
 // horizontal wheel), with `overflow` naming the clipped sides so the frame can fade them. The
 // viewport height is sized to the scaled diagram; reset returns to the fit, and the fit follows
-// container resizes until the user pans or zooms. A tall diagram starts collapsed: kept at the
-// normal fit scale inside a clipped collapsedHeight preview, interactions off, with a labelled fold
-// toggle to expand. `svg` is the rendered markup (null until ready), used to re-fit
+// container resizes until the user pans or zooms. A tall diagram has a fold toggle, but starts
+// expanded unless the reader previously collapsed this source. `svg` is the rendered markup (null
+// until ready), used to re-fit
 // whenever the diagram changes.
-function usePanZoom(svg: string | null) {
+function usePanZoom(svg: string | null, { persistenceKey }: { persistenceKey?: string } = {}) {
   const [transform, setTransform] = useState<Transform>(identityTransform);
   const [viewportHeight, setViewportHeight] = useState<number | null>(null);
   const [collapsed, setCollapsed] = useState(false);
-  // A fold control is useful only when the diagram needed the initial collapsed preview. Small diagrams
-  // start fully open and should not grow a permanent close affordance after every render.
+  // A fold control is useful only when the fitted diagram is tall, unless it is currently collapsed
+  // (in which case it must remain available to expand it again).
   const [showFoldControl, setShowFoldControl] = useState(false);
   const viewportRef = useRef<HTMLDivElement>(null);
   const panRef = useRef<HTMLDivElement>(null);
@@ -294,35 +406,42 @@ function usePanZoom(svg: string | null) {
       return;
     }
     const ideal = idealScaleRef.current;
+    const center = frameCenter(viewport);
     const view = col
-      ? computeCollapsedFit(w, h, viewport.clientWidth, ideal)
-      : computeFit(w, h, viewport.clientWidth, ideal);
-    fitRef.current = computeFit(w, h, viewport.clientWidth, ideal).transform;
+      ? computeCollapsedFit(w, h, viewport.clientWidth, ideal, center)
+      : computeFit(w, h, viewport.clientWidth, ideal, center);
+    fitRef.current = computeFit(w, h, viewport.clientWidth, ideal, center).transform;
     setTransform(view.transform);
     setViewportHeight(view.height);
   }
 
-  // Measure after the SVG is in the DOM but before paint, so the initial fit shows without a flash.
-  // .mermaid-pan is width:fit-content, so its offset size is the diagram's natural (untransformed) size.
-  useLayoutEffect(() => {
+  function measureAndApply() {
     const viewport = viewportRef.current;
     const pan = panRef.current;
-    if (!svg || !viewport || !pan) return;
+    if (!svg || !viewport || !pan) return false;
     sizeSvgToViewBox(pan);
     const naturalW = pan.offsetWidth;
     const naturalH = pan.offsetHeight;
-    if (naturalW === 0 || naturalH === 0) return;
+    if (naturalW === 0 || naturalH === 0) return false;
     naturalRef.current = { w: naturalW, h: naturalH };
     setViewportW(viewport.clientWidth);
     idealScaleRef.current = measureIdealScale(viewport);
     touchedRef.current = false;
     const { height } = computeFit(naturalW, naturalH, viewport.clientWidth, idealScaleRef.current);
-    const startCollapsed = height > autoCollapseHeight;
-    setShowFoldControl(startCollapsed);
-    setCollapsed(startCollapsed);
-    applyView(startCollapsed);
+    const storedCollapsed = persistenceKey != null && readCollapsedState(persistenceKey);
+    const shouldCollapse = storedCollapsed === true;
+    setShowFoldControl(height > autoCollapseHeight || shouldCollapse);
+    setCollapsed(shouldCollapse);
+    applyView(shouldCollapse);
+    return true;
+  }
+
+  // Measure after the SVG is in the DOM but before paint, so the initial fit shows without a flash.
+  // .mermaid-pan is width:fit-content, so its offset size is the diagram's natural (untransformed) size.
+  useLayoutEffect(() => {
+    measureAndApply();
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [svg]);
+  }, [svg, persistenceKey]);
 
   // Follow container width changes (a widened pane or window): the diagram re-fits — scale and
   // viewport height included — instead of keeping its old size in a larger box. Keyed on svg: the
@@ -334,14 +453,21 @@ function usePanZoom(svg: string | null) {
     let lastW = el.clientWidth;
     const ro = new ResizeObserver(() => {
       const w = el.clientWidth;
-      if (w === 0 || naturalRef.current.w === 0) return;
+      if (w === 0) return;
+      // A modal's viewport is display:none during the first layout effect. When showModal() makes it
+      // measurable, recover the natural size here instead of leaving the popup permanently unfit.
+      if (naturalRef.current.w === 0) {
+        if (!measureAndApply()) return;
+        lastW = w;
+        return;
+      }
       // Keep the overflow fades honest even when a touched view skips the re-fit below.
       setViewportW(w);
       if (w === lastW) return;
       lastW = w;
       idealScaleRef.current = measureIdealScale(el);
       const { w: nw, h: nh } = naturalRef.current;
-      fitRef.current = computeFit(nw, nh, w, idealScaleRef.current).transform;
+      fitRef.current = computeFit(nw, nh, w, idealScaleRef.current, frameCenter(el)).transform;
       if (!touchedRef.current) {
         applyView(collapsedRef.current);
       }
@@ -349,7 +475,7 @@ function usePanZoom(svg: string | null) {
     ro.observe(el);
     return () => ro.disconnect();
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [svg]);
+  }, [svg, persistenceKey]);
 
   // Wheel zoom follows the charts' convention (db676ce): a plain wheel keeps scrolling the page,
   // Shift+wheel zooms, and a trackpad pinch (ctrl+wheel) zooms instead of scaling the whole page.
@@ -380,7 +506,15 @@ function usePanZoom(svg: string | null) {
         if (scaledW <= viewW + 1) return;
         // At an end of the pan the event is left unconsumed, so a swipe past the edge falls
         // through to the browser (back/forward) and a no-op tick doesn't mark the view touched.
-        const x = clamp(transformRef.current.x - event.deltaX, viewW - scaledW, 0);
+        // The rest position is centred on the frame, which the bleeding viewport is wider than, so it
+        // can sit inside the viewport's own edges; the range has to reach it rather than snapping the
+        // diagram to the window edge on the first tick.
+        const fitX = fitRef.current.x;
+        const x = clamp(
+          transformRef.current.x - event.deltaX,
+          Math.min(viewW - scaledW, fitX),
+          Math.max(0, fitX),
+        );
         if (x === transformRef.current.x) return;
         event.preventDefault();
         touchedRef.current = true;
@@ -449,6 +583,7 @@ function usePanZoom(svg: string | null) {
     reset: () => {
       touchedRef.current = false;
       setCollapsed(false);
+      if (persistenceKey != null) writeCollapsedState(persistenceKey, false);
       applyView(false);
     },
     zoomBy,
@@ -457,10 +592,41 @@ function usePanZoom(svg: string | null) {
     showFoldControl,
     toggleCollapsed: () => {
       touchedRef.current = false;
-      setCollapsed(!collapsed);
-      applyView(!collapsed);
+      const nextCollapsed = !collapsed;
+      setCollapsed(nextCollapsed);
+      if (persistenceKey != null) writeCollapsedState(persistenceKey, nextCollapsed);
+      applyView(nextCollapsed);
     },
   };
+}
+
+const diagramStoragePrefix = "track-diagram-collapse:";
+
+export function diagramStorageKey(sourceLang: string, source: string): string {
+  const input = `${sourceLang}\n${source}`;
+  let hash = 2166136261;
+  for (let index = 0; index < input.length; index += 1) {
+    hash ^= input.charCodeAt(index);
+    hash = Math.imul(hash, 16777619);
+  }
+  return `${diagramStoragePrefix}${(hash >>> 0).toString(36)}`;
+}
+
+function readCollapsedState(key: string): boolean | undefined {
+  try {
+    const value = window.localStorage.getItem(key);
+    return value === "collapsed" ? true : value === "expanded" ? false : undefined;
+  } catch {
+    return undefined;
+  }
+}
+
+function writeCollapsedState(key: string, collapsed: boolean) {
+  try {
+    window.localStorage.setItem(key, collapsed ? "collapsed" : "expanded");
+  } catch {
+    // A blocked or full localStorage should degrade to the current session's state.
+  }
 }
 
 // computeCollapsedFit keeps the normal, readable fit scale and clips only the viewport height. The
@@ -470,29 +636,46 @@ export function computeCollapsedFit(
   naturalH: number,
   viewW: number,
   idealScale = 1,
+  centerX = viewW / 2,
 ): { transform: Transform; height: number } {
-  const fit = computeFit(naturalW, naturalH, viewW, idealScale);
+  const fit = computeFit(naturalW, naturalH, viewW, idealScale, centerX);
   return { transform: fit.transform, height: Math.min(fit.height, collapsedHeight) };
 }
 
 // computeFit shows a naturalW×naturalH diagram at idealScale (diagram text matches the article's
 // font size), shrinking only if that overflows fitWidthRatio of viewW — but never below the
 // readability floor: a wider diagram keeps legible text and is clipped at the viewport edge
-// instead. Centers a fitting diagram, left-aligns a clipped one (reading order shows the start),
-// and returns the viewport height that hugs the scaled diagram.
+// instead. The diagram is centred on centerX — the frame's midpoint, see frameCenter — whether it
+// fits or overflows, and the returned height hugs the scaled diagram.
 export function computeFit(
   naturalW: number,
   naturalH: number,
   viewW: number,
   idealScale = 1,
+  centerX = viewW / 2,
 ): { transform: Transform; height: number } {
   const scale = clamp(
     Math.min((viewW * fitWidthRatio) / naturalW, idealScale),
     minReadableRatio * idealScale,
     8,
   );
-  const x = Math.max((viewW - naturalW * scale) / 2, 0);
-  return { transform: { scale, x, y: 0 }, height: naturalH * scale };
+  return {
+    transform: { scale, x: centerX - (naturalW * scale) / 2, y: 0 },
+    height: naturalH * scale,
+  };
+}
+
+// frameCenter is the x the diagram is centred on, in the viewport's own coordinates. Only the
+// drawing viewport bleeds to the window; the frame around it — the control bar the reader sees above
+// the diagram — stays at the reading column, so a diagram centred on the viewport hangs off the bar
+// it belongs to. Measured rather than derived from the bleed CSS: the lightbox reuses the same
+// viewport with no bleed at all, and there the frame is the viewport.
+function frameCenter(viewport: HTMLElement): number {
+  const frameRect = viewport.parentElement?.getBoundingClientRect();
+  // Unmeasurable (no layout engine): the viewport's own midpoint, which is the frame's whenever the
+  // viewport is not bleeding.
+  if (!frameRect || frameRect.width === 0) return viewport.clientWidth / 2;
+  return frameRect.left - viewport.getBoundingClientRect().left + frameRect.width / 2;
 }
 
 // sizeSvgToViewBox pins the rendered SVG to its natural (viewBox) pixel size. Mermaid emits

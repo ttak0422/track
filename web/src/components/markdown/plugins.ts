@@ -1,5 +1,5 @@
 import type { Element, Root as HastRoot, Text as HastText } from "hast";
-import type { Paragraph, Root as MdastRoot } from "mdast";
+import type { Break, Paragraph, Root as MdastRoot } from "mdast";
 import { visit } from "unist-util-visit";
 import { taskStates } from "../../taskStates";
 import type { TaskState } from "../../types";
@@ -8,6 +8,18 @@ import { headingElementID, headingSlug } from "./toc";
 // The [[target|display]] wiki-link grammar (target, optional |display alias). Shared with the portable
 // export so both flatten the same construct. It carries the /g flag; reset lastIndex before manual exec.
 export const wikiPattern = /\[\[([^\]|]+)(?:\|([^\]]+))?\]\]/g;
+
+// react-markdown intentionally drops raw HTML. Convert only the safe, presentational <br> tag to
+// mdast's native hard-break node so line breaks authored in table cells are preserved without
+// enabling arbitrary HTML.
+export function remarkBreakHTML() {
+  return (tree: MdastRoot) => {
+    visit(tree, "html", (node, index, parent) => {
+      if (!parent || index === undefined || !/^<br\s*\/?>(?:\s*)$/i.test(node.value)) return;
+      parent.children[index] = { type: "break" } satisfies Break;
+    });
+  };
+}
 
 // Block anchors: a trailing " ^id" marks a paragraph or list item as a link target the engine
 // resolves for [[Note#^id]] links and ![[Note#^id]] transclusions. The id grammar mirrors the
@@ -396,11 +408,11 @@ export function remarkAlert() {
 }
 
 // remarkEmbedOptions reads a trailing Org-style ":key value" tail after a standalone image embed — the
-// same option shape includes and babel use (e.g. `![x](y) :height 360`). Only `:height` is defined: a
-// bare number is px, and `%`/`vh` are treated as viewport height (an iframe in normal flow has no
-// percentage-height basis). The parsed height is attached to the image via hProperties for the Embed
-// component to apply, and the option tail is stripped so the paragraph stays a sole-image block embed.
-const embedHeightPattern = /^:height\s+(\d+)(px|vh|%)?$/i;
+// same option shape includes and babel use. The parsed values are attached to the image via hProperties
+// for the Embed component to apply, and the option tail is stripped so the paragraph stays a sole-image
+// block embed.
+const embedOptionPattern = /:([a-z-]+)\s+([^\s:]+)/gi;
+const embedHeightPattern = /^(\d+)(px|vh|%)?$/i;
 
 function normalizeEmbedHeight(value: string, unit: string): string | null {
   const n = Number(value);
@@ -420,14 +432,82 @@ export function remarkEmbedOptions() {
       if (kids.length !== 2) return;
       const [img, tail] = kids;
       if (img.type !== "image" || tail.type !== "text") return;
-      const m = embedHeightPattern.exec(tail.value.trim());
-      if (!m) return; // an unrecognized ":..." tail is left as visible text rather than silently dropped
-      const height = normalizeEmbedHeight(m[1], (m[2] ?? "").toLowerCase());
-      if (!height) return;
+      const value = tail.value.trim();
+      let cursor = 0;
+      let height: string | undefined;
+      let frame: "none" | undefined;
+      let match: RegExpExecArray | null;
+      let found = false;
+      // A malformed tail can return before exec reaches null, so do not carry its cursor into the
+      // next paragraph visited by this plugin.
+      embedOptionPattern.lastIndex = 0;
+      while ((match = embedOptionPattern.exec(value)) !== null) {
+        found = true;
+        if (value.slice(cursor, match.index).trim() !== "") return;
+        cursor = embedOptionPattern.lastIndex;
+        const key = match[1].toLowerCase();
+        if (key === "height") {
+          const heightMatch = embedHeightPattern.exec(match[2]);
+          if (!heightMatch) return;
+          height = normalizeEmbedHeight(heightMatch[1], (heightMatch[2] ?? "").toLowerCase()) ?? undefined;
+          if (!height) return;
+        } else if (key === "frame" && match[2].toLowerCase() === "none") {
+          frame = "none";
+        } else {
+          // An unrecognized or malformed option is left as visible text rather than silently dropped.
+          return;
+        }
+      }
+      if (!found || value.slice(cursor).trim() !== "" || (!height && !frame)) return;
       const data = (img.data ??= {});
       const props = (data.hProperties ??= {});
-      props.embedHeight = height;
+      if (height) props.embedHeight = height;
+      if (frame) props.embedFrame = frame;
       node.children = [img]; // drop the tail so the paragraph is a sole image again
+    });
+  };
+}
+
+// remarkBlockEmbed lifts every image out of its paragraph, splitting the paragraph around it. An
+// ![...]() is always a block embed in track (a card, a player, a framed image — never an inline
+// glyph), so one written next to text on the same line — "foo\n![x](url)\nbar", with no blank line
+// around it — parses as one paragraph and renders as a block box inside a <p>: the text around it
+// falls into anonymous blocks that can carry no margin (so the embed ends up flush against the line
+// below it), the embed is capped at the prose measure instead of the column, and the prerendered
+// static HTML nests a <div> inside a <p>, which the parser then reshuffles. Hoisting it makes the
+// embed a sibling, so it renders exactly like the blank-line-separated form.
+//
+// Runs after remarkEmbedOptions, which needs the sole-image paragraph its `:height` tail sits in.
+export function remarkBlockEmbed() {
+  return (tree: MdastRoot) => {
+    visit(tree, "paragraph", (node, index, parent) => {
+      if (!parent || index === undefined) return;
+      if (!node.children.some((child) => child.type === "image")) return;
+      const parts: Paragraph[] = [];
+      let run: Paragraph["children"] = [];
+      const flush = () => {
+        // Whitespace-only runs are the line breaks between stacked images; they would render as
+        // empty paragraphs carrying the paragraph lead.
+        if (run.some((child) => child.type !== "text" || child.value.trim() !== "")) {
+          parts.push({ type: "paragraph", children: run });
+        }
+        run = [];
+      };
+      for (const child of node.children) {
+        if (child.type !== "image") {
+          run.push(child);
+          continue;
+        }
+        flush();
+        parts.push({ type: "paragraph", children: [child] });
+      }
+      flush();
+      // A sole image is already a block: markdownComponents unwraps that paragraph on its own.
+      if (parts.length < 2) return;
+      // A block marker is trailing text, so its id belongs to the last part (see remarkBlockID).
+      if (node.data) parts[parts.length - 1].data = node.data;
+      parent.children.splice(index, 1, ...parts);
+      return index + parts.length;
     });
   };
 }
@@ -482,4 +562,31 @@ export function rehypeTaskCheck() {
       if (box) box.properties.dataTaskLine = line;
     });
   };
+}
+
+// rehypeCopyLine puts source spans on rendered top-level blocks. Marking inline nodes would make a
+// long paragraph more precise, but would turn every link, emphasis run, and word-break wrapper into
+// selection bookkeeping; the block span is the quieter tradeoff for this action.
+export function rehypeCopyLine() {
+  return (tree: HastRoot) => {
+    for (const node of tree.children) {
+      if (node.type === "element") markCopyLine(node);
+    }
+    // A list renders as a single top-level block, so marking only that block resolves a selection of
+    // two items to the whole list. The item is the next unit the source itself has, and it is the one
+    // a reader points at, so items carry their own span too (nested items included).
+    visit(tree, "element", (node: Element) => {
+      if (node.tagName === "li") markCopyLine(node);
+    });
+  };
+}
+
+function markCopyLine(node: Element) {
+  const start = node.position?.start?.line;
+  const end = node.position?.end?.line;
+  if (start === undefined || end === undefined) return;
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const properties = (node.properties ??= {}) as any;
+  properties.dataCopyLineStart = start;
+  properties.dataCopyLineEnd = end;
 }

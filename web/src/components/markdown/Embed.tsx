@@ -32,6 +32,9 @@ interface EmbedProps {
   // A CSS length from the `:height` embed option (see remarkEmbedOptions); applied to the HTML-page
   // frame, which otherwise has no intrinsic height. Ignored by intrinsically-sized embeds.
   height?: string;
+  // `none` from the `:frame` embed option removes only the HTML frame chrome; the iframe remains
+  // sandboxed exactly as it is by default.
+  frame?: "none";
 }
 
 // Embed renders a standalone ![alt](src), routing by the kind of target: YouTube links become an
@@ -39,7 +42,7 @@ interface EmbedProps {
 // card. Embedding stays opt-in via the ![...]() syntax so ordinary [text](url) links are never turned
 // into noisy previews. The URL is normalized through webHref so bare domains still resolve, and only
 // http(s)/relative URLs feed an iframe so a note cannot smuggle a javascript: document into the frame.
-export function Embed({ src, alt, height }: EmbedProps) {
+export function Embed({ src, alt, height, frame }: EmbedProps) {
   const kind = useContext(NoteKindContext);
   const vault = useContext(NoteVaultContext);
   // A relative "assets/<file>" reference is served from the vault by the local server. Resolving it here
@@ -89,18 +92,26 @@ export function Embed({ src, alt, height }: EmbedProps) {
     }
   }
 
-  // An HTML document (local asset or remote page) is mounted in a sandboxed iframe so its own JS/CSS run
-  // but it cannot reach the app/vault: no allow-same-origin, so the frame gets a unique opaque origin with
-  // no access to the parent, cookies, or storage. allow-scripts + allow-same-origin together would let the
-  // frame remove its own sandbox, so that pair is deliberately never used.
-  if (isHtmlHref(src)) {
+  // Only a vault-local HTML asset is mounted in this sandboxed iframe, so its own JS/CSS run but it cannot
+  // reach the app/vault: no allow-same-origin, so the frame gets a unique opaque origin with no access to
+  // the parent, cookies, or storage. allow-scripts + allow-same-origin together would let the frame remove
+  // its own sandbox, so that pair is deliberately never used, and allow-top-navigation is withheld so the
+  // frame cannot hijack the parent tab. A remote http(s) …/page.html URL never enters this branch; it falls
+  // through to the Open Graph card below. allow-popups-to-escape-sandbox lets a link opened from the frame
+  // come up as an ordinary browsing context in its new tab while the frame itself stays isolated;
+  // allow-downloads and allow-modals let an interactive tool save a file and show a dialog;
+  // allow="clipboard-write" grants the embedded document clipboard-write permission. allow-forms stays out
+  // (a blocked submission never dispatches the submit event, so tools drive actions from click handlers)
+  // along with allow-top-navigation.
+  if (asset && isHtmlHref(src)) {
     const safe = safeFrameUrl(target);
     if (safe) {
       return (
-        <div className="embed embed-html">
+        <div className={"embed embed-html" + (frame === "none" ? " embed-html-frame-none" : "")}>
           <iframe
             src={safe}
-            sandbox="allow-scripts allow-popups"
+            sandbox="allow-scripts allow-popups allow-popups-to-escape-sandbox allow-downloads allow-modals"
+            allow="clipboard-write"
             loading="lazy"
             title={alt || "Embedded page"}
             // `:height` overrides the CSS min-height floor (both, so a value below the default can shrink).
@@ -301,9 +312,10 @@ interface OgpCardProps {
   alt: string;
 }
 
-// OgpCard fetches the link's Open Graph metadata through the local server and renders it as a card. It
-// degrades gracefully: while loading it shows the host and label, and on a failed/blocked fetch it
-// falls back to a plain link so the embed is never a dead end.
+// OgpCard fetches the link's Open Graph metadata — through the local server in a live workspace, and in
+// the reader's own browser on a published site (see getOgp) — and renders it as a card. It degrades
+// gracefully: while loading it shows the host and label, and on a failed/blocked fetch it falls back to
+// a plain link so the embed is never a dead end.
 function OgpCard({ url, alt }: OgpCardProps) {
   const ogp = useOgpQuery(url);
   const host = hostOf(url);
