@@ -13,7 +13,10 @@ describe("ThemeMenu", () => {
       </aside>,
     );
 
-    fireEvent.click(screen.getByRole("button", { name: "Settings" }));
+    const trigger = screen.getByRole("button", { name: "Settings" });
+    // The panel's heading names it; the glyph does not repeat it in a native tooltip.
+    expect(trigger).not.toHaveAttribute("title");
+    fireEvent.click(trigger);
 
     const menu = document.querySelector(".rail-menu-panel");
     expect(menu).not.toBeNull();

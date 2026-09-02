@@ -58,7 +58,6 @@ export function SidebarSearch() {
         aria-label="Search notes"
         aria-haspopup="dialog"
         aria-expanded={open}
-        title="Search notes (/)"
         onClick={() => setOpen((value) => !value)}
       >
         <SearchIcon />

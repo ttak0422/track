@@ -115,7 +115,6 @@ export function SidebarHistory() {
         className="rail-button"
         type="button"
         aria-label="Recently opened notes"
-        title="Recently opened notes"
         aria-haspopup="menu"
         aria-expanded={open}
         onFocus={focusPanel}

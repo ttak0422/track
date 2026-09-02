@@ -17,7 +17,10 @@ describe("SidebarSearch", () => {
       </aside>,
     );
 
-    fireEvent.click(screen.getByRole("button", { name: "Search notes" }));
+    const trigger = screen.getByRole("button", { name: "Search notes" });
+    // The palette names itself; a native tooltip would arrive late and on top of it.
+    expect(trigger).not.toHaveAttribute("title");
+    fireEvent.click(trigger);
 
     const popup = document.querySelector(".search-popup");
     expect(popup).not.toBeNull();

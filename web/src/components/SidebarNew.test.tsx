@@ -37,6 +37,15 @@ describe("SidebarNew", () => {
     ]);
     expect(screen.getByRole("heading", { name: "New" })).toHaveClass("rail-panel-title");
     expect(panel.closest(".history-panel")?.parentElement).toBe(document.body);
+    // The panel's heading is the name; the glyph does not repeat it in a native tooltip.
+    expect(screen.getByRole("button", { name: "Recently created notes" })).not.toHaveAttribute(
+      "title",
+    );
+    // A row inside the panel keeps its title — the rows clip, and it is what reveals the rest.
+    expect(screen.getByRole("menuitem", { name: "First note" })).toHaveAttribute(
+      "title",
+      "First note",
+    );
   });
 
   it("shows an empty state", () => {

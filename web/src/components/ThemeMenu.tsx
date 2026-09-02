@@ -130,7 +130,6 @@ export function ThemeMenu() {
         className="rail-button"
         type="button"
         aria-label="Settings"
-        title="Settings"
         aria-haspopup="true"
         aria-expanded={open}
         onClick={() => {

@@ -5,8 +5,22 @@ import { describe, expect, it } from "vitest";
 const css = readFileSync("src/styles.css", "utf8");
 const previewStack = readFileSync("src/components/preview/stack.ts", "utf8");
 const railAnchor = readFileSync("src/components/railAnchor.ts", "utf8");
-const shell = readFileSync("src/components/Shell.tsx", "utf8");
 const mermaid = readFileSync("src/components/markdown/MermaidDiagram.tsx", "utf8");
+
+// Every file that renders a .rail-button, which is the rail's own controls and nothing else.
+const railSources: Record<string, string> = Object.fromEntries(
+  [
+    "Shell",
+    "SidebarSearch",
+    "SidebarNew",
+    "SidebarHistory",
+    "HierarchyMenu",
+    "NoteRailControls",
+    "NoteActionsMenu",
+    "ThemeMenu",
+  ].map((name) => [name, readFileSync(`src/components/${name}.tsx`, "utf8")]),
+);
+const shell = railSources.Shell;
 
 function ruleBody(selector: string): string {
   const escaped = selector.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
@@ -395,6 +409,38 @@ describe("sidebar at short viewport heights", () => {
     expect(shell).toMatch(
       /<nav className="activity-rail"[\s\S]*<div className="rail-scroll">[\s\S]*<\/div>[\s\S]*?<ThemeMenu \/>/,
     );
+  });
+});
+
+describe("rail labels", () => {
+  // The opening tag of every rail button, attributes and all. An arrow function is the only ">" that
+  // shows up inside one of these attribute lists, so blanking those leaves the tag's own ">" as the
+  // one that closes it.
+  function railButtonTags(source: string): string[] {
+    return [...source.replace(/=>/g, "  ").matchAll(/<[^<>]*\brail-button\b[^<>]*>/g)].map(
+      (match) => match[0],
+    );
+  }
+
+  // A rail control is named once: by the panel it opens, or by the .rail-tip when it opens none. The
+  // browser's own tooltip is neither — it arrives seconds late, at the pointer, over the panel the
+  // control just opened — so no rail button carries a title, and the accessible name never rode on it.
+  it("names rail controls without the browser's native tooltip", () => {
+    for (const [name, source] of Object.entries(railSources)) {
+      const tags = railButtonTags(source);
+      expect(tags.length, name).toBeGreaterThan(0);
+      for (const tag of tags) {
+        expect(tag, name).not.toMatch(/\btitle=/);
+        expect(tag, name).toMatch(/\baria-label=/);
+      }
+    }
+  });
+
+  it("gives the rail's panel-less controls a RailTip instead", () => {
+    // The mark and the follow toggle open nothing of their own, so they say their name the way the
+    // journal, Calendar, Tasks and the full graph already do.
+    expect(shell).toMatch(/<RailTip label=\{STATIC_MODE \? "Start page" : "track home"\}>/);
+    expect(railSources.NoteRailControls).toMatch(/<RailTip label=\{followLabel\}>/);
   });
 });
 
