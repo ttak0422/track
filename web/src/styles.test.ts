@@ -6,6 +6,7 @@ const css = readFileSync("src/styles.css", "utf8");
 const previewStack = readFileSync("src/components/preview/stack.ts", "utf8");
 const railAnchor = readFileSync("src/components/railAnchor.ts", "utf8");
 const mermaid = readFileSync("src/components/markdown/MermaidDiagram.tsx", "utf8");
+const themeMenu = readFileSync("src/components/ThemeMenu.tsx", "utf8");
 
 // Every file that renders a .rail-button, which is the rail's own controls and nothing else.
 const railSources: Record<string, string> = Object.fromEntries(
@@ -606,5 +607,66 @@ describe("floating preview", () => {
     expect(frame).toMatch(/overflow:\s*clip/);
     expect(frame).not.toMatch(/overflow(-[xy])?:\s*(hidden|auto|scroll)/);
     expect(ruleBody(".wiki-preview-body")).toMatch(/overflow:\s*auto/);
+  });
+});
+
+describe("text size in px", () => {
+  const proseSize = Number(
+    ruleBody(".markdown-view").match(/font-size:\s*calc\((\d+)px \* var\(--font-scale, 1\)\)/)?.[1],
+  );
+  const menuBase = Number(themeMenu.match(/const baseFontSize = (\d+)/)?.[1]);
+  const min = Number(themeMenu.match(/const minFontSize = (\d+)/)?.[1]);
+  const max = Number(themeMenu.match(/const maxFontSize = (\d+)/)?.[1]);
+
+  // The setting is a px number, and the scale it becomes is that number over a base. That base is not
+  // a free constant: it is the size the sheet's prose rule is written at, or the number typed is not
+  // the number rendered.
+  it("divides by the size the sheet's prose is actually written at", () => {
+    expect(proseSize).toBe(16);
+    expect(menuBase).toBe(proseSize);
+  });
+
+  it("gives preview windows a scale of their own, rebound off the same base", () => {
+    expect(ruleBody(".wiki-preview")).toMatch(/--font-scale:\s*var\(--preview-font-scale, 1\)/);
+    // The window used to hold its prose at 13px. A size here rides on top of the preview's scale, so
+    // the two surfaces would answer the same number with different text — which is the bug.
+    expect(ruleBody(".wiki-preview-body .markdown-view")).not.toMatch(/font-size/);
+    // The fallback is the default size, so a reader who has set nothing gets the base on both.
+    expect(min).toBeLessThan(menuBase);
+    expect(max).toBeGreaterThan(menuBase);
+  });
+
+  // Both surfaces compute the same expression — the one prose rule times whichever scale the surface
+  // carries — because there is one base and (per the test above) one prose rule. So the same number
+  // typed into each renders the same text, which is what the setting promises.
+  it("renders a typed size at that many px on either surface", () => {
+    const rendered = (size: number) => proseSize * (size / menuBase);
+
+    for (const size of [min, menuBase, max, 19]) {
+      expect(rendered(size)).toBe(size);
+    }
+  });
+
+  // The floor is the chrome's, not the prose's: the smallest scaled text in the sheet has to stay
+  // readable at it, or the settings menu itself becomes unreadable from inside the settings menu.
+  it("keeps the sheet's smallest scaled text legible at the floor", () => {
+    const smallest = Math.min(
+      ...[...css.matchAll(/font-size:\s*calc\((\d+)px \* var\(--font-scale, 1\)\)/g)].map((m) =>
+        Number(m[1]),
+      ),
+    );
+
+    expect(smallest).toBe(10);
+    expect(smallest * (min / menuBase)).toBeGreaterThan(8);
+  });
+
+  // A typed field, so an underline input (design.md variant 5) — not a box, and not another switch.
+  it("draws the size fields as underline inputs", () => {
+    const input = ruleBody(".size-input");
+
+    expect(input).toMatch(/border:\s*0/);
+    expect(input).toMatch(/border-bottom:\s*1px solid var\(--line\)/);
+    expect(input).toMatch(/background:\s*transparent/);
+    expect(ruleBody(".size-input:focus-visible")).toMatch(/border-bottom-color:\s*var\(--mark\)/);
   });
 });

@@ -5,15 +5,22 @@ import { IconSettings, RailIcon } from "./icons";
 import { railAnchor } from "./railAnchor";
 import { themeModes, useThemeMode } from "../themeState";
 
-const fontScaleKey = "track.fontScale";
+const fontSizeKey = "track.fontSize";
+const previewFontSizeKey = "track.previewFontSize";
 const contentWidthKey = "track.contentWidth";
-// Whole-UI font scale, applied through the --font-scale CSS var every font-size is wrapped in.
-const fontScales: { label: string; value: number }[] = [
-  { label: "S", value: 0.85 },
-  { label: "M", value: 1 },
-  { label: "L", value: 1.15 },
-  { label: "XL", value: 1.3 },
-];
+// The size the whole sheet is written against: .markdown-view is 16px, and every other font-size is a
+// px literal picked to sit beside it. So a surface asked for a given px size gets it by carrying a
+// scale of that size over this base — the reading surface through --font-scale on the root, a preview
+// window through --preview-font-scale, which .wiki-preview rebinds as its own --font-scale. Both
+// settings are the same number over the same base, which is what makes equal numbers render equal.
+const baseFontSize = 16;
+// The range a typed size is held to. The floor is set by the chrome rather than by the prose: the
+// sheet's smallest scaled text is calc(10px * --font-scale), so 13 puts list metadata at 8.1px and
+// the mono section labels at 8.9px — about where uppercase small-caps stop resolving, and just under
+// the old S step. The ceiling is twice the base, past which the settings panel's own 214px frame and
+// the tab strip's fixed 336px tab wrap and ellipsise away what they are labelling.
+const minFontSize = 13;
+const maxFontSize = 32;
 // Reading-column max width, applied through --content-width on .note-reader and the prose measure via
 // --content-measure. "none" removes the cap so prose fills the viewport for wide-display use.
 const defaultContentWidth = "880px";
@@ -27,24 +34,14 @@ export function ThemeMenu() {
   // The theme lives in the shared themeState module: the phone's floating dock writes the same key,
   // so either surface switching themes shows up on the other.
   const [theme, setTheme] = useThemeMode();
-  const [fontScale, setFontScale] = useState<number>(() => storedFontScale());
+  const fontSize = useFontSize(fontSizeKey, "--font-scale");
+  const previewFontSize = useFontSize(previewFontSizeKey, "--preview-font-scale");
   const [contentWidth, setContentWidth] = useState<string>(() => storedContentWidth());
   const [open, setOpen] = useState(false);
   const [anchor, setAnchor] = useState<CSSProperties | undefined>(undefined);
   const menuRef = useRef<HTMLDivElement>(null);
   const overlayRef = useRef<HTMLDivElement>(null);
   const toggleRef = useRef<HTMLButtonElement>(null);
-
-  useEffect(() => {
-    if (fontScale === 1) {
-      localStorage.removeItem(fontScaleKey);
-      document.documentElement.style.removeProperty("--font-scale");
-      return;
-    }
-
-    localStorage.setItem(fontScaleKey, String(fontScale));
-    document.documentElement.style.setProperty("--font-scale", String(fontScale));
-  }, [fontScale]);
 
   useEffect(() => {
     if (contentWidth === defaultContentWidth) {
@@ -161,21 +158,11 @@ export function ThemeMenu() {
                     ))}
                   </div>
                 </section>
-                <section className="menu-section" aria-label="Text size">
-                  <h3>Text size</h3>
-                  <div className="theme-switch" role="group" aria-label="Text size">
-                    {fontScales.map((scale) => (
-                      <button
-                        aria-pressed={fontScale === scale.value}
-                        key={scale.value}
-                        type="button"
-                        onClick={() => setFontScale(scale.value)}
-                      >
-                        {scale.label}
-                      </button>
-                    ))}
-                  </div>
-                </section>
+                <SizeField id="settings-text-size" name="Text size" setting={fontSize} />
+                {/* The preview windows are set here rather than on their own chrome: a window's size is
+                    a standing preference, not something to redecide per preview, and the number only
+                    means anything read against the reader's number directly above it. */}
+                <SizeField id="settings-preview-text-size" name="Preview text size" setting={previewFontSize} />
                 <section className="menu-section" aria-label="Content width">
                   <h3>Content width</h3>
                   <div className="theme-switch" role="group" aria-label="Content width">
@@ -200,10 +187,87 @@ export function ThemeMenu() {
   );
 }
 
-function storedFontScale(): number {
-  if (typeof window === "undefined") return 1;
-  const value = Number(localStorage.getItem(fontScaleKey));
-  return fontScales.some((scale) => scale.value === value) ? value : 1;
+// The two size settings behave identically, so they share one hook. The field keeps its own draft
+// text and the size follows it only while that text is a whole number in range: clearing the field to
+// retype it, or passing through "1" on the way to "18", leaves the page at the size it already had
+// instead of resizing out from under the typing. Leaving the field puts the live size back in it, so
+// a rejected draft does not sit there looking accepted. There is no separate commit on Enter or on
+// blur, which is also what keeps the native spinner and the arrow keys live as they step.
+function useFontSize(key: string, property: string): SizeSetting {
+  const [size, setSize] = useState<number>(() => storedFontSize(key));
+  const [draft, setDraft] = useState<string>(() => String(size));
+
+  useEffect(() => applyFontSize(key, property, size), [key, property, size]);
+
+  return {
+    draft,
+    edit(next: string) {
+      setDraft(next);
+      if (validFontSize(Number(next))) setSize(Number(next));
+    },
+    restore() {
+      setDraft(String(size));
+    },
+  };
+}
+
+interface SizeSetting {
+  draft: string;
+  edit: (next: string) => void;
+  restore: () => void;
+}
+
+// The unit stands beside the field as text: an underline input (design.md variant 5) has no box to
+// put a suffix inside.
+function SizeField({ id, name, setting }: { id: string; name: string; setting: SizeSetting }) {
+  return (
+    <section className="menu-section">
+      <h3>
+        <label htmlFor={id}>{name}</label>
+      </h3>
+      <div className="size-field">
+        <input
+          className="size-input"
+          id={id}
+          inputMode="numeric"
+          max={maxFontSize}
+          min={minFontSize}
+          onBlur={setting.restore}
+          onChange={(event) => setting.edit(event.target.value)}
+          step={1}
+          type="number"
+          value={setting.draft}
+        />
+        px
+      </div>
+    </section>
+  );
+}
+
+// An empty field, a half-typed number, and a stored value from an older build all fail this the same
+// way — by leaving the size alone.
+function validFontSize(size: number): boolean {
+  return Number.isInteger(size) && size >= minFontSize && size <= maxFontSize;
+}
+
+// A size is stored only while it differs from the base, which is also the CSS fallback both scales
+// carry — so a reader on defaults has neither key nor custom property, and the two surfaces start out
+// at the same number.
+function applyFontSize(key: string, property: string, size: number) {
+  if (size === baseFontSize) {
+    localStorage.removeItem(key);
+    document.documentElement.style.removeProperty(property);
+    return;
+  }
+
+  localStorage.setItem(key, String(size));
+  document.documentElement.style.setProperty(property, String(size / baseFontSize));
+}
+
+function storedFontSize(key: string): number {
+  if (typeof window === "undefined") return baseFontSize;
+  const value = Number(localStorage.getItem(key));
+  return validFontSize(value) ? value : baseFontSize;
 }
 
 function storedContentWidth(): string {

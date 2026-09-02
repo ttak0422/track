@@ -271,6 +271,11 @@ Single-line fields carry editability with a bottom hairline, not a box.
 - `border: 0; border-bottom: 1px solid var(--line);` transparent background;
   focus moves the line to `--mark`.
 - Canonical: `.home-hero .searchbox input`, `input.modal-input`.
+- A numeric setting is the same field with `type="number"` and `min`/`max`/`step`,
+  so the native spinner and the arrow keys do the stepping and nothing has to be
+  drawn for them. It is sized to the digits it holds rather than to its container,
+  and its unit stands beside it as plain text — a field with no box has nowhere to
+  put a suffix. Canonical: `.size-input` (Settings > Text size).
 - Exception: the multi-line editor textarea keeps a boxed `--panel-soft` field.
 
 ### 6. Section label — the caption naming a region
