@@ -98,7 +98,6 @@ export function NoteActionsMenu({ getBody, onMeta, onDelete }: NoteActionsMenuPr
         className="rail-button note-menu-toggle"
         type="button"
         aria-label="More actions"
-        title="More actions"
         aria-haspopup="menu"
         aria-expanded={open}
         onClick={() => (open ? setOpen(false) : showMenu())}

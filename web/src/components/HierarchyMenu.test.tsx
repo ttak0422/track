@@ -50,8 +50,12 @@ describe("HierarchyMenu", () => {
     openMenu();
 
     expect(screen.getByRole("menu", { name: "Hierarchy" })).toBeInTheDocument();
+    // The panel names itself; the glyph does not repeat it in a native tooltip.
+    expect(screen.getByRole("button", { name: "Hierarchy" })).not.toHaveAttribute("title");
     // A root is always open, so it has no fold control at all — only what is under it does.
     expect(screen.getByRole("menuitem", { name: "Root" })).toHaveAttribute("href", "/notes/1");
+    // A row inside the panel keeps its title — the rows clip, and it is what reveals the rest.
+    expect(screen.getByRole("menuitem", { name: "Root" })).toHaveAttribute("title", "Root");
     expect(screen.queryByRole("menuitem", { name: "Collapse Root" })).not.toBeInTheDocument();
     expect(screen.getByRole("menuitem", { name: "Child" })).toHaveAttribute("href", "/notes/2");
     // One level at a time: the branch under Child stays folded until it is asked for.

@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState, type CSSProperties } from "react";
 import { editorModes, useNoteControls, type EditorMode } from "../noteControls";
 import { NoteActionsMenu } from "./NoteActionsMenu";
+import { RailTip } from "./RailTip";
 import { hoverOpen } from "./hoverOpen";
 import { railAnchor } from "./railAnchor";
 import {
@@ -25,16 +26,17 @@ export function NoteRailControls() {
   return (
     <>
       <div className="rail-divider" />
-      <button
-        className={`rail-button${follow ? " active" : ""}`}
-        type="button"
-        aria-pressed={follow}
-        aria-label={followLabel}
-        title={followLabel}
-        onClick={() => setFollow(!follow)}
-      >
-        <FollowIcon active={follow} />
-      </button>
+      <RailTip label={followLabel}>
+        <button
+          className={`rail-button${follow ? " active" : ""}`}
+          type="button"
+          aria-pressed={follow}
+          aria-label={followLabel}
+          onClick={() => setFollow(!follow)}
+        >
+          <FollowIcon active={follow} />
+        </button>
+      </RailTip>
       <EditorModeMenu mode={mode} setMode={setMode} />
       <NoteActionsMenu getBody={actions.getBody} onMeta={actions.onMeta} onDelete={actions.onDelete} />
     </>
@@ -95,7 +97,6 @@ function EditorModeMenu({ mode, setMode }: { mode: EditorMode; setMode: (mode: E
         className="rail-button active"
         type="button"
         aria-label={label}
-        title={label}
         aria-haspopup="menu"
         aria-expanded={open}
         onClick={() => (open ? setOpen(false) : showMenu())}

@@ -72,20 +72,19 @@ export function Shell() {
             <nav className="activity-rail" aria-label="Workspace views">
               <div className="rail-scroll">
                 {/* On the static site "/" is the start page; on the live server it is the heatmap home. */}
-                <Link
-                  className="rail-button rail-brand"
-                  to="/"
-                  aria-label={STATIC_MODE ? "Start page" : "track home"}
-                  title={STATIC_MODE ? "Start page" : "track home"}
-                >
-                  <BrandMark icon={site.data?.icon} className="rail-mark" />
-                </Link>
+                <RailTip label={STATIC_MODE ? "Start page" : "track home"}>
+                  <Link
+                    className="rail-button rail-brand"
+                    to="/"
+                    aria-label={STATIC_MODE ? "Start page" : "track home"}
+                  >
+                    <BrandMark icon={site.data?.icon} className="rail-mark" />
+                  </Link>
+                </RailTip>
                 <SidebarSearch />
                 <SidebarNew />
                 <SidebarHistory />
-                {/* The published static site is read-only and cannot create journals. The icon-only
-                    controls that open no panel of their own carry a RailTip label instead of the
-                    native title tooltip. */}
+                {/* The published static site is read-only and cannot create journals. */}
                 {!STATIC_MODE && (
                   <RailTip label="Today's journal">
                     <button

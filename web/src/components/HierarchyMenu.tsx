@@ -80,7 +80,6 @@ export function HierarchyMenu() {
         className="rail-button"
         type="button"
         aria-label="Hierarchy"
-        title="Hierarchy"
         aria-haspopup="menu"
         aria-expanded={open}
         onClick={() => (open ? setOpen(false) : showMenu())}

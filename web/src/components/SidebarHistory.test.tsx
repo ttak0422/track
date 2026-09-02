@@ -61,6 +61,15 @@ describe("SidebarHistory", () => {
     const title = screen.getByRole("heading", { name: "History" });
     expect(title).toHaveClass("rail-panel-title");
     expect(title.closest('[role="menu"]')).toBeNull();
+    // That heading is the panel's whole name: the glyph does not repeat it in a native tooltip.
+    expect(screen.getByRole("button", { name: "Recently opened notes" })).not.toHaveAttribute(
+      "title",
+    );
+    // A row inside the panel keeps its title — the rows clip, and it is what reveals the rest.
+    expect(screen.getByRole("menuitem", { name: "First note" })).toHaveAttribute(
+      "title",
+      "First note",
+    );
   });
 
   it("explains the empty history when there are no recent notes", () => {

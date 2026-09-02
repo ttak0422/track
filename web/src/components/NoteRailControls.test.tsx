@@ -61,6 +61,23 @@ describe("NoteRailControls", () => {
     expect(seen.at(-1)).toBe("edit/false");
   });
 
+  // Follow opens no panel, so it says its name the way the rail's other panel-less glyphs do: at
+  // once, beside the rail. The two that do open a panel are named by that panel and say nothing
+  // extra — and none of the three carries the browser's own tooltip, which arrives seconds later
+  // and lands on whatever the control just opened.
+  it("names follow with a rail tip and the menu toggles with their panels alone", async () => {
+    renderRail(noopActions);
+    const follow = await screen.findByRole("button", { name: "Follow the editor: Off" });
+    for (const name of ["Follow the editor: Off", "Display mode: Preview", "More actions"]) {
+      expect(screen.getByRole("button", { name })).not.toHaveAttribute("title");
+    }
+
+    fireEvent.pointerEnter(follow);
+    const tip = screen.getByText("Follow the editor: Off");
+    expect(tip).toHaveClass("rail-tip");
+    expect(tip).toHaveAttribute("aria-hidden", "true");
+  });
+
   it("toggles follow, which the note view reads back", async () => {
     const seen: string[] = [];
     renderRail(noopActions, (s) => seen.push(s));

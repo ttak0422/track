@@ -10,10 +10,12 @@ import {
 import { hoverOpen } from "./hoverOpen";
 import { railAnchor } from "./railAnchor";
 
-// RailTip names the rail's icon-only controls that open no panel of their own (journal, Calendar,
-// Tasks, the full graph). It is variant 3's floating layer cut down to a single-line label — the
-// .tab-tools look — and it replaces those controls' native title tooltip: a control that carries a
-// popup of its own does not also carry one. It is a label, not a menu — pointer-events never reach
+// RailTip names the rail's icon-only controls that open no panel of their own — the mark, journal,
+// Calendar, Tasks, the full graph, the follow toggle. It is variant 3's floating layer cut down to a
+// single-line label — the .tab-tools look. No rail control carries the browser's native title
+// tooltip: one that opens a panel is named by that panel's own heading, and naming it twice put a
+// delayed popup over the panel it had just opened; one that opens nothing is named here instead, at
+// once rather than after the browser's wait. It is a label, not a menu — pointer-events never reach
 // it, so hover opens nothing but a name. Portalled like every rail flyout, because the fixed rail
 // clips its overflow and owns a stacking context below floating previews.
 export function RailTip({ label, children }: { label: string; children: ReactNode }) {

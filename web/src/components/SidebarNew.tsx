@@ -101,7 +101,6 @@ export function SidebarNew() {
         className="rail-button"
         type="button"
         aria-label="Recently created notes"
-        title="Recently created notes"
         aria-haspopup="menu"
         aria-expanded={open}
         onFocus={focusPanel}

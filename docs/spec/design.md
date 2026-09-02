@@ -560,16 +560,23 @@ The note's aside is a quiet column; the rail is a floating dock over the sheet.
   6). It sits above the panel's body, outside any scroller and outside any
   `role="menu"`: a panel that scrolls must not carry its own name off the top,
   and a heading is not a menu item.
-- **A bare glyph says its name on hover.** The rail's icon-only views that open
-  no panel of their own — journal, Calendar, Tasks, the full graph — float a
-  `.rail-tip` on hover and on `:focus-visible` instead: variant 3 cut down to a
-  single line, anchored beside the rail like any other flyout. It replaces the
-  native `title` tooltip rather than joining it, since a control carrying a
-  popup of its own does not also get the browser's. It is inert — `aria-hidden`
-  and no pointer events — because the control it names already carries an
-  `aria-label` for a screen reader, and a label nobody can click covers nothing
-  that can be aimed at. It goes away with the rest of the hover-only surfaces
-  on a pointer that cannot hover.
+- **A bare glyph says its name on hover; no rail control says it twice.** The
+  rail's icon-only controls that open no panel of their own — the mark,
+  journal, Calendar, Tasks, the full graph, the follow toggle — float a
+  `.rail-tip` on hover and on `:focus-visible`: variant 3 cut down to a single
+  line, anchored beside the rail like any other flyout. It is inert —
+  `aria-hidden` and no pointer events — because the control it names already
+  carries an `aria-label` for a screen reader, and a label nobody can click
+  covers nothing that can be aimed at. It goes away with the rest of the
+  hover-only surfaces on a pointer that cannot hover.
+  No rail control carries the browser's native `title` besides. One that opens
+  a panel is named by that panel's own heading, so a second name — arriving
+  seconds later, at the pointer, over the panel it had just opened — is the
+  redundancy the panel was already spending its top line to avoid. One that
+  opens nothing takes the `.rail-tip`, which reads at once instead of after the
+  browser's wait. `title` stays only where it reveals what the layout clips: a
+  truncated row inside an open panel, which is an affordance rather than a
+  repetition.
 - **One icon family.** Every rail glyph is drawn the same way: a 24-unit
   viewBox at 20px, `fill: none`, `stroke: currentColor`, `stroke-width: 1.5`,
   round caps and joins, and **no filled shapes** — a dot is a small stroked
