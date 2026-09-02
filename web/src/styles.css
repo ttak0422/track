@@ -4216,7 +4216,11 @@ textarea.modal-input:focus-visible {
   color: var(--text);
   background: var(--panel);
   box-shadow: 0 12px 28px rgb(0 0 0 / 18%);
-  overflow: hidden;
+  /* clip, not hidden: `hidden` makes the frame a scroll container, and following an in-page hash
+     inside the window (a footnote, a heading or block anchor) scrolls every scrollable ancestor of
+     the target — the frame included, which slid the chrome bar out of the top of its own window with
+     no way to scroll it back. `clip` clips the same but is not scrollable, so only the body moves. */
+  overflow: clip;
 }
 
 .wiki-preview::before {

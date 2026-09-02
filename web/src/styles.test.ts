@@ -540,4 +540,16 @@ describe("floating preview", () => {
     expect(ruleBody(".wiki-preview")).toMatch(/color:\s*var\(--text\)/);
     expect(ruleBody(".wiki-preview-body .markdown-view p")).not.toMatch(/color:/);
   });
+
+  // Following an in-page hash inside a window — a footnote reference, a heading or block anchor — is a
+  // plain fragment navigation, and the browser scrolls every scrollable ancestor of the target. On
+  // `overflow: hidden` the frame was one of them, so the jump scrolled the chrome bar out of the top of
+  // its own window, with no scrollbar to bring it back. Only the body may scroll.
+  it("clips the frame without making it scrollable, so an in-page jump cannot take the chrome with it", () => {
+    const frame = ruleBody(".wiki-preview");
+
+    expect(frame).toMatch(/overflow:\s*clip/);
+    expect(frame).not.toMatch(/overflow(-[xy])?:\s*(hidden|auto|scroll)/);
+    expect(ruleBody(".wiki-preview-body")).toMatch(/overflow:\s*auto/);
+  });
 });
