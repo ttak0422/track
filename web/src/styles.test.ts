@@ -7,6 +7,7 @@ const previewStack = readFileSync("src/components/preview/stack.ts", "utf8");
 const railAnchor = readFileSync("src/components/railAnchor.ts", "utf8");
 const shell = readFileSync("src/components/Shell.tsx", "utf8");
 const mermaid = readFileSync("src/components/markdown/MermaidDiagram.tsx", "utf8");
+const themeMenu = readFileSync("src/components/ThemeMenu.tsx", "utf8");
 
 function ruleBody(selector: string): string {
   const escaped = selector.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
@@ -539,5 +540,42 @@ describe("floating preview", () => {
   it("reads previewed prose in body ink, not the chrome's muted ink", () => {
     expect(ruleBody(".wiki-preview")).toMatch(/color:\s*var\(--text\)/);
     expect(ruleBody(".wiki-preview-body .markdown-view p")).not.toMatch(/color:/);
+  });
+});
+
+describe("text size in px", () => {
+  const proseSize = Number(
+    ruleBody(".markdown-view").match(/font-size:\s*calc\((\d+)px \* var\(--font-scale, 1\)\)/)?.[1],
+  );
+  const menuBase = Number(themeMenu.match(/const baseFontSize = (\d+)/)?.[1]);
+  const sizes = (themeMenu.match(/const fontSizes = \[([^\]]*)\]/)?.[1] ?? "").split(",").map(Number);
+
+  // The setting is a px number, and the scale it becomes is that number over a base. That base is not
+  // a free constant: it is the size the sheet's prose rule is written at, or the number chosen is not
+  // the number rendered.
+  it("divides by the size the sheet's prose is actually written at", () => {
+    expect(proseSize).toBe(16);
+    expect(menuBase).toBe(proseSize);
+  });
+
+  it("gives preview windows a scale of their own, rebound off the same base", () => {
+    expect(ruleBody(".wiki-preview")).toMatch(/--font-scale:\s*var\(--preview-font-scale, 1\)/);
+    // The window used to hold its prose at 13px. A size here rides on top of the preview's scale, so
+    // the two surfaces would answer the same number with different text — which is the bug.
+    expect(ruleBody(".wiki-preview-body .markdown-view")).not.toMatch(/font-size/);
+    // The fallback is the default size, so a reader who has set nothing gets the base on both.
+    expect(sizes).toContain(menuBase);
+  });
+
+  // Both surfaces compute the same expression — the one prose rule times whichever scale the surface
+  // carries — because there is one base and (per the test above) one prose rule. So the same number
+  // set on each renders the same text, which is what the setting promises.
+  it("renders a chosen size at that many px on either surface", () => {
+    const rendered = (size: number) => proseSize * (size / menuBase);
+
+    expect(sizes.length).toBeGreaterThan(1);
+    for (const size of sizes) {
+      expect(rendered(size)).toBe(size);
+    }
   });
 });

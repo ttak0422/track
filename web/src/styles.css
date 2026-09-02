@@ -4208,6 +4208,13 @@ textarea.modal-input:focus-visible {
 }
 
 .wiki-preview {
+  /* A preview window carries a text size of its own (Settings > Preview text size). Rebinding the
+     scale here re-runs every calc() inside the window off that setting instead of the reader's, so
+     the window's prose and every block it carries read at the preview's size, and nothing below has
+     to know which surface it is drawn on. Both settings are a px size over the sheet's 16px base,
+     so the same number on each renders the same text; the fallback is the base, which stores and
+     sets nothing. */
+  --font-scale: var(--preview-font-scale, 1);
   position: fixed;
   display: flex;
   flex-direction: column;
@@ -4434,8 +4441,10 @@ textarea.modal-input:focus-visible {
   display: none;
 }
 
+/* No size of its own: the number in Preview text size is the size on screen only while the window's
+   prose reads at the shared 16px base like the reader's. Just the leading is tighter — a window is a
+   glance, not a reading column. */
 .wiki-preview-body .markdown-view {
-  font-size: calc(13px * var(--font-scale, 1));
   line-height: 1.5;
 }
 

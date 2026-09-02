@@ -5,15 +5,18 @@ import { IconSettings, RailIcon } from "./icons";
 import { railAnchor } from "./railAnchor";
 import { themeModes, useThemeMode } from "../themeState";
 
-const fontScaleKey = "track.fontScale";
+const fontSizeKey = "track.fontSize";
+const previewFontSizeKey = "track.previewFontSize";
 const contentWidthKey = "track.contentWidth";
-// Whole-UI font scale, applied through the --font-scale CSS var every font-size is wrapped in.
-const fontScales: { label: string; value: number }[] = [
-  { label: "S", value: 0.85 },
-  { label: "M", value: 1 },
-  { label: "L", value: 1.15 },
-  { label: "XL", value: 1.3 },
-];
+// The size the whole sheet is written against: .markdown-view is 16px, and every other font-size is a
+// px literal picked to sit beside it. So a surface asked for a given px size gets it by carrying a
+// scale of that size over this base — the reading surface through --font-scale on the root, a preview
+// window through --preview-font-scale, which .wiki-preview rebinds as its own --font-scale. Both
+// settings are the same number over the same base, which is what makes equal numbers render equal.
+const baseFontSize = 16;
+// Text size in px, not an abstract step: the reader and the previews are set from one list, so the
+// two numbers are comparable and a matching pair is a matching size.
+const fontSizes = [14, 16, 18, 20];
 // Reading-column max width, applied through --content-width on .note-reader and the prose measure via
 // --content-measure. "none" removes the cap so prose fills the viewport for wide-display use.
 const defaultContentWidth = "880px";
@@ -27,7 +30,8 @@ export function ThemeMenu() {
   // The theme lives in the shared themeState module: the phone's floating dock writes the same key,
   // so either surface switching themes shows up on the other.
   const [theme, setTheme] = useThemeMode();
-  const [fontScale, setFontScale] = useState<number>(() => storedFontScale());
+  const [fontSize, setFontSize] = useState<number>(() => storedFontSize(fontSizeKey));
+  const [previewFontSize, setPreviewFontSize] = useState<number>(() => storedFontSize(previewFontSizeKey));
   const [contentWidth, setContentWidth] = useState<string>(() => storedContentWidth());
   const [open, setOpen] = useState(false);
   const [anchor, setAnchor] = useState<CSSProperties | undefined>(undefined);
@@ -35,16 +39,11 @@ export function ThemeMenu() {
   const overlayRef = useRef<HTMLDivElement>(null);
   const toggleRef = useRef<HTMLButtonElement>(null);
 
-  useEffect(() => {
-    if (fontScale === 1) {
-      localStorage.removeItem(fontScaleKey);
-      document.documentElement.style.removeProperty("--font-scale");
-      return;
-    }
-
-    localStorage.setItem(fontScaleKey, String(fontScale));
-    document.documentElement.style.setProperty("--font-scale", String(fontScale));
-  }, [fontScale]);
+  useEffect(() => applyFontSize(fontSizeKey, "--font-scale", fontSize), [fontSize]);
+  useEffect(
+    () => applyFontSize(previewFontSizeKey, "--preview-font-scale", previewFontSize),
+    [previewFontSize],
+  );
 
   useEffect(() => {
     if (contentWidth === defaultContentWidth) {
@@ -165,14 +164,32 @@ export function ThemeMenu() {
                 <section className="menu-section" aria-label="Text size">
                   <h3>Text size</h3>
                   <div className="theme-switch" role="group" aria-label="Text size">
-                    {fontScales.map((scale) => (
+                    {fontSizes.map((size) => (
                       <button
-                        aria-pressed={fontScale === scale.value}
-                        key={scale.value}
+                        aria-pressed={fontSize === size}
+                        key={size}
                         type="button"
-                        onClick={() => setFontScale(scale.value)}
+                        onClick={() => setFontSize(size)}
                       >
-                        {scale.label}
+                        {size}px
+                      </button>
+                    ))}
+                  </div>
+                </section>
+                {/* The preview windows are set here rather than on their own chrome: a window's size is
+                    a standing preference, not something to redecide per preview, and the number only
+                    means anything read against the reader's number directly above it. */}
+                <section className="menu-section" aria-label="Preview text size">
+                  <h3>Preview text size</h3>
+                  <div className="theme-switch" role="group" aria-label="Preview text size">
+                    {fontSizes.map((size) => (
+                      <button
+                        aria-pressed={previewFontSize === size}
+                        key={size}
+                        type="button"
+                        onClick={() => setPreviewFontSize(size)}
+                      >
+                        {size}px
                       </button>
                     ))}
                   </div>
@@ -201,10 +218,24 @@ export function ThemeMenu() {
   );
 }
 
-function storedFontScale(): number {
-  if (typeof window === "undefined") return 1;
-  const value = Number(localStorage.getItem(fontScaleKey));
-  return fontScales.some((scale) => scale.value === value) ? value : 1;
+// A size is stored only while it differs from the base, which is also the CSS fallback both scales
+// carry — so a reader on defaults has neither key nor custom property, and the two surfaces start out
+// at the same number.
+function applyFontSize(key: string, property: string, size: number) {
+  if (size === baseFontSize) {
+    localStorage.removeItem(key);
+    document.documentElement.style.removeProperty(property);
+    return;
+  }
+
+  localStorage.setItem(key, String(size));
+  document.documentElement.style.setProperty(property, String(size / baseFontSize));
+}
+
+function storedFontSize(key: string): number {
+  if (typeof window === "undefined") return baseFontSize;
+  const value = Number(localStorage.getItem(key));
+  return fontSizes.includes(value) ? value : baseFontSize;
 }
 
 function storedContentWidth(): string {

@@ -1,4 +1,4 @@
-import { fireEvent, render, screen } from "@testing-library/react";
+import { fireEvent, render, screen, within } from "@testing-library/react";
 import { act } from "react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { ThemeMenu } from "./ThemeMenu";
@@ -79,5 +79,61 @@ describe("ThemeMenu on hover", () => {
 
     fireEvent.click(screen.getByRole("button", { name: "Settings" }));
     expect(screen.getByRole("group", { name: "Theme" })).toBeInTheDocument();
+  });
+});
+
+describe("ThemeMenu text size", () => {
+  afterEach(() => {
+    localStorage.clear();
+    document.documentElement.removeAttribute("style");
+  });
+
+  function pick(group: string, label: string) {
+    fireEvent.click(within(screen.getByRole("group", { name: group })).getByRole("button", { name: label }));
+  }
+
+  function scales() {
+    const root = document.documentElement.style;
+    return [root.getPropertyValue("--font-scale"), root.getPropertyValue("--preview-font-scale")];
+  }
+
+  it("puts the reader and a preview window on the same scale for the same number", () => {
+    render(<ThemeMenu />);
+    fireEvent.click(screen.getByRole("button", { name: "Settings" }));
+
+    pick("Text size", "18px");
+    pick("Preview text size", "18px");
+
+    // The sheet's prose is 16px * the scale its surface carries, so an equal scale is equal text —
+    // and 18/16 is what 18px has to mean on both.
+    const [reader, preview] = scales();
+    expect(reader).toBe("1.125");
+    expect(preview).toBe(reader);
+  });
+
+  it("keeps the two numbers independent", () => {
+    render(<ThemeMenu />);
+    fireEvent.click(screen.getByRole("button", { name: "Settings" }));
+
+    pick("Text size", "20px");
+    pick("Preview text size", "14px");
+
+    expect(scales()).toEqual(["1.25", "0.875"]);
+    expect(localStorage.getItem("track.fontSize")).toBe("20");
+    expect(localStorage.getItem("track.previewFontSize")).toBe("14");
+  });
+
+  // The default is the absence of the setting, the way the theme's "system" and the content width's
+  // "Normal" are: back at the base, both the key and the property go away again.
+  it("stores nothing at the default size", () => {
+    render(<ThemeMenu />);
+    fireEvent.click(screen.getByRole("button", { name: "Settings" }));
+
+    pick("Text size", "20px");
+    pick("Text size", "16px");
+
+    expect(scales()).toEqual(["", ""]);
+    expect(localStorage.getItem("track.fontSize")).toBeNull();
+    expect(localStorage.getItem("track.previewFontSize")).toBeNull();
   });
 });
