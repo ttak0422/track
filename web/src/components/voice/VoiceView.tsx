@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState, type CSSProperties } from "react";
+import { useEffect, useRef, useState } from "react";
 import { openJournal, resolveTerm, searchNotes } from "../../api";
 import { useNotifications } from "../../notifications";
 import { useNoteQuery, useSaveNoteMutation } from "../../queries";
@@ -145,9 +145,6 @@ export function VoiceView() {
         <h1 className="voice-title" id="voice-title">Voice input</h1>
       </header>
       <div className={`voice-console${recognition.isListening ? " listening" : ""}`} aria-label="音声入力">
-        <div className="voice-wave" aria-hidden="true">
-          {Array.from({ length: 30 }, (_, index) => <i key={index} style={{ "--height": `${6 + ((index * 17) % 58)}px`, "--delay": `${index * -0.17}s` } as CSSProperties} />)}
-        </div>
         <div className="voice-indicator"><span className="voice-dot" aria-hidden="true" /><span role="status">{recognition.isListening ? "音声入力中" : "停止中"}</span></div>
         <div className="voice-actions">
           <button className="voice-action primary" type="button" disabled={!recognition.isSupported} onClick={recognition.isListening ? recognition.stop : recognition.start}>
