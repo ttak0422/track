@@ -5475,3 +5475,6 @@ textarea.modal-input:focus-visible {
 .results-group:first-child {
   margin-top: 0;
 }
+
+/* Map marker: visualization geometry, with the reader's ink and ground. */
+.map-fence-marker { border: 2px solid var(--text); border-radius: 50%; background: var(--panel); }

@@ -464,9 +464,9 @@ const markdownComponents = {
       const normalized = normalizeCodeLanguage(lang);
       if (normalized === "map") {
         const meta = typeof code.data?.meta === "string" ? code.data.meta : "";
-        const parsed = parseMapFence(meta);
+        const parsed = meta.trim() ? null : parseMapFence(text);
         if (!parsed) return <CodeBlock lang={lang} text={text} copyLineProperties={copyLineProperties(node)} />;
-        return <MapFence {...parsed} label={text.trim()} />;
+        return <MapFence {...parsed} />;
       }
       if (normalized === "mermaid") {
         return <MermaidDiagram text={text} />;
