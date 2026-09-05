@@ -2522,8 +2522,8 @@ textarea.modal-input:focus-visible {
   --preview-pad-inline: 16px;
   padding: 16px var(--preview-pad-inline);
   background: var(--panel);
-  /* Read-only notes flow into the outer reader below; split preview keeps its own overflow but hides
-     the bar so the editing surface stays quiet. */
+  /* Read-only notes flow into the outer reader below; split preview keeps its own overflow, with
+     its bar restored under .editor-grid-split where it is an independent scroll pane. */
   scrollbar-width: none;
 }
 
@@ -2662,6 +2662,13 @@ textarea.modal-input:focus-visible {
 
 .editor-grid-split .note-preview {
   border-left: 1px solid var(--line);
+  /* Beside the editor the preview is an independent scroll pane, so it shows the shared quiet bar
+     like the textarea next to it — otherwise it scrolls with no thumb while its neighbour has one. */
+  scrollbar-width: thin;
+}
+
+.editor-grid-split .note-preview::-webkit-scrollbar {
+  display: block;
 }
 
 /* Read-only view (the static reader, and the editor's Preview mode — neither renders a textarea): let
