@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { portableToHtml, toPortableMarkdown } from "./portable";
+import { confluencePlainText, portableToHtml, stripTableDelimiterRows, toPortableMarkdown } from "./portable";
 
 describe("toPortableMarkdown", () => {
   it("flattens a bare wiki link to its key", () => {
@@ -23,6 +23,14 @@ describe("toPortableMarkdown", () => {
     const md = "# Title\n\n- item\n\n[text](https://x.example) and `code`";
     expect(toPortableMarkdown(md)).toBe(md);
   });
+
+  it("removes GFM table delimiter rows for copied values", () => {
+    expect(stripTableDelimiterRows("| a | b |\n|---|---|\n| 1 | 2 |\n")).toBe("| a | b |\n| 1 | 2 |\n");
+  });
+
+  it("turns HTML breaks into actual line breaks in the Confluence text flavor", () => {
+    expect(confluencePlainText("| a<br>b | c |\n| --- | --- |\n")).toBe("| a\nb | c |\n");
+  });
 });
 
 describe("portableToHtml", () => {
@@ -36,5 +44,10 @@ describe("portableToHtml", () => {
   it("renders a wiki link already flattened by toPortableMarkdown as plain text", async () => {
     const html = await portableToHtml(toPortableMarkdown("see [[a|b]] here"));
     expect(html).toBe("<p>see b here</p>");
+  });
+
+  it("keeps table-cell breaks as HTML breaks", async () => {
+    const html = await portableToHtml("| a<br>b | c |\n| --- | --- |\n| 1 | 2 |");
+    expect(html).toContain("<th>a<br/>\nb</th>");
   });
 });
