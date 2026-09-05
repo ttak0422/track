@@ -320,7 +320,6 @@ export function VoiceView() {
           </button>
           {recognition.isListening ? <span className="voice-elapsed" role="timer">{formatTime(elapsed)}</span> : null}
         </div>
-        <div className="voice-indicator"><span className="voice-dot" aria-hidden="true" /><span role="status">{recognition.isListening ? "Recording" : "Idle"}</span></div>
       </div>
       <div className={`voice-transcript-wrap${composing ? " composing" : ""}`} ref={wrapRef}>
         <div className="voice-transcript-mirror" ref={mirrorRef} aria-hidden="true">{mirrorHead}{mirrorTail !== "" ? <span className="voice-interim-faint">{mirrorTail}</span> : null}{"\u200b"}</div>
