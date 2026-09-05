@@ -4,30 +4,29 @@
 /* section label: names the candidate region (variant 6). */
 .voice-candidates-title { color: var(--faint); font: 500 calc(11px * var(--font-scale, 1)) / 1.4 var(--font-mono); letter-spacing: .12em; text-transform: uppercase; }
 .voice-console { width: min(370px, 100%); margin: 36px auto 28px; text-align: center; }
+.voice-actions { display: flex; align-items: center; justify-content: center; margin: 0 0 12px; }
+/* round mic: one control for start and stop. Quiet chip at rest, filled mark
+   while recording so the state reads without words. */
+.voice-mic { display: inline-flex; align-items: center; justify-content: center; width: 48px; height: 48px; border: 1px solid var(--line); border-radius: 50%; background: var(--panel-soft); color: var(--muted); cursor: pointer; }
+.voice-mic:hover, .voice-mic:focus-visible { color: var(--text); outline: none; border-color: var(--mark); }
+.voice-console.listening .voice-mic { border-color: var(--mark); background: var(--mark); color: var(--panel); }
+.voice-mic:disabled { cursor: not-allowed; opacity: .55; }
 .voice-indicator { display: flex; align-items: center; justify-content: center; gap: 9px; color: var(--muted); font-size: 13px; }
 .voice-dot { width: 6px; height: 6px; border-radius: 50%; background: var(--faint); }
 .voice-console.listening .voice-dot { background: var(--mark); }
-.voice-actions { display: flex; align-items: center; justify-content: center; gap: 10px; margin: 15px 0 0; }
-/* quiet chip: controls rest on the voice console surface. */
-.voice-action { display: inline-flex; align-items: center; gap: 7px; min-height: 40px; border: 1px solid var(--line); border-radius: var(--radius); background: var(--panel-soft); color: var(--muted); padding: 8px 14px; font: inherit; cursor: pointer; }
-.voice-action:hover, .voice-action:focus-visible { color: var(--text); }
-/* filled action: the primary recording decision. */
-.voice-action.primary { border-color: var(--mark); background: var(--mark); color: var(--panel); }
-.voice-action:disabled { cursor: not-allowed; opacity: .55; }
-.voice-transcript-wrap { position: relative; width: min(560px, 100%); margin: 0 auto; background: transparent; }
+/* underline field, as the search box: no box, one bottom hairline that takes
+   the mark while the field holds focus. The caret never draws its own frame. */
+.voice-transcript-wrap { width: min(560px, 100%); margin: 0 auto; background: transparent; border-bottom: 1px solid var(--line); transition: border-color 0.12s ease; }
+.voice-transcript-wrap:focus-within { border-bottom-color: var(--mark); }
 .voice-transcript { display: block; width: 100%; height: 190px; resize: none; overflow: auto; border: 0; background: transparent; color: var(--text); caret-color: var(--text); padding: 14px 2px; margin: 0; font: inherit; line-height: 1.85; }
+.voice-transcript:focus { outline: none; }
 .voice-transcript::placeholder { color: var(--faint); }
-.voice-interim-line { margin: 0; padding: 0 2px 14px; white-space: pre-wrap; word-wrap: break-word; color: var(--faint); font: inherit; line-height: 1.85; }
-/* selection action popover: the floating layer variant, anchored to the text
-   selection rather than a permanent header button. Actions inside are text
-   controls and the press preserves the selection it acts on (variant 3). */
-.voice-select-pop { position: absolute; z-index: 5; transform: translate(-50%, -100%); background: var(--panel); border: 1px solid var(--line); border-radius: var(--radius-lg); box-shadow: 0 8px 24px color-mix(in srgb, var(--text) 12%, transparent); padding: 4px; }
-.voice-select-pop button { border: 0; background: transparent; color: var(--muted); padding: 7px 10px; font: inherit; cursor: pointer; white-space: nowrap; }
-.voice-select-pop button:hover, .voice-select-pop button:focus-visible { background: var(--panel-soft); color: var(--text); border-radius: var(--radius-sm); }
+/* link candidates: the floating layer variant. Actions inside are text
+   controls (variant 3). */
 .voice-candidates { display: grid; gap: 4px; width: min(420px, 100%); margin: 18px auto 0; padding: 12px; border: 1px solid var(--line); border-radius: var(--radius-lg); background: var(--panel); box-shadow: 0 8px 24px color-mix(in srgb, var(--text) 12%, transparent); }
 .voice-candidates .voice-candidates-title { padding: 4px 10px; }
 .voice-candidate { border: 0; background: transparent; color: var(--muted); padding: 7px 10px; font: inherit; cursor: pointer; text-align: left; }
 .voice-candidate:hover, .voice-candidate:focus-visible { background: var(--panel-soft); color: var(--text); border-radius: var(--radius-sm); }
 .voice-status { color: var(--muted); font-size: 13px; }
 .voice-error { color: var(--danger); font-size: 13px; }
-@media (max-width: 540px) { .voice-view { padding: 28px 20px 96px; } .voice-console { margin-top: 28px; } .voice-actions { flex-wrap: wrap; } }
+@media (max-width: 540px) { .voice-view { padding: 28px 20px 96px; } .voice-console { margin-top: 28px; } }

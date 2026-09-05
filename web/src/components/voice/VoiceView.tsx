@@ -1,39 +1,59 @@
-import { useEffect, useRef, useState } from "react";
-import { openJournal, resolveTerm, searchNotes } from "../../api";
+import { useEffect, useLayoutEffect, useRef, useState } from "react";
+import { getNote, openJournal, resolveTerm, saveNote, searchNotes } from "../../api";
 import { useNotifications } from "../../notifications";
-import { useNoteQuery, useSaveNoteMutation } from "../../queries";
 import { useFloating } from "../preview/floatingStore";
 import { VoiceIcon } from "./VoiceIcon";
 import { useSpeechRecognition } from "./useSpeechRecognition";
 import "./voice.css";
 
-interface VoiceSelection {
-  term: string;
-  left: number;
-  top: number;
-}
+const SEARCH_DEBOUNCE_MS = 500;
 
 export function VoiceView() {
   const recognition = useSpeechRecognition();
   const [text, setText] = useState("");
-  const [targetID, setTargetID] = useState("");
   const [candidates, setCandidates] = useState<Array<{ note_id: string; title: string }>>([]);
   const [notice, setNotice] = useState("");
   const [error, setError] = useState("");
-  const [selection, setSelection] = useState<VoiceSelection | null>(null);
   const floating = useFloating();
   const { notify } = useNotifications();
-  const note = useNoteQuery(targetID, { enabled: targetID !== "" });
-  const save = useSaveNoteMutation(targetID);
   const areaRef = useRef<HTMLTextAreaElement>(null);
-  const wrapRef = useRef<HTMLDivElement>(null);
   const followRef = useRef(true);
   const mouseDownRef = useRef(false);
+  const composingRef = useRef(false);
   const appliedFinalRef = useRef(0);
+  const absorbedRef = useRef("");
+  const prevInterimRef = useRef("");
+  const lastSavedRef = useRef("");
+  const lastSelRef = useRef<{ start: number; end: number } | null>(null);
+  const searchTimerRef = useRef<number | undefined>(undefined);
+  const lastSearchedRef = useRef("");
+
+  const interim = recognition.interimText;
+  // Track the interim across renders: a growing interim is the same utterance
+  // (a touched tail stays the user's), a wholly new one resumes shadowing.
+  // An interim going quiet keeps the absorbed tail: the pending finalize
+  // still needs it to tell hand-confirmed speech from a fresh delta.
+  if (prevInterimRef.current !== interim) {
+    prevInterimRef.current = interim;
+    if (absorbedRef.current !== "" && interim !== "" && !interim.startsWith(absorbedRef.current)) {
+      absorbedRef.current = "";
+    }
+  }
+  // The interim rides on the tail of the editable value so it reads in place,
+  // in the same field. Once the user touches the tail it is theirs: stop
+  // shadowing it and let the next interim start fresh.
+  const shadowing = interim !== "" && absorbedRef.current === "";
+  const displayValue = shadowing && !text.endsWith(interim) ? text + interim : text;
+
+  useEffect(() => () => {
+    window.clearTimeout(searchTimerRef.current);
+  }, []);
 
   // Append only the not-yet-applied tail of the recognized finals, so edits
   // made while dictating are never overwritten. A chunk boundary means the
-  // speaker paused, so it starts on a fresh line while listening.
+  // speaker paused, so it starts on a fresh line while listening. A tail the
+  // user already absorbed is the same speech confirmed by hand: strip it
+  // before appending so it is not duplicated.
   useEffect(() => {
     const full = recognition.finalText;
     if (full.length < appliedFinalRef.current) appliedFinalRef.current = 0;
@@ -41,19 +61,48 @@ export function VoiceView() {
     const delta = full.slice(appliedFinalRef.current);
     appliedFinalRef.current = full.length;
     setText((prev) => {
-      if (prev.endsWith(delta)) return prev;
-      const breakLine = recognition.isListening && prev !== "" && !prev.endsWith("\n");
-      return prev + (breakLine ? "\n" : "") + (breakLine ? delta.trimStart() : delta);
+      if (prev.endsWith(delta)) {
+        absorbedRef.current = "";
+        return prev;
+      }
+      let base = prev;
+      const absorbed = absorbedRef.current;
+      if (absorbed !== "" && base.endsWith(absorbed)) base = base.slice(0, base.length - absorbed.length);
+      absorbedRef.current = "";
+      // The user confirmed the same speech by hand while it was interim:
+      // it already reads in the text, so appending would double it. Untouched
+      // flows never take this branch, so repeated dictated words still append.
+      const core = delta.trim();
+      if (absorbed !== "" && core !== "" && base.includes(core)) return base;
+      const breakLine = recognition.isListening && base !== "" && !base.endsWith("\n");
+      return base + (breakLine ? "\n" : "") + (breakLine ? delta.trimStart() : delta);
     });
   }, [recognition.finalText, recognition.isListening]);
 
-  // Follow the tail while recognition appends: stay pinned to the newest text
-  // unless the user has scrolled up to re-read, in which case leave them there.
+  // Keep the user's caret and selection across value updates: recognition
+  // ticks rewrite the whole value, which would otherwise yank the caret to
+  // the end and break a selection. Never fight an active drag or IME.
+  useLayoutEffect(() => {
+    const area = areaRef.current;
+    const sel = lastSelRef.current;
+    if (!area || !sel || mouseDownRef.current || composingRef.current) return;
+    if (document.activeElement !== area) return;
+    const length = area.value.length;
+    const start = Math.min(sel.start, length);
+    const end = Math.min(sel.end, length);
+    if (area.selectionStart !== start || area.selectionEnd !== end) {
+      area.setSelectionRange(start, end);
+    }
+  });
+
+  // Follow the tail while recognition appends, unless the user is working in
+  // the field: a focused field never moves under them.
   useEffect(() => {
     const area = areaRef.current;
     if (!area || !followRef.current) return;
+    if (document.activeElement === area) return;
     area.scrollTop = area.scrollHeight;
-  }, [text, recognition.interimText]);
+  }, [displayValue]);
 
   function handleScroll() {
     const area = areaRef.current;
@@ -61,66 +110,71 @@ export function VoiceView() {
     followRef.current = area.scrollHeight - (area.scrollTop + area.clientHeight) < 24;
   }
 
-  function placeSelection(term: string, left: number, top: number) {
-    const wrap = wrapRef.current;
-    const width = wrap?.getBoundingClientRect().width ?? left * 2;
-    setSelection({
-      term,
-      left: Math.min(Math.max(left, 84), Math.max(84, width - 84)),
-      top: Math.max(top, 8),
-    });
-  }
-
   function selectedTerm() {
     const area = areaRef.current;
     if (!area) return "";
-    return text.slice(area.selectionStart, area.selectionEnd).trim();
+    return displayValue.slice(area.selectionStart, area.selectionEnd).trim();
   }
 
-  // Mouse positions the popover: the coords come from the same gesture that
-  // made the selection, so the panel opens at the cursor rather than a stale
-  // point. Keyboard selections fall back to the field's centre.
-  function handleMouseDown() {
-    mouseDownRef.current = true;
+  function clearSearch() {
+    window.clearTimeout(searchTimerRef.current);
+    lastSearchedRef.current = "";
+    setCandidates([]);
+    setNotice("");
   }
 
-  function handleMouseUp(event: React.MouseEvent) {
-    mouseDownRef.current = false;
-    const term = selectedTerm();
+  // A selection searches by itself after a beat: no tap on an action first.
+  // The beat absorbs drags and cursor passes; an unchanged term never
+  // re-searches, so caret restores stay quiet.
+  function scheduleSearch(term: string) {
+    window.clearTimeout(searchTimerRef.current);
     if (!term) {
-      setSelection(null);
+      clearSearch();
       return;
     }
-    const rect = wrapRef.current?.getBoundingClientRect();
-    if (!rect) return;
-    placeSelection(term, event.clientX - rect.left, event.clientY - rect.top);
+    if (term === lastSearchedRef.current) return;
+    searchTimerRef.current = window.setTimeout(() => {
+      void runSearch(term);
+    }, SEARCH_DEBOUNCE_MS);
   }
 
-  function handleSelect() {
-    if (mouseDownRef.current) return;
-    const term = selectedTerm();
-    if (!term) {
-      setSelection(null);
-      return;
-    }
-    const width = wrapRef.current?.getBoundingClientRect().width ?? 560;
-    placeSelection(term, width / 2, 40);
-  }
-
-  async function findLink(term: string) {
-    if (!term) return;
+  async function runSearch(term: string) {
+    if (selectedTerm() !== term) return;
+    lastSearchedRef.current = term;
     setError("");
     setNotice("");
     setCandidates([]);
-    setSelection(null);
     const resolved = await resolveTerm(term);
+    if (selectedTerm() !== term) return;
     if (resolved.found) {
       setCandidates([{ note_id: resolved.note.note_id, title: resolved.note.title }]);
       return;
     }
     const result = await searchNotes(term, 8);
+    if (selectedTerm() !== term) return;
     setCandidates(result.results.map((item) => ({ note_id: item.note_id, title: item.title })));
     if (result.results.length === 0) setNotice("No matching note");
+  }
+
+  function refreshSelection() {
+    const area = areaRef.current;
+    if (area) {
+      lastSelRef.current = { start: area.selectionStart, end: area.selectionEnd };
+    }
+    scheduleSearch(selectedTerm());
+  }
+
+  function handleChange(event: React.ChangeEvent<HTMLTextAreaElement>) {
+    const value = event.target.value;
+    if (interim !== "" && value.endsWith(interim)) {
+      absorbedRef.current = "";
+      setText(value.slice(0, value.length - interim.length));
+    } else {
+      if (interim !== "") absorbedRef.current = interim;
+      setText(value);
+    }
+    lastSelRef.current = { start: event.target.selectionStart, end: event.target.selectionEnd };
+    clearSearch();
   }
 
   // The transcript stays as dictated: a candidate only opens its note in the
@@ -135,28 +189,28 @@ export function VoiceView() {
     setCandidates([]);
   }
 
-  async function saveTranscript() {
-    if (!text.trim()) return;
+  // No save control: stopping with unsaved dictation appends it to today's
+  // journal and says so in the toast. Only the unsaved tail goes, so a
+  // stop–start loop never files the same words twice.
+  async function stopAndSave(snapshot: string) {
+    recognition.stop();
+    const previous = lastSavedRef.current;
+    const tail = snapshot.startsWith(previous) ? snapshot.slice(previous.length) : snapshot;
+    if (!tail.trim()) return;
     setError("");
-    setNotice("");
-    let id = targetID;
-    if (!id) {
+    try {
       const today = new Date();
       const date = `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, "0")}-${String(today.getDate()).padStart(2, "0")}`;
       const journal = await openJournal(date);
-      id = journal.note_id;
-      setTargetID(id);
-      notify("Today’s journal is ready — save again to append the transcript.", id);
-      return;
+      const current = await getNote(journal.note_id);
+      const base = current.note.body.replace(/\n+$/, "");
+      const next = base === "" ? tail : `${base}\n\n${tail}`;
+      await saveNote(journal.note_id, { body: next, etag: current.note.etag ?? "" });
+      lastSavedRef.current = snapshot;
+      notify("Saved to today’s journal", journal.note_id);
+    } catch (reason) {
+      setError(reason instanceof Error ? reason.message : "Auto-save failed");
     }
-    if (!note.data) {
-      setNotice("Loading note…");
-      return;
-    }
-    save.mutate({ body: text, etag: note.data.note.etag ?? "" }, {
-      onSuccess: () => notify("Saved to today’s journal", id),
-      onError: (reason) => setError(reason instanceof Error ? reason.message : "Save failed"),
-    });
   }
 
   return (
@@ -165,48 +219,48 @@ export function VoiceView() {
         <h1 className="voice-title" id="voice-title">Voice input</h1>
       </header>
       <div className={`voice-console${recognition.isListening ? " listening" : ""}`} aria-label="音声入力">
-        <div className="voice-indicator"><span className="voice-dot" aria-hidden="true" /><span role="status">{recognition.isListening ? "音声入力中" : "停止中"}</span></div>
         <div className="voice-actions">
-          <button className="voice-action primary" type="button" disabled={!recognition.isSupported} onClick={recognition.isListening ? recognition.stop : recognition.start}>
-            <VoiceIcon listening={recognition.isListening} /> {recognition.isListening ? "音声入力を停止" : "音声入力を開始"}
+          <button
+            className="voice-mic"
+            type="button"
+            disabled={!recognition.isSupported}
+            aria-pressed={recognition.isListening}
+            aria-label={recognition.isListening ? "音声入力を停止" : "音声入力を開始"}
+            onClick={recognition.isListening ? () => void stopAndSave(text) : recognition.start}
+          >
+            <VoiceIcon listening={recognition.isListening} />
           </button>
-          <button className="voice-action" type="button" onClick={() => void saveTranscript()} disabled={!text.trim() || save.isPending}>今日のjournalへ保存</button>
         </div>
+        <div className="voice-indicator"><span className="voice-dot" aria-hidden="true" /><span role="status">{recognition.isListening ? "Recording" : "Idle"}</span></div>
       </div>
-      <div className="voice-transcript-wrap" ref={wrapRef}>
+      <div className="voice-transcript-wrap">
         <textarea
           className="voice-transcript"
           ref={areaRef}
           aria-label="音声入力の文字起こし"
-          value={text}
-          onChange={(event) => {
-            setText(event.target.value);
-            setSelection(null);
-          }}
+          value={displayValue}
+          onChange={handleChange}
           onScroll={handleScroll}
-          onMouseDown={handleMouseDown}
-          onMouseUp={handleMouseUp}
-          onSelect={handleSelect}
+          onMouseDown={() => {
+            mouseDownRef.current = true;
+          }}
+          onMouseUp={() => {
+            mouseDownRef.current = false;
+            refreshSelection();
+          }}
+          onSelect={refreshSelection}
+          onCompositionStart={() => {
+            composingRef.current = true;
+          }}
+          onCompositionEnd={() => {
+            composingRef.current = false;
+          }}
           placeholder="音声入力を開始してください…"
         />
-        {recognition.interimText ? (
-          <p className="voice-interim-line" aria-live="polite">{recognition.interimText}</p>
-        ) : null}
-        {selection ? (
-          <div className="voice-select-pop" style={{ left: selection.left, top: selection.top }}>
-            <button
-              type="button"
-              onMouseDown={(event) => event.preventDefault()}
-              onClick={() => void findLink(selection.term)}
-            >
-              「{selection.term.length > 12 ? `${selection.term.slice(0, 12)}…` : selection.term}」を検索
-            </button>
-          </div>
-        ) : null}
       </div>
       {candidates.length > 0 ? <div className="voice-candidates" aria-label="Link candidates">
         <span className="voice-candidates-title">Choose a note</span>
-        {candidates.map((candidate) => <button className="voice-candidate" type="button" key={candidate.note_id} onClick={() => openLink(candidate.note_id)}>{candidate.title}</button>)}
+        {candidates.map((candidate) => <button className="voice-candidate" type="button" key={candidate.note_id} onMouseDown={(event) => event.preventDefault()} onClick={() => openLink(candidate.note_id)}>{candidate.title}</button>)}
       </div> : null}
       {notice ? <p className="voice-status" role="status">{notice}</p> : null}
       {error ? <p className="voice-error" role="alert">{error}</p> : null}
