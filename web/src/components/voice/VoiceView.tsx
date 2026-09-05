@@ -1,5 +1,5 @@
 import { useEffect, useLayoutEffect, useRef, useState } from "react";
-import { getNote, openJournal, resolveTerm, saveNote, searchNotes } from "../../api";
+import { APIError, createNote, getNote, openJournal, resolveTerm, saveNote, searchNotes } from "../../api";
 import { useNotifications } from "../../notifications";
 import { useFloating } from "../preview/floatingStore";
 import { VoiceIcon } from "./VoiceIcon";
@@ -18,8 +18,8 @@ export function VoiceView() {
   const recognition = useSpeechRecognition();
   const [text, setText] = useState("");
   const [candidates, setCandidates] = useState<Array<{ note_id: string; title: string }>>([]);
-  const [notice, setNotice] = useState("");
   const [error, setError] = useState("");
+  const [createTerm, setCreateTerm] = useState("");
   const [candidatePos, setCandidatePos] = useState<VoiceCandidatePos>({ left: 360, top: 60, above: false });
   const [elapsed, setElapsed] = useState(0);
   const [selecting, setSelecting] = useState(false);
@@ -174,7 +174,7 @@ export function VoiceView() {
     window.clearTimeout(searchTimerRef.current);
     lastSearchedRef.current = "";
     setCandidates([]);
-    setNotice("");
+    setCreateTerm("");
   }
 
   // A selection searches by itself after a beat: no tap on an action first.
@@ -196,7 +196,6 @@ export function VoiceView() {
     if (selectedTerm() !== term) return;
     lastSearchedRef.current = term;
     setError("");
-    setNotice("");
     setCandidates([]);
     const resolved = await resolveTerm(term);
     if (selectedTerm() !== term) return;
@@ -207,7 +206,33 @@ export function VoiceView() {
     const result = await searchNotes(term, 8);
     if (selectedTerm() !== term) return;
     setCandidates(result.results.map((item) => ({ note_id: item.note_id, title: item.title })));
-    if (result.results.length === 0) setNotice("No matching note");
+    if (result.results.length === 0) {
+      setCreateTerm(term);
+    }
+  }
+
+  // No match for the dictated words: offer to mint the note instead. A title
+  // taken since the search is a 409, reported through the toast as asked.
+  async function createFromSelection(term: string) {
+    if (term === "") return;
+    setError("");
+    try {
+      const created = await createNote(term);
+      clearSearch();
+      floating.open(
+        { kind: "note", noteID: created.note_id },
+        { left: 72, top: 112, width: 420, height: 320 },
+        false,
+        { pinned: true },
+      );
+      notify(`「${term}」を作成しました`, created.note_id);
+    } catch (reason) {
+      if (reason instanceof APIError && reason.status === 409) {
+        notify("同名タイトルのノートが存在します");
+      } else {
+        setError(reason instanceof Error ? reason.message : "Create failed");
+      }
+    }
   }
 
   // Measure the selection's end in the mirror, which lays the field's string
@@ -369,8 +394,15 @@ export function VoiceView() {
           <span className="voice-candidates-title">Choose a note</span>
           {candidates.map((candidate) => <button className="voice-candidate" type="button" key={candidate.note_id} onMouseDown={(event) => event.preventDefault()} onClick={() => openLink(candidate.note_id)}>{candidate.title}</button>)}
         </div> : null}
+        {createTerm !== "" ? <div
+          className={`voice-candidates${candidatePos.above ? " above" : ""}`}
+          aria-label="Create note"
+          style={{ left: candidatePos.left, top: candidatePos.top }}
+        >
+          <span className="voice-candidates-title">No matching note</span>
+          <button className="voice-candidate" type="button" onMouseDown={(event) => event.preventDefault()} onClick={() => void createFromSelection(createTerm)}>「{createTerm.length > 12 ? `${createTerm.slice(0, 12)}…` : createTerm}」を新規作成</button>
+        </div> : null}
       </div>
-      {notice ? <p className="voice-status" role="status">{notice}</p> : null}
       {error ? <p className="voice-error" role="alert">{error}</p> : null}
     </section>
   );

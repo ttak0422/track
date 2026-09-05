@@ -821,6 +821,45 @@ func TestDeleteNoteRemovesFileSidecarAndIndex(t *testing.T) {
 	}
 }
 
+func postNote(t *testing.T, url, jsonBody string) (int, map[string]any) {
+	t.Helper()
+	resp, err := http.Post(url, "application/json", strings.NewReader(jsonBody))
+	if err != nil {
+		t.Fatalf("post %s: %v", url, err)
+	}
+	defer resp.Body.Close()
+	var decoded map[string]any
+	_ = json.NewDecoder(resp.Body).Decode(&decoded)
+	return resp.StatusCode, decoded
+}
+
+func TestPostNoteCreatesAndRefusesDuplicates(t *testing.T) {
+	server, cfg := putNoteSetup(t, 100, "Alpha", "body\n")
+
+	code, resp := postNote(t, server.URL+"/api/note", `{"title":"Gamma"}`)
+	if code != http.StatusOK || resp["created"] != true {
+		t.Fatalf("create status=%d resp=%v", code, resp)
+	}
+	id, _ := resp["note_id"].(float64)
+	if id == 0 {
+		t.Fatalf("create should return a note id, got %v", resp)
+	}
+	createdID := int64(id)
+	if _, err := os.Stat(cfg.NotePath(createdID)); err != nil {
+		t.Fatalf("note file should exist: %v", err)
+	}
+	// The new title resolves, and asking for it again is a conflict, not a copy.
+	if code, resp := postNote(t, server.URL+"/api/note", `{"title":"Gamma"}`); code != http.StatusConflict {
+		t.Fatalf("duplicate title should 409, got %d %v", code, resp)
+	}
+	if code, _ := postNote(t, server.URL+"/api/note", `{"title":"Alpha"}`); code != http.StatusConflict {
+		t.Fatalf("existing title should 409, got %d", code)
+	}
+	if code, _ := postNote(t, server.URL+"/api/note", `{"title":"  "}`); code != http.StatusBadRequest {
+		t.Fatalf("blank title should 400, got %d", code)
+	}
+}
+
 func TestRenderSanitizesActionLinksKeepsWiki(t *testing.T) {
 	server, _ := putNoteSetup(t, 100, "Alpha", "old body\n")
 

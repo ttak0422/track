@@ -1,5 +1,6 @@
 import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
+import { APIError } from "../../api";
 import { VoiceView } from "./VoiceView";
 
 const { recognitionState, apiMocks } = vi.hoisted(() => ({
@@ -10,11 +11,13 @@ const { recognitionState, apiMocks } = vi.hoisted(() => ({
     openJournal: (...args: unknown[]): Promise<any> => Promise.resolve({ note_id: "journal-1", args }),
     getNote: (...args: unknown[]): Promise<any> => Promise.resolve({ note: { body: "", etag: "etag-1" }, args }),
     saveNote: (...args: unknown[]): Promise<any> => Promise.resolve({ etag: "etag-2", args }),
+    createNote: (...args: unknown[]): Promise<any> => Promise.resolve({ note_id: "n9", title: "spoken", args }),
   },
 }));
 
 const notify = vi.fn();
 const stopFn = vi.fn();
+const floatingOpen = vi.fn();
 
 vi.mock("./useSpeechRecognition", () => ({
   useSpeechRecognition: () => ({
@@ -27,15 +30,20 @@ vi.mock("./useSpeechRecognition", () => ({
     stop: stopFn,
   }),
 }));
-vi.mock("../../api", () => ({
-  resolveTerm: (...args: unknown[]) => apiMocks.resolveTerm(...args),
-  searchNotes: (...args: unknown[]) => apiMocks.searchNotes(...args),
-  openJournal: (...args: unknown[]) => apiMocks.openJournal(...args),
-  getNote: (...args: unknown[]) => apiMocks.getNote(...args),
-  saveNote: (...args: unknown[]) => apiMocks.saveNote(...args),
-}));
+vi.mock("../../api", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("../../api")>();
+  return {
+    ...actual,
+    resolveTerm: (...args: unknown[]) => apiMocks.resolveTerm(...args),
+    searchNotes: (...args: unknown[]) => apiMocks.searchNotes(...args),
+    openJournal: (...args: unknown[]) => apiMocks.openJournal(...args),
+    getNote: (...args: unknown[]) => apiMocks.getNote(...args),
+    saveNote: (...args: unknown[]) => apiMocks.saveNote(...args),
+    createNote: (...args: unknown[]) => apiMocks.createNote(...args),
+  };
+});
 vi.mock("../../notifications", () => ({ useNotifications: () => ({ notification: null, notify, dismiss: vi.fn() }) }));
-vi.mock("../preview/floatingStore", () => ({ useFloating: () => ({ open: vi.fn() }) }));
+vi.mock("../preview/floatingStore", () => ({ useFloating: () => ({ open: floatingOpen }) }));
 
 function resetAll() {
   recognitionState.isListening = false;
@@ -43,11 +51,13 @@ function resetAll() {
   recognitionState.interimText = "";
   notify.mockClear();
   stopFn.mockClear();
+  floatingOpen.mockClear();
   apiMocks.resolveTerm = (...args: unknown[]) => Promise.resolve({ found: false, note: { note_id: "", title: "" }, args });
   apiMocks.searchNotes = (...args: unknown[]) => Promise.resolve({ results: [], args });
   apiMocks.openJournal = (...args: unknown[]) => Promise.resolve({ note_id: "journal-1", args });
   apiMocks.getNote = (...args: unknown[]) => Promise.resolve({ note: { body: "", etag: "etag-1" }, args });
   apiMocks.saveNote = (...args: unknown[]) => Promise.resolve({ etag: "etag-2", args });
+  apiMocks.createNote = (...args: unknown[]) => Promise.resolve({ note_id: "n9", title: "spoken", args });
 }
 
 function transcript() {
@@ -153,5 +163,28 @@ describe("VoiceView", () => {
     fireEvent.click(screen.getByRole("button", { name: "音声入力を停止" }));
     expect(stopFn).toHaveBeenCalled();
     await waitFor(() => expect(notify).toHaveBeenCalledWith("Saved to today’s journal", "journal-1"));
+  });
+
+  it("offers creation when nothing matches, and opens the new note", async () => {
+    resetAll();
+    render(<VoiceView />);
+    fireEvent.change(transcript(), { target: { value: "spoken words" } });
+    transcript().setSelectionRange(0, 6);
+    fireEvent.mouseUp(transcript());
+    fireEvent.click(await screen.findByRole("button", { name: "「spoken」を新規作成" }));
+    await waitFor(() => expect(floatingOpen).toHaveBeenCalled());
+    expect(notify).toHaveBeenCalledWith("「spoken」を作成しました", "n9");
+  });
+
+  it("toasts a duplicate title instead of failing the creation", async () => {
+    resetAll();
+    apiMocks.createNote = () => Promise.reject(new APIError(409, "note already exists"));
+    render(<VoiceView />);
+    fireEvent.change(transcript(), { target: { value: "spoken words" } });
+    transcript().setSelectionRange(0, 6);
+    fireEvent.mouseUp(transcript());
+    fireEvent.click(await screen.findByRole("button", { name: "「spoken」を新規作成" }));
+    await waitFor(() => expect(notify).toHaveBeenCalledWith("同名タイトルのノートが存在します"));
+    expect(floatingOpen).not.toHaveBeenCalled();
   });
 });
