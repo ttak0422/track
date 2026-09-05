@@ -1,6 +1,7 @@
-import { IconMicrophone, IconMicrophoneOff } from "@tabler/icons-react";
+import { IconMicrophone } from "@tabler/icons-react";
 
-export function VoiceIcon({ listening }: { listening: boolean }) {
-  const Icon = listening ? IconMicrophoneOff : IconMicrophone;
-  return <Icon size={18} stroke={1.5} aria-hidden="true" />;
+// One mic, always: recording state reads from the button's fill and the
+// status line, never from swapping the glyph to a muted mic.
+export function VoiceIcon() {
+  return <IconMicrophone size={18} stroke={1.5} aria-hidden="true" />;
 }

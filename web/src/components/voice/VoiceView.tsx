@@ -8,15 +8,23 @@ import "./voice.css";
 
 const SEARCH_DEBOUNCE_MS = 500;
 
+interface VoiceCandidatePos {
+  left: number;
+  top: number;
+  above: boolean;
+}
+
 export function VoiceView() {
   const recognition = useSpeechRecognition();
   const [text, setText] = useState("");
   const [candidates, setCandidates] = useState<Array<{ note_id: string; title: string }>>([]);
   const [notice, setNotice] = useState("");
   const [error, setError] = useState("");
+  const [candidatePos, setCandidatePos] = useState<VoiceCandidatePos>({ left: 280, top: 60, above: false });
   const floating = useFloating();
   const { notify } = useNotifications();
   const areaRef = useRef<HTMLTextAreaElement>(null);
+  const wrapRef = useRef<HTMLDivElement>(null);
   const followRef = useRef(true);
   const mouseDownRef = useRef(false);
   const composingRef = useRef(false);
@@ -156,12 +164,29 @@ export function VoiceView() {
     if (result.results.length === 0) setNotice("No matching note");
   }
 
-  function refreshSelection() {
+  function refreshSelection(clientX?: number, clientY?: number) {
     const area = areaRef.current;
     if (area) {
       lastSelRef.current = { start: area.selectionStart, end: area.selectionEnd };
     }
-    scheduleSearch(selectedTerm());
+    const term = selectedTerm();
+    // The candidates open as a floating panel at the selection, so they read
+    // where the user is looking instead of below the field. Mid-drag passes
+    // keep the panel still until the gesture lands.
+    const rect = wrapRef.current?.getBoundingClientRect();
+    if (rect && term !== "" && (clientX !== undefined || !mouseDownRef.current)) {
+      const fallbackX = rect.width / 2;
+      const fallbackY = 60;
+      const x = clientX === undefined ? fallbackX : clientX - rect.left;
+      const y = clientY === undefined ? fallbackY : clientY - rect.top;
+      const half = 170;
+      setCandidatePos({
+        left: Math.min(Math.max(x, Math.min(half, rect.width - half)), Math.max(half, rect.width - half)),
+        top: y,
+        above: y > 110,
+      });
+    }
+    scheduleSearch(term);
   }
 
   function handleChange(event: React.ChangeEvent<HTMLTextAreaElement>) {
@@ -214,10 +239,7 @@ export function VoiceView() {
   }
 
   return (
-    <section className="voice-view" aria-labelledby="voice-title">
-      <header className="voice-header">
-        <h1 className="voice-title" id="voice-title">Voice input</h1>
-      </header>
+    <section className="voice-view" aria-label="音声入力">
       <div className={`voice-console${recognition.isListening ? " listening" : ""}`} aria-label="音声入力">
         <div className="voice-actions">
           <button
@@ -228,12 +250,12 @@ export function VoiceView() {
             aria-label={recognition.isListening ? "音声入力を停止" : "音声入力を開始"}
             onClick={recognition.isListening ? () => void stopAndSave(text) : recognition.start}
           >
-            <VoiceIcon listening={recognition.isListening} />
+            <VoiceIcon />
           </button>
         </div>
         <div className="voice-indicator"><span className="voice-dot" aria-hidden="true" /><span role="status">{recognition.isListening ? "Recording" : "Idle"}</span></div>
       </div>
-      <div className="voice-transcript-wrap">
+      <div className="voice-transcript-wrap" ref={wrapRef}>
         <textarea
           className="voice-transcript"
           ref={areaRef}
@@ -244,11 +266,14 @@ export function VoiceView() {
           onMouseDown={() => {
             mouseDownRef.current = true;
           }}
-          onMouseUp={() => {
+          onMouseUp={(event) => {
             mouseDownRef.current = false;
-            refreshSelection();
+            refreshSelection(event.clientX, event.clientY);
           }}
-          onSelect={refreshSelection}
+          onSelect={() => refreshSelection()}
+          onKeyDown={(event) => {
+            if (event.key === "Escape") clearSearch();
+          }}
           onCompositionStart={() => {
             composingRef.current = true;
           }}
@@ -257,11 +282,15 @@ export function VoiceView() {
           }}
           placeholder="音声入力を開始してください…"
         />
+        {candidates.length > 0 ? <div
+          className={`voice-candidates${candidatePos.above ? " above" : ""}`}
+          aria-label="Link candidates"
+          style={{ left: candidatePos.left, top: candidatePos.top }}
+        >
+          <span className="voice-candidates-title">Choose a note</span>
+          {candidates.map((candidate) => <button className="voice-candidate" type="button" key={candidate.note_id} onMouseDown={(event) => event.preventDefault()} onClick={() => openLink(candidate.note_id)}>{candidate.title}</button>)}
+        </div> : null}
       </div>
-      {candidates.length > 0 ? <div className="voice-candidates" aria-label="Link candidates">
-        <span className="voice-candidates-title">Choose a note</span>
-        {candidates.map((candidate) => <button className="voice-candidate" type="button" key={candidate.note_id} onMouseDown={(event) => event.preventDefault()} onClick={() => openLink(candidate.note_id)}>{candidate.title}</button>)}
-      </div> : null}
       {notice ? <p className="voice-status" role="status">{notice}</p> : null}
       {error ? <p className="voice-error" role="alert">{error}</p> : null}
     </section>

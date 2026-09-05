@@ -55,10 +55,10 @@ function transcript() {
 }
 
 describe("VoiceView", () => {
-  it("renders one mic control and an English status, without save or link buttons", () => {
+  it("renders one mic control and an English status, without a title or extra buttons", () => {
     resetAll();
     render(<VoiceView />);
-    expect(screen.getByRole("heading", { name: "Voice input" })).toBeInTheDocument();
+    expect(screen.queryByRole("heading")).not.toBeInTheDocument();
     expect(screen.getByRole("button", { name: "音声入力を開始" })).toBeInTheDocument();
     expect(screen.getByText("Idle")).toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "今日のjournalへ保存" })).not.toBeInTheDocument();
