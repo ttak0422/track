@@ -14,12 +14,10 @@
 /* filled action: the primary recording decision. */
 .voice-action.primary { border-color: var(--mark); background: var(--mark); color: var(--panel); }
 .voice-action:disabled { cursor: not-allowed; opacity: .55; }
-.voice-transcript-wrap { position: relative; width: min(560px, 100%); margin: 0 auto; border: 0; border-top: 1px solid var(--line); border-bottom: 1px solid var(--line); background: transparent; }
-.voice-transcript-mirror { margin: 0; padding: 14px 2px; height: 190px; overflow: hidden; white-space: pre-wrap; word-wrap: break-word; color: var(--text); font: inherit; line-height: 1.85; }
-.voice-interim-inline { color: var(--faint); }
-.voice-transcript { display: block; position: absolute; inset: 0; width: 100%; height: 100%; resize: none; overflow: auto; border: 0; border-radius: 0; background: transparent; color: transparent; caret-color: var(--text); padding: 14px 2px; font: inherit; line-height: 1.85; }
+.voice-transcript-wrap { position: relative; width: min(560px, 100%); margin: 0 auto; background: transparent; }
+.voice-transcript { display: block; width: 100%; height: 190px; resize: none; overflow: auto; border: 0; background: transparent; color: var(--text); caret-color: var(--text); padding: 14px 2px; margin: 0; font: inherit; line-height: 1.85; }
 .voice-transcript::placeholder { color: var(--faint); }
-.voice-transcript::selection { background: color-mix(in srgb, var(--mark) 24%, transparent); }
+.voice-interim-line { margin: 0; padding: 0 2px 14px; white-space: pre-wrap; word-wrap: break-word; color: var(--faint); font: inherit; line-height: 1.85; }
 /* selection action popover: the floating layer variant, anchored to the text
    selection rather than a permanent header button. Actions inside are text
    controls and the press preserves the selection it acts on (variant 3). */

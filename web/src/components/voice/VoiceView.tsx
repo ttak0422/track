@@ -26,14 +26,26 @@ export function VoiceView() {
   const note = useNoteQuery(targetID, { enabled: targetID !== "" });
   const save = useSaveNoteMutation(targetID);
   const areaRef = useRef<HTMLTextAreaElement>(null);
-  const mirrorRef = useRef<HTMLDivElement>(null);
   const wrapRef = useRef<HTMLDivElement>(null);
   const followRef = useRef(true);
-  const mouseRef = useRef<{ x: number; y: number } | null>(null);
+  const mouseDownRef = useRef(false);
+  const appliedFinalRef = useRef(0);
 
+  // Append only the not-yet-applied tail of the recognized finals, so edits
+  // made while dictating are never overwritten. A chunk boundary means the
+  // speaker paused, so it starts on a fresh line while listening.
   useEffect(() => {
-    if (recognition.finalText) setText(recognition.finalText);
-  }, [recognition.finalText]);
+    const full = recognition.finalText;
+    if (full.length < appliedFinalRef.current) appliedFinalRef.current = 0;
+    if (full.length <= appliedFinalRef.current) return;
+    const delta = full.slice(appliedFinalRef.current);
+    appliedFinalRef.current = full.length;
+    setText((prev) => {
+      if (prev.endsWith(delta)) return prev;
+      const breakLine = recognition.isListening && prev !== "" && !prev.endsWith("\n");
+      return prev + (breakLine ? "\n" : "") + (breakLine ? delta.trimStart() : delta);
+    });
+  }, [recognition.finalText, recognition.isListening]);
 
   // Follow the tail while recognition appends: stay pinned to the newest text
   // unless the user has scrolled up to re-read, in which case leave them there.
@@ -41,50 +53,58 @@ export function VoiceView() {
     const area = areaRef.current;
     if (!area || !followRef.current) return;
     area.scrollTop = area.scrollHeight;
-    syncMirror();
   }, [text, recognition.interimText]);
-
-  function syncMirror() {
-    const area = areaRef.current;
-    const mirror = mirrorRef.current;
-    if (area && mirror) mirror.scrollTop = area.scrollTop;
-  }
 
   function handleScroll() {
     const area = areaRef.current;
     if (!area) return;
     followRef.current = area.scrollHeight - (area.scrollTop + area.clientHeight) < 24;
-    syncMirror();
+  }
+
+  function placeSelection(term: string, left: number, top: number) {
+    const wrap = wrapRef.current;
+    const width = wrap?.getBoundingClientRect().width ?? left * 2;
+    setSelection({
+      term,
+      left: Math.min(Math.max(left, 84), Math.max(84, width - 84)),
+      top: Math.max(top, 8),
+    });
+  }
+
+  function selectedTerm() {
+    const area = areaRef.current;
+    if (!area) return "";
+    return text.slice(area.selectionStart, area.selectionEnd).trim();
+  }
+
+  // Mouse positions the popover: the coords come from the same gesture that
+  // made the selection, so the panel opens at the cursor rather than a stale
+  // point. Keyboard selections fall back to the field's centre.
+  function handleMouseDown() {
+    mouseDownRef.current = true;
   }
 
   function handleMouseUp(event: React.MouseEvent) {
-    mouseRef.current = { x: event.clientX, y: event.clientY };
-  }
-
-  function handleSelect() {
-    const area = areaRef.current;
-    const wrap = wrapRef.current;
-    if (!area || !wrap) return;
-    const term = text.slice(area.selectionStart, area.selectionEnd).trim();
+    mouseDownRef.current = false;
+    const term = selectedTerm();
     if (!term) {
       setSelection(null);
       return;
     }
-    const rect = wrap.getBoundingClientRect();
-    const mouse = mouseRef.current;
-    const inside =
-      mouse &&
-      mouse.x >= rect.left &&
-      mouse.x <= rect.right &&
-      mouse.y >= rect.top &&
-      mouse.y <= rect.bottom;
-    const left = inside ? mouse.x - rect.left : rect.width / 2;
-    const top = inside ? mouse.y - rect.top : 40;
-    setSelection({
-      term,
-      left: Math.min(Math.max(left, 84), Math.max(84, rect.width - 84)),
-      top: Math.max(top, 8),
-    });
+    const rect = wrapRef.current?.getBoundingClientRect();
+    if (!rect) return;
+    placeSelection(term, event.clientX - rect.left, event.clientY - rect.top);
+  }
+
+  function handleSelect() {
+    if (mouseDownRef.current) return;
+    const term = selectedTerm();
+    if (!term) {
+      setSelection(null);
+      return;
+    }
+    const width = wrapRef.current?.getBoundingClientRect().width ?? 560;
+    placeSelection(term, width / 2, 40);
   }
 
   async function findLink(term: string) {
@@ -153,8 +173,7 @@ export function VoiceView() {
           <button className="voice-action" type="button" onClick={() => void saveTranscript()} disabled={!text.trim() || save.isPending}>今日のjournalへ保存</button>
         </div>
       </div>
-      <div className="voice-transcript-wrap" ref={wrapRef} onMouseUp={handleMouseUp}>
-        <div className="voice-transcript-mirror" ref={mirrorRef} aria-hidden="true">{text}{recognition.interimText ? <span className="voice-interim-inline">{text && !text.endsWith("\n") ? " " : ""}{recognition.interimText}</span> : null}{"\u200b"}</div>
+      <div className="voice-transcript-wrap" ref={wrapRef}>
         <textarea
           className="voice-transcript"
           ref={areaRef}
@@ -165,9 +184,14 @@ export function VoiceView() {
             setSelection(null);
           }}
           onScroll={handleScroll}
+          onMouseDown={handleMouseDown}
+          onMouseUp={handleMouseUp}
           onSelect={handleSelect}
           placeholder="音声入力を開始してください…"
         />
+        {recognition.interimText ? (
+          <p className="voice-interim-line" aria-live="polite">{recognition.interimText}</p>
+        ) : null}
         {selection ? (
           <div className="voice-select-pop" style={{ left: selection.left, top: selection.top }}>
             <button
