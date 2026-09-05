@@ -383,6 +383,13 @@ describe("modal layout stability", () => {
       /\.reader:has\(\.note-reader\):not\(:has\(\.note-editor textarea\)\)::\-webkit-scrollbar\s*\{[^}]*display:\s*block/,
     );
   });
+
+  it("shows the quiet scrollbar on the split preview pane", () => {
+    expect(ruleBody(".editor-grid-split .note-preview")).toMatch(/scrollbar-width:\s*thin/);
+    expect(css).toMatch(
+      /\.editor-grid-split \.note-preview::-webkit-scrollbar\s*\{[^}]*display:\s*block/,
+    );
+  });
 });
 
 describe("sidebar at short viewport heights", () => {
