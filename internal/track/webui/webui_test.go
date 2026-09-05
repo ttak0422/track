@@ -10,8 +10,10 @@ import (
 	"net/http/httptest"
 	"net/url"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"slices"
+	"strconv"
 	"strings"
 	"testing"
 	"testing/fstest"
@@ -1623,4 +1625,207 @@ func TestHandleNoteRead(t *testing.T) {
 	if noteBody["seen_at"] == nil || noteBody["read_at"] == nil {
 		t.Fatalf("note response should carry the shared milestones: %v", noteBody)
 	}
+}
+
+// pidTestConfig returns a Config whose DBPath sits under a fresh temp dir, so webPIDPath resolves
+// its cache dir inside it without touching any real user cache.
+func pidTestConfig(t *testing.T) *config.Config {
+	t.Helper()
+	root := t.TempDir()
+	return &config.Config{
+		VaultDir: filepath.Join(root, "vault"),
+		DBPath:   filepath.Join(root, "cache", "deadbeef", "index.db"),
+	}
+}
+
+func TestWebPIDPathKeysByHostAndPort(t *testing.T) {
+	cfg := pidTestConfig(t)
+	dir := filepath.Dir(filepath.Dir(cfg.DBPath))
+	a := webPIDPath(cfg, "127.0.0.1:8765")
+	b := webPIDPath(cfg, "127.0.0.1:8766")
+	c := webPIDPath(cfg, "0.0.0.0:8765")
+	if a == b || a == c || b == c {
+		t.Fatalf("pid paths should be distinct per addr: %q %q %q", a, b, c)
+	}
+	if filepath.Dir(a) != dir {
+		t.Fatalf("pid file should live under the cache dir %q, got %q", dir, a)
+	}
+	if filepath.Base(a) != "web-127.0.0.1-8765.pid" {
+		t.Fatalf("unexpected pid file name %q", filepath.Base(a))
+	}
+}
+
+func TestAcquireWebPID(t *testing.T) {
+	t.Run("writes the pid file", func(t *testing.T) {
+		cfg := pidTestConfig(t)
+		release, err := AcquireWebPID(cfg, "127.0.0.1:8765")
+		if err != nil {
+			t.Fatalf("acquire: %v", err)
+		}
+		path := webPIDPath(cfg, "127.0.0.1:8765")
+		b, err := os.ReadFile(path)
+		if err != nil {
+			t.Fatalf("pid file missing: %v", err)
+		}
+		// The file holds "pid\nstart-time\n": the pid line names this process and the start-time
+		// line identifies it against PID recycling.
+		lines := strings.Split(strings.TrimSpace(string(b)), "\n")
+		if len(lines) != 2 || lines[0] != strconv.Itoa(os.Getpid()) {
+			t.Fatalf("pid file = %q, want pid %d on the first line", b, os.Getpid())
+		}
+		started, err := processStartTime(os.Getpid())
+		if err != nil {
+			t.Fatalf("own start time: %v", err)
+		}
+		if lines[1] != started {
+			t.Fatalf("pid file start time = %q, want %q", lines[1], started)
+		}
+		release()
+		if _, err := os.Stat(path); !os.IsNotExist(err) {
+			t.Fatalf("release should remove the pid file, stat err = %v", err)
+		}
+	})
+
+	t.Run("refuses a live pid", func(t *testing.T) {
+		cfg := pidTestConfig(t)
+		path := webPIDPath(cfg, "127.0.0.1:8765")
+		if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		// The test process itself is alive with a matching start time, so this pid is ours.
+		started, err := processStartTime(os.Getpid())
+		if err != nil {
+			t.Fatalf("own start time: %v", err)
+		}
+		before := strconv.Itoa(os.Getpid()) + "\n" + started + "\n"
+		if err := os.WriteFile(path, []byte(before), 0o644); err != nil {
+			t.Fatal(err)
+		}
+		if _, err := AcquireWebPID(cfg, "127.0.0.1:8765"); err == nil {
+			t.Fatal("acquire should refuse a live pid, got nil error")
+		}
+		// The refused acquire must not have removed or rewritten the file.
+		if b, _ := os.ReadFile(path); string(b) != before {
+			t.Fatalf("refused acquire should leave the pid file alone, got %q", b)
+		}
+	})
+
+	t.Run("overwrites a stale pid", func(t *testing.T) {
+		cfg := pidTestConfig(t)
+		path := webPIDPath(cfg, "127.0.0.1:8765")
+		if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		// A pid this large is not running on any real host.
+		if err := os.WriteFile(path, []byte("4194304\n"), 0o644); err != nil {
+			t.Fatal(err)
+		}
+		release, err := AcquireWebPID(cfg, "127.0.0.1:8765")
+		if err != nil {
+			t.Fatalf("acquire over stale pid: %v", err)
+		}
+		defer release()
+		b, _ := os.ReadFile(path)
+		if first := strings.Split(strings.TrimSpace(string(b)), "\n")[0]; first != strconv.Itoa(os.Getpid()) {
+			t.Fatalf("stale pid should be overwritten, got %q", b)
+		}
+	})
+}
+
+func TestStopWeb(t *testing.T) {
+	origGrace, origPoll := stopGrace, stopPoll
+	stopGrace, stopPoll = 2*time.Second, 20*time.Millisecond
+	defer func() { stopGrace, stopPoll = origGrace, origPoll }()
+
+	t.Run("no pid file is not running", func(t *testing.T) {
+		cfg := pidTestConfig(t)
+		stopped, err := StopWeb(cfg, "127.0.0.1:8765")
+		if err != nil {
+			t.Fatalf("stop with no pid file: %v", err)
+		}
+		if stopped {
+			t.Fatal("stop should report not-stopped when no pid file exists")
+		}
+	})
+
+	t.Run("stale pid is swept and not stopped", func(t *testing.T) {
+		cfg := pidTestConfig(t)
+		path := webPIDPath(cfg, "127.0.0.1:8765")
+		if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(path, []byte("4194304\n"), 0o644); err != nil {
+			t.Fatal(err)
+		}
+		stopped, err := StopWeb(cfg, "127.0.0.1:8765")
+		if err != nil {
+			t.Fatalf("stop with stale pid: %v", err)
+		}
+		if stopped {
+			t.Fatal("stop should report not-stopped for a stale pid")
+		}
+		if _, err := os.Stat(path); !os.IsNotExist(err) {
+			t.Fatalf("stale pid file should be swept, stat err = %v", err)
+		}
+	})
+
+	t.Run("recycled pid is never signalled", func(t *testing.T) {
+		cfg := pidTestConfig(t)
+		path := webPIDPath(cfg, "127.0.0.1:8765")
+		if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		// A live pid (this test process) with a bogus start time: the OS recycled the PID
+		// number after the server died. StopWeb must sweep the file and signal nothing —
+		// if it signalled, this test process itself would die.
+		if err := os.WriteFile(path, []byte(strconv.Itoa(os.Getpid())+"\nNOT-A-START-TIME\n"), 0o644); err != nil {
+			t.Fatal(err)
+		}
+		stopped, err := StopWeb(cfg, "127.0.0.1:8765")
+		if err != nil {
+			t.Fatalf("stop with recycled pid: %v", err)
+		}
+		if stopped {
+			t.Fatal("stop should report not-stopped for a recycled pid")
+		}
+		if _, err := os.Stat(path); !os.IsNotExist(err) {
+			t.Fatalf("recycled pid file should be swept, stat err = %v", err)
+		}
+	})
+
+	t.Run("stops a live process and removes the file", func(t *testing.T) {
+		cfg := pidTestConfig(t)
+		// A helper sleep the test owns (no Release: a released child turns invisible to ps in
+		// some sandboxes, and an unreaped zombie still answers signal 0). Cleanup kills and
+		// reaps it, so nothing leaks past the test.
+		cmd := exec.Command("sleep", "60")
+		if err := cmd.Start(); err != nil {
+			t.Fatalf("start helper process: %v", err)
+		}
+		t.Cleanup(func() {
+			_ = cmd.Process.Kill()
+			_, _ = cmd.Process.Wait()
+		})
+		path := webPIDPath(cfg, "127.0.0.1:8765")
+		if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		started, err := processStartTime(cmd.Process.Pid)
+		if err != nil {
+			t.Fatalf("helper start time: %v", err)
+		}
+		if err := os.WriteFile(path, []byte(strconv.Itoa(cmd.Process.Pid)+"\n"+started+"\n"), 0o644); err != nil {
+			t.Fatal(err)
+		}
+		stopped, err := StopWeb(cfg, "127.0.0.1:8765")
+		if err != nil {
+			t.Fatalf("stop live process: %v", err)
+		}
+		if !stopped {
+			t.Fatal("stop should report stopped for a live process")
+		}
+		if _, err := os.Stat(path); !os.IsNotExist(err) {
+			t.Fatalf("pid file should be removed after stop, stat err = %v", err)
+		}
+	})
 }

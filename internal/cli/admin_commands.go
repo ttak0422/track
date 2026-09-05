@@ -298,9 +298,38 @@ func cmdWeb(args []string) int {
 	}
 	defer s.Close()
 
+	// Claim the PID file before binding: a live server on the same addr is refused here with a clear
+	// message rather than surfacing as a bind error after the server is half up. The release removes
+	// the file on normal exit.
+	release, err := webui.AcquireWebPID(cfg, *addr)
+	if err != nil {
+		return fail("web: %v", err)
+	}
+	defer release()
+
 	fmt.Fprintf(os.Stderr, "track web: http://%s\n", *addr)
 	if err := webui.Serve(cfg, s, *addr); err != nil {
 		return fail("web: %v", err)
 	}
 	return 0
+}
+
+func cmdWebStop(args []string) int {
+	fs := flag.NewFlagSet("web stop", flag.ContinueOnError)
+	addr := fs.String("addr", "127.0.0.1:8765", "listen address")
+	if code, ok := parseArgs(fs, args); !ok {
+		return code
+	}
+
+	cfg, s, err := open()
+	if err != nil {
+		return fail("%v", err)
+	}
+	defer s.Close()
+
+	stopped, err := webui.StopWeb(cfg, *addr)
+	if err != nil {
+		return fail("web stop: %v", err)
+	}
+	return emit(map[string]any{"stopped": stopped})
 }
