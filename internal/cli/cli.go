@@ -97,6 +97,11 @@ func Run(args []string) int {
 	case "graph":
 		return cmdGraph(rest)
 	case "web":
+		// "web" takes an optional subcommand ("stop" stops the server on the given addr); anything
+		// else falls through to the serving command, which refuses extra flags anyway.
+		if len(rest) > 0 && rest[0] == "stop" {
+			return cmdWebStop(rest[1:])
+		}
 		return cmdWeb(rest)
 	case "vault":
 		return cmdVault(rest)
@@ -246,6 +251,8 @@ Usage:
   track graph --orphans                 vault-wide link hygiene in one call: notes with no inbound link,
                                         and titles naming a parent scope no note owns (JSON)
   track web [--addr 127.0.0.1:8765]      serve the local web workspace
+  track web stop [--addr 127.0.0.1:8765]
+                                        stop the web workspace on this addr (JSON)
   track template new --name <s> [--id N]
                                         create a template (JSON)
   track template open --name <s>         open or create a template (JSON)

@@ -9,8 +9,12 @@ import (
 	"net/http"
 	"net/url"
 	"os"
+	"os/exec"
+	"path/filepath"
+	"strconv"
 	"strings"
 	"sync"
+	"syscall"
 	"time"
 
 	"github.com/ttak0422/track/internal/track/config"
@@ -141,6 +145,141 @@ func Serve(cfg *config.Config, st *store.Store, addr string) error {
 	}
 	srv.startWatch()
 	return http.ListenAndServe(addr, srv.Handler())
+}
+
+// stopGrace and stopPoll bound `track web stop`'s wait for a graceful exit before it escalates to
+// SIGKILL. They are vars so tests can shorten the wait instead of sleeping out a full grace period.
+var (
+	stopGrace = 3 * time.Second
+	stopPoll  = 50 * time.Millisecond
+)
+
+// cacheDirFor returns the directory that holds a vault's derived caches. The index DB lives at
+// <cacheDir>/<vaultKey>/index.db (config.go resolves cacheDir the same way, then keys the DB by the
+// vault path), so the cache dir is the DB path's parent's parent. The PID files for track web live
+// here too, so both `track web` and `track web stop` agree on where to look.
+func cacheDirFor(cfg *config.Config) string {
+	return filepath.Dir(filepath.Dir(cfg.DBPath))
+}
+
+// webPIDPath returns the PID file path for a web server listening on addr. The name is keyed by host
+// and port so two addrs never collide (e.g. web-127.0.0.1-8765.pid).
+func webPIDPath(cfg *config.Config, addr string) string {
+	host, port, err := net.SplitHostPort(addr)
+	if err != nil {
+		// A bare host without a port: key on the whole string rather than guessing.
+		host, port = addr, ""
+	}
+	safe := strings.NewReplacer(":", "-", "/", "-", "\\", "-").Replace(strings.Trim(host, "[]"))
+	if port == "" {
+		return filepath.Join(cacheDirFor(cfg), "web-"+safe+".pid")
+	}
+	return filepath.Join(cacheDirFor(cfg), fmt.Sprintf("web-%s-%s.pid", safe, port))
+}
+
+// processAlive reports whether a pid names a running process. Sending signal 0 does not deliver a
+// signal; it only probes whether the process exists and is signalable.
+func processAlive(pid int) bool {
+	err := syscall.Kill(pid, 0)
+	return err == nil || err == syscall.EPERM
+}
+
+// processStartTime returns a process's start time as an opaque identity string. It is compared
+// verbatim, never parsed: any difference means "not the process that wrote the PID file".
+func processStartTime(pid int) (string, error) {
+	out, err := exec.Command("ps", "-p", strconv.Itoa(pid), "-o", "lstart=").Output()
+	if err != nil {
+		return "", err
+	}
+	started := strings.TrimSpace(string(out))
+	if started == "" {
+		return "", fmt.Errorf("no such process %d", pid)
+	}
+	return started, nil
+}
+
+// pidFileIdentity reads a PID file written as "pid\nstart-time\n" and reports whether it names the
+// still-running process that wrote it. A PID alone is not identity: the OS recycles PID numbers, so
+// a stale file can point at an unrelated browser renderer or shell. Signalling that process would
+// kill the wrong program, so a missing or mismatched start time reads as "not ours".
+func pidFileIdentity(path string) (pid int, ours bool) {
+	b, err := os.ReadFile(path)
+	if err != nil {
+		return 0, false
+	}
+	lines := strings.Split(strings.TrimSpace(string(b)), "\n")
+	if len(lines) == 0 {
+		return 0, false
+	}
+	pid, err = strconv.Atoi(strings.TrimSpace(lines[0]))
+	if err != nil || pid <= 0 {
+		return 0, false
+	}
+	if len(lines) < 2 || strings.TrimSpace(lines[1]) == "" {
+		return 0, false
+	}
+	started, err := processStartTime(pid)
+	if err != nil || started != strings.TrimSpace(lines[1]) {
+		return 0, false
+	}
+	return pid, processAlive(pid)
+}
+
+// AcquireWebPID claims the web server's PID file for addr, refusing to start when the file points at a
+// still-running process. That is the early port-conflict check: `nix run` launching a second track web
+// fails here with a clear message instead of getting a bind error after the server is already half up.
+// A stale file (the recorded pid is dead, or its start time no longer matches because the OS recycled
+// the PID number) is overwritten. The returned release removes the file again, so a normally-exiting
+// server cleans up after itself. The file holds "pid\nstart-time\n": the start time is what keeps a
+// recycled PID from ever reading as a live server.
+func AcquireWebPID(cfg *config.Config, addr string) (release func(), err error) {
+	path := webPIDPath(cfg, addr)
+	if pid, ours := pidFileIdentity(path); ours {
+		return nil, fmt.Errorf("track web already running (pid %d) on %s; stop it with 'track web stop --addr %s'", pid, addr, addr)
+	}
+	dir := filepath.Dir(path)
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		return nil, fmt.Errorf("create web pid dir: %w", err)
+	}
+	started, err := processStartTime(os.Getpid())
+	if err != nil {
+		return nil, fmt.Errorf("read own start time: %w", err)
+	}
+	if err := os.WriteFile(path, []byte(strconv.Itoa(os.Getpid())+"\n"+started+"\n"), 0o644); err != nil {
+		return nil, fmt.Errorf("write web pid file: %w", err)
+	}
+	return func() { _ = os.Remove(path) }, nil
+}
+
+// StopWeb terminates the web server on addr: SIGTERM, a short graceful-exit wait, then SIGKILL for a
+// straggler, and finally removes the PID file. It reports whether a live process was actually stopped.
+// A missing or stale PID file is not an error — the server is simply not running (stopped=false).
+// Crucially, a PID file pointing at a recycled PID number never passes: the start-time check fails,
+// the file is swept, and nothing is signalled.
+func StopWeb(cfg *config.Config, addr string) (stopped bool, err error) {
+	path := webPIDPath(cfg, addr)
+	pid, ours := pidFileIdentity(path)
+	if !ours {
+		// Missing, unreadable, stale, or recycled: sweep whatever is there and report not-running.
+		_ = os.Remove(path)
+		return false, nil
+	}
+	if err := syscall.Kill(pid, syscall.SIGTERM); err != nil {
+		return false, fmt.Errorf("signal web server: %w", err)
+	}
+	deadline := time.Now().Add(stopGrace)
+	for time.Now().Before(deadline) {
+		if !processAlive(pid) {
+			_ = os.Remove(path)
+			return true, nil
+		}
+		time.Sleep(stopPoll)
+	}
+	if err := syscall.Kill(pid, syscall.SIGKILL); err != nil {
+		return false, fmt.Errorf("kill web server: %w", err)
+	}
+	_ = os.Remove(path)
+	return true, nil
 }
 
 // routes registers the API. Every endpoint that names a note — by id, by date, or by term — goes
