@@ -94,15 +94,16 @@ export function NoteFlagBadges({ flags }: { flags?: string[] }) {
 }
 
 // useScrollToHash scrolls the note view to the element the URL hash names — a block anchor,
-// id="block-<id>" (see remarkBlockID) — once the rendered body is in the DOM, and marks it with
-// .block-target for the arrival highlight. The reader drives this itself because SPA navigation
-// does not retrigger native fragment scrolling, and on a direct page load the content mounts after
-// the fragment was already consumed. ready flips true when the markdown has rendered.
+// id="block-<id>" (see remarkBlockID), or a heading id="h-<slug>" — once the rendered body is in the
+// DOM, and marks it with .block-target for the arrival highlight. The reader drives this itself because
+// SPA navigation does not retrigger native fragment scrolling, and on a direct page load the content
+// mounts after the fragment was already consumed. ready flips true when the markdown has rendered.
 export function useScrollToHash(ready: boolean) {
   const hash = useLocation({ select: (location) => location.hash });
   useEffect(() => {
     if (!ready || !hash) return;
-    const el = document.getElementById(hash.replace(/^#/, ""));
+    const rawID = hash.replace(/^#/, "");
+    const el = document.getElementById(rawID) ?? document.getElementById(headingElementID(rawID));
     if (!el) return;
     el.classList.add("block-target");
     el.scrollIntoView({ block: "center" });

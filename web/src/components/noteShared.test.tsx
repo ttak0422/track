@@ -1,16 +1,18 @@
-import { fireEvent, render, screen, within } from "@testing-library/react";
+import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import type { ReactNode } from "react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import { NoteAside, NoteFlagBadges, NoteProperties, NoteStamps } from "./noteShared";
+import { NoteAside, NoteFlagBadges, NoteProperties, NoteStamps, useScrollToHash } from "./noteShared";
 
 const navigate = vi.hoisted(() => vi.fn());
 const localGraph = vi.hoisted(() => vi.fn());
 // A default empty agenda is set in beforeEach; tests for a journal's On-this-day list override it.
 const agenda = vi.hoisted(() => vi.fn());
+const locationHash = vi.hoisted(() => vi.fn(() => ""));
 
 vi.mock("@tanstack/react-router", () => ({
   useNavigate: () => navigate,
-  useLocation: () => "",
+  useLocation: ({ select }: { select?: (location: { hash: string }) => unknown } = {}) =>
+    select ? select({ hash: locationHash() }) : "",
   Link: ({ children }: { children?: ReactNode }) => <a>{children}</a>,
 }));
 
@@ -78,6 +80,30 @@ describe("NoteAside Contents outline", () => {
     const links = within(screen.getByRole("region", { name: "Contents" })).getAllByRole("link");
     expect(links[0].style.paddingLeft).toBe("");
     expect(links[1].style.paddingLeft).toBe("2em");
+  });
+});
+
+describe("useScrollToHash", () => {
+  function HashTarget({ ready }: { ready: boolean }) {
+    useScrollToHash(ready);
+    return null;
+  }
+
+  it("falls back from a plain section hash to track's heading id", async () => {
+    locationHash.mockReturnValue("#test");
+    const target = document.createElement("h2");
+    target.id = "h-test";
+    target.scrollIntoView = vi.fn();
+    document.body.appendChild(target);
+
+    try {
+      render(<HashTarget ready />);
+      await waitFor(() => expect(target.scrollIntoView).toHaveBeenCalledWith({ block: "center" }));
+      expect(target).toHaveClass("block-target");
+    } finally {
+      target.remove();
+      locationHash.mockReturnValue("");
+    }
   });
 });
 
