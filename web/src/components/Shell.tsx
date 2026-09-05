@@ -21,6 +21,7 @@ import { NoteRailControls } from "./NoteRailControls";
 import { RailTip } from "./RailTip";
 import { SearchProvider } from "../searchState";
 import { IconAffiliate, IconCalendar, IconChecklist, IconNotebook, RailIcon } from "./icons";
+import { IconMicrophone } from "@tabler/icons-react";
 
 export function Shell() {
   const pathname = useRouterState({ select: (state) => state.location.pathname });
@@ -117,6 +118,11 @@ export function Shell() {
                 <RailTip label="Full graph">
                   <Link className="rail-button" to="/graph" aria-label="Full graph">
                     <RailIcon Icon={IconAffiliate} />
+                  </Link>
+                </RailTip>
+                <RailTip label="Voice input">
+                  <Link className="rail-button" to="/voice" aria-label="Voice input">
+                    <RailIcon Icon={IconMicrophone} />
                   </Link>
                 </RailTip>
                 {/* The open note's own controls, below the workspace's views. Absent while no note is
