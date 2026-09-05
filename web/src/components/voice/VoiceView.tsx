@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useState, type CSSProperties } from "react";
 import { openJournal, resolveTerm, searchNotes } from "../../api";
 import { useNoteQuery, useSaveNoteMutation } from "../../queries";
 import { useFloating } from "../preview/floatingStore";
@@ -8,28 +8,34 @@ import "./voice.css";
 
 export function VoiceView() {
   const recognition = useSpeechRecognition();
-  const [title, setTitle] = useState("");
   const [text, setText] = useState("");
   const [targetID, setTargetID] = useState("");
-  const [linkTerm, setLinkTerm] = useState("");
   const [candidates, setCandidates] = useState<Array<{ note_id: string; title: string }>>([]);
   const [message, setMessage] = useState("");
   const [error, setError] = useState("");
   const floating = useFloating();
   const note = useNoteQuery(targetID, { enabled: targetID !== "" });
   const save = useSaveNoteMutation(targetID);
-  const liveText = recognition.transcript;
+  const [elapsed, setElapsed] = useState(0);
 
   useEffect(() => {
-    if (liveText) setText(liveText);
-  }, [liveText]);
+    if (!recognition.isListening) return;
+    const timer = window.setInterval(() => setElapsed((current) => Math.min(current + 1, 3600)), 1000);
+    return () => window.clearInterval(timer);
+  }, [recognition.isListening]);
 
-  const chosenText = useMemo(() => linkTerm.trim(), [linkTerm]);
+  useEffect(() => {
+    if (recognition.isListening && elapsed >= 3600) recognition.stop();
+  }, [elapsed, recognition.isListening, recognition.stop]);
+
+  useEffect(() => {
+    if (recognition.finalText) setText(recognition.finalText);
+  }, [recognition.finalText]);
 
   function selectedTerm() {
     const area = document.querySelector<HTMLTextAreaElement>(".voice-transcript");
     const selected = area ? text.slice(area.selectionStart, area.selectionEnd).trim() : "";
-    return selected || chosenText;
+    return selected;
   }
 
   async function findLink() {
@@ -64,25 +70,17 @@ export function VoiceView() {
   }
 
   async function saveTranscript() {
-    if (!title.trim() || !text.trim()) return;
+    if (!text.trim()) return;
     setError("");
     setMessage("");
     let id = targetID;
     if (!id) {
-      const resolved = await resolveTerm(title.trim());
-      if (resolved.found) {
-        id = resolved.note.note_id;
-        setTargetID(id);
-        setMessage("Opening existing note…");
-        return;
-      }
-      // The current web API exposes journal creation, but no titled-note creation endpoint yet.
       const today = new Date();
       const date = `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, "0")}-${String(today.getDate()).padStart(2, "0")}`;
       const journal = await openJournal(date);
       id = journal.note_id;
       setTargetID(id);
-      setMessage("A titled-note endpoint is not available; preparing today’s journal.");
+      setMessage("Today’s journal is ready; save again to append the transcript.");
       return;
     }
     if (!note.data) {
@@ -90,7 +88,7 @@ export function VoiceView() {
       return;
     }
     save.mutate({ body: text, etag: note.data.note.etag ?? "" }, {
-      onSuccess: () => setMessage(`Saved to ${title.trim()}`),
+      onSuccess: () => setMessage("Saved to today’s journal"),
       onError: (reason) => setError(reason instanceof Error ? reason.message : "Save failed"),
     });
   }
@@ -99,28 +97,23 @@ export function VoiceView() {
     <section className="voice-view" aria-labelledby="voice-title">
       <header className="voice-header">
         <h1 className="voice-title" id="voice-title">Voice input</h1>
-        <span className="voice-label">Phase 1 · live transcription</span>
+        <span className="voice-label">Phase 1 · today’s journal</span>
       </header>
-      <div className="voice-field">
-        <label htmlFor="voice-title-input">Save to note</label>
-        <input className="voice-input" id="voice-title-input" value={title} onChange={(event) => setTitle(event.target.value)} placeholder="Note title" />
+      <div className={`voice-console${recognition.isListening ? " listening" : ""}`} aria-label="音声入力">
+        <div className="voice-wave" aria-hidden="true">
+          {Array.from({ length: 30 }, (_, index) => <i key={index} style={{ "--height": `${6 + ((index * 17) % 58)}px`, "--delay": `${index * -0.17}s` } as CSSProperties} />)}
+        </div>
+        <div className="voice-indicator"><span className="voice-dot" aria-hidden="true" /><span role="status">{recognition.isListening ? "音声入力中" : "停止中"}</span><span className="voice-timer">{formatTime(elapsed)} / 60:00</span></div>
+        <div className="voice-actions">
+          <button className="voice-action primary" type="button" disabled={!recognition.isSupported} onClick={recognition.isListening ? recognition.stop : recognition.start}>
+            <VoiceIcon listening={recognition.isListening} /> {recognition.isListening ? "音声入力を停止" : "音声入力を開始"}
+          </button>
+          <button className="voice-action" type="button" onClick={() => void saveTranscript()} disabled={!text.trim() || save.isPending}>今日のjournalへ保存</button>
+        </div>
       </div>
-      <div className="voice-field">
-        <label htmlFor="voice-transcript">Transcript</label>
-        <textarea className="voice-transcript" id="voice-transcript" value={text} onChange={(event) => setText(event.target.value)} placeholder="Start the microphone, or type here…" />
-      </div>
-      <div className="voice-field">
-        <label htmlFor="voice-link-term">Link term</label>
-        <input className="voice-input" id="voice-link-term" value={linkTerm} onChange={(event) => setLinkTerm(event.target.value)} placeholder="Select text above, or enter a term" />
-      </div>
-      <div className="voice-actions">
-        <button className="voice-action primary" type="button" disabled={!recognition.isSupported} onClick={recognition.isListening ? recognition.stop : recognition.start}>
-          <VoiceIcon listening={recognition.isListening} /> {recognition.isListening ? "Stop microphone" : "Start microphone"}
-        </button>
-        <button className="voice-action" type="button" onClick={() => void findLink()}>Find link</button>
-        <button className="voice-action primary" type="button" disabled={!title.trim() || !text.trim() || save.isPending} onClick={() => void saveTranscript()}>Save transcript</button>
-        <span className="voice-status">{recognition.isSupported ? (recognition.isListening ? "Listening…" : "Ready") : "Speech recognition is not supported in this browser."}</span>
-      </div>
+      <div className="voice-transcript-head"><label htmlFor="voice-transcript">文字起こし</label><button className="voice-text-action" type="button" onClick={() => void findLink()}>選択範囲をリンク</button></div>
+      <textarea className="voice-transcript" id="voice-transcript" value={text} onChange={(event) => setText(event.target.value)} placeholder="音声入力を開始してください…" />
+      {recognition.interimText ? <p className="voice-interim" aria-live="polite">認識中… {recognition.interimText}</p> : null}
       {candidates.length > 0 ? <div className="voice-candidates" aria-label="Link candidates">
         <span className="voice-label">Choose a note</span>
         {candidates.map((candidate) => <button className="voice-candidate" type="button" key={candidate.note_id} onClick={() => insertLink(candidate.note_id, candidate.title)}>{candidate.title}</button>)}
@@ -129,4 +122,8 @@ export function VoiceView() {
       {error ? <p className="voice-error" role="alert">{error}</p> : null}
     </section>
   );
+}
+
+function formatTime(seconds: number) {
+  return `${String(Math.floor(seconds / 60)).padStart(2, "0")}:${String(seconds % 60).padStart(2, "0")}`;
 }
