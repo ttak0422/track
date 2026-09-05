@@ -66,14 +66,23 @@ export function VoiceView() {
   // mid-gesture aborts the drag in the browser, so live arrivals wait for
   // mouse-up. Appends land at the tail, where the released range still maps.
   const displayValue = selecting ? frozenRef.current : liveValue;
-  // The mirror draws the very same string: confirmed ink plus the provisional
-  // tail faint. Identical content, font, and box means the highlight the user
-  // drags lands exactly on the glyphs they see.
-  const mirrorTail = liveValue.length > text.length ? liveValue.slice(text.length) : "";
-  const mirrorHead = liveValue.slice(0, liveValue.length - mirrorTail.length);
+  // The mirror draws the very same string the field shows — frozen mid-drag
+  // included: confirmed ink plus the provisional tail faint. Identical
+  // content, font, and box means the highlight the user drags lands exactly
+  // on the glyphs they see, and the caret never drifts from them.
+  const mirrorTail = displayValue.length > text.length ? displayValue.slice(text.length) : "";
+  const mirrorHead = displayValue.slice(0, displayValue.length - mirrorTail.length);
 
   useEffect(() => () => {
     window.clearTimeout(searchTimerRef.current);
+  }, []);
+
+  // A drag released outside the field never reaches its mouse-up: catch it on
+  // the window so the freeze cannot stick and strand a stale view.
+  useEffect(() => {
+    const release = () => setSelecting(false);
+    window.addEventListener("mouseup", release);
+    return () => window.removeEventListener("mouseup", release);
   }, []);
 
   // Seconds since recording started, for the mic's side. Purely informative:
@@ -346,6 +355,7 @@ export function VoiceView() {
             // Leaving the field means the user is done pointing elsewhere on
             // purpose: hand the tail-follow back on for the next arrival.
             followRef.current = true;
+            setSelecting(false);
           }}
           onCompositionStart={() => setComposing(true)}
           onCompositionEnd={() => setComposing(false)}

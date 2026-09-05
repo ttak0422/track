@@ -113,6 +113,20 @@ describe("VoiceView", () => {
     expect(transcript().value).toBe("hello\nworld");
   });
 
+  it("keeps the mirror on the frozen string mid-drag, and releases off-field", () => {
+    resetAll();
+    recognitionState.finalText = "hello";
+    const view = render(<VoiceView />);
+    const area = transcript();
+    fireEvent.mouseDown(area);
+    recognitionState.interimText = " world";
+    view.rerender(<VoiceView />);
+    expect(view.container.querySelector(".voice-transcript-mirror")?.textContent).toBe("hello\n\u200b");
+    window.dispatchEvent(new window.MouseEvent("mouseup", { bubbles: true }));
+    view.rerender(<VoiceView />);
+    expect(transcript().value).toBe("hello\nworld");
+  });
+
   it("shows elapsed recording time beside the mic, with no cap", () => {
     resetAll();
     recognitionState.isListening = true;
