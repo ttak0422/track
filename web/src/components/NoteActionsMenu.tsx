@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState, type CSSProperties } from "react";
 import { copyRich, copyText } from "./markdown/clipboard";
-import { portableToHtml, toPortableMarkdown } from "./markdown/portable";
+import { confluencePlainText, portableToHtml, toPortableMarkdown } from "./markdown/portable";
 import { hoverOpen } from "./hoverOpen";
 import { railAnchor } from "./railAnchor";
 
@@ -84,7 +84,7 @@ export function NoteActionsMenu({ getBody, onMeta, onDelete }: NoteActionsMenuPr
   async function copyConfluence() {
     const portable = toPortableMarkdown(getBody());
     const html = await portableToHtml(portable);
-    if (await copyRich(html, portable)) acknowledge("html");
+    if (await copyRich(html, confluencePlainText(portable))) acknowledge("html");
   }
 
   return (

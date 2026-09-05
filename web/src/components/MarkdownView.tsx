@@ -54,7 +54,7 @@ import { ViewSpecChart } from "./markdown/ViewSpecChart";
 import { WikiLink } from "./preview/WikiLink";
 import { TitleCopyButton } from "./TitleCopyButton";
 import { copyRich, copyText } from "./markdown/clipboard";
-import { portableToHtml, toPortableMarkdown } from "./markdown/portable";
+import { confluencePlainText, portableToHtml, stripTableDelimiterRows, toPortableMarkdown } from "./markdown/portable";
 import { useNoteQuery } from "../queries";
 import { STATIC_MODE } from "../runtime";
 import {
@@ -300,7 +300,7 @@ function SelectionCopyPopover({
   async function copyConfluence(): Promise<boolean> {
     const portable = toPortableMarkdown(copyLineRangeMarkdown(markdown, range));
     const html = await portableToHtml(portable);
-    return copyRich(html, portable);
+    return copyRich(html, confluencePlainText(portable));
   }
 
   function actionProps(action: SelectionCopyAction, write: () => Promise<boolean>, label: string) {
@@ -319,7 +319,11 @@ function SelectionCopyPopover({
         {copied === "range" ? "Copied" : "Copy range"}
       </button>
       <button
-        {...actionProps("markdown", () => copyText(copyLineRangeMarkdown(markdown, range)), "Copy markdown")}
+        {...actionProps(
+          "markdown",
+          () => copyText(stripTableDelimiterRows(copyLineRangeMarkdown(markdown, range))),
+          "Copy markdown",
+        )}
       >
         {copied === "markdown" ? "Copied" : "Copy markdown"}
       </button>
