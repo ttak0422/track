@@ -22,41 +22,55 @@ export function VoiceView() {
   const [error, setError] = useState("");
   const [candidatePos, setCandidatePos] = useState<VoiceCandidatePos>({ left: 360, top: 60, above: false });
   const [elapsed, setElapsed] = useState(0);
+  const [selecting, setSelecting] = useState(false);
+  const [composing, setComposing] = useState(false);
   const floating = useFloating();
   const { notify } = useNotifications();
   const areaRef = useRef<HTMLTextAreaElement>(null);
   const wrapRef = useRef<HTMLDivElement>(null);
+  const mirrorRef = useRef<HTMLDivElement>(null);
   const followRef = useRef(true);
-  const mouseDownRef = useRef(false);
-  const composingRef = useRef(false);
   const appliedFinalRef = useRef(0);
   const absorbedRef = useRef("");
   const prevInterimRef = useRef("");
   const lastSavedRef = useRef("");
+  const frozenRef = useRef("");
   const lastSelRef = useRef<{ start: number; end: number } | null>(null);
   const searchTimerRef = useRef<number | undefined>(undefined);
   const lastSearchedRef = useRef("");
 
   const interim = recognition.interimText;
   // An interim still finding its words reads as provisional: it rides the
-  // tail with a leading ellipsis, since one field cannot wear two inks.
-  const shadowTail = interim === "" ? "" : `…${interim}`;
-  const absorbedCore = absorbedRef.current.startsWith("…") ? absorbedRef.current.slice(1) : absorbedRef.current;
+  // tail without leading whitespace, which the field's line start absorbs.
+  // A leading blank of a fresh line is the line break's own: trim it only
+  // there, never mid-line where it still separates words.
+  const shadowTail = interim === "" || (text !== "" && !text.endsWith("\n")) ? interim : interim.trimStart();
   // Track the interim across renders: a growing interim is the same utterance
   // (a touched tail stays the user's), a wholly new one resumes shadowing.
   // An interim going quiet keeps the absorbed tail: the pending finalize
   // still needs it to tell hand-confirmed speech from a fresh delta.
   if (prevInterimRef.current !== interim) {
     prevInterimRef.current = interim;
-    if (absorbedRef.current !== "" && interim !== "" && !interim.startsWith(absorbedCore)) {
+    if (absorbedRef.current !== "" && interim !== "" && !interim.startsWith(absorbedRef.current)) {
       absorbedRef.current = "";
     }
   }
   // The interim rides on the tail of the editable value so it reads in place,
   // in the same field. Once the user touches the tail it is theirs: stop
   // shadowing it and let the next interim start fresh.
-  const shadowing = shadowTail !== "" && absorbedRef.current === "";
-  const displayValue = shadowing && !text.endsWith(shadowTail) ? text + shadowTail : text;
+  const liveValue = (() => {
+    const shadowing = shadowTail !== "" && absorbedRef.current === "";
+    return shadowing && !text.endsWith(shadowTail) ? text + shadowTail : text;
+  })();
+  // While the user drags a selection the field freezes: rewriting the value
+  // mid-gesture aborts the drag in the browser, so live arrivals wait for
+  // mouse-up. Appends land at the tail, where the released range still maps.
+  const displayValue = selecting ? frozenRef.current : liveValue;
+  // The mirror draws the very same string: confirmed ink plus the provisional
+  // tail faint. Identical content, font, and box means the highlight the user
+  // drags lands exactly on the glyphs they see.
+  const mirrorTail = liveValue.length > text.length ? liveValue.slice(text.length) : "";
+  const mirrorHead = liveValue.slice(0, liveValue.length - mirrorTail.length);
 
   useEffect(() => () => {
     window.clearTimeout(searchTimerRef.current);
@@ -74,11 +88,9 @@ export function VoiceView() {
     return () => window.clearInterval(timer);
   }, [recognition.isListening]);
 
-  // Append only the not-yet-applied tail of the recognized finals, so edits
-  // made while dictating are never overwritten. A chunk boundary means the
-  // speaker paused, so it starts on a fresh line while listening. A tail the
-  // user already absorbed is the same speech confirmed by hand: strip it
-  // before appending so it is not duplicated.
+  // Every finalized chunk closes its line, listening or not: a late final
+  // landing after stop keeps the pause it carries instead of gluing onto the
+  // previous line. Appends only, so edits made while dictating survive.
   useEffect(() => {
     const full = recognition.finalText;
     if (full.length < appliedFinalRef.current) appliedFinalRef.current = 0;
@@ -99,8 +111,8 @@ export function VoiceView() {
       // flows never take this branch, so repeated dictated words still append.
       const core = delta.trim();
       if (absorbed !== "" && core !== "" && base.includes(core)) return base;
-      const breakLine = recognition.isListening && base !== "" && !base.endsWith("\n");
-      return base + (breakLine ? "\n" : "") + (breakLine ? delta.trimStart() : delta);
+      const sep = base === "" || base.endsWith("\n") ? "" : "\n";
+      return `${base}${sep}${delta.trimStart()}\n`;
     });
   }, [recognition.finalText, recognition.isListening]);
 
@@ -110,7 +122,7 @@ export function VoiceView() {
   useLayoutEffect(() => {
     const area = areaRef.current;
     const sel = lastSelRef.current;
-    if (!area || !sel || mouseDownRef.current || composingRef.current) return;
+    if (!area || !sel || selecting || composing) return;
     if (document.activeElement !== area) return;
     const length = area.value.length;
     const start = Math.min(sel.start, length);
@@ -120,6 +132,12 @@ export function VoiceView() {
     }
   });
 
+  function syncMirror() {
+    const area = areaRef.current;
+    const mirror = mirrorRef.current;
+    if (area && mirror) mirror.scrollTop = area.scrollTop;
+  }
+
   // Follow the tail while recognition appends, unless the user is working in
   // the field: a focused field never moves under them.
   useEffect(() => {
@@ -127,12 +145,14 @@ export function VoiceView() {
     if (!area || !followRef.current) return;
     if (document.activeElement === area) return;
     area.scrollTop = area.scrollHeight;
+    syncMirror();
   }, [displayValue]);
 
   function handleScroll() {
     const area = areaRef.current;
     if (!area) return;
     followRef.current = area.scrollHeight - (area.scrollTop + area.clientHeight) < 24;
+    syncMirror();
   }
 
   function selectedTerm() {
@@ -181,26 +201,55 @@ export function VoiceView() {
     if (result.results.length === 0) setNotice("No matching note");
   }
 
-  function refreshSelection(clientX?: number, clientY?: number) {
+  // Measure the selection's end in the mirror, which lays the field's string
+  // out glyph for glyph: mouse drags and keyboard ranges anchor the same
+  // panel, with no cursor-vs-centre split.
+  function measureSelection() {
+    const mirror = mirrorRef.current;
+    const area = areaRef.current;
+    const wrap = wrapRef.current;
+    if (!mirror || !area || !wrap) return null;
+    const end = Math.min(area.selectionEnd, displayValue.length);
+    let acc = 0;
+    let node: Text | null = null;
+    let offset = 0;
+    const walker = document.createTreeWalker(mirror, NodeFilter.SHOW_TEXT);
+    while (walker.nextNode()) {
+      const current = walker.currentNode as Text;
+      const next = acc + current.length;
+      if (end <= next) {
+        node = current;
+        offset = end - acc;
+        break;
+      }
+      acc = next;
+    }
+    if (!node) return null;
+    const range = document.createRange();
+    range.setStart(node, Math.min(offset, node.length));
+    range.collapse(true);
+    // Older DOMs resolve the selection without exposing geometry; keep the
+    // previous panel spot rather than dropping a valid search.
+    if (typeof range.getBoundingClientRect !== "function") return null;
+    const caret = range.getBoundingClientRect();
+    const rect = wrap.getBoundingClientRect();
+    if (rect.width === 0) return null;
+    return { x: caret.left - rect.left, y: caret.bottom - rect.top, height: rect.height, width: rect.width };
+  }
+
+  function refreshSelection() {
     const area = areaRef.current;
     if (area) {
       lastSelRef.current = { start: area.selectionStart, end: area.selectionEnd };
     }
     const term = selectedTerm();
-    // The candidates open as a floating panel at the selection, so they read
-    // where the user is looking instead of below the field. Mid-drag passes
-    // keep the panel still until the gesture lands.
-    const rect = wrapRef.current?.getBoundingClientRect();
-    if (rect && term !== "" && (clientX !== undefined || !mouseDownRef.current)) {
-      const fallbackX = rect.width / 2;
-      const fallbackY = 60;
-      const x = clientX === undefined ? fallbackX : clientX - rect.left;
-      const y = clientY === undefined ? fallbackY : clientY - rect.top;
+    const measured = term === "" ? null : measureSelection();
+    if (measured) {
       const half = 170;
       setCandidatePos({
-        left: Math.min(Math.max(x, Math.min(half, rect.width - half)), Math.max(half, rect.width - half)),
-        top: Math.max(y, 8),
-        above: y > 200,
+        left: Math.min(Math.max(measured.x, Math.min(half, measured.width - half)), Math.max(half, measured.width - half)),
+        top: Math.min(Math.max(measured.y, 8), Math.max(8, measured.height - 8)),
+        above: measured.y > 200,
       });
     }
     scheduleSearch(term);
@@ -273,7 +322,8 @@ export function VoiceView() {
         </div>
         <div className="voice-indicator"><span className="voice-dot" aria-hidden="true" /><span role="status">{recognition.isListening ? "Recording" : "Idle"}</span></div>
       </div>
-      <div className="voice-transcript-wrap" ref={wrapRef}>
+      <div className={`voice-transcript-wrap${composing ? " composing" : ""}`} ref={wrapRef}>
+        <div className="voice-transcript-mirror" ref={mirrorRef} aria-hidden="true">{mirrorHead}{mirrorTail !== "" ? <span className="voice-interim-faint">{mirrorTail}</span> : null}{"\u200b"}</div>
         <textarea
           className="voice-transcript"
           ref={areaRef}
@@ -282,13 +332,14 @@ export function VoiceView() {
           onChange={handleChange}
           onScroll={handleScroll}
           onMouseDown={() => {
-            mouseDownRef.current = true;
+            frozenRef.current = displayValue;
+            setSelecting(true);
           }}
-          onMouseUp={(event) => {
-            mouseDownRef.current = false;
-            refreshSelection(event.clientX, event.clientY);
+          onMouseUp={() => {
+            setSelecting(false);
+            refreshSelection();
           }}
-          onSelect={() => refreshSelection()}
+          onSelect={refreshSelection}
           onKeyDown={(event) => {
             if (event.key === "Escape") clearSearch();
           }}
@@ -297,12 +348,8 @@ export function VoiceView() {
             // purpose: hand the tail-follow back on for the next arrival.
             followRef.current = true;
           }}
-          onCompositionStart={() => {
-            composingRef.current = true;
-          }}
-          onCompositionEnd={() => {
-            composingRef.current = false;
-          }}
+          onCompositionStart={() => setComposing(true)}
+          onCompositionEnd={() => setComposing(false)}
           placeholder="音声入力を開始してください…"
         />
         {candidates.length > 0 ? <div

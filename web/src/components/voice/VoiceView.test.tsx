@@ -66,11 +66,12 @@ describe("VoiceView", () => {
     expect(screen.queryByText(/Phase 1/)).not.toBeInTheDocument();
   });
 
-  it("shows interim text in the same field, marked as provisional", () => {
+  it("shows interim text in the same field, wearing the faint step", () => {
     resetAll();
     recognitionState.interimText = "みかん";
-    render(<VoiceView />);
-    expect(transcript().value).toBe("…みかん");
+    const { container } = render(<VoiceView />);
+    expect(transcript().value).toBe("みかん");
+    expect(container.querySelector(".voice-interim-faint")).toHaveTextContent("みかん");
   });
 
   it("keeps a touched tail instead of duplicating it on finalize", () => {
@@ -78,21 +79,36 @@ describe("VoiceView", () => {
     recognitionState.finalText = "hello";
     recognitionState.interimText = " world";
     const view = render(<VoiceView />);
-    expect(transcript().value).toBe("hello… world");
+    expect(transcript().value).toBe("hello\nworld");
     // The user confirms the tail by hand; it must not come back doubled.
-    fireEvent.change(transcript(), { target: { value: "hello… world!" } });
+    fireEvent.change(transcript(), { target: { value: "hello\nworld!" } });
     recognitionState.interimText = "";
     recognitionState.finalText = "hello world";
     view.rerender(<VoiceView />);
-    expect(transcript().value).toBe("hello… world!");
+    expect(transcript().value).toBe("hello\nworld!");
   });
 
-  it("starts a paused chunk on a fresh line while listening", () => {
+  it("closes every finalized chunk with a line break, listening or not", () => {
     resetAll();
     recognitionState.isListening = true;
     recognitionState.finalText = "hello";
     const view = render(<VoiceView />);
+    expect(transcript().value).toBe("hello\n");
     recognitionState.finalText = "hello world";
+    view.rerender(<VoiceView />);
+    expect(transcript().value).toBe("hello\nworld\n");
+  });
+
+  it("freezes the field while a selection drag is in flight", () => {
+    resetAll();
+    recognitionState.finalText = "hello";
+    const view = render(<VoiceView />);
+    const area = transcript();
+    fireEvent.mouseDown(area);
+    recognitionState.interimText = " world";
+    view.rerender(<VoiceView />);
+    expect(transcript().value).toBe("hello\n");
+    fireEvent.mouseUp(area);
     view.rerender(<VoiceView />);
     expect(transcript().value).toBe("hello\nworld");
   });

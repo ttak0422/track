@@ -17,9 +17,16 @@
    the mark while the field holds focus. The caret never draws its own frame. */
 .voice-transcript-wrap { position: relative; width: min(720px, 100%); margin: 0 auto; background: transparent; border-top: 1px solid var(--line); border-bottom: 1px solid var(--line); transition: border-color 0.12s ease; }
 .voice-transcript-wrap:focus-within { border-top-color: var(--mark); border-bottom-color: var(--mark); }
-.voice-transcript { display: block; width: 100%; height: 320px; resize: none; overflow: auto; border: 0; background: transparent; color: var(--text); caret-color: var(--text); padding: 14px 2px; margin: 0; font: inherit; line-height: 1.85; }
+.voice-transcript { display: block; position: absolute; inset: 0; width: 100%; height: 100%; resize: none; overflow: auto; border: 0; background: transparent; color: transparent; caret-color: var(--text); padding: 14px 2px; margin: 0; font: inherit; line-height: 1.85; white-space: pre-wrap; word-wrap: break-word; box-sizing: border-box; }
 .voice-transcript:focus { outline: none; }
 .voice-transcript::placeholder { color: var(--faint); }
+.voice-transcript::selection { background: color-mix(in srgb, var(--mark) 24%, transparent); }
+/* Same string, same box as the field above it: the mirror carries the ink so
+   the provisional tail can wear the faint step while selections map 1:1. */
+.voice-transcript-mirror { margin: 0; padding: 14px 2px; height: 320px; overflow: hidden; white-space: pre-wrap; word-wrap: break-word; box-sizing: border-box; color: var(--text); font: inherit; line-height: 1.85; }
+.voice-interim-faint { color: var(--faint); }
+.voice-transcript-wrap.composing .voice-transcript { color: var(--text); }
+.voice-transcript-wrap.composing .voice-transcript-mirror { visibility: hidden; }
 /* link candidates: the floating layer variant, pinned to the selection that
    asked for them (variant 3). */
 .voice-candidates { position: absolute; z-index: 5; transform: translate(-50%, 14px); display: grid; gap: 4px; width: min(340px, calc(100% - 16px)); max-height: 220px; overflow: auto; padding: 12px; border: 1px solid var(--line); border-radius: var(--radius-lg); background: var(--panel); box-shadow: 0 8px 24px color-mix(in srgb, var(--text) 12%, transparent); }
