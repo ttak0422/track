@@ -33,6 +33,25 @@ describe("useSpeechRecognition", () => {
     expect(result.current.finalText).toBe("確定");
   });
 
+  it("drops stale interim when the session restarts or stops", () => {
+    vi.useFakeTimers();
+    (window as any).SpeechRecognition = MockRecognition;
+    const { result } = renderHook(() => useSpeechRecognition());
+    act(() => result.current.start());
+    const first = MockRecognition.instances[0];
+    act(() => first.onresult?.({ resultIndex: 0, results: [{ isFinal: false, 0: { transcript: "途中" } }] }));
+    expect(result.current.interimText).toBe("途中");
+    act(() => first.onend?.());
+    act(() => vi.advanceTimersByTime(300));
+    expect(MockRecognition.instances).toHaveLength(2);
+    expect(result.current.interimText).toBe("");
+    const second = MockRecognition.instances[1];
+    act(() => second.onresult?.({ resultIndex: 0, results: [{ isFinal: false, 0: { transcript: "つづき" } }] }));
+    expect(result.current.interimText).toBe("つづき");
+    act(() => result.current.stop());
+    expect(result.current.interimText).toBe("");
+  });
+
   it("disables itself when the browser has no recognition API", () => {
     const { result } = renderHook(() => useSpeechRecognition());
     expect(result.current.isSupported).toBe(false);

@@ -20,7 +20,8 @@ export function VoiceView() {
   const [candidates, setCandidates] = useState<Array<{ note_id: string; title: string }>>([]);
   const [notice, setNotice] = useState("");
   const [error, setError] = useState("");
-  const [candidatePos, setCandidatePos] = useState<VoiceCandidatePos>({ left: 280, top: 60, above: false });
+  const [candidatePos, setCandidatePos] = useState<VoiceCandidatePos>({ left: 360, top: 60, above: false });
+  const [elapsed, setElapsed] = useState(0);
   const floating = useFloating();
   const { notify } = useNotifications();
   const areaRef = useRef<HTMLTextAreaElement>(null);
@@ -37,25 +38,41 @@ export function VoiceView() {
   const lastSearchedRef = useRef("");
 
   const interim = recognition.interimText;
+  // An interim still finding its words reads as provisional: it rides the
+  // tail with a leading ellipsis, since one field cannot wear two inks.
+  const shadowTail = interim === "" ? "" : `…${interim}`;
+  const absorbedCore = absorbedRef.current.startsWith("…") ? absorbedRef.current.slice(1) : absorbedRef.current;
   // Track the interim across renders: a growing interim is the same utterance
   // (a touched tail stays the user's), a wholly new one resumes shadowing.
   // An interim going quiet keeps the absorbed tail: the pending finalize
   // still needs it to tell hand-confirmed speech from a fresh delta.
   if (prevInterimRef.current !== interim) {
     prevInterimRef.current = interim;
-    if (absorbedRef.current !== "" && interim !== "" && !interim.startsWith(absorbedRef.current)) {
+    if (absorbedRef.current !== "" && interim !== "" && !interim.startsWith(absorbedCore)) {
       absorbedRef.current = "";
     }
   }
   // The interim rides on the tail of the editable value so it reads in place,
   // in the same field. Once the user touches the tail it is theirs: stop
   // shadowing it and let the next interim start fresh.
-  const shadowing = interim !== "" && absorbedRef.current === "";
-  const displayValue = shadowing && !text.endsWith(interim) ? text + interim : text;
+  const shadowing = shadowTail !== "" && absorbedRef.current === "";
+  const displayValue = shadowing && !text.endsWith(shadowTail) ? text + shadowTail : text;
 
   useEffect(() => () => {
     window.clearTimeout(searchTimerRef.current);
   }, []);
+
+  // Seconds since recording started, for the mic's side. Purely informative:
+  // the restart loop runs unbounded, there is no cap to count down to.
+  useEffect(() => {
+    if (!recognition.isListening) {
+      setElapsed(0);
+      return;
+    }
+    setElapsed(0);
+    const timer = window.setInterval(() => setElapsed((current) => current + 1), 1000);
+    return () => window.clearInterval(timer);
+  }, [recognition.isListening]);
 
   // Append only the not-yet-applied tail of the recognized finals, so edits
   // made while dictating are never overwritten. A chunk boundary means the
@@ -182,8 +199,8 @@ export function VoiceView() {
       const half = 170;
       setCandidatePos({
         left: Math.min(Math.max(x, Math.min(half, rect.width - half)), Math.max(half, rect.width - half)),
-        top: y,
-        above: y > 110,
+        top: Math.max(y, 8),
+        above: y > 200,
       });
     }
     scheduleSearch(term);
@@ -191,11 +208,11 @@ export function VoiceView() {
 
   function handleChange(event: React.ChangeEvent<HTMLTextAreaElement>) {
     const value = event.target.value;
-    if (interim !== "" && value.endsWith(interim)) {
+    if (shadowTail !== "" && value.endsWith(shadowTail)) {
       absorbedRef.current = "";
-      setText(value.slice(0, value.length - interim.length));
+      setText(value.slice(0, value.length - shadowTail.length));
     } else {
-      if (interim !== "") absorbedRef.current = interim;
+      if (shadowTail !== "") absorbedRef.current = shadowTail;
       setText(value);
     }
     lastSelRef.current = { start: event.target.selectionStart, end: event.target.selectionEnd };
@@ -252,6 +269,7 @@ export function VoiceView() {
           >
             <VoiceIcon />
           </button>
+          {recognition.isListening ? <span className="voice-elapsed" role="timer">{formatTime(elapsed)}</span> : null}
         </div>
         <div className="voice-indicator"><span className="voice-dot" aria-hidden="true" /><span role="status">{recognition.isListening ? "Recording" : "Idle"}</span></div>
       </div>
@@ -274,6 +292,11 @@ export function VoiceView() {
           onKeyDown={(event) => {
             if (event.key === "Escape") clearSearch();
           }}
+          onBlur={() => {
+            // Leaving the field means the user is done pointing elsewhere on
+            // purpose: hand the tail-follow back on for the next arrival.
+            followRef.current = true;
+          }}
           onCompositionStart={() => {
             composingRef.current = true;
           }}
@@ -295,4 +318,8 @@ export function VoiceView() {
       {error ? <p className="voice-error" role="alert">{error}</p> : null}
     </section>
   );
+}
+
+function formatTime(seconds: number) {
+  return `${String(Math.floor(seconds / 60)).padStart(2, "0")}:${String(seconds % 60).padStart(2, "0")}`;
 }

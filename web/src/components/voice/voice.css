@@ -9,14 +9,15 @@
 .voice-mic:hover, .voice-mic:focus-visible { color: var(--text); outline: none; border-color: var(--mark); }
 .voice-console.listening .voice-mic { border-color: var(--mark); background: var(--mark); color: var(--panel); }
 .voice-mic:disabled { cursor: not-allowed; opacity: .55; }
+.voice-elapsed { margin-left: 12px; color: var(--faint); font-variant-numeric: tabular-nums; }
 .voice-indicator { display: flex; align-items: center; justify-content: center; gap: 9px; color: var(--muted); font-size: 13px; }
 .voice-dot { width: 6px; height: 6px; border-radius: 50%; background: var(--faint); }
 .voice-console.listening .voice-dot { background: var(--mark); }
 /* underline field, as the search box: no box, one bottom hairline that takes
    the mark while the field holds focus. The caret never draws its own frame. */
-.voice-transcript-wrap { position: relative; width: min(560px, 100%); margin: 0 auto; background: transparent; border-bottom: 1px solid var(--line); transition: border-color 0.12s ease; }
-.voice-transcript-wrap:focus-within { border-bottom-color: var(--mark); }
-.voice-transcript { display: block; width: 100%; height: 190px; resize: none; overflow: auto; border: 0; background: transparent; color: var(--text); caret-color: var(--text); padding: 14px 2px; margin: 0; font: inherit; line-height: 1.85; }
+.voice-transcript-wrap { position: relative; width: min(720px, 100%); margin: 0 auto; background: transparent; border-top: 1px solid var(--line); border-bottom: 1px solid var(--line); transition: border-color 0.12s ease; }
+.voice-transcript-wrap:focus-within { border-top-color: var(--mark); border-bottom-color: var(--mark); }
+.voice-transcript { display: block; width: 100%; height: 320px; resize: none; overflow: auto; border: 0; background: transparent; color: var(--text); caret-color: var(--text); padding: 14px 2px; margin: 0; font: inherit; line-height: 1.85; }
 .voice-transcript:focus { outline: none; }
 .voice-transcript::placeholder { color: var(--faint); }
 /* link candidates: the floating layer variant, pinned to the selection that

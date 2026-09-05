@@ -66,11 +66,11 @@ describe("VoiceView", () => {
     expect(screen.queryByText(/Phase 1/)).not.toBeInTheDocument();
   });
 
-  it("shows interim text in the same field, outside the confirmed value", () => {
+  it("shows interim text in the same field, marked as provisional", () => {
     resetAll();
     recognitionState.interimText = "みかん";
     render(<VoiceView />);
-    expect(transcript().value).toBe("みかん");
+    expect(transcript().value).toBe("…みかん");
   });
 
   it("keeps a touched tail instead of duplicating it on finalize", () => {
@@ -78,13 +78,13 @@ describe("VoiceView", () => {
     recognitionState.finalText = "hello";
     recognitionState.interimText = " world";
     const view = render(<VoiceView />);
-    expect(transcript().value).toBe("hello world");
+    expect(transcript().value).toBe("hello… world");
     // The user confirms the tail by hand; it must not come back doubled.
-    fireEvent.change(transcript(), { target: { value: "hello world!" } });
+    fireEvent.change(transcript(), { target: { value: "hello… world!" } });
     recognitionState.interimText = "";
     recognitionState.finalText = "hello world";
     view.rerender(<VoiceView />);
-    expect(transcript().value).toBe("hello world!");
+    expect(transcript().value).toBe("hello… world!");
   });
 
   it("starts a paused chunk on a fresh line while listening", () => {
@@ -95,6 +95,15 @@ describe("VoiceView", () => {
     recognitionState.finalText = "hello world";
     view.rerender(<VoiceView />);
     expect(transcript().value).toBe("hello\nworld");
+  });
+
+  it("shows elapsed recording time beside the mic, with no cap", () => {
+    resetAll();
+    recognitionState.isListening = true;
+    render(<VoiceView />);
+    expect(screen.getByText("Recording")).toBeInTheDocument();
+    expect(screen.getByRole("timer")).toHaveTextContent("00:00");
+    expect(screen.queryByText(/60:00/)).not.toBeInTheDocument();
   });
 
   it("searches a selection by itself, with no tap on an action", async () => {

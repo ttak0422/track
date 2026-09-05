@@ -81,6 +81,9 @@ export function useSpeechRecognition() {
     };
     recognition.onend = () => {
       if (!listeningRef.current || stopRequested.current) return;
+      // The instance is dead: its interim belongs to no live session, so drop
+      // it rather than showing a stale tail until the next result lands.
+      setInterimText("");
       clearRestart();
       timer.current = window.setTimeout(() => {
         if (!listeningRef.current || stopRequested.current) return;
@@ -108,6 +111,7 @@ export function useSpeechRecognition() {
     stopRequested.current = true;
     listeningRef.current = false;
     clearRestart();
+    setInterimText("");
     recognitionRef.current?.stop();
     // Let the browser deliver the final result before exposing the stopped state.
     window.setTimeout(() => setIsListening(false), 300);
