@@ -8,6 +8,11 @@ import "./voice.css";
 
 const SEARCH_DEBOUNCE_MS = 500;
 
+interface VoiceHit {
+  note_id: string;
+  title: string;
+}
+
 interface VoiceCandidatePos {
   left: number;
   top: number;
@@ -17,7 +22,9 @@ interface VoiceCandidatePos {
 export function VoiceView() {
   const recognition = useSpeechRecognition();
   const [text, setText] = useState("");
-  const [candidates, setCandidates] = useState<Array<{ note_id: string; title: string }>>([]);
+  const [titleHits, setTitleHits] = useState<VoiceHit[]>([]);
+  const [bodyHits, setBodyHits] = useState<VoiceHit[]>([]);
+  const [pathHits, setPathHits] = useState<VoiceHit[]>([]);
   const [error, setError] = useState("");
   const [createTerm, setCreateTerm] = useState("");
   const [candidatePos, setCandidatePos] = useState<VoiceCandidatePos>({ left: 360, top: 60, above: false });
@@ -170,10 +177,16 @@ export function VoiceView() {
     return displayValue.slice(area.selectionStart, area.selectionEnd).trim();
   }
 
+  function clearResults() {
+    setTitleHits([]);
+    setBodyHits([]);
+    setPathHits([]);
+  }
+
   function clearSearch() {
     window.clearTimeout(searchTimerRef.current);
     lastSearchedRef.current = "";
-    setCandidates([]);
+    clearResults();
     setCreateTerm("");
   }
 
@@ -196,17 +209,29 @@ export function VoiceView() {
     if (selectedTerm() !== term) return;
     lastSearchedRef.current = term;
     setError("");
-    setCandidates([]);
+    clearResults();
+    setCreateTerm("");
     const resolved = await resolveTerm(term);
     if (selectedTerm() !== term) return;
     if (resolved.found) {
-      setCandidates([{ note_id: resolved.note.note_id, title: resolved.note.title }]);
+      setTitleHits([{ note_id: resolved.note.note_id, title: resolved.note.title }]);
       return;
     }
     const result = await searchNotes(term, 8);
     if (selectedTerm() !== term) return;
-    setCandidates(result.results.map((item) => ({ note_id: item.note_id, title: item.title })));
-    if (result.results.length === 0) {
+    // The server tags each hit with the search that found it, as the search
+    // menu does: titles and full text read as separate groups, and the body
+    // never passes itself off as a title.
+    const toHit = (item: { note_id: string; title: string }): VoiceHit => ({ note_id: item.note_id, title: item.title });
+    const titles = result.results.filter((item) => item.match !== "body" && item.match !== "path").map(toHit);
+    const bodies = result.results.filter((item) => item.match === "body").map(toHit);
+    const paths = result.results.filter((item) => item.match === "path").map(toHit);
+    setTitleHits(titles);
+    setBodyHits(bodies);
+    setPathHits(paths);
+    // Creation is offered whenever no title matched, even with body hits: a
+    // body hit is not the note the words name.
+    if (titles.length === 0) {
       setCreateTerm(term);
     }
   }
@@ -311,7 +336,7 @@ export function VoiceView() {
       false,
       { pinned: true },
     );
-    setCandidates([]);
+    clearResults();
   }
 
   // No save control: stopping with unsaved dictation appends it to today's
@@ -386,21 +411,28 @@ export function VoiceView() {
           onCompositionEnd={() => setComposing(false)}
           placeholder="音声入力を開始してください…"
         />
-        {candidates.length > 0 ? <div
+        {(titleHits.length > 0 || bodyHits.length > 0 || pathHits.length > 0 || createTerm !== "") ? <div
           className={`voice-candidates${candidatePos.above ? " above" : ""}`}
           aria-label="Link candidates"
           style={{ left: candidatePos.left, top: candidatePos.top }}
         >
-          <span className="voice-candidates-title">Choose a note</span>
-          {candidates.map((candidate) => <button className="voice-candidate" type="button" key={candidate.note_id} onMouseDown={(event) => event.preventDefault()} onClick={() => openLink(candidate.note_id)}>{candidate.title}</button>)}
-        </div> : null}
-        {createTerm !== "" ? <div
-          className={`voice-candidates${candidatePos.above ? " above" : ""}`}
-          aria-label="Create note"
-          style={{ left: candidatePos.left, top: candidatePos.top }}
-        >
-          <span className="voice-candidates-title">No matching note</span>
-          <button className="voice-candidate" type="button" onMouseDown={(event) => event.preventDefault()} onClick={() => void createFromSelection(createTerm)}>「{createTerm.length > 12 ? `${createTerm.slice(0, 12)}…` : createTerm}」を新規作成</button>
+          <span className="voice-candidates-title">{titleHits.length + bodyHits.length + pathHits.length > 0 ? "Choose a note" : "No matching note"}</span>
+          {titleHits.length > 0 ? <>
+            {bodyHits.length + pathHits.length > 0 ? <h3 className="results-group">Titles</h3> : null}
+            {titleHits.map((candidate) => <button className="voice-candidate" type="button" key={candidate.note_id} onMouseDown={(event) => event.preventDefault()} onClick={() => openLink(candidate.note_id)}>{candidate.title}</button>)}
+          </> : null}
+          {bodyHits.length > 0 ? <>
+            {titleHits.length + pathHits.length > 0 ? <h3 className="results-group">Full text</h3> : null}
+            {bodyHits.map((candidate) => <button className="voice-candidate" type="button" key={candidate.note_id} onMouseDown={(event) => event.preventDefault()} onClick={() => openLink(candidate.note_id)}>{candidate.title}</button>)}
+          </> : null}
+          {pathHits.length > 0 ? <>
+            {titleHits.length + bodyHits.length > 0 ? <h3 className="results-group">File name</h3> : null}
+            {pathHits.map((candidate) => <button className="voice-candidate" type="button" key={candidate.note_id} onMouseDown={(event) => event.preventDefault()} onClick={() => openLink(candidate.note_id)}>{candidate.title}</button>)}
+          </> : null}
+          {createTerm !== "" ? <>
+            {titleHits.length + bodyHits.length + pathHits.length > 0 ? <h3 className="results-group">New note</h3> : null}
+            <button className="voice-candidate" type="button" onMouseDown={(event) => event.preventDefault()} onClick={() => void createFromSelection(createTerm)}>「{createTerm.length > 12 ? `${createTerm.slice(0, 12)}…` : createTerm}」を新規作成</button>
+          </> : null}
         </div> : null}
       </div>
       {error ? <p className="voice-error" role="alert">{error}</p> : null}

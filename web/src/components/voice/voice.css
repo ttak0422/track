@@ -29,6 +29,8 @@
 .voice-candidates { position: absolute; z-index: 5; transform: translate(-50%, 14px); display: grid; gap: 4px; width: min(340px, calc(100% - 16px)); max-height: 220px; overflow: auto; padding: 12px; border: 1px solid var(--line); border-radius: var(--radius-lg); background: var(--panel); box-shadow: 0 8px 24px color-mix(in srgb, var(--text) 12%, transparent); }
 .voice-candidates.above { transform: translate(-50%, calc(-100% - 14px)); }
 .voice-candidates .voice-candidates-title { padding: 4px 10px; }
+.voice-candidates .results-group { margin: 8px 10px 2px; }
+.voice-candidates .results-group:first-child { margin-top: 0; }
 .voice-candidate { border: 0; background: transparent; color: var(--muted); padding: 7px 10px; font: inherit; cursor: pointer; text-align: left; }
 .voice-candidate:hover, .voice-candidate:focus-visible { background: var(--panel-soft); color: var(--text); border-radius: var(--radius-sm); }
 .voice-error { color: var(--danger); font-size: 13px; }

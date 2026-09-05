@@ -187,4 +187,33 @@ describe("VoiceView", () => {
     await waitFor(() => expect(notify).toHaveBeenCalledWith("同名タイトルのノートが存在します"));
     expect(floatingOpen).not.toHaveBeenCalled();
   });
+
+  it("groups title and body hits like the search menu", async () => {
+    resetAll();
+    apiMocks.searchNotes = () => Promise.resolve({ results: [
+      { note_id: "t1", title: "TitleHit" },
+      { note_id: "b1", title: "BodyHit", match: "body" },
+    ] });
+    render(<VoiceView />);
+    fireEvent.change(transcript(), { target: { value: "spoken words" } });
+    transcript().setSelectionRange(0, 6);
+    fireEvent.mouseUp(transcript());
+    expect(await screen.findByText("Titles")).toBeInTheDocument();
+    expect(screen.getByText("Full text")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "TitleHit" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "BodyHit" })).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: /新規作成/ })).not.toBeInTheDocument();
+  });
+
+  it("still offers creation with only body hits", async () => {
+    resetAll();
+    apiMocks.searchNotes = () => Promise.resolve({ results: [{ note_id: "b1", title: "BodyHit", match: "body" }] });
+    render(<VoiceView />);
+    fireEvent.change(transcript(), { target: { value: "spoken words" } });
+    transcript().setSelectionRange(0, 6);
+    fireEvent.mouseUp(transcript());
+    expect(await screen.findByRole("button", { name: "BodyHit" })).toBeInTheDocument();
+    expect(screen.getByText("New note")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "「spoken」を新規作成" })).toBeInTheDocument();
+  });
 });
