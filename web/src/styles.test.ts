@@ -390,6 +390,13 @@ describe("modal layout stability", () => {
       /\.editor-grid-split \.note-preview::-webkit-scrollbar\s*\{[^}]*display:\s*block/,
     );
   });
+
+  it("keeps offset-less absolute descendants inside the preview pane", () => {
+    // remark-gfm's h2.sr-only footnote label is absolutely positioned without offsets: without a
+    // positioned preview it resolves against .note-reader and stretches every outer scroller in
+    // height-locked edit/split modes.
+    expect(ruleBody(".note-preview")).toMatch(/position:\s*relative/);
+  });
 });
 
 describe("sidebar at short viewport heights", () => {

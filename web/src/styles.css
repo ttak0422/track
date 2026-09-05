@@ -2511,6 +2511,11 @@ textarea.modal-input:focus-visible {
 
 .note-preview {
   min-width: 0;
+  /* The containing block for absolutely positioned descendants. Without this, an offset-less
+     absolute box (e.g. remark-gfm's h2.sr-only footnote label) resolves against .note-reader and
+     its static position at the end of long content blows out every outer scroller in height-locked
+     edit/split modes. Positioned here, its overflow stays inside this pane's own scroll. */
+  position: relative;
   /* Let this shrink (and scroll internally, via overflow above) before .note-reader as a whole grows
      past its bound height — the tags and aside below never shrink (see their flex-shrink:0), so a note
      with a lot of backlinks scrolls only its own backlink list, not the whole page. */
