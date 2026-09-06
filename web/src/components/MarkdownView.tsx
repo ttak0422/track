@@ -32,6 +32,7 @@ import { DrawioDiagram } from "./markdown/DrawioDiagram";
 import { GraphvizDiagram } from "./markdown/GraphvizDiagram";
 import { loadMathPlugins, looksLikeMath, type MathPlugins, mathPluginsIfLoaded } from "./markdown/math";
 import { MermaidDiagram } from "./markdown/MermaidDiagram";
+import { MapFence, parseMapFence } from "./markdown/MapFence";
 import { MindmapDiagram } from "./markdown/MindmapDiagram";
 import {
   remarkAlert,
@@ -461,6 +462,12 @@ const markdownComponents = {
       const lang = codeLanguage(code);
       const text = hastText(code);
       const normalized = normalizeCodeLanguage(lang);
+      if (normalized === "map") {
+        const meta = typeof code.data?.meta === "string" ? code.data.meta : "";
+        const parsed = meta.trim() ? null : parseMapFence(text);
+        if (!parsed) return <CodeBlock lang={lang} text={text} copyLineProperties={copyLineProperties(node)} />;
+        return <MapFence {...parsed} />;
+      }
       if (normalized === "mermaid") {
         return <MermaidDiagram text={text} />;
       }

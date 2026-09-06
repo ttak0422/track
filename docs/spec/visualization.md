@@ -707,3 +707,19 @@ Examples:
 track render --spec chart.json --out chart.html
 track render --spec article.json --out article.html
 ```
+
+## Map fences
+
+A `map` fence uses body lines, not info-string arguments. `lat` and `long` are required center coordinates; `zoom` defaults to 10 (0–19), and `type` defaults to `roadmap`. Repeated `marker` lines carry type, latitude, longitude, a wiki link, and description (which may contain commas).
+
+```map
+lat: 29.245
+long: 50.31
+zoom: 11
+type: satellite
+marker: default, 29.245, 50.31, [[カーグ島]], 石油積出港
+```
+
+Leaflet loads on demand. `roadmap` uses OpenStreetMap, `satellite` Esri World Imagery, `hybrid` imagery plus reference labels, and `terrain` Esri World Topo Map. Attribution remains visible. Markers use the shared wiki-link component in their popups, including display aliases; marker types currently share one accessible marker shape. Descriptions render as text, never HTML. Invalid input remains a code block; map initialization or tile failure offers an OpenStreetMap link.
+
+Geocoding, query-driven markers, and custom marker icons are not implemented. Old `:lat`/`:lon` arguments are not accepted.
