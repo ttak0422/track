@@ -50,6 +50,33 @@ func TestRecordYAMLRoundTrip(t *testing.T) {
 	}
 }
 
+// The stale-completion rejection set is closed and fixed, matching the source model's five reasons
+// (docs/spec/agent-state-model.md). A report that is refused returns exactly one of these.
+func TestRejectReasonSetClosed(t *testing.T) {
+	want := map[RejectReason]bool{
+		RejectUnknownTask:          true,
+		RejectUnknownDispatch:      true,
+		RejectTaskDispatchMismatch: true,
+		RejectInactiveDispatch:     true,
+		RejectStaleDispatch:        true,
+	}
+	reasons := []RejectReason{
+		RejectUnknownTask, RejectUnknownDispatch, RejectTaskDispatchMismatch,
+		RejectInactiveDispatch, RejectStaleDispatch,
+	}
+	if len(reasons) != len(want) {
+		t.Fatalf("rejection set has %d members, want 5", len(reasons))
+	}
+	for _, r := range reasons {
+		if !want[r] {
+			t.Fatalf("rejection reason %q missing from the closed set", r)
+		}
+		if string(r) == "" {
+			t.Fatalf("a rejection reason must not be empty")
+		}
+	}
+}
+
 func TestRecordOmitsEmptyState(t *testing.T) {
 	in := Record{ID: "d-1000-1", Note: 1000, Status: StatusPending}
 	out, err := yaml.Marshal(in)
