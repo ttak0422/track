@@ -107,7 +107,8 @@ web/node_modules: web/package-lock.json
 
 NATIVE_APP ?= build/Track.app
 NATIVE_DEVELOPER_DIR ?= /Library/Developer/CommandLineTools
-NATIVE_SDKROOT ?= /Library/Developer/CommandLineTools/SDKs/MacOSX26.sdk
+NATIVE_SDKROOT ?= /Library/Developer/CommandLineTools/SDKs/MacOSX26.5.sdk
+NATIVE_MODULE_CACHE ?= $(CURDIR)/native/.build/clang-module-cache
 NATIVE_SWIFT_PRODUCT ?= TrackApp
 
 native-app: native-verify ## Build the unsigned, non-sandboxed macOS app bundle
@@ -122,5 +123,5 @@ native-app: native-verify ## Build the unsigned, non-sandboxed macOS app bundle
 		test -x "$(NATIVE_APP)/Contents/Helpers/track"
 
 native-verify: ## Build the SwiftPM app target and fixture verifier with the system macOS toolchain
-	env DEVELOPER_DIR="$(NATIVE_DEVELOPER_DIR)" SDKROOT="$(NATIVE_SDKROOT)" swift build --package-path native -c release --product $(NATIVE_SWIFT_PRODUCT)
-	env DEVELOPER_DIR="$(NATIVE_DEVELOPER_DIR)" SDKROOT="$(NATIVE_SDKROOT)" swift run --package-path native VerifyFixtures
+	env DEVELOPER_DIR="$(NATIVE_DEVELOPER_DIR)" SDKROOT="$(NATIVE_SDKROOT)" CLANG_MODULE_CACHE_PATH="$(NATIVE_MODULE_CACHE)" swift build --package-path native -c release --product $(NATIVE_SWIFT_PRODUCT)
+	env DEVELOPER_DIR="$(NATIVE_DEVELOPER_DIR)" SDKROOT="$(NATIVE_SDKROOT)" CLANG_MODULE_CACHE_PATH="$(NATIVE_MODULE_CACHE)" swift run --package-path native VerifyFixtures

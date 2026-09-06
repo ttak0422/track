@@ -18,7 +18,8 @@ apple-sdk に固定する (`.envrc: use flake`)。nix の SDK は Swift 5.10 用
 
 ```sh
 export DEVELOPER_DIR=/Library/Developer/CommandLineTools
-export SDKROOT=/Library/Developer/CommandLineTools/SDKs/MacOSX26.sdk
+export SDKROOT=/Library/Developer/CommandLineTools/SDKs/MacOSX26.5.sdk
+export CLANG_MODULE_CACHE_PATH="$PWD/native/.build/clang-module-cache"
 swift build --package-path native
 swift run --package-path native VerifyFixtures
 ```
