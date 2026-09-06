@@ -545,15 +545,13 @@ describe("phone width", () => {
 });
 
 describe("docked aside", () => {
-  // The rail stretches to its row instead of taking a fixed window-derived height: no single
-  // constant captures the rail's top (tab bar + reader padding + tags), so the old fixed height
-  // left a dead scroll tail on short notes. The window-height rail with its own scroll survives
-  // as a cap for long notes.
-  it("binds the rail to its row, capped at the window height", () => {
+  // The rail starts at tabstrip + reader breathing room + sticky offset on every note (its sticky
+  // constraint always binds — breadcrumbs and properties render inside the main column), and ends
+  // 32px above the viewport foot (the reader's own bottom padding) so it never rides up with the
+  // row at the very end: no dead scroll tail on short notes, and the rail never shifts.
+  it("pins the rail without ever shifting it", () => {
     const rule = mediaBody("(min-width: 1100px)");
-    expect(rule).toMatch(/> \.note-aside \{[^}]*align-self:\s*stretch/);
-    expect(rule).toMatch(/> \.note-aside \{[^}]*height:\s*auto/);
-    expect(rule).toMatch(/> \.note-aside \{[^}]*max-height:\s*calc\(100dvh/);
+    expect(rule).toMatch(/> \.note-aside \{[^}]*height:\s*calc\(100dvh - 38px - 32px - 16px - 32px/);
   });
 
   // Pushed to the foot when the sections above come up short, held there when they overflow. The
