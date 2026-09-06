@@ -42,7 +42,9 @@ public struct TasksView: View {
     }
 }
 
-extension TaskRow: Hashable {
+extension TaskRow: Hashable, Identifiable {
+    public var id: String { "\(noteID.raw)#\(item.line)" }
+
     public static func == (lhs: TaskRow, rhs: TaskRow) -> Bool {
         lhs.noteID == rhs.noteID && lhs.item.line == rhs.item.line
     }

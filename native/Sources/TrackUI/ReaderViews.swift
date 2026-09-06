@@ -73,7 +73,7 @@ public struct NoteReaderView: View {
                     VStack(alignment: .leading, spacing: 16) {
                         Text(response.note.summary.ref.title)
                             .font(.title2).fontWeight(.medium)
-                        MarkdownBody(body: response.note.body)
+                        MarkdownBody(markdown: response.note.body)
                         if !response.backlinks.isEmpty {
                             Divider()
                             Text("Backlinks")
@@ -100,16 +100,16 @@ public struct NoteReaderView: View {
 /// source text does not resolve yet — tapping it is a follow-up
 /// (resolve via `/api/resolve`, then `open`).
 struct MarkdownBody: View {
-    let body: String
+    let markdown: String
 
     var body: some View {
         Group {
-            if let attributed = try? AttributedString(markdown: body) {
+            if let attributed = try? AttributedString(markdown: markdown) {
                 Text(attributed)
             } else {
                 // The body is always plain text; never fail the whole note
                 // because one construct did not parse.
-                Text(body).font(.body).textSelection(.enabled)
+                Text(markdown).font(.body).textSelection(.enabled)
             }
         }
         .textSelection(.enabled)
