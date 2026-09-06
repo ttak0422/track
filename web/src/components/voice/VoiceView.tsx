@@ -4,6 +4,7 @@ import { useNotifications } from "../../notifications";
 import { highlightSearchText } from "../../searchHighlight";
 import { FloatNoteButton } from "../preview/FloatNoteButton";
 import { useFloating } from "../preview/floatingStore";
+import { STATIC_MODE } from "../../runtime";
 import { copyText } from "../markdown/clipboard";
 import { VoiceIcon } from "./VoiceIcon";
 import { useSpeechRecognition } from "./useSpeechRecognition";
@@ -471,7 +472,7 @@ export function VoiceView() {
             {titleHits.length + bodyHits.length > 0 ? <h3 className="results-group">File name</h3> : null}
             {pathHits.map((candidate) => <VoiceHitRow key={`p-${candidate.note_id}`} hit={candidate} query={searchedQuery} onOpen={openLink} />)}
           </> : null}
-          {createTerm !== "" ? <>
+          {!STATIC_MODE && createTerm !== "" ? <>
             {titleHits.length + bodyHits.length + pathHits.length > 0 ? <h3 className="results-group">New note</h3> : null}
             {createTaken ? (
               <button className="voice-candidate" type="button" disabled aria-disabled="true">{createTerm.length > 12 ? `"${createTerm.slice(0, 12)}…" already exists` : `"${createTerm}" already exists`}</button>
