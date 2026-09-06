@@ -65,6 +65,7 @@ public final class TrackProcess {
     private func waitReady(client: TrackClient, proc: Process) async {
         // `track web` binds fast; poll search with an empty query instead of
         // inventing a health endpoint.
+        var lastError = "no response"
         for _ in 0..<50 {
             if !proc.isRunning {
                 state = .failed("track web exited during startup")
@@ -75,10 +76,11 @@ public final class TrackProcess {
                 state = .ready(client)
                 return
             } catch {
+                lastError = error.localizedDescription
                 try? await Task.sleep(for: .milliseconds(100))
             }
         }
-        state = .failed("track web did not answer on its port")
+        state = .failed("track web did not answer on its port: \(lastError)")
     }
 
     private static func freePort() throws -> Int {
