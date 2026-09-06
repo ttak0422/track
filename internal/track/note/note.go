@@ -11,6 +11,7 @@ import (
 
 	"github.com/ttak0422/track/internal/track/babel"
 	"github.com/ttak0422/track/internal/track/config"
+	"github.com/ttak0422/track/internal/track/dispatch"
 	"github.com/ttak0422/track/internal/track/task"
 )
 
@@ -36,6 +37,9 @@ import (
 // Flags (version 10 sidecars) are the note's author-assigned markers from the implementation-defined
 // closed set (ADR 0074): a normalized, sorted list such as [DEPRECATED, CONFIDENTIAL]. Unknown values
 // are rejected at write time — the set is closed, so the sidecar stays a parseable contract.
+// ExecLog (version 11 sidecars) is the append-only execution log of agent dispatches over the note:
+// one dispatch.Record per state transition, keyed by note id and dispatch id. Like task_log it is
+// authoritative sidecar data, never reconstructed from the body and never written to the index.
 type Metadata struct {
 	Version     int                        `yaml:"version"`
 	Title       string                     `yaml:"title,omitempty"`
@@ -51,6 +55,7 @@ type Metadata struct {
 	Flags       []string                   `yaml:"flags,omitempty"`
 	Blocks      map[string]babel.BlockMeta `yaml:"blocks,omitempty"`
 	TaskLog     []task.LogEntry            `yaml:"task_log,omitempty"`
+	ExecLog     []dispatch.Record          `yaml:"exec_log,omitempty"`
 	// Slug pins this note's published URL. The static export normally derives a slug from the note
 	// id, so a note that already has a public URL under some other id — one imported from a
 	// published directory — would move. Setting it here freezes the address the note is already
@@ -80,7 +85,7 @@ type Note struct {
 // otherwise is rewritten to it by fmt.
 var MetadataKeyOrder = []string{
 	"version", "title", "tags", "created", "days", "description", "image",
-	"props", "icon", "seen_at", "read_at", "flags", "blocks", "task_log", "slug",
+	"props", "icon", "seen_at", "read_at", "flags", "blocks", "task_log", "exec_log", "slug",
 }
 
 // ParseFile reads a note from disk, deriving the id from the filename and loading its sidecar metadata.

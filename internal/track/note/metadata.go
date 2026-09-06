@@ -34,8 +34,10 @@ const (
 	// MetadataVersionV10 adds the author-assigned flags (the implementation-defined
 	// closed set DEPRECATED/CONFIDENTIAL, ADR 0074) under flags.
 	MetadataVersionV10 = 10
+	// MetadataVersionV11 adds the append-only agent execution log under exec_log.
+	MetadataVersionV11 = 11
 	// MaxMetadataVersion is the newest schema this build can read and write.
-	MaxMetadataVersion = MetadataVersionV10
+	MaxMetadataVersion = MetadataVersionV11
 )
 
 func supportedVersion(v int) bool {
@@ -92,6 +94,9 @@ func WriteMetadata(path string, meta Metadata) error {
 	}
 	if len(meta.Flags) > 0 && meta.Version < MetadataVersionV10 {
 		meta.Version = MetadataVersionV10
+	}
+	if len(meta.ExecLog) > 0 && meta.Version < MetadataVersionV11 {
+		meta.Version = MetadataVersionV11
 	}
 	if !supportedVersion(meta.Version) {
 		return fmt.Errorf("unsupported metadata version %d", meta.Version)

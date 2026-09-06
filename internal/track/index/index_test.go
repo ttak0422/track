@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/ttak0422/track/internal/track/config"
+	"github.com/ttak0422/track/internal/track/dispatch"
 	"github.com/ttak0422/track/internal/track/note"
 	"github.com/ttak0422/track/internal/track/store"
 )
@@ -444,5 +445,62 @@ func TestFullTreatsTheVaultsOwnNameAsALocalLink(t *testing.T) {
 	}
 	if ext, _ := s.ExtBacklinks([]string{"personal"}, "Local"); len(ext) != 0 {
 		t.Fatalf("the vault's own name must not produce ext edges, got %+v", ext)
+	}
+}
+
+// The execution log is authoritative sidecar data (docs/spec/storage.md): the SQLite index is a
+// rebuildable cache and stores none of it, so a full reindex leaves the log untouched, and an
+// exec_log append — a sidecar-only change, the body never moves — still trips staleness and is
+// never reconstructed from the note body.
+func TestReindexPreservesExecLogSidecar(t *testing.T) {
+	cfg, s := setup(t)
+	rec := dispatch.Record{ID: "d-1000-1", Note: 1000, Status: dispatch.StatusDispatched}
+	writeNote(t, cfg, 1000, "# Note\n\nno execution state here", note.Metadata{
+		Title:   "Note",
+		ExecLog: []dispatch.Record{rec},
+	})
+
+	ix := New(cfg, s)
+	if _, err := ix.Full(); err != nil {
+		t.Fatalf("full: %v", err)
+	}
+	meta, found, err := note.ReadMetadata(cfg.MetadataPath(1000))
+	if err != nil || !found {
+		t.Fatalf("read metadata: found=%v err=%v", found, err)
+	}
+	if len(meta.ExecLog) != 1 || meta.ExecLog[0] != rec {
+		t.Fatalf("reindex must not touch the sidecar exec log, got %+v", meta.ExecLog)
+	}
+
+	// Appending a transition is a sidecar-only change; RefreshIfStale must see it via meta_mtime
+	// and rebuild the cache without dropping the log.
+	if _, err := note.AppendExecTransition(cfg, 1000, dispatch.Record{
+		ID:           rec.ID,
+		Note:         rec.Note,
+		Status:       dispatch.StatusCompleted,
+		DispatchedAt: rec.DispatchedAt,
+		CompletedAt:  "2026-09-06T10:30:00Z",
+	}, time.Date(2026, 9, 6, 10, 30, 0, 0, time.UTC)); err != nil {
+		t.Fatalf("append: %v", err)
+	}
+	// Sidecar mtimes are compared at second granularity, so a same-second append needs its mtime
+	// bumped to a future second to read as a sidecar-only change (as a synced machine would).
+	future := time.Now().Add(2 * time.Second)
+	if err := os.Chtimes(cfg.MetadataPath(1000), future, future); err != nil {
+		t.Fatal(err)
+	}
+	stale, err := ix.RefreshIfStale()
+	if err != nil || !stale {
+		t.Fatalf("an exec_log append should trigger a refresh, stale=%v err=%v", stale, err)
+	}
+	meta, _, err = note.ReadMetadata(cfg.MetadataPath(1000))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(meta.ExecLog) != 2 {
+		t.Fatalf("exec log lost a record across refresh, got %+v", meta.ExecLog)
+	}
+	if meta.ExecLog[0] != rec || meta.ExecLog[1].Status != dispatch.StatusCompleted {
+		t.Fatalf("exec log records changed across refresh, got %+v", meta.ExecLog)
 	}
 }
