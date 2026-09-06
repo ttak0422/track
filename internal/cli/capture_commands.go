@@ -72,15 +72,6 @@ func cmdCapture(args []string) int {
 		return fail("%v", err)
 	}
 
-	body, err := os.ReadFile(notePath)
-	if err != nil {
-		return fail("read note: %v", err)
-	}
-	hp, err := resolveHeadingPtr(string(body), heading, level)
-	if err != nil {
-		return fail("%v", err)
-	}
-
 	entry := text
 	if strings.TrimSpace(*template) != "" {
 		rendered, err := tmpl.Render(cfg, *template, text, noteID, config.KindNote, "", time.Now())
@@ -89,17 +80,37 @@ func cmdCapture(args []string) int {
 		}
 		entry = strings.TrimRight(rendered, "\n")
 	}
-	newBody, at := link.AppendUnder(string(body), hp, strings.Split(entry, "\n"))
-	if at == 0 {
-		return fail("captured text is empty after templating")
-	}
-	if err := note.WriteVerify(notePath, []byte(newBody)); err != nil {
+	noteID, notePath, at, err := captureIntoNote(cfg, s, notePath, noteID, heading, level, entry)
+	if err != nil {
 		return fail("%v", err)
 	}
-	if err := index.New(cfg, s).One(notePath); err != nil {
-		return fail("index note: %v", err)
-	}
 	return emit(map[string]any{"id": noteID, "path": notePath, "target": tgt, "line": at})
+}
+
+// captureIntoNote appends entry lines under an already-resolved heading of an already-resolved
+// note, writes it back verified, and reindexes that note. The caller resolves the target; this is
+// the shared tail of capture so other commands (metrics alert) can record into notes without
+// reimplementing the write path. The target note must already exist.
+func captureIntoNote(cfg *config.Config, s *store.Store, notePath string, noteID int64, heading string, level int, entry string) (int64, string, int, error) {
+	body, err := os.ReadFile(notePath)
+	if err != nil {
+		return 0, "", 0, fmt.Errorf("read note: %w", err)
+	}
+	hp, err := resolveHeadingPtr(string(body), heading, level)
+	if err != nil {
+		return 0, "", 0, err
+	}
+	newBody, at := link.AppendUnder(string(body), hp, strings.Split(entry, "\n"))
+	if at == 0 {
+		return 0, "", 0, fmt.Errorf("captured text is empty after templating")
+	}
+	if err := note.WriteVerify(notePath, []byte(newBody)); err != nil {
+		return 0, "", 0, err
+	}
+	if err := index.New(cfg, s).One(notePath); err != nil {
+		return 0, "", 0, fmt.Errorf("index note: %w", err)
+	}
+	return noteID, notePath, at, nil
 }
 
 // cmdRefile moves a heading subtree — or, with --line, a single list item — from one note anchor to

@@ -71,7 +71,7 @@
               root = ./.;
               fileset = goFiles;
             };
-            vendorHash = "sha256-bdlVtenoN7ZKX5dO5gZ2x9XlD6YGWgNHwMwdgtn87+c=";
+            vendorHash = "sha256-8One/9Oy0oekuH2tC+ADvVf1KMkXacoXgTDHiz5hzVs=";
             subPackages = [
               "cmd/track"
               "cmd/track-lsp"
@@ -93,7 +93,7 @@
               root = ./.;
               fileset = goFiles;
             };
-            vendorHash = "sha256-bdlVtenoN7ZKX5dO5gZ2x9XlD6YGWgNHwMwdgtn87+c=";
+            vendorHash = "sha256-8One/9Oy0oekuH2tC+ADvVf1KMkXacoXgTDHiz5hzVs=";
             subPackages = [ "cmd/track-fetch-rss" ];
           };
 
@@ -104,7 +104,7 @@
               root = ./.;
               fileset = goFiles;
             };
-            vendorHash = "sha256-bdlVtenoN7ZKX5dO5gZ2x9XlD6YGWgNHwMwdgtn87+c=";
+            vendorHash = "sha256-8One/9Oy0oekuH2tC+ADvVf1KMkXacoXgTDHiz5hzVs=";
             subPackages = [ "cmd/track-fetch-web" ];
           };
 
@@ -126,7 +126,7 @@
               root = ./.;
               fileset = goFiles;
             };
-            vendorHash = "sha256-bdlVtenoN7ZKX5dO5gZ2x9XlD6YGWgNHwMwdgtn87+c=";
+            vendorHash = "sha256-8One/9Oy0oekuH2tC+ADvVf1KMkXacoXgTDHiz5hzVs=";
             subPackages = [ "cmd/track-fetch-jquants" ];
           };
 
@@ -137,7 +137,7 @@
               root = ./.;
               fileset = goFiles;
             };
-            vendorHash = "sha256-bdlVtenoN7ZKX5dO5gZ2x9XlD6YGWgNHwMwdgtn87+c=";
+            vendorHash = "sha256-8One/9Oy0oekuH2tC+ADvVf1KMkXacoXgTDHiz5hzVs=";
             subPackages = [ "cmd/track-fetch-kindle" ];
           };
 
