@@ -115,6 +115,8 @@ func Run(args []string) int {
 		return cmdExportSite(rest)
 	case "render":
 		return cmdRender(rest)
+	case "metrics":
+		return cmdMetrics(rest)
 	default:
 		fmt.Fprintf(os.Stderr, "track: unknown command %q\n", cmd)
 		usage()
@@ -286,6 +288,9 @@ Usage:
                                         render a View Spec chart, or a composed article (a spec with
                                         "blocks"), to an HTML file (JSON path);
                                         run "track render --help" for the View Spec notation
+  track metrics scrape|derive|dashboard|alert [...]
+                                        Grafana-style monitoring on adopted specs (ADR 0076);
+                                        run "track metrics" for subcommand usage
   track dump                            print placeholder state (JSON)
   track version                         print the version
 
