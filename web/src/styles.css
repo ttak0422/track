@@ -4860,7 +4860,13 @@ textarea.modal-input:focus-visible {
     /* The rail is the window's height, not its content's: it holds the graph at its foot whatever the
        note above it has to say. It takes the sheet's own ground, so a rail longer than its sections
        shows nothing but the page it already stood on. */
-    height: calc(100vh - 65px + var(--aside-pad)); /* tab bar (33px) + the sticky offset */
+    align-self: stretch;
+    /* Bind to the row, not the window: a fixed window-derived height overshoots on short notes (the
+       rail's top sits below the tab bar + reader padding + tags, which no single constant captures),
+       leaving a dead scroll tail even where nothing should scroll. Stretching to the row keeps short
+       notes exact; the cap below restores the window-height rail with its own scroll on long notes. */
+    height: auto;
+    max-height: calc(100dvh - 65px + var(--aside-pad)); /* tab bar (33px) + the sticky offset */
     overflow-y: auto;
     margin-top: calc(-1 * var(--aside-pad));
     margin-inline: calc(-1 * var(--aside-pad));

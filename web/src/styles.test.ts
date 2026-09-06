@@ -545,10 +545,15 @@ describe("phone width", () => {
 });
 
 describe("docked aside", () => {
-  // The rail is the window's height, not its content's — that is what puts the graph at its foot on a
-  // note whose sections come up short, and what the list allocation measures against.
-  it("sizes the rail from the window rather than its sections", () => {
-    expect(mediaBody("(min-width: 1100px)")).toMatch(/> \.note-aside \{[^}]*height:\s*calc\(100vh/);
+  // The rail stretches to its row instead of taking a fixed window-derived height: no single
+  // constant captures the rail's top (tab bar + reader padding + tags), so the old fixed height
+  // left a dead scroll tail on short notes. The window-height rail with its own scroll survives
+  // as a cap for long notes.
+  it("binds the rail to its row, capped at the window height", () => {
+    const rule = mediaBody("(min-width: 1100px)");
+    expect(rule).toMatch(/> \.note-aside \{[^}]*align-self:\s*stretch/);
+    expect(rule).toMatch(/> \.note-aside \{[^}]*height:\s*auto/);
+    expect(rule).toMatch(/> \.note-aside \{[^}]*max-height:\s*calc\(100dvh/);
   });
 
   // Pushed to the foot when the sections above come up short, held there when they overflow. The
