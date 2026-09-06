@@ -1,0 +1,52 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <style>
+      body {
+        width: 320px;
+        margin: 0;
+        font: 13px/1.5 -apple-system, "Segoe UI", sans-serif;
+        color: #222;
+        background: #fff;
+      }
+      .wrap { padding: 14px; }
+      h1 { margin: 0 0 4px; font-size: 14px; }
+      .sub { margin: 0 0 12px; color: #666; font-size: 12px; }
+      button {
+        width: 100%;
+        padding: 9px 12px;
+        border: 0;
+        border-radius: 6px;
+        background: #d94f70;
+        color: #fff;
+        font-size: 13px;
+        cursor: pointer;
+      }
+      button:hover { background: #c23c5e; }
+      .cmd {
+        margin-top: 14px;
+        padding: 8px 10px;
+        background: #f6f6f6;
+        border-radius: 6px;
+        font-family: ui-monospace, Menlo, monospace;
+        font-size: 11px;
+        word-break: break-all;
+      }
+      .hint { margin-top: 10px; color: #888; font-size: 11px; }
+      .status { margin-top: 10px; font-size: 12px; }
+      .status.err { color: #b00020; }
+    </style>
+  </head>
+  <body>
+    <div class="wrap">
+      <h1>track element clip</h1>
+      <p class="sub">Pick one element; its grab payload is copied to the clipboard.</p>
+      <button id="pick">Pick element</button>
+      <div class="cmd" id="cmd">pbpaste | track-fetch-elem --note | track new</div>
+      <div class="status" id="status"></div>
+      <div class="hint">Hover to highlight &middot; click to capture &middot; Esc to cancel</div>
+    </div>
+    <script src="popup.js"></script>
+  </body>
+</html>

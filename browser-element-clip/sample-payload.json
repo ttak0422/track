@@ -1,0 +1,46 @@
+{
+  "page": {
+    "sanitizedUrl": "https://example.com/shop/checkout",
+    "title": "Example Shop - Checkout",
+    "viewportWidth": 1280,
+    "viewportHeight": 800,
+    "capturedAt": "2026-09-06T09:30:00Z"
+  },
+  "target": {
+    "tagName": "button",
+    "selector": "main#checkout > section.cart > button.buy",
+    "elementPath": "html > body > main:nth-child(2) > section:nth-child(1) > button:nth-child(3)",
+    "fullPath": "html > body > main#checkout > section.cart > button.buy",
+    "cssClasses": "buy primary",
+    "selectedText": "",
+    "textSnippet": "Buy now",
+    "htmlSnippet": "<button class=\"buy primary\" type=\"submit\" aria-label=\"buy button\">Buy now</button>",
+    "attributes": {
+      "class": "buy primary",
+      "type": "submit",
+      "aria-label": "buy button"
+    },
+    "accessibility": {
+      "role": "button",
+      "accessibleName": "buy button",
+      "ariaLabel": "buy button"
+    },
+    "rectViewport": { "x": 512, "y": 420, "width": 120, "height": 40 },
+    "computedStyles": {
+      "display": "block",
+      "position": "relative",
+      "width": "120px",
+      "height": "40px",
+      "color": "rgb(255, 255, 255)",
+      "backgroundColor": "rgb(217, 79, 112)",
+      "fontFamily": "sans-serif",
+      "fontSize": "14px",
+      "fontWeight": "600",
+      "lineHeight": "20px",
+      "textAlign": "center"
+    }
+  },
+  "nearbyText": ["Cart total: $29.00", "Free shipping on orders over $20"],
+  "ancestorPath": ["html", "body", "main", "section"],
+  "nearbyElements": ["span.price \"$29.00\"", "input.qty \"1\""]
+}
