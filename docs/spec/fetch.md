@@ -74,3 +74,29 @@ saved from the local network.
 Because a clip is note-shaped as much as chart-shaped, the tool also has a convenience output mode
 outside the JSONL contract: `--note` prints a ready-to-pipe Markdown note body (provenance line,
 lead image, content) for `track new --title`.
+
+## Kindle clipper
+
+`track-fetch-kindle <clippings.txt>` converts a Kindle "My Clippings.txt" export into one `event`
+record per clipping: `title` from the clipped text, `entity` from the book title (the trailing
+author group is stripped, so the entity is the book itself), `time` from Amazon's added-on instant —
+English and Japanese annotation lines are recognized, and because the export carries no zone, times
+normalize to RFC 3339 UTC — ordered ascending. `type` (highlight / note / bookmark), `location`, and
+a content-derived `anchor` ride along as extra fields.
+
+The file is normalized in place (UTF-8 BOM, CRLF/CR line endings, split on Amazon's `==========`
+separator), so the same export parses identically however it was transferred. Malformed blocks are
+skipped and counted on stderr; records are deduplicated by their deterministic anchor, so re-running
+the tool never doubles a highlight.
+
+Like the web clipper, a convenience output mode sits outside the JSONL contract: `--note` prints a
+ready-to-pipe Markdown note body for `track new --title` — an `up::` property pointing at the book,
+then one list item per clipping carrying its stable `^h…` anchor, so `[[Book#^id]]` quotes keep
+resolving across regeneration (ADR 0038). `--book <title>` restricts the export to one book (and
+names the note's `up::` parent); it is required when the file holds several books:
+
+```sh
+track-fetch-kindle "My Clippings.txt" --out ~/track/data/books.jsonl
+track-fetch-kindle --note --book "The Pragmatic Programmer" "My Clippings.txt" \
+  | track new --title "The Pragmatic Programmer — highlights"
+```
