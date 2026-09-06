@@ -75,7 +75,7 @@ Because a clip is note-shaped as much as chart-shaped, the tool also has a conve
 outside the JSONL contract: `--note` prints a ready-to-pipe Markdown note body (provenance line,
 lead image, content) for `track new --title`.
 
-## Kindle clipper
+## Kindle clipper (experimental)
 
 `track-fetch-kindle <clippings.txt>` converts a Kindle "My Clippings.txt" export into one `event`
 record per clipping: `title` from the clipped text, `entity` from the book title (the trailing
