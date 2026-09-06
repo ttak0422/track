@@ -1,5 +1,7 @@
 # Go build output
 /bin/
+/build/
+/native/.build/
 
 # Go coverage profile (CI writes it; reproduce with the command in .github/workflows/ci.yml)
 /coverage.out

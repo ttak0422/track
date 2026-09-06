@@ -23,6 +23,9 @@ swift build --package-path native
 swift run --package-path native VerifyFixtures
 ```
 
+Build the unsigned, non-sandboxed app bundle with `make native-app`. Override
+`NATIVE_SDKROOT` when the installed Command Line Tools use another SDK path.
+
 恒久的に切り替える場合は `sudo xcode-select --switch
 /Library/Developer/CommandLineTools` (要管理者権限)。
 
