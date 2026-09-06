@@ -1,7 +1,8 @@
 // Package task models task lines in note bodies: Markdown checkbox items whose box character carries a
 // named state (Obsidian-style custom checkboxes), plus inline bracket tokens for priority ([#A]),
-// scheduled/deadline dates ([sched:YYYY-MM-DD] / [due:YYYY-MM-DD]) and the auto-written completion
-// stamp ([done:YYYY-MM-DD]). It also recomputes progress cookies ([2/5] or [40%]) on parent headings
+// scheduled/deadline dates ([sched:YYYY-MM-DD] / [due:YYYY-MM-DD]), the auto-written completion
+// stamp ([done:YYYY-MM-DD]) and a repeat spec ([rpt:1w], [rpt:+.1w] from completion, [rpt:++1m]
+// skipping past dates). It also recomputes progress cookies ([2/5] or [40%]) on parent headings
 // and parent list items. The package is pure string manipulation so every surface (CLI, web server,
 // static export, indexer) shares one parser and one mutation path.
 package task
@@ -10,6 +11,7 @@ import (
 	"fmt"
 	"regexp"
 	"slices"
+	"strconv"
 	"strings"
 	"time"
 )
@@ -106,6 +108,12 @@ var (
 	completedRE = regexp.MustCompile(`\[done:(\d{4}-\d{2}-\d{2})\]`)
 	// completedTokenRE also eats the spacing before the stamp, so removing it leaves no gap.
 	completedTokenRE = regexp.MustCompile(`\s*\[done:\d{4}-\d{2}-\d{2}\]`)
+
+	// repeatRE matches a repeat token: [rpt:<spec>] where spec is a bare interval (fixed), "+.<spec>"
+	// (from-completion) or "++<spec>" (skip). The spec itself is parsed by parseRepeatSpec.
+	repeatRE = regexp.MustCompile(`\[rpt:([^\[\]]*)\]`)
+	// repeatIntervalRE is the interval grammar of a repeat spec: a count and one of d/w/m/y.
+	repeatIntervalRE = regexp.MustCompile(`^(\d+)([dwmy])$`)
 
 	cookieRE  = regexp.MustCompile(`\[\d+/\d+\]|\[\d+%\]`)
 	headingRE = regexp.MustCompile(`^(#{1,6})\s`)
@@ -224,10 +232,10 @@ func parseLine(line string) (Task, bool) {
 	return t, true
 }
 
-// displayText strips the metadata tokens (priority, dates, completion stamp, progress cookie) and
-// collapses whitespace, leaving the human text of the task for listings and board cards.
+// displayText strips the metadata tokens (priority, dates, completion stamp, repeat, progress
+// cookie) and collapses whitespace, leaving the human text of the task for listings and board cards.
 func displayText(rest string) string {
-	for _, re := range []*regexp.Regexp{priorityRE, schedRE, dueRE, completedRE, cookieRE} {
+	for _, re := range []*regexp.Regexp{priorityRE, schedRE, dueRE, completedRE, repeatRE, cookieRE} {
 		rest = re.ReplaceAllString(rest, " ")
 	}
 	return strings.Join(strings.Fields(rest), " ")
@@ -268,9 +276,10 @@ func FirstStates() (todo State, done State) {
 }
 
 // SetState rewrites the task on the given 1-based line of body to the named target state. Entering a
-// done-family state from a not-done one stamps a [done:date] token on the line; leaving the done
-// family removes it. Progress cookies on parent headings/list items are recomputed over the whole
-// body. The returned body preserves the presence of a trailing newline.
+// done-family state from a not-done one stamps a [done:date] token on the line and, when the line
+// carries a [rpt:] token, rolls its scheduled/deadline dates forward to the next occurrence; leaving
+// the done family removes the stamp. Progress cookies on parent headings/list items are recomputed
+// over the whole body. The returned body preserves the presence of a trailing newline.
 // taskLineAt locates a writable task line: it splits the body, range-checks the 1-based line, rejects
 // a line inside a code fence (notation shown as an example is not a task), and matches the task
 // grammar. It returns the split lines, the grammar's submatches, and whether the body ended in a
@@ -357,6 +366,99 @@ func SetDate(body string, line int, field DateField, date string) (string, Task,
 	return updated, t, nil
 }
 
+// RepeatMode is how a [rpt:] token anchors its roll-forward on completion.
+type RepeatMode string
+
+const (
+	// RepeatFixed rolls one interval forward from the task's current scheduled/deadline date, so the
+	// calendar rhythm survives regardless of when the task is actually completed. The token is the
+	// bare interval: [rpt:1w].
+	RepeatFixed RepeatMode = "fixed"
+	// RepeatFromCompletion rolls one interval forward from the completion date, so the next
+	// occurrence drifts with the day the task was really done. The token is "+." plus the interval:
+	// [rpt:+.1w].
+	RepeatFromCompletion RepeatMode = "from-completion"
+	// RepeatSkip keeps the fixed anchor's rhythm but skips past the completion date: the next
+	// occurrence is the first interval boundary strictly after it, so a late completion does not
+	// schedule a date that already came and went. The token is "++" plus the interval: [rpt:++1m].
+	RepeatSkip RepeatMode = "skip"
+)
+
+// Repeat is a parsed [rpt:] token: the roll mode and the interval (count plus a unit of 'd', 'w',
+// 'm' or 'y').
+type Repeat struct {
+	Mode RepeatMode `json:"mode"`
+	N    int        `json:"n"`
+	Unit byte       `json:"unit"`
+}
+
+// String renders the token spec, so a parsed repeat can be written back or reported verbatim:
+// "1w", "+.1w", "++1m".
+func (r Repeat) String() string {
+	if r.N <= 0 {
+		return ""
+	}
+	switch r.Unit {
+	case 'd', 'w', 'm', 'y':
+	default:
+		return ""
+	}
+	prefix := ""
+	switch r.Mode {
+	case RepeatFromCompletion:
+		prefix = "+."
+	case RepeatSkip:
+		prefix = "++"
+	}
+	return fmt.Sprintf("%s%d%c", prefix, r.N, r.Unit)
+}
+
+// RepeatOf returns the [rpt:] token on the given 1-based line of body, when that line is a task and
+// carries one. A malformed spec (a token that is not a bare interval or one of the prefixed forms)
+// is reported as an error, so a typo stops loudly instead of silently stopping a task's repeats.
+func RepeatOf(body string, line int) (Repeat, bool, error) {
+	_, m, _, err := taskLineAt(body, line)
+	if err != nil {
+		return Repeat{}, false, nil
+	}
+	rptM := repeatRE.FindStringSubmatch(m[4])
+	if rptM == nil {
+		return Repeat{}, false, nil
+	}
+	r, err := parseRepeatSpec(rptM[1])
+	if err != nil {
+		return Repeat{}, true, err
+	}
+	return r, true, nil
+}
+
+// parseRepeatSpec parses the inside of a [rpt:] token: a bare interval, "+." plus an interval, or
+// "++" plus an interval. A zero or missing count is refused — the repeating semantics of a zero
+// interval are meaningless and a skip token would loop forever advancing by zero.
+func parseRepeatSpec(spec string) (Repeat, error) {
+	var r Repeat
+	switch {
+	case strings.HasPrefix(spec, "+."):
+		r.Mode = RepeatFromCompletion
+		spec = spec[2:]
+	case strings.HasPrefix(spec, "++"):
+		r.Mode = RepeatSkip
+		spec = spec[2:]
+	default:
+		r.Mode = RepeatFixed
+	}
+	m := repeatIntervalRE.FindStringSubmatch(spec)
+	if m == nil {
+		return Repeat{}, fmt.Errorf("invalid repeat %q (want e.g. [rpt:1w], [rpt:+.1w], [rpt:++1m])", spec)
+	}
+	n, _ := strconv.Atoi(m[1])
+	if n <= 0 {
+		return Repeat{}, fmt.Errorf("invalid repeat %q: interval must be at least 1", spec)
+	}
+	r.N, r.Unit = n, m[2][0]
+	return r, nil
+}
+
 func SetState(body string, line int, target string, now time.Time) (string, Transition, error) {
 	to, ok := StateNamed(target)
 	if !ok {
@@ -387,6 +489,22 @@ func SetState(body string, line int, target string, now time.Time) (string, Tran
 		}
 	}
 	lines[line-1] = m[1] + m[2] + "[" + to.Char + "]" + rest
+	// A task entering the done family with a [rpt:] token rolls its scheduled/deadline dates forward
+	// to the next occurrence, so completing a repeating task does not leave a stale past date on the
+	// line. A malformed token is refused like any other syntax error in the line.
+	if to.Done && !from.Done {
+		if rptM := repeatRE.FindStringSubmatch(rest); rptM != nil {
+			rpt, err := parseRepeatSpec(rptM[1])
+			if err != nil {
+				return "", Transition{}, fmt.Errorf("line %d: %w", line, err)
+			}
+			rolled, err := rollRepeatLine(rest, rpt, now)
+			if err != nil {
+				return "", Transition{}, fmt.Errorf("line %d: %w", line, err)
+			}
+			lines[line-1] = m[1] + m[2] + "[" + to.Char + "]" + rolled
+		}
+	}
 	recomputeCookies(lines)
 
 	updated := strings.Join(lines, "\n")
@@ -403,6 +521,125 @@ func SetState(body string, line int, target string, now time.Time) (string, Tran
 		Text:      t.Text,
 		Changed:   from.Name != to.Name,
 	}, nil
+}
+
+// rollRepeatLine rolls a task line's [sched:]/[due:] tokens forward by its repeat token, per the
+// mode: fixed anchors one interval on the current scheduled/deadline date, from-completion on the
+// completed date, and skip takes the first fixed-rhythm boundary strictly after the completed date.
+// When the line carries both dates the pair shifts by the same offset, so their gap survives; when
+// it carries neither, a [sched:] token for the next occurrence is appended (before the [done:]
+// stamp, in the documented token order) so the repeat is visible on the line. rest is the task
+// line after the checkbox; the returned string is the same slice, rewritten.
+func rollRepeatLine(rest string, rpt Repeat, completed time.Time) (string, error) {
+	var sched, due string
+	if sm := schedRE.FindStringSubmatch(rest); sm != nil {
+		sched = sm[1]
+	}
+	if dm := dueRE.FindStringSubmatch(rest); dm != nil {
+		due = dm[1]
+	}
+	completedDay, _ := time.Parse(dateLayout, completed.Format(dateLayout))
+
+	next := time.Time{}
+	if sched == "" && due == "" {
+		// No anchor on the line yet: the completed date starts the cadence for every mode.
+		next = addInterval(completedDay, rpt.N, rpt.Unit)
+		rest = setDateTokenOnLine(rest, "sched", next.Format(dateLayout))
+		return rest, nil
+	}
+
+	anchor := sched
+	anchorField := "sched"
+	if anchor == "" {
+		anchor, anchorField = due, "due"
+	}
+	anchorDay, err := time.Parse(dateLayout, anchor)
+	if err != nil {
+		return "", fmt.Errorf("invalid [%s:%s] date on the line", anchorField, anchor)
+	}
+	switch rpt.Mode {
+	case RepeatFromCompletion:
+		next = addInterval(completedDay, rpt.N, rpt.Unit)
+	case RepeatSkip:
+		// Walk the fixed rhythm until the boundary lands strictly after the completed date, so a
+		// late completion skips the occurrences that already passed instead of scheduling one.
+		step := rpt.N
+		next = addInterval(anchorDay, step, rpt.Unit)
+		for !next.After(completedDay) {
+			step += rpt.N
+			next = addInterval(anchorDay, step, rpt.Unit)
+		}
+	default: // RepeatFixed
+		next = addInterval(anchorDay, rpt.N, rpt.Unit)
+	}
+	delta := next.Sub(anchorDay)
+	if sched != "" {
+		rest = setDateTokenOnLine(rest, "sched", shiftDate(sched, delta))
+	}
+	if due != "" {
+		rest = setDateTokenOnLine(rest, "due", shiftDate(due, delta))
+	}
+	return rest, nil
+}
+
+// setDateTokenOnLine writes a sched/due token on one task line, replacing the token where it sits
+// and otherwise inserting it before the [done:] stamp — the same placement rule SetDate applies to
+// a whole body.
+func setDateTokenOnLine(rest, field, date string) string {
+	var re *regexp.Regexp
+	if field == "sched" {
+		re = schedRE
+	} else {
+		re = dueRE
+	}
+	token := "[" + field + ":" + date + "]"
+	if re.MatchString(rest) {
+		return re.ReplaceAllString(rest, token)
+	}
+	if loc := completedTokenRE.FindStringIndex(rest); loc != nil {
+		return strings.TrimRight(rest[:loc[0]], " \t") + " " + token + " " + strings.TrimSpace(rest[loc[0]:])
+	}
+	return strings.TrimRight(rest, " \t") + " " + token
+}
+
+// shiftDate moves a YYYY-MM-DD date by a duration, preserving the date layout of task tokens.
+func shiftDate(date string, delta time.Duration) string {
+	d, err := time.Parse(dateLayout, date)
+	if err != nil {
+		return date
+	}
+	return d.Add(delta).Format(dateLayout)
+}
+
+// addInterval adds a calendar interval to d. Month and year units clamp to the end of the target
+// month, so Jan 31 + 1m lands on the last day of February instead of rolling into March.
+func addInterval(d time.Time, n int, unit byte) time.Time {
+	switch unit {
+	case 'w':
+		return d.AddDate(0, 0, 7*n)
+	case 'm':
+		return addMonths(d, n)
+	case 'y':
+		return addMonths(d, 12*n)
+	default: // 'd'
+		return d.AddDate(0, 0, n)
+	}
+}
+
+func addMonths(d time.Time, months int) time.Time {
+	y, m, day := d.Date()
+	total := int(m) - 1 + months
+	y += total / 12
+	total %= 12
+	if total < 0 {
+		total += 12
+		y--
+	}
+	target := time.Month(total + 1)
+	if last := time.Date(y, target+1, 0, 0, 0, 0, 0, d.Location()).Day(); day > last {
+		day = last
+	}
+	return time.Date(y, target, day, 0, 0, 0, 0, d.Location())
 }
 
 // recomputeCookies rewrites every progress cookie ([n/m] or [p%]) in lines from the current task
