@@ -9,9 +9,13 @@ let package = Package(
     ],
     targets: [
         .target(name: "TrackAPI"),
-        .testTarget(
-            name: "TrackAPITests",
+        // swift-testing / XCTest ship with full Xcode only, so verification
+        // is a runnable executable (`swift run VerifyFixtures`), not a test
+        // target. It must keep passing on CLT-only Macs.
+        .executableTarget(
+            name: "VerifyFixtures",
             dependencies: ["TrackAPI"],
+            path: "Tools/VerifyFixtures",
             resources: [.process("Fixtures")]
         ),
     ]
