@@ -5,6 +5,7 @@
   "data": { "kind": "metric",
     "records": [
       { "name": "Alice Napier",  "time": "2026-01-01", "value": 768 },
+      { "name": "Dai Sato",      "time": "2026-01-01", "value": 288 },
       { "name": "Car O'Neil",    "time": "2026-01-01", "value": 256 },
       { "name": "Bo Kimura",     "time": "2026-01-01", "value": 192 }
     ] },

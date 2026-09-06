@@ -25,7 +25,12 @@ reading log asks, using the smallest tool that fits:
 
 - `notes/` — sample reading notes. Each book is one note whose body carries its props as inline
   fields (`author::`, `genre::`, `pages::`, `status::`, `rating::`, `finished::`). Those are indexed
-  by ADR 0032 and read by `props.<key>` in queries.
+  by ADR 0032 and read by `props.<key>` in queries. Every reading note must also carry the `book`
+  tag — it is what the saved queries scope on with `FROM #book`, since a query over `props.status`
+  alone would match any note (a project, a post) that happens to have a `status::` field. A tag is
+  sidecar metadata (never body text), so it is set at creation: `track new --title "The Tale of X"
+  --tag book`. These two files are body-only illustrations of that note shape, not complete vault
+  notes (which track stores as `<numeric-id>.md` with a sidecar).
 - `config.yml.snippet` — the `properties:` schema (so `pages`/`rating` are typed `number`, `status`
   is checked against an enum, `finished` is a `date`) and `queries:` saved queries the fences below
   reuse. Merge into `<vault>/.track/config.yml`.
@@ -48,7 +53,9 @@ reading log asks, using the smallest tool that fits:
 track render --spec examples/reading/genre-treemap.viewspec.json --out /tmp/genre.html
 track render --spec examples/reading/author-bar.viewspec.json    --out /tmp/author.html
 
-# The query views, against a vault seeded with notes/ and config.yml.snippet:
+# The query views, against a vault seeded with the notes (namely: `track init`, then one
+# `track new --title <book> --tag book --body <notes/<book>.md>` per sample note, then merge
+# config.yml.snippet into <vault>/.track/config.yml):
 track query 'TABLE title, props.pages, props.rating FROM #book WHERE props.status = done AND 2025-12-31 < props.finished AND props.finished < 2027-01-01 SORT props.finished DESC'
 track query 'TABLE title, props.author, props.pages FROM #book WHERE props.status = unread'
 ```
