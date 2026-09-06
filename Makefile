@@ -18,7 +18,7 @@ WEB_DIST   := web/dist-static
 # Open a URL in the browser: xdg-open on Linux, open on macOS. Empty if neither is on PATH.
 OPEN := $(shell command -v xdg-open 2>/dev/null || command -v open 2>/dev/null)
 
-.PHONY: help site site-serve site-dev site-data site-clean lighthouse design-shots web-nvim
+.PHONY: help site site-serve site-dev site-data site-clean lighthouse design-shots web-nvim native-app native-verify
 
 help: ## List the available targets
 	@grep -E '^[a-zA-Z0-9_-]+:.*?## ' $(MAKEFILE_LIST) \
@@ -104,3 +104,24 @@ web-nvim: ## Launch the live web workspace via headless Neovim (Ctrl-C to stop)
 web/node_modules: web/package-lock.json
 	cd web && npm ci
 	@touch web/node_modules
+
+NATIVE_APP ?= build/Track.app
+NATIVE_DEVELOPER_DIR ?= /Library/Developer/CommandLineTools
+NATIVE_SDKROOT ?= /Library/Developer/CommandLineTools/SDKs/MacOSX26.5.sdk
+NATIVE_MODULE_CACHE ?= $(CURDIR)/native/.build/clang-module-cache
+NATIVE_SWIFT_PRODUCT ?= TrackApp
+
+native-app: native-verify ## Build the unsigned, non-sandboxed macOS app bundle
+	@set -eu; \
+		test "$$(uname -s)" = Darwin || { echo "native-app requires macOS" >&2; exit 1; }; \
+		rm -rf "$(NATIVE_APP)"; \
+		mkdir -p "$(NATIVE_APP)/Contents/MacOS" "$(NATIVE_APP)/Contents/Helpers"; \
+		cp native/.build/release/$(NATIVE_SWIFT_PRODUCT) "$(NATIVE_APP)/Contents/MacOS/Track"; \
+		CGO_ENABLED=0 go build -o "$(NATIVE_APP)/Contents/Helpers/track" ./cmd/track; \
+		cp native/App/Info.plist "$(NATIVE_APP)/Contents/Info.plist"; \
+		test -x "$(NATIVE_APP)/Contents/MacOS/Track"; \
+		test -x "$(NATIVE_APP)/Contents/Helpers/track"
+
+native-verify: ## Build the SwiftPM app target and fixture verifier with the system macOS toolchain
+	env DEVELOPER_DIR="$(NATIVE_DEVELOPER_DIR)" SDKROOT="$(NATIVE_SDKROOT)" CLANG_MODULE_CACHE_PATH="$(NATIVE_MODULE_CACHE)" swift build --package-path native -c release --product $(NATIVE_SWIFT_PRODUCT)
+	env DEVELOPER_DIR="$(NATIVE_DEVELOPER_DIR)" SDKROOT="$(NATIVE_SDKROOT)" CLANG_MODULE_CACHE_PATH="$(NATIVE_MODULE_CACHE)" swift run --package-path native VerifyFixtures
