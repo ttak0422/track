@@ -10,6 +10,11 @@
 .voice-console.listening .voice-mic { border-color: var(--mark); background: var(--mark); color: var(--panel); }
 .voice-mic:disabled { cursor: not-allowed; opacity: .55; }
 .voice-elapsed { margin-left: 12px; color: var(--faint); font-variant-numeric: tabular-nums; }
+/* quiet text controls under the mic: copy and clear rest on the console. */
+.voice-text-actions { display: flex; align-items: center; justify-content: center; gap: 4px; margin: 10px 0 0; }
+.voice-text-actions button { border: 0; background: transparent; color: var(--muted); padding: 7px 10px; font: inherit; cursor: pointer; }
+.voice-text-actions button:hover, .voice-text-actions button:focus-visible { color: var(--text); background: var(--panel-soft); border-radius: var(--radius-sm); }
+.voice-text-actions button:disabled, .voice-text-actions button:disabled:hover { background: transparent; color: var(--faint); cursor: not-allowed; }
 /* underline field, as the search box: no box, hairlines above and below that
    take the mark while the field holds focus. The caret never draws its own frame. */
 .voice-transcript-wrap { position: relative; width: min(720px, 100%); margin: 0 auto; background: transparent; border-top: 1px solid var(--line); border-bottom: 1px solid var(--line); transition: border-color 0.12s ease; }
@@ -26,12 +31,13 @@
 .voice-transcript-wrap.composing .voice-transcript-mirror { visibility: hidden; }
 /* link candidates: the floating layer variant, pinned to the selection that
    asked for them (variant 3). */
-.voice-candidates { position: absolute; z-index: 5; transform: translate(-50%, 14px); display: grid; gap: 4px; width: min(340px, calc(100% - 16px)); max-height: 220px; overflow: auto; padding: 12px; border: 1px solid var(--line); border-radius: var(--radius-lg); background: var(--panel); box-shadow: 0 8px 24px color-mix(in srgb, var(--text) 12%, transparent); }
+.voice-candidates { position: absolute; z-index: 5; transform: translate(-50%, 14px); display: grid; gap: 4px; width: min(600px, calc(100vw - 48px)); max-height: 320px; overflow: auto; padding: 12px; border: 1px solid var(--line); border-radius: var(--radius-lg); background: var(--panel); box-shadow: 0 8px 24px color-mix(in srgb, var(--text) 12%, transparent); }
 .voice-candidates.above { transform: translate(-50%, calc(-100% - 14px)); }
 .voice-candidates .voice-candidates-title { padding: 4px 10px; }
 .voice-candidates .results-group { margin: 8px 10px 2px; }
 .voice-candidates .results-group:first-child { margin-top: 0; }
-.voice-candidate { border: 0; background: transparent; color: var(--muted); padding: 7px 10px; font: inherit; cursor: pointer; text-align: left; }
+.voice-candidate { border: 0; background: transparent; color: var(--muted); padding: 7px 10px; font: inherit; cursor: pointer; text-align: left; min-width: 0; }
+.voice-candidate .result-snippet { display: block; margin-top: 2px; }
 .voice-candidate:hover, .voice-candidate:focus-visible { background: var(--panel-soft); color: var(--text); border-radius: var(--radius-sm); }
 .voice-candidate:disabled, .voice-candidate:disabled:hover { background: transparent; color: var(--faint); cursor: not-allowed; }
 .voice-error { color: var(--danger); font-size: 13px; }

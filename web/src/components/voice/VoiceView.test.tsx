@@ -43,7 +43,7 @@ vi.mock("../../api", async (importOriginal) => {
   };
 });
 vi.mock("../../notifications", () => ({ useNotifications: () => ({ notification: null, notify, dismiss: vi.fn() }) }));
-vi.mock("../preview/floatingStore", () => ({ useFloating: () => ({ open: floatingOpen }) }));
+vi.mock("../preview/floatingStore", () => ({ useFloating: () => ({ open: floatingOpen, windows: [] }) }));
 
 function resetAll() {
   recognitionState.isListening = false;
@@ -227,8 +227,59 @@ describe("VoiceView", () => {
     expect(screen.queryByRole("button", { name: 'Create "spoken"' })).not.toBeInTheDocument();
   });
 
-  it("shows creation inactive when the words name an existing note", async () => {
+  it("highlights matches and shows snippets like the search menu", async () => {
     resetAll();
+    apiMocks.searchNotes = () => Promise.resolve({ results: [
+      { note_id: "t1", title: "spoken word", match: "title" },
+      { note_id: "b1", title: "Other", snippet: "has spoken inside", match: "body" },
+    ] });
+    const { container } = render(<VoiceView />);
+    fireEvent.change(transcript(), { target: { value: "spoken words" } });
+    transcript().setSelectionRange(0, 6);
+    fireEvent.mouseUp(transcript());
+    // The title wears <mark> parts, so match loosely; the marks themselves
+    // are asserted below.
+    expect(await screen.findByRole("button", { name: /spoken word/ })).toBeInTheDocument();
+    const marks = container.querySelectorAll("mark.search-highlight");
+    expect(marks.length).toBeGreaterThan(0);
+    // The snippet is split by <mark> parts, so read the whole row text.
+    const snippet = container.querySelector(".result-snippet");
+    expect(snippet?.textContent).toBe("has spoken inside");
+    expect(snippet?.querySelector("mark.search-highlight")).toHaveTextContent("spoken");
+  });
+
+  it("keeps the results open when floating from the row button", async () => {
+    resetAll();
+    apiMocks.searchNotes = () => Promise.resolve({ results: [{ note_id: "n1", title: "T1" }] });
+    render(<VoiceView />);
+    fireEvent.change(transcript(), { target: { value: "spoken words" } });
+    transcript().setSelectionRange(0, 6);
+    fireEvent.mouseUp(transcript());
+    fireEvent.click(await screen.findByRole("button", { name: "Float T1" }));
+    expect(floatingOpen).toHaveBeenCalled();
+    expect(screen.getByRole("button", { name: "T1" })).toBeInTheDocument();
+  });
+
+  it("copies the whole transcript", async () => {
+    resetAll();
+    const writeText = vi.fn().mockResolvedValue(undefined);
+    Object.defineProperty(window.navigator, "clipboard", { value: { writeText }, configurable: true });
+    render(<VoiceView />);
+    fireEvent.change(transcript(), { target: { value: "spoken words" } });
+    fireEvent.click(screen.getByRole("button", { name: "Copy all" }));
+    await waitFor(() => expect(writeText).toHaveBeenCalledWith("spoken words"));
+    expect(await screen.findByRole("button", { name: "Copied" })).toBeInTheDocument();
+  });
+
+  it("clears the transcript", () => {
+    resetAll();
+    render(<VoiceView />);
+    fireEvent.change(transcript(), { target: { value: "spoken words" } });
+    fireEvent.click(screen.getByRole("button", { name: "Clear" }));
+    expect(transcript().value).toBe("");
+  });
+
+  it("shows creation inactive when the words name an existing note", async () => {    resetAll();
     apiMocks.resolveTerm = () => Promise.resolve({ found: true, note: { note_id: "n1", title: "spoken" } });
     const createNoteSpy = vi.fn();
     apiMocks.createNote = createNoteSpy;

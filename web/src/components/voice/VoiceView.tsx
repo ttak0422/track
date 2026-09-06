@@ -1,7 +1,10 @@
 import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import { APIError, createNote, getNote, openJournal, resolveTerm, saveNote, searchNotes } from "../../api";
 import { useNotifications } from "../../notifications";
+import { highlightSearchText } from "../../searchHighlight";
+import { FloatNoteButton } from "../preview/FloatNoteButton";
 import { useFloating } from "../preview/floatingStore";
+import { copyText } from "../markdown/clipboard";
 import { VoiceIcon } from "./VoiceIcon";
 import { useSpeechRecognition } from "./useSpeechRecognition";
 import "./voice.css";
@@ -11,6 +14,7 @@ const SEARCH_DEBOUNCE_MS = 500;
 interface VoiceHit {
   note_id: string;
   title: string;
+  snippet?: string;
 }
 
 interface VoiceCandidatePos {
@@ -28,10 +32,11 @@ export function VoiceView() {
   const [error, setError] = useState("");
   const [createTerm, setCreateTerm] = useState("");
   const [createTaken, setCreateTaken] = useState(false);
-  const [candidatePos, setCandidatePos] = useState<VoiceCandidatePos>({ left: 360, top: 60, above: false });
-  const [elapsed, setElapsed] = useState(0);
+  const [searchedQuery, setSearchedQuery] = useState("");
+  const [candidatePos, setCandidatePos] = useState<VoiceCandidatePos>({ left: 360, top: 60, above: false });  const [elapsed, setElapsed] = useState(0);
   const [selecting, setSelecting] = useState(false);
   const [composing, setComposing] = useState(false);
+  const [copied, setCopied] = useState(false);
   const floating = useFloating();
   const { notify } = useNotifications();
   const areaRef = useRef<HTMLTextAreaElement>(null);
@@ -45,6 +50,7 @@ export function VoiceView() {
   const frozenRef = useRef("");
   const lastSelRef = useRef<{ start: number; end: number } | null>(null);
   const searchTimerRef = useRef<number | undefined>(undefined);
+  const copyTimerRef = useRef<number | undefined>(undefined);
   const lastSearchedRef = useRef("");
 
   const interim = recognition.interimText;
@@ -83,6 +89,7 @@ export function VoiceView() {
 
   useEffect(() => () => {
     window.clearTimeout(searchTimerRef.current);
+    window.clearTimeout(copyTimerRef.current);
   }, []);
 
   // A drag released outside the field never reaches its mouse-up: catch it on
@@ -190,6 +197,7 @@ export function VoiceView() {
     clearResults();
     setCreateTerm("");
     setCreateTaken(false);
+    setSearchedQuery("");
   }
 
   // A selection searches by itself after a beat: no tap on an action first.
@@ -214,6 +222,7 @@ export function VoiceView() {
     clearResults();
     setCreateTerm("");
     setCreateTaken(false);
+    setSearchedQuery(term);
     const resolved = await resolveTerm(term);
     if (selectedTerm() !== term) return;
     if (resolved.found) {
@@ -229,7 +238,7 @@ export function VoiceView() {
     // The server tags each hit with the search that found it, as the search
     // menu does: titles and full text read as separate groups, and the body
     // never passes itself off as a title.
-    const toHit = (item: { note_id: string; title: string }): VoiceHit => ({ note_id: item.note_id, title: item.title });
+    const toHit = (item: { note_id: string; title: string; snippet?: string }): VoiceHit => ({ note_id: item.note_id, title: item.title, snippet: item.snippet });
     const titles = result.results.filter((item) => item.match !== "body" && item.match !== "path").map(toHit);
     const bodies = result.results.filter((item) => item.match === "body").map(toHit);
     const paths = result.results.filter((item) => item.match === "path").map(toHit);
@@ -310,7 +319,7 @@ export function VoiceView() {
     const term = selectedTerm();
     const measured = term === "" ? null : measureSelection();
     if (measured) {
-      const half = 170;
+      const half = 300;
       setCandidatePos({
         left: Math.min(Math.max(measured.x, Math.min(half, measured.width - half)), Math.max(half, measured.width - half)),
         top: Math.min(Math.max(measured.y, 8), Math.max(8, measured.height - 8)),
@@ -346,8 +355,30 @@ export function VoiceView() {
     clearSearch();
   }
 
-  // No save control: stopping with unsaved dictation appends it to today's
-  // journal and says so in the toast. Only the unsaved tail goes, so a
+  async function copyAll() {
+    if (!(await copyText(text))) return;
+    setCopied(true);
+    window.clearTimeout(copyTimerRef.current);
+    copyTimerRef.current = window.setTimeout(() => setCopied(false), 1200);
+  }
+
+  // Clearing goes through the editing pipeline, not around it: the browser
+  // records the delete, so Cmd+Z brings the transcript back. A plain setText
+  // would burn the undo stack and strand the user.
+  function clearTranscript() {
+    const area = areaRef.current;
+    if (!area || text === "") return;
+    area.focus();
+    area.setSelectionRange(0, area.value.length);
+    const done = typeof document.execCommand === "function" ? document.execCommand("delete") : false;
+    if (!done) {
+      setText("");
+    }
+    lastSelRef.current = { start: 0, end: 0 };
+    clearSearch();
+  }
+
+  // No save control: stopping with unsaved dictation appends it to today's  // journal and says so in the toast. Only the unsaved tail goes, so a
   // stop–start loop never files the same words twice.
   async function stopAndSave(snapshot: string) {
     recognition.stop();
@@ -385,6 +416,10 @@ export function VoiceView() {
             <VoiceIcon />
           </button>
           {recognition.isListening ? <span className="voice-elapsed" role="timer">{formatTime(elapsed)}</span> : null}
+        </div>
+        <div className="voice-text-actions">
+          <button type="button" disabled={!text.trim()} onClick={() => void copyAll()}>{copied ? "Copied" : "Copy all"}</button>
+          <button type="button" disabled={text === ""} onClick={clearTranscript}>Clear</button>
         </div>
       </div>
       <div className={`voice-transcript-wrap${composing ? " composing" : ""}`} ref={wrapRef}>
@@ -426,15 +461,15 @@ export function VoiceView() {
           <span className="voice-candidates-title">{titleHits.length + bodyHits.length + pathHits.length > 0 ? "Choose a note" : "No matching note"}</span>
           {titleHits.length > 0 ? <>
             {bodyHits.length + pathHits.length > 0 ? <h3 className="results-group">Titles</h3> : null}
-            {titleHits.map((candidate) => <button className="voice-candidate" type="button" key={candidate.note_id} onMouseDown={(event) => event.preventDefault()} onClick={() => openLink(candidate.note_id)}>{candidate.title}</button>)}
+            {titleHits.map((candidate) => <VoiceHitRow key={`t-${candidate.note_id}`} hit={candidate} query={searchedQuery} onOpen={openLink} />)}
           </> : null}
           {bodyHits.length > 0 ? <>
             {titleHits.length + pathHits.length > 0 ? <h3 className="results-group">Full text</h3> : null}
-            {bodyHits.map((candidate) => <button className="voice-candidate" type="button" key={candidate.note_id} onMouseDown={(event) => event.preventDefault()} onClick={() => openLink(candidate.note_id)}>{candidate.title}</button>)}
+            {bodyHits.map((candidate) => <VoiceHitRow key={`b-${candidate.note_id}`} hit={candidate} query={searchedQuery} onOpen={openLink} />)}
           </> : null}
           {pathHits.length > 0 ? <>
             {titleHits.length + bodyHits.length > 0 ? <h3 className="results-group">File name</h3> : null}
-            {pathHits.map((candidate) => <button className="voice-candidate" type="button" key={candidate.note_id} onMouseDown={(event) => event.preventDefault()} onClick={() => openLink(candidate.note_id)}>{candidate.title}</button>)}
+            {pathHits.map((candidate) => <VoiceHitRow key={`p-${candidate.note_id}`} hit={candidate} query={searchedQuery} onOpen={openLink} />)}
           </> : null}
           {createTerm !== "" ? <>
             {titleHits.length + bodyHits.length + pathHits.length > 0 ? <h3 className="results-group">New note</h3> : null}
@@ -453,4 +488,37 @@ export function VoiceView() {
 
 function formatTime(seconds: number) {
   return `${String(Math.floor(seconds / 60)).padStart(2, "0")}:${String(seconds % 60).padStart(2, "0")}`;
+}
+
+// One search hit, drawn as the search menu draws it: the title opens the note
+// in the floating layer and closes the panel, the float control beside it
+// opens the same window while the panel — and the selection behind it —
+// stays. Matches wear the shared search highlight.
+function VoiceHitRow({ hit, query, onOpen }: { hit: VoiceHit; query: string; onOpen: (noteID: string) => void }) {
+  return (
+    <div className="result-row">
+      <button className="voice-candidate" type="button" onMouseDown={(event) => event.preventDefault()} onClick={() => onOpen(hit.note_id)}>
+        <HighlightedSearchText text={hit.title} query={query} />
+        {hit.snippet ? <span className="result-snippet"><HighlightedSearchText text={hit.snippet} query={query} /></span> : null}
+      </button>
+      {/* Focus must never leave the transcript for the panel: losing it would
+          collapse the selection the panel is answering. */}
+      <span onMouseDown={(event) => event.preventDefault()}>
+        <FloatNoteButton noteID={hit.note_id} className="result-float" label={`Float ${hit.title}`} />
+      </span>
+    </div>
+  );
+}
+
+// Same emphasis the search menu gives a match: the matching text itself.
+function HighlightedSearchText({ text, query }: { text: string; query: string }) {
+  return highlightSearchText(text, query).map((part, index) =>
+    part.highlighted ? (
+      <mark className="search-highlight" key={index}>
+        {part.text}
+      </mark>
+    ) : (
+      <span key={index}>{part.text}</span>
+    ),
+  );
 }
