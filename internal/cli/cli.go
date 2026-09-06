@@ -224,8 +224,11 @@ Usage:
                                         read-only doctor report); suitable for cron/launchd (JSON)
   track fmt [--check] (<path>... | --all)
                                          canonically format Markdown files (rewrites in place); --all
-                                         covers the whole vault, --check writes nothing and exits
-                                         non-zero when a file would change. Never touches fenced code (JSON)
+                                         covers every note, journal, and sidecar metadata file in the
+                                         vault, normalizing heading markers (no closing "#"), blank
+                                         lines, trailing whitespace, list bullets, and sidecar key
+                                         order. --check writes nothing and exits non-zero when a
+                                         file would change. Never touches fenced code (JSON)
   track keywords                        dump the auto-link dictionary (JSON)
   track resolve (--term <s> | <s>)      resolve a keyword to a note (JSON)
   track search --query <s> [--scope all|title|body] [--limit N]
@@ -246,7 +249,10 @@ Usage:
                                         in the body, or an up sidecar prop holding a [[link]]): the
                                         ancestor trail, root first, and the notes whose up points here.
                                         Takes no --title, and does not self-heal a stale index (JSON)
-  track agenda [--date YYYY-MM-DD]       list notes created or updated on a calendar day (JSON)
+  track agenda [--date YYYY-MM-DD] [--mode activity|planning]
+                                        list a calendar day: activity (default) shows notes created
+                                        or updated on it, planning shows the open dated tasks to work
+                                        — overdue, scheduled that day, due soon — by urgency (JSON)
   track graph (--id N | --path P)       show a local link graph (JSON)
   track graph --orphans                 vault-wide link hygiene in one call: notes with no inbound link,
                                         and titles naming a parent scope no note owns (JSON)

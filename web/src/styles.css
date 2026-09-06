@@ -3565,6 +3565,24 @@ textarea.modal-input:focus-visible {
   background: transparent;
 }
 
+.map-fence {
+  width: 100%;
+  max-width: 100%;
+  height: 360px;
+  margin: 24px 0;
+  overflow: hidden;
+  touch-action: pan-x pan-y;
+}
+
+.map-fence .leaflet-control {
+  font-size: 11px;
+}
+
+.map-fence-fallback {
+  display: block;
+  margin: 24px 0;
+}
+
 /* draw.io renders through its own live viewer (no shared SVG frame), so the viewer manages the
    diagram's size inside the same whitespace-only content block. */
 .drawio-diagram {
@@ -5459,3 +5477,6 @@ textarea.modal-input:focus-visible {
 .results-group:first-child {
   margin-top: 0;
 }
+
+/* Map marker: visualization geometry, with the reader's ink and ground. */
+.map-fence-marker { border: 2px solid var(--text); border-radius: 50%; background: var(--panel); }

@@ -9,9 +9,14 @@
 //	        [ "SORT" key ["DESC"] ]
 //	        [ "LIMIT" n ]
 //	cond  = "#"tag | key op value | value op key | key        (bare key = presence check)
-//	key   = attr | "props." name               (attr = a note attribute: title, tags)
+//	key   = attr | "props." name               (attr = a note attribute: title, tags, body)
 //	op    = "=" | "!=" | "<" | ">"
 //	value = "quoted string" | bareword
+//
+// body is a WHERE-only note attribute: `body = "text"` / `body != "text"` matches the note's body
+// text with the same grammar as full-text search — terms within a value join with AND (implicit),
+// an uppercase OR separates alternatives. The live surfaces resolve it through the SQLite FTS5
+// index; surfaces without a store (a published site) match the loaded body text in memory.
 //
 // Two namespaces, kept apart so they can never collide: a bare identifier is a note-intrinsic
 // attribute (the noteAttrs set, which may grow), and props.<name> is the only way to read a user
@@ -104,10 +109,40 @@ func Parse(input string) (Query, error) {
 		}
 		q.Limit = n
 	}
+	if err := validateBodyUsage(q); err != nil {
+		return Query{}, err
+	}
 	if !p.done() {
 		return Query{}, fmt.Errorf("unexpected %q", p.peek())
 	}
 	return q, nil
+}
+
+// validateBodyUsage keeps the body attribute WHERE-only: it matches note bodies, so it is not a
+// column, not a sort key, and never a presence or range check. The conditions it does allow are
+// the full-text match (`body = "text"`) and its complement (`body != "text"`); the value is a
+// body-search expression and must be non-empty.
+func validateBodyUsage(q Query) error {
+	for _, col := range q.Columns {
+		if col == "body" {
+			return fmt.Errorf("body is not a column: match note bodies in WHERE, e.g. TABLE title WHERE body = \"text\"")
+		}
+	}
+	if q.Sort == "body" {
+		return fmt.Errorf("body is not a sort key: match note bodies in WHERE, e.g. TABLE title WHERE body = \"text\"")
+	}
+	for _, c := range q.Where {
+		if c.Key != "body" {
+			continue
+		}
+		if c.Op != "=" && c.Op != "!=" {
+			return fmt.Errorf(`body matches with = or !=, got body %s %q (use body = "text" or body != "text")`, c.Op, c.Value)
+		}
+		if c.Value == "" {
+			return fmt.Errorf("body needs a non-empty search text after %s", c.Op)
+		}
+	}
+	return nil
 }
 
 type token struct {
@@ -204,7 +239,8 @@ func (p *parser) key(what string) (string, error) {
 // noteAttrs are the bare identifiers that name a note-intrinsic attribute. Every other bare
 // identifier is rejected, so a user property (reached only as props.<name>) can never be shadowed by
 // an attribute, and a future attribute added here can never collide with an existing property.
-var noteAttrs = []string{"title", "tags"}
+// body is the one attribute that is not a column or sort key (see validateBodyUsage).
+var noteAttrs = []string{"title", "tags", "body"}
 
 // propName reports whether raw references a user property (props.<name>) and returns that name.
 func propName(raw string) (name string, ok bool) {

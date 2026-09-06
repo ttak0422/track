@@ -74,6 +74,15 @@ type Note struct {
 	Tasks []task.Task
 }
 
+// MetadataKeyOrder is the canonical top-level key order of a sidecar metadata document — the
+// "frontmatter-like header" that `track fmt --all` normalizes — matching the field order of
+// Metadata. WriteMetadata already emits this order; a hand-edited sidecar whose keys are arranged
+// otherwise is rewritten to it by fmt.
+var MetadataKeyOrder = []string{
+	"version", "title", "tags", "created", "days", "description", "image",
+	"props", "icon", "seen_at", "read_at", "flags", "blocks", "task_log", "slug",
+}
+
 // ParseFile reads a note from disk, deriving the id from the filename and loading its sidecar metadata.
 // For compatibility with early track notes, a legacy trailing footmatter block is used only when no sidecar exists.
 //

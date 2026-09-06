@@ -179,6 +179,97 @@ func ids(res Result) []int64 {
 	return out
 }
 
+// TestParseBodyConditions locks the body attribute's grammar: a WHERE-only full-text match
+// (body = "text") and its complement (body != "text"). The value is a body-search expression, so a
+// quoted multi-term value keeps its spaces; an unquoted value is a single term.
+func TestParseBodyConditions(t *testing.T) {
+	q, err := Parse(`TABLE title WHERE body = "quick fox" AND props.status != done`)
+	if err != nil {
+		t.Fatalf("parse: %v", err)
+	}
+	want := []Cond{
+		{Key: "body", Op: "=", Value: "quick fox"},
+		{Key: "props.status", Op: "!=", Value: "done"},
+	}
+	if !reflect.DeepEqual(q.Where, want) {
+		t.Fatalf("where = %+v, want %+v", q.Where, want)
+	}
+
+	q, err = Parse("TABLE title WHERE body != foobar")
+	if err != nil {
+		t.Fatalf("parse: %v", err)
+	}
+	if !reflect.DeepEqual(q.Where, []Cond{{Key: "body", Op: "!=", Value: "foobar"}}) {
+		t.Fatalf("where = %+v", q.Where)
+	}
+
+	// A value-first comparison reads the same way: "text" = body is body = "text".
+	q, err = Parse(`TABLE title WHERE "quick fox" = body`)
+	if err != nil {
+		t.Fatalf("parse value-first: %v", err)
+	}
+	if !reflect.DeepEqual(q.Where, []Cond{{Key: "body", Op: "=", Value: "quick fox"}}) {
+		t.Fatalf("where = %+v", q.Where)
+	}
+}
+
+// TestParseBodyErrors keeps body out of the places it cannot mean anything: columns, sort keys,
+// range comparisons, and presence checks. A multi-word value needs quotes, like every value.
+func TestParseBodyErrors(t *testing.T) {
+	for _, bad := range []string{
+		"TABLE body",
+		"TABLE title SORT body",
+		"TABLE title WHERE body",
+		"TABLE title WHERE body < x",
+		"TABLE title WHERE body > x",
+		`TABLE title WHERE body = ""`,
+	} {
+		if _, err := Parse(bad); err == nil {
+			t.Errorf("Parse(%q) succeeded, want error", bad)
+		}
+	}
+}
+
+// TestRunBodyConditions evaluates body conditions against the rows' own body text — the in-memory
+// path of the static export — with the same AND/OR grammar and case-insensitivity as the search
+// fallback, so it agrees with the FTS5-indexed path.
+func TestRunBodyConditions(t *testing.T) {
+	rows := []NoteRow{
+		{ID: 1, Title: "Alpha", Body: "The quick brown fox jumps over the lazy dog"},
+		{ID: 2, Title: "Beta", Body: "世界の平和と共に歩む"},
+		{ID: 3, Title: "Gamma", Body: "quick things and other stuff"},
+		{ID: 4, Title: "Delta", Body: ""},
+	}
+	runBody := func(expr string) []int64 {
+		t.Helper()
+		q, err := Parse(expr)
+		if err != nil {
+			t.Fatalf("parse %q: %v", expr, err)
+		}
+		return ids(Run(q, rows))
+	}
+	// Implicit AND: every term of the group must appear.
+	if got := runBody(`TABLE title WHERE body = "quick fox"`); !reflect.DeepEqual(got, []int64{1}) {
+		t.Fatalf(`body = "quick fox" = %v, want [1]`, got)
+	}
+	// Uppercase OR separates alternatives; a note satisfying either group matches.
+	if got := runBody(`TABLE title WHERE body = "quick OR 平和"`); !reflect.DeepEqual(got, []int64{1, 2, 3}) {
+		t.Fatalf(`body = "quick OR 平和" = %v, want [1 2 3]`, got)
+	}
+	// Terms are case-insensitive substrings, matching the trigram tokenizer's folding.
+	if got := runBody(`TABLE title WHERE body = QUICK`); !reflect.DeepEqual(got, []int64{1, 3}) {
+		t.Fatalf("body = QUICK = %v, want [1 3]", got)
+	}
+	// != is the complement; an empty body satisfies every != and no =.
+	if got := runBody(`TABLE title WHERE body != quick`); !reflect.DeepEqual(got, []int64{2, 4}) {
+		t.Fatalf("body != quick = %v, want [2 4]", got)
+	}
+	// Body conditions combine with the other WHERE conditions by AND.
+	if got := runBody(`TABLE title WHERE body = quick AND body != quick`); len(got) != 0 {
+		t.Fatalf("contradictory body conds = %v, want none", got)
+	}
+}
+
 func TestRunFromTagMatchesHierarchically(t *testing.T) {
 	if got := ids(run(t, "TABLE title FROM #project")); !reflect.DeepEqual(got, []int64{1, 2, 4}) {
 		t.Fatalf("FROM #project = %v, want [1 2 4]", got)

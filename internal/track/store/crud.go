@@ -71,7 +71,9 @@ func (s *Store) UpsertNote(n *note.Note) error {
 	if _, err := tx.Exec(`DELETE FROM tags WHERE note_id = ?`, n.ID); err != nil {
 		return err
 	}
-	for _, tg := range n.Meta.Tags {
+	// note.CollectTags owns tag flattening (sidecar tags plus inline #tags from the body), so the
+	// index's tags table and the sidecar never disagree about what tags a note carries.
+	for _, tg := range note.CollectTags(n.Meta, n.Body) {
 		if tg == "" {
 			continue
 		}

@@ -1,0 +1,10 @@
+version: 8
+title: Maps
+tags:
+- help/visualization/maps
+created: '2026-09-06'
+props:
+  section: visualization
+  up: '[[Visualization]]'
+icon: 🗺️
+slug: 9mPxQ2vRt5Kc

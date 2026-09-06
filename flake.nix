@@ -56,7 +56,7 @@
               root = ./web;
               fileset = webFiles;
             };
-            npmDepsHash = "sha256-b7DfFkmErZCdtYDvHBhFn31MAdpApxRbbwPizjM8eIE=";
+            npmDepsHash = "sha256-UGjZDYgFriY8/fEdCrKYxZ3GJE0MIdiPcsOhUO3tgrY=";
             installPhase = ''
               runHook preInstall
               cp -r dist $out
@@ -119,6 +119,28 @@
             subPackages = [ "cmd/track-fetch-elem" ];
           };
 
+          track-fetch-jquants = pkgs.buildGoModule {
+            pname = "track-fetch-jquants";
+            version = "0.1.0";
+            src = fileset.toSource {
+              root = ./.;
+              fileset = goFiles;
+            };
+            vendorHash = "sha256-bdlVtenoN7ZKX5dO5gZ2x9XlD6YGWgNHwMwdgtn87+c=";
+            subPackages = [ "cmd/track-fetch-jquants" ];
+          };
+
+          track-fetch-kindle = pkgs.buildGoModule {
+            pname = "track-fetch-kindle";
+            version = "0.1.0";
+            src = fileset.toSource {
+              root = ./.;
+              fileset = goFiles;
+            };
+            vendorHash = "sha256-bdlVtenoN7ZKX5dO5gZ2x9XlD6YGWgNHwMwdgtn87+c=";
+            subPackages = [ "cmd/track-fetch-kindle" ];
+          };
+
           track = pkgs.vimUtils.buildVimPlugin {
             pname = "track";
             version = "0.1.0";
@@ -163,6 +185,8 @@
               track-fetch-rss
               track-fetch-web
               track-fetch-elem
+              track-fetch-jquants
+              track-fetch-kindle
               ;
           };
 

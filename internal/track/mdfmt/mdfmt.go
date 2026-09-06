@@ -7,7 +7,9 @@
 //     of the document.
 //  3. Ensure exactly two blank lines before and one blank line after each heading.
 //  4. Normalize unordered-list markers to "-" (from "*" or "+").
-//  5. Ensure the document ends with exactly one newline.
+//  5. Strip the closing "#" sequence of a closed ATX heading ("## Title ##" becomes "## Title"), so
+//     the heading marker is a canonical level sequence.
+//  6. Ensure the document ends with exactly one newline.
 //
 // Fenced code blocks (``` or ~~~) are never touched: their content, including blank lines and any
 // list-like or heading-like lines, passes through verbatim. The line-oriented rules only ever touch a
@@ -113,7 +115,30 @@ func formatLine(raw string) string {
 	if !isThematicBreak(raw) {
 		raw = normalizeListMarker(raw)
 	}
-	return strings.TrimRight(raw, " \t\r")
+	raw = strings.TrimRight(raw, " \t\r")
+	if isHeading(raw) {
+		raw = stripClosingHashes(raw)
+	}
+	return raw
+}
+
+// stripClosingHashes removes the closing "#" sequence of a closed ATX heading, so "## Title ##"
+// canonicalizes to "## Title". The run must be separated from the title text by whitespace
+// (CommonMark), otherwise it is part of the title ("# foo#" is untouched). A heading that is only
+// its marker hashes ("###") has no closing sequence to strip.
+func stripClosingHashes(line string) string {
+	i := len(line)
+	for i > 0 && line[i-1] == '#' {
+		i--
+	}
+	if i == 0 || i == len(line) || (line[i-1] != ' ' && line[i-1] != '\t') {
+		return line
+	}
+	j := i
+	for j > 0 && (line[j-1] == ' ' || line[j-1] == '\t') {
+		j--
+	}
+	return line[:j]
 }
 
 // scanFence reports whether line is a code-fence line and returns its marker char, run length, and

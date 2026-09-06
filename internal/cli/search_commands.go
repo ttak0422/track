@@ -2,14 +2,17 @@ package cli
 
 import (
 	"flag"
+	"slices"
 	"strings"
 	"time"
 
+	"github.com/ttak0422/track/internal/track/config"
 	"github.com/ttak0422/track/internal/track/index"
 	"github.com/ttak0422/track/internal/track/link"
 	"github.com/ttak0422/track/internal/track/note"
 	"github.com/ttak0422/track/internal/track/search"
 	"github.com/ttak0422/track/internal/track/store"
+	"github.com/ttak0422/track/internal/track/task"
 	"github.com/ttak0422/track/internal/track/vaultref"
 )
 
@@ -306,12 +309,15 @@ func cmdNav(args []string) int {
 	return emit(map[string]any{"trail": trail, "children": children})
 }
 
-// cmdAgenda lists the notes active (created or updated) on a given local calendar day, derived from the
-// activity days recorded in each note's sidecar. It powers "what did I work on that day" lookups from a
-// day's journal and, later, a calendar.
+// cmdAgenda serves two views of one day, selected by --mode. The default activity view lists the notes
+// active (created or updated) on the day, derived from the activity days recorded in each note's
+// sidecar; it powers "what did I work on that day" lookups from a day's journal and, later, a
+// calendar. The planning view (--mode planning) lists the open dated tasks a working session on the
+// day should pick up — overdue, scheduled that day, or due soon — in urgency order.
 func cmdAgenda(args []string) int {
 	fs := flag.NewFlagSet("agenda", flag.ContinueOnError)
 	date := fs.String("date", "", "calendar day (default: today)")
+	mode := fs.String("mode", "activity", "view mode: activity (notes created or updated on the day) or\nplanning (open tasks to work, by urgency)")
 	if code, ok := parseArgs(fs, args); !ok {
 		return code
 	}
@@ -333,6 +339,18 @@ func cmdAgenda(args []string) int {
 		day = time.Now().Format(cfg.DateFormat)
 	}
 
+	switch *mode {
+	case "activity":
+		return cmdAgendaActivity(cfg, s, day)
+	case "planning":
+		return cmdAgendaPlanning(cfg, s, day)
+	default:
+		return fail("agenda --mode must be activity or planning, got %q", *mode)
+	}
+}
+
+// cmdAgendaActivity is the default agenda view: notes created or updated on the day.
+func cmdAgendaActivity(cfg *config.Config, s *store.Store, day string) int {
 	notes, err := s.NotesOnDay(day)
 	if err != nil {
 		return fail("agenda: %v", err)
@@ -344,6 +362,37 @@ func cmdAgenda(args []string) int {
 		notes[i].Path = cfg.PathForKind(notes[i].FileKind, notes[i].NoteID)
 	}
 	return emit(map[string]any{"date": day, "notes": notes})
+}
+
+// cmdAgendaPlanning is the planning view of `track agenda`: it cross-sections the open dated tasks —
+// overdue deadlines, tasks scheduled on the day itself, and deadlines due within the planning horizon
+// — and returns them in urgency order (nearest date first, then priority [#A] > [#B] > [#C] > none).
+// It reuses the same indexed tasks table and open/done logic as `track tasks` and the web board's
+// /api/tasks?open=1, so one parser, one index, and one ordering story feed every surface.
+func cmdAgendaPlanning(cfg *config.Config, s *store.Store, day string) int {
+	if _, err := time.Parse("2006-01-02", day); err != nil {
+		return fail("agenda --mode planning: --date must be YYYY-MM-DD, got %q", day)
+	}
+	rows, err := s.Tasks(store.TaskFilter{Dated: true, Open: true})
+	if err != nil {
+		return fail("agenda --mode planning: %v", err)
+	}
+	sel := rows[:0]
+	for _, r := range rows {
+		if task.OnPlanningAgenda(r.Task, day, task.PlanningHorizonDays) {
+			sel = append(sel, r)
+		}
+	}
+	if sel == nil {
+		sel = []store.TaskRow{}
+	}
+	slices.SortStableFunc(sel, func(a, b store.TaskRow) int {
+		return task.CompareUrgency(a.Task, b.Task)
+	})
+	for i := range sel {
+		sel[i].Path = cfg.PathForKind(sel[i].FileKind, sel[i].NoteID)
+	}
+	return emit(map[string]any{"date": day, "mode": "planning", "tasks": sel})
 }
 
 func cmdGraph(args []string) int {
