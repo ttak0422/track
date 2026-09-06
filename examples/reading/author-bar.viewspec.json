@@ -1,0 +1,15 @@
+{
+  "version": 2,
+  "mark": "bar",
+  "title": "Pages by author (ranking)",
+  "data": { "kind": "metric",
+    "records": [
+      { "name": "Alice Napier",  "time": "2026-01-01", "value": 768 },
+      { "name": "Car O'Neil",    "time": "2026-01-01", "value": 256 },
+      { "name": "Bo Kimura",     "time": "2026-01-01", "value": 192 }
+    ] },
+  "encoding": {
+    "x": { "field": "value", "title": "Pages" },
+    "y": [ { "field": "name", "type": "nominal", "title": "Author", "sort": "-value" } ]
+  }
+}

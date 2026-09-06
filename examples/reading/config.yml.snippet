@@ -1,0 +1,25 @@
+# Merge into <vault>/.track/config.yml — the reading-dashboard prototype's property schema
+# (ADR 0032: schema is opt-in per key, enforced at the edges) and its saved queries (ADR 0033).
+# A reading note then carries author/genre/pages/status/rating/finished as inline fields, and
+# the fences in dashboard.md resolve via these saved queries.
+
+properties:
+  status:
+    type: string
+    values: [unread, reading, done]
+  rating:
+    type: number
+  pages:
+    type: number
+  author:
+    type: string
+  genre:
+    type: string
+  finished:
+    type: date
+
+queries:
+  reading-this-year: 'TABLE title, props.author, props.genre, props.pages, props.rating FROM #book WHERE props.status = done AND 2025-12-31 < props.finished AND props.finished < 2027-01-01 SORT props.finished DESC'
+  reading-unread:    'TABLE title, props.author, props.genre, props.pages FROM #book WHERE props.status = unread'
+  reading-author:    'TABLE title, props.pages, props.rating FROM #book WHERE props.author SORT props.author DESC'
+  reading-genres:    'TABLE title, props.pages FROM #book WHERE props.genre SORT props.pages DESC'
