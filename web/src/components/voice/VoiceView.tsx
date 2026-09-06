@@ -27,6 +27,7 @@ export function VoiceView() {
   const [pathHits, setPathHits] = useState<VoiceHit[]>([]);
   const [error, setError] = useState("");
   const [createTerm, setCreateTerm] = useState("");
+  const [createTaken, setCreateTaken] = useState(false);
   const [candidatePos, setCandidatePos] = useState<VoiceCandidatePos>({ left: 360, top: 60, above: false });
   const [elapsed, setElapsed] = useState(0);
   const [selecting, setSelecting] = useState(false);
@@ -188,6 +189,7 @@ export function VoiceView() {
     lastSearchedRef.current = "";
     clearResults();
     setCreateTerm("");
+    setCreateTaken(false);
   }
 
   // A selection searches by itself after a beat: no tap on an action first.
@@ -211,10 +213,15 @@ export function VoiceView() {
     setError("");
     clearResults();
     setCreateTerm("");
+    setCreateTaken(false);
     const resolved = await resolveTerm(term);
     if (selectedTerm() !== term) return;
     if (resolved.found) {
       setTitleHits([{ note_id: resolved.note.note_id, title: resolved.note.title }]);
+      // The words name a note that already exists: creation stays visible at
+      // the bottom but reads inactive instead of minting a duplicate.
+      setCreateTerm(term);
+      setCreateTaken(true);
       return;
     }
     const result = await searchNotes(term, 8);
@@ -229,11 +236,10 @@ export function VoiceView() {
     setTitleHits(titles);
     setBodyHits(bodies);
     setPathHits(paths);
-    // Creation is offered whenever no title matched, even with body hits: a
-    // body hit is not the note the words name.
-    if (titles.length === 0) {
-      setCreateTerm(term);
-    }
+    // Creation rides along whenever the words name nothing exact, even with
+    // body hits: a body hit is not the note the words name. A title taken
+    // since the search still 409s into the toast below.
+    setCreateTerm(term);
   }
 
   // No match for the dictated words: offer to mint the note instead. A title
@@ -431,7 +437,11 @@ export function VoiceView() {
           </> : null}
           {createTerm !== "" ? <>
             {titleHits.length + bodyHits.length + pathHits.length > 0 ? <h3 className="results-group">New note</h3> : null}
-            <button className="voice-candidate" type="button" onMouseDown={(event) => event.preventDefault()} onClick={() => void createFromSelection(createTerm)}>{createTerm.length > 12 ? `Create "${createTerm.slice(0, 12)}…"` : `Create "${createTerm}"`}</button>
+            {createTaken ? (
+              <button className="voice-candidate" type="button" disabled aria-disabled="true">{createTerm.length > 12 ? `"${createTerm.slice(0, 12)}…" already exists` : `"${createTerm}" already exists`}</button>
+            ) : (
+              <button className="voice-candidate" type="button" onMouseDown={(event) => event.preventDefault()} onClick={() => void createFromSelection(createTerm)}>{createTerm.length > 12 ? `Create "${createTerm.slice(0, 12)}…"` : `Create "${createTerm}"`}</button>
+            )}
           </> : null}
         </div> : null}
       </div>

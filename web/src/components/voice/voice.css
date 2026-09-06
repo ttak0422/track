@@ -33,5 +33,6 @@
 .voice-candidates .results-group:first-child { margin-top: 0; }
 .voice-candidate { border: 0; background: transparent; color: var(--muted); padding: 7px 10px; font: inherit; cursor: pointer; text-align: left; }
 .voice-candidate:hover, .voice-candidate:focus-visible { background: var(--panel-soft); color: var(--text); border-radius: var(--radius-sm); }
+.voice-candidate:disabled, .voice-candidate:disabled:hover { background: transparent; color: var(--faint); cursor: not-allowed; }
 .voice-error { color: var(--danger); font-size: 13px; }
 @media (max-width: 540px) { .voice-view { padding: 28px 20px 96px; } .voice-console { margin-top: 28px; } }

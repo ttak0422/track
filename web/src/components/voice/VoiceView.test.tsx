@@ -200,7 +200,7 @@ describe("VoiceView", () => {
     expect(screen.getByText("Full text")).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "TitleHit" })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "BodyHit" })).toBeInTheDocument();
-    expect(screen.queryByRole("button", { name: /Create/ })).not.toBeInTheDocument();
+    expect(screen.getByRole("button", { name: 'Create "spoken"' })).toBeInTheDocument();
   });
 
   it("still offers creation with only body hits", async () => {
@@ -212,6 +212,23 @@ describe("VoiceView", () => {
     fireEvent.mouseUp(transcript());
     expect(await screen.findByRole("button", { name: "BodyHit" })).toBeInTheDocument();
     expect(screen.getByText("New note")).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "Create \"spoken\"" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: 'Create "spoken"' })).toBeInTheDocument();
+  });
+
+  it("shows creation inactive when the words name an existing note", async () => {
+    resetAll();
+    apiMocks.resolveTerm = () => Promise.resolve({ found: true, note: { note_id: "n1", title: "spoken" } });
+    const createNoteSpy = vi.fn();
+    apiMocks.createNote = createNoteSpy;
+    render(<VoiceView />);
+    fireEvent.change(transcript(), { target: { value: "spoken words" } });
+    transcript().setSelectionRange(0, 6);
+    fireEvent.mouseUp(transcript());
+    expect(await screen.findByRole("button", { name: "spoken" })).toBeInTheDocument();
+    const create = screen.getByRole("button", { name: '"spoken" already exists' });
+    expect(create).toBeDisabled();
+    fireEvent.click(create);
+    expect(createNoteSpy).not.toHaveBeenCalled();
+    expect(notify).not.toHaveBeenCalled();
   });
 });
