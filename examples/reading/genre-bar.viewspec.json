@@ -1,0 +1,15 @@
+{
+  "version": 2,
+  "mark": "bar",
+  "title": "Pages by genre (ranking)",
+  "data": { "kind": "metric",
+    "records": [
+      { "name": "reference", "time": "2026-01-01", "value": 704 },
+      { "name": "novel",     "time": "2026-01-01", "value": 608 },
+      { "name": "essay",     "time": "2026-01-01", "value": 192 }
+    ] },
+  "encoding": {
+    "x": { "field": "value", "title": "Pages" },
+    "y": [ { "field": "name", "type": "nominal", "title": "Genre", "sort": "-value" } ]
+  }
+}

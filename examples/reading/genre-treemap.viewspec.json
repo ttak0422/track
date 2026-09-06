@@ -1,0 +1,19 @@
+{
+  "version": 2,
+  "mark": "treemap",
+  "title": "Pages by genre",
+  "data": { "kind": "metric",
+    "records": [
+      { "name": "The Tale of X",  "genre": "novel",     "time": "2026-01-18", "value": 320 },
+      { "name": "Unfinished W",   "genre": "novel",     "time": "2026-03-30", "value": 288 },
+      { "name": "Notes on Y",     "genre": "essay",     "time": "2026-02-09", "value": 192 },
+      { "name": "The Craft of Z", "genre": "reference", "time": "2026-03-02", "value": 448 },
+      { "name": "A Field Guide",  "genre": "reference", "time": "2026-03-24", "value": 256 }
+    ] },
+  "encoding": {
+    "x": { "field": "name", "type": "nominal", "title": "Book" },
+    "y": [ { "field": "genre", "type": "nominal", "title": "Genre" } ],
+    "size": { "field": "value", "title": "Pages" },
+    "color": { "field": "value", "title": "Pages" }
+  }
+}
