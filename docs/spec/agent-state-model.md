@@ -16,16 +16,14 @@ run twice over the same note leaves no trace of which attempt produced which cha
 say nothing about the run's shape: there is no durable notion of *a task*, *an attempt*, or *a
 message between the coordinator and the worker*.
 
-This document defines those notions by adapting the Run/Task/Dispatch/Message state model that Orca's
-orchestration runtime uses for multi-agent execution, reduced to what a single vault can represent.
-The mapping is deliberate and one-directional: the four Orca entities land on track concepts, not the
-other way around.
+This document defines those notions as a Run/Task/Dispatch/Message state model for multi-agent
+execution over a single vault. The mapping is deliberate and one-directional: the four model
+entities land on track concepts, not the other way around.
 
 ## Source model
 
-The model is taken from Orca's orchestration layer (`src/main/runtime/orchestration/`), in
-particular the row types, the dispatch settlement path, the DAG convergence check, and the mailbox
-delivery ack design. The four entities and their statuses:
+The four entities and their statuses (row types, the dispatch settlement path, the DAG
+convergence check, and the mailbox delivery ack design):
 
 - **Run** — the top-level objective that owns a set of tasks. It records the coordinator handle and
   progresses `idle → running → completed | failed`.
@@ -45,7 +43,7 @@ rejection**, **DAG convergence**, and the **mailbox delivery ack**.
 
 ## Mapping to track
 
-| Orca | track | Meaning |
+| Model | track | Meaning |
 | --- | --- | --- |
 | Run | a run note (or a dedicated `.track/` record) | the objective that owns a set of dispatched work |
 | Task | a note | a unit of work; the note id is the task id |
@@ -78,12 +76,12 @@ stable id (not the note id) so that two attempts over the same note are distingu
 A dispatch records, at minimum: its id, the note id it targets, its status
 (`pending | dispatched | completed | failed`), a failure count and last failure, and the timestamps
 that mark when it was dispatched, when it completed, and when it last reported liveness (heartbeat).
-The status set is the note-level analog of the Orca dispatch status, reduced by dropping the
+The status set is the note-level analog of the model's dispatch status, reduced by dropping the
 federation/remote states (`circuit_broken` is out of scope with mobile/remote).
 
 ### Message = mailbox
 
-A message is a mailbox entry between a coordinator and a worker. Mailbox addressing follows the Orca
+A message is a mailbox entry between a coordinator and a worker. Mailbox addressing follows this
 form: a mailbox is the run's address, the dispatch's address, or a bare agent handle. In track terms
 the handle is a marker the executing agent adopts for the session, and the mailbox record is the
 durable counterpart of the CLI contract's one-shot reports (`worker_done`, `heartbeat`).
