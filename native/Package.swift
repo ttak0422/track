@@ -6,9 +6,11 @@ let package = Package(
     platforms: [.macOS(.v15)],
     products: [
         .library(name: "TrackAPI", targets: ["TrackAPI"]),
+        .library(name: "TrackUI", targets: ["TrackUI"]),
     ],
     targets: [
         .target(name: "TrackAPI"),
+        .target(name: "TrackUI", dependencies: ["TrackAPI"]),
         .testTarget(
             name: "TrackAPITests",
             dependencies: ["TrackAPI"],
