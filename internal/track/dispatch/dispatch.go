@@ -39,6 +39,25 @@ func ValidStatus(s Status) bool {
 	return false
 }
 
+// RejectReason names why a settlement report was refused. It is the stale-completion rejection set
+// carried over from the source model (docs/spec/agent-state-model.md): settlement rejects, rather
+// than silently applies, a report that does not name the live attempt.
+type RejectReason string
+
+const (
+	// RejectUnknownTask: no note with that id.
+	RejectUnknownTask RejectReason = "unknown_task"
+	// RejectUnknownDispatch: no execution record with that id.
+	RejectUnknownDispatch RejectReason = "unknown_dispatch"
+	// RejectTaskDispatchMismatch: the execution record belongs to a different note.
+	RejectTaskDispatchMismatch RejectReason = "task_dispatch_mismatch"
+	// RejectInactiveDispatch: the note or the dispatch is already settled, or the dispatch's state
+	// moved while a report was in flight (the compare-and-swap failed).
+	RejectInactiveDispatch RejectReason = "inactive_dispatch"
+	// RejectStaleDispatch: the dispatch is not the current dispatch for the note.
+	RejectStaleDispatch RejectReason = "stale_dispatch"
+)
+
 // Record is one dispatch record as stored in a note's sidecar exec_log. It carries both the note
 // id and the stable dispatch id — the pair the model's dual-key invariant keys completion and
 // heartbeat reports on, so a retried note's records stay distinguishable. The id is a distinct
