@@ -15,10 +15,12 @@ const queryUsage = `Usage: track query '<expr>'   |   track query --saved <name>
 
   TABLE <cols> [FROM #tag] [WHERE <cond> AND ...] [SORT <key> [DESC]] [LIMIT n]
 
-A column or key is either a note attribute — bare ` + "`title`" + ` or ` + "`tags`" + `, the only two — or a user
+A column or key is either a note attribute — bare ` + "`title`" + `, ` + "`tags`" + `, or ` + "`body`" + ` — or a user
 property, which is reachable only as props.<key>. Any other bare key is a loud error, never an
 empty column. Conditions are #tag filters, typed comparisons (=, !=, <, >), or a bare key as a
-presence check; they combine with AND only. Tags are hierarchical: #a matches #a/b, not #ab.
+presence check; they combine with AND only. body is WHERE-only: ` + "`body = \"text\"`" + ` matches the
+note body via the full-text index (terms AND together, uppercase OR separates alternatives),
+` + "`body != \"text\"`" + ` is its complement. Tags are hierarchical: #a matches #a/b, not #ab.
 
   track query 'TABLE title, props.status FROM #project WHERE props.status != done SORT props.due LIMIT 10'
 
@@ -65,6 +67,11 @@ func cmdQuery(args []string) int {
 	if err != nil {
 		return fail("load notes: %v", err)
 	}
-	res := query.Run(q, rows)
+	// Body conditions resolve through the FTS5 body index, never by grepping the files: the search
+	// path and the query language share one notes_fts table.
+	res, err := query.RunWithBody(q, rows, query.StoreBodyResolver(cfg, s, len(rows)))
+	if err != nil {
+		return fail("body search: %v", err)
+	}
 	return emit(map[string]any{"columns": res.Columns, "rows": res.Rows, "count": len(res.Rows)})
 }

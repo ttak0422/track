@@ -367,7 +367,7 @@ func writeBundle(docs []doc, edges []edge, root int64, calendar, share bool, bas
 	queryCovers := map[int64]string{}
 	queryIcons := map[int64]string{}
 	for _, d := range listed {
-		queryRows = append(queryRows, query.NoteRow{ID: d.id, Title: d.title, Tags: d.tags, Props: d.props, Mtime: d.mtime})
+		queryRows = append(queryRows, query.NoteRow{ID: d.id, Title: d.title, Tags: d.tags, Props: d.props, Mtime: d.mtime, Body: d.body})
 		if d.image != "" {
 			queryCovers[d.id] = "assets/" + names.name(d.assetSrc, d.image)
 		}
