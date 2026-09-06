@@ -69,6 +69,7 @@ export function MapFence({ lat, long, zoom, type, markers }: MapFenceProps) {
     setPopups([]);
     let cancelled = false;
     let map: import("leaflet").Map | undefined;
+    let observer: ResizeObserver | undefined;
     async function renderMap() {
       try {
         const L = await import("leaflet");
@@ -85,6 +86,15 @@ export function MapFence({ lat, long, zoom, type, markers }: MapFenceProps) {
           return popup;
         });
         setPopups(containers);
+        // Leaflet freezes its pixel size at construction; if the container reaches its final
+        // layout width a frame later (sidebar, popup, font swap), tiles come out offset or gray
+        // until the size is re-read. Sync once, then follow resizes.
+        requestAnimationFrame(() => { if (!cancelled) map?.invalidateSize(); });
+        if (typeof ResizeObserver !== "undefined" && containerRef.current) {
+          const target = containerRef.current;
+          observer = new ResizeObserver(() => { if (!cancelled) map?.invalidateSize(); });
+          observer.observe(target);
+        }
       } catch {
         if (!cancelled) setFailed(true);
       }
@@ -92,6 +102,7 @@ export function MapFence({ lat, long, zoom, type, markers }: MapFenceProps) {
     void renderMap();
     return () => {
       cancelled = true;
+      observer?.disconnect();
       map?.remove();
     };
   }, [lat, long, zoom, type, markers]);

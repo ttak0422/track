@@ -41,13 +41,14 @@ describe("MapFence", () => {
 });
 
 it("renders every marker with a safe popup and the shared note link", async () => {
- const remove = vi.fn();
- let container: HTMLElement;
- vi.mocked(L.map).mockImplementationOnce((element) => {
-  container = element as HTMLElement;
-  const map = { setView: () => map, remove };
-  return map as unknown as L.Map;
- });
+  const remove = vi.fn();
+  const invalidateSize = vi.fn();
+  let container: HTMLElement;
+  vi.mocked(L.map).mockImplementationOnce((element) => {
+   container = element as HTMLElement;
+   const map = { setView: () => map, remove, invalidateSize };
+   return map as unknown as L.Map;
+  });
  vi.mocked(L.tileLayer).mockImplementation(() => {
   const layer = { on: () => layer, addTo: () => layer };
   return layer as unknown as L.TileLayer;
@@ -61,7 +62,8 @@ it("renders every marker with a safe popup and the shared note link", async () =
  await waitFor(() => expect(screen.getByRole("link", { name: "島" })).toHaveAttribute("href", "Place"));
  expect(screen.getByRole("link", { name: "Other" })).toBeInTheDocument();
  expect(screen.getByText("<img src=x onerror=alert(1)>")).toBeInTheDocument();
- expect(view.container.querySelector("img")).toBeNull();
- view.unmount();
- expect(remove).toHaveBeenCalledOnce();
+  expect(view.container.querySelector("img")).toBeNull();
+  await waitFor(() => expect(invalidateSize).toHaveBeenCalled());
+  view.unmount();
+  expect(remove).toHaveBeenCalledOnce();
 });

@@ -3566,6 +3566,8 @@ textarea.modal-input:focus-visible {
 }
 
 .map-fence {
+  width: 100%;
+  max-width: 100%;
   height: 360px;
   margin: 24px 0;
   overflow: hidden;
