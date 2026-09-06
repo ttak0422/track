@@ -1,0 +1,23 @@
+{
+  "numFound": 181,
+  "start": 0,
+  "docs": [
+    {
+      "title": "Clean Code",
+      "author_name": ["Robert C. Martin"],
+      "first_publish_year": 2008,
+      "number_of_pages_median": 431,
+      "cover_i": 8065615,
+      "isbn": ["9780132350884", "0132350882"],
+      "edition_key": ["OL26222911M"]
+    },
+    {
+      "title": "Clean Code in Python",
+      "author_name": ["Mariano Anaya"],
+      "first_publish_year": 2018,
+      "cover_i": 11857731,
+      "isbn": ["9781788835831"],
+      "edition_key": ["OL27409415M"]
+    }
+  ]
+}

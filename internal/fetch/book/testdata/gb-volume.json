@@ -1,0 +1,29 @@
+{
+  "totalItems": 1,
+  "items": [
+    {
+      "volumeInfo": {
+        "title": "Clean Code",
+        "subtitle": "A Handbook of Agile Software Craftsmanship",
+        "authors": ["Robert C. Martin"],
+        "publisher": "Prentice Hall",
+        "publishedDate": "2008-07-14",
+        "description": "Even bad code can function.",
+        "pageCount": 431,
+        "language": "en",
+        "industryIdentifiers": [
+          {"type": "ISBN_13", "identifier": "9780132350884"},
+          {"type": "ISBN_10", "identifier": "0132350882"}
+        ],
+        "canonicalVolumeLink": "https://books.google.com/books/about/Clean_Code.html?id=dwSfGgP8LqkC",
+        "imageLinks": {
+          "smallThumbnail": "http://books.google.com/books/content?id=dwSfGgP8LqkC&printsec=frontcover&img=1&zoom=5",
+          "thumbnail": "http://books.google.com/books/content?id=dwSfGgP8LqkC&printsec=frontcover&img=1&zoom=1",
+          "small": "http://books.google.com/books/content?id=dwSfGgP8LqkC&printsec=frontcover&img=1&zoom=2",
+          "medium": "http://books.google.com/books/content?id=dwSfGgP8LqkC&printsec=frontcover&img=1&zoom=3",
+          "large": "http://books.google.com/books/content?id=dwSfGgP8LqkC&printsec=frontcover&img=1&zoom=4"
+        }
+      }
+    }
+  ]
+}

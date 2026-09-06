@@ -63,3 +63,25 @@ saved from the local network.
 Because a clip is note-shaped as much as chart-shaped, the tool also has a convenience output mode
 outside the JSONL contract: `--note` prints a ready-to-pipe Markdown note body (provenance line,
 lead image, content) for `track new --title`.
+
+## Book fetcher
+
+`track-fetch-book` looks a book up by ISBN or title and prints a reading-note Markdown body —
+title, authors, publisher, publication year, page count, ISBN, and a cover image — for
+`track new --title`:
+
+```sh
+track-fetch-book --isbn 9780132350884 | track new --title "Clean Code"
+track-fetch-book --title "The Pragmatic Programmer" [--index N]
+```
+
+Two public APIs back it: Google Books is the primary source, Open Library the fallback when Google
+is rate-limited or lacks the edition. A title search lists the ranked candidates on stderr
+(`[N] Title — Author · Year · pages`) and renders the best by default; `--index N` picks another.
+ISBNs are normalized (hyphens/spaces stripped, ISBN-10 canonicalized to 13 digits).
+
+Like the other fetch tools it is independent of the track CLI and never writes into the vault —
+including the cover. Without `--cover-dir` the note embeds the remote cover URL; with
+`--cover-dir <vault>/assets` (a directory the caller names) the tool downloads the cover there and
+references it as `assets/<file>`, ready for `track asset import` and the cover-image linkage. A
+failed cover download is a stderr warning and falls back to the remote URL, never a hard error.
