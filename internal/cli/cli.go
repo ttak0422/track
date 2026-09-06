@@ -246,7 +246,10 @@ Usage:
                                         in the body, or an up sidecar prop holding a [[link]]): the
                                         ancestor trail, root first, and the notes whose up points here.
                                         Takes no --title, and does not self-heal a stale index (JSON)
-  track agenda [--date YYYY-MM-DD]       list notes created or updated on a calendar day (JSON)
+  track agenda [--date YYYY-MM-DD] [--mode activity|planning]
+                                        list a calendar day: activity (default) shows notes created
+                                        or updated on it, planning shows the open dated tasks to work
+                                        — overdue, scheduled that day, due soon — by urgency (JSON)
   track graph (--id N | --path P)       show a local link graph (JSON)
   track graph --orphans                 vault-wide link hygiene in one call: notes with no inbound link,
                                         and titles naming a parent scope no note owns (JSON)

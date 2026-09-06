@@ -345,6 +345,56 @@ func TestAgendaListsNotesByDay(t *testing.T) {
 	}
 }
 
+func TestAgendaPlanningModeCrossSectionsOpenDatedTasks(t *testing.T) {
+	vault := t.TempDir()
+	// Two notes carry open tasks in every planning bucket: overdue, scheduled on the planning day, due
+	// soon (within the 7-day horizon), and decoys that must stay out — done, undated, and due far out.
+	if _, code := runIn(t, vault, "new", "--title", "Planning A", "--body", strings.Join([]string{
+		"- [ ] Overdue A [#A] [due:2026-07-09]",
+		"- [ ] Scheduled today [sched:2026-07-11] [due:2026-07-20]",
+		"- [ ] Due soon [due:2026-07-15]",
+		"- [x] Done overdue [due:2026-07-01]",
+		"- [ ] Far future [due:2026-07-30]",
+		"- [ ] Undated",
+	}, "\n")); code != 0 {
+		t.Fatalf("new Planning A failed: %v", code)
+	}
+	if _, code := runIn(t, vault, "new", "--title", "Planning B", "--body", "- [ ] Overdue plain [due:2026-07-10]\n"); code != 0 {
+		t.Fatalf("new Planning B failed: %v", code)
+	}
+
+	out, code := runIn(t, vault, "agenda", "--mode", "planning", "--date", "2026-07-11")
+	if code != 0 {
+		t.Fatalf("agenda --mode planning failed: %v", out)
+	}
+	if out["date"] != "2026-07-11" || out["mode"] != "planning" {
+		t.Fatalf("agenda echoed wrong envelope: %v", out)
+	}
+	tasks, ok := out["tasks"].([]any)
+	if !ok {
+		t.Fatalf("agenda planning tasks = %v, want a list", out["tasks"])
+	}
+	// Urgency order: nearest due first, then priority on ties. The scheduled-today task sorts by its
+	// deadline (2026-07-20), after the due-soon one (2026-07-15); the overdue [#A] leads the overdue
+	// plain one, and every decoy stays out.
+	want := []string{"Overdue A", "Overdue plain", "Due soon", "Scheduled today"}
+	if len(tasks) != len(want) {
+		t.Fatalf("planning tasks = %v, want %d: %v", tasks, len(want), want)
+	}
+	for i, text := range want {
+		got := tasks[i].(map[string]any)["text"]
+		if got != text {
+			t.Errorf("planning task %d = %v, want %q", i, got, text)
+		}
+	}
+
+	// An invalid mode is a hard error, not a silent fallback to the activity view.
+	bad, code := runIn(t, vault, "agenda", "--mode", "bogus")
+	if code == 0 {
+		t.Fatalf("agenda --mode bogus should fail, got %v", bad)
+	}
+}
+
 func TestReindexKeepsMetadataTitleIgnoringBodyH1(t *testing.T) {
 	vault := t.TempDir()
 	runIn(t, vault, "new", "--title", "Old", "--id", "100")
