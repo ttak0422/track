@@ -192,6 +192,57 @@ func TestNoteMtimes(t *testing.T) {
 	}
 }
 
+func TestUpsertNoteIndexesInlineTags(t *testing.T) {
+	s := newTestStore(t)
+
+	n := &note.Note{
+		ID:   100,
+		Path: "/vault/100.md",
+		Body: "planning #proj/track with #golang\n```\n#fenced/tag\n```\nand `#inline/code`\n",
+		Meta: note.Metadata{
+			Title: "Inline tags",
+			Tags:  []string{"sidecar", "proj/track"},
+		},
+	}
+	if err := s.UpsertNote(n); err != nil {
+		t.Fatalf("upsert: %v", err)
+	}
+
+	refs, err := s.SearchRefs()
+	if err != nil {
+		t.Fatalf("search refs: %v", err)
+	}
+	var tags []string
+	for _, r := range refs {
+		if r.NoteID == 100 {
+			tags = r.Tags
+		}
+	}
+	// SearchRefs reads tags in tag order; the set is sidecar + prose tags, fenced/code tags excluded.
+	if want := []string{"golang", "proj/track", "sidecar"}; !slices.Equal(tags, want) {
+		t.Fatalf("indexed tags = %v, want %v", tags, want)
+	}
+
+	// Re-upserting without the inline tags replaces the rows instead of accumulating them.
+	n.Body = "plain body"
+	if err := s.UpsertNote(n); err != nil {
+		t.Fatalf("re-upsert: %v", err)
+	}
+	refs, err = s.SearchRefs()
+	if err != nil {
+		t.Fatalf("search refs after re-upsert: %v", err)
+	}
+	tags = nil
+	for _, r := range refs {
+		if r.NoteID == 100 {
+			tags = r.Tags
+		}
+	}
+	if want := []string{"proj/track", "sidecar"}; !slices.Equal(tags, want) {
+		t.Fatalf("tags after re-upsert = %v, want %v", tags, want)
+	}
+}
+
 func TestUpsertNoteIndexesProps(t *testing.T) {
 	s := newTestStore(t)
 
