@@ -262,6 +262,53 @@ local function highlight_tasks(buf, cursor, fences, lines)
    end
 end
 
+-- Callout/admonition blockquotes ("> [!TYPE]", the five GitHub alert types the web renders as colored
+-- boxes): the marker line gets a sign-column glyph and a colored "[!TYPE]", and every line of the
+-- block gets a faint type-tinted background, so a callout reads as a box in the editor too. A
+-- blockquote whose first line has no marker stays an ordinary quote.
+local callout_glyphs = { NOTE = "ℹ", TIP = "✎", IMPORTANT = "★", WARNING = "▲", CAUTION = "⚠" }
+local callout_hl = { NOTE = "TrackCalloutNote", TIP = "TrackCalloutTip", IMPORTANT = "TrackCalloutImportant", WARNING = "TrackCalloutWarning", CAUTION = "TrackCalloutCaution" }
+
+local function highlight_callouts(buf, fences, lines)
+   local start_row, typ = nil, nil
+   for i, text in ipairs(lines) do
+      local row = i - 1
+      if fences[row] then
+         start_row, typ = nil, nil
+      else
+         local stripped = vim.trim(text)
+         if stripped:sub(1, 1) == ">" then
+            local is_marker_line = false
+            if start_row == nil then
+               local s, e, word = text:find("%[!([A-Za-z]+)%]")
+               if word and callout_hl[word:upper()] then
+                  start_row, typ = row, word:upper()
+                  is_marker_line = true
+                  vim.api.nvim_buf_set_extmark(buf, ns, row, s - 1, {
+                     end_col = e,
+                     hl_group = callout_hl[typ],
+                     priority = 130,
+                  })
+                  vim.api.nvim_buf_set_extmark(buf, ns, row, s - 1, {
+                     sign_text = callout_glyphs[typ],
+                     sign_hl_group = callout_hl[typ],
+                     priority = 140,
+                  })
+               end
+            end
+            if start_row ~= nil and not is_marker_line then
+               vim.api.nvim_buf_set_extmark(buf, ns, row, 0, {
+                  line_hl_group = "TrackCalloutBlock",
+                  priority = 90,
+               })
+            end
+         else
+            start_row, typ = nil, nil
+         end
+      end
+   end
+end
+
 -- reveal_code_fences rewrites the markdown treesitter highlights query to drop its conceal/conceal_lines
 -- directives, so raising conceallevel for links does not also hide ```lang fence delimiters. This edits a
 -- global query, which is appropriate for a markdown note environment; it is a no-op without the parser.
@@ -321,6 +368,7 @@ local function render(buf)
    local cursor = current_cursor(buf)
    highlight_links(buf, resolved_cache[buf] or {}, cursor, fences, lines)
    highlight_tasks(buf, cursor, fences, lines)
+   highlight_callouts(buf, fences, lines)
 end
 
 -- refresh re-fetches document links, caches which [[...]] resolve, then renders.
@@ -722,6 +770,12 @@ function M.setup()
    vim.api.nvim_set_hl(0, "TrackTaskDue", { default = true, link = "DiagnosticError" })
    vim.api.nvim_set_hl(0, "TrackTaskDate", { default = true, link = "Comment" })
    vim.api.nvim_set_hl(0, "TrackTaskDone", { default = true, strikethrough = true })
+   vim.api.nvim_set_hl(0, "TrackCalloutBlock", { default = true, link = "DiffChange" })
+   vim.api.nvim_set_hl(0, "TrackCalloutNote", { default = true, link = "DiagnosticInfo" })
+   vim.api.nvim_set_hl(0, "TrackCalloutTip", { default = true, link = "DiagnosticHint" })
+   vim.api.nvim_set_hl(0, "TrackCalloutImportant", { default = true, link = "MoreMsg" })
+   vim.api.nvim_set_hl(0, "TrackCalloutWarning", { default = true, link = "DiagnosticWarn" })
+   vim.api.nvim_set_hl(0, "TrackCalloutCaution", { default = true, link = "DiagnosticError" })
    register_create_note_command()
    register_rename_note_command()
    if config.options.conceal and config.options.reveal_code_fences then
