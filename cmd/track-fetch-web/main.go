@@ -44,7 +44,7 @@ func run(args []string, stdout, stderr io.Writer) int {
 	out := fs.String("out", "", "write JSONL to this file instead of stdout (prints a JSON summary)")
 	note := fs.Bool("note", false, "print a ready-to-pipe Markdown note body instead of JSONL")
 	timeout := fs.Duration("timeout", 30*time.Second, "HTTP fetch timeout")
-	if err := fs.Parse(args); err != nil {
+	if err := fs.Parse(reorderArgs(args)); err != nil {
 		return 2
 	}
 	source := strings.TrimSpace(*urlFlag)
@@ -70,10 +70,7 @@ func run(args []string, stdout, stderr io.Writer) int {
 	if page.Markdown == "" {
 		fmt.Fprintln(stderr, "track-fetch-web: no readable content found; emitting metadata only")
 	}
-	sourceURL := ""
-	if pageURL != nil {
-		sourceURL = source
-	}
+	sourceURL := sourceURLFor(pageURL)
 	now := time.Now()
 
 	if *note {
@@ -103,6 +100,49 @@ func run(args []string, stdout, stderr io.Writer) int {
 	})
 	fmt.Fprintln(stdout, string(summary))
 	return 0
+}
+
+// valueFlags names the flags that consume the following token as their value, so reorderArgs can
+// tell a flag value from a positional argument.
+var valueFlags = map[string]bool{"url": true, "out": true, "timeout": true}
+
+// reorderArgs moves positional arguments to the end while keeping flag/value pairs intact. Go's flag
+// package stops parsing at the first positional, so without this the documented form
+// `track-fetch-web <page> --out <file>` would treat --out and its value as extra positionals.
+func reorderArgs(args []string) []string {
+	var flags, positional []string
+	for i := 0; i < len(args); i++ {
+		a := args[i]
+		if a == "--" {
+			positional = append(positional, args[i+1:]...)
+			break
+		}
+		if strings.HasPrefix(a, "-") && a != "-" {
+			flags = append(flags, a)
+			name := strings.TrimLeft(a, "-")
+			if eq := strings.IndexByte(name, '='); eq >= 0 {
+				name = name[:eq]
+			}
+			if valueFlags[name] && !strings.Contains(a, "=") && i+1 < len(args) {
+				i++
+				flags = append(flags, args[i])
+			}
+		} else {
+			positional = append(positional, a)
+		}
+	}
+	return append(flags, positional...)
+}
+
+// sourceURLFor is the canonical url field of a clip: the final URL the page was read from — after
+// redirects, which is also the base the extracted markdown resolved relative links against — or ""
+// for a local file, which has no URL. The raw argument string is not used so a redirect hop
+// (http→https, moved pages) cannot leave the record pointing at a stale address.
+func sourceURLFor(pageURL *url.URL) string {
+	if pageURL == nil {
+		return ""
+	}
+	return pageURL.String()
 }
 
 // open returns the page body and its URL: an HTTP response for a URL (with the base for resolving

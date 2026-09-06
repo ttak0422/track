@@ -172,6 +172,13 @@ func TestExtractStrings(t *testing.T) {
 			html: `<body><article><p>Padding paragraph so the article container passes the minimum text threshold.</p><ol><li>first</li><li>second<ul><li>inner</li></ul></li></ol></article></body>`,
 			want: Page{Markdown: "Padding paragraph so the article container passes the minimum text threshold.\n\n1. first\n2. second\n  - inner"},
 		},
+		{
+			// A menu-ish class on the document root (Wikipedia's <html class="...main-menu...">)
+			// must not class-prune the root and with it the whole tree.
+			name: "menu in the html class does not nuke the tree",
+			html: `<html class="client-nojs vector-feature-main-menu-pinned"><head><title>Menu Site</title></head><body><article><p>This page must survive a menu-looking class on the root element because the article text below it is genuinely long enough to count as the readable content of the page.</p></article></body></html>`,
+			want: Page{Title: "Menu Site", Markdown: "This page must survive a menu-looking class on the root element because the article text below it is genuinely long enough to count as the readable content of the page."},
+		},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {

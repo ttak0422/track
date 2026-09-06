@@ -191,8 +191,9 @@ var noiseTags = map[string]bool{
 var noiseClassRe = regexp.MustCompile(`(?i)\b(comments?|sidebar|share|social|related|promo|advert|ads?|banner|menu|nav|footer|breadcrumbs?|newsletter|subscribe|cookie|popup)\b`)
 
 // prune removes chrome and boilerplate from the tree in place: known non-content tags everywhere,
-// and containers whose class/id names page furniture. Semantic candidates (article/main/body) are
-// never class-pruned so an over-broad site class cannot delete the article itself.
+// and containers whose class/id names page furniture. Semantic candidates (article/main/body) and
+// the document root are never class-pruned so an over-broad site class cannot delete the article
+// or the whole tree.
 func prune(n *html.Node) {
 	for c := n.FirstChild; c != nil; {
 		next := c.NextSibling
@@ -205,12 +206,16 @@ func prune(n *html.Node) {
 	}
 }
 
+// shouldPrune reports whether n is page furniture. The document root and the semantic candidates
+// (article/main/body) are never class-pruned, so an over-broad site class — Wikipedia's <html
+// class="...main-menu...">, say — cannot delete the article or, worse, the whole tree: the root
+// element sits above the body and must survive for any content to remain.
 func shouldPrune(n *html.Node) bool {
 	if noiseTags[n.Data] {
 		return true
 	}
 	switch n.DataAtom {
-	case atom.Article, atom.Main, atom.Body:
+	case atom.Article, atom.Main, atom.Body, atom.Html:
 		return false
 	}
 	return noiseClassRe.MatchString(attr(n, "class") + " " + attr(n, "id"))
