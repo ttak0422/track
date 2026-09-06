@@ -4860,7 +4860,15 @@ textarea.modal-input:focus-visible {
     /* The rail is the window's height, not its content's: it holds the graph at its foot whatever the
        note above it has to say. It takes the sheet's own ground, so a rail longer than its sections
        shows nothing but the page it already stood on. */
-    height: calc(100vh - 65px + var(--aside-pad)); /* tab bar (33px) + the sticky offset */
+    /* Start and end the rail without ever moving it: it always starts at tabstrip (38px) + the
+       reader's breathing room (32px) + the sticky offset below (16px) — the sticky constraint binds
+       on every note, since breadcrumbs and properties render inside the main column, never above the
+       row. Ending 32px above the viewport foot (the reader's own bottom padding) keeps the rail off
+       the row's bottom edge, so even scrolled to the very end it stays pinned at its stuck position
+       instead of riding up with the row. No dead scroll tail on short notes; the rail never shifts.
+       dvh, not vh, so a phone browser's toolbar doesn't hang the foot behind it. The gap below shows
+       the same ground color (rail and reader are both --panel), so the seam is invisible. */
+    height: calc(100dvh - 38px - 32px - 16px - 32px);
     overflow-y: auto;
     margin-top: calc(-1 * var(--aside-pad));
     margin-inline: calc(-1 * var(--aside-pad));

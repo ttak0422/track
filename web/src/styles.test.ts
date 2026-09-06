@@ -545,10 +545,13 @@ describe("phone width", () => {
 });
 
 describe("docked aside", () => {
-  // The rail is the window's height, not its content's — that is what puts the graph at its foot on a
-  // note whose sections come up short, and what the list allocation measures against.
-  it("sizes the rail from the window rather than its sections", () => {
-    expect(mediaBody("(min-width: 1100px)")).toMatch(/> \.note-aside \{[^}]*height:\s*calc\(100vh/);
+  // The rail starts at tabstrip + reader breathing room + sticky offset on every note (its sticky
+  // constraint always binds — breadcrumbs and properties render inside the main column), and ends
+  // 32px above the viewport foot (the reader's own bottom padding) so it never rides up with the
+  // row at the very end: no dead scroll tail on short notes, and the rail never shifts.
+  it("pins the rail without ever shifting it", () => {
+    const rule = mediaBody("(min-width: 1100px)");
+    expect(rule).toMatch(/> \.note-aside \{[^}]*height:\s*calc\(100dvh - 38px - 32px - 16px - 32px/);
   });
 
   // Pushed to the foot when the sections above come up short, held there when they overflow. The
