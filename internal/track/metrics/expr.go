@@ -1,7 +1,7 @@
-// Package metrics implements Grafana-style monitoring on adopted specs (ADR 0076): OpenMetrics
-// exposition ingest, gauge derivation from price bars, Grafana dashboard-subset resolution, and
-// Prometheus rule-subset alert evaluation. Everything resolves to the Canonical Data Model, so no
-// new storage or renderer is added here.
+// Package metrics implements generic monitoring on adopted specs (ADR 0076): OpenMetrics
+// exposition ingest, Grafana dashboard-subset resolution, and Prometheus rule-subset alert
+// evaluation over the Canonical Data Model. It knows nothing about where series come from —
+// node exporters, app instrumentation, or market writers all land as metric records first.
 package metrics
 
 import (
@@ -211,7 +211,7 @@ func MatchRecord(recName string, q Query) bool {
 
 // MatchRecordWithEntity is MatchRecord plus the entity field: matchers naming entity, symbol,
 // or instance compare against the record's entity when the folded name carries no such label.
-// This keeps multi-symbol metric files addressable (`rsi14{entity="6857.T"}`) without changing
+// This keeps multi-series metric files addressable (`http_requests{instance="web1"}`) without changing
 // the subset grammar.
 func MatchRecordWithEntity(recName, entity string, q Query) bool {
 	fam, labels, err := SplitFolded(recName)

@@ -4,12 +4,14 @@ Status: Accepted
 
 ## Context
 
-track owns metric computation and visualization (ADR 0021), and market data already lands in vaults
-as canonical JSONL via finance skills. What is missing is the monitoring loop around it: ingesting
-outside metrics, deriving gauges, drawing dashboards, and evaluating threshold rules. In this area a
+track owns metric computation and visualization (ADR 0021). What is missing is the monitoring loop
+around it: ingesting outside metrics, drawing dashboards, and evaluating threshold rules — for
+system metrics (service levels, node exporters, app instrumentation) first of all; market series
+from finance writers are one source among others, not the shape of the feature. In this area a
 bespoke design would isolate track from the ecosystem it wants to join, so the rule here is
 adopt-don't-invent: take the wire and document formats the monitoring world already shares, and map
-them onto the Canonical Data Model instead of extending it.
+them onto the Canonical Data Model instead of extending it. Domain computations (RSI, moving
+averages, screeners) stay outside the engine, in the skills and fetchers that own their domains.
 
 ## Decision
 
@@ -22,21 +24,18 @@ a silent guess.
    histogram/summary families flatten to their `_bucket`/`_sum`/`_count` sample names. Labels fold
    into the two fields the model has: `entity` takes the first present of `--entity-labels`
    (default `entity,symbol,instance`); every other label appends to the name in Prometheus display
-   form (`name{k="v"}`). Unstamped samples take the scrape time (`--asof` overrides it).
-2. **Derive gauges from any price-kind JSONL** (`track metrics derive`). The transforms are the small
-   closed set finance skills already use: `change_pct`, `ma5_dev`, `ma25_dev`, `rsi14` (Wilder/RMA),
-   `mom_12_1`, `high52w`. Derive never fetches and never names a source: whichever writer fills
-   `data/` (track-prices today, a J-Quants writer tomorrow) feeds it unchanged, so future source
-   selection is a writer choice, not a derive change.
-3. **Dashboards are Grafana classic JSON, subset** (`track metrics dashboard`). Accepted: `title`,
+   form (`name{k="v"}`). Unstamped samples take the scrape time (`--asof` overrides it). track
+   never fetches: pipe an endpoint's body in (`curl -s host:9100/metrics | track metrics scrape
+   --from -`), per ADR 0021.
+2. **Dashboards are Grafana classic JSON, subset** (`track metrics dashboard`). Accepted: `title`,
    `panels[]` of type `timeseries` or `stat`, each target's `expr` as a metric name plus `=` label
-   matchers only (no functions — derivable values are precomputed by derive), and
-   `fieldConfig.defaults` `unit`/`min`/`max`/`thresholds`. The datasource convention is
-   `{"type":"track","uid":"<bare data/ filename>"}`. Panels resolve to viewspec blocks
-   (timeseries → line with threshold overlays; stat → the same series as a line, documented
+   matchers only (no functions — derived values are precomputed upstream, by whatever writer owns
+   the domain), and `fieldConfig.defaults` `unit`/`min`/`max`/`thresholds`. The datasource
+   convention is `{"type":"track","uid":"<bare data/ filename>"}`. Panels resolve to viewspec
+   blocks (timeseries → line with threshold overlays; stat → the same series as a line, documented
    limitation), emitted as note Markdown for embedding — rendering stays on the existing viewspec
    path, so no new renderer is added.
-4. **Alerts are Prometheus rule YAML, subset** (`track metrics alert`). Accepted per rule: `alert`,
+3. **Alerts are Prometheus rule YAML, subset** (`track metrics alert`). Accepted per rule: `alert`,
    `expr` as `metric{matchers} OP number` (OP in `> < >= <= == !=`), `for` as a count of consecutive
    trailing points, `labels`, `annotations`. Evaluation reads the latest values under `--data-dir`
    and prints firing alerts as JSON; `--capture "Note#Heading"` appends dated bullets through the
@@ -56,7 +55,7 @@ a silent guess.
 
 - New dependency `prometheus/common` (plus `client_model` via expfmt) — the only outside spec
   implementation track vendors.
-- `track metrics` subcommands join the CLI contract (agent-workflows): scrape, derive, dashboard,
-  alert. Finance skills compose on top without engine changes.
+- `track metrics` subcommands join the CLI contract (agent-workflows): scrape, dashboard, alert.
+  Domain skills (finance monitoring included) compose on top without engine changes.
 - Grafana JSON files that use functions, variables, or other panel types are out of scope and say so
   at parse time.

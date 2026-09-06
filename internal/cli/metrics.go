@@ -17,8 +17,8 @@ import (
 	"github.com/ttak0422/track/internal/track/note"
 )
 
-// cmdMetrics routes the metrics monitoring subcommands (ADR 0076): exposition ingest, gauge
-// derivation, Grafana-subset dashboards, and rule-subset alert evaluation.
+// cmdMetrics routes the metrics monitoring subcommands (ADR 0076): exposition ingest,
+// Grafana-subset dashboards, and rule-subset alert evaluation.
 func cmdMetrics(args []string) int {
 	if len(args) == 0 || args[0] == "--help" || args[0] == "-h" {
 		fmt.Print(metricsUsage())
@@ -27,25 +27,20 @@ func cmdMetrics(args []string) int {
 	switch args[0] {
 	case "scrape":
 		return cmdMetricsScrape(args[1:])
-	case "derive":
-		return cmdMetricsDerive(args[1:])
 	case "dashboard":
 		return cmdMetricsDashboard(args[1:])
 	case "alert":
 		return cmdMetricsAlert(args[1:])
 	default:
-		return fail("unknown metrics subcommand %q (want scrape|derive|dashboard|alert)", args[0])
+		return fail("unknown metrics subcommand %q (want scrape|dashboard|alert)", args[0])
 	}
 }
 
 func metricsUsage() string {
-	return `track metrics - Grafana-style monitoring on adopted specs (ADR 0076)
+	return `track metrics - monitoring on adopted specs (ADR 0076)
 
   track metrics scrape --from <file|-> --out <file> [--entity-labels a,b] [--asof DATE]
                                         parse OpenMetrics/Prometheus exposition text into metric-kind JSONL
-  track metrics derive --prices <file> --out <file> [--gauges a,b]
-                                        derive gauges (change_pct, ma5_dev, ma25_dev, rsi14, mom_12_1, high52w)
-                                        from any price-kind JSONL into metric-kind JSONL
   track metrics dashboard --dashboard <grafana.json> --out <note.md> [--data-dir DIR]
                                         resolve a Grafana-subset dashboard into note Markdown with viewspec fences
   track metrics alert --rules <rules.yaml> [--data-dir DIR] [--capture "Note#Heading"]
@@ -111,39 +106,6 @@ func cmdMetricsScrape(args []string) int {
 		EntityLabels: strings.Split(*entityLabels, ","),
 		Stamp:        stamp,
 	})
-	if err != nil {
-		return fail("%v", err)
-	}
-	if err := writeJSONL(*out, recs); err != nil {
-		return fail("write: %v", err)
-	}
-	return emit(map[string]any{"path": *out, "records": len(recs)})
-}
-
-func cmdMetricsDerive(args []string) int {
-	fs := flag.NewFlagSet("metrics derive", flag.ContinueOnError)
-	prices := fs.String("prices", "", "price-kind JSONL (any writer)")
-	out := fs.String("out", "", "metric-kind JSONL to write")
-	gauges := fs.String("gauges", "", "subset to compute (comma-separated; default all)")
-	if code, ok := parseArgs(fs, args); !ok {
-		return code
-	}
-	if *prices == "" || *out == "" {
-		return fail("--prices and --out are required")
-	}
-	raw, err := os.ReadFile(*prices)
-	if err != nil {
-		return fail("read prices: %v", err)
-	}
-	rows, err := dataset.ReadJSONL(bytes.NewReader(raw))
-	if err != nil {
-		return fail("parse prices: %v", err)
-	}
-	var want []string
-	if strings.TrimSpace(*gauges) != "" {
-		want = strings.Split(*gauges, ",")
-	}
-	recs, err := metrics.Derive(rows, want)
 	if err != nil {
 		return fail("%v", err)
 	}

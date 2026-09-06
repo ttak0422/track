@@ -109,6 +109,7 @@ func resolvePanel(p grafanaPanel, dataDir string) (string, error) {
 	type ySeries struct {
 		Field string `json:"field"`
 		Title string `json:"title,omitempty"`
+		Mark  string `json:"mark,omitempty"`
 	}
 	type overlay struct {
 		Y     *float64 `json:"y,omitempty"`
@@ -204,9 +205,15 @@ func resolvePanel(p grafanaPanel, dataDir string) (string, error) {
 	}
 	file := seriesList[0].file
 	family := seriesList[0].name
+	multi := len(entities) > 1
 	ys := make([]ySeries, len(seriesList))
 	for i, s := range seriesList {
 		ys[i] = ySeries{Field: "value", Title: s.title}
+		if multi && i > 0 {
+			// Under a color split y[0] shares the chart's mark while every extra
+			// channel is an explicit series that needs its own mark override.
+			ys[i].Mark = "line"
+		}
 	}
 	spec := map[string]any{
 		"version": 2,
@@ -221,7 +228,7 @@ func resolvePanel(p grafanaPanel, dataDir string) (string, error) {
 			"y": ys,
 		},
 	}
-	if len(entities) > 1 {
+	if multi {
 		enc := spec["encoding"].(map[string]any)
 		enc["color"] = map[string]any{"field": "entity", "type": "nominal"}
 	}
@@ -268,7 +275,7 @@ func loadMetricFile(dataDir, file string) ([]dataset.Record, error) {
 	if err != nil {
 		return nil, fmt.Errorf("read %s: %w", file, err)
 	}
-	// Keep only metric-shaped rows; a dashboard never queries price bars.
+	// Keep only metric-shaped rows; other kinds never enter a panel query.
 	var out []dataset.Record
 	for _, r := range rows {
 		if _, ok := r.String("name"); !ok {

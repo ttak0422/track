@@ -144,13 +144,13 @@ Typical creation loop:
 4. `track search --query X` to rediscover notes.
 5. `track rename --title Old --to New` when a title changes.
 
-Monitor metrics on adopted specs (ADR 0076) — OpenMetrics ingest, gauge derivation, Grafana-subset
+Monitor metrics on adopted specs (ADR 0076) — OpenMetrics ingest, Grafana-subset
 dashboards, Prometheus-subset alert rules. Expressions are a metric name plus `=` matchers only;
-datasources are `{"type":"track","uid":"<data/ filename>"}`:
+datasources are `{"type":"track","uid":"<data/ filename>"}`. track never fetches: pipe an
+endpoint's body in, per ADR 0021:
 
 ```sh
-track metrics scrape --from exposition.txt --out data/metrics.jsonl --asof 2026-09-06
-track metrics derive --prices data/6857.T.jsonl --out data/metrics_6857.T.jsonl
+curl -s web1:9100/metrics | track metrics scrape --from - --out data/sys.jsonl
 track metrics dashboard --dashboard grafana.json --out monitor.md
 track metrics alert --rules rules.yaml --capture "Monitor#Signals"
 ```

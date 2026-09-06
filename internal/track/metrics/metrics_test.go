@@ -3,12 +3,16 @@ package metrics
 import (
 	"os"
 	"path/filepath"
+	"regexp"
 	"strings"
 	"testing"
 	"time"
 
 	"github.com/ttak0422/track/internal/track/dataset"
+	"github.com/ttak0422/track/internal/track/viewspec"
 )
+
+var fenceJSON = regexp.MustCompile("(?s)```viewspec\n(.*?)```")
 
 func TestParseQuery(t *testing.T) {
 	q, err := ParseQuery(`http_requests{method="GET", code="200"}`)
@@ -122,59 +126,28 @@ latency_count 9
 	}
 }
 
-func TestDerive(t *testing.T) {
-	rows := []dataset.Record{}
-	close := 100.0
-	for i := 0; i < 30; i++ {
-		close += 1.0 // steady climb: change_pct ~1, RSI 100, positive deviation
-		rows = append(rows, dataset.Record{
-			"version": 1, "entity": "T", "time": day(i),
-			"open": close - 0.5, "high": close + 0.5, "low": close - 0.5, "close": close,
-		})
-	}
-	recs, err := Derive(rows, []string{"change_pct", "ma5_dev", "rsi14"})
-	if err != nil {
-		t.Fatal(err)
-	}
-	last := map[string]float64{}
-	for _, r := range recs {
-		n, _ := r.String("name")
-		tm, _ := r.String("time")
-		if tm == day(29) {
-			v, _ := r.Float("value")
-			last[n] = v
-		}
-	}
-	if len(last) != 3 {
-		t.Fatalf("got %v", last)
-	}
-	if last["change_pct"] < 0.7 || last["change_pct"] > 0.8 {
-		t.Fatalf("change_pct = %v", last["change_pct"])
-	}
-	if last["rsi14"] != 100 {
-		t.Fatalf("rsi14 = %v", last["rsi14"])
-	}
-	if last["ma5_dev"] <= 0 || last["ma5_dev"] > 2 {
-		t.Fatalf("ma5_dev = %v", last["ma5_dev"])
-	}
-	if _, err := Derive(rows, []string{"nope"}); err == nil {
-		t.Fatal("unknown gauge should fail")
-	}
-}
-
 func TestDashboardAndAlert(t *testing.T) {
 	dir := t.TempDir()
 	write(t, filepath.Join(dir, "m.jsonl"),
 		`{"version":1,"name":"rsi14","entity":"T","time":"2026-09-03","value":28}`,
 		`{"version":1,"name":"rsi14","entity":"T","time":"2026-09-04","value":27}`,
+		`{"version":1,"name":"rsi14","entity":"U","time":"2026-09-03","value":60}`,
+		`{"version":1,"name":"rsi14","entity":"U","time":"2026-09-04","value":61}`,
 		`{"version":1,"name":"close","entity":"T","time":"2026-09-04","value":100}`)
-	dash := `{"title":"M","panels":[{"type":"timeseries","title":"RSI","datasource":{"type":"track","uid":"m.jsonl"},"targets":[{"expr":"rsi14","legendFormat":"RSI"}],"fieldConfig":{"defaults":{"thresholds":{"steps":[{"value":null},{"value":30},{"value":70}]}}}}]}`
+	dash := `{"title":"M","panels":[{"type":"timeseries","title":"RSI","datasource":{"type":"track","uid":"m.jsonl"},"targets":[{"expr":"rsi14","legendFormat":"RSI"}],"fieldConfig":{"defaults":{"thresholds":{"steps":[{"value":null},{"value":30},{"value":70}]}}}},{"type":"stat","title":"By entity","datasource":{"type":"track","uid":"m.jsonl"},"targets":[{"expr":"rsi14","legendFormat":"{{entity}}"}]}]}`
 	md, n, err := ResolveDashboard([]byte(dash), dir)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if n != 1 || !strings.Contains(md, "```viewspec") || !strings.Contains(md, `"y": 30`) {
+	if n != 2 || !strings.Contains(md, "```viewspec") || !strings.Contains(md, `"y": 30`) {
 		t.Fatalf("bad dashboard output:\n%s", md)
+	}
+	// Every emitted fence must pass the renderer's own validation, including the
+	// color-split panel (y[1+] carry explicit marks, y[0] must not).
+	for _, m := range fenceJSON.FindAllStringSubmatch(md, -1) {
+		if _, err := viewspec.Load(strings.NewReader(m[1])); err != nil {
+			t.Fatalf("emitted spec invalid: %v\n%s", err, m[1])
+		}
 	}
 	bad := `{"title":"M","panels":[{"type":"heatmap","title":"H","targets":[{"expr":"rsi14"}]}]}`
 	if _, _, err := ResolveDashboard([]byte(bad), dir); err == nil {

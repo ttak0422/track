@@ -17,7 +17,7 @@ func writeTemp(t *testing.T, dir, name, data string) string {
 	return p
 }
 
-func TestMetricsScrapeDeriveRoundTrip(t *testing.T) {
+func TestMetricsScrapeWritesMetricJSONL(t *testing.T) {
 	dir := t.TempDir()
 	exp := "# TYPE market_close gauge\nmarket_close{symbol=\"T\"} 100\n"
 	in := writeTemp(t, dir, "in.txt", exp)
@@ -34,21 +34,6 @@ func TestMetricsScrapeDeriveRoundTrip(t *testing.T) {
 	}
 	if res["records"] != float64(1) {
 		t.Fatalf("want 1 record, got %v", res)
-	}
-
-	prices := writeTemp(t, dir, "p.jsonl",
-		`{"version":1,"entity":"T","time":"2026-09-01","open":9,"high":11,"low":9,"close":10}`+"\n"+
-			`{"version":1,"entity":"T","time":"2026-09-02","open":10,"high":12,"low":10,"close":11}`+"\n")
-	dout := filepath.Join(dir, "d.jsonl")
-	raw, code = capture(t, func() int {
-		return Run([]string{"metrics", "derive", "--prices", prices, "--out", dout, "--gauges", "change_pct"})
-	})
-	if code != 0 {
-		t.Fatalf("derive failed: %q", raw)
-	}
-	body, _ := os.ReadFile(dout)
-	if !strings.Contains(string(body), `"name":"change_pct"`) || !strings.Contains(string(body), `"value":10`) {
-		t.Fatalf("bad derive output: %s", body)
 	}
 }
 
