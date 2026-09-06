@@ -250,10 +250,10 @@ export function VoiceView() {
         false,
         { pinned: true },
       );
-      notify(`「${term}」を作成しました`, created.note_id);
+      notify(`Created "${term}"`, created.note_id);
     } catch (reason) {
       if (reason instanceof APIError && reason.status === 409) {
-        notify("同名タイトルのノートが存在します");
+        notify("A note with the same title already exists");
       } else {
         setError(reason instanceof Error ? reason.message : "Create failed");
       }
@@ -409,7 +409,7 @@ export function VoiceView() {
           }}
           onCompositionStart={() => setComposing(true)}
           onCompositionEnd={() => setComposing(false)}
-          placeholder="音声入力を開始してください…"
+          placeholder="Start voice input…"
         />
         {(titleHits.length > 0 || bodyHits.length > 0 || pathHits.length > 0 || createTerm !== "") ? <div
           className={`voice-candidates${candidatePos.above ? " above" : ""}`}
@@ -431,7 +431,7 @@ export function VoiceView() {
           </> : null}
           {createTerm !== "" ? <>
             {titleHits.length + bodyHits.length + pathHits.length > 0 ? <h3 className="results-group">New note</h3> : null}
-            <button className="voice-candidate" type="button" onMouseDown={(event) => event.preventDefault()} onClick={() => void createFromSelection(createTerm)}>「{createTerm.length > 12 ? `${createTerm.slice(0, 12)}…` : createTerm}」を新規作成</button>
+            <button className="voice-candidate" type="button" onMouseDown={(event) => event.preventDefault()} onClick={() => void createFromSelection(createTerm)}>{createTerm.length > 12 ? `Create "${createTerm.slice(0, 12)}…"` : `Create "${createTerm}"`}</button>
           </> : null}
         </div> : null}
       </div>

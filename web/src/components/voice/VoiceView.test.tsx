@@ -61,7 +61,7 @@ function resetAll() {
 }
 
 function transcript() {
-  return screen.getByPlaceholderText("音声入力を開始してください…") as HTMLTextAreaElement;
+  return screen.getByPlaceholderText("Start voice input…") as HTMLTextAreaElement;
 }
 
 describe("VoiceView", () => {
@@ -71,8 +71,6 @@ describe("VoiceView", () => {
     expect(screen.queryByRole("heading")).not.toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Start voice input" })).toBeInTheDocument();
     expect(screen.queryByRole("status")).not.toBeInTheDocument();
-    expect(screen.queryByRole("button", { name: "今日のjournalへ保存" })).not.toBeInTheDocument();
-    expect(screen.queryByRole("button", { name: "選択範囲をリンク" })).not.toBeInTheDocument();
     expect(screen.queryByText(/Phase 1/)).not.toBeInTheDocument();
   });
 
@@ -171,9 +169,9 @@ describe("VoiceView", () => {
     fireEvent.change(transcript(), { target: { value: "spoken words" } });
     transcript().setSelectionRange(0, 6);
     fireEvent.mouseUp(transcript());
-    fireEvent.click(await screen.findByRole("button", { name: "「spoken」を新規作成" }));
+    fireEvent.click(await screen.findByRole("button", { name: "Create \"spoken\"" }));
     await waitFor(() => expect(floatingOpen).toHaveBeenCalled());
-    expect(notify).toHaveBeenCalledWith("「spoken」を作成しました", "n9");
+    expect(notify).toHaveBeenCalledWith('Created "spoken"', "n9");
   });
 
   it("toasts a duplicate title instead of failing the creation", async () => {
@@ -183,8 +181,8 @@ describe("VoiceView", () => {
     fireEvent.change(transcript(), { target: { value: "spoken words" } });
     transcript().setSelectionRange(0, 6);
     fireEvent.mouseUp(transcript());
-    fireEvent.click(await screen.findByRole("button", { name: "「spoken」を新規作成" }));
-    await waitFor(() => expect(notify).toHaveBeenCalledWith("同名タイトルのノートが存在します"));
+    fireEvent.click(await screen.findByRole("button", { name: "Create \"spoken\"" }));
+    await waitFor(() => expect(notify).toHaveBeenCalledWith("A note with the same title already exists"));
     expect(floatingOpen).not.toHaveBeenCalled();
   });
 
@@ -202,7 +200,7 @@ describe("VoiceView", () => {
     expect(screen.getByText("Full text")).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "TitleHit" })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "BodyHit" })).toBeInTheDocument();
-    expect(screen.queryByRole("button", { name: /新規作成/ })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: /Create/ })).not.toBeInTheDocument();
   });
 
   it("still offers creation with only body hits", async () => {
@@ -214,6 +212,6 @@ describe("VoiceView", () => {
     fireEvent.mouseUp(transcript());
     expect(await screen.findByRole("button", { name: "BodyHit" })).toBeInTheDocument();
     expect(screen.getByText("New note")).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "「spoken」を新規作成" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Create \"spoken\"" })).toBeInTheDocument();
   });
 });
