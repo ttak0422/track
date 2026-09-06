@@ -1,0 +1,14 @@
+{
+  "manifest_version": 3,
+  "name": "track element clip",
+  "version": "0.1.0",
+  "description": "Pick one element on a page and copy a grab payload for track-fetch-elem to the clipboard.",
+  "permissions": ["activeTab", "scripting", "clipboardWrite"],
+  "action": {
+    "default_title": "track element clip",
+    "default_popup": "popup.html"
+  },
+  "background": {
+    "service_worker": "background.js"
+  }
+}
