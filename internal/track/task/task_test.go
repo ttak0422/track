@@ -282,3 +282,173 @@ func TestSetDate(t *testing.T) {
 		}
 	}
 }
+
+func TestRepeatOf(t *testing.T) {
+	cases := []struct {
+		name string
+		spec string
+		mode RepeatMode
+		n    int
+		unit byte
+	}{
+		{"fixed week", "1w", RepeatFixed, 1, 'w'},
+		{"fixed days", "2d", RepeatFixed, 2, 'd'},
+		{"fixed month", "1m", RepeatFixed, 1, 'm'},
+		{"fixed year", "3y", RepeatFixed, 3, 'y'},
+		{"from-completion", "+.1w", RepeatFromCompletion, 1, 'w'},
+		{"skip", "++1m", RepeatSkip, 1, 'm'},
+	}
+	for _, tc := range cases {
+		body := "- [ ] t [rpt:" + tc.spec + "]\n"
+		r, found, err := RepeatOf(body, 1)
+		if err != nil || !found {
+			t.Errorf("%s: RepeatOf = %+v, %v, %v; want found with no error", tc.name, r, found, err)
+			continue
+		}
+		if r.Mode != tc.mode || r.N != tc.n || r.Unit != tc.unit {
+			t.Errorf("%s: RepeatOf = %+v, want mode=%s n=%d unit=%c", tc.name, r, tc.mode, tc.n, tc.unit)
+		}
+		if got := r.String(); got != tc.spec {
+			t.Errorf("%s: String() = %q, want %q", tc.name, got, tc.spec)
+		}
+	}
+	// A line without the token is not a repeat; a non-task line is not found at all.
+	if _, found, err := RepeatOf("- [ ] plain\n", 1); found || err != nil {
+		t.Fatalf("plain line reported a repeat: %v, %v", found, err)
+	}
+	if _, found, err := RepeatOf("just prose\n", 1); found || err != nil {
+		t.Fatalf("non-task line reported a repeat: %v, %v", found, err)
+	}
+	// Malformed specs are refused so a typo does not silently stop the repeats.
+	for _, bad := range []string{"", "1x", "0w", "+.", "++", "+1w"} {
+		body := "- [ ] t [rpt:" + bad + "]\n"
+		if _, found, err := RepeatOf(body, 1); !found || err == nil {
+			t.Errorf("spec %q should be reported as malformed (found=%v err=%v)", bad, found, err)
+		}
+	}
+	// The repeat token is stripped from the human text, like the other metadata tokens.
+	if tasks := Parse("- [ ] water [rpt:1w] [sched:2026-07-06]\n"); len(tasks) != 1 || tasks[0].Text != "water" {
+		t.Fatalf("repeat token leaked into text: %+v", tasks)
+	}
+}
+
+// The roll tests complete tasks through SetState, so the expected body includes the [done:] stamp
+// and the checkbox flips to [x]. The completion date is testNow (2026-07-11).
+func TestSetStateRollsFixedRepeat(t *testing.T) {
+	cases := []struct {
+		name string
+		body string
+		want string
+	}{
+		{
+			"sched-only advances one interval",
+			"- [ ] standup [rpt:1w] [sched:2026-07-06]\n",
+			"- [x] standup [rpt:1w] [sched:2026-07-13] [done:2026-07-11]\n",
+		},
+		{
+			"due-only advances the deadline",
+			"- [ ] report [rpt:1w] [due:2026-07-06]\n",
+			"- [x] report [rpt:1w] [due:2026-07-13] [done:2026-07-11]\n",
+		},
+		{
+			"both dates shift, keeping the gap",
+			"- [ ] plan [rpt:1w] [sched:2026-07-06] [due:2026-07-08]\n",
+			"- [x] plan [rpt:1w] [sched:2026-07-13] [due:2026-07-15] [done:2026-07-11]\n",
+		},
+		{
+			"no date yet appends the next sched before the stamp",
+			"- [ ] habit [rpt:2d]\n",
+			"- [x] habit [rpt:2d] [sched:2026-07-13] [done:2026-07-11]\n",
+		},
+		{
+			"month-end clamps to the last day",
+			"- [ ] pay [rpt:1m] [sched:2026-01-31]\n",
+			"- [x] pay [rpt:1m] [sched:2026-02-28] [done:2026-07-11]\n",
+		},
+	}
+	for _, tc := range cases {
+		got, tr, err := SetState(tc.body, 1, "done", testNow)
+		if err != nil {
+			t.Errorf("%s: %v", tc.name, err)
+			continue
+		}
+		if got != tc.want {
+			t.Errorf("%s:\n got %q\nwant %q", tc.name, got, tc.want)
+		}
+		if !tr.Done || tr.Completed != "2026-07-11" {
+			t.Errorf("%s: unexpected transition: %+v", tc.name, tr)
+		}
+	}
+}
+
+func TestSetStateRollsFromCompletionRepeat(t *testing.T) {
+	// Completion-start anchors on the done date, so a late completion drifts the cadence forward.
+	body := "- [ ] check-in [rpt:+.1w] [sched:2026-07-06]\n"
+	got, _, err := SetState(body, 1, "done", testNow)
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := "- [x] check-in [rpt:+.1w] [sched:2026-07-18] [done:2026-07-11]\n"
+	if got != want {
+		t.Fatalf("got %q want %q", got, want)
+	}
+}
+
+func TestSetStateRollsSkipRepeat(t *testing.T) {
+	// On-time completion behaves like fixed: the next boundary is one interval out.
+	onTime := "- [ ] weekly [rpt:++1w] [sched:2026-07-06]\n"
+	if got, _, err := SetState(onTime, 1, "done", testNow); err != nil || got != "- [x] weekly [rpt:++1w] [sched:2026-07-13] [done:2026-07-11]\n" {
+		t.Fatalf("on-time skip roll failed: %q %v", got, err)
+	}
+	// A month-late completion skips the passed boundaries and lands on the next future one.
+	late := "- [ ] rent [rpt:++1m] [sched:2026-01-31]\n"
+	got, _, err := SetState(late, 1, "done", testNow)
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := "- [x] rent [rpt:++1m] [sched:2026-07-31] [done:2026-07-11]\n"
+	if got != want {
+		t.Fatalf("got %q want %q", got, want)
+	}
+}
+
+func TestSetStateRepeatEdgeCases(t *testing.T) {
+	// A malformed repeat token refuses the completion, like any other syntax error on the line.
+	for _, spec := range []string{"1x", "", "0w", "+1w"} {
+		if _, _, err := SetState("- [ ] t [rpt:"+spec+"] [sched:2026-07-06]\n", 1, "done", testNow); err == nil {
+			t.Errorf("malformed repeat %q should refuse the state change", spec)
+		}
+	}
+	// Moving within the done family (DONE to CANCELLED) must not roll again.
+	done := "- [x] t [rpt:1w] [sched:2026-07-06] [done:2026-07-01]\n"
+	got, _, err := SetState(done, 1, "cancelled", testNow)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if want := "- [-] t [rpt:1w] [sched:2026-07-06] [done:2026-07-01]\n"; got != want {
+		t.Fatalf("done-to-done rolled the repeat: got %q want %q", got, want)
+	}
+	// A non-done transition neither stamps completion nor rolls.
+	open := "- [ ] t [rpt:1w] [sched:2026-07-06]\n"
+	got, _, err = SetState(open, 1, "waiting", testNow)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if want := "- [?] t [rpt:1w] [sched:2026-07-06]\n"; got != want {
+		t.Fatalf("non-done transition rolled the repeat: got %q want %q", got, want)
+	}
+	// A task without a repeat token is untouched by the roll path (dates stay put).
+	plain := "- [ ] t [sched:2026-07-06]\n"
+	got, _, err = SetState(plain, 1, "done", testNow)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if want := "- [x] t [sched:2026-07-06] [done:2026-07-11]\n"; got != want {
+		t.Fatalf("plain task was rolled: got %q want %q", got, want)
+	}
+	// A hand-corrupted date on the line refuses the roll instead of computing from year 1.
+	bad := "- [ ] t [rpt:1w] [sched:2026-13-45]\n"
+	if _, _, err = SetState(bad, 1, "done", testNow); err == nil {
+		t.Fatal("a corrupted anchor date should refuse the completion")
+	}
+}
