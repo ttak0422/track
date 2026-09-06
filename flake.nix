@@ -108,6 +108,17 @@
             subPackages = [ "cmd/track-fetch-web" ];
           };
 
+          track-fetch-jquants = pkgs.buildGoModule {
+            pname = "track-fetch-jquants";
+            version = "0.1.0";
+            src = fileset.toSource {
+              root = ./.;
+              fileset = goFiles;
+            };
+            vendorHash = "sha256-bdlVtenoN7ZKX5dO5gZ2x9XlD6YGWgNHwMwdgtn87+c=";
+            subPackages = [ "cmd/track-fetch-jquants" ];
+          };
+
           track = pkgs.vimUtils.buildVimPlugin {
             pname = "track";
             version = "0.1.0";
@@ -151,6 +162,7 @@
               track-cli
               track-fetch-rss
               track-fetch-web
+              track-fetch-jquants
               ;
           };
 
