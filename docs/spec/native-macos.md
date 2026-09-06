@@ -14,9 +14,9 @@ macOS専用、Web技術スタック不使用、Goエンジン流用。
   `track web [--addr 127.0.0.1:8765]`)。外部公開は `guard` が拒否する。
 - 型の正本は `web/src/types.ts`、通信手順の正本は `web/src/api.ts`。
   Swift の `Codable` モデルはここからの機械的移植とする。
-- 注意: サーバは note id を JSON 数値 + `vault` ラベルで返すが、クライアントは
+- 注意: サーバは note id を JSON 数値 + 別の `vault` ラベルで返すが、クライアントは
   id を opaque 文字列として扱う (`api.ts` の `stringifyIDs` と同じ正規化。
-  他 vault の id は `"<vault>:<id>"`)。
+  他 vault の id は `"<vault>~<id>"` — `~` 区切り。`vaultId.ts` 参照)。
 
 ## Endpoint inventory (`internal/track/webui/webui.go:290-309`)
 
