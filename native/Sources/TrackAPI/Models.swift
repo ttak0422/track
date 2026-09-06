@@ -187,6 +187,10 @@ public struct TasksResponse: Codable, Sendable {
     private struct NoteTasks: Codable {
         var items: [TaskItem]
     }
+
+    enum CodingKeys: String, CodingKey {
+        case tasks, etag
+    }
 }
 
 public struct ExternalRef: Codable, Sendable {
