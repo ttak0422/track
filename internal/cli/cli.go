@@ -224,8 +224,11 @@ Usage:
                                         read-only doctor report); suitable for cron/launchd (JSON)
   track fmt [--check] (<path>... | --all)
                                          canonically format Markdown files (rewrites in place); --all
-                                         covers the whole vault, --check writes nothing and exits
-                                         non-zero when a file would change. Never touches fenced code (JSON)
+                                         covers every note, journal, and sidecar metadata file in the
+                                         vault, normalizing heading markers (no closing "#"), blank
+                                         lines, trailing whitespace, list bullets, and sidecar key
+                                         order. --check writes nothing and exits non-zero when a
+                                         file would change. Never touches fenced code (JSON)
   track keywords                        dump the auto-link dictionary (JSON)
   track resolve (--term <s> | <s>)      resolve a keyword to a note (JSON)
   track search --query <s> [--scope all|title|body] [--limit N]

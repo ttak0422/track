@@ -31,7 +31,15 @@ var cases = []struct {
 	{"emphasis not a bullet", "*bold* text\n", "*bold* text\n"},
 	{"star thematic break kept", "* * *\n", "* * *\n"},
 
-	// Rule 5: exactly one final newline.
+	// Rule 5: strip the closing hashes of a closed ATX heading.
+	{"closed heading", "## Title ##\n", "## Title\n"},
+	{"longer closing run", "## Title ###\n", "## Title\n"},
+	{"extra space before closing", "# Title  ##\n", "# Title\n"},
+	{"hash glued to title kept", "# foo#\n", "# foo#\n"},
+	{"hash mid-title kept", "# foo # bar\n", "# foo # bar\n"},
+	{"bare marker kept", "###\n", "###\n"},
+
+	// Rule 6: exactly one final newline.
 	{"add final newline", "a", "a\n"},
 	{"trim extra final newlines", "a\n\n\n", "a\n"},
 
