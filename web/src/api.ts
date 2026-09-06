@@ -301,6 +301,19 @@ export function saveNote(noteID: NoteID, request: SaveNoteRequest): Promise<Save
   });
 }
 
+// createNote mints a note titled `title` with the default template. A title
+// that already resolves is refused with a 409, so callers can tell "already
+// there" apart from a real failure.
+export function createNote(title: string): Promise<{ note_id: NoteID; title: string }> {
+  if (STATIC_MODE) {
+    return readOnly();
+  }
+  return api<{ note_id: NoteID; title: string }>(`/api/note`, {
+    method: "POST",
+    body: { title },
+  });
+}
+
 // getNoteMeta / saveNoteMeta read and edit a note's editable sidecar metadata (tags, description,
 // cover image, props) as one YAML document. The static site has no meta editor, so both are
 // live-server only.

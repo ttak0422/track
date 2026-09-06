@@ -6,9 +6,11 @@ import (
 	"fmt"
 	"net/http"
 	"os"
+	"path/filepath"
 	"strings"
 	"time"
 
+	"github.com/ttak0422/track/internal/track/config"
 	"github.com/ttak0422/track/internal/track/dashboard"
 	"github.com/ttak0422/track/internal/track/export"
 	"github.com/ttak0422/track/internal/track/index"
@@ -19,6 +21,7 @@ import (
 	"github.com/ttak0422/track/internal/track/render"
 	"github.com/ttak0422/track/internal/track/store"
 	"github.com/ttak0422/track/internal/track/task"
+	tmpl "github.com/ttak0422/track/internal/track/template"
 	"github.com/ttak0422/track/internal/track/vaultref"
 )
 
@@ -26,6 +29,8 @@ func (s *Server) handleNote(v *vaultView, w http.ResponseWriter, r *http.Request
 	switch r.Method {
 	case http.MethodGet, "":
 		s.getNote(v, w, r)
+	case http.MethodPost:
+		s.postNote(v, w, r)
 	case http.MethodPut:
 		s.putNote(v, w, r)
 	case http.MethodDelete:
@@ -33,6 +38,72 @@ func (s *Server) handleNote(v *vaultView, w http.ResponseWriter, r *http.Request
 	default:
 		writeError(w, fmt.Errorf("method %s not allowed", r.Method), http.StatusMethodNotAllowed)
 	}
+}
+
+// postNote creates a note titled req.Title with the default template and
+// indexes it, mirroring the CLI's `new`. Titles are link keywords, so a title
+// that already resolves is refused with 409 rather than minting an ambiguous
+// duplicate.
+func (s *Server) postNote(v *vaultView, w http.ResponseWriter, r *http.Request) {
+	var req struct {
+		Title string `json:"title"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		writeError(w, fmt.Errorf("decode request: %w", err), http.StatusBadRequest)
+		return
+	}
+	title := strings.TrimSpace(req.Title)
+	if title == "" {
+		writeError(w, errors.New("title is required"), http.StatusBadRequest)
+		return
+	}
+	if _, found, err := v.store.ResolveTerm(title); err != nil {
+		writeError(w, err, http.StatusInternalServerError)
+		return
+	} else if found {
+		writeError(w, fmt.Errorf("note already exists for title %q", title), http.StatusConflict)
+		return
+	}
+	noteID, err := note.NewID(v.cfg, time.Now())
+	if err != nil {
+		writeError(w, fmt.Errorf("allocate note id: %w", err), http.StatusInternalServerError)
+		return
+	}
+	path := v.cfg.NotePath(noteID)
+	if _, err := os.Stat(path); err == nil {
+		writeError(w, fmt.Errorf("note already exists: %s", path), http.StatusConflict)
+		return
+	}
+	spec, err := tmpl.DefaultSpec(v.cfg, config.KindNote)
+	if err != nil {
+		writeError(w, fmt.Errorf("resolve default template: %w", err), http.StatusInternalServerError)
+		return
+	}
+	rendered, err := tmpl.Render(v.cfg, spec, title, noteID, config.KindNote, "", time.Now())
+	if err != nil {
+		writeError(w, fmt.Errorf("render template: %w", err), http.StatusInternalServerError)
+		return
+	}
+	body := ensureTrailingNewline(rendered)
+	if err := v.write(func() error {
+		if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+			return fmt.Errorf("create note dir: %w", err)
+		}
+		if err := os.WriteFile(path, []byte(body), 0o644); err != nil {
+			return fmt.Errorf("write note: %w", err)
+		}
+		if err := note.WriteMetadata(
+			v.cfg.MetadataPath(noteID),
+			note.Metadata{Title: title, Created: time.Now().Format(v.cfg.DateFormat)},
+		); err != nil {
+			return fmt.Errorf("write metadata: %w", err)
+		}
+		return index.New(v.cfg, v.store).One(path)
+	}); err != nil {
+		writeError(w, fmt.Errorf("create note: %w", err), http.StatusInternalServerError)
+		return
+	}
+	writeJSON(w, map[string]any{"vault": v.label, "note_id": noteID, "title": title, "created": true})
 }
 
 // deleteNote removes a note: its Markdown file, its sidecar metadata, and its index row (tags and links

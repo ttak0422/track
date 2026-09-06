@@ -1,4 +1,5 @@
 import { Link, useNavigate } from "@tanstack/react-router";
+import { IconMicrophone } from "@tabler/icons-react";
 import {
   useEffect,
   useRef,
@@ -241,6 +242,17 @@ export function MobileDock() {
       run: () => openPopup("settings"),
     },
   );
+  if (!noteActions) {
+    actions.splice(actions.length - 1, 0, {
+      key: "voice",
+      label: "Voice input",
+      icon: <RailIcon Icon={IconMicrophone} />,
+      run: () => {
+        setOpen(false);
+        void navigate({ to: "/voice" });
+      },
+    });
+  }
 
   const p = position();
   const fan = open ? fanPlacement(p, actions.length) : [];
@@ -448,8 +460,6 @@ function clampToWindow(p: { x: number; y: number }): { x: number; y: number } {
     y: clamp(p.y, EDGE, window.innerHeight - FAB_SIZE - EDGE),
   };
 }
-
-
 
 
 

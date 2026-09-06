@@ -22,6 +22,7 @@ import { TagView } from "./components/TagView";
 import "./styles.css";
 import { NotificationProvider } from "./notifications";
 import { VaultActivityWatcher } from "./components/VaultActivityWatcher";
+import { VoiceView } from "./components/voice/VoiceView";
 
 const rootRoute = createRootRoute({
   component: Shell,
@@ -43,6 +44,12 @@ const graphRoute = createRoute({
   getParentRoute: () => rootRoute,
   path: "/graph",
   component: GraphRoute,
+});
+
+const voiceRoute = createRoute({
+  getParentRoute: () => rootRoute,
+  path: "/voice",
+  component: VoiceRoute,
 });
 
 const calendarRoute = createRoute({
@@ -103,6 +110,7 @@ const routeTree = rootRoute.addChildren([
   indexRoute,
   noteRoute,
   graphRoute,
+  voiceRoute,
   calendarRoute,
   tasksRoute,
   dayRoute,
@@ -226,6 +234,10 @@ function NoteRoute() {
 
 function GraphRoute() {
   return <GraphFullView />;
+}
+
+function VoiceRoute() {
+  return <VoiceView />;
 }
 
 function DayRoute() {
