@@ -215,6 +215,18 @@ describe("VoiceView", () => {
     expect(screen.getByRole("button", { name: 'Create "spoken"' })).toBeInTheDocument();
   });
 
+  it("closes the panel after opening a candidate", async () => {
+    resetAll();
+    apiMocks.searchNotes = () => Promise.resolve({ results: [{ note_id: "n1", title: "T1" }] });
+    render(<VoiceView />);
+    fireEvent.change(transcript(), { target: { value: "spoken words" } });
+    transcript().setSelectionRange(0, 6);
+    fireEvent.mouseUp(transcript());
+    fireEvent.click(await screen.findByRole("button", { name: "T1" }));
+    await waitFor(() => expect(screen.queryByRole("button", { name: "T1" })).not.toBeInTheDocument());
+    expect(screen.queryByRole("button", { name: 'Create "spoken"' })).not.toBeInTheDocument();
+  });
+
   it("shows creation inactive when the words name an existing note", async () => {
     resetAll();
     apiMocks.resolveTerm = () => Promise.resolve({ found: true, note: { note_id: "n1", title: "spoken" } });

@@ -335,6 +335,7 @@ export function VoiceView() {
 
   // The transcript stays as dictated: a candidate only opens its note in the
   // surrounding floating layer, never rewrites the dictated words into a link.
+  // The panel has done its job, so it closes in full, create row included.
   function openLink(noteID: string) {
     floating.open(
       { kind: "note", noteID },
@@ -342,7 +343,7 @@ export function VoiceView() {
       false,
       { pinned: true },
     );
-    clearResults();
+    clearSearch();
   }
 
   // No save control: stopping with unsaved dictation appends it to today's
