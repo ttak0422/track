@@ -591,10 +591,11 @@ func (s *Server) handleRender(v *vaultView, w http.ResponseWriter, r *http.Reque
 			// Gallery covers come from the sidecar metadata, read lazily per matched note; the value is
 			// the note-relative "assets/<file>" the frontend already maps to /api/asset. The icon is the
 			// cover's stand-in on cards without one, resolved by the one resolver every surface uses.
-			markdown = query.ExpandBlocks(markdown, v.cfg.Queries, rows, func(id int64) (string, string) {
+			// Body conditions resolve through the FTS5 index, the same notes_fts table search uses.
+			markdown = query.ExpandBlocksWithResolver(markdown, v.cfg.Queries, rows, func(id int64) (string, string) {
 				meta, _, _ := note.ReadMetadata(v.cfg.MetadataPath(id))
 				return meta.Image, v.cfg.NoteIcon(kinds[id], meta.Tags, meta.Icon)
-			})
+			}, query.StoreBodyResolver(v.cfg, v.store, len(rows)))
 		}
 	}
 	// Includes resolve against the rendered markdown (what the frontend draws), so their line

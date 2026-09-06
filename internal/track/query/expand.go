@@ -22,14 +22,25 @@ const FenceLang = "track-query"
 // saved supplies named queries for "saved: <name>" bodies; rows is the query domain; meta supplies a
 // note's cover image and icon for gallery cards (nil = neither).
 func ExpandBlocks(body string, saved map[string]string, rows []NoteRow, meta func(noteID int64) (cover, icon string)) string {
+	return ExpandBlocksWithResolver(body, saved, rows, meta, nil)
+}
+
+// ExpandBlocksWithResolver expands every fenced query block like ExpandBlocks, resolving body
+// conditions through resolve — the store-backed FTS5 path of the live workspace. With a nil
+// resolver, body conditions match the rows' own Body text (the static export, which already holds
+// every published body in memory).
+func ExpandBlocksWithResolver(body string, saved map[string]string, rows []NoteRow, meta func(noteID int64) (cover, icon string), resolve BodyResolver) string {
 	return babel.ReplaceBlocks(body, FenceLang, func(b babel.Block) []string {
 		expr, err := ResolveSaved(b.Body, saved)
 		if err == nil {
 			var q Query
 			if q, err = Parse(expr); err == nil {
-				var lines []string
-				if lines, err = resultLines(b, Run(q, rows), meta); err == nil {
-					return lines
+				var res Result
+				if res, err = RunWithBody(q, rows, resolve); err == nil {
+					var lines []string
+					if lines, err = resultLines(b, res, meta); err == nil {
+						return lines
+					}
 				}
 			}
 		}
