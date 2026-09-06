@@ -69,7 +69,7 @@ describe("VoiceView", () => {
     resetAll();
     render(<VoiceView />);
     expect(screen.queryByRole("heading")).not.toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "音声入力を開始" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Start voice input" })).toBeInTheDocument();
     expect(screen.queryByRole("status")).not.toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "今日のjournalへ保存" })).not.toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "選択範囲をリンク" })).not.toBeInTheDocument();
@@ -160,7 +160,7 @@ describe("VoiceView", () => {
     recognitionState.isListening = true;
     render(<VoiceView />);
     fireEvent.change(transcript(), { target: { value: "dictated line" } });
-    fireEvent.click(screen.getByRole("button", { name: "音声入力を停止" }));
+    fireEvent.click(screen.getByRole("button", { name: "Stop voice input" }));
     expect(stopFn).toHaveBeenCalled();
     await waitFor(() => expect(notify).toHaveBeenCalledWith("Saved to today’s journal", "journal-1"));
   });

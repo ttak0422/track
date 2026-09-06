@@ -364,15 +364,15 @@ export function VoiceView() {
   }
 
   return (
-    <section className="voice-view" aria-label="音声入力">
-      <div className={`voice-console${recognition.isListening ? " listening" : ""}`} aria-label="音声入力">
+    <section className="voice-view" aria-label="Voice input">
+      <div className={`voice-console${recognition.isListening ? " listening" : ""}`} aria-label="Voice input">
         <div className="voice-actions">
           <button
             className="voice-mic"
             type="button"
             disabled={!recognition.isSupported}
             aria-pressed={recognition.isListening}
-            aria-label={recognition.isListening ? "音声入力を停止" : "音声入力を開始"}
+            aria-label={recognition.isListening ? "Stop voice input" : "Start voice input"}
             onClick={recognition.isListening ? () => void stopAndSave(text) : recognition.start}
           >
             <VoiceIcon />
@@ -385,7 +385,7 @@ export function VoiceView() {
         <textarea
           className="voice-transcript"
           ref={areaRef}
-          aria-label="音声入力の文字起こし"
+          aria-label="Voice transcript"
           value={displayValue}
           onChange={handleChange}
           onScroll={handleScroll}
