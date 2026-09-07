@@ -20,10 +20,14 @@ public struct SearchReaderView: View {
     /// Duplicate-title notice from a refused create (web "A note with the same
     /// title already exists"), shown inline in the sheet instead of dismissing.
     @State private var newNoteError: String?
+    /// The API base URL, kept so the reader can hand it to the GFM renderer
+    /// (which builds `/api/asset?...` URLs from it).
+    private let baseURL: URL
 
     public init(client: TrackClient) {
         _search = State(initialValue: SearchModel(client: client))
         _reader = State(initialValue: NoteReaderModel(client: client))
+        baseURL = client.baseURL
     }
 
     public var body: some View {
@@ -77,7 +81,7 @@ public struct SearchReaderView: View {
             }
             .navigationTitle("track")
         } detail: {
-            NoteReaderView(model: reader)
+            NoteReaderView(model: reader, baseURL: baseURL)
         }
         .sheet(isPresented: $showNewNote) {
             NewNoteSheet(
@@ -159,6 +163,8 @@ private enum NoteEditorPane {
 
 public struct NoteReaderView: View {
     @Bindable var model: NoteReaderModel
+    /// The API base URL, passed down to the GFM renderer for `assets/…` embeds.
+    let baseURL: URL
     /// Edit vs Preview inside the editor pane; reset to Edit each time an
     /// editing session starts.
     @State private var pane = NoteEditorPane.edit
@@ -171,8 +177,9 @@ public struct NoteReaderView: View {
     /// Note metadata editor (web NoteMetaDialog), bound to the open note.
     @State private var showMeta = false
 
-    public init(model: NoteReaderModel) {
+    public init(model: NoteReaderModel, baseURL: URL) {
         self.model = model
+        self.baseURL = baseURL
     }
 
     public var body: some View {
@@ -324,6 +331,26 @@ public struct NoteReaderView: View {
         return nil
     }
 
+    /// Intercepts link taps inside the GFM body: `trackwiki://` links (produced
+    /// by GFMBody's `[[wikilink]]` rewrite) navigate to the target note via
+    /// `openWikilink`, everything else falls through to the system handler.
+    /// The target is the URL's host + path percent-decoded — `rewriteWikilinks`
+    /// percent-encodes `#`, `:` and non-ASCII with `.urlPathAllowed`, so
+    /// `[[title#anchor]]` and `[[vault:title]]` survive the round trip.
+    private var wikilinkURLAction: OpenURLAction {
+        OpenURLAction { url in
+            if url.scheme?.lowercased() == "trackwiki" {
+                let combined = (url.host ?? "") + url.path
+                let target = combined.removingPercentEncoding ?? combined
+                if !target.isEmpty {
+                    Task { await model.openWikilink(target: target) }
+                    return .handled
+                }
+            }
+            return .systemAction
+        }
+    }
+
     private func startEditing() {
         pane = .edit
         model.beginEditing()
@@ -345,10 +372,13 @@ public struct NoteReaderView: View {
             VStack(alignment: .leading, spacing: 16) {
                 noteHeader(response.note)
 
-                MarkdownBody(
+                GFMBody(
                     markdown: response.note.body,
+                    baseURL: baseURL,
+                    vault: model.currentID?.split().vault ?? "",
                     onWikilink: { target in Task { await model.openWikilink(target: target) } }
                 )
+                .environment(\.openURL, wikilinkURLAction)
 
                 // Hierarchy and cross-vault sections, mirroring
                 // NoteReaderStatic's trail/children/external/unavailable.
@@ -433,10 +463,13 @@ public struct NoteReaderView: View {
                     .frame(minHeight: 300)
             } else {
                 ScrollView {
-                    MarkdownBody(
+                    GFMBody(
                         markdown: model.draftBody,
+                        baseURL: baseURL,
+                        vault: model.currentID?.split().vault ?? "",
                         onWikilink: { target in Task { await model.openWikilink(target: target) } }
                     )
+                    .environment(\.openURL, wikilinkURLAction)
                     .frame(maxWidth: 640, alignment: .leading)
                 }
             }
@@ -708,115 +741,7 @@ private struct NoteMetaEditor: View {
     }
 }
 
-// MARK: - Markdown
-
-/// Native Markdown rendering from the engine's GFM body. Rich blocks the
-/// native renderer cannot draw (diagrams, math, includes) are collapsed to a
-/// placeholder line with the source kept behind a DisclosureGroup, and
-/// `[[wikilink]]` targets are collected into a tappable "Links" section
-/// resolved via `/api/resolve` (mirroring the web reader's WikiLink).
-struct MarkdownBody: View {
-    let markdown: String
-    var onWikilink: ((String) -> Void)?
-
-    var body: some View {
-        VStack(alignment: .leading, spacing: 12) {
-            Group {
-                if let attributed = try? AttributedString(markdown: Self.placeholderSubstituting(markdown)) {
-                    Text(attributed)
-                } else {
-                    // The body is always plain text; never fail the whole note
-                    // because one construct did not parse.
-                    Text(markdown).font(.body).textSelection(.enabled)
-                }
-            }
-            .textSelection(.enabled)
-
-            let links = Self.wikilinks(in: markdown)
-            if !links.isEmpty {
-                Text("Links").font(.caption).foregroundStyle(.secondary)
-                ForEach(links, id: \.self) { target in
-                    Button(target) { onWikilink?(target) }
-                        .buttonStyle(.link)
-                }
-            }
-        }
-    }
-
-    /// Languages whose fenced blocks the native renderer does not draw.
-    private static let richFences: Set<String> = [
-        "mermaid", "dot", "graphviz", "d2", "drawio", "mindmap", "map",
-        "echarts", "viewspec", "taskboard", "track-view", "track-query", "dashboard",
-    ]
-
-    /// Rewrite `markdown` so rich blocks — diagram/math fenced blocks, `![[...]]`
-    /// include lines, and `$`/`$$` math lines — are replaced by a single caption
-    /// line instead of dumping their raw source into the note. Pure line-splitting;
-    /// no full parse (the MVP scope).
-    static func placeholderSubstituting(_ markdown: String) -> String {
-        let lines = markdown.components(separatedBy: "\n")
-        var out: [String] = []
-        var i = 0
-        while i < lines.count {
-            let line = lines[i]
-            let trimmed = line.trimmingCharacters(in: .whitespaces)
-
-            // Fenced rich block: ```lang ... ```
-            if trimmed.hasPrefix("```") {
-                let lang = String(trimmed.dropFirst(3)).trimmingCharacters(in: .whitespaces)
-                let langName = lang.split(separator: " ", maxSplits: 1).first.map(String.init) ?? lang
-                if richFences.contains(langName) {
-                    i += 1
-                    while i < lines.count && !lines[i].trimmingCharacters(in: .whitespaces).hasPrefix("```") {
-                        i += 1
-                    }
-                    i += 1 // closing fence
-                    out.append("[diagram: \(langName) — preview not supported in native yet]")
-                    continue
-                }
-            }
-
-            // Math lines: `$$...$$` and inline `$...$` on a line.
-            if trimmed.hasPrefix("$$") || trimmed.hasPrefix("$") {
-                out.append("[math — preview not supported in native yet]")
-                i += 1
-                continue
-            }
-
-            // Include directive: ![[...]]
-            if trimmed.hasPrefix("![["), trimmed.hasSuffix("]]") {
-                out.append("[include: \(trimmed) — not rendered in native yet]")
-                i += 1
-                continue
-            }
-
-            out.append(line)
-            i += 1
-        }
-        return out.joined(separator: "\n")
-    }
-
-    /// Collect distinct `[[title]]`, `[[title#anchor]]`, `[[vault:title]]`
-    /// targets in first-seen order, capped at 20 like the web reader's
-    /// link rail. Anchors are kept verbatim so a tap can re-split them.
-    static func wikilinks(in markdown: String, limit: Int = 20) -> [String] {
-        var seen: [String] = []
-        var set = Set<String>()
-        let pattern = "\\[\\[([^\\]|]+)(?:\\|[^\\]]+)?\\]\\]"
-        guard let regex = try? NSRegularExpression(pattern: pattern) else { return [] }
-        let ns = markdown as NSString
-        let range = NSRange(location: 0, length: ns.length)
-        regex.enumerateMatches(in: markdown, range: range) { match, _, _ in
-            guard let match, let range = match.range(at: 1).toOptional() else { return }
-            let target = (ns.substring(with: range) as String).trimmingCharacters(in: .whitespaces)
-            guard !target.isEmpty, !set.contains(target) else { return }
-            set.insert(target)
-            seen.append(target)
-        }
-        return Array(seen.prefix(limit))
-    }
-}
-
-private extension NSRange {
-    func toOptional() -> NSRange? { location == NSNotFound ? nil : self }
-}
+// Markdown rendering lives in MarkdownRenderer.swift (GFMBody, a MarkdownUI GFM
+// renderer). The wikilink "Links" rail, the onWikilink wiring it needs, and the
+// `trackwiki://` link interception (`wikilinkURLAction`) live with it or here;
+// this file owns only the reader/editor chrome.

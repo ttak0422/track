@@ -50,12 +50,15 @@
 | SSE ライブ更新・VaultActivity 通知・30s poll | ❌ |
 | 音声入力・共有・テーマ設定・モバイル dock・ショートカット | ❌ (設定・モバイルは macOS 対象外も多い) |
 
-## 3. Markdown 描画 (`MarkdownBody` = `AttributedString(markdown:)` の CommonMark subset)
+## 3. Markdown 描画 (`GFMBody` = MarkdownUI 2.4.1 ネイティブ描画)
 
-- ○: 見出し/段落/引用/リスト/コード/強調/リンク属性、textSelection、backlinks 一覧。
-- × (素テキストで残る): `[[wikilink]]` (タップ不可), GFM 表, `- [ ]` チェック, `~~`, 脚注, アラート, `^block`/見出し ID, タスク表・カンバン, 全図フェンス (mermaid/dot/d2/drawio/mindmap/map/echarts/viewspec/track-view), `![[...]]` include, 画像/asset, YouTube/Maps/X/OGP/PDF/HTML 埋め込み, KaTeX。
+- ○: GFM 準拠の見出し/段落/引用/リスト/表/タスクリスト/取消線/autolink/コード/リンク/画像
+  (cmark-gfm 拡張 autolink・strikethrough・tagfilter・tasklist・table)。
+  画像は `assets/…`→`/api/asset` 解決の ImageProvider、http(s) は直接表示。
+  `[[wikilink]]` は本文内リンク (trackwiki scheme 横取り) + Links レールで遷移。
+- × (プレースホルダ): 全図フェンス (mermaid/dot/d2/drawio/mindmap/map/echarts/viewspec/track-view)、
+  KaTeX 数式行、`![[...]]` include、脚注 `[^1]` (footnotes 拡張は無効)。
 - 入力差: web は `/api/render` 解決済みテキスト、native は raw。本文内タスク書込みは別画面 `TasksView` にのみ存在。
-- プレースホルダ表示 (spec が描画対象外ブロックに要求) は未実装 — ソースがそのまま出る。
 
 ## 4. TODO 対応状況
 
