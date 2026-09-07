@@ -11,6 +11,13 @@ import TrackAPI
 public final class TasksModel {
     public private(set) var rows: [TaskRow] = []
     public private(set) var error: String?
+    /// Set when a write is refused because the note changed underneath the view
+    /// (409) — the reloaded list is what the server sees now, and the change was
+    /// not applied. Shown until dismissed (queries.ts handleTaskWriteError).
+    public private(set) var lastConflict: String?
+    /// True while a reload is in flight (initial load, the open-only toggle, and
+    /// the refetch after a conflict), so the view never flashes an empty state.
+    public private(set) var isLoading = false
     public var showOpenOnly = false
 
     private let client: TrackClient
@@ -26,6 +33,8 @@ public final class TasksModel {
     }
 
     public func reload() async {
+        isLoading = true
+        defer { isLoading = false }
         error = nil
         do {
             let res = showOpenOnly
@@ -53,7 +62,7 @@ public final class TasksModel {
             )
             applyWrite(note: row.noteID, title: row.title, fileKind: row.fileKind, response: res)
         } catch {
-            self.error = error.localizedDescription
+            await handleWriteFailure(error)
         }
     }
 
@@ -66,11 +75,34 @@ public final class TasksModel {
             )
             applyWrite(note: row.noteID, title: row.title, fileKind: row.fileKind, response: res)
         } catch {
-            self.error = error.localizedDescription
+            await handleWriteFailure(error)
         }
     }
 
+    /// Dismiss the read-failure banner.
+    public func dismissError() {
+        error = nil
+    }
+
+    /// Dismiss the "note changed underneath" banner; the retried write then
+    /// runs against the reloaded list the conflict notice describes.
+    public func dismissConflict() {
+        lastConflict = nil
+    }
+
     // MARK: - Private
+
+    /// A write refused with 409 means the row the view drew is stale: the server
+    /// left the file untouched, so reload to show what the note says now and
+    /// tell the user the change was not applied (web api.ts handleTaskWriteError).
+    private func handleWriteFailure(_ failure: any Error) async {
+        guard let api = failure as? APIError, api.status == 409 else {
+            self.error = failure.localizedDescription
+            return
+        }
+        lastConflict = "Note changed underneath — reloaded"
+        await reload()
+    }
 
     private func applyWrite(note: TrackID, title: String, fileKind: String, response: TasksResponse) {
         etags[note] = response.etag

@@ -24,12 +24,26 @@ public struct TasksView: View {
                     Task { await model.reload() }
                 }
             Divider()
-            List(model.rows, id: \.self) { row in
-                TaskRowView(
-                    row: row,
-                    onCycleState: { Task { await model.setState(row: row, to: nextState(after: row.item.state)) } },
-                    onPickDate: { dateRow = row }
-                )
+            Group {
+                if let conflict = model.lastConflict {
+                    Banner(message: conflict, isError: false) { model.dismissConflict() }
+                } else if let message = model.error {
+                    Banner(message: message, isError: true) { model.dismissError() }
+                }
+            }
+            if model.isLoading && model.rows.isEmpty {
+                ProgressView()
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+            } else if model.rows.isEmpty {
+                emptyState
+            } else {
+                List(model.rows, id: \.self) { row in
+                    TaskRowView(
+                        row: row,
+                        onCycleState: { Task { await model.setState(row: row, to: nextState(after: row.item.state)) } },
+                        onPickDate: { dateRow = row }
+                    )
+                }
             }
         }
         .task { await model.reload() }
@@ -39,6 +53,41 @@ public struct TasksView: View {
             }
             .padding()
         }
+    }
+
+    /// What the web calls "Nothing to do." — but the native board can show the
+    /// dated listing too, so the copy matches the mode actually on screen.
+    @ViewBuilder
+    private var emptyState: some View {
+        Text(model.showOpenOnly ? "Nothing to do." : "No tasks")
+            .font(.caption)
+            .foregroundStyle(.secondary)
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
+    }
+}
+
+/// One-line notice drawn above the list: a read error (red) or the conflict
+/// notice from a refused write, each dismissible.
+private struct Banner: View {
+    let message: String
+    let isError: Bool
+    let onDismiss: () -> Void
+
+    var body: some View {
+        HStack(spacing: 8) {
+            Text(message)
+                .font(.caption)
+                .foregroundStyle(isError ? Color.red : Color.secondary)
+            Spacer()
+            Button("Dismiss") { onDismiss() }
+                .buttonStyle(.plain)
+                .font(.caption)
+                .foregroundStyle(isError ? Color.red : Color.secondary)
+        }
+        .padding(.horizontal, 12)
+        .padding(.vertical, 6)
+        .background(isError ? Color.red.opacity(0.1) : Color.secondary.opacity(0.08))
+        .overlay(alignment: .bottom) { Divider() }
     }
 }
 
@@ -66,17 +115,42 @@ private struct TaskRowView: View {
                 .buttonStyle(.plain)
                 .foregroundStyle(row.item.done ? .secondary : .primary)
             VStack(alignment: .leading, spacing: 2) {
+                // Priority leads the text the way it drives the row's place in
+                // the engine's order (web taskMark: [#A] before [#B] before
+                // unprioritized).
+                if let priority = row.item.priority {
+                    Text("[#\(priority)]")
+                        .font(.caption).fontWeight(.bold)
+                        .foregroundStyle(.primary)
+                }
                 Text(row.item.text)
                     .strikethrough(row.item.done)
+                if let completed = row.item.completed {
+                    Text("✓ \(completed)")
+                        .font(.caption)
+                        .foregroundStyle(.tertiary)
+                }
                 Text(row.title)
                     .font(.caption).foregroundStyle(.secondary)
             }
             Spacer()
+            dateStack
+        }
+    }
+
+    /// The date area is still the cell's own control (design.md Task table): a
+    /// stripped button opening the native picker. Both dates are offered, with
+    /// the due date shown first — the deadline outranks the scheduled date, as
+    /// the web row marks with "!" and "▷".
+    @ViewBuilder
+    private var dateStack: some View {
+        HStack(spacing: 8) {
             if let due = row.item.due {
-                Button(due) { onPickDate() }
+                Button("! \(due)") { onPickDate() }
                     .buttonStyle(.plain).font(.caption).foregroundStyle(.secondary)
-            } else if let sched = row.item.scheduled {
-                Button(sched) { onPickDate() }
+            }
+            if let sched = row.item.scheduled {
+                Button("▷ \(sched)") { onPickDate() }
                     .buttonStyle(.plain).font(.caption).foregroundStyle(.tertiary)
             }
         }
