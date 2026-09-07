@@ -278,6 +278,66 @@ public struct NotesResponse: Codable, Sendable {
     public var notes: [SearchResult]
 }
 
+// MARK: - Note save / create / delete
+
+/// `PUT /api/note` body (`SaveNoteRequest` in types.ts): the full new body plus
+/// the etag a read returned — the write token that turns a save against a stale
+/// view into a 409 instead of a silent overwrite.
+public struct SaveNoteRequest: Codable, Sendable {
+    public var body: String
+    public var etag: String
+
+    public init(body: String, etag: String) {
+        self.body = body
+        self.etag = etag
+    }
+}
+
+/// `PUT /api/note` (`SaveNoteResponse` in types.ts): the note's refreshed etag,
+/// the token the next save must echo back, and the saved confirmation.
+public struct SaveNoteResponse: Codable, Sendable {
+    public var noteID: TrackID
+    public var etag: String
+    public var saved: Bool
+
+    enum CodingKeys: String, CodingKey {
+        case noteID = "note_id", etag, saved
+    }
+}
+
+/// `POST /api/note` body (api.ts: createNote): a title to mint a note from.
+public struct CreateNoteRequest: Codable, Sendable {
+    public var title: String
+
+    public init(title: String) {
+        self.title = title
+    }
+}
+
+/// `POST /api/note` (api.ts: createNote): the minted note. `created` rides along
+/// from the server's response even though the web client's createNote type does
+/// not name it, so it is optional here.
+public struct CreateNoteResponse: Codable, Sendable {
+    public var noteID: TrackID
+    public var title: String
+    public var created: Bool?
+
+    enum CodingKeys: String, CodingKey {
+        case noteID = "note_id", title, created
+    }
+}
+
+/// `DELETE /api/note` (`DeleteNoteResponse` in types.ts): confirms the note
+/// (file + sidecar + index row) is gone.
+public struct DeleteNoteResponse: Codable, Sendable {
+    public var noteID: TrackID
+    public var deleted: Bool
+
+    enum CodingKeys: String, CodingKey {
+        case noteID = "note_id", deleted
+    }
+}
+
 // MARK: - Reading state
 
 /// The shared reading milestones a `POST /api/note/read` recorded
@@ -320,6 +380,24 @@ public struct SaveNoteMetaRequest: Codable, Sendable {
     public var icon: String
     public var flags: [String]
     public var props: String
+
+    public init(
+        title: String,
+        tags: [String],
+        description: String,
+        image: String,
+        icon: String,
+        flags: [String],
+        props: String
+    ) {
+        self.title = title
+        self.tags = tags
+        self.description = description
+        self.image = image
+        self.icon = icon
+        self.flags = flags
+        self.props = props
+    }
 }
 
 // MARK: - Hierarchy
@@ -422,4 +500,41 @@ public struct ActivitySummary: Codable, Sendable {
 /// `GET /api/activity` (`ActivityResponse` in types.ts).
 public struct ActivityResponse: Codable, Sendable {
     public var activity: ActivitySummary
+}
+
+// MARK: - Calendar
+
+/// `GET /api/agenda` (`AgendaResponse` in types.ts): the notes active (created
+/// or updated) on one calendar day.
+public struct AgendaResponse: Codable, Sendable {
+    public var date: String
+    public var notes: [NoteRef]
+}
+
+/// `POST /api/journal` (`JournalResponse` in types.ts): the day's journal note
+/// id, opened or created, so a calendar can jump straight to that day.
+public struct JournalResponse: Codable, Sendable {
+    public var noteID: TrackID
+    public var created: Bool
+
+    enum CodingKeys: String, CodingKey {
+        case noteID = "note_id", created
+    }
+}
+
+// MARK: - Link metadata
+
+/// `GET /api/ogp` (`OgpResponse` in types.ts): Open Graph metadata for an
+/// embedded link's rich card. The server omits any field it could not find, so
+/// only `url` is guaranteed and the client degrades to a plain link.
+public struct OgpResponse: Codable, Sendable {
+    public var url: String
+    public var title: String?
+    public var description: String?
+    public var image: String?
+    public var siteName: String?
+
+    enum CodingKeys: String, CodingKey {
+        case url, title, description, image, siteName = "site_name"
+    }
 }

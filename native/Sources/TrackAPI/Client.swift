@@ -76,6 +76,30 @@ public struct TrackClient: Sendable {
         try await get(path: "/api/note/meta", query: idQuery(id))
     }
 
+    // MARK: - Calendar & link reads (api.ts: getActivity/getAgenda/getOgp)
+
+    /// `/api/activity`: per-day note activity in the inclusive [since, until]
+    /// window (YYYY-MM-DD). Both ends default server-side, so nil sends no query
+    /// item (api.ts: getActivity).
+    public func getActivity(since: String? = nil, until: String? = nil) async throws -> ActivityResponse {
+        var items: [URLQueryItem] = []
+        if let since { items.append(URLQueryItem(name: "since", value: since)) }
+        if let until { items.append(URLQueryItem(name: "until", value: until)) }
+        return try await get(path: "/api/activity", query: items)
+    }
+
+    /// `/api/agenda?date=`: the notes active on one calendar day (api.ts: getAgenda).
+    public func getAgenda(date: String) async throws -> AgendaResponse {
+        try await get(path: "/api/agenda", query: [URLQueryItem(name: "date", value: date)])
+    }
+
+    /// `/api/ogp?url=`: Open Graph metadata for a link's rich card. Fields the
+    /// server could not find are absent, so the caller renders a plain link
+    /// (api.ts: getOgp).
+    public func getOgp(url: String) async throws -> OgpResponse {
+        try await get(path: "/api/ogp", query: [URLQueryItem(name: "url", value: url)])
+    }
+
     /// `POST /api/note/read`: records a shared reading milestone on the note's
     /// sidecar (api.ts via reading.ts: postReadEvent). Unlike the web's
     /// fire-and-forget variant, a failure throws so callers can decide.
@@ -117,6 +141,42 @@ public struct TrackClient: Sendable {
         ] as [String: Any])
     }
 
+    // MARK: - Note edits & creation (api.ts: saveNote/createNote/deleteNote/saveNoteMeta/openJournal)
+
+    /// `PUT /api/note`: saves the body of an existing note, echoing back the
+    /// etag a read returned so the server can refuse (409) a save against a
+    /// stale view (api.ts: saveNote).
+    public func saveNote(id: TrackID, body: String, etag: String) async throws -> SaveNoteResponse {
+        try await put(path: "/api/note", query: idQuery(id), body: SaveNoteRequest(body: body, etag: etag))
+    }
+
+    /// `POST /api/note`: mints a note titled `title` with the default template.
+    /// A title that already resolves is refused with 409, so callers can tell
+    /// "already there" apart from a real failure (api.ts: createNote).
+    public func createNote(title: String) async throws -> CreateNoteResponse {
+        try await postEncodable(path: "/api/note", body: CreateNoteRequest(title: title))
+    }
+
+    /// `DELETE /api/note`: permanently removes the note — its file, its sidecar
+    /// metadata, and its index row (api.ts: deleteNote).
+    public func deleteNote(id: TrackID) async throws -> DeleteNoteResponse {
+        try await delete(path: "/api/note", query: idQuery(id))
+    }
+
+    /// `POST /api/note/meta`: replaces a note's whole editable sidecar metadata
+    /// (api.ts: saveNoteMeta). The response is the refreshed typed fields, the
+    /// same shape `GET /api/note/meta` returns.
+    public func saveNoteMeta(id: TrackID, request: SaveNoteMetaRequest) async throws -> NoteMetaResponse {
+        try await postEncodable(path: "/api/note/meta", query: idQuery(id), body: request)
+    }
+
+    /// `POST /api/journal`: opens or creates the journal for a day and returns
+    /// its note id (api.ts: openJournal). The endpoint takes no request body,
+    /// but every post here is a JSON API call, so an empty object is sent.
+    public func openJournal(date: String) async throws -> JournalResponse {
+        try await post(path: "/api/journal", query: [URLQueryItem(name: "date", value: date)], body: [:])
+    }
+
     // MARK: - Transport
 
     private func idQuery(_ id: TrackID) -> [URLQueryItem] {
@@ -141,6 +201,38 @@ public struct TrackClient: Sendable {
         req.httpMethod = "POST"
         req.setValue("application/json", forHTTPHeaderField: "Content-Type")
         req.httpBody = try JSONSerialization.data(withJSONObject: body)
+        return try await send(req)
+    }
+
+    /// PUT with a JSON body, for Codable request types (api.ts: saveNote).
+    private func put<T: Decodable>(path: String, query: [URLQueryItem] = [], body: some Encodable) async throws -> T {
+        var comps = URLComponents(url: baseURL.appendingPathComponent(path), resolvingAgainstBaseURL: false)!
+        comps.queryItems = query.isEmpty ? nil : query
+        var req = URLRequest(url: comps.url!)
+        req.httpMethod = "PUT"
+        req.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        req.httpBody = try JSONEncoder().encode(body)
+        return try await send(req)
+    }
+
+    /// DELETE with no body (api.ts: deleteNote).
+    private func delete<T: Decodable>(path: String, query: [URLQueryItem] = []) async throws -> T {
+        var comps = URLComponents(url: baseURL.appendingPathComponent(path), resolvingAgainstBaseURL: false)!
+        comps.queryItems = query.isEmpty ? nil : query
+        var req = URLRequest(url: comps.url!)
+        req.httpMethod = "DELETE"
+        return try await send(req)
+    }
+
+    /// POST with a JSON body, for Codable request types — the typed pair of the
+    /// dictionary-bodied `post` above (api.ts: saveNoteMeta / createNote).
+    private func postEncodable<T: Decodable>(path: String, query: [URLQueryItem] = [], body: some Encodable) async throws -> T {
+        var comps = URLComponents(url: baseURL.appendingPathComponent(path), resolvingAgainstBaseURL: false)!
+        comps.queryItems = query.isEmpty ? nil : query
+        var req = URLRequest(url: comps.url!)
+        req.httpMethod = "POST"
+        req.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        req.httpBody = try JSONEncoder().encode(body)
         return try await send(req)
     }
 

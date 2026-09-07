@@ -2,7 +2,8 @@
 
 `track web` (React, `web/`) に対する `native/` (SwiftUI, macOS) の差分洗い出し。
 正本: `docs/spec/web.md`, `docs/spec/native-macos.md`, `docs/spec/design.md`。
-調査日: 2026-09-07。native は MVP 途上 (閲覧+検索+タスクの骨格のみ)。
+調査日: 2026-09-07。P0 (閲覧+検索+タスク骨格) は PR #242 で対応済み。
+残TODO (P1-P2) は本ブランチで対応し、本書 §4 に記録する。
 
 ## 1. API カバレッジ (21 endpoints, `internal/track/webui/webui.go`)
 
@@ -56,15 +57,23 @@
 - 入力差: web は `/api/render` 解決済みテキスト、native は raw。本文内タスク書込みは別画面 `TasksView` にのみ存在。
 - プレースホルダ表示 (spec が描画対象外ブロックに要求) は未実装 — ソースがそのまま出る。
 
-## 4. TODO (優先度順, 詳細は本 PR の連番 issues)
+## 4. TODO 対応状況
 
-1. Models: `NoteDetail` 欠落 field + 未定義 response 型の追加 (P0, 並列可)
-2. Client: `listNotes` / `note/meta` GET / `note/read` / `hierarchy` / `graph` / `activity`+`agenda`+`journal` / `events` poll の追加 (P0-P1)
-3. Reader: メタ表示・trail/children/external・wikilink 解決遷移・リッチブロック placeholder (P0)
-4. Search: debounce・unavailable/match・履歴・エラー表示 (P0)
-5. Tasks: エラー/空状態・priority・note 導線・409 表示 (P0)
-6. 書込み: note 編集/作成/削除・meta 保存・asset (P1)
-7. グラフ/カレンダー/Day/タグ/ヒートマップ (P1-P2)
-8. 読書状態・SSE・テーマ適用・同梱/署名/配布 (P1-P2)
+- [x] 1. Models 欠落 field + 未定義 response 型 (P0, #242)
+- [x] 2. Client: listNotes / meta GET / read / hierarchy / graph (P0, #242) +
+      書込み (save/create/delete/meta) / activity+agenda+journal / ogp (P1, 本ブランチ)
+- [x] 3. Reader: メタ・trail/children/external・wikilink・placeholder (P0, #242) +
+      編集/保存(etag 409)/削除(確認)/作成/メタ保存/seen 報告 (P1, 本ブランチ)
+- [x] 4. Search: debounce・unavailable/match・履歴・エラー (P0, #242)
+- [x] 5. Tasks: エラー/空状態・priority・409 (P0, #242)
+- [x] 6. 書込み: note 編集/作成/削除・meta 保存 (本ブランチ。asset アップロードは手入力パス指定のみ)
+- [x] 7. グラフ (full/local 一覧) / カレンダー (月グリッド+agenda) / 階層ツリー / タグ索引 /
+      ヒートマップ (いずれも notes listing 導出。Canvas 力学レイアウト・D&D カンバンは対象外)
+- [x] 8. 読書状態 (ReadingStore + seen 報告・30s read 閾値)・SSE ライブ更新
+      (LiveEventPoller → .trackVaultChanged → Tasks/Calendar 自動 reload)・
+      テーマ適用 (design.md 10トークン + system/light/dark + 文字サイズ)
 
-本ドキュメントは洗い出しの正本。実装は TODO 順に小 PR で進め、埋まった行から ✅ に更新する。
+対象外として残すもの (macOS ネイティブの範囲外か、MVP 対象外の明示事項):
+音声入力、Neovim follow、モバイル dock、静的サイト基盤、共有アクション、
+図フェンスの実描画 (placeholder 表示)、PDF デッキ、地図埋め込み、OGP カード描画
+(取得 API のみ)、アセットのバイナリ表示、タブバー複数タブ。

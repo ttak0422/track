@@ -47,6 +47,9 @@ public struct TasksView: View {
             }
         }
         .task { await model.reload() }
+        .onReceive(NotificationCenter.default.publisher(for: .trackVaultChanged)) { _ in
+            Task { await model.reload() }
+        }
         .popover(item: $dateRow) { row in
             TaskDateEditor(row: row) { field, date in
                 Task { await model.setDate(row: row, field: field, date: date) }
