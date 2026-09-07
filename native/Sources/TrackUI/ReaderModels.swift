@@ -23,6 +23,18 @@ public final class NoteReaderModel {
     /// the read report address. Cleared while loading and once nothing is open.
     public private(set) var currentID: TrackID?
 
+    // Render pipeline (web useRenderQuery): `open` posts the raw body to
+    // `/api/render` so the engine stays the single source of truth for
+    // track-specific Markdown rules (action-link flattening, wiki links) and
+    // resolves every `![[...]]` against the vault. On success the resolved
+    // markdown and its includes are kept; on any failure the raw body is
+    // rendered instead — a render failure must not stop the note from opening.
+    public private(set) var renderedBody: String = ""
+    public private(set) var renderedIncludes: [NoteInclude]?
+    /// True once `/api/render` produced the currently-held `renderedBody` —
+    /// distinguishes "render succeeded on an empty body" from "render failed".
+    public private(set) var didRender = false
+
     // Editing buffer for the note body (web NoteEditor parity). `draftBody`
     // mirrors the loaded body while the note is not being edited and diverges
     // while it is; a save gates on `isDirty` and echoes the loaded response's
@@ -44,7 +56,9 @@ public final class NoteReaderModel {
     /// the view reloaded the latest etag and the edit was NOT applied.
     public private(set) var saveConflict: String?
 
-    private let client: TrackClient
+    /// The API client the reader hands down to the GFM renderer (viewspec
+    /// resolution) and every read/write path.
+    public let client: TrackClient
 
     public init(client: TrackClient) {
         self.client = client
@@ -75,10 +89,21 @@ public final class NoteReaderModel {
         draftBody = ""
         saveError = nil
         saveConflict = nil
+        renderedBody = ""
+        renderedIncludes = nil
+        didRender = false
         do {
             let response = try await client.getNote(id)
             currentID = id
             draftBody = response.note.body
+            // Resolve the body through the engine; a failure falls back to
+            // the raw body so the note still opens.
+            let vault = id.split().vault
+            if let render = try? await client.renderMarkdown(body: response.note.body, vault: vault) {
+                renderedBody = render.markdown
+                renderedIncludes = render.includes
+                didRender = true
+            }
             state = .loaded(response)
         } catch {
             state = .failed(error.localizedDescription)
@@ -130,10 +155,12 @@ public final class NoteReaderModel {
             let fresh = try await client.getNote(id)
             draftBody = fresh.note.body
             state = .loaded(fresh)
+            await render(fresh.note.body, id: id)
         } catch let api as APIError where api.status == 409 {
             saveConflict = "This note changed since it was loaded. Reloading the latest version; your edit was not saved."
             if let fresh = try? await client.getNote(id) {
                 state = .loaded(fresh)
+                await render(fresh.note.body, id: id)
             }
         } catch {
             saveError = Self.message(for: error)
@@ -242,10 +269,79 @@ public final class NoteReaderModel {
         _ = try? await client.markRead(id: id, event: .seen)
     }
 
+    // MARK: - Tasks (web setTaskState on the note's own board)
+
+    /// Move a task line into `newState` against the note's own etag, mirroring
+    /// the web's setTaskState write path (`expect` is the line's currently
+    /// drawn state, asserted so a stale write to a moved line is refused). On
+    /// success the response's refreshed tasks + etag are adopted into the open
+    /// note; a 409 means the note changed underneath — the view reloads, and
+    /// `saveConflict` explains the write was not applied.
+    public func setTaskState(line: Int, to newState: String) async {
+        guard let id = currentID,
+              case .loaded(let response) = self.state,
+              response.note.tasks != nil else { return }
+        let expect = response.note.tasks?.items.first { $0.line == line }?.state ?? newState
+        do {
+            let res = try await client.setTaskState(
+                id: id, line: line, state: newState,
+                expect: expect, etag: response.note.etag
+            )
+            adoptTasks(res)
+        } catch let api as APIError where api.status == 409 {
+            saveConflict = "Note changed underneath — reloaded"
+            if let fresh = try? await client.getNote(id) {
+                self.state = .loaded(fresh)
+                await render(fresh.note.body, id: id)
+            }
+        } catch {
+            saveError = Self.message(for: error)
+        }
+    }
+
+    /// Adopt the write response's refreshed tasks + etag into the open note,
+    /// replacing only the task list it carried (a task write response lacks
+    /// note context, so the rest of the note stays as loaded).
+    private func adoptTasks(_ response: TasksResponse) {
+        guard case .loaded(let current) = self.state else { return }
+        var updated = current
+        if let tasks = Self.noteTasks(from: response.items) {
+            updated.note.tasks = tasks
+        }
+        updated.note.etag = response.etag
+        self.state = .loaded(updated)
+    }
+
+    /// Build a `NoteTasks` from item rows. The struct has no public memberwise
+    /// initializer (its memberwise init is internal and lives in TrackAPI), so
+    /// it is rebuilt by round-tripping the items through JSON and decoding the
+    /// `{"items": […]}` shape its Codable conformance expects.
+    private static func noteTasks(from items: [TaskItem]) -> NoteTasks? {
+        guard let itemData = try? JSONEncoder().encode(items),
+              let itemArray = try? JSONSerialization.jsonObject(with: itemData),
+              let wrapped = try? JSONSerialization.data(withJSONObject: ["items": itemArray]),
+              let tasks = try? JSONDecoder().decode(NoteTasks.self, from: wrapped)
+        else { return nil }
+        return tasks
+    }
+
     /// The loaded response's etag — the write token a save echoes back.
     private var loadedEtag: String {
         if case .loaded(let response) = state { return response.note.etag }
         return ""
+    }
+
+    /// Resolve `body` through the engine's `/api/render`, keeping the resolved
+    /// markdown and includes on success and leaving the previous (or raw) body
+    /// on failure. Fire-and-forget when a note just needs refreshing —
+    /// rendering is a pure derivation of the body.
+    private func render(_ body: String, id: TrackID) async {
+        let vault = id.split().vault
+        if let render = try? await client.renderMarkdown(body: body, vault: vault) {
+            renderedBody = render.markdown
+            renderedIncludes = render.includes
+            didRender = true
+        }
     }
 
     /// Re-fetch the open note after a write, adopting the fresh body into the
@@ -259,6 +355,7 @@ public final class NoteReaderModel {
             let fresh = try await client.getNote(id)
             if !isDirty { draftBody = fresh.note.body }
             state = .loaded(fresh)
+            await render(fresh.note.body, id: id)
         } catch {
             // Swallowed — see above.
         }

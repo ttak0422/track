@@ -22,6 +22,10 @@
 	<string>15.0</string>
 	<key>NSHighResolutionCapable</key>
 	<true/>
+	<key>NSSpeechRecognitionUsageDescription</key>
+	<string>Voice input uses speech recognition to transcribe your dictation.</string>
+	<key>NSMicrophoneUsageDescription</key>
+	<string>Voice input uses the microphone to capture your dictation.</string>
 	<key>NSAppTransportSecurity</key>
 	<dict>
 		<key>NSAllowsLocalNetworking</key>

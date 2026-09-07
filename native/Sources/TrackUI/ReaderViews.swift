@@ -8,6 +8,13 @@ import TrackAPI
 // draw (math, diagrams, maps, decks) arrive as source text — a placeholder
 // treatment is a follow-up, not a silent drop.
 
+/// One entry of the sidebar's recently-opened list: a qualified note id plus
+/// the title shown for it (persisted under a single AppStorage key).
+private struct RecentNote: Codable {
+    var id: String
+    var title: String
+}
+
 // MARK: - Search + reader shell
 
 public struct SearchReaderView: View {
@@ -23,11 +30,26 @@ public struct SearchReaderView: View {
     /// The API base URL, kept so the reader can hand it to the GFM renderer
     /// (which builds `/api/asset?...` URLs from it).
     private let baseURL: URL
+    /// Recently opened notes (most-recent first), persisted under one key.
+    @AppStorage("track.recentNotes") private var recentJSON = "[]"
 
     public init(client: TrackClient) {
         _search = State(initialValue: SearchModel(client: client))
         _reader = State(initialValue: NoteReaderModel(client: client))
         baseURL = client.baseURL
+    }
+
+    private var recentList: [RecentNote] {
+        (try? JSONDecoder().decode([RecentNote].self, from: Data(recentJSON.utf8))) ?? []
+    }
+
+    private func recordRecent(_ note: RecentNote) {
+        var list = recentList.filter { $0.id != note.id }
+        list.insert(note, at: 0)
+        list = Array(list.prefix(10))
+        if let data = try? JSONEncoder().encode(list) {
+            recentJSON = String(decoding: data, as: UTF8.self)
+        }
     }
 
     public var body: some View {
@@ -61,8 +83,26 @@ public struct SearchReaderView: View {
                             .font(.caption).foregroundStyle(.secondary).padding(8)
                     }
                 }
+                if query.isEmpty && !recentList.isEmpty {
+                    Text("Recent").font(.caption).foregroundStyle(.secondary)
+                        .padding(.horizontal, 12).padding(.top, 8)
+                    ForEach(recentList, id: \.id) { note in
+                        Button {
+                            Task { await reader.open(TrackID(note.id)) }
+                        } label: {
+                            HStack(spacing: 6) {
+                                Image(systemName: "clock").font(.caption).foregroundStyle(.tertiary)
+                                Text(note.title).font(.body).lineLimit(1)
+                            }
+                        }
+                        .buttonStyle(.plain)
+                        .padding(.horizontal, 12).padding(.vertical, 2)
+                    }
+                    Divider().padding(.top, 6)
+                }
                 List(search.results, id: \.ref.noteID) { result in
                     Button {
+                        recordRecent(RecentNote(id: result.qualifiedID.raw, title: result.ref.title))
                         Task { await reader.open(result.qualifiedID) }
                     } label: {
                         VStack(alignment: .leading, spacing: 2) {
@@ -281,6 +321,10 @@ public struct NoteReaderView: View {
                 }
             }
             ToolbarItem {
+                ShareButton(items: [note.summary.ref.title, note.body])
+                    .help("Share")
+            }
+            ToolbarItem {
                 if model.isEditing {
                     Button("Done") { finishEditing() }
                 } else {
@@ -373,12 +417,24 @@ public struct NoteReaderView: View {
                 noteHeader(response.note)
 
                 GFMBody(
-                    markdown: response.note.body,
+                    markdown: model.didRender ? model.renderedBody : response.note.body,
                     baseURL: baseURL,
                     vault: model.currentID?.split().vault ?? "",
+                    includes: model.didRender ? model.renderedIncludes : nil,
+                    client: model.client,
                     onWikilink: { target in Task { await model.openWikilink(target: target) } }
                 )
                 .environment(\.openURL, wikilinkURLAction)
+
+                if let tasks = response.note.tasks, !tasks.items.isEmpty {
+                    NoteTasksSection(
+                        tasks: tasks.items,
+                        onCycle: { line in
+                            let current = tasks.items.first { $0.line == line }?.state ?? "TODO"
+                            Task { await model.setTaskState(line: line, to: nextTaskState(after: current)) }
+                        }
+                    )
+                }
 
                 // Hierarchy and cross-vault sections, mirroring
                 // NoteReaderStatic's trail/children/external/unavailable.
@@ -745,3 +801,77 @@ private struct NoteMetaEditor: View {
 // renderer). The wikilink "Links" rail, the onWikilink wiring it needs, and the
 // `trackwiki://` link interception (`wikilinkURLAction`) live with it or here;
 // this file owns only the reader/editor chrome.
+
+// MARK: - Tasks in this note
+
+/// The note's parsed tasks (web tasktable/task controls, surfaced as a separate
+/// "Tasks in this note" section rather than inside the body): one row per task
+/// line, its state shown as a tappable badge that cycles TODO → DOING →
+/// WAITING → DONE → CANCELLED. The write goes through the note's own etag; a
+/// conflict (409) reloads via the model.
+private struct NoteTasksSection: View {
+    let tasks: [TaskItem]
+    let onCycle: (Int) -> Void
+
+    var body: some View {
+        Divider()
+        Text("Tasks in this note").font(.caption).foregroundStyle(.secondary)
+        VStack(alignment: .leading, spacing: 4) {
+            ForEach(tasks, id: \.line) { item in
+                HStack(alignment: .firstTextBaseline, spacing: 8) {
+                    Button(item.state) { onCycle(item.line) }
+                        .buttonStyle(.plain)
+                        .font(.caption).fontWeight(.medium)
+                        .foregroundStyle(item.done ? .secondary : .primary)
+                    VStack(alignment: .leading, spacing: 2) {
+                        if let priority = item.priority {
+                            Text("[#\(priority)]")
+                                .font(.caption).fontWeight(.bold)
+                        }
+                        Text(item.text.isEmpty ? "(untitled task)" : item.text)
+                            .strikethrough(item.done)
+                        if let completed = item.completed {
+                            Text("✓ \(completed)").font(.caption).foregroundStyle(.tertiary)
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
+/// Next state in the fixed table (`web/src/taskStates.ts`, mirroring the
+/// engine's `task.States`): TODO → DOING → WAITING → DONE → CANCELLED → TODO.
+private func nextTaskState(after state: String) -> String {
+    let order = ["TODO", "DOING", "WAITING", "DONE", "CANCELLED"]
+    guard let i = order.firstIndex(of: state) else { return "TODO" }
+    return order[(i + 1) % order.count]
+}
+
+// MARK: - Share
+
+/// A minimal NSSharingServicePicker wrapper (web ShareActions' share surface):
+/// highlights the body for the system share sheet. Anchored to the toolbar
+/// button's own frame; the picker is the macOS standard sheet.
+private struct ShareButton: View {
+    let items: [Any]
+
+    var body: some View {
+        Button {
+            share()
+        } label: {
+            Label("Share", systemImage: "square.and.arrow.up")
+        }
+    }
+
+    @MainActor
+    private func share() {
+        let picker = NSSharingServicePicker(items: items)
+        if let window = NSApp.keyWindow,
+           let contentView = window.contentView {
+            // Anchor at the top-right of the window; the exact button frame is
+            // not tracked here, which is fine for a share sheet.
+            picker.show(relativeTo: .zero, of: contentView, preferredEdge: .maxY)
+        }
+    }
+}

@@ -538,3 +538,175 @@ public struct OgpResponse: Codable, Sendable {
         case url, title, description, image, siteName = "site_name"
     }
 }
+
+// MARK: - Render
+
+/// One resolved `![[...]]` transclusion directive (`NoteInclude` in types.ts,
+/// `link.ResolvedInclude` server-side): the 0-based body line it sits on, the
+/// target's extracted lines, and where it points. Line numbers align with the
+/// rendered markdown; `sourceLine` is the 0-based line of the target note the
+/// excerpt starts at (absent when it is not one contiguous run).
+public struct NoteInclude: Codable, Sendable {
+    public var line: Int
+    /// The target note, present when the directive resolved. The server
+    /// marshals ids as JSON numbers; `TrackID` also accepts strings.
+    public var noteID: TrackID?
+    public var kind: String?
+    public var etag: String?
+    public var title: String?
+    public var caption: String
+    public var lines: [String]
+    public var badOptions: [String]?
+    public var error: String?
+    public var sourceLine: Int?
+
+    enum CodingKeys: String, CodingKey {
+        case line
+        case noteID = "note_id"
+        case kind, etag, title, caption, lines
+        case badOptions = "bad_options"
+        case error
+        case sourceLine = "source_line"
+    }
+}
+
+/// `POST /api/render` (`RenderResponse` in types.ts): the sanitized Markdown
+/// plus every `![[...]]` directive resolved against it. The server omits
+/// `includes` when the body has none to resolve.
+public struct RenderResponse: Codable, Sendable {
+    public var markdown: String
+    public var includes: [NoteInclude]?
+
+    enum CodingKeys: String, CodingKey {
+        case markdown, includes
+    }
+}
+
+/// `POST /api/viewspec` (`ViewSpecResponse` in types.ts): the server-resolved
+/// ECharts option for a fenced ```viewspec block. The option is arbitrary
+/// JSON, so it is carried as its re-serialized JSON text rather than a typed
+/// tree: decode re-encodes the `echarts` value through JSONSerialization and
+/// encode parses the text back and writes it under the `echarts` key.
+public struct ViewSpecResponse: Codable, Sendable {
+    public var echartsJSON: String
+
+    enum CodingKeys: String, CodingKey { case echarts }
+
+    public init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        let any = try c.decode(JSONAny.self, forKey: .echarts)
+        let data = try JSONSerialization.data(withJSONObject: any.value)
+        echartsJSON = String(decoding: data, as: UTF8.self)
+    }
+
+    public func encode(to encoder: Encoder) throws {
+        var c = encoder.container(keyedBy: CodingKeys.self)
+        let data = Data(echartsJSON.utf8)
+        let any = try JSONSerialization.jsonObject(with: data)
+        try c.encode(JSONAny(any), forKey: .echarts)
+    }
+
+    /// Untyped JSON bridge: `echarts` is arbitrary JSON, which Codable cannot
+    /// name, so it round-trips through JSONSerialization via this wrapper.
+    private struct JSONAny: Codable {
+        let value: Any
+
+        init(_ value: Any) { self.value = value }
+
+        init(from decoder: Decoder) throws {
+            let c = try decoder.singleValueContainer()
+            if c.decodeNil() { value = NSNull(); return }
+            if let b = try? c.decode(Bool.self) { value = b; return }
+            if let n = try? c.decode(Int64.self) { value = n; return }
+            if let d = try? c.decode(Double.self) { value = d; return }
+            if let s = try? c.decode(String.self) { value = s; return }
+            if let a = try? c.decode([JSONAny].self) { value = a.map(\.value); return }
+            if let o = try? c.decode([String: JSONAny].self) { value = o.mapValues(\.value); return }
+            throw DecodingError.typeMismatch(
+                Any.self,
+                DecodingError.Context(codingPath: c.codingPath, debugDescription: "unexpected JSON value")
+            )
+        }
+
+        func encode(to encoder: Encoder) throws {
+            switch value {
+            case is NSNull:
+                var c = encoder.singleValueContainer()
+                try c.encodeNil()
+            case let n as NSNumber:
+                // A JSON boolean is a CFBoolean, not a plain numeric NSNumber;
+                // the plain cast would misread 5 as true.
+                var c = encoder.singleValueContainer()
+                if CFGetTypeID(n) == CFBooleanGetTypeID() { try c.encode(n.boolValue) }
+                else { try c.encode(n.doubleValue) }
+            case let s as String:
+                var c = encoder.singleValueContainer()
+                try c.encode(s)
+            case let a as [Any]:
+                var u = encoder.unkeyedContainer()
+                for e in a { try Self.write(e, into: &u) }
+            case let o as [String: Any]:
+                var k = encoder.container(keyedBy: JSONKey.self)
+                for (key, e) in o { try Self.write(e, into: &k, key: JSONKey(key)) }
+            default:
+                throw EncodingError.invalidValue(
+                    value,
+                    EncodingError.Context(codingPath: encoder.codingPath, debugDescription: "unrepresentable JSON value")
+                )
+            }
+        }
+
+        private static func write(_ value: Any, into u: inout UnkeyedEncodingContainer) throws {
+            switch value {
+            case is NSNull: try u.encodeNil()
+            case let n as NSNumber:
+                if CFGetTypeID(n) == CFBooleanGetTypeID() { try u.encode(n.boolValue) }
+                else { try u.encode(n.doubleValue) }
+            case let s as String: try u.encode(s)
+            case let a as [Any]:
+                var nested = u.nestedUnkeyedContainer()
+                for e in a { try write(e, into: &nested) }
+            case let o as [String: Any]:
+                var nested = u.nestedContainer(keyedBy: JSONKey.self)
+                for (key, e) in o { try write(e, into: &nested, key: JSONKey(key)) }
+            default:
+                throw EncodingError.invalidValue(
+                    value,
+                    EncodingError.Context(codingPath: u.codingPath, debugDescription: "unrepresentable JSON value")
+                )
+            }
+        }
+
+        private static func write(_ value: Any, into k: inout KeyedEncodingContainer<JSONKey>, key: JSONKey) throws {
+            switch value {
+            case is NSNull: try k.encodeNil(forKey: key)
+            case let n as NSNumber:
+                if CFGetTypeID(n) == CFBooleanGetTypeID() { try k.encode(n.boolValue, forKey: key) }
+                else { try k.encode(n.doubleValue, forKey: key) }
+            case let s as String: try k.encode(s, forKey: key)
+            case let a as [Any]:
+                var nested = k.nestedUnkeyedContainer(forKey: key)
+                for e in a { try write(e, into: &nested) }
+            case let o as [String: Any]:
+                var nested = k.nestedContainer(keyedBy: JSONKey.self, forKey: key)
+                for (key2, e) in o { try write(e, into: &nested, key: JSONKey(key2)) }
+            default:
+                throw EncodingError.invalidValue(
+                    value,
+                    EncodingError.Context(codingPath: k.codingPath, debugDescription: "unrepresentable JSON value")
+                )
+            }
+        }
+    }
+
+    /// CodingKey over arbitrary JSON object keys (a key that is not a fixed
+    /// member of the model).
+    private struct JSONKey: CodingKey {
+        let stringValue: String
+        var intValue: Int? { nil }
+
+        init(_ string: String) { stringValue = string }
+        init?(stringValue: String) { self.stringValue = stringValue }
+        init?(intValue: Int) { nil }
+    }
+}

@@ -22,8 +22,8 @@
 | `GET /api/agenda` | `getAgenda` | ❌ | Day ビューなし |
 | `POST /api/journal` | `openJournal` | ❌ | 日誌導線なし |
 | `PUT/POST/DELETE /api/note` | `saveNote` / `createNote` / `deleteNote` (etag 409) | ❌ | 書込みパス全体なし (読取専用) |
-| `POST /api/render` | `renderMarkdown` | ❌ (設計上不使用) | raw body のため action-link/`track-query`/`dashboard`/include 未解決 |
-| `POST /api/viewspec` | `renderViewSpec` | ❌ | チャートなし |
+| `POST /api/render` | `renderMarkdown` | ✅ `renderMarkdown` (解決済み描画+raw fallback) | 解決済みテキストを描画 |
+| `POST /api/viewspec` | `renderViewSpec` | ✅ `renderViewSpec` (option JSON 文字列) | figure-host に渡す |
 | `POST /api/asset` | `uploadAsset` | ❌ | 画像・添付なし |
 | `GET /api/ogp` | `getOgp` | ❌ | OGP カードなし |
 | `GET /api/hierarchy` | `getHierarchy` | ❌ | up ツリー・パンくずなし |
@@ -56,9 +56,11 @@
   (cmark-gfm 拡張 autolink・strikethrough・tagfilter・tasklist・table)。
   画像は `assets/…`→`/api/asset` 解決の ImageProvider、http(s) は直接表示。
   `[[wikilink]]` は本文内リンク (trackwiki scheme 横取り) + Links レールで遷移。
-- × (プレースホルダ): 全図フェンス (mermaid/dot/d2/drawio/mindmap/map/echarts/viewspec/track-view)、
-  KaTeX 数式行、`![[...]]` include、脚注 `[^1]` (footnotes 拡張は無効)。
-- 入力差: web は `/api/render` 解決済みテキスト、native は raw。本文内タスク書込みは別画面 `TasksView` にのみ存在。
+- × (プレースホルダ): dot/d2/drawio/mindmap/map/track-view フェンス、脚注 `[^1]`。
+- mermaid・数式・echarts/viewspec は figure-host (WKWebView 島) で実描画。
+- `![[...]]` include は NoteInclude 差し込みで描画。
+- メディア埋め込み部品 (OGP カード・PDFKit・text asset・YouTube/Maps ラッパー・音声入力 transcript) は実装済み。
+- 入力差: なし。`/api/render` 解決済みテキストを描画し、失敗時は raw にフォールバック。
 
 ## 4. TODO 対応状況
 
