@@ -286,8 +286,7 @@ public struct OgpCardView: View {
                 }
                     VStack(alignment: .leading, spacing: 4) {
                     Text(ogp.siteName ?? url.host ?? url.absoluteString)
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
+                        .trackSectionLabel()
                     Text(ogp.title ?? url.absoluteString)
                         .font(.headline)
                         .lineLimit(2)

@@ -346,51 +346,57 @@ private struct DayCell: View {
     let isSelected: Bool
     let isActive: Bool
     let onSelect: () -> Void
+    @Environment(\.colorScheme) private var colorScheme
+    @Environment(\.trackFontScale) private var fontScale
 
     var body: some View {
-        Button(action: onSelect) {
+        let palette = TrackTheme.palette(for: colorScheme)
+        return Button(action: onSelect) {
             VStack(alignment: .leading, spacing: 2) {
                 Text("\(Calendar.current.component(.day, from: day))")
-                    .font(.caption)
-                    .foregroundStyle(isToday ? Color.white : (inMonth ? Color.primary : Color.secondary))
-                    .padding(.horizontal, isToday ? 4 : 0)
-                    .padding(.vertical, isToday ? 1 : 0)
-                    .background(isToday ? Color.accentColor : Color.clear, in: Capsule())
+                    .font(.system(size: 13 * fontScale))
+                    // Today is a filled mark disc, digits knocked out in panel
+                    // (design.md Calendar) — never the system blue capsule.
+                    .foregroundStyle(isToday ? palette.panel : (inMonth ? palette.text : palette.faint))
+                    .frame(width: isToday ? 22 * fontScale : nil, height: isToday ? 22 * fontScale : nil)
+                    .background(isToday ? palette.mark : Color.clear, in: Circle())
                 if taskCount > taskTexts.count {
-                    Text("+\(taskCount - taskTexts.count)").font(.caption2).foregroundStyle(.secondary)
+                    Text("+\(taskCount - taskTexts.count)").font(.system(size: 11 * fontScale)).foregroundStyle(palette.faint)
                 }
                 ForEach(taskTexts, id: \.self) { text in
-                    Text(text).font(.caption2).lineLimit(1)
+                    Text(text).font(.system(size: 11 * fontScale)).lineLimit(1)
                 }
                 ForEach(noteTitles, id: \.self) { title in
-                    Text(title).font(.caption2).foregroundStyle(.secondary).lineLimit(1)
+                    Text(title).font(.system(size: 11 * fontScale)).foregroundStyle(palette.muted).lineLimit(1)
                 }
                 if noteCount > noteTitles.count {
-                    Text("+\(noteCount - noteTitles.count)").font(.caption2).foregroundStyle(.secondary)
+                    Text("+\(noteCount - noteTitles.count)").font(.system(size: 11 * fontScale)).foregroundStyle(palette.faint)
                 }
                 if dueFill.fill > 0 {
                     GeometryReader { proxy in
                         ZStack(alignment: .leading) {
-                            Capsule().fill(Color.red.opacity(0.16))
-                            Capsule().fill(dueFill.overdue ? Color.red : Color.orange)
-                                .frame(width: proxy.size.width * dueFill.fill)
+                            // Hairline ground; fill is chart-1 running down to
+                            // the deadline, danger whole once overdue.
+                            Capsule().fill(palette.line)
+                            Capsule().fill(dueFill.overdue ? palette.danger : palette.chartPalette[0])
+                                .frame(width: proxy.size.width * (dueFill.overdue ? 1 : dueFill.fill))
                         }
                     }
                     .frame(height: 3)
                 }
                 if deadlineCount > 0 {
                     Text(overdueCount > 0 ? "[!] \(deadlineCount) · overdue \(overdueCount)" : "[!] \(deadlineCount)")
-                        .font(.caption2)
+                        .font(.system(size: 11 * fontScale))
                         .fontWeight(overdueCount > 0 ? .semibold : .regular)
-                        .foregroundStyle(.red)
+                        .foregroundStyle(overdueCount > 0 ? palette.danger : palette.muted)
                 }
             }
             .frame(maxWidth: .infinity, alignment: .leading)
             .padding(6)
-            .background(isSelected ? Color.accentColor.opacity(0.15) : Color.clear,
+            .background(isSelected ? palette.mark.opacity(0.12) : Color.clear,
                         in: RoundedRectangle(cornerRadius: 6))
             .overlay(RoundedRectangle(cornerRadius: 6)
-                .strokeBorder(isSelected ? Color.accentColor : Color.clear, lineWidth: 1))
+                .strokeBorder(isSelected ? palette.mark : Color.clear, lineWidth: 1))
         }
         .buttonStyle(.plain)
         .disabled(!isActive)

@@ -198,25 +198,38 @@ private struct TaskDateEditor: View {
     @State private var date = Date()
     @State private var field: DateField = .due
     @Environment(\.dismiss) private var dismiss
+    @Environment(\.colorScheme) private var colorScheme
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 12) {
+        // Workspace's own calendar cell (design.md Task table): the native
+        // DatePicker cannot draw today's mark ring or the working choice's
+        // mark fill, so the closest native idiom is the mark tint — today
+        // keeps the system ring, the choice wears the salient.
+        let palette = TrackTheme.palette(for: colorScheme)
+        return VStack(alignment: .leading, spacing: 12) {
             Picker("Field", selection: $field) {
                 Text("Due").tag(DateField.due)
                 Text("Scheduled").tag(DateField.scheduled)
             }
             .pickerStyle(.segmented)
             DatePicker("Date", selection: $date, displayedComponents: .date)
+                .tint(palette.mark)
             HStack {
-                Button("Clear") {
+                Button("DELETE") {
                     onSave(field, "")
                     dismiss()
                 }
+                .buttonStyle(.plain)
+                .font(.caption)
+                .foregroundStyle(palette.muted)
                 Spacer()
-                Button("Save") {
+                Button("SAVE") {
                     onSave(field, Self.format(date))
                     dismiss()
                 }
+                .buttonStyle(.plain)
+                .font(.caption)
+                .foregroundStyle(palette.text)
                 .fontWeight(.medium)
             }
         }

@@ -1,3 +1,4 @@
+import AppKit
 import SwiftUI
 
 // TrackTheme — the interface tokens of docs/spec/design.md as SwiftUI
@@ -287,5 +288,152 @@ public extension EnvironmentValues {
     var trackPreviewFontScale: Double {
         get { self[TrackPreviewFontScaleKey.self] }
         set { self[TrackPreviewFontScaleKey.self] = newValue }
+    }
+}
+
+// MARK: - Chrome shared recipe (design.md variant 6 + state badges)
+
+///
+/// Every section heading (CONTENTS, BACKLINKS, code language, OGP site name,
+/// vault name, search groups) wears the same small-caps mono label. Call sites
+/// keep only their own margins; the typography lives here so a new label joins
+/// the rule instead of restating it.
+public extension View {
+    /// design.md variant 6: mono 11px, uppercase, faint. The faint ink adapts
+    /// to the live scheme at the call site.
+    func trackSectionLabel() -> some View {
+        modifier(TrackSectionLabelSchemeAware())
+    }
+}
+
+private struct TrackSectionLabelSchemeAware: ViewModifier {
+    @Environment(\.colorScheme) private var scheme
+    @Environment(\.trackFontScale) private var scale
+    func body(content: Content) -> some View {
+        content
+            .font(.system(size: 11 * scale, weight: .medium, design: .monospaced))
+            .tracking(1.32 * scale)
+            .textCase(.uppercase)
+            .foregroundStyle(TrackTheme.palette(for: scheme).faint)
+    }
+}
+
+/// NEW / stale state chip (web `.note-state-badge`): mono 10px in a radius-sm
+/// chip. NEW takes the salient mark on a 12% wash; stale is faint on sunk
+/// ground. Both are inline state and take no layout of their own.
+public struct TrackStateBadge: View {
+    public let text: String
+    public let kind: Kind
+    @Environment(\.colorScheme) private var scheme
+    @Environment(\.trackFontScale) private var scale
+
+    public enum Kind { case new, stale }
+
+    public init(_ text: String, kind: Kind = .new) {
+        self.text = text
+        self.kind = kind
+    }
+
+    public var body: some View {
+        let palette = TrackTheme.palette(for: scheme)
+        let ink: Color = kind == .new ? palette.mark : palette.faint
+        let ground: Color = kind == .new ? palette.mark.opacity(0.12) : palette.panelSoft
+        Text(text)
+            .font(.system(size: 10 * scale, weight: .medium, design: .monospaced))
+            .tracking(0.8 * scale)
+            .textCase(.uppercase)
+            .foregroundStyle(ink)
+            .padding(.horizontal, 6).padding(.vertical, 1)
+            .background(ground, in: RoundedRectangle(cornerRadius: 4))
+    }
+}
+
+/// Author-assigned flag chip (web `.note-flag-badge`): same label typography
+/// as the state badge, but the author's own permanent marker in danger red.
+public struct TrackFlagBadge: View {
+    public let text: String
+    @Environment(\.colorScheme) private var scheme
+    @Environment(\.trackFontScale) private var scale
+
+    public init(_ text: String) { self.text = text }
+
+    public var body: some View {
+        let palette = TrackTheme.palette(for: scheme)
+        Text(text)
+            .font(.system(size: 10 * scale, weight: .medium, design: .monospaced))
+            .tracking(0.8 * scale)
+            .textCase(.uppercase)
+            .foregroundStyle(palette.danger)
+            .padding(.horizontal, 6).padding(.vertical, 1)
+            .background(palette.danger.opacity(0.12), in: RoundedRectangle(cornerRadius: 4))
+    }
+}
+
+public extension TrackTheme {
+    /// Heatmap step for a day count (web heatmap: 5 levels, chart-1 mixed over
+    /// panel-soft, full chart-1 at the top; empty is the sunk fill).
+    func heatColor(count: Int, max: Int = 8) -> Color {
+        if count <= 0 { return panelSoft }
+        let t: Double
+        if max <= 1 { t = 1 }
+        else { t = min(1, Double(count) / Double(max)) }
+        // Five visual steps matching the web's 28/50/72/100 mixes.
+        let mix: Double
+        switch t {
+        case ..<0.25: mix = 0.28
+        case ..<0.5: mix = 0.50
+        case ..<0.75: mix = 0.72
+        default: mix = 1.0
+        }
+        return Self.mix(panelSoft, chartPalette[0], t: mix)
+    }
+
+    /// sRGB linear mix of two SwiftUI colors (ratio of `b`).
+    static func mix(_ a: Color, _ b: Color, t: Double) -> Color {
+        let ca = NSColor(a).usingColorSpace(.sRGB) ?? NSColor.gray
+        let cb = NSColor(b).usingColorSpace(.sRGB) ?? NSColor.gray
+        var r1: CGFloat = 0, g1: CGFloat = 0, bl1: CGFloat = 0, a1: CGFloat = 0
+        var r2: CGFloat = 0, g2: CGFloat = 0, bl2: CGFloat = 0, a2: CGFloat = 0
+        ca.getRed(&r1, green: &g1, blue: &bl1, alpha: &a1)
+        cb.getRed(&r2, green: &g2, blue: &bl2, alpha: &a2)
+        let tt: CGFloat = CGFloat(min(1, max(0, t)))
+        let r = r1 + (r2 - r1) * tt
+        let g = g1 + (g2 - g1) * tt
+        let bl = bl1 + (bl2 - bl1) * tt
+        return Color(nsColor: NSColor(srgbRed: r, green: g, blue: bl, alpha: 1))
+    }
+
+    /// Hex strings for the figure-island bridge (web `getComputedStyle` reads
+    /// the same resolved tokens for ECharts/Mermaid/graph). Colors, not chrome:
+    /// the island needs the visualization palette, not just bg/fg.
+    struct CSS: Sendable {
+        let bg: String
+        let fg: String
+        let panelSoft: String
+        let lineStrong: String
+        let mark: String
+        let danger: String
+        let chart: [String]
+        let rampLo: String
+        let rampHi: String
+    }
+
+    static func css(for scheme: ColorScheme) -> CSS {
+        switch scheme {
+        case .dark:
+            return CSS(
+                bg: "#141618", fg: "#e9e9e4", panelSoft: "#212528",
+                lineStrong: "#3e4347", mark: "#f4785e", danger: "#de766b",
+                chart: ["#74c4a8", "#dca06a", "#9bb7d5", "#dc8b84", "#b5c383", "#c1a4c6"],
+                rampLo: "#28322f", rampHi: "#91d0b8"
+            )
+        default:
+            return CSS(
+                bg: "#fbfaf8", fg: "#1a1a18", panelSoft: "#f3f2ee",
+                lineStrong: "#c7c5bd", mark: "#c13a1e", danger: "#8a352b",
+                chart: ["#286957", "#a05f2e", "#536f91", "#99504a", "#737b4a", "#795f80"],
+                rampLo: "#e4ebe7", rampHi: "#286957"
+            )
+        }
     }
 }

@@ -8,6 +8,10 @@ import WebKit
 // math, echarts options, or raw SVG/HTML), so each such figure is rendered by
 // a small dedicated WKWebView instead of a whole-page WebView — the "island"
 // approach the web reader uses for the same content (docs/spec/web.md).
+// The island receives the full visualization token set (bg/fg plus mark,
+// danger, chart series, sunk ground, stated rule), resolved natively the way
+// the web resolves its CSS tokens, so ECharts series, Mermaid accents and
+// tooltips draw the same color language.
 //
 // - One WKWebView per FigureHost view, created lazily on first appearance
 //   (makeNSView) and reused for every later kind/theme change: content is
@@ -223,24 +227,53 @@ public struct MapFigure: Sendable, Equatable {
 
 // MARK: - Figure theme
 
-/// The only appearance the island takes from SwiftUI: a background and a
-/// foreground color, as CSS strings. Light/dark palettes for the JS engines
-/// (mermaid's and echarts' built-in dark themes) are derived from the
-/// background's luminance, so no third knob is needed.
+/// The appearance the island takes from SwiftUI. `background`/`foreground`
+/// select the light/dark engine palettes (luminance rule below); the
+/// visualization tokens (mark, danger, chart series, sunk ground, stated
+/// rule) are resolved the way the web resolves its CSS tokens for ECharts,
+/// Mermaid and the graph canvas, so the island draws the same color language.
 public struct FigureTheme: Sendable, Equatable {
     public let background: String
     public let foreground: String
+    public let panelSoft: String
+    public let lineStrong: String
+    public let mark: String
+    public let danger: String
+    public let chart: [String]
 
-    public init(background: String, foreground: String) {
+    public init(
+        background: String,
+        foreground: String,
+        panelSoft: String = "#f3f2ee",
+        lineStrong: String = "#c7c5bd",
+        mark: String = "#c13a1e",
+        danger: String = "#8a352b",
+        chart: [String] = ["#286957", "#a05f2e", "#536f91", "#99504a", "#737b4a", "#795f80"]
+    ) {
         self.background = background
         self.foreground = foreground
+        self.panelSoft = panelSoft
+        self.lineStrong = lineStrong
+        self.mark = mark
+        self.danger = danger
+        self.chart = chart
     }
 
-    /// design.md Light column (bg / text tokens).
-    public static let light = FigureTheme(background: "#fbfaf8", foreground: "#1a1a18")
+    /// design.md Light column (bg / text tokens + visualization palette).
+    public static let light = FigureTheme(
+        background: "#fbfaf8", foreground: "#1a1a18",
+        panelSoft: "#f3f2ee", lineStrong: "#c7c5bd",
+        mark: "#c13a1e", danger: "#8a352b",
+        chart: ["#286957", "#a05f2e", "#536f91", "#99504a", "#737b4a", "#795f80"]
+    )
 
-    /// design.md Dark column (bg / text tokens).
-    public static let dark = FigureTheme(background: "#141618", foreground: "#e9e9e4")
+    /// design.md Dark column (bg / text tokens + visualization palette).
+    public static let dark = FigureTheme(
+        background: "#141618", foreground: "#e9e9e4",
+        panelSoft: "#212528", lineStrong: "#3e4347",
+        mark: "#f4785e", danger: "#de766b",
+        chart: ["#74c4a8", "#dca06a", "#9bb7d5", "#dc8b84", "#b5c383", "#c1a4c6"]
+    )
 
     /// True when `background` reads as a dark color (WCAG relative luminance
     /// below 0.5). Drives which built-in mermaid/echarts theme the island
@@ -630,6 +663,11 @@ public struct FigureHost: NSViewRepresentable {
                 "bg": host.theme.background,
                 "fg": host.theme.foreground,
                 "dark": host.theme.isDark,
+                "panelSoft": host.theme.panelSoft,
+                "lineStrong": host.theme.lineStrong,
+                "mark": host.theme.mark,
+                "danger": host.theme.danger,
+                "chart": host.theme.chart,
             ]
             let payload: [String: Any] = [
                 "kind": host.kind.kindName,
@@ -898,7 +936,14 @@ extension FigureAssets {
             window.mermaid.initialize({
               startOnLoad: false,
               theme: cfg.theme.dark ? "dark" : "default",
-              themeVariables: { background: cfg.theme.bg }
+              themeVariables: {
+                background: cfg.theme.bg,
+                primaryColor: cfg.theme.panelSoft,
+                primaryBorderColor: cfg.theme.mark,
+                primaryTextColor: cfg.theme.fg,
+                lineColor: cfg.theme.lineStrong,
+                textColor: cfg.theme.fg
+              }
             });
             window.mermaid.run({ nodes: [node] })
               .then(postHeight)
@@ -925,6 +970,11 @@ extension FigureAssets {
             try {
               if (currentChart) { currentChart.dispose(); currentChart = null; }
 
+              // Design tokens, resolved natively the way the web resolves its
+              // CSS tokens for the same surfaces: series from the chart
+              // palette, tooltip chrome from the island theme.
+              var palette = Array.isArray(cfg.theme.chart) && cfg.theme.chart.length ? cfg.theme.chart : undefined;
+              if (palette && !option.color) { option.color = palette; }
               // Match the web chart's useful defaults without overriding an
               // option explicitly supplied by a note.  `inside` keeps wheel
               // and pinch interaction local to the chart; the slider provides
