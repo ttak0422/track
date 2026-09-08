@@ -60,11 +60,11 @@ private struct RootView: View {
 
 // MARK: - Tab shell
 
-/// The six surfaces of the native workspace: Notes (search + reader), the
-/// activity Calendar, the link Graph, the vault Browse panes, Tasks, and
-/// Settings. Every tab is built from the ready client handed over by
-/// TrackProcess; each owns its view model in @State so tab switches and the
-/// appearance re-renders above keep their loaded data.
+/// The seven surfaces of the native workspace: Notes (search + reader), the
+/// activity Calendar, the link Graph, the vault Browse panes, Tasks, Voice
+/// dictation, and Settings. Every tab is built from the ready client handed
+/// over by TrackProcess; each owns its view model in @State so tab switches
+/// and the appearance re-renders above keep their loaded data.
 private struct MainTabView: View {
     let client: TrackClient
     @State private var tasks: TasksModel
@@ -87,6 +87,8 @@ private struct MainTabView: View {
                 .tabItem { Label("Browse", systemImage: "folder") }
             TasksView(model: tasks)
                 .tabItem { Label("Tasks", systemImage: "checklist") }
+            VoiceView()
+                .tabItem { Label("Voice", systemImage: "mic") }
             SettingsTabView()
                 .tabItem { Label("Settings", systemImage: "gearshape") }
         }

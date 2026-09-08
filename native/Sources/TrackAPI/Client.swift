@@ -177,6 +177,36 @@ public struct TrackClient: Sendable {
         try await post(path: "/api/journal", query: [URLQueryItem(name: "date", value: date)], body: [:])
     }
 
+    // MARK: - Render (api.ts: renderMarkdown/renderViewSpec)
+
+    /// `POST /api/render`: sanitizes a raw note body into the Markdown the UI
+    /// renders and resolves every `![[...]]` transclusion against the vault
+    /// (api.ts: renderMarkdown). Posting the live (possibly unsaved) body keeps
+    /// the engine the single source of truth for track-specific Markdown rules.
+    /// `includes` is absent when the body has none to resolve.
+    public func renderMarkdown(body: String, vault: String = "") async throws -> RenderResponse {
+        var items: [URLQueryItem] = []
+        if !vault.isEmpty { items.append(URLQueryItem(name: "vault", value: vault)) }
+        return try await post(path: "/api/render", query: items, body: ["body": body])
+    }
+
+    /// `POST /api/viewspec`: resolves a fenced ```viewspec block (a View Spec
+    /// JSON) to its ECharts option, returned as the option's JSON text. The
+    /// option is arbitrary JSON, so the response is read through the small
+    /// `postData` path and the `echarts` value re-serialized, rather than
+    /// decoded as a fixed shape (api.ts: renderViewSpec).
+    public func renderViewSpec(spec: String, vault: String = "") async throws -> String {
+        var items: [URLQueryItem] = []
+        if !vault.isEmpty { items.append(URLQueryItem(name: "vault", value: vault)) }
+        let data = try await postData(path: "/api/viewspec", query: items, body: ["spec": spec])
+        let json = try JSONSerialization.jsonObject(with: data)
+        guard let object = json as? [String: Any], let echarts = object["echarts"] else {
+            throw APIError(status: -1, message: "response missing echarts value")
+        }
+        let option = try JSONSerialization.data(withJSONObject: echarts)
+        return String(decoding: option, as: UTF8.self)
+    }
+
     // MARK: - Transport
 
     private func idQuery(_ id: TrackID) -> [URLQueryItem] {
@@ -248,5 +278,27 @@ public struct TrackClient: Sendable {
         }
         let decoder = JSONDecoder()
         return try decoder.decode(T.self, from: data)
+    }
+
+    /// POST returning the raw response body, for endpoints whose payload is not
+    /// a fixed Decodable shape (api.ts: renderViewSpec — the response is one
+    /// arbitrary-JSON `echarts` value). The generic `send` above is left alone.
+    private func postData(path: String, query: [URLQueryItem] = [], body: [String: Any]) async throws -> Data {
+        var comps = URLComponents(url: baseURL.appendingPathComponent(path), resolvingAgainstBaseURL: false)!
+        comps.queryItems = query.isEmpty ? nil : query
+        var req = URLRequest(url: comps.url!)
+        req.httpMethod = "POST"
+        req.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        req.httpBody = try JSONSerialization.data(withJSONObject: body)
+        let (data, resp) = try await session.data(for: req)
+        guard let http = resp as? HTTPURLResponse else {
+            throw APIError(status: -1, message: "non-HTTP response")
+        }
+        guard (200..<300).contains(http.statusCode) else {
+            let msg = (try? JSONSerialization.jsonObject(with: data) as? [String: Any])?["error"] as? String
+                ?? "\(http.statusCode) \(HTTPURLResponse.localizedString(forStatusCode: http.statusCode))"
+            throw APIError(status: http.statusCode, message: msg)
+        }
+        return data
     }
 }
