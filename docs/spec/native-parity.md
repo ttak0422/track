@@ -56,10 +56,13 @@
   (cmark-gfm 拡張 autolink・strikethrough・tagfilter・tasklist・table)。
   画像は `assets/…`→`/api/asset` 解決の ImageProvider、http(s) は直接表示。
   `[[wikilink]]` は本文内リンク (trackwiki scheme 横取り) + Links レールで遷移。
-- × (プレースホルダ): dot/d2/drawio/mindmap/map/track-view フェンス、脚注 `[^1]`。
-- mermaid・数式・echarts/viewspec は figure-host (WKWebView 島) で実描画。
+- × (プレースホルダ): taskboard/track-query/dashboard フェンス (サーバ解決対象)、脚注 `[^1]`。
+- mermaid・数式・echarts/viewspec・dot/d2/drawio/mindmap(mermaid 変換)/map(Leaflet) は
+  figure-host (WKWebView 島) で実描画。track-view JSON はネイティブ描画。
 - `![[...]]` include は NoteInclude 差し込みで描画。
-- メディア埋め込み部品 (OGP カード・PDFKit・text asset・YouTube/Maps ラッパー・音声入力 transcript) は実装済み。
+- メディア埋め込み (OGP カード・PDFKit・text asset・YouTube/Maps) は renderer に配線済み。
+- タスクボード (状態別カラム)、カレンダーの日誌開く/作成、音声のジャーナル追記、
+  MRU・共有・NEW バッジ・分割編集・graceful 停止に対応。
 - 入力差: なし。`/api/render` 解決済みテキストを描画し、失敗時は raw にフォールバック。
 
 ## 4. TODO 対応状況

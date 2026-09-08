@@ -9,6 +9,7 @@ import TrackAPI
 public struct TasksView: View {
     @Bindable var model: TasksModel
     @State private var dateRow: TaskRow?
+    @State private var mode: Mode = .list
 
     public init(model: TasksModel) {
         self.model = model
@@ -16,13 +17,23 @@ public struct TasksView: View {
 
     public var body: some View {
         VStack(alignment: .leading, spacing: 0) {
-            Toggle("Open only", isOn: $model.showOpenOnly)
-                .toggleStyle(.checkbox)
-                .padding(.horizontal, 12)
-                .padding(.vertical, 8)
-                .onChange(of: model.showOpenOnly) {
-                    Task { await model.reload() }
+            HStack(spacing: 12) {
+                Toggle("Open only", isOn: $model.showOpenOnly)
+                    .toggleStyle(.checkbox)
+                    .onChange(of: model.showOpenOnly) {
+                        Task { await model.reload() }
+                    }
+                Spacer()
+                Picker("View", selection: $mode) {
+                    Text("List").tag(Mode.list)
+                    Text("Board").tag(Mode.board)
                 }
+                .pickerStyle(.segmented)
+                .labelsHidden()
+                .frame(width: 160)
+            }
+            .padding(.horizontal, 12)
+            .padding(.vertical, 8)
             Divider()
             Group {
                 if let conflict = model.lastConflict {
@@ -36,6 +47,8 @@ public struct TasksView: View {
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
             } else if model.rows.isEmpty {
                 emptyState
+            } else if mode == .board {
+                TaskBoard(model: model)
             } else {
                 List(model.rows, id: \.self) { row in
                     TaskRowView(
@@ -66,6 +79,13 @@ public struct TasksView: View {
             .font(.caption)
             .foregroundStyle(.secondary)
             .frame(maxWidth: .infinity, maxHeight: .infinity)
+    }
+
+    private enum Mode: String, CaseIterable, Identifiable {
+        case list
+        case board
+
+        var id: String { rawValue }
     }
 }
 

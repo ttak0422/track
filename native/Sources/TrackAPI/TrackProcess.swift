@@ -20,6 +20,9 @@ public final class TrackProcess {
     private let executableURL: URL
     private let vaultPath: String?
     private var task: Process?
+    /// The `127.0.0.1:<port>` the server is bound to (nil before a successful
+    /// start), kept so `stop` can ask `track web stop --addr` to shut it down.
+    private var boundAddr: String?
 
     /// - Parameter executableURL: bundled `track` binary (e.g. in Resources).
     /// - Parameter vaultPath: served vault; nil = the binary's default vault.
@@ -47,6 +50,7 @@ public final class TrackProcess {
             proc.standardError = FileHandle.nullDevice
             try proc.run()
             task = proc
+            boundAddr = "127.0.0.1:\(port)"
             let client = TrackClient(baseURL: URL(string: "http://127.0.0.1:\(port)")!)
             Task { await self.waitReady(client: client, proc: proc) }
         } catch {
@@ -55,8 +59,36 @@ public final class TrackProcess {
     }
 
     public func stop() {
-        task?.terminate()
+        // Graceful stop: `track web stop --addr` shuts the server down cleanly
+        // (flushing anything in flight) rather than sending SIGTERM. When the
+        // stop subprocess fails for any reason, falling back to terminate() on
+        // the served process still guarantees the server goes away.
+        let proc = task
+        if let addr = boundAddr {
+            let stopper = Process()
+            stopper.executableURL = executableURL
+            stopper.arguments = ["web", "stop", "--addr", addr]
+            if let vaultPath {
+                var env = ProcessInfo.processInfo.environment
+                env["TRACK_VAULT"] = vaultPath
+                stopper.environment = env
+            }
+            stopper.standardOutput = FileHandle.nullDevice
+            stopper.standardError = FileHandle.nullDevice
+            do {
+                try stopper.run()
+                // Give the graceful stop a moment, then terminate whatever is
+                // left (the stop command may take longer than the process we
+                // are told to stop).
+                proc?.waitUntilExit()
+            } catch {
+                proc?.terminate()
+            }
+        } else {
+            proc?.terminate()
+        }
         task = nil
+        boundAddr = nil
         state = .stopped
     }
 

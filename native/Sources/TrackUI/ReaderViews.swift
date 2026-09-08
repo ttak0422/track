@@ -32,6 +32,9 @@ public struct SearchReaderView: View {
     private let baseURL: URL
     /// Recently opened notes (most-recent first), persisted under one key.
     @AppStorage("track.recentNotes") private var recentJSON = "[]"
+    /// Local read-state mirror, so NEW badges draw without a server round-trip
+    /// (reader-backed, mirroring web/src/reading.ts).
+    @State private var reading = ReadingStore()
 
     public init(client: TrackClient) {
         _search = State(initialValue: SearchModel(client: client))
@@ -41,6 +44,18 @@ public struct SearchReaderView: View {
 
     private var recentList: [RecentNote] {
         (try? JSONDecoder().decode([RecentNote].self, from: Data(recentJSON.utf8))) ?? []
+    }
+
+    /// A minimal NoteRef for an MRU entry so a NEW badge can be decided against
+    /// the local read-state mirror; nil when the entry cannot be represented
+    /// (it then shows no NEW badge). Rebuilt through JSON (NoteRef exposes no
+    /// memberwise init), with nil milestones so NEW is decided by the local
+    /// seen/read sets alone.
+    private static func mruRef(_ note: RecentNote) -> NoteRef? {
+        let raw = TrackID(note.id).split().id
+        let object: [String: Any] = ["note_id": raw, "file_kind": "", "title": note.title]
+        guard let data = try? JSONSerialization.data(withJSONObject: object) else { return nil }
+        return try? JSONDecoder().decode(NoteRef.self, from: data)
     }
 
     private func recordRecent(_ note: RecentNote) {
@@ -88,11 +103,19 @@ public struct SearchReaderView: View {
                         .padding(.horizontal, 12).padding(.top, 8)
                     ForEach(recentList, id: \.id) { note in
                         Button {
+                            reading.markSeen(TrackID(note.id).split().id)
                             Task { await reader.open(TrackID(note.id)) }
                         } label: {
                             HStack(spacing: 6) {
                                 Image(systemName: "clock").font(.caption).foregroundStyle(.tertiary)
                                 Text(note.title).font(.body).lineLimit(1)
+                                if let ref = Self.mruRef(note), reading.isNew(ref) {
+                                    Text("NEW")
+                                        .font(.caption2).fontWeight(.bold)
+                                        .foregroundStyle(.secondary)
+                                        .padding(.horizontal, 4).padding(.vertical, 1)
+                                        .background(.quaternary, in: Capsule())
+                                }
                             }
                         }
                         .buttonStyle(.plain)
@@ -103,10 +126,20 @@ public struct SearchReaderView: View {
                 List(search.results, id: \.ref.noteID) { result in
                     Button {
                         recordRecent(RecentNote(id: result.qualifiedID.raw, title: result.ref.title))
+                        reading.markSeen(result.ref.noteID.raw)
                         Task { await reader.open(result.qualifiedID) }
                     } label: {
                         VStack(alignment: .leading, spacing: 2) {
-                            Text(result.ref.title).font(.body)
+                            HStack(spacing: 6) {
+                                Text(result.ref.title).font(.body)
+                                if reading.isNew(result.ref) {
+                                    Text("NEW")
+                                        .font(.caption2).fontWeight(.bold)
+                                        .foregroundStyle(.secondary)
+                                        .padding(.horizontal, 4).padding(.vertical, 1)
+                                        .background(.quaternary, in: Capsule())
+                                }
+                            }
                             if let match = result.match {
                                 Text(match).font(.caption2).foregroundStyle(.tertiary)
                             }
@@ -199,6 +232,7 @@ private struct NewNoteSheet: View {
 private enum NoteEditorPane {
     case edit
     case preview
+    case split
 }
 
 public struct NoteReaderView: View {
@@ -325,6 +359,15 @@ public struct NoteReaderView: View {
                     .help("Share")
             }
             ToolbarItem {
+                Button {
+                    NSPasteboard.general.clearContents()
+                    NSPasteboard.general.setString(note.body, forType: .string)
+                } label: {
+                    Label("Copy body", systemImage: "doc.on.clipboard")
+                }
+                .help("Copy note body")
+            }
+            ToolbarItem {
                 if model.isEditing {
                     Button("Done") { finishEditing() }
                 } else {
@@ -416,6 +459,10 @@ public struct NoteReaderView: View {
             VStack(alignment: .leading, spacing: 16) {
                 noteHeader(response.note)
 
+                if let excerpt = model.anchoredExcerpt {
+                    anchoredExcerptCard(excerpt)
+                }
+
                 GFMBody(
                     markdown: model.didRender ? model.renderedBody : response.note.body,
                     baseURL: baseURL,
@@ -502,10 +549,11 @@ public struct NoteReaderView: View {
                 Picker("Pane", selection: $pane) {
                     Text("Edit").tag(NoteEditorPane.edit)
                     Text("Preview").tag(NoteEditorPane.preview)
+                    Text("Split").tag(NoteEditorPane.split)
                 }
                 .pickerStyle(.segmented)
                 .labelsHidden()
-                .frame(maxWidth: 200)
+                .frame(maxWidth: 280)
                 if model.isDirty {
                     Text("Edited — unsaved changes")
                         .font(.caption)
@@ -513,11 +561,12 @@ public struct NoteReaderView: View {
                 }
                 Spacer()
             }
-            if pane == .edit {
+            switch pane {
+            case .edit:
                 TextEditor(text: $model.draftBody)
                     .font(.system(.body, design: .monospaced))
                     .frame(minHeight: 300)
-            } else {
+            case .preview:
                 ScrollView {
                     GFMBody(
                         markdown: model.draftBody,
@@ -527,6 +576,24 @@ public struct NoteReaderView: View {
                     )
                     .environment(\.openURL, wikilinkURLAction)
                     .frame(maxWidth: 640, alignment: .leading)
+                }
+            case .split:
+                HSplitView {
+                    TextEditor(text: $model.draftBody)
+                        .font(.system(.body, design: .monospaced))
+                        .frame(minWidth: 240, minHeight: 300)
+                    ScrollView {
+                        GFMBody(
+                            markdown: model.draftBody,
+                            baseURL: baseURL,
+                            vault: model.currentID?.split().vault ?? "",
+                            onWikilink: { target in Task { await model.openWikilink(target: target) } }
+                        )
+                        .environment(\.openURL, wikilinkURLAction)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                        .padding(.horizontal, 12)
+                    }
+                    .frame(minWidth: 240, minHeight: 300)
                 }
             }
         }
@@ -607,6 +674,46 @@ public struct NoteReaderView: View {
         formatter.dateFormat = "yyyy-MM-dd"
         formatter.locale = Locale(identifier: "en_US_POSIX")
         return formatter.string(from: Date(timeIntervalSince1970: TimeInterval(unixSeconds)))
+    }
+
+    /// A dismissible card showing the anchored excerpt a `[[Note#heading]]` /
+    /// `[[Note#^block]]` tap landed on (the MarkdownUI body offers no in-body
+    /// scroll target, so the excerpt is surfaced here instead). Dismissing
+    /// clears the model's `anchoredExcerpt` so it does not reappear.
+    private func anchoredExcerptCard(_ excerpt: String) -> some View {
+        VStack(alignment: .leading, spacing: 8) {
+            HStack(spacing: 8) {
+                Image(systemName: "scope")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                Text("Excerpt")
+                    .font(.caption).fontWeight(.medium)
+                    .foregroundStyle(.secondary)
+                Spacer()
+                Button {
+                    model.anchoredExcerpt = nil
+                } label: {
+                    Image(systemName: "xmark.circle.fill")
+                        .foregroundStyle(.secondary)
+                }
+                .buttonStyle(.plain)
+                .accessibilityLabel("Dismiss excerpt")
+            }
+            Text(excerpt)
+                .font(.body)
+                .textSelection(.enabled)
+                .lineLimit(nil)
+        }
+        .padding(12)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(
+            RoundedRectangle(cornerRadius: 8)
+                .fill(Color(nsColor: .textBackgroundColor))
+        )
+        .overlay(
+            RoundedRectangle(cornerRadius: 8)
+                .stroke(Color(nsColor: .separatorColor), lineWidth: 0.5)
+        )
     }
 }
 

@@ -87,7 +87,7 @@ private struct MainTabView: View {
                 .tabItem { Label("Browse", systemImage: "folder") }
             TasksView(model: tasks)
                 .tabItem { Label("Tasks", systemImage: "checklist") }
-            VoiceView()
+            VoiceView(client: client)
                 .tabItem { Label("Voice", systemImage: "mic") }
             SettingsTabView()
                 .tabItem { Label("Settings", systemImage: "gearshape") }

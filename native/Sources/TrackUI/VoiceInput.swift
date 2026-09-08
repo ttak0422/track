@@ -3,6 +3,7 @@ import Foundation
 import Observation
 import Speech
 import SwiftUI
+import TrackAPI
 
 // Voice input for the native workspace: dictation through SFSpeechRecognizer
 // (ja-JP) fed live audio by AVAudioEngine. VoiceInputModel owns the session —
@@ -140,11 +141,19 @@ public final class VoiceInputModel {
 /// The record-and-transcript surface. The record button toggles the session
 /// and the transcript (live while speaking, final after stop) is shown as
 /// selectable text; the error line surfaces permission/mic/recognizer issues.
-/// Copy-to-clipboard and journal append are out of scope here.
+/// "Append to today's journal" opens (or creates) today's journal and writes
+/// the transcript onto the end of its body.
 public struct VoiceView: View {
     @State private var model = VoiceInputModel()
 
-    public init() {}
+    private let client: TrackClient
+    @State private var appendError: String?
+    @State private var appendNote: String?
+    @State private var isAppending = false
+
+    public init(client: TrackClient) {
+        self.client = client
+    }
 
     public var body: some View {
         VStack(alignment: .leading, spacing: 12) {
@@ -166,6 +175,18 @@ public struct VoiceView: View {
                 .tint(model.isRecording ? .red : .accentColor)
                 .help(model.isRecording ? "Stop recording" : "Start recording")
 
+                Button {
+                    appendToJournal()
+                } label: {
+                    Label(
+                        isAppending ? "Appending…" : "Append to today's journal",
+                        systemImage: "square.and.pencil"
+                    )
+                }
+                .buttonStyle(.bordered)
+                .disabled(model.transcript.isEmpty || isAppending)
+                .help("Append the transcript to today's journal")
+
                 if model.isRecording {
                     Text("Recording…")
                         .font(.caption)
@@ -178,6 +199,16 @@ public struct VoiceView: View {
                 Text(error)
                     .font(.caption)
                     .foregroundStyle(.red)
+            }
+
+            if let appendError {
+                Text(appendError)
+                    .font(.caption)
+                    .foregroundStyle(.red)
+            } else if let appendNote {
+                Text(appendNote)
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
             }
 
             if model.transcript.isEmpty {
@@ -198,5 +229,36 @@ public struct VoiceView: View {
             }
         }
         .padding(16)
+    }
+
+    /// Open (or create) today's journal, read its current body, and save the
+    /// transcript onto the end. The read's etag is echoed back so a stale view
+    /// refuses the save; failures land in `appendError`.
+    private func appendToJournal() {
+        guard !model.transcript.isEmpty else { return }
+        isAppending = true
+        appendError = nil
+        appendNote = nil
+        Task {
+            do {
+                let journal = try await client.openJournal(date: Self.todayString())
+                let note = try await client.getNote(journal.noteID)
+                var body = note.note.body
+                if !body.isEmpty && !body.hasSuffix("\n") { body += "\n" }
+                body += model.transcript + "\n"
+                _ = try await client.saveNote(id: journal.noteID, body: body, etag: note.note.etag)
+                appendNote = "Appended to \(Self.todayString()) journal"
+            } catch {
+                appendError = error.localizedDescription
+            }
+            isAppending = false
+        }
+    }
+
+    private static func todayString() -> String {
+        let f = DateFormatter()
+        f.dateFormat = "yyyy-MM-dd"
+        f.locale = Locale(identifier: "en_US_POSIX")
+        return f.string(from: Date())
     }
 }
