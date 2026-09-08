@@ -53,17 +53,93 @@ public final class GraphModel {
 
     /// Undirected link degree of `id` in `graph` (edge count touching it).
     public static func degree(of id: TrackID, in graph: Graph) -> Int {
-        graph.edges.filter { $0.sourceID == id || $0.targetID == id }.count
+        degree(of: id, in: graph.edges)
+    }
+
+    /// Undirected link degree of `id` in an edge list.
+    public static func degree(of id: TrackID, in edges: [GraphEdge]) -> Int {
+        var count = 0
+        for edge in edges {
+            if edge.sourceID == id || edge.targetID == id { count += 1 }
+        }
+        return count
     }
 
     /// Nodes ordered by degree descending, ties broken by title ascending.
     public static func nodesByDegree(_ graph: Graph) -> [GraphNode] {
-        graph.nodes.sorted { lhs, rhs in
-            let a = degree(of: lhs.noteID, in: graph)
-            let b = degree(of: rhs.noteID, in: graph)
+        nodesByDegree(graph.nodes, edges: graph.edges)
+    }
+
+    /// Nodes ordered by degree descending, ties broken by title ascending.
+    public static func nodesByDegree(_ nodes: [GraphNode], edges: [GraphEdge]) -> [GraphNode] {
+        let degrees = degreeMap(edges)
+        return nodes.sorted { lhs, rhs in
+            let a = degrees[lhs.noteID] ?? 0
+            let b = degrees[rhs.noteID] ?? 0
             if a != b { return a > b }
             return lhs.title < rhs.title
         }
+    }
+
+    // MARK: - Overview safeguard (web overviewGraph)
+
+    /// How many nodes the whole-vault overview will draw. The bound comes from
+    /// what a screen can show, not from what the layout can compute (web
+    /// `overviewGraph.OVERVIEW_NODE_CAP`): a node-link picture stops saying
+    /// anything well before the renderer stops keeping up. Past the cap the
+    /// view names what it left out.
+    public static let overviewNodeCap = 1000
+
+    /// The whole-vault graph reduced to the part worth drawing, plus how many
+    /// notes were left out so the view can say so.
+    public struct OverviewGraph {
+        public let nodes: [GraphNode]
+        public let edges: [GraphEdge]
+        public let hidden: Int
+    }
+
+    /// Reduce the whole-vault graph to the part worth drawing (web
+    /// `overviewGraph`): a note with no link is not in the link graph, so it
+    /// is not drawn; beyond the cap the best-connected notes are kept —
+    /// cutting by degree keeps the structure an overview is for. A self link
+    /// and a link to a note the payload never delivered draw nothing and are
+    /// not counted. Ties break on note id so the same vault always yields the
+    /// same slice.
+    public static func overview(_ graph: Graph, cap: Int = overviewNodeCap) -> OverviewGraph {
+        let nodes = graph.nodes
+        let known = Set(nodes.map(\.noteID))
+        var edges = graph.edges.filter {
+            $0.sourceID != $0.targetID && known.contains($0.sourceID) && known.contains($0.targetID)
+        }
+        var degrees = degreeMap(edges)
+        var kept = nodes.filter { degrees[$0.noteID] != nil }
+        if kept.count > cap {
+            kept.sort {
+                let a = degrees[$0.noteID] ?? 0
+                let b = degrees[$1.noteID] ?? 0
+                if a != b { return a > b }
+                return $0.noteID.raw < $1.noteID.raw
+            }
+            kept = Array(kept.prefix(cap))
+            let inSlice = Set(kept.map(\.noteID))
+            edges = edges.filter { inSlice.contains($0.sourceID) && inSlice.contains($0.targetID) }
+            // The cut can strand a node whose only neighbours fell outside
+            // it; one pass drops those so the overview never draws loose dots.
+            degrees = degreeMap(edges)
+            kept = kept.filter { degrees[$0.noteID] != nil }
+        }
+        return OverviewGraph(nodes: kept, edges: edges, hidden: nodes.count - kept.count)
+    }
+
+    /// Incident-edge counts per node. Only nodes with at least one edge
+    /// appear, so membership alone answers "is this note in the link graph".
+    private static func degreeMap(_ edges: [GraphEdge]) -> [TrackID: Int] {
+        var degrees: [TrackID: Int] = [:]
+        for edge in edges {
+            degrees[edge.sourceID, default: 0] += 1
+            degrees[edge.targetID, default: 0] += 1
+        }
+        return degrees
     }
 }
 
@@ -89,13 +165,17 @@ public struct GraphFullView: View {
             } else if let error = model.error, model.full == nil {
                 ContentUnavailableView("Could not load graph", systemImage: "exclamationmark.triangle", description: Text(error))
             } else if let graph = model.full {
-                let nodes = GraphModel.nodesByDegree(graph)
+                // The whole vault is more than a picture can hold, so the
+                // view draws the link graph's connected part up to a cap and
+                // says what it left out (overviewGraph).
+                let shown = GraphModel.overview(graph)
+                let nodes = GraphModel.nodesByDegree(shown.nodes, edges: shown.edges)
                 let mark = TrackTheme.palette(for: colorScheme).mark
                 List {
                     Section {
                         ForEach(nodes, id: \.noteID) { node in
                             let isCenter = centerShown && Self.isCenter(node, in: graph)
-                            let degree = GraphModel.degree(of: node.noteID, in: graph)
+                            let degree = GraphModel.degree(of: node.noteID, in: shown.edges)
                             Button {
                                 selectedID = node.noteID
                                 onSelect(node.noteID.raw)
@@ -122,12 +202,12 @@ public struct GraphFullView: View {
                             .contentShape(Rectangle())
                             .onHover { hovering in hoveredNode = hovering ? GraphPreview(node: node) : nil }
                             .popover(item: $hoveredNode, attachmentAnchor: .point(.trailing), arrowEdge: .leading) { preview in
-                                Self.preview(preview.node, degree: GraphModel.degree(of: preview.node.noteID, in: graph))
+                                Self.preview(preview.node, degree: GraphModel.degree(of: preview.node.noteID, in: shown.edges))
                             }
                         }
                     } header: {
                         VStack(alignment: .leading, spacing: 6) {
-                            Text(Self.caption(drawn: nodes.count, total: graph.nodes.count))
+                            Text(Self.caption(drawn: nodes.count, hidden: shown.hidden))
                             HStack(spacing: 12) {
                                 Button(selectedID == nil ? "選択なし" : "選択を解除") { selectedID = nil }
                                     .disabled(selectedID == nil)
@@ -161,8 +241,12 @@ public struct GraphFullView: View {
         return index < 12 || node.center == true || selectedID == node.noteID ? node.title : "ノード \(node.noteID.raw)"
     }
 
-    private static func caption(drawn: Int, total: Int) -> String {
-        "\(drawn)件描画・\(max(0, total - drawn))件未描画"
+    /// How many notes the view is showing and — since the overview draws only
+    /// the linked part of the vault up to a cap — how many it left out (web
+    /// `graphCountCaption`). One line, because both halves answer the same
+    /// question.
+    private static func caption(drawn: Int, hidden: Int) -> String {
+        hidden > 0 ? "\(drawn)件描画・\(hidden)件未描画" : "\(drawn)件"
     }
 
     @ViewBuilder
@@ -205,7 +289,7 @@ public struct LocalGraphView: View {
                 let neighbors = Self.neighbors(of: graph)
                 let mark = TrackTheme.palette(for: colorScheme).mark
                 VStack(alignment: .leading, spacing: 4) {
-                    Text(Self.caption(drawn: graph.nodes.count, total: graph.nodes.count))
+                    Text(Self.caption(drawn: graph.nodes.count, hidden: 0))
                         .font(.caption)
                         .foregroundStyle(.secondary)
                     Text("Center").font(.caption).foregroundStyle(.secondary)
@@ -288,7 +372,7 @@ public struct LocalGraphView: View {
         return CGFloat(isCenter ? max(10, value) : value)
     }
 
-    private static func caption(drawn: Int, total: Int) -> String {
-        "\(drawn)件描画・\(max(0, total - drawn))件未描画"
+    private static func caption(drawn: Int, hidden: Int) -> String {
+        hidden > 0 ? "\(drawn)件描画・\(hidden)件未描画" : "\(drawn)件"
     }
 }
