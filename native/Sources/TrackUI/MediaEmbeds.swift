@@ -1,5 +1,6 @@
 import AppKit
 import Foundation
+import MapKit
 import PDFKit
 import SwiftUI
 import TrackAPI
@@ -134,6 +135,23 @@ enum MediaEmbedsURLs {
         if !zoom.isEmpty { items.append("z=\(formEncode(zoom))") }
         items.append("output=embed")
         return URL(string: "https://maps.google.com/maps?" + items.joined(separator: "&"))
+    }
+
+    /// Coordinates are deliberately a small, conservative subset: locations
+    /// expressed as `q=lat,long` or `/@lat,long` can be shown without loading a
+    /// web view. Place-name queries stay on the keyless embed fallback below.
+    static func googleMapsCoordinate(from src: String) -> (latitude: Double, longitude: Double)? {
+        guard let url = URL(string: webHref(src)) else { return nil }
+        let query = queryParameters(of: url)["q"] ?? queryParameters(of: url)["ll"]
+        let pathCoordinate = matches("@(-?[0-9]+(?:\\.[0-9]+)?),(-?[0-9]+(?:\\.[0-9]+)?)", in: url.path)
+            .flatMap { groups in
+                guard groups.count > 2, let latitude = groups[1], let longitude = groups[2] else { return nil }
+                return "\(latitude),\(longitude)"
+            }
+        let raw = query ?? pathCoordinate
+        let parts = raw?.split(separator: ",", maxSplits: 1).compactMap { Double($0) } ?? []
+        guard parts.count == 2, abs(parts[0]) <= 90, abs(parts[1]) <= 180 else { return nil }
+        return (parts[0], parts[1])
     }
 
     /// `safeFrameUrl`: only http(s) and same-origin relative paths are safe to
@@ -304,6 +322,7 @@ public struct PdfNoteView: View {
     private let assetURL: URL
     @State private var document: PDFDocument?
     @State private var failed = false
+    @State private var page = 1
 
     public init(assetURL: URL) {
         self.assetURL = assetURL
@@ -314,8 +333,11 @@ public struct PdfNoteView: View {
             if failed {
                 PlainLinkView(url: assetURL)
             } else if let document {
-                PDFDocumentView(document: document)
+                VStack(spacing: 6) {
+                    PDFDocumentView(document: document, page: $page)
                     .frame(height: 420)
+                    pdfControls(pageCount: document.pageCount)
+                }
             } else {
                 HStack(spacing: 8) {
                     ProgressView().controlSize(.small)
@@ -340,16 +362,46 @@ public struct PdfNoteView: View {
                 failed = true
                 return
             }
+            page = 1
             self.document = document
         } catch {
             failed = true
         }
+    }
+
+    /// The strip remains a PDFView (and therefore keeps its native scrolling),
+    /// while this small quiet-chip bar provides the same orientation and direct
+    /// page access as PdfDeck.
+    private func pdfControls(pageCount: Int) -> some View {
+        HStack(spacing: 8) {
+            Button("‹") { page = max(1, page - 1) }
+                .disabled(page <= 1)
+                .accessibilityLabel("Previous page")
+            TextField("Page", value: $page, format: .number)
+                .frame(width: 42)
+                .multilineTextAlignment(.center)
+                .onSubmit { page = min(pageCount, max(1, page)) }
+            Text("/ \(pageCount)")
+                .foregroundStyle(.secondary)
+            Button("›") { page = min(pageCount, page + 1) }
+                .disabled(page >= pageCount)
+                .accessibilityLabel("Next page")
+        }
+        .buttonStyle(.borderless)
+        .font(.caption)
+        .padding(.horizontal, 8)
+        .padding(.vertical, 4)
+        .background(Color(nsColor: .controlBackgroundColor))
+        .overlay(RoundedRectangle(cornerRadius: 5).stroke(Color(nsColor: .separatorColor), lineWidth: 0.5))
     }
 }
 
 /// PDFView wrapped for SwiftUI.
 private struct PDFDocumentView: NSViewRepresentable {
     let document: PDFDocument
+    @Binding var page: Int
+
+    func makeCoordinator() -> Coordinator { Coordinator(page: $page) }
 
     func makeNSView(context: Context) -> PDFView {
         let view = PDFView()
@@ -358,12 +410,44 @@ private struct PDFDocumentView: NSViewRepresentable {
         view.displayMode = .singlePageContinuous
         view.displayDirection = .vertical
         view.backgroundColor = .clear
+        context.coordinator.observe(view)
         return view
     }
 
     func updateNSView(_ nsView: PDFView, context: Context) {
         if nsView.document !== document {
             nsView.document = document
+        }
+        guard document.pageCount > 0, let targetPage = document.page(at: max(0, min(document.pageCount - 1, page - 1))) else {
+            return
+        }
+        let target = min(document.pageCount, max(1, page))
+        if target != page { page = target }
+        if nsView.currentPage !== targetPage {
+            nsView.go(to: targetPage)
+        }
+    }
+
+    final class Coordinator {
+        private var page: Binding<Int>
+        private var observer: NSObjectProtocol?
+
+        init(page: Binding<Int>) { self.page = page }
+
+        func observe(_ view: PDFView) {
+            observer = NotificationCenter.default.addObserver(
+                forName: Notification.Name.PDFViewPageChanged,
+                object: view,
+                queue: .main
+            ) { [weak self, weak view] _ in
+                guard let self, let view, let current = view.currentPage,
+                      let index = view.document?.index(for: current) else { return }
+                self.page.wrappedValue = index + 1
+            }
+        }
+
+        deinit {
+            if let observer { NotificationCenter.default.removeObserver(observer) }
         }
     }
 }
@@ -509,7 +593,10 @@ public struct MapsView: View {
     }
 
     public var body: some View {
-        if let embed = MediaEmbedsURLs.googleMapsEmbedURL(from: src) {
+        if let coordinate = MediaEmbedsURLs.googleMapsCoordinate(from: src) {
+            NativeMapView(latitude: coordinate.latitude, longitude: coordinate.longitude)
+                .frame(height: 320)
+        } else if let embed = MediaEmbedsURLs.googleMapsEmbedURL(from: src) {
             FigureEmbedView(
                 html: YouTubeView.iframeHTML(
                     embedURL: embed,
@@ -531,5 +618,35 @@ public struct MapsView: View {
         } else {
             Text(src).font(.caption).foregroundStyle(.secondary)
         }
+    }
+}
+
+/// A permission-free native map surface for coordinate URLs. MapKit's map
+/// tiles are public display content; this view does not request location
+/// services, so no Info.plist usage description is needed. URLs containing a
+/// place name deliberately use MapsView's existing keyless web fallback.
+private struct NativeMapView: NSViewRepresentable {
+    let latitude: Double
+    let longitude: Double
+
+    func makeNSView(context: Context) -> MKMapView {
+        let view = MKMapView()
+        view.isRotateEnabled = false
+        view.isPitchEnabled = false
+        view.showsCompass = true
+        return view
+    }
+
+    func updateNSView(_ view: MKMapView, context: Context) {
+        let coordinate = CLLocationCoordinate2D(latitude: latitude, longitude: longitude)
+        let span = max(0.001, 180 / pow(2, 10.0))
+        view.setRegion(MKCoordinateRegion(center: coordinate, span: MKCoordinateSpan(
+            latitudeDelta: span,
+            longitudeDelta: span
+        )), animated: false)
+        view.removeAnnotations(view.annotations)
+        let pin = MKPointAnnotation()
+        pin.coordinate = coordinate
+        view.addAnnotation(pin)
     }
 }

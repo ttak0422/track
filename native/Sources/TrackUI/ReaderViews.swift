@@ -18,9 +18,13 @@ private struct RecentNote: Codable {
 // MARK: - Search + reader shell
 
 public struct SearchReaderView: View {
+    private static let recentVisibleLimit = 10
+    private static let recentStorageLimit = 100
+
     @State private var search: SearchModel
     @State private var reader: NoteReaderModel
     @State private var query = ""
+    @State private var activeSearchIndex = -1
     /// Title typed in the New-note sheet.
     @State private var newNoteTitle = ""
     @State private var showNewNote = false
@@ -46,6 +50,13 @@ public struct SearchReaderView: View {
         (try? JSONDecoder().decode([RecentNote].self, from: Data(recentJSON.utf8))) ?? []
     }
 
+    /// Vault names only become useful when the MRU contains notes from more
+    /// than one vault. The empty vault is kept as a distinct value so a
+    /// qualified note is labelled when it sits beside an unqualified one.
+    private var hasMultipleRecentVaults: Bool {
+        Set(recentList.map { TrackID($0.id).split().vault }).count > 1
+    }
+
     /// A minimal NoteRef for an MRU entry so a NEW badge can be decided against
     /// the local read-state mirror; nil when the entry cannot be represented
     /// (it then shows no NEW badge). Rebuilt through JSON (NoteRef exposes no
@@ -61,7 +72,7 @@ public struct SearchReaderView: View {
     private func recordRecent(_ note: RecentNote) {
         var list = recentList.filter { $0.id != note.id }
         list.insert(note, at: 0)
-        list = Array(list.prefix(10))
+        list = Array(list.prefix(Self.recentStorageLimit))
         if let data = try? JSONEncoder().encode(list) {
             recentJSON = String(decoding: data, as: UTF8.self)
         }
@@ -73,7 +84,29 @@ public struct SearchReaderView: View {
                 HStack(spacing: 6) {
                     TextField("Search", text: $query)
                         .textFieldStyle(.plain)
-                        .onSubmit { Task { await search.search(query: query) } }
+                        .onChange(of: query) { _, value in
+                            activeSearchIndex = -1
+                            search.search(query: value)
+                        }
+                        .onKeyPress { press in
+                            switch press.key {
+                            case .upArrow:
+                                moveSearchSelection(by: -1)
+                                return .handled
+                            case .downArrow:
+                                moveSearchSelection(by: 1)
+                                return .handled
+                            case .escape:
+                                query = ""
+                                return .handled
+                            case .return:
+                                chooseActiveSearchResult()
+                                return .handled
+                            default:
+                                return .ignored
+                            }
+                        }
+                        .onSubmit { chooseActiveSearchResult() }
                     Button {
                         newNoteError = nil
                         newNoteTitle = ""
@@ -101,14 +134,32 @@ public struct SearchReaderView: View {
                 if query.isEmpty && !recentList.isEmpty {
                     Text("Recent").font(.caption).foregroundStyle(.secondary)
                         .padding(.horizontal, 12).padding(.top, 8)
-                    ForEach(recentList, id: \.id) { note in
+                    let visibleRecent = Array(recentList.prefix(Self.recentVisibleLimit))
+                    let overflowRecent = Array(recentList.dropFirst(Self.recentVisibleLimit))
+                    ForEach(visibleRecent, id: \.id) { note in
                         Button {
+                            recordRecent(note)
                             reading.markSeen(TrackID(note.id).split().id)
                             Task { await reader.open(TrackID(note.id)) }
                         } label: {
                             HStack(spacing: 6) {
                                 Image(systemName: "clock").font(.caption).foregroundStyle(.tertiary)
+                                if hasMultipleRecentVaults {
+                                    let vault = TrackID(note.id).split().vault
+                                    if !vault.isEmpty {
+                                        Text(vault)
+                                            .font(.caption2)
+                                            .foregroundStyle(.tertiary)
+                                            .lineLimit(1)
+                                    }
+                                }
                                 Text(note.title).font(.body).lineLimit(1)
+                                if note.id == reader.currentID?.raw && reader.isDirty {
+                                    Text("•")
+                                        .font(.title3)
+                                        .foregroundStyle(Color.accentColor)
+                                        .accessibilityLabel("Unsaved changes")
+                                }
                                 if let ref = Self.mruRef(note), reading.isNew(ref) {
                                     Text("NEW")
                                         .font(.caption2).fontWeight(.bold)
@@ -121,9 +172,38 @@ public struct SearchReaderView: View {
                         .buttonStyle(.plain)
                         .padding(.horizontal, 12).padding(.vertical, 2)
                     }
+                    if !overflowRecent.isEmpty {
+                        Menu {
+                            ForEach(overflowRecent, id: \.id) { note in
+                                Button {
+                                    recordRecent(note)
+                                    reading.markSeen(TrackID(note.id).split().id)
+                                    Task { await reader.open(TrackID(note.id)) }
+                                } label: {
+                                    HStack {
+                                        if hasMultipleRecentVaults {
+                                            let vault = TrackID(note.id).split().vault
+                                            if !vault.isEmpty { Text("\(vault) ·") }
+                                        }
+                                        Text(note.title)
+                                        if note.id == reader.currentID?.raw && reader.isDirty {
+                                            Text("•")
+                                        }
+                                    }
+                                }
+                            }
+                        } label: {
+                            Text("+\(overflowRecent.count) more")
+                                .font(.caption)
+                                .foregroundStyle(.secondary)
+                        }
+                        .menuStyle(.borderlessButton)
+                        .padding(.horizontal, 12)
+                        .padding(.vertical, 2)
+                    }
                     Divider().padding(.top, 6)
                 }
-                List(search.results, id: \.ref.noteID) { result in
+                List(filteredSearchResults, id: \.qualifiedID) { result in
                     Button {
                         recordRecent(RecentNote(id: result.qualifiedID.raw, title: result.ref.title))
                         reading.markSeen(result.ref.noteID.raw)
@@ -147,14 +227,23 @@ public struct SearchReaderView: View {
                                 Text(snippet).font(.caption).foregroundStyle(.secondary)
                                     .lineLimit(2)
                             }
+                            if let tags = result.tags, !tags.isEmpty {
+                                Text(tags.map { "#\($0)" }.joined(separator: " "))
+                                    .font(.caption2).foregroundStyle(.tertiary)
+                            }
                         }
                     }
                     .buttonStyle(.plain)
+                    .listRowBackground(activeSearchIndex == filteredSearchResults.firstIndex(where: { $0.qualifiedID == result.qualifiedID }) ? Color.primary.opacity(0.08) : nil)
                 }
             }
             .navigationTitle("track")
         } detail: {
             NoteReaderView(model: reader, baseURL: baseURL)
+        }
+        .onReceive(NotificationCenter.default.publisher(for: .trackVaultChanged)) { _ in
+            guard !query.isEmpty, !search.isLoading else { return }
+            search.search(query: query)
         }
         .sheet(isPresented: $showNewNote) {
             NewNoteSheet(
@@ -172,6 +261,40 @@ public struct SearchReaderView: View {
                 }
             )
         }
+    }
+
+    private var filteredSearchResults: [SearchResult] {
+        let tags = query.split(whereSeparator: { $0 == " " || $0 == "\n" })
+            .compactMap { token -> String? in
+                guard token.first == "#", token.count > 1 else { return nil }
+                return String(token.dropFirst()).lowercased()
+            }
+        guard !tags.isEmpty else { return search.results }
+        return search.results.filter { result in
+            let resultTags = (result.tags ?? []).map { $0.lowercased() }
+            return tags.allSatisfy { tag in
+                resultTags.contains { $0 == tag || $0.hasPrefix(tag + "/") }
+            }
+        }
+    }
+
+    private func moveSearchSelection(by offset: Int) {
+        guard !filteredSearchResults.isEmpty else {
+            activeSearchIndex = -1
+            return
+        }
+        let next = activeSearchIndex < 0 ? (offset > 0 ? 0 : filteredSearchResults.count - 1) : activeSearchIndex + offset
+        activeSearchIndex = (next + filteredSearchResults.count) % filteredSearchResults.count
+    }
+
+    private func chooseActiveSearchResult() {
+        guard !filteredSearchResults.isEmpty else { return }
+        let index = activeSearchIndex >= 0 ? activeSearchIndex : 0
+        guard index < filteredSearchResults.count else { return }
+        let result = filteredSearchResults[index]
+        recordRecent(RecentNote(id: result.qualifiedID.raw, title: result.ref.title))
+        reading.markSeen(result.ref.noteID.raw)
+        Task { await reader.open(result.qualifiedID) }
     }
 }
 
@@ -237,6 +360,7 @@ private enum NoteEditorPane {
 
 public struct NoteReaderView: View {
     @Bindable var model: NoteReaderModel
+    @AppStorage(TrackAppearance.contentWidthKey) private var contentWidthRaw: String?
     /// The API base URL, passed down to the GFM renderer for `assets/…` embeds.
     let baseURL: URL
     /// Edit vs Preview inside the editor pane; reset to Edit each time an
@@ -294,6 +418,10 @@ public struct NoteReaderView: View {
             // Read reporting: each time a note finishes loading, report the
             // "seen" milestone (reading.ts markSeen). Fire-and-forget.
             await model.reportSeen()
+        }
+        .onReceive(NotificationCenter.default.publisher(for: .trackVaultChanged)) { _ in
+            guard let id = model.currentID, !model.isEditing else { return }
+            Task { await model.open(id) }
         }
         .alert("Discard unsaved edits?", isPresented: $confirmDiscard) {
             Button("Discard", role: .destructive) { model.discardDraft() }
@@ -418,6 +546,10 @@ public struct NoteReaderView: View {
         return nil
     }
 
+    private var contentWidthMode: ContentWidthMode {
+        ContentWidthMode(stored: contentWidthRaw)
+    }
+
     /// Intercepts link taps inside the GFM body: `trackwiki://` links (produced
     /// by GFMBody's `[[wikilink]]` rewrite) navigate to the target note via
     /// `openWikilink`, everything else falls through to the system handler.
@@ -529,7 +661,7 @@ public struct NoteReaderView: View {
                     }
                 }
             }
-            .frame(maxWidth: 640, alignment: .leading)
+            .frame(maxWidth: contentWidthMode.maxWidth, alignment: .leading)
             .padding(24)
         }
     }
@@ -575,7 +707,7 @@ public struct NoteReaderView: View {
                         onWikilink: { target in Task { await model.openWikilink(target: target) } }
                     )
                     .environment(\.openURL, wikilinkURLAction)
-                    .frame(maxWidth: 640, alignment: .leading)
+                    .frame(maxWidth: contentWidthMode.maxWidth, alignment: .leading)
                 }
             case .split:
                 HSplitView {
@@ -590,7 +722,7 @@ public struct NoteReaderView: View {
                             onWikilink: { target in Task { await model.openWikilink(target: target) } }
                         )
                         .environment(\.openURL, wikilinkURLAction)
-                        .frame(maxWidth: .infinity, alignment: .leading)
+                        .frame(maxWidth: contentWidthMode.maxWidth, alignment: .leading)
                         .padding(.horizontal, 12)
                     }
                     .frame(minWidth: 240, minHeight: 300)

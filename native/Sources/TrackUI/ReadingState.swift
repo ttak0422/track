@@ -13,8 +13,9 @@ import TrackAPI
 // NEW means "no device has opened the note yet": the ref reports no milestone
 // (seen_at/read_at are nil or 0) and no seen mark is held locally.
 //
-// The reading-time estimate itself (web CHARS_PER_SECOND accumulation) is not
-// part of the native P0; shouldMarkRead answers with the fixed floor only.
+// Viewing time is kept locally, just like web/src/reading.ts. It is only an
+// estimate used to decide when to emit the read milestone; the shared
+// seen/read milestones remain the source of truth across devices.
 
 @MainActor
 @Observable
@@ -24,10 +25,17 @@ public final class ReadingStore {
     /// Raw note ids that crossed the read threshold.
     public private(set) var read: Set<String> = []
 
-    /// Nothing counts as read in under this, however short the note — the web
-    /// read floor (reading.ts MIN_READ_SEC; the native P0 fixes the default
-    /// at 30 s).
+    /// Accumulated viewing seconds for notes on this Mac.
+    public private(set) var viewedSeconds: [String: TimeInterval] = [:]
+
+    /// Compatibility floor for callers that do not have note text yet.
     public static let readThreshold: TimeInterval = 30
+
+    /// Nothing counts as read in under this, however short the note.
+    public static let minimumReadThreshold: TimeInterval = 20
+
+    /// Rough Japanese reading pace, matching web/src/reading.ts.
+    public static let charsPerSecond: Double = 10
 
     /// Single storage key, like web reading.ts's "track.reading".
     public static let storageKey = "track.reading"
@@ -80,11 +88,39 @@ public final class ReadingStore {
         read.contains(id)
     }
 
-    /// Whether the note crossed the read threshold, which fires "read"
-    /// (web recordView). The floor is the fixed default; elapsed seconds below
-    /// it never count as read.
+    /// The estimated viewing seconds that makes a note read. This mirrors the
+    /// web's readThresholdFor: half of the estimated reading time, with a
+    /// minimum floor. `String.count` is intentional; it counts the same
+    /// user-visible characters as the web's `text.length` for CJK notes.
+    public static func readThreshold(for text: String) -> TimeInterval {
+        // `.toNearestOrAwayFromZero` matches JavaScript Math.round for these
+        // positive values (not Swift's default ties-to-even rounding).
+        let estimate = max(minimumReadThreshold, (Double(text.count) / charsPerSecond).rounded(.toNearestOrAwayFromZero))
+        return max(minimumReadThreshold, (estimate / 2).rounded(.toNearestOrAwayFromZero))
+    }
+
+    /// Whether elapsed viewing time has crossed the fixed fallback threshold.
+    /// New code should pass note text so long notes use the character estimate.
     public func shouldMarkRead(after seconds: TimeInterval) -> Bool {
         seconds >= Self.readThreshold
+    }
+
+    /// Whether elapsed viewing time has crossed the text-based threshold.
+    public func shouldMarkRead(after seconds: TimeInterval, text: String) -> Bool {
+        seconds >= Self.readThreshold(for: text)
+    }
+
+    /// Accumulates a coarse visible-time tick and marks the note read when its
+    /// text-based threshold is crossed. Returns true only for that first
+    /// crossing, matching web recordView's milestone behaviour.
+    @discardableResult
+    public func recordView(_ id: String, seconds: TimeInterval, text: String) -> Bool {
+        guard !id.isEmpty, seconds > 0, !read.contains(id) else { return false }
+        viewedSeconds[id, default: 0] += seconds
+        let crossed = shouldMarkRead(after: viewedSeconds[id] ?? 0, text: text)
+        persist()
+        if crossed { return markRead(id) }
+        return false
     }
 
     // MARK: - Persistence
@@ -92,6 +128,20 @@ public final class ReadingStore {
     private struct Snapshot: Codable {
         var seen: [String]
         var read: [String]
+        var viewedSeconds: [String: TimeInterval]
+
+        init(seen: [String], read: [String], viewedSeconds: [String: TimeInterval]) {
+            self.seen = seen
+            self.read = read
+            self.viewedSeconds = viewedSeconds
+        }
+
+        init(from decoder: Decoder) throws {
+            let container = try decoder.container(keyedBy: CodingKeys.self)
+            seen = try container.decode([String].self, forKey: .seen)
+            read = try container.decode([String].self, forKey: .read)
+            viewedSeconds = try container.decodeIfPresent([String: TimeInterval].self, forKey: .viewedSeconds) ?? [:]
+        }
     }
 
     private func load() {
@@ -100,10 +150,11 @@ public final class ReadingStore {
         else { return }
         seen = Set(snapshot.seen)
         read = Set(snapshot.read)
+        viewedSeconds = snapshot.viewedSeconds
     }
 
     private func persist() {
-        let snapshot = Snapshot(seen: seen.sorted(), read: read.sorted())
+        let snapshot = Snapshot(seen: seen.sorted(), read: read.sorted(), viewedSeconds: viewedSeconds)
         defaults.set(try? JSONEncoder().encode(snapshot), forKey: Self.storageKey)
     }
 }

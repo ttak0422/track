@@ -150,6 +150,9 @@ public struct VoiceView: View {
     @State private var appendError: String?
     @State private var appendNote: String?
     @State private var isAppending = false
+    @State private var searchResults: [SearchResult] = []
+    @State private var searchError: String?
+    @State private var isSearching = false
 
     public init(client: TrackClient) {
         self.client = client
@@ -187,6 +190,18 @@ public struct VoiceView: View {
                 .disabled(model.transcript.isEmpty || isAppending)
                 .help("Append the transcript to today's journal")
 
+                Button {
+                    searchTranscript()
+                } label: {
+                    Label(
+                        isSearching ? "Searching…" : "Search notes",
+                        systemImage: "magnifyingglass"
+                    )
+                }
+                .buttonStyle(.bordered)
+                .disabled(model.transcript.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || isSearching)
+                .help("Search notes with the transcript")
+
                 if model.isRecording {
                     Text("Recording…")
                         .font(.caption)
@@ -211,6 +226,12 @@ public struct VoiceView: View {
                     .foregroundStyle(.secondary)
             }
 
+            if let searchError {
+                Text(searchError)
+                    .font(.caption)
+                    .foregroundStyle(.red)
+            }
+
             if model.transcript.isEmpty {
                 ContentUnavailableView(
                     "Voice input",
@@ -227,8 +248,51 @@ public struct VoiceView: View {
                 }
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
             }
+
+            if !searchResults.isEmpty {
+                VStack(alignment: .leading, spacing: 8) {
+                    Text("Search results")
+                        .font(.headline)
+
+                    ForEach(searchResults, id: \.qualifiedID) { result in
+                        VStack(alignment: .leading, spacing: 3) {
+                            Text(result.ref.title)
+                                .font(.body.weight(.medium))
+                            if let snippet = result.snippet, !snippet.isEmpty {
+                                Text(snippet)
+                                    .font(.caption)
+                                    .foregroundStyle(.secondary)
+                                    .lineLimit(2)
+                            }
+                        }
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                        .padding(.vertical, 4)
+                    }
+                }
+                .padding(.top, 4)
+            }
         }
         .padding(16)
+    }
+
+    /// Search the finalized or currently visible transcript without changing
+    /// the existing journal append flow. The server remains responsible for
+    /// matching titles, paths, and note bodies.
+    private func searchTranscript() {
+        let query = model.transcript.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !query.isEmpty else { return }
+        isSearching = true
+        searchError = nil
+        searchResults = []
+        Task {
+            do {
+                let response = try await client.searchNotes(query: query, limit: 8)
+                searchResults = response.results
+            } catch {
+                searchError = error.localizedDescription
+            }
+            isSearching = false
+        }
     }
 
     /// Open (or create) today's journal, read its current body, and save the

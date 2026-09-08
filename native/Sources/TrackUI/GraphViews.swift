@@ -67,6 +67,7 @@ public final class GraphModel {
 public struct GraphFullView: View {
     @Bindable var model: GraphModel
     let onSelect: (String) -> Void
+    @Environment(\.colorScheme) private var colorScheme
 
     public init(model: GraphModel, onSelect: @escaping (String) -> Void = { _ in }) {
         self.model = model
@@ -80,22 +81,47 @@ public struct GraphFullView: View {
             } else if let error = model.error, model.full == nil {
                 ContentUnavailableView("Could not load graph", systemImage: "exclamationmark.triangle", description: Text(error))
             } else if let graph = model.full {
-                List(GraphModel.nodesByDegree(graph), id: \.noteID) { node in
-                    Button {
-                        onSelect(node.noteID.raw)
-                    } label: {
-                        HStack {
-                            Text(node.title)
-                            Spacer()
-                            Text("\(GraphModel.degree(of: node.noteID, in: graph))")
-                                .font(.caption).foregroundStyle(.secondary)
+                let nodes = GraphModel.nodesByDegree(graph)
+                let mark = Color.palette(for: colorScheme).mark
+                List {
+                    Section {
+                        ForEach(nodes, id: \.noteID) { node in
+                            let isCenter = Self.isCenter(node, in: graph)
+                            Button {
+                                onSelect(node.noteID.raw)
+                            } label: {
+                                HStack(spacing: 8) {
+                                    Circle()
+                                        .fill(isCenter ? mark : Color.clear)
+                                        .overlay {
+                                            Circle().stroke(isCenter ? mark : Color.secondary, lineWidth: 1)
+                                        }
+                                        .frame(width: 8, height: 8)
+                                    Text(node.title)
+                                        .foregroundStyle(isCenter ? mark : .primary)
+                                        .fontWeight(isCenter ? .medium : .regular)
+                                    Spacer()
+                                    Text("\(GraphModel.degree(of: node.noteID, in: graph))")
+                                        .font(.caption).foregroundStyle(.secondary)
+                                }
+                            }
+                            .buttonStyle(.plain)
                         }
+                    } header: {
+                        Text("\(graph.nodes.count)件中\(nodes.count)件表示")
                     }
-                    .buttonStyle(.plain)
                 }
             }
         }
         .task { await model.loadFull() }
+        .onReceive(NotificationCenter.default.publisher(for: .trackVaultChanged)) { _ in
+            guard !model.isLoading else { return }
+            Task { await model.loadFull() }
+        }
+    }
+
+    private static func isCenter(_ node: GraphNode, in graph: Graph) -> Bool {
+        node.center == true || node.noteID == graph.centerID
     }
 }
 
@@ -105,6 +131,7 @@ public struct LocalGraphView: View {
     @Bindable var model: GraphModel
     let centerID: TrackID
     let onSelect: (String) -> Void
+    @Environment(\.colorScheme) private var colorScheme
 
     public init(model: GraphModel, centerID: TrackID, onSelect: @escaping (String) -> Void = { _ in }) {
         self.model = model
@@ -120,12 +147,23 @@ public struct LocalGraphView: View {
                 ContentUnavailableView("Could not load graph", systemImage: "exclamationmark.triangle", description: Text(error))
             } else if let graph = model.local {
                 let neighbors = Self.neighbors(of: graph)
+                let mark = Color.palette(for: colorScheme).mark
                 VStack(alignment: .leading, spacing: 4) {
+                    Text("\(graph.nodes.count)件中\(graph.nodes.count)件表示")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
                     Text("Center").font(.caption).foregroundStyle(.secondary)
-                    Button(Self.title(for: graph.centerID, in: graph)) {
+                    Button {
                         onSelect(graph.centerID.raw)
+                    } label: {
+                        HStack(spacing: 8) {
+                            Circle().fill(mark).frame(width: 8, height: 8)
+                            Text(Self.title(for: graph.centerID, in: graph))
+                                .foregroundStyle(mark)
+                                .fontWeight(.medium)
+                        }
                     }
-                    .buttonStyle(.plain).fontWeight(.medium)
+                    .buttonStyle(.plain)
                     if !neighbors.isEmpty {
                         Divider()
                         Text("Linked").font(.caption).foregroundStyle(.secondary)
@@ -140,6 +178,10 @@ public struct LocalGraphView: View {
             }
         }
         .task { await model.loadLocal(id: centerID) }
+        .onReceive(NotificationCenter.default.publisher(for: .trackVaultChanged)) { _ in
+            guard !model.isLoading else { return }
+            Task { await model.loadLocal(id: centerID) }
+        }
     }
 
     private static func neighbors(of graph: Graph) -> [GraphNode] {

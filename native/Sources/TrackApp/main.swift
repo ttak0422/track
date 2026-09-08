@@ -245,6 +245,7 @@ private struct GraphTabView: View {
 private struct SettingsTabView: View {
     @AppStorage(TrackAppearance.themeKey) private var themeRaw: String?
     @AppStorage(TrackAppearance.fontScaleKey) private var fontScale = TrackAppearance.defaultFontScale
+    @AppStorage(TrackAppearance.contentWidthKey) private var contentWidthRaw: String?
 
     var body: some View {
         Form {
@@ -257,6 +258,16 @@ private struct SettingsTabView: View {
                 .pickerStyle(.radioGroup)
             } footer: {
                 Text("Color tokens follow docs/spec/design.md. System follows the macOS appearance.")
+            }
+            Section {
+                Picker("Content width", selection: contentWidthBinding) {
+                    ForEach(ContentWidthMode.allCases, id: \.self) { mode in
+                        Text(mode.label).tag(mode)
+                    }
+                }
+                .pickerStyle(.radioGroup)
+            } footer: {
+                Text("Normal is 880 pt, Wide is 1280 pt, and Full uses the available window width.")
             }
             Section {
                 Stepper(
@@ -284,6 +295,13 @@ private struct SettingsTabView: View {
         Binding(
             get: { TrackAppearance.clampFontScale(fontScale) },
             set: { fontScale = TrackAppearance.clampFontScale($0) }
+        )
+    }
+
+    private var contentWidthBinding: Binding<ContentWidthMode> {
+        Binding(
+            get: { ContentWidthMode(stored: contentWidthRaw) },
+            set: { contentWidthRaw = $0.storedValue }
         )
     }
 }

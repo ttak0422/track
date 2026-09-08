@@ -26,7 +26,11 @@ import WebKit
 //   CDN root for a local directory so the same shell works fully offline.
 //   The scripts are NOT vendored into the package: mermaid.min.js alone is
 //   ~3.5 MB, and making them Bundle resources would require a Package.swift
-//   change, so the shell stays a CDN default plus a local override hook.
+//   change, so the shell stays a CDN default plus a local override hook. The
+//   draw.io viewer is the exception to that policy on the web side: callers
+//   can point `localScriptURL` directly at web/public/drawio-viewer-static.min.js
+//   and reuse the already-vendored, fully self-contained viewer without
+//   copying its large binary into the native package.
 //
 // The island draws content only through `render(...)`; the shell HTML and
 // dispatch JS are embedded below so the package needs no resource bundle.
@@ -281,6 +285,10 @@ public enum FigureAssets {
     public static let katexVersion = "0.16.47"
     public static let echartsVersion = "6.1.0"
     public static let graphvizVersion = "1.24.1"
+    // Deliberately not bundled: the D2 WASM/ESM payload is roughly 8 MB. Keep
+    // the CDN default and let an offline-capable app opt in through the
+    // directory form of localScriptURL (d2.esm.js) rather than growing every
+    // native distribution by that amount.
     public static let d2Version = "0.1.33"
     public static let leafletVersion = "1.9.4"
 
@@ -309,7 +317,10 @@ public enum FigureAssets {
     /// viewer). With a local root they become `<root>/<basename>` so the same
     /// shell works fully offline from a directory of the pinned files; the two
     /// wasm engines expect a pre-bundled ESM file each (`graphviz.esm.js`,
-    /// `d2.esm.js`).
+    /// `d2.esm.js`). For the draw.io-only case, localScriptURL may instead be
+    /// the vendored `drawio-viewer-static.min.js` file itself. That keeps all
+    /// other engines on their normal CDN URLs while reusing web/public's
+    /// existing viewer, and avoids an accidental copy into the app bundle.
     static func resolved(localScriptURL: URL?) -> [String: String] {
         let remotePaths = [
             "mermaid": "mermaid@\(mermaidVersion)/dist/mermaid.min.js",
@@ -325,6 +336,11 @@ public enum FigureAssets {
         var withDrawio = remote
         withDrawio["drawio"] = drawioViewerURL.absoluteString
         guard let local = localScriptURL else { return withDrawio }
+        if local.pathExtension.lowercased() == "js",
+           local.lastPathComponent == "drawio-viewer-static.min.js" {
+            withDrawio["drawio"] = local.absoluteString
+            return withDrawio
+        }
         let localBasenames = [
             "mermaid": "mermaid.min.js",
             "katex": "katex.min.js",
@@ -457,7 +473,8 @@ public struct FigureHost: NSViewRepresentable {
     /// Called with the absolute URL of a tapped link inside the figure.
     public var onLink: ((URL) -> Void)?
     /// When set, scripts/CSS load from this directory instead of the CDN
-    /// (see FigureAssets.resolved for the expected layout).
+    /// (see FigureAssets.resolved for the expected layout). For draw.io only,
+    /// this may instead be the vendored `drawio-viewer-static.min.js` file.
     public var localScriptURL: URL?
     /// Height reserved for echarts figures that carry no intrinsic size.
     public var echartsHeight: CGFloat

@@ -160,6 +160,46 @@ public enum ThemeMode: String, CaseIterable, Sendable {
     }
 }
 
+// MARK: - Content width
+
+/// The reading-column width, shared with the web ThemeMenu's Normal/Wide/Full
+/// choices. Normal is the neutral default and therefore stores nothing.
+public enum ContentWidthMode: String, CaseIterable, Sendable {
+    case normal
+    case wide
+    case full
+
+    public init(stored raw: String?) {
+        switch raw {
+        case "wide": self = .wide
+        case "full": self = .full
+        default: self = .normal
+        }
+    }
+
+    public var storedValue: String? {
+        self == .normal ? nil : rawValue
+    }
+
+    /// Maximum reading-column width in points. Full intentionally delegates
+    /// sizing to SwiftUI's available width.
+    public var maxWidth: CGFloat {
+        switch self {
+        case .normal: return 880
+        case .wide: return 1280
+        case .full: return .infinity
+        }
+    }
+
+    public var label: String {
+        switch self {
+        case .normal: return "Normal"
+        case .wide: return "Wide"
+        case .full: return "Full"
+        }
+    }
+}
+
 // MARK: - Appearance settings
 
 /// Storage keys and the range/step rules for the appearance settings. Keys
@@ -171,6 +211,8 @@ public enum TrackAppearance {
     /// absolute px on "track.fontSize"; the native P0 keeps the ratio).
     public static let fontScaleKey = "track.fontScale"
     public static let defaultFontScale = 1.0
+    /// Native reading-column width, matching web ThemeMenu's setting.
+    public static let contentWidthKey = "track.contentWidth"
     /// The range the stored Double is held to (0.85–1.3×).
     public static let fontScaleRange: ClosedRange<Double> = 0.85...1.3
 

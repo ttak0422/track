@@ -570,25 +570,48 @@ public final class SearchModel {
     /// "vault … could not be searched" note (the count drives a banner).
     public private(set) var unavailableCount = 0
     private let client: TrackClient
+    private var pendingSearch: Task<Void, Never>?
 
     public init(client: TrackClient) {
         self.client = client
     }
 
-    public func search(query: String) async {
+    /// Starts a live search. Keeping the debounce task here (rather than in the
+    /// view) also makes every search entry point share the same cancellation
+    /// and stale-response behaviour.
+    public func search(query: String) {
+        pendingSearch?.cancel()
+        let query = query.trimmingCharacters(in: .whitespacesAndNewlines)
         error = nil
-        guard !query.isEmpty else { results = []; unavailableCount = 0; isLoading = false; return }
-        isLoading = true
-        defer { isLoading = false }
-        do {
-            // api.ts: searchNotes(query, limit) — title hits first, server-side.
-            let response = try await client.searchNotes(query: query)
-            results = response.results
-            unavailableCount = response.unavailable?.count ?? 0
-        } catch {
-            self.error = error.localizedDescription
+        guard !query.isEmpty else {
             results = []
             unavailableCount = 0
+            isLoading = false
+            return
+        }
+
+        isLoading = true
+        let client = client
+        pendingSearch = Task { [weak self] in
+            do {
+                try await Task.sleep(nanoseconds: 180_000_000)
+                try Task.checkCancellation()
+                // api.ts: searchNotes(query, limit) — title hits first, server-side.
+                let response = try await client.searchNotes(query: query)
+                try Task.checkCancellation()
+                guard let self else { return }
+                self.results = response.results
+                self.unavailableCount = response.unavailable?.count ?? 0
+                self.isLoading = false
+            } catch is CancellationError {
+                // A newer keystroke owns the next request.
+            } catch {
+                guard let self, !Task.isCancelled else { return }
+                self.error = error.localizedDescription
+                self.results = []
+                self.unavailableCount = 0
+                self.isLoading = false
+            }
         }
     }
 }

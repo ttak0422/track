@@ -87,6 +87,10 @@ public struct HierarchyView: View {
             }
         }
         .task { await model.loadHierarchy() }
+        .onReceive(NotificationCenter.default.publisher(for: .trackVaultChanged)) { _ in
+            guard !model.isLoading else { return }
+            Task { await model.loadHierarchy() }
+        }
     }
 }
 
@@ -151,6 +155,10 @@ public struct TagView: View {
             }
         }
         .task { await model.loadNotes() }
+        .onReceive(NotificationCenter.default.publisher(for: .trackVaultChanged)) { _ in
+            guard !model.isLoading else { return }
+            Task { await model.loadNotes() }
+        }
     }
 
     private func notes(for tag: String?) -> [SearchResult] {
@@ -194,6 +202,10 @@ public struct ActivityHeatmapView: View {
             }
         }
         .task { await model.loadNotes() }
+        .onReceive(NotificationCenter.default.publisher(for: .trackVaultChanged)) { _ in
+            guard !model.isLoading else { return }
+            Task { await model.loadNotes() }
+        }
     }
 
     private func color(for count: Int) -> Color {

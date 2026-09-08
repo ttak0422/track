@@ -62,6 +62,38 @@ public final class CalendarModel {
         tasks.filter { $0.item.due == day }.count
     }
 
+    /// Open deadlines that have already passed. Completed tasks do not keep a
+    /// day looking urgent, while the total deadline count remains available as
+    /// the cell's `[!] N` summary.
+    public func overdueCount(on day: String) -> Int {
+        let today = Self.dayString(Date())
+        return tasks.filter { row in
+            guard let due = row.item.due else { return false }
+            return !row.item.done && due < today && due == day
+        }.count
+    }
+
+    /// The strongest deadline on a day, expressed as a small due-bar fill.
+    /// This deliberately mirrors the web's two-week urgency window without
+    /// making the compact native cell show individual task rows.
+    public func dueFill(on day: String) -> (fill: Double, overdue: Bool) {
+        let today = Self.dayString(Date())
+        let dated = tasks.compactMap { row -> (String, Bool)? in
+            guard let due = row.item.due, !row.item.done, due == day else { return nil }
+            return (due, due < today)
+        }
+        guard !dated.isEmpty else { return (0, false) }
+        if dated.contains(where: { $0.1 }) { return (1, true) }
+        let remaining = max(0, Self.daysBetween(today, day))
+        return (max(0, min(1, 1 - Double(remaining) / 14)), false)
+    }
+
+    /// The existing notes listing already contains month summary journals.
+    public func monthlyJournal() -> SearchResult? {
+        let key = Self.monthKey(month)
+        return notes.first { $0.ref.fileKind == "journal" && $0.ref.title == key }
+    }
+
     // MARK: - Grid helpers
 
     public var monthStart: Date {
@@ -85,6 +117,15 @@ public final class CalendarModel {
         formatter.string(from: date)
     }
 
+    public static func monthKey(_ date: Date) -> String {
+        monthFormatter.string(from: date)
+    }
+
+    private static func daysBetween(_ first: String, _ second: String) -> Int {
+        guard let a = formatter.date(from: first), let b = formatter.date(from: second) else { return 0 }
+        return Calendar.current.dateComponents([.day], from: a, to: b).day ?? 0
+    }
+
     public static func isSameMonth(_ date: Date, as month: Date) -> Bool {
         Calendar.current.isDate(date, equalTo: month, toGranularity: .month)
     }
@@ -102,12 +143,22 @@ public final class CalendarModel {
         f.locale = Locale(identifier: "en_US_POSIX")
         return f
     }()
+
+    private static let monthFormatter: DateFormatter = {
+        let f = DateFormatter()
+        f.dateFormat = "yyyyMM"
+        f.locale = Locale(identifier: "en_US_POSIX")
+        return f
+    }()
 }
 
 // MARK: - Calendar view
 
 public struct CalendarView: View {
     @State private var model: CalendarModel
+    @State private var monthlyJournal: JournalPreview?
+    @State private var monthlyJournalError: String?
+    @State private var isLoadingMonthlyJournal = false
 
     private let client: TrackClient
     private let columns = Array(repeating: GridItem(.flexible(), spacing: 4), count: 7)
@@ -144,8 +195,18 @@ public struct CalendarView: View {
             Button { model.shiftMonth(by: -1) } label: { Image(systemName: "chevron.left") }
                 .buttonStyle(.plain)
             Spacer()
-            Text(monthTitle).font(.headline)
+            if model.monthlyJournal() != nil {
+                Button(monthTitle) { openMonthlyJournal() }
+                    .buttonStyle(.plain)
+                    .font(.headline)
+                    .help("Open monthly journal")
+            } else {
+                Text(monthTitle).font(.headline)
+            }
             Spacer()
+            Button("Today") { model.month = Calendar.current.startOfDay(for: Date()) }
+                .buttonStyle(.plain)
+                .font(.caption)
             Button { model.shiftMonth(by: 1) } label: { Image(systemName: "chevron.right") }
                 .buttonStyle(.plain)
         }
@@ -175,6 +236,9 @@ public struct CalendarView: View {
                             inMonth: CalendarModel.isSameMonth(day, as: model.month),
                             noteCount: model.notes(on: CalendarModel.dayString(day)).count,
                             deadlineCount: model.deadlineCount(on: CalendarModel.dayString(day)),
+                            overdueCount: model.overdueCount(on: CalendarModel.dayString(day)),
+                            dueFill: model.dueFill(on: CalendarModel.dayString(day)),
+                            isToday: Calendar.current.isDateInToday(day),
                             isSelected: model.selectedDay == CalendarModel.dayString(day),
                             onSelect: { model.selectedDay = CalendarModel.dayString(day) }
                         )
@@ -194,8 +258,42 @@ public struct CalendarView: View {
                     .font(.caption).foregroundStyle(.secondary)
                     .frame(maxWidth: .infinity, alignment: .leading).padding(8)
             }
+            if isLoadingMonthlyJournal {
+                ProgressView().controlSize(.small)
+            } else if let monthlyJournalError {
+                Text(monthlyJournalError).font(.caption).foregroundStyle(.red)
+            } else if let monthlyJournal {
+                VStack(alignment: .leading, spacing: 2) {
+                    Text("Opened monthly journal").font(.caption2).foregroundStyle(.secondary)
+                    Text(monthlyJournal.title).font(.body).fontWeight(.medium)
+                    ForEach(monthlyJournal.lines, id: \.self) { Text($0).font(.caption).foregroundStyle(.secondary) }
+                }
+            }
         }
         .frame(minHeight: 120)
+    }
+
+    private func openMonthlyJournal() {
+        guard let result = model.monthlyJournal() else { return }
+        isLoadingMonthlyJournal = true
+        monthlyJournalError = nil
+        Task {
+            do {
+                let note = try await client.getNote(result.ref.noteID)
+                monthlyJournal = JournalPreview(
+                    title: note.note.summary.ref.title,
+                    lines: Self.previewLines(from: note.note.body),
+                    created: false
+                )
+            } catch {
+                monthlyJournalError = error.localizedDescription
+            }
+            isLoadingMonthlyJournal = false
+        }
+    }
+
+    private static func previewLines(from body: String) -> [String] {
+        body.split(separator: "\n", omittingEmptySubsequences: true).prefix(4).map(String.init)
     }
 }
 
@@ -206,6 +304,9 @@ private struct DayCell: View {
     let inMonth: Bool
     let noteCount: Int
     let deadlineCount: Int
+    let overdueCount: Int
+    let dueFill: (fill: Double, overdue: Bool)
+    let isToday: Bool
     let isSelected: Bool
     let onSelect: () -> Void
 
@@ -214,14 +315,33 @@ private struct DayCell: View {
             VStack(alignment: .leading, spacing: 2) {
                 Text("\(Calendar.current.component(.day, from: day))")
                     .font(.caption)
-                    .foregroundStyle(inMonth ? Color.primary : Color.secondary)
+                    .foregroundStyle(isToday ? Color.white : (inMonth ? Color.primary : Color.secondary))
+                    .padding(.horizontal, isToday ? 4 : 0)
+                    .padding(.vertical, isToday ? 1 : 0)
+                    .background(isToday ? Color.accentColor : Color.clear, in: Capsule())
                 HStack(spacing: 2) {
                     ForEach(0..<min(noteCount, 3), id: \.self) { _ in
                         Circle().fill(Color.accentColor).frame(width: 4, height: 4)
                     }
+                    if noteCount > 3 {
+                        Text("+\(noteCount - 3)").font(.caption2).foregroundStyle(.secondary)
+                    }
+                }
+                if dueFill.fill > 0 {
+                    GeometryReader { proxy in
+                        ZStack(alignment: .leading) {
+                            Capsule().fill(Color.red.opacity(0.16))
+                            Capsule().fill(dueFill.overdue ? Color.red : Color.orange)
+                                .frame(width: proxy.size.width * dueFill.fill)
+                        }
+                    }
+                    .frame(height: 3)
                 }
                 if deadlineCount > 0 {
-                    Text("[!] \(deadlineCount)").font(.caption2).foregroundStyle(.red)
+                    Text(overdueCount > 0 ? "[!] \(deadlineCount) · overdue \(overdueCount)" : "[!] \(deadlineCount)")
+                        .font(.caption2)
+                        .fontWeight(overdueCount > 0 ? .semibold : .regular)
+                        .foregroundStyle(.red)
                 }
             }
             .frame(maxWidth: .infinity, alignment: .leading)
