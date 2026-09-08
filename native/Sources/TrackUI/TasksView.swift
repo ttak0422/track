@@ -131,6 +131,7 @@ private struct TaskRowView: View {
     let row: TaskRow
     let onCycleState: () -> Void
     let onPickDate: () -> Void
+    @Environment(\.openURL) private var openURL
 
     var body: some View {
         HStack(alignment: .firstTextBaseline, spacing: 8) {
@@ -153,16 +154,17 @@ private struct TaskRowView: View {
                         .font(.caption)
                         .foregroundStyle(.tertiary)
                 }
-                // Keep the note affordance on the title only.  The state and
-                // date controls remain independent so opening a note never
-                // steals an edit gesture.
-                Link(row.title, destination: noteURL(for: row))
+                Text(row.title)
                     .font(.caption)
                     .foregroundStyle(.secondary)
             }
             Spacer()
             dateStack
         }
+        .contentShape(Rectangle())
+        // The row is the navigation target, while the state and date buttons
+        // above remain their own controls and consume their edit gestures.
+        .onTapGesture { _ = openURL(noteURL(for: row)) }
     }
 
     /// The date area is still the cell's own control (design.md Task table): a
@@ -184,9 +186,7 @@ private struct TaskRowView: View {
     }
 }
 
-/// The reader handles this same URL scheme for wikilinks.  Keeping the task
-/// title as a real Link gives the native task list a note navigation target
-/// without making the editable cells part of that target.
+/// The reader handles this same URL scheme for wikilinks.
 private func noteURL(for row: TaskRow) -> URL {
     let target = row.noteID.raw.addingPercentEncoding(withAllowedCharacters: .urlPathAllowed) ?? row.noteID.raw
     return URL(string: "trackwiki://\(target)")!

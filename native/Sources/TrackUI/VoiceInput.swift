@@ -187,13 +187,23 @@ public final class VoiceInputModel {
         interimTranscript = ""
         finalizedTranscript = ""
     }
+
+    /// Updates the transcript from the editor. Keeping this on the model means
+    /// the same value is used by copy, search, journal append, and autosave.
+    public func updateTranscript(_ value: String) {
+        transcript = value
+        if !isRecording {
+            finalizedTranscript = value
+            interimTranscript = ""
+        }
+    }
 }
 
 // MARK: - View
 
 /// The record-and-transcript surface. The record button toggles the session
-/// and the transcript (live while speaking, final after stop) is shown as
-/// selectable text; the error line surfaces permission/mic/recognizer issues.
+/// and the transcript (live while speaking, final after stop) is shown in an
+/// editable text area; the error line surfaces permission/mic/recognizer issues.
 /// "Append to today's journal" opens (or creates) today's journal and writes
 /// the transcript onto the end of its body.
 public struct VoiceView: View {
@@ -317,23 +327,28 @@ public struct VoiceView: View {
                     .foregroundStyle(.red)
             }
 
-            if model.transcript.isEmpty {
-                ContentUnavailableView(
-                    "Voice input",
-                    systemImage: "waveform",
-                    description: Text("Press Record and speak (ja-JP). The transcript appears here.")
-                )
+            ZStack(alignment: .topLeading) {
+                TextEditor(text: Binding(
+                    get: { model.transcript },
+                    set: { model.updateTranscript($0) }
+                ))
+                .font(.body)
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
-            } else {
-                ScrollView {
-                    Text(model.interimTranscript.isEmpty ? model.transcript : String(model.transcript.dropFirst(model.transcript.count - model.interimTranscript.count)))
-                        .foregroundStyle(model.interimTranscript.isEmpty ? .primary : .secondary)
-                        .font(.body)
-                        .frame(maxWidth: .infinity, alignment: .leading)
-                        .textSelection(.enabled)
+                .padding(4)
+                .overlay {
+                    RoundedRectangle(cornerRadius: 6)
+                        .strokeBorder(.quaternary, lineWidth: 1)
                 }
-                .frame(maxWidth: .infinity, maxHeight: .infinity)
+
+                if model.transcript.isEmpty {
+                    Text("Press Record and speak (ja-JP). You can edit the transcript here.")
+                        .foregroundStyle(.secondary)
+                        .padding(.horizontal, 10)
+                        .padding(.vertical, 12)
+                        .allowsHitTesting(false)
+                }
             }
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
 
             if !searchResults.isEmpty {
                 VStack(alignment: .leading, spacing: 8) {

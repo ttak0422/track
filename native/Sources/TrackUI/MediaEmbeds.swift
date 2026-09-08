@@ -319,14 +319,16 @@ public struct OgpCardView: View {
 
 // MARK: - PDF embed
 
-/// An embedded PDF (web Embed's PdfDeck): the file is downloaded and drawn as
-/// a continuous, auto-scaling PDFView page strip. Degrades to a plain link
-/// when the fetch fails or the data is not a PDF.
+/// An embedded PDF (web Embed's PdfDeck): one page at a time, fitted to the
+/// available width, with direct navigation and an optional native continuous
+/// scroll mode. Degrades to a plain link when the fetch fails or the data is
+/// not a PDF.
 public struct PdfNoteView: View {
     private let assetURL: URL
     @State private var document: PDFDocument?
     @State private var failed = false
     @State private var page = 1
+    @State private var displayMode: PDFDeckDisplayMode = .deck
 
     public init(assetURL: URL) {
         self.assetURL = assetURL
@@ -338,7 +340,11 @@ public struct PdfNoteView: View {
                 PlainLinkView(url: assetURL)
             } else if let document {
                 VStack(spacing: 6) {
-                    PDFDocumentView(document: document, page: $page)
+                    PDFDocumentView(document: document, page: $page, displayMode: displayMode) {
+                        page = min(document.pageCount, page + 1)
+                    } movePage: { delta in
+                        page = min(document.pageCount, max(1, page + delta))
+                    }
                     .frame(height: 420)
                     pdfControls(pageCount: document.pageCount)
                 }
@@ -373,9 +379,8 @@ public struct PdfNoteView: View {
         }
     }
 
-    /// The strip remains a PDFView (and therefore keeps its native scrolling),
-    /// while this small quiet-chip bar provides the same orientation and direct
-    /// page access as PdfDeck.
+    /// Quiet-chip controls mirror PdfDeck's page rail. The mode picker keeps
+    /// the old continuous reader available for long documents.
     private func pdfControls(pageCount: Int) -> some View {
         HStack(spacing: 8) {
             Button("‹") { page = max(1, page - 1) }
@@ -390,6 +395,15 @@ public struct PdfNoteView: View {
             Button("›") { page = min(pageCount, page + 1) }
                 .disabled(page >= pageCount)
                 .accessibilityLabel("Next page")
+            Picker("PDF view", selection: $displayMode) {
+                Text("Deck").tag(PDFDeckDisplayMode.deck)
+                Text("Continuous").tag(PDFDeckDisplayMode.continuous)
+            }
+            .pickerStyle(.menu)
+            .accessibilityLabel("PDF display mode")
+            Spacer(minLength: 4)
+            Link("Open PDF", destination: assetURL)
+                .foregroundStyle(.secondary)
         }
         .buttonStyle(.borderless)
         .font(.caption)
@@ -400,20 +414,41 @@ public struct PdfNoteView: View {
     }
 }
 
+private enum PDFDeckDisplayMode: Hashable {
+    case deck
+    case continuous
+}
+
 /// PDFView wrapped for SwiftUI.
 private struct PDFDocumentView: NSViewRepresentable {
     let document: PDFDocument
     @Binding var page: Int
+    let displayMode: PDFDeckDisplayMode
+    let advance: () -> Void
+    let movePage: (Int) -> Void
 
-    func makeCoordinator() -> Coordinator { Coordinator(page: $page) }
+    init(document: PDFDocument, page: Binding<Int>, displayMode: PDFDeckDisplayMode,
+         advance: @escaping () -> Void, movePage: @escaping (Int) -> Void) {
+        self.document = document
+        _page = page
+        self.displayMode = displayMode
+        self.advance = advance
+        self.movePage = movePage
+    }
+
+    func makeCoordinator() -> Coordinator {
+        Coordinator(page: $page, advance: advance, movePage: movePage)
+    }
 
     func makeNSView(context: Context) -> PDFView {
-        let view = PDFView()
+        let view = DeckPDFView()
         view.document = document
-        view.autoScales = true
-        view.displayMode = .singlePageContinuous
+        view.onAdvance = context.coordinator.advance
+        view.onMovePage = context.coordinator.movePage
+        view.displayMode = displayMode == .deck ? .singlePage : .singlePageContinuous
         view.displayDirection = .vertical
         view.backgroundColor = .clear
+        view.autoScales = true
         context.coordinator.observe(view)
         return view
     }
@@ -422,6 +457,12 @@ private struct PDFDocumentView: NSViewRepresentable {
         if nsView.document !== document {
             nsView.document = document
         }
+        if let deckView = nsView as? DeckPDFView {
+            deckView.onAdvance = context.coordinator.advance
+            deckView.onMovePage = context.coordinator.movePage
+        }
+        nsView.displayMode = displayMode == .deck ? .singlePage : .singlePageContinuous
+        nsView.autoScales = true
         guard document.pageCount > 0, let targetPage = document.page(at: max(0, min(document.pageCount - 1, page - 1))) else {
             return
         }
@@ -435,8 +476,14 @@ private struct PDFDocumentView: NSViewRepresentable {
     final class Coordinator {
         private var page: Binding<Int>
         private var observer: NSObjectProtocol?
+        let advance: () -> Void
+        let movePage: (Int) -> Void
 
-        init(page: Binding<Int>) { self.page = page }
+        init(page: Binding<Int>, advance: @escaping () -> Void, movePage: @escaping (Int) -> Void) {
+            self.page = page
+            self.advance = advance
+            self.movePage = movePage
+        }
 
         func observe(_ view: PDFView) {
             observer = NotificationCenter.default.addObserver(
@@ -452,6 +499,51 @@ private struct PDFDocumentView: NSViewRepresentable {
 
         deinit {
             if let observer { NotificationCenter.default.removeObserver(observer) }
+        }
+    }
+}
+
+/// PDFView normally owns both mouse and keyboard navigation. Keeping these
+/// small interactions here makes the SwiftUI deck behave like the web canvas,
+/// while leaving PDFKit's native selection and continuous scrolling intact.
+private final class DeckPDFView: PDFView {
+    var onAdvance: (() -> Void)?
+    var onMovePage: ((Int) -> Void)?
+
+    override var acceptsFirstResponder: Bool { true }
+
+    override func layout() {
+        super.layout()
+        guard displayMode == .singlePage,
+              let page = currentPage ?? document?.page(at: 0) else { return }
+        let pageWidth = page.bounds(for: .mediaBox).width
+        guard pageWidth > 0, bounds.width > 0 else { return }
+        // The deck follows the web's fit-to-width rule. PDFKit's
+        // `autoScales` fits both axes, which makes a tall slide unexpectedly
+        // narrow; the explicit scale keeps the page edge-to-edge instead.
+        let widthScale = max(0.1, (bounds.width - 16) / pageWidth)
+        autoScales = false
+        minScaleFactor = widthScale
+        maxScaleFactor = widthScale
+        scaleFactor = widthScale
+    }
+
+    override func mouseDown(with event: NSEvent) {
+        if displayMode == .singlePage {
+            onAdvance?()
+        } else {
+            super.mouseDown(with: event)
+        }
+    }
+
+    override func keyDown(with event: NSEvent) {
+        switch event.keyCode {
+        case 123, 126: // left / up
+            onMovePage?(-1)
+        case 124, 125: // right / down
+            onMovePage?(1)
+        default:
+            super.keyDown(with: event)
         }
     }
 }

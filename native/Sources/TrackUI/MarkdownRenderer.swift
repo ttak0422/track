@@ -3,6 +3,7 @@ import AppKit
 import MarkdownUI
 import SwiftUI
 import TrackAPI
+import WebKit
 
 // GFM Markdown rendering for the native reader, backed by MarkdownUI
 // (gonzalezreal/MarkdownUI), whose parser enables the cmark-gfm table,
@@ -15,7 +16,7 @@ import TrackAPI
 // only that a construct renders as itself. Rich fences are drawn as FigureHost
 // islands (mermaid/math/echarts/viewspec, plus dot/graphviz/d2/drawio/map via
 // the same shell and a ```track-view JSON payload as native SwiftUI);
-// track-query/dashboard are still collapsed to a placeholder line.
+// track-query is still collapsed to a placeholder line.
 // `$` math lines and `![[...]]` include lines are lifted out of the prose, and
 // `[[wikilink]]` targets are rewritten to `trackwiki://` standard links. Inline
 // trackwiki links navigate through the `\.openURL` environment installed by the
@@ -34,6 +35,7 @@ public struct GFMBody: View {
     let includes: [NoteInclude]?
     let client: TrackClient?
     var onWikilink: ((String) -> Void)?
+    var onTaskToggle: ((Int, Bool) -> Void)?
 
     public init(
         markdown: String,
@@ -41,7 +43,8 @@ public struct GFMBody: View {
         vault: String,
         includes: [NoteInclude]? = nil,
         client: TrackClient? = nil,
-        onWikilink: ((String) -> Void)? = nil
+        onWikilink: ((String) -> Void)? = nil,
+        onTaskToggle: ((Int, Bool) -> Void)? = nil
     ) {
         self.markdown = markdown
         self.baseURL = baseURL
@@ -49,6 +52,7 @@ public struct GFMBody: View {
         self.includes = includes
         self.client = client
         self.onWikilink = onWikilink
+        self.onTaskToggle = onTaskToggle
     }
 
     public var body: some View {
@@ -152,6 +156,20 @@ public struct GFMBody: View {
                     }
                     .markdownImageProvider(TrackAssetImageProvider(baseURL: baseURL, vault: vault))
                     .textSelection(.enabled)
+            case .task(let task):
+                HStack(alignment: .firstTextBaseline, spacing: 8) {
+                    Button {
+                        onTaskToggle?(task.line, !task.completed)
+                    } label: {
+                        Image(systemName: task.completed ? "checkmark.square.fill" : "square")
+                    }
+                    .buttonStyle(.plain)
+                    .disabled(onTaskToggle == nil)
+                    Markdown(task.text)
+                        .markdownTheme(.gitHub)
+                        .textSelection(.enabled)
+                }
+                .padding(.leading, 8)
             case .figure(let figure):
                 FigureSegmentView(
                     figure: figure,
@@ -179,6 +197,13 @@ public struct GFMBody: View {
         case figure(Figure)
         case media(Media)
         case include(NoteInclude)
+        case task(TaskLine)
+    }
+
+    struct TaskLine {
+        let line: Int
+        let completed: Bool
+        let text: String
     }
 
     /// A `![alt](src)` line lifted out of the prose and drawn as one of the
@@ -203,6 +228,7 @@ public struct GFMBody: View {
             case map
             case trackView
             case taskboard
+            case dashboard
         }
 
         let kind: Kind
@@ -222,13 +248,14 @@ public struct GFMBody: View {
         "map": .map,
         "track-view": .trackView,
         "taskboard": .taskboard,
+        "dashboard": .dashboard,
     ]
 
     /// Fences the native app still cannot draw — collapsed to a placeholder.
-    /// taskboard is handled as a figure above; track-query/dashboard still need
-    /// the server's laid-out result.
+    /// taskboard and dashboard are handled as figures above; track-query still
+    /// needs the server's laid-out result.
     private static let placeholderFences: Set<String> = [
-        "taskboard", "track-query", "dashboard",
+        "taskboard", "track-query",
     ]
 
     /// Split `markdown` into an ordered run of Markdown spans, media embeds,
@@ -263,6 +290,13 @@ public struct GFMBody: View {
                let include = spliceIn.first(where: { $0.line == marker }) {
                 flush()
                 segments.append(.include(include))
+                i += 1
+                continue
+            }
+
+            if let task = Self.taskLine(trimmed) {
+                flush()
+                segments.append(.task(TaskLine(line: i, completed: task.completed, text: task.text)))
                 i += 1
                 continue
             }
@@ -574,6 +608,16 @@ public struct GFMBody: View {
         return (src, alt)
     }
 
+    private static func taskLine(_ line: String) -> (completed: Bool, text: String)? {
+        guard line.hasPrefix("- [") || line.hasPrefix("* [") || line.hasPrefix("+ [") else { return nil }
+        let start = line.index(line.startIndex, offsetBy: 2)
+        guard line[start] == "[", line.index(start, offsetBy: 2) < line.endIndex,
+              line[line.index(after: start)] == " ", line[line.index(start, offsetBy: 2)] == "]" else { return nil }
+        let completed = line[line.index(start, offsetBy: 1)] != " "
+        let contentStart = line.index(start, offsetBy: 3)
+        return (completed, String(line[contentStart...]).trimmingCharacters(in: .whitespaces))
+    }
+
     // MARK: - Media routing
 
     /// Classify a media src by the same rules the web reader's `Embed.tsx`
@@ -585,6 +629,7 @@ public struct GFMBody: View {
         case pdf
         /// A vault-local text-file attachment (non-image asset).
         case assetText
+        case htmlAsset
         /// An http(s) page url that is not a recognised embed → Open Graph card.
         case ogp
         /// Everything else: a plain image, drawn by the existing image provider
@@ -638,6 +683,11 @@ public struct GFMBody: View {
         return [".png", ".jpg", ".jpeg", ".gif", ".webp", ".svg", ".avif"].contains { lower.hasSuffix($0) }
     }
 
+    private static func isHTMLHref(_ src: String) -> Bool {
+        let path = src.split(separator: "?", maxSplits: 1).first.map(String.init) ?? src
+        return path.lowercased().hasSuffix(".html") || path.lowercased().hasSuffix(".htm")
+    }
+
     /// The MediaEmbedsURLs `webHref` upgrade (bare domain → https), mirrored
     /// so the media segment can hand the same string the web does.
     static func webHref(_ src: String) -> String {
@@ -667,6 +717,9 @@ public struct GFMBody: View {
         }
         if isPdf(src) {
             return .pdf
+        }
+        if let _ = asset, isHTMLHref(src) {
+            return .htmlAsset
         }
         if let _ = asset, !isImageHref(src) {
             return .assetText
@@ -911,6 +964,8 @@ private struct FigureSegmentView: View {
             trackViewBody
         case .taskboard:
             taskboardBody
+        case .dashboard:
+            dashboardBody
         }
     }
 
@@ -998,6 +1053,15 @@ private struct FigureSegmentView: View {
             Label("Taskboard unavailable", systemImage: "rectangle.3.group")
                 .font(.caption)
                 .foregroundStyle(.secondary)
+        }
+    }
+
+    @ViewBuilder
+    private var dashboardBody: some View {
+        if let payload = DashboardPayload.parse(figure.source) {
+            DashboardFigure(payload: payload, onWikilink: onWikilink)
+        } else {
+            codeBlock(figure.source)
         }
     }
 
@@ -1122,6 +1186,58 @@ private struct TrackViewPayload {
             columns: columns,
             groups: groups
         )
+    }
+}
+
+private struct DashboardPayload {
+    let title: String?
+    let widgets: [(title: String, items: [String])]
+
+    static func parse(_ text: String) -> DashboardPayload? {
+        guard let data = text.data(using: .utf8),
+              let object = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else { return nil }
+        let title = object["title"] as? String
+        guard let raw = object["widgets"] as? [[String: Any]] else { return nil }
+        var widgets: [(String, [String])] = []
+        for widget in raw {
+            guard let name = widget["title"] as? String,
+                  let items = widget["items"] as? [String] else { return nil }
+            widgets.append((name, items))
+        }
+        return DashboardPayload(title: title, widgets: widgets)
+    }
+}
+
+private struct DashboardFigure: View {
+    let payload: DashboardPayload
+    let onWikilink: ((String) -> Void)?
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            if let title = payload.title, !title.isEmpty {
+                Text(title).font(.title3.weight(.semibold))
+            }
+            LazyVGrid(columns: [GridItem(.adaptive(minimum: 180), alignment: .top)], alignment: .leading, spacing: 12) {
+                ForEach(Array(payload.widgets.enumerated()), id: \.offset) { _, widget in
+                    VStack(alignment: .leading, spacing: 6) {
+                        Text(widget.title).font(.headline)
+                        if widget.items.isEmpty {
+                            Text("No items.").font(.caption).foregroundStyle(.secondary)
+                        } else {
+                            ForEach(widget.items, id: \.self) { item in
+                                Button(item) { onWikilink?(item) }
+                                    .buttonStyle(.link)
+                            }
+                        }
+                    }
+                    .padding(10)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .background(Color.primary.opacity(0.045))
+                    .clipShape(RoundedRectangle(cornerRadius: 8))
+                }
+            }
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
     }
 }
 
@@ -1497,6 +1613,8 @@ private struct MediaSegmentView: View {
             pdfBody
         case .assetText:
             assetTextBody
+        case .htmlAsset:
+            htmlAssetBody
         case .ogp:
             ogpBody
         case .image:
@@ -1517,6 +1635,17 @@ private struct MediaSegmentView: View {
     private var assetTextBody: some View {
         if let asset = GFMBody.assetHref(media.src, vault: vault, baseURL: baseURL) {
             TextAssetView(url: asset)
+        } else {
+            fallbackLink
+        }
+    }
+
+    @ViewBuilder
+    private var htmlAssetBody: some View {
+        if let asset = GFMBody.assetHref(media.src, vault: vault, baseURL: baseURL),
+           let scheme = asset.scheme?.lowercased(), scheme == "http" || scheme == "https" {
+            HTMLAssetView(url: asset)
+                .frame(minHeight: 320, maxHeight: 720)
         } else {
             fallbackLink
         }
@@ -1670,4 +1799,44 @@ struct TrackAssetImageProvider: ImageProvider {
 
 private extension NSRange {
     var optional: NSRange? { location == NSNotFound ? nil : self }
+}
+
+/// Isolated HTML asset surface. It deliberately has no script-message bridge,
+/// no persistent storage, and does not allow custom schemes or file URLs.
+private struct HTMLAssetView: NSViewRepresentable {
+    let url: URL
+
+    func makeCoordinator() -> Coordinator { Coordinator() }
+
+    func makeNSView(context: Context) -> WKWebView {
+        let configuration = WKWebViewConfiguration()
+        configuration.websiteDataStore = .nonPersistent()
+        let view = WKWebView(frame: .zero, configuration: configuration)
+        view.navigationDelegate = context.coordinator
+        view.load(URLRequest(url: url))
+        return view
+    }
+
+    func updateNSView(_ view: WKWebView, context: Context) {
+        guard view.url != url else { return }
+        view.load(URLRequest(url: url))
+    }
+
+    static func dismantleNSView(_ view: WKWebView, coordinator: Coordinator) {
+        view.stopLoading()
+        view.navigationDelegate = nil
+    }
+
+    final class Coordinator: NSObject, WKNavigationDelegate {
+        @MainActor
+        func webView(_ webView: WKWebView, decidePolicyFor navigationAction: WKNavigationAction,
+                     decisionHandler: @escaping (WKNavigationActionPolicy) -> Void) {
+            guard let url = navigationAction.request.url,
+                  let scheme = url.scheme?.lowercased(), scheme == "http" || scheme == "https" else {
+                decisionHandler(.cancel)
+                return
+            }
+            decisionHandler(.allow)
+        }
+    }
 }

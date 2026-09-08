@@ -48,6 +48,8 @@ public struct SearchReaderView: View {
     @State private var browse: BrowseModel
     @State private var liveEvents: LiveEventPoller
     @State private var dismissedChangeAt: Date?
+    @State private var readerChangeNotice: String?
+    @State private var pendingSearchResult: SearchResult?
     @FocusState private var searchFocused: Bool
     @Environment(\.colorScheme) private var colorScheme
 
@@ -223,11 +225,22 @@ public struct SearchReaderView: View {
                                  VStack(alignment: .leading, spacing: 4) {
                                      Button { openSearchResult(result) } label: {
                                          VStack(alignment: .leading, spacing: 2) {
-                                             HStack(spacing: 6) {
-                                                 highlighted(result.ref.title)
-                                                     .font(.body)
+                                              HStack(spacing: 6) {
+                                                  if let icon = result.icon, !icon.isEmpty {
+                                                      Text(icon).font(.body)
+                                                  } else {
+                                                      Image(systemName: "doc.text")
+                                                          .font(.caption).foregroundStyle(.tertiary)
+                                                  }
+                                                  highlighted(result.ref.title)
+                                                      .font(.body)
                                                  if reading.isNew(result.ref) { statusBadge("NEW") }
-                                                 if isStale(result) { statusBadge("古い") }
+                                                  if isStale(result) { statusBadge("古い") }
+                                                  if let flags = result.ref.flags {
+                                                      ForEach(flags.filter { $0 == "DEPRECATED" || $0 == "CONFIDENTIAL" }, id: \.self) {
+                                                          statusBadge($0)
+                                                      }
+                                                  }
                                              }
                                              if let match = result.match {
                                                  highlighted(match).font(.caption2).foregroundStyle(.tertiary)
@@ -268,7 +281,9 @@ public struct SearchReaderView: View {
              if reader.currentID == nil {
                  searchHome
              } else {
-                 NoteReaderView(model: reader, baseURL: baseURL)
+                  NoteReaderView(model: reader, baseURL: baseURL) { tag in
+                      appendSearchTag(tag)
+                  }
              }
          }
          .overlay(alignment: .top) {
@@ -292,10 +307,29 @@ public struct SearchReaderView: View {
          .onDisappear {
              liveEvents.stop()
          }
-        .onReceive(NotificationCenter.default.publisher(for: .trackVaultChanged)) { _ in
+         .onReceive(NotificationCenter.default.publisher(for: .trackVaultChanged)) { _ in
             guard !query.isEmpty, !search.isLoading else { return }
             search.search(query: query)
-     }
+      }
+         .alert("Unsaved edits", isPresented: Binding(
+             get: { readerChangeNotice != nil },
+             set: { if !$0 { readerChangeNotice = nil; pendingSearchResult = nil } }
+         )) {
+             Button("Discard and open", role: .destructive) {
+                 reader.discardDraft()
+                 if let result = pendingSearchResult {
+                     pendingSearchResult = nil
+                     openSearchResult(result)
+                 }
+                 readerChangeNotice = nil
+             }
+             Button("Keep editing", role: .cancel) {
+                 readerChangeNotice = nil
+                 pendingSearchResult = nil
+             }
+         } message: {
+             Text("Your unsaved changes will be lost.")
+         }
 
         .sheet(isPresented: $showNewNote) {
             NewNoteSheet(
@@ -401,6 +435,11 @@ public struct SearchReaderView: View {
     }
 
     private func openSearchResult(_ result: SearchResult) {
+        guard !reader.isDirty else {
+            readerChangeNotice = "Discard unsaved edits before opening another note?"
+            pendingSearchResult = result
+            return
+        }
         recordRecent(RecentNote(id: result.qualifiedID.raw, title: result.ref.title))
         reading.markSeen(result.ref.noteID.raw)
         Task { await reader.open(result.qualifiedID) }
@@ -534,6 +573,7 @@ public struct NoteReaderView: View {
     @AppStorage(TrackAppearance.contentWidthKey) private var contentWidthRaw: String?
     /// The API base URL, passed down to the GFM renderer for `assets/…` embeds.
     let baseURL: URL
+    let onTagSearch: (String) -> Void
     /// Edit/Preview/Split is shared across note windows, like the web editor's
     /// persisted editorMode. Keep the string at the edge so an older value can
     /// never make the picker fail to render.
@@ -555,13 +595,16 @@ public struct NoteReaderView: View {
     @State private var titleCopied = false
     @State private var anchorHighlight = false
     @State private var wikilinkPreview: WikilinkPreview?
+    @State private var saveConfirmation = false
     /// Local visible-time accumulator shared with NoteReaderModel's recordView
     /// bridge. A coarse ten-second tick is sufficient for the read milestone.
     @State private var reading = ReadingStore()
+    @State private var onThisDay: [SearchResult] = []
 
-    public init(model: NoteReaderModel, baseURL: URL) {
+    public init(model: NoteReaderModel, baseURL: URL, onTagSearch: @escaping (String) -> Void = { _ in }) {
         self.model = model
         self.baseURL = baseURL
+        self.onTagSearch = onTagSearch
     }
 
     public var body: some View {
@@ -584,13 +627,16 @@ public struct NoteReaderView: View {
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .toolbar { loadedToolbar }
         .overlay(alignment: .top) {
-            if model.saveConflict != nil || model.saveError != nil {
+            if model.saveConflict != nil || model.saveError != nil || saveConfirmation {
                 VStack(spacing: 6) {
                     if let conflict = model.saveConflict {
                         readerBanner(conflict, isError: false) { model.dismissConflict() }
                     }
                     if let error = model.saveError {
                         readerBanner(error, isError: true) { model.dismissSaveError() }
+                    }
+                    if saveConfirmation {
+                        readerBanner("Saved successfully", isError: false) { saveConfirmation = false }
                     }
                 }
                 .padding(.horizontal, 12)
@@ -603,6 +649,21 @@ public struct NoteReaderView: View {
             // "seen" milestone (reading.ts markSeen). Fire-and-forget.
             await model.reportSeen()
             guard case .loaded(let response) = model.state else { return }
+            if response.note.summary.ref.fileKind == "journal" {
+                let formatter = DateFormatter()
+                formatter.dateFormat = "yyyy-MM-dd"
+                formatter.locale = Locale(identifier: "en_US_POSIX")
+                let day = formatter.string(from: Date())
+                if let notes = try? await model.client.listNotes(limit: 500) {
+                    onThisDay = notes.notes.filter {
+                        $0.ref.fileKind == "journal" &&
+                        $0.ref.noteID != response.note.summary.ref.noteID &&
+                        ($0.days ?? []).contains(day)
+                    }
+                }
+            } else {
+                onThisDay = []
+            }
             while !Task.isCancelled {
                 try? await Task.sleep(for: .seconds(10))
                 guard !Task.isCancelled else { return }
@@ -720,7 +781,10 @@ public struct NoteReaderView: View {
                 .controlSize(.small)
                 .accessibilityLabel("Saving")
         } else {
-            Button("Save") { Task { await model.saveDraft() } }
+            Button("Save") { Task {
+                await model.saveDraft()
+                if model.saveError == nil && model.saveConflict == nil { saveConfirmation = true }
+            } }
                 .disabled(!model.isDirty)
                 .keyboardShortcut("s", modifiers: [.command])
         }
@@ -804,6 +868,15 @@ public struct NoteReaderView: View {
     @ViewBuilder
     private func readerMain(_ response: NoteResponse) -> some View {
         VStack(alignment: .leading, spacing: 16) {
+                if let trail = response.trail, !trail.isEmpty {
+                    HStack(spacing: 5) {
+                        ForEach(Array(trail.enumerated()), id: \.element.noteID) { index, ref in
+                            if index > 0 { Text("/").foregroundStyle(.tertiary) }
+                            asideLink(ref.title) { Task { await model.openRef(ref) } }
+                        }
+                    }
+                    .font(.caption)
+                }
                 noteHeader(response.note, showTags: false)
 
                 if let excerpt = model.anchoredExcerpt {
@@ -816,9 +889,13 @@ public struct NoteReaderView: View {
                     vault: model.currentID?.split().vault ?? "",
                     includes: model.didRender ? model.renderedIncludes : nil,
                     client: model.client,
-                    onWikilink: { target in Task { await model.openWikilink(target: target) } }
+                    onWikilink: { target in Task { await model.openWikilink(target: target) } },
+                    onTaskToggle: { line, completed in
+                        Task { await model.setTaskState(line: line, to: completed ? "DONE" : "TODO") }
+                    }
                 )
                 .environment(\.openURL, wikilinkURLAction)
+                .textSelection(.enabled)
 
                 if let tasks = response.note.tasks, !tasks.items.isEmpty {
                     NoteTasksSection(
@@ -837,25 +914,37 @@ public struct NoteReaderView: View {
     @ViewBuilder
     private func readerAside(_ response: NoteResponse) -> some View {
         VStack(alignment: .leading, spacing: 14) {
-            if let trail = response.trail, !trail.isEmpty {
-                asideSection("Trail") {
-                    ForEach(trail, id: \.noteID) { ref in
-                        asideLink(ref.title) { Task { await model.openRef(ref) } }
+            if let tags = response.note.summary.tags, !tags.isEmpty {
+                asideSection("Tags") {
+                    ForEach(tags, id: \.self) { tag in
+                        Button("#\(tag)") { onTagSearch(tag) }
+                            .buttonStyle(.plain)
+                            .font(.callout)
+                            .foregroundStyle(TrackTheme.palette(for: colorScheme).muted)
                     }
                 }
             }
-            if let tags = response.note.summary.tags, !tags.isEmpty {
-                asideSection("Tags") {
-                    Text(tags.map { "#\($0)" }.joined(separator: "  "))
-                        .font(.caption).foregroundStyle(TrackTheme.palette(for: colorScheme).muted)
+            if !onThisDay.isEmpty {
+                asideSection("On this day") {
+                    ForEach(onThisDay, id: \.qualifiedID) { result in
+                        asideLink(result.ref.title) { Task { await model.open(result.qualifiedID) } }
+                    }
                 }
             }
             let headings = GFMBody.tocEntries(in: response.note.body)
             if !headings.isEmpty {
                 asideSection("Contents") {
                     ForEach(headings) { entry in
-                        Text("\(String(repeating: "  ", count: max(0, entry.level - 1)))• \(entry.title)")
-                            .font(.caption).foregroundStyle(.secondary)
+                        Button {
+                            model.anchoredExcerpt = headingExcerpt(entry.title, in: response.note.body)
+                        } label: {
+                            HStack(spacing: 4) {
+                                Image(systemName: "link").font(.caption2)
+                                Text(entry.title)
+                            }
+                            .padding(.leading, CGFloat(max(0, entry.level - 1) * 12))
+                        }
+                        .buttonStyle(.plain).foregroundStyle(.secondary)
                     }
                 }
             }
@@ -879,8 +968,10 @@ public struct NoteReaderView: View {
                     }
                 }
             }
-            if !response.backlinks.isEmpty {
-                asideSection("Backlinks") {
+            asideSection("Backlinks") {
+                    Text(response.backlinks.isEmpty ? "No backlinks." : "\(response.backlinks.count) backlink\(response.backlinks.count == 1 ? "" : "s")")
+                        .font(.caption).foregroundStyle(.secondary)
+                if !response.backlinks.isEmpty {
                     ForEach(response.backlinks, id: \.noteID) { ref in
                         HStack(spacing: 6) {
                             asideLink(ref.title) { Task { await model.openRef(ref) } }
@@ -1054,6 +1145,17 @@ public struct NoteReaderView: View {
             .foregroundStyle(titleCopied ? .green : .secondary)
             .help("Copy title")
             .accessibilityLabel(titleCopied ? "Title copied" : "Copy title")
+            Spacer()
+            if let flags = note.summary.ref.flags {
+                ForEach(flags.filter { $0 == "DEPRECATED" || $0 == "CONFIDENTIAL" }, id: \.self) { flag in
+                    Text(flag)
+                        .font(.caption2.weight(.bold).monospaced())
+                        .foregroundStyle(TrackTheme.palette(for: colorScheme).mark)
+                        .padding(.horizontal, 7).padding(.vertical, 4)
+                        .overlay(Rectangle().stroke(TrackTheme.palette(for: colorScheme).mark, lineWidth: 1))
+                        .rotationEffect(.degrees(-4))
+                }
+            }
         }
 
         if showTags, let tags = note.summary.tags, !tags.isEmpty {
@@ -1063,27 +1165,46 @@ public struct NoteReaderView: View {
                 }
             }
         }
-        if let flags = note.summary.ref.flags, !flags.isEmpty {
-            HStack(spacing: 8) {
-                ForEach(flags, id: \.self) { flag in
-                    Text(flag)
-                        .font(.caption).fontWeight(.medium)
-                        .foregroundStyle(.secondary)
-                        .padding(.horizontal, 6).padding(.vertical, 2)
-                        .background(.quaternary, in: Capsule())
+        if let props = note.props, !props.isEmpty {
+            VStack(alignment: .leading, spacing: 2) {
+                ForEach(Array(groupedProperties(props).prefix(10).enumerated()), id: \.offset) { _, item in
+                    HStack(alignment: .firstTextBaseline, spacing: 4) {
+                        Text("\(item.key):").font(.caption).foregroundStyle(.secondary)
+                        if item.type == "link" {
+                            Button(item.value) { Task { await model.openWikilink(target: item.value) } }
+                                .buttonStyle(.link).font(.caption)
+                        } else {
+                            Text(item.value).font(.caption).foregroundStyle(.secondary)
+                                .textSelection(.enabled)
+                        }
+                    }
                 }
             }
         }
+        if let created = note.created { Text("created \(created)").font(.caption).foregroundStyle(.secondary) }
+        if let updated = note.updated { Text("updated \(Self.dayString(updated))").font(.caption).foregroundStyle(.secondary) }
+        if let tasks = note.tasks, !tasks.items.isEmpty {
+            Text("\(tasks.items.count) task\(tasks.items.count == 1 ? "" : "s")")
+                .font(.caption).foregroundStyle(.secondary)
+        }
+    }
 
-        if let meta = metadataCaptionLines(note), !meta.isEmpty {
-            VStack(alignment: .leading, spacing: 2) {
-                ForEach(Array(meta.enumerated()), id: \.offset) { _, line in
-                    Text(line)
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
-                        .textSelection(.enabled)
-                }
-            }
+    private struct GroupedProperty {
+        let key: String
+        let value: String
+        let type: String
+    }
+
+    private func groupedProperties(_ props: [NoteProp]) -> [GroupedProperty] {
+        var order: [String] = []
+        var values: [String: (values: [String], type: String)] = [:]
+        for prop in props where !(prop.key == "up" && prop.type == "link") {
+            if values[prop.key] == nil { order.append(prop.key) }
+            values[prop.key, default: ([], prop.type)].values.append(prop.value)
+        }
+        return order.compactMap { key in
+            guard let item = values[key] else { return nil }
+            return GroupedProperty(key: key, value: item.values.joined(separator: ", "), type: item.type)
         }
     }
 
@@ -1118,6 +1239,21 @@ public struct NoteReaderView: View {
         formatter.dateFormat = "yyyy-MM-dd"
         formatter.locale = Locale(identifier: "en_US_POSIX")
         return formatter.string(from: Date(timeIntervalSince1970: TimeInterval(unixSeconds)))
+    }
+
+    private func headingExcerpt(_ title: String, in body: String) -> String {
+        let lines = body.components(separatedBy: .newlines)
+        guard let start = lines.firstIndex(where: { line in
+            let text = line.trimmingCharacters(in: .whitespaces)
+            return text.drop { $0 == "#" }.trimmingCharacters(in: .whitespaces)
+                .replacingOccurrences(of: "#", with: "") == title
+        }) else { return title }
+        let level = lines[start].prefix { $0 == "#" }.count
+        let end = lines[(start + 1)...].firstIndex { line in
+            let text = line.trimmingCharacters(in: .whitespaces)
+            return text.prefix { $0 == "#" }.count == level && text.drop { $0 == "#" }.first == " "
+        } ?? lines.count
+        return lines[start..<end].joined(separator: "\n")
     }
 
     /// A dismissible card showing the anchored excerpt a `[[Note#heading]]` /

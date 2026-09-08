@@ -83,7 +83,7 @@ public struct HierarchyView: View {
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
             } else {
                 List(model.hierarchy, id: \.ref.noteID) { node in
-                    HierarchyRow(node: node, onSelect: onSelect, expandedIDs: expandedBinding)
+                    HierarchyRow(node: node, onSelect: onSelect, expandedIDs: expandedBinding, isRoot: true)
                 }
             }
         }
@@ -107,27 +107,45 @@ private struct HierarchyRow: View {
     let node: HierarchyNode
     let onSelect: (String) -> Void
     @Binding var expandedIDs: Set<String>
+    let isRoot: Bool
 
     var body: some View {
         if let children = node.children, !children.isEmpty {
             DisclosureGroup(isExpanded: Binding(
-                get: { expandedIDs.contains(node.ref.noteID.raw) },
+                get: { isRoot || expandedIDs.contains(node.ref.noteID.raw) },
                 set: { isExpanded in
+                    // Top-level hierarchy nodes mirror the web menu: they are
+                    // always visible and cannot be collapsed.
+                    guard !isRoot else { return }
                     if isExpanded { expandedIDs.insert(node.ref.noteID.raw) }
                     else { expandedIDs.remove(node.ref.noteID.raw) }
                 }
             )) {
                 ForEach(children, id: \.ref.noteID) { child in
-                    HierarchyRow(node: child, onSelect: onSelect, expandedIDs: $expandedIDs)
+                    HierarchyRow(node: child, onSelect: onSelect, expandedIDs: $expandedIDs, isRoot: false)
                 }
             } label: {
-                Button(node.ref.title) { onSelect(node.ref.noteID.raw) }
-                    .buttonStyle(.plain)
+                titleButton
             }
         } else {
-            Button(node.ref.title) { onSelect(node.ref.noteID.raw) }
-                .buttonStyle(.plain)
+            Button { onSelect(node.ref.noteID.raw) } label: {
+                HStack(spacing: 4) {
+                    // Keep leaf titles aligned with DisclosureGroup labels.
+                    Image(systemName: "chevron.right")
+                        .frame(width: 16)
+                        .opacity(0)
+                    Text(node.ref.title)
+                }
+            }
+            .buttonStyle(.plain)
+            .help(node.ref.title)
         }
+    }
+
+    private var titleButton: some View {
+        Button(node.ref.title) { onSelect(node.ref.noteID.raw) }
+            .buttonStyle(.plain)
+            .help(node.ref.title)
     }
 }
 

@@ -1,6 +1,6 @@
 import SwiftUI
 
-// TrackTheme — the ten interface tokens of docs/spec/design.md as SwiftUI
+// TrackTheme — the interface tokens of docs/spec/design.md as SwiftUI
 // colors, plus the appearance settings that carry them across the app:
 //
 // - TrackTheme holds one light and one dark palette. Each hex below is the
@@ -34,6 +34,12 @@ public struct TrackTheme: Sendable {
     public let lineStrong: Color
     public let lineNode: Color
     public let mark: Color
+    /// Visualization-only colors. Unlike `mark`, these are deliberately
+    /// available in groups so charts and heatmaps can carry meaning.
+    public let danger: Color
+    public let chartPalette: [Color]
+    public let heatmapRampLo: Color
+    public let heatmapRampHi: Color
 
     public init(
         bg: Color,
@@ -45,7 +51,14 @@ public struct TrackTheme: Sendable {
         line: Color,
         lineStrong: Color,
         lineNode: Color,
-        mark: Color
+        mark: Color,
+        danger: Color = Color(hex: 0x8a352b),
+        chartPalette: [Color] = [
+            Color(hex: 0x286957), Color(hex: 0xa05f2e), Color(hex: 0x536f91),
+            Color(hex: 0x99504a), Color(hex: 0x737b4a), Color(hex: 0x795f80)
+        ],
+        heatmapRampLo: Color = Color(hex: 0xe4ebe7),
+        heatmapRampHi: Color = Color(hex: 0x286957)
     ) {
         self.bg = bg
         self.panel = panel
@@ -57,13 +70,17 @@ public struct TrackTheme: Sendable {
         self.lineStrong = lineStrong
         self.lineNode = lineNode
         self.mark = mark
+        self.danger = danger
+        self.chartPalette = chartPalette
+        self.heatmapRampLo = heatmapRampLo
+        self.heatmapRampHi = heatmapRampHi
     }
 }
 
 extension Color {
     /// 0xRRGGBB → sRGB color. SwiftUI has no hex initializer, so the token
     /// table spells each value exactly as design.md does.
-    init(hex: UInt32) {
+    public init(hex: UInt32) {
         self.init(
             .sRGB,
             red: Double((hex >> 16) & 0xFF) / 255.0,
@@ -86,7 +103,14 @@ public extension TrackTheme {
         line: Color(hex: 0xe6e4de),
         lineStrong: Color(hex: 0xc7c5bd),
         lineNode: Color(hex: 0x8e8c84),
-        mark: Color(hex: 0xc13a1e)
+        mark: Color(hex: 0xc13a1e),
+        danger: Color(hex: 0x8a352b),
+        chartPalette: [
+            Color(hex: 0x286957), Color(hex: 0xa05f2e), Color(hex: 0x536f91),
+            Color(hex: 0x99504a), Color(hex: 0x737b4a), Color(hex: 0x795f80)
+        ],
+        heatmapRampLo: Color(hex: 0xe4ebe7),
+        heatmapRampHi: Color(hex: 0x286957)
     )
 
     /// The design.md Dark column, verbatim.
@@ -100,7 +124,14 @@ public extension TrackTheme {
         line: Color(hex: 0x282c2f),
         lineStrong: Color(hex: 0x3e4347),
         lineNode: Color(hex: 0x6e7478),
-        mark: Color(hex: 0xf4785e)
+        mark: Color(hex: 0xf4785e),
+        danger: Color(hex: 0xde766b),
+        chartPalette: [
+            Color(hex: 0x74c4a8), Color(hex: 0xdca06a), Color(hex: 0x9bb7d5),
+            Color(hex: 0xdc8b84), Color(hex: 0xb5c383), Color(hex: 0xc1a4c6)
+        ],
+        heatmapRampLo: Color(hex: 0x28322f),
+        heatmapRampHi: Color(hex: 0x91d0b8)
     )
 
     /// The palette matching the scheme a view is currently drawn in. Views

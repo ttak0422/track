@@ -248,14 +248,18 @@ public struct CalendarView: View {
                         DayCell(
                             day: day,
                             inMonth: CalendarModel.isSameMonth(day, as: model.month),
-                            noteCount: model.notes(on: CalendarModel.dayString(day)).count,
                             taskTexts: Array(model.taskTexts(on: CalendarModel.dayString(day)).prefix(3)),
+                            taskCount: model.tasks(on: CalendarModel.dayString(day)).count,
                             noteTitles: Array(model.noteTitles(on: CalendarModel.dayString(day)).prefix(3)),
+                            noteCount: model.notes(on: CalendarModel.dayString(day)).count,
                             deadlineCount: model.deadlineCount(on: CalendarModel.dayString(day)),
                             overdueCount: model.overdueCount(on: CalendarModel.dayString(day)),
                             dueFill: model.dueFill(on: CalendarModel.dayString(day)),
                             isToday: Calendar.current.isDateInToday(day),
                             isSelected: model.selectedDay == CalendarModel.dayString(day),
+                            isActive: !model.notes(on: CalendarModel.dayString(day)).isEmpty
+                                || !model.tasks(on: CalendarModel.dayString(day)).isEmpty
+                                || model.journal(on: CalendarModel.dayString(day)) != nil,
                             onSelect: { select(day) }
                         )
                     }
@@ -267,6 +271,9 @@ public struct CalendarView: View {
 
     private func select(_ day: Date) {
         let key = CalendarModel.dayString(day)
+        guard !model.notes(on: key).isEmpty || !model.tasks(on: key).isEmpty || model.journal(on: key) != nil else {
+            return
+        }
         if let journal = model.journal(on: key) {
             openedNoteID = journal.ref.noteID
             isShowingNote = true
@@ -328,14 +335,16 @@ public struct CalendarView: View {
 private struct DayCell: View {
     let day: Date
     let inMonth: Bool
-    let noteCount: Int
     let taskTexts: [String]
+    let taskCount: Int
     let noteTitles: [String]
+    let noteCount: Int
     let deadlineCount: Int
     let overdueCount: Int
     let dueFill: (fill: Double, overdue: Bool)
     let isToday: Bool
     let isSelected: Bool
+    let isActive: Bool
     let onSelect: () -> Void
 
     var body: some View {
@@ -347,19 +356,17 @@ private struct DayCell: View {
                     .padding(.horizontal, isToday ? 4 : 0)
                     .padding(.vertical, isToday ? 1 : 0)
                     .background(isToday ? Color.accentColor : Color.clear, in: Capsule())
-                HStack(spacing: 2) {
-                    ForEach(0..<min(noteCount, 3), id: \.self) { _ in
-                        Circle().fill(Color.accentColor).frame(width: 4, height: 4)
-                    }
-                    if noteCount > 3 {
-                        Text("+\(noteCount - 3)").font(.caption2).foregroundStyle(.secondary)
-                    }
+                if taskCount > taskTexts.count {
+                    Text("+\(taskCount - taskTexts.count)").font(.caption2).foregroundStyle(.secondary)
                 }
                 ForEach(taskTexts, id: \.self) { text in
                     Text(text).font(.caption2).lineLimit(1)
                 }
                 ForEach(noteTitles, id: \.self) { title in
                     Text(title).font(.caption2).foregroundStyle(.secondary).lineLimit(1)
+                }
+                if noteCount > noteTitles.count {
+                    Text("+\(noteCount - noteTitles.count)").font(.caption2).foregroundStyle(.secondary)
                 }
                 if dueFill.fill > 0 {
                     GeometryReader { proxy in
@@ -386,6 +393,8 @@ private struct DayCell: View {
                 .strokeBorder(isSelected ? Color.accentColor : Color.clear, lineWidth: 1))
         }
         .buttonStyle(.plain)
+        .disabled(!isActive)
+        .opacity(isActive ? 1 : 0.45)
     }
 }
 
