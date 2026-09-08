@@ -47,6 +47,14 @@ public enum FigureKind: Sendable, Equatable {
     case svg(String)
     /// Raw HTML fragment, injected as-is.
     case html(String)
+    /// Graphviz DOT source (` ```dot ``` ` or ` ```graphviz ``` `).
+    case dot(String)
+    /// D2 source (` ```d2 ``` `).
+    case d2(String)
+    /// draw.io XML (`<mxfile>` or `<mxGraphModel>`).
+    case drawio(String)
+    /// A Leaflet map figure (` ```map ``` `).
+    case map(MapFigure)
 
     /// The name the shell JS dispatches on.
     var kindName: String {
@@ -56,16 +64,23 @@ public enum FigureKind: Sendable, Equatable {
         case .echarts: return "echarts"
         case .svg: return "svg"
         case .html: return "html"
+        case .dot: return "dot"
+        case .d2: return "d2"
+        case .drawio: return "drawio"
+        case .map: return "map"
         }
     }
 
     /// The payload passed to the renderer.
     var source: String {
         switch self {
-        case .mermaid(let source), .echarts(let source), .svg(let source), .html(let source):
+        case .mermaid(let source), .echarts(let source), .svg(let source), .html(let source),
+             .dot(let source), .d2(let source), .drawio(let source):
             return source
         case .math(let source, _):
             return source
+        case .map(let figure):
+            return figure.json
         }
     }
 
@@ -73,6 +88,132 @@ public enum FigureKind: Sendable, Equatable {
     var displayMode: Bool? {
         if case .math(_, let display) = self { return display }
         return nil
+    }
+}
+
+// MARK: - Map figure
+
+/// A tile-layer flavor for a ```map figure, mirroring web MapFence's MapType.
+public enum MapTileType: String, Sendable, Equatable {
+    case roadmap
+    case satellite
+    case hybrid
+    case terrain
+}
+
+/// One pin on a ```map figure. `target` is the `[[wikilink]]` target (the part
+/// before `|`), `display` the resolved label, and `description` the free text
+/// after the wikilink.
+public struct MapMarker: Sendable, Equatable {
+    public let lat: Double
+    public let long: Double
+    public let target: String
+    public let display: String
+    public let description: String
+
+    public init(lat: Double, long: Double, target: String, display: String, description: String) {
+        self.lat = lat
+        self.long = long
+        self.target = target
+        self.display = display
+        self.description = description
+    }
+}
+
+/// The parsed content of a ```map fence: a center, a zoom, a tile flavor, and
+/// any number of markers (web MapFence's MapFenceProps).
+public struct MapFigure: Sendable, Equatable {
+    public let lat: Double
+    public let long: Double
+    public let zoom: Int
+    public let type: MapTileType
+    public let markers: [MapMarker]
+
+    public init(lat: Double, long: Double, zoom: Int, type: MapTileType, markers: [MapMarker]) {
+        self.lat = lat
+        self.long = long
+        self.zoom = zoom
+        self.type = type
+        self.markers = markers
+    }
+
+    /// The shell's JSON payload (parsed by `JSON.parse(cfg.source)`).
+    var json: String {
+        let markers = markers.map { m -> [String: Any] in
+            ["lat": m.lat, "long": m.long, "target": m.target, "display": m.display, "description": m.description]
+        }
+        let payload: [String: Any] = [
+            "lat": lat, "long": long, "zoom": zoom, "type": type.rawValue, "markers": markers,
+        ]
+        guard let data = try? JSONSerialization.data(withJSONObject: payload, options: []),
+              let text = String(data: data, encoding: .utf8) else {
+            return "{}"
+        }
+        return text
+    }
+
+    /// A `lat|long|zoom|type` field line, or a `marker` line.
+    private static let lineRegex = try! NSRegularExpression(pattern: "^(lat|long|zoom|type|marker):\\s*(.*?)\\s*$")
+
+    /// `kind,lat,long,[[target|display]], description` — the marker line's tail.
+    private static let markerRegex = try! NSRegularExpression(pattern: "^([^,]+),\\s*([^,]+),\\s*([^,]+),\\s*\\[\\[([^\\]]+)\\]\\]\\s*,\\s*(.*)$")
+
+    /// Parse a ```map fence body. Mirrors web MapFence.parseMapFence: `lat` and
+    /// `long` are required, `zoom` (integer 0...19) and `type` are optional, and
+    /// any number of `marker:` lines follow. Nil for anything malformed — the
+    /// renderer then keeps the fence as a code block.
+    public static func parse(_ body: String) -> MapFigure? {
+        var values: [String: String] = [:]
+        var markers: [MapMarker] = []
+        for raw in body.components(separatedBy: "\n") {
+            let line = raw.trimmingCharacters(in: .whitespaces)
+            if line.isEmpty { continue }
+            let ns = line as NSString
+            let range = NSRange(location: 0, length: ns.length)
+            guard let match = lineRegex.firstMatch(in: line, range: range) else { return nil }
+            let key = ns.substring(with: match.range(at: 1))
+            let value = ns.substring(with: match.range(at: 2))
+            if key == "marker" {
+                guard let marker = parseMarker(value) else { return nil }
+                markers.append(marker)
+            } else {
+                guard !values.keys.contains(key), !value.isEmpty else { return nil }
+                values[key] = value
+            }
+        }
+        guard let lat = coordinate(values["lat"], limit: 90),
+              let long = coordinate(values["long"], limit: 180) else { return nil }
+        let zoom = Int(values["zoom"] ?? "10") ?? -1
+        guard zoom >= 0, zoom <= 19 else { return nil }
+        guard let type = MapTileType(rawValue: values["type"] ?? "roadmap") else { return nil }
+        return MapFigure(lat: lat, long: long, zoom: zoom, type: type, markers: markers)
+    }
+
+    private static func parseMarker(_ value: String) -> MapMarker? {
+        let ns = value as NSString
+        let range = NSRange(location: 0, length: ns.length)
+        guard let match = markerRegex.firstMatch(in: value, range: range) else { return nil }
+        let kind = ns.substring(with: match.range(at: 1)).trimmingCharacters(in: .whitespaces)
+        let latText = ns.substring(with: match.range(at: 2))
+        let longText = ns.substring(with: match.range(at: 3))
+        let link = ns.substring(with: match.range(at: 4))
+        let description = ns.substring(with: match.range(at: 5))
+        guard !kind.isEmpty,
+              let lat = coordinate(latText, limit: 90),
+              let long = coordinate(longText, limit: 180) else { return nil }
+        let parts = link.split(separator: "|", maxSplits: 1)
+        let target = parts[0].trimmingCharacters(in: .whitespaces)
+        guard !target.isEmpty else { return nil }
+        let display = parts.count > 1
+            ? parts[1].trimmingCharacters(in: .whitespaces)
+            : target
+        return MapMarker(lat: lat, long: long, target: target, display: display.isEmpty ? target : display, description: description)
+    }
+
+    private static func coordinate(_ value: String?, limit: Double) -> Double? {
+        guard let value, !value.trimmingCharacters(in: .whitespaces).isEmpty else { return nil }
+        guard let number = Double(value), number.isFinite, abs(number) <= limit else { return nil }
+        return number
     }
 }
 
@@ -139,40 +280,168 @@ public enum FigureAssets {
     public static let mermaidVersion = "11.16.1"
     public static let katexVersion = "0.16.47"
     public static let echartsVersion = "6.1.0"
+    public static let graphvizVersion = "1.24.1"
+    public static let d2Version = "0.1.33"
+    public static let leafletVersion = "1.9.4"
 
     /// Default CDN root for the pinned packages.
     public static let cdnRoot = URL(string: "https://cdn.jsdelivr.net/npm")!
+
+    /// The draw.io static viewer (diagrams.net's own renderer). Defaults to the
+    /// live CDN build; a local override swaps it for a vendored copy
+    /// (drawio-viewer-static.min.js, web/public).
+    public static let drawioViewerURL = URL(string: "https://viewer.diagrams.net/js/viewer-static.min.js")!
 
     /// Default height (points) reserved for an echarts figure, which needs an
     /// explicit size before `init`; callers can reserve the same space while
     /// the island measures itself.
     public static let defaultEchartsHeight: CGFloat = 400
 
+    /// Default height (points) reserved for a map figure (Leaflet needs an
+    /// explicit box before `L.map`).
+    public static let defaultMapHeight: CGFloat = 360
+
     /// Asset URLs by the name the shell JS knows ("mermaid", "katex",
-    /// "katexCSS", "echarts").
+    /// "katexCSS", "echarts", "graphviz", "d2", "leaflet", "leafletCSS",
+    /// "drawio").
     ///
-    /// With no override these are the pinned jsdelivr URLs. With a local root
-    /// they become `<root>/<basename>` (mermaid.min.js, katex.min.js,
-    /// katex.min.css, echarts.min.js) so the same shell works fully offline
-    /// from a directory of the pinned files.
+    /// With no override these are the pinned jsdelivr URLs (plus the diagrams.net
+    /// viewer). With a local root they become `<root>/<basename>` so the same
+    /// shell works fully offline from a directory of the pinned files; the two
+    /// wasm engines expect a pre-bundled ESM file each (`graphviz.esm.js`,
+    /// `d2.esm.js`).
     static func resolved(localScriptURL: URL?) -> [String: String] {
         let remotePaths = [
             "mermaid": "mermaid@\(mermaidVersion)/dist/mermaid.min.js",
             "katex": "katex@\(katexVersion)/dist/katex.min.js",
             "katexCSS": "katex@\(katexVersion)/dist/katex.min.css",
             "echarts": "echarts@\(echartsVersion)/dist/echarts.min.js",
+            "graphviz": "@hpcc-js/wasm-graphviz@\(graphvizVersion)/+esm",
+            "d2": "@terrastruct/d2@\(d2Version)/+esm",
+            "leaflet": "leaflet@\(leafletVersion)/dist/leaflet.js",
+            "leafletCSS": "leaflet@\(leafletVersion)/dist/leaflet.css",
         ]
-        guard let local = localScriptURL else {
-            return remotePaths.mapValues { cdnRoot.appending(path: $0).absoluteString }
-        }
+        let remote: [String: String] = remotePaths.mapValues { cdnRoot.appending(path: $0).absoluteString }
+        var withDrawio = remote
+        withDrawio["drawio"] = drawioViewerURL.absoluteString
+        guard let local = localScriptURL else { return withDrawio }
         let localBasenames = [
             "mermaid": "mermaid.min.js",
             "katex": "katex.min.js",
             "katexCSS": "katex.min.css",
             "echarts": "echarts.min.js",
+            "graphviz": "graphviz.esm.js",
+            "d2": "d2.esm.js",
+            "leaflet": "leaflet.js",
+            "leafletCSS": "leaflet.css",
+            "drawio": "drawio-viewer-static.min.js",
         ]
         return localBasenames.mapValues { local.appending(path: $0).absoluteString }
     }
+}
+
+// MARK: - Mindmap outline
+
+/// Converts a ```mindmap fence body into mermaid mindmap source. The web reader
+/// draws mindmaps with a tiny built-in SVG renderer (web/src/components/markdown/
+/// mindmap.ts); the native reader reuses the existing mermaid engine instead, so
+/// the outline is folded into a tree and re-emitted as indented mermaid
+/// `mindmap` syntax.
+public enum MindmapOutline {
+    /// The mermaid source for an indented outline: `#`..`######` headings set
+    /// the hierarchy (depth = level) and `-`/`*`/`+` list items under a heading
+    /// become leaves (depth = heading + 1 + extra indent). Labels are stripped of
+    /// `[[wiki]]` and `[text](url)` link syntax. Empty for an empty fence.
+    public static func mermaidSource(_ body: String) -> String {
+        let items = parse(body)
+        guard !items.isEmpty else { return "" }
+        let root = tree(items)
+
+        var lines = ["mindmap"]
+        func emit(_ node: Node, depth: Int) {
+            let indent = String(repeating: " ", count: 2 + depth * 2)
+            lines.append(indent + node.label)
+            for child in node.children {
+                emit(child, depth: depth + 1)
+            }
+        }
+        emit(root, depth: 0)
+        return lines.joined(separator: "\n")
+    }
+
+    private struct Item {
+        let depth: Int
+        let label: String
+    }
+
+    private final class Node {
+        let label: String
+        var children: [Node] = []
+        init(label: String) { self.label = label }
+    }
+
+    private static func parse(_ body: String) -> [Item] {
+        var items: [Item] = []
+        var headingDepth = 0
+        for raw in body.components(separatedBy: "\n") {
+            if let heading = headingRegex.firstMatch(in: raw, options: [], range: NSRange(raw.startIndex..., in: raw)),
+               let textRange = Range(heading.range(at: 2), in: raw) {
+                headingDepth = heading.range(at: 1).length * 10
+                items.append(Item(depth: headingDepth, label: labelText(String(raw[textRange]))))
+                continue
+            }
+            if let list = listRegex.firstMatch(in: raw, options: [], range: NSRange(raw.startIndex..., in: raw)),
+               let indentRange = Range(list.range(at: 1), in: raw),
+               let textRange = Range(list.range(at: 2), in: raw) {
+                guard headingDepth != 0 else { continue }
+                let indent = String(raw[indentRange]).reduce(into: 0) { $0 += $1 == "\t" ? 2 : 1 }
+                items.append(Item(depth: headingDepth + 1 + indent, label: labelText(String(raw[textRange]))))
+            }
+        }
+        return items
+    }
+
+    /// `[[target|display]]` → `display` (or `target`), `[text](url)` → `text`,
+    /// anything else unchanged (web mindmap.ts parseLabel).
+    private static func labelText(_ source: String) -> String {
+        if source.hasPrefix("[[") && source.hasSuffix("]]") {
+            let inner = String(source.dropFirst(2).dropLast(2))
+            let parts = inner.split(separator: "|", maxSplits: 1)
+            return (parts.count > 1 ? String(parts[1]) : String(parts[0])).trimmingCharacters(in: .whitespaces)
+        }
+        if source.hasPrefix("["), let close = source.firstIndex(of: "]"),
+           close < source.index(before: source.endIndex),
+           source[source.index(after: close)] == "(",
+           source.hasSuffix(")") {
+            return String(source[source.index(after: source.startIndex)..<close])
+        }
+        return source
+    }
+
+    /// Folds a depth-annotated item sequence into a tree. When several items
+    /// share the minimum depth there is no single root, so an implicit root is
+    /// added (web mindmap.ts treeFromItems); mermaid needs a labeled root, so it
+    /// renders as a single dot.
+    private static func tree(_ items: [Item]) -> Node {
+        let minDepth = items.map(\.depth).min() ?? 0
+        let single = items[0].depth == minDepth && items.filter { $0.depth == minDepth }.count == 1
+        let root = single ? Node(label: items[0].label) : Node(label: "•")
+        let rest = single ? Array(items.dropFirst()) : items
+
+        var stack: [(depth: Int, node: Node)] = [(minDepth - 1, root)]
+        for item in rest {
+            while stack.count > 1 && stack[stack.count - 1].depth >= item.depth {
+                stack.removeLast()
+            }
+            let node = Node(label: item.label)
+            stack[stack.count - 1].node.children.append(node)
+            stack.append((item.depth, node))
+        }
+        return root
+    }
+
+    private static let headingRegex = try! NSRegularExpression(pattern: "^(#{1,6})\\s+(.+?)\\s*#*\\s*$")
+    private static let listRegex = try! NSRegularExpression(pattern: "^(\\s*)[-*+]\\s+(.+?)\\s*$")
 }
 
 // MARK: - Figure host
@@ -192,6 +461,8 @@ public struct FigureHost: NSViewRepresentable {
     public var localScriptURL: URL?
     /// Height reserved for echarts figures that carry no intrinsic size.
     public var echartsHeight: CGFloat
+    /// Height reserved for map figures (Leaflet needs an explicit box).
+    public var mapHeight: CGFloat
 
     public init(
         kind: FigureKind,
@@ -199,7 +470,8 @@ public struct FigureHost: NSViewRepresentable {
         theme: FigureTheme,
         onLink: ((URL) -> Void)? = nil,
         localScriptURL: URL? = nil,
-        echartsHeight: CGFloat = FigureAssets.defaultEchartsHeight
+        echartsHeight: CGFloat = FigureAssets.defaultEchartsHeight,
+        mapHeight: CGFloat = FigureAssets.defaultMapHeight
     ) {
         self.kind = kind
         self._height = height
@@ -207,6 +479,7 @@ public struct FigureHost: NSViewRepresentable {
         self.onLink = onLink
         self.localScriptURL = localScriptURL
         self.echartsHeight = echartsHeight
+        self.mapHeight = mapHeight
     }
 
     // MARK: NSViewRepresentable
@@ -344,6 +617,7 @@ public struct FigureHost: NSViewRepresentable {
                 "source": host.kind.source,
                 "display": host.kind.displayMode ?? false,
                 "height": Double(host.echartsHeight),
+                "mapHeight": Double(host.mapHeight),
                 "theme": theme,
                 "assets": FigureAssets.resolved(localScriptURL: host.localScriptURL),
             ]
@@ -380,6 +654,7 @@ extension FigureAssets {
       .raw-svg svg { display: block; width: 100%; height: auto; }
       .katex-display { margin: 0.5em 0; }
       .katex { font-size: 1.06em; }
+      .map-fence-marker { box-sizing: border-box; border: 2px solid #fff; border-radius: 50%; background: #e2483d; }
     </style>
     </head>
     <body>
@@ -391,6 +666,7 @@ extension FigureAssets {
       var figure = document.getElementById("figure");
       var assetCache = {};
       var currentChart = null;
+      var renderSalt = 0;
 
       function post(msg) {
         window.webkit.messageHandlers.fig.postMessage(msg);
@@ -398,6 +674,10 @@ extension FigureAssets {
 
       function postHeight() {
         post({ type: "height", height: Math.ceil(figure.getBoundingClientRect().height) });
+      }
+
+      function errorText(err) {
+        return err && err.message ? err.message : String(err);
       }
 
       function loadCSS(href) {
@@ -421,6 +701,10 @@ extension FigureAssets {
         });
       }
 
+      function loadModule(url) {
+        return import(url);
+      }
+
       function loadAssets(items) {
         return Promise.all(items.map(function (item) {
           if (assetCache[item]) { return assetCache[item]; }
@@ -431,8 +715,32 @@ extension FigureAssets {
         }));
       }
 
+      function withTransparentBackground(dot) {
+        var brace = dot.indexOf("{");
+        if (brace < 0) { return dot; }
+        return dot.slice(0, brace + 1) + ' bgcolor="transparent"; ' + dot.slice(brace + 1);
+      }
+
+      function tileLayers(type) {
+        var osm = "© OpenStreetMap contributors";
+        var esri = "Tiles © Esri";
+        if (type === "roadmap") {
+          return { base: window.L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png", { attribution: osm }) };
+        }
+        var imagery = window.L.tileLayer("https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}", { attribution: esri + ", © OpenStreetMap contributors" });
+        if (type === "hybrid") {
+          return {
+            base: imagery,
+            overlay: window.L.tileLayer("https://server.arcgisonline.com/ArcGIS/rest/services/Reference/World_Boundaries_and_Places/MapServer/tile/{z}/{y}/{x}", { attribution: esri })
+          };
+        }
+        if (type === "satellite") { return { base: imagery }; }
+        return { base: window.L.tileLayer("https://server.arcgisonline.com/ArcGIS/rest/services/World_Topo_Map/MapServer/tile/{z}/{y}/{x}", { attribution: esri }) };
+      }
+
       function render(cfg) {
-        figure.className = cfg.kind === "svg" ? "raw-svg" : "";
+        var svgKinds = { svg: 1, dot: 1, d2: 1 };
+        figure.className = svgKinds[cfg.kind] ? "raw-svg" : "";
         figure.textContent = "";
         document.body.style.backgroundColor = cfg.theme.bg;
         document.body.style.color = cfg.theme.fg;
@@ -493,6 +801,91 @@ extension FigureAssets {
             }
             postHeight();
           }).catch(function (err) { figure.textContent = err.message; postHeight(); });
+          return;
+        }
+
+        if (cfg.kind === "dot") {
+          loadModule(cfg.assets.graphviz).then(function (mod) {
+            return mod.Graphviz.load().then(function (graphviz) {
+              var svg = graphviz.dot(withTransparentBackground(cfg.source));
+              var start = svg.indexOf("<svg");
+              figure.innerHTML = start >= 0 ? svg.slice(start) : svg;
+              postHeight();
+            });
+          }).catch(function (err) { figure.textContent = "Graphviz error: " + errorText(err); postHeight(); });
+          return;
+        }
+
+        if (cfg.kind === "d2") {
+          loadModule(cfg.assets.d2).then(function (mod) {
+            var d2 = new mod.D2();
+            return d2.compile({
+              fs: { index: cfg.source },
+              options: { themeID: cfg.theme.dark ? 200 : 0, pad: 16 }
+            }).then(function (res) {
+              return d2.render(res.diagram, Object.assign({}, res.renderOptions, { noXMLTag: true, salt: String(++renderSalt) }));
+            });
+          }).then(function (svg) {
+            figure.innerHTML = svg;
+            postHeight();
+          }).catch(function (err) { figure.textContent = "D2 error: " + errorText(err); postHeight(); });
+          return;
+        }
+
+        if (cfg.kind === "drawio") {
+          // The viewer defaults several asset roots to https://viewer.diagrams.net/…;
+          // point them at dead local paths so anything the static build did not inline
+          // degrades instead of phoning home, and stub MathJax so initMath is a no-op.
+          window.MathJax = window.MathJax || {};
+          window.PROXY_URL = "about:blank";
+          window.STYLE_PATH = "about:blank";
+          window.SHAPES_PATH = "about:blank";
+          window.STENCIL_PATH = "about:blank";
+          window.DRAW_MATH_URL = "about:blank";
+          loadAssets([cfg.assets.drawio]).then(function () {
+            if (window.Editor && window.Editor.MathJaxRender == null) {
+              window.Editor.MathJaxRender = function () {};
+            }
+            if (!window.GraphViewer) { throw new Error("draw.io viewer loaded without GraphViewer"); }
+            var host = document.createElement("div");
+            figure.appendChild(host);
+            host.dataset.mxgraph = JSON.stringify({ xml: cfg.source, page: 0, nav: false, toolbar: null });
+            window.GraphViewer.createViewerForElement(host);
+            postHeight();
+          }).catch(function (err) { figure.textContent = "draw.io error: " + errorText(err); postHeight(); });
+          return;
+        }
+
+        if (cfg.kind === "map") {
+          loadAssets([cfg.assets.leafletCSS, cfg.assets.leaflet]).then(function () {
+            var m = JSON.parse(cfg.source);
+            var node = document.createElement("div");
+            node.style.width = "100%";
+            node.style.height = cfg.mapHeight + "px";
+            figure.appendChild(node);
+            var layers = tileLayers(m.type);
+            var map = window.L.map(node, { attributionControl: true }).setView([m.lat, m.long], m.zoom);
+            layers.base.addTo(map);
+            if (layers.overlay) { layers.overlay.addTo(map); }
+            m.markers.forEach(function (marker) {
+              var popup = document.createElement("div");
+              var link = document.createElement("a");
+              link.href = "trackwiki://" + encodeURIComponent(marker.target);
+              link.textContent = marker.display || marker.target;
+              popup.appendChild(link);
+              if (marker.description) {
+                var p = document.createElement("p");
+                p.textContent = marker.description;
+                popup.appendChild(p);
+              }
+              window.L.marker([marker.lat, marker.long], {
+                title: marker.display,
+                alt: marker.display,
+                icon: window.L.divIcon({ className: "map-fence-marker", iconSize: [16, 16] })
+              }).addTo(map).bindPopup(popup);
+            });
+            postHeight();
+          }).catch(function (err) { figure.textContent = errorText(err); postHeight(); });
           return;
         }
       }

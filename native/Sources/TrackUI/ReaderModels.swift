@@ -35,6 +35,13 @@ public final class NoteReaderModel {
     /// distinguishes "render succeeded on an empty body" from "render failed".
     public private(set) var didRender = false
 
+    /// The excerpt a `[[Note#Heading]]` / `[[Note#^block]]` anchor arrived
+    /// with: the anchored heading (or block) through the lines before the next
+    /// same-level heading. Shown in a dismissible card above the reader
+    /// (MarkdownUI offers no in-body scroll target), and cleared when another
+    /// note opens or when dismissed by the view.
+    public var anchoredExcerpt: String?
+
     // Editing buffer for the note body (web NoteEditor parity). `draftBody`
     // mirrors the loaded body while the note is not being edited and diverges
     // while it is; a save gates on `isDirty` and echoes the loaded response's
@@ -92,6 +99,7 @@ public final class NoteReaderModel {
         renderedBody = ""
         renderedIncludes = nil
         didRender = false
+        anchoredExcerpt = nil
         do {
             let response = try await client.getNote(id)
             currentID = id
@@ -374,14 +382,21 @@ public final class NoteReaderModel {
     /// (`web/src/components/markdown/plugins.ts: splitWikiTarget`) allows an
     /// optional leading `vault:` and a trailing `#anchor`/`#^block`; the
     /// anchor is stripped for resolution (it names a destination inside the
-    /// note, not a different note). Cross-vault targets resolve through the
-    /// same `/api/resolve` the web reader uses.
+    /// note, not a different note), but kept to compute the anchored excerpt
+    /// shown above the reader. Cross-vault targets resolve through the same
+    /// `/api/resolve` the web reader uses.
     public func openWikilink(target: String) async {
-        let (vault, term) = Self.splitWikilink(target)
+        let parsed = Self.splitWikilinkFull(target)
         do {
-            let resolved = try await client.resolveTerm(term, vault: vault)
+            let resolved = try await client.resolveTerm(parsed.term, vault: parsed.vault)
             guard resolved.found else { return }
-            await open(TrackID.qualify(vault: vault, id: resolved.note.noteID.raw))
+            let id = TrackID.qualify(vault: parsed.vault, id: resolved.note.noteID.raw)
+            // Compute the excerpt from the *target* note before it opens, so
+            // the anchor lands in the note actually named, not the one already
+            // on screen.
+            let excerpt = parsed.anchor.isEmpty ? nil : await Self.anchoredExcerpt(for: parsed.anchor, in: id, client: client)
+            await open(id)
+            anchoredExcerpt = excerpt
         } catch {
             state = .failed(error.localizedDescription)
         }
@@ -399,6 +414,148 @@ public final class NoteReaderModel {
         }
         return ("", noAnchor)
     }
+
+    /// A `[[target]]` split into its resolution key (vault + term) and the
+    /// trailing anchor name (heading text or `^block` id), mirroring the web's
+    /// `splitWikiTarget`.
+    private static func splitWikilinkFull(_ target: String) -> (vault: String, term: String, anchor: String) {
+        let trimmed = target.trimmingCharacters(in: .whitespaces)
+        let (keyPart, anchor) = Self.splitAnchor(trimmed)
+        let (vault, term) = splitWikilink(keyPart)
+        return (vault, term, anchor)
+    }
+
+    /// `key#anchor` → (`key`, `anchor`); nil/empty anchor when there is no
+    /// `#` or the fragment is empty (`C#` keeps the hash as part of the key).
+    private static func splitAnchor(_ target: String) -> (String, String) {
+        guard let i = target.firstIndex(of: "#") else { return (target, "") }
+        let rest = target[target.index(after: i)...].trimmingCharacters(in: .whitespaces)
+        if rest.isEmpty { return (target, "") }
+        return (target[..<i].trimmingCharacters(in: .whitespaces), rest)
+    }
+
+    /// The excerpt the anchored excerpt card shows: fetch the target note and
+    /// collect the anchored heading (or `^block`) through the lines before the
+    /// next same-level heading. Returns nil when the anchor does not match or
+    /// the fetch fails (the note still opens, just without a card).
+    private static func anchoredExcerpt(for anchor: String, in id: TrackID, client: TrackClient) async -> String? {
+        guard let response = try? await client.getNote(id) else { return nil }
+        let body = response.note.body
+        let lines = body.components(separatedBy: "\n")
+        let isBlock = anchor.hasPrefix("^")
+        let blockID = isBlock ? String(anchor.dropFirst()) : nil
+        let heading = isBlock ? nil : anchor
+
+        // Scan ATX headings (skip fenced code) so heading level and anchors
+        // match the note's own structure.
+        var start = -1
+        var startLevel = 0
+        var fence: String? = nil
+        for (idx, raw) in lines.enumerated() {
+            let line = raw
+            if fence != nil {
+                let t = line.trimmingCharacters(in: .whitespaces)
+                if t.hasPrefix("```") || t.hasPrefix("~~~") { fence = nil }
+                continue
+            }
+            let t = line.trimmingCharacters(in: .whitespaces)
+            if t.hasPrefix("```") || t.hasPrefix("~~~") {
+                fence = String(t.prefix(while: { $0 == "`" || $0 == "~" }))
+                continue
+            }
+            if isBlock {
+                if t == "^" + blockID! || t.hasSuffix(" ^" + blockID!) {
+                    start = idx
+                    break
+                }
+            } else if let heading {
+                if let level = Self.headingLevel(line), Self.headingSlug(Self.headingText(line)) == heading {
+                    start = idx
+                    startLevel = level
+                    break
+                }
+            }
+        }
+
+        guard start >= 0 else { return nil }
+
+        // Collect from the anchor through the line before the next heading at
+        // or above the anchor's level (a block anchor runs to the next heading
+        // of any level).
+        var excerpt: [String] = []
+        var j = start
+        while j < lines.count {
+            let line = lines[j]
+            if isBlock {
+                if Self.headingLevel(line) != nil { break }
+            } else if let level = Self.headingLevel(line), level <= startLevel {
+                if j > start { break }
+            }
+            excerpt.append(line)
+            j += 1
+        }
+        let text = excerpt.joined(separator: "\n").trimmingCharacters(in: .whitespacesAndNewlines)
+        return text.isEmpty ? nil : text
+    }
+
+    /// The ATX heading level of a line (1–6), or nil when it is not a heading.
+    private static func headingLevel(_ line: String) -> Int? {
+        var count = 0
+        for ch in line {
+            if ch == "#" { count += 1 } else { break }
+        }
+        guard count >= 1, count <= 6 else { return nil }
+        let after = line.dropFirst(count)
+        guard after.first == " " || after.first == "\t" else { return nil }
+        return count
+    }
+
+    /// The heading text (`TODAY` after `## TODAY`), trailing `#`s trimmed.
+    private static func headingText(_ line: String) -> String {
+        let level = headingLevel(line) ?? 0
+        var text = String(line.dropFirst(max(level, 0)))
+        text = text.trimmingCharacters(in: .whitespaces)
+        while text.hasSuffix("#") { text.removeLast(); text = text.trimmingCharacters(in: .whitespaces) }
+        return text
+    }
+
+    /// The heading slug an anchor names, matching the web's `headingSlug`
+    /// (markdown syntax stripped, lowercased, non letter/number/space/hyphen
+    /// dropped, spaces → hyphens).
+    private static func headingSlug(_ text: String) -> String {
+        var label = text
+        label = Self.wikiRoleRegex.stringByReplacingMatches(
+            in: label,
+            range: NSRange(label.startIndex..., in: label),
+            withTemplate: "$1"
+        )
+        label = Self.mdLinkRegex.stringByReplacingMatches(
+            in: label,
+            range: NSRange(label.startIndex..., in: label),
+            withTemplate: "$1"
+        )
+        label = label.replacingOccurrences(of: "*", with: "")
+            .replacingOccurrences(of: "_", with: "")
+            .replacingOccurrences(of: "~", with: "")
+            .replacingOccurrences(of: "`", with: "")
+        var slug = label.lowercased()
+        var cleaned = ""
+        for ch in slug {
+            if ch.isLetter || ch.isNumber || ch == " " || ch == "-" {
+                cleaned.append(ch)
+            }
+        }
+        slug = cleaned.trimmingCharacters(in: .whitespaces)
+            .replacingOccurrences(of: " ", with: "-")
+        return slug.isEmpty ? "section" : slug
+    }
+
+    private static let wikiRoleRegex = try! NSRegularExpression(
+        pattern: "\\[\\[[^|\\]]+\\|([^\\]]+)\\]\\]"
+    )
+    private static let mdLinkRegex = try! NSRegularExpression(
+        pattern: "\\[([^\\]]+)\\]\\([^\\s)]*\\)"
+    )
 }
 
 // MARK: - Search

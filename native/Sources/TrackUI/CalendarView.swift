@@ -109,9 +109,11 @@ public final class CalendarModel {
 public struct CalendarView: View {
     @State private var model: CalendarModel
 
+    private let client: TrackClient
     private let columns = Array(repeating: GridItem(.flexible(), spacing: 4), count: 7)
 
     public init(client: TrackClient) {
+        self.client = client
         _model = State(initialValue: CalendarModel(client: client))
     }
 
@@ -186,7 +188,7 @@ public struct CalendarView: View {
     private var agenda: some View {
         Group {
             if let day = model.selectedDay {
-                AgendaView(day: day, notes: model.notes(on: day), tasks: model.tasks(on: day))
+                AgendaView(day: day, notes: model.notes(on: day), tasks: model.tasks(on: day), client: client)
             } else {
                 Text("Select a day")
                     .font(.caption).foregroundStyle(.secondary)
@@ -237,6 +239,11 @@ private struct AgendaView: View {
     let day: String
     let notes: [SearchResult]
     let tasks: [TaskRow]
+    let client: TrackClient
+
+    @State private var journal: JournalPreview?
+    @State private var journalError: String?
+    @State private var isLoadingJournal = false
 
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
@@ -267,8 +274,65 @@ private struct AgendaView: View {
                     }
                 }
             }
+            Divider()
+            journalPreview
+            Button("Open journal") { openJournal() }
+                .buttonStyle(.plain)
+                .font(.caption)
+                .foregroundStyle(.secondary)
         }
         .padding(8)
         .frame(maxWidth: .infinity, alignment: .leading)
     }
+
+    /// The day's journal once "Open journal" resolved it: its title and the
+    /// first lines of its body, labelled by whether it was opened or created.
+    @ViewBuilder
+    private var journalPreview: some View {
+        if isLoadingJournal {
+            ProgressView().controlSize(.small)
+        } else if let error = journalError {
+            Text(error).font(.caption).foregroundStyle(.red)
+        } else if let journal {
+            VStack(alignment: .leading, spacing: 2) {
+                Text(journal.created ? "Created journal" : "Opened journal")
+                    .font(.caption2).foregroundStyle(.secondary)
+                Text(journal.title).font(.body).fontWeight(.medium)
+                ForEach(journal.lines, id: \.self) { line in
+                    Text(line).font(.caption).foregroundStyle(.secondary)
+                }
+            }
+        }
+    }
+
+    private func openJournal() {
+        isLoadingJournal = true
+        journalError = nil
+        Task {
+            do {
+                let res = try await client.openJournal(date: day)
+                let note = try await client.getNote(res.noteID)
+                journal = JournalPreview(
+                    title: note.note.summary.ref.title,
+                    lines: Self.previewLines(from: note.note.body),
+                    created: res.created
+                )
+            } catch {
+                journalError = error.localizedDescription
+            }
+            isLoadingJournal = false
+        }
+    }
+
+    private static func previewLines(from body: String) -> [String] {
+        body.split(separator: "\n", omittingEmptySubsequences: true)
+            .prefix(4)
+            .map(String.init)
+    }
+}
+
+private struct JournalPreview {
+    let title: String
+    let lines: [String]
+    let created: Bool
 }
