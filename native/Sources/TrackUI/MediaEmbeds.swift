@@ -144,7 +144,7 @@ enum MediaEmbedsURLs {
         guard let url = URL(string: webHref(src)) else { return nil }
         let query = queryParameters(of: url)["q"] ?? queryParameters(of: url)["ll"]
         let pathCoordinate = matches("@(-?[0-9]+(?:\\.[0-9]+)?),(-?[0-9]+(?:\\.[0-9]+)?)", in: url.path)
-            .flatMap { groups in
+            .flatMap { groups -> String? in
                 guard groups.count > 2, let latitude = groups[1], let longitude = groups[2] else { return nil }
                 return "\(latitude),\(longitude)"
             }

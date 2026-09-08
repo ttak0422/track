@@ -82,7 +82,7 @@ public struct GraphFullView: View {
                 ContentUnavailableView("Could not load graph", systemImage: "exclamationmark.triangle", description: Text(error))
             } else if let graph = model.full {
                 let nodes = GraphModel.nodesByDegree(graph)
-                let mark = Color.palette(for: colorScheme).mark
+                let mark = TrackTheme.palette(for: colorScheme).mark
                 List {
                     Section {
                         ForEach(nodes, id: \.noteID) { node in
@@ -147,7 +147,7 @@ public struct LocalGraphView: View {
                 ContentUnavailableView("Could not load graph", systemImage: "exclamationmark.triangle", description: Text(error))
             } else if let graph = model.local {
                 let neighbors = Self.neighbors(of: graph)
-                let mark = Color.palette(for: colorScheme).mark
+                let mark = TrackTheme.palette(for: colorScheme).mark
                 VStack(alignment: .leading, spacing: 4) {
                     Text("\(graph.nodes.count)件中\(graph.nodes.count)件表示")
                         .font(.caption)
