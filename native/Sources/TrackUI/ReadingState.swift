@@ -78,8 +78,15 @@ public final class ReadingStore {
     /// milestone on the ref and no seen mark is held locally. read implies
     /// seen, so a local read mark also clears NEW.
     public func isNew(_ ref: NoteRef) -> Bool {
-        guard (ref.seenAt ?? 0) <= 0, (ref.readAt ?? 0) <= 0 else { return false }
-        let id = ref.noteID.raw
+        isNew(noteID: ref.noteID, seenAt: ref.seenAt, readAt: ref.readAt)
+    }
+
+    /// Shared NEW predicate for every list presentation (search, tags,
+    /// backlinks, and recents). Keeping the server milestones and local
+    /// cache check in one overload prevents those views from drifting apart.
+    public func isNew(noteID: TrackID, seenAt: Int? = nil, readAt: Int? = nil) -> Bool {
+        guard (seenAt ?? 0) <= 0, (readAt ?? 0) <= 0 else { return false }
+        let id = noteID.raw
         return !seen.contains(id) && !read.contains(id)
     }
 

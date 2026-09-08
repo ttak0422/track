@@ -1,10 +1,12 @@
 import SwiftUI
+import CoreTransferable
 import TrackAPI
 
 // Five-column kanban over the same vault-wide dated listing the list shows.
 // Each card wears its own state picker, so moving a task is a `setState` write
-// (no drag-and-drop); the columns are a fixed projection of `rows` by state,
-// so a write lands back through the model's redraw-from-response path.
+// whether it came from the picker or drag-and-drop. The columns are a fixed
+// projection of `rows` by state, so a write lands back through the model's
+// redraw-from-response path.
 
 public struct TaskBoard: View {
     @Bindable var model: TasksModel
@@ -23,6 +25,12 @@ public struct TaskBoard: View {
                     rows: model.rows.filter { $0.item.state == state }
                 ) { row, newState in
                     Task { await model.setState(row: row, to: newState) }
+                } onDrop: { payload in
+                    guard let row = model.rows.first(where: {
+                        $0.noteID.raw == payload.noteID && $0.item.line == payload.line
+                    }) else { return }
+                    guard row.item.state != state else { return }
+                    Task { await model.setState(row: row, to: state) }
                 }
             }
         }
@@ -34,6 +42,7 @@ private struct TaskColumn: View {
     let title: String
     let rows: [TaskRow]
     let onChange: (TaskRow, String) -> Void
+    let onDrop: (TaskDragPayload) -> Void
 
     var body: some View {
         VStack(alignment: .leading, spacing: 6) {
@@ -50,6 +59,11 @@ private struct TaskColumn: View {
             }
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+        .dropDestination(for: TaskDragPayload.self) { payloads, _ in
+            guard let payload = payloads.first else { return false }
+            onDrop(payload)
+            return true
+        }
     }
 }
 
@@ -109,6 +123,7 @@ private struct TaskCard: View {
         .frame(maxWidth: .infinity, alignment: .leading)
         .background(Color.secondary.opacity(0.06), in: RoundedRectangle(cornerRadius: 6))
         .overlay(RoundedRectangle(cornerRadius: 6).strokeBorder(Color.secondary.opacity(0.15), lineWidth: 1))
+        .draggable(TaskDragPayload(noteID: row.noteID.raw, line: row.item.line))
     }
 
     /// Quiet chips keep task metadata legible without turning the card into a
@@ -129,6 +144,15 @@ private struct TaskCard: View {
                 if newValue != row.item.state { onChange(row, newValue) }
             }
         )
+    }
+}
+
+private struct TaskDragPayload: Codable, Transferable {
+    let noteID: String
+    let line: Int
+
+    static var transferRepresentation: some TransferRepresentation {
+        CodableRepresentation(contentType: .data)
     }
 }
 

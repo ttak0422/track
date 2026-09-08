@@ -303,7 +303,9 @@ public enum FigureAssets {
     /// Default height (points) reserved for an echarts figure, which needs an
     /// explicit size before `init`; callers can reserve the same space while
     /// the island measures itself.
-    public static let defaultEchartsHeight: CGFloat = 400
+    /// Charts start at a compact reading height; the shell adapts this to the
+    /// option's data shape instead of reserving one fixed 400pt box.
+    public static let defaultEchartsHeight: CGFloat = 320
 
     /// Default height (points) reserved for a map figure (Leaflet needs an
     /// explicit box before `L.map`).
@@ -634,6 +636,7 @@ public struct FigureHost: NSViewRepresentable {
                 "source": host.kind.source,
                 "display": host.kind.displayMode ?? false,
                 "height": Double(host.echartsHeight),
+                "initialHeight": Double(Self.initialHeight(for: host.kind)),
                 "mapHeight": Double(host.mapHeight),
                 "theme": theme,
                 "assets": FigureAssets.resolved(localScriptURL: host.localScriptURL),
@@ -645,6 +648,22 @@ public struct FigureHost: NSViewRepresentable {
                 return "{\"kind\":\"html\",\"source\":\"FigureHost: could not encode figure\",\"display\":false,\"theme\":{\"bg\":\"#ffffff\",\"fg\":\"#000000\",\"dark\":false}}"
             }
             return json
+        }
+
+        /// Avoid the 40pt flash while the first island measurement is in
+        /// flight. ResizeObserver remains the source of truth afterwards.
+        private static func initialHeight(for kind: FigureKind) -> CGFloat {
+            switch kind {
+            case .mermaid(let source), .dot(let source), .d2(let source), .drawio(let source):
+                let lines = max(1, source.split(separator: "\n", omittingEmptySubsequences: true).count)
+                return min(760, max(120, CGFloat(lines * 22 + 32)))
+            case .echarts:
+                return FigureAssets.defaultEchartsHeight
+            case .map:
+                return FigureAssets.defaultMapHeight
+            default:
+                return 40
+            }
         }
     }
 }
@@ -666,21 +685,45 @@ extension FigureAssets {
     <style>
       :root { color-scheme: light dark; }
       html, body { margin: 0; padding: 0; }
-      body { overflow: hidden; }
+      body { overflow: hidden; font-family: -apple-system, BlinkMacSystemFont, sans-serif; }
+      #toolbar { display: none; align-items: center; gap: 2px; min-height: 30px;
+        padding: 3px 5px; box-sizing: border-box; background: rgba(243,242,238,.92);
+        border: 1px solid rgba(120,118,110,.22); border-radius: 6px; margin-bottom: 6px; }
+      #toolbar button { min-width: 26px; min-height: 24px; padding: 1px 7px; border: 0;
+        border-radius: 4px; background: transparent; color: inherit; font: 12px -apple-system, sans-serif; }
+      #toolbar button:hover, #toolbar button:focus-visible { background: rgba(255,255,255,.8); outline: none; }
+      #toolbar .spacer { flex: 1; }
       #figure { width: 100%; box-sizing: border-box; }
+      #figure.diagram-capped { max-height: 760px; overflow: auto; }
       .raw-svg svg { display: block; width: 100%; height: auto; }
       .katex-display { margin: 0.5em 0; }
       .katex { font-size: 1.06em; }
       .map-fence-marker { box-sizing: border-box; border: 2px solid #fff; border-radius: 50%; background: #e2483d; }
+      .map-popup { min-width: 150px; line-height: 1.35; }
+      .map-popup a { color: inherit; font-weight: 600; text-decoration: underline; text-underline-offset: 2px; }
+      .map-popup p { margin: 5px 0 0; color: inherit; opacity: .78; }
     </style>
     </head>
     <body>
-    <div id="figure"></div>
+     <div id="toolbar" aria-label="Diagram controls">
+       <button id="fold" type="button" aria-label="Collapse diagram">⌃</button>
+       <span class="spacer"></span>
+       <button id="copy" type="button" aria-label="Copy Mermaid source">Copy source</button>
+       <button id="zoomOut" type="button" aria-label="Zoom out">−</button>
+       <button id="zoomReset" type="button" aria-label="Reset zoom">100%</button>
+       <button id="zoomIn" type="button" aria-label="Zoom in">+</button>
+     </div>
+     <div id="figure"></div>
     <script>
     (function () {
       "use strict";
 
-      var figure = document.getElementById("figure");
+       var figure = document.getElementById("figure");
+       var toolbar = document.getElementById("toolbar");
+       var foldButton = document.getElementById("fold");
+       var zoom = 1;
+       var folded = false;
+       var diagramSource = "";
       var assetCache = {};
       var currentChart = null;
       var renderSalt = 0;
@@ -689,9 +732,51 @@ extension FigureAssets {
         window.webkit.messageHandlers.fig.postMessage(msg);
       }
 
-      function postHeight() {
-        post({ type: "height", height: Math.ceil(figure.getBoundingClientRect().height) });
-      }
+       function postHeight() {
+         post({ type: "height", height: Math.ceil(figure.getBoundingClientRect().height) });
+       }
+
+       function setZoom(next) {
+         zoom = Math.max(0.5, Math.min(2.5, next));
+         figure.style.transformOrigin = "top left";
+         figure.style.transform = zoom === 1 ? "" : "scale(" + zoom + ")";
+         // A transformed element does not contribute its visual height to
+         // layout, so reserve the scaled height explicitly for scrolling.
+         figure.style.marginBottom = zoom === 1 ? "" : (figure.scrollHeight * (zoom - 1)) + "px";
+         document.getElementById("zoomReset").textContent = Math.round(zoom * 100) + "%";
+         postHeight();
+       }
+
+       function showToolbar(show) {
+         toolbar.style.display = show ? "flex" : "none";
+         figure.classList.toggle("diagram-capped", show);
+       }
+
+       foldButton.addEventListener("click", function () {
+         folded = !folded;
+         figure.style.display = folded ? "none" : "";
+         foldButton.textContent = folded ? "⌄" : "⌃";
+         foldButton.setAttribute("aria-label", folded ? "Expand diagram" : "Collapse diagram");
+         postHeight();
+       });
+       document.getElementById("zoomOut").addEventListener("click", function () { setZoom(zoom - 0.1); });
+       document.getElementById("zoomIn").addEventListener("click", function () { setZoom(zoom + 0.1); });
+       document.getElementById("zoomReset").addEventListener("click", function () { setZoom(1); });
+       document.getElementById("copy").addEventListener("click", function () {
+         var done = function () {
+           var button = document.getElementById("copy");
+           button.textContent = "Copied";
+           setTimeout(function () { button.textContent = "Copy source"; }, 1200);
+         };
+         if (navigator.clipboard && navigator.clipboard.writeText) {
+           navigator.clipboard.writeText(diagramSource).then(done).catch(function () {});
+         } else {
+           var area = document.createElement("textarea");
+           area.value = diagramSource; document.body.appendChild(area); area.select();
+           try { document.execCommand("copy"); done(); } catch (_) {}
+           area.remove();
+         }
+       });
 
       function errorText(err) {
         return err && err.message ? err.message : String(err);
@@ -755,10 +840,20 @@ extension FigureAssets {
         return { base: window.L.tileLayer("https://server.arcgisonline.com/ArcGIS/rest/services/World_Topo_Map/MapServer/tile/{z}/{y}/{x}", { attribution: esri }) };
       }
 
-      function render(cfg) {
-        var svgKinds = { svg: 1, dot: 1, d2: 1 };
-        figure.className = svgKinds[cfg.kind] ? "raw-svg" : "";
-        figure.textContent = "";
+       function render(cfg) {
+         var svgKinds = { svg: 1, dot: 1, d2: 1 };
+         figure.className = svgKinds[cfg.kind] ? "raw-svg" : "";
+         diagramSource = cfg.source || "";
+         folded = false;
+         foldButton.textContent = "⌃";
+         foldButton.setAttribute("aria-label", "Collapse diagram");
+         figure.style.display = "";
+         figure.style.minHeight = cfg.initialHeight ? cfg.initialHeight + "px" : "";
+         setZoom(1);
+         showToolbar(cfg.kind === "mermaid");
+         // Publish the useful first frame before a CDN asset resolves.
+         postHeight();
+         figure.textContent = "";
         document.body.style.backgroundColor = cfg.theme.bg;
         document.body.style.color = cfg.theme.fg;
 
@@ -803,16 +898,25 @@ extension FigureAssets {
           return;
         }
 
-        if (cfg.kind === "echarts") {
-          loadAssets([cfg.assets.echarts]).then(function () {
-            var node = document.createElement("div");
-            node.style.width = "100%";
-            node.style.height = cfg.height + "px";
-            figure.appendChild(node);
-            try {
-              if (currentChart) { currentChart.dispose(); currentChart = null; }
-              currentChart = window.echarts.init(node, cfg.theme.dark ? "dark" : null, { renderer: "svg" });
-              currentChart.setOption(JSON.parse(cfg.source));
+         if (cfg.kind === "echarts") {
+           loadAssets([cfg.assets.echarts]).then(function () {
+             var option = JSON.parse(cfg.source);
+             var node = document.createElement("div");
+             node.style.width = "100%";
+             var dataPoints = 0;
+             (option.series || []).forEach(function (series) {
+               dataPoints = Math.max(dataPoints, Array.isArray(series.data) ? series.data.length : 0);
+             });
+             // Keep small charts light, while a dense time series gets room
+             // without allowing a fence to take over the whole note.
+             var chartHeight = option.height || option.__height || Math.max(cfg.height, Math.min(560, 240 + dataPoints * 5));
+             chartHeight = Math.max(240, Math.min(640, chartHeight));
+             node.style.height = chartHeight + "px";
+             figure.appendChild(node);
+             try {
+               if (currentChart) { currentChart.dispose(); currentChart = null; }
+               currentChart = window.echarts.init(node, cfg.theme.dark ? "dark" : null, { renderer: "svg" });
+               currentChart.setOption(option);
             } catch (err) {
               node.textContent = "ECharts error: " + err.message;
             }
@@ -885,11 +989,13 @@ extension FigureAssets {
             layers.base.addTo(map);
             if (layers.overlay) { layers.overlay.addTo(map); }
             m.markers.forEach(function (marker) {
-              var popup = document.createElement("div");
-              var link = document.createElement("a");
-              link.href = "trackwiki://" + encodeURIComponent(marker.target);
-              link.textContent = marker.display || marker.target;
-              popup.appendChild(link);
+               var popup = document.createElement("div");
+               popup.className = "map-popup";
+               var link = document.createElement("a");
+               link.href = "trackwiki://" + encodeURIComponent(marker.target);
+               link.textContent = marker.display || marker.target;
+               link.setAttribute("aria-label", "Open note: " + (marker.display || marker.target));
+               popup.appendChild(link);
               if (marker.description) {
                 var p = document.createElement("p");
                 p.textContent = marker.description;

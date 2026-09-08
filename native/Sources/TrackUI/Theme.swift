@@ -9,8 +9,9 @@ import SwiftUI
 // - ThemeMode is the explicit choice the Settings tab writes, mirroring the
 //   web's themeState.ts: the same "track.theme" storage key, and "system" is
 //   the neutral default that stores nothing.
-// - TrackAppearance is the font-scale setting (web ThemeMenu's --font-scale)
-//   plus the 0.85–1.3 clamp the requirement fixes the stored Double to.
+// - TrackAppearance is the two independent text-size settings from the web
+//   ThemeMenu (reader and preview), expressed as a scale over the native 16pt
+//   base. The old ratio key is retained as a compatibility fallback.
 //
 // None of the palettes is applied as a ViewModifier. The app maps a mode onto
 // SwiftUI's own scheme switch with `.preferredColorScheme(...)` and hands the
@@ -207,14 +208,24 @@ public enum ContentWidthMode: String, CaseIterable, Sendable {
 public enum TrackAppearance {
     /// Shared with the web's themeState.ts.
     public static let themeKey = "track.theme"
-    /// Native font scale as a ratio over the default size (the web stores an
-    /// absolute px on "track.fontSize"; the native P0 keeps the ratio).
+    /// Web-compatible absolute size settings. Native views consume their
+    /// corresponding values as a scale over `baseFontSize`.
+    public static let fontSizeKey = "track.fontSize"
+    public static let previewFontSizeKey = "track.previewFontSize"
+    public static let baseFontSize = 16.0
+    public static let fontSizeRange: ClosedRange<Double> = 13...32
+    /// Legacy native ratio key. Keep reading it so existing preferences do not
+    /// silently reset when the web-compatible settings are introduced.
     public static let fontScaleKey = "track.fontScale"
     public static let defaultFontScale = 1.0
     /// Native reading-column width, matching web ThemeMenu's setting.
     public static let contentWidthKey = "track.contentWidth"
     /// The range the stored Double is held to (0.85–1.3×).
     public static let fontScaleRange: ClosedRange<Double> = 0.85...1.3
+
+    public static func scale(forFontSize size: Double) -> Double {
+        min(max(size / baseFontSize, fontSizeRange.lowerBound / baseFontSize), fontSizeRange.upperBound / baseFontSize)
+    }
 
     /// Holds an out-of-range stored value (from an older version or a hand
     /// edit) to the documented range before it is applied.
@@ -229,11 +240,21 @@ private struct TrackFontScaleKey: EnvironmentKey {
     static let defaultValue = TrackAppearance.defaultFontScale
 }
 
+private struct TrackPreviewFontScaleKey: EnvironmentKey {
+    static let defaultValue = TrackAppearance.scale(forFontSize: TrackAppearance.baseFontSize)
+}
+
 public extension EnvironmentValues {
     /// The font scale the app owner injected at the root. Views apply it the
     /// way design.md sizes chrome: base size × scale.
     var trackFontScale: Double {
         get { self[TrackFontScaleKey.self] }
         set { self[TrackFontScaleKey.self] = newValue }
+    }
+
+    /// Scale used by note preview surfaces, independent from the main reader.
+    var trackPreviewFontScale: Double {
+        get { self[TrackPreviewFontScaleKey.self] }
+        set { self[TrackPreviewFontScaleKey.self] = newValue }
     }
 }

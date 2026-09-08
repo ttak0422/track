@@ -1,4 +1,5 @@
 import Foundation
+import AppKit
 import MarkdownUI
 import SwiftUI
 import TrackAPI
@@ -99,6 +100,56 @@ public struct GFMBody: View {
             case .markdown(let text):
                 Markdown(text)
                     .markdownTheme(.gitHub)
+                    .markdownBlockStyle(\.paragraph) { configuration in
+                        configuration.label
+                            .relativeLineSpacing(.em(0.85))
+                            .markdownMargin(bottom: .em(1))
+                    }
+                    .markdownBlockStyle(\.heading1) { configuration in
+                        configuration.label
+                            .markdownMargin(top: .em(1.5), bottom: .em(0.75))
+                            .overlay(alignment: .bottom) { Divider() }
+                    }
+                    .markdownBlockStyle(\.heading2) { configuration in
+                        configuration.label
+                            .markdownMargin(top: .em(1.35), bottom: .em(0.65))
+                            .overlay(alignment: .top) { Divider() }
+                    }
+                    .markdownBlockStyle(\.codeBlock) { configuration in
+                        let language = configuration.language?.isEmpty == false ? configuration.language! : "Code"
+                        VStack(alignment: .leading, spacing: 0) {
+                            HStack {
+                                Text(language)
+                                    .font(.caption.weight(.medium)).foregroundStyle(.secondary)
+                                Spacer()
+                                Button("Copy") {
+                                    NSPasteboard.general.clearContents()
+                                    NSPasteboard.general.setString(configuration.content, forType: .string)
+                                }
+                                .buttonStyle(.borderless).font(.caption)
+                            }
+                            .padding(.horizontal, 10).padding(.vertical, 6)
+                            Divider()
+                            ScrollView(.horizontal) {
+                                configuration.label.fixedSize(horizontal: false, vertical: true).padding(10)
+                            }
+                        }
+                        .background(Color.primary.opacity(0.045))
+                        .clipShape(RoundedRectangle(cornerRadius: 6))
+                    }
+                    .markdownBlockStyle(\.table) { configuration in
+                        ScrollView(.horizontal, showsIndicators: true) {
+                            configuration.label.fixedSize(horizontal: false, vertical: true)
+                        }
+                        .markdownMargin(top: .zero, bottom: .em(1))
+                    }
+                    .markdownBlockStyle(\.tableCell) { configuration in
+                        configuration.label
+                            .foregroundStyle(configuration.row == 0 ? .primary : .secondary)
+                            .font(configuration.row == 0 ? .body.weight(.semibold) : .body)
+                            .overlay(alignment: .bottom) { if configuration.row == 0 { Divider() } }
+                            .padding(.horizontal, 8).padding(.vertical, 5)
+                    }
                     .markdownImageProvider(TrackAssetImageProvider(baseURL: baseURL, vault: vault))
                     .textSelection(.enabled)
             case .figure(let figure):
@@ -111,6 +162,8 @@ public struct GFMBody: View {
                 )
             case .media(let media):
                 MediaSegmentView(media: media, baseURL: baseURL, vault: vault, client: client)
+            case .include(let include):
+                IncludeCardView(include: include, onWikilink: onWikilink)
             }
         }
     }
@@ -125,6 +178,7 @@ public struct GFMBody: View {
         case markdown(String)
         case figure(Figure)
         case media(Media)
+        case include(NoteInclude)
     }
 
     /// A `![alt](src)` line lifted out of the prose and drawn as one of the
@@ -202,6 +256,14 @@ public struct GFMBody: View {
         while i < lines.count {
             let line = lines[i]
             let trimmed = line.trimmingCharacters(in: .whitespaces)
+
+            if let marker = Self.includeMarkerIndex(trimmed),
+               let include = spliceIn.first(where: { $0.line == marker }) {
+                flush()
+                segments.append(.include(include))
+                i += 1
+                continue
+            }
 
             // Standalone media embeds: a line that is exactly `![alt](src)`.
             if let media = Self.standaloneImage(trimmed) {
@@ -664,22 +726,20 @@ public struct GFMBody: View {
         return lines.joined(separator: "\n")
     }
 
-    /// The markdown an include directive becomes: an error notice, or a bold
-    /// caption + the excerpt blockquoted.
+    /// Replace an include directive with a private marker so it can become a
+    /// native card segment without flattening its excerpt into a blockquote.
     private static func includeBlock(_ inc: NoteInclude) -> String {
-        if let error = inc.error, !error.isEmpty {
-            return "> ⚠ \(error)"
-        }
-        var out: [String] = []
-        let caption = inc.caption.isEmpty ? "Include" : inc.caption
-        out.append("**\(caption)**")
-        for line in inc.lines {
-            out.append("> \(line)")
-        }
-        for bad in inc.badOptions ?? [] {
-            out.append("> ⚠ unknown option: \(bad)")
-        }
-        return out.joined(separator: "\n")
+        return includeMarker(inc.line)
+    }
+
+    private static func includeMarker(_ line: Int) -> String {
+        "<!-- track-native-include:\(line) -->"
+    }
+
+    private static func includeMarkerIndex(_ line: String) -> Int? {
+        let prefix = "<!-- track-native-include:"
+        guard line.hasPrefix(prefix), line.hasSuffix(" -->") else { return nil }
+        return Int(line.dropFirst(prefix.count).dropLast(4))
     }
 
     /// `[[target|display]]` → `[display](trackwiki://pct-encoded-target)` and
@@ -1293,6 +1353,49 @@ private struct TrackViewCardBody: View {
 
 // MARK: - Media segments
 
+private struct IncludeCardView: View {
+    let include: NoteInclude
+    let onWikilink: ((String) -> Void)?
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            if let error = include.error, !error.isEmpty {
+                Label(error, systemImage: "exclamationmark.triangle")
+                    .foregroundStyle(.secondary)
+            } else {
+                HStack {
+                    if let title = include.title, !title.isEmpty, include.noteID != nil {
+                        Button(include.caption.isEmpty ? title : include.caption) {
+                            onWikilink?(include.noteID?.description ?? title)
+                        }
+                        .buttonStyle(.link).font(.headline)
+                    } else {
+                        Text(include.caption.isEmpty ? "Include" : include.caption)
+                            .font(.headline)
+                    }
+                    Spacer()
+                    Image(systemName: "arrow.up.right")
+                        .font(.caption).foregroundStyle(.secondary)
+                }
+                if !include.lines.isEmpty {
+                    Text(include.lines.joined(separator: "\n"))
+                        .font(.body).foregroundStyle(.secondary)
+                        .textSelection(.enabled)
+                }
+                ForEach(include.badOptions ?? [], id: \.self) { option in
+                    Text("⚠ unknown option: \(option)")
+                        .font(.caption).foregroundStyle(.secondary)
+                }
+            }
+        }
+        .padding(12)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(Color.primary.opacity(0.035))
+        .overlay(RoundedRectangle(cornerRadius: 6).stroke(Color.secondary.opacity(0.28)))
+        .clipShape(RoundedRectangle(cornerRadius: 6))
+    }
+}
+
 /// One lifted media embed, routed by src type the same way the web reader's
 /// `Embed.tsx` routes a standalone `![alt](src)`: YouTube/Maps (FigureHost
 /// islands via MediaEmbeds), PDF and vault-local text-file assets (MediaEmbeds
@@ -1303,6 +1406,8 @@ private struct MediaSegmentView: View {
     let baseURL: URL
     let vault: String
     let client: TrackClient?
+    @State private var previewURL: URL?
+    @State private var showingPreview = false
 
     var body: some View {
         switch GFMBody.classify(
@@ -1354,29 +1459,41 @@ private struct MediaSegmentView: View {
     @ViewBuilder
     private var imageBody: some View {
         if let asset = GFMBody.assetHref(media.src, vault: vault, baseURL: baseURL) {
-            AsyncImage(url: asset) { phase in
-                if let image = phase.image {
-                    image.resizable().scaledToFit()
-                } else if phase.error != nil {
-                    fallbackLink
-                } else {
-                    ProgressView().frame(maxWidth: .infinity, minHeight: 60)
-                }
-            }
-            .frame(maxWidth: .infinity)
+            imageFrame(asset)
         } else if let url = GFMBody.webHrefURL(GFMBody.webHref(media.src)) {
-            AsyncImage(url: url) { phase in
-                if let image = phase.image {
-                    image.resizable().scaledToFit()
-                } else if phase.error != nil {
-                    fallbackLink
-                } else {
-                    ProgressView().frame(maxWidth: .infinity, minHeight: 60)
-                }
-            }
-            .frame(maxWidth: .infinity)
+            imageFrame(url)
         } else {
             fallbackLink
+        }
+    }
+
+    @ViewBuilder
+    private func imageFrame(_ url: URL) -> some View {
+        Button { previewURL = url; showingPreview = true } label: {
+            AsyncImage(url: url) { phase in
+                if let image = phase.image {
+                    image.resizable().scaledToFit().frame(maxWidth: .infinity)
+                } else if phase.error != nil {
+                    fallbackLink
+                } else {
+                    ProgressView().frame(maxWidth: .infinity, minHeight: 80)
+                }
+            }
+            .frame(maxWidth: .infinity, minHeight: 80)
+            .background(Color.primary.opacity(0.035))
+            .clipShape(RoundedRectangle(cornerRadius: 6))
+        }
+        .buttonStyle(.plain)
+        .sheet(isPresented: $showingPreview) {
+            VStack {
+                AsyncImage(url: previewURL) { phase in
+                    if let image = phase.image { image.resizable().scaledToFit() }
+                    else { ProgressView() }
+                }
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
+                .padding()
+            }
+            .background(Color.black)
         }
     }
 

@@ -426,10 +426,15 @@ private struct NewNoteSheet: View {
 
 /// The two panes of the in-note editor (web `editorMode` edit/preview; split
 /// is not drawn natively). Read-only mode is the default when not editing.
-private enum NoteEditorPane {
+private enum NoteEditorPane: String {
     case edit
     case preview
     case split
+}
+
+private struct WikilinkPreview: Equatable {
+    let title: String
+    let excerpt: String
 }
 
 public struct NoteReaderView: View {
@@ -438,9 +443,16 @@ public struct NoteReaderView: View {
     @AppStorage(TrackAppearance.contentWidthKey) private var contentWidthRaw: String?
     /// The API base URL, passed down to the GFM renderer for `assets/…` embeds.
     let baseURL: URL
-    /// Edit vs Preview inside the editor pane; reset to Edit each time an
-    /// editing session starts.
-    @State private var pane = NoteEditorPane.edit
+    /// Edit/Preview/Split is shared across note windows, like the web editor's
+    /// persisted editorMode. Keep the string at the edge so an older value can
+    /// never make the picker fail to render.
+    @AppStorage("track.noteEditorPane") private var paneRaw = NoteEditorPane.edit.rawValue
+    private var pane: NoteEditorPane {
+        get { NoteEditorPane(rawValue: paneRaw) ?? .edit }
+    }
+    private var paneBinding: Binding<NoteEditorPane> {
+        Binding(get: { NoteEditorPane(rawValue: paneRaw) ?? .edit }, set: { paneRaw = $0.rawValue })
+    }
     /// Dirty guard: Done with unsaved edits asks before discarding the draft.
     @State private var confirmDiscard = false
     /// Delete confirmation: the user must retype the title before the note can
@@ -451,6 +463,7 @@ public struct NoteReaderView: View {
     @State private var showMeta = false
     @State private var titleCopied = false
     @State private var anchorHighlight = false
+    @State private var wikilinkPreview: WikilinkPreview?
 
     public init(model: NoteReaderModel, baseURL: URL) {
         self.model = model
@@ -648,7 +661,7 @@ public struct NoteReaderView: View {
     }
 
     private func startEditing() {
-        pane = .edit
+        paneRaw = NoteEditorPane.edit.rawValue
         model.beginEditing()
     }
 
@@ -664,9 +677,34 @@ public struct NoteReaderView: View {
 
     @ViewBuilder
     private func readerPane(_ response: NoteResponse) -> some View {
-        ScrollView {
-            VStack(alignment: .leading, spacing: 16) {
-                noteHeader(response.note)
+        GeometryReader { geometry in
+            ScrollView {
+                let wide = contentWidthMode != .normal || geometry.size.width >= 1_080
+                Group {
+                    if wide {
+                        HStack(alignment: .top, spacing: 28) {
+                            readerMain(response)
+                                .frame(maxWidth: contentWidthMode == .full ? 900 : 760, alignment: .leading)
+                            readerAside(response)
+                                .frame(width: 260, alignment: .leading)
+                        }
+                    } else {
+                        VStack(alignment: .leading, spacing: 16) {
+                            readerMain(response)
+                            readerAside(response)
+                        }
+                    }
+                }
+                .frame(maxWidth: .infinity, alignment: .topLeading)
+                .padding(24)
+            }
+        }
+    }
+
+    @ViewBuilder
+    private func readerMain(_ response: NoteResponse) -> some View {
+        VStack(alignment: .leading, spacing: 16) {
+                noteHeader(response.note, showTags: false)
 
                 if let excerpt = model.anchoredExcerpt {
                     anchoredExcerptCard(excerpt)
@@ -692,58 +730,138 @@ public struct NoteReaderView: View {
                     )
                 }
 
-                // Hierarchy and cross-vault sections, mirroring
-                // NoteReaderStatic's trail/children/external/unavailable.
-                if let trail = response.trail, !trail.isEmpty {
-                    Divider()
-                    Text("Trail").font(.caption).foregroundStyle(.secondary)
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+    }
+
+    @ViewBuilder
+    private func readerAside(_ response: NoteResponse) -> some View {
+        VStack(alignment: .leading, spacing: 14) {
+            if let trail = response.trail, !trail.isEmpty {
+                asideSection("Trail") {
                     ForEach(trail, id: \.noteID) { ref in
-                        Button(ref.title) { Task { await model.openRef(ref) } }
-                            .buttonStyle(.link)
+                        asideLink(ref.title) { Task { await model.openRef(ref) } }
                     }
                 }
-                if let children = response.children, !children.isEmpty {
-                    Divider()
-                    Text("Children").font(.caption).foregroundStyle(.secondary)
-                    ForEach(children, id: \.noteID) { ref in
-                        Button(ref.title) { Task { await model.openRef(ref) } }
-                            .buttonStyle(.link)
-                    }
+            }
+            if let tags = response.note.summary.tags, !tags.isEmpty {
+                asideSection("Tags") {
+                    Text(tags.map { "#\($0)" }.joined(separator: "  "))
+                        .font(.caption).foregroundStyle(TrackTheme.palette(for: colorScheme).muted)
                 }
-                if let external = response.external, !external.isEmpty {
-                    Divider()
-                    Text("Linked from other vaults").font(.caption).foregroundStyle(.secondary)
-                    ForEach(external, id: \.noteID) { ref in
-                        Button("\(ref.vault)/\(ref.title)") {
-                            Task { await model.open(TrackID.qualify(vault: ref.vault, id: ref.noteID.raw)) }
-                        }
-                        .buttonStyle(.link)
-                    }
-                }
-                if let unavailable = response.unavailable, !unavailable.isEmpty {
-                    ForEach(unavailable, id: \.name) { vault in
-                        Text("⚠ vault “\(vault.name)” could not be checked\(vault.error.map { ": \($0)" } ?? "")")
+            }
+            let headings = GFMBody.tocEntries(in: response.note.body)
+            if !headings.isEmpty {
+                asideSection("Contents") {
+                    ForEach(headings) { entry in
+                        Text("\(String(repeating: "  ", count: max(0, entry.level - 1)))• \(entry.title)")
                             .font(.caption).foregroundStyle(.secondary)
                     }
                 }
-                if !response.backlinks.isEmpty {
-                    Divider()
-                    Text("Backlinks")
-                        .font(.caption).foregroundStyle(.secondary)
+            }
+            let wikilinks = GFMBody.wikilinks(in: response.note.body)
+            if !wikilinks.isEmpty {
+                asideSection("Links") {
+                    ForEach(wikilinks, id: \.self) { target in
+                        asideLink(target) { Task { await model.openWikilink(target: target) } }
+                    }
+                }
+            }
+            if let children = response.children, !children.isEmpty {
+                asideRefs("Children", children)
+            }
+            if let external = response.external, !external.isEmpty {
+                asideSection("Linked from other vaults") {
+                    ForEach(external, id: \.noteID) { ref in
+                        asideLink("\(ref.vault)/\(ref.title)") {
+                            Task { await model.open(TrackID.qualify(vault: ref.vault, id: ref.noteID.raw)) }
+                        }
+                    }
+                }
+            }
+            if !response.backlinks.isEmpty {
+                asideSection("Backlinks") {
                     ForEach(response.backlinks, id: \.noteID) { ref in
-                        HStack(spacing: 8) {
-                            Button(ref.title) {
-                                Task { await model.openRef(ref) }
-                            }
-                            .buttonStyle(.link)
+                        HStack(spacing: 6) {
+                            asideLink(ref.title) { Task { await model.openRef(ref) } }
                             if readingBadge(for: ref) { statusBadge("NEW") }
                         }
                     }
                 }
             }
-            .frame(maxWidth: contentWidthMode.maxWidth, alignment: .leading)
-            .padding(24)
+            if let unavailable = response.unavailable, !unavailable.isEmpty {
+                asideSection("Warnings") {
+                    ForEach(unavailable, id: \.name) { vault in
+                        Text("⚠ \(vault.name)\(vault.error.map { ": \($0)" } ?? "")")
+                            .font(.caption).foregroundStyle(.secondary)
+                    }
+                }
+            }
         }
+        .overlay(alignment: .topLeading) {
+            if let preview = wikilinkPreview {
+                wikilinkPreviewCard(preview)
+                    .offset(y: -8)
+                    .zIndex(2)
+            }
+        }
+    }
+
+    private func asideSection<Content: View>(_ title: String, @ViewBuilder content: () -> Content) -> some View {
+        VStack(alignment: .leading, spacing: 6) {
+            Text(title).font(.caption.weight(.semibold)).foregroundStyle(.secondary)
+            content()
+        }
+        .padding(.bottom, 4)
+    }
+
+    private func asideRefs(_ title: String, _ refs: [NoteRef]) -> some View {
+        asideSection(title) {
+            ForEach(refs, id: \.noteID) { ref in
+                asideLink(ref.title) { Task { await model.openRef(ref) } }
+            }
+        }
+    }
+
+    private func asideLink(_ title: String, action: @escaping () -> Void) -> some View {
+        Button(title, action: action)
+            .buttonStyle(.link)
+            .font(.callout)
+            .onHover { hovering in
+                guard hovering else { wikilinkPreview = nil; return }
+                Task { await loadWikilinkPreview(target: title) }
+            }
+    }
+
+    private func loadWikilinkPreview(target: String) async {
+        let trimmed = target.trimmingCharacters(in: .whitespacesAndNewlines)
+        let key = trimmed.split(separator: "#", maxSplits: 1).first.map(String.init) ?? trimmed
+        let parts = key.split(separator: ":", maxSplits: 1).map(String.init)
+        let vault = parts.count == 2 ? parts[0] : ""
+        let term = parts.count == 2 ? parts[1] : key
+        guard let resolved = try? await model.client.resolveTerm(term, vault: vault), resolved.found else { return }
+        let id = TrackID.qualify(vault: vault, id: resolved.note.noteID.raw)
+        guard let response = try? await model.client.getNote(id) else { return }
+        let excerpt = response.note.body.components(separatedBy: .newlines)
+            .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
+            .first { !$0.isEmpty && !$0.hasPrefix("#") && !$0.hasPrefix("```") } ?? ""
+        await MainActor.run {
+            wikilinkPreview = WikilinkPreview(title: response.note.summary.ref.title, excerpt: excerpt)
+        }
+    }
+
+    private func wikilinkPreviewCard(_ preview: WikilinkPreview) -> some View {
+        VStack(alignment: .leading, spacing: 5) {
+            Text(preview.title).font(.callout.weight(.semibold))
+            if !preview.excerpt.isEmpty {
+                Text(preview.excerpt).font(.caption).foregroundStyle(.secondary).lineLimit(3)
+            }
+        }
+        .padding(10)
+        .frame(width: 240, alignment: .leading)
+        .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 8))
+        .overlay(RoundedRectangle(cornerRadius: 8).stroke(Color(nsColor: .separatorColor), lineWidth: 0.5))
+        .shadow(radius: 8, y: 3)
     }
 
     // MARK: - Edit mode
@@ -758,7 +876,7 @@ public struct NoteReaderView: View {
             noteHeader(response.note)
             Divider()
             HStack(spacing: 12) {
-                Picker("Pane", selection: $pane) {
+                Picker("Pane", selection: paneBinding) {
                     Text("Edit").tag(NoteEditorPane.edit)
                     Text("Preview").tag(NoteEditorPane.preview)
                     Text("Split").tag(NoteEditorPane.split)
@@ -820,7 +938,7 @@ public struct NoteReaderView: View {
     /// typed props (`key: value`, capped at 10), created/updated, and the task
     /// count when the engine parsed tasks out of the body.
     @ViewBuilder
-    private func noteHeader(_ note: NoteDetail) -> some View {
+    private func noteHeader(_ note: NoteDetail, showTags: Bool = true) -> some View {
         HStack(spacing: 8) {
             Text(note.summary.ref.title)
                 .font(.title2).fontWeight(.medium)
@@ -838,7 +956,7 @@ public struct NoteReaderView: View {
             .accessibilityLabel(titleCopied ? "Title copied" : "Copy title")
         }
 
-        if let tags = note.summary.tags, !tags.isEmpty {
+        if showTags, let tags = note.summary.tags, !tags.isEmpty {
             HStack(spacing: 8) {
                 ForEach(tags, id: \.self) { tag in
                     Text("#\(tag)").font(.caption).foregroundStyle(.secondary)
