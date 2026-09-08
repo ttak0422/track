@@ -52,6 +52,7 @@ public struct SearchReaderView: View {
     @State private var pendingSearchResult: SearchResult?
     @FocusState private var searchFocused: Bool
     @Environment(\.colorScheme) private var colorScheme
+    @Environment(\.trackFontScale) private var fontScale
 
     public init(client: TrackClient) {
         _search = State(initialValue: SearchModel(client: client))
@@ -147,7 +148,7 @@ public struct SearchReaderView: View {
                      }
                  }
                 if query.isEmpty && !recentList.isEmpty {
-                    Text("Recent").font(.caption).foregroundStyle(.secondary)
+                    Text("Recent").trackSectionLabel()
                         .padding(.horizontal, 12).padding(.top, 8)
                     let visibleRecent = Array(recentList.prefix(Self.recentVisibleLimit))
                     let overflowRecent = Array(recentList.dropFirst(Self.recentVisibleLimit))
@@ -168,19 +169,15 @@ public struct SearchReaderView: View {
                                             .lineLimit(1)
                                     }
                                 }
-                                Text(note.title).font(.body).lineLimit(1)
+                                Text(note.title).font(.system(size: 16 * fontScale)).lineLimit(1)
                                 if note.id == reader.currentID?.raw && reader.isDirty {
                                     Text("•")
                                         .font(.title3)
-                                        .foregroundStyle(Color.accentColor)
+                                        .foregroundStyle(TrackTheme.palette(for: colorScheme).mark)
                                         .accessibilityLabel("Unsaved changes")
                                 }
                                 if let ref = Self.mruRef(note), reading.isNew(ref) {
-                                    Text("NEW")
-                                        .font(.caption2).fontWeight(.bold)
-                                        .foregroundStyle(.secondary)
-                                        .padding(.horizontal, 4).padding(.vertical, 1)
-                                        .background(.quaternary, in: Capsule())
+                                    TrackStateBadge("NEW")
                                 }
                             }
                         }
@@ -220,7 +217,7 @@ public struct SearchReaderView: View {
                 }
                  List {
                      ForEach(searchSections, id: \.title) { section in
-                         Section(section.title) {
+                         Section {
                              ForEach(section.results, id: \.qualifiedID) { result in
                                  VStack(alignment: .leading, spacing: 4) {
                                      Button { openSearchResult(result) } label: {
@@ -233,20 +230,20 @@ public struct SearchReaderView: View {
                                                           .font(.caption).foregroundStyle(.tertiary)
                                                   }
                                                   highlighted(result.ref.title)
-                                                      .font(.body)
-                                                 if reading.isNew(result.ref) { statusBadge("NEW") }
-                                                  if isStale(result) { statusBadge("古い") }
+                                                      .font(.system(size: 16 * fontScale))
+                                                 if reading.isNew(result.ref) { TrackStateBadge("NEW") }
+                                                  if isStale(result) { TrackStateBadge("古い", kind: .stale) }
                                                   if let flags = result.ref.flags {
                                                       ForEach(flags.filter { $0 == "DEPRECATED" || $0 == "CONFIDENTIAL" }, id: \.self) {
-                                                          statusBadge($0)
+                                                          TrackFlagBadge($0)
                                                       }
                                                   }
                                              }
                                              if let match = result.match {
-                                                 highlighted(match).font(.caption2).foregroundStyle(.tertiary)
+                                                 highlighted(match).font(.system(size: 11 * fontScale)).foregroundStyle(.tertiary)
                                              }
                                              if let snippet = result.snippet {
-                                                 highlighted(snippet).font(.caption).foregroundStyle(.secondary)
+                                                 highlighted(snippet).font(.system(size: 13 * fontScale)).foregroundStyle(.secondary)
                                                      .lineLimit(2)
                                              }
                                          }
@@ -258,14 +255,34 @@ public struct SearchReaderView: View {
                                              ForEach(tags, id: \.self) { tag in
                                                  Button("#\(tag)") { appendSearchTag(tag) }
                                                      .buttonStyle(.borderless)
-                                                     .font(.caption2).foregroundStyle(.secondary)
+                                                     .font(.system(size: 13 * fontScale)).foregroundStyle(.secondary)
                                              }
                                          }
                                      }
                                  }
                                  .padding(.vertical, 2)
-                                 .listRowBackground(activeSearchIndex == filteredSearchResults.firstIndex(where: { $0.qualifiedID == result.qualifiedID }) ? Color.primary.opacity(0.08) : nil)
+                                 .listRowBackground(activeSearchRow(result) ? Color.clear : nil)
+                                 .overlay(alignment: .leading) {
+                                     if activeSearchRow(result) {
+                                         // L-shaped reading-edge cursor (web
+                                         // .result-row:has(.result.is-active)):
+                                         // a mark edge on the left and bottom,
+                                         // never a filled tile.
+                                         TrackTheme.palette(for: colorScheme).mark
+                                             .frame(width: 2)
+                                             .padding(.vertical, 4)
+                                     }
+                                 }
+                                 .overlay(alignment: .bottom) {
+                                     if activeSearchRow(result) {
+                                         TrackTheme.palette(for: colorScheme).mark
+                                             .frame(height: 2)
+                                             .padding(.leading, 2)
+                                     }
+                                 }
                              }
+                         } header: {
+                             Text(section.title).trackSectionLabel()
                          }
                      }
                      if search.unavailableCount > 0 {
@@ -368,10 +385,9 @@ public struct SearchReaderView: View {
             }
             .frame(maxWidth: 520, alignment: .leading)
             VStack(alignment: .leading, spacing: 8) {
-                Text("ACTIVITY").font(.caption.weight(.semibold))
-                    .foregroundStyle(TrackTheme.palette(for: colorScheme).muted)
+                Text("ACTIVITY").trackSectionLabel()
                 Text("Browse your recent note activity")
-                    .font(.callout).foregroundStyle(.secondary)
+                    .font(.system(size: 14 * fontScale)).foregroundStyle(.secondary)
                 ActivityHeatmapView(model: browse)
                     .background(Color(nsColor: .textBackgroundColor), in: RoundedRectangle(cornerRadius: 8))
                     .overlay(RoundedRectangle(cornerRadius: 8).stroke(Color(nsColor: .separatorColor), lineWidth: 0.5))
@@ -453,27 +469,35 @@ public struct SearchReaderView: View {
         search.search(query: query)
     }
 
+    /// Search-match highlight (design.md Search matches): a semantic mark
+    /// around the matching text only — surrounding ink kept, sunk
+    /// `--panel-soft` ground with medium weight. Built as one Text from an
+    /// AttributedString so the row keeps a single Text value.
     private func highlighted(_ text: String) -> Text {
         let needle = query.split(whereSeparator: { $0 == " " || $0 == "\n" })
             .filter { !$0.hasPrefix("#") }.joined(separator: " ")
         guard !needle.isEmpty else { return Text(text) }
         let palette = TrackTheme.palette(for: colorScheme)
-        var output = Text("")
-        var remainder = text[...]
-        while let range = remainder.range(of: needle, options: [.caseInsensitive]) {
-            output = output + Text(remainder[..<range.lowerBound])
-            output = output + Text(remainder[range]).foregroundColor(palette.mark)
-            remainder = remainder[range.upperBound...]
+        var attr = AttributedString(text)
+        var searchFrom = attr.startIndex
+        var found = false
+        while searchFrom < attr.endIndex,
+              let range = attr[searchFrom...].range(of: needle, options: [.caseInsensitive]) {
+            found = true
+            attr[range].backgroundColor = palette.panelSoft
+            attr[range].inlinePresentationIntent = .stronglyEmphasized
+            searchFrom = range.upperBound
         }
-        output = output + Text(remainder)
-        return output
+        guard found else { return Text(text) }
+        return Text(attr)
+    }
+
+    private func activeSearchRow(_ result: SearchResult) -> Bool {
+        activeSearchIndex == filteredSearchResults.firstIndex(where: { $0.qualifiedID == result.qualifiedID })
     }
 
     private func statusBadge(_ text: String) -> some View {
-        Text(text).font(.caption2).fontWeight(.bold)
-            .foregroundStyle(.secondary)
-            .padding(.horizontal, 4).padding(.vertical, 1)
-            .background(.quaternary, in: Capsule())
+        TrackStateBadge(text)
     }
 
     private func isStale(_ result: SearchResult) -> Bool {
@@ -570,6 +594,7 @@ private struct WikilinkPreview: Equatable {
 public struct NoteReaderView: View {
     @Bindable var model: NoteReaderModel
     @Environment(\.colorScheme) private var colorScheme
+    @Environment(\.trackFontScale) private var fontScale
     @AppStorage(TrackAppearance.contentWidthKey) private var contentWidthRaw: String?
     /// The API base URL, passed down to the GFM renderer for `assets/…` embeds.
     let baseURL: URL
@@ -915,44 +940,57 @@ public struct NoteReaderView: View {
     private func readerAside(_ response: NoteResponse) -> some View {
         VStack(alignment: .leading, spacing: 14) {
             if let tags = response.note.summary.tags, !tags.isEmpty {
-                asideSection("Tags") {
+                asideSection("Tags", count: tags.count) {
                     ForEach(tags, id: \.self) { tag in
                         Button("#\(tag)") { onTagSearch(tag) }
                             .buttonStyle(.plain)
-                            .font(.callout)
+                            .font(.system(size: 14 * fontScale))
                             .foregroundStyle(TrackTheme.palette(for: colorScheme).muted)
                     }
                 }
             }
             if !onThisDay.isEmpty {
-                asideSection("On this day") {
-                    ForEach(onThisDay, id: \.qualifiedID) { result in
+                asideSection("On this day", count: onThisDay.count) {
+                    ForEach(Array(onThisDay.prefix(8)), id: \.qualifiedID) { result in
                         asideLink(result.ref.title) { Task { await model.open(result.qualifiedID) } }
+                    }
+                    if onThisDay.count > 8 {
+                        Text("+\(onThisDay.count - 8) more")
+                            .font(.system(size: 11 * fontScale)).foregroundStyle(.secondary)
                     }
                 }
             }
             let headings = GFMBody.tocEntries(in: response.note.body)
             if !headings.isEmpty {
-                asideSection("Contents") {
-                    ForEach(headings) { entry in
+                asideSection("Contents", count: headings.count) {
+                    ForEach(Array(headings.prefix(12))) { entry in
                         Button {
                             model.anchoredExcerpt = headingExcerpt(entry.title, in: response.note.body)
                         } label: {
                             HStack(spacing: 4) {
-                                Image(systemName: "link").font(.caption2)
+                                Image(systemName: "link").font(.system(size: 11 * fontScale))
                                 Text(entry.title)
+                                    .font(.system(size: 14 * fontScale))
                             }
                             .padding(.leading, CGFloat(max(0, entry.level - 1) * 12))
                         }
                         .buttonStyle(.plain).foregroundStyle(.secondary)
                     }
+                    if headings.count > 12 {
+                        Text("+\(headings.count - 12) more")
+                            .font(.system(size: 11 * fontScale)).foregroundStyle(.secondary)
+                    }
                 }
             }
             let wikilinks = GFMBody.wikilinks(in: response.note.body)
             if !wikilinks.isEmpty {
-                asideSection("Links") {
-                    ForEach(wikilinks, id: \.self) { target in
+                asideSection("Links", count: wikilinks.count) {
+                    ForEach(Array(wikilinks.prefix(10)), id: \.self) { target in
                         asideLink(target) { Task { await model.openWikilink(target: target) } }
+                    }
+                    if wikilinks.count > 10 {
+                        Text("+\(wikilinks.count - 10) more")
+                            .font(.system(size: 11 * fontScale)).foregroundStyle(.secondary)
                     }
                 }
             }
@@ -960,31 +998,39 @@ public struct NoteReaderView: View {
                 asideRefs("Children", children)
             }
             if let external = response.external, !external.isEmpty {
-                asideSection("Linked from other vaults") {
-                    ForEach(external, id: \.noteID) { ref in
+                asideSection("Linked from other vaults", count: external.count) {
+                    ForEach(Array(external.prefix(10)), id: \.noteID) { ref in
                         asideLink("\(ref.vault)/\(ref.title)") {
                             Task { await model.open(TrackID.qualify(vault: ref.vault, id: ref.noteID.raw)) }
                         }
                     }
+                    if external.count > 10 {
+                        Text("+\(external.count - 10) more")
+                            .font(.system(size: 11 * fontScale)).foregroundStyle(.secondary)
+                    }
                 }
             }
-            asideSection("Backlinks") {
+            asideSection("Backlinks", count: response.backlinks.count) {
                     Text(response.backlinks.isEmpty ? "No backlinks." : "\(response.backlinks.count) backlink\(response.backlinks.count == 1 ? "" : "s")")
-                        .font(.caption).foregroundStyle(.secondary)
+                        .font(.system(size: 13 * fontScale)).foregroundStyle(.secondary)
                 if !response.backlinks.isEmpty {
-                    ForEach(response.backlinks, id: \.noteID) { ref in
+                    ForEach(Array(response.backlinks.prefix(10)), id: \.noteID) { ref in
                         HStack(spacing: 6) {
                             asideLink(ref.title) { Task { await model.openRef(ref) } }
-                            if readingBadge(for: ref) { statusBadge("NEW") }
+                            if readingBadge(for: ref) { TrackStateBadge("NEW") }
                         }
+                    }
+                    if response.backlinks.count > 10 {
+                        Text("+\(response.backlinks.count - 10) more")
+                            .font(.system(size: 11 * fontScale)).foregroundStyle(.secondary)
                     }
                 }
             }
             if let unavailable = response.unavailable, !unavailable.isEmpty {
-                asideSection("Warnings") {
+                asideSection("Warnings", count: unavailable.count) {
                     ForEach(unavailable, id: \.name) { vault in
                         Text("⚠ \(vault.name)\(vault.error.map { ": \($0)" } ?? "")")
-                            .font(.caption).foregroundStyle(.secondary)
+                            .font(.system(size: 13 * fontScale)).foregroundStyle(.secondary)
                     }
                 }
             }
@@ -998,30 +1044,45 @@ public struct NoteReaderView: View {
         }
     }
 
-    private func asideSection<Content: View>(_ title: String, @ViewBuilder content: () -> Content) -> some View {
+    private func asideSection<Content: View>(_ title: String, count: Int? = nil, @ViewBuilder content: () -> Content) -> some View {
         VStack(alignment: .leading, spacing: 6) {
-            Text(title).font(.caption.weight(.semibold)).foregroundStyle(.secondary)
+            HStack(alignment: .firstTextBaseline, spacing: 6) {
+                Text(title).trackSectionLabel()
+                Spacer()
+                if let count {
+                    Text("\(count)")
+                        .font(.system(size: 11 * fontScale, design: .monospaced))
+                        .foregroundStyle(TrackTheme.palette(for: colorScheme).faint)
+                }
+            }
             content()
         }
         .padding(.bottom, 4)
     }
 
     private func asideRefs(_ title: String, _ refs: [NoteRef]) -> some View {
-        asideSection(title) {
-            ForEach(refs, id: \.noteID) { ref in
+        asideSection(title, count: refs.count) {
+            ForEach(Array(refs.prefix(10)), id: \.noteID) { ref in
                 asideLink(ref.title) { Task { await model.openRef(ref) } }
+            }
+            if refs.count > 10 {
+                Text("+\(refs.count - 10) more")
+                    .font(.system(size: 11 * fontScale)).foregroundStyle(.secondary)
             }
         }
     }
 
     private func asideLink(_ title: String, action: @escaping () -> Void) -> some View {
-        Button(title, action: action)
-            .buttonStyle(.link)
-            .font(.callout)
-            .onHover { hovering in
-                guard hovering else { wikilinkPreview = nil; return }
-                Task { await loadWikilinkPreview(target: title) }
-            }
+        Button(action: action) {
+            Text(title)
+                .font(.system(size: 14 * fontScale))
+                .foregroundStyle(TrackTheme.palette(for: colorScheme).muted)
+        }
+        .buttonStyle(.plain)
+        .onHover { hovering in
+            guard hovering else { wikilinkPreview = nil; return }
+            Task { await loadWikilinkPreview(target: title) }
+        }
     }
 
     private func loadWikilinkPreview(target: String) async {
@@ -1132,7 +1193,7 @@ public struct NoteReaderView: View {
     private func noteHeader(_ note: NoteDetail, showTags: Bool = true) -> some View {
         HStack(spacing: 8) {
             Text(note.summary.ref.title)
-                .font(.title2).fontWeight(.medium)
+                .font(.system(size: 26 * fontScale, weight: .medium))
             Button {
                 NSPasteboard.general.clearContents()
                 NSPasteboard.general.setString(note.summary.ref.title, forType: .string)
@@ -1148,12 +1209,7 @@ public struct NoteReaderView: View {
             Spacer()
             if let flags = note.summary.ref.flags {
                 ForEach(flags.filter { $0 == "DEPRECATED" || $0 == "CONFIDENTIAL" }, id: \.self) { flag in
-                    Text(flag)
-                        .font(.caption2.weight(.bold).monospaced())
-                        .foregroundStyle(TrackTheme.palette(for: colorScheme).mark)
-                        .padding(.horizontal, 7).padding(.vertical, 4)
-                        .overlay(Rectangle().stroke(TrackTheme.palette(for: colorScheme).mark, lineWidth: 1))
-                        .rotationEffect(.degrees(-4))
+                    TrackFlagBadge(flag)
                 }
             }
         }
@@ -1267,8 +1323,7 @@ public struct NoteReaderView: View {
                     .font(.caption)
                     .foregroundStyle(.secondary)
                 Text("Excerpt")
-                    .font(.caption).fontWeight(.medium)
-                    .foregroundStyle(.secondary)
+                    .trackSectionLabel()
                 Spacer()
                 Button {
                     model.anchoredExcerpt = nil
@@ -1305,10 +1360,7 @@ public struct NoteReaderView: View {
     }
 
     private func statusBadge(_ text: String) -> some View {
-        Text(text).font(.caption2).fontWeight(.bold)
-            .foregroundStyle(.secondary)
-            .padding(.horizontal, 4).padding(.vertical, 1)
-            .background(.quaternary, in: Capsule())
+        TrackStateBadge(text)
     }
 
     private func readingBadge(for ref: NoteRef) -> Bool {
@@ -1522,7 +1574,7 @@ private struct NoteTasksSection: View {
 
     var body: some View {
         Divider()
-        Text("Tasks in this note").font(.caption).foregroundStyle(.secondary)
+        Text("Tasks in this note").trackSectionLabel()
         VStack(alignment: .leading, spacing: 4) {
             ForEach(tasks, id: \.line) { item in
                 HStack(alignment: .firstTextBaseline, spacing: 8) {

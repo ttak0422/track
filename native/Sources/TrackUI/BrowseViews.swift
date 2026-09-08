@@ -156,6 +156,7 @@ public struct TagView: View {
     @State private var selectedTag: String?
     let onSelect: (String) -> Void
     @State private var reading = ReadingStore()
+    @Environment(\.colorScheme) private var colorScheme
 
     public init(model: BrowseModel, onSelect: @escaping (String) -> Void = { _ in }) {
         self.model = model
@@ -180,7 +181,7 @@ public struct TagView: View {
                                 Spacer()
                                 Text("\(entry.count)").font(.caption).foregroundStyle(.secondary)
                             }
-                            .foregroundStyle(selectedTag == entry.tag ? Color.accentColor : Color.primary)
+                            .foregroundStyle(selectedTag == entry.tag ? TrackTheme.palette(for: colorScheme).mark : Color.primary)
                         }
                         .buttonStyle(.plain)
                     }
@@ -215,12 +216,10 @@ public struct TagView: View {
 
     @ViewBuilder private func badges(for ref: NoteRef) -> some View {
         if reading.isNew(ref) {
-            Text("NEW").font(.caption2).fontWeight(.bold)
-                .foregroundStyle(.secondary).padding(.horizontal, 4).padding(.vertical, 1)
-                .background(.quaternary, in: Capsule())
+            TrackStateBadge("NEW")
         }
         if ref.flags?.contains(where: { $0.lowercased() == "stale" }) == true {
-            Text("STALE").font(.caption2).fontWeight(.bold).foregroundStyle(.orange)
+            TrackStateBadge("STALE", kind: .stale)
         }
     }
 }
@@ -262,6 +261,8 @@ public struct BrowseHistoryView: View {
 public struct ActivityHeatmapView: View {
     @Bindable var model: BrowseModel
     let onSelectDate: (String) -> Void
+    @Environment(\.colorScheme) private var colorScheme
+    @Environment(\.trackFontScale) private var fontScale
 
     public init(model: BrowseModel, onSelectDate: @escaping (String) -> Void = { _ in }) {
         self.model = model
@@ -278,23 +279,25 @@ public struct ActivityHeatmapView: View {
                 let counts = Self.dayCounts(notes: model.notes)
                 let days = Self.lastDays(365)
                 let weeks = Self.weeks(days)
+                let palette = TrackTheme.palette(for: colorScheme)
+                let maxCount = max(1, counts.values.max() ?? 1)
                 VStack(alignment: .leading, spacing: 6) {
-                    Text("Activity · last year").font(.caption).foregroundStyle(.secondary)
+                    Text("Activity · last year").trackSectionLabel()
                     HStack(alignment: .top, spacing: 4) {
                         VStack(alignment: .trailing, spacing: 4) {
                             Text("").frame(height: 14)
-                            ForEach(["M", "W", "F"], id: \.self) { Text($0).font(.caption2).foregroundStyle(.secondary).frame(height: 12) }
+                            ForEach(["M", "W", "F"], id: \.self) { Text($0).font(.system(size: 11 * fontScale, design: .monospaced)).foregroundStyle(palette.faint).frame(height: 12) }
                         }
                         ScrollView(.horizontal, showsIndicators: false) {
                             HStack(alignment: .top, spacing: 4) {
                                 ForEach(weeks.indices, id: \.self) { index in
                                     VStack(spacing: 4) {
                                         Text(Self.monthLabel(for: weeks[index].first ?? ""))
-                                            .font(.caption2).foregroundStyle(.secondary).frame(height: 14)
+                                            .font(.system(size: 11 * fontScale, design: .monospaced)).foregroundStyle(palette.faint).frame(height: 14)
                                         ForEach(weeks[index].indices, id: \.self) { dayIndex in
                                             let day = weeks[index][dayIndex]
                                             Button { onSelectDate(day) } label: {
-                                                RoundedRectangle(cornerRadius: 2).fill(color(for: counts[day] ?? 0)).frame(width: 12, height: 12)
+                                                RoundedRectangle(cornerRadius: 2).fill(palette.heatColor(count: counts[day] ?? 0, max: maxCount)).frame(width: 12, height: 12)
                                             }.buttonStyle(.plain).disabled(day.isEmpty).help(day.isEmpty ? "" : "\(day): \(counts[day] ?? 0) notes")
                                         }
                                     }
@@ -314,13 +317,10 @@ public struct ActivityHeatmapView: View {
         }
     }
 
+    /// Five-step chart-ramp color is drawn inline via the palette (web heatmap:
+    /// chart-1 mixed over panel-soft); this helper stays for previews/tests.
     private func color(for count: Int) -> Color {
-        switch count {
-        case 0: return Color(.quaternarySystemFill)
-        case 1: return Color.accentColor.opacity(0.3)
-        case 2: return Color.accentColor.opacity(0.6)
-        default: return Color.accentColor
-        }
+        TrackTheme.palette(for: colorScheme).heatColor(count: count)
     }
 
     /// Local-day note counts across the notes listing (`days` arrays).

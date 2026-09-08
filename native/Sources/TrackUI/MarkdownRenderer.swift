@@ -12,8 +12,10 @@ import WebKit
 // old `AttributedString(markdown:)` path and hand-rolled swift-markdown
 // renderer could not draw them.
 //
-// Visual fidelity to docs/spec/design.md is intentionally NOT the goal here —
-// only that a construct renders as itself. Rich fences are drawn as FigureHost
+// Visual language follows docs/spec/design.md via `Theme.trackReader` below:
+// three type sizes, ink links with a stated-rule underline, muted mono inline
+// code with no chip, sunk panel-soft code blocks, horizontal-only table rules,
+// and plain blockquotes. Rich fences are drawn as FigureHost
 // islands (mermaid/math/echarts/viewspec, plus dot/graphviz/d2/drawio/map via
 // the same shell and a ```track-view JSON payload as native SwiftUI);
 // track-query is still collapsed to a placeholder line.
@@ -36,6 +38,8 @@ public struct GFMBody: View {
     let client: TrackClient?
     var onWikilink: ((String) -> Void)?
     var onTaskToggle: ((Int, Bool) -> Void)?
+    @Environment(\.colorScheme) private var colorScheme
+    @Environment(\.trackFontScale) private var fontScale
 
     public init(
         markdown: String,
@@ -66,7 +70,7 @@ public struct GFMBody: View {
             let headings = Self.tocEntries(in: markdown)
             if !headings.isEmpty {
                 VStack(alignment: .leading, spacing: 4) {
-                    Text("Contents").font(.caption.weight(.semibold)).foregroundStyle(.secondary)
+                    Text("Contents").trackSectionLabel()
                     ForEach(headings) { entry in
                         Text("\(String(repeating: "  ", count: max(0, entry.level - 1)))• \(entry.title)")
                             .font(.caption)
@@ -85,7 +89,7 @@ public struct GFMBody: View {
             let links = Self.wikilinks(in: markdown)
             if !links.isEmpty {
                 Divider()
-                Text("Links").font(.caption).foregroundStyle(.secondary)
+                Text("Links").trackSectionLabel()
                 ForEach(links, id: \.self) { target in
                     WikilinkRailRow(target: target, client: client) {
                         onWikilink?(target)
@@ -96,35 +100,76 @@ public struct GFMBody: View {
     }
 
     /// The alternating MarkdownUI / FigureHost run, built once per render by
-    /// `Self.segments` from the spliced + fenced source.
+    /// `Self.segments` from the spliced + fenced source. The Markdown spans
+    /// wear `Theme.trackReader` (design.md translation); prose width is capped
+    /// by the caller (two measures), while figure/media islands bleed full.
     private var segmentedBody: some View {
         let segments = Self.segments(markdown: markdown, includes: includes)
+        let palette = TrackTheme.palette(for: colorScheme)
+        let theme = Theme.trackReader(palette: palette, scale: fontScale)
         return ForEach(Array(segments.enumerated()), id: \.offset) { _, segment in
             switch segment {
             case .markdown(let text):
                 Markdown(text)
-                    .markdownTheme(.gitHub)
+                    .markdownTheme(theme)
                     .markdownBlockStyle(\.paragraph) { configuration in
                         configuration.label
                             .relativeLineSpacing(.em(0.85))
                             .markdownMargin(bottom: .em(1))
                     }
                     .markdownBlockStyle(\.heading1) { configuration in
-                        configuration.label
-                            .markdownMargin(top: .em(1.5), bottom: .em(0.75))
-                            .overlay(alignment: .bottom) { Divider() }
+                        VStack(alignment: .leading, spacing: 6) {
+                            configuration.label
+                                .markdownMargin(top: .em(1.5), bottom: .em(0.5))
+                                .markdownTextStyle {
+                                    FontWeight(.bold)
+                                }
+                            Divider().overlay(palette.lineStrong)
+                        }
                     }
                     .markdownBlockStyle(\.heading2) { configuration in
+                        VStack(alignment: .leading, spacing: 6) {
+                            Divider().overlay(palette.line)
+                            configuration.label
+                                .markdownMargin(top: .em(1), bottom: .em(0.5))
+                                .markdownTextStyle {
+                                    FontWeight(.bold)
+                                }
+                        }
+                    }
+                    .markdownBlockStyle(\.heading3) { configuration in
+                        HStack(alignment: .firstTextBaseline, spacing: 4) {
+                            Text("§").foregroundStyle(palette.faint)
+                            configuration.label
+                                .markdownTextStyle { FontWeight(.bold) }
+                        }
+                        .markdownMargin(top: .em(1), bottom: .em(0.5))
+                    }
+                    .markdownBlockStyle(\.heading4) { configuration in
                         configuration.label
-                            .markdownMargin(top: .em(1.35), bottom: .em(0.65))
-                            .overlay(alignment: .top) { Divider() }
+                            .markdownMargin(top: .em(0.75), bottom: .em(0.5))
+                            .markdownTextStyle {
+                                FontWeight(.bold)
+                                ForegroundColor(palette.muted)
+                            }
+                    }
+                    .markdownBlockStyle(\.blockquote) { configuration in
+                        // Plain quote (web): no callout bar, no label, just the
+                        // words in secondary ink with a hairline at the left.
+                        HStack(spacing: 0) {
+                            Rectangle().fill(palette.line).frame(width: 2)
+                            configuration.label
+                                .markdownTextStyle { ForegroundColor(palette.muted) }
+                                .padding(.leading, 12)
+                        }
+                        .fixedSize(horizontal: false, vertical: true)
                     }
                     .markdownBlockStyle(\.codeBlock) { configuration in
                         let language = configuration.language?.isEmpty == false ? configuration.language! : "Code"
                         VStack(alignment: .leading, spacing: 0) {
                             HStack {
                                 Text(language)
-                                    .font(.caption.weight(.medium)).foregroundStyle(.secondary)
+                                    .trackSectionLabel()
                                 Spacer()
                                 Button("Copy") {
                                     NSPasteboard.general.clearContents()
@@ -133,12 +178,12 @@ public struct GFMBody: View {
                                 .buttonStyle(.borderless).font(.caption)
                             }
                             .padding(.horizontal, 10).padding(.vertical, 6)
-                            Divider()
+                            Divider().overlay(palette.line)
                             ScrollView(.horizontal) {
                                 configuration.label.fixedSize(horizontal: false, vertical: true).padding(10)
                             }
                         }
-                        .background(Color.primary.opacity(0.045))
+                        .background(palette.panelSoft)
                         .clipShape(RoundedRectangle(cornerRadius: 6))
                     }
                     .markdownBlockStyle(\.table) { configuration in
@@ -149,13 +194,21 @@ public struct GFMBody: View {
                     }
                     .markdownBlockStyle(\.tableCell) { configuration in
                         configuration.label
-                            .foregroundStyle(configuration.row == 0 ? .primary : .secondary)
-                            .font(configuration.row == 0 ? .body.weight(.semibold) : .body)
-                            .overlay(alignment: .bottom) { if configuration.row == 0 { Divider() } }
+                            .foregroundStyle(configuration.row == 0 ? palette.text : palette.muted)
+                            .font(configuration.row == 0 ? .body.weight(.medium) : .body)
+                            .overlay(alignment: .bottom) {
+                                if configuration.row == 0 { Divider().overlay(palette.lineStrong) }
+                                else { Divider().overlay(palette.line) }
+                            }
                             .padding(.horizontal, 8).padding(.vertical, 5)
                     }
                     .markdownImageProvider(TrackAssetImageProvider(baseURL: baseURL, vault: vault))
                     .textSelection(.enabled)
+                    // Two measures (design.md): prose reads at 40em, while
+                    // visualizations bleed the full column. The cap lands here
+                    // on the Markdown span; figure/media islands below opt out
+                    // by name and take the whole width.
+                    .frame(maxWidth: 640 * fontScale, alignment: .leading)
             case .task(let task):
                 HStack(alignment: .firstTextBaseline, spacing: 8) {
                     Button {
@@ -166,10 +219,11 @@ public struct GFMBody: View {
                     .buttonStyle(.plain)
                     .disabled(onTaskToggle == nil)
                     Markdown(task.text)
-                        .markdownTheme(.gitHub)
+                        .markdownTheme(theme)
                         .textSelection(.enabled)
                 }
                 .padding(.leading, 8)
+                .frame(maxWidth: 640 * fontScale, alignment: .leading)
             case .figure(let figure):
                 FigureSegmentView(
                     figure: figure,
@@ -178,10 +232,13 @@ public struct GFMBody: View {
                     client: client,
                     onWikilink: onWikilink
                 )
+                .frame(maxWidth: .infinity, alignment: .leading)
             case .media(let media):
                 MediaSegmentView(media: media, baseURL: baseURL, vault: vault, client: client)
+                    .frame(maxWidth: .infinity, alignment: .leading)
             case .include(let include):
                 IncludeCardView(include: include, onWikilink: onWikilink)
+                    .frame(maxWidth: 640 * fontScale, alignment: .leading)
             }
         }
     }
@@ -733,37 +790,17 @@ public struct GFMBody: View {
         return .image
     }
 
-    /// A GitHub-style callout `> [!NOTE]` (or TIP/IMPORTANT/WARNING/CAUTION)
-    /// becomes a titled admonition: the marker is rewritten to a bold title so
-    /// the blockquote reads as a labelled callout in the native renderer (web
-    /// remarkAlert's visual intent, without a custom component). Ordinary
-    /// blockquotes pass through untouched.
+    /// A GitHub-style callout `> [!NOTE]` marker is left as plain prose: the
+    /// web reader draws a plain quote, so the native reader does the same
+    /// instead of inventing a labelled callout. Ordinary blockquotes pass
+    /// through untouched.
     private static let alertRegex = try! NSRegularExpression(
         pattern: "^(\\s*)>\\s*(?:\\[\\!(NOTE|TIP|IMPORTANT|WARNING|CAUTION)\\])\\s*",
         options: [.caseInsensitive]
     )
 
     private static func styleAlert(_ line: String) -> String {
-        let ns = line as NSString
-        let range = NSRange(location: 0, length: ns.length)
-        guard let match = alertRegex.firstMatch(in: line, range: range),
-              let typeRange = Range(match.range(at: 2), in: line),
-              let leadRange = Range(match.range(at: 1), in: line) else {
-            return line
-        }
-        let type = String(line[typeRange]).capitalized
-        let lead = String(line[leadRange])
-        let rest = ns.substring(from: match.range(at: 0).location + match.range(at: 0).length)
-        let symbol: String
-        switch type.uppercased() {
-        case "WARNING", "CAUTION": symbol = "⚠️"
-        case "IMPORTANT": symbol = "❗"
-        case "TIP": symbol = "💡"
-        default: symbol = "ℹ️"
-        }
-        // MarkdownUI's blockquote supplies the vertical rule; the type symbol
-        // provides a stable accent even when the platform theme is monochrome.
-        return "\(lead)> \(symbol) **\(type):** \(rest)"
+        return line
     }
 
     /// Strip a matched math delimiter pair from both ends of a line.
@@ -857,25 +894,62 @@ public struct GFMBody: View {
     }
 }
 
+/// The design.md reading-surface translation for MarkdownUI: body 16px/1.85
+/// ink, headings at body size told apart by space and rule (h1 stated rule
+/// below, h2 hairline above, h3 faint section sign, h4 muted), links as ink
+/// with a stated-rule underline, inline code as muted mono with no chip, and
+/// Danger reserved for the call sites that own it (unresolved rail rows).
+extension Theme {
+    static func trackReader(palette: TrackTheme, scale: Double) -> Theme {
+        let body = CGFloat(16 * scale)
+        return Theme()
+            .text {
+                ForegroundColor(palette.text)
+                FontSize(body)
+            }
+            .code {
+                FontFamilyVariant(.monospaced)
+                ForegroundColor(palette.muted)
+                FontSize(body)
+            }
+            .strong {
+                FontWeight(.bold)
+            }
+            .link {
+                ForegroundColor(palette.text)
+                UnderlineStyle(.single)
+            }
+    }
+}
+
 /// One row of the wikilink rail. Resolves its target through `/api/resolve`
-/// on first appearance; an unresolved target renders greyed out and disabled
-/// (web WikiLink's "unresolved"), a resolved one stays a tappable link.
+/// on first appearance; a resolved one stays a tappable ink link with a
+/// stated-rule underline (web variant 8), an unresolved one wears danger with
+/// a dotted underline — a warning, not decoration.
 private struct WikilinkRailRow: View {
     let target: String
     let client: TrackClient?
     let onOpen: () -> Void
     @State private var resolved = false
     @State private var isPending = true
+    @Environment(\.colorScheme) private var colorScheme
 
     var body: some View {
+        let palette = TrackTheme.palette(for: colorScheme)
         if isPending {
-            Text(target).font(.body).foregroundStyle(.tertiary)
+            Text(target).font(.body).foregroundStyle(palette.muted)
                 .task(id: target) { await resolve() }
         } else if resolved {
-            Button(target) { onOpen() }
-                .buttonStyle(.link)
+            Button { onOpen() } label: {
+                Text(target)
+                    .font(.body)
+                    .foregroundStyle(palette.text)
+                    .underline(color: palette.lineStrong)
+            }
+            .buttonStyle(.plain)
         } else {
-            Text(target).font(.body).foregroundStyle(.tertiary)
+            Text(target).font(.body).foregroundStyle(palette.danger)
+                .underline(pattern: .dot, color: palette.danger)
         }
     }
 
