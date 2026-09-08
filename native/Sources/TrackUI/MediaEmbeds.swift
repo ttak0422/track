@@ -1,5 +1,6 @@
 import AppKit
 import Foundation
+import MapKit
 import PDFKit
 import SwiftUI
 import TrackAPI
@@ -136,6 +137,23 @@ enum MediaEmbedsURLs {
         return URL(string: "https://maps.google.com/maps?" + items.joined(separator: "&"))
     }
 
+    /// Coordinates are deliberately a small, conservative subset: locations
+    /// expressed as `q=lat,long` or `/@lat,long` can be shown without loading a
+    /// web view. Place-name queries stay on the keyless embed fallback below.
+    static func googleMapsCoordinate(from src: String) -> (latitude: Double, longitude: Double)? {
+        guard let url = URL(string: webHref(src)) else { return nil }
+        let query = queryParameters(of: url)["q"] ?? queryParameters(of: url)["ll"]
+        let pathCoordinate = matches("@(-?[0-9]+(?:\\.[0-9]+)?),(-?[0-9]+(?:\\.[0-9]+)?)", in: url.path)
+            .flatMap { groups -> String? in
+                guard groups.count > 2, let latitude = groups[1], let longitude = groups[2] else { return nil }
+                return "\(latitude),\(longitude)"
+            }
+        let raw = query ?? pathCoordinate
+        let parts = raw?.split(separator: ",", maxSplits: 1).compactMap { Double($0) } ?? []
+        guard parts.count == 2, abs(parts[0]) <= 90, abs(parts[1]) <= 180 else { return nil }
+        return (parts[0], parts[1])
+    }
+
     /// `safeFrameUrl`: only http(s) and same-origin relative paths are safe to
     /// load in a frame; javascript:/data: and other schemes return nil.
     static func safeFrameURL(_ target: String) -> URL? {
@@ -214,6 +232,7 @@ public struct OgpCardView: View {
     private let url: URL
     @State private var ogp: OgpResponse?
     @State private var failed = false
+    @State private var cardHovered = false
 
     public init(client: TrackClient, url: URL) {
         self.client = client
@@ -249,7 +268,7 @@ public struct OgpCardView: View {
 
     private func card(_ ogp: OgpResponse) -> some View {
         Link(destination: url) {
-            HStack(alignment: .top, spacing: 12) {
+            HStack(alignment: .top, spacing: 0) {
                 if let image = ogp.image.flatMap(URL.init(string:)) {
                     AsyncImage(url: image) { phase in
                         switch phase {
@@ -261,11 +280,11 @@ public struct OgpCardView: View {
                             Color.clear
                         }
                     }
-                    .frame(width: 120, height: 76)
+                    .frame(width: 160, height: 112)
                     .clipped()
                     .clipShape(RoundedRectangle(cornerRadius: 6))
                 }
-                VStack(alignment: .leading, spacing: 4) {
+                    VStack(alignment: .leading, spacing: 4) {
                     Text(ogp.siteName ?? url.host ?? url.absoluteString)
                         .font(.caption)
                         .foregroundStyle(.secondary)
@@ -276,34 +295,40 @@ public struct OgpCardView: View {
                         Text(description)
                             .font(.caption)
                             .foregroundStyle(.secondary)
-                            .lineLimit(3)
+                            .lineLimit(2)
                     }
                 }
+                    .padding(.horizontal, 14)
+                    .padding(.vertical, 12)
             }
-            .padding(12)
-            .frame(maxWidth: .infinity, alignment: .leading)
+            .frame(maxWidth: 640, alignment: .leading)
             .background(
                 RoundedRectangle(cornerRadius: 8)
-                    .fill(Color(nsColor: .textBackgroundColor))
+                    // panel-soft: a quiet sunk surface, rather than an AppKit text field.
+                    .fill(Color(nsColor: .underPageBackgroundColor))
             )
             .overlay(
                 RoundedRectangle(cornerRadius: 8)
-                    .stroke(Color(nsColor: .separatorColor), lineWidth: 0.5)
+                    .stroke(cardHovered ? Color(nsColor: .secondaryLabelColor) : Color(nsColor: .separatorColor), lineWidth: 0.5)
             )
         }
         .buttonStyle(.plain)
+        .onHover { cardHovered = $0 }
     }
 }
 
 // MARK: - PDF embed
 
-/// An embedded PDF (web Embed's PdfDeck): the file is downloaded and drawn as
-/// a continuous, auto-scaling PDFView page strip. Degrades to a plain link
-/// when the fetch fails or the data is not a PDF.
+/// An embedded PDF (web Embed's PdfDeck): one page at a time, fitted to the
+/// available width, with direct navigation and an optional native continuous
+/// scroll mode. Degrades to a plain link when the fetch fails or the data is
+/// not a PDF.
 public struct PdfNoteView: View {
     private let assetURL: URL
     @State private var document: PDFDocument?
     @State private var failed = false
+    @State private var page = 1
+    @State private var displayMode: PDFDeckDisplayMode = .deck
 
     public init(assetURL: URL) {
         self.assetURL = assetURL
@@ -314,8 +339,15 @@ public struct PdfNoteView: View {
             if failed {
                 PlainLinkView(url: assetURL)
             } else if let document {
-                PDFDocumentView(document: document)
+                VStack(spacing: 6) {
+                    PDFDocumentView(document: document, page: $page, displayMode: displayMode) {
+                        page = min(document.pageCount, page + 1)
+                    } movePage: { delta in
+                        page = min(document.pageCount, max(1, page + delta))
+                    }
                     .frame(height: 420)
+                    pdfControls(pageCount: document.pageCount)
+                }
             } else {
                 HStack(spacing: 8) {
                     ProgressView().controlSize(.small)
@@ -340,30 +372,178 @@ public struct PdfNoteView: View {
                 failed = true
                 return
             }
+            page = 1
             self.document = document
         } catch {
             failed = true
         }
     }
+
+    /// Quiet-chip controls mirror PdfDeck's page rail. The mode picker keeps
+    /// the old continuous reader available for long documents.
+    private func pdfControls(pageCount: Int) -> some View {
+        HStack(spacing: 8) {
+            Button("‹") { page = max(1, page - 1) }
+                .disabled(page <= 1)
+                .accessibilityLabel("Previous page")
+            TextField("Page", value: $page, format: .number)
+                .frame(width: 42)
+                .multilineTextAlignment(.center)
+                .onSubmit { page = min(pageCount, max(1, page)) }
+            Text("/ \(pageCount)")
+                .foregroundStyle(.secondary)
+            Button("›") { page = min(pageCount, page + 1) }
+                .disabled(page >= pageCount)
+                .accessibilityLabel("Next page")
+            Picker("PDF view", selection: $displayMode) {
+                Text("Deck").tag(PDFDeckDisplayMode.deck)
+                Text("Continuous").tag(PDFDeckDisplayMode.continuous)
+            }
+            .pickerStyle(.menu)
+            .accessibilityLabel("PDF display mode")
+            Spacer(minLength: 4)
+            Link("Open PDF", destination: assetURL)
+                .foregroundStyle(.secondary)
+        }
+        .buttonStyle(.borderless)
+        .font(.caption)
+        .padding(.horizontal, 8)
+        .padding(.vertical, 4)
+        .background(Color(nsColor: .controlBackgroundColor))
+        .overlay(RoundedRectangle(cornerRadius: 5).stroke(Color(nsColor: .separatorColor), lineWidth: 0.5))
+    }
+}
+
+private enum PDFDeckDisplayMode: Hashable {
+    case deck
+    case continuous
 }
 
 /// PDFView wrapped for SwiftUI.
 private struct PDFDocumentView: NSViewRepresentable {
     let document: PDFDocument
+    @Binding var page: Int
+    let displayMode: PDFDeckDisplayMode
+    let advance: () -> Void
+    let movePage: (Int) -> Void
+
+    init(document: PDFDocument, page: Binding<Int>, displayMode: PDFDeckDisplayMode,
+         advance: @escaping () -> Void, movePage: @escaping (Int) -> Void) {
+        self.document = document
+        _page = page
+        self.displayMode = displayMode
+        self.advance = advance
+        self.movePage = movePage
+    }
+
+    func makeCoordinator() -> Coordinator {
+        Coordinator(page: $page, advance: advance, movePage: movePage)
+    }
 
     func makeNSView(context: Context) -> PDFView {
-        let view = PDFView()
+        let view = DeckPDFView()
         view.document = document
-        view.autoScales = true
-        view.displayMode = .singlePageContinuous
+        view.onAdvance = context.coordinator.advance
+        view.onMovePage = context.coordinator.movePage
+        view.displayMode = displayMode == .deck ? .singlePage : .singlePageContinuous
         view.displayDirection = .vertical
         view.backgroundColor = .clear
+        view.autoScales = true
+        context.coordinator.observe(view)
         return view
     }
 
     func updateNSView(_ nsView: PDFView, context: Context) {
         if nsView.document !== document {
             nsView.document = document
+        }
+        if let deckView = nsView as? DeckPDFView {
+            deckView.onAdvance = context.coordinator.advance
+            deckView.onMovePage = context.coordinator.movePage
+        }
+        nsView.displayMode = displayMode == .deck ? .singlePage : .singlePageContinuous
+        nsView.autoScales = true
+        guard document.pageCount > 0, let targetPage = document.page(at: max(0, min(document.pageCount - 1, page - 1))) else {
+            return
+        }
+        let target = min(document.pageCount, max(1, page))
+        if target != page { page = target }
+        if nsView.currentPage !== targetPage {
+            nsView.go(to: targetPage)
+        }
+    }
+
+    final class Coordinator {
+        private var page: Binding<Int>
+        private var observer: NSObjectProtocol?
+        let advance: () -> Void
+        let movePage: (Int) -> Void
+
+        init(page: Binding<Int>, advance: @escaping () -> Void, movePage: @escaping (Int) -> Void) {
+            self.page = page
+            self.advance = advance
+            self.movePage = movePage
+        }
+
+        func observe(_ view: PDFView) {
+            observer = NotificationCenter.default.addObserver(
+                forName: Notification.Name.PDFViewPageChanged,
+                object: view,
+                queue: .main
+            ) { [weak self, weak view] _ in
+                guard let self, let view, let current = view.currentPage,
+                      let index = view.document?.index(for: current) else { return }
+                self.page.wrappedValue = index + 1
+            }
+        }
+
+        deinit {
+            if let observer { NotificationCenter.default.removeObserver(observer) }
+        }
+    }
+}
+
+/// PDFView normally owns both mouse and keyboard navigation. Keeping these
+/// small interactions here makes the SwiftUI deck behave like the web canvas,
+/// while leaving PDFKit's native selection and continuous scrolling intact.
+private final class DeckPDFView: PDFView {
+    var onAdvance: (() -> Void)?
+    var onMovePage: ((Int) -> Void)?
+
+    override var acceptsFirstResponder: Bool { true }
+
+    override func layout() {
+        super.layout()
+        guard displayMode == .singlePage,
+              let page = currentPage ?? document?.page(at: 0) else { return }
+        let pageWidth = page.bounds(for: .mediaBox).width
+        guard pageWidth > 0, bounds.width > 0 else { return }
+        // The deck follows the web's fit-to-width rule. PDFKit's
+        // `autoScales` fits both axes, which makes a tall slide unexpectedly
+        // narrow; the explicit scale keeps the page edge-to-edge instead.
+        let widthScale = max(0.1, (bounds.width - 16) / pageWidth)
+        autoScales = false
+        minScaleFactor = widthScale
+        maxScaleFactor = widthScale
+        scaleFactor = widthScale
+    }
+
+    override func mouseDown(with event: NSEvent) {
+        if displayMode == .singlePage {
+            onAdvance?()
+        } else {
+            super.mouseDown(with: event)
+        }
+    }
+
+    override func keyDown(with event: NSEvent) {
+        switch event.keyCode {
+        case 123, 126: // left / up
+            onMovePage?(-1)
+        case 124, 125: // right / down
+            onMovePage?(1)
+        default:
+            super.keyDown(with: event)
         }
     }
 }
@@ -388,13 +568,7 @@ public struct TextAssetView: View {
             if failed {
                 PlainLinkView(url: url)
             } else if let text {
-                ScrollView {
-                    Text(text)
-                        .font(.system(.body, design: .monospaced))
-                        .frame(maxWidth: .infinity, alignment: .leading)
-                        .textSelection(.enabled)
-                }
-                .frame(maxHeight: 420)
+                TextAssetCodeView(text: text, language: Self.language(for: url))
             } else {
                 HStack(spacing: 8) {
                     ProgressView().controlSize(.small)
@@ -424,6 +598,58 @@ public struct TextAssetView: View {
             failed = true
         }
     }
+
+    private static func language(for url: URL) -> String {
+        let name = url.path.split(separator: "/").last.map(String.init) ?? ""
+        let stem = name.split(separator: ".").last.map(String.init)?.lowercased() ?? ""
+        switch stem {
+        case "yml": return "yaml"
+        case "sh", "bash", "zsh": return "bash"
+        case "mmd": return "mermaid"
+        case "conf": return "ini"
+        case "txt", "text", "log", "env": return ""
+        default: return stem
+        }
+    }
+}
+
+/// A deliberately small native equivalent of the web code bed: identify the
+/// asset language and cap very large files so an attachment cannot take over
+/// the reader. The full syntax highlighter remains a web-only concern.
+private struct TextAssetCodeView: View {
+    let text: String
+    let language: String
+
+    private var limitedText: String {
+        let lines = text.split(separator: "\n", omittingEmptySubsequences: false)
+        let limit = 200
+        guard lines.count > limit else { return text }
+        return lines.prefix(limit).joined(separator: "\n") + "\n…"
+    }
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            if !language.isEmpty {
+                Text(language.uppercased())
+                    .font(.system(size: 11, weight: .medium, design: .monospaced))
+                    .foregroundStyle(.secondary)
+                    .textCase(.uppercase)
+            }
+            ScrollView([.horizontal, .vertical]) {
+                Text(limitedText)
+                    .font(.system(size: 13, design: .monospaced))
+                    .lineSpacing(2)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .textSelection(.enabled)
+                    .padding(.horizontal, 18)
+                    .padding(.vertical, 16)
+            }
+            .frame(maxHeight: 420)
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(Color(nsColor: .underPageBackgroundColor))
+        .clipShape(RoundedRectangle(cornerRadius: 6))
+    }
 }
 
 // MARK: - YouTube / Maps embeds
@@ -442,12 +668,19 @@ private struct FigureEmbedView: View {
     }
 
     var body: some View {
-        FigureHost(
-            kind: .html(html),
-            height: $height,
-            theme: colorScheme == .dark ? .dark : .light
-        )
-        .frame(height: height)
+        GeometryReader { proxy in
+            FigureHost(
+                kind: .html(html),
+                height: $height,
+                theme: colorScheme == .dark ? .dark : .light
+            )
+            .frame(width: proxy.size.width, height: proxy.size.width * 9 / 16)
+            .clipShape(RoundedRectangle(cornerRadius: 8))
+        }
+        .aspectRatio(16 / 9, contentMode: .fit)
+        .background(Color.black)
+        .clipShape(RoundedRectangle(cornerRadius: 8))
+        .clipped()
     }
 }
 
@@ -470,9 +703,9 @@ public struct YouTubeView: View {
                     title: "YouTube video",
                     // The web's embed iframe allow list, verbatim.
                     allow: "accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share",
-                    style: "width:100%;aspect-ratio:16/9;border:0"
+                    style: "width:100%;height:100%;border:0"
                 ),
-                defaultHeight: 240
+                defaultHeight: 180
             )
         } else {
             fallback
@@ -509,15 +742,19 @@ public struct MapsView: View {
     }
 
     public var body: some View {
-        if let embed = MediaEmbedsURLs.googleMapsEmbedURL(from: src) {
+        if let coordinate = MediaEmbedsURLs.googleMapsCoordinate(from: src) {
+            NativeMapView(latitude: coordinate.latitude, longitude: coordinate.longitude)
+                .aspectRatio(16 / 9, contentMode: .fit)
+                .clipShape(RoundedRectangle(cornerRadius: 8))
+        } else if let embed = MediaEmbedsURLs.googleMapsEmbedURL(from: src) {
             FigureEmbedView(
                 html: YouTubeView.iframeHTML(
                     embedURL: embed,
                     title: "Map",
                     allow: "",
-                    style: "width:100%;height:320px;border:0"
+                    style: "width:100%;height:100%;border:0"
                 ),
-                defaultHeight: 320
+                defaultHeight: 180
             )
         } else {
             fallback
@@ -531,5 +768,35 @@ public struct MapsView: View {
         } else {
             Text(src).font(.caption).foregroundStyle(.secondary)
         }
+    }
+}
+
+/// A permission-free native map surface for coordinate URLs. MapKit's map
+/// tiles are public display content; this view does not request location
+/// services, so no Info.plist usage description is needed. URLs containing a
+/// place name deliberately use MapsView's existing keyless web fallback.
+private struct NativeMapView: NSViewRepresentable {
+    let latitude: Double
+    let longitude: Double
+
+    func makeNSView(context: Context) -> MKMapView {
+        let view = MKMapView()
+        view.isRotateEnabled = false
+        view.isPitchEnabled = false
+        view.showsCompass = true
+        return view
+    }
+
+    func updateNSView(_ view: MKMapView, context: Context) {
+        let coordinate = CLLocationCoordinate2D(latitude: latitude, longitude: longitude)
+        let span = max(0.001, 180 / pow(2, 10.0))
+        view.setRegion(MKCoordinateRegion(center: coordinate, span: MKCoordinateSpan(
+            latitudeDelta: span,
+            longitudeDelta: span
+        )), animated: false)
+        view.removeAnnotations(view.annotations)
+        let pin = MKPointAnnotation()
+        pin.coordinate = coordinate
+        view.addAnnotation(pin)
     }
 }

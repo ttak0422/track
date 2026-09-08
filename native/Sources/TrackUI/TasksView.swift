@@ -131,6 +131,7 @@ private struct TaskRowView: View {
     let row: TaskRow
     let onCycleState: () -> Void
     let onPickDate: () -> Void
+    @Environment(\.openURL) private var openURL
 
     var body: some View {
         HStack(alignment: .firstTextBaseline, spacing: 8) {
@@ -154,11 +155,16 @@ private struct TaskRowView: View {
                         .foregroundStyle(.tertiary)
                 }
                 Text(row.title)
-                    .font(.caption).foregroundStyle(.secondary)
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
             }
             Spacer()
             dateStack
         }
+        .contentShape(Rectangle())
+        // The row is the navigation target, while the state and date buttons
+        // above remain their own controls and consume their edit gestures.
+        .onTapGesture { _ = openURL(noteURL(for: row)) }
     }
 
     /// The date area is still the cell's own control (design.md Task table): a
@@ -178,6 +184,12 @@ private struct TaskRowView: View {
             }
         }
     }
+}
+
+/// The reader handles this same URL scheme for wikilinks.
+private func noteURL(for row: TaskRow) -> URL {
+    let target = row.noteID.raw.addingPercentEncoding(withAllowedCharacters: .urlPathAllowed) ?? row.noteID.raw
+    return URL(string: "trackwiki://\(target)")!
 }
 
 private struct TaskDateEditor: View {

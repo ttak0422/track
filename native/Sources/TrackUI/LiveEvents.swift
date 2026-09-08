@@ -30,6 +30,11 @@ public extension Notification.Name {
 public final class LiveEventPoller {
     /// True while an SSE response is being read; false while reconnecting.
     public private(set) var isConnected = false
+    /// Data for the lightweight activity banner/toast owned by the view.
+    /// The current server emits `{}`, so the name is optional; the timestamp
+    /// is still useful and is always recorded for refresh events.
+    public private(set) var lastChangeAt: Date?
+    public private(set) var lastChangedNoteName: String?
 
     private let baseURL: URL
     private let session: URLSession
@@ -97,12 +102,26 @@ public final class LiveEventPoller {
                 // that closes it; nil means the line belongs to a frame that
                 // is still open (or a keep-alive comment).
                 if let event = parser.push(line), Self.isRefreshEvent(event) {
+                    recordChange(payload: parser.lastData)
                     await onChange()
                 }
             }
         } catch {
             // Refused, timed out, or cut short. run() reconnects after the
             // delay; stop() surfaces here through cancellation.
+        }
+    }
+
+    private func recordChange(payload: String?) {
+        lastChangeAt = Date()
+        guard let payload, let data = payload.data(using: .utf8),
+              let object = try? JSONSerialization.jsonObject(with: data) as? [String: Any]
+        else { return }
+        for key in ["note_name", "note", "name", "title", "path"] {
+            if let value = object[key] as? String, !value.isEmpty {
+                lastChangedNoteName = value
+                return
+            }
         }
     }
 
@@ -134,6 +153,7 @@ public final class LiveEventPoller {
 /// no event field and read as nil.
 struct SSEParser {
     private var pendingEvent: String?
+    private(set) var lastData: String?
 
     mutating func push(_ line: String) -> String? {
         if line.hasPrefix(":") {
@@ -149,6 +169,9 @@ struct SSEParser {
         if line.hasPrefix("data:") || line.isEmpty {
             let completed = pendingEvent
             pendingEvent = nil
+            if line.hasPrefix("data:") {
+                lastData = String(line.dropFirst("data:".count)).trimmingCharacters(in: .whitespaces)
+            }
             return completed
         }
         return nil

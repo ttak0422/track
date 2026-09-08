@@ -1,6 +1,6 @@
 import SwiftUI
 
-// TrackTheme — the ten interface tokens of docs/spec/design.md as SwiftUI
+// TrackTheme — the interface tokens of docs/spec/design.md as SwiftUI
 // colors, plus the appearance settings that carry them across the app:
 //
 // - TrackTheme holds one light and one dark palette. Each hex below is the
@@ -9,8 +9,9 @@ import SwiftUI
 // - ThemeMode is the explicit choice the Settings tab writes, mirroring the
 //   web's themeState.ts: the same "track.theme" storage key, and "system" is
 //   the neutral default that stores nothing.
-// - TrackAppearance is the font-scale setting (web ThemeMenu's --font-scale)
-//   plus the 0.85–1.3 clamp the requirement fixes the stored Double to.
+// - TrackAppearance is the two independent text-size settings from the web
+//   ThemeMenu (reader and preview), expressed as a scale over the native 16pt
+//   base. The old ratio key is retained as a compatibility fallback.
 //
 // None of the palettes is applied as a ViewModifier. The app maps a mode onto
 // SwiftUI's own scheme switch with `.preferredColorScheme(...)` and hands the
@@ -33,6 +34,12 @@ public struct TrackTheme: Sendable {
     public let lineStrong: Color
     public let lineNode: Color
     public let mark: Color
+    /// Visualization-only colors. Unlike `mark`, these are deliberately
+    /// available in groups so charts and heatmaps can carry meaning.
+    public let danger: Color
+    public let chartPalette: [Color]
+    public let heatmapRampLo: Color
+    public let heatmapRampHi: Color
 
     public init(
         bg: Color,
@@ -44,7 +51,14 @@ public struct TrackTheme: Sendable {
         line: Color,
         lineStrong: Color,
         lineNode: Color,
-        mark: Color
+        mark: Color,
+        danger: Color = Color(hex: 0x8a352b),
+        chartPalette: [Color] = [
+            Color(hex: 0x286957), Color(hex: 0xa05f2e), Color(hex: 0x536f91),
+            Color(hex: 0x99504a), Color(hex: 0x737b4a), Color(hex: 0x795f80)
+        ],
+        heatmapRampLo: Color = Color(hex: 0xe4ebe7),
+        heatmapRampHi: Color = Color(hex: 0x286957)
     ) {
         self.bg = bg
         self.panel = panel
@@ -56,13 +70,17 @@ public struct TrackTheme: Sendable {
         self.lineStrong = lineStrong
         self.lineNode = lineNode
         self.mark = mark
+        self.danger = danger
+        self.chartPalette = chartPalette
+        self.heatmapRampLo = heatmapRampLo
+        self.heatmapRampHi = heatmapRampHi
     }
 }
 
 extension Color {
     /// 0xRRGGBB → sRGB color. SwiftUI has no hex initializer, so the token
     /// table spells each value exactly as design.md does.
-    init(hex: UInt32) {
+    public init(hex: UInt32) {
         self.init(
             .sRGB,
             red: Double((hex >> 16) & 0xFF) / 255.0,
@@ -85,7 +103,14 @@ public extension TrackTheme {
         line: Color(hex: 0xe6e4de),
         lineStrong: Color(hex: 0xc7c5bd),
         lineNode: Color(hex: 0x8e8c84),
-        mark: Color(hex: 0xc13a1e)
+        mark: Color(hex: 0xc13a1e),
+        danger: Color(hex: 0x8a352b),
+        chartPalette: [
+            Color(hex: 0x286957), Color(hex: 0xa05f2e), Color(hex: 0x536f91),
+            Color(hex: 0x99504a), Color(hex: 0x737b4a), Color(hex: 0x795f80)
+        ],
+        heatmapRampLo: Color(hex: 0xe4ebe7),
+        heatmapRampHi: Color(hex: 0x286957)
     )
 
     /// The design.md Dark column, verbatim.
@@ -99,7 +124,14 @@ public extension TrackTheme {
         line: Color(hex: 0x282c2f),
         lineStrong: Color(hex: 0x3e4347),
         lineNode: Color(hex: 0x6e7478),
-        mark: Color(hex: 0xf4785e)
+        mark: Color(hex: 0xf4785e),
+        danger: Color(hex: 0xde766b),
+        chartPalette: [
+            Color(hex: 0x74c4a8), Color(hex: 0xdca06a), Color(hex: 0x9bb7d5),
+            Color(hex: 0xdc8b84), Color(hex: 0xb5c383), Color(hex: 0xc1a4c6)
+        ],
+        heatmapRampLo: Color(hex: 0x28322f),
+        heatmapRampHi: Color(hex: 0x91d0b8)
     )
 
     /// The palette matching the scheme a view is currently drawn in. Views
@@ -160,6 +192,46 @@ public enum ThemeMode: String, CaseIterable, Sendable {
     }
 }
 
+// MARK: - Content width
+
+/// The reading-column width, shared with the web ThemeMenu's Normal/Wide/Full
+/// choices. Normal is the neutral default and therefore stores nothing.
+public enum ContentWidthMode: String, CaseIterable, Sendable {
+    case normal
+    case wide
+    case full
+
+    public init(stored raw: String?) {
+        switch raw {
+        case "wide": self = .wide
+        case "full": self = .full
+        default: self = .normal
+        }
+    }
+
+    public var storedValue: String? {
+        self == .normal ? nil : rawValue
+    }
+
+    /// Maximum reading-column width in points. Full intentionally delegates
+    /// sizing to SwiftUI's available width.
+    public var maxWidth: CGFloat {
+        switch self {
+        case .normal: return 880
+        case .wide: return 1280
+        case .full: return .infinity
+        }
+    }
+
+    public var label: String {
+        switch self {
+        case .normal: return "Normal"
+        case .wide: return "Wide"
+        case .full: return "Full"
+        }
+    }
+}
+
 // MARK: - Appearance settings
 
 /// Storage keys and the range/step rules for the appearance settings. Keys
@@ -167,12 +239,24 @@ public enum ThemeMode: String, CaseIterable, Sendable {
 public enum TrackAppearance {
     /// Shared with the web's themeState.ts.
     public static let themeKey = "track.theme"
-    /// Native font scale as a ratio over the default size (the web stores an
-    /// absolute px on "track.fontSize"; the native P0 keeps the ratio).
+    /// Web-compatible absolute size settings. Native views consume their
+    /// corresponding values as a scale over `baseFontSize`.
+    public static let fontSizeKey = "track.fontSize"
+    public static let previewFontSizeKey = "track.previewFontSize"
+    public static let baseFontSize = 16.0
+    public static let fontSizeRange: ClosedRange<Double> = 13...32
+    /// Legacy native ratio key. Keep reading it so existing preferences do not
+    /// silently reset when the web-compatible settings are introduced.
     public static let fontScaleKey = "track.fontScale"
     public static let defaultFontScale = 1.0
+    /// Native reading-column width, matching web ThemeMenu's setting.
+    public static let contentWidthKey = "track.contentWidth"
     /// The range the stored Double is held to (0.85–1.3×).
     public static let fontScaleRange: ClosedRange<Double> = 0.85...1.3
+
+    public static func scale(forFontSize size: Double) -> Double {
+        min(max(size / baseFontSize, fontSizeRange.lowerBound / baseFontSize), fontSizeRange.upperBound / baseFontSize)
+    }
 
     /// Holds an out-of-range stored value (from an older version or a hand
     /// edit) to the documented range before it is applied.
@@ -187,11 +271,21 @@ private struct TrackFontScaleKey: EnvironmentKey {
     static let defaultValue = TrackAppearance.defaultFontScale
 }
 
+private struct TrackPreviewFontScaleKey: EnvironmentKey {
+    static let defaultValue = TrackAppearance.scale(forFontSize: TrackAppearance.baseFontSize)
+}
+
 public extension EnvironmentValues {
     /// The font scale the app owner injected at the root. Views apply it the
     /// way design.md sizes chrome: base size × scale.
     var trackFontScale: Double {
         get { self[TrackFontScaleKey.self] }
         set { self[TrackFontScaleKey.self] = newValue }
+    }
+
+    /// Scale used by note preview surfaces, independent from the main reader.
+    var trackPreviewFontScale: Double {
+        get { self[TrackPreviewFontScaleKey.self] }
+        set { self[TrackPreviewFontScaleKey.self] = newValue }
     }
 }

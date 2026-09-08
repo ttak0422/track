@@ -277,6 +277,19 @@ public final class NoteReaderModel {
         _ = try? await client.markRead(id: id, event: .seen)
     }
 
+    /// Accumulate visible reading time and report the read milestone when the
+    /// shared threshold is crossed. This is the reader-facing canonical API:
+    /// views only need to pass their `ReadingStore`, tick duration, and body.
+    /// The local store remains monotonic, and the network report is
+    /// best-effort just like `reportSeen()`.
+    @discardableResult
+    public func recordView(using reading: ReadingStore, seconds: TimeInterval, text: String) async -> Bool {
+        guard let id = currentID else { return false }
+        let crossed = reading.recordView(id.raw, seconds: seconds, text: text)
+        if crossed { _ = try? await client.markRead(id: id, event: .read) }
+        return crossed
+    }
+
     // MARK: - Tasks (web setTaskState on the note's own board)
 
     /// Move a task line into `newState` against the note's own etag, mirroring
@@ -569,26 +582,84 @@ public final class SearchModel {
     /// Vaults the server could not search, mirroring `SearchPanel`'s
     /// "vault … could not be searched" note (the count drives a banner).
     public private(set) var unavailableCount = 0
+    /// Recently submitted/opened search terms, newest first. Views may use
+    /// this for a history menu without owning another persistence cache.
+    public private(set) var history: [String]
+    /// Set by keyboard/menu commands and consumed by the search field view.
+    public private(set) var searchFocusRequested = false
     private let client: TrackClient
+    private var pendingSearch: Task<Void, Never>?
+    private let defaults: UserDefaults
+    private static let historyKey = "track.search.history"
+    private static let historyLimit = 20
 
-    public init(client: TrackClient) {
+    public init(client: TrackClient, defaults: UserDefaults = .standard) {
         self.client = client
+        self.defaults = defaults
+        self.history = defaults.stringArray(forKey: Self.historyKey) ?? []
     }
 
-    public func search(query: String) async {
+    public func addToHistory(_ query: String) {
+        let value = query.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !value.isEmpty else { return }
+        history.removeAll { $0.caseInsensitiveCompare(value) == .orderedSame }
+        history.insert(value, at: 0)
+        if history.count > Self.historyLimit { history.removeLast(history.count - Self.historyLimit) }
+        defaults.set(history, forKey: Self.historyKey)
+    }
+
+    public func clearHistory() {
+        history.removeAll()
+        defaults.removeObject(forKey: Self.historyKey)
+    }
+
+    /// Requests focus for the `/` shortcut; the view consumes the edge.
+    public func requestSearchFocus() { searchFocusRequested = true }
+
+    /// Returns whether a request was pending and clears it atomically.
+    @discardableResult
+    public func consumeSearchFocusRequest() -> Bool {
+        guard searchFocusRequested else { return false }
+        searchFocusRequested = false
+        return true
+    }
+
+    /// Starts a live search. Keeping the debounce task here (rather than in the
+    /// view) also makes every search entry point share the same cancellation
+    /// and stale-response behaviour.
+    public func search(query: String) {
+        pendingSearch?.cancel()
+        let query = query.trimmingCharacters(in: .whitespacesAndNewlines)
         error = nil
-        guard !query.isEmpty else { results = []; unavailableCount = 0; isLoading = false; return }
-        isLoading = true
-        defer { isLoading = false }
-        do {
-            // api.ts: searchNotes(query, limit) — title hits first, server-side.
-            let response = try await client.searchNotes(query: query)
-            results = response.results
-            unavailableCount = response.unavailable?.count ?? 0
-        } catch {
-            self.error = error.localizedDescription
+        guard !query.isEmpty else {
             results = []
             unavailableCount = 0
+            isLoading = false
+            return
+        }
+
+        isLoading = true
+        let client = client
+        pendingSearch = Task { [weak self] in
+            do {
+                try await Task.sleep(nanoseconds: 180_000_000)
+                try Task.checkCancellation()
+                // api.ts: searchNotes(query, limit) — title hits first, server-side.
+                let response = try await client.searchNotes(query: query)
+                try Task.checkCancellation()
+                guard let self else { return }
+                self.results = response.results
+                self.unavailableCount = response.unavailable?.count ?? 0
+                self.isLoading = false
+            } catch is CancellationError {
+                // A newer keystroke owns the next request.
+            } catch {
+                guard let self, !Task.isCancelled else { return }
+                self.error = error.localizedDescription
+                self.results = []
+                self.unavailableCount = 0
+                self.isLoading = false
+            }
         }
     }
 }

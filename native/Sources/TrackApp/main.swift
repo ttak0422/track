@@ -37,6 +37,10 @@ private struct RootView: View {
     // both. "system" stores nothing (ThemeMode.storedValue → nil), matching
     // the web's applyTheme.
     @AppStorage(TrackAppearance.themeKey) private var themeRaw: String?
+    @AppStorage(TrackAppearance.fontSizeKey) private var fontSize = TrackAppearance.baseFontSize
+    @AppStorage(TrackAppearance.previewFontSizeKey) private var previewFontSize = TrackAppearance.baseFontSize
+    // Read the pre-parity key as a fallback only when the new reader setting
+    // is still at its default.
     @AppStorage(TrackAppearance.fontScaleKey) private var fontScale = TrackAppearance.defaultFontScale
 
     private var themeMode: ThemeMode { ThemeMode(stored: themeRaw) }
@@ -52,9 +56,18 @@ private struct RootView: View {
         case .ready(let client):
             MainTabView(client: client)
                 .preferredColorScheme(themeMode.preferredColorScheme)
-                .environment(\.trackFontScale, TrackAppearance.clampFontScale(fontScale))
+                .environment(\.trackFontScale, readerScale)
+                .environment(\.trackPreviewFontScale, TrackAppearance.scale(forFontSize: previewFontSize))
                 .frame(minWidth: 900, minHeight: 600)
         }
+    }
+
+    private var readerScale: Double {
+        if UserDefaults.standard.object(forKey: TrackAppearance.fontSizeKey) == nil,
+           fontScale != TrackAppearance.defaultFontScale {
+            return TrackAppearance.clampFontScale(fontScale)
+        }
+        return TrackAppearance.scale(forFontSize: fontSize)
     }
 }
 
@@ -69,27 +82,45 @@ private struct MainTabView: View {
     let client: TrackClient
     @State private var tasks: TasksModel
     @State private var poller: LiveEventPoller?
+    @State private var selectedTab = MainTab.notes
+    @State private var openedNote: String?
+    @State private var reader: NoteReaderModel
 
     init(client: TrackClient) {
         self.client = client
         _tasks = State(initialValue: TasksModel(client: client))
+        _reader = State(initialValue: NoteReaderModel(client: client))
     }
 
     var body: some View {
-        TabView {
+        TabView(selection: $selectedTab) {
             SearchReaderView(client: client)
+                .tag(MainTab.notes)
                 .tabItem { Label("Notes", systemImage: "doc.text") }
             CalendarView(client: client)
+                .tag(MainTab.calendar)
                 .tabItem { Label("Calendar", systemImage: "calendar") }
             GraphTabView(client: client)
+                .tag(MainTab.graph)
                 .tabItem { Label("Graph", systemImage: "network") }
-            BrowseTabView(client: client)
+            BrowseTabView(
+                client: client,
+                openNote: { raw in
+                    selectedTab = .notes
+                    openedNote = raw
+                },
+                openCalendar: { selectedTab = .calendar }
+            )
+                .tag(MainTab.browse)
                 .tabItem { Label("Browse", systemImage: "folder") }
             TasksView(model: tasks)
+                .tag(MainTab.tasks)
                 .tabItem { Label("Tasks", systemImage: "checklist") }
             VoiceView(client: client)
+                .tag(MainTab.voice)
                 .tabItem { Label("Voice", systemImage: "mic") }
             SettingsTabView()
+                .tag(MainTab.settings)
                 .tabItem { Label("Settings", systemImage: "gearshape") }
         }
         .task {
@@ -102,15 +133,21 @@ private struct MainTabView: View {
             poller.start()
         }
         .onDisappear { poller?.stop() }
+        .sheet(isPresented: Binding(get: { openedNote != nil }, set: { if !$0 { openedNote = nil } })) {
+            NoteReaderView(model: reader, baseURL: client.baseURL)
+                .task { if let openedNote { await reader.open(TrackID(openedNote)) } }
+        }
     }
 }
 
 // MARK: - Browse tab
 
+private enum MainTab: Hashable {
+    case notes, calendar, graph, browse, tasks, voice, settings
+}
+
 private enum BrowsePane: String, CaseIterable, Identifiable {
-    case hierarchy
-    case tags
-    case activity
+    case hierarchy, tags, activity, history
 
     var id: String { rawValue }
 
@@ -119,6 +156,7 @@ private enum BrowsePane: String, CaseIterable, Identifiable {
         case .hierarchy: return "Hierarchy"
         case .tags: return "Tags"
         case .activity: return "Activity"
+        case .history: return "History"
         }
     }
 }
@@ -132,9 +170,13 @@ private struct BrowseTabView: View {
     @State private var model: BrowseModel
     @State private var pane: BrowsePane = .hierarchy
     @State private var selectedNote: String?
+    let openNote: (String) -> Void
+    let openCalendar: () -> Void
 
-    init(client: TrackClient) {
+    init(client: TrackClient, openNote: @escaping (String) -> Void = { _ in }, openCalendar: @escaping () -> Void = {}) {
         self.client = client
+        self.openNote = openNote
+        self.openCalendar = openCalendar
         _model = State(initialValue: BrowseModel(client: client))
     }
 
@@ -152,11 +194,22 @@ private struct BrowseTabView: View {
             Divider()
             switch pane {
             case .hierarchy:
-                HierarchyView(model: model) { raw in selectedNote = raw }
+                HierarchyView(model: model) { raw in
+                    selectedNote = raw
+                    openNote(raw)
+                }
             case .tags:
-                TagView(model: model)
+                TagView(model: model) { raw in
+                    selectedNote = raw
+                    openNote(raw)
+                }
             case .activity:
-                ActivityHeatmapView(model: model)
+                ActivityHeatmapView(model: model) { _ in openCalendar() }
+            case .history:
+                BrowseHistoryView { raw in
+                    selectedNote = raw
+                    openNote(raw)
+                }
             }
             if let selectedNote {
                 Divider()
@@ -166,6 +219,7 @@ private struct BrowseTabView: View {
                         .foregroundStyle(.secondary)
                         .lineLimit(1)
                     Spacer()
+                    Button("Open") { openNote(selectedNote) }
                     Button("Clear") { self.selectedNote = nil }
                         .buttonStyle(.plain)
                         .font(.caption)
@@ -244,7 +298,9 @@ private struct GraphTabView: View {
 /// whole window immediately.
 private struct SettingsTabView: View {
     @AppStorage(TrackAppearance.themeKey) private var themeRaw: String?
-    @AppStorage(TrackAppearance.fontScaleKey) private var fontScale = TrackAppearance.defaultFontScale
+    @AppStorage(TrackAppearance.fontSizeKey) private var fontSize = TrackAppearance.baseFontSize
+    @AppStorage(TrackAppearance.previewFontSizeKey) private var previewFontSize = TrackAppearance.baseFontSize
+    @AppStorage(TrackAppearance.contentWidthKey) private var contentWidthRaw: String?
 
     var body: some View {
         Form {
@@ -259,15 +315,32 @@ private struct SettingsTabView: View {
                 Text("Color tokens follow docs/spec/design.md. System follows the macOS appearance.")
             }
             Section {
+                Picker("Content width", selection: contentWidthBinding) {
+                    ForEach(ContentWidthMode.allCases, id: \.self) { mode in
+                        Text(mode.label).tag(mode)
+                    }
+                }
+                .pickerStyle(.radioGroup)
+            } footer: {
+                Text("Normal is 880 pt, Wide is 1280 pt, and Full uses the available window width.")
+            }
+            Section {
                 Stepper(
-                    value: fontScaleBinding,
-                    in: TrackAppearance.fontScaleRange,
-                    step: 0.05
+                    value: fontSizeBinding,
+                    in: TrackAppearance.fontSizeRange,
+                    step: 1
                 ) {
-                    Text("Text size \(TrackAppearance.clampFontScale(fontScale), specifier: "%.2f")×")
+                    Text("Text size \(fontSize, specifier: "%.0f") pt")
+                }
+                Stepper(
+                    value: previewFontSizeBinding,
+                    in: TrackAppearance.fontSizeRange,
+                    step: 1
+                ) {
+                    Text("Preview text size \(previewFontSize, specifier: "%.0f") pt")
                 }
             } footer: {
-                Text("Scales the reading surface from \(TrackAppearance.fontScaleRange.lowerBound, specifier: "%.2f")× to \(TrackAppearance.fontScaleRange.upperBound, specifier: "%.2f")×.")
+                Text("Reader and preview text sizes are independent (13–32 pt).")
             }
         }
         .formStyle(.grouped)
@@ -280,10 +353,24 @@ private struct SettingsTabView: View {
         )
     }
 
-    private var fontScaleBinding: Binding<Double> {
+    private var fontSizeBinding: Binding<Double> {
         Binding(
-            get: { TrackAppearance.clampFontScale(fontScale) },
-            set: { fontScale = TrackAppearance.clampFontScale($0) }
+            get: { min(max(fontSize, TrackAppearance.fontSizeRange.lowerBound), TrackAppearance.fontSizeRange.upperBound) },
+            set: { fontSize = min(max($0, TrackAppearance.fontSizeRange.lowerBound), TrackAppearance.fontSizeRange.upperBound) }
+        )
+    }
+
+    private var previewFontSizeBinding: Binding<Double> {
+        Binding(
+            get: { min(max(previewFontSize, TrackAppearance.fontSizeRange.lowerBound), TrackAppearance.fontSizeRange.upperBound) },
+            set: { previewFontSize = min(max($0, TrackAppearance.fontSizeRange.lowerBound), TrackAppearance.fontSizeRange.upperBound) }
+        )
+    }
+
+    private var contentWidthBinding: Binding<ContentWidthMode> {
+        Binding(
+            get: { ContentWidthMode(stored: contentWidthRaw) },
+            set: { contentWidthRaw = $0.storedValue }
         )
     }
 }

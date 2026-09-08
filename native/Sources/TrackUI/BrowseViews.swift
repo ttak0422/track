@@ -64,6 +64,7 @@ public final class BrowseModel {
 public struct HierarchyView: View {
     @Bindable var model: BrowseModel
     let onSelect: (String) -> Void
+    @AppStorage("track.expandedHierarchy") private var expandedJSON = "[]"
 
     public init(model: BrowseModel, onSelect: @escaping (String) -> Void = { _ in }) {
         self.model = model
@@ -82,32 +83,69 @@ public struct HierarchyView: View {
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
             } else {
                 List(model.hierarchy, id: \.ref.noteID) { node in
-                    HierarchyRow(node: node, onSelect: onSelect)
+                    HierarchyRow(node: node, onSelect: onSelect, expandedIDs: expandedBinding, isRoot: true)
                 }
             }
         }
         .task { await model.loadHierarchy() }
+        .onReceive(NotificationCenter.default.publisher(for: .trackVaultChanged)) { _ in
+            guard !model.isLoading else { return }
+            Task { await model.loadHierarchy() }
+        }
+    }
+
+    private var expandedBinding: Binding<Set<String>> {
+        Binding {
+            Set((try? JSONDecoder().decode([String].self, from: Data(expandedJSON.utf8))) ?? [])
+        } set: { value in
+            expandedJSON = String(decoding: (try? JSONEncoder().encode(Array(value))) ?? Data(), as: UTF8.self)
+        }
     }
 }
 
 private struct HierarchyRow: View {
     let node: HierarchyNode
     let onSelect: (String) -> Void
+    @Binding var expandedIDs: Set<String>
+    let isRoot: Bool
 
     var body: some View {
         if let children = node.children, !children.isEmpty {
-            DisclosureGroup {
+            DisclosureGroup(isExpanded: Binding(
+                get: { isRoot || expandedIDs.contains(node.ref.noteID.raw) },
+                set: { isExpanded in
+                    // Top-level hierarchy nodes mirror the web menu: they are
+                    // always visible and cannot be collapsed.
+                    guard !isRoot else { return }
+                    if isExpanded { expandedIDs.insert(node.ref.noteID.raw) }
+                    else { expandedIDs.remove(node.ref.noteID.raw) }
+                }
+            )) {
                 ForEach(children, id: \.ref.noteID) { child in
-                    HierarchyRow(node: child, onSelect: onSelect)
+                    HierarchyRow(node: child, onSelect: onSelect, expandedIDs: $expandedIDs, isRoot: false)
                 }
             } label: {
-                Button(node.ref.title) { onSelect(node.ref.noteID.raw) }
-                    .buttonStyle(.plain)
+                titleButton
             }
         } else {
-            Button(node.ref.title) { onSelect(node.ref.noteID.raw) }
-                .buttonStyle(.plain)
+            Button { onSelect(node.ref.noteID.raw) } label: {
+                HStack(spacing: 4) {
+                    // Keep leaf titles aligned with DisclosureGroup labels.
+                    Image(systemName: "chevron.right")
+                        .frame(width: 16)
+                        .opacity(0)
+                    Text(node.ref.title)
+                }
+            }
+            .buttonStyle(.plain)
+            .help(node.ref.title)
         }
+    }
+
+    private var titleButton: some View {
+        Button(node.ref.title) { onSelect(node.ref.noteID.raw) }
+            .buttonStyle(.plain)
+            .help(node.ref.title)
     }
 }
 
@@ -116,9 +154,12 @@ private struct HierarchyRow: View {
 public struct TagView: View {
     @Bindable var model: BrowseModel
     @State private var selectedTag: String?
+    let onSelect: (String) -> Void
+    @State private var reading = ReadingStore()
 
-    public init(model: BrowseModel) {
+    public init(model: BrowseModel, onSelect: @escaping (String) -> Void = { _ in }) {
         self.model = model
+        self.onSelect = onSelect
     }
 
     public var body: some View {
@@ -145,17 +186,74 @@ public struct TagView: View {
                     }
                     Divider()
                     List(notes(for: selectedTag), id: \.ref.noteID) { note in
-                        Text(note.ref.title)
+                        Button {
+                            reading.markSeen(note.ref.noteID.raw)
+                            onSelect(note.ref.noteID.raw)
+                        } label: {
+                            HStack(spacing: 6) {
+                                Text(note.ref.title).lineLimit(1)
+                                Spacer()
+                                badges(for: note.ref)
+                            }
+                        }
+                        .buttonStyle(.plain)
                     }
                 }
             }
         }
         .task { await model.loadNotes() }
+        .onReceive(NotificationCenter.default.publisher(for: .trackVaultChanged)) { _ in
+            guard !model.isLoading else { return }
+            Task { await model.loadNotes() }
+        }
     }
 
     private func notes(for tag: String?) -> [SearchResult] {
         guard let tag else { return [] }
         return model.notes.filter { $0.tags?.contains(tag) == true }
+    }
+
+    @ViewBuilder private func badges(for ref: NoteRef) -> some View {
+        if reading.isNew(ref) {
+            Text("NEW").font(.caption2).fontWeight(.bold)
+                .foregroundStyle(.secondary).padding(.horizontal, 4).padding(.vertical, 1)
+                .background(.quaternary, in: Capsule())
+        }
+        if ref.flags?.contains(where: { $0.lowercased() == "stale" }) == true {
+            Text("STALE").font(.caption2).fontWeight(.bold).foregroundStyle(.orange)
+        }
+    }
+}
+
+// A small standalone history surface, sharing the reader's persisted MRU.
+// It is intentionally read-only here; opening is handed to the host.
+public struct BrowseHistoryView: View {
+    let onSelect: (String) -> Void
+    @AppStorage("track.recentNotes") private var recentJSON = "[]"
+
+    private struct Entry: Codable, Identifiable {
+        let id: String
+        let title: String
+    }
+    private var entries: [Entry] {
+        (try? JSONDecoder().decode([Entry].self, from: Data(recentJSON.utf8))) ?? []
+    }
+
+    public init(onSelect: @escaping (String) -> Void = { _ in }) { self.onSelect = onSelect }
+
+    public var body: some View {
+        Group {
+            if entries.isEmpty {
+                Text("No recently opened notes").font(.caption).foregroundStyle(.secondary)
+            } else {
+                List(entries.prefix(20)) { entry in
+                    Button { onSelect(entry.id) } label: {
+                        Label(entry.title, systemImage: "clock")
+                    }.buttonStyle(.plain)
+                }
+            }
+        }
+        .navigationTitle("History")
     }
 }
 
@@ -163,11 +261,11 @@ public struct TagView: View {
 
 public struct ActivityHeatmapView: View {
     @Bindable var model: BrowseModel
+    let onSelectDate: (String) -> Void
 
-    private let columns = Array(repeating: GridItem(.fixed(14), spacing: 4), count: 7)
-
-    public init(model: BrowseModel) {
+    public init(model: BrowseModel, onSelectDate: @escaping (String) -> Void = { _ in }) {
         self.model = model
+        self.onSelectDate = onSelectDate
     }
 
     public var body: some View {
@@ -178,14 +276,30 @@ public struct ActivityHeatmapView: View {
                 ContentUnavailableView("Could not load activity", systemImage: "exclamationmark.triangle", description: Text(error))
             } else {
                 let counts = Self.dayCounts(notes: model.notes)
-                let days = Self.lastDays(28)
+                let days = Self.lastDays(365)
+                let weeks = Self.weeks(days)
                 VStack(alignment: .leading, spacing: 6) {
-                    Text("Last 28 days").font(.caption).foregroundStyle(.secondary)
-                    LazyVGrid(columns: columns, alignment: .leading, spacing: 4) {
-                        ForEach(days, id: \.self) { day in
-                            RoundedRectangle(cornerRadius: 2)
-                                .fill(color(for: counts[day] ?? 0))
-                                .frame(width: 12, height: 12)
+                    Text("Activity · last year").font(.caption).foregroundStyle(.secondary)
+                    HStack(alignment: .top, spacing: 4) {
+                        VStack(alignment: .trailing, spacing: 4) {
+                            Text("").frame(height: 14)
+                            ForEach(["M", "W", "F"], id: \.self) { Text($0).font(.caption2).foregroundStyle(.secondary).frame(height: 12) }
+                        }
+                        ScrollView(.horizontal, showsIndicators: false) {
+                            HStack(alignment: .top, spacing: 4) {
+                                ForEach(weeks.indices, id: \.self) { index in
+                                    VStack(spacing: 4) {
+                                        Text(Self.monthLabel(for: weeks[index].first ?? ""))
+                                            .font(.caption2).foregroundStyle(.secondary).frame(height: 14)
+                                        ForEach(weeks[index].indices, id: \.self) { dayIndex in
+                                            let day = weeks[index][dayIndex]
+                                            Button { onSelectDate(day) } label: {
+                                                RoundedRectangle(cornerRadius: 2).fill(color(for: counts[day] ?? 0)).frame(width: 12, height: 12)
+                                            }.buttonStyle(.plain).disabled(day.isEmpty).help(day.isEmpty ? "" : "\(day): \(counts[day] ?? 0) notes")
+                                        }
+                                    }
+                                }
+                            }
                         }
                     }
                 }
@@ -194,6 +308,10 @@ public struct ActivityHeatmapView: View {
             }
         }
         .task { await model.loadNotes() }
+        .onReceive(NotificationCenter.default.publisher(for: .trackVaultChanged)) { _ in
+            guard !model.isLoading else { return }
+            Task { await model.loadNotes() }
+        }
     }
 
     private func color(for count: Int) -> Color {
@@ -227,4 +345,24 @@ public struct ActivityHeatmapView: View {
             cal.date(byAdding: .day, value: -offset, to: today).map(f.string(from:))
         }
     }
+
+    static func weeks(_ days: [String]) -> [[String]] {
+        let cal = Calendar.current
+        let formatter = DateFormatter(); formatter.dateFormat = "yyyy-MM-dd"; formatter.locale = Locale(identifier: "en_US_POSIX")
+        guard let first = days.first, let date = formatter.date(from: first) else { return [] }
+        let leading = (cal.component(.weekday, from: date) + 5) % 7
+        var padded = Array(repeating: "", count: leading) + days
+        while padded.count % 7 != 0 { padded.append("") }
+        return stride(from: 0, to: padded.count, by: 7).map { Array(padded[$0..<$0 + 7]) }
+    }
+
+    static func monthLabel(for day: String) -> String {
+        guard let date = DateFormatter.iso.date(from: day) else { return "" }
+        return DateFormatter.month.string(from: date)
+    }
+}
+
+private extension DateFormatter {
+    static let iso: DateFormatter = { let f = DateFormatter(); f.dateFormat = "yyyy-MM-dd"; f.locale = Locale(identifier: "en_US_POSIX"); return f }()
+    static let month: DateFormatter = { let f = DateFormatter(); f.dateFormat = "MMM"; return f }()
 }

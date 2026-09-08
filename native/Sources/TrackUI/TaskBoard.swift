@@ -1,10 +1,12 @@
 import SwiftUI
+import CoreTransferable
 import TrackAPI
 
 // Five-column kanban over the same vault-wide dated listing the list shows.
 // Each card wears its own state picker, so moving a task is a `setState` write
-// (no drag-and-drop); the columns are a fixed projection of `rows` by state,
-// so a write lands back through the model's redraw-from-response path.
+// whether it came from the picker or drag-and-drop. The columns are a fixed
+// projection of `rows` by state, so a write lands back through the model's
+// redraw-from-response path.
 
 public struct TaskBoard: View {
     @Bindable var model: TasksModel
@@ -23,6 +25,12 @@ public struct TaskBoard: View {
                     rows: model.rows.filter { $0.item.state == state }
                 ) { row, newState in
                     Task { await model.setState(row: row, to: newState) }
+                } onDrop: { payload in
+                    guard let row = model.rows.first(where: {
+                        $0.noteID.raw == payload.noteID && $0.item.line == payload.line
+                    }) else { return }
+                    guard row.item.state != state else { return }
+                    Task { await model.setState(row: row, to: state) }
                 }
             }
         }
@@ -34,6 +42,7 @@ private struct TaskColumn: View {
     let title: String
     let rows: [TaskRow]
     let onChange: (TaskRow, String) -> Void
+    let onDrop: (TaskDragPayload) -> Void
 
     var body: some View {
         VStack(alignment: .leading, spacing: 6) {
@@ -50,6 +59,11 @@ private struct TaskColumn: View {
             }
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+        .dropDestination(for: TaskDragPayload.self) { payloads, _ in
+            guard let payload = payloads.first else { return false }
+            onDrop(payload)
+            return true
+        }
     }
 }
 
@@ -61,14 +75,40 @@ private struct TaskCard: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 4) {
-            HStack(alignment: .firstTextBaseline, spacing: 8) {
-                if let priority = row.item.priority {
-                    Text("[#\(priority)]")
-                        .font(.caption).fontWeight(.bold)
+            Link(destination: noteURL(for: row)) {
+                VStack(alignment: .leading, spacing: 3) {
+                    HStack(alignment: .firstTextBaseline, spacing: 8) {
+                        if let priority = row.item.priority {
+                            Text("[#\(priority)]")
+                                .font(.caption).fontWeight(.bold)
+                        }
+                        Text(row.item.text.isEmpty ? "(untitled task)" : row.item.text)
+                            .strikethrough(row.item.done)
+                        Spacer()
+                    }
+                    Text(row.title)
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                        .lineLimit(1)
                 }
-                Text(row.item.text.isEmpty ? "(untitled task)" : row.item.text)
-                    .strikethrough(row.item.done)
-                Spacer()
+                .frame(maxWidth: .infinity, alignment: .leading)
+            }
+            .buttonStyle(.plain)
+
+            HStack(spacing: 5) {
+                if let priority = row.item.priority {
+                    TaskChip("#\(priority)", emphasis: true)
+                }
+                if let scheduled = row.item.scheduled {
+                    TaskChip("▷ \(scheduled)")
+                }
+                if let due = row.item.due {
+                    TaskChip("! \(due)", emphasis: true)
+                }
+                if let completed = row.item.completed {
+                    TaskChip("✓ \(completed)")
+                }
+                Spacer(minLength: 0)
                 Picker("", selection: stateBinding) {
                     ForEach(Self.states, id: \.self) { state in
                         Text(state).tag(state)
@@ -78,18 +118,23 @@ private struct TaskCard: View {
                 .labelsHidden()
                 .fixedSize()
             }
-            Text(row.title)
-                .font(.caption)
-                .foregroundStyle(.secondary)
-                .lineLimit(1)
-            if let due = row.item.due {
-                Text("! \(due)").font(.caption).foregroundStyle(.secondary)
-            }
         }
         .padding(8)
         .frame(maxWidth: .infinity, alignment: .leading)
         .background(Color.secondary.opacity(0.06), in: RoundedRectangle(cornerRadius: 6))
         .overlay(RoundedRectangle(cornerRadius: 6).strokeBorder(Color.secondary.opacity(0.15), lineWidth: 1))
+        .draggable(TaskDragPayload(noteID: row.noteID.raw, line: row.item.line))
+    }
+
+    /// Quiet chips keep task metadata legible without turning the card into a
+    /// second control surface (design.md: Task table / quiet chip).
+    private func TaskChip(_ label: String, emphasis: Bool = false) -> some View {
+        Text(label)
+            .font(.caption)
+            .foregroundStyle(emphasis ? .secondary : .tertiary)
+            .padding(.horizontal, 5)
+            .padding(.vertical, 2)
+            .background(Color.secondary.opacity(0.08), in: Capsule())
     }
 
     private var stateBinding: Binding<String> {
@@ -100,4 +145,18 @@ private struct TaskCard: View {
             }
         )
     }
+}
+
+private struct TaskDragPayload: Codable, Transferable {
+    let noteID: String
+    let line: Int
+
+    static var transferRepresentation: some TransferRepresentation {
+        CodableRepresentation(contentType: .data)
+    }
+}
+
+private func noteURL(for row: TaskRow) -> URL {
+    let target = row.noteID.raw.addingPercentEncoding(withAllowedCharacters: .urlPathAllowed) ?? row.noteID.raw
+    return URL(string: "trackwiki://\(target)")!
 }
