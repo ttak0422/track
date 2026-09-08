@@ -58,6 +58,19 @@ public struct GFMBody: View {
             // prose into figure segments, everything else stays MarkdownUI.
             segmentedBody
 
+            let headings = Self.tocEntries(in: markdown)
+            if !headings.isEmpty {
+                VStack(alignment: .leading, spacing: 4) {
+                    Text("Contents").font(.caption.weight(.semibold)).foregroundStyle(.secondary)
+                    ForEach(headings) { entry in
+                        Text("\(String(repeating: "  ", count: max(0, entry.level - 1)))• \(entry.title)")
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                    }
+                }
+                .padding(.vertical, 4)
+            }
+
             // The wikilink rail (web reader's WikiLink): distinct targets are
             // collected from the *original* source and shown as tappable links
             // that resolve via `/api/resolve`. A target that does not resolve
@@ -200,13 +213,25 @@ public struct GFMBody: View {
 
             // Math lines: `$$...$$` (display) and `$...$` (inline), each on a
             // line of its own.
-            if !trimmed.hasPrefix("```"), trimmed.hasPrefix("$") {
+            if !trimmed.hasPrefix("```"), trimmed.hasPrefix("$") && trimmed.hasSuffix("$") {
                 flush()
                 if trimmed.hasPrefix("$$") {
                     segments.append(.figure(Figure(kind: .math(display: true), source: stripMathDelims(trimmed, "$$"))))
                 } else {
                     segments.append(.figure(Figure(kind: .math(display: false), source: stripMathDelims(trimmed, "$"))))
                 }
+                i += 1
+                continue
+            }
+
+            // MarkdownUI does not expose inline math nodes. Split an ordinary
+            // prose line around `$...$` so the same FigureHost math renderer is
+            // used for inline expressions as for display math.
+            if !trimmed.hasPrefix("```"), let inline = Self.inlineMath(in: line) {
+                flush()
+                if !inline.before.isEmpty { segments.append(.markdown(Self.styleAlert(Self.rewriteWikilinks(inline.before)))) }
+                segments.append(.figure(Figure(kind: .math(display: false), source: inline.source)))
+                if !inline.after.isEmpty { buf.append(Self.styleAlert(Self.rewriteWikilinks(inline.after))) }
                 i += 1
                 continue
             }
@@ -297,27 +322,34 @@ public struct GFMBody: View {
             }
             text = kept.joined(separator: "\n")
         }
-        // Inline references: `[^id]` → a bracketed `[id]` marker (bold, as a
-        // superscript-*style* stand-in — MarkdownUI's cmark keep inline HTML as
-        // literal text, so a true <sup> would only print its tags).
-        text = Self.footnoteRefRegex.stringByReplacingMatches(
-            in: text,
-            range: NSRange(text.startIndex..., in: text),
-            withTemplate: "**[$1]**"
-        )
-        // Task chips: wrap the token in bold.
-        text = Self.taskChipRegex.stringByReplacingMatches(
-            in: text,
-            range: NSRange(text.startIndex..., in: text),
-            withTemplate: "**$0**"
-        )
+        // Use numbered superscript-like markers and explicit fragment links.
+        // MarkdownUI does not preserve inline HTML, while markdown links do.
+        var refNumber = 0
+        text = Self.replaceMatches(text, regex: footnoteRefRegex) { _, value in
+            refNumber += 1
+            let id = String(value.dropFirst(2).dropLast())
+            let marker = Self.superscript(String(refNumber))
+            return "[\(marker)](#fn-\(Self.slug(id))-\(refNumber))"
+        }
+        // Add a visual symbol as well as emphasis: this remains legible in
+        // monochrome themes and supplies the web reader's colored chip cue.
+        text = Self.replaceMatches(text, regex: taskChipRegex) { _, value in
+            let symbol: String
+            if value.hasPrefix("[#") { symbol = "🔴" }
+            else if value.hasPrefix("[sched:") { symbol = "📅" }
+            else if value.hasPrefix("[due:") { symbol = "⏰" }
+            else if value.hasPrefix("[done:") { symbol = "✅" }
+            else { symbol = "🟦" }
+            return "**\(symbol) \(value)**"
+        }
         if !footnotes.defs.isEmpty {
             var out = text.trimmingCharacters(in: .whitespacesAndNewlines)
             out += "\n\n## Footnotes\n"
+            var number = 0
             for def in footnotes.defs {
-                out += "\n**[\(def.id)]** \(def.definition)\n"
-                for _ in 0..<max(0, def.refCount - 1) {
-                    out += "\n**[\(def.id)]** \(def.definition)\n"
+                for _ in 0..<max(1, def.refCount) {
+                    number += 1
+                    out += "\n#### fn-\(slug(def.id))-\(number)\n\(superscript(String(number))) \(def.definition)  [↩](#fn-\(slug(def.id))-\(number))\n"
                 }
             }
             return out
@@ -407,6 +439,52 @@ public struct GFMBody: View {
     private static let taskChipRegex = try! NSRegularExpression(
         pattern: "\\[(?:#[A-Za-z]|(?:sched|due|done):\\d{4}-\\d{2}-\\d{2}|\\d+\\/\\d+|\\d+%)\\]"
     )
+
+    private static func replaceMatches(_ text: String, regex: NSRegularExpression, _ transform: (String, String) -> String) -> String {
+        let matches = regex.matches(in: text, range: NSRange(text.startIndex..., in: text)).reversed()
+        var result = text
+        for match in matches {
+            guard let range = Range(match.range, in: result) else { continue }
+            let value = String(result[range])
+            result.replaceSubrange(range, with: transform(value, value))
+        }
+        return result
+    }
+
+    private static func slug(_ value: String) -> String {
+        value.lowercased().map { $0.isLetter || $0.isNumber ? $0 : "-" }.reduce(into: "") { $0.append($1) }
+    }
+
+    private static func superscript(_ value: String) -> String {
+        value.map { ["0":"⁰", "1":"¹", "2":"²", "3":"³", "4":"⁴", "5":"⁵", "6":"⁶", "7":"⁷", "8":"⁸", "9":"⁹"][String($0)] ?? String($0) }.joined()
+    }
+
+    struct TocEntry: Identifiable {
+        let id: Int
+        let level: Int
+        let title: String
+    }
+
+    static func tocEntries(in source: String) -> [TocEntry] {
+        source.components(separatedBy: "\n").enumerated().compactMap { index, line in
+            let trimmed = line.trimmingCharacters(in: .whitespaces)
+            let hashes = trimmed.prefix { $0 == "#" }
+            guard !hashes.isEmpty, hashes.count <= 6, trimmed.dropFirst(hashes.count).first == " " else { return nil }
+            let title = trimmed.dropFirst(hashes.count).trimmingCharacters(in: .whitespaces).replacingOccurrences(of: "#", with: "")
+            guard !title.isEmpty else { return nil }
+            return TocEntry(id: index, level: hashes.count, title: title)
+        }
+    }
+
+    private static func inlineMath(in line: String) -> (before: String, source: String, after: String)? {
+        guard let start = line.firstIndex(of: "$"),
+              let end = line[line.index(after: start)...].firstIndex(of: "$"), end > line.index(after: start) else { return nil }
+        let before = String(line[..<start])
+        let source = String(line[line.index(after: start)..<end])
+        let after = String(line[line.index(after: end)...])
+        guard !source.contains("$") else { return nil }
+        return (before, source, after)
+    }
 
     /// "Exactly an image line" — `![alt](src)` with nothing else on the line,
     /// so a media embed line can be lifted into its own segment. Inline images
@@ -550,7 +628,16 @@ public struct GFMBody: View {
         let type = String(line[typeRange]).capitalized
         let lead = String(line[leadRange])
         let rest = ns.substring(from: match.range(at: 0).location + match.range(at: 0).length)
-        return "\(lead)> **\(type):** \(rest)"
+        let symbol: String
+        switch type.uppercased() {
+        case "WARNING", "CAUTION": symbol = "⚠️"
+        case "IMPORTANT": symbol = "❗"
+        case "TIP": symbol = "💡"
+        default: symbol = "ℹ️"
+        }
+        // MarkdownUI's blockquote supplies the vertical rule; the type symbol
+        // provides a stable accent even when the platform theme is monochrome.
+        return "\(lead)> \(symbol) **\(type):** \(rest)"
     }
 
     /// Strip a matched math delimiter pair from both ends of a line.
@@ -790,9 +877,22 @@ private struct FigureSegmentView: View {
     @ViewBuilder
     private var mapBody: some View {
         if let figure = MapFigure.parse(self.figure.source) {
-            host(.map(figure))
+            VStack(alignment: .leading, spacing: 6) {
+                host(.map(figure))
+                if let url = URL(string: "https://www.openstreetmap.org/?mlat=\(figure.lat)&mlon=\(figure.long)#map=\(figure.zoom)/\(figure.lat)/\(figure.long)") {
+                    Link(destination: url) {
+                        Label("Open map", systemImage: "map")
+                            .font(.caption)
+                    }
+                }
+            }
         } else {
-            codeBlock(self.figure.source)
+            VStack(alignment: .leading, spacing: 6) {
+                codeBlock(self.figure.source)
+                if let url = URL(string: "https://www.openstreetmap.org/search?query=" + (self.figure.source.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed) ?? "map")) {
+                    Link("Open map", destination: url).font(.caption)
+                }
+            }
         }
     }
 
@@ -827,6 +927,12 @@ private struct FigureSegmentView: View {
             onLink: figureOnLink
         )
         .frame(height: height)
+        .modifier(DarkGraphvizModifier(enabled: colorScheme == .dark && isGraphviz))
+    }
+
+    private var isGraphviz: Bool {
+        if case .dot = figure.kind { return true }
+        return false
     }
 
     /// Interprets a link tapped inside a figure island: a `trackwiki://` URL
@@ -847,6 +953,18 @@ private struct FigureSegmentView: View {
             .foregroundStyle(.secondary)
             .textSelection(.enabled)
             .frame(maxWidth: .infinity, alignment: .leading)
+    }
+}
+
+private struct DarkGraphvizModifier: ViewModifier {
+    let enabled: Bool
+
+    func body(content: Content) -> some View {
+        if enabled {
+            content.colorInvert()
+        } else {
+            content
+        }
     }
 }
 

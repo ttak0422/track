@@ -153,8 +153,12 @@ private struct TaskRowView: View {
                         .font(.caption)
                         .foregroundStyle(.tertiary)
                 }
-                Text(row.title)
-                    .font(.caption).foregroundStyle(.secondary)
+                // Keep the note affordance on the title only.  The state and
+                // date controls remain independent so opening a note never
+                // steals an edit gesture.
+                Link(row.title, destination: noteURL(for: row))
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
             }
             Spacer()
             dateStack
@@ -178,6 +182,14 @@ private struct TaskRowView: View {
             }
         }
     }
+}
+
+/// The reader handles this same URL scheme for wikilinks.  Keeping the task
+/// title as a real Link gives the native task list a note navigation target
+/// without making the editable cells part of that target.
+private func noteURL(for row: TaskRow) -> URL {
+    let target = row.noteID.raw.addingPercentEncoding(withAllowedCharacters: .urlPathAllowed) ?? row.noteID.raw
+    return URL(string: "trackwiki://\(target)")!
 }
 
 private struct TaskDateEditor: View {

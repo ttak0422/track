@@ -232,6 +232,7 @@ public struct OgpCardView: View {
     private let url: URL
     @State private var ogp: OgpResponse?
     @State private var failed = false
+    @State private var cardHovered = false
 
     public init(client: TrackClient, url: URL) {
         self.client = client
@@ -267,7 +268,7 @@ public struct OgpCardView: View {
 
     private func card(_ ogp: OgpResponse) -> some View {
         Link(destination: url) {
-            HStack(alignment: .top, spacing: 12) {
+            HStack(alignment: .top, spacing: 0) {
                 if let image = ogp.image.flatMap(URL.init(string:)) {
                     AsyncImage(url: image) { phase in
                         switch phase {
@@ -279,11 +280,11 @@ public struct OgpCardView: View {
                             Color.clear
                         }
                     }
-                    .frame(width: 120, height: 76)
+                    .frame(width: 160, height: 112)
                     .clipped()
                     .clipShape(RoundedRectangle(cornerRadius: 6))
                 }
-                VStack(alignment: .leading, spacing: 4) {
+                    VStack(alignment: .leading, spacing: 4) {
                     Text(ogp.siteName ?? url.host ?? url.absoluteString)
                         .font(.caption)
                         .foregroundStyle(.secondary)
@@ -294,22 +295,25 @@ public struct OgpCardView: View {
                         Text(description)
                             .font(.caption)
                             .foregroundStyle(.secondary)
-                            .lineLimit(3)
+                            .lineLimit(2)
                     }
                 }
+                    .padding(.horizontal, 14)
+                    .padding(.vertical, 12)
             }
-            .padding(12)
-            .frame(maxWidth: .infinity, alignment: .leading)
+            .frame(maxWidth: 640, alignment: .leading)
             .background(
                 RoundedRectangle(cornerRadius: 8)
-                    .fill(Color(nsColor: .textBackgroundColor))
+                    // panel-soft: a quiet sunk surface, rather than an AppKit text field.
+                    .fill(Color(nsColor: .underPageBackgroundColor))
             )
             .overlay(
                 RoundedRectangle(cornerRadius: 8)
-                    .stroke(Color(nsColor: .separatorColor), lineWidth: 0.5)
+                    .stroke(cardHovered ? Color(nsColor: .secondaryLabelColor) : Color(nsColor: .separatorColor), lineWidth: 0.5)
             )
         }
         .buttonStyle(.plain)
+        .onHover { cardHovered = $0 }
     }
 }
 
@@ -472,13 +476,7 @@ public struct TextAssetView: View {
             if failed {
                 PlainLinkView(url: url)
             } else if let text {
-                ScrollView {
-                    Text(text)
-                        .font(.system(.body, design: .monospaced))
-                        .frame(maxWidth: .infinity, alignment: .leading)
-                        .textSelection(.enabled)
-                }
-                .frame(maxHeight: 420)
+                TextAssetCodeView(text: text, language: Self.language(for: url))
             } else {
                 HStack(spacing: 8) {
                     ProgressView().controlSize(.small)
@@ -508,6 +506,58 @@ public struct TextAssetView: View {
             failed = true
         }
     }
+
+    private static func language(for url: URL) -> String {
+        let name = url.path.split(separator: "/").last.map(String.init) ?? ""
+        let stem = name.split(separator: ".").last.map(String.init)?.lowercased() ?? ""
+        switch stem {
+        case "yml": return "yaml"
+        case "sh", "bash", "zsh": return "bash"
+        case "mmd": return "mermaid"
+        case "conf": return "ini"
+        case "txt", "text", "log", "env": return ""
+        default: return stem
+        }
+    }
+}
+
+/// A deliberately small native equivalent of the web code bed: identify the
+/// asset language and cap very large files so an attachment cannot take over
+/// the reader. The full syntax highlighter remains a web-only concern.
+private struct TextAssetCodeView: View {
+    let text: String
+    let language: String
+
+    private var limitedText: String {
+        let lines = text.split(separator: "\n", omittingEmptySubsequences: false)
+        let limit = 200
+        guard lines.count > limit else { return text }
+        return lines.prefix(limit).joined(separator: "\n") + "\n…"
+    }
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            if !language.isEmpty {
+                Text(language.uppercased())
+                    .font(.system(size: 11, weight: .medium, design: .monospaced))
+                    .foregroundStyle(.secondary)
+                    .textCase(.uppercase)
+            }
+            ScrollView([.horizontal, .vertical]) {
+                Text(limitedText)
+                    .font(.system(size: 13, design: .monospaced))
+                    .lineSpacing(2)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .textSelection(.enabled)
+                    .padding(.horizontal, 18)
+                    .padding(.vertical, 16)
+            }
+            .frame(maxHeight: 420)
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(Color(nsColor: .underPageBackgroundColor))
+        .clipShape(RoundedRectangle(cornerRadius: 6))
+    }
 }
 
 // MARK: - YouTube / Maps embeds
@@ -526,12 +576,19 @@ private struct FigureEmbedView: View {
     }
 
     var body: some View {
-        FigureHost(
-            kind: .html(html),
-            height: $height,
-            theme: colorScheme == .dark ? .dark : .light
-        )
-        .frame(height: height)
+        GeometryReader { proxy in
+            FigureHost(
+                kind: .html(html),
+                height: $height,
+                theme: colorScheme == .dark ? .dark : .light
+            )
+            .frame(width: proxy.size.width, height: proxy.size.width * 9 / 16)
+            .clipShape(RoundedRectangle(cornerRadius: 8))
+        }
+        .aspectRatio(16 / 9, contentMode: .fit)
+        .background(Color.black)
+        .clipShape(RoundedRectangle(cornerRadius: 8))
+        .clipped()
     }
 }
 
@@ -554,9 +611,9 @@ public struct YouTubeView: View {
                     title: "YouTube video",
                     // The web's embed iframe allow list, verbatim.
                     allow: "accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share",
-                    style: "width:100%;aspect-ratio:16/9;border:0"
+                    style: "width:100%;height:100%;border:0"
                 ),
-                defaultHeight: 240
+                defaultHeight: 180
             )
         } else {
             fallback
@@ -595,16 +652,17 @@ public struct MapsView: View {
     public var body: some View {
         if let coordinate = MediaEmbedsURLs.googleMapsCoordinate(from: src) {
             NativeMapView(latitude: coordinate.latitude, longitude: coordinate.longitude)
-                .frame(height: 320)
+                .aspectRatio(16 / 9, contentMode: .fit)
+                .clipShape(RoundedRectangle(cornerRadius: 8))
         } else if let embed = MediaEmbedsURLs.googleMapsEmbedURL(from: src) {
             FigureEmbedView(
                 html: YouTubeView.iframeHTML(
                     embedURL: embed,
                     title: "Map",
                     allow: "",
-                    style: "width:100%;height:320px;border:0"
+                    style: "width:100%;height:100%;border:0"
                 ),
-                defaultHeight: 320
+                defaultHeight: 180
             )
         } else {
             fallback

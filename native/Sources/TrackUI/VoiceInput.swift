@@ -1,4 +1,5 @@
 import AVFoundation
+import AppKit
 import Foundation
 import Observation
 import Speech
@@ -21,6 +22,9 @@ import TrackAPI
 public final class VoiceInputModel {
     /// The live (interim) and final transcript of the session.
     public private(set) var transcript = ""
+    /// The portion confirmed by a final recognition result. The remainder is
+    /// kept separate so the view can render recognition in progress softly.
+    public private(set) var interimTranscript = ""
     /// True while the engine is recording and feeding the recognizer.
     public private(set) var isRecording = false
     /// Last failure surfaced to the view (permission, no mic, recognizer
@@ -53,6 +57,7 @@ public final class VoiceInputModel {
         isStarting = true
         defer { isStarting = false }
         error = nil
+        interimTranscript = ""
 
         guard let recognizer else {
             error = "音声認識はこの機種では利用できません (ja-JP)。"
@@ -101,7 +106,13 @@ public final class VoiceInputModel {
             Task { @MainActor in
                 guard let self, self.sessionID == session else { return }
                 if let result {
-                    self.transcript = result.bestTranscription.formattedString
+                    let text = result.bestTranscription.formattedString
+                    self.transcript = text
+                    if result.isFinal {
+                        self.interimTranscript = ""
+                    } else {
+                        self.interimTranscript = text
+                    }
                     if result.isFinal {
                         self.isRecording = false
                         self.request = nil
@@ -134,6 +145,11 @@ public final class VoiceInputModel {
         }
         request?.endAudio()
     }
+
+    public func clear() {
+        transcript = ""
+        interimTranscript = ""
+    }
 }
 
 // MARK: - View
@@ -153,6 +169,9 @@ public struct VoiceView: View {
     @State private var searchResults: [SearchResult] = []
     @State private var searchError: String?
     @State private var isSearching = false
+    @State private var copied = false
+    @State private var lastSavedTranscript = ""
+    @State private var recordingStart: Date?
 
     public init(client: TrackClient) {
         self.client = client
@@ -164,8 +183,14 @@ public struct VoiceView: View {
                 Button {
                     if model.isRecording {
                         model.stop()
+                        recordingStart = nil
+                        autoSaveAfterStop()
                     } else {
-                        Task { await model.start() }
+                        recordingStart = Date()
+                        Task {
+                            await model.start()
+                            if !model.isRecording { recordingStart = nil }
+                        }
                     }
                 } label: {
                     Label(
@@ -177,6 +202,31 @@ public struct VoiceView: View {
                 .buttonStyle(.borderedProminent)
                 .tint(model.isRecording ? .red : .accentColor)
                 .help(model.isRecording ? "Stop recording" : "Start recording")
+
+                if model.isRecording {
+                    TimelineView(.periodic(from: .now, by: 1)) { context in
+                        Text(Self.elapsedString(since: recordingStartedAt ?? context.date))
+                            .font(.caption.monospacedDigit())
+                            .foregroundStyle(.secondary)
+                            .accessibilityLabel("Recording time")
+                    }
+                }
+
+                Button {
+                    copyAll()
+                } label: {
+                    Label(copied ? "Copied" : "Copy all", systemImage: "doc.on.doc")
+                }
+                .buttonStyle(.bordered)
+                .disabled(model.transcript.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+
+                Button {
+                    clearTranscript()
+                } label: {
+                    Label("Clear", systemImage: "trash")
+                }
+                .buttonStyle(.bordered)
+                .disabled(model.transcript.isEmpty)
 
                 Button {
                     appendToJournal()
@@ -202,11 +252,6 @@ public struct VoiceView: View {
                 .disabled(model.transcript.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || isSearching)
                 .help("Search notes with the transcript")
 
-                if model.isRecording {
-                    Text("Recording…")
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
-                }
                 Spacer()
             }
 
@@ -241,7 +286,8 @@ public struct VoiceView: View {
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
             } else {
                 ScrollView {
-                    Text(model.transcript)
+                    Text(model.interimTranscript.isEmpty ? model.transcript : String(model.transcript.dropFirst(model.transcript.count - model.interimTranscript.count)))
+                        .foregroundStyle(model.interimTranscript.isEmpty ? .primary : .secondary)
                         .font(.body)
                         .frame(maxWidth: .infinity, alignment: .leading)
                         .textSelection(.enabled)
@@ -254,25 +300,86 @@ public struct VoiceView: View {
                     Text("Search results")
                         .font(.headline)
 
-                    ForEach(searchResults, id: \.qualifiedID) { result in
-                        VStack(alignment: .leading, spacing: 3) {
-                            Text(result.ref.title)
-                                .font(.body.weight(.medium))
-                            if let snippet = result.snippet, !snippet.isEmpty {
-                                Text(snippet)
-                                    .font(.caption)
-                                    .foregroundStyle(.secondary)
-                                    .lineLimit(2)
+                    ForEach(Array(resultSections.enumerated()), id: \.offset) { _, section in
+                        if !section.results.isEmpty {
+                            Text(section.title).font(.subheadline.weight(.semibold))
+                            ForEach(section.results, id: \.qualifiedID) { result in
+                                VStack(alignment: .leading, spacing: 3) {
+                                    Text(result.ref.title).font(.body.weight(.medium))
+                                    if let snippet = result.snippet, !snippet.isEmpty {
+                                        Text(snippet).font(.caption).foregroundStyle(.secondary).lineLimit(2)
+                                    }
+                                }
+                                .frame(maxWidth: .infinity, alignment: .leading)
+                                .padding(.vertical, 4)
                             }
                         }
-                        .frame(maxWidth: .infinity, alignment: .leading)
-                        .padding(.vertical, 4)
                     }
                 }
                 .padding(.top, 4)
             }
         }
         .padding(16)
+    }
+
+    private var recordingStartedAt: Date? { model.isRecording ? (recordingStart ?? Date()) : nil }
+    private var resultSections: [(title: String, results: [SearchResult])] {
+        [
+            ("Titles", searchResults.filter { $0.match != "body" && $0.match != "path" }),
+            ("Full text", searchResults.filter { $0.match == "body" }),
+            ("File name", searchResults.filter { $0.match == "path" })
+        ]
+    }
+
+    private func copyAll() {
+        NSPasteboard.general.clearContents()
+        NSPasteboard.general.setString(model.transcript, forType: .string)
+        copied = true
+        Task {
+            try? await Task.sleep(for: .milliseconds(1200))
+            copied = false
+        }
+    }
+
+    private func clearTranscript() {
+        model.clear()
+        searchResults = []
+        searchError = nil
+    }
+
+    private func autoSaveAfterStop() {
+        Task {
+            try? await Task.sleep(for: .milliseconds(400))
+            autoSaveTranscript(model.transcript)
+        }
+    }
+
+    private func autoSaveTranscript(_ snapshot: String) {
+        let previous = lastSavedTranscript
+        let tail = snapshot.hasPrefix(previous) ? String(snapshot.dropFirst(previous.count)) : snapshot
+        guard !tail.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty, !isAppending else { return }
+        isAppending = true
+        appendError = nil
+        appendNote = nil
+        Task {
+            do {
+                let journal = try await client.openJournal(date: Self.todayString())
+                let note = try await client.getNote(journal.noteID)
+                let base = note.note.body.trimmingCharacters(in: .newlines)
+                let body = base.isEmpty ? tail : base + "\n\n" + tail
+                _ = try await client.saveNote(id: journal.noteID, body: body, etag: note.note.etag)
+                lastSavedTranscript = snapshot
+                appendNote = "Saved to today’s journal"
+            } catch {
+                appendError = error.localizedDescription
+            }
+            isAppending = false
+        }
+    }
+
+    private static func elapsedString(since date: Date) -> String {
+        let seconds = max(0, Int(Date().timeIntervalSince(date)))
+        return String(format: "%02d:%02d", seconds / 60, seconds % 60)
     }
 
     /// Search the finalized or currently visible transcript without changing
@@ -311,6 +418,7 @@ public struct VoiceView: View {
                 if !body.isEmpty && !body.hasSuffix("\n") { body += "\n" }
                 body += model.transcript + "\n"
                 _ = try await client.saveNote(id: journal.noteID, body: body, etag: note.note.etag)
+                lastSavedTranscript = model.transcript
                 appendNote = "Appended to \(Self.todayString()) journal"
             } catch {
                 appendError = error.localizedDescription

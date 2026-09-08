@@ -15,6 +15,12 @@ private struct RecentNote: Codable {
     var title: String
 }
 
+private struct SearchSection: Identifiable {
+    let title: String
+    let results: [SearchResult]
+    var id: String { title }
+}
+
 // MARK: - Search + reader shell
 
 public struct SearchReaderView: View {
@@ -39,6 +45,7 @@ public struct SearchReaderView: View {
     /// Local read-state mirror, so NEW badges draw without a server round-trip
     /// (reader-backed, mirroring web/src/reading.ts).
     @State private var reading = ReadingStore()
+    @Environment(\.colorScheme) private var colorScheme
 
     public init(client: TrackClient) {
         _search = State(initialValue: SearchModel(client: client))
@@ -121,16 +128,13 @@ public struct SearchReaderView: View {
                 .padding(.horizontal, 12)
                 .padding(.vertical, 8)
                 Divider()
-                Group {
+                 Group {
                     if search.isLoading {
                         ProgressView().frame(maxWidth: .infinity)
                     } else if let error = search.error {
                         Text(error).font(.caption).foregroundStyle(.red).padding(8)
-                    } else if search.unavailableCount > 0 {
-                        Text("⚠ \(search.unavailableCount) vault\(search.unavailableCount == 1 ? "" : "s") could not be searched")
-                            .font(.caption).foregroundStyle(.secondary).padding(8)
-                    }
-                }
+                     }
+                 }
                 if query.isEmpty && !recentList.isEmpty {
                     Text("Recent").font(.caption).foregroundStyle(.secondary)
                         .padding(.horizontal, 12).padding(.top, 8)
@@ -203,39 +207,52 @@ public struct SearchReaderView: View {
                     }
                     Divider().padding(.top, 6)
                 }
-                List(filteredSearchResults, id: \.qualifiedID) { result in
-                    Button {
-                        recordRecent(RecentNote(id: result.qualifiedID.raw, title: result.ref.title))
-                        reading.markSeen(result.ref.noteID.raw)
-                        Task { await reader.open(result.qualifiedID) }
-                    } label: {
-                        VStack(alignment: .leading, spacing: 2) {
-                            HStack(spacing: 6) {
-                                Text(result.ref.title).font(.body)
-                                if reading.isNew(result.ref) {
-                                    Text("NEW")
-                                        .font(.caption2).fontWeight(.bold)
-                                        .foregroundStyle(.secondary)
-                                        .padding(.horizontal, 4).padding(.vertical, 1)
-                                        .background(.quaternary, in: Capsule())
-                                }
-                            }
-                            if let match = result.match {
-                                Text(match).font(.caption2).foregroundStyle(.tertiary)
-                            }
-                            if let snippet = result.snippet {
-                                Text(snippet).font(.caption).foregroundStyle(.secondary)
-                                    .lineLimit(2)
-                            }
-                            if let tags = result.tags, !tags.isEmpty {
-                                Text(tags.map { "#\($0)" }.joined(separator: " "))
-                                    .font(.caption2).foregroundStyle(.tertiary)
-                            }
-                        }
-                    }
-                    .buttonStyle(.plain)
-                    .listRowBackground(activeSearchIndex == filteredSearchResults.firstIndex(where: { $0.qualifiedID == result.qualifiedID }) ? Color.primary.opacity(0.08) : nil)
-                }
+                 List {
+                     ForEach(searchSections, id: \.title) { section in
+                         Section(section.title) {
+                             ForEach(section.results, id: \.qualifiedID) { result in
+                                 VStack(alignment: .leading, spacing: 4) {
+                                     Button { openSearchResult(result) } label: {
+                                         VStack(alignment: .leading, spacing: 2) {
+                                             HStack(spacing: 6) {
+                                                 highlighted(result.ref.title)
+                                                     .font(.body)
+                                                 if reading.isNew(result.ref) { statusBadge("NEW") }
+                                                 if isStale(result) { statusBadge("古い") }
+                                             }
+                                             if let match = result.match {
+                                                 highlighted(match).font(.caption2).foregroundStyle(.tertiary)
+                                             }
+                                             if let snippet = result.snippet {
+                                                 highlighted(snippet).font(.caption).foregroundStyle(.secondary)
+                                                     .lineLimit(2)
+                                             }
+                                         }
+                                         .frame(maxWidth: .infinity, alignment: .leading)
+                                     }
+                                     .buttonStyle(.plain)
+                                     if let tags = result.tags, !tags.isEmpty {
+                                         HStack(spacing: 5) {
+                                             ForEach(tags, id: \.self) { tag in
+                                                 Button("#\(tag)") { appendSearchTag(tag) }
+                                                     .buttonStyle(.borderless)
+                                                     .font(.caption2).foregroundStyle(.secondary)
+                                             }
+                                         }
+                                     }
+                                 }
+                                 .padding(.vertical, 2)
+                                 .listRowBackground(activeSearchIndex == filteredSearchResults.firstIndex(where: { $0.qualifiedID == result.qualifiedID }) ? Color.primary.opacity(0.08) : nil)
+                             }
+                         }
+                     }
+                     if search.unavailableCount > 0 {
+                         Section {
+                             Text("⚠ \(search.unavailableCount) vault\(search.unavailableCount == 1 ? "" : "s") could not be searched")
+                                 .font(.caption).foregroundStyle(.secondary)
+                         }
+                     }
+                 }
             }
             .navigationTitle("track")
         } detail: {
@@ -276,6 +293,63 @@ public struct SearchReaderView: View {
                 resultTags.contains { $0 == tag || $0.hasPrefix(tag + "/") }
             }
         }
+    }
+
+    private var searchSections: [SearchSection] {
+        let groups = ["title": "Titles", "full": "Full text", "file": "File name"]
+        let grouped = Dictionary(grouping: filteredSearchResults) { result -> String in
+            let match = (result.match ?? "").lowercased()
+            if match.contains("file") || match.contains("name") { return "file" }
+            if match.contains("title") { return "title" }
+            return "full"
+        }
+        return ["title", "full", "file"].compactMap { key in
+            guard let results = grouped[key], !results.isEmpty else { return nil }
+            return SearchSection(title: groups[key]!, results: results)
+        }
+    }
+
+    private func openSearchResult(_ result: SearchResult) {
+        recordRecent(RecentNote(id: result.qualifiedID.raw, title: result.ref.title))
+        reading.markSeen(result.ref.noteID.raw)
+        Task { await reader.open(result.qualifiedID) }
+    }
+
+    private func appendSearchTag(_ tag: String) {
+        let token = "#\(tag)"
+        guard !query.split(whereSeparator: { $0 == " " || $0 == "\n" }).contains(Substring(token)) else { return }
+        query = query.trimmingCharacters(in: .whitespacesAndNewlines)
+        query += query.isEmpty ? token : " \(token)"
+        search.search(query: query)
+    }
+
+    private func highlighted(_ text: String) -> Text {
+        let needle = query.split(whereSeparator: { $0 == " " || $0 == "\n" })
+            .filter { !$0.hasPrefix("#") }.joined(separator: " ")
+        guard !needle.isEmpty else { return Text(text) }
+        let palette = TrackTheme.palette(for: colorScheme)
+        var output = Text("")
+        var remainder = text[...]
+        while let range = remainder.range(of: needle, options: [.caseInsensitive]) {
+            output = output + Text(remainder[..<range.lowerBound])
+            output = output + Text(remainder[range]).foregroundColor(palette.mark)
+            remainder = remainder[range.upperBound...]
+        }
+        output = output + Text(remainder)
+        return output
+    }
+
+    private func statusBadge(_ text: String) -> some View {
+        Text(text).font(.caption2).fontWeight(.bold)
+            .foregroundStyle(.secondary)
+            .padding(.horizontal, 4).padding(.vertical, 1)
+            .background(.quaternary, in: Capsule())
+    }
+
+    private func isStale(_ result: SearchResult) -> Bool {
+        guard let last = result.days?.last,
+              let date = ISO8601DateFormatter().date(from: last + "T00:00:00Z") else { return false }
+        return date < Calendar.current.date(byAdding: .year, value: -1, to: Date())!
     }
 
     private func moveSearchSelection(by offset: Int) {
@@ -360,6 +434,7 @@ private enum NoteEditorPane {
 
 public struct NoteReaderView: View {
     @Bindable var model: NoteReaderModel
+    @Environment(\.colorScheme) private var colorScheme
     @AppStorage(TrackAppearance.contentWidthKey) private var contentWidthRaw: String?
     /// The API base URL, passed down to the GFM renderer for `assets/…` embeds.
     let baseURL: URL
@@ -374,6 +449,8 @@ public struct NoteReaderView: View {
     @State private var showDeleteConfirm = false
     /// Note metadata editor (web NoteMetaDialog), bound to the open note.
     @State private var showMeta = false
+    @State private var titleCopied = false
+    @State private var anchorHighlight = false
 
     public init(model: NoteReaderModel, baseURL: URL) {
         self.model = model
@@ -654,10 +731,13 @@ public struct NoteReaderView: View {
                     Text("Backlinks")
                         .font(.caption).foregroundStyle(.secondary)
                     ForEach(response.backlinks, id: \.noteID) { ref in
-                        Button(ref.title) {
-                            Task { await model.openRef(ref) }
+                        HStack(spacing: 8) {
+                            Button(ref.title) {
+                                Task { await model.openRef(ref) }
+                            }
+                            .buttonStyle(.link)
+                            if readingBadge(for: ref) { statusBadge("NEW") }
                         }
-                        .buttonStyle(.link)
                     }
                 }
             }
@@ -741,8 +821,22 @@ public struct NoteReaderView: View {
     /// count when the engine parsed tasks out of the body.
     @ViewBuilder
     private func noteHeader(_ note: NoteDetail) -> some View {
-        Text(note.summary.ref.title)
-            .font(.title2).fontWeight(.medium)
+        HStack(spacing: 8) {
+            Text(note.summary.ref.title)
+                .font(.title2).fontWeight(.medium)
+            Button {
+                NSPasteboard.general.clearContents()
+                NSPasteboard.general.setString(note.summary.ref.title, forType: .string)
+                titleCopied = true
+                DispatchQueue.main.asyncAfter(deadline: .now() + 1.2) { titleCopied = false }
+            } label: {
+                Image(systemName: titleCopied ? "checkmark" : "doc.on.doc")
+            }
+            .buttonStyle(.borderless)
+            .foregroundStyle(titleCopied ? .green : .secondary)
+            .help("Copy title")
+            .accessibilityLabel(titleCopied ? "Title copied" : "Copy title")
+        }
 
         if let tags = note.summary.tags, !tags.isEmpty {
             HStack(spacing: 8) {
@@ -846,6 +940,26 @@ public struct NoteReaderView: View {
             RoundedRectangle(cornerRadius: 8)
                 .stroke(Color(nsColor: .separatorColor), lineWidth: 0.5)
         )
+        .overlay(
+            RoundedRectangle(cornerRadius: 8)
+                .stroke(anchorHighlight ? TrackTheme.palette(for: colorScheme).mark : .clear, lineWidth: 2)
+        )
+        .onAppear {
+            anchorHighlight = true
+            DispatchQueue.main.asyncAfter(deadline: .now() + 1.4) { anchorHighlight = false }
+        }
+    }
+
+    private func statusBadge(_ text: String) -> some View {
+        Text(text).font(.caption2).fontWeight(.bold)
+            .foregroundStyle(.secondary)
+            .padding(.horizontal, 4).padding(.vertical, 1)
+            .background(.quaternary, in: Capsule())
+    }
+
+    private func readingBadge(for ref: NoteRef) -> Bool {
+        let store = ReadingStore()
+        return store.isNew(ref)
     }
 }
 

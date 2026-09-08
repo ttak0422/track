@@ -31,15 +31,17 @@ public final class CalendarModel {
         isLoading = true
         defer { isLoading = false }
         error = nil
+        async let nr = client.listNotes()
+        async let tr = client.listDatedTasks()
         do {
-            async let nr = client.listNotes()
-            async let tr = client.listDatedTasks()
-            let (notesRes, tasksRes) = try await (nr, tr)
+            let notesRes = try await nr
             notes = notesRes.notes
-            tasks = tasksRes.tasks
         } catch {
             self.error = error.localizedDescription
+            notes = []
         }
+        // Tasks are supplementary data: a failed task query is an empty list.
+        tasks = (try? await tr)?.tasks ?? []
     }
 
     public func shiftMonth(by months: Int) {
@@ -50,6 +52,10 @@ public final class CalendarModel {
     /// Notes active on `day` (YYYY-MM-DD): those whose `days` contain it.
     public func notes(on day: String) -> [SearchResult] {
         notes.filter { $0.days?.contains(day) == true }
+    }
+
+    public func journal(on day: String) -> SearchResult? {
+        notes.first { $0.ref.fileKind == "journal" && $0.ref.title == day.replacingOccurrences(of: "-", with: "") }
     }
 
     /// Tasks due or scheduled on `day`.
@@ -87,6 +93,9 @@ public final class CalendarModel {
         let remaining = max(0, Self.daysBetween(today, day))
         return (max(0, min(1, 1 - Double(remaining) / 14)), false)
     }
+
+    public func taskTexts(on day: String) -> [String] { tasks(on: day).map { $0.item.text } }
+    public func noteTitles(on day: String) -> [String] { notes(on: day).map { $0.ref.title } }
 
     /// The existing notes listing already contains month summary journals.
     public func monthlyJournal() -> SearchResult? {
@@ -159,6 +168,8 @@ public struct CalendarView: View {
     @State private var monthlyJournal: JournalPreview?
     @State private var monthlyJournalError: String?
     @State private var isLoadingMonthlyJournal = false
+    @State private var openedNoteID: TrackID?
+    @State private var isShowingNote = false
 
     private let client: TrackClient
     private let columns = Array(repeating: GridItem(.flexible(), spacing: 4), count: 7)
@@ -187,6 +198,9 @@ public struct CalendarView: View {
         .task { await model.reload() }
         .onReceive(NotificationCenter.default.publisher(for: .trackVaultChanged)) { _ in
             Task { await model.reload() }
+        }
+        .sheet(isPresented: $isShowingNote) {
+            if let openedNoteID { NotePreviewView(client: client, noteID: openedNoteID) }
         }
     }
 
@@ -235,17 +249,29 @@ public struct CalendarView: View {
                             day: day,
                             inMonth: CalendarModel.isSameMonth(day, as: model.month),
                             noteCount: model.notes(on: CalendarModel.dayString(day)).count,
+                            taskTexts: Array(model.taskTexts(on: CalendarModel.dayString(day)).prefix(3)),
+                            noteTitles: Array(model.noteTitles(on: CalendarModel.dayString(day)).prefix(3)),
                             deadlineCount: model.deadlineCount(on: CalendarModel.dayString(day)),
                             overdueCount: model.overdueCount(on: CalendarModel.dayString(day)),
                             dueFill: model.dueFill(on: CalendarModel.dayString(day)),
                             isToday: Calendar.current.isDateInToday(day),
                             isSelected: model.selectedDay == CalendarModel.dayString(day),
-                            onSelect: { model.selectedDay = CalendarModel.dayString(day) }
+                            onSelect: { select(day) }
                         )
                     }
                 }
             }
             .padding(8)
+        }
+    }
+
+    private func select(_ day: Date) {
+        let key = CalendarModel.dayString(day)
+        if let journal = model.journal(on: key) {
+            openedNoteID = journal.ref.noteID
+            isShowingNote = true
+        } else {
+            model.selectedDay = key
         }
     }
 
@@ -303,6 +329,8 @@ private struct DayCell: View {
     let day: Date
     let inMonth: Bool
     let noteCount: Int
+    let taskTexts: [String]
+    let noteTitles: [String]
     let deadlineCount: Int
     let overdueCount: Int
     let dueFill: (fill: Double, overdue: Bool)
@@ -326,6 +354,12 @@ private struct DayCell: View {
                     if noteCount > 3 {
                         Text("+\(noteCount - 3)").font(.caption2).foregroundStyle(.secondary)
                     }
+                }
+                ForEach(taskTexts, id: \.self) { text in
+                    Text(text).font(.caption2).lineLimit(1)
+                }
+                ForEach(noteTitles, id: \.self) { title in
+                    Text(title).font(.caption2).foregroundStyle(.secondary).lineLimit(1)
                 }
                 if dueFill.fill > 0 {
                     GeometryReader { proxy in
@@ -364,6 +398,8 @@ private struct AgendaView: View {
     @State private var journal: JournalPreview?
     @State private var journalError: String?
     @State private var isLoadingJournal = false
+    @State private var openedNoteID: TrackID?
+    @State private var isShowingNote = false
 
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
@@ -374,7 +410,9 @@ private struct AgendaView: View {
             if !notes.isEmpty {
                 Text("Notes").font(.caption2).foregroundStyle(.secondary)
                 ForEach(notes, id: \.ref.noteID) { note in
-                    Text(note.ref.title).font(.body)
+                    Button(note.ref.title) { open(note.ref.noteID) }
+                        .buttonStyle(.link)
+                        .font(.body)
                 }
             }
             if !tasks.isEmpty {
@@ -383,14 +421,19 @@ private struct AgendaView: View {
                     HStack(spacing: 6) {
                         Text(task.item.done ? "✓" : "○")
                             .foregroundStyle(task.item.done ? .secondary : .primary)
-                        Text(task.item.text)
+                        Button(task.item.text) { open(task.noteID) }
+                            .buttonStyle(.link)
+                            .lineLimit(2)
                         if let due = task.item.due {
                             Text("! \(due)").font(.caption).foregroundStyle(.secondary)
                         }
                         if let sched = task.item.scheduled {
                             Text("▷ \(sched)").font(.caption).foregroundStyle(.tertiary)
                         }
-                        Text(task.title).font(.caption).foregroundStyle(.secondary)
+                        Button(task.title) { open(task.noteID) }
+                            .buttonStyle(.link)
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
                     }
                 }
             }
@@ -403,6 +446,9 @@ private struct AgendaView: View {
         }
         .padding(8)
         .frame(maxWidth: .infinity, alignment: .leading)
+        .sheet(isPresented: $isShowingNote) {
+            if let openedNoteID { NotePreviewView(client: client, noteID: openedNoteID) }
+        }
     }
 
     /// The day's journal once "Open journal" resolved it: its title and the
@@ -444,6 +490,11 @@ private struct AgendaView: View {
         }
     }
 
+    private func open(_ noteID: TrackID) {
+        openedNoteID = noteID
+        isShowingNote = true
+    }
+
     private static func previewLines(from body: String) -> [String] {
         body.split(separator: "\n", omittingEmptySubsequences: true)
             .prefix(4)
@@ -455,4 +506,46 @@ private struct JournalPreview {
     let title: String
     let lines: [String]
     let created: Bool
+}
+
+private struct NotePreviewView: View {
+    let client: TrackClient
+    let noteID: TrackID
+    @Environment(\.dismiss) private var dismiss
+    @State private var title = ""
+    @State private var bodyText = ""
+    @State private var error: String?
+    @State private var isLoading = true
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            HStack {
+                Text(title.isEmpty ? "Note" : title).font(.headline)
+                Spacer()
+                Button("Done") { dismiss() }
+            }
+            Divider()
+            if isLoading {
+                ProgressView()
+            } else if let error {
+                Text(error).foregroundStyle(.red)
+            } else {
+                ScrollView {
+                    Text(bodyText).frame(maxWidth: .infinity, alignment: .leading)
+                }
+            }
+        }
+        .padding(20)
+        .frame(minWidth: 420, minHeight: 280)
+        .task {
+            do {
+                let response = try await client.getNote(noteID)
+                title = response.note.summary.ref.title
+                bodyText = response.note.body
+            } catch {
+                self.error = error.localizedDescription
+            }
+            isLoading = false
+        }
+    }
 }
