@@ -736,6 +736,15 @@ extension FigureAssets {
          post({ type: "height", height: Math.ceil(figure.getBoundingClientRect().height) });
        }
 
+       // ECharts keeps its canvas/SVG viewport at the size it had at init time.
+       // The island itself can be moved between SwiftUI columns, so resize the
+       // existing instance rather than reloading (or rebuilding) the island.
+       function resizeChart() {
+         if (currentChart) {
+           try { currentChart.resize(); } catch (_) {}
+         }
+       }
+
        function setZoom(next) {
          zoom = Math.max(0.5, Math.min(2.5, next));
          figure.style.transformOrigin = "top left";
@@ -898,28 +907,59 @@ extension FigureAssets {
           return;
         }
 
-         if (cfg.kind === "echarts") {
-           loadAssets([cfg.assets.echarts]).then(function () {
-             var option = JSON.parse(cfg.source);
-             var node = document.createElement("div");
-             node.style.width = "100%";
+        if (cfg.kind === "echarts") {
+          loadAssets([cfg.assets.echarts]).then(function () {
+            var option = JSON.parse(cfg.source);
+            var node = document.createElement("div");
+            node.style.width = "100%";
              var dataPoints = 0;
              (option.series || []).forEach(function (series) {
                dataPoints = Math.max(dataPoints, Array.isArray(series.data) ? series.data.length : 0);
              });
              // Keep small charts light, while a dense time series gets room
-             // without allowing a fence to take over the whole note.
-             var chartHeight = option.height || option.__height || Math.max(cfg.height, Math.min(560, 240 + dataPoints * 5));
-             chartHeight = Math.max(240, Math.min(640, chartHeight));
-             node.style.height = chartHeight + "px";
-             figure.appendChild(node);
-             try {
-               if (currentChart) { currentChart.dispose(); currentChart = null; }
-               currentChart = window.echarts.init(node, cfg.theme.dark ? "dark" : null, { renderer: "svg" });
-               currentChart.setOption(option);
-            } catch (err) {
-              node.textContent = "ECharts error: " + err.message;
-            }
+            // without allowing a fence to take over the whole note.
+            var chartHeight = option.height || option.__height || Math.max(cfg.height, Math.min(560, 240 + dataPoints * 5));
+            chartHeight = Math.max(240, Math.min(640, chartHeight));
+            node.style.height = chartHeight + "px";
+            figure.appendChild(node);
+            try {
+              if (currentChart) { currentChart.dispose(); currentChart = null; }
+
+              // Match the web chart's useful defaults without overriding an
+              // option explicitly supplied by a note.  `inside` keeps wheel
+              // and pinch interaction local to the chart; the slider provides
+              // a discoverable control for longer timelines.
+              var suppliedTooltip = option.tooltip && typeof option.tooltip === "object" ? option.tooltip : {};
+              option.tooltip = Object.assign({
+                trigger: "axis",
+                confine: true,
+                backgroundColor: cfg.theme.dark ? "rgba(35,38,42,.96)" : "rgba(255,255,255,.96)",
+                borderColor: cfg.theme.dark ? "#59616b" : "#d4d0c8",
+                textStyle: { color: cfg.theme.fg }
+              }, suppliedTooltip);
+              if (!option.dataZoom && dataPoints > 1) {
+                option.dataZoom = [
+                  { type: "inside", zoomOnMouseWheel: "shift", moveOnMouseMove: true },
+                  { type: "slider", height: 16, bottom: 4 }
+                ];
+              }
+              currentChart = window.echarts.init(node, cfg.theme.dark ? "dark" : null, { renderer: "svg" });
+              currentChart.setOption(option);
+              // A datum may carry a resolved trackwiki URL even when the
+              // renderer does not produce an anchor. Forward only that scheme
+              // through the existing fig bridge; ordinary chart clicks remain
+              // ordinary chart clicks.
+              currentChart.on("click", function (params) {
+                var data = params && params.data;
+                if (!data || typeof data !== "object") { return; }
+                var candidate = data.href || data.link || data.url || data.trackwiki;
+                if (typeof candidate === "string" && candidate.indexOf("trackwiki://") === 0) {
+                  post({ type: "link", url: candidate });
+                }
+              });
+             } catch (err) {
+               node.textContent = "ECharts error: " + err.message;
+             }
             postHeight();
           }).catch(function (err) { figure.textContent = err.message; postHeight(); });
           return;
@@ -1028,7 +1068,10 @@ extension FigureAssets {
         }
       });
 
-      var observer = new ResizeObserver(postHeight);
+       var observer = new ResizeObserver(function () {
+         resizeChart();
+         postHeight();
+       });
       observer.observe(figure);
       postHeight();
 

@@ -45,11 +45,19 @@ public struct SearchReaderView: View {
     /// Local read-state mirror, so NEW badges draw without a server round-trip
     /// (reader-backed, mirroring web/src/reading.ts).
     @State private var reading = ReadingStore()
+    @State private var browse: BrowseModel
+    @State private var liveEvents: LiveEventPoller
+    @State private var dismissedChangeAt: Date?
+    @FocusState private var searchFocused: Bool
     @Environment(\.colorScheme) private var colorScheme
 
     public init(client: TrackClient) {
         _search = State(initialValue: SearchModel(client: client))
         _reader = State(initialValue: NoteReaderModel(client: client))
+        _browse = State(initialValue: BrowseModel(client: client))
+        _liveEvents = State(initialValue: LiveEventPoller(baseURL: client.baseURL) {
+            NotificationCenter.default.post(name: .trackVaultChanged, object: nil)
+        })
         baseURL = client.baseURL
     }
 
@@ -91,6 +99,7 @@ public struct SearchReaderView: View {
                 HStack(spacing: 6) {
                     TextField("Search", text: $query)
                         .textFieldStyle(.plain)
+                        .focused($searchFocused)
                         .onChange(of: query) { _, value in
                             activeSearchIndex = -1
                             search.search(query: value)
@@ -255,13 +264,39 @@ public struct SearchReaderView: View {
                  }
             }
             .navigationTitle("track")
-        } detail: {
-            NoteReaderView(model: reader, baseURL: baseURL)
-        }
+         } detail: {
+             if reader.currentID == nil {
+                 searchHome
+             } else {
+                 NoteReaderView(model: reader, baseURL: baseURL)
+             }
+         }
+         .overlay(alignment: .top) {
+             if let changedAt = liveEvents.lastChangeAt, changedAt != dismissedChangeAt {
+                 changeBanner(changedAt: changedAt)
+                     .padding(.horizontal, 12)
+                     .padding(.top, 8)
+                     .transition(.move(edge: .top).combined(with: .opacity))
+             }
+         }
+         .onKeyPress("/") {
+             search.requestSearchFocus()
+             return .handled
+         }
+         .onChange(of: search.searchFocusRequested) { _, _ in
+             if search.consumeSearchFocusRequest() { searchFocused = true }
+         }
+         .task {
+             liveEvents.start()
+         }
+         .onDisappear {
+             liveEvents.stop()
+         }
         .onReceive(NotificationCenter.default.publisher(for: .trackVaultChanged)) { _ in
             guard !query.isEmpty, !search.isLoading else { return }
             search.search(query: query)
-        }
+     }
+
         .sheet(isPresented: $showNewNote) {
             NewNoteSheet(
                 title: $newNoteTitle,
@@ -278,6 +313,62 @@ public struct SearchReaderView: View {
                 }
             )
         }
+    }
+
+    private var searchHome: some View {
+        VStack(alignment: .leading, spacing: 22) {
+            Spacer()
+            VStack(alignment: .leading, spacing: 8) {
+                Text("Search your notes").font(.title2.weight(.medium))
+                Text("Find a note by title, text, or tag.")
+                    .font(.callout).foregroundStyle(.secondary)
+                TextField("Search", text: $query)
+                    .textFieldStyle(.plain).focused($searchFocused)
+                    .onSubmit { searchFocused = false }
+                    .padding(.vertical, 8)
+                    .overlay(alignment: .bottom) {
+                        Rectangle()
+                            .fill(searchFocused ? TrackTheme.palette(for: colorScheme).mark : Color(nsColor: .separatorColor))
+                            .frame(height: searchFocused ? 2 : 1)
+                    }
+            }
+            .frame(maxWidth: 520, alignment: .leading)
+            VStack(alignment: .leading, spacing: 8) {
+                Text("ACTIVITY").font(.caption.weight(.semibold))
+                    .foregroundStyle(TrackTheme.palette(for: colorScheme).muted)
+                Text("Browse your recent note activity")
+                    .font(.callout).foregroundStyle(.secondary)
+                ActivityHeatmapView(model: browse)
+                    .background(Color(nsColor: .textBackgroundColor), in: RoundedRectangle(cornerRadius: 8))
+                    .overlay(RoundedRectangle(cornerRadius: 8).stroke(Color(nsColor: .separatorColor), lineWidth: 0.5))
+            }
+            Spacer()
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .center)
+        .padding(40)
+    }
+
+    private func changeBanner(changedAt: Date) -> some View {
+        let name = liveEvents.lastChangedNoteName
+        return HStack(spacing: 10) {
+            Image(systemName: "arrow.triangle.2.circlepath")
+                .foregroundStyle(TrackTheme.palette(for: colorScheme).mark)
+            Text(name.map { "Changed: \($0)" } ?? "Vault changed")
+                .font(.caption).lineLimit(1)
+            Spacer()
+            Button("Reload") {
+                dismissedChangeAt = changedAt
+                if let id = reader.currentID { Task { await reader.open(id) } }
+                if !query.isEmpty { search.search(query: query) }
+            }.buttonStyle(.plain)
+            Button { dismissedChangeAt = changedAt } label: {
+                Image(systemName: "xmark")
+            }
+            .buttonStyle(.plain).accessibilityLabel("Dismiss change notification")
+        }
+        .padding(.horizontal, 12).padding(.vertical, 8)
+        .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 8))
+        .overlay(RoundedRectangle(cornerRadius: 8).stroke(Color(nsColor: .separatorColor), lineWidth: 0.5))
     }
 
     private var filteredSearchResults: [SearchResult] {
@@ -464,6 +555,9 @@ public struct NoteReaderView: View {
     @State private var titleCopied = false
     @State private var anchorHighlight = false
     @State private var wikilinkPreview: WikilinkPreview?
+    /// Local visible-time accumulator shared with NoteReaderModel's recordView
+    /// bridge. A coarse ten-second tick is sufficient for the read milestone.
+    @State private var reading = ReadingStore()
 
     public init(model: NoteReaderModel, baseURL: URL) {
         self.model = model
@@ -508,6 +602,12 @@ public struct NoteReaderView: View {
             // Read reporting: each time a note finishes loading, report the
             // "seen" milestone (reading.ts markSeen). Fire-and-forget.
             await model.reportSeen()
+            guard case .loaded(let response) = model.state else { return }
+            while !Task.isCancelled {
+                try? await Task.sleep(for: .seconds(10))
+                guard !Task.isCancelled else { return }
+                _ = await model.recordView(using: reading, seconds: 10, text: response.note.body)
+            }
         }
         .onReceive(NotificationCenter.default.publisher(for: .trackVaultChanged)) { _ in
             guard let id = model.currentID, !model.isEditing else { return }

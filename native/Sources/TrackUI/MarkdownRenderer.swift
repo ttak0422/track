@@ -15,7 +15,7 @@ import TrackAPI
 // only that a construct renders as itself. Rich fences are drawn as FigureHost
 // islands (mermaid/math/echarts/viewspec, plus dot/graphviz/d2/drawio/map via
 // the same shell and a ```track-view JSON payload as native SwiftUI);
-// taskboard/track-query/dashboard are still collapsed to a placeholder line.
+// track-query/dashboard are still collapsed to a placeholder line.
 // `$` math lines and `![[...]]` include lines are lifted out of the prose, and
 // `[[wikilink]]` targets are rewritten to `trackwiki://` standard links. Inline
 // trackwiki links navigate through the `\.openURL` environment installed by the
@@ -202,6 +202,7 @@ public struct GFMBody: View {
             case mindmap
             case map
             case trackView
+            case taskboard
         }
 
         let kind: Kind
@@ -220,11 +221,12 @@ public struct GFMBody: View {
         "mindmap": .mindmap,
         "map": .map,
         "track-view": .trackView,
+        "taskboard": .taskboard,
     ]
 
-    /// Fences the native app still cannot draw — collapsed to a placeholder
-    /// (taskboard needs the note's task store, track-query/dashboard need the
-    /// server's laid-out result).
+    /// Fences the native app still cannot draw — collapsed to a placeholder.
+    /// taskboard is handled as a figure above; track-query/dashboard still need
+    /// the server's laid-out result.
     private static let placeholderFences: Set<String> = [
         "taskboard", "track-query", "dashboard",
     ]
@@ -325,7 +327,16 @@ public struct GFMBody: View {
                         i += 1
                     }
                     i += 1 // closing fence
-                    segments.append(.figure(Figure(kind: kind, source: body.joined(separator: "\n"))))
+                    var figureSource = body.joined(separator: "\n")
+                    // The web taskboard and empty mindmap both use the note's
+                    // surrounding content. Keep that small bit of context in
+                    // the lifted figure rather than rendering a placeholder.
+                    if kind == .mindmap && figureSource.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                        figureSource = Self.tocEntries(in: source).map { entry in
+                            String(repeating: "#", count: entry.level) + " " + entry.title
+                        }.joined(separator: "\n")
+                    }
+                    segments.append(.figure(Figure(kind: kind, source: figureSource)))
                     continue
                 }
                 if placeholderFences.contains(langName) {
@@ -898,6 +909,8 @@ private struct FigureSegmentView: View {
             mapBody
         case .trackView:
             trackViewBody
+        case .taskboard:
+            taskboardBody
         }
     }
 
@@ -973,6 +986,21 @@ private struct FigureSegmentView: View {
         }
     }
 
+    /// The standalone taskboard uses the same observable model and write path
+    /// as the native Tasks screen. It intentionally reuses the existing board
+    /// (including its per-card state picker); the fence does not add drag and
+    /// drop-specific behavior of its own.
+    @ViewBuilder
+    private var taskboardBody: some View {
+        if let client {
+            InlineTaskBoard(client: client)
+        } else {
+            Label("Taskboard unavailable", systemImage: "rectangle.3.group")
+                .font(.caption)
+                .foregroundStyle(.secondary)
+        }
+    }
+
     private func resolve() async {
         guard let client, !figure.source.isEmpty else { return }
         guard let option = try? await client.renderViewSpec(spec: figure.source, vault: vault) else { return }
@@ -1024,6 +1052,31 @@ private struct DarkGraphvizModifier: ViewModifier {
             content.colorInvert()
         } else {
             content
+        }
+    }
+}
+
+private struct InlineTaskBoard: View {
+    let client: TrackClient
+    @State private var model: TasksModel?
+
+    var body: some View {
+        Group {
+            if let model {
+                TaskBoard(model: model)
+            } else {
+                HStack(spacing: 8) {
+                    ProgressView().controlSize(.small)
+                    Text("Loading tasks…").font(.caption).foregroundStyle(.secondary)
+                }
+                .frame(maxWidth: .infinity, alignment: .leading)
+            }
+        }
+        .task {
+            guard model == nil else { return }
+            let loaded = TasksModel(client: client)
+            model = loaded
+            await loaded.reload()
         }
     }
 }
@@ -1136,18 +1189,36 @@ private struct TrackViewList: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 6) {
+            if !payload.columns.isEmpty {
+                HStack(spacing: 8) {
+                    Text("Title").frame(minWidth: 150, alignment: .leading)
+                    ForEach(payload.columns.filter { $0 != "title" }, id: \.self) { column in
+                        Text(column).frame(minWidth: 90, alignment: .leading)
+                    }
+                }
+                .font(.caption.weight(.semibold))
+                .foregroundStyle(.secondary)
+                Divider()
+            }
             ForEach(rows, id: \.title) { row in
                 HStack(alignment: .firstTextBaseline, spacing: 8) {
                     Button(row.title) { onWikilink?(row.title) }
                         .buttonStyle(.link)
-                    ForEach(trackViewRowMeta(row, payload)) { meta in
-                        Text("\(meta.column) \(meta.value)")
+                        .frame(minWidth: 150, alignment: .leading)
+                    ForEach(payload.columns.filter { $0 != "title" }, id: \.self) { column in
+                        let index = payload.columns.firstIndex(of: column) ?? 0
+                        Text(index < row.cells.count ? row.cells[index] : "—")
                             .font(.caption)
                             .foregroundStyle(.secondary)
+                            .lineLimit(2)
+                            .frame(minWidth: 90, alignment: .leading)
                     }
                 }
+                .padding(.vertical, 4)
+                Divider()
             }
         }
+        .fixedSize(horizontal: true, vertical: false)
         .frame(maxWidth: .infinity, alignment: .leading)
     }
 }
@@ -1220,6 +1291,10 @@ private struct TrackViewGallery: View {
             Rectangle().fill(Color.secondary.opacity(0.15))
             if let icon = row.icon, !icon.isEmpty {
                 Text(icon)
+            } else {
+                Image(systemName: "photo.on.rectangle.angled")
+                    .font(.title2)
+                    .foregroundStyle(.secondary)
             }
         }
     }
