@@ -320,6 +320,32 @@ public final class NoteReaderModel {
         }
     }
 
+    /// Move a task's scheduled/due date through the same write path the state
+    /// cell uses (web TaskControls date cells → POST /api/task with sched/due
+    /// + expect + etag). `date` empty clears the token. On success the
+    /// refreshed tasks + etag are adopted; a 409 reloads and sets
+    /// `saveConflict`, like `setTaskState`.
+    public func setTaskDate(line: Int, field: DateField, date: String) async {
+        guard let id = currentID,
+              case .loaded(let response) = self.state,
+              response.note.tasks != nil else { return }
+        let expect = response.note.tasks?.items.first { $0.line == line }?.state ?? "TODO"
+        do {
+            let res = try await client.setTaskDate(
+                id: id, line: line, field: field, date: date,
+                expect: expect, etag: response.note.etag
+            )
+            adoptTasks(res)
+        } catch let api as APIError where api.status == 409 {
+            saveConflict = "Note changed underneath — reloaded"
+            if let fresh = try? await client.getNote(id) {
+                self.state = .loaded(fresh)
+                await render(fresh.note.body, id: id)
+            }
+        } catch {
+            saveError = Self.message(for: error)
+        }
+    }
     /// Adopt the write response's refreshed tasks + etag into the open note,
     /// replacing only the task list it carried (a task write response lacks
     /// note context, so the rest of the note stays as loaded).

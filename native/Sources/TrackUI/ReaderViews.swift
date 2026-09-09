@@ -698,11 +698,18 @@ public struct NoteReaderView: View {
     /// bridge. A coarse ten-second tick is sufficient for the read milestone.
     @State private var reading = ReadingStore()
     @State private var onThisDay: [SearchResult] = []
+    /// Date-cell editing target for the note task table (web TaskControls date
+    /// cells): the task line plus which date field the picker writes.
+    @State private var taskDateTarget: NoteTaskDateTarget?
+    /// Link-graph model for the aside's embedded local graph (web note pages
+    /// carry the one-hop graph beside the reading column).
+    @State private var graphModel: GraphModel
 
     public init(model: NoteReaderModel, baseURL: URL, onTagSearch: @escaping (String) -> Void = { _ in }) {
         self.model = model
         self.baseURL = baseURL
         self.onTagSearch = onTagSearch
+        _graphModel = State(initialValue: GraphModel(client: model.client))
     }
 
     public var body: some View {
@@ -791,6 +798,12 @@ public struct NoteReaderView: View {
                     showDeleteConfirm = false
                 }
             }
+        }
+        .popover(item: $taskDateTarget) { target in
+            NoteTaskDateEditor(target: target) { field, date in
+                Task { await model.setTaskDate(line: target.line, field: field, date: date) }
+            }
+            .padding()
         }
     }
 
@@ -1001,6 +1014,9 @@ public struct NoteReaderView: View {
                         onCycle: { line in
                             let current = tasks.items.first { $0.line == line }?.state ?? "TODO"
                             Task { await model.setTaskState(line: line, to: nextTaskState(after: current)) }
+                        },
+                        onPickDate: { line, field in
+                            taskDateTarget = NoteTaskDateTarget(line: line, field: field)
                         }
                     )
                 }
@@ -1097,6 +1113,18 @@ public struct NoteReaderView: View {
                         Text("+\(response.backlinks.count - 10) more")
                             .font(.system(size: 11 * fontScale)).foregroundStyle(.secondary)
                     }
+                }
+            }
+            // The one-hop link graph around the open note (web note pages carry
+            // their local graph in the aside; the full vault graph stays in the
+            // Graph tab). Rendered as the degree-sized neighbor list until a
+            // Canvas force-directed layout lands natively.
+            if let centerID = model.currentID {
+                asideSection("Graph", count: nil) {
+                    LocalGraphView(model: graphModel, centerID: centerID) { raw in
+                        Task { await model.open(TrackID(raw)) }
+                    }
+                    .id(centerID)
                 }
             }
             if let unavailable = response.unavailable, !unavailable.isEmpty {
@@ -1634,31 +1662,58 @@ private struct NoteMetaEditor: View {
 // `trackwiki://` link interception (`wikilinkURLAction`) live with it or here;
 // this file owns only the reader/editor chrome.
 
+/// Date-cell editing target for the note task table: the task's file line plus
+/// which date field the picker writes (web TaskControls date cells).
+private struct NoteTaskDateTarget: Identifiable {
+    let line: Int
+    let field: DateField
+    var id: String { "\(line)#\(field.rawValue)" }
+}
+
 // MARK: - Tasks in this note
 
-/// The note's parsed tasks (web tasktable/task controls, surfaced as a separate
-/// "Tasks in this note" section rather than inside the body): one row per task
-/// line, its state shown as a tappable badge that cycles TODO → DOING →
-/// WAITING → DONE → CANCELLED. The write goes through the note's own etag; a
-/// conflict (409) reloads via the model.
+/// The note's parsed tasks as a table (web `TaskTable`: STATE/TASK/SCHED/DUE).
+/// Sorting is view-only — the note keeps its file order (third header click
+/// returns to source order); STATE sorts by the state-set order, date columns
+/// sink empties last. The state cell cycles on tap and the date cells open the
+/// picker; both write through the note's own etag with `expect`, so a 409
+/// reloads via the model.
 private struct NoteTasksSection: View {
     let tasks: [TaskItem]
     let onCycle: (Int) -> Void
+    let onPickDate: (Int, DateField) -> Void
+
+    private enum SortKey { case state, sched, due }
+    @State private var sortKey: SortKey?
+    @State private var sortAsc = true
+    @Environment(\.colorScheme) private var colorScheme
+
+    private static let stateOrder = ["TODO", "DOING", "WAITING", "DONE", "CANCELLED"]
 
     var body: some View {
         Divider()
         Text("Tasks in this note").trackSectionLabel()
-        VStack(alignment: .leading, spacing: 4) {
-            ForEach(tasks, id: \.line) { item in
+        VStack(alignment: .leading, spacing: 0) {
+            HStack(spacing: 8) {
+                sortHeader("STATE", key: .state).frame(width: 72, alignment: .leading)
+                Text("TASK")
+                    .font(.caption).fontWeight(.semibold).foregroundStyle(.secondary)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                sortHeader("SCHED", key: .sched).frame(width: 92, alignment: .leading)
+                sortHeader("DUE", key: .due).frame(width: 92, alignment: .leading)
+            }
+            .padding(.vertical, 4)
+            Divider()
+            ForEach(orderedTasks, id: \.line) { item in
                 HStack(alignment: .firstTextBaseline, spacing: 8) {
                     Button(item.state) { onCycle(item.line) }
                         .buttonStyle(.plain)
                         .font(.caption).fontWeight(.medium)
                         .foregroundStyle(item.done ? .secondary : .primary)
+                        .frame(width: 72, alignment: .leading)
                     VStack(alignment: .leading, spacing: 2) {
                         if let priority = item.priority {
-                            Text("[#\(priority)]")
-                                .font(.caption).fontWeight(.bold)
+                            noteTaskChip("[#\(priority)]", emphasis: true)
                         }
                         Text(item.text.isEmpty ? "(untitled task)" : item.text)
                             .strikethrough(item.done)
@@ -1666,9 +1721,138 @@ private struct NoteTasksSection: View {
                             Text("✓ \(completed)").font(.caption).foregroundStyle(.tertiary)
                         }
                     }
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    dateCell(item.scheduled, prefix: "▷", line: item.line, field: .scheduled)
+                        .frame(width: 92, alignment: .leading)
+                    dateCell(item.due, prefix: "!", line: item.line, field: .due)
+                        .frame(width: 92, alignment: .leading)
                 }
+                .padding(.vertical, 4)
+                Divider()
             }
         }
+    }
+
+    private func sortHeader(_ label: String, key: SortKey) -> some View {
+        Button {
+            if sortKey != key {
+                sortKey = key
+                sortAsc = true
+            } else if sortAsc {
+                sortAsc = false
+            } else {
+                sortKey = nil
+                sortAsc = true
+            }
+        } label: {
+            Text(sortKey == key ? "\(label)\(sortAsc ? " ▲" : " ▼")" : label)
+                .font(.caption).fontWeight(.semibold).foregroundStyle(.secondary)
+        }
+        .buttonStyle(.plain)
+    }
+
+    private var orderedTasks: [TaskItem] {
+        guard let sortKey else { return tasks }
+        return tasks.sorted { a, b in
+            let va = value(a, for: sortKey)
+            let vb = value(b, for: sortKey)
+            // Rows without the value always sink, either direction (web TaskTable).
+            if (va == "") != (vb == "") { return vb == "" }
+            if sortKey == .state {
+                let ia = Self.stateOrder.firstIndex(of: va) ?? Int.max
+                let ib = Self.stateOrder.firstIndex(of: vb) ?? Int.max
+                if ia != ib { return sortAsc ? ia < ib : ia > ib }
+                return a.line < b.line
+            }
+            if va != vb { return sortAsc ? va < vb : va > vb }
+            return a.line < b.line
+        }
+    }
+
+    private func value(_ item: TaskItem, for key: SortKey) -> String {
+        switch key {
+        case .state: return item.state
+        case .sched: return item.scheduled ?? ""
+        case .due: return item.due ?? ""
+        }
+    }
+
+    @ViewBuilder
+    private func dateCell(_ date: String?, prefix: String, line: Int, field: DateField) -> some View {
+        if let date {
+            Button("\(prefix) \(date)") { onPickDate(line, field) }
+                .buttonStyle(.plain).font(.caption).foregroundStyle(.secondary)
+        } else {
+            Button("—") { onPickDate(line, field) }
+                .buttonStyle(.plain).font(.caption).foregroundStyle(.tertiary)
+        }
+    }
+
+    /// Quiet chip for task metadata (design.md Task table / quiet chip — the
+    /// same capsule TaskBoard cards use).
+    private func noteTaskChip(_ label: String, emphasis: Bool = false) -> some View {
+        Text(label)
+            .font(.caption)
+            .foregroundStyle(emphasis ? .secondary : .tertiary)
+            .padding(.horizontal, 5)
+            .padding(.vertical, 2)
+            .background(Color.secondary.opacity(0.08), in: Capsule())
+    }
+}
+
+/// Date picker behind the note task table's SCHED/DUE cells (web TaskControls
+/// date cells → setTaskDate with "" clearing the token).
+private struct NoteTaskDateEditor: View {
+    let target: NoteTaskDateTarget
+    let onSave: (DateField, String) -> Void
+    @State private var date = Date()
+    @State private var field: DateField
+    @Environment(\.dismiss) private var dismiss
+    @Environment(\.colorScheme) private var colorScheme
+
+    init(target: NoteTaskDateTarget, onSave: @escaping (DateField, String) -> Void) {
+        self.target = target
+        self.onSave = onSave
+        _field = State(initialValue: target.field)
+    }
+
+    var body: some View {
+        let palette = TrackTheme.palette(for: colorScheme)
+        return VStack(alignment: .leading, spacing: 12) {
+            Picker("Field", selection: $field) {
+                Text("Due").tag(DateField.due)
+                Text("Scheduled").tag(DateField.scheduled)
+            }
+            .pickerStyle(.segmented)
+            DatePicker("Date", selection: $date, displayedComponents: .date)
+                .tint(palette.mark)
+            HStack {
+                Button("DELETE") {
+                    onSave(field, "")
+                    dismiss()
+                }
+                .buttonStyle(.plain)
+                .font(.caption)
+                .foregroundStyle(palette.muted)
+                Spacer()
+                Button("SAVE") {
+                    onSave(field, Self.format(date))
+                    dismiss()
+                }
+                .buttonStyle(.plain)
+                .font(.caption)
+                .foregroundStyle(palette.text)
+                .fontWeight(.medium)
+            }
+        }
+        .frame(minWidth: 280)
+    }
+
+    private static func format(_ date: Date) -> String {
+        let f = DateFormatter()
+        f.dateFormat = "yyyy-MM-dd"
+        f.locale = Locale(identifier: "en_US_POSIX")
+        return f.string(from: date)
     }
 }
 
