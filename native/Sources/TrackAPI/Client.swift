@@ -63,10 +63,12 @@ public struct TrackClient: Sendable {
 
     /// `/api/notes`: the vault's notes, recently-updated first, with activity
     /// days riding along so the calendar can derive per-day lists (api.ts:
-    /// listNotes). `limit` is optional — the server's default listing needs none.
-    public func listNotes(limit: Int? = nil) async throws -> NotesResponse {
+    /// listNotes/listNewNotes). `sort == "created"` asks for recently-created
+    /// first (web SidebarNew), otherwise recently-updated first.
+    public func listNotes(limit: Int? = nil, sort: String? = nil) async throws -> NotesResponse {
         var items: [URLQueryItem] = []
         if let limit { items.append(URLQueryItem(name: "limit", value: String(limit))) }
+        if let sort { items.append(URLQueryItem(name: "sort", value: sort)) }
         return try await get(path: "/api/notes", query: items)
     }
 

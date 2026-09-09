@@ -50,6 +50,10 @@ public struct SearchReaderView: View {
     @State private var dismissedChangeAt: Date?
     @State private var readerChangeNotice: String?
     @State private var pendingSearchResult: SearchResult?
+    /// Today's-journal shortcut (web Shell "Today's journal"): failure notice
+    /// shown inline under the search field, like a search error.
+    @State private var todayError: String?
+    @State private var isOpeningJournal = false
     @FocusState private var searchFocused: Bool
     @Environment(\.colorScheme) private var colorScheme
     @Environment(\.trackFontScale) private var fontScale
@@ -136,6 +140,15 @@ public struct SearchReaderView: View {
                     .buttonStyle(.borderless)
                     .accessibilityLabel("New note")
                     .help("New note")
+                    Button {
+                        openTodayJournal()
+                    } label: {
+                        Image(systemName: isOpeningJournal ? "hourglass" : "book.closed")
+                    }
+                    .buttonStyle(.borderless)
+                    .accessibilityLabel("Today's journal")
+                    .help("Today's journal")
+                    .disabled(isOpeningJournal)
                 }
                 .padding(.horizontal, 12)
                 .padding(.vertical, 8)
@@ -144,6 +157,8 @@ public struct SearchReaderView: View {
                     if search.isLoading {
                         ProgressView().frame(maxWidth: .infinity)
                     } else if let error = search.error {
+                        Text(error).font(.caption).foregroundStyle(.red).padding(8)
+                     } else if let error = todayError {
                         Text(error).font(.caption).foregroundStyle(.red).padding(8)
                      }
                  }
@@ -212,6 +227,30 @@ public struct SearchReaderView: View {
                         .menuStyle(.borderlessButton)
                         .padding(.horizontal, 12)
                         .padding(.vertical, 2)
+                    }
+                    Divider().padding(.top, 6)
+                }
+                if query.isEmpty && !browse.newNotes.isEmpty {
+                    // Recently-created notes (web SidebarNew "New" panel): the
+                    // server's `sort=created` listing, newest first.
+                    Text("New").trackSectionLabel()
+                        .padding(.horizontal, 12).padding(.top, 8)
+                    ForEach(Array(browse.newNotes.prefix(10)), id: \.qualifiedID) { note in
+                        Button {
+                            recordRecent(RecentNote(id: note.qualifiedID.raw, title: note.ref.title))
+                            reading.markSeen(note.ref.noteID.raw)
+                            Task { await reader.open(note.qualifiedID) }
+                        } label: {
+                            HStack(spacing: 6) {
+                                Image(systemName: "plus").font(.caption).foregroundStyle(.tertiary)
+                                Text(note.ref.title).font(.system(size: 16 * fontScale)).lineLimit(1)
+                                if reading.isNew(note.ref) {
+                                    TrackStateBadge("NEW")
+                                }
+                            }
+                        }
+                        .buttonStyle(.plain)
+                        .padding(.horizontal, 12).padding(.vertical, 2)
                     }
                     Divider().padding(.top, 6)
                 }
@@ -318,9 +357,10 @@ public struct SearchReaderView: View {
          .onChange(of: search.searchFocusRequested) { _, _ in
              if search.consumeSearchFocusRequest() { searchFocused = true }
          }
-         .task {
-             liveEvents.start()
-         }
+          .task {
+              liveEvents.start()
+              await browse.loadNewNotes()
+          }
          .onDisappear {
              liveEvents.stop()
          }
@@ -467,6 +507,39 @@ public struct SearchReaderView: View {
         query = query.trimmingCharacters(in: .whitespacesAndNewlines)
         query += query.isEmpty ? token : " \(token)"
         search.search(query: query)
+    }
+
+    /// Today's journal shortcut (web Shell "Today's journal"): opens (creating
+    /// if needed) today's journal and hands it to the reader, mirroring how
+    /// the activity heatmap opens a day.
+    private func openTodayJournal() {
+        guard !isOpeningJournal else { return }
+        guard !reader.isDirty else {
+            readerChangeNotice = "Discard unsaved edits before opening another note?"
+            return
+        }
+        isOpeningJournal = true
+        todayError = nil
+        Task {
+            do {
+                let journal = try await reader.client.openJournal(date: Self.todayString())
+                await reader.open(journal.noteID)
+                if case .loaded(let response) = reader.state {
+                    recordRecent(RecentNote(id: journal.noteID.raw, title: response.note.summary.ref.title))
+                    reading.markSeen(response.note.summary.ref.noteID.raw)
+                }
+            } catch {
+                todayError = error.localizedDescription
+            }
+            isOpeningJournal = false
+        }
+    }
+
+    private static func todayString() -> String {
+        let f = DateFormatter()
+        f.dateFormat = "yyyy-MM-dd"
+        f.locale = Locale(identifier: "en_US_POSIX")
+        return f.string(from: Date())
     }
 
     /// Search-match highlight (design.md Search matches): a semantic mark
