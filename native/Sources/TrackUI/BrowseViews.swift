@@ -13,6 +13,8 @@ import TrackAPI
 public final class BrowseModel {
     public private(set) var hierarchy: [HierarchyNode] = []
     public private(set) var notes: [SearchResult] = []
+    /// Recently-created notes first (web SidebarNew: `sort=created`).
+    public private(set) var newNotes: [SearchResult] = []
     public private(set) var isLoading = false
     public private(set) var error: String?
 
@@ -41,6 +43,17 @@ public final class BrowseModel {
             notes = try await client.listNotes().notes
         } catch {
             self.error = error.localizedDescription
+        }
+    }
+
+    /// Recently-created notes first (web `listNewNotes`, `sort=created`).
+    /// Failures keep the previous list so the New section degrades to empty
+    /// rather than failing the whole browse surface.
+    public func loadNewNotes(limit: Int = 20) async {
+        do {
+            newNotes = try await client.listNotes(limit: limit, sort: "created").notes
+        } catch {
+            // Swallowed — see above.
         }
     }
 
@@ -211,7 +224,16 @@ public struct TagView: View {
 
     private func notes(for tag: String?) -> [SearchResult] {
         guard let tag else { return [] }
-        return model.notes.filter { $0.tags?.contains(tag) == true }
+        // Tags are hierarchical (web TagView): /tags/a lists #a/b notes too.
+        // Case-insensitive, trailing slashes trimmed, like the web.
+        let wanted = tag.replacingOccurrences(of: "/+$", with: "", options: .regularExpression).lowercased()
+        guard !wanted.isEmpty else { return [] }
+        return model.notes.filter { note in
+            (note.tags ?? []).contains { t in
+                let lower = t.lowercased()
+                return lower == wanted || lower.hasPrefix(wanted + "/")
+            }
+        }
     }
 
     @ViewBuilder private func badges(for ref: NoteRef) -> some View {
