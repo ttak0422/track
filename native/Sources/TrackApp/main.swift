@@ -85,6 +85,9 @@ private struct MainTabView: View {
     @State private var selectedTab = MainTab.notes
     @State private var openedNote: String?
     @State private var reader: NoteReaderModel
+    /// A day handed from the Browse activity heatmap to the Calendar tab, so a
+    /// heatmap tap lands on the same day the calendar would select by hand.
+    @State private var calendarDay: String?
 
     init(client: TrackClient) {
         self.client = client
@@ -97,7 +100,7 @@ private struct MainTabView: View {
             SearchReaderView(client: client)
                 .tag(MainTab.notes)
                 .tabItem { Label("Notes", systemImage: "doc.text") }
-            CalendarView(client: client)
+            CalendarView(client: client, initialDay: calendarDay)
                 .tag(MainTab.calendar)
                 .tabItem { Label("Calendar", systemImage: "calendar") }
             GraphTabView(client: client)
@@ -109,7 +112,10 @@ private struct MainTabView: View {
                     selectedTab = .notes
                     openedNote = raw
                 },
-                openCalendar: { selectedTab = .calendar }
+                openCalendar: { day in
+                    calendarDay = day
+                    selectedTab = .calendar
+                }
             )
                 .tag(MainTab.browse)
                 .tabItem { Label("Browse", systemImage: "folder") }
@@ -171,9 +177,9 @@ private struct BrowseTabView: View {
     @State private var pane: BrowsePane = .hierarchy
     @State private var selectedNote: String?
     let openNote: (String) -> Void
-    let openCalendar: () -> Void
+    let openCalendar: (String) -> Void
 
-    init(client: TrackClient, openNote: @escaping (String) -> Void = { _ in }, openCalendar: @escaping () -> Void = {}) {
+    init(client: TrackClient, openNote: @escaping (String) -> Void = { _ in }, openCalendar: @escaping (String) -> Void = { _ in }) {
         self.client = client
         self.openNote = openNote
         self.openCalendar = openCalendar
@@ -204,7 +210,7 @@ private struct BrowseTabView: View {
                     openNote(raw)
                 }
             case .activity:
-                ActivityHeatmapView(model: model) { _ in openCalendar() }
+                ActivityHeatmapView(model: model) { day in openCalendar(day) }
             case .history:
                 BrowseHistoryView { raw in
                     selectedNote = raw
