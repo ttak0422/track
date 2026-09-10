@@ -259,67 +259,15 @@ public struct SearchReaderView: View {
                      ForEach(searchSections, id: \.title) { section in
                          Section {
                              ForEach(section.results, id: \.qualifiedID) { result in
-                                 VStack(alignment: .leading, spacing: 4) {
-                                     Button { openSearchResult(result) } label: {
-                                         VStack(alignment: .leading, spacing: 2) {
-                                              HStack(spacing: 6) {
-                                                  if let icon = result.icon, !icon.isEmpty {
-                                                      Text(icon).font(.body)
-                                                  } else {
-                                                      Image(systemName: "doc.text")
-                                                          .font(.caption).foregroundStyle(.tertiary)
-                                                  }
-                                                  highlighted(result.ref.title)
-                                                      .font(.system(size: 16 * fontScale))
-                                                 if reading.isNew(result.ref) { TrackStateBadge("NEW") }
-                                                  if isStale(result) { TrackStateBadge("古い", kind: .stale) }
-                                                  if let flags = result.ref.flags {
-                                                      ForEach(flags.filter { $0 == "DEPRECATED" || $0 == "CONFIDENTIAL" }, id: \.self) {
-                                                          TrackFlagBadge($0)
-                                                      }
-                                                  }
-                                             }
-                                             if let match = result.match {
-                                                 highlighted(match).font(.system(size: 11 * fontScale)).foregroundStyle(.tertiary)
-                                             }
-                                             if let snippet = result.snippet {
-                                                 highlighted(snippet).font(.system(size: 13 * fontScale)).foregroundStyle(.secondary)
-                                                     .lineLimit(2)
-                                             }
-                                         }
-                                         .frame(maxWidth: .infinity, alignment: .leading)
-                                     }
-                                     .buttonStyle(.plain)
-                                     if let tags = result.tags, !tags.isEmpty {
-                                         HStack(spacing: 5) {
-                                             ForEach(tags, id: \.self) { tag in
-                                                 Button("#\(tag)") { appendSearchTag(tag) }
-                                                     .buttonStyle(.borderless)
-                                                     .font(.system(size: 13 * fontScale)).foregroundStyle(.secondary)
-                                             }
-                                         }
-                                     }
-                                 }
-                                 .padding(.vertical, 2)
-                                 .listRowBackground(activeSearchRow(result) ? Color.clear : nil)
-                                 .overlay(alignment: .leading) {
-                                     if activeSearchRow(result) {
-                                         // L-shaped reading-edge cursor (web
-                                         // .result-row:has(.result.is-active)):
-                                         // a mark edge on the left and bottom,
-                                         // never a filled tile.
-                                         TrackTheme.palette(for: colorScheme).mark
-                                             .frame(width: 2)
-                                             .padding(.vertical, 4)
-                                     }
-                                 }
-                                 .overlay(alignment: .bottom) {
-                                     if activeSearchRow(result) {
-                                         TrackTheme.palette(for: colorScheme).mark
-                                             .frame(height: 2)
-                                             .padding(.leading, 2)
-                                     }
-                                 }
+                                 SearchResultRow(
+                                     result: result,
+                                     isNew: reading.isNew(result.ref),
+                                     stale: isStale(result),
+                                     isActive: activeSearchRow(result),
+                                     highlight: highlighted,
+                                     onOpen: { openSearchResult(result) },
+                                     onAppendTag: { appendSearchTag($0) }
+                                 )
                              }
                          } header: {
                              Text(section.title).trackSectionLabel()
@@ -351,10 +299,19 @@ public struct SearchReaderView: View {
                      .transition(.move(edge: .top).combined(with: .opacity))
              }
          }
-         .onKeyPress("/") {
-             search.requestSearchFocus()
-             return .handled
-         }
+          .onKeyPress("/") {
+              search.requestSearchFocus()
+              return .handled
+          }
+          .background {
+              // ⌘P focuses search even while typing (web keys.ts: ⌘P is the
+              // one global chord that stays live in inputs; Ctrl+P stays a
+              // "previous result" key and is left alone).
+              Button("Focus search") { search.requestSearchFocus() }
+                  .keyboardShortcut("p", modifiers: .command)
+                  .opacity(0)
+                  .accessibilityHidden(true)
+          }
          .onChange(of: search.searchFocusRequested) { _, _ in
              if search.consumeSearchFocusRequest() { searchFocused = true }
          }
@@ -600,6 +557,83 @@ public struct SearchReaderView: View {
     }
 }
 
+/// One search result row: title + match/snippet + tag chips, with the NEW /
+/// stale / flag badges and the L-shaped reading-edge cursor for the active
+/// row (web .result-row:has(.result.is-active): a mark edge on the left and
+/// bottom, never a filled tile). Split out of SearchReaderView so the type
+/// checker sees one small expression instead of the whole sidebar.
+private struct SearchResultRow: View {
+    let result: SearchResult
+    let isNew: Bool
+    let stale: Bool
+    let isActive: Bool
+    let highlight: (String) -> Text
+    let onOpen: () -> Void
+    let onAppendTag: (String) -> Void
+    @Environment(\.colorScheme) private var colorScheme
+    @Environment(\.trackFontScale) private var fontScale
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 4) {
+            Button(action: onOpen) {
+                VStack(alignment: .leading, spacing: 2) {
+                    HStack(spacing: 6) {
+                        if let icon = result.icon, !icon.isEmpty {
+                            Text(icon).font(.body)
+                        } else {
+                            Image(systemName: "doc.text")
+                                .font(.caption).foregroundStyle(.tertiary)
+                        }
+                        highlight(result.ref.title)
+                            .font(.system(size: 16 * fontScale))
+                        if isNew { TrackStateBadge("NEW") }
+                        if stale { TrackStateBadge("古い", kind: .stale) }
+                        if let flags = result.ref.flags {
+                            ForEach(flags.filter { $0 == "DEPRECATED" || $0 == "CONFIDENTIAL" }, id: \.self) {
+                                TrackFlagBadge($0)
+                            }
+                        }
+                    }
+                    if let match = result.match {
+                        highlight(match).font(.system(size: 11 * fontScale)).foregroundStyle(.tertiary)
+                    }
+                    if let snippet = result.snippet {
+                        highlight(snippet).font(.system(size: 13 * fontScale)).foregroundStyle(.secondary)
+                            .lineLimit(2)
+                    }
+                }
+                .frame(maxWidth: .infinity, alignment: .leading)
+            }
+            .buttonStyle(.plain)
+            if let tags = result.tags, !tags.isEmpty {
+                HStack(spacing: 5) {
+                    ForEach(tags, id: \.self) { tag in
+                        Button("#\(tag)") { onAppendTag(tag) }
+                            .buttonStyle(.borderless)
+                            .font(.system(size: 13 * fontScale)).foregroundStyle(.secondary)
+                    }
+                }
+            }
+        }
+        .padding(.vertical, 2)
+        .listRowBackground(isActive ? Color.clear : nil)
+        .overlay(alignment: .leading) {
+            if isActive {
+                TrackTheme.palette(for: colorScheme).mark
+                    .frame(width: 2)
+                    .padding(.vertical, 4)
+            }
+        }
+        .overlay(alignment: .bottom) {
+            if isActive {
+                TrackTheme.palette(for: colorScheme).mark
+                    .frame(height: 2)
+                    .padding(.leading, 2)
+            }
+        }
+    }
+}
+
 // MARK: - New-note sheet
 
 /// Title-entry sheet behind the sidebar "+", wired to `createNote` (web
@@ -702,6 +736,14 @@ public struct NoteReaderView: View {
     /// Date-cell editing target for the note task table (web TaskControls date
     /// cells): the task line plus which date field the picker writes.
     @State private var taskDateTarget: NoteTaskDateTarget?
+    /// Server-rendered draft for Preview/Split (web NoteEditor's useRenderQuery):
+    /// the engine expands ```track-query/```dashboard through /api/render, so
+    /// an unsaved draft previews exactly what saving would produce. Nil while
+    /// no render has succeeded — the raw draft is drawn instead, never blank.
+    @State private var renderedDraft: String?
+    @State private var renderedDraftIncludes: [NoteInclude]?
+    @State private var lastRenderedDraft: String?
+    @State private var draftRenderTask: Task<Void, Never>?
     /// Link-graph model for the aside's embedded local graph (web note pages
     /// carry the one-hop graph beside the reading column).
     @State private var graphModel: GraphModel
@@ -1096,7 +1138,9 @@ public struct NoteReaderView: View {
                 }
             }
             let headings = GFMBody.tocEntries(in: response.note.body)
-            if !headings.isEmpty {
+            // The Contents rail names a region, so a lone heading earns no
+            // rail (web NoteAside shows it only with two or more headings).
+            if headings.count >= 2 {
                 asideSection("Contents", count: headings.count) {
                     ForEach(Array(headings.prefix(12))) { entry in
                         Button {
@@ -1298,9 +1342,11 @@ public struct NoteReaderView: View {
             case .preview:
                 ScrollView {
                     GFMBody(
-                        markdown: model.draftBody,
+                        markdown: previewMarkdown,
                         baseURL: baseURL,
                         vault: model.currentID?.split().vault ?? "",
+                        includes: previewIncludes,
+                        client: model.client,
                         onWikilink: { target in Task { await model.openWikilink(target: target) } }
                     )
                     .environment(\.openURL, wikilinkURLAction)
@@ -1313,9 +1359,11 @@ public struct NoteReaderView: View {
                         .frame(minWidth: 240, minHeight: 300)
                     ScrollView {
                         GFMBody(
-                            markdown: model.draftBody,
+                            markdown: previewMarkdown,
                             baseURL: baseURL,
                             vault: model.currentID?.split().vault ?? "",
+                            includes: previewIncludes,
+                            client: model.client,
                             onWikilink: { target in Task { await model.openWikilink(target: target) } }
                         )
                         .environment(\.openURL, wikilinkURLAction)
@@ -1328,6 +1376,61 @@ public struct NoteReaderView: View {
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
         .padding(24)
+        .onChange(of: model.draftBody) { _, value in scheduleDraftRender(value) }
+        .onChange(of: paneRaw) { _, _ in renderDraftNowIfNeeded() }
+        .onChange(of: model.currentID) { _, _ in resetDraftRender() }
+    }
+
+    /// The draft source Preview/Split draws: the server render when one has
+    /// succeeded for the current draft, else the raw draft (web useRenderQuery
+    /// keeps the previous render on failure the same way).
+    private var previewMarkdown: String {
+        if let rendered = renderedDraft, lastRenderedDraft == model.draftBody {
+            return rendered
+        }
+        return model.draftBody
+    }
+
+    private var previewIncludes: [NoteInclude]? {
+        lastRenderedDraft == model.draftBody ? renderedDraftIncludes : nil
+    }
+
+    /// Debounced draft render (web useRenderQuery, 200ms): keystrokes settle
+    /// before the engine is asked, and a failed render keeps the previous
+    /// output — the preview never blanks.
+    private func scheduleDraftRender(_ draft: String) {
+        draftRenderTask?.cancel()
+        guard pane != .edit else { return }
+        guard draft != lastRenderedDraft else { return }
+        draftRenderTask = Task {
+            try? await Task.sleep(for: .milliseconds(200))
+            guard !Task.isCancelled else { return }
+            await renderDraft(draft)
+        }
+    }
+
+    private func renderDraftNowIfNeeded() {
+        guard pane != .edit, model.draftBody != lastRenderedDraft else { return }
+        draftRenderTask?.cancel()
+        let draft = model.draftBody
+        draftRenderTask = Task { await renderDraft(draft) }
+    }
+
+    private func resetDraftRender() {
+        draftRenderTask?.cancel()
+        renderedDraft = nil
+        renderedDraftIncludes = nil
+        lastRenderedDraft = nil
+    }
+
+    private func renderDraft(_ draft: String) async {
+        guard let id = model.currentID else { return }
+        if let render = try? await model.client.renderMarkdown(body: draft, vault: id.split().vault) {
+            guard !Task.isCancelled else { return }
+            renderedDraft = render.markdown
+            renderedDraftIncludes = render.includes
+            lastRenderedDraft = draft
+        }
     }
 
     // MARK: - Shared header

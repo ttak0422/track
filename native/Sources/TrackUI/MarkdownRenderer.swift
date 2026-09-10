@@ -68,7 +68,9 @@ public struct GFMBody: View {
             segmentedBody
 
             let headings = Self.tocEntries(in: markdown)
-            if !headings.isEmpty {
+            // Two or more headings earn a Contents list (web NoteAside); a
+            // lone heading names nothing.
+            if headings.count >= 2 {
                 VStack(alignment: .leading, spacing: 4) {
                     Text("Contents").trackSectionLabel()
                     ForEach(headings) { entry in
@@ -1106,6 +1108,7 @@ private struct FigureSegmentView: View {
         if let payload = TrackViewPayload.parse(figure.source) {
             TrackViewFigure(
                 payload: payload,
+                source: figure.source,
                 vault: vault,
                 baseURL: baseURL,
                 onWikilink: onWikilink
@@ -1329,8 +1332,11 @@ private struct TrackViewRow {
 
 /// Draws a parsed track-view payload as native SwiftUI, mirroring web
 /// QueryView's list/board/gallery/calendar layouts without the table chrome.
+/// An unknown layout shows the fence source (web QueryView's CodeBlock
+/// fallback), never a hole in the page.
 private struct TrackViewFigure: View {
     let payload: TrackViewPayload
+    let source: String
     let vault: String
     let baseURL: URL
     let onWikilink: ((String) -> Void)?
@@ -1346,7 +1352,10 @@ private struct TrackViewFigure: View {
         case "calendar":
             TrackViewCalendar(payload: payload, onWikilink: onWikilink)
         default:
-            EmptyView()
+            Text(source)
+                .font(.system(.body, design: .monospaced))
+                .textSelection(.enabled)
+                .frame(maxWidth: .infinity, alignment: .leading)
         }
     }
 }

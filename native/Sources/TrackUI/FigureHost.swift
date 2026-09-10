@@ -746,7 +746,7 @@ extension FigureAssets {
      <div id="toolbar" aria-label="Diagram controls">
        <button id="fold" type="button" aria-label="Collapse diagram">⌃</button>
        <span class="spacer"></span>
-       <button id="copy" type="button" aria-label="Copy Mermaid source">Copy source</button>
+       <button id="copy" type="button" aria-label="Copy diagram source">Copy source</button>
        <button id="zoomOut" type="button" aria-label="Zoom out">−</button>
        <button id="zoomReset" type="button" aria-label="Reset zoom">100%</button>
        <button id="zoomIn" type="button" aria-label="Zoom in">+</button>
@@ -897,7 +897,11 @@ extension FigureAssets {
          figure.style.display = "";
          figure.style.minHeight = cfg.initialHeight ? cfg.initialHeight + "px" : "";
          setZoom(1);
-         showToolbar(cfg.kind === "mermaid");
+         // The fold/copy/zoom handlers above are kind-agnostic (they act on
+         // the rendered figure and cfg.source), so every SVG diagram kind
+         // gets the strip — the same DiagramFrame the web reader shares
+         // across mermaid/d2/graphviz. draw.io stays static like the web.
+         showToolbar(cfg.kind === "mermaid" || cfg.kind === "dot" || cfg.kind === "d2");
          // Publish the useful first frame before a CDN asset resolves.
          postHeight();
          figure.textContent = "";
