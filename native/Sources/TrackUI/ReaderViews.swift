@@ -1,6 +1,7 @@
 import AppKit
 import SwiftUI
 import TrackAPI
+import UniformTypeIdentifiers
 
 // MVP reader: title, native-rendered Markdown body, backlink list.
 // Design tokens follow docs/spec/design.md (ink + hairlines; the single
@@ -866,6 +867,16 @@ public struct NoteReaderView: View {
             }
             ToolbarItem {
                 Menu {
+                    Button("Copy portable Markdown") {
+                        NSPasteboard.general.clearContents()
+                        NSPasteboard.general.setString(PortableMarkdown.portable(note.body), forType: .string)
+                    }
+                    .help("Copy with [[wikilinks]] flattened to plain text")
+                    Button("Copy for Confluence") {
+                        copyConfluence(note.body)
+                    }
+                    .help("Copy as rich HTML with a plain-text fallback")
+                    Divider()
                     Button("Meta…") { showMeta = true }
                     Divider()
                     Button("Delete…", role: .destructive) { showDeleteConfirm = true }
@@ -904,6 +915,41 @@ public struct NoteReaderView: View {
     private var loadedNote: NoteDetail? {
         if case .loaded(let response) = model.state { return response.note }
         return nil
+    }
+
+    /// Rich copy for Confluence (web NoteActionsMenu copyConfluence): the
+    /// portable body rendered to HTML for rich editors, paired with the
+    /// plain-text fallback (delimiter-free, <br> as line breaks) on the same
+    /// pasteboard. The HTML comes from Foundation's Markdown parser rather
+    /// than the web's react-markdown pipeline, so exotic GFM may render
+    /// plainly — the text flavor always survives. A body that will not parse
+    /// falls back to the plain text alone.
+    private func copyConfluence(_ body: String) {
+        let portable = PortableMarkdown.portable(body)
+        let plain = PortableMarkdown.confluencePlainText(portable)
+        let board = NSPasteboard.general
+        board.clearContents()
+        if let parsed = try? AttributedString(
+            markdown: portable,
+            options: AttributedString.MarkdownParsingOptions(interpretedSyntax: .full)
+        ),
+            let html = try? NSAttributedString(parsed).data(
+                from: NSRange(
+                    location: 0,
+                    length: NSAttributedString(parsed).length
+                ),
+                documentAttributes: [
+                    NSAttributedString.DocumentAttributeKey.documentType:
+                        NSAttributedString.DocumentType.html,
+                    NSAttributedString.DocumentAttributeKey.characterEncoding:
+                        String.Encoding.utf8.rawValue,
+                ]
+            ) {
+            board.setString(plain, forType: .string)
+            board.setData(html, forType: .html)
+        } else {
+            board.setString(plain, forType: .string)
+        }
     }
 
     private var loadedResponse: NoteResponse? {
@@ -1554,6 +1600,12 @@ private struct NoteMetaEditor: View {
     @State private var flags: [String] = []
     @State private var props = ""
     @State private var didLoad = false
+    /// Cover-image import (web NoteMetaDialog pickImage): the chosen file is
+    /// uploaded to /api/asset and the returned assets/… ref fills the field.
+    /// Failures surface inline; the existing ref is left untouched.
+    @State private var showImageImporter = false
+    @State private var isUploadingImage = false
+    @State private var uploadError: String?
 
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
@@ -1589,6 +1641,18 @@ private struct NoteMetaEditor: View {
             TextField("Tags — comma-separated", text: $tags)
             TextField("Description (og:description)", text: $description, axis: .vertical)
             TextField("Cover image — assets/… path", text: $image)
+            HStack(spacing: 8) {
+                Button(isUploadingImage ? "Importing…" : "Choose a file…") {
+                    uploadError = nil
+                    showImageImporter = true
+                }
+                .disabled(isUploadingImage)
+                if isUploadingImage { ProgressView().controlSize(.small) }
+            }
+            .font(.caption)
+            if let uploadError {
+                Text(uploadError).font(.caption).foregroundStyle(.red)
+            }
             TextField("Icon — an emoji shown beside the title", text: $icon)
             Toggle("DEPRECATED", isOn: flagBinding("DEPRECATED"))
             Toggle("CONFIDENTIAL", isOn: flagBinding("CONFIDENTIAL"))
@@ -1598,6 +1662,11 @@ private struct NoteMetaEditor: View {
         }
         .formStyle(.grouped)
         .scrollDisabled(false)
+        .fileImporter(
+            isPresented: $showImageImporter,
+            allowedContentTypes: [.image],
+            allowsMultipleSelection: false
+        ) { result in importImage(result) }
 
         if let error = model.saveError {
             Text(error)
@@ -1635,6 +1704,54 @@ private struct NoteMetaEditor: View {
                 }
             }
         )
+    }
+
+    /// Uploads the file chosen in the image importer to the note's own vault
+    /// and fills the cover field with the returned assets/… ref (web
+    /// pickImage). A failure leaves the existing ref untouched.
+    private func importImage(_ result: Result<[URL], Error>) {
+        switch result {
+        case .failure(let error):
+            uploadError = error.localizedDescription
+        case .success(let urls):
+            guard let url = urls.first else { return }
+            let accessing = url.startAccessingSecurityScopedResource()
+            defer { if accessing { url.stopAccessingSecurityScopedResource() } }
+            guard let data = try? Data(contentsOf: url) else {
+                uploadError = "Could not read \(url.lastPathComponent)"
+                return
+            }
+            isUploadingImage = true
+            uploadError = nil
+            Task {
+                defer { isUploadingImage = false }
+                do {
+                    let vault = model.currentID?.split().vault ?? ""
+                    let response = try await model.client.uploadAsset(
+                        fileName: url.lastPathComponent,
+                        data: data,
+                        mimeType: Self.mimeType(for: url.pathExtension),
+                        vault: vault
+                    )
+                    image = response.ref
+                } catch {
+                    uploadError = error.localizedDescription
+                }
+            }
+        }
+    }
+
+    private static func mimeType(for pathExtension: String) -> String {
+        switch pathExtension.lowercased() {
+        case "png": return "image/png"
+        case "jpg", "jpeg": return "image/jpeg"
+        case "gif": return "image/gif"
+        case "webp": return "image/webp"
+        case "svg": return "image/svg+xml"
+        case "avif": return "image/avif"
+        case "heic": return "image/heic"
+        default: return "application/octet-stream"
+        }
     }
 
     private func save() {

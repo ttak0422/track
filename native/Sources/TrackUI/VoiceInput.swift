@@ -222,6 +222,14 @@ public struct VoiceView: View {
     @State private var openedNoteID: TrackID?
     @State private var isShowingNote = false
     @State private var isCreatingNote = false
+    /// Transcript stashed by Clear so the destructive action can be undone
+    /// (web VoiceView's undoable clearTranscript).
+    @State private var clearedTranscript: String?
+    /// Debounced auto-search (web VoiceView's selection auto-search): the
+    /// pending task plus the query it will send, so identical transcripts
+    /// never refire and empty ones clear the results instead.
+    @State private var autoSearchTask: Task<Void, Never>?
+    @State private var lastAutoSearchQuery = ""
 
     public init(client: TrackClient) {
         self.client = client
@@ -278,6 +286,18 @@ public struct VoiceView: View {
                 .buttonStyle(.bordered)
                 .disabled(model.transcript.isEmpty)
 
+                if let cleared = clearedTranscript, !cleared.isEmpty {
+                    Button {
+                        model.updateTranscript(cleared)
+                        clearedTranscript = nil
+                        searchError = nil
+                    } label: {
+                        Label("Undo clear", systemImage: "arrow.uturn.backward")
+                    }
+                    .buttonStyle(.bordered)
+                    .help("Restore the cleared transcript")
+                }
+
                 Button {
                     appendToJournal()
                 } label: {
@@ -291,7 +311,7 @@ public struct VoiceView: View {
                 .help("Append the transcript to today's journal")
 
                 Button {
-                    searchTranscript()
+                    searchTranscript(query: model.transcript.trimmingCharacters(in: .whitespacesAndNewlines))
                 } label: {
                     Label(
                         isSearching ? "Searching…" : "Search notes",
@@ -396,6 +416,7 @@ public struct VoiceView: View {
             }
         }
         .padding(16)
+        .onChange(of: model.transcript) { _, value in scheduleAutoSearch(value) }
         .sheet(isPresented: $isShowingNote) {
             if let openedNoteID {
                 VoiceNotePreviewView(client: client, noteID: openedNoteID)
@@ -423,6 +444,10 @@ public struct VoiceView: View {
     }
 
     private func clearTranscript() {
+        clearedTranscript = model.transcript
+        autoSearchTask?.cancel()
+        autoSearchTask = nil
+        lastAutoSearchQuery = ""
         model.clear()
         searchResults = []
         searchError = nil
@@ -466,9 +491,9 @@ public struct VoiceView: View {
     /// Search the finalized or currently visible transcript without changing
     /// the existing journal append flow. The server remains responsible for
     /// matching titles, paths, and note bodies.
-    private func searchTranscript() {
-        let query = model.transcript.trimmingCharacters(in: .whitespacesAndNewlines)
+    private func searchTranscript(query: String) {
         guard !query.isEmpty else { return }
+        lastAutoSearchQuery = query
         isSearching = true
         searchError = nil
         searchResults = []
@@ -480,6 +505,26 @@ public struct VoiceView: View {
                 searchError = error.localizedDescription
             }
             isSearching = false
+        }
+    }
+
+    /// Debounced auto-search over transcript edits (web VoiceView's selection
+    /// auto-search, which fires on the selection with a debounce). Empty
+    /// transcripts clear the results; an unchanged query never refires.
+    private func scheduleAutoSearch(_ transcript: String) {
+        let query = transcript.trimmingCharacters(in: .whitespacesAndNewlines)
+        autoSearchTask?.cancel()
+        autoSearchTask = nil
+        guard !query.isEmpty else {
+            searchResults = []
+            lastAutoSearchQuery = ""
+            return
+        }
+        guard query != lastAutoSearchQuery else { return }
+        autoSearchTask = Task {
+            try? await Task.sleep(for: .milliseconds(800))
+            guard !Task.isCancelled else { return }
+            searchTranscript(query: query)
         }
     }
 
