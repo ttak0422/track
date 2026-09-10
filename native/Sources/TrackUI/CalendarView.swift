@@ -173,9 +173,14 @@ public struct CalendarView: View {
 
     private let client: TrackClient
     private let columns = Array(repeating: GridItem(.flexible(), spacing: 4), count: 7)
+    /// A day handed in from outside (Browse activity heatmap): applied to the
+    /// model's selection on appear and on change, so a heatmap tap lands on
+    /// the same day the calendar would have selected by hand.
+    private let initialDay: String?
 
-    public init(client: TrackClient) {
+    public init(client: TrackClient, initialDay: String? = nil) {
         self.client = client
+        self.initialDay = initialDay
         _model = State(initialValue: CalendarModel(client: client))
     }
 
@@ -195,7 +200,13 @@ public struct CalendarView: View {
             Divider()
             agenda
         }
-        .task { await model.reload() }
+        .task {
+            await model.reload()
+            if let initialDay { model.selectedDay = initialDay }
+        }
+        .onChange(of: initialDay) { _, newDay in
+            if let newDay { model.selectedDay = newDay }
+        }
         .onReceive(NotificationCenter.default.publisher(for: .trackVaultChanged)) { _ in
             Task { await model.reload() }
         }
@@ -285,7 +296,7 @@ public struct CalendarView: View {
     private var agenda: some View {
         Group {
             if let day = model.selectedDay {
-                AgendaView(day: day, notes: model.notes(on: day), tasks: model.tasks(on: day), client: client)
+                DayView(day: day, notes: model.notes(on: day), tasks: model.tasks(on: day), client: client)
             } else {
                 Text("Select a day")
                     .font(.caption).foregroundStyle(.secondary)
@@ -327,6 +338,48 @@ public struct CalendarView: View {
 
     private static func previewLines(from body: String) -> [String] {
         body.split(separator: "\n", omittingEmptySubsequences: true).prefix(4).map(String.init)
+    }
+}
+
+// MARK: - Day view
+
+/// The dedicated day screen (web `/day/$date` parity): the notes active on
+/// the day plus the dated tasks on it, with the day's journal reachable
+/// through the same agenda surface the calendar embeds below. An invalid date
+/// reports like the web's "Invalid date" instead of an empty agenda.
+public struct DayView: View {
+    let day: String
+    let notes: [SearchResult]
+    let tasks: [TaskRow]
+    let client: TrackClient
+
+    public init(day: String, notes: [SearchResult], tasks: [TaskRow], client: TrackClient) {
+        self.day = day
+        self.notes = notes
+        self.tasks = tasks
+        self.client = client
+    }
+
+    private var isValid: Bool {
+        day.range(of: #"^\d{4}-\d{2}-\d{2}$"#, options: .regularExpression) != nil
+    }
+
+    public var body: some View {
+        VStack(alignment: .leading, spacing: 0) {
+            Text(day)
+                .font(.headline)
+                .padding(.horizontal, 8)
+                .padding(.vertical, 6)
+            Divider()
+            if !isValid {
+                Text("Invalid date: \(day)")
+                    .foregroundStyle(.red)
+                    .padding(8)
+            } else {
+                AgendaView(day: day, notes: notes, tasks: tasks, client: client)
+            }
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
     }
 }
 
