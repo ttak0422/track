@@ -225,6 +225,10 @@ public struct VoiceView: View {
     /// Transcript stashed by Clear so the destructive action can be undone
     /// (web VoiceView's undoable clearTranscript).
     @State private var clearedTranscript: String?
+    /// Exact-match guard (web VoiceView's createTaken): when the transcript
+    /// names an existing note, creation stays visible but disabled instead of
+    /// 409ing into an error.
+    @State private var createTaken = false
     /// Debounced auto-search (web VoiceView's selection auto-search): the
     /// pending task plus the query it will send, so identical transcripts
     /// never refire and empty ones clear the results instead.
@@ -405,12 +409,12 @@ public struct VoiceView: View {
                         createNoteFromTranscript()
                     } label: {
                         Label(
-                            isCreatingNote ? "Creating…" : "Create a new note from this transcript",
+                            isCreatingNote ? "Creating…" : createTaken ? "\"\(displayCreateTitle)\" already exists" : "Create a new note from this transcript",
                             systemImage: "plus"
                         )
                     }
                     .buttonStyle(.bordered)
-                    .disabled(isCreatingNote || model.transcript.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+                    .disabled(createTaken || isCreatingNote || model.transcript.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
                 }
                 .padding(.top, 4)
             }
@@ -425,6 +429,14 @@ public struct VoiceView: View {
     }
 
     private var recordingStartedAt: Date? { model.isRecording ? (recordingStart ?? Date()) : nil }
+    private var displayCreateTitle: String {
+        let title = model.transcript
+            .split(whereSeparator: \.isNewline)
+            .first.map(String.init)?
+            .trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        let short = String(title.prefix(12))
+        return title.count > 12 ? "\(short)…" : short
+    }
     private var resultSections: [(title: String, results: [SearchResult])] {
         [
             ("Titles", searchResults.filter { $0.match != "body" && $0.match != "path" }),
@@ -448,6 +460,7 @@ public struct VoiceView: View {
         autoSearchTask?.cancel()
         autoSearchTask = nil
         lastAutoSearchQuery = ""
+        createTaken = false
         model.clear()
         searchResults = []
         searchError = nil
@@ -489,16 +502,27 @@ public struct VoiceView: View {
     }
 
     /// Search the finalized or currently visible transcript without changing
-    /// the existing journal append flow. The server remains responsible for
-    /// matching titles, paths, and note bodies.
+    /// the existing journal append flow. The transcript is first resolved as
+    /// an exact note title (web VoiceView runSearch): when it names a note
+    /// that already exists, that note is the single Titles hit and creation
+    /// stays visible but disabled. Otherwise the server's title/body/path
+    /// search decides.
     private func searchTranscript(query: String) {
         guard !query.isEmpty else { return }
         lastAutoSearchQuery = query
         isSearching = true
         searchError = nil
         searchResults = []
+        createTaken = false
         Task {
             do {
+                if let resolved = try? await client.resolveTerm(query), resolved.found,
+                   let exact = Self.searchResult(for: resolved.note) {
+                    searchResults = [exact]
+                    createTaken = true
+                    isSearching = false
+                    return
+                }
                 let response = try await client.searchNotes(query: query, limit: 8)
                 searchResults = response.results
             } catch {
@@ -518,6 +542,7 @@ public struct VoiceView: View {
         guard !query.isEmpty else {
             searchResults = []
             lastAutoSearchQuery = ""
+            createTaken = false
             return
         }
         guard query != lastAutoSearchQuery else { return }
@@ -579,6 +604,19 @@ public struct VoiceView: View {
         f.dateFormat = "yyyy-MM-dd"
         f.locale = Locale(identifier: "en_US_POSIX")
         return f.string(from: Date())
+    }
+
+    /// A SearchResult for an exact `resolveTerm` hit (web VoiceView's taken
+    /// path): the resolved ref rendered as a Titles hit. Built through JSON
+    /// because SearchResult exposes no memberwise init.
+    private static func searchResult(for ref: NoteRef) -> SearchResult? {
+        let object: [String: Any] = [
+            "note_id": ref.noteID.raw,
+            "file_kind": ref.fileKind,
+            "title": ref.title,
+        ]
+        guard let data = try? JSONSerialization.data(withJSONObject: object) else { return nil }
+        return try? JSONDecoder().decode(SearchResult.self, from: data)
     }
 }
 

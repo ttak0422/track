@@ -273,12 +273,14 @@ public struct SearchReaderView: View {
                              Text(section.title).trackSectionLabel()
                          }
                      }
-                     if search.unavailableCount > 0 {
-                         Section {
-                             Text("⚠ \(search.unavailableCount) vault\(search.unavailableCount == 1 ? "" : "s") could not be searched")
-                                 .font(.caption).foregroundStyle(.secondary)
-                         }
-                     }
+                      if !search.unavailable.isEmpty {
+                          Section {
+                              ForEach(search.unavailable, id: \.name) { vault in
+                                  Text("⚠ vault “\(vault.name)” could not be searched\(vault.error.map { ": \($0)" } ?? "")")
+                                      .font(.caption).foregroundStyle(.secondary)
+                              }
+                          }
+                      }
                  }
             }
             .navigationTitle("track")

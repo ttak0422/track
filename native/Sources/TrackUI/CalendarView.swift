@@ -110,12 +110,14 @@ public final class CalendarModel {
     }
 
     /// Day dates covering the shown month padded to complete weeks with
-    /// adjacent-month days, so the grid always draws full rows.
+    /// adjacent-month days, so the grid always draws full rows. Weeks start on
+    /// Sunday, matching the web calendar (`WEEKDAYS Sun..Sat`,
+    /// `leadingBlanks = month.getDay()`).
     public var gridDays: [Date] {
         let cal = Calendar.current
         let start = monthStart
         let weekday = cal.component(.weekday, from: start)
-        let leading = weekday - cal.firstWeekday
+        let leading = weekday - 1
         let padStart = cal.date(byAdding: .day, value: -leading, to: start) ?? start
         let daysInMonth = cal.range(of: .day, in: .month, for: month)?.count ?? 30
         let total = Int(ceil(Double(leading + daysInMonth) / 7.0)) * 7
@@ -139,11 +141,10 @@ public final class CalendarModel {
         Calendar.current.isDate(date, equalTo: month, toGranularity: .month)
     }
 
+    /// Sunday-first weekday symbols, matching the web calendar's fixed
+    /// `WEEKDAYS = ["Sun", …]` rather than the device locale's first weekday.
     public static var weekdaySymbols: [String] {
-        let cal = Calendar.current
-        let symbols = cal.veryShortStandaloneWeekdaySymbols
-        let start = cal.firstWeekday - 1
-        return Array(symbols[start...] + symbols[..<start])
+        Array(Calendar.current.veryShortStandaloneWeekdaySymbols.prefix(7))
     }
 
     private static let formatter: DateFormatter = {
