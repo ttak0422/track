@@ -4,10 +4,12 @@ import { FloatingLayer } from "../preview/FloatingLayer";
 import { FloatingProvider } from "../preview/floatingStore";
 import { MediaFrame } from "./MediaFrame";
 
-// FloatingProvider reads the current route (to drop unpinned windows on navigation), so stub the router
-// the same way WikiLink.test.tsx does.
+// FloatingProvider reads the current route (to drop unpinned windows on navigation), and FloatingLayer
+// navigates when a note window's swap/jump buttons fire, so stub the router the same way
+// WikiLink.test.tsx does.
 vi.mock("@tanstack/react-router", () => ({
   useRouterState: () => "/",
+  useNavigate: () => vi.fn(),
 }));
 
 // Render MediaFrame in isolation, same shape as WikiLink.test.tsx: it exercises the button-driven

@@ -51,6 +51,12 @@ interface FloatingApi {
   setPinned: (id: string, pinned: boolean) => void;
   remove: (id: string) => void;
   bringToFront: (id: string) => void;
+  // Swap one window's content in place — the popup↔page trade: the note the window showed becomes the
+  // page and the page's note takes its place, so the window keeps the id, bounds, and stack slot the
+  // reader was looking at. The gesture keeps the window (pinned, so the navigation that follows does
+  // not drop it, and settled, so the pointer no longer owns it). If the new content already floats in
+  // another window, that one is raised and this one is dropped instead, so a note never floats twice.
+  replace: (id: string, content: FloatingContent, options?: OpenOptions) => void;
   // The hover lifecycle of a transient window. Both the opener (a link, a graph node) and the window
   // itself drive it, which is why the timer lives here instead of in either of them — and why a
   // window outlives the opener that is unmounted while the pointer rests on it.
@@ -167,6 +173,47 @@ export function FloatingProvider({ children }: { children: ReactNode }) {
 
   const remove = useCallback<FloatingApi["remove"]>((id) => drop(id), [drop]);
 
+  const replace = useCallback<FloatingApi["replace"]>(
+    (id, content, options = {}) => {
+      const target = windowsRef.current.find((w) => w.id === id);
+      if (!target) return;
+      const key = contentKey(content);
+      const existing = windowsRef.current.find((w) => w.id !== id && contentKey(w.content) === key);
+      if (existing) {
+        // The note being swapped in already floats: drop the swapped window and raise the existing
+        // one rather than duplicating the note.
+        drop(id);
+        bringPreviewToFront(existing.id);
+        clearCloseTimer(existing.id);
+        setWindows((current) =>
+          current.map((w) =>
+            w.id === existing.id
+              ? { ...w, pinned: w.pinned || options.pinned === true, transient: false }
+              : w,
+          ),
+        );
+        return;
+      }
+      // The window keeps its id and initial bounds; FloatingWindow's live bounds ride along because
+      // the window stays mounted under the same key.
+      clearCloseTimer(id);
+      setWindows((current) =>
+        current.map((w) =>
+          w.id === id
+            ? {
+                ...w,
+                content,
+                pinned: w.pinned || options.pinned === true,
+                transient: false,
+                anchor: undefined,
+              }
+            : w,
+        ),
+      );
+    },
+    [clearCloseTimer, drop],
+  );
+
   const bringToFront = useCallback<FloatingApi["bringToFront"]>((id) => {
     bringPreviewToFront(id);
   }, []);
@@ -197,8 +244,8 @@ export function FloatingProvider({ children }: { children: ReactNode }) {
   );
 
   const api = useMemo<FloatingApi>(
-    () => ({ windows, open, setPinned, remove, bringToFront, hold, scheduleClose, settle }),
-    [windows, open, setPinned, remove, bringToFront, hold, scheduleClose, settle],
+    () => ({ windows, open, setPinned, remove, replace, bringToFront, hold, scheduleClose, settle }),
+    [windows, open, setPinned, remove, replace, bringToFront, hold, scheduleClose, settle],
   );
 
   return <FloatingContext.Provider value={api}>{children}</FloatingContext.Provider>;
