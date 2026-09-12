@@ -12,9 +12,11 @@ const floating = vi.hoisted(() => ({
   scheduleClose: vi.fn(),
 }));
 const navigate = vi.hoisted(() => vi.fn());
+const graphQuery = vi.hoisted(() => vi.fn());
 
 vi.mock("@tanstack/react-router", () => ({ useNavigate: () => navigate }));
-vi.mock("../queries", () => ({ useGraphQuery: () => ({ data: { graph: { nodes: [], edges: [] } } }) }));
+vi.mock("../queries", () => ({ useGraphQuery: graphQuery }));
+vi.mock("../vaultScope", () => ({ useVaultScope: () => ({ scope: "work" }) }));
 vi.mock("./preview/floatingStore", () => ({ useFloating: () => floating }));
 
 // Stub the canvas so the test can drive onHover/onSelect directly. GraphFullView consumes the canvas
@@ -64,12 +66,20 @@ describe("GraphFullView hover preview", () => {
     floating.hold.mockClear();
     floating.scheduleClose.mockClear();
     navigate.mockClear();
+    graphQuery.mockReset();
+    graphQuery.mockReturnValue({ data: { graph: { nodes: [], edges: [] } } });
   });
   afterEach(() => vi.useRealTimers());
 
   function click(c: HTMLElement, label: string) {
     fireEvent.click([...c.querySelectorAll("button")].find((b) => b.textContent?.trim() === label)!);
   }
+
+  // The whole graph follows the working vault rather than always the launch vault.
+  it("draws the selected vault's graph", () => {
+    render(<GraphFullView />);
+    expect(graphQuery).toHaveBeenCalledWith(true, "work");
+  });
 
   it("opens a transient window in the layer after the intent delay", () => {
     const { container } = render(<GraphFullView />);

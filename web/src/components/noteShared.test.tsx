@@ -108,6 +108,19 @@ describe("useScrollToHash", () => {
 });
 
 describe("NoteAside graph section", () => {
+  // A note from a named vault carries it in its qualified id; the local graph must be asked for in
+  // that vault (the api layer turns the qualified id back into ?vault=), not the launch vault.
+  it("asks for the local graph in the note's own vault", () => {
+    render(<NoteAside backlinks={[]} noteID="work~1" journalDate="" />);
+    expect(localGraph).toHaveBeenCalledWith("work~1");
+  });
+
+  it("reads the on-this-day agenda from the note's own vault", () => {
+    agenda.mockReturnValue({ isPending: false, data: { notes: [] } });
+    render(<NoteAside backlinks={[]} noteID="work~20260712" journalDate="2026-07-12" />);
+    expect(agenda).toHaveBeenCalledWith("2026-07-12", "work");
+  });
+
   it("shows the always-on local graph, resets its view, and navigates on node select", () => {
     localGraph.mockReturnValue({ data: linkedGraph });
     render(<NoteAside backlinks={[]} noteID="1" journalDate="" />);

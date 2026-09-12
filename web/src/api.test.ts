@@ -90,6 +90,65 @@ async function getOgp(url: string) {
   return (await import("./api")).getOgp(url);
 }
 
+// The whole-vault graph is scoped like the agenda: a request names the vault it wants (the empty
+// name is the launch vault), and the response's "vault" label qualifies every id with it, so two
+// vaults' same-numbered notes stay distinct in the query cache. The local graph is addressed by the
+// note's own qualified id, which is how the client tells a foreign vault from the one it was
+// launched in.
+describe("graph requests and their vault", () => {
+  function jsonGraph(vault: string) {
+    return JSON.stringify({
+      vault,
+      graph: {
+        center_id: 7,
+        nodes: [{ note_id: 7, file_kind: "note", title: "Root" }],
+        edges: [],
+      },
+    });
+  }
+
+  it("scopes the whole-vault graph to the requested vault and qualifies its ids", async () => {
+    vi.stubEnv("VITE_TRACK_STATIC", "");
+    vi.resetModules();
+    const { getGraph } = await import("./api");
+    vi.stubGlobal("fetch", async (url: string) => {
+      fetched.push(url);
+      return new Response(jsonGraph("work"));
+    });
+
+    const data = await getGraph("work");
+    expect(fetched).toEqual(["/api/graph?vault=work"]);
+    expect(data.graph.nodes[0].note_id).toBe("work~7");
+  });
+
+  it("leaves the whole-vault graph unscoped for the launch vault", async () => {
+    vi.stubEnv("VITE_TRACK_STATIC", "");
+    vi.resetModules();
+    const { getGraph } = await import("./api");
+    vi.stubGlobal("fetch", async (url: string) => {
+      fetched.push(url);
+      return new Response(jsonGraph(""));
+    });
+
+    const data = await getGraph("");
+    expect(fetched).toEqual(["/api/graph"]);
+    expect(data.graph.nodes[0].note_id).toBe("7");
+  });
+
+  it("addresses the local graph at the note's own vault, not the launch vault", async () => {
+    vi.stubEnv("VITE_TRACK_STATIC", "");
+    vi.resetModules();
+    const { getLocalGraph } = await import("./api");
+    vi.stubGlobal("fetch", async (url: string) => {
+      fetched.push(url);
+      return new Response(jsonGraph("work"));
+    });
+
+    await getLocalGraph("work~7");
+    expect(fetched).toEqual(["/api/graph/local?id=7&vault=work"]);
+  });
+});
+
 describe("parseOgp", () => {
   it("reads the Open Graph tags and resolves a relative image", async () => {
     const { parseOgp } = await import("./api");
