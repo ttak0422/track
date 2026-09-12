@@ -11,6 +11,7 @@ import {
 } from "react";
 import { START_PAGE_ID, STATIC_MODE } from "../../runtime";
 import type { NoteID } from "../../types";
+import { vaultOf } from "../../vaultId";
 
 // A note open in the tab bar. The title is cached so a reloaded session can label tabs before each
 // note's data resolves; it is refreshed from the note query when a tab becomes active.
@@ -45,6 +46,19 @@ const RECENT_KEY = "track.recent";
 // (`:Track web` from the editor), and a history that only reaches back ten notes is one an ordinary
 // session walks off the end of.
 const RECENT_LIMIT = 100;
+
+// recentsForScope narrows the browser-local history to the working vault, for the History panel (rail
+// and phone). A recents entry's id is a note id, and note ids carry their vault already (see
+// vaultId.ts: a "work~123" id names vault work, a bare "123" the launch vault), so the attribution
+// is the id itself. A bare id is kept under every scope: it predates vault qualification or names
+// the always-addressable launch vault, and history that still opens must never be hidden on a guess.
+export function recentsForScope(recent: NoteTab[], scope: string): NoteTab[] {
+  if (scope === "") return recent;
+  return recent.filter((entry) => {
+    const vault = vaultOf(entry.id);
+    return vault === "" || vault === scope;
+  });
+}
 
 // The full-page views (graph, calendar) open as ordinary tabs with fixed labels rather than separate
 // overlays. Each uses a sentinel id and routes to its own path instead of /notes/$id. A note slug equal

@@ -30,7 +30,7 @@ import {
 } from "./icons";
 import { SearchPanel } from "./SearchPanel";
 import { railAnchor } from "./railAnchor";
-import { useTabs } from "./tabs/tabsStore";
+import { recentsForScope, useTabs } from "./tabs/tabsStore";
 
 // The phone's navigation: a round track logo floating over the reading surface that drags anywhere
 // and, tapped, fans its controls out in the half-circle facing away from the edge it sits at. It
@@ -57,6 +57,9 @@ export function MobileDock() {
   const site = useSiteQuery();
   const { recent } = useTabs();
   const { scope } = useVaultScope();
+  // The phone's history popup follows the working vault like the rail's, never hiding history it
+  // cannot attribute (bare ids stay visible under any scope).
+  const history = recentsForScope(recent, scope);
   const [theme, setTheme] = useThemeMode();
   // The open note's own controls. They live in the rail on a desk, and the rail is what the mark
   // replaced here, so the phone reaches them through the fan instead — the note group appears in it
@@ -307,11 +310,11 @@ export function MobileDock() {
             <div className="menu-panel note-menu-panel history-panel" style={railAnchor(fabRef.current)}>
               <h2 className="rail-panel-title">History</h2>
               <div className="history-scroll" role="menu" aria-label="Recently opened notes">
-                {recent.length === 0 ? (
+                {history.length === 0 ? (
                   <p className="history-empty">No recently opened notes</p>
                 ) : (
                   <ul className="history-list">
-                    {recent.map((note) => (
+                    {history.map((note) => (
                       <li key={note.id}>
                         <Link
                           className="backlink"

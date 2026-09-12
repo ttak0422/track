@@ -4,6 +4,7 @@ import { SidebarHistory } from "./SidebarHistory";
 import { TabsProvider } from "./tabs/tabsStore";
 
 const routerMock = vi.hoisted(() => ({ pathname: "/", navigate: vi.fn() }));
+const scopeMock = vi.hoisted(() => ({ value: "" }));
 
 vi.mock("@tanstack/react-router", () => ({
   Link: ({ children, params, ...rest }: { children: unknown; params: { noteId: string } }) => (
@@ -13,6 +14,10 @@ vi.mock("@tanstack/react-router", () => ({
   ),
   useRouterState: () => routerMock.pathname,
   useNavigate: () => routerMock.navigate,
+}));
+
+vi.mock("../vaultScope", () => ({
+  useVaultScope: () => ({ scope: scopeMock.value }),
 }));
 
 function renderHistory() {
@@ -29,6 +34,7 @@ describe("SidebarHistory", () => {
   beforeEach(() => {
     routerMock.pathname = "/";
     routerMock.navigate.mockClear();
+    scopeMock.value = "";
     window.localStorage.clear();
     vi.useRealTimers();
   });
@@ -160,5 +166,50 @@ describe("SidebarHistory", () => {
     expect(screen.getByRole("menu", { name: "Recently opened notes" })).toBeInTheDocument();
     fireEvent.click(trigger);
     expect(screen.queryByRole("menu", { name: "Recently opened notes" })).not.toBeInTheDocument();
+  });
+
+  // The History panel follows the working vault: qualified ids are that vault's notes and stay, other
+  // vaults' drop away, and history with no vault attribution (a bare id) stays under any scope.
+  it("narrows to the working vault when a scope is set", async () => {
+    window.localStorage.setItem(
+      "track.recent",
+      JSON.stringify([
+        { id: "work~1", title: "Work note" },
+        { id: "home~2", title: "Home note" },
+        { id: "legacy", title: "Un-attributed note" },
+      ]),
+    );
+    scopeMock.value = "work";
+    renderHistory();
+
+    fireEvent.pointerEnter(screen.getByRole("button", { name: "Recently opened notes" }));
+    const panel = await screen.findByRole("menu", { name: "Recently opened notes" });
+    expect(screen.getAllByRole("menuitem").map((item) => item.textContent)).toEqual([
+      "Work note",
+      "Un-attributed note",
+    ]);
+    // The qualified id keeps its vault in the route, so the link opens the right vault's note.
+    expect(screen.getByRole("menuitem", { name: "Work note" })).toHaveAttribute(
+      "href",
+      "/notes/work~1",
+    );
+  });
+
+  it("keeps the full history when the scope is the launch vault", async () => {
+    window.localStorage.setItem(
+      "track.recent",
+      JSON.stringify([
+        { id: "work~1", title: "Work note" },
+        { id: "home~2", title: "Home note" },
+      ]),
+    );
+    renderHistory();
+
+    fireEvent.pointerEnter(screen.getByRole("button", { name: "Recently opened notes" }));
+    const panel = await screen.findByRole("menu", { name: "Recently opened notes" });
+    expect(screen.getAllByRole("menuitem").map((item) => item.textContent)).toEqual([
+      "Work note",
+      "Home note",
+    ]);
   });
 });
