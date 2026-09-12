@@ -136,6 +136,21 @@ public final class NoteReaderModel {
         saveConflict = nil
     }
 
+    /// Close the open note (web "close tab" → empty reader): clears the id,
+    /// buffers and write state so the detail falls back to the start page.
+    public func close() {
+        state = .empty
+        currentID = nil
+        renderedBody = ""
+        renderedIncludes = nil
+        didRender = false
+        anchoredExcerpt = nil
+        draftBody = ""
+        isEditing = false
+        saveError = nil
+        saveConflict = nil
+    }
+
     // MARK: - Writes (web NoteEditor / NoteMetaDialog / NoteActionsMenu parity)
 
     /// Dismiss the write-failure banner.

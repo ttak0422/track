@@ -102,6 +102,12 @@ public struct TrackClient: Sendable {
         try await get(path: "/api/ogp", query: [URLQueryItem(name: "url", value: url)])
     }
 
+    /// `GET /api/follow`: where the Neovim editor is (api.ts: getFollowState).
+    /// Best-effort: `active` is false while the editor side has not published.
+    public func getFollowState() async throws -> FollowResponse {
+        try await get(path: "/api/follow")
+    }
+
     /// `POST /api/note/read`: records a shared reading milestone on the note's
     /// sidecar (api.ts via reading.ts: postReadEvent). Unlike the web's
     /// fire-and-forget variant, a failure throws so callers can decide.
