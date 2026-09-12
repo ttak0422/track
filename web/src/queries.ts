@@ -49,7 +49,7 @@ export const queryKeys = {
   datedTasks: () => ["tasks", "dated"] as const,
   openTasks: () => ["tasks", "open"] as const,
   resolve: (term: string, vault = "") => ["resolve", vault, term] as const,
-  search: (query: string, limit: number) => ["search", query, limit] as const,
+  search: (query: string, limit: number, vault = "") => ["search", vault, query, limit] as const,
   vaults: () => ["vaults"] as const,
   ogp: (url: string) => ["ogp", url] as const,
   render: (body: string, vault = "") => ["render", vault, body] as const,
@@ -112,10 +112,14 @@ export function useAssetTextQuery(href: string, enabled = true) {
   });
 }
 
-export function useSearchQuery(query: string, limit = 100, options?: { enabled?: boolean }) {
+// useSearchQuery searches within the working vault when one is selected ("" is
+// the launch vault), and federates across every served vault when scope is the
+// launch one. The vault rides in the key, so switching scope refetches instead
+// of reusing another vault's results.
+export function useSearchQuery(query: string, limit = 100, vault = "", options?: { enabled?: boolean }) {
   return useQuery({
-    queryKey: queryKeys.search(query, limit),
-    queryFn: () => searchNotes(query, limit),
+    queryKey: queryKeys.search(query, limit, vault),
+    queryFn: () => searchNotes(query, limit, vault),
     enabled: options?.enabled ?? true,
   });
 }

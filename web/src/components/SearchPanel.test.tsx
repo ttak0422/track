@@ -41,12 +41,34 @@ const searchState = vi.hoisted(() => ({
   ] as MockResult[],
 }));
 
-vi.mock("../queries", () => ({
-  useSearchQuery: () => ({
-    data: { results: searchState.results, unavailable: [] },
+// The panel reads the working vault from the scope provider; the holder lets a test pick the scope
+// the search is narrowed to. The scope mock keeps the rest of the shape the context exposes.
+const scopeHolder = vi.hoisted(() => ({ scope: "" }));
+
+// Every useSearchQuery call is recorded so a test can assert what the panel asked for, while the
+// hoisted defaults keep the result rendering exactly as it always has.
+const searchCalls = vi.hoisted(() => [] as unknown[][]);
+
+vi.mock("../vaultScope", () => ({
+  useVaultScope: () => ({
+    scope: scopeHolder.scope,
+    setScope: () => {},
+    activeName: "",
+    vaults: [],
+    unavailable: [],
     isPending: false,
-    isError: false,
   }),
+}));
+
+vi.mock("../queries", () => ({
+  useSearchQuery: (...args: unknown[]) => {
+    searchCalls.push(args);
+    return {
+      data: { results: searchState.results, unavailable: [] },
+      isPending: false,
+      isError: false,
+    };
+  },
 }));
 
 // Every result row carries a float button, which asks the layer for a window — so the panel only
@@ -69,6 +91,27 @@ function FloatingCount() {
 describe("SearchPanel groups", () => {
   afterEach(() => {
     routerMock.pathname = "/";
+    scopeHolder.scope = "";
+    searchCalls.length = 0;
+  });
+
+  // A selected working vault narrows the search to that vault: the panel passes the scope into the
+  // query, whose key then names the vault (so switching scope refetches rather than reusing another
+  // vault's hits). The debounced query is "1785024006000", the shared search-state mock's value.
+  it("narrows the search to the working vault when a scope is set", () => {
+    scopeHolder.scope = "work";
+    renderPanel(<SearchPanel />);
+
+    expect(searchCalls).toEqual([["1785024006000", 100, "work", { enabled: true }]]);
+  });
+
+  // The launch vault ("") means the scope is not set, so the search stays federated across every
+  // served vault — the server's no-?vault= behaviour.
+  it("keeps the search federated when the scope is the launch vault", () => {
+    scopeHolder.scope = "";
+    renderPanel(<SearchPanel />);
+
+    expect(searchCalls).toEqual([["1785024006000", 100, "", { enabled: true }]]);
   });
 
   // A file-name hit used to fall into Titles, because that group was everything that was not a body

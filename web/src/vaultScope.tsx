@@ -4,10 +4,10 @@ import { STATIC_MODE } from "./runtime";
 import type { UnavailableVault, VaultEntry } from "./types";
 
 // The working vault: the default scope for the actions that need exactly one
-// vault (opening today's journal), now that the workspace reads all of them.
-// "" is the launch vault — what every ?vault=-taking endpoint does with a
-// missing parameter — so callers pass scope straight through without
-// branching. Search stays federated and takes no scope.
+// vault (opening today's journal, searching), now that the workspace reads all
+// of them. "" is the launch vault — what every ?vault=-taking endpoint does
+// with a missing parameter — so callers pass scope straight through without
+// branching.
 const storageKey = "track.vault-scope";
 
 interface VaultScope {

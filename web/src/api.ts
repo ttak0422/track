@@ -131,12 +131,14 @@ async function staticData<T>(path: string): Promise<T> {
 
 const readOnly = () => Promise.reject(new Error("read-only static site"));
 
-export function searchNotes(query: string, limit = 100): Promise<SearchResponse> {
+// searchNotes searches one vault or the whole workspace: vault names the vault
+// to narrow to, "" keeps the federated search across every served vault.
+export function searchNotes(query: string, limit = 100, vault = ""): Promise<SearchResponse> {
   if (STATIC_MODE) {
     return staticSearch(query, limit);
   }
   const params = new URLSearchParams({ limit: String(limit), q: query });
-  return api<SearchResponse>(`/api/search?${params}`).then((data) => {
+  return api<SearchResponse>(`/api/search?${params}${vaultParams(vault)}`).then((data) => {
     adoptReadState(data.results);
     return data;
   });
