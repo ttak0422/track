@@ -131,11 +131,12 @@ describe("tab strip", () => {
   });
 
   // The vault a note came from names the tab, it does not control anything: it joins the shared
-  // section label recipe (design.md variant 6) and keeps only its own spacing.
+  // section label recipe (design.md variant 6) and keeps only its own spacing. The switcher toggle
+  // wears the same label, with its own spacing reset.
   it("writes the vault name as a section label, not a filled badge", () => {
     const rules = [...css.matchAll(/\.tab-vault[^{]*\{([^}]*)\}/g)].map((m) => m[1]);
 
-    expect(rules).toHaveLength(3);
+    expect(rules).toHaveLength(4);
     expect(rules[0]).toMatch(/text-transform:\s*uppercase/);
     for (const rule of rules.slice(1)) {
       expect(rule).not.toMatch(/background|border-radius|padding/);

@@ -16,6 +16,7 @@ import {
   listNewNotes,
   listNotes,
   listOpenTasks,
+  listVaults,
   renderMarkdown,
   renderViewSpec,
   resolveTerm,
@@ -49,6 +50,7 @@ export const queryKeys = {
   openTasks: () => ["tasks", "open"] as const,
   resolve: (term: string, vault = "") => ["resolve", vault, term] as const,
   search: (query: string, limit: number) => ["search", query, limit] as const,
+  vaults: () => ["vaults"] as const,
   ogp: (url: string) => ["ogp", url] as const,
   render: (body: string, vault = "") => ["render", vault, body] as const,
   assetText: (href: string) => ["assetText", href] as const,
@@ -70,6 +72,19 @@ export function useAgendaQuery(date: string, vault = "", options?: { enabled?: b
     queryKey: queryKeys.agenda(date, vault),
     queryFn: () => getAgenda(date, vault),
     enabled: (options?.enabled ?? true) && date !== "",
+  });
+}
+
+// useVaultsQuery lists the vaults the workspace serves for the tab strip's
+// switcher. Live only: the published bundle is one vault, so the switcher
+// never mounts there. A vault can go away mid-session (unmounted drive), so
+// this is refetched on an interval rather than held for the session.
+export function useVaultsQuery(enabled = !STATIC_MODE) {
+  return useQuery({
+    queryKey: queryKeys.vaults(),
+    queryFn: listVaults,
+    enabled,
+    staleTime: 30_000,
   });
 }
 

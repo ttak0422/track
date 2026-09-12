@@ -51,6 +51,23 @@ export interface UnavailableVault {
   error?: string;
 }
 
+// One vault the workspace serves, as listed by /api/vaults: its registry name
+// ("" for an unregistered launch vault), its configured path, and whether it
+// is the vault track web was launched in.
+export interface VaultEntry {
+  name: string;
+  path: string;
+  active: boolean;
+}
+
+// The workspace's vault listing: the launch vault, every served vault with
+// the launch vault marked, and the registered vaults that could not be read.
+export interface VaultsResponse {
+  active: { name: string; path: string };
+  vaults: VaultEntry[];
+  unavailable?: UnavailableVault[];
+}
+
 export interface SearchResponse {
   results: SearchResult[];
   unavailable?: UnavailableVault[];

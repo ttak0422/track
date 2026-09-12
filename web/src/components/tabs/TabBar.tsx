@@ -3,6 +3,7 @@ import { type MouseEvent, useCallback, useEffect, useLayoutEffect, useRef, useSt
 import type { NoteID } from "../../types";
 import { vaultOf } from "../../vaultId";
 import { FloatNoteButton } from "../preview/FloatNoteButton";
+import { VaultSwitcher } from "../VaultSwitcher";
 import { isViewTab, type NoteTab, tabRoute, useTabs } from "./tabsStore";
 import { IconChevronDown, IconX, RailIcon } from "../icons";
 
@@ -10,7 +11,8 @@ import { IconChevronDown, IconX, RailIcon } from "../icons";
 // so the note being read is always the leftmost tab and never in the overflow. The strip shows every
 // tab that fits — the count is measured, not fixed — and sends the rest to the +N menu at its right
 // end rather than scrolling sideways. Each tab's controls (float, close) hang under it on hover; only
-// the unsaved-changes dot stays inline.
+// the unsaved-changes dot stays inline. The working vault's switcher rides the strip's own right end,
+// so the selected vault stays visible even with no tabs open.
 export function TabBar() {
   const { tabs, activeID, dirtyID, close } = useTabs();
   const navigate = useNavigate();
@@ -54,7 +56,8 @@ export function TabBar() {
     }
   });
 
-  if (tabs.length === 0) return null;
+  const visible = tabs.slice(0, shown);
+  const hidden = tabs.slice(shown);
 
   function openTab(id: NoteID) {
     void navigate(tabRoute(id));
@@ -68,12 +71,10 @@ export function TabBar() {
     }
   }
 
-  const visible = tabs.slice(0, shown);
-  const hidden = tabs.slice(shown);
-
   return (
     <div className="tabstrip">
-      <div className="tabbar" role="list" aria-label="Open notes" ref={observeStrip}>
+      {visible.length > 0 ? (
+        <div className="tabbar" role="list" aria-label="Open notes" ref={observeStrip}>
         {visible.map((tab) => {
           const active = tab.id === activeID;
           const label = tab.title || "Untitled";
@@ -126,8 +127,10 @@ export function TabBar() {
             </div>
           );
         })}
-      </div>
+        </div>
+      ) : null}
       {hidden.length > 0 ? <TabOverflow tabs={hidden} onOpen={openTab} onClose={close} /> : null}
+      <VaultSwitcher />
     </div>
   );
 }

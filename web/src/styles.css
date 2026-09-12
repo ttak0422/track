@@ -1787,6 +1787,114 @@ a.calendar-title:focus-visible {
   background: var(--panel-soft);
 }
 
+/* The working vault switcher at the strip's right end: the selected vault's
+   name, always visible while tabs come and go. The toggle is a text control
+   (variant 1) carrying the vault name in the section label recipe (variant 6,
+   the same treatment tabs wear); the menu is a floating layer (variant 3)
+   mirroring the +N overflow panel beside it. No per-vault color: the chrome's
+   whole colour budget is the one --mark salient. */
+.vault-switcher {
+  position: relative;
+  display: flex;
+  flex: none;
+  align-items: center;
+  padding-right: 8px;
+}
+
+/* text control */
+.vault-switcher-toggle {
+  display: flex;
+  align-items: center;
+  border: 0;
+  padding: 8px 6px;
+  color: var(--muted);
+  background: transparent;
+  white-space: nowrap;
+  cursor: pointer;
+}
+
+.vault-switcher-toggle .tab-vault {
+  margin-right: 0;
+}
+
+.vault-switcher-toggle:hover,
+.vault-switcher-toggle:focus-visible,
+.vault-switcher-toggle[aria-expanded="true"] {
+  color: var(--text);
+}
+
+/* floating layer */
+.vault-switcher-panel {
+  position: absolute;
+  z-index: 30;
+  top: calc(100% + 4px);
+  right: 4px;
+  display: flex;
+  width: 260px;
+  max-height: 60vh;
+  flex-direction: column;
+  overflow-y: auto;
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  padding: 6px;
+  background: var(--panel);
+  box-shadow: 0 16px 38px color-mix(in srgb, #000 18%, transparent);
+  scrollbar-width: none;
+}
+
+.vault-switcher-panel::-webkit-scrollbar {
+  display: none;
+}
+
+.vault-switcher-item {
+  display: flex;
+  align-items: center;
+  border-radius: var(--radius-sm);
+}
+
+.vault-switcher-item:hover,
+.vault-switcher-item:focus-within {
+  background: var(--panel-soft);
+}
+
+.vault-switcher-open {
+  display: flex;
+  overflow: hidden;
+  flex: 1;
+  min-width: 0;
+  gap: 8px;
+  align-items: baseline;
+  border: 0;
+  padding: 7px 8px;
+  color: var(--muted);
+  background: transparent;
+  font-size: calc(13px * var(--font-scale, 1));
+  text-align: left;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  cursor: pointer;
+}
+
+.vault-switcher-open:hover,
+.vault-switcher-open:focus-visible {
+  color: var(--text);
+}
+
+.vault-switcher-open[aria-current="true"] {
+  color: var(--text);
+  font-weight: 500;
+}
+
+.vault-switcher-open:disabled {
+  cursor: default;
+}
+
+.vault-switcher-launch {
+  flex: none;
+  color: var(--faint);
+  font-size: calc(11px * var(--font-scale, 1));
+}
+
 .tab-label {
   display: flex;
   flex: 1;

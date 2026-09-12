@@ -368,6 +368,57 @@ func TestSearchReportsAnUnreachableVault(t *testing.T) {
 	}
 }
 
+func TestVaultsEndpointListsServedVaults(t *testing.T) {
+	server, _, work := twoVaultServer(t)
+
+	out := getVaultJSON(t, server.URL+"/api/vaults")
+	active, ok := out["active"].(map[string]any)
+	if !ok || active["name"] != "main" {
+		t.Fatalf("active must name the launch vault, got %v", out["active"])
+	}
+	if active["path"] == "" {
+		t.Fatalf("active must carry its path, got %v", active)
+	}
+	vaults, ok := out["vaults"].([]any)
+	if !ok || len(vaults) != 2 {
+		t.Fatalf("expected both served vaults, got %v", out["vaults"])
+	}
+	first := vaults[0].(map[string]any)
+	if first["active"] != true {
+		t.Fatalf("the launch vault comes first and marked active, got %v", vaults)
+	}
+	seen := map[string]bool{}
+	for _, raw := range vaults {
+		entry := raw.(map[string]any)
+		name, _ := entry["name"].(string)
+		seen[name] = entry["active"] == (name == "main")
+		if entry["path"] == "" {
+			t.Fatalf("every vault carries its path, got %v", entry)
+		}
+	}
+	if !seen["main"] || !seen["work"] {
+		t.Fatalf("both vaults must be listed with the right active mark, got %v", vaults)
+	}
+	if gaps, ok := out["unavailable"].([]any); !ok || len(gaps) != 0 {
+		t.Fatalf("reachable vaults leave no gaps, got %v", out["unavailable"])
+	}
+
+	// A vault that goes away mid-session moves from vaults to unavailable
+	// rather than vanishing: the workspace re-checks reachability on every
+	// listing instead of trusting its cached index handle.
+	if err := os.RemoveAll(work); err != nil {
+		t.Fatal(err)
+	}
+	out = getVaultJSON(t, server.URL+"/api/vaults")
+	if vaults := out["vaults"].([]any); len(vaults) != 1 {
+		t.Fatalf("only the reachable vault stays listed, got %v", vaults)
+	}
+	gaps := out["unavailable"].([]any)
+	if len(gaps) != 1 || gaps[0].(map[string]any)["name"] != "work" {
+		t.Fatalf("the vault that went away must be reported, got %v", out["unavailable"])
+	}
+}
+
 // mustView opens a served vault's view directly, for the tests that need the handle behind an
 // endpoint rather than the answers it gives.
 func mustView(t *testing.T, srv *Server, name string) *vaultView {

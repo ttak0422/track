@@ -20,10 +20,27 @@ import { NotificationToast } from "../notifications";
 import { NoteRailControls } from "./NoteRailControls";
 import { RailTip } from "./RailTip";
 import { SearchProvider } from "../searchState";
+import { VaultScopeProvider, useVaultScope } from "../vaultScope";
 import { IconAffiliate, IconCalendar, IconChecklist, IconNotebook, RailIcon } from "./icons";
 import { IconMicrophone } from "@tabler/icons-react";
 
 export function Shell() {
+  return (
+    <SearchProvider>
+      <NoteControlsProvider>
+      <FloatingProvider>
+      <TabsProvider>
+      <VaultScopeProvider>
+      <ShellView />
+      </VaultScopeProvider>
+      </TabsProvider>
+      </FloatingProvider>
+      </NoteControlsProvider>
+    </SearchProvider>
+  );
+}
+
+function ShellView() {
   const pathname = useRouterState({ select: (state) => state.location.pathname });
   // Normalize a trailing slash: the prerendered static site serves routes as directories (/graph/).
   const path = pathname.replace(/\/$/, "") || "/";
@@ -49,14 +66,16 @@ export function Shell() {
   const showCalendar = !STATIC_MODE || site.data?.calendar === true;
 
   // Open (creating if needed) today's journal and jump to it, mirroring how the activity heatmap opens a
-  // day. The local-time YYYY-MM-DD key matches the journal id the server derives from the date.
+  // day. The local-time YYYY-MM-DD key matches the journal id the server derives from the date. The
+  // journal opens in the working vault: a journal id is the date, so every vault has one for today.
+  const { scope } = useVaultScope();
   async function openTodayJournal() {
     const now = new Date();
     const date = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}-${String(
       now.getDate(),
     ).padStart(2, "0")}`;
     try {
-      const { note_id } = await openJournal(date);
+      const { note_id } = await openJournal(date, scope);
       navigate({ to: "/notes/$noteId", params: { noteId: String(note_id) } });
     } catch {
       // A failed open simply leaves the user on the current view.
@@ -64,10 +83,6 @@ export function Shell() {
   }
 
   return (
-    <SearchProvider>
-      <NoteControlsProvider>
-      <FloatingProvider>
-      <TabsProvider>
       <main className={`workspace${isHero ? " home" : ""}`}>
           <aside className="sidebar">
             <nav className="activity-rail" aria-label="Workspace views">
@@ -146,9 +161,5 @@ export function Shell() {
         <NotificationToast />
         <MobileDock />
       </main>
-      </TabsProvider>
-      </FloatingProvider>
-      </NoteControlsProvider>
-    </SearchProvider>
   );
 }
