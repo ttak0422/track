@@ -168,6 +168,7 @@ public struct CalendarView: View {
     @State private var model: CalendarModel
     @State private var monthlyJournal: JournalPreview?
     @State private var monthlyJournalError: String?
+    @State private var dayJumpText = ""
     @State private var isLoadingMonthlyJournal = false
     @State private var openedNoteID: TrackID?
     @State private var isShowingNote = false
@@ -230,6 +231,12 @@ public struct CalendarView: View {
                 Text(monthTitle).font(.headline)
             }
             Spacer()
+            TextField("YYYY-MM-DD", text: $dayJumpText)
+                .textFieldStyle(.roundedBorder)
+                .frame(width: 110)
+                .font(.caption)
+                .onSubmit(jumpToDay)
+                .help("Open day (web /day/$date)")
             Button("Today") { model.month = Calendar.current.startOfDay(for: Date()) }
                 .buttonStyle(.plain)
                 .font(.caption)
@@ -292,6 +299,20 @@ public struct CalendarView: View {
         } else {
             model.selectedDay = key
         }
+    }
+
+    /// Day jump (web `/day/$date` parity): typing a YYYY-MM-DD date moves the
+    /// month grid and selects the day's agenda, even when the day has no notes
+    /// or tasks yet (so its journal can be opened from there).
+    private func jumpToDay() {
+        let key = dayJumpText.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard key.range(of: #"^\d{4}-\d{2}-\d{2}$"#, options: .regularExpression) != nil else { return }
+        let f = DateFormatter()
+        f.dateFormat = "yyyy-MM-dd"
+        f.locale = Locale(identifier: "en_US_POSIX")
+        if let date = f.date(from: key) { model.month = date }
+        model.selectedDay = key
+        dayJumpText = ""
     }
 
     private var agenda: some View {

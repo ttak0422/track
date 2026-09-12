@@ -18,7 +18,9 @@ import WebKit
 // and plain blockquotes. Rich fences are drawn as FigureHost
 // islands (mermaid/math/echarts/viewspec, plus dot/graphviz/d2/drawio/map via
 // the same shell and a ```track-view JSON payload as native SwiftUI);
-// track-query is still collapsed to a placeholder line.
+// ```track-query is expanded server-side by `/api/render` into ```track-view,
+// and the raw fallback keeps the fence as a code block (web QueryView's
+// "show the source" fallback).
 // `$` math lines and `![[...]]` include lines are lifted out of the prose, and
 // `[[wikilink]]` targets are rewritten to `trackwiki://` standard links. Inline
 // trackwiki links navigate through the `\.openURL` environment installed by the
@@ -311,11 +313,12 @@ public struct GFMBody: View {
     ]
 
     /// Fences the native app still cannot draw — collapsed to a placeholder.
-    /// taskboard and dashboard are handled as figures above; track-query still
-    /// needs the server's laid-out result.
-    private static let placeholderFences: Set<String> = [
-        "taskboard", "track-query",
-    ]
+    /// `track-query` used to be here, but `/api/render` already expands it
+    /// server-side into a ```track-view fence (drawn natively below), and the
+    /// raw fallback now keeps the fence as a code block — the web QueryView's
+    /// "show the source" fallback — instead of a placeholder line. `taskboard`
+    /// is a real figure above, so nothing remains unrenderable here.
+    private static let placeholderFences: Set<String> = []
 
     /// Split `markdown` into an ordered run of Markdown spans, media embeds,
     /// and figure segments. `includes` (resolved `![[...]]` directives,

@@ -7,11 +7,10 @@ private struct GraphPreview: Identifiable {
 }
 
 // Graph surfaces mirroring the web's full graph and one-hop local graph
-// (docs/spec/web.md). This native MVP renders nodes as a sortable title list —
-// no Canvas force-directed layout. The full graph lists nodes by link degree
-// (descending); the local graph shows the center plus its one-hop neighbours.
-// Node taps hand the raw note id string to `onSelect`; TrackID resolution is
-// the caller's job.
+// (docs/spec/web.md). Both views offer the pannable/zoomable GraphCanvas
+// (force-directed node-link drawing, web GraphCanvas parity) with the
+// degree-ranked title list kept as a List fallback. Node taps hand the raw
+// note id string to `onSelect`; TrackID resolution is the caller's job.
 
 // MARK: - Graph model
 
@@ -152,6 +151,7 @@ public struct GraphFullView: View {
     @State private var selectedID: TrackID?
     @State private var centerShown = true
     @State private var hoveredNode: GraphPreview?
+    @State private var useCanvas = true
 
     public init(model: GraphModel, onSelect: @escaping (String) -> Void = { _ in }) {
         self.model = model
@@ -171,6 +171,25 @@ public struct GraphFullView: View {
                 let shown = GraphModel.overview(graph)
                 let nodes = GraphModel.nodesByDegree(shown.nodes, edges: shown.edges)
                 let mark = TrackTheme.palette(for: colorScheme).mark
+                Picker("Graph style", selection: $useCanvas) {
+                    Text("Canvas").tag(true)
+                    Text("List").tag(false)
+                }
+                .pickerStyle(.segmented)
+                .labelsHidden()
+                .padding(.horizontal, 12)
+                .padding(.vertical, 4)
+                if useCanvas {
+                    GraphCanvas(nodes: shown.nodes, edges: shown.edges, selectedID: selectedID) { raw in
+                        selectedID = shown.nodes.first { $0.noteID.raw == raw }?.noteID
+                        onSelect(raw)
+                    }
+                    Text(Self.caption(drawn: nodes.count, hidden: shown.hidden))
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                        .padding(.horizontal, 12)
+                        .padding(.bottom, 4)
+                } else {
                 List {
                     Section {
                         ForEach(nodes, id: \.noteID) { node in
@@ -217,6 +236,7 @@ public struct GraphFullView: View {
                         }
                     }
                 }
+                }
             }
         }
         .task { await model.loadFull() }
@@ -262,6 +282,253 @@ public struct GraphFullView: View {
     }
 }
 
+// MARK: - Graph canvas (force-directed)
+
+/// A pannable/zoomable node-link canvas (web GraphCanvas parity): the same
+/// nodes/edges the list views show, laid out by a small deterministic force
+/// simulation (repulsion + springs + gravity) and drawn in one SwiftUI
+/// Canvas. Node taps select via `onSelect`; labels mirror the list's rule
+/// (first 12 by degree, center, selected).
+struct GraphCanvas: View {
+    let nodes: [GraphNode]
+    let edges: [GraphEdge]
+    let centerID: TrackID?
+    let selectedID: TrackID?
+    let onSelect: (String) -> Void
+    @Environment(\.colorScheme) private var colorScheme
+    @State private var scale: CGFloat = 1
+    @State private var baseScale: CGFloat = 1
+    @State private var offset: CGSize = .zero
+    @State private var lastDrag: CGSize = .zero
+
+    /// Force layout stays interactive: past this many nodes only the
+    /// best-connected slice is drawn (the list keeps the full ranking).
+    static let nodeCap = 300
+
+    init(nodes: [GraphNode], edges: [GraphEdge], centerID: TrackID? = nil, selectedID: TrackID? = nil, onSelect: @escaping (String) -> Void = { _ in }) {
+        self.nodes = nodes
+        self.edges = edges
+        self.centerID = centerID
+        self.selectedID = selectedID
+        self.onSelect = onSelect
+    }
+
+    /// The drawn slice: best-connected first, edges reduced to it.
+    var drawn: (nodes: [GraphNode], edges: [GraphEdge]) {
+        let ranked = GraphModel.nodesByDegree(nodes, edges: edges)
+        let kept = Array(ranked.prefix(Self.nodeCap))
+        let ids = Set(kept.map(\.noteID))
+        let keptEdges = edges.filter { ids.contains($0.sourceID) && ids.contains($0.targetID) }
+        return (kept, keptEdges)
+    }
+
+    var body: some View {
+        let (kept, keptEdges) = drawn
+        let positions = GraphCanvasLayout.layout(nodes: kept, edges: keptEdges, centerID: centerID)
+        let degrees = Dictionary(uniqueKeysWithValues: kept.map { ($0.noteID, GraphModel.degree(of: $0.noteID, in: keptEdges)) })
+        GeometryReader { proxy in
+            let size = proxy.size
+            ZStack {
+                Canvas { ctx, _ in
+                    let t = transform(for: size, positions: positions)
+                    for edge in keptEdges {
+                        guard let a = positions[edge.sourceID].map({ t.apply($0) }),
+                              let b = positions[edge.targetID].map({ t.apply($0) }) else { continue }
+                        var path = Path()
+                        path.move(to: a)
+                        path.addLine(to: b)
+                        ctx.stroke(path, with: .color(.secondary.opacity(0.5)), lineWidth: 0.75)
+                    }
+                    let mark = TrackTheme.palette(for: colorScheme).mark
+                    for node in kept {
+                        guard let p = positions[node.noteID].map({ t.apply($0) }) else { continue }
+                        let degree = degrees[node.noteID] ?? 0
+                        let r = GraphCanvasLayout.radius(for: node, degree: degree, isCenter: node.noteID == centerID) * t.scale
+                        let rect = CGRect(x: p.x - r, y: p.y - r, width: r * 2, height: r * 2)
+                        if node.noteID == centerID {
+                            ctx.fill(Path(ellipseIn: rect), with: .color(mark))
+                        } else {
+                            ctx.fill(Path(ellipseIn: rect), with: .color(.secondary.opacity(0.35)))
+                        }
+                        if node.noteID == selectedID {
+                            ctx.stroke(Path(ellipseIn: rect.insetBy(dx: -3, dy: -3)), with: .color(mark), lineWidth: 2)
+                        }
+                    }
+                }
+                .contentShape(Rectangle())
+                ForEach(labeledNodes(kept), id: \.noteID) { node in
+                    if let p = positions[node.noteID].map({ transform(for: size, positions: positions).apply($0) }) {
+                        Text(node.title)
+                            .font(.caption2)
+                            .lineLimit(1)
+                            .padding(.horizontal, 4)
+                            .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 4))
+                            .position(x: p.x, y: p.y - 12)
+                            .allowsHitTesting(false)
+                    }
+                }
+            }
+            .gesture(pan.simultaneously(with: zoom))
+            .onTapGesture(count: 1, coordinateSpace: .local) { location in
+                tap(at: location, size: size, positions: positions)
+            }
+            .overlay(alignment: .topTrailing) {
+                HStack(spacing: 8) {
+                    if kept.count < nodes.count {
+                        Text("\(kept.count) drawn・\(nodes.count - kept.count) hidden")
+                            .font(.caption2)
+                            .foregroundStyle(.secondary)
+                    }
+                    Button("Reset view") {
+                        scale = 1
+                        baseScale = 1
+                        offset = .zero
+                    }
+                    .buttonStyle(.plain)
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                }
+                .padding(8)
+            }
+        }
+    }
+
+    private var pan: some Gesture {
+        DragGesture()
+            .onChanged { value in
+                offset = CGSize(width: offset.width + value.translation.width - lastDrag.width,
+                                height: offset.height + value.translation.height - lastDrag.height)
+                lastDrag = value.translation
+            }
+            .onEnded { _ in lastDrag = .zero }
+    }
+
+    private var zoom: some Gesture {
+        MagnifyGesture()
+            .onChanged { scale = min(4, max(0.3, baseScale * $0.magnification)) }
+            .onEnded { _ in baseScale = scale }
+    }
+
+    private func labeledNodes(_ kept: [GraphNode]) -> [GraphNode] {
+        kept.enumerated().compactMap { index, node in
+            (index < 12 || node.noteID == centerID || node.noteID == selectedID) ? node : nil
+        }
+    }
+
+    private struct CanvasTransform {
+        let scale: CGFloat
+        let origin: CGPoint
+        func apply(_ p: CGPoint) -> CGPoint {
+            CGPoint(x: origin.x + p.x * scale, y: origin.y + p.y * scale)
+        }
+        func invert(_ p: CGPoint) -> CGPoint {
+            CGPoint(x: (p.x - origin.x) / scale, y: (p.y - origin.y) / scale)
+        }
+    }
+
+    private func transform(for size: CGSize, positions: [TrackID: CGPoint]) -> CanvasTransform {
+        let xs = positions.values.map(\.x)
+        let ys = positions.values.map(\.y)
+        let minX = xs.min() ?? -1, maxX = xs.max() ?? 1
+        let minY = ys.min() ?? -1, maxY = ys.max() ?? 1
+        let span = max(maxX - minX, maxY - minY, 0.001)
+        let base = min(size.width, size.height) * 0.42 / span
+        let s = base * scale
+        let cx = (minX + maxX) / 2, cy = (minY + maxY) / 2
+        let origin = CGPoint(x: size.width / 2 - cx * s + offset.width,
+                             y: size.height / 2 - cy * s + offset.height)
+        return CanvasTransform(scale: s, origin: origin)
+    }
+
+    private func tap(at location: CGPoint, size: CGSize, positions: [TrackID: CGPoint]) {
+        let t = transform(for: size, positions: positions)
+        let local = t.invert(location)
+        var best: GraphNode?
+        var bestDist = CGFloat.greatestFiniteMagnitude
+        for node in drawn.nodes {
+            guard let p = positions[node.noteID] else { continue }
+            let d = hypot(p.x - local.x, p.y - local.y)
+            if d < bestDist { bestDist = d; best = node }
+        }
+        guard let node = best else { return }
+        let degree = GraphModel.degree(of: node.noteID, in: drawn.edges)
+        let r = GraphCanvasLayout.radius(for: node, degree: degree, isCenter: node.noteID == centerID)
+        if bestDist <= r + 12 / t.scale {
+            onSelect(node.noteID.raw)
+        }
+    }
+}
+
+/// Deterministic force layout for GraphCanvas: circle start (index order),
+/// then repulsion + edge springs + weak gravity with damping. The center node
+/// of a local graph stays pinned at the origin.
+enum GraphCanvasLayout {
+    static func layout(nodes: [GraphNode], edges: [GraphEdge], centerID: TrackID?) -> [TrackID: CGPoint] {
+        let ordered = nodes.sorted { $0.noteID.raw < $1.noteID.raw }
+        let n = ordered.count
+        guard n > 0 else { return [:] }
+        if n == 1 { return [ordered[0].noteID: .zero] }
+        var pos: [TrackID: CGPoint] = [:]
+        for (i, node) in ordered.enumerated() {
+            let a = 2 * Double.pi * Double(i) / Double(n)
+            pos[node.noteID] = CGPoint(x: cos(a), y: sin(a))
+        }
+        var vel: [TrackID: CGVector] = Dictionary(uniqueKeysWithValues: ordered.map { ($0.noteID, CGVector(dx: 0, dy: 0)) })
+        let ticks = n > 250 ? 40 : 100
+        let rest = 1.1
+        for _ in 0..<ticks {
+            var force: [TrackID: CGVector] = Dictionary(uniqueKeysWithValues: ordered.map { ($0.noteID, CGVector(dx: 0, dy: 0)) })
+            for i in 0..<n {
+                for j in (i + 1)..<n {
+                    let a = ordered[i].noteID, b = ordered[j].noteID
+                    let pa = pos[a] ?? .zero, pb = pos[b] ?? .zero
+                    var dx = pa.x - pb.x, dy = pa.y - pb.y
+                    var dist2 = dx * dx + dy * dy
+                    if dist2 < 0.0001 {
+                        dx = 0.01 * Double(i - j); dy = 0.01 * Double(j - i)
+                        dist2 = dx * dx + dy * dy
+                    }
+                    let dist = sqrt(dist2)
+                    let f = min(0.9 / dist2, 2)
+                    let fx = f * dx / dist, fy = f * dy / dist
+                    force[a]?.dx += fx; force[a]?.dy += fy
+                    force[b]?.dx -= fx; force[b]?.dy -= fy
+                }
+            }
+            for e in edges {
+                guard pos[e.sourceID] != nil, pos[e.targetID] != nil else { continue }
+                let a = e.sourceID, b = e.targetID
+                let dx = (pos[b]?.x ?? 0) - (pos[a]?.x ?? 0)
+                let dy = (pos[b]?.y ?? 0) - (pos[a]?.y ?? 0)
+                let dist = max(sqrt(dx * dx + dy * dy), 0.001)
+                let f = 0.03 * (dist - rest)
+                let fx = f * dx / dist, fy = f * dy / dist
+                force[a]?.dx += fx; force[a]?.dy += fy
+                force[b]?.dx -= fx; force[b]?.dy -= fy
+            }
+            for node in ordered {
+                let id = node.noteID
+                if id == centerID { pos[id] = .zero; vel[id] = CGVector(dx: 0, dy: 0); continue }
+                var v = vel[id] ?? CGVector(dx: 0, dy: 0)
+                var f = force[id] ?? CGVector(dx: 0, dy: 0)
+                let p = pos[id] ?? .zero
+                f.dx += -0.02 * p.x; f.dy += -0.02 * p.y
+                v.dx = (v.dx + f.dx) * 0.82; v.dy = (v.dy + f.dy) * 0.82
+                vel[id] = v
+                pos[id] = CGPoint(x: p.x + v.dx, y: p.y + v.dy)
+            }
+        }
+        return pos
+    }
+
+    /// Node radius in layout units, mirroring the list's grade/degree sizing.
+    static func radius(for node: GraphNode, degree: Int, isCenter: Bool) -> CGFloat {
+        let grade = node.size.flatMap { (1...5).contains($0) ? [0.05, 0.075, 0.105, 0.15, 0.21][$0 - 1] : nil }
+        let value = grade ?? (0.07 + min(0.1, sqrt(Double(degree)) * 0.025))
+        return isCenter ? max(0.12, value) : value
+    }
+}
+
 // MARK: - Local graph view
 
 public struct LocalGraphView: View {
@@ -272,6 +539,7 @@ public struct LocalGraphView: View {
     @State private var selectedID: TrackID?
     @State private var centerShown = true
     @State private var hoveredNode: GraphPreview?
+    @State private var useCanvas = true
 
     public init(model: GraphModel, centerID: TrackID, onSelect: @escaping (String) -> Void = { _ in }) {
         self.model = model
@@ -292,6 +560,19 @@ public struct LocalGraphView: View {
                     Text(Self.caption(drawn: graph.nodes.count, hidden: 0))
                         .font(.caption)
                         .foregroundStyle(.secondary)
+                    Picker("Graph style", selection: $useCanvas) {
+                        Text("Canvas").tag(true)
+                        Text("List").tag(false)
+                    }
+                    .pickerStyle(.segmented)
+                    .labelsHidden()
+                    if useCanvas {
+                        GraphCanvas(nodes: graph.nodes, edges: graph.edges, centerID: graph.centerID, selectedID: selectedID) { raw in
+                            selectedID = graph.nodes.first { $0.noteID.raw == raw }?.noteID
+                            onSelect(raw)
+                        }
+                        .frame(minHeight: 280)
+                    }
                     Text("Center").font(.caption).foregroundStyle(.secondary)
                     Button {
                         selectedID = graph.centerID

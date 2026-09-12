@@ -528,6 +528,35 @@ public struct JournalResponse: Codable, Sendable {
     }
 }
 
+// MARK: - Follow (Neovim)
+
+// `GET /api/follow` (`FollowResponse`/`FollowState` in types.ts): where the
+// Neovim editor is. `active` is false when the editor side has not published
+// yet; `state` carries the note + line when it has.
+public struct FollowState: Codable, Sendable {
+    public var noteID: TrackID
+    public var fileKind: String?
+    public var path: String?
+    public var line: Int
+    public var topLine: Int
+    public var lineCount: Int
+    public var updatedAt: String?
+
+    enum CodingKeys: String, CodingKey {
+        case noteID = "note_id"
+        case fileKind = "file_kind"
+        case path, line
+        case topLine = "top_line"
+        case lineCount = "line_count"
+        case updatedAt = "updated_at"
+    }
+}
+
+public struct FollowResponse: Codable, Sendable {
+    public var active: Bool
+    public var state: FollowState?
+}
+
 // MARK: - Link metadata
 
 /// `GET /api/ogp` (`OgpResponse` in types.ts): Open Graph metadata for an

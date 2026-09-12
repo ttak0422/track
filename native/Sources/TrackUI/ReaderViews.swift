@@ -22,6 +22,14 @@ private struct SearchSection: Identifiable {
     var id: String { title }
 }
 
+/// One open note in the detail's tab strip (web tabs/TabBar parity): the id
+/// plus the last title seen for it. Drafts still belong to the single reader
+/// model — switching with unsaved edits asks first, like search results do.
+private struct OpenTab: Identifiable {
+    var id: TrackID
+    var title: String
+}
+
 // MARK: - Search + reader shell
 
 public struct SearchReaderView: View {
@@ -41,6 +49,9 @@ public struct SearchReaderView: View {
     /// The API base URL, kept so the reader can hand it to the GFM renderer
     /// (which builds `/api/asset?...` URLs from it).
     private let baseURL: URL
+    /// The shared API client, kept for pinned preview cards (which load
+    /// outside the reader model).
+    private let client: TrackClient
     /// Recently opened notes (most-recent first), persisted under one key.
     @AppStorage("track.recentNotes") private var recentJSON = "[]"
     /// Local read-state mirror, so NEW badges draw without a server round-trip
@@ -51,6 +62,16 @@ public struct SearchReaderView: View {
     @State private var dismissedChangeAt: Date?
     @State private var readerChangeNotice: String?
     @State private var pendingSearchResult: SearchResult?
+    /// Tab-strip state (web TabBar parity): every note the reader opens lands
+    /// here, whatever path opened it (search, wikilink, aside, follow); the
+    /// strip switches with the same dirty guard as search results.
+    @State private var openTabs: [OpenTab] = []
+    @State private var pendingTabID: TrackID?
+    @State private var pendingCloseID: TrackID?
+    /// Pinned floating previews (web preview/FloatingWindow parity): note ids
+    /// kept as draggable excerpt cards over the detail, opened from search or
+    /// recent rows without leaving the current note.
+    @State private var pinnedIDs: [TrackID] = []
     /// Today's-journal shortcut (web Shell "Today's journal"): failure notice
     /// shown inline under the search field, like a search error.
     @State private var todayError: String?
@@ -66,6 +87,7 @@ public struct SearchReaderView: View {
         _liveEvents = State(initialValue: LiveEventPoller(baseURL: client.baseURL) {
             NotificationCenter.default.post(name: .trackVaultChanged, object: nil)
         })
+        self.client = client
         baseURL = client.baseURL
     }
 
@@ -113,6 +135,22 @@ public struct SearchReaderView: View {
                             search.search(query: value)
                         }
                         .onKeyPress { press in
+                            // Web keys.ts parity: arrows/Ctrl+N/P move, Return/Ctrl+Y
+                            // accept, Escape clears. Ctrl+P stays "previous" (never
+                            // ⌘P, which focuses search globally).
+                            let ctrl = press.modifiers.contains(.control)
+                            if ctrl && (press.key.character == "n" || press.key.character == "N") {
+                                moveSearchSelection(by: 1)
+                                return .handled
+                            }
+                            if ctrl && (press.key.character == "p" || press.key.character == "P") {
+                                moveSearchSelection(by: -1)
+                                return .handled
+                            }
+                            if ctrl && (press.key.character == "y" || press.key.character == "Y") {
+                                chooseActiveSearchResult()
+                                return .handled
+                            }
                             switch press.key {
                             case .upArrow:
                                 moveSearchSelection(by: -1)
@@ -163,6 +201,32 @@ public struct SearchReaderView: View {
                         Text(error).font(.caption).foregroundStyle(.red).padding(8)
                      }
                  }
+                if query.isEmpty && !search.history.isEmpty {
+                    HStack(spacing: 8) {
+                        Text("History").trackSectionLabel()
+                        Spacer()
+                        Button("Clear") { search.clearHistory() }
+                            .buttonStyle(.plain)
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                            .accessibilityLabel("Clear search history")
+                    }
+                    .padding(.horizontal, 12).padding(.top, 8)
+                    ForEach(Array(search.history.prefix(8)), id: \.self) { term in
+                        Button {
+                            query = term
+                            search.search(query: term)
+                        } label: {
+                            HStack(spacing: 6) {
+                                Image(systemName: "magnifyingglass").font(.caption).foregroundStyle(.tertiary)
+                                Text(term).font(.system(size: 14 * fontScale)).lineLimit(1)
+                            }
+                        }
+                        .buttonStyle(.plain)
+                        .padding(.horizontal, 12).padding(.vertical, 2)
+                    }
+                    Divider().padding(.top, 6)
+                }
                 if query.isEmpty && !recentList.isEmpty {
                     Text("Recent").trackSectionLabel()
                         .padding(.horizontal, 12).padding(.top, 8)
@@ -199,6 +263,9 @@ public struct SearchReaderView: View {
                         }
                         .buttonStyle(.plain)
                         .padding(.horizontal, 12).padding(.vertical, 2)
+                        .contextMenu {
+                            Button("Pin preview") { pinPreview(TrackID(note.id)) }
+                        }
                     }
                     if !overflowRecent.isEmpty {
                         Menu {
@@ -259,15 +326,16 @@ public struct SearchReaderView: View {
                      ForEach(searchSections, id: \.title) { section in
                          Section {
                              ForEach(section.results, id: \.qualifiedID) { result in
-                                 SearchResultRow(
-                                     result: result,
-                                     isNew: reading.isNew(result.ref),
-                                     stale: isStale(result),
-                                     isActive: activeSearchRow(result),
-                                     highlight: highlighted,
-                                     onOpen: { openSearchResult(result) },
-                                     onAppendTag: { appendSearchTag($0) }
-                                 )
+                                  SearchResultRow(
+                                      result: result,
+                                      isNew: reading.isNew(result.ref),
+                                      stale: isStale(result),
+                                      isActive: activeSearchRow(result),
+                                      highlight: highlighted,
+                                      onOpen: { openSearchResult(result) },
+                                      onAppendTag: { appendSearchTag($0) },
+                                      onPin: { pinPreview(result.qualifiedID) }
+                                  )
                              }
                          } header: {
                              Text(section.title).trackSectionLabel()
@@ -285,12 +353,21 @@ public struct SearchReaderView: View {
             }
             .navigationTitle("track")
          } detail: {
-             if reader.currentID == nil {
-                 searchHome
-             } else {
-                  NoteReaderView(model: reader, baseURL: baseURL) { tag in
-                      appendSearchTag(tag)
-                  }
+             VStack(spacing: 0) {
+                 if !openTabs.isEmpty {
+                     tabStrip
+                     Divider()
+                 }
+                 if reader.currentID == nil {
+                     searchHome
+                 } else {
+                      NoteReaderView(model: reader, baseURL: baseURL) { tag in
+                          appendSearchTag(tag)
+                      }
+                 }
+             }
+             .overlay(alignment: .topTrailing) {
+                 pinnedStack
              }
          }
          .overlay(alignment: .top) {
@@ -328,21 +405,44 @@ public struct SearchReaderView: View {
             guard !query.isEmpty, !search.isLoading else { return }
             search.search(query: query)
       }
+         .onChange(of: reader.currentID) { old, _ in
+             if reader.currentID == nil {
+                 pruneTab(old: old)
+             } else {
+                 syncTab()
+             }
+         }
+         .onChange(of: loadedTabTitle) { _, _ in syncTab() }
          .alert("Unsaved edits", isPresented: Binding(
              get: { readerChangeNotice != nil },
-             set: { if !$0 { readerChangeNotice = nil; pendingSearchResult = nil } }
+             set: { if !$0 { readerChangeNotice = nil; pendingSearchResult = nil; pendingTabID = nil; pendingCloseID = nil } }
          )) {
              Button("Discard and open", role: .destructive) {
                  reader.discardDraft()
                  if let result = pendingSearchResult {
                      pendingSearchResult = nil
                      openSearchResult(result)
+                 } else if let id = pendingTabID {
+                     pendingTabID = nil
+                     Task { await reader.open(id) }
+                 } else if let id = pendingCloseID {
+                     pendingCloseID = nil
+                     openTabs.removeAll { $0.id == id }
+                     if id.raw == reader.currentID?.raw {
+                         if let next = openTabs.last {
+                             Task { await reader.open(next.id) }
+                         } else {
+                             reader.close()
+                         }
+                     }
                  }
                  readerChangeNotice = nil
              }
              Button("Keep editing", role: .cancel) {
                  readerChangeNotice = nil
                  pendingSearchResult = nil
+                 pendingTabID = nil
+                 pendingCloseID = nil
              }
          } message: {
              Text("Your unsaved changes will be lost.")
@@ -364,6 +464,73 @@ public struct SearchReaderView: View {
                 }
             )
         }
+    }
+
+    /// The open-notes strip above the detail (web tabs/TabBar parity): one
+    /// chip per open note, the active one marked; × closes with the same
+    /// dirty guard as switching.
+    private var tabStrip: some View {
+        ScrollView(.horizontal, showsIndicators: false) {
+            HStack(spacing: 4) {
+                ForEach(openTabs) { tab in
+                    let isActive = tab.id.raw == reader.currentID?.raw
+                    HStack(spacing: 4) {
+                        Button {
+                            switchTab(to: tab.id)
+                        } label: {
+                            Text(tab.title)
+                                .font(.caption)
+                                .lineLimit(1)
+                                .foregroundStyle(isActive ? TrackTheme.palette(for: colorScheme).mark : .primary)
+                                .fontWeight(isActive ? .medium : .regular)
+                        }
+                        .buttonStyle(.plain)
+                        .help(tab.title)
+                        Button {
+                            closeTab(tab.id)
+                        } label: {
+                            Image(systemName: "xmark")
+                                .font(.caption2)
+                                .foregroundStyle(.secondary)
+                        }
+                        .buttonStyle(.plain)
+                        .accessibilityLabel("Close \(tab.title)")
+                    }
+                    .padding(.horizontal, 8)
+                    .padding(.vertical, 4)
+                    .background(
+                        isActive ? TrackTheme.palette(for: colorScheme).panelSoft : Color.clear,
+                        in: RoundedRectangle(cornerRadius: 6)
+                    )
+                }
+            }
+            .padding(.horizontal, 8)
+            .padding(.vertical, 4)
+        }
+    }
+
+    /// Pinned floating previews over the detail (web preview/FloatingWindow
+    /// parity): draggable excerpt cards that open in the reader on demand.
+    private var pinnedStack: some View {
+        VStack(alignment: .trailing, spacing: 8) {
+            ForEach(pinnedIDs, id: \.self) { id in
+                PinnedPreviewCard(
+                    client: client,
+                    noteID: id,
+                    onOpen: {
+                        pinnedIDs.removeAll { $0 == id }
+                        switchTab(to: id)
+                        // switchTab no-ops when the note is already open;
+                        // ensure it is open regardless of tab state.
+                        if reader.currentID?.raw != id.raw, !reader.isDirty {
+                            Task { await reader.open(id) }
+                        }
+                    },
+                    onClose: { pinnedIDs.removeAll { $0 == id } }
+                )
+            }
+        }
+        .padding(12)
     }
 
     private var searchHome: some View {
@@ -455,6 +622,9 @@ public struct SearchReaderView: View {
             readerChangeNotice = "Discard unsaved edits before opening another note?"
             pendingSearchResult = result
             return
+        }
+        if !query.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+            search.addToHistory(query)
         }
         recordRecent(RecentNote(id: result.qualifiedID.raw, title: result.ref.title))
         reading.markSeen(result.ref.noteID.raw)
@@ -553,9 +723,77 @@ public struct SearchReaderView: View {
         let index = activeSearchIndex >= 0 ? activeSearchIndex : 0
         guard index < filteredSearchResults.count else { return }
         let result = filteredSearchResults[index]
+        if !query.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+            search.addToHistory(query)
+        }
         recordRecent(RecentNote(id: result.qualifiedID.raw, title: result.ref.title))
         reading.markSeen(result.ref.noteID.raw)
         Task { await reader.open(result.qualifiedID) }
+    }
+
+    // MARK: - Open tabs
+
+    /// The loaded note's title, so tab chips rename once the note arrives.
+    private var loadedTabTitle: String? {
+        if case .loaded(let response) = reader.state { return response.note.summary.ref.title }
+        return nil
+    }
+
+    /// Registers the reader's current note as a tab (or refreshes its title).
+    /// Every open path funnels through `reader.open`, so observing the model
+    /// keeps the strip in sync without rewiring wikilinks, asides or follow.
+    private func syncTab() {
+        guard let id = reader.currentID else { return }
+        let title = loadedTabTitle
+            ?? openTabs.first { $0.id == id }?.title
+            ?? recentList.first { $0.id == id.raw }?.title
+            ?? id.raw
+        if let i = openTabs.firstIndex(where: { $0.id == id }) {
+            openTabs[i].title = title
+        } else {
+            openTabs.append(OpenTab(id: id, title: title))
+        }
+    }
+
+    /// Drops the tab for a note that went away without the strip (delete).
+    /// Loading transiently clears the id too, but then the state is
+    /// `.loading`, never `.empty`, so switches never prune.
+    private func pruneTab(old: TrackID?) {
+        guard reader.currentID == nil, !reader.isLoaded, let old else { return }
+        openTabs.removeAll { $0.id == old }
+        if openTabs.isEmpty { pinnedIDs.removeAll() }
+    }
+
+    private func switchTab(to id: TrackID) {
+        guard id.raw != reader.currentID?.raw else { return }
+        guard !reader.isDirty else {
+            pendingTabID = id
+            readerChangeNotice = "Discard unsaved edits before opening another note?"
+            return
+        }
+        Task { await reader.open(id) }
+    }
+
+    private func closeTab(_ id: TrackID) {
+        if id.raw == reader.currentID?.raw, reader.isDirty {
+            pendingCloseID = id
+            readerChangeNotice = "Discard unsaved edits before closing this note?"
+            return
+        }
+        openTabs.removeAll { $0.id == id }
+        if id.raw == reader.currentID?.raw {
+            if let next = openTabs.last {
+                Task { await reader.open(next.id) }
+            } else {
+                reader.close()
+            }
+        }
+    }
+
+    private func pinPreview(_ id: TrackID) {
+        guard !pinnedIDs.contains(id) else { return }
+        pinnedIDs.append(id)
+        if pinnedIDs.count > 5 { pinnedIDs.removeFirst(pinnedIDs.count - 5) }
     }
 }
 
@@ -572,6 +810,7 @@ private struct SearchResultRow: View {
     let highlight: (String) -> Text
     let onOpen: () -> Void
     let onAppendTag: (String) -> Void
+    let onPin: () -> Void
     @Environment(\.colorScheme) private var colorScheme
     @Environment(\.trackFontScale) private var fontScale
 
@@ -619,6 +858,9 @@ private struct SearchResultRow: View {
         }
         .padding(.vertical, 2)
         .listRowBackground(isActive ? Color.clear : nil)
+        .contextMenu {
+            Button("Pin preview") { onPin() }
+        }
         .overlay(alignment: .leading) {
             if isActive {
                 TrackTheme.palette(for: colorScheme).mark
@@ -749,6 +991,12 @@ public struct NoteReaderView: View {
     /// Link-graph model for the aside's embedded local graph (web note pages
     /// carry the one-hop graph beside the reading column).
     @State private var graphModel: GraphModel
+    /// Neovim follow (web NoteRailControls "Follow the editor" + NoteEditor's
+    /// /api/follow polling): when on, the reader opens the editor's note.
+    /// Note-level parity only — line/top_line scroll targets have no
+    /// MarkdownUI anchor to scroll to, so the note opens at the top.
+    @State private var followEnabled = false
+    @State private var followError: String?
 
     public init(model: NoteReaderModel, baseURL: URL, onTagSearch: @escaping (String) -> Void = { _ in }) {
         self.model = model
@@ -761,7 +1009,7 @@ public struct NoteReaderView: View {
         Group {
             switch model.state {
             case .empty:
-                ContentUnavailableView("No note open", systemImage: "doc.text")
+                ReaderEmptyStateView()
             case .loading:
                 ProgressView()
             case .failed(let message):
@@ -777,7 +1025,7 @@ public struct NoteReaderView: View {
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .toolbar { loadedToolbar }
         .overlay(alignment: .top) {
-            if model.saveConflict != nil || model.saveError != nil || saveConfirmation {
+            if model.saveConflict != nil || model.saveError != nil || saveConfirmation || followError != nil {
                 VStack(spacing: 6) {
                     if let conflict = model.saveConflict {
                         readerBanner(conflict, isError: false) { model.dismissConflict() }
@@ -787,6 +1035,9 @@ public struct NoteReaderView: View {
                     }
                     if saveConfirmation {
                         readerBanner("Saved successfully", isError: false) { saveConfirmation = false }
+                    }
+                    if let error = followError {
+                        readerBanner("Follow: \(error)", isError: true) { followError = nil }
                     }
                 }
                 .padding(.horizontal, 12)
@@ -818,6 +1069,29 @@ public struct NoteReaderView: View {
                 try? await Task.sleep(for: .seconds(10))
                 guard !Task.isCancelled else { return }
                 _ = await model.recordView(using: reading, seconds: 10, text: response.note.body)
+            }
+        }
+        .task(id: followEnabled) {
+            // Neovim follow polling (web NoteEditor's follow effect): while the
+            // toggle is on, ask /api/follow every 5 s and open the editor's
+            // note when it differs. Best-effort — failures surface once as a
+            // dismissible banner and polling continues. Editing never loses a
+            // draft to a follow navigation.
+            guard followEnabled else { return }
+            while !Task.isCancelled {
+                do {
+                    let res = try await model.client.getFollowState()
+                    if Task.isCancelled { return }
+                    if res.active, let state = res.state,
+                       state.noteID.raw != model.currentID?.raw, !model.isEditing {
+                        await model.open(state.noteID)
+                    }
+                    followError = nil
+                } catch {
+                    if Task.isCancelled { return }
+                    followError = error.localizedDescription
+                }
+                try? await Task.sleep(for: .seconds(5))
             }
         }
         .onReceive(NotificationCenter.default.publisher(for: .trackVaultChanged)) { _ in
@@ -878,6 +1152,19 @@ public struct NoteReaderView: View {
     @ToolbarContentBuilder
     private var loadedToolbar: some ToolbarContent {
         if let note = loadedNote {
+            ToolbarItem {
+                Button {
+                    followEnabled.toggle()
+                    if !followEnabled { followError = nil }
+                } label: {
+                    Label(
+                        "Follow the editor: \(followEnabled ? "On" : "Off")",
+                        systemImage: followEnabled ? "location.fill" : "location"
+                    )
+                }
+                .help("Follow the editor: \(followEnabled ? "On" : "Off")")
+                .accessibilityLabel("Follow the editor: \(followEnabled ? "On" : "Off")")
+            }
             if let path = note.copyPath {
                 ToolbarItem {
                     Button {
@@ -892,6 +1179,23 @@ public struct NoteReaderView: View {
             ToolbarItem {
                 ShareButton(items: [note.summary.ref.title, note.body])
                     .help("Share")
+            }
+            ToolbarItem {
+                Button {
+                    NSPasteboard.general.clearContents()
+                    NSPasteboard.general.setString("[[\(note.summary.ref.title)]]", forType: .string)
+                } label: {
+                    Label("Copy link", systemImage: "link")
+                }
+                .help("Copy note link")
+            }
+            ToolbarItem {
+                if let xURL = ShareLinks.xIntentURL(title: note.summary.ref.title) {
+                    Link(destination: xURL) {
+                        Label("Share on X", systemImage: "xmark.circle")
+                    }
+                    .help("Share on X")
+                }
             }
             ToolbarItem {
                 Button {
@@ -2087,6 +2391,128 @@ private func nextTaskState(after state: String) -> String {
 }
 
 // MARK: - Share
+
+/// The empty-reader state (web EmptyState `/empty` parity): a centered mark
+/// with guides pointing back at the rail/sidebar surfaces, so a blank detail
+/// reads as "nothing open" rather than broken.
+private struct ReaderEmptyStateView: View {
+    var body: some View {
+        VStack(spacing: 16) {
+            Image(systemName: "doc.text")
+                .font(.system(size: 44))
+                .foregroundStyle(.tertiary)
+            Text("Nothing open")
+                .font(.headline)
+                .foregroundStyle(.secondary)
+            VStack(alignment: .leading, spacing: 6) {
+                ForEach(["Start page", "Search notes", "Recently opened", "Calendar", "Hierarchy", "Explore the graph", "Settings"], id: \.self) { guide in
+                    HStack(spacing: 6) {
+                        Image(systemName: "arrow.left")
+                            .font(.caption)
+                            .foregroundStyle(.tertiary)
+                        Text(guide)
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                    }
+                }
+            }
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+    }
+}
+
+/// Share link helpers (web ShareActions parity): the native app has no
+/// published site base URL, so the shareable link is the vault-internal
+/// `[[title]]` reference. Copy-link copies it; X shares title + link text.
+private enum ShareLinks {
+    static func wikilink(for title: String) -> String { "[[\(title)]]" }
+
+    static func xIntentURL(title: String) -> URL? {
+        var comps = URLComponents(string: "https://x.com/intent/tweet")
+        comps?.queryItems = [URLQueryItem(name: "text", value: "\(title)\n\n\(wikilink(for: title))")]
+        return comps?.url
+    }
+}
+
+/// A pinned floating preview card (web preview/FloatingWindow parity): the
+/// note's title plus an excerpt, draggable by its header, with Open (hands
+/// the note to the reader) and Close. One card per pinned id, newest last.
+private struct PinnedPreviewCard: View {
+    let client: TrackClient
+    let noteID: TrackID
+    let onOpen: () -> Void
+    let onClose: () -> Void
+    @State private var title = ""
+    @State private var excerpt: [String] = []
+    @State private var error: String?
+    @State private var isLoading = true
+    @State private var offset: CGSize = .zero
+    @State private var dragBase: CGSize = .zero
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 6) {
+            HStack(spacing: 6) {
+                Text(title.isEmpty ? noteID.raw : title)
+                    .font(.caption)
+                    .fontWeight(.medium)
+                    .lineLimit(1)
+                Spacer()
+                Button("Open") { onOpen() }
+                    .buttonStyle(.plain)
+                    .font(.caption)
+                Button {
+                    onClose()
+                } label: {
+                    Image(systemName: "xmark").font(.caption2)
+                }
+                .buttonStyle(.plain)
+                .accessibilityLabel("Close preview")
+            }
+            .padding(.horizontal, 10)
+            .padding(.top, 8)
+            .contentShape(Rectangle())
+            .gesture(
+                DragGesture()
+                    .onChanged { offset = CGSize(width: dragBase.width + $0.translation.width, height: dragBase.height + $0.translation.height) }
+                    .onEnded { _ in dragBase = offset }
+            )
+            Divider()
+            if isLoading {
+                ProgressView().controlSize(.small)
+                    .frame(maxWidth: .infinity)
+                    .padding(.bottom, 8)
+            } else if let error {
+                Text(error).font(.caption).foregroundStyle(.red)
+                    .padding(.horizontal, 10).padding(.bottom, 8)
+            } else if excerpt.isEmpty {
+                Text("Empty note").font(.caption).foregroundStyle(.tertiary)
+                    .padding(.horizontal, 10).padding(.bottom, 8)
+            } else {
+                VStack(alignment: .leading, spacing: 2) {
+                    ForEach(excerpt, id: \.self) { line in
+                        Text(line).font(.caption).foregroundStyle(.secondary).lineLimit(2)
+                    }
+                }
+                .padding(.horizontal, 10).padding(.bottom, 8)
+            }
+        }
+        .frame(width: 280)
+        .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 10))
+        .overlay(RoundedRectangle(cornerRadius: 10).stroke(Color(nsColor: .separatorColor), lineWidth: 0.5))
+        .shadow(radius: 8)
+        .offset(offset)
+        .task(id: noteID) {
+            do {
+                let response = try await client.getNote(noteID)
+                title = response.note.summary.ref.title
+                excerpt = Array(response.note.body.split(separator: "\n", omittingEmptySubsequences: true).prefix(6).map(String.init))
+            } catch {
+                self.error = error.localizedDescription
+            }
+            isLoading = false
+        }
+    }
+}
 
 /// A minimal NSSharingServicePicker wrapper (web ShareActions' share surface):
 /// highlights the body for the system share sheet. Anchored to the toolbar
