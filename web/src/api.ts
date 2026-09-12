@@ -466,11 +466,14 @@ export function getLocalGraph(noteID: NoteID): Promise<GraphResponse> {
   return api<GraphResponse>(`/api/graph/local?${idParams(noteID)}`);
 }
 
-export function getGraph(): Promise<GraphResponse> {
+// getGraph reads the whole link graph of one vault. The workspace serves several, so the caller
+// names the vault it wants: the empty name is the launch vault, which the server treats a missing
+// ?vault= as. The published bundle carries a single vault's graph, so the static branch ignores it.
+export function getGraph(vault = ""): Promise<GraphResponse> {
   if (STATIC_MODE) {
     return staticData<GraphResponse>("graph.json");
   }
-  return api<GraphResponse>("/api/graph");
+  return api<GraphResponse>(`/api/graph${vaultParams(vault, "?")}`);
 }
 
 // getOgp fetches Open Graph metadata for an embedded link so the preview can render a rich card.

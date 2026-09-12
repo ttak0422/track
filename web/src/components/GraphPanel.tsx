@@ -1,6 +1,7 @@
 import { useNavigate } from "@tanstack/react-router";
 import { PointerEvent, useMemo, useRef, useState } from "react";
 import { useGraphQuery } from "../queries";
+import { useVaultScope } from "../vaultScope";
 import { GraphCanvas } from "./GraphCanvasLazy";
 import { graphCountCaption } from "./graphCaption";
 import { IconAffiliate, IconRotate2, IconX, RailIcon } from "./icons";
@@ -37,8 +38,10 @@ export function GraphPanel() {
     height: Math.min(defaultHeight, window.innerHeight - 112),
   }));
   const resizeRef = useRef<ResizeState | null>(null);
-  // The whole-vault graph is not cheap; fetch it only once the panel is opened.
-  const state = useGraphQuery(visible);
+  // The whole-vault graph follows the working vault ("" is the launch vault); it is not cheap, so
+  // fetch it only once the panel is opened.
+  const { scope } = useVaultScope();
+  const state = useGraphQuery(visible, scope);
   const navigate = useNavigate();
 
   // Same whole-vault graph as the Graph tab, so it takes the same bound (see overviewGraph).

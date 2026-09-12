@@ -2,15 +2,19 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { act, renderHook, screen, waitFor } from "@testing-library/react";
 import type { ReactNode } from "react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import { APIError, setTaskState } from "./api";
+import { APIError, getGraph, setTaskState } from "./api";
 import { NotificationProvider, NotificationToast } from "./notifications";
-import { queryKeys, useSetTaskDateMutation, useSetTaskStateMutation } from "./queries";
+import { queryKeys, useGraphQuery, useSetTaskDateMutation, useSetTaskStateMutation } from "./queries";
 
-// Only the two task writes are stubbed; the rest of the api module keeps its real implementation.
+// Only the two task writes and the graph fetch are stubbed; the rest of the api module keeps its real
+// implementation.
 vi.mock("./api", async (importOriginal) => ({
   ...(await importOriginal<typeof import("./api")>()),
   setTaskState: vi.fn(async () => ({ tasks: { items: [] }, etag: "next" })),
   setTaskDate: vi.fn(async () => ({ tasks: { items: [] }, etag: "next" })),
+  getGraph: vi.fn(async () => ({
+    graph: { center_id: "1", nodes: [{ note_id: "1", file_kind: "note", title: "Root" }], edges: [] },
+  })),
 }));
 
 // The toast is mounted by Shell below the router; the tests mount it next to the provider to observe
@@ -65,5 +69,41 @@ describe("task write mutations", () => {
     act(() => result.current.mutate({ line: 1, field: "due", date: "2026-08-01", etag: "loaded" }));
     await waitFor(() => expect(result.current.isSuccess).toBe(true));
     for (const queryKey of taskWriteKeys) expect(invalidate).toHaveBeenCalledWith({ queryKey });
+  });
+});
+
+// The whole-vault graph is keyed by its vault, and the write-path invalidation uses the bare
+// ["graph"] prefix, so a scoped entry must stay reachable through it — as must the per-note local
+// graph, which shares the prefix.
+describe("whole-vault graph scoping", () => {
+  beforeEach(() => vi.mocked(getGraph).mockClear());
+
+  it("keys the graph by vault and keeps the local graph under the same prefix", () => {
+    expect(queryKeys.graph("")).toEqual(["graph", ""]);
+    expect(queryKeys.graph("work")).toEqual(["graph", "work"]);
+    expect(queryKeys.localGraph("work~7")).toEqual(["graph", "local", "work~7"]);
+    for (const key of [queryKeys.graph(""), queryKeys.graph("work"), queryKeys.localGraph("work~7")]) {
+      expect(key[0]).toBe("graph");
+    }
+  });
+
+  it("requests the scoped graph and refreshes it when the graph prefix is invalidated", async () => {
+    const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    const view = renderHook(() => useGraphQuery(true, "work"), {
+      wrapper: ({ children }: { children: ReactNode }) => (
+        <QueryClientProvider client={client}>{children}</QueryClientProvider>
+      ),
+    });
+
+    await waitFor(() => expect(view.result.current.isSuccess).toBe(true));
+    expect(getGraph).toHaveBeenCalledWith("work");
+    expect(client.getQueryData(queryKeys.graph("work"))).toBeTruthy();
+    expect(client.getQueryData(queryKeys.graph(""))).toBeUndefined();
+
+    // A mutation invalidates ["graph"] as a prefix; it must reach a scoped cache entry and refetch.
+    await act(async () => {
+      await client.invalidateQueries({ queryKey: ["graph"] });
+    });
+    expect(getGraph).toHaveBeenCalledTimes(2);
   });
 });

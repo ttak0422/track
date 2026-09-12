@@ -37,7 +37,10 @@ export const queryKeys = {
   site: () => ["site"] as const,
   activity: (since: string, until: string) => ["activity", since, until] as const,
   agenda: (date: string, vault = "") => ["agenda", vault, date] as const,
-  graph: () => ["graph"] as const,
+  // The whole-vault graph is scoped like the agenda: each vault's graph is one cache entry, and the
+  // empty name is the launch vault. The local graph's ["graph","local",noteID] keys stay under the
+  // same prefix, so a write that invalidates ["graph"] refreshes every graph together.
+  graph: (vault = "") => ["graph", vault] as const,
   hierarchy: () => ["hierarchy"] as const,
   localGraph: (noteID: NoteID) => ["graph", "local", noteID] as const,
   note: (noteID: NoteID) => ["note", noteID] as const,
@@ -233,10 +236,10 @@ export function useViewSpecQuery(spec: string, vault = "") {
   });
 }
 
-export function useGraphQuery(enabled = true) {
+export function useGraphQuery(enabled = true, vault = "") {
   return useQuery({
-    queryKey: queryKeys.graph(),
-    queryFn: getGraph,
+    queryKey: queryKeys.graph(vault),
+    queryFn: () => getGraph(vault),
     enabled,
   });
 }
