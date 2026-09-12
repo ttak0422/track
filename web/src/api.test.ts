@@ -34,6 +34,37 @@ async function fetchAssetText(staticMode: boolean, href: string): Promise<string
   return (await import("./api")).fetchAssetText(href);
 }
 
+// The live branch needs a JSON body to adopt read state from; the static branch reuses the default
+// stub, whose .bin files hold the locked bundle.
+async function searchNotes(staticMode: boolean, query: string, limit: number, vault: string) {
+  if (!staticMode) {
+    vi.stubGlobal("fetch", async (url: string) => {
+      fetched.push(url);
+      return new Response(JSON.stringify({ results: [] }));
+    });
+  }
+  vi.stubEnv("VITE_TRACK_STATIC", staticMode ? "1" : "");
+  vi.resetModules();
+  return (await import("./api")).searchNotes(query, limit, vault);
+}
+
+describe("searchNotes", () => {
+  it("keeps the search federated when no vault is named", async () => {
+    await searchNotes(false, "alpha", 100, "");
+    expect(fetched).toEqual(["/api/search?limit=100&q=alpha"]);
+  });
+
+  it("narrows the search to the named vault", async () => {
+    await searchNotes(false, "alpha", 100, "work");
+    expect(fetched).toEqual(["/api/search?limit=100&q=alpha&vault=work"]);
+  });
+
+  it("ignores the vault on the published site, whose search is one vault baked into the bundle", async () => {
+    await searchNotes(true, "alpha", 100, "work");
+    expect(fetched).toEqual(["/data/notes.bin", "/data/search.bin"]);
+  });
+});
+
 describe("fetchAssetText", () => {
   it("opens the locked chart option on a published site", async () => {
     const text = await fetchAssetText(true, "assets/abc.echarts.json");

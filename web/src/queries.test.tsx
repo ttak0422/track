@@ -2,15 +2,17 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { act, renderHook, screen, waitFor } from "@testing-library/react";
 import type { ReactNode } from "react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import { APIError, setTaskState } from "./api";
+import { APIError, searchNotes, setTaskState } from "./api";
 import { NotificationProvider, NotificationToast } from "./notifications";
-import { queryKeys, useSetTaskDateMutation, useSetTaskStateMutation } from "./queries";
+import { queryKeys, useSearchQuery, useSetTaskDateMutation, useSetTaskStateMutation } from "./queries";
 
-// Only the two task writes are stubbed; the rest of the api module keeps its real implementation.
+// The two task writes and the search stay stubbed; the rest of the api module keeps its real
+// implementation.
 vi.mock("./api", async (importOriginal) => ({
   ...(await importOriginal<typeof import("./api")>()),
   setTaskState: vi.fn(async () => ({ tasks: { items: [] }, etag: "next" })),
   setTaskDate: vi.fn(async () => ({ tasks: { items: [] }, etag: "next" })),
+  searchNotes: vi.fn(async () => ({ results: [] })),
 }));
 
 // The toast is mounted by Shell below the router; the tests mount it next to the provider to observe
@@ -65,5 +67,38 @@ describe("task write mutations", () => {
     act(() => result.current.mutate({ line: 1, field: "due", date: "2026-08-01", etag: "loaded" }));
     await waitFor(() => expect(result.current.isSuccess).toBe(true));
     for (const queryKey of taskWriteKeys) expect(invalidate).toHaveBeenCalledWith({ queryKey });
+  });
+});
+
+function renderSearchQuery(query: string, limit = 100, vault = "") {
+  const client = new QueryClient();
+  const view = renderHook(() => useSearchQuery(query, limit, vault), {
+    wrapper: ({ children }: { children: ReactNode }) => (
+      <QueryClientProvider client={client}>{children}</QueryClientProvider>
+    ),
+  });
+  return { client, ...view };
+}
+
+// Search follows the same vault-in-the-key pattern as resolve and agenda: the vault is the second
+// key element, so a scope switch refetches under its own key instead of reusing another vault's
+// cached hits, and the request carries ?vault= down to the server.
+describe("useSearchQuery", () => {
+  beforeEach(() => vi.mocked(searchNotes).mockClear());
+
+  it("passes the selected vault to the request and names it in the key", async () => {
+    const { client, result } = renderSearchQuery("term", 100, "work");
+    await waitFor(() => expect(result.current.isSuccess).toBe(true));
+
+    expect(searchNotes).toHaveBeenCalledWith("term", 100, "work");
+    expect(client.getQueryState(["search", "work", "term", 100])?.status).toBe("success");
+  });
+
+  it("federates under the launch-vault key when no vault is selected", async () => {
+    const { client, result } = renderSearchQuery("term", 50);
+    await waitFor(() => expect(result.current.isSuccess).toBe(true));
+
+    expect(searchNotes).toHaveBeenCalledWith("term", 50, "");
+    expect(client.getQueryState(["search", "", "term", 50])?.status).toBe("success");
   });
 });
