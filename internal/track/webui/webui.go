@@ -307,6 +307,7 @@ func (s *Server) routes() {
 	s.mux.HandleFunc("/api/graph", s.withVault(s.handleGraph))
 	s.mux.HandleFunc("/api/follow", s.handleFollow)
 	s.mux.HandleFunc("/api/events", s.handleEvents)
+	s.mux.HandleFunc("/api/vaults", s.handleVaults)
 	// Everything that is not an API route is served from the embedded frontend build.
 	s.mux.HandleFunc("/", s.handleApp)
 }

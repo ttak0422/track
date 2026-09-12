@@ -201,6 +201,46 @@ func (s *Server) viewByPath(path string) (*vaultView, error) {
 	return nil, fmt.Errorf("vault %s is not served by this workspace", path)
 }
 
+// vaultEntry is one vault in the workspace listing: its registry name ("" for
+// an unregistered active vault), its configured path, and whether it is the
+// vault track web was launched in.
+type vaultEntry struct {
+	Name   string `json:"name"`
+	Path   string `json:"path"`
+	Active bool   `json:"active"`
+}
+
+// handleVaults lists every vault the workspace serves, active first, with the
+// ones it could not reach under "unavailable" instead of failing. It mirrors
+// `track vault list` (registry with the active vault marked) plus the
+// search's unavailable gaps, so the tab strip can name the vault in use and
+// offer the rest without reimplementing the selection rules.
+func (s *Server) handleVaults(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		writeError(w, fmt.Errorf("method %s not allowed", r.Method), http.StatusMethodNotAllowed)
+		return
+	}
+	views, unavailable := s.servedViews()
+	if unavailable == nil {
+		unavailable = []vaultInfo{}
+	}
+	vaults := make([]vaultEntry, 0, len(views))
+	for _, v := range views {
+		path := v.cfg.VaultDirDisplay
+		if v != s.active {
+			if registered, ok := s.active.cfg.Vaults[v.name]; ok {
+				path = registered
+			}
+		}
+		vaults = append(vaults, vaultEntry{Name: v.name, Path: path, Active: v == s.active})
+	}
+	writeJSON(w, map[string]any{
+		"active":      map[string]any{"name": s.active.name, "path": s.active.cfg.VaultDirDisplay},
+		"vaults":      vaults,
+		"unavailable": unavailable,
+	})
+}
+
 // vaultInfo is one vault a cross-vault read could not reach: its wire name, the path it was
 // registered under, and why it failed. Reporting the gap is what keeps "no matches there"
 // distinguishable from "could not read that vault".
