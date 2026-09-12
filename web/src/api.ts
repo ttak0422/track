@@ -29,7 +29,8 @@ import type {
   SiteResponse,
   TasksResponse,
   ViewSpecResponse,
-  TaskListResponse,} from "./types";
+  TaskListResponse,
+  VaultsResponse,} from "./types";
 
 interface APIOptions {
   method?: string;
@@ -283,12 +284,17 @@ export function getAgenda(date: string, vault = ""): Promise<AgendaResponse> {
 }
 
 // openJournal opens or creates the journal for a day and returns its note id, so the activity heatmap
-// can jump straight to that day's journal. Disabled in the read-only static site.
-export function openJournal(date: string): Promise<JournalResponse> {
+// can jump straight to that day's journal. Disabled in the read-only static site. A journal id is the
+// date, so every vault has one for that day: the vault names which day's journal opens, and the
+// returned id is qualified for any vault but the launch one.
+export function openJournal(date: string, vault = ""): Promise<JournalResponse> {
   if (STATIC_MODE) {
     return readOnly();
   }
-  return api<JournalResponse>(`/api/journal?date=${encodeURIComponent(date)}`, { method: "POST" });
+  return api<JournalResponse>(
+    `/api/journal?date=${encodeURIComponent(date)}${vaultParams(vault)}`,
+    { method: "POST" },
+  );
 }
 
 export function getNote(noteID: NoteID): Promise<NoteResponse> {
@@ -317,12 +323,13 @@ export function saveNote(noteID: NoteID, request: SaveNoteRequest): Promise<Save
 
 // createNote mints a note titled `title` with the default template. A title
 // that already resolves is refused with a 409, so callers can tell "already
-// there" apart from a real failure.
-export function createNote(title: string): Promise<{ note_id: NoteID; title: string }> {
+// there" apart from a real failure. The vault names where the note is
+// created; empty means the launch vault.
+export function createNote(title: string, vault = ""): Promise<{ note_id: NoteID; title: string }> {
   if (STATIC_MODE) {
     return readOnly();
   }
-  return api<{ note_id: NoteID; title: string }>(`/api/note`, {
+  return api<{ note_id: NoteID; title: string }>(`/api/note${vaultParams(vault, "?")}`, {
     method: "POST",
     body: { title },
   });
@@ -411,6 +418,17 @@ export function deleteNote(noteID: NoteID): Promise<DeleteNoteResponse> {
     return readOnly();
   }
   return api<DeleteNoteResponse>(`/api/note?${idParams(noteID)}`, { method: "DELETE" });
+}
+
+// listVaults lists every vault the workspace serves, launch vault first and
+// marked, with the unreachable ones under "unavailable". Live only: the
+// published site is one vault baked into the bundle, so there is nothing to
+// switch between.
+export function listVaults(): Promise<VaultsResponse> {
+  if (STATIC_MODE) {
+    return Promise.resolve({ active: { name: "", path: "" }, vaults: [], unavailable: [] });
+  }
+  return api<VaultsResponse>("/api/vaults");
 }
 
 export function getFollowState(): Promise<FollowResponse> {

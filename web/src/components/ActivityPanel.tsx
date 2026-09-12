@@ -2,6 +2,7 @@ import { useNavigate } from "@tanstack/react-router";
 import { useEffect, useRef, useState } from "react";
 import { openJournal } from "../api";
 import { useActivityQuery } from "../queries";
+import { useVaultScope } from "../vaultScope";
 import { monthColumnLabels, weekAlignedDates } from "./activityDates";
 
 const cellWidth = 9;
@@ -33,11 +34,12 @@ export function ActivityPanel({ variant = "sidebar" }: ActivityPanelProps) {
   const className = `activity-panel activity-panel-${variant}`;
   const isHome = variant === "home";
 
-  // Clicking a day opens (creating if needed) that day's journal and navigates to it, so the heatmap is
-  // the entry point to a day's work log.
+  // Clicking a day opens (creating if needed) that day's journal in the working vault and navigates
+  // to it, so the heatmap is the entry point to a day's work log.
+  const { scope } = useVaultScope();
   async function openDay(date: string) {
     try {
-      const { note_id } = await openJournal(date);
+      const { note_id } = await openJournal(date, scope);
       navigate({ to: "/notes/$noteId", params: { noteId: String(note_id) } });
     } catch {
       // Surfacing a toast is out of scope; a failed open simply leaves the user on the current view.

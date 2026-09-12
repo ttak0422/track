@@ -13,6 +13,7 @@ import { openJournal } from "../api";
 import { keys } from "../keys";
 import { editorModes, useNoteControls } from "../noteControls";
 import { useSiteQuery } from "../queries";
+import { useVaultScope } from "../vaultScope";
 import { STATIC_MODE } from "../runtime";
 import { themeModes, useThemeMode } from "../themeState";
 import { BrandMark } from "./Logo";
@@ -55,6 +56,7 @@ export function MobileDock() {
   const navigate = useNavigate();
   const site = useSiteQuery();
   const { recent } = useTabs();
+  const { scope } = useVaultScope();
   const [theme, setTheme] = useThemeMode();
   // The open note's own controls. They live in the rail on a desk, and the rail is what the mark
   // replaced here, so the phone reaches them through the fan instead — the note group appears in it
@@ -158,7 +160,7 @@ export function MobileDock() {
       now.getDate(),
     ).padStart(2, "0")}`;
     try {
-      const { note_id } = await openJournal(date);
+      const { note_id } = await openJournal(date, scope);
       navigate({ to: "/notes/$noteId", params: { noteId: String(note_id) } });
     } catch {
       // A failed open simply leaves the user on the current view.

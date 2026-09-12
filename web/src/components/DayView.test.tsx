@@ -73,7 +73,8 @@ describe("DayView", () => {
 
     fireEvent.click(getByText("Journal"));
     await waitFor(() => expect(navigate).toHaveBeenCalledWith({ to: "/notes/$noteId", params: { noteId: "20260703" } }));
-    expect(openJournal).toHaveBeenCalledWith("2026-07-03");
+    // "" is the working vault's default: the launch vault, with no switcher choice made.
+    expect(openJournal).toHaveBeenCalledWith("2026-07-03", "");
   });
 
   it("lists the tasks planned for the day, marked by which date put them there", () => {

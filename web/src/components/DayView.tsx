@@ -2,6 +2,7 @@ import { Link, useNavigate } from "@tanstack/react-router";
 import { openJournal } from "../api";
 import { useAgendaQuery, useDatedTasksQuery, useResolveQuery } from "../queries";
 import { STATIC_MODE } from "../runtime";
+import { useVaultScope } from "../vaultScope";
 
 // DayView is the page a calendar day opens: the notes active that day (the same set the reader's
 // "On this day" aside shows) as a plain list of links. The header offers the day's journal — the live
@@ -14,6 +15,7 @@ export function DayView({ date }: { date: string }) {
   // Journal titles are the day's yyyyMMdd, so resolving that term finds the published journal.
   const journalQuery = useResolveQuery(STATIC_MODE && valid ? date.replaceAll("-", "") : "");
   const navigate = useNavigate();
+  const { scope } = useVaultScope();
 
   if (!valid) {
     return <p className="error">Invalid date: {date}</p>;
@@ -21,7 +23,7 @@ export function DayView({ date }: { date: string }) {
 
   async function openDayJournal() {
     try {
-      const { note_id } = await openJournal(date);
+      const { note_id } = await openJournal(date, scope);
       navigate({ to: "/notes/$noteId", params: { noteId: String(note_id) } });
     } catch {
       // A failed open simply leaves the user on the current view.
