@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
 import { useThemeVersion } from "../../hooks/useThemeVersion";
+import { useVisible } from "../../hooks/useVisible";
 import { DiagramFrame, type DiagramState, isDarkColor } from "./MermaidDiagram";
 
 interface D2DiagramProps {
@@ -29,12 +30,15 @@ let renderSalt = 0;
 // D2Diagram renders fenced ```d2 blocks with D2 compiled to WebAssembly (@terrastruct/d2). It is
 // wired exactly like Mermaid/Graphviz: the engine is imported lazily so a note without a d2 block
 // never loads it, and a compile error falls back to the message plus the source. D2 themes its own
-// SVG, so the render picks a light/dark theme id and re-renders when the app theme flips.
+// SVG, so the render picks a light/dark theme id and re-renders when the app theme flips. Off-screen
+// blocks wait for the viewport before touching the ~8MB WASM engine.
 export function D2Diagram({ text }: D2DiagramProps) {
+  const { ref, visible } = useVisible<HTMLDivElement>();
   const [state, setState] = useState<DiagramState>({ status: "loading" });
   const themeVersion = useThemeVersion();
 
   useEffect(() => {
+    if (!visible) return;
     let cancelled = false;
     setState({ status: "loading" });
 
@@ -64,9 +68,13 @@ export function D2Diagram({ text }: D2DiagramProps) {
     return () => {
       cancelled = true;
     };
-  }, [text, themeVersion]);
+  }, [text, themeVersion, visible]);
 
-  return <DiagramFrame state={state} source={text} sourceLang="d2" label="D2 diagram" />;
+  return (
+    <div ref={ref}>
+      <DiagramFrame state={state} source={text} sourceLang="d2" label="D2 diagram" />
+    </div>
+  );
 }
 
 function errorMessage(error: unknown): string {

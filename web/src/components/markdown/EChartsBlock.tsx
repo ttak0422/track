@@ -1,6 +1,7 @@
 import { useNavigate } from "@tanstack/react-router";
-import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useLayoutEffect, useMemo, useState } from "react";
 import { useThemeVersion } from "../../hooks/useThemeVersion";
+import { useVisible } from "../../hooks/useVisible";
 import { CodeBlock } from "./CodeBlock";
 import { applyChartTheme, chartThemeFromCSS } from "./echartsTheme";
 import { computeRailLayout, extractRail, MarkerRail, type RailAnchors } from "./MarkerRail";
@@ -29,8 +30,7 @@ interface EChartsBlockProps {
 // is kept across option updates (live re-renders apply in place via setOption) and disposed only on
 // unmount.
 export function EChartsBlock({ option }: EChartsBlockProps) {
-  const containerRef = useRef<HTMLDivElement>(null);
-  const visible = useVisible(containerRef);
+  const { ref: containerRef, visible } = useVisible<HTMLDivElement>();
   const navigate = useNavigate();
   // Redraw with the new colors when the app theme flips; the option itself is theme-neutral and
   // recolored at draw time (applyChartTheme).
@@ -395,42 +395,13 @@ function escapeHTML(s: string): string {
   );
 }
 
-// useVisible defers work until the element scrolls near the viewport (a 200px head start), so a page
-// with many charts initializes only the visible ones — off-screen charts cost nothing until reached.
-// Without IntersectionObserver (older engines, jsdom) everything counts as visible.
-function useVisible(ref: React.RefObject<HTMLDivElement | null>) {
-  const [visible, setVisible] = useState(false);
-  useEffect(() => {
-    const el = ref.current;
-    if (!el) {
-      return;
-    }
-    if (typeof IntersectionObserver === "undefined") {
-      setVisible(true);
-      return;
-    }
-    const io = new IntersectionObserver(
-      (entries) => {
-        if (entries.some((e) => e.isIntersecting)) {
-          setVisible(true);
-          io.disconnect();
-        }
-      },
-      { rootMargin: "200px" },
-    );
-    io.observe(el);
-    return () => io.disconnect();
-  }, [ref]);
-  return visible;
-}
-
+// EChartsFence renders a fenced ```echarts block: a pre-resolved ECharts option the static export
+// emits in place of ```viewspec fences. A body that is not a JSON object falls back to a plain code
+// block, so a malformed block never hides its source.
 interface EChartsFenceProps {
   text: string;
 }
 
-// EChartsFence renders a fenced ```echarts block: a pre-resolved ECharts option the static export
-// emits in place of ```viewspec fences. A body that is not a JSON object falls back to a plain code
-// block, so a malformed block never hides its source.
 export function EChartsFence({ text }: EChartsFenceProps) {
   const option = parseOption(text);
   if (option === null) {

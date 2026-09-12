@@ -1,4 +1,5 @@
 import { lazy, Suspense, useEffect, useState } from "react";
+import { useVisible } from "../hooks/useVisible";
 import type { GraphCanvasProps } from "./GraphCanvas";
 
 // GraphCanvas is the only importer of d3-force (the force-layout engine). Load it on demand so d3-force
@@ -15,12 +16,18 @@ export function GraphCanvas(props: GraphCanvasProps) {
   // cleanly, so a prerendered page would emit a Suspense fallback that mismatches on hydration; gating on
   // mount makes the server and the first client render agree (both empty), then the canvas loads. The
   // graph is secondary content, so deferring it to after hydration costs nothing above the fold.
+  // Off-screen graphs additionally wait for the viewport before importing d3-force, so a help top page
+  // that never scrolls to the graph never downloads it.
   const [mounted, setMounted] = useState(false);
+  const { ref, visible } = useVisible<HTMLDivElement>();
   useEffect(() => setMounted(true), []);
-  if (!mounted) return null;
+  if (!mounted || !visible)
+    return <div ref={ref} className="graph-canvas" aria-hidden="true" />;
   return (
-    <Suspense fallback={null}>
-      <GraphCanvasInner {...props} />
-    </Suspense>
+    <div ref={ref}>
+      <Suspense fallback={null}>
+        <GraphCanvasInner {...props} />
+      </Suspense>
+    </div>
   );
 }

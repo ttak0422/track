@@ -150,7 +150,11 @@ export function Embed({ src, alt, height, frame }: EmbedProps) {
 
   return (
     <MediaFrame src={src} alt={alt}>
-      <img className="embed embed-image" src={target} alt={alt} loading="lazy" />
+      {/* Below-the-fold article images stay lazy; decoding="async" keeps the decode off the main
+          thread's critical path. The LCP-image-eager promotion stays opt-in (a future :eager embed
+          option): the help top page's LCP is a text paragraph, so blanket eager would only contend
+          with it. Dimensions remain CSS-reserved (see .embed-image) to avoid CLS. */}
+      <img className="embed embed-image" src={target} alt={alt} loading="lazy" decoding="async" />
     </MediaFrame>
   );
 }
@@ -333,7 +337,7 @@ function OgpCard({ url, alt }: OgpCardProps) {
   return (
     <a className="embed ogp-card" href={url} target="_blank" rel="noreferrer noopener">
       {data?.image ? (
-        <img className="ogp-card-image" src={data.image} alt="" loading="lazy" />
+        <img className="ogp-card-image" src={data.image} alt="" loading="lazy" decoding="async" />
       ) : null}
       <span className="ogp-card-body">
         <span className="ogp-card-site">{data?.site_name || host}</span>
