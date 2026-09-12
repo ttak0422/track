@@ -21,13 +21,19 @@ export function GraphCanvas(props: GraphCanvasProps) {
   const [mounted, setMounted] = useState(false);
   const { ref, visible } = useVisible<HTMLDivElement>();
   useEffect(() => setMounted(true), []);
-  if (!mounted || !visible)
-    return <div ref={ref} className="graph-canvas" aria-hidden="true" />;
+  const ready = mounted && visible;
+  // One host element in both states, so the IntersectionObserver target never swaps mid-load and the
+  // layout never shifts when the canvas arrives. The host is the flex item its parent sizes
+  // (.aside-graph, .graph-full, .graph-panel, .graph-lightbox all lay a .graph-canvas out as their
+  // filling child); the canvas fills the host. A bare wrapper div here would sit between that flex
+  // parent and the canvas, the canvas's flex sizing would stop applying, and it would collapse.
   return (
-    <div ref={ref}>
-      <Suspense fallback={null}>
-        <GraphCanvasInner {...props} />
-      </Suspense>
+    <div ref={ref} className="graph-canvas-host" aria-hidden={!ready || undefined}>
+      {ready ? (
+        <Suspense fallback={null}>
+          <GraphCanvasInner {...props} />
+        </Suspense>
+      ) : null}
     </div>
   );
 }
