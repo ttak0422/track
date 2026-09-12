@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useNavigate } from "@tanstack/react-router";
 import { useGraphQuery } from "../queries";
+import { useVaultScope } from "../vaultScope";
 import type { NoteID } from "../types";
 import { GraphCanvas } from "./GraphCanvasLazy";
 import { graphCountCaption } from "./graphCaption";
@@ -20,7 +21,11 @@ interface Point {
 // pinning promotes it to the floating layer, and clicking the node navigates to it. It lives in an
 // ordinary "Graph" tab, so it carries only the canvas and a bottom-right reset control.
 export function GraphFullView() {
-  const graphQuery = useGraphQuery(true);
+  // The whole graph follows the working vault: with a scope selected the view draws that vault's
+  // notes, with none (the launch vault) it draws the same graph it always has. VaultSwitcher already
+  // shows which vault the workspace is in, so the scoping needs no label of its own.
+  const { scope } = useVaultScope();
+  const graphQuery = useGraphQuery(true, scope);
   const navigate = useNavigate();
   const floating = useFloating();
   const [resetToken, setResetToken] = useState(0);

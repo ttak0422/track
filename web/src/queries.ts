@@ -35,21 +35,24 @@ import type { DateField, NoteID, NoteMetaResponse, NoteResponse, SaveNoteMetaReq
 
 export const queryKeys = {
   site: () => ["site"] as const,
-  activity: (since: string, until: string) => ["activity", since, until] as const,
+  activity: (since: string, until: string, vault = "") => ["activity", vault, since, until] as const,
   agenda: (date: string, vault = "") => ["agenda", vault, date] as const,
-  graph: () => ["graph"] as const,
+  // The whole-vault graph is scoped like the agenda: each vault's graph is one cache entry, and the
+  // empty name is the launch vault. The local graph's ["graph","local",noteID] keys stay under the
+  // same prefix, so a write that invalidates ["graph"] refreshes every graph together.
+  graph: (vault = "") => ["graph", vault] as const,
   hierarchy: () => ["hierarchy"] as const,
   localGraph: (noteID: NoteID) => ["graph", "local", noteID] as const,
   note: (noteID: NoteID) => ["note", noteID] as const,
   noteMeta: (noteID: NoteID) => ["note-meta", noteID] as const,
   notes: () => ["notes"] as const,
-  newNotes: (limit: number) => ["notes", "new", limit] as const,
+  newNotes: (limit: number, vault = "") => ["notes", "new", vault, limit] as const,
   // Both listings sit under one prefix so a task write invalidates them together.
   tasks: () => ["tasks"] as const,
   datedTasks: () => ["tasks", "dated"] as const,
   openTasks: () => ["tasks", "open"] as const,
   resolve: (term: string, vault = "") => ["resolve", vault, term] as const,
-  search: (query: string, limit: number) => ["search", query, limit] as const,
+  search: (query: string, limit: number, vault = "") => ["search", vault, query, limit] as const,
   vaults: () => ["vaults"] as const,
   ogp: (url: string) => ["ogp", url] as const,
   render: (body: string, vault = "") => ["render", vault, body] as const,
@@ -57,10 +60,12 @@ export const queryKeys = {
   viewspec: (spec: string, vault = "") => ["viewspec", vault, spec] as const,
 };
 
-export function useActivityQuery(since: string, until: string) {
+// useActivityQuery reads one vault's per-day note activity for the heatmap. The vault ("" for the
+// launch vault) is part of the key, so switching the working scope refetches the right days.
+export function useActivityQuery(since: string, until: string, vault = "") {
   return useQuery({
-    queryKey: queryKeys.activity(since, until),
-    queryFn: () => getActivity(since, until),
+    queryKey: queryKeys.activity(since, until, vault),
+    queryFn: () => getActivity(since, until, vault),
     enabled: since !== "" && until !== "",
   });
 }
@@ -112,10 +117,14 @@ export function useAssetTextQuery(href: string, enabled = true) {
   });
 }
 
-export function useSearchQuery(query: string, limit = 100, options?: { enabled?: boolean }) {
+// useSearchQuery searches within the working vault when one is selected ("" is
+// the launch vault), and federates across every served vault when scope is the
+// launch one. The vault rides in the key, so switching scope refetches instead
+// of reusing another vault's results.
+export function useSearchQuery(query: string, limit = 100, vault = "", options?: { enabled?: boolean }) {
   return useQuery({
-    queryKey: queryKeys.search(query, limit),
-    queryFn: () => searchNotes(query, limit),
+    queryKey: queryKeys.search(query, limit, vault),
+    queryFn: () => searchNotes(query, limit, vault),
     enabled: options?.enabled ?? true,
   });
 }
@@ -127,10 +136,12 @@ export function useNotesQuery() {
   });
 }
 
-export function useNewNotesQuery(limit = 10) {
+// useNewNotesQuery lists one vault's recently-created notes for the New widget. The vault rides in
+// the key, so a scope change refetches without one vault's listing shadowing another's.
+export function useNewNotesQuery(limit = 10, vault = "") {
   return useQuery({
-    queryKey: queryKeys.newNotes(limit),
-    queryFn: () => listNewNotes(limit),
+    queryKey: queryKeys.newNotes(limit, vault),
+    queryFn: () => listNewNotes(limit, vault),
   });
 }
 
@@ -233,10 +244,10 @@ export function useViewSpecQuery(spec: string, vault = "") {
   });
 }
 
-export function useGraphQuery(enabled = true) {
+export function useGraphQuery(enabled = true, vault = "") {
   return useQuery({
-    queryKey: queryKeys.graph(),
-    queryFn: getGraph,
+    queryKey: queryKeys.graph(vault),
+    queryFn: () => getGraph(vault),
     enabled,
   });
 }

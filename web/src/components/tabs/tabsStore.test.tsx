@@ -1,7 +1,7 @@
 import { act, renderHook } from "@testing-library/react";
 import { useEffect, type ReactNode } from "react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import { TabsProvider, useTabs } from "./tabsStore";
+import { recentsForScope, TabsProvider, useTabs } from "./tabsStore";
 
 // The store reads the route to know the active note and to open/close tabs.
 const routerMock = vi.hoisted(() => ({ pathname: "/", navigate: vi.fn() }));
@@ -199,5 +199,45 @@ describe("TabsProvider", () => {
     act(() => result.current.close("a"));
     expect(result.current.tabs.map((tab) => tab.id)).toEqual(["b"]);
     expect(routerMock.navigate).not.toHaveBeenCalled();
+  });
+});
+
+// recentsForScope narrows History to the working vault. A recents entry's id already carries its
+// vault (vaultId.ts), so the attribution is the id: "work~1" is vault work's note, a bare "1" the
+// launch vault — kept under every scope, because history that predates vault qualification or names
+// the always-addressable launch vault must never be hidden on a guess.
+describe("recentsForScope", () => {
+  const recent = [
+    { id: "work~1", title: "Work one" },
+    { id: "work~2", title: "Work two" },
+    { id: "home~3", title: "Home three" },
+    { id: "4", title: "Launch vault four" },
+  ];
+
+  it("keeps everything when no scope is set", () => {
+    expect(recentsForScope(recent, "")).toEqual(recent);
+  });
+
+  it("keeps the scoped vault's notes plus un-attributed history", () => {
+    expect(recentsForScope(recent, "work")).toEqual([
+      { id: "work~1", title: "Work one" },
+      { id: "work~2", title: "Work two" },
+      { id: "4", title: "Launch vault four" },
+    ]);
+  });
+
+  it("keeps the launch vault's notes when it is the selected scope", () => {
+    expect(recentsForScope(recent, "home")).toEqual([
+      { id: "home~3", title: "Home three" },
+      { id: "4", title: "Launch vault four" },
+    ]);
+  });
+
+  it("keeps only un-attributed history when the scope matches nothing", () => {
+    expect(recentsForScope(recent, "elsewhere")).toEqual([{ id: "4", title: "Launch vault four" }]);
+  });
+
+  it("returns the empty list for empty history", () => {
+    expect(recentsForScope([], "work")).toEqual([]);
   });
 });

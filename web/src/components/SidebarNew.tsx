@@ -2,14 +2,17 @@ import { Link } from "@tanstack/react-router";
 import { createPortal } from "react-dom";
 import { useEffect, useRef, useState, type CSSProperties, type FocusEvent } from "react";
 import { useNewNotesQuery } from "../queries";
+import { useVaultScope } from "../vaultScope";
 import { hoverOpen } from "./hoverOpen";
 import { railAnchor } from "./railAnchor";
 import { IconPlus, RailIcon } from "./icons";
 
 // SidebarNew is the rail's creation button plus the vault's recently-created notes. It deliberately
-// differs from SidebarHistory, which remembers notes opened in this browser.
+// differs from SidebarHistory, which remembers notes opened in this browser. The listing follows the
+// working vault, so switching scope swaps which vault's New the panel shows.
 export function SidebarNew() {
-  const query = useNewNotesQuery(100);
+  const { scope } = useVaultScope();
+  const query = useNewNotesQuery(100, scope);
   const notes = query.data?.notes ?? [];
   const [open, setOpen] = useState(false);
   const [anchor, setAnchor] = useState<CSSProperties | undefined>(undefined);

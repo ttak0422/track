@@ -34,6 +34,37 @@ async function fetchAssetText(staticMode: boolean, href: string): Promise<string
   return (await import("./api")).fetchAssetText(href);
 }
 
+// The live branch needs a JSON body to adopt read state from; the static branch reuses the default
+// stub, whose .bin files hold the locked bundle.
+async function searchNotes(staticMode: boolean, query: string, limit: number, vault: string) {
+  if (!staticMode) {
+    vi.stubGlobal("fetch", async (url: string) => {
+      fetched.push(url);
+      return new Response(JSON.stringify({ results: [] }));
+    });
+  }
+  vi.stubEnv("VITE_TRACK_STATIC", staticMode ? "1" : "");
+  vi.resetModules();
+  return (await import("./api")).searchNotes(query, limit, vault);
+}
+
+describe("searchNotes", () => {
+  it("keeps the search federated when no vault is named", async () => {
+    await searchNotes(false, "alpha", 100, "");
+    expect(fetched).toEqual(["/api/search?limit=100&q=alpha"]);
+  });
+
+  it("narrows the search to the named vault", async () => {
+    await searchNotes(false, "alpha", 100, "work");
+    expect(fetched).toEqual(["/api/search?limit=100&q=alpha&vault=work"]);
+  });
+
+  it("ignores the vault on the published site, whose search is one vault baked into the bundle", async () => {
+    await searchNotes(true, "alpha", 100, "work");
+    expect(fetched).toEqual(["/data/notes.bin", "/data/search.bin"]);
+  });
+});
+
 describe("fetchAssetText", () => {
   it("opens the locked chart option on a published site", async () => {
     const text = await fetchAssetText(true, "assets/abc.echarts.json");
@@ -58,6 +89,65 @@ async function getOgp(url: string) {
   vi.resetModules();
   return (await import("./api")).getOgp(url);
 }
+
+// The whole-vault graph is scoped like the agenda: a request names the vault it wants (the empty
+// name is the launch vault), and the response's "vault" label qualifies every id with it, so two
+// vaults' same-numbered notes stay distinct in the query cache. The local graph is addressed by the
+// note's own qualified id, which is how the client tells a foreign vault from the one it was
+// launched in.
+describe("graph requests and their vault", () => {
+  function jsonGraph(vault: string) {
+    return JSON.stringify({
+      vault,
+      graph: {
+        center_id: 7,
+        nodes: [{ note_id: 7, file_kind: "note", title: "Root" }],
+        edges: [],
+      },
+    });
+  }
+
+  it("scopes the whole-vault graph to the requested vault and qualifies its ids", async () => {
+    vi.stubEnv("VITE_TRACK_STATIC", "");
+    vi.resetModules();
+    const { getGraph } = await import("./api");
+    vi.stubGlobal("fetch", async (url: string) => {
+      fetched.push(url);
+      return new Response(jsonGraph("work"));
+    });
+
+    const data = await getGraph("work");
+    expect(fetched).toEqual(["/api/graph?vault=work"]);
+    expect(data.graph.nodes[0].note_id).toBe("work~7");
+  });
+
+  it("leaves the whole-vault graph unscoped for the launch vault", async () => {
+    vi.stubEnv("VITE_TRACK_STATIC", "");
+    vi.resetModules();
+    const { getGraph } = await import("./api");
+    vi.stubGlobal("fetch", async (url: string) => {
+      fetched.push(url);
+      return new Response(jsonGraph(""));
+    });
+
+    const data = await getGraph("");
+    expect(fetched).toEqual(["/api/graph"]);
+    expect(data.graph.nodes[0].note_id).toBe("7");
+  });
+
+  it("addresses the local graph at the note's own vault, not the launch vault", async () => {
+    vi.stubEnv("VITE_TRACK_STATIC", "");
+    vi.resetModules();
+    const { getLocalGraph } = await import("./api");
+    vi.stubGlobal("fetch", async (url: string) => {
+      fetched.push(url);
+      return new Response(jsonGraph("work"));
+    });
+
+    await getLocalGraph("work~7");
+    expect(fetched).toEqual(["/api/graph/local?id=7&vault=work"]);
+  });
+});
 
 describe("parseOgp", () => {
   it("reads the Open Graph tags and resolves a relative image", async () => {
@@ -105,5 +195,42 @@ describe("getOgp on a published site", () => {
   it("degrades to the bare card when the response is not HTML", async () => {
     vi.stubGlobal("fetch", async () => new Response("{}", { headers: { "content-type": "application/json" } }));
     expect(await getOgp("https://example.com/data.json")).toEqual({ url: "https://example.com/data.json" });
+  });
+});
+
+// The vault-scoped activity and new-notes requests ride the same ?vault=<name> param as every other
+// scoped endpoint; the launch vault sends none, so a single-vault workspace's URLs are unchanged.
+describe("vault-scoped activity and new-notes requests", () => {
+  it("appends the vault to the activity request", async () => {
+    const { getActivity } = await import("./api");
+    await getActivity("2026-01-01", "2026-01-31", "work");
+    expect(fetched).toEqual(["/api/activity?since=2026-01-01&until=2026-01-31&vault=work"]);
+  });
+
+  it("omits the vault param for the launch vault", async () => {
+    const { getActivity } = await import("./api");
+    await getActivity("2026-01-01", "2026-01-31");
+    expect(fetched).toEqual(["/api/activity?since=2026-01-01&until=2026-01-31"]);
+  });
+
+  it("appends the vault to the new-notes listing", async () => {
+    vi.stubGlobal(
+      "fetch",
+      async (url: string) => {
+        fetched.push(String(url));
+        return new Response(JSON.stringify({ notes: [] }), { headers: { "content-type": "application/json" } });
+      },
+    );
+    const { listNewNotes } = await import("./api");
+    await listNewNotes(10, "work");
+    expect(fetched).toEqual(["/api/notes?sort=created&limit=10&vault=work"]);
+  });
+
+  it("keeps the static new-notes listing empty and vault-free", async () => {
+    vi.stubEnv("VITE_TRACK_STATIC", "1");
+    vi.resetModules();
+    const { listNewNotes } = await import("./api");
+    await expect(listNewNotes(10, "work")).resolves.toEqual({ notes: [] });
+    expect(fetched).toEqual([]);
   });
 });

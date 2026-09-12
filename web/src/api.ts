@@ -131,12 +131,14 @@ async function staticData<T>(path: string): Promise<T> {
 
 const readOnly = () => Promise.reject(new Error("read-only static site"));
 
-export function searchNotes(query: string, limit = 100): Promise<SearchResponse> {
+// searchNotes searches one vault or the whole workspace: vault names the vault
+// to narrow to, "" keeps the federated search across every served vault.
+export function searchNotes(query: string, limit = 100, vault = ""): Promise<SearchResponse> {
   if (STATIC_MODE) {
     return staticSearch(query, limit);
   }
   const params = new URLSearchParams({ limit: String(limit), q: query });
-  return api<SearchResponse>(`/api/search?${params}`).then((data) => {
+  return api<SearchResponse>(`/api/search?${params}${vaultParams(vault)}`).then((data) => {
     adoptReadState(data.results);
     return data;
   });
@@ -211,13 +213,14 @@ export function listNotes(): Promise<NotesResponse> {
 }
 
 // The live workspace's New widget is creation history, distinct from the modified-order notes file
-// used by the calendar and static search. Static sites never render that workspace-only home.
-export function listNewNotes(limit = 10): Promise<NotesResponse> {
+// used by the calendar and static search. Static sites never render that workspace-only home. The
+// vault names which vault's creation history is listed; empty means the launch vault.
+export function listNewNotes(limit = 10, vault = ""): Promise<NotesResponse> {
   if (STATIC_MODE) {
     return Promise.resolve({ notes: [] });
   }
   const params = new URLSearchParams({ sort: "created", limit: String(limit) });
-  return api<NotesResponse>(`/api/notes?${params}`).then((data) => {
+  return api<NotesResponse>(`/api/notes?${params}${vaultParams(vault)}`).then((data) => {
     adoptReadState(data.notes);
     return data;
   });
@@ -238,13 +241,16 @@ export function listOpenTasks(): Promise<TaskListResponse> {
   return api<TaskListResponse>("/api/tasks?open=1");
 }
 
-export function getActivity(since: string, until: string): Promise<ActivityResponse> {
+// getActivity returns the per-day note activity within a [since, until] window for one vault; an
+// empty vault is the launch vault. The heatmap and any future activity view pass the working scope
+// through so a selected vault's days are the ones drawn.
+export function getActivity(since: string, until: string, vault = ""): Promise<ActivityResponse> {
   if (STATIC_MODE) {
     // The published site has no heatmap, so activity is empty.
     return Promise.resolve({ activity: { since, until, total: 0, counts: [] } });
   }
   const params = new URLSearchParams({ since, until });
-  return api<ActivityResponse>(`/api/activity?${params}`);
+  return api<ActivityResponse>(`/api/activity?${params}${vaultParams(vault)}`);
 }
 
 function staticResolveMap(): Promise<Record<string, ResolveResponse["note"]>> {
@@ -466,11 +472,14 @@ export function getLocalGraph(noteID: NoteID): Promise<GraphResponse> {
   return api<GraphResponse>(`/api/graph/local?${idParams(noteID)}`);
 }
 
-export function getGraph(): Promise<GraphResponse> {
+// getGraph reads the whole link graph of one vault. The workspace serves several, so the caller
+// names the vault it wants: the empty name is the launch vault, which the server treats a missing
+// ?vault= as. The published bundle carries a single vault's graph, so the static branch ignores it.
+export function getGraph(vault = ""): Promise<GraphResponse> {
   if (STATIC_MODE) {
     return staticData<GraphResponse>("graph.json");
   }
-  return api<GraphResponse>("/api/graph");
+  return api<GraphResponse>(`/api/graph${vaultParams(vault, "?")}`);
 }
 
 // getOgp fetches Open Graph metadata for an embedded link so the preview can render a rich card.

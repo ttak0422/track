@@ -4,6 +4,7 @@ import { SidebarNew } from "./SidebarNew";
 
 const routerMock = vi.hoisted(() => ({ pathname: "/", navigate: vi.fn() }));
 const newNotes = vi.hoisted(() => vi.fn());
+const scopeMock = vi.hoisted(() => ({ value: "" }));
 
 vi.mock("@tanstack/react-router", () => ({
   Link: ({ children, params, ...rest }: { children: unknown; params: { noteId: string } }) => (
@@ -15,20 +16,25 @@ vi.mock("@tanstack/react-router", () => ({
   useNavigate: () => routerMock.navigate,
 }));
 
-vi.mock("../queries", () => ({ useNewNotesQuery: (limit: number) => {
-  newNotes(limit);
+vi.mock("../vaultScope", () => ({
+  useVaultScope: () => ({ scope: scopeMock.value }),
+}));
+
+vi.mock("../queries", () => ({ useNewNotesQuery: (limit: number, vault: string) => {
+  newNotes(limit, vault);
   return { data: { notes: [{ note_id: "first", title: "First note" }, { note_id: "second", title: "Second note" }] } };
 } }));
 
 describe("SidebarNew", () => {
   beforeEach(() => {
     newNotes.mockClear();
+    scopeMock.value = "";
     vi.useRealTimers();
   });
 
   it("requests and lists recently-created notes", async () => {
     render(<SidebarNew />);
-    expect(newNotes).toHaveBeenCalledWith(100);
+    expect(newNotes).toHaveBeenCalledWith(100, "");
     fireEvent.pointerEnter(screen.getByRole("button", { name: "Recently created notes" }));
     const panel = await screen.findByRole("menu", { name: "Recently created notes" });
     expect(screen.getAllByRole("menuitem").map((item) => item.textContent)).toEqual([
@@ -46,6 +52,12 @@ describe("SidebarNew", () => {
       "title",
       "First note",
     );
+  });
+
+  it("lists the working vault's recent creations when a scope is set", () => {
+    scopeMock.value = "work";
+    render(<SidebarNew />);
+    expect(newNotes).toHaveBeenCalledWith(100, "work");
   });
 
   it("shows an empty state", () => {

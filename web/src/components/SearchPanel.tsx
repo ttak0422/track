@@ -6,6 +6,7 @@ import { useSearchQuery } from "../queries";
 import { useSearchState } from "../searchState";
 import { highlightSearchText } from "../searchHighlight";
 import { isNew } from "../reading";
+import { useVaultScope } from "../vaultScope";
 import type { SearchResult } from "../types";
 import { NoteFlagBadges } from "./noteShared";
 import { FloatNoteButton } from "./preview/FloatNoteButton";
@@ -24,7 +25,11 @@ export function SearchPanel({ onNavigate, autoFocus }: SearchPanelProps = {}) {
   // once something is typed.
   const trimmedQuery = debouncedQuery.trim();
   const hasQuery = trimmedQuery !== "";
-  const search = useSearchQuery(trimmedQuery, 100, { enabled: hasQuery });
+  // A selected working vault narrows the search to that vault; the launch vault ("") keeps the
+  // federated search across every served vault. The switcher already shows the scope, so the
+  // panel itself stays silent about it.
+  const { scope } = useVaultScope();
+  const search = useSearchQuery(trimmedQuery, 100, scope, { enabled: hasQuery });
   const navigate = useNavigate();
   // The note already open in the reader. It is on screen, so its row offers no way to open it again.
   const pathname = useRouterState({ select: (state) => state.location.pathname });
