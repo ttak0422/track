@@ -68,6 +68,65 @@ describe("FloatingProvider", () => {
     expect(result.current.windows).toHaveLength(2);
   });
 
+  it("replaces a window's content in place, keeping its id and pinning it", () => {
+    const { result } = renderHook(() => useFloating(), { wrapper });
+    act(() => result.current.open({ kind: "note", noteID: "1" }, bounds, false));
+    const id = result.current.windows[0].id;
+    const order = getPreviewStackOrder(id);
+
+    act(() => result.current.replace(id, { kind: "note", noteID: "2" }, { pinned: true }));
+
+    // The same window keeps its slot and stack order; only the content and keeper flags changed.
+    expect(result.current.windows).toHaveLength(1);
+    expect(result.current.windows[0].id).toBe(id);
+    expect(result.current.windows[0].content).toEqual({ kind: "note", noteID: "2" });
+    expect(result.current.windows[0].pinned).toBe(true);
+    expect(result.current.windows[0].transient).toBe(false);
+    expect(getPreviewStackOrder(id)).toBe(order);
+  });
+
+  it("keeps the window's bounds and settles it when swapping a transient window", () => {
+    const { result } = renderHook(() => useFloating(), { wrapper });
+    const anchor = { linkLeft: 1, linkRight: 2, linkTop: 3, linkBottom: 4 };
+    act(() => result.current.open({ kind: "note", noteID: "1" }, bounds, false, { transient: true, anchor }));
+    const id = result.current.windows[0].id;
+
+    act(() => result.current.replace(id, { kind: "note", noteID: "3" }));
+
+    expect(result.current.windows[0].initialBounds).toEqual(bounds);
+    // The swap is a kept gesture, not the pointer's: the window no longer follows its opener.
+    expect(result.current.windows[0].transient).toBe(false);
+    expect(result.current.windows[0].anchor).toBeUndefined();
+  });
+
+  it("raises the existing window for the new content instead of duplicating it", () => {
+    const { result } = renderHook(() => useFloating(), { wrapper });
+    act(() => result.current.open({ kind: "note", noteID: "1" }, bounds, false));
+    act(() => result.current.open({ kind: "note", noteID: "2" }, bounds, false));
+    const firstID = result.current.windows[0].id;
+    const secondID = result.current.windows[1].id;
+
+    // Swapping the first window to the note the second already shows drops the first and raises the second.
+    act(() => result.current.replace(firstID, { kind: "note", noteID: "2" }, { pinned: true }));
+
+    // One window for the note, never two: the surviving window is the existing one, now pinned.
+    expect(result.current.windows).toHaveLength(1);
+    expect(result.current.windows[0].id).toBe(secondID);
+    expect(result.current.windows[0].content).toEqual({ kind: "note", noteID: "2" });
+    expect(result.current.windows[0].pinned).toBe(true);
+    expect(result.current.windows.some((w) => w.id === firstID)).toBe(false);
+  });
+
+  it("does nothing for an unknown window id", () => {
+    const { result } = renderHook(() => useFloating(), { wrapper });
+    act(() => result.current.open({ kind: "note", noteID: "1" }, bounds, false));
+
+    act(() => result.current.replace("no-such-window", { kind: "note", noteID: "9" }, { pinned: true }));
+
+    expect(result.current.windows).toHaveLength(1);
+    expect(result.current.windows[0].content).toEqual({ kind: "note", noteID: "1" });
+  });
+
   it("drops unpinned windows on route changes while keeping pinned windows", () => {
     const { result, rerender } = renderHook(() => useFloating(), { wrapper });
     act(() => result.current.open({ kind: "note", noteID: "1" }, bounds, false));
