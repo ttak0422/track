@@ -179,7 +179,7 @@ public struct TrackClient: Sendable {
         try await post(path: "/api/journal", query: [URLQueryItem(name: "date", value: date)], body: [:])
     }
 
-    // MARK: - Render (api.ts: renderMarkdown/renderViewSpec)
+    // MARK: - Render (api.ts: renderMarkdown/renderViewSpec/uploadAsset)
 
     /// `POST /api/render`: sanitizes a raw note body into the Markdown the UI
     /// renders and resolves every `![[...]]` transclusion against the vault
@@ -207,6 +207,31 @@ public struct TrackClient: Sendable {
         }
         let option = try JSONSerialization.data(withJSONObject: echarts)
         return String(decoding: option, as: UTF8.self)
+    }
+
+    /// `POST /api/asset`: imports a picked image into the vault's assets
+    /// directory and returns its "assets/<name>" reference for the cover-image
+    /// field (api.ts: uploadAsset). Multipart form field "file"; the browser
+    /// sets the boundary there, so this builds it by hand instead of going
+    /// through the JSON helpers. The ref is vault-relative, so the upload
+    /// lands in the note's own vault.
+    public func uploadAsset(fileName: String, data: Data, mimeType: String, vault: String = "") async throws -> AssetUploadResponse {
+        var items: [URLQueryItem] = []
+        if !vault.isEmpty { items.append(URLQueryItem(name: "vault", value: vault)) }
+        var comps = URLComponents(url: baseURL.appendingPathComponent("/api/asset"), resolvingAgainstBaseURL: false)!
+        comps.queryItems = items.isEmpty ? nil : items
+        var req = URLRequest(url: comps.url!)
+        req.httpMethod = "POST"
+        let boundary = "TrackAsset-\(UUID().uuidString)"
+        req.setValue("multipart/form-data; boundary=\(boundary)", forHTTPHeaderField: "Content-Type")
+        var body = Data()
+        body.append("--\(boundary)\r\n".data(using: .utf8)!)
+        body.append("Content-Disposition: form-data; name=\"file\"; filename=\"\(fileName)\"\r\n".data(using: .utf8)!)
+        body.append("Content-Type: \(mimeType)\r\n\r\n".data(using: .utf8)!)
+        body.append(data)
+        body.append("\r\n--\(boundary)--\r\n".data(using: .utf8)!)
+        req.httpBody = body
+        return try await send(req)
     }
 
     // MARK: - Transport

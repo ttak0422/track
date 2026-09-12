@@ -606,8 +606,10 @@ public final class SearchModel {
     public private(set) var isLoading = false
     public private(set) var error: String?
     /// Vaults the server could not search, mirroring `SearchPanel`'s
-    /// "vault … could not be searched" note (the count drives a banner).
-    public private(set) var unavailableCount = 0
+    /// per-vault "vault … could not be searched" note. The count stays as a
+    /// convenience for the banner; the list carries names and errors.
+    public private(set) var unavailable: [UnavailableVault] = []
+    public var unavailableCount: Int { unavailable.count }
     /// Recently submitted/opened search terms, newest first. Views may use
     /// this for a history menu without owning another persistence cache.
     public private(set) var history: [String]
@@ -659,7 +661,7 @@ public final class SearchModel {
         error = nil
         guard !query.isEmpty else {
             results = []
-            unavailableCount = 0
+            unavailable = []
             isLoading = false
             return
         }
@@ -675,7 +677,7 @@ public final class SearchModel {
                 try Task.checkCancellation()
                 guard let self else { return }
                 self.results = response.results
-                self.unavailableCount = response.unavailable?.count ?? 0
+                self.unavailable = response.unavailable ?? []
                 self.isLoading = false
             } catch is CancellationError {
                 // A newer keystroke owns the next request.
@@ -683,7 +685,7 @@ public final class SearchModel {
                 guard let self, !Task.isCancelled else { return }
                 self.error = error.localizedDescription
                 self.results = []
-                self.unavailableCount = 0
+                self.unavailable = []
                 self.isLoading = false
             }
         }

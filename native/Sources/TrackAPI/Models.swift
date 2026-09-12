@@ -356,6 +356,12 @@ public struct ReadResponse: Codable, Sendable {
 
 // MARK: - Note metadata
 
+/// The vault reference returned after uploading a cover image, e.g.
+/// "assets/cover.png" (`AssetUploadResponse` in types.ts).
+public struct AssetUploadResponse: Codable, Sendable {
+    public var ref: String
+}
+
 /// A note's editable sidecar metadata (`NoteMetaResponse` in types.ts): title,
 /// tags, description, cover image, icon, flags, and typed props. `props` is the
 /// free-form YAML "key: value" block the engine parses and validates.
