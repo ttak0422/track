@@ -28,8 +28,34 @@ local function load_telescope()
 end
 
 -- Display title for one result, falling back to the note id when untitled.
+-- A hit from a named vault carries its registry name (cross-vault search
+-- labels every hit), so it is suffixed the way the web tab strip badges a
+-- tab from another vault; a hit from the launch vault stays bare.
+local function vault_suffix(result)
+   local vault = result.vault
+   if type(vault) == "string" and vault ~= "" then
+      return " [" .. vault .. "]"
+   end
+   return ""
+end
+
 local function result_title(result)
-   return result.title or ("#" .. tostring(result.note_id or "?"))
+   return (result.title or ("#" .. tostring(result.note_id or "?"))) .. vault_suffix(result)
+end
+
+-- active_suffix names the vault the CLI considers selected, for the picker's
+-- own title ("Track title search [main]"). It is resolved once per picker,
+-- not per keystroke, and degrades to "" when the CLI cannot answer.
+local function active_suffix()
+   local ok, vault = pcall(require, "track.vault")
+   if not ok then
+      return ""
+   end
+   local name = vault.current_name()
+   if name ~= "" then
+      return " [" .. name .. "]"
+   end
+   return ""
 end
 
 -- Fields shared by every entry regardless of scope. lnum is the 1-based line the
@@ -184,10 +210,11 @@ local function pick(scope, opts)
    local picker_opts = vim.tbl_extend("force", opts, {
       default_text = opts.default_text or opts.query,
    })
+   local scope_suffix = active_suffix()
 
    telescope.pickers
       .new(picker_opts, {
-         prompt_title = "Track " .. scope .. " search",
+         prompt_title = "Track " .. scope .. " search" .. scope_suffix,
          finder = telescope.finders.new_dynamic({
             fn = function(prompt)
                local query = vim.trim(prompt or "")
