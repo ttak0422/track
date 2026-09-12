@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from "react";
+import { useVisible } from "../../hooks/useVisible";
 import { CodeBlock } from "./CodeBlock";
 import { loadDrawioViewer } from "./drawioViewer";
 
@@ -19,10 +20,12 @@ type DrawioState = "loading" | "ready" | "error";
 // flipping pages inside a note ever matters.
 export function DrawioDiagram({ text }: DrawioDiagramProps) {
   const hostRef = useRef<HTMLDivElement>(null);
+  const { ref: visibleRef, visible } = useVisible<HTMLDivElement>();
   const [state, setState] = useState<DrawioState>("loading");
   const [message, setMessage] = useState("");
 
   useEffect(() => {
+    if (!visible) return;
     let cancelled = false;
     setState("loading");
 
@@ -54,7 +57,7 @@ export function DrawioDiagram({ text }: DrawioDiagramProps) {
     return () => {
       cancelled = true;
     };
-  }, [text]);
+  }, [text, visible]);
 
   if (state === "error") {
     return (
@@ -66,7 +69,7 @@ export function DrawioDiagram({ text }: DrawioDiagramProps) {
   }
 
   return (
-    <div className="drawio-diagram" role="img" aria-label="draw.io diagram">
+    <div ref={visibleRef} className="drawio-diagram" role="img" aria-label="draw.io diagram">
       {state === "loading" ? <div className="mermaid-diagram mermaid-diagram-loading">Rendering diagram...</div> : null}
       <div ref={hostRef} />
     </div>

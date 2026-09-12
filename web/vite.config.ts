@@ -107,6 +107,11 @@ export default defineConfig({
         // libs (mermaid, pdf.js, KaTeX, cytoscape, d3-force) are already dynamically imported.
         manualChunks(id: string) {
           if (!id.includes("node_modules")) return;
+          // portableToHtml imports react-dom/server lazily for the Confluence copy, but the generic
+          // react-dom rule below would bundle the server renderer into the initial react chunk
+          // (renderToString/renderToStaticMarkup were confirmed in it). Keep the server entry in its
+          // own chunk so ~56KB gzip stays off the boot path and loads only on a copy action.
+          if (id.includes("/react-dom/") && id.includes("server")) return "react-server";
           if (id.includes("/react-dom/") || /\/react\//.test(id) || id.includes("/scheduler/")) return "react";
           if (id.includes("/@tanstack/")) return "tanstack";
           if (id.includes("/budoux/")) return "budoux";

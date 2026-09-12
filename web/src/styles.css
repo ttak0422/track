@@ -28,6 +28,25 @@
 @property --chart-ramp-lo { syntax: "<color>"; inherits: true; initial-value: #808080 }
 @property --chart-ramp-hi { syntax: "<color>"; inherits: true; initial-value: #808080 }
 
+/* Fallback for the IBM Plex Sans JP swap. The webfont loads after first paint (see
+   src/main.tsx), so the fallback draws the first paint and display=swap trades up when the faces
+   land. Without metric overrides that trade moves lines (measured CLS 0.05-0.09 with fonts, 0
+   without). The overrides below make the fallback reserve the webfont's vertical rhythm: measured
+   from the served woff2 (unitsPerEm 1000, hhea ascent 1060/descent -440/lineGap 0, OS/2 xHeight 541).
+   size-adjust stays 100% until the local fallback's x-height is measured against Hiragino/Yu Gothic;
+   width matching (characters per line) is the follow-up, vertical stability is this change. */
+@font-face {
+  font-family: "IBM Plex Sans JP Fallback";
+  src:
+    local("Hiragino Kaku Gothic ProN"), local("Hiragino Sans"), local("Yu Gothic UI"), local("Yu Gothic"),
+    local("Meiryo"), local("Noto Sans JP");
+  size-adjust: 100%;
+  ascent-override: 106%;
+  descent-override: 44%;
+  line-gap-override: 0%;
+  font-display: swap;
+}
+
 :root {
   /* light-dark() reads this, so the two theme selectors below are the whole theme switch — there is
      no second copy of the dark palette to fall out of step with the first. */
@@ -62,8 +81,8 @@
   --chart-ramp-lo: light-dark(#e4ebe7, #28322f);
   --chart-ramp-hi: light-dark(#286957, #91d0b8);
   --font-sans:
-    "IBM Plex Sans JP", Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI",
-    sans-serif;
+    "IBM Plex Sans JP", "IBM Plex Sans JP Fallback", Inter, ui-sans-serif, system-ui, -apple-system,
+    BlinkMacSystemFont, "Segoe UI", sans-serif;
   font-family: var(--font-sans);
   /* The one mono stack — code, the editor, and section labels all read from here. */
   --font-mono: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, monospace;
@@ -3790,6 +3809,16 @@ textarea.modal-input:focus-visible {
 .text-asset-loading {
   color: var(--muted);
   font-size: 0.92em;
+}
+
+/* Off-screen diagrams render nothing until near the viewport, so the loading placeholder is what
+   reserves their slot. Without a floor a page of deferred diagrams starts short and grows as each
+   engine lands, scoring as layout shift; 120px holds one collapsed preview's worth without pushing
+   short notes around. */
+.mermaid-diagram-loading {
+  min-height: 120px;
+  display: flex;
+  align-items: center;
 }
 
 /* A viewspec chart is an ECharts instance drawing the server-resolved option; the container needs an

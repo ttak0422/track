@@ -1,6 +1,7 @@
 import type { MermaidConfig } from "mermaid";
 import { type PointerEvent, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { useThemeVersion } from "../../hooks/useThemeVersion";
+import { useVisible } from "../../hooks/useVisible";
 import { CodeBlock } from "./CodeBlock";
 import { copyText } from "./clipboard";
 import {
@@ -30,12 +31,16 @@ export type DiagramState =
 let renderSequence = 0;
 
 // MermaidDiagram renders fenced ```mermaid blocks in the browser. Mermaid owns parsing and SVG
-// generation; securityLevel strict keeps diagram directives from loosening the renderer.
+// generation; securityLevel strict keeps diagram directives from loosening the renderer. The engine
+// import and render wait until the block scrolls near the viewport (same 200px policy as charts),
+// so off-screen diagrams cost nothing on initial load.
 export function MermaidDiagram({ text }: MermaidDiagramProps) {
+  const { ref, visible } = useVisible<HTMLDivElement>();
   const [state, setState] = useState<DiagramState>({ status: "loading" });
   const themeVersion = useThemeVersion();
 
   useEffect(() => {
+    if (!visible) return;
     let cancelled = false;
     const renderID = `track-mermaid-${++renderSequence}`;
     setState({ status: "loading" });
@@ -55,9 +60,13 @@ export function MermaidDiagram({ text }: MermaidDiagramProps) {
     return () => {
       cancelled = true;
     };
-  }, [text, themeVersion]);
+  }, [text, themeVersion, visible]);
 
-  return <DiagramFrame state={state} source={text} sourceLang="mermaid" label="Mermaid diagram" />;
+  return (
+    <div ref={ref}>
+      <DiagramFrame state={state} source={text} sourceLang="mermaid" label="Mermaid diagram" />
+    </div>
+  );
 }
 
 interface DiagramFrameProps {

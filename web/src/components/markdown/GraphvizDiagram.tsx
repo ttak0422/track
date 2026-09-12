@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react";
+import { useVisible } from "../../hooks/useVisible";
 import { DiagramFrame, type DiagramState } from "./MermaidDiagram";
 
 interface GraphvizDiagramProps {
@@ -9,11 +10,14 @@ interface GraphvizDiagramProps {
 // (@hpcc-js/wasm-graphviz). It is wired exactly like Mermaid: the engine is imported lazily so a note
 // without a diagram never loads it, and a syntax error falls back to the message plus the source. The
 // SVG's own colors are fixed (Graphviz has no theming); dark mode is handled by a CSS filter scoped to
-// .graphviz-diagram, so no re-render on theme change is needed.
+// .graphviz-diagram, so no re-render on theme change is needed. Off-screen blocks wait for the
+// viewport before importing the WASM engine.
 export function GraphvizDiagram({ text }: GraphvizDiagramProps) {
+  const { ref, visible } = useVisible<HTMLDivElement>();
   const [state, setState] = useState<DiagramState>({ status: "loading" });
 
   useEffect(() => {
+    if (!visible) return;
     let cancelled = false;
     setState({ status: "loading" });
 
@@ -34,16 +38,18 @@ export function GraphvizDiagram({ text }: GraphvizDiagramProps) {
     return () => {
       cancelled = true;
     };
-  }, [text]);
+  }, [text, visible]);
 
   return (
-    <DiagramFrame
-      state={state}
-      source={text}
-      sourceLang="dot"
-      label="Graphviz diagram"
-      className="graphviz-diagram"
-    />
+    <div ref={ref}>
+      <DiagramFrame
+        state={state}
+        source={text}
+        sourceLang="dot"
+        label="Graphviz diagram"
+        className="graphviz-diagram"
+      />
+    </div>
   );
 }
 

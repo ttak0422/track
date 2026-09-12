@@ -144,9 +144,12 @@ export function searchNotes(query: string, limit = 100): Promise<SearchResponse>
 // A published bundle never changes under the page, so both files a search reads are fetched once and
 // held as the promise, not the value — several keystrokes in flight share the one request. The
 // corpus is fetched on the first search that needs it and never as part of first paint, so a reader
-// who does not search never downloads it.
+// who does not search never downloads it. The link dictionary (resolve.json) is shared the same way:
+// one note renders one useResolveQuery per link term, and without sharing the same dictionary was
+// fetched, decrypted, and parsed once per term (18 fetches observed on the help top page).
 let notesFile: Promise<SearchResult[]> | null = null;
 let corpus: Promise<SearchDoc[]> | null = null;
+let resolveFile: Promise<Record<string, ResolveResponse["note"]>> | null = null;
 
 function staticNotes(): Promise<SearchResult[]> {
   notesFile ??= staticData<NotesResponse>("notes.json").then(
@@ -243,9 +246,20 @@ export function getActivity(since: string, until: string): Promise<ActivityRespo
   return api<ActivityResponse>(`/api/activity?${params}`);
 }
 
+function staticResolveMap(): Promise<Record<string, ResolveResponse["note"]>> {
+  resolveFile ??= staticData<Record<string, ResolveResponse["note"]>>("resolve.json").then(
+    (map) => map,
+    (err: unknown) => {
+      resolveFile = null;
+      throw err;
+    },
+  );
+  return resolveFile;
+}
+
 export function resolveTerm(term: string, vault = ""): Promise<ResolveResponse> {
   if (STATIC_MODE) {
-    return staticData<Record<string, ResolveResponse["note"]>>("resolve.json").then((map) => {
+    return staticResolveMap().then((map) => {
       const note = map[term];
       return note ? { found: true, note } : { found: false, note: { note_id: "", file_kind: "note", title: term } };
     });
