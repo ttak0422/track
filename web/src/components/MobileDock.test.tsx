@@ -14,7 +14,9 @@ vi.mock("../queries", () => ({
 }));
 vi.mock("../runtime", () => ({ STATIC_MODE: false }));
 vi.mock("../api", () => ({ openJournal: vi.fn() }));
-vi.mock("./tabs/tabsStore", () => ({
+vi.mock("./tabs/tabsStore", async (importOriginal) => ({
+  // recentsForScope stays real: the phone's history popup narrows like the rail's.
+  ...(await importOriginal<typeof import("./tabs/tabsStore")>()),
   useTabs: () => ({ recent: [{ id: "100", title: "Alpha" }] }),
 }));
 vi.mock("./SearchPanel", () => ({

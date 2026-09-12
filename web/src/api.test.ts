@@ -107,3 +107,40 @@ describe("getOgp on a published site", () => {
     expect(await getOgp("https://example.com/data.json")).toEqual({ url: "https://example.com/data.json" });
   });
 });
+
+// The vault-scoped activity and new-notes requests ride the same ?vault=<name> param as every other
+// scoped endpoint; the launch vault sends none, so a single-vault workspace's URLs are unchanged.
+describe("vault-scoped activity and new-notes requests", () => {
+  it("appends the vault to the activity request", async () => {
+    const { getActivity } = await import("./api");
+    await getActivity("2026-01-01", "2026-01-31", "work");
+    expect(fetched).toEqual(["/api/activity?since=2026-01-01&until=2026-01-31&vault=work"]);
+  });
+
+  it("omits the vault param for the launch vault", async () => {
+    const { getActivity } = await import("./api");
+    await getActivity("2026-01-01", "2026-01-31");
+    expect(fetched).toEqual(["/api/activity?since=2026-01-01&until=2026-01-31"]);
+  });
+
+  it("appends the vault to the new-notes listing", async () => {
+    vi.stubGlobal(
+      "fetch",
+      async (url: string) => {
+        fetched.push(String(url));
+        return new Response(JSON.stringify({ notes: [] }), { headers: { "content-type": "application/json" } });
+      },
+    );
+    const { listNewNotes } = await import("./api");
+    await listNewNotes(10, "work");
+    expect(fetched).toEqual(["/api/notes?sort=created&limit=10&vault=work"]);
+  });
+
+  it("keeps the static new-notes listing empty and vault-free", async () => {
+    vi.stubEnv("VITE_TRACK_STATIC", "1");
+    vi.resetModules();
+    const { listNewNotes } = await import("./api");
+    await expect(listNewNotes(10, "work")).resolves.toEqual({ notes: [] });
+    expect(fetched).toEqual([]);
+  });
+});

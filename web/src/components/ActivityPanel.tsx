@@ -25,18 +25,19 @@ export function ActivityPanel({ variant = "sidebar" }: ActivityPanelProps) {
   const [weeks, setWeeks] = useState(4);
   const [hovered, setHovered] = useState<{ date: string; count: number } | null>(null);
   // The rendered window is week-aligned like GitHub's graph — see weekAlignedDates — and the
-  // activity endpoint takes the same [since, until] range.
+  // activity endpoint takes the same [since, until] range. The working vault scopes both the days
+  // drawn and the journal a day opens.
+  const { scope } = useVaultScope();
   const dates = weekAlignedDates(new Date(), weeks);
   const since = dates[0];
   const until = dates[dates.length - 1];
-  const activity = useActivityQuery(since, until);
+  const activity = useActivityQuery(since, until, scope);
   const navigate = useNavigate();
   const className = `activity-panel activity-panel-${variant}`;
   const isHome = variant === "home";
 
   // Clicking a day opens (creating if needed) that day's journal in the working vault and navigates
   // to it, so the heatmap is the entry point to a day's work log.
-  const { scope } = useVaultScope();
   async function openDay(date: string) {
     try {
       const { note_id } = await openJournal(date, scope);

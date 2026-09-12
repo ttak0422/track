@@ -35,7 +35,7 @@ import type { DateField, NoteID, NoteMetaResponse, NoteResponse, SaveNoteMetaReq
 
 export const queryKeys = {
   site: () => ["site"] as const,
-  activity: (since: string, until: string) => ["activity", since, until] as const,
+  activity: (since: string, until: string, vault = "") => ["activity", vault, since, until] as const,
   agenda: (date: string, vault = "") => ["agenda", vault, date] as const,
   graph: () => ["graph"] as const,
   hierarchy: () => ["hierarchy"] as const,
@@ -43,7 +43,7 @@ export const queryKeys = {
   note: (noteID: NoteID) => ["note", noteID] as const,
   noteMeta: (noteID: NoteID) => ["note-meta", noteID] as const,
   notes: () => ["notes"] as const,
-  newNotes: (limit: number) => ["notes", "new", limit] as const,
+  newNotes: (limit: number, vault = "") => ["notes", "new", vault, limit] as const,
   // Both listings sit under one prefix so a task write invalidates them together.
   tasks: () => ["tasks"] as const,
   datedTasks: () => ["tasks", "dated"] as const,
@@ -57,10 +57,12 @@ export const queryKeys = {
   viewspec: (spec: string, vault = "") => ["viewspec", vault, spec] as const,
 };
 
-export function useActivityQuery(since: string, until: string) {
+// useActivityQuery reads one vault's per-day note activity for the heatmap. The vault ("" for the
+// launch vault) is part of the key, so switching the working scope refetches the right days.
+export function useActivityQuery(since: string, until: string, vault = "") {
   return useQuery({
-    queryKey: queryKeys.activity(since, until),
-    queryFn: () => getActivity(since, until),
+    queryKey: queryKeys.activity(since, until, vault),
+    queryFn: () => getActivity(since, until, vault),
     enabled: since !== "" && until !== "",
   });
 }
@@ -127,10 +129,12 @@ export function useNotesQuery() {
   });
 }
 
-export function useNewNotesQuery(limit = 10) {
+// useNewNotesQuery lists one vault's recently-created notes for the New widget. The vault rides in
+// the key, so a scope change refetches without one vault's listing shadowing another's.
+export function useNewNotesQuery(limit = 10, vault = "") {
   return useQuery({
-    queryKey: queryKeys.newNotes(limit),
-    queryFn: () => listNewNotes(limit),
+    queryKey: queryKeys.newNotes(limit, vault),
+    queryFn: () => listNewNotes(limit, vault),
   });
 }
 

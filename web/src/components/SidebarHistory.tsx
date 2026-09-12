@@ -1,16 +1,20 @@
 import { Link } from "@tanstack/react-router";
 import { createPortal } from "react-dom";
 import { useEffect, useRef, useState, type CSSProperties, type FocusEvent } from "react";
-import { useTabs } from "./tabs/tabsStore";
+import { useVaultScope } from "../vaultScope";
+import { recentsForScope, useTabs } from "./tabs/tabsStore";
 import { hoverOpen } from "./hoverOpen";
 import { railAnchor } from "./railAnchor";
 import { IconHistory, RailIcon } from "./icons";
 
 // SidebarHistory is the rail's clock button plus the browser-local list of notes it recently opened.
 // The panel is portalled because the fixed rail owns a stacking context below floating previews; a
-// menu rendered inside it could never rise above those previews.
+// menu rendered inside it could never rise above those previews. When the working vault is set, the
+// list narrows to that vault's notes; un-attributed history (bare ids) stays visible either way.
 export function SidebarHistory() {
   const { recent } = useTabs();
+  const { scope } = useVaultScope();
+  const history = recentsForScope(recent, scope);
   const [open, setOpen] = useState(false);
   const [anchor, setAnchor] = useState<CSSProperties | undefined>(undefined);
   const toggleRef = useRef<HTMLButtonElement>(null);
@@ -78,11 +82,11 @@ export function SidebarHistory() {
     >
       <h2 className="rail-panel-title">History</h2>
       <div className="history-scroll" role="menu" aria-label="Recently opened notes">
-      {recent.length === 0 ? (
+      {history.length === 0 ? (
         <p className="history-empty">No recently opened notes</p>
       ) : (
         <ul className="history-list">
-          {recent.map((note) => {
+          {history.map((note) => {
             // History is title-based: a note whose title has not resolved yet (a deleted note, or
             // one hopped away from before the query returned) reads as the same "Untitled" the tab
             // strip uses, never as a bare internal id — a timestamp or slug is not a label.
