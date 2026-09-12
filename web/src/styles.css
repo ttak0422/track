@@ -1246,6 +1246,18 @@ img.theme-asset-dark {
   transition: opacity 0.16s ease;
 }
 
+/* The lazy graph's host box (GraphCanvasLazy): the flex item its parent sizes, in both the waiting
+   and the loaded state, so the layout never shifts when the canvas arrives. The canvas fills it;
+   without this the loader's bare wrapper would sit between the flex parent and the canvas and the
+   canvas would collapse instead of filling. */
+.graph-canvas-host {
+  display: flex;
+  width: 100%;
+  min-width: 0;
+  min-height: 0;
+  flex: 1;
+}
+
 /* A layout still settling has nothing worth showing — a graph mid-flight is a scaffold, not the
    answer — so the first one is held blank and fades in when it lands. Only large graphs ever get
    here: a small one settles inside its first inline slice and never carries the attribute. */
