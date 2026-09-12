@@ -5,6 +5,7 @@ import {
   computeFit,
   DiagramFrame,
   isDarkColor,
+  markWash,
   MermaidDiagram,
   mermaidConfig,
 } from "./MermaidDiagram";
@@ -355,6 +356,36 @@ describe("mermaidConfig dark mode", () => {
     const variables = mermaidConfig().themeVariables as Record<string, unknown>;
     expect(variables.darkMode).toBe(false); // jsdom resolves no tokens: light fallbacks
     expect(variables.textColor).toBe("#1a1a18");
+  });
+});
+
+describe("mermaidConfig active colors", () => {
+  it("keeps active zones off the note's own surface", () => {
+    const variables = mermaidConfig().themeVariables as Record<string, unknown>;
+    // The base theme derives these from secondaryColor/primaryColor — pinned to --panel above — so
+    // without the pins an activation bar or an active gantt task is painted in the note's own
+    // colour and vanishes on the sheet (the regression this pins: the rendered activation bar's
+    // computed fill was rgb(255,255,255) on a white note).
+    expect(variables.activationBkgColor).not.toBe(variables.secondaryColor);
+    expect(variables.activationBorderColor).not.toBe(variables.secondaryColor);
+    expect(variables.activeTaskBkgColor).not.toBe(variables.primaryColor);
+    expect(variables.activeTaskBorderColor).not.toBe(variables.primaryColor);
+  });
+
+  it("washes the salient for the fill and keeps the solid mark border", () => {
+    const variables = mermaidConfig().themeVariables as Record<string, unknown>;
+    // jsdom resolves no tokens, so the mark falls back to the light-theme value.
+    expect(variables.activationBkgColor).toBe("rgba(193, 58, 30, 0.14)");
+    expect(variables.activationBorderColor).toBe("#c13a1e");
+    expect(variables.activeTaskBkgColor).toBe("rgba(193, 58, 30, 0.14)");
+    expect(variables.activeTaskBorderColor).toBe("#c13a1e");
+  });
+
+  it("washes a registered-property rgb() value the same way it washes hex", () => {
+    // getPropertyValue on a registered custom property hands back "rgb(r, g, b)" (styles.css);
+    // the dark theme's mark is the value a dark note would wash with.
+    expect(markWash("rgb(244, 120, 94)", 0.14)).toBe("rgba(244, 120, 94, 0.14)");
+    expect(markWash("not-a-color", 0.14)).toBe("not-a-color"); // unparseable: keep the fallback
   });
 });
 
