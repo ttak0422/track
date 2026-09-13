@@ -106,6 +106,32 @@ func (s *Server) Handler() http.Handler {
 	return s.guard(s.mux)
 }
 
+// requestLoopbackOnly keeps the request gateway local even when the workspace itself is deliberately
+// bound to a LAN address. The browser APIs can retain their existing bind policy; agent reports carry
+// durable request state and must not become a LAN endpoint by accident.
+func (s *Server) requestLoopbackOnly(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if !loopbackHost(s.bindHost) {
+			writeError(w, fmt.Errorf("agent requests require a loopback web bind"), http.StatusForbidden)
+			return
+		}
+		if host, _, err := net.SplitHostPort(r.RemoteAddr); err == nil && !loopbackHost(host) {
+			writeError(w, fmt.Errorf("agent requests accept loopback clients only"), http.StatusForbidden)
+			return
+		}
+		next.ServeHTTP(w, r)
+	})
+}
+
+func loopbackHost(host string) bool {
+	host = strings.Trim(host, "[]")
+	if host == "" || host == "localhost" {
+		return true
+	}
+	ip := net.ParseIP(host)
+	return ip != nil && ip.IsLoopback()
+}
+
 // guard rejects the requests a browser could aim at this local server from a foreign page: any Host
 // that is not this server (DNS rebinding would otherwise expose every read API), and mutating
 // requests bearing a foreign Origin (CSRF against the write APIs — a cross-site fetch POST is a
@@ -308,6 +334,16 @@ func (s *Server) routes() {
 	s.mux.HandleFunc("/api/follow", s.handleFollow)
 	s.mux.HandleFunc("/api/events", s.handleEvents)
 	s.mux.HandleFunc("/api/vaults", s.handleVaults)
+	// Agent request gateway (docs/spec/live-agent-requests.md, stage 1: the connection-agnostic
+	// request foundation). The request endpoints are loopback-only like the rest of the workspace;
+	// the Host/Origin guard applies to them through Handler.
+	s.mux.Handle("/api/requests", s.requestLoopbackOnly(s.withVault(s.handleRequests)))
+	s.mux.Handle("/api/requests/{id}", s.requestLoopbackOnly(s.withVault(s.handleRequest)))
+	s.mux.Handle("/api/requests/{id}/cancel", s.requestLoopbackOnly(s.withVault(s.handleRequestCancel)))
+	s.mux.Handle("/api/requests/{id}/retry", s.requestLoopbackOnly(s.withVault(s.handleRequestRetry)))
+	s.mux.Handle("/api/requests/{id}/claim", s.requestLoopbackOnly(s.withVault(s.handleRequestClaim)))
+	s.mux.Handle("/api/requests/{id}/result", s.requestLoopbackOnly(s.withVault(s.handleRequestResult)))
+	s.mux.Handle("/api/requests/{id}/fail", s.requestLoopbackOnly(s.withVault(s.handleRequestFail)))
 	// Everything that is not an API route is served from the embedded frontend build.
 	s.mux.HandleFunc("/", s.handleApp)
 }

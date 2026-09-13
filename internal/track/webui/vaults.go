@@ -11,6 +11,7 @@ import (
 
 	"github.com/ttak0422/track/internal/track/config"
 	"github.com/ttak0422/track/internal/track/index"
+	"github.com/ttak0422/track/internal/track/request"
 	"github.com/ttak0422/track/internal/track/store"
 )
 
@@ -33,6 +34,11 @@ type vaultView struct {
 	// or throttle another's.
 	reindexMu sync.Mutex
 	lastStale time.Time
+	// requestsMu guards lazy construction of requests, the per-vault request store. It is a field
+	// rather than a sync.Once so the active vault (created directly in New, not through viewByName)
+	// gets the same lazy path as every registered vault.
+	requestsMu sync.Mutex
+	requests   *request.Store
 }
 
 // refresh reconciles one vault's index with the notes on disk before a read, so the workspace
@@ -101,6 +107,18 @@ func sortedVaultNames(vaults map[string]string) []string {
 // endpoint through withVault is what keeps a foreign id from writing into the active vault: the
 // view is resolved once, at the seam, instead of each handler reaching for the server's own config.
 type vaultHandler func(*vaultView, http.ResponseWriter, *http.Request)
+
+// requestStore returns the vault's request store, constructing it on first use. The store's mutex
+// serializes request transitions within this server; the file itself is the cross-process boundary
+// (the spec's rule that one vault is managed by one request server).
+func (v *vaultView) requestStore() *request.Store {
+	v.requestsMu.Lock()
+	defer v.requestsMu.Unlock()
+	if v.requests == nil {
+		v.requests = request.New(v.cfg)
+	}
+	return v.requests
+}
 
 // withVault resolves the addressed vault before the handler runs. An unknown or unreachable vault
 // fails the request rather than falling back to the active vault — a typo must never land a write
