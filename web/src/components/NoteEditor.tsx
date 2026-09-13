@@ -163,7 +163,20 @@ export function NoteEditor({ noteID }: NoteEditorProps) {
       onDelete: () => railDeleteRef.current(),
       onAgentRequest: () => {
         const note = railNoteRef.current;
-        if (note) openAgentRequest({ title: note.title, vault: vaultOf(note.note_id), note: { note_id: Number(note.note_id.split(":").pop()), title: note.title, body: note.body, etag: note.etag, file_kind: note.file_kind }, quote: "" });
+        if (note) {
+          openAgentRequest({
+            title: note.title,
+            vault: vaultOf(note.note_id),
+            note: {
+              note_id: Number(note.note_id.split(":").pop()),
+              title: note.title,
+              body: note.body,
+              etag: note.etag,
+              file_kind: note.file_kind,
+            },
+            quote: "",
+          });
+        }
       },
     });
     return () => setActions(null);

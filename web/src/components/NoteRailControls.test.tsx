@@ -24,7 +24,12 @@ function renderRail(actions: NoteActions | null, onState?: (s: string) => void) 
   );
 }
 
-const noopActions: NoteActions = { getBody: () => "# body", onMeta: () => {}, onDelete: () => {}, onAgentRequest: () => {} };
+const noopActions: NoteActions = {
+  getBody: () => "# body",
+  onMeta: () => {},
+  onDelete: () => {},
+  onAgentRequest: () => {},
+};
 
 describe("NoteRailControls", () => {
   it("shows nothing while no note is open, so the rail stays navigation alone", async () => {

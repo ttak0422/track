@@ -123,7 +123,16 @@ export function NoteActionsMenu({ getBody, onMeta, onDelete, onAgentRequest }: N
           >
             Meta…
           </button>
-          <button type="button" role="menuitem" onClick={() => { setOpen(false); onAgentRequest(); }}>エージェントに依頼</button>
+          <button
+            type="button"
+            role="menuitem"
+            onClick={() => {
+              setOpen(false);
+              onAgentRequest();
+            }}
+          >
+            エージェントに依頼
+          </button>
           <button
             type="button"
             role="menuitem"

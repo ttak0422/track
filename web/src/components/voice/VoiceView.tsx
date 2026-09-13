@@ -460,11 +460,27 @@ export function VoiceView() {
           aria-label="Link candidates"
           style={{ left: candidatePos.left, top: candidatePos.top }}
         >
-           <span className="voice-candidates-title">{titleHits.length + bodyHits.length + pathHits.length > 0 ? "Choose a note" : "No matching note"}</span>
-           {!STATIC_MODE && searchedQuery ? <div className="voice-agent-actions">
-             <button type="button" onMouseDown={(event) => event.preventDefault()} onClick={() => openAgentRequest({ title: "ライブ入力", quote: searchedQuery })}>説明を依頼</button>
-             <button type="button" onMouseDown={(event) => event.preventDefault()} onClick={() => openAgentRequest({ title: "ライブ入力", quote: searchedQuery, intent: "research" })}>調査を依頼</button>
-           </div> : null}
+          <span className="voice-candidates-title">{titleHits.length + bodyHits.length + pathHits.length > 0 ? "Choose a note" : "No matching note"}</span>
+          {!STATIC_MODE && searchedQuery ? (
+            <div className="voice-agent-actions">
+              <button
+                type="button"
+                onMouseDown={(event) => event.preventDefault()}
+                onClick={() => openAgentRequest({ title: "ライブ入力", quote: searchedQuery })}
+              >
+                説明を依頼
+              </button>
+              <button
+                type="button"
+                onMouseDown={(event) => event.preventDefault()}
+                onClick={() =>
+                  openAgentRequest({ title: "ライブ入力", quote: searchedQuery, intent: "research" })
+                }
+              >
+                調査を依頼
+              </button>
+            </div>
+          ) : null}
           {titleHits.length > 0 ? <>
             {bodyHits.length + pathHits.length > 0 ? <h3 className="results-group">Titles</h3> : null}
             {titleHits.map((candidate) => <VoiceHitRow key={`t-${candidate.note_id}`} hit={candidate} query={searchedQuery} onOpen={openLink} />)}
