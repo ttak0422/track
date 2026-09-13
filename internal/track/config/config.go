@@ -92,6 +92,17 @@ type Config struct {
 	// rediscovered by each caller walking Vaults and comparing canonical paths. The registry gives a
 	// vault exactly one name (resolveVaults refuses a second), so there is one answer or none.
 	VaultName string
+	// Agents are machine-local request recipients. Tokens are never copied into vault request records
+	// or returned by the web API.
+	Agents map[string]AgentConfig
+}
+
+// AgentConfig describes one locally registered request recipient. The map key is the stable agent id;
+// the token authenticates claim/result/fail reports from that agent.
+type AgentConfig struct {
+	Name       string   `yaml:"name"`
+	Operations []string `yaml:"operations"`
+	Token      string   `yaml:"token"`
 }
 
 // IconMap holds the tag→icon and kind→icon lookups resolved from config. Both are optional; an unset map
@@ -140,6 +151,9 @@ type machineFileConfig struct {
 	// `track vault` subcommands. It lives in the machine config only: which vaults exist on this
 	// machine is machine state, and a synced vault must never introduce new vault paths.
 	Vaults map[string]string `yaml:"vaults"`
+	// Agents are machine state, not vault state: a synced vault must never register a destination or
+	// carry its authentication token.
+	Agents map[string]AgentConfig `yaml:"agents"`
 }
 
 // vaultFileConfig is <vault>/.track/config.yml: the note semantics a vault carries with it — id/date
@@ -375,6 +389,7 @@ func load(fixedVault string) (*Config, error) {
 		// vault), so this vault's name is a lookup on the path it resolved to — including under LoadAt,
 		// where the Config represents whichever vault was named rather than the configured one.
 		VaultName: namesByPath[vault],
+		Agents:    mc.Agents,
 	}, nil
 }
 
@@ -900,6 +915,11 @@ func isNumericID(name string) bool {
 // Rebuildable caches such as the SQLite index live outside the vault.
 func (c *Config) TrackDir() string {
 	return filepath.Join(c.VaultDir, ".track")
+}
+
+// RequestsDir returns the durable request records for the local agent gateway.
+func (c *Config) RequestsDir() string {
+	return filepath.Join(c.TrackDir(), "requests")
 }
 
 // MetadataDir returns the directory for versioned per-note metadata sidecars.
