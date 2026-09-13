@@ -446,6 +446,10 @@ func (s *Server) routes() {
 	s.mux.Handle("/api/requests/{id}/claim", s.requestLoopbackOnly(s.withVault(s.handleRequestClaim)))
 	s.mux.Handle("/api/requests/{id}/result", s.requestLoopbackOnly(s.withVault(s.handleRequestResult)))
 	s.mux.Handle("/api/requests/{id}/fail", s.requestLoopbackOnly(s.withVault(s.handleRequestFail)))
+	// GET /api/agents (stage 3: the request panel) lists the registered agents as safe projections
+	// for the create form. It is live-only, like every /api route: the static export carries no
+	// agent data, so this endpoint exists only on the live `track web` server's mux.
+	s.mux.HandleFunc("/api/agents", s.handleAgents)
 	// Everything that is not an API route is served from the embedded frontend build.
 	s.mux.HandleFunc("/", s.handleApp)
 }
