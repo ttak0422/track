@@ -108,14 +108,17 @@ func sortedVaultNames(vaults map[string]string) []string {
 // view is resolved once, at the seam, instead of each handler reaching for the server's own config.
 type vaultHandler func(*vaultView, http.ResponseWriter, *http.Request)
 
-// requestStore returns the vault's request store, constructing it on first use. The store's mutex
-// serializes request transitions within this server; the file itself is the cross-process boundary
-// (the spec's rule that one vault is managed by one request server).
-func (v *vaultView) requestStore() *request.Store {
+// requestStore returns a vault's request store, constructing it on first use and resolving any
+// update requests a previous server left in the applying state (a crash mid-apply) before the store
+// is handed out — the recovery the request spec requires on startup or first access. The store's
+// mutex serializes request transitions within this server; the file itself is the cross-process
+// boundary (the spec's rule that one vault is managed by one request server).
+func (s *Server) requestStore(v *vaultView) *request.Store {
 	v.requestsMu.Lock()
 	defer v.requestsMu.Unlock()
 	if v.requests == nil {
 		v.requests = request.New(v.cfg)
+		s.recoverApplying(v, v.requests)
 	}
 	return v.requests
 }

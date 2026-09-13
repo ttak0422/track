@@ -35,7 +35,7 @@ func (s *Server) handleRequests(v *vaultView, w http.ResponseWriter, r *http.Req
 }
 
 func (s *Server) listRequests(v *vaultView, w http.ResponseWriter, r *http.Request) {
-	reqs, next, err := v.requestStore().List(parseLimit(r.URL.Query().Get("limit"), 20), strings.TrimSpace(r.URL.Query().Get("cursor")))
+	reqs, next, err := s.requestStore(v).List(parseLimit(r.URL.Query().Get("limit"), 20), strings.TrimSpace(r.URL.Query().Get("cursor")))
 	if err != nil {
 		writeError(w, err, http.StatusInternalServerError)
 		return
@@ -102,7 +102,7 @@ func (s *Server) createRequest(v *vaultView, w http.ResponseWriter, r *http.Requ
 		writeError(w, fmt.Errorf("agent %q is not registered", in.AgentID), http.StatusBadRequest)
 		return
 	}
-	res, err := v.requestStore().Create(request.NewRequest{
+	res, err := s.requestStore(v).Create(request.NewRequest{
 		ClientRequestID: in.ClientRequestID,
 		ParentRequestID: in.ParentRequestID,
 		Intent:          in.Intent,
@@ -134,7 +134,7 @@ func (s *Server) handleRequest(v *vaultView, w http.ResponseWriter, r *http.Requ
 		writeError(w, errors.New("request id is required"), http.StatusBadRequest)
 		return
 	}
-	req, err := v.requestStore().Get(id)
+	req, err := s.requestStore(v).Get(id)
 	if err != nil {
 		writeRequestError(w, err)
 		return
@@ -147,7 +147,7 @@ func (s *Server) handleRequestCancel(v *vaultView, w http.ResponseWriter, r *htt
 	if !ok {
 		return
 	}
-	res, err := v.requestStore().Cancel(id, time.Now())
+	res, err := s.requestStore(v).Cancel(id, time.Now())
 	if err != nil {
 		writeRequestError(w, err)
 		return
@@ -160,7 +160,7 @@ func (s *Server) handleRequestRetry(v *vaultView, w http.ResponseWriter, r *http
 	if !ok {
 		return
 	}
-	res, err := v.requestStore().Retry(id, time.Now())
+	res, err := s.requestStore(v).Retry(id, time.Now())
 	if err != nil {
 		writeRequestError(w, err)
 		return
@@ -195,7 +195,7 @@ func (s *Server) handleRequestSave(v *vaultView, w http.ResponseWriter, r *http.
 		writeError(w, errors.New("save title is required"), http.StatusBadRequest)
 		return
 	}
-	req, err := v.requestStore().Get(id)
+	req, err := s.requestStore(v).Get(id)
 	if err != nil {
 		writeRequestError(w, err)
 		return
@@ -270,7 +270,7 @@ func (s *Server) handleRequestSave(v *vaultView, w http.ResponseWriter, r *http.
 	// The note exists; the save transition records it on the request. A racing replay that already
 	// recorded a save is refused here, and the just-created note is removed so a conflict never
 	// leaves an orphan behind.
-	saved, err := v.requestStore().Save(id, request.SaveInput{
+	saved, err := s.requestStore(v).Save(id, request.SaveInput{
 		ClientRequestID: in.ClientRequestID,
 		Title:           title,
 		Vault:           target.label,
@@ -329,7 +329,7 @@ func (s *Server) handleRequestClaim(v *vaultView, w http.ResponseWriter, r *http
 		writeDecodeError(w, err)
 		return
 	}
-	res, err := v.requestStore().Claim(id, in.DispatchID, time.Now())
+	res, err := s.requestStore(v).Claim(id, in.DispatchID, time.Now())
 	if err != nil {
 		writeRequestError(w, err)
 		return
@@ -337,6 +337,10 @@ func (s *Server) handleRequestClaim(v *vaultView, w http.ResponseWriter, r *http
 	writeJSON(w, res.Request)
 }
 
+// handleRequestResult adopts an attempt's answer or proposed update body. An explain/research
+// result completes the request; an update result records the proposed body, enters applying, and is
+// then applied automatically — the server replaces the target note under the vault write lock, with
+// no confirmation, and settles the request to completed, conflict, or failed before responding.
 func (s *Server) handleRequestResult(v *vaultView, w http.ResponseWriter, r *http.Request) {
 	id, ok := s.requestActionID(w, r)
 	if !ok {
@@ -355,7 +359,7 @@ func (s *Server) handleRequestResult(v *vaultView, w http.ResponseWriter, r *htt
 		writeDecodeError(w, err)
 		return
 	}
-	res, err := v.requestStore().Result(id, in.DispatchID, request.Result{
+	res, err := s.requestStore(v).Result(id, in.DispatchID, request.Result{
 		AnswerMarkdown: in.AnswerMarkdown,
 		Sources:        in.Sources,
 		ProposedBody:   in.ProposedBody,
@@ -363,6 +367,16 @@ func (s *Server) handleRequestResult(v *vaultView, w http.ResponseWriter, r *htt
 	if err != nil {
 		writeRequestError(w, err)
 		return
+	}
+	if res.Request.Status == request.StatusApplying {
+		settled, aerr := s.applyUpdate(v, s.requestStore(v), id, time.Now())
+		if aerr != nil {
+			// A persist failure left the request applying; startup recovery resolves it. A normal
+			// conflict/failed outcome is carried in the request body, not reported as an error.
+			writeError(w, aerr, http.StatusInternalServerError)
+			return
+		}
+		res.Request = settled
 	}
 	writeJSON(w, res.Request)
 }
@@ -383,7 +397,7 @@ func (s *Server) handleRequestFail(v *vaultView, w http.ResponseWriter, r *http.
 		writeDecodeError(w, err)
 		return
 	}
-	res, err := v.requestStore().Fail(id, in.DispatchID, in.Reason, time.Now())
+	res, err := s.requestStore(v).Fail(id, in.DispatchID, in.Reason, time.Now())
 	if err != nil {
 		writeRequestError(w, err)
 		return
@@ -395,7 +409,7 @@ func (s *Server) handleRequestFail(v *vaultView, w http.ResponseWriter, r *http.
 // under the existing local Host/Origin guard, while claim/result/fail additionally require the token
 // registered for the request's immutable agent_id.
 func (s *Server) authorizeRequestAgent(v *vaultView, w http.ResponseWriter, r *http.Request, id string) bool {
-	req, err := v.requestStore().Get(id)
+	req, err := s.requestStore(v).Get(id)
 	if err != nil {
 		writeRequestError(w, err)
 		return false

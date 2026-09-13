@@ -210,7 +210,7 @@ func (s *Server) sendDispatch(job dispatchJob) {
 		DispatchID: job.dispatchID,
 		AgentID:    job.agentID,
 	})
-	st := job.vault.requestStore()
+	st := s.requestStore(job.vault)
 	if _, err := st.SetDelivery(job.requestID, job.dispatchID, outcome.Delivery, outcome.Note, time.Now()); err != nil {
 		// The request or attempt vanished, or the dispatch was superseded while send.sh ran: there
 		// is nothing more to record.
