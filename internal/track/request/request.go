@@ -181,21 +181,60 @@ type NoteRef struct {
 
 // Context is the material a request carries alongside its instruction: a client-selected quote, the
 // note the user pointed at, and any referenced notes. References are context, never instructions —
-// sentences in a note are not execution directions.
+// sentences in a note are not execution directions. PriorAnswers is the follow-up chain (stage 4):
+// settled ancestor turns copied from a parent request at create time, read-only context for the agent.
 type Context struct {
-	Quote      string    `json:"quote,omitempty"` // client-selected quotation (e.g. from live-mode dictation)
-	Note       *NoteRef  `json:"note,omitempty"`
-	References []NoteRef `json:"references,omitempty"`
+	Quote        string        `json:"quote,omitempty"` // client-selected quotation (e.g. from live-mode dictation)
+	Note         *NoteRef      `json:"note,omitempty"`
+	References   []NoteRef     `json:"references,omitempty"`
+	PriorAnswers []PriorAnswer `json:"prior_answers,omitempty"`
 }
 
 // Result is the settled outcome of a request: the answer text (explain/research), or the proposed
 // body and change rationale (update). Fingerprint is a server-computed hash of the submitted content,
 // used to make result re-submission idempotent and to refuse a different result over a completed one.
+// Saved, when set, records that the answer was saved to a new note (stage 4: the save transition).
 type Result struct {
-	AnswerMarkdown string   `json:"answer_markdown,omitempty"`
-	Sources        []string `json:"sources,omitempty"`
-	ProposedBody   string   `json:"proposed_body,omitempty"` // update intents: the new body, applied in stage 3
-	Fingerprint    string   `json:"fingerprint,omitempty"`
+	AnswerMarkdown string     `json:"answer_markdown,omitempty"`
+	Sources        []string   `json:"sources,omitempty"`
+	ProposedBody   string     `json:"proposed_body,omitempty"` // update intents: the new body, applied in stage 3
+	Fingerprint    string     `json:"fingerprint,omitempty"`
+	Saved          *SavedNote `json:"saved,omitempty"`
+}
+
+// SavedNote records the note a completed explain/research request's answer was saved to. It is
+// written by the save transition (stage 4), never by the agent: the agent reports the answer, the
+// serving layer creates the note through the vault's safe create path, and this record is stamped
+// onto the request's result. Status is the closed SaveStatus set — "saved" once the note exists —
+// and ClientRequestID is the caller's idempotency key for the save action, scanned by the store so a
+// replayed save returns the same note instead of creating a second one.
+type SavedNote struct {
+	ClientRequestID string     `json:"client_request_id,omitempty"`
+	Vault           string     `json:"vault,omitempty"` // registry label of the note's vault; "" = the request's own vault
+	NoteID          int64      `json:"note_id"`
+	Title           string     `json:"title"`
+	Status          SaveStatus `json:"status"`
+	SavedAt         string     `json:"saved_at,omitempty"`
+}
+
+// SaveStatus is the outcome of a save transition. The set is closed and single-valued in this stage:
+// a save either happened or was refused; there is no in-between state to report.
+type SaveStatus string
+
+const (
+	// SaveStatusSaved means the answer's note exists and the request records it.
+	SaveStatusSaved SaveStatus = "saved"
+)
+
+// PriorAnswer is one settled ancestor turn a follow-up request carries forward: the parent request's
+// instruction and, when it completed, its answer. It is context, never an instruction — an agent
+// reads it as established material, not as a command — so it lives on Context alongside the quote and
+// the references, and it is copied from the parent at create time without mutating the parent.
+type PriorAnswer struct {
+	RequestID      string `json:"request_id"`
+	Intent         Intent `json:"intent,omitempty"`
+	Instruction    string `json:"instruction,omitempty"`
+	AnswerMarkdown string `json:"answer_markdown,omitempty"`
 }
 
 // Dispatch is one attempt to execute a Request. Every attempt keeps its own id, status, and
@@ -249,6 +288,7 @@ const (
 	MaxProposedBodyBytes  = 512 << 10
 	MaxFailureReasonBytes = 8 << 10
 	MaxSources            = 64
+	MaxSaveTitleBytes     = 8 << 10
 )
 
 // NewRequest is the create input, in a separate shape from the stored Request so a caller can never
@@ -261,6 +301,24 @@ type NewRequest struct {
 	AgentID         string
 	Context         Context
 	UpdateTarget    *NoteRef
+}
+
+// SaveInput is the input of a save transition: the title and target vault of the note the answer is
+// saved to, the caller's idempotency key, and the note id the serving layer created. The store
+// records the save; it never creates notes — the engine stays index-agnostic, and the note already
+// exists on disk when the transition runs.
+type SaveInput struct {
+	ClientRequestID string
+	Title           string
+	Vault           string // registry label of the target vault; "" = the request's own vault
+	NoteID          int64
+}
+
+// SaveResult is the outcome of Save: the stored request and whether the call was an idempotent
+// replay of an already-recorded save (the same title and vault were saved before).
+type SaveResult struct {
+	Request Request
+	Reused  bool
 }
 
 // RejectReason names why an operation was refused. The set is the stale-completion rejection set of
@@ -283,6 +341,12 @@ const (
 	RejectInputConflict RejectReason = "input_conflict"
 	// RejectResultConflict: a different result was submitted over an already-completed request.
 	RejectResultConflict RejectReason = "result_conflict"
+	// RejectNotSaveable: the request cannot be saved to a note (not completed, an update intent, or
+	// without an answer).
+	RejectNotSaveable RejectReason = "not_saveable"
+	// RejectAlreadySaved: the request's answer was already saved to a different note than this save
+	// names.
+	RejectAlreadySaved RejectReason = "already_saved"
 	// RejectInvalidRequest: the create or transition input violates the model (bad intent, missing
 	// required field, unknown state).
 	RejectInvalidRequest RejectReason = "invalid_request"

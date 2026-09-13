@@ -657,6 +657,276 @@ func TestPersistenceAcrossTransitions(t *testing.T) {
 	}
 }
 
+// completeRequest drives a request through create -> claim -> result and returns the settled request.
+func completeRequest(t *testing.T, st *Store, in NewRequest, answer string, now time.Time) Request {
+	t.Helper()
+	res, err := st.Create(in, now)
+	if err != nil {
+		t.Fatal(err)
+	}
+	d := res.Request.currentDispatch().ID
+	if _, err := st.Claim(res.Request.ID, d, now.Add(time.Second)); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := st.Result(res.Request.ID, d, Result{AnswerMarkdown: answer}, now.Add(2*time.Second)); err != nil {
+		t.Fatal(err)
+	}
+	got, err := st.Get(res.Request.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return got
+}
+
+func TestSaveRecordsTheAnswerNote(t *testing.T) {
+	st, cfg := newTestStore(t)
+	r := completeRequest(t, st, NewRequest{Intent: IntentExplain, Instruction: "explain", AgentID: "a"}, "# The answer\n", at(0))
+
+	saved, err := st.Save(r.ID, SaveInput{ClientRequestID: "save-1", Title: "The answer", NoteID: 42}, at(3*time.Second))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if saved.Reused {
+		t.Fatal("first save must not be a reuse")
+	}
+	sv := saved.Request.Result.Saved
+	if sv == nil || sv.NoteID != 42 || sv.Title != "The answer" || sv.Status != SaveStatusSaved ||
+		sv.ClientRequestID != "save-1" || sv.SavedAt == "" || sv.Vault != "" {
+		t.Fatalf("saved note not recorded: %+v", saved.Request.Result)
+	}
+	// The save is a record on the result, never a move of the request or its attempt.
+	if saved.Request.Status != StatusCompleted || saved.Request.currentDispatch().Status != AttemptCompleted {
+		t.Fatalf("save must not move the request: %+v", saved.Request)
+	}
+	// The answer and the fingerprint survive the save untouched.
+	if saved.Request.Result.AnswerMarkdown != "# The answer\n" || saved.Request.Result.Fingerprint == "" {
+		t.Fatalf("save must not touch the result: %+v", saved.Request.Result)
+	}
+
+	// Re-saving the same title+vault is an idempotent replay returning the recorded note.
+	again, err := st.Save(r.ID, SaveInput{ClientRequestID: "save-1", Title: "The answer", NoteID: 42}, at(4*time.Second))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !again.Reused || again.Request.Result.Saved.NoteID != 42 {
+		t.Fatalf("re-save should be idempotent: %+v", again)
+	}
+	// A replay without the key reuses too — the request's own record is the key that matters.
+	keyless, err := st.Save(r.ID, SaveInput{Title: "The answer", NoteID: 42}, at(5*time.Second))
+	if err != nil || !keyless.Reused {
+		t.Fatalf("keyless re-save should reuse the recorded note: %+v, %v", keyless, err)
+	}
+
+	// A different title — or the same title aimed at a different vault — is refused, never recorded
+	// over the old note.
+	if _, err := st.Save(r.ID, SaveInput{Title: "Rewritten", NoteID: 43}, at(6*time.Second)); rejectReason(t, err) != RejectAlreadySaved {
+		t.Fatalf("different title should be already_saved, got %v", err)
+	}
+	if _, err := st.Save(r.ID, SaveInput{Title: "The answer", Vault: "work", NoteID: 44}, at(7*time.Second)); rejectReason(t, err) != RejectAlreadySaved {
+		t.Fatalf("different vault should be already_saved, got %v", err)
+	}
+
+	// The save survives a restart: a fresh store over the same vault reads it back.
+	reopened, err := New(cfg).Get(r.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if reopened.Result.Saved == nil || reopened.Result.Saved.NoteID != 42 ||
+		reopened.Result.Saved.Title != "The answer" || reopened.Result.Saved.Status != SaveStatusSaved {
+		t.Fatalf("save did not persist across a reload: %+v", reopened.Result)
+	}
+}
+
+func TestSaveGuards(t *testing.T) {
+	st, _ := newTestStore(t)
+
+	// Unknown request.
+	if _, err := st.Save("nope", SaveInput{Title: "x", NoteID: 1}, at(0)); rejectReason(t, err) != RejectUnknownRequest {
+		t.Fatalf("unknown request should be unknown_request, got %v", err)
+	}
+
+	// Input guards on a completed explain request: blank title, oversize title, missing note id.
+	r := completeRequest(t, st, NewRequest{Intent: IntentExplain, Instruction: "x", AgentID: "a"}, "ok", at(time.Second))
+	if _, err := st.Save(r.ID, SaveInput{Title: "  ", NoteID: 1}, at(3*time.Second)); rejectReason(t, err) != RejectInvalidRequest {
+		t.Fatalf("blank title should be invalid_request, got %v", err)
+	}
+	if _, err := st.Save(r.ID, SaveInput{Title: strings.Repeat("t", MaxSaveTitleBytes+1), NoteID: 1}, at(3*time.Second)); rejectReason(t, err) != RejectOversize {
+		t.Fatalf("oversize title should be oversize, got %v", err)
+	}
+	if _, err := st.Save(r.ID, SaveInput{Title: "x"}, at(3*time.Second)); rejectReason(t, err) != RejectInvalidRequest {
+		t.Fatalf("missing note id should be invalid_request, got %v", err)
+	}
+
+	// A request that is not completed cannot be saved.
+	queued, err := st.Create(NewRequest{Intent: IntentExplain, Instruction: "q", AgentID: "a"}, at(4*time.Second))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := st.Save(queued.Request.ID, SaveInput{Title: "x", NoteID: 1}, at(5*time.Second)); rejectReason(t, err) != RejectNotSaveable {
+		t.Fatalf("queued request should be not_saveable, got %v", err)
+	}
+	running, err := st.Create(NewRequest{Intent: IntentExplain, Instruction: "run", AgentID: "a"}, at(6*time.Second))
+	if err != nil {
+		t.Fatal(err)
+	}
+	rd := running.Request.currentDispatch().ID
+	if _, err := st.Claim(running.Request.ID, rd, at(7*time.Second)); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := st.Save(running.Request.ID, SaveInput{Title: "x", NoteID: 1}, at(8*time.Second)); rejectReason(t, err) != RejectNotSaveable {
+		t.Fatalf("running request should be not_saveable, got %v", err)
+	}
+	failed, err := st.Create(NewRequest{Intent: IntentExplain, Instruction: "f", AgentID: "a"}, at(9*time.Second))
+	if err != nil {
+		t.Fatal(err)
+	}
+	fd := failed.Request.currentDispatch().ID
+	if _, err := st.Claim(failed.Request.ID, fd, at(10*time.Second)); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := st.Fail(failed.Request.ID, fd, "boom", at(11*time.Second)); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := st.Save(failed.Request.ID, SaveInput{Title: "x", NoteID: 1}, at(12*time.Second)); rejectReason(t, err) != RejectNotSaveable {
+		t.Fatalf("failed request should be not_saveable, got %v", err)
+	}
+	cancelled, err := st.Create(NewRequest{Intent: IntentExplain, Instruction: "c", AgentID: "a"}, at(13*time.Second))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := st.Cancel(cancelled.Request.ID, at(14*time.Second)); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := st.Save(cancelled.Request.ID, SaveInput{Title: "x", NoteID: 1}, at(15*time.Second)); rejectReason(t, err) != RejectNotSaveable {
+		t.Fatalf("cancelled request should be not_saveable, got %v", err)
+	}
+
+	// An update request completes with a proposed body, but saving is for explain/research answers:
+	// update apply is a later stage and must not be short-circuited into a new note.
+	upd, err := st.Create(NewRequest{Intent: IntentUpdate, Instruction: "u", AgentID: "a", UpdateTarget: &NoteRef{NoteID: 9}}, at(16*time.Second))
+	if err != nil {
+		t.Fatal(err)
+	}
+	ud := upd.Request.currentDispatch().ID
+	if _, err := st.Claim(upd.Request.ID, ud, at(17*time.Second)); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := st.Result(upd.Request.ID, ud, Result{ProposedBody: "# New body\n"}, at(18*time.Second)); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := st.Save(upd.Request.ID, SaveInput{Title: "x", NoteID: 1}, at(19*time.Second)); rejectReason(t, err) != RejectNotSaveable {
+		t.Fatalf("update request should be not_saveable, got %v", err)
+	}
+
+	// The save client_request_id is a vault-wide key: a second request reusing the key is refused,
+	// and the original request's record is untouched.
+	first := completeRequest(t, st, NewRequest{Intent: IntentResearch, Instruction: "r1", AgentID: "a"}, "a1", at(19*time.Second))
+	if _, err := st.Save(first.ID, SaveInput{ClientRequestID: "shared-key", Title: "First", NoteID: 1}, at(20*time.Second)); err != nil {
+		t.Fatal(err)
+	}
+	second := completeRequest(t, st, NewRequest{Intent: IntentResearch, Instruction: "r2", AgentID: "a"}, "a2", at(21*time.Second))
+	if _, err := st.Save(second.ID, SaveInput{ClientRequestID: "shared-key", Title: "Second", NoteID: 2}, at(22*time.Second)); rejectReason(t, err) != RejectInputConflict {
+		t.Fatalf("save key reuse across requests should be input_conflict, got %v", err)
+	}
+	got, err := st.Get(first.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.Result.Saved == nil || got.Result.Saved.NoteID != 1 || got.Result.Saved.Title != "First" {
+		t.Fatalf("key reuse must not touch the original save: %+v", got.Result.Saved)
+	}
+}
+
+func TestFollowUpSeedsParentContext(t *testing.T) {
+	st, cfg := newTestStore(t)
+	parent := completeRequest(t, st, NewRequest{
+		Intent:      IntentResearch,
+		Instruction: "Is X the bottleneck?",
+		AgentID:     "a",
+		Context:     Context{Quote: "two-phase commit"},
+	}, "# X is not the bottleneck\n", at(0))
+
+	child, err := st.Create(NewRequest{
+		ClientRequestID: "child-1",
+		ParentRequestID: parent.ID,
+		Intent:          IntentResearch,
+		Instruction:     "What about Y?",
+		AgentID:         "a",
+	}, at(3*time.Second))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if child.Request.ParentRequestID != parent.ID {
+		t.Fatalf("child must record its parent: %+v", child.Request)
+	}
+	pa := child.Request.Context.PriorAnswers
+	if len(pa) != 1 {
+		t.Fatalf("child must carry one prior answer, got %d: %+v", len(pa), child.Request.Context)
+	}
+	if pa[0].RequestID != parent.ID || pa[0].Instruction != "Is X the bottleneck?" || pa[0].AnswerMarkdown != "# X is not the bottleneck\n" {
+		t.Fatalf("prior answer wrong: %+v", pa[0])
+	}
+	// The child keeps its own context; the prior chain is additive, not a replacement.
+	if child.Request.Context.Quote != "" {
+		t.Fatalf("child context must stay the client's: %+v", child.Request.Context)
+	}
+
+	// The parent is never mutated by the follow-up.
+	reloaded, err := st.Get(parent.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(reloaded.Context.PriorAnswers) != 0 || reloaded.Context.Quote != "two-phase commit" ||
+		reloaded.Result.AnswerMarkdown != "# X is not the bottleneck\n" {
+		t.Fatalf("parent must not be mutated by the follow-up: %+v", reloaded)
+	}
+
+	// A grandchild carries the whole chain: the parent's turn then the child's.
+	grandchild, err := st.Create(NewRequest{
+		ParentRequestID: child.Request.ID,
+		Intent:          IntentResearch,
+		Instruction:     "And Z?",
+		AgentID:         "a",
+	}, at(4*time.Second))
+	if err != nil {
+		t.Fatal(err)
+	}
+	chain := grandchild.Request.Context.PriorAnswers
+	if len(chain) != 2 || chain[0].RequestID != parent.ID || chain[1].RequestID != child.Request.ID {
+		t.Fatalf("grandchild must carry the full chain: %+v", chain)
+	}
+
+	// The follow-up persists across a restart, and an idempotent replay reuses the child.
+	reopened, err := New(cfg).Get(child.Request.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if reopened.ParentRequestID != parent.ID || len(reopened.Context.PriorAnswers) != 1 {
+		t.Fatalf("follow-up did not persist: %+v", reopened)
+	}
+	again, err := st.Create(NewRequest{
+		ClientRequestID: "child-1",
+		ParentRequestID: parent.ID,
+		Intent:          IntentResearch,
+		Instruction:     "What about Y?",
+		AgentID:         "a",
+	}, at(5*time.Second))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !again.Reused || again.Request.ID != child.Request.ID {
+		t.Fatalf("follow-up replay should reuse the child: %+v", again)
+	}
+
+	// An unknown parent is refused before anything is stored.
+	if _, err := st.Create(NewRequest{ParentRequestID: "req-nope", Intent: IntentExplain, Instruction: "x", AgentID: "a"}, at(6*time.Second)); rejectReason(t, err) != RejectInvalidRequest {
+		t.Fatalf("unknown parent should be invalid_request, got %v", err)
+	}
+	if got := len(listIDs(t, st)); got != 3 {
+		t.Fatalf("refused follow-up must store nothing, got %d requests", got)
+	}
+}
+
 func TestSetDeliveryRecordsOutcomeOnAttempt(t *testing.T) {
 	st, _ := newTestStore(t)
 	r, err := st.Create(NewRequest{Intent: IntentExplain, Instruction: "x", AgentID: "a"}, at(0))

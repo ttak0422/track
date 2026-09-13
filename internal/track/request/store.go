@@ -87,6 +87,19 @@ func (s *Store) Create(in NewRequest, now time.Time) (CreateResult, error) {
 		}
 	}
 
+	// With a parent_request_id the create is a follow-up: the parent must exist in this vault, and
+	// the child carries the parent's settled turns forward as read-only context (PriorAnswers) so the
+	// agent sees what prior work established. The parent file is only read — never mutated.
+	var parent *Request
+	if in.ParentRequestID != "" {
+		p, err := s.load(in.ParentRequestID)
+		if err != nil {
+			return CreateResult{}, reject(RejectInvalidRequest,
+				"parent_request_id %q does not name a request in this vault", in.ParentRequestID)
+		}
+		parent = &p
+	}
+
 	id, err := genID("req", now)
 	if err != nil {
 		return CreateResult{}, err
@@ -115,6 +128,9 @@ func (s *Store) Create(in NewRequest, now time.Time) (CreateResult, error) {
 			Status:    AttemptQueued,
 			CreatedAt: now.Format(time.RFC3339),
 		}},
+	}
+	if parent != nil {
+		r.Context.PriorAnswers = priorAnswers(*parent)
 	}
 	if err := s.save(&r, now); err != nil {
 		return CreateResult{}, fmt.Errorf("persist request: %w", err)
@@ -293,6 +309,124 @@ func validateResult(intent Intent, res Result) error {
 		return reject(RejectOversize, "sources exceed %d entries", MaxSources)
 	}
 	return nil
+}
+
+// Save records that a completed explain/research request's answer was saved to a new note. The
+// engine stays index-agnostic: the note is created by the serving layer through the vault's safe
+// create path, which hands this transition the new note's id. The transition validates that the
+// request is savable (completed, not an update, carrying an answer) and is idempotent on two keys —
+// the request itself (re-saving the same title+vault returns the recorded note) and the caller's
+// save client_request_id (a second use of the key in this vault is a replay, refused when it names a
+// different request). A different title or vault over an already-saved request is refused with
+// RejectAlreadySaved, never recorded over the old note.
+func (s *Store) Save(id string, in SaveInput, now time.Time) (SaveResult, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	r, err := s.load(id)
+	if err != nil {
+		return SaveResult{}, err
+	}
+	title := strings.TrimSpace(in.Title)
+	if title == "" {
+		return SaveResult{}, reject(RejectInvalidRequest, "save title is required")
+	}
+	if len(title) > MaxSaveTitleBytes {
+		return SaveResult{}, reject(RejectOversize, "save title exceeds %d bytes", MaxSaveTitleBytes)
+	}
+	if in.NoteID <= 0 {
+		return SaveResult{}, reject(RejectInvalidRequest, "a saved note id is required")
+	}
+	if err := validateSaveable(r); err != nil {
+		return SaveResult{}, err
+	}
+	if r.Result.Saved != nil {
+		if r.Result.Saved.Title == title && r.Result.Saved.Vault == in.Vault {
+			return SaveResult{Request: r, Reused: true}, nil
+		}
+		return SaveResult{}, reject(RejectAlreadySaved,
+			"request %s is already saved as note %d (%q) in vault %q",
+			id, r.Result.Saved.NoteID, r.Result.Saved.Title, r.Result.Saved.Vault)
+	}
+	if in.ClientRequestID != "" {
+		other, err := s.findBySaveKey(in.ClientRequestID)
+		if err != nil {
+			return SaveResult{}, err
+		}
+		if other.ID != "" && other.ID != id {
+			return SaveResult{}, reject(RejectInputConflict,
+				"save client_request_id %q was already used by request %s", in.ClientRequestID, other.ID)
+		}
+	}
+	r.Result.Saved = &SavedNote{
+		ClientRequestID: in.ClientRequestID,
+		Vault:           in.Vault,
+		NoteID:          in.NoteID,
+		Title:           title,
+		Status:          SaveStatusSaved,
+		SavedAt:         now.Format(time.RFC3339),
+	}
+	if err := s.save(&r, now); err != nil {
+		return SaveResult{}, fmt.Errorf("persist save: %w", err)
+	}
+	return SaveResult{Request: r}, nil
+}
+
+// validateSaveable checks a request against the save preconditions: it must be completed, carry a
+// result with an answer, and not be an update. Update apply is a later stage; an update's proposed
+// body is applied to its target note, never saved as a new one.
+func validateSaveable(r Request) error {
+	if r.Status != StatusCompleted || r.Result == nil {
+		return reject(RejectNotSaveable, "request %s is %s; only completed requests can be saved", r.ID, r.Status)
+	}
+	if r.Intent == IntentUpdate {
+		return reject(RejectNotSaveable, "update requests are applied, not saved; saving is for explain/research answers")
+	}
+	if strings.TrimSpace(r.Result.AnswerMarkdown) == "" {
+		return reject(RejectNotSaveable, "request %s has no answer to save", r.ID)
+	}
+	return nil
+}
+
+// findBySaveKey scans the requests directory for a request whose saved note was recorded under key,
+// mirroring findByClientRequestID: unreadable files are skipped so a broken file never blocks a save.
+func (s *Store) findBySaveKey(key string) (Request, error) {
+	entries, err := os.ReadDir(s.dir)
+	if err != nil {
+		if errors.Is(err, os.ErrNotExist) {
+			return Request{}, nil
+		}
+		return Request{}, fmt.Errorf("scan requests for save client_request_id: %w", err)
+	}
+	for _, e := range entries {
+		if e.IsDir() || strings.HasPrefix(e.Name(), ".") || !strings.HasSuffix(e.Name(), ".json") {
+			continue
+		}
+		r, err := s.load(strings.TrimSuffix(e.Name(), ".json"))
+		if err != nil {
+			continue
+		}
+		if r.Result != nil && r.Result.Saved != nil && r.Result.Saved.ClientRequestID == key {
+			return r, nil
+		}
+	}
+	return Request{}, nil
+}
+
+// priorAnswers returns the follow-up context a child of parent carries: the parent's own prior chain
+// (grandparents first) followed by the parent's settled turn. The parent is only read.
+func priorAnswers(parent Request) []PriorAnswer {
+	out := append([]PriorAnswer(nil), parent.Context.PriorAnswers...)
+	answer := ""
+	if parent.Result != nil {
+		answer = parent.Result.AnswerMarkdown
+	}
+	return append(out, PriorAnswer{
+		RequestID:      parent.ID,
+		Intent:         parent.Intent,
+		Instruction:    parent.Instruction,
+		AnswerMarkdown: answer,
+	})
 }
 
 // SetDelivery records a connection's delivery outcome on one attempt. Delivery is the connection
