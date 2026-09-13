@@ -31,6 +31,7 @@ import type {
   ViewSpecResponse,
   TaskListResponse,
   VaultsResponse,} from "./types";
+import type { AgentRequest, AgentsResponse, RequestsResponse } from "./types";
 
 interface APIOptions {
   method?: string;
@@ -45,6 +46,31 @@ export class APIError extends Error {
     super(message);
     this.name = "APIError";
   }
+}
+
+export function listAgents(): Promise<AgentsResponse> {
+  if (STATIC_MODE) return Promise.resolve({ agents: [] });
+  return api<AgentsResponse>("/api/agents");
+}
+
+export function listAgentRequests(vault = ""): Promise<RequestsResponse> {
+  if (STATIC_MODE) return Promise.resolve({ requests: [] });
+  return api<RequestsResponse>(`/api/requests${vaultParams(vault, "?")}`);
+}
+
+export function getAgentRequest(id: string, vault = ""): Promise<AgentRequest> {
+  return api<AgentRequest>(`/api/requests/${encodeURIComponent(id)}${vaultParams(vault, "?")}`);
+}
+
+export function createAgentRequest(body: unknown, vault = ""): Promise<{ request: AgentRequest; reused?: boolean }> {
+  if (STATIC_MODE) return readOnly();
+  return api(`/api/requests${vaultParams(vault, "?")}`, { method: "POST", body });
+}
+export function cancelAgentRequest(id: string, vault = ""): Promise<AgentRequest> {
+  return api<AgentRequest>(`/api/requests/${encodeURIComponent(id)}/cancel${vaultParams(vault, "?")}`, { method: "POST", body: {} });
+}
+export function retryAgentRequest(id: string, vault = ""): Promise<AgentRequest> {
+  return api<AgentRequest>(`/api/requests/${encodeURIComponent(id)}/retry${vaultParams(vault, "?")}`, { method: "POST", body: {} });
 }
 
 export async function api<T>(path: string, options: APIOptions = {}): Promise<T> {

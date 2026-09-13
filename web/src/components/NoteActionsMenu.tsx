@@ -10,13 +10,14 @@ interface NoteActionsMenuProps {
   getBody: () => string;
   onMeta: () => void;
   onDelete: () => void;
+  onAgentRequest: () => void;
 }
 
 // NoteActionsMenu collapses the note's infrequent actions — Copy MD, Copy for Confluence, Meta, Delete —
 // behind a single overflow trigger so the control bar keeps only Follow and the mode switch inline. The
 // two copy items own their clipboard handlers (portable Markdown as plain text, rich HTML for Confluence)
 // and briefly acknowledge with "Copied"; Meta and Delete defer to the editor's existing dialogs.
-export function NoteActionsMenu({ getBody, onMeta, onDelete }: NoteActionsMenuProps) {
+export function NoteActionsMenu({ getBody, onMeta, onDelete, onAgentRequest }: NoteActionsMenuProps) {
   const [open, setOpen] = useState(false);
   const [copied, setCopied] = useState<"md" | "html" | null>(null);
   // Where to draw the panel. It lives in the floating rail, which clips its overflow, so the panel is
@@ -122,6 +123,7 @@ export function NoteActionsMenu({ getBody, onMeta, onDelete }: NoteActionsMenuPr
           >
             Meta…
           </button>
+          <button type="button" role="menuitem" onClick={() => { setOpen(false); onAgentRequest(); }}>エージェントに依頼</button>
           <button
             type="button"
             role="menuitem"

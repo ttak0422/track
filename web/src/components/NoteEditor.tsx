@@ -15,6 +15,7 @@ import {
 import { getFollowState, normalizeIDs } from "../api";
 import { NoteMetaDialog } from "./NoteMetaDialog";
 import { useNoteControls, type EditorMode } from "../noteControls";
+import { openAgentRequest } from "./AgentRequestPanel";
 import { markSeen, recordView, VIEW_TICK_SEC } from "../reading";
 import {
   useDeleteNoteMutation,
@@ -141,10 +142,12 @@ export function NoteEditor({ noteID }: NoteEditorProps) {
   // re-registers anything. Cleared on unmount, which is what makes the group disappear when the
   // reader leaves the note behind.
   const railBodyRef = useRef(body);
+  const railNoteRef = useRef(cachedNote);
   const railMetaRef = useRef(() => {});
   const railDeleteRef = useRef(() => {});
   useEffect(() => {
     railBodyRef.current = body;
+    railNoteRef.current = noteQuery.data?.note;
     railMetaRef.current = () => setMetaOpen(true);
     railDeleteRef.current = () => {
       setDeleteConfirmText("");
@@ -158,6 +161,10 @@ export function NoteEditor({ noteID }: NoteEditorProps) {
       getBody: () => railBodyRef.current,
       onMeta: () => railMetaRef.current(),
       onDelete: () => railDeleteRef.current(),
+      onAgentRequest: () => {
+        const note = railNoteRef.current;
+        if (note) openAgentRequest({ title: note.title, vault: vaultOf(note.note_id), note: { note_id: Number(note.note_id.split(":").pop()), title: note.title, body: note.body, etag: note.etag, file_kind: note.file_kind }, quote: "" });
+      },
     });
     return () => setActions(null);
   }, [setActions]);

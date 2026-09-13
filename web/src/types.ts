@@ -247,6 +247,19 @@ export interface DeleteNoteResponse {
   deleted: boolean;
 }
 
+export type RequestIntent = "explain" | "research" | "update";
+export type RequestStatus = "queued" | "running" | "applying" | "completed" | "failed" | "conflict" | "cancelled";
+export interface AgentInfo { id: string; name?: string; operations?: string[]; agmsg_available: boolean }
+export interface AgentsResponse { agents: AgentInfo[] }
+export interface RequestNoteRef { vault?: string; note_id: number; title?: string; body?: string; etag?: string; file_kind?: string }
+export interface AgentRequest {
+  id: string; client_request_id?: string; parent_request_id?: string; vault?: string; intent: RequestIntent;
+  instruction: string; agent_id: string; status: RequestStatus; error?: string;
+  context?: { quote?: string; note?: RequestNoteRef }; update_target?: RequestNoteRef;
+  attempts?: Array<{ id: string; status: string }>; result?: { answer_markdown?: string; sources?: string[]; proposed_body?: string };
+}
+export interface RequestsResponse { requests: AgentRequest[]; next_cursor?: string }
+
 // A note's editable sidecar metadata as the dialog's typed fields: title, tags, description, cover
 // image (an assets/<file> reference), and typed props. Built-in fields get dedicated controls; props
 // stays free-form — a YAML "key: value" block the engine parses and validates. The frontend never

@@ -16,12 +16,13 @@ import { useLiveEvents } from "../hooks/useLiveEvents";
 import { useSiteQuery } from "../queries";
 import { START_PAGE_ID, STATIC_MODE } from "../runtime";
 import { NoteControlsProvider } from "../noteControls";
+import { AgentRequestPanel, openAgentRequest } from "./AgentRequestPanel";
 import { NotificationToast } from "../notifications";
 import { NoteRailControls } from "./NoteRailControls";
 import { RailTip } from "./RailTip";
 import { SearchProvider } from "../searchState";
 import { VaultScopeProvider, useVaultScope } from "../vaultScope";
-import { IconAffiliate, IconCalendar, IconChecklist, IconNotebook, RailIcon } from "./icons";
+import { IconAffiliate, IconCalendar, IconChecklist, IconHistory, IconNotebook, RailIcon } from "./icons";
 import { IconMicrophone } from "@tabler/icons-react";
 
 export function Shell() {
@@ -140,6 +141,9 @@ function ShellView() {
                     <RailIcon Icon={IconMicrophone} />
                   </Link>
                 </RailTip>
+                {!STATIC_MODE && <RailTip label="Agent requests">
+                  <button className="rail-button" type="button" aria-label="Agent requests" onClick={() => openAgentRequest({ title: "依頼履歴" })}><RailIcon Icon={IconHistory} /></button>
+                </RailTip>}
                 {/* The open note's own controls, below the workspace's views. Absent while no note is
                     open, so the dock keeps carrying nothing but navigation the rest of the time. */}
                 {!STATIC_MODE && <NoteRailControls />}
@@ -159,6 +163,7 @@ function ShellView() {
         {isHero || isGraph || isCalendar || isNote ? null : <GraphPanel />}
         <FloatingLayer />
         <NotificationToast />
+        <AgentRequestPanel />
         <MobileDock />
       </main>
   );
