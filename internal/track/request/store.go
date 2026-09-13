@@ -231,9 +231,13 @@ func (s *Store) Claim(id, dispatchID string, now time.Time) (TransitionResult, e
 }
 
 // Result adopts an attempt's answer or proposed update body. Only the current attempt's result is
-// accepted, and only while the request is running. Re-submitting the identical result to a completed
-// request is an idempotent success; a different result over a completed request is refused with
-// RejectResultConflict. The result fingerprint is computed server-side from the submitted content.
+// accepted, and only while the request is running. An explain/research result completes the request;
+// an update result records the proposed body and enters applying — the server-side apply with an
+// ETag re-read and the applying -> completed/conflict/failed transitions is the update-apply stage
+// (stage 5). Re-submitting the identical result to a request whose result is already recorded
+// (applying or completed) is an idempotent success; a different result over a recorded one is
+// refused with RejectResultConflict. The result fingerprint is computed server-side from the
+// submitted content.
 func (s *Store) Result(id, dispatchID string, res Result, now time.Time) (TransitionResult, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -263,6 +267,15 @@ func (s *Store) Result(id, dispatchID string, res Result, now time.Time) (Transi
 			return TransitionResult{}, reject(RejectInactiveDispatch,
 				"attempt %s of request %s is %s, not running", dispatchID, id, d.Status)
 		}
+	case StatusApplying:
+		// The proposal is already recorded and the server is applying it: only the identical result
+		// is accepted, so a response-loss retry while the apply is in flight is an idempotent
+		// success and a different result can never overwrite the recorded one.
+		if r.Result != nil && r.Result.Fingerprint == fp {
+			return TransitionResult{Request: r, Idempotent: true}, nil
+		}
+		return TransitionResult{}, reject(RejectResultConflict,
+			"request %s already recorded its result; only the identical result may be re-submitted", id)
 	case StatusCompleted:
 		if d.Status == AttemptCompleted && r.Result != nil && r.Result.Fingerprint == fp {
 			return TransitionResult{Request: r, Idempotent: true}, nil
@@ -273,13 +286,18 @@ func (s *Store) Result(id, dispatchID string, res Result, now time.Time) (Transi
 		return TransitionResult{}, reject(RejectInactiveDispatch,
 			"request %s is %s; only running requests accept results", id, r.Status)
 	}
-	// An update's proposed body is recorded, not applied: the server-side apply with ETag re-read and
-	// the running -> applying -> completed/conflict path is the update-apply stage. Until then the
-	// request completes with the proposal kept.
-	r.Status = StatusCompleted
+	// An update's proposed body is recorded and the request enters applying: the serving layer
+	// applies the body to its target note under the vault write lock and settles the request to
+	// completed, conflict, or failed (stage 5). The attempt stays running until the apply settles —
+	// the agent's run produced the recorded proposal, and the server-side apply is still in flight.
+	if r.Intent == IntentUpdate {
+		r.Status = StatusApplying
+	} else {
+		r.Status = StatusCompleted
+		d.Status = AttemptCompleted
+		d.SettledAt = now.Format(time.RFC3339)
+	}
 	r.Error = ""
-	d.Status = AttemptCompleted
-	d.SettledAt = now.Format(time.RFC3339)
 	d.ResultFingerprint = fp
 	res.Fingerprint = fp
 	r.Result = &res
@@ -521,6 +539,154 @@ func (s *Store) Fail(id, dispatchID, reason string, now time.Time) (TransitionRe
 	d.SettledAt = now.Format(time.RFC3339)
 	if err := s.save(&r, now); err != nil {
 		return TransitionResult{}, fmt.Errorf("persist failure: %w", err)
+	}
+	return TransitionResult{Request: r}, nil
+}
+
+// ApplyInput is the outcome of the server-side apply that CompleteApply records: the before/after
+// body and their ETags as the serving layer observed them around the note file replacement. The
+// serving layer passes its own observed values — it never trusts the stored request or the client
+// for the current content — and the record is persisted atomically with the request file, so
+// recovery can compare the note against these values instead of guessing.
+type ApplyInput struct {
+	BeforeBody string
+	BeforeETag string
+	AfterBody  string
+	AfterETag  string
+}
+
+// CompleteApply settles an applying update request as completed after the serving layer replaced
+// the target note with the proposed body. Only an applying update request is accepted; the attempt
+// is marked completed and the result records the before/after body and ETag plus the change
+// rationale (the recorded answer_markdown). A replay of the same apply on the already-completed
+// request is an idempotent success.
+func (s *Store) CompleteApply(id string, in ApplyInput, now time.Time) (TransitionResult, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	r, err := s.load(id)
+	if err != nil {
+		return TransitionResult{}, err
+	}
+	if r.Status == StatusCompleted && r.Result != nil && r.Result.Apply != nil &&
+		r.Result.Apply.AfterBody == in.AfterBody && r.Result.Apply.AfterETag == in.AfterETag {
+		return TransitionResult{Request: r, Idempotent: true}, nil
+	}
+	if r.Status != StatusApplying {
+		return TransitionResult{}, reject(RejectInactiveDispatch,
+			"request %s is %s; only applying update requests can be completed", id, r.Status)
+	}
+	if r.Intent != IntentUpdate || r.Result == nil || strings.TrimSpace(r.Result.ProposedBody) == "" {
+		return TransitionResult{}, reject(RejectInvalidRequest,
+			"request %s is not an update with a recorded proposal", id)
+	}
+	d := r.currentDispatch()
+	if d == nil || d.Status != AttemptRunning {
+		return TransitionResult{}, reject(RejectInactiveDispatch,
+			"attempt of request %s is not running", id)
+	}
+	d.Status = AttemptCompleted
+	d.SettledAt = now.Format(time.RFC3339)
+	r.Status = StatusCompleted
+	r.Error = ""
+	r.Result.Apply = &AppliedUpdate{
+		BeforeBody: in.BeforeBody,
+		BeforeETag: in.BeforeETag,
+		AfterBody:  in.AfterBody,
+		AfterETag:  in.AfterETag,
+		Reason:     r.Result.AnswerMarkdown,
+		AppliedAt:  now.Format(time.RFC3339),
+	}
+	if err := s.save(&r, now); err != nil {
+		return TransitionResult{}, fmt.Errorf("persist apply: %w", err)
+	}
+	return TransitionResult{Request: r}, nil
+}
+
+// Conflict settles an applying update request as conflicted: the target note changed or vanished
+// since the request was sent, so nothing was applied. The recorded answer and proposed body are
+// kept for the panel's diff and for a retry, and reason (the server-side conflict explanation) is
+// preserved on the request error and the apply record. The attempt is closed as failed — the run
+// produced a proposal that could not be applied — so a retry is available from the same place a
+// failure offers it. A repeated conflict of the same request is an idempotent success.
+func (s *Store) Conflict(id, reason string, now time.Time) (TransitionResult, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	r, err := s.load(id)
+	if err != nil {
+		return TransitionResult{}, err
+	}
+	switch r.Status {
+	case StatusApplying:
+	case StatusConflict:
+		if r.Error == reason {
+			return TransitionResult{Request: r, Idempotent: true}, nil
+		}
+		return TransitionResult{}, reject(RejectInactiveDispatch,
+			"request %s is already conflicted", id)
+	default:
+		return TransitionResult{}, reject(RejectInactiveDispatch,
+			"request %s is %s; only applying update requests can be conflicted", id, r.Status)
+	}
+	if r.Intent != IntentUpdate || r.Result == nil {
+		return TransitionResult{}, reject(RejectInvalidRequest,
+			"request %s is not an update with a recorded result", id)
+	}
+	if d := r.currentDispatch(); d != nil {
+		d.Status = AttemptFailed
+		d.FailureReason = reason
+		d.SettledAt = now.Format(time.RFC3339)
+	}
+	r.Status = StatusConflict
+	r.Error = reason
+	if r.Result.Apply == nil {
+		r.Result.Apply = &AppliedUpdate{}
+	}
+	r.Result.Apply.Reason = reason
+	r.Result.Apply.AppliedAt = now.Format(time.RFC3339)
+	if err := s.save(&r, now); err != nil {
+		return TransitionResult{}, fmt.Errorf("persist conflict: %w", err)
+	}
+	return TransitionResult{Request: r}, nil
+}
+
+// FailApply settles an applying update request as failed: the server-side apply itself failed (an
+// unreadable target, an unreplaceable note file). It is the serving layer's own transition — the
+// agent-facing Fail stays confined to queued/running attempts, because once a result is recorded an
+// agent report must not unsettle the apply. The recorded answer and proposal stay on the result for
+// a retry. Re-failing the same already-failed apply is an idempotent success.
+func (s *Store) FailApply(id, reason string, now time.Time) (TransitionResult, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	r, err := s.load(id)
+	if err != nil {
+		return TransitionResult{}, err
+	}
+	if len(reason) > MaxFailureReasonBytes {
+		return TransitionResult{}, reject(RejectOversize, "failure reason exceeds %d bytes", MaxFailureReasonBytes)
+	}
+	if r.Status == StatusFailed {
+		if d := r.currentDispatch(); d != nil && d.Status == AttemptFailed && d.FailureReason == reason {
+			return TransitionResult{Request: r, Idempotent: true}, nil
+		}
+		return TransitionResult{}, reject(RejectInactiveDispatch,
+			"request %s is already failed", id)
+	}
+	if r.Status != StatusApplying {
+		return TransitionResult{}, reject(RejectInactiveDispatch,
+			"request %s is %s; only applying update requests accept apply failures", id, r.Status)
+	}
+	if d := r.currentDispatch(); d != nil {
+		d.Status = AttemptFailed
+		d.FailureReason = reason
+		d.SettledAt = now.Format(time.RFC3339)
+	}
+	r.Status = StatusFailed
+	r.Error = reason
+	if err := s.save(&r, now); err != nil {
+		return TransitionResult{}, fmt.Errorf("persist apply failure: %w", err)
 	}
 	return TransitionResult{Request: r}, nil
 }

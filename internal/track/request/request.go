@@ -72,8 +72,11 @@ const (
 	StatusQueued Status = "queued"
 	// StatusRunning means a claim confirmed that an execution started.
 	StatusRunning Status = "running"
-	// StatusApplying means an update's proposed body is saved and the apply is in progress. Reached
-	// only by the update-apply path (stage 3); the stage-1 transitions do not enter it.
+	// StatusApplying means an update's proposed body is saved and the server-side apply is in
+	// progress (or was interrupted). Reached only by the update-apply path (stage 5): the result
+	// transition records the proposal and enters it, then the serving layer settles it to completed,
+	// conflict, or failed under the vault write lock, and a crashed server resumes or settles it on
+	// first access. A request in applying cannot be cancelled or retried; the apply settles it.
 	StatusApplying Status = "applying"
 	// StatusCompleted means the answer (or, for updates, the reflected body) is saved and confirmed.
 	StatusCompleted Status = "completed"
@@ -81,7 +84,7 @@ const (
 	// are shown to the user.
 	StatusFailed Status = "failed"
 	// StatusConflict means an update target changed or vanished and nothing was applied; the answer and
-	// the proposed change are kept. Reached only by the update-apply path (stage 3).
+	// the proposed change are kept. Reached only by the update-apply path (stage 5).
 	StatusConflict Status = "conflict"
 	// StatusCancelled means the request was withdrawn; later results are not adopted.
 	StatusCancelled Status = "cancelled"
@@ -194,12 +197,31 @@ type Context struct {
 // body and change rationale (update). Fingerprint is a server-computed hash of the submitted content,
 // used to make result re-submission idempotent and to refuse a different result over a completed one.
 // Saved, when set, records that the answer was saved to a new note (stage 4: the save transition).
+// Apply, when set, records the server-side application of an update's proposed body to its target
+// note (stage 5: the update-apply path).
 type Result struct {
-	AnswerMarkdown string     `json:"answer_markdown,omitempty"`
-	Sources        []string   `json:"sources,omitempty"`
-	ProposedBody   string     `json:"proposed_body,omitempty"` // update intents: the new body, applied in stage 3
-	Fingerprint    string     `json:"fingerprint,omitempty"`
-	Saved          *SavedNote `json:"saved,omitempty"`
+	AnswerMarkdown string         `json:"answer_markdown,omitempty"`
+	Sources        []string       `json:"sources,omitempty"`
+	ProposedBody   string         `json:"proposed_body,omitempty"` // update intents: the new body, applied in stage 5
+	Fingerprint    string         `json:"fingerprint,omitempty"`
+	Saved          *SavedNote     `json:"saved,omitempty"`
+	Apply          *AppliedUpdate `json:"apply,omitempty"`
+}
+
+// AppliedUpdate records the server-side application of an update request's proposed body to its
+// target note. Before/After carry the original and applied body and their ETags — 反映前後の本文と
+// ETag — so the panel can show a diff and recovery can compare current note content against what was
+// recorded. Reason is the change rationale the agent submitted (the update's answer_markdown) on a
+// successful apply, or the conflict/failure reason when the apply did not happen. The record is
+// persisted atomically with the request file, around the note file replacement, so a crash between
+// the two writes is recoverable by comparing the note's current body against these values.
+type AppliedUpdate struct {
+	BeforeBody string `json:"before_body,omitempty"`
+	BeforeETag string `json:"before_etag,omitempty"`
+	AfterBody  string `json:"after_body,omitempty"`
+	AfterETag  string `json:"after_etag,omitempty"`
+	Reason     string `json:"reason,omitempty"`
+	AppliedAt  string `json:"applied_at,omitempty"`
 }
 
 // SavedNote records the note a completed explain/research request's answer was saved to. It is

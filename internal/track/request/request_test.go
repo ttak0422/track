@@ -286,9 +286,13 @@ func TestResultGuards(t *testing.T) {
 	}
 }
 
-func TestUpdateResultRecordsProposedBody(t *testing.T) {
-	st, _ := newTestStore(t)
-	target := &NoteRef{NoteID: 42, ETag: "abc123"}
+// TestUpdateResultEntersApplying verifies the stage-5 entry: an update result records the proposed
+// body and enters applying (not completed), with the attempt still running because the server-side
+// apply is in flight. The apply transitions (CompleteApply/Conflict/FailApply) are exercised in
+// apply_test.go.
+func TestUpdateResultEntersApplying(t *testing.T) {
+	st, cfg := newTestStore(t)
+	target := &NoteRef{NoteID: 42, ETag: "abc123", Body: "# Old body\n"}
 	r, err := st.Create(NewRequest{
 		Intent:       IntentUpdate,
 		Instruction:  "Make the intro clearer.",
@@ -302,25 +306,46 @@ func TestUpdateResultRecordsProposedBody(t *testing.T) {
 	if _, err := st.Claim(r.Request.ID, d, at(time.Second)); err != nil {
 		t.Fatal(err)
 	}
-	// Stage 1: the proposed body is recorded and the request completes; the server-side apply
-	// (running -> applying -> completed/conflict) is the update-apply stage.
-	settled, err := st.Result(r.Request.ID, d, Result{ProposedBody: "# New body\n"}, at(2*time.Second))
+	settled, err := st.Result(r.Request.ID, d, Result{ProposedBody: "# New body\n", AnswerMarkdown: "The intro is now clearer."}, at(2*time.Second))
 	if err != nil {
 		t.Fatal(err)
 	}
-	if settled.Request.Status != StatusCompleted || settled.Request.Result.ProposedBody != "# New body\n" {
-		t.Fatalf("update result not recorded: %+v", settled.Request)
+	if settled.Request.Status != StatusApplying || settled.Request.Result == nil {
+		t.Fatalf("update result must enter applying: %+v", settled.Request)
+	}
+	if settled.Request.Result.ProposedBody != "# New body\n" || settled.Request.Result.Fingerprint == "" {
+		t.Fatalf("proposal not recorded: %+v", settled.Request.Result)
+	}
+	if d := settled.Request.currentDispatch(); d.Status != AttemptRunning || d.ResultFingerprint == "" {
+		t.Fatalf("attempt must stay running until the apply settles: %+v", d)
+	}
+	// The applying state is durable: a fresh store reads it back.
+	reopened, err := New(cfg).Get(r.Request.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if reopened.Status != StatusApplying {
+		t.Fatalf("applying state did not persist: %+v", reopened)
+	}
+
+	// The identical result re-submitted while applying is an idempotent replay; a different one is refused.
+	replay, err := st.Result(r.Request.ID, d, Result{ProposedBody: "# New body\n", AnswerMarkdown: "The intro is now clearer."}, at(3*time.Second))
+	if err != nil || !replay.Idempotent {
+		t.Fatalf("same result replay while applying should be idempotent: %+v, %v", replay, err)
+	}
+	if _, err := st.Result(r.Request.ID, d, Result{ProposedBody: "# Different\n"}, at(4*time.Second)); rejectReason(t, err) != RejectResultConflict {
+		t.Fatalf("different result while applying should be result_conflict, got %v", err)
 	}
 	// An update result without a proposed body is invalid.
-	r2, err := st.Create(NewRequest{Intent: IntentUpdate, Instruction: "x", AgentID: "a", UpdateTarget: &NoteRef{NoteID: 43}}, at(3*time.Second))
+	r2, err := st.Create(NewRequest{Intent: IntentUpdate, Instruction: "x", AgentID: "a", UpdateTarget: &NoteRef{NoteID: 43}}, at(5*time.Second))
 	if err != nil {
 		t.Fatal(err)
 	}
 	d2 := r2.Request.currentDispatch().ID
-	if _, err := st.Claim(r2.Request.ID, d2, at(4*time.Second)); err != nil {
+	if _, err := st.Claim(r2.Request.ID, d2, at(6*time.Second)); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := st.Result(r2.Request.ID, d2, Result{AnswerMarkdown: "not a body"}, at(5*time.Second)); rejectReason(t, err) != RejectInvalidRequest {
+	if _, err := st.Result(r2.Request.ID, d2, Result{AnswerMarkdown: "not a body"}, at(7*time.Second)); rejectReason(t, err) != RejectInvalidRequest {
 		t.Fatalf("update result without proposed body should be invalid, got %v", err)
 	}
 }
