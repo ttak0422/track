@@ -34,8 +34,13 @@ vi.mock("./preview/WikiLink", () => ({ WikiLink: () => null }));
 // Stub the canvas (a lazy, client-only component) so the test can observe resetToken and drive
 // onSelect directly.
 vi.mock("./GraphCanvasLazy", () => ({
-  GraphCanvas: ({ onSelect, resetToken }: { onSelect: (id: string) => void; resetToken: number }) => (
-    <button type="button" data-reset={resetToken} onClick={() => onSelect("2")}>
+  GraphCanvas: ({ onSelect, resetToken, showTitles }: { onSelect: (id: string) => void; resetToken: number; showTitles?: boolean }) => (
+    <button
+      type="button"
+      data-reset={resetToken}
+      data-show-titles={String(showTitles ?? true)}
+      onClick={() => onSelect("2")}
+    >
       select-2
     </button>
   ),
@@ -191,6 +196,21 @@ describe("NoteAside graph section", () => {
     fireEvent.click(within(dialog as HTMLElement).getByRole("button", { name: "Close enlarged graph" }));
 
     expect(container.querySelector("dialog.graph-lightbox")).toBeNull();
+  });
+
+  it("toggles note titles in the enlarged graph", () => {
+    localGraph.mockReturnValue({ data: linkedGraph });
+    const { container } = render(<NoteAside backlinks={[]} noteID="1" journalDate="" />);
+
+    fireEvent.click(screen.getByRole("button", { name: "Enlarge graph" }));
+    const dialog = container.querySelector("dialog.graph-lightbox")!;
+    const canvas = within(dialog as HTMLElement).getByText("select-2");
+    const toggle = within(dialog as HTMLElement).getByRole("button", { name: "Hide note titles" });
+
+    expect(canvas).toHaveAttribute("data-show-titles", "true");
+    fireEvent.click(toggle);
+    expect(canvas).toHaveAttribute("data-show-titles", "false");
+    expect(within(dialog as HTMLElement).getByRole("button", { name: "Show note titles" })).toBeInTheDocument();
   });
 
   it("navigates from a node selected in the enlarged graph and drops the dialog", () => {

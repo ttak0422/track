@@ -175,6 +175,23 @@ describe("GraphCanvas node painting", () => {
     delete (window as { devicePixelRatio?: number }).devicePixelRatio;
   });
 
+  it("omits note titles when title display is disabled", async () => {
+    context.fillText.mockClear();
+
+    render(
+      <GraphCanvas
+        graph={graph}
+        onSelect={vi.fn()}
+        resetToken={0}
+        showTitles={false}
+        focusNodeID="center"
+      />,
+    );
+    await waitFor(() => expect(context.clearRect).toHaveBeenCalled());
+
+    expect(context.fillText).not.toHaveBeenCalled();
+  });
+
   // A frame frozen mid-hover has to answer both "what am I pointing at" and "where am I", so the
   // highlight is ink and the salient stays with the centre (design.md, Sidebar).
   it("highlights in ink and leaves the salient on the centre node", async () => {

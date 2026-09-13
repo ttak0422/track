@@ -3859,6 +3859,13 @@ textarea.modal-input:focus-visible {
   font-size: calc(20px * var(--font-scale, 1));
 }
 
+.graph-lightbox-title-toggle {
+  position: absolute;
+  top: 8px;
+  right: 44px;
+  z-index: 1;
+}
+
 /* The popup has no strip of its own — its controls float in the window's top corner, clear of a
    drawing that is fitted inside the window's padding. 44px leaves the close button its corner. */
 .diagram-lightbox-controls {
