@@ -443,6 +443,7 @@ func (s *Server) routes() {
 	s.mux.Handle("/api/requests/{id}", s.requestLoopbackOnly(s.withVault(s.handleRequest)))
 	s.mux.Handle("/api/requests/{id}/cancel", s.requestLoopbackOnly(s.withVault(s.handleRequestCancel)))
 	s.mux.Handle("/api/requests/{id}/retry", s.requestLoopbackOnly(s.withVault(s.handleRequestRetry)))
+	s.mux.Handle("/api/requests/{id}/save", s.requestLoopbackOnly(s.withVault(s.handleRequestSave)))
 	s.mux.Handle("/api/requests/{id}/claim", s.requestLoopbackOnly(s.withVault(s.handleRequestClaim)))
 	s.mux.Handle("/api/requests/{id}/result", s.requestLoopbackOnly(s.withVault(s.handleRequestResult)))
 	s.mux.Handle("/api/requests/{id}/fail", s.requestLoopbackOnly(s.withVault(s.handleRequestFail)))

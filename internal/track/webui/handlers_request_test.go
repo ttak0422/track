@@ -700,6 +700,337 @@ func TestRequestIdempotentCreateDoesNotResend(t *testing.T) {
 	}
 }
 
+// completeRequestHTTP drives a request through create -> claim -> result over the HTTP API and
+// returns its id. The answer is the one saved-note tests read back.
+func completeRequestHTTP(t *testing.T, server *httptest.Server, body string) string {
+	t.Helper()
+	code, created := postRequest(t, server.URL+"/api/requests", body)
+	if code != http.StatusAccepted {
+		t.Fatalf("create = %d: %v", code, created)
+	}
+	id := reqID(t, created)
+	dispatch := currentDispatchID(t, created)
+	if code, _ := postRequest(t, server.URL+"/api/requests/"+id+"/claim", `{"dispatch_id":"`+dispatch+`"}`); code != http.StatusOK {
+		t.Fatalf("claim = %d", code)
+	}
+	if code, _ := postRequest(t, server.URL+"/api/requests/"+id+"/result",
+		`{"dispatch_id":"`+dispatch+`","answer_markdown":"# The answer\n\nX because Y."}`); code != http.StatusOK {
+		t.Fatalf("result = %d", code)
+	}
+	return id
+}
+
+// noteFileCount counts the regular note files under a vault's note directory.
+func noteFileCount(t *testing.T, cfg *config.Config) int {
+	t.Helper()
+	entries, err := os.ReadDir(cfg.NoteDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	n := 0
+	for _, e := range entries {
+		if !e.IsDir() && strings.HasSuffix(e.Name(), ".md") {
+			n++
+		}
+	}
+	return n
+}
+
+func TestRequestSaveHappyPathAndIdempotency(t *testing.T) {
+	server, cfg := requestServer(t)
+	id := completeRequestHTTP(t, server, `{"intent":"explain","instruction":"Explain X.","agent_id":"a"}`)
+
+	code, saved := postRequest(t, server.URL+"/api/requests/"+id+"/save",
+		`{"title":"The answer","client_request_id":"save-1"}`)
+	if code != http.StatusOK {
+		t.Fatalf("save = %d: %v", code, saved)
+	}
+	res, ok := saved["result"].(map[string]any)
+	if !ok {
+		t.Fatalf("save response carries no result: %v", saved)
+	}
+	sv, ok := res["saved"].(map[string]any)
+	if !ok {
+		t.Fatalf("save response carries no result.saved: %v", saved)
+	}
+	noteID := int64(sv["note_id"].(float64))
+	if noteID <= 0 || sv["title"] != "The answer" || sv["status"] != "saved" || sv["saved_at"] == "" {
+		t.Fatalf("saved record wrong: %v", sv)
+	}
+	if vault, _ := sv["vault"].(string); vault != "" {
+		t.Fatalf("saving into the request's own vault must leave it unlabeled, got %q", vault)
+	}
+	// The note exists with the answer as its body, indexed under the title.
+	raw, err := os.ReadFile(cfg.NotePath(noteID))
+	if err != nil {
+		t.Fatalf("saved note file missing: %v", err)
+	}
+	if !strings.Contains(string(raw), "X because Y.") {
+		t.Fatalf("saved note body must be the answer: %q", raw)
+	}
+	// The saved note is indexed: the title resolves to it.
+	code, resolved := getRequest(t, server.URL+"/api/resolve?term=The+answer")
+	if code != http.StatusOK || resolved["found"] != true {
+		t.Fatalf("saved note must resolve by title: %d %v", code, resolved)
+	}
+
+	// Resend of the same title returns the same note without creating a second one.
+	code, again := postRequest(t, server.URL+"/api/requests/"+id+"/save", `{"title":"The answer","client_request_id":"save-1"}`)
+	if code != http.StatusOK {
+		t.Fatalf("resend = %d: %v", code, again)
+	}
+	sv2 := again["result"].(map[string]any)["saved"].(map[string]any)
+	if int64(sv2["note_id"].(float64)) != noteID {
+		t.Fatalf("resend must return the same note: %v vs %v", sv2, sv)
+	}
+	if n := noteFileCount(t, cfg); n != 2 { // the fixture's 100.md plus the saved note
+		t.Fatalf("resend duplicated the note: %d note files, want 2", n)
+	}
+
+	// A different title over the saved request is a 409.
+	code, conflict := postRequest(t, server.URL+"/api/requests/"+id+"/save", `{"title":"Rewritten"}`)
+	if code != http.StatusConflict {
+		t.Fatalf("different-title resave should 409, got %d: %v", code, conflict)
+	}
+
+	// The save is durable: the stored request file carries result.saved.
+	stored, err := os.ReadFile(filepath.Join(cfg.TrackDir(), "requests", id+".json"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !bytes.Contains(stored, []byte(`"saved"`)) {
+		t.Fatalf("stored request must carry the save record: %s", stored)
+	}
+}
+
+func TestRequestSaveGuards(t *testing.T) {
+	server, cfg := requestServer(t)
+
+	// Unknown request is a 404.
+	if code, _ := postRequest(t, server.URL+"/api/requests/nope/save", `{"title":"x"}`); code != http.StatusNotFound {
+		t.Fatalf("unknown request save should 404, got %d", code)
+	}
+
+	// A queued request (nothing claimed or completed) is not saveable: 409.
+	code, created := postRequest(t, server.URL+"/api/requests", `{"intent":"explain","instruction":"x","agent_id":"a"}`)
+	if code != http.StatusAccepted {
+		t.Fatalf("create = %d", code)
+	}
+	id := reqID(t, created)
+	if code, _ := postRequest(t, server.URL+"/api/requests/"+id+"/save", `{}`); code != http.StatusBadRequest {
+		t.Fatalf("missing title should 400, got %d", code)
+	}
+	if code, _ := postRequest(t, server.URL+"/api/requests/"+id+"/save", `{"title":"x"}`); code != http.StatusConflict {
+		t.Fatalf("save on a queued request should 409, got %d", code)
+	}
+
+	// A completed update request (proposed body, no answer) is not savable: 409.
+	code, upd := postRequest(t, server.URL+"/api/requests",
+		`{"intent":"update","instruction":"Make it clearer.","agent_id":"a","update_target":{"note_id":100,"etag":"`+testNoteETag(t, cfg)+`"}}`)
+	if code != http.StatusAccepted {
+		t.Fatalf("update create = %d: %v", code, upd)
+	}
+	updID := reqID(t, upd)
+	updDispatch := currentDispatchID(t, upd)
+	if code, _ := postRequest(t, server.URL+"/api/requests/"+updID+"/claim", `{"dispatch_id":"`+updDispatch+`"}`); code != http.StatusOK {
+		t.Fatalf("claim = %d", code)
+	}
+	if code, _ := postRequest(t, server.URL+"/api/requests/"+updID+"/result",
+		`{"dispatch_id":"`+updDispatch+`","proposed_body":"# New body\n"}`); code != http.StatusOK {
+		t.Fatalf("update result = %d", code)
+	}
+	if code, _ := postRequest(t, server.URL+"/api/requests/"+updID+"/save", `{"title":"x"}`); code != http.StatusConflict {
+		t.Fatalf("save on an update request should 409, got %d", code)
+	}
+
+	// A title that already resolves is a collision, never an overwrite: 409.
+	other := completeRequestHTTP(t, server, `{"intent":"explain","instruction":"Explain Y.","agent_id":"a"}`)
+	if code, _ := postRequest(t, server.URL+"/api/requests/"+other+"/save", `{"title":"Alpha"}`); code != http.StatusConflict {
+		t.Fatalf("collision title should 409, got %d", code)
+	}
+	// The collision leaves no note behind.
+	if n := noteFileCount(t, cfg); n != 1 {
+		t.Fatalf("collision must not create a note: %d note files, want 1", n)
+	}
+
+	// An unknown target vault is refused, never silently falling back: 400.
+	if code, _ := postRequest(t, server.URL+"/api/requests/"+other+"/save", `{"title":"Fine title","vault":"nope"}`); code != http.StatusBadRequest {
+		t.Fatalf("unknown target vault should 400, got %d", code)
+	}
+	// The non-JSON Content-Type rule applies to save too: 415.
+	req, _ := http.NewRequest(http.MethodPost, server.URL+"/api/requests/"+other+"/save", strings.NewReader(`{"title":"x"}`))
+	req.Header.Set("Content-Type", "text/plain")
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	resp.Body.Close()
+	if resp.StatusCode != http.StatusUnsupportedMediaType {
+		t.Fatalf("text/plain save should 415, got %d", resp.StatusCode)
+	}
+}
+
+// twoVaultRequestServer starts a workspace whose launch vault is registered as "main" and which also
+// serves a registered "work" vault, with one registered agent so requests can be created. It returns
+// the Server behind the workspace (for opening vault views directly), the HTTP server, and the two
+// vault directories.
+func twoVaultRequestServer(t *testing.T) (*Server, *httptest.Server, string, string) {
+	t.Helper()
+	main, work := t.TempDir(), t.TempDir()
+	writeVaultNote(t, main, 100, "Alpha", "# Alpha\n")
+	writeVaultNote(t, work, 100, "Worknote", "# Worknote\n")
+
+	configPath := filepath.Join(t.TempDir(), "config.yml")
+	body := "cache_dir: " + t.TempDir() + "\nvaults:\n  main: " + main + "\n  work: " + work + "\n" +
+		"agents:\n  a:\n    token: token-a\n"
+	if err := os.WriteFile(configPath, []byte(body), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("TRACK_CONFIG", configPath)
+	t.Setenv("TRACK_VAULT", main)
+	t.Setenv("TRACK_CACHE_DIR", "")
+
+	cfg, err := config.Load()
+	if err != nil {
+		t.Fatalf("load config: %v", err)
+	}
+	s, err := store.Open(cfg.DBPath)
+	if err != nil {
+		t.Fatalf("open store: %v", err)
+	}
+	t.Cleanup(func() { s.Close() })
+
+	srv := New(cfg, s)
+	t.Cleanup(srv.closeViews)
+	server := httptest.NewServer(srv.Handler())
+	t.Cleanup(server.Close)
+	return srv, server, main, work
+}
+
+func TestRequestSaveCrossVault(t *testing.T) {
+	_, server, main, work := twoVaultRequestServer(t)
+	id := completeRequestHTTP(t, server, `{"intent":"explain","instruction":"Explain Z.","agent_id":"a"}`)
+
+	// Save into the registered "work" vault by name.
+	code, saved := postRequest(t, server.URL+"/api/requests/"+id+"/save", `{"title":"Cross vault answer","vault":"work"}`)
+	if code != http.StatusOK {
+		t.Fatalf("cross-vault save = %d: %v", code, saved)
+	}
+	sv := saved["result"].(map[string]any)["saved"].(map[string]any)
+	if sv["vault"] != "work" {
+		t.Fatalf("saved note must name the target vault, got %v", sv)
+	}
+	noteID := int64(sv["note_id"].(float64))
+	workCfg := &config.Config{VaultDir: work, Extensions: []string{".md"}}
+	if _, err := os.Stat(workCfg.NotePath(noteID)); err != nil {
+		t.Fatalf("note must land in the named vault: %v", err)
+	}
+	// The note is indexed in the target vault: the title resolves there, and only there.
+	code, resolved := getRequest(t, server.URL+"/api/resolve?term=Cross+vault+answer&vault=work")
+	if code != http.StatusOK || resolved["found"] != true {
+		t.Fatalf("saved note must resolve in the target vault: %d %v", code, resolved)
+	}
+	code, resolved = getRequest(t, server.URL+"/api/resolve?term=Cross+vault+answer")
+	if code != http.StatusOK || resolved["found"] != false {
+		t.Fatalf("saved note must not resolve in the launch vault: %d %v", code, resolved)
+	}
+
+	// The resend with the same title+vault returns the same note.
+	code, again := postRequest(t, server.URL+"/api/requests/"+id+"/save", `{"title":"Cross vault answer","vault":"work"}`)
+	if code != http.StatusOK {
+		t.Fatalf("resend = %d: %v", code, again)
+	}
+	sv2 := again["result"].(map[string]any)["saved"].(map[string]any)
+	if int64(sv2["note_id"].(float64)) != noteID {
+		t.Fatalf("resend must return the same note")
+	}
+
+	// The same title aimed at a different vault is already saved elsewhere: 409.
+	if code, _ := postRequest(t, server.URL+"/api/requests/"+id+"/save", `{"title":"Cross vault answer"}`); code != http.StatusConflict {
+		t.Fatalf("same title different vault should 409, got %d", code)
+	}
+
+	// A second request can save its own answer into the same vault under a different title.
+	other := completeRequestHTTP(t, server, `{"intent":"research","instruction":"Research W.","agent_id":"a"}`)
+	if code, _ := postRequest(t, server.URL+"/api/requests/"+other+"/save", `{"title":"Second answer","vault":"work"}`); code != http.StatusOK {
+		t.Fatalf("second save = %d", code)
+	}
+
+	// A save whose body names the launch vault by its registry name lands there, unlabeled.
+	third := completeRequestHTTP(t, server, `{"intent":"explain","instruction":"Explain V.","agent_id":"a"}`)
+	code, named := postRequest(t, server.URL+"/api/requests/"+third+"/save", `{"title":"Named launch save","vault":"main"}`)
+	if code != http.StatusOK {
+		t.Fatalf("named launch vault save = %d: %v", code, named)
+	}
+	svNamed := named["result"].(map[string]any)["saved"].(map[string]any)
+	if vault, _ := svNamed["vault"].(string); vault != "" {
+		t.Fatalf("reaching the launch vault by name must still leave the save unlabeled, got %q", vault)
+	}
+	// The note landed in the launch vault's own directory with the answer as its body. (Note ids are
+	// vault-local and both vaults allocate from the same time bucket, so the id alone cannot tell the
+	// vaults apart — the file location and content can.)
+	mainCfg := &config.Config{VaultDir: main, Extensions: []string{".md"}}
+	namedNoteID := int64(svNamed["note_id"].(float64))
+	rawNamed, err := os.ReadFile(mainCfg.NotePath(namedNoteID))
+	if err != nil {
+		t.Fatalf("named launch vault save must land in the launch vault: %v", err)
+	}
+	if !strings.Contains(string(rawNamed), "X because Y.") {
+		t.Fatalf("named launch vault note must carry the answer: %q", rawNamed)
+	}
+}
+
+func TestRequestFollowUpSeedsParentContext(t *testing.T) {
+	server, _ := requestServer(t)
+	parentID := completeRequestHTTP(t, server, `{"intent":"research","instruction":"Is X the bottleneck?","agent_id":"a"}`)
+
+	// The follow-up names its parent and carries the parent's settled answer as context.
+	code, child := postRequest(t, server.URL+"/api/requests",
+		`{"client_request_id":"child-1","parent_request_id":"`+parentID+`","intent":"research","instruction":"What about Y?","agent_id":"a"}`)
+	if code != http.StatusAccepted {
+		t.Fatalf("follow-up create = %d: %v", code, child)
+	}
+	req := child["request"].(map[string]any)
+	if req["parent_request_id"] != parentID {
+		t.Fatalf("follow-up must record its parent: %v", req)
+	}
+	ctx := req["context"].(map[string]any)
+	prior, ok := ctx["prior_answers"].([]any)
+	if !ok || len(prior) != 1 {
+		t.Fatalf("follow-up must carry one prior answer: %v", ctx)
+	}
+	pa := prior[0].(map[string]any)
+	if pa["request_id"] != parentID || pa["instruction"] != "Is X the bottleneck?" || pa["answer_markdown"] != "# The answer\n\nX because Y." {
+		t.Fatalf("prior answer wrong: %v", pa)
+	}
+
+	// The parent is unchanged: no prior answers of its own, its result intact.
+	code, parent := getRequest(t, server.URL+"/api/requests/"+parentID)
+	if code != http.StatusOK {
+		t.Fatalf("parent detail = %d", code)
+	}
+	parentCtx := parent["context"].(map[string]any)
+	if _, ok := parentCtx["prior_answers"]; ok {
+		t.Fatalf("parent must not grow prior answers: %v", parentCtx)
+	}
+	if parent["result"].(map[string]any)["answer_markdown"] != "# The answer\n\nX because Y." {
+		t.Fatalf("parent result must be untouched")
+	}
+
+	// An unknown parent is refused.
+	if code, _ := postRequest(t, server.URL+"/api/requests",
+		`{"parent_request_id":"req-nope","intent":"research","instruction":"x","agent_id":"a"}`); code != http.StatusBadRequest {
+		t.Fatalf("unknown parent should 400, got %d", code)
+	}
+
+	// An idempotent replay of the follow-up create reuses the child.
+	code, again := postRequest(t, server.URL+"/api/requests",
+		`{"client_request_id":"child-1","parent_request_id":"`+parentID+`","intent":"research","instruction":"What about Y?","agent_id":"a"}`)
+	if code != http.StatusAccepted || again["reused"] != true || reqID(t, again) != reqID(t, child) {
+		t.Fatalf("follow-up replay should reuse: %d %v", code, again)
+	}
+}
+
 // TestRequestJSONKeepsAgmsgConfigOut verifies the requirement that agmsg connection settings stay
 // machine-local: neither the request JSON model, the stored request file, nor the web API responses
 // may carry the connection config or the agent token (docs/spec/live-agent-requests.md).

@@ -7,9 +7,11 @@ import (
 	"fmt"
 	"net/http"
 	"os"
+	"path/filepath"
 	"strings"
 	"time"
 
+	"github.com/ttak0422/track/internal/track/index"
 	"github.com/ttak0422/track/internal/track/note"
 	"github.com/ttak0422/track/internal/track/request"
 )
@@ -166,6 +168,147 @@ func (s *Server) handleRequestRetry(v *vaultView, w http.ResponseWriter, r *http
 	// A retry mints a new dispatch, so the new attempt is delivered like a fresh create.
 	s.enqueueDispatch(v, res.Request.AgentID, res.Request.ID, latestDispatchID(res.Request))
 	writeJSON(w, res.Request)
+}
+
+// handleRequestSave saves a completed explain/research request's answer to a new note in the vault
+// named by the body (empty = the request's own vault). The note is created through the same safe
+// create path as POST /api/note — a title that already resolves is refused, never overwritten — with
+// the answer as the body, and the resulting note id and status are persisted on the request's result.
+// The save is idempotent: re-sending the same title+vault returns the recorded note without creating
+// a second one, and the save client_request_id is a vault-wide key a replay must not reuse elsewhere.
+func (s *Server) handleRequestSave(v *vaultView, w http.ResponseWriter, r *http.Request) {
+	id, ok := s.requestActionID(w, r)
+	if !ok {
+		return
+	}
+	var in struct {
+		ClientRequestID string `json:"client_request_id"`
+		Title           string `json:"title"`
+		Vault           string `json:"vault"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&in); err != nil {
+		writeDecodeError(w, err)
+		return
+	}
+	title := strings.TrimSpace(in.Title)
+	if title == "" {
+		writeError(w, errors.New("save title is required"), http.StatusBadRequest)
+		return
+	}
+	req, err := v.requestStore().Get(id)
+	if err != nil {
+		writeRequestError(w, err)
+		return
+	}
+	// The target vault is explicit: empty means the request's own vault (the one the request was
+	// addressed in), a name must be a registered vault this workspace serves. An unknown name is
+	// refused rather than silently falling back to the launch vault, so a typo can never land the
+	// note somewhere the save did not name.
+	target := v
+	if vaultName := strings.TrimSpace(in.Vault); vaultName != "" {
+		tv, err := s.viewByName(vaultName)
+		if err != nil {
+			writeError(w, err, http.StatusBadRequest)
+			return
+		}
+		target = tv
+	}
+	// Preconditions and idempotency are checked before any file is written: a replayed save returns
+	// the recorded note, and an unsavable request (not completed, an update, no answer) is refused
+	// without touching the vault.
+	if req.Result != nil && req.Result.Saved != nil {
+		if req.Result.Saved.Title == title && req.Result.Saved.Vault == target.label {
+			writeJSON(w, req)
+			return
+		}
+		writeError(w, fmt.Errorf("request %s is already saved as note %d (%q)",
+			id, req.Result.Saved.NoteID, req.Result.Saved.Title), http.StatusConflict)
+		return
+	}
+	if reason := saveableError(req); reason != "" {
+		writeError(w, errors.New(reason), http.StatusConflict)
+		return
+	}
+	// A title is a link keyword: a note that already resolves is a collision, not an overwrite
+	// candidate — the same rule POST /api/note applies to the save, checked in the target vault.
+	if _, found, err := target.store.ResolveTerm(title); err != nil {
+		writeError(w, err, http.StatusInternalServerError)
+		return
+	} else if found {
+		writeError(w, fmt.Errorf("note already exists for title %q", title), http.StatusConflict)
+		return
+	}
+	noteID, err := note.NewID(target.cfg, time.Now())
+	if err != nil {
+		writeError(w, fmt.Errorf("allocate note id: %w", err), http.StatusInternalServerError)
+		return
+	}
+	path := target.cfg.NotePath(noteID)
+	if _, err := os.Stat(path); err == nil {
+		writeError(w, fmt.Errorf("note already exists: %s", path), http.StatusConflict)
+		return
+	}
+	body := ensureTrailingNewline(req.Result.AnswerMarkdown)
+	if err := target.write(func() error {
+		if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+			return fmt.Errorf("create note dir: %w", err)
+		}
+		if err := os.WriteFile(path, []byte(body), 0o644); err != nil {
+			return fmt.Errorf("write note: %w", err)
+		}
+		if err := note.WriteMetadata(
+			target.cfg.MetadataPath(noteID),
+			note.Metadata{Title: title, Created: time.Now().Format(target.cfg.DateFormat)},
+		); err != nil {
+			return fmt.Errorf("write metadata: %w", err)
+		}
+		return index.New(target.cfg, target.store).One(path)
+	}); err != nil {
+		writeError(w, fmt.Errorf("create note: %w", err), http.StatusInternalServerError)
+		return
+	}
+	// The note exists; the save transition records it on the request. A racing replay that already
+	// recorded a save is refused here, and the just-created note is removed so a conflict never
+	// leaves an orphan behind.
+	saved, err := v.requestStore().Save(id, request.SaveInput{
+		ClientRequestID: in.ClientRequestID,
+		Title:           title,
+		Vault:           target.label,
+		NoteID:          noteID,
+	}, time.Now())
+	if err != nil {
+		removeCreatedNote(target, noteID)
+		writeRequestError(w, err)
+		return
+	}
+	writeJSON(w, saved.Request)
+}
+
+// saveableError reports why a request cannot be saved to a note, or "" when it can. It mirrors the
+// store's save preconditions so the HTTP layer refuses before any note file is written.
+func saveableError(r request.Request) string {
+	switch {
+	case r.Status != request.StatusCompleted || r.Result == nil:
+		return fmt.Sprintf("request %s is %s; only completed requests can be saved", r.ID, r.Status)
+	case r.Intent == request.IntentUpdate:
+		return "update requests are applied, not saved; saving is for explain/research answers"
+	case strings.TrimSpace(r.Result.AnswerMarkdown) == "":
+		return fmt.Sprintf("request %s has no answer to save", r.ID)
+	}
+	return ""
+}
+
+// removeCreatedNote best-effort removes a note the save handler just created when the record
+// transition refuses (a racing replay already saved the request). A failed cleanup is reported but
+// never blocks the error response.
+func removeCreatedNote(v *vaultView, noteID int64) {
+	if err := v.write(func() error {
+		_ = os.Remove(v.cfg.NotePath(noteID))
+		_ = os.Remove(v.cfg.MetadataPath(noteID))
+		return v.store.DeleteNote(noteID)
+	}); err != nil {
+		fmt.Fprintf(os.Stderr, "track web: cleanup of save note %d failed: %v\n", noteID, err)
+	}
 }
 
 // handleRequestClaim confirms the execution start of one attempt. The request id comes from the path
@@ -332,7 +475,7 @@ func writeRequestError(w http.ResponseWriter, err error) {
 		writeError(w, err, http.StatusBadRequest)
 	case request.RejectOversize:
 		writeError(w, err, http.StatusRequestEntityTooLarge)
-	default: // stale_dispatch, inactive_dispatch, input_conflict, result_conflict
+	default: // stale_dispatch, inactive_dispatch, input_conflict, result_conflict, not_saveable, already_saved
 		writeError(w, err, http.StatusConflict)
 	}
 }
