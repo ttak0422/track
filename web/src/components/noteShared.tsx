@@ -9,7 +9,7 @@ import { headingElementID, tocEntries } from "./markdown/toc";
 import { WikiLink } from "./preview/WikiLink";
 import type { ExternalRef, FileKind, NoteID, NoteProp, NoteRef, UnavailableVault } from "../types";
 import { split, vaultOf } from "../vaultId";
-import { IconMaximize, IconRotate2, IconX, RailIcon } from "./icons";
+import { IconEye, IconEyeOff, IconMaximize, IconRotate2, IconX, RailIcon } from "./icons";
 
 // Shared read-only note UI, used by both the static reader (NoteReaderStatic) and the live editor
 // (NoteEditor), so the two stay consistent and the editor-only code is the only thing that differs.
@@ -177,6 +177,7 @@ export function NoteAside({
   // other's view, and the dialog element for the modal (mounted only while open, like MediaFrame's).
   const [graphEnlarged, setGraphEnlarged] = useState(false);
   const [lightboxResetToken, setLightboxResetToken] = useState(0);
+  const [showGraphTitles, setShowGraphTitles] = useState(true);
   const graphDialogRef = useRef<HTMLDialogElement>(null);
   const navigate = useNavigate();
   const railRef = useRef<HTMLDivElement>(null);
@@ -402,11 +403,21 @@ export function NoteAside({
               <GraphCanvas
                 graph={graph}
                 resetToken={lightboxResetToken}
+                showTitles={showGraphTitles}
                 onSelect={(selected) => {
                   setGraphEnlarged(false);
                   void navigate({ to: "/notes/$noteId", params: { noteId: String(selected) } });
                 }}
               />
+              <button
+                className="graph-reset graph-lightbox-title-toggle"
+                type="button"
+                aria-label={showGraphTitles ? "Hide note titles" : "Show note titles"}
+                title={showGraphTitles ? "Hide note titles" : "Show note titles"}
+                onClick={() => setShowGraphTitles((visible) => !visible)}
+              >
+                <RailIcon Icon={showGraphTitles ? IconEyeOff : IconEye} size={15} />
+              </button>
               {/* The way out. Esc and a click past the dialog still close it, but this one fills the
                   window: what is left to click past is a few pixels of backdrop, which a thumb
                   cannot aim at at all. Same corner as the diagram lightbox's (.lightbox-close). */}
