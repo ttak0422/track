@@ -255,8 +255,8 @@ export interface RequestNoteRef { vault?: string; note_id: number; title?: strin
 export interface AgentRequest {
   id: string; client_request_id?: string; parent_request_id?: string; vault?: string; intent: RequestIntent;
   instruction: string; agent_id: string; status: RequestStatus; error?: string;
-  context?: { quote?: string; note?: RequestNoteRef }; update_target?: RequestNoteRef;
-  attempts?: Array<{ id: string; status: string }>; result?: { answer_markdown?: string; sources?: string[]; proposed_body?: string };
+  context?: { quote?: string; note?: RequestNoteRef; prior_answers?: Array<{ request_id: string; intent?: RequestIntent; instruction?: string; answer_markdown?: string }> }; update_target?: RequestNoteRef;
+  attempts?: Array<{ id: string; status: string }>; result?: { answer_markdown?: string; sources?: string[]; proposed_body?: string; unresolved?: string[] | string; uncertain?: string[] | string; unresolved_questions?: string[] | string; uncertain_points?: string[] | string; saved?: { client_request_id?: string; vault?: string; note_id: NoteID | number; title: string; status: string; saved_at?: string } };
 }
 export interface RequestsResponse { requests: AgentRequest[]; next_cursor?: string }
 

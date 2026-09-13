@@ -72,6 +72,10 @@ export function cancelAgentRequest(id: string, vault = ""): Promise<AgentRequest
 export function retryAgentRequest(id: string, vault = ""): Promise<AgentRequest> {
   return api<AgentRequest>(`/api/requests/${encodeURIComponent(id)}/retry${vaultParams(vault, "?")}`, { method: "POST", body: {} });
 }
+export function saveAgentRequest(id: string, body: { client_request_id: string; title: string; vault?: string }, vault = ""): Promise<AgentRequest> {
+  if (STATIC_MODE) return readOnly();
+  return api<AgentRequest>(`/api/requests/${encodeURIComponent(id)}/save${vaultParams(vault, "?")}`, { method: "POST", body });
+}
 
 export async function api<T>(path: string, options: APIOptions = {}): Promise<T> {
   const headers = new Headers();

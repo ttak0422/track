@@ -26,7 +26,7 @@ import {
   setTaskDate,
   setTaskState,
   uploadAsset,
-  listAgents, listAgentRequests, createAgentRequest, cancelAgentRequest, retryAgentRequest,
+  listAgents, listAgentRequests, createAgentRequest, cancelAgentRequest, retryAgentRequest, saveAgentRequest,
 } from "./api";
 import { useNotifications } from "./notifications";
 import { STATIC_MODE } from "./runtime";
@@ -70,6 +70,7 @@ export function useAgentRequestsQuery(vault = "", enabled = !STATIC_MODE) {
 export function useCreateAgentRequestMutation(vault = "") { const qc = useQueryClient(); return useMutation({ mutationFn: (body: unknown) => createAgentRequest(body, vault), onSuccess: () => void qc.invalidateQueries({ queryKey: queryKeys.requests(vault) }) }); }
 export function useCancelAgentRequestMutation(vault = "") { const qc = useQueryClient(); return useMutation({ mutationFn: (id: string) => cancelAgentRequest(id, vault), onSuccess: () => void qc.invalidateQueries({ queryKey: queryKeys.requests(vault) }) }); }
 export function useRetryAgentRequestMutation(vault = "") { const qc = useQueryClient(); return useMutation({ mutationFn: (id: string) => retryAgentRequest(id, vault), onSuccess: () => void qc.invalidateQueries({ queryKey: queryKeys.requests(vault) }) }); }
+export function useSaveAgentRequestMutation(vault = "") { const qc = useQueryClient(); return useMutation({ mutationFn: ({ id, clientRequestID, title, targetVault }: { id: string; clientRequestID: string; title: string; targetVault?: string }) => saveAgentRequest(id, { client_request_id: clientRequestID, title, vault: targetVault }, vault), onSuccess: (request) => { qc.setQueryData<AgentRequest>(["request", request.id], request); void qc.invalidateQueries({ queryKey: queryKeys.requests(vault) }); } }); }
 
 // useActivityQuery reads one vault's per-day note activity for the heatmap. The vault ("" for the
 // launch vault) is part of the key, so switching the working scope refetches the right days.

@@ -12,6 +12,7 @@ vi.mock("../queries", () => ({
   useCreateAgentRequestMutation: () => ({ mutateAsync: create, isPending: false }),
   useCancelAgentRequestMutation: () => ({ mutate: vi.fn() }),
   useRetryAgentRequestMutation: () => ({ mutate: vi.fn() }),
+  useSaveAgentRequestMutation: () => ({ mutateAsync: vi.fn(), isPending: false, error: null }),
 }));
 
 describe("AgentRequestPanel", () => {

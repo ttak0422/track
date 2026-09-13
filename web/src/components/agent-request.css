@@ -22,4 +22,14 @@
 .request-card-main { flex: 1 1 220px; text-align: left; border: 0; background: none; color: var(--text); cursor: pointer; padding: 0; }
 .request-card-main strong { margin-right: 10px; }.request-card-main span { color: var(--muted); font-size: 13px; }.request-card-main p { margin: 6px 0 0; color: var(--muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .agent-request-result { border-top: 1px solid var(--line); margin-top: 18px; padding-top: 18px; white-space: pre-wrap; }
+.agent-request-result section { border-top: 1px solid var(--line); margin-top: 16px; padding-top: 12px; }
+.agent-request-result ul { margin: 8px 0 0; padding-left: 20px; color: var(--muted); white-space: normal; }
+.agent-request-answer { white-space: pre-wrap; line-height: 1.75; }
+.agent-request-save { display: grid; gap: 9px; border-top: 1px solid var(--line); margin-top: 18px; padding-top: 16px; }
+.agent-request-save input { box-sizing: border-box; width: 100%; padding: 9px 10px; color: var(--text); background: var(--panel-soft); border: 1px solid var(--line); border-radius: var(--radius); font: inherit; }
+.agent-request-saved { border-top: 1px solid var(--line); margin-top: 18px; padding-top: 16px; color: var(--muted); }
+.agent-request-saved a { color: var(--text); text-decoration: underline; text-decoration-color: var(--line-strong); }
+.agent-request-error { color: var(--danger, var(--mark)); font-size: 13px; white-space: normal; }
+.agent-request-followup { color: var(--muted); font-size: 13px; }
+.agent-request-follow-button { margin-top: 14px; }
 @media (max-width: 600px) { .agent-request-panel { width: 100%; padding: 18px; } }
