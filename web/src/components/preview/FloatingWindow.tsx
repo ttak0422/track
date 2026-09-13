@@ -13,6 +13,7 @@ import { InFloatingWindowContext } from "./floatingStore";
 import { previewBaseZIndex } from "./stack";
 import { TitleCopyButton } from "../TitleCopyButton";
 import {
+  IconArrowsLeftRight,
   IconChevronDown,
   IconExternalLink,
   IconPin,
@@ -46,6 +47,10 @@ export interface FloatingWindowControls {
   // Navigate to the previewed content as a full page. Only set for content that has its own page (a
   // note); media embeds leave it undefined and the jump button is omitted.
   onJump?: () => void;
+  // Trade the note this window shows with the note the page currently shows: the page's note takes
+  // the window's place and the window's note becomes the page. Only set for a note window when there
+  // is a page note to trade with, so the swap button appears just where it can do something.
+  onSwap?: () => void;
 }
 
 interface FloatingWindowProps extends FloatingWindowControls {
@@ -83,6 +88,7 @@ export function FloatingWindow({
   onClose,
   onPinToggle,
   onJump,
+  onSwap,
   children,
 }: FloatingWindowProps) {
   // Open at the floor height, not the viewport-based cap: the auto-fit effect below grows it to the
@@ -226,7 +232,7 @@ export function FloatingWindow({
   return (
     <aside
       ref={asideRef}
-      className={`wiki-preview${pinned ? " pinned" : ""}${collapsed ? " collapsed" : ""}${onJump ? " with-jump" : ""}`}
+      className={`wiki-preview${pinned ? " pinned" : ""}${collapsed ? " collapsed" : ""}${onJump ? " with-jump" : ""}${onSwap ? " with-swap" : ""}`}
       onFocusCapture={onActivate}
       onMouseEnter={onHold}
       onMouseLeave={onLeave}
@@ -272,6 +278,18 @@ export function FloatingWindow({
             title="Open as page"
           >
             <JumpIcon />
+          </button>
+        ) : null}
+        {onSwap ? (
+          <button
+            className="wiki-preview-swap"
+            type="button"
+            onClick={onSwap}
+            onPointerDown={(event) => event.stopPropagation()}
+            aria-label="Swap with the current note"
+            title="Swap with page"
+          >
+            <SwapIcon />
           </button>
         ) : null}
         <button
@@ -323,6 +341,10 @@ export function FloatingWindow({
 
 function JumpIcon() {
   return <RailIcon Icon={IconExternalLink} size={15} />;
+}
+
+function SwapIcon() {
+  return <RailIcon Icon={IconArrowsLeftRight} size={15} />;
 }
 
 function PinIcon() {

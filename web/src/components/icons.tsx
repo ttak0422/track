@@ -4,6 +4,7 @@
 import {
   IconAffiliate,
   IconArrowLeft,
+  IconArrowsLeftRight,
   IconArticle,
   IconBrandX,
   IconCalendar,
@@ -41,6 +42,7 @@ import type { TablerIcon } from "@tabler/icons-react";
 export {
   IconAffiliate,
   IconArrowLeft,
+  IconArrowsLeftRight,
   IconArticle,
   IconBrandX,
   IconCalendar,

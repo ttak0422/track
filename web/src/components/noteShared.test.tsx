@@ -1,7 +1,15 @@
 import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import type { ReactNode } from "react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import { NoteAside, NoteFlagBadges, NoteProperties, NoteStamps, useScrollToHash } from "./noteShared";
+import {
+  NoteAside,
+  NoteFlagBadges,
+  NoteProperties,
+  NoteStamps,
+  dayDateHover,
+  mtimeHover,
+  useScrollToHash,
+} from "./noteShared";
 
 const navigate = vi.hoisted(() => vi.fn());
 const localGraph = vi.hoisted(() => vi.fn());
@@ -244,6 +252,49 @@ describe("NoteProperties dates", () => {
     render(<NoteProperties props={[]} />);
     expect(screen.queryByRole("list")).toBeNull();
     expect(screen.queryAllByRole("term")).toEqual([]);
+  });
+
+  // created has only the day the sidecar stores (config date_format is day precision — no time
+  // exists), so its hover is the full localized date; updated is the file mtime, precise to the
+  // second, so its hover includes the local time.
+  it("titles each date row with the finest truthful detail it has", () => {
+    // Built from a local date so the day the mtime formats to is the same in any timezone.
+    const updated = new Date(2026, 5, 20, 12, 0, 0).getTime() / 1000;
+    const { container } = render(<NoteProperties props={props} created="2026-06-14" updated={updated} />);
+
+    const rows = container.querySelectorAll<HTMLSpanElement>(".note-prop-date");
+    expect(rows).toHaveLength(2);
+    // The created row carries the full localized day (no invented time)…
+    expect(rows[0].getAttribute("title")).toContain("2026");
+    expect(rows[0].getAttribute("title")).not.toMatch(/:/);
+    // …and the updated row carries the precise local time to the second.
+    expect(rows[1].getAttribute("title")).toMatch(/12:00:00/);
+  });
+});
+
+// The two hover-title helpers are pure so the exact wording is pinned here, locale and all.
+describe("date hover titles", () => {
+  it("localizes a day-precision created string into a full date", () => {
+    expect(dayDateHover("2026-06-14", "en-US")).toBe("Sunday, June 14, 2026");
+  });
+
+  it("leaves a created string it cannot read as a day alone, rather than reformatting it wrongly", () => {
+    // A vault configured with another date format (or a malformed sidecar) has no hover: the visible
+    // string stays the only thing said about it.
+    expect(dayDateHover("14/06/2026", "en-US")).toBeUndefined();
+    expect(dayDateHover("", "en-US")).toBeUndefined();
+  });
+
+  it("rejects a day the calendar rolls over, so an impossible date is never shown as real", () => {
+    expect(dayDateHover("2026-02-31", "en-US")).toBeUndefined();
+  });
+
+  it("shows the mtime at full local precision, seconds included", () => {
+    const updated = new Date(2026, 5, 20, 12, 0, 0).getTime() / 1000;
+    expect(mtimeHover(updated, "en-US")).toBe("Saturday, June 20, 2026 at 12:00:00 PM");
+    // A different second is told apart, which a rounded-to-the-minute title could not do.
+    const later = new Date(2026, 5, 20, 12, 0, 7).getTime() / 1000;
+    expect(mtimeHover(later, "en-US")).toBe("Saturday, June 20, 2026 at 12:00:07 PM");
   });
 });
 

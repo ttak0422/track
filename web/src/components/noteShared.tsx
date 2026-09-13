@@ -453,7 +453,10 @@ function GraphResetIcon() {
 // values stay out of the strip; a string-typed up is not hierarchy and shows like any property.
 // The note's own dates close the strip, after the user's props so user content leads: created is the
 // sidecar string verbatim (its format is the vault's), updated the file mtime at the same day
-// precision.
+// precision. Each row carries the finest truthful detail as its hover title: created has only the day
+// (the sidecar stores config.DateFormat, day precision — no time exists to invent), so its hover is
+// the full localized date of that day; updated is the mtime in unix seconds, so its hover includes
+// the local time down to the second.
 export function NoteProperties({
   props: noteProps,
   created,
@@ -464,9 +467,9 @@ export function NoteProperties({
   updated?: number;
 }) {
   const shown = noteProps.filter((p) => !(p.key === "up" && p.type === "link"));
-  const dates: [string, string][] = [];
-  if (created) dates.push(["created", created]);
-  if (updated) dates.push(["updated", dateKey(new Date(updated * 1000))]);
+  const dates: [string, string, string?][] = [];
+  if (created) dates.push(["created", created, dayDateHover(created)]);
+  if (updated) dates.push(["updated", dateKey(new Date(updated * 1000)), mtimeHover(updated)]);
   if (shown.length === 0 && dates.length === 0) return null;
   const keys: string[] = [];
   const byKey = new Map<string, NoteProp[]>();
@@ -493,14 +496,50 @@ export function NoteProperties({
           </dd>
         </div>
       ))}
-      {dates.map(([key, value]) => (
+      {dates.map(([key, value, hover]) => (
         <div className="note-prop" key={key}>
           <dt>{key}</dt>
           <dd>
-            <span className="note-prop-value note-prop-date">{value}</span>
+            <span className="note-prop-value note-prop-date" title={hover}>
+              {value}
+            </span>
           </dd>
         </div>
       ))}
     </dl>
   );
+}
+
+// dayDateHover localizes a day-precision sidecar date (config.DateFormat, e.g. "2026-06-14") into the
+// reader's locale for the created row's hover title. It returns undefined for a string it cannot read
+// as a day — a vault using another date format — rather than reformat it wrongly, and it rejects a
+// day the calendar rolls over (2026-02-31) so an impossible date is never shown as a real one.
+export function dayDateHover(created: string, locale: string = "default"): string | undefined {
+  const match = /^(\d{4})-(\d{2})-(\d{2})$/.exec(created);
+  if (!match) return undefined;
+  const [year, month, day] = [Number(match[1]), Number(match[2]), Number(match[3])];
+  const date = new Date(year, month - 1, day);
+  if (date.getFullYear() !== year || date.getMonth() !== month - 1 || date.getDate() !== day) {
+    return undefined;
+  }
+  return date.toLocaleDateString(locale, {
+    weekday: "long",
+    year: "numeric",
+    month: "long",
+    day: "numeric",
+  });
+}
+
+// mtimeHover localizes a file mtime (unix seconds) at full precision for the updated row's hover
+// title. The mtime is stored to the second, so the time is shown to the second rather than rounded.
+export function mtimeHover(updated: number, locale: string = "default"): string {
+  return new Date(updated * 1000).toLocaleString(locale, {
+    weekday: "long",
+    year: "numeric",
+    month: "long",
+    day: "numeric",
+    hour: "2-digit",
+    minute: "2-digit",
+    second: "2-digit",
+  });
 }

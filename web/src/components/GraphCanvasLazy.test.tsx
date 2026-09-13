@@ -78,6 +78,10 @@ describe("GraphCanvasLazy host box", () => {
     // The observer target never swaps: the loaded canvas arrives inside the same host.
     expect(container.querySelector(".graph-canvas-host")).toBe(host);
     expect(host!.contains(container.querySelector("canvas"))).toBe(true);
+    // The canvas is the host's direct flex child — the 1x1 regression was a bare wrapper div sitting
+    // between the sized host and the canvas, which stopped the canvas's flex sizing from applying
+    // and collapsed the SSG note-aside graph. A wrapper anywhere in between would fail this.
+    expect(container.querySelector("canvas")!.parentElement).toBe(host);
   });
 
   it("renders nothing but the host while off-screen", () => {

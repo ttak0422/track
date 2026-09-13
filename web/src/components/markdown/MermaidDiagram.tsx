@@ -722,6 +722,9 @@ function clamp(value: number, min: number, max: number): number {
 export function mermaidConfig(): MermaidConfig {
   const css = getComputedStyle(document.documentElement);
   const color = (name: string, fallback: string) => css.getPropertyValue(name).trim() || fallback;
+  // The app's "this one" salient (design.md): the active zone in a diagram is the same signal as
+  // the active tab or the graph's centre node, so it takes the same token.
+  const mark = color("--mark", "#c13a1e");
 
   return {
     startOnLoad: false,
@@ -748,6 +751,15 @@ export function mermaidConfig(): MermaidConfig {
       noteBkgColor: color("--panel", "#ffffff"),
       noteTextColor: color("--text", "#1a1a18"),
       noteBorderColor: color("--line", "#e6e4de"),
+      // "Active" zones (a sequence diagram's activation bar, a gantt chart's active task) fall back
+      // to secondaryColor/primaryColor in the base theme — both pinned to --panel above — so an
+      // active zone would be painted in the note's own surface and vanish on the sheet (the rendered
+      // activation bar's computed fill was rgb(255,255,255) on a white note). Pin the two pairs to
+      // the salient instead: the border carries the solid mark, the fill a translucent wash of it.
+      activationBkgColor: markWash(mark, 0.14),
+      activationBorderColor: mark,
+      activeTaskBkgColor: markWash(mark, 0.14),
+      activeTaskBorderColor: mark,
     },
     fontFamily:
       css.getPropertyValue("--font-sans").trim() ||
@@ -775,6 +787,24 @@ export function isDarkColor(color: string): boolean {
   }
   const luminance = (0.2126 * r + 0.7152 * g + 0.0722 * b) / 255;
   return luminance < 0.5;
+}
+
+// markWash returns the salient as a translucent wash over whatever the diagram sits on — the fill
+// for "this one is active" zones, whose border carries the solid mark. The tokens resolve to a
+// concrete color (hex, or rgb from a registered custom property — see isDarkColor), so the wash is
+// computed here rather than in CSS: the SVG mermaid emits takes plain color strings.
+export function markWash(mark: string, alpha: number): string {
+  const hex = /^#([0-9a-f]{6})$/i.exec(mark);
+  const rgb = /^rgba?\(\s*([\d.]+)[\s,]+([\d.]+)[\s,]+([\d.]+)/i.exec(mark);
+  if (hex) {
+    const v = Number.parseInt(hex[1], 16);
+    return `rgba(${(v >> 16) & 0xff}, ${(v >> 8) & 0xff}, ${v & 0xff}, ${alpha})`;
+  }
+  if (rgb) {
+    return `rgba(${rgb[1]}, ${rgb[2]}, ${rgb[3]}, ${alpha})`;
+  }
+  // Unparseable (an unregistered token in a test context): let the theme's own fallback stand.
+  return mark;
 }
 
 function errorMessage(error: unknown): string {

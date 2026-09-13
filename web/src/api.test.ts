@@ -149,6 +149,69 @@ describe("graph requests and their vault", () => {
   });
 });
 
+// The published site draws its graphs from one locked file (data/graph.bin) holding the whole
+// vault's graph; the local graph is derived from it per note rather than fetched per note. A broken
+// read here breaks the graph on every published page while leaving the live workspace untouched —
+// the regression this pins (the SSG note-aside graph once stopped painting after the live server's
+// graph endpoint changed shape).
+describe("published graph data", () => {
+  // Locks a graph payload with the page's key (see lock.test.ts) and stubs fetch to serve it as the
+  // .bin file staticData asks for.
+  async function serveGraph(graph: unknown) {
+    const { lock } = await import("./lock");
+    const locked = await lock(JSON.stringify({ graph }));
+    vi.stubGlobal("fetch", async (url: string) => {
+      fetched.push(String(url));
+      return new Response(Uint8Array.from(atob(locked), (c) => c.charCodeAt(0)));
+    });
+  }
+
+  const wholeGraph = {
+    center_id: "",
+    nodes: [
+      { note_id: "1fBExGozUeXAXNB324DsDk", file_kind: "note", title: "Babel", size: 3 },
+      { note_id: "5bsKWpzrLcdY0SkLtwsCr9", file_kind: "note", title: "Foreign" },
+    ],
+    edges: [{ source_id: "1fBExGozUeXAXNB324DsDk", target_id: "5bsKWpzrLcdY0SkLtwsCr9" }],
+  };
+
+  it("reads the whole-vault graph from the locked graph.bin", async () => {
+    vi.stubEnv("VITE_TRACK_STATIC", "1");
+    vi.resetModules();
+    const { getGraph } = await import("./api");
+    await serveGraph(wholeGraph);
+
+    // The published bundle holds a single vault, so the scope a live caller would name is ignored.
+    const data = await getGraph("work");
+    expect(fetched).toEqual(["/data/graph.bin"]);
+    expect(data.graph).toEqual(wholeGraph);
+  });
+
+  it("derives a note's local graph from the bundle and marks the centre", async () => {
+    vi.stubEnv("VITE_TRACK_STATIC", "1");
+    vi.resetModules();
+    const { getLocalGraph } = await import("./api");
+    await serveGraph(wholeGraph);
+
+    const data = await getLocalGraph("1fBExGozUeXAXNB324DsDk");
+    expect(fetched).toEqual(["/data/graph.bin"]);
+    expect(data.graph.center_id).toBe("1fBExGozUeXAXNB324DsDk");
+    expect(data.graph.nodes).toContainEqual({
+      note_id: "1fBExGozUeXAXNB324DsDk",
+      file_kind: "note",
+      title: "Babel",
+      size: 3,
+      center: true,
+    });
+    // The 1-hop neighbourhood: the centre plus its direct neighbours, never the whole vault.
+    expect(data.graph.nodes.map((node) => node.note_id).sort()).toEqual([
+      "1fBExGozUeXAXNB324DsDk",
+      "5bsKWpzrLcdY0SkLtwsCr9",
+    ]);
+    expect(data.graph.edges).toEqual(wholeGraph.edges);
+  });
+});
+
 describe("parseOgp", () => {
   it("reads the Open Graph tags and resolves a relative image", async () => {
     const { parseOgp } = await import("./api");

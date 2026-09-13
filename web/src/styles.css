@@ -4473,6 +4473,12 @@ textarea.modal-input:focus-visible {
   padding-right: 91px;
 }
 
+/* A note window with a page note to swap with adds the swap button left of the jump button, so the
+   gutter widens again to keep the title clear of all three corner buttons. */
+.wiki-preview.with-swap .wiki-preview-chrome {
+  padding-right: 120px;
+}
+
 .wiki-preview-toggle {
   display: grid;
   place-items: center;
@@ -4639,6 +4645,31 @@ textarea.modal-input:focus-visible {
 
 .wiki-preview-jump:hover,
 .wiki-preview-jump:focus-visible {
+  border-color: var(--line);
+  color: var(--text);
+  background: var(--panel-soft);
+}
+
+/* Swap sits just left of the jump button, sharing the same corner-hugging chrome-button style. */
+.wiki-preview-swap {
+  position: absolute;
+  top: 5px;
+  right: 92px;
+  z-index: 1;
+  display: grid;
+  width: 24px;
+  height: 24px;
+  place-items: center;
+  border: 1px solid transparent;
+  border-radius: var(--radius);
+  padding: 0;
+  color: var(--muted);
+  background: transparent;
+  cursor: pointer;
+}
+
+.wiki-preview-swap:hover,
+.wiki-preview-swap:focus-visible {
   border-color: var(--line);
   color: var(--text);
   background: var(--panel-soft);
