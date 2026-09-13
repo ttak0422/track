@@ -98,11 +98,27 @@ type Config struct {
 }
 
 // AgentConfig describes one locally registered request recipient. The map key is the stable agent id;
-// the token authenticates claim/result/fail reports from that agent.
+// the token authenticates claim/result/fail reports from that agent. Agmsg, when set, is the machine
+// config of the agmsg connection that delivers requests to this agent; it is machine-local connection
+// state only and never appears in the request JSON model or the web API
+// (docs/spec/live-agent-requests.md).
 type AgentConfig struct {
-	Name       string   `yaml:"name"`
-	Operations []string `yaml:"operations"`
-	Token      string   `yaml:"token"`
+	Name       string       `yaml:"name"`
+	Operations []string     `yaml:"operations"`
+	Token      string       `yaml:"token"`
+	Agmsg      *AgmsgConfig `yaml:"agmsg"`
+}
+
+// AgmsgConfig is the agmsg connection settings for one agent: the send.sh to invoke and the
+// team/sender/recipient the message goes to. The send script is named here — by the machine config,
+// never by a browser or a request body — and invoked with a plain argument array
+// (send.sh <team> <sender> <recipient> <message>). The recipient is deliberately separate from the
+// agent id: agent_id is track's stable identity, the agmsg destination name is the connection's own.
+type AgmsgConfig struct {
+	SendScript string `yaml:"send_script"`
+	Team       string `yaml:"team"`
+	Sender     string `yaml:"sender"`
+	Recipient  string `yaml:"recipient"`
 }
 
 // IconMap holds the tag→icon and kind→icon lookups resolved from config. Both are optional; an unset map
