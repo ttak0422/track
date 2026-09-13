@@ -878,8 +878,8 @@ func (s *Store) findByClientRequestID(key string) (Request, error) {
 // load reads, parses, and validates one request file. A missing file is RejectUnknownRequest; a file
 // that is not valid JSON or carries an unsupported version is refused rather than half-read.
 func (s *Store) load(id string) (Request, error) {
-	if strings.TrimSpace(id) == "" {
-		return Request{}, reject(RejectUnknownRequest, "request id is required")
+	if strings.TrimSpace(id) == "" || id == "." || !filepath.IsLocal(id) || filepath.Base(id) != id || strings.ContainsAny(id, "\\\x00") {
+		return Request{}, reject(RejectUnknownRequest, "invalid request id")
 	}
 	raw, err := os.ReadFile(filepath.Join(s.dir, id+".json"))
 	if err != nil {
@@ -911,6 +911,9 @@ func (s *Store) load(id string) (Request, error) {
 // directory, synced, and renamed over the target, so a crash never leaves a torn request file and a
 // concurrent reader sees either the old or the new version.
 func (s *Store) save(r *Request, now time.Time) error {
+	if strings.TrimSpace(r.ID) == "" || r.ID == "." || !filepath.IsLocal(r.ID) || filepath.Base(r.ID) != r.ID || strings.ContainsAny(r.ID, "\\\x00") {
+		return reject(RejectInvalidRequest, "invalid request id")
+	}
 	r.UpdatedAt = now.Format(time.RFC3339)
 	out, err := json.MarshalIndent(r, "", "  ")
 	if err != nil {
