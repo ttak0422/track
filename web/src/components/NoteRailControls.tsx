@@ -38,7 +38,12 @@ export function NoteRailControls() {
         </button>
       </RailTip>
       <EditorModeMenu mode={mode} setMode={setMode} />
-      <NoteActionsMenu getBody={actions.getBody} onMeta={actions.onMeta} onDelete={actions.onDelete} />
+      <NoteActionsMenu
+        getBody={actions.getBody}
+        onMeta={actions.onMeta}
+        onDelete={actions.onDelete}
+        onAgentRequest={actions.onAgentRequest ?? (() => {})}
+      />
     </>
   );
 }

@@ -2,6 +2,7 @@
 package webui
 
 import (
+	"context"
 	"fmt"
 	"io/fs"
 	"mime"
@@ -17,7 +18,9 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/ttak0422/track/internal/track/agmsg"
 	"github.com/ttak0422/track/internal/track/config"
+	"github.com/ttak0422/track/internal/track/request"
 	"github.com/ttak0422/track/internal/track/store"
 )
 
@@ -44,6 +47,11 @@ type Server struct {
 	ogpCache map[string]ogpCacheEntry
 	followMu sync.Mutex
 	follow   *followState
+	// dispatchQueue carries freshly created attempts to the agmsg send worker. Delivery is
+	// asynchronous and server-lifetime: the HTTP response that created the attempt never waits on
+	// send.sh, and the worker survives the request that enqueued the job (docs/spec/
+	// live-agent-requests.md).
+	dispatchQueue chan dispatchJob
 }
 
 type followState struct {
@@ -79,17 +87,28 @@ func init() {
 	_ = mime.AddExtensionType(".mjs", "text/javascript; charset=utf-8")
 }
 
+// dispatchQueueSize bounds the send queue. Delivery is rare (one per new request or retry), so a
+// small buffer back-pressures the create handler only when the worker is genuinely stuck; the
+// enqueue select drops instead of blocking forever.
+const dispatchQueueSize = 64
+
+// sendTimeout bounds one send.sh run. A send that exceeds it is recorded as DeliveryUnknown, not
+// failed: a timeout is not proof that the message was not delivered, so the attempt stays queued and
+// may be re-attempted under the same dispatch id. It is a var so tests can shorten the wait.
+var sendTimeout = 30 * time.Second
+
 func New(cfg *config.Config, s *store.Store) *Server {
 	// The launch vault carries no wire label: unqualified means "the vault you are in".
 	active := &vaultView{name: activeName(cfg), cfg: cfg, store: s}
 	srv := &Server{
-		active:  active,
-		cfg:     cfg,
-		store:   s,
-		views:   map[string]*vaultView{},
-		mux:     http.NewServeMux(),
-		webRoot: embeddedWebRoot,
-		events:  newEventHub(),
+		active:        active,
+		cfg:           cfg,
+		store:         s,
+		views:         map[string]*vaultView{},
+		mux:           http.NewServeMux(),
+		webRoot:       embeddedWebRoot,
+		events:        newEventHub(),
+		dispatchQueue: make(chan dispatchJob, dispatchQueueSize),
 	}
 	// A palette is a best-effort cosmetic override; a bad file must not take the workspace down, so we
 	// warn and fall back to the built-in colors rather than failing to start.
@@ -98,12 +117,121 @@ func New(cfg *config.Config, s *store.Store) *Server {
 	} else {
 		srv.colorCSS = css
 	}
+	srv.startDispatchWorker()
 	srv.routes()
 	return srv
 }
 
 func (s *Server) Handler() http.Handler {
 	return s.guard(s.mux)
+}
+
+// requestLoopbackOnly keeps the request gateway local even when the workspace itself is deliberately
+// bound to a LAN address. The browser APIs can retain their existing bind policy; agent reports carry
+// durable request state and must not become a LAN endpoint by accident.
+func (s *Server) requestLoopbackOnly(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if !loopbackHost(s.bindHost) {
+			writeError(w, fmt.Errorf("agent requests require a loopback web bind"), http.StatusForbidden)
+			return
+		}
+		if host, _, err := net.SplitHostPort(r.RemoteAddr); err == nil && !loopbackHost(host) {
+			writeError(w, fmt.Errorf("agent requests accept loopback clients only"), http.StatusForbidden)
+			return
+		}
+		next.ServeHTTP(w, r)
+	})
+}
+
+func loopbackHost(host string) bool {
+	host = strings.Trim(host, "[]")
+	if host == "" || host == "localhost" {
+		return true
+	}
+	ip := net.ParseIP(host)
+	return ip != nil && ip.IsLoopback()
+}
+
+// dispatchJob is one queued delivery: the attempt whose creation needs a send, addressed by the
+// vault it lives in (whose request store records the outcome).
+type dispatchJob struct {
+	vault      *vaultView
+	agentID    string
+	requestID  string
+	dispatchID string
+}
+
+// startDispatchWorker runs the server-lifetime send loop. Delivery is best-effort and asynchronous:
+// the worker drains the queue, hands each envelope to the agent's agmsg connection, and persists the
+// outcome on the attempt. It never blocks the HTTP request that enqueued the job.
+func (s *Server) startDispatchWorker() {
+	go func() {
+		for job := range s.dispatchQueue {
+			s.sendDispatch(job)
+		}
+	}()
+}
+
+// enqueueDispatch hands a new attempt to the send worker when its agent is an agmsg destination.
+// An agent without agmsg connection settings gets no delivery here (other connections, or a later
+// stage, own those attempts). The send is dropped, not retried, when the queue is saturated — the
+// attempt stays queued and a retry can re-issue it.
+func (s *Server) enqueueDispatch(v *vaultView, agentID, requestID, dispatchID string) {
+	agent, ok := s.cfg.Agents[agentID]
+	if !ok || agent.Agmsg == nil {
+		return
+	}
+	select {
+	case s.dispatchQueue <- dispatchJob{vault: v, agentID: agentID, requestID: requestID, dispatchID: dispatchID}:
+	default:
+	}
+}
+
+// sendDispatch performs one delivery through the agent's agmsg connection and persists the outcome
+// on the attempt. The send is a plain exec of the configured send.sh with the small JSON envelope;
+// a successful send is recorded as sent and never read as an execution start. A confirmed delivery
+// failure settles the request as failed through the common path while the attempt is still queued —
+// once an agent claimed (or the request moved on), the failure report is moot.
+func (s *Server) sendDispatch(job dispatchJob) {
+	agent, ok := s.cfg.Agents[job.agentID]
+	if !ok || agent.Agmsg == nil {
+		return // the agent was unregistered or its connection removed while the job waited
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), sendTimeout)
+	defer cancel()
+	outcome := agmsg.Send(ctx, agmsg.SendConfig{
+		Script:    agent.Agmsg.SendScript,
+		Team:      agent.Agmsg.Team,
+		Sender:    agent.Agmsg.Sender,
+		Recipient: agent.Agmsg.Recipient,
+	}, agmsg.Envelope{
+		Protocol:   agmsg.ProtocolVersion,
+		RequestID:  job.requestID,
+		DispatchID: job.dispatchID,
+		AgentID:    job.agentID,
+	})
+	st := s.requestStore(job.vault)
+	if _, err := st.SetDelivery(job.requestID, job.dispatchID, outcome.Delivery, outcome.Note, time.Now()); err != nil {
+		// The request or attempt vanished, or the dispatch was superseded while send.sh ran: there
+		// is nothing more to record.
+		return
+	}
+	if outcome.Delivery == request.DeliveryFailed {
+		if _, err := st.Fail(job.requestID, job.dispatchID, "delivery failed: "+outcome.Note, time.Now()); err != nil {
+			// The request already left queued (claimed, cancelled, ...) or the attempt went stale:
+			// the confirmed failure only settles a still-queued attempt.
+			return
+		}
+	}
+}
+
+// latestDispatchID is the request's latest attempt id — the one a create or retry just minted and
+// therefore the one the send worker delivers.
+func latestDispatchID(r request.Request) string {
+	if len(r.Attempts) == 0 {
+		return ""
+	}
+	return r.Attempts[len(r.Attempts)-1].ID
 }
 
 // guard rejects the requests a browser could aim at this local server from a foreign page: any Host
@@ -308,6 +436,21 @@ func (s *Server) routes() {
 	s.mux.HandleFunc("/api/follow", s.handleFollow)
 	s.mux.HandleFunc("/api/events", s.handleEvents)
 	s.mux.HandleFunc("/api/vaults", s.handleVaults)
+	// Agent request gateway (docs/spec/live-agent-requests.md, stage 1: the connection-agnostic
+	// request foundation). The request endpoints are loopback-only like the rest of the workspace;
+	// the Host/Origin guard applies to them through Handler.
+	s.mux.Handle("/api/requests", s.requestLoopbackOnly(s.withVault(s.handleRequests)))
+	s.mux.Handle("/api/requests/{id}", s.requestLoopbackOnly(s.withVault(s.handleRequest)))
+	s.mux.Handle("/api/requests/{id}/cancel", s.requestLoopbackOnly(s.withVault(s.handleRequestCancel)))
+	s.mux.Handle("/api/requests/{id}/retry", s.requestLoopbackOnly(s.withVault(s.handleRequestRetry)))
+	s.mux.Handle("/api/requests/{id}/save", s.requestLoopbackOnly(s.withVault(s.handleRequestSave)))
+	s.mux.Handle("/api/requests/{id}/claim", s.requestLoopbackOnly(s.withVault(s.handleRequestClaim)))
+	s.mux.Handle("/api/requests/{id}/result", s.requestLoopbackOnly(s.withVault(s.handleRequestResult)))
+	s.mux.Handle("/api/requests/{id}/fail", s.requestLoopbackOnly(s.withVault(s.handleRequestFail)))
+	// GET /api/agents (stage 3: the request panel) lists the registered agents as safe projections
+	// for the create form. It is live-only, like every /api route: the static export carries no
+	// agent data, so this endpoint exists only on the live `track web` server's mux.
+	s.mux.HandleFunc("/api/agents", s.handleAgents)
 	// Everything that is not an API route is served from the embedded frontend build.
 	s.mux.HandleFunc("/", s.handleApp)
 }

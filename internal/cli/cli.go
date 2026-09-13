@@ -107,6 +107,8 @@ func Run(args []string) int {
 		return cmdVault(rest)
 	case "template":
 		return cmdTemplate(rest)
+	case "agent":
+		return cmdAgent(rest)
 	case "babel":
 		return cmdBabel(rest)
 	case "export":
@@ -261,6 +263,16 @@ Usage:
   track web [--addr 127.0.0.1:8765]      serve the local web workspace
   track web stop [--addr 127.0.0.1:8765]
                                         stop the web workspace on this addr (JSON)
+  track agent claim [--addr HOST:PORT] [--vault NAME] --request REQ --dispatch DISP
+                                        confirm an agent started executing a request through the
+                                        local web API; the Bearer token comes from the machine
+                                        config's entry for the request's agent (JSON)
+  track agent result [--addr HOST:PORT] [--vault NAME] --request REQ --dispatch DISP
+                                        submit the result JSON on stdin ({"answer_markdown":...,
+                                        "sources":[...]} for explain/research, {"proposed_body":...}
+                                        for update) (JSON)
+  track agent fail [--addr HOST:PORT] [--vault NAME] --request REQ --dispatch DISP [--reason R]
+                                        report a confirmed execution failure (JSON)
   track template new --name <s> [--id N]
                                         create a template (JSON)
   track template open --name <s>         open or create a template (JSON)

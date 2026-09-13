@@ -18,6 +18,7 @@ export interface NoteActions {
   getBody: () => string;
   onMeta: () => void;
   onDelete: () => void;
+  onAgentRequest?: () => void;
 }
 
 interface NoteControlsState {
