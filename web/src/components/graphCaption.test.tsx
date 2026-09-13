@@ -19,7 +19,9 @@ vi.mock("../queries", () => ({
   useGraphQuery: () => ({ data: { graph: { center_id: "c", nodes, edges } } }),
 }));
 vi.mock("./GraphCanvasLazy", () => ({
-  GraphCanvas: () => <div data-testid="graph-canvas" />,
+  GraphCanvas: ({ showTitles }: { showTitles?: boolean }) => (
+    <div data-testid="graph-canvas" data-show-titles={String(showTitles ?? true)} />
+  ),
 }));
 vi.mock("./preview/floatingStore", () => ({ useFloating: () => ({ open: floatingOpen }) }));
 vi.mock("./preview/NoteWindow", () => ({ NoteWindow: () => <div data-testid="note-window" /> }));
@@ -78,6 +80,27 @@ describe("whole-vault graph caption", () => {
     fireEvent.click(screen.getByLabelText("Show graph"));
     expect(screen.getByTestId("graph-canvas")).toBeInTheDocument();
     expect(screen.getByText("25 notes")).toBeInTheDocument();
+  });
+
+  it("toggles note titles in GraphFullView", () => {
+    setChain(10);
+    render(<GraphFullView />);
+    expect(screen.getByTestId("graph-canvas")).toHaveAttribute("data-show-titles", "true");
+
+    fireEvent.click(screen.getByRole("button", { name: "Hide note titles" }));
+    expect(screen.getByTestId("graph-canvas")).toHaveAttribute("data-show-titles", "false");
+    expect(screen.getByRole("button", { name: "Show note titles" })).toBeInTheDocument();
+  });
+
+  it("toggles note titles in GraphPanel", () => {
+    setChain(10);
+    render(<GraphPanel />);
+    fireEvent.click(screen.getByLabelText("Show graph"));
+    expect(screen.getByTestId("graph-canvas")).toHaveAttribute("data-show-titles", "true");
+
+    fireEvent.click(screen.getByRole("button", { name: "Hide note titles" }));
+    expect(screen.getByTestId("graph-canvas")).toHaveAttribute("data-show-titles", "false");
+    expect(screen.getByRole("button", { name: "Show note titles" })).toBeInTheDocument();
   });
 
   // An unlinked note is not in a picture of the link graph, so the caption has to account for it —
