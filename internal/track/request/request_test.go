@@ -656,3 +656,91 @@ func TestPersistenceAcrossTransitions(t *testing.T) {
 		t.Fatalf("settled request did not survive a reload: %+v", reopened)
 	}
 }
+
+func TestSetDeliveryRecordsOutcomeOnAttempt(t *testing.T) {
+	st, _ := newTestStore(t)
+	r, err := st.Create(NewRequest{Intent: IntentExplain, Instruction: "x", AgentID: "a"}, at(0))
+	if err != nil {
+		t.Fatal(err)
+	}
+	d := r.Request.currentDispatch().ID
+
+	// The connection records its own outcome; the request stays queued — a send is not a start.
+	got, err := st.SetDelivery(r.Request.ID, d, DeliverySent, "sent", at(time.Second))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.Idempotent || got.Request.Status != StatusQueued {
+		t.Fatalf("delivery must not move the request: %+v", got.Request)
+	}
+	attempt := got.Request.currentDispatch()
+	if attempt.Delivery != DeliverySent || attempt.DeliveryNote != "sent" {
+		t.Fatalf("delivery not recorded on the attempt: %+v", attempt)
+	}
+	// The same outcome re-recorded is an idempotent success.
+	again, err := st.SetDelivery(r.Request.ID, d, DeliverySent, "sent", at(2*time.Second))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !again.Idempotent {
+		t.Fatalf("identical delivery record should be idempotent")
+	}
+	// A later, different outcome overwrites the record (unknown -> sent re-attempt flow).
+	unknown, err := st.SetDelivery(r.Request.ID, d, DeliveryUnknown, "send timed out; delivery outcome unknown", at(3*time.Second))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if unknown.Idempotent || unknown.Request.currentDispatch().Delivery != DeliveryUnknown {
+		t.Fatalf("delivery outcome should be replaceable: %+v", unknown.Request.currentDispatch())
+	}
+
+	// Invalid status, unknown request, unknown dispatch, and missing dispatch id are refused.
+	if _, err := st.SetDelivery(r.Request.ID, d, DeliveryStatus("exploded"), "", at(0)); rejectReason(t, err) != RejectInvalidRequest {
+		t.Fatalf("bad delivery status should be invalid_request, got %v", err)
+	}
+	if _, err := st.SetDelivery("nope", d, DeliverySent, "", at(0)); rejectReason(t, err) != RejectUnknownRequest {
+		t.Fatalf("unknown request should be unknown_request, got %v", err)
+	}
+	if _, err := st.SetDelivery(r.Request.ID, "d-1", DeliverySent, "", at(0)); rejectReason(t, err) != RejectUnknownDispatch {
+		t.Fatalf("unknown dispatch should be unknown_dispatch, got %v", err)
+	}
+	if _, err := st.SetDelivery(r.Request.ID, "", DeliverySent, "", at(0)); rejectReason(t, err) != RejectInvalidRequest {
+		t.Fatalf("missing dispatch id should be invalid_request, got %v", err)
+	}
+}
+
+func TestSetDeliverySkipsSupersededAttempt(t *testing.T) {
+	st, _ := newTestStore(t)
+	r, err := st.Create(NewRequest{Intent: IntentExplain, Instruction: "x", AgentID: "a"}, at(0))
+	if err != nil {
+		t.Fatal(err)
+	}
+	first := r.Request.currentDispatch().ID
+	if _, err := st.Fail(r.Request.ID, first, "agent died", at(time.Second)); err != nil {
+		t.Fatal(err)
+	}
+	retried, err := st.Retry(r.Request.ID, at(2*time.Second))
+	if err != nil {
+		t.Fatal(err)
+	}
+	second := retried.Request.currentDispatch().ID
+
+	// A late delivery report for the superseded attempt is skipped, not written anywhere.
+	got, err := st.SetDelivery(r.Request.ID, first, DeliverySent, "sent", at(3*time.Second))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !got.Idempotent {
+		t.Fatalf("stale delivery should be an idempotent skip")
+	}
+	if got.Request.currentDispatch().Delivery != "" {
+		t.Fatalf("stale delivery touched the live attempt: %+v", got.Request.currentDispatch())
+	}
+	// The live attempt still records its own delivery normally.
+	if _, err := st.SetDelivery(r.Request.ID, second, DeliverySent, "sent", at(4*time.Second)); err != nil {
+		t.Fatal(err)
+	}
+	if got.Request.currentDispatch().ID != second {
+		t.Fatalf("unexpected current attempt")
+	}
+}

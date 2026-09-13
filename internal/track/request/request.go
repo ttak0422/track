@@ -152,6 +152,21 @@ const (
 	DeliveryUnknown DeliveryStatus = "unknown"
 )
 
+// DeliveryStatuses returns the closed delivery status set in model order.
+func DeliveryStatuses() []DeliveryStatus {
+	return []DeliveryStatus{DeliverySent, DeliveryFailed, DeliveryUnknown}
+}
+
+// ValidDeliveryStatus reports whether d is one of the closed delivery status values.
+func ValidDeliveryStatus(d DeliveryStatus) bool {
+	for _, want := range DeliveryStatuses() {
+		if d == want {
+			return true
+		}
+	}
+	return false
+}
+
 // NoteRef identifies one note in a vault, with the content the client saw. Body and ETag let a
 // later stage re-read the note server-side and detect changes; they are not trusted as authoritative
 // content.
@@ -190,7 +205,8 @@ type Result struct {
 type Dispatch struct {
 	ID                string         `json:"id"`
 	Status            DispatchStatus `json:"status"`
-	Delivery          DeliveryStatus `json:"delivery,omitempty"` // set by the connection layer
+	Delivery          DeliveryStatus `json:"delivery,omitempty"`      // set by the connection layer
+	DeliveryNote      string         `json:"delivery_note,omitempty"` // connection detail (exit code, stderr clip)
 	CreatedAt         string         `json:"created_at"`
 	ClaimedAt         string         `json:"claimed_at,omitempty"`
 	SettledAt         string         `json:"settled_at,omitempty"`

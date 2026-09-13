@@ -1,6 +1,7 @@
 package webui
 
 import (
+	"bytes"
 	"encoding/json"
 	"fmt"
 	"net/http"
@@ -9,6 +10,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/ttak0422/track/internal/track/config"
 	"github.com/ttak0422/track/internal/track/note"
@@ -18,16 +20,23 @@ import (
 // requestServer builds a server over a temp vault with one indexed note (100, "Alpha").
 func requestServer(t *testing.T) (*httptest.Server, *config.Config) {
 	t.Helper()
+	return requestServerAgents(t, map[string]config.AgentConfig{
+		"a":                  {Token: "token-a"},
+		"research-assistant": {Token: "token-research"},
+	})
+}
+
+// requestServerAgents is requestServer with an explicit agent registry, so a test can register an
+// agmsg connection (or none) per agent.
+func requestServerAgents(t *testing.T, agents map[string]config.AgentConfig) (*httptest.Server, *config.Config) {
+	t.Helper()
 	cfg := &config.Config{
 		VaultDir:          t.TempDir(),
 		DBPath:            filepath.Join(t.TempDir(), "index.db"),
 		Extensions:        []string{".md"},
 		DateFormat:        "2006-01-02",
 		JournalDateFormat: "20060102",
-		Agents: map[string]config.AgentConfig{
-			"a":                  {Token: "token-a"},
-			"research-assistant": {Token: "token-research"},
-		},
+		Agents:            agents,
 	}
 	s, err := store.Open(cfg.DBPath)
 	if err != nil {
@@ -512,4 +521,218 @@ func TestRequestEndpointsBehindGuard(t *testing.T) {
 	if got := do(http.MethodPost, "", "", base); got == http.StatusForbidden {
 		t.Fatalf("origin-less create should pass the guard")
 	}
+}
+
+// fakeSendScript writes an executable send.sh that appends its argv to logPath (one argument per
+// line) and then runs body. The log is the observable record of what the dispatch worker handed the
+// script — the argument-safety and no-resend assertions read it.
+func fakeSendScript(t *testing.T, logPath, body string) string {
+	t.Helper()
+	script := filepath.Join(t.TempDir(), "send.sh")
+	content := "#!/bin/sh\nprintf '%s\\n' \"$@\" >> \"" + logPath + "\"\n" + body + "\n"
+	if err := os.WriteFile(script, []byte(content), 0o755); err != nil {
+		t.Fatalf("write fake send.sh: %v", err)
+	}
+	return script
+}
+
+func sendLineCount(t *testing.T, path string) int {
+	t.Helper()
+	raw, err := os.ReadFile(path)
+	if os.IsNotExist(err) {
+		return 0
+	}
+	if err != nil {
+		t.Fatalf("read send log: %v", err)
+	}
+	trimmed := strings.TrimRight(string(raw), "\n")
+	if trimmed == "" {
+		return 0
+	}
+	return len(strings.Split(trimmed, "\n"))
+}
+
+// waitFor polls cond until it holds or the timeout passes; the dispatch worker runs async, so the
+// delivery tests wait on its observable effects rather than sleeping.
+func waitFor(t *testing.T, timeout time.Duration, cond func() bool, msg string) {
+	t.Helper()
+	deadline := time.Now().Add(timeout)
+	for time.Now().Before(deadline) {
+		if cond() {
+			return
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+	t.Fatal(msg)
+}
+
+// deliveryStatus reads the current attempt's delivery status from a request detail response.
+func deliveryStatus(resp map[string]any) string {
+	attempts, _ := resp["attempts"].([]any)
+	last, _ := attempts[len(attempts)-1].(map[string]any)
+	d, _ := last["delivery"].(string)
+	return d
+}
+
+// agmsgAgent returns a registered agent wired to a fake send.sh logging to logPath.
+func agmsgAgent(t *testing.T, logPath, body string) config.AgentConfig {
+	t.Helper()
+	return config.AgentConfig{
+		Token: "token-a",
+		Agmsg: &config.AgmsgConfig{
+			SendScript: fakeSendScript(t, logPath, body),
+			Team:       "team-a",
+			Sender:     "track-web",
+			Recipient:  "agent-a",
+		},
+	}
+}
+
+// TestRequestDeliverySentAndFailed verifies the whole delivery loop through the HTTP API: a fresh
+// request is handed to send.sh with the plain four-argument form, the outcome is persisted on the
+// attempt, and a confirmed delivery failure settles the request as failed through the common path.
+func TestRequestDeliverySentAndFailed(t *testing.T) {
+	t.Run("sent", func(t *testing.T) {
+		log := filepath.Join(t.TempDir(), "send.log")
+		server, _ := requestServerAgents(t, map[string]config.AgentConfig{"a": agmsgAgent(t, log, "exit 0")})
+		code, created := postRequest(t, server.URL+"/api/requests", `{"intent":"explain","instruction":"x","agent_id":"a"}`)
+		if code != http.StatusAccepted {
+			t.Fatalf("create = %d: %v", code, created)
+		}
+		id := reqID(t, created)
+
+		waitFor(t, 2*time.Second, func() bool {
+			_, detail := getRequest(t, server.URL+"/api/requests/"+id)
+			return deliveryStatus(detail) == "sent"
+		}, "delivery did not become sent")
+		// The send itself used exactly the connection's four plain arguments.
+		lines := sendLineCount(t, log)
+		if lines != 4 {
+			t.Fatalf("send.sh received %d arguments, want the 4-arg plain form (team sender recipient envelope)", lines)
+		}
+		_, detail := getRequest(t, server.URL+"/api/requests/"+id)
+		if detail["status"] != "queued" {
+			t.Fatalf("a successful send must not start the execution: status = %v", detail["status"])
+		}
+		attempts := detail["attempts"].([]any)
+		last := attempts[len(attempts)-1].(map[string]any)
+		if last["delivery_note"] != "sent" {
+			t.Fatalf("delivery note missing: %v", last)
+		}
+	})
+
+	t.Run("failed", func(t *testing.T) {
+		log := filepath.Join(t.TempDir(), "send.log")
+		server, _ := requestServerAgents(t, map[string]config.AgentConfig{"a": agmsgAgent(t, log, "echo 'roster error' >&2\nexit 1")})
+		code, created := postRequest(t, server.URL+"/api/requests", `{"intent":"explain","instruction":"x","agent_id":"a"}`)
+		if code != http.StatusAccepted {
+			t.Fatalf("create = %d: %v", code, created)
+		}
+		id := reqID(t, created)
+
+		waitFor(t, 2*time.Second, func() bool {
+			_, detail := getRequest(t, server.URL+"/api/requests/"+id)
+			return detail["status"] == "failed"
+		}, "confirmed delivery failure did not settle the request")
+		_, detail := getRequest(t, server.URL+"/api/requests/"+id)
+		if deliveryStatus(detail) != "failed" {
+			t.Fatalf("delivery status = %q, want failed", deliveryStatus(detail))
+		}
+		errMsg, _ := detail["error"].(string)
+		if !strings.Contains(errMsg, "delivery failed") || !strings.Contains(errMsg, "roster error") {
+			t.Fatalf("failure should carry the delivery reason: %q", errMsg)
+		}
+	})
+}
+
+// TestRequestDeliveryTimeoutStaysQueued verifies that a send that exceeds the deadline is recorded
+// as unknown — a timeout is not proof of non-delivery — and the request stays queued for a claim.
+func TestRequestDeliveryTimeoutStaysQueued(t *testing.T) {
+	old := sendTimeout
+	sendTimeout = 150 * time.Millisecond
+	t.Cleanup(func() { sendTimeout = old })
+
+	log := filepath.Join(t.TempDir(), "send.log")
+	server, _ := requestServerAgents(t, map[string]config.AgentConfig{"a": agmsgAgent(t, log, "exec sleep 30")})
+	code, created := postRequest(t, server.URL+"/api/requests", `{"intent":"explain","instruction":"x","agent_id":"a"}`)
+	if code != http.StatusAccepted {
+		t.Fatalf("create = %d: %v", code, created)
+	}
+	id := reqID(t, created)
+
+	waitFor(t, 3*time.Second, func() bool {
+		_, detail := getRequest(t, server.URL+"/api/requests/"+id)
+		return deliveryStatus(detail) == "unknown"
+	}, "timed-out send did not record delivery=unknown")
+	_, detail := getRequest(t, server.URL+"/api/requests/"+id)
+	if detail["status"] != "queued" {
+		t.Fatalf("a timeout is not a failure: status = %v", detail["status"])
+	}
+	if errMsg, _ := detail["error"].(string); errMsg != "" {
+		t.Fatalf("timed-out delivery must not settle the request with an error: %q", errMsg)
+	}
+}
+
+// TestRequestIdempotentCreateDoesNotResend verifies that replaying a create with the same
+// client_request_id and input returns the stored request without dispatching a second delivery.
+func TestRequestIdempotentCreateDoesNotResend(t *testing.T) {
+	log := filepath.Join(t.TempDir(), "send.log")
+	server, _ := requestServerAgents(t, map[string]config.AgentConfig{"a": agmsgAgent(t, log, "exit 0")})
+	base := `{"client_request_id":"click-1","intent":"explain","instruction":"x","agent_id":"a"}`
+	code, first := postRequest(t, server.URL+"/api/requests", base)
+	if code != http.StatusAccepted || first["reused"] != false {
+		t.Fatalf("first create: %d %v", code, first)
+	}
+	waitFor(t, 2*time.Second, func() bool { return sendLineCount(t, log) == 4 }, "first delivery did not send")
+
+	// Same key + same input: reused, and no second delivery. A stray resend would bump the log to 8
+	// lines; poll long enough for one to arrive, failing the instant it does.
+	code, again := postRequest(t, server.URL+"/api/requests", base)
+	if code != http.StatusAccepted || again["reused"] != true || reqID(t, again) != reqID(t, first) {
+		t.Fatalf("replayed create should reuse: %d %v", code, again)
+	}
+	deadline := time.Now().Add(2 * time.Second)
+	for time.Now().Before(deadline) {
+		if n := sendLineCount(t, log); n != 4 {
+			t.Fatalf("idempotent create resent the delivery: send.log has %d lines, want 4", n)
+		}
+		time.Sleep(20 * time.Millisecond)
+	}
+}
+
+// TestRequestJSONKeepsAgmsgConfigOut verifies the requirement that agmsg connection settings stay
+// machine-local: neither the request JSON model, the stored request file, nor the web API responses
+// may carry the connection config or the agent token (docs/spec/live-agent-requests.md).
+func TestRequestJSONKeepsAgmsgConfigOut(t *testing.T) {
+	log := filepath.Join(t.TempDir(), "send.log")
+	server, cfg := requestServerAgents(t, map[string]config.AgentConfig{"a": agmsgAgent(t, log, "exit 0")})
+	code, created := postRequest(t, server.URL+"/api/requests", `{"intent":"explain","instruction":"x","agent_id":"a"}`)
+	if code != http.StatusAccepted {
+		t.Fatalf("create = %d: %v", code, created)
+	}
+	id := reqID(t, created)
+
+	// Every agmsg connection key and the token are machine config only.
+	forbidden := []string{"agmsg", "send_script", "team", "sender", "recipient", "token"}
+	assertForbidden := func(prefix string, raw []byte) {
+		t.Helper()
+		for _, key := range forbidden {
+			if bytes.Contains(raw, []byte(`"`+key+`"`)) {
+				t.Fatalf("%s leaks the connection key %q: %s", prefix, key, raw)
+			}
+		}
+	}
+	req, _ := created["request"].(map[string]any)
+	raw, _ := json.Marshal(req)
+	assertForbidden("create response", raw)
+
+	_, detail := getRequest(t, server.URL+"/api/requests/"+id)
+	raw, _ = json.Marshal(detail)
+	assertForbidden("detail response", raw)
+
+	stored, err := os.ReadFile(filepath.Join(cfg.TrackDir(), "requests", id+".json"))
+	if err != nil {
+		t.Fatalf("read stored request: %v", err)
+	}
+	assertForbidden("stored request file", stored)
 }

@@ -295,6 +295,46 @@ func validateResult(intent Intent, res Result) error {
 	return nil
 }
 
+// SetDelivery records a connection's delivery outcome on one attempt. Delivery is the connection
+// layer's report of handing the attempt to an agent — a successful send is never read as an execution
+// start or a completion, so this transition touches only the attempt's delivery fields and never the
+// request or attempt status. The write is confined to the current attempt: a superseded or foreign
+// dispatch's outcome is skipped (Idempotent) so a late send.sh report can never overwrite the live
+// attempt's record. Only the closed delivery status set is accepted.
+func (s *Store) SetDelivery(id, dispatchID string, d DeliveryStatus, note string, now time.Time) (TransitionResult, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	if !ValidDeliveryStatus(d) {
+		return TransitionResult{}, reject(RejectInvalidRequest, "invalid delivery status %q", d)
+	}
+	r, err := s.load(id)
+	if err != nil {
+		return TransitionResult{}, err
+	}
+	if strings.TrimSpace(dispatchID) == "" {
+		return TransitionResult{}, reject(RejectInvalidRequest, "dispatch_id is required")
+	}
+	attempt, err := r.dispatch(dispatchID)
+	if err != nil {
+		return TransitionResult{}, err
+	}
+	if cur := r.currentDispatch(); cur == nil || cur.ID != dispatchID {
+		// The attempt was superseded (a retry) while the send was in flight: the outcome no longer
+		// matters and must not touch the live attempt's record.
+		return TransitionResult{Request: r, Idempotent: true}, nil
+	}
+	if attempt.Delivery == d && attempt.DeliveryNote == note {
+		return TransitionResult{Request: r, Idempotent: true}, nil
+	}
+	attempt.Delivery = d
+	attempt.DeliveryNote = note
+	if err := s.save(&r, now); err != nil {
+		return TransitionResult{}, fmt.Errorf("persist delivery: %w", err)
+	}
+	return TransitionResult{Request: r}, nil
+}
+
 // Fail records a confirmed execution failure for the current attempt. Re-failing the same already
 // failed attempt is an idempotent success.
 func (s *Store) Fail(id, dispatchID, reason string, now time.Time) (TransitionResult, error) {

@@ -113,6 +113,11 @@ func (s *Server) createRequest(v *vaultView, w http.ResponseWriter, r *http.Requ
 		writeRequestError(w, err)
 		return
 	}
+	// A fresh request is handed to the send worker; an idempotent create (the same client_request_id
+	// with the same input) is a replay and must not dispatch a second time.
+	if !res.Reused {
+		s.enqueueDispatch(v, in.AgentID, res.Request.ID, latestDispatchID(res.Request))
+	}
 	writeJSONStatus(w, http.StatusAccepted, map[string]any{"request": res.Request, "reused": res.Reused})
 }
 
@@ -158,6 +163,8 @@ func (s *Server) handleRequestRetry(v *vaultView, w http.ResponseWriter, r *http
 		writeRequestError(w, err)
 		return
 	}
+	// A retry mints a new dispatch, so the new attempt is delivered like a fresh create.
+	s.enqueueDispatch(v, res.Request.AgentID, res.Request.ID, latestDispatchID(res.Request))
 	writeJSON(w, res.Request)
 }
 

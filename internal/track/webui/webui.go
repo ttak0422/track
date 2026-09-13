@@ -2,6 +2,7 @@
 package webui
 
 import (
+	"context"
 	"fmt"
 	"io/fs"
 	"mime"
@@ -17,7 +18,9 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/ttak0422/track/internal/track/agmsg"
 	"github.com/ttak0422/track/internal/track/config"
+	"github.com/ttak0422/track/internal/track/request"
 	"github.com/ttak0422/track/internal/track/store"
 )
 
@@ -44,6 +47,11 @@ type Server struct {
 	ogpCache map[string]ogpCacheEntry
 	followMu sync.Mutex
 	follow   *followState
+	// dispatchQueue carries freshly created attempts to the agmsg send worker. Delivery is
+	// asynchronous and server-lifetime: the HTTP response that created the attempt never waits on
+	// send.sh, and the worker survives the request that enqueued the job (docs/spec/
+	// live-agent-requests.md).
+	dispatchQueue chan dispatchJob
 }
 
 type followState struct {
@@ -79,17 +87,28 @@ func init() {
 	_ = mime.AddExtensionType(".mjs", "text/javascript; charset=utf-8")
 }
 
+// dispatchQueueSize bounds the send queue. Delivery is rare (one per new request or retry), so a
+// small buffer back-pressures the create handler only when the worker is genuinely stuck; the
+// enqueue select drops instead of blocking forever.
+const dispatchQueueSize = 64
+
+// sendTimeout bounds one send.sh run. A send that exceeds it is recorded as DeliveryUnknown, not
+// failed: a timeout is not proof that the message was not delivered, so the attempt stays queued and
+// may be re-attempted under the same dispatch id. It is a var so tests can shorten the wait.
+var sendTimeout = 30 * time.Second
+
 func New(cfg *config.Config, s *store.Store) *Server {
 	// The launch vault carries no wire label: unqualified means "the vault you are in".
 	active := &vaultView{name: activeName(cfg), cfg: cfg, store: s}
 	srv := &Server{
-		active:  active,
-		cfg:     cfg,
-		store:   s,
-		views:   map[string]*vaultView{},
-		mux:     http.NewServeMux(),
-		webRoot: embeddedWebRoot,
-		events:  newEventHub(),
+		active:        active,
+		cfg:           cfg,
+		store:         s,
+		views:         map[string]*vaultView{},
+		mux:           http.NewServeMux(),
+		webRoot:       embeddedWebRoot,
+		events:        newEventHub(),
+		dispatchQueue: make(chan dispatchJob, dispatchQueueSize),
 	}
 	// A palette is a best-effort cosmetic override; a bad file must not take the workspace down, so we
 	// warn and fall back to the built-in colors rather than failing to start.
@@ -98,6 +117,7 @@ func New(cfg *config.Config, s *store.Store) *Server {
 	} else {
 		srv.colorCSS = css
 	}
+	srv.startDispatchWorker()
 	srv.routes()
 	return srv
 }
@@ -130,6 +150,88 @@ func loopbackHost(host string) bool {
 	}
 	ip := net.ParseIP(host)
 	return ip != nil && ip.IsLoopback()
+}
+
+// dispatchJob is one queued delivery: the attempt whose creation needs a send, addressed by the
+// vault it lives in (whose request store records the outcome).
+type dispatchJob struct {
+	vault      *vaultView
+	agentID    string
+	requestID  string
+	dispatchID string
+}
+
+// startDispatchWorker runs the server-lifetime send loop. Delivery is best-effort and asynchronous:
+// the worker drains the queue, hands each envelope to the agent's agmsg connection, and persists the
+// outcome on the attempt. It never blocks the HTTP request that enqueued the job.
+func (s *Server) startDispatchWorker() {
+	go func() {
+		for job := range s.dispatchQueue {
+			s.sendDispatch(job)
+		}
+	}()
+}
+
+// enqueueDispatch hands a new attempt to the send worker when its agent is an agmsg destination.
+// An agent without agmsg connection settings gets no delivery here (other connections, or a later
+// stage, own those attempts). The send is dropped, not retried, when the queue is saturated — the
+// attempt stays queued and a retry can re-issue it.
+func (s *Server) enqueueDispatch(v *vaultView, agentID, requestID, dispatchID string) {
+	agent, ok := s.cfg.Agents[agentID]
+	if !ok || agent.Agmsg == nil {
+		return
+	}
+	select {
+	case s.dispatchQueue <- dispatchJob{vault: v, agentID: agentID, requestID: requestID, dispatchID: dispatchID}:
+	default:
+	}
+}
+
+// sendDispatch performs one delivery through the agent's agmsg connection and persists the outcome
+// on the attempt. The send is a plain exec of the configured send.sh with the small JSON envelope;
+// a successful send is recorded as sent and never read as an execution start. A confirmed delivery
+// failure settles the request as failed through the common path while the attempt is still queued —
+// once an agent claimed (or the request moved on), the failure report is moot.
+func (s *Server) sendDispatch(job dispatchJob) {
+	agent, ok := s.cfg.Agents[job.agentID]
+	if !ok || agent.Agmsg == nil {
+		return // the agent was unregistered or its connection removed while the job waited
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), sendTimeout)
+	defer cancel()
+	outcome := agmsg.Send(ctx, agmsg.SendConfig{
+		Script:    agent.Agmsg.SendScript,
+		Team:      agent.Agmsg.Team,
+		Sender:    agent.Agmsg.Sender,
+		Recipient: agent.Agmsg.Recipient,
+	}, agmsg.Envelope{
+		Protocol:   agmsg.ProtocolVersion,
+		RequestID:  job.requestID,
+		DispatchID: job.dispatchID,
+		AgentID:    job.agentID,
+	})
+	st := job.vault.requestStore()
+	if _, err := st.SetDelivery(job.requestID, job.dispatchID, outcome.Delivery, outcome.Note, time.Now()); err != nil {
+		// The request or attempt vanished, or the dispatch was superseded while send.sh ran: there
+		// is nothing more to record.
+		return
+	}
+	if outcome.Delivery == request.DeliveryFailed {
+		if _, err := st.Fail(job.requestID, job.dispatchID, "delivery failed: "+outcome.Note, time.Now()); err != nil {
+			// The request already left queued (claimed, cancelled, ...) or the attempt went stale:
+			// the confirmed failure only settles a still-queued attempt.
+			return
+		}
+	}
+}
+
+// latestDispatchID is the request's latest attempt id — the one a create or retry just minted and
+// therefore the one the send worker delivers.
+func latestDispatchID(r request.Request) string {
+	if len(r.Attempts) == 0 {
+		return ""
+	}
+	return r.Attempts[len(r.Attempts)-1].ID
 }
 
 // guard rejects the requests a browser could aim at this local server from a foreign page: any Host
