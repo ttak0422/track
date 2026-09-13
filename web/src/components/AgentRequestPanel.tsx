@@ -11,6 +11,12 @@ export function openAgentRequest(target: RequestTarget) { window.dispatchEvent(n
 const labels: Record<RequestIntent, string> = { explain: "説明", research: "調査", update: "更新" };
 const statusLabels: Record<string, string> = { queued: "開始待ち", running: "実行中", applying: "反映中", completed: "完了", failed: "失敗", conflict: "競合", cancelled: "取消" };
 const asList = (value: unknown): string[] => Array.isArray(value) ? value.map(String) : typeof value === "string" && value.trim() ? [value] : [];
+const terminalUpdate = (request: AgentRequest) => request.intent === "update" && (request.status === "completed" || request.status === "conflict" || request.status === "failed");
+const readableDate = (value?: string) => {
+  if (!value) return "";
+  const date = new Date(value);
+  return Number.isNaN(date.getTime()) ? value : date.toLocaleString();
+};
 
 export function AgentRequestPanel() {
   const [target, setTarget] = useState<RequestTarget | null>(null);
@@ -81,13 +87,22 @@ export function AgentRequestPanel() {
       <button className="primary-button" type="button" disabled={create.isPending || !instruction.trim() || !agentID || (intent === "update" && !target.note)} onClick={() => void send()}>{create.isPending ? "送信中…" : `${labels[intent]}を依頼`}</button>
     </> : null}
     <div className="agent-request-history"><div className="agent-request-history-title"><span className="label">依頼</span><button type="button" className="text-button" onClick={() => { setClosed(false); if (!target) setTarget({ title: "依頼履歴" }); }}>再表示</button></div>{list.map((request) => <RequestCard key={request.id} request={request} onSelect={() => { setSelected(request); setClosed(false); }} onCancel={() => void cancel.mutate(request.id)} onRetry={() => void retry.mutate(request.id)} onFollowUp={() => openFollowUp(request)} />)}</div>
-    {selected?.result ? <ResultView request={selected} answer={answer} unresolved={unresolved} uncertain={uncertain} saved={saved} saveTitle={saveTitle} saveVault={saveVault} setSaveTitle={setSaveTitle} setSaveVault={setSaveVault} onSave={() => void save()} saving={saveHook.isPending} saveError={saveHook.error} onFollowUp={() => openFollowUp(selected)} /> : null}
+     {selected && (selected.result || terminalUpdate(selected)) ? <ResultView request={selected} answer={answer} unresolved={unresolved} uncertain={uncertain} saved={saved} saveTitle={saveTitle} saveVault={saveVault} setSaveTitle={setSaveTitle} setSaveVault={setSaveVault} onSave={() => void save()} saving={saveHook.isPending} saveError={saveHook.error} onFollowUp={() => openFollowUp(selected)} /> : null}
   </aside>;
 }
 
 function ResultView({ request, answer, unresolved, uncertain, saved, saveTitle, saveVault, setSaveTitle, setSaveVault, onSave, saving, saveError, onFollowUp }: { request: AgentRequest; answer?: string; unresolved: string[]; uncertain: string[]; saved?: NonNullable<NonNullable<AgentRequest["result"]>["saved"]>; saveTitle: string; saveVault: string; setSaveTitle: (v: string) => void; setSaveVault: (v: string) => void; onSave: () => void; saving: boolean; saveError: unknown; onFollowUp: () => void }) {
   const sources = request.result?.sources ?? [];
-  return <div className="agent-request-result"><span className="label">結果</span>{answer ? <p className="agent-request-answer">{answer}</p> : <p>{request.result?.proposed_body}</p>}
+  const apply = request.result?.apply;
+  const update = request.intent === "update";
+  return <div className="agent-request-result"><div className="agent-request-result-heading"><span className="label">結果</span><span className={`agent-request-status status-${request.status}`}>{statusLabels[request.status] ?? request.status}</span></div>
+    {update ? <>
+      <section className="agent-request-proposal"><span className="label">提案本文</span><pre>{request.result?.proposed_body || "（提案本文なし）"}</pre></section>
+      <section className="agent-request-update-result" aria-label="更新結果"><div className="agent-request-update-heading"><span className="label">反映結果</span>{apply?.applied_at ? <time dateTime={apply.applied_at}>{readableDate(apply.applied_at)}</time> : null}</div>
+        {apply?.reason || request.error ? <p className="agent-request-update-reason"><strong>理由</strong>{apply?.reason || request.error}</p> : null}
+        {apply?.before_body !== undefined || apply?.after_body !== undefined ? <div className="agent-request-bodies"><div><span className="label">反映前</span><pre>{apply.before_body ?? "（本文なし）"}</pre>{apply.before_etag ? <small>ETag: {apply.before_etag}</small> : null}</div><div><span className="label">反映後</span><pre>{apply.after_body ?? "（反映されませんでした）"}</pre>{apply.after_etag ? <small>ETag: {apply.after_etag}</small> : null}</div></div> : <p className="agent-request-no-apply">本文は反映されていません。</p>}
+      </section>
+    </> : answer ? <p className="agent-request-answer">{answer}</p> : request.result?.proposed_body ? <p>{request.result.proposed_body}</p> : null}
     {sources.length ? <section><span className="label">出典</span><ul>{sources.map((source) => <li key={source}>{source}</li>)}</ul></section> : null}
     {unresolved.length ? <section><span className="label">未解決</span><ul>{unresolved.map((item) => <li key={item}>{item}</li>)}</ul></section> : null}
     {uncertain.length ? <section><span className="label">不確実な点</span><ul>{uncertain.map((item) => <li key={item}>{item}</li>)}</ul></section> : null}
@@ -97,6 +112,6 @@ function ResultView({ request, answer, unresolved, uncertain, saved, saveTitle, 
 }
 
 function RequestCard({ request, onSelect, onCancel, onRetry, onFollowUp }: { request: AgentRequest; onSelect: () => void; onCancel: () => void; onRetry: () => void; onFollowUp: () => void }) {
-  const pending = request.status === "queued" || request.status === "running" || request.status === "applying";
-  return <article className="agent-request-card"><button type="button" className="request-card-main" onClick={onSelect}><strong>{labels[request.intent]}</strong><span>{statusLabels[request.status] ?? request.status}</span><p>{request.instruction}</p></button>{pending ? <button type="button" className="text-button" onClick={onCancel}>取り消す</button> : null}{request.status === "failed" || request.status === "conflict" ? <button type="button" className="text-button" onClick={onRetry}>再試行</button> : null}{request.result ? <button type="button" className="text-button" onClick={onFollowUp}>追加で依頼</button> : null}</article>;
+  const cancellable = request.status === "queued" || request.status === "running";
+  return <article className="agent-request-card"><button type="button" className="request-card-main" onClick={onSelect}><strong>{labels[request.intent]}</strong><span>{statusLabels[request.status] ?? request.status}</span><p>{request.instruction}</p></button>{cancellable ? <button type="button" className="text-button" onClick={onCancel}>取り消す</button> : null}{request.status === "failed" || request.status === "conflict" ? <button type="button" className="text-button" onClick={onRetry}>再試行</button> : null}{request.result ? <button type="button" className="text-button" onClick={onFollowUp}>追加で依頼</button> : null}</article>;
 }

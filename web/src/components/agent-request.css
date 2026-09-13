@@ -22,6 +22,18 @@
 .request-card-main { flex: 1 1 220px; text-align: left; border: 0; background: none; color: var(--text); cursor: pointer; padding: 0; }
 .request-card-main strong { margin-right: 10px; }.request-card-main span { color: var(--muted); font-size: 13px; }.request-card-main p { margin: 6px 0 0; color: var(--muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .agent-request-result { border-top: 1px solid var(--line); margin-top: 18px; padding-top: 18px; white-space: pre-wrap; }
+.agent-request-result-heading, .agent-request-update-heading { display: flex; align-items: baseline; justify-content: space-between; gap: 12px; }
+.agent-request-status, .agent-request-update-heading time { color: var(--muted); font-size: 13px; }
+.status-conflict, .status-failed { color: var(--danger, var(--mark)); }
+.agent-request-result pre { box-sizing: border-box; margin: 8px 0 0; padding: 10px; overflow: auto; background: var(--panel-soft); border: 1px solid var(--line); border-radius: var(--radius-sm); color: var(--text); font: 13px/1.6 var(--font-mono); white-space: pre-wrap; overflow-wrap: anywhere; }
+.agent-request-proposal { border-top: 1px solid var(--line); margin-top: 14px; padding-top: 12px; }
+.agent-request-update-result { border-top: 1px solid var(--line); margin-top: 16px; padding-top: 12px; }
+.agent-request-update-reason { display: grid; gap: 4px; margin: 10px 0 0; color: var(--muted); white-space: pre-wrap; }
+.agent-request-update-reason strong { color: var(--text); font-size: 13px; }
+.agent-request-bodies { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; margin-top: 14px; }
+.agent-request-bodies > div { min-width: 0; }
+.agent-request-bodies small { display: block; margin-top: 6px; color: var(--faint); font: 11px var(--font-mono); overflow-wrap: anywhere; }
+.agent-request-no-apply { color: var(--muted); font-size: 13px; }
 .agent-request-result section { border-top: 1px solid var(--line); margin-top: 16px; padding-top: 12px; }
 .agent-request-result ul { margin: 8px 0 0; padding-left: 20px; color: var(--muted); white-space: normal; }
 .agent-request-answer { white-space: pre-wrap; line-height: 1.75; }
@@ -33,3 +45,4 @@
 .agent-request-followup { color: var(--muted); font-size: 13px; }
 .agent-request-follow-button { margin-top: 14px; }
 @media (max-width: 600px) { .agent-request-panel { width: 100%; padding: 18px; } }
+@media (max-width: 420px) { .agent-request-bodies { grid-template-columns: 1fr; } }

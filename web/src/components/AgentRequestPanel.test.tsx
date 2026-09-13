@@ -4,11 +4,12 @@ import { AgentRequestPanel, openAgentRequest } from "./AgentRequestPanel";
 
 const create = vi.hoisted(() => vi.fn(async () => ({ request: { id: "req-1", intent: "explain", instruction: "", agent_id: "research", status: "queued" } })));
 const refetch = vi.hoisted(() => vi.fn());
+const requests = vi.hoisted(() => ({ requests: [] as Array<Record<string, unknown>> }));
 
 vi.mock("../runtime", () => ({ STATIC_MODE: false }));
 vi.mock("../queries", () => ({
   useAgentsQuery: () => ({ data: { agents: [{ id: "research", name: "Research", operations: ["explain"], agmsg_available: true }] } }),
-  useAgentRequestsQuery: () => ({ data: { requests: [] }, refetch }),
+  useAgentRequestsQuery: () => ({ data: requests, refetch }),
   useCreateAgentRequestMutation: () => ({ mutateAsync: create, isPending: false }),
   useCancelAgentRequestMutation: () => ({ mutate: vi.fn() }),
   useRetryAgentRequestMutation: () => ({ mutate: vi.fn() }),
@@ -19,6 +20,7 @@ describe("AgentRequestPanel", () => {
   beforeEach(() => {
     create.mockClear();
     refetch.mockClear();
+    requests.requests = [];
   });
 
   it("sends only after the explicit action and fixes the opened quote", async () => {
@@ -41,5 +43,23 @@ describe("AgentRequestPanel", () => {
       agent_id: "research",
       context: expect.objectContaining({ quote: "the selected passage" }),
     })));
+  });
+
+  it("keeps an update proposal and shows the applied result without offering cancellation after applying", async () => {
+    requests.requests = [{
+      id: "update-1", intent: "update", instruction: "Rewrite it", agent_id: "writer", status: "conflict",
+      error: "The note changed while the request was running.",
+      result: { proposed_body: "# Proposed", apply: { before_body: "# Before", before_etag: "etag-a", reason: "ETag mismatch", applied_at: "2026-09-13T10:00:00Z" },
+      },
+    }];
+    render(<AgentRequestPanel />);
+    openAgentRequest({ title: "A note" });
+
+    fireEvent.click(await screen.findByText("Rewrite it"));
+    expect(screen.getByText("# Proposed")).toBeInTheDocument();
+    expect(screen.getByText("# Before")).toBeInTheDocument();
+    expect(screen.getByText("ETag mismatch")).toBeInTheDocument();
+    expect(screen.getByText(/反映されませんでした/)).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "取り消す" })).not.toBeInTheDocument();
   });
 });
