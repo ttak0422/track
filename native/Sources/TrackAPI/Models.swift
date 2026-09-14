@@ -397,6 +397,7 @@ public struct NoteMetaResponse: Codable, Sendable {
     public var icon: String
     public var flags: [String]
     public var props: String
+    public var etag: String?
 }
 
 /// A save request replacing the whole editable metadata (`SaveNoteMetaRequest`
@@ -409,6 +410,7 @@ public struct SaveNoteMetaRequest: Codable, Sendable {
     public var icon: String
     public var flags: [String]
     public var props: String
+    public var etag: String?
 
     public init(
         title: String,
@@ -417,7 +419,8 @@ public struct SaveNoteMetaRequest: Codable, Sendable {
         image: String,
         icon: String,
         flags: [String],
-        props: String
+        props: String,
+        etag: String? = nil
     ) {
         self.title = title
         self.tags = tags
@@ -426,6 +429,7 @@ public struct SaveNoteMetaRequest: Codable, Sendable {
         self.icon = icon
         self.flags = flags
         self.props = props
+        self.etag = etag
     }
 }
 

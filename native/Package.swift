@@ -13,14 +13,22 @@ let package = Package(
         // via MarkdownUI, a cmark-gfm-backed SwiftUI renderer. 2.4.1 is the
         // version verified against this repo's CLT toolchain.
         .package(url: "https://github.com/gonzalezreal/MarkdownUI", from: "2.4.1"),
+        // Already resolved through MarkdownUI; direct use preserves table cells
+        // in rich clipboard exports without adding another parser or library.
+        .package(url: "https://github.com/swiftlang/swift-cmark", from: "0.8.0"),
     ],
     targets: [
         .target(name: "TrackAPI"),
-        .target(name: "TrackUI", dependencies: ["TrackAPI", .product(name: "MarkdownUI", package: "MarkdownUI")]),
+        .target(name: "TrackUI", dependencies: [
+            "TrackAPI", .product(name: "MarkdownUI", package: "MarkdownUI"),
+            .product(name: "cmark-gfm", package: "swift-cmark"),
+            .product(name: "cmark-gfm-extensions", package: "swift-cmark"),
+        ]),
         .executableTarget(name: "TrackApp", dependencies: ["TrackUI"]),
         .executableTarget(name: "VerifyFiguresMedia", dependencies: ["TrackUI"], path: "Tools/VerifyFiguresMedia"),
         .executableTarget(name: "VerifyPreviews", dependencies: ["TrackUI"], path: "Tools/VerifyPreviews"),
         .executableTarget(name: "VerifyVoice", dependencies: ["TrackUI"], path: "Tools/VerifyVoice"),
+        .executableTarget(name: "VerifyNoteActions", dependencies: ["TrackUI"], path: "Tools/VerifyNoteActions"),
         .executableTarget(name: "VerifyNavigation", dependencies: ["TrackUI"], path: "Tools/VerifyNavigation"),
         .executableTarget(name: "VerifyAgentRequests", dependencies: ["TrackUI"], path: "Tools/VerifyAgentRequests"),
         .executableTarget(name: "VerifyVaultScope", dependencies: ["TrackUI"], path: "Tools/VerifyVaultScope"),
