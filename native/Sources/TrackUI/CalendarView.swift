@@ -21,6 +21,11 @@ public final class CalendarModel {
     public var selectedDay: String?
 
     private let client: TrackClient
+    private var notesByDay: [String: [SearchResult]] = [:]
+    private var tasksByDay: [String: [TaskRow]] = [:]
+    private var journalsByTitle: [String: SearchResult] = [:]
+    private var deadlinesByDay: [String: Int] = [:]
+    private var openDeadlinesByDay: [String: Int] = [:]
 
     public init(client: TrackClient, month: Date = Date()) {
         self.client = client
@@ -35,13 +40,48 @@ public final class CalendarModel {
         async let tr = client.listDatedTasks()
         do {
             let notesRes = try await nr
-            notes = notesRes.notes
+            replaceNotes(notesRes.notes)
         } catch {
             self.error = error.localizedDescription
-            notes = []
+            replaceNotes([])
         }
         // Tasks are supplementary data: a failed task query is an empty list.
-        tasks = (try? await tr)?.tasks ?? []
+        replaceTasks((try? await tr)?.tasks ?? [])
+    }
+
+    private func replaceNotes(_ rows: [SearchResult]) {
+        var byDay: [String: [SearchResult]] = [:]
+        var journals: [String: SearchResult] = [:]
+        for note in rows {
+            // A repeated activity day still listed the note only once under filter.
+            for day in Set(note.days ?? []) { byDay[day, default: []].append(note) }
+            if note.ref.fileKind == "journal", journals[note.ref.title] == nil {
+                journals[note.ref.title] = note
+            }
+        }
+        notes = rows
+        notesByDay = byDay
+        journalsByTitle = journals
+    }
+
+    private func replaceTasks(_ rows: [TaskRow]) {
+        var byDay: [String: [TaskRow]] = [:]
+        var deadlines: [String: Int] = [:]
+        var openDeadlines: [String: Int] = [:]
+        for row in rows {
+            if let due = row.item.due {
+                byDay[due, default: []].append(row)
+                deadlines[due, default: 0] += 1
+                if !row.item.done { openDeadlines[due, default: 0] += 1 }
+            }
+            if let scheduled = row.item.scheduled, scheduled != row.item.due {
+                byDay[scheduled, default: []].append(row)
+            }
+        }
+        tasks = rows
+        tasksByDay = byDay
+        deadlinesByDay = deadlines
+        openDeadlinesByDay = openDeadlines
     }
 
     public func shiftMonth(by months: Int) {
@@ -51,45 +91,40 @@ public final class CalendarModel {
 
     /// Notes active on `day` (YYYY-MM-DD): those whose `days` contain it.
     public func notes(on day: String) -> [SearchResult] {
-        notes.filter { $0.days?.contains(day) == true }
+        notesByDay[day] ?? []
     }
 
     public func journal(on day: String) -> SearchResult? {
-        notes.first { $0.ref.fileKind == "journal" && $0.ref.title == day.replacingOccurrences(of: "-", with: "") }
+        journalsByTitle[day.replacingOccurrences(of: "-", with: "")]
     }
 
     /// Tasks due or scheduled on `day`.
     public func tasks(on day: String) -> [TaskRow] {
-        tasks.filter { $0.item.due == day || $0.item.scheduled == day }
+        tasksByDay[day] ?? []
     }
 
     /// Deadline tasks (due == day) — the `[!]` count drawn on a cell.
     public func deadlineCount(on day: String) -> Int {
-        tasks.filter { $0.item.due == day }.count
+        deadlinesByDay[day] ?? 0
     }
 
     /// Open deadlines that have already passed. Completed tasks do not keep a
     /// day looking urgent, while the total deadline count remains available as
     /// the cell's `[!] N` summary.
-    public func overdueCount(on day: String) -> Int {
-        let today = Self.dayString(Date())
-        return tasks.filter { row in
-            guard let due = row.item.due else { return false }
-            return !row.item.done && due < today && due == day
-        }.count
+    public func overdueCount(on day: String, today: String? = nil) -> Int {
+        let today = today ?? Self.dayString(Date())
+        return day < today ? openDeadlinesByDay[day] ?? 0 : 0
     }
 
     /// The strongest deadline on a day, expressed as a small due-bar fill.
     /// This deliberately mirrors the web's two-week urgency window without
     /// making the compact native cell show individual task rows.
-    public func dueFill(on day: String) -> (fill: Double, overdue: Bool) {
-        let today = Self.dayString(Date())
-        let dated = tasks.compactMap { row -> (String, Bool)? in
-            guard let due = row.item.due, !row.item.done, due == day else { return nil }
-            return (due, due < today)
-        }
-        guard !dated.isEmpty else { return (0, false) }
-        if dated.contains(where: { $0.1 }) { return (1, true) }
+    public func dueFill(on day: String, today: String? = nil) -> (fill: Double, overdue: Bool) {
+        // Cache only date-independent counts; urgency must change at midnight
+        // even when no API reload has occurred.
+        let today = today ?? Self.dayString(Date())
+        guard openDeadlinesByDay[day, default: 0] > 0 else { return (0, false) }
+        if day < today { return (1, true) }
         let remaining = max(0, Self.daysBetween(today, day))
         return (max(0, min(1, 1 - Double(remaining) / 14)), false)
     }
@@ -100,7 +135,7 @@ public final class CalendarModel {
     /// The existing notes listing already contains month summary journals.
     public func monthlyJournal() -> SearchResult? {
         let key = Self.monthKey(month)
-        return notes.first { $0.ref.fileKind == "journal" && $0.ref.title == key }
+        return journalsByTitle[key]
     }
 
     // MARK: - Grid helpers
@@ -266,21 +301,23 @@ public struct CalendarView: View {
                 }
                 LazyVGrid(columns: columns, spacing: 4) {
                     ForEach(model.gridDays, id: \.self) { day in
+                        let key = CalendarModel.dayString(day)
+                        let today = CalendarModel.dayString(Date())
+                        let notes = model.notes(on: key)
+                        let tasks = model.tasks(on: key)
                         DayCell(
                             day: day,
                             inMonth: CalendarModel.isSameMonth(day, as: model.month),
-                            taskTexts: Array(model.taskTexts(on: CalendarModel.dayString(day)).prefix(3)),
-                            taskCount: model.tasks(on: CalendarModel.dayString(day)).count,
-                            noteTitles: Array(model.noteTitles(on: CalendarModel.dayString(day)).prefix(3)),
-                            noteCount: model.notes(on: CalendarModel.dayString(day)).count,
-                            deadlineCount: model.deadlineCount(on: CalendarModel.dayString(day)),
-                            overdueCount: model.overdueCount(on: CalendarModel.dayString(day)),
-                            dueFill: model.dueFill(on: CalendarModel.dayString(day)),
+                            taskTexts: tasks.prefix(3).map { $0.item.text },
+                            taskCount: tasks.count,
+                            noteTitles: notes.prefix(3).map { $0.ref.title },
+                            noteCount: notes.count,
+                            deadlineCount: model.deadlineCount(on: key),
+                            overdueCount: model.overdueCount(on: key, today: today),
+                            dueFill: model.dueFill(on: key, today: today),
                             isToday: Calendar.current.isDateInToday(day),
-                            isSelected: model.selectedDay == CalendarModel.dayString(day),
-                            isActive: !model.notes(on: CalendarModel.dayString(day)).isEmpty
-                                || !model.tasks(on: CalendarModel.dayString(day)).isEmpty
-                                || model.journal(on: CalendarModel.dayString(day)) != nil,
+                            isSelected: model.selectedDay == key,
+                            isActive: !notes.isEmpty || !tasks.isEmpty || model.journal(on: key) != nil,
                             onSelect: { select(day) }
                         )
                     }

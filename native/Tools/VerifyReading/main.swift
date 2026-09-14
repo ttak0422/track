@@ -67,3 +67,5 @@ await reader.loadDayNotes()
 precondition(reader.dayNotesError == nil && reader.dayNotes.count == 1)
 precondition(reader.dayNotes[0].noteID.raw == "other~42", "exclude journal itself, include ordinary notes")
 print("Reading checks passed: vault isolation, shared milestones, persistence, UTF-16 timing and journal activity")
+try await verifyCalendarIndex()
+if CommandLine.arguments.contains("--calendar-benchmark") { try await benchmarkCalendarIndex() }

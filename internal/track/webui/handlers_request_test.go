@@ -8,6 +8,7 @@ import (
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -459,6 +460,9 @@ func TestRequestListPagination(t *testing.T) {
 		}
 		ids = append(ids, reqID(t, resp))
 	}
+	// IDs sort by their millisecond timestamp, then by a random suffix when
+	// requests share a millisecond. Creation order is not a tiebreaker.
+	slices.Sort(ids)
 	// Page 1 of 2, newest first, with a cursor.
 	code, page1 := getRequest(t, server.URL+"/api/requests?limit=2")
 	if code != http.StatusOK {
