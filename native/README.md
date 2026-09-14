@@ -48,3 +48,7 @@ Build the unsigned, non-sandboxed app bundle with `make native-app`. Override
 - fixture (`Tools/VerifyFixtures/Fixtures/*.json`) は `track web` の実応答から採取。
 
 `VerifyVoice` exercises transcript edits and mocked journal saves without accessing the microphone.
+
+`VerifyFiguresMedia` checks scoped asset routing, annotation/source retention and HTML isolation.
+Add `--webview` on a desktop Mac to exercise local SVG rendering, chart callbacks and PDF page controls,
+and write `/private/tmp/native-figure-smoke.png`; no CDN or gateway is contacted.
