@@ -57,7 +57,7 @@ public struct SearchReaderView: View {
     @AppStorage("track.recentNotes") private var recentJSON = "[]"
     /// Local read-state mirror, so NEW badges draw without a server round-trip
     /// (reader-backed, mirroring web/src/reading.ts).
-    @State private var reading = ReadingStore()
+    @State private var reading = ReadingStore.shared
     @State private var browse: BrowseModel
     @Environment(LiveEventPoller.self) private var liveEvents
     @State private var dismissedChangeAt: Date?
@@ -103,7 +103,7 @@ public struct SearchReaderView: View {
     /// memberwise init), with nil milestones so NEW is decided by the local
     /// seen/read sets alone.
     private static func mruRef(_ note: RecentNote) -> NoteRef? {
-        let raw = TrackID(note.id).split().id
+        let raw = note.id
         let object: [String: Any] = ["note_id": raw, "file_kind": "", "title": note.title]
         guard let data = try? JSONSerialization.data(withJSONObject: object) else { return nil }
         return try? JSONDecoder().decode(NoteRef.self, from: data)
@@ -230,7 +230,6 @@ public struct SearchReaderView: View {
                     ForEach(visibleRecent, id: \.id) { note in
                         Button {
                             recordRecent(note)
-                            reading.markSeen(TrackID(note.id).split().id)
                             Task { await reader.open(TrackID(note.id)) }
                         } label: {
                             HStack(spacing: 6) {
@@ -267,7 +266,6 @@ public struct SearchReaderView: View {
                             ForEach(overflowRecent, id: \.id) { note in
                                 Button {
                                     recordRecent(note)
-                                    reading.markSeen(TrackID(note.id).split().id)
                                     Task { await reader.open(TrackID(note.id)) }
                                 } label: {
                                     HStack {
@@ -301,7 +299,6 @@ public struct SearchReaderView: View {
                     ForEach(Array(browse.newNotes.prefix(10)), id: \.qualifiedID) { note in
                         Button {
                             recordRecent(RecentNote(id: note.qualifiedID.raw, title: note.ref.title))
-                            reading.markSeen(note.ref.noteID.raw)
                             Task { await reader.open(note.qualifiedID) }
                         } label: {
                             HStack(spacing: 6) {
@@ -579,7 +576,6 @@ public struct SearchReaderView: View {
             search.addToHistory(query)
         }
         recordRecent(RecentNote(id: result.qualifiedID.raw, title: result.ref.title))
-        reading.markSeen(result.ref.noteID.raw)
         Task { await reader.open(result.qualifiedID) }
     }
 
@@ -604,7 +600,6 @@ public struct SearchReaderView: View {
                 await reader.open(journal.noteID)
                 if case .loaded(let response) = reader.state {
                     recordRecent(RecentNote(id: journal.noteID.raw, title: response.note.summary.ref.title))
-                    reading.markSeen(response.note.summary.ref.noteID.raw)
                 }
             } catch {
                 todayError = error.localizedDescription
@@ -652,7 +647,7 @@ public struct SearchReaderView: View {
     }
 
     private func isStale(_ result: SearchResult) -> Bool {
-        guard let last = result.days?.last,
+        guard let last = result.days?.max(),
               let date = ISO8601DateFormatter().date(from: last + "T00:00:00Z") else { return false }
         return date < Calendar.current.date(byAdding: .year, value: -1, to: Date())!
     }
@@ -675,7 +670,6 @@ public struct SearchReaderView: View {
             search.addToHistory(query)
         }
         recordRecent(RecentNote(id: result.qualifiedID.raw, title: result.ref.title))
-        reading.markSeen(result.ref.noteID.raw)
         Task { await reader.open(result.qualifiedID) }
     }
 
@@ -912,8 +906,9 @@ public struct NoteReaderView: View {
     @State private var saveConfirmation = false
     /// Local visible-time accumulator shared with NoteReaderModel's recordView
     /// bridge. A coarse ten-second tick is sufficient for the read milestone.
-    @State private var reading = ReadingStore()
-    @State private var onThisDay: [SearchResult] = []
+    @State private var reading = ReadingStore.shared
+    @Environment(\.scenePhase) private var scenePhase
+    @Environment(\.trackWorkspaceActive) private var workspaceActive
     /// Date-cell editing target for the note task table (web TaskControls date
     /// cells): the task line plus which date field the picker writes.
     @State private var taskDateTarget: NoteTaskDateTarget?
@@ -982,30 +977,14 @@ public struct NoteReaderView: View {
                 .transition(.move(edge: .top).combined(with: .opacity))
             }
         }
-        .task(id: model.currentID) {
-            // Read reporting: each time a note finishes loading, report the
-            // "seen" milestone (reading.ts markSeen). Fire-and-forget.
+        .task(id: model.currentID) { await model.loadDayNotes() }
+        .task(id: readingSessionID) {
+            guard let sessionID = readingSessionID else { return }
             await model.reportSeen()
-            guard case .loaded(let response) = model.state else { return }
-            if response.note.summary.ref.fileKind == "journal" {
-                let formatter = DateFormatter()
-                formatter.dateFormat = "yyyy-MM-dd"
-                formatter.locale = Locale(identifier: "en_US_POSIX")
-                let day = formatter.string(from: Date())
-                if let notes = try? await model.client.listNotes(limit: 500) {
-                    onThisDay = notes.notes.filter {
-                        $0.ref.fileKind == "journal" &&
-                        $0.ref.noteID != response.note.summary.ref.noteID &&
-                        ($0.days ?? []).contains(day)
-                    }
-                }
-            } else {
-                onThisDay = []
-            }
             while !Task.isCancelled {
-                try? await Task.sleep(for: .seconds(10))
-                guard !Task.isCancelled else { return }
-                _ = await model.recordView(using: reading, seconds: 10, text: response.note.body)
+                do { try await Task.sleep(for: .seconds(10)) } catch { return }
+                guard readingSessionID == sessionID, !Task.isCancelled else { return }
+                _ = await model.recordView(using: reading, seconds: 10, text: model.loadedBody)
             }
         }
         .background(WindowDraftProtection(model: model))
@@ -1034,7 +1013,10 @@ public struct NoteReaderView: View {
             }
         }
         .onReceive(NotificationCenter.default.publisher(for: .trackVaultChanged)) { _ in
-            Task { await model.refreshOpenNote() }
+            Task {
+                await model.refreshOpenNote()
+                await model.loadDayNotes()
+            }
         }
         .alert("Discard unsaved edits?", isPresented: $confirmDiscard) {
             Button("Discard", role: .destructive) { model.discardDraft() }
@@ -1062,6 +1044,12 @@ public struct NoteReaderView: View {
             }
             .padding()
         }
+    }
+
+    private var readingSessionID: String? {
+        guard workspaceActive, scenePhase == .active, !model.isEditing,
+              !model.isOpening, model.isLoaded else { return nil }
+        return model.currentID?.raw
     }
 
     /// One-line notice drawn at the top of the reader: the read/conflict notice
@@ -1374,14 +1362,19 @@ public struct NoteReaderView: View {
                     }
                 }
             }
-            if !onThisDay.isEmpty {
-                asideSection("On this day", count: onThisDay.count) {
-                    ForEach(Array(onThisDay.prefix(8)), id: \.qualifiedID) { result in
-                        asideLink(result.ref.title) { Task { await model.open(result.qualifiedID) } }
-                    }
-                    if onThisDay.count > 8 {
-                        Text("+\(onThisDay.count - 8) more")
-                            .font(.system(size: 11 * fontScale)).foregroundStyle(.secondary)
+            if NoteReaderModel.journalDate(response.note.summary.ref) != nil {
+                asideSection("On this day", count: model.dayNotes.count) {
+                    if model.isLoadingDayNotes {
+                        ProgressView().controlSize(.small)
+                    } else if let error = model.dayNotesError {
+                        Text(error).font(.caption).foregroundStyle(.secondary)
+                        Button("Retry") { Task { await model.loadDayNotes() } }
+                    } else if model.dayNotes.isEmpty {
+                        Text("No notes were worked on this day.").font(.caption).foregroundStyle(.secondary)
+                    } else {
+                        ForEach(model.dayNotes, id: \.noteID) { ref in
+                            asideLink(ref.title) { Task { await model.openRef(ref) } }
+                        }
                     }
                 }
             }
@@ -1412,13 +1405,10 @@ public struct NoteReaderView: View {
             let wikilinks = GFMBody.wikilinks(in: response.note.body)
             if !wikilinks.isEmpty {
                 asideSection("Links", count: wikilinks.count) {
-                    ForEach(Array(wikilinks.prefix(10)), id: \.self) { target in
+                    ForEach(wikilinks, id: \.self) { target in
                         asideLink(target) { Task { await model.openWikilink(target: target) } }
                     }
-                    if wikilinks.count > 10 {
-                        Text("+\(wikilinks.count - 10) more")
-                            .font(.system(size: 11 * fontScale)).foregroundStyle(.secondary)
-                    }
+
                 }
             }
             if let children = response.children, !children.isEmpty {
@@ -1426,31 +1416,25 @@ public struct NoteReaderView: View {
             }
             if let external = response.external, !external.isEmpty {
                 asideSection("Linked from other vaults", count: external.count) {
-                    ForEach(Array(external.prefix(10)), id: \.noteID) { ref in
+                    ForEach(external, id: \.noteID) { ref in
                         asideLink("\(ref.vault)/\(ref.title)") {
                             Task { await model.open(TrackID.qualify(vault: ref.vault, id: ref.noteID.raw)) }
                         }
                     }
-                    if external.count > 10 {
-                        Text("+\(external.count - 10) more")
-                            .font(.system(size: 11 * fontScale)).foregroundStyle(.secondary)
-                    }
+
                 }
             }
             asideSection("Backlinks", count: response.backlinks.count) {
                     Text(response.backlinks.isEmpty ? "No backlinks." : "\(response.backlinks.count) backlink\(response.backlinks.count == 1 ? "" : "s")")
                         .font(.system(size: 13 * fontScale)).foregroundStyle(.secondary)
                 if !response.backlinks.isEmpty {
-                    ForEach(Array(response.backlinks.prefix(10)), id: \.noteID) { ref in
+                    ForEach(response.backlinks, id: \.noteID) { ref in
                         HStack(spacing: 6) {
                             asideLink(ref.title) { Task { await model.openRef(ref) } }
                             if readingBadge(for: ref) { TrackStateBadge("NEW") }
                         }
                     }
-                    if response.backlinks.count > 10 {
-                        Text("+\(response.backlinks.count - 10) more")
-                            .font(.system(size: 11 * fontScale)).foregroundStyle(.secondary)
-                    }
+
                 }
             }
             // The one-hop link graph around the open note (web note pages carry
@@ -1501,13 +1485,10 @@ public struct NoteReaderView: View {
 
     private func asideRefs(_ title: String, _ refs: [NoteRef]) -> some View {
         asideSection(title, count: refs.count) {
-            ForEach(Array(refs.prefix(10)), id: \.noteID) { ref in
+            ForEach(refs, id: \.noteID) { ref in
                 asideLink(ref.title) { Task { await model.openRef(ref) } }
             }
-            if refs.count > 10 {
-                Text("+\(refs.count - 10) more")
-                    .font(.system(size: 11 * fontScale)).foregroundStyle(.secondary)
-            }
+
         }
     }
 
@@ -1863,7 +1844,7 @@ public struct NoteReaderView: View {
     }
 
     private func readingBadge(for ref: NoteRef) -> Bool {
-        let store = ReadingStore()
+        let store = ReadingStore.shared
         return store.isNew(ref)
     }
 }

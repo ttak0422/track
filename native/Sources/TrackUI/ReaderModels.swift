@@ -42,6 +42,9 @@ public final class NoteReaderModel {
     /// (MarkdownUI offers no in-body scroll target), and cleared when another
     /// note opens or when dismissed by the view.
     public var anchoredExcerpt: String?
+    public private(set) var dayNotes: [NoteRef] = []
+    public private(set) var dayNotesError: String?
+    public private(set) var isLoadingDayNotes = false
 
     // Editing buffer for the note body (web NoteEditor parity). `draftBody`
     // mirrors the loaded body while the note is not being edited and diverges
@@ -144,6 +147,7 @@ public final class NoteReaderModel {
             didRender = render != nil
             anchoredExcerpt = excerpt
             state = .loaded(response)
+            ReadingStore.shared.adopt([response.note.summary.ref] + response.backlinks)
             return true
         } catch {
             guard acceptsNavigation(token) else { return false }
@@ -334,7 +338,36 @@ public final class NoteReaderModel {
     /// failure must not disturb the note (try? swallows it).
     public func reportSeen() async {
         guard let id = currentID else { return }
+        ReadingStore.shared.markSeen(id.raw)
         _ = try? await client.markRead(id: id, event: .seen)
+    }
+
+    /// A journal's activity belongs to its own date and vault, not today's date.
+    public func loadDayNotes() async {
+        dayNotes = []
+        dayNotesError = nil
+        isLoadingDayNotes = false
+        guard let id = currentID, case .loaded(let response) = state,
+              let day = Self.journalDate(response.note.summary.ref) else { return }
+        let token = generation
+        isLoadingDayNotes = true
+        defer { if token == generation { isLoadingDayNotes = false } }
+        do {
+            let agenda = try await client.getAgenda(date: day, vault: id.split().vault)
+            guard token == generation, currentID == id, !Task.isCancelled else { return }
+            dayNotes = agenda.notes.filter { $0.noteID != response.note.summary.ref.noteID }
+            ReadingStore.shared.adopt(dayNotes)
+        } catch {
+            guard token == generation, currentID == id, !Task.isCancelled else { return }
+            dayNotesError = Self.message(for: error)
+        }
+    }
+
+    public static func journalDate(_ note: NoteRef) -> String? {
+        let raw = note.noteID.split().id
+        guard note.fileKind == "journal", raw.utf8.count == 8,
+              raw.utf8.allSatisfy({ (48...57).contains($0) }) else { return nil }
+        return "\(raw.prefix(4))-\(raw.dropFirst(4).prefix(2))-\(raw.suffix(2))"
     }
 
     /// Accumulate visible reading time and report the read milestone when the
@@ -721,7 +754,7 @@ public final class SearchModel {
     /// Starts a live search. Keeping the debounce task here (rather than in the
     /// view) also makes every search entry point share the same cancellation
     /// and stale-response behaviour.
-    public func search(query: String) {
+    public func search(query: String, vault: String = "") {
         pendingSearch?.cancel()
         let query = query.trimmingCharacters(in: .whitespacesAndNewlines)
         error = nil
@@ -739,10 +772,11 @@ public final class SearchModel {
                 try await Task.sleep(nanoseconds: 180_000_000)
                 try Task.checkCancellation()
                 // api.ts: searchNotes(query, limit) — title hits first, server-side.
-                let response = try await client.searchNotes(query: query)
+                let response = try await client.searchNotes(query: query, vault: vault)
                 try Task.checkCancellation()
                 guard let self else { return }
                 self.results = response.results
+                ReadingStore.shared.adopt(response.results.map(\.ref))
                 self.unavailable = response.unavailable ?? []
                 self.isLoading = false
             } catch is CancellationError {

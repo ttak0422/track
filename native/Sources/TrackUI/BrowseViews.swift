@@ -43,6 +43,7 @@ public final class BrowseModel {
         error = nil
         do {
             notes = try await client.listNotes().notes
+            ReadingStore.shared.adopt(notes.map(\.ref))
         } catch {
             self.error = error.localizedDescription
         }
@@ -193,7 +194,7 @@ public struct TagView: View {
     @Bindable var model: BrowseModel
     @State private var selectedTag: String?
     let onSelect: (String) -> Void
-    @State private var reading = ReadingStore()
+    @State private var reading = ReadingStore.shared
     @Environment(\.colorScheme) private var colorScheme
 
     public init(model: BrowseModel, onSelect: @escaping (String) -> Void = { _ in }) {
@@ -226,7 +227,6 @@ public struct TagView: View {
                     Divider()
                     List(notes(for: selectedTag), id: \.ref.noteID) { note in
                         Button {
-                            reading.markSeen(note.ref.noteID.raw)
                             onSelect(note.ref.noteID.raw)
                         } label: {
                             HStack(spacing: 6) {
