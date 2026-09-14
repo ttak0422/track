@@ -802,8 +802,8 @@ func (s *Store) List(limit int, cursor string) ([]Request, string, error) {
 		}
 		requests = append(requests, r)
 	}
-	// Newest first. Request ids embed unix milliseconds, so the id order is the creation order within
-	// one process clock; the timestamp tiebreak keeps hand-edited files in a stable place.
+	// Newest timestamp first, then descending ID. IDs embed unix milliseconds;
+	// requests within one millisecond are ordered by their random suffix.
 	slices.SortFunc(requests, func(a, b Request) int {
 		if a.CreatedAt != b.CreatedAt {
 			return strings.Compare(b.CreatedAt, a.CreatedAt)
