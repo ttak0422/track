@@ -214,11 +214,12 @@ public final class NoteReaderModel {
     }
 
     /// Save the draft against the loaded etag (web submit → saveNote). On
-    /// success the note is refetched and the draft reseeded from the fresh
-    /// body. A 409 retains the draft and its baseline etag, so retrying cannot
-    /// overwrite the external change without an explicit reload and merge.
+    /// success the acknowledged body and etag become the baseline for any
+    /// additional typing. Refetching must not give those edits an external
+    /// writer's token. A 409 retains the draft and its baseline etag.
     public func saveDraft() async {
-        guard isDirty, !isSaving, !isOpening, let id = currentID else { return }
+        guard isDirty, !isSaving, !isOpening, let id = currentID,
+              case .loaded(var baseline) = state else { return }
         let submittedBody = draftBody
         let token = generation
         isSaving = true
@@ -226,9 +227,23 @@ public final class NoteReaderModel {
         saveConflict = nil
         defer { isSaving = false }
         do {
-            _ = try await client.saveNote(id: id, body: submittedBody, etag: loadedEtag)
+            let saved = try await client.saveNote(id: id, body: submittedBody, etag: loadedEtag)
+            guard token == generation, currentID == id else { return }
+            // Only the PUT response acknowledges this draft's revision. A
+            // subsequent GET may already contain another writer's changes.
+            baseline.note.body = submittedBody
+            baseline.note.etag = saved.etag
+            baseline.note.tasks = nil
+            state = .loaded(baseline)
+            renderedBody = ""
+            renderedIncludes = nil
+            didRender = false
             let fresh = try await client.getNote(id)
             guard token == generation, currentID == id else { return }
+            if draftBody != submittedBody, fresh.note.etag != saved.etag {
+                saveConflict = "This note changed after saving. Your additional edits are kept. Copy them before reloading and merging the latest version."
+                return
+            }
             if draftBody == submittedBody { draftBody = fresh.note.body }
             state = .loaded(fresh)
             await render(fresh.note.body, id: id)

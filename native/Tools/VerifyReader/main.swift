@@ -37,6 +37,79 @@ final class StubHTTP: URLProtocol, @unchecked Sendable {
     override func stopLoading() {}
 }
 
+// Models the server's etag check, including an external write between PUT
+// acknowledgment and the reader's follow-up GET.
+final class SaveServer: @unchecked Sendable {
+    private let lock = NSLock()
+    private var body = "initial"
+    private var etag = "initial-etag"
+    private var writes = 0
+    private var externalWrite = false
+    private var failedRead = false
+
+    func reset(externalWrite: Bool = false, failedRead: Bool = false) {
+        lock.withLock {
+            body = "initial"
+            etag = "initial-etag"
+            writes = 0
+            self.externalWrite = externalWrite
+            self.failedRead = failedRead
+        }
+    }
+
+    func respond(to request: URLRequest) -> (Int, [String: Any]) {
+        lock.withLock {
+            if request.url!.path == "/api/render" { return (200, ["markdown": body]) }
+            if request.httpMethod == "PUT" {
+                var bytes = request.httpBody ?? Data()
+                if let stream = request.httpBodyStream {
+                    stream.open()
+                    defer { stream.close() }
+                    var buffer = [UInt8](repeating: 0, count: 1024)
+                    while stream.hasBytesAvailable {
+                        let count = stream.read(&buffer, maxLength: buffer.count)
+                        if count <= 0 { break }
+                        bytes.append(contentsOf: buffer.prefix(count))
+                    }
+                }
+                let payload = try! JSONSerialization.jsonObject(with: bytes) as! [String: Any]
+                guard payload["etag"] as? String == etag else { return (409, ["error": "etag mismatch"]) }
+                writes += 1
+                body = payload["body"] as! String
+                etag = "saved-\(writes)"
+                let saved = etag
+                if externalWrite {
+                    body = "external edit"
+                    etag = "external-etag"
+                    externalWrite = false
+                }
+                return (200, ["note_id": "1", "etag": saved, "saved": true])
+            }
+            if writes > 0, failedRead {
+                failedRead = false
+                return (503, ["error": "read unavailable"])
+            }
+            return (200, ["note": ["note_id": "1", "file_kind": "note", "path": "test.md", "title": "1", "body": body, "etag": etag], "backlinks": [], "children": []])
+        }
+    }
+}
+
+final class SaveHTTP: URLProtocol, @unchecked Sendable {
+    static let server = SaveServer()
+    override class func canInit(with request: URLRequest) -> Bool { true }
+    override class func canonicalRequest(for request: URLRequest) -> URLRequest { request }
+    override func startLoading() {
+        let delay = request.httpMethod == "PUT" ? 0.15 : 0.005
+        DispatchQueue.global().asyncAfter(deadline: .now() + delay) { [self] in
+            let (status, data) = Self.server.respond(to: request)
+            client?.urlProtocol(self, didReceive: HTTPURLResponse(url: request.url!, statusCode: status, httpVersion: nil, headerFields: ["Content-Type": "application/json"])!, cacheStoragePolicy: .notAllowed)
+            client?.urlProtocol(self, didLoad: try! JSONSerialization.data(withJSONObject: data))
+            client?.urlProtocolDidFinishLoading(self)
+        }
+    }
+    override func stopLoading() {}
+}
+
 @MainActor
 final class Confirmation {
     var allow = false
@@ -46,7 +119,42 @@ final class Confirmation {
 @main
 struct VerifyReader {
     @MainActor
+    static func verifySaveBaseline() async throws {
+        let config = URLSessionConfiguration.ephemeral
+        config.protocolClasses = [SaveHTTP.self]
+        let client = TrackClient(baseURL: URL(string: "http://save.invalid")!, session: URLSession(configuration: config))
+        for scenario in ["external", "normal", "failed-read"] {
+            SaveHTTP.server.reset(externalWrite: scenario == "external", failedRead: scenario == "failed-read")
+            let reader = NoteReaderModel(client: client)
+            await reader.open(TrackID("1"))
+            reader.beginEditing()
+            reader.draftBody = "submitted"
+            let save = Task { await reader.saveDraft() }
+            try await Task.sleep(for: .milliseconds(30))
+            reader.draftBody = "submitted plus typing"
+            await save.value
+            precondition(reader.draftBody == "submitted plus typing" && reader.isDirty)
+            precondition(reader.loadedBody == "submitted", "\(scenario): preserve the acknowledged body baseline")
+            if case .loaded(let response) = reader.state {
+                precondition(response.note.etag == "saved-1", "\(scenario): preserve the PUT token for additional edits")
+            } else { preconditionFailure("Saved note disappeared") }
+            if scenario == "external" { precondition(reader.saveConflict != nil) }
+            if scenario == "failed-read" { precondition(reader.saveError != nil) }
+            await reader.saveDraft()
+            let disk = try await client.getNote(TrackID("1"))
+            if scenario == "external" {
+                precondition(reader.saveConflict != nil && reader.isDirty)
+                precondition(disk.note.body == "external edit", "Retry must not overwrite the external writer")
+            } else {
+                precondition(reader.saveError == nil && reader.saveConflict == nil && !reader.isDirty)
+                precondition(disk.note.body == "submitted plus typing")
+            }
+        }
+    }
+
+    @MainActor
     static func main() async throws {
+        try await verifySaveBaseline()
         let config = URLSessionConfiguration.ephemeral
         config.protocolClasses = [StubHTTP.self]
         let client = TrackClient(baseURL: URL(string: "http://reader.invalid")!, session: URLSession(configuration: config))
