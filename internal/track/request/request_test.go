@@ -1,6 +1,7 @@
 package request
 
 import (
+	"encoding/json"
 	"errors"
 	"os"
 	"path/filepath"
@@ -1037,5 +1038,26 @@ func TestSetDeliverySkipsSupersededAttempt(t *testing.T) {
 	}
 	if got.Request.currentDispatch().ID != second {
 		t.Fatalf("unexpected current attempt")
+	}
+}
+
+// A saved answer can cross from a named request vault into the launch vault.
+// Clients inherit enclosing vault labels, so omitting the empty destination
+// would route the saved note back into the request's vault.
+func TestSavedNoteJSONKeepsLaunchVault(t *testing.T) {
+	raw, err := json.Marshal(Request{Vault: "other", Result: &Result{Saved: &SavedNote{Vault: "", NoteID: 42}}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	var response struct {
+		Result struct {
+			Saved map[string]any `json:"saved"`
+		} `json:"result"`
+	}
+	if err := json.Unmarshal(raw, &response); err != nil {
+		t.Fatal(err)
+	}
+	if vault, exists := response.Result.Saved["vault"]; !exists || vault != "" {
+		t.Fatalf("saved launch vault must be explicit, got %s", raw)
 	}
 }

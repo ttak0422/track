@@ -178,4 +178,7 @@ do {
     fatalError("path injection accepted")
 } catch let error as APIError { precondition(error.status == 400) }
 catch { fatalError("unexpected error \(error)") }
+server.settle("req-1", status: "completed", result: ["answer_markdown": "Answer", "saved": ["vault": "", "note_id": 99, "title": "Launch destination", "status": "saved"]])
+await reopened.refresh()
+precondition(reopened.requests.first(where: { $0.id == "req-1" })?.result?.saved?.noteID.raw == "99", "explicit launch destination must override the request vault")
 print("Agent request checks passed: scoped numeric IDs, create/save replay, follow-up context, cancel, update conflict, retry reconciliation, unavailable agents, reopened history")
