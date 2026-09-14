@@ -27,6 +27,15 @@ struct VerifyDesign {
             baseURL: URL(string: "http://127.0.0.1:1")!, vault: ""
         ).frame(width: 320))
         precondition(host.fittingSize.height > 200, "Reader paragraph line spacing was lost")
+        let query = """
+        ```track-view
+        {"layout":"gallery","showTitle":false,"columns":["title","description"],"groups":[{"rows":[{"title":"Hidden title destination","cells":["Hidden title destination","Long metadata remains available"]}]}]}
+        ```
+        """
+        let queryHost = NSHostingView(rootView: GFMBody(markdown: query,
+            baseURL: URL(string: "http://127.0.0.1:1")!, vault: "").frame(width: 320))
+        precondition(queryHost.fittingSize.width <= 320 && queryHost.fittingSize.height >= 144,
+                     "Gallery must retain its cover and metadata within a narrow column")
         print("Native design: Japanese layout, prose widths, font, light/dark contrast passed")
     }
 

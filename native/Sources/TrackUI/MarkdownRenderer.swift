@@ -1432,38 +1432,21 @@ private struct TrackViewList: View {
     }
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 6) {
-            if !payload.columns.isEmpty {
-                HStack(spacing: 8) {
-                    Text("Title").frame(minWidth: 150, alignment: .leading)
-                    ForEach(payload.columns.filter { $0 != "title" }, id: \.self) { column in
-                        Text(column).frame(minWidth: 90, alignment: .leading)
-                    }
-                }
-                .font(.caption.weight(.semibold))
-                .foregroundStyle(.secondary)
-                Divider()
-            }
-            ForEach(rows, id: \.title) { row in
-                HStack(alignment: .firstTextBaseline, spacing: 8) {
+        VStack(alignment: .leading, spacing: 8) {
+            ForEach(Array(rows.enumerated()), id: \.offset) { _, row in
+                VStack(alignment: .leading, spacing: 3) {
                     Button(row.title) { onWikilink?(row.title) }
                         .buttonStyle(.link)
-                        .frame(minWidth: 150, alignment: .leading)
-                    ForEach(payload.columns.filter { $0 != "title" }, id: \.self) { column in
-                        let index = payload.columns.firstIndex(of: column) ?? 0
-                        Text(index < row.cells.count ? row.cells[index] : "—")
+                    ForEach(trackViewRowMeta(row, payload)) { meta in
+                        Text("\(meta.column)  \(meta.value)")
                             .font(.caption)
                             .foregroundStyle(.secondary)
-                            .lineLimit(2)
-                            .frame(minWidth: 90, alignment: .leading)
+                            .textSelection(.enabled)
                     }
                 }
-                .padding(.vertical, 4)
-                Divider()
+                .frame(maxWidth: .infinity, alignment: .leading)
             }
         }
-        .fixedSize(horizontal: true, vertical: false)
-        .frame(maxWidth: .infinity, alignment: .leading)
     }
 }
 
@@ -1472,7 +1455,8 @@ private struct TrackViewBoard: View {
     let onWikilink: ((String) -> Void)?
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 12) {
+        ScrollView(.horizontal) {
+          HStack(alignment: .top, spacing: 12) {
             ForEach(Array(payload.groups.enumerated()), id: \.offset) { _, group in
                 VStack(alignment: .leading, spacing: 6) {
                     HStack(spacing: 8) {
@@ -1486,7 +1470,9 @@ private struct TrackViewBoard: View {
                         TrackViewCard(row: row, payload: payload, skip: payload.key, onWikilink: onWikilink)
                     }
                 }
+                .frame(width: 220, alignment: .topLeading)
             }
+          }
         }
         .frame(maxWidth: .infinity, alignment: .leading)
     }
@@ -1499,15 +1485,17 @@ private struct TrackViewGallery: View {
     let onWikilink: ((String) -> Void)?
 
     var body: some View {
-        ScrollView(.horizontal, showsIndicators: false) {
-            HStack(alignment: .top, spacing: 12) {
-                ForEach(payload.groups.flatMap(\.rows), id: \.title) { row in
-                    VStack(alignment: .leading, spacing: 6) {
-                        cover(row)
-                            .frame(width: 160, height: 100)
-                            .clipShape(RoundedRectangle(cornerRadius: 8))
-                        TrackViewCardBody(row: row, payload: payload, skip: nil, onWikilink: onWikilink)
+        LazyVGrid(columns: [GridItem(.adaptive(minimum: 180), alignment: .top)], alignment: .leading, spacing: 12) {
+            ForEach(Array(payload.groups.flatMap(\.rows).enumerated()), id: \.offset) { _, row in
+                VStack(alignment: .leading, spacing: 6) {
+                    Button { onWikilink?(row.title) } label: {
+                        Color.clear.aspectRatio(16.0 / 9.0, contentMode: .fit)
+                            .overlay { cover(row) }
+                            .clipped()
                     }
+                    .buttonStyle(.plain)
+                    .accessibilityLabel("Open \(row.title)")
+                    TrackViewCardBody(row: row, payload: payload, skip: nil, onWikilink: onWikilink)
                 }
             }
         }
@@ -1656,17 +1644,20 @@ private struct TrackViewCardBody: View {
     let onWikilink: ((String) -> Void)?
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 2) {
-            if payload.showTitle {
-                Button(row.title) { onWikilink?(row.title) }
-                    .buttonStyle(.link)
+        Button { onWikilink?(row.title) } label: {
+            VStack(alignment: .leading, spacing: 3) {
+                if payload.showTitle { Text(row.title) }
+                ForEach(trackViewRowMeta(row, payload, skip: skip)) { meta in
+                    Text("\(meta.column)  \(meta.value)")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                }
             }
-            ForEach(trackViewRowMeta(row, payload, skip: skip)) { meta in
-                Text("\(meta.column) \(meta.value)")
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-            }
+            .frame(maxWidth: .infinity, minHeight: 24, alignment: .leading)
+            .contentShape(Rectangle())
         }
+        .buttonStyle(.plain)
+        .accessibilityLabel("Open \(row.title)")
     }
 }
 
