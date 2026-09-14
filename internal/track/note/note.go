@@ -61,6 +61,9 @@ type Metadata struct {
 	// published directory — would move. Setting it here freezes the address the note is already
 	// reachable at; empty means derive it as usual.
 	Slug string `yaml:"slug,omitempty"`
+	// Preserve extension fields through edits and reindexes. They are not editable
+	// through the metadata form or part of the public JSON representation.
+	Extra map[string]any `yaml:",inline" json:"-"`
 }
 
 type Note struct {
