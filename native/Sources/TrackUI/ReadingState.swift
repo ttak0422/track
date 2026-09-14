@@ -20,9 +20,10 @@ import TrackAPI
 @MainActor
 @Observable
 public final class ReadingStore {
-    /// Raw note ids opened here or reported seen by the server.
+    public static let shared = ReadingStore()
+    /// Vault-qualified note ids opened here or reported seen by the server.
     public private(set) var seen: Set<String> = []
-    /// Raw note ids that crossed the read threshold.
+    /// Vault-qualified note ids that crossed the read threshold.
     public private(set) var read: Set<String> = []
 
     /// Accumulated viewing seconds for notes on this Mac.
@@ -72,6 +73,19 @@ public final class ReadingStore {
         return true
     }
 
+    /// Merge server milestones once so all open surfaces share the same truth.
+    public func adopt(_ refs: [NoteRef]) {
+        var changed = false
+        for ref in refs {
+            let id = ref.noteID.raw
+            if (ref.seenAt ?? 0) > 0 || (ref.readAt ?? 0) > 0 {
+                changed = seen.insert(id).inserted || changed
+            }
+            if (ref.readAt ?? 0) > 0 { changed = read.insert(id).inserted || changed }
+        }
+        if changed { persist() }
+    }
+
     // MARK: - Querying
 
     /// NEW = no device has opened the note yet: the server reports no
@@ -95,14 +109,11 @@ public final class ReadingStore {
         read.contains(id)
     }
 
-    /// The estimated viewing seconds that makes a note read. This mirrors the
-    /// web's readThresholdFor: half of the estimated reading time, with a
-    /// minimum floor. `String.count` is intentional; it counts the same
-    /// user-visible characters as the web's `text.length` for CJK notes.
+    /// Match JavaScript's UTF-16 text.length, including emoji and combining text.
     public static func readThreshold(for text: String) -> TimeInterval {
         // `.toNearestOrAwayFromZero` matches JavaScript Math.round for these
         // positive values (not Swift's default ties-to-even rounding).
-        let estimate = max(minimumReadThreshold, (Double(text.count) / charsPerSecond).rounded(.toNearestOrAwayFromZero))
+        let estimate = max(minimumReadThreshold, (Double(text.utf16.count) / charsPerSecond).rounded(.toNearestOrAwayFromZero))
         return max(minimumReadThreshold, (estimate / 2).rounded(.toNearestOrAwayFromZero))
     }
 

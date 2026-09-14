@@ -15,7 +15,7 @@ public struct TrackID: Hashable, Sendable, CustomStringConvertible {
 
     /// `<vault>~<id>` when the vault is named, else the bare id.
     public static func qualify(vault: String, id: String) -> TrackID {
-        TrackID(vault.isEmpty ? id : "\(vault)~\(id)")
+        TrackID(vault.isEmpty || id.contains("~") ? id : "\(vault)~\(id)")
     }
 
     /// Split for requests: `{id, vault}` query params (`vaultId.ts: split/idParams`).
@@ -111,6 +111,22 @@ public struct UnavailableVault: Codable, Sendable {
     public var error: String?
 }
 
+public struct VaultEntry: Codable, Sendable {
+    public var name: String
+    public var path: String
+    public var active: Bool
+}
+
+public struct VaultsResponse: Codable, Sendable {
+    public struct Active: Codable, Sendable {
+        public var name: String
+        public var path: String
+    }
+    public var active: Active
+    public var vaults: [VaultEntry]
+    public var unavailable: [UnavailableVault]?
+}
+
 public struct SearchResponse: Codable, Sendable {
     public var results: [SearchResult]
     public var unavailable: [UnavailableVault]?
@@ -121,7 +137,7 @@ public struct ResolveResponse: Codable, Sendable {
     public var note: NoteRef
 }
 
-public struct TaskItem: Codable, Sendable {
+public struct TaskItem: Codable, Sendable, Equatable {
     public var line: Int
     public var state: String
     public var done: Bool
@@ -156,6 +172,13 @@ public struct TaskRow: Codable, Sendable {
     public var noteID: TrackID
     public var fileKind: String
     public var title: String
+
+    public init(item: TaskItem, noteID: TrackID, fileKind: String, title: String) {
+        self.item = item
+        self.noteID = noteID
+        self.fileKind = fileKind
+        self.title = title
+    }
 
     public init(from decoder: Decoder) throws {
         item = try TaskItem(from: decoder)

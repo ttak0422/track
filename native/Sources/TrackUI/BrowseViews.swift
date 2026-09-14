@@ -3,8 +3,7 @@ import TrackAPI
 
 // Browsing surfaces: the whole-vault hierarchy tree, a tag index, and an
 // activity heatmap. The hierarchy and tags come from getHierarchy/listNotes;
-// the heatmap derives its day counts from the notes listing's activity `days`
-// (listNotes), not a dedicated activity endpoint.
+// the heatmap reads activity in the working vault.
 
 // MARK: - Browse model
 
@@ -18,6 +17,9 @@ public final class BrowseModel {
     public private(set) var isLoading = false
     public private(set) var error: String?
 
+    public private(set) var activity: [String: Int] = [:]
+    private var newRequest = UUID()
+    private var activityRequest = UUID()
     private let client: TrackClient
 
     public init(client: TrackClient) {
@@ -41,19 +43,43 @@ public final class BrowseModel {
         error = nil
         do {
             notes = try await client.listNotes().notes
+            ReadingStore.shared.adopt(notes.map(\.ref))
         } catch {
             self.error = error.localizedDescription
         }
     }
 
-    /// Recently-created notes first (web `listNewNotes`, `sort=created`).
-    /// Failures keep the previous list so the New section degrades to empty
-    /// rather than failing the whole browse surface.
-    public func loadNewNotes(limit: Int = 20) async {
+    /// New is scoped, while the regular notes/tag index keeps the launch scope.
+    public func loadNewNotes(limit: Int = 20, vault: String = "") async {
+        let request = UUID()
+        newRequest = request
+        newNotes = []
         do {
-            newNotes = try await client.listNotes(limit: limit, sort: "created").notes
+            let response = try await client.listNotes(limit: limit, sort: "created", vault: vault)
+            guard request == newRequest, !Task.isCancelled else { return }
+            newNotes = response.notes
         } catch {
-            // Swallowed — see above.
+            guard request == newRequest, !Task.isCancelled else { return }
+            self.error = error.localizedDescription
+        }
+    }
+
+    public func loadActivity(vault: String = "") async {
+        let request = UUID()
+        activityRequest = request
+        activity = [:]
+        isLoading = true
+        error = nil
+        defer { if request == activityRequest { isLoading = false } }
+        let until = CalendarModel.dayString(Date())
+        let since = CalendarModel.dayString(Calendar.current.date(byAdding: .day, value: -364, to: Date()) ?? Date())
+        do {
+            let response = try await client.getActivity(since: since, until: until, vault: vault)
+            guard request == activityRequest, !Task.isCancelled else { return }
+            activity = Dictionary(response.activity.counts.map { ($0.date, $0.count) }, uniquingKeysWith: +)
+        } catch {
+            guard request == activityRequest, !Task.isCancelled else { return }
+            self.error = error.localizedDescription
         }
     }
 
@@ -168,7 +194,7 @@ public struct TagView: View {
     @Bindable var model: BrowseModel
     @State private var selectedTag: String?
     let onSelect: (String) -> Void
-    @State private var reading = ReadingStore()
+    @State private var reading = ReadingStore.shared
     @Environment(\.colorScheme) private var colorScheme
 
     public init(model: BrowseModel, onSelect: @escaping (String) -> Void = { _ in }) {
@@ -201,7 +227,6 @@ public struct TagView: View {
                     Divider()
                     List(notes(for: selectedTag), id: \.ref.noteID) { note in
                         Button {
-                            reading.markSeen(note.ref.noteID.raw)
                             onSelect(note.ref.noteID.raw)
                         } label: {
                             HStack(spacing: 6) {
@@ -281,6 +306,7 @@ public struct BrowseHistoryView: View {
 // MARK: - Activity heatmap view
 
 public struct ActivityHeatmapView: View {
+    @Environment(VaultScope.self) private var vaultScope: VaultScope?
     @Bindable var model: BrowseModel
     let onSelectDate: (String) -> Void
     @Environment(\.colorScheme) private var colorScheme
@@ -293,12 +319,12 @@ public struct ActivityHeatmapView: View {
 
     public var body: some View {
         Group {
-            if model.isLoading && model.notes.isEmpty {
+            if model.isLoading && model.activity.isEmpty {
                 ProgressView().frame(maxWidth: .infinity, maxHeight: .infinity)
-            } else if let error = model.error, model.notes.isEmpty {
+            } else if let error = model.error, model.activity.isEmpty {
                 ContentUnavailableView("Could not load activity", systemImage: "exclamationmark.triangle", description: Text(error))
             } else {
-                let counts = Self.dayCounts(notes: model.notes)
+                let counts = model.activity
                 let days = Self.lastDays(365)
                 let weeks = Self.weeks(days)
                 let palette = TrackTheme.palette(for: colorScheme)
@@ -332,10 +358,10 @@ public struct ActivityHeatmapView: View {
                 .frame(maxWidth: .infinity, alignment: .leading)
             }
         }
-        .task { await model.loadNotes() }
+        .task(id: vaultScope?.scope) { await model.loadActivity(vault: vaultScope?.scope ?? "") }
         .onReceive(NotificationCenter.default.publisher(for: .trackVaultChanged)) { _ in
             guard !model.isLoading else { return }
-            Task { await model.loadNotes() }
+            Task { await model.loadActivity(vault: vaultScope?.scope ?? "") }
         }
     }
 

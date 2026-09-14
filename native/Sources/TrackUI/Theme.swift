@@ -121,7 +121,7 @@ public extension TrackTheme {
         panelSoft: Color(hex: 0x212528),
         text: Color(hex: 0xe9e9e4),
         muted: Color(hex: 0xa2a29b),
-        faint: Color(hex: 0x8b8b83),
+        faint: Color(hex: 0x8c8c84),
         line: Color(hex: 0x282c2f),
         lineStrong: Color(hex: 0x3e4347),
         lineNode: Color(hex: 0x6e7478),
@@ -224,6 +224,11 @@ public enum ContentWidthMode: String, CaseIterable, Sendable {
         }
     }
 
+    /// Prose can widen with the explicit setting; figures keep maxWidth.
+    public func proseWidth(scale: Double) -> CGFloat {
+        self == .normal ? 640 * scale : maxWidth
+    }
+
     public var label: String {
         switch self {
         case .normal: return "Normal"
@@ -231,6 +236,12 @@ public enum ContentWidthMode: String, CaseIterable, Sendable {
         case .full: return "Full"
         }
     }
+}
+
+// Japanese reading uses the macOS sans family, without bundling another font.
+// Hiragino provides consistent Japanese/Latin metrics at every reader size.
+public enum TrackTypography {
+    public static let readingFamily = "Hiragino Sans"
 }
 
 // MARK: - Appearance settings
@@ -268,6 +279,10 @@ public enum TrackAppearance {
 
 // MARK: - Environment
 
+private struct TrackWorkspaceActiveKey: EnvironmentKey {
+    static let defaultValue = true
+}
+
 private struct TrackFontScaleKey: EnvironmentKey {
     static let defaultValue = TrackAppearance.defaultFontScale
 }
@@ -277,6 +292,11 @@ private struct TrackPreviewFontScaleKey: EnvironmentKey {
 }
 
 public extension EnvironmentValues {
+    var trackWorkspaceActive: Bool {
+        get { self[TrackWorkspaceActiveKey.self] }
+        set { self[TrackWorkspaceActiveKey.self] = newValue }
+    }
+
     /// The font scale the app owner injected at the root. Views apply it the
     /// way design.md sizes chrome: base size × scale.
     var trackFontScale: Double {

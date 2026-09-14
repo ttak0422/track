@@ -1,3 +1,4 @@
+import AppKit
 import Foundation
 import Observation
 import TrackAPI
@@ -20,7 +21,7 @@ public final class NoteReaderModel {
 
     public private(set) var state: State = .empty
     /// The id `open` last succeeded with — the qualified id every write and
-    /// the read report address. Cleared while loading and once nothing is open.
+    /// the read report address. Kept until the next open succeeds.
     public private(set) var currentID: TrackID?
 
     // Render pipeline (web useRenderQuery): `open` posts the raw body to
@@ -31,16 +32,24 @@ public final class NoteReaderModel {
     // rendered instead — a render failure must not stop the note from opening.
     public private(set) var renderedBody: String = ""
     public private(set) var renderedIncludes: [NoteInclude]?
+    public private(set) var renderedSourceLines: [Int?]?
     /// True once `/api/render` produced the currently-held `renderedBody` —
     /// distinguishes "render succeeded on an empty body" from "render failed".
     public private(set) var didRender = false
 
-    /// The excerpt a `[[Note#Heading]]` / `[[Note#^block]]` anchor arrived
-    /// with: the anchored heading (or block) through the lines before the next
-    /// same-level heading. Shown in a dismissible card above the reader
-    /// (MarkdownUI offers no in-body scroll target), and cleared when another
-    /// note opens or when dismissed by the view.
-    public var anchoredExcerpt: String?
+    public private(set) var dayNotes: [NoteRef] = []
+    public private(set) var dayNotesError: String?
+    public private(set) var isLoadingDayNotes = false
+    public private(set) var scrollTarget: String?
+    public private(set) var scrollRequest = 0
+
+    public func scroll(to anchor: String?) {
+        let decoded = anchor?.removingPercentEncoding ?? anchor
+        scrollTarget = decoded.map { id in
+            ["h-", "block-", "fn-", "fnref-", "source-line-"].contains(where: id.hasPrefix) ? id : "h-" + MarkdownAnchors.slug(id)
+        }
+        scrollRequest += 1
+    }
 
     // Editing buffer for the note body (web NoteEditor parity). `draftBody`
     // mirrors the loaded body while the note is not being edited and diverges
@@ -60,15 +69,49 @@ public final class NoteReaderModel {
     /// load), shown until dismissed or until the next write clears it.
     public private(set) var saveError: String?
     /// Set when a body save is refused with 409: the note changed on disk, so
-    /// the view reloaded the latest etag and the edit was NOT applied.
+    /// the draft and its original etag are retained; the edit was NOT applied.
     public private(set) var saveConflict: String?
 
     /// The API client the reader hands down to the GFM renderer (viewspec
     /// resolution) and every read/write path.
     public let client: TrackClient
 
-    public init(client: TrackClient) {
+    private var generation = 0
+    private var navigationDraft = ""
+    public private(set) var isOpening = false
+    private let confirmDiscard: @MainActor () -> Bool
+
+    public init(client: TrackClient, confirmDiscard: (@MainActor () -> Bool)? = nil) {
         self.client = client
+        self.confirmDiscard = confirmDiscard ?? {
+            let alert = NSAlert()
+            alert.messageText = "Discard unsaved edits?"
+            alert.informativeText = "Your unsaved changes will be lost."
+            alert.addButton(withTitle: "Keep editing")
+            alert.addButton(withTitle: "Discard")
+            return alert.runModal() == .alertSecondButtonReturn
+        }
+    }
+
+    /// All navigation and window-close paths use this boundary. Keep the
+    /// buffer until navigation succeeds, including when the network fails.
+    public private(set) var isWritingTask = false
+
+    public func authorizeDiscard() -> Bool {
+        guard !isSaving, !isDeleting, !isSavingMeta, !isCreating, !isWritingTask else { return false }
+        return !isDirty || confirmDiscard()
+    }
+
+    private func beginNavigation() -> Int? {
+        guard authorizeDiscard() else { return nil }
+        generation += 1
+        navigationDraft = draftBody
+        isOpening = true
+        return generation
+    }
+
+    private func acceptsNavigation(_ token: Int) -> Bool {
+        token == generation && draftBody == navigationDraft && !Task.isCancelled
     }
 
     /// The body the open note has on disk (`""` with nothing loaded) — the
@@ -87,34 +130,38 @@ public final class NoteReaderModel {
         return false
     }
 
-    public func open(_ id: TrackID) async {
-        state = .loading
-        currentID = nil
-        // Opening always leaves editing behind: a draft belongs to the note
-        // that was open, and switching notes discards it (web adopt path).
-        isEditing = false
-        draftBody = ""
-        saveError = nil
-        saveConflict = nil
-        renderedBody = ""
-        renderedIncludes = nil
-        didRender = false
-        anchoredExcerpt = nil
+    @discardableResult
+    public func open(_ id: TrackID) async -> Bool {
+        guard let token = beginNavigation() else { return false }
+        return await load(id, token: token)
+    }
+
+    private func load(_ id: TrackID, token: Int, anchor: String? = nil) async -> Bool {
+        defer { if token == generation { isOpening = false } }
+        if !isLoaded { state = .loading }
         do {
             let response = try await client.getNote(id)
+            guard acceptsNavigation(token) else { return false }
+            let render = try? await client.renderMarkdown(body: response.note.body, vault: id.split().vault)
+            guard acceptsNavigation(token) else { return false }
             currentID = id
             draftBody = response.note.body
-            // Resolve the body through the engine; a failure falls back to
-            // the raw body so the note still opens.
-            let vault = id.split().vault
-            if let render = try? await client.renderMarkdown(body: response.note.body, vault: vault) {
-                renderedBody = render.markdown
-                renderedIncludes = render.includes
-                didRender = true
-            }
+            isEditing = false
+            saveError = nil
+            saveConflict = nil
+            renderedBody = render?.markdown ?? ""
+            renderedIncludes = render?.includes
+            renderedSourceLines = render.map { MarkdownAnchors.sourceLines(source: response.note.body, rendered: $0.markdown) }
+            didRender = render != nil
             state = .loaded(response)
+            ReadingStore.shared.adopt([response.note.summary.ref] + response.backlinks)
+            scroll(to: anchor)
+            return true
         } catch {
-            state = .failed(error.localizedDescription)
+            guard acceptsNavigation(token) else { return false }
+            if isLoaded { saveError = Self.message(for: error) }
+            else { state = .failed(error.localizedDescription) }
+            return false
         }
     }
 
@@ -122,7 +169,7 @@ public final class NoteReaderModel {
 
     /// Enter the editor seeded from the loaded body.
     public func beginEditing() {
-        guard isLoaded else { return }
+        guard isLoaded, !isEditing, !isOpening, !isWritingTask else { return }
         draftBody = loadedBody
         isEditing = true
     }
@@ -138,17 +185,23 @@ public final class NoteReaderModel {
 
     /// Close the open note (web "close tab" → empty reader): clears the id,
     /// buffers and write state so the detail falls back to the start page.
-    public func close() {
+    @discardableResult
+    public func close() -> Bool {
+        guard authorizeDiscard() else { return false }
+        generation += 1
+        isOpening = false
         state = .empty
         currentID = nil
         renderedBody = ""
         renderedIncludes = nil
+        renderedSourceLines = nil
         didRender = false
-        anchoredExcerpt = nil
+        scroll(to: nil)
         draftBody = ""
         isEditing = false
         saveError = nil
         saveConflict = nil
+        return true
     }
 
     // MARK: - Writes (web NoteEditor / NoteMetaDialog / NoteActionsMenu parity)
@@ -164,27 +217,43 @@ public final class NoteReaderModel {
     }
 
     /// Save the draft against the loaded etag (web submit → saveNote). On
-    /// success the note is refetched and the draft reseeded from the fresh
-    /// body. A 409 leaves the draft intact, reloads the latest etag so a retry
-    /// has a fresh token, and sets `saveConflict` (the edit was not applied).
+    /// success the acknowledged body and etag become the baseline for any
+    /// additional typing. Refetching must not give those edits an external
+    /// writer's token. A 409 retains the draft and its baseline etag.
     public func saveDraft() async {
-        guard isDirty, !isSaving, let id = currentID else { return }
+        guard isDirty, !isSaving, !isOpening, let id = currentID,
+              case .loaded(var baseline) = state else { return }
+        let submittedBody = draftBody
+        let token = generation
         isSaving = true
         saveError = nil
         saveConflict = nil
         defer { isSaving = false }
         do {
-            _ = try await client.saveNote(id: id, body: draftBody, etag: loadedEtag)
+            let saved = try await client.saveNote(id: id, body: submittedBody, etag: loadedEtag)
+            guard token == generation, currentID == id else { return }
+            // Only the PUT response acknowledges this draft's revision. A
+            // subsequent GET may already contain another writer's changes.
+            baseline.note.body = submittedBody
+            baseline.note.etag = saved.etag
+            baseline.note.tasks = nil
+            state = .loaded(baseline)
+            renderedBody = ""
+            renderedIncludes = nil
+            didRender = false
             let fresh = try await client.getNote(id)
-            draftBody = fresh.note.body
+            guard token == generation, currentID == id else { return }
+            if draftBody != submittedBody, fresh.note.etag != saved.etag {
+                saveConflict = "This note changed after saving. Your additional edits are kept. Copy them before reloading and merging the latest version."
+                return
+            }
+            if draftBody == submittedBody { draftBody = fresh.note.body }
             state = .loaded(fresh)
             await render(fresh.note.body, id: id)
         } catch let api as APIError where api.status == 409 {
-            saveConflict = "This note changed since it was loaded. Reloading the latest version; your edit was not saved."
-            if let fresh = try? await client.getNote(id) {
-                state = .loaded(fresh)
-                await render(fresh.note.body, id: id)
-            }
+            // Keep the original etag: retrying must never silently overwrite
+            // the external change that caused this conflict.
+            saveConflict = "This note changed on disk. Your edits are kept. Copy them before reloading and merging the latest version."
         } catch {
             saveError = Self.message(for: error)
         }
@@ -196,7 +265,7 @@ public final class NoteReaderModel {
     /// the note is gone (`state == .empty`).
     @discardableResult
     public func deleteCurrent(confirmedTitle: String) async -> Bool {
-        guard case .loaded(let response) = state, !isDeleting, let id = currentID else { return false }
+        guard case .loaded(let response) = state, !isDeleting, !isSaving, !isOpening, let id = currentID else { return false }
         guard confirmedTitle.trimmingCharacters(in: .whitespaces)
             == response.note.summary.ref.title.trimmingCharacters(in: .whitespaces) else {
             saveError = "Type the note's title exactly to confirm deletion."
@@ -208,6 +277,7 @@ public final class NoteReaderModel {
         defer { isDeleting = false }
         do {
             _ = try await client.deleteNote(id: id)
+            generation += 1
             currentID = nil
             isEditing = false
             draftBody = ""
@@ -225,20 +295,23 @@ public final class NoteReaderModel {
     /// refused with 409 — that and any other failure set `saveError` and
     /// return false so the caller keeps its creation dialog open.
     @discardableResult
-    public func createNote(title: String) async -> Bool {
+    public func createNote(title: String, vault: String = "") async -> Bool {
         let trimmed = title.trimmingCharacters(in: .whitespaces)
         guard !trimmed.isEmpty else {
             saveError = "Enter a title to create the note."
             return false
         }
-        guard !isCreating else { return false }
+        guard !isCreating, let token = beginNavigation() else { return false }
         isCreating = true
         saveError = nil
-        defer { isCreating = false }
+        defer {
+            isCreating = false
+            if token == generation { isOpening = false }
+        }
         do {
-            let created = try await client.createNote(title: trimmed)
-            await open(created.noteID)
-            return true
+            let created = try await client.createNote(title: trimmed, vault: vault)
+            guard acceptsNavigation(token) else { return false }
+            return await load(created.noteID, token: token)
         } catch let api as APIError where api.status == 409 {
             // VoiceView parity: a duplicate is a notice, not an error.
             saveError = "A note with the same title already exists"
@@ -256,7 +329,7 @@ public final class NoteReaderModel {
     /// meta sheet stays open (web dialog keeps open, changing nothing).
     @discardableResult
     public func saveMeta(_ request: SaveNoteMetaRequest) async -> Bool {
-        guard !isSavingMeta, let id = currentID else { return false }
+        guard !isSavingMeta, !isOpening, let id = currentID else { return false }
         isSavingMeta = true
         saveError = nil
         defer { isSavingMeta = false }
@@ -289,7 +362,36 @@ public final class NoteReaderModel {
     /// failure must not disturb the note (try? swallows it).
     public func reportSeen() async {
         guard let id = currentID else { return }
+        ReadingStore.shared.markSeen(id.raw)
         _ = try? await client.markRead(id: id, event: .seen)
+    }
+
+    /// A journal's activity belongs to its own date and vault, not today's date.
+    public func loadDayNotes() async {
+        dayNotes = []
+        dayNotesError = nil
+        isLoadingDayNotes = false
+        guard let id = currentID, case .loaded(let response) = state,
+              let day = Self.journalDate(response.note.summary.ref) else { return }
+        let token = generation
+        isLoadingDayNotes = true
+        defer { if token == generation { isLoadingDayNotes = false } }
+        do {
+            let agenda = try await client.getAgenda(date: day, vault: id.split().vault)
+            guard token == generation, currentID == id, !Task.isCancelled else { return }
+            dayNotes = agenda.notes.filter { $0.noteID != response.note.summary.ref.noteID }
+            ReadingStore.shared.adopt(dayNotes)
+        } catch {
+            guard token == generation, currentID == id, !Task.isCancelled else { return }
+            dayNotesError = Self.message(for: error)
+        }
+    }
+
+    public static func journalDate(_ note: NoteRef) -> String? {
+        let raw = note.noteID.split().id
+        guard note.fileKind == "journal", raw.utf8.count == 8,
+              raw.utf8.allSatisfy({ (48...57).contains($0) }) else { return nil }
+        return "\(raw.prefix(4))-\(raw.dropFirst(4).prefix(2))-\(raw.suffix(2))"
     }
 
     /// Accumulate visible reading time and report the read milestone when the
@@ -305,86 +407,45 @@ public final class NoteReaderModel {
         return crossed
     }
 
-    // MARK: - Tasks (web setTaskState on the note's own board)
+    // MARK: - Tasks
 
-    /// Move a task line into `newState` against the note's own etag, mirroring
-    /// the web's setTaskState write path (`expect` is the line's currently
-    /// drawn state, asserted so a stale write to a moved line is refused). On
-    /// success the response's refreshed tasks + etag are adopted into the open
-    /// note; a 409 means the note changed underneath — the view reloads, and
-    /// `saveConflict` explains the write was not applied.
-    public func setTaskState(line: Int, to newState: String) async {
-        guard let id = currentID,
-              case .loaded(let response) = self.state,
-              response.note.tasks != nil else { return }
-        let expect = response.note.tasks?.items.first { $0.line == line }?.state ?? newState
+    public func setTaskState(line: Int, to newState: String, expectedID: TrackID? = nil, expectedETag: String? = nil) async {
+        await writeTask(line: line, expectedID: expectedID, expectedETag: expectedETag) { id, expect, etag in
+            try await self.client.setTaskState(id: id, line: line, state: newState, expect: expect, etag: etag)
+        }
+    }
+
+    public func setTaskDate(line: Int, field: DateField, date: String, expectedID: TrackID? = nil, expectedETag: String? = nil) async {
+        await writeTask(line: line, expectedID: expectedID, expectedETag: expectedETag) { id, expect, etag in
+            try await self.client.setTaskDate(id: id, line: line, field: field, date: date, expect: expect, etag: etag)
+        }
+    }
+
+    private func writeTask(line: Int, expectedID: TrackID?, expectedETag: String?, mutation: (TrackID, String, String) async throws -> TasksResponse) async {
+        guard let id = currentID, !isDirty, !isSaving, !isOpening, !isWritingTask,
+              case .loaded(let response) = state,
+              let task = response.note.tasks?.items.first(where: { $0.line == line }) else { return }
+        guard expectedID == nil || expectedID == id,
+              expectedETag == nil || expectedETag == response.note.etag else {
+            saveConflict = "Task changed underneath — change was not applied"
+            return
+        }
+        isWritingTask = true
+        defer { isWritingTask = false }
+        saveError = nil
+        saveConflict = nil
         do {
-            let res = try await client.setTaskState(
-                id: id, line: line, state: newState,
-                expect: expect, etag: response.note.etag
-            )
-            adoptTasks(res)
+            _ = try await mutation(id, task.state, response.note.etag)
+            // A task response has no body. Adopting only its etag would let
+            // later editing overwrite the task with the old body and a fresh token.
+            await refreshOpenNote()
+            NotificationCenter.default.post(name: .trackVaultChanged, object: nil)
         } catch let api as APIError where api.status == 409 {
-            saveConflict = "Note changed underneath — reloaded"
-            if let fresh = try? await client.getNote(id) {
-                self.state = .loaded(fresh)
-                await render(fresh.note.body, id: id)
-            }
+            saveConflict = "Note changed underneath — change was not applied"
+            await refreshOpenNote()
         } catch {
             saveError = Self.message(for: error)
         }
-    }
-
-    /// Move a task's scheduled/due date through the same write path the state
-    /// cell uses (web TaskControls date cells → POST /api/task with sched/due
-    /// + expect + etag). `date` empty clears the token. On success the
-    /// refreshed tasks + etag are adopted; a 409 reloads and sets
-    /// `saveConflict`, like `setTaskState`.
-    public func setTaskDate(line: Int, field: DateField, date: String) async {
-        guard let id = currentID,
-              case .loaded(let response) = self.state,
-              response.note.tasks != nil else { return }
-        let expect = response.note.tasks?.items.first { $0.line == line }?.state ?? "TODO"
-        do {
-            let res = try await client.setTaskDate(
-                id: id, line: line, field: field, date: date,
-                expect: expect, etag: response.note.etag
-            )
-            adoptTasks(res)
-        } catch let api as APIError where api.status == 409 {
-            saveConflict = "Note changed underneath — reloaded"
-            if let fresh = try? await client.getNote(id) {
-                self.state = .loaded(fresh)
-                await render(fresh.note.body, id: id)
-            }
-        } catch {
-            saveError = Self.message(for: error)
-        }
-    }
-    /// Adopt the write response's refreshed tasks + etag into the open note,
-    /// replacing only the task list it carried (a task write response lacks
-    /// note context, so the rest of the note stays as loaded).
-    private func adoptTasks(_ response: TasksResponse) {
-        guard case .loaded(let current) = self.state else { return }
-        var updated = current
-        if let tasks = Self.noteTasks(from: response.items) {
-            updated.note.tasks = tasks
-        }
-        updated.note.etag = response.etag
-        self.state = .loaded(updated)
-    }
-
-    /// Build a `NoteTasks` from item rows. The struct has no public memberwise
-    /// initializer (its memberwise init is internal and lives in TrackAPI), so
-    /// it is rebuilt by round-tripping the items through JSON and decoding the
-    /// `{"items": […]}` shape its Codable conformance expects.
-    private static func noteTasks(from items: [TaskItem]) -> NoteTasks? {
-        guard let itemData = try? JSONEncoder().encode(items),
-              let itemArray = try? JSONSerialization.jsonObject(with: itemData),
-              let wrapped = try? JSONSerialization.data(withJSONObject: ["items": itemArray]),
-              let tasks = try? JSONDecoder().decode(NoteTasks.self, from: wrapped)
-        else { return nil }
-        return tasks
     }
 
     /// The loaded response's etag — the write token a save echoes back.
@@ -394,28 +455,37 @@ public final class NoteReaderModel {
     }
 
     /// Resolve `body` through the engine's `/api/render`, keeping the resolved
-    /// markdown and includes on success and leaving the previous (or raw) body
-    /// on failure. Fire-and-forget when a note just needs refreshing —
-    /// rendering is a pure derivation of the body.
+    /// markdown and includes on success. Old rendered lines must never be
+    /// paired with new task line numbers/etags while rendering or after failure.
     private func render(_ body: String, id: TrackID) async {
+        renderedBody = ""
+        renderedIncludes = nil
+        renderedSourceLines = nil
+        didRender = false
         let vault = id.split().vault
+        let token = generation
         if let render = try? await client.renderMarkdown(body: body, vault: vault) {
+            guard token == generation, currentID == id, loadedBody == body else { return }
             renderedBody = render.markdown
             renderedIncludes = render.includes
+            renderedSourceLines = MarkdownAnchors.sourceLines(source: body, rendered: render.markdown)
             didRender = true
         }
     }
 
     /// Re-fetch the open note after a write, adopting the fresh body into the
-    /// draft only when the buffer is clean — a background refresh must not
-    /// clobber unsaved edits (web adopt guard body === loadedRef.body). Best
+    /// draft only when the buffer is clean. Dirty buffers keep their baseline
+    /// etag too, so external changes still conflict on the next save. Best
     /// effort: the write itself succeeded, so a failed refresh keeps the
     /// last-known state rather than failing the note.
-    private func refreshOpenNote() async {
-        guard let id = currentID else { return }
+    public func refreshOpenNote() async {
+        guard let id = currentID, !isDirty, !isSaving, !isOpening else { return }
+        generation += 1
+        let token = generation
         do {
             let fresh = try await client.getNote(id)
-            if !isDirty { draftBody = fresh.note.body }
+            guard token == generation, currentID == id, !isDirty, !isSaving, !isOpening else { return }
+            draftBody = fresh.note.body
             state = .loaded(fresh)
             await render(fresh.note.body, id: id)
         } catch {
@@ -429,187 +499,66 @@ public final class NoteReaderModel {
 
     /// Backlink taps resolve through the same id space the lists use.
     public func openRef(_ ref: NoteRef) async {
-        await open(TrackID.qualify(vault: "", id: ref.noteID.raw))
+        await open(ref.noteID.raw.contains("~") ? ref.noteID : TrackID.qualify(vault: currentID?.split().vault ?? "", id: ref.noteID.raw))
     }
 
-    /// Resolve and open a `[[wikilink]]` target. The target grammar
-    /// (`web/src/components/markdown/plugins.ts: splitWikiTarget`) allows an
-    /// optional leading `vault:` and a trailing `#anchor`/`#^block`; the
-    /// anchor is stripped for resolution (it names a destination inside the
-    /// note, not a different note), but kept to compute the anchored excerpt
-    /// shown above the reader. Cross-vault targets resolve through the same
-    /// `/api/resolve` the web reader uses.
-    public func openWikilink(target: String) async {
-        let parsed = Self.splitWikilinkFull(target)
+    /// Follow never prompts to discard a draft. Cancellation also reaches the
+    /// normal navigation transaction, so switching Follow off cancels a load.
+    @discardableResult
+    public func applyFollowState(_ position: FollowState) async -> Bool {
+        guard !isEditing, !isDirty, !Task.isCancelled else { return false }
+        if currentID != position.noteID {
+            guard await open(position.noteID) else { return false }
+        }
+        guard !isEditing, !isDirty, !Task.isCancelled, currentID == position.noteID else { return false }
+        let target = MarkdownAnchors.sourceTarget(
+            source: loadedBody, rendered: didRender ? renderedBody : loadedBody,
+            line: max(1, position.topLine > 0 ? position.topLine : position.line)
+        )
+        scroll(to: target)
+        return true
+    }
+
+    /// Same-note anchors scroll locally; cross-note anchors travel with the
+    /// navigation transaction so a delayed response cannot jump another note.
+    @discardableResult
+    public func openWikilink(target: String) async -> Bool {
+        let parsed = MarkdownAnchors.target(target.trimmingCharacters(in: .whitespaces))
+        if let anchor = parsed.anchor, isLoaded,
+           parsed.key.isEmpty || parsed.key == currentID?.raw {
+            scroll(to: anchor)
+            return true
+        }
+        guard let token = beginNavigation() else { return false }
+        defer { if token == generation { isOpening = false } }
+        let parts = parsed.key.split(separator: ":", maxSplits: 1, omittingEmptySubsequences: false)
+        let vault = parts.count == 2 ? String(parts[0]) : (currentID?.split().vault ?? "")
+        let term = String(parts.last ?? "")
         do {
-            let resolved = try await client.resolveTerm(parsed.term, vault: parsed.vault)
-            guard resolved.found else { return }
-            let id = TrackID.qualify(vault: parsed.vault, id: resolved.note.noteID.raw)
-            // Compute the excerpt from the *target* note before it opens, so
-            // the anchor lands in the note actually named, not the one already
-            // on screen.
-            let excerpt = parsed.anchor.isEmpty ? nil : await Self.anchoredExcerpt(for: parsed.anchor, in: id, client: client)
-            await open(id)
-            anchoredExcerpt = excerpt
+            let id: TrackID
+            let qualified = parsed.key.split(separator: "~", maxSplits: 1, omittingEmptySubsequences: false)
+            if qualified.count == 2, !qualified[0].isEmpty, !qualified[1].isEmpty {
+                id = TrackID(parsed.key)
+            } else if !term.isEmpty, term.utf8.allSatisfy({ $0 >= 48 && $0 <= 57 }) {
+                id = TrackID.qualify(vault: vault, id: term)
+            } else {
+                let resolved = try await client.resolveTerm(term, vault: vault)
+                guard acceptsNavigation(token), resolved.found else { return false }
+                id = TrackID.qualify(vault: vault, id: resolved.note.noteID.raw)
+            }
+            if id == currentID, let anchor = parsed.anchor {
+                scroll(to: anchor)
+                return true
+            } else {
+                return await load(id, token: token, anchor: parsed.anchor)
+            }
         } catch {
-            state = .failed(error.localizedDescription)
+            guard acceptsNavigation(token) else { return false }
+            saveError = Self.message(for: error)
+            return false
         }
     }
 
-    /// `vault:title#anchor` → (`vault`, `title`); a bare `title` keeps the
-    /// empty vault. The anchor (block or heading) is dropped for lookup.
-    private static func splitWikilink(_ target: String) -> (vault: String, term: String) {
-        let trimmed = target.trimmingCharacters(in: .whitespaces)
-        let noAnchor = trimmed.split(separator: "#", maxSplits: 1).first.map(String.init) ?? trimmed
-        if let colon = noAnchor.firstIndex(of: ":") {
-            let vault = String(noAnchor[..<colon])
-            let term = String(noAnchor[noAnchor.index(after: colon)...])
-            return (vault, term)
-        }
-        return ("", noAnchor)
-    }
-
-    /// A `[[target]]` split into its resolution key (vault + term) and the
-    /// trailing anchor name (heading text or `^block` id), mirroring the web's
-    /// `splitWikiTarget`.
-    private static func splitWikilinkFull(_ target: String) -> (vault: String, term: String, anchor: String) {
-        let trimmed = target.trimmingCharacters(in: .whitespaces)
-        let (keyPart, anchor) = Self.splitAnchor(trimmed)
-        let (vault, term) = splitWikilink(keyPart)
-        return (vault, term, anchor)
-    }
-
-    /// `key#anchor` → (`key`, `anchor`); nil/empty anchor when there is no
-    /// `#` or the fragment is empty (`C#` keeps the hash as part of the key).
-    private static func splitAnchor(_ target: String) -> (String, String) {
-        guard let i = target.firstIndex(of: "#") else { return (target, "") }
-        let rest = target[target.index(after: i)...].trimmingCharacters(in: .whitespaces)
-        if rest.isEmpty { return (target, "") }
-        return (target[..<i].trimmingCharacters(in: .whitespaces), rest)
-    }
-
-    /// The excerpt the anchored excerpt card shows: fetch the target note and
-    /// collect the anchored heading (or `^block`) through the lines before the
-    /// next same-level heading. Returns nil when the anchor does not match or
-    /// the fetch fails (the note still opens, just without a card).
-    private static func anchoredExcerpt(for anchor: String, in id: TrackID, client: TrackClient) async -> String? {
-        guard let response = try? await client.getNote(id) else { return nil }
-        let body = response.note.body
-        let lines = body.components(separatedBy: "\n")
-        let isBlock = anchor.hasPrefix("^")
-        let blockID = isBlock ? String(anchor.dropFirst()) : nil
-        let heading = isBlock ? nil : anchor
-
-        // Scan ATX headings (skip fenced code) so heading level and anchors
-        // match the note's own structure.
-        var start = -1
-        var startLevel = 0
-        var fence: String? = nil
-        for (idx, raw) in lines.enumerated() {
-            let line = raw
-            if fence != nil {
-                let t = line.trimmingCharacters(in: .whitespaces)
-                if t.hasPrefix("```") || t.hasPrefix("~~~") { fence = nil }
-                continue
-            }
-            let t = line.trimmingCharacters(in: .whitespaces)
-            if t.hasPrefix("```") || t.hasPrefix("~~~") {
-                fence = String(t.prefix(while: { $0 == "`" || $0 == "~" }))
-                continue
-            }
-            if isBlock {
-                if t == "^" + blockID! || t.hasSuffix(" ^" + blockID!) {
-                    start = idx
-                    break
-                }
-            } else if let heading {
-                if let level = Self.headingLevel(line), Self.headingSlug(Self.headingText(line)) == heading {
-                    start = idx
-                    startLevel = level
-                    break
-                }
-            }
-        }
-
-        guard start >= 0 else { return nil }
-
-        // Collect from the anchor through the line before the next heading at
-        // or above the anchor's level (a block anchor runs to the next heading
-        // of any level).
-        var excerpt: [String] = []
-        var j = start
-        while j < lines.count {
-            let line = lines[j]
-            if isBlock {
-                if Self.headingLevel(line) != nil { break }
-            } else if let level = Self.headingLevel(line), level <= startLevel {
-                if j > start { break }
-            }
-            excerpt.append(line)
-            j += 1
-        }
-        let text = excerpt.joined(separator: "\n").trimmingCharacters(in: .whitespacesAndNewlines)
-        return text.isEmpty ? nil : text
-    }
-
-    /// The ATX heading level of a line (1–6), or nil when it is not a heading.
-    private static func headingLevel(_ line: String) -> Int? {
-        var count = 0
-        for ch in line {
-            if ch == "#" { count += 1 } else { break }
-        }
-        guard count >= 1, count <= 6 else { return nil }
-        let after = line.dropFirst(count)
-        guard after.first == " " || after.first == "\t" else { return nil }
-        return count
-    }
-
-    /// The heading text (`TODAY` after `## TODAY`), trailing `#`s trimmed.
-    private static func headingText(_ line: String) -> String {
-        let level = headingLevel(line) ?? 0
-        var text = String(line.dropFirst(max(level, 0)))
-        text = text.trimmingCharacters(in: .whitespaces)
-        while text.hasSuffix("#") { text.removeLast(); text = text.trimmingCharacters(in: .whitespaces) }
-        return text
-    }
-
-    /// The heading slug an anchor names, matching the web's `headingSlug`
-    /// (markdown syntax stripped, lowercased, non letter/number/space/hyphen
-    /// dropped, spaces → hyphens).
-    private static func headingSlug(_ text: String) -> String {
-        var label = text
-        label = Self.wikiRoleRegex.stringByReplacingMatches(
-            in: label,
-            range: NSRange(label.startIndex..., in: label),
-            withTemplate: "$1"
-        )
-        label = Self.mdLinkRegex.stringByReplacingMatches(
-            in: label,
-            range: NSRange(label.startIndex..., in: label),
-            withTemplate: "$1"
-        )
-        label = label.replacingOccurrences(of: "*", with: "")
-            .replacingOccurrences(of: "_", with: "")
-            .replacingOccurrences(of: "~", with: "")
-            .replacingOccurrences(of: "`", with: "")
-        var slug = label.lowercased()
-        var cleaned = ""
-        for ch in slug {
-            if ch.isLetter || ch.isNumber || ch == " " || ch == "-" {
-                cleaned.append(ch)
-            }
-        }
-        slug = cleaned.trimmingCharacters(in: .whitespaces)
-            .replacingOccurrences(of: " ", with: "-")
-        return slug.isEmpty ? "section" : slug
-    }
-
-    private static let wikiRoleRegex = try! NSRegularExpression(
-        pattern: "\\[\\[[^|\\]]+\\|([^\\]]+)\\]\\]"
-    )
-    private static let mdLinkRegex = try! NSRegularExpression(
-        pattern: "\\[([^\\]]+)\\]\\([^\\s)]*\\)"
-    )
 }
 
 // MARK: - Search
@@ -670,7 +619,7 @@ public final class SearchModel {
     /// Starts a live search. Keeping the debounce task here (rather than in the
     /// view) also makes every search entry point share the same cancellation
     /// and stale-response behaviour.
-    public func search(query: String) {
+    public func search(query: String, vault: String = "") {
         pendingSearch?.cancel()
         let query = query.trimmingCharacters(in: .whitespacesAndNewlines)
         error = nil
@@ -688,10 +637,11 @@ public final class SearchModel {
                 try await Task.sleep(nanoseconds: 180_000_000)
                 try Task.checkCancellation()
                 // api.ts: searchNotes(query, limit) — title hits first, server-side.
-                let response = try await client.searchNotes(query: query)
+                let response = try await client.searchNotes(query: query, vault: vault)
                 try Task.checkCancellation()
                 guard let self else { return }
                 self.results = response.results
+                ReadingStore.shared.adopt(response.results.map(\.ref))
                 self.unavailable = response.unavailable ?? []
                 self.isLoading = false
             } catch is CancellationError {

@@ -27,38 +27,43 @@ import WebKit
 // reader (NoteReaderView); a "Links" rail (web reader's WikiLink) wired to
 // `onWikilink` stays as the primary navigation surface.
 //
-// DEFICIT: GFM footnote references `[^1]` are a cmark-gfm extension that
-// MarkdownUI does not enable, so they are handled by a preprocessing pass
-// (`Self.preprocess`) instead: definitions are lifted into a trailing
-// "Footnotes" section and references become superscript text.
+// MarkdownUI does not expose footnote or source-position nodes. MarkdownAnchors
+// preserves source lines while assigning SwiftUI scroll IDs and footnote links.
 
 public struct GFMBody: View {
     let markdown: String
     let baseURL: URL
     let vault: String
+    let noteID: TrackID?
     let includes: [NoteInclude]?
     let client: TrackClient?
     var onWikilink: ((String) -> Void)?
     var onTaskToggle: ((Int, Bool) -> Void)?
+    let taskLineMap: [Int?]?
     @Environment(\.colorScheme) private var colorScheme
     @Environment(\.trackFontScale) private var fontScale
+    @AppStorage(TrackAppearance.contentWidthKey) private var contentWidthRaw: String?
 
     public init(
         markdown: String,
         baseURL: URL,
         vault: String,
+        noteID: TrackID? = nil,
         includes: [NoteInclude]? = nil,
         client: TrackClient? = nil,
         onWikilink: ((String) -> Void)? = nil,
-        onTaskToggle: ((Int, Bool) -> Void)? = nil
+        onTaskToggle: ((Int, Bool) -> Void)? = nil,
+        taskLineMap: [Int?]? = nil
     ) {
         self.markdown = markdown
         self.baseURL = baseURL
         self.vault = vault
+        self.noteID = noteID
         self.includes = includes
         self.client = client
         self.onWikilink = onWikilink
         self.onTaskToggle = onTaskToggle
+        self.taskLineMap = taskLineMap
     }
 
     public var body: some View {
@@ -68,21 +73,6 @@ public struct GFMBody: View {
             // (mermaid, math, echarts, viewspec) are lifted out of the
             // prose into figure segments, everything else stays MarkdownUI.
             segmentedBody
-
-            let headings = Self.tocEntries(in: markdown)
-            // Two or more headings earn a Contents list (web NoteAside); a
-            // lone heading names nothing.
-            if headings.count >= 2 {
-                VStack(alignment: .leading, spacing: 4) {
-                    Text("Contents").trackSectionLabel()
-                    ForEach(headings) { entry in
-                        Text("\(String(repeating: "  ", count: max(0, entry.level - 1)))• \(entry.title)")
-                            .font(.caption)
-                            .foregroundStyle(.secondary)
-                    }
-                }
-                .padding(.vertical, 4)
-            }
 
             // The wikilink rail (web reader's WikiLink): distinct targets are
             // collected from the *original* source and shown as tappable links
@@ -110,127 +100,42 @@ public struct GFMBody: View {
     private var segmentedBody: some View {
         let segments = Self.segments(markdown: markdown, includes: includes)
         let palette = TrackTheme.palette(for: colorScheme)
-        let theme = Theme.trackReader(palette: palette, scale: fontScale)
-        return ForEach(Array(segments.enumerated()), id: \.offset) { _, segment in
-            switch segment {
-            case .markdown(let text):
+        let proseWidth = ContentWidthMode(stored: contentWidthRaw).proseWidth(scale: fontScale)
+        let theme = Theme.trackReader(palette: palette, scale: fontScale, proseWidth: proseWidth)
+        return VStack(alignment: .leading, spacing: 0) {
+          ForEach(Array(segments.enumerated()), id: \.offset) { _, segment in
+            Group {
+              switch segment {
+            case .anchor(let id):
+                Color.clear.frame(height: 0).id(id).accessibilityHidden(true)
+            case .markdown(let text), .heading(let text, _):
                 Markdown(text)
                     .markdownTheme(theme)
-                    .markdownBlockStyle(\.paragraph) { configuration in
-                        configuration.label
-                            .relativeLineSpacing(.em(0.85))
-                            .markdownMargin(bottom: .em(1))
-                    }
-                    .markdownBlockStyle(\.heading1) { configuration in
-                        VStack(alignment: .leading, spacing: 6) {
-                            configuration.label
-                                .markdownMargin(top: .em(1.5), bottom: .em(0.5))
-                                .markdownTextStyle {
-                                    FontWeight(.bold)
-                                }
-                            Divider().overlay(palette.lineStrong)
-                        }
-                    }
-                    .markdownBlockStyle(\.heading2) { configuration in
-                        VStack(alignment: .leading, spacing: 6) {
-                            Divider().overlay(palette.line)
-                            configuration.label
-                                .markdownMargin(top: .em(1), bottom: .em(0.5))
-                                .markdownTextStyle {
-                                    FontWeight(.bold)
-                                }
-                        }
-                    }
-                    .markdownBlockStyle(\.heading3) { configuration in
-                        HStack(alignment: .firstTextBaseline, spacing: 4) {
-                            Text("§").foregroundStyle(palette.faint)
-                            configuration.label
-                                .markdownTextStyle { FontWeight(.bold) }
-                        }
-                        .markdownMargin(top: .em(1), bottom: .em(0.5))
-                    }
-                    .markdownBlockStyle(\.heading4) { configuration in
-                        configuration.label
-                            .markdownMargin(top: .em(0.75), bottom: .em(0.5))
-                            .markdownTextStyle {
-                                FontWeight(.bold)
-                                ForegroundColor(palette.muted)
-                            }
-                    }
-                    .markdownBlockStyle(\.blockquote) { configuration in
-                        // Plain quote (web): no callout bar, no label, just the
-                        // words in secondary ink with a hairline at the left.
-                        HStack(spacing: 0) {
-                            Rectangle().fill(palette.line).frame(width: 2)
-                            configuration.label
-                                .markdownTextStyle { ForegroundColor(palette.muted) }
-                                .padding(.leading, 12)
-                        }
-                        .fixedSize(horizontal: false, vertical: true)
-                    }
-                    .markdownBlockStyle(\.codeBlock) { configuration in
-                        let language = configuration.language?.isEmpty == false ? configuration.language! : "Code"
-                        VStack(alignment: .leading, spacing: 0) {
-                            HStack {
-                                Text(language)
-                                    .trackSectionLabel()
-                                Spacer()
-                                Button("Copy") {
-                                    NSPasteboard.general.clearContents()
-                                    NSPasteboard.general.setString(configuration.content, forType: .string)
-                                }
-                                .buttonStyle(.borderless).font(.caption)
-                            }
-                            .padding(.horizontal, 10).padding(.vertical, 6)
-                            Divider().overlay(palette.line)
-                            ScrollView(.horizontal) {
-                                configuration.label.fixedSize(horizontal: false, vertical: true).padding(10)
-                            }
-                        }
-                        .background(palette.panelSoft)
-                        .clipShape(RoundedRectangle(cornerRadius: 6))
-                    }
-                    .markdownBlockStyle(\.table) { configuration in
-                        ScrollView(.horizontal, showsIndicators: true) {
-                            configuration.label.fixedSize(horizontal: false, vertical: true)
-                        }
-                        .markdownMargin(top: .zero, bottom: .em(1))
-                    }
-                    .markdownBlockStyle(\.tableCell) { configuration in
-                        configuration.label
-                            .foregroundStyle(configuration.row == 0 ? palette.text : palette.muted)
-                            .font(configuration.row == 0 ? .body.weight(.medium) : .body)
-                            .overlay(alignment: .bottom) {
-                                if configuration.row == 0 { Divider().overlay(palette.lineStrong) }
-                                else { Divider().overlay(palette.line) }
-                            }
-                            .padding(.horizontal, 8).padding(.vertical, 5)
-                    }
                     .markdownImageProvider(TrackAssetImageProvider(baseURL: baseURL, vault: vault))
                     .textSelection(.enabled)
-                    // Two measures (design.md): prose reads at 40em, while
-                    // visualizations bleed the full column. The cap lands here
-                    // on the Markdown span; figure/media islands below opt out
-                    // by name and take the whole width.
-                    .frame(maxWidth: 640 * fontScale, alignment: .leading)
+                    // Cap prose blocks individually so ordinary code and
+                    // tables share the full figure width within a Markdown run.
+                    .frame(maxWidth: .infinity, alignment: .leading)
             case .task(let task):
+                let line = taskSourceLine(task.line)
                 HStack(alignment: .firstTextBaseline, spacing: 8) {
                     Button {
-                        onTaskToggle?(task.line, !task.completed)
+                        if let line { onTaskToggle?(line, !task.completed) }
                     } label: {
                         Image(systemName: task.completed ? "checkmark.square.fill" : "square")
                     }
                     .buttonStyle(.plain)
-                    .disabled(onTaskToggle == nil)
+                    .disabled(onTaskToggle == nil || line == nil)
                     Markdown(task.text)
                         .markdownTheme(theme)
                         .textSelection(.enabled)
                 }
                 .padding(.leading, 8)
-                .frame(maxWidth: 640 * fontScale, alignment: .leading)
+                .frame(maxWidth: proseWidth, alignment: .leading)
             case .figure(let figure):
                 FigureSegmentView(
                     figure: figure,
+                    noteID: noteID,
                     vault: vault,
                     baseURL: baseURL,
                     client: client,
@@ -242,9 +147,21 @@ public struct GFMBody: View {
                     .frame(maxWidth: .infinity, alignment: .leading)
             case .include(let include):
                 IncludeCardView(include: include, onWikilink: onWikilink)
-                    .frame(maxWidth: 640 * fontScale, alignment: .leading)
+                    .frame(maxWidth: proseWidth, alignment: .leading)
+              }
             }
+            // MarkdownUI discards margins at a span's boundary. Segment
+            // spacing owns those boundaries; nested Markdown retains its margins.
+            .padding(.top, max(0, segment.headingLead - 13) * fontScale)
+            .padding(.bottom, segment.isAnchor ? 0 : 13 * fontScale)
+          }
         }
+    }
+
+    private func taskSourceLine(_ renderedLine: Int) -> Int? {
+        guard let taskLineMap else { return renderedLine }
+        guard taskLineMap.indices.contains(renderedLine - 1) else { return nil }
+        return taskLineMap[renderedLine - 1].map { $0 + 1 }
     }
 
     // MARK: - Segmenting (fence-aware)
@@ -255,10 +172,26 @@ public struct GFMBody: View {
     /// MediaEmbeds views.
     enum Segment {
         case markdown(String)
+        case heading(String, Int)
+        case anchor(String)
         case figure(Figure)
         case media(Media)
         case include(NoteInclude)
         case task(TaskLine)
+
+        var headingLead: Double {
+            guard case .heading(_, let level) = self else { return 0 }
+            switch level {
+            case 1, 2: return 44
+            case 3: return 26
+            default: return 20
+            }
+        }
+
+        var isAnchor: Bool {
+            if case .anchor = self { return true }
+            return false
+        }
     }
 
     struct TaskLine {
@@ -331,15 +264,22 @@ public struct GFMBody: View {
     static func segments(markdown: String, includes: [NoteInclude]?) -> [Segment] {
         let spliceIn = includes ?? []
         let source = spliceIn.isEmpty ? markdown : spliceIncludes(markdown, spliceIn)
-        let preprocessed = Self.preprocess(source)
+        let document = MarkdownAnchors.prepare(source)
+        let preprocessed = Self.preprocess(document.lines.joined(separator: "\n"))
         let lines = preprocessed.components(separatedBy: "\n")
+        let headingsByLine = Dictionary(uniqueKeysWithValues: document.headings.map { ($0.line, $0) })
 
+        // Each native span is parsed separately. Supply shared link definitions
+        // to every span so splitting at a heading cannot break [label][ref].
+        let references = MarkdownAnchors.proseLines(lines).compactMap { _, line in
+            line.range(of: #"^ {0,3}\[(?!\^)[^\]]+\]:\s*\S"#, options: .regularExpression) == nil ? nil : line
+        }.joined(separator: "\n")
         var segments: [Segment] = []
         var buf: [String] = []
         var i = 0
         let flush = {
             if !buf.isEmpty {
-                segments.append(.markdown(buf.joined(separator: "\n")))
+                segments.append(.markdown(buf.joined(separator: "\n") + (references.isEmpty ? "" : "\n\n" + references)))
                 buf = []
             }
         }
@@ -347,6 +287,25 @@ public struct GFMBody: View {
         while i < lines.count {
             let line = lines[i]
             let trimmed = line.trimmingCharacters(in: .whitespaces)
+
+            if let ids = document.anchors[i] {
+                // A paragraph/list marker belongs to its containing block.
+                // ponytail: nested list anchors land at the containing list;
+                // source-position-aware MarkdownUI nodes would allow exact rows.
+                // Preserve that block's Markdown (including list numbering).
+                let tailStart = headingsByLine[i] != nil ? buf.count : (buf.lastIndex(of: "").map { $0 + 1 } ?? 0)
+                let tail = Array(buf[tailStart...])
+                buf = Array(buf[..<tailStart])
+                flush()
+                for id in ids { segments.append(.anchor(id)) }
+                buf = tail
+            }
+
+            if line.hasPrefix("    ") || line.hasPrefix("\t") {
+                buf.append(line)
+                i += 1
+                continue
+            }
 
             if let marker = Self.includeMarkerIndex(trimmed),
                let include = spliceIn.first(where: { $0.line == marker }) {
@@ -360,6 +319,37 @@ public struct GFMBody: View {
                 flush()
                 segments.append(.task(TaskLine(line: i, completed: task.completed, text: task.text)))
                 i += 1
+                continue
+            }
+
+            // Consume a whole CommonMark fence before considering its contents
+            // as headings, links, tasks, media, or math.
+            if let opening = Self.fence(line) {
+                let langName = opening.info.split(whereSeparator: \.isWhitespace).first.map(String.init) ?? ""
+                let start = i
+                i += 1
+                var body: [String] = []
+                while i < lines.count {
+                    if let closing = Self.fence(lines[i]), closing.marker.first == opening.marker.first,
+                       closing.marker.count >= opening.marker.count, closing.info.isEmpty { break }
+                    body.append(lines[i])
+                    i += 1
+                }
+                let closed = i < lines.count
+                if closed { i += 1 }
+                if closed, let kind = figureFences[langName] {
+                    flush()
+                    var figureSource = body.joined(separator: "\n")
+                    if kind == .mindmap && figureSource.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                        figureSource = Self.tocEntries(in: source).map {
+                            String(repeating: "#", count: $0.level) + " " + $0.title
+                        }.joined(separator: "\n")
+                    }
+                    segments.append(.figure(Figure(kind: kind, source: figureSource)))
+                } else {
+                    // Ordinary and unclosed fences remain exactly their source.
+                    buf.append(contentsOf: lines[start..<i])
+                }
                 continue
             }
 
@@ -396,67 +386,12 @@ public struct GFMBody: View {
                 continue
             }
 
-            // Fence transitions.
-            if trimmed.hasPrefix("```") {
-                let lang = String(trimmed.dropFirst(3)).trimmingCharacters(in: .whitespaces)
-                let langName = lang.split(separator: " ", maxSplits: 1).first.map(String.init) ?? lang
-                if langName.isEmpty {
-                    // Unlabelled fence — no figure interpretation. Skip past it
-                    // into the markdown span, leaving it untouched.
-                    buf.append(line)
-                    i += 1
-                    var closed = false
-                    while i < lines.count {
-                        buf.append(lines[i])
-                        if lines[i].trimmingCharacters(in: .whitespaces).hasPrefix("```") { closed = true; i += 1; break }
-                        i += 1
-                    }
-                    _ = closed
-                    continue
-                }
-                if let kind = figureFences[langName] {
-                    flush()
-                    i += 1
-                    var body: [String] = []
-                    while i < lines.count && !lines[i].trimmingCharacters(in: .whitespaces).hasPrefix("```") {
-                        body.append(lines[i])
-                        i += 1
-                    }
-                    i += 1 // closing fence
-                    var figureSource = body.joined(separator: "\n")
-                    // The web taskboard and empty mindmap both use the note's
-                    // surrounding content. Keep that small bit of context in
-                    // the lifted figure rather than rendering a placeholder.
-                    if kind == .mindmap && figureSource.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-                        figureSource = Self.tocEntries(in: source).map { entry in
-                            String(repeating: "#", count: entry.level) + " " + entry.title
-                        }.joined(separator: "\n")
-                    }
-                    segments.append(.figure(Figure(kind: kind, source: figureSource)))
-                    continue
-                }
-                if placeholderFences.contains(langName) {
-                    flush()
-                    i += 1
-                    while i < lines.count && !lines[i].trimmingCharacters(in: .whitespaces).hasPrefix("```") {
-                        i += 1
-                    }
-                    i += 1 // closing fence
-                    segments.append(.markdown("[diagram: \(langName) — preview not supported in native yet]"))
-                    continue
-                }
-                // A labelled fence of another language (code): leave untouched.
-                buf.append(line)
-                i += 1
-                while i < lines.count {
-                    buf.append(lines[i])
-                    if lines[i].trimmingCharacters(in: .whitespaces).hasPrefix("```") { i += 1; break }
-                    i += 1
-                }
-                continue
+            let styled = MarkdownAnchors.transformProse(line) { Self.styleAlert(Self.rewriteWikilinks($0)) }
+            if let heading = headingsByLine[i] {
+                segments.append(.heading(styled + (references.isEmpty ? "" : "\n\n" + references), heading.level))
+            } else {
+                buf.append(styled)
             }
-
-                buf.append(self.styleAlert(self.rewriteWikilinks(line)))
             i += 1
         }
         flush()
@@ -465,142 +400,17 @@ public struct GFMBody: View {
 
     // MARK: - Preprocessing (footnotes + task chips)
 
-    /// Preprocess the (already include-spliced) source before it is split into
-    /// segments. Two track-specific constructs the MarkdownUI parser does not
-    /// natively draw are handled here without changing meaning:
-    ///
-    /// 1. GFM footnotes — `[^id]: definition` lines are collected, lifted out
-    ///    of the prose and rendered as a trailing "Footnotes" section, and
-    ///    inline `[^id]` references become superscript `[id]` text so they read
-    ///    as footnote markers (MarkdownUI does not enable the cmark-gfm
-    ///    footnote extension, so the source would otherwise stay literal).
-    /// 2. Task chips — the `[#A]`, `[sched:YYYY-MM-DD]`, `[due:…]`, `[done:…]`
-    ///    tokens the engine recognises (web remarkTaskLine's taskTokenPattern)
-    ///    are emphasised as bold so they visually stand out from the prose
-    ///    without changing what they read as.
+    /// Emphasize task chips outside fenced and inline code. Anchor preparation
+    /// handles footnotes first while retaining every original source line.
     static func preprocess(_ source: String) -> String {
-        let footnotes = Self.collectFootnotes(source)
-        var text = source
-        if !footnotes.defs.isEmpty {
-            // Drop the definition lines from the prose.
-            var kept: [String] = []
-            for line in text.components(separatedBy: "\n") {
-                if Self.footnoteDefinitionID(line) == nil {
-                    kept.append(line)
-                }
-            }
-            text = kept.joined(separator: "\n")
-        }
-        // Use numbered superscript-like markers and explicit fragment links.
-        // MarkdownUI does not preserve inline HTML, while markdown links do.
-        var refNumber = 0
-        text = Self.replaceMatches(text, regex: footnoteRefRegex) { _, value in
-            refNumber += 1
-            let id = String(value.dropFirst(2).dropLast())
-            let marker = Self.superscript(String(refNumber))
-            return "[\(marker)](#fn-\(Self.slug(id))-\(refNumber))"
-        }
-        // Add a visual symbol as well as emphasis: this remains legible in
-        // monochrome themes and supplies the web reader's colored chip cue.
-        text = Self.replaceMatches(text, regex: taskChipRegex) { _, value in
-            let symbol: String
-            if value.hasPrefix("[#") { symbol = "🔴" }
-            else if value.hasPrefix("[sched:") { symbol = "📅" }
-            else if value.hasPrefix("[due:") { symbol = "⏰" }
-            else if value.hasPrefix("[done:") { symbol = "✅" }
-            else { symbol = "🟦" }
-            return "**\(symbol) \(value)**"
-        }
-        if !footnotes.defs.isEmpty {
-            var out = text.trimmingCharacters(in: .whitespacesAndNewlines)
-            out += "\n\n## Footnotes\n"
-            var number = 0
-            for def in footnotes.defs {
-                for _ in 0..<max(1, def.refCount) {
-                    number += 1
-                    out += "\n#### fn-\(slug(def.id))-\(number)\n\(superscript(String(number))) \(def.definition)  [↩](#fn-\(slug(def.id))-\(number))\n"
-                }
-            }
-            return out
-        }
-        return text
-    }
-
-    /// The definitions and reference counts of a body's `[^id]` footnotes.
-    private struct Footnotes {
-        let defs: [(id: String, definition: String, refCount: Int)]
-    }
-
-    /// A `[^id]: definition` line's id, or nil when the line is not a
-    /// footnote definition.
-    private static func footnoteDefinitionID(_ line: String) -> String? {
-        let trimmed = line.trimmingCharacters(in: .whitespaces)
-        guard trimmed.hasPrefix("[^") else { return nil }
-        guard let close = trimmed.firstIndex(of: "]") else { return nil }
-        let id = String(trimmed[trimmed.index(after: trimmed.index(trimmed.startIndex, offsetBy: 1))..<close])
-        guard !id.isEmpty else { return nil }
-        guard close < trimmed.index(before: trimmed.endIndex) else { return nil }
-        let after = trimmed[trimmed.index(after: close)]
-        return after == ":" ? id : nil
-    }
-
-    /// Collect `[^id]: definition` lines, in first-seen order, with the count
-    /// of inline `[^id]` references to each (so a footnote referenced from
-    /// several places gets one definition per reference, matching the web's
-    /// GFM `footnote-backref` behaviour).
-    private static func collectFootnotes(_ source: String) -> Footnotes {
-        let lines = source.components(separatedBy: "\n")
-        var defs: [(id: String, definition: String, refCount: Int)] = []
-        var seen = Set<String>()
-        for line in lines {
-            guard let id = footnoteDefinitionID(line) else { continue }
-            guard !seen.contains(id) else { continue }
-            seen.insert(id)
-            var trimmed = line.trimmingCharacters(in: .whitespaces)
-            trimmed = String(trimmed.dropFirst(1)) // "["
-            trimmed = String(trimmed.drop(while: { $0 != "]" }).dropFirst()) // "^id]"
-            trimmed = String(trimmed.drop(while: { $0 == ":" || $0 == " " })) // ": "
-            var definition = trimmed
-            definition = Self.refStripper.stringByReplacingMatches(
-                in: definition,
-                range: NSRange(definition.startIndex..., in: definition),
-                withTemplate: ""
-            )
-            let refCount = Self.refCount(in: source, id: id)
-            defs.append((id, definition, refCount))
-        }
-        return Footnotes(defs: defs)
-    }
-
-    /// Count how many `[^id]` references (excluding the definition line) a
-    /// footnote id has.
-    private static func refCount(in source: String, id: String) -> Int {
-        var count = 0
-        for line in source.components(separatedBy: "\n") {
-            if footnoteDefinitionID(line) == id { continue }
-            let matches = Self.footnoteRefRegex.matches(
-                in: line,
-                range: NSRange(line.startIndex..., in: line)
-            )
-            for match in matches {
-                if let r = Range(match.range(at: 1), in: line), String(line[r]) == id {
-                    count += 1
-                }
+        var lines = source.components(separatedBy: "\n")
+        for (index, line) in MarkdownAnchors.proseLines(lines) {
+            lines[index] = MarkdownAnchors.transformProse(line) { text in
+                Self.replaceMatches(text, regex: taskChipRegex) { _, value in "**\(value)**" }
             }
         }
-        return max(count, 1)
+        return lines.joined(separator: "\n")
     }
-
-    /// Inline `[^id]` footnote reference.
-    private static let footnoteRefRegex = try! NSRegularExpression(
-        pattern: "\\[\\^([^\\]]+)\\]"
-    )
-
-    /// A `[^id]` reference inside a footnote definition (a self-reference or a
-    /// cross-reference, stripped so it does not recurse).
-    private static let refStripper = try! NSRegularExpression(
-        pattern: "\\[\\^[^\\]]+\\]"
-    )
 
     /// The task-chip tokens: priority `[#A]`, `[sched:…]`, `[due:…]`,
     /// `[done:…]`, and cookie counters `[1/2]`/`[50%]` (web
@@ -620,29 +430,19 @@ public struct GFMBody: View {
         return result
     }
 
-    private static func slug(_ value: String) -> String {
-        value.lowercased().map { $0.isLetter || $0.isNumber ? $0 : "-" }.reduce(into: "") { $0.append($1) }
-    }
-
-    private static func superscript(_ value: String) -> String {
-        value.map { ["0":"⁰", "1":"¹", "2":"²", "3":"³", "4":"⁴", "5":"⁵", "6":"⁶", "7":"⁷", "8":"⁸", "9":"⁹"][String($0)] ?? String($0) }.joined()
-    }
-
-    struct TocEntry: Identifiable {
-        let id: Int
-        let level: Int
-        let title: String
-    }
+    typealias TocEntry = MarkdownAnchors.Heading
 
     static func tocEntries(in source: String) -> [TocEntry] {
-        source.components(separatedBy: "\n").enumerated().compactMap { index, line in
-            let trimmed = line.trimmingCharacters(in: .whitespaces)
-            let hashes = trimmed.prefix { $0 == "#" }
-            guard !hashes.isEmpty, hashes.count <= 6, trimmed.dropFirst(hashes.count).first == " " else { return nil }
-            let title = trimmed.dropFirst(hashes.count).trimmingCharacters(in: .whitespaces).replacingOccurrences(of: "#", with: "")
-            guard !title.isEmpty else { return nil }
-            return TocEntry(id: index, level: hashes.count, title: title)
-        }
+        MarkdownAnchors.headings(source)
+    }
+
+    private static func fence(_ line: String) -> (marker: String, info: String)? {
+        guard line.prefix(while: { $0 == " " }).count <= 3 else { return nil }
+        let text = line.drop(while: { $0 == " " })
+        guard let first = text.first, first == "`" || first == "~" else { return nil }
+        let marker = text.prefix(while: { $0 == first })
+        guard marker.count >= 3 else { return nil }
+        return (String(marker), text.dropFirst(marker.count).trimmingCharacters(in: .whitespaces))
     }
 
     private static func inlineMath(in line: String) -> (before: String, source: String, after: String)? {
@@ -674,7 +474,7 @@ public struct GFMBody: View {
         guard line.hasPrefix("- [") || line.hasPrefix("* [") || line.hasPrefix("+ [") else { return nil }
         let start = line.index(line.startIndex, offsetBy: 2)
         guard line[start] == "[", line.index(start, offsetBy: 2) < line.endIndex,
-              line[line.index(after: start)] == " ", line[line.index(start, offsetBy: 2)] == "]" else { return nil }
+              " xX".contains(line[line.index(after: start)]), line[line.index(start, offsetBy: 2)] == "]" else { return nil }
         let completed = line[line.index(start, offsetBy: 1)] != " "
         let contentStart = line.index(start, offsetBy: 3)
         return (completed, String(line[contentStart...]).trimmingCharacters(in: .whitespaces))
@@ -867,8 +667,7 @@ public struct GFMBody: View {
                 ? String(parts[1]).trimmingCharacters(in: .whitespaces)
                 : target
             if !target.isEmpty {
-                let encoded = target.addingPercentEncoding(withAllowedCharacters: .urlPathAllowed) ?? target
-                result += "[\(display)](trackwiki://\(encoded))"
+                result += "[\(display)](\(MarkdownAnchors.wikiURL(target).absoluteString))"
             }
             rest = rest[close.upperBound...]
         }
@@ -901,18 +700,21 @@ public struct GFMBody: View {
 
 /// The design.md reading-surface translation for MarkdownUI: body 16px/1.85
 /// ink, headings at body size told apart by space and rule (h1 stated rule
-/// below, h2 hairline above, h3 faint section sign, h4 muted), links as ink
+/// above, h2 hairline above, h3 faint section sign, h4 muted), links as ink
 /// with a stated-rule underline, inline code as muted mono with no chip, and
 /// Danger reserved for the call sites that own it (unresolved rail rows).
 extension Theme {
-    static func trackReader(palette: TrackTheme, scale: Double) -> Theme {
+    @MainActor
+    static func trackReader(palette: TrackTheme, scale: Double, proseWidth: CGFloat = .infinity) -> Theme {
         let body = CGFloat(16 * scale)
         return Theme()
             .text {
                 ForegroundColor(palette.text)
+                FontFamily(.custom(TrackTypography.readingFamily))
                 FontSize(body)
             }
             .code {
+                FontFamily(.system(.monospaced))
                 FontFamilyVariant(.monospaced)
                 ForegroundColor(palette.muted)
                 FontSize(body)
@@ -923,6 +725,118 @@ extension Theme {
             .link {
                 ForegroundColor(palette.text)
                 UnderlineStyle(.single)
+            }
+            .paragraph { configuration in
+                configuration.label
+                    .relativeLineSpacing(.em(0.85))
+                    .markdownMargin(bottom: .em(0.8125))
+                    .frame(maxWidth: proseWidth, alignment: .leading)
+            }
+            .heading1 { configuration in
+                VStack(alignment: .leading, spacing: 6) {
+                    Divider().overlay(palette.lineStrong)
+                    configuration.label
+                        .markdownTextStyle { FontWeight(.bold) }
+                }
+                .markdownMargin(top: .em(2.75), bottom: .em(0.5))
+                .frame(maxWidth: proseWidth, alignment: .leading)
+            }
+            .heading2 { configuration in
+                VStack(alignment: .leading, spacing: 6) {
+                    Divider().overlay(palette.line)
+                    configuration.label
+                        .markdownTextStyle {
+                            FontWeight(.bold)
+                        }
+                }
+                .markdownMargin(top: .em(2.75), bottom: .em(0.5))
+                .frame(maxWidth: proseWidth, alignment: .leading)
+            }
+            .heading3 { configuration in
+                HStack(alignment: .firstTextBaseline, spacing: 4) {
+                    Text("§").foregroundStyle(palette.faint)
+                    configuration.label
+                        .markdownTextStyle { FontWeight(.bold) }
+                }
+                .markdownMargin(top: .em(1.625), bottom: .em(0.5))
+                .frame(maxWidth: proseWidth, alignment: .leading)
+            }
+            .heading4 { configuration in
+                configuration.label
+                    .markdownMargin(top: .em(1.25), bottom: .em(0.5))
+                    .frame(maxWidth: proseWidth, alignment: .leading)
+                    .markdownTextStyle {
+                        FontWeight(.bold)
+                        ForegroundColor(palette.muted)
+                    }
+            }
+            .list { configuration in
+                configuration.label
+                    .relativeLineSpacing(.em(0.85))
+                    .frame(maxWidth: proseWidth, alignment: .leading)
+            }
+            .listItem { configuration in
+                configuration.label.markdownMargin(top: .em(0.4375))
+            }
+            .blockquote { configuration in
+                // Plain quote (web): no callout bar, no label, just the
+                // words in secondary ink with a hairline at the left.
+                HStack(spacing: 0) {
+                    Rectangle().fill(palette.line).frame(width: 2)
+                    configuration.label
+                        .markdownTextStyle { ForegroundColor(palette.muted) }
+                        .padding(.leading, 12)
+                }
+                .fixedSize(horizontal: false, vertical: true)
+                .frame(maxWidth: proseWidth, alignment: .leading)
+            }
+            .codeBlock { configuration in
+                let language = configuration.language?.isEmpty == false ? configuration.language! : "Code"
+                VStack(alignment: .leading, spacing: 0) {
+                    HStack {
+                        Text(language)
+                            .trackSectionLabel()
+                        Spacer()
+                        Button("Copy") {
+                            NSPasteboard.general.clearContents()
+                            NSPasteboard.general.setString(configuration.content, forType: .string)
+                        }
+                        .buttonStyle(.borderless).font(.caption)
+                    }
+                    .padding(.horizontal, 10).padding(.vertical, 6)
+                    Divider().overlay(palette.line)
+                    ScrollView(.horizontal) {
+                        configuration.label
+                            .markdownTextStyle {
+                                FontFamily(.system(.monospaced))
+                                FontSize(14 * scale)
+                            }
+                            .fixedSize(horizontal: false, vertical: true).padding(10)
+                    }
+                }
+                .background(palette.panelSoft)
+                .clipShape(RoundedRectangle(cornerRadius: 6))
+            }
+            .table { configuration in
+                ScrollView(.horizontal, showsIndicators: true) {
+                    configuration.label
+                        .markdownTableBorderStyle(TableBorderStyle(color: .clear))
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+                .markdownMargin(top: .zero, bottom: .em(1))
+            }
+            .tableCell { configuration in
+                configuration.label
+                    .markdownTextStyle {
+                        ForegroundColor(configuration.row == 0 ? palette.text : palette.muted)
+                        FontSize(14 * scale)
+                        FontWeight(configuration.row == 0 ? .medium : .regular)
+                    }
+                    .overlay(alignment: .bottom) {
+                        if configuration.row == 0 { Divider().overlay(palette.lineStrong) }
+                        else { Divider().overlay(palette.line) }
+                    }
+                    .padding(.horizontal, 8).padding(.vertical, 5)
             }
     }
 }
@@ -960,7 +874,9 @@ private struct WikilinkRailRow: View {
 
     private func resolve() async {
         guard let client else { isPending = false; resolved = true; return }
-        let (vault, term) = Self.split(target)
+        let parsed = MarkdownAnchors.target(target)
+        if parsed.key.isEmpty, parsed.anchor != nil { isPending = false; resolved = true; return }
+        let (vault, term) = Self.split(parsed.key)
         let found = (try? await client.resolveTerm(term, vault: vault))?.found ?? false
         resolved = found
         isPending = false
@@ -970,7 +886,7 @@ private struct WikilinkRailRow: View {
     /// empty vault (mirrors NoteReaderModel.splitWikilink).
     private static func split(_ target: String) -> (vault: String, term: String) {
         let trimmed = target.trimmingCharacters(in: .whitespaces)
-        let noAnchor = trimmed.split(separator: "#", maxSplits: 1).first.map(String.init) ?? trimmed
+        let noAnchor = MarkdownAnchors.target(trimmed).key
         if let colon = noAnchor.firstIndex(of: ":") {
             return (String(noAnchor[..<colon]), String(noAnchor[noAnchor.index(after: colon)...]))
         }
@@ -989,6 +905,7 @@ private struct WikilinkRailRow: View {
 /// spec's source as the placeholder text.
 private struct FigureSegmentView: View {
     let figure: GFMBody.Figure
+    let noteID: TrackID?
     let vault: String
     let baseURL: URL
     let client: TrackClient?
@@ -999,11 +916,13 @@ private struct FigureSegmentView: View {
 
     init(
         figure: GFMBody.Figure,
+        noteID: TrackID?,
         vault: String,
         baseURL: URL,
         client: TrackClient?,
         onWikilink: ((String) -> Void)?
     ) {
+        self.noteID = noteID
         self.figure = figure
         self.vault = vault
         self.baseURL = baseURL
@@ -1061,6 +980,9 @@ private struct FigureSegmentView: View {
             }
             .frame(maxWidth: .infinity, alignment: .leading)
             .task(id: figure.source) { await resolve() }
+            .onReceive(NotificationCenter.default.publisher(for: .trackVaultChanged)) { _ in
+                Task { await resolve() }
+            }
         }
     }
 
@@ -1127,8 +1049,8 @@ private struct FigureSegmentView: View {
     /// drop-specific behavior of its own.
     @ViewBuilder
     private var taskboardBody: some View {
-        if let client {
-            InlineTaskBoard(client: client)
+        if let client, let noteID {
+            InlineTaskBoard(client: client, noteID: noteID)
         } else {
             Label("Taskboard unavailable", systemImage: "rectangle.3.group")
                 .font(.caption)
@@ -1202,12 +1124,17 @@ private struct DarkGraphvizModifier: ViewModifier {
 
 private struct InlineTaskBoard: View {
     let client: TrackClient
+    let noteID: TrackID
     @State private var model: TasksModel?
 
     var body: some View {
         Group {
             if let model {
-                TaskBoard(model: model)
+                VStack(alignment: .leading) {
+                    if let message = model.error ?? model.lastConflict { Text(message).foregroundStyle(.red) }
+                    if model.rows.isEmpty { Text("No tasks in this note.").foregroundStyle(.secondary) }
+                    else { TaskBoard(model: model).frame(minHeight: 240) }
+                }
             } else {
                 HStack(spacing: 8) {
                     ProgressView().controlSize(.small)
@@ -1216,11 +1143,13 @@ private struct InlineTaskBoard: View {
                 .frame(maxWidth: .infinity, alignment: .leading)
             }
         }
-        .task {
-            guard model == nil else { return }
-            let loaded = TasksModel(client: client)
+        .task(id: noteID) {
+            let loaded = TasksModel(client: client, noteID: noteID)
             model = loaded
             await loaded.reload()
+        }
+        .onReceive(NotificationCenter.default.publisher(for: .trackVaultChanged)) { _ in
+            Task { await model?.reload() }
         }
     }
 }
@@ -1390,38 +1319,21 @@ private struct TrackViewList: View {
     }
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 6) {
-            if !payload.columns.isEmpty {
-                HStack(spacing: 8) {
-                    Text("Title").frame(minWidth: 150, alignment: .leading)
-                    ForEach(payload.columns.filter { $0 != "title" }, id: \.self) { column in
-                        Text(column).frame(minWidth: 90, alignment: .leading)
-                    }
-                }
-                .font(.caption.weight(.semibold))
-                .foregroundStyle(.secondary)
-                Divider()
-            }
-            ForEach(rows, id: \.title) { row in
-                HStack(alignment: .firstTextBaseline, spacing: 8) {
+        VStack(alignment: .leading, spacing: 8) {
+            ForEach(Array(rows.enumerated()), id: \.offset) { _, row in
+                VStack(alignment: .leading, spacing: 3) {
                     Button(row.title) { onWikilink?(row.title) }
                         .buttonStyle(.link)
-                        .frame(minWidth: 150, alignment: .leading)
-                    ForEach(payload.columns.filter { $0 != "title" }, id: \.self) { column in
-                        let index = payload.columns.firstIndex(of: column) ?? 0
-                        Text(index < row.cells.count ? row.cells[index] : "—")
+                    ForEach(trackViewRowMeta(row, payload)) { meta in
+                        Text("\(meta.column)  \(meta.value)")
                             .font(.caption)
                             .foregroundStyle(.secondary)
-                            .lineLimit(2)
-                            .frame(minWidth: 90, alignment: .leading)
+                            .textSelection(.enabled)
                     }
                 }
-                .padding(.vertical, 4)
-                Divider()
+                .frame(maxWidth: .infinity, alignment: .leading)
             }
         }
-        .fixedSize(horizontal: true, vertical: false)
-        .frame(maxWidth: .infinity, alignment: .leading)
     }
 }
 
@@ -1430,7 +1342,8 @@ private struct TrackViewBoard: View {
     let onWikilink: ((String) -> Void)?
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 12) {
+        ScrollView(.horizontal) {
+          HStack(alignment: .top, spacing: 12) {
             ForEach(Array(payload.groups.enumerated()), id: \.offset) { _, group in
                 VStack(alignment: .leading, spacing: 6) {
                     HStack(spacing: 8) {
@@ -1444,7 +1357,9 @@ private struct TrackViewBoard: View {
                         TrackViewCard(row: row, payload: payload, skip: payload.key, onWikilink: onWikilink)
                     }
                 }
+                .frame(width: 220, alignment: .topLeading)
             }
+          }
         }
         .frame(maxWidth: .infinity, alignment: .leading)
     }
@@ -1457,15 +1372,17 @@ private struct TrackViewGallery: View {
     let onWikilink: ((String) -> Void)?
 
     var body: some View {
-        ScrollView(.horizontal, showsIndicators: false) {
-            HStack(alignment: .top, spacing: 12) {
-                ForEach(payload.groups.flatMap(\.rows), id: \.title) { row in
-                    VStack(alignment: .leading, spacing: 6) {
-                        cover(row)
-                            .frame(width: 160, height: 100)
-                            .clipShape(RoundedRectangle(cornerRadius: 8))
-                        TrackViewCardBody(row: row, payload: payload, skip: nil, onWikilink: onWikilink)
+        LazyVGrid(columns: [GridItem(.adaptive(minimum: 180), alignment: .top)], alignment: .leading, spacing: 12) {
+            ForEach(Array(payload.groups.flatMap(\.rows).enumerated()), id: \.offset) { _, row in
+                VStack(alignment: .leading, spacing: 6) {
+                    Button { onWikilink?(row.title) } label: {
+                        Color.clear.aspectRatio(16.0 / 9.0, contentMode: .fit)
+                            .overlay { cover(row) }
+                            .clipped()
                     }
+                    .buttonStyle(.plain)
+                    .accessibilityLabel("Open \(row.title)")
+                    TrackViewCardBody(row: row, payload: payload, skip: nil, onWikilink: onWikilink)
                 }
             }
         }
@@ -1614,17 +1531,20 @@ private struct TrackViewCardBody: View {
     let onWikilink: ((String) -> Void)?
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 2) {
-            if payload.showTitle {
-                Button(row.title) { onWikilink?(row.title) }
-                    .buttonStyle(.link)
+        Button { onWikilink?(row.title) } label: {
+            VStack(alignment: .leading, spacing: 3) {
+                if payload.showTitle { Text(row.title) }
+                ForEach(trackViewRowMeta(row, payload, skip: skip)) { meta in
+                    Text("\(meta.column)  \(meta.value)")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                }
             }
-            ForEach(trackViewRowMeta(row, payload, skip: skip)) { meta in
-                Text("\(meta.column) \(meta.value)")
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-            }
+            .frame(maxWidth: .infinity, minHeight: 24, alignment: .leading)
+            .contentShape(Rectangle())
         }
+        .buttonStyle(.plain)
+        .accessibilityLabel("Open \(row.title)")
     }
 }
 
@@ -1916,7 +1836,7 @@ private struct HTMLAssetView: NSViewRepresentable {
     final class Coordinator: NSObject, WKNavigationDelegate {
         @MainActor
         func webView(_ webView: WKWebView, decidePolicyFor navigationAction: WKNavigationAction,
-                     decisionHandler: @escaping (WKNavigationActionPolicy) -> Void) {
+                     decisionHandler: @escaping @MainActor @Sendable (WKNavigationActionPolicy) -> Void) {
             guard let url = navigationAction.request.url,
                   let scheme = url.scheme?.lowercased(), scheme == "http" || scheme == "https" else {
                 decisionHandler(.cancel)

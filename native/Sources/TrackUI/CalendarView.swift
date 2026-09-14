@@ -179,10 +179,12 @@ public struct CalendarView: View {
     /// model's selection on appear and on change, so a heatmap tap lands on
     /// the same day the calendar would have selected by hand.
     private let initialDay: String?
+    private let onOpenNote: ((TrackID) -> Void)?
 
-    public init(client: TrackClient, initialDay: String? = nil) {
+    public init(client: TrackClient, initialDay: String? = nil, onOpenNote: ((TrackID) -> Void)? = nil) {
         self.client = client
         self.initialDay = initialDay
+        self.onOpenNote = onOpenNote
         _model = State(initialValue: CalendarModel(client: client))
     }
 
@@ -293,11 +295,10 @@ public struct CalendarView: View {
         guard !model.notes(on: key).isEmpty || !model.tasks(on: key).isEmpty || model.journal(on: key) != nil else {
             return
         }
+        model.selectedDay = key
         if let journal = model.journal(on: key) {
-            openedNoteID = journal.ref.noteID
-            isShowingNote = true
-        } else {
-            model.selectedDay = key
+            if let onOpenNote { onOpenNote(journal.qualifiedID) }
+            else { openedNoteID = journal.qualifiedID; isShowingNote = true }
         }
     }
 
@@ -318,7 +319,7 @@ public struct CalendarView: View {
     private var agenda: some View {
         Group {
             if let day = model.selectedDay {
-                DayView(day: day, notes: model.notes(on: day), tasks: model.tasks(on: day), client: client)
+                DayView(day: day, notes: model.notes(on: day), tasks: model.tasks(on: day), client: client, onOpenNote: onOpenNote)
             } else {
                 Text("Select a day")
                     .font(.caption).foregroundStyle(.secondary)
@@ -341,6 +342,7 @@ public struct CalendarView: View {
 
     private func openMonthlyJournal() {
         guard let result = model.monthlyJournal() else { return }
+        if let onOpenNote { onOpenNote(result.qualifiedID); return }
         isLoadingMonthlyJournal = true
         monthlyJournalError = nil
         Task {
@@ -375,11 +377,14 @@ public struct DayView: View {
     let tasks: [TaskRow]
     let client: TrackClient
 
-    public init(day: String, notes: [SearchResult], tasks: [TaskRow], client: TrackClient) {
+    let onOpenNote: ((TrackID) -> Void)?
+
+    public init(day: String, notes: [SearchResult], tasks: [TaskRow], client: TrackClient, onOpenNote: ((TrackID) -> Void)? = nil) {
         self.day = day
         self.notes = notes
         self.tasks = tasks
         self.client = client
+        self.onOpenNote = onOpenNote
     }
 
     private var isValid: Bool {
@@ -398,7 +403,7 @@ public struct DayView: View {
                     .foregroundStyle(.red)
                     .padding(8)
             } else {
-                AgendaView(day: day, notes: notes, tasks: tasks, client: client)
+                AgendaView(day: day, notes: notes, tasks: tasks, client: client, onOpenNote: onOpenNote)
             }
         }
         .frame(maxWidth: .infinity, alignment: .leading)
@@ -480,10 +485,12 @@ private struct DayCell: View {
 }
 
 private struct AgendaView: View {
+    @Environment(VaultScope.self) private var vaultScope: VaultScope?
     let day: String
     let notes: [SearchResult]
     let tasks: [TaskRow]
     let client: TrackClient
+    let onOpenNote: ((TrackID) -> Void)?
 
     @State private var journal: JournalPreview?
     @State private var journalError: String?
@@ -500,7 +507,7 @@ private struct AgendaView: View {
             if !notes.isEmpty {
                 Text("Notes").font(.caption2).foregroundStyle(.secondary)
                 ForEach(notes, id: \.ref.noteID) { note in
-                    Button(note.ref.title) { open(note.ref.noteID) }
+                    Button(note.ref.title) { open(note.qualifiedID) }
                         .buttonStyle(.link)
                         .font(.body)
                 }
@@ -536,6 +543,10 @@ private struct AgendaView: View {
         }
         .padding(8)
         .frame(maxWidth: .infinity, alignment: .leading)
+        .onChange(of: vaultScope?.scope) { _, _ in
+            journal = nil
+            journalError = nil
+        }
         .sheet(isPresented: $isShowingNote) {
             if let openedNoteID { NotePreviewView(client: client, noteID: openedNoteID) }
         }
@@ -564,10 +575,14 @@ private struct AgendaView: View {
     private func openJournal() {
         isLoadingJournal = true
         journalError = nil
+        let vault = vaultScope?.scope ?? ""
         Task {
             do {
-                let res = try await client.openJournal(date: day)
+                let res = try await client.openJournal(date: day, vault: vault)
+                guard (vaultScope?.scope ?? "") == vault else { isLoadingJournal = false; return }
+                if let onOpenNote { onOpenNote(res.noteID); isLoadingJournal = false; return }
                 let note = try await client.getNote(res.noteID)
+                guard (vaultScope?.scope ?? "") == vault else { isLoadingJournal = false; return }
                 journal = JournalPreview(
                     title: note.note.summary.ref.title,
                     lines: Self.previewLines(from: note.note.body),
@@ -581,6 +596,7 @@ private struct AgendaView: View {
     }
 
     private func open(_ noteID: TrackID) {
+        if let onOpenNote { onOpenNote(noteID); return }
         openedNoteID = noteID
         isShowingNote = true
     }

@@ -22,19 +22,26 @@ public final class GraphModel {
     public private(set) var isLoading = false
     public private(set) var error: String?
 
+    private var fullRequest = UUID()
     private let client: TrackClient
 
     public init(client: TrackClient) {
         self.client = client
     }
 
-    public func loadFull() async {
+    public func loadFull(vault: String = "") async {
+        let request = UUID()
+        fullRequest = request
+        full = nil
         isLoading = true
-        defer { isLoading = false }
+        defer { if request == fullRequest { isLoading = false } }
         error = nil
         do {
-            full = try await client.getGraph().graph
+            let response = try await client.getGraph(vault: vault)
+            guard request == fullRequest, !Task.isCancelled else { return }
+            full = response.graph
         } catch {
+            guard request == fullRequest, !Task.isCancelled else { return }
             self.error = error.localizedDescription
         }
     }
@@ -145,6 +152,7 @@ public final class GraphModel {
 // MARK: - Full graph view
 
 public struct GraphFullView: View {
+    @Environment(VaultScope.self) private var vaultScope: VaultScope?
     @Bindable var model: GraphModel
     let onSelect: (String) -> Void
     @Environment(\.colorScheme) private var colorScheme
@@ -239,10 +247,10 @@ public struct GraphFullView: View {
                 }
             }
         }
-        .task { await model.loadFull() }
+        .task(id: vaultScope?.scope) { await model.loadFull(vault: vaultScope?.scope ?? "") }
         .onReceive(NotificationCenter.default.publisher(for: .trackVaultChanged)) { _ in
             guard !model.isLoading else { return }
-            Task { await model.loadFull() }
+            Task { await model.loadFull(vault: vaultScope?.scope ?? "") }
         }
     }
 
