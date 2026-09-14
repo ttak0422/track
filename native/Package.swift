@@ -25,6 +25,8 @@ let package = Package(
             .product(name: "cmark-gfm-extensions", package: "swift-cmark"),
         ]),
         .executableTarget(name: "TrackApp", dependencies: ["TrackUI"]),
+        .executableTarget(name: "VerifyFiguresMedia", dependencies: ["TrackUI"], path: "Tools/VerifyFiguresMedia"),
+        .executableTarget(name: "VerifyPreviews", dependencies: ["TrackUI"], path: "Tools/VerifyPreviews"),
         .executableTarget(name: "VerifyVoice", dependencies: ["TrackUI"], path: "Tools/VerifyVoice"),
         .executableTarget(name: "VerifyNoteActions", dependencies: ["TrackUI"], path: "Tools/VerifyNoteActions"),
         .executableTarget(name: "VerifyNavigation", dependencies: ["TrackUI"], path: "Tools/VerifyNavigation"),

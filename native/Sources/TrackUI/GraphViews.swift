@@ -1,11 +1,6 @@
 import SwiftUI
 import TrackAPI
 
-private struct GraphPreview: Identifiable {
-    let node: GraphNode
-    var id: String { node.noteID.raw }
-}
-
 // Graph surfaces mirroring the web's full graph and one-hop local graph
 // (docs/spec/web.md). Both views offer the pannable/zoomable GraphCanvas
 // (force-directed node-link drawing, web GraphCanvas parity) with the
@@ -22,8 +17,8 @@ public final class GraphModel {
     public private(set) var isLoading = false
     public private(set) var error: String?
 
-    private var fullRequest = UUID()
-    private let client: TrackClient
+    private var graphRequest = UUID()
+    let client: TrackClient
 
     public init(client: TrackClient) {
         self.client = client
@@ -31,30 +26,58 @@ public final class GraphModel {
 
     public func loadFull(vault: String = "") async {
         let request = UUID()
-        fullRequest = request
+        graphRequest = request
         full = nil
         isLoading = true
-        defer { if request == fullRequest { isLoading = false } }
+        defer { if request == graphRequest { isLoading = false } }
         error = nil
         do {
             let response = try await client.getGraph(vault: vault)
-            guard request == fullRequest, !Task.isCancelled else { return }
+            guard request == graphRequest, !Task.isCancelled else { return }
             full = response.graph
         } catch {
-            guard request == fullRequest, !Task.isCancelled else { return }
+            guard request == graphRequest, !Task.isCancelled else { return }
             self.error = error.localizedDescription
         }
     }
 
     public func loadLocal(id: TrackID) async {
+        let request = UUID()
+        graphRequest = request
+        local = nil
         isLoading = true
-        defer { isLoading = false }
+        defer { if request == graphRequest { isLoading = false } }
         error = nil
         do {
-            local = try await client.getLocalGraph(id).graph
+            let graph = try await client.getLocalGraph(id).graph
+            guard request == graphRequest, !Task.isCancelled else { return }
+            local = graph
         } catch {
+            guard request == graphRequest, !Task.isCancelled else { return }
             self.error = error.localizedDescription
         }
+    }
+
+    public static func noteID(for node: GraphNode, vault: String = "") -> TrackID {
+        node.noteID.raw.contains("~") ? node.noteID : TrackID.qualify(vault: node.vault ?? vault, id: node.noteID.raw)
+    }
+
+    /// Keep the local center/selection reachable even below the degree cut.
+    public static func canvasSlice(nodes: [GraphNode], edges: [GraphEdge], centerID: TrackID? = nil, selectedID: TrackID? = nil, cap: Int = 300) -> OverviewGraph {
+        let required = nodes.filter { $0.noteID == centerID || $0.noteID == selectedID }
+        let requiredIDs = Set(required.map(\.noteID))
+        let ranked = nodesByDegree(nodes, edges: edges).filter { !requiredIDs.contains($0.noteID) }
+        let kept = Array((required + ranked).prefix(max(required.count, cap)))
+        let ids = Set(kept.map(\.noteID))
+        return OverviewGraph(nodes: kept, edges: edges.filter { ids.contains($0.sourceID) && ids.contains($0.targetID) }, hidden: nodes.count - kept.count)
+    }
+
+    /// Screen-space hit testing is shared by clicks and hover after pan/zoom.
+    public static func hitNode(at point: CGPoint, positions: [TrackID: CGPoint], radii: [TrackID: CGFloat]) -> TrackID? {
+        positions.compactMap { id, position -> (TrackID, CGFloat)? in
+            let distance = hypot(position.x - point.x, position.y - point.y)
+            return distance <= max(8, radii[id] ?? 0) + 4 ? (id, distance) : nil
+        }.min { $0.1 < $1.1 }?.0
     }
 
     /// Undirected link degree of `id` in `graph` (edge count touching it).
@@ -158,7 +181,6 @@ public struct GraphFullView: View {
     @Environment(\.colorScheme) private var colorScheme
     @State private var selectedID: TrackID?
     @State private var centerShown = true
-    @State private var hoveredNode: GraphPreview?
     @State private var useCanvas = true
 
     public init(model: GraphModel, onSelect: @escaping (String) -> Void = { _ in }) {
@@ -177,7 +199,8 @@ public struct GraphFullView: View {
                 // view draws the link graph's connected part up to a cap and
                 // says what it left out (overviewGraph).
                 let shown = GraphModel.overview(graph)
-                let nodes = GraphModel.nodesByDegree(shown.nodes, edges: shown.edges)
+                let nodes = GraphModel.nodesByDegree(graph)
+                let canvasNodes = shown.nodes + graph.nodes.filter { $0.noteID == selectedID && !shown.nodes.contains(where: { $0.noteID == selectedID }) }
                 let mark = TrackTheme.palette(for: colorScheme).mark
                 Picker("Graph style", selection: $useCanvas) {
                     Text("Canvas").tag(true)
@@ -188,11 +211,11 @@ public struct GraphFullView: View {
                 .padding(.horizontal, 12)
                 .padding(.vertical, 4)
                 if useCanvas {
-                    GraphCanvas(nodes: shown.nodes, edges: shown.edges, selectedID: selectedID) { raw in
-                        selectedID = shown.nodes.first { $0.noteID.raw == raw }?.noteID
-                        onSelect(raw)
+                    GraphCanvas(nodes: canvasNodes, edges: graph.edges, centerID: centerShown ? selectedID : nil, selectedID: selectedID, client: model.client, vault: vaultScope?.scope ?? "") { raw in
+                        selectedID = graph.nodes.first { $0.noteID.raw == raw }?.noteID
+                        if let node = graph.nodes.first(where: { $0.noteID.raw == raw }) { onSelect(GraphModel.noteID(for: node, vault: vaultScope?.scope ?? "").raw) }
                     }
-                    Text(Self.caption(drawn: nodes.count, hidden: shown.hidden))
+                    Text(Self.caption(drawn: min(shown.nodes.count, GraphCanvas.nodeCap), hidden: graph.nodes.count - min(shown.nodes.count, GraphCanvas.nodeCap)) + " · List includes every note")
                         .font(.caption)
                         .foregroundStyle(.secondary)
                         .padding(.horizontal, 12)
@@ -202,10 +225,10 @@ public struct GraphFullView: View {
                     Section {
                         ForEach(nodes, id: \.noteID) { node in
                             let isCenter = centerShown && Self.isCenter(node, in: graph)
-                            let degree = GraphModel.degree(of: node.noteID, in: shown.edges)
+                            let degree = GraphModel.degree(of: node.noteID, in: graph.edges)
                             Button {
                                 selectedID = node.noteID
-                                onSelect(node.noteID.raw)
+                                onSelect(GraphModel.noteID(for: node, vault: vaultScope?.scope ?? "").raw)
                             } label: {
                                 HStack(spacing: 8) {
                                     Circle()
@@ -215,7 +238,7 @@ public struct GraphFullView: View {
                                         }
                                         .frame(width: Self.radius(for: node, degree: degree, isCenter: isCenter) * 2,
                                                height: Self.radius(for: node, degree: degree, isCenter: isCenter) * 2)
-                                    Text(Self.label(for: node, in: nodes, selectedID: selectedID))
+                                    Text(node.title)
                                         .lineLimit(1)
                                         .truncationMode(.tail)
                                         .foregroundStyle(isCenter ? mark : .primary)
@@ -227,14 +250,15 @@ public struct GraphFullView: View {
                             }
                             .buttonStyle(.plain)
                             .contentShape(Rectangle())
-                            .onHover { hovering in hoveredNode = hovering ? GraphPreview(node: node) : nil }
-                            .popover(item: $hoveredNode, attachmentAnchor: .point(.trailing), arrowEdge: .leading) { preview in
-                                Self.preview(preview.node, degree: GraphModel.degree(of: preview.node.noteID, in: shown.edges))
+                            .notePreview(client: model.client, id: GraphModel.noteID(for: node, vault: vaultScope?.scope ?? "")) { onSelect($0.raw) }
+                            .contextMenu {
+                                Button("Center in canvas") { selectedID = node.noteID; centerShown = true; useCanvas = true }
+                                Button("Pin preview") { NotePreviewWindows.shared.show(client: model.client, id: GraphModel.noteID(for: node, vault: vaultScope?.scope ?? ""), pinned: true) { onSelect($0.raw) } }
                             }
                         }
                     } header: {
                         VStack(alignment: .leading, spacing: 6) {
-                            Text(Self.caption(drawn: nodes.count, hidden: shown.hidden))
+                            Text("\(nodes.count) notes · includes unlinked notes")
                             HStack(spacing: 12) {
                                 Button(selectedID == nil ? "選択なし" : "選択を解除") { selectedID = nil }
                                     .disabled(selectedID == nil)
@@ -264,11 +288,6 @@ public struct GraphFullView: View {
         return CGFloat(isCenter ? max(10, value) : value)
     }
 
-    private static func label(for node: GraphNode, in nodes: [GraphNode], selectedID: TrackID?) -> String {
-        let index = nodes.firstIndex { $0.noteID == node.noteID } ?? nodes.count
-        return index < 12 || node.center == true || selectedID == node.noteID ? node.title : "ノード \(node.noteID.raw)"
-    }
-
     /// How many notes the view is showing and — since the overview draws only
     /// the linked part of the vault up to a cap — how many it left out (web
     /// `graphCountCaption`). One line, because both halves answer the same
@@ -277,17 +296,6 @@ public struct GraphFullView: View {
         hidden > 0 ? "\(drawn)件描画・\(hidden)件未描画" : "\(drawn)件"
     }
 
-    @ViewBuilder
-    fileprivate static func preview(_ node: GraphNode, degree: Int) -> some View {
-        VStack(alignment: .leading, spacing: 5) {
-            Text(node.title).font(.headline).lineLimit(2)
-            Text("次数 \(degree)").font(.caption).foregroundStyle(.secondary)
-            Text("本文プレビューはノードデータに含まれていません")
-                .font(.caption).foregroundStyle(.secondary)
-        }
-        .padding(10)
-        .frame(maxWidth: 260, alignment: .leading)
-    }
 }
 
 // MARK: - Graph canvas (force-directed)
@@ -303,7 +311,12 @@ struct GraphCanvas: View {
     let centerID: TrackID?
     let selectedID: TrackID?
     let onSelect: (String) -> Void
+    let client: TrackClient?
+    let vault: String
     @Environment(\.colorScheme) private var colorScheme
+    @State private var positions: [TrackID: CGPoint] = [:]
+    @State private var hoveredID: TrackID?
+    @State private var hoverToken: UUID?
     @State private var scale: CGFloat = 1
     @State private var baseScale: CGFloat = 1
     @State private var offset: CGSize = .zero
@@ -313,30 +326,30 @@ struct GraphCanvas: View {
     /// best-connected slice is drawn (the list keeps the full ranking).
     static let nodeCap = 300
 
-    init(nodes: [GraphNode], edges: [GraphEdge], centerID: TrackID? = nil, selectedID: TrackID? = nil, onSelect: @escaping (String) -> Void = { _ in }) {
+    init(nodes: [GraphNode], edges: [GraphEdge], centerID: TrackID? = nil, selectedID: TrackID? = nil, client: TrackClient? = nil, vault: String = "", onSelect: @escaping (String) -> Void = { _ in }) {
         self.nodes = nodes
         self.edges = edges
         self.centerID = centerID
         self.selectedID = selectedID
+        self.client = client
+        self.vault = vault
         self.onSelect = onSelect
     }
 
     /// The drawn slice: best-connected first, edges reduced to it.
     var drawn: (nodes: [GraphNode], edges: [GraphEdge]) {
-        let ranked = GraphModel.nodesByDegree(nodes, edges: edges)
-        let kept = Array(ranked.prefix(Self.nodeCap))
-        let ids = Set(kept.map(\.noteID))
-        let keptEdges = edges.filter { ids.contains($0.sourceID) && ids.contains($0.targetID) }
-        return (kept, keptEdges)
+        let slice = GraphModel.canvasSlice(nodes: nodes, edges: edges, centerID: centerID, selectedID: selectedID, cap: Self.nodeCap)
+        return (slice.nodes, slice.edges)
     }
+
 
     var body: some View {
         let (kept, keptEdges) = drawn
-        let positions = GraphCanvasLayout.layout(nodes: kept, edges: keptEdges, centerID: centerID)
         let degrees = Dictionary(uniqueKeysWithValues: kept.map { ($0.noteID, GraphModel.degree(of: $0.noteID, in: keptEdges)) })
         GeometryReader { proxy in
             let size = proxy.size
             ZStack {
+                if positions.isEmpty && !kept.isEmpty { ProgressView("Laying out graph") }
                 Canvas { ctx, _ in
                     let t = transform(for: size, positions: positions)
                     for edge in keptEdges {
@@ -364,6 +377,7 @@ struct GraphCanvas: View {
                     }
                 }
                 .contentShape(Rectangle())
+                .accessibilityLabel("Graph canvas. Switch to List to browse every note with the keyboard.")
                 ForEach(labeledNodes(kept), id: \.noteID) { node in
                     if let p = positions[node.noteID].map({ transform(for: size, positions: positions).apply($0) }) {
                         Text(node.title)
@@ -378,8 +392,22 @@ struct GraphCanvas: View {
             }
             .gesture(pan.simultaneously(with: zoom))
             .onTapGesture(count: 1, coordinateSpace: .local) { location in
-                tap(at: location, size: size, positions: positions)
+                if let id = hit(at: location, size: size, positions: positions) { onSelect(id.raw) }
             }
+            .onContinuousHover { phase in
+                let id: TrackID?
+                switch phase {
+                case .active(let point): id = hit(at: point, size: size, positions: positions)
+                case .ended: id = nil
+                }
+                guard id != hoveredID else { return }
+                NotePreviewWindows.shared.leave(hoverToken)
+                hoveredID = id
+                if let id, let client, let node = kept.first(where: { $0.noteID == id }) {
+                    hoverToken = NotePreviewWindows.shared.show(client: client, id: GraphModel.noteID(for: node, vault: vault)) { onSelect($0.raw) }
+                }
+            }
+            .onDisappear { NotePreviewWindows.shared.leave(hoverToken) }
             .overlay(alignment: .topTrailing) {
                 HStack(spacing: 8) {
                     if kept.count < nodes.count {
@@ -399,11 +427,30 @@ struct GraphCanvas: View {
                 .padding(8)
             }
         }
+        .task(id: LayoutInput(nodes: kept, edges: keptEdges, centerID: centerID)) {
+            let center = centerID
+            let task = Task.detached(priority: .userInitiated) { GraphCanvasLayout.layout(nodes: kept, edges: keptEdges, centerID: center) }
+            let result = await task.value
+            guard !Task.isCancelled else { return }
+            positions = result
+        }
+    }
+
+    private struct LayoutInput: Equatable {
+        let nodes: [GraphNode]
+        let edges: [GraphEdge]
+        let centerID: TrackID?
+        static func == (a: Self, b: Self) -> Bool {
+            a.centerID == b.centerID && a.nodes.map(\.noteID) == b.nodes.map(\.noteID) &&
+            a.edges.map { "\($0.sourceID.raw)>\($0.targetID.raw)" } == b.edges.map { "\($0.sourceID.raw)>\($0.targetID.raw)" }
+        }
     }
 
     private var pan: some Gesture {
         DragGesture()
             .onChanged { value in
+                NotePreviewWindows.shared.leave(hoverToken)
+                hoveredID = nil
                 offset = CGSize(width: offset.width + value.translation.width - lastDrag.width,
                                 height: offset.height + value.translation.height - lastDrag.height)
                 lastDrag = value.translation
@@ -448,23 +495,16 @@ struct GraphCanvas: View {
         return CanvasTransform(scale: s, origin: origin)
     }
 
-    private func tap(at location: CGPoint, size: CGSize, positions: [TrackID: CGPoint]) {
+    private func hit(at location: CGPoint, size: CGSize, positions: [TrackID: CGPoint]) -> TrackID? {
         let t = transform(for: size, positions: positions)
-        let local = t.invert(location)
-        var best: GraphNode?
-        var bestDist = CGFloat.greatestFiniteMagnitude
-        for node in drawn.nodes {
-            guard let p = positions[node.noteID] else { continue }
-            let d = hypot(p.x - local.x, p.y - local.y)
-            if d < bestDist { bestDist = d; best = node }
-        }
-        guard let node = best else { return }
-        let degree = GraphModel.degree(of: node.noteID, in: drawn.edges)
-        let r = GraphCanvasLayout.radius(for: node, degree: degree, isCenter: node.noteID == centerID)
-        if bestDist <= r + 12 / t.scale {
-            onSelect(node.noteID.raw)
-        }
+        let slice = drawn
+        let points = positions.mapValues { t.apply($0) }
+        let radii = Dictionary(uniqueKeysWithValues: slice.nodes.map { node in
+            (node.noteID, GraphCanvasLayout.radius(for: node, degree: GraphModel.degree(of: node.noteID, in: slice.edges), isCenter: node.noteID == centerID) * t.scale)
+        })
+        return GraphModel.hitNode(at: location, positions: points, radii: radii)
     }
+
 }
 
 /// Deterministic force layout for GraphCanvas: circle start (index order),
@@ -546,7 +586,6 @@ public struct LocalGraphView: View {
     @Environment(\.colorScheme) private var colorScheme
     @State private var selectedID: TrackID?
     @State private var centerShown = true
-    @State private var hoveredNode: GraphPreview?
     @State private var useCanvas = true
 
     public init(model: GraphModel, centerID: TrackID, onSelect: @escaping (String) -> Void = { _ in }) {
@@ -575,16 +614,16 @@ public struct LocalGraphView: View {
                     .pickerStyle(.segmented)
                     .labelsHidden()
                     if useCanvas {
-                        GraphCanvas(nodes: graph.nodes, edges: graph.edges, centerID: graph.centerID, selectedID: selectedID) { raw in
+                        GraphCanvas(nodes: graph.nodes, edges: graph.edges, centerID: centerShown ? graph.centerID : nil, selectedID: selectedID, client: model.client, vault: centerID.split().vault) { raw in
                             selectedID = graph.nodes.first { $0.noteID.raw == raw }?.noteID
-                            onSelect(raw)
+                            if let node = graph.nodes.first(where: { $0.noteID.raw == raw }) { onSelect(GraphModel.noteID(for: node, vault: centerID.split().vault).raw) }
                         }
                         .frame(minHeight: 280)
                     }
                     Text("Center").font(.caption).foregroundStyle(.secondary)
                     Button {
                         selectedID = graph.centerID
-                        onSelect(graph.centerID.raw)
+                        onSelect(centerID.raw)
                     } label: {
                         HStack(spacing: 8) {
                             Circle().fill(centerShown ? mark : Color.clear)
@@ -597,12 +636,7 @@ public struct LocalGraphView: View {
                         }
                     }
                     .buttonStyle(.plain)
-                    .onHover { hovering in
-                        hoveredNode = hovering ? graph.nodes.first { $0.noteID == graph.centerID }.map(GraphPreview.init) : nil
-                    }
-                    .popover(item: $hoveredNode, attachmentAnchor: .point(.trailing), arrowEdge: .leading) { node in
-                        GraphFullView.preview(node.node, degree: GraphModel.degree(of: node.node.noteID, in: graph))
-                    }
+                    .notePreview(client: model.client, id: centerID) { onSelect($0.raw) }
                     HStack(spacing: 12) {
                         Button(selectedID == nil ? "選択なし" : "選択を解除") { selectedID = nil }
                             .disabled(selectedID == nil)
@@ -615,7 +649,7 @@ public struct LocalGraphView: View {
                         ForEach(neighbors, id: \.noteID) { node in
                             Button {
                                 selectedID = node.noteID
-                                onSelect(node.noteID.raw)
+                                onSelect(GraphModel.noteID(for: node, vault: centerID.split().vault).raw)
                             } label: {
                                 HStack(spacing: 8) {
                                     Circle().stroke(Color.secondary, lineWidth: 1)
@@ -628,10 +662,7 @@ public struct LocalGraphView: View {
                                 }
                             }
                                 .buttonStyle(.plain)
-                                .onHover { hovering in hoveredNode = hovering ? GraphPreview(node: node) : nil }
-                                .popover(item: $hoveredNode, attachmentAnchor: .point(.trailing), arrowEdge: .leading) { preview in
-                                    GraphFullView.preview(preview.node, degree: GraphModel.degree(of: preview.node.noteID, in: graph))
-                                }
+                                .notePreview(client: model.client, id: GraphModel.noteID(for: node, vault: centerID.split().vault)) { onSelect($0.raw) }
                         }
                     }
                 }
@@ -639,7 +670,7 @@ public struct LocalGraphView: View {
                 .frame(maxWidth: .infinity, alignment: .leading)
             }
         }
-        .task { await model.loadLocal(id: centerID) }
+        .task(id: centerID) { await model.loadLocal(id: centerID) }
         .onReceive(NotificationCenter.default.publisher(for: .trackVaultChanged)) { _ in
             guard !model.isLoading else { return }
             Task { await model.loadLocal(id: centerID) }

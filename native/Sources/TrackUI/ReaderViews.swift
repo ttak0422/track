@@ -54,10 +54,6 @@ public struct SearchReaderView: View {
     /// strip switches with the same dirty guard as search results.
     @State private var tabs = NoteTabs()
     @State private var didRestoreTabs = false
-    /// Pinned floating previews (web preview/FloatingWindow parity): note ids
-    /// kept as draggable excerpt cards over the detail, opened from search or
-    /// recent rows without leaving the current note.
-    @State private var pinnedIDs: [TrackID] = []
     /// Today's-journal shortcut (web Shell "Today's journal"): failure notice
     /// shown inline under the search field, like a search error.
     @State private var todayError: String?
@@ -358,9 +354,6 @@ public struct SearchReaderView: View {
                       }
                  }
              }
-             .overlay(alignment: .topTrailing) {
-                 pinnedStack
-             }
          }
          .overlay(alignment: .top) {
              if let changedAt = liveEvents.lastChangeAt, changedAt != dismissedChangeAt {
@@ -479,25 +472,6 @@ public struct SearchReaderView: View {
             .padding(.horizontal, 8)
             .padding(.vertical, 4)
         }
-    }
-
-    /// Pinned floating previews over the detail (web preview/FloatingWindow
-    /// parity): draggable excerpt cards that open in the reader on demand.
-    private var pinnedStack: some View {
-        VStack(alignment: .trailing, spacing: 8) {
-            ForEach(pinnedIDs, id: \.self) { id in
-                PinnedPreviewCard(
-                    client: client,
-                    noteID: id,
-                    onOpen: {
-                        pinnedIDs.removeAll { $0 == id }
-                        switchTab(to: id)
-                    },
-                    onClose: { pinnedIDs.removeAll { $0 == id } }
-                )
-            }
-        }
-        .padding(12)
     }
 
     private var searchHome: some View {
@@ -671,7 +645,6 @@ public struct SearchReaderView: View {
     private func pruneTab(old: TrackID?) {
         guard reader.currentID == nil, !reader.isLoaded, let old, tabs.entries.contains(where: { $0.id == old }) else { return }
         if let next = tabs.remove(old) { switchTab(to: next) }
-        if tabs.entries.isEmpty { pinnedIDs.removeAll() }
     }
 
     private func switchTab(to id: TrackID) {
@@ -696,9 +669,7 @@ public struct SearchReaderView: View {
     }
 
     private func pinPreview(_ id: TrackID) {
-        guard !pinnedIDs.contains(id) else { return }
-        pinnedIDs.append(id)
-        if pinnedIDs.count > 5 { pinnedIDs.removeFirst(pinnedIDs.count - 5) }
+        NotePreviewWindows.shared.show(client: client, id: id, pinned: true) { switchTab(to: $0) }
     }
 }
 
@@ -840,11 +811,6 @@ private enum NoteEditorPane: String {
     case split
 }
 
-private struct WikilinkPreview: Equatable {
-    let title: String
-    let excerpt: String
-}
-
 public struct NoteReaderView: View {
     @Bindable var model: NoteReaderModel
     @Environment(\.trackWorkspaceActive) private var workspaceActive
@@ -877,7 +843,6 @@ public struct NoteReaderView: View {
     @State private var selection = NoteSelection()
     @State private var copyNotice: String?
     @State private var titleCopied = false
-    @State private var wikilinkPreview: WikilinkPreview?
     @State private var saveConfirmation = false
     /// Local visible-time accumulator shared with NoteReaderModel's recordView
     /// bridge. A coarse ten-second tick is sufficient for the read milestone.
@@ -1293,7 +1258,7 @@ public struct NoteReaderView: View {
                     HStack(spacing: 5) {
                         ForEach(Array(trail.enumerated()), id: \.element.noteID) { index, ref in
                             if index > 0 { Text("/").foregroundStyle(.tertiary) }
-                            asideLink(ref.title) { Task { await model.openRef(ref) } }
+                            asideLink(ref.title, previewID: ref.noteID.raw.contains("~") ? ref.noteID : TrackID.qualify(vault: model.currentID?.split().vault ?? "", id: ref.noteID.raw)) { Task { await model.openRef(ref) } }
                         }
                     }
                     .font(.caption)
@@ -1361,7 +1326,7 @@ public struct NoteReaderView: View {
                         Text("No notes were worked on this day.").font(.caption).foregroundStyle(.secondary)
                     } else {
                         ForEach(model.dayNotes, id: \.noteID) { ref in
-                            asideLink(ref.title) { Task { await model.openRef(ref) } }
+                            asideLink(ref.title, previewID: ref.noteID.raw.contains("~") ? ref.noteID : TrackID.qualify(vault: model.currentID?.split().vault ?? "", id: ref.noteID.raw)) { Task { await model.openRef(ref) } }
                         }
                     }
                 }
@@ -1401,7 +1366,7 @@ public struct NoteReaderView: View {
             if let external = response.external, !external.isEmpty {
                 asideSection("Linked from other vaults", count: external.count) {
                     ForEach(external, id: \.noteID) { ref in
-                        asideLink("\(ref.vault)/\(ref.title)") {
+                        asideLink("\(ref.vault)/\(ref.title)", previewID: TrackID.qualify(vault: ref.vault, id: ref.noteID.raw)) {
                             Task { await model.open(TrackID.qualify(vault: ref.vault, id: ref.noteID.raw)) }
                         }
                     }
@@ -1414,7 +1379,7 @@ public struct NoteReaderView: View {
                 if !response.backlinks.isEmpty {
                     ForEach(response.backlinks, id: \.noteID) { ref in
                         HStack(spacing: 6) {
-                            asideLink(ref.title) { Task { await model.openRef(ref) } }
+                            asideLink(ref.title, previewID: ref.noteID.raw.contains("~") ? ref.noteID : TrackID.qualify(vault: model.currentID?.split().vault ?? "", id: ref.noteID.raw)) { Task { await model.openRef(ref) } }
                             if readingBadge(for: ref) { TrackStateBadge("NEW") }
                         }
                     }
@@ -1442,13 +1407,6 @@ public struct NoteReaderView: View {
                 }
             }
         }
-        .overlay(alignment: .topLeading) {
-            if let preview = wikilinkPreview {
-                wikilinkPreviewCard(preview)
-                    .offset(y: -8)
-                    .zIndex(2)
-            }
-        }
     }
 
     private func asideSection<Content: View>(_ title: String, count: Int? = nil, @ViewBuilder content: () -> Content) -> some View {
@@ -1470,54 +1428,22 @@ public struct NoteReaderView: View {
     private func asideRefs(_ title: String, _ refs: [NoteRef]) -> some View {
         asideSection(title, count: refs.count) {
             ForEach(refs, id: \.noteID) { ref in
-                asideLink(ref.title) { Task { await model.openRef(ref) } }
+                asideLink(ref.title, previewID: ref.noteID.raw.contains("~") ? ref.noteID : TrackID.qualify(vault: model.currentID?.split().vault ?? "", id: ref.noteID.raw)) { Task { await model.openRef(ref) } }
             }
 
         }
     }
 
-    private func asideLink(_ title: String, action: @escaping () -> Void) -> some View {
+    private func asideLink(_ title: String, previewID: TrackID? = nil, action: @escaping () -> Void) -> some View {
         Button(action: action) {
             Text(title)
                 .font(.system(size: 14 * fontScale))
                 .foregroundStyle(TrackTheme.palette(for: colorScheme).muted)
         }
         .buttonStyle(.plain)
-        .onHover { hovering in
-            guard hovering else { wikilinkPreview = nil; return }
-            Task { await loadWikilinkPreview(target: title) }
+        .notePreview(client: model.client, id: previewID, target: title, sourceID: model.currentID) { id in
+            Task { await model.open(id) }
         }
-    }
-
-    private func loadWikilinkPreview(target: String) async {
-        let trimmed = target.trimmingCharacters(in: .whitespacesAndNewlines)
-        let key = trimmed.split(separator: "#", maxSplits: 1).first.map(String.init) ?? trimmed
-        let parts = key.split(separator: ":", maxSplits: 1).map(String.init)
-        let vault = parts.count == 2 ? parts[0] : (model.currentID?.split().vault ?? "")
-        let term = parts.count == 2 ? parts[1] : key
-        guard let resolved = try? await model.client.resolveTerm(term, vault: vault), resolved.found else { return }
-        let id = TrackID.qualify(vault: vault, id: resolved.note.noteID.raw)
-        guard let response = try? await model.client.getNote(id) else { return }
-        let excerpt = response.note.body.components(separatedBy: .newlines)
-            .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
-            .first { !$0.isEmpty && !$0.hasPrefix("#") && !$0.hasPrefix("```") } ?? ""
-        await MainActor.run {
-            wikilinkPreview = WikilinkPreview(title: response.note.summary.ref.title, excerpt: excerpt)
-        }
-    }
-
-    private func wikilinkPreviewCard(_ preview: WikilinkPreview) -> some View {
-        VStack(alignment: .leading, spacing: 5) {
-            Text(preview.title).font(.callout.weight(.semibold))
-            if !preview.excerpt.isEmpty {
-                Text(preview.excerpt).font(.caption).foregroundStyle(.secondary).lineLimit(3)
-            }
-        }
-        .padding(10)
-        .frame(width: 240, alignment: .leading)
-        .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 8))
-        .overlay(RoundedRectangle(cornerRadius: 8).stroke(Color(nsColor: .separatorColor), lineWidth: 0.5))
-        .shadow(radius: 8, y: 3)
     }
 
     // MARK: - Edit mode
@@ -2304,86 +2230,6 @@ private struct ReaderEmptyStateView: View {
             }
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
-    }
-}
-
-/// A pinned floating preview card (web preview/FloatingWindow parity): the
-/// note's title plus an excerpt, draggable by its header, with Open (hands
-/// the note to the reader) and Close. One card per pinned id, newest last.
-private struct PinnedPreviewCard: View {
-    let client: TrackClient
-    let noteID: TrackID
-    let onOpen: () -> Void
-    let onClose: () -> Void
-    @State private var title = ""
-    @State private var excerpt: [String] = []
-    @State private var error: String?
-    @State private var isLoading = true
-    @State private var offset: CGSize = .zero
-    @State private var dragBase: CGSize = .zero
-
-    var body: some View {
-        VStack(alignment: .leading, spacing: 6) {
-            HStack(spacing: 6) {
-                Text(title.isEmpty ? noteID.raw : title)
-                    .font(.caption)
-                    .fontWeight(.medium)
-                    .lineLimit(1)
-                Spacer()
-                Button("Open") { onOpen() }
-                    .buttonStyle(.plain)
-                    .font(.caption)
-                Button {
-                    onClose()
-                } label: {
-                    Image(systemName: "xmark").font(.caption2)
-                }
-                .buttonStyle(.plain)
-                .accessibilityLabel("Close preview")
-            }
-            .padding(.horizontal, 10)
-            .padding(.top, 8)
-            .contentShape(Rectangle())
-            .gesture(
-                DragGesture()
-                    .onChanged { offset = CGSize(width: dragBase.width + $0.translation.width, height: dragBase.height + $0.translation.height) }
-                    .onEnded { _ in dragBase = offset }
-            )
-            Divider()
-            if isLoading {
-                ProgressView().controlSize(.small)
-                    .frame(maxWidth: .infinity)
-                    .padding(.bottom, 8)
-            } else if let error {
-                Text(error).font(.caption).foregroundStyle(.red)
-                    .padding(.horizontal, 10).padding(.bottom, 8)
-            } else if excerpt.isEmpty {
-                Text("Empty note").font(.caption).foregroundStyle(.tertiary)
-                    .padding(.horizontal, 10).padding(.bottom, 8)
-            } else {
-                VStack(alignment: .leading, spacing: 2) {
-                    ForEach(excerpt, id: \.self) { line in
-                        Text(line).font(.caption).foregroundStyle(.secondary).lineLimit(2)
-                    }
-                }
-                .padding(.horizontal, 10).padding(.bottom, 8)
-            }
-        }
-        .frame(width: 280)
-        .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 10))
-        .overlay(RoundedRectangle(cornerRadius: 10).stroke(Color(nsColor: .separatorColor), lineWidth: 0.5))
-        .shadow(radius: 8)
-        .offset(offset)
-        .task(id: noteID) {
-            do {
-                let response = try await client.getNote(noteID)
-                title = response.note.summary.ref.title
-                excerpt = Array(response.note.body.split(separator: "\n", omittingEmptySubsequences: true).prefix(6).map(String.init))
-            } catch {
-                self.error = error.localizedDescription
-            }
-            isLoading = false
-        }
     }
 }
 
