@@ -143,7 +143,7 @@ public struct GFMBody: View {
                 )
                 .frame(maxWidth: .infinity, alignment: .leading)
             case .media(let media):
-                MediaSegmentView(media: media, baseURL: baseURL, vault: vault, client: client)
+                MediaSegmentView(media: media, baseURL: baseURL, vault: vault, client: client, onWikilink: onWikilink)
                     .frame(maxWidth: .infinity, alignment: .leading)
             case .include(let include):
                 IncludeCardView(include: include, onWikilink: onWikilink)
@@ -504,22 +504,9 @@ public struct GFMBody: View {
     /// anything with a scheme or an absolute path.
     static func assetHref(_ src: String, vault: String, baseURL: URL) -> URL? {
         let trimmed = src.trimmingCharacters(in: .whitespaces)
-        guard !trimmed.isEmpty else { return nil }
-        if let url = URL(string: trimmed), ["http", "https", "data"].contains(url.scheme?.lowercased() ?? "") {
-            return nil
-        }
-        if trimmed.hasPrefix("/") || trimmed.hasPrefix("./") {
-            // "/" prefixed names the vault root's web path, not an asset name;
-            // "./" is a relative reference MarkdownUI resolves elsewhere. Treat
-            // as non-asset unless it clearly is an assets/ name.
-            var normalized = trimmed
-            if normalized.hasPrefix("./") { normalized = String(normalized.dropFirst(2)) }
-            guard normalized.hasPrefix("assets/") else { return nil }
-            return Self.assetURL(name: String(normalized.dropFirst("assets/".count)), vault: vault, baseURL: baseURL)
-        }
-        var name = trimmed
-        if name.hasPrefix("assets/") { name = String(name.dropFirst("assets/".count)) }
-        return Self.assetURL(name: name, vault: vault, baseURL: baseURL)
+        let normalized = trimmed.hasPrefix("./") ? String(trimmed.dropFirst(2)) : trimmed
+        guard normalized.hasPrefix("assets/") else { return nil }
+        return Self.assetURL(name: String(normalized.dropFirst("assets/".count)), vault: vault, baseURL: baseURL)
     }
 
     private static func assetURL(name: String, vault: String, baseURL: URL) -> URL? {
@@ -930,6 +917,10 @@ private struct FigureSegmentView: View {
     let onWikilink: ((String) -> Void)?
     @State private var height: CGFloat
     @State private var resolvedOption: String?
+    @State private var resolutionError: String?
+    @State private var isResolving = false
+    @State private var resolutionID = UUID()
+    @Environment(\.openURL) private var openURL
     @Environment(\.colorScheme) private var colorScheme
 
     init(
@@ -985,22 +976,19 @@ private struct FigureSegmentView: View {
         }
     }
 
-    @ViewBuilder
     private var viewspecBody: some View {
-        if let option = resolvedOption {
-            host(.echarts(optionJSON: option))
-        } else {
-            HStack(spacing: 8) {
-                ProgressView().controlSize(.small)
-                Text("Resolving chart…")
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
+        VStack(alignment: .leading, spacing: 8) {
+            if let option = resolvedOption { host(.echarts(optionJSON: option)) }
+            else if isResolving { ProgressView("Resolving chart…").controlSize(.small) }
+            if let resolutionError {
+                Label(resolutionError, systemImage: "exclamationmark.triangle").font(.caption)
+                Button("Retry") { Task { await resolve() } }.disabled(isResolving)
+                DisclosureGroup("Source") { codeBlock(figure.source) }
             }
-            .frame(maxWidth: .infinity, alignment: .leading)
-            .task(id: figure.source) { await resolve() }
-            .onReceive(NotificationCenter.default.publisher(for: .trackVaultChanged)) { _ in
-                Task { await resolve() }
-            }
+        }
+        .task(id: figure.source + vault) { await resolve() }
+        .onReceive(NotificationCenter.default.publisher(for: .trackVaultChanged)) { _ in
+            Task { await resolve() }
         }
     }
 
@@ -1086,20 +1074,38 @@ private struct FigureSegmentView: View {
     }
 
     private func resolve() async {
-        guard let client, !figure.source.isEmpty else { return }
-        guard let option = try? await client.renderViewSpec(spec: figure.source, vault: vault) else { return }
-        resolvedOption = option
+        let current = UUID()
+        resolutionID = current
+        guard let client else { resolutionError = "Chart resolution needs a connected workspace."; return }
+        isResolving = true
+        resolvedOption = nil
+        resolutionError = nil
+        defer { if resolutionID == current { isResolving = false } }
+        do {
+            let option = try await client.renderViewSpec(spec: figure.source, vault: vault)
+            guard !Task.isCancelled, resolutionID == current else { return }
+            resolvedOption = option
+        } catch {
+            guard !Task.isCancelled, resolutionID == current else { return }
+            resolutionError = (error as? APIError)?.message ?? error.localizedDescription
+        }
     }
 
     private func host(_ kind: FigureKind) -> some View {
-        FigureHost(
-            kind: kind,
-            height: $height,
-            theme: colorScheme == .dark ? .dark : .light,
-            onLink: figureOnLink
-        )
-        .frame(height: height)
-        .modifier(DarkGraphvizModifier(enabled: colorScheme == .dark && isGraphviz))
+        VStack(alignment: .leading, spacing: 8) {
+            FigureHost(
+                kind: kind, height: $height,
+                theme: colorScheme == .dark ? .dark : .light,
+                onLink: figureOnLink
+            )
+            .frame(height: height)
+            .modifier(DarkGraphvizModifier(enabled: colorScheme == .dark && isGraphviz))
+            if case .echarts(let json) = kind {
+                FigureEvidenceView(items: FigureEvidence.parse(json))
+            }
+            DisclosureGroup("Source") { codeBlock(figure.source) }
+                .font(.caption).foregroundStyle(.secondary)
+        }
     }
 
     private var isGraphviz: Bool {
@@ -1111,6 +1117,7 @@ private struct FigureSegmentView: View {
     /// (map-marker popups) routes through `onWikilink`, everything else is
     /// ignored (the reader has no other link surface for figures).
     private func figureOnLink(_ url: URL) {
+        if ["http", "https"].contains(url.scheme?.lowercased() ?? "") { openURL(url); return }
         guard url.scheme?.lowercased() == "trackwiki" else { return }
         let combined = (url.host ?? "") + url.path
         let target = combined.removingPercentEncoding ?? combined
@@ -1621,10 +1628,24 @@ private struct MediaSegmentView: View {
     let baseURL: URL
     let vault: String
     let client: TrackClient?
+    let onWikilink: ((String) -> Void)?
     @State private var previewURL: URL?
     @State private var showingPreview = false
 
     var body: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            content
+            HStack(alignment: .firstTextBaseline) {
+                if !media.alt.isEmpty { Text(media.alt).textSelection(.enabled) }
+                Spacer(minLength: 8)
+                if let url = targetURL(media.src) { Link("Source ↗", destination: url) }
+            }
+            .font(.caption).foregroundStyle(.secondary)
+        }
+    }
+
+    @ViewBuilder
+    private var content: some View {
         switch GFMBody.classify(
             src: media.src,
             asset: GFMBody.assetHref(media.src, vault: vault, baseURL: baseURL)
@@ -1658,7 +1679,14 @@ private struct MediaSegmentView: View {
     @ViewBuilder
     private var assetTextBody: some View {
         if let asset = GFMBody.assetHref(media.src, vault: vault, baseURL: baseURL) {
-            TextAssetView(url: asset)
+            TextAssetView(url: asset) { url in
+                if url.scheme?.lowercased() == "trackwiki" {
+                    let target = ((url.host ?? "") + url.path).removingPercentEncoding ?? ""
+                    if !target.isEmpty { onWikilink?(target) }
+                } else if ["http", "https"].contains(url.scheme?.lowercased() ?? "") {
+                    NSWorkspace.shared.open(url)
+                }
+            }
         } else {
             fallbackLink
         }
@@ -1713,21 +1741,29 @@ private struct MediaSegmentView: View {
         }
         .buttonStyle(.plain)
         .sheet(isPresented: $showingPreview) {
-            VStack {
+            VStack(spacing: 12) {
+                HStack {
+                    Text(media.alt.isEmpty ? "Image" : media.alt).lineLimit(2)
+                    Spacer()
+                    Link("Source ↗", destination: url)
+                    Button("Close") { showingPreview = false }.keyboardShortcut(.cancelAction)
+                }
                 AsyncImage(url: previewURL) { phase in
                     if let image = phase.image { image.resizable().scaledToFit() }
-                    else { ProgressView() }
+                    else if let error = phase.error {
+                        Label(error.localizedDescription, systemImage: "exclamationmark.triangle")
+                    } else { ProgressView() }
                 }
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
-                .padding()
             }
-            .background(Color.black)
+            .padding(20)
+            .frame(minWidth: 480, idealWidth: 900, minHeight: 360, idealHeight: 680)
         }
     }
 
     @ViewBuilder
     private var fallbackLink: some View {
-        if let url = GFMBody.webHrefURL(GFMBody.webHref(media.src)) {
+        if let url = targetURL(media.src) {
             Link(destination: url) {
                 Text(media.alt.isEmpty ? media.src : media.alt)
                     .font(.caption)
@@ -1829,38 +1865,41 @@ private extension NSRange {
 /// no persistent storage, and does not allow custom schemes or file URLs.
 private struct HTMLAssetView: NSViewRepresentable {
     let url: URL
-
     func makeCoordinator() -> Coordinator { Coordinator() }
-
     func makeNSView(context: Context) -> WKWebView {
         let configuration = WKWebViewConfiguration()
         configuration.websiteDataStore = .nonPersistent()
         let view = WKWebView(frame: .zero, configuration: configuration)
         view.navigationDelegate = context.coordinator
-        view.load(URLRequest(url: url))
         return view
     }
-
     func updateNSView(_ view: WKWebView, context: Context) {
-        guard view.url != url else { return }
-        view.load(URLRequest(url: url))
+        guard context.coordinator.loadedURL != url else { return }
+        context.coordinator.loadedURL = url
+        view.loadHTMLString(MediaAssetContent.isolatedHTML(url: url), baseURL: nil)
     }
-
     static func dismantleNSView(_ view: WKWebView, coordinator: Coordinator) {
         view.stopLoading()
         view.navigationDelegate = nil
     }
-
+    @MainActor
     final class Coordinator: NSObject, WKNavigationDelegate {
-        @MainActor
+        var loadedURL: URL?
         func webView(_ webView: WKWebView, decidePolicyFor navigationAction: WKNavigationAction,
                      decisionHandler: @escaping @MainActor @Sendable (WKNavigationActionPolicy) -> Void) {
-            guard let url = navigationAction.request.url,
-                  let scheme = url.scheme?.lowercased(), scheme == "http" || scheme == "https" else {
+            guard let url = navigationAction.request.url else { decisionHandler(.cancel); return }
+            if navigationAction.navigationType == .linkActivated,
+               ["http", "https"].contains(url.scheme?.lowercased() ?? "") {
+                NSWorkspace.shared.open(url)
                 decisionHandler(.cancel)
                 return
             }
-            decisionHandler(.allow)
+            // The initial wrapper is the only top-level document. The asset
+            // executes in an opaque-origin iframe with no app/native bridge.
+            let allowed = url.absoluteString == "about:blank"
+                || (navigationAction.targetFrame?.isMainFrame == false
+                    && ["http", "https"].contains(url.scheme?.lowercased() ?? ""))
+            decisionHandler(allowed ? .allow : .cancel)
         }
     }
 }

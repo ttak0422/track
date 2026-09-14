@@ -18,6 +18,7 @@ let package = Package(
         .target(name: "TrackAPI"),
         .target(name: "TrackUI", dependencies: ["TrackAPI", .product(name: "MarkdownUI", package: "MarkdownUI")]),
         .executableTarget(name: "TrackApp", dependencies: ["TrackUI"]),
+        .executableTarget(name: "VerifyFiguresMedia", dependencies: ["TrackUI"], path: "Tools/VerifyFiguresMedia"),
         .executableTarget(name: "VerifyPreviews", dependencies: ["TrackUI"], path: "Tools/VerifyPreviews"),
         .executableTarget(name: "VerifyVoice", dependencies: ["TrackUI"], path: "Tools/VerifyVoice"),
         .executableTarget(name: "VerifyNavigation", dependencies: ["TrackUI"], path: "Tools/VerifyNavigation"),
