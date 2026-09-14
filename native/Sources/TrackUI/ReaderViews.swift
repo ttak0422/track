@@ -16,20 +16,6 @@ private struct RecentNote: Codable {
     var title: String
 }
 
-private struct SearchSection: Identifiable {
-    let title: String
-    let results: [SearchResult]
-    var id: String { title }
-}
-
-/// One open note in the detail's tab strip (web tabs/TabBar parity): the id
-/// plus the last title seen for it. Drafts still belong to the single reader
-/// model — switching with unsaved edits asks first, like search results do.
-private struct OpenTab: Identifiable {
-    var id: TrackID
-    var title: String
-}
-
 // MARK: - Search + reader shell
 
 public struct SearchReaderView: View {
@@ -64,7 +50,8 @@ public struct SearchReaderView: View {
     /// Tab-strip state (web TabBar parity): every note the reader opens lands
     /// here, whatever path opened it (search, wikilink, aside, follow); the
     /// strip switches with the same dirty guard as search results.
-    @State private var openTabs: [OpenTab] = []
+    @State private var tabs = NoteTabs()
+    @State private var didRestoreTabs = false
     /// Pinned floating previews (web preview/FloatingWindow parity): note ids
     /// kept as draggable excerpt cards over the detail, opened from search or
     /// recent rows without leaving the current note.
@@ -90,11 +77,19 @@ public struct SearchReaderView: View {
         (try? JSONDecoder().decode([RecentNote].self, from: Data(recentJSON.utf8))) ?? []
     }
 
+    private var scopedRecentList: [RecentNote] {
+        let scope = vaultScope?.scope ?? ""
+        return recentList.filter {
+            let vault = TrackID($0.id).split().vault
+            return scope.isEmpty || vault.isEmpty || vault == scope
+        }
+    }
+
     /// Vault names only become useful when the MRU contains notes from more
     /// than one vault. The empty vault is kept as a distinct value so a
     /// qualified note is labelled when it sits beside an unqualified one.
     private var hasMultipleRecentVaults: Bool {
-        Set(recentList.map { TrackID($0.id).split().vault }).count > 1
+        Set(scopedRecentList.map { TrackID($0.id).split().vault }).count > 1
     }
 
     /// A minimal NoteRef for an MRU entry so a NEW badge can be decided against
@@ -103,8 +98,7 @@ public struct SearchReaderView: View {
     /// memberwise init), with nil milestones so NEW is decided by the local
     /// seen/read sets alone.
     private static func mruRef(_ note: RecentNote) -> NoteRef? {
-        let raw = note.id
-        let object: [String: Any] = ["note_id": raw, "file_kind": "", "title": note.title]
+        let object: [String: Any] = ["note_id": note.id, "file_kind": "", "title": note.title]
         guard let data = try? JSONSerialization.data(withJSONObject: object) else { return nil }
         return try? JSONDecoder().decode(NoteRef.self, from: data)
     }
@@ -125,10 +119,6 @@ public struct SearchReaderView: View {
                     TextField("Search", text: $query)
                         .textFieldStyle(.plain)
                         .focused($searchFocused)
-                        .onChange(of: query) { _, value in
-                            activeSearchIndex = -1
-                            search.search(query: value)
-                        }
                         .onKeyPress { press in
                             // Web keys.ts parity: arrows/Ctrl+N/P move, Return/Ctrl+Y
                             // accept, Escape clears. Ctrl+P stays "previous" (never
@@ -210,7 +200,6 @@ public struct SearchReaderView: View {
                     ForEach(Array(search.history.prefix(8)), id: \.self) { term in
                         Button {
                             query = term
-                            search.search(query: term)
                         } label: {
                             HStack(spacing: 6) {
                                 Image(systemName: "magnifyingglass").font(.caption).foregroundStyle(.tertiary)
@@ -222,14 +211,13 @@ public struct SearchReaderView: View {
                     }
                     Divider().padding(.top, 6)
                 }
-                if query.isEmpty && !recentList.isEmpty {
+                if query.isEmpty && !scopedRecentList.isEmpty {
                     Text("Recent").trackSectionLabel()
                         .padding(.horizontal, 12).padding(.top, 8)
-                    let visibleRecent = Array(recentList.prefix(Self.recentVisibleLimit))
-                    let overflowRecent = Array(recentList.dropFirst(Self.recentVisibleLimit))
+                    let visibleRecent = Array(scopedRecentList.prefix(Self.recentVisibleLimit))
+                    let overflowRecent = Array(scopedRecentList.dropFirst(Self.recentVisibleLimit))
                     ForEach(visibleRecent, id: \.id) { note in
                         Button {
-                            recordRecent(note)
                             Task { await reader.open(TrackID(note.id)) }
                         } label: {
                             HStack(spacing: 6) {
@@ -265,7 +253,6 @@ public struct SearchReaderView: View {
                         Menu {
                             ForEach(overflowRecent, id: \.id) { note in
                                 Button {
-                                    recordRecent(note)
                                     Task { await reader.open(TrackID(note.id)) }
                                 } label: {
                                     HStack {
@@ -298,7 +285,6 @@ public struct SearchReaderView: View {
                         .padding(.horizontal, 12).padding(.top, 8)
                     ForEach(Array(browse.newNotes.prefix(10)), id: \.qualifiedID) { note in
                         Button {
-                            recordRecent(RecentNote(id: note.qualifiedID.raw, title: note.ref.title))
                             Task { await reader.open(note.qualifiedID) }
                         } label: {
                             HStack(spacing: 6) {
@@ -314,7 +300,11 @@ public struct SearchReaderView: View {
                     }
                     Divider().padding(.top, 6)
                 }
+                 ScrollViewReader { proxy in
                  List {
+                     if !query.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty, !search.isLoading, search.error == nil, search.results.isEmpty {
+                         Text("No notes found").foregroundStyle(.secondary)
+                     }
                      ForEach(searchSections, id: \.title) { section in
                          Section {
                              ForEach(section.results, id: \.qualifiedID) { result in
@@ -328,12 +318,14 @@ public struct SearchReaderView: View {
                                       onAppendTag: { appendSearchTag($0) },
                                       onPin: { pinPreview(result.qualifiedID) }
                                   )
+                                  .id(result.qualifiedID)
+                                  .accessibilityAddTraits(activeSearchRow(result) ? .isSelected : [])
                              }
                          } header: {
                              Text(section.title).trackSectionLabel()
                          }
                      }
-                      if !search.unavailable.isEmpty {
+                      if !search.isLoading, !search.unavailable.isEmpty {
                           Section {
                               ForEach(search.unavailable, id: \.name) { vault in
                                   Text("⚠ vault “\(vault.name)” could not be searched\(vault.error.map { ": \($0)" } ?? "")")
@@ -342,15 +334,19 @@ public struct SearchReaderView: View {
                           }
                       }
                  }
+                 .onChange(of: activeSearchID) { _, id in
+                     if let id { proxy.scrollTo(id, anchor: .center) }
+                 }
+                 }
             }
             .navigationTitle("track")
          } detail: {
              VStack(spacing: 0) {
-                 if !openTabs.isEmpty {
+                 if !tabs.entries.isEmpty {
                      tabStrip
                      Divider()
                  }
-                 if reader.currentID == nil {
+                 if case .empty = reader.state {
                      searchHome
                  } else {
                       NoteReaderView(model: reader, baseURL: baseURL) { tag in
@@ -389,10 +385,28 @@ public struct SearchReaderView: View {
                  searchFocused = true
              }
          }
-         .task(id: vaultScope?.scope) { await browse.loadNewNotes(vault: vaultScope?.scope ?? "") }
+         .onChange(of: query) { _, value in
+             search.search(query: value, vault: vaultScope?.scope ?? "")
+             if !value.isEmpty { columnVisibility = .all }
+         }
+         .onChange(of: orderedSearchIDs) { _, ids in activeSearchIndex = ids.isEmpty ? -1 : 0 }
+         .task(id: vaultScope?.scope) {
+             search.search(query: query, vault: vaultScope?.scope ?? "")
+             await browse.loadNewNotes(vault: vaultScope?.scope ?? "")
+         }
+         .task {
+             guard !didRestoreTabs else { return }
+             didRestoreTabs = true
+             if reader.currentID == nil, !reader.isOpening, let id = tabs.activeID {
+                 await reader.open(id)
+             }
+             await tabs.restore(using: client)
+             guard reader.currentID == nil, !reader.isOpening, !Task.isCancelled, let id = tabs.activeID else { return }
+             await reader.open(id)
+         }
          .onReceive(NotificationCenter.default.publisher(for: .trackVaultChanged)) { _ in
             Task { await browse.loadNewNotes(vault: vaultScope?.scope ?? "") }
-            if !query.isEmpty && !search.isLoading { search.search(query: query) }
+            if !query.isEmpty && !search.isLoading { search.search(query: query, vault: vaultScope?.scope ?? "") }
          }
          .onChange(of: reader.currentID) { old, _ in
              if reader.currentID == nil {
@@ -426,13 +440,13 @@ public struct SearchReaderView: View {
     private var tabStrip: some View {
         ScrollView(.horizontal, showsIndicators: false) {
             HStack(spacing: 4) {
-                ForEach(openTabs) { tab in
+                ForEach(tabs.entries) { tab in
                     let isActive = tab.id.raw == reader.currentID?.raw
                     HStack(spacing: 4) {
                         Button {
                             switchTab(to: tab.id)
                         } label: {
-                            Text(tab.title)
+                            Text(tab.title + (isActive && reader.isDirty ? " •" : ""))
                                 .font(.caption)
                                 .lineLimit(1)
                                 .foregroundStyle(isActive ? TrackTheme.palette(for: colorScheme).mark : .primary)
@@ -474,11 +488,6 @@ public struct SearchReaderView: View {
                     onOpen: {
                         pinnedIDs.removeAll { $0 == id }
                         switchTab(to: id)
-                        // switchTab no-ops when the note is already open;
-                        // ensure it is open regardless of tab state.
-                        if reader.currentID?.raw != id.raw, !reader.isDirty {
-                            Task { await reader.open(id) }
-                        }
                     },
                     onClose: { pinnedIDs.removeAll { $0 == id } }
                 )
@@ -496,7 +505,7 @@ public struct SearchReaderView: View {
                     .font(.callout).foregroundStyle(.secondary)
                 TextField("Search", text: $query)
                     .textFieldStyle(.plain).focused($searchFocused)
-                    .onSubmit { searchFocused = false }
+                    .onSubmit { chooseActiveSearchResult() }
                     .padding(.vertical, 8)
                     .overlay(alignment: .bottom) {
                         Rectangle()
@@ -530,7 +539,7 @@ public struct SearchReaderView: View {
             Button("Reload") {
                 dismissedChangeAt = changedAt
                 if let id = reader.currentID { Task { await reader.open(id) } }
-                if !query.isEmpty { search.search(query: query) }
+                if !query.isEmpty { search.search(query: query, vault: vaultScope?.scope ?? "") }
             }.buttonStyle(.plain)
             Button { dismissedChangeAt = changedAt } label: {
                 Image(systemName: "xmark")
@@ -542,41 +551,25 @@ public struct SearchReaderView: View {
         .overlay(RoundedRectangle(cornerRadius: 8).stroke(TrackTheme.palette(for: colorScheme).line, lineWidth: 1))
     }
 
-    private var filteredSearchResults: [SearchResult] {
-        let tags = query.split(whereSeparator: { $0 == " " || $0 == "\n" })
-            .compactMap { token -> String? in
-                guard token.first == "#", token.count > 1 else { return nil }
-                return String(token.dropFirst()).lowercased()
-            }
-        guard !tags.isEmpty else { return search.results }
-        return search.results.filter { result in
-            let resultTags = (result.tags ?? []).map { $0.lowercased() }
-            return tags.allSatisfy { tag in
-                resultTags.contains { $0 == tag || $0.hasPrefix(tag + "/") }
-            }
-        }
-    }
-
     private var searchSections: [SearchSection] {
-        let groups = ["title": "Titles", "full": "Full text", "file": "File name"]
-        let grouped = Dictionary(grouping: filteredSearchResults) { result -> String in
-            let match = (result.match ?? "").lowercased()
-            if match.contains("file") || match.contains("name") { return "file" }
-            if match.contains("title") { return "title" }
-            return "full"
-        }
-        return ["title", "full", "file"].compactMap { key in
-            guard let results = grouped[key], !results.isEmpty else { return nil }
-            return SearchSection(title: groups[key]!, results: results)
-        }
+        guard !search.isLoading, !query.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return [] }
+        return SearchPresentation.sections(search.results)
+    }
+    private var orderedSearchResults: [SearchResult] { searchSections.flatMap(\.results) }
+    private var orderedSearchIDs: [TrackID] { orderedSearchResults.map(\.qualifiedID) }
+    private var activeSearchID: TrackID? {
+        orderedSearchIDs.indices.contains(activeSearchIndex) ? orderedSearchIDs[activeSearchIndex] : nil
     }
 
     private func openSearchResult(_ result: SearchResult) {
-        if !query.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-            search.addToHistory(query)
+        let submittedQuery = query
+        Task {
+            guard await reader.open(result.qualifiedID) else { return }
+            search.addToHistory(submittedQuery)
+            query = ""
+            searchFocused = false
+            columnVisibility = .detailOnly
         }
-        recordRecent(RecentNote(id: result.qualifiedID.raw, title: result.ref.title))
-        Task { await reader.open(result.qualifiedID) }
     }
 
     private func appendSearchTag(_ tag: String) {
@@ -584,7 +577,6 @@ public struct SearchReaderView: View {
         guard !query.split(whereSeparator: { $0 == " " || $0 == "\n" }).contains(Substring(token)) else { return }
         query = query.trimmingCharacters(in: .whitespacesAndNewlines)
         query += query.isEmpty ? token : " \(token)"
-        search.search(query: query)
     }
 
     /// Today's journal shortcut (web Shell "Today's journal"): opens (creating
@@ -598,9 +590,6 @@ public struct SearchReaderView: View {
             do {
                 let journal = try await reader.client.openJournal(date: Self.todayString(), vault: vaultScope?.scope ?? "")
                 await reader.open(journal.noteID)
-                if case .loaded(let response) = reader.state {
-                    recordRecent(RecentNote(id: journal.noteID.raw, title: response.note.summary.ref.title))
-                }
             } catch {
                 todayError = error.localizedDescription
             }
@@ -620,27 +609,17 @@ public struct SearchReaderView: View {
     /// `--panel-soft` ground with medium weight. Built as one Text from an
     /// AttributedString so the row keeps a single Text value.
     private func highlighted(_ text: String) -> Text {
-        let needle = query.split(whereSeparator: { $0 == " " || $0 == "\n" })
-            .filter { !$0.hasPrefix("#") }.joined(separator: " ")
-        guard !needle.isEmpty else { return Text(text) }
         let palette = TrackTheme.palette(for: colorScheme)
         var attr = AttributedString(text)
-        var searchFrom = attr.startIndex
-        var found = false
-        while searchFrom < attr.endIndex,
-              let range = attr[searchFrom...].range(of: needle, options: [.caseInsensitive]) {
-            found = true
+        for match in SearchPresentation.highlightRanges(in: text, query: query) {
+            guard let original = Range(match, in: text), let range = Range(original, in: attr) else { continue }
             attr[range].backgroundColor = palette.panelSoft
             attr[range].inlinePresentationIntent = .stronglyEmphasized
-            searchFrom = range.upperBound
         }
-        guard found else { return Text(text) }
         return Text(attr)
     }
 
-    private func activeSearchRow(_ result: SearchResult) -> Bool {
-        activeSearchIndex == filteredSearchResults.firstIndex(where: { $0.qualifiedID == result.qualifiedID })
-    }
+    private func activeSearchRow(_ result: SearchResult) -> Bool { activeSearchID == result.qualifiedID }
 
     private func statusBadge(_ text: String) -> some View {
         TrackStateBadge(text)
@@ -653,24 +632,14 @@ public struct SearchReaderView: View {
     }
 
     private func moveSearchSelection(by offset: Int) {
-        guard !filteredSearchResults.isEmpty else {
-            activeSearchIndex = -1
-            return
-        }
-        let next = activeSearchIndex < 0 ? (offset > 0 ? 0 : filteredSearchResults.count - 1) : activeSearchIndex + offset
-        activeSearchIndex = (next + filteredSearchResults.count) % filteredSearchResults.count
+        activeSearchIndex = SearchPresentation.step(activeSearchIndex, by: offset, count: orderedSearchResults.count)
     }
 
     private func chooseActiveSearchResult() {
-        guard !filteredSearchResults.isEmpty else { return }
-        let index = activeSearchIndex >= 0 ? activeSearchIndex : 0
-        guard index < filteredSearchResults.count else { return }
-        let result = filteredSearchResults[index]
-        if !query.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-            search.addToHistory(query)
-        }
-        recordRecent(RecentNote(id: result.qualifiedID.raw, title: result.ref.title))
-        Task { await reader.open(result.qualifiedID) }
+        guard !orderedSearchResults.isEmpty else { return }
+        let index = max(activeSearchIndex, 0)
+        guard orderedSearchResults.indices.contains(index) else { return }
+        openSearchResult(orderedSearchResults[index])
     }
 
     // MARK: - Open tabs
@@ -687,37 +656,38 @@ public struct SearchReaderView: View {
     private func syncTab() {
         guard let id = reader.currentID else { return }
         let title = loadedTabTitle
-            ?? openTabs.first { $0.id == id }?.title
+            ?? tabs.entries.first { $0.id == id }?.title
             ?? recentList.first { $0.id == id.raw }?.title
             ?? id.raw
-        if let i = openTabs.firstIndex(where: { $0.id == id }) {
-            openTabs[i].title = title
-        } else {
-            openTabs.append(OpenTab(id: id, title: title))
-        }
+        tabs.opened(id, title: title)
+        recordRecent(RecentNote(id: id.raw, title: title))
     }
 
-    /// Drops the tab for a note that went away without the strip (delete).
-    /// Loading transiently clears the id too, but then the state is
-    /// `.loading`, never `.empty`, so switches never prune.
+    /// Reader close/delete clears its ID; preserve all other tabs.
     private func pruneTab(old: TrackID?) {
-        guard reader.currentID == nil, !reader.isLoaded, let old else { return }
-        openTabs.removeAll { $0.id == old }
-        if openTabs.isEmpty { pinnedIDs.removeAll() }
+        guard reader.currentID == nil, !reader.isLoaded, let old, tabs.entries.contains(where: { $0.id == old }) else { return }
+        if let next = tabs.remove(old) { switchTab(to: next) }
+        if tabs.entries.isEmpty { pinnedIDs.removeAll() }
     }
 
     private func switchTab(to id: TrackID) {
-        guard id.raw != reader.currentID?.raw else { return }
-        Task { await reader.open(id) }
+        guard id != reader.currentID else { return }
+        Task {
+            if await reader.open(id) { return }
+            // A failed open retains the current note and draft. Only a
+            // confirmed missing note is removed from the saved strip.
+            do { _ = try await client.getNote(id) }
+            catch let error as APIError where error.status == 404 { tabs.remove(id) }
+            catch {}
+        }
     }
 
     private func closeTab(_ id: TrackID) {
-        if id == reader.currentID {
+        if id == reader.currentID || (reader.currentID == nil && id == tabs.activeID) {
             guard reader.close() else { return }
-            openTabs.removeAll { $0.id == id }
-            if let next = openTabs.last { Task { await reader.open(next.id) } }
+            if let next = tabs.remove(id) { switchTab(to: next) }
         } else {
-            openTabs.removeAll { $0.id == id }
+            tabs.remove(id)
         }
     }
 
@@ -766,9 +736,6 @@ private struct SearchResultRow: View {
                             }
                         }
                     }
-                    if let match = result.match {
-                        highlight(match).font(.system(size: 11 * fontScale)).foregroundStyle(.tertiary)
-                    }
                     if let snippet = result.snippet {
                         highlight(snippet).font(.system(size: 13 * fontScale)).foregroundStyle(.secondary)
                             .lineLimit(2)
@@ -780,7 +747,7 @@ private struct SearchResultRow: View {
             if let tags = result.tags, !tags.isEmpty {
                 HStack(spacing: 5) {
                     ForEach(tags, id: \.self) { tag in
-                        Button("#\(tag)") { onAppendTag(tag) }
+                        Button { onAppendTag(tag) } label: { highlight("#\(tag)") }
                             .buttonStyle(.borderless)
                             .font(.system(size: 13 * fontScale)).foregroundStyle(.secondary)
                     }
