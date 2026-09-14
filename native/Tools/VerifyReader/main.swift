@@ -17,6 +17,9 @@ final class StubHTTP: URLProtocol, @unchecked Sendable {
             let data: [String: Any]
             if status != 200 {
                 data = ["error": "test failure"]
+            } else if url.path == "/api/resolve" {
+                let term = URLComponents(url: url, resolvingAgainstBaseURL: false)?.queryItems?.first { $0.name == "term" }?.value ?? "1"
+                data = ["found": true, "note": ["note_id": term, "file_kind": "note", "title": term]]
             } else if url.path == "/api/render" {
                 data = ["markdown": "rendered"]
             } else if method == "POST" {
@@ -147,6 +150,28 @@ struct VerifyReader {
             precondition(matches == expected)
         }
         precondition(SearchPresentation.highlightRanges(in: "AND OR", query: "AND OR").isEmpty)
-        print("Reader checks passed: navigation cancellation, failed reads, conflicts, concurrent edits, stale opens, close, persistent tabs and ordered search.")
+        reader.beginEditing()
+        reader.draftBody = "anchor must keep this draft"
+        confirmation.allow = false
+        let confirmations = confirmation.count
+        await reader.openWikilink(target: "#^Block-1")
+        precondition(reader.scrollTarget == "block-Block-1" && reader.isDirty && confirmation.count == confirmations)
+        reader.discardDraft()
+        await reader.openWikilink(target: "archive:Target##設計")
+        precondition(reader.currentID == TrackID.qualify(vault: "archive", id: "Target"))
+        precondition(reader.scrollTarget == "h-設計")
+        let staleAnchor = Task { await reader.openWikilink(target: "archive:slow#Old") }
+        try await Task.sleep(for: .milliseconds(30))
+        await reader.openWikilink(target: "archive:2#New")
+        await staleAnchor.value
+        precondition(reader.currentID == TrackID.qualify(vault: "archive", id: "2") && reader.scrollTarget == "h-new")
+        await reader.openWikilink(target: "other~42#^Block-1")
+        precondition(reader.currentID?.raw == "other~42" && reader.scrollTarget == "block-Block-1")
+        await reader.openWikilink(target: "43#設計")
+        precondition(reader.currentID?.raw == "other~43" && reader.scrollTarget == "h-設計")
+        let request = reader.scrollRequest
+        await reader.openWikilink(target: "#New")
+        precondition(reader.scrollRequest > request, "Repeated same-note jumps must scroll again")
+        print("Reader checks passed: drafts, races, tabs, search, vault-qualified anchors and repeated jumps")
     }
 }

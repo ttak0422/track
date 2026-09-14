@@ -868,7 +868,6 @@ public struct NoteReaderView: View {
     /// Note metadata editor (web NoteMetaDialog), bound to the open note.
     @State private var showMeta = false
     @State private var titleCopied = false
-    @State private var anchorHighlight = false
     @State private var wikilinkPreview: WikilinkPreview?
     @State private var saveConfirmation = false
     /// Local visible-time accumulator shared with NoteReaderModel's recordView
@@ -1210,13 +1209,17 @@ public struct NoteReaderView: View {
     /// `[[title#anchor]]` and `[[vault:title]]` survive the round trip.
     private var wikilinkURLAction: OpenURLAction {
         OpenURLAction { url in
-            if url.scheme?.lowercased() == "trackwiki" {
-                let combined = (url.host ?? "") + url.path
-                let target = combined.removingPercentEncoding ?? combined
-                if !target.isEmpty {
-                    Task { await model.openWikilink(target: target) }
-                    return .handled
-                }
+            if url.scheme?.lowercased() == "trackanchor" {
+                model.scroll(to: String(url.path.dropFirst()))
+                return .handled
+            }
+            if url.scheme == nil, let fragment = url.fragment {
+                model.scroll(to: fragment)
+                return .handled
+            }
+            if let target = MarkdownAnchors.wikiTarget(url), !target.isEmpty {
+                Task { await model.openWikilink(target: target) }
+                return .handled
             }
             return .systemAction
         }
@@ -1239,7 +1242,8 @@ public struct NoteReaderView: View {
 
     @ViewBuilder
     private func readerPane(_ response: NoteResponse) -> some View {
-        GeometryReader { geometry in
+        ScrollViewReader { proxy in
+          GeometryReader { geometry in
             ScrollView {
                 let wide = geometry.size.width >= 1_080 * min(fontScale, 1.3)
                 Group {
@@ -1260,7 +1264,14 @@ public struct NoteReaderView: View {
                 .frame(maxWidth: contentWidthMode.maxWidth + (wide ? min(340, geometry.size.width * 0.24) + 40 : 0), alignment: .topLeading)
                 .padding(24)
                 .frame(maxWidth: .infinity, alignment: .topLeading)
+                .id("note-top")
             }
+            .task(id: model.scrollRequest) {
+                await Task.yield()
+                guard !Task.isCancelled else { return }
+                proxy.scrollTo(model.scrollTarget ?? "note-top", anchor: .top)
+            }
+          }
         }
     }
 
@@ -1280,10 +1291,6 @@ public struct NoteReaderView: View {
                     noteHeader(response.note, showTags: false)
                 }
                 .frame(maxWidth: contentWidthMode.proseWidth(scale: fontScale), alignment: .leading)
-
-                if let excerpt = model.anchoredExcerpt {
-                    anchoredExcerptCard(excerpt)
-                }
 
                 GFMBody(
                     markdown: model.didRender ? model.renderedBody : response.note.body,
@@ -1346,14 +1353,14 @@ public struct NoteReaderView: View {
                     }
                 }
             }
-            let headings = GFMBody.tocEntries(in: response.note.body)
+            let headings = GFMBody.tocEntries(in: model.didRender ? model.renderedBody : response.note.body)
             // The Contents rail names a region, so a lone heading earns no
             // rail (web NoteAside shows it only with two or more headings).
             if headings.count >= 2 {
                 asideSection("Contents", count: headings.count) {
-                    ForEach(Array(headings.prefix(12))) { entry in
+                    ForEach(headings) { entry in
                         Button {
-                            model.anchoredExcerpt = headingExcerpt(entry.title, in: response.note.body)
+                            model.scroll(to: entry.id)
                         } label: {
                             HStack(spacing: 4) {
                                 Image(systemName: "link").font(.system(size: 11 * fontScale))
@@ -1363,10 +1370,6 @@ public struct NoteReaderView: View {
                             .padding(.leading, CGFloat(max(0, entry.level - 1) * 12))
                         }
                         .buttonStyle(.plain).foregroundStyle(.secondary)
-                    }
-                    if headings.count > 12 {
-                        Text("+\(headings.count - 12) more")
-                            .font(.system(size: 11 * fontScale)).foregroundStyle(.secondary)
                     }
                 }
             }
@@ -1743,68 +1746,6 @@ public struct NoteReaderView: View {
         formatter.dateFormat = "yyyy-MM-dd"
         formatter.locale = Locale(identifier: "en_US_POSIX")
         return formatter.string(from: Date(timeIntervalSince1970: TimeInterval(unixSeconds)))
-    }
-
-    private func headingExcerpt(_ title: String, in body: String) -> String {
-        let lines = body.components(separatedBy: .newlines)
-        guard let start = lines.firstIndex(where: { line in
-            let text = line.trimmingCharacters(in: .whitespaces)
-            return text.drop { $0 == "#" }.trimmingCharacters(in: .whitespaces)
-                .replacingOccurrences(of: "#", with: "") == title
-        }) else { return title }
-        let level = lines[start].prefix { $0 == "#" }.count
-        let end = lines[(start + 1)...].firstIndex { line in
-            let text = line.trimmingCharacters(in: .whitespaces)
-            return text.prefix { $0 == "#" }.count == level && text.drop { $0 == "#" }.first == " "
-        } ?? lines.count
-        return lines[start..<end].joined(separator: "\n")
-    }
-
-    /// A dismissible card showing the anchored excerpt a `[[Note#heading]]` /
-    /// `[[Note#^block]]` tap landed on (the MarkdownUI body offers no in-body
-    /// scroll target, so the excerpt is surfaced here instead). Dismissing
-    /// clears the model's `anchoredExcerpt` so it does not reappear.
-    private func anchoredExcerptCard(_ excerpt: String) -> some View {
-        VStack(alignment: .leading, spacing: 8) {
-            HStack(spacing: 8) {
-                Image(systemName: "scope")
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-                Text("Excerpt")
-                    .trackSectionLabel()
-                Spacer()
-                Button {
-                    model.anchoredExcerpt = nil
-                } label: {
-                    Image(systemName: "xmark.circle.fill")
-                        .foregroundStyle(.secondary)
-                }
-                .buttonStyle(.plain)
-                .accessibilityLabel("Dismiss excerpt")
-            }
-            Text(excerpt)
-                .font(.body)
-                .textSelection(.enabled)
-                .lineLimit(nil)
-        }
-        .padding(12)
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .background(
-            RoundedRectangle(cornerRadius: 8)
-                .fill(Color(nsColor: .textBackgroundColor))
-        )
-        .overlay(
-            RoundedRectangle(cornerRadius: 8)
-                .stroke(Color(nsColor: .separatorColor), lineWidth: 0.5)
-        )
-        .overlay(
-            RoundedRectangle(cornerRadius: 8)
-                .stroke(anchorHighlight ? TrackTheme.palette(for: colorScheme).mark : .clear, lineWidth: 2)
-        )
-        .onAppear {
-            anchorHighlight = true
-            DispatchQueue.main.asyncAfter(deadline: .now() + 1.4) { anchorHighlight = false }
-        }
     }
 
     private func statusBadge(_ text: String) -> some View {

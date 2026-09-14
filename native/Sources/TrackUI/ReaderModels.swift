@@ -36,15 +36,19 @@ public final class NoteReaderModel {
     /// distinguishes "render succeeded on an empty body" from "render failed".
     public private(set) var didRender = false
 
-    /// The excerpt a `[[Note#Heading]]` / `[[Note#^block]]` anchor arrived
-    /// with: the anchored heading (or block) through the lines before the next
-    /// same-level heading. Shown in a dismissible card above the reader
-    /// (MarkdownUI offers no in-body scroll target), and cleared when another
-    /// note opens or when dismissed by the view.
-    public var anchoredExcerpt: String?
     public private(set) var dayNotes: [NoteRef] = []
     public private(set) var dayNotesError: String?
     public private(set) var isLoadingDayNotes = false
+    public private(set) var scrollTarget: String?
+    public private(set) var scrollRequest = 0
+
+    public func scroll(to anchor: String?) {
+        let decoded = anchor?.removingPercentEncoding ?? anchor
+        scrollTarget = decoded.map { id in
+            ["h-", "block-", "fn-", "fnref-"].contains(where: id.hasPrefix) ? id : "h-" + MarkdownAnchors.slug(id)
+        }
+        scrollRequest += 1
+    }
 
     // Editing buffer for the note body (web NoteEditor parity). `draftBody`
     // mirrors the loaded body while the note is not being edited and diverges
@@ -131,7 +135,7 @@ public final class NoteReaderModel {
         return await load(id, token: token)
     }
 
-    private func load(_ id: TrackID, token: Int, excerpt: String? = nil) async -> Bool {
+    private func load(_ id: TrackID, token: Int, anchor: String? = nil) async -> Bool {
         defer { if token == generation { isOpening = false } }
         if !isLoaded { state = .loading }
         do {
@@ -147,9 +151,9 @@ public final class NoteReaderModel {
             renderedBody = render?.markdown ?? ""
             renderedIncludes = render?.includes
             didRender = render != nil
-            anchoredExcerpt = excerpt
             state = .loaded(response)
             ReadingStore.shared.adopt([response.note.summary.ref] + response.backlinks)
+            scroll(to: anchor)
             return true
         } catch {
             guard acceptsNavigation(token) else { return false }
@@ -189,7 +193,7 @@ public final class NoteReaderModel {
         renderedBody = ""
         renderedIncludes = nil
         didRender = false
-        anchoredExcerpt = nil
+        scroll(to: nil)
         draftBody = ""
         isEditing = false
         saveError = nil
@@ -471,185 +475,46 @@ public final class NoteReaderModel {
         await open(ref.noteID.raw.contains("~") ? ref.noteID : TrackID.qualify(vault: currentID?.split().vault ?? "", id: ref.noteID.raw))
     }
 
-    /// Resolve and open a `[[wikilink]]` target. The target grammar
-    /// (`web/src/components/markdown/plugins.ts: splitWikiTarget`) allows an
-    /// optional leading `vault:` and a trailing `#anchor`/`#^block`; the
-    /// anchor is stripped for resolution (it names a destination inside the
-    /// note, not a different note), but kept to compute the anchored excerpt
-    /// shown above the reader. Cross-vault targets resolve through the same
-    /// `/api/resolve` the web reader uses.
-    public func openWikilink(target: String) async {
-        guard let token = beginNavigation() else { return }
+    /// Same-note anchors scroll locally; cross-note anchors travel with the
+    /// navigation transaction so a delayed response cannot jump another note.
+    @discardableResult
+    public func openWikilink(target: String) async -> Bool {
+        let parsed = MarkdownAnchors.target(target.trimmingCharacters(in: .whitespaces))
+        if let anchor = parsed.anchor, isLoaded,
+           parsed.key.isEmpty || parsed.key == currentID?.raw {
+            scroll(to: anchor)
+            return true
+        }
+        guard let token = beginNavigation() else { return false }
         defer { if token == generation { isOpening = false } }
-        let parsed = Self.splitWikilinkFull(target)
-        let vault = parsed.vault.isEmpty ? (currentID?.split().vault ?? "") : parsed.vault
+        let parts = parsed.key.split(separator: ":", maxSplits: 1, omittingEmptySubsequences: false)
+        let vault = parts.count == 2 ? String(parts[0]) : (currentID?.split().vault ?? "")
+        let term = String(parts.last ?? "")
         do {
-            let resolved = try await client.resolveTerm(parsed.term, vault: vault)
-            guard acceptsNavigation(token), resolved.found else { return }
-            let id = TrackID.qualify(vault: vault, id: resolved.note.noteID.raw)
-            let excerpt = parsed.anchor.isEmpty ? nil : await Self.anchoredExcerpt(for: parsed.anchor, in: id, client: client)
-            guard acceptsNavigation(token) else { return }
-            _ = await load(id, token: token, excerpt: excerpt)
+            let id: TrackID
+            let qualified = parsed.key.split(separator: "~", maxSplits: 1, omittingEmptySubsequences: false)
+            if qualified.count == 2, !qualified[0].isEmpty, !qualified[1].isEmpty {
+                id = TrackID(parsed.key)
+            } else if !term.isEmpty, term.utf8.allSatisfy({ $0 >= 48 && $0 <= 57 }) {
+                id = TrackID.qualify(vault: vault, id: term)
+            } else {
+                let resolved = try await client.resolveTerm(term, vault: vault)
+                guard acceptsNavigation(token), resolved.found else { return false }
+                id = TrackID.qualify(vault: vault, id: resolved.note.noteID.raw)
+            }
+            if id == currentID, let anchor = parsed.anchor {
+                scroll(to: anchor)
+                return true
+            } else {
+                return await load(id, token: token, anchor: parsed.anchor)
+            }
         } catch {
-            guard acceptsNavigation(token) else { return }
+            guard acceptsNavigation(token) else { return false }
             saveError = Self.message(for: error)
+            return false
         }
     }
 
-    /// `vault:title#anchor` → (`vault`, `title`); a bare `title` keeps the
-    /// empty vault. The anchor (block or heading) is dropped for lookup.
-    private static func splitWikilink(_ target: String) -> (vault: String, term: String) {
-        let trimmed = target.trimmingCharacters(in: .whitespaces)
-        let noAnchor = trimmed.split(separator: "#", maxSplits: 1).first.map(String.init) ?? trimmed
-        if let colon = noAnchor.firstIndex(of: ":") {
-            let vault = String(noAnchor[..<colon])
-            let term = String(noAnchor[noAnchor.index(after: colon)...])
-            return (vault, term)
-        }
-        return ("", noAnchor)
-    }
-
-    /// A `[[target]]` split into its resolution key (vault + term) and the
-    /// trailing anchor name (heading text or `^block` id), mirroring the web's
-    /// `splitWikiTarget`.
-    private static func splitWikilinkFull(_ target: String) -> (vault: String, term: String, anchor: String) {
-        let trimmed = target.trimmingCharacters(in: .whitespaces)
-        let (keyPart, anchor) = Self.splitAnchor(trimmed)
-        let (vault, term) = splitWikilink(keyPart)
-        return (vault, term, anchor)
-    }
-
-    /// `key#anchor` → (`key`, `anchor`); nil/empty anchor when there is no
-    /// `#` or the fragment is empty (`C#` keeps the hash as part of the key).
-    private static func splitAnchor(_ target: String) -> (String, String) {
-        guard let i = target.firstIndex(of: "#") else { return (target, "") }
-        let rest = target[target.index(after: i)...].trimmingCharacters(in: .whitespaces)
-        if rest.isEmpty { return (target, "") }
-        return (target[..<i].trimmingCharacters(in: .whitespaces), rest)
-    }
-
-    /// The excerpt the anchored excerpt card shows: fetch the target note and
-    /// collect the anchored heading (or `^block`) through the lines before the
-    /// next same-level heading. Returns nil when the anchor does not match or
-    /// the fetch fails (the note still opens, just without a card).
-    private static func anchoredExcerpt(for anchor: String, in id: TrackID, client: TrackClient) async -> String? {
-        guard let response = try? await client.getNote(id) else { return nil }
-        let body = response.note.body
-        let lines = body.components(separatedBy: "\n")
-        let isBlock = anchor.hasPrefix("^")
-        let blockID = isBlock ? String(anchor.dropFirst()) : nil
-        let heading = isBlock ? nil : anchor
-
-        // Scan ATX headings (skip fenced code) so heading level and anchors
-        // match the note's own structure.
-        var start = -1
-        var startLevel = 0
-        var fence: String? = nil
-        for (idx, raw) in lines.enumerated() {
-            let line = raw
-            if fence != nil {
-                let t = line.trimmingCharacters(in: .whitespaces)
-                if t.hasPrefix("```") || t.hasPrefix("~~~") { fence = nil }
-                continue
-            }
-            let t = line.trimmingCharacters(in: .whitespaces)
-            if t.hasPrefix("```") || t.hasPrefix("~~~") {
-                fence = String(t.prefix(while: { $0 == "`" || $0 == "~" }))
-                continue
-            }
-            if isBlock {
-                if t == "^" + blockID! || t.hasSuffix(" ^" + blockID!) {
-                    start = idx
-                    break
-                }
-            } else if let heading {
-                if let level = Self.headingLevel(line), Self.headingSlug(Self.headingText(line)) == heading {
-                    start = idx
-                    startLevel = level
-                    break
-                }
-            }
-        }
-
-        guard start >= 0 else { return nil }
-
-        // Collect from the anchor through the line before the next heading at
-        // or above the anchor's level (a block anchor runs to the next heading
-        // of any level).
-        var excerpt: [String] = []
-        var j = start
-        while j < lines.count {
-            let line = lines[j]
-            if isBlock {
-                if Self.headingLevel(line) != nil { break }
-            } else if let level = Self.headingLevel(line), level <= startLevel {
-                if j > start { break }
-            }
-            excerpt.append(line)
-            j += 1
-        }
-        let text = excerpt.joined(separator: "\n").trimmingCharacters(in: .whitespacesAndNewlines)
-        return text.isEmpty ? nil : text
-    }
-
-    /// The ATX heading level of a line (1–6), or nil when it is not a heading.
-    private static func headingLevel(_ line: String) -> Int? {
-        var count = 0
-        for ch in line {
-            if ch == "#" { count += 1 } else { break }
-        }
-        guard count >= 1, count <= 6 else { return nil }
-        let after = line.dropFirst(count)
-        guard after.first == " " || after.first == "\t" else { return nil }
-        return count
-    }
-
-    /// The heading text (`TODAY` after `## TODAY`), trailing `#`s trimmed.
-    private static func headingText(_ line: String) -> String {
-        let level = headingLevel(line) ?? 0
-        var text = String(line.dropFirst(max(level, 0)))
-        text = text.trimmingCharacters(in: .whitespaces)
-        while text.hasSuffix("#") { text.removeLast(); text = text.trimmingCharacters(in: .whitespaces) }
-        return text
-    }
-
-    /// The heading slug an anchor names, matching the web's `headingSlug`
-    /// (markdown syntax stripped, lowercased, non letter/number/space/hyphen
-    /// dropped, spaces → hyphens).
-    private static func headingSlug(_ text: String) -> String {
-        var label = text
-        label = Self.wikiRoleRegex.stringByReplacingMatches(
-            in: label,
-            range: NSRange(label.startIndex..., in: label),
-            withTemplate: "$1"
-        )
-        label = Self.mdLinkRegex.stringByReplacingMatches(
-            in: label,
-            range: NSRange(label.startIndex..., in: label),
-            withTemplate: "$1"
-        )
-        label = label.replacingOccurrences(of: "*", with: "")
-            .replacingOccurrences(of: "_", with: "")
-            .replacingOccurrences(of: "~", with: "")
-            .replacingOccurrences(of: "`", with: "")
-        var slug = label.lowercased()
-        var cleaned = ""
-        for ch in slug {
-            if ch.isLetter || ch.isNumber || ch == " " || ch == "-" {
-                cleaned.append(ch)
-            }
-        }
-        slug = cleaned.trimmingCharacters(in: .whitespaces)
-            .replacingOccurrences(of: " ", with: "-")
-        return slug.isEmpty ? "section" : slug
-    }
-
-    private static let wikiRoleRegex = try! NSRegularExpression(
-        pattern: "\\[\\[[^|\\]]+\\|([^\\]]+)\\]\\]"
-    )
-    private static let mdLinkRegex = try! NSRegularExpression(
-        pattern: "\\[([^\\]]+)\\]\\([^\\s)]*\\)"
-    )
 }
 
 // MARK: - Search
