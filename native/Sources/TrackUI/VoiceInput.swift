@@ -28,7 +28,7 @@ public final class VoiceInputModel {
     private var stopTimeout: Task<Void, Never>?
     private var recognitionID = UUID()
     private var isInteracting = false
-    private var queuedSpeech: [(text: String, final: Bool)] = []
+    private var queuedSpeech = VoiceSpeechBuffer()
     /// True while the engine is recording and feeding the recognizer.
     public private(set) var isRecording = false
     /// Last failure surfaced to the view (permission, no mic, recognizer
@@ -146,7 +146,9 @@ public final class VoiceInputModel {
                     if self.isStopping { self.finishStop(); return }
                     guard self.isRecording else { return }
                     self.recognitionID = UUID()
-                    self.transcriptState.finishSegment()
+                    if self.isInteracting {
+                        self.queuedSpeech.finishSegment(fallback: self.transcriptState.interim)
+                    } else { self.transcriptState.finishSegment() }
                     self.request = nil
                     self.task = nil
                     self.scheduleRecognitionRestart(session: session, failure: error)
@@ -224,13 +226,11 @@ public final class VoiceInputModel {
     }
     private func acceptSpeech(_ text: String, isFinal: Bool) {
         if isInteracting {
-            if queuedSpeech.last?.final == false { queuedSpeech.removeLast() }
-            queuedSpeech.append((text, isFinal))
+            queuedSpeech.append(text, isFinal: isFinal)
         } else { transcriptState.receive(text, isFinal: isFinal) }
     }
     private func flushSpeech() {
-        for event in queuedSpeech { transcriptState.receive(event.text, isFinal: event.final) }
-        queuedSpeech = []
+        for event in queuedSpeech.drain() { transcriptState.receive(event.text, isFinal: event.isFinal) }
     }
     public func clear() { transcriptState.clear() }
     public func updateTranscript(_ value: String) { transcriptState.edit(value) }

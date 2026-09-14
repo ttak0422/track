@@ -8,6 +8,9 @@ public struct VoiceTranscriptState {
     public private(set) var confirmed = ""
     public private(set) var interim = ""
     private var absorbed = ""
+    private var editedAbsorbed = ""
+    private var absorbedBase = ""
+    private var clearedSegment = false
     public init() {}
     public static func selectedText(in text: String, range: NSRange) -> String {
         let source = text as NSString
@@ -15,8 +18,16 @@ public struct VoiceTranscriptState {
         return source.substring(with: range).trimmingCharacters(in: .whitespacesAndNewlines)
     }
     private var remaining: String {
+        if clearedSegment || interim.isEmpty { return "" }
         if absorbed.isEmpty { return interim }
-        return interim.hasPrefix(absorbed) ? String(interim.dropFirst(absorbed.count)) : ""
+        if interim.hasPrefix(absorbed) { return String(interim.dropFirst(absorbed.count)) }
+        if !editedAbsorbed.isEmpty, interim.hasPrefix(editedAbsorbed) {
+            return String(interim.dropFirst(editedAbsorbed.count))
+        }
+        // Recognition can revise words before the edit boundary. There is no
+        // reliable split in that case: retain one replaceable, labelled candidate
+        // for manual reconciliation instead of dropping words or guessing a merge.
+        return "\n\n[認識の訂正候補・要確認]\n" + interim
     }
     private var suffix: String {
         let tail = remaining
@@ -31,8 +42,15 @@ public struct VoiceTranscriptState {
         if !shadow.isEmpty, value.hasSuffix(shadow) {
             confirmed = String(value.dropLast(shadow.count))
         } else {
+            let previous = confirmed
             confirmed = value
-            if !interim.isEmpty { absorbed = interim }
+            if !interim.isEmpty {
+                if absorbed.isEmpty { absorbedBase = previous }
+                absorbed = interim
+                editedAbsorbed = value.hasPrefix(absorbedBase)
+                    ? String(value.dropFirst(absorbedBase.count)).trimmingCharacters(in: .newlines)
+                    : ""
+            }
         }
     }
     public mutating func receive(_ speech: String, isFinal: Bool) {
@@ -44,12 +62,37 @@ public struct VoiceTranscriptState {
         confirmed = visible.isEmpty || visible.hasSuffix("\n") ? visible : visible + "\n"
         interim = ""
         absorbed = ""
+        editedAbsorbed = ""
+        absorbedBase = ""
+        clearedSegment = false
     }
     public mutating func clear() {
         confirmed = ""
         // The current utterance has already been displayed and explicitly cleared.
         // Suppress it through its final callback; a fresh segment can append again.
         absorbed = interim
+        editedAbsorbed = ""
+        absorbedBase = ""
+        clearedSegment = !interim.isEmpty
+    }
+}
+
+/// Coalesce interim updates only within one recognition segment. Errors create
+/// the same boundary as a final result, even while selection or IME defers display.
+public struct VoiceSpeechBuffer {
+    private var events: [(text: String, isFinal: Bool)] = []
+    public init() {}
+    public mutating func append(_ text: String, isFinal: Bool) {
+        if events.last?.isFinal == false { events.removeLast() }
+        events.append((text, isFinal))
+    }
+    public mutating func finishSegment(fallback: String) {
+        if events.isEmpty { events.append((fallback, true)) }
+        else if events.last?.isFinal == false { events[events.count - 1].isFinal = true }
+    }
+    public mutating func drain() -> [(text: String, isFinal: Bool)] {
+        defer { events.removeAll() }
+        return events
     }
 }
 
