@@ -328,8 +328,13 @@ public final class NoteReaderModel {
     /// success; a rejected edit sets `saveError` and returns false so the
     /// meta sheet stays open (web dialog keeps open, changing nothing).
     @discardableResult
-    public func saveMeta(_ request: SaveNoteMetaRequest) async -> Bool {
-        guard !isSavingMeta, !isOpening, let id = currentID else { return false }
+    public func saveMeta(_ request: SaveNoteMetaRequest, expectedID: TrackID? = nil) async -> Bool {
+        guard !isSavingMeta, !isOpening, !isSaving, !isDeleting, !isWritingTask,
+              let id = currentID else { return false }
+        guard expectedID == nil || expectedID == id else {
+            saveError = "The open note changed. Reopen metadata for the note you want to edit."
+            return false
+        }
         isSavingMeta = true
         saveError = nil
         defer { isSavingMeta = false }
@@ -337,6 +342,9 @@ public final class NoteReaderModel {
             _ = try await client.saveNoteMeta(id: id, request: request)
             await refreshOpenNote()
             return true
+        } catch let error as APIError where error.status == 409 {
+            saveError = "Metadata changed elsewhere. Your entries are kept. Copy them before reopening metadata and merging the latest values."
+            return false
         } catch {
             saveError = Self.message(for: error)
             return false
