@@ -51,6 +51,7 @@ struct VoiceTranscriptEditor: NSViewRepresentable {
         let onSelection = self.onSelection
         Task { @MainActor in onSelection(selected) }
     }
+    @MainActor
     final class Coordinator: NSObject, NSTextViewDelegate {
         var parent: VoiceTranscriptEditor
         var isUpdating = false

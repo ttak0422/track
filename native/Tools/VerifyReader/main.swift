@@ -272,7 +272,7 @@ struct VerifyReader {
         let staleAnchor = Task { await reader.openWikilink(target: "archive:slow#Old") }
         try await Task.sleep(for: .milliseconds(30))
         await reader.openWikilink(target: "archive:2#New")
-        await staleAnchor.value
+        _ = await staleAnchor.value
         precondition(reader.currentID == TrackID.qualify(vault: "archive", id: "2") && reader.scrollTarget == "h-new")
         await reader.openWikilink(target: "other~42#^Block-1")
         precondition(reader.currentID?.raw == "other~42" && reader.scrollTarget == "block-Block-1")
