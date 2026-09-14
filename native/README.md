@@ -27,6 +27,7 @@ swift run --package-path native VerifyVaultScope
 swift run --package-path native VerifyReader
 swift run --package-path native VerifyDesign
 swift run --package-path native VerifyReading
+swift run --package-path native VerifyAgentRequests
 ```
 
 Build the unsigned, non-sandboxed app bundle with `make native-app`. Override
@@ -39,5 +40,6 @@ Build the unsigned, non-sandboxed app bundle with `make native-app`. Override
 
 - swift-testing / XCTest は CLT に入っていないため、テストは `swift test`
   ではなく `swift run VerifyFixtures` で行う。フル Xcode があれば移行可。
+- `VerifyAgentRequests` checks request lifecycle, follow-up context and lost-response retries against a mocked gateway; it never dispatches to an agent.
 - `VerifyVaultScope` checks vault selection persistence and request/response identity with two mocked vaults sharing note IDs.
 - fixture (`Tools/VerifyFixtures/Fixtures/*.json`) は `track web` の実応答から採取。

@@ -246,7 +246,7 @@ public struct TrackClient: Sendable {
 
     // MARK: - Transport
 
-    private func vaultQuery(_ vault: String) -> [URLQueryItem] {
+    func vaultQuery(_ vault: String) -> [URLQueryItem] {
         vault.isEmpty ? [] : [URLQueryItem(name: "vault", value: vault)]
     }
 
@@ -257,7 +257,7 @@ public struct TrackClient: Sendable {
         return items
     }
 
-    private func get<T: Decodable>(path: String, query: [URLQueryItem] = []) async throws -> T {
+    func get<T: Decodable>(path: String, query: [URLQueryItem] = []) async throws -> T {
         var comps = URLComponents(url: baseURL.appendingPathComponent(path), resolvingAgainstBaseURL: false)!
         comps.queryItems = query.isEmpty ? nil : query
         var req = URLRequest(url: comps.url!)
@@ -297,7 +297,7 @@ public struct TrackClient: Sendable {
 
     /// POST with a JSON body, for Codable request types — the typed pair of the
     /// dictionary-bodied `post` above (api.ts: saveNoteMeta / createNote).
-    private func postEncodable<T: Decodable>(path: String, query: [URLQueryItem] = [], body: some Encodable) async throws -> T {
+    func postEncodable<T: Decodable>(path: String, query: [URLQueryItem] = [], body: some Encodable) async throws -> T {
         var comps = URLComponents(url: baseURL.appendingPathComponent(path), resolvingAgainstBaseURL: false)!
         comps.queryItems = query.isEmpty ? nil : query
         var req = URLRequest(url: comps.url!)
