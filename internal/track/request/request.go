@@ -232,7 +232,7 @@ type AppliedUpdate struct {
 // replayed save returns the same note instead of creating a second one.
 type SavedNote struct {
 	ClientRequestID string     `json:"client_request_id,omitempty"`
-	Vault           string     `json:"vault,omitempty"` // registry label of the note's vault; "" = the request's own vault
+	Vault           string     `json:"vault"` // registry label; an explicit empty label addresses the launch vault
 	NoteID          int64      `json:"note_id"`
 	Title           string     `json:"title"`
 	Status          SaveStatus `json:"status"`
