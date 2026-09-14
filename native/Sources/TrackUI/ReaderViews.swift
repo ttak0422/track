@@ -38,6 +38,7 @@ public struct SearchReaderView: View {
 
     @State private var search: SearchModel
     @State private var reader: NoteReaderModel
+    @State private var columnVisibility: NavigationSplitViewVisibility = .detailOnly
     @State private var query = ""
     @State private var activeSearchIndex = -1
     /// Title typed in the New-note sheet.
@@ -60,14 +61,10 @@ public struct SearchReaderView: View {
     @State private var browse: BrowseModel
     @Environment(LiveEventPoller.self) private var liveEvents
     @State private var dismissedChangeAt: Date?
-    @State private var readerChangeNotice: String?
-    @State private var pendingSearchResult: SearchResult?
     /// Tab-strip state (web TabBar parity): every note the reader opens lands
     /// here, whatever path opened it (search, wikilink, aside, follow); the
     /// strip switches with the same dirty guard as search results.
     @State private var openTabs: [OpenTab] = []
-    @State private var pendingTabID: TrackID?
-    @State private var pendingCloseID: TrackID?
     /// Pinned floating previews (web preview/FloatingWindow parity): note ids
     /// kept as draggable excerpt cards over the detail, opened from search or
     /// recent rows without leaving the current note.
@@ -122,7 +119,7 @@ public struct SearchReaderView: View {
     }
 
     public var body: some View {
-        NavigationSplitView {
+        NavigationSplitView(columnVisibility: $columnVisibility) {
             VStack(alignment: .leading, spacing: 0) {
                 HStack(spacing: 6) {
                     TextField("Search", text: $query)
@@ -390,7 +387,10 @@ public struct SearchReaderView: View {
                   .accessibilityHidden(true)
           }
          .onChange(of: search.searchFocusRequested) { _, _ in
-             if search.consumeSearchFocusRequest() { searchFocused = true }
+             if search.consumeSearchFocusRequest() {
+                 columnVisibility = .all
+                 searchFocused = true
+             }
          }
          .task(id: vaultScope?.scope) { await browse.loadNewNotes(vault: vaultScope?.scope ?? "") }
          .onReceive(NotificationCenter.default.publisher(for: .trackVaultChanged)) { _ in
@@ -405,41 +405,6 @@ public struct SearchReaderView: View {
              }
          }
          .onChange(of: loadedTabTitle) { _, _ in syncTab() }
-         .alert("Unsaved edits", isPresented: Binding(
-             get: { readerChangeNotice != nil },
-             set: { if !$0 { readerChangeNotice = nil; pendingSearchResult = nil; pendingTabID = nil; pendingCloseID = nil } }
-         )) {
-             Button("Discard and open", role: .destructive) {
-                 reader.discardDraft()
-                 if let result = pendingSearchResult {
-                     pendingSearchResult = nil
-                     openSearchResult(result)
-                 } else if let id = pendingTabID {
-                     pendingTabID = nil
-                     Task { await reader.open(id) }
-                 } else if let id = pendingCloseID {
-                     pendingCloseID = nil
-                     openTabs.removeAll { $0.id == id }
-                     if id.raw == reader.currentID?.raw {
-                         if let next = openTabs.last {
-                             Task { await reader.open(next.id) }
-                         } else {
-                             reader.close()
-                         }
-                     }
-                 }
-                 readerChangeNotice = nil
-             }
-             Button("Keep editing", role: .cancel) {
-                 readerChangeNotice = nil
-                 pendingSearchResult = nil
-                 pendingTabID = nil
-                 pendingCloseID = nil
-             }
-         } message: {
-             Text("Your unsaved changes will be lost.")
-         }
-
         .sheet(isPresented: $showNewNote) {
             NewNoteSheet(
                 title: $newNoteTitle,
@@ -610,11 +575,6 @@ public struct SearchReaderView: View {
     }
 
     private func openSearchResult(_ result: SearchResult) {
-        guard !reader.isDirty else {
-            readerChangeNotice = "Discard unsaved edits before opening another note?"
-            pendingSearchResult = result
-            return
-        }
         if !query.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
             search.addToHistory(query)
         }
@@ -636,10 +596,6 @@ public struct SearchReaderView: View {
     /// the activity heatmap opens a day.
     private func openTodayJournal() {
         guard !isOpeningJournal else { return }
-        guard !reader.isDirty else {
-            readerChangeNotice = "Discard unsaved edits before opening another note?"
-            return
-        }
         isOpeningJournal = true
         todayError = nil
         Task {
@@ -758,27 +714,16 @@ public struct SearchReaderView: View {
 
     private func switchTab(to id: TrackID) {
         guard id.raw != reader.currentID?.raw else { return }
-        guard !reader.isDirty else {
-            pendingTabID = id
-            readerChangeNotice = "Discard unsaved edits before opening another note?"
-            return
-        }
         Task { await reader.open(id) }
     }
 
     private func closeTab(_ id: TrackID) {
-        if id.raw == reader.currentID?.raw, reader.isDirty {
-            pendingCloseID = id
-            readerChangeNotice = "Discard unsaved edits before closing this note?"
-            return
-        }
-        openTabs.removeAll { $0.id == id }
-        if id.raw == reader.currentID?.raw {
-            if let next = openTabs.last {
-                Task { await reader.open(next.id) }
-            } else {
-                reader.close()
-            }
+        if id == reader.currentID {
+            guard reader.close() else { return }
+            openTabs.removeAll { $0.id == id }
+            if let next = openTabs.last { Task { await reader.open(next.id) } }
+        } else {
+            openTabs.removeAll { $0.id == id }
         }
     }
 
@@ -1063,6 +1008,8 @@ public struct NoteReaderView: View {
                 _ = await model.recordView(using: reading, seconds: 10, text: response.note.body)
             }
         }
+        .background(WindowDraftProtection(model: model))
+        .interactiveDismissDisabled(model.isDirty || model.isSaving)
         .task(id: followEnabled) {
             // Neovim follow polling (web NoteEditor's follow effect): while the
             // toggle is on, ask /api/follow every 5 s and open the editor's
@@ -1087,8 +1034,7 @@ public struct NoteReaderView: View {
             }
         }
         .onReceive(NotificationCenter.default.publisher(for: .trackVaultChanged)) { _ in
-            guard let id = model.currentID, !model.isEditing else { return }
-            Task { await model.open(id) }
+            Task { await model.refreshOpenNote() }
         }
         .alert("Discard unsaved edits?", isPresented: $confirmDiscard) {
             Button("Discard", role: .destructive) { model.discardDraft() }
@@ -1247,7 +1193,7 @@ public struct NoteReaderView: View {
                 await model.saveDraft()
                 if model.saveError == nil && model.saveConflict == nil { saveConfirmation = true }
             } }
-                .disabled(!model.isDirty)
+                .disabled(!model.isDirty || model.isOpening)
                 .keyboardShortcut("s", modifiers: [.command])
         }
     }

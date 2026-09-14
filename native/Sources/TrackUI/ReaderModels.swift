@@ -1,3 +1,4 @@
+import AppKit
 import Foundation
 import Observation
 import TrackAPI
@@ -20,7 +21,7 @@ public final class NoteReaderModel {
 
     public private(set) var state: State = .empty
     /// The id `open` last succeeded with — the qualified id every write and
-    /// the read report address. Cleared while loading and once nothing is open.
+    /// the read report address. Kept until the next open succeeds.
     public private(set) var currentID: TrackID?
 
     // Render pipeline (web useRenderQuery): `open` posts the raw body to
@@ -60,15 +61,47 @@ public final class NoteReaderModel {
     /// load), shown until dismissed or until the next write clears it.
     public private(set) var saveError: String?
     /// Set when a body save is refused with 409: the note changed on disk, so
-    /// the view reloaded the latest etag and the edit was NOT applied.
+    /// the draft and its original etag are retained; the edit was NOT applied.
     public private(set) var saveConflict: String?
 
     /// The API client the reader hands down to the GFM renderer (viewspec
     /// resolution) and every read/write path.
     public let client: TrackClient
 
-    public init(client: TrackClient) {
+    private var generation = 0
+    private var navigationDraft = ""
+    public private(set) var isOpening = false
+    private let confirmDiscard: @MainActor () -> Bool
+
+    public init(client: TrackClient, confirmDiscard: (@MainActor () -> Bool)? = nil) {
         self.client = client
+        self.confirmDiscard = confirmDiscard ?? {
+            let alert = NSAlert()
+            alert.messageText = "Discard unsaved edits?"
+            alert.informativeText = "Your unsaved changes will be lost."
+            alert.addButton(withTitle: "Keep editing")
+            alert.addButton(withTitle: "Discard")
+            return alert.runModal() == .alertSecondButtonReturn
+        }
+    }
+
+    /// All navigation and window-close paths use this boundary. Keep the
+    /// buffer until navigation succeeds, including when the network fails.
+    public func authorizeDiscard() -> Bool {
+        guard !isSaving, !isDeleting, !isSavingMeta, !isCreating else { return false }
+        return !isDirty || confirmDiscard()
+    }
+
+    private func beginNavigation() -> Int? {
+        guard authorizeDiscard() else { return nil }
+        generation += 1
+        navigationDraft = draftBody
+        isOpening = true
+        return generation
+    }
+
+    private func acceptsNavigation(_ token: Int) -> Bool {
+        token == generation && draftBody == navigationDraft && !Task.isCancelled
     }
 
     /// The body the open note has on disk (`""` with nothing loaded) — the
@@ -87,34 +120,36 @@ public final class NoteReaderModel {
         return false
     }
 
-    public func open(_ id: TrackID) async {
-        state = .loading
-        currentID = nil
-        // Opening always leaves editing behind: a draft belongs to the note
-        // that was open, and switching notes discards it (web adopt path).
-        isEditing = false
-        draftBody = ""
-        saveError = nil
-        saveConflict = nil
-        renderedBody = ""
-        renderedIncludes = nil
-        didRender = false
-        anchoredExcerpt = nil
+    @discardableResult
+    public func open(_ id: TrackID) async -> Bool {
+        guard let token = beginNavigation() else { return false }
+        return await load(id, token: token)
+    }
+
+    private func load(_ id: TrackID, token: Int, excerpt: String? = nil) async -> Bool {
+        defer { if token == generation { isOpening = false } }
+        if !isLoaded { state = .loading }
         do {
             let response = try await client.getNote(id)
+            guard acceptsNavigation(token) else { return false }
+            let render = try? await client.renderMarkdown(body: response.note.body, vault: id.split().vault)
+            guard acceptsNavigation(token) else { return false }
             currentID = id
             draftBody = response.note.body
-            // Resolve the body through the engine; a failure falls back to
-            // the raw body so the note still opens.
-            let vault = id.split().vault
-            if let render = try? await client.renderMarkdown(body: response.note.body, vault: vault) {
-                renderedBody = render.markdown
-                renderedIncludes = render.includes
-                didRender = true
-            }
+            isEditing = false
+            saveError = nil
+            saveConflict = nil
+            renderedBody = render?.markdown ?? ""
+            renderedIncludes = render?.includes
+            didRender = render != nil
+            anchoredExcerpt = excerpt
             state = .loaded(response)
+            return true
         } catch {
-            state = .failed(error.localizedDescription)
+            guard acceptsNavigation(token) else { return false }
+            if isLoaded { saveError = Self.message(for: error) }
+            else { state = .failed(error.localizedDescription) }
+            return false
         }
     }
 
@@ -122,7 +157,7 @@ public final class NoteReaderModel {
 
     /// Enter the editor seeded from the loaded body.
     public func beginEditing() {
-        guard isLoaded else { return }
+        guard isLoaded, !isEditing, !isOpening else { return }
         draftBody = loadedBody
         isEditing = true
     }
@@ -138,7 +173,11 @@ public final class NoteReaderModel {
 
     /// Close the open note (web "close tab" → empty reader): clears the id,
     /// buffers and write state so the detail falls back to the start page.
-    public func close() {
+    @discardableResult
+    public func close() -> Bool {
+        guard authorizeDiscard() else { return false }
+        generation += 1
+        isOpening = false
         state = .empty
         currentID = nil
         renderedBody = ""
@@ -149,6 +188,7 @@ public final class NoteReaderModel {
         isEditing = false
         saveError = nil
         saveConflict = nil
+        return true
     }
 
     // MARK: - Writes (web NoteEditor / NoteMetaDialog / NoteActionsMenu parity)
@@ -165,26 +205,27 @@ public final class NoteReaderModel {
 
     /// Save the draft against the loaded etag (web submit → saveNote). On
     /// success the note is refetched and the draft reseeded from the fresh
-    /// body. A 409 leaves the draft intact, reloads the latest etag so a retry
-    /// has a fresh token, and sets `saveConflict` (the edit was not applied).
+    /// body. A 409 retains the draft and its baseline etag, so retrying cannot
+    /// overwrite the external change without an explicit reload and merge.
     public func saveDraft() async {
-        guard isDirty, !isSaving, let id = currentID else { return }
+        guard isDirty, !isSaving, !isOpening, let id = currentID else { return }
+        let submittedBody = draftBody
+        let token = generation
         isSaving = true
         saveError = nil
         saveConflict = nil
         defer { isSaving = false }
         do {
-            _ = try await client.saveNote(id: id, body: draftBody, etag: loadedEtag)
+            _ = try await client.saveNote(id: id, body: submittedBody, etag: loadedEtag)
             let fresh = try await client.getNote(id)
-            draftBody = fresh.note.body
+            guard token == generation, currentID == id else { return }
+            if draftBody == submittedBody { draftBody = fresh.note.body }
             state = .loaded(fresh)
             await render(fresh.note.body, id: id)
         } catch let api as APIError where api.status == 409 {
-            saveConflict = "This note changed since it was loaded. Reloading the latest version; your edit was not saved."
-            if let fresh = try? await client.getNote(id) {
-                state = .loaded(fresh)
-                await render(fresh.note.body, id: id)
-            }
+            // Keep the original etag: retrying must never silently overwrite
+            // the external change that caused this conflict.
+            saveConflict = "This note changed on disk. Your edits are kept. Copy them before reloading and merging the latest version."
         } catch {
             saveError = Self.message(for: error)
         }
@@ -196,7 +237,7 @@ public final class NoteReaderModel {
     /// the note is gone (`state == .empty`).
     @discardableResult
     public func deleteCurrent(confirmedTitle: String) async -> Bool {
-        guard case .loaded(let response) = state, !isDeleting, let id = currentID else { return false }
+        guard case .loaded(let response) = state, !isDeleting, !isSaving, !isOpening, let id = currentID else { return false }
         guard confirmedTitle.trimmingCharacters(in: .whitespaces)
             == response.note.summary.ref.title.trimmingCharacters(in: .whitespaces) else {
             saveError = "Type the note's title exactly to confirm deletion."
@@ -208,6 +249,7 @@ public final class NoteReaderModel {
         defer { isDeleting = false }
         do {
             _ = try await client.deleteNote(id: id)
+            generation += 1
             currentID = nil
             isEditing = false
             draftBody = ""
@@ -225,20 +267,23 @@ public final class NoteReaderModel {
     /// refused with 409 — that and any other failure set `saveError` and
     /// return false so the caller keeps its creation dialog open.
     @discardableResult
-    public func createNote(title: String) async -> Bool {
+    public func createNote(title: String, vault: String = "") async -> Bool {
         let trimmed = title.trimmingCharacters(in: .whitespaces)
         guard !trimmed.isEmpty else {
             saveError = "Enter a title to create the note."
             return false
         }
-        guard !isCreating else { return false }
+        guard !isCreating, let token = beginNavigation() else { return false }
         isCreating = true
         saveError = nil
-        defer { isCreating = false }
+        defer {
+            isCreating = false
+            if token == generation { isOpening = false }
+        }
         do {
-            let created = try await client.createNote(title: trimmed)
-            await open(created.noteID)
-            return true
+            let created = try await client.createNote(title: trimmed, vault: vault)
+            guard acceptsNavigation(token) else { return false }
+            return await load(created.noteID, token: token)
         } catch let api as APIError where api.status == 409 {
             // VoiceView parity: a duplicate is a notice, not an error.
             saveError = "A note with the same title already exists"
@@ -256,7 +301,7 @@ public final class NoteReaderModel {
     /// meta sheet stays open (web dialog keeps open, changing nothing).
     @discardableResult
     public func saveMeta(_ request: SaveNoteMetaRequest) async -> Bool {
-        guard !isSavingMeta, let id = currentID else { return false }
+        guard !isSavingMeta, !isOpening, let id = currentID else { return false }
         isSavingMeta = true
         saveError = nil
         defer { isSavingMeta = false }
@@ -399,7 +444,9 @@ public final class NoteReaderModel {
     /// rendering is a pure derivation of the body.
     private func render(_ body: String, id: TrackID) async {
         let vault = id.split().vault
+        let token = generation
         if let render = try? await client.renderMarkdown(body: body, vault: vault) {
+            guard token == generation, currentID == id, loadedBody == body else { return }
             renderedBody = render.markdown
             renderedIncludes = render.includes
             didRender = true
@@ -407,15 +454,18 @@ public final class NoteReaderModel {
     }
 
     /// Re-fetch the open note after a write, adopting the fresh body into the
-    /// draft only when the buffer is clean — a background refresh must not
-    /// clobber unsaved edits (web adopt guard body === loadedRef.body). Best
+    /// draft only when the buffer is clean. Dirty buffers keep their baseline
+    /// etag too, so external changes still conflict on the next save. Best
     /// effort: the write itself succeeded, so a failed refresh keeps the
     /// last-known state rather than failing the note.
-    private func refreshOpenNote() async {
-        guard let id = currentID else { return }
+    public func refreshOpenNote() async {
+        guard let id = currentID, !isDirty, !isSaving, !isOpening else { return }
+        generation += 1
+        let token = generation
         do {
             let fresh = try await client.getNote(id)
-            if !isDirty { draftBody = fresh.note.body }
+            guard token == generation, currentID == id, !isDirty, !isSaving, !isOpening else { return }
+            draftBody = fresh.note.body
             state = .loaded(fresh)
             await render(fresh.note.body, id: id)
         } catch {
@@ -429,7 +479,7 @@ public final class NoteReaderModel {
 
     /// Backlink taps resolve through the same id space the lists use.
     public func openRef(_ ref: NoteRef) async {
-        await open(TrackID.qualify(vault: "", id: ref.noteID.raw))
+        await open(ref.noteID.raw.contains("~") ? ref.noteID : TrackID.qualify(vault: currentID?.split().vault ?? "", id: ref.noteID.raw))
     }
 
     /// Resolve and open a `[[wikilink]]` target. The target grammar
@@ -440,19 +490,20 @@ public final class NoteReaderModel {
     /// shown above the reader. Cross-vault targets resolve through the same
     /// `/api/resolve` the web reader uses.
     public func openWikilink(target: String) async {
+        guard let token = beginNavigation() else { return }
+        defer { if token == generation { isOpening = false } }
         let parsed = Self.splitWikilinkFull(target)
+        let vault = parsed.vault.isEmpty ? (currentID?.split().vault ?? "") : parsed.vault
         do {
-            let resolved = try await client.resolveTerm(parsed.term, vault: parsed.vault)
-            guard resolved.found else { return }
-            let id = TrackID.qualify(vault: parsed.vault, id: resolved.note.noteID.raw)
-            // Compute the excerpt from the *target* note before it opens, so
-            // the anchor lands in the note actually named, not the one already
-            // on screen.
+            let resolved = try await client.resolveTerm(parsed.term, vault: vault)
+            guard acceptsNavigation(token), resolved.found else { return }
+            let id = TrackID.qualify(vault: vault, id: resolved.note.noteID.raw)
             let excerpt = parsed.anchor.isEmpty ? nil : await Self.anchoredExcerpt(for: parsed.anchor, in: id, client: client)
-            await open(id)
-            anchoredExcerpt = excerpt
+            guard acceptsNavigation(token) else { return }
+            _ = await load(id, token: token, excerpt: excerpt)
         } catch {
-            state = .failed(error.localizedDescription)
+            guard acceptsNavigation(token) else { return }
+            saveError = Self.message(for: error)
         }
     }
 
