@@ -71,17 +71,17 @@ private struct RootView: View {
     }
 }
 
-// MARK: - Tab shell
+// MARK: - Workspace shell
 
-/// The seven surfaces of the native workspace: Notes (search + reader), the
-/// activity Calendar, the link Graph, the vault Browse panes, Tasks, Voice
-/// dictation, and Settings. Every tab is built from the ready client handed
-/// over by TrackProcess; each owns its view model in @State so tab switches
-/// and the appearance re-renders above keep their loaded data.
+/// A compact navigation dock beside one reading sheet. Visited workspaces
+/// retain their state while the dock changes the visible surface.
 private struct MainTabView: View {
     let client: TrackClient
+    @State private var vaultScope: VaultScope
     @State private var tasks: TasksModel
     @State private var liveEvents: LiveEventPoller
+    @State private var visitedTabs: Set<MainTab> = [.notes]
+    @Environment(\.colorScheme) private var colorScheme
     @State private var selectedTab = MainTab.notes
     @State private var openedNote: String?
     @State private var reader: NoteReaderModel
@@ -91,48 +91,45 @@ private struct MainTabView: View {
 
     init(client: TrackClient) {
         self.client = client
+        _vaultScope = State(initialValue: VaultScope(client: client))
         _tasks = State(initialValue: TasksModel(client: client))
         _liveEvents = State(initialValue: LiveEventPoller(baseURL: client.baseURL) {
             NotificationCenter.default.post(name: .trackVaultChanged, object: nil)
         })
         _reader = State(initialValue: NoteReaderModel(client: client))
+        _liveEvents = State(initialValue: LiveEventPoller(baseURL: client.baseURL) {
+            NotificationCenter.default.post(name: .trackVaultChanged, object: nil)
+        })
     }
 
     var body: some View {
-        TabView(selection: $selectedTab) {
-            SearchReaderView(client: client)
-                .tag(MainTab.notes)
-                .tabItem { Label("Notes", systemImage: "doc.text") }
-            CalendarView(client: client, initialDay: calendarDay)
-                .tag(MainTab.calendar)
-                .tabItem { Label("Calendar", systemImage: "calendar") }
-            GraphTabView(client: client)
-                .tag(MainTab.graph)
-                .tabItem { Label("Graph", systemImage: "network") }
-            BrowseTabView(
-                client: client,
-                openNote: { raw in
-                    selectedTab = .notes
-                    openedNote = raw
-                },
-                openCalendar: { day in
-                    calendarDay = day
-                    selectedTab = .calendar
+        HStack(alignment: .top, spacing: 0) {
+            navigationDock
+                .padding(.horizontal, 8)
+                .padding(.top, 44)
+            ZStack {
+                // Keep visited surfaces alive so navigation preserves drafts,
+                // search, and scroll position without loading every view at launch.
+                ForEach(MainTab.allCases.filter { visitedTabs.contains($0) }, id: \.self) { tab in
+                    workspace(tab)
+                        .environment(\.trackWorkspaceActive, selectedTab == tab)
+                        .opacity(selectedTab == tab ? 1 : 0)
+                        .allowsHitTesting(selectedTab == tab)
+                        .disabled(selectedTab != tab)
+                        .accessibilityHidden(selectedTab != tab)
                 }
-            )
-                .tag(MainTab.browse)
-                .tabItem { Label("Browse", systemImage: "folder") }
-            TasksView(model: tasks)
-                .tag(MainTab.tasks)
-                .tabItem { Label("Tasks", systemImage: "checklist") }
-            VoiceView(client: client)
-                .tag(MainTab.voice)
-                .tabItem { Label("Voice", systemImage: "mic") }
-            SettingsTabView()
-                .tag(MainTab.settings)
-                .tabItem { Label("Settings", systemImage: "gearshape") }
+            }
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
+            .background(palette.panel)
         }
+        .foregroundStyle(palette.text)
+        .background(palette.bg)
+        .tint(palette.mark)
         .environment(liveEvents)
+        .environment(vaultScope)
+        .toolbar { VaultSwitcher(model: vaultScope) }
+        .task { await vaultScope.reload() }
+        .onChange(of: selectedTab) { _, tab in visitedTabs.insert(tab) }
         .task { liveEvents.start() }
         .onDisappear { liveEvents.stop() }
         .onReceive(NotificationCenter.default.publisher(for: NSApplication.didBecomeActiveNotification)) { _ in
@@ -143,12 +140,96 @@ private struct MainTabView: View {
                 .task { if let openedNote { await reader.open(TrackID(openedNote)) } }
         }
     }
+
+    private var palette: TrackTheme { TrackTheme.palette(for: colorScheme) }
+
+    private var navigationDock: some View {
+        VStack(spacing: 6) {
+            Rectangle().fill(palette.mark).frame(width: 18, height: 18)
+                .padding(9)
+                .accessibilityHidden(true)
+            ForEach(MainTab.allCases.filter { $0 != .settings }, id: \.self) { tab in
+                dockButton(tab)
+            }
+            Divider().overlay(palette.line)
+            dockButton(.settings)
+        }
+        .padding(4)
+        .frame(width: 44)
+        .background(palette.panel, in: RoundedRectangle(cornerRadius: 8))
+        .overlay(RoundedRectangle(cornerRadius: 8).stroke(palette.line, lineWidth: 1))
+        .accessibilityElement(children: .contain)
+        .accessibilityLabel("Workspace navigation")
+    }
+
+    private func dockButton(_ tab: MainTab) -> some View {
+        Button { selectedTab = tab } label: {
+            Image(systemName: tab.symbol)
+                .font(.system(size: 18, weight: .regular))
+                .frame(width: 36, height: 36)
+                .foregroundStyle(selectedTab == tab ? palette.text : palette.muted)
+                .background(selectedTab == tab ? palette.panelSoft : .clear,
+                            in: RoundedRectangle(cornerRadius: 6))
+                .overlay(alignment: .leading) {
+                    if selectedTab == tab { Rectangle().fill(palette.mark).frame(width: 2, height: 18) }
+                }
+        }
+        .buttonStyle(.plain)
+        .help(tab.title)
+        .accessibilityLabel(tab.title)
+        .accessibilityAddTraits(selectedTab == tab ? .isSelected : [])
+    }
+
+    @ViewBuilder
+    private func workspace(_ tab: MainTab) -> some View {
+        switch tab {
+        case .notes: SearchReaderView(client: client)
+        case .calendar: CalendarView(client: client, initialDay: calendarDay)
+        case .graph: GraphTabView(client: client)
+        case .browse:
+            BrowseTabView(client: client, openNote: { raw in
+                selectedTab = .notes
+                openedNote = raw
+            }, openCalendar: { day in
+                calendarDay = day
+                selectedTab = .calendar
+            })
+        case .tasks: TasksView(model: tasks)
+        case .voice: VoiceView(client: client)
+        case .settings: SettingsTabView()
+        }
+    }
+
 }
 
 // MARK: - Browse tab
 
-private enum MainTab: Hashable {
+private enum MainTab: Hashable, CaseIterable {
     case notes, calendar, graph, browse, tasks, voice, settings
+
+    var title: String {
+        switch self {
+        case .notes: "Notes"
+        case .calendar: "Calendar"
+        case .graph: "Graph"
+        case .browse: "Browse"
+        case .tasks: "Tasks"
+        case .voice: "Voice"
+        case .settings: "Settings"
+        }
+    }
+
+    var symbol: String {
+        switch self {
+        case .notes: "doc.text"
+        case .calendar: "calendar"
+        case .graph: "network"
+        case .browse: "folder"
+        case .tasks: "checklist"
+        case .voice: "mic"
+        case .settings: "gearshape"
+        }
+    }
 }
 
 private enum BrowsePane: String, CaseIterable, Identifiable {
@@ -317,7 +398,7 @@ private struct SettingsTabView: View {
                 }
                 .pickerStyle(.radioGroup)
             } footer: {
-                Text("Color tokens follow docs/spec/design.md. System follows the macOS appearance.")
+                Text("System follows the macOS appearance.")
             }
             Section {
                 Picker("Content width", selection: contentWidthBinding) {

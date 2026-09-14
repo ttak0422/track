@@ -42,6 +42,7 @@ public struct GFMBody: View {
     var onTaskToggle: ((Int, Bool) -> Void)?
     @Environment(\.colorScheme) private var colorScheme
     @Environment(\.trackFontScale) private var fontScale
+    @AppStorage(TrackAppearance.contentWidthKey) private var contentWidthRaw: String?
 
     public init(
         markdown: String,
@@ -110,109 +111,18 @@ public struct GFMBody: View {
     private var segmentedBody: some View {
         let segments = Self.segments(markdown: markdown, includes: includes)
         let palette = TrackTheme.palette(for: colorScheme)
-        let theme = Theme.trackReader(palette: palette, scale: fontScale)
+        let proseWidth = ContentWidthMode(stored: contentWidthRaw).proseWidth(scale: fontScale)
+        let theme = Theme.trackReader(palette: palette, scale: fontScale, proseWidth: proseWidth)
         return ForEach(Array(segments.enumerated()), id: \.offset) { _, segment in
             switch segment {
             case .markdown(let text):
                 Markdown(text)
                     .markdownTheme(theme)
-                    .markdownBlockStyle(\.paragraph) { configuration in
-                        configuration.label
-                            .relativeLineSpacing(.em(0.85))
-                            .markdownMargin(bottom: .em(1))
-                    }
-                    .markdownBlockStyle(\.heading1) { configuration in
-                        VStack(alignment: .leading, spacing: 6) {
-                            configuration.label
-                                .markdownMargin(top: .em(1.5), bottom: .em(0.5))
-                                .markdownTextStyle {
-                                    FontWeight(.bold)
-                                }
-                            Divider().overlay(palette.lineStrong)
-                        }
-                    }
-                    .markdownBlockStyle(\.heading2) { configuration in
-                        VStack(alignment: .leading, spacing: 6) {
-                            Divider().overlay(palette.line)
-                            configuration.label
-                                .markdownMargin(top: .em(1), bottom: .em(0.5))
-                                .markdownTextStyle {
-                                    FontWeight(.bold)
-                                }
-                        }
-                    }
-                    .markdownBlockStyle(\.heading3) { configuration in
-                        HStack(alignment: .firstTextBaseline, spacing: 4) {
-                            Text("§").foregroundStyle(palette.faint)
-                            configuration.label
-                                .markdownTextStyle { FontWeight(.bold) }
-                        }
-                        .markdownMargin(top: .em(1), bottom: .em(0.5))
-                    }
-                    .markdownBlockStyle(\.heading4) { configuration in
-                        configuration.label
-                            .markdownMargin(top: .em(0.75), bottom: .em(0.5))
-                            .markdownTextStyle {
-                                FontWeight(.bold)
-                                ForegroundColor(palette.muted)
-                            }
-                    }
-                    .markdownBlockStyle(\.blockquote) { configuration in
-                        // Plain quote (web): no callout bar, no label, just the
-                        // words in secondary ink with a hairline at the left.
-                        HStack(spacing: 0) {
-                            Rectangle().fill(palette.line).frame(width: 2)
-                            configuration.label
-                                .markdownTextStyle { ForegroundColor(palette.muted) }
-                                .padding(.leading, 12)
-                        }
-                        .fixedSize(horizontal: false, vertical: true)
-                    }
-                    .markdownBlockStyle(\.codeBlock) { configuration in
-                        let language = configuration.language?.isEmpty == false ? configuration.language! : "Code"
-                        VStack(alignment: .leading, spacing: 0) {
-                            HStack {
-                                Text(language)
-                                    .trackSectionLabel()
-                                Spacer()
-                                Button("Copy") {
-                                    NSPasteboard.general.clearContents()
-                                    NSPasteboard.general.setString(configuration.content, forType: .string)
-                                }
-                                .buttonStyle(.borderless).font(.caption)
-                            }
-                            .padding(.horizontal, 10).padding(.vertical, 6)
-                            Divider().overlay(palette.line)
-                            ScrollView(.horizontal) {
-                                configuration.label.fixedSize(horizontal: false, vertical: true).padding(10)
-                            }
-                        }
-                        .background(palette.panelSoft)
-                        .clipShape(RoundedRectangle(cornerRadius: 6))
-                    }
-                    .markdownBlockStyle(\.table) { configuration in
-                        ScrollView(.horizontal, showsIndicators: true) {
-                            configuration.label.fixedSize(horizontal: false, vertical: true)
-                        }
-                        .markdownMargin(top: .zero, bottom: .em(1))
-                    }
-                    .markdownBlockStyle(\.tableCell) { configuration in
-                        configuration.label
-                            .foregroundStyle(configuration.row == 0 ? palette.text : palette.muted)
-                            .font(configuration.row == 0 ? .body.weight(.medium) : .body)
-                            .overlay(alignment: .bottom) {
-                                if configuration.row == 0 { Divider().overlay(palette.lineStrong) }
-                                else { Divider().overlay(palette.line) }
-                            }
-                            .padding(.horizontal, 8).padding(.vertical, 5)
-                    }
                     .markdownImageProvider(TrackAssetImageProvider(baseURL: baseURL, vault: vault))
                     .textSelection(.enabled)
-                    // Two measures (design.md): prose reads at 40em, while
-                    // visualizations bleed the full column. The cap lands here
-                    // on the Markdown span; figure/media islands below opt out
-                    // by name and take the whole width.
-                    .frame(maxWidth: 640 * fontScale, alignment: .leading)
+                    // Cap prose blocks individually so ordinary code and
+                    // tables share the full figure width within a Markdown run.
+                    .frame(maxWidth: .infinity, alignment: .leading)
             case .task(let task):
                 HStack(alignment: .firstTextBaseline, spacing: 8) {
                     Button {
@@ -227,7 +137,7 @@ public struct GFMBody: View {
                         .textSelection(.enabled)
                 }
                 .padding(.leading, 8)
-                .frame(maxWidth: 640 * fontScale, alignment: .leading)
+                .frame(maxWidth: proseWidth, alignment: .leading)
             case .figure(let figure):
                 FigureSegmentView(
                     figure: figure,
@@ -242,7 +152,7 @@ public struct GFMBody: View {
                     .frame(maxWidth: .infinity, alignment: .leading)
             case .include(let include):
                 IncludeCardView(include: include, onWikilink: onWikilink)
-                    .frame(maxWidth: 640 * fontScale, alignment: .leading)
+                    .frame(maxWidth: proseWidth, alignment: .leading)
             }
         }
     }
@@ -901,18 +811,21 @@ public struct GFMBody: View {
 
 /// The design.md reading-surface translation for MarkdownUI: body 16px/1.85
 /// ink, headings at body size told apart by space and rule (h1 stated rule
-/// below, h2 hairline above, h3 faint section sign, h4 muted), links as ink
+/// above, h2 hairline above, h3 faint section sign, h4 muted), links as ink
 /// with a stated-rule underline, inline code as muted mono with no chip, and
 /// Danger reserved for the call sites that own it (unresolved rail rows).
 extension Theme {
-    static func trackReader(palette: TrackTheme, scale: Double) -> Theme {
+    @MainActor
+    static func trackReader(palette: TrackTheme, scale: Double, proseWidth: CGFloat = .infinity) -> Theme {
         let body = CGFloat(16 * scale)
         return Theme()
             .text {
                 ForegroundColor(palette.text)
+                FontFamily(.custom(TrackTypography.readingFamily))
                 FontSize(body)
             }
             .code {
+                FontFamily(.system(.monospaced))
                 FontFamilyVariant(.monospaced)
                 ForegroundColor(palette.muted)
                 FontSize(body)
@@ -923,6 +836,118 @@ extension Theme {
             .link {
                 ForegroundColor(palette.text)
                 UnderlineStyle(.single)
+            }
+            .paragraph { configuration in
+                configuration.label
+                    .relativeLineSpacing(.em(0.85))
+                    .markdownMargin(bottom: .em(0.8125))
+                    .frame(maxWidth: proseWidth, alignment: .leading)
+            }
+            .heading1 { configuration in
+                VStack(alignment: .leading, spacing: 6) {
+                    Divider().overlay(palette.lineStrong)
+                    configuration.label
+                        .markdownTextStyle { FontWeight(.bold) }
+                }
+                .markdownMargin(top: .em(2.75), bottom: .em(0.5))
+                .frame(maxWidth: proseWidth, alignment: .leading)
+            }
+            .heading2 { configuration in
+                VStack(alignment: .leading, spacing: 6) {
+                    Divider().overlay(palette.line)
+                    configuration.label
+                        .markdownTextStyle {
+                            FontWeight(.bold)
+                        }
+                }
+                .markdownMargin(top: .em(2.75), bottom: .em(0.5))
+                .frame(maxWidth: proseWidth, alignment: .leading)
+            }
+            .heading3 { configuration in
+                HStack(alignment: .firstTextBaseline, spacing: 4) {
+                    Text("§").foregroundStyle(palette.faint)
+                    configuration.label
+                        .markdownTextStyle { FontWeight(.bold) }
+                }
+                .markdownMargin(top: .em(1.625), bottom: .em(0.5))
+                .frame(maxWidth: proseWidth, alignment: .leading)
+            }
+            .heading4 { configuration in
+                configuration.label
+                    .markdownMargin(top: .em(1.25), bottom: .em(0.5))
+                    .frame(maxWidth: proseWidth, alignment: .leading)
+                    .markdownTextStyle {
+                        FontWeight(.bold)
+                        ForegroundColor(palette.muted)
+                    }
+            }
+            .list { configuration in
+                configuration.label
+                    .relativeLineSpacing(.em(0.85))
+                    .frame(maxWidth: proseWidth, alignment: .leading)
+            }
+            .listItem { configuration in
+                configuration.label.markdownMargin(top: .em(0.4375))
+            }
+            .blockquote { configuration in
+                // Plain quote (web): no callout bar, no label, just the
+                // words in secondary ink with a hairline at the left.
+                HStack(spacing: 0) {
+                    Rectangle().fill(palette.line).frame(width: 2)
+                    configuration.label
+                        .markdownTextStyle { ForegroundColor(palette.muted) }
+                        .padding(.leading, 12)
+                }
+                .fixedSize(horizontal: false, vertical: true)
+                .frame(maxWidth: proseWidth, alignment: .leading)
+            }
+            .codeBlock { configuration in
+                let language = configuration.language?.isEmpty == false ? configuration.language! : "Code"
+                VStack(alignment: .leading, spacing: 0) {
+                    HStack {
+                        Text(language)
+                            .trackSectionLabel()
+                        Spacer()
+                        Button("Copy") {
+                            NSPasteboard.general.clearContents()
+                            NSPasteboard.general.setString(configuration.content, forType: .string)
+                        }
+                        .buttonStyle(.borderless).font(.caption)
+                    }
+                    .padding(.horizontal, 10).padding(.vertical, 6)
+                    Divider().overlay(palette.line)
+                    ScrollView(.horizontal) {
+                        configuration.label
+                            .markdownTextStyle {
+                                FontFamily(.system(.monospaced))
+                                FontSize(14 * scale)
+                            }
+                            .fixedSize(horizontal: false, vertical: true).padding(10)
+                    }
+                }
+                .background(palette.panelSoft)
+                .clipShape(RoundedRectangle(cornerRadius: 6))
+            }
+            .table { configuration in
+                ScrollView(.horizontal, showsIndicators: true) {
+                    configuration.label
+                        .markdownTableBorderStyle(TableBorderStyle(color: .clear))
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+                .markdownMargin(top: .zero, bottom: .em(1))
+            }
+            .tableCell { configuration in
+                configuration.label
+                    .markdownTextStyle {
+                        ForegroundColor(configuration.row == 0 ? palette.text : palette.muted)
+                        FontSize(14 * scale)
+                        FontWeight(configuration.row == 0 ? .medium : .regular)
+                    }
+                    .overlay(alignment: .bottom) {
+                        if configuration.row == 0 { Divider().overlay(palette.lineStrong) }
+                        else { Divider().overlay(palette.line) }
+                    }
+                    .padding(.horizontal, 8).padding(.vertical, 5)
             }
     }
 }

@@ -541,8 +541,8 @@ public struct SearchReaderView: View {
             .buttonStyle(.plain).accessibilityLabel("Dismiss change notification")
         }
         .padding(.horizontal, 12).padding(.vertical, 8)
-        .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 8))
-        .overlay(RoundedRectangle(cornerRadius: 8).stroke(Color(nsColor: .separatorColor), lineWidth: 0.5))
+        .background(TrackTheme.palette(for: colorScheme).panel, in: RoundedRectangle(cornerRadius: 8))
+        .overlay(RoundedRectangle(cornerRadius: 8).stroke(TrackTheme.palette(for: colorScheme).line, lineWidth: 1))
     }
 
     private var filteredSearchResults: [SearchResult] {
@@ -1286,14 +1286,14 @@ public struct NoteReaderView: View {
     private func readerPane(_ response: NoteResponse) -> some View {
         GeometryReader { geometry in
             ScrollView {
-                let wide = contentWidthMode != .normal || geometry.size.width >= 1_080
+                let wide = geometry.size.width >= 1_080 * min(fontScale, 1.3)
                 Group {
                     if wide {
-                        HStack(alignment: .top, spacing: 28) {
+                        HStack(alignment: .top, spacing: 40) {
                             readerMain(response)
-                                .frame(maxWidth: contentWidthMode == .full ? 900 : 760, alignment: .leading)
+                                .frame(maxWidth: contentWidthMode.maxWidth, alignment: .leading)
                             readerAside(response)
-                                .frame(width: 260, alignment: .leading)
+                                .frame(width: min(340, geometry.size.width * 0.24), alignment: .leading)
                         }
                     } else {
                         VStack(alignment: .leading, spacing: 16) {
@@ -1302,8 +1302,9 @@ public struct NoteReaderView: View {
                         }
                     }
                 }
-                .frame(maxWidth: .infinity, alignment: .topLeading)
+                .frame(maxWidth: contentWidthMode.maxWidth + (wide ? min(340, geometry.size.width * 0.24) + 40 : 0), alignment: .topLeading)
                 .padding(24)
+                .frame(maxWidth: .infinity, alignment: .topLeading)
             }
         }
     }
@@ -1320,7 +1321,10 @@ public struct NoteReaderView: View {
                     }
                     .font(.caption)
                 }
-                noteHeader(response.note, showTags: false)
+                VStack(alignment: .leading, spacing: 8) {
+                    noteHeader(response.note, showTags: false)
+                }
+                .frame(maxWidth: contentWidthMode.proseWidth(scale: fontScale), alignment: .leading)
 
                 if let excerpt = model.anchoredExcerpt {
                     anchoredExcerptCard(excerpt)
@@ -1687,7 +1691,8 @@ public struct NoteReaderView: View {
     private func noteHeader(_ note: NoteDetail, showTags: Bool = true) -> some View {
         HStack(spacing: 8) {
             Text(note.summary.ref.title)
-                .font(.system(size: 26 * fontScale, weight: .medium))
+                .font(.custom(TrackTypography.readingFamily, size: 26 * fontScale).weight(.medium))
+                .fixedSize(horizontal: false, vertical: true)
             Button {
                 NSPasteboard.general.clearContents()
                 NSPasteboard.general.setString(note.summary.ref.title, forType: .string)
@@ -1697,7 +1702,7 @@ public struct NoteReaderView: View {
                 Image(systemName: titleCopied ? "checkmark" : "doc.on.doc")
             }
             .buttonStyle(.borderless)
-            .foregroundStyle(titleCopied ? .green : .secondary)
+            .foregroundStyle(TrackTheme.palette(for: colorScheme).muted)
             .help("Copy title")
             .accessibilityLabel(titleCopied ? "Title copied" : "Copy title")
             Spacer()

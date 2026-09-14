@@ -60,7 +60,7 @@
   --muted: light-dark(#5e5d58, #a2a29b);
   /* AA on every ground it sits on (4.6:1 over --panel-soft, 5.1:1 over the sheet): this one
      carries labels, metadata, and caption sources, which are text. */
-  --faint: light-dark(#6f6e68, #8b8b83);
+  --faint: light-dark(#6f6e68, #8c8c84);
   --line: light-dark(#e6e4de, #282c2f);
   --line-strong: light-dark(#c7c5bd, #3e4347);
   --line-node: light-dark(#8e8c84, #6e7478);

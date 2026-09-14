@@ -20,6 +20,7 @@ let package = Package(
         .executableTarget(name: "TrackApp", dependencies: ["TrackUI"]),
         .executableTarget(name: "VerifyVaultScope", dependencies: ["TrackUI"], path: "Tools/VerifyVaultScope"),
         .executableTarget(name: "VerifyReader", dependencies: ["TrackUI"], path: "Tools/VerifyReader"),
+        .executableTarget(name: "VerifyDesign", dependencies: ["TrackUI"], path: "Tools/VerifyDesign"),
         // swift-testing / XCTest ship with full Xcode only, so verification
         // is a runnable executable (`swift run VerifyFixtures`), not a test
         // target. It must keep passing on CLT-only Macs.
