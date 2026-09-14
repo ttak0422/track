@@ -324,19 +324,27 @@ public struct OgpCardView: View {
 /// not a PDF.
 public struct PdfNoteView: View {
     private let assetURL: URL
+    private let allowsEnlarge: Bool
+    @State private var enlarged = false
+    @State private var loadError: String?
     @State private var document: PDFDocument?
     @State private var failed = false
     @State private var page = 1
     @State private var displayMode: PDFDeckDisplayMode = .deck
 
-    public init(assetURL: URL) {
+    public init(assetURL: URL, allowsEnlarge: Bool = true) {
         self.assetURL = assetURL
+        self.allowsEnlarge = allowsEnlarge
     }
 
     public var body: some View {
         Group {
             if failed {
-                PlainLinkView(url: assetURL)
+                VStack(alignment: .leading, spacing: 8) {
+                    Label(loadError ?? "Could not load PDF", systemImage: "exclamationmark.triangle")
+                    Button("Retry") { Task { await load() } }
+                    PlainLinkView(url: assetURL)
+                }.font(.caption)
             } else if let document {
                 VStack(spacing: 6) {
                     PDFDocumentView(document: document, page: $page, displayMode: displayMode) {
@@ -344,7 +352,7 @@ public struct PdfNoteView: View {
                     } movePage: { delta in
                         page = min(document.pageCount, max(1, page + delta))
                     }
-                    .frame(height: 420)
+                    .frame(height: allowsEnlarge ? 420 : 560)
                     pdfControls(pageCount: document.pageCount)
                 }
             } else {
@@ -358,22 +366,36 @@ public struct PdfNoteView: View {
             }
         }
         .task(id: assetURL) { await load() }
+        .sheet(isPresented: $enlarged) {
+            VStack(alignment: .trailing) {
+                Button("Close") { enlarged = false }.keyboardShortcut(.cancelAction)
+                PdfNoteView(assetURL: assetURL, allowsEnlarge: false)
+            }.padding(20).frame(minWidth: 700, minHeight: 620)
+        }
     }
 
     private func load() async {
+        failed = false
+        document = nil
+        loadError = nil
         do {
             let (data, response) = try await URLSession.shared.data(from: assetURL)
+            guard !Task.isCancelled else { return }
             if let http = response as? HTTPURLResponse, !(200..<300).contains(http.statusCode) {
+                loadError = "Could not load PDF (HTTP \(http.statusCode))."
                 failed = true
                 return
             }
-            guard let document = PDFDocument(data: data) else {
+            guard let document = PDFDocument(data: data), document.pageCount > 0 else {
                 failed = true
                 return
             }
+            guard !Task.isCancelled else { return }
             page = 1
             self.document = document
         } catch {
+            guard !Task.isCancelled else { return }
+            loadError = error.localizedDescription
             failed = true
         }
     }
@@ -401,6 +423,7 @@ public struct PdfNoteView: View {
             .pickerStyle(.menu)
             .accessibilityLabel("PDF display mode")
             Spacer(minLength: 4)
+            if allowsEnlarge { Button("Enlarge") { enlarged = true } }
             Link("Open PDF", destination: assetURL)
                 .foregroundStyle(.secondary)
         }
@@ -413,13 +436,13 @@ public struct PdfNoteView: View {
     }
 }
 
-private enum PDFDeckDisplayMode: Hashable {
+enum PDFDeckDisplayMode: Hashable {
     case deck
     case continuous
 }
 
 /// PDFView wrapped for SwiftUI.
-private struct PDFDocumentView: NSViewRepresentable {
+struct PDFDocumentView: NSViewRepresentable {
     let document: PDFDocument
     @Binding var page: Int
     let displayMode: PDFDeckDisplayMode
@@ -555,19 +578,37 @@ private final class DeckPDFView: PDFView {
 /// degrades to a plain link instead of dumping mojibake.
 public struct TextAssetView: View {
     private let url: URL
+    private let onLink: ((URL) -> Void)?
     @State private var text: String?
     @State private var failed = false
+    @State private var height: CGFloat = 320
+    @Environment(\.colorScheme) private var colorScheme
 
-    public init(url: URL) {
+    public init(url: URL, onLink: ((URL) -> Void)? = nil) {
         self.url = url
+        self.onLink = onLink
     }
 
     public var body: some View {
         Group {
             if failed {
-                PlainLinkView(url: url)
+                VStack(alignment: .leading, spacing: 8) {
+                    Text("This attachment could not be displayed as text.")
+                    Button("Retry") { Task { await load() } }
+                    PlainLinkView(url: url)
+                }.font(.caption)
             } else if let text {
-                TextAssetCodeView(text: text, language: Self.language(for: url))
+                if let kind = MediaAssetContent.figure(text: text, url: url) {
+                    VStack(alignment: .leading, spacing: 8) {
+                        FigureHost(kind: kind, height: $height, theme: colorScheme == .dark ? .dark : .light, onLink: { url in
+                            if let onLink { onLink(url) }
+                            else if ["http", "https"].contains(url.scheme?.lowercased() ?? "") { NSWorkspace.shared.open(url) }
+                        })
+                            .frame(height: height)
+                        if case .echarts(let json) = kind { FigureEvidenceView(items: FigureEvidence.parse(json)) }
+                        DisclosureGroup("Source") { TextAssetCodeView(text: text, language: Self.language(for: url)) }
+                    }
+                } else { TextAssetCodeView(text: text, language: Self.language(for: url)) }
             } else {
                 HStack(spacing: 8) {
                     ProgressView().controlSize(.small)
@@ -582,24 +623,29 @@ public struct TextAssetView: View {
     }
 
     private func load() async {
+        failed = false
+        text = nil
         do {
             let (data, response) = try await URLSession.shared.data(from: url)
+            guard !Task.isCancelled else { return }
             if let http = response as? HTTPURLResponse, !(200..<300).contains(http.statusCode) {
                 failed = true
                 return
             }
-            guard let text = String(data: data, encoding: .utf8) else {
+            guard let text = MediaAssetContent.text(from: data) else {
                 failed = true
                 return
             }
+            guard !Task.isCancelled else { return }
             self.text = text
         } catch {
+            guard !Task.isCancelled else { return }
             failed = true
         }
     }
 
     private static func language(for url: URL) -> String {
-        let name = url.path.split(separator: "/").last.map(String.init) ?? ""
+        let name = MediaAssetContent.name(for: url)
         let stem = name.split(separator: ".").last.map(String.init)?.lowercased() ?? ""
         switch stem {
         case "yml": return "yaml"
@@ -613,18 +659,11 @@ public struct TextAssetView: View {
 }
 
 /// A deliberately small native equivalent of the web code bed: identify the
-/// asset language and cap very large files so an attachment cannot take over
-/// the reader. The full syntax highlighter remains a web-only concern.
+/// asset language and scroll within a bounded height so the complete file
+/// stays available without taking over the reader. The full syntax highlighter remains a web-only concern.
 private struct TextAssetCodeView: View {
     let text: String
     let language: String
-
-    private var limitedText: String {
-        let lines = text.split(separator: "\n", omittingEmptySubsequences: false)
-        let limit = 200
-        guard lines.count > limit else { return text }
-        return lines.prefix(limit).joined(separator: "\n") + "\n…"
-    }
 
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
@@ -635,7 +674,7 @@ private struct TextAssetCodeView: View {
                     .textCase(.uppercase)
             }
             ScrollView([.horizontal, .vertical]) {
-                Text(limitedText)
+                Text(text)
                     .font(.system(size: 13, design: .monospaced))
                     .lineSpacing(2)
                     .frame(maxWidth: .infinity, alignment: .leading)
