@@ -1,4 +1,7 @@
 import Foundation
+import AppKit
+import cmark_gfm
+import cmark_gfm_extensions
 
 // Swift port of web/src/components/markdown/portable.ts (toPortableMarkdown only).
 // Strips track-specific link constructs so the body pastes cleanly elsewhere:
@@ -8,6 +11,82 @@ import Foundation
 // regex-level flattening: a literal [[x]] inside a fenced code block is also
 // flattened, accepted until someone actually pastes that.
 public enum PortableMarkdown {
+    /// Reuse the reader's cmark-gfm parser directly. MarkdownUI's public HTML
+    /// export rebuilds its table nodes without column metadata and loses cells.
+    public static func html(_ markdown: String) -> String {
+        cmark_gfm_core_extensions_ensure_registered()
+        guard let parser = cmark_parser_new(CMARK_OPT_DEFAULT) else { return "" }
+        defer { cmark_parser_free(parser) }
+        for name in ["table", "autolink", "strikethrough", "tagfilter", "tasklist"] {
+            if let syntax = cmark_find_syntax_extension(name) { cmark_parser_attach_syntax_extension(parser, syntax) }
+        }
+        let text = portable(markdown)
+        cmark_parser_feed(parser, text, text.utf8.count)
+        guard let document = cmark_parser_finish(parser) else { return "" }
+        defer { cmark_node_free(document) }
+        // The web allows <br> as a line break while omitting arbitrary HTML.
+        // Work on HTML nodes so a literal <br> inside code stays literal.
+        if let iterator = cmark_iter_new(document) {
+            var breaks: [UnsafeMutablePointer<cmark_node>] = []
+            while cmark_iter_next(iterator) != CMARK_EVENT_DONE {
+                if cmark_iter_get_event_type(iterator) == CMARK_EVENT_ENTER,
+                   let node = cmark_iter_get_node(iterator), cmark_node_get_type(node) == CMARK_NODE_HTML_INLINE,
+                   let literal = cmark_node_get_literal(node),
+                   String(cString: literal).range(of: #"^<br\s*/?>$"#, options: [.regularExpression, .caseInsensitive]) != nil {
+                    breaks.append(node)
+                }
+            }
+            cmark_iter_free(iterator)
+            for node in breaks {
+                if let replacement = cmark_node_new(CMARK_NODE_LINEBREAK) {
+                    cmark_node_insert_before(node, replacement)
+                    cmark_node_unlink(node)
+                    cmark_node_free(node)
+                }
+            }
+        }
+        guard let result = cmark_render_html(document, CMARK_OPT_DEFAULT, cmark_parser_get_syntax_extensions(parser)) else { return "" }
+        defer { free(result) }
+        return String(cString: result)
+    }
+
+    /// A native selection carries attributed text rather than source offsets.
+    /// Preserve selected link/emphasis runs and table cells when reconstructing
+    /// Markdown; never widen a partial selection to the entire note.
+    public static func selectedMarkdown(_ selection: NSAttributedString) -> String {
+        var output = ""
+        var tablePosition: (row: Int, column: Int)?
+        selection.enumerateAttributes(in: NSRange(location: 0, length: selection.length)) { attributes, range, _ in
+            var text = (selection.string as NSString).substring(with: range)
+            let paragraph = attributes[.paragraphStyle] as? NSParagraphStyle
+            if let cell = paragraph?.textBlocks.first as? NSTextTableBlock {
+                if let previous = tablePosition {
+                    if previous.row != cell.startingRow { output += " |\n| " }
+                    else if previous.column != cell.startingColumn { output += " | " }
+                } else { output += "| " }
+                tablePosition = (cell.startingRow, cell.startingColumn)
+                text = text.trimmingCharacters(in: .newlines).replacingOccurrences(of: "|", with: "\\|")
+            } else if tablePosition != nil {
+                output += " |\n"
+                tablePosition = nil
+            }
+            if let url = attributes[.link] as? URL {
+                if let target = MarkdownAnchors.wikiTarget(url) { text = "[[\(target)|\(text)]]" }
+                else { text = "[\(text)](\(url.absoluteString))" }
+            } else if let link = attributes[.link] as? String {
+                text = "[\(text)](\(link))"
+            }
+            if let font = attributes[.font] as? NSFont {
+                if font.fontDescriptor.symbolicTraits.contains(.bold) { text = "**\(text)**" }
+                if font.fontDescriptor.symbolicTraits.contains(.italic) { text = "*\(text)*" }
+            }
+            if let strike = attributes[.strikethroughStyle] as? Int, strike != 0 { text = "~~\(text)~~" }
+            output += text
+        }
+        if tablePosition != nil { output += " |" }
+        return output
+    }
+
     public static func portable(_ body: String) -> String {
         let withoutIncludes = flattenIncludes(body)
         return flattenWikilinks(withoutIncludes)

@@ -873,6 +873,9 @@ public struct NoteReaderView: View {
     @State private var showDeleteConfirm = false
     /// Note metadata editor (web NoteMetaDialog), bound to the open note.
     @State private var showMeta = false
+    @State private var metaNoteID: TrackID?
+    @State private var selection = NoteSelection()
+    @State private var copyNotice: String?
     @State private var titleCopied = false
     @State private var wikilinkPreview: WikilinkPreview?
     @State private var saveConfirmation = false
@@ -995,10 +998,20 @@ public struct NoteReaderView: View {
             Text("Your unsaved edits will be lost.")
         }
         .sheet(isPresented: $showMeta) {
-            if model.isLoaded {
-                NoteMetaEditor(model: model) {
+            if let metaNoteID {
+                NoteMetaEditor(model: model, noteID: metaNoteID) {
                     showMeta = false
                 }
+            }
+        }
+        .onChange(of: model.currentID) { _, _ in selection.clear() }
+        .onChange(of: model.loadedBody) { _, _ in selection.clear() }
+        .onChange(of: model.isEditing) { _, _ in selection.clear() }
+        .overlay(alignment: .bottom) {
+            if let copyNotice {
+                Text(copyNotice).font(.caption).padding(10)
+                    .background(.regularMaterial, in: Capsule()).padding()
+                    .allowsHitTesting(false)
             }
         }
         .sheet(isPresented: $showDeleteConfirm) {
@@ -1052,10 +1065,10 @@ public struct NoteReaderView: View {
                 ToolbarItem {
                     Button("Ask agent", systemImage: "bubble.left.and.text.bubble.right") {
                         if case .loaded(let response) = model.state, let id = model.currentID {
-                            onRequestAgent(AgentRequestTarget(note: response, id: id))
+                            onRequestAgent(AgentRequestTarget(note: response, id: id, quote: selection.text))
                         }
                     }
-                    .help("Explain, research, or update this note")
+                    .help(selection.isEmpty ? "Explain, research, or update this note" : "Ask about the selected text")
                 }
             }
             ToolbarItem {
@@ -1074,8 +1087,7 @@ public struct NoteReaderView: View {
             if let path = note.copyPath {
                 ToolbarItem {
                     Button {
-                        NSPasteboard.general.clearContents()
-                        NSPasteboard.general.setString(path, forType: .string)
+                        copyText(path)
                     } label: {
                         Label("Copy path", systemImage: "doc.on.doc")
                     }
@@ -1083,30 +1095,20 @@ public struct NoteReaderView: View {
                 }
             }
             ToolbarItem {
-                ShareButton(items: [note.summary.ref.title, note.body])
-                    .help("Share")
+                ShareButton(items: [note.summary.ref.title, actionBody])
+                    .help("Share note text")
             }
             ToolbarItem {
                 Button {
-                    NSPasteboard.general.clearContents()
-                    NSPasteboard.general.setString("[[\(note.summary.ref.title)]]", forType: .string)
+                    if let id = model.currentID { copyText(ShareLinks.wikilink(id: id, title: note.summary.ref.title)) }
                 } label: {
-                    Label("Copy link", systemImage: "link")
+                    Label("Copy wikilink", systemImage: "link")
                 }
-                .help("Copy note link")
-            }
-            ToolbarItem {
-                if let xURL = ShareLinks.xIntentURL(title: note.summary.ref.title) {
-                    Link(destination: xURL) {
-                        Label("Share on X", systemImage: "xmark.circle")
-                    }
-                    .help("Share on X")
-                }
+                .help("Copy vault-qualified wikilink")
             }
             ToolbarItem {
                 Button {
-                    NSPasteboard.general.clearContents()
-                    NSPasteboard.general.setString(note.body, forType: .string)
+                    copyText(actionBody)
                 } label: {
                     Label("Copy body", systemImage: "doc.on.clipboard")
                 }
@@ -1121,17 +1123,22 @@ public struct NoteReaderView: View {
             }
             ToolbarItem {
                 Menu {
+                    Button("Copy selected Markdown") { selection.copyMarkdown(); acknowledgeCopy() }
+                        .disabled(selection.isEmpty)
+                    Button("Copy selected rich text") { selection.copyRich(); acknowledgeCopy() }
+                        .disabled(selection.isEmpty)
+                    Divider()
+                    Button("Copy title") { copyText(note.summary.ref.title) }
                     Button("Copy portable Markdown") {
-                        NSPasteboard.general.clearContents()
-                        NSPasteboard.general.setString(PortableMarkdown.portable(note.body), forType: .string)
+                        copyText(PortableMarkdown.portable(actionBody))
                     }
                     .help("Copy with [[wikilinks]] flattened to plain text")
                     Button("Copy for Confluence") {
-                        copyConfluence(note.body)
+                        copyConfluence(actionBody)
                     }
                     .help("Copy as rich HTML with a plain-text fallback")
                     Divider()
-                    Button("Meta…") { showMeta = true }
+                    Button("Meta…") { metaNoteID = model.currentID; showMeta = true }
                     Divider()
                     Button("Delete…", role: .destructive) { showDeleteConfirm = true }
                 } label: {
@@ -1171,39 +1178,29 @@ public struct NoteReaderView: View {
         return nil
     }
 
-    /// Rich copy for Confluence (web NoteActionsMenu copyConfluence): the
-    /// portable body rendered to HTML for rich editors, paired with the
-    /// plain-text fallback (delimiter-free, <br> as line breaks) on the same
-    /// pasteboard. The HTML comes from Foundation's Markdown parser rather
-    /// than the web's react-markdown pipeline, so exotic GFM may render
-    /// plainly — the text flavor always survives. A body that will not parse
-    /// falls back to the plain text alone.
+    private var actionBody: String { model.isEditing ? model.draftBody : model.loadedBody }
+
+    private func acknowledgeCopy() {
+        copyNotice = "Copied"
+        Task { @MainActor in
+            try? await Task.sleep(for: .seconds(2))
+            copyNotice = nil
+        }
+    }
+
+    private func copyText(_ text: String) {
+        NSPasteboard.general.clearContents()
+        NSPasteboard.general.setString(text, forType: .string)
+        acknowledgeCopy()
+    }
+
     private func copyConfluence(_ body: String) {
         let portable = PortableMarkdown.portable(body)
-        let plain = PortableMarkdown.confluencePlainText(portable)
         let board = NSPasteboard.general
         board.clearContents()
-        if let parsed = try? AttributedString(
-            markdown: portable,
-            options: AttributedString.MarkdownParsingOptions(interpretedSyntax: .full)
-        ),
-            let html = try? NSAttributedString(parsed).data(
-                from: NSRange(
-                    location: 0,
-                    length: NSAttributedString(parsed).length
-                ),
-                documentAttributes: [
-                    NSAttributedString.DocumentAttributeKey.documentType:
-                        NSAttributedString.DocumentType.html,
-                    NSAttributedString.DocumentAttributeKey.characterEncoding:
-                        String.Encoding.utf8.rawValue,
-                ]
-            ) {
-            board.setString(plain, forType: .string)
-            board.setData(html, forType: .html)
-        } else {
-            board.setString(plain, forType: .string)
-        }
+        board.setString(PortableMarkdown.confluencePlainText(portable), forType: .string)
+        board.setString(PortableMarkdown.html(portable), forType: .html)
+        acknowledgeCopy()
     }
 
     private var loadedResponse: NoteResponse? {
@@ -1321,6 +1318,7 @@ public struct NoteReaderView: View {
                 )
                 .environment(\.openURL, wikilinkURLAction)
                 .textSelection(.enabled)
+                .background(NoteSelectionRegion(selection: selection, active: workspaceActive))
 
                 if let tasks = response.note.tasks, !tasks.items.isEmpty {
                     NoteTasksSection(
@@ -1554,6 +1552,7 @@ public struct NoteReaderView: View {
                 TextEditor(text: $model.draftBody)
                     .font(.system(.body, design: .monospaced))
                     .frame(minHeight: 300)
+                    .background(NoteSelectionRegion(selection: selection, source: true, active: workspaceActive))
             case .preview:
                 ScrollView {
                     GFMBody(
@@ -1566,12 +1565,14 @@ public struct NoteReaderView: View {
                     )
                     .environment(\.openURL, wikilinkURLAction)
                     .frame(maxWidth: contentWidthMode.maxWidth, alignment: .leading)
+                    .background(NoteSelectionRegion(selection: selection, active: workspaceActive))
                 }
             case .split:
                 HSplitView {
                     TextEditor(text: $model.draftBody)
                         .font(.system(.body, design: .monospaced))
                         .frame(minWidth: 240, minHeight: 300)
+                        .background(NoteSelectionRegion(selection: selection, source: true, active: workspaceActive))
                     ScrollView {
                         GFMBody(
                             markdown: previewMarkdown,
@@ -1583,6 +1584,7 @@ public struct NoteReaderView: View {
                         )
                         .environment(\.openURL, wikilinkURLAction)
                         .frame(maxWidth: contentWidthMode.maxWidth, alignment: .leading)
+                        .background(NoteSelectionRegion(selection: selection, active: workspaceActive))
                         .padding(.horizontal, 12)
                     }
                     .frame(minWidth: 240, minHeight: 300)
@@ -1847,6 +1849,7 @@ private struct DeleteNoteSheet: View {
 /// so a rejected save keeps the sheet open (web dialog stays open, unchanged).
 private struct NoteMetaEditor: View {
     @Bindable var model: NoteReaderModel
+    let noteID: TrackID
     let onClose: () -> Void
 
     @State private var title = ""
@@ -1857,6 +1860,9 @@ private struct NoteMetaEditor: View {
     @State private var flags: [String] = []
     @State private var props = ""
     @State private var didLoad = false
+    @State private var kind = ""
+    @State private var etag: String?
+    @State private var loadError: String?
     /// Cover-image import (web NoteMetaDialog pickImage): the chosen file is
     /// uploaded to /api/asset and the returned assets/… ref fills the field.
     /// Failures surface inline; the existing ref is left untouched.
@@ -1869,32 +1875,31 @@ private struct NoteMetaEditor: View {
             Text("Note metadata").font(.headline)
             if didLoad {
                 form
+            } else if let loadError {
+                Text(loadError).font(.callout).foregroundStyle(.red)
+                HStack {
+                    Button("Cancel") { onClose() }.keyboardShortcut(.cancelAction)
+                    Button("Retry") { Task { await load() } }
+                }
             } else {
                 ProgressView()
                     .frame(maxWidth: .infinity, minHeight: 200)
             }
         }
         .padding(20)
-        .frame(width: 400)
-        .task {
-            guard !didLoad else { return }
-            if let meta = await model.fetchMeta() {
-                title = meta.title
-                tags = meta.tags.joined(separator: ", ")
-                description = meta.description
-                image = meta.image
-                icon = meta.icon
-                flags = meta.flags
-                props = meta.props
-                didLoad = true
-            }
-        }
+        .frame(width: 480)
+        .interactiveDismissDisabled(model.isSavingMeta || isUploadingImage)
+        .task { await load() }
     }
 
     @ViewBuilder
     private var form: some View {
         Form {
             TextField("Title — changing it renames the note and rewrites backlinks", text: $title, axis: .vertical)
+                .disabled(kind == "journal")
+            if kind == "journal" {
+                Text("A journal's title is set by its date.").font(.caption).foregroundStyle(.secondary)
+            }
             TextField("Tags — comma-separated", text: $tags)
             TextField("Description (og:description)", text: $description, axis: .vertical)
             TextField("Cover image — assets/… path", text: $image)
@@ -1913,15 +1918,21 @@ private struct NoteMetaEditor: View {
             TextField("Icon — an emoji shown beside the title", text: $icon)
             Toggle("DEPRECATED", isOn: flagBinding("DEPRECATED"))
             Toggle("CONFIDENTIAL", isOn: flagBinding("CONFIDENTIAL"))
-            TextEditor(text: $props)
-                .font(.system(.body, design: .monospaced))
-                .frame(minHeight: 120)
+            LabeledContent("Properties") {
+                TextEditor(text: $props)
+                    .font(.system(.body, design: .monospaced))
+                    .frame(minHeight: 120)
+                    .accessibilityLabel("Properties YAML")
+            }
+            Text("YAML values keep their types: rating: 8, active: true, topics: [swift, macOS]. The vault validates its property schema when saving.")
+                .font(.caption).foregroundStyle(.secondary)
         }
         .formStyle(.grouped)
         .scrollDisabled(false)
+        .disabled(model.isSavingMeta || isUploadingImage)
         .fileImporter(
             isPresented: $showImageImporter,
-            allowedContentTypes: [.image],
+            allowedContentTypes: [.png, .jpeg, .gif, .webP],
             allowsMultipleSelection: false
         ) { result in importImage(result) }
 
@@ -1935,6 +1946,7 @@ private struct NoteMetaEditor: View {
             Spacer()
             Button("Cancel") { onClose() }
                 .keyboardShortcut(.cancelAction)
+                .disabled(model.isSavingMeta || isUploadingImage)
             Button {
                 save()
             } label: {
@@ -1944,8 +1956,31 @@ private struct NoteMetaEditor: View {
                     Text("Save")
                 }
             }
-            .disabled(model.isSavingMeta)
+            .disabled(model.isSavingMeta || isUploadingImage)
             .keyboardShortcut(.defaultAction)
+        }
+    }
+
+    private func load() async {
+        guard !didLoad else { return }
+        loadError = nil
+        model.dismissSaveError()
+        do {
+            let meta = try await model.client.getNoteMeta(noteID)
+            guard !Task.isCancelled else { return }
+            title = meta.title
+            tags = meta.tags.joined(separator: ", ")
+            description = meta.description
+            image = meta.image
+            icon = meta.icon
+            flags = meta.flags
+            props = meta.props
+            kind = meta.kind
+            etag = meta.etag
+            didLoad = true
+        } catch {
+            guard !Task.isCancelled else { return }
+            loadError = (error as? APIError)?.message ?? error.localizedDescription
         }
     }
 
@@ -1983,7 +2018,7 @@ private struct NoteMetaEditor: View {
             Task {
                 defer { isUploadingImage = false }
                 do {
-                    let vault = model.currentID?.split().vault ?? ""
+                    let vault = noteID.split().vault
                     let response = try await model.client.uploadAsset(
                         fileName: url.lastPathComponent,
                         data: data,
@@ -2021,10 +2056,11 @@ private struct NoteMetaEditor: View {
             image: image.trimmingCharacters(in: .whitespaces),
             icon: icon.trimmingCharacters(in: .whitespaces),
             flags: flags,
-            props: props
+            props: props,
+            etag: etag
         )
         Task {
-            if await model.saveMeta(request) {
+            if await model.saveMeta(request, expectedID: noteID) {
                 onClose()
             }
         }
@@ -2268,19 +2304,6 @@ private struct ReaderEmptyStateView: View {
             }
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
-    }
-}
-
-/// Share link helpers (web ShareActions parity): the native app has no
-/// published site base URL, so the shareable link is the vault-internal
-/// `[[title]]` reference. Copy-link copies it; X shares title + link text.
-private enum ShareLinks {
-    static func wikilink(for title: String) -> String { "[[\(title)]]" }
-
-    static func xIntentURL(title: String) -> URL? {
-        var comps = URLComponents(string: "https://x.com/intent/tweet")
-        comps?.queryItems = [URLQueryItem(name: "text", value: "\(title)\n\n\(wikilink(for: title))")]
-        return comps?.url
     }
 }
 
