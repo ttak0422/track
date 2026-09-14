@@ -36,6 +36,7 @@ public struct GFMBody: View {
     let markdown: String
     let baseURL: URL
     let vault: String
+    let noteID: TrackID?
     let includes: [NoteInclude]?
     let client: TrackClient?
     var onWikilink: ((String) -> Void)?
@@ -48,6 +49,7 @@ public struct GFMBody: View {
         markdown: String,
         baseURL: URL,
         vault: String,
+        noteID: TrackID? = nil,
         includes: [NoteInclude]? = nil,
         client: TrackClient? = nil,
         onWikilink: ((String) -> Void)? = nil,
@@ -56,6 +58,7 @@ public struct GFMBody: View {
         self.markdown = markdown
         self.baseURL = baseURL
         self.vault = vault
+        self.noteID = noteID
         self.includes = includes
         self.client = client
         self.onWikilink = onWikilink
@@ -141,6 +144,7 @@ public struct GFMBody: View {
             case .figure(let figure):
                 FigureSegmentView(
                     figure: figure,
+                    noteID: noteID,
                     vault: vault,
                     baseURL: baseURL,
                     client: client,
@@ -1014,6 +1018,7 @@ private struct WikilinkRailRow: View {
 /// spec's source as the placeholder text.
 private struct FigureSegmentView: View {
     let figure: GFMBody.Figure
+    let noteID: TrackID?
     let vault: String
     let baseURL: URL
     let client: TrackClient?
@@ -1024,11 +1029,13 @@ private struct FigureSegmentView: View {
 
     init(
         figure: GFMBody.Figure,
+        noteID: TrackID?,
         vault: String,
         baseURL: URL,
         client: TrackClient?,
         onWikilink: ((String) -> Void)?
     ) {
+        self.noteID = noteID
         self.figure = figure
         self.vault = vault
         self.baseURL = baseURL
@@ -1155,8 +1162,8 @@ private struct FigureSegmentView: View {
     /// drop-specific behavior of its own.
     @ViewBuilder
     private var taskboardBody: some View {
-        if let client {
-            InlineTaskBoard(client: client)
+        if let client, let noteID {
+            InlineTaskBoard(client: client, noteID: noteID)
         } else {
             Label("Taskboard unavailable", systemImage: "rectangle.3.group")
                 .font(.caption)
@@ -1230,12 +1237,17 @@ private struct DarkGraphvizModifier: ViewModifier {
 
 private struct InlineTaskBoard: View {
     let client: TrackClient
+    let noteID: TrackID
     @State private var model: TasksModel?
 
     var body: some View {
         Group {
             if let model {
-                TaskBoard(model: model)
+                VStack(alignment: .leading) {
+                    if let message = model.error ?? model.lastConflict { Text(message).foregroundStyle(.red) }
+                    if model.rows.isEmpty { Text("No tasks in this note.").foregroundStyle(.secondary) }
+                    else { TaskBoard(model: model).frame(minHeight: 240) }
+                }
             } else {
                 HStack(spacing: 8) {
                     ProgressView().controlSize(.small)
@@ -1244,11 +1256,13 @@ private struct InlineTaskBoard: View {
                 .frame(maxWidth: .infinity, alignment: .leading)
             }
         }
-        .task {
-            guard model == nil else { return }
-            let loaded = TasksModel(client: client)
+        .task(id: noteID) {
+            let loaded = TasksModel(client: client, noteID: noteID)
             model = loaded
             await loaded.reload()
+        }
+        .onReceive(NotificationCenter.default.publisher(for: .trackVaultChanged)) { _ in
+            Task { await model?.reload() }
         }
     }
 }

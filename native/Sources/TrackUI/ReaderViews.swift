@@ -1289,6 +1289,7 @@ public struct NoteReaderView: View {
                     markdown: model.didRender ? model.renderedBody : response.note.body,
                     baseURL: baseURL,
                     vault: model.currentID?.split().vault ?? "",
+                    noteID: model.currentID,
                     includes: model.didRender ? model.renderedIncludes : nil,
                     client: model.client,
                     onWikilink: { target in Task { await model.openWikilink(target: target) } },

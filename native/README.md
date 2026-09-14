@@ -27,6 +27,7 @@ swift run --package-path native VerifyVaultScope
 swift run --package-path native VerifyReader
 swift run --package-path native VerifyDesign
 swift run --package-path native VerifyReading
+swift run --package-path native VerifyTasks
 swift run --package-path native VerifyAgentRequests
 ```
 

@@ -19,6 +19,9 @@ public final class TasksModel {
     /// the refetch after a conflict), so the view never flashes an empty state.
     public private(set) var isLoading = false
     public var showOpenOnly = false
+    public private(set) var isWriting = false
+    private let noteID: TrackID?
+    private var loadGeneration = 0
 
     private let client: TrackClient
     /// Latest write etag per note (from TasksResponse). A task is a note id
@@ -28,52 +31,74 @@ public final class TasksModel {
     /// refuse a write against a line the view never saw (api.ts:371).
     private var drawn: [TaskKey: String] = [:]
 
-    public init(client: TrackClient) {
+    public init(client: TrackClient, noteID: TrackID? = nil) {
         self.client = client
+        self.noteID = noteID
     }
 
     public func reload() async {
+        loadGeneration += 1
+        let token = loadGeneration
         isLoading = true
-        defer { isLoading = false }
+        defer { if token == loadGeneration { isLoading = false } }
         error = nil
         do {
-            let res = showOpenOnly
-                ? try await client.listOpenTasks()
-                : try await client.listDatedTasks()
-            rows = res.tasks
-            drawn = Dictionary(
-                uniqueKeysWithValues: res.tasks.map {
-                    (TaskKey(note: $0.noteID, line: $0.item.line), $0.item.state)
+            let fresh: [TaskRow]
+            var freshEtags: [TrackID: String] = [:]
+            if let noteID {
+                let response = try await client.getNote(noteID)
+                let ref = response.note.summary.ref
+                fresh = (response.note.tasks?.items ?? []).map {
+                    TaskRow(item: $0, noteID: noteID, fileKind: ref.fileKind, title: ref.title)
                 }
-            )
+                freshEtags[noteID] = response.note.etag
+            } else {
+                let res = showOpenOnly
+                    ? try await client.listOpenTasks()
+                    : try await client.listDatedTasks()
+                fresh = res.tasks
+            }
+            guard token == loadGeneration, !Task.isCancelled else { return }
+            rows = fresh
+            etags = freshEtags
+            drawn = Dictionary(uniqueKeysWithValues: fresh.map {
+                (TaskKey(note: $0.noteID, line: $0.item.line), $0.item.state)
+            })
         } catch {
-            self.error = error.localizedDescription
+            if token == loadGeneration { self.error = error.localizedDescription }
         }
     }
 
     public func setState(row: TaskRow, to state: String) async {
+        guard !isWriting else { return }
+        isWriting = true
+        defer { isWriting = false }
         let key = TaskKey(note: row.noteID, line: row.item.line)
         do {
-            // Redraw from the response — no second request (api.ts:372).
-            let res = try await client.setTaskState(
+            _ = try await client.setTaskState(
                 id: row.noteID, line: row.item.line, state: state,
                 expect: drawn[key] ?? row.item.state,
                 etag: etags[row.noteID] ?? ""
             )
-            applyWrite(note: row.noteID, title: row.title, fileKind: row.fileKind, response: res)
+            await reload()
+            NotificationCenter.default.post(name: .trackVaultChanged, object: nil)
         } catch {
             await handleWriteFailure(error)
         }
     }
 
     public func setDate(row: TaskRow, field: DateField, date: String) async {
+        guard !isWriting else { return }
+        isWriting = true
+        defer { isWriting = false }
         do {
-            let res = try await client.setTaskDate(
+            _ = try await client.setTaskDate(
                 id: row.noteID, line: row.item.line, field: field, date: date,
                 expect: drawn[TaskKey(note: row.noteID, line: row.item.line)] ?? row.item.state,
                 etag: etags[row.noteID] ?? ""
             )
-            applyWrite(note: row.noteID, title: row.title, fileKind: row.fileKind, response: res)
+            await reload()
+            NotificationCenter.default.post(name: .trackVaultChanged, object: nil)
         } catch {
             await handleWriteFailure(error)
         }
@@ -104,18 +129,6 @@ public final class TasksModel {
         await reload()
     }
 
-    private func applyWrite(note: TrackID, title: String, fileKind: String, response: TasksResponse) {
-        etags[note] = response.etag
-        // The write response carries the note's own tasks (no note context),
-        // so merge them back into the vault-wide rows by line.
-        let byLine = Dictionary(uniqueKeysWithValues: response.items.map { ($0.line, $0) })
-        for i in rows.indices where rows[i].noteID == note {
-            if let fresh = byLine[rows[i].item.line] {
-                rows[i].item = fresh
-                drawn[TaskKey(note: note, line: fresh.line)] = fresh.state
-            }
-        }
-    }
 }
 
 private struct TaskKey: Hashable {

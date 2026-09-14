@@ -90,8 +90,10 @@ public final class NoteReaderModel {
 
     /// All navigation and window-close paths use this boundary. Keep the
     /// buffer until navigation succeeds, including when the network fails.
+    public private(set) var isWritingTask = false
+
     public func authorizeDiscard() -> Bool {
-        guard !isSaving, !isDeleting, !isSavingMeta, !isCreating else { return false }
+        guard !isSaving, !isDeleting, !isSavingMeta, !isCreating, !isWritingTask else { return false }
         return !isDirty || confirmDiscard()
     }
 
@@ -161,7 +163,7 @@ public final class NoteReaderModel {
 
     /// Enter the editor seeded from the loaded body.
     public func beginEditing() {
-        guard isLoaded, !isEditing, !isOpening else { return }
+        guard isLoaded, !isEditing, !isOpening, !isWritingTask else { return }
         draftBody = loadedBody
         isEditing = true
     }
@@ -383,86 +385,40 @@ public final class NoteReaderModel {
         return crossed
     }
 
-    // MARK: - Tasks (web setTaskState on the note's own board)
+    // MARK: - Tasks
 
-    /// Move a task line into `newState` against the note's own etag, mirroring
-    /// the web's setTaskState write path (`expect` is the line's currently
-    /// drawn state, asserted so a stale write to a moved line is refused). On
-    /// success the response's refreshed tasks + etag are adopted into the open
-    /// note; a 409 means the note changed underneath — the view reloads, and
-    /// `saveConflict` explains the write was not applied.
     public func setTaskState(line: Int, to newState: String) async {
-        guard let id = currentID,
-              case .loaded(let response) = self.state,
-              response.note.tasks != nil else { return }
-        let expect = response.note.tasks?.items.first { $0.line == line }?.state ?? newState
-        do {
-            let res = try await client.setTaskState(
-                id: id, line: line, state: newState,
-                expect: expect, etag: response.note.etag
-            )
-            adoptTasks(res)
-        } catch let api as APIError where api.status == 409 {
-            saveConflict = "Note changed underneath — reloaded"
-            if let fresh = try? await client.getNote(id) {
-                self.state = .loaded(fresh)
-                await render(fresh.note.body, id: id)
-            }
-        } catch {
-            saveError = Self.message(for: error)
+        await writeTask(line: line) { id, expect, etag in
+            try await self.client.setTaskState(id: id, line: line, state: newState, expect: expect, etag: etag)
         }
     }
 
-    /// Move a task's scheduled/due date through the same write path the state
-    /// cell uses (web TaskControls date cells → POST /api/task with sched/due
-    /// + expect + etag). `date` empty clears the token. On success the
-    /// refreshed tasks + etag are adopted; a 409 reloads and sets
-    /// `saveConflict`, like `setTaskState`.
     public func setTaskDate(line: Int, field: DateField, date: String) async {
-        guard let id = currentID,
-              case .loaded(let response) = self.state,
-              response.note.tasks != nil else { return }
-        let expect = response.note.tasks?.items.first { $0.line == line }?.state ?? "TODO"
+        await writeTask(line: line) { id, expect, etag in
+            try await self.client.setTaskDate(id: id, line: line, field: field, date: date, expect: expect, etag: etag)
+        }
+    }
+
+    private func writeTask(line: Int, mutation: (TrackID, String, String) async throws -> TasksResponse) async {
+        guard let id = currentID, !isDirty, !isSaving, !isOpening, !isWritingTask,
+              case .loaded(let response) = state,
+              let task = response.note.tasks?.items.first(where: { $0.line == line }) else { return }
+        isWritingTask = true
+        defer { isWritingTask = false }
+        saveError = nil
+        saveConflict = nil
         do {
-            let res = try await client.setTaskDate(
-                id: id, line: line, field: field, date: date,
-                expect: expect, etag: response.note.etag
-            )
-            adoptTasks(res)
+            _ = try await mutation(id, task.state, response.note.etag)
+            // A task response has no body. Adopting only its etag would let
+            // later editing overwrite the task with the old body and a fresh token.
+            await refreshOpenNote()
+            NotificationCenter.default.post(name: .trackVaultChanged, object: nil)
         } catch let api as APIError where api.status == 409 {
-            saveConflict = "Note changed underneath — reloaded"
-            if let fresh = try? await client.getNote(id) {
-                self.state = .loaded(fresh)
-                await render(fresh.note.body, id: id)
-            }
+            saveConflict = "Note changed underneath — change was not applied"
+            await refreshOpenNote()
         } catch {
             saveError = Self.message(for: error)
         }
-    }
-    /// Adopt the write response's refreshed tasks + etag into the open note,
-    /// replacing only the task list it carried (a task write response lacks
-    /// note context, so the rest of the note stays as loaded).
-    private func adoptTasks(_ response: TasksResponse) {
-        guard case .loaded(let current) = self.state else { return }
-        var updated = current
-        if let tasks = Self.noteTasks(from: response.items) {
-            updated.note.tasks = tasks
-        }
-        updated.note.etag = response.etag
-        self.state = .loaded(updated)
-    }
-
-    /// Build a `NoteTasks` from item rows. The struct has no public memberwise
-    /// initializer (its memberwise init is internal and lives in TrackAPI), so
-    /// it is rebuilt by round-tripping the items through JSON and decoding the
-    /// `{"items": […]}` shape its Codable conformance expects.
-    private static func noteTasks(from items: [TaskItem]) -> NoteTasks? {
-        guard let itemData = try? JSONEncoder().encode(items),
-              let itemArray = try? JSONSerialization.jsonObject(with: itemData),
-              let wrapped = try? JSONSerialization.data(withJSONObject: ["items": itemArray]),
-              let tasks = try? JSONDecoder().decode(NoteTasks.self, from: wrapped)
-        else { return nil }
-        return tasks
     }
 
     /// The loaded response's etag — the write token a save echoes back.

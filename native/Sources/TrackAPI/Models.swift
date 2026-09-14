@@ -173,6 +173,13 @@ public struct TaskRow: Codable, Sendable {
     public var fileKind: String
     public var title: String
 
+    public init(item: TaskItem, noteID: TrackID, fileKind: String, title: String) {
+        self.item = item
+        self.noteID = noteID
+        self.fileKind = fileKind
+        self.title = title
+    }
+
     public init(from decoder: Decoder) throws {
         item = try TaskItem(from: decoder)
         let c = try decoder.container(keyedBy: CodingKeys.self)

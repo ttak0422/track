@@ -21,6 +21,7 @@ let package = Package(
         .executableTarget(name: "VerifyAgentRequests", dependencies: ["TrackUI"], path: "Tools/VerifyAgentRequests"),
         .executableTarget(name: "VerifyVaultScope", dependencies: ["TrackUI"], path: "Tools/VerifyVaultScope"),
         .executableTarget(name: "VerifyReader", dependencies: ["TrackUI"], path: "Tools/VerifyReader"),
+        .executableTarget(name: "VerifyTasks", dependencies: ["TrackUI"], path: "Tools/VerifyTasks"),
         .executableTarget(name: "VerifyReading", dependencies: ["TrackUI"], path: "Tools/VerifyReading"),
         .executableTarget(name: "VerifyDesign", dependencies: ["TrackUI"], path: "Tools/VerifyDesign"),
         // swift-testing / XCTest ship with full Xcode only, so verification

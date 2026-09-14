@@ -35,6 +35,7 @@ public struct TaskBoard: View {
             }
         }
         .padding(8)
+        .disabled(model.isWriting)
     }
 }
 
