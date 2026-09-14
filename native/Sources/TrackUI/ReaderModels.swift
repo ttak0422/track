@@ -391,22 +391,27 @@ public final class NoteReaderModel {
 
     // MARK: - Tasks
 
-    public func setTaskState(line: Int, to newState: String) async {
-        await writeTask(line: line) { id, expect, etag in
+    public func setTaskState(line: Int, to newState: String, expectedID: TrackID? = nil, expectedETag: String? = nil) async {
+        await writeTask(line: line, expectedID: expectedID, expectedETag: expectedETag) { id, expect, etag in
             try await self.client.setTaskState(id: id, line: line, state: newState, expect: expect, etag: etag)
         }
     }
 
-    public func setTaskDate(line: Int, field: DateField, date: String) async {
-        await writeTask(line: line) { id, expect, etag in
+    public func setTaskDate(line: Int, field: DateField, date: String, expectedID: TrackID? = nil, expectedETag: String? = nil) async {
+        await writeTask(line: line, expectedID: expectedID, expectedETag: expectedETag) { id, expect, etag in
             try await self.client.setTaskDate(id: id, line: line, field: field, date: date, expect: expect, etag: etag)
         }
     }
 
-    private func writeTask(line: Int, mutation: (TrackID, String, String) async throws -> TasksResponse) async {
+    private func writeTask(line: Int, expectedID: TrackID?, expectedETag: String?, mutation: (TrackID, String, String) async throws -> TasksResponse) async {
         guard let id = currentID, !isDirty, !isSaving, !isOpening, !isWritingTask,
               case .loaded(let response) = state,
               let task = response.note.tasks?.items.first(where: { $0.line == line }) else { return }
+        guard expectedID == nil || expectedID == id,
+              expectedETag == nil || expectedETag == response.note.etag else {
+            saveConflict = "Task changed underneath — change was not applied"
+            return
+        }
         isWritingTask = true
         defer { isWritingTask = false }
         saveError = nil
@@ -432,10 +437,12 @@ public final class NoteReaderModel {
     }
 
     /// Resolve `body` through the engine's `/api/render`, keeping the resolved
-    /// markdown and includes on success and leaving the previous (or raw) body
-    /// on failure. Fire-and-forget when a note just needs refreshing —
-    /// rendering is a pure derivation of the body.
+    /// markdown and includes on success. Old rendered lines must never be
+    /// paired with new task line numbers/etags while rendering or after failure.
     private func render(_ body: String, id: TrackID) async {
+        renderedBody = ""
+        renderedIncludes = nil
+        didRender = false
         let vault = id.split().vault
         let token = generation
         if let render = try? await client.renderMarkdown(body: body, vault: vault) {

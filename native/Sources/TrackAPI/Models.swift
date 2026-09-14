@@ -137,7 +137,7 @@ public struct ResolveResponse: Codable, Sendable {
     public var note: NoteRef
 }
 
-public struct TaskItem: Codable, Sendable {
+public struct TaskItem: Codable, Sendable, Equatable {
     public var line: Int
     public var state: String
     public var done: Bool

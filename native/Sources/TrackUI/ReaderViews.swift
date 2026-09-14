@@ -1012,7 +1012,7 @@ public struct NoteReaderView: View {
         }
         .popover(item: $taskDateTarget) { target in
             NoteTaskDateEditor(target: target) { field, date in
-                Task { await model.setTaskDate(line: target.line, field: field, date: date) }
+                Task { await model.setTaskDate(line: target.line, field: field, date: date, expectedID: target.noteID, expectedETag: target.etag) }
             }
             .padding()
         }
@@ -1317,7 +1317,7 @@ public struct NoteReaderView: View {
                     client: model.client,
                     onWikilink: { target in Task { await model.openWikilink(target: target) } },
                     onTaskToggle: { line, completed in
-                        Task { await model.setTaskState(line: line, to: completed ? "DONE" : "TODO") }
+                        Task { await model.setTaskState(line: line, to: completed ? "DONE" : "TODO", expectedID: response.note.summary.ref.noteID, expectedETag: response.note.etag) }
                     }
                 )
                 .environment(\.openURL, wikilinkURLAction)
@@ -1328,10 +1328,10 @@ public struct NoteReaderView: View {
                         tasks: tasks.items,
                         onCycle: { line in
                             let current = tasks.items.first { $0.line == line }?.state ?? "TODO"
-                            Task { await model.setTaskState(line: line, to: nextTaskState(after: current)) }
+                            Task { await model.setTaskState(line: line, to: nextTaskState(after: current), expectedID: response.note.summary.ref.noteID, expectedETag: response.note.etag) }
                         },
                         onPickDate: { line, field in
-                            taskDateTarget = NoteTaskDateTarget(line: line, field: field)
+                            taskDateTarget = NoteTaskDateTarget(line: line, field: field, noteID: response.note.summary.ref.noteID, etag: response.note.etag)
                         }
                     )
                 }
@@ -2042,6 +2042,8 @@ private struct NoteMetaEditor: View {
 private struct NoteTaskDateTarget: Identifiable {
     let line: Int
     let field: DateField
+    let noteID: TrackID
+    let etag: String
     var id: String { "\(line)#\(field.rawValue)" }
 }
 
