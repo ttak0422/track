@@ -22,6 +22,7 @@ export SDKROOT=/Library/Developer/CommandLineTools/SDKs/MacOSX26.5.sdk
 export CLANG_MODULE_CACHE_PATH="$PWD/native/.build/clang-module-cache"
 swift build --package-path native
 swift run --package-path native VerifyFixtures
+scripts/check-native-live-events.sh
 ```
 
 Build the unsigned, non-sandboxed app bundle with `make native-app`. Override

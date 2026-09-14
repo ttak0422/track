@@ -81,7 +81,7 @@ private struct RootView: View {
 private struct MainTabView: View {
     let client: TrackClient
     @State private var tasks: TasksModel
-    @State private var poller: LiveEventPoller?
+    @State private var liveEvents: LiveEventPoller
     @State private var selectedTab = MainTab.notes
     @State private var openedNote: String?
     @State private var reader: NoteReaderModel
@@ -92,6 +92,9 @@ private struct MainTabView: View {
     init(client: TrackClient) {
         self.client = client
         _tasks = State(initialValue: TasksModel(client: client))
+        _liveEvents = State(initialValue: LiveEventPoller(baseURL: client.baseURL) {
+            NotificationCenter.default.post(name: .trackVaultChanged, object: nil)
+        })
         _reader = State(initialValue: NoteReaderModel(client: client))
     }
 
@@ -129,16 +132,12 @@ private struct MainTabView: View {
                 .tag(MainTab.settings)
                 .tabItem { Label("Settings", systemImage: "gearshape") }
         }
-        .task {
-            // Live vault updates (web useLiveEvents): the poller posts
-            // .trackVaultChanged and the data views reload themselves.
-            let poller = LiveEventPoller(baseURL: client.baseURL) {
-                NotificationCenter.default.post(name: .trackVaultChanged, object: nil)
-            }
-            self.poller = poller
-            poller.start()
+        .environment(liveEvents)
+        .task { liveEvents.start() }
+        .onDisappear { liveEvents.stop() }
+        .onReceive(NotificationCenter.default.publisher(for: NSApplication.didBecomeActiveNotification)) { _ in
+            Task { await liveEvents.refresh() }
         }
-        .onDisappear { poller?.stop() }
         .sheet(isPresented: Binding(get: { openedNote != nil }, set: { if !$0 { openedNote = nil } })) {
             NoteReaderView(model: reader, baseURL: client.baseURL)
                 .task { if let openedNote { await reader.open(TrackID(openedNote)) } }

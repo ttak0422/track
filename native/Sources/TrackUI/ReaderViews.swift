@@ -58,7 +58,7 @@ public struct SearchReaderView: View {
     /// (reader-backed, mirroring web/src/reading.ts).
     @State private var reading = ReadingStore()
     @State private var browse: BrowseModel
-    @State private var liveEvents: LiveEventPoller
+    @Environment(LiveEventPoller.self) private var liveEvents
     @State private var dismissedChangeAt: Date?
     @State private var readerChangeNotice: String?
     @State private var pendingSearchResult: SearchResult?
@@ -84,9 +84,6 @@ public struct SearchReaderView: View {
         _search = State(initialValue: SearchModel(client: client))
         _reader = State(initialValue: NoteReaderModel(client: client))
         _browse = State(initialValue: BrowseModel(client: client))
-        _liveEvents = State(initialValue: LiveEventPoller(baseURL: client.baseURL) {
-            NotificationCenter.default.post(name: .trackVaultChanged, object: nil)
-        })
         self.client = client
         baseURL = client.baseURL
     }
@@ -395,16 +392,12 @@ public struct SearchReaderView: View {
              if search.consumeSearchFocusRequest() { searchFocused = true }
          }
           .task {
-              liveEvents.start()
               await browse.loadNewNotes()
           }
-         .onDisappear {
-             liveEvents.stop()
-         }
          .onReceive(NotificationCenter.default.publisher(for: .trackVaultChanged)) { _ in
-            guard !query.isEmpty, !search.isLoading else { return }
-            search.search(query: query)
-      }
+            Task { await browse.loadNewNotes() }
+            if !query.isEmpty && !search.isLoading { search.search(query: query) }
+         }
          .onChange(of: reader.currentID) { old, _ in
              if reader.currentID == nil {
                  pruneTab(old: old)

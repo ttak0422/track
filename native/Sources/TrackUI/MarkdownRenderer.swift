@@ -1061,6 +1061,9 @@ private struct FigureSegmentView: View {
             }
             .frame(maxWidth: .infinity, alignment: .leading)
             .task(id: figure.source) { await resolve() }
+            .onReceive(NotificationCenter.default.publisher(for: .trackVaultChanged)) { _ in
+                Task { await resolve() }
+            }
         }
     }
 
