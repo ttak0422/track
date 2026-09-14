@@ -16,7 +16,7 @@ SSG の生成・公開基盤は移植しない。
 ## 2026-09-14 の実装進捗
 
 ユーザーの追加依頼により、専用worktreeで並列実装し `feat/native-parity-integration` へ統合中。
-統合worktreeは `/private/tmp/track-native-parity-integration`。実装末尾は `4e04b24`。
+統合worktreeは `/private/tmp/track-native-parity-integration`。実装末尾は `4083667`。
 Native build・9つの回帰実行ターゲット・anchors/live-events・Go request/タスクAPIチェックは成功。
 以下は実装・回帰チェックの到達点であり、各TODOの全合格条件を満たしたという意味ではない。
 
@@ -28,7 +28,7 @@ Native build・9つの回帰実行ターゲット・anchors/live-events・Go req
 | C08/C12 | 目次の全項目、実際の本文へ見出し/block/脚注ジャンプ、脚注順序と戻るリンク、コード保護 | 入れ子リスト内部の正確な位置、include等の全構文比較 |
 | C09–11 | 関連一覧の上限除去、共有既読と非表示時の計時抑制、過去日誌自身のVault/dateでagenda取得 | Calendar全日付条件、全関連導線 |
 | C16/C18 | query list/board/galleryの密度・配置・非表示タイトルのカード遷移、ノート固有taskboard、更新後の本文再取得、古い行とetagの保護 | 全query/dashboard、Calendar・include内taskの横断操作 |
-| C19 | 選択文字列のみ検索、録音再開で本文保持、手入力との併用、未保存部分の追記、応答喪失時の照合 | 実マイク、IME、手動スクロール。保存済み範囲の変更は競合として保持 |
+| C19 | 選択文字列のみ検索、録音再開で本文保持、手入力との併用、未保存部分の追記、応答喪失時の照合 | 実マイク、IME、手動スクロール。保存済み範囲の変更は競合として保持し、曖昧な認識訂正は候補全文を一度だけ保持・保存 |
 | C20–21 | 依頼API/履歴/取消/再試行/続き/回答保存/更新競合、dockとノートからの依頼導線、保存先Vaultの明示 | 選択文字列からの依頼、実エージェントとの一連の操作 |
 | C24 | line/top_lineを元本文とrender結果で照合して実本文ブロックへ移動、OFF/非表示で取消、draft保持 | リスト/表/コード内部の行は包含ブロック先頭。Neovim実機との往復 |
 | C25–27 | compact dock、日本語フォント・行間・本文/図表幅、light/darkの配色、コントラスト修正 | Web同一入力との画面比較、全画面への適用・最大文字サイズ |

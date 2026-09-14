@@ -1,7 +1,7 @@
 # Native 互換対応の検証記録
 
 2026-09-14、`feat/native-parity-integration` で worktree ごとの変更を統合して検証。
-Web 基準は `d8e31bb`。検証対象の実装末尾は `4e04b24`。
+Web 基準は `d8e31bb`。検証対象の実装末尾は `4083667`。
 CLT/SDK macOS 26.5、SwiftPM debug buildで検証した。
 
 ## 読書面の描画
@@ -47,13 +47,15 @@ HTTP応答の順序、409、通信失敗は各ターゲット内のURLProtocol�
 | VerifyReading | Vault別既読、server milestone、UTF-16閾値、過去日誌のagenda |
 | VerifyNavigation | 共通reader、元画面への戻り、履歴、dirty時の遷移取消 |
 | VerifyAgentRequests | 数値IDとVault、作成/保存の冪等性、再試行、取消、続き、更新競合 |
-| VerifyVoice | 選択のみの検索、認識と手入力、停止/再開、差分保存、応答喪失、競合保持 |
+| VerifyVoice | 選択のみの検索、認識と手入力、停止/再開、差分保存、応答喪失、競合保持、IME中断・認識訂正の欠落防止 |
 | VerifyTasks | ノート固有board、一覧の出入り、etag/期待状態、古い行の拒否、本文更新、描画失敗 |
 | VerifyDesign | 日本語段落の実寸、本文幅、フォント、light/darkの補助文字コントラスト、gallery幅 |
 | check-native-anchors.sh | 日本語/重複見出し、block、脚注往復、コード保護、行番号 |
 | check-native-live-events.sh | SSE切断時のpoll、停止、復帰、通知の重複防止 |
 | Go request package | 保存結果で起動Vaultの空ラベルを保持 |
 | Go TestTaskEndpoints / TestTaskWriteRejectsShiftedSameStateWithStaleETag | etag必須、古い行への書込み拒否 |
+
+音声の手編集と認識訂正の対応が曖昧な場合、`[認識の訂正候補・要確認]` ブロックとして候補全文を一度だけ保持する。候補も保存対象なので後から手編集で整理できる。
 
 API・モデル検証とbuild成功は実機の操作確認を代替しない。
 実マイク、IME、OSのウィンドウ終了/アプリ終了、画面間のスクロール復元、外部サービスの実実行は未確認。
