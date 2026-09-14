@@ -1316,7 +1316,8 @@ public struct NoteReaderView: View {
                     onWikilink: { target in Task { await model.openWikilink(target: target) } },
                     onTaskToggle: { line, completed in
                         Task { await model.setTaskState(line: line, to: completed ? "DONE" : "TODO", expectedID: response.note.summary.ref.noteID, expectedETag: response.note.etag) }
-                    }
+                    },
+                    taskLineMap: model.didRender ? model.renderedSourceLines : nil
                 )
                 .environment(\.openURL, wikilinkURLAction)
                 .textSelection(.enabled)

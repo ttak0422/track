@@ -4,7 +4,7 @@ import TrackAPI
 import TrackUI
 
 final class TaskHTTP: URLProtocol, @unchecked Sendable {
-    struct State { var state = "TODO"; var due = "2026-09-14"; var text = "Task"; var writes = 0; var conflict = false; var failRead = false; var failRender = false }
+    struct State { var state = "TODO"; var due = "2026-09-14"; var text = "Task"; var writes = 0; var conflict = false; var failRead = false; var failRender = false; var renderPrefix = "" }
     static let state = Mutex(State())
     override class func canInit(with request: URLRequest) -> Bool { true }
     override class func canonicalRequest(for request: URLRequest) -> URLRequest { request }
@@ -46,7 +46,7 @@ final class TaskHTTP: URLProtocol, @unchecked Sendable {
                 return ["vault": "other", "note": ["note_id": 42, "file_kind": "note", "title": "Own note", "body": body, "etag": "v\(state.writes)", "tasks": ["items": [item]]], "backlinks": []]
             case "/api/render":
                 if state.failRender { status = 503; return ["error": "renderer offline"] }
-                return ["markdown": body, "includes": []]
+                return ["markdown": state.renderPrefix + body, "includes": []]
             case "/api/task": return ["items": [item], "etag": "v\(state.writes)"]
             default: fatalError("unexpected request \(url)")
             }
@@ -116,4 +116,8 @@ await reader.setTaskDate(line: 1, field: .due, date: "2027-01-01", expectedID: T
 await reader.setTaskDate(line: 1, field: .due, date: "2027-01-01", expectedID: TrackID("42"))
 precondition(TaskHTTP.state.withLock { $0.writes } == currentWrites,
              "retained reader controls must not write a changed baseline or another note")
+TaskHTTP.state.withLock { $0.failRender = false; $0.renderPrefix = "Generated query result\n\n" }
+await reader.refreshOpenNote()
+precondition(reader.didRender && reader.renderedSourceLines == [nil, nil, 0],
+             "rendered task line 3 must map back to raw task line 1 after query expansion")
 print("Task checks passed: own-note board, list membership, body refresh, dirty protection and conflicts")

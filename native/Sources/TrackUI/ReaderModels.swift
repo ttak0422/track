@@ -32,6 +32,7 @@ public final class NoteReaderModel {
     // rendered instead — a render failure must not stop the note from opening.
     public private(set) var renderedBody: String = ""
     public private(set) var renderedIncludes: [NoteInclude]?
+    public private(set) var renderedSourceLines: [Int?]?
     /// True once `/api/render` produced the currently-held `renderedBody` —
     /// distinguishes "render succeeded on an empty body" from "render failed".
     public private(set) var didRender = false
@@ -150,6 +151,7 @@ public final class NoteReaderModel {
             saveConflict = nil
             renderedBody = render?.markdown ?? ""
             renderedIncludes = render?.includes
+            renderedSourceLines = render.map { MarkdownAnchors.sourceLines(source: response.note.body, rendered: $0.markdown) }
             didRender = render != nil
             state = .loaded(response)
             ReadingStore.shared.adopt([response.note.summary.ref] + response.backlinks)
@@ -192,6 +194,7 @@ public final class NoteReaderModel {
         currentID = nil
         renderedBody = ""
         renderedIncludes = nil
+        renderedSourceLines = nil
         didRender = false
         scroll(to: nil)
         draftBody = ""
@@ -457,6 +460,7 @@ public final class NoteReaderModel {
     private func render(_ body: String, id: TrackID) async {
         renderedBody = ""
         renderedIncludes = nil
+        renderedSourceLines = nil
         didRender = false
         let vault = id.split().vault
         let token = generation
@@ -464,6 +468,7 @@ public final class NoteReaderModel {
             guard token == generation, currentID == id, loadedBody == body else { return }
             renderedBody = render.markdown
             renderedIncludes = render.includes
+            renderedSourceLines = MarkdownAnchors.sourceLines(source: body, rendered: render.markdown)
             didRender = true
         }
     }

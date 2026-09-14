@@ -39,6 +39,7 @@ public struct GFMBody: View {
     let client: TrackClient?
     var onWikilink: ((String) -> Void)?
     var onTaskToggle: ((Int, Bool) -> Void)?
+    let taskLineMap: [Int?]?
     @Environment(\.colorScheme) private var colorScheme
     @Environment(\.trackFontScale) private var fontScale
     @AppStorage(TrackAppearance.contentWidthKey) private var contentWidthRaw: String?
@@ -51,7 +52,8 @@ public struct GFMBody: View {
         includes: [NoteInclude]? = nil,
         client: TrackClient? = nil,
         onWikilink: ((String) -> Void)? = nil,
-        onTaskToggle: ((Int, Bool) -> Void)? = nil
+        onTaskToggle: ((Int, Bool) -> Void)? = nil,
+        taskLineMap: [Int?]? = nil
     ) {
         self.markdown = markdown
         self.baseURL = baseURL
@@ -61,6 +63,7 @@ public struct GFMBody: View {
         self.client = client
         self.onWikilink = onWikilink
         self.onTaskToggle = onTaskToggle
+        self.taskLineMap = taskLineMap
     }
 
     public var body: some View {
@@ -114,14 +117,15 @@ public struct GFMBody: View {
                     // tables share the full figure width within a Markdown run.
                     .frame(maxWidth: .infinity, alignment: .leading)
             case .task(let task):
+                let line = taskSourceLine(task.line)
                 HStack(alignment: .firstTextBaseline, spacing: 8) {
                     Button {
-                        onTaskToggle?(task.line, !task.completed)
+                        if let line { onTaskToggle?(line, !task.completed) }
                     } label: {
                         Image(systemName: task.completed ? "checkmark.square.fill" : "square")
                     }
                     .buttonStyle(.plain)
-                    .disabled(onTaskToggle == nil)
+                    .disabled(onTaskToggle == nil || line == nil)
                     Markdown(task.text)
                         .markdownTheme(theme)
                         .textSelection(.enabled)
@@ -152,6 +156,12 @@ public struct GFMBody: View {
             .padding(.bottom, segment.isAnchor ? 0 : 13 * fontScale)
           }
         }
+    }
+
+    private func taskSourceLine(_ renderedLine: Int) -> Int? {
+        guard let taskLineMap else { return renderedLine }
+        guard taskLineMap.indices.contains(renderedLine - 1) else { return nil }
+        return taskLineMap[renderedLine - 1].map { $0 + 1 }
     }
 
     // MARK: - Segmenting (fence-aware)
