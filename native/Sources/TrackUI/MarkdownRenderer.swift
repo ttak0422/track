@@ -85,7 +85,7 @@ public struct GFMBody: View {
                 Divider()
                 Text("Links").trackSectionLabel()
                 ForEach(links, id: \.self) { target in
-                    WikilinkRailRow(target: target, client: client) {
+                    WikilinkRailRow(target: target, client: client, sourceID: noteID) {
                         onWikilink?(target)
                     }
                 }
@@ -835,6 +835,7 @@ extension Theme {
 private struct WikilinkRailRow: View {
     let target: String
     let client: TrackClient?
+    let sourceID: TrackID?
     let onOpen: () -> Void
     @State private var resolved = false
     @State private var isPending = true
@@ -842,6 +843,7 @@ private struct WikilinkRailRow: View {
 
     var body: some View {
         let palette = TrackTheme.palette(for: colorScheme)
+        Group {
         if isPending {
             Text(target).font(.body).foregroundStyle(palette.muted)
                 .task(id: target) { await resolve() }
@@ -857,13 +859,17 @@ private struct WikilinkRailRow: View {
             Text(target).font(.body).foregroundStyle(palette.danger)
                 .underline(pattern: .dot, color: palette.danger)
         }
+        }
+        .modifier(RailPreview(client: client, target: target, sourceID: sourceID))
     }
+
 
     private func resolve() async {
         guard let client else { isPending = false; resolved = true; return }
         let parsed = MarkdownAnchors.target(target)
         if parsed.key.isEmpty, parsed.anchor != nil { isPending = false; resolved = true; return }
-        let (vault, term) = Self.split(parsed.key)
+        let (explicitVault, term) = Self.split(parsed.key)
+        let vault = explicitVault.isEmpty ? (sourceID?.split().vault ?? "") : explicitVault
         let found = (try? await client.resolveTerm(term, vault: vault))?.found ?? false
         resolved = found
         isPending = false
@@ -878,6 +884,18 @@ private struct WikilinkRailRow: View {
             return (String(noAnchor[..<colon]), String(noAnchor[noAnchor.index(after: colon)...]))
         }
         return ("", noAnchor)
+    }
+}
+
+private struct RailPreview: ViewModifier {
+    @Environment(\.openURL) private var openURL
+    let client: TrackClient?
+    let target: String
+    let sourceID: TrackID?
+    func body(content: Content) -> some View {
+        if let client {
+            content.notePreview(client: client, target: target, sourceID: sourceID) { id in openURL(MarkdownAnchors.wikiURL(id.raw)) }
+        } else { content }
     }
 }
 
