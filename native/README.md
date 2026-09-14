@@ -25,6 +25,7 @@ swift run --package-path native VerifyFixtures
 scripts/check-native-live-events.sh
 swift run --package-path native VerifyVaultScope
 swift run --package-path native VerifyReader
+swift run --package-path native VerifyNavigation
 swift run --package-path native VerifyDesign
 swift run --package-path native VerifyReading
 swift run --package-path native VerifyTasks

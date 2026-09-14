@@ -39,6 +39,8 @@ public struct SearchReaderView: View {
     /// The shared API client, kept for pinned preview cards (which load
     /// outside the reader model).
     private let client: TrackClient
+    private let onRequestAgent: ((AgentRequestTarget) -> Void)?
+    private let onOpenCalendar: ((String) -> Void)?
     /// Recently opened notes (most-recent first), persisted under one key.
     @AppStorage("track.recentNotes") private var recentJSON = "[]"
     /// Local read-state mirror, so NEW badges draw without a server round-trip
@@ -65,9 +67,11 @@ public struct SearchReaderView: View {
     @Environment(\.colorScheme) private var colorScheme
     @Environment(\.trackFontScale) private var fontScale
 
-    public init(client: TrackClient) {
+    public init(client: TrackClient, reader: NoteReaderModel? = nil, onOpenCalendar: ((String) -> Void)? = nil, onRequestAgent: ((AgentRequestTarget) -> Void)? = nil) {
+        self.onRequestAgent = onRequestAgent
+        self.onOpenCalendar = onOpenCalendar
         _search = State(initialValue: SearchModel(client: client))
-        _reader = State(initialValue: NoteReaderModel(client: client))
+        _reader = State(initialValue: reader ?? NoteReaderModel(client: client))
         _browse = State(initialValue: BrowseModel(client: client))
         self.client = client
         baseURL = client.baseURL
@@ -349,7 +353,7 @@ public struct SearchReaderView: View {
                  if case .empty = reader.state {
                      searchHome
                  } else {
-                      NoteReaderView(model: reader, baseURL: baseURL) { tag in
+                      NoteReaderView(model: reader, baseURL: baseURL, onRequestAgent: onRequestAgent) { tag in
                           appendSearchTag(tag)
                       }
                  }
@@ -518,7 +522,7 @@ public struct SearchReaderView: View {
                 Text("ACTIVITY").trackSectionLabel()
                 Text("Browse your recent note activity")
                     .font(.system(size: 14 * fontScale)).foregroundStyle(.secondary)
-                ActivityHeatmapView(model: browse)
+                ActivityHeatmapView(model: browse) { day in onOpenCalendar?(day) }
                     .background(Color(nsColor: .textBackgroundColor), in: RoundedRectangle(cornerRadius: 8))
                     .overlay(RoundedRectangle(cornerRadius: 8).stroke(Color(nsColor: .separatorColor), lineWidth: 0.5))
             }
@@ -849,6 +853,7 @@ public struct NoteReaderView: View {
     /// The API base URL, passed down to the GFM renderer for `assets/…` embeds.
     let baseURL: URL
     let onTagSearch: (String) -> Void
+    let onRequestAgent: ((AgentRequestTarget) -> Void)?
     /// Edit/Preview/Split is shared across note windows, like the web editor's
     /// persisted editorMode. Keep the string at the edge so an older value can
     /// never make the picker fail to render.
@@ -896,10 +901,11 @@ public struct NoteReaderView: View {
     @State private var followEnabled = false
     @State private var followError: String?
 
-    public init(model: NoteReaderModel, baseURL: URL, onTagSearch: @escaping (String) -> Void = { _ in }) {
+    public init(model: NoteReaderModel, baseURL: URL, onRequestAgent: ((AgentRequestTarget) -> Void)? = nil, onTagSearch: @escaping (String) -> Void = { _ in }) {
         self.model = model
         self.baseURL = baseURL
         self.onTagSearch = onTagSearch
+        self.onRequestAgent = onRequestAgent
         _graphModel = State(initialValue: GraphModel(client: model.client))
     }
 
@@ -921,7 +927,7 @@ public struct NoteReaderView: View {
             }
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
-        .toolbar { loadedToolbar }
+        .toolbar { if workspaceActive { loadedToolbar } }
         .overlay(alignment: .top) {
             if model.saveConflict != nil || model.saveError != nil || saveConfirmation || followError != nil {
                 VStack(spacing: 6) {
@@ -1044,6 +1050,16 @@ public struct NoteReaderView: View {
     @ToolbarContentBuilder
     private var loadedToolbar: some ToolbarContent {
         if let note = loadedNote {
+            if let onRequestAgent {
+                ToolbarItem {
+                    Button("Ask agent", systemImage: "bubble.left.and.text.bubble.right") {
+                        if case .loaded(let response) = model.state, let id = model.currentID {
+                            onRequestAgent(AgentRequestTarget(note: response, id: id))
+                        }
+                    }
+                    .help("Explain, research, or update this note")
+                }
+            }
             ToolbarItem {
                 Button {
                     followEnabled.toggle()

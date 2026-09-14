@@ -80,11 +80,9 @@ private struct MainTabView: View {
     @State private var vaultScope: VaultScope
     @State private var tasks: TasksModel
     @State private var liveEvents: LiveEventPoller
-    @State private var visitedTabs: Set<MainTab> = [.notes]
     @Environment(\.colorScheme) private var colorScheme
-    @State private var selectedTab = MainTab.notes
-    @State private var openedNote: String?
-    @State private var reader: NoteReaderModel
+    @State private var navigation: WorkspaceNavigation
+    @State private var requestTarget: AgentRequestTarget?
     /// A day handed from the Browse activity heatmap to the Calendar tab, so a
     /// heatmap tap lands on the same day the calendar would select by hand.
     @State private var calendarDay: String?
@@ -96,10 +94,7 @@ private struct MainTabView: View {
         _liveEvents = State(initialValue: LiveEventPoller(baseURL: client.baseURL) {
             NotificationCenter.default.post(name: .trackVaultChanged, object: nil)
         })
-        _reader = State(initialValue: NoteReaderModel(client: client))
-        _liveEvents = State(initialValue: LiveEventPoller(baseURL: client.baseURL) {
-            NotificationCenter.default.post(name: .trackVaultChanged, object: nil)
-        })
+        _navigation = State(initialValue: WorkspaceNavigation(reader: NoteReaderModel(client: client)))
     }
 
     var body: some View {
@@ -110,13 +105,8 @@ private struct MainTabView: View {
             ZStack {
                 // Keep visited surfaces alive so navigation preserves drafts,
                 // search, and scroll position without loading every view at launch.
-                ForEach(MainTab.allCases.filter { visitedTabs.contains($0) }, id: \.self) { tab in
-                    workspace(tab)
-                        .environment(\.trackWorkspaceActive, selectedTab == tab)
-                        .opacity(selectedTab == tab ? 1 : 0)
-                        .allowsHitTesting(selectedTab == tab)
-                        .disabled(selectedTab != tab)
-                        .accessibilityHidden(selectedTab != tab)
+                ForEach(MainTab.allCases.filter { navigation.visited.contains($0) }, id: \.self) { tab in
+                    visibleWorkspace(tab)
                 }
             }
             .frame(maxWidth: .infinity, maxHeight: .infinity)
@@ -127,17 +117,49 @@ private struct MainTabView: View {
         .tint(palette.mark)
         .environment(liveEvents)
         .environment(vaultScope)
-        .toolbar { VaultSwitcher(model: vaultScope) }
+        .environment(\.openURL, wikiURLAction)
+        .toolbar {
+            ToolbarItem {
+                Button("Back", systemImage: "chevron.left") { Task { await navigation.back() } }
+                    .disabled(!navigation.canGoBack)
+                    .keyboardShortcut("[", modifiers: .command)
+            }
+            ToolbarItem { VaultSwitcher(model: vaultScope) }
+        }
         .task { await vaultScope.reload() }
-        .onChange(of: selectedTab) { _, tab in visitedTabs.insert(tab) }
+        .onChange(of: navigation.reader.currentID) { _, id in navigation.readerDidOpen(id) }
         .task { liveEvents.start() }
         .onDisappear { liveEvents.stop() }
         .onReceive(NotificationCenter.default.publisher(for: NSApplication.didBecomeActiveNotification)) { _ in
             Task { await liveEvents.refresh() }
         }
-        .sheet(isPresented: Binding(get: { openedNote != nil }, set: { if !$0 { openedNote = nil } })) {
-            NoteReaderView(model: reader, baseURL: client.baseURL)
-                .task { if let openedNote { await reader.open(TrackID(openedNote)) } }
+        .sheet(item: $requestTarget) { target in
+            AgentRequestsView(client: client, target: target, onOpenNote: { id in
+                Task { if await navigation.open(id) { requestTarget = nil } }
+            })
+        }
+    }
+
+    private func visibleWorkspace(_ tab: MainTab) -> some View {
+        let active = navigation.selected == tab
+        return workspace(tab)
+            .environment(\.trackWorkspaceActive, active)
+            .opacity(active ? 1 : 0)
+            .allowsHitTesting(active)
+            .disabled(!active)
+            .accessibilityHidden(!active)
+    }
+
+    private var wikiURLAction: OpenURLAction {
+        OpenURLAction { url in
+            guard let target = MarkdownAnchors.wikiTarget(url) else { return .systemAction }
+            Task {
+                if let id = WorkspaceNavigation.directNoteID(target) { await navigation.open(id) }
+                else if await navigation.reader.openWikilink(target: target) {
+                    navigation.readerDidOpen(navigation.reader.currentID)
+                }
+            }
+            return .handled
         }
     }
 
@@ -163,74 +185,52 @@ private struct MainTabView: View {
     }
 
     private func dockButton(_ tab: MainTab) -> some View {
-        Button { selectedTab = tab } label: {
+        Button { navigation.select(tab) } label: {
             Image(systemName: tab.symbol)
                 .font(.system(size: 18, weight: .regular))
                 .frame(width: 36, height: 36)
-                .foregroundStyle(selectedTab == tab ? palette.text : palette.muted)
-                .background(selectedTab == tab ? palette.panelSoft : .clear,
+                .foregroundStyle(navigation.selected == tab ? palette.text : palette.muted)
+                .background(navigation.selected == tab ? palette.panelSoft : .clear,
                             in: RoundedRectangle(cornerRadius: 6))
                 .overlay(alignment: .leading) {
-                    if selectedTab == tab { Rectangle().fill(palette.mark).frame(width: 2, height: 18) }
+                    if navigation.selected == tab { Rectangle().fill(palette.mark).frame(width: 2, height: 18) }
                 }
         }
         .buttonStyle(.plain)
         .help(tab.title)
         .accessibilityLabel(tab.title)
-        .accessibilityAddTraits(selectedTab == tab ? .isSelected : [])
+        .accessibilityAddTraits(navigation.selected == tab ? .isSelected : [])
     }
 
     @ViewBuilder
     private func workspace(_ tab: MainTab) -> some View {
         switch tab {
-        case .notes: SearchReaderView(client: client)
-        case .calendar: CalendarView(client: client, initialDay: calendarDay)
-        case .graph: GraphTabView(client: client)
-        case .browse:
-            BrowseTabView(client: client, openNote: { raw in
-                selectedTab = .notes
-                openedNote = raw
-            }, openCalendar: { day in
+        case .notes:
+            SearchReaderView(client: client, reader: navigation.reader, onOpenCalendar: { day in
                 calendarDay = day
-                selectedTab = .calendar
+                navigation.select(.calendar)
+            }, onRequestAgent: { requestTarget = $0 })
+        case .calendar:
+            CalendarView(client: client, initialDay: calendarDay, onOpenNote: openNote)
+        case .graph: GraphTabView(client: client, onOpenNote: openNote)
+        case .browse:
+            BrowseTabView(client: client, openNote: { openNote(TrackID($0)) }, openCalendar: { day in
+                calendarDay = day
+                navigation.select(.calendar)
             })
         case .tasks: TasksView(model: tasks)
-        case .voice: VoiceView(client: client)
+        case .voice: VoiceView(client: client, onOpenNote: openNote)
+        case .requests: AgentRequestsView(client: client, onClose: { navigation.select(.notes) }, onOpenNote: openNote)
         case .settings: SettingsTabView()
         }
     }
 
+    private func openNote(_ id: TrackID) { Task { await navigation.open(id) } }
 }
 
 // MARK: - Browse tab
 
-private enum MainTab: Hashable, CaseIterable {
-    case notes, calendar, graph, browse, tasks, voice, settings
-
-    var title: String {
-        switch self {
-        case .notes: "Notes"
-        case .calendar: "Calendar"
-        case .graph: "Graph"
-        case .browse: "Browse"
-        case .tasks: "Tasks"
-        case .voice: "Voice"
-        case .settings: "Settings"
-        }
-    }
-
-    var symbol: String {
-        switch self {
-        case .notes: "doc.text"
-        case .calendar: "calendar"
-        case .graph: "network"
-        case .browse: "folder"
-        case .tasks: "checklist"
-        case .voice: "mic"
-        case .settings: "gearshape"
-        }
-    }
-}
+private typealias MainTab = WorkspaceSurface
 
 private enum BrowsePane: String, CaseIterable, Identifiable {
     case hierarchy, tags, activity, history
@@ -327,9 +327,11 @@ private struct GraphTabView: View {
     @State private var model: GraphModel
     @State private var centerID: TrackID?
     @State private var centerText = ""
+    let onOpenNote: (TrackID) -> Void
 
-    init(client: TrackClient) {
+    init(client: TrackClient, onOpenNote: @escaping (TrackID) -> Void) {
         self.client = client
+        self.onOpenNote = onOpenNote
         _model = State(initialValue: GraphModel(client: client))
     }
 
@@ -352,9 +354,9 @@ private struct GraphTabView: View {
             .padding(.vertical, 8)
             Divider()
             if let centerID {
-                LocalGraphView(model: model, centerID: centerID) { raw in setCenter(raw) }
+                LocalGraphView(model: model, centerID: centerID) { raw in onOpenNote(TrackID(raw)) }
             } else {
-                GraphFullView(model: model) { raw in setCenter(raw) }
+                GraphFullView(model: model) { raw in onOpenNote(TrackID(raw)) }
             }
         }
     }

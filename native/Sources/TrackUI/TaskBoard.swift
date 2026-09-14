@@ -158,6 +158,5 @@ private struct TaskDragPayload: Codable, Transferable {
 }
 
 private func noteURL(for row: TaskRow) -> URL {
-    let target = row.noteID.raw.addingPercentEncoding(withAllowedCharacters: .urlPathAllowed) ?? row.noteID.raw
-    return URL(string: "trackwiki://\(target)")!
+    MarkdownAnchors.wikiURL(row.noteID.raw)
 }

@@ -8,15 +8,19 @@ public struct AgentRequestsView: View {
     private let client: TrackClient
     private let initialTarget: AgentRequestTarget?
     private let onOpenNote: (TrackID) -> Void
+    private let onClose: (() -> Void)?
     @State private var model: AgentRequestsModel?
     @Environment(VaultScope.self) private var vaultScope: VaultScope?
     @Environment(\.scenePhase) private var scenePhase
+    @Environment(\.trackWorkspaceActive) private var workspaceActive
+    private var shouldRefresh: Bool { scenePhase == .active && workspaceActive }
     @Environment(\.dismiss) private var dismiss
 
-    public init(client: TrackClient, target: AgentRequestTarget? = nil, onOpenNote: @escaping (TrackID) -> Void = { _ in }) {
+    public init(client: TrackClient, target: AgentRequestTarget? = nil, onClose: (() -> Void)? = nil, onOpenNote: @escaping (TrackID) -> Void = { _ in }) {
         self.client = client
         initialTarget = target
         self.onOpenNote = onOpenNote
+        self.onClose = onClose
     }
 
     public var body: some View {
@@ -32,8 +36,8 @@ public struct AgentRequestsView: View {
             await model?.loadAgents()
             await model?.refresh()
         }
-        .task(id: scenePhase) {
-            guard scenePhase == .active else { return }
+        .task(id: shouldRefresh) {
+            guard shouldRefresh else { return }
             // Same 2-second history refresh as Web, cancelled when the panel closes.
             while !Task.isCancelled {
                 await model?.refresh()
@@ -41,7 +45,7 @@ public struct AgentRequestsView: View {
             }
         }
         .onReceive(NotificationCenter.default.publisher(for: .trackVaultChanged)) { _ in
-            guard scenePhase == .active else { return }
+            guard shouldRefresh else { return }
             Task { await model?.refresh() }
         }
     }
@@ -58,7 +62,7 @@ public struct AgentRequestsView: View {
                 Button("Refresh", systemImage: "arrow.clockwise") {
                     Task { await model.loadAgents(); await model.refresh() }
                 }.disabled(model.isWorking || model.isRefreshing)
-                Button("Close", systemImage: "xmark") { dismiss() }
+                Button("Close", systemImage: "xmark") { if let onClose { onClose() } else { dismiss() } }
                     .keyboardShortcut(.cancelAction)
             }.padding()
             Divider()
