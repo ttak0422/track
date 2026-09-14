@@ -29,6 +29,7 @@ swift run --package-path native VerifyDesign
 swift run --package-path native VerifyReading
 swift run --package-path native VerifyTasks
 swift run --package-path native VerifyAgentRequests
+swift run --package-path native VerifyVoice
 ```
 
 Build the unsigned, non-sandboxed app bundle with `make native-app`. Override
@@ -44,3 +45,5 @@ Build the unsigned, non-sandboxed app bundle with `make native-app`. Override
 - `VerifyAgentRequests` checks request lifecycle, follow-up context and lost-response retries against a mocked gateway; it never dispatches to an agent.
 - `VerifyVaultScope` checks vault selection persistence and request/response identity with two mocked vaults sharing note IDs.
 - fixture (`Tools/VerifyFixtures/Fixtures/*.json`) は `track web` の実応答から採取。
+
+`VerifyVoice` exercises transcript edits and mocked journal saves without accessing the microphone.

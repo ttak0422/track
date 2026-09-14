@@ -11,20 +11,24 @@ import TrackAPI
 // permission, the mic tap, and the recognizer task — and publishes the
 // transcript (interim and final), the recording state, and any error.
 //
-// Scope: this is the record-and-transcribe surface only. Copy-to-clipboard and
-// journal append live outside it; VoiceView renders the transcript so a
-// follow-up can wire it to the vault.
+// Transcript merging and journal write checkpoints are shared with the
+// microphone-free regression check in VoiceWorkflow.swift.
 
 // MARK: - Model
 
 @MainActor
 @Observable
 public final class VoiceInputModel {
-    /// The live (interim) and final transcript of the session.
-    public private(set) var transcript = ""
-    /// The portion confirmed by a final recognition result. The remainder is
-    /// kept separate so the view can render recognition in progress softly.
-    public private(set) var interimTranscript = ""
+    private var transcriptState = VoiceTranscriptState()
+    public var transcript: String { transcriptState.text }
+    public var interimTranscript: String { transcriptState.interim }
+    public private(set) var isStopping = false
+    public private(set) var isStarting = false
+    private var stopWaiter: CheckedContinuation<Void, Never>?
+    private var stopTimeout: Task<Void, Never>?
+    private var recognitionID = UUID()
+    private var isInteracting = false
+    private var queuedSpeech: [(text: String, final: Bool)] = []
     /// True while the engine is recording and feeding the recognizer.
     public private(set) var isRecording = false
     /// Last failure surfaced to the view (permission, no mic, recognizer
@@ -40,12 +44,9 @@ public final class VoiceInputModel {
     /// cross-check that access (append is thread-safe by design).
     private var request: SFSpeechAudioBufferRecognitionRequest?
     private var task: SFSpeechRecognitionTask?
-    /// Guards start() across the async authorization wait.
-    private var isStarting = false
     /// Bumped per session so a finished session never tears down a newer one
     /// that started before its final result arrived.
     private var sessionID = 0
-    private var finalizedTranscript = ""
     private var retryCount = 0
     private var restartTask: Task<Void, Never>?
 
@@ -56,15 +57,15 @@ public final class VoiceInputModel {
     /// Starts a recording session: requests permission if needed, then wires
     /// the mic tap to a fresh recognition task. Failures land in `error`.
     public func start() async {
-        guard !isRecording, !isStarting else { return }
+        guard !isRecording, !isStarting, !isStopping else { return }
         isStarting = true
         defer { isStarting = false }
         error = nil
-        interimTranscript = ""
-        transcript = ""
-        finalizedTranscript = ""
+        sessionID += 1
+        let session = sessionID
         retryCount = 0
         restartTask?.cancel()
+        restartTask = nil
 
         guard let recognizer else {
             error = "音声認識はこの機種では利用できません (ja-JP)。"
@@ -83,11 +84,19 @@ public final class VoiceInputModel {
             return
         }
 
-        sessionID += 1
-        let session = sessionID
+        guard sessionID == session else { return }
+        guard await AVCaptureDevice.requestAccess(for: .audio) else {
+            error = "マイクの権限がありません。システム設定のマイク設定で許可してください。"
+            return
+        }
+        guard sessionID == session else { return }
 
         let node = audioEngine.inputNode
         let format = node.outputFormat(forBus: 0)
+        guard format.sampleRate > 0, format.channelCount > 0 else {
+            error = "利用できるマイクがありません。入力デバイスを確認してください。"
+            return
+        }
         node.installTap(onBus: 0, bufferSize: 1024, format: format) { [weak self] buffer, _ in
             self?.request?.append(buffer)
         }
@@ -116,25 +125,28 @@ public final class VoiceInputModel {
         request.shouldReportPartialResults = true
         request.taskHint = .dictation
         self.request = request
+        recognitionID = UUID()
+        let recognition = recognitionID
         task = recognizer.recognitionTask(with: request) { [weak self] result, error in
             Task { @MainActor in
-                guard let self, self.sessionID == session else { return }
+                guard let self, self.sessionID == session, self.recognitionID == recognition else { return }
                 if let result {
-                    let text = result.bestTranscription.formattedString
-                    let prefix = self.finalizedTranscript.isEmpty ? "" : self.finalizedTranscript + " "
-                    self.transcript = prefix + text
-                    self.interimTranscript = result.isFinal ? "" : text
+                    self.acceptSpeech(result.bestTranscription.formattedString, isFinal: result.isFinal)
                     if result.isFinal {
-                        self.finalizedTranscript = self.transcript
+                        self.recognitionID = UUID()
                         self.request = nil
                         self.task = nil
-                        self.scheduleRecognitionRestart(session: session)
+                        if self.isStopping { self.finishStop() }
+                        else { self.scheduleRecognitionRestart(session: session) }
                     }
                 } else {
                     // An error right after stop() is normal ("no speech
                     // detected"); keep the transcript and only surface the
                     // failure while recording was still active.
+                    if self.isStopping { self.finishStop(); return }
                     guard self.isRecording else { return }
+                    self.recognitionID = UUID()
+                    self.transcriptState.finishSegment()
                     self.request = nil
                     self.task = nil
                     self.scheduleRecognitionRestart(session: session, failure: error)
@@ -167,36 +179,61 @@ public final class VoiceInputModel {
         }
     }
 
-    /// Ends the session: stops the engine and signals end-of-audio so the
-    /// recognizer delivers its final result (the transcript settles on the
-    /// finalized text).
-    public func stop() {
+    /// Wait for the recognizer's final delivery, with the visible interim as a
+    /// bounded fallback. Starting again is disabled until this snapshot settles.
+    public func stop() async {
+        if isStarting { sessionID += 1; return }
         guard isRecording else { return }
         isRecording = false
-        if audioEngine.isRunning {
-            audioEngine.stop()
-            audioEngine.inputNode.removeTap(onBus: 0)
-        }
-        request?.endAudio()
+        isStopping = true
+        audioEngine.stop()
+        audioEngine.inputNode.removeTap(onBus: 0)
         restartTask?.cancel()
         restartTask = nil
-    }
-
-    public func clear() {
-        transcript = ""
-        interimTranscript = ""
-        finalizedTranscript = ""
-    }
-
-    /// Updates the transcript from the editor. Keeping this on the model means
-    /// the same value is used by copy, search, journal append, and autosave.
-    public func updateTranscript(_ value: String) {
-        transcript = value
-        if !isRecording {
-            finalizedTranscript = value
-            interimTranscript = ""
+        await withCheckedContinuation { continuation in
+            stopWaiter = continuation
+            guard request != nil else { finishStop(); return }
+            request?.endAudio()
+            stopTimeout = Task { [weak self] in
+                try? await Task.sleep(for: .seconds(2))
+                guard !Task.isCancelled else { return }
+                self?.finishStop()
+            }
         }
     }
+
+    private func finishStop() {
+        guard isStopping else { return }
+        // A final/error/timeout can arrive only once for this stopped segment.
+        flushSpeech()
+        transcriptState.finishSegment()
+        isStopping = false
+        recognitionID = UUID()
+        task?.cancel()
+        task = nil
+        request = nil
+        stopTimeout?.cancel()
+        stopTimeout = nil
+        stopWaiter?.resume()
+        stopWaiter = nil
+    }
+
+    public func setInteracting(_ active: Bool) {
+        isInteracting = active
+        if !active { flushSpeech() }
+    }
+    private func acceptSpeech(_ text: String, isFinal: Bool) {
+        if isInteracting {
+            if queuedSpeech.last?.final == false { queuedSpeech.removeLast() }
+            queuedSpeech.append((text, isFinal))
+        } else { transcriptState.receive(text, isFinal: isFinal) }
+    }
+    private func flushSpeech() {
+        for event in queuedSpeech { transcriptState.receive(event.text, isFinal: event.final) }
+        queuedSpeech = []
+    }
+    public func clear() { transcriptState.clear() }
+    public func updateTranscript(_ value: String) { transcriptState.edit(value) }
 }
 
 // MARK: - View
@@ -211,33 +248,36 @@ public struct VoiceView: View {
     @State private var model = VoiceInputModel()
 
     private let client: TrackClient
-    @State private var appendError: String?
-    @State private var appendNote: String?
-    @State private var isAppending = false
+    @State private var writer: VoiceJournalWriter
+    let onOpenNote: (TrackID) -> Void
+    @State private var selectedText = ""
+    @State private var searchGeneration = UUID()
+    @State private var pendingSearchTerm = ""
+    @State private var clearedCheckpoint = ""
+    @Environment(\.colorScheme) private var colorScheme
     @State private var searchResults: [SearchResult] = []
     @State private var searchError: String?
     @State private var isSearching = false
     @State private var copied = false
-    @State private var lastSavedTranscript = ""
     @State private var recordingStart: Date?
-    @State private var openedNoteID: TrackID?
-    @State private var isShowingNote = false
     @State private var isCreatingNote = false
     /// Transcript stashed by Clear so the destructive action can be undone
     /// (web VoiceView's undoable clearTranscript).
     @State private var clearedTranscript: String?
-    /// Exact-match guard (web VoiceView's createTaken): when the transcript
-    /// names an existing note, creation stays visible but disabled instead of
+    /// Exact-match guard: when the selected text names an existing note,
+    /// creation stays visible but disabled instead of
     /// 409ing into an error.
     @State private var createTaken = false
     /// Debounced auto-search (web VoiceView's selection auto-search): the
-    /// pending task plus the query it will send, so identical transcripts
-    /// never refire and empty ones clear the results instead.
+    /// pending task plus the selected query, so unchanged selections stay
+    /// quiet and an insertion point clears the results.
     @State private var autoSearchTask: Task<Void, Never>?
     @State private var lastAutoSearchQuery = ""
 
-    public init(client: TrackClient) {
+    public init(client: TrackClient, onOpenNote: @escaping (TrackID) -> Void = { _ in }) {
         self.client = client
+        self.onOpenNote = onOpenNote
+        _writer = State(initialValue: VoiceJournalWriter(client: client))
     }
 
     public var body: some View {
@@ -245,9 +285,7 @@ public struct VoiceView: View {
             HStack(spacing: 12) {
                 Button {
                     if model.isRecording {
-                        model.stop()
-                        recordingStart = nil
-                        autoSaveAfterStop()
+                        stopAndSave()
                     } else {
                         recordingStart = Date()
                         Task {
@@ -264,6 +302,7 @@ public struct VoiceView: View {
                 }
                 .buttonStyle(.borderedProminent)
                 .tint(model.isRecording ? .red : .accentColor)
+                .disabled(model.isStarting || model.isStopping || writer.isSaving)
                 .help(model.isRecording ? "Stop recording" : "Start recording")
 
                 if model.isRecording {
@@ -289,11 +328,12 @@ public struct VoiceView: View {
                     Label("Clear", systemImage: "trash")
                 }
                 .buttonStyle(.bordered)
-                .disabled(model.transcript.isEmpty)
+                .disabled(model.transcript.isEmpty || writer.isSaving || writer.hasPendingSave)
 
                 if let cleared = clearedTranscript, !cleared.isEmpty {
                     Button {
                         model.updateTranscript(cleared)
+                        writer.restoreCheckpoint(clearedCheckpoint)
                         clearedTranscript = nil
                         searchError = nil
                     } label: {
@@ -307,16 +347,16 @@ public struct VoiceView: View {
                     appendToJournal()
                 } label: {
                     Label(
-                        isAppending ? "Appending…" : "Append to today's journal",
+                        writer.isSaving ? "Saving…" : "Save unsaved text",
                         systemImage: "square.and.pencil"
                     )
                 }
                 .buttonStyle(.bordered)
-                .disabled(model.transcript.isEmpty || isAppending)
-                .help("Append the transcript to today's journal")
+                .disabled(model.transcript.isEmpty || writer.isSaving || model.isRecording || model.isStopping)
+                .help("Append only the unsaved transcript to today’s journal")
 
                 Button {
-                    searchTranscript(query: model.transcript.trimmingCharacters(in: .whitespacesAndNewlines))
+                    searchTranscript(query: selectedText)
                 } label: {
                     Label(
                         isSearching ? "Searching…" : "Search notes",
@@ -324,8 +364,8 @@ public struct VoiceView: View {
                     )
                 }
                 .buttonStyle(.bordered)
-                .disabled(model.transcript.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || isSearching)
-                .help("Search notes with the transcript")
+                .disabled(selectedText.isEmpty || isSearching)
+                .help("Search notes with selected text")
 
                 Spacer()
             }
@@ -336,14 +376,18 @@ public struct VoiceView: View {
                     .foregroundStyle(.red)
             }
 
-            if let appendError {
+            if let appendError = writer.error {
                 Text(appendError)
                     .font(.caption)
                     .foregroundStyle(.red)
-            } else if let appendNote {
+            } else if let appendNote = writer.message {
                 Text(appendNote)
                     .font(.caption)
                     .foregroundStyle(.secondary)
+            }
+
+            if let journalID = writer.journalID {
+                Button("Open journal") { onOpenNote(journalID) }
             }
 
             if let searchError {
@@ -353,10 +397,12 @@ public struct VoiceView: View {
             }
 
             ZStack(alignment: .topLeading) {
-                TextEditor(text: Binding(
-                    get: { model.transcript },
-                    set: { model.updateTranscript($0) }
-                ))
+                VoiceTranscriptEditor(
+                    text: model.transcript,
+                    onEdit: { model.updateTranscript($0) },
+                    onSelection: { selectedText = $0; scheduleAutoSearch($0) },
+                    onInteraction: { model.setInteracting($0) }
+                )
                 .font(.body)
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
                 .padding(4)
@@ -375,7 +421,8 @@ public struct VoiceView: View {
             }
             .frame(maxWidth: .infinity, maxHeight: .infinity)
 
-            if !searchResults.isEmpty {
+            if !lastAutoSearchQuery.isEmpty {
+                ScrollView {
                 VStack(alignment: .leading, spacing: 8) {
                     Text("Search results")
                         .font(.headline)
@@ -385,17 +432,17 @@ public struct VoiceView: View {
                             Text(section.title).font(.subheadline.weight(.semibold))
                             ForEach(section.results, id: \.qualifiedID) { result in
                                 Button {
-                                    openedNoteID = result.qualifiedID
-                                    isShowingNote = true
+                                    onOpenNote(result.qualifiedID)
+                                    clearSearch()
                                 } label: {
                                     VStack(alignment: .leading, spacing: 3) {
                                         HStack(spacing: 6) {
-                                            Text(result.ref.title).font(.body.weight(.medium))
+                                            highlighted(result.ref.title).font(.body.weight(.medium))
                                             Image(systemName: "arrow.up.right")
                                                 .font(.caption2).foregroundStyle(.tertiary)
                                         }
                                         if let snippet = result.snippet, !snippet.isEmpty {
-                                            Text(snippet).font(.caption).foregroundStyle(.secondary).lineLimit(2)
+                                            highlighted(snippet).font(.caption).foregroundStyle(.secondary).lineLimit(2)
                                         }
                                     }
                                     .frame(maxWidth: .infinity, alignment: .leading)
@@ -406,35 +453,32 @@ public struct VoiceView: View {
                             }
                         }
                     }
+                    if searchResults.isEmpty { Text(isSearching ? "Searching…" : "No matching note").foregroundStyle(.secondary) }
                     Button {
                         createNoteFromTranscript()
                     } label: {
                         Label(
-                            isCreatingNote ? "Creating…" : createTaken ? "\"\(displayCreateTitle)\" already exists" : "Create a new note from this transcript",
+                            isCreatingNote ? "Creating…" : createTaken ? "\"\(displayCreateTitle)\" already exists" : "Create \"\(lastAutoSearchQuery)\"",
                             systemImage: "plus"
                         )
                     }
                     .buttonStyle(.bordered)
-                    .disabled(createTaken || isCreatingNote || model.transcript.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+                    .disabled(createTaken || isCreatingNote || lastAutoSearchQuery.isEmpty || isSearching)
                 }
                 .padding(.top, 4)
+                }.frame(maxHeight: 240)
             }
         }
         .padding(16)
-        .onChange(of: model.transcript) { _, value in scheduleAutoSearch(value) }
-        .sheet(isPresented: $isShowingNote) {
-            if let openedNoteID {
-                VoiceNotePreviewView(client: client, noteID: openedNoteID)
-            }
+        .onDisappear {
+            autoSearchTask?.cancel()
+            if model.isRecording || model.isStarting { stopAndSave() }
         }
     }
 
     private var recordingStartedAt: Date? { model.isRecording ? (recordingStart ?? Date()) : nil }
     private var displayCreateTitle: String {
-        let title = model.transcript
-            .split(whereSeparator: \.isNewline)
-            .first.map(String.init)?
-            .trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        let title = lastAutoSearchQuery
         let short = String(title.prefix(12))
         return title.count > 12 ? "\(short)…" : short
     }
@@ -456,45 +500,35 @@ public struct VoiceView: View {
         }
     }
 
-    private func clearTranscript() {
-        clearedTranscript = model.transcript
+    private func clearSearch() {
         autoSearchTask?.cancel()
         autoSearchTask = nil
+        searchGeneration = UUID()
+        pendingSearchTerm = ""
         lastAutoSearchQuery = ""
-        createTaken = false
-        model.clear()
         searchResults = []
         searchError = nil
+        createTaken = false
+        isSearching = false
     }
 
-    private func autoSaveAfterStop() {
-        Task {
-            try? await Task.sleep(for: .milliseconds(400))
-            autoSaveTranscript(model.transcript)
-        }
+    private func clearTranscript() {
+        clearedTranscript = model.transcript
+        clearedCheckpoint = writer.savedTranscript
+        writer.reset()
+        model.clear()
+        selectedText = ""
+        clearSearch()
     }
 
-    private func autoSaveTranscript(_ snapshot: String) {
-        let previous = lastSavedTranscript
-        let tail = snapshot.hasPrefix(previous) ? String(snapshot.dropFirst(previous.count)) : snapshot
-        guard !tail.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty, !isAppending else { return }
-        isAppending = true
-        appendError = nil
-        appendNote = nil
-        Task {
-            do {
-                let journal = try await client.openJournal(date: Self.todayString(), vault: vaultScope?.scope ?? "")
-                let note = try await client.getNote(journal.noteID)
-                let base = note.note.body.trimmingCharacters(in: .newlines)
-                let body = base.isEmpty ? tail : base + "\n\n" + tail
-                _ = try await client.saveNote(id: journal.noteID, body: body, etag: note.note.etag)
-                lastSavedTranscript = snapshot
-                appendNote = "Saved to today’s journal"
-            } catch {
-                appendError = error.localizedDescription
-            }
-            isAppending = false
+    private func highlighted(_ text: String) -> Text {
+        var value = AttributedString(text)
+        for match in SearchPresentation.highlightRanges(in: text, query: lastAutoSearchQuery) {
+            guard let source = Range(match, in: text), let range = Range(source, in: value) else { continue }
+            value[range].backgroundColor = TrackTheme.palette(for: colorScheme).panelSoft
+            value[range].inlinePresentationIntent = .stronglyEmphasized
         }
+        return Text(value)
     }
 
     private static func elapsedString(since date: Date) -> String {
@@ -502,102 +536,84 @@ public struct VoiceView: View {
         return String(format: "%02d:%02d", seconds / 60, seconds % 60)
     }
 
-    /// Search the finalized or currently visible transcript without changing
-    /// the existing journal append flow. The transcript is first resolved as
-    /// an exact note title (web VoiceView runSearch): when it names a note
-    /// that already exists, that note is the single Titles hit and creation
-    /// stays visible but disabled. Otherwise the server's title/body/path
-    /// search decides.
+    /// Like Web: a selection searches; a caret or empty selection clears it.
     private func searchTranscript(query: String) {
-        guard !query.isEmpty else { return }
+        guard !query.isEmpty, query == selectedText else { return }
+        let generation = UUID()
+        searchGeneration = generation
         lastAutoSearchQuery = query
         isSearching = true
         searchError = nil
         searchResults = []
         createTaken = false
+        let vault = vaultScope?.scope ?? ""
         Task {
+            defer { if generation == searchGeneration { isSearching = false } }
             do {
-                if let resolved = try? await client.resolveTerm(query, vault: vaultScope?.scope ?? ""), resolved.found,
-                   let exact = Self.searchResult(for: resolved.note) {
+                let resolved = try await client.resolveTerm(query, vault: vault)
+                guard generation == searchGeneration, query == selectedText else { return }
+                if resolved.found, let exact = Self.searchResult(for: resolved.note) {
                     searchResults = [exact]
                     createTaken = true
-                    isSearching = false
                     return
                 }
                 let response = try await client.searchNotes(query: query, limit: 8)
+                guard generation == searchGeneration, query == selectedText else { return }
                 searchResults = response.results
             } catch {
-                searchError = error.localizedDescription
+                guard generation == searchGeneration, query == selectedText else { return }
+                searchError = (error as? APIError)?.message ?? error.localizedDescription
             }
-            isSearching = false
         }
     }
 
-    /// Debounced auto-search over transcript edits (web VoiceView's selection
-    /// auto-search, which fires on the selection with a debounce). Empty
-    /// transcripts clear the results; an unchanged query never refires.
-    private func scheduleAutoSearch(_ transcript: String) {
-        let query = transcript.trimmingCharacters(in: .whitespacesAndNewlines)
-        autoSearchTask?.cancel()
-        autoSearchTask = nil
-        guard !query.isEmpty else {
-            searchResults = []
-            lastAutoSearchQuery = ""
-            createTaken = false
-            return
-        }
-        guard query != lastAutoSearchQuery else { return }
+    private func scheduleAutoSearch(_ term: String) {
+        guard !term.isEmpty else { clearSearch(); return }
+        guard term != lastAutoSearchQuery, term != pendingSearchTerm else { return }
+        clearSearch()
+        pendingSearchTerm = term
         autoSearchTask = Task {
-            try? await Task.sleep(for: .milliseconds(800))
-            guard !Task.isCancelled else { return }
-            searchTranscript(query: query)
+            do { try await Task.sleep(for: .milliseconds(500)) } catch { return }
+            guard !Task.isCancelled, selectedText == term else { return }
+            pendingSearchTerm = ""
+            searchTranscript(query: term)
         }
     }
 
     private func createNoteFromTranscript() {
-        let title = model.transcript
-            .split(whereSeparator: \.isNewline)
-            .first.map(String.init)?
-            .trimmingCharacters(in: .whitespacesAndNewlines)
-        let noteTitle = String((title?.prefix(80) ?? "Voice note"))
-        guard !noteTitle.isEmpty else { return }
+        let noteTitle = lastAutoSearchQuery
+        guard !noteTitle.isEmpty, !isCreatingNote else { return }
         isCreatingNote = true
         searchError = nil
+        let vault = vaultScope?.scope ?? ""
         Task {
             do {
-                let created = try await client.createNote(title: noteTitle, vault: vaultScope?.scope ?? "")
-                openedNoteID = created.noteID
-                isShowingNote = true
-            } catch {
-                searchError = error.localizedDescription
-            }
+                let created = try await client.createNote(title: noteTitle, vault: vault)
+                clearSearch()
+                onOpenNote(created.noteID)
+            } catch let error as APIError where error.status == 409 {
+                searchError = "A note with the same title already exists"
+                createTaken = true
+            } catch { searchError = (error as? APIError)?.message ?? error.localizedDescription }
             isCreatingNote = false
         }
     }
 
-    /// Open (or create) today's journal, read its current body, and save the
-    /// transcript onto the end. The read's etag is echoed back so a stale view
-    /// refuses the save; failures land in `appendError`.
-    private func appendToJournal() {
-        guard !model.transcript.isEmpty else { return }
-        isAppending = true
-        appendError = nil
-        appendNote = nil
+    private func stopAndSave() {
+        let vault = vaultScope?.scope ?? ""
+        let date = Self.todayString()
         Task {
-            do {
-                let journal = try await client.openJournal(date: Self.todayString(), vault: vaultScope?.scope ?? "")
-                let note = try await client.getNote(journal.noteID)
-                var body = note.note.body
-                if !body.isEmpty && !body.hasSuffix("\n") { body += "\n" }
-                body += model.transcript + "\n"
-                _ = try await client.saveNote(id: journal.noteID, body: body, etag: note.note.etag)
-                lastSavedTranscript = model.transcript
-                appendNote = "Appended to \(Self.todayString()) journal"
-            } catch {
-                appendError = error.localizedDescription
-            }
-            isAppending = false
+            await model.stop()
+            recordingStart = nil
+            await writer.save(model.transcript, vault: vault, date: date)
         }
+    }
+
+    private func appendToJournal() {
+        let snapshot = model.transcript
+        let vault = vaultScope?.scope ?? ""
+        let date = Self.todayString()
+        Task { await writer.save(snapshot, vault: vault, date: date) }
     }
 
     private static func todayString() -> String {
@@ -618,47 +634,5 @@ public struct VoiceView: View {
         ]
         guard let data = try? JSONSerialization.data(withJSONObject: object) else { return nil }
         return try? JSONDecoder().decode(SearchResult.self, from: data)
-    }
-}
-
-private struct VoiceNotePreviewView: View {
-    let client: TrackClient
-    let noteID: TrackID
-    @Environment(\.dismiss) private var dismiss
-    @State private var title = ""
-    @State private var bodyText = ""
-    @State private var error: String?
-    @State private var isLoading = true
-
-    var body: some View {
-        VStack(alignment: .leading, spacing: 12) {
-            HStack {
-                Text(title.isEmpty ? "Note" : title).font(.headline)
-                Spacer()
-                Button("Done") { dismiss() }
-            }
-            Divider()
-            if isLoading {
-                ProgressView()
-            } else if let error {
-                Text(error).foregroundStyle(.red)
-            } else {
-                ScrollView {
-                    Text(bodyText).frame(maxWidth: .infinity, alignment: .leading)
-                }
-            }
-        }
-        .padding(20)
-        .frame(minWidth: 420, minHeight: 280)
-        .task {
-            do {
-                let response = try await client.getNote(noteID)
-                title = response.note.summary.ref.title
-                bodyText = response.note.body
-            } catch {
-                self.error = error.localizedDescription
-            }
-            isLoading = false
-        }
     }
 }
