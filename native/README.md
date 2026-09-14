@@ -23,6 +23,7 @@ export CLANG_MODULE_CACHE_PATH="$PWD/native/.build/clang-module-cache"
 swift build --package-path native
 swift run --package-path native VerifyFixtures
 scripts/check-native-live-events.sh
+swift run --package-path native VerifyVaultScope
 ```
 
 Build the unsigned, non-sandboxed app bundle with `make native-app`. Override
@@ -35,4 +36,5 @@ Build the unsigned, non-sandboxed app bundle with `make native-app`. Override
 
 - swift-testing / XCTest は CLT に入っていないため、テストは `swift test`
   ではなく `swift run VerifyFixtures` で行う。フル Xcode があれば移行可。
+- `VerifyVaultScope` checks vault selection persistence and request/response identity with two mocked vaults sharing note IDs.
 - fixture (`Tools/VerifyFixtures/Fixtures/*.json`) は `track web` の実応答から採取。

@@ -207,6 +207,7 @@ public final class VoiceInputModel {
 /// "Append to today's journal" opens (or creates) today's journal and writes
 /// the transcript onto the end of its body.
 public struct VoiceView: View {
+    @Environment(VaultScope.self) private var vaultScope: VaultScope?
     @State private var model = VoiceInputModel()
 
     private let client: TrackClient
@@ -482,7 +483,7 @@ public struct VoiceView: View {
         appendNote = nil
         Task {
             do {
-                let journal = try await client.openJournal(date: Self.todayString())
+                let journal = try await client.openJournal(date: Self.todayString(), vault: vaultScope?.scope ?? "")
                 let note = try await client.getNote(journal.noteID)
                 let base = note.note.body.trimmingCharacters(in: .newlines)
                 let body = base.isEmpty ? tail : base + "\n\n" + tail
@@ -516,7 +517,7 @@ public struct VoiceView: View {
         createTaken = false
         Task {
             do {
-                if let resolved = try? await client.resolveTerm(query), resolved.found,
+                if let resolved = try? await client.resolveTerm(query, vault: vaultScope?.scope ?? ""), resolved.found,
                    let exact = Self.searchResult(for: resolved.note) {
                     searchResults = [exact]
                     createTaken = true
@@ -564,7 +565,7 @@ public struct VoiceView: View {
         searchError = nil
         Task {
             do {
-                let created = try await client.createNote(title: noteTitle)
+                let created = try await client.createNote(title: noteTitle, vault: vaultScope?.scope ?? "")
                 openedNoteID = created.noteID
                 isShowingNote = true
             } catch {
@@ -584,7 +585,7 @@ public struct VoiceView: View {
         appendNote = nil
         Task {
             do {
-                let journal = try await client.openJournal(date: Self.todayString())
+                let journal = try await client.openJournal(date: Self.todayString(), vault: vaultScope?.scope ?? "")
                 let note = try await client.getNote(journal.noteID)
                 var body = note.note.body
                 if !body.isEmpty && !body.hasSuffix("\n") { body += "\n" }

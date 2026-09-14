@@ -77,6 +77,7 @@ public struct SearchReaderView: View {
     @State private var todayError: String?
     @State private var isOpeningJournal = false
     @FocusState private var searchFocused: Bool
+    @Environment(VaultScope.self) private var vaultScope: VaultScope?
     @Environment(\.colorScheme) private var colorScheme
     @Environment(\.trackFontScale) private var fontScale
 
@@ -391,11 +392,9 @@ public struct SearchReaderView: View {
          .onChange(of: search.searchFocusRequested) { _, _ in
              if search.consumeSearchFocusRequest() { searchFocused = true }
          }
-          .task {
-              await browse.loadNewNotes()
-          }
+         .task(id: vaultScope?.scope) { await browse.loadNewNotes(vault: vaultScope?.scope ?? "") }
          .onReceive(NotificationCenter.default.publisher(for: .trackVaultChanged)) { _ in
-            Task { await browse.loadNewNotes() }
+            Task { await browse.loadNewNotes(vault: vaultScope?.scope ?? "") }
             if !query.isEmpty && !search.isLoading { search.search(query: query) }
          }
          .onChange(of: reader.currentID) { old, _ in
@@ -448,7 +447,7 @@ public struct SearchReaderView: View {
                 isCreating: reader.isCreating,
                 onCreate: { title in
                     Task {
-                        if await reader.createNote(title: title) {
+                        if await reader.createNote(title: title, vault: vaultScope?.scope ?? "") {
                             newNoteError = nil
                             newNoteTitle = ""
                             showNewNote = false
@@ -645,7 +644,7 @@ public struct SearchReaderView: View {
         todayError = nil
         Task {
             do {
-                let journal = try await reader.client.openJournal(date: Self.todayString())
+                let journal = try await reader.client.openJournal(date: Self.todayString(), vault: vaultScope?.scope ?? "")
                 await reader.open(journal.noteID)
                 if case .loaded(let response) = reader.state {
                     recordRecent(RecentNote(id: journal.noteID.raw, title: response.note.summary.ref.title))
@@ -1579,7 +1578,7 @@ public struct NoteReaderView: View {
         let trimmed = target.trimmingCharacters(in: .whitespacesAndNewlines)
         let key = trimmed.split(separator: "#", maxSplits: 1).first.map(String.init) ?? trimmed
         let parts = key.split(separator: ":", maxSplits: 1).map(String.init)
-        let vault = parts.count == 2 ? parts[0] : ""
+        let vault = parts.count == 2 ? parts[0] : (model.currentID?.split().vault ?? "")
         let term = parts.count == 2 ? parts[1] : key
         guard let resolved = try? await model.client.resolveTerm(term, vault: vault), resolved.found else { return }
         let id = TrackID.qualify(vault: vault, id: resolved.note.noteID.raw)

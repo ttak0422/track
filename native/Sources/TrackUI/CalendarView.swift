@@ -480,6 +480,7 @@ private struct DayCell: View {
 }
 
 private struct AgendaView: View {
+    @Environment(VaultScope.self) private var vaultScope: VaultScope?
     let day: String
     let notes: [SearchResult]
     let tasks: [TaskRow]
@@ -536,6 +537,10 @@ private struct AgendaView: View {
         }
         .padding(8)
         .frame(maxWidth: .infinity, alignment: .leading)
+        .onChange(of: vaultScope?.scope) { _, _ in
+            journal = nil
+            journalError = nil
+        }
         .sheet(isPresented: $isShowingNote) {
             if let openedNoteID { NotePreviewView(client: client, noteID: openedNoteID) }
         }
@@ -564,10 +569,12 @@ private struct AgendaView: View {
     private func openJournal() {
         isLoadingJournal = true
         journalError = nil
+        let vault = vaultScope?.scope ?? ""
         Task {
             do {
-                let res = try await client.openJournal(date: day)
+                let res = try await client.openJournal(date: day, vault: vault)
                 let note = try await client.getNote(res.noteID)
+                guard (vaultScope?.scope ?? "") == vault else { isLoadingJournal = false; return }
                 journal = JournalPreview(
                     title: note.note.summary.ref.title,
                     lines: Self.previewLines(from: note.note.body),

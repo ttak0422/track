@@ -15,7 +15,7 @@ public struct TrackID: Hashable, Sendable, CustomStringConvertible {
 
     /// `<vault>~<id>` when the vault is named, else the bare id.
     public static func qualify(vault: String, id: String) -> TrackID {
-        TrackID(vault.isEmpty ? id : "\(vault)~\(id)")
+        TrackID(vault.isEmpty || id.contains("~") ? id : "\(vault)~\(id)")
     }
 
     /// Split for requests: `{id, vault}` query params (`vaultId.ts: split/idParams`).
@@ -109,6 +109,22 @@ public struct UnavailableVault: Codable, Sendable {
     public var name: String
     public var path: String
     public var error: String?
+}
+
+public struct VaultEntry: Codable, Sendable {
+    public var name: String
+    public var path: String
+    public var active: Bool
+}
+
+public struct VaultsResponse: Codable, Sendable {
+    public struct Active: Codable, Sendable {
+        public var name: String
+        public var path: String
+    }
+    public var active: Active
+    public var vaults: [VaultEntry]
+    public var unavailable: [UnavailableVault]?
 }
 
 public struct SearchResponse: Codable, Sendable {
