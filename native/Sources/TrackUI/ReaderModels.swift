@@ -45,7 +45,7 @@ public final class NoteReaderModel {
     public func scroll(to anchor: String?) {
         let decoded = anchor?.removingPercentEncoding ?? anchor
         scrollTarget = decoded.map { id in
-            ["h-", "block-", "fn-", "fnref-"].contains(where: id.hasPrefix) ? id : "h-" + MarkdownAnchors.slug(id)
+            ["h-", "block-", "fn-", "fnref-", "source-line-"].contains(where: id.hasPrefix) ? id : "h-" + MarkdownAnchors.slug(id)
         }
         scrollRequest += 1
     }
@@ -495,6 +495,23 @@ public final class NoteReaderModel {
     /// Backlink taps resolve through the same id space the lists use.
     public func openRef(_ ref: NoteRef) async {
         await open(ref.noteID.raw.contains("~") ? ref.noteID : TrackID.qualify(vault: currentID?.split().vault ?? "", id: ref.noteID.raw))
+    }
+
+    /// Follow never prompts to discard a draft. Cancellation also reaches the
+    /// normal navigation transaction, so switching Follow off cancels a load.
+    @discardableResult
+    public func applyFollowState(_ position: FollowState) async -> Bool {
+        guard !isEditing, !isDirty, !Task.isCancelled else { return false }
+        if currentID != position.noteID {
+            guard await open(position.noteID) else { return false }
+        }
+        guard !isEditing, !isDirty, !Task.isCancelled, currentID == position.noteID else { return false }
+        let target = MarkdownAnchors.sourceTarget(
+            source: loadedBody, rendered: didRender ? renderedBody : loadedBody,
+            line: max(1, position.topLine > 0 ? position.topLine : position.line)
+        )
+        scroll(to: target)
+        return true
     }
 
     /// Same-note anchors scroll locally; cross-note anchors travel with the

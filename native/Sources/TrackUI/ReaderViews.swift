@@ -847,6 +847,7 @@ private struct WikilinkPreview: Equatable {
 
 public struct NoteReaderView: View {
     @Bindable var model: NoteReaderModel
+    @Environment(\.trackWorkspaceActive) private var workspaceActive
     @Environment(\.colorScheme) private var colorScheme
     @Environment(\.trackFontScale) private var fontScale
     @AppStorage(TrackAppearance.contentWidthKey) private var contentWidthRaw: String?
@@ -879,7 +880,6 @@ public struct NoteReaderView: View {
     /// bridge. A coarse ten-second tick is sufficient for the read milestone.
     @State private var reading = ReadingStore.shared
     @Environment(\.scenePhase) private var scenePhase
-    @Environment(\.trackWorkspaceActive) private var workspaceActive
     /// Date-cell editing target for the note task table (web TaskControls date
     /// cells): the task line plus which date field the picker writes.
     @State private var taskDateTarget: NoteTaskDateTarget?
@@ -896,8 +896,7 @@ public struct NoteReaderView: View {
     @State private var graphModel: GraphModel
     /// Neovim follow (web NoteRailControls "Follow the editor" + NoteEditor's
     /// /api/follow polling): when on, the reader opens the editor's note.
-    /// Note-level parity only — line/top_line scroll targets have no
-    /// MarkdownUI anchor to scroll to, so the note opens at the top.
+    /// Source-line anchors keep the editor viewport on its rendered block.
     @State private var followEnabled = false
     @State private var followError: String?
 
@@ -961,24 +960,23 @@ public struct NoteReaderView: View {
         }
         .background(WindowDraftProtection(model: model))
         .interactiveDismissDisabled(model.isDirty || model.isSaving)
-        .task(id: followEnabled) {
-            // Neovim follow polling (web NoteEditor's follow effect): while the
-            // toggle is on, ask /api/follow every 5 s and open the editor's
-            // note when it differs. Best-effort — failures surface once as a
-            // dismissible banner and polling continues. Editing never loses a
-            // draft to a follow navigation.
-            guard followEnabled else { return }
+        .task(id: followEnabled && workspaceActive) {
+            guard followEnabled, workspaceActive else { return }
+            var lastPosition: String?
             while !Task.isCancelled {
                 do {
                     let res = try await model.client.getFollowState()
-                    if Task.isCancelled { return }
-                    if res.active, let state = res.state,
-                       state.noteID.raw != model.currentID?.raw, !model.isEditing {
-                        await model.open(state.noteID)
+                    guard !Task.isCancelled else { return }
+                    if res.active, let state = res.state {
+                        let position = "\(state.noteID.raw):\(state.topLine):\(state.line):\(state.lineCount):\(state.updatedAt ?? "")"
+                        if position != lastPosition || model.currentID != state.noteID,
+                           await model.applyFollowState(state) {
+                            lastPosition = position
+                        }
                     }
                     followError = nil
                 } catch {
-                    if Task.isCancelled { return }
+                    guard !Task.isCancelled else { return }
                     followError = error.localizedDescription
                 }
                 try? await Task.sleep(for: .seconds(5))

@@ -55,13 +55,85 @@ public enum MarkdownAnchors {
         }
     }
 
+    /// One anchor per rendered block, rather than splitting Markdown lines
+    /// that belong to the same paragraph, list, table, or code fence.
+    public static func sourceBlocks(_ source: String) -> [Int] {
+        let lines = source.components(separatedBy: "\n")
+        var blocks: [Int] = [], fence: String?, startsBlock = true, inList = false
+        for (index, line) in lines.enumerated() {
+            let marker = matches(#"^ {0,3}(`{3,}|~{3,})"#, line).first?[1]
+            if let current = fence {
+                if let marker, marker.first == current.first, marker.count >= current.count {
+                    fence = nil
+                    startsBlock = true
+                }
+                continue
+            }
+            if line.trimmingCharacters(in: .whitespaces).isEmpty { startsBlock = true; continue }
+            let heading = line.range(of: #"^#{1,6}\s+"#, options: .regularExpression) != nil
+            let listItem = line.range(of: #"^ {0,3}(?:[-+*]|[0-9]+[.)])[ \t]+"#, options: .regularExpression) != nil
+            let continuesList = inList && !heading && marker == nil && (listItem || !startsBlock || line.hasPrefix("    ") || line.hasPrefix("\t"))
+            if (startsBlock && !continuesList) || marker != nil || heading { blocks.append(index) }
+            inList = listItem || continuesList
+            fence = marker
+            startsBlock = heading
+        }
+        return blocks
+    }
+
+    /// Index by rendered 0-based line; nil means generated or ambiguous text.
+    /// Changed multiplicity is ambiguous: a generated duplicate must never
+    /// mutate the real task whose source happens to have the same words.
+    public static func sourceLines(source: String, rendered: String) -> [Int?] {
+        let original = source.components(separatedBy: "\n")
+        let output = rendered.components(separatedBy: "\n")
+        if source == rendered { return original.indices.map { $0 } }
+        // ponytail: diff on demand; cache this map if large generated notes
+        // make line mapping measurably expensive.
+        let difference = output.difference(from: original)
+        let removed = Set(difference.removals.map { change in
+            if case .remove(let offset, _, _) = change { return offset }
+            preconditionFailure("Expected removal")
+        })
+        let inserted = Set(difference.insertions.map { change in
+            if case .insert(let offset, _, _) = change { return offset }
+            preconditionFailure("Expected insertion")
+        })
+        let originalCounts = original.reduce(into: [String: Int]()) { $0[$1, default: 0] += 1 }
+        let outputCounts = output.reduce(into: [String: Int]()) { $0[$1, default: 0] += 1 }
+        var map = [Int?](repeating: nil, count: output.count)
+        for (sourceLine, renderedLine) in zip(original.indices.filter { !removed.contains($0) }, output.indices.filter { !inserted.contains($0) }) {
+            let text = output[renderedLine]
+            if originalCounts[text] == outputCounts[text] { map[renderedLine] = sourceLine }
+        }
+        return map
+    }
+
+    public static func sourceTarget(source: String, rendered: String, line: Int) -> String? {
+        let requestedLine = min(max(0, line - 1), source.components(separatedBy: "\n").count - 1)
+        let originalBlocks = sourceBlocks(source)
+        guard let requested = originalBlocks.last(where: { $0 <= requestedLine }) ?? originalBlocks.first else { return nil }
+        let map = sourceLines(source: source, rendered: rendered)
+        let previous = map.lastIndex { $0.map { $0 <= requested } ?? false }
+        let exact = previous.map { map[$0] == requested } ?? false
+        // A replaced source block lands at the replacement's beginning.
+        let renderedLine = previous.map { $0 + (exact ? 0 : 1) } ?? 0
+        let blocks = sourceBlocks(rendered)
+        let block = exact
+            ? blocks.last(where: { $0 <= renderedLine })
+            : blocks.first(where: { $0 >= renderedLine }) ?? blocks.last
+        return block.map { "source-line-\($0 + 1)" }
+    }
+
     public static func prepare(_ source: String) -> Document {
         var lines = source.components(separatedBy: "\n")
         let outline = headings(source)
         var anchors = Dictionary(uniqueKeysWithValues: outline.map { ($0.line, [$0.id]) })
+        for line in sourceBlocks(source) { anchors[line, default: []].append("source-line-\(line + 1)") }
         let prose = proseLines(lines)
         var definitions: [String: String] = [:]
         var definitionLines = Set<Int>()
+        var definitionStarts: [String: Int] = [:]
         for (index, line) in prose {
             guard let match = matches(#"^ {0,3}\[\^([^\]\s]+)\]:[ \t]*(.*)$"#, line).first else { continue }
             var text = match[2]
@@ -79,7 +151,10 @@ public enum MarkdownAnchors {
                     next += 1
                 } else { break }
             }
-            if definitions[match[1]] == nil { definitions[match[1]] = text }
+            if definitions[match[1]] == nil {
+                definitions[match[1]] = text
+                definitionStarts[match[1]] = index
+            }
         }
         var order: [String] = []
         var references: [String: [String]] = [:]
@@ -106,10 +181,13 @@ public enum MarkdownAnchors {
             }
             lines[index] = line
         }
-        for index in definitionLines { lines[index] = "" }
+        for index in definitionLines {
+            lines[index] = ""
+            anchors[index] = nil
+        }
         for (offset, id) in order.enumerated() {
             lines.append("")
-            anchors[lines.count] = ["fn-\(offset + 1)"]
+            anchors[lines.count] = ["fn-\(offset + 1)", "source-line-\(definitionStarts[id]! + 1)"]
             let backs = references[id]!.enumerated().map { index, ref in
                 "[↩\(index == 0 ? "" : String(index + 1))](trackanchor://jump/\(ref))"
             }.joined(separator: " ")

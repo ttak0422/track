@@ -105,7 +105,7 @@ public struct GFMBody: View {
               switch segment {
             case .anchor(let id):
                 Color.clear.frame(height: 0).id(id).accessibilityHidden(true)
-            case .markdown(let text):
+            case .markdown(let text), .heading(let text, _):
                 Markdown(text)
                     .markdownTheme(theme)
                     .markdownImageProvider(TrackAssetImageProvider(baseURL: baseURL, vault: vault))
@@ -146,7 +146,10 @@ public struct GFMBody: View {
                     .frame(maxWidth: proseWidth, alignment: .leading)
               }
             }
-            .padding(.bottom, segment.isAnchor ? 0 : 12)
+            // MarkdownUI discards margins at a span's boundary. Segment
+            // spacing owns those boundaries; nested Markdown retains its margins.
+            .padding(.top, max(0, segment.headingLead - 13) * fontScale)
+            .padding(.bottom, segment.isAnchor ? 0 : 13 * fontScale)
           }
         }
     }
@@ -159,11 +162,21 @@ public struct GFMBody: View {
     /// MediaEmbeds views.
     enum Segment {
         case markdown(String)
+        case heading(String, Int)
         case anchor(String)
         case figure(Figure)
         case media(Media)
         case include(NoteInclude)
         case task(TaskLine)
+
+        var headingLead: Double {
+            guard case .heading(_, let level) = self else { return 0 }
+            switch level {
+            case 1, 2: return 44
+            case 3: return 26
+            default: return 20
+            }
+        }
 
         var isAnchor: Bool {
             if case .anchor = self { return true }
@@ -244,7 +257,7 @@ public struct GFMBody: View {
         let document = MarkdownAnchors.prepare(source)
         let preprocessed = Self.preprocess(document.lines.joined(separator: "\n"))
         let lines = preprocessed.components(separatedBy: "\n")
-        let headingLines = Set(document.headings.map(\.line))
+        let headingsByLine = Dictionary(uniqueKeysWithValues: document.headings.map { ($0.line, $0) })
 
         // Each native span is parsed separately. Supply shared link definitions
         // to every span so splitting at a heading cannot break [label][ref].
@@ -270,7 +283,7 @@ public struct GFMBody: View {
                 // ponytail: nested list anchors land at the containing list;
                 // source-position-aware MarkdownUI nodes would allow exact rows.
                 // Preserve that block's Markdown (including list numbering).
-                let tailStart = headingLines.contains(i) ? buf.count : (buf.lastIndex(of: "").map { $0 + 1 } ?? 0)
+                let tailStart = headingsByLine[i] != nil ? buf.count : (buf.lastIndex(of: "").map { $0 + 1 } ?? 0)
                 let tail = Array(buf[tailStart...])
                 buf = Array(buf[..<tailStart])
                 flush()
@@ -363,8 +376,12 @@ public struct GFMBody: View {
                 continue
             }
 
-            buf.append(MarkdownAnchors.transformProse(line) { Self.styleAlert(Self.rewriteWikilinks($0)) })
-            if headingLines.contains(i) { flush() }
+            let styled = MarkdownAnchors.transformProse(line) { Self.styleAlert(Self.rewriteWikilinks($0)) }
+            if let heading = headingsByLine[i] {
+                segments.append(.heading(styled + (references.isEmpty ? "" : "\n\n" + references), heading.level))
+            } else {
+                buf.append(styled)
+            }
             i += 1
         }
         flush()

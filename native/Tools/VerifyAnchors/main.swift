@@ -37,14 +37,31 @@ struct VerifyAnchors {
         precondition(document.lines[9] == "`literal [^b]` and \\[^a]")
         precondition(document.lines[11] == "[^code]: stay literal")
         precondition(document.lines[1] == "First[1](trackanchor://jump/fn-1) and again[1](trackanchor://jump/fn-1), then[2](trackanchor://jump/fn-2).")
-        precondition(document.anchors[1] == ["fnref-1-1", "fnref-1-2", "fnref-2-1"])
+        precondition(document.anchors[1]!.filter { $0.hasPrefix("fnref-") } == ["fnref-1-1", "fnref-1-2", "fnref-2-1"])
         precondition(document.anchors[8] == ["block-Block-1"] && document.lines[8] == "Paragraph")
-        let footnoteStart = document.anchors.first { $0.value == ["fn-1"] }!.key
+        let footnoteStart = document.anchors.first { $0.value.contains("fn-1") }!.key
         precondition(document.lines[footnoteStart] == "**1.** B definition")
         precondition(document.lines[footnoteStart + 1].contains("continued"))
         precondition(document.lines[footnoteStart + 1].contains("trackanchor://jump/fnref-1-1"))
         precondition(document.lines[footnoteStart + 1].contains("trackanchor://jump/fnref-1-2"))
-        precondition(MarkdownAnchors.prepare("^alone\ntext \\^escaped\n`text ^code`").anchors.isEmpty)
+        precondition(MarkdownAnchors.prepare("^alone\ntext \\^escaped\n`text ^code`").anchors.values.flatMap { $0 }.allSatisfy { !$0.hasPrefix("block-") })
+        let raw = "# Start\n\nFirst paragraph\n\n```query\nquery source\n```\n\nLast paragraph"
+        let rendered = "# Start\n\nFirst paragraph\n\n```chart\ngenerated 1\ngenerated 2\ngenerated 3\n```\n\nLast paragraph"
+        precondition(MarkdownAnchors.sourceBlocks("1. First\nlazy continuation\n\n1. Second") == [0])
+        precondition(MarkdownAnchors.sourceBlocks("1. First\n\n1. Second\n\n    continued\n\nAfter") == [0, 6])
+        precondition(MarkdownAnchors.sourceBlocks(raw) == [0, 2, 4, 8])
+        precondition(MarkdownAnchors.sourceTarget(source: raw, rendered: raw, line: 6) == "source-line-5")
+        precondition(MarkdownAnchors.sourceTarget(source: raw, rendered: rendered, line: 9) == "source-line-11")
+        precondition(MarkdownAnchors.sourceTarget(source: raw, rendered: rendered, line: 6) == "source-line-5")
+        precondition(MarkdownAnchors.sourceTarget(source: raw, rendered: rendered.replacingOccurrences(of: "generated 1", with: "generated 1\n\n"), line: 6) == "source-line-5")
+        let sourceMap = MarkdownAnchors.sourceLines(source: raw, rendered: rendered)
+        precondition(sourceMap[10] == 8 && sourceMap[5] == nil)
+        precondition(MarkdownAnchors.sourceLines(source: "- [ ] real", rendered: "- [ ] real\n- [ ] real").allSatisfy { $0 == nil })
+        precondition(MarkdownAnchors.sourceLines(source: "a\nb", rendered: "a\nb") == [0, 1])
+        precondition(MarkdownAnchors.sourceTarget(source: raw, rendered: raw, line: -10) == "source-line-1")
+        precondition(MarkdownAnchors.sourceTarget(source: raw, rendered: raw, line: 999) == "source-line-9")
+        precondition(MarkdownAnchors.sourceTarget(source: "", rendered: "", line: 1) == nil)
+        precondition(document.anchors[footnoteStart]!.contains("source-line-5"))
         print("Anchor checks passed: Japanese/duplicate headings, fences, vault/level grammar, blocks, footnote order/backlinks, source-line stability.")
     }
 }

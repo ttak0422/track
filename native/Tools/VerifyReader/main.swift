@@ -21,13 +21,14 @@ final class StubHTTP: URLProtocol, @unchecked Sendable {
                 let term = URLComponents(url: url, resolvingAgainstBaseURL: false)?.queryItems?.first { $0.name == "term" }?.value ?? "1"
                 data = ["found": true, "note": ["note_id": term, "file_kind": "note", "title": term]]
             } else if url.path == "/api/render" {
-                data = ["markdown": "rendered"]
+                let requestBody = (try? JSONSerialization.jsonObject(with: request.httpBody ?? Data())) as? [String: Any]
+                data = ["markdown": requestBody?["body"] as? String ?? "# Start\n\nFirst paragraph\n\n## Last\n\nEnd"]
             } else if method == "POST" {
                 data = ["note_id": "created", "title": "Created"]
             } else if method == "PUT" {
                 data = ["note_id": id, "etag": "saved", "saved": true]
             } else {
-                data = ["note": ["note_id": id, "file_kind": "note", "path": "test.md", "title": id, "body": "disk-\(id)", "etag": "original"], "backlinks": [], "children": []]
+                data = ["note": ["note_id": id, "file_kind": "note", "path": "test.md", "title": id, "body": id == "follow" ? "# Start\n\nFirst paragraph\n\n## Last\n\nEnd" : "disk-\(id)", "etag": "original"], "backlinks": [], "children": []]
             }
             client?.urlProtocol(self, didReceive: HTTPURLResponse(url: url, statusCode: status, httpVersion: nil, headerFields: ["Content-Type": "application/json"])!, cacheStoragePolicy: .notAllowed)
             client?.urlProtocol(self, didLoad: try! JSONSerialization.data(withJSONObject: data))
@@ -280,6 +281,27 @@ struct VerifyReader {
         let request = reader.scrollRequest
         await reader.openWikilink(target: "#New")
         precondition(reader.scrollRequest > request, "Repeated same-note jumps must scroll again")
-        print("Reader checks passed: drafts, races, tabs, search, vault-qualified anchors and repeated jumps")
+        func position(_ id: String, line: Int = 7, top: Int = 5) throws -> FollowState {
+            try JSONDecoder().decode(FollowState.self, from: JSONSerialization.data(withJSONObject: [
+                "note_id": id, "line": line, "top_line": top, "line_count": 7
+            ]))
+        }
+        await reader.open(TrackID("follow"))
+        let followed = await reader.applyFollowState(try position("follow"))
+        precondition(followed && reader.scrollTarget == "source-line-5")
+        _ = await reader.applyFollowState(try position("follow", top: 0))
+        precondition(reader.scrollTarget == "source-line-7")
+        reader.beginEditing()
+        reader.draftBody = "follow must preserve this draft"
+        let followConfirmations = confirmation.count
+        let blocked = await reader.applyFollowState(try position("other"))
+        precondition(!blocked && reader.isDirty && reader.currentID?.raw == "follow" && confirmation.count == followConfirmations)
+        reader.discardDraft()
+        let cancelledFollow = Task { await reader.applyFollowState(try position("slow")) }
+        try await Task.sleep(for: .milliseconds(30))
+        cancelledFollow.cancel()
+        let acceptedCancelledFollow = try await cancelledFollow.value
+        precondition(!acceptedCancelledFollow && reader.currentID?.raw == "follow")
+        print("Reader checks passed: draft/save protection, tabs/search, anchor navigation and editor follow")
     }
 }
