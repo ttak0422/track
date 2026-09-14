@@ -37,6 +37,30 @@ Native build・9つの回帰実行ターゲット・anchors/live-events・Go req
 C13–15/C17/C22–23の全面対応、C28–31の全画面・アクセシビリティ・最終比較も未完了。
 以下の差分表は調査時の基準状態として保持し、この進捗欄と各TODOの合格条件を併せて読む。
 
+## 分割PRと後続対応（2026-09-14）
+
+基本互換の実装と残対応を6件のPRに分けた。
+後続の機能は各PRに含まれ、#266だけで全項目が完了するわけではない。
+
+| PR | 対応 | 実装・検証した範囲 |
+| --- | --- | --- |
+| [#265](https://github.com/ttak0422/track/pull/265) | 回答保存先 | 起動Vaultの空ラベルを応答に保持。Go request回帰チェック |
+| [#266](https://github.com/ttak0422/track/pull/266) | 互換基盤 | 上記のVault・reader・編集保護・音声・依頼・文字組み。Native buildと9つの実行チェック |
+| [#267](https://github.com/ttak0422/track/pull/267) | C23 メタAPI | editable fieldsのetag競合検出、未知YAMLキー保持、日誌renameの事前拒否。並行保存を含むWeb APIチェック |
+| [#268](https://github.com/ttak0422/track/pull/268) | C14–15 図表・メディア | 初回描画・高さ・source/注釈・添付全文・HTML分離。実WebKit/PDFKitと生成画像で確認 |
+| [#269](https://github.com/ttak0422/track/pull/269) | C13/C17 プレビュー・Graph | 全文を描くNSPanel、pin/resize/close、hover取消、上限外ノードへの到達。実panel画像と回帰チェック |
+| [#270](https://github.com/ttak0422/track/pull/270) | C20/C22–23 ノート操作 | 選択コピー・引用依頼、GFM表のHTMLコピー、draft共有、取得時etagとIDに結び付いたメタ編集。NSTextView・focus移動・API回帰チェック |
+
+取り込み順は #265 → #266 → #268 → #269 → #270。
+#267はmainに対する独立PRで、#270のメタ競合保護に必要。
+共有ファイルの競合はworktreeで解消している。mainへのmergeは未実施。
+統合確認用worktreeは `/private/tmp/track-native-parity-followups`。
+全変更を合わせたSwiftPM buildと12の実行チェック、実WebKit/PDFKitチェックも成功した。
+
+各後続PRの `docs/evidence/native-parity/` に実行手順・画像・未確認事項を記録した。
+C12 include本文、本文inline linkのhover、全CDN図表/外部media、公開URLの取得契約、SwiftUI実表示の複数block選択、実マイク/IME、Webとの全画面比較・VoiceOverは残る。
+このため下記のC01–31の全合格条件を一括で完了にはしない。
+
 ## 対象と完了の定義
 
 - 同じ Vault・ノート・タスクに対して、検索結果、リンク先、日付、保存結果が一致する。
