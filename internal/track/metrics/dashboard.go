@@ -141,7 +141,7 @@ func parseDashboard(data []byte) (grafanaDashboard, error) {
 			p.GridPos = &PanelGrid{W: 24, H: 8, Y: bottom}
 		}
 		g := p.GridPos
-		if g.X < 0 || g.Y < 0 || g.W < 1 || g.H < 1 || g.X+g.W > 24 || g.H > 100 || g.Y > 10000 {
+		if g.X < 0 || g.X > 23 || g.Y < 0 || g.W < 1 || g.W > 24 || g.H < 1 || g.W > 24-g.X || g.H > 100 || g.Y > 10000 {
 			return fail("invalid gridPos (24 columns, positive width/height)")
 		}
 		bottom = max(bottom, g.Y+g.H)
@@ -333,6 +333,13 @@ func ResolveDashboardView(data []byte, dataDir string, selection DashboardSelect
 		result.Metrics = append(result.Metrics, name)
 	}
 	sort.Strings(result.Metrics)
+	sort.SliceStable(result.Panels, func(i, j int) bool {
+		a, b := result.Panels[i].Grid, result.Panels[j].Grid
+		if a.Y != b.Y {
+			return a.Y < b.Y
+		}
+		return a.X < b.X
+	})
 	return result, nil
 }
 

@@ -58,6 +58,17 @@ func TestDashboardSelectionAndPanelTypes(t *testing.T) {
 	if err != nil || len(all.Panels[0].Values) != 2 || len(all.Panels[1].Values) != 1 {
 		t.Fatalf("matcher leaked: %v %+v", err, all)
 	}
+	// Mobile and assistive reading order follows grid positions, not JSON order.
+	var shuffled grafanaDashboard
+	if err := json.Unmarshal(spec, &shuffled); err != nil {
+		t.Fatal(err)
+	}
+	shuffled.Panels[0], shuffled.Panels[1] = shuffled.Panels[1], shuffled.Panels[0]
+	shuffledSpec, _ := json.Marshal(shuffled)
+	ordered, err := ResolveDashboardView(shuffledSpec, dir, DashboardSelection{})
+	if err != nil || ordered.Panels[0].Title != "CPU" || ordered.Panels[1].Title != "CPU history" {
+		t.Fatalf("grid reading order lost: %v %+v", err, ordered)
+	}
 	// Chronology uses instants, not string order across UTC offsets.
 	earlier, err := ResolveDashboardView(spec, dir, DashboardSelection{To: "2026-09-18", Entity: "a"})
 	if err != nil || earlier.Panels[0].Values[0].Value != 60 {
@@ -113,7 +124,7 @@ func TestDashboardDataFailuresAndBoundaries(t *testing.T) {
 			t.Fatalf("unsafe datasource accepted: %q", file)
 		}
 	}
-	for _, replacement := range []string{`"type":"gauge"`, `"type":"stat","gridPos":{"x":23,"y":0,"w":2,"h":4}`, `"type":"stat","transformations":[{}]`, `"type":"stat","options":{"reduceOptions":{"calcs":["sum"]}}`, `"type":"stat","fieldConfig":{"defaults":{"thresholds":{"mode":"percentage"}}}`} {
+	for _, replacement := range []string{`"type":"gauge"`, `"type":"stat","gridPos":{"x":9223372036854775807,"y":0,"w":1,"h":4}`, `"type":"stat","gridPos":{"x":23,"y":0,"w":2,"h":4}`, `"type":"stat","transformations":[{}]`, `"type":"stat","options":{"reduceOptions":{"calcs":["sum"]}}`, `"type":"stat","fieldConfig":{"defaults":{"thresholds":{"mode":"percentage"}}}`} {
 		bad := strings.Replace(string(makeSpec("ok.jsonl")), `"type":"stat"`, replacement, 1)
 		if _, err := ResolveDashboardView([]byte(bad), dir, DashboardSelection{}); err == nil {
 			t.Fatalf("unsupported configuration accepted: %s", bad)
