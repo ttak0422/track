@@ -436,3 +436,40 @@ export interface SiteResponse {
   // the built-in brand mark.
   icon?: string;
 }
+
+// Resolved metric panels; calculations and formatting belong to the shared Go engine.
+export interface MetricsDashboardFilters {
+  metric: string;
+  from: string;
+  to: string;
+  entity: string;
+}
+
+export interface MetricsDashboardValue {
+  name: string;
+  entity: string;
+  value: number;
+  time: string;
+  display: string;
+  threshold?: number;
+  thresholdDisplay?: string;
+}
+
+export interface MetricsDashboardPanel {
+  id: string;
+  title: string;
+  type: "stat" | "timeseries" | "table";
+  grid: { x: number; y: number; w: number; h: number };
+  unit: string;
+  values: MetricsDashboardValue[];
+  echarts?: Record<string, unknown>;
+  error?: string;
+}
+
+export interface MetricsDashboardResponse {
+  metrics: string[];
+  title: string;
+  entities: string[];
+  asof: string;
+  panels: MetricsDashboardPanel[];
+}

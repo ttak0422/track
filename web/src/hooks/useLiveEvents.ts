@@ -42,6 +42,7 @@ export function useLiveEvents() {
       }
       dataTimer = window.setTimeout(() => {
         void queryClient.invalidateQueries({ queryKey: ["viewspec"] });
+        void queryClient.invalidateQueries({ queryKey: ["metrics-dashboard"] });
       }, 150);
     }
     const source = new EventSource("/api/events");

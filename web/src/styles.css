@@ -2858,6 +2858,7 @@ textarea.modal-input:focus-visible {
 .markdown-view > .drawio-diagram,
 .markdown-view > .mindmap-diagram,
 .markdown-view > .graphviz-diagram,
+.markdown-view > .metrics-dashboard,
 .markdown-view > .viewspec-chart,
 .markdown-view > .viewspec-chart-wrap,
 .markdown-view > .note-include,

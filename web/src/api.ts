@@ -32,6 +32,8 @@ import type {
   SiteResponse,
   TasksResponse,
   ViewSpecResponse,
+  MetricsDashboardFilters,
+  MetricsDashboardResponse,
   TaskListResponse,
   VaultsResponse,} from "./types";
 
@@ -648,4 +650,15 @@ function localGraph(graph: Graph, noteID: NoteID): Graph {
       .map((n) => ({ ...n, center: n.note_id === noteID })),
     edges: graph.edges.filter((e) => keep.has(e.source_id) && keep.has(e.target_id)),
   };
+}
+
+export function renderMetricsDashboard(
+  spec: string,
+  filters: MetricsDashboardFilters,
+  vault = "",
+): Promise<MetricsDashboardResponse> {
+  return api<MetricsDashboardResponse>(`/api/metrics/dashboard${vaultParams(vault, "?")}`, {
+    method: "POST",
+    body: { spec, ...filters },
+  });
 }
