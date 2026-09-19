@@ -37,6 +37,14 @@
   border-bottom-color: var(--mark);
 }
 
+/* Text controls (variant 1): labels need their own width, not the icon control's 34px. */
+.metrics-dashboard-controls .graph-reset {
+  width: auto;
+  flex: 0 0 auto;
+  white-space: nowrap;
+  font: inherit;
+}
+
 .metrics-dashboard-controls button:disabled {
   color: var(--faint);
   cursor: wait;
