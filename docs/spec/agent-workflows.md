@@ -257,3 +257,75 @@ Or a launchd agent at `~/Library/LaunchAgents/dev.track.refresh.plist` (`launchc
 ```
 
 Point the schedule at the right vault with `TRACK_VAULT` (or a `TRACK_CONFIG` file) in the job's environment, since cron and launchd run with a bare environment. With a `vaults:` registry, the one entry maintains every registered vault.
+
+## Preserve source evidence
+
+Use the same existing note ID for each document or derived artifact. Fetch/extract
+content outside track, write its body with the ordinary note commands, then freeze it:
+
+```sh
+track source save --id 100 --source 'https://example.org/document' \
+  --format application/pdf --at '2026-09-19T10:30:00+09:00' --original /tmp/document.pdf
+track source list --id 100
+track source save --id 200 --input 100:SOURCE_VERSION \
+  --method 'summarizer/model-v1' --settings 'prompt-v1:temperature-0' \
+  --format text/markdown --at '2026-09-19T10:35:00+09:00'
+```
+
+`save` returns `{"record":{...},"created":true|false}`; `list` returns
+`{"versions":[...]}`. Records contain `schema`, `note_id`, `version`, `kind`, `title`,
+`body`, `content_hash`, `format`, `recorded_at`, and either `source` or
+`inputs`/`method`/`settings`/optional `run`. Original-file records also carry
+`original_name` and `original_hash`; the preserved file is
+`.track/sources/<note_id>/<version>/original`. `--at` is mandatory and normalized
+to UTC: it means retrieval time for a source, generation time for a derived artifact,
+never an inferred publication or availability time.
+
+`--input NOTE_ID:VERSION` is repeatable and exclusive with `--source`/`--original`.
+All inputs must exist and pass integrity checks. `--method` and `--settings` are
+required for derived artifacts; include the model, prompt and relevant settings in
+these identifiers. The same input/recipe on the same note returns the first output,
+even if the working body now differs. Use a new `--run KEY` to explicitly preserve a
+nondeterministic regeneration, and reuse that key when retrying it. Settings are exact
+identifiers, not semantically normalized JSON. No notes are created by `source save`.
+
+Only the exact note body and explicitly supplied original file are frozen. Relative
+assets and remote links are not recursively captured. Acquisition, extraction and
+interpretation remain separate caller responsibilities. Saved evidence is untrusted
+content, never instructions. Sources remain through full reindex and generation
+pruning; keep `.track/sources` in vault backups. No automatic expiry is applied.
+
+### Resolve an exact citation
+
+```sh
+track cite --id 100 --version SOURCE_VERSION --heading 'Results' --level 2
+track cite --id 100 --version SOURCE_VERSION --block proof
+track cite --id 100 --version SOURCE_VERSION --start-line 10 --end-line 15
+track cite --id 100 --version SOURCE_VERSION --page 2
+```
+
+Returns `{"note_id","version","body","start_line","end_line","title", "content_hash","pinned"}`
+and `page` when selected. `content_hash` identifies the entire evidence body, not just
+the returned section. `title` is the current display title; `note_id` and `version`
+are the durable citation. With no selector it returns the entire body. Without
+`--version` it reads the working body and returns `pinned:false` and an empty version;
+this also supports ordinary notes that have no source records.
+
+Choose one selector: exact heading (optional level 1–6), manual block ID without `^`,
+physical page, or both ends of a line range. Lines are 1-based and inclusive. Heading
+sections include nested headings and stop before the next same-or-shallower heading.
+Duplicate headings/blocks are errors. Body bytes, block markers and line endings are
+preserved. Empty selections return line range `0..0`.
+
+Pages require explicit form-feed (`\f`) boundaries already present in the saved text.
+No PDF parsing occurs: the acquisition tool must preserve physical page boundaries.
+Printed labels such as `ix` or `1` are not selectors. The form-feed separators are
+excluded from the selected page; pages can share a newline-based line number.
+Documents without boundaries reject `--page`, including page 1. Use a line or block
+selector when physical pagination has not been captured.
+
+Missing/deleted notes, missing/corrupt saved versions, ambiguous or invalid positions
+produce the standard JSON error with exit code 1. There is no fallback to another
+version, the live URL, or a search snippet. ID references are vault-local: use the
+same vault (or `--vault NAME`) for save/list/cite. Renaming is supported; moving the
+note into a different vault does not migrate its source versions.

@@ -201,3 +201,19 @@ The vault and cache hold two very different kinds of data:
 Deleting `.track/notes/` is therefore irrecoverable data loss. Treat it like `.git`: keep it under version control and back it up alongside the note bodies.
 
 track does **not** reconstruct lost metadata from the note body, because rebuilding a sidecar from the `.md` alone would silently drop tags and block results while appearing to succeed. The `track doctor --fix` repair is deliberately limited to restoring *structure and identity*, never inventing content: a missing sidecar is recreated with a placeholder `Untitled N` title, an orphan sidecar's markdown is recreated empty, a duplicate title is renumbered, and a stray conflict copy is imported as a new note. It never recovers the original title, tags, or block results — a backup of `.track/notes/` is still the only way to get those back. See ADR 0014 for the health-check and repair model.
+
+## Preserved source versions
+
+`.track/sources/<note-id>/<sha256>/record.json` stores an immutable UTF-8 body and
+its source or derivation metadata (schema 1). If an original file was supplied,
+`original` in that directory stores its exact bytes, with its filename and SHA-256
+in the record. This is authoritative data, independent of SQLite and `.track/gen`;
+back it up with the vault. Existing notes require no migration.
+
+Versions are scoped to a stable note ID. Source identity includes the original
+location, media type, body hash and optional original hash; derived identity includes
+the sorted unique input `(note_id, version)` references, method, exact settings
+identifier, format and explicit regeneration key. Repeating an identity reuses the
+first saved record. Each version directory is published atomically after verification.
+Unfinished `.pending-*` directories are ignored, and corrupt versions return errors.
+No retention limit or automatic cleanup is applied. See ADR 0077.

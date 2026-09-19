@@ -68,6 +68,10 @@ func Run(args []string) int {
 		return cmdTask(rest)
 	case "tasks":
 		return cmdTasks(rest)
+	case "cite":
+		return cmdCite(rest)
+	case "source":
+		return cmdSource(rest)
 	case "asset":
 		return cmdAsset(rest)
 	case "rename":
@@ -194,6 +198,13 @@ Usage:
                                         that token, and passing neither flag is an error (JSON)
   track tasks [--id N | --title S | --path P] [--state A,B] [--due YYYY-MM-DD] [--overdue]
               [--sort priority]         list indexed tasks with state/deadline filters (JSON)
+  track cite --id N [--version SHA256] [--heading S | --block S | --page N | --start-line N --end-line N]
+                                        return exact evidence and its resolved position (JSON)
+  track source save --id N --source URI --format MIME --at RFC3339 [--original FILE]
+                                        freeze a source note and optional original file (JSON)
+  track source save --id N --input N:VERSION --method S --settings S --format MIME --at RFC3339 [--run S]
+                                        freeze a derived note with pinned inputs; retries reuse its version (JSON)
+  track source list --id N              list saved evidence versions, independently of generations (JSON)
   track asset import <file>             copy a file into the vault's assets/ dir; prints the assets/<file> ref (JSON)
   track asset dir [--ensure]            print (and optionally create) the vault's assets directory (JSON)
   track rename (--id N | --title S | --path P) --to S
