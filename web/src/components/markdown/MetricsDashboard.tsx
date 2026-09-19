@@ -30,12 +30,12 @@ export function MetricsDashboard({ text }: { text: string }) {
       <div className="metrics-dashboard-controls">
         <label>From<input type="date" value={filters.from} onChange={(e) => setFilters({ ...filters, from: e.target.value })} /></label>
         <label>To<input type="date" value={filters.to} onChange={(e) => setFilters({ ...filters, to: e.target.value })} /></label>
-        <label>Target<select value={filters.entity} onChange={(e) => setFilters({ ...filters, entity: e.target.value })}>
+        <label>Target<select aria-label="Target" value={filters.entity} onChange={(e) => setFilters({ ...filters, entity: e.target.value })}>
           <option value="">All targets</option>
           {(data?.entities ?? []).map((entity) => <option key={entity} value={entity}>{entity}</option>)}
           {filters.entity && !data?.entities.includes(filters.entity) && <option value={filters.entity}>{filters.entity}</option>}
         </select></label>
-        <label>Metric<select value={filters.metric} onChange={(e) => setFilters({ ...filters, metric: e.target.value })}>
+        <label>Metric<select aria-label="Metric" value={filters.metric} onChange={(e) => setFilters({ ...filters, metric: e.target.value })}>
           <option value="">All metrics</option>
           {(data?.metrics ?? []).map((metric) => <option key={metric} value={metric}>{metric}</option>)}
           {filters.metric && !data?.metrics.includes(filters.metric) && <option value={filters.metric}>{filters.metric}</option>}

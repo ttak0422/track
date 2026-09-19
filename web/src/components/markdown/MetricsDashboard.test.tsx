@@ -37,6 +37,8 @@ describe("MetricsDashboard", () => {
     const { container } = mount();
     expect(screen.getByRole("status")).toHaveTextContent("Loading dashboard");
     const stat = await screen.findByRole("region", { name: "CPU" });
+    expect(screen.getByRole("combobox", { name: /^Target$/ })).toBe(screen.getByLabelText("Target", { exact: true }));
+    expect(screen.getByRole("combobox", { name: /^Metric$/ })).toBe(screen.getByLabelText("Metric", { exact: true }));
     expect(within(stat).getByText("82%")).toBeInTheDocument();
     expect(within(stat).getByText("At or above 80%")).toBeInTheDocument();
     expect(stat).toHaveStyle({ gridColumn: "13 / span 12", gridRow: "1 / span 4" });
