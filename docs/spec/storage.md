@@ -210,10 +210,16 @@ its source or derivation metadata (schema 1). If an original file was supplied,
 in the record. This is authoritative data, independent of SQLite and `.track/gen`;
 back it up with the vault. Existing notes require no migration.
 
-Versions are scoped to a stable note ID. Source identity includes the original
-location, media type, body hash and optional original hash; derived identity includes
+Version paths retain a stable owning note ID; deduplication spans the vault. Source
+identity includes the original location, media type, body hash and optional original hash; derived identity includes
 the sorted unique input `(note_id, version)` references, method, exact settings
 identifier, format and explicit regeneration key. Repeating an identity reuses the
-first saved record. Each version directory is published atomically after verification.
+existing record and its owning note ID, without modifying the requested working note.
+Legacy duplicate paths remain readable; saves validate all matching copies and return
+the smallest owner ID. Missing owners, missing record files and corrupt matching records
+fail explicitly. Entirely removed version directories cannot be detected by the scan.
+The `.save.lock` advisory process lock serializes the owner scan and publication;
+do not remove or replace this file while writers run. Each version directory is
+published atomically after verification.
 Unfinished `.pending-*` directories are ignored, and corrupt versions return errors.
 No retention limit or automatic cleanup is applied. See ADR 0077.
