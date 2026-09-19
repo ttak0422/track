@@ -723,3 +723,56 @@ marker: default, 29.245, 50.31, [[カーグ島]], 石油積出港
 Leaflet loads on demand. `roadmap` uses OpenStreetMap, `satellite` Esri World Imagery, `hybrid` imagery plus reference labels, and `terrain` Esri World Topo Map. Attribution remains visible. Markers use the shared wiki-link component in their popups, including display aliases; marker types currently share one accessible marker shape. Descriptions render as text, never HTML. Invalid input remains a code block; map initialization or tile failure offers an OpenStreetMap link.
 
 Geocoding, query-driven markers, and custom marker icons are not implemented. Old `:lat`/`:lon` arguments are not accepted.
+
+## Metrics dashboards (live readers)
+
+A `metrics-dashboard` fence contains Grafana classic dashboard JSON as a documented subset
+(ADR 0077). Unlike separate `viewspec` fences, it is one panel grid with common controls. The live
+Web and Native readers share `POST /api/metrics/dashboard?vault=NAME` and the Go metrics resolver.
+The ordinary `dashboard` fence still lists recent notes, the journal, and pinned notes.
+
+Supported fields:
+
+- `title`, `panels[]` with `type: stat | timeseries | table`, and each panel's `title`.
+- `gridPos: {x,y,w,h}` on 24 columns, with nonnegative positions and positive dimensions. Width
+  cannot cross column 24. Height is a minimum content height; panels may scroll or grow to keep
+  content accessible. Readers stack panels on narrow screens. Without positions, panels flow
+  full width below preceding panels. At most 100 panels are accepted.
+- Panel or target `datasource: {type: "track", uid: "<bare filename.jsonl>"}`. Files are metric-kind
+  JSONL in the selected vault's `data/`; absolute paths, traversal, and escaping symlinks fail.
+- `targets[].expr`: metric name plus equality label matchers, as in ADR 0076. Multiple targets and
+  files can supply a panel; a series is identified by source, metric name and entity. Each sample
+  must have a parseable date/RFC3339 timestamp and a finite value. Duplicate timestamps within a
+  source series are rejected rather than silently choosing a value. `legendFormat` substitutes
+  folded labels and `{{entity}}`; repeated display names remain distinct chart series.
+- `fieldConfig.defaults.unit`, `decimals` (0–8, default 2), optional `min`/`max` for chart axes, and
+  absolute `thresholds.steps[].value`. Null is the baseline; the greatest numeric threshold no
+  greater than a value is its band. The threshold state is textual and does not depend on color.
+  `percent` means percent values, `percentunit` scales fractions to percent (including chart values,
+  thresholds and bounds), `bytes` labels values B, `none`/`short` omit a suffix; other units are
+  literal suffixes. Automatic SI abbreviation, Grafana color overrides and value mappings are not
+  implemented. Thresholds are visual bands, independent of alert rules.
+- `stat` and `table` show the latest point per selected series; `last`/`lastNotNull` are the only
+  accepted explicit `options.reduceOptions.calcs`. No aggregation or domain computation is implied.
+
+The API request is `{spec: "<JSON>", from?: "...", to?: "...", entity?: "...", metric?: "..."}`.
+`from`/`to` accept ISO dates (inclusive whole UTC days) or timestamps. Empty bounds are unbounded.
+Entity and metric are exact matches; an empty string selects all. Fixed target matchers and common
+selectors are intersected. Unknown selectors or empty periods produce no data, not fallback values.
+The response contains `title`, `entities`, `metrics`, `asof`, and `panels`. Selector options are
+collected before common filters. Each panel carries its `id`, `title`, `type`, `grid`, `unit`, latest
+`values`, and, for a nonempty time series, `echarts`. Each value includes `name`, `entity`, numeric
+`value`, sample `time`, formatted `display`, and optional numeric `threshold`/`thresholdDisplay`.
+Panel data errors appear as `error`; malformed configuration or filters return HTTP 400.
+
+`asof` is the latest selected sample timestamp, not the last fetch time. Individual values retain
+their timestamps so mixed data ages are visible. Refresh rereads local data; the existing data-change
+events invalidate dashboards too. External fetching and derived metrics remain writer/skill work.
+
+Unsupported panel types, template variables, transformations, percentage thresholds, and reductions
+other than latest are errors. Extra Grafana presentation fields outside this list have no effect;
+this is not general Grafana compatibility. Static exports show a live-workspace notice and the
+source fence; they do not resolve an interactive dashboard. Standalone `track render` still takes
+viewspec/article JSON, not a Grafana dashboard.
+
+A complete non-financial fixture is in `examples/metrics/`.

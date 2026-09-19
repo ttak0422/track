@@ -1,6 +1,6 @@
 # 0076. Metrics monitoring on adopted specs
 
-Status: Accepted
+Status: Accepted; dashboard presentation extended by ADR 0077
 
 ## Context
 
