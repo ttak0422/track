@@ -6,9 +6,11 @@ import {
   useCancelAgentRequestMutation,
   useCreateAgentRequestMutation,
   useRetryAgentRequestMutation,
+  useRenderQuery,
   useSaveAgentRequestMutation,
 } from "../queries";
 import type { AgentRequest, RequestIntent, RequestNoteRef } from "../types";
+import { MarkdownView } from "./MarkdownView";
 import { IconX, RailIcon } from "./icons";
 import "./agent-request.css";
 
@@ -58,6 +60,7 @@ export function AgentRequestPanel() {
   const [saveVault, setSaveVault] = useState("");
   const [saveClientID, setSaveClientID] = useState("");
   const returnFocus = useRef<HTMLElement | null>(null);
+  const panel = useRef<HTMLElement | null>(null);
   const vault = target?.vault ?? "";
   const agents = useAgentsQuery(!!target);
   const requests = useAgentRequestsQuery(vault, !!target || !closed);
@@ -118,6 +121,9 @@ export function AgentRequestPanel() {
     if (target && !closed) void requests.refetch();
   }, [target, closed]);
   useEffect(() => () => returnFocus.current?.focus(), []);
+  useEffect(() => {
+    if (panel.current) panel.current.scrollTop = 0;
+  }, [selected?.id]);
   if (STATIC_MODE) return null;
 
   const send = async () => {
@@ -179,7 +185,8 @@ export function AgentRequestPanel() {
   const uncertain = asList(selected?.result?.uncertain ?? selected?.result?.uncertain_points);
   return (
     <aside
-      className={`agent-request-panel${target && !closed ? " open" : ""}`}
+      ref={panel}
+      className={`agent-request-panel${target && !closed ? " open" : ""}${selected && (selected.result || terminalUpdate(selected)) ? " has-result" : ""}`}
       aria-label="Agent request"
     >
       <div className="agent-request-heading">
@@ -196,6 +203,25 @@ export function AgentRequestPanel() {
           <RailIcon Icon={IconX} size={15} />
         </button>
       </div>
+      {selected && (selected.result || terminalUpdate(selected)) ? (
+        <ResultView
+          key={selected.id}
+          vault={selected.vault ?? vault}
+          request={selected}
+          answer={answer}
+          unresolved={unresolved}
+          uncertain={uncertain}
+          saved={saved}
+          saveTitle={saveTitle}
+          saveVault={saveVault}
+          setSaveTitle={setSaveTitle}
+          setSaveVault={setSaveVault}
+          onSave={() => void save()}
+          saving={saveHook.isPending}
+          saveError={saveHook.error}
+          onFollowUp={() => openFollowUp(selected)}
+        />
+      ) : null}
       {target && !closed ? (
         <>
           <div className="agent-request-target">
@@ -286,6 +312,7 @@ export function AgentRequestPanel() {
             onSelect={() => {
               setSelected(request);
               setClosed(false);
+              if (panel.current) panel.current.scrollTop = 0;
             }}
             onCancel={() => void cancel.mutate(request.id)}
             onRetry={() => void retry.mutate(request.id)}
@@ -293,29 +320,13 @@ export function AgentRequestPanel() {
           />
         ))}
       </div>
-      {selected && (selected.result || terminalUpdate(selected)) ? (
-        <ResultView
-          request={selected}
-          answer={answer}
-          unresolved={unresolved}
-          uncertain={uncertain}
-          saved={saved}
-          saveTitle={saveTitle}
-          saveVault={saveVault}
-          setSaveTitle={setSaveTitle}
-          setSaveVault={setSaveVault}
-          onSave={() => void save()}
-          saving={saveHook.isPending}
-          saveError={saveHook.error}
-          onFollowUp={() => openFollowUp(selected)}
-        />
-      ) : null}
     </aside>
   );
 }
 
 function ResultView({
   request,
+  vault,
   answer,
   unresolved,
   uncertain,
@@ -330,6 +341,7 @@ function ResultView({
   onFollowUp,
 }: {
   request: AgentRequest;
+  vault: string;
   answer?: string;
   unresolved: string[];
   uncertain: string[];
@@ -347,13 +359,14 @@ function ResultView({
   const apply = request.result?.apply;
   const update = request.intent === "update";
   return (
-    <div className="agent-request-result">
+    <section className="agent-request-result" aria-label="依頼結果">
       <div className="agent-request-result-heading">
         <span className="label">結果</span>
         <span className={`agent-request-status status-${request.status}`}>
           {statusLabels[request.status] ?? request.status}
         </span>
       </div>
+      <p className="agent-request-result-instruction">{request.instruction}</p>
       {update ? (
         <>
           <section className="agent-request-proposal">
@@ -391,8 +404,8 @@ function ResultView({
             )}
           </section>
         </>
-      ) : answer ? (
-        <p className="agent-request-answer">{answer}</p>
+      ) : answer?.trim() ? (
+        <AnswerView answer={answer} vault={vault} />
       ) : request.result?.proposed_body ? (
         <p>{request.result.proposed_body}</p>
       ) : null}
@@ -468,6 +481,32 @@ function ResultView({
       >
         追加で依頼
       </button>
+    </section>
+  );
+}
+
+function AnswerView({ answer, vault }: { answer: string; vault: string }) {
+  const rendered = useRenderQuery(answer, vault);
+  if (rendered.isError) {
+    return (
+      <div role="alert" className="agent-request-error">
+        回答を表示できませんでした。
+        <button type="button" className="text-button" onClick={() => void rendered.refetch()}>
+          表示を再試行
+        </button>
+      </div>
+    );
+  }
+  if (!rendered.data || rendered.isPlaceholderData) {
+    return <p role="status">回答を読み込み中…</p>;
+  }
+  return (
+    <div className="agent-request-answer">
+      <MarkdownView
+        markdown={rendered.data.markdown}
+        includes={rendered.data.includes}
+        vault={vault}
+      />
     </div>
   );
 }
